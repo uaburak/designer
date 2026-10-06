@@ -54,6 +54,7 @@ ShapeInstance makeShape(const Mat2x3& m, Vec2 size, ShapeKind kind, const Corner
 
 Renderer::~Renderer() {
   if (buffer_) device_.destroyBuffer(buffer_);
+  if (glyphBuffer_) device_.destroyBuffer(glyphBuffer_);
 }
 
 void Renderer::ensurePipelines() {
@@ -71,6 +72,27 @@ void Renderer::ensurePipelines() {
   PipelineDesc decr = incr;
   decr.stencil.pass = StencilOp::Decrement;
   pipelines_[static_cast<int>(Pass::StencilDecrement)] = device_.createPipeline(decr);
+  PipelineDesc glyph = color;
+  glyph.shader = ShaderId::Glyph;
+  pipelines_[static_cast<int>(Pass::Glyph)] = device_.createPipeline(glyph);
+  PipelineDesc glyphClipped = clipped;
+  glyphClipped.shader = ShaderId::Glyph;
+  pipelines_[static_cast<int>(Pass::GlyphClipped)] = device_.createPipeline(glyphClipped);
+}
+
+void Renderer::emitGlyph(const GlyphInstance& g) {
+  Pass pass = stencilDepth_ > 0 ? Pass::GlyphClipped : Pass::Glyph;
+  uint8_t ref = stencilDepth_;
+  bool merge = !draws_.empty();
+  if (merge) {
+    const PendingDraw& d = draws_.back();
+    merge = d.pass == pass && d.stencilRef == ref && d.scissorEnabled == scissorEnabled_ &&
+            (!scissorEnabled_ || (d.scissor.x == scissor_.x && d.scissor.y == scissor_.y && d.scissor.w == scissor_.w &&
+                                   d.scissor.h == scissor_.h));
+  }
+  if (merge) draws_.back().count++;
+  else draws_.push_back({pass, static_cast<uint32_t>(glyphs_.size()), 1, scissorEnabled_, scissor_, ref});
+  glyphs_.push_back(g);
 }
 
 void Renderer::emit(const ShapeInstance& s, Pass pass) {
@@ -140,6 +162,10 @@ void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentScreen
     for (Guid c : doc.children(id)) drawNode(doc, c, m, alpha);
     return;
   }
+  if (p.type == NodeType::TEXT) {
+    drawText(p, id, m, alpha);
+    return;
+  }
   bool frame = p.type == NodeType::FRAME;
   if (!frame && !p.isRectLike() && p.type != NodeType::ELLIPSE) return;
 
@@ -159,7 +185,7 @@ void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentScreen
 
   if (onScreen)
     for (auto& f : p.fillPaints)
-      if (f.visible) emit(makeShape(m, p.size, kind, radii, f.color, alpha * f.opacity, f.color, 0, 0, 0), Pass::Color);
+      if (f.visible && f.type == PaintType::SOLID) emit(makeShape(m, p.size, kind, radii, f.color, alpha * f.opacity, f.color, 0, 0, 0), Pass::Color);
 
   if (frame) {
     const auto& kids = doc.children(id);
@@ -173,7 +199,7 @@ void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentScreen
   // Strokes go over the fills (and over a frame's content).
   if (onScreen && p.strokeWeight > 0)
     for (auto& s : p.strokePaints)
-      if (s.visible)
+      if (s.visible && s.type == PaintType::SOLID)
         emit(makeShape(m, p.size, kind, radii, s.color, 0, s.color, alpha * s.opacity, inner, outer), Pass::Color);
 }
 
@@ -183,6 +209,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   viewport_ = viewport;
   screen_ = {0, 0, viewport.width, viewport.height};
   shapes_.clear();
+  glyphs_.clear();
   draws_.clear();
   clips_.clear();
   scissorEnabled_ = false;
@@ -192,10 +219,6 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   for (Guid c : doc.children(page)) drawNode(doc, c, view, 1);
   scissorEnabled_ = false;
   stencilDepth_ = 0;
-  drawOverlay(doc, camera, overlay, style);
-
-  RenderStats stats;
-  gfx::PassDesc pass;
   // The page's own colour, unless it is Figma's default (#F5F5F5), which follows the theme.
   Color clear = style.canvas;
   if (const Node* pg = doc.get(page); pg && pg->props.backgroundEnabled) {
@@ -204,6 +227,17 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     bool figmaDefault = std::fabs(bg.r - light.r) < 0.003f && std::fabs(bg.g - light.g) < 0.003f && std::fabs(bg.b - light.b) < 0.003f;
     if (!figmaDefault) clear = bg;
   }
+  // Frame titles read on the page's colour: light grey on a dark page, black at 50% on a light one.
+  OverlayStyle adapted = style;
+  double luma = 0.2126 * clear.r + 0.7152 * clear.g + 0.0722 * clear.b;
+  OverlayStyle dark = OverlayStyle::of(Theme::Dark), light = OverlayStyle::of(Theme::Light);
+  adapted.title = luma < 0.5 ? dark.title : light.title;
+  adapted.titleAlpha = luma < 0.5 ? dark.titleAlpha : light.titleAlpha;
+  drawOverlay(doc, page, camera, overlay, adapted);
+  gfx::TextureId curves = glyphs_.empty() ? 0 : glyphCache_.flush();
+
+  RenderStats stats;
+  gfx::PassDesc pass;
   pass.clear[0] = clear.r;
   pass.clear[1] = clear.g;
   pass.clear[2] = clear.b;
@@ -224,12 +258,32 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     device_.write(buffer_, 0, {reinterpret_cast<const uint8_t*>(shapes_.data()), bytes});
   }
 
+  uint32_t glyphBytes = static_cast<uint32_t>(glyphs_.size() * sizeof(GlyphInstance));
+  if (glyphBytes) {
+    if (!glyphBuffer_) {
+      glyphCapacity_ = std::max<uint32_t>(glyphBytes, 4096 * sizeof(GlyphInstance));
+      glyphBuffer_ = device_.createBuffer(gfx::BufferKind::Instance, glyphCapacity_, gfx::Usage::Stream);
+    } else if (glyphBytes > glyphCapacity_) {
+      while (glyphCapacity_ < glyphBytes) glyphCapacity_ *= 2;
+      device_.reserve(glyphBuffer_, glyphCapacity_);
+    }
+    device_.write(glyphBuffer_, 0, {reinterpret_cast<const uint8_t*>(glyphs_.data()), glyphBytes});
+  }
+
   double w = std::max(1.0, viewport.width), h = std::max(1.0, viewport.height);
   for (const PendingDraw& d : draws_) {
     gfx::DrawCall call;
     call.pipeline = pipelines_[static_cast<int>(d.pass)];
-    call.instances = {buffer_, static_cast<uint32_t>(d.first * sizeof(ShapeInstance)),
-                      static_cast<uint32_t>(d.count * sizeof(ShapeInstance))};
+    bool glyph = d.pass == Pass::Glyph || d.pass == Pass::GlyphClipped;
+    if (glyph && !curves) continue;
+    if (glyph) {
+      call.instances = {glyphBuffer_, static_cast<uint32_t>(d.first * sizeof(GlyphInstance)),
+                        static_cast<uint32_t>(d.count * sizeof(GlyphInstance))};
+      call.texture = curves;
+    } else {
+      call.instances = {buffer_, static_cast<uint32_t>(d.first * sizeof(ShapeInstance)),
+                        static_cast<uint32_t>(d.count * sizeof(ShapeInstance))};
+    }
     call.instanceCount = d.count;
     // CSS px → clip space.
     float rows[8] = {static_cast<float>(2 / w), 0, -1, 0, static_cast<float>(-2 / h), 1, 0, 0};
@@ -243,6 +297,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   device_.endPass();
   device_.submit();
   stats.shapes = static_cast<uint32_t>(shapes_.size());
+  stats.glyphs = static_cast<uint32_t>(glyphs_.size());
   return stats;
 }
 

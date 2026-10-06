@@ -5,7 +5,7 @@
  * by hand until apigen generates them from engine/api/*.def.ts.
  */
 
-/** The Tool enum (§8.4). The engine implements MOVE, HAND, FRAME, RECTANGLE and ELLIPSE so far. */
+/** The Tool enum (§8.4). The engine implements MOVE, HAND, FRAME, RECTANGLE, ELLIPSE and TEXT so far. */
 export const TOOLS = [
   "MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
   "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
@@ -87,6 +87,8 @@ export const APPLY_LOAD = 4;
 export const INCLUDE_CHILD_IDS = 1;
 /** engine_paste flags. */
 export const PASTE_IN_PLACE = 1;
+/** engine_text_edit flags. */
+export const TEXT_EDIT_SELECT_ALL = 1;
 
 /** Status codes (§10.3). */
 export const Status = {

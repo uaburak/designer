@@ -16,6 +16,15 @@ struct OverlayStyle {
   double badgeHeight = 16;
   double badgeRadius = 2;
   double badgeGap = 6;
+  double badgePadding = 4;  // the badge's and pills' text inset
+  double labelSize = 11;    // badge and pill text: Inter Medium 11, white
+  // Frame titles: Inter Regular 11, the baseline 10 px above the frame.
+  double titleSize = 11;
+  double titleBaselineGap = 10;
+  Color title;
+  double titleAlpha = 1;
+  // Text editing: the selection highlight over the text.
+  double textSelectionAlpha = 0.3;
   double marqueeFill = 0.1;
   // Smart guides, spacing and ⌥ measurement: 1 px lines and number pills.
   Color measure = Color::hex(0xF24822);
@@ -32,9 +41,12 @@ struct OverlayStyle {
     if (t == Theme::Dark) {
       s.canvas = Color::hex(0x1E1E1E);
       s.selection = Color::hex(0x0C8CE9);
+      s.title = Color::hex(0x898989);
     } else {
       s.canvas = Color::hex(0xF5F5F5);
       s.selection = Color::hex(0x0D99FF);
+      s.title = Color::hex(0x000000);
+      s.titleAlpha = 0.5;
     }
     return s;
   }

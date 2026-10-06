@@ -1,5 +1,7 @@
 #include "scene/CodecJson.h"
 
+#include <algorithm>
+
 namespace eng::codec {
 
 namespace {
@@ -16,6 +18,10 @@ void writeVector(json::Writer& w, Vec2 v) { w.beginObject().key("x").number(v.x)
 void writePaints(json::Writer& w, const std::vector<Paint>& paints) {
   w.beginArray();
   for (auto& p : paints) {
+    if (p.type == PaintType::OTHER) {
+      w.raw(p.raw);
+      continue;
+    }
     w.beginObject();
     w.key("type").string("SOLID");
     w.key("color");
@@ -30,6 +36,67 @@ void writePaints(json::Writer& w, const std::vector<Paint>& paints) {
 template <typename E>
 void writeEnum(json::Writer& w, const char* key, E value) {
   w.key(key).string(enumName(value));
+}
+
+void writeNumberValue(json::Writer& w, const Number& n) {
+  w.beginObject().key("value").number(n.value).key("units").string(enumName(n.units)).endObject();
+}
+
+void writeFontName(json::Writer& w, const FontName& f) {
+  w.beginObject().key("family").string(f.family).key("style").string(f.style).key("postscript").string(f.postscript).endObject();
+}
+
+void writeTextStyle(json::Writer& out, const TextStyle& st) {
+  json::Writer w;
+  w.beginObject();
+  w.key("styleID").number(st.styleID);
+  if (st.mask & R_FONT_NAME) {
+    w.key("fontName");
+    writeFontName(w, st.fontName);
+  }
+  if (st.mask & R_FONT_SIZE) w.key("fontSize").number(st.fontSize);
+  if (st.mask & R_LINE_HEIGHT) {
+    w.key("lineHeight");
+    writeNumberValue(w, st.lineHeight);
+  }
+  if (st.mask & R_LETTER_SPACING) {
+    w.key("letterSpacing");
+    writeNumberValue(w, st.letterSpacing);
+  }
+  if (st.mask & R_TEXT_CASE) w.key("textCase").string(enumName(st.textCase));
+  if (st.mask & R_TEXT_DECORATION) w.key("textDecoration").string(enumName(st.textDecoration));
+  if (st.mask & R_FILLS) {
+    w.key("fillPaints");
+    writePaints(w, st.fillPaints);
+  }
+  w.endObject();
+  std::string s = w.take();
+  if (!st.extra.empty()) {
+    s.pop_back();
+    s += "," + st.extra + "}";
+  }
+  out.raw(s);
+}
+
+void writeTextData(json::Writer& w, const TextData& t) {
+  w.beginObject();
+  w.key("characters").string(t.characters);
+  if (!t.characterStyleIDs.empty()) {
+    w.key("characterStyleIDs").beginArray();
+    for (uint32_t id : t.characterStyleIDs) w.number(id);
+    w.endArray();
+  }
+  if (!t.styleOverrideTable.empty()) {
+    w.key("styleOverrideTable").beginArray();
+    for (auto& st : t.styleOverrideTable) writeTextStyle(w, st);
+    w.endArray();
+  }
+  if (!t.lines.empty()) {
+    w.key("lines").beginArray();
+    for (auto& l : t.lines) w.raw(l);
+    w.endArray();
+  }
+  w.endObject();
 }
 
 // Writes the fields in `mask`; for an update, an optional field that is unset
@@ -119,6 +186,37 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
   if (mask & F_H_CONSTRAINT) writeEnum(w, "horizontalConstraint", p.horizontalConstraint);
   if (mask & F_V_CONSTRAINT) writeEnum(w, "verticalConstraint", p.verticalConstraint);
   if (mask & F_PROPORTIONS_CONSTRAINED) w.key("proportionsConstrained").boolean(p.proportionsConstrained);
+  // Text.
+  if (mask & F_TEXT_DATA) {
+    w.key("textData");
+    writeTextData(w, p.textData);
+  }
+  if (mask & F_FONT_NAME) {
+    w.key("fontName");
+    writeFontName(w, p.fontName);
+  }
+  if (mask & F_FONT_SIZE) w.key("fontSize").number(p.fontSize);
+  if (mask & F_LINE_HEIGHT) {
+    w.key("lineHeight");
+    writeNumberValue(w, p.lineHeight);
+  }
+  if (mask & F_LETTER_SPACING) {
+    w.key("letterSpacing");
+    writeNumberValue(w, p.letterSpacing);
+  }
+  if (mask & F_PARAGRAPH_SPACING) w.key("paragraphSpacing").number(p.paragraphSpacing);
+  if (mask & F_PARAGRAPH_INDENT) w.key("paragraphIndent").number(p.paragraphIndent);
+  if (mask & F_TEXT_ALIGN_H) writeEnum(w, "textAlignHorizontal", p.textAlignHorizontal);
+  if (mask & F_TEXT_ALIGN_V) writeEnum(w, "textAlignVertical", p.textAlignVertical);
+  if (mask & F_TEXT_AUTO_RESIZE) writeEnum(w, "textAutoResize", p.textAutoResize);
+  if (mask & F_TEXT_TRUNCATION) writeEnum(w, "textTruncation", p.textTruncation);
+  if (mask & F_MAX_LINES) w.key("maxLines").number(p.maxLines);
+  if (mask & F_TEXT_CASE) writeEnum(w, "textCase", p.textCase);
+  if (mask & F_TEXT_DECORATION) writeEnum(w, "textDecoration", p.textDecoration);
+  if (mask & F_AUTO_RENAME) w.key("autoRename").boolean(p.autoRename);
+  if (mask & F_EXTRA)
+    for (auto& [k, v] : p.extra)
+      if (!v.empty()) w.key(k).raw(v);
   if (!cleared.empty()) {
     w.key("clearedFields").beginArray();
     for (uint32_t id : cleared) w.number(id);
@@ -150,8 +248,15 @@ std::vector<Paint> readPaints(const json::Value& v) {
   for (auto& e : v.array) {
     if (!e.isObject()) continue;
     const json::Value* type = e.get("type");
-    if (type && type->isString() && type->string != "SOLID") continue;  // only solid paints so far
     Paint p;
+    if (type && type->isString() && type->string != "SOLID") {
+      // Not drawn yet (E5): kept as it came.
+      p.type = PaintType::OTHER;
+      p.raw = json::encode(e);
+      if (auto* vis = e.get("visible"); vis && vis->isBool()) p.visible = vis->boolean;
+      out.push_back(p);
+      continue;
+    }
     if (auto* c = e.get("color")) p.color = readColor(*c, Color{0, 0, 0, 1});
     if (auto* o = e.get("opacity")) p.opacity = static_cast<float>(o->numberOr(1));
     if (auto* vis = e.get("visible"); vis && vis->isBool()) p.visible = vis->boolean;
@@ -183,6 +288,97 @@ void readBool(const json::Value& v, const char* key, bool& out, FieldMask bit, F
     out = x->boolean;
     m |= bit;
   }
+}
+
+bool readNumberValue(const json::Value& v, Number& out) {
+  if (!v.isObject()) return false;
+  if (auto* x = v.get("value")) out.value = x->numberOr(0);
+  if (auto* u = v.get("units")) {
+    NumberUnits units = NumberUnits::RAW;
+    if (u->isString() && enumFromName(u->string, units)) out.units = units;
+    else if (u->isNumber() && u->number >= 0 && u->number <= 2) out.units = static_cast<NumberUnits>(static_cast<int>(u->number));
+  }
+  return true;
+}
+
+bool readFontName(const json::Value& v, FontName& out) {
+  if (!v.isObject()) return false;
+  if (auto* x = v.get("family"); x && x->isString()) out.family = x->string;
+  if (auto* x = v.get("style"); x && x->isString()) out.style = x->string;
+  if (auto* x = v.get("postscript"); x && x->isString()) out.postscript = x->string;
+  return true;
+}
+
+template <typename E>
+bool readEnumValue(const json::Value& x, E& out) {
+  if (x.isString()) return enumFromName(x.string, out);
+  if (x.isNumber() && x.number >= 0 && static_cast<size_t>(x.number) < EnumNames<E>::count) {
+    out = static_cast<E>(static_cast<int>(x.number));
+    return true;
+  }
+  return false;
+}
+
+// The members readChange understands; every other one is kept in NodeProps::extra.
+bool knownKey(std::string_view k) {
+  static constexpr std::string_view kKnown[] = {
+      "guid", "phase", "type", "name", "visible", "locked", "opacity", "transform", "size", "fillPaints", "strokePaints",
+      "strokeWeight", "strokeAlign", "cornerRadius", "rectangleCornerRadiiIndependent", "rectangleTopLeftCornerRadius",
+      "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius", "frameMaskDisabled",
+      "resizeToFit", "backgroundColor", "backgroundEnabled", "internalOnly", "stackMode", "stackSpacing", "stackHorizontalPadding",
+      "stackVerticalPadding", "stackPaddingRight", "stackPaddingBottom", "stackPrimarySizing", "stackCounterSizing",
+      "stackPrimaryAlignItems", "stackCounterAlignItems", "stackCounterAlignContent", "stackWrap", "stackCounterSpacing",
+      "stackReverseZIndex", "bordersTakeSpace", "stackChildPrimaryGrow", "stackChildAlignSelf", "stackPositioning", "minSize",
+      "maxSize", "horizontalConstraint", "verticalConstraint", "proportionsConstrained", "parentIndex", "clearedFields",
+      "textData", "fontName", "fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent",
+      "textAlignHorizontal", "textAlignVertical", "textAutoResize", "textTruncation", "maxLines", "textCase", "textDecoration",
+      "autoRename",
+      // Not kept: derived (recomputed) or panel-only.
+      "derivedTextData", "childIds"};
+  for (std::string_view known : kKnown)
+    if (k == known) return true;
+  return false;
+}
+
+TextStyle readTextStyle(const json::Value& v) {
+  TextStyle st;
+  for (auto& [k, x] : v.object) {
+    if (k == "styleID") st.styleID = static_cast<uint32_t>(std::max(0.0, x.numberOr(0)));
+    else if (k == "fontName" && readFontName(x, st.fontName)) st.mask |= R_FONT_NAME;
+    else if (k == "fontSize" && x.isNumber()) st.fontSize = x.number, st.mask |= R_FONT_SIZE;
+    else if (k == "lineHeight" && readNumberValue(x, st.lineHeight)) st.mask |= R_LINE_HEIGHT;
+    else if (k == "letterSpacing" && readNumberValue(x, st.letterSpacing)) st.mask |= R_LETTER_SPACING;
+    else if (k == "textCase" && readEnumValue(x, st.textCase)) st.mask |= R_TEXT_CASE;
+    else if (k == "textDecoration" && readEnumValue(x, st.textDecoration)) st.mask |= R_TEXT_DECORATION;
+    else if (k == "fillPaints" && x.isArray()) st.fillPaints = readPaints(x), st.mask |= R_FILLS;
+    else if (k != "guid" && k != "phase") {
+      json::Writer one;
+      one.beginObject().key(k);
+      json::write(one, x);
+      one.endObject();
+      std::string member = one.take();
+      if (!st.extra.empty()) st.extra += ",";
+      st.extra += member.substr(1, member.size() - 2);
+    }
+  }
+  return st;
+}
+
+TextData readTextData(const json::Value& v) {
+  TextData t;
+  if (!v.isObject()) return t;
+  if (auto* x = v.get("characters"); x && x->isString()) t.characters = x->string;
+  if (auto* x = v.get("characterStyleIDs"); x && x->isArray()) {
+    t.characterStyleIDs.reserve(x->array.size());
+    for (auto& e : x->array) t.characterStyleIDs.push_back(static_cast<uint32_t>(std::max(0.0, e.numberOr(0))));
+    while (!t.characterStyleIDs.empty() && t.characterStyleIDs.back() == 0) t.characterStyleIDs.pop_back();
+  }
+  if (auto* x = v.get("styleOverrideTable"); x && x->isArray())
+    for (auto& e : x->array)
+      if (e.isObject()) t.styleOverrideTable.push_back(readTextStyle(e));
+  if (auto* x = v.get("lines"); x && x->isArray())
+    for (auto& e : x->array) t.lines.push_back(json::encode(e));
+  return t;
 }
 
 }  // namespace
@@ -312,6 +508,22 @@ bool readChange(const json::Value& v, NodeChange& out) {
   readEnum(v, "horizontalConstraint", p.horizontalConstraint, F_H_CONSTRAINT, m);
   readEnum(v, "verticalConstraint", p.verticalConstraint, F_V_CONSTRAINT, m);
   readBool(v, "proportionsConstrained", p.proportionsConstrained, F_PROPORTIONS_CONSTRAINED, m);
+  // Text.
+  if (auto* x = v.get("textData"); x && x->isObject()) { p.textData = readTextData(*x); m |= F_TEXT_DATA; }
+  if (auto* x = v.get("fontName"); x && readFontName(*x, p.fontName)) m |= F_FONT_NAME;
+  readNumber(v, "fontSize", p.fontSize, F_FONT_SIZE, m);
+  if (auto* x = v.get("lineHeight"); x && readNumberValue(*x, p.lineHeight)) m |= F_LINE_HEIGHT;
+  if (auto* x = v.get("letterSpacing"); x && readNumberValue(*x, p.letterSpacing)) m |= F_LETTER_SPACING;
+  readNumber(v, "paragraphSpacing", p.paragraphSpacing, F_PARAGRAPH_SPACING, m);
+  readNumber(v, "paragraphIndent", p.paragraphIndent, F_PARAGRAPH_INDENT, m);
+  readEnum(v, "textAlignHorizontal", p.textAlignHorizontal, F_TEXT_ALIGN_H, m);
+  readEnum(v, "textAlignVertical", p.textAlignVertical, F_TEXT_ALIGN_V, m);
+  readEnum(v, "textAutoResize", p.textAutoResize, F_TEXT_AUTO_RESIZE, m);
+  readEnum(v, "textTruncation", p.textTruncation, F_TEXT_TRUNCATION, m);
+  if (auto* x = v.get("maxLines"); x && x->isNumber()) { p.maxLines = static_cast<int32_t>(x->number); m |= F_MAX_LINES; }
+  readEnum(v, "textCase", p.textCase, F_TEXT_CASE, m);
+  readEnum(v, "textDecoration", p.textDecoration, F_TEXT_DECORATION, m);
+  readBool(v, "autoRename", p.autoRename, F_AUTO_RENAME, m);
   if (auto* x = v.get("parentIndex"); x && x->isObject()) {
     if (auto* pg = x->get("guid")) {
       Guid parent;
@@ -320,6 +532,12 @@ bool readChange(const json::Value& v, NodeChange& out) {
     if (auto* pos = x->get("position"); pos && pos->isString()) p.parentIndex.position = pos->string;
     m |= F_PARENT_INDEX;
   }
+  // Everything else round-trips as it came.
+  for (auto& [k, x] : v.object)
+    if (!knownKey(k)) {
+      p.extra[k] = json::encode(x);
+      m |= F_EXTRA;
+    }
   // clearedFields: kiwi field ids reset to absent (their default) — an update only.
   if (auto* x = v.get("clearedFields"); x && x->isArray() && out.phase == Phase::CHANGED) {
     NodeProps defaults;

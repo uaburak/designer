@@ -30,6 +30,7 @@ export const DEFAULT_SHORTCUTS: Shortcut[] = [
   tool("KeyR", "RECTANGLE"),
   tool("KeyO", "ELLIPSE"),
   tool("KeyH", "HAND"),
+  tool("KeyT", "TEXT"),
   cmd("KeyZ", "UNDO", { primary: true }),
   cmd("KeyZ", "REDO", { primary: true, shift: true }),
   cmd("KeyY", "REDO", { primary: true }),

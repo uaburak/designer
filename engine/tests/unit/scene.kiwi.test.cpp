@@ -85,6 +85,11 @@ TEST_CASE("kiwi: the engine's kiwi field ids are the generated registry's") {
       {F_STACK_CHILD_ALIGN_SELF, "stackChildAlignSelf"}, {F_STACK_POSITIONING, "stackPositioning"}, {F_MIN_SIZE, "minSize"},
       {F_MAX_SIZE, "maxSize"}, {F_H_CONSTRAINT, "horizontalConstraint"}, {F_V_CONSTRAINT, "verticalConstraint"},
       {F_PROPORTIONS_CONSTRAINED, "proportionsConstrained"},
+      {F_TEXT_DATA, "textData"}, {F_FONT_NAME, "fontName"}, {F_FONT_SIZE, "fontSize"}, {F_LINE_HEIGHT, "lineHeight"},
+      {F_LETTER_SPACING, "letterSpacing"}, {F_PARAGRAPH_SPACING, "paragraphSpacing"}, {F_PARAGRAPH_INDENT, "paragraphIndent"},
+      {F_TEXT_ALIGN_H, "textAlignHorizontal"}, {F_TEXT_ALIGN_V, "textAlignVertical"}, {F_TEXT_AUTO_RESIZE, "textAutoResize"},
+      {F_TEXT_TRUNCATION, "textTruncation"}, {F_MAX_LINES, "maxLines"}, {F_TEXT_CASE, "textCase"},
+      {F_TEXT_DECORATION, "textDecoration"}, {F_AUTO_RENAME, "autoRename"},
   };
   for (auto& e : expected) {
     INFO(e.name);

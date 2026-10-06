@@ -320,12 +320,25 @@ bool Document::apply(const NodeChange& change, NodeChange* inverse) {
         Guid np = change.props.parentIndex.guid;
         if (np == change.guid || (np != kNoGuid && isAncestor(change.guid, np))) return false;
       }
+      FieldMask plain = change.mask & ~static_cast<FieldMask>(F_EXTRA);
       if (inverse) {
         *inverse = NodeChange::changed(change.guid);
         inverse->mask = change.mask;
-        copyFields(inverse->props, props, change.mask);
+        copyFields(inverse->props, props, plain);
       }
-      copyFields(props, change.props, change.mask);
+      copyFields(props, change.props, plain);
+      if (change.mask & F_EXTRA) {
+        // Unmodelled fields merge: each key of the change is set (an empty value removes it).
+        for (auto& [key, value] : change.props.extra) {
+          auto old = props.extra.find(key);
+          if (inverse) inverse->props.extra[key] = old == props.extra.end() ? std::string() : old->second;
+          if (value.empty()) {
+            if (old != props.extra.end()) props.extra.erase(old);
+          } else {
+            props.extra[key] = value;
+          }
+        }
+      }
       if (change.mask & F_PARENT_INDEX) {
         if (props.parentIndex.guid != oldParent) {
           unlink(change.guid, oldParent);

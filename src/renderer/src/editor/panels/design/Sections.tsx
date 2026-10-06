@@ -12,10 +12,15 @@ import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { groupChain } from "../../actions";
-import { useUI } from "../../hooks";
+import { useLayerTree, useUI } from "../../hooks";
+import { hasConstraints } from "../../model/constraints";
+import { ancestorsOf } from "../../model/layerTree";
+import { isAutoLayout } from "../../model/sizing";
+import { ConstraintsRow } from "./Constraints";
+import { AutoLayoutSettingsButton, LimitRow, SizeField, useLimitAxes } from "./Sizing";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
-import { fields, hasCorners, isFrameNode, isGroupNode, useSupports, type PanelNode } from "./shared";
+import { fields, hasCorners, isFrameNode, useParents, useSupports, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 /** Writes `fn(fresh node)` to every node as one undo step (a scrub: one open transaction). */
@@ -41,6 +46,23 @@ function CommandButton({ id, icon }: { id: string; icon: Parameters<typeof IconB
 export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
+  const tree = useLayerTree();
+  const parents = useParents(nodes);
+  const positioningKept = useSupports("stackPositioning");
+  const constraintsKept = useSupports("horizontalConstraint");
+  // "Ignore auto layout": every layer sits in an auto-layout frame.
+  const inAutoLayout = positioningKept && nodes.every((_, i) => isAutoLayout(parents[i]));
+  const absolute = mixed(nodes.map((n) => n.stackPositioning === "ABSOLUTE"));
+  const constraints =
+    constraintsKept &&
+    nodes.every((n) => {
+      const chain = ancestorsOf(tree, n.guid)
+        .map((id) => tree.nodes.get(id)!)
+        .concat(tree.nodes.get(tree.page) ?? [])
+        .map((t) => ({ type: t.type, group: t.group, stackMode: t.stackMode }));
+      if (!chain.length) chain.push({ type: "CANVAS", group: false, stackMode: undefined });
+      return hasConstraints(chain, n.stackPositioning === "ABSOLUTE");
+    });
   const refs = nodes.map((n) => n.guid);
   const pos = nodes.map((n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n)));
   const x = mixedNumber(pos.map((p) => roundPanel(p.x)));
@@ -70,10 +92,23 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
             <CommandButton id="arrange.align-bottom" icon="24.layout-align-bottom" />
           </div>
         </PropertyRow>
-        <PropertyRow label="Position">
+        <PropertyRow
+          label="Position"
+          action={
+            inAutoLayout ? (
+              <ToggleIconButton
+                icon="24.al.absolute-position"
+                label="Ignore auto layout"
+                pressed={absolute ?? false}
+                onPressedChange={(on) => ed.setProps(refs, fields({ stackPositioning: on ? "ABSOLUTE" : "AUTO" }), on ? "Ignore auto layout" : "Use auto layout")}
+              />
+            ) : undefined
+          }
+        >
           <NumericInput label="X" prefix="X" value={fieldValue(x)} onChange={(v, info) => setAxis("x", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepAxis("x", d)} onExit={exitToCanvas(ed)} />
           <NumericInput label="Y" prefix="Y" value={fieldValue(y)} onChange={(v, info) => setAxis("y", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepAxis("y", d)} onExit={exitToCanvas(ed)} />
         </PropertyRow>
+        {constraints && <ConstraintsRow nodes={nodes} />}
         <PropertyRow label="Rotation">
           <NumericInput label="Rotation" prefix="24.rotation" unit="°" value={fieldValue(rotation)} min={-360} max={360} onChange={(v, info) => setRotation(v, info)} onCancel={() => ed.cancelEdit()} onStep={stepRotation} onExit={exitToCanvas(ed)} />
           <div className={styles.buttons}>
@@ -103,23 +138,13 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const labels = useUI((s) => s.propertyLabels);
   const autoLayoutKept = useSupports("stackMode");
   const constrainKept = useSupports("proportionsConstrained");
+  const parents = useParents(nodes);
+  const limits = useLimitAxes(nodes);
   const refs = nodes.map((n) => n.guid);
   const frames = nodes.every(isFrameNode);
-  const groups = nodes.some(isGroupNode);
   const directions = nodes.map(directionOf);
   const auto = autoLayoutKept && frames && directions.every((d) => d !== null);
-  const w = mixedNumber(nodes.map((n) => roundPanel(n.size?.x ?? 0)));
-  const h = mixedNumber(nodes.map((n) => roundPanel(n.size?.y ?? 0)));
   const constrained = mixed(nodes.map((n) => n.proportionsConstrained === true));
-
-  const setSize = (axis: "x" | "y", v: number, info: ChangeInfo) =>
-    editEach(ed, "Resize", info, refs, (n) => {
-      const s = n.size ?? { x: 0, y: 0 };
-      const keep = n.proportionsConstrained && s.x > 0 && s.y > 0;
-      const size = axis === "x" ? { x: v, y: keep ? (v * s.y) / s.x : s.y } : { x: keep ? (v * s.x) / s.y : s.x, y: v };
-      return { size: { x: Math.max(0.01, size.x), y: Math.max(0.01, size.y) } };
-    });
-  const stepSize = (axis: "x" | "y", d: number) => editEach(ed, "Resize", stepInfo, refs, (n) => (n.size ? { size: axis === "x" ? { x: Math.max(0.01, n.size.x + d), y: n.size.y } : { x: n.size.x, y: Math.max(0.01, n.size.y + d) } } : null));
 
   const addAutoLayout = () => {
     if (runEditorCommand(ed, "object.add-auto-layout")) return;
@@ -141,14 +166,18 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   return (
     <PanelSection title={auto ? "Auto layout" : "Layout"} actions={actions}>
       <PropertyGrid labels={labels}>
-        {auto && <AutoLayoutRows nodes={nodes} />}
+        {auto && <DirectionRow nodes={nodes} />}
         <PropertyRow
           label="Dimensions"
           action={constrainKept ? <ToggleIconButton icon="24.constrain-proportions" label="Constrain proportions" pressed={constrained ?? false} onPressedChange={(on) => ed.setProps(refs, fields({ proportionsConstrained: on }), "Constrain proportions")} /> : undefined}
         >
-          <NumericInput label="Width" prefix="W" value={fieldValue(w)} min={0.01} disabled={groups} onChange={(v, info) => setSize("x", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepSize("x", d)} onExit={exitToCanvas(ed)} />
-          <NumericInput label="Height" prefix="H" value={fieldValue(h)} min={0.01} disabled={groups} onChange={(v, info) => setSize("y", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepSize("y", d)} onExit={exitToCanvas(ed)} />
+          <SizeField axis="x" nodes={nodes} parents={parents} onAddLimit={limits.open} />
+          <SizeField axis="y" nodes={nodes} parents={parents} onAddLimit={limits.open} />
         </PropertyRow>
+        {limits.axes.map((axis) => (
+          <LimitRow key={axis} axis={axis} nodes={nodes} />
+        ))}
+        {auto && <AutoLayoutRows nodes={nodes} />}
       </PropertyGrid>
       {frames && (
         <div className={styles.checkRow}>
@@ -156,6 +185,28 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
         </div>
       )}
     </PanelSection>
+  );
+}
+
+/** The flow: Vertical / Horizontal / Wrap, and the advanced settings. */
+function DirectionRow({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const refs = nodes.map((n) => n.guid);
+  const direction = mixed(nodes.map((n) => directionOf(n) ?? "v"));
+  return (
+    <PropertyRow span={2} label="Direction" action={<AutoLayoutSettingsButton nodes={nodes} />}>
+      <SegmentedControl
+        label="Direction"
+        fullWidth
+        value={direction ?? MIXED}
+        options={[
+          { value: "v", icon: "24.al.layout-vertical", tooltip: "Vertical layout" },
+          { value: "h", icon: "24.al.layout-horizontal", tooltip: "Horizontal layout" },
+          { value: "w", icon: "24.al.layout-wrap", tooltip: "Wrap" },
+        ]}
+        onChange={(v) => ed.setProps(refs, fields({ stackMode: v === "v" ? "VERTICAL" : "HORIZONTAL", stackWrap: v === "w" ? "WRAP" : "NO_WRAP" }), "Auto layout direction")}
+      />
+    </PropertyRow>
   );
 }
 
@@ -170,24 +221,12 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
     counter: first.stackCounterAlignItems === "CENTER" || first.stackCounterAlignItems === "MAX" ? first.stackCounterAlignItems : "MIN",
   };
   const gap = mixedNumber(nodes.map((n) => n.stackSpacing ?? 0));
+  const autoGap = nodes.every((n) => n.stackPrimaryAlignItems === "SPACE_BETWEEN");
   const padH = mixedNumber(nodes.map((n) => n.stackHorizontalPadding ?? 0));
   const padV = mixedNumber(nodes.map((n) => n.stackVerticalPadding ?? 0));
   const set = (label: string, info: ChangeInfo, f: (n: PanelNode) => ReturnType<typeof fields>) => editEach(ed, label, info, refs, f);
   return (
     <>
-      <PropertyRow span={2} label="Direction">
-        <SegmentedControl
-          label="Direction"
-          fullWidth
-          value={direction ?? MIXED}
-          options={[
-            { value: "v", icon: "24.al.layout-vertical", tooltip: "Vertical layout" },
-            { value: "h", icon: "24.al.layout-horizontal", tooltip: "Horizontal layout" },
-            { value: "w", icon: "24.al.layout-wrap", tooltip: "Wrap" },
-          ]}
-          onChange={(v) => ed.setProps(refs, fields({ stackMode: v === "v" ? "VERTICAL" : "HORIZONTAL", stackWrap: v === "w" ? "WRAP" : "NO_WRAP" }), "Auto layout direction")}
-        />
-      </PropertyRow>
       <PropertyRow label="Alignment and gap">
         <div className={styles.matrix}>
           <AlignmentMatrix direction={horizontal ? "horizontal" : "vertical"} value={alignment} onChange={(a) => ed.setProps(refs, fields({ stackPrimaryAlignItems: a.primary, stackCounterAlignItems: a.counter }), "Alignment")} />
@@ -197,7 +236,8 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
           value={fieldValue(gap)}
           min={0}
-          onChange={(v, info) => set("Gap", info, () => fields({ stackSpacing: v }))}
+          valueLabel={autoGap ? "Auto" : undefined}
+          onChange={(v, info) => set("Gap", info, (n) => fields({ stackSpacing: v, ...(n.stackPrimaryAlignItems === "SPACE_BETWEEN" ? { stackPrimaryAlignItems: "MIN" } : {}) }))}
           onCancel={() => ed.cancelEdit()}
           onStep={(d) => set("Gap", stepInfo, (n) => fields({ stackSpacing: Math.max(0, (n.stackSpacing ?? 0) + d) }))}
           onExit={exitToCanvas(ed)}

@@ -19,6 +19,7 @@ import {
   KeyType,
   PASTE_IN_PLACE,
   Status,
+  TEXT_EDIT_SELECT_ALL,
   TICK_NEEDS_RENDER,
   TOOLS,
   type CommandName,
@@ -34,6 +35,7 @@ import {
   decodeSelection,
   decodeStats,
   decodeText,
+  decodeTextLayout,
   encodeArgs,
   encodeFields,
   encodeMessage,
@@ -52,8 +54,10 @@ import {
   type PageInfo,
   type Pixels,
   type Selection,
+  type TextLayoutInfo,
 } from "./codec";
 import type { EngineExports } from "./EngineExports";
+import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { loadEngine } from "./loadEngine";
 
@@ -77,6 +81,7 @@ export class Engine {
       exports.lastError();
       throw new Error(`engine: ${decodeText(exports.result()) || "could not start"}`);
     }
+    fonts.attach(exports);
     return new Engine(exports, handle, canvas === null);
   }
 
@@ -90,10 +95,16 @@ export class Engine {
   /** No canvas: nothing to draw, no frames (tests, export later). */
   readonly headless: boolean;
 
+  /** The text editing state, as the last TEXT_EDIT event said. */
+  textEdit: EventOf<"TEXT_EDIT"> | null = null;
+  private readonly unsubscribeFonts: () => void;
+
   private constructor(exports: EngineExports, handle: number, headless: boolean) {
     this.x = exports;
     this.h = handle;
     this.headless = headless;
+    // A font arrived or went missing: the engine relaid its text; drain what that changed and draw.
+    this.unsubscribeFonts = fonts.onChange(() => this.pump());
   }
 
   get destroyed(): boolean {
@@ -104,6 +115,7 @@ export class Engine {
     if (!this.h) return;
     if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
     clearTimeout(this.frameTimer);
+    this.unsubscribeFonts();
     this.x.destroy(this.h);
     this.h = 0;
     this.handlers.clear();
@@ -155,6 +167,8 @@ export class Engine {
         // Handlers may call the engine again: their events join the queue and come after these.
         while (this.queue.length) {
           const event = this.queue.shift()!;
+          if (event.type === "REQUEST_FONT") fonts.request(event.family, event.style);
+          else if (event.type === "TEXT_EDIT") this.textEdit = event.active ? event : null;
           this.handlers.get(event.type)?.forEach((handler) => handler(event));
           this.handlers.get("*")?.forEach((handler) => handler(event));
         }
@@ -163,6 +177,11 @@ export class Engine {
       }
     }
     return value;
+  }
+
+  /** Drains pending events and schedules a frame if one is wanted (after work the engine did on its own). */
+  pump(): void {
+    if (this.h) this.after(undefined);
   }
 
   // ---- Frames -----------------------------------------------------------------
@@ -401,6 +420,47 @@ export class Engine {
     canvas.height = image.height;
     canvas.getContext("2d")?.putImageData(data, 0, 0);
     return new Promise((resolve) => canvas.toBlob(resolve, type));
+  }
+
+  // ---- Text (docs/engine.md §7.6) ------------------------------------------------------
+
+  /** Edits a TEXT node: all its text selected, or the caret at its end. Status.E_UNSUPPORTED: its font is missing. */
+  startTextEdit(ref: Guid, options: { selectAll?: boolean } = {}): number {
+    const [s, l] = ref.split(":").map(Number);
+    return this.after(this.x.textEdit(this.h, s, l, options.selectAll ? TEXT_EDIT_SELECT_ALL : 0));
+  }
+
+  /** Leaves text editing (as Esc does); an empty text is deleted. */
+  endTextEdit(): void {
+    this.after(this.x.textEditEnd(this.h));
+  }
+
+  /** Typed (or pasted) text replacing the text selection. */
+  textInput(text: string): number {
+    return this.after(this.x.textInput(this.h, encodeText(text)));
+  }
+
+  /** IME: the composition so far, its selection in UTF-16 units of `text`. */
+  textComposition(text: string, selStart: number, selEnd: number): number {
+    return this.after(this.x.textComposition(this.h, encodeText(text), selStart, selEnd));
+  }
+
+  /** IME: the composition's final text. */
+  textCompositionEnd(text: string): number {
+    return this.after(this.x.textCompositionEnd(this.h, encodeText(text)));
+  }
+
+  /** The selected text of the text being edited ("" when none), for copy. */
+  textSelection(): string {
+    this.x.textSelection(this.h);
+    return this.after(decodeText(this.x.result()));
+  }
+
+  /** A TEXT node's layout (baselines, glyphs, missing font…), or null for other nodes. */
+  textLayout(ref: Guid): TextLayoutInfo | null {
+    const [s, l] = ref.split(":").map(Number);
+    const status = this.x.textLayout(this.h, s, l);
+    return this.after(status === Status.OK ? decodeTextLayout(this.x.result()) : null);
   }
 
   undo(): boolean {

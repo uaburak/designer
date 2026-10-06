@@ -25,6 +25,8 @@
 #include "hit/HitTest.h"
 #include "render/Renderer.h"
 #include "scene/CodecJson.h"
+#include "text/Fonts.h"
+#include "text/TextLayout.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -79,11 +81,16 @@ void setError(std::string text) {
 // Refreshes the events flag when an export returns.
 struct Call {
   ~Call() {
-    uint32_t any = 0;
+    uint32_t any = text::FontRegistry::get().hasRequests() && !engines().empty() ? 1u : 0u;
     for (Engine* e : engines()) any |= e->editor.hasEvents() ? 1u : 0u;
     gEventsFlag = any;
   }
 };
+
+// A font arrived or went missing: every engine lays its text out again.
+void fontsChanged() {
+  for (Engine* e : engines()) e->editor.fontsChanged();
+}
 
 Engine* engineOf(Handle h) {
   for (Engine* e : engines())
@@ -193,6 +200,18 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("undoLabel").string(u.undoLabel()).key("redoLabel").string(u.redoLabel());
     w.endObject();
   }
+  // Fonts the documents asked for (module-wide: whichever engine drains first carries them).
+  for (const FontName& f : text::FontRegistry::get().takeRequests())
+    w.beginObject().key("type").string("REQUEST_FONT").key("family").string(f.family).key("style").string(f.style).endObject();
+  if (ev.textEdit) {
+    w.beginObject().key("type").string("TEXT_EDIT").key("active").boolean(ed.textEditing()).key("ref");
+    if (ed.textEditing()) w.string(ed.textNode().toString());
+    else w.null();
+    Rect c = ed.caretRectCss();
+    w.key("caretRectCss").beginObject().key("x").number(c.x).key("y").number(c.y).key("width").number(c.w).key("height").number(c.h).endObject();
+    w.key("selStart").number(ed.textSelStart()).key("selEnd").number(ed.textSelEnd());
+    w.endObject();
+  }
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
     w.beginObject().key("type").string("CONTEXT_MENU");
@@ -236,6 +255,7 @@ ENG_EXPORT Handle engine_create(const char* selector, Ptr optsPtr, uint32_t opts
     e->device = std::make_unique<gfx::NullDevice>();
   }
   e->renderer = std::make_unique<Renderer>(*e->device);
+  e->renderer->setTextLayouts(&e->editor);
   json::Value opts;
   if (optsLen && json::parse(bytes(optsPtr, optsLen), opts)) {
     if (auto* s = opts.get("sessionID"); s && s->isNumber()) e->editor.setSessionID(static_cast<uint32_t>(s->number));
@@ -413,7 +433,9 @@ ENG_EXPORT void engine_render(Handle h) {
 ENG_EXPORT int32_t engine_next_frame_delay(Handle h) {
   Call call;
   Engine* e = engineOf(h);
-  return e && e->editor.needsFrame() ? 0 : -1;
+  if (!e) return -1;
+  if (e->editor.needsFrame()) return 0;
+  return e->editor.textEditing() ? 265 : -1;  // the caret blinks (530 ms phases)
 }
 
 ENG_EXPORT uint32_t engine_needs_frame(Handle h) {
@@ -437,6 +459,7 @@ ENG_EXPORT void engine_gl_context_restored(Handle h) {
   e->device = gfx::createWebGL2Device(e->selector.c_str());
   if (!e->device) e->device = std::make_unique<gfx::NullDevice>();
   e->renderer = std::make_unique<Renderer>(*e->device);
+  e->renderer->setTextLayouts(&e->editor);
   e->editor.setViewport(e->editor.viewport().width, e->editor.viewport().height, e->editor.viewport().dpr,
                         e->editor.viewport().pixelWidth, e->editor.viewport().pixelHeight);
 #endif
@@ -719,7 +742,7 @@ ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uin
 ENG_EXPORT uint32_t engine_has_events(Handle h) {
   Call call;
   Engine* e = engineOf(h);
-  return e && e->editor.hasEvents() ? 1 : 0;
+  return e && (e->editor.hasEvents() || text::FontRegistry::get().hasRequests()) ? 1 : 0;
 }
 
 // {"events":[{"type":"SELECTION_CHANGED",…}, …]} (docs/engine.md §10.4), draining the queue.
@@ -743,6 +766,142 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   w.key("shapes").number(e->stats.shapes).key("drawCalls").number(e->stats.drawCalls);
   w.key("viewport").beginObject().key("width").number(v.width).key("height").number(v.height).key("dpr").number(v.dpr);
   w.key("pixelWidth").number(v.pixelWidth).key("pixelHeight").number(v.pixelHeight).endObject();
+  w.endObject();
+  return setResult(w.take());
+}
+
+// ---- Fonts (docs/engine.md §7.1) ------------------------------------------------------
+
+// Takes an engine_alloc'd font file (TTF/OTF; TTC/OTC with `faceIndex`): the engine frees it.
+// Returns the face id (≥ 0), or E_DECODE when it isn't a font.
+ENG_EXPORT int32_t engine_font_add_take(Ptr ptr, uint32_t len, uint32_t faceIndex) {
+  Call call;
+  int32_t id = text::FontRegistry::get().addFace(reinterpret_cast<uint8_t*>(ptr), len, faceIndex);
+  if (id < 0) setError("not a font file");
+  return id < 0 ? E_DECODE : id;
+}
+
+// `faceId` answers the FontName {family, style} (UTF-8 strings): its named instance (or the
+// weight/italic axes) for that style. Text using it is laid out again.
+ENG_EXPORT int32_t engine_font_bind(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen, int32_t faceId) {
+  Call call;
+  if (!text::FontRegistry::get().bind(std::string(bytes(familyPtr, familyLen)), std::string(bytes(stylePtr, styleLen)), faceId))
+    return E_NOT_FOUND;
+  fontsChanged();
+  return OK;
+}
+
+// Nobody has {family, style}: its text draws with Inter and is marked missing.
+ENG_EXPORT void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen) {
+  Call call;
+  text::FontRegistry::get().markMissing(std::string(bytes(familyPtr, familyLen)), std::string(bytes(stylePtr, styleLen)));
+  fontsChanged();
+}
+
+// ["Apple Color Emoji", "PingFang SC", …]: tried in order for characters a text's font lacks.
+ENG_EXPORT int32_t engine_set_fallback_fonts(Ptr ptr, uint32_t len) {
+  Call call;
+  json::Value v;
+  if (!parse(ptr, len, v) || !v.isArray()) return E_DECODE;
+  std::vector<std::string> families;
+  for (auto& f : v.array)
+    if (f.isString()) families.push_back(f.string);
+  text::FontRegistry::get().setFallbacks(std::move(families));
+  fontsChanged();
+  return OK;
+}
+
+// ---- Text (docs/engine.md §7.6) ----------------------------------------------------------
+
+// Starts editing a TEXT node. flags: 1 = select all its text (else the caret at the end).
+// E_INVALID for anything else or a locked layer; E_UNSUPPORTED when its font is missing.
+ENG_EXPORT int32_t engine_text_edit(Handle h, uint32_t sessionID, uint32_t localID, uint32_t flags) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (e->editor.busy()) return E_BUSY;
+  return e->editor.startTextEdit({sessionID, localID}, (flags & 1) != 0);
+}
+
+// Leaves text editing (Esc / a click away do the same); an empty text is deleted.
+ENG_EXPORT void engine_text_edit_end(Handle h) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.endTextEdit();
+}
+
+// Typed text (UTF-8) replacing the selection (and ending a composition).
+ENG_EXPORT int32_t engine_text_input(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.textInput(bytes(ptr, len)) : E_HANDLE;
+}
+
+// IME: the composition so far (drawn in the text, not final) and its selection in UTF-16 units.
+ENG_EXPORT int32_t engine_text_composition(Handle h, Ptr ptr, uint32_t len, uint32_t selStart, uint32_t selEnd) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.textComposition(bytes(ptr, len), selStart, selEnd) : E_HANDLE;
+}
+
+ENG_EXPORT int32_t engine_text_composition_end(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.textCompositionEnd(bytes(ptr, len)) : E_HANDLE;
+}
+
+// Result: the selected text (UTF-8) of the text being edited (empty when none).
+ENG_EXPORT int32_t engine_text_selection(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  return setResult(e->editor.textSelection());
+}
+
+// Result: a TEXT node's layout as DerivedTextData (schema/document.kiwi): layoutSize,
+// baselines, glyphs (position, fontSize, firstCharacter, advance in em), decorations,
+// truncationStartIndex / truncatedHeight, plus "missingFont" / "pendingFont" and the
+// characters' UTF-16 caret x positions ("logicalIndexToCharacterOffsetMap").
+ENG_EXPORT int32_t engine_text_layout(Handle h, uint32_t sessionID, uint32_t localID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  const text::TextLayout* L = e->editor.textLayout({sessionID, localID});
+  if (!L) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginObject();
+  w.key("layoutSize").beginObject().key("x").number(L->size.x).key("y").number(L->size.y).endObject();
+  w.key("baselines").beginArray();
+  for (const text::LaidLine& l : L->lines) {
+    w.beginObject();
+    w.key("position").beginObject().key("x").number(l.x).key("y").number(l.baseline).endObject();
+    w.key("width").number(l.width).key("lineY").number(l.top).key("lineHeight").number(l.height);
+    w.key("lineAscent").number(l.ascent).key("firstCharacter").number(l.start).key("endCharacter").number(l.end);
+    w.endObject();
+  }
+  w.endArray();
+  w.key("glyphs").beginArray();
+  for (const text::LaidGlyph& g : L->glyphs) {
+    w.beginObject();
+    w.key("position").beginObject().key("x").number(g.x).key("y").number(g.y).endObject();
+    w.key("fontSize").number(g.size).key("firstCharacter").number(g.cluster).key("advance").number(g.size > 0 ? g.advance / g.size : 0);
+    w.key("glyphID").number(g.glyph);
+    if (L->styles[g.style].styleID) w.key("styleID").number(L->styles[g.style].styleID);
+    w.endObject();
+  }
+  w.endArray();
+  w.key("decorations").beginArray();
+  for (const text::Decoration& d : L->decorations) {
+    w.beginObject().key("rects").beginArray().beginObject();
+    w.key("x").number(d.rect.x).key("y").number(d.rect.y).key("w").number(d.rect.w).key("h").number(d.rect.h);
+    w.endObject().endArray().key("styleID").number(L->styles[d.style].styleID).endObject();
+  }
+  w.endArray();
+  w.key("truncationStartIndex").number(L->truncated ? static_cast<double>(L->truncationStart) : -1);
+  w.key("truncatedHeight").number(L->truncated ? L->size.y : -1);
+  w.key("logicalIndexToCharacterOffsetMap").beginArray();
+  for (double x : L->caretXs) w.number(x);
+  w.endArray();
+  w.key("missingFont").boolean(L->missingFont).key("pendingFont").boolean(L->pendingFont);
   w.endObject();
   return setResult(w.take());
 }

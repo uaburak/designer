@@ -79,13 +79,16 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       if (loaded !== Status.OK) throw new Error(`the document could not be read (${loaded})`);
       store = new EngineStore(engine);
       controller = new EditorController(engine, store, source);
+      controller.noteSourceTypes(doc);
       controller.canvas = canvas;
       const ed = controller;
       cleanups.push(new CanvasController(canvas, engine, { shortcuts: [] }).attach());
       cleanups.push(engine.onDocumentChanged((_, e) => source.onChanges(e.message, { kind: e.kind, label: e.label })));
       // Changes made elsewhere (another window, sync) come in without an undo entry; a rename elsewhere shows here.
       const external = source.onExternalChanges?.((changes) => {
-        if (!created.destroyed) created.applyChanges(changes, "remote");
+        if (created.destroyed) return;
+        ed.noteSourceTypes(changes);
+        created.applyChanges(changes, "remote");
       });
       if (external) cleanups.push(external);
       const meta = source.onMetaChanged?.((m) => ed.ui.set({ fileName: m.fileName }));

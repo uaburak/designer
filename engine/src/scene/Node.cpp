@@ -2,6 +2,12 @@
 
 namespace eng {
 
+bool TextStyle::operator==(const TextStyle& o) const {
+  return styleID == o.styleID && mask == o.mask && fontName == o.fontName && fontSize == o.fontSize && lineHeight == o.lineHeight &&
+         letterSpacing == o.letterSpacing && textCase == o.textCase && textDecoration == o.textDecoration &&
+         fillPaints == o.fillPaints && extra == o.extra;
+}
+
 // Every field: its bit, its member, its kiwi field id (schema/document.kiwi NodeChange).
 #define ENG_NODE_FIELDS(X)                                   \
   X(F_TYPE, type, 4)                                         \
@@ -44,7 +50,23 @@ namespace eng {
   X(F_MAX_SIZE, maxSize, 326)                                \
   X(F_H_CONSTRAINT, horizontalConstraint, 28)                \
   X(F_V_CONSTRAINT, verticalConstraint, 37)                  \
-  X(F_PROPORTIONS_CONSTRAINED, proportionsConstrained, 151)
+  X(F_PROPORTIONS_CONSTRAINED, proportionsConstrained, 151) \
+  X(F_TEXT_DATA, textData, 42)                               \
+  X(F_FONT_NAME, fontName, 41)                               \
+  X(F_FONT_SIZE, fontSize, 21)                               \
+  X(F_LINE_HEIGHT, lineHeight, 40)                           \
+  X(F_LETTER_SPACING, letterSpacing, 165)                    \
+  X(F_PARAGRAPH_SPACING, paragraphSpacing, 23)               \
+  X(F_PARAGRAPH_INDENT, paragraphIndent, 22)                 \
+  X(F_TEXT_ALIGN_H, textAlignHorizontal, 32)                 \
+  X(F_TEXT_ALIGN_V, textAlignVertical, 33)                   \
+  X(F_TEXT_AUTO_RESIZE, textAutoResize, 46)                  \
+  X(F_TEXT_TRUNCATION, textTruncation, 280)                  \
+  X(F_MAX_LINES, maxLines, 351)                              \
+  X(F_TEXT_CASE, textCase, 34)                               \
+  X(F_TEXT_DECORATION, textDecoration, 35)                   \
+  X(F_AUTO_RENAME, autoRename, 14)                          \
+  X(F_EXTRA, extra, 0)
 
 const char* nodeTypeName(NodeType t) {
   switch (t) {
@@ -55,6 +77,15 @@ const char* nodeTypeName(NodeType t) {
     case NodeType::ELLIPSE: return "ELLIPSE";
     case NodeType::RECTANGLE: return "RECTANGLE";
     case NodeType::ROUNDED_RECTANGLE: return "ROUNDED_RECTANGLE";
+    case NodeType::TEXT: return "TEXT";
+    case NodeType::BOOLEAN_OPERATION: return "BOOLEAN_OPERATION";
+    case NodeType::VECTOR: return "VECTOR";
+    case NodeType::STAR: return "STAR";
+    case NodeType::LINE: return "LINE";
+    case NodeType::REGULAR_POLYGON: return "REGULAR_POLYGON";
+    case NodeType::SLICE: return "SLICE";
+    case NodeType::VARIABLE: return "VARIABLE";
+    case NodeType::VARIABLE_SET: return "VARIABLE_SET";
     case NodeType::SYMBOL: return "SYMBOL";
     case NodeType::INSTANCE: return "INSTANCE";
     case NodeType::SECTION: return "SECTION";
@@ -65,7 +96,9 @@ const char* nodeTypeName(NodeType t) {
 NodeType nodeTypeFromName(std::string_view s) {
   static constexpr NodeType kAll[] = {NodeType::DOCUMENT, NodeType::CANVAS, NodeType::GROUP, NodeType::FRAME,
                                       NodeType::ELLIPSE, NodeType::RECTANGLE, NodeType::ROUNDED_RECTANGLE,
-                                      NodeType::SYMBOL, NodeType::INSTANCE, NodeType::SECTION};
+                                      NodeType::TEXT, NodeType::SYMBOL, NodeType::INSTANCE, NodeType::SECTION,
+                                      NodeType::BOOLEAN_OPERATION, NodeType::VECTOR, NodeType::STAR, NodeType::LINE,
+                                      NodeType::REGULAR_POLYGON, NodeType::SLICE, NodeType::VARIABLE, NodeType::VARIABLE_SET};
   for (NodeType t : kAll)
     if (s == nodeTypeName(t)) return t;
   return NodeType::NONE;
@@ -88,7 +121,7 @@ FieldMask differingFields(const NodeProps& a, const NodeProps& b, FieldMask mask
 }
 
 uint32_t kiwiFieldId(Field f) {
-  if (f == F_TYPE || f == F_PARENT_INDEX) return 0;
+  if (f == F_TYPE || f == F_PARENT_INDEX || f == F_EXTRA) return 0;
 #define ENG_ID(bit, member, id) \
   if (f == bit) return id;
   ENG_NODE_FIELDS(ENG_ID)
@@ -99,6 +132,7 @@ uint32_t kiwiFieldId(Field f) {
 FieldMask fieldsOfKiwiId(uint32_t id) {
   // The four rectangle*CornerRadius fields and rectangleCornerRadiiIndependent travel with cornerRadius.
   if (id >= 145 && id <= 149) return F_CORNER_RADII;
+  if (id == 0) return 0;
 #define ENG_BIT(bit, member, kid) \
   if (id == kid) return bit;
   ENG_NODE_FIELDS(ENG_BIT)
@@ -115,6 +149,7 @@ uint32_t fieldGroups(FieldMask m) {
   if (m & (F_FILLS | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN | F_OPACITY | F_FRAME_MASK_DISABLED | F_BACKGROUND_COLOR |
            F_BACKGROUND_ENABLED))
     g |= G_PAINT;
+  if (m & (kTextLayoutFields | F_AUTO_RENAME)) g |= G_TEXT;
   if (m & F_NAME) g |= G_NAME;
   if (m & (F_VISIBLE | F_LOCKED | F_INTERNAL_ONLY)) g |= G_VISIBILITY;
   return g;
@@ -128,12 +163,19 @@ NodeProps defaultProps(NodeType type) {
   p.strokeAlign = StrokeAlign::INSIDE;
   switch (type) {
     case NodeType::FRAME:
-      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0xFFFFFF), 1, true}};
+      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0xFFFFFF), 1, true, {}}};
       break;
     case NodeType::RECTANGLE:
     case NodeType::ROUNDED_RECTANGLE:
     case NodeType::ELLIPSE:
-      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0xD9D9D9), 1, true}};
+      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0xD9D9D9), 1, true, {}}};
+      break;
+    case NodeType::TEXT:
+      // Figma's new text: Inter Regular 12, Auto line height, 0% letter spacing, black, an outside stroke weight of 1.
+      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0x000000), 1, true, {}}};
+      p.strokeAlign = StrokeAlign::OUTSIDE;
+      p.textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+      p.autoRename = true;
       break;
     default: break;
   }

@@ -22,6 +22,16 @@ Status Editor::command(CommandId id, double dx, double dy) {
 
 Status Editor::command(CommandId id, const CommandArgs& args) {
   if (busy() && id != CommandId::ZOOM_IN && id != CommandId::ZOOM_OUT) return E_BUSY;
+  if (text_.node != kNoGuid) {
+    // Editing text: ⌘A selects its text, zooms keep the session, anything else ends it first.
+    if (id == CommandId::SELECT_ALL) {
+      setTextSelection(0, static_cast<uint32_t>(editedText().size()));
+      return OK;
+    }
+    bool zoom = id == CommandId::ZOOM_IN || id == CommandId::ZOOM_OUT || id == CommandId::ZOOM_TO_100 ||
+                id == CommandId::ZOOM_TO_FIT || id == CommandId::ZOOM_TO_SELECTION;
+    if (!zoom) endTextEdit();
+  }
   switch (id) {
     case CommandId::UNDO: undoStep(false); return OK;
     case CommandId::REDO: undoStep(true); return OK;

@@ -110,6 +110,11 @@ Vec2 Layout::natural(Guid id, double width, double height) {
       if (hugP) setAxis(size, P, axis(content, P));
       if (hugC) setAxis(size, C, axis(content, C));
     }
+  } else if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE) {
+    // Auto width hugs its text (wrapping when a width is imposed: Fill); auto height wraps at its width.
+    double w = width > 0 ? width : (p.textAutoResize == TextAutoResize::HEIGHT ? p.size.x : -1);
+    Vec2 measured;
+    if (host_.measureText(id, w, measured)) size = {w >= 0 ? w : measured.x, measured.y};
   } else if (p.isGroupLike()) {
     bool any = false;
     Rect u;
@@ -127,6 +132,24 @@ Vec2 Layout::natural(Guid id, double width, double height) {
   return size;
 }
 
+double Layout::baselineOf(Guid id, Vec2 size, int depth) {
+  const Node* n = doc_.get(id);
+  if (!n) return size.y;
+  const NodeProps& p = n->props;
+  if (p.type == NodeType::TEXT) {
+    double b = host_.firstBaseline(id, size);
+    return b >= 0 ? b : size.y;
+  }
+  if (p.isAutoLayout() && depth < 16) {
+    auto kids = flowChildren(id);
+    if (!kids.empty()) {
+      const NodeProps& cp = doc_.get(kids[0])->props;
+      return cp.transform.m12 + baselineOf(kids[0], cp.size, depth + 1);
+    }
+  }
+  return size.y;
+}
+
 Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
   const NodeProps& p = doc_.get(frame)->props;
   int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
@@ -139,12 +162,21 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
   double main = 0, cross = 0;
   std::vector<Guid> kids = flowChildren(frame);
   if (!wrap) {
+    bool baseline = P == 0 && p.stackCounterAlignItems == StackAlign::BASELINE;
+    double above = 0, below = 0;
     for (size_t i = 0; i < kids.size(); i++) {
       const NodeProps& cp = doc_.get(kids[i])->props;
-      Rect b = layoutBox(cp.transform, natural(kids[i]));
+      Vec2 s = natural(kids[i]);
+      Rect b = layoutBox(cp.transform, s);
       main += (P == 0 ? b.w : b.h) + (i ? gap : 0);
       cross = std::max(cross, C == 0 ? b.w : b.h);
+      if (baseline) {
+        double base = baselineOf(kids[i], s);
+        above = std::max(above, base);
+        below = std::max(below, b.h - base);
+      }
     }
+    if (baseline) cross = std::max(cross, above + below);
   } else {
     double avail = axis(frameSize, P) - padP;
     double lineMain = 0, lineCross = 0;
@@ -210,6 +242,12 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     it.bc = C == 0 ? b.w : b.h;
     it.grow = cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary() && it.aligned && !cp.isGroupLike() ? cp.stackChildPrimaryGrow : 0;
     it.stretch = cp.stackChildAlignSelf == StackCounterAlign::STRETCH && it.aligned && !cp.isGroupLike();
+    if (it.stretch && C == 0 && !wrap && cp.type == NodeType::TEXT) {
+      // Stretched across a vertical flow: the text wraps at the frame's inner width, its height follows.
+      it.size = natural(c, std::max(0.0, innerC), -1);
+      Rect b2 = layoutBox(cp.transform, it.size);
+      it.bp = b2.h;
+    }
     items.push_back(it);
   }
 
@@ -270,7 +308,7 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
           setAxis(items[i].size, P, items[i].bp);
           // Its other axis may follow from this one (a wrapping frame's height from its width).
           const NodeProps& cp = doc_.get(items[i].id)->props;
-          if (cp.isAutoLayout() && !items[i].stretch) {
+          if ((cp.isAutoLayout() || (cp.type == NodeType::TEXT && P == 0)) && !items[i].stretch) {
             Vec2 n2 = natural(items[i].id, P == 0 ? items[i].bp : -1, P == 1 ? items[i].bp : -1);
             items[i].size = n2;
             setAxis(items[i].size, P, items[i].bp);
@@ -329,11 +367,25 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     }
   }
   double lineTop = padC0 + start;
+  const bool baseline = P == 0 && p.stackCounterAlignItems == StackAlign::BASELINE;
   for (size_t l = 0; l < lines.size(); l++) {
     double room = wrap ? lineCross[l] : innerC;
+    // Align text baseline: the line's items share their first baselines.
+    double maxBase = 0;
+    std::vector<double> bases;
+    if (baseline) {
+      for (size_t i = lines[l].first; i < lines[l].second; i++) {
+        bases.push_back(baselineOf(items[i].id, items[i].size));
+        maxBase = std::max(maxBase, bases.back());
+      }
+    }
     for (size_t i = lines[l].first; i < lines[l].second; i++) {
       Item& it = items[i];
       const NodeProps& cp = doc_.get(it.id)->props;
+      if (baseline && !it.stretch && (cp.stackChildAlignSelf == StackCounterAlign::AUTO || cp.stackChildAlignSelf == StackCounterAlign::BASELINE)) {
+        it.cpos = lineTop + maxBase - bases[i - lines[l].first];
+        continue;
+      }
       if (it.stretch) {
         it.bc = clampSize(room, cp, C);
         setAxis(it.size, C, it.bc);
@@ -383,7 +435,20 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
     }
     fitGroup(id);
   } else {
-    if (!sameSize(size, p.size)) host_.writeGeometry(id, p.transform, size);
+    if (!sizeFromParent) {
+      if (p.type == NodeType::TEXT) size = natural(id);
+      size = clampSize(size, p);
+    }
+    Mat2x3 t = p.transform;
+    if (p.type == NodeType::TEXT && !sizeFromParent && p.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT &&
+        std::fabs(size.x - p.size.x) > kEps) {
+      // An auto-width text grows from the side its alignment holds (centre, right).
+      double f = p.textAlignHorizontal == TextAlignHorizontal::CENTER ? 0.5 : p.textAlignHorizontal == TextAlignHorizontal::RIGHT ? 1 : 0;
+      Vec2 shift = t.applyLinear({(p.size.x - size.x) * f, 0});
+      t.m02 += shift.x;
+      t.m12 += shift.y;
+    }
+    if (!sameSize(size, p.size) || !(t == p.transform)) host_.writeGeometry(id, t, size);
     if (p.isFrameLike()) applyConstraints(id, true);
   }
 }

@@ -54,7 +54,7 @@ std::string formatNumber(double v) {
 
 }  // namespace
 
-void Renderer::drawOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
+void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const double dpr = viewport_.scaleX();  // snap to the canvas's real pixels
   const Color& blue = style.selection;
   const Color white{1, 1, 1, 1};
@@ -75,6 +75,50 @@ void Renderer::drawOverlay(const Document& doc, const Camera& camera, const Over
     bool rounded = ownShape && (n->props.isRectLike() || n->props.isFrameLike());
     outline(m, {lb.w, lb.h}, kind, rounded ? n->props.cornerRadii : kSquare, weight);
   };
+
+  // Text being edited: the selection highlight and the caret.
+  if (overlay.textNode != kNoGuid && doc.has(overlay.textNode)) {
+    Mat2x3 m = view * doc.worldTransform(overlay.textNode);
+    for (const Rect& r : overlay.textSelection) {
+      Mat2x3 rm = m * Mat2x3::translate(r.x, r.y);
+      emit(makeShape(rm, {r.w, r.h}, ShapeKind::Rect, kSquare, blue, style.textSelectionAlpha, blue, 0, 0, 0), Pass::Color);
+    }
+    if (overlay.caretVisible) {
+      // 1 px wide (2 px from 200% zoom), the line's height, on device pixels when upright.
+      double width = camera.zoom >= 2 ? 2 : 1;
+      Vec2 top = m.apply({overlay.caret.x, overlay.caret.y}), bottom = m.apply({overlay.caret.x, overlay.caret.y + overlay.caret.h});
+      Vec2 d = bottom - top;
+      double len = d.length();
+      if (len > 0) {
+        Vec2 u{d.x / len, d.y / len};
+        if (std::fabs(u.x) < 1e-6) {
+          double x = std::round((top.x - width / 2) * dpr) / dpr;
+          emit(makeShape(Mat2x3::translate(x, top.y), {width, len}, ShapeKind::Rect, kSquare, blue, 1, blue, 0, 0, 0), Pass::Color);
+        } else {
+          Mat2x3 cm{-u.y, u.x, top.x + u.y * width / 2, u.x, u.y, top.y - u.x * width / 2};
+          emit(makeShape(cm, {width, len}, ShapeKind::Rect, kSquare, blue, 1, blue, 0, 0, 0), Pass::Color);
+        }
+      }
+    }
+  }
+
+  // Top-level frames' names, above their top-left corner (selection colour when selected).
+  if (overlay.frameTitles && page != kNoGuid) {
+    for (Guid c : doc.children(page)) {
+      const Node* n = doc.get(c);
+      if (!n || !n->props.visible || !(n->props.isFrameLike()) || n->props.type == NodeType::SECTION) continue;
+      Rect b = transformedBounds(view * doc.worldTransform(c), n->props.size.x, n->props.size.y);
+      if (!b.intersects({screen_.x - 200, screen_.y - 40, screen_.w + 400, screen_.h + 80}) || b.w < 12) continue;
+      bool isSelected = false;
+      for (Guid s : overlay.selection) isSelected |= s == c;
+      const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, b.w);
+      if (!L || L->lines.empty()) continue;
+      double x = std::round(b.x * dpr) / dpr;
+      double baseline = std::round((b.y - style.titleBaselineGap) * dpr) / dpr;
+      Mat2x3 m = Mat2x3::translate(x, baseline - L->lines[0].baseline);
+      drawGlyphs(*L, m, isSelected ? blue : style.title, isSelected ? 1 : style.titleAlpha);
+    }
+  }
 
   // Auto-layout padding / gap bands under the pointer.
   for (const Rect& band : overlay.bands) {
@@ -117,13 +161,20 @@ void Renderer::drawOverlay(const Document& doc, const Camera& camera, const Over
       Rect r = transformedBounds(toScreen, box.size.x, box.size.y);
       Mat2x3 w = box.toWorld;
       Vec2 worldSize{box.size.x * std::hypot(w.m00, w.m10), box.size.y * std::hypot(w.m01, w.m11)};
-      std::string label = formatNumber(worldSize.x) + " x " + formatNumber(worldSize.y);
-      double bw = 8 + 6.2 * static_cast<double>(label.size()), bh = style.badgeHeight;
+      std::string text = formatNumber(worldSize.x) + " \u00D7 " + formatNumber(worldSize.y);
+      const text::TextLayout* L = label(text, "Medium", style.labelSize);
+      double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+      double bw = std::round(tw + 2 * style.badgePadding), bh = style.badgeHeight;
       double bx = std::round((r.x + r.w / 2 - bw / 2) * dpr) / dpr;
       double by = std::round((r.bottom() + style.badgeGap) * dpr) / dpr;
       double rr = style.badgeRadius;
       emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0),
            Pass::Color);
+      if (L && !L->lines.empty()) {
+        const text::LaidLine& line = L->lines[0];
+        double ty = by + (bh - line.height) / 2;
+        drawGlyphs(*L, Mat2x3::translate(bx + (bw - tw) / 2, std::round(ty * dpr) / dpr), white, 1);
+      }
     }
   }
 
@@ -173,11 +224,17 @@ void Renderer::drawOverlay(const Document& doc, const Camera& camera, const Over
     for (Vec2 end : {a, b}) line(back.apply(end - n * (style.tick / 2)), back.apply(end + n * (style.tick / 2)), 1, color);
     // The number (text comes with E3): the world distance, sized for its digits.
     double value = (m.b - m.a).length();
-    std::string label = formatNumber(value);
-    double pw = 8 + 6.2 * static_cast<double>(label.size()), ph = style.pillHeight, rr = style.pillRadius;
+    std::string text = formatNumber(value);
+    const text::TextLayout* L = label(text, "Medium", style.labelSize);
+    double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+    double pw = std::round(tw + 2 * style.badgePadding), ph = style.pillHeight, rr = style.pillRadius;
     Vec2 c = (a + b) * 0.5;
     double px = std::round((c.x - pw / 2) * dpr) / dpr, py = std::round((c.y - ph / 2) * dpr) / dpr;
     emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Color);
+    if (L && !L->lines.empty()) {
+      double ty = py + (ph - L->lines[0].height) / 2;
+      drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round(ty * dpr) / dpr), Color{1, 1, 1, 1}, 1);
+    }
   };
 
   // Smart guides and equal spacing while moving, resizing or drawing.

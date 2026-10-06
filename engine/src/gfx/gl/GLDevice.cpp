@@ -80,6 +80,12 @@ class WebGL2Device final : public Device {
     shape_.row0 = glGetUniformLocation(shape_.program, "u_row0");
     shape_.row1 = glGetUniformLocation(shape_.program, "u_row1");
     shape_.stencilPass = glGetUniformLocation(shape_.program, "u_stencilPass");
+    glyph_.program = link(gl::kGlyphVertexShader, gl::kGlyphFragmentShader);
+    if (!glyph_.program) return false;
+    glyph_.row0 = glGetUniformLocation(glyph_.program, "u_row0");
+    glyph_.row1 = glGetUniformLocation(glyph_.program, "u_row1");
+    glyph_.stencilPass = glGetUniformLocation(glyph_.program, "u_stencilPass");
+    glyph_.curves = glGetUniformLocation(glyph_.program, "u_curves");
     glGenVertexArrays(1, &vao_);
     glBindVertexArray(vao_);
     for (GLuint i = 0; i < 6; i++) {
@@ -158,14 +164,29 @@ class WebGL2Device final : public Device {
     const PipelineDesc& p = pipelines_.at(call.pipeline);
     const Buffer& b = buffers_.at(call.instances.buffer);
 
-    glUseProgram(shape_.program);
+    const bool glyphs = p.shader == ShaderId::Glyph;
+    const Program& prog = glyphs ? glyph_ : shape_;
+    glUseProgram(prog.program);
     glBindBuffer(GL_ARRAY_BUFFER, b.gl);
-    const GLsizei stride = 6 * 4 * sizeof(float);  // render/ShapeInstance.h
-    for (GLuint i = 0; i < 6; i++)
+    // render/ShapeInstance.h: 6 vec4s; render/GlyphInstance.h: 4 vec4s.
+    const GLuint attribs = glyphs ? 4 : 6;
+    const GLsizei stride = static_cast<GLsizei>(attribs * 4 * sizeof(float));
+    for (GLuint i = 0; i < 6; i++) {
+      if (i >= attribs) {
+        glDisableVertexAttribArray(i);
+        continue;
+      }
+      glEnableVertexAttribArray(i);
       glVertexAttribPointer(i, 4, GL_FLOAT, GL_FALSE, stride,
                             reinterpret_cast<const void*>(static_cast<uintptr_t>(call.instances.offset + i * 4 * sizeof(float))));
-    glUniform3f(shape_.row0, call.uniforms[0], call.uniforms[1], call.uniforms[2]);
-    glUniform3f(shape_.row1, call.uniforms[3], call.uniforms[4], call.uniforms[5]);
+    }
+    glUniform3f(prog.row0, call.uniforms[0], call.uniforms[1], call.uniforms[2]);
+    glUniform3f(prog.row1, call.uniforms[3], call.uniforms[4], call.uniforms[5]);
+    if (glyphs) {
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, call.texture < textures_.size() ? textures_[call.texture].gl : 0);
+      glUniform1i(glyph_.curves, 0);
+    }
 
     if (p.blend == Blend::Premultiplied) {
       glEnable(GL_BLEND);
@@ -175,7 +196,7 @@ class WebGL2Device final : public Device {
     }
     bool colour = p.colorMask == ColorMask::All;
     glColorMask(colour, colour, colour, colour);
-    glUniform1i(shape_.stencilPass, colour ? 0 : 1);
+    glUniform1i(prog.stencilPass, colour ? 0 : 1);
 
     if (p.stencil.enabled) {
       glEnable(GL_STENCIL_TEST);
@@ -260,6 +281,44 @@ class WebGL2Device final : public Device {
     return true;
   }
 
+  TextureId createTexture(TextureFormat, uint32_t width, uint32_t height) override {
+    if (!context_ || emscripten_is_webgl_context_lost(context_) || !width || !height) return 0;
+    emscripten_webgl_make_context_current(context_);
+    Texture t;
+    t.width = width;
+    t.height = height;
+    glGenTextures(1, &t.gl);
+    glBindTexture(GL_TEXTURE_2D, t.gl);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    for (size_t i = 1; i < textures_.size(); i++)
+      if (!textures_[i].gl) {
+        textures_[i] = t;
+        return static_cast<TextureId>(i);
+      }
+    textures_.push_back(t);
+    return static_cast<TextureId>(textures_.size() - 1);
+  }
+
+  void writeTexture(TextureId id, IRect rect, std::span<const uint8_t> data) override {
+    if (!id || id >= textures_.size() || !textures_[id].gl) return;
+    emscripten_webgl_make_context_current(context_);
+    glBindTexture(GL_TEXTURE_2D, textures_[id].gl);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, rect.y, rect.w, rect.h, GL_RGBA, GL_FLOAT, data.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+  }
+
+  void destroyTexture(TextureId id) override {
+    if (!id || id >= textures_.size() || !textures_[id].gl) return;
+    glDeleteTextures(1, &textures_[id].gl);
+    textures_[id] = Texture{};
+  }
+
   void submit() override {}  // the browser presents the canvas after the task
 
   void destroyBuffer(BufferId id) override {
@@ -284,13 +343,18 @@ class WebGL2Device final : public Device {
     if (t.stencil) glDeleteRenderbuffers(1, &t.stencil);
     t = Target{};
   }
-  struct ShapeProgram {
+  struct Program {
     GLuint program = 0;
-    GLint row0 = -1, row1 = -1, stencilPass = -1;
+    GLint row0 = -1, row1 = -1, stencilPass = -1, curves = -1;
+  };
+  struct Texture {
+    GLuint gl = 0;
+    uint32_t width = 0, height = 0;
   };
 
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context_ = 0;
-  ShapeProgram shape_;
+  Program shape_, glyph_;
+  std::vector<Texture> textures_{Texture{}};  // index = TextureId; 0 unused
   GLuint vao_ = 0;
   std::vector<Buffer> buffers_{Buffer{}};          // index = BufferId; 0 unused
   std::vector<PipelineDesc> pipelines_{PipelineDesc{}};

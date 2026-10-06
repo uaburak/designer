@@ -133,6 +133,28 @@ export interface ImportResult {
   failed: { path: string; error: string }[];
 }
 
+/** One face of an installed font file (docs/desktop.md §14). Paths never reach a view. */
+export interface FontFaceInfo {
+  /** First 16 hex of sha1(path + "#" + collectionIndex) */
+  id: string;
+  /** Typographic family (name 16, else 1) */
+  family: string;
+  /** Typographic subfamily (name 17, else 2), e.g. "Semi Bold Italic" */
+  style: string;
+  postscriptName: string;
+  /** 100–900 */
+  weight: number;
+  italic: boolean;
+  /** 1–9 */
+  stretch: number;
+  source: "system" | "user";
+  collectionIndex: number;
+}
+export interface FontIndex {
+  version: number;
+  faces: FontFaceInfo[];
+}
+
 export interface IpcInvoke {
   "desktop:init": { args: []; result: InitInfo };
   "tabs:get": { args: []; result: TabsSnapshot };
@@ -146,6 +168,10 @@ export interface IpcInvoke {
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** A native menu at a point of the view (`at` in the view's CSS pixels): the picked item's id, or null */
   "menu:popup": { args: [{ template: NativeMenuItem[]; x: number; y: number }]; result: string | null };
+  /** The system's and the user's fonts (scanned once, cached in userData/cache/fonts-v1.json) */
+  "fonts:list": { args: []; result: FontIndex };
+  /** A face's whole font file (the engine parses it), by its index id */
+  "fonts:read": { args: [{ id: string }]; result: Uint8Array };
 }
 
 export interface IpcSend {
@@ -192,6 +218,8 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:save-local-copy": ["home", "editor"],
   "theme:set": ["tabbar", "home", "editor"],
   "menu:popup": ["tabbar", "home", "editor"],
+  "fonts:list": ["editor"],
+  "fonts:read": ["editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

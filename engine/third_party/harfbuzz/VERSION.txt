@@ -1,0 +1,2 @@
+HarfBuzz 14.6.0 (https://github.com/harfbuzz/harfbuzz/releases/tag/14.6.0), MIT ("Old MIT", COPYING).
+Only the files src/harfbuzz.cc includes with hb-config-override.h are kept (the rest of src/ was removed).

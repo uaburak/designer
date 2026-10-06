@@ -778,6 +778,8 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 - Cached per node and rebuilt on `TEXT` dirtiness.
 
 ### 7.5 Glyph drawing
+> **Decided while implementing E3 (2026-10-07)**: glyphs are drawn by a fragment shader that computes coverage from the glyph's quadratic curves directly (a +x and a +y ray per pixel, Lengyel's root classification; curves in one RGBA32F texture), not by stencil-then-cover + MaskAtlas: the canvas has no MSAA, and this is crisp at every zoom with no atlas. Case mapping uses a generated table (no utf8proc). Details in `docs/engine-build.md` "Status: E3 text".
+
 - **em ≤ 64 device px**: `MaskAtlas` (§6.3), keyed by `(faceId, glyphId, varHash, emSizeQ = ⌈em·4⌉/4, subpixelX/4)`. One instanced draw per paint per text node. Fills apply in node space, so gradient and image text work.
 - **Larger**: direct path rendering from `GlyphCache` (Loop-Blinn), a glyph instanced by transform.
 - **Text strokes**: stroke outlines of the glyph paths, via the path renderer.

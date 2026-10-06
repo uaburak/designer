@@ -9,6 +9,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -25,6 +26,7 @@
 #include "render/Renderer.h"
 #include "scene/ChangeSet.h"
 #include "scene/Document.h"
+#include "text/TextLayout.h"
 
 namespace eng {
 
@@ -87,7 +89,7 @@ struct Clipboard {
   Guid page = kNoGuid;
 };
 
-class Editor : private LayoutHost {
+class Editor : private LayoutHost, public TextLayouts {
  public:
   Editor();
 
@@ -178,20 +180,44 @@ class Editor : private LayoutHost {
     std::vector<ContextMenu> contextMenus;
     std::vector<std::pair<Guid, uint32_t>> nodes;  // NODES_CHANGED: node, field groups (merged)
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
-         structure = false, pages = false, currentPage = false;
+         structure = false, pages = false, currentPage = false, textEdit = false;
     bool any() const {
       return !documents.empty() || !contextMenus.empty() || !nodes.empty() || selection || camera || tool || cursor || hover || undo ||
-             structure || pages || currentPage;
+             structure || pages || currentPage || textEdit;
     }
   };
   bool hasEvents() const { return events_.any(); }
   Events takeEvents();
 
+  // ---- Text (docs/engine.md §7.6) ----
+  // The layout of a TEXT node as it is now (cached; nullptr for other nodes).
+  const text::TextLayout* textLayout(Guid id) override;
+  // A font arrived or went missing: text is laid out again (and auto-resized
+  // texts measured while it loaded take their size).
+  void fontsChanged();
+  // Starts editing `id` (a TEXT node): all its text selected, or the caret at the end.
+  Status startTextEdit(Guid id, bool selectAll);
+  // Leaves text editing (an empty text it created, or that ends empty, is deleted).
+  void endTextEdit();
+  bool textEditing() const { return text_.node != kNoGuid; }
+  Guid textNode() const { return text_.node; }
+  // Typed text (UTF-8) replacing the selection; IME composition and its end.
+  Status textInput(std::string_view utf8);
+  Status textComposition(std::string_view utf8, uint32_t selStart, uint32_t selEnd);
+  Status textCompositionEnd(std::string_view utf8);
+  // The selected text (UTF-8), for copy.
+  std::string textSelection() const;
+  // UTF-16 [start, end) of the text selection (start ≤ end).
+  uint32_t textSelStart() const { return std::min(text_.anchor, text_.focus); }
+  uint32_t textSelEnd() const { return std::max(text_.anchor, text_.focus); }
+  // The caret on screen (CSS px in the canvas): x, y, height.
+  Rect caretRectCss() const;
+
   // Whether a gesture is in progress (undo and txn calls are refused meanwhile).
   bool busy() const { return gesture_ != Gesture::None && gesture_ != Gesture::Press; }
 
  private:
-  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee };
+  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect };
 
   struct Target {
     Guid id;
@@ -209,6 +235,8 @@ class Editor : private LayoutHost {
   bool excludedFromFlow(Guid id) const override { return excluded_.count(id) != 0; }
   bool placedByGesture(Guid id) const override { return excluded_.count(id) != 0 || pinned_.count(id) != 0; }
   bool ignoreConstraints(Guid frame) const override { return ignoreConstraints_; }
+  bool measureText(Guid id, double width, Vec2& size) override;
+  double firstBaseline(Guid id, Vec2 size) override;
 
   // ---- Transactions ----
   void begin(TxnKind kind, const std::string& label);
@@ -220,6 +248,8 @@ class Editor : private LayoutHost {
   void markLayout(const NodeChange& c, Guid parentBefore);
   void flushLayout();
   void removeEmptyGroups();
+  // Lays out every auto-layout frame and group (a file just loaded), as one SYSTEM change.
+  void relayoutAll();
 
   void changeSelection(std::vector<Guid> ids);
   void changeCamera(const Camera& c);
@@ -318,6 +348,34 @@ class Editor : private LayoutHost {
   void dragMarquee(Vec2 world, uint32_t mods);
   void finishClick(uint32_t mods);
 
+  // ---- Text editing (editor/TextEditing.cpp) ----
+  struct TextSession {
+    Guid node = kNoGuid;
+    uint32_t anchor = 0, focus = 0;  // UTF-16
+    bool upstream = false;           // the caret at a soft wrap sits at the end of the line before
+    double preferredX = -1;          // ↑ / ↓ keep this x
+    bool created = false;            // the session made the node
+    size_t undoCount = 0;            // the undo step the session's edits merge into (0: none yet)
+    bool composing = false;
+    uint32_t compStart = 0, compLength = 0;
+    double blinkStart = 0;
+    bool caretOn = true;
+    int granularity = 0;             // a drag selecting by 0 characters, 1 words, 2 paragraphs
+    uint32_t dragStart = 0, dragEnd = 0;  // the word / paragraph the drag started in
+  };
+  uint32_t textKey(KeyCode code, uint32_t mods);
+  uint32_t textPointerDown(Vec2 s, uint32_t mods, int clickCount);
+  void textDrag(Vec2 s);
+  // Puts [from, to) of the edited text = `insert`, one merged undo step, autoRename, layout.
+  void textReplace(uint32_t from, uint32_t to, std::u16string_view insert, const char* label);
+  void setTextSelection(uint32_t anchor, uint32_t focus, bool keepX = false);
+  void textChanged();  // TEXT_EDIT, caret blink restart, a frame
+  uint32_t textIndexAt(Vec2 screen) const;
+  std::u16string editedText() const;
+  void createTextAt(Vec2 world, double width);
+  Status applyTextStyle(Guid id, const NodeChange& props);
+  void textToggleStyle(KeyCode code, uint32_t mods);
+
   Document doc_;
   UndoStack undo_;
   Guid page_ = kNoGuid;
@@ -392,6 +450,18 @@ class Editor : private LayoutHost {
   GuideLine insertion_;
   size_t insertIndex_ = 0;
   std::vector<Rect> bands_;  // auto-layout padding / gap bands under the pointer (world)
+
+  // Text.
+  struct CachedText {
+    std::unique_ptr<text::TextLayout> layout;
+    double width = 0, height = 0;
+    uint32_t generation = 0;
+  };
+  std::unordered_map<Guid, CachedText, GuidHash> textCache_;
+  std::unordered_set<Guid, GuidHash> unmeasured_;  // auto-resized texts measured while their font loaded
+  TextSession text_;
+  double timeMs_ = 0;
+  int clickCount_ = 1;
 };
 
 }  // namespace eng

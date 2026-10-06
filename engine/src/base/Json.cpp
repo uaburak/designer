@@ -282,4 +282,32 @@ Writer& Writer::null() {
   return *this;
 }
 
+void write(Writer& w, const Value& v) {
+  switch (v.kind) {
+    case Value::Kind::Null: w.null(); break;
+    case Value::Kind::Bool: w.boolean(v.boolean); break;
+    case Value::Kind::Number: w.number(v.number); break;
+    case Value::Kind::String: w.string(v.string); break;
+    case Value::Kind::Array:
+      w.beginArray();
+      for (auto& e : v.array) write(w, e);
+      w.endArray();
+      break;
+    case Value::Kind::Object:
+      w.beginObject();
+      for (auto& [k, e] : v.object) {
+        w.key(k);
+        write(w, e);
+      }
+      w.endObject();
+      break;
+  }
+}
+
+std::string encode(const Value& v) {
+  Writer w;
+  write(w, v);
+  return w.take();
+}
+
 }  // namespace eng::json

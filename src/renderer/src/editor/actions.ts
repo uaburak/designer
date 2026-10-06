@@ -11,7 +11,7 @@ import { boundsOf, IDENTITY, multiply, rotateAbout, unionBoxes, type Box } from 
 const isGroup = (n: NodeChange | null) => !!n && (n.type === "GROUP" || (n.type === "FRAME" && n.resizeToFit === true));
 
 /** The product of the group ancestors' transforms up to the nearest non-group ancestor (X/Y are measured from there). */
-export function groupChain(ed: EditorController, node: NodeChange): Matrix {
+export function groupChain(ed: EditorController, node: Pick<NodeChange, "parentIndex">): Matrix {
   let chain = IDENTITY;
   let parent = node.parentIndex?.guid ? ed.store.readNode(node.parentIndex.guid) : null;
   for (let depth = 0; parent && isGroup(parent) && depth < 64; depth++) {

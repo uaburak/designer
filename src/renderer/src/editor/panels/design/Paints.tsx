@@ -5,21 +5,27 @@
  * its position and weight. A picker drag previews in one open transaction
  * and commits on release.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ColorInput, ColorPicker, IconButton, NumericInput, PanelSection, PropertyGrid, PropertyRow, Select, cx, isMixed, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
 import type { Color, Guid, Paint, StrokeAlign } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixed, mixedNumber, mixedPaints, fieldValue } from "../../model/mixed";
 import { useUI } from "../../hooks";
+import type { PaintUse } from "../../model/selectionColors";
 import { exitToCanvas } from "./Sections";
+import { pageColors, writeSelectionColor } from "./SelectionColors";
 import { isFrameNode, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 type PaintField = "fillPaints" | "strokePaints";
 
 /** What the open picker edits. */
-export type PickerTarget = { kind: "paint"; field: PaintField; index: number; anchor: DOMRect } | { kind: "page"; page: Guid; anchor: DOMRect };
+export type PickerTarget =
+  | { kind: "paint"; field: PaintField; index: number; anchor: DOMRect }
+  | { kind: "page"; page: Guid; anchor: DOMRect }
+  /** A Selection colors row: every paint that used the colour when the picker opened */
+  | { kind: "colors"; uses: PaintUse[]; anchor: DOMRect };
 
 function writePaints(ed: EditorController, refs: readonly Guid[], field: PaintField, paints: Paint[], label: string, info: ChangeInfo) {
   ed.edit(label, info, () => {
@@ -130,16 +136,38 @@ export const fromPicker = (base: Paint, next: PickerPaint): Paint => ({ ...base,
 export function PaintPicker({ target, nodes, pageColor, onClose }: { target: PickerTarget; nodes: PanelNode[]; pageColor: Color | null; onClose: () => void }) {
   const ed = useEditor();
   const [model, setModel] = useState<ColorModel>("hex");
+  // "On this page": read once when the picker opens.
+  const documentColors = useMemo(() => pageColors(ed), [ed]);
   if (target.kind === "page") {
     const color = pageColor ?? hexToColor("#f5f5f5");
     return (
       <ColorPicker
         value={{ type: "SOLID", color: { ...color, a: 1 }, opacity: color.a ?? 1 }}
         paintTypes={["SOLID"]}
+        documentColors={documentColors}
         anchor={target.anchor}
         colorModel={model}
         onColorModelChange={setModel}
         onChange={(next, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([target.page], { backgroundColor: { ...(next.color ?? color), a: next.opacity ?? 1 } }))}
+        onCancel={() => ed.cancelEdit()}
+        onClose={onClose}
+      />
+    );
+  }
+  if (target.kind === "colors") {
+    const first = target.uses[0];
+    const node = first ? ed.engine.readNode(first.guid) : null;
+    const paint = node && first ? node[first.field]?.[first.index] : undefined;
+    if (!paint) return null;
+    return (
+      <ColorPicker
+        value={toPicker(paint)}
+        paintTypes={["SOLID"]}
+        documentColors={documentColors}
+        anchor={target.anchor}
+        colorModel={model}
+        onColorModelChange={setModel}
+        onChange={(next, info) => writeSelectionColor(ed, target.uses, { color: next.color, opacity: next.opacity }, info)}
         onCancel={() => ed.cancelEdit()}
         onClose={onClose}
       />
@@ -154,6 +182,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
     <ColorPicker
       value={toPicker(paint)}
       paintTypes={["SOLID"]}
+      documentColors={documentColors}
       anchor={target.anchor}
       colorModel={model}
       onColorModelChange={setModel}

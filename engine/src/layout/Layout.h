@@ -32,6 +32,11 @@ class LayoutHost {
   virtual bool placedByGesture(Guid id) const = 0;
   // Resizing with ⌘ held: children keep their place (Figma's "ignore constraints").
   virtual bool ignoreConstraints(Guid frame) const = 0;
+  // A TEXT node's laid-out size wrapping at `width` (< 0: no wrapping). False when it
+  // can't be measured now (its font is loading or missing): its stored size stands.
+  virtual bool measureText(Guid id, double width, Vec2& size) { return false; }
+  // A TEXT node's first baseline (from its top) at `size`; < 0 when it has none.
+  virtual double firstBaseline(Guid id, Vec2 size) { return -1; }
 };
 
 class Layout {
@@ -69,6 +74,9 @@ class Layout {
   void applyConstraints(Guid frame, bool flowChildrenToo);
   void fitGroup(Guid id);
   Vec2 contentSize(Guid frame, Vec2 frameSize);
+  // Where a child's first baseline is, from the top of its layout box (BASELINE alignment): a text's
+  // first line, an auto-layout frame's first child's, else the box's bottom.
+  double baselineOf(Guid id, Vec2 size, int depth = 0);
 
   LayoutHost& host_;
   const Document& doc_;

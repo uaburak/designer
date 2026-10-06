@@ -4,9 +4,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { CMD_ENABLED, POINTER_CAPTURE, PointerType, Status } from "../abi";
-import type { EngineEvent, Message } from "../codec";
+import { CMD_ENABLED, MOD_ALT, MOD_SHIFT, POINTER_CAPTURE, PointerType, Status } from "../abi";
+import type { EngineEvent, EventOf, Message, NodeChange } from "../codec";
 import { Engine } from "../Engine";
+import { BUNDLED_FACES, fonts } from "../fonts";
 import { loadEngine } from "../loadEngine";
 import { SAMPLE_DOCUMENT } from "../sampleDocument";
 
@@ -201,6 +202,110 @@ describe("engine (wasm, headless)", () => {
     expect(thumb.pixels.length).toBe(thumb.width * thumb.height * 4);
     expect(thumb.pixels[3]).toBe(255);
     expect(engine.renderThumbnailPixels({ page: "9:9", maxSize: 200 })).toBeNull();
+    engine.destroy();
+  });
+});
+
+describe("engine (wasm, headless): text (E3)", () => {
+  const fontFile = (name: string) => new Uint8Array(readFileSync(fileURLToPath(new URL(`../fonts/${name}`, import.meta.url))));
+
+  async function textEngine() {
+    fonts.setSource({
+      list: async () => BUNDLED_FACES,
+      read: async (face) => fontFile(face.id === "bundled:inter" ? "InterVariable.ttf" : "InterVariable-Italic.ttf"),
+    });
+    const engine = await Engine.create(null, { sessionID: 3 });
+    const doc: Message = {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      nodeChanges: [
+        ...SAMPLE_DOCUMENT.nodeChanges.slice(0, 3),
+        {
+          guid: "1:500",
+          phase: "CREATED",
+          type: "TEXT",
+          parentIndex: { guid: "0:1", position: "~" },
+          name: "ABC",
+          size: { x: 42, y: 21 },
+          transform: { m00: 1, m01: 0, m02: 2000, m10: 0, m11: 1, m12: 2000 },
+          fillPaints: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true }],
+          textData: { characters: "ABC" },
+          fontName: { family: "Inter", style: "Regular", postscript: "" },
+          lineHeight: { value: 100, units: "PERCENT" },
+        },
+      ],
+    };
+    engine.load(doc);
+    engine.setViewport(800, 600, 1, 800, 600);
+    await fonts.settled();
+    engine.pump();
+    return engine;
+  }
+
+  it("lays out a text as Figma does (structure.fig's \"ABC\") once Inter has arrived", async () => {
+    const engine = await textEngine();
+    const layout = engine.textLayout("1:500")!;
+    expect(layout.pendingFont).toBe(false);
+    expect(layout.missingFont).toBe(false);
+    expect(layout.glyphs.map((g) => g.position.x)).toEqual([0, expect.closeTo(8.109, 0), expect.closeTo(15.914, 0)]);
+    expect(layout.baselines[0].lineHeight).toBe(15);
+    expect(layout.baselines[0].position.y).toBeCloseTo(11.8636, 1);
+    expect(engine.textLayout("0:1")).toBeNull();
+    engine.destroy();
+  });
+
+  it("the Text tool: click, type, Esc — one undo step, TEXT_EDIT events, the fields in codec.ts", async () => {
+    const engine = await textEngine();
+    const edits: EventOf<"TEXT_EDIT">[] = [];
+    engine.on("TEXT_EDIT", (e) => edits.push(e));
+    expect(engine.setTool("TEXT")).toBe(Status.OK);
+    engine.pointer(PointerType.DOWN, 100, 100, 0, 1, 0);
+    engine.pointer(PointerType.UP, 100, 100, 0, 0, 0);
+    expect(engine.textEdit?.active).toBe(true);
+    const ref = engine.textEdit!.ref!;
+    engine.textInput("Hello");
+    const node = engine.readNode(ref)!;
+    expect(node.type).toBe("TEXT");
+    expect(node.textData?.characters).toBe("Hello");
+    expect(node.textAutoResize).toBe("WIDTH_AND_HEIGHT");
+    expect(node.fontName).toEqual({ family: "Inter", style: "Regular", postscript: "" });
+    expect(node.fontSize).toBe(12);
+    expect(node.size?.y).toBe(15);
+    expect(node.name).toBe("Hello");
+    expect(edits.at(-1)!.selStart).toBe(5);
+    engine.key("down", "ArrowLeft", "ArrowLeft", MOD_SHIFT | MOD_ALT);
+    expect(engine.textSelection()).toBe("Hello");
+    engine.key("down", "Escape", "Escape", 0);
+    expect(engine.textEdit).toBeNull();
+    expect(engine.getSelection().refs).toEqual([ref]);
+    engine.undo();
+    expect(engine.readNode(ref)).toBeNull();
+    engine.destroy();
+  });
+
+  it("nodes the engine doesn't draw keep their type and fields", async () => {
+    const engine = await textEngine();
+    engine.applyChanges({
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      nodeChanges: [
+        {
+          guid: "1:600",
+          phase: "CREATED",
+          type: "VECTOR",
+          parentIndex: { guid: "0:1", position: "~~" },
+          size: { x: 10, y: 10 },
+          vectorData: { vectorNetworkBlob: 4 },
+          fillPaints: [{ type: "GRADIENT_LINEAR", visible: true, stops: [] }],
+        } as unknown as NodeChange,
+      ],
+    });
+    engine.setSelection(["1:600"]);
+    engine.command("DUPLICATE");
+    const copy = engine.readNode(engine.getSelection().refs[0]) as NodeChange & { vectorData?: unknown };
+    expect(copy.type).toBe("VECTOR");
+    expect(copy.vectorData).toEqual({ vectorNetworkBlob: 4 });
+    expect(copy.fillPaints?.[0]).toEqual({ type: "GRADIENT_LINEAR", visible: true, stops: [] });
     engine.destroy();
   });
 });

@@ -19,6 +19,8 @@ void UndoStack::record(const NodeChange& inverse) {
       NodeChange& earlier = open_.inverse[it->second];
       FieldMask fresh = inverse.mask & ~earlier.mask;  // fields the earlier inverse doesn't hold yet
       copyFields(earlier.props, inverse.props, fresh);
+      if ((inverse.mask & earlier.mask & F_EXTRA))
+        for (auto& [k, v] : inverse.props.extra) earlier.props.extra.emplace(k, v);  // the oldest value of each key wins
       earlier.mask |= fresh;
       return;
     }

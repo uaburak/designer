@@ -6,8 +6,8 @@
 //
 // Interim subset of §6.1: buffers, pipelines over the built-in shaders, passes
 // on the default framebuffer or on an offscreen RGBA8 + stencil target (with
-// readback, for thumbnails), small inline uniforms. Textures, MSAA resolve
-// and sampling targets come with E3/E5.
+// readback, for thumbnails), small inline uniforms, float data textures (glyph
+// curves). MSAA resolve and sampling targets come with E5.
 #pragma once
 
 #include <cstdint>
@@ -18,6 +18,10 @@ namespace eng::gfx {
 using BufferId = uint32_t;    // 0 = none
 using PipelineId = uint32_t;  // 0 = none
 using TargetId = uint32_t;    // 0 = the default framebuffer (the canvas)
+using TextureId = uint32_t;   // 0 = none
+
+// RGBA32F: unfiltered float data read with texelFetch (glyph curves).
+enum class TextureFormat : uint8_t { RGBA32F };
 
 enum class BufferKind : uint8_t { Vertex, Instance, Index, Uniform };
 enum class Usage : uint8_t { Static, Dynamic, Stream };
@@ -26,6 +30,7 @@ enum class Usage : uint8_t { Static, Dynamic, Stream };
 // instance layout, documented with the shader.
 enum class ShaderId : uint8_t {
   Shape = 0,  // SDF rect / rounded rect / ellipse, fill + stroke, analytic AA; render/ShapeInstance.h
+  Glyph = 1,  // a glyph's quadratic curves (from a texture), coverage computed per pixel; render/GlyphInstance.h
 };
 
 enum class StencilFunc : uint8_t { Always, Equal };
@@ -73,6 +78,7 @@ struct DrawCall {
   bool scissorEnabled = false;
   IRect scissor;
   uint8_t stencilRef = 0;
+  TextureId texture = 0;  // Glyph: the curve texture
 };
 
 struct Caps {
@@ -101,6 +107,11 @@ class Device {
   // The target's pixels in `rect` (origin top left), rows top to bottom, premultiplied
   // RGBA8 into `rgba8` (rect.w × rect.h × 4 bytes). False when nothing could be read.
   virtual bool readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) = 0;
+  // A width×height texture (contents undefined); 0 when it can't be made.
+  virtual TextureId createTexture(TextureFormat format, uint32_t width, uint32_t height) = 0;
+  // Writes `rect` of the texture (rows top to bottom, tightly packed).
+  virtual void writeTexture(TextureId texture, IRect rect, std::span<const uint8_t> data) = 0;
+  virtual void destroyTexture(TextureId texture) = 0;
 };
 
 }  // namespace eng::gfx

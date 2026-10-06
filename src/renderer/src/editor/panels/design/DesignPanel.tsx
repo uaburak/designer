@@ -1,8 +1,10 @@
 /**
  * The Design tab, by selection (UI3): nothing selected → Page (the page's
  * colour), Styles, Export; a selection → its type (Frame ▾ with presets,
- * Rectangle, Ellipse, Group, Mixed), Position, Layout / Auto layout,
- * Appearance, Fill, Stroke, Effects, Layout guide (frames), Export.
+ * Rectangle, Ellipse, Group, Vector path, Text…, Mixed), Position (with
+ * Constraints), Layout / Auto layout (sizing menus, min / max), Appearance,
+ * Typography (text), Fill, Stroke, Selection colors, Effects, Layout guide
+ * (frames), Export.
  * Sections whose fields the engine doesn't keep yet show their "+" disabled.
  */
 import { useState } from "react";
@@ -14,7 +16,9 @@ import { useNodes } from "../../hooks";
 import { colorToHex, hexToColor, sameColor, toPercent } from "../../model/color";
 import { AppearanceSection, LayoutSection, PositionSection } from "./Sections";
 import { PaintPicker, PaintsSection, type PickerTarget } from "./Paints";
-import { isFrameNode, typeLabel, useSelectedNodes, useSupports, type PanelNode } from "./shared";
+import { SelectionColorsSection } from "./SelectionColors";
+import { TypographySection } from "./Typography";
+import { isFrameNode, isTextNode, typeLabel, useSelectedNodes, useSupports, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 /** Figma's frame presets (the Frame tool's list in the panel, the most used ones). */
@@ -85,14 +89,17 @@ export function DesignPanel() {
 
 function Selected({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
   const frames = nodes.every(isFrameNode);
+  const text = nodes.every(isTextNode);
   return (
     <>
       <TypeHeader nodes={nodes} />
       <PositionSection nodes={nodes} />
       <LayoutSection nodes={nodes} />
       <AppearanceSection nodes={nodes} />
+      {text && <TypographySection nodes={nodes} />}
       <PaintsSection title="Fill" field="fillPaints" nodes={nodes} onPick={onPick} />
       <PaintsSection title="Stroke" field="strokePaints" nodes={nodes} onPick={onPick} />
+      <SelectionColorsSection nodes={nodes} onPick={onPick} />
       <LaterSection title="Effects" field="effects" add="Add effect" />
       {frames && <LaterSection title="Layout guide" field="layoutGrids" add="Add layout guide" />}
       <ExportSection />

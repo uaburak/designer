@@ -3,7 +3,8 @@
  * - `&file=<fileKey>[&tab=<id>]` (the desktop's editor tabs; a browser opens the dev store's files):
  *   the file on the store, through the data workstream's DocumentSource (`@/store`).
  * - otherwise a document held in memory: the engine's sample, `&doc=reference` (the owner's file as
- *   in the reference screenshots) or `&doc=empty` (a new file).
+ *   in the reference screenshots), `&doc=empty` (a new file) or `&doc=types` (Phase 2's sizing, constraints
+ *   and layer types).
  * `&rulers=0` starts with the rulers off. The editor is on `window.__designerEditor` for scripts
  * (tools/editor-shot.mjs) and the console.
  */
@@ -14,7 +15,7 @@ import { openDocument } from "@/store";
 import { memoryDocumentSource, type DocumentSource } from "./documentSource";
 import { EditorApp } from "./EditorApp";
 import type { EditorController } from "./controller";
-import { EMPTY_DOCUMENT, REFERENCE_DOCUMENT } from "./fixtures";
+import { EMPTY_DOCUMENT, REFERENCE_DOCUMENT, TYPES_DOCUMENT } from "./fixtures";
 import styles from "./EditorApp.module.css";
 
 declare global {
@@ -26,6 +27,7 @@ declare global {
 function memorySource(doc: string | null): DocumentSource {
   if (doc === "reference") return memoryDocumentSource(REFERENCE_DOCUMENT, { fileName: "burakkoc", location: "Drafts" });
   if (doc === "empty") return memoryDocumentSource(EMPTY_DOCUMENT, { fileName: "Untitled", location: "Drafts" });
+  if (doc === "types") return memoryDocumentSource(TYPES_DOCUMENT, { fileName: "Layer types", location: "Drafts" });
   return memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Sample file", location: "Drafts" });
 }
 

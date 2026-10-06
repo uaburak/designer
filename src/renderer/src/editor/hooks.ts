@@ -98,3 +98,23 @@ export function useNodes(refs: readonly Guid[]): (NodeChange | null)[] {
   const source = useMemo(() => nodesSource(store, key ? key.split(",") : []), [store, key]);
   return useSyncExternalStore(source.subscribe, source.get);
 }
+
+/** A number bumped by every change to any node (NODES_CHANGED, DOCUMENT_CHANGED) and by structure changes — for reads over many nodes (Selection colors). */
+export function useDocumentVersion(): number {
+  const { engine, store } = useEditor();
+  const source = useMemo<Source<number>>(() => {
+    let version = 0;
+    return {
+      subscribe: (listener) => {
+        const bump = () => {
+          version++;
+          listener();
+        };
+        const offs = [engine.on("NODES_CHANGED", bump), engine.on("DOCUMENT_CHANGED", bump), store.subscribe("structure", bump)];
+        return () => offs.forEach((off) => off());
+      },
+      get: () => version,
+    };
+  }, [engine, store]);
+  return useSyncExternalStore(source.subscribe, source.get);
+}

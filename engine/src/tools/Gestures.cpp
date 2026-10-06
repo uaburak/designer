@@ -95,7 +95,14 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
 
 void Editor::updateCursor(Vec2 s) {
   if (spaceHeld_ || tool_ == Tool::HAND) return changeCursor(CursorKind::HAND);
+  if (tool_ == Tool::TEXT || gesture_ == Gesture::TextSelect) return changeCursor(CursorKind::IBEAM);
   if (tool_ != Tool::MOVE) return changeCursor(CursorKind::CROSSHAIR);
+  if (text_.node != kNoGuid) {
+    // Over the text being edited: an I-beam.
+    Vec2 local = doc_.worldTransform(text_.node).inverse().apply(camera_.toWorld(s));
+    const Node* n = doc_.get(text_.node);
+    if (n && Rect{0, 0, n->props.size.x, n->props.size.y}.contains(local)) return changeCursor(CursorKind::IBEAM);
+  }
   int hx = 0, hy = 0;
   Handle h = handleAt(s, hx, hy);
   if (h == Handle::None) return changeCursor(CursorKind::DEFAULT);
@@ -205,8 +212,9 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
 
 // ---- Pointer and wheel ------------------------------------------------------
 
-uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint32_t /*buttons*/, uint32_t mods, int /*clickCount*/) {
+uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint32_t /*buttons*/, uint32_t mods, int clickCount) {
   mods_ = mods;
+  if (type == PointerEvent::DOWN) clickCount_ = std::max(1, clickCount);
   Vec2 s{x, y};
   switch (type) {
     case PointerEvent::DOWN: return pointerDown(s, button, mods);
@@ -264,6 +272,27 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (button == 2 || (button == 0 && (mods & MOD_CTRL) && !(mods & MOD_PRIMARY))) return contextMenu(s, mods);
   if (button != 0) return 0;
 
+  // Editing text: a press in it moves the caret or selects; elsewhere it ends the editing first.
+  if (text_.node != kNoGuid)
+    if (uint32_t r = textPointerDown(s, mods, clickCount_)) return r;
+
+  if (tool_ == Tool::TEXT) {
+    // On a text layer: edit it there. Elsewhere: a click makes auto-width text, a drag a box of that width.
+    auto path = hitPath(doc_, page_, downWorld_, pixel());
+    if (!path.empty()) {
+      const Node* hit = doc_.get(path.back());
+      if (hit && hit->props.type == NodeType::TEXT && !hit->props.locked) {
+        setTool(Tool::MOVE);
+        startTextEdit(path.back(), false);
+        return textPointerDown(s, mods, clickCount_);
+      }
+    }
+    drawType_ = NodeType::TEXT;
+    drawn_ = kNoGuid;
+    gesture_ = Gesture::Draw;
+    return P_HANDLED | P_CAPTURE;
+  }
+
   if (tool_ == Tool::FRAME || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE) {
     drawType_ = tool_ == Tool::FRAME ? NodeType::FRAME : tool_ == Tool::RECTANGLE ? NodeType::ROUNDED_RECTANGLE : NodeType::ELLIPSE;
     // Into the innermost frame under the press (the page when none).
@@ -295,6 +324,13 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
 
   bool deep = (mods & MOD_PRIMARY) != 0, shift = (mods & MOD_SHIFT) != 0;
   auto path = hitPath(doc_, page_, downWorld_, pixel());
+  if (clickCount_ >= 2 && !shift && !path.empty()) {
+    // Double-click on a text layer: edit it, the word under the pointer selected.
+    const Node* hit = doc_.get(path.back());
+    if (hit && hit->props.type == NodeType::TEXT && !hit->props.locked && (selected(path.back()) || pick(doc_, path, selection_, deep) == path.back())) {
+      if (startTextEdit(path.back(), false) == OK) return textPointerDown(s, mods, 2);
+    }
+  }
   pressed_ = pick(doc_, path, selection_, deep);
   pressMarquee_ = false;
   marqueeScope_ = kNoGuid;
@@ -358,9 +394,15 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
     case Gesture::Rotate: dragRotate(world, mods); break;
     case Gesture::Draw:
       if (drawn_ == kNoGuid && (s - downScreen_).length() < kDragThreshold) break;
+      if (drawType_ == NodeType::TEXT) {
+        marquee_ = Rect::fromPoints(downWorld_, world);  // the text box being dragged
+        needsRender_ = true;
+        break;
+      }
       dragDraw(world, mods, false);
       break;
     case Gesture::Marquee: dragMarquee(world, mods); break;
+    case Gesture::TextSelect: textDrag(s); break;
   }
 }
 
@@ -375,6 +417,17 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Resize:
     case Gesture::Rotate: commit(); break;
     case Gesture::Draw:
+      if (drawType_ == NodeType::TEXT) {
+        // A click: auto-width text at the point; a drag: a box of the dragged width.
+        Rect r = Rect::fromPoints(downWorld_, world);
+        bool drag = (s - downScreen_).length() >= kDragThreshold && r.w >= 1;
+        gesture_ = Gesture::None;
+        endGesture();
+        setTool(Tool::MOVE);
+        createTextAt(drag ? Vec2{r.x, r.y} : downWorld_, drag ? std::round(r.w) : -1);
+        updateCursor(s);
+        return;
+      }
       if (drawn_ == kNoGuid) dragDraw(world, mods, true);
       if (excluded_.count(drawn_)) layoutDirty_.insert(doc_.parentOf(drawn_));
       excluded_.clear();
@@ -384,6 +437,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       setTool(Tool::MOVE);  // after a draw, back to Move (Figma)
       break;
     case Gesture::Marquee: needsRender_ = true; break;
+    case Gesture::TextSelect: break;
   }
   gesture_ = Gesture::None;
   endGesture();
@@ -883,6 +937,12 @@ void Editor::keepResizedSize(Guid id, bool x, bool y) {
     bool primary = horizontal ? x : y, counter = horizontal ? y : x;
     if (primary && p.hugsPrimary()) c.mask |= F_STACK_PRIMARY_SIZING, c.props.stackPrimarySizing = StackSize::FIXED;
     if (counter && p.hugsCounter()) c.mask |= F_STACK_COUNTER_SIZING, c.props.stackCounterSizing = StackSize::FIXED;
+  }
+  // A text resized by hand: a new width makes auto width auto height, a new height makes it a fixed box (Figma).
+  if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE) {
+    if (y) c.mask |= F_TEXT_AUTO_RESIZE, c.props.textAutoResize = TextAutoResize::NONE;
+    else if (x && p.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT)
+      c.mask |= F_TEXT_AUTO_RESIZE, c.props.textAutoResize = TextAutoResize::HEIGHT;
   }
   if (c.mask) write(c);
 }

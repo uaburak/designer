@@ -31,6 +31,17 @@ class NullDevice final : public Device {
   TargetId createTarget(uint32_t width, uint32_t height) override;
   void destroyTarget(TargetId target) override;
   bool readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) override;
+  // Textures keep their bytes (tests read them back).
+  TextureId createTexture(TextureFormat format, uint32_t width, uint32_t height) override;
+  void writeTexture(TextureId texture, IRect rect, std::span<const uint8_t> data) override;
+  void destroyTexture(TextureId texture) override;
+  struct Texture {
+    TextureFormat format = TextureFormat::RGBA32F;
+    uint32_t width = 0, height = 0;
+    std::vector<uint8_t> bytes;
+    bool live = false;
+  };
+  const Texture& texture(TextureId id) const { return textures_.at(id); }
 
   std::vector<Recorded> draws;  // this frame's
   PassDesc lastPass;
@@ -54,6 +65,7 @@ class NullDevice final : public Device {
     bool live = false;
   };
   std::vector<Target> targets_{{}};  // index = TargetId; 0 = the default framebuffer
+  std::vector<Texture> textures_{{}};  // index = TextureId; 0 unused
 
  public:
   size_t liveTargets() const {

@@ -60,6 +60,33 @@ void NullDevice::draw(const DrawCall& call) {
   draws.push_back(std::move(r));
 }
 
+TextureId NullDevice::createTexture(TextureFormat format, uint32_t width, uint32_t height) {
+  if (!width || !height) return 0;
+  Texture t;
+  t.format = format;
+  t.width = width;
+  t.height = height;
+  t.bytes.assign(static_cast<size_t>(width) * height * 16, 0);
+  t.live = true;
+  textures_.push_back(std::move(t));
+  return static_cast<TextureId>(textures_.size() - 1);
+}
+
+void NullDevice::writeTexture(TextureId id, IRect rect, std::span<const uint8_t> data) {
+  Texture& t = textures_.at(id);
+  const size_t texel = 16, row = static_cast<size_t>(rect.w) * texel;
+  for (int y = 0; y < rect.h; y++) {
+    size_t dst = (static_cast<size_t>(rect.y + y) * t.width + static_cast<size_t>(rect.x)) * texel;
+    if (dst + row > t.bytes.size() || static_cast<size_t>(y + 1) * row > data.size()) return;
+    std::copy(data.begin() + static_cast<long>(static_cast<size_t>(y) * row), data.begin() + static_cast<long>(static_cast<size_t>(y + 1) * row),
+              t.bytes.begin() + static_cast<long>(dst));
+  }
+}
+
+void NullDevice::destroyTexture(TextureId id) {
+  if (id && id < textures_.size()) textures_[id] = Texture{};
+}
+
 void NullDevice::destroyBuffer(BufferId buffer) { buffers_.at(buffer).clear(); }
 
 }  // namespace eng::gfx

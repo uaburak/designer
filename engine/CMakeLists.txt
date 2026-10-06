@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(designer_engine CXX)
+project(designer_engine C CXX)
 
 # DesignerV2's canvas engine (docs/engine.md): scene graph, editor (tools,
 # hit-testing, transactions, undo), our renderer over gfx::Device. Built two
@@ -14,6 +14,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(ENG_SANITIZE "" CACHE STRING "Sanitizers for native builds, e.g. address;undefined")
 include(cmake/Flags.cmake)
+include(cmake/ThirdParty.cmake)
 
 add_library(eng_core STATIC
   src/base/FractionalIndex.cpp
@@ -37,8 +38,16 @@ add_library(eng_core STATIC
   src/render/Overlay.cpp
   src/gfx/null/NullDevice.cpp
   src/api/Api.cpp
+  src/text/Unicode.cpp
+  src/text/Fonts.cpp
+  src/text/TextLayout.cpp
+  src/text/TextEdit.cpp
+  src/editor/TextEditing.cpp
+  src/render/GlyphCache.cpp
+  src/render/TextRender.cpp
 )
 target_include_directories(eng_core PUBLIC src)
+target_link_libraries(eng_core PUBLIC eng_third_party)
 eng_compile_flags(eng_core)
 
 if(EMSCRIPTEN)
@@ -57,7 +66,7 @@ if(EMSCRIPTEN)
   endif()
   # The exports live in eng_core (api/Api.cpp); the executable only links them.
   add_executable(engine_wasm src/api/Main.cpp)
-  target_link_libraries(engine_wasm PRIVATE -Wl,--whole-archive eng_core -Wl,--no-whole-archive eng_gfx_gl)
+  target_link_libraries(engine_wasm PRIVATE -Wl,--whole-archive eng_core -Wl,--no-whole-archive eng_gfx_gl eng_third_party)
   target_compile_definitions(eng_core PRIVATE ENG_HAS_GL=1)
   eng_compile_flags(engine_wasm)
   eng_wasm_target(engine_wasm)
@@ -81,11 +90,15 @@ else()
     tests/unit/editor.move.test.cpp
     tests/unit/layout.figma_golden.test.cpp
     tests/unit/scene.kiwi.test.cpp
+    tests/unit/text.layout.test.cpp
+    tests/unit/text.edit.test.cpp
+    tests/unit/text.render.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)
   # The engine builds without exceptions; doctest then ends the run on a failed REQUIRE.
   target_compile_definitions(engine_tests PRIVATE ENG_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
+    ENG_FONTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../src/renderer/src/engine/fonts"
     DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
   target_compile_features(engine_tests PRIVATE cxx_std_20)
   enable_testing()

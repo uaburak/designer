@@ -1,7 +1,7 @@
 import { contextBridge } from "electron";
 import type { EditorApi } from "../shared/desktop";
 import type { FlushReason } from "../shared/ipc";
-import { common, files, forwardStorePort, nav, on, openExternal, send, viewMenu } from "./common";
+import { common, files, forwardStorePort, invoke, nav, on, openExternal, send, viewMenu } from "./common";
 
 /**
  * A file tab's view (`?editor&file=<fileKey>`). The file saves as it goes:
@@ -50,6 +50,10 @@ const api: EditorApi = {
   files,
   menu: viewMenu(base.menu),
   openExternal,
+  fonts: {
+    list: () => invoke("fonts:list"),
+    read: (id) => invoke("fonts:read", { id: String(id) }),
+  },
 };
 
 contextBridge.exposeInMainWorld("designer", api);

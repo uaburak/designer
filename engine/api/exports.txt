@@ -48,3 +48,14 @@ _engine_render_thumbnail
 _engine_has_events
 _engine_take_events
 _engine_stats
+_engine_font_add_take
+_engine_font_bind
+_engine_font_missing
+_engine_set_fallback_fonts
+_engine_text_edit
+_engine_text_edit_end
+_engine_text_input
+_engine_text_composition
+_engine_text_composition_end
+_engine_text_selection
+_engine_text_layout

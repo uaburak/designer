@@ -1,5 +1,7 @@
 #include "editor/Editor.h"
 
+#include "text/TextEdit.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -13,7 +15,7 @@ const char* toolName(Tool t) {
 }
 
 bool toolImplemented(Tool t) {
-  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::RECTANGLE || t == Tool::ELLIPSE;
+  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT;
 }
 
 const char* txnKindName(TxnKind k) {
@@ -63,6 +65,9 @@ void Editor::noteNode(Guid id, uint32_t groups) {
 
 void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
+  if (typeBefore == NodeType::TEXT || c.phase != Phase::CHANGED) textCache_.erase(c.guid);
+  else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE)) textCache_.erase(c.guid);
+  if (text_.node == c.guid) events_.textEdit = true;
   noteNode(c.guid, fieldGroups(mask));
   if (c.phase != Phase::CHANGED || (c.mask & (F_PARENT_INDEX | F_NAME | F_VISIBLE | F_LOCKED | F_TYPE | F_STACK_MODE)))
     events_.structure = true;
@@ -115,6 +120,7 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   if (c.phase == Phase::CREATED) {
     markParent(p.parentIndex.guid);
     if (p.isAutoLayout() || p.isGroupLike()) layoutDirty_.insert(c.guid);
+    if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE) layoutDirty_.insert(c.guid);
     if (p.isGroupLike()) groupsTouched_.insert(c.guid);
     return;
   }
@@ -127,6 +133,9 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   if (p.isAutoLayout() && (m & (kStackContainerFields | F_SIZE | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN))) layoutDirty_.insert(c.guid);
   if (m & (F_STACK_MODE | F_RESIZE_TO_FIT)) layoutDirty_.insert(c.guid);
   if (p.isFrameLike() && (m & F_SIZE)) layoutDirty_.insert(c.guid);  // its children's constraints
+  if (m & (F_MIN_SIZE | F_MAX_SIZE)) layoutDirty_.insert(c.guid);   // its own size may break a new limit
+  if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE && (m & (kTextLayoutFields | F_SIZE | F_TYPE)))
+    layoutDirty_.insert(c.guid);  // auto width / auto height: its size follows its text
 }
 
 void Editor::flushLayout() {
@@ -192,6 +201,20 @@ void Editor::rollback() {
   layoutDirty_.clear();
   groupsTouched_.clear();
   pruneSelection();
+}
+
+void Editor::relayoutAll() {
+  std::vector<Guid> dirty;
+  doc_.forEach([&](const Node& n) {
+    if (n.props.isAutoLayout() || n.props.isGroupLike()) dirty.push_back(n.guid);
+  });
+  if (dirty.empty()) return;
+  std::sort(dirty.begin(), dirty.end());
+  begin(TxnKind::SYSTEM, "Layout");
+  inLayout_ = true;
+  Layout(*this).run(dirty);
+  inLayout_ = false;
+  commit();
 }
 
 // ---- LayoutHost -------------------------------------------------------------
@@ -293,7 +316,8 @@ Overlay Editor::overlay() const {
   o.selection = selection_;
   o.handles = gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate;
   o.sizeBadge = true;
-  o.hasMarquee = gesture_ == Gesture::Marquee;
+  o.hasMarquee = gesture_ == Gesture::Marquee ||
+                 (gesture_ == Gesture::Draw && drawType_ == NodeType::TEXT && (lastScreen_ - downScreen_).length() >= 3);
   o.marquee = marquee_;
   o.guides = guides_;
   o.spacings = spacings_;
@@ -305,6 +329,22 @@ Overlay Editor::overlay() const {
   }
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
+  if (text_.node != kNoGuid) {
+    // Editing text: the text's own box stays outlined (no handles, no badge), plus the selection and caret.
+    o.textNode = text_.node;
+    o.selection = {text_.node};
+    o.handles = false;
+    o.sizeBadge = false;
+    if (const text::TextLayout* L = const_cast<Editor*>(this)->textLayout(text_.node)) {
+      o.textSelection = L->selectionRects(textSelStart(), textSelEnd());
+      if (text_.anchor == text_.focus) {
+        size_t line = L->lineOf(text_.focus, text_.upstream);
+        const text::LaidLine& l = L->lines[line];
+        o.caret = {L->caretX(text_.focus, line), l.top, 0, l.height};
+        o.caretVisible = text_.caretOn;
+      }
+    }
+  }
   return o;
 }
 
@@ -320,6 +360,10 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   groupsTouched_.clear();
   excluded_.clear();
   pinned_.clear();
+  textCache_.clear();
+  unmeasured_.clear();
+  if (text_.node != kNoGuid) events_.textEdit = true;
+  text_ = TextSession{};
   for (const NodeChange& c : nodes) {
     NodeChange created = c;
     created.phase = Phase::CREATED;
@@ -335,6 +379,9 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   hover_ = kNoGuid;
   events_.selection = events_.undo = events_.structure = events_.pages = events_.currentPage = true;
   needsRender_ = true;
+  // Auto layout as the file says it should be (stored geometry can be stale); not an undo step.
+  relayoutAll();
+  events_.undo = true;
 }
 
 void Editor::setSessionID(uint32_t sessionID) {
@@ -396,6 +443,7 @@ Status Editor::setCurrentPage(Guid page) {
   if (!n || n->props.type != NodeType::CANVAS || n->props.internalOnly) return E_NOT_FOUND;
   if (page == page_) return OK;
   cancelGesture();
+  endTextEdit();
   pageSelections_[page_] = selection_;
   page_ = page;
   std::vector<Guid> kept;
@@ -460,7 +508,19 @@ void Editor::zoomToSelection() {
   if (any) changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, false)));
 }
 
-bool Editor::tick(double /*timeMs*/) { return needsRender_; }
+bool Editor::tick(double timeMs) {
+  timeMs_ = timeMs;
+  if (text_.node != kNoGuid) {
+    // The caret blinks every 530 ms, solid for a moment after each move.
+    if (text_.blinkStart <= 0) text_.blinkStart = timeMs;
+    bool on = static_cast<long long>((timeMs - text_.blinkStart) / 530) % 2 == 0;
+    if (on != text_.caretOn) {
+      text_.caretOn = on;
+      needsRender_ = true;
+    }
+  }
+  return needsRender_;
+}
 
 // ---- Selection and panel writes ---------------------------------------------
 
@@ -491,9 +551,23 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
     if (!doc_.has(id)) return E_NOT_FOUND;
   begin(TxnKind::USER, "Edit");
   for (Guid id : ids) {
+    const NodeProps& before = doc_.get(id)->props;
+    if (before.type == NodeType::TEXT && text::runFieldsOf(mask)) {
+      // Run fields go to the edited range, or to the whole text over its runs.
+      applyTextStyle(id, props);
+      continue;
+    }
     NodeChange c = NodeChange::changed(id);
-    c.mask = differingFields(doc_.get(id)->props, props.props, mask);  // equal values are no-ops
+    c.mask = differingFields(before, props.props, mask);  // equal values are no-ops
     copyFields(c.props, props.props, c.mask);
+    if (before.type == NodeType::TEXT && (c.mask & F_SIZE) && !(mask & F_TEXT_AUTO_RESIZE) &&
+        before.textAutoResize != TextAutoResize::NONE) {
+      // A size typed for an auto-resizing text: a width makes it auto height, a height a fixed box (Figma).
+      bool h = c.props.size.y != before.size.y, w = c.props.size.x != before.size.x;
+      if (h) c.props.textAutoResize = TextAutoResize::NONE;
+      else if (w && before.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT) c.props.textAutoResize = TextAutoResize::HEIGHT;
+      if (h || (w && before.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT)) c.mask |= F_TEXT_AUTO_RESIZE;
+    }
     if (c.mask) write(c);
   }
   flushLayout();  // live, also inside a panel scrub
@@ -541,6 +615,10 @@ bool Editor::undoStep(bool redo) {
 uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32_t mods, bool repeat) {
   bool shift = (mods & MOD_SHIFT) != 0;
   bool primary = (mods & MOD_PRIMARY) != 0;
+  if (text_.node != kNoGuid && !isModifierKey(code)) {
+    mods_ = mods;
+    return type == KeyEvent::DOWN ? textKey(code, mods) : 0u;
+  }
   if (code == KeyCode::Space) {
     mods_ = mods;
     if (type == KeyEvent::DOWN && !spaceHeld_ && !primary) {
@@ -584,6 +662,12 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     case KeyCode::Enter:
     case KeyCode::NumpadEnter:
       if (selection_.empty()) return 0;
+      // Enter on one text layer edits it, all its text selected (Figma).
+      if (!shift && selection_.size() == 1 && doc_.get(selection_[0])->props.type == NodeType::TEXT &&
+          !doc_.get(selection_[0])->props.locked) {
+        startTextEdit(selection_[0], true);
+        return K_HANDLED;
+      }
       selectRelative(shift ? 1 : 0);
       return K_HANDLED;
     case KeyCode::Tab:
@@ -618,6 +702,7 @@ void Editor::blur() {
 
 Status Editor::setTool(Tool t) {
   if (!toolImplemented(t)) return E_UNSUPPORTED;
+  if (t != tool_ && text_.node != kNoGuid) endTextEdit();
   if (t != tool_) {
     tool_ = t;
     events_.tool = true;

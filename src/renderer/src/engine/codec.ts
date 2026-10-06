@@ -34,16 +34,25 @@ export interface ParentIndex {
   guid: Guid;
   position: string;
 }
+/**
+ * A paint. The engine draws SOLID ones; any other kind (gradients, images: E5) comes back exactly as it went in
+ * (its own fields included), so it survives edits, copies and undo.
+ */
 export interface Paint {
-  type: "SOLID";
+  type: "SOLID" | (string & {});
   color?: Color;
   opacity?: number;
   visible?: boolean;
 }
 
+/**
+ * Node types. The engine draws DOCUMENT…SECTION and TEXT; the others (VECTOR, BOOLEAN_OPERATION, STAR, LINE,
+ * REGULAR_POLYGON, SLICE, VARIABLE, VARIABLE_SET) keep their type and every field the engine doesn't model.
+ */
 export type NodeType =
   | "DOCUMENT" | "CANVAS" | "GROUP" | "FRAME" | "ELLIPSE" | "RECTANGLE" | "ROUNDED_RECTANGLE"
-  | "SYMBOL" | "INSTANCE" | "SECTION" | "NONE";
+  | "SYMBOL" | "INSTANCE" | "SECTION" | "TEXT" | "BOOLEAN_OPERATION" | "VECTOR" | "STAR" | "LINE"
+  | "REGULAR_POLYGON" | "SLICE" | "VARIABLE" | "VARIABLE_SET" | "NONE";
 export type StrokeAlign = "CENTER" | "INSIDE" | "OUTSIDE";
 
 /** Auto layout and constraints (schema/document.kiwi's enums). */
@@ -59,6 +68,51 @@ export type ConstraintType = "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE" | "F
 /** minSize / maxSize: an axis value of 0 = no limit. */
 export interface OptionalVector {
   value: Vector;
+}
+
+/** Text (schema/document.kiwi's Text section). */
+export interface FontName {
+  family: string;
+  style: string;
+  postscript?: string;
+}
+export type NumberUnits = "RAW" | "PIXELS" | "PERCENT";
+/**
+ * lineHeight: {100, PERCENT} = "Auto" (the font's own line height, rounded), {k, RAW} = k × font size (the UI's
+ * k·100 %), {v, PIXELS}. letterSpacing: PERCENT of the font size, or PIXELS.
+ */
+export interface NumberValue {
+  value: number;
+  units: NumberUnits;
+}
+export type TextAlignHorizontal = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+export type TextAlignVertical = "TOP" | "CENTER" | "BOTTOM";
+/** NONE = Fixed size, WIDTH_AND_HEIGHT = Auto width, HEIGHT = Auto height. */
+export type TextAutoResize = "NONE" | "WIDTH_AND_HEIGHT" | "HEIGHT";
+export type TextTruncation = "DISABLED" | "ENDING";
+export type TextCase = "ORIGINAL" | "UPPER" | "LOWER" | "TITLE" | "SMALL_CAPS" | "SMALL_CAPS_FORCED";
+export type TextDecoration = "NONE" | "UNDERLINE" | "STRIKETHROUGH";
+/** A run style of TextData.styleOverrideTable (keyed by styleID ≥ 1); only the fields it overrides. */
+export interface TextStyleOverride {
+  styleID: number;
+  fontName?: FontName;
+  fontSize?: number;
+  lineHeight?: NumberValue;
+  letterSpacing?: NumberValue;
+  textCase?: TextCase;
+  textDecoration?: TextDecoration;
+  fillPaints?: Paint[];
+  [other: string]: unknown;
+}
+/** A TEXT node's source: one property, replaced whole by edits. Offsets are UTF-16 code units. */
+export interface TextData {
+  /** Paragraphs split by "\n"; U+2028 is a line break inside a paragraph. */
+  characters: string;
+  /** The style id of each UTF-16 unit; a shorter array means the rest are 0 (the node's own style). */
+  characterStyleIDs?: number[];
+  styleOverrideTable?: TextStyleOverride[];
+  /** TextLineData per paragraph (lists come with E3.2), kept as given. */
+  lines?: unknown[];
 }
 
 /** The NodeChange fields the engine keeps so far (schema/document.kiwi names). Absent = the absence value (docs/schema.md §3.4). */
@@ -115,6 +169,24 @@ export interface NodeFields {
   horizontalConstraint?: ConstraintType;
   verticalConstraint?: ConstraintType;
   proportionsConstrained?: boolean;
+  // Text (TEXT nodes; absent = Inter Regular 12, Auto line height, 0% letter spacing, Fixed size, left, top).
+  textData?: TextData;
+  fontName?: FontName;
+  fontSize?: number;
+  lineHeight?: NumberValue;
+  letterSpacing?: NumberValue;
+  paragraphSpacing?: number;
+  paragraphIndent?: number;
+  textAlignHorizontal?: TextAlignHorizontal;
+  textAlignVertical?: TextAlignVertical;
+  textAutoResize?: TextAutoResize;
+  textTruncation?: TextTruncation;
+  /** With textTruncation ENDING; absent / 0 = no limit. */
+  maxLines?: number;
+  textCase?: TextCase;
+  textDecoration?: TextDecoration;
+  /** The layer name follows the characters until the layer is renamed. */
+  autoRename?: boolean;
   /** Kiwi field ids reset to absent (updates only). */
   clearedFields?: number[];
 }
@@ -188,6 +260,13 @@ export type EngineEvent =
    * first (the layer, then its parents up to the page's child) — "Select layer ▸". Comes after SELECTION_CHANGED.
    */
   | { type: "CONTEXT_MENU"; targetKind: "CANVAS" | "SELECTION"; x: number; y: number; hits: Guid[][] }
+  /** A FontName a document uses that nobody has answered yet (once per name, module-wide). Engine.ts answers it. */
+  | { type: "REQUEST_FONT"; family: string; style: string }
+  /**
+   * Text editing started, moved, changed or ended. `caretRectCss`: the caret in CSS px in the canvas (the hidden IME
+   * textarea goes there); `selStart` ≤ `selEnd` in UTF-16 units of the node's characters.
+   */
+  | { type: "TEXT_EDIT"; active: boolean; ref: Guid | null; caretRectCss: { x: number; y: number; width: number; height: number }; selStart: number; selEnd: number }
   | ({ type: "UNDO_STATE" } & UndoState);
 
 export type EngineEventType = EngineEvent["type"];
@@ -217,6 +296,23 @@ export const decodeCamera = (bytes: Uint8Array): Camera => decode<Camera>(bytes)
 export const decodeRefs = (bytes: Uint8Array): Guid[] => decode<{ refs: Guid[] }>(bytes).refs;
 export const decodeStats = (bytes: Uint8Array): Record<string, number> => decode<Record<string, number>>(bytes);
 export const decodeText = (bytes: Uint8Array): string => decoder.decode(bytes);
+
+/** engine_text_layout: a TEXT node's layout, shaped as schema/document.kiwi's DerivedTextData (node space, px). */
+export interface TextLayoutInfo {
+  layoutSize: Vector;
+  baselines: { position: Vector; width: number; lineY: number; lineHeight: number; lineAscent: number; firstCharacter: number; endCharacter: number }[];
+  glyphs: { position: Vector; fontSize: number; firstCharacter: number; advance: number; glyphID: number; styleID?: number }[];
+  decorations: { rects: { x: number; y: number; w: number; h: number }[]; styleID: number }[];
+  truncationStartIndex: number;
+  truncatedHeight: number;
+  /** The caret's x before each UTF-16 unit (and after the last). */
+  logicalIndexToCharacterOffsetMap: number[];
+  /** Some run's font is missing (drawn with Inter; Figma's "Missing fonts"). */
+  missingFont: boolean;
+  /** Some run's font is still loading. */
+  pendingFont: boolean;
+}
+export const decodeTextLayout = (bytes: Uint8Array): TextLayoutInfo => decode<TextLayoutInfo>(bytes);
 
 /** A rendered image: straight RGBA8, rows top to bottom. */
 export interface Pixels {

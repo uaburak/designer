@@ -30,7 +30,7 @@ import styles from "./Panels.module.css";
 
 const ROW = 24;
 
-/** The row's glyph: the layer's type, auto layout's direction, groups. */
+/** The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction, groups. */
 export function layerIcon(node: TreeNode): IconName {
   if (node.group) return "16.group";
   switch (node.type) {
@@ -47,6 +47,23 @@ export function layerIcon(node: TreeNode): IconName {
       return "16.text";
     case "LINE":
       return "16.line";
+    case "VECTOR":
+      return "16.vector";
+    case "STAR":
+      return "16.star";
+    case "REGULAR_POLYGON":
+      return "16.polygon";
+    case "BOOLEAN_OPERATION":
+      switch (node.booleanOperation) {
+        case "SUBTRACT":
+          return "16.boolean.subtract";
+        case "INTERSECT":
+          return "16.boolean.intersect";
+        case "XOR":
+          return "16.boolean.exclude";
+        default:
+          return "16.boolean.union";
+      }
     case "SYMBOL":
       return "16.component";
     case "INSTANCE":

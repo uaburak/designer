@@ -1,6 +1,7 @@
 import { app, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
+import { fontIndex, readFont } from "./fonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
 import { setThemePreference, themeState } from "./theme";
@@ -132,6 +133,12 @@ export function registerIpc() {
 
   // ── A native menu for a view (a menu that wouldn't fit inside it) ──
   onInvoke("menu:popup", ({ ctl, sender }, p) => popupMenu(ctl, sender, p));
+  onInvoke("fonts:list", () => fontIndex());
+  onInvoke("fonts:read", (_c, p) => {
+    const id = str(p?.id, 64);
+    if (!id) throw new Error("fonts:read: no id");
+    return readFont(id);
+  });
 }
 
 /** The view's menu, built from plain data (labels, ids, checks — nothing that runs), at the view's point: the picked id, or null. */

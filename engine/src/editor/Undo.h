@@ -50,6 +50,10 @@ class UndoStack {
   const std::string& undoLabel() const;
   const std::string& redoLabel() const;
   void clear();
+  // Forgets the last undo step (one whose net effect is nothing: a text created and left empty).
+  void dropLast() {
+    if (!undo_.empty()) undo_.pop_back();
+  }
 
   size_t undoCount() const { return undo_.size(); }
   size_t redoCount() const { return redo_.size(); }

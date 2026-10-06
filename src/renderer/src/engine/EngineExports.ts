@@ -152,6 +152,31 @@ export class EngineExports {
   renderThumbnail = (h: number, pageSessionID: number, pageLocalID: number, maxSize: number, flags: number): number =>
     this.fn("render_thumbnail")(h, pageSessionID, pageLocalID, maxSize, flags);
 
+  // ---- Fonts (module-wide) ----
+  /** Copies a font file into the module's heap and hands it over (the engine frees it); the face id or a Status. */
+  fontAddTake(bytes: Uint8Array, faceIndex: number): number {
+    const ptr = this.fn("alloc")(Math.max(1, bytes.length)) >>> 0;
+    if (!ptr) return -4;
+    this.module.HEAPU8.set(bytes, ptr);
+    return this.fn("font_add_take")(ptr, bytes.length, faceIndex);
+  }
+  fontBind = (family: Uint8Array, style: Uint8Array, faceId: number): number =>
+    this.withBytes([family, style], (p) => this.fn("font_bind")(p[0], p[1], p[2], p[3], faceId));
+  fontMissing = (family: Uint8Array, style: Uint8Array): void =>
+    this.withBytes([family, style], (p) => void this.fn("font_missing")(p[0], p[1], p[2], p[3]));
+  setFallbackFonts = (families: Uint8Array): number => this.withBytes([families], (p) => this.fn("set_fallback_fonts")(p[0], p[1]));
+
+  // ---- Text ----
+  textEdit = (h: number, sessionID: number, localID: number, flags: number): number => this.fn("text_edit")(h, sessionID, localID, flags);
+  textEditEnd = (h: number): void => void this.fn("text_edit_end")(h);
+  textInput = (h: number, text: Uint8Array): number => this.withBytes([text], (p) => this.fn("text_input")(h, p[0], p[1]));
+  textComposition = (h: number, text: Uint8Array, selStart: number, selEnd: number): number =>
+    this.withBytes([text], (p) => this.fn("text_composition")(h, p[0], p[1], selStart, selEnd));
+  textCompositionEnd = (h: number, text: Uint8Array): number =>
+    this.withBytes([text], (p) => this.fn("text_composition_end")(h, p[0], p[1]));
+  textSelection = (h: number): number => this.fn("text_selection")(h);
+  textLayout = (h: number, sessionID: number, localID: number): number => this.fn("text_layout")(h, sessionID, localID);
+
   // ---- Events and diagnostics ----
   hasEvents = (h: number): boolean => (this.fn("has_events")(h) >>> 0) !== 0;
   takeEvents = (h: number): number => this.fn("take_events")(h);
@@ -168,4 +193,6 @@ export const USED_EXPORTS = [
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail",
   "has_events", "take_events", "stats",
+  "font_add_take", "font_bind", "font_missing", "set_fallback_fonts",
+  "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",
 ].map((name) => `engine_${name}`);

@@ -42,7 +42,7 @@ TEST_CASE("codec: an update carries only its fields") {
 
 TEST_CASE("codec: CREATED carries what differs from absence, and round-trips") {
   NodeChange c = make({4, 5}, NodeType::FRAME, kPage, "Qd&", {10.5, -20, 300, 200}, "Frame 1");
-  c.props.strokePaints = {Paint{PaintType::SOLID, Color{0.1f, 0.2f, 0.3f, 1}, 0.5f, true}};
+  c.props.strokePaints = {Paint{PaintType::SOLID, Color{0.1f, 0.2f, 0.3f, 1}, 0.5f, true, {}}};
   c.props.strokeWeight = 2;
   c.props.strokeAlign = StrokeAlign::OUTSIDE;
   c.props.frameMaskDisabled = true;

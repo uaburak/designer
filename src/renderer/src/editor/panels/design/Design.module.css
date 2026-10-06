@@ -56,3 +56,51 @@
   }
   .matrix { display: flex; }
 }
+
+@layer app {
+  /* W / H: the sizing menu's chevron sits in the field, shown on hover, focus or when open (UI3) */
+  .sizeField { padding-right: 0; }
+  .sizeMenu {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-space-4);
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    opacity: 0;
+    outline: none;
+  }
+  [data-ds="NumericInput"]:hover .sizeMenu,
+  [data-ds="NumericInput"]:focus-within .sizeMenu,
+  .sizeMenu[data-open],
+  .sizeMenu:focus-visible { opacity: 1; }
+  .sizeMenu:hover { color: var(--figma-color-icon); }
+
+  /* Constraints: the widget (56 × 56), then the two dropdowns stacked in the rest of the row */
+  .constraintRow { display: flex; gap: var(--ds-space-2); align-items: center; }
+  .constraintSelects { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-2); min-width: 0; }
+  .constraintWidget { display: block; flex: none; width: 56px; height: 56px; }
+  .constraintBox { fill: var(--figma-color-bg-secondary); stroke: none; }
+  .constraintInner { fill: none; stroke: var(--figma-color-icon-tertiary); }
+  .constraintLine { cursor: default; }
+  .constraintLine path { fill: none; stroke: var(--figma-color-icon-tertiary); stroke-width: 1; stroke-linecap: round; }
+  .constraintLine:hover path { stroke: var(--figma-color-icon-secondary); }
+  .constraintLine[data-on] path { stroke: var(--figma-color-icon-brand); stroke-width: 2; }
+
+  /* Popover settings (auto layout, type): label column, control column */
+  .settings {
+    display: grid;
+    grid-template-columns: 1fr 150px;
+    gap: var(--ds-space-2);
+    align-items: center;
+    padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4);
+  }
+  .settings > :nth-child(even) { justify-self: stretch; display: flex; }
+  .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+
+  /* "See all N colors" */
+  .seeAll { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); }
+}

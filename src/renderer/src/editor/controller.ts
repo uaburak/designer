@@ -6,7 +6,7 @@
  */
 import { createContext, useContext } from "react";
 import { KEY_HANDLED, Status, TOOLS, type ToolName } from "@/engine/abi";
-import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
+import type { Guid, Message, NodeChange, NodeFields } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
 import type { EngineStore } from "@/engine/EngineStore";
 import { size } from "@/ds/tokens";
@@ -14,6 +14,9 @@ import type { ChangeInfo } from "@/ds/types";
 import type { DocumentSource } from "./documentSource";
 import { EMPTY_TREE, treeFromNodes, type LayerTree } from "./model/layerTree";
 import { Store, type UIState } from "./uiStore";
+
+/** Node types the engine reads back as they are (anything else reads NONE until the engine has it). */
+const ENGINE_TYPES = new Set(["DOCUMENT", "CANVAS", "GROUP", "FRAME", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "SYMBOL", "INSTANCE", "SECTION"]);
 
 /** Groups of NODES_CHANGED that can change a Layers row's icon (auto layout). */
 const LAYOUT_GROUP = 2;
@@ -44,6 +47,12 @@ export class EditorController {
   private readonly treeListeners = new Set<() => void>();
   private readonly cleanups: (() => void)[] = [];
   private openEdit: string | null = null;
+  /**
+   * The file's own node types where the engine doesn't know them yet (it reads VECTOR, TEXT, BOOLEAN_OPERATION…
+   * as NONE until E3/E4): taken from the loaded document and changes from elsewhere, so Layers and the Design
+   * panel name and draw them by their real type.
+   */
+  private readonly sourceTypes = new Map<Guid, { type: string; booleanOperation?: string }>();
 
   constructor(engine: Engine, store: EngineStore, source: DocumentSource, ui: Partial<UIState> = {}) {
     this.engine = engine;
@@ -95,6 +104,35 @@ export class EditorController {
 
   // ---- Reads ----------------------------------------------------------------------------
 
+  /** Remembers the types (and boolean operations) a document or a change from elsewhere carries. */
+  noteSourceTypes(message: Message): void {
+    let touched = false;
+    for (const c of message.nodeChanges) {
+      if (c.phase === "REMOVED") {
+        touched = this.sourceTypes.delete(c.guid) || touched;
+        continue;
+      }
+      const extra = c as NodeChange & { booleanOperation?: string };
+      if (!c.type && extra.booleanOperation === undefined) continue;
+      if (c.type && ENGINE_TYPES.has(c.type) && extra.booleanOperation === undefined && !this.sourceTypes.has(c.guid)) continue;
+      const was = this.sourceTypes.get(c.guid);
+      this.sourceTypes.set(c.guid, { type: c.type ?? was?.type ?? "NONE", booleanOperation: extra.booleanOperation ?? was?.booleanOperation });
+      touched = true;
+    }
+    if (touched) {
+      this.treeCache = null;
+      this.treeListeners.forEach((l) => l());
+    }
+  }
+
+  /** The node with its real type (the engine's when it knows it, else the file's), and a boolean's operation. */
+  readonly withRealType = <T extends NodeChange>(n: T): T => {
+    const known = this.sourceTypes.get(n.guid);
+    if (!known || (n.type && n.type !== "NONE" && known.type === n.type && !known.booleanOperation)) return n;
+    const type = n.type && n.type !== "NONE" ? n.type : known.type;
+    return { ...n, type, ...(known.booleanOperation ? { booleanOperation: known.booleanOperation } : {}) } as T;
+  };
+
   get selection(): Guid[] {
     return this.store.selection.refs;
   }
@@ -111,7 +149,7 @@ export class EditorController {
     const page = this.store.page;
     const key = `${page}#${this.store.structure}#${this.layoutVersion}`;
     if (this.treeCache?.key === key) return this.treeCache.tree;
-    const tree = readTree(this.engine, page);
+    const tree = readTree(this.engine, page, this.withRealType);
     this.treeCache = { key, tree };
     return tree;
   };
@@ -190,7 +228,7 @@ export class EditorController {
 }
 
 /** The Layers tree of `page`, one engine read per level. */
-export function readTree(engine: Engine, page: Guid): LayerTree {
+export function readTree(engine: Engine, page: Guid, resolve: (n: NodeChange) => NodeChange = (n) => n): LayerTree {
   if (!page) return EMPTY_TREE;
   const nodes: NodeChange[] = [];
   const seen = new Set<Guid>();
@@ -201,7 +239,7 @@ export function readTree(engine: Engine, page: Guid): LayerTree {
     for (const n of read) {
       if (seen.has(n.guid)) continue;
       seen.add(n.guid);
-      nodes.push(n);
+      nodes.push(resolve(n));
       for (const c of n.childIds ?? []) if (!seen.has(c)) next.push(c);
     }
     level = next;

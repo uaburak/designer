@@ -42,6 +42,11 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   onFocusChange?: (focused: boolean) => void;
   /** Drawn inside another field (the colour row's opacity) */
   bare?: boolean;
+  /**
+   * Shown instead of the number while the field isn't focused (Figma's "Hug", "Fill", a gap's "Auto");
+   * focusing it shows the number, and typing one commits as usual
+   */
+  valueLabel?: string;
 }
 
 /**
@@ -52,7 +57,7 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * — `final: false` each frame, one `final: true` on release, Esc cancels;
  * a press without movement focuses the field.
  */
-export function NumericInput({ label, prefix, value, onChange, onCancel, onClear, onStep, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, value, onChange, onCancel, onClear, onStep, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, className, ...rest }: NumericInputProps) {
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -62,7 +67,8 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
   const exitBy = useRef<ExitReason>("blur");
   const input = useRef<HTMLInputElement>(null);
   const drag = useRef<{ x: number; start: number; last: number; moved: boolean; id: number; el: HTMLElement } | null>(null);
-  const text = draft ?? (current === null ? "" : formatNumber(current, precision));
+  const [focused, setFocused] = useState(false);
+  const text = draft ?? (valueLabel !== undefined && !focused && !scrubbing ? valueLabel : current === null ? "" : formatNumber(current, precision));
   const shownPlaceholder = mixed ? STRINGS.mixed : placeholder;
 
   const finish = (raw?: string) => {
@@ -160,9 +166,15 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
         }}
         onFocus={(e) => {
           e.currentTarget.select();
+          if (valueLabel !== undefined) {
+            setFocused(true);
+            const el = e.currentTarget;
+            requestAnimationFrame(() => el.select());
+          }
           onFocusChange?.(true);
         }}
         onBlur={(e) => {
+          setFocused(false);
           finish(e.currentTarget.value);
           onFocusChange?.(false);
           const reason = exitBy.current;

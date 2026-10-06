@@ -28,6 +28,7 @@ const TOOL_BUTTONS: { tool: ToolName; label: string; key: string }[] = [
   { tool: "RECTANGLE", label: "Rectangle", key: "R" },
   { tool: "ELLIPSE", label: "Ellipse", key: "O" },
   { tool: "HAND", label: "Hand tool", key: "H" },
+  { tool: "TEXT", label: "Text", key: "T" },
 ];
 
 const bar: CSSProperties = {

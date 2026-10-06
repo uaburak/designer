@@ -158,6 +158,93 @@ try {
   await settle();
   files.push(await shot("08-fit"));
 
+  // E3 text: T, click on empty canvas, type through the hidden field (the IME path), Esc.
+  await page.waitForFunction(() => {
+    const d = window.__designerEngine.textLayout ? true : false;
+    return d;
+  });
+  await page.keyboard.press("t");
+  const at = await toScreen(1100, 40);
+  await page.mouse.click(...at);
+  await settle();
+  await page.keyboard.type("Hello Figma", { delay: 5 });
+  await settle();
+  files.push(await shot("09-typing"));
+  const typed = await engine(() => {
+    const e = window.__designerEngine;
+    const ref = e.textEdit?.ref;
+    return ref ? { node: e.readNode(ref), layout: e.textLayout(ref), focused: document.activeElement?.tagName } : null;
+  });
+  check(
+    "T + click + typing makes a text",
+    typed?.node?.type === "TEXT" && typed.node.textData?.characters === "Hello Figma" && typed.focused === "TEXTAREA",
+    typed ? `"${typed.node?.textData?.characters}" ${typed.node?.size?.x?.toFixed(2)}×${typed.node?.size?.y} focus ${typed.focused}` : "not editing"
+  );
+  check("text is laid out with Inter (not missing)", typed?.layout && !typed.layout.missingFont && !typed.layout.pendingFont && typed.layout.glyphs.length === 11,
+    typed?.layout ? `${typed.layout.glyphs.length} glyphs, line height ${typed.layout.baselines[0]?.lineHeight}` : "");
+  await page.keyboard.down("Shift");
+  await page.keyboard.down("Alt");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.up("Alt");
+  await page.keyboard.up("Shift");
+  await settle();
+  files.push(await shot("10-text-selection"));
+  const selected = await engine(() => window.__designerEngine.textSelection());
+  check("⌥⇧← selects the last word", selected === "Figma", JSON.stringify(selected));
+  await page.keyboard.press("Escape");
+  await settle();
+  const after = await engine(() => ({ edit: window.__designerEngine.textEdit, sel: window.__designerEngine.getSelection().refs }));
+  check("Esc leaves editing, the text selected", after.edit === null && after.sel.length === 1, after.sel.join());
+
+  // A typography sheet: sizes, weights, alignment, decoration, wrapping, a missing font.
+  await engine(() => {
+    const black = [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true }];
+    const blue = [{ type: "SOLID", color: { r: 0.05, g: 0.6, b: 1, a: 1 }, opacity: 1, visible: true }];
+    const t = (id, x, y, characters, extra = {}) => ({
+      guid: id, phase: "CREATED", type: "TEXT", parentIndex: { guid: "0:1", position: `~${id}` }, name: characters.slice(0, 20),
+      transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y }, size: { x: 0, y: 0 }, fillPaints: black,
+      textData: { characters }, textAutoResize: "WIDTH_AND_HEIGHT", autoRename: true, ...extra,
+    });
+    window.__designerEngine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [
+      t("7:1", 0, 800, "Display 48 Bold", { fontSize: 48, fontName: { family: "Inter", style: "Bold", postscript: "" } }),
+      t("7:2", 0, 870, "Heading 24 Semi Bold — the quick brown fox", { fontSize: 24, fontName: { family: "Inter", style: "Semi Bold", postscript: "" } }),
+      t("7:3", 0, 910, "Body 14 Regular: Sphinx of black quartz, judge my vow. 0123456789", { fontSize: 14 }),
+      t("7:4", 0, 935, "Caption 11 Medium, underlined", { fontSize: 11, fontName: { family: "Inter", style: "Medium", postscript: "" }, textDecoration: "UNDERLINE" }),
+      t("7:5", 0, 960, "Italic 16 with fi ffi ligatures & kerning AV To", { fontSize: 16, fontName: { family: "Inter", style: "Italic", postscript: "" } }),
+      t("7:6", 0, 990, "A fixed-width paragraph that wraps onto several lines, centred, with Auto line height and 8 px paragraph spacing.\nSecond paragraph.", {
+        textAutoResize: "HEIGHT", size: { x: 240, y: 0 }, textAlignHorizontal: "CENTER", paragraphSpacing: 8, fillPaints: blue }),
+      t("7:7", 300, 990, "Truncated text that is far too long for its two lines of room here", {
+        textAutoResize: "HEIGHT", size: { x: 160, y: 0 }, textTruncation: "ENDING", maxLines: 2, fontSize: 13 }),
+      t("7:8", 300, 1040, "A font nobody has", { fontName: { family: "Missing Font", style: "Regular", postscript: "" } }),
+    ] }, "user");
+    window.__designerEngine.setSelection(["7:1", "7:2", "7:3", "7:4", "7:5", "7:6", "7:7", "7:8"]);
+    window.__designerEngine.command("ZOOM_TO_SELECTION");
+    window.__designerEngine.setSelection([]);
+  });
+  await page.waitForTimeout(300);
+  await settle();
+  files.push(await shot("11-typography"));
+  const sheet = await engine(() => ["7:1", "7:6", "7:7", "7:8"].map((id) => ({ node: window.__designerEngine.readNode(id), layout: window.__designerEngine.textLayout(id) })));
+  check("auto width / auto height sizes", sheet[0].node.size.x > 300 && sheet[0].node.size.y === 58 && sheet[1].node.size.x === 240 && sheet[1].node.size.y > 60,
+    `48px: ${sheet[0].node.size.x.toFixed(1)}×${sheet[0].node.size.y}; paragraph ${sheet[1].node.size.x}×${sheet[1].node.size.y}`);
+  check("truncation", sheet[2].layout.truncationStartIndex > 0 && sheet[2].layout.baselines.length === 2, `at ${sheet[2].layout.truncationStartIndex}`);
+  check("missing font marked", sheet[3].layout.missingFont === true);
+
+  // Up close: glyphs stay crisp at 1600%.
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.setCamera({ x: -60 * 16 + 100, y: -800 * 16 + 100, zoom: 16 });
+  });
+  await settle();
+  files.push(await shot("12-text-1600"));
+
+  // Size badge and frame titles.
+  await page.keyboard.press("Shift+Digit1");
+  await settle();
+  await engine(() => window.__designerEngine.setSelection(["1:1"]));
+  await settle();
+  files.push(await shot("13-badge-titles"));
+
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);
   if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);

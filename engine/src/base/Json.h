@@ -35,6 +35,12 @@ struct Value {
 // Parses `text`; on malformed input returns false and leaves `out` null.
 bool parse(std::string_view text, Value& out);
 
+class Writer;
+// Writes `v` as the next value of `w`.
+void write(Writer& w, const Value& v);
+// `v` encoded.
+std::string encode(const Value& v);
+
 // Streaming writer: the caller keeps track of commas via the helpers.
 class Writer {
  public:

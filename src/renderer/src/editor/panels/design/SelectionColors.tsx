@@ -1,0 +1,123 @@
+/**
+ * "Selection colors" (Figma UI3): the distinct solid colours of the selection's
+ * fills and strokes and of every visible layer inside it, each once; editing a
+ * row (hex, opacity, the picker) recolours every paint using it, as one undo
+ * step; the target button selects the layers using it. The first three rows
+ * show, then "See all N colors". Rules and grouping: model/selectionColors.ts.
+ */
+import { useMemo, useState } from "react";
+import { Button, ColorInput, IconButton, PanelSection, type ChangeInfo } from "@/ds";
+import type { Color, Guid, NodeChange } from "@/engine/codec";
+import type { Engine } from "@/engine/Engine";
+import { useEditor, type EditorController } from "../../controller";
+import { useDocumentVersion } from "../../hooks";
+import { colorToHex, hexToColor, toPercent } from "../../model/color";
+import { SELECTION_COLORS_MAX_NODES, SELECTION_COLORS_SHOWN, collectColors, recolor, showSelectionColors, type PaintUse, type SelectionColor } from "../../model/selectionColors";
+import type { PickerTarget } from "./Paints";
+import type { PanelNode } from "./shared";
+import styles from "./Design.module.css";
+
+/**
+ * The visible layers inside `refs` (not the selected ones), each selected
+ * layer's subtree top first, read one level at a time; null past `max` layers.
+ */
+export function readInside(engine: Engine, refs: readonly Guid[], max = SELECTION_COLORS_MAX_NODES): NodeChange[] | null {
+  const byId = new Map<Guid, NodeChange>();
+  let level = [...refs];
+  while (level.length) {
+    const next: Guid[] = [];
+    for (const n of engine.readNodes(level, { childIds: true })) {
+      if (byId.has(n.guid)) continue;
+      byId.set(n.guid, n);
+      if (n.visible === false) continue;
+      for (const c of n.childIds ?? []) if (!byId.has(c)) next.push(c);
+    }
+    if (byId.size > max) return null;
+    level = next;
+  }
+  const out: NodeChange[] = [];
+  const walk = (id: Guid) => {
+    const n = byId.get(id);
+    if (!n) return;
+    const children = n.childIds ?? [];
+    for (let i = children.length - 1; i >= 0; i--) {
+      const c = byId.get(children[i]);
+      if (!c || c.visible === false) continue;
+      out.push(c);
+      walk(c.guid);
+    }
+  };
+  for (const r of refs) if (byId.get(r)?.visible !== false) walk(r);
+  return out;
+}
+
+/** The colours of the selection and what's inside it, and whether the section shows. */
+export function selectionColorsOf(engine: Engine, nodes: readonly PanelNode[]): { show: boolean; colors: SelectionColor[] } {
+  const inside = readInside(
+    engine,
+    nodes.map((n) => n.guid)
+  );
+  if (!inside) return { show: false, colors: [] };
+  const selected = nodes.filter((n) => n.visible !== false) as NodeChange[];
+  return { show: showSelectionColors(selected, inside), colors: collectColors([...selected, ...inside]) };
+}
+
+/** The picker's "On this page": every solid colour on the current page, as CSS colours (rgba() when not opaque). */
+export function pageColors(ed: EditorController, max = 48): string[] {
+  const nodes = readInside(ed.engine, [ed.store.page]);
+  if (!nodes) return [];
+  const out = new Set<string>();
+  for (const c of collectColors(nodes)) {
+    const { r, g, b } = c.color;
+    out.add(c.opacity >= 1 ? colorToHex(c.color) : `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${Math.round(c.opacity * 100) / 100})`);
+    if (out.size >= max) break;
+  }
+  return [...out];
+}
+
+/** Writes a colour (and/or opacity) to every paint in `uses`, as one undo step (a scrub: one open transaction). */
+export function writeSelectionColor(ed: EditorController, uses: readonly PaintUse[], next: { color?: Color; opacity?: number }, info: ChangeInfo) {
+  ed.edit("Selection colors", info, () => {
+    const ids = [...new Set(uses.map((u) => u.guid))];
+    const fresh = new Map(ed.engine.readNodes(ids).map((n) => [n.guid, n]));
+    for (const [guid, f] of recolor(fresh, uses, next)) ed.engine.setProps([guid], f);
+  });
+}
+
+export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
+  const ed = useEditor();
+  const version = useDocumentVersion();
+  const key = nodes.map((n) => n.guid).join(",");
+  const [all, setAll] = useState<{ key: string; on: boolean }>({ key: "", on: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when any node changed (version) or the selection did (key)
+  const { show, colors } = useMemo(() => selectionColorsOf(ed.engine, nodes), [ed, key, version]);
+  if (!show || !colors.length) return null;
+  const expanded = all.key === key && all.on;
+  const shown = expanded ? colors : colors.slice(0, SELECTION_COLORS_SHOWN);
+  return (
+    <PanelSection title="Selection colors">
+      {/* Keyed by place: a scrub changes the colour's identity and must not remount its field */}
+      {shown.map((c, i) => (
+        <div key={i} className={styles.paintRow}>
+          <ColorInput
+            className={styles.paintField}
+            label="Selection color"
+            color={colorToHex(c.color)}
+            opacity={toPercent(c.opacity)}
+            onColor={(hex, info) => writeSelectionColor(ed, c.uses, { color: hexToColor(hex) }, info)}
+            onOpacity={(o, info) => writeSelectionColor(ed, c.uses, { opacity: o / 100 }, info)}
+            onSwatchClick={(anchor) => onPick({ kind: "colors", uses: c.uses, anchor })}
+          />
+          <IconButton icon="24.select-matching.small" label="Select matching layers" tone="secondary" onClick={() => ed.engine.setSelection([...new Set(c.uses.map((u) => u.guid))])} />
+        </div>
+      ))}
+      {colors.length > SELECTION_COLORS_SHOWN && (
+        <div className={styles.seeAll}>
+          <Button variant="link" onClick={() => setAll({ key, on: !expanded })}>
+            {expanded ? "Show less" : `See all ${colors.length} colors`}
+          </Button>
+        </div>
+      )}
+    </PanelSection>
+  );
+}

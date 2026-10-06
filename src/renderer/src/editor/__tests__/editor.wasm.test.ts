@@ -17,7 +17,10 @@ import { REFERENCE_DOCUMENT, REFERENCE_PAGES } from "../fixtures";
 import { visibleRows } from "../model/layerTree";
 import { ENGINE_TOOL, toolIdOf } from "../canvas/BottomToolbar";
 import { layerIcon } from "../panels/Layers";
-import { typeLabel } from "../panels/design/shared";
+import { typeLabel, type PanelNode } from "../panels/design/shared";
+import { pageColors, selectionColorsOf, writeSelectionColor } from "../panels/design/SelectionColors";
+import { flowAxis, isAutoLayout, limitOf, sizingChanges, sizingOf, withLimit, type SizingNode } from "../model/sizing";
+import type { NodeChange } from "@/engine/codec";
 import type { MenuEntry, MenuItem } from "@/ds";
 
 const wasm = fileURLToPath(new URL("../../engine/wasm/engine.wasm", import.meta.url));
@@ -205,5 +208,85 @@ describe("panel helpers", () => {
     expect(typeLabel([{ guid: "1", type: "FRAME" }])).toBe("Frame");
     expect(typeLabel([{ guid: "1", type: "FRAME", resizeToFit: true }])).toBe("Group");
     expect(typeLabel([{ guid: "1", type: "ELLIPSE" }, { guid: "2", type: "ROUNDED_RECTANGLE" }])).toBe("Mixed");
+  });
+});
+
+describe("Design panel, Phase 2 (wasm, headless)", () => {
+  it("keeps the file's own types (vectors, booleans, text) through the engine", async () => {
+    const doc = structuredClone(REFERENCE_DOCUMENT);
+    doc.nodeChanges.push(
+      { guid: "1:2", phase: "CREATED", type: "VECTOR" as never, name: "Vector", parentIndex: { guid: "1:1", position: "!" }, size: { x: 10, y: 10 } },
+      { guid: "1:3", phase: "CREATED", type: "BOOLEAN_OPERATION" as never, booleanOperation: "INTERSECT", name: "B", parentIndex: { guid: "1:1", position: "#" } } as never
+    );
+    const { ed, engine } = await editor(doc);
+    expect(engine.readNode("1:2")?.type).toBe("VECTOR");
+    ed.noteSourceTypes(doc);
+    const tree = ed.getTree();
+    expect(tree.nodes.get("1:2")?.type).toBe("VECTOR");
+    expect(layerIcon(tree.nodes.get("1:2")!)).toBe("16.vector");
+    expect(layerIcon(tree.nodes.get("1:3")!)).toBe("16.boolean.intersect");
+    expect(typeLabel([ed.withRealType(engine.readNode("1:2")!)])).toBe("Vector path");
+    expect(ed.withRealType(engine.readNode("1:1")!).type).toBe("FRAME");
+  });
+
+  it("Hug / Fill / Fixed and min / max reach the engine's layout", async () => {
+    const { ed, engine } = await editor();
+    engine.setSelection(["1:7"]);
+    expect(runEditorCommand(ed, "object.add-auto-layout")).toBe(true);
+    const frame = () => ed.withRealType(engine.readNode("1:7")!) as SizingNode & { guid: string };
+    const child = () => engine.readNode("1:8")! as SizingNode & { guid: string };
+    expect(isAutoLayout(frame())).toBe(true);
+    // The child fills the frame across its flow, as one undo step.
+    const axis = flowAxis(frame()) === "x" ? "y" : "x";
+    const { node, parent } = sizingChanges(child(), frame(), axis, "FILL");
+    ed.batch("Fill container", () => {
+      if (parent) engine.setProps(["1:7"], parent);
+      engine.setProps(["1:8"], node);
+    });
+    expect(sizingOf(child(), frame(), axis)).toBe("FILL");
+    const f = frame();
+    const pad = axis === "x" ? (f as NodeChange).stackHorizontalPadding! + (f as NodeChange).stackPaddingRight! : (f as NodeChange).stackVerticalPadding! + (f as NodeChange).stackPaddingBottom!;
+    expect(child().size![axis]).toBeCloseTo(f.size![axis] - pad, 3);
+    // Hug the frame's flow axis; a max width caps the frame.
+    ed.batch("Hug contents", () => engine.setProps(["1:7"], sizingChanges(frame(), null, flowAxis(frame()), "HUG").node));
+    expect(sizingOf(frame(), null, flowAxis(frame()))).toBe("HUG");
+    ed.setProps(["1:7"], withLimit(frame(), "max", "x", 120), "Max width");
+    expect(frame().size!.x).toBeLessThanOrEqual(120.001);
+    expect(limitOf(frame(), "max", "x")).toBe(120);
+    engine.undo();
+    expect(limitOf(frame(), "max", "x")).toBeNull();
+  });
+
+  it("Ignore auto layout and constraints write the schema's fields", async () => {
+    const { ed, engine } = await editor();
+    ed.setProps(["1:4"], { horizontalConstraint: "MAX" }, "Constraints");
+    const before = engine.readNode("1:4")!.transform!.m02;
+    ed.setProps(["1:1"], { size: { x: 740, y: 420 } }, "Resize");
+    expect(engine.readNode("1:4")!.transform!.m02).toBeCloseTo(before + 100, 3);
+    engine.setSelection(["1:7"]);
+    runEditorCommand(ed, "object.add-auto-layout");
+    ed.setProps(["1:9"], { stackPositioning: "ABSOLUTE" }, "Ignore auto layout");
+    expect(engine.readNode("1:9")!.stackPositioning).toBe("ABSOLUTE");
+  });
+
+  it("Selection colors: a frame lists its own and its children's colours; editing one recolours every use", async () => {
+    const { ed, engine, source } = await editor();
+    const frame = engine.readNode("1:1")! as PanelNode;
+    const { show, colors } = selectionColorsOf(engine, [frame]);
+    expect(show).toBe(true);
+    const keys = colors.map((c) => c.key);
+    expect(keys[0]).toBe("#ffffff/100");
+    expect(keys).toContain("#ffc700/100"); // Card 2's stroke and the Sun inside Clip
+    const yellow = colors.find((c) => c.key === "#ffc700/100")!;
+    expect(new Set(yellow.uses.map((u) => u.guid))).toEqual(new Set(["1:6", "1:8"]));
+    const before = source.changes.length;
+    writeSelectionColor(ed, yellow.uses, { color: { r: 1, g: 0, b: 0, a: 1 } }, { final: true, source: "type" });
+    expect(source.changes.length).toBe(before + 1);
+    expect(engine.readNode("1:6")!.strokePaints![0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(engine.readNode("1:8")!.fillPaints![0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    // The picker's "On this page" swatches.
+    expect(pageColors(ed)).toContain("#0d99ff");
+    // A single rectangle without children: no section.
+    expect(selectionColorsOf(engine, [engine.readNode("1:2")! as PanelNode]).show).toBe(false);
   });
 });

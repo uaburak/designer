@@ -18,6 +18,8 @@ export interface TreeNode {
   /** Auto layout direction, when the engine keeps it */
   stackMode?: string;
   stackWrap?: string;
+  /** BOOLEAN_OPERATION's operation (UNION, INTERSECT, SUBTRACT, XOR) */
+  booleanOperation?: string;
   /** Children back to front (paint order, index 0 = bottom), as the engine lists them */
   children: Guid[];
 }
@@ -33,7 +35,7 @@ export const EMPTY_TREE: LayerTree = { page: "", nodes: new Map() };
 export function treeFromNodes(page: Guid, nodes: readonly NodeChange[]): LayerTree {
   const map = new Map<Guid, TreeNode>();
   for (const n of nodes) {
-    const extra = n as NodeChange & { stackMode?: string; stackWrap?: string };
+    const extra = n as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string };
     map.set(n.guid, {
       id: n.guid,
       parent: n.parentIndex?.guid || null,
@@ -44,6 +46,7 @@ export function treeFromNodes(page: Guid, nodes: readonly NodeChange[]): LayerTr
       group: n.type === "GROUP" || (n.type === "FRAME" && n.resizeToFit === true),
       stackMode: extra.stackMode,
       stackWrap: extra.stackWrap,
+      booleanOperation: extra.booleanOperation,
       children: n.childIds ?? [],
     });
   }

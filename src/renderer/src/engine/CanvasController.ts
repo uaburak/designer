@@ -4,6 +4,14 @@
  * shortcut table), focus, the canvas's size in CSS and device pixels, cursors
  * and WebGL context loss. Every event goes straight to the engine — no React
  * state on the way, so input latency is one call.
+ *
+ * Text editing (docs/engine.md §7.6): while the engine edits a text
+ * (TEXT_EDIT active) a hidden <textarea> sits at the caret and has the focus,
+ * so the platform's input methods work: its keys go to the engine first
+ * (caret moves, deleting, Esc…), typed text arrives as `beforeinput`
+ * (engine.textInput), compositions as composition events, and copy / cut /
+ * paste as clipboard events on it. Other key handlers ignore it (it is a text
+ * field).
  */
 import {
   KEY_HANDLED,
@@ -45,6 +53,7 @@ export class CanvasController {
   private readonly engine: Engine;
   private readonly shortcuts: readonly Shortcut[];
   private readonly cleanups: (() => void)[] = [];
+  private textarea: HTMLTextAreaElement | null = null;
 
   constructor(canvas: HTMLCanvasElement, engine: Engine, options: CanvasControllerOptions = {}) {
     this.canvas = canvas;
@@ -73,6 +82,11 @@ export class CanvasController {
     this.listen(c, "webglcontextrestored", this.onContextRestored);
     this.listen(window, "blur", this.onBlur);
     this.cleanups.push(this.engine.onCursor((kind, angle) => (c.style.cursor = cssCursor(kind, angle))));
+    this.cleanups.push(this.engine.on("TEXT_EDIT", (e) => this.onTextEdit(e.active, e.caretRectCss)));
+    this.cleanups.push(() => {
+      this.textarea?.remove();
+      this.textarea = null;
+    });
     this.observeSize();
     return () => this.detach();
   }
@@ -128,11 +142,94 @@ export class CanvasController {
   }
 
   private readonly onPointerDown = (e: PointerEvent) => {
-    this.canvas.focus({ preventScroll: true });
+    if (!this.engine.textEdit) this.canvas.focus({ preventScroll: true });
     const r = this.send(PointerType.DOWN, e);
     if (r & POINTER_CAPTURE) this.canvas.setPointerCapture(e.pointerId);
     if (r & POINTER_HANDLED) e.preventDefault();
+    // Still (or now) editing text: its field keeps the keyboard.
+    if (this.engine.textEdit) this.textarea?.focus({ preventScroll: true });
   };
+
+  // ---- Text editing: the hidden field at the caret ----
+
+  private onTextEdit(active: boolean, caret: { x: number; y: number; width: number; height: number }): void {
+    if (!active) {
+      if (this.textarea && document.activeElement === this.textarea) this.canvas.focus({ preventScroll: true });
+      return;
+    }
+    const t = this.ensureTextarea();
+    const r = this.canvas.getBoundingClientRect();
+    t.style.left = `${Math.round(r.left + caret.x)}px`;
+    t.style.top = `${Math.round(r.top + caret.y)}px`;
+    t.style.height = `${Math.max(1, Math.round(caret.height))}px`;
+    if (document.activeElement !== t) t.focus({ preventScroll: true });
+  }
+
+  private ensureTextarea(): HTMLTextAreaElement {
+    if (this.textarea) return this.textarea;
+    const t = document.createElement("textarea");
+    t.setAttribute("aria-label", "Text");
+    t.setAttribute("autocomplete", "off");
+    t.setAttribute("autocorrect", "off");
+    t.setAttribute("autocapitalize", "off");
+    t.spellcheck = false;
+    Object.assign(t.style, {
+      position: "fixed", width: "1px", padding: "0", border: "0", margin: "0", outline: "none", resize: "none",
+      overflow: "hidden", opacity: "0", pointerEvents: "none", whiteSpace: "pre", fontSize: "12px", zIndex: "0",
+    } satisfies Partial<CSSStyleDeclaration>);
+    const on = <K extends keyof HTMLElementEventMap>(type: K, handler: (e: HTMLElementEventMap[K]) => void) => {
+      t.addEventListener(type, handler);
+      this.cleanups.push(() => t.removeEventListener(type, handler));
+    };
+    on("keydown", (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (this.engine.key("down", e.code, e.key, modifiersOf(e), e.repeat) & KEY_HANDLED) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+    on("keyup", (e) => {
+      if (this.engine.key("up", e.code, e.key, modifiersOf(e)) & KEY_HANDLED) e.preventDefault();
+    });
+    on("beforeinput", (e) => {
+      if (e.isComposing) return;
+      if (e.inputType === "insertText" || e.inputType === "insertReplacementText") {
+        e.preventDefault();
+        const text = e.data ?? e.dataTransfer?.getData("text/plain") ?? "";
+        if (text) this.engine.textInput(text);
+      } else if (e.inputType !== "insertCompositionText") {
+        e.preventDefault(); // deletes and line breaks come as keys; paste as the paste event
+      }
+    });
+    on("compositionupdate", (e) => {
+      const data = e.data ?? "";
+      this.engine.textComposition(data, data.length, data.length);
+    });
+    on("compositionend", (e) => {
+      this.engine.textCompositionEnd(e.data ?? "");
+      t.value = "";
+    });
+    on("copy", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.clipboardData?.setData("text/plain", this.engine.textSelection());
+    });
+    on("cut", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.clipboardData?.setData("text/plain", this.engine.textSelection());
+      this.engine.textInput("");
+    });
+    on("paste", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (text) this.engine.textInput(text.replace(/\r\n?/g, "\n"));
+    });
+    document.body.appendChild(t);
+    this.textarea = t;
+    return t;
+  }
   private readonly onPointerMove = (e: PointerEvent) => void this.send(PointerType.MOVE, e);
   private readonly onPointerUp = (e: PointerEvent) => {
     if (this.send(PointerType.UP, e) & POINTER_HANDLED) e.preventDefault();

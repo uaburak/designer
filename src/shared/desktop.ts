@@ -11,6 +11,7 @@
  */
 import type {
   FlushReason,
+  FontIndex,
   HomeState,
   ImportResult,
   InitInfo,
@@ -139,6 +140,11 @@ export interface EditorApi extends DesktopCommon {
   files: FilesApi;
   menu: ViewMenuApi;
   openExternal(url: string): void;
+  /** Installed fonts for the engine (src/renderer/src/engine/fonts.ts reads this). */
+  fonts: {
+    list(): Promise<FontIndex>;
+    read(id: string): Promise<Uint8Array>;
+  };
 }
 
 export type DesktopApi = TabBarApi | HomeApi | EditorApi;

@@ -7,6 +7,7 @@
 #pragma once
 
 #include <array>
+#include <map>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -22,23 +23,35 @@ namespace eng {
 // ROUNDED_RECTANGLE and groups as FRAME + resizeToFit (as Figma's files do);
 // RECTANGLE and GROUP are read on import and treated the same. SYMBOL
 // (component), INSTANCE and SECTION are frame-like containers here; an
-// instance's sublayers come with E6.
+// instance's sublayers come with E6. Types the engine doesn't draw yet
+// (VECTOR, BOOLEAN_OPERATION, STAR, …) keep their type and their fields
+// (NodeProps::extra) so they round-trip.
 enum class NodeType : uint8_t {
   NONE = 0,
   DOCUMENT = 1,
   CANVAS = 2,
   GROUP = 3,
   FRAME = 4,
+  BOOLEAN_OPERATION = 5,
+  VECTOR = 6,
+  STAR = 7,
+  LINE = 8,
   ELLIPSE = 9,
   RECTANGLE = 10,
+  REGULAR_POLYGON = 11,
   ROUNDED_RECTANGLE = 12,
+  TEXT = 13,
+  SLICE = 14,
   SYMBOL = 15,
   INSTANCE = 16,
   SECTION = 25,
+  VARIABLE = 28,
+  VARIABLE_SET = 31,
 };
 
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };
-enum class PaintType : uint8_t { SOLID = 0 };
+// SOLID is drawn; any other paint (gradients, images: E5) is kept as it came (Paint::raw).
+enum class PaintType : uint8_t { SOLID = 0, OTHER = 255 };
 
 // Auto layout (schema/document.kiwi StackMode … StackCounterAlignContent).
 enum class StackMode : uint8_t { NONE = 0, HORIZONTAL = 1, VERTICAL = 2, GRID = 3 };
@@ -50,6 +63,15 @@ enum class StackPositioning : uint8_t { AUTO = 0, ABSOLUTE = 1 };
 enum class StackWrap : uint8_t { NO_WRAP = 0, WRAP = 1 };
 enum class StackCounterAlignContent : uint8_t { AUTO = 0, SPACE_BETWEEN = 1 };
 enum class ConstraintType : uint8_t { MIN = 0, CENTER = 1, MAX = 2, STRETCH = 3, SCALE = 4, FIXED_MIN = 5, FIXED_MAX = 6 };
+
+// Text (schema/document.kiwi's Text section).
+enum class NumberUnits : uint8_t { RAW = 0, PIXELS = 1, PERCENT = 2 };
+enum class TextAlignHorizontal : uint8_t { LEFT = 0, CENTER = 1, RIGHT = 2, JUSTIFIED = 3 };
+enum class TextAlignVertical : uint8_t { TOP = 0, CENTER = 1, BOTTOM = 2 };
+enum class TextAutoResize : uint8_t { NONE = 0, WIDTH_AND_HEIGHT = 1, HEIGHT = 2 };
+enum class TextTruncation : uint8_t { DISABLED = 0, ENDING = 1 };
+enum class TextCase : uint8_t { ORIGINAL = 0, UPPER = 1, LOWER = 2, TITLE = 3, SMALL_CAPS = 4, SMALL_CAPS_FORCED = 5 };
+enum class TextDecoration : uint8_t { NONE = 0, UNDERLINE = 1, STRIKETHROUGH = 2 };
 
 const char* nodeTypeName(NodeType t);
 NodeType nodeTypeFromName(std::string_view s);
@@ -87,6 +109,13 @@ ENG_ENUM_NAMES(StackPositioning, "AUTO", "ABSOLUTE")
 ENG_ENUM_NAMES(StackWrap, "NO_WRAP", "WRAP")
 ENG_ENUM_NAMES(StackCounterAlignContent, "AUTO", "SPACE_BETWEEN")
 ENG_ENUM_NAMES(ConstraintType, "MIN", "CENTER", "MAX", "STRETCH", "SCALE", "FIXED_MIN", "FIXED_MAX")
+ENG_ENUM_NAMES(NumberUnits, "RAW", "PIXELS", "PERCENT")
+ENG_ENUM_NAMES(TextAlignHorizontal, "LEFT", "CENTER", "RIGHT", "JUSTIFIED")
+ENG_ENUM_NAMES(TextAlignVertical, "TOP", "CENTER", "BOTTOM")
+ENG_ENUM_NAMES(TextAutoResize, "NONE", "WIDTH_AND_HEIGHT", "HEIGHT")
+ENG_ENUM_NAMES(TextTruncation, "DISABLED", "ENDING")
+ENG_ENUM_NAMES(TextCase, "ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED")
+ENG_ENUM_NAMES(TextDecoration, "NONE", "UNDERLINE", "STRIKETHROUGH")
 #undef ENG_ENUM_NAMES
 
 inline const char* strokeAlignName(StrokeAlign a) { return enumName(a); }
@@ -110,8 +139,63 @@ struct Paint {
   Color color;
   float opacity = 1;
   bool visible = true;
+  std::string raw;  // OTHER: the paint, encoded
   bool operator==(const Paint& o) const {
-    return type == o.type && color == o.color && opacity == o.opacity && visible == o.visible;
+    return type == o.type && color == o.color && opacity == o.opacity && visible == o.visible && raw == o.raw;
+  }
+};
+
+// schema Number: lineHeight {100, PERCENT} = Auto (the font's own line height),
+// {k, RAW} = k × font size (the UI's "140%"), {v, PIXELS}; letterSpacing in
+// PERCENT of the font size or PIXELS.
+struct Number {
+  double value = 0;
+  NumberUnits units = NumberUnits::RAW;
+  bool operator==(const Number& o) const { return value == o.value && units == o.units; }
+};
+
+struct FontName {
+  std::string family, style, postscript;
+  bool operator==(const FontName& o) const { return family == o.family && style == o.style && postscript == o.postscript; }
+};
+
+// A run style of TextData.styleOverrideTable (a sparse NodeChange keyed by
+// styleID ≥ 1): the run fields the engine uses, in `mask`, and every other
+// field of the entry kept as encoded JSON members ("key":value,…) so they
+// survive edits.
+enum TextRunField : uint32_t {
+  R_FONT_NAME = 1,
+  R_FONT_SIZE = 2,
+  R_LINE_HEIGHT = 4,
+  R_LETTER_SPACING = 8,
+  R_TEXT_CASE = 16,
+  R_TEXT_DECORATION = 32,
+  R_FILLS = 64,
+};
+struct TextStyle {
+  uint32_t styleID = 0;
+  uint32_t mask = 0;
+  FontName fontName;
+  double fontSize = 12;
+  Number lineHeight{100, NumberUnits::PERCENT};
+  Number letterSpacing{0, NumberUnits::PERCENT};
+  TextCase textCase = TextCase::ORIGINAL;
+  TextDecoration textDecoration = TextDecoration::NONE;
+  std::vector<Paint> fillPaints;
+  std::string extra;  // other members, already encoded
+  bool operator==(const TextStyle& o) const;
+};
+
+// A TEXT node's source (one property; edits replace it whole). Offsets are
+// UTF-16 code units, as Figma's characterStyleIDs.
+struct TextData {
+  std::string characters;                    // UTF-8; paragraphs split by "\n", U+2028 a line break inside one
+  std::vector<uint32_t> characterStyleIDs;   // per UTF-16 unit; a missing tail = 0 (the node's own style)
+  std::vector<TextStyle> styleOverrideTable;
+  std::vector<std::string> lines;            // TextLineData per paragraph, kept as encoded JSON (lists come with E3.2)
+  bool operator==(const TextData& o) const {
+    return characters == o.characters && characterStyleIDs == o.characterStyleIDs && styleOverrideTable == o.styleOverrideTable &&
+           lines == o.lines;
   }
 };
 
@@ -168,7 +252,25 @@ enum Field : FieldMask {
   F_H_CONSTRAINT = 1ull << 38,  // horizontalConstraint
   F_V_CONSTRAINT = 1ull << 39,  // verticalConstraint
   F_PROPORTIONS_CONSTRAINED = 1ull << 40,
-  F_ALL = (1ull << 41) - 1,
+  // Text.
+  F_TEXT_DATA = 1ull << 41,
+  F_FONT_NAME = 1ull << 42,
+  F_FONT_SIZE = 1ull << 43,
+  F_LINE_HEIGHT = 1ull << 44,
+  F_LETTER_SPACING = 1ull << 45,
+  F_PARAGRAPH_SPACING = 1ull << 46,
+  F_PARAGRAPH_INDENT = 1ull << 47,
+  F_TEXT_ALIGN_H = 1ull << 48,  // textAlignHorizontal
+  F_TEXT_ALIGN_V = 1ull << 49,  // textAlignVertical
+  F_TEXT_AUTO_RESIZE = 1ull << 50,
+  F_TEXT_TRUNCATION = 1ull << 51,
+  F_MAX_LINES = 1ull << 52,
+  F_TEXT_CASE = 1ull << 53,
+  F_TEXT_DECORATION = 1ull << 54,
+  F_AUTO_RENAME = 1ull << 55,
+  // Every NodeChange field the engine doesn't model, kept as encoded JSON.
+  F_EXTRA = 1ull << 56,
+  F_ALL = (1ull << 57) - 1,
 };
 
 // Fields that feed auto layout (a write marks the layout dirty).
@@ -178,6 +280,11 @@ inline constexpr FieldMask kStackContainerFields = F_STACK_MODE | F_STACK_SPACIN
                                                    F_STACK_COUNTER_ALIGN_CONTENT | F_STACK_WRAP | F_STACK_COUNTER_SPACING |
                                                    F_BORDERS_TAKE_SPACE;
 inline constexpr FieldMask kStackChildFields = F_STACK_CHILD_GROW | F_STACK_CHILD_ALIGN_SELF | F_STACK_POSITIONING | F_MIN_SIZE | F_MAX_SIZE;
+// Fields that change a text node's layout (glyphs, lines, its auto-resized size).
+inline constexpr FieldMask kTextLayoutFields = F_TEXT_DATA | F_FONT_NAME | F_FONT_SIZE | F_LINE_HEIGHT | F_LETTER_SPACING |
+                                               F_PARAGRAPH_SPACING | F_PARAGRAPH_INDENT | F_TEXT_ALIGN_H | F_TEXT_ALIGN_V |
+                                               F_TEXT_AUTO_RESIZE | F_TEXT_TRUNCATION | F_MAX_LINES | F_TEXT_CASE |
+                                               F_TEXT_DECORATION;
 
 // The kiwi field id (schema/document.kiwi NodeChange) of each Field bit, for
 // clearedFields; 0 for fields that can't be cleared (type, parentIndex).
@@ -249,6 +356,26 @@ struct NodeProps {
   ConstraintType horizontalConstraint = ConstraintType::MIN;
   ConstraintType verticalConstraint = ConstraintType::MIN;
   bool proportionsConstrained = false;
+  // Text (TEXT nodes; absent = the schema's @default: Inter Regular 12, Auto line height, 0% letter spacing).
+  TextData textData;
+  FontName fontName{"Inter", "Regular", ""};
+  double fontSize = 12;
+  Number lineHeight{100, NumberUnits::PERCENT};
+  Number letterSpacing{0, NumberUnits::PERCENT};
+  double paragraphSpacing = 0;
+  double paragraphIndent = 0;
+  TextAlignHorizontal textAlignHorizontal = TextAlignHorizontal::LEFT;
+  TextAlignVertical textAlignVertical = TextAlignVertical::TOP;
+  TextAutoResize textAutoResize = TextAutoResize::NONE;
+  TextTruncation textTruncation = TextTruncation::DISABLED;
+  int32_t maxLines = 0;  // with ENDING truncation; 0 = no limit
+  TextCase textCase = TextCase::ORIGINAL;
+  TextDecoration textDecoration = TextDecoration::NONE;
+  bool autoRename = false;
+  // The fields the engine doesn't model (vectorData, blendMode, effects…): name →
+  // encoded JSON value. A CHANGED change's `extra` merges into the node's (an
+  // empty value removes that field); CREATED replaces it.
+  std::map<std::string, std::string> extra;
 
   bool isGroupLike() const { return type == NodeType::GROUP || (type == NodeType::FRAME && resizeToFit); }
   bool isFrameLike() const {
