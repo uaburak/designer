@@ -1,0 +1,250 @@
+@import "tailwindcss";
+
+/* `dark:` follows the app's theme (data-theme on <html>), not only the system's. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * The app's look. Figma's own colours (FIGMA_TOKENS, figma/tokens.ts) are put
+ * on :root by main.tsx, light and dark; here are the app's beside them — the
+ * tab bar and the home, after Figma's desktop app — and the base.
+ */
+:root {
+  --font-inter: "Inter Variable";
+  --tabbar-height: 40px;
+
+  --tabbar-bg: #e6e6e6;
+  --tabbar-hover: #dcdcdc;
+  --tabbar-divider: #cfcfcf;
+  --tabbar-text: rgba(0, 0, 0, 0.9);
+  --tabbar-text-secondary: rgba(0, 0, 0, 0.5);
+
+  --home-thumb: #f5f5f5;
+  --home-card-border: #e6e6e6;
+  --home-card-border-hover: #cccccc;
+  --home-field: #f5f5f5;
+  --home-badge-bg: #e5f4ff;
+  --home-badge-text: #007be5;
+  --home-nav-selected: #e5f4ff;
+  --home-live: #14ae5c;
+  --home-changed: #e5a000;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  /* Sampled from Figma's desktop app: the bar #585858, its lines #696969, the open tab the page's own #2c2c2c. */
+  --tabbar-bg: #585858;
+  --tabbar-hover: #636363;
+  --tabbar-divider: #696969;
+  --tabbar-text: #ffffff;
+  --tabbar-text-secondary: rgba(255, 255, 255, 0.7);
+
+  --home-thumb: #1e1e1e;
+  --home-card-border: #444444;
+  --home-card-border-hover: #5c5c5c;
+  --home-field: #383838;
+  --home-badge-bg: #394360;
+  --home-badge-text: #91b7d8;
+  --home-nav-selected: #394360;
+  --home-live: #3dd68c;
+  --home-changed: #ffc700;
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-inter), "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background-color: var(--f-bg);
+  color: var(--f-text);
+}
+
+/* The desktop's own: a pointer, not a hand, on buttons — and nothing dragged out of the chrome by accident. */
+button {
+  cursor: default;
+}
+img {
+  -webkit-user-drag: none;
+}
+
+/* A part of the window that moves it (the tab bar's free room), and the controls on it that don't. */
+.app-drag {
+  -webkit-app-region: drag;
+}
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ── Scrollbars: thin, over the content ── */
+*:not(iframe)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+*:not(iframe)::-webkit-scrollbar-track {
+  background: transparent;
+}
+*:not(iframe)::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*:not(iframe)::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+*:not(iframe)::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.hide-native-scrollbar,
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+.hide-native-scrollbar::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+/* ── What the site's pages need, shown in the app (the draft's preview, the CV's) ── */
+@keyframes page-entrance {
+  from { opacity: 0.5; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+.page-entrance {
+  animation: page-entrance 550ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.line-reveal {
+  overflow: hidden;
+  display: block;
+}
+
+/* ── Editors: ⌥ held while dragging — the drop leaves a copy ── */
+html[data-drag-copy],
+html[data-drag-copy] * {
+  cursor: copy !important;
+}
+
+/* ── Code in embeds (Prism) ── */
+code[class*="language-"],
+pre[class*="language-"] {
+  background-color: transparent !important;
+  color: var(--text-p);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  line-height: 1.6;
+  tab-size: 2;
+  hyphens: none;
+}
+.token.comment,
+.token.block-comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #757575;
+  font-style: italic;
+}
+.token.punctuation {
+  color: #888888;
+}
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.function-name,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #e25555;
+}
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #029855;
+}
+.token.operator,
+.token.entity,
+.token.url,
+.variable {
+  color: #d97706;
+}
+.token.atrule,
+.token.attr-value,
+.token.keyword,
+.token.class-name {
+  color: #8b5cf6;
+  font-weight: 500;
+}
+.token.function {
+  color: #0284c7;
+}
+.token.regex,
+.token.important {
+  color: #e11d48;
+}
+[data-theme="dark"] .token.keyword,
+[data-theme="dark"] .token.class-name {
+  color: #c084fc;
+}
+[data-theme="dark"] .token.string,
+[data-theme="dark"] .token.attr-name {
+  color: #4ade80;
+}
+[data-theme="dark"] .token.function {
+  color: #38bdf8;
+}
+[data-theme="dark"] .token.number,
+[data-theme="dark"] .token.boolean {
+  color: #f87171;
+}
+[data-theme="dark"] .token.operator {
+  color: #fb923c;
+}
+
+/* Asked for less motion (the system's setting): nothing slides, fades or springs. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
