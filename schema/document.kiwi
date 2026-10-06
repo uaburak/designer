@@ -1,0 +1,1973 @@
+// =============================================================================
+// DesignerV2 document schema (Kiwi) - the single source of truth.
+//
+// DOCUMENT_FORMAT_VERSION = 1
+//
+// engine/tools/schemagen (kiwi-schema 0.5.0 API) generates from this file:
+//   ${build}/generated/schema/document.kiwi.h    C++ tree codec       (compileSchemaCPP, namespace schema)
+//   ${build}/generated/schema/document.stream.h  C++ visitor codec    (compileSchemaCallbackCPP, namespace schema_stream)
+//   ${build}/generated/schema/node_fields.h      field registry: ids, tags, defaults, bindings
+//   src/shared/schema/document.generated.ts      TS types, codec, field registry, binary schema
+// `npm run engine:gen -- --check` fails when an output is stale or Figma parity breaks.
+// Explanation, patch model, ids, ordering, storage mapping: docs/schema.md.
+//
+// It is Figma's own schema, trimmed (reference: docs/research/figma/figma-schema.kiwi
+// and the Aug-2026 schema embedded in docs/research/figma/samples/sections.fig).
+// Every kept definition, field name, field number, field type and enum value is
+// Figma's. Rules for editing:
+//   * Never renumber or retype a field. Never reuse a number.
+//   * Message field ids must be <= the field count (kiwi rule), so numbers of
+//     Figma fields we dropped are kept as `byte _rN = N [deprecated];` placeholders.
+//     To adopt a Figma field later, replace its placeholder with Figma's real
+//     declaration (same number and type).
+//   * DesignerV2's own fields are numbered from 1000 in NodeChange and from 100
+//     in every other Figma-derived message; own enum values start at 100.
+//     Messages that Figma does not have (tagged @ours) number from 1.
+//
+// Field tags: a field's trailing comment starts with its tags, then free text
+// (no '@' in free text). Parsed by engine/tools/schemagen:
+//   @derived       computed by the engine; never in change Messages or the journal;
+//                  only in snapshots that ask for it (viewer/preview snapshots).
+//   @blob          uint index into Message.blobs of the enclosing Message.
+//   @nooverride    may not appear in an instance override (a symbolOverrides entry).
+//   @default(v)    value meant by absence when it is not the kiwi zero value.
+//   @bind(F[:c],..) VariableField(s) binding this field via parameterConsumptionMap
+//                  (:c = the struct component bound, e.g. WIDTH:x).
+//   @own           on an INSTANCE: the instance's own value, never taken from the main
+//                  component's root and never in the root override entry.
+//   @patch         only in change Messages (journal, undo, apply); never stored on a node.
+//   @later         kept for parity; the v1 engine stores and round-trips it but ignores it.
+//   @ours          not in Figma's schema.
+// =============================================================================
+
+// ----------------------------------------------------------------------------
+// Messages and node identity
+// ----------------------------------------------------------------------------
+
+enum MessageType {
+  // Dropped (multiplayer/server only): JOIN_START=0, USER_CHANGES=2, JOIN_END=3, SIGNAL=4,
+  // STYLE=5, STYLE_SET=6, ..., CLIENT_RENDERED=23.
+  NODE_CHANGES = 1;
+}
+
+enum NodePhase {
+  CREATED = 0;
+  REMOVED = 1;
+}
+
+enum NodeType {
+  NONE = 0;
+  DOCUMENT = 1;
+  CANVAS = 2;              // a page; also the hidden "Internal Only Canvas" 0:2
+  GROUP = 3;               // import only: DesignerV2 writes groups as FRAME + resizeToFit (as Figma does)
+  FRAME = 4;               // frames, groups (resizeToFit), component sets (isStateGroup)
+  BOOLEAN_OPERATION = 5;
+  VECTOR = 6;
+  STAR = 7;
+  LINE = 8;
+  ELLIPSE = 9;
+  RECTANGLE = 10;          // import only: legacy; DesignerV2 writes ROUNDED_RECTANGLE
+  REGULAR_POLYGON = 11;
+  ROUNDED_RECTANGLE = 12;  // "Rectangle" in the UI; also fill/effect/grid style nodes
+  TEXT = 13;               // also text style nodes
+  SLICE = 14;
+  SYMBOL = 15;             // "Component" in the UI; variants are SYMBOLs inside a state group
+  INSTANCE = 16;
+  SECTION = 25;
+  VARIABLE = 28;
+  VARIABLE_SET = 31;       // "Collection" in the UI
+  // Dropped: STICKY=17, SHAPE_WITH_TEXT=18, CONNECTOR=19, CODE_BLOCK=20, WIDGET=21, STAMP=22,
+  // MEDIA=23, HIGHLIGHT=24, SECTION_OVERLAY=26, WASHI_TAPE=27, TABLE=29, TABLE_CELL=30, SLIDE=32,
+  // ASSISTED_LAYOUT=33, INTERACTIVE_SLIDE_ELEMENT=34, VARIABLE_OVERRIDE=35, MODULE=36,
+  // SLIDE_GRID=37, SLIDE_ROW=38, RESPONSIVE_SET=39, CODE_COMPONENT=40, TEXT_PATH=41,
+  // CODE_INSTANCE=42, CODE_LIBRARY=43, CODE_FILE=44, CODE_LAYER=45, BRUSH=46, MANAGED_STRING=47,
+  // TRANSFORM=48, CMS_RICH_TEXT=49, REPEATER=50, JSX=51, EMBEDDED_PROTOTYPE=52, REACT_FIBER=53,
+  // RESPONSIVE_NODE_SET=54, WEBPAGE=55, KEYFRAME=56, KEYFRAME_TRACK=57, ANIMATION_PRESET_INSTANCE=58.
+}
+
+struct GUID {
+  uint sessionID;
+  uint localID;
+}
+
+struct ParentIndex {
+  GUID guid;               // parent node
+  string position;         // fractional index, base-95 printable ASCII (docs/schema.md section 10)
+}
+
+struct Blob {
+  byte[] bytes;
+}
+
+message Message {
+  MessageType type = 1;
+  uint sessionID = 2;              // editor session that produced it (0 in snapshots)
+  uint ackID = 3;                  // 0 in DesignerV2 (journal seq lives in the frame header, docs/data.md 5.2)
+  NodeChange[] nodeChanges = 4;
+  Blob[] blobs = 6;                // geometry/image bytes referenced by blob-index fields of this Message
+  int pasteID = 12;                // clipboard: random id of one copy operation
+  Vector pasteOffset = 13;
+  string pasteFileKey = 14;        // clipboard: fileKey of the source file
+  bool pasteIsPartiallyOutsideEnclosingFrame = 19;
+  GUID pastePageId = 20;
+  bool isCut = 21;
+  ClipboardSelectionRegion[] clipboardSelectionRegions = 33;
+  uint64 sentTimestamp = 38;       // optional: ms since Unix epoch when committed
+  uint derivedDataVersion = 100;   // @ours engine version of the derived fields in this Message (0/absent = none)
+  // Reserved field numbers (86): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r8 = 8 [deprecated]; byte _r9 = 9 [deprecated]; byte _r10 = 10 [deprecated]; byte _r11 = 11 [deprecated];
+  byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r22 = 22 [deprecated]; byte _r23 = 23 [deprecated];
+  byte _r24 = 24 [deprecated]; byte _r25 = 25 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated];
+  byte _r30 = 30 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
+  byte _r37 = 37 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated]; byte _r42 = 42 [deprecated]; byte _r43 = 43 [deprecated];
+  byte _r44 = 44 [deprecated]; byte _r45 = 45 [deprecated]; byte _r46 = 46 [deprecated]; byte _r47 = 47 [deprecated]; byte _r48 = 48 [deprecated]; byte _r49 = 49 [deprecated];
+  byte _r50 = 50 [deprecated]; byte _r51 = 51 [deprecated]; byte _r52 = 52 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
+  byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
+  byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
+  byte _r68 = 68 [deprecated]; byte _r69 = 69 [deprecated]; byte _r70 = 70 [deprecated]; byte _r71 = 71 [deprecated]; byte _r72 = 72 [deprecated]; byte _r73 = 73 [deprecated];
+  byte _r74 = 74 [deprecated]; byte _r75 = 75 [deprecated]; byte _r76 = 76 [deprecated]; byte _r77 = 77 [deprecated]; byte _r78 = 78 [deprecated]; byte _r79 = 79 [deprecated];
+  byte _r80 = 80 [deprecated]; byte _r81 = 81 [deprecated]; byte _r82 = 82 [deprecated]; byte _r83 = 83 [deprecated]; byte _r84 = 84 [deprecated]; byte _r85 = 85 [deprecated];
+  byte _r86 = 86 [deprecated]; byte _r87 = 87 [deprecated]; byte _r88 = 88 [deprecated]; byte _r89 = 89 [deprecated]; byte _r90 = 90 [deprecated]; byte _r91 = 91 [deprecated];
+  byte _r92 = 92 [deprecated]; byte _r93 = 93 [deprecated]; byte _r94 = 94 [deprecated]; byte _r95 = 95 [deprecated]; byte _r96 = 96 [deprecated]; byte _r97 = 97 [deprecated];
+  byte _r98 = 98 [deprecated]; byte _r99 = 99 [deprecated];
+}
+
+message ClipboardSelectionRegion {
+  GUID parent = 1;
+  GUID[] nodes = 2;
+  Vector enclosingFrameOffset = 3;
+  bool pasteIsPartiallyOutsideEnclosingFrame = 4;
+  SelectionRegionFocusType focusType = 5;
+}
+
+enum SelectionRegionFocusType {
+  NONE = 0;
+  PRIMARY = 1;
+  SECONDARY = 2;
+}
+
+// ----------------------------------------------------------------------------
+// Geometry primitives
+// ----------------------------------------------------------------------------
+
+struct Color {             // 0..1 gamma-encoded components in the document color profile (sRGB or Display P3)
+  float r;
+  float g;
+  float b;
+  float a;
+}
+
+struct Vector {
+  float x;
+  float y;
+}
+
+struct Rect {
+  float x;
+  float y;
+  float w;
+  float h;
+}
+
+struct Matrix {            // 2x3 affine, parent space: [m00 m01 m02; m10 m11 m12]
+  float m00;
+  float m01;
+  float m02;
+  float m10;
+  float m11;
+  float m12;
+}
+
+struct Number {
+  float value;
+  NumberUnits units;
+}
+
+enum NumberUnits {
+  RAW = 0;                 // lineHeight: multiple of font size (UI "140%" = RAW 1.4)
+  PIXELS = 1;
+  PERCENT = 2;             // lineHeight {100, PERCENT} = "Auto"; letterSpacing: % of font size
+}
+
+message OptionalVector {   // minSize/maxSize: an axis value of 0 means "no limit on this axis"
+  Vector value = 1;
+}
+
+message GUIDPath {
+  GUID[] guids = 1;        // overrideKeys from an instance down to a sublayer; empty = the instance itself
+}
+
+enum Axis {
+  X = 0;
+  Y = 1;
+}
+
+enum WindingRule {
+  NONZERO = 0;
+  ODD = 1;
+}
+
+message Path {             // fillGeometry/strokeGeometry entry
+  WindingRule windingRule = 1;
+  uint commandsBlob = 2;   // @blob path commands (docs/schema.md section 11.3)
+  uint styleID = 3;
+}
+
+message VectorData {
+  uint vectorNetworkBlob = 1;          // @blob vector network (docs/schema.md section 11.3)
+  Vector normalizedSize = 2;           // size the network's coordinates are expressed in
+  NodeChange[] styleOverrideTable = 3; // per vertex/segment/region styles, keyed by NodeChange.styleID
+}
+
+message ArcData {          // ELLIPSE arcs, pies and donuts (radians)
+  float startingAngle = 1;
+  float endingAngle = 2;
+  float innerRadius = 3;   // 0..1 ratio
+}
+
+enum VectorMirror {
+  NONE = 0;
+  ANGLE = 1;
+  ANGLE_AND_LENGTH = 2;
+}
+
+enum BooleanOperation {
+  UNION = 0;
+  INTERSECT = 1;
+  SUBTRACT = 2;
+  XOR = 3;                 // "Exclude"
+}
+
+// ----------------------------------------------------------------------------
+// Paint, stroke, effects
+// ----------------------------------------------------------------------------
+
+enum BlendMode {
+  PASS_THROUGH = 0;
+  NORMAL = 1;
+  DARKEN = 2;
+  MULTIPLY = 3;
+  LINEAR_BURN = 4;
+  COLOR_BURN = 5;
+  LIGHTEN = 6;
+  SCREEN = 7;
+  LINEAR_DODGE = 8;
+  COLOR_DODGE = 9;
+  OVERLAY = 10;
+  SOFT_LIGHT = 11;
+  HARD_LIGHT = 12;
+  DIFFERENCE = 13;
+  EXCLUSION = 14;
+  HUE = 15;
+  SATURATION = 16;
+  COLOR = 17;
+  LUMINOSITY = 18;
+}
+
+enum PaintType {
+  SOLID = 0;
+  GRADIENT_LINEAR = 1;
+  GRADIENT_RADIAL = 2;
+  GRADIENT_ANGULAR = 3;
+  GRADIENT_DIAMOND = 4;
+  IMAGE = 5;
+  // Dropped: EMOJI=6, VIDEO=7, PATTERN=8, NOISE=9.
+}
+
+enum ImageScaleMode {
+  STRETCH = 0;             // "Crop" in the UI
+  FIT = 1;
+  FILL = 2;
+  TILE = 3;
+}
+
+struct ColorStop {
+  Color color;
+  float position;
+}
+
+message ColorStopVar {
+  Color color = 1;
+  VariableData colorVar = 2;
+  float position = 3;
+}
+
+message Image {
+  byte[] hash = 1;         // 20-byte SHA-1 of the image file bytes (PNG/JPEG/GIF/WebP)
+  string name = 2;
+  uint dataBlob = 3;       // @blob clipboard only: the image bytes travel inside the Message
+}
+
+message PaintFilterMessage {   // image adjustments
+  float tint = 1;
+  float shadows = 2;
+  float highlights = 3;
+  float detail = 4;
+  float exposure = 5;
+  float vignette = 6;
+  float temperature = 7;
+  float vibrance = 8;      // "Saturation" in the UI
+  float contrast = 9;
+  float brightness = 10;
+}
+
+message Paint {
+  PaintType type = 1;
+  Color color = 2;                       // SOLID; fallback when colorVar cannot be resolved
+  float opacity = 3;                     // @default(1)
+  bool visible = 4;                      // @default(true)
+  BlendMode blendMode = 5;               // @default(NORMAL)
+  ColorStop[] stops = 6;                 // gradients
+  Matrix transform = 7;                  // @default(identity) gradient/image transform in the node's unit square
+  Image image = 8;
+  Image imageThumbnail = 9;
+  ImageScaleMode imageScaleMode = 10;
+  float rotation = 11;                   // image rotation in degrees (multiples of 90)
+  float scale = 12;                      // @default(1) TILE scale
+  PaintFilterMessage paintFilter = 14;
+  uint originalImageWidth = 19;
+  uint originalImageHeight = 20;
+  VariableData colorVar = 21;            // binding of `color` (alias, or COMPOSE_COLOR expression)
+  ColorStopVar[] stopsVar = 23;          // bindings of gradient stop colors
+  byte[] thumbHash = 25;                 // ThumbHash of the image for progressive display
+  VariableData opacityVar = 38;          // binding of `opacity` to a FLOAT variable
+  // Reserved field numbers (19): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r22 = 22 [deprecated];
+  byte _r24 = 24 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated]; byte _r30 = 30 [deprecated];
+  byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
+  byte _r37 = 37 [deprecated];
+}
+
+enum StrokeAlign {
+  CENTER = 0;
+  INSIDE = 1;
+  OUTSIDE = 2;
+}
+
+enum StrokeCap {
+  NONE = 0;
+  ROUND = 1;
+  SQUARE = 2;
+  ARROW_LINES = 3;
+  ARROW_EQUILATERAL = 4;
+  DIAMOND_FILLED = 5;
+  TRIANGLE_FILLED = 6;
+  CIRCLE_FILLED = 14;
+  // Dropped: HIGHLIGHT=7, WASHI_TAPE_1..6=8..13, ERD_*=15..20 (FigJam).
+}
+
+enum StrokeJoin {
+  MITER = 0;
+  BEVEL = 1;
+  ROUND = 2;
+}
+
+enum EffectType {
+  INNER_SHADOW = 0;
+  DROP_SHADOW = 1;
+  FOREGROUND_BLUR = 2;     // "Layer blur"
+  BACKGROUND_BLUR = 3;
+  GRAIN = 6;               // @later "Texture"
+  NOISE = 7;               // @later
+  GLASS = 8;               // @later
+  // Dropped: REPEAT=4, SYMMETRY=5 (illustration modifiers), CUSTOM=9 (code effects).
+}
+
+enum BlurOpType {
+  NORMAL = 0;
+  PROGRESSIVE = 1;
+}
+
+enum NoiseType {           // @later
+  MULTITONE = 0;
+  MONOTONE = 1;
+  DUOTONE = 2;
+}
+
+message Effect {
+  EffectType type = 1;
+  Color color = 2;
+  Vector offset = 3;
+  float radius = 4;                      // blur radius
+  bool visible = 5;                      // @default(true)
+  BlendMode blendMode = 6;               // @default(NORMAL)
+  float spread = 7;
+  bool showShadowBehindNode = 8;         // "Show behind transparent areas"
+  VariableData radiusVar = 9;
+  VariableData colorVar = 10;
+  VariableData spreadVar = 11;
+  VariableData xVar = 12;
+  VariableData yVar = 13;
+  BlurOpType blurOpType = 19;            // progressive blur
+  Vector startOffset = 20;               // progressive blur start point
+  float startRadius = 21;
+  Vector noiseSize = 22;                 // @later
+  bool clipToShape = 23;                 // @later
+  Color secondaryColor = 24;             // @later
+  float density = 25;                    // @later
+  NoiseType noiseType = 26;              // @later
+  float opacity = 27;                    // @later
+  Vector endOffset = 28;                 // progressive blur end point
+  uint seed = 29;                        // @later
+  float refractionRadius = 30;           // @later glass
+  float specularAngle = 31;              // @later glass
+  float specularIntensity = 32;          // @later glass
+  float bevelSize = 33;                  // @later glass
+  float chromaticAberration = 34;        // @later glass
+  float reflectionDistance = 35;         // @later glass
+  float refractionIntensity = 36;        // @later glass
+  // Reserved field numbers (5): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
+}
+
+enum MaskType {
+  ALPHA = 0;
+  OUTLINE = 1;
+  LUMINANCE = 2;
+}
+
+enum ConstraintType {
+  MIN = 0;                 // Left / Top
+  CENTER = 1;
+  MAX = 2;                 // Right / Bottom
+  STRETCH = 3;             // Left & Right / Top & Bottom
+  SCALE = 4;
+  FIXED_MIN = 5;           // import only
+  FIXED_MAX = 6;           // import only
+}
+
+// ----------------------------------------------------------------------------
+// Layout guides, guides, export
+// ----------------------------------------------------------------------------
+
+enum LayoutGridType {
+  MIN = 0;
+  CENTER = 1;
+  STRETCH = 2;
+  MAX = 3;
+}
+
+enum LayoutGridPattern {
+  STRIPES = 0;             // columns / rows
+  GRID = 1;
+}
+
+message LayoutGrid {       // "Layout guide" in the UI
+  LayoutGridType type = 1;
+  Axis axis = 2;
+  bool visible = 3;                      // @default(true)
+  int numSections = 4;
+  float offset = 5;
+  float sectionSize = 6;
+  float gutterSize = 7;
+  Color color = 8;
+  LayoutGridPattern pattern = 9;
+  VariableData numSectionsVar = 10;
+  VariableData offsetVar = 11;
+  VariableData sectionSizeVar = 12;
+  VariableData gutterSizeVar = 13;
+}
+
+message Guide {            // ruler guide on a page or frame
+  Axis axis = 1;
+  float offset = 2;
+  GUID guid = 3;
+}
+
+enum ImageType {
+  PNG = 0;
+  JPEG = 1;
+  SVG = 2;
+  PDF = 3;
+  // Dropped: MP4=4, GIF=5, WEBM=6, LOTTIE=7, DOTLOTTIE=8.
+}
+
+enum ExportConstraintType {
+  CONTENT_SCALE = 0;
+  CONTENT_WIDTH = 1;
+  CONTENT_HEIGHT = 2;
+}
+
+struct ExportConstraint {
+  ExportConstraintType type;
+  float value;
+}
+
+enum ExportSVGIDMode {
+  IF_NEEDED = 0;
+  ALWAYS = 1;
+}
+
+enum ExportColorProfile {
+  DOCUMENT = 0;
+  SRGB = 1;
+  DISPLAY_P3_V4 = 2;
+  // Dropped: CMYK=3.
+}
+
+message ExportSettings {
+  string suffix = 1;
+  ImageType imageType = 2;
+  ExportConstraint constraint = 3;       // @default({CONTENT_SCALE, 1})
+  bool svgDataName = 4;
+  ExportSVGIDMode svgIDMode = 5;
+  bool svgOutlineText = 6;
+  bool contentsOnly = 7;
+  bool svgForceStrokeMasks = 8;
+  bool useAbsoluteBounds = 9;
+  ExportColorProfile colorProfile = 10;
+  float quality = 11;
+  bool useBicubicSampler = 12;
+}
+
+// ----------------------------------------------------------------------------
+// Text
+// ----------------------------------------------------------------------------
+
+struct FontName {
+  string family;
+  string style;
+  string postscript;
+}
+
+enum TextAlignHorizontal {
+  LEFT = 0;
+  CENTER = 1;
+  RIGHT = 2;
+  JUSTIFIED = 3;
+}
+
+enum TextAlignVertical {
+  TOP = 0;
+  CENTER = 1;
+  BOTTOM = 2;
+}
+
+enum TextAutoResize {
+  NONE = 0;                // "Fixed size"
+  WIDTH_AND_HEIGHT = 1;    // "Auto width"
+  HEIGHT = 2;              // "Auto height"
+}
+
+enum TextTruncation {
+  DISABLED = 0;
+  ENDING = 1;
+}
+
+enum TextWrapStyle {
+  AUTO = 0;
+  BALANCE = 1;
+  PRETTY = 2;
+}
+
+enum TextCase {
+  ORIGINAL = 0;
+  UPPER = 1;
+  LOWER = 2;
+  TITLE = 3;
+  SMALL_CAPS = 4;
+  SMALL_CAPS_FORCED = 5;
+}
+
+enum TextDecoration {
+  NONE = 0;
+  UNDERLINE = 1;
+  STRIKETHROUGH = 2;
+}
+
+enum TextDecorationStyle {
+  SOLID = 0;
+  DOTTED = 1;
+  WAVY = 2;
+}
+
+enum LeadingTrim {
+  NONE = 0;
+  CAP_HEIGHT = 1;
+}
+
+enum FontVariantNumericFigure {
+  NORMAL = 0;
+  LINING = 1;
+  OLDSTYLE = 2;
+}
+
+enum FontVariantNumericSpacing {
+  NORMAL = 0;
+  PROPORTIONAL = 1;
+  TABULAR = 2;
+}
+
+enum FontVariantNumericFraction {
+  NORMAL = 0;
+  DIAGONAL = 1;
+  STACKED = 2;
+}
+
+enum FontVariantCaps {
+  NORMAL = 0;
+  SMALL = 1;
+  ALL_SMALL = 2;
+  PETITE = 3;
+  ALL_PETITE = 4;
+  UNICASE = 5;
+  TITLING = 6;
+}
+
+enum FontVariantPosition {
+  NORMAL = 0;
+  SUB = 1;
+  SUPER = 2;
+}
+
+enum FontStyle {
+  NORMAL = 0;
+  ITALIC = 1;
+}
+
+enum SemanticWeight {
+  NORMAL = 0;
+  BOLD = 1;
+}
+
+enum SemanticItalic {
+  NORMAL = 0;
+  ITALIC = 1;
+}
+
+enum OpenTypeFeature {
+  PCAP = 0; C2PC = 1; CASE = 2; CPSP = 3; TITL = 4; UNIC = 5; ZERO = 6; SINF = 7; ORDN = 8;
+  AFRC = 9; DNOM = 10; NUMR = 11; LIGA = 12; CLIG = 13; DLIG = 14; HLIG = 15; RLIG = 16; AALT = 17;
+  CALT = 18; RCLT = 19; SALT = 20; RVRN = 21; VERT = 22; SWSH = 23; CSWH = 24; NALT = 25; CCMP = 26;
+  STCH = 27; HIST = 28; SIZE = 29; ORNM = 30; ITAL = 31; RAND = 32; DTLS = 33; FLAC = 34; MGRK = 35;
+  SSTY = 36; KERN = 37; FWID = 38; HWID = 39; HALT = 40; TWID = 41; QWID = 42; PWID = 43; JUST = 44;
+  LFBD = 45; OPBD = 46; RTBD = 47; PALT = 48; PKNA = 49; LTRA = 50; LTRM = 51; RTLA = 52; RTLM = 53;
+  ABRV = 54; ABVM = 55; ABVS = 56; VALT = 57; VHAL = 58; BLWF = 59; BLWM = 60; BLWS = 61; AKHN = 62;
+  CJCT = 63; CFAR = 64; CPCT = 65; CURS = 66; DIST = 67; EXPT = 68; FALT = 69; FINA = 70; FIN2 = 71;
+  FIN3 = 72; HALF = 73; HALN = 74; HKNA = 75; HNGL = 76; HOJO = 77; INIT = 78; ISOL = 79; JP78 = 80;
+  JP83 = 81; JP90 = 82; JP04 = 83; LJMO = 84; LOCL = 85; MARK = 86; MEDI = 87; MED2 = 88; MKMK = 89;
+  NLCK = 90; NUKT = 91; PREF = 92; PRES = 93; VPAL = 94; PSTF = 95; PSTS = 96; RKRF = 97; RPHF = 98;
+  RUBY = 99; SMPL = 100; TJMO = 101; TNAM = 102; TRAD = 103; VATU = 104; VJMO = 105; VKNA = 106;
+  VKRN = 107; VRTR = 108; VRT2 = 109; SS01 = 110; SS02 = 111; SS03 = 112; SS04 = 113; SS05 = 114;
+  SS06 = 115; SS07 = 116; SS08 = 117; SS09 = 118; SS10 = 119; SS11 = 120; SS12 = 121; SS13 = 122;
+  SS14 = 123; SS15 = 124; SS16 = 125; SS17 = 126; SS18 = 127; SS19 = 128; SS20 = 129; CV01 = 130;
+  CV02 = 131; CV03 = 132; CV04 = 133; CV05 = 134; CV06 = 135; CV07 = 136; CV08 = 137; CV09 = 138;
+  CV10 = 139; CV11 = 140; CV12 = 141; CV13 = 142; CV14 = 143; CV15 = 144; CV16 = 145; CV17 = 146;
+  CV18 = 147; CV19 = 148; CV20 = 149; CV21 = 150; CV22 = 151; CV23 = 152; CV24 = 153; CV25 = 154;
+  CV26 = 155; CV27 = 156; CV28 = 157; CV29 = 158; CV30 = 159; CV31 = 160; CV32 = 161; CV33 = 162;
+  CV34 = 163; CV35 = 164; CV36 = 165; CV37 = 166; CV38 = 167; CV39 = 168; CV40 = 169; CV41 = 170;
+  CV42 = 171; CV43 = 172; CV44 = 173; CV45 = 174; CV46 = 175; CV47 = 176; CV48 = 177; CV49 = 178;
+  CV50 = 179; CV51 = 180; CV52 = 181; CV53 = 182; CV54 = 183; CV55 = 184; CV56 = 185; CV57 = 186;
+  CV58 = 187; CV59 = 188; CV60 = 189; CV61 = 190; CV62 = 191; CV63 = 192; CV64 = 193; CV65 = 194;
+  CV66 = 195; CV67 = 196; CV68 = 197; CV69 = 198; CV70 = 199; CV71 = 200; CV72 = 201; CV73 = 202;
+  CV74 = 203; CV75 = 204; CV76 = 205; CV77 = 206; CV78 = 207; CV79 = 208; CV80 = 209; CV81 = 210;
+  CV82 = 211; CV83 = 212; CV84 = 213; CV85 = 214; CV86 = 215; CV87 = 216; CV88 = 217; CV89 = 218;
+  CV90 = 219; CV91 = 220; CV92 = 221; CV93 = 222; CV94 = 223; CV95 = 224; CV96 = 225; CV97 = 226;
+  CV98 = 227; CV99 = 228;
+}
+
+message FontVariation {    // variable font axis value
+  uint axisTag = 1;        // OpenType tag as big-endian uint32, e.g. 'wght'
+  string axisName = 2;
+  float value = 3;
+}
+
+message Hyperlink {
+  string url = 1;
+  GUID guid = 2;           // link to a node in this file
+  bool openInNewTab = 3;
+}
+
+enum LineType {
+  PLAIN = 0;
+  ORDERED_LIST = 1;
+  UNORDERED_LIST = 2;
+  // Dropped: BLOCKQUOTE=3, HEADER=4 (FigJam/Slides).
+}
+
+enum SourceDirectionality {
+  AUTO = 0;
+  LTR = 1;
+  RTL = 2;
+}
+
+enum Directionality {
+  LTR = 0;
+  RTL = 1;
+}
+
+enum DirectionalityIntent {
+  IMPLICIT = 0;
+  EXPLICIT = 1;
+}
+
+message TextLineData {     // one per paragraph of TextData.characters
+  LineType lineType = 1;
+  int indentationLevel = 2;
+  Directionality directionality = 3;
+  DirectionalityIntent directionalityIntent = 4;
+  int listStartOffset = 7;
+  bool isFirstLineOfList = 8;
+  SourceDirectionality sourceDirectionality = 9;
+  int styleId = 10;        // paragraph style id (0 = base)
+  // Reserved field numbers (2): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r5 = 5 [deprecated]; byte _r6 = 6 [deprecated];
+}
+
+message TextData {         // the source of a TEXT node (one property: edits replace it whole)
+  string characters = 1;   // paragraphs split by "\n"; U+2028 is a line break inside a paragraph
+  uint[] characterStyleIDs = 2;        // style id per UTF-16 code unit; missing tail = 0 (base style)
+  NodeChange[] styleOverrideTable = 3; // sparse run styles keyed by NodeChange.styleID (>0)
+  TextLineData[] lines = 12;
+  // Reserved field numbers (8): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r4 = 4 [deprecated]; byte _r5 = 5 [deprecated]; byte _r6 = 6 [deprecated]; byte _r7 = 7 [deprecated]; byte _r8 = 8 [deprecated]; byte _r9 = 9 [deprecated];
+  byte _r10 = 10 [deprecated]; byte _r11 = 11 [deprecated];
+}
+
+message DerivedTextData {  // text layout result (engine output)
+  Vector layoutSize = 1;
+  Baseline[] baselines = 2;
+  Glyph[] glyphs = 3;
+  Decoration[] decorations = 4;
+  FontMetaData[] fontMetaData = 6;
+  HyperlinkBox[] hyperlinkBoxes = 7;
+  int truncationStartIndex = 8;        // -1 when not truncated
+  float truncatedHeight = 9;           // -1 when not truncated
+  float[] logicalIndexToCharacterOffsetMap = 10;
+  DerivedTextLineData[] derivedLines = 12;
+  // Reserved field numbers (2): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r5 = 5 [deprecated]; byte _r11 = 11 [deprecated];
+}
+
+message DerivedTextLineData {
+  Directionality directionality = 1;
+}
+
+message Baseline {
+  Vector position = 1;
+  float width = 2;
+  float lineY = 3;
+  float lineHeight = 4;
+  uint firstCharacter = 5;
+  uint endCharacter = 6;
+  float lineAscent = 7;
+  float ignoreLeadingTrim = 8;
+}
+
+message Glyph {
+  uint commandsBlob = 1;   // @blob glyph outline, path commands in em units
+  Vector position = 2;
+  uint styleID = 3;
+  float fontSize = 4;
+  uint firstCharacter = 5;
+  float advance = 6;
+  uint[] emojiCodePoints = 7;
+}
+
+message Decoration {
+  Rect[] rects = 1;
+  uint styleID = 2;
+}
+
+message FontMetaData {
+  FontName key = 1;
+  float fontLineHeight = 2;
+  byte[] fontDigest = 3;   // SHA-1 of the font file used for layout
+  FontStyle fontStyle = 4;
+  int fontWeight = 5;
+}
+
+message HyperlinkBox {
+  Rect bounds = 1;
+  string url = 2;
+  GUID guid = 3;
+  int hyperlinkID = 4;
+  bool openInNewTab = 6;
+  // Reserved field numbers (1): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r5 = 5 [deprecated];
+}
+
+// ----------------------------------------------------------------------------
+// Auto layout and grid
+// ----------------------------------------------------------------------------
+
+enum StackMode {
+  NONE = 0;
+  HORIZONTAL = 1;
+  VERTICAL = 2;
+  GRID = 3;
+}
+
+enum StackAlign {          // counter-axis alignment of children
+  MIN = 0;
+  CENTER = 1;
+  MAX = 2;
+  BASELINE = 3;
+}
+
+enum StackCounterAlign {   // a child's own counter-axis behaviour
+  MIN = 0;
+  CENTER = 1;
+  MAX = 2;
+  STRETCH = 3;             // "Fill container" on the counter axis
+  AUTO = 4;
+  BASELINE = 5;
+}
+
+enum StackJustify {        // primary-axis distribution
+  MIN = 0;
+  CENTER = 1;
+  MAX = 2;
+  SPACE_EVENLY = 3;
+  SPACE_BETWEEN = 4;
+  SPACE_AROUND = 5;
+  SPACE_EVENLY_CSS = 6;
+}
+
+enum StackSize {
+  FIXED = 0;
+  RESIZE_TO_FIT = 1;                     // "Hug contents"
+  RESIZE_TO_FIT_WITH_IMPLICIT_SIZE = 2;  // "Hug contents" (Figma's current encoding)
+}
+
+enum StackPositioning {
+  AUTO = 0;
+  ABSOLUTE = 1;            // "Ignore auto layout" (absolute position)
+}
+
+enum StackWrap {
+  NO_WRAP = 0;
+  WRAP = 1;
+}
+
+enum StackCounterAlignContent {
+  AUTO = 0;
+  SPACE_BETWEEN = 1;
+}
+
+enum GridChildAlign {
+  AUTO = 0;
+  MIN = 1;
+  CENTER = 2;
+  MAX = 3;
+}
+
+enum GridAutoTracks {
+  NONE = 0;
+  ROWS = 1;
+}
+
+enum GridTrackSizingType {
+  FLEX = 0;                // fr
+  FIXED = 1;               // px
+  HUG = 2;
+}
+
+message GridTrackSizingFunction {
+  GridTrackSizingType type = 1;
+  float value = 2;
+}
+
+message GridTrackSize {
+  GridTrackSizingFunction minSizing = 1;
+  GridTrackSizingFunction maxSizing = 2;
+}
+
+message GUIDPositionMap {  // grid tracks: id + fractional position (order)
+  GUIDPositionMapEntry[] entries = 1;
+}
+
+message GUIDPositionMapEntry {
+  GUID id = 1;
+  string position = 2;
+}
+
+message GUIDGridTrackSizeMap {
+  GUIDGridTrackSizeMapEntry[] entries = 1;
+}
+
+message GUIDGridTrackSizeMapEntry {
+  GUID id = 1;             // track id from gridRows/gridColumns
+  GridTrackSize trackSize = 2;
+}
+
+// ----------------------------------------------------------------------------
+// Prototyping
+// ----------------------------------------------------------------------------
+
+enum InteractionType {
+  ON_CLICK = 0;
+  AFTER_TIMEOUT = 1;       // "After delay"
+  MOUSE_IN = 2;
+  MOUSE_OUT = 3;
+  ON_HOVER = 4;            // "While hovering"
+  MOUSE_DOWN = 5;
+  MOUSE_UP = 6;
+  ON_PRESS = 7;            // "While pressing"
+  NONE = 8;
+  DRAG = 9;
+  ON_KEY_DOWN = 10;        // "Key/Gamepad"
+  MOUSE_ENTER = 14;
+  MOUSE_LEAVE = 15;
+  // Dropped: ON_VOICE=11, ON_MEDIA_HIT=12, ON_MEDIA_END=13.
+}
+
+enum ConnectionType {
+  NONE = 0;
+  INTERNAL_NODE = 1;       // navigate/overlay/swap/scroll to a node
+  URL = 2;                 // "Open link"
+  BACK = 3;
+  CLOSE = 4;               // "Close overlay"
+  SET_VARIABLE = 5;
+  CONDITIONAL = 7;
+  SET_VARIABLE_MODE = 8;
+  // Dropped: UPDATE_MEDIA_RUNTIME=6, OBJECT_ANIMATION=9.
+}
+
+enum NavigationType {
+  NAVIGATE = 0;
+  OVERLAY = 1;
+  SWAP = 2;                // "Swap overlay"
+  SWAP_STATE = 3;          // "Change to" (interactive components)
+  SCROLL_TO = 4;
+}
+
+enum TransitionType {
+  INSTANT_TRANSITION = 0;
+  DISSOLVE = 1;
+  FADE = 2;
+  SLIDE_FROM_LEFT = 3;
+  SLIDE_FROM_RIGHT = 4;
+  SLIDE_FROM_TOP = 5;
+  SLIDE_FROM_BOTTOM = 6;
+  PUSH_FROM_LEFT = 7;
+  PUSH_FROM_RIGHT = 8;
+  PUSH_FROM_TOP = 9;
+  PUSH_FROM_BOTTOM = 10;
+  MOVE_FROM_LEFT = 11;
+  MOVE_FROM_RIGHT = 12;
+  MOVE_FROM_TOP = 13;
+  MOVE_FROM_BOTTOM = 14;
+  SLIDE_OUT_TO_LEFT = 15;
+  SLIDE_OUT_TO_RIGHT = 16;
+  SLIDE_OUT_TO_TOP = 17;
+  SLIDE_OUT_TO_BOTTOM = 18;
+  MOVE_OUT_TO_LEFT = 19;
+  MOVE_OUT_TO_RIGHT = 20;
+  MOVE_OUT_TO_TOP = 21;
+  MOVE_OUT_TO_BOTTOM = 22;
+  MAGIC_MOVE = 23;
+  SMART_ANIMATE = 24;
+  SCROLL_ANIMATE = 25;
+}
+
+enum EasingType {
+  IN_CUBIC = 0;            // "Ease in"
+  OUT_CUBIC = 1;           // "Ease out"
+  INOUT_CUBIC = 2;         // "Ease in and out"
+  LINEAR = 3;
+  IN_BACK_CUBIC = 4;
+  OUT_BACK_CUBIC = 5;
+  INOUT_BACK_CUBIC = 6;
+  CUSTOM_CUBIC = 7;        // easingFunction = [x1, y1, x2, y2]
+  SPRING = 8;
+  GENTLE_SPRING = 9;
+  CUSTOM_SPRING = 10;      // easingFunction = [mass, stiffness, damping, 0]
+  SPRING_PRESET_ONE = 11;  // "Quick"
+  SPRING_PRESET_TWO = 12;  // "Bouncy"
+  SPRING_PRESET_THREE = 13;// "Slow"
+  HOLD = 14;
+  EASE_IN = 15;
+}
+
+enum OverlayPositionType {
+  CENTER = 0;
+  TOP_LEFT = 1;
+  TOP_CENTER = 2;
+  TOP_RIGHT = 3;
+  BOTTOM_LEFT = 4;
+  BOTTOM_CENTER = 5;
+  BOTTOM_RIGHT = 6;
+  MANUAL = 7;
+}
+
+enum OverlayBackgroundInteraction {
+  NONE = 0;
+  CLOSE_ON_CLICK_OUTSIDE = 1;
+}
+
+enum OverlayBackgroundType {
+  NONE = 0;
+  SOLID_COLOR = 1;
+}
+
+message OverlayBackgroundAppearance {
+  OverlayBackgroundType backgroundType = 1;
+  Color backgroundColor = 2;
+}
+
+enum ScrollDirection {     // "Overflow" of a frame in prototypes
+  NONE = 0;
+  HORIZONTAL = 1;
+  VERTICAL = 2;
+  BOTH = 3;
+}
+
+enum ScrollBehavior {      // a child's "Position" when its frame scrolls
+  SCROLLS = 0;
+  FIXED_WHEN_CHILD_OF_SCROLLING_FRAME = 1;
+  STICKY_SCROLLS = 2;
+}
+
+enum PrototypeDeviceType {
+  NONE = 0;
+  PRESET = 1;
+  CUSTOM = 2;
+  PRESENTATION = 3;
+}
+
+enum DeviceRotation {
+  NONE = 0;
+  CCW_90 = 1;
+}
+
+message PrototypeDevice {
+  PrototypeDeviceType type = 1;
+  Vector size = 2;
+  string presetIdentifier = 3;
+  DeviceRotation rotation = 4;
+}
+
+message PrototypeStartingPoint {   // a flow starting point on a top-level frame
+  string name = 1;
+  string description = 2;
+  string position = 3;             // fractional index ordering the page's flows
+}
+
+enum TriggerDevice {
+  KEYBOARD = 0;
+  UNKNOWN_CONTROLLER = 1;
+  XBOX_ONE = 2;
+  PS4 = 3;
+  SWITCH_PRO = 4;
+}
+
+message KeyTrigger {
+  int[] keyCodes = 1;
+  TriggerDevice triggerDevice = 2;
+}
+
+message PrototypeEvent {   // the trigger
+  InteractionType interactionType = 1;
+  bool interactionMaintained = 2;
+  float interactionDuration = 3;
+  KeyTrigger keyTrigger = 4;
+  float transitionTimeout = 6;     // "After delay" seconds
+  // Reserved field numbers (1): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r5 = 5 [deprecated];
+}
+
+message PrototypeVariableTarget {
+  VariableID id = 1;
+}
+
+message ConditionalActions {       // one branch of a Conditional; no condition = "Else"
+  PrototypeAction[] actions = 1;
+  VariableData condition = 2;      // BOOLEAN value, alias or EXPRESSION
+}
+
+message PrototypeAction {
+  GUID transitionNodeID = 1;               // destination
+  TransitionType transitionType = 2;
+  float transitionDuration = 3;            // seconds
+  EasingType easingType = 4;
+  float transitionTimeout = 5;
+  bool transitionShouldSmartAnimate = 6;
+  ConnectionType connectionType = 7;
+  string connectionURL = 8;
+  Vector overlayRelativePosition = 9;
+  NavigationType navigationType = 10;
+  bool transitionPreserveScroll = 11;
+  float[] easingFunction = 12;
+  Vector extraScrollOffset = 13;
+  bool openUrlInNewTab = 18;
+  PrototypeVariableTarget targetVariable = 19;   // SET_VARIABLE target
+  VariableData targetVariableData = 20;          // SET_VARIABLE value (literal, alias or EXPRESSION)
+  ConditionalActions[] conditionalActions = 24;  // CONDITIONAL: if / else-if / else
+  bool transitionResetScrollPosition = 25;
+  bool transitionResetInteractiveComponents = 26;
+  VariableSetID targetVariableSetID = 27;        // SET_VARIABLE_MODE collection
+  GUID targetVariableModeID = 28;                // SET_VARIABLE_MODE mode
+  // Reserved field numbers (7): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r21 = 21 [deprecated]; byte _r22 = 22 [deprecated];
+  byte _r23 = 23 [deprecated];
+}
+
+message PrototypeInteraction {
+  GUID id = 1;
+  PrototypeEvent event = 2;
+  PrototypeAction[] actions = 3;   // run top to bottom
+  bool isDeleted = 4;
+  int stateManagementVersion = 5;
+}
+
+// ----------------------------------------------------------------------------
+// Variables
+// ----------------------------------------------------------------------------
+
+message AssetRef {         // library asset reference by key (import only; DesignerV2 references by guid)
+  string key = 1;
+  string version = 2;
+}
+
+message VariableID {
+  GUID guid = 1;
+  AssetRef assetRef = 2;
+}
+
+message VariableSetID {
+  GUID guid = 1;
+  AssetRef assetRef = 2;
+}
+
+message StyleId {
+  GUID guid = 1;
+  AssetRef assetRef = 2;
+}
+
+message SymbolId {
+  GUID guid = 1;
+  AssetRef assetRef = 2;
+}
+
+enum VariableDataType {
+  BOOLEAN = 0;
+  FLOAT = 1;
+  STRING = 2;
+  ALIAS = 3;
+  COLOR = 4;
+  EXPRESSION = 5;
+  SYMBOL_ID = 7;           // instance-swap property values
+  FONT_STYLE = 8;          // fontStyleValue: font style bound by name (STRING) or weight (FLOAT)
+  TEXT_DATA = 9;           // text property values
+  PROP_REF = 13;           // propRefValue: the field is bound to a component property
+  EASING = 22;             // @later Motion
+  TIMING = 23;             // @later Motion (floatValue, seconds)
+  // Dropped: MAP=6, INVALID=10, NODE_FIELD_ALIAS=11, CMS_ALIAS=12,
+  // IMAGE=14, MANAGED_STRING_ALIAS=15, LINK=16, JS_RUNTIME_ALIAS=17, SLOT_CONTENT_ID=18, DATE=19,
+  // KEYFRAME_*=20..21, VECTOR=24 .. TRANSITION_PARAMETER_DATA=35.
+}
+
+enum VariableResolvedDataType {
+  BOOLEAN = 0;
+  FLOAT = 1;
+  STRING = 2;
+  COLOR = 4;
+  SYMBOL_ID = 6;
+  FONT_STYLE = 7;
+  TEXT_DATA = 8;
+  SLOT_CONTENT_ID = 12;    // resolved type of a PROP_REF to a SLOT property
+  EASING = 15;             // @later
+  TIMING = 16;             // @later
+  // Dropped: MAP=5, IMAGE=9, LINK=10, JS_RUNTIME_ALIAS=11, KEYFRAME_*=13..14, VECTOR=17 .. TRANSITION_PARAMETER_DATA=28.
+}
+
+enum ExpressionFunction {
+  ADDITION = 0;
+  SUBTRACTION = 1;
+  RESOLVE_VARIANT = 2;
+  MULTIPLY = 3;
+  DIVIDE = 4;
+  EQUALS = 5;
+  NOT_EQUAL = 6;
+  LESS_THAN = 7;
+  LESS_THAN_OR_EQUAL = 8;
+  GREATER_THAN = 9;
+  GREATER_THAN_OR_EQUAL = 10;
+  AND = 11;
+  OR = 12;
+  NOT = 13;
+  STRINGIFY = 14;
+  TERNARY = 15;
+  VAR_MODE_LOOKUP = 16;
+  NEGATE = 17;
+  IS_TRUTHY = 18;
+  COMPOSE_COLOR = 20;      // [color: COLOR value or alias, opacity: FLOAT value or alias] -> COLOR
+  // Dropped: KEYFRAME=19, PAINT_TO_COLOR=21, RESOLVE_LENGTH=22, TRANSITION=23.
+}
+
+message Expression {
+  ExpressionFunction expressionFunction = 1;
+  VariableData[] expressionArguments = 2;
+}
+
+message VariableAnyValue { // exactly one field is set, matching VariableData.dataType
+  bool boolValue = 1;
+  string textValue = 2;
+  float floatValue = 3;
+  VariableID alias = 4;
+  Color colorValue = 5;
+  Expression expressionValue = 6;
+  SymbolId symbolIdValue = 8;
+  VariableFontStyle fontStyleValue = 9;
+  TextData textDataValue = 10;
+  PropRefValue propRefValue = 13;
+  EasingData easingValue = 21;     // @later
+  // Reserved field numbers (10): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r7 = 7 [deprecated]; byte _r11 = 11 [deprecated]; byte _r12 = 12 [deprecated]; byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated];
+  byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r19 = 19 [deprecated]; byte _r20 = 20 [deprecated];
+}
+
+message VariableFontStyle {        // font style bound to variables (FONT_STYLE)
+  VariableData asString = 1;       // STRING alias: style name, e.g. "Semi Bold Italic"
+  VariableData asFloat = 2;        // FLOAT alias: weight, e.g. 600
+  VariableData asVariations = 3;
+}
+
+message PropRefValue {             // PROP_REF: reference to a ComponentPropDef of the enclosing component
+  GUID defId = 1;
+}
+
+message VariableData {
+  VariableAnyValue value = 1;
+  VariableDataType dataType = 2;
+  VariableResolvedDataType resolvedDataType = 3;
+}
+
+message SpringParams {     // @later
+  float stiffness = 1;
+  float damping = 2;
+  float mass = 3;
+}
+
+message BezierHandles {    // @later
+  float p1x = 1;
+  float p1y = 2;
+  float p2x = 3;
+  float p2y = 4;
+}
+
+message TransitionEasingAnyValue { // @later
+  SpringParams springEasing = 1;
+  BezierHandles bezierEasing = 2;
+}
+
+message EasingData {       // @later EASING variable values
+  EasingType easingType = 1;
+  TransitionEasingAnyValue easingValue = 2;
+}
+
+enum VariableField {       // which node field a parameterConsumptionMap entry binds
+  MISSING = 0;
+  CORNER_RADIUS = 1;
+  PARAGRAPH_SPACING = 2;
+  PARAGRAPH_INDENT = 3;
+  STROKE_WEIGHT = 4;
+  STACK_SPACING = 5;
+  STACK_PADDING_LEFT = 6;
+  STACK_PADDING_TOP = 7;
+  STACK_PADDING_RIGHT = 8;
+  STACK_PADDING_BOTTOM = 9;
+  VISIBLE = 10;
+  TEXT_DATA = 11;
+  WIDTH = 12;
+  HEIGHT = 13;
+  RECTANGLE_TOP_LEFT_CORNER_RADIUS = 14;
+  RECTANGLE_TOP_RIGHT_CORNER_RADIUS = 15;
+  RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS = 16;
+  RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS = 17;
+  BORDER_TOP_WEIGHT = 18;
+  BORDER_BOTTOM_WEIGHT = 19;
+  BORDER_LEFT_WEIGHT = 20;
+  BORDER_RIGHT_WEIGHT = 21;
+  VARIANT_PROPERTIES = 22;
+  STACK_COUNTER_SPACING = 23;
+  MIN_WIDTH = 24;
+  MAX_WIDTH = 25;
+  MIN_HEIGHT = 26;
+  MAX_HEIGHT = 27;
+  FONT_FAMILY = 28;
+  FONT_STYLE = 29;
+  FONT_VARIATIONS = 30;
+  OPACITY = 31;
+  FONT_SIZE = 32;
+  LETTER_SPACING = 34;
+  LINE_HEIGHT = 36;
+  OVERRIDDEN_SYMBOL_ID = 37;
+  HYPERLINK = 38;
+  SLOT_CONTENT_ID = 40;
+  GRID_ROW_GAP = 41;
+  GRID_COLUMN_GAP = 42;
+  // Dropped: CMS_SERIALIZED_RICH_TEXT_DATA=39, X_POSITION=43 .. TEXT_ELEMENT_DELAY=76 (Sites/Motion).
+}
+
+message VariableDataMap {  // a node's parameter bindings: variables and component properties
+  VariableDataMapEntry[] entries = 1;
+}
+
+message VariableDataMapEntry {
+  VariableData variableData = 2;   // ALIAS, COMPOSE_COLOR EXPRESSION, FONT_STYLE or PROP_REF
+  VariableField variableField = 3;
+  // Reserved field numbers (1): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r1 = 1 [deprecated];
+}
+
+message VariableModeBySetMap {     // explicit variable modes ("Apply variable mode")
+  VariableModeBySetMapEntry[] entries = 1;
+}
+
+message VariableModeBySetMapEntry {
+  VariableSetID variableSetID = 1;
+  GUID variableModeID = 2;
+}
+
+message VariableSetMode {  // one column of a collection
+  GUID id = 1;
+  string name = 2;
+  string sortPosition = 3; // fractional index; the first mode in this order is the default mode
+}
+
+message VariableDataValues {
+  VariableDataValuesEntry[] entries = 1;
+}
+
+message VariableDataValuesEntry {
+  GUID modeID = 1;
+  VariableData variableData = 2;
+}
+
+enum VariableScope {
+  ALL_SCOPES = 0;
+  TEXT_CONTENT = 1;
+  CORNER_RADIUS = 2;
+  WIDTH_HEIGHT = 3;
+  GAP = 4;
+  ALL_FILLS = 5;
+  FRAME_FILL = 6;
+  SHAPE_FILL = 7;
+  TEXT_FILL = 8;
+  STROKE = 9;              // "Stroke color"
+  STROKE_FLOAT = 10;
+  EFFECT_FLOAT = 11;
+  EFFECT_COLOR = 12;
+  OPACITY = 13;
+  FONT_STYLE = 14;
+  FONT_FAMILY = 15;
+  FONT_SIZE = 16;
+  LINE_HEIGHT = 17;
+  LETTER_SPACING = 18;
+  PARAGRAPH_SPACING = 19;
+  PARAGRAPH_INDENT = 20;
+  FONT_VARIATIONS = 21;
+  TRANSFORM = 22;
+  COLOR_OPACITY = 23;
+}
+
+enum CodeSyntaxPlatform {
+  WEB = 0;
+  ANDROID = 1;
+  iOS = 2;
+}
+
+message CodeSyntaxMap {
+  CodeSyntaxMapEntry[] entries = 1;
+}
+
+message CodeSyntaxMapEntry {
+  CodeSyntaxPlatform platform = 1;
+  string value = 2;
+}
+
+// ----------------------------------------------------------------------------
+// Styles, components, libraries
+// ----------------------------------------------------------------------------
+
+enum StyleType {
+  NONE = 0;
+  FILL = 1;                // "Color style" (ROUNDED_RECTANGLE node, fillPaints)
+  TEXT = 3;                // "Text style" (TEXT node, font fields)
+  EFFECT = 4;              // "Effect style" (ROUNDED_RECTANGLE node, effects)
+  GRID = 6;                // "Layout guide style" (ROUNDED_RECTANGLE node, layoutGrids)
+  // Dropped: STROKE=2, EXPORT=5.
+}
+
+message SymbolData {       // an instance's link to its main component
+  GUID symbolID = 1;               // the SYMBOL (a local main component or a library copy)
+  NodeChange[] symbolOverrides = 2;// sparse NodeChanges keyed by guidPath; empty path = instance root
+  float uniformScaleFactor = 3;    // @default(1) scale tool on instances
+}
+
+enum ComponentPropType {
+  BOOL = 0;                // "Boolean"
+  TEXT = 1;
+  INSTANCE_SWAP = 3;
+  VARIANT = 4;
+  SLOT = 7;
+  // Dropped: COLOR=2, NUMBER=5, IMAGE=6, EASING=8, COLOR_ARRAY=9 .. (code/Sites parameters).
+}
+
+message ComponentPropValue {
+  bool boolValue = 1;
+  TextData textValue = 2;
+  GUID guidValue = 3;      // INSTANCE_SWAP: a SYMBOL; SLOT: the slot content FRAME (isSlotContent)
+}
+
+message ComponentPropDef {
+  GUID id = 1;
+  string name = 2;
+  ComponentPropValue initialValue = 3;   // default value
+  string sortPosition = 4;
+  ComponentPropType type = 6;
+  ComponentPropPreferredValues preferredValues = 8;
+  VariableData varValue = 9;             // default bound to a variable / VARIANT value type
+  string description = 11;
+  SlotPropConfig slotPropConfig = 12;
+  // Reserved field numbers (3): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r5 = 5 [deprecated]; byte _r7 = 7 [deprecated]; byte _r10 = 10 [deprecated];
+}
+
+message ComponentPropAssignment {  // an instance's value for a component property
+  GUID defID = 1;
+  ComponentPropValue value = 2;
+  VariableData varValue = 3;       // value bound to a variable
+}
+
+enum InstanceSwapPreferredValueType {
+  COMPONENT = 0;
+  STATE_GROUP = 1;
+}
+
+message InstanceSwapPreferredValue {
+  InstanceSwapPreferredValueType type = 1;
+  string key = 2;                  // component or component set key
+}
+
+message ComponentPropPreferredValues {
+  string[] stringValues = 1;
+  InstanceSwapPreferredValue[] instanceSwapValues = 2;
+}
+
+message SlotPropConfig {
+  bool stretchChildOnInsert = 1;   // "Fill items on counter-axis"
+  bool displayByDefault = 2;       // "Display empty slots by default"
+  uint minChildren = 3;
+  uint maxChildren = 4;
+  bool allowPreferredValuesOnly = 5;
+}
+
+message StateGroupPropertyValueOrder {
+  string property = 1;
+  string[] values = 2;
+}
+
+message VariantPropSpec {          // a variant's value for one VARIANT property of its set
+  GUID propDefId = 1;
+  string value = 2;
+}
+
+message SymbolLink {               // component documentation link
+  string uri = 1;
+  string displayName = 2;
+  string displayText = 3;
+}
+
+message LibraryMoveInfo {          // set on a pasted copy of a published asset ("Move to this file")
+  string oldKey = 1;
+  string pasteFileKey = 2;
+}
+
+message LibrarySubscription {      // @ours a library enabled in this file ("Add to file")
+  string libraryKey = 1;           // the library file's fileKey
+  string name = 2;                 // library file name when enabled (display fallback)
+}
+
+// ----------------------------------------------------------------------------
+// Pages, sections, Dev Mode
+// ----------------------------------------------------------------------------
+
+enum DocumentColorProfile {
+  LEGACY = 0;              // import only (treated as SRGB)
+  SRGB = 1;
+  DISPLAY_P3 = 2;
+}
+
+message ThumbnailInfo {    // "Set as thumbnail"
+  GUID nodeID = 1;
+  string thumbnailVersion = 2;
+}
+
+enum SectionStatus {
+  NONE = 0;
+  BUILD = 1;               // "Ready for dev"
+  COMPLETED = 2;           // "Completed"
+}
+
+message SectionStatusInfo {
+  SectionStatus status = 1;
+  uint lastUpdateUnixTimestamp = 2;
+  string description = 3;
+  string userId = 4;
+  SectionStatus prevStatus = 5;
+}
+
+enum AnnotationPropertyType {
+  FILL = 0;
+  STROKE = 1;
+  WIDTH = 2;
+  HEIGHT = 3;
+  MIN_WIDTH = 4;
+  MIN_HEIGHT = 5;
+  MAX_WIDTH = 6;
+  MAX_HEIGHT = 7;
+  STROKE_WIDTH = 8;
+  CORNER_RADIUS = 9;
+  EFFECT = 10;
+  TEXT_STYLE = 11;
+  TEXT_ALIGN_HORIZONTAL = 12;
+  FONT_FAMILY = 13;
+  FONT_SIZE = 14;
+  FONT_WEIGHT = 15;
+  LINE_HEIGHT = 16;
+  LETTER_SPACING = 17;
+  STACK_SPACING = 18;
+  STACK_PADDING = 19;
+  STACK_MODE = 20;
+  STACK_ALIGNMENT = 21;
+  OPACITY = 22;
+  COMPONENT = 23;
+  FONT_STYLE = 24;
+  GRID_ROW_GAP = 25;
+  GRID_COLUMN_GAP = 26;
+  GRID_ROW_COUNT = 27;
+  GRID_COLUMN_COUNT = 28;
+  GRID_ROW_ANCHOR_INDEX = 29;
+  GRID_COLUMN_ANCHOR_INDEX = 30;
+  GRID_ROW_SPAN = 31;
+  GRID_COLUMN_SPAN = 32;
+}
+
+message AnnotationProperty {
+  AnnotationPropertyType type = 1;
+}
+
+message Annotation {       // Dev Mode annotation on a layer
+  string label = 1;        // rich text as HTML
+  AnnotationProperty[] properties = 2;
+  GUID categoryId = 4;
+  // Reserved field numbers (1): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r3 = 3 [deprecated];
+}
+
+enum AnnotationCategoryPreset {
+  NONE = 0;
+  ACCESSIBILITY = 1;
+  BEHAVIOR = 2;
+  CONTENT = 3;
+  DEVELOPMENT = 4;
+  INTERACTION = 5;
+}
+
+enum AnnotationCategoryColor {
+  YELLOW = 0;
+  ORANGE = 1;
+  RED = 2;
+  PINK = 3;
+  VIOLET = 4;
+  BLUE = 5;
+  TEAL = 6;
+  GREEN = 7;
+}
+
+message AnnotationCategoryCustom {
+  AnnotationCategoryColor color = 1;
+  Color customColor = 2;
+  string label = 3;
+}
+
+message AnnotationCategory {
+  GUID id = 1;
+  AnnotationCategoryPreset preset = 2;
+  AnnotationCategoryCustom custom = 3;
+}
+
+message AnnotationCategories {
+  uint version = 1;
+  AnnotationCategory[] items = 2;
+}
+
+enum AnnotationMeasurementNodeSide {
+  TOP = 0;
+  BOTTOM = 1;
+  LEFT = 2;
+  RIGHT = 3;
+}
+
+message AnnotationMeasurement {    // Dev Mode measurement between two layers
+  GUID id = 1;
+  GUID fromNode = 2;
+  GUID toNode = 3;
+  AnnotationMeasurementNodeSide fromNodeSide = 4;
+  bool toSameSide = 5;
+  float innerOffsetRelative = 6;
+  float outerOffsetFixed = 7;
+  GUIDPath toNodeStablePath = 8;
+  string freeText = 9;
+}
+
+// ----------------------------------------------------------------------------
+// NodeChange: one node (or a patch to one node, or an override, or a text run)
+// ----------------------------------------------------------------------------
+
+message NodeChange {
+  // --- identity and tree ---
+  GUID guid = 1;                                  // @nooverride
+  NodePhase phase = 2;                            // @nooverride absent = update of an existing node
+  ParentIndex parentIndex = 3;                    // @own @nooverride
+  NodeType type = 4;                              // @nooverride set at CREATED; changed only by the conversions in docs/schema.md section 3.2
+  string name = 5;
+  bool autoRename = 14;                           // TEXT: the layer name follows its characters
+  uint styleID = 49;                              // @nooverride key of a styleOverrideTable entry
+  GUIDPath guidPath = 111;                        // @nooverride symbolOverrides/derivedSymbolData entry address
+  GUID overrideKey = 213;                         // @nooverride stable id of a node inside a component
+  bool isSoftDeleted = 330;                       // @nooverride deleted asset kept for references
+  GUID[] ancestorPathBeforeDeletion = 235;        // @nooverride where "Restore component" puts it back
+  uint[] clearedFields = 1000;                    // @ours @patch @nooverride field ids reset to absent
+
+  // --- layer ---
+  bool visible = 6;                               // @default(true) @bind(VISIBLE)
+  bool locked = 7;                                // @own
+  float opacity = 8;                              // @default(1) @bind(OPACITY)
+  BlendMode blendMode = 9;
+  Vector size = 11;                               // @bind(WIDTH:x,HEIGHT:y) unrotated box
+  Matrix transform = 12;                          // @own @default(identity) @nooverride relative to the parent node
+  bool mask = 16;                                 // @nooverride "Use as mask"
+  MaskType maskType = 317;
+  ConstraintType horizontalConstraint = 28;       // @own @nooverride
+  ConstraintType verticalConstraint = 37;         // @own @nooverride
+  bool proportionsConstrained = 151;              // "Constrain proportions"
+  ExportSettings[] exportSettings = 45;
+  PrototypeInteraction[] prototypeInteractions = 226;
+  VariableDataMap parameterConsumptionMap = 445;  // bindings of this node's fields to variables and component properties
+  VariableModeBySetMap variableModeBySetMap = 316;// explicit variable modes; absent entry = Auto
+  Annotation[] annotations = 369;
+  AnnotationMeasurement[] measurements = 384;
+
+  // --- fill, stroke, corners, effects ---
+  Paint[] fillPaints = 38;
+  Paint[] strokePaints = 39;
+  float strokeWeight = 26;                        // @bind(STROKE_WEIGHT)
+  StrokeAlign strokeAlign = 29;
+  StrokeCap strokeCap = 30;
+  StrokeJoin strokeJoin = 31;
+  float miterLimit = 25;                          // @default(4)
+  float[] dashPattern = 13;                       // dash, gap, dash, gap...
+  float borderTopWeight = 295;                    // @bind(BORDER_TOP_WEIGHT) individual stroke weights
+  float borderBottomWeight = 296;                 // @bind(BORDER_BOTTOM_WEIGHT)
+  float borderLeftWeight = 297;                   // @bind(BORDER_LEFT_WEIGHT)
+  float borderRightWeight = 298;                  // @bind(BORDER_RIGHT_WEIGHT)
+  bool borderStrokeWeightsIndependent = 299;
+  bool bordersTakeSpace = 294;                    // auto layout: "Strokes included in layout"
+  float cornerRadius = 20;                        // @bind(CORNER_RADIUS)
+  float rectangleTopLeftCornerRadius = 145;       // @bind(RECTANGLE_TOP_LEFT_CORNER_RADIUS)
+  float rectangleTopRightCornerRadius = 146;      // @bind(RECTANGLE_TOP_RIGHT_CORNER_RADIUS)
+  float rectangleBottomLeftCornerRadius = 147;    // @bind(RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS)
+  float rectangleBottomRightCornerRadius = 148;   // @bind(RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS)
+  bool rectangleCornerRadiiIndependent = 149;
+  float cornerSmoothing = 160;                    // 0..1 ("iOS" = 0.6)
+  Effect[] effects = 43;
+  Path[] fillGeometry = 51;                       // @derived
+  Path[] strokeGeometry = 52;                     // @derived
+  StyleId styleIdForFill = 332;                   // color style for fillPaints
+  StyleId styleIdForStrokeFill = 333;             // color style for strokePaints
+  StyleId styleIdForText = 334;                   // text style
+  StyleId styleIdForEffect = 335;                 // effect style
+  StyleId styleIdForGrid = 336;                   // layout guide style
+
+  // --- shapes ---
+  uint count = 10;                                // REGULAR_POLYGON / STAR point count
+  float starInnerScale = 24;                      // STAR "Ratio"
+  ArcData arcData = 195;                          // ELLIPSE
+  VectorData vectorData = 48;                     // @nooverride VECTOR network
+  VectorMirror handleMirroring = 44;
+  BooleanOperation booleanOperation = 36;         // @nooverride BOOLEAN_OPERATION
+
+  // --- containers ---
+  bool frameMaskDisabled = 115;                   // true = "Clip content" off
+  bool resizeToFit = 117;                         // @nooverride FRAME as a group
+  LayoutGrid[] layoutGrids = 47;
+  Guide[] guides = 138;
+  ScrollDirection scrollDirection = 159;
+  ScrollBehavior scrollBehavior = 186;            // @own
+  bool sectionContentsHidden = 283;               // @nooverride
+  SectionStatusInfo sectionStatusInfo = 355;      // @nooverride Dev Mode status of a SECTION/FRAME
+
+  // --- auto layout ---
+  StackMode stackMode = 105;                      // @nooverride
+  float stackSpacing = 107;                       // @bind(STACK_SPACING) gap between items
+  float stackHorizontalPadding = 209;             // @bind(STACK_PADDING_LEFT) left padding
+  float stackVerticalPadding = 210;               // @bind(STACK_PADDING_TOP) top padding
+  float stackPaddingRight = 233;                  // @bind(STACK_PADDING_RIGHT)
+  float stackPaddingBottom = 234;                 // @bind(STACK_PADDING_BOTTOM)
+  StackSize stackPrimarySizing = 229;             // @default(RESIZE_TO_FIT_WITH_IMPLICIT_SIZE) as in Figma files
+  StackSize stackCounterSizing = 221;
+  StackJustify stackPrimaryAlignItems = 230;
+  StackAlign stackCounterAlignItems = 231;
+  StackCounterAlignContent stackCounterAlignContent = 343;
+  StackWrap stackWrap = 323;                      // @nooverride
+  float stackCounterSpacing = 324;                // @bind(STACK_COUNTER_SPACING) gap between wrapped rows
+  bool stackReverseZIndex = 271;                  // "Canvas stacking: first on top"
+  float stackChildPrimaryGrow = 232;              // @own child: 1 = "Fill container" on the primary axis
+  StackCounterAlign stackChildAlignSelf = 236;    // @own @default(AUTO) child: STRETCH = "Fill container" on the counter axis
+  StackPositioning stackPositioning = 269;        // @own child: ABSOLUTE = absolute position
+  OptionalVector minSize = 325;                   // @bind(MIN_WIDTH:x,MIN_HEIGHT:y)
+  OptionalVector maxSize = 326;                   // @bind(MAX_WIDTH:x,MAX_HEIGHT:y)
+  GUIDPositionMap gridRows = 435;                 // @nooverride
+  GUIDPositionMap gridColumns = 436;              // @nooverride
+  GUIDGridTrackSizeMap gridRowsSizing = 475;
+  GUIDGridTrackSizeMap gridColumnsSizing = 474;
+  float gridRowGap = 437;                         // @bind(GRID_ROW_GAP)
+  float gridColumnGap = 438;                      // @bind(GRID_COLUMN_GAP)
+  GridAutoTracks gridAutoTracks = 555;
+  GUID gridRowAnchor = 439;                       // @own @nooverride child: start row track id
+  GUID gridColumnAnchor = 440;                    // @own @nooverride child: start column track id
+  uint gridRowSpan = 441;                         // @own @nooverride
+  uint gridColumnSpan = 442;                      // @own @nooverride
+  GridChildAlign gridChildVerticalAlign = 476;    // @own
+  GridChildAlign gridChildHorizontalAlign = 477;  // @own
+
+  // --- text ---
+  TextData textData = 42;                         // @bind(TEXT_DATA)
+  DerivedTextData derivedTextData = 359;          // @derived
+  FontName fontName = 41;                         // @default({Inter, Regular, Inter-Regular}) @bind(FONT_FAMILY:family,FONT_STYLE:style)
+  float fontSize = 21;                            // @default(12) @bind(FONT_SIZE)
+  Number lineHeight = 40;                         // @default({100, PERCENT}) @bind(LINE_HEIGHT)
+  Number letterSpacing = 165;                     // @default({0, PERCENT}) @bind(LETTER_SPACING)
+  float paragraphSpacing = 23;                    // @bind(PARAGRAPH_SPACING)
+  float paragraphIndent = 22;                     // @bind(PARAGRAPH_INDENT)
+  float listSpacing = 264;
+  TextAlignHorizontal textAlignHorizontal = 32;
+  TextAlignVertical textAlignVertical = 33;
+  TextAutoResize textAutoResize = 46;
+  TextTruncation textTruncation = 280;
+  int maxLines = 351;
+  TextWrapStyle textWrapStyle = 594;
+  TextCase textCase = 34;
+  TextDecoration textDecoration = 35;
+  TextDecorationStyle textDecorationStyle = 416;
+  Paint[] textDecorationFillPaints = 411;
+  bool textDecorationSkipInk = 412;
+  Number textUnderlineOffset = 413;
+  Number textDecorationThickness = 415;
+  LeadingTrim leadingTrim = 322;
+  bool hangingPunctuation = 337;
+  bool hangingList = 339;
+  OpenTypeFeature[] toggledOnOTFeatures = 205;
+  OpenTypeFeature[] toggledOffOTFeatures = 206;
+  bool fontVariantCommonLigatures = 127;
+  bool fontVariantContextualLigatures = 128;
+  bool fontVariantDiscretionaryLigatures = 129;
+  bool fontVariantHistoricalLigatures = 130;
+  bool fontVariantOrdinal = 131;
+  bool fontVariantSlashedZero = 132;
+  FontVariantNumericFigure fontVariantNumericFigure = 133;
+  FontVariantNumericSpacing fontVariantNumericSpacing = 134;
+  FontVariantNumericFraction fontVariantNumericFraction = 135;
+  FontVariantCaps fontVariantCaps = 136;
+  FontVariantPosition fontVariantPosition = 137;
+  FontVariation[] fontVariations = 260;           // @bind(FONT_VARIATIONS)
+  bool detachOpticalSizeFromFontSize = 261;
+  SemanticWeight semanticWeight = 374;
+  SemanticItalic semanticItalic = 375;
+  Hyperlink hyperlink = 223;                      // @bind(HYPERLINK) on a node or a text run
+  bool isOverrideOverTextStyle = 376;             // text run: this run deviates from styleIdForText
+
+  // --- components and instances ---
+  ComponentPropDef[] componentPropDefs = 266;     // @nooverride on a SYMBOL or a state group
+  bool isStateGroup = 225;                        // @nooverride FRAME is a component set
+  StateGroupPropertyValueOrder[] stateGroupPropertyValueOrders = 238; // @nooverride
+  VariantPropSpec[] variantPropSpecs = 483;       // @nooverride on a variant SYMBOL
+  SymbolData symbolData = 113;                    // @own @nooverride INSTANCE: main component + all overrides (one property)
+  NodeChange[] derivedSymbolData = 125;           // @derived INSTANCE sublayer layout/geometry, keyed by guidPath
+  GUID overriddenSymbolID = 143;                  // @bind(OVERRIDDEN_SYMBOL_ID) nested instance swap
+  ComponentPropAssignment[] componentPropAssignments = 268; // @own
+  bool propsAreBubbled = 305;                     // @nooverride nested instance exposed to the parent component
+  bool isSlot = 463;                              // @nooverride FRAME inside a component is a slot
+  bool isSlotContent = 495;                       // @nooverride FRAME holding an instance's slot content
+  SymbolId detachedSymbolId = 342;                // @nooverride frame was detached from this component
+  SymbolLink[] symbolLinks = 237;                 // @nooverride
+
+  // --- library and publishing (assets: SYMBOL, state group, style, VARIABLE_SET, VARIABLE) ---
+  bool isPublishable = 174;                       // @default(true) @nooverride false = "Hide when publishing"
+  bool isSymbolPublishable = 123;                 // @default(true) @nooverride same, for SYMBOL
+  string description = 318;                       // @nooverride
+  string key = 319;                               // @nooverride stable 40-hex asset key (copies: the source's key)
+  string version = 171;                           // @nooverride library copy: versionHash it was copied at
+  string publishedVersion = 218;                  // @nooverride local asset: versionHash at its last publish
+  string sourceLibraryKey = 395;                  // @nooverride library copy: fileKey of the library
+  GUID publishID = 215;                           // @nooverride library copy: guid of the asset in the library
+  LibraryMoveInfo libraryMoveInfo = 256;          // @nooverride
+  StyleType styleType = 163;                      // @nooverride node is a style
+  string sortPosition = 320;                      // @nooverride order among styles / variables / collections
+
+  // --- variables (VARIABLE_SET, VARIABLE) ---
+  VariableSetMode[] variableSetModes = 312;       // @nooverride
+  VariableSetID variableSetID = 313;              // @nooverride VARIABLE: its collection
+  VariableResolvedDataType variableResolvedType = 314; // @nooverride
+  VariableDataValues variableDataValues = 315;    // @nooverride one value per mode
+  VariableScope[] variableScopes = 353;           // @nooverride absent = [ALL_SCOPES]; empty = shown in no picker
+  CodeSyntaxMap codeSyntax = 358;                 // @nooverride
+
+  // --- document, pages, prototype settings ---
+  Color backgroundColor = 50;                     // @nooverride CANVAS background
+  float backgroundOpacity = 19;                   // @default(1) @nooverride
+  bool backgroundEnabled = 15;                    // @nooverride
+  bool internalOnly = 142;                        // @nooverride the hidden "Internal Only Canvas"
+  bool isPageDivider = 380;                       // @nooverride
+  DocumentColorProfile documentColorProfile = 349;// @nooverride DOCUMENT
+  ThumbnailInfo thumbnailInfo = 466;              // @nooverride DOCUMENT
+  AnnotationCategories annotationCategories = 453;// @nooverride DOCUMENT
+  LibrarySubscription[] librarySubscriptions = 1001; // @ours @nooverride DOCUMENT
+  PrototypeStartingPoint prototypeStartingPoint = 249; // @own @nooverride top-level FRAME: flow start
+  PrototypeDevice prototypeDevice = 184;          // @nooverride CANVAS
+  Color prototypeBackgroundColor = 141;           // @nooverride CANVAS
+  OverlayPositionType overlayPositionType = 198;  // @nooverride frame used as an overlay
+  Vector overlayRelativePosition = 199;           // @nooverride
+  OverlayBackgroundInteraction overlayBackgroundInteraction = 200; // @nooverride
+  OverlayBackgroundAppearance overlayBackgroundAppearance = 201;   // @nooverride
+  // Reserved field numbers (807): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r27 = 27 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
+  byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
+  byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
+  byte _r68 = 68 [deprecated]; byte _r69 = 69 [deprecated]; byte _r70 = 70 [deprecated]; byte _r71 = 71 [deprecated]; byte _r72 = 72 [deprecated]; byte _r73 = 73 [deprecated];
+  byte _r74 = 74 [deprecated]; byte _r75 = 75 [deprecated]; byte _r76 = 76 [deprecated]; byte _r77 = 77 [deprecated]; byte _r78 = 78 [deprecated]; byte _r79 = 79 [deprecated];
+  byte _r80 = 80 [deprecated]; byte _r81 = 81 [deprecated]; byte _r82 = 82 [deprecated]; byte _r83 = 83 [deprecated]; byte _r84 = 84 [deprecated]; byte _r85 = 85 [deprecated];
+  byte _r86 = 86 [deprecated]; byte _r87 = 87 [deprecated]; byte _r88 = 88 [deprecated]; byte _r89 = 89 [deprecated]; byte _r90 = 90 [deprecated]; byte _r91 = 91 [deprecated];
+  byte _r92 = 92 [deprecated]; byte _r93 = 93 [deprecated]; byte _r94 = 94 [deprecated]; byte _r95 = 95 [deprecated]; byte _r96 = 96 [deprecated]; byte _r97 = 97 [deprecated];
+  byte _r98 = 98 [deprecated]; byte _r99 = 99 [deprecated]; byte _r100 = 100 [deprecated]; byte _r101 = 101 [deprecated]; byte _r102 = 102 [deprecated]; byte _r103 = 103 [deprecated];
+  byte _r104 = 104 [deprecated]; byte _r106 = 106 [deprecated]; byte _r108 = 108 [deprecated]; byte _r109 = 109 [deprecated]; byte _r110 = 110 [deprecated]; byte _r112 = 112 [deprecated];
+  byte _r114 = 114 [deprecated]; byte _r116 = 116 [deprecated]; byte _r118 = 118 [deprecated]; byte _r119 = 119 [deprecated]; byte _r120 = 120 [deprecated]; byte _r121 = 121 [deprecated];
+  byte _r122 = 122 [deprecated]; byte _r124 = 124 [deprecated]; byte _r126 = 126 [deprecated]; byte _r139 = 139 [deprecated]; byte _r140 = 140 [deprecated]; byte _r144 = 144 [deprecated];
+  byte _r150 = 150 [deprecated]; byte _r152 = 152 [deprecated]; byte _r153 = 153 [deprecated]; byte _r154 = 154 [deprecated]; byte _r155 = 155 [deprecated]; byte _r156 = 156 [deprecated];
+  byte _r157 = 157 [deprecated]; byte _r158 = 158 [deprecated]; byte _r161 = 161 [deprecated]; byte _r162 = 162 [deprecated]; byte _r164 = 164 [deprecated]; byte _r166 = 166 [deprecated];
+  byte _r167 = 167 [deprecated]; byte _r168 = 168 [deprecated]; byte _r169 = 169 [deprecated]; byte _r170 = 170 [deprecated]; byte _r172 = 172 [deprecated]; byte _r173 = 173 [deprecated];
+  byte _r175 = 175 [deprecated]; byte _r176 = 176 [deprecated]; byte _r177 = 177 [deprecated]; byte _r178 = 178 [deprecated]; byte _r179 = 179 [deprecated]; byte _r180 = 180 [deprecated];
+  byte _r181 = 181 [deprecated]; byte _r182 = 182 [deprecated]; byte _r183 = 183 [deprecated]; byte _r185 = 185 [deprecated]; byte _r187 = 187 [deprecated]; byte _r188 = 188 [deprecated];
+  byte _r189 = 189 [deprecated]; byte _r190 = 190 [deprecated]; byte _r191 = 191 [deprecated]; byte _r192 = 192 [deprecated]; byte _r193 = 193 [deprecated]; byte _r194 = 194 [deprecated];
+  byte _r196 = 196 [deprecated]; byte _r197 = 197 [deprecated]; byte _r202 = 202 [deprecated]; byte _r203 = 203 [deprecated]; byte _r204 = 204 [deprecated]; byte _r207 = 207 [deprecated];
+  byte _r208 = 208 [deprecated]; byte _r211 = 211 [deprecated]; byte _r212 = 212 [deprecated]; byte _r214 = 214 [deprecated]; byte _r216 = 216 [deprecated]; byte _r217 = 217 [deprecated];
+  byte _r219 = 219 [deprecated]; byte _r220 = 220 [deprecated]; byte _r222 = 222 [deprecated]; byte _r224 = 224 [deprecated]; byte _r227 = 227 [deprecated]; byte _r228 = 228 [deprecated];
+  byte _r239 = 239 [deprecated]; byte _r240 = 240 [deprecated]; byte _r241 = 241 [deprecated]; byte _r242 = 242 [deprecated]; byte _r243 = 243 [deprecated]; byte _r244 = 244 [deprecated];
+  byte _r245 = 245 [deprecated]; byte _r246 = 246 [deprecated]; byte _r247 = 247 [deprecated]; byte _r248 = 248 [deprecated]; byte _r250 = 250 [deprecated]; byte _r251 = 251 [deprecated];
+  byte _r252 = 252 [deprecated]; byte _r253 = 253 [deprecated]; byte _r254 = 254 [deprecated]; byte _r255 = 255 [deprecated]; byte _r257 = 257 [deprecated]; byte _r258 = 258 [deprecated];
+  byte _r259 = 259 [deprecated]; byte _r262 = 262 [deprecated]; byte _r263 = 263 [deprecated]; byte _r265 = 265 [deprecated]; byte _r267 = 267 [deprecated]; byte _r270 = 270 [deprecated];
+  byte _r272 = 272 [deprecated]; byte _r273 = 273 [deprecated]; byte _r274 = 274 [deprecated]; byte _r275 = 275 [deprecated]; byte _r276 = 276 [deprecated]; byte _r277 = 277 [deprecated];
+  byte _r278 = 278 [deprecated]; byte _r279 = 279 [deprecated]; byte _r281 = 281 [deprecated]; byte _r282 = 282 [deprecated]; byte _r284 = 284 [deprecated]; byte _r285 = 285 [deprecated];
+  byte _r286 = 286 [deprecated]; byte _r287 = 287 [deprecated]; byte _r288 = 288 [deprecated]; byte _r289 = 289 [deprecated]; byte _r290 = 290 [deprecated]; byte _r291 = 291 [deprecated];
+  byte _r292 = 292 [deprecated]; byte _r293 = 293 [deprecated]; byte _r300 = 300 [deprecated]; byte _r301 = 301 [deprecated]; byte _r302 = 302 [deprecated]; byte _r303 = 303 [deprecated];
+  byte _r304 = 304 [deprecated]; byte _r306 = 306 [deprecated]; byte _r307 = 307 [deprecated]; byte _r308 = 308 [deprecated]; byte _r309 = 309 [deprecated]; byte _r310 = 310 [deprecated];
+  byte _r311 = 311 [deprecated]; byte _r321 = 321 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated]; byte _r331 = 331 [deprecated];
+  byte _r338 = 338 [deprecated]; byte _r340 = 340 [deprecated]; byte _r341 = 341 [deprecated]; byte _r344 = 344 [deprecated]; byte _r345 = 345 [deprecated]; byte _r346 = 346 [deprecated];
+  byte _r347 = 347 [deprecated]; byte _r348 = 348 [deprecated]; byte _r350 = 350 [deprecated]; byte _r352 = 352 [deprecated]; byte _r354 = 354 [deprecated]; byte _r356 = 356 [deprecated];
+  byte _r357 = 357 [deprecated]; byte _r360 = 360 [deprecated]; byte _r361 = 361 [deprecated]; byte _r362 = 362 [deprecated]; byte _r363 = 363 [deprecated]; byte _r364 = 364 [deprecated];
+  byte _r365 = 365 [deprecated]; byte _r366 = 366 [deprecated]; byte _r367 = 367 [deprecated]; byte _r368 = 368 [deprecated]; byte _r370 = 370 [deprecated]; byte _r371 = 371 [deprecated];
+  byte _r372 = 372 [deprecated]; byte _r373 = 373 [deprecated]; byte _r377 = 377 [deprecated]; byte _r378 = 378 [deprecated]; byte _r379 = 379 [deprecated]; byte _r381 = 381 [deprecated];
+  byte _r382 = 382 [deprecated]; byte _r383 = 383 [deprecated]; byte _r385 = 385 [deprecated]; byte _r386 = 386 [deprecated]; byte _r387 = 387 [deprecated]; byte _r388 = 388 [deprecated];
+  byte _r389 = 389 [deprecated]; byte _r390 = 390 [deprecated]; byte _r391 = 391 [deprecated]; byte _r392 = 392 [deprecated]; byte _r393 = 393 [deprecated]; byte _r394 = 394 [deprecated];
+  byte _r396 = 396 [deprecated]; byte _r397 = 397 [deprecated]; byte _r398 = 398 [deprecated]; byte _r399 = 399 [deprecated]; byte _r400 = 400 [deprecated]; byte _r401 = 401 [deprecated];
+  byte _r402 = 402 [deprecated]; byte _r403 = 403 [deprecated]; byte _r404 = 404 [deprecated]; byte _r405 = 405 [deprecated]; byte _r406 = 406 [deprecated]; byte _r407 = 407 [deprecated];
+  byte _r408 = 408 [deprecated]; byte _r409 = 409 [deprecated]; byte _r410 = 410 [deprecated]; byte _r414 = 414 [deprecated]; byte _r417 = 417 [deprecated]; byte _r418 = 418 [deprecated];
+  byte _r419 = 419 [deprecated]; byte _r420 = 420 [deprecated]; byte _r421 = 421 [deprecated]; byte _r422 = 422 [deprecated]; byte _r423 = 423 [deprecated]; byte _r424 = 424 [deprecated];
+  byte _r425 = 425 [deprecated]; byte _r426 = 426 [deprecated]; byte _r427 = 427 [deprecated]; byte _r428 = 428 [deprecated]; byte _r429 = 429 [deprecated]; byte _r430 = 430 [deprecated];
+  byte _r431 = 431 [deprecated]; byte _r432 = 432 [deprecated]; byte _r433 = 433 [deprecated]; byte _r434 = 434 [deprecated]; byte _r443 = 443 [deprecated]; byte _r444 = 444 [deprecated];
+  byte _r446 = 446 [deprecated]; byte _r447 = 447 [deprecated]; byte _r448 = 448 [deprecated]; byte _r449 = 449 [deprecated]; byte _r450 = 450 [deprecated]; byte _r451 = 451 [deprecated];
+  byte _r452 = 452 [deprecated]; byte _r454 = 454 [deprecated]; byte _r455 = 455 [deprecated]; byte _r456 = 456 [deprecated]; byte _r457 = 457 [deprecated]; byte _r458 = 458 [deprecated];
+  byte _r459 = 459 [deprecated]; byte _r460 = 460 [deprecated]; byte _r461 = 461 [deprecated]; byte _r462 = 462 [deprecated]; byte _r464 = 464 [deprecated]; byte _r465 = 465 [deprecated];
+  byte _r467 = 467 [deprecated]; byte _r468 = 468 [deprecated]; byte _r469 = 469 [deprecated]; byte _r470 = 470 [deprecated]; byte _r471 = 471 [deprecated]; byte _r472 = 472 [deprecated];
+  byte _r473 = 473 [deprecated]; byte _r478 = 478 [deprecated]; byte _r479 = 479 [deprecated]; byte _r480 = 480 [deprecated]; byte _r481 = 481 [deprecated]; byte _r482 = 482 [deprecated];
+  byte _r484 = 484 [deprecated]; byte _r485 = 485 [deprecated]; byte _r486 = 486 [deprecated]; byte _r487 = 487 [deprecated]; byte _r488 = 488 [deprecated]; byte _r489 = 489 [deprecated];
+  byte _r490 = 490 [deprecated]; byte _r491 = 491 [deprecated]; byte _r492 = 492 [deprecated]; byte _r493 = 493 [deprecated]; byte _r494 = 494 [deprecated]; byte _r496 = 496 [deprecated];
+  byte _r497 = 497 [deprecated]; byte _r498 = 498 [deprecated]; byte _r499 = 499 [deprecated]; byte _r500 = 500 [deprecated]; byte _r501 = 501 [deprecated]; byte _r502 = 502 [deprecated];
+  byte _r503 = 503 [deprecated]; byte _r504 = 504 [deprecated]; byte _r505 = 505 [deprecated]; byte _r506 = 506 [deprecated]; byte _r507 = 507 [deprecated]; byte _r508 = 508 [deprecated];
+  byte _r509 = 509 [deprecated]; byte _r510 = 510 [deprecated]; byte _r511 = 511 [deprecated]; byte _r512 = 512 [deprecated]; byte _r513 = 513 [deprecated]; byte _r514 = 514 [deprecated];
+  byte _r515 = 515 [deprecated]; byte _r516 = 516 [deprecated]; byte _r517 = 517 [deprecated]; byte _r518 = 518 [deprecated]; byte _r519 = 519 [deprecated]; byte _r520 = 520 [deprecated];
+  byte _r521 = 521 [deprecated]; byte _r522 = 522 [deprecated]; byte _r523 = 523 [deprecated]; byte _r524 = 524 [deprecated]; byte _r525 = 525 [deprecated]; byte _r526 = 526 [deprecated];
+  byte _r527 = 527 [deprecated]; byte _r528 = 528 [deprecated]; byte _r529 = 529 [deprecated]; byte _r530 = 530 [deprecated]; byte _r531 = 531 [deprecated]; byte _r532 = 532 [deprecated];
+  byte _r533 = 533 [deprecated]; byte _r534 = 534 [deprecated]; byte _r535 = 535 [deprecated]; byte _r536 = 536 [deprecated]; byte _r537 = 537 [deprecated]; byte _r538 = 538 [deprecated];
+  byte _r539 = 539 [deprecated]; byte _r540 = 540 [deprecated]; byte _r541 = 541 [deprecated]; byte _r542 = 542 [deprecated]; byte _r543 = 543 [deprecated]; byte _r544 = 544 [deprecated];
+  byte _r545 = 545 [deprecated]; byte _r546 = 546 [deprecated]; byte _r547 = 547 [deprecated]; byte _r548 = 548 [deprecated]; byte _r549 = 549 [deprecated]; byte _r550 = 550 [deprecated];
+  byte _r551 = 551 [deprecated]; byte _r552 = 552 [deprecated]; byte _r553 = 553 [deprecated]; byte _r554 = 554 [deprecated]; byte _r556 = 556 [deprecated]; byte _r557 = 557 [deprecated];
+  byte _r558 = 558 [deprecated]; byte _r559 = 559 [deprecated]; byte _r560 = 560 [deprecated]; byte _r561 = 561 [deprecated]; byte _r562 = 562 [deprecated]; byte _r563 = 563 [deprecated];
+  byte _r564 = 564 [deprecated]; byte _r565 = 565 [deprecated]; byte _r566 = 566 [deprecated]; byte _r567 = 567 [deprecated]; byte _r568 = 568 [deprecated]; byte _r569 = 569 [deprecated];
+  byte _r570 = 570 [deprecated]; byte _r571 = 571 [deprecated]; byte _r572 = 572 [deprecated]; byte _r573 = 573 [deprecated]; byte _r574 = 574 [deprecated]; byte _r575 = 575 [deprecated];
+  byte _r576 = 576 [deprecated]; byte _r577 = 577 [deprecated]; byte _r578 = 578 [deprecated]; byte _r579 = 579 [deprecated]; byte _r580 = 580 [deprecated]; byte _r581 = 581 [deprecated];
+  byte _r582 = 582 [deprecated]; byte _r583 = 583 [deprecated]; byte _r584 = 584 [deprecated]; byte _r585 = 585 [deprecated]; byte _r586 = 586 [deprecated]; byte _r587 = 587 [deprecated];
+  byte _r588 = 588 [deprecated]; byte _r589 = 589 [deprecated]; byte _r590 = 590 [deprecated]; byte _r591 = 591 [deprecated]; byte _r592 = 592 [deprecated]; byte _r593 = 593 [deprecated];
+  byte _r595 = 595 [deprecated]; byte _r596 = 596 [deprecated]; byte _r597 = 597 [deprecated]; byte _r598 = 598 [deprecated]; byte _r599 = 599 [deprecated]; byte _r600 = 600 [deprecated];
+  byte _r601 = 601 [deprecated]; byte _r602 = 602 [deprecated]; byte _r603 = 603 [deprecated]; byte _r604 = 604 [deprecated]; byte _r605 = 605 [deprecated]; byte _r606 = 606 [deprecated];
+  byte _r607 = 607 [deprecated]; byte _r608 = 608 [deprecated]; byte _r609 = 609 [deprecated]; byte _r610 = 610 [deprecated]; byte _r611 = 611 [deprecated]; byte _r612 = 612 [deprecated];
+  byte _r613 = 613 [deprecated]; byte _r614 = 614 [deprecated]; byte _r615 = 615 [deprecated]; byte _r616 = 616 [deprecated]; byte _r617 = 617 [deprecated]; byte _r618 = 618 [deprecated];
+  byte _r619 = 619 [deprecated]; byte _r620 = 620 [deprecated]; byte _r621 = 621 [deprecated]; byte _r622 = 622 [deprecated]; byte _r623 = 623 [deprecated]; byte _r624 = 624 [deprecated];
+  byte _r625 = 625 [deprecated]; byte _r626 = 626 [deprecated]; byte _r627 = 627 [deprecated]; byte _r628 = 628 [deprecated]; byte _r629 = 629 [deprecated]; byte _r630 = 630 [deprecated];
+  byte _r631 = 631 [deprecated]; byte _r632 = 632 [deprecated]; byte _r633 = 633 [deprecated]; byte _r634 = 634 [deprecated]; byte _r635 = 635 [deprecated]; byte _r636 = 636 [deprecated];
+  byte _r637 = 637 [deprecated]; byte _r638 = 638 [deprecated]; byte _r639 = 639 [deprecated]; byte _r640 = 640 [deprecated]; byte _r641 = 641 [deprecated]; byte _r642 = 642 [deprecated];
+  byte _r643 = 643 [deprecated]; byte _r644 = 644 [deprecated]; byte _r645 = 645 [deprecated]; byte _r646 = 646 [deprecated]; byte _r647 = 647 [deprecated]; byte _r648 = 648 [deprecated];
+  byte _r649 = 649 [deprecated]; byte _r650 = 650 [deprecated]; byte _r651 = 651 [deprecated]; byte _r652 = 652 [deprecated]; byte _r653 = 653 [deprecated]; byte _r654 = 654 [deprecated];
+  byte _r655 = 655 [deprecated]; byte _r656 = 656 [deprecated]; byte _r657 = 657 [deprecated]; byte _r658 = 658 [deprecated]; byte _r659 = 659 [deprecated]; byte _r660 = 660 [deprecated];
+  byte _r661 = 661 [deprecated]; byte _r662 = 662 [deprecated]; byte _r663 = 663 [deprecated]; byte _r664 = 664 [deprecated]; byte _r665 = 665 [deprecated]; byte _r666 = 666 [deprecated];
+  byte _r667 = 667 [deprecated]; byte _r668 = 668 [deprecated]; byte _r669 = 669 [deprecated]; byte _r670 = 670 [deprecated]; byte _r671 = 671 [deprecated]; byte _r672 = 672 [deprecated];
+  byte _r673 = 673 [deprecated]; byte _r674 = 674 [deprecated]; byte _r675 = 675 [deprecated]; byte _r676 = 676 [deprecated]; byte _r677 = 677 [deprecated]; byte _r678 = 678 [deprecated];
+  byte _r679 = 679 [deprecated]; byte _r680 = 680 [deprecated]; byte _r681 = 681 [deprecated]; byte _r682 = 682 [deprecated]; byte _r683 = 683 [deprecated]; byte _r684 = 684 [deprecated];
+  byte _r685 = 685 [deprecated]; byte _r686 = 686 [deprecated]; byte _r687 = 687 [deprecated]; byte _r688 = 688 [deprecated]; byte _r689 = 689 [deprecated]; byte _r690 = 690 [deprecated];
+  byte _r691 = 691 [deprecated]; byte _r692 = 692 [deprecated]; byte _r693 = 693 [deprecated]; byte _r694 = 694 [deprecated]; byte _r695 = 695 [deprecated]; byte _r696 = 696 [deprecated];
+  byte _r697 = 697 [deprecated]; byte _r698 = 698 [deprecated]; byte _r699 = 699 [deprecated]; byte _r700 = 700 [deprecated]; byte _r701 = 701 [deprecated]; byte _r702 = 702 [deprecated];
+  byte _r703 = 703 [deprecated]; byte _r704 = 704 [deprecated]; byte _r705 = 705 [deprecated]; byte _r706 = 706 [deprecated]; byte _r707 = 707 [deprecated]; byte _r708 = 708 [deprecated];
+  byte _r709 = 709 [deprecated]; byte _r710 = 710 [deprecated]; byte _r711 = 711 [deprecated]; byte _r712 = 712 [deprecated]; byte _r713 = 713 [deprecated]; byte _r714 = 714 [deprecated];
+  byte _r715 = 715 [deprecated]; byte _r716 = 716 [deprecated]; byte _r717 = 717 [deprecated]; byte _r718 = 718 [deprecated]; byte _r719 = 719 [deprecated]; byte _r720 = 720 [deprecated];
+  byte _r721 = 721 [deprecated]; byte _r722 = 722 [deprecated]; byte _r723 = 723 [deprecated]; byte _r724 = 724 [deprecated]; byte _r725 = 725 [deprecated]; byte _r726 = 726 [deprecated];
+  byte _r727 = 727 [deprecated]; byte _r728 = 728 [deprecated]; byte _r729 = 729 [deprecated]; byte _r730 = 730 [deprecated]; byte _r731 = 731 [deprecated]; byte _r732 = 732 [deprecated];
+  byte _r733 = 733 [deprecated]; byte _r734 = 734 [deprecated]; byte _r735 = 735 [deprecated]; byte _r736 = 736 [deprecated]; byte _r737 = 737 [deprecated]; byte _r738 = 738 [deprecated];
+  byte _r739 = 739 [deprecated]; byte _r740 = 740 [deprecated]; byte _r741 = 741 [deprecated]; byte _r742 = 742 [deprecated]; byte _r743 = 743 [deprecated]; byte _r744 = 744 [deprecated];
+  byte _r745 = 745 [deprecated]; byte _r746 = 746 [deprecated]; byte _r747 = 747 [deprecated]; byte _r748 = 748 [deprecated]; byte _r749 = 749 [deprecated]; byte _r750 = 750 [deprecated];
+  byte _r751 = 751 [deprecated]; byte _r752 = 752 [deprecated]; byte _r753 = 753 [deprecated]; byte _r754 = 754 [deprecated]; byte _r755 = 755 [deprecated]; byte _r756 = 756 [deprecated];
+  byte _r757 = 757 [deprecated]; byte _r758 = 758 [deprecated]; byte _r759 = 759 [deprecated]; byte _r760 = 760 [deprecated]; byte _r761 = 761 [deprecated]; byte _r762 = 762 [deprecated];
+  byte _r763 = 763 [deprecated]; byte _r764 = 764 [deprecated]; byte _r765 = 765 [deprecated]; byte _r766 = 766 [deprecated]; byte _r767 = 767 [deprecated]; byte _r768 = 768 [deprecated];
+  byte _r769 = 769 [deprecated]; byte _r770 = 770 [deprecated]; byte _r771 = 771 [deprecated]; byte _r772 = 772 [deprecated]; byte _r773 = 773 [deprecated]; byte _r774 = 774 [deprecated];
+  byte _r775 = 775 [deprecated]; byte _r776 = 776 [deprecated]; byte _r777 = 777 [deprecated]; byte _r778 = 778 [deprecated]; byte _r779 = 779 [deprecated]; byte _r780 = 780 [deprecated];
+  byte _r781 = 781 [deprecated]; byte _r782 = 782 [deprecated]; byte _r783 = 783 [deprecated]; byte _r784 = 784 [deprecated]; byte _r785 = 785 [deprecated]; byte _r786 = 786 [deprecated];
+  byte _r787 = 787 [deprecated]; byte _r788 = 788 [deprecated]; byte _r789 = 789 [deprecated]; byte _r790 = 790 [deprecated]; byte _r791 = 791 [deprecated]; byte _r792 = 792 [deprecated];
+  byte _r793 = 793 [deprecated]; byte _r794 = 794 [deprecated]; byte _r795 = 795 [deprecated]; byte _r796 = 796 [deprecated]; byte _r797 = 797 [deprecated]; byte _r798 = 798 [deprecated];
+  byte _r799 = 799 [deprecated]; byte _r800 = 800 [deprecated]; byte _r801 = 801 [deprecated]; byte _r802 = 802 [deprecated]; byte _r803 = 803 [deprecated]; byte _r804 = 804 [deprecated];
+  byte _r805 = 805 [deprecated]; byte _r806 = 806 [deprecated]; byte _r807 = 807 [deprecated]; byte _r808 = 808 [deprecated]; byte _r809 = 809 [deprecated]; byte _r810 = 810 [deprecated];
+  byte _r811 = 811 [deprecated]; byte _r812 = 812 [deprecated]; byte _r813 = 813 [deprecated]; byte _r814 = 814 [deprecated]; byte _r815 = 815 [deprecated]; byte _r816 = 816 [deprecated];
+  byte _r817 = 817 [deprecated]; byte _r818 = 818 [deprecated]; byte _r819 = 819 [deprecated]; byte _r820 = 820 [deprecated]; byte _r821 = 821 [deprecated]; byte _r822 = 822 [deprecated];
+  byte _r823 = 823 [deprecated]; byte _r824 = 824 [deprecated]; byte _r825 = 825 [deprecated]; byte _r826 = 826 [deprecated]; byte _r827 = 827 [deprecated]; byte _r828 = 828 [deprecated];
+  byte _r829 = 829 [deprecated]; byte _r830 = 830 [deprecated]; byte _r831 = 831 [deprecated]; byte _r832 = 832 [deprecated]; byte _r833 = 833 [deprecated]; byte _r834 = 834 [deprecated];
+  byte _r835 = 835 [deprecated]; byte _r836 = 836 [deprecated]; byte _r837 = 837 [deprecated]; byte _r838 = 838 [deprecated]; byte _r839 = 839 [deprecated]; byte _r840 = 840 [deprecated];
+  byte _r841 = 841 [deprecated]; byte _r842 = 842 [deprecated]; byte _r843 = 843 [deprecated]; byte _r844 = 844 [deprecated]; byte _r845 = 845 [deprecated]; byte _r846 = 846 [deprecated];
+  byte _r847 = 847 [deprecated]; byte _r848 = 848 [deprecated]; byte _r849 = 849 [deprecated]; byte _r850 = 850 [deprecated]; byte _r851 = 851 [deprecated]; byte _r852 = 852 [deprecated];
+  byte _r853 = 853 [deprecated]; byte _r854 = 854 [deprecated]; byte _r855 = 855 [deprecated]; byte _r856 = 856 [deprecated]; byte _r857 = 857 [deprecated]; byte _r858 = 858 [deprecated];
+  byte _r859 = 859 [deprecated]; byte _r860 = 860 [deprecated]; byte _r861 = 861 [deprecated]; byte _r862 = 862 [deprecated]; byte _r863 = 863 [deprecated]; byte _r864 = 864 [deprecated];
+  byte _r865 = 865 [deprecated]; byte _r866 = 866 [deprecated]; byte _r867 = 867 [deprecated]; byte _r868 = 868 [deprecated]; byte _r869 = 869 [deprecated]; byte _r870 = 870 [deprecated];
+  byte _r871 = 871 [deprecated]; byte _r872 = 872 [deprecated]; byte _r873 = 873 [deprecated]; byte _r874 = 874 [deprecated]; byte _r875 = 875 [deprecated]; byte _r876 = 876 [deprecated];
+  byte _r877 = 877 [deprecated]; byte _r878 = 878 [deprecated]; byte _r879 = 879 [deprecated]; byte _r880 = 880 [deprecated]; byte _r881 = 881 [deprecated]; byte _r882 = 882 [deprecated];
+  byte _r883 = 883 [deprecated]; byte _r884 = 884 [deprecated]; byte _r885 = 885 [deprecated]; byte _r886 = 886 [deprecated]; byte _r887 = 887 [deprecated]; byte _r888 = 888 [deprecated];
+  byte _r889 = 889 [deprecated]; byte _r890 = 890 [deprecated]; byte _r891 = 891 [deprecated]; byte _r892 = 892 [deprecated]; byte _r893 = 893 [deprecated]; byte _r894 = 894 [deprecated];
+  byte _r895 = 895 [deprecated]; byte _r896 = 896 [deprecated]; byte _r897 = 897 [deprecated]; byte _r898 = 898 [deprecated]; byte _r899 = 899 [deprecated]; byte _r900 = 900 [deprecated];
+  byte _r901 = 901 [deprecated]; byte _r902 = 902 [deprecated]; byte _r903 = 903 [deprecated]; byte _r904 = 904 [deprecated]; byte _r905 = 905 [deprecated]; byte _r906 = 906 [deprecated];
+  byte _r907 = 907 [deprecated]; byte _r908 = 908 [deprecated]; byte _r909 = 909 [deprecated]; byte _r910 = 910 [deprecated]; byte _r911 = 911 [deprecated]; byte _r912 = 912 [deprecated];
+  byte _r913 = 913 [deprecated]; byte _r914 = 914 [deprecated]; byte _r915 = 915 [deprecated]; byte _r916 = 916 [deprecated]; byte _r917 = 917 [deprecated]; byte _r918 = 918 [deprecated];
+  byte _r919 = 919 [deprecated]; byte _r920 = 920 [deprecated]; byte _r921 = 921 [deprecated]; byte _r922 = 922 [deprecated]; byte _r923 = 923 [deprecated]; byte _r924 = 924 [deprecated];
+  byte _r925 = 925 [deprecated]; byte _r926 = 926 [deprecated]; byte _r927 = 927 [deprecated]; byte _r928 = 928 [deprecated]; byte _r929 = 929 [deprecated]; byte _r930 = 930 [deprecated];
+  byte _r931 = 931 [deprecated]; byte _r932 = 932 [deprecated]; byte _r933 = 933 [deprecated]; byte _r934 = 934 [deprecated]; byte _r935 = 935 [deprecated]; byte _r936 = 936 [deprecated];
+  byte _r937 = 937 [deprecated]; byte _r938 = 938 [deprecated]; byte _r939 = 939 [deprecated]; byte _r940 = 940 [deprecated]; byte _r941 = 941 [deprecated]; byte _r942 = 942 [deprecated];
+  byte _r943 = 943 [deprecated]; byte _r944 = 944 [deprecated]; byte _r945 = 945 [deprecated]; byte _r946 = 946 [deprecated]; byte _r947 = 947 [deprecated]; byte _r948 = 948 [deprecated];
+  byte _r949 = 949 [deprecated]; byte _r950 = 950 [deprecated]; byte _r951 = 951 [deprecated]; byte _r952 = 952 [deprecated]; byte _r953 = 953 [deprecated]; byte _r954 = 954 [deprecated];
+  byte _r955 = 955 [deprecated]; byte _r956 = 956 [deprecated]; byte _r957 = 957 [deprecated]; byte _r958 = 958 [deprecated]; byte _r959 = 959 [deprecated]; byte _r960 = 960 [deprecated];
+  byte _r961 = 961 [deprecated]; byte _r962 = 962 [deprecated]; byte _r963 = 963 [deprecated]; byte _r964 = 964 [deprecated]; byte _r965 = 965 [deprecated]; byte _r966 = 966 [deprecated];
+  byte _r967 = 967 [deprecated]; byte _r968 = 968 [deprecated]; byte _r969 = 969 [deprecated]; byte _r970 = 970 [deprecated]; byte _r971 = 971 [deprecated]; byte _r972 = 972 [deprecated];
+  byte _r973 = 973 [deprecated]; byte _r974 = 974 [deprecated]; byte _r975 = 975 [deprecated]; byte _r976 = 976 [deprecated]; byte _r977 = 977 [deprecated]; byte _r978 = 978 [deprecated];
+  byte _r979 = 979 [deprecated]; byte _r980 = 980 [deprecated]; byte _r981 = 981 [deprecated]; byte _r982 = 982 [deprecated]; byte _r983 = 983 [deprecated]; byte _r984 = 984 [deprecated];
+  byte _r985 = 985 [deprecated]; byte _r986 = 986 [deprecated]; byte _r987 = 987 [deprecated]; byte _r988 = 988 [deprecated]; byte _r989 = 989 [deprecated]; byte _r990 = 990 [deprecated];
+  byte _r991 = 991 [deprecated]; byte _r992 = 992 [deprecated]; byte _r993 = 993 [deprecated]; byte _r994 = 994 [deprecated]; byte _r995 = 995 [deprecated]; byte _r996 = 996 [deprecated];
+  byte _r997 = 997 [deprecated]; byte _r998 = 998 [deprecated]; byte _r999 = 999 [deprecated];
+}

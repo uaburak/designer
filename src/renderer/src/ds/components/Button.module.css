@@ -1,0 +1,87 @@
+@layer ds {
+  .button {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+    cursor: default;
+    user-select: none;
+    outline: none;
+  }
+  .large { height: var(--ds-size-control-large); padding: 0 var(--ds-space-3); }
+  .withIcon { padding-left: var(--ds-space-1); }
+  .full { width: 100%; }
+  .button:focus-visible, .button[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .label { display: inline-flex; align-items: center; }
+  .loading .label { visibility: hidden; }
+  .spinner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  .primary { background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); }
+  .primary:hover, .primary[data-hover] { background: var(--figma-color-bg-brand-hover); }
+  .primary:active, .primary[data-pressed] { background: var(--figma-color-bg-brand-pressed); color: var(--figma-color-text-onbrand-secondary); }
+
+  .secondary { background: transparent; color: var(--figma-color-text); box-shadow: inset 0 0 0 1px var(--ds-color-border-translucent); }
+  .secondary:hover, .secondary[data-hover] { background: var(--figma-color-bg-secondary); }
+  .secondary:active, .secondary[data-pressed] { background: var(--ds-color-bg-transparent-pressed); }
+
+  .destructive { background: var(--figma-color-bg-danger); color: var(--figma-color-text-ondanger); }
+  .destructive:hover, .destructive[data-hover] { background: var(--figma-color-bg-danger-hover); }
+  .destructive:active, .destructive[data-pressed] { background: var(--figma-color-bg-danger-pressed); color: var(--figma-color-text-ondanger-secondary); }
+
+  .destructive-secondary { background: transparent; color: var(--figma-color-text-danger); box-shadow: inset 0 0 0 1px var(--figma-color-border-danger); }
+  .destructive-secondary:hover, .destructive-secondary[data-hover] { background: var(--figma-color-bg-danger-tertiary); }
+  .destructive-secondary:active, .destructive-secondary[data-pressed] { background: var(--figma-color-bg-danger-tertiary); box-shadow: inset 0 0 0 1px var(--figma-color-border-danger-strong); }
+
+  .ghost { background: transparent; color: var(--figma-color-text); }
+  .ghost:hover, .ghost[data-hover] { background: var(--ds-color-bg-transparent-hover); }
+  .ghost:active, .ghost[data-pressed] { background: var(--ds-color-bg-transparent-pressed); }
+
+  .link { background: transparent; color: var(--figma-color-text-brand); }
+  .link:hover, .link[data-hover] { text-decoration: underline; }
+  .link:active, .link[data-pressed] { background: var(--figma-color-bg-selected); }
+
+  .tinted { height: var(--ds-size-control-large); padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-full); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+  .tinted:hover, .tinted[data-hover], .tinted:active, .tinted[data-pressed] { background: var(--figma-color-bg-tertiary); }
+
+  /* Disabled (a loading button is disabled too, but keeps its look under the spinner) */
+  .button:disabled:not(.loading) { background: transparent; box-shadow: none; color: var(--figma-color-text-disabled); text-decoration: none; }
+  .primary:disabled:not(.loading), .destructive:disabled:not(.loading) { background: var(--figma-color-bg-disabled); color: var(--figma-color-text-ondisabled); }
+  .tinted:disabled:not(.loading) { background: var(--figma-color-bg-secondary); }
+
+  /* IconButton: a 24 (or 32) box, the glyph centred */
+  .icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon);
+    cursor: default;
+    outline: none;
+  }
+  .icon.large { width: var(--ds-size-control-large); height: var(--ds-size-control-large); padding: 0; }
+  .toneSecondary { color: var(--figma-color-icon-secondary); }
+  .icon:hover, .icon[data-hover] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon-hover); }
+  .icon:active, .icon[data-pressed] { background: var(--figma-color-bg-pressed); }
+  .icon:focus-visible, .icon[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .icon:disabled { background: transparent; color: var(--figma-color-icon-disabled); }
+
+  /* ToggleIconButton: on, mixed */
+  .icon[aria-pressed="true"], .icon[aria-pressed="true"]:hover { background: var(--figma-color-bg-selected); color: var(--figma-color-icon-selected); }
+  .icon[aria-pressed="mixed"], .icon[aria-pressed="mixed"]:hover { background: var(--figma-color-bg-selected-secondary); color: var(--figma-color-icon-secondary); }
+  .icon[aria-pressed]:disabled { background: transparent; color: var(--figma-color-icon-disabled); }
+}

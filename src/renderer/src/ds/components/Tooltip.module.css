@@ -1,0 +1,26 @@
+@layer ds {
+  .tooltip {
+    position: fixed;
+    z-index: var(--ds-z-tooltip);
+    display: flex;
+    align-items: baseline;
+    gap: var(--ds-space-2);
+    max-width: 240px;
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-menu-bg);
+    color: var(--ds-color-menu-text);
+    box-shadow: var(--ds-elevation-menu);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    pointer-events: none;
+  }
+  .static { position: relative; z-index: auto; display: inline-flex; }
+  .label {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .shortcut { flex: none; color: var(--ds-color-menu-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+}

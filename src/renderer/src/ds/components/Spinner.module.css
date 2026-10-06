@@ -1,0 +1,7 @@
+@layer ds {
+  .spinner { display: inline-block; flex: none; color: var(--figma-color-icon-secondary); animation: spin 800ms linear infinite; }
+  .onbrand { color: var(--figma-color-icon-onbrand); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Still spins under reduced motion (it says something is happening), at half the speed */
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1600ms; } }
+}

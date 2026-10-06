@@ -1,0 +1,46 @@
+/*
+ * The design system's global stylesheet (contract §3): imported once by
+ * every entry, before anything else. Layer order first, so Tailwind's own
+ * layers (theme, base, components, utilities) slot in around ours: DS
+ * components (ds) win over Tailwind preflight (base), legacy utilities still
+ * win inside legacy markup.
+ */
+@layer reset, tokens, theme, base, ds, components, utilities, app;
+@import "@fontsource-variable/inter";
+@import "./tokens.css";
+
+@layer reset {
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body, h1, h2, h3, h4, p, ul, ol, figure { margin: 0; }
+  button { font: inherit; color: inherit; cursor: default; }
+  img { -webkit-user-drag: none; }
+}
+
+@layer base {
+  html, body, #root { height: 100%; overflow: hidden; }
+  body {
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    color: var(--figma-color-text);
+    background: var(--figma-color-bg);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  input, textarea, [contenteditable] { user-select: text; }
+  ::selection { background: var(--ds-color-text-selection); }
+  /* Figma's chrome is instant: motion only where a component opts in */
+  * { transition: none; }
+  .ds-drag { -webkit-app-region: drag; }
+  .ds-no-drag { -webkit-app-region: no-drag; }
+  /* Overflow outside ScrollArea: a thin thumb */
+  ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+  ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: var(--ds-radius-full); background: var(--ds-color-scrollbar-thumb) padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--ds-color-scrollbar-thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  [data-theme-switching] *, [data-theme-switching] *::before, [data-theme-switching] *::after { transition: none !important; }
+  html[data-cursor="ew-resize"], html[data-cursor="ew-resize"] * { cursor: ew-resize !important; }
+  html[data-cursor="col-resize"], html[data-cursor="col-resize"] * { cursor: col-resize !important; }
+  @media (prefers-reduced-motion: reduce) {
+    :root { --ds-duration-fast: 0ms; --ds-duration-medium: 0ms; }
+  }
+}

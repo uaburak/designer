@@ -1,0 +1,34 @@
+@layer ds {
+  .root {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-height: var(--ds-size-control);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    user-select: none;
+    cursor: default;
+  }
+  .root[data-disabled] { color: var(--figma-color-text-disabled); }
+  .box {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-checkbox);
+    height: var(--ds-size-checkbox);
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--ds-color-border-translucent-strong);
+    color: var(--figma-color-icon-onbrand);
+  }
+  .input { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); margin: 0; opacity: 0; cursor: default; }
+  .ghost { display: none; color: var(--figma-color-icon); opacity: 0.25; }
+  .root:hover .box:not([data-on]) .ghost, .root[data-hover] .box:not([data-on]) .ghost { display: flex; }
+  .box[data-on] { background: var(--figma-color-bg-brand); box-shadow: inset 0 0 0 1px var(--figma-color-border-selected-strong); }
+  .box:has(.input:focus-visible), .root[data-focus-visible] .box { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .root[data-disabled] .box { background: var(--figma-color-bg-disabled); box-shadow: none; color: var(--figma-color-icon-disabled); }
+  .dash { width: 8px; height: 1.5px; border-radius: 1px; background: currentColor; }
+}

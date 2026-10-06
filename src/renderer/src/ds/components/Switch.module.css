@@ -1,0 +1,35 @@
+@layer ds {
+  .root { display: inline-flex; align-items: center; gap: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); user-select: none; }
+  .track {
+    position: relative;
+    flex: none;
+    width: var(--ds-size-switch-width);
+    height: var(--ds-size-switch-height);
+    padding: 0;
+    border: 1px solid var(--figma-color-icon-tertiary);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-tertiary);
+    outline: none;
+    cursor: default;
+    transition: background-color var(--ds-duration-fast) var(--ds-ease-out), border-color var(--ds-duration-fast) var(--ds-ease-out);
+  }
+  .track:hover, .track[data-hover] { background: var(--ds-color-switch-hover); }
+  .knob {
+    position: absolute;
+    top: 50%;
+    left: 2px;
+    width: 14px;
+    height: 10px;
+    border: 1px solid var(--figma-color-icon-tertiary);
+    border-radius: var(--ds-radius-full);
+    background: var(--ds-color-switch-knob);
+    transform: translateY(-50%);
+    transition: left var(--ds-duration-fast) var(--ds-ease-out), border-color var(--ds-duration-fast) var(--ds-ease-out);
+  }
+  .track[aria-checked="true"], .track[aria-checked="true"]:hover { border-color: var(--figma-color-bg-brand); background: var(--figma-color-bg-brand); }
+  .track[aria-checked="true"] .knob { left: 10px; border-color: var(--ds-color-switch-knob); }
+  .track:focus-visible, .track[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .track:disabled { opacity: 0.4; }
+  .track:disabled:hover { background: var(--figma-color-bg-tertiary); }
+  .track[aria-checked="true"]:disabled:hover { background: var(--figma-color-bg-brand); }
+}

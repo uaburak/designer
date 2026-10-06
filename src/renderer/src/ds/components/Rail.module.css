@@ -1,0 +1,21 @@
+@layer ds {
+  .rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ds-space-2);
+    width: var(--ds-size-rail);
+    height: 100%;
+    padding: var(--ds-space-2) 0;
+    border-right: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  .item {
+    display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-rail-item); height: var(--ds-size-rail-item);
+    padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon); outline: none; cursor: default;
+  }
+  .item:hover, .item[data-hover] { background: var(--figma-color-bg-hover); }
+  .item[aria-current="true"] { background: var(--figma-color-bg-selected); color: var(--figma-color-icon); }
+  .item:focus-visible, .item[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .separator { flex: none; width: 16px; height: 1px; background: var(--ds-color-rail-separator); }
+}

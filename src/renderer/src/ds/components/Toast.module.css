@@ -1,0 +1,33 @@
+@layer ds {
+  .host {
+    position: fixed;
+    left: 50%;
+    bottom: 68px;
+    z-index: var(--ds-z-toast);
+    display: flex;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .toast {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: 40px;
+    max-width: 560px;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border-radius: var(--ds-radius-medium-large);
+    background: var(--ds-color-menu-bg);
+    color: var(--ds-color-menu-text);
+    box-shadow: var(--ds-elevation-menu);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+    pointer-events: auto;
+    animation: enter var(--ds-duration-medium) var(--ds-ease-out);
+  }
+  .error { background: var(--figma-color-bg-danger); color: var(--figma-color-text-ondanger); }
+  .lead { display: flex; flex: none; margin-left: calc(var(--ds-space-2) * -1); color: var(--figma-color-icon-success); }
+  .message { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .static { animation: none; }
+  @keyframes enter { from { opacity: 0; transform: translateY(8px); } }
+}

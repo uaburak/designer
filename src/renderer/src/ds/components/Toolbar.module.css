@@ -1,0 +1,51 @@
+@layer ds {
+  .toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-toolbar);
+    padding: var(--ds-space-2);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-icon);
+    box-shadow: var(--ds-elevation-100);
+  }
+  .floating { position: absolute; left: calc(50% + var(--ds-toolbar-offset, 0px)); bottom: var(--ds-size-toolbar-bottom); z-index: var(--ds-z-floating); transform: translateX(-50%); }
+  .group { display: flex; align-items: center; gap: var(--ds-space-2); }
+  /* Between the tools and the mode switch: a full-height line (measured) */
+  .divider { flex: none; align-self: stretch; width: 1px; margin: calc(var(--ds-space-2) * -1) 0; background: var(--figma-color-border); }
+  /* A tool: its 32px button, then (1px apart) a 16×32 chevron with its own hover; only the button turns blue */
+  .tool { display: flex; flex: none; align-items: center; gap: 1px; }
+  .button {
+    display: flex; align-items: center; justify-content: center; width: var(--ds-size-tool); height: var(--ds-size-tool); padding: 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon); outline: none; cursor: default;
+  }
+  .chevron {
+    display: flex; align-items: center; justify-content: center; width: 16px; height: var(--ds-size-tool); padding: 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon-secondary); outline: none; cursor: default;
+  }
+  .button:hover, .button[data-hover] { background: var(--figma-color-bg-hover); }
+  .chevron:hover, .chevron[data-open] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .tool[data-active] .button { background: var(--figma-color-bg-brand); color: var(--figma-color-icon-onbrand); }
+  .button:focus-visible, .chevron:focus-visible, .button[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .button:disabled { color: var(--figma-color-icon-disabled); background: transparent; }
+  .help {
+    position: absolute; right: var(--ds-size-toolbar-bottom); bottom: var(--ds-size-toolbar-bottom); z-index: var(--ds-z-floating);
+    display: flex; align-items: center; justify-content: center; width: var(--ds-size-control-large); height: var(--ds-size-control-large); padding: 0; border: 0;
+    border-radius: var(--ds-radius-full); background: var(--figma-color-bg); color: var(--figma-color-icon); box-shadow: var(--ds-elevation-100); outline: none;
+  }
+  .help:hover { background: var(--figma-color-bg-hover); }
+  .help:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .inline { position: relative; right: auto; bottom: auto; }
+
+  /* The mode switch (Draw / Design / Motion / Dev Mode): a #444 track, 2px in, 28px items 2px apart; the chosen one the panel colour, its glyph blue */
+  .modes { display: flex; align-items: center; gap: 2px; height: var(--ds-size-control-large); padding: 2px; border-radius: calc(var(--ds-radius-medium) + 2px); background: var(--figma-color-bg-tertiary); }
+  .mode {
+    display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon-secondary); outline: none; cursor: default;
+  }
+  .mode:hover, .mode[data-hover] { color: var(--figma-color-icon); }
+  .mode[aria-checked="true"] { background: var(--figma-color-bg); color: var(--figma-color-icon-brand); }
+  .mode:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .mode:disabled { color: var(--figma-color-icon-disabled); }
+}

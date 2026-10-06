@@ -1,0 +1,25 @@
+@layer ds {
+  .swatch {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    overflow: hidden;
+    width: var(--ds-size-chit);
+    height: var(--ds-size-chit);
+    border-radius: var(--ds-radius-small);
+    background: var(--ds-checkerboard);
+  }
+  .swatch::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--ds-color-border-translucent);
+    pointer-events: none;
+  }
+  .round { width: var(--ds-size-swatch-round); height: var(--ds-size-swatch-round); border-radius: var(--ds-radius-full); }
+  .fill { position: absolute; inset: 0; }
+  .solid { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; }
+  .alpha { position: absolute; top: 0; bottom: 0; right: 0; width: 50%; }
+  .mixed { background: var(--figma-color-bg-tertiary); }
+}

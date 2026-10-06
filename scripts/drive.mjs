@@ -4,11 +4,21 @@
 //   node scripts/drive.mjs                  # a REPL — "help" lists the commands
 //   node scripts/drive.mjs launch "ss home" "click-text All projects" "ss all" quit
 //
+// The window is a set of views, each its own page and renderer process (docs/desktop-impl.md):
+// the tab bar (`?tabbar`), Home (`?home`) and one per open file (`?tab=<id>`). Page commands act on a
+// target — the content view in front unless told otherwise:
+//   use tabbar | home | active | <tab id>     the target from now on
+//   click @tabbar [data-tab-id]               this command only (any page command takes "@target" first)
+// `ss` saves the whole window (the tab bar and the view in front, put together by main); `ss-view`
+// one view's page. `tabs` prints main's tabs and each view's renderer process id. `menu <id>` runs a
+// menu command (src/shared/commands.ts) through main's click path — keys typed into a page with
+// `key` reach that page only, never the menu bar. `answer Save,Cancel` queues the answers to the next
+// native dialogs (they are logged instead of shown).
+//
 // DESIGNER_EXECUTABLE runs a packaged app instead (npx electron-builder --mac --dir).
 // Each run gets its own user data (DESIGNER_USER_DATA, a temp folder unless set), so the
 // everyday app's sign-in and windows are left alone. Screenshots go to SCREENSHOT_DIR
-// (a temp folder unless set). A tab's page is a frame of the window: `frame-eval` runs in
-// the one in front.
+// (a temp folder unless set).
 import { _electron as electron } from "playwright-core";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -26,12 +36,45 @@ const electronBin =
     : path.join(APP_DIR, "node_modules/electron/dist/electron");
 
 let app = null;
-let page = null;
+/** Pages whose renderer crashed: Playwright can't drive them again, even once main reloads the view */
+const crashed = new WeakSet();
+/** The default target of page commands */
+let target = "active";
 
-/** The frame of the tab in front (the shell's iframe that is visible), or null on Home. */
-async function activeFrame() {
-  const handle = await page.$("iframe:not(.invisible)");
-  return handle ? handle.contentFrame() : null;
+/** Main's view of the window (src/main/tabs.ts debug()). */
+const debug = () => app.evaluate(() => globalThis.__designer.debug());
+
+/** The page of a view: "tabbar", "home", "active" (the content view in front) or a tab's id. */
+async function pageOf(which = target, timeout = 10_000) {
+  if (!app) throw new Error("launch first");
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    let match;
+    if (which === "tabbar") match = (u) => new URL(u).searchParams.has("tabbar");
+    else if (which === "home") match = (u) => new URL(u).searchParams.has("home");
+    else {
+      const id = which === "active" ? (await debug())?.shown : which;
+      match = id === "home" ? (u) => new URL(u).searchParams.has("home") : (u) => new URL(u).searchParams.get("tab") === id;
+    }
+    const pages = app.windows().filter((p) => {
+      try {
+        return match(p.url());
+      } catch {
+        return false;
+      }
+    });
+    const page = pages.find((p) => !crashed.has(p));
+    if (page) return page;
+    if (pages.length) throw new Error(`the page of ${which} crashed (main reloaded it, Playwright can't drive it again) — main-eval and ss still work`);
+    if (Date.now() > deadline) throw new Error(`no page for ${which}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+/** "@target rest…" → [target, rest] */
+function split(args) {
+  const m = /^@(\S+)\s*(.*)$/s.exec(args);
+  return m ? [m[1], m[2]] : [target, args];
 }
 
 const COMMANDS = {
@@ -42,35 +85,91 @@ const COMMANDS = {
     app = await electron.launch({
       executablePath: packaged || electronBin,
       args: packaged ? [] : [APP_DIR, ...(process.platform === "linux" ? ["--no-sandbox"] : [])],
-      env: { ...process.env, DESIGNER_USER_DATA: USER_DATA },
+      env: { ...process.env, DESIGNER_USER_DATA: USER_DATA, DESIGNER_TEST: "1" },
+      // As the app runs: the renderers sandboxed, prefers-color-scheme the app's own (nativeTheme), not Playwright's "light".
+      chromiumSandbox: process.platform !== "linux",
+      colorScheme: null,
       timeout: 30_000,
     });
-    page = await app.firstWindow();
-    app.on("console", (m) => (m.type() === "error" || m.type() === "warning" || m.text().startsWith("[openExternal]")) && console.log(`[main ${m.type()}] ${m.text()}`));
-    page.on("console", (m) => (m.type() === "error" || m.type() === "warning") && console.log(`[page ${m.type()}] ${m.text()}`));
-    page.on("pageerror", (e) => console.log("[page error]", e.message));
-    await page.waitForSelector("#root > *", { timeout: 15_000 }).catch(() => console.log("TIMEOUT: nothing rendered"));
-    await page.waitForTimeout(800);
-    console.log("launched:", page.url(), "user data:", USER_DATA);
+    app.on("console", (m) => (m.type() === "error" || m.type() === "warning" || /^\[(openExternal|dialog|home|editor|tabbar)[\] ]/.test(m.text())) && console.log(`[main ${m.type()}] ${m.text()}`));
+    app.on("window", (p) => {
+      p.on("pageerror", (e) => console.log(`[page error ${p.url()}]`, e.message));
+      p.on("crash", () => crashed.add(p));
+    });
+    await app.firstWindow();
+    const tabbar = await pageOf("tabbar", 15_000);
+    await tabbar.waitForSelector("#root > :not(style)", { timeout: 15_000 }).catch(() => console.log("TIMEOUT: the tab bar rendered nothing"));
+    const front = await pageOf("active", 15_000);
+    await front.waitForSelector("#root > :not(style)", { timeout: 15_000 }).catch(() => console.log("TIMEOUT: the view in front rendered nothing"));
+    await front.waitForTimeout(800);
+    console.log("launched:", front.url(), "user data:", USER_DATA);
   },
 
+  use(which) {
+    target = which || "active";
+    console.log("target:", target);
+  },
+
+  /** The whole window: the tab bar's view over the content view in front, put together by main (each view captured on its own). */
   async ss(name) {
-    if (!page) return console.log("ERROR: launch first");
+    if (!app) return console.log("ERROR: launch first");
     const f = path.join(SHOT_DIR, `${name || `ss-${Date.now()}`}.png`);
-    await page.screenshot({ path: f });
+    const b64 = await app.evaluate(async ({ nativeImage }) => {
+      const ctl = globalThis.__designer.current();
+      const shots = [await ctl.tabbar.webContents.capturePage(), await ctl.tabs.activeView().webContents.capturePage()];
+      // Raw BGRA rows of each (both the window's width), one under the other.
+      const bitmaps = shots.map((img) => img.toBitmap());
+      const { width: dipWidth, height: dipHeight } = shots[1].getSize();
+      const scale = Math.sqrt(bitmaps[1].length / 4 / (dipWidth * dipHeight)) || 1;
+      const width = Math.round(dipWidth * scale);
+      const height = bitmaps.reduce((h, b) => h + b.length / 4 / width, 0);
+      return nativeImage.createFromBitmap(Buffer.concat(bitmaps), { width, height, scaleFactor: scale }).toPNG().toString("base64");
+    });
+    fs.writeFileSync(f, Buffer.from(b64, "base64"));
     console.log("screenshot:", f);
   },
 
+  /** One view's page: ss-view [@target] name */
+  async "ss-view"(args) {
+    const [which, name] = split(args);
+    const f = path.join(SHOT_DIR, `${name || `ss-${Date.now()}`}.png`);
+    await (await pageOf(which)).screenshot({ path: f });
+    console.log("screenshot:", f);
+  },
+
+  /** Main's tabs, the one in front, and each view's renderer process. */
+  async tabs() {
+    if (!app) return console.log("ERROR: launch first");
+    const d = await debug();
+    const pid = await app.evaluate(() => globalThis.__designer.current().tabbar.webContents.getOSProcessId());
+    console.log(`active: ${d.state.active}  shown: ${d.shown}  signedIn: ${d.signedIn}  closed: ${d.state.closed.map((c) => c.slug).join(", ") || "-"}`);
+    console.log(` tabbar  pid ${pid}`);
+    for (const v of d.views) {
+      const tab = d.state.tabs.find((t) => t.id === v.id);
+      console.log(` ${v.visible ? "*" : " "} ${v.id.padEnd(10)} ${v.role.padEnd(6)} pid ${String(v.pid).padEnd(6)} wc ${v.webContentsId}${tab ? `  ${tab.kind}:${tab.slug} "${tab.title}" ${tab.status}${tab.dirty ? " (unsaved)" : ""}` : ""}`);
+    }
+    for (const t of d.state.tabs.filter((t) => !d.views.some((v) => v.id === t.id))) console.log(`   ${t.id.padEnd(10)} (no view) ${t.kind}:${t.slug} "${t.title}" ${t.status}`);
+    console.log(` order: ${["home", ...d.state.tabs.map((t) => t.slug)].join(" | ")}`);
+  },
+
+  /** The state as JSON (for scripted checks). */
+  async state() {
+    if (!app) return console.log("ERROR: launch first");
+    console.log(JSON.stringify(await debug()));
+  },
+
   // A DOM click (not coordinates): the element's own .click().
-  async click(sel) {
-    if (!page) return console.log("ERROR: launch first");
+  async click(args) {
+    const [which, sel] = split(args);
+    const page = await pageOf(which);
     console.log("click", sel, "->", await page.evaluate((s) => (document.querySelector(s) ? (document.querySelector(s).click(), "OK") : "NOT_FOUND"), sel));
   },
 
-  async "click-text"(text) {
-    if (!page) return console.log("ERROR: launch first");
+  async "click-text"(args) {
+    const [which, text] = split(args);
+    const page = await pageOf(which);
     const r = await page.evaluate((t) => {
-      const els = [...document.querySelectorAll('button, a, [role="button"], [role="tab"]')];
+      const els = [...document.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"]')];
       const el = els.find((e) => e.textContent?.trim() === t) ?? els.find((e) => e.textContent?.includes(t));
       if (!el) return "NOT_FOUND";
       el.click();
@@ -80,20 +179,32 @@ const COMMANDS = {
   },
 
   /** A real mouse click at the middle of the first element matching the selector (what a person does). */
-  async press(sel) {
-    if (!page) return console.log("ERROR: launch first");
+  async press(args) {
+    const [which, sel] = split(args);
     try {
-      await page.click(sel, { timeout: 5_000 });
+      await (await pageOf(which)).click(sel, { timeout: 5_000 });
       console.log("press", sel, "-> OK");
     } catch (e) {
       console.log("press", sel, "->", e.message.split("\n")[0]);
     }
   },
 
-  /** A real drag with the mouse, in the window's points: drag x1 y1 x2 y2 (a tab's canvas gets it as a person's). */
+  /** A real double click (opening a file on Home). */
+  async dblpress(args) {
+    const [which, sel] = split(args);
+    try {
+      await (await pageOf(which)).dblclick(sel, { timeout: 5_000 });
+      console.log("dblpress", sel, "-> OK");
+    } catch (e) {
+      console.log("dblpress", sel, "->", e.message.split("\n")[0]);
+    }
+  },
+
+  /** A real drag with the mouse, in the target view's points: drag [@target] x1 y1 x2 y2. */
   async drag(args) {
-    if (!page) return console.log("ERROR: launch first");
-    const [x1, y1, x2, y2] = args.split(/\s+/).map(Number);
+    const [which, rest] = split(args);
+    const page = await pageOf(which);
+    const [x1, y1, x2, y2] = rest.split(/\s+/).map(Number);
     await page.mouse.move(x1, y1);
     await page.mouse.down();
     await page.mouse.move((x1 + x2) / 2, (y1 + y2) / 2, { steps: 5 });
@@ -102,18 +213,36 @@ const COMMANDS = {
     console.log("drag", x1, y1, "->", x2, y2);
   },
 
-  /** A real click at a point of the window: click-at x y. */
+  /** A file tab dragged in the tab bar with the mouse: drag-tab <from> <to> (file tabs counted from 1, as ⌘2 is the first). */
+  async "drag-tab"(args) {
+    const [from, to] = args.split(/\s+/).map(Number);
+    const bar = await pageOf("tabbar");
+    const rects = await bar.evaluate(() => [...document.querySelectorAll("[data-tab-id]")].map((e) => e.getBoundingClientRect().toJSON()));
+    const a = rects[from - 1];
+    const b = rects[to - 1];
+    if (!a || !b) return console.log("drag-tab: no such tab", rects.length, "tabs");
+    const y = a.y + a.height / 2;
+    const x2 = to > from ? b.x + b.width - 4 : b.x + 4;
+    await bar.mouse.move(a.x + a.width / 2, y);
+    await bar.mouse.down();
+    await bar.mouse.move((a.x + a.width / 2 + x2) / 2, y, { steps: 6 });
+    await bar.mouse.move(x2, y, { steps: 6 });
+    await bar.mouse.up();
+    console.log("drag-tab", from, "->", to);
+  },
+
+  /** A real click at a point of the target view: click-at [@target] x y. */
   async "click-at"(args) {
-    if (!page) return console.log("ERROR: launch first");
-    const [x, y] = args.split(/\s+/).map(Number);
-    await page.mouse.click(x, y);
+    const [which, rest] = split(args);
+    const [x, y] = rest.split(/\s+/).map(Number);
+    await (await pageOf(which)).mouse.click(x, y);
     console.log("click-at", x, y);
   },
 
-  /** Ask the window to close, as its red button does (the page may ask about unsaved tabs first). */
+  /** Ask the window to close, as its red button does (main asks about unsaved tabs first). */
   async close() {
     if (!app) return console.log("ERROR: launch first");
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+    await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]?.close());
     console.log("close asked");
   },
 
@@ -128,72 +257,104 @@ const COMMANDS = {
 
   async alive() {
     if (!app) return console.log("ERROR: launch first");
-    console.log("windows open:", await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length));
+    console.log("windows open:", await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().length));
   },
 
-  async key(combo) {
-    if (page) await page.keyboard.press(combo);
+  async key(args) {
+    const [which, combo] = split(args);
+    await (await pageOf(which)).keyboard.press(combo);
   },
-  async type(text) {
-    if (page) await page.keyboard.type(text, { delay: 20 });
+  async type(args) {
+    const [which, text] = split(args);
+    await (await pageOf(which)).keyboard.type(text, { delay: 20 });
   },
   async sleep(ms) {
     await new Promise((r) => setTimeout(r, Number(ms) || 1000));
   },
 
-  async wait(sel) {
-    if (!page) return console.log("ERROR: launch first");
+  async wait(args) {
+    const [which, sel] = split(args);
     try {
-      await page.waitForSelector(sel, { timeout: 10_000 });
+      await (await pageOf(which)).waitForSelector(sel, { timeout: 10_000 });
       console.log("found:", sel);
-    } catch {
-      console.log("TIMEOUT:", sel);
+    } catch (e) {
+      console.log("TIMEOUT:", sel, e.message.split("\n")[0]);
     }
   },
 
-  async eval(expr) {
-    if (!page) return console.log("ERROR: launch first");
+  async eval(args) {
+    const [which, expr] = split(args);
     try {
-      console.log(JSON.stringify(await page.evaluate(expr)));
+      console.log(JSON.stringify(await (await pageOf(which)).evaluate(expr)));
     } catch (e) {
       console.log("ERROR:", e.message);
     }
   },
 
-  async "frame-eval"(expr) {
-    if (!page) return console.log("ERROR: launch first");
-    const frame = await activeFrame();
-    if (!frame) return console.log("ERROR: no tab in front (Home)");
-    try {
-      console.log(JSON.stringify(await frame.evaluate(expr)));
-    } catch (e) {
-      console.log("ERROR:", e.message);
-    }
-  },
-
-  /** The app's menu, as the menu bar would send it (see src/main/menu.ts): new-project, close-tab, next-tab, save… */
-  async menu(command) {
+  /** Runs in main: main-eval <expression> — `electron` is Electron's module, `globalThis.__designer` the window's tabs */
+  async "main-eval"(expr) {
     if (!app) return console.log("ERROR: launch first");
-    await app.evaluate(({ BrowserWindow }, cmd) => BrowserWindow.getAllWindows()[0]?.webContents.send("menu:command", cmd), command);
-    console.log("menu", command);
+    try {
+      console.log(JSON.stringify(await app.evaluate((electron, src) => new Function("electron", `return (${src});`)(electron), expr)));
+    } catch (e) {
+      console.log("ERROR:", e.message);
+    }
   },
 
-  async text(sel) {
-    if (!page) return console.log("ERROR: launch first");
-    console.log(await page.evaluate((s) => (s ? document.querySelector(s) : document.body)?.innerText ?? "(null)", sel || null));
+  /** A menu command, as the menu bar would run it (src/shared/commands.ts): file.close-tab, window.next-tab, file.save… */
+  async menu(id) {
+    if (!app) return console.log("ERROR: launch first");
+    console.log("menu", id, "->", await app.evaluate((_e, cmd) => globalThis.__designer.command(cmd), id));
+  },
+
+  /** The answers to the next native dialogs, by button label: answer Save,Cancel */
+  async answer(labels) {
+    if (!app) return console.log("ERROR: launch first");
+    await app.evaluate((_e, list) => globalThis.__designer.answers.push(...list), labels.split(",").map((s) => s.trim()).filter(Boolean));
+    console.log("answers queued:", labels);
+  },
+
+  /** The native dialogs asked so far, and their answers. */
+  async asked() {
+    if (!app) return console.log("ERROR: launch first");
+    for (const a of await app.evaluate(() => globalThis.__designer.asked)) console.log(` “${a.message}” [${a.buttons.join(" / ")}] → ${a.answer}`);
+  },
+
+  async text(args) {
+    const [which, sel] = split(args);
+    console.log(await (await pageOf(which)).evaluate((s) => (s ? document.querySelector(s) : document.body)?.innerText ?? "(null)", sel || null));
+  },
+
+  /** Playwright's pages (one per view) */
+  async pages() {
+    if (!app) return console.log("ERROR: launch first");
+    for (const p of app.windows()) console.log(` ${crashed.has(p) ? "(crashed) " : ""}${p.url()}`);
   },
 
   async windows() {
     if (!app) return console.log("ERROR: launch first");
-    const wcs = await app.evaluate(({ webContents }) => webContents.getAllWebContents().map((w) => ({ id: w.id, type: w.getType(), url: w.getURL() })));
-    for (const w of wcs) console.log(` [${w.id}] ${w.type}: ${w.url}`);
-    for (const f of page.frames()) console.log("  frame:", f.url());
+    const wcs = await app.evaluate(({ webContents }) => webContents.getAllWebContents().map((w) => ({ id: w.id, type: w.getType(), url: w.getURL(), pid: w.getOSProcessId() })));
+    for (const w of wcs) console.log(` [${w.id}] ${w.type} pid ${w.pid}: ${w.url}`);
   },
 
+  /** Quits as ⌘Q does — unsaved tabs let go (the native box answered "Quit Without Saving") — or, stuck after 10s, killed. */
   async quit() {
-    if (app) await app.close().catch(() => {});
+    if (app) {
+      const proc = app.process();
+      await app
+        .evaluate(() => {
+          const answers = globalThis.__designer.answers;
+          answers.length = 0;
+          answers.push("Quit Without Saving");
+        })
+        .catch(() => {});
+      await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 10_000))]);
+      if (proc.exitCode === null && proc.signalCode === null) {
+        console.log("quit: still running after 10s — killed");
+        proc.kill("SIGKILL");
+      }
+    }
     app = null;
-    page = null;
   },
 
   help() {
@@ -207,10 +368,11 @@ async function run(line) {
   const fn = COMMANDS[cmd];
   if (!fn) return console.log("unknown:", cmd, "— try: help");
   try {
-    await fn(rest.join(" "));
+    await fn(line.trim().slice(cmd.length).trim());
   } catch (e) {
     console.log("ERROR:", e.message);
   }
+  void rest;
 }
 
 const script = process.argv.slice(2);

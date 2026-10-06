@@ -4,3 +4,7 @@ dist
 .DS_Store
 *.tsbuildinfo
 .env*
+.shots
+
+# Claude Code runtime state (not project config)
+.claude/scheduled_tasks.lock

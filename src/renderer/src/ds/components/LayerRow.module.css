@@ -1,0 +1,66 @@
+@layer ds {
+  .row {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    height: var(--ds-size-layer-row);
+    padding: 0 var(--ds-size-row-inset);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    user-select: none;
+    outline: none;
+    cursor: default;
+  }
+  .box {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    padding: 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-medium);
+  }
+  .row:hover .box, .row[data-hover] .box { background: var(--figma-color-bg-hover); }
+  .row[aria-selected="true"] .box { background: var(--figma-color-bg-selected); }
+  .row[data-selected-ancestor] .box { background: var(--figma-color-bg-selected-secondary); }
+  .row[data-run="start"] .box { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .row[data-run="middle"] .box { border-radius: 0; }
+  .row[data-run="end"] .box { border-top-left-radius: 0; border-top-right-radius: 0; }
+  .row:focus-visible .box, .row[data-focus-visible] .box { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .row[data-drop="inside"] .box { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .row[data-drop="before"]::before, .row[data-drop="after"]::after {
+    content: ""; position: absolute; left: var(--drop-indent, 0); right: var(--ds-size-row-inset); height: 2px; background: var(--figma-color-border-selected);
+  }
+  .row[data-drop="before"]::before { top: -1px; }
+  .row[data-drop="after"]::after { bottom: -1px; }
+
+  .chevron {
+    display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 0;
+    background: transparent; color: var(--figma-color-icon-tertiary); outline: none;
+  }
+  .chevron:hover { color: var(--figma-color-icon); }
+  .chevron[aria-expanded="false"] svg { transform: rotate(-90deg); }
+  .leaf { flex: none; width: 16px; }
+  .type { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: var(--ds-space-1); color: var(--figma-color-icon); }
+  .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .strong .name { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .component .name { color: var(--figma-color-text-component); }
+  .component .type { color: var(--figma-color-icon-component); }
+  .hiddenLayer .name, .hiddenLayer .type { color: var(--figma-color-text-tertiary); }
+  .hiddenLayer.component .name, .hiddenLayer.component .type { color: var(--figma-color-text-component); opacity: 0.5; }
+  .rename { flex: 1 1 auto; min-width: 0; margin-left: -5px; }
+  .tail { display: flex; flex: none; align-items: center; }
+  .cell {
+    display: flex; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon-secondary); outline: none; visibility: hidden;
+  }
+  .cell:hover { color: var(--figma-color-icon); }
+  .row:hover .cell, .row[data-hover] .cell, .cell[data-on] { visibility: visible; }
+
+  /* Pages: a 24 highlight on a 32 pitch, inset 4 / 8 */
+  .page { height: var(--ds-size-row); padding: var(--ds-space-1) var(--ds-size-row-inset); }
+  .page .box { padding-left: var(--ds-space-2); }
+  .page:hover .box, .page[data-hover] .box { background: var(--figma-color-bg-hover); }
+  .page[aria-selected="true"] .box { background: var(--figma-color-bg-secondary); }
+  .divider { flex: 1 1 auto; height: 1px; background: var(--figma-color-border); }
+}

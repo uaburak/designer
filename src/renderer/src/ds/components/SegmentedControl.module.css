@@ -1,0 +1,38 @@
+@layer ds {
+  .root {
+    display: inline-flex;
+    align-items: stretch;
+    height: var(--ds-size-control);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .toolbar { background: var(--figma-color-bg-tertiary); }
+  .full { display: flex; width: 100%; }
+  .segment {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ds-space-1);
+    min-width: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+    outline: none;
+    cursor: default;
+  }
+  .full .segment { flex: 1 1 0; }
+  .iconOnly { width: var(--ds-size-control); padding: 0; color: var(--figma-color-icon-secondary); }
+  .segment:hover, .segment[data-hover] { color: var(--figma-color-text); }
+  .iconOnly:hover, .iconOnly[data-hover] { color: var(--figma-color-icon); }
+  .segment[aria-checked="true"] { background: var(--figma-color-bg); box-shadow: inset 0 0 0 1px var(--figma-color-border); color: var(--figma-color-text); }
+  .iconOnly[aria-checked="true"] { color: var(--figma-color-icon); }
+  .segment:focus-visible, .segment[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .segment:disabled { color: var(--figma-color-text-disabled); }
+  .root[data-disabled] { opacity: 0.4; }
+}

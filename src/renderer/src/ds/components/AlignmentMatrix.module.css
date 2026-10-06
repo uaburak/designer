@@ -1,0 +1,37 @@
+@layer ds {
+  /* Figma's auto-layout alignment box: 88 × 56 on the field colour, a 3 × 3 grid of 28 × 16 cells */
+  .matrix {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    width: var(--ds-size-field);
+    height: 56px;
+    padding: var(--ds-space-1) 2px;
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .matrix:hover, .matrix[data-hover] { border-color: var(--figma-color-border); }
+  .matrix:focus-within { border-color: var(--figma-color-border-selected); }
+  .matrix[data-disabled] { opacity: 0.4; }
+  .cell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-icon-tertiary);
+    outline: none;
+    cursor: default;
+  }
+  .dot { width: 2px; height: 2px; border-radius: var(--ds-radius-full); background: currentColor; }
+  .glyph { display: none; color: var(--figma-color-icon-secondary); }
+  .cell:hover .dot, .cell[data-preview] .dot { display: none; }
+  .cell:hover .glyph, .cell[data-preview] .glyph { display: block; }
+  .cell[aria-checked="true"] .dot { display: none; }
+  .cell[aria-checked="true"] .glyph { display: block; color: var(--figma-color-icon-brand); }
+  .cell:focus-visible::after { content: ""; position: absolute; inset: 0; border-radius: var(--ds-radius-small); box-shadow: inset 0 0 0 var(--ds-focus-width) var(--ds-focus-color); }
+}

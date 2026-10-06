@@ -1,0 +1,44 @@
+@layer ds {
+  .section { border-bottom: 1px solid var(--figma-color-border); }
+  .padDefault { padding-bottom: var(--ds-space-2); }
+  .padLarge { padding-bottom: var(--ds-space-3); }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+  }
+  .collapsible .header { padding-left: 0; }
+  .title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .empty .title { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .toggle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    outline: none;
+    cursor: default;
+  }
+  .toggle:focus-visible, .toggle[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .chevron { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; color: var(--figma-color-icon-secondary); transition: transform var(--ds-duration-fast) var(--ds-ease-out); }
+  .closed .chevron { transform: rotate(-90deg); }
+  .actions { display: flex; flex: none; align-items: center; gap: 0; }
+}

@@ -1,0 +1,44 @@
+@layer ds {
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ds-z-scrim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--ds-space-8);
+    background: var(--ds-color-scrim);
+  }
+  .dialog {
+    position: relative;
+    z-index: var(--ds-z-dialog);
+    display: flex;
+    flex-direction: column;
+    max-width: 100%;
+    max-height: calc(100vh - 64px);
+    overflow: hidden;
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    box-shadow: var(--ds-elevation-500-modal-window);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .small { width: var(--ds-size-dialog-small); }
+  .medium { width: var(--ds-size-dialog-medium); }
+  .large { width: var(--ds-size-dialog-large); }
+  .static { z-index: auto; max-height: none; }
+  .header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: 48px;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .title { flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--ds-space-4); }
+  .footer { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: var(--ds-space-2); padding: var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+}

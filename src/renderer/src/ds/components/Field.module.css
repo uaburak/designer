@@ -1,0 +1,114 @@
+/* The field box shared by TextInput, NumericInput, ColorInput, SearchField and Select's trigger (contract §4.4). */
+@layer ds {
+  /* A field fills its container's width (a grid cell, a row); give the container the size */
+  .field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: var(--ds-size-control);
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .large { height: var(--ds-size-control-large); }
+  .field:hover:not(:focus-within), .field[data-hover] { border-color: var(--figma-color-border); }
+  .field:focus-within, .field[data-focus-visible], .field[data-open] { border-color: var(--figma-color-border-selected); }
+  .outlined { background: transparent; border-color: var(--figma-color-border); }
+  .outlined:hover:not(:focus-within), .outlined[data-hover] { border-color: var(--figma-color-icon-tertiary); }
+  .ghost { background: transparent; }
+  .field[aria-invalid="true"], .field[aria-invalid="true"]:hover { border-color: var(--figma-color-border-danger-strong); }
+  .field[data-disabled] { opacity: 0.4; }
+  .field[data-disabled]:hover { border-color: transparent; }
+  .outlined[data-disabled]:hover { border-color: var(--figma-color-border); }
+  /* A field inside another (the colour row's opacity): no box of its own */
+  .field.bare, .field.bare:hover, .field.bare:focus-within { height: 100%; border-color: transparent; border-radius: 0; background: transparent; }
+
+  .input {
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-overflow: ellipsis;
+    outline: none;
+  }
+  .input::placeholder { color: var(--figma-color-text-secondary); opacity: 1; }
+  .input::-webkit-search-cancel-button { display: none; }
+  .padStart { padding-left: var(--ds-space-2); }
+  .padEnd { padding-right: var(--ds-space-2); }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .hug { flex: none; }
+  .upper { text-transform: uppercase; }
+  .mixed::placeholder { color: var(--figma-color-text-secondary); }
+
+  .prefix {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: 100%;
+    color: var(--figma-color-text-secondary);
+    user-select: none;
+  }
+  .large .prefix { width: var(--ds-size-control-large); }
+  .scrub { cursor: ew-resize; touch-action: none; }
+  .field[data-disabled] .scrub { cursor: default; }
+  .unit { flex: none; user-select: none; }
+  .filler { flex: 1 1 0; min-width: var(--ds-space-1); height: 100%; cursor: text; }
+  .suffix { display: flex; flex: none; align-items: center; height: 100%; }
+
+  .textarea {
+    display: block;
+    width: 100%;
+    min-height: 0;
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    resize: none;
+    outline: none;
+  }
+  .textarea:hover:not(:focus) { border-color: var(--figma-color-border); }
+  .textarea:focus { border-color: var(--figma-color-border-selected); }
+  .textarea::placeholder { color: var(--figma-color-text-secondary); }
+
+  /* Colour row: swatch cell, hex, a line in the panel colour, opacity */
+  .swatchCell {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    outline: none;
+  }
+  .swatchCell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+  .opacity { display: flex; flex: none; align-items: center; width: 53px; height: 100%; border-left: 1px solid var(--figma-color-bg); }
+
+  .clear {
+    display: flex; flex: none; align-items: center; justify-content: center;
+    width: var(--ds-size-control); height: 100%; padding: 0; border: 0; border-radius: var(--ds-radius-medium);
+    background: transparent; color: var(--figma-color-icon-secondary); outline: none;
+  }
+  .clear:hover { color: var(--figma-color-icon); }
+  .clear:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+}

@@ -1,0 +1,213 @@
+/**
+ * One open file's editor (docs/editor.md §2): the engine and its store, the
+ * document source, the editor's UI state, the Layers tree read from the
+ * engine, and the command registry the menus, shortcuts and buttons share.
+ * Not React: components get it from EditorContext and read through hooks.
+ */
+import { createContext, useContext } from "react";
+import { KEY_HANDLED, Status, TOOLS, type ToolName } from "@/engine/abi";
+import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
+import type { Engine } from "@/engine/Engine";
+import type { EngineStore } from "@/engine/EngineStore";
+import { size } from "@/ds/tokens";
+import type { ChangeInfo } from "@/ds/types";
+import type { DocumentSource } from "./documentSource";
+import { EMPTY_TREE, treeFromNodes, type LayerTree } from "./model/layerTree";
+import { Store, type UIState } from "./uiStore";
+
+/** Groups of NODES_CHANGED that can change a Layers row's icon (auto layout). */
+const LAYOUT_GROUP = 2;
+
+export class EditorController {
+  readonly engine: Engine;
+  readonly store: EngineStore;
+  readonly source: DocumentSource;
+  readonly ui: Store<UIState>;
+  /** The <canvas> the engine draws into (focus returns there after a field) */
+  canvas: HTMLCanvasElement | null = null;
+  /** Tools the engine implements (probed once) */
+  readonly tools: ReadonlySet<ToolName>;
+  /** The next paste: where it goes (⇧⌘V sets "inPlace" before the DOM paste event) */
+  pendingPaste: { mode: "inPlace" } | { mode: "point"; x: number; y: number } | null = null;
+  /** The last copy's formats (a paste with no system clipboard access falls back to them) */
+  lastCopy: Record<string, string> | null = null;
+
+  private treeCache: { key: string; tree: LayerTree } | null = null;
+  private layoutVersion = 0;
+  private readonly treeListeners = new Set<() => void>();
+  private readonly cleanups: (() => void)[] = [];
+  private openEdit: string | null = null;
+
+  constructor(engine: Engine, store: EngineStore, source: DocumentSource, ui: Partial<UIState> = {}) {
+    this.engine = engine;
+    this.store = store;
+    this.source = source;
+    this.ui = new Store<UIState>({
+      fileName: source.fileName,
+      railTab: "file",
+      leftWidth: size.panel,
+      rightWidth: size.panel,
+      rightTab: "design",
+      uiHidden: false,
+      uiMinimized: false,
+      rulers: true,
+      renaming: null,
+      expanded: new Set(),
+      anchor: null,
+      pageSearch: null,
+      shortcutsOpen: false,
+      propertyLabels: false,
+      ...ui,
+    });
+    this.tools = probeTools(engine);
+    const bump = () => this.treeListeners.forEach((l) => l());
+    this.cleanups.push(
+      store.subscribe("structure", bump),
+      store.subscribe("page", bump),
+      engine.on("NODES_CHANGED", (e) => {
+        if (e.fieldGroupMask.some((m) => (m & LAYOUT_GROUP) !== 0)) {
+          this.layoutVersion++;
+          bump();
+        }
+      })
+    );
+  }
+
+  dispose(): void {
+    this.cancelEdit();
+    for (const c of this.cleanups.splice(0)) c();
+    this.treeListeners.clear();
+  }
+
+  // ---- Reads ----------------------------------------------------------------------------
+
+  get selection(): Guid[] {
+    return this.store.selection.refs;
+  }
+
+  /** The selected nodes' fields (fresh). */
+  selectedNodes(): NodeChange[] {
+    const refs = this.selection;
+    return refs.length ? this.engine.readNodes(refs) : [];
+  }
+
+  /** The current page's Layers tree, read again only after its structure changed. */
+  readonly getTree = (): LayerTree => {
+    if (this.engine.destroyed) return EMPTY_TREE;
+    const page = this.store.page;
+    const key = `${page}#${this.store.structure}#${this.layoutVersion}`;
+    if (this.treeCache?.key === key) return this.treeCache.tree;
+    const tree = readTree(this.engine, page);
+    this.treeCache = { key, tree };
+    return tree;
+  };
+
+  readonly subscribeTree = (listener: () => void): (() => void) => {
+    this.treeListeners.add(listener);
+    return () => this.treeListeners.delete(listener);
+  };
+
+  // ---- Focus ----------------------------------------------------------------------------
+
+  /** Back to the canvas (after Enter / Esc in a field, a menu pick, a toolbar click). */
+  focusCanvas(): void {
+    this.canvas?.focus({ preventScroll: true });
+  }
+
+  // ---- Writes ---------------------------------------------------------------------------
+
+  /** The generic setter on `refs`, as one undo step labelled `label`. */
+  setProps(refs: readonly Guid[], fields: NodeFields, label = "Edit"): number {
+    if (!refs.length) return Status.OK;
+    this.engine.txnBegin(label);
+    const status = this.engine.setProps(refs, fields);
+    this.engine.txnCommit();
+    return status;
+  }
+
+  /** Several writes as one undo step. */
+  batch(label: string, write: () => void): void {
+    this.engine.txnBegin(label);
+    try {
+      write();
+    } finally {
+      this.engine.txnCommit();
+    }
+  }
+
+  /**
+   * A panel edit that may be a gesture (DS ChangeInfo): live values
+   * (`final: false`, a scrub) share one open transaction — the canvas follows
+   * — and the final value commits it, so one gesture is one undo step.
+   */
+  edit(label: string, info: ChangeInfo, write: () => void): void {
+    if (!info.final) {
+      if (this.openEdit === null) {
+        this.engine.txnBegin(label);
+        this.openEdit = label;
+      }
+      write();
+      return;
+    }
+    if (this.openEdit === null) this.engine.txnBegin(label);
+    try {
+      write();
+    } finally {
+      this.openEdit = null;
+      this.engine.txnCommit();
+    }
+  }
+
+  /** Esc during a scrub: everything since its first value is rolled back. */
+  cancelEdit(): void {
+    if (this.openEdit === null) return;
+    this.openEdit = null;
+    if (!this.engine.destroyed) this.engine.txnCancel();
+  }
+
+  setTool(tool: ToolName): void {
+    if (this.tools.has(tool)) this.engine.setTool(tool);
+  }
+
+  /** Forwards a key the canvas didn't get (focus in a panel) to the engine first. */
+  engineKey(type: "down" | "up", e: KeyboardEvent, mods: number): boolean {
+    return (this.engine.key(type, e.code, e.key, mods, e.repeat) & KEY_HANDLED) !== 0;
+  }
+}
+
+/** The Layers tree of `page`, one engine read per level. */
+export function readTree(engine: Engine, page: Guid): LayerTree {
+  if (!page) return EMPTY_TREE;
+  const nodes: NodeChange[] = [];
+  const seen = new Set<Guid>();
+  let level: Guid[] = [page];
+  while (level.length) {
+    const read = engine.readNodes(level, { childIds: true });
+    const next: Guid[] = [];
+    for (const n of read) {
+      if (seen.has(n.guid)) continue;
+      seen.add(n.guid);
+      nodes.push(n);
+      for (const c of n.childIds ?? []) if (!seen.has(c)) next.push(c);
+    }
+    level = next;
+  }
+  return treeFromNodes(page, nodes);
+}
+
+/** Which tools the engine implements: setTool answers OK only for those. */
+function probeTools(engine: Engine): ReadonlySet<ToolName> {
+  const out = new Set<ToolName>();
+  for (const t of TOOLS) if (engine.setTool(t) === Status.OK) out.add(t);
+  engine.setTool("MOVE");
+  return out;
+}
+
+export const EditorContext = createContext<EditorController | null>(null);
+
+export function useEditor(): EditorController {
+  const ed = useContext(EditorContext);
+  if (!ed) throw new Error("useEditor outside an editor");
+  return ed;
+}
+

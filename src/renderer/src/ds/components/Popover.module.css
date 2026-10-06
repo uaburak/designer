@@ -1,0 +1,31 @@
+@layer ds {
+  .popover {
+    position: fixed;
+    z-index: var(--ds-z-popover);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 16px);
+    overflow: hidden;
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    box-shadow: var(--ds-elevation-400-menu-panel);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .static { position: relative; z-index: auto; }
+  .header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .draggable { cursor: default; touch-action: none; }
+  .title { flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; user-select: none; }
+  .headerContent { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; margin-left: calc(var(--ds-space-2) * -1); }
+  .body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+}

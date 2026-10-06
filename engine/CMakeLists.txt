@@ -1,0 +1,87 @@
+cmake_minimum_required(VERSION 3.20)
+project(designer_engine CXX)
+
+# DesignerV2's canvas engine (docs/engine.md): scene graph, editor (tools,
+# hit-testing, transactions, undo), our renderer over gfx::Device. Built two
+# ways (CMakePresets.json):
+#   ENG_TARGET=wasm  → engine.mjs + engine.wasm (tools/build.mjs copies them to
+#                      src/renderer/src/engine/wasm/)
+#   native           → engine_tests (doctest, ASan/UBSan), no WebGL backend.
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(ENG_SANITIZE "" CACHE STRING "Sanitizers for native builds, e.g. address;undefined")
+include(cmake/Flags.cmake)
+
+add_library(eng_core STATIC
+  src/base/FractionalIndex.cpp
+  src/base/Json.cpp
+  src/scene/Node.cpp
+  src/scene/Document.cpp
+  src/scene/ChangeSet.cpp
+  src/scene/CodecJson.cpp
+  src/hit/SpatialIndex.cpp
+  src/hit/HitTest.cpp
+  src/hit/Picking.cpp
+  src/hit/Marquee.cpp
+  src/layout/Layout.cpp
+  src/editor/Selection.cpp
+  src/editor/Snapping.cpp
+  src/editor/Undo.cpp
+  src/editor/Editor.cpp
+  src/editor/Commands.cpp
+  src/tools/Gestures.cpp
+  src/render/Renderer.cpp
+  src/render/Overlay.cpp
+  src/gfx/null/NullDevice.cpp
+  src/api/Api.cpp
+)
+target_include_directories(eng_core PUBLIC src)
+eng_compile_flags(eng_core)
+
+if(EMSCRIPTEN)
+  include(cmake/Emscripten.cmake)
+  target_compile_options(eng_core PRIVATE -msimd128)
+  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_options(eng_core PRIVATE -O3 -flto -DNDEBUG)
+  else()
+    target_compile_options(eng_core PRIVATE -O1 -g)
+  endif()
+  add_library(eng_gfx_gl STATIC src/gfx/gl/GLDevice.cpp)
+  target_link_libraries(eng_gfx_gl PUBLIC eng_core)
+  eng_compile_flags(eng_gfx_gl)
+  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_options(eng_gfx_gl PRIVATE -O3 -flto -DNDEBUG)
+  endif()
+  # The exports live in eng_core (api/Api.cpp); the executable only links them.
+  add_executable(engine_wasm src/api/Main.cpp)
+  target_link_libraries(engine_wasm PRIVATE -Wl,--whole-archive eng_core -Wl,--no-whole-archive eng_gfx_gl)
+  target_compile_definitions(eng_core PRIVATE ENG_HAS_GL=1)
+  eng_compile_flags(engine_wasm)
+  eng_wasm_target(engine_wasm)
+else()
+  add_executable(engine_tests
+    tests/main.cpp
+    tests/unit/base.fractional_index.test.cpp
+    tests/unit/scene.hierarchy.test.cpp
+    tests/unit/scene.codec.test.cpp
+    tests/unit/scene.txn.test.cpp
+    tests/unit/undo.test.cpp
+    tests/unit/hit.picking.test.cpp
+    tests/unit/render.camera.test.cpp
+    tests/unit/render.batching.test.cpp
+    tests/unit/editor.gestures.test.cpp
+    tests/unit/api.test.cpp
+    tests/unit/layout.test.cpp
+  )
+  target_link_libraries(engine_tests PRIVATE eng_core)
+  target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)
+  # The engine builds without exceptions; doctest then ends the run on a failed REQUIRE.
+  target_compile_definitions(engine_tests PRIVATE ENG_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
+    DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS)
+  target_compile_features(engine_tests PRIVATE cxx_std_20)
+  enable_testing()
+  add_test(NAME engine_tests COMMAND engine_tests)
+endif()

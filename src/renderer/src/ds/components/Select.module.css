@@ -1,0 +1,31 @@
+@layer ds {
+  .trigger {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    outline: none;
+    cursor: default;
+  }
+  .withPrefix { padding-left: 0; }
+  .value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .placeholder { color: var(--figma-color-text-secondary); }
+  .chevron { flex: none; color: var(--figma-color-icon-secondary); }
+  .hug.hug { flex: none; width: auto; }
+  .hug .value { flex: none; }
+  .hug .trigger { padding-right: var(--ds-space-1); }
+  .ghostField { border-color: transparent; background: transparent; }
+  .ghostField:hover, .ghostField[data-hover] { background: var(--figma-color-bg-hover); border-color: transparent; }
+  .ghostField:focus-within { border-color: transparent; }
+  .ghostField:has(.trigger:focus-visible) { border-color: var(--figma-color-border-selected); }
+  .ghostField[data-open] { background: var(--figma-color-bg-hover); border-color: transparent; }
+}

@@ -1,0 +1,23 @@
+@layer ds {
+  .grid { display: flex; flex-direction: column; }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(var(--ds-size-field), 1fr) minmax(var(--ds-size-field), 1fr) var(--ds-size-control);
+    column-gap: var(--ds-space-2);
+    align-items: center;
+    min-height: var(--ds-size-row);
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
+  }
+  .cell { display: flex; min-width: 0; }
+  .cell > * { flex: 1 1 auto; min-width: 0; }
+  .span2 { grid-column: 1 / 3; }
+  .action { grid-column: 3; display: flex; align-items: center; justify-content: center; }
+  .label {
+    height: 16px;
+    margin-top: var(--ds-space-1);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+}

@@ -1,0 +1,56 @@
+@layer ds {
+  /* A 32px row; the 28px highlight inside it, inset 2 vertically and 8 horizontally */
+  .item {
+    display: flex;
+    width: 100%;
+    height: var(--ds-size-home-nav-pitch);
+    padding: 2px var(--ds-size-row-inset);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-large);
+    letter-spacing: var(--ds-tracking-body-large);
+    text-align: left;
+    outline: none;
+    cursor: default;
+  }
+  .box {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-width: 0;
+    height: var(--ds-size-home-nav);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-medium);
+  }
+  .item:hover .box, .item[data-hover] .box { background: var(--figma-color-bg-hover); }
+  .item[aria-current="page"] .box { background: var(--figma-color-bg-selected); }
+  .item[data-drop-target] .box { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .item:focus-visible .box, .item[data-focus-visible] .box { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .icon { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); color: var(--figma-color-icon); }
+  .folder { color: var(--figma-color-icon-secondary); }
+  .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .count { flex: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); font-variant-numeric: tabular-nums; }
+  /* A group's title ("Starred"): 11/550 at x 16, a chevron in the 8px inset when it folds */
+  .header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    text-align: left;
+    outline: none;
+  }
+  .headerToggle { position: relative; cursor: default; }
+  .headerToggle:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .headerChevron { position: absolute; left: 0; display: flex; width: 16px; justify-content: center; color: var(--figma-color-icon-secondary); transition: transform var(--ds-duration-fast) var(--ds-ease-out); }
+  .headerToggle[aria-expanded="false"] .headerChevron { transform: rotate(-90deg); }
+  .divider { height: 1px; margin: var(--ds-space-2) 0; background: var(--figma-color-border); }
+  .headerTitle { flex: 1 1 auto; }
+}

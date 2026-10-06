@@ -1,7 +1,6 @@
-import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import { memo, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
-import { isMac, native } from "./native";
-import { HOME, type Tab } from "./tabs";
+import { HOME } from "./tabs";
 import { CloseIcon, HomeIcon, PlayIcon, PlusIcon } from "./icons";
 
 /**
@@ -10,18 +9,6 @@ import { CloseIcon, HomeIcon, PlayIcon, PlusIcon } from "./icons";
  * dot while unsaved), + for a new project. Its free room moves the window;
  * a tab is dragged sideways to its new place, a middle click closes it.
  */
-
-/** Room for the traffic lights at the bar's left (none in full screen). */
-function useTrafficLightRoom() {
-  const [fullScreen, setFullScreen] = useState(false);
-  useEffect(() => {
-    const desktop = native();
-    if (!desktop) return;
-    void desktop.isFullScreen().then(setFullScreen);
-    return desktop.onFullScreen(setFullScreen);
-  }, []);
-  return native() && isMac && !fullScreen ? 78 : 8;
-}
 
 /** The glyph of a design file, as Figma's tabs draw it (16px, the text's colour). */
 function DesignGlyph() {
@@ -45,8 +32,19 @@ function CvGlyph() {
   );
 }
 
+/** A tab as the bar draws it. */
+export interface TabBarTab {
+  id: string;
+  kind: string;
+  title: string;
+  dirty: boolean;
+  status?: string;
+}
+
 interface Props {
-  tabs: Tab[];
+  tabs: TabBarTab[];
+  /** Room at the left for the traffic lights (none in full screen, or in a browser) */
+  room: number;
   active: string;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
@@ -55,8 +53,7 @@ interface Props {
   onTabMenu: (id: string, e: React.MouseEvent) => void;
 }
 
-export const TabBar = memo(function TabBar({ tabs, active, onActivate, onClose, onMove, onNew, onTabMenu }: Props) {
-  const room = useTrafficLightRoom();
+export const TabBar = memo(function TabBar({ tabs, room, active, onActivate, onClose, onMove, onNew, onTabMenu }: Props) {
   const strip = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<{ id: string; dx: number } | null>(null);
 
@@ -119,7 +116,7 @@ export const TabBar = memo(function TabBar({ tabs, active, onActivate, onClose, 
               data-tab-id={tab.id}
               role="tab"
               aria-selected={isActive}
-              title={tab.title}
+              title={tab.status === "crashed" ? `${tab.title} — crashed` : tab.status === "unresponsive" ? `${tab.title} — not responding` : tab.title}
               onPointerDown={press(tab.id)}
               onAuxClick={(e) => e.button === 1 && onClose(tab.id)}
               onContextMenu={(e) => {

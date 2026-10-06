@@ -5,7 +5,8 @@ import tseslint from "typescript-eslint";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
-  globalIgnores(["out/**", "dist/**", "node_modules/**"]),
+  // docs/research holds reference material (sample decoders), not app code; generated codecs and the engine's Emscripten glue aren't linted.
+  globalIgnores(["out/**", "dist/**", "node_modules/**", "docs/**", "**/*.generated.ts", "src/renderer/src/engine/wasm/**", "engine/build/**"]),
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

@@ -1,0 +1,22 @@
+@layer ds {
+  .list { display: flex; align-items: center; gap: 0; }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+    cursor: default;
+  }
+  .tab:hover, .tab[data-hover] { color: var(--figma-color-text); }
+  .tab[aria-selected="true"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .tab:focus-visible, .tab[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .badge { min-width: 16px; height: 16px; padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); line-height: 16px; }
+}

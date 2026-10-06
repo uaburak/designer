@@ -18,7 +18,16 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm test"
+    "check": "npm run typecheck && npm run lint && npm test",
+    "tokens": "vite-node scripts/gen-tokens.ts",
+    "icons": "vite-node scripts/gen-icons.ts",
+    "engine:gen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON engine/tools/schemagen/schemagen.ts",
+    "engine:build": "node engine/tools/build.mjs wasm-release",
+    "engine:build:debug": "node engine/tools/build.mjs wasm-debug",
+    "engine:test": "node engine/tools/build.mjs native-test --test",
+    "engine:watch": "node engine/tools/watch.mjs",
+    "engine:dev": "node scripts/engine-dev.mjs",
+    "engine:shot": "node scripts/engine-shot.mjs"
   },
   "engines": {
     "node": ">=22.12"
@@ -43,6 +52,7 @@
     "firebase": "^12.19.0",
     "globals": "^17.13.0",
     "gsap": "^3.15.0",
+    "happy-dom": "^20.14.5",
     "playwright-core": "^1.63.0",
     "prismjs": "^1.30.0",
     "react": "^19.2.4",
@@ -53,5 +63,8 @@
     "typescript-eslint": "^8.71.1",
     "vite": "^7.3.7",
     "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "kiwi-schema": "0.5.0"
   }
 }

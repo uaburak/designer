@@ -1,22 +1,9 @@
 /**
- * What the window and the desktop say to each other (the preload's
- * `window.designer`): the app's menu, closing with unsaved work, the theme,
- * links, the Google sign-in. Types only — main, preload and the renderer
- * all read them.
+ * The legacy page-facing desktop API (`native()` in app/native.ts), kept for
+ * the site admin's code (the sign-in, the theme, links) while it lives on.
+ * It is built on the role's `window.desktop` (src/shared/desktop.ts); new
+ * code reads `window.desktop` directly.
  */
-
-/** What a menu item (or its keys) asks: the shell does it, or passes it to the open tab. */
-export type MenuCommand =
-  | "new-project"
-  | "close-tab"
-  | "reopen-tab"
-  | "next-tab"
-  | "previous-tab"
-  | "home"
-  | `tab-${number}`
-  | "save"
-  | "toggle-theme"
-  | "sign-out";
 
 export type ThemePreference = "system" | "light" | "dark";
 
@@ -32,18 +19,10 @@ export type SignInResult = { credential: GoogleCredential } | { cancelled: true 
 export interface NativeApi {
   platform: string;
   version: string;
-  /** The sign-in, in the system's browser — it settles once the account is picked there (or fails, or is cancelled) */
+  /** The sign-in, in the system's browser — it settles once the account is picked there (or fails, or is cancelled). Home only. */
   signInWithGoogle(): Promise<GoogleCredential>;
   cancelSignIn(): void;
   /** An http(s) address, in the system's browser */
   openExternal(url: string): void;
   setTheme(theme: ThemePreference): void;
-  /** On: closing the window asks the page first (onCloseRequested); it closes with closeWindow, or stays (cancelClose) */
-  setCloseGuard(on: boolean): void;
-  closeWindow(): void;
-  cancelClose(): void;
-  onMenuCommand(listener: (command: MenuCommand) => void): () => void;
-  onCloseRequested(listener: () => void): () => void;
-  onFullScreen(listener: (fullScreen: boolean) => void): () => void;
-  isFullScreen(): Promise<boolean>;
 }

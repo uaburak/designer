@@ -1,0 +1,45 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "wasm-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": { "ENG_TARGET": "wasm" }
+    },
+    {
+      "name": "wasm-release",
+      "inherits": "wasm-base",
+      "displayName": "Wasm (release, -O3 -flto)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "wasm-debug",
+      "inherits": "wasm-base",
+      "displayName": "Wasm (debug, assertions, source map)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "native-test",
+      "displayName": "Native tests (ASan/UBSan)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/native-test",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+        "ENG_SANITIZE": "address;undefined"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "wasm-release", "configurePreset": "wasm-release" },
+    { "name": "wasm-debug", "configurePreset": "wasm-debug" },
+    { "name": "native-test", "configurePreset": "native-test" }
+  ],
+  "testPresets": [
+    { "name": "native-test", "configurePreset": "native-test", "output": { "outputOnFailure": true } }
+  ]
+}

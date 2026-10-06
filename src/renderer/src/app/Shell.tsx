@@ -1,23 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import type { MenuCommand } from "@shared/api";
 import { ContextMenu, keys, type MenuEntry } from "@/components/admin/ContextMenu";
 import { signOutUser } from "@/lib/auth";
 import { SITE_URL } from "@/lib/siteConfig";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/context/ThemeContext";
 import { Home } from "@/home/Home";
 import { NewProjectDialog } from "@/home/dialogs";
 import { rememberOpened } from "@/home/prefs";
 import type { TabBridge } from "./bridge";
-import { native } from "./native";
 import { TabBar } from "./TabBar";
 import { forgetTabs, HOME, keepTabs, restoredTabs, tabsReducer, type Tab } from "./tabs";
 import { Button, Modal } from "./ui";
 
 /**
- * The window: the tab bar over Home and the open files. Each file is a page
- * of its own in a frame (`?tab=…`, see tab/TabApp) — its keys, clipboard and
+ * The browser's shell (`npm run web`; the desktop app's tabs are views of
+ * their own, kept by main — src/main/tabs.ts): the tab bar over Home and the
+ * open files. Each file is a page of its own in a frame (`?tab=…`, see tab/TabApp) — its keys, clipboard and
  * listeners stay its own, its unsaved work lives in it while it is behind
  * another. The shell asks before anything unsaved goes: a tab closed, the
  * window closed, signing out.
@@ -38,7 +36,6 @@ const frameUrl = (tab: Tab) => {
 
 export function Shell({ user }: { user: User }) {
   const [state, dispatch] = useReducer(tabsReducer, undefined, restoredTabs);
-  const { toggle: toggleTheme } = useTheme();
   const frames = useRef(new Map<string, HTMLIFrameElement>());
   const homeRef = useRef<HTMLDivElement>(null);
   const [question, setQuestion] = useState<(Question & { resolve: (answer: Answer) => void }) | null>(null);
@@ -94,7 +91,7 @@ export function Shell({ user }: { user: User }) {
   }, [ask, tabBridge]);
 
   /** Before the window closes or the account signs out: every unsaved tab saved, or let go — false when the user stayed. */
-  const settleAll = useCallback(async (action: "close" | "sign-out") => {
+  const settleAll = useCallback(async (action: "sign-out") => {
     const dirty = latest.current.tabs.filter((t) => tabBridge(t.id)?.isDirty());
     if (!dirty.length) return true;
     const a = await ask({ kind: "unsaved", titles: dirty.map((t) => t.title), action });
@@ -139,66 +136,8 @@ export function Shell({ user }: { user: User }) {
     };
   }, []);
 
-  // ── The menu's commands (see main/menu.ts) ──
-  const command = useCallback((cmd: MenuCommand) => {
-    const { tabs, active } = latest.current;
-    const order = [HOME, ...tabs.map((t) => t.id)];
-    const at = order.indexOf(active);
-    switch (cmd) {
-      case "new-project":
-        dispatch({ type: "activate", id: HOME });
-        setCreating(true);
-        return;
-      case "close-tab":
-        if (active !== HOME) void closeTabs([active]);
-        return;
-      case "reopen-tab":
-        dispatch({ type: "reopen" });
-        return;
-      case "next-tab":
-        return activate(order[(at + 1) % order.length]);
-      case "previous-tab":
-        return activate(order[(at - 1 + order.length) % order.length]);
-      case "home":
-        return activate(HOME);
-      case "save":
-        if (active !== HOME) void tabBridge(active)?.save();
-        return;
-      case "toggle-theme":
-        return toggleTheme();
-      case "sign-out":
-        return void signOut();
-      default: {
-        const n = Number(cmd.slice("tab-".length));
-        const id = n === -1 ? order[order.length - 1] : order[n - 1];
-        if (id) activate(id);
-      }
-    }
-  }, [activate, closeTabs, signOut, tabBridge, toggleTheme]);
-  const commandRef = useRef(command);
-  useLayoutEffect(() => {
-    commandRef.current = command;
-  });
-  useEffect(() => native()?.onMenuCommand((cmd) => commandRef.current(cmd)), []);
-
-  // ── Closing the window: the unsaved tabs first ──
-  const settleRef = useRef(settleAll);
-  useLayoutEffect(() => {
-    settleRef.current = settleAll;
-  });
+  // ── Closing the page: its own question when a tab holds unsaved work ──
   useEffect(() => {
-    const desktop = native();
-    if (desktop) {
-      desktop.setCloseGuard(true);
-      const off = desktop.onCloseRequested(() => {
-        void settleRef.current("close").then((ok) => (ok ? desktop.closeWindow() : desktop.cancelClose()));
-      });
-      return () => {
-        off();
-        desktop.setCloseGuard(false);
-      };
-    }
-    // In a browser: its own question when a tab holds unsaved work.
     const warn = (e: BeforeUnloadEvent) => {
       if (!latest.current.tabs.some((t) => t.dirty)) return;
       e.preventDefault();
@@ -248,7 +187,7 @@ export function Shell({ user }: { user: User }) {
 
   return (
     <div className="flex flex-col h-full bg-[var(--f-bg)] text-[var(--f-text)]">
-      <TabBar tabs={state.tabs} active={state.active} onActivate={activate} onClose={onClose} onMove={onMove} onNew={onNew} onTabMenu={tabMenu} />
+      <TabBar tabs={state.tabs} room={8} active={state.active} onActivate={activate} onClose={onClose} onMove={onMove} onNew={onNew} onTabMenu={tabMenu} />
       <div className="relative flex-1 min-h-0">
         <div ref={homeRef} tabIndex={-1} className={cn("absolute inset-0 outline-none", state.active !== HOME && "invisible pointer-events-none")} aria-hidden={state.active !== HOME}>
           <Home user={user} visible={state.active === HOME} openTabs={openTabs} savedAt={savedAt} onOpen={openProject} onOpenCv={openCv} onNewProject={() => setCreating(true)} onSignOut={() => void signOut()} />

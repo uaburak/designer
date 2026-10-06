@@ -1,22 +1,29 @@
-import { app, Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
-import type { MenuCommand } from "../shared/api";
+import { app, Menu, nativeTheme, shell, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
+import { command, type CommandId } from "../shared/commands";
+import type { WindowController } from "./window";
 
 /**
- * The app's menu. Its own items go to the page as commands (menu:command):
- * the shell does them, or hands them to the open tab. A key the page uses
- * itself (the editor's ⌘S, ⌘Z…) reaches the page first — the menu only gets
- * what the page lets through. The Edit menu's roles are what make copy and
- * paste work in text fields on a Mac.
+ * The menu bar (docs/desktop.md §8), its items from src/shared/commands.ts.
+ * On a Mac every key goes to the focused page first: the menu gets only
+ * what the page leaves unhandled (the editor's ⌘S, ⌘Z… are the editor's).
+ * A click, or such a key, runs the command against the window in front:
+ * main does the shell's (tabs, theme), an editor gets the others as
+ * `menu:command` — Undo, Redo, Select All and Delete included, so they go
+ * through the editor's own model rather than the DOM's. Copy, Cut and Paste
+ * stay roles: the page's DOM clipboard events fire in the focused view.
  */
-export function appMenu(win: () => BrowserWindow | null, dev: boolean): Menu {
-  const send = (command: MenuCommand) => () => win()?.webContents.send("menu:command", command);
+export function appMenu(current: () => WindowController | null, dev: boolean): Menu {
   const mac = process.platform === "darwin";
-  // ⌘1 is Home, ⌘2 … ⌘8 the tabs after it, ⌘9 the last one — as a browser's.
-  const tabs: MenuItemConstructorOptions[] = Array.from({ length: 9 }, (_, i) => ({
-    label: i === 0 ? "Home" : i === 8 ? "Last Tab" : `Tab ${i + 1}`,
-    accelerator: `CmdOrCtrl+${i + 1}`,
-    click: send(i === 0 ? "home" : i === 8 ? "tab--1" : `tab-${i + 1}`),
-  }));
+  const item = (id: CommandId, extra: Partial<MenuItemConstructorOptions> = {}): MenuItemConstructorOptions => {
+    const spec = command(id);
+    return {
+      id,
+      label: spec.label,
+      accelerator: spec.accelerator,
+      ...extra,
+      click: (_item, _win, event: KeyboardEvent) => current()?.tabs.command(id, event.triggeredByAccelerator ? "accelerator" : "menu", webContents.getFocusedWebContents()),
+    };
+  };
 
   const template: MenuItemConstructorOptions[] = [
     ...(mac
@@ -26,9 +33,12 @@ export function appMenu(win: () => BrowserWindow | null, dev: boolean): Menu {
             submenu: [
               { role: "about" },
               { type: "separator" },
-              { label: "Toggle Dark Theme", click: send("toggle-theme") },
+              {
+                label: "Theme",
+                submenu: (["app.theme-light", "app.theme-dark", "app.theme-system"] as const).map((id) => item(id, { type: "radio", checked: nativeTheme.themeSource === id.slice("app.theme-".length) })),
+              },
               { type: "separator" },
-              { label: "Sign Out", click: send("sign-out") },
+              item("app.sign-out"),
               { type: "separator" },
               { role: "services" },
               { type: "separator" },
@@ -44,36 +54,39 @@ export function appMenu(win: () => BrowserWindow | null, dev: boolean): Menu {
     {
       label: "File",
       submenu: [
-        { label: "New Project…", accelerator: "CmdOrCtrl+N", click: send("new-project") },
+        item("file.new"),
         { type: "separator" },
-        { label: "Save", accelerator: "CmdOrCtrl+S", click: send("save") },
+        item("file.save"),
         { type: "separator" },
-        { label: "Close Tab", accelerator: "CmdOrCtrl+W", click: send("close-tab") },
-        { label: "Reopen Closed Tab", accelerator: "CmdOrCtrl+Shift+T", click: send("reopen-tab") },
+        item("file.close-tab"),
+        item("file.close-window"),
+        item("file.reopen-closed-tab"),
         ...(mac ? [] : [{ type: "separator" } as const, { role: "quit" } as const]),
       ],
     },
     {
       label: "Edit",
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
+        item("edit.undo"),
+        item("edit.redo"),
         { type: "separator" },
         { role: "cut" },
         { role: "copy" },
         { role: "paste" },
         { role: "pasteAndMatchStyle" },
-        { role: "delete" },
-        { role: "selectAll" },
+        item("edit.delete"),
+        item("edit.select-all"),
       ],
     },
     {
       label: "View",
       submenu: [
-        ...(dev ? [{ role: "reload" } as const, { role: "forceReload" } as const] : []),
-        { role: "toggleDevTools" },
-        { type: "separator" },
         { role: "togglefullscreen" },
+        { type: "separator" },
+        {
+          label: "Developer",
+          submenu: [item("view.toggle-devtools"), item("view.toggle-tabbar-devtools"), item("view.reload-tab", dev ? { accelerator: "CmdOrCtrl+Shift+R" } : {})],
+        },
       ],
     },
     {
@@ -82,10 +95,10 @@ export function appMenu(win: () => BrowserWindow | null, dev: boolean): Menu {
         { role: "minimize" },
         { role: "zoom" },
         { type: "separator" },
-        { label: "Show Next Tab", accelerator: "Ctrl+Tab", click: send("next-tab") },
-        { label: "Show Previous Tab", accelerator: "Ctrl+Shift+Tab", click: send("previous-tab") },
+        item("window.next-tab"),
+        item("window.previous-tab"),
         { type: "separator" },
-        ...tabs,
+        ...Array.from({ length: 9 }, (_, i) => item(`window.tab-${i + 1}` as CommandId)),
         ...(mac ? [{ type: "separator" } as const, { role: "front" } as const] : []),
       ],
     },

@@ -1,19 +1,21 @@
-import type { MenuCommand } from "@shared/api";
+import type { TabReport } from "@shared/tabs";
+import type { CommandId } from "@shared/commands";
+import { desktopAs } from "./native";
 
 /**
- * The shell (the top page: the tab bar, the home) and its tabs (each open
- * file is a page of its own, in a frame — its keys, its clipboard, its
- * listeners are its own). Same origin: they call each other directly.
+ * A file tab's page and the shell (the tab bar, Home, the other tabs).
+ *
+ * In the desktop app each tab is a view of its own — its own renderer
+ * process — and talks to main over IPC (src/shared/ipc.ts) through its
+ * preload's `window.designer`: `shellBridge()` is that. In a browser
+ * (`npm run web`) the tabs are still same-origin iframes of the shell page
+ * (app/Shell.tsx), and `shellBridge()` is the parent's `designerShell`.
+ *
+ * The other way, the tab's page registers `window.designerTab` (save, is it
+ * unsaved, a menu command); tab/host.ts answers main's questions from it.
  */
 
-/** What a tab tells the shell about itself. */
-export interface TabReport {
-  title?: string;
-  dirty?: boolean;
-  status?: "loading" | "ready" | "missing" | "error";
-  /** A save went through (ms): the home's list is out of date */
-  savedAt?: number;
-}
+export type { TabReport };
 
 /** What a tab may ask of the shell. */
 export interface ShellBridge {
@@ -31,7 +33,8 @@ export interface TabBridge {
   /** Save what is unsaved: true when all of it is saved after */
   save(): Promise<boolean>;
   isDirty(): boolean;
-  command(command: MenuCommand): void;
+  /** A menu command (Undo, Redo…): true when the page did it itself */
+  command(command: CommandId): boolean | void;
 }
 
 declare global {
@@ -41,8 +44,23 @@ declare global {
   }
 }
 
+let ipcShell: ShellBridge | undefined;
+
 /** The shell, from inside a tab — undefined when the tab's page is open on its own. */
 export function shellBridge(): ShellBridge | undefined {
+  const api = desktopAs.editor();
+  if (api) {
+    // main knows which view speaks: the tab id the page passes is not needed (nor trusted).
+    ipcShell ??= {
+      report: (_tabId, report) => api.tab.report(report),
+      openProject: (slug) => void api.nav.openFile({ kind: "project", slug }),
+      openPreview: (slug) => void api.nav.openFile({ kind: "preview", slug, title: `${slug} — Preview` }),
+      goHome: () => api.nav.goHome(),
+      closeTab: () => api.tab.close(),
+      signOut: () => api.session.requestSignOut(),
+    };
+    return ipcShell;
+  }
   try {
     return window.parent !== window ? window.parent.designerShell : undefined;
   } catch {

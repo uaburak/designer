@@ -1,0 +1,13 @@
+@layer ds {
+  .handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: var(--ds-z-resize);
+    width: 8px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .right { right: -4px; }
+  .left { left: -4px; }
+}
