@@ -293,8 +293,22 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     return P_HANDLED | P_CAPTURE;
   }
 
-  if (tool_ == Tool::FRAME || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE) {
-    drawType_ = tool_ == Tool::FRAME ? NodeType::FRAME : tool_ == Tool::RECTANGLE ? NodeType::ROUNDED_RECTANGLE : NodeType::ELLIPSE;
+  if (paint_.node != kNoGuid)
+    if (uint32_t r = paintPointerDown(s, mods)) return r;
+
+  if (tool_ == Tool::PEN || tool_ == Tool::PENCIL || vector_.node != kNoGuid) {
+    if (uint32_t r = vectorPointerDown(s, mods, clickCount_)) return r;
+  }
+
+  if (tool_ == Tool::FRAME || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE || tool_ == Tool::POLYGON || tool_ == Tool::STAR ||
+      tool_ == Tool::LINE || tool_ == Tool::ARROW) {
+    drawType_ = tool_ == Tool::FRAME       ? NodeType::FRAME
+                : tool_ == Tool::RECTANGLE ? NodeType::ROUNDED_RECTANGLE
+                : tool_ == Tool::ELLIPSE   ? NodeType::ELLIPSE
+                : tool_ == Tool::POLYGON   ? NodeType::REGULAR_POLYGON
+                : tool_ == Tool::STAR      ? NodeType::STAR
+                                           : NodeType::LINE;
+    drawArrow_ = tool_ == Tool::ARROW;
     // Into the innermost frame under the press (the page when none).
     drawParent_ = page_;
     auto path = hitPath(doc_, page_, downWorld_, pixel());
@@ -330,6 +344,11 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     if (hit && hit->props.type == NodeType::TEXT && !hit->props.locked && (selected(path.back()) || pick(doc_, path, selection_, deep) == path.back())) {
       if (startTextEdit(path.back(), false) == OK) return textPointerDown(s, mods, 2);
     }
+  }
+  if (clickCount_ >= 2 && !shift && !path.empty()) {
+    // Double-click on a selected vector or shape: vector edit mode.
+    Guid hit = pick(doc_, path, selection_, deep);
+    if (hit != kNoGuid && selected(hit) && startVectorEdit(hit) == OK) return P_HANDLED;
   }
   pressed_ = pick(doc_, path, selection_, deep);
   pressMarquee_ = false;
@@ -376,7 +395,16 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
   lastScreen_ = s;
   Vec2 world = camera_.toWorld(s);
   switch (gesture_) {
-    case Gesture::None: updateHover(s, mods); break;
+    case Gesture::None:
+      updateHover(s, mods);
+      if (vector_.node != kNoGuid || tool_ == Tool::PEN) vectorPointerMove(s, mods);
+      break;
+    case Gesture::Vector: vectorPointerMove(s, mods); break;
+    case Gesture::Paint: paintPointerMove(s, mods); break;
+    case Gesture::Pencil:
+      if (pencilPoints_.empty() || (camera_.toScreen(pencilPoints_.back()) - s).length() >= 1) pencilPoints_.push_back(world);
+      needsRender_ = true;
+      break;
     case Gesture::Pan: changeCamera(downCamera_.panned(s.x - downScreen_.x, s.y - downScreen_.y)); break;
     case Gesture::Press:
       if ((s - downScreen_).length() < kDragThreshold) break;
@@ -411,6 +439,22 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
   Vec2 world = camera_.toWorld(s);
   switch (gesture_) {
     case Gesture::None: return;
+    case Gesture::Vector:
+      vectorPointerUp(s, mods);
+      gesture_ = Gesture::None;
+      updateHover(s, mods);
+      vectorPointerMove(s, mods);
+      return;
+    case Gesture::Paint:
+      paintPointerUp();
+      gesture_ = Gesture::None;
+      return;
+    case Gesture::Pencil:
+      pencilPoints_.push_back(world);
+      gesture_ = Gesture::None;
+      pencilFinish();
+      endGesture();
+      return;
     case Gesture::Pan: break;
     case Gesture::Press: finishClick(mods); break;
     case Gesture::Move: finishMove(); break;
@@ -463,6 +507,16 @@ void Editor::redrag(uint32_t mods) { pointerMove(lastScreen_, mods); }
 
 void Editor::cancelGesture() {
   switch (gesture_) {
+    case Gesture::Vector:
+      if (txn_.open) rollback();
+      vector_.drag = VectorSession::Drag::None;
+      reloadVector();
+      break;
+    case Gesture::Pencil: pencilPoints_.clear(); break;
+    case Gesture::Paint:
+      if (txn_.open) rollback();
+      paint_.drag = PaintSession::Drag::None;
+      break;
     case Gesture::Move:
     case Gesture::Resize:
     case Gesture::Rotate: rollback(); break;
@@ -569,7 +623,7 @@ Guid Editor::containerOf(Guid parent) const {
   Guid cur = parent;
   for (int guard = 0; guard < 100000; guard++) {
     const Node* n = doc_.get(cur);
-    if (!n || !n->props.isGroupLike()) return cur;
+    if (!n || !n->props.fitsChildren()) return cur;
     cur = n->props.parentIndex.guid;
   }
   return cur;
@@ -824,7 +878,7 @@ void Editor::startResize(int hx, int hy) {
   // A group has no size of its own: resizing it resizes what is in it.
   GuidSet moving(ids.begin(), ids.end());
   Guid parent = ids.empty() ? page_ : doc_.parentOf(ids[0]);
-  if (ids.size() == 1 && doc_.get(ids[0])->props.isGroupLike()) ids = doc_.children(ids[0]);
+  if (ids.size() == 1 && doc_.get(ids[0])->props.fitsChildren()) ids = doc_.children(ids[0]);
   targets_ = targetsOf(ids);
   for (const Target& t : targets_) moving.insert(t.id);
   prepareSnapping(parent, moving);
@@ -977,6 +1031,7 @@ void Editor::dragRotate(Vec2 world, uint32_t mods) {
 }
 
 void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
+  if (drawType_ == NodeType::LINE) return dragLine(world, mods, click);
   Rect r;
   // Both corners snap to the parent's other layers and the parent frame.
   bool snapping = !(mods & (MOD_CTRL | MOD_PRIMARY));
@@ -1007,10 +1062,19 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
 
   NodeChange c;
   if (drawn_ == kNoGuid) {
-    begin(TxnKind::GESTURE, drawType_ == NodeType::FRAME ? "Create frame" : drawType_ == NodeType::ELLIPSE ? "Create ellipse" : "Create rectangle");
+    const char* label = drawType_ == NodeType::FRAME             ? "Create frame"
+                        : drawType_ == NodeType::ELLIPSE         ? "Create ellipse"
+                        : drawType_ == NodeType::REGULAR_POLYGON ? "Create polygon"
+                        : drawType_ == NodeType::STAR            ? "Create star"
+                                                                 : "Create rectangle";
+    begin(TxnKind::GESTURE, label);
     Guid id = newGuid();
     c = NodeChange::created(id, defaultProps(drawType_));
-    c.props.name = nextName(drawType_ == NodeType::FRAME ? "Frame" : drawType_ == NodeType::ELLIPSE ? "Ellipse" : "Rectangle");
+    c.props.name = nextName(drawType_ == NodeType::FRAME             ? "Frame"
+                            : drawType_ == NodeType::ELLIPSE         ? "Ellipse"
+                            : drawType_ == NodeType::REGULAR_POLYGON ? "Polygon"
+                            : drawType_ == NodeType::STAR            ? "Star"
+                                                                     : "Rectangle");
     c.props.parentIndex = {drawParent_, placeAt(drawParent_, doc_.children(drawParent_).size(), kNoGuid)};
     drawn_ = id;
     // Drawn inside auto layout: it joins the flow when the drawing ends.
@@ -1027,6 +1091,46 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
   guides_.clear();
   bool sx = s0.snappedX || s1.snappedX, sy = s0.snappedY || s1.snappedY;
   if (snapping && (sx || sy)) guides_ = snapper_.guidesFor({x0, y0, x1 - x0, y1 - y0}, sx, sy);
+  flushLayout();
+  needsRender_ = true;
+}
+
+void Editor::dragLine(Vec2 world, uint32_t mods, bool click) {
+  // A line from the press to the pointer (⇧: 45° steps); a click makes a 100 px line.
+  Vec2 a = {std::round(downWorld_.x), std::round(downWorld_.y)};
+  Vec2 b = click ? a + Vec2{100, 0} : world;
+  Vec2 d = b - a;
+  double len = d.length(), angle = std::atan2(d.y, d.x);
+  if (mods & MOD_SHIFT) angle = std::round(angle / (kPi / 4)) * (kPi / 4);
+  if (!click) {
+    b = a + Vec2{std::cos(angle) * len, std::sin(angle) * len};
+    b = {std::round(b.x), std::round(b.y)};
+    d = b - a;
+    len = d.length();
+    angle = std::atan2(d.y, d.x);
+  }
+  len = std::max(len, 1.0);
+  Mat2x3 parentInv = doc_.worldTransform(drawParent_).inverse();
+  NodeChange c;
+  if (drawn_ == kNoGuid) {
+    begin(TxnKind::GESTURE, drawArrow_ ? "Create arrow" : "Create line");
+    Guid id = newGuid();
+    c = NodeChange::created(id, defaultProps(NodeType::LINE));
+    c.props.name = nextName(drawArrow_ ? "Arrow" : "Line");
+    c.props.parentIndex = {drawParent_, placeAt(drawParent_, doc_.children(drawParent_).size(), kNoGuid)};
+    drawn_ = id;
+    const Node* dp = doc_.get(drawParent_);
+    if (dp && dp->props.isAutoLayout()) excluded_.insert(id);
+  } else {
+    c = NodeChange::changed(drawn_);
+    c.mask = F_TRANSFORM | F_SIZE | (drawArrow_ ? F_VECTOR_DATA : 0);
+  }
+  c.props.transform = parentInv * Mat2x3::translate(a.x, a.y) * Mat2x3::rotate(angle);
+  c.props.size = {len, 0};
+  if (drawArrow_) c.props.vectorData = lineNetwork(len, StrokeCap::NONE, StrokeCap::ARROW_LINES);
+  write(c);
+  changeSelection({drawn_});
+  guides_.clear();
   flushLayout();
   needsRender_ = true;
 }

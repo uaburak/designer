@@ -12,6 +12,9 @@ import type { EngineStore } from "@/engine/EngineStore";
 import { size } from "@/ds/tokens";
 import type { ChangeInfo } from "@/ds/types";
 import type { DocumentSource } from "./documentSource";
+import { keepsField } from "./engineCompat";
+import { ImageService } from "./images";
+import { VectorEditor } from "./vectorEdit";
 import { EMPTY_TREE, treeFromNodes, type LayerTree } from "./model/layerTree";
 import { Store, type UIState } from "./uiStore";
 
@@ -30,6 +33,10 @@ export class EditorController {
   canvas: HTMLCanvasElement | null = null;
   /** Tools the engine implements (probed once) */
   readonly tools: ReadonlySet<ToolName>;
+  /** The file's images: the store's bytes for the engine, object URLs for the panels */
+  readonly images: ImageService;
+  /** The engine's vector edit mode (E4): the toolbar and the panel follow it */
+  readonly vector: VectorEditor;
   /** The next paste: where it goes (⇧⌘V sets "inPlace" before the DOM paste event) */
   pendingPaste: { mode: "inPlace" } | { mode: "point"; x: number; y: number } | null = null;
   /** The last copy's formats (a paste with no system clipboard access falls back to them) */
@@ -75,9 +82,14 @@ export class EditorController {
       propertyLabels: false,
       contextMenu: null,
       versionDialog: null,
+      placingImages: null,
       ...ui,
     });
     this.tools = probeTools(engine);
+    this.images = new ImageService(engine, source.images ?? null);
+    this.vector = new VectorEditor(engine);
+    // Whether the engine keeps fields it doesn't model yet is probed now, before any edit opens a transaction.
+    keepsField(engine, "effects");
     const bump = () => this.treeListeners.forEach((l) => l());
     this.cleanups.push(
       store.subscribe("structure", bump),
@@ -100,6 +112,8 @@ export class EditorController {
     this.cancelEdit();
     for (const c of this.cleanups.splice(0)) c();
     this.treeListeners.clear();
+    this.images.dispose();
+    this.vector.dispose();
   }
 
   // ---- Reads ----------------------------------------------------------------------------

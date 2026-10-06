@@ -36,7 +36,7 @@ TEST_CASE("renderer: 10k rects are one draw call") {
   CHECK(s.shapes == 10000);
   CHECK(dev.lastPass.viewport.w == 1600);
   // Screen-space geometry: the camera is applied on the CPU in doubles.
-  auto shapes = dev.instancesOf<ShapeInstance>(0);
+  auto shapes = dev.instancesOf<DrawInstance>(0);
   CHECK(shapes[0].origin[0] == 7);
 }
 
@@ -102,11 +102,12 @@ TEST_CASE("renderer: hidden and off-screen nodes are skipped; strokes after fill
   Renderer r(dev);
   r.render(d, kPage, Camera{}, {800, 600, 1}, Overlay{}, kDark);
   REQUIRE(shapeCount(dev) == 2);
-  auto q = dev.instancesOf<ShapeInstance>(0);
-  CHECK(q[0].fill[3] == 1);
-  CHECK(q[1].fill[3] == 0);
-  CHECK(q[1].params[0] == 2);  // centre: half inside
-  CHECK(q[1].params[1] == 2);  // half outside
+  auto q = dev.instancesOf<DrawInstance>(0);
+  CHECK(q[0].color[3] == 1);
+  CHECK((static_cast<uint32_t>(q[0].geom[3]) & DF_STROKE) == 0);
+  CHECK((static_cast<uint32_t>(q[1].geom[3]) & DF_STROKE) != 0);  // the stroke band
+  CHECK(q[1].geom[0] == 2);  // centre: half inside
+  CHECK(q[1].geom[1] == 2);  // half outside
 }
 
 TEST_CASE("renderer: overlays — hover 2px, selection box, 4 handles, size badge, marquee") {
@@ -124,15 +125,15 @@ TEST_CASE("renderer: overlays — hover 2px, selection box, 4 handles, size badg
   r.render(d, kPage, Camera{}, {800, 600, 1}, o, kDark);
   // 2 shapes + hover + box + 4 handles + badge + marquee.
   CHECK(shapeCount(dev) == 10);
-  auto all = dev.instancesOf<ShapeInstance>(dev.draws.size() - 1);
-  const ShapeInstance& hover = all[all.size() - 8];
-  CHECK(hover.params[2] == 1);  // follows the ellipse
-  CHECK(hover.params[0] == 2);  // 2 px
-  const ShapeInstance& handle = all[all.size() - 6];
+  auto all = dev.instancesOf<DrawInstance>(dev.draws.size() - 1);
+  const DrawInstance& hover = all[all.size() - 8];
+  CHECK(hover.geom[2] == 1);  // follows the ellipse
+  CHECK(hover.geom[0] == 2);  // 2 px
+  const DrawInstance& handle = all[all.size() - 6];
   CHECK(handle.origin[2] == 8);
-  CHECK(handle.fill[0] == 1);  // white
-  CHECK(handle.stroke[3] == 1);
-  const ShapeInstance& badge = all[all.size() - 2];
+  CHECK(handle.color[0] == 1);   // white
+  CHECK(handle.paint0[3] == 1);  // the blue border
+  const DrawInstance& badge = all[all.size() - 2];
   CHECK(badge.origin[3] == 16);
   CHECK(badge.origin[1] == 66);  // 6 px under the box
   // Small on screen: no handles.
@@ -179,14 +180,14 @@ TEST_CASE("renderer: guides, spacing, ⌥ measurement, insertion and bands are d
   o.insertion = {{60, 0}, {60, 50}};
   o.bands.push_back({0, 0, 10, 50});
   r.render(d, kPage, Camera{}, {800, 600, 2, 1600, 1200}, o, kDark);
-  auto shapes = dev.instancesOf<ShapeInstance>(0);
+  auto shapes = dev.instancesOf<DrawInstance>(0);
   CHECK(shapeCount(dev) == base + 1 + 4 + 1 + 4 + 4 + 1 + 1);
   // The guide: x snapped to the device grid, 1 CSS px wide, red.
   bool guide = false, band = false, insertion = false;
   const Color red = Color::hex(0xF24822);
   for (auto& s : shapes) {
-    if (s.origin[2] == 1.f && s.origin[3] == 200.f && s.origin[0] == 100.f) guide = s.fill[0] == doctest::Approx(red.r);
-    if (s.origin[2] == 10.f && s.origin[3] == 50.f) band = s.fill[3] == doctest::Approx(0.15);
+    if (s.origin[2] == 1.f && s.origin[3] == 200.f && s.origin[0] == 100.f) guide = s.color[0] == doctest::Approx(red.r);
+    if (s.origin[2] == 10.f && s.origin[3] == 50.f) band = s.color[3] == doctest::Approx(0.15);
     if (s.origin[2] == 2.f && s.origin[3] == 50.f) insertion = true;
   }
   CHECK(guide);

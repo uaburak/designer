@@ -49,6 +49,19 @@ enum class CommandId : uint32_t {
   CREATE_PAGE = 90,
   DELETE_PAGE = 91,     // args {page} (the current page when absent)
   DUPLICATE_PAGE = 92,  // args {page}
+  // E4: booleans, vector commands, masks; E5: images.
+  BOOLEAN_UNION = 100,
+  BOOLEAN_SUBTRACT = 101,
+  BOOLEAN_INTERSECT = 102,
+  BOOLEAN_EXCLUDE = 103,
+  FLATTEN = 104,
+  OUTLINE_STROKE = 105,
+  USE_AS_MASK = 106,             // toggles; CMD_CHECKED when the selection is a mask
+  PLACE_IMAGES = 107,            // args {hash, width, height, name?, x?, y?}
+  VECTOR_SET_MIRRORING = 110,    // args {mirroring: "NONE" | "ANGLE" | "ANGLE_AND_LENGTH"}
+  VECTOR_DELETE_AND_HEAL = 111,
+  VECTOR_SET_POINTS = 112,       // args {x?, y?, cornerRadius?}
+  SET_END_CAPS = 113,            // args {start?, end?: StrokeCap}
 };
 
 // engine_command_state bits.

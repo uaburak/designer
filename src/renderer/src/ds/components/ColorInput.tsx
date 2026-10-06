@@ -21,6 +21,11 @@ export interface ColorInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
   onSwatchClick?: (anchor: DOMRect) => void;
   /** Replaces the swatch (a variable chip) */
   swatch?: ReactNode;
+  /**
+   * A paint that isn't a solid colour: this text ("Linear", "Image") instead of the hex field, opening the picker
+   * like the swatch; `color` is then the swatch's CSS background (a gradient, an image)
+   */
+  valueLabel?: string;
   disabled?: boolean;
 }
 
@@ -29,7 +34,7 @@ export interface ColorInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
  * digits (3 or 6 typed, with or without #, or a CSS colour name; anything
  * else reverts), a line in the panel colour, the opacity with its %.
  */
-export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatchClick, swatch, disabled, className, ...rest }: ColorInputProps) {
+export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatchClick, swatch, valueLabel, disabled, className, ...rest }: ColorInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);
   const mixedColor = isMixed(color);
@@ -48,6 +53,17 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
           <Swatch color={mixedColor ? "#000000" : color} opacity={isMixed(opacity) ? 100 : opacity} mixed={mixedColor} />
         </button>
       )}
+      {valueLabel !== undefined ? (
+        <button
+          type="button"
+          aria-label={`${label}: ${valueLabel}`}
+          disabled={disabled}
+          className={cx(styles.input, styles.valueLabel)}
+          onClick={(e) => onSwatchClick?.((e.currentTarget.parentElement ?? e.currentTarget).getBoundingClientRect())}
+        >
+          {valueLabel}
+        </button>
+      ) : (
       <input
         aria-label={label}
         disabled={disabled}
@@ -69,6 +85,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
         }}
         className={cx(styles.input, !mixedColor && styles.upper, styles.tabular, mixedColor && styles.mixed)}
       />
+      )}
       {onOpacity && (
         <span className={styles.opacity}>
           <NumericInput bare label={`${label} opacity`} prefix={undefined} value={opacity} min={0} max={100} precision={0} unit="%" disabled={disabled} onChange={onOpacity} />

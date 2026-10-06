@@ -11,12 +11,26 @@ const PLAIN: Partial<Record<CursorKind, string>> = {
   ZOOM_IN: "zoom-in",
   ZOOM_OUT: "zoom-out",
   NOT_ALLOWED: "not-allowed",
-  PEN: "crosshair",
-  PEN_ADD: "crosshair",
-  PEN_REMOVE: "crosshair",
-  PEN_CLOSE: "crosshair",
   EYEDROPPER: "crosshair",
 };
+
+const penCache = new Map<string, string>();
+
+/** Figma's pen nib (the tip is the hot spot), with a mark: + adds a point, − removes one, ○ closes the path. */
+export function penCursor(kind: "PEN" | "PEN_ADD" | "PEN_REMOVE" | "PEN_CLOSE"): string {
+  let css = penCache.get(kind);
+  if (!css) {
+    const mark =
+      kind === "PEN_ADD" ? `<path d="M17 18h6M20 15v6"/>` : kind === "PEN_REMOVE" ? `<path d="M17 18h6"/>` : kind === "PEN_CLOSE" ? `<circle cx="20" cy="18" r="2.5"/>` : "";
+    const nib = `<path d="M2 2 L12 6 L15 14 L14 15 L6 12 Z M2 2 L8.5 8.5"/><circle cx="9" cy="9" r="1.4"/>`;
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linejoin="round" stroke-linecap="round">` +
+      `<g stroke="#fff" stroke-width="3">${nib}${mark}</g><g stroke="#000" stroke-width="1.2">${nib}${mark}</g></svg>`;
+    css = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 2, crosshair`;
+    penCache.set(kind, css);
+  }
+  return css;
+}
 
 /** A resize cursor for a handle pointing at `angleDeg` on screen (0 = right, y down). */
 export function resizeCursor(angleDeg: number): string {
@@ -49,5 +63,6 @@ export function rotateCursor(angleDeg: number): string {
 export function cssCursor(kind: CursorKind, angleDeg: number): string {
   if (kind === "RESIZE") return resizeCursor(angleDeg);
   if (kind === "ROTATE") return rotateCursor(angleDeg);
+  if (kind === "PEN" || kind === "PEN_ADD" || kind === "PEN_REMOVE" || kind === "PEN_CLOSE") return penCursor(kind);
   return PLAIN[kind] ?? "default";
 }

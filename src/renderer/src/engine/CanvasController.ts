@@ -136,9 +136,23 @@ export class CanvasController {
     return [e.clientX - r.left, e.clientY - r.top];
   }
 
+  // Pointer events carry no click count (detail is 0 in Chromium): counted here, as the OS does for clicks —
+  // presses within 500 ms and 4 px of the last one, same button.
+  private lastDown = { t: -1e9, x: 0, y: 0, button: -1, count: 0 };
+
+  private clickCount(e: PointerEvent): number {
+    const [x, y] = this.at(e);
+    const l = this.lastDown;
+    const near = e.timeStamp - l.t < 500 && Math.hypot(x - l.x, y - l.y) <= 4 && e.button === l.button;
+    const count = Math.max(e.detail || 0, near ? l.count + 1 : 1);
+    this.lastDown = { t: e.timeStamp, x, y, button: e.button, count };
+    return count;
+  }
+
   private send(type: number, e: PointerEvent): number {
     const [x, y] = this.at(e);
-    return this.engine.pointer(type, x, y, e.button, e.buttons, modifiersOf(e), e.pressure, e.detail || 1, POINTER_KIND[e.pointerType] ?? 0, e.timeStamp);
+    const clicks = type === PointerType.DOWN ? this.clickCount(e) : this.lastDown.count || 1;
+    return this.engine.pointer(type, x, y, e.button, e.buttons, modifiersOf(e), e.pressure, clicks, POINTER_KIND[e.pointerType] ?? 0, e.timeStamp);
   }
 
   private readonly onPointerDown = (e: PointerEvent) => {

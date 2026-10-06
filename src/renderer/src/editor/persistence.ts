@@ -19,6 +19,8 @@ import { colorToHex, hexToColor, sameColor } from "./model/color";
 const THUMB_SIZE = { width: 800, height: 600 };
 const THUMB_CONTENT = { width: 600, height: 340 };
 const THUMB_DELAY_MS = 4000;
+/** After an image's bytes are in, the engine decodes and uploads it (createImageBitmap): a moment to let it. */
+const IMAGE_UPLOAD_MS = 100;
 /** Figma's default page colour, which the engine draws as #1E1E1E in the dark theme (as the Design panel shows it) */
 const DEFAULT_PAGE = hexToColor("#f5f5f5");
 
@@ -91,8 +93,19 @@ export async function captureThumbnail(ed: EditorController): Promise<{ png: Uin
   const first = ed.engine.pages()[0];
   if (!first || ed.engine.destroyed) return null;
   // maxSize bounds the longer side: content taller than 4:3 is rendered smaller so it stays within the height.
-  let image = ed.engine.renderThumbnailPixels({ page: first.guid, maxSize: THUMB_CONTENT.width });
-  if (image && image.height > THUMB_CONTENT.height) image = ed.engine.renderThumbnailPixels({ page: first.guid, maxSize: Math.floor((THUMB_CONTENT.width * THUMB_CONTENT.height) / image.height) });
+  const render = () => {
+    const wide = ed.engine.renderThumbnailPixels({ page: first.guid, maxSize: THUMB_CONTENT.width });
+    return wide && wide.height > THUMB_CONTENT.height ? ed.engine.renderThumbnailPixels({ page: first.guid, maxSize: Math.floor((THUMB_CONTENT.width * THUMB_CONTENT.height) / wide.height) }) : wide;
+  };
+  // Taken at once (on close the engine goes right after); if that render asked for images it didn't have yet,
+  // once they are in it is taken again, so the card shows them.
+  const requests = ed.images.requests;
+  let image = render();
+  if (ed.images.requests !== requests || ed.images.loadingCount > 0) {
+    await ed.images.settled();
+    await new Promise((r) => setTimeout(r, IMAGE_UPLOAD_MS));
+    if (!ed.engine.destroyed) image = render() ?? image;
+  }
   if (!image) return null;
   const content = document.createElement("canvas");
   content.width = image.width;

@@ -14,6 +14,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "geometry/NodeGeometry.h"
 #include "hit/SpatialIndex.h"
 #include "scene/Node.h"
 
@@ -74,6 +75,10 @@ class Document {
   // The largest localID used by `sessionID` (0 when none).
   uint32_t maxLocalID(uint32_t sessionID) const;
 
+  // The paths nodes draw (vectors, shapes, booleans, text outlines), cached (geometry/NodeGeometry.h).
+  GeometryCache& geometryCache() const { return geometry_; }
+  const NodeGeometry* geometry(Guid id) const { return geometry_.get(*this, id); }
+
   template <typename F>
   void forEach(F&& f) const {
     for (auto& [id, node] : nodes_) f(node);
@@ -103,6 +108,7 @@ class Document {
   mutable std::unordered_map<Guid, SpatialIndex, GuidHash> indexes_;
   mutable std::vector<Guid> dirty_;
   mutable std::vector<Guid> stack_;
+  mutable GeometryCache geometry_;
 };
 
 }  // namespace eng

@@ -6,6 +6,31 @@
 
 ---
 
+## Status at handoff (2026-10-07, round 4 — E4 / E5 in the chrome)
+
+Round 4 built the editor's side of the engine's E4 (vectors, pen, booleans, masks) and E5 (gradients, images, effects) against the names `docs/engine-build.md` "E4 + E5 API" publishes. The committed wasm is still E3 (the engine agent was mid-way), so everything the engine hasn't shipped shows disabled — never an error — and lights up by itself when it lands (`engineCompat.ts`: `hasCommand`, `engineMethod`, `keepsField`). `npm run typecheck`, `npm test` (53 files, 459 tests; the editor's: 5 files, 83) and `eslint` on `editor/` + `ds/` are green; `npm run lint` is red only in the engine agent's in-progress `engine/tools/fig.mjs` / `fixtures.mjs` (`Buffer` global). `tools/editor-shot.mjs` passes every check; the new ones run on `?editor&doc=paints` (`EDITOR_ONLY=paints` runs just them).
+
+### Round 4: done
+
+- **Feature detection** (`engineCompat.ts`): `supportsField` (the engine types it), `keepsField` (typed, or round-tripped since E3 — probed once at mount by a cancelled write), `hasCommand` / `runEngineCommand` / `engineCommandEnabled` (abi.ts's CommandId names it), `engineMethod` (the facade has it). E4/E5 controls gate on `keepsField`, so effects, guides, dashes, image paints… are edited, saved, undone and copied today and drawn when E5 lands.
+- **Tools**: Pen P, Pencil ⇧P, Line L, Arrow ⇧L, Polygon, Star come from the registry and enable themselves when `setTool` answers OK (probed). **Image/video… ⇧⌘K** (and File ▸ Place image…) is the editor's own (`canvas/ImagePlacer.tsx`): the system file picker (several files); with layers selected the images fill them in order; the rest ride on the pointer (a thumbnail with the count), each click places one at its size, a drag sizes it with its aspect, Esc drops the rest; the toolbar shows the Image tool meanwhile.
+- **Vector edit mode** (`vectorEdit.ts` `VectorEditor` on the controller; engine `startVectorEdit` / `endVectorEdit` / `setVectorEditTool` / `VECTOR_EDIT`): the bottom toolbar becomes the vector-edit toolbar — Move V, Lasso Q, Pen P, Bend ⌘, Paint bucket B, then **Done** (Lasso and Paint bucket disabled: the engine has MOVE / PEN / BEND); V / Q / P / B pick them while editing; the header's **Edit object** (↵) enters it for vectors, lines, shapes and booleans. The Design panel adds a **Point(s)** section: X / Y and the point's corner radius (disabled: no engine API yet, see Needed) and **Mirroring** (No mirroring / Mirror angle / Mirror angle and length → `VECTOR_SET_MIRRORING`, "Mixed" when they differ).
+- **Booleans, Flatten, Outline stroke, masks**: `vector.union/subtract/intersect/exclude` (⌥⇧U/S/I/E), `vector.flatten` (⌘E), `vector.outline-stroke` (⌥⌘O), `object.use-as-mask` (⌃⌘M, checked on a mask) run `BOOLEAN_*` / `FLATTEN` / `OUTLINE_STROKE` / `USE_AS_MASK`; the main menu's Vector submenu (booleans, then Flatten, Outline stroke) and the canvas menu (Flatten, Outline stroke, Use as mask after Ungroup) list them. **Selection header actions** (UI3, right of the type): Edit object, Create component (disabled until E6), Use as mask, and the **Boolean groups** menu (the four operations with their 16px glyphs, then Flatten); on a boolean group the menu changes its `booleanOperation` (the current one ticked).
+- **Fill / Stroke rows** (`panels/design/Paints.tsx`, `model/paints.ts`): every paint type — a solid shows its hex; a gradient its swatch and "Linear" / "Radial" / "Angular" / "Diamond"; an image its thumbnail and "Image" (DS `ColorInput valueLabel`, a button opening the picker). **The picker** offers all six types (Solid, Linear, Radial, Angular, Diamond, Image) mapped 1:1 to the schema's Paint (STRETCH = Crop; a new linear gradient gets Figma's top-to-bottom transform `[[0,1,0],[−1,0,1]]`; a type change drops what the old type had). While it shows a gradient of one layer the engine's **on-canvas gradient handles** are on (`startPaintEdit` / `endPaintEdit`), the picker's stop and the canvas's follow each other (`setPaintEditStop`, `PAINT_EDIT`). An **image paint**: preview, scale mode (Fill / Fit / Crop / Tile), **Choose image…**, **Rotate 90°** (`rotation`), and the sliders **Exposure, Contrast, Saturation, Temperature, Tint, Highlights, Shadows** (`paintFilter`, −100…100 ↔ −1…1, a drag = one undo step, double-click resets) — DS `ColorPicker imageControls`.
+- **Images end to end** (`images.ts`, `placeImages.ts`): file / drop / paste → bytes, re-encoded only above Figma's 4096 px cap (aspect kept) → SHA-1 → `DocumentSource.images` (new optional `ImageStore {put, get}`: the store's blobs via `getStoreClient().blobs` for `&file=` sources — `EditorRoute` wraps the store's source —, an in-memory store for the demo documents) → a rectangle its size named after the file, IMAGE fill (Fill mode, `image.hash` as 20 numbers, `originalImageWidth/Height`), pasted through the engine's paste (fresh ids, one undo step, selected): at a point into the innermost frame there (Image tool, drops), else where a paste goes (a paste of an image from the system clipboard). The engine's `REQUEST_IMAGE` is answered from the store (`engine.setImageSource(load)`; without it the event is answered with `addImageBytes` / `addImage` / `imageFailed`). **Thumbnails**: a render that asked for images it didn't have waits for them and renders again.
+- **Effects** (`panels/design/Effects.tsx`): "+" adds Figma's drop shadow (0 4 4 0 #000 25%); rows top first: the effect's glyph (opens its settings), the type dropdown (Drop shadow, Inner shadow, Layer blur, Background blur — a change keeps a shadow's numbers, a blur's radius), eye, minus; "Click + to replace mixed effects". The settings popover (titled with the type): Position X / Y, Blur, Spread, the colour + opacity, **Show behind transparent areas** (drop shadows); blurs show Blur only.
+- **Layout guide** (frames): "+" adds Figma's Grid 10px (#FF0000 10%); rows: glyph (settings), "Grid 10px" / "Columns 5" / "Rows 5", eye, minus. Popover: Grid / Columns / Rows; Size (grid); Count, Type (Stretch / Left / Center / Right, rows Top / Center / Bottom), Width or Height ("Auto" when stretched), Margin (Offset when not stretched), Gutter; Color.
+- **Appearance**: the **blend mode menu** (Pass through, then Figma's groups; the icon turns active off Pass through / Normal; containers default to Pass through, leaves to Normal); **Count** for polygons and stars and **Ratio** for stars (`count`, `starInnerScale`).
+- **Stroke** (`panels/design/Stroke.tsx`): **Individual strokes** for frames and rectangles (the row's menu: All / Top / Bottom / Left / Right / Custom → `borderStrokeWeightsIndependent` + `border*Weight`; one side: the weight field edits it; Custom: Top / Bottom / Left / Right fields); **Stroke settings** popover (header button): Stroke style Solid / Dash, Dash and Gap (`dashPattern`), Dash cap — for lines and vectors "Cap" with the arrow ends (Line arrow, Triangle arrow, Reversed triangle, Circle arrow, Diamond arrow) —, Join (Miter / Bevel / Round), Miter angle (`miterLimit`; 4 = 28.96°).
+- **Selection colors with gradients** (help.figma.com: solid colours and gradients, no images, hidden fills or masks; forum: stops aren't listed separately): a gradient is one row (its swatch and type), keyed by type + stops + opacity; its picker edits every use keeping each one's handles (`regradient`); masks' paints are left out; the picker's "On this page" stays solid colours.
+- **Paste here** works again: the engine refuses a paste inside an open transaction, so the move to the point is now in the Message (`model/clipboard.ts messageAt`: region offsets shifted) and it is pasted in place into the frame under the point — one step.
+- **DS additions** (additive): `ColorInput valueLabel`, `ColorPicker imageControls`, icons `24.bend`, `24.lasso`, `24.paint-bucket`, `24.strokes.individual`.
+- **Fixture** `?editor&doc=paints` (`fixtures.ts PAINTS_DOCUMENT`): the four gradients in an auto-layout frame, a drop shadow, an inner shadow, a layer blur, a star, a polygon, a line, an arrow-capped line, a Subtract boolean, a dashed stroke, a bottom-only border, a frame with two layout guides.
+- **Tests**: `__tests__/paints.test.ts` (17: paint ↔ picker mapping and defaults, row labels and swatches, hashes, the 4096 cap, adjustments, rotation, placed rectangles, Selection colors with gradients and masks, effect / guide defaults and type changes, stroke sides / dashes / miter, Paste here's offsets, the vector-edit state) and five wasm cases (E4/E5 fields round-trip and undo; placing an image into the frame under a point as one step; Paste here; vector commands disabled without the engine's, run with it; image requests answered from the store).
+- **Screenshots** (dark, `/tmp/designer-work/editor/`): `25-gradient-row`, `26-gradient-picker`, `27-selection-colors-gradients`, `28-effect-settings`, `29-blend-mode`, `30-layout-guide`, `31-stroke-settings`, `32-individual-strokes`, `33-boolean-menu`, `34-image-placing`, `35-image-placed`, `36-image-picker` (+ `37-vector-edit` once the engine has `startVectorEdit`).
+
+Unverified against Figma (no reference screenshots for these): the header actions' order, the "Point(s)" section's title and place, Lasso's key (Q) and the vector toolbar's order, "Cap" for open paths (Figma has separate Start point / End point — see Needed), the placed-images row gap (20), where a click places an image (its top-left at the pointer), the stroke settings' row order, the dash defaults (2 / 2).
+
 ## Status at handoff (2026-10-06, round 3 — Phase 2's Design panel)
 
 Round 3 finished Phase 2 of `roadmap.md` for the editor. `npm run check` is green for the whole repo (51 files, 432 tests; the editor's: 4 files, 61 tests), and `tools/editor-shot.mjs` passes every check (33), the new ones on `?editor&doc=types`.
@@ -63,15 +88,19 @@ Compared with the measurements in `docs/research/visual-diff.md` (no reference i
 ### Partial / placeholders
 
 - Prototype tab: an empty state. Assets: search + empty state. Insert / Resources rail items, Actions (⌘K), Present, Share: toasts.
-- Effects / Layout guide / Export "+" stay disabled until `supportsField` sees `effects` / `layoutGrids` / `exportSettings`; blend mode likewise.
+- Export "+" stays disabled until the engine exports (engine_export); its rows aren't built.
 - W / H are disabled for groups (the engine refits groups to their children; a group resize from the panel would scale the children — not built).
-- ColorPicker limited to SOLID (the engine's `Paint` type).
+- The picker's Libraries tab (variables, styles) is empty until E6; "Paste to replace" (⇧⌘R) and image fills copied between files (Image.dataBlob) aren't built.
 - Grid auto layout (the flow's fourth option) waits for the engine's GRID; text baseline alignment is written but the engine lays BASELINE out as MIN until E3.
 - Typography: the font list is the file's families + Inter and the styles a fixed list until the fonts process (E3) lists them; mixed text runs (`styleOverrideTable`) aren't shown per range.
 - Frame titles and the size badge's number on the canvas wait for E3 text (the badge draws empty).
 - Versions: no view-only "open version", rename or duplicate-from-version UI.
 
 ### Needed from other workstreams
+
+- **Engine (E4/E5, round 4)**:
+  - Vector edit: the selected points' **positions and corner radius** (in `VECTOR_EDIT` or a read) and a write for them (`setVectorPoints({x?, y?, cornerRadius?})` or commands) — the panel's X / Y / radius are disabled until then; per-endpoint caps for open paths (Figma's **Start point / End point**: today only the node's `strokeCap`, so the panel shows one "Cap"); **Lasso** and **Paint bucket** tools (`setVectorEditTool` takes MOVE / PEN / BEND).
+  - The committed wasm is E3: E4/E5's commands, tools, `startVectorEdit`, `startPaintEdit`, `setImageSource` aren't in it yet; the editor enables each as it appears (re-run `EDITOR_ONLY=paints node …/editor-shot.mjs` after the engine's release build).
 
 - **DS**: the disabled modes don't look disabled in the light theme.
 - **Engine**:
@@ -84,7 +113,7 @@ Compared with the measurements in `docs/research/visual-diff.md` (no reference i
 
 1. Viewing a reference screenshot again (when the owner re-shares them) and tuning pixel details with `tools/editor-shot.mjs` (the round-3 items listed as unverified above first).
 2. Text (E3): re-check `docs/engine-build.md`; when the wasm keeps the text fields, try Typography on `?editor&doc=types` (the Heading layer), wire text editing (double-click / Enter into the engine's text mode), a fonts list from the fonts process, and the Text submenu's commands (`text.*` in `commands.ts`).
-3. Effects / layout guides / export rows when the engine keeps those fields; gradients and images in the picker with E5; Grid flow with the engine's GRID.
+3. After the engine's E4/E5 release build: run `EDITOR_ONLY=paints node src/renderer/src/editor/tools/editor-shot.mjs` (Union, vector edit, gradient handles, images drawn), look at the canvas in the screenshots, then wire the vector points' X / Y / radius and Start / End point when the engine publishes them. Export rows with engine_export; Grid flow with the engine's GRID.
 
 ---
 
@@ -97,7 +126,10 @@ editor/
   EditorRoute.tsx      ?editor: memory sample / &doc=reference|empty / &file=<fileKey> (store)
   fixtures.ts          the reference and empty documents
   documentSource.ts    DocumentSource, memoryDocumentSource, applyMessage
-  engineCompat.ts      field detection (supportsField)
+  engineCompat.ts      feature detection: supportsField / keepsField, hasCommand, engineMethod
+  images.ts            ImageStore, import (4096 cap, SHA-1), ImageService (REQUEST_IMAGE, object URLs)
+  placeImages.ts       images → rectangles pasted at a point / like a paste
+  vectorEdit.ts        VectorEditor (VECTOR_EDIT, tools, mirroring), gradient handles (startPaintEdit)
   controller.ts        EditorController, EditorContext, readTree
   uiStore.ts           Store<T>, UIState
   hooks.ts             useUI, useLayerTree, usePages, useNodes, useTopics
@@ -110,12 +142,12 @@ editor/
   persistence.ts       UI state per file, thumbnails
   ShortcutsDialog.tsx  VersionDialogs.tsx
   panels/              Rail, LeftPanel, Pages, Layers, RightPanel, Minimized, design/ (DesignPanel, Sections, Sizing,
-                       Constraints, Paints, SelectionColors, Typography, shared)
-  canvas/              Rulers, BottomToolbar, CanvasMenu
+                       Constraints, Paints, Stroke, Effects, VectorPoints, SelectionColors, Typography, shared)
+  canvas/              Rulers, BottomToolbar (+ the vector-edit toolbar), CanvasMenu, ImagePlacer
   tools/editor-shot.mjs  the visual + end-to-end check (playwright-core)
   model/               pure logic: layerTree, mixed, geometry, color, clipboard, rulers, sizing, constraints,
-                       selectionColors
-  __tests__/           vitest: model, layerTree, panels (Phase 2 rules), the editor on the headless engine
+                       selectionColors, paints
+  __tests__/           vitest: model, layerTree, panels (Phase 2 rules), paints (E4/E5 rules), the editor on the headless engine
 ```
 
 ## The DocumentSource interface
@@ -139,6 +171,7 @@ export interface DocumentSource {
   listVersions?(): Promise<VersionInfo[]>;
   saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
   restoreVersion?(id: string, apply: (diff: Message) => void | Promise<void>): Promise<VersionInfo>;
+  readonly images?: ImageStore;       // round 4: { put(bytes, mime) → sha1 hex, get(sha1) → bytes | null }
 }
 ```
 
@@ -165,4 +198,4 @@ export interface DocumentSource {
 
 ## Gaps (by design, until the engine or DS has them)
 
-Text editing and rendering (E3: frame titles and the size badge's text on canvas, the Text menu; the Typography section is built and waits on the fields), effects/layout guides/export storage until the engine keeps those fields, image paste, components (E6), prototype tab content, Quick actions (⌘K), group resize from the panel, the pages-panel height splitter.
+the Text menu's commands, export (engine_export), the vector points' positions / radius and per-end caps (engine), components (E6), prototype tab content, Quick actions (⌘K), group resize from the panel, the pages-panel height splitter.

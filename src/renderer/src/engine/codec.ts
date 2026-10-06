@@ -34,15 +34,118 @@ export interface ParentIndex {
   guid: Guid;
   position: string;
 }
+export type BlendMode =
+  | "PASS_THROUGH" | "NORMAL" | "DARKEN" | "MULTIPLY" | "LINEAR_BURN" | "COLOR_BURN" | "LIGHTEN" | "SCREEN" | "LINEAR_DODGE"
+  | "COLOR_DODGE" | "OVERLAY" | "SOFT_LIGHT" | "HARD_LIGHT" | "DIFFERENCE" | "EXCLUSION" | "HUE" | "SATURATION" | "COLOR"
+  | "LUMINOSITY";
+export type PaintType = "SOLID" | "GRADIENT_LINEAR" | "GRADIENT_RADIAL" | "GRADIENT_ANGULAR" | "GRADIENT_DIAMOND" | "IMAGE";
+/** STRETCH = "Crop" in the UI. */
+export type ImageScaleMode = "STRETCH" | "FIT" | "FILL" | "TILE";
+export interface ColorStop {
+  color: Color;
+  position: number;
+}
+/** Image adjustments, each −1…1 (0 = unchanged); `vibrance` is the UI's "Saturation". */
+export interface PaintFilter {
+  exposure?: number;
+  contrast?: number;
+  vibrance?: number;
+  temperature?: number;
+  tint?: number;
+  highlights?: number;
+  shadows?: number;
+  [other: string]: number | undefined;
+}
+export interface Image {
+  /** The SHA-1 of the image file's bytes, as 20 numbers (a 40-digit hex string is read too). */
+  hash?: number[] | string;
+  name?: string;
+  /** Clipboard only: an index into the Message's blobs holding the image file's bytes. */
+  dataBlob?: number;
+}
 /**
- * A paint. The engine draws SOLID ones; any other kind (gradients, images: E5) comes back exactly as it went in
- * (its own fields included), so it survives edits, copies and undo.
+ * A paint (every kind is drawn). Fields the engine doesn't use (colorVar, stopsVar, imageThumbnail, thumbHash…)
+ * come back exactly as they went in.
  */
 export interface Paint {
-  type: "SOLID" | (string & {});
+  type: PaintType | (string & {});
   color?: Color;
   opacity?: number;
   visible?: boolean;
+  blendMode?: BlendMode;
+  /** Gradients. */
+  stops?: ColorStop[];
+  /** Gradients and images: Figma's matrix from the node's unit square to paint space (gradient: t along x). */
+  transform?: Matrix;
+  image?: Image;
+  imageScaleMode?: ImageScaleMode;
+  /** Image rotation in degrees (multiples of 90). */
+  rotation?: number;
+  /** TILE scale. */
+  scale?: number;
+  paintFilter?: PaintFilter;
+  originalImageWidth?: number;
+  originalImageHeight?: number;
+  [other: string]: unknown;
+}
+export type EffectType = "INNER_SHADOW" | "DROP_SHADOW" | "FOREGROUND_BLUR" | "BACKGROUND_BLUR" | "GRAIN" | "NOISE" | "GLASS";
+/** An effect: FOREGROUND_BLUR is the UI's "Layer blur". Other fields are kept as given. */
+export interface Effect {
+  type: EffectType;
+  color?: Color;
+  offset?: Vector;
+  radius?: number;
+  visible?: boolean;
+  blendMode?: BlendMode;
+  spread?: number;
+  /** "Show behind transparent areas". */
+  showShadowBehindNode?: boolean;
+  [other: string]: unknown;
+}
+export type StrokeCap = "NONE" | "ROUND" | "SQUARE" | "ARROW_LINES" | "ARROW_EQUILATERAL" | "DIAMOND_FILLED" | "TRIANGLE_FILLED" | "CIRCLE_FILLED";
+export type StrokeJoin = "MITER" | "BEVEL" | "ROUND";
+/** OUTLINE = Figma's "Vector" mask. */
+export type MaskType = "ALPHA" | "OUTLINE" | "LUMINANCE";
+export type VectorMirror = "NONE" | "ANGLE" | "ANGLE_AND_LENGTH";
+/** XOR = "Exclude". */
+export type BooleanOperation = "UNION" | "INTERSECT" | "SUBTRACT" | "XOR";
+export type VectorEditTool = "MOVE" | "PEN" | "BEND" | "LASSO" | "PAINT_BUCKET";
+/** A layout guide ("Layout grid"): columns (axis X), rows (axis Y) or a square grid. */
+export interface LayoutGrid {
+  type?: "MIN" | "CENTER" | "STRETCH" | "MAX";
+  axis?: "X" | "Y";
+  visible?: boolean;
+  numSections?: number;
+  offset?: number;
+  sectionSize?: number;
+  gutterSize?: number;
+  color?: Color;
+  pattern?: "STRIPES" | "GRID";
+  [other: string]: unknown;
+}
+export interface ArcData {
+  /** Radians. */
+  startingAngle: number;
+  endingAngle: number;
+  /** 0–1 of the radius. */
+  innerRadius: number;
+}
+/** Per-vertex / segment / region styles of a vector network (keyed by styleID ≥ 1). */
+export interface VectorStyleOverride {
+  styleID: number;
+  fillPaints?: Paint[];
+  strokeCap?: StrokeCap;
+  strokeJoin?: StrokeJoin;
+  handleMirroring?: VectorMirror;
+  cornerRadius?: number;
+  [other: string]: unknown;
+}
+export interface VectorData {
+  /** An index into the Message's blobs: the network (docs/schema.md §11.3). */
+  vectorNetworkBlob?: number;
+  /** The size the network's coordinates are in (the node's `size` scales it). */
+  normalizedSize?: Vector;
+  styleOverrideTable?: VectorStyleOverride[];
 }
 
 /**
@@ -187,6 +290,38 @@ export interface NodeFields {
   textDecoration?: TextDecoration;
   /** The layer name follows the characters until the layer is renamed. */
   autoRename?: boolean;
+  // Paint, stroke, effects, masks (E4/E5).
+  /** Absent = PASS_THROUGH. */
+  blendMode?: BlendMode;
+  /** "Use as mask": masks the layers above it in its parent. */
+  mask?: boolean;
+  maskType?: MaskType;
+  strokeCap?: StrokeCap;
+  strokeJoin?: StrokeJoin;
+  /** Absent = 4. */
+  miterLimit?: number;
+  /** Dash, gap, dash, gap… in px. */
+  dashPattern?: number[];
+  borderTopWeight?: number;
+  borderRightWeight?: number;
+  borderBottomWeight?: number;
+  borderLeftWeight?: number;
+  borderStrokeWeightsIndependent?: boolean;
+  /** 0–1 (iOS = 0.6). */
+  cornerSmoothing?: number;
+  effects?: Effect[];
+  // Shapes and vectors.
+  /** REGULAR_POLYGON / STAR point count. */
+  count?: number;
+  /** STAR "Ratio" (0–1). */
+  starInnerScale?: number;
+  /** ELLIPSE arcs, pies and donuts. */
+  arcData?: ArcData;
+  vectorData?: VectorData;
+  handleMirroring?: VectorMirror;
+  booleanOperation?: BooleanOperation;
+  /** Layout guides on a frame. */
+  layoutGrids?: LayoutGrid[];
   /** Kiwi field ids reset to absent (updates only). */
   clearedFields?: number[];
 }
@@ -210,6 +345,11 @@ export interface Message {
   type: "NODE_CHANGES";
   sessionID: number;
   nodeChanges: NodeChange[];
+  /**
+   * The Message's blobs as base64 strings (kiwi's `Message.blobs`): blob-index fields (`vectorData.vectorNetworkBlob`,
+   * `fillGeometry[i].commandsBlob`, `Image.dataBlob`) index into it.
+   */
+  blobs?: string[];
   /** Clipboard Messages (docs/schema.md §4.1): the page copied from, and each source parent's place. */
   pastePageId?: Guid;
   clipboardSelectionRegions?: ClipboardSelectionRegion[];
@@ -267,7 +407,26 @@ export type EngineEvent =
    * textarea goes there); `selStart` ≤ `selEnd` in UTF-16 units of the node's characters.
    */
   | { type: "TEXT_EDIT"; active: boolean; ref: Guid | null; caretRectCss: { x: number; y: number; width: number; height: number }; selStart: number; selEnd: number }
-  | ({ type: "UNDO_STATE" } & UndoState);
+  | ({ type: "UNDO_STATE" } & UndoState)
+  /** An image the document draws that the engine has no pixels for (40 hex digits); Engine.ts answers it from its image source. */
+  | { type: "REQUEST_IMAGE"; hash: string }
+  /** Vector edit mode started, ended, or its tool or selection changed (indices into the network's vertices / segments). */
+  | {
+      type: "VECTOR_EDIT";
+      active: boolean;
+      ref: Guid | null;
+      tool: VectorEditTool;
+      selectedVertices: number[];
+      selectedSegments: number[];
+      vertexCount: number;
+      segmentCount: number;
+      /** The selected vertices' handle mirroring (MIXED when they differ, null when none is selected). */
+      mirroring: VectorMirror | "MIXED" | null;
+      /** The selected vertices: x / y in the node's parent's space (like the layer's X / Y), their corner radius. */
+      points: { index: number; x: number; y: number; cornerRadius: number; mirroring: VectorMirror }[];
+    }
+  /** Gradient (paint) edit mode: which paint's handles are on the canvas, and the selected stop. */
+  | { type: "PAINT_EDIT"; active: boolean; ref: Guid | null; paints: "FILL" | "STROKE"; index: number; stop: number };
 
 export type EngineEventType = EngineEvent["type"];
 export type EventOf<T extends EngineEventType> = Extract<EngineEvent, { type: T }>;

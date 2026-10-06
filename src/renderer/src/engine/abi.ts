@@ -5,7 +5,7 @@
  * by hand until apigen generates them from engine/api/*.def.ts.
  */
 
-/** The Tool enum (§8.4). The engine implements MOVE, HAND, FRAME, RECTANGLE, ELLIPSE and TEXT so far. */
+/** The Tool enum (§8.4). The engine implements all but SCALE, SECTION, SLICE, IMAGE and COMMENT. */
 export const TOOLS = [
   "MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
   "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
@@ -58,6 +58,26 @@ export const CommandId = {
   DELETE_PAGE: 91,
   /** args { page: "s:l" } (the current page when absent) */
   DUPLICATE_PAGE: 92,
+  /** "Union selection" (⌥⇧U); with boolean groups selected: changes their operation. */
+  BOOLEAN_UNION: 100,
+  BOOLEAN_SUBTRACT: 101,
+  BOOLEAN_INTERSECT: 102,
+  BOOLEAN_EXCLUDE: 103,
+  /** ⌘E: the selection becomes one VECTOR (the topmost layer's GUID). */
+  FLATTEN: 104,
+  /** ⌥⌘O */
+  OUTLINE_STROKE: 105,
+  /** ⌃⌘M: toggles; CMD_CHECKED when the selection is a mask. Several layers: grouped, the bottom one the mask. */
+  USE_AS_MASK: 106,
+  /** args { hash, width, height, name?, x?, y? }: a rectangle that size with the image (Fill), at the page point or the view's centre. */
+  PLACE_IMAGES: 107,
+  /** Vector edit mode, the selected points: args { mirroring: "NONE" | "ANGLE" | "ANGLE_AND_LENGTH" } */
+  VECTOR_SET_MIRRORING: 110,
+  VECTOR_DELETE_AND_HEAL: 111,
+  /** args { x?, y?, cornerRadius? }: x / y in the parent's space (the points' bounds' top left). */
+  VECTOR_SET_POINTS: 112,
+  /** args { start?, end?: StrokeCap }: open paths' ends (the selection, or the vector being edited). */
+  SET_END_CAPS: 113,
 } as const;
 export type CommandName = keyof typeof CommandId;
 
@@ -89,6 +109,8 @@ export const INCLUDE_CHILD_IDS = 1;
 export const PASTE_IN_PLACE = 1;
 /** engine_text_edit flags. */
 export const TEXT_EDIT_SELECT_ALL = 1;
+/** engine_vector_edit_tool values. */
+export const VECTOR_EDIT_TOOLS = ["MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET"] as const;
 
 /** Status codes (§10.3). */
 export const Status = {

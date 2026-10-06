@@ -43,8 +43,18 @@ add_library(eng_core STATIC
   src/text/TextLayout.cpp
   src/text/TextEdit.cpp
   src/editor/TextEditing.cpp
-  src/render/GlyphCache.cpp
+  src/editor/VectorEditing.cpp
+  src/editor/VectorCommands.cpp
+  src/editor/PaintEditing.cpp
+  src/render/CurveCache.cpp
+  src/render/ImageCache.cpp
   src/render/TextRender.cpp
+  src/geometry/Path.cpp
+  src/geometry/VectorNetwork.cpp
+  src/geometry/Shapes.cpp
+  src/geometry/Stroker.cpp
+  src/geometry/Boolean.cpp
+  src/geometry/NodeGeometry.cpp
 )
 target_include_directories(eng_core PUBLIC src)
 target_link_libraries(eng_core PUBLIC eng_third_party)
@@ -93,6 +103,10 @@ else()
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
     tests/unit/text.render.test.cpp
+    tests/unit/geometry.path.test.cpp
+    tests/unit/geometry.boolean.test.cpp
+    tests/unit/editor.vector.test.cpp
+    tests/unit/render.paths.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)

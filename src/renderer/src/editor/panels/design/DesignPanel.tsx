@@ -8,17 +8,21 @@
  * Sections whose fields the engine doesn't keep yet show their "+" disabled.
  */
 import { useState } from "react";
-import { ColorInput, Icon, IconButton, MenuButton, PanelSection, showToast, useTheme } from "@/ds";
+import { ColorInput, Icon, IconButton, keys, MenuButton, PanelSection, showToast, useTheme, type MenuEntry } from "@/ds";
 import { useCurrentPage } from "@/engine/hooks";
 import type { Color } from "@/engine/codec";
-import { useEditor } from "../../controller";
-import { useNodes } from "../../hooks";
+import { useEditor, type EditorController } from "../../controller";
+import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
+import { useNodes, useTopics } from "../../hooks";
+import { useStoreSlice } from "../../uiStore";
 import { colorToHex, hexToColor, sameColor, toPercent } from "../../model/color";
 import { AppearanceSection, LayoutSection, PositionSection } from "./Sections";
 import { PaintPicker, PaintsSection, type PickerTarget } from "./Paints";
 import { SelectionColorsSection } from "./SelectionColors";
 import { TypographySection } from "./Typography";
-import { isFrameNode, isTextNode, typeLabel, useSelectedNodes, useSupports, type PanelNode } from "./shared";
+import { EffectsSection, LayoutGuideSection } from "./Effects";
+import { VectorPointSection } from "./VectorPoints";
+import { fields, isFrameNode, isTextNode, typeLabel, typeOf, useSelectedNodes, useSupports, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 /** Figma's frame presets (the Frame tool's list in the panel, the most used ones). */
@@ -88,11 +92,15 @@ export function DesignPanel() {
 }
 
 function Selected({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
+  const ed = useEditor();
   const frames = nodes.every(isFrameNode);
   const text = nodes.every(isTextNode);
+  const vectorRef = useStoreSlice(ed.vector.state, (s) => (s.active ? s.ref : null));
+  const editingVector = !!vectorRef && nodes.length === 1 && nodes[0].guid === vectorRef;
   return (
     <>
       <TypeHeader nodes={nodes} />
+      {editingVector && <VectorPointSection />}
       <PositionSection nodes={nodes} />
       <LayoutSection nodes={nodes} />
       <AppearanceSection nodes={nodes} />
@@ -100,11 +108,72 @@ function Selected({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTar
       <PaintsSection title="Fill" field="fillPaints" nodes={nodes} onPick={onPick} />
       <PaintsSection title="Stroke" field="strokePaints" nodes={nodes} onPick={onPick} />
       <SelectionColorsSection nodes={nodes} onPick={onPick} />
-      <LaterSection title="Effects" field="effects" add="Add effect" />
-      {frames && <LaterSection title="Layout guide" field="layoutGrids" add="Add layout guide" />}
+      <EffectsSection nodes={nodes} />
+      {frames && <LayoutGuideSection nodes={nodes} />}
       <ExportSection />
     </>
   );
+}
+
+/** Figma's boolean group menu: the four operations, then Flatten. */
+const BOOLEAN_ITEMS: { id: string; op: "UNION" | "SUBTRACT" | "INTERSECT" | "XOR"; icon: "16.boolean.union" | "16.boolean.subtract" | "16.boolean.intersect" | "16.boolean.exclude" }[] = [
+  { id: "vector.union", op: "UNION", icon: "16.boolean.union" },
+  { id: "vector.subtract", op: "SUBTRACT", icon: "16.boolean.subtract" },
+  { id: "vector.intersect", op: "INTERSECT", icon: "16.boolean.intersect" },
+  { id: "vector.exclude", op: "XOR", icon: "16.boolean.exclude" },
+];
+
+/** Layers vector edit mode opens (the engine turns shapes into a vector at their first edit). */
+const EDITABLE = new Set(["VECTOR", "LINE", "STAR", "REGULAR_POLYGON", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "BOOLEAN_OPERATION"]);
+
+/** The selection header's actions (UI3): Edit object, Use as mask, the boolean groups menu, Create component. */
+function HeaderActions({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  // Command states change with the selection and the document.
+  useTopics(ed.store, ["selection", "undo", "structure"]);
+  const booleans = nodes.length > 0 && nodes.every((n) => typeOf(n) === "BOOLEAN_OPERATION");
+  const current = booleans && nodes.every((n) => n.booleanOperation === nodes[0].booleanOperation) ? (nodes[0].booleanOperation ?? "UNION") : null;
+  const opKept = booleans;
+  const entries: MenuEntry[] = [
+    ...BOOLEAN_ITEMS.map((b) => {
+      const c = command(b.id);
+      return { id: b.id, label: c.label, icon: b.icon, shortcut: shortcutOf(c), checked: current === b.op, disabled: !(opKept || isEnabled(ed, c)) };
+    }),
+    "-",
+    { id: "vector.flatten", label: command("vector.flatten").label, shortcut: shortcutOf(command("vector.flatten")), disabled: !isEnabled(ed, command("vector.flatten")) },
+  ];
+  const anyBoolean = entries.some((e) => typeof e === "object" && "id" in e && !e.disabled);
+  const mask = command("object.use-as-mask");
+  const editable = nodes.length === 1 && EDITABLE.has(typeOf(nodes[0])) && ed.vector.available;
+  return (
+    <div className={styles.headerActions}>
+      {editable && <IconButton icon="24.pen" label="Edit object" shortcut={keys(["enter"])} tone="secondary" onClick={() => ed.vector.start(nodes[0].guid)} />}
+      <IconButton icon="24.component.small" label="Create component" shortcut={shortcutOf(command("object.create-component"))} tone="secondary" disabled />
+      <IconButton icon="24.mask" label={mask.label} shortcut={shortcutOf(mask)} tone="secondary" disabled={!isEnabled(ed, mask)} aria-pressed={mask.checked?.(ed) ?? false} onClick={() => runEditorCommand(ed, mask.id)} />
+      {anyBoolean ? (
+        <MenuButton label="Boolean groups" entries={entries} className={styles.iconMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
+          <Icon name="24.boolean.small" />
+          <Icon name="16.chevron.down" />
+        </MenuButton>
+      ) : (
+        <IconButton icon="24.boolean.small" label="Boolean groups" tone="secondary" disabled />
+      )}
+    </div>
+  );
+}
+
+/** A boolean group selected: the menu changes its operation; otherwise it runs the command on the selection. */
+function pickBoolean(ed: EditorController, nodes: PanelNode[], id: string, booleans: boolean) {
+  const op = BOOLEAN_ITEMS.find((b) => b.id === id)?.op;
+  if (booleans && op) {
+    ed.setProps(
+      nodes.map((n) => n.guid),
+      fields({ booleanOperation: op }),
+      command(id).label.replace(" selection", "")
+    );
+    return;
+  }
+  runEditorCommand(ed, id);
 }
 
 function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
@@ -114,6 +183,7 @@ function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
     return (
       <div className={styles.typeHeader}>
         <span className={styles.typeLabel}>{label}</span>
+        <HeaderActions nodes={nodes} />
       </div>
     );
   }
@@ -136,6 +206,7 @@ function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
         <span>Frame</span>
         <Icon name="16.chevron.down" />
       </MenuButton>
+      <HeaderActions nodes={nodes} />
     </div>
   );
 }

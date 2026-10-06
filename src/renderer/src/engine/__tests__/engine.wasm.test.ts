@@ -283,11 +283,23 @@ describe("engine (wasm, headless): text (E3)", () => {
     engine.destroy();
   });
 
-  it("nodes the engine doesn't draw keep their type and fields", async () => {
+  it("vectors keep their network through the Message's blobs (E4); paints keep their fields", async () => {
     const engine = await textEngine();
+    // A two-vertex network (docs/schema.md §11.3): (0,0) → (10,10).
+    const net = new DataView(new ArrayBuffer(12 + 24 + 28));
+    net.setUint32(0, 2, true);
+    net.setUint32(4, 1, true);
+    net.setUint32(8, 0, true);
+    net.setFloat32(20, 10, true);
+    net.setFloat32(24, 10, true);
+    net.setUint32(40, 0, true);
+    net.setUint32(52, 1, true);
+    const bytes = new Uint8Array(net.buffer);
+    const base64 = btoa(String.fromCharCode(...bytes));
     engine.applyChanges({
       type: "NODE_CHANGES",
       sessionID: 0,
+      blobs: [base64],
       nodeChanges: [
         {
           guid: "1:600",
@@ -295,17 +307,144 @@ describe("engine (wasm, headless): text (E3)", () => {
           type: "VECTOR",
           parentIndex: { guid: "0:1", position: "~~" },
           size: { x: 10, y: 10 },
-          vectorData: { vectorNetworkBlob: 4 },
-          fillPaints: [{ type: "GRADIENT_LINEAR", visible: true, stops: [] }],
+          vectorData: { vectorNetworkBlob: 0, normalizedSize: { x: 10, y: 10 } },
+          fillPaints: [{ type: "GRADIENT_LINEAR", visible: true, stops: [], colorVar: { value: 1 } }],
         } as unknown as NodeChange,
       ],
     });
     engine.setSelection(["1:600"]);
     engine.command("DUPLICATE");
-    const copy = engine.readNode(engine.getSelection().refs[0]) as NodeChange & { vectorData?: unknown };
+    const clip = engine.encodeSelection()!;
+    const copy = clip.nodeChanges[0];
     expect(copy.type).toBe("VECTOR");
-    expect(copy.vectorData).toEqual({ vectorNetworkBlob: 4 });
-    expect(copy.fillPaints?.[0]).toEqual({ type: "GRADIENT_LINEAR", visible: true, stops: [] });
+    expect(copy.vectorData?.normalizedSize).toEqual({ x: 10, y: 10 });
+    expect(clip.blobs?.[copy.vectorData!.vectorNetworkBlob!]).toBe(base64);
+    expect(copy.fillPaints?.[0]).toMatchObject({ type: "GRADIENT_LINEAR", visible: true, colorVar: { value: 1 } });
+    engine.destroy();
+  });
+});
+
+describe("engine (wasm, headless): E4 + E5", () => {
+  it("the Pen, vector edit mode and its events; booleans and the other commands", async () => {
+    const engine = await engineWithSample();
+    const edits: EventOf<"VECTOR_EDIT">[] = [];
+    engine.on("VECTOR_EDIT", (e) => edits.push(e));
+    expect(engine.setTool("PEN")).toBe(Status.OK);
+    const click = (x: number, y: number) => {
+      engine.pointer(PointerType.DOWN, x, y, 0, 1, 0);
+      engine.pointer(PointerType.UP, x, y, 0, 0, 0);
+    };
+    click(900, 100);
+    click(1000, 100);
+    click(1000, 200);
+    click(900, 100);
+    expect(engine.vectorEdit?.active).toBe(true);
+    expect(engine.vectorEdit?.vertexCount).toBe(3);
+    expect(engine.vectorEdit?.segmentCount).toBe(3);
+    const ref = engine.vectorEdit!.ref!;
+    const vector = engine.readNode(ref)!;
+    expect(vector.type).toBe("VECTOR");
+    expect(vector.vectorData?.normalizedSize).toEqual({ x: 100, y: 100 });
+    // A vertex selected: the Points section's numbers, mirroring, end caps.
+    click(1000, 100);
+    expect(engine.vectorEdit?.selectedVertices).toEqual([1]);
+    // x / y are in the vector's parent's space (it was drawn inside the sample's frame).
+    const p0 = engine.vectorEdit!.points[0];
+    expect(engine.command("VECTOR_SET_POINTS", { x: p0.x + 10, cornerRadius: 4 })).toBe(Status.OK);
+    expect(engine.vectorEdit?.points[0]).toMatchObject({ x: p0.x + 10, y: p0.y, cornerRadius: 4 });
+    expect(engine.command("VECTOR_SET_MIRRORING", { mirroring: "ANGLE" })).toBe(Status.OK);
+    expect(engine.vectorEdit?.mirroring).toBe("ANGLE");
+    expect(engine.setVectorEditTool("LASSO")).toBe(Status.OK);
+    expect(engine.vectorEdit?.tool).toBe("LASSO");
+    engine.endVectorEdit();
+    expect(engine.vectorEdit).toBeNull();
+    expect(edits.length).toBeGreaterThan(3);
+    // A closed path has no ends; a line does.
+    expect(engine.endCaps(ref)).toBeNull();
+    engine.setTool("ARROW");
+    engine.pointer(PointerType.DOWN, 900, 400, 0, 1, 0);
+    engine.pointer(PointerType.MOVE, 950, 400, 0, 1, 0);
+    engine.pointer(PointerType.MOVE, 1100, 400, 0, 1, 0);
+    engine.pointer(PointerType.UP, 1100, 400, 0, 0, 0);
+    const arrow = engine.getSelection().refs[0];
+    expect(engine.endCaps(arrow)).toEqual({ start: "NONE", end: "ARROW_LINES" });
+    // Booleans: two of the sample's layers.
+    engine.setSelection(["1:5", "1:6"]);
+    expect(engine.commandState("BOOLEAN_UNION") & CMD_ENABLED).toBeTruthy();
+    expect(engine.command("BOOLEAN_UNION")).toBe(Status.OK);
+    const union = engine.readNode(engine.getSelection().refs[0], { childIds: true })!;
+    expect(union.type).toBe("BOOLEAN_OPERATION");
+    expect(union.booleanOperation).toBe("UNION");
+    expect(union.childIds).toEqual(["1:5", "1:6"]);
+    expect(engine.command("FLATTEN")).toBe(Status.OK);
+    expect(engine.readNode(union.guid)!.type).toBe("VECTOR");
+    engine.destroy();
+  });
+
+  it("images: REQUEST_IMAGE once per hash, RGBA pixels answer it; gradient handles and their events", async () => {
+    const engine = await engineWithSample();
+    const hash = "0123456789abcdef0123456789abcdef01234567";
+    const requests: string[] = [];
+    engine.on("REQUEST_IMAGE", (e) => requests.push(e.hash));
+    engine.applyChanges({
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      nodeChanges: [
+        {
+          guid: "1:700",
+          phase: "CREATED",
+          type: "ROUNDED_RECTANGLE",
+          parentIndex: { guid: "0:1", position: "~~" },
+          size: { x: 40, y: 40 },
+          fillPaints: [{ type: "IMAGE", image: { hash }, imageScaleMode: "FILL", visible: true, opacity: 1 }],
+        },
+        {
+          guid: "1:701",
+          phase: "CREATED",
+          type: "ROUNDED_RECTANGLE",
+          parentIndex: { guid: "0:1", position: "~~~" },
+          transform: { m00: 1, m01: 0, m02: 100, m10: 0, m11: 1, m12: 0 },
+          size: { x: 100, y: 50 },
+          fillPaints: [
+            {
+              type: "GRADIENT_LINEAR",
+              stops: [
+                { color: { r: 1, g: 0, b: 0, a: 1 }, position: 0 },
+                { color: { r: 0, g: 0, b: 1, a: 1 }, position: 1 },
+              ],
+              transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+              visible: true,
+              opacity: 1,
+            },
+          ],
+        },
+      ],
+    }, "load");
+    engine.renderNow();
+    engine.renderNow();
+    expect(requests).toEqual([hash]);
+    expect(engine.addImageRgba(hash, 2, 2, new Uint8Array(16).fill(255))).toBe(Status.OK);
+    engine.renderNow();
+    expect(engine.stats().images).toBe(1);  // headless: the recording device keeps a texture for it
+    const pe: EventOf<"PAINT_EDIT">[] = [];
+    engine.on("PAINT_EDIT", (e) => pe.push(e));
+    expect(engine.startPaintEdit("1:701", { paints: "FILL", index: 0 })).toBe(Status.OK);
+    expect(engine.paintEdit).toMatchObject({ active: true, ref: "1:701", paints: "FILL", index: 0 });
+    expect(engine.setPaintEditStop(1)).toBe(Status.OK);
+    expect(engine.paintEdit?.stop).toBe(1);
+    engine.endPaintEdit();
+    expect(engine.paintEdit).toBeNull();
+    expect(engine.startPaintEdit("1:700", { paints: "FILL", index: 0 })).toBe(Status.E_INVALID);
+    // Effects, masks, blend modes, layout guides read back as typed fields.
+    engine.setProps(["1:701"], {
+      effects: [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.25 }, offset: { x: 0, y: 4 }, radius: 4, visible: true }],
+      blendMode: "MULTIPLY",
+      layoutGrids: [{ type: "STRETCH", axis: "X", numSections: 12, gutterSize: 20, offset: 0, sectionSize: 10, visible: true, pattern: "STRIPES" }],
+    });
+    const n = engine.readNode("1:701")!;
+    expect(n.effects?.[0]).toMatchObject({ type: "DROP_SHADOW", radius: 4, spread: 0, showShadowBehindNode: false });
+    expect(n.blendMode).toBe("MULTIPLY");
+    expect(n.layoutGrids?.[0]).toMatchObject({ numSections: 12, gutterSize: 20 });
     engine.destroy();
   });
 });

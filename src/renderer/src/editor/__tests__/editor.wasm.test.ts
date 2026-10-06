@@ -21,6 +21,13 @@ import { typeLabel, type PanelNode } from "../panels/design/shared";
 import { pageColors, selectionColorsOf, writeSelectionColor } from "../panels/design/SelectionColors";
 import { flowAxis, isAutoLayout, limitOf, sizingChanges, sizingOf, withLimit, type SizingNode } from "../model/sizing";
 import type { NodeChange } from "@/engine/codec";
+import { PAINTS_DOCUMENT } from "../fixtures";
+import { hasCommand, keepsField } from "../engineCompat";
+import { messageAt } from "../model/clipboard";
+import { hashBytes, hashHex } from "../model/paints";
+import { placeImages } from "../placeImages";
+import { defaultEffect } from "../panels/design/Effects";
+import { isEnabled, command } from "../commands";
 import type { MenuEntry, MenuItem } from "@/ds";
 
 const wasm = fileURLToPath(new URL("../../engine/wasm/engine.wasm", import.meta.url));
@@ -288,5 +295,74 @@ describe("Design panel, Phase 2 (wasm, headless)", () => {
     expect(pageColors(ed)).toContain("#0d99ff");
     // A single rectangle without children: no section.
     expect(selectionColorsOf(engine, [engine.readNode("1:2")! as PanelNode]).show).toBe(false);
+  });
+
+  // ---- E4 / E5 in the editor -------------------------------------------------------------------------
+
+  it("keeps the E4 / E5 fields: effects, guides, dashes, image paints round-trip and undo", async () => {
+    const { ed, engine } = await editor(PAINTS_DOCUMENT);
+    expect(keepsField(engine, "effects")).toBe(true);
+    expect(keepsField(engine, "layoutGrids")).toBe(true);
+    expect(engine.readNode("2:40")!.dashPattern).toEqual([6, 4]);
+    ed.setProps(["2:11"], { effects: [defaultEffect()] }, "Add effect");
+    expect(engine.readNode("2:11")!.effects).toEqual([defaultEffect()]);
+    engine.undo();
+    expect(engine.readNode("2:11")!.effects?.[0].type).toBe("INNER_SHADOW");
+  });
+
+  it("places images: one paste, at their size, in the frame under the point, filled; one undo step", async () => {
+    const { ed, engine, source } = await editor(PAINTS_DOCUMENT);
+    engine.setCamera({ x: 0, y: 0, zoom: 1 });
+    const hash = await source.images!.put(new TextEncoder().encode("not really a png"), "image/png");
+    const before = source.changes.length;
+    const n = placeImages(ed, [{ hash, width: 64, height: 48, name: "photo", mime: "image/png" }], { x: 700, y: 50 });
+    expect(n).toBe(1);
+    expect(source.changes.length).toBe(before + 1);
+    const placed = ed.selectedNodes()[0];
+    expect(placed.name).toBe("photo");
+    expect(placed.size).toEqual({ x: 64, y: 48 });
+    expect(placed.parentIndex?.guid).toBe("2:50"); // "Layout guides" (640, 0) holds the point
+    expect(placed.transform).toMatchObject({ m02: 60, m12: 50 });
+    const fill = placed.fillPaints![0];
+    expect(fill.type).toBe("IMAGE");
+    expect(hashHex(fill.image?.hash)).toBe(hash);
+    expect(fill.image?.hash).toEqual(hashBytes(hash));
+    engine.undo();
+    expect(engine.readNode(placed.guid)).toBeNull();
+  });
+
+  it("Paste here: the copy lands with its corner on the point (one step, in the frame there)", async () => {
+    const { ed, engine } = await editor(PAINTS_DOCUMENT);
+    engine.setSelection(["2:10"]);
+    const clip = engine.encodeSelection()!;
+    engine.setSelection([]);
+    expect(engine.paste(messageAt(clip, { x: 300, y: 600 }), { inPlace: true })).toBe(1);
+    const copy = ed.selectedNodes()[0];
+    expect(copy.transform).toMatchObject({ m02: 300, m12: 600 });
+  });
+
+  it("vector commands run when the engine has them, else show disabled", async () => {
+    const { ed, engine } = await editor(PAINTS_DOCUMENT);
+    engine.setSelection(["2:10", "2:11"]);
+    const union = command("vector.union");
+    if (!hasCommand("BOOLEAN_UNION")) {
+      expect(isEnabled(ed, union)).toBe(false);
+      expect(isEnabled(ed, command("vector.flatten"))).toBe(false);
+      return;
+    }
+    expect(isEnabled(ed, union)).toBe(true);
+    union.run(ed);
+    expect(ed.selectedNodes().map((n) => n.type)).toEqual(["BOOLEAN_OPERATION"]);
+    expect(ed.store.undo.undoLabel).toBe("Union selection");
+  });
+
+  it("answers the engine's image requests from the file's image store", async () => {
+    const { ed, source } = await editor(PAINTS_DOCUMENT);
+    const hash = await source.images!.put(new Uint8Array([1, 2, 3]), "image/png");
+    const requests = ed.images.requests;
+    expect(await ed.images.bytes(hash)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(ed.images.requests).toBe(requests + 1);
+    expect(await ed.images.bytes("0".repeat(40))).toBeNull();
+    await ed.images.settled();
   });
 });

@@ -7,7 +7,7 @@
  * field steps each layer by the delta (onStep).
  */
 import { useState } from "react";
-import { AlignmentMatrix, Checkbox, IconButton, MIXED, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, ToggleIconButton, type Alignment, type ChangeInfo, type Mixed } from "@/ds";
+import { AlignmentMatrix, BLEND_LABEL, BLEND_MODES, Checkbox, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, ToggleIconButton, type Alignment, type ChangeInfo, type Mixed } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
@@ -20,7 +20,7 @@ import { ConstraintsRow } from "./Constraints";
 import { AutoLayoutSettingsButton, LimitRow, SizeField, useLimitAxes } from "./Sizing";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
-import { fields, hasCorners, isFrameNode, useParents, useSupports, type PanelNode } from "./shared";
+import { fields, hasCorners, isFrameNode, isGroupNode, typeOf, useKeeps, useParents, useSupports, type BlendModeName, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 /** Writes `fn(fresh node)` to every node as one undo step (a scrub: one open transaction). */
@@ -281,8 +281,18 @@ type CornerField = (typeof CORNERS)[number][0];
 export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
-  const blendKept = useSupports("blendMode");
+  const blendKept = useKeeps("blendMode");
   const refs = nodes.map((n) => n.guid);
+  // Containers default to Pass through, leaves to Normal (docs/engine-build.md E4).
+  const blend = mixed(nodes.map((n) => n.blendMode ?? (isFrameNode(n) || isGroupNode(n) ? "PASS_THROUGH" : "NORMAL")));
+  const blendEntries = [
+    { id: "PASS_THROUGH", label: "Pass through", checked: blend === "PASS_THROUGH" },
+    ...BLEND_MODES.map((m) => (m === "-" ? ("-" as const) : { id: m, label: BLEND_LABEL[m], checked: blend === m })),
+  ];
+  const blendActive = blend !== "PASS_THROUGH" && blend !== "NORMAL";
+  const polygons = nodes.every((n) => typeOf(n) === "REGULAR_POLYGON" || typeOf(n) === "STAR");
+  const stars = nodes.every((n) => typeOf(n) === "STAR");
+  const countKept = useKeeps("count");
   const opacity = mixedNumber(nodes.map((n) => Math.round((n.opacity ?? 1) * 100)));
   const visible = mixed(nodes.map((n) => n.visible !== false));
   const corners = nodes.every(hasCorners);
@@ -321,7 +331,13 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             tone="secondary"
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
-          <IconButton icon="24.blendmode.small" label="Blend mode" tone="secondary" disabled={!blendKept} />
+          {blendKept ? (
+            <MenuButton label="Blend mode" entries={blendEntries} className={styles.iconMenu} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
+              <Icon name={blendActive ? "24.blendmode.active.small" : "24.blendmode.small"} />
+            </MenuButton>
+          ) : (
+            <IconButton icon="24.blendmode.small" label="Blend mode" tone="secondary" disabled />
+          )}
         </>
       }
     >
@@ -355,6 +371,38 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             <span />
           )}
         </PropertyRow>
+        {polygons && countKept && (
+          <PropertyRow label={stars ? "Count and ratio" : "Count"}>
+            <NumericInput
+              label="Count"
+              prefix="24.polygon"
+              min={3}
+              max={60}
+              precision={0}
+              value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))}
+              onChange={(v, info) => editEach(ed, "Count", info, refs, () => fields({ count: Math.round(v) }))}
+              onCancel={() => ed.cancelEdit()}
+              onStep={(d) => editEach(ed, "Count", stepInfo, refs, (n) => fields({ count: Math.max(3, Math.min(60, (n.count ?? 3) + d)) }))}
+              onExit={exitToCanvas(ed)}
+            />
+            {stars ? (
+              <NumericInput
+                label="Ratio"
+                prefix="24.star.outline"
+                unit="%"
+                min={0}
+                max={100}
+                precision={0}
+                value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 100))))}
+                onChange={(v, info) => editEach(ed, "Ratio", info, refs, () => fields({ starInnerScale: v / 100 }))}
+                onCancel={() => ed.cancelEdit()}
+                onExit={exitToCanvas(ed)}
+              />
+            ) : (
+              <span />
+            )}
+          </PropertyRow>
+        )}
         {corners && independent && (
           <>
             {[CORNERS.slice(0, 2), CORNERS.slice(2)].map((pair, i) => (

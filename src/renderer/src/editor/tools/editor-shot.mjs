@@ -9,6 +9,7 @@
 //
 //   node src/renderer/src/editor/tools/editor-shot.mjs [outDir]   (default /tmp/designer-work/editor)
 //   EDITOR_URL=http://localhost:5202 node …                       (use a running server instead of starting one)
+//   EDITOR_ONLY=paints node …                                      (only the E4 / E5 section: paints, effects, images, vectors)
 /* global process, console, window, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -82,8 +83,174 @@ const drag = async (page, from, to, steps = 8) => {
 const selection = (page) => page.evaluate(() => window.__designerEditor.selection);
 const node = (page, id) => page.evaluate((id) => window.__designerEditor.engine.readNode(id), id);
 
+const only = process.env.EDITOR_ONLY ?? "";
+
+/** E4 / E5 in the panels on `?editor&doc=paints` (dark): paints of every type, effects, guides, strokes, booleans, images, vector edit. */
+async function paintsSection(page, theme) {
+  await open(page, "&doc=paints");
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (...ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const capable = await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    return { vector: ed.vector.available, tools: [...ed.tools], paintEdit: typeof ed.engine.startPaintEdit === "function" };
+  });
+  results.push(`info engine: tools ${capable.tools.join(" ")}; vector edit ${capable.vector}; gradient handles ${capable.paintEdit}`);
+
+  // Gradients: the row names the type; the picker opens on it (the engine's handles, when it has them).
+  await select("2:2");
+  check("a gradient fill reads Linear", (await panel.getByRole("button", { name: "Fill: Linear" }).count()) === 1);
+  await shot(page, `25-gradient-row-${theme}`);
+  await panel.getByRole("button", { name: "Fill: Linear" }).click();
+  await settle(page);
+  const picker = page.getByRole("dialog", { name: "Color picker" });
+  check("the picker opens on the gradient with its stops", (await picker.getByRole("slider", { name: "Stop 2" }).count()) === 1);
+  if (capable.paintEdit) check("the gradient handles are on while the picker shows it", await page.evaluate(() => !!window.__designerEditor.engine.paintEdit));
+  await shot(page, `26-gradient-picker-${theme}`);
+  await picker.getByRole("radio", { name: "Radial" }).click();
+  await settle(page);
+  check("the picker turns it Radial", (await node(page, "2:2")).fillPaints[0].type === "GRADIENT_RADIAL");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Meta+z");
+
+  // Selection colors list a frame's gradients as rows.
+  await select("2:1");
+  check("Selection colors list gradients (one row each)", (await panel.getByRole("button", { name: "Selection color: Diamond" }).count()) === 1);
+  await shot(page, `27-selection-colors-gradients-${theme}`);
+
+  // Effects: the row, its settings; "+" adds Figma's drop shadow.
+  await select("2:10");
+  check("an effect row reads Drop shadow", (await panel.locator('[data-effect-row="DROP_SHADOW"]').count()) === 1);
+  await panel.getByRole("button", { name: "Effect settings" }).click();
+  await settle(page);
+  const fx = page.getByRole("dialog", { name: "Drop shadow" });
+  check("the effect settings: X, Y, Blur, Spread, colour, behind", (await fx.getByRole("textbox", { name: "Blur" }).count()) === 1 && (await fx.getByRole("textbox", { name: "Spread" }).count()) === 1 && (await fx.getByText("Show behind transparent areas").count()) === 1);
+  await shot(page, `28-effect-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  await select("2:11");
+  await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  const added = (await node(page, "2:11")).effects ?? [];
+  const last = added[added.length - 1];
+  check("+ adds a drop shadow 0 4 4 0 #000 25%", added.length === 2 && last.type === "DROP_SHADOW" && last.offset.y === 4 && last.radius === 4 && Math.abs(last.color.a - 0.25) < 0.01, JSON.stringify(last));
+  await panel.getByRole("button", { name: "Blend mode" }).click();
+  await settle(page);
+  await shot(page, `29-blend-mode-${theme}`);
+  await page.keyboard.press("Escape");
+
+  // Layout guide: rows and the settings.
+  await select("2:50");
+  check("layout guide rows: Columns 4, Grid 20px", (await panel.getByText("Columns 4").count()) === 1 && (await panel.getByText("Grid 20px").count()) === 1);
+  await panel.getByRole("button", { name: "Layout guide settings" }).first().click();
+  await settle(page);
+  await shot(page, `30-layout-guide-${theme}`);
+  await page.keyboard.press("Escape");
+
+  // Stroke: settings (dash 6 / gap 4), individual strokes.
+  await select("2:40");
+  await panel.getByRole("button", { name: "Stroke settings" }).click();
+  await settle(page);
+  const ss = page.getByRole("dialog", { name: "Stroke settings" });
+  check("stroke settings read the dash pattern", (await ss.getByRole("textbox", { name: "Dash" }).inputValue()) === "6" && (await ss.getByRole("textbox", { name: "Gap" }).inputValue()) === "4");
+  await shot(page, `31-stroke-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  await select("2:41");
+  check("a bottom-only stroke reads Custom/Bottom", (await panel.getByRole("button", { name: "Individual strokes" }).count()) === 1);
+  await panel.getByRole("button", { name: "Individual strokes" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Custom" }).click();
+  await settle(page);
+  check("Custom shows the four side weights", (await panel.getByRole("textbox", { name: "Top stroke" }).count()) === 1);
+  await shot(page, `32-individual-strokes-${theme}`);
+
+  // Booleans: the header's menu on two shapes; a boolean group's operation.
+  await select("2:10", "2:11");
+  const booleans = panel.getByRole("button", { name: "Boolean groups" });
+  const menuOn = await booleans.isEnabled();
+  if (menuOn) {
+    await booleans.click();
+    await settle(page);
+  }
+  await shot(page, `33-boolean-menu-${theme}`);
+  const union = page.getByRole("menuitemcheckbox", { name: /Union selection/ });
+  const unionEnabled = menuOn && (await union.count()) === 1 && (await union.getAttribute("aria-disabled")) !== "true";
+  if (unionEnabled) {
+    await union.click();
+    await settle(page);
+    const made = await page.evaluate(() => window.__designerEditor.selectedNodes().map((n) => n.type));
+    check("Union selection makes a boolean group", made.join() === "BOOLEAN_OPERATION", made.join());
+    await page.keyboard.press("Meta+z");
+  } else {
+    if (menuOn) await page.keyboard.press("Escape");
+    results.push("info Union selection: disabled (the engine has no BOOLEAN_UNION yet)");
+  }
+  await select("2:30");
+  check("a boolean group reads Subtract", (await panel.getByText("Subtract", { exact: true }).count()) >= 1);
+
+  // Images: ⇧⌘K → the file picker → a click places it at its size, filled; the store has the bytes.
+  await select();
+  await page.locator("#engine-canvas").focus();
+  const chooser = page.waitForEvent("filechooser");
+  await page.keyboard.press("Shift+Meta+KeyK");
+  await (await chooser).setFiles(path.join(repo, "build/icon.png"));
+  await page.locator("[data-image-placer]").waitFor({ timeout: 5000 });
+  await page.mouse.move(...(await toScreen(page, 40, 620)));
+  await page.mouse.move(...(await toScreen(page, 60, 640)), { steps: 4 });
+  await shot(page, `34-image-placing-${theme}`);
+  await page.mouse.click(...(await toScreen(page, 60, 640)));
+  await settle(page);
+  const placed = await page.evaluate(() => window.__designerEditor.selectedNodes()[0] ?? null);
+  const fill = placed?.fillPaints?.[0];
+  check("a click places the image: a rectangle its size, IMAGE fill, named after the file", placed?.name === "icon" && fill?.type === "IMAGE" && Array.isArray(fill.image?.hash) && fill.image.hash.length === 20 && Math.round(placed.transform.m02) === 60, placed ? `${placed.name} ${placed.size.x}×${placed.size.y} ${fill?.type}` : "nothing");
+  check("the image's bytes are in the file's image store", await page.evaluate(async (h) => !!(await window.__designerEditor.source.images.get(h)), fill ? fill.image.hash.map((b) => b.toString(16).padStart(2, "0")).join("") : ""));
+  await page.evaluate(() => window.__designerEditor.engine.command("ZOOM_TO_SELECTION"));
+  await shot(page, `35-image-placed-${theme}`);
+  await panel.getByRole("button", { name: "Fill: Image" }).click();
+  await settle(page);
+  check("the image picker: scale mode, Choose image, Rotate 90°, adjustments", (await page.getByRole("slider", { name: "Exposure" }).count()) === 1 && (await page.getByRole("button", { name: "Rotate 90°", exact: true }).count()) === 1);
+  await shot(page, `36-image-picker-${theme}`);
+  await page.getByRole("button", { name: "Rotate 90°", exact: true }).click();
+  check("Rotate 90° turns the image", (await page.evaluate(() => window.__designerEditor.selectedNodes()[0].fillPaints[0].rotation)) === 90);
+  await page.keyboard.press("Escape");
+
+  // Vector edit mode: the toolbar switches; Done leaves.
+  if (capable.vector) {
+    await select("2:20");
+    await panel.getByRole("button", { name: "Edit object" }).click();
+    await settle(page);
+    check("vector edit mode: the vector-edit toolbar with Done", (await page.locator("[data-vector-toolbar]").count()) === 1);
+    await shot(page, `37-vector-edit-${theme}`);
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await settle(page);
+    check("Done leaves vector edit mode", (await page.locator("[data-vector-toolbar]").count()) === 0);
+  } else results.push("info vector edit: the engine has no startVectorEdit yet");
+
+  // The new tools (when the engine has them): L draws a line.
+  if (capable.tools.includes("LINE")) {
+    await page.locator("#engine-canvas").focus();
+    await page.keyboard.press("l");
+    await drag(page, await toScreen(page, 0, 460), await toScreen(page, 200, 460));
+    const line = await page.evaluate(() => window.__designerEditor.selectedNodes()[0]?.type);
+    check("L + drag draws a line", line === "LINE", line);
+  }
+}
+
 try {
-  for (const theme of ["dark", "light"]) {
+  if (only === "paints") {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    page.on("response", (r) => {
+      if (r.status() >= 400) problems.push(`dark ${r.status()}: ${r.url()}`);
+    });
+    await paintsSection(page, "dark");
+    await context.close();
+  }
+  for (const theme of only ? [] : ["dark", "light"]) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: theme });
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -210,6 +377,9 @@ try {
       await settle(page);
       await shot(page, `24-type-settings-${theme}`);
       await page.keyboard.press("Escape");
+
+      // ---- E4 / E5: paints, effects, guides, strokes, booleans, images, vector edit ----
+      await paintsSection(page, theme);
 
       // ---- End to end: draw, Esc, undo / redo, delete, rename, the source's changes ----
       await open(page, "&doc=empty");

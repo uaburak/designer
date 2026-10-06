@@ -18,6 +18,10 @@ inline constexpr double kHitSlopCss = 4;
 // visible fill or stroke or `topLevel`. Children not included.
 bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel);
 
+// hitsOwnShape for any node: path shapes (vectors, stars, lines, booleans, arcs, smoothed corners)
+// by their geometry — inside a fill under its winding rule, or near the stroke's centre line.
+bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLevel);
+
 // The ids from the page's direct child down to the innermost visible node under
 // `world`. Hidden nodes and what's in them are skipped; children outside a
 // clipping frame don't count; groups are hit only through their children; the

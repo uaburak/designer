@@ -1,25 +1,41 @@
 #include "gfx/gl/GLDevice.h"
 
 #include <GLES3/gl3.h>
+#include <emscripten/em_js.h>
 #include <emscripten/html5.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include "gfx/gl/Shaders.h"
+
+// ImageBitmaps never cross into Wasm memory: TS keeps them in Module.engineBitmaps and the texture is filled
+// from JavaScript (texSubImage2D(ImageBitmap)); `texture` is the GL texture name.
+EM_JS(int, eng_upload_bitmap, (unsigned texture, unsigned bitmapId), {
+  var bitmaps = Module["engineBitmaps"];
+  var bitmap = bitmaps && bitmaps[bitmapId];
+  if (!bitmap || !GLctx || !GL.textures[texture]) return 0;
+  GLctx.bindTexture(GLctx.TEXTURE_2D, GL.textures[texture]);
+  GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, bitmap);
+  return 1;
+});
 
 namespace eng::gfx {
 
 namespace {
 
-GLuint compile(GLenum type, const char* source) {
+GLuint compile(GLenum type, const std::string& source) {
   GLuint s = glCreateShader(type);
-  glShaderSource(s, 1, &source, nullptr);
+  const char* src = source.c_str();
+  glShaderSource(s, 1, &src, nullptr);
   glCompileShader(s);
   GLint ok = 0;
   glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
   if (!ok) {
-    char log[1024];
+    char log[2048];
     glGetShaderInfoLog(s, sizeof log, nullptr, log);
     std::fprintf(stderr, "engine: shader failed to compile: %s\n", log);
     glDeleteShader(s);
@@ -28,7 +44,7 @@ GLuint compile(GLenum type, const char* source) {
   return s;
 }
 
-GLuint link(const char* vertex, const char* fragment) {
+GLuint link(const std::string& vertex, const std::string& fragment) {
   GLuint vs = compile(GL_VERTEX_SHADER, vertex), fs = compile(GL_FRAGMENT_SHADER, fragment);
   if (!vs || !fs) return 0;
   GLuint p = glCreateProgram();
@@ -40,7 +56,7 @@ GLuint link(const char* vertex, const char* fragment) {
   GLint ok = 0;
   glGetProgramiv(p, GL_LINK_STATUS, &ok);
   if (!ok) {
-    char log[1024];
+    char log[2048];
     glGetProgramInfoLog(p, sizeof log, nullptr, log);
     std::fprintf(stderr, "engine: program failed to link: %s\n", log);
     glDeleteProgram(p);
@@ -60,12 +76,13 @@ class WebGL2Device final : public Device {
     emscripten_webgl_init_context_attributes(&attrs);
     attrs.majorVersion = 2;
     attrs.minorVersion = 0;
-    attrs.alpha = false;  // the engine paints the page background
+    // An RGBA canvas (the engine paints the opaque page background itself): backdrops (blend modes,
+    // background blur) are copied from it into RGBA8 textures, which WebGL2 refuses from an RGB framebuffer.
+    attrs.alpha = true;
     attrs.depth = false;
-    // Interim: frame clipping uses the default framebuffer's stencil until the
-    // engine has its own MSAA targets (docs/engine.md §6.1 asks stencil=false then).
+    // Frame clipping uses the stencil of whatever target is drawn into (the canvas included).
     attrs.stencil = true;
-    attrs.antialias = false;  // shapes are anti-aliased analytically
+    attrs.antialias = false;  // everything is anti-aliased analytically
     attrs.premultipliedAlpha = true;
     attrs.preserveDrawingBuffer = false;
     attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
@@ -75,23 +92,14 @@ class WebGL2Device final : public Device {
       return false;
     }
     emscripten_webgl_make_context_current(context_);
-    shape_.program = link(gl::kVertexShader, gl::kFragmentShader);
-    if (!shape_.program) return false;
-    shape_.row0 = glGetUniformLocation(shape_.program, "u_row0");
-    shape_.row1 = glGetUniformLocation(shape_.program, "u_row1");
-    shape_.stencilPass = glGetUniformLocation(shape_.program, "u_stencilPass");
-    glyph_.program = link(gl::kGlyphVertexShader, gl::kGlyphFragmentShader);
-    if (!glyph_.program) return false;
-    glyph_.row0 = glGetUniformLocation(glyph_.program, "u_row0");
-    glyph_.row1 = glGetUniformLocation(glyph_.program, "u_row1");
-    glyph_.stencilPass = glGetUniformLocation(glyph_.program, "u_stencilPass");
-    glyph_.curves = glGetUniformLocation(glyph_.program, "u_curves");
+    using namespace gl;
+    if (!build(programs_[0], kShapeVertex, std::string(kShapeFragmentHead) + kPaintFunctions + kShapeFragmentBody)) return false;
+    if (!build(programs_[1], kPathVertex, std::string(kPathFragmentHead) + kPaintFunctions + kPathFragmentBody)) return false;
+    if (!build(programs_[2], kCompositeVertex, kCompositeFragment)) return false;
+    if (!build(programs_[3], kBlurVertex, kBlurFragment)) return false;
     glGenVertexArrays(1, &vao_);
     glBindVertexArray(vao_);
-    for (GLuint i = 0; i < 6; i++) {
-      glEnableVertexAttribArray(i);
-      glVertexAttribDivisor(i, 1);
-    }
+    for (GLuint i = 0; i < 7; i++) glVertexAttribDivisor(i, 1);
     return true;
   }
 
@@ -145,6 +153,7 @@ class WebGL2Device final : public Device {
       fb = targets_[pass.target].framebuffer;
     }
     glBindFramebuffer(GL_FRAMEBUFFER, fb);
+    bound_ = fb;
     height_ = pass.viewport.h;
     glViewport(pass.viewport.x, pass.viewport.y, pass.viewport.w, pass.viewport.h);
     glDisable(GL_SCISSOR_TEST);
@@ -152,9 +161,11 @@ class WebGL2Device final : public Device {
     glDisable(GL_CULL_FACE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glStencilMask(0xff);
-    glClearColor(pass.clear[0], pass.clear[1], pass.clear[2], pass.clear[3]);
-    glClearStencil(pass.clearStencil);
-    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    if (!pass.keep) {
+      glClearColor(pass.clear[0], pass.clear[1], pass.clear[2], pass.clear[3]);
+      glClearStencil(pass.clearStencil);
+      glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    }
     glBindVertexArray(vao_);
     return true;
   }
@@ -162,32 +173,29 @@ class WebGL2Device final : public Device {
   void draw(const DrawCall& call) override {
     if (!call.instanceCount || call.pipeline == 0) return;
     const PipelineDesc& p = pipelines_.at(call.pipeline);
-    const Buffer& b = buffers_.at(call.instances.buffer);
-
-    const bool glyphs = p.shader == ShaderId::Glyph;
-    const Program& prog = glyphs ? glyph_ : shape_;
+    int index = static_cast<int>(p.shader);
+    const Program& prog = programs_[index];
+    if (!prog.program) return;
     glUseProgram(prog.program);
-    glBindBuffer(GL_ARRAY_BUFFER, b.gl);
-    // render/ShapeInstance.h: 6 vec4s; render/GlyphInstance.h: 4 vec4s.
-    const GLuint attribs = glyphs ? 4 : 6;
-    const GLsizei stride = static_cast<GLsizei>(attribs * 4 * sizeof(float));
-    for (GLuint i = 0; i < 6; i++) {
-      if (i >= attribs) {
-        glDisableVertexAttribArray(i);
-        continue;
+    const bool instanced = p.shader == ShaderId::Shape || p.shader == ShaderId::Path;
+    if (instanced) {
+      const Buffer& b = buffers_.at(call.instances.buffer);
+      glBindBuffer(GL_ARRAY_BUFFER, b.gl);
+      const GLsizei stride = 7 * 4 * sizeof(float);  // render/DrawInstance.h
+      for (GLuint i = 0; i < 7; i++) {
+        glEnableVertexAttribArray(i);
+        glVertexAttribPointer(i, 4, GL_FLOAT, GL_FALSE, stride,
+                              reinterpret_cast<const void*>(static_cast<uintptr_t>(call.instances.offset + i * 4 * sizeof(float))));
       }
-      glEnableVertexAttribArray(i);
-      glVertexAttribPointer(i, 4, GL_FLOAT, GL_FALSE, stride,
-                            reinterpret_cast<const void*>(static_cast<uintptr_t>(call.instances.offset + i * 4 * sizeof(float))));
+    } else {
+      for (GLuint i = 0; i < 7; i++) glDisableVertexAttribArray(i);
     }
-    glUniform3f(prog.row0, call.uniforms[0], call.uniforms[1], call.uniforms[2]);
-    glUniform3f(prog.row1, call.uniforms[3], call.uniforms[4], call.uniforms[5]);
-    if (glyphs) {
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, call.texture < textures_.size() ? textures_[call.texture].gl : 0);
-      glUniform1i(glyph_.curves, 0);
+    glUniform4fv(prog.v, kUniformSlots, &call.uniforms[0][0]);
+    for (int t = 0; t < 3; t++) {
+      glActiveTexture(GL_TEXTURE0 + t);
+      TextureId id = call.textures[t];
+      glBindTexture(GL_TEXTURE_2D, id && id < textures_.size() ? textures_[id].gl : 0);
     }
-
     if (p.blend == Blend::Premultiplied) {
       glEnable(GL_BLEND);
       glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -196,8 +204,7 @@ class WebGL2Device final : public Device {
     }
     bool colour = p.colorMask == ColorMask::All;
     glColorMask(colour, colour, colour, colour);
-    glUniform1i(prog.stencilPass, colour ? 0 : 1);
-
+    if (prog.stencilPass >= 0) glUniform1i(prog.stencilPass, colour ? 0 : 1);
     if (p.stencil.enabled) {
       glEnable(GL_STENCIL_TEST);
       glStencilFunc(p.stencil.func == StencilFunc::Equal ? GL_EQUAL : GL_ALWAYS, call.stencilRef, 0xff);
@@ -206,14 +213,16 @@ class WebGL2Device final : public Device {
     } else {
       glDisable(GL_STENCIL_TEST);
     }
-
     if (call.scissorEnabled) {
       glEnable(GL_SCISSOR_TEST);
-      glScissor(call.scissor.x, height_ - call.scissor.y - call.scissor.h, call.scissor.w, call.scissor.h);
+      glScissor(call.scissor.x, height_ - call.scissor.y - call.scissor.h, std::max(0, call.scissor.w), std::max(0, call.scissor.h));
     } else {
       glDisable(GL_SCISSOR_TEST);
     }
-    glDrawArraysInstanced(GL_TRIANGLES, 0, static_cast<GLsizei>(call.count), static_cast<GLsizei>(call.instanceCount));
+    if (instanced)
+      glDrawArraysInstanced(GL_TRIANGLES, 0, static_cast<GLsizei>(call.count), static_cast<GLsizei>(call.instanceCount));
+    else
+      glDrawArrays(GL_TRIANGLES, 0, 6);
   }
 
   void endPass() override {
@@ -221,6 +230,7 @@ class WebGL2Device final : public Device {
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    bound_ = 0;
   }
 
   TargetId createTarget(uint32_t width, uint32_t height) override {
@@ -229,18 +239,22 @@ class WebGL2Device final : public Device {
     Target t;
     t.width = width;
     t.height = height;
+    TextureDesc d;
+    d.format = TextureFormat::RGBA8;
+    d.width = width;
+    d.height = height;
+    t.texture = createTexture(d);
+    if (!t.texture) return 0;
     glGenFramebuffers(1, &t.framebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, t.framebuffer);
-    glGenRenderbuffers(1, &t.color);
-    glBindRenderbuffer(GL_RENDERBUFFER, t.color);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, t.color);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textures_[t.texture].gl, 0);
     glGenRenderbuffers(1, &t.stencil);
     glBindRenderbuffer(GL_RENDERBUFFER, t.stencil);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, t.stencil);
     bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // Back to whatever pass is going on.
+    glBindFramebuffer(GL_FRAMEBUFFER, bound_);
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
     if (!complete) {
       release(t);
@@ -260,6 +274,8 @@ class WebGL2Device final : public Device {
     release(targets_[id]);
   }
 
+  TextureId targetTexture(TargetId id) override { return id && id < targets_.size() ? targets_[id].texture : 0; }
+
   bool readPixels(TargetId id, IRect rect, std::span<uint8_t> rgba8) override {
     if (!id || id >= targets_.size() || !targets_[id].framebuffer) return false;
     size_t row = static_cast<size_t>(rect.w) * 4;
@@ -269,7 +285,7 @@ class WebGL2Device final : public Device {
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     // GL's rows run bottom to top.
     glReadPixels(rect.x, static_cast<GLint>(t.height) - rect.y - rect.h, rect.w, rect.h, GL_RGBA, GL_UNSIGNED_BYTE, rgba8.data());
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, bound_);
     std::vector<uint8_t> tmp(row);
     for (int y = 0; y < rect.h / 2; y++) {
       uint8_t* a = rgba8.data() + static_cast<size_t>(y) * row;
@@ -281,19 +297,42 @@ class WebGL2Device final : public Device {
     return true;
   }
 
-  TextureId createTexture(TextureFormat, uint32_t width, uint32_t height) override {
-    if (!context_ || emscripten_is_webgl_context_lost(context_) || !width || !height) return 0;
+  void copyToTexture(TextureId texture, IRect rect) override {
+    if (!texture || texture >= textures_.size() || !textures_[texture].gl || rect.w <= 0 || rect.h <= 0) return;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textures_[texture].gl);
+    int w = std::min<int>(rect.w, static_cast<int>(textures_[texture].width));
+    int h = std::min<int>(rect.h, static_cast<int>(textures_[texture].height));
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rect.x, height_ - rect.y - rect.h, w, h);
+  }
+
+  TextureId createTexture(const TextureDesc& desc) override {
+    if (!context_ || emscripten_is_webgl_context_lost(context_) || !desc.width || !desc.height) return 0;
     emscripten_webgl_make_context_current(context_);
     Texture t;
-    t.width = width;
-    t.height = height;
+    t.width = desc.width;
+    t.height = desc.height;
+    t.format = desc.format;
     glGenTextures(1, &t.gl);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, t.gl);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (desc.format == TextureFormat::RGBA32F) {
+      glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, static_cast<GLsizei>(desc.width), static_cast<GLsizei>(desc.height));
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    } else {
+      GLsizei levels = 1;
+      if (desc.mipmaps)
+        levels = static_cast<GLsizei>(std::floor(std::log2(static_cast<double>(std::max(desc.width, desc.height))))) + 1;
+      glTexStorage2D(GL_TEXTURE_2D, levels, GL_RGBA8, static_cast<GLsizei>(desc.width), static_cast<GLsizei>(desc.height));
+      GLint mag = desc.linear ? GL_LINEAR : GL_NEAREST;
+      GLint min = desc.mipmaps ? GL_LINEAR_MIPMAP_LINEAR : mag;
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
+    }
+    GLint wrap = desc.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap);
     glBindTexture(GL_TEXTURE_2D, 0);
     for (size_t i = 1; i < textures_.size(); i++)
       if (!textures_[i].gl) {
@@ -307,10 +346,32 @@ class WebGL2Device final : public Device {
   void writeTexture(TextureId id, IRect rect, std::span<const uint8_t> data) override {
     if (!id || id >= textures_.size() || !textures_[id].gl) return;
     emscripten_webgl_make_context_current(context_);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, textures_[id].gl);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, rect.y, rect.w, rect.h, GL_RGBA, GL_FLOAT, data.data());
+    if (textures_[id].format == TextureFormat::RGBA32F) {
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+      glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, rect.y, rect.w, rect.h, GL_RGBA, GL_FLOAT, data.data());
+    } else {
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+      glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, rect.y, rect.w, rect.h, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
+    }
     glBindTexture(GL_TEXTURE_2D, 0);
+  }
+
+  void generateMipmaps(TextureId id) override {
+    if (!id || id >= textures_.size() || !textures_[id].gl) return;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textures_[id].gl);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+  }
+
+  bool uploadBitmap(TextureId id, uint32_t bitmapId) override {
+    if (!id || id >= textures_.size() || !textures_[id].gl) return false;
+    emscripten_webgl_make_context_current(context_);
+    bool ok = eng_upload_bitmap(textures_[id].gl, bitmapId) != 0;
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return ok;
   }
 
   void destroyTexture(TextureId id) override {
@@ -334,32 +395,48 @@ class WebGL2Device final : public Device {
     uint32_t size = 0;
   };
   struct Target {
-    GLuint framebuffer = 0, color = 0, stencil = 0;
+    GLuint framebuffer = 0, stencil = 0;
+    TextureId texture = 0;
     uint32_t width = 0, height = 0;
   };
-  static void release(Target& t) {
+  void release(Target& t) {
     if (t.framebuffer) glDeleteFramebuffers(1, &t.framebuffer);
-    if (t.color) glDeleteRenderbuffers(1, &t.color);
     if (t.stencil) glDeleteRenderbuffers(1, &t.stencil);
+    if (t.texture) destroyTexture(t.texture);
     t = Target{};
   }
   struct Program {
     GLuint program = 0;
-    GLint row0 = -1, row1 = -1, stencilPass = -1, curves = -1;
+    GLint v = -1, stencilPass = -1;
   };
+  bool build(Program& p, const char* vertex, const std::string& fragment) {
+    p.program = link(vertex, fragment);
+    if (!p.program) return false;
+    p.v = glGetUniformLocation(p.program, "u_v");
+    p.stencilPass = glGetUniformLocation(p.program, "u_stencilPass");
+    glUseProgram(p.program);
+    const char* samplers[3] = {"u_t0", "u_t1", "u_t2"};
+    for (int i = 0; i < 3; i++) {
+      GLint loc = glGetUniformLocation(p.program, samplers[i]);
+      if (loc >= 0) glUniform1i(loc, i);
+    }
+    return true;
+  }
   struct Texture {
     GLuint gl = 0;
     uint32_t width = 0, height = 0;
+    TextureFormat format = TextureFormat::RGBA8;
   };
 
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context_ = 0;
-  Program shape_, glyph_;
+  Program programs_[4];
   std::vector<Texture> textures_{Texture{}};  // index = TextureId; 0 unused
   GLuint vao_ = 0;
   std::vector<Buffer> buffers_{Buffer{}};          // index = BufferId; 0 unused
   std::vector<PipelineDesc> pipelines_{PipelineDesc{}};
   std::vector<Target> targets_{Target{}};          // index = TargetId; 0 = the canvas
   int height_ = 0;
+  GLuint bound_ = 0;  // the framebuffer of the pass going on (0: none, or the canvas)
 };
 
 }  // namespace

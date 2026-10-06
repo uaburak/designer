@@ -17,6 +17,8 @@ export interface EngineWasm {
   HEAPU32: Uint32Array;
   HEAPF32: Float32Array;
   HEAPF64: Float64Array;
+  /** ImageBitmaps the engine uploads from JavaScript (engine_image_add_bitmap), by id. Set by Engine.ts. */
+  engineBitmaps?: Record<number, ImageBitmap>;
   _malloc(size: number): number;
   _free(ptr: number): void;
   [exported: `_engine_${string}`]: (...args: number[]) => number;

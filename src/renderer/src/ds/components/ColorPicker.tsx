@@ -168,6 +168,8 @@ export interface ColorPickerProps<P extends PickerPaint> {
   /** IMAGE: what to preview, and the "Choose image…" action */
   imageUrl?: string | null;
   onChooseImage?: () => void;
+  /** IMAGE: more controls under the scale mode (the editor's rotate and adjustment sliders) */
+  imageControls?: ReactNode;
   /** The colour model (the editor remembers it per user); uncontrolled without it */
   colorModel?: ColorModel;
   onColorModelChange?: (model: ColorModel) => void;
@@ -190,7 +192,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, imageControls, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
   const model = colorModel ?? ownModel;
@@ -473,6 +475,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                   <Select label="Image scale mode" value={value.imageScaleMode ?? "FILL"} options={SCALE_MODES} onChange={(m) => onChange({ ...value, imageScaleMode: m as ImageScaleMode }, { final: true, source: "pick" })} />
                   <Button variant="secondary" disabled={!onChooseImage} onClick={onChooseImage}>Choose image…</Button>
                 </div>
+                {imageControls}
                 <div style={{ width: 88 }}>
                   <NumericInput label="Opacity" prefix="24.opacity" value={pct(value.opacity ?? 1)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, opacity: v / 100 }, info)} />
                 </div>

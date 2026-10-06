@@ -9,6 +9,8 @@ import { currentTheme, IS_MAC, keys as keyText, setThemePreference, showToast, t
 import type { EditorController } from "./controller";
 import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
+import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
+import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
 
 export interface KeyCombo {
   /** KeyboardEvent.code */
@@ -113,6 +115,33 @@ const theme = (id: string, label: string, preference: ThemePreference): EditorCo
   checked: () => currentTheme().preference === preference,
 });
 
+/**
+ * An engine command a later milestone brings (E4's booleans, Flatten, masks…): runs and enables itself once
+ * abi.ts names it and the engine says it can run; until then shown, disabled.
+ */
+function pending(id: string, label: string, name: string, keys?: KeyCombo[], extra: Partial<EditorCommand> = {}): EditorCommand {
+  return {
+    id,
+    label,
+    keys,
+    run: (ed) => {
+      runEngineCommand(ed.engine, name);
+    },
+    enabled: (ed) => engineCommandEnabled(ed.engine, name),
+    ...extra,
+  };
+}
+
+/** ⇧⌘K "Image/video…" / "Place image…": the system's file picker, then Figma's placing (canvas/ImagePlacer.tsx). */
+const placeImage = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({
+  id,
+  label,
+  keys,
+  run: (ed) => void chooseAndPlaceImages(ed),
+  enabled: (ed) => !!ed.images.store,
+  checked: (ed) => id === "tool.image" && !!ed.ui.get().placingImages?.length,
+});
+
 /** Not built yet: shown, disabled (Figma's menus list them). */
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
 
@@ -136,7 +165,7 @@ export const COMMANDS: EditorCommand[] = [
   tool("tool.ellipse", "Ellipse", "ELLIPSE", [k("KeyO")]),
   tool("tool.polygon", "Polygon", "POLYGON", []),
   tool("tool.star", "Star", "STAR", []),
-  tool("tool.image", "Image/video…", "IMAGE", [k("KeyK", { mod: true, shift: true })]),
+  placeImage("tool.image", "Image/video…", [k("KeyK", { mod: true, shift: true })]),
   tool("tool.pen", "Pen", "PEN", [k("KeyP")]),
   tool("tool.pencil", "Pencil", "PENCIL", [k("KeyP", { shift: true })]),
   tool("tool.text", "Text", "TEXT", [k("KeyT")]),
@@ -224,7 +253,9 @@ export const COMMANDS: EditorCommand[] = [
   engine("object.add-auto-layout", "Add auto layout", "ADD_AUTO_LAYOUT", [k("KeyA", { shift: true })]),
   engine("object.remove-auto-layout", "Remove auto layout", "REMOVE_AUTO_LAYOUT", [k("KeyA", { shift: true, alt: true })]),
   later("object.create-component", "Create component", [k("KeyK", { mod: true, alt: true })]),
-  later("object.use-as-mask", "Use as mask", [k("KeyM", { mod: true, ctrl: true })]),
+  pending("object.use-as-mask", "Use as mask", "USE_AS_MASK", [k("KeyM", { mod: true, ctrl: true })], {
+    checked: (ed) => ed.selectedNodes().some((n) => (n as { mask?: boolean }).mask === true),
+  }),
   engine("object.bring-to-front", "Bring to front", "BRING_TO_FRONT", [k("BracketRight", { mod: true, alt: true })]),
   engine("object.bring-forward", "Bring forward", "BRING_FORWARD", [k("BracketRight", { mod: true })]),
   engine("object.send-backward", "Send backward", "SEND_BACKWARD", [k("BracketLeft", { mod: true })]),
@@ -259,12 +290,12 @@ export const COMMANDS: EditorCommand[] = [
   later("arrange.tidy-up", "Tidy up", [k("KeyT", { alt: true, ctrl: true })]),
 
   // ---- Vector, booleans (E4) ----
-  later("vector.flatten", "Flatten", [k("KeyE", { mod: true })]),
-  later("vector.outline-stroke", "Outline stroke", [k("KeyO", { mod: true, alt: true })]),
-  later("vector.union", "Union selection", [k("KeyU", { alt: true, shift: true })]),
-  later("vector.subtract", "Subtract selection", [k("KeyS", { alt: true, shift: true })]),
-  later("vector.intersect", "Intersect selection", [k("KeyI", { alt: true, shift: true })]),
-  later("vector.exclude", "Exclude selection", [k("KeyE", { alt: true, shift: true })]),
+  pending("vector.flatten", "Flatten", "FLATTEN", [k("KeyE", { mod: true })]),
+  pending("vector.outline-stroke", "Outline stroke", "OUTLINE_STROKE", [k("KeyO", { mod: true, alt: true })]),
+  pending("vector.union", "Union selection", "BOOLEAN_UNION", [k("KeyU", { alt: true, shift: true })]),
+  pending("vector.subtract", "Subtract selection", "BOOLEAN_SUBTRACT", [k("KeyS", { alt: true, shift: true })]),
+  pending("vector.intersect", "Intersect selection", "BOOLEAN_INTERSECT", [k("KeyI", { alt: true, shift: true })]),
+  pending("vector.exclude", "Exclude selection", "BOOLEAN_EXCLUDE", [k("KeyE", { alt: true, shift: true })]),
 
   // ---- Text (E3) ----
   later("text.bold", "Bold", [k("KeyB", { mod: true })]),
@@ -305,7 +336,7 @@ export const COMMANDS: EditorCommand[] = [
   },
   later("file.export", "Export…", [k("KeyE", { mod: true, shift: true })]),
   later("file.export-frames-to-pdf", "Export frames to PDF…"),
-  later("file.place-image", "Place image…", [k("KeyK", { mod: true, shift: true })]),
+  placeImage("file.place-image", "Place image…", [k("KeyK", { mod: true, shift: true })]),
   {
     id: "file.back-to-files",
     label: "Back to files",

@@ -26,7 +26,10 @@ PipelineId NullDevice::createPipeline(const PipelineDesc& desc) {
 
 bool NullDevice::beginPass(const PassDesc& pass) {
   if (pass.target && (pass.target >= targets_.size() || !targets_[pass.target].live)) return false;
-  draws.clear();
+  if (submitted_) {
+    draws.clear();
+    submitted_ = false;
+  }
   lastPass = pass;
   passes++;
   if (pass.target)
@@ -36,12 +39,18 @@ bool NullDevice::beginPass(const PassDesc& pass) {
 
 TargetId NullDevice::createTarget(uint32_t width, uint32_t height) {
   if (!width || !height) return 0;
-  targets_.push_back({width, height, {0, 0, 0, 0}, true});
+  TextureId tex = createTexture(TextureFormat::RGBA8, width, height);
+  targets_.push_back({width, height, {0, 0, 0, 0}, true, tex});
   return static_cast<TargetId>(targets_.size() - 1);
 }
 
+TextureId NullDevice::targetTexture(TargetId target) { return target && target < targets_.size() ? targets_[target].texture : 0; }
+
 void NullDevice::destroyTarget(TargetId target) {
-  if (target && target < targets_.size()) targets_[target].live = false;
+  if (target && target < targets_.size()) {
+    targets_[target].live = false;
+    destroyTexture(targets_[target].texture);
+  }
 }
 
 bool NullDevice::readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) {
@@ -54,19 +63,22 @@ bool NullDevice::readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba
 }
 
 void NullDevice::draw(const DrawCall& call) {
-  const auto& b = buffers_.at(call.instances.buffer);
   Recorded r{call, pipelines_.at(call.pipeline), {}};
-  r.instances.assign(b.begin() + call.instances.offset, b.begin() + call.instances.offset + call.instances.size);
+  if (call.instances.buffer) {
+    const auto& b = buffers_.at(call.instances.buffer);
+    r.instances.assign(b.begin() + call.instances.offset, b.begin() + call.instances.offset + call.instances.size);
+  }
   draws.push_back(std::move(r));
 }
 
-TextureId NullDevice::createTexture(TextureFormat format, uint32_t width, uint32_t height) {
-  if (!width || !height) return 0;
+TextureId NullDevice::createTexture(const TextureDesc& desc) {
+  if (!desc.width || !desc.height) return 0;
   Texture t;
-  t.format = format;
-  t.width = width;
-  t.height = height;
-  t.bytes.assign(static_cast<size_t>(width) * height * 16, 0);
+  t.format = desc.format;
+  t.width = desc.width;
+  t.height = desc.height;
+  // Float data is kept (tests read the curves back); colour textures only by size.
+  if (desc.format == TextureFormat::RGBA32F) t.bytes.assign(static_cast<size_t>(desc.width) * desc.height * 16, 0);
   t.live = true;
   textures_.push_back(std::move(t));
   return static_cast<TextureId>(textures_.size() - 1);
@@ -74,6 +86,7 @@ TextureId NullDevice::createTexture(TextureFormat format, uint32_t width, uint32
 
 void NullDevice::writeTexture(TextureId id, IRect rect, std::span<const uint8_t> data) {
   Texture& t = textures_.at(id);
+  if (t.format != TextureFormat::RGBA32F) return;
   const size_t texel = 16, row = static_cast<size_t>(rect.w) * texel;
   for (int y = 0; y < rect.h; y++) {
     size_t dst = (static_cast<size_t>(rect.y + y) * t.width + static_cast<size_t>(rect.x)) * texel;

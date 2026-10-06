@@ -14,17 +14,34 @@ const Mat2x3 kIdentity;
 
 // Fields whose change moves a node's box (or its descendants').
 constexpr FieldMask kGeometryFields = F_TRANSFORM | F_SIZE | F_PARENT_INDEX | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN |
-                                      F_TYPE | F_RESIZE_TO_FIT;
+                                      F_TYPE | F_RESIZE_TO_FIT | F_EFFECTS | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |
+                                      F_VECTOR_DATA;
 
 double outerStroke(const NodeProps& p) {
   bool stroke = false;
   for (auto& s : p.strokePaints) stroke |= s.visible;
   if (!stroke || p.strokeWeight <= 0) return 0;
-  switch (p.strokeAlign) {
-    case StrokeAlign::OUTSIDE: return p.strokeWeight;
-    case StrokeAlign::CENTER: return p.strokeWeight / 2;
-    default: return 0;
+  double w = p.strokeWeight;
+  double reach = p.strokeAlign == StrokeAlign::OUTSIDE ? w : p.strokeAlign == StrokeAlign::CENTER ? w / 2 : 0;
+  if (p.isPathShape() && reach > 0) {
+    // Miters, square caps and arrowheads reach past half the width.
+    if (p.strokeJoin == StrokeJoin::MITER) reach *= std::max(1.0, std::min(p.miterLimit, 16.0));
+    if (p.type == NodeType::LINE || p.type == NodeType::VECTOR) reach = std::max(reach, 3 * w + 6);
   }
+  return reach;
+}
+
+// How far effects draw past the node's box (shadows, layer blur).
+double effectsOutset(const NodeProps& p) {
+  double out = 0;
+  for (const Effect& e : p.effects) {
+    if (!e.visible) continue;
+    if (e.type == EffectType::DROP_SHADOW)
+      out = std::max(out, std::max(std::fabs(e.offset.x), std::fabs(e.offset.y)) + e.radius + std::max(0.0, e.spread));
+    else if (e.type == EffectType::FOREGROUND_BLUR)
+      out = std::max(out, e.radius);
+  }
+  return out;
 }
 
 }  // namespace
@@ -37,6 +54,7 @@ void Document::clear() {
   derived_.clear();
   indexes_.clear();
   dirty_.clear();
+  geometry_.clear();
 }
 
 const Node* Document::get(Guid id) const {
@@ -208,7 +226,7 @@ Document::Derived& Document::derive(Guid id) const {
   }
   // The render bounds: the box, grown by the outside part of visible strokes.
   Rect box = transformedBounds(d.world, p.size.x, p.size.y);
-  double grow = outerStroke(p) * std::sqrt(std::fabs(d.world.determinant()));
+  double grow = (outerStroke(p) + effectsOutset(p)) * std::sqrt(std::fabs(d.world.determinant()));
   d.bounds = {box.x - grow, box.y - grow, box.w + 2 * grow, box.h + 2 * grow};
   // The page's spatial index (pages and the document aren't in one).
   bool indexed = page != kNoGuid && p.type != NodeType::DOCUMENT && p.type != NodeType::CANVAS;

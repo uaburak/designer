@@ -26,7 +26,7 @@ inline void crossX(const float p0[2], const float p1[2], const float p2[2], floa
   float ay = p0[1] - 2 * p1[1] + p2[1], by = p0[1] - p1[1];
   float ax = p0[0] - 2 * p1[0] + p2[0], bx = p0[0] - p1[0];
   float t1, t2;
-  if (std::fabs(ay) < 1e-5f) {
+  if (std::fabs(ay) < 1e-5f * std::max(std::fabs(by), 1e-30f) || std::fabs(ay) < 1e-12f) {
     t1 = t2 = p0[1] / (2 * by);
   } else {
     float d = std::sqrt(std::max(by * by - ay * p0[1], 0.f));

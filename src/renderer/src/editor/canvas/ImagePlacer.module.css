@@ -1,0 +1,30 @@
+@layer app {
+  /* Over the canvas while images wait to be placed: takes the clicks, shows a crosshair */
+  .overlay { position: absolute; inset: 0; z-index: var(--ds-z-base); cursor: crosshair; }
+  /* The next image, at the pointer (Figma: a small preview with the count of images left) */
+  .thumb {
+    position: absolute;
+    width: var(--ds-space-12);
+    height: var(--ds-space-12);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-tertiary) center / cover no-repeat;
+    box-shadow: var(--ds-elevation-200);
+    pointer-events: none;
+  }
+  .count {
+    position: absolute;
+    top: calc(-1 * var(--ds-space-2));
+    right: calc(-1 * var(--ds-space-2));
+    min-width: var(--ds-space-4);
+    height: var(--ds-space-4);
+    padding: 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-brand);
+    color: var(--figma-color-text-onbrand);
+    font: var(--ds-font-body-small);
+    line-height: var(--ds-space-4);
+    text-align: center;
+  }
+  /* A drag sizing the image */
+  .box { position: absolute; border: 1px solid var(--figma-color-border-selected); pointer-events: none; }
+}

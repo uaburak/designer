@@ -12,7 +12,8 @@
  * real Figma never tries to read it. When the kiwi codec lands the payload
  * becomes the fig-kiwi archive of desktop.md §13 and the markers Figma's.
  */
-import type { Guid, Message } from "@/engine/codec";
+import type { Guid, Message, Vector } from "@/engine/codec";
+import { boundsOf, IDENTITY, unionBoxes } from "./geometry";
 
 export const CLIPBOARD_TYPE = "application/x-designerv2-kiwi";
 const OPEN = "(designerv2)";
@@ -92,4 +93,31 @@ export function decodeClipboard(read: (type: string) => string | null | undefine
     }
   }
   return null;
+}
+
+/**
+ * The clipboard Message moved so that, pasted in place, its top-left lands on `point` (page px): every source
+ * region's offset shifts by the same amount ("Paste here" — the engine's paste can't run inside a transaction, so
+ * the move is in the Message, not a second edit).
+ */
+export function messageAt(message: Message, point: Vector): Message {
+  const ids = new Set(message.nodeChanges.map((n) => n.guid));
+  const regions = new Map((message.clipboardSelectionRegions ?? []).map((r) => [r.parent, r]));
+  const boxes = message.nodeChanges
+    .filter((n) => n.phase !== "REMOVED" && !ids.has(n.parentIndex?.guid ?? ""))
+    .map((n) => {
+      const o = regions.get(n.parentIndex?.guid ?? "")?.enclosingFrameOffset ?? { x: 0, y: 0 };
+      const m = n.transform ?? IDENTITY;
+      return boundsOf({ ...m, m02: m.m02 + o.x, m12: m.m12 + o.y }, n.size ?? { x: 0, y: 0 });
+    });
+  const u = unionBoxes(boxes);
+  if (!u) return message;
+  const d = { x: Math.round(point.x - u.x), y: Math.round(point.y - u.y) };
+  const parents = new Set(message.nodeChanges.filter((n) => !ids.has(n.parentIndex?.guid ?? "")).map((n) => n.parentIndex?.guid ?? ""));
+  const shifted = [...parents].map((parent) => {
+    const r = regions.get(parent);
+    const o = r?.enclosingFrameOffset ?? { x: 0, y: 0 };
+    return { parent, nodes: r?.nodes ?? message.nodeChanges.filter((n) => n.parentIndex?.guid === parent).map((n) => n.guid), enclosingFrameOffset: { x: o.x + d.x, y: o.y + d.y } };
+  });
+  return { ...message, clipboardSelectionRegions: shifted };
 }

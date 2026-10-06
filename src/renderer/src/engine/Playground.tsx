@@ -27,6 +27,12 @@ const TOOL_BUTTONS: { tool: ToolName; label: string; key: string }[] = [
   { tool: "FRAME", label: "Frame", key: "F" },
   { tool: "RECTANGLE", label: "Rectangle", key: "R" },
   { tool: "ELLIPSE", label: "Ellipse", key: "O" },
+  { tool: "LINE", label: "Line", key: "L" },
+  { tool: "ARROW", label: "Arrow", key: "⇧L" },
+  { tool: "POLYGON", label: "Polygon", key: "" },
+  { tool: "STAR", label: "Star", key: "" },
+  { tool: "PEN", label: "Pen", key: "P" },
+  { tool: "PENCIL", label: "Pencil", key: "⇧P" },
   { tool: "HAND", label: "Hand tool", key: "H" },
   { tool: "TEXT", label: "Text", key: "T" },
 ];
@@ -70,7 +76,7 @@ function Toolbar({ store }: { store: EngineStore }) {
       {TOOL_BUTTONS.map((b) => (
         <button
           key={b.tool}
-          title={`${b.label} (${b.key})`}
+          title={b.key ? `${b.label} (${b.key})` : b.label}
           style={button(tool === b.tool)}
           onClick={() => {
             engine.setTool(b.tool);

@@ -10,6 +10,9 @@
 import { modifiersOf } from "@/engine/CanvasController";
 import type { EditorController } from "./controller";
 import { commandForKey, isEnabled } from "./commands";
+import type { VectorTool } from "./vectorEdit";
+
+const VECTOR_KEYS: Record<string, VectorTool> = { KeyV: "MOVE", KeyQ: "LASSO", KeyP: "PEN", KeyB: "PAINT_BUCKET" };
 
 /** A text field, a contenteditable, or something inside one. */
 export function isEditable(target: EventTarget | null): boolean {
@@ -32,6 +35,15 @@ export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement):
       if ((e.key === "Enter" || e.key === " ") && isControl(e.target)) return;
       if (ed.engineKey("down", e, modifiersOf(e))) {
         e.preventDefault();
+        return;
+      }
+    }
+    // Vector edit mode: the tool letters pick the vector-edit tools (V Move, Q Lasso, P Pen, B Paint bucket).
+    if (ed.vector.state.get().active && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      const tool = VECTOR_KEYS[e.code];
+      if (tool) {
+        e.preventDefault();
+        ed.vector.setTool(tool);
         return;
       }
     }

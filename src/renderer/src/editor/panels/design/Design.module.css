@@ -104,3 +104,77 @@
   /* "See all N colors" */
   .seeAll { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); }
 }
+
+@layer app {
+  /* The selection header's actions (Edit object, Create component, Use as mask, Boolean groups), right-aligned */
+  .headerActions { display: flex; align-items: center; gap: 0; margin-left: auto; }
+  /* An icon that opens a menu (blend mode, individual strokes, boolean groups): an icon button's box */
+  .iconMenu {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .iconMenu:hover { background: var(--ds-color-bg-transparent-hover); color: var(--figma-color-icon); }
+  .iconMenu[data-open] { background: var(--ds-color-bg-transparent-pressed); color: var(--figma-color-icon); }
+  .iconMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .iconMenu > svg + svg { margin-left: calc(-1 * var(--ds-space-1)); }
+
+  /* An effect / layout guide row: its glyph (opens the settings) and the type dropdown or name, in a field */
+  .effectField {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    height: var(--ds-size-control);
+    margin-right: var(--ds-space-1);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .effectField > [data-ds="Select"] { flex: 1 1 auto; min-width: 0; }
+  .effectLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-left: var(--ds-space-1); white-space: nowrap; text-overflow: ellipsis; }
+  .rowHidden .effectField, .rowHidden .paintField { opacity: 0.4; }
+  /* Settings popovers: a label column and a field column; a row across both; X and Y side by side */
+  .settingsWide { grid-column: 1 / -1; display: flex; }
+  .settingsWide > * { flex: 1 1 auto; }
+  .pair { display: flex; gap: var(--ds-space-2); }
+  .pair > * { flex: 1 1 0; min-width: 0; }
+
+  /* The image paint's extras in the picker: Rotate 90°, then the adjustment sliders */
+  .imageControls { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .imageRotate { display: flex; justify-content: flex-end; }
+  .adjustment { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-control); }
+  .adjustmentLabel { color: var(--figma-color-text-secondary); }
+  .slider {
+    width: 100%;
+    height: var(--ds-space-4);
+    margin: 0;
+    background: transparent;
+    appearance: none;
+    outline: none;
+  }
+  .slider::-webkit-slider-runnable-track {
+    height: var(--ds-space-1);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-tertiary);
+  }
+  .slider::-webkit-slider-thumb {
+    width: var(--ds-space-3);
+    height: var(--ds-space-3);
+    margin-top: calc((var(--ds-space-1) - var(--ds-space-3)) / 2);
+    border: 2px solid var(--figma-color-bg);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-icon);
+    box-shadow: var(--ds-elevation-100);
+    appearance: none;
+  }
+  .slider:focus-visible::-webkit-slider-thumb { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+}

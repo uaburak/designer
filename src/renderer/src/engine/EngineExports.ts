@@ -166,6 +166,24 @@ export class EngineExports {
     this.withBytes([family, style], (p) => void this.fn("font_missing")(p[0], p[1], p[2], p[3]));
   setFallbackFonts = (families: Uint8Array): number => this.withBytes([families], (p) => this.fn("set_fallback_fonts")(p[0], p[1]));
 
+  // ---- Vector edit mode, gradient handles ----
+  vectorEdit = (h: number, sessionID: number, localID: number): number => this.fn("vector_edit")(h, sessionID, localID);
+  vectorEditEnd = (h: number): void => void this.fn("vector_edit_end")(h);
+  vectorEditTool = (h: number, tool: number): number => this.fn("vector_edit_tool")(h, tool);
+  endCaps = (h: number, sessionID: number, localID: number): number => this.fn("end_caps")(h, sessionID, localID);
+  paintEdit = (h: number, sessionID: number, localID: number, paints: number, index: number): number =>
+    this.fn("paint_edit")(h, sessionID, localID, paints, index);
+  paintEditEnd = (h: number): void => void this.fn("paint_edit_end")(h);
+  paintEditStop = (h: number, index: number): number => this.fn("paint_edit_stop")(h, index);
+
+  // ---- Images (module-wide) ----
+  /** `hash`: 40 hex digits. The bitmap is Module.engineBitmaps[bitmapId]. */
+  imageAddBitmap = (hash: string, bitmapId: number, width: number, height: number): number =>
+    this.withBytes([new TextEncoder().encode(hash)], (p) => this.fn("image_add_bitmap")(p[0], bitmapId, width, height));
+  imageAddRgba = (hash: string, width: number, height: number, rgba: Uint8Array): number =>
+    this.withBytes([new TextEncoder().encode(hash), rgba], (p) => this.fn("image_add_rgba")(p[0], width, height, p[2], p[3]));
+  imageFailed = (hash: string): number => this.withBytes([new TextEncoder().encode(hash)], (p) => this.fn("image_failed")(p[0]));
+
   // ---- Text ----
   textEdit = (h: number, sessionID: number, localID: number, flags: number): number => this.fn("text_edit")(h, sessionID, localID, flags);
   textEditEnd = (h: number): void => void this.fn("text_edit_end")(h);
@@ -195,4 +213,6 @@ export const USED_EXPORTS = [
   "has_events", "take_events", "stats",
   "font_add_take", "font_bind", "font_missing", "set_fallback_fonts",
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",
+  "image_add_bitmap", "image_add_rgba", "image_failed",
+  "vector_edit", "vector_edit_end", "vector_edit_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
 ].map((name) => `engine_${name}`);

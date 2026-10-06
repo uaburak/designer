@@ -2,12 +2,38 @@
 
 #include <algorithm>
 
+#include "base/Base64.h"
+
 namespace eng::codec {
 
 namespace {
 
+ImageDataSink gImageDataSink = nullptr;
+
 const char* kCornerKeys[4] = {"rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius",
                               "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius"};
+
+const char* paintTypeName(PaintType t) {
+  switch (t) {
+    case PaintType::SOLID: return "SOLID";
+    case PaintType::GRADIENT_LINEAR: return "GRADIENT_LINEAR";
+    case PaintType::GRADIENT_RADIAL: return "GRADIENT_RADIAL";
+    case PaintType::GRADIENT_ANGULAR: return "GRADIENT_ANGULAR";
+    case PaintType::GRADIENT_DIAMOND: return "GRADIENT_DIAMOND";
+    case PaintType::IMAGE: return "IMAGE";
+    default: return "SOLID";
+  }
+}
+
+bool paintTypeFromName(std::string_view s, PaintType& out) {
+  for (PaintType t : {PaintType::SOLID, PaintType::GRADIENT_LINEAR, PaintType::GRADIENT_RADIAL, PaintType::GRADIENT_ANGULAR,
+                      PaintType::GRADIENT_DIAMOND, PaintType::IMAGE})
+    if (s == paintTypeName(t)) {
+      out = t;
+      return true;
+    }
+  return false;
+}
 
 void writeColor(json::Writer& w, const Color& c) {
   w.beginObject().key("r").number(c.r).key("g").number(c.g).key("b").number(c.b).key("a").number(c.a).endObject();
@@ -15,22 +41,99 @@ void writeColor(json::Writer& w, const Color& c) {
 
 void writeVector(json::Writer& w, Vec2 v) { w.beginObject().key("x").number(v.x).key("y").number(v.y).endObject(); }
 
-void writePaints(json::Writer& w, const std::vector<Paint>& paints) {
-  w.beginArray();
-  for (auto& p : paints) {
-    if (p.type == PaintType::OTHER) {
-      w.raw(p.raw);
-      continue;
-    }
-    w.beginObject();
-    w.key("type").string("SOLID");
+void writeMatrix(json::Writer& w, const Mat2x3& m) {
+  w.beginObject();
+  w.key("m00").number(m.m00).key("m01").number(m.m01).key("m02").number(m.m02);
+  w.key("m10").number(m.m10).key("m11").number(m.m11).key("m12").number(m.m12);
+  w.endObject();
+}
+
+// Closes an object written by `w` with already-encoded members ("k":v,…) appended.
+std::string withExtra(json::Writer& w, const std::string& extra) {
+  std::string s = w.take();
+  if (!extra.empty()) {
+    s.pop_back();
+    if (s.size() > 1) s += ",";
+    s += extra + "}";
+  }
+  return s;
+}
+
+void writePaint(json::Writer& out, const Paint& p) {
+  if (p.type == PaintType::OTHER) {
+    out.raw(p.extra);
+    return;
+  }
+  json::Writer w;
+  w.beginObject();
+  w.key("type").string(paintTypeName(p.type));
+  if (p.type == PaintType::SOLID || !(p.color == Color{})) {
     w.key("color");
     writeColor(w, p.color);
-    w.key("opacity").number(p.opacity);
-    w.key("visible").boolean(p.visible);
+  }
+  w.key("opacity").number(p.opacity);
+  w.key("visible").boolean(p.visible);
+  if (p.blendMode != BlendMode::NORMAL) w.key("blendMode").string(enumName(p.blendMode));
+  if (!p.stops.empty()) {
+    w.key("stops").beginArray();
+    for (auto& st : p.stops) {
+      w.beginObject().key("color");
+      writeColor(w, st.color);
+      w.key("position").number(st.position).endObject();
+    }
+    w.endArray();
+  }
+  if (p.type != PaintType::SOLID) {
+    w.key("transform");
+    writeMatrix(w, p.transform);
+  }
+  if (p.image.present || !p.imageName.empty()) {
+    w.key("image").beginObject();
+    if (p.image.present) {
+      w.key("hash").beginArray();
+      for (uint8_t b : p.image.bytes) w.number(b);
+      w.endArray();
+    }
+    if (!p.imageName.empty()) w.key("name").string(p.imageName);
     w.endObject();
   }
-  w.endArray();
+  if (p.type == PaintType::IMAGE) {
+    w.key("imageScaleMode").string(enumName(p.imageScaleMode));
+    if (p.rotation != 0) w.key("rotation").number(p.rotation);
+    if (p.scale != 1) w.key("scale").number(p.scale);
+    if (p.originalImageWidth) w.key("originalImageWidth").number(p.originalImageWidth);
+    if (p.originalImageHeight) w.key("originalImageHeight").number(p.originalImageHeight);
+  }
+  if (p.paintFilter.any()) {
+    const PaintFilter& f = p.paintFilter;
+    w.key("paintFilter").beginObject();
+    std::pair<const char*, float> fields[] = {{"tint", f.tint}, {"shadows", f.shadows}, {"highlights", f.highlights},
+                                              {"detail", f.detail}, {"exposure", f.exposure}, {"vignette", f.vignette},
+                                              {"temperature", f.temperature}, {"vibrance", f.vibrance},
+                                              {"contrast", f.contrast}, {"brightness", f.brightness}};
+    for (auto& [k, v] : fields)
+      if (v != 0) w.key(k).number(v);
+    w.endObject();
+  }
+  w.endObject();
+  out.raw(withExtra(w, p.extra));
+}
+
+void writeEffect(json::Writer& out, const Effect& e) {
+  json::Writer w;
+  w.beginObject();
+  w.key("type").string(enumName(e.type));
+  w.key("color");
+  writeColor(w, e.color);
+  w.key("offset");
+  writeVector(w, e.offset);
+  w.key("radius").number(e.radius);
+  w.key("visible").boolean(e.visible);
+  w.key("blendMode").string(enumName(e.blendMode));
+  w.key("spread").number(e.spread);
+  w.key("showShadowBehindNode").boolean(e.showShadowBehindNode);
+  w.endObject();
+  out.raw(withExtra(w, e.extra));
 }
 
 template <typename E>
@@ -99,9 +202,38 @@ void writeTextData(json::Writer& w, const TextData& t) {
   w.endObject();
 }
 
+void writeVectorStyle(json::Writer& out, const VectorStyle& st) {
+  json::Writer w;
+  w.beginObject();
+  w.key("styleID").number(st.styleID);
+  if (st.mask & VS_FILLS) {
+    w.key("fillPaints");
+    writePaints(w, st.fillPaints);
+  }
+  if (st.mask & VS_STROKE_CAP) w.key("strokeCap").string(enumName(st.strokeCap));
+  if (st.mask & VS_STROKE_JOIN) w.key("strokeJoin").string(enumName(st.strokeJoin));
+  if (st.mask & VS_MIRRORING) w.key("handleMirroring").string(enumName(st.handleMirroring));
+  if (st.mask & VS_CORNER_RADIUS) w.key("cornerRadius").number(st.cornerRadius);
+  w.endObject();
+  out.raw(withExtra(w, st.extra));
+}
+
+void writeVectorData(json::Writer& w, const VectorData& v, BlobsOut* blobs) {
+  w.beginObject();
+  if (v.network && blobs) w.key("vectorNetworkBlob").number(blobs->add(v.network));
+  w.key("normalizedSize");
+  writeVector(w, v.normalizedSize);
+  if (!v.styleOverrideTable.empty()) {
+    w.key("styleOverrideTable").beginArray();
+    for (auto& st : v.styleOverrideTable) writeVectorStyle(w, st);
+    w.endArray();
+  }
+  w.endObject();
+}
+
 // Writes the fields in `mask`; for an update, an optional field that is unset
 // in `p` goes to clearedFields instead.
-void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update) {
+void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update, BlobsOut* blobs) {
   std::vector<uint32_t> cleared;
   if (mask & F_PARENT_INDEX) {
     w.key("parentIndex").beginObject();
@@ -214,6 +346,63 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
   if (mask & F_TEXT_CASE) writeEnum(w, "textCase", p.textCase);
   if (mask & F_TEXT_DECORATION) writeEnum(w, "textDecoration", p.textDecoration);
   if (mask & F_AUTO_RENAME) w.key("autoRename").boolean(p.autoRename);
+  // Paint, stroke, effects, masks.
+  if (mask & F_BLEND_MODE) writeEnum(w, "blendMode", p.blendMode);
+  if (mask & F_MASK) w.key("mask").boolean(p.mask);
+  if (mask & F_MASK_TYPE) writeEnum(w, "maskType", p.maskType);
+  if (mask & F_STROKE_CAP) writeEnum(w, "strokeCap", p.strokeCap);
+  if (mask & F_STROKE_JOIN) writeEnum(w, "strokeJoin", p.strokeJoin);
+  if (mask & F_MITER_LIMIT) w.key("miterLimit").number(p.miterLimit);
+  if (mask & F_DASH_PATTERN) {
+    w.key("dashPattern").beginArray();
+    for (double d : p.dashPattern) w.number(d);
+    w.endArray();
+  }
+  if (mask & F_BORDER_WEIGHTS) {
+    w.key("borderTopWeight").number(p.borderWeights[0]);
+    w.key("borderRightWeight").number(p.borderWeights[1]);
+    w.key("borderBottomWeight").number(p.borderWeights[2]);
+    w.key("borderLeftWeight").number(p.borderWeights[3]);
+    w.key("borderStrokeWeightsIndependent").boolean(p.borderStrokeWeightsIndependent);
+  }
+  if (mask & F_CORNER_SMOOTHING) w.key("cornerSmoothing").number(p.cornerSmoothing);
+  if (mask & F_EFFECTS) {
+    w.key("effects").beginArray();
+    for (auto& e : p.effects) writeEffect(w, e);
+    w.endArray();
+  }
+  if (mask & F_COUNT) w.key("count").number(p.count);
+  if (mask & F_STAR_INNER_SCALE) w.key("starInnerScale").number(p.starInnerScale);
+  if (mask & F_ARC_DATA) {
+    w.key("arcData").beginObject();
+    w.key("startingAngle").number(p.arcData.startingAngle).key("endingAngle").number(p.arcData.endingAngle);
+    w.key("innerRadius").number(p.arcData.innerRadius).endObject();
+  }
+  if (mask & F_VECTOR_DATA) {
+    if (p.vectorData.present) {
+      w.key("vectorData");
+      writeVectorData(w, p.vectorData, blobs);
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(F_VECTOR_DATA));
+    }
+  }
+  if (mask & F_HANDLE_MIRRORING) writeEnum(w, "handleMirroring", p.handleMirroring);
+  if (mask & F_BOOLEAN_OPERATION) writeEnum(w, "booleanOperation", p.booleanOperation);
+  if (mask & F_LAYOUT_GRIDS) {
+    w.key("layoutGrids").beginArray();
+    for (auto& g : p.layoutGrids) {
+      json::Writer one;
+      one.beginObject();
+      one.key("type").string(enumName(g.type)).key("axis").string(enumName(g.axis)).key("visible").boolean(g.visible);
+      one.key("numSections").number(g.numSections).key("offset").number(g.offset).key("sectionSize").number(g.sectionSize);
+      one.key("gutterSize").number(g.gutterSize).key("color");
+      writeColor(one, g.color);
+      one.key("pattern").string(enumName(g.pattern));
+      one.endObject();
+      w.raw(withExtra(one, g.extra));
+    }
+    w.endArray();
+  }
   if (mask & F_EXTRA)
     for (auto& [k, v] : p.extra)
       if (!v.empty()) w.key(k).raw(v);
@@ -242,27 +431,133 @@ Vec2 readVector(const json::Value& v) {
   return out;
 }
 
-std::vector<Paint> readPaints(const json::Value& v) {
-  std::vector<Paint> out;
-  if (!v.isArray()) return out;
-  for (auto& e : v.array) {
-    if (!e.isObject()) continue;
-    const json::Value* type = e.get("type");
-    Paint p;
-    if (type && type->isString() && type->string != "SOLID") {
-      // Not drawn yet (E5): kept as it came.
-      p.type = PaintType::OTHER;
-      p.raw = json::encode(e);
-      if (auto* vis = e.get("visible"); vis && vis->isBool()) p.visible = vis->boolean;
-      out.push_back(p);
-      continue;
-    }
-    if (auto* c = e.get("color")) p.color = readColor(*c, Color{0, 0, 0, 1});
-    if (auto* o = e.get("opacity")) p.opacity = static_cast<float>(o->numberOr(1));
-    if (auto* vis = e.get("visible"); vis && vis->isBool()) p.visible = vis->boolean;
-    out.push_back(p);
+// A member written back as encoded JSON ("key":value) for an `extra` string.
+void appendMember(std::string& extra, const std::string& key, const json::Value& x) {
+  json::Writer one;
+  one.beginObject().key(key);
+  json::write(one, x);
+  one.endObject();
+  std::string member = one.take();
+  if (!extra.empty()) extra += ",";
+  extra += member.substr(1, member.size() - 2);
+}
+
+Mat2x3 readMatrix(const json::Value& x) {
+  auto num = [&](const char* k, double d) {
+    auto* e = x.get(k);
+    return e ? e->numberOr(d) : d;
+  };
+  return {num("m00", 1), num("m01", 0), num("m02", 0), num("m10", 0), num("m11", 1), num("m12", 0)};
+}
+
+bool readHash(const json::Value& x, ImageHash& out) {
+  if (x.isString()) {
+    bool ok = false;
+    out = ImageHash::fromHex(x.string, &ok);
+    return ok;
   }
-  return out;
+  if (x.isArray() && x.array.size() == 20) {
+    for (size_t i = 0; i < 20; i++) out.bytes[i] = static_cast<uint8_t>(std::clamp(x.array[i].numberOr(0), 0.0, 255.0));
+    out.present = true;
+    return true;
+  }
+  return false;
+}
+
+Paint readPaint(const json::Value& e, const BlobsIn* blobs) {
+  Paint p;
+  const json::Value* type = e.get("type");
+  if (type && type->isString() && !paintTypeFromName(type->string, p.type)) {
+    // A paint type the schema doesn't know: kept as it came.
+    p.type = PaintType::OTHER;
+    p.extra = json::encode(e);
+    if (auto* vis = e.get("visible"); vis && vis->isBool()) p.visible = vis->boolean;
+    return p;
+  }
+  Bytes imageData;
+  for (auto& [k, x] : e.object) {
+    if (k == "type") continue;
+    if (k == "color") p.color = readColor(x, Color{0, 0, 0, 1});
+    else if (k == "opacity" && x.isNumber()) p.opacity = static_cast<float>(x.number);
+    else if (k == "visible" && x.isBool()) p.visible = x.boolean;
+    else if (k == "blendMode" && x.isString() && enumFromName(x.string, p.blendMode)) {
+    } else if (k == "stops" && x.isArray()) {
+      for (auto& st : x.array) {
+        ColorStop cs;
+        if (auto* c = st.get("color")) cs.color = readColor(*c, Color{0, 0, 0, 1});
+        if (auto* pos = st.get("position")) cs.position = pos->numberOr(0);
+        p.stops.push_back(cs);
+      }
+    } else if (k == "transform" && x.isObject()) {
+      p.transform = readMatrix(x);
+    } else if (k == "image" && x.isObject()) {
+      for (auto& [ik, iv] : x.object) {
+        if (ik == "hash") readHash(iv, p.image);
+        else if (ik == "name" && iv.isString()) p.imageName = iv.string;
+        else if (ik == "dataBlob" && blobs) imageData = blobs->get(&iv);
+      }
+    } else if (k == "imageScaleMode" && x.isString() && enumFromName(x.string, p.imageScaleMode)) {
+    } else if (k == "rotation" && x.isNumber()) p.rotation = static_cast<float>(x.number);
+    else if (k == "scale" && x.isNumber()) p.scale = static_cast<float>(x.number);
+    else if (k == "originalImageWidth" && x.isNumber()) p.originalImageWidth = static_cast<uint32_t>(std::max(0.0, x.number));
+    else if (k == "originalImageHeight" && x.isNumber()) p.originalImageHeight = static_cast<uint32_t>(std::max(0.0, x.number));
+    else if (k == "paintFilter" && x.isObject()) {
+      PaintFilter& f = p.paintFilter;
+      std::pair<const char*, float*> fields[] = {{"tint", &f.tint}, {"shadows", &f.shadows}, {"highlights", &f.highlights},
+                                                 {"detail", &f.detail}, {"exposure", &f.exposure}, {"vignette", &f.vignette},
+                                                 {"temperature", &f.temperature}, {"vibrance", &f.vibrance},
+                                                 {"contrast", &f.contrast}, {"brightness", &f.brightness}};
+      for (auto& [fk, fv] : fields)
+        if (auto* n = x.get(fk)) *fv = static_cast<float>(n->numberOr(0));
+    } else {
+      appendMember(p.extra, k, x);
+    }
+  }
+  // A clipboard image travels inside the Message (Image.dataBlob): its bytes go to whoever draws images.
+  if (imageData && p.image.present && gImageDataSink) gImageDataSink(p.image, imageData);
+  return p;
+}
+
+Effect readEffect(const json::Value& e) {
+  Effect f;
+  for (auto& [k, x] : e.object) {
+    if (k == "type" && (x.isString() || x.isNumber())) {
+      if (x.isString()) enumFromName(x.string, f.type);
+    } else if (k == "color") f.color = readColor(x, Color{0, 0, 0, 1});
+    else if (k == "offset") f.offset = readVector(x);
+    else if (k == "radius" && x.isNumber()) f.radius = x.number;
+    else if (k == "visible" && x.isBool()) f.visible = x.boolean;
+    else if (k == "blendMode" && x.isString() && enumFromName(x.string, f.blendMode)) {
+    } else if (k == "spread" && x.isNumber()) f.spread = x.number;
+    else if (k == "showShadowBehindNode" && x.isBool()) f.showShadowBehindNode = x.boolean;
+    else appendMember(f.extra, k, x);
+  }
+  return f;
+}
+
+VectorStyle readVectorStyle(const json::Value& v, const BlobsIn* blobs) {
+  VectorStyle st;
+  for (auto& [k, x] : v.object) {
+    if (k == "styleID") st.styleID = static_cast<uint32_t>(std::max(0.0, x.numberOr(0)));
+    else if (k == "fillPaints" && x.isArray()) st.fillPaints = readPaints(x, blobs), st.mask |= VS_FILLS;
+    else if (k == "strokeCap" && x.isString() && enumFromName(x.string, st.strokeCap)) st.mask |= VS_STROKE_CAP;
+    else if (k == "strokeJoin" && x.isString() && enumFromName(x.string, st.strokeJoin)) st.mask |= VS_STROKE_JOIN;
+    else if (k == "handleMirroring" && x.isString() && enumFromName(x.string, st.handleMirroring)) st.mask |= VS_MIRRORING;
+    else if (k == "cornerRadius" && x.isNumber()) st.cornerRadius = x.number, st.mask |= VS_CORNER_RADIUS;
+    else if (k != "guid" && k != "phase") appendMember(st.extra, k, x);
+  }
+  return st;
+}
+
+VectorData readVectorData(const json::Value& v, const BlobsIn* blobs) {
+  VectorData d;
+  d.present = true;
+  if (auto* x = v.get("vectorNetworkBlob"); x && blobs) d.network = blobs->get(x);
+  if (auto* x = v.get("normalizedSize")) d.normalizedSize = readVector(*x);
+  if (auto* x = v.get("styleOverrideTable"); x && x->isArray())
+    for (auto& e : x->array)
+      if (e.isObject()) d.styleOverrideTable.push_back(readVectorStyle(e, blobs));
+  return d;
 }
 
 template <typename E>
@@ -332,9 +627,11 @@ bool knownKey(std::string_view k) {
       "maxSize", "horizontalConstraint", "verticalConstraint", "proportionsConstrained", "parentIndex", "clearedFields",
       "textData", "fontName", "fontSize", "lineHeight", "letterSpacing", "paragraphSpacing", "paragraphIndent",
       "textAlignHorizontal", "textAlignVertical", "textAutoResize", "textTruncation", "maxLines", "textCase", "textDecoration",
-      "autoRename",
+      "autoRename", "blendMode", "mask", "maskType", "strokeCap", "strokeJoin", "miterLimit", "dashPattern",
+      "borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight", "borderStrokeWeightsIndependent",
+      "cornerSmoothing", "effects", "count", "starInnerScale", "arcData", "vectorData", "handleMirroring", "booleanOperation", "layoutGrids",
       // Not kept: derived (recomputed) or panel-only.
-      "derivedTextData", "childIds"};
+      "derivedTextData", "childIds", "fillGeometry", "strokeGeometry", "blobs"};
   for (std::string_view known : kKnown)
     if (k == known) return true;
   return false;
@@ -350,7 +647,7 @@ TextStyle readTextStyle(const json::Value& v) {
     else if (k == "letterSpacing" && readNumberValue(x, st.letterSpacing)) st.mask |= R_LETTER_SPACING;
     else if (k == "textCase" && readEnumValue(x, st.textCase)) st.mask |= R_TEXT_CASE;
     else if (k == "textDecoration" && readEnumValue(x, st.textDecoration)) st.mask |= R_TEXT_DECORATION;
-    else if (k == "fillPaints" && x.isArray()) st.fillPaints = readPaints(x), st.mask |= R_FILLS;
+    else if (k == "fillPaints" && x.isArray()) st.fillPaints = readPaints(x, nullptr), st.mask |= R_FILLS;
     else if (k != "guid" && k != "phase") {
       json::Writer one;
       one.beginObject().key(k);
@@ -408,30 +705,30 @@ FieldMask presentFields(const NodeProps& p) {
   return mask;
 }
 
-void writeChange(json::Writer& w, const NodeChange& c) {
+void writeChange(json::Writer& w, const NodeChange& c, BlobsOut* blobs) {
   w.beginObject();
   w.key("guid").string(c.guid.toString());
   if (c.phase == Phase::CREATED) w.key("phase").string("CREATED");
   if (c.phase == Phase::REMOVED) w.key("phase").string("REMOVED");
   if (c.phase != Phase::REMOVED)
-    writeFields(w, c.props, c.phase == Phase::CREATED ? presentFields(c.props) : c.mask, c.phase == Phase::CHANGED);
+    writeFields(w, c.props, c.phase == Phase::CREATED ? presentFields(c.props) : c.mask, c.phase == Phase::CHANGED, blobs);
   w.endObject();
 }
 
-void writeChanges(json::Writer& w, const std::vector<NodeChange>& changes) {
+void writeChanges(json::Writer& w, const std::vector<NodeChange>& changes, BlobsOut* blobs) {
   w.beginArray();
-  for (auto& c : changes) writeChange(w, c);
+  for (auto& c : changes) writeChange(w, c, blobs);
   w.endArray();
 }
 
-void writeNode(json::Writer& w, const Node& node) {
+void writeNode(json::Writer& w, const Node& node, BlobsOut* blobs) {
   w.beginObject();
   w.key("guid").string(node.guid.toString());
-  writeFields(w, node.props, F_ALL, false);
+  writeFields(w, node.props, F_ALL, false, blobs);
   w.endObject();
 }
 
-bool readChange(const json::Value& v, NodeChange& out) {
+bool readChange(const json::Value& v, NodeChange& out, const BlobsIn* blobs) {
   if (!v.isObject()) return false;
   const json::Value* g = v.get("guid");
   out = NodeChange{};
@@ -453,8 +750,8 @@ bool readChange(const json::Value& v, NodeChange& out) {
     m |= F_TRANSFORM;
   }
   if (auto* x = v.get("size"); x && x->isObject()) { p.size = readVector(*x); m |= F_SIZE; }
-  if (auto* x = v.get("fillPaints")) { p.fillPaints = readPaints(*x); m |= F_FILLS; }
-  if (auto* x = v.get("strokePaints")) { p.strokePaints = readPaints(*x); m |= F_STROKES; }
+  if (auto* x = v.get("fillPaints")) { p.fillPaints = readPaints(*x, blobs); m |= F_FILLS; }
+  if (auto* x = v.get("strokePaints")) { p.strokePaints = readPaints(*x, blobs); m |= F_STROKES; }
   readNumber(v, "strokeWeight", p.strokeWeight, F_STROKE_WEIGHT, m);
   readEnum(v, "strokeAlign", p.strokeAlign, F_STROKE_ALIGN, m);
   // The uniform cornerRadius sets all four; the per-corner fields override it unless
@@ -524,6 +821,60 @@ bool readChange(const json::Value& v, NodeChange& out) {
   readEnum(v, "textCase", p.textCase, F_TEXT_CASE, m);
   readEnum(v, "textDecoration", p.textDecoration, F_TEXT_DECORATION, m);
   readBool(v, "autoRename", p.autoRename, F_AUTO_RENAME, m);
+  // Paint, stroke, effects, masks.
+  readEnum(v, "blendMode", p.blendMode, F_BLEND_MODE, m);
+  readBool(v, "mask", p.mask, F_MASK, m);
+  readEnum(v, "maskType", p.maskType, F_MASK_TYPE, m);
+  if (auto* x = v.get("strokeCap"); x && x->isString() && enumFromName(x->string, p.strokeCap)) m |= F_STROKE_CAP;
+  readEnum(v, "strokeJoin", p.strokeJoin, F_STROKE_JOIN, m);
+  readNumber(v, "miterLimit", p.miterLimit, F_MITER_LIMIT, m);
+  if (auto* x = v.get("dashPattern"); x && x->isArray()) {
+    for (auto& d : x->array) p.dashPattern.push_back(d.numberOr(0));
+    m |= F_DASH_PATTERN;
+  }
+  {
+    const char* keys[4] = {"borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight"};
+    for (size_t i = 0; i < 4; i++)
+      if (auto* x = v.get(keys[i]); x && x->isNumber()) p.borderWeights[i] = x->number, m |= F_BORDER_WEIGHTS;
+    readBool(v, "borderStrokeWeightsIndependent", p.borderStrokeWeightsIndependent, F_BORDER_WEIGHTS, m);
+  }
+  readNumber(v, "cornerSmoothing", p.cornerSmoothing, F_CORNER_SMOOTHING, m);
+  if (auto* x = v.get("effects"); x && x->isArray()) {
+    for (auto& e : x->array)
+      if (e.isObject()) p.effects.push_back(readEffect(e));
+    m |= F_EFFECTS;
+  }
+  if (auto* x = v.get("count"); x && x->isNumber()) p.count = static_cast<uint32_t>(std::max(0.0, x->number)), m |= F_COUNT;
+  readNumber(v, "starInnerScale", p.starInnerScale, F_STAR_INNER_SCALE, m);
+  if (auto* x = v.get("arcData"); x && x->isObject()) {
+    if (auto* a = x->get("startingAngle")) p.arcData.startingAngle = a->numberOr(0);
+    if (auto* a = x->get("endingAngle")) p.arcData.endingAngle = a->numberOr(0);
+    if (auto* a = x->get("innerRadius")) p.arcData.innerRadius = a->numberOr(0);
+    m |= F_ARC_DATA;
+  }
+  if (auto* x = v.get("vectorData"); x && x->isObject()) p.vectorData = readVectorData(*x, blobs), m |= F_VECTOR_DATA;
+  readEnum(v, "handleMirroring", p.handleMirroring, F_HANDLE_MIRRORING, m);
+  readEnum(v, "booleanOperation", p.booleanOperation, F_BOOLEAN_OPERATION, m);
+  if (auto* x = v.get("layoutGrids"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      if (!e.isObject()) continue;
+      LayoutGrid g;
+      for (auto& [k, y] : e.object) {
+        if (k == "type" && y.isString() && enumFromName(y.string, g.type)) {
+        } else if (k == "axis" && y.isString() && enumFromName(y.string, g.axis)) {
+        } else if (k == "visible" && y.isBool()) g.visible = y.boolean;
+        else if (k == "numSections" && y.isNumber()) g.numSections = static_cast<int32_t>(y.number);
+        else if (k == "offset" && y.isNumber()) g.offset = y.number;
+        else if (k == "sectionSize" && y.isNumber()) g.sectionSize = y.number;
+        else if (k == "gutterSize" && y.isNumber()) g.gutterSize = y.number;
+        else if (k == "color") g.color = readColor(y, Color{1, 0, 0, 0.1f});
+        else if (k == "pattern" && y.isString() && enumFromName(y.string, g.pattern)) {
+        } else appendMember(g.extra, k, y);
+      }
+      p.layoutGrids.push_back(g);
+    }
+    m |= F_LAYOUT_GRIDS;
+  }
   if (auto* x = v.get("parentIndex"); x && x->isObject()) {
     if (auto* pg = x->get("guid")) {
       Guid parent;
@@ -552,14 +903,83 @@ bool readChange(const json::Value& v, NodeChange& out) {
   return true;
 }
 
-std::vector<NodeChange> readChanges(const json::Value& v) {
+std::vector<NodeChange> readChanges(const json::Value& v, const BlobsIn* blobs) {
   std::vector<NodeChange> out;
   if (!v.isArray()) return out;
   for (auto& e : v.array) {
     NodeChange c;
-    if (readChange(e, c)) out.push_back(std::move(c));
+    if (readChange(e, c, blobs)) out.push_back(std::move(c));
   }
   return out;
 }
+
+std::vector<NodeChange> readMessage(const json::Value& message) {
+  if (message.isArray()) return readChanges(message);
+  const json::Value* changes = message.get("nodeChanges");
+  if (!changes) return {};
+  BlobsIn blobs = readBlobs(message);
+  return readChanges(*changes, &blobs);
+}
+
+Bytes BlobsIn::get(const json::Value* index) const {
+  if (!index || !index->isNumber() || index->number < 0) return nullptr;
+  size_t i = static_cast<size_t>(index->number);
+  return i < blobs.size() ? blobs[i] : nullptr;
+}
+
+BlobsIn readBlobs(const json::Value& message) {
+  BlobsIn in;
+  const json::Value* list = message.isObject() ? message.get("blobs") : nullptr;
+  if (!list || !list->isArray()) return in;
+  for (auto& b : list->array) {
+    auto bytes = std::make_shared<std::vector<uint8_t>>();
+    if (b.isString()) base64::decode(b.string, *bytes);
+    else if (b.isObject())  // {"bytes": "base64"} (a kiwi Message's Blob, as JSON)
+      if (auto* x = b.get("bytes"); x && x->isString()) base64::decode(x->string, *bytes);
+    in.blobs.push_back(std::move(bytes));
+  }
+  return in;
+}
+
+uint32_t BlobsOut::add(const Bytes& bytes) {
+  for (size_t i = 0; i < list_.size(); i++)
+    if (list_[i] == bytes || (bytes && list_[i] && *list_[i] == *bytes)) return static_cast<uint32_t>(i);
+  list_.push_back(bytes);
+  return static_cast<uint32_t>(list_.size() - 1);
+}
+
+void BlobsOut::writeMember(json::Writer& w) const {
+  if (list_.empty()) return;
+  w.key("blobs").beginArray();
+  for (auto& b : list_) w.string(b ? base64::encode(*b) : std::string());
+  w.endArray();
+}
+
+void writeMessage(json::Writer& w, uint32_t sessionID, const std::vector<NodeChange>& changes) {
+  BlobsOut blobs;
+  w.beginObject();
+  w.key("type").string("NODE_CHANGES");
+  w.key("sessionID").number(sessionID);
+  w.key("nodeChanges");
+  writeChanges(w, changes, &blobs);
+  blobs.writeMember(w);
+  w.endObject();
+}
+
+void writePaints(json::Writer& w, const std::vector<Paint>& paints) {
+  w.beginArray();
+  for (auto& p : paints) writePaint(w, p);
+  w.endArray();
+}
+
+std::vector<Paint> readPaints(const json::Value& v, const BlobsIn* blobs) {
+  std::vector<Paint> out;
+  if (!v.isArray()) return out;
+  for (auto& e : v.array)
+    if (e.isObject()) out.push_back(readPaint(e, blobs));
+  return out;
+}
+
+void setImageDataSink(ImageDataSink sink) { gImageDataSink = sink; }
 
 }  // namespace eng::codec

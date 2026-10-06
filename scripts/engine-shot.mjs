@@ -3,10 +3,11 @@
 // the gestures work end to end.
 //
 //   npm run engine:shot -- [outDir]     (default: $TMPDIR/engine-shots)
+//   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
 // (CHROMIUM=/path overrides). Software GL (SwiftShader) for determinism.
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,10 +79,296 @@ const drag = async (from, to, steps = 8) => {
   await settle();
 };
 
+// A Figma sample (engine/tools/fixtures.mjs: every field, blobs, images) loaded into the playground, its images
+// answered from the fixture's files.
+const figmaDir = path.join(repo, "engine/tests/data/figma");
+const loadSample = async (name) => {
+  const message = JSON.parse(readFileSync(path.join(figmaDir, `${name}.full.json`), "utf8"));
+  const images = {};
+  for (const f of readdirSync(path.join(figmaDir, "images"))) images[f] = readFileSync(path.join(figmaDir, "images", f)).toString("base64");
+  await engine(
+    ({ message, images }) => {
+      const e = window.__designerEngine;
+      e.setImageSource(async (hash) => (images[hash] ? Uint8Array.from(atob(images[hash]), (c) => c.charCodeAt(0)) : null));
+      e.load(message);
+      e.command("ZOOM_TO_FIT");
+    },
+    { message, images }
+  );
+  await page.waitForTimeout(200);
+  await engine(() => window.__designerEngine.imagesSettled());
+  // Until the images that arrived have been drawn (at most 2 s).
+  await page.waitForFunction(() => window.__designerEngine.stats().images >= 2, null, { timeout: 2000 }).catch(() => {});
+  await settle();
+};
+const only = process.env.SHOT_ONLY ?? "";
+// The colour on screen at CSS point (x, y): the page's own screenshot, decoded in the page.
+const pixelsAt = async (points) => {
+  const png = (await page.screenshot()).toString("base64");
+  return page.evaluate(
+    async ({ png, points, dpr }) => {
+      const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+      const c = new OffscreenCanvas(img.width, img.height);
+      const g = c.getContext("2d");
+      g.drawImage(img, 0, 0);
+      return points.map(([x, y]) => Array.from(g.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data));
+    },
+    { png, points, dpr: 2 }
+  );
+};
+const near = (a, b, tol = 24) => a && b.every((v, i) => Math.abs(a[i] - v) <= tol);
+// The world point (x, y) of a node's own space, through its ancestors (readNode transforms).
+const worldOf = async (ref, x, y) =>
+  engine(
+    ({ ref, x, y }) => {
+      const e = window.__designerEngine;
+      let p = { x, y };
+      for (let id = ref; id; ) {
+        const n = e.readNode(id);
+        if (!n || n.type === "CANVAS") break;
+        const m = n.transform ?? { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+        p = { x: m.m00 * p.x + m.m01 * p.y + m.m02, y: m.m10 * p.x + m.m11 * p.y + m.m12 };
+        id = n.parentIndex?.guid;
+      }
+      return p;
+    },
+    { ref, x, y }
+  );
+const screenOf = async (ref, x, y) => {
+  const w = await worldOf(ref, x, y);
+  return toScreen(w.x, w.y);
+};
+
+// A sheet of E4/E5 content: shapes, strokes, gradients, image modes, effects, blend modes, masks.
+function e4Scene(imageHash) {
+  const solid = (r, g, b, a = 1) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: a, visible: true });
+  const T = (x, y, extra = {}) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y }, ...extra });
+  const stops = [
+    { color: { r: 1, g: 0.2, b: 0.4, a: 1 }, position: 0 },
+    { color: { r: 0.2, g: 0.4, b: 1, a: 1 }, position: 1 },
+  ];
+  const id = { n: 0 };
+  const nodes = [];
+  const add = (type, name, x, y, w, h, extra = {}, parent = "50:1") => {
+    const guid = `50:${++id.n + 1}`;
+    nodes.push({ guid, phase: "CREATED", type, name, parentIndex: { guid: parent, position: `!${String(id.n).padStart(3, "0")}` },
+      size: { x: w, y: h }, ...T(x, y), fillPaints: [solid(0.85, 0.85, 0.85)], strokeWeight: 1, strokeAlign: "INSIDE", ...extra });
+    return guid;
+  };
+  nodes.push({ guid: "50:1", phase: "CREATED", type: "FRAME", name: "E4 + E5", parentIndex: { guid: "0:1", position: "~~" },
+    size: { x: 1240, y: 900 }, ...T(0, 1300), fillPaints: [solid(1, 1, 1)] });
+  // Row 1: shapes.
+  add("REGULAR_POLYGON", "Polygon", 20, 20, 100, 100, { count: 3 });
+  add("STAR", "Star", 140, 20, 100, 100, { count: 5, starInnerScale: 0.382, fillPaints: [solid(1, 0.8, 0.1)] });
+  add("STAR", "Star rounded", 260, 20, 100, 100, { count: 8, starInnerScale: 0.6, cornerRadius: 6, fillPaints: [solid(0.3, 0.7, 0.4)] });
+  add("ELLIPSE", "Pie", 380, 20, 100, 100, { arcData: { startingAngle: 0, endingAngle: 4.5, innerRadius: 0 }, fillPaints: [solid(0.9, 0.3, 0.2)] });
+  add("ELLIPSE", "Donut", 500, 20, 100, 100, { arcData: { startingAngle: 0, endingAngle: 6.283185307, innerRadius: 0.6 }, fillPaints: [solid(0.2, 0.5, 0.9)] });
+  add("ROUNDED_RECTANGLE", "Squircle 60%", 620, 20, 100, 100, { cornerRadius: 30, cornerSmoothing: 0.6, fillPaints: [solid(0.5, 0.3, 0.9)] });
+  add("LINE", "Line", 740, 70, 120, 0, { fillPaints: [], strokePaints: [solid(0, 0, 0)], strokeWeight: 2, strokeAlign: "CENTER", strokeCap: "ROUND" });
+  add("LINE", "Arrow", 880, 30, 140, 0, { fillPaints: [], strokePaints: [solid(0, 0, 0)], strokeWeight: 2, strokeAlign: "CENTER", strokeCap: "ARROW_LINES",
+    transform: { m00: 0.7071, m01: -0.7071, m02: 880, m10: 0.7071, m11: 0.7071, m12: 30 } });
+  add("LINE", "Triangle arrow", 1040, 70, 160, 0, { fillPaints: [], strokePaints: [solid(0.9, 0.2, 0.3)], strokeWeight: 3, strokeAlign: "CENTER", strokeCap: "ARROW_EQUILATERAL" });
+  // Row 2: strokes.
+  const strokeBase = { fillPaints: [solid(0.95, 0.95, 0.95)], strokePaints: [solid(0.1, 0.1, 0.1)], strokeWeight: 8, starInnerScale: 0.45 };
+  add("STAR", "Inside", 20, 160, 100, 100, { ...strokeBase, strokeAlign: "INSIDE", strokeJoin: "MITER" });
+  add("STAR", "Center", 140, 160, 100, 100, { ...strokeBase, strokeAlign: "CENTER", strokeJoin: "ROUND" });
+  add("STAR", "Outside", 260, 160, 100, 100, { ...strokeBase, strokeAlign: "OUTSIDE", strokeJoin: "BEVEL" });
+  add("ROUNDED_RECTANGLE", "Dashed", 380, 160, 100, 100, { ...strokeBase, strokeWeight: 3, strokeAlign: "CENTER", dashPattern: [10, 6], cornerRadius: 16 });
+  add("ELLIPSE", "Dotted", 500, 160, 100, 100, { ...strokeBase, strokeWeight: 4, strokeAlign: "CENTER", dashPattern: [0, 8], strokeCap: "ROUND" });
+  add("ROUNDED_RECTANGLE", "Per side", 620, 160, 100, 100, { ...strokeBase, borderStrokeWeightsIndependent: true, borderTopWeight: 2, borderRightWeight: 8, borderBottomWeight: 14, borderLeftWeight: 0 });
+  add("ROUNDED_RECTANGLE", "Gradient stroke", 740, 160, 100, 100, { fillPaints: [], strokeWeight: 10, strokeAlign: "INSIDE", cornerRadius: 24,
+    strokePaints: [{ type: "GRADIENT_LINEAR", stops, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 }, opacity: 1, visible: true }] });
+  // Row 3: gradients.
+  const grad = (type, transform = { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 }) => ({ fillPaints: [{ type, stops, transform, opacity: 1, visible: true }] });
+  add("ROUNDED_RECTANGLE", "Linear", 20, 300, 160, 100, grad("GRADIENT_LINEAR"));
+  add("ROUNDED_RECTANGLE", "Linear 45°", 200, 300, 160, 100, grad("GRADIENT_LINEAR", { m00: 0.5, m01: 0.5, m02: 0, m10: -0.5, m11: 0.5, m12: 0.5 }));
+  add("ROUNDED_RECTANGLE", "Radial", 380, 300, 160, 100, grad("GRADIENT_RADIAL"));
+  add("ROUNDED_RECTANGLE", "Angular", 560, 300, 160, 100, grad("GRADIENT_ANGULAR"));
+  add("ROUNDED_RECTANGLE", "Diamond", 740, 300, 160, 100, grad("GRADIENT_DIAMOND"));
+  add("STAR", "Gradient star", 920, 300, 100, 100, { ...grad("GRADIENT_RADIAL"), starInnerScale: 0.5 });
+  add("ROUNDED_RECTANGLE", "Two fills", 1040, 300, 160, 100, { fillPaints: [solid(1, 0.8, 0), { ...grad("GRADIENT_LINEAR").fillPaints[0], opacity: 0.5 }] });
+  // Row 4: images.
+  const img = (mode, extra = {}) => ({ type: "IMAGE", image: { hash: imageHash }, imageScaleMode: mode, opacity: 1, visible: true, scale: 0.25,
+    transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 }, originalImageWidth: 1024, originalImageHeight: 512, ...extra });
+  add("ROUNDED_RECTANGLE", "Fill", 20, 440, 160, 120, { fillPaints: [img("FILL")] });
+  add("ROUNDED_RECTANGLE", "Fit", 200, 440, 160, 120, { fillPaints: [solid(0.9, 0.9, 0.9), img("FIT")] });
+  add("ROUNDED_RECTANGLE", "Crop", 380, 440, 160, 120, { fillPaints: [img("STRETCH", { transform: { m00: 0.5, m01: 0, m02: 0.25, m10: 0, m11: 0.5, m12: 0.25 } })] });
+  add("ROUNDED_RECTANGLE", "Tile", 560, 440, 160, 120, { fillPaints: [img("TILE")] });
+  add("ELLIPSE", "Fill, rotated, filters", 740, 440, 160, 120, { fillPaints: [img("FILL", { rotation: 90, paintFilter: { exposure: 0.3, contrast: 0.3, vibrance: -1 } })] });
+  add("ROUNDED_RECTANGLE", "Missing image", 920, 440, 120, 120, { fillPaints: [img("FILL", { image: { hash: "0123456789012345678901234567890123456789" } })] });
+  // Row 5: effects.
+  const fx = (effects, extra = {}) => ({ fillPaints: [solid(1, 1, 1)], cornerRadius: 12, effects, ...extra });
+  const drop = (x, y, r, spread = 0, a = 0.35) => ({ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a }, offset: { x, y }, radius: r, spread, visible: true, blendMode: "NORMAL", showShadowBehindNode: false });
+  const inner = (x, y, r, spread = 0) => ({ type: "INNER_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.5 }, offset: { x, y }, radius: r, spread, visible: true, blendMode: "NORMAL" });
+  add("ROUNDED_RECTANGLE", "Drop shadow", 20, 600, 120, 100, fx([drop(0, 8, 16)]));
+  add("ROUNDED_RECTANGLE", "Spread", 170, 600, 120, 100, fx([drop(0, 0, 0, 6, 1)]));
+  add("ROUNDED_RECTANGLE", "Inner shadow", 320, 600, 120, 100, fx([inner(4, 4, 8)], { fillPaints: [solid(0.6, 0.8, 1)] }));
+  add("ELLIPSE", "Ellipse shadow", 470, 600, 100, 100, fx([drop(6, 6, 10)], { fillPaints: [solid(1, 0.6, 0.2)] }));
+  add("STAR", "Star shadow + inner", 600, 600, 100, 100, fx([drop(0, 6, 8), inner(0, 4, 6)], { fillPaints: [solid(1, 0.85, 0.2)], starInnerScale: 0.5, cornerRadius: 4 }));
+  add("ROUNDED_RECTANGLE", "Layer blur", 730, 600, 100, 100, fx([{ type: "FOREGROUND_BLUR", radius: 8, visible: true }], { fillPaints: [solid(0.2, 0.6, 0.3)] }));
+  add("ROUNDED_RECTANGLE", "Behind glass", 860, 600, 160, 100, { fillPaints: [grad("GRADIENT_ANGULAR").fillPaints[0]] });
+  add("ROUNDED_RECTANGLE", "Background blur", 900, 620, 140, 80, fx([{ type: "BACKGROUND_BLUR", radius: 12, visible: true }], { fillPaints: [solid(1, 1, 1, 0.3)] }));
+  add("ROUNDED_RECTANGLE", "50% opacity", 1060, 600, 120, 100, { fillPaints: [solid(0.9, 0.2, 0.2)], strokePaints: [solid(0, 0, 0)], strokeWeight: 6, opacity: 0.5 });
+  // Row 6: blend modes and masks.
+  add("ELLIPSE", "Base", 20, 740, 120, 120, { fillPaints: [solid(1, 0.8, 0)] });
+  add("ELLIPSE", "Multiply", 70, 740, 120, 120, { fillPaints: [solid(0.2, 0.6, 1)], blendMode: "MULTIPLY" });
+  add("ELLIPSE", "Base 2", 220, 740, 120, 120, { fillPaints: [solid(1, 0.8, 0)] });
+  add("ELLIPSE", "Difference", 270, 740, 120, 120, { fillPaints: [solid(0.2, 0.6, 1)], blendMode: "DIFFERENCE" });
+  const group = add("FRAME", "Masked group", 440, 740, 200, 120, { resizeToFit: true, fillPaints: [] });
+  add("ELLIPSE", "Mask", 0, 0, 120, 120, { mask: true, maskType: "ALPHA", fillPaints: [solid(0, 0, 0)] }, group);
+  add("ROUNDED_RECTANGLE", "Masked", 40, 20, 160, 80, { fillPaints: [img("FILL")] }, group);
+  const group2 = add("FRAME", "Vector mask", 680, 740, 200, 120, { resizeToFit: true, fillPaints: [] });
+  add("STAR", "Star mask", 0, 0, 120, 120, { mask: true, maskType: "OUTLINE", fillPaints: [solid(0, 0, 0, 0.2)], starInnerScale: 0.5 }, group2);
+  add("ROUNDED_RECTANGLE", "Under star", 0, 0, 200, 120, grad("GRADIENT_LINEAR"), group2);
+  return { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes };
+}
+
+async function e4Checks(files) {
+  // structure.fig: the Sketch logo (8 vectors), two images, a group with a drop shadow, as Figma draws them.
+  await loadSample("structure");
+  const s1 = await engine(() => window.__designerEngine.stats());
+  check("structure.fig draws its vectors as paths", s1.paths >= 8, `${s1.paths} paths, ${s1.layers} layers, ${s1.drawCalls} draw calls`);
+  check("structure.fig's images are uploaded", s1.images >= 2, `${s1.images} images, ${(s1.imageBytes / 1024).toFixed(0)} KB`);
+  files.push(await shot("30-structure-fig"));
+  // Pixels Figma's own thumbnail shows: the logo's yellow, the banner's navy, the drop shadow under the first card.
+  {
+    const logo = await screenOf("1:33", 9.2, 4);  // the logo's top facet ("Vector", #FEEEB7)
+    const banner = await screenOf("1:34", 30, 30);  // "social-twitter 1": an image, Fill
+    const shadowAt = await screenOf("1:3", 50, 101.5);  // just under the first grey card
+    const [pl, pb, ps] = await pixelsAt([logo, banner, shadowAt]);
+    check("the logo's vectors are filled like Figma's", near(pl, [254, 238, 183, 255], 30), `${pl}`);
+    check("the image fill (FILL) is drawn", pb && pb[2] > pb[0] && pb[0] < 60, `${pb}`);
+    check("the group's drop shadow darkens what is under it", ps && ps[0] < 250 && ps[0] > 150, `${ps}`);
+  }
+
+  // The E4 / E5 sheet.
+  await engine((message) => {
+    const e = window.__designerEngine;
+    e.applyChanges(message, "user");
+    e.setSelection(["50:1"]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([]);
+  }, e4Scene("93e8eeb27e934c4b9ae9e7929c7df9e96a6ec90c"));
+  await page.waitForTimeout(200);
+  await engine(() => window.__designerEngine.imagesSettled());
+  await settle();
+  const s2 = await engine(() => window.__designerEngine.stats());
+  check("the E4/E5 sheet draws", s2.paths > 20 && s2.layers >= 6, `${s2.paths} paths, ${s2.layers} layers, ${s2.drawCalls} draw calls`);
+  files.push(await shot("31-e4-sheet"));
+  {
+    const inside = await screenOf("50:3", 50, 55);   // the yellow star
+    const grad = await screenOf("50:18", 5, 50);     // the linear gradient's left end (pink)
+    const gradR = await screenOf("50:18", 155, 50);  // and its right end (blue)
+    const mul = await screenOf("50:41", 25, 60);      // the multiplied overlap of yellow and blue
+    const blurred = await screenOf("50:36", 0, 50);   // the layer blur's soft edge
+    const [ps, pg, pgr, pm, pb] = await pixelsAt([inside, grad, gradR, mul, blurred]);
+    check("star fill", near(ps, [255, 204, 26, 255], 30), `${ps}`);
+    check("linear gradient: pink → blue", pg && pgr && pg[0] > 200 && pgr[2] > 200 && pgr[0] < 120, `${pg} → ${pgr}`);
+    check("MULTIPLY blends with what is below", pm && pm[0] < 80 && pm[1] > 80 && pm[1] < 170 && pm[2] < 60, `${pm}`);
+    check("layer blur softens the edge", pb && pb[1] > 120 && pb[1] < 240, `${pb}`);
+  }
+
+  // Up close: vectors stay crisp at 3200 %.
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.setSelection(["50:3"]);
+    e.command("ZOOM_TO_SELECTION");
+    const c = e.getCamera();
+    e.setCamera({ x: c.x, y: c.y, zoom: c.zoom });
+    e.setSelection([]);
+  });
+  await page.mouse.move(5, 5);
+  await settle();
+  files.push(await shot("32-star-close"));
+
+  // The Pen: four clicks and back to the first point make a closed, filled vector.
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.setSelection(["50:1"]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([]);
+  });
+  await settle();
+  await page.keyboard.press("p");
+  const penPts = [[1100, 760], [1200, 760], [1200, 860], [1150, 900]];
+  for (const [x, y] of penPts) await page.mouse.click(...(await screenOf("50:1", x, y)));
+  await page.mouse.move(...(await screenOf("50:1", 1120, 880)));
+  await settle();
+  files.push(await shot("33-pen"));
+  await page.mouse.click(...(await screenOf("50:1", 1100, 760)));
+  await settle();
+  const pen = await engine(() => {
+    const e = window.__designerEngine;
+    const ref = e.vectorEdit?.ref;
+    return ref ? { node: e.readNode(ref), edit: e.vectorEdit } : null;
+  });
+  check("the Pen makes a closed vector", pen?.node?.type === "VECTOR" && pen.edit.vertexCount === 4 && pen.edit.segmentCount === 4,
+    pen ? `${pen.node.name} ${pen.edit.vertexCount} points, ${pen.edit.segmentCount} segments` : "not editing");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await settle();
+  const after = await engine(() => window.__designerEngine.vectorEdit);
+  check("Esc leaves vector edit mode", after === null);
+
+  // Double-click a star: vector edit mode, its points and the selected point's handles.
+  await engine(() => window.__designerEngine.setSelection(["50:3"]));
+  await page.waitForTimeout(600);  // not a triple click with the last one
+  await page.mouse.dblclick(...(await screenOf("50:3", 50, 50)));
+  await settle();
+  const ve = await engine(() => window.__designerEngine.vectorEdit);
+  check("double-click enters vector edit mode", ve?.active === true && ve.vertexCount === 10, ve ? `${ve.vertexCount} points` : "no");
+  await page.mouse.click(...(await screenOf("50:3", 50, 0)));
+  await settle();
+  files.push(await shot("34-vector-edit"));
+  await page.keyboard.press("Enter");
+
+  // Booleans: two circles, ⌥⇧S.
+  await engine(() => window.__designerEngine.setSelection(["50:42", "50:43"]));
+  await page.keyboard.press("Alt+Shift+KeyS");
+  await settle();
+  const bool = await engine(() => {
+    const e = window.__designerEngine;
+    return e.readNode(e.getSelection().refs[0]);
+  });
+  check("⌥⇧S makes a Subtract boolean", bool?.type === "BOOLEAN_OPERATION" && bool.booleanOperation === "SUBTRACT", bool ? `${bool.name}` : "");
+  files.push(await shot("35-boolean"));
+
+  // Gradient handles on the linear gradient.
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.setSelection(["50:18"]);
+    e.startPaintEdit("50:18", { paints: "FILL", index: 0 });
+  });
+  await settle();
+  const pe = await engine(() => window.__designerEngine.paintEdit);
+  check("gradient handles show", pe?.active === true && pe.ref === "50:18");
+  files.push(await shot("36-gradient-handles"));
+  await page.keyboard.press("Escape");
+
+  // A thumbnail draws effects and images offscreen too.
+  const thumb = await engine(() => {
+    const t = window.__designerEngine.renderThumbnailPixels({ maxSize: 400 });
+    if (!t) return null;
+    let colours = new Set();
+    for (let i = 0; i < t.pixels.length; i += 4 * 97) colours.add(`${t.pixels[i] >> 4},${t.pixels[i + 1] >> 4},${t.pixels[i + 2] >> 4}`);
+    return { w: t.width, h: t.height, colours: colours.size };
+  });
+  check("thumbnails draw the new content", thumb && thumb.colours > 40, thumb ? `${thumb.w}×${thumb.h}, ${thumb.colours} colours` : "null");
+}
+
 try {
   await page.goto(url);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
   await settle();
+  if (only === "e4") {
+    const files = [];
+    await e4Checks(files);
+    console.log(results.join("\n"));
+    console.log(`\nscreenshots:\n${files.join("\n")}`);
+    if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);
+    process.exitCode = results.some((r) => r.startsWith("FAIL")) ? 1 : 0;
+    throw "done";
+  }
   const stats = await engine(() => window.__designerEngine.stats());
   check("wasm loads and renders", stats.drawCalls > 0, `${stats.nodes} nodes, ${stats.shapes} shapes, ${stats.drawCalls} draw calls`);
   const files = [await shot("01-playground")];
@@ -93,7 +380,8 @@ try {
   check("click selects the frame's child", sel.join() === "1:5", sel.join());
   files.push(await shot("02-selected"));
 
-  // Drag it 60 px right: one undo step; ⌘Z puts it back.
+  // Drag it 60 px right: one undo step; ⌘Z puts it back. (Not within a double-click's time of the click.)
+  await page.waitForTimeout(600);
   await drag(await toScreen(100, 150), await toScreen(160, 150));
   let card = await engine(() => window.__designerEngine.readNode("1:5"));
   check("drag moves", Math.round(card.transform.m02) === 84, `x = ${card.transform.m02}`);
@@ -245,11 +533,19 @@ try {
   await settle();
   files.push(await shot("13-badge-titles"));
 
+  // E4 / E5.
+  await e4Checks(files);
+
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);
   if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);
   process.exitCode = results.some((r) => r.startsWith("FAIL")) ? 1 : 0;
 } catch (error) {
+  if (error === "done") {
+    await browser.close();
+    await server.close();
+    process.exit(process.exitCode ?? 0);
+  }
   console.log(results.join("\n"));
   console.error(error);
   if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);

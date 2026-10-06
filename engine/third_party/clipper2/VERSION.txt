@@ -1,0 +1,1 @@
+Clipper2 2.0.1 (AngusJohnson/Clipper2 @ f9c5eb6e14a59f6f5d65fbfb3564519a561cf4fd, Mon Apr 20 11:18:06 2026 +1000), Boost Software License 1.0. Vendored unmodified: include/clipper2/*.h (clipper.h and the headers it includes) and src/clipper.engine.cpp (the only source compiled: booleans), built with USINGZ.

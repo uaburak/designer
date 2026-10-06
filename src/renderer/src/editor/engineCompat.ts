@@ -1,28 +1,88 @@
 /**
- * Field detection (docs/editor.md): which NodeChange fields the engine keeps,
- * so a panel control whose field isn't kept yet shows disabled instead of
- * writing into the void. (Round 2 brought every command and method the
- * editor uses into abi.ts / Engine; they are called directly.)
+ * Feature detection (docs/editor.md): what the engine build in hand can do,
+ * so a control whose engine side isn't there yet shows disabled instead of
+ * writing into the void or throwing.
+ *
+ * - Fields: `supportsField` = the engine types the field (a read of a node
+ *   lists every typed field); `keepsField` = it at least keeps it (since E3
+ *   the engine round-trips every schema field it doesn't model: written,
+ *   undone, copied and saved, just not drawn yet).
+ * - Commands: `hasCommand` = abi.ts's CommandId names it (E4's booleans,
+ *   Flatten, Outline stroke, Use as mask, PLACE_IMAGES…).
+ * - Methods: `engineMethod` = the Engine facade has it (E4's vector editing,
+ *   E5's gradient handles and image upload), looked up by the names
+ *   docs/engine-build.md publishes.
  */
+import { CMD_ENABLED, CommandId, Status, type CommandName } from "@/engine/abi";
 import type { NodeChange } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
 
-// ---- Fields the engine keeps ----------------------------------------------------------------
+// ---- Fields ------------------------------------------------------------------------------------
 
-const keptFields = new WeakMap<Engine, Set<string>>();
+const typedFields = new WeakMap<Engine, Set<string>>();
+const keepsExtras = new WeakMap<Engine, boolean>();
 
 /**
- * Does the engine keep this NodeChange field? A read returns every field the
- * engine keeps (docs/engine.md §10.3 engine_read_nodes), so one read of the
- * document node tells. A field it doesn't keep is dropped on write
- * (engine_set_props answers E_INVALID when nothing is left).
+ * Does the engine type this NodeChange field? A read returns every field the
+ * engine models (docs/engine.md §10.3 engine_read_nodes), so one read of the
+ * document node tells.
  */
 export function supportsField(engine: Engine, field: keyof NodeChange | string): boolean {
-  let fields = keptFields.get(engine);
+  let fields = typedFields.get(engine);
   if (!fields) {
     const node = engine.destroyed ? null : engine.readNode("0:0");
     fields = new Set(node ? Object.keys(node) : []);
-    if (node) keptFields.set(engine, fields);
+    if (node) typedFields.set(engine, fields);
   }
   return fields.has(field as string);
+}
+
+/**
+ * Does the engine keep fields it doesn't model (E3: `NodeProps::extra`)? Probed
+ * once: a write of an untyped schema field to the current page inside a
+ * transaction that is cancelled at once (nothing is emitted or kept).
+ */
+function engineKeepsExtras(engine: Engine): boolean {
+  let known = keepsExtras.get(engine);
+  if (known !== undefined) return known;
+  if (engine.destroyed) return false;
+  const page = engine.getSelection().pageId;
+  // Busy (a scrub's transaction is open): ask again later. EditorController probes at mount, before any edit.
+  if (!page || engine.txnBegin("probe") !== Status.OK) return false;
+  known = engine.setProps([page], { guides: [] } as never) === Status.OK;
+  engine.txnCancel();
+  keepsExtras.set(engine, known);
+  return known;
+}
+
+/** Does the engine keep this field (typed, or round-tripped as it came)? Panels gate their controls on it. */
+export function keepsField(engine: Engine, field: keyof NodeChange | string): boolean {
+  return supportsField(engine, field) || engineKeepsExtras(engine);
+}
+
+// ---- Commands ----------------------------------------------------------------------------------
+
+/** Is `name` one of the engine's commands in this build? */
+export const hasCommand = (name: string): name is CommandName => Object.prototype.hasOwnProperty.call(CommandId, name);
+
+/** Runs an engine command by name if this build has it (Status.E_UNSUPPORTED otherwise). */
+export function runEngineCommand(engine: Engine, name: string, args?: Record<string, number | string>): number {
+  return hasCommand(name) ? engine.command(name, args) : Status.E_UNSUPPORTED;
+}
+
+/** The command exists and the engine says it can run now. */
+export function engineCommandEnabled(engine: Engine, name: string): boolean {
+  return hasCommand(name) && (engine.commandState(name) & CMD_ENABLED) !== 0;
+}
+
+// ---- Methods -------------------------------------------------------------------------------------
+
+/** One of the facade's methods by name (the first of `names` it has), bound; null when the build has none. */
+export function engineMethod<F extends (...args: never[]) => unknown>(engine: Engine, ...names: string[]): F | null {
+  const e = engine as unknown as Record<string, unknown>;
+  for (const name of names) {
+    const f = e[name];
+    if (typeof f === "function") return (f as F).bind(engine) as F;
+  }
+  return null;
 }

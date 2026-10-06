@@ -1,6 +1,71 @@
 #include "scene/Node.h"
 
+#include <cmath>
+
 namespace eng {
+
+namespace {
+constexpr double kTwoPi = 6.283185307179586;
+}
+
+std::string ImageHash::hex() const {
+  static const char* digits = "0123456789abcdef";
+  std::string out;
+  if (!present) return out;
+  out.reserve(40);
+  for (uint8_t b : bytes) {
+    out += digits[b >> 4];
+    out += digits[b & 15];
+  }
+  return out;
+}
+
+ImageHash ImageHash::fromHex(std::string_view hex, bool* ok) {
+  ImageHash h;
+  auto nibble = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+  };
+  bool good = hex.size() == 40;
+  for (size_t i = 0; good && i < 20; i++) {
+    int a = nibble(hex[2 * i]), b = nibble(hex[2 * i + 1]);
+    if (a < 0 || b < 0) good = false;
+    else h.bytes[i] = static_cast<uint8_t>(a * 16 + b);
+  }
+  h.present = good;
+  if (!good) h.bytes = {};
+  if (ok) *ok = good;
+  return h;
+}
+
+bool ArcData::isFull() const {
+  if (innerRadius > 0) return false;
+  double sweep = endingAngle - startingAngle;
+  return (startingAngle == 0 && endingAngle == 0) || std::fabs(std::fabs(sweep) - kTwoPi) < 1e-6 || std::fabs(sweep) > kTwoPi;
+}
+
+bool VectorData::operator==(const VectorData& o) const {
+  if (present != o.present || !(normalizedSize == o.normalizedSize) || !(styleOverrideTable == o.styleOverrideTable)) return false;
+  if (network == o.network) return true;
+  if (!network || !o.network) return (!network || network->empty()) && (!o.network || o.network->empty());
+  return *network == *o.network;
+}
+
+bool NodeProps::isPathShape() const {
+  switch (type) {
+    case NodeType::VECTOR:
+    case NodeType::STAR:
+    case NodeType::LINE:
+    case NodeType::REGULAR_POLYGON:
+    case NodeType::BOOLEAN_OPERATION: return true;
+    case NodeType::ELLIPSE: return !arcData.isFull() || !dashPattern.empty();
+    case NodeType::RECTANGLE:
+    case NodeType::ROUNDED_RECTANGLE: return cornerSmoothing > 0 || !dashPattern.empty();
+    default: return false;
+  }
+}
 
 bool TextStyle::operator==(const TextStyle& o) const {
   return styleID == o.styleID && mask == o.mask && fontName == o.fontName && fontSize == o.fontSize && lineHeight == o.lineHeight &&
@@ -66,6 +131,24 @@ bool TextStyle::operator==(const TextStyle& o) const {
   X(F_TEXT_CASE, textCase, 34)                               \
   X(F_TEXT_DECORATION, textDecoration, 35)                   \
   X(F_AUTO_RENAME, autoRename, 14)                          \
+  X(F_BLEND_MODE, blendMode, 9)                              \
+  X(F_MASK, mask, 16)                                        \
+  X(F_MASK_TYPE, maskType, 317)                              \
+  X(F_STROKE_CAP, strokeCap, 30)                             \
+  X(F_STROKE_JOIN, strokeJoin, 31)                           \
+  X(F_MITER_LIMIT, miterLimit, 25)                           \
+  X(F_DASH_PATTERN, dashPattern, 13)                         \
+  X(F_BORDER_WEIGHTS, borderWeights, 295)                    \
+  X(F_BORDER_WEIGHTS, borderStrokeWeightsIndependent, 299)   \
+  X(F_CORNER_SMOOTHING, cornerSmoothing, 160)                \
+  X(F_EFFECTS, effects, 43)                                  \
+  X(F_COUNT, count, 10)                                      \
+  X(F_STAR_INNER_SCALE, starInnerScale, 24)                  \
+  X(F_ARC_DATA, arcData, 195)                                \
+  X(F_VECTOR_DATA, vectorData, 48)                           \
+  X(F_HANDLE_MIRRORING, handleMirroring, 44)                 \
+  X(F_BOOLEAN_OPERATION, booleanOperation, 36)               \
+  X(F_LAYOUT_GRIDS, layoutGrids, 47)                         \
   X(F_EXTRA, extra, 0)
 
 const char* nodeTypeName(NodeType t) {
@@ -132,6 +215,8 @@ uint32_t kiwiFieldId(Field f) {
 FieldMask fieldsOfKiwiId(uint32_t id) {
   // The four rectangle*CornerRadius fields and rectangleCornerRadiiIndependent travel with cornerRadius.
   if (id >= 145 && id <= 149) return F_CORNER_RADII;
+  // borderTop/Bottom/Left/RightWeight and borderStrokeWeightsIndependent travel together.
+  if (id >= 295 && id <= 299) return F_BORDER_WEIGHTS;
   if (id == 0) return 0;
 #define ENG_BIT(bit, member, kid) \
   if (id == kid) return bit;
@@ -142,12 +227,15 @@ FieldMask fieldsOfKiwiId(uint32_t id) {
 
 uint32_t fieldGroups(FieldMask m) {
   uint32_t g = 0;
-  if (m & (F_TRANSFORM | F_SIZE | F_CORNER_RADII | F_TYPE)) g |= G_GEOMETRY;
+  if (m & (F_TRANSFORM | F_SIZE | F_CORNER_RADII | F_TYPE | F_CORNER_SMOOTHING | F_COUNT | F_STAR_INNER_SCALE | F_ARC_DATA |
+           F_VECTOR_DATA | F_HANDLE_MIRRORING | F_BOOLEAN_OPERATION))
+    g |= G_GEOMETRY;
   if (m & (F_PARENT_INDEX | F_RESIZE_TO_FIT | kStackContainerFields | kStackChildFields | F_H_CONSTRAINT | F_V_CONSTRAINT |
            F_PROPORTIONS_CONSTRAINED | F_STACK_REVERSE_Z))
     g |= G_LAYOUT;
   if (m & (F_FILLS | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN | F_OPACITY | F_FRAME_MASK_DISABLED | F_BACKGROUND_COLOR |
-           F_BACKGROUND_ENABLED))
+           F_BACKGROUND_ENABLED | F_BLEND_MODE | F_MASK | F_MASK_TYPE | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |
+           F_DASH_PATTERN | F_BORDER_WEIGHTS | F_EFFECTS | F_LAYOUT_GRIDS))
     g |= G_PAINT;
   if (m & (kTextLayoutFields | F_AUTO_RENAME)) g |= G_TEXT;
   if (m & F_NAME) g |= G_NAME;
@@ -163,16 +251,31 @@ NodeProps defaultProps(NodeType type) {
   p.strokeAlign = StrokeAlign::INSIDE;
   switch (type) {
     case NodeType::FRAME:
-      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0xFFFFFF), 1, true, {}}};
+      p.fillPaints = {Paint::solid(Color::hex(0xFFFFFF))};
       break;
     case NodeType::RECTANGLE:
     case NodeType::ROUNDED_RECTANGLE:
     case NodeType::ELLIPSE:
-      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0xD9D9D9), 1, true, {}}};
+      p.fillPaints = {Paint::solid(Color::hex(0xD9D9D9))};
+      break;
+    case NodeType::REGULAR_POLYGON:
+      p.fillPaints = {Paint::solid(Color::hex(0xD9D9D9))};
+      p.count = 3;
+      break;
+    case NodeType::STAR:
+      p.fillPaints = {Paint::solid(Color::hex(0xD9D9D9))};
+      p.count = 5;
+      p.starInnerScale = 0.382;
+      break;
+    case NodeType::LINE:
+    case NodeType::VECTOR:
+      // Lines and pen paths: a black 1 px centre stroke, no fill.
+      p.strokePaints = {Paint::solid(Color::hex(0x000000))};
+      p.strokeAlign = StrokeAlign::CENTER;
       break;
     case NodeType::TEXT:
       // Figma's new text: Inter Regular 12, Auto line height, 0% letter spacing, black, an outside stroke weight of 1.
-      p.fillPaints = {Paint{PaintType::SOLID, Color::hex(0x000000), 1, true, {}}};
+      p.fillPaints = {Paint::solid(Color::hex(0x000000))};
       p.strokeAlign = StrokeAlign::OUTSIDE;
       p.textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
       p.autoRename = true;

@@ -11,11 +11,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { showToast } from "@/ds";
 import { SAMPLE_DOCUMENT } from "@/engine/sampleDocument";
-import { openDocument } from "@/store";
+import { getStoreClient, openDocument } from "@/store";
 import { memoryDocumentSource, type DocumentSource } from "./documentSource";
 import { EditorApp } from "./EditorApp";
 import type { EditorController } from "./controller";
-import { EMPTY_DOCUMENT, REFERENCE_DOCUMENT, TYPES_DOCUMENT } from "./fixtures";
+import type { ImageStore } from "./images";
+import { EMPTY_DOCUMENT, PAINTS_DOCUMENT, REFERENCE_DOCUMENT, TYPES_DOCUMENT } from "./fixtures";
 import styles from "./EditorApp.module.css";
 
 declare global {
@@ -28,10 +29,39 @@ function memorySource(doc: string | null): DocumentSource {
   if (doc === "reference") return memoryDocumentSource(REFERENCE_DOCUMENT, { fileName: "burakkoc", location: "Drafts" });
   if (doc === "empty") return memoryDocumentSource(EMPTY_DOCUMENT, { fileName: "Untitled", location: "Drafts" });
   if (doc === "types") return memoryDocumentSource(TYPES_DOCUMENT, { fileName: "Layer types", location: "Drafts" });
+  if (doc === "paints") return memoryDocumentSource(PAINTS_DOCUMENT, { fileName: "Paints and effects", location: "Drafts" });
   return memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Sample file", location: "Drafts" });
 }
 
 type StoreSource = Awaited<ReturnType<typeof openDocument>>;
+
+/** The store's blobs as the editor's image store (docs/data.md §10: content-addressed by SHA-1). */
+function storeImages(): ImageStore {
+  const blobs = getStoreClient().blobs;
+  return {
+    put: async (bytes, mime) => (await blobs.put(bytes, { mime })).sha1,
+    get: async (hash) => {
+      try {
+        return await blobs.get(hash);
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+/** The store's source with the store's blobs as its images (everything else is the source's own). */
+function withImages(source: StoreSource): DocumentSource {
+  if ((source as DocumentSource).images) return source;
+  const images = storeImages();
+  return new Proxy(source, {
+    get(target, key) {
+      if (key === "images") return images;
+      const v = Reflect.get(target, key, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  }) as DocumentSource;
+}
 
 /**
  * One open per file per page, shared by every mount (React's StrictMode mounts twice; the store refuses a
@@ -69,7 +99,7 @@ function useStoreSource(fileKey: string | null, tabId: string | undefined): { so
       .then((source) => {
         if (!live) return;
         if (source.recovery) showToast({ message: "This file was recovered after an unexpected quit" });
-        setState({ source, error: null });
+        setState({ source: withImages(source), error: null });
       })
       .catch((e: unknown) => {
         if (live) setState({ source: null, error: e instanceof Error ? e.message : String(e) });

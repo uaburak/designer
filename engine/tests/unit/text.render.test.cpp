@@ -1,5 +1,5 @@
-// Drawing text: glyph instances on the Glyph pipeline with their curves in the
-// glyph cache's texture; decorations as shapes; overlay labels (the size badge).
+// Drawing text: glyph instances on the Path pipeline with their curves in the
+// curve cache's texture; decorations as shapes; overlay labels (the size badge).
 #include "doctest.h"
 #include "editor/Editor.h"
 #include "gfx/null/NullDevice.h"
@@ -29,18 +29,18 @@ TEST_CASE("render: a text node draws one glyph instance per visible glyph, curve
   CHECK(stats.glyphs == 5);  // the space has no outline
   bool glyphDraw = false;
   for (auto& d : device.draws)
-    if (d.pipeline.shader == gfx::ShaderId::Glyph) {
+    if (d.pipeline.shader == gfx::ShaderId::Path) {
       glyphDraw = true;
-      CHECK(d.call.texture != 0);
-      auto inst = device.instancesOf<GlyphInstance>(&d - &device.draws[0]);
+      CHECK(d.call.textures[0] != 0);
+      auto inst = device.instancesOf<DrawInstance>(static_cast<size_t>(&d - &device.draws[0]));
       CHECK(inst[0].linear[0] == doctest::Approx(12));  // em → px: the font size
-      CHECK(inst[0].origin[3] > 0);                       // curve count
+      CHECK(inst[0].geom[2] == static_cast<float>(ShapeKind::Path));
       CHECK(inst[0].color[3] == doctest::Approx(1));
-      const auto& tex = device.texture(d.call.texture);
-      CHECK(tex.width == GlyphCache::kWidth);
+      const auto& tex = device.texture(d.call.textures[0]);
+      CHECK(tex.width == CurveCache::kWidth);
     }
   CHECK(glyphDraw);
-  CHECK(r.glyphCache().glyphCount() == 6);  // H, i, space (no curves), y, o, u
+  CHECK(r.curveCache().glyphCount() == 6);  // H, i, space (no curves), y, o, u
   CHECK(stats.shapes >= 1);  // the underline
 }
 

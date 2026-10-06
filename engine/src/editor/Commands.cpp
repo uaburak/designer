@@ -74,6 +74,29 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     case CommandId::CREATE_PAGE: return createPage() == kNoGuid ? E_INVALID : OK;
     case CommandId::DELETE_PAGE: return deletePage(args.page == kNoGuid ? page_ : args.page);
     case CommandId::DUPLICATE_PAGE: return duplicatePage(args.page == kNoGuid ? page_ : args.page) == kNoGuid ? E_NOT_FOUND : OK;
+    case CommandId::BOOLEAN_UNION: return booleanSelection(BooleanOperation::UNION);
+    case CommandId::BOOLEAN_SUBTRACT: return booleanSelection(BooleanOperation::SUBTRACT);
+    case CommandId::BOOLEAN_INTERSECT: return booleanSelection(BooleanOperation::INTERSECT);
+    case CommandId::BOOLEAN_EXCLUDE: return booleanSelection(BooleanOperation::XOR);
+    case CommandId::FLATTEN: return flattenSelection();
+    case CommandId::OUTLINE_STROKE: return outlineStroke();
+    case CommandId::USE_AS_MASK: return useAsMask();
+    case CommandId::PLACE_IMAGES: return placeImage(args);
+    case CommandId::VECTOR_SET_MIRRORING: {
+      VectorMirror m = VectorMirror::NONE;
+      if (!enumFromName(args.mirroring, m)) return E_INVALID;
+      return setVectorMirroring(m);
+    }
+    case CommandId::VECTOR_DELETE_AND_HEAL: return vectorDeleteAndHeal();
+    case CommandId::VECTOR_SET_POINTS:
+      return setVectorPoints(args.hasX ? &args.x : nullptr, args.hasY ? &args.y : nullptr, args.hasCornerRadius ? &args.cornerRadius : nullptr);
+    case CommandId::SET_END_CAPS: {
+      StrokeCap a = StrokeCap::NONE, b = StrokeCap::NONE;
+      bool hasA = !args.start.empty(), hasB = !args.end.empty();
+      if ((hasA && !enumFromName(args.start, a)) || (hasB && !enumFromName(args.end, b))) return E_INVALID;
+      std::vector<Guid> ids = vector_.node != kNoGuid ? std::vector<Guid>{vector_.node} : selection_;
+      return setEndCaps(ids, hasA ? &a : nullptr, hasB ? &b : nullptr);
+    }
   }
   return E_UNSUPPORTED;
 }
@@ -125,6 +148,45 @@ uint32_t Editor::commandState(CommandId id) const {
       return 0;
     }
     case CommandId::CREATE_PAGE: return doc_.has(documentNode()) ? CMD_ENABLED : 0;
+    case CommandId::BOOLEAN_UNION:
+    case CommandId::BOOLEAN_SUBTRACT:
+    case CommandId::BOOLEAN_INTERSECT:
+    case CommandId::BOOLEAN_EXCLUDE: {
+      auto top = topSelectionInPaintOrder();
+      bool booleans = !top.empty();
+      for (Guid t : top) booleans &= doc_.get(t)->props.isBoolean();
+      return top.size() >= 2 || booleans ? CMD_ENABLED : 0;
+    }
+    case CommandId::FLATTEN: {
+      for (Guid t : selection_) {
+        const Node* n = doc_.get(t);
+        if (n && (n->props.isPathShape() || n->props.isRectLike() || n->props.type == NodeType::ELLIPSE || n->props.type == NodeType::TEXT ||
+                  n->props.isGroupLike()))
+          return CMD_ENABLED;
+      }
+      return 0;
+    }
+    case CommandId::OUTLINE_STROKE: {
+      for (Guid t : selection_) {
+        const Node* n = doc_.get(t);
+        if (!n || !(n->props.strokeWeight > 0)) continue;
+        for (auto& s : n->props.strokePaints)
+          if (s.visible) return CMD_ENABLED;
+      }
+      return 0;
+    }
+    case CommandId::USE_AS_MASK: return any ? CMD_ENABLED | (selectionIsMask() ? CMD_CHECKED : 0) : 0;
+    case CommandId::PLACE_IMAGES: return doc_.has(page_) ? CMD_ENABLED : 0;
+    case CommandId::VECTOR_SET_MIRRORING:
+    case CommandId::VECTOR_DELETE_AND_HEAL:
+    case CommandId::VECTOR_SET_POINTS: return vector_.node != kNoGuid && !vector_.selVerts.empty() ? CMD_ENABLED : 0;
+    case CommandId::SET_END_CAPS: {
+      StrokeCap a, b;
+      if (vector_.node != kNoGuid) return endCaps(vector_.node, a, b) ? CMD_ENABLED : 0;
+      for (Guid t : selection_)
+        if (endCaps(t, a, b)) return CMD_ENABLED;
+      return 0;
+    }
     case CommandId::DELETE_PAGE: return pages().size() > 1 ? CMD_ENABLED : 0;
     case CommandId::DUPLICATE_PAGE: return doc_.has(page_) ? CMD_ENABLED : 0;
     default: return any ? CMD_ENABLED : 0;
@@ -407,7 +469,7 @@ std::vector<Guid> Editor::arrangeable() const {
 bool Editor::canUngroup(Guid id) const {
   const Node* n = doc_.get(id);
   if (!n || doc_.children(id).empty()) return false;
-  return n->props.isGroupLike() || n->props.type == NodeType::FRAME;
+  return n->props.fitsChildren() || n->props.type == NodeType::FRAME;
 }
 
 std::vector<std::string> Editor::placeManyAt(Guid parent, size_t index, size_t count, const std::unordered_set<Guid, GuidHash>& moving) {

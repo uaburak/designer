@@ -463,7 +463,8 @@ Real Figma files carry Figma's own layout results. The golden layout tests (§11
   - `Dasher` applies `dashPattern` by arc length before stroking.
   - **`strokeAlign` INSIDE/OUTSIDE**: stroke the center line at 2×weight, then intersect with the fill (INSIDE) or subtract it (OUTSIDE). This is done at render time by stencil (§6.4); `Boolean` is used only when an explicit outline is needed (Outline stroke, export).
   - Per-side weights (`borderTopWeight…` with `borderStrokeWeightsIndependent`) apply to rect frames only.
-- **Booleans** (`Boolean.cpp`, E4): `UNION/INTERSECT/SUBTRACT/XOR` over paths **that keep their curves**.
+- **As built (E4, 2026-10-07)**: see docs/engine-build.md "E4 + E5". Booleans are Clipper2 with curve recovery (below, superseding the paper.js port); the stroker strokes flattened polylines piece by piece (each segment / join / cap a positively wound polygon, unioned by NONZERO) instead of offsetting curves; INSIDE / OUTSIDE are done by the renderer's clip path (§6.4 as built).
+- **Booleans** (`Boolean.cpp`, E4): `UNION/INTERSECT/SUBTRACT/XOR` over paths **that keep their curves**. *As built: Clipper2 (Boost licence) on the flattened operands, every point tagged (Clipper's Z) with its source curve and parameter, intersections with both curves' parameters; runs along one source curve are turned back into that curve's exact section.*
   - Algorithm: a C++ port of paper.js's boolean pipeline (MIT; keep its notice): bézier–bézier intersection by fat-line clipping, split at intersections, winding-number classification of each curve, then trace the result.
   - BOOLEAN_OPERATION nodes render live from their children's geometry (cached result path, recomputed on `GEOMETRY` dirtiness of any child).
   - Flatten (⌘E) writes the result as a VECTOR.
@@ -549,7 +550,9 @@ The SDFs are the per-corner rounded-box distance and the gradient-normalised ell
 
 The fast path is not used when any of these is present: `cornerSmoothing > 0`, `arcData`, dashes, non-uniform per-side strokes on a non-rect, or caps/arrows. Those go through paths.
 
-**General paths** (vectors, booleans, stars, polygons, smoothed corners, arcs, stroke outlines, glyphs). **Decision: stencil-then-cover with Loop-Blinn quadratic curve triangles, anti-aliased by MSAA.** This follows Figma: the binary has `LoopBlinnInstanced` and `LoopBlinnGlyphsUShort`, and Figma's WebGPU post lists MSAA.
+**As built (E3 glyphs, E4 paths, 2026-10-07): curve coverage, not stencil-then-cover.** Every path's quadratics live in one RGBA32F texture with horizontal and vertical bands; one instanced quad per path computes each pixel's coverage from the curves (a ray along +x and one along +y, Lengyel JCGT 2017), NONZERO or ODD, optionally × a second path's coverage (INSIDE / OUTSIDE strokes). Analytic AA, no MSAA, no MaskAtlas; §14 Q3 is moot. The text below is the original plan, kept for the record.
+
+**General paths** (vectors, booleans, stars, polygons, smoothed corners, arcs, stroke outlines, glyphs). **Decision (superseded, see above): stencil-then-cover with Loop-Blinn quadratic curve triangles, anti-aliased by MSAA.** This follows Figma: the binary has `LoopBlinnInstanced` and `LoopBlinnGlyphsUShort`, and Figma's WebGPU post lists MSAA.
 - **Stencil pass**: a triangle fan from the first point of each contour over its on-curve points, plus one curve triangle per quadratic. The curve fragment discards where `u²−v > 0`.
 - Stencil op: INCR_WRAP / DECR_WRAP by facing (NONZERO), or INVERT (ODD).
 - **Cover pass**: a bounding quad tested against `stencil ≠ 0`, with the paint shader, clearing the stencil as it goes.
@@ -568,6 +571,7 @@ Why this technique:
 - If the golden thresholds still fail, the fallback is §14 Q3.
 
 ### 6.4 Strokes
+- *As built:* INSIDE / OUTSIDE path strokes are the 2×-weight outline drawn with the fill path as a clip path in the same shader (× coverage / × (1 − coverage)), not the stencil bit 7 scheme.
 - **SDF fast path**: rect, rrect and ellipse with a solid, undashed stroke (including per-side weights on rects).
 - **Otherwise**: the outline from `Stroker` is drawn as a path. INSIDE/OUTSIDE use the stencil: draw the fill into stencil bit 7, then cover the 2×-weight stroke where bit 7 is set (INSIDE) or not set (OUTSIDE). Winding counts use bits 0–6. This is Figma's look: an inside stroke never goes past the shape.
 
@@ -586,6 +590,7 @@ Paints are evaluated in the shape's local unit square through `Paint.transform` 
 - Paints stack in order: fills first, then strokes. A node with several paints draws several instances in the same batch.
 
 ### 6.6 Images (`render/ImageCache`)
+*As built:* the registry is module-wide (bitmap ids or RGBA, like the fonts), textures per renderer; an evicted texture is uploaded again from the registry (no new REQUEST_IMAGE); no thumbHash placeholder yet (grey).
 - **Key**: `Paint.image.hash` (20-byte SHA-1, R2 §5).
 - **Unknown hash**: emit `REQUEST_IMAGE {hash, maxDevicePx}`. While it loads, draw a 32×32 texture decoded from `Paint.thumbHash` (decoder in `render/ThumbHash.cpp`, ~120 lines) when present, otherwise a flat `#e6e6e6`.
 - **Upload path**: TS fetches the bytes, decodes them with `createImageBitmap` (premultiply, colour space "srgb"), stores the bitmap in `Module.engineBitmaps` and calls `engine_image_add_bitmap(hash, bitmapId, w, h)`. The engine creates a texture and its JS library does `texImage2D(ImageBitmap)` directly. No pixels are copied through Wasm memory.
@@ -595,6 +600,7 @@ Paints are evaluated in the shape's local unit square through `Paint.transform` 
 - Images larger than 4096 px are downscaled by TS at import (Figma's cap).
 
 ### 6.7 Effects, layers, blend modes, masks, clipping
+*As built (E5):* layers are offscreen targets from a pool sized to the layer's device bounds, rendered before their parent's pass (post-order), composited by one Composite shader (opacity, every blend mode via a backdrop copy, alpha / luminance masks, drop / inner shadows from a blurred copy); background blur splits the parent's pass (copy, blur, resume). Vector (OUTLINE) masks also go through layers (anti-aliased) rather than clip geometry. Clipping frames still use scissor / stencil.
 **Layers.** A render node with `needsLayer` draws its subtree into an offscreen RGBA8 target (pooled, device-px, clipped to the visible region plus the effect outset), then composites it with `composite.frag`. `needsLayer` is set by:
 - opacity < 1 on a node with more than one paint or with children;
 - `blendMode` other than PASS_THROUGH/NORMAL on a container;
@@ -1228,7 +1234,7 @@ Targets on the owner's M3:
 | **SheenBidi** | 2.x | Apache-2.0 (ship its NOTICE in the app's licences) | UAX #9 bidi (E3.2) | plain C, unity build |
 | **utf8proc** | 2.10+ | MIT | Unicode case mapping for `textCase` (UPPER/LOWER/TITLE) | plain C |
 | **doctest** | 2.4.x | MIT | native tests only | single header |
-| paper.js boolean algorithm (port, not vendored code) | — | MIT notice kept in `geometry/Boolean.cpp` | curve-preserving booleans (E4) | ours |
+| **Clipper2** (E4, replaces the planned paper.js port) | 2.0.1 | Boost Software License 1.0 | polygon clipping under curve-preserving booleans | `third_party/clipper2`, `clipper.engine.cpp` only, `USINGZ` |
 | Inter | 4.x | OFL-1.1 (font asset) | UI font, default document font | `src/renderer/public/fonts/` |
 | emdawnwebgpu (E9) | Emscripten port | BSD-3 | WebGPU backend | `--use-port=emdawnwebgpu` |
 | naga-cli (E9, build-time only) | — | MIT/Apache-2.0 | GLSL → WGSL in shadergen | `cargo install naga-cli` |
@@ -1321,6 +1327,6 @@ Each milestone ends with `npm run check` green and `npm run dev:demo` showing th
    - light-theme frame title colour;
    - pixel-grid threshold (800%);
    - small-text contrast.
-3. **AA risk.** If stencil-then-cover + MSAA (with the 64-sample MaskAtlas for small items) misses the small-vector goldens, switch the path *fill* to GPU coverage accumulation (Pathfinder-style tiled signed-area masks on R16F) behind the same `PathRenderer` interface. Decide at the end of E4.
-4. **Booleans.** The paper.js port is time-boxed to 2 weeks in E4. The fallback is Clipper2 (Boost licence) on flattened curves, with results marked approximate.
+3. **AA risk.** *(Resolved in E4: paths use curve coverage, analytically anti-aliased; see §6.3 as built.)* If stencil-then-cover + MSAA (with the 64-sample MaskAtlas for small items) misses the small-vector goldens, switch the path *fill* to GPU coverage accumulation (Pathfinder-style tiled signed-area masks on R16F) behind the same `PathRenderer` interface. Decide at the end of E4.
+4. **Booleans.** *(Resolved in E4: Clipper2 with curve recovery keeps the curves; see §5 as built.)* The paper.js port is time-boxed to 2 weeks in E4. The fallback is Clipper2 (Boost licence) on flattened curves, with results marked approximate.
 5. **Persisting derived caches.** Should the main document also persist `derivedTextData` (fast load, renders before fonts arrive)? Currently it is only baked into viewer snapshots.

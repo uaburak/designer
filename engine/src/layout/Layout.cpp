@@ -115,7 +115,7 @@ Vec2 Layout::natural(Guid id, double width, double height) {
     double w = width > 0 ? width : (p.textAutoResize == TextAutoResize::HEIGHT ? p.size.x : -1);
     Vec2 measured;
     if (host_.measureText(id, w, measured)) size = {w >= 0 ? w : measured.x, measured.y};
-  } else if (p.isGroupLike()) {
+  } else if (p.fitsChildren()) {
     bool any = false;
     Rect u;
     for (Guid c : doc_.children(id)) {
@@ -240,8 +240,8 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     Rect b = layoutBox(cp.transform, it.size);
     it.bp = P == 0 ? b.w : b.h;
     it.bc = C == 0 ? b.w : b.h;
-    it.grow = cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary() && it.aligned && !cp.isGroupLike() ? cp.stackChildPrimaryGrow : 0;
-    it.stretch = cp.stackChildAlignSelf == StackCounterAlign::STRETCH && it.aligned && !cp.isGroupLike();
+    it.grow = cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary() && it.aligned && !cp.fitsChildren() ? cp.stackChildPrimaryGrow : 0;
+    it.stretch = cp.stackChildAlignSelf == StackCounterAlign::STRETCH && it.aligned && !cp.fitsChildren();
     if (it.stretch && C == 0 && !wrap && cp.type == NodeType::TEXT) {
       // Stretched across a vertical flow: the text wraps at the frame's inner width, its height follows.
       it.size = natural(c, std::max(0.0, innerC), -1);
@@ -428,10 +428,10 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
     if (!sameSize(size, p.size)) host_.writeGeometry(id, p.transform, size);
     arrangeAutoLayout(id, size);
     applyConstraints(id, false);  // absolute children follow the frame
-  } else if (p.isGroupLike()) {
+  } else if (p.fitsChildren()) {
     for (Guid c : std::vector<Guid>(doc_.children(id))) {
       const Node* cn = doc_.get(c);
-      if (cn && (cn->props.isAutoLayout() || cn->props.isGroupLike() || cn->props.isFrameLike())) arrange(c, natural(c), false);
+      if (cn && (cn->props.isAutoLayout() || cn->props.fitsChildren() || cn->props.isFrameLike())) arrange(c, natural(c), false);
     }
     fitGroup(id);
   } else {
@@ -461,7 +461,7 @@ void Layout::arrangeAutoLayout(Guid id, Vec2 size) {
     const NodeProps& cp = cn->props;
     bool decided = (cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary()) || cp.stackChildAlignSelf == StackCounterAlign::STRETCH;
     // The child's own layout first (its children, its group fitting)…
-    if (cp.isAutoLayout() || cp.isGroupLike() || cp.isFrameLike()) arrange(pl.id, pl.size, decided || !cp.isAutoLayout());
+    if (cp.isAutoLayout() || cp.fitsChildren() || cp.isFrameLike()) arrange(pl.id, pl.size, decided || !cp.isAutoLayout());
     else if (!sameSize(pl.size, cp.size)) host_.writeGeometry(pl.id, cp.transform, pl.size);
     // …then its place: the layout box's top-left at the placement.
     const NodeProps& now = doc_.get(pl.id)->props;
@@ -554,7 +554,7 @@ void Layout::run(const std::vector<Guid>& dirty) {
     for (int guard = 0; guard < 10000; guard++) {
       Guid parent = doc_.parentOf(r);
       const Node* pn = doc_.get(parent);
-      if (!pn || !(pn->props.isAutoLayout() || pn->props.isGroupLike())) break;
+      if (!pn || !(pn->props.isAutoLayout() || pn->props.fitsChildren())) break;
       r = parent;
     }
     roots.insert(r);

@@ -15,7 +15,8 @@ const char* toolName(Tool t) {
 }
 
 bool toolImplemented(Tool t) {
-  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT;
+  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
+         t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL;
 }
 
 const char* txnKindName(TxnKind k) {
@@ -107,8 +108,8 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   auto markParent = [&](Guid parent) {
     const Node* p = doc_.get(parent);
     if (!p) return;
-    if (p->props.isAutoLayout() || p->props.isGroupLike()) layoutDirty_.insert(parent);
-    if (p->props.isGroupLike()) groupsTouched_.insert(parent);
+    if (p->props.isAutoLayout() || p->props.fitsChildren()) layoutDirty_.insert(parent);
+    if (p->props.fitsChildren()) groupsTouched_.insert(parent);
   };
   if (c.phase == Phase::REMOVED) {
     markParent(parentBefore);
@@ -119,9 +120,9 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   const NodeProps& p = now->props;
   if (c.phase == Phase::CREATED) {
     markParent(p.parentIndex.guid);
-    if (p.isAutoLayout() || p.isGroupLike()) layoutDirty_.insert(c.guid);
+    if (p.isAutoLayout() || p.fitsChildren()) layoutDirty_.insert(c.guid);
     if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE) layoutDirty_.insert(c.guid);
-    if (p.isGroupLike()) groupsTouched_.insert(c.guid);
+    if (p.fitsChildren()) groupsTouched_.insert(c.guid);
     return;
   }
   FieldMask m = c.mask;
@@ -156,7 +157,7 @@ void Editor::removeEmptyGroups() {
   std::vector<Guid> empty;
   for (Guid g : groupsTouched_) {
     const Node* n = doc_.get(g);
-    if (n && n->props.isGroupLike() && doc_.children(g).empty()) empty.push_back(g);
+    if (n && n->props.fitsChildren() && doc_.children(g).empty()) empty.push_back(g);
   }
   groupsTouched_.clear();
   std::sort(empty.begin(), empty.end());
@@ -206,7 +207,7 @@ void Editor::rollback() {
 void Editor::relayoutAll() {
   std::vector<Guid> dirty;
   doc_.forEach([&](const Node& n) {
-    if (n.props.isAutoLayout() || n.props.isGroupLike()) dirty.push_back(n.guid);
+    if (n.props.isAutoLayout() || n.props.fitsChildren()) dirty.push_back(n.guid);
   });
   if (dirty.empty()) return;
   std::sort(dirty.begin(), dirty.end());
@@ -250,6 +251,8 @@ void Editor::base(Guid id, Mat2x3& transform, Vec2& size) const {
 void Editor::changeSelection(std::vector<Guid> ids) {
   if (ids == selection_) return;
   selection_ = std::move(ids);
+  // Gradient handles belong to a selected layer.
+  if (paint_.node != kNoGuid && std::find(selection_.begin(), selection_.end(), paint_.node) == selection_.end()) endPaintEdit();
   events_.selection = true;
   needsRender_ = true;
 }
@@ -345,6 +348,11 @@ Overlay Editor::overlay() const {
       }
     }
   }
+  if (vector_.node != kNoGuid) vectorOverlay(o);
+  if (paint_.node != kNoGuid) paintOverlay(o);
+  if (gesture_ == Gesture::Pencil && pencilPoints_.size() > 1)
+    for (size_t i = 1; i < pencilPoints_.size(); i++)
+      o.curves.push_back({pencilPoints_[i - 1], pencilPoints_[i - 1], pencilPoints_[i], pencilPoints_[i], 1, true});
   return o;
 }
 
@@ -607,6 +615,8 @@ bool Editor::undoStep(bool redo) {
   }
   changeSelection(sel);
   pruneSelection();
+  if (vector_.node != kNoGuid) reloadVector();
+  if (paint_.node != kNoGuid && !editedPaint()) endPaintEdit();
   return true;
 }
 
@@ -641,6 +651,28 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
   }
   mods_ = mods;
   if (type == KeyEvent::UP) return 0;
+  if (vector_.node != kNoGuid)
+    if (uint32_t r = vectorKey(code, mods)) return r;
+  if (paint_.node != kNoGuid) {
+    if (code == KeyCode::Escape && gesture_ == Gesture::None) {
+      endPaintEdit();
+      return K_HANDLED;
+    }
+    if ((code == KeyCode::Backspace || code == KeyCode::Delete) && gesture_ == Gesture::None) {
+      // The selected stop goes (two stay at least).
+      const Paint* p = editedPaint();
+      if (p && p->stops.size() > 2 && paint_.stop >= 0 && static_cast<size_t>(paint_.stop) < p->stops.size()) {
+        Paint q = *p;
+        q.stops.erase(q.stops.begin() + paint_.stop);
+        begin(TxnKind::USER, "Delete color stop");
+        writePaint(q);
+        commit();
+        paint_.stop = std::max(0, paint_.stop - 1);
+        paintChanged();
+      }
+      return K_HANDLED;
+    }
+  }
   if (code == KeyCode::Escape) {
     if (gesture_ != Gesture::None) cancelGesture();
     else if (tool_ != Tool::MOVE) setTool(Tool::MOVE);
@@ -668,6 +700,8 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
         startTextEdit(selection_[0], true);
         return K_HANDLED;
       }
+      // Enter on a vector or a shape: vector edit mode.
+      if (!shift && selection_.size() == 1 && startVectorEdit(selection_[0]) == OK) return K_HANDLED;
       selectRelative(shift ? 1 : 0);
       return K_HANDLED;
     case KeyCode::Tab:
@@ -683,7 +717,7 @@ void Editor::modifiers(uint32_t mods) {
   uint32_t before = mods_;
   mods_ = mods;
   if (gesture_ == Gesture::Move || gesture_ == Gesture::Resize || gesture_ == Gesture::Rotate || gesture_ == Gesture::Draw ||
-      gesture_ == Gesture::Marquee) {
+      gesture_ == Gesture::Marquee || gesture_ == Gesture::Vector) {
     if (before != mods) redrag(mods);
   } else if (gesture_ == Gesture::None) {
     updateHover(lastScreen_, mods);
@@ -703,6 +737,12 @@ void Editor::blur() {
 Status Editor::setTool(Tool t) {
   if (!toolImplemented(t)) return E_UNSUPPORTED;
   if (t != tool_ && text_.node != kNoGuid) endTextEdit();
+  // In vector edit mode the Pen and Move switch its own tool; any other tool leaves it.
+  if (vector_.node != kNoGuid) {
+    if (t == Tool::PEN) return setVectorTool(VectorTool::PEN);
+    if (t == Tool::MOVE) return setVectorTool(VectorTool::MOVE);
+    endVectorEdit();
+  }
   if (t != tool_) {
     tool_ = t;
     events_.tool = true;

@@ -2,13 +2,18 @@
 // the engine's test fixtures (engine/tests/data/figma/*.json): a NODE_CHANGES
 // Message with only the fields the engine keeps, GUIDs as "s:l". Figma's own
 // layout results (size / transform) are what layout.figma_golden compares with.
+// Also, from the .fig files themselves: <name>.full.json, the whole Message as
+// the engine reads it (every field, blobs as base64 — vector networks, Figma's
+// own fillGeometry) and images/<sha1> (the image files the documents use).
 //
 //   node engine/tools/fixtures.mjs [--check]
+import { Buffer } from "node:buffer";
 import console from "node:console";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { readFig } from "./fig.mjs";
 
 const engine = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const samples = path.resolve(engine, "../docs/research/figma/samples");
@@ -55,5 +60,23 @@ for (const file of readdirSync(samples).filter((f) => f.endsWith(".fig.json")).s
     writeFileSync(target, text);
     console.log(`${path.relative(engine, target)}: ${nodeChanges.length} nodes`);
   }
+}
+// The whole documents, straight from the .fig files.
+mkdirSync(path.join(out, "images"), { recursive: true });
+for (const file of readdirSync(samples).filter((f) => f.endsWith(".fig")).sort()) {
+  const { message, images } = readFig(path.join(samples, file));
+  const outputs = [[path.join(out, file.replace(/\.fig$/, ".full.json")), Buffer.from(`${JSON.stringify(message)}\n`)]];
+  for (const [hash, data] of Object.entries(images)) outputs.push([path.join(out, "images", hash), data]);
+  for (const [target, data] of outputs) {
+    if (check) {
+      if (!existsSync(target) || !readFileSync(target).equals(data)) {
+        console.error(`stale: ${path.relative(engine, target)}`);
+        stale++;
+      }
+    } else {
+      writeFileSync(target, data);
+    }
+  }
+  if (!check) console.log(`${file}: ${message.nodeChanges.length} nodes, ${message.blobs.length} blobs, ${Object.keys(images).length} images`);
 }
 if (stale) process.exit(1);

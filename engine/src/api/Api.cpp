@@ -23,6 +23,7 @@
 #include "editor/Editor.h"
 #include "gfx/null/NullDevice.h"
 #include "hit/HitTest.h"
+#include "render/ImageCache.h"
 #include "render/Renderer.h"
 #include "scene/CodecJson.h"
 #include "text/Fonts.h"
@@ -81,7 +82,7 @@ void setError(std::string text) {
 // Refreshes the events flag when an export returns.
 struct Call {
   ~Call() {
-    uint32_t any = text::FontRegistry::get().hasRequests() && !engines().empty() ? 1u : 0u;
+    uint32_t any = (text::FontRegistry::get().hasRequests() || ImageRegistry::get().hasRequests()) && !engines().empty() ? 1u : 0u;
     for (Engine* e : engines()) any |= e->editor.hasEvents() ? 1u : 0u;
     gEventsFlag = any;
   }
@@ -134,18 +135,10 @@ void writeIds(json::Writer& w, const std::vector<Guid>& ids) {
 }
 
 void writeMessage(json::Writer& w, uint32_t sessionID, const std::vector<NodeChange>& changes) {
-  w.beginObject();
-  w.key("type").string("NODE_CHANGES");
-  w.key("sessionID").number(sessionID);
-  w.key("nodeChanges");
-  codec::writeChanges(w, changes);
-  w.endObject();
+  codec::writeMessage(w, sessionID, changes);
 }
 
-std::vector<NodeChange> readMessage(const json::Value& v) {
-  const json::Value* changes = v.isArray() ? &v : v.get("nodeChanges");
-  return changes ? codec::readChanges(*changes) : std::vector<NodeChange>{};
-}
+std::vector<NodeChange> readMessage(const json::Value& v) { return codec::readMessage(v); }
 
 void writeEvents(json::Writer& w, Engine& e) {
   Editor& ed = e.editor;
@@ -203,6 +196,9 @@ void writeEvents(json::Writer& w, Engine& e) {
   // Fonts the documents asked for (module-wide: whichever engine drains first carries them).
   for (const FontName& f : text::FontRegistry::get().takeRequests())
     w.beginObject().key("type").string("REQUEST_FONT").key("family").string(f.family).key("style").string(f.style).endObject();
+  // Images the documents draw that nobody has supplied yet (module-wide, like fonts).
+  for (const ImageHash& h : ImageRegistry::get().takeRequests())
+    w.beginObject().key("type").string("REQUEST_IMAGE").key("hash").string(h.hex()).endObject();
   if (ev.textEdit) {
     w.beginObject().key("type").string("TEXT_EDIT").key("active").boolean(ed.textEditing()).key("ref");
     if (ed.textEditing()) w.string(ed.textNode().toString());
@@ -211,6 +207,38 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("caretRectCss").beginObject().key("x").number(c.x).key("y").number(c.y).key("width").number(c.w).key("height").number(c.h).endObject();
     w.key("selStart").number(ed.textSelStart()).key("selEnd").number(ed.textSelEnd());
     w.endObject();
+  }
+  if (ev.vectorEdit) {
+    static const char* kTools[] = {"MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET"};
+    w.beginObject().key("type").string("VECTOR_EDIT").key("active").boolean(ed.vectorEditing()).key("ref");
+    if (ed.vectorEditing()) w.string(ed.vectorNode().toString());
+    else w.null();
+    w.key("tool").string(kTools[static_cast<int>(ed.vectorTool())]);
+    w.key("selectedVertices").beginArray();
+    for (uint32_t v : ed.vectorSelectedVertices()) w.number(v);
+    w.endArray().key("selectedSegments").beginArray();
+    for (uint32_t s : ed.vectorSelectedSegments()) w.number(s);
+    w.endArray();
+    w.key("vertexCount").number(static_cast<double>(ed.vectorNetwork().vertices.size()));
+    w.key("segmentCount").number(static_cast<double>(ed.vectorNetwork().segments.size()));
+    VectorMirror m = VectorMirror::NONE;
+    int mirroring = ed.vectorMirroring(m);
+    w.key("mirroring");
+    if (mirroring == 0) w.null();
+    else w.string(mirroring == 2 ? "MIXED" : enumName(m));
+    w.key("points").beginArray();
+    for (const auto& p : ed.vectorPoints())
+      w.beginObject().key("index").number(p.index).key("x").number(p.parent.x).key("y").number(p.parent.y)
+          .key("cornerRadius").number(p.cornerRadius).key("mirroring").string(enumName(p.mirroring)).endObject();
+    w.endArray();
+    w.endObject();
+  }
+  if (ev.paintEdit) {
+    w.beginObject().key("type").string("PAINT_EDIT").key("active").boolean(ed.paintEditing()).key("ref");
+    if (ed.paintEditing()) w.string(ed.paintNode().toString());
+    else w.null();
+    w.key("paints").string(ed.paintStrokes() ? "STROKE" : "FILL").key("index").number(ed.paintIndex());
+    w.key("stop").number(ed.paintStop()).endObject();
   }
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
@@ -498,6 +526,7 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
   if (!parse(ptr, len, v)) return E_DECODE;
   const Document& doc = e->editor.document();
   json::Writer w;
+  codec::BlobsOut blobs;
   w.beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(e->editor.sessionID());
   w.key("nodeChanges").beginArray();
   for (Guid id : readRefs(v)) {
@@ -506,7 +535,7 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
     if (flags & INCLUDE_CHILD_IDS) {
       // writeNode closes the object; build it by hand to add childIds.
       json::Writer one;
-      codec::writeNode(one, *n);
+      codec::writeNode(one, *n, &blobs);
       std::string s = one.take();
       s.pop_back();
       json::Writer kids;
@@ -514,10 +543,12 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
       s += ",\"childIds\":" + kids.take() + "}";
       w.raw(s);
     } else {
-      codec::writeNode(w, *n);
+      codec::writeNode(w, *n, &blobs);
     }
   }
-  w.endArray().endObject();
+  w.endArray();
+  blobs.writeMember(w);
+  w.endObject();
   return setResult(w.take());
 }
 
@@ -552,7 +583,8 @@ ENG_EXPORT int32_t engine_set_props(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr
     change.object.emplace_back("guid", std::move(guid));
   }
   NodeChange c;
-  if (!codec::readChange(change, c)) return E_DECODE;
+  codec::BlobsIn blobs = codec::readBlobs(change);
+  if (!codec::readChange(change, c, &blobs)) return E_DECODE;
   return e->editor.setProps(readRefs(refs), c, flags);
 }
 
@@ -601,6 +633,16 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
     } else if (auto* local = args.get("localID"); local && local->isNumber() && session) {
       a.page = {static_cast<uint32_t>(session->numberOr(0)), static_cast<uint32_t>(local->number)};
     }
+    if (auto* m = args.get("mirroring"); m && m->isString()) a.mirroring = m->string;
+    if (auto* m = args.get("start"); m && m->isString()) a.start = m->string;
+    if (auto* m = args.get("end"); m && m->isString()) a.end = m->string;
+    if (auto* m = args.get("x"); m && m->isNumber()) a.x = m->number, a.hasX = true;
+    if (auto* m = args.get("y"); m && m->isNumber()) a.y = m->number, a.hasY = true;
+    if (auto* m = args.get("cornerRadius"); m && m->isNumber()) a.cornerRadius = m->number, a.hasCornerRadius = true;
+    if (auto* m = args.get("width"); m && m->isNumber()) a.width = m->number;
+    if (auto* m = args.get("height"); m && m->isNumber()) a.height = m->number;
+    if (auto* m = args.get("name"); m && m->isString()) a.name = m->string;
+    if (auto* m = args.get("hash"); m && m->isString()) a.hash = ImageHash::fromHex(m->string);
   }
   return e->editor.command(static_cast<CommandId>(commandId), a);
 }
@@ -635,11 +677,13 @@ ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t /*flags*/) {
   Clipboard clip;
   if (!e->editor.copySelection(clip)) return E_NOT_FOUND;
   json::Writer w;
+  codec::BlobsOut blobs;
   w.beginObject();
   w.key("type").string("NODE_CHANGES");
   w.key("sessionID").number(e->editor.sessionID());
   w.key("nodeChanges");
-  codec::writeChanges(w, clip.nodes);
+  codec::writeChanges(w, clip.nodes, &blobs);
+  blobs.writeMember(w);
   w.key("pastePageId").string(clip.page.toString());
   w.key("clipboardSelectionRegions").beginArray();
   for (auto& r : clip.regions) {
@@ -742,7 +786,7 @@ ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uin
 ENG_EXPORT uint32_t engine_has_events(Handle h) {
   Call call;
   Engine* e = engineOf(h);
-  return e && (e->editor.hasEvents() || text::FontRegistry::get().hasRequests()) ? 1 : 0;
+  return e && (e->editor.hasEvents() || text::FontRegistry::get().hasRequests() || ImageRegistry::get().hasRequests()) ? 1 : 0;
 }
 
 // {"events":[{"type":"SELECTION_CHANGED",…}, …]} (docs/engine.md §10.4), draining the queue.
@@ -764,6 +808,10 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   json::Writer w;
   w.beginObject().key("nodes").number(static_cast<double>(e->editor.document().size()));
   w.key("shapes").number(e->stats.shapes).key("drawCalls").number(e->stats.drawCalls);
+  w.key("glyphs").number(e->stats.glyphs).key("paths").number(e->stats.paths).key("layers").number(e->stats.layers);
+  w.key("curveTexels").number(e->renderer->curveCache().texelCount());
+  w.key("images").number(static_cast<double>(e->renderer->imageCache().count()));
+  w.key("imageBytes").number(static_cast<double>(e->renderer->imageCache().bytes()));
   w.key("viewport").beginObject().key("width").number(v.width).key("height").number(v.height).key("dpr").number(v.dpr);
   w.key("pixelWidth").number(v.pixelWidth).key("pixelHeight").number(v.pixelHeight).endObject();
   w.endObject();
@@ -808,6 +856,111 @@ ENG_EXPORT int32_t engine_set_fallback_fonts(Ptr ptr, uint32_t len) {
     if (f.isString()) families.push_back(f.string);
   text::FontRegistry::get().setFallbacks(std::move(families));
   fontsChanged();
+  return OK;
+}
+
+// ---- Vector edit mode, gradient handles (docs/engine-build.md "E4 + E5 API") ---------------------
+
+// Edits a node's vector network (VECTOR, LINE, rectangles, ellipses, stars, polygons). E_UNSUPPORTED for others.
+ENG_EXPORT int32_t engine_vector_edit(Handle h, uint32_t sessionID, uint32_t localID) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.startVectorEdit({sessionID, localID}) : E_HANDLE;
+}
+
+ENG_EXPORT void engine_vector_edit_end(Handle h) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.endVectorEdit();
+}
+
+// tool: MOVE 0, PEN 1, BEND 2, LASSO 3, PAINT_BUCKET 4.
+ENG_EXPORT int32_t engine_vector_edit_tool(Handle h, uint32_t tool) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (tool > 4) return E_INVALID;
+  return e->editor.setVectorTool(static_cast<Editor::VectorTool>(tool));
+}
+
+// {"start":"NONE","end":"ARROW_LINES"} for a node with an open path; E_NOT_FOUND otherwise.
+ENG_EXPORT int32_t engine_end_caps(Handle h, uint32_t sessionID, uint32_t localID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  StrokeCap a = StrokeCap::NONE, b = StrokeCap::NONE;
+  if (!e->editor.endCaps({sessionID, localID}, a, b)) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginObject().key("start").string(enumName(a)).key("end").string(enumName(b)).endObject();
+  return setResult(w.take());
+}
+
+// paints: 0 fills, 1 strokes; the paint at `index` must be a gradient.
+ENG_EXPORT int32_t engine_paint_edit(Handle h, uint32_t sessionID, uint32_t localID, uint32_t paints, uint32_t index) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.startPaintEdit({sessionID, localID}, paints == 1, index) : E_HANDLE;
+}
+
+ENG_EXPORT void engine_paint_edit_end(Handle h) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.endPaintEdit();
+}
+
+ENG_EXPORT int32_t engine_paint_edit_stop(Handle h, uint32_t index) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.setPaintStop(static_cast<int>(index)) : E_HANDLE;
+}
+
+// ---- Images (docs/engine.md §6.6) ----------------------------------------------------------
+
+namespace {
+
+bool readHash(Ptr ptr, ImageHash& out) {
+  bool ok = false;
+  out = ImageHash::fromHex(bytes(ptr, 40), &ok);
+  if (!ok) setError("not an image hash (40 hex digits)");
+  return ok;
+}
+
+// An image arrived or failed: every engine draws again.
+void imagesChanged() {
+  for (Engine* e : engines()) e->editor.invalidateCanvas();
+}
+
+}  // namespace
+
+// The image `hash` (40 hex digits, UTF-8) is the JavaScript ImageBitmap Module.engineBitmaps[bitmapId]
+// (decoded premultiplied, width × height): the GL backend uploads it with texImage2D.
+ENG_EXPORT int32_t engine_image_add_bitmap(Ptr hashPtr, uint32_t bitmapId, uint32_t width, uint32_t height) {
+  Call call;
+  ImageHash h;
+  if (!readHash(hashPtr, h)) return E_INVALID;
+  if (!width || !height || !bitmapId) return E_INVALID;
+  ImageRegistry::get().addBitmap(h, bitmapId, width, height);
+  imagesChanged();
+  return OK;
+}
+
+// The image `hash` as premultiplied RGBA8 pixels (width × height × 4 bytes, copied): headless and Node.
+ENG_EXPORT int32_t engine_image_add_rgba(Ptr hashPtr, uint32_t width, uint32_t height, Ptr ptr, uint32_t len) {
+  Call call;
+  ImageHash h;
+  if (!readHash(hashPtr, h)) return E_INVALID;
+  if (!width || !height || static_cast<uint64_t>(len) < static_cast<uint64_t>(width) * height * 4) return E_INVALID;
+  const auto* p = reinterpret_cast<const uint8_t*>(ptr);
+  ImageRegistry::get().addRgba(h, width, height, std::make_shared<std::vector<uint8_t>>(p, p + static_cast<size_t>(width) * height * 4));
+  imagesChanged();
+  return OK;
+}
+
+// Nobody has the image `hash`: its paints draw Figma's grey placeholder.
+ENG_EXPORT int32_t engine_image_failed(Ptr hashPtr) {
+  Call call;
+  ImageHash h;
+  if (!readHash(hashPtr, h)) return E_INVALID;
+  ImageRegistry::get().fail(h);
+  imagesChanged();
   return OK;
 }
 

@@ -101,6 +101,9 @@
     background: transparent;
     outline: none;
   }
+  /* ColorInput's paint name ("Linear", "Image") in place of the hex: opens the picker */
+  .valueLabel { color: var(--figma-color-text); text-align: left; cursor: default; outline: none; }
+  .valueLabel:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
   .swatchCell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
   .opacity { display: flex; flex: none; align-items: center; width: 53px; height: 100%; border-left: 1px solid var(--figma-color-bg); }
 

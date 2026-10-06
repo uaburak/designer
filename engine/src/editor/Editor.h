@@ -21,6 +21,7 @@
 #include "editor/Selection.h"
 #include "editor/Snapping.h"
 #include "editor/Undo.h"
+#include "geometry/VectorNetwork.h"
 #include "layout/Layout.h"
 #include "render/Camera.h"
 #include "render/Renderer.h"
@@ -73,6 +74,13 @@ enum Status : int32_t { OK = 0, E_HANDLE = -1, E_DECODE = -2, E_INVALID = -3, E_
 struct CommandArgs {
   double dx = 0, dy = 0;  // NUDGE
   Guid page = kNoGuid;    // DELETE_PAGE, DUPLICATE_PAGE (the current page when absent)
+  std::string mirroring;  // VECTOR_SET_MIRRORING
+  std::string start, end; // SET_END_CAPS (StrokeCap names; empty = unchanged)
+  bool hasX = false, hasY = false, hasCornerRadius = false;
+  double x = 0, y = 0, cornerRadius = 0;  // VECTOR_SET_POINTS; PLACE_IMAGES (x, y: a page point)
+  ImageHash hash;                          // PLACE_IMAGES
+  double width = 0, height = 0;
+  std::string name;
 };
 
 // What a copy puts on the clipboard (docs/schema.md §4.1): the copied nodes as
@@ -130,6 +138,8 @@ class Editor : private LayoutHost, public TextLayouts {
   void setHover(const std::vector<Guid>& ids);  // Layers row hover → canvas outline
   bool tick(double timeMs);                     // true: draw a frame
   bool needsFrame() const { return needsRender_; }
+  // Something the canvas shows changed outside the document (an image arrived): draw again.
+  void invalidateCanvas() { needsRender_ = true; }
   void rendered() { needsRender_ = false; }
   Overlay overlay() const;
   CursorKind cursor() const { return cursor_; }
@@ -180,10 +190,10 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<ContextMenu> contextMenus;
     std::vector<std::pair<Guid, uint32_t>> nodes;  // NODES_CHANGED: node, field groups (merged)
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
-         structure = false, pages = false, currentPage = false, textEdit = false;
+         structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false;
     bool any() const {
       return !documents.empty() || !contextMenus.empty() || !nodes.empty() || selection || camera || tool || cursor || hover || undo ||
-             structure || pages || currentPage || textEdit;
+             structure || pages || currentPage || textEdit || vectorEdit || paintEdit;
     }
   };
   bool hasEvents() const { return events_.any(); }
@@ -213,11 +223,53 @@ class Editor : private LayoutHost, public TextLayouts {
   // The caret on screen (CSS px in the canvas): x, y, height.
   Rect caretRectCss() const;
 
+  // ---- Vector edit mode (editor/VectorEditing.cpp) ----
+  enum class VectorTool : uint8_t { MOVE, PEN, BEND, LASSO, PAINT_BUCKET };
+  // Edits `id`'s vector network (VECTOR, LINE, and shapes: they become VECTORs at their first edit).
+  Status startVectorEdit(Guid id);
+  void endVectorEdit();
+  bool vectorEditing() const { return vector_.node != kNoGuid; }
+  Guid vectorNode() const { return vector_.node; }
+  Status setVectorTool(VectorTool t);
+  VectorTool vectorTool() const { return vector_.tool; }
+  const std::vector<uint32_t>& vectorSelectedVertices() const { return vector_.selVerts; }
+  const std::vector<uint32_t>& vectorSelectedSegments() const { return vector_.selSegs; }
+  const geom::VectorNetwork& vectorNetwork() const { return vector_.net; }
+  struct VectorPoint {
+    uint32_t index;
+    Vec2 parent;  // the vertex in the node's parent's space (the panel's X / Y)
+    double cornerRadius;
+    VectorMirror mirroring;
+  };
+  std::vector<VectorPoint> vectorPoints() const;
+  // The selected vertices' handle mirroring (0 none selected, 1 one value in `out`, 2 mixed).
+  int vectorMirroring(VectorMirror& out) const;
+  Status setVectorMirroring(VectorMirror m);
+  Status vectorDeleteAndHeal();
+  // Moves the selected points' bounds' top-left to (x, y) (parent space) and / or sets their corner radius.
+  Status setVectorPoints(const double* x, const double* y, const double* cornerRadius);
+  // Open paths' ends (Figma's Start point / End point): false when the node has none.
+  bool endCaps(Guid id, StrokeCap& start, StrokeCap& end) const;
+  Status setEndCaps(const std::vector<Guid>& ids, const StrokeCap* start, const StrokeCap* end);
+  // A LINE's network: two vertices, one segment, the ends' caps as per-vertex styles.
+  static VectorData lineNetwork(double length, StrokeCap start, StrokeCap end);
+
+  // ---- Gradient (paint) edit mode (editor/PaintEditing.cpp) ----
+  // Shows `id`'s gradient paint (fills or strokes, `index`) on the canvas with its handles and stops.
+  Status startPaintEdit(Guid id, bool strokes, uint32_t index);
+  void endPaintEdit();
+  bool paintEditing() const { return paint_.node != kNoGuid; }
+  Guid paintNode() const { return paint_.node; }
+  bool paintStrokes() const { return paint_.strokes; }
+  uint32_t paintIndex() const { return paint_.index; }
+  int paintStop() const { return paint_.stop; }
+  Status setPaintStop(int stop);
+
   // Whether a gesture is in progress (undo and txn calls are refused meanwhile).
   bool busy() const { return gesture_ != Gesture::None && gesture_ != Gesture::Press; }
 
  private:
-  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect };
+  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint };
 
   struct Target {
     Guid id;
@@ -313,6 +365,15 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid createPage();
   Status deletePage(Guid page);
   Guid duplicatePage(Guid page);
+  // E4 / E5 (editor/VectorCommands.cpp).
+  Status booleanSelection(BooleanOperation op);
+  Status flattenSelection();
+  Status outlineStroke();
+  Status useAsMask();
+  Status placeImage(const CommandArgs& args);
+  bool selectionIsMask() const;
+  // The paths a node's fills cover, in the space `toSpace` maps its own space to (groups: their children's).
+  void fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const;
 
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
   enum class Handle : uint8_t { None, Resize, Rotate };
@@ -345,8 +406,80 @@ class Editor : private LayoutHost, public TextLayouts {
   void startRotate();
   void dragRotate(Vec2 world, uint32_t mods);
   void dragDraw(Vec2 world, uint32_t mods, bool click);
+  void dragLine(Vec2 world, uint32_t mods, bool click);
   void dragMarquee(Vec2 world, uint32_t mods);
   void finishClick(uint32_t mods);
+
+  // ---- Vector editing (editor/VectorEditing.cpp) ----
+  struct VectorSession {
+    Guid node = kNoGuid;
+    VectorTool tool = VectorTool::MOVE;
+    geom::VectorNetwork net;  // node space, at the node's size
+    std::vector<uint32_t> selVerts, selSegs;
+    bool pendingType = false;  // a shape that becomes a VECTOR at its first edit
+    int penFrom = -1;          // the vertex the pen's next segment starts at
+    Vec2 penOut;               // its outgoing tangent (node space)
+    Vec2 pointer;              // world, for the pen's preview
+    bool pointerKnown = false;
+    // Hover.
+    int hoverVertex = -1, hoverSegment = -1;
+    // The gesture.
+    enum class Drag : uint8_t { None, Vertices, Handle, Bend, PenNew, PenHandle, Marquee, Lasso } drag = Drag::None;
+    bool dragged = false;
+    geom::VectorNetwork startNet;  // when the drag started (node space then)
+    Mat2x3 startWorld;             // the node's world transform then
+    Mat2x3 startLocal;             // its transform then
+    int handleVertex = -1, handleSegment = -1;
+    bool handleAtStart = false;  // the handle is the segment's start tangent
+    double bendT = 0.5;
+    int newVertex = -1;
+    std::vector<Vec2> lasso;  // world
+    Rect marquee;             // world
+    std::vector<uint32_t> baseSel;
+    bool committedInDrag = false;
+  };
+  uint32_t vectorPointerDown(Vec2 s, uint32_t mods, int clickCount);
+  void vectorPointerMove(Vec2 s, uint32_t mods);
+  void vectorPointerUp(Vec2 s, uint32_t mods);
+  uint32_t vectorKey(KeyCode code, uint32_t mods);
+  void vectorChanged();  // VECTOR_EDIT, a frame
+  // Re-reads the network from the node (after undo / redo / outside changes).
+  void reloadVector();
+  // Writes `net` (in the space of a node whose transform is `local`) to node `id`: the box refitted to the
+  // network, the vector data replaced. Returns the network as stored (shifted into the new box).
+  geom::VectorNetwork writeVector(Guid id, geom::VectorNetwork net, const Mat2x3& local, const std::vector<VectorStyle>* styles = nullptr);
+  // A node's network in its own space at its size; false when it has none (`convert`: a shape's outline).
+  bool networkOf(Guid id, geom::VectorNetwork& out, bool& convert) const;
+  void vectorOverlay(Overlay& o) const;
+  // Hit-tests in screen px: a vertex, a handle (vertex + segment + which end), a segment (+ its t).
+  int vectorVertexAt(Vec2 screen) const;
+  bool vectorHandleAt(Vec2 screen, int& segment, bool& atStart) const;
+  int vectorSegmentAt(Vec2 screen, double& t) const;
+  Mat2x3 vectorToScreen() const;
+  // Pencil.
+  void pencilFinish();
+  std::vector<Vec2> pencilPoints_;  // world
+
+  // ---- Paint editing (editor/PaintEditing.cpp) ----
+  struct PaintSession {
+    Guid node = kNoGuid;
+    bool strokes = false;
+    uint32_t index = 0;
+    int stop = 0;
+    enum class Drag : uint8_t { None, Handle, Stop } drag = Drag::None;
+    int handle = 0;  // 0 start / centre, 1 end, 2 width
+    Paint start;     // the paint when the drag started
+    bool dragged = false;
+  };
+  const Paint* editedPaint() const;
+  // The handles in node unit space: [start or centre, end, width].
+  void paintHandles(const Paint& p, Vec2 out[3]) const;
+  uint32_t paintPointerDown(Vec2 s, uint32_t mods);
+  void paintPointerMove(Vec2 s, uint32_t mods);
+  void paintPointerUp();
+  void writePaint(const Paint& p);
+  void paintOverlay(Overlay& o) const;
+  void paintChanged();
 
   // ---- Text editing (editor/TextEditing.cpp) ----
   struct TextSession {
@@ -436,6 +569,7 @@ class Editor : private LayoutHost, public TextLayouts {
   SelectionBox box_;
   int handleX_ = 0, handleY_ = 0;
   NodeType drawType_ = NodeType::NONE;
+  bool drawArrow_ = false;
   Guid drawParent_ = kNoGuid;
   Guid drawn_ = kNoGuid;
   Snapper snapper_;
@@ -460,6 +594,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_map<Guid, CachedText, GuidHash> textCache_;
   std::unordered_set<Guid, GuidHash> unmeasured_;  // auto-resized texts measured while their font loaded
   TextSession text_;
+  VectorSession vector_;
+  PaintSession paint_;
   double timeMs_ = 0;
   int clickCount_ = 1;
 };

@@ -25,15 +25,21 @@ class NullDevice final : public Device {
   bool beginPass(const PassDesc& pass) override;
   void draw(const DrawCall& call) override;
   void endPass() override {}
-  void submit() override {}
+  // The frame's draws stay in `draws` until the next frame's first pass.
+  void submit() override { submitted_ = true; }
   void destroyBuffer(BufferId buffer) override;
   // Targets record their size and the last pass's clear colour; readback returns that colour.
   TargetId createTarget(uint32_t width, uint32_t height) override;
   void destroyTarget(TargetId target) override;
   bool readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) override;
+  TextureId targetTexture(TargetId target) override;
+  void copyToTexture(TextureId, IRect) override { copies++; }
   // Textures keep their bytes (tests read them back).
-  TextureId createTexture(TextureFormat format, uint32_t width, uint32_t height) override;
+  TextureId createTexture(const TextureDesc& desc) override;
+  using Device::createTexture;
   void writeTexture(TextureId texture, IRect rect, std::span<const uint8_t> data) override;
+  void generateMipmaps(TextureId) override {}
+  bool uploadBitmap(TextureId, uint32_t) override { return false; }
   void destroyTexture(TextureId texture) override;
   struct Texture {
     TextureFormat format = TextureFormat::RGBA32F;
@@ -43,9 +49,10 @@ class NullDevice final : public Device {
   };
   const Texture& texture(TextureId id) const { return textures_.at(id); }
 
-  std::vector<Recorded> draws;  // this frame's
-  PassDesc lastPass;
+  std::vector<Recorded> draws;  // this frame's (every pass)
+  PassDesc lastPass;            // the last pass begun (the canvas pass comes last)
   int passes = 0;
+  int copies = 0;
 
   // The instances of draw `i` as T (e.g. ShapeInstance).
   template <typename T>
@@ -63,9 +70,11 @@ class NullDevice final : public Device {
     uint32_t width = 0, height = 0;
     float clear[4] = {0, 0, 0, 0};
     bool live = false;
+    TextureId texture = 0;
   };
   std::vector<Target> targets_{{}};  // index = TargetId; 0 = the default framebuffer
   std::vector<Texture> textures_{{}};  // index = TextureId; 0 unused
+  bool submitted_ = true;
 
  public:
   size_t liveTargets() const {

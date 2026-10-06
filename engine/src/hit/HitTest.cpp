@@ -49,6 +49,29 @@ bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel) {
   return std::fabs(d - centre) <= std::max(half, slop);
 }
 
+bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLevel) {
+  const Node* n = doc.get(id);
+  if (!n) return false;
+  const NodeProps& p = n->props;
+  if (!p.isPathShape()) return hitsOwnShape(p, local, slop, topLevel);
+  const NodeGeometry* g = doc.geometry(id);
+  if (!g) return false;
+  bool fill = anyVisible(p.fillPaints), stroke = anyVisible(p.strokePaints) && p.strokeWeight > 0;
+  double tol = std::max(slop / 8, 1e-4);
+  bool hasFillArea = false;
+  if (fill || !stroke)
+    for (auto& f : g->fills) {
+      if (f.path.empty()) continue;
+      hasFillArea = true;
+      if (geom::contains(geom::flatten(f.path, tol), local, f.windingRule == WindingRule::ODD)) return true;
+    }
+  if (g->stroke.path.empty()) return false;
+  // The stroke (or, with nothing painted, the outline): within max(half its reach, slop) of the centre line.
+  double half = stroke ? (p.strokeAlign == StrokeAlign::CENTER ? p.strokeWeight / 2 : p.strokeWeight) : 0;
+  if (!stroke && hasFillArea) return false;
+  return geom::distanceTo(geom::flatten(g->stroke.path, tol), local) <= std::max(half, slop);
+}
+
 namespace {
 
 // Calls f(path) for each node hit at `world`, topmost first; stops when f returns false.
@@ -66,7 +89,8 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f)
   std::sort(candidates.begin(), candidates.end(), [&](Guid a, Guid b) { return doc.paintsBefore(b, a); });
   for (Guid id : candidates) {
     const Node* n = doc.get(id);
-    if (!n || n->props.isGroupLike() || !doc.visibleInTree(id)) continue;  // groups are hit through their children
+    // Groups and boolean operations are hit through their children.
+    if (!n || n->props.fitsChildren() || !doc.visibleInTree(id)) continue;
     bool clipped = false;
     for (Guid a = n->props.parentIndex.guid; a != kNoGuid && !clipped;) {
       const Node* an = doc.get(a);
@@ -77,6 +101,17 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f)
         double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
         if (!hitsOwnShape(an->props, m.inverse().apply(world), slop, true)) clipped = true;
       }
+      // Inside a boolean operation: only where its result is.
+      if (an->props.isBoolean()) {
+        Mat2x3 m = doc.worldTransform(a);
+        double unit = std::sqrt(std::fabs(m.determinant()));
+        double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
+        const NodeGeometry* g = doc.geometry(a);
+        bool inside = false;
+        if (g)
+          for (auto& f : g->fills) inside |= geom::contains(geom::flatten(f.path, slop / 8), m.inverse().apply(world), false);
+        if (!inside) clipped = true;
+      }
       a = an->props.parentIndex.guid;
     }
     if (clipped) continue;
@@ -84,7 +119,7 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f)
     double unit = std::sqrt(std::fabs(m.determinant()));
     double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
     bool topLevel = n->props.parentIndex.guid == page;
-    if (!hitsOwnShape(n->props, m.inverse().apply(world), slop, topLevel)) continue;
+    if (!hitsNode(doc, id, m.inverse().apply(world), slop, topLevel)) continue;
     std::vector<Guid> path = doc.pathFromPage(id);
     for (size_t i = 0; i < path.size(); i++) {
       const Node* pn = doc.get(path[i]);

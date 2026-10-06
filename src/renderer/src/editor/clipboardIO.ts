@@ -8,10 +8,11 @@
  * Clipboard API's HTML, then the last copy made in this tab.
  */
 import type { Message } from "@/engine/codec";
-import { pageBounds } from "./actions";
 import type { EditorController } from "./controller";
-import { decodeClipboard, encodeClipboard } from "./model/clipboard";
+import { decodeClipboard, encodeClipboard, messageAt } from "./model/clipboard";
 import { isEditable } from "./keyboard";
+import { isImageFile } from "./images";
+import { frameAt, placeImages } from "./placeImages";
 
 
 function writeTo(data: DataTransfer, formats: Record<string, string>) {
@@ -26,15 +27,11 @@ function copyFormats(ed: EditorController): Record<string, string> | null {
 
 function pasteMessage(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
   if (mode?.mode === "point") {
-    // "Paste here": paste, then move what was pasted so its corner is under the pointer — one undo step.
-    ed.batch("Paste here", () => {
-      ed.engine.paste(message, {});
-      const box = pageBounds(ed, ed.selection);
-      if (!box) return;
-      const dx = mode.x - box.x;
-      const dy = mode.y - box.y;
-      for (const n of ed.selectedNodes()) if (n.transform) ed.engine.setProps([n.guid], { transform: { ...n.transform, m02: n.transform.m02 + dx, m12: n.transform.m12 + dy } });
-    });
+    // "Paste here": the Message moved so its corner is under the pointer, pasted in place in the frame there.
+    const cam = ed.engine.getCamera();
+    const frame = frameAt(ed, mode.x * cam.zoom + cam.x, mode.y * cam.zoom + cam.y);
+    ed.engine.setSelection(frame ? [frame] : []);
+    ed.engine.paste(messageAt(message, { x: mode.x, y: mode.y }), { inPlace: true });
   } else ed.engine.paste(message, { inPlace: mode?.mode === "inPlace" });
   ed.focusCanvas();
 }
@@ -59,7 +56,17 @@ export function attachClipboard(ed: EditorController): () => void {
     const mode = ed.pendingPaste;
     ed.pendingPaste = null;
     const message = decodeClipboard((type) => data.getData(type)) ?? (data.types.length === 0 && ed.lastCopy ? decodeClipboard((t) => ed.lastCopy?.[t]) : null);
-    if (!message) return; // images, SVG, text: later (desktop.md §13 steps 3–6)
+    if (!message) {
+      // An image on the clipboard (a screenshot, a copied file): placed like a paste (desktop.md §13 step 4).
+      const files = [...data.files].filter(isImageFile);
+      if (!files.length) return; // SVG, text: later (desktop.md §13 steps 3, 5, 6)
+      e.preventDefault();
+      void ed.images.import(files).then((images) => {
+        if (images.length && !ed.engine.destroyed) placeImages(ed, images);
+        ed.focusCanvas();
+      });
+      return;
+    }
     e.preventDefault();
     pasteMessage(ed, message, mode);
   };

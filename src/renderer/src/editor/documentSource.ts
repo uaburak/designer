@@ -7,6 +7,7 @@
  * `?editor` route and the tests use `memoryDocumentSource`.
  */
 import type { Guid, Message, NodeChange } from "@/engine/codec";
+import { memoryImageStore, type ImageStore } from "./images";
 
 export interface DocumentSource {
   /** The file's name, as the left panel's header shows it ("burakkoc"). */
@@ -40,6 +41,8 @@ export interface DocumentSource {
   saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
   /** Non-destructive restore: `apply` gets the diff and applies it as one undoable edit labelled "Restore version". */
   restoreVersion?(id: string, apply: (diff: Message) => void | Promise<void>): Promise<VersionInfo>;
+  /** The file's images by SHA-1 (the store's blobs). Optional: absent, images can't be placed or drawn. */
+  readonly images?: ImageStore;
 }
 
 /** What a source keeps of the editor's UI between sessions (the store's FileUiState). */
@@ -104,7 +107,7 @@ export interface MemoryDocumentSource extends DocumentSource {
 }
 
 /** A DocumentSource held in memory: the snapshot it was given plus every change since. */
-export function memoryDocumentSource(document: Message, options: { fileName?: string; location?: string; sessionID?: number } = {}): MemoryDocumentSource {
+export function memoryDocumentSource(document: Message, options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore } = {}): MemoryDocumentSource {
   const nodes = new Map<Guid, NodeChange>(document.nodeChanges.map((n) => [n.guid, { ...n, phase: "CREATED" as const }]));
   const changes: Message[] = [];
   let fileName = options.fileName ?? "Untitled";
@@ -115,6 +118,7 @@ export function memoryDocumentSource(document: Message, options: { fileName?: st
     },
     location: options.location ?? "Drafts",
     sessionID: options.sessionID ?? 1,
+    images: options.images ?? memoryImageStore(),
     changes,
     load: async () => snapshot(),
     onChanges: (message) => {

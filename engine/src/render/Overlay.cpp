@@ -6,6 +6,7 @@
 #include <string>
 
 #include "editor/Selection.h"
+#include "geometry/Path.h"
 #include "render/Renderer.h"
 
 namespace eng {
@@ -64,11 +65,44 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     ScreenBox b = screenBox(toScreen, size, dpr);
     CornerRadii r = kSquare;
     for (int i = 0; i < 4; i++) r[i] = radii[i] * b.axisScale;
-    emit(makeShape(b.m, b.size, kind, r, blue, 0, blue, 1, weight, 0), Pass::Color);
+    emit(makeShape(b.m, b.size, kind, r, blue, 0, blue, 1, weight, 0), Pass::Shape);
+  };
+  // A polyline on screen (CSS px), `width` across: one thin rectangle per segment, squares at the joins.
+  auto polyline = [&](const std::vector<Vec2>& pts, bool closed, double width, const Color& color, double alpha) {
+    size_t n = pts.size();
+    if (n < 2) return;
+    size_t segs = closed ? n : n - 1;
+    for (size_t i = 0; i < segs; i++) {
+      Vec2 a = pts[i], b = pts[(i + 1) % n];
+      Vec2 d = b - a;
+      double len = d.length();
+      if (len < 1e-9) continue;
+      Vec2 u{d.x / len, d.y / len}, nn{-u.y, u.x};
+      Mat2x3 m{u.x, nn.x, a.x - nn.x * width / 2, u.y, nn.y, a.y - nn.y * width / 2};
+      emit(makeShape(m, {len, width}, ShapeKind::Rect, kSquare, color, alpha, color, 0, 0, 0), Pass::Shape);
+      if (i > 0 || closed)
+        emit(makeShape(Mat2x3::translate(a.x - width / 2, a.y - width / 2), {width, width}, ShapeKind::Ellipse, kSquare, color, alpha,
+                       color, 0, 0, 0),
+             Pass::Shape);
+    }
+  };
+  auto pathOutline = [&](const geom::Path& path, const Mat2x3& toScreen, double width) {
+    geom::Path screen = path.transformed(toScreen);
+    for (const geom::Polyline& pl : geom::flatten(screen, 0.25)) polyline(pl.points, pl.closed, width, blue, 1);
   };
   auto nodeOutline = [&](Guid id, double weight, bool ownShape) {
     const Node* n = doc.get(id);
     if (!n) return;
+    if (ownShape && n->props.isPathShape()) {
+      // Vectors, stars, booleans…: their own outline.
+      if (const NodeGeometry* g = doc.geometry(id)) {
+        Mat2x3 m = view * doc.worldTransform(id);
+        if (!g->stroke.path.empty()) pathOutline(g->stroke.path, m, weight);
+        else
+          for (auto& f : g->fills) pathOutline(f.path, m, weight);
+        return;
+      }
+    }
     Rect lb = doc.localBounds(id);
     Mat2x3 m = view * doc.worldTransform(id) * Mat2x3::translate(lb.x, lb.y);
     ShapeKind kind = ownShape && n->props.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
@@ -81,7 +115,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Mat2x3 m = view * doc.worldTransform(overlay.textNode);
     for (const Rect& r : overlay.textSelection) {
       Mat2x3 rm = m * Mat2x3::translate(r.x, r.y);
-      emit(makeShape(rm, {r.w, r.h}, ShapeKind::Rect, kSquare, blue, style.textSelectionAlpha, blue, 0, 0, 0), Pass::Color);
+      emit(makeShape(rm, {r.w, r.h}, ShapeKind::Rect, kSquare, blue, style.textSelectionAlpha, blue, 0, 0, 0), Pass::Shape);
     }
     if (overlay.caretVisible) {
       // 1 px wide (2 px from 200% zoom), the line's height, on device pixels when upright.
@@ -93,10 +127,10 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         Vec2 u{d.x / len, d.y / len};
         if (std::fabs(u.x) < 1e-6) {
           double x = std::round((top.x - width / 2) * dpr) / dpr;
-          emit(makeShape(Mat2x3::translate(x, top.y), {width, len}, ShapeKind::Rect, kSquare, blue, 1, blue, 0, 0, 0), Pass::Color);
+          emit(makeShape(Mat2x3::translate(x, top.y), {width, len}, ShapeKind::Rect, kSquare, blue, 1, blue, 0, 0, 0), Pass::Shape);
         } else {
           Mat2x3 cm{-u.y, u.x, top.x + u.y * width / 2, u.x, u.y, top.y - u.x * width / 2};
-          emit(makeShape(cm, {width, len}, ShapeKind::Rect, kSquare, blue, 1, blue, 0, 0, 0), Pass::Color);
+          emit(makeShape(cm, {width, len}, ShapeKind::Rect, kSquare, blue, 1, blue, 0, 0, 0), Pass::Shape);
         }
       }
     }
@@ -124,7 +158,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   for (const Rect& band : overlay.bands) {
     Rect r = transformedBounds(view * Mat2x3::translate(band.x, band.y), band.w, band.h);
     ScreenBox b = screenBox(Mat2x3::translate(r.x, r.y), {r.w, r.h}, dpr);
-    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.autoLayoutBand, style.bandAlpha, blue, 0, 0, 0), Pass::Color);
+    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.autoLayoutBand, style.bandAlpha, blue, 0, 0, 0), Pass::Shape);
   }
 
   // Hover: the hovered layer's own outline (not when it is selected).
@@ -136,12 +170,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // Selection: each layer's box, the selection's box, its handles and size badge.
   SelectionBox box = selectionBox(doc, overlay.selection);
-  if (box.valid) {
+  if (box.valid && overlay.selectionBox) {
     if (overlay.selection.size() > 1)
       for (Guid s : overlay.selection) nodeOutline(s, 1, false);
     Mat2x3 toScreen = view * box.toWorld;
     ScreenBox sb = screenBox(toScreen, box.size, dpr);
-    emit(makeShape(sb.m, sb.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Color);
+    emit(makeShape(sb.m, sb.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
 
     bool roomy = sb.size.x >= style.handlesMinBox && sb.size.y >= style.handlesMinBox;
     if (overlay.handles && roomy) {
@@ -152,7 +186,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         Vec2 o = sb.m.apply(c) - sb.m.applyLinear({hs / 2, hs / 2});
         hm.m02 = std::round(o.x * dpr) / dpr;
         hm.m12 = std::round(o.y * dpr) / dpr;
-        emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, white, 1, blue, 1, 1, 0), Pass::Color);
+        emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, white, 1, blue, 1, 1, 0), Pass::Shape);
       }
     }
 
@@ -169,7 +203,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       double by = std::round((r.bottom() + style.badgeGap) * dpr) / dpr;
       double rr = style.badgeRadius;
       emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0),
-           Pass::Color);
+           Pass::Shape);
       if (L && !L->lines.empty()) {
         const text::LaidLine& line = L->lines[0];
         double ty = by + (bh - line.height) / 2;
@@ -193,12 +227,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       double c0 = snap(mid - width / 2), c1 = std::max(c0 + minPx, snap(mid + width / 2));
       double l0 = snap(lo), l1 = std::max(l0 + minPx, snap(hi));
       Rect r = horizontal ? Rect{l0, c0, l1 - l0, c1 - c0} : Rect{c0, l0, c1 - c0, l1 - l0};
-      emit(makeShape(Mat2x3::translate(r.x, r.y), {r.w, r.h}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Color);
+      emit(makeShape(Mat2x3::translate(r.x, r.y), {r.w, r.h}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Shape);
       return;
     }
     Vec2 u{d.x / len, d.y / len}, n{-u.y, u.x};
     Mat2x3 m{u.x, n.x, a.x - n.x * width / 2, u.y, n.y, a.y - n.y * width / 2};
-    emit(makeShape(m, {len, width}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Color);
+    emit(makeShape(m, {len, width}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Shape);
   };
   // A dashed line (⌥ measurement's extension lines): 4 px dashes, 4 px gaps on screen.
   auto dashed = [&](Vec2 aw, Vec2 bw, const Color& color) {
@@ -230,7 +264,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     double pw = std::round(tw + 2 * style.badgePadding), ph = style.pillHeight, rr = style.pillRadius;
     Vec2 c = (a + b) * 0.5;
     double px = std::round((c.x - pw / 2) * dpr) / dpr, py = std::round((c.y - ph / 2) * dpr) / dpr;
-    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Color);
+    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Shape);
     if (L && !L->lines.empty()) {
       double ty = py + (ph - L->lines[0].height) / 2;
       drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round(ty * dpr) / dpr), Color{1, 1, 1, 1}, 1);
@@ -246,7 +280,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Guid id = overlay.measureTarget;
     Rect lb = doc.localBounds(id);
     ScreenBox b = screenBox(view * doc.worldTransform(id) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr);
-    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.measure, 0, style.measure, 1, 1, 0), Pass::Color);
+    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.measure, 0, style.measure, 1, 1, 0), Pass::Shape);
   }
   for (const GuideLine& g : overlay.measureGuides) dashed(g.a, g.b, style.measure);
   for (const SpacingMark& m : overlay.measures) distance(m, style.measure);
@@ -254,11 +288,77 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // Where a dragged layer will join an auto-layout flow.
   if (overlay.hasInsertion) line(overlay.insertion.a, overlay.insertion.b, style.insertionWidth, blue);
 
+  // Vector edit mode, the pen, gradient handles: segments, tangent lines, vertices and handles.
+  for (const OverlayCurve& c : overlay.curves) {
+    geom::Path p;
+    p.moveTo(view.apply(c.p0));
+    p.cubicTo(view.apply(c.c1), view.apply(c.c2), view.apply(c.p3));
+    Color col = c.highlight ? blue : Color{blue.r, blue.g, blue.b, 1};
+    for (const geom::Polyline& pl : geom::flatten(p, 0.25)) polyline(pl.points, false, c.width, col, c.highlight ? 1 : 0.85);
+  }
+  for (const OverlayLine& l : overlay.lines) {
+    Vec2 a = view.apply(l.a), b = view.apply(l.b);
+    if (l.dark) {
+      polyline({a, b}, false, 3, white, 1);
+      polyline({a, b}, false, 1, Color{0, 0, 0, 1}, 0.35);
+    } else if (l.dashed) {
+      double len = (b - a).length();
+      for (double t = 0; t < len; t += 8) polyline({a + (b - a) * (t / len), a + (b - a) * (std::min(len, t + 4) / len)}, false, 1, blue, 1);
+    } else {
+      polyline({a, b}, false, 1, blue, 1);
+    }
+  }
+  for (const OverlayMark& k : overlay.marks) {
+    Vec2 c = view.apply(k.world);
+    c = {std::round(c.x * dpr) / dpr, std::round(c.y * dpr) / dpr};
+    switch (k.shape) {
+      case OverlayMark::Shape::Vertex: {
+        double d = k.hovered || k.selected ? 8 : 7;
+        Color fill = k.selected ? blue : white;
+        emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, fill, 1, k.selected ? white : blue, 1,
+                       1, 0),
+             Pass::Shape);
+        break;
+      }
+      case OverlayMark::Shape::Handle: {
+        double d = 5;
+        emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, k.selected ? blue : white, 1, blue, 1,
+                       1, 0),
+             Pass::Shape);
+        break;
+      }
+      case OverlayMark::Shape::GradientHandle: {
+        double d = k.selected ? 12 : 10;
+        emit(makeShape(Mat2x3::translate(c.x - d / 2 - 1, c.y - d / 2 - 1), {d + 2, d + 2}, ShapeKind::Ellipse, kSquare, Color{0, 0, 0, 1}, 0.2,
+                       blue, 0, 0, 0),
+             Pass::Shape);
+        emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, white, 1, blue, k.selected ? 1 : 0, 2, 0),
+             Pass::Shape);
+        break;
+      }
+      case OverlayMark::Shape::GradientStop: {
+        double d = k.selected ? 14 : 12, r = 3;
+        emit(makeShape(Mat2x3::translate(c.x - d / 2 - 1, c.y - d / 2 - 1), {d + 2, d + 2}, ShapeKind::Rect, {r + 1, r + 1, r + 1, r + 1},
+                       Color{0, 0, 0, 1}, 0.25, blue, 0, 0, 0),
+             Pass::Shape);
+        emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Rect, {r, r, r, r}, k.color, k.color.a,
+                       k.selected ? blue : white, 1, 2, 0),
+             Pass::Shape);
+        break;
+      }
+    }
+  }
+  if (overlay.lasso.size() > 1) {
+    std::vector<Vec2> pts;
+    for (Vec2 w : overlay.lasso) pts.push_back(view.apply(w));
+    polyline(pts, true, 1, blue, 1);
+  }
+
   if (overlay.hasMarquee) {
     const Rect& q = overlay.marquee;
     Rect r = transformedBounds(view * Mat2x3::translate(q.x, q.y), q.w, q.h);
     ScreenBox b = screenBox(Mat2x3::translate(r.x, r.y), {r.w, r.h}, dpr);
-    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, style.marqueeFill, blue, 1, 1, 0), Pass::Color);
+    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, style.marqueeFill, blue, 1, 1, 0), Pass::Shape);
   }
 }
 

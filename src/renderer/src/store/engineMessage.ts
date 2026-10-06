@@ -5,9 +5,9 @@
  * these two functions become the identity and go away.
  *
  *   engine → store: GUID strings become objects, int64/uint64 become bigints, fields the schema doesn't know
- *                   (`childIds`) are dropped;
- *   store → engine: GUID objects become strings, bigints become numbers, bytes (Uint8Array, which JSON can't carry)
- *                   are left out — the store keeps them, since the engine's changes carry only the fields they touch.
+ *                   (`childIds`) are dropped, the Message's blobs (base64 strings) become `{bytes}`;
+ *   store → engine: GUID objects become strings, bigints become numbers, `byte[]` fields (an image's hash) become
+ *                   arrays of numbers and the Message's blobs base64 strings (docs/engine-build.md "Wire format").
  */
 import type { Message as EngineMessage, NodeChange as EngineNodeChange } from "@/engine/codec";
 import { guidKey, parseGuid } from "../../../shared/schema/guid";
@@ -50,7 +50,8 @@ function toKiwiValue(m: SchemaModel, type: string, isArray: boolean, v: any): an
 function toEngineValue(m: SchemaModel, type: string, isArray: boolean, v: any): any {
   if (v === undefined || v === null) return undefined;
   if (isArray) {
-    if (type === "byte" || v instanceof Uint8Array) return undefined;
+    if (type === "byte") return v instanceof Uint8Array || Array.isArray(v) ? Array.from(v as ArrayLike<number>) : undefined;
+    if (v instanceof Uint8Array) return undefined;
     const out: any[] = [];
     for (const e of v as any[]) {
       const x = toEngineValue(m, type, false, e);
@@ -84,6 +85,19 @@ export function nodeToEngine(node: NodeChange, model: SchemaModel = MODEL): Engi
   return toEngineValue(model, "NodeChange", false, node) as EngineNodeChange;
 }
 
+/** Base64 ⇄ bytes (the engine's JSON carries a Message's blobs as base64 strings). */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+export function base64ToBytes(text: string): Uint8Array {
+  const s = atob(text);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
 /** An engine change Message (DOCUMENT_CHANGED's message) → the kiwi Message the store journals. */
 export function messageToKiwi(message: EngineMessage, model: SchemaModel = MODEL): Message {
   return {
@@ -91,15 +105,17 @@ export function messageToKiwi(message: EngineMessage, model: SchemaModel = MODEL
     sessionID: message.sessionID ?? 0,
     ackID: 0,
     nodeChanges: (message.nodeChanges ?? []).map((n) => nodeToKiwi(n, model)).filter((n) => !!n.guid),
-    blobs: [],
+    blobs: (message.blobs ?? []).map((b) => ({ bytes: base64ToBytes(b) })),
   };
 }
 
 /** A kiwi Message (a snapshot, a journal frame, a restore diff) → what `engine_load` / `engine_apply_changes` take. */
 export function messageToEngine(message: Message, model: SchemaModel = MODEL): EngineMessage {
-  return {
+  const out: EngineMessage = {
     type: "NODE_CHANGES",
     sessionID: message.sessionID ?? 0,
     nodeChanges: (message.nodeChanges ?? []).filter((n) => !!n.guid).map((n) => nodeToEngine(n, model)),
   };
+  if (message.blobs?.length) out.blobs = message.blobs.map((b) => bytesToBase64(b.bytes ?? new Uint8Array(0)));
+  return out;
 }

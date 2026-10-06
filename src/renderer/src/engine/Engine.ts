@@ -22,6 +22,7 @@ import {
   TEXT_EDIT_SELECT_ALL,
   TICK_NEEDS_RENDER,
   TOOLS,
+  VECTOR_EDIT_TOOLS,
   type CommandName,
   type ToolName,
 } from "./abi";
@@ -54,7 +55,9 @@ import {
   type PageInfo,
   type Pixels,
   type Selection,
+  type StrokeCap,
   type TextLayoutInfo,
+  type VectorEditTool,
 } from "./codec";
 import type { EngineExports } from "./EngineExports";
 import { fonts } from "./fonts";
@@ -68,6 +71,11 @@ export interface EngineOptions {
 }
 
 export type ApplyKind = "user" | "remote" | "load";
+
+/** Where image bytes come from (the file's image store): the image file for a SHA-1 hash, or null. */
+export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
+
+let nextBitmapId = 1;
 
 type Handler = (event: EngineEvent) => void;
 
@@ -97,6 +105,12 @@ export class Engine {
 
   /** The text editing state, as the last TEXT_EDIT event said. */
   textEdit: EventOf<"TEXT_EDIT"> | null = null;
+  /** Vector edit mode, as the last VECTOR_EDIT event said (null when not editing). */
+  vectorEdit: EventOf<"VECTOR_EDIT"> | null = null;
+  /** Gradient handles, as the last PAINT_EDIT event said (null when none are shown). */
+  paintEdit: EventOf<"PAINT_EDIT"> | null = null;
+  private imageSource: ImageSource | null = null;
+  private readonly imageLoads = new Map<string, Promise<number>>();
   private readonly unsubscribeFonts: () => void;
 
   private constructor(exports: EngineExports, handle: number, headless: boolean) {
@@ -169,6 +183,9 @@ export class Engine {
           const event = this.queue.shift()!;
           if (event.type === "REQUEST_FONT") fonts.request(event.family, event.style);
           else if (event.type === "TEXT_EDIT") this.textEdit = event.active ? event : null;
+          else if (event.type === "VECTOR_EDIT") this.vectorEdit = event.active ? event : null;
+          else if (event.type === "PAINT_EDIT") this.paintEdit = event.active ? event : null;
+          else if (event.type === "REQUEST_IMAGE") this.answerImage(event.hash);
           this.handlers.get(event.type)?.forEach((handler) => handler(event));
           this.handlers.get("*")?.forEach((handler) => handler(event));
         }
@@ -461,6 +478,114 @@ export class Engine {
     const [s, l] = ref.split(":").map(Number);
     const status = this.x.textLayout(this.h, s, l);
     return this.after(status === Status.OK ? decodeTextLayout(this.x.result()) : null);
+  }
+
+  // ---- Vector edit mode (docs/engine-build.md "E4 + E5 API") ---------------------------------
+
+  /**
+   * Edits a node's vector network: VECTOR, LINE, rectangles, ellipses, stars, polygons (a shape becomes a VECTOR
+   * at its first edit, same GUID). Status.E_UNSUPPORTED for others. `vectorEdit` follows the VECTOR_EDIT events.
+   */
+  startVectorEdit(ref: Guid): number {
+    const [s, l] = ref.split(":").map(Number);
+    return this.after(this.x.vectorEdit(this.h, s, l));
+  }
+
+  /** Leaves vector edit mode (as Esc / Enter do). */
+  endVectorEdit(): void {
+    this.after(this.x.vectorEditEnd(this.h));
+  }
+
+  /** The vector edit toolbar: MOVE, PEN, BEND (also ⌘ held), LASSO, PAINT_BUCKET. */
+  setVectorEditTool(tool: VectorEditTool): number {
+    return this.after(this.x.vectorEditTool(this.h, VECTOR_EDIT_TOOLS.indexOf(tool)));
+  }
+
+  /** An open path's ends (Figma's Start point / End point), or null when the node has none. */
+  endCaps(ref: Guid): { start: StrokeCap; end: StrokeCap } | null {
+    const [s, l] = ref.split(":").map(Number);
+    const status = this.x.endCaps(this.h, s, l);
+    return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as { start: StrokeCap; end: StrokeCap }) : null);
+  }
+
+  // ---- Gradient handles ------------------------------------------------------------------------
+
+  /** Shows a gradient paint's handles and stops on the canvas (fills or strokes, its index). */
+  startPaintEdit(ref: Guid, options: { paints: "FILL" | "STROKE"; index: number }): number {
+    const [s, l] = ref.split(":").map(Number);
+    return this.after(this.x.paintEdit(this.h, s, l, options.paints === "STROKE" ? 1 : 0, options.index));
+  }
+
+  endPaintEdit(): void {
+    this.after(this.x.paintEditEnd(this.h));
+  }
+
+  /** The panel selected a stop: the canvas shows it selected. */
+  setPaintEditStop(index: number): number {
+    return this.after(this.x.paintEditStop(this.h, index));
+  }
+
+  // ---- Images (docs/engine.md §6.6) ------------------------------------------------------
+
+  /**
+   * Where the engine's images come from: from now on every REQUEST_IMAGE is answered with the bytes `load`
+   * gives for the hash (decoded with createImageBitmap, uploaded straight into a texture), or reported failed.
+   */
+  setImageSource(load: ImageSource | null): void {
+    this.imageSource = load;
+  }
+
+  private answerImage(hash: string): void {
+    if (!this.imageSource || this.imageLoads.has(hash)) return;
+    const load = this.imageSource;
+    const work = load(hash)
+      .then((bytes) => (bytes ? this.addImageBytes(hash, bytes) : this.imageFailed(hash)))
+      .catch(() => this.imageFailed(hash));
+    this.imageLoads.set(hash, work);
+  }
+
+  /** An image's file bytes for `hash` (40 hex digits): decoded by the browser and handed to the engine. */
+  async addImageBytes(hash: string, bytes: Uint8Array): Promise<number> {
+    if (typeof createImageBitmap === "undefined") return this.imageFailed(hash);
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { premultiplyAlpha: "premultiply", colorSpaceConversion: "default" });
+    } catch {
+      return this.imageFailed(hash);
+    }
+    if (!this.h) {
+      bitmap.close();
+      return Status.E_HANDLE;
+    }
+    return this.addImage(hash, bitmap);
+  }
+
+  /** A decoded image for `hash`; the engine keeps the bitmap (it uploads it again after a GPU eviction). */
+  addImage(hash: string, bitmap: ImageBitmap): number {
+    const module = this.x.module;
+    module.engineBitmaps ??= {};
+    const id = nextBitmapId++;
+    module.engineBitmaps[id] = bitmap;
+    return this.after(this.x.imageAddBitmap(hash.toLowerCase(), id, bitmap.width, bitmap.height));
+  }
+
+  /** Raw premultiplied RGBA8 pixels for `hash` (headless engines, tests). */
+  addImageRgba(hash: string, width: number, height: number, rgba: Uint8Array): number {
+    return this.after(this.x.imageAddRgba(hash.toLowerCase(), width, height, rgba));
+  }
+
+  /** Nobody has the image: its paints draw Figma's grey placeholder. */
+  imageFailed(hash: string): number {
+    return this.after(this.x.imageFailed(hash.toLowerCase()));
+  }
+
+  /** Every image the engine asked for so far has been answered (thumbnails, screenshots). */
+  async imagesSettled(): Promise<void> {
+    while (true) {
+      const pending = [...this.imageLoads.values()];
+      await Promise.allSettled(pending);
+      if (this.imageLoads.size === pending.length) return;
+    }
   }
 
   undo(): boolean {

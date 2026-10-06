@@ -1,6 +1,7 @@
 /**
- * "Selection colors" (Figma UI3): the distinct solid colours of the selection's
- * fills and strokes and of every visible layer inside it, each once; editing a
+ * "Selection colors" (Figma UI3): the distinct solid colours and gradients of
+ * the selection's fills and strokes and of every visible layer inside it, each
+ * once (a gradient as one row: its swatch and type, its picker edits every use); editing a
  * row (hex, opacity, the picker) recolours every paint using it, as one undo
  * step; the target button selects the layers using it. The first three rows
  * show, then "See all N colors". Rules and grouping: model/selectionColors.ts.
@@ -12,6 +13,7 @@ import type { Engine } from "@/engine/Engine";
 import { useEditor, type EditorController } from "../../controller";
 import { useDocumentVersion } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
+import { paintLabel, paintSwatch } from "../../model/paints";
 import { SELECTION_COLORS_MAX_NODES, SELECTION_COLORS_SHOWN, collectColors, recolor, showSelectionColors, type PaintUse, type SelectionColor } from "../../model/selectionColors";
 import type { PickerTarget } from "./Paints";
 import type { PanelNode } from "./shared";
@@ -68,6 +70,7 @@ export function pageColors(ed: EditorController, max = 48): string[] {
   if (!nodes) return [];
   const out = new Set<string>();
   for (const c of collectColors(nodes)) {
+    if (c.gradient) continue;
     const { r, g, b } = c.color;
     out.add(c.opacity >= 1 ? colorToHex(c.color) : `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${Math.round(c.opacity * 100) / 100})`);
     if (out.size >= max) break;
@@ -102,7 +105,8 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
           <ColorInput
             className={styles.paintField}
             label="Selection color"
-            color={colorToHex(c.color)}
+            color={c.gradient ? paintSwatch(c.gradient) : colorToHex(c.color)}
+            valueLabel={c.gradient ? paintLabel(c.gradient) : undefined}
             opacity={toPercent(c.opacity)}
             onColor={(hex, info) => writeSelectionColor(ed, c.uses, { color: hexToColor(hex) }, info)}
             onOpacity={(o, info) => writeSelectionColor(ed, c.uses, { opacity: o / 100 }, info)}

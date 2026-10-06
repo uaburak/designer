@@ -7,6 +7,7 @@
  */
 import { useCallback, useSyncExternalStore } from "react";
 import type { Guid } from "@/engine/codec";
+import type { ImportedImage } from "./images";
 
 export type RailTab = "file" | "assets";
 export type Renaming = { kind: "layer" | "page" | "file"; id: Guid } | null;
@@ -38,6 +39,8 @@ export interface UIState {
   versionDialog: "save" | "history" | null;
   /** The context menu over the canvas or a layer: where it opens (view px) and, on the canvas, the point it was opened at (canvas CSS px) */
   contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[] } | null;
+  /** Images chosen with the Image tool, waiting for a click each (the first is next) */
+  placingImages: readonly ImportedImage[] | null;
 }
 
 export class Store<T> {

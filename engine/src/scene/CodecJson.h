@@ -35,18 +35,52 @@
 
 namespace eng::codec {
 
+// A Message's blobs as they are read (Message.blobs: base64 strings): blob-index
+// fields (vectorData.vectorNetworkBlob, Image.dataBlob) resolve through it.
+struct BlobsIn {
+  std::vector<Bytes> blobs;
+  Bytes get(const json::Value* index) const;
+};
+// Message.blobs of `message` (absent or malformed entries are empty blobs).
+BlobsIn readBlobs(const json::Value& message);
+
+// A Message's blobs as they are written: each distinct blob once, in first-use order.
+class BlobsOut {
+ public:
+  uint32_t add(const Bytes& bytes);
+  bool empty() const { return list_.empty(); }
+  // `"blobs": [...]` as the next member of an open object (nothing when there are none).
+  void writeMember(json::Writer& w) const;
+
+ private:
+  std::vector<Bytes> list_;
+};
+
 // The fields a CREATED change of `p` carries.
 FieldMask presentFields(const NodeProps& p);
-void writeChange(json::Writer& w, const NodeChange& change);
-void writeChanges(json::Writer& w, const std::vector<NodeChange>& changes);
+// Writes one change. Blob fields need `blobs` (the Message's blob table); without it they're left out.
+void writeChange(json::Writer& w, const NodeChange& change, BlobsOut* blobs = nullptr);
+void writeChanges(json::Writer& w, const std::vector<NodeChange>& changes, BlobsOut* blobs = nullptr);
 // A node with every field (for panels).
-void writeNode(json::Writer& w, const Node& node);
+void writeNode(json::Writer& w, const Node& node, BlobsOut* blobs = nullptr);
+// {"type":"NODE_CHANGES","sessionID":…,"nodeChanges":[…],"blobs":[…]}.
+void writeMessage(json::Writer& w, uint32_t sessionID, const std::vector<NodeChange>& changes);
 
 // A GUID as "s:l" or {"sessionID","localID"}.
 bool readGuid(const json::Value& v, Guid& out);
-// Reads one change; false when it has no valid guid.
-bool readChange(const json::Value& v, NodeChange& out);
+// Reads one change; false when it has no valid guid. Blob indices resolve through `blobs`.
+bool readChange(const json::Value& v, NodeChange& out, const BlobsIn* blobs = nullptr);
 // Reads an array of changes (invalid entries are skipped).
-std::vector<NodeChange> readChanges(const json::Value& v);
+std::vector<NodeChange> readChanges(const json::Value& v, const BlobsIn* blobs = nullptr);
+// The changes of a Message (or a bare array of changes), its blobs resolved.
+std::vector<NodeChange> readMessage(const json::Value& message);
+
+// Where clipboard images' bytes (Image.dataBlob) go when a paint is read (the image registry).
+using ImageDataSink = void (*)(const ImageHash& hash, Bytes bytes);
+void setImageDataSink(ImageDataSink sink);
+
+// Paints and effects on their own (style tables, tests).
+void writePaints(json::Writer& w, const std::vector<Paint>& paints);
+std::vector<Paint> readPaints(const json::Value& v, const BlobsIn* blobs = nullptr);
 
 }  // namespace eng::codec

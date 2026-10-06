@@ -7,6 +7,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <map>
 #include <cstdint>
 #include <optional>
@@ -50,8 +51,30 @@ enum class NodeType : uint8_t {
 };
 
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };
-// SOLID is drawn; any other paint (gradients, images: E5) is kept as it came (Paint::raw).
-enum class PaintType : uint8_t { SOLID = 0, OTHER = 255 };
+// schema/document.kiwi's PaintType; OTHER: a paint type the schema doesn't know, kept as it came (Paint::extra).
+enum class PaintType : uint8_t {
+  SOLID = 0, GRADIENT_LINEAR = 1, GRADIENT_RADIAL = 2, GRADIENT_ANGULAR = 3, GRADIENT_DIAMOND = 4, IMAGE = 5, OTHER = 255
+};
+enum class BlendMode : uint8_t {
+  PASS_THROUGH = 0, NORMAL, DARKEN, MULTIPLY, LINEAR_BURN, COLOR_BURN, LIGHTEN, SCREEN, LINEAR_DODGE, COLOR_DODGE,
+  OVERLAY, SOFT_LIGHT, HARD_LIGHT, DIFFERENCE, EXCLUSION, HUE, SATURATION, COLOR, LUMINOSITY
+};
+enum class ImageScaleMode : uint8_t { STRETCH = 0, FIT = 1, FILL = 2, TILE = 3 };  // STRETCH = "Crop" in the UI
+enum class StrokeCap : uint8_t {
+  NONE = 0, ROUND = 1, SQUARE = 2, ARROW_LINES = 3, ARROW_EQUILATERAL = 4, DIAMOND_FILLED = 5, TRIANGLE_FILLED = 6,
+  CIRCLE_FILLED = 14
+};
+enum class StrokeJoin : uint8_t { MITER = 0, BEVEL = 1, ROUND = 2 };
+enum class MaskType : uint8_t { ALPHA = 0, OUTLINE = 1, LUMINANCE = 2 };  // OUTLINE = Figma's "Vector" mask
+enum class EffectType : uint8_t {
+  INNER_SHADOW = 0, DROP_SHADOW = 1, FOREGROUND_BLUR = 2, BACKGROUND_BLUR = 3, GRAIN = 6, NOISE = 7, GLASS = 8
+};
+enum class VectorMirror : uint8_t { NONE = 0, ANGLE = 1, ANGLE_AND_LENGTH = 2 };
+enum class BooleanOperation : uint8_t { UNION = 0, INTERSECT = 1, SUBTRACT = 2, XOR = 3 };
+enum class WindingRule : uint8_t { NONZERO = 0, ODD = 1 };
+enum class LayoutGridType : uint8_t { MIN = 0, CENTER = 1, STRETCH = 2, MAX = 3 };
+enum class LayoutGridPattern : uint8_t { STRIPES = 0, GRID = 1 };
+enum class Axis : uint8_t { X = 0, Y = 1 };
 
 // Auto layout (schema/document.kiwi StackMode … StackCounterAlignContent).
 enum class StackMode : uint8_t { NONE = 0, HORIZONTAL = 1, VERTICAL = 2, GRID = 3 };
@@ -100,6 +123,21 @@ bool enumFromName(std::string_view s, E& out) {
     static constexpr size_t count = sizeof(names) / sizeof(names[0]); \
   };
 ENG_ENUM_NAMES(StrokeAlign, "CENTER", "INSIDE", "OUTSIDE")
+ENG_ENUM_NAMES(BlendMode, "PASS_THROUGH", "NORMAL", "DARKEN", "MULTIPLY", "LINEAR_BURN", "COLOR_BURN", "LIGHTEN", "SCREEN",
+               "LINEAR_DODGE", "COLOR_DODGE", "OVERLAY", "SOFT_LIGHT", "HARD_LIGHT", "DIFFERENCE", "EXCLUSION", "HUE",
+               "SATURATION", "COLOR", "LUMINOSITY")
+ENG_ENUM_NAMES(ImageScaleMode, "STRETCH", "FIT", "FILL", "TILE")
+ENG_ENUM_NAMES(StrokeCap, "NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED",
+               "", "", "", "", "", "", "", "CIRCLE_FILLED")
+ENG_ENUM_NAMES(StrokeJoin, "MITER", "BEVEL", "ROUND")
+ENG_ENUM_NAMES(MaskType, "ALPHA", "OUTLINE", "LUMINANCE")
+ENG_ENUM_NAMES(EffectType, "INNER_SHADOW", "DROP_SHADOW", "FOREGROUND_BLUR", "BACKGROUND_BLUR", "", "", "GRAIN", "NOISE", "GLASS")
+ENG_ENUM_NAMES(VectorMirror, "NONE", "ANGLE", "ANGLE_AND_LENGTH")
+ENG_ENUM_NAMES(BooleanOperation, "UNION", "INTERSECT", "SUBTRACT", "XOR")
+ENG_ENUM_NAMES(WindingRule, "NONZERO", "ODD")
+ENG_ENUM_NAMES(LayoutGridType, "MIN", "CENTER", "STRETCH", "MAX")
+ENG_ENUM_NAMES(LayoutGridPattern, "STRIPES", "GRID")
+ENG_ENUM_NAMES(Axis, "X", "Y")
 ENG_ENUM_NAMES(StackMode, "NONE", "HORIZONTAL", "VERTICAL", "GRID")
 ENG_ENUM_NAMES(StackAlign, "MIN", "CENTER", "MAX", "BASELINE")
 ENG_ENUM_NAMES(StackCounterAlign, "MIN", "CENTER", "MAX", "STRETCH", "AUTO", "BASELINE")
@@ -134,14 +172,143 @@ struct Color {
   }
 };
 
+struct ColorStop {
+  Color color;
+  double position = 0;
+  bool operator==(const ColorStop& o) const { return color == o.color && position == o.position; }
+};
+
+// Image adjustments (schema PaintFilterMessage), each −1…1, 0 = unchanged.
+struct PaintFilter {
+  float tint = 0, shadows = 0, highlights = 0, detail = 0, exposure = 0, vignette = 0, temperature = 0, vibrance = 0,
+        contrast = 0, brightness = 0;
+  bool operator==(const PaintFilter& o) const {
+    return tint == o.tint && shadows == o.shadows && highlights == o.highlights && detail == o.detail && exposure == o.exposure &&
+           vignette == o.vignette && temperature == o.temperature && vibrance == o.vibrance && contrast == o.contrast &&
+           brightness == o.brightness;
+  }
+  bool any() const { return !(*this == PaintFilter{}); }
+};
+
+// An image's id: the SHA-1 of its file's bytes (schema Image.hash).
+struct ImageHash {
+  std::array<uint8_t, 20> bytes{};
+  bool present = false;
+  bool operator==(const ImageHash& o) const { return present == o.present && bytes == o.bytes; }
+  std::string hex() const;
+  static ImageHash fromHex(std::string_view hex, bool* ok = nullptr);
+};
+
+// A fill or stroke (schema Paint). The fields the renderer uses are typed; every
+// other member (colorVar, stopsVar, imageThumbnail, thumbHash, …) is kept
+// encoded in `extra` ("key":value,…) so it round-trips.
 struct Paint {
   PaintType type = PaintType::SOLID;
   Color color;
   float opacity = 1;
   bool visible = true;
-  std::string raw;  // OTHER: the paint, encoded
+  BlendMode blendMode = BlendMode::NORMAL;
+  std::vector<ColorStop> stops;
+  Mat2x3 transform;  // gradients and images: the node's unit square → paint space
+  ImageHash image;
+  std::string imageName;
+  ImageScaleMode imageScaleMode = ImageScaleMode::STRETCH;
+  float rotation = 0;  // images, degrees
+  float scale = 1;     // TILE
+  PaintFilter paintFilter;
+  uint32_t originalImageWidth = 0, originalImageHeight = 0;
+  std::string extra;  // other members, encoded; OTHER: the whole paint, encoded
   bool operator==(const Paint& o) const {
-    return type == o.type && color == o.color && opacity == o.opacity && visible == o.visible && raw == o.raw;
+    return type == o.type && color == o.color && opacity == o.opacity && visible == o.visible && blendMode == o.blendMode &&
+           stops == o.stops && transform == o.transform && image == o.image && imageName == o.imageName &&
+           imageScaleMode == o.imageScaleMode && rotation == o.rotation && scale == o.scale && paintFilter == o.paintFilter &&
+           originalImageWidth == o.originalImageWidth && originalImageHeight == o.originalImageHeight && extra == o.extra;
+  }
+  bool isGradient() const { return type >= PaintType::GRADIENT_LINEAR && type <= PaintType::GRADIENT_DIAMOND; }
+  static Paint solid(Color c, float opacity = 1) {
+    Paint p;
+    p.color = c;
+    p.opacity = opacity;
+    return p;
+  }
+};
+
+// schema Effect: the fields drawn are typed, the rest kept encoded.
+struct Effect {
+  EffectType type = EffectType::INNER_SHADOW;
+  Color color{0, 0, 0, 0.25f};
+  Vec2 offset;
+  double radius = 0;
+  bool visible = true;
+  BlendMode blendMode = BlendMode::NORMAL;
+  double spread = 0;
+  bool showShadowBehindNode = false;
+  std::string extra;
+  bool operator==(const Effect& o) const {
+    return type == o.type && color == o.color && offset == o.offset && radius == o.radius && visible == o.visible &&
+           blendMode == o.blendMode && spread == o.spread && showShadowBehindNode == o.showShadowBehindNode && extra == o.extra;
+  }
+  bool isShadow() const { return type == EffectType::DROP_SHADOW || type == EffectType::INNER_SHADOW; }
+};
+
+// A layout guide on a frame (schema LayoutGrid): columns (X), rows (Y) or a square grid.
+struct LayoutGrid {
+  LayoutGridType type = LayoutGridType::MIN;
+  Axis axis = Axis::X;
+  bool visible = true;
+  int32_t numSections = 0;
+  double offset = 0, sectionSize = 0, gutterSize = 0;
+  Color color{1, 0, 0, 0.1f};
+  LayoutGridPattern pattern = LayoutGridPattern::STRIPES;
+  std::string extra;
+  bool operator==(const LayoutGrid& o) const {
+    return type == o.type && axis == o.axis && visible == o.visible && numSections == o.numSections && offset == o.offset &&
+           sectionSize == o.sectionSize && gutterSize == o.gutterSize && color == o.color && pattern == o.pattern && extra == o.extra;
+  }
+};
+
+// ELLIPSE arcs (radians; innerRadius 0..1 of the radius).
+struct ArcData {
+  double startingAngle = 0, endingAngle = 0, innerRadius = 0;
+  bool operator==(const ArcData& o) const {
+    return startingAngle == o.startingAngle && endingAngle == o.endingAngle && innerRadius == o.innerRadius;
+  }
+  // A full ellipse (no arc, no hole): the absent value, or a sweep of 2π and no inner radius.
+  bool isFull() const;
+};
+
+// Per-element styles of a vector network (VectorData.styleOverrideTable, keyed by styleID ≥ 1).
+enum VectorStyleField : uint32_t { VS_FILLS = 1, VS_STROKE_CAP = 2, VS_STROKE_JOIN = 4, VS_MIRRORING = 8, VS_CORNER_RADIUS = 16 };
+struct VectorStyle {
+  uint32_t styleID = 0;
+  uint32_t mask = 0;
+  std::vector<Paint> fillPaints;
+  StrokeCap strokeCap = StrokeCap::NONE;
+  StrokeJoin strokeJoin = StrokeJoin::MITER;
+  VectorMirror handleMirroring = VectorMirror::NONE;
+  double cornerRadius = 0;
+  std::string extra;
+  bool operator==(const VectorStyle& o) const {
+    return styleID == o.styleID && mask == o.mask && fillPaints == o.fillPaints && strokeCap == o.strokeCap &&
+           strokeJoin == o.strokeJoin && handleMirroring == o.handleMirroring && cornerRadius == o.cornerRadius && extra == o.extra;
+  }
+};
+
+// Immutable bytes shared between copies of a node (blobs).
+using Bytes = std::shared_ptr<const std::vector<uint8_t>>;
+
+// A VECTOR's network (schema VectorData): the blob (docs/schema.md §11.3), the size its coordinates are in, the
+// per-element styles.
+struct VectorData {
+  Bytes network;  // vectorNetworkBlob's bytes (null: no network)
+  Vec2 normalizedSize;
+  std::vector<VectorStyle> styleOverrideTable;
+  bool present = false;
+  bool operator==(const VectorData& o) const;
+  const VectorStyle* style(uint32_t styleID) const {
+    for (auto& s : styleOverrideTable)
+      if (s.styleID == styleID) return &s;
+    return nullptr;
   }
 };
 
@@ -206,71 +373,92 @@ struct ParentIndex {
 };
 
 // One bit per property. A change carries only the bits it touches.
-using FieldMask = uint64_t;
+// (128 bits: the engine models more than 64 properties.)
+using FieldMask = unsigned __int128;
+#define ENG_FIELD_BIT(n) (static_cast<FieldMask>(1) << (n))
 enum Field : FieldMask {
-  F_TYPE = 1ull << 0,
-  F_NAME = 1ull << 1,
-  F_VISIBLE = 1ull << 2,
-  F_LOCKED = 1ull << 3,
-  F_OPACITY = 1ull << 4,
-  F_TRANSFORM = 1ull << 5,
-  F_SIZE = 1ull << 6,
-  F_FILLS = 1ull << 7,
-  F_STROKES = 1ull << 8,
-  F_STROKE_WEIGHT = 1ull << 9,
-  F_STROKE_ALIGN = 1ull << 10,
-  F_CORNER_RADII = 1ull << 11,
-  F_FRAME_MASK_DISABLED = 1ull << 12,
-  F_PARENT_INDEX = 1ull << 13,
-  F_RESIZE_TO_FIT = 1ull << 14,
-  F_BACKGROUND_COLOR = 1ull << 15,
-  F_BACKGROUND_ENABLED = 1ull << 16,
-  F_INTERNAL_ONLY = 1ull << 17,
+  F_TYPE = ENG_FIELD_BIT(0),
+  F_NAME = ENG_FIELD_BIT(1),
+  F_VISIBLE = ENG_FIELD_BIT(2),
+  F_LOCKED = ENG_FIELD_BIT(3),
+  F_OPACITY = ENG_FIELD_BIT(4),
+  F_TRANSFORM = ENG_FIELD_BIT(5),
+  F_SIZE = ENG_FIELD_BIT(6),
+  F_FILLS = ENG_FIELD_BIT(7),
+  F_STROKES = ENG_FIELD_BIT(8),
+  F_STROKE_WEIGHT = ENG_FIELD_BIT(9),
+  F_STROKE_ALIGN = ENG_FIELD_BIT(10),
+  F_CORNER_RADII = ENG_FIELD_BIT(11),
+  F_FRAME_MASK_DISABLED = ENG_FIELD_BIT(12),
+  F_PARENT_INDEX = ENG_FIELD_BIT(13),
+  F_RESIZE_TO_FIT = ENG_FIELD_BIT(14),
+  F_BACKGROUND_COLOR = ENG_FIELD_BIT(15),
+  F_BACKGROUND_ENABLED = ENG_FIELD_BIT(16),
+  F_INTERNAL_ONLY = ENG_FIELD_BIT(17),
   // Auto layout, container.
-  F_STACK_MODE = 1ull << 18,
-  F_STACK_SPACING = 1ull << 19,
-  F_STACK_PADDING_LEFT = 1ull << 20,    // stackHorizontalPadding
-  F_STACK_PADDING_TOP = 1ull << 21,     // stackVerticalPadding
-  F_STACK_PADDING_RIGHT = 1ull << 22,   // stackPaddingRight
-  F_STACK_PADDING_BOTTOM = 1ull << 23,  // stackPaddingBottom
-  F_STACK_PRIMARY_SIZING = 1ull << 24,
-  F_STACK_COUNTER_SIZING = 1ull << 25,
-  F_STACK_PRIMARY_ALIGN = 1ull << 26,         // stackPrimaryAlignItems
-  F_STACK_COUNTER_ALIGN = 1ull << 27,         // stackCounterAlignItems
-  F_STACK_COUNTER_ALIGN_CONTENT = 1ull << 28,  // stackCounterAlignContent
-  F_STACK_WRAP = 1ull << 29,
-  F_STACK_COUNTER_SPACING = 1ull << 30,
-  F_STACK_REVERSE_Z = 1ull << 31,  // stackReverseZIndex
-  F_BORDERS_TAKE_SPACE = 1ull << 32,
+  F_STACK_MODE = ENG_FIELD_BIT(18),
+  F_STACK_SPACING = ENG_FIELD_BIT(19),
+  F_STACK_PADDING_LEFT = ENG_FIELD_BIT(20),    // stackHorizontalPadding
+  F_STACK_PADDING_TOP = ENG_FIELD_BIT(21),     // stackVerticalPadding
+  F_STACK_PADDING_RIGHT = ENG_FIELD_BIT(22),   // stackPaddingRight
+  F_STACK_PADDING_BOTTOM = ENG_FIELD_BIT(23),  // stackPaddingBottom
+  F_STACK_PRIMARY_SIZING = ENG_FIELD_BIT(24),
+  F_STACK_COUNTER_SIZING = ENG_FIELD_BIT(25),
+  F_STACK_PRIMARY_ALIGN = ENG_FIELD_BIT(26),         // stackPrimaryAlignItems
+  F_STACK_COUNTER_ALIGN = ENG_FIELD_BIT(27),         // stackCounterAlignItems
+  F_STACK_COUNTER_ALIGN_CONTENT = ENG_FIELD_BIT(28),  // stackCounterAlignContent
+  F_STACK_WRAP = ENG_FIELD_BIT(29),
+  F_STACK_COUNTER_SPACING = ENG_FIELD_BIT(30),
+  F_STACK_REVERSE_Z = ENG_FIELD_BIT(31),  // stackReverseZIndex
+  F_BORDERS_TAKE_SPACE = ENG_FIELD_BIT(32),
   // Auto layout, child.
-  F_STACK_CHILD_GROW = 1ull << 33,        // stackChildPrimaryGrow
-  F_STACK_CHILD_ALIGN_SELF = 1ull << 34,  // stackChildAlignSelf
-  F_STACK_POSITIONING = 1ull << 35,
-  F_MIN_SIZE = 1ull << 36,
-  F_MAX_SIZE = 1ull << 37,
+  F_STACK_CHILD_GROW = ENG_FIELD_BIT(33),        // stackChildPrimaryGrow
+  F_STACK_CHILD_ALIGN_SELF = ENG_FIELD_BIT(34),  // stackChildAlignSelf
+  F_STACK_POSITIONING = ENG_FIELD_BIT(35),
+  F_MIN_SIZE = ENG_FIELD_BIT(36),
+  F_MAX_SIZE = ENG_FIELD_BIT(37),
   // Constraints.
-  F_H_CONSTRAINT = 1ull << 38,  // horizontalConstraint
-  F_V_CONSTRAINT = 1ull << 39,  // verticalConstraint
-  F_PROPORTIONS_CONSTRAINED = 1ull << 40,
+  F_H_CONSTRAINT = ENG_FIELD_BIT(38),  // horizontalConstraint
+  F_V_CONSTRAINT = ENG_FIELD_BIT(39),  // verticalConstraint
+  F_PROPORTIONS_CONSTRAINED = ENG_FIELD_BIT(40),
   // Text.
-  F_TEXT_DATA = 1ull << 41,
-  F_FONT_NAME = 1ull << 42,
-  F_FONT_SIZE = 1ull << 43,
-  F_LINE_HEIGHT = 1ull << 44,
-  F_LETTER_SPACING = 1ull << 45,
-  F_PARAGRAPH_SPACING = 1ull << 46,
-  F_PARAGRAPH_INDENT = 1ull << 47,
-  F_TEXT_ALIGN_H = 1ull << 48,  // textAlignHorizontal
-  F_TEXT_ALIGN_V = 1ull << 49,  // textAlignVertical
-  F_TEXT_AUTO_RESIZE = 1ull << 50,
-  F_TEXT_TRUNCATION = 1ull << 51,
-  F_MAX_LINES = 1ull << 52,
-  F_TEXT_CASE = 1ull << 53,
-  F_TEXT_DECORATION = 1ull << 54,
-  F_AUTO_RENAME = 1ull << 55,
+  F_TEXT_DATA = ENG_FIELD_BIT(41),
+  F_FONT_NAME = ENG_FIELD_BIT(42),
+  F_FONT_SIZE = ENG_FIELD_BIT(43),
+  F_LINE_HEIGHT = ENG_FIELD_BIT(44),
+  F_LETTER_SPACING = ENG_FIELD_BIT(45),
+  F_PARAGRAPH_SPACING = ENG_FIELD_BIT(46),
+  F_PARAGRAPH_INDENT = ENG_FIELD_BIT(47),
+  F_TEXT_ALIGN_H = ENG_FIELD_BIT(48),  // textAlignHorizontal
+  F_TEXT_ALIGN_V = ENG_FIELD_BIT(49),  // textAlignVertical
+  F_TEXT_AUTO_RESIZE = ENG_FIELD_BIT(50),
+  F_TEXT_TRUNCATION = ENG_FIELD_BIT(51),
+  F_MAX_LINES = ENG_FIELD_BIT(52),
+  F_TEXT_CASE = ENG_FIELD_BIT(53),
+  F_TEXT_DECORATION = ENG_FIELD_BIT(54),
+  F_AUTO_RENAME = ENG_FIELD_BIT(55),
+  // Paint, stroke, effects, masks (E4/E5).
+  F_BLEND_MODE = ENG_FIELD_BIT(56),
+  F_MASK = ENG_FIELD_BIT(57),
+  F_MASK_TYPE = ENG_FIELD_BIT(58),
+  F_STROKE_CAP = ENG_FIELD_BIT(59),
+  F_STROKE_JOIN = ENG_FIELD_BIT(60),
+  F_MITER_LIMIT = ENG_FIELD_BIT(61),
+  F_DASH_PATTERN = ENG_FIELD_BIT(62),
+  F_BORDER_WEIGHTS = ENG_FIELD_BIT(63),  // borderTop/Right/Bottom/LeftWeight + borderStrokeWeightsIndependent
+  F_CORNER_SMOOTHING = ENG_FIELD_BIT(64),
+  F_EFFECTS = ENG_FIELD_BIT(65),
+  // Shapes and vectors.
+  F_COUNT = ENG_FIELD_BIT(66),
+  F_STAR_INNER_SCALE = ENG_FIELD_BIT(67),
+  F_ARC_DATA = ENG_FIELD_BIT(68),
+  F_VECTOR_DATA = ENG_FIELD_BIT(69),
+  F_HANDLE_MIRRORING = ENG_FIELD_BIT(70),
+  F_BOOLEAN_OPERATION = ENG_FIELD_BIT(71),
+  F_LAYOUT_GRIDS = ENG_FIELD_BIT(72),
   // Every NodeChange field the engine doesn't model, kept as encoded JSON.
-  F_EXTRA = 1ull << 56,
-  F_ALL = (1ull << 57) - 1,
+  F_EXTRA = ENG_FIELD_BIT(73),
+  F_ALL = ENG_FIELD_BIT(74) - 1,
 };
 
 // Fields that feed auto layout (a write marks the layout dirty).
@@ -285,6 +473,12 @@ inline constexpr FieldMask kTextLayoutFields = F_TEXT_DATA | F_FONT_NAME | F_FON
                                                F_PARAGRAPH_SPACING | F_PARAGRAPH_INDENT | F_TEXT_ALIGN_H | F_TEXT_ALIGN_V |
                                                F_TEXT_AUTO_RESIZE | F_TEXT_TRUNCATION | F_MAX_LINES | F_TEXT_CASE |
                                                F_TEXT_DECORATION;
+
+// Fields that change a node's own geometry (its fill / stroke outlines).
+inline constexpr FieldMask kShapeGeometryFields = F_SIZE | F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_COUNT |
+                                                  F_STAR_INNER_SCALE | F_ARC_DATA | F_VECTOR_DATA | F_STROKE_WEIGHT |
+                                                  F_STROKE_ALIGN | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |
+                                                  F_DASH_PATTERN | F_BORDER_WEIGHTS | F_BOOLEAN_OPERATION | F_TEXT_DATA;
 
 // The kiwi field id (schema/document.kiwi NodeChange) of each Field bit, for
 // clearedFields; 0 for fields that can't be cleared (type, parentIndex).
@@ -333,6 +527,28 @@ struct NodeProps {
   bool internalOnly = false;          // CANVAS: the hidden Internal Only Canvas
   ParentIndex parentIndex;
 
+  // Paint, stroke, effects, masks.
+  BlendMode blendMode = BlendMode::PASS_THROUGH;
+  bool mask = false;  // "Use as mask": masks the siblings above it
+  MaskType maskType = MaskType::ALPHA;
+  StrokeCap strokeCap = StrokeCap::NONE;
+  StrokeJoin strokeJoin = StrokeJoin::MITER;
+  double miterLimit = 4;
+  std::vector<double> dashPattern;
+  // Per-side stroke weights (rect-like frames and rectangles), top, right, bottom, left.
+  std::array<double, 4> borderWeights{0, 0, 0, 0};
+  bool borderStrokeWeightsIndependent = false;
+  double cornerSmoothing = 0;
+  std::vector<Effect> effects;
+  // Shapes and vectors.
+  uint32_t count = 0;            // REGULAR_POLYGON / STAR points
+  double starInnerScale = 0;     // STAR "Ratio"
+  ArcData arcData;               // ELLIPSE
+  VectorData vectorData;         // VECTOR (and LINE arrows)
+  VectorMirror handleMirroring = VectorMirror::NONE;
+  BooleanOperation booleanOperation = BooleanOperation::UNION;
+  std::vector<LayoutGrid> layoutGrids;  // frames
+
   // Auto layout, as a container.
   StackMode stackMode = StackMode::NONE;
   double stackSpacing = 0;
@@ -378,12 +594,19 @@ struct NodeProps {
   std::map<std::string, std::string> extra;
 
   bool isGroupLike() const { return type == NodeType::GROUP || (type == NodeType::FRAME && resizeToFit); }
+  bool isBoolean() const { return type == NodeType::BOOLEAN_OPERATION; }
+  // Fitted to its children's bounds (groups and boolean operations, docs/engine.md §4.5).
+  bool fitsChildren() const { return isGroupLike() || isBoolean(); }
+  // Drawn from a path (not the SDF fast path): vectors, stars, polygons, lines, booleans, smoothed corners, arcs.
+  bool isPathShape() const;
   bool isFrameLike() const {
     return (type == NodeType::FRAME && !resizeToFit) || type == NodeType::SYMBOL || type == NodeType::INSTANCE ||
            type == NodeType::SECTION;
   }
   // Can hold children (pages and the document hold theirs too).
-  bool isContainer() const { return isFrameLike() || isGroupLike() || type == NodeType::CANVAS || type == NodeType::DOCUMENT; }
+  bool isContainer() const {
+    return isFrameLike() || isGroupLike() || isBoolean() || type == NodeType::CANVAS || type == NodeType::DOCUMENT;
+  }
   bool isRectLike() const { return type == NodeType::ROUNDED_RECTANGLE || type == NodeType::RECTANGLE; }
   bool clipsContent() const { return isFrameLike() && !frameMaskDisabled; }
   bool isAutoLayout() const {

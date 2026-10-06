@@ -1,9 +1,26 @@
 /** What the Design panel's sections share: the selection's nodes, field support, kinds. */
-import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
+import type { BlendMode, Color, Effect, Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { useSelection } from "@/engine/hooks";
 import { useEditor } from "../../controller";
-import { supportsField } from "../../engineCompat";
+import { keepsField, supportsField } from "../../engineCompat";
 import { useNodes } from "../../hooks";
+
+export type BlendModeName = BlendMode;
+export type { Effect };
+
+/** schema/document.kiwi `LayoutGrid` ("Layout guide"). */
+export interface LayoutGrid {
+  type?: "MIN" | "CENTER" | "STRETCH" | "MAX";
+  axis?: "X" | "Y";
+  visible?: boolean;
+  numSections?: number;
+  offset?: number;
+  sectionSize?: number;
+  gutterSize?: number;
+  color?: Color;
+  pattern?: "STRIPES" | "GRID";
+  [other: string]: unknown;
+}
 
 /** Text (schema/document.kiwi's names): Number = { value, units }. */
 export interface NumberValue {
@@ -18,8 +35,8 @@ export interface FontName {
 
 /** The NodeChange fields the editor reads or writes that the TS facade doesn't type yet (effects, text…). */
 export type ExtraFields = {
-  blendMode?: string;
-  booleanOperation?: "UNION" | "INTERSECT" | "SUBTRACT" | "XOR";
+  // Kept by the engine as it came (not typed by the facade yet)
+  layoutGrids?: LayoutGrid[];
   // Text (E3)
   fontName?: FontName;
   fontSize?: number;
@@ -69,6 +86,11 @@ export function useParents(nodes: readonly PanelNode[]): (PanelNode | null)[] {
 /** Does the engine keep this field (else the control shows disabled)? */
 export function useSupports(field: string): boolean {
   return supportsField(useEditor().engine, field);
+}
+
+/** Does the engine keep this field (typed, or round-tripped since E3)? Controls for E4/E5 fields gate on it. */
+export function useKeeps(field: string): boolean {
+  return keepsField(useEditor().engine, field);
 }
 
 /** The node's type as a string (its real one: the facade's NodeType lists only what the engine draws). */

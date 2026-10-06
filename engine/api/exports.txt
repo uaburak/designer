@@ -59,3 +59,13 @@ _engine_text_composition
 _engine_text_composition_end
 _engine_text_selection
 _engine_text_layout
+_engine_image_add_bitmap
+_engine_image_add_rgba
+_engine_image_failed
+_engine_vector_edit
+_engine_vector_edit_end
+_engine_vector_edit_tool
+_engine_end_caps
+_engine_paint_edit
+_engine_paint_edit_end
+_engine_paint_edit_stop

@@ -32,6 +32,7 @@ import { MinimizedPanels } from "./panels/Minimized";
 import { Rulers } from "./canvas/Rulers";
 import { BottomToolbar } from "./canvas/BottomToolbar";
 import { CanvasMenu, attachCanvasMenu } from "./canvas/CanvasMenu";
+import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { VersionDialogs } from "./VersionDialogs";
 import styles from "./EditorApp.module.css";
@@ -93,6 +94,8 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       if (external) cleanups.push(external);
       const meta = source.onMetaChanged?.((m) => ed.ui.set({ fileName: m.fileName }));
       if (meta) cleanups.push(meta);
+      cleanups.push(ed.images.attach());
+      if (canvas.parentElement) cleanups.push(attachImageDrop(ed, canvas.parentElement));
       cleanups.push(attachKeyboard(ed, canvas));
       cleanups.push(attachClipboard(ed));
       cleanups.push(attachCanvasMenu(ed, canvas));
@@ -199,6 +202,7 @@ function CanvasOverlays() {
   return (
     <>
       <Rulers />
+      <ImagePlacer />
       <BottomToolbar />
       {minimized && <MinimizedPanels />}
     </>
