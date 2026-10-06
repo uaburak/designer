@@ -1,23 +1,26 @@
 // Drives the built app (out/) with Playwright: launch it, look at it, click through it.
 //
-//   npm run build -- --mode demo            # the demo's data: no Firebase, no sign-in
+//   npm run build                           # (`-- --mode demo` builds the same app)
 //   node scripts/drive.mjs                  # a REPL — "help" lists the commands
-//   node scripts/drive.mjs launch "ss home" "click-text All projects" "ss all" quit
+//   node scripts/drive.mjs launch "ss home" new-file "ss file" quit
+//   (unset ELECTRON_RUN_AS_NODE first if your shell has it: Electron would run as plain Node)
 //
 // The window is a set of views, each its own page and renderer process (docs/desktop-impl.md):
-// the tab bar (`?tabbar`), Home (`?home`) and one per open file (`?tab=<id>`). Page commands act on a
-// target — the content view in front unless told otherwise:
+// the tab bar (`?tabbar`), Home (`?files`) and one per open file (`?editor&file=<fileKey>&tab=<id>`).
+// The store runs as a utility process (`store` prints it; `new-file`, `open-file`, `files` go through
+// main's own store client). DESIGNER_SEED=demo puts the sample .fig files into a new workspace.
+// Page commands act on a target — the content view in front unless told otherwise:
 //   use tabbar | home | active | <tab id>     the target from now on
 //   click @tabbar [data-tab-id]               this command only (any page command takes "@target" first)
 // `ss` saves the whole window (the tab bar and the view in front, put together by main); `ss-view`
 // one view's page. `tabs` prints main's tabs and each view's renderer process id. `menu <id>` runs a
 // menu command (src/shared/commands.ts) through main's click path — keys typed into a page with
-// `key` reach that page only, never the menu bar. `answer Save,Cancel` queues the answers to the next
+// `key` reach that page only, never the menu bar. `answer Close Anyway,Cancel` queues the answers to the next
 // native dialogs (they are logged instead of shown).
 //
 // DESIGNER_EXECUTABLE runs a packaged app instead (npx electron-builder --mac --dir).
 // Each run gets its own user data (DESIGNER_USER_DATA, a temp folder unless set), so the
-// everyday app's sign-in and windows are left alone. Screenshots go to SCREENSHOT_DIR
+// everyday app's workspace and windows are left alone. Screenshots go to SCREENSHOT_DIR
 // (a temp folder unless set).
 import { _electron as electron } from "playwright-core";
 import * as fs from "node:fs";
@@ -51,10 +54,12 @@ async function pageOf(which = target, timeout = 10_000) {
   for (;;) {
     let match;
     if (which === "tabbar") match = (u) => new URL(u).searchParams.has("tabbar");
-    else if (which === "home") match = (u) => new URL(u).searchParams.has("home");
     else {
-      const id = which === "active" ? (await debug())?.shown : which;
-      match = id === "home" ? (u) => new URL(u).searchParams.has("home") : (u) => new URL(u).searchParams.get("tab") === id;
+      // The view's page as main has it (Home is ?files; a file tab ?editor&file=…&tab=<id>).
+      const d = await debug();
+      const id = which === "active" ? d?.shown : which;
+      const url = d?.views.find((v) => v.id === id)?.url;
+      match = (u) => Boolean(url) && u === url;
     }
     const pages = app.windows().filter((p) => {
       try {
@@ -82,15 +87,29 @@ const COMMANDS = {
     if (app) return console.log("already launched");
     // DESIGNER_EXECUTABLE: a packaged app (dist/mac-arm64/DesignerV2.app/Contents/MacOS/DesignerV2) instead of out/ with the dev Electron.
     const packaged = process.env.DESIGNER_EXECUTABLE;
-    app = await electron.launch({
-      executablePath: packaged || electronBin,
-      args: packaged ? [] : [APP_DIR, ...(process.platform === "linux" ? ["--no-sandbox"] : [])],
-      env: { ...process.env, DESIGNER_USER_DATA: USER_DATA, DESIGNER_TEST: "1" },
-      // As the app runs: the renderers sandboxed, prefers-color-scheme the app's own (nativeTheme), not Playwright's "light".
-      chromiumSandbox: process.platform !== "linux",
-      colorScheme: null,
-      timeout: 30_000,
-    });
+    // The views are cross-origin isolated (COOP/COEP): their first load swaps the renderer process, and Playwright's
+    // attach sometimes waits forever on the page target that went away (the app itself starts fine). A launch that
+    // hangs is killed and tried again.
+    // ELECTRON_RUN_AS_NODE (set by some Electron-based terminals) would start Electron as plain Node.
+    const appEnv = { ...process.env, DESIGNER_USER_DATA: USER_DATA, DESIGNER_TEST: "1" };
+    delete appEnv.ELECTRON_RUN_AS_NODE;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        app = await electron.launch({
+          executablePath: packaged || electronBin,
+          args: packaged ? [] : [APP_DIR, ...(process.platform === "linux" ? ["--no-sandbox"] : [])],
+          env: appEnv,
+          // As the app runs: the renderers sandboxed, prefers-color-scheme the app's own (nativeTheme), not Playwright's "light".
+          chromiumSandbox: process.platform !== "linux",
+          colorScheme: null,
+          timeout: 15_000,
+        });
+        break;
+      } catch (e) {
+        if (attempt >= 6 || !/Timeout/.test(e.message)) throw e;
+        console.log(`launch: Playwright didn't attach in 15s — trying again (${attempt})`);
+      }
+    }
     app.on("console", (m) => (m.type() === "error" || m.type() === "warning" || /^\[(openExternal|dialog|home|editor|tabbar)[\] ]/.test(m.text())) && console.log(`[main ${m.type()}] ${m.text()}`));
     app.on("window", (p) => {
       p.on("pageerror", (e) => console.log(`[page error ${p.url()}]`, e.message));
@@ -142,14 +161,86 @@ const COMMANDS = {
     if (!app) return console.log("ERROR: launch first");
     const d = await debug();
     const pid = await app.evaluate(() => globalThis.__designer.current().tabbar.webContents.getOSProcessId());
-    console.log(`active: ${d.state.active}  shown: ${d.shown}  signedIn: ${d.signedIn}  closed: ${d.state.closed.map((c) => c.slug).join(", ") || "-"}`);
+    const what = (t) => `${t.kind}:${t.fileKey}`;
+    console.log(`active: ${d.state.active}  shown: ${d.shown}  closed: ${d.state.closed.map(what).join(", ") || "-"}`);
     console.log(` tabbar  pid ${pid}`);
     for (const v of d.views) {
       const tab = d.state.tabs.find((t) => t.id === v.id);
-      console.log(` ${v.visible ? "*" : " "} ${v.id.padEnd(10)} ${v.role.padEnd(6)} pid ${String(v.pid).padEnd(6)} wc ${v.webContentsId}${tab ? `  ${tab.kind}:${tab.slug} "${tab.title}" ${tab.status}${tab.dirty ? " (unsaved)" : ""}` : ""}`);
+      console.log(` ${v.visible ? "*" : " "} ${v.id.padEnd(10)} ${v.role.padEnd(6)} pid ${String(v.pid).padEnd(6)} wc ${v.webContentsId}${tab ? `  ${what(tab)} "${tab.title}" ${tab.status}` : `  ${new URL(v.url).search}`}`);
     }
-    for (const t of d.state.tabs.filter((t) => !d.views.some((v) => v.id === t.id))) console.log(`   ${t.id.padEnd(10)} (no view) ${t.kind}:${t.slug} "${t.title}" ${t.status}`);
-    console.log(` order: ${["home", ...d.state.tabs.map((t) => t.slug)].join(" | ")}`);
+    for (const t of d.state.tabs.filter((t) => !d.views.some((v) => v.id === t.id))) console.log(`   ${t.id.padEnd(10)} (no view) ${what(t)} "${t.title}" ${t.status}`);
+    console.log(` order: ${["home", ...d.state.tabs.map((t) => t.title)].join(" | ")}`);
+  },
+
+  /** The store's utility process: its pid, generation, workspace, the views it has ports for, and what it says about itself. */
+  async store() {
+    if (!app) return console.log("ERROR: launch first");
+    const s = await app.evaluate(async () => {
+      const d = globalThis.__designer;
+      const client = d.storeClient();
+      const info = client ? await Promise.race([client.store.info().catch((e) => ({ error: String(e) })), new Promise((r) => setTimeout(() => r({ error: "no answer in 5s" }), 5000))]) : null;
+      return { ...d.store(), info };
+    });
+    console.log(JSON.stringify(s, null, 1));
+  },
+
+  /** A new design file through main (as Home's "New design file" does): new-file [name] */
+  async "new-file"(name) {
+    if (!app) return console.log("ERROR: launch first");
+    console.log("new-file ->", JSON.stringify(await app.evaluate((_e, n) => globalThis.__designer.current().tabs.newFile({ name: n || undefined }), name)));
+  },
+
+  /** A workspace file in a tab (nav:open-file): open-file <fileKey> */
+  async "open-file"(fileKey) {
+    if (!app) return console.log("ERROR: launch first");
+    console.log("open-file ->", JSON.stringify(await app.evaluate((_e, k) => globalThis.__designer.current().tabs.openFile({ fileKey: k }), fileKey)));
+  },
+
+  /** The workspace's files (main's store client): files [recents|drafts|trash] */
+  async files(where) {
+    if (!app) return console.log("ERROR: launch first");
+    const list = await app.evaluate(async (_e, w) => (await globalThis.__designer.storeClient().workspace.listFiles({ in: w || "drafts" })).map((f) => ({ fileKey: f.fileKey, name: f.name, trashedAt: f.trashedAt })), where);
+    for (const f of list) console.log(` ${f.fileKey}  "${f.name}"${f.trashedAt ? " (trash)" : ""}`);
+    if (!list.length) console.log(" (none)");
+  },
+
+  /**
+   * Home's card image for a file (or the first card): loaded, and not blank — sampled on a canvas, it must hold
+   * more than one colour, and a real share of pixels unlike the most common one. thumb [fileKey]
+   */
+  async thumb(fileKey) {
+    const home = await pageOf("home");
+    const r = await home.evaluate(async (key) => {
+      const card = key ? document.querySelector(`[data-id="file:${key}"]`) : document.querySelector('[data-id^="file:"]');
+      if (!card) return { error: "no card" };
+      const img = card.querySelector("img");
+      if (!img) return { error: "the card has no image (no thumbnail saved)" };
+      if (!img.complete) await new Promise((res) => img.addEventListener("load", res, { once: true }));
+      if (!img.naturalWidth) return { error: `the image didn't load: ${img.src}` };
+      // The same URL again with CORS (main's _thumb answers it): under the dev server it is cross-origin, and a canvas
+      // that drew it plainly couldn't be read.
+      const copy = new Image();
+      copy.crossOrigin = "anonymous";
+      copy.src = img.src;
+      await copy.decode();
+      const c = document.createElement("canvas");
+      c.width = 80;
+      c.height = 60;
+      const g = c.getContext("2d");
+      g.drawImage(copy, 0, 0, c.width, c.height);
+      const px = g.getImageData(0, 0, c.width, c.height).data;
+      const counts = new Map();
+      for (let i = 0; i < px.length; i += 4) {
+        const k = `${px[i] >> 3},${px[i + 1] >> 3},${px[i + 2] >> 3},${px[i + 3] >> 3}`;
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+      const total = px.length / 4;
+      const top = Math.max(...counts.values());
+      return { src: img.src, size: `${img.naturalWidth}×${img.naturalHeight}`, colours: counts.size, other: Math.round((100 * (total - top)) / total) };
+    }, fileKey || null);
+    if (r.error) return console.log("thumb: FAIL —", r.error);
+    const ok = r.colours > 1 && r.other >= 2;
+    console.log(`thumb: ${ok ? "OK" : "FAIL — blank"} ${r.size}, ${r.colours} colours, ${r.other}% unlike the most common (${r.src})`);
   },
 
   /** The state as JSON (for scripted checks). */
@@ -246,7 +337,7 @@ const COMMANDS = {
     console.log("close asked");
   },
 
-  /** Links the app would open in the browser are printed instead (e.g. the sign-in page's address, to open by hand). */
+  /** Links the app would open in the browser are printed instead. */
   async "stub-browser"() {
     if (!app) return console.log("ERROR: launch first");
     await app.evaluate(({ shell }) => {
@@ -337,7 +428,7 @@ const COMMANDS = {
     for (const w of wcs) console.log(` [${w.id}] ${w.type} pid ${w.pid}: ${w.url}`);
   },
 
-  /** Quits as ⌘Q does — unsaved tabs let go (the native box answered "Quit Without Saving") — or, stuck after 10s, killed. */
+  /** Quits as ⌘Q does — a file whose flush fails is let go (the native box answered "Quit Anyway") — or, stuck after 10s, killed. */
   async quit() {
     if (app) {
       const proc = app.process();
@@ -345,7 +436,7 @@ const COMMANDS = {
         .evaluate(() => {
           const answers = globalThis.__designer.answers;
           answers.length = 0;
-          answers.push("Quit Without Saving");
+          answers.push("Quit Anyway");
         })
         .catch(() => {});
       await Promise.race([app.close().catch(() => {}), new Promise((r) => setTimeout(r, 10_000))]);

@@ -56,4 +56,10 @@
   .code { position: relative; margin: 0; padding: var(--ds-space-2); padding-right: var(--ds-space-8); overflow: auto; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-code); letter-spacing: var(--ds-tracking-code); white-space: pre; user-select: text; }
   .codeCopy { position: absolute; top: var(--ds-space-1); right: var(--ds-space-1); }
   .codeWrap { position: relative; }
+
+  .skeleton { display: block; flex: none; max-width: 100%; background: var(--figma-color-bg-secondary); }
+  .r-small { border-radius: var(--ds-radius-small); }
+  .r-medium { border-radius: var(--ds-radius-medium); }
+  .r-medium-large { border-radius: var(--ds-radius-medium-large); }
+  .r-full { border-radius: var(--ds-radius-full); }
 }

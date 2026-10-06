@@ -1,0 +1,18 @@
+@layer ds {
+  .root { position: relative; min-width: 0; outline: none; user-select: none; }
+  /* Fixed 268 cards, 36 apart (measured); as many columns as fit */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--ds-size-card-width));
+    gap: var(--ds-size-card-gap);
+    align-content: start;
+  }
+  .list { display: flex; flex-direction: column; }
+  .marquee {
+    position: absolute;
+    z-index: var(--ds-z-floating);
+    border: 1px solid var(--figma-color-border-selected);
+    background: var(--ds-color-marquee-fill);
+    pointer-events: none;
+  }
+}

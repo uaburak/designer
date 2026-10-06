@@ -7,15 +7,12 @@
  * no clipboard event behind it (a menu in a browser) reads the async
  * Clipboard API's HTML, then the last copy made in this tab.
  */
-import { showToast } from "@/ds";
 import type { Message } from "@/engine/codec";
 import { pageBounds } from "./actions";
 import type { EditorController } from "./controller";
-import { canCopy, canPaste, encodeSelection, paste, runCommand } from "./engineCompat";
 import { decodeClipboard, encodeClipboard } from "./model/clipboard";
 import { isEditable } from "./keyboard";
 
-const NOT_YET = "Copy and paste need the engine's clipboard calls";
 
 function writeTo(data: DataTransfer, formats: Record<string, string>) {
   for (const [type, value] of Object.entries(formats)) data.setData(type, value);
@@ -23,27 +20,22 @@ function writeTo(data: DataTransfer, formats: Record<string, string>) {
 
 /** The selection's clipboard formats, or null (nothing selected, or no engine support yet). */
 function copyFormats(ed: EditorController): Record<string, string> | null {
-  if (!canCopy(ed.engine)) return null;
-  const message = encodeSelection(ed.engine);
+  const message = ed.engine.encodeSelection();
   return message && message.nodeChanges.length ? encodeClipboard(message) : null;
 }
 
 function pasteMessage(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
-  if (!canPaste(ed.engine)) {
-    showToast({ message: NOT_YET });
-    return;
-  }
   if (mode?.mode === "point") {
     // "Paste here": paste, then move what was pasted so its corner is under the pointer — one undo step.
     ed.batch("Paste here", () => {
-      paste(ed.engine, message, {});
+      ed.engine.paste(message, {});
       const box = pageBounds(ed, ed.selection);
       if (!box) return;
       const dx = mode.x - box.x;
       const dy = mode.y - box.y;
       for (const n of ed.selectedNodes()) if (n.transform) ed.engine.setProps([n.guid], { transform: { ...n.transform, m02: n.transform.m02 + dx, m12: n.transform.m12 + dy } });
     });
-  } else paste(ed.engine, message, { inPlace: mode?.mode === "inPlace" });
+  } else ed.engine.paste(message, { inPlace: mode?.mode === "inPlace" });
   ed.focusCanvas();
 }
 
@@ -54,13 +46,10 @@ export function attachClipboard(ed: EditorController): () => void {
     if (!ed.selection.length) return;
     const formats = copyFormats(ed);
     e.preventDefault();
-    if (!formats) {
-      if (!canCopy(ed.engine)) showToast({ message: NOT_YET });
-      return;
-    }
+    if (!formats) return;
     writeTo(e.clipboardData, formats);
     ed.lastCopy = formats;
-    if (cut) runCommand(ed.engine, "DELETE");
+    if (cut) ed.engine.command("DELETE");
   };
   const copy = (e: ClipboardEvent) => onCopy(e, false);
   const cut = (e: ClipboardEvent) => onCopy(e, true);
@@ -89,14 +78,11 @@ export function copyFromMenu(ed: EditorController, cut: boolean): void {
   ed.focusCanvas();
   if (document.execCommand(cut ? "cut" : "copy")) return;
   const formats = copyFormats(ed);
-  if (!formats) {
-    if (!canCopy(ed.engine)) showToast({ message: NOT_YET });
-    return;
-  }
+  if (!formats) return;
   ed.lastCopy = formats;
   const item = new ClipboardItem({ "text/html": new Blob([formats["text/html"]], { type: "text/html" }), "text/plain": new Blob([formats["text/plain"]], { type: "text/plain" }) });
   void navigator.clipboard?.write([item]).catch(() => {});
-  if (cut) runCommand(ed.engine, "DELETE");
+  if (cut) ed.engine.command("DELETE");
 }
 
 /** Paste from a menu ("Paste", "Paste over selection", "Paste here"). */

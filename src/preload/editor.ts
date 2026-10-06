@@ -1,24 +1,29 @@
 import { contextBridge } from "electron";
 import type { EditorApi } from "../shared/desktop";
-import { common, invoke, on, openExternal, send } from "./common";
+import type { FlushReason } from "../shared/ipc";
+import { common, files, forwardStorePort, nav, on, openExternal, send, viewMenu } from "./common";
 
 /**
- * A file tab's view: it reports its name and unsaved state, answers main's
- * questions (unsaved? save!), takes menu commands. Its tab id is main's —
- * main knows which view sent what, so the page never names its own tab.
+ * A file tab's view (`?editor&file=<fileKey>`). The file saves as it goes:
+ * main asks it to flush (`tab:flush` → `tab:flushed`) before it closes, on
+ * quit and when it is hidden. Its tab id is main's — main knows which view
+ * sent what, so the page never names its own tab.
  */
+forwardStorePort();
 
-type Answer = (op: "is-dirty" | "save") => boolean | Promise<boolean>;
-let answer: Answer | null = null;
+type Flusher = (reason: FlushReason) => void | Promise<void>;
+let flusher: Flusher | null = null;
 
-// Main's question, answered by the page's handler (or "nothing unsaved" before the page has one).
-on("tab:request", ({ reqId, op }) => {
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// Main's flush: the page's handler sends what it holds and awaits the store; no handler yet — nothing to send.
+on("tab:flush", ({ reqId, reason }) => {
   void (async () => {
     try {
-      const value = answer ? await answer(op) : op === "save";
-      send("tab:response", { reqId, ok: true, value: value === true });
+      if (flusher) await flusher(reason);
+      send("tab:flushed", { reqId, ok: true });
     } catch (err) {
-      send("tab:response", { reqId, ok: false, error: err instanceof Error ? err.message : String(err) });
+      send("tab:flushed", { reqId, ok: false, error: message(err) });
     }
   })();
 });
@@ -28,23 +33,22 @@ const base = common("editor");
 const api: EditorApi = {
   ...base,
   tab: {
-    report: (r) => send("tab:report", { title: r.title === undefined ? undefined : String(r.title), dirty: r.dirty, status: r.status, savedAt: r.savedAt }),
+    report: (r) => send("tab:report", { title: r.title === undefined ? undefined : String(r.title), status: r.status, error: r.error === undefined ? undefined : String(r.error) }),
     onVisibility: (cb) => on("tab:visibility", cb),
-    onRequest: (cb) => {
-      answer = cb;
+    onFlush: (cb) => {
+      flusher = cb;
       return () => {
-        if (answer === cb) answer = null;
+        if (flusher === cb) flusher = null;
       };
     },
     close: () => send("tabs:close", { tabId: "" }),
   },
   nav: {
-    openFile: (file) => invoke("nav:open-file", { kind: file.kind, slug: String(file.slug), title: file.title === undefined ? undefined : String(file.title) }),
-    goHome: () => send("nav:go-home"),
-    newFile: () => send("nav:new-file"),
+    ...nav,
+    goHome: (revealFileKey) => send("nav:go-home", revealFileKey === undefined ? {} : { revealFileKey: String(revealFileKey) }),
   },
-  menu: { ...base.menu, onCommand: (cb) => on("menu:command", cb) },
-  session: { requestSignOut: () => send("session:request-sign-out") },
+  files,
+  menu: viewMenu(base.menu),
   openExternal,
 };
 

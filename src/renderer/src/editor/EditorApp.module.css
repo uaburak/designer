@@ -8,6 +8,12 @@
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
+    user-select: none;
+  }
+  .railPlaceholder {
+    flex: none;
+    width: var(--ds-size-rail);
+    border-right: 1px solid var(--figma-color-border);
   }
   .left, .right {
     position: relative;
@@ -28,7 +34,8 @@
     background: var(--ds-color-canvas-default);
   }
   .canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
-  .help { position: absolute; right: var(--ds-space-6); bottom: var(--ds-space-5); z-index: var(--ds-z-floating); }
+  /* The "?" circle: centred with the toolbar (20 from the bottom), 24 from the window's right edge, over the right panel */
+  .help { position: absolute; right: var(--ds-space-6); bottom: var(--ds-space-5); z-index: var(--ds-z-floating); display: flex; }
   .status {
     position: absolute;
     top: 50%;

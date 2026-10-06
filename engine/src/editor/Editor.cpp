@@ -319,6 +319,7 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   layoutDirty_.clear();
   groupsTouched_.clear();
   excluded_.clear();
+  pinned_.clear();
   for (const NodeChange& c : nodes) {
     NodeChange created = c;
     created.phase = Phase::CREATED;

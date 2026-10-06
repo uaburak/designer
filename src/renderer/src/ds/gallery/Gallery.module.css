@@ -74,6 +74,10 @@
   .homeWorkspace { display: flex; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-row); padding: 0 var(--ds-space-4); font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
   .homeMain { position: absolute; top: var(--ds-size-home-topbar); left: var(--ds-size-home-sidebar); right: 0; bottom: 0; padding: var(--ds-space-4) var(--ds-space-8); }
   .pills { display: flex; gap: var(--ds-space-2); margin-bottom: var(--ds-space-4); }
+  /* The live file browser demo: 3 card columns wide */
+  .browser { display: flex; flex-direction: column; width: 980px; height: 560px; overflow: hidden; border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); }
+  .browserBar { display: flex; flex: none; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-home-topbar); padding: 0 var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .browserBody { flex: 1 1 auto; overflow: auto; padding: var(--ds-space-4) var(--ds-space-6); }
   .cards { display: grid; grid-template-columns: repeat(auto-fill, var(--ds-size-card-width)); gap: var(--ds-size-card-gap); margin-top: 19px; }
 
   .refLayer { position: absolute; top: 0; left: 0; pointer-events: none; transform-origin: 0 0; }

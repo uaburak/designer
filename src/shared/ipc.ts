@@ -7,12 +7,13 @@
  * Kinds: `IpcInvoke` request/response from a view; `IpcSend` fire-and-forget
  * from a view; `IpcEvents` from main to a view.
  */
-import type { CommandId } from "./commands";
+import type { CommandId, MenuStatePatch } from "./commands";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
-import type { SignInResult, ThemePreference } from "./api";
 
 /** What a view is (each its own WebContentsView, renderer process and preload). */
 export type Role = "tabbar" | "home" | "editor";
+
+export type ThemePreference = "system" | "light" | "dark";
 
 export interface InitInfo {
   version: string;
@@ -20,6 +21,8 @@ export interface InitInfo {
   role: Role;
   /** The file tab this view shows (editor), else null */
   tabId: string | null;
+  /** The workspace file this view shows (editor), else null */
+  fileKey: string | null;
   windowId: string;
   theme: ThemeState;
 }
@@ -41,14 +44,13 @@ export interface NativeMenuItem {
   submenu?: NativeMenuItem[];
 }
 
-/** A tab as the tab bar and Home see it — Home first (`id: "home"`). */
+/** A tab as the tab bar and Home see it — Home first (`id: "home"`, no fileKey). */
 export interface TabInfo {
   id: string;
   kind: TabKind | "home";
-  slug: string;
+  fileKey?: string;
   title: string;
-  dirty: boolean;
-  status: TabStatus | "ready";
+  status: TabStatus;
 }
 
 export interface TabsSnapshot {
@@ -57,8 +59,6 @@ export interface TabsSnapshot {
   activeTabId: string;
   canReopen: boolean;
   fullScreen: boolean;
-  /** False while Home shows the sign-in: the tab bar shows no tabs */
-  signedIn: boolean;
 }
 
 export interface WindowState {
@@ -66,11 +66,10 @@ export interface WindowState {
   focused: boolean;
 }
 
-/** Home's side of the tabs: whether it is in front, which projects are open, the last save (its lists are read again). */
+/** Home's side of the tabs: whether it is in front, which files are open. */
 export interface HomeState {
   visible: boolean;
-  openSlugs: string[];
-  savedAt: number;
+  openFileKeys: string[];
 }
 
 export interface MenuCommandEvent {
@@ -79,38 +78,74 @@ export interface MenuCommandEvent {
   source: "menu" | "accelerator";
 }
 
+export type { MenuStatePatch };
+
 /**
- * Main asks a file tab (legacy, until autosave's `tab:flush` handshake,
- * docs/desktop.md §6): whether it holds unsaved work, or to save it. Main
- * always waits with a timeout.
+ * Why main asks a file tab to flush (docs/desktop.md §6): the tab or window
+ * closes, the app quits, the view is dropped or reloaded — or it was hidden
+ * (another tab came in front, the Mac sleeps or locks), when nothing waits
+ * for the answer.
  */
-export interface TabRequest {
+export type FlushReason = "close" | "quit" | "discard" | "reload" | "hide";
+
+/** `tab:flush`: every change handed to the store, and the store's flush (fsync) awaited. */
+export interface TabFlush {
   reqId: number;
-  op: "is-dirty" | "save";
+  reason: FlushReason;
 }
-export interface TabResponse {
+export interface TabFlushed {
   reqId: number;
   ok: boolean;
-  value?: boolean;
   error?: string;
 }
 
-export interface OpenFile {
-  kind: TabKind;
-  slug: string;
+/** A workspace file in a tab (`nav:open-file`). */
+export interface OpenWorkspaceFile {
+  fileKey: string;
+  /** The file's name, shown at once (main reads it from the store otherwise) */
   title?: string;
+  /** Open without bringing it in front (Home's "Open in new tab") */
+  background?: boolean;
+  /** Where to land in the file (deep links; passed on as `tab:navigate` later) */
+  pageId?: string;
+  nodeId?: string;
+}
+
+/** `nav:open-file`'s answer: the tab, and whether the file already had one (it was brought in front instead). */
+export interface OpenFileResult {
+  tabId: string;
+  existing: boolean;
+}
+
+/** `nav:new-file`: a new design file in a folder (null: Drafts), opened in a tab. */
+export interface NewFileRequest {
+  folderId?: string | null;
+  name?: string;
+}
+export interface NewFileResult {
+  fileKey: string;
+  tabId: string;
+}
+
+/** `file:import`: .fig files read into the workspace. */
+export interface ImportResult {
+  files: { fileKey: string; name: string }[];
+  failed: { path: string; error: string }[];
 }
 
 export interface IpcInvoke {
   "desktop:init": { args: []; result: InitInfo };
   "tabs:get": { args: []; result: TabsSnapshot };
-  "nav:open-file": { args: [OpenFile]; result: { tabId: string } };
+  "nav:open-file": { args: [OpenWorkspaceFile]; result: OpenFileResult };
+  "nav:new-file": { args: [NewFileRequest]; result: NewFileResult };
+  /** .fig files into a folder (null: Drafts): the given paths, or the ones picked in the system's Open dialog */
+  "file:import": { args: [{ folderId: string | null; paths?: string[] }]; result: ImportResult };
+  /** A file written out as a .fig where the system's Save dialog says */
+  "file:save-local-copy": { args: [{ fileKey: string }]; result: { path: string } | { cancelled: true } };
   /** The theme preference set: main keeps it, tells every view (`theme:changed`) and answers what it resolves to */
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** A native menu at a point of the view (`at` in the view's CSS pixels): the picked item's id, or null */
   "menu:popup": { args: [{ template: NativeMenuItem[]; x: number; y: number }]; result: string | null };
-  /** Legacy: Google's sign-in in the system browser (main/signIn.ts) */
-  "auth:google": { args: []; result: SignInResult };
 }
 
 export interface IpcSend {
@@ -120,16 +155,14 @@ export interface IpcSend {
   "tabs:move": { tabId: string; toIndex: number };
   "tabs:context-menu": { tabId: string; x: number; y: number };
   "tabs:reopen": void;
-  /** "+" in the tab bar: Home's New Project dialog (legacy; `nav:new-file` creates a file once the store exists) */
-  "nav:new-file": void;
-  "nav:go-home": void;
+  /** Home in front ("Back to files"), the file shown there when given */
+  "nav:go-home": { revealFileKey?: string } | undefined;
   "tab:report": TabReport;
-  "tab:response": TabResponse;
-  /** Home's sign-in gate: an admin signed in, or not */
-  "session:auth": { signedIn: boolean };
-  /** Sign out, asked from anywhere: main settles unsaved tabs, closes them, then tells Home (`session:sign-out`) */
-  "session:request-sign-out": void;
-  "auth:cancel": void;
+  "tab:flushed": TabFlushed;
+  /** What the view says about the menu bar's items (enabled, checked): only what changed */
+  "menu:state": MenuStatePatch;
+  /** The workspace folder in Finder */
+  "file:reveal-data-folder": void;
   "shell:open-external": { url: string };
 }
 
@@ -138,10 +171,13 @@ export interface IpcEvents {
   "window:state": WindowState;
   "menu:command": MenuCommandEvent;
   "tab:visibility": { visible: boolean };
-  "tab:request": TabRequest;
+  /** A file tab: send every change to the store and flush it, then answer `tab:flushed` */
+  "tab:flush": TabFlush;
   "home:state": HomeState;
-  /** To Home: the unsaved tabs are settled and closed — sign out now */
-  "session:sign-out": void;
+  /** To Home: show this file (Show in File Browser, Back to files from it) */
+  "home:reveal": { fileKey: string };
+  /** A new store port is on its way (with the event, as a transferred MessagePort): one per page load and per store start */
+  "store:port": { generation: number };
   /** The theme changed (a choice, or the system's appearance while the preference is "system") */
   "theme:changed": ThemeState;
 }
@@ -151,9 +187,11 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "desktop:init": ["tabbar", "home", "editor"],
   "tabs:get": ["tabbar", "home"],
   "nav:open-file": ["home", "editor"],
+  "nav:new-file": ["tabbar", "home", "editor"],
+  "file:import": ["home", "editor"],
+  "file:save-local-copy": ["home", "editor"],
   "theme:set": ["tabbar", "home", "editor"],
   "menu:popup": ["tabbar", "home", "editor"],
-  "auth:google": ["home"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
@@ -163,12 +201,10 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "tabs:move": ["tabbar"],
   "tabs:context-menu": ["tabbar"],
   "tabs:reopen": ["tabbar", "home"],
-  "nav:new-file": ["tabbar", "home", "editor"],
   "nav:go-home": ["editor"],
   "tab:report": ["editor"],
-  "tab:response": ["editor"],
-  "session:auth": ["home"],
-  "session:request-sign-out": ["home", "editor"],
-  "auth:cancel": ["home"],
+  "tab:flushed": ["editor"],
+  "menu:state": ["home", "editor"],
+  "file:reveal-data-folder": ["home", "editor"],
   "shell:open-external": ["home", "editor"],
 };

@@ -62,6 +62,8 @@ if(EMSCRIPTEN)
   eng_compile_flags(engine_wasm)
   eng_wasm_target(engine_wasm)
 else()
+  # The generated kiwi codecs (native only for now: nothing in the Wasm uses them yet).
+  include(cmake/Generators.cmake)
   add_executable(engine_tests
     tests/main.cpp
     tests/unit/base.fractional_index.test.cpp
@@ -75,8 +77,12 @@ else()
     tests/unit/editor.gestures.test.cpp
     tests/unit/api.test.cpp
     tests/unit/layout.test.cpp
+    tests/unit/editor.commands.test.cpp
+    tests/unit/editor.move.test.cpp
+    tests/unit/layout.figma_golden.test.cpp
+    tests/unit/scene.kiwi.test.cpp
   )
-  target_link_libraries(engine_tests PRIVATE eng_core)
+  target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)
   # The engine builds without exceptions; doctest then ends the run on a failed REQUIRE.
   target_compile_definitions(engine_tests PRIVATE ENG_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"

@@ -1,6 +1,143 @@
 # Desktop shell — as built
 
-Status: implemented 2026-10-06. This describes what the code does today. `docs/desktop.md` is the contract this work follows; where the two differ, the reason is a legacy feature that must keep working until the new data layer and engine land (§10 lists every difference).
+## Status (final integration round, 2026-10-06)
+
+- **Home thumbnails (fixed).** There were two causes:
+  - **No thumbnail at all.** A tab closed (or the app quit) within the editor's 4 s thumbnail debounce never wrote one. Main ends the view right after the flush handshake, so the timer and the React cleanup never ran.
+  - **A card that looked blank.** The engine renders the page's content bounds edge to edge, so a single shape filled the whole card with one colour.
+
+  Fixes in `src/renderer/src/editor`:
+  - The flush handler (`desktop.ts`) awaits `EditorController.beforeFlush` (the pending thumbnail) before the document flush, for every reason (close, quit, hide, discard, reload).
+  - `captureThumbnail` (`persistence.ts`) fits the content within 600 × 340 and centres it on an 800 × 600 image in the page's colour. Home's card crops the image to about 16:9 (object-fit: cover), and that band keeps the content and a margin visible.
+
+  The rest of the pipeline was verified working: the store writes `thumbnail.png` and bumps `FileMeta.thumbnail.version`; Home re-reads on the watch event; `_thumb?v=N` is served with CORP `cross-origin` and loads under COEP, in the built app and under the dev server. `scripts/drive.mjs thumb [fileKey]` samples a card's image and fails on a missing or one-colour thumbnail.
+- **`firebase` is a dependency** (the store's sync drivers import it at run time in a packaged app).
+- **Dev servers are cross-origin isolated too.** `vite.shared.ts` `isolationHeaders()` is the dev server's (electron-vite and `vite.web.config.ts`) and preview's `server.headers`; `DESIGNER_CROSS_ORIGIN_ISOLATED=0` turns it off. Verified: `crossOriginIsolated` is true in all six browser routes, and Electron against the dev server shows Home, the editor and the cross-origin `_thumb` images.
+
+## Status (integration round 2, 2026-10-06): legacy removed
+
+This section supersedes everything below it: the round-1 status that follows and §1–§11, which describe the first build. Read those only for the parts this section doesn't change.
+
+**Done**
+- **The new Home is the only Home.** The Home view loads `?files` (FilesApp). A page with no query, in a browser, is Home too. The switch (`DESIGNER_NEW_HOME`, `settings.json` `newHome`, `DEFAULT_NEW_HOME`) is gone. "+" and ⌘N call `nav:new-file`, which creates `Untitled` in Drafts through the store and opens it.
+- **Legacy deleted.**
+  - Renderer: `src/renderer/src/{figma,cv,home,lib,demo,components,context,types,styles,tab}`. From `app/`: `HomeApp`, `AuthGate`, `Shell`, `ShellApp`, the old `TabBar`, `bridge`, `icons`, `ui`, `tabs`.
+  - Main and shared: `src/main/signIn.ts`, `src/main/env.d.ts`, `src/shared/api.ts`, `src/shared/firebaseConfig.ts`.
+  - Channels: `auth:google`, `auth:cancel`, `session:auth`, `session:request-sign-out`, `session:sign-out`, `tab:request`, `tab:response`.
+  - The `project` / `preview` / `cv` tab kinds and `slug`; dirty dots, Save and the Save/Don't Save dialogs; the sign-in gate.
+  - The Sign Out and Save menu items, the Firebase Storage CORS hook, and the `__FIREBASE_VERSION__` / `__DEMO__` defines and the demo aliases.
+  - Dependencies: `tailwindcss`, `@tailwindcss/vite`, `tailwind-merge`, `gsap`, `@gsap/react`, `prismjs`, `@types/prismjs`, `dompurify`; `npm run web:demo` too.
+  - Kept: `firebase` (the store's sync drivers import it lazily) and `clsx` (`ds/util/cx.ts`).
+- **Tabs are files only.** A tab is `{id, kind: "file", fileKey, title, status}`. Restoring a session drops any old site-admin tabs.
+- **The tab bar** is the design system's `TabBar` (`ds/components/TabBar`) inside `app/TabBarApp.tsx`.
+- **Theme only through `ds/theme.ts`.** `main.tsx` imports `ds/global.css`, which brings Inter and `tokens.css`. In `boot.js`, the desktop's `window.designer.theme` now wins over localStorage (a stale page copy could flash the wrong theme before).
+- **Cross-origin isolation is on by default:** COOP `same-origin`, COEP `require-corp`, CORP on every `app://` response, and CORP `cross-origin` on `/_blob` and `/_thumb`. Verified: `crossOriginIsolated === true` and `SharedArrayBuffer` exist in Home, the tab bar and editors, and the engine and thumbnails load. `DESIGNER_CROSS_ORIGIN_ISOLATED=0` turns it off. The CSP has no network origins any more.
+- **Menu bar.** `file.move` is "Move to folder…" and `file.delete` is "Move to trash", as in Home. In Home, Edit › Select all and Edit › Delete chosen from the menu go to Home as `menu:command`: they act on its file selection, and Home reports their enablement. Keys Home leaves unhandled, and Undo/Redo, still act natively on its text fields. Unknown `menu:state` keys (the editor's `tool.*`, `theme.*`) are dropped.
+- **Quit.** Once the windows' files have flushed, `finishQuit()` (`window.ts`) stops the store and writes `session.json`, then calls `app.exit(0)`. A second `app.quit()` after a cancelled one was ignored on the SIGTERM path, which left the app running with the workspace locked. Verified: SIGTERM and SIGINT both exit and release the lock.
+- **`scripts/drive.mjs`**:
+  - strips `ELECTRON_RUN_AS_NODE` itself;
+  - retries a launch that hangs: COOP's first-load process swap sometimes leaves Playwright's attach waiting forever, about half of launches. The app itself starts every time; with isolation off, 12 of 12 launches attached.
+
+**Acceptance verified with `scripts/drive.mjs`** (`npm run build -- --mode demo`; screenshots in `/tmp/designer-work/desktop/r2/`):
+1. Launch → Home, no sign-in.
+2. Home's "New design file" → an `Untitled` tab (`?editor&file=`).
+3. Drew a frame and a rectangle; Layers shows Frame 1 and Rectangle 1.
+4. Closed the tab, quit, relaunched, and double-clicked the card in Home: both layers are there.
+5. With a second file open, the two editors run in separate renderer processes.
+6. Edit › Move to trash from Home trashed the first file and closed its open tab; Trash › Restore brought it back, and it still opens with both layers.
+7. Quitting with an edited file open, then relaunching, restores the tab with its layers.
+8. In a browser (`vite.web.config.ts` on 5205), `/`, `?files`, `?editor`, `?gallery`, `?engine` and `?tabbar` all load with no page errors.
+
+**Next**
+- The `/_blob` and `/_thumb` token.
+- `tab:attach` and the spare editor; `tab:navigate`.
+- `tabs:overflow-menu`, fonts, clipboard and settings channels.
+- Deep links (a tab's "Copy link" is disabled until then).
+- The discard policy.
+- `crashed.html`.
+- Separate HTML entries per role.
+
+---
+
+## Status (integration round 1, 2026-10-06)
+
+The sections below §0 were written before that round.
+
+**Done**
+- **Store process.** `src/main/storeHost.ts` starts `out/main/store.js` (second main entry in `electron.vite.config.ts`) through `src/store/host.ts` before the first window. It restarts the store at most 3 times in 60 s, then asks `DesignerV2 can’t save changes right now.` with `Try Again` / `Quit`. Every Home and editor view gets a fresh `MessagePort` on every page load and after every restart (`store:port`). The preload holds the port until the page posts `designer:store-port-wanted`, then forwards it as `designer:store-port`. On quit, the store is flushed (`store.flushAll`) and shut down in `will-quit`, after the windows' tabs have flushed. The workspace is `DESIGNER_WORKSPACE` or `<userData>/Workspace`. `DESIGNER_SEED=demo` imports `docs/research/figma/samples/*.fig` into an empty workspace.
+- **`app://designer/_blob/<sha1>` and `/_thumb/<fileKey>.png`** are served read-only from the workspace. Names are matched against a pattern; blob MIME is sniffed. The per-launch token is not enforced yet.
+- **File tabs.** `kind: "file"` with `fileKey` (`src/shared/tabs.ts`); a file tab's `slug` is `""`. Each file tab has one tab per file and loads `?editor&file=<fileKey>&tab=<tabId>` in its own process. On `file.renamed`/`file.updated` the tab is retitled. On `file.trashed`/`file.deleted` the tab is flushed and closed without a question, and the file is removed from the closed history. File tabs are kept in `session.json` (with `fileKey`); at launch, files that are gone or in the trash are dropped and names are refreshed from the store. ⇧⌘T skips files that are gone. Showing a file tab calls `workspace.recordViewed`.
+- **Autosave semantics.** File tabs have no dirty dot and no Save dialog. Closing a tab or window, quitting or signing out sends `tab:flush {reason: "close"|"quit"}` (3 s). If the flush fails, main asks `Your recent changes to “‹name›” couldn’t be saved.` (`Try Again` / `Close Anyway` or `Quit Anyway` / `Cancel`). If it times out, main asks `“‹name›” isn’t responding.` (`Wait` / `Close Tab` or `Quit Anyway`). Hiding a tab (another tab comes in front), Reload Tab, and the Mac sleeping or locking also flush, without waiting (reason `"hide"` or `"reload"`). Legacy tabs keep their Save, dirty dot and `tab:request`.
+- **Home switch.** Home loads `?files` (the new file browser) when `DESIGNER_NEW_HOME=1` or when `settings.json` has `"newHome": true`. Otherwise it loads `?home` (legacy). `DESIGNER_NEW_HOME=0` forces the legacy Home. **To flip the default:** `DEFAULT_NEW_HOME = true` in `src/main/session.ts`. While the legacy Home is the Home, "+" and ⌘N open its New Project dialog. `nav.newFile()` from Home or an editor always creates a store file.
+- **Menu bar.** Figma's menu bar is built from `MENU_LAYOUT` in `src/shared/commands.ts`: File, Edit, View, Object, Text, Arrange, Vector, Window, Help, after the app menu (About, Theme, Sign Out (legacy), Services, Hide, Quit). Labels use Figma's sentence case, and ids are the editor's (`src/renderer/src/editor/commands.ts`). Scopes:
+  - `app` and `shell` are handled by main.
+  - `view` goes to the view in front: Home or a file.
+  - `editor` goes only to a file tab.
+  - Undo, Redo, Select all and Delete run natively in Home.
+
+  Enabled and checked state comes from the view in front (`menu:state`). Main merges it per view, mutates the items in place on activation and on every report, and never rebuilds the menu. View and editor items stay disabled until the view reports them. Main keeps three exceptions enabled: `file.close-tab` (when a tab is in front), `file.reopen-closed-tab` (`canReopen`), and `file.save-local-copy` (main writes the copy of the file in front itself). Accelerators without ⌘ or ⌃ (⇧R, ⌥A, ⌫, PgUp) are shown but not registered, so they never take a letter typed into a field.
+- **Import… / Save local copy… / Open data folder** go through main's native dialogs and main's store client (`src/main/files.ts`).
+- **Theme aliases.** `onThemeChange` and `window.desktop` / `legacyDesktopAlias` are no longer in `src/preload/common.ts`. `ds/theme.ts` uses only `window.designer.theme`, `setTheme` and `onThemeChanged`, and nothing else reads the aliases. The stale `window.desktop` comment in `src/shared/api.ts` was corrected.
+
+**Verified with `scripts/drive.mjs`** (built with `npm run build -- --mode demo`; unset `ELECTRON_RUN_AS_NODE` if the shell has it):
+- The store's utility process starts and takes `Workspace/.lock` (`{pid, startedAt}`). The lock is released after quit.
+- The Home view gets a port and the store's hello (`{t: "hello", role: "home", generation: 1}`).
+- `new-file` twice opens two `?editor&file=` tabs, each in its own renderer process.
+- On relaunch, file tabs come back lazily with their store names.
+- Renaming in the store retitles the tab, and trashing the file closes its tab.
+- Close tab and ⇧⌘T work.
+- A view's `menu.setState` enables and checks the Object, Edit and View items; Home in front disables the editor items.
+- Hiding a tab flushes with `"hide"`. A rejected flush asks the Try Again / Close Anyway / Cancel question.
+- After the store is killed, generation 2 starts, takes the stale lock, and a page that asked gets `port 2`.
+- The legacy Home and CV tab still work: Save is enabled only there.
+
+**Next**
+- The legacy removal (handoff step 1), then `DEFAULT_NEW_HOME = true`, removal of the sign-in gate, the `session:*`/`auth:*` channels and `tab:request`, and `slug` from tabs.
+- The `/_blob` and `/_thumb` token (handed out by `desktop:init`).
+- `tab:attach` and the spare editor; `tab:navigate` for `pageId`/`nodeId` (accepted by `nav:open-file`, not acted on yet).
+- `tabs:overflow-menu`, fonts, clipboard channels, `settings:*`, and Settings… ⌘,.
+- Deep links (a file tab's "Copy link" is disabled until then).
+- Discard policy.
+
+### Channels and preload API added this round
+
+| Channel | Kind | Roles | Payload → result |
+|---|---|---|---|
+| `nav:open-file` | invoke | H E | `{fileKey, title?, background?, pageId?, nodeId?}` or legacy `{kind, slug, title?}` → `{tabId, existing}` |
+| `nav:new-file` | invoke (was send) | T H E | `{folderId?: string\|null, name?}` → `{fileKey, tabId}`, or `null` when T/⌘N open the legacy Home's dialog |
+| `nav:go-home` | send | E | `{revealFileKey?}`. Without it, main reveals the editor's own file. |
+| `file:import` | invoke | H E | `{folderId, paths?}` → `{files: {fileKey, name}[], failed: {path, error}[]}` (no paths: the Open dialog) |
+| `file:save-local-copy` | invoke | H E | `{fileKey}` → `{path} \| {cancelled: true}`. An open tab of the file is flushed first. |
+| `file:reveal-data-folder` | send | H E | `void` |
+| `tab:flush` | event | E | `{reqId, reason: "close"\|"quit"\|"discard"\|"reload"\|"hide"}` |
+| `tab:flushed` | send | E | `{reqId, ok, error?}` |
+| `menu:state` | send | H E | `MenuStatePatch {enabled?, checked?}` (only what changed) |
+| `home:reveal` | event | H | `{fileKey}` (a tab's "Show in file browser", an editor's "Back to files") |
+| `store:port` | event + MessagePort | H E | `{generation}` |
+| `desktop:init` | invoke | All | now also `fileKey` (the editor's file, else null) |
+| `home:state` | event | H | now also `openFileKeys` |
+
+`window.designer` (types in `src/shared/desktop.ts`):
+- **Home and editor**:
+  - `nav.openFile(fileKey, {title?, background?}?) → Promise<{tabId, existing}>`, or `nav.openFile({kind, slug, title?})` for legacy.
+  - `nav.newFile(folderId?, name?) → Promise<{fileKey, tabId} | null>`.
+  - `files.import(folderId, paths?)`, `files.saveLocalCopy(fileKey)`, `files.pathFor(file)` (webUtils), `files.revealDataFolder()`.
+  - `menu.onCommand(cb)`, `menu.setState(patch)`. Patches are merged and sent once per 16 ms.
+- **Home** also has `home.onReveal(cb)`.
+- **Editor** also has:
+  - `tab.onFlush(cb: (reason) => void | Promise<void>)`. Resolve when everything is in the store and `files.flush` returned; a rejection is reported as a failed save. With no handler, the preload answers ok at once.
+  - `nav.goHome(revealFileKey?)`, which is "Back to files".
+- **What the views must do:**
+  - The editor registers `tab.onFlush` (send pending batches, `await source.flush()`) and reports `menu.setState` from its commands' `enabled`/`checked`.
+  - The editor reports the file's real name (`tab.report({title})` wins over the store's name).
+  - The editor answers `menu:command` ids as `runEditorCommand(ed, id)`.
+  - The new Home handles `menu:command` for `file.duplicate|rename|move|delete|save-local-copy` and reports their enablement.
+
+`scripts/drive.mjs` now finds every view's page by main's URL (`?files` and `?editor&file=` too) and has `store`, `new-file [name]`, `open-file <fileKey>` and `files [drafts|recents|trash]`. `__designer` (under `DESIGNER_TEST=1`) adds `store()`, `storeClient()` and `newHome()`.
+
+---
+
+Status (first round): implemented 2026-10-06. This describes what the code does today. `docs/desktop.md` is the contract this work follows; where the two differ, the reason is a legacy feature that must keep working until the new data layer and engine land (§10 lists every difference).
 
 ---
 
@@ -220,14 +357,14 @@ How commands are routed:
 
 | Contract | As built | Why / when |
 |---|---|---|
-| No dirty dot, no Save, flush handshake (`tab:flush`) | Dirty dots, Save, `tab:request {is-dirty \| save}` and Save/Don’t Save dialogs | The legacy editor and CV save explicitly to Firebase (coordinator's ruling). `tab:flush` comes with the store-backed engine files. |
+| No dirty dot, no Save, flush handshake (`tab:flush`) | Built for `file` tabs. Legacy tabs keep dirty dots, Save, `tab:request {is-dirty \| save}` and Save/Don’t Save dialogs | The legacy editor and CV save explicitly to Firebase (coordinator's ruling); they go in the next round. |
 | Separate `tabbar.html`, `home.html`, `editor.html` | One `index.html`, the role in the query | It keeps the existing build and the browser shell. Splitting is a build-config change (`vite.shared.ts` inputs) once the legacy pages go. |
-| Tab kinds `file` / `prototype`, `fileKey` | `project` / `preview` / `cv`, `slug` | The data layer isn't wired yet (`src/store` is another agent's). The reducer, IPC and TabManager take kinds as data, so the swap is local to `src/shared/tabs.ts`. |
-| `nav:new-file` invoke → `{fileKey, tabId}` | send; opens Home's New Project dialog | Same: creating files is the store's. |
+| Tab kinds `file` / `prototype`, `fileKey` | `file` (with `fileKey`) built, next to the legacy `project` / `preview` / `cv` (`slug`); no `prototype` yet | The legacy kinds go with the legacy pages. |
+| `nav:new-file` invoke → `{fileKey, tabId}` | Built; returns `null` when "+"/⌘N open the legacy Home's dialog | Until the new Home is the default. |
 | Spare pre-warmed editor | Not built | Needs the engine's attach-later boot (`tab:attach`). |
 | `crashed.html` view after a crash loop; auto-reload after more than 60 s | Native `Reload / Close Tab` dialog, no auto-reload | As briefed. The `restarting` flag is where auto-reload would go. |
 | Discard policy (12 loaded tabs, 24 h idle) | Not built | Lazy restore is built; discarding is a timer plus `drop()`. |
-| `tab:memory`, `menu:state`, `tabs:overflow-menu`, store port, fonts, clipboard and file channels | Not built | They belong with the engine, store and fonts work. |
+| `tab:memory`, `tabs:overflow-menu`, fonts and clipboard channels | Not built (`menu:state`, the store port and the file channels are built) | They belong with the engine and fonts work. |
 | Theme only through main (no localStorage) | Main owns the preference and broadcasts `theme:changed`. The legacy `ThemeContext` still keeps localStorage, and Home carries main's changes into it. | `ThemeContext` is replaced by `ds/theme.ts`. Once that reads `window.designer.setTheme` and `onThemeChanged`, drop the `window.desktop` alias and the Home bridge. |
 | Sign-in removed | Kept: `AuthGate` in Home, `session:auth` gate | As briefed: it stays until the data layer replaces it. |
 | Full-screen room 0 | 8 px | `design-system.md` §4.23 says 8. |

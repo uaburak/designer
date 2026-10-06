@@ -235,6 +235,17 @@ export const appColor = {
   "card-border-hover": ["#cccccc", "#5c5c5c"], // K
   "file-design": ["#0c8ce9", "#0c8ce9"], // K
   "canvas-default": ["#f5f5f5", "#1e1e1e"], // K
+  "marquee-fill": ["#0d99ff1a", "#0c8ce926"], // G — drag-select rectangle in Home's grid and list (its border is border-selected)
+  // Folder colours (Home): the store's FolderColor ids ("none" is the plain icon-secondary glyph, no token). G — Figma's palette where it has one
+  "folder-red": ["#f24822", "#e03e1a"], // = bg-danger
+  "folder-orange": ["#ffa629", "#f0941d"],
+  "folder-yellow": ["#ffcd29", "#f3c11b"], // = bg-warning
+  "folder-green": ["#14ae5c", "#198f51"], // = bg-success
+  "folder-teal": ["#0fa8a8", "#119a9a"],
+  "folder-blue": ["#0d99ff", "#0c8ce9"], // = bg-brand
+  "folder-purple": ["#9747ff", "#8a38f5"], // = bg-component
+  "folder-pink": ["#ff24bd", "#e81fae"],
+  "folder-gray": ["#b3b3b3", "#8c8c8c"],
 } as const satisfies Record<string, Pair>;
 
 export type AppColorName = keyof typeof appColor;
@@ -290,6 +301,9 @@ export const size = {
   "card-height": 213,
   "card-thumb": 151,
   "card-gap": 36,
+  "list-row": 40, // the Home list view's row (§4.27)
+  "list-header": 32, // G — the list view's column header
+  "breadcrumb-max": 160, // G — an ancestor crumb's width before it ellipsizes
   checkbox: 16,
   "switch-width": 28, // K
   "switch-height": 16, // K

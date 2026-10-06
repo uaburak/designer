@@ -24,6 +24,10 @@ export interface FirestoreDriver {
   transaction<T>(fn: (tx: FirestoreTx) => Promise<T>): Promise<T>;
   serverTimestamp(): unknown;
   deleteField(): unknown;
+  /** A stored `_t` (the server timestamp) as a string that sorts like it (store.json's pullCursor) */
+  cursorOf(t: unknown): string | null;
+  /** …and back, for `where("_t", ">", …)` */
+  cursorValue(cursor: string): unknown;
   readonly bytes: BytesCodec;
 }
 
@@ -85,6 +89,11 @@ export async function loadFirebaseDrivers(config: SyncConfig): Promise<FirebaseD
       ),
     serverTimestamp: () => fsMod.serverTimestamp(),
     deleteField: () => fsMod.deleteField(),
+    cursorOf: (t) => (t && typeof t === "object" && "seconds" in (t as any) ? `${(t as any).seconds}.${String((t as any).nanoseconds ?? 0).padStart(9, "0")}` : null),
+    cursorValue: (c) => {
+      const [sec, nanos] = c.split(".");
+      return new fsMod.Timestamp(Number(sec), Number(nanos ?? 0));
+    },
   };
   const sref = (path: string) => stMod.ref(storage, path);
   const storageDriver: StorageDriver = {
@@ -171,6 +180,12 @@ export class MemoryFirestore implements FirestoreDriver {
   }
   deleteField(): unknown {
     return DELETE;
+  }
+  cursorOf(t: unknown): string | null {
+    return typeof t === "number" ? String(t) : null;
+  }
+  cursorValue(cursor: string): unknown {
+    return Number(cursor);
   }
 }
 

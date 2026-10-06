@@ -106,6 +106,11 @@ export function PickerDemos() {
       <Comp name="EditorToolbar" note="Figma's bottom toolbar (530 × 48): tool slots with their menus, Actions, the mode switch.">
         <Row>
           <Cell id="EditorToolbar/default/default/live" label="live"><LiveToolbar /></Cell>
+          <Cell id="EditorToolbar/default/default/disabled" label="disabled: Pen, the comment tools, Motion, Dev Mode">
+            <div className={styles.stage}>
+              <EditorToolbar tool="move" onTool={noop} mode="design" onMode={noop} disabledTools={["pen", "comment", "annotation", "measurement"]} disabledModes={["motion", "dev"]} />
+            </div>
+          </Cell>
         </Row>
       </Comp>
     </>

@@ -66,3 +66,11 @@ export function CodeBlock({ code, label = "Copy" }: { code: string; label?: stri
     </div>
   );
 }
+
+/**
+ * Where something is still loading (a thumbnail, a row's text): a flat block
+ * in the secondary background — no shimmer, as the chrome doesn't move.
+ */
+export function Skeleton({ width, height = 16, radius = "medium", className, style, ...rest }: { width?: number | string; height?: number | string; radius?: "small" | "medium" | "medium-large" | "full" } & HTMLAttributes<HTMLSpanElement>) {
+  return <span data-ds="Skeleton" aria-hidden className={cx(styles.skeleton, styles[`r-${radius}`], className)} style={{ width, height, ...style }} {...rest} />;
+}

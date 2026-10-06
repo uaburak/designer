@@ -125,6 +125,7 @@ function Listbox({ id, anchor, options, value, isStatic, onPick, onClose }: { id
       tabIndex={-1}
       data-ds="Menu"
       data-theme="dark"
+      data-theme-forced=""
       data-static={isStatic || undefined}
       aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
       className={cx(menu.panel, isStatic && menu.static)}

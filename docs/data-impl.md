@@ -4,67 +4,72 @@ Contracts: `docs/data.md` (store, workspace, journal, versions, libraries, Fireb
 
 ---
 
-## Status at handoff (2026-10-06)
+## Status at handoff (2026-10-06, round 2)
 
-### Checks at handoff
+### Checks
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` | passes (both projects) |
-| `npm run engine:gen -- --check` | 183 definitions, NodeChange 194 live of 1,001 fields, 953 reserved numbers, 1,489 Figma parity checks, **0 problems**; committed TS output up to date |
-| `npm run lint` | 0 problems in data-layer files. **2 errors in `src/renderer/src/editor/hooks.ts`** (`react-hooks/immutability`, another workstream's file, not touched) |
-| `npm test` | 288 of 289 pass. **The data layer's 11 files / 76 tests all pass.** The one failure is `src/renderer/src/engine/__tests__/abi.test.ts` ("commands: abi.ts = Commands.h"), the engine workstream's |
+| `npm run lint` | 0 problems in data-layer files (4 errors in `engine/tools/fixtures.mjs`, the engine workstream's, at the time of writing) |
+| `npm test` | 399 of 399 passed at the time of writing; **the data layer's 19 files / 113 tests** all pass |
+| `npm run engine:gen -- --check` | 183 definitions, NodeChange 194 live of 1,001 fields, 1,489 Figma parity checks, **0 problems** |
 
-Data-layer tests (`npx vitest run src/store src/shared/schema src/shared/fig src/shared/store`):
+Data-layer tests (`npx vitest run src/store src/shared/schema src/shared/fig src/shared/store src/renderer/src/store`), round 1 files unchanged (76 tests) plus:
 
 | File | Tests | Covers |
 |---|---|---|
-| `src/shared/schema/fractionalIndex.test.ts` | 6 | schema.md §10.2 vectors, keysBetween, rebalancing, the 24-char rule |
-| `src/shared/schema/codec.test.ts` | 6 | NODE_CHANGES round trip (CREATED + update with `clearedFields`), new-file nodes, field registry, defaults, bindings, blob fields |
-| `src/shared/schema/patch.test.ts` | 10 | apply rules (update, clear, REMOVED, CREATED = full replace, missing/invalid), snapshot order, blob rebasing/dedupe, image refs, restore diff both ways, GUID allocation |
-| `src/store/kiwi/samples.test.ts` | 18 | the 3 Figma samples: ZIP/meta/thumbnail/container, image SHA-1s, interpreter = compileSchema (byte-identical re-encode), lossless rewrite, **import by name** (§1.1 pt 5), full conversion |
-| `src/store/local/journal.test.ts` | 3 | header/frame layout, torn tail, CRC hole, seq gap, writer/reopen truncation |
-| `src/store/local/workspace.test.ts` | 6 | layout + lock, Drafts/folders/rename/move/search (diacritics), nesting ≤ 10 + no cycles, trash/restore/delete forever/empty trash, recents ≤ 50, damaged-record repair |
-| `src/store/local/fileStore.test.ts` | 10 | sessions/lock/dedupe/replay, subscribers + fsync timer + updatedAt, torn-tail recovery, previous-generation fallback, version fallback + `corrupt`, compaction (generations, exact blobRefs, auto past 5,000 frames), versions (named, open, restore diff, duplicate), autosave checkpoint, thumbnails + UI state |
-| `src/store/local/libraries.test.ts` | 3 | publish/preview/diff/payloads with dependencies, drafts refused, Move to this file vs Publish as a copy, unpublish/trash/restore/delete forever, default libraries |
-| `src/store/local/blobs.test.ts` | 2 | put/has/get/MIME, mark-and-sweep with 24 h grace, trashed files keep refs |
-| `src/store/import/fig.test.ts` | 7 | import of each sample (images, thumbnail, import version, session remap), FigJam/garbage refused, rehash of mismatched images, Save Local Copy (head snapshot as is) + re-import, duplicate file |
-| `src/store/rpc.test.ts` | 5 | hello/roles, main-only methods, events fan-out, port close ends sessions, **store restart: reattach + resend unacked + resubscribe** |
+| `src/renderer/src/store/__tests__/documentSource.test.ts` | 6 | engine JSON ⇄ kiwi (GUIDs, unknown fields, clears); **open → append → close → reopen sees the changes** (real `StoreClient` over a MessageChannel to the in-process store); batch kinds; store restart mid-edit; refused appends reach `flush`/`onError`; rename/move/trash from elsewhere; remote frames via `onExternalChanges`; named version, restore as one `restore` batch, UI state, thumbnail, duplicate version |
+| `src/renderer/src/store/__tests__/devStore.test.ts` | 5 | the seeded demo workspace; Home's operations and their events (same rules as the store); the editor's DocumentSource on the dev store, persisted across a "reload"; two pages following each other's writes; reset |
+| `src/renderer/src/store/__tests__/client.dom.test.ts` | 2 | happy-dom: the port handover (`designer:store-port-wanted`, origin/source/type checks, generations, stale ports) |
+| `src/store/sync/fieldCodec.test.ts` | 5 | node documents: value mapping, `$b`/`$blob` bytes, blob-index rebasing, `$kiwi` spills (> 20 levels, > 900 KB), derived/unknown refused |
+| `src/store/sync/lww.test.ts` | 8 | `coalesce`, `planPush` (newer remote, remote delete, local tombstone, CREATED replace), `planPull` (clears, tombstones), `mergeRecord` |
+| `src/store/sync/replicator.test.ts` | 4 | off unless config **and** enabled; push of records + nodes + schema, idempotent; **two devices converge** (field LWW, delete, image blob up and down, records, remote frame reaches the open editor); backoff 2 s → 4 s → 8 s … and recovery |
+| `src/store/import/figBytes.test.ts` | 4 | `files.importFigBytes` over a Home port for the 3 samples (same table as the path import), bare canvas named after the dropped file, Drafts default, FigJam/garbage/trashed folder refused; the dev store's import is in `devStore.test.ts` (deflate sample without zstd, zstd samples with an injected decoder) |
+| `src/store/compactor.test.ts` | 2 | **the worker compactor**: the store bundle (built with esbuild in the test) as a worker thread, same result as inline; errors cross back |
 
-Sample `.fig` numbers (from the tests): `structure.fig` 26 → 26 nodes, `sections.fig` 21 → 21, `stacks_wrap.fig` 57 → 57 (no node type dropped). Projected Messages encode to 7,819 / 36,049 / 6,699 bytes and decode identical; as our snapshots (zstd data + ≈13 KB deflated schema) 14,460 / 13,736 / 14,004 bytes. Dropped NodeChange fields are exactly schema.md §13 categories: `editInfo`, `userFacingVersion`, `maskIsOutline`, `exportBackgroundDisabled`, `containerSupportsFillStrokeAndCorners`, `rectangleCornerToolIndependent`, `*Version` stamps, `textTracking`, and Figma's local-component `sharedSymbolVersion` counter.
+The dev store was also run in headless Chrome (esbuild bundle of `src/renderer/src/store/index.ts`, no Node imports): seeded lists, thumbnails as object URLs, open/edit/close, the edit still there after a reload.
 
-### Done and verified
+### Done
 
-1. **Generator** `engine/tools/schemagen/schemagen.ts` (one file, Node 24 erasable TS, kiwi-schema 0.5.0 API): TS output `src/shared/schema/document.generated.ts` (committed), C++ outputs with `--cpp <build>` → `<build>/generated/schema/{document.kiwi.h, document.stream.h, node_fields.h}`, and `--check` with the four schema checks of schema.md §2.2. `npm run engine:gen` added.
-2. **Shared schema runtime** (`src/shared/schema/`): `model.ts` (schema model, eval-free), `codec.ts`, `guid.ts`, `fractionalIndex.ts`, `patch.ts` (node table, apply, snapshot order, blob pool, restore diff), `visit.ts`, `dynamic.ts` (interpreting codec for any schema, CSP-safe).
-3. **`.fig` container** (`src/shared/fig/`): `container.ts`, `zip.ts` (reader incl. deflated entries/data descriptors/ZIP64; stored writer), `figFile.ts`, `crc32.ts`, `compression.ts` (injected codecs), `convert.ts` (projection by name + §11.1 mappings).
-4. **Store** (`src/store/`): workspace records/index/trash/search (`local/workspace.ts`), per-file actor with journal, fsync, recovery, compaction, checkpoints, versions, thumbnails, UI state (`local/fileStore.ts`, `local/journal.ts`, `local/snapshot.ts`, `local/compact.ts`, `local/versions.ts`), blobs + GC (`local/blobs.ts`), libraries (`local/libraries.ts`), import/export (`import/fig.ts`, `export/fig.ts`), composition root + `LocalAdapter` (`localStore.ts`, `store.api(owner)`), RPC server (`server.ts`), entry (`index.ts`), main-side host (`host.ts`), compactor inline/worker (`compactor.ts`), test harnesses (`testing/`).
-5. **Repository interfaces and protocol** (`src/shared/store/`): `types.ts`, `repositories.ts`, `protocol.ts`, `client.ts` (transport-agnostic `StoreClient` with reconnect); renderer wrapper `src/renderer/src/store/client.ts`.
+1. **Round 1** (unchanged): generator + TS codec, shared schema runtime, `.fig` container/converter, the store (workspace, files, journal, recovery, compaction, versions, blobs, libraries, import/export), RPC server/client.
+2. **Store-backed `DocumentSource`** — `src/renderer/src/store/documentSource.ts`, `openStoreDocument(store, fileKey, opts)` (any `StoreApi`: the renderer's `StoreClient`, or a `LocalAdapter` in tests). Loads snapshot + journal merged into one snapshot (`mergedDocument`), appends each change as a `ChangeBatch` (batchSeq per session; `kind` from the engine's USER/UNDO/REDO/SYSTEM, "Restore version" → `restore`; `blobRefsAdded` from image hashes), `flush`, `rename`, `close`; `onExternalChanges` (other sessions' and sync's frames), `onMetaChanged` (renamed/moved/trashed/deleted elsewhere), `onError`; thumbnails, debounced UI state, versions (`saveVersion`, `listVersions`, `updateVersion`, `openVersion`, `restoreVersion(id, apply)`, `duplicateVersion`). Records the file in Recents on open (option). `engineMessage.ts` converts the engine's interim JSON (string GUIDs) to kiwi and back, schema-driven.
+3. **Browser dev store** — `src/renderer/src/store/devStore.ts` + `memory/`: a real `StoreClient` over a MessageChannel to the **same `StoreServer`** the utility process runs, backed by `MemoryStore` (workspace rules = the store's own `WorkspaceModel`; files with snapshot + journal, sessions, lock, dedupe, subscriptions, versions, restore diffs, thumbnails, UI state; libraries/previews answer empty/`offline`; `.fig` paths `forbidden`), persisted in localStorage one record per key (`designer.devStore.v1.*`) so Home and an editor in two browser tabs share it (`storage` events → workspace events). Seeded on first use (`memory/seed.ts`): folders Client work › Archive, Personal; files Landing page, Wireframes (Drafts), Mobile app, Logo explorations, Old poster, Scratch (in Trash); SVG thumbnails; a starred file and folder; Recents; a named version.
+4. **One entry point** — `src/renderer/src/store/index.ts`: `getStoreClient()` (desktop client under the preload, else the dev store; `?store=dev|desktop` forces), `thumbnailUrl(file)`, `openDocument(fileKey, opts)`, plus re-exports (types, `StoreError`, `FOLDER_COLORS`, …).
+5. **`WorkspaceModel`** (`src/shared/store/workspaceModel.ts`): the workspace index and Figma's file-browser rules moved out of `LocalWorkspace` (which now only adds the JSON files and start-up repair) so the dev store runs the identical code; `adopt*`/`drop*` take records written elsewhere (sync pulls, other pages). `Emitter`/`SerialQueue` moved to `src/shared/store/` (re-exported from the old paths).
+6. **Sync** — `sync/firestoreAdapter.ts` (records merged on `_clk` in transactions; node documents per property with `_clk/_t/_del/_dev`, ≤ 100 per transaction, images and spills uploaded first; pull by `_t` cursor → one change Message; images downloaded into the local blob store), `sync/replicator.ts` (2 s loop, records → push → pull, backoff 2 s–5 min, `pushedSeq`/`pullCursor` in store.json, first push / compacted gap pushes the whole head, `remote` frames never pushed back, status events), `sync/clocks.ts` (per-field clocks), `startSync(store, {enabled, idToken|uid, drivers?})` → null unless `firebase/config.json` is valid **and** `enabled`. `LocalStore` gained `hlc`, `timers` (public) and `replicator`; `store.info().sync.enabled` reflects it; `shutdown()` stops it.
+7. **Worker compactor** verified as built (see the test).
+8. **`.fig` import from bytes** — `files.importFigBytes(bytes: Uint8Array, name: string, folderId?: FolderId | null): Promise<FileMeta>` (home/editor/main; not retry-safe). The import itself moved to `src/shared/fig/importFig.ts` (sync codecs for the store, `prepareFigImportAsync` for the browser: DecompressionStream, crypto.subtle, the CSP-safe interpreting codec); `importLocalCopy` now goes through the same path. Name: the .fig's `meta.json` `file_name`, else `name` without ".fig". **In the browser, zstd-compressed files (2 of the 3 samples; Figma's newer files) need a decoder**: `createDevStore({ zstdDecompress })` — none is wired, since adding one (e.g. the `fzstd` package, ~8 KB) is a `package.json` change; without it they fail with `unsupported-format`.
 
-### Partial (compiles, not tested or not wired)
+### Partial / not started
 
-- **Sync** (`src/store/sync/`): `config.ts` (done; config path `userData/firebase/config.json`), `paths.ts` (done, exact §12.4 paths), `fieldCodec.ts` (node document encoding incl. `$b`/`$blob`/`$kiwi` spills — no tests yet), `lww.ts` (coalesce, `planPush`, `planPull`, `mergeRecord` — no tests yet), `drivers.ts` (lazy Firebase SDK loader via runtime `import()` of `firebase/*`, plus `MemoryFirestore`/`MemoryStorage` for tests — untested). **Missing:** `firestoreAdapter.ts` (the `FirestoreAdapter` class implementing the four interfaces) and `replicator.ts`. `FileStore.framesSince / appendRemote / syncState / setSyncState` were added for the Replicator and are untested.
-- **Compactor worker**: `workerCompactor()` + `runCompactorWorker()` + the dispatch in `index.ts` exist; only the inline compactor is exercised (tests run in-process; the worker needs the built bundle).
-- **`host.ts`**: typechecked, not run (needs main's wiring below).
-- **C++ outputs**: generated, **not compile-checked** — `kiwi.h` is not vendored yet (`engine/third_party/kiwi/` belongs to the engine workstream) and none was found on disk.
-- **Renderer client**: typechecked; no test of the `window` port handover (needs a DOM test env).
-
-### Not started
-
-- `PreviewService` beyond stubs (`list` reads `previews.json`; `publish`/`stop` answer `offline`), the HTML export fallback.
-- `clocks.bin`, Download/Upload workspace, device ordinals from Firestore.
-- `src/store/migrations/` (nothing to migrate at `DOCUMENT_FORMAT_VERSION = 1`).
-- Workspace location move and cloud-folder refusal (data.md §3.1).
-- convert.ts: Figma's per-node `libraryGUIDToSubscribingGUID` → `overrideKey` on library copies (no sample has library copies).
+- **Sync, not built**: "Download a workspace" (remote-only files are skipped and logged), version snapshots/thumbnails/libraries/device ordinals in Firestore, propagation of delete-forever, `onSnapshot` listeners (the driver has none: open files are polled every 2 s), the `sync` event topic to the views (`Replicator.status` exists; `StoreServer` doesn't forward it yet), the 60 s "unsynced" tab flag. Main still has to pass `settings.sync.enabled` + the Google ID token and call `startSync` in the store process (nothing calls it today, so sync is off).
+- `PreviewService` beyond stubs, migrations, workspace relocation and cloud-folder refusal, `DESIGNER_SEED=demo` — unchanged from round 1.
+- **C++ outputs** still not compile-checked (`kiwi.h` not vendored; engine workstream).
+- The engine's interim JSON can't carry bytes: `messageToEngine` leaves `Uint8Array` fields (image hashes, blob-index geometry) out of what the editor loads. Changes are partial, so the store keeps them, but a node the engine re-creates whole (REMOVED + CREATED) would lose them. Goes away when the engine speaks kiwi.
+- Dev store limits: the edit lock is per page (two browser tabs can both edit one file; last write wins), localStorage quota (~5 MB; a full write logs a warning and the change lives only in that page).
 
 ### Next steps, in order
 
-1. **Wire the store into main** (desktop workstream; snippet below), then verify with `scripts/drive.mjs` that the store process starts, takes the lock, and a Home page lists files through `storeClient()`.
-2. **Engine**: vendor `kiwi.h` at `engine/third_party/kiwi/` and call `node engine/tools/schemagen/schemagen.ts --cpp ${build}` from `engine/cmake/Generators.cmake`; compile `document.kiwi.h` + `document.stream.h` + `node_fields.h` in one TU with `IMPLEMENT_SCHEMA_H` (schema.md §2.2). `fieldmeta.ts` can import `loadSchema()`/`scanTags()` from schemagen for the tag model.
-3. **Sync**: write `src/store/sync/firestoreAdapter.ts` (records via `mergeRecord` in transactions at `firestorePaths`; nodes via `coalesce` → `encodeNodeFields` (spills uploaded first) → `planPush` in ≤ 100-doc transactions with `_clk/_t/_del/_dev`; pull via `list(nodes, where _t > cursor, orderBy _t)` → `decodeNodeFields` → `planPull` → `FileStore.appendRemote`), `src/store/sync/replicator.ts` (2 s push loop, 2 s–5 min backoff, `pushedSeq`/`pullCursor` in store.json, `clocks.bin`), tests against `MemoryFirestore`/`MemoryStorage`. Keep it off unless `config.json` exists **and** main's `settings.sync.enabled`.
-4. Previews (`PreviewService`) on top of sync; "Export preview as HTML…" fallback.
-5. Run the worker compactor in the built app; measure append → ack p95 (< 5 ms for < 64 KB).
-6. Workspace location (§3.1), `DESIGNER_SEED=demo` (main passes `seedFigs`), migrations when the format version moves.
+1. **Editor**: build the editor's source with `openDocument(fileKey, { tabId })` from `@/store` and pass `{ kind, label }` from `DOCUMENT_CHANGED` as `onChanges`' second argument (the interface's one-argument call also works; kind then defaults to `edit`). Close on tab close; `onExternalChanges` → `engine_apply_changes(…, APPLY_REMOTE)`; `onMetaChanged` → header/tab title, close on trashed/deleted.
+2. **Home**: `getStoreClient()`, `store.workspace.watch(…)` to refresh, `thumbnailUrl(file)` for cards.
+3. **Desktop**: the main-process wiring below (unchanged API), then `scripts/drive.mjs` end to end.
+4. **Sync wiring** (when the owner has a Firebase project): main passes `{enabled, idToken}` to the store (an init field or a `store.*` method), the store calls `startSync`; then "Download a workspace", versions/thumbnails, `onSnapshot`.
+5. Previews, migrations, workspace location — as in round 1.
+
+### How Home and the editor get the store
+
+```ts
+import { getStoreClient, openDocument, thumbnailUrl } from "@/store";
+
+const store = getStoreClient();            // Electron (window.designer): the port main brokers · browser: the dev store
+await store.workspace.listFiles({ in: "recents" });
+const off = store.workspace.watch((e) => refresh(e));
+const src = thumbnailUrl(file);            // app://designer/_thumb/<key>.png?v=<n> · an object URL · null
+const source = await openDocument(fileKey, { tabId });   // DocumentSource for EditorApp
+```
+
+`npm run web:demo` → `http://localhost:5199/?files` (Home) and `?editor&file=<fileKey>` (EditorRoute) use the dev store automatically. `?store=dev` forces it inside Electron too. `resetDevStore()` + reload brings the seed back.
 
 ### Integration for main (exact)
 
@@ -127,18 +132,20 @@ Call `connectStoreView(contents, role)` from `createView` (`src/main/views.ts`) 
 ipcRenderer.on("store:port", (e, { generation }) => window.postMessage({ type: "designer:store-port", generation }, location.origin, e.ports));
 ```
 
-The page: `import { storeClient } from "@/store/client"; const store = storeClient();` (it also posts `designer:store-port-wanted`, so a preload that keeps the port until asked can hand it over late). Protocol routes main serves read-only: `app://designer/_blob/<sha1>` → `<workspace>/blobs/<sha1[0..2]>/<sha1>`, `app://designer/_thumb/<fileKey>.png` → `<workspace>/files/<fileKey>/thumbnail.png`.
+The page: `import { getStoreClient } from "@/store"; const store = getStoreClient();` (under the preload that is `storeClient()` from `@/store/client`, which also posts `designer:store-port-wanted`, so a preload that keeps the port until asked can hand it over late). Protocol routes main serves read-only: `app://designer/_blob/<sha1>` → `<workspace>/blobs/<sha1[0..2]>/<sha1>`, `app://designer/_thumb/<fileKey>.png` → `<workspace>/files/<fileKey>/thumbnail.png`.
+
+`host.ts`'s API is unchanged by round 2, so this snippet stands. `StoreServer` now takes any `ServableStore` (a structural interface `LocalStore` satisfies), which the dev store reuses; `index.ts` still constructs it with the `LocalStore`.
 
 ### Known breakage
 
-None in the data layer. Outside it at handoff: 2 lint errors in `src/renderer/src/editor/hooks.ts`, 1 failing test in `src/renderer/src/engine/__tests__/abi.test.ts`.
+None in the data layer.
 
 ---
 
 ## How to run
 
 - `npm run engine:gen` — regenerate `src/shared/schema/document.generated.ts`; `-- --check` regenerates into a temp dir, diffs, and runs the schema checks; `-- --cpp <build>` writes the C++ headers into `<build>/generated/schema/`.
-- `npx vitest run src/store src/shared/schema src/shared/fig src/shared/store` — the data layer's tests (temp dirs under `os.tmpdir()`, never the real userData). `npm test` runs them with everything else.
+- `npx vitest run src/store src/shared/schema src/shared/fig src/shared/store src/renderer/src/store` — the data layer's tests (temp dirs under `os.tmpdir()`, never the real userData). `npm test` runs them with everything else.
 
 ## Where things are
 
@@ -152,7 +159,11 @@ None in the data layer. Outside it at handoff: 2 lint errors in `src/renderer/sr
 | `src/store/localStore.ts` | `LocalStore.open()`, `store.api(owner)` = LocalAdapter |
 | `src/store/local/*` | workspace, files, journal, snapshots, compaction, versions, blobs, libraries |
 | `src/store/server.ts`, `index.ts`, `host.ts` | RPC server, utility-process entry, main-side helper |
-| `src/store/sync/*` | Firebase (off) |
+| `src/store/sync/*` | Firebase (off): `config`, `paths`, `fieldCodec`, `lww`, `clocks`, `drivers` (SDK + in-memory), `firestoreAdapter`, `replicator` (`startSync`) |
+| `src/shared/store/workspaceModel.ts` | the workspace index and file-browser rules (shared by `LocalWorkspace` and the dev store) |
+| `src/renderer/src/store/index.ts` | the renderer's one entry: `getStoreClient`, `thumbnailUrl`, `openDocument`, re-exports |
+| `src/renderer/src/store/documentSource.ts`, `engineMessage.ts` | the editor's DocumentSource on the store; engine JSON ⇄ kiwi |
+| `src/renderer/src/store/devStore.ts`, `memory/*` | the browser dev store (MemoryStore, localStorage records, demo seed) |
 
 ## Deviations from the contracts, and why
 
@@ -170,3 +181,7 @@ None in the data layer. Outside it at handoff: 2 lint errors in `src/renderer/sr
 12. **Thumbnails** larger than 800×600 are refused (`invalid`); imported `.fig` thumbnails are kept as they are.
 13. **Lock**: `.lock` = `{pid, startedAt}` created with O_EXCL; a lock whose pid is gone is taken over (and one with our own pid when no live store of this process holds it, for crash tests).
 14. **New files** write `DOCUMENT.librarySubscriptions` for the team's default libraries (schema.md §8.2) alongside `FileMeta.enabledLibraries`; later changes to the document's list are the engine's (journaled edits).
+13. **Per-field sync clocks** are `files/<key>/clocks.json` (JSON), not `clocks.bin`: small, written once per sync pass.
+14. **A file's first push** (or one whose unpushed frames were compacted away) sends the whole head stamped with the file's `createdAt` (first push) or `updatedAt` (gap), so any later stamp, local or remote, wins over it; the frames after it keep their own stamps.
+15. **Pull polls** open files every 2 s (`list(nodes, where _t > cursor, orderBy _t)`) instead of `onSnapshot`, which the narrow driver interface doesn't have yet. Remote frames are never pushed back.
+16. **The browser dev store** reuses `StoreServer` and `WorkspaceModel`, so the protocol and the file-browser rules are the store's own; its file side is a separate in-memory implementation (no journal files, recovery or fsync).

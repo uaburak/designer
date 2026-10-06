@@ -872,6 +872,18 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 - Guides draw only for snapped axes, spanning the snapped objects, not the whole viewport.
 - **⌥ measurement**: distances from the selection to the hovered node, or to the parent's edges. ⌥⌘ also measures to locked/nested nodes.
 
+### 8.6 Decisions recorded while implementing E2 (2026-10-06)
+Behaviour the contract left open, as built (`editor/Commands.cpp`, `tools/Gestures.cpp`); change here first if Figma turns out to differ.
+- **Moving into and out of frames** is live: the layers' parent follows the topmost frame under the pointer (not instances, locked or hidden frames; a clipping ancestor must contain the pointer too). A layer inside a group stays in the group while the pointer is over the group's own frame or page. ⌘ keeps the parents and turns snapping off; so does ⌃.
+- **Dragging inside auto layout** keeps the frame's shape: the dragged layer keeps its slot (layout doesn't move it), the siblings stay, and a 2 px insertion line shows where it lands; it is placed on drop. A layer dragged in from elsewhere, or an ⌥-copy, takes no space until it is dropped. Leaving the frame lets the frame reflow at once.
+- **Snapping candidates** are the drop parent's other children in and around the view plus the parent frame's box; boxes turned against the page don't snap their resize edges. Snapped axes keep the snapped value; the others round to whole px (the moving box's top-left, not each layer's).
+- **⌘D** duplicates in place, just above the original; top-level frames instead go to the right of the selection, `width + 100` px further, skipping right while that spot is taken. The copy keeps the name. **Duplicate page** names the copy "‹name› copy".
+- **Add auto layout (⇧A)**: a lone plain frame converts in place (direction from the spread of its children's centres, gap = the mean gap rounded, padding from where the content sits, counter alignment when all children share it, Hug both ways, children re-keyed in flow order). Anything else (several layers, a shape, an auto-layout frame) is wrapped in a new fill-less, non-clipping auto-layout frame with padding 0.
+- **Paste**: into the one selected frame (where the content sat in its own parent if that fits, else centred); beside the selected layer (same page position); else on the page where it was, or centred in the view when that is out of view. `inPlace` keeps the page position. Fresh ids from the session.
+- **Arrow keys** on auto-layout children move them one place along the flow; across the flow they do nothing.
+- **Right-click** (or ⌃-click on a Mac, where ⌃ isn't the command key) selects what a left click would pick unless it is already selected (empty canvas keeps the selection), then emits `CONTEXT_MENU {targetKind, x, y, hits}`; `hits` is every layer under the point, topmost first, each as its path innermost first, for "Select layer ▸". ⌃ therefore disables snapping only once a drag has started.
+- **Thumbnails** (until `engine_export`, §10.8): `engine_render_thumbnail(page, maxSize)` renders a page's content bounds, fitted in the content's aspect, without overlays, into an offscreen RGBA8 + stencil target (`gfx::Device::createTarget`/`readPixels`) and returns `width, height, RGBA8`; TS encodes the PNG (`Engine.renderThumbnail`). The canvas is never drawn to, so it works for hidden tabs too.
+
 ---
 
 ## 9. Transactions and undo/redo

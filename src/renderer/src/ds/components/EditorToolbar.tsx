@@ -102,6 +102,8 @@ export interface EditorToolbarProps {
   onMode: (mode: EditorMode) => void;
   /** Modes this file can't use (shown, disabled) */
   disabledModes?: EditorMode[];
+  /** Tools not available yet (shown dimmed, not clickable, tooltip kept; also greyed in the slot menus) */
+  disabledTools?: ToolId[];
   /** Absolutely placed, 12px over its container's bottom; `offset` centres it on the window rather than the canvas */
   floating?: boolean;
   offset?: number;
@@ -114,7 +116,7 @@ export interface EditorToolbarProps {
  * (the current tool ticked) above the toolbar. ← → move within the mode
  * switch. The keys themselves are the editor's (see `toolForKey`).
  */
-export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], floating, offset }: EditorToolbarProps) {
+export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActive, mode, onMode, disabledModes = [], disabledTools = [], floating, offset }: EditorToolbarProps) {
   const modeRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const current = groupOf(tool);
   return (
@@ -129,9 +131,11 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
             shortcut={shown.shortcut}
             active={g.id === current}
             onSelect={() => onTool(shown.id)}
+            disabled={disabledTools.includes(shown.id)}
+            menuDisabled={g.tools.every((id) => disabledTools.includes(id))}
             menuLabel={g.label}
-            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === tool }))}
-            onMenuSelect={(id) => onTool(id as ToolId)}
+            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === tool, disabled: disabledTools.includes(id) }))}
+            onMenuSelect={(id) => !disabledTools.includes(id as ToolId) && onTool(id as ToolId)}
           />
         );
       })}
@@ -150,10 +154,10 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
               role="radio"
               aria-checked={m.id === mode}
               aria-label={m.label}
-              disabled={!enabled(i)}
+              aria-disabled={!enabled(i) || undefined}
               tabIndex={m.id === mode ? 0 : -1}
               className={styles.mode}
-              onClick={() => onMode(m.id)}
+              onClick={() => enabled(i) && onMode(m.id)}
               onKeyDown={(e) => {
                 const next = rovingTarget(e.key, EDITOR_MODES.length, enabled, i, "horizontal");
                 if (next === null || next < 0) return;

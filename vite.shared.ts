@@ -1,34 +1,37 @@
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
-import tailwindcss from "@tailwindcss/vite";
 import type { Alias, UserConfig } from "vite";
 
-const src = (path: string) => fileURLToPath(new URL(`./src/renderer/src/${path}`, import.meta.url));
+const src = fileURLToPath(new URL("./src/renderer/src/", import.meta.url));
 const shared = fileURLToPath(new URL("./src/shared/", import.meta.url));
 
-/**
- * `@/…` is the renderer's source. In the demo (`--mode demo`) the data, the
- * files and the sign-in are the demo's — kept in this computer's storage, no
- * Firebase — and nothing else changes.
- */
-function aliases(demo: boolean): Alias[] {
-  const swapped: Alias[] = demo
-    ? [
-        { find: /^@\/lib\/firestore$/, replacement: src("demo/firestore.ts") },
-        { find: /^@\/lib\/storage$/, replacement: src("demo/storage.ts") },
-        { find: /^@\/lib\/auth$/, replacement: src("demo/auth.ts") },
-      ]
-    : [];
-  return [...swapped, { find: /^@shared\//, replacement: shared }, { find: /^@\//, replacement: src("") }];
-}
+/** `@/…` is the renderer's source, `@shared/…` what main, the preloads and the store share with it. */
+const aliases: Alias[] = [
+  { find: /^@shared\//, replacement: shared },
+  { find: /^@\//, replacement: src },
+];
 
-/** The renderer's Vite settings — the same in Electron (electron.vite.config.ts) and in a browser (vite.web.config.ts). */
-export function rendererConfig(mode: string): UserConfig {
-  const demo = mode === "demo";
+/**
+ * Cross-origin isolation in dev too (docs/desktop.md §12.3), as main's `app://` handler sends it for the built app:
+ * the dev server's pages get `crossOriginIsolated` and SharedArrayBuffer like the real ones.
+ * DESIGNER_CROSS_ORIGIN_ISOLATED=0 turns it off, as for the built app.
+ */
+export const isolationHeaders = (): Record<string, string> =>
+  process.env.DESIGNER_CROSS_ORIGIN_ISOLATED === "0"
+    ? {}
+    : { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp", "Cross-Origin-Resource-Policy": "same-origin" };
+
+/**
+ * The renderer's Vite settings — the same in Electron (electron.vite.config.ts) and in a browser (vite.web.config.ts).
+ * The mode changes nothing today (`--mode demo` builds the same app; the store's samples come from DESIGNER_SEED).
+ */
+export function rendererConfig(_mode: string): UserConfig {
+  const headers = isolationHeaders();
   return {
-    resolve: { alias: aliases(demo) },
-    plugins: [react(), tailwindcss()],
-    define: { __DEMO__: JSON.stringify(demo) },
+    resolve: { alias: aliases },
+    plugins: [react()],
     build: { chunkSizeWarningLimit: 4000 },
+    server: { headers },
+    preview: { headers },
   };
 }

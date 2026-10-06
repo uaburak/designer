@@ -115,7 +115,7 @@ function FloatingTooltip({ tip }: { tip: Tip }) {
 /** A tooltip drawn in place (the Gallery's forced state). */
 export function TooltipBubble({ label, shortcut, className }: { label: string; shortcut?: string; className?: string }) {
   return (
-    <div role="tooltip" data-ds="Tooltip" data-theme="dark" className={cx(styles.tooltip, styles.static, className)}>
+    <div role="tooltip" data-ds="Tooltip" data-theme="dark" data-theme-forced="" className={cx(styles.tooltip, styles.static, className)}>
       <span className={styles.label}>{label}</span>
       {shortcut && <span className={styles.shortcut}>{shortcut}</span>}
     </div>

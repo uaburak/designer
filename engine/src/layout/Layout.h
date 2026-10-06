@@ -24,8 +24,12 @@ class LayoutHost {
   // A node's transform and size when the transaction began (what constraints
   // start from, so a gesture never drifts).
   virtual void base(Guid id, Mat2x3& transform, Vec2& size) const = 0;
-  // Taken out of the flow for now (being dragged inside an auto-layout frame).
+  // Taken out of the flow for now: being dragged into an auto-layout frame (it
+  // takes no space there until it is dropped).
   virtual bool excludedFromFlow(Guid id) const = 0;
+  // Placed by a gesture for now: it keeps its slot in the flow (its frame keeps
+  // its shape while it is dragged inside it) but layout doesn't move it.
+  virtual bool placedByGesture(Guid id) const = 0;
   // Resizing with ⌘ held: children keep their place (Figma's "ignore constraints").
   virtual bool ignoreConstraints(Guid frame) const = 0;
 };

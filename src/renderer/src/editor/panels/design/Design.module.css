@@ -1,0 +1,58 @@
+@layer app {
+  /* The selection's header row: "Frame ▾" / "Rectangle" … (40 high, text at 16) */
+  .typeHeader {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .typeLabel {
+    padding-left: var(--ds-space-2);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .typeButton {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-half);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    outline: none;
+  }
+  .typeButton:hover, .typeButton[data-open] { background: var(--figma-color-bg-hover); }
+  .typeButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .typeButton svg { color: var(--figma-color-icon-secondary); }
+
+  /* Six align buttons: two groups of three, each in a field column */
+  .buttons { display: flex; justify-content: space-between; }
+  .buttons > * { flex: none; }
+
+  /* A paint row: the field 156, then the eye and the minus (24 each, 4 apart) */
+  .paintRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-height: var(--ds-size-row);
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
+  }
+  .paintField { flex: 1 1 auto; min-width: 0; margin-right: var(--ds-space-1); }
+  .paintHidden { opacity: 0.4; }
+  .note {
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left);
+    color: var(--figma-color-text-secondary);
+  }
+  .checkRow {
+    display: flex;
+    align-items: center;
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+  }
+  .matrix { display: flex; }
+}

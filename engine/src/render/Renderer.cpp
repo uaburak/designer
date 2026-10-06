@@ -178,7 +178,7 @@ void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentScreen
 }
 
 RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
-                             const Overlay& overlay, const OverlayStyle& style) {
+                             const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target) {
   ensurePipelines();
   viewport_ = viewport;
   screen_ = {0, 0, viewport.width, viewport.height};
@@ -209,6 +209,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   pass.clear[2] = clear.b;
   pass.clear[3] = 1;
   pass.viewport = {0, 0, viewport.deviceWidth(), viewport.deviceHeight()};
+  pass.target = target;
   if (!device_.beginPass(pass)) return stats;
 
   uint32_t bytes = static_cast<uint32_t>(shapes_.size() * sizeof(ShapeInstance));

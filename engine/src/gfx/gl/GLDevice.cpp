@@ -133,6 +133,12 @@ class WebGL2Device final : public Device {
   bool beginPass(const PassDesc& pass) override {
     if (!context_ || emscripten_is_webgl_context_lost(context_)) return false;
     emscripten_webgl_make_context_current(context_);
+    GLuint fb = 0;
+    if (pass.target) {
+      if (pass.target >= targets_.size() || !targets_[pass.target].framebuffer) return false;
+      fb = targets_[pass.target].framebuffer;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, fb);
     height_ = pass.viewport.h;
     glViewport(pass.viewport.x, pass.viewport.y, pass.viewport.w, pass.viewport.h);
     glDisable(GL_SCISSOR_TEST);
@@ -193,6 +199,65 @@ class WebGL2Device final : public Device {
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  }
+
+  TargetId createTarget(uint32_t width, uint32_t height) override {
+    if (!context_ || emscripten_is_webgl_context_lost(context_) || !width || !height) return 0;
+    emscripten_webgl_make_context_current(context_);
+    Target t;
+    t.width = width;
+    t.height = height;
+    glGenFramebuffers(1, &t.framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, t.framebuffer);
+    glGenRenderbuffers(1, &t.color);
+    glBindRenderbuffer(GL_RENDERBUFFER, t.color);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, t.color);
+    glGenRenderbuffers(1, &t.stencil);
+    glBindRenderbuffer(GL_RENDERBUFFER, t.stencil);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, t.stencil);
+    bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    if (!complete) {
+      release(t);
+      return 0;
+    }
+    for (size_t i = 1; i < targets_.size(); i++)
+      if (!targets_[i].framebuffer) {
+        targets_[i] = t;
+        return static_cast<TargetId>(i);
+      }
+    targets_.push_back(t);
+    return static_cast<TargetId>(targets_.size() - 1);
+  }
+
+  void destroyTarget(TargetId id) override {
+    if (!id || id >= targets_.size()) return;
+    release(targets_[id]);
+  }
+
+  bool readPixels(TargetId id, IRect rect, std::span<uint8_t> rgba8) override {
+    if (!id || id >= targets_.size() || !targets_[id].framebuffer) return false;
+    size_t row = static_cast<size_t>(rect.w) * 4;
+    if (rect.w <= 0 || rect.h <= 0 || rgba8.size() < row * static_cast<size_t>(rect.h)) return false;
+    const Target& t = targets_[id];
+    glBindFramebuffer(GL_FRAMEBUFFER, t.framebuffer);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    // GL's rows run bottom to top.
+    glReadPixels(rect.x, static_cast<GLint>(t.height) - rect.y - rect.h, rect.w, rect.h, GL_RGBA, GL_UNSIGNED_BYTE, rgba8.data());
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    std::vector<uint8_t> tmp(row);
+    for (int y = 0; y < rect.h / 2; y++) {
+      uint8_t* a = rgba8.data() + static_cast<size_t>(y) * row;
+      uint8_t* b = rgba8.data() + static_cast<size_t>(rect.h - 1 - y) * row;
+      std::copy(a, a + row, tmp.data());
+      std::copy(b, b + row, a);
+      std::copy(tmp.data(), tmp.data() + row, b);
+    }
+    return true;
   }
 
   void submit() override {}  // the browser presents the canvas after the task
@@ -209,6 +274,16 @@ class WebGL2Device final : public Device {
     GLenum target = GL_ARRAY_BUFFER, usage = GL_STREAM_DRAW;
     uint32_t size = 0;
   };
+  struct Target {
+    GLuint framebuffer = 0, color = 0, stencil = 0;
+    uint32_t width = 0, height = 0;
+  };
+  static void release(Target& t) {
+    if (t.framebuffer) glDeleteFramebuffers(1, &t.framebuffer);
+    if (t.color) glDeleteRenderbuffers(1, &t.color);
+    if (t.stencil) glDeleteRenderbuffers(1, &t.stencil);
+    t = Target{};
+  }
   struct ShapeProgram {
     GLuint program = 0;
     GLint row0 = -1, row1 = -1, stencilPass = -1;
@@ -219,6 +294,7 @@ class WebGL2Device final : public Device {
   GLuint vao_ = 0;
   std::vector<Buffer> buffers_{Buffer{}};          // index = BufferId; 0 unused
   std::vector<PipelineDesc> pipelines_{PipelineDesc{}};
+  std::vector<Target> targets_{Target{}};          // index = TargetId; 0 = the canvas
   int height_ = 0;
 };
 

@@ -146,8 +146,6 @@ class Editor : private LayoutHost {
   Status command(CommandId id, double dx = 0, double dy = 0);
   Status command(CommandId id, const CommandArgs& args);
   uint32_t commandState(CommandId id) const;
-  // ROUND 2, NOT IMPLEMENTED YET (declared for the planned API; not exported, not
-  // defined — see docs/engine-build.md "Status at handoff"):
   // Layers panel drag: `ids` to `parent` at `index` in paint order (0 = bottom-most,
   // n = above the top-most), keeping their relative order and their place on the
   // page. Pages: parent = the DOCUMENT. Returns how many moved (0 = refused).
@@ -169,13 +167,20 @@ class Editor : private LayoutHost {
     std::string label;
     std::vector<NodeChange> changes;
   };
+  // CONTEXT_MENU: a right-click (or ⌃-click on a Mac), after the selection settled.
+  struct ContextMenu {
+    bool selection = false;  // targetKind SELECTION (else CANVAS)
+    double x = 0, y = 0;     // CSS px in the canvas
+    std::vector<std::vector<Guid>> hits;  // each layer under the point, innermost first; topmost layer first
+  };
   struct Events {
     std::vector<DocumentChanged> documents;        // DOCUMENT_CHANGED, one per committed transaction
+    std::vector<ContextMenu> contextMenus;
     std::vector<std::pair<Guid, uint32_t>> nodes;  // NODES_CHANGED: node, field groups (merged)
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false;
     bool any() const {
-      return !documents.empty() || !nodes.empty() || selection || camera || tool || cursor || hover || undo ||
+      return !documents.empty() || !contextMenus.empty() || !nodes.empty() || selection || camera || tool || cursor || hover || undo ||
              structure || pages || currentPage;
     }
   };
@@ -202,6 +207,7 @@ class Editor : private LayoutHost {
   bool resizedInTxn(Guid frame, Vec2& oldSize) const override;
   void base(Guid id, Mat2x3& transform, Vec2& size) const override;
   bool excludedFromFlow(Guid id) const override { return excluded_.count(id) != 0; }
+  bool placedByGesture(Guid id) const override { return excluded_.count(id) != 0 || pinned_.count(id) != 0; }
   bool ignoreConstraints(Guid frame) const override { return ignoreConstraints_; }
 
   // ---- Transactions ----
@@ -230,7 +236,22 @@ class Editor : private LayoutHost {
   void zoomTo(double zoom);
 
   // ---- Commands (editor/Commands.cpp) ----
+  // Top-level frames duplicated with ⌘D land this far to the right of the originals.
+  static constexpr double kDuplicateGap = 100;
+  // The selection without nodes inside other selected nodes, bottom-most first.
   std::vector<Guid> topSelectionInPaintOrder() const;
+  // What align / distribute move: the top-level selection without locked layers
+  // and without layers an auto-layout parent places.
+  std::vector<Guid> arrangeable() const;
+  bool canUngroup(Guid id) const;
+  Guid documentNode() const;
+  // The transform under `parent` that puts a node at `world`.
+  Mat2x3 localFor(Guid parent, const Mat2x3& world) const;
+  // Moves a node by `d` in world space.
+  void shiftWorld(Guid id, Vec2 d);
+  // Turns `frame` into auto layout, inferring direction, gap and alignment from
+  // its children (and its padding from where they sit, when `padFromContent`).
+  void inferAutoLayout(Guid frame, bool padFromContent);
   // A position for a child of `parent` at `index` among its children without
   // `moving`; rebalances the siblings (in the open transaction) when the key
   // would be longer than 24 characters.
@@ -244,10 +265,13 @@ class Editor : private LayoutHost {
   Guid cloneSubtree(Guid src, Guid parent, const std::string& position, const Mat2x3& transform, const std::string* name = nullptr);
   void deleteSelection();
   void nudge(double dx, double dy, bool repeat);
+  // Arrows on auto-layout children: one place along the flow. False when the selection isn't that.
+  bool reorderInFlow(const std::vector<Guid>& top, double dx, double dy);
   void reorder(int direction);  // ±1 one step, ±2 to the end
   void toggle(FieldMask field);
   void selectRelative(int which);  // 0 children, 1 parent, 2 next sibling, 3 previous sibling
   void selectAll();
+  void selectInverse();
   Guid wrapSelection(const char* kind);  // "Group", "Frame", "Auto"
   void ungroup();
   void duplicate();
@@ -268,13 +292,19 @@ class Editor : private LayoutHost {
   void updateMeasure(uint32_t mods);
   void updateAutoLayoutBands(Vec2 world);
   uint32_t pointerDown(Vec2 s, int button, uint32_t mods);
+  uint32_t contextMenu(Vec2 s, uint32_t mods);
   void pointerMove(Vec2 s, uint32_t mods);
   void pointerUp(Vec2 s, uint32_t mods);
   void cancelGesture();
   void redrag(uint32_t mods);
   std::vector<Target> targetsOf(const std::vector<Guid>& ids) const;
   void prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHash>& moving);
+  // Where a move would put its layers: the topmost frame under `world` (the page when none).
   Guid dropTargetAt(Vec2 world) const;
+  // The frame or page a parent's layers belong to (through groups).
+  Guid containerOf(Guid parent) const;
+  void keepResizedSize(Guid id, bool x, bool y);
+  void endGesture();
   void startMove(uint32_t mods);
   void setDuplicating(bool on);
   void dragMove(Vec2 world, uint32_t mods);
@@ -322,7 +352,8 @@ class Editor : private LayoutHost {
   // Layout.
   std::unordered_set<Guid, GuidHash> layoutDirty_;
   std::unordered_set<Guid, GuidHash> groupsTouched_;
-  std::unordered_set<Guid, GuidHash> excluded_;  // dragged out of an auto-layout flow
+  std::unordered_set<Guid, GuidHash> excluded_;  // dragged into an auto-layout flow: no space there yet
+  std::unordered_set<Guid, GuidHash> pinned_;    // dragged inside its own flow: keeps its slot, not moved by layout
   bool inLayout_ = false;
   bool ignoreConstraints_ = false;
 
@@ -338,10 +369,12 @@ class Editor : private LayoutHost {
   std::vector<Guid> baseSelection_;
   Rect marquee_;
   std::vector<Target> targets_;
+  std::vector<Target> originalTargets_;  // a move's layers as they started (⌥ may swap in copies)
   std::vector<Guid> originals_;  // ⌥-drag: the layers the copies came from
   bool duplicating_ = false;
   Rect moveBox_;                 // the moving layers' world bounds when the move started
   Guid dropParent_ = kNoGuid;
+  Guid snapParent_ = kNoGuid;    // whose children the snapper holds
   SelectionBox box_;
   int handleX_ = 0, handleY_ = 0;
   NodeType drawType_ = NodeType::NONE;

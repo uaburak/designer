@@ -34,6 +34,10 @@ export interface UIState {
   shortcutsOpen: boolean;
   /** Figma's "Property labels" (zoom menu) */
   propertyLabels: boolean;
+  /** Version history: "Save to version history" (⌥⌘S) or the list */
+  versionDialog: "save" | "history" | null;
+  /** The context menu over the canvas or a layer: where it opens (view px) and, on the canvas, the point it was opened at (canvas CSS px) */
+  contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[] } | null;
 }
 
 export class Store<T> {

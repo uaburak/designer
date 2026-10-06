@@ -1,6 +1,6 @@
 // Command ids (docs/engine.md §10.6). Interim: hand-kept until
 // engine/api/commands.def.ts generates them; the TS twin is
-// src/renderer/src/engine/commands.ts. Values are the wire format: append only.
+// src/renderer/src/engine/abi.ts (CommandId). Values are the wire format: append only.
 #pragma once
 
 #include <cstdint>
@@ -16,6 +16,7 @@ enum class CommandId : uint32_t {
   SELECT_PARENT = 13,
   SELECT_NEXT_SIBLING = 14,
   SELECT_PREV_SIBLING = 15,
+  SELECT_INVERSE = 16,
   DELETE = 20,
   NUDGE = 21,  // args {dx, dy}
   BRING_FORWARD = 30,

@@ -1,0 +1,42 @@
+@layer ds {
+  .root {
+    display: flex;
+    min-width: 0;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .large { font: var(--ds-font-body-large); letter-spacing: var(--ds-tracking-body-large); }
+  .list { display: flex; align-items: center; min-width: 0; margin: 0; padding: 0; list-style: none; }
+  .item { display: flex; flex: 0 1 auto; min-width: 0; }
+  .currentItem { flex-shrink: 2; }
+  .separator { flex: none; padding: 0 var(--ds-space-half); color: var(--figma-color-text-tertiary); user-select: none; }
+
+  /* A crumb: a quiet 24px button; the label ellipsizes */
+  .crumb {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: inherit;
+    letter-spacing: inherit;
+    white-space: nowrap;
+    outline: none;
+    cursor: default;
+  }
+  .crumb:hover, .crumb[data-hover] { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
+  .crumb[data-open] { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
+  .crumb:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .current { color: var(--figma-color-text); }
+  .static:hover { background: transparent; }
+  .text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ancestor { max-width: var(--ds-size-breadcrumb-max); }
+  .icon { display: flex; flex: none; align-items: center; justify-content: center; color: var(--figma-color-icon-secondary); }
+  .chevron { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
+}

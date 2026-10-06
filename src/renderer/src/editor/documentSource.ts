@@ -17,12 +17,53 @@ export interface DocumentSource {
   readonly sessionID?: number;
   /** The document to open: a snapshot Message (DOCUMENT first, parents before children). */
   load(): Promise<Message>;
-  /** One committed change (a NODE_CHANGES Message carrying only the touched fields), in commit order. */
-  onChanges(changes: Message): void;
+  /** One committed change (a NODE_CHANGES Message carrying only the touched fields), in commit order; `info`: the engine's kind and undo label. */
+  onChanges(changes: Message, info?: ChangeKindInfo): void;
   /** Resolves once every change handed to `onChanges` is stored. */
   flush(): Promise<void>;
   /** The file was renamed from the file menu; absent: the name can't be changed here. */
   rename?(name: string): void | Promise<void>;
+  /** Changes this editor didn't make (another window, sync): applied without an undo entry. Optional. */
+  onExternalChanges?(listener: (changes: Message) => void): () => void;
+  /** The file was renamed, moved, trashed or deleted elsewhere. Optional. */
+  onMetaChanged?(listener: (meta: { fileName: string; location: string; trashed?: boolean; deleted?: boolean }) => void): () => void;
+  /** The editor is going away: flush and end the session. Optional. */
+  close?(): Promise<void>;
+  /** The file's UI state from its last session (camera and selection per page, panel widths). Optional. */
+  readonly uiState?: EditorUiState | null;
+  /** The UI state changed (the source debounces and keeps it). Optional. */
+  setUiState?(patch: Partial<EditorUiState>): void;
+  /** A PNG of the file's first page (≤ 800 × 600) for Home's card. Optional. */
+  saveThumbnail?(png: Uint8Array, size: { width: number; height: number }): Promise<void>;
+  /** Version history (docs/data.md §6). Optional: absent, the File menu's version items are disabled. */
+  listVersions?(): Promise<VersionInfo[]>;
+  saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
+  /** Non-destructive restore: `apply` gets the diff and applies it as one undoable edit labelled "Restore version". */
+  restoreVersion?(id: string, apply: (diff: Message) => void | Promise<void>): Promise<VersionInfo>;
+}
+
+/** What a source keeps of the editor's UI between sessions (the store's FileUiState). */
+export interface EditorUiState {
+  currentPageId: string | null;
+  pages: Record<string, { viewport: { x: number; y: number; zoom: number }; selection: string[] }>;
+  leftPanelWidth: number;
+  rightPanelWidth: number;
+}
+
+/** A saved version, as the version history lists it. */
+export interface VersionInfo {
+  id: string;
+  kind: "autosave" | "named" | "restore" | "publish" | "import";
+  title: string | null;
+  description: string | null;
+  createdAt: number;
+}
+
+/** What the editor knows about a change besides its Message. */
+export interface ChangeKindInfo {
+  kind?: "USER" | "UNDO" | "REDO" | "SYSTEM";
+  /** The undo label ("Move", "Rename") */
+  label?: string;
 }
 
 /**

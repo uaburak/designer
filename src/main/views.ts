@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { Role } from "../shared/ipc";
 import { VIEW_BACKGROUND } from "../shared/layout";
 import { DEV_URL, isAppUrl, pageUrl } from "./protocol";
+import { connectStoreView } from "./storeHost";
 
 /**
  * Every view of a window is made here (docs/desktop.md §3): its own
@@ -19,6 +20,8 @@ export interface ViewInfo {
   windowId: string;
   /** The file tab it shows (editor) */
   tabId: string | null;
+  /** The workspace file it shows (a `file` tab's editor) */
+  fileKey: string | null;
 }
 
 const registry = new Map<number, ViewInfo>();
@@ -28,7 +31,7 @@ export const allViews = () => [...registry.entries()];
 
 export const backgroundOf = (role: Role) => VIEW_BACKGROUND[role][nativeTheme.shouldUseDarkColors ? "dark" : "light"];
 
-export function createView(role: Role, windowId: string, tabId: string | null, query: Record<string, string>): WebContentsView {
+export function createView(role: Role, windowId: string, tabId: string | null, query: Record<string, string>, fileKey: string | null = null): WebContentsView {
   const view = new WebContentsView({
     webPreferences: {
       preload: join(__dirname, `../preload/${role}.js`),
@@ -49,9 +52,11 @@ export function createView(role: Role, windowId: string, tabId: string | null, q
   view.setBackgroundColor(backgroundOf(role));
   const contents = view.webContents;
   const id = contents.id;
-  registry.set(id, { role, windowId, tabId });
+  registry.set(id, { role, windowId, tabId, fileKey });
   contents.once("destroyed", () => registry.delete(id));
   harden(contents);
+  // Home and editors talk to the store over a port of their own, a new one on every load.
+  if (role === "home" || role === "editor") connectStoreView(contents, role);
   void contents.loadURL(pageUrl(query)).catch(() => {
     /* a load cut short (the view closed while loading) */
   });

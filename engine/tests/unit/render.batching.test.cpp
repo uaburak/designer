@@ -158,3 +158,38 @@ TEST_CASE("renderer: scissors use the canvas's real backing scale") {
     }
   CHECK(found);
 }
+
+TEST_CASE("renderer: guides, spacing, ⌥ measurement, insertion and bands are drawn crisp, in their colours") {
+  Document d;
+  base(d);
+  d.apply(make({1, 1}, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 50, 50}));
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  Overlay none;
+  r.render(d, kPage, Camera{}, {800, 600, 2, 1600, 1200}, none, kDark);
+  size_t base = shapeCount(dev);
+
+  Overlay o;
+  o.guides.push_back({{100.3, 0}, {100.3, 200}});  // vertical: 1 px wide on device pixels
+  o.spacings.push_back({{0, 10}, {40, 10}});         // a line, two ticks, a pill
+  o.measureTarget = {1, 1};
+  o.measures.push_back({{50, 25}, {90, 25}});
+  o.measureGuides.push_back({{90, 0}, {90, 32}});    // dashed: 4 dashes
+  o.hasInsertion = true;
+  o.insertion = {{60, 0}, {60, 50}};
+  o.bands.push_back({0, 0, 10, 50});
+  r.render(d, kPage, Camera{}, {800, 600, 2, 1600, 1200}, o, kDark);
+  auto shapes = dev.instancesOf<ShapeInstance>(0);
+  CHECK(shapeCount(dev) == base + 1 + 4 + 1 + 4 + 4 + 1 + 1);
+  // The guide: x snapped to the device grid, 1 CSS px wide, red.
+  bool guide = false, band = false, insertion = false;
+  const Color red = Color::hex(0xF24822);
+  for (auto& s : shapes) {
+    if (s.origin[2] == 1.f && s.origin[3] == 200.f && s.origin[0] == 100.f) guide = s.fill[0] == doctest::Approx(red.r);
+    if (s.origin[2] == 10.f && s.origin[3] == 50.f) band = s.fill[3] == doctest::Approx(0.15);
+    if (s.origin[2] == 2.f && s.origin[3] == 50.f) insertion = true;
+  }
+  CHECK(guide);
+  CHECK(band);
+  CHECK(insertion);
+}

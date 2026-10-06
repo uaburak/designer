@@ -1,0 +1,20 @@
+@layer app {
+  .list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--ds-space-8);
+    max-height: 360px;
+    margin: var(--ds-space-3) 0 0;
+    overflow-y: auto;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-row);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .row dt { color: var(--figma-color-text); }
+  .row dd { margin: 0; color: var(--figma-color-text-secondary); }
+}

@@ -2,10 +2,31 @@
  * `window.designer`: what each view's preload hands its page (contextBridge,
  * docs/desktop.md §10.3). The page never sees ipcRenderer; each role gets
  * only its own calls. Absent in a browser (`npm run web`).
+ *
+ * The store is not here: Home and editors talk to it over their own
+ * MessagePort (`@/store/client`), which the preload forwards to the page as
+ * `window.postMessage({type: "designer:store-port", generation}, origin, [port])`
+ * on every page load and every store restart (and again when the page posts
+ * `designer:store-port-wanted`, for a client made after the port arrived).
  */
-import type { HomeState, InitInfo, MenuCommandEvent, NativeMenuItem, OpenFile, Role, TabsSnapshot, ThemeState, WindowState } from "./ipc";
+import type {
+  FlushReason,
+  HomeState,
+  ImportResult,
+  InitInfo,
+  MenuCommandEvent,
+  MenuStatePatch,
+  NativeMenuItem,
+  NewFileResult,
+  OpenFileResult,
+  OpenWorkspaceFile,
+  Role,
+  TabsSnapshot,
+  ThemePreference,
+  ThemeState,
+  WindowState,
+} from "./ipc";
 import type { TabReport } from "./tabs";
-import type { GoogleCredential, ThemePreference } from "./api";
 
 export type Unsubscribe = () => void;
 
@@ -39,8 +60,42 @@ export interface TabBarApi extends DesktopCommon {
     move(id: string, toIndex: number): void;
     contextMenu(id: string, x: number, y: number): void;
     reopen(): void;
+    /** "+": a new design file in Drafts, opened */
     newFile(): void;
   };
+}
+
+/** Opening files, for Home and editors. */
+export interface NavApi {
+  /**
+   * A workspace file in a tab: its tab brought in front if it has one
+   * (`existing: true`), else a new tab at the end.
+   */
+  openFile(fileKey: string, options?: Omit<OpenWorkspaceFile, "fileKey">): Promise<OpenFileResult>;
+  openFile(file: OpenWorkspaceFile): Promise<OpenFileResult>;
+  /** A new design file (Drafts when folderId is null), created by main through the store and opened. */
+  newFile(folderId?: string | null, name?: string): Promise<NewFileResult>;
+}
+
+/** Native file dialogs and paths (docs/desktop.md §10.2 "Files and native dialogs"). */
+export interface FilesApi {
+  /** .fig files into a folder (null: Drafts): `paths` (dropped files, see pathFor), or the ones picked in the Open dialog */
+  import(folderId: string | null, paths?: string[]): Promise<ImportResult>;
+  /** The file as a .fig, where the Save dialog says */
+  saveLocalCopy(fileKey: string): Promise<{ path: string } | { cancelled: true }>;
+  /** The path of a File dropped on the page (webUtils.getPathForFile), for import */
+  pathFor(file: File): string;
+  /** The workspace folder in Finder */
+  revealDataFolder(): void;
+}
+
+/** The menu bar, as a content view sees it. */
+export interface ViewMenuApi {
+  popup(template: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;
+  /** A menu command for this view (a click, or an accelerator the page left unhandled) */
+  onCommand(cb: (c: MenuCommandEvent) => void): Unsubscribe;
+  /** Which of its commands are enabled / checked now — only what changed, at most once a frame (docs/desktop.md §8.4) */
+  setState(patch: MenuStatePatch): void;
 }
 
 export interface HomeApi extends DesktopCommon {
@@ -51,33 +106,38 @@ export interface HomeApi extends DesktopCommon {
     activate(id: string): void;
     reopen(): void;
   };
-  nav: { openFile(file: OpenFile): Promise<{ tabId: string }> };
-  home: { onState(cb: (s: HomeState) => void): Unsubscribe };
-  menu: DesktopCommon["menu"] & { onCommand(cb: (c: MenuCommandEvent) => void): Unsubscribe };
-  session: {
-    /** The sign-in gate's state: tabs are shown only for a signed-in admin */
-    auth(signedIn: boolean): void;
-    requestSignOut(): void;
-    /** Main settled the unsaved tabs and closed them: sign out now */
-    onSignOut(cb: () => void): Unsubscribe;
+  nav: NavApi;
+  files: FilesApi;
+  home: {
+    onState(cb: (s: HomeState) => void): Unsubscribe;
+    /** Show this file (a tab's "Show in File Browser", an editor's "Back to files") */
+    onReveal(cb: (r: { fileKey: string }) => void): Unsubscribe;
   };
-  signInWithGoogle(): Promise<GoogleCredential>;
-  cancelSignIn(): void;
+  menu: ViewMenuApi;
   openExternal(url: string): void;
 }
 
 export interface EditorApi extends DesktopCommon {
   role: "editor";
   tab: {
+    /** title, status */
     report(r: TabReport): void;
     onVisibility(cb: (v: { visible: boolean }) => void): Unsubscribe;
-    /** Main asks whether there is unsaved work, or to save it; the answer goes back as `tab:response` */
-    onRequest(cb: (op: "is-dirty" | "save") => boolean | Promise<boolean>): Unsubscribe;
+    /**
+     * Main's flush (docs/desktop.md §6): send every change to the store and
+     * await its flush. Resolve when done; a rejection is reported as a failed
+     * save (main asks Try Again / Close Anyway). Main waits 3 s at most; with
+     * no handler the preload answers ok at once.
+     */
+    onFlush(cb: (reason: FlushReason) => void | Promise<void>): Unsubscribe;
     close(): void;
   };
-  nav: { openFile(file: OpenFile): Promise<{ tabId: string }>; goHome(): void; newFile(): void };
-  menu: DesktopCommon["menu"] & { onCommand(cb: (c: MenuCommandEvent) => void): Unsubscribe };
-  session: { requestSignOut(): void };
+  nav: NavApi & {
+    /** Home in front — "Back to files"; Home shows `revealFileKey` (default: this tab's file) */
+    goHome(revealFileKey?: string): void;
+  };
+  files: FilesApi;
+  menu: ViewMenuApi;
   openExternal(url: string): void;
 }
 

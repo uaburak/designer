@@ -22,6 +22,19 @@ export function themeOf(el: Element | null | undefined): "light" | "dark" | unde
 }
 
 /**
+ * The theme a new overlay inherits from what had focus when it opened. Menus,
+ * tooltips and toasts force dark on their wrapper (`data-theme-forced`); those
+ * are skipped, so a dialog opened from a context menu item takes the theme
+ * around the menu — the app's — not the menu's dark. Without focus: the
+ * document root's.
+ */
+export function inheritedTheme(active: Element | null | undefined): "light" | "dark" | undefined {
+  const t = active?.closest("[data-theme]:not([data-theme-forced])")?.getAttribute("data-theme");
+  if (t === "light" || t === "dark") return t;
+  return themeOf(typeof document === "undefined" ? null : document.documentElement);
+}
+
+/**
  * Drawn in the overlay root (never clipped by a panel's overflow), in the
  * same commit as its owner — so the owner's layout effects can measure and
  * place what it portals. `theme`: "dark" for menus, tooltips and toasts
@@ -33,6 +46,6 @@ export function Portal({ children, theme, anchor }: { children: ReactNode; theme
   const root = overlayRoot();
   if (!root) return null;
   // Without an anchor: the theme of what had focus when it opened (its trigger) — the document's in the app, a forced subtree's in the Gallery.
-  const inherited = anchor !== undefined ? themeOf(anchor) : themeOf(document.activeElement);
-  return createPortal(<div data-theme={theme ?? inherited} style={{ display: "contents" }}>{children}</div>, root);
+  const inherited = anchor !== undefined ? themeOf(anchor) ?? inheritedTheme(null) : inheritedTheme(document.activeElement);
+  return createPortal(<div data-theme={theme ?? inherited} data-theme-forced={theme ? "" : undefined} style={{ display: "contents" }}>{children}</div>, root);
 }

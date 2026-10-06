@@ -6,7 +6,7 @@ import { dialog, type BaseWindow, type MessageBoxOptions } from "electron";
  *
  * Under test (DESIGNER_TEST=1, scripts/drive.mjs), a queued answer
  * (`testAnswers`, a button's label) replaces the box, and each question is
- * logged — so a scripted run can close unsaved tabs.
+ * logged — so a scripted run can answer them.
  */
 
 export const testAnswers: string[] = [];
@@ -25,39 +25,12 @@ async function ask(win: BaseWindow | null, options: MessageBoxOptions & { button
   return answer;
 }
 
-/** Closing one unsaved tab. */
-export async function askSaveTab(win: BaseWindow | null, title: string): Promise<"save" | "discard" | "cancel"> {
-  const answer = await ask(win, {
-    type: "warning",
-    message: `Do you want to save the changes you made to “${title}”?`,
-    detail: "Your changes will be lost if you don’t save them. Saving writes the draft — the site changes only when you publish.",
-    buttons: ["Save", "Don’t Save", "Cancel"],
-    defaultId: 0,
-    cancelId: 2,
-  });
-  return answer === "Save" ? "save" : answer === "Don’t Save" ? "discard" : "cancel";
-}
-
-/** Closing the window, quitting or signing out with unsaved tabs. */
-export async function askSaveAll(win: BaseWindow | null, titles: string[], action: "close" | "quit" | "sign-out"): Promise<"save" | "discard" | "cancel"> {
-  const discard = action === "sign-out" ? "Sign Out Without Saving" : action === "quit" ? "Quit Without Saving" : "Close Without Saving";
-  const answer = await ask(win, {
-    type: "warning",
-    message: titles.length === 1 ? `Do you want to save the changes you made to “${titles[0]}”?` : `You have unsaved changes in ${titles.length} files. Do you want to save them?`,
-    detail: titles.length === 1 ? "Your changes will be lost if you don’t save them." : `${titles.map((t) => `• ${t}`).join("\n")}\n\nYour changes will be lost if you don’t save them.`,
-    buttons: [titles.length === 1 ? "Save" : "Save All", discard, "Cancel"],
-    defaultId: 0,
-    cancelId: 2,
-  });
-  return answer === "Save" || answer === "Save All" ? "save" : answer === discard ? "discard" : "cancel";
-}
-
 /** A tab's renderer process went away. */
 export async function askCrashed(win: BaseWindow | null, title: string): Promise<"reload" | "close"> {
   const answer = await ask(win, {
     type: "error",
     message: `“${title}” crashed.`,
-    detail: "This tab stopped working. Changes that weren’t saved are lost; your other tabs are fine.",
+    detail: "Your work is saved up to the moment the tab stopped. Your other tabs are fine.",
     buttons: ["Reload", "Close Tab"],
     defaultId: 0,
     cancelId: 0,
@@ -70,7 +43,7 @@ export async function askUnresponsive(win: BaseWindow | null, title: string, sig
   const answer = await ask(win, {
     type: "warning",
     message: `“${title}” isn’t responding.`,
-    detail: "You can wait for it or reload the tab. Reloading loses changes that weren’t saved.",
+    detail: "You can wait for it or reload the tab. Changes from the last few seconds may not be saved.",
     buttons: ["Wait", "Reload Tab"],
     defaultId: 0,
     cancelId: 0,
@@ -79,7 +52,51 @@ export async function askUnresponsive(win: BaseWindow | null, title: string, sig
   return answer === "Reload Tab" ? "reload" : "wait";
 }
 
-/** A save asked of a tab that didn't go through. */
-export async function tellSaveFailed(win: BaseWindow | null, title: string, reason: string) {
-  await ask(win, { type: "error", message: `“${title}” couldn’t be saved.`, detail: reason, buttons: ["OK"], defaultId: 0, cancelId: 0 });
+
+// ── Files that save as they go (docs/desktop.md §6, §9) ──────────────────────
+
+/** A file tab's flush failed in the store: try again, let it go, or stay. */
+export async function askFlushFailed(win: BaseWindow | null, title: string, reason: string, action: "close" | "quit"): Promise<"retry" | "go" | "cancel"> {
+  const go = action === "quit" ? "Quit Anyway" : "Close Anyway";
+  const answer = await ask(win, {
+    type: "warning",
+    message: `Your recent changes to “${title}” couldn’t be saved.`,
+    detail: reason,
+    buttons: ["Try Again", go, "Cancel"],
+    defaultId: 0,
+    cancelId: 2,
+  });
+  return answer === "Try Again" ? "retry" : answer === go ? "go" : "cancel";
+}
+
+/** A file tab didn't answer its flush in time. */
+export async function askFlushTimeout(win: BaseWindow | null, title: string, action: "close" | "quit"): Promise<"wait" | "go"> {
+  const go = action === "quit" ? "Quit Anyway" : "Close Tab";
+  const answer = await ask(win, {
+    type: "warning",
+    message: `“${title}” isn’t responding.`,
+    detail: "Changes from the last few seconds may not be saved.",
+    buttons: ["Wait", go],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  return answer === go ? "go" : "wait";
+}
+
+/** The store stopped for the 4th time in a minute. */
+export async function askStoreGone(): Promise<"retry" | "quit"> {
+  const answer = await ask(null, {
+    type: "error",
+    message: "DesignerV2 can’t save changes right now.",
+    detail: "The part of DesignerV2 that saves your files stopped several times. Changes made since then may not be saved.",
+    buttons: ["Try Again", "Quit"],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  return answer === "Quit" ? "quit" : "retry";
+}
+
+/** An import or a local copy that didn't go through. */
+export async function tellFileError(win: BaseWindow | null, message: string, detail: string) {
+  await ask(win, { type: "error", message, detail, buttons: ["OK"], defaultId: 0, cancelId: 0 });
 }

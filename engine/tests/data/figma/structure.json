@@ -1,0 +1,1088 @@
+{
+ "type": "NODE_CHANGES",
+ "sessionID": 0,
+ "nodeChanges": [
+  {
+   "guid": "0:0",
+   "phase": "CREATED",
+   "type": "DOCUMENT",
+   "name": "Document",
+   "visible": true,
+   "opacity": 1,
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   }
+  },
+  {
+   "guid": "0:1",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "0:0",
+    "position": "!"
+   },
+   "type": "CANVAS",
+   "name": "Page 1",
+   "visible": true,
+   "opacity": 1,
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "backgroundColor": {
+    "r": 0.9607843160629272,
+    "g": 0.9607843160629272,
+    "b": 0.9607843160629272,
+    "a": 1
+   },
+   "backgroundEnabled": true
+  },
+  {
+   "guid": "0:2",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "0:0",
+    "position": "~"
+   },
+   "type": "CANVAS",
+   "name": "Internal Only Canvas",
+   "visible": false,
+   "opacity": 1,
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "internalOnly": true
+  },
+  {
+   "guid": "1:2",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "0:1",
+    "position": "!"
+   },
+   "type": "FRAME",
+   "name": "Groups",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 500,
+    "y": 500
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 1,
+      "g": 1,
+      "b": 1,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "proportionsConstrained": false,
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": false,
+   "resizeToFit": false
+  },
+  {
+   "guid": "1:4",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "0:1",
+    "position": "!O"
+   },
+   "type": "FRAME",
+   "name": "Symbols and images",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 500,
+    "y": 500
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 554,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 1,
+      "g": 1,
+      "b": 1,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "proportionsConstrained": false,
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": false,
+   "resizeToFit": false
+  },
+  {
+   "guid": "1:24",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:4",
+    "position": "!S"
+   },
+   "type": "ROUNDED_RECTANGLE",
+   "name": "sketch 1",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 64,
+    "y": 64
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 376,
+    "m10": 0,
+    "m11": 1,
+    "m12": 29
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [],
+   "strokePaints": [],
+   "rectangleTopLeftCornerRadius": 0,
+   "rectangleTopRightCornerRadius": 0,
+   "rectangleBottomLeftCornerRadius": 0,
+   "rectangleBottomRightCornerRadius": 0,
+   "rectangleCornerRadiiIndependent": false,
+   "proportionsConstrained": true,
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN"
+  },
+  {
+   "guid": "1:25",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:4",
+    "position": "!T"
+   },
+   "type": "FRAME",
+   "name": "logo-icon 1",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 31,
+    "y": 28
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 392,
+    "m10": 0,
+    "m11": 1,
+    "m12": 139
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 1,
+      "g": 1,
+      "b": 1,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": false
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": false,
+   "resizeToFit": false
+  },
+  {
+   "guid": "1:26",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "!"
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 30.937999725341797,
+    "y": 28
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9921568632125854,
+      "g": 0.7019608020782471,
+      "b": 0,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:27",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "\""
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 15.468999862670898,
+    "y": 18
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 10
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9176470637321472,
+      "g": 0.42352941632270813,
+      "b": 0,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:28",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "#"
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 15.468999862670898,
+    "y": 18
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 15.468000411987305,
+    "m10": 0,
+    "m11": 1,
+    "m12": 10
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9176470637321472,
+      "g": 0.42352941632270813,
+      "b": 0,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:29",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "$"
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 18.406002044677734,
+    "y": 18
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 6.265999794006348,
+    "m10": 0,
+    "m11": 1,
+    "m12": 10
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9921568632125854,
+      "g": 0.6784313917160034,
+      "b": 0,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:30",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "%"
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 9.20300006866455,
+    "y": 10
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 6.265999794006348,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9921568632125854,
+      "g": 0.8235294222831726,
+      "b": 0.1921568661928177,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:31",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "&"
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 9.202999114990234,
+    "y": 10
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 15.468000411987305,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9921568632125854,
+      "g": 0.8235294222831726,
+      "b": 0.1921568661928177,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:32",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "'"
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 30.937000274658203,
+    "y": 9.07800006866455
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0.921999990940094
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9921568632125854,
+      "g": 0.6784313917160034,
+      "b": 0,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:33",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:25",
+    "position": "("
+   },
+   "type": "VECTOR",
+   "name": "Vector",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 18.406002044677734,
+    "y": 10
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 6.265999794006348,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.9960784316062927,
+      "g": 0.9333333373069763,
+      "b": 0.7176470756530762,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:34",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:4",
+    "position": "!R"
+   },
+   "type": "ROUNDED_RECTANGLE",
+   "name": "social-twitter 1",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 381,
+    "y": 191
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 59,
+    "m10": 0,
+    "m11": 1,
+    "m12": 287
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [],
+   "strokePaints": [],
+   "rectangleTopLeftCornerRadius": 0,
+   "rectangleTopRightCornerRadius": 0,
+   "rectangleBottomLeftCornerRadius": 0,
+   "rectangleBottomRightCornerRadius": 0,
+   "rectangleCornerRadiiIndependent": false,
+   "proportionsConstrained": true,
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN"
+  },
+  {
+   "guid": "1:35",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:37",
+    "position": "!"
+   },
+   "type": "ROUNDED_RECTANGLE",
+   "name": "Rectangle 1",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 45,
+    "y": 45
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.8509804010391235,
+      "g": 0.8509804010391235,
+      "b": 0.8509804010391235,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "rectangleTopLeftCornerRadius": 0,
+   "rectangleTopRightCornerRadius": 0,
+   "rectangleBottomLeftCornerRadius": 0,
+   "rectangleBottomRightCornerRadius": 0,
+   "rectangleCornerRadiiIndependent": false,
+   "proportionsConstrained": true,
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:37",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:4",
+    "position": "!O"
+   },
+   "type": "SYMBOL",
+   "name": "Component 1",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 106,
+    "y": 45
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 56,
+    "m10": 0,
+    "m11": 1,
+    "m12": 46
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 1,
+      "g": 1,
+      "b": 1,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": false
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": true,
+   "resizeToFit": false
+  },
+  {
+   "guid": "1:38",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:4",
+    "position": "!P"
+   },
+   "type": "INSTANCE",
+   "name": "Component 2",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 106,
+    "y": 45
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 56,
+    "m10": 0,
+    "m11": 1,
+    "m12": 131
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 1,
+      "g": 1,
+      "b": 1,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": false
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": true,
+   "resizeToFit": false
+  },
+  {
+   "guid": "1:42",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:37",
+    "position": "\""
+   },
+   "type": "TEXT",
+   "name": "ABC",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 42,
+    "y": 21
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 53,
+    "m10": 0,
+    "m11": 1,
+    "m12": 15
+   },
+   "strokeWeight": 1,
+   "strokeAlign": "OUTSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "proportionsConstrained": false,
+   "horizontalConstraint": "SCALE",
+   "verticalConstraint": "SCALE"
+  },
+  {
+   "guid": "1:45",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:4",
+    "position": "!Q"
+   },
+   "type": "INSTANCE",
+   "name": "Component 3",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 106,
+    "y": 45
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 56,
+    "m10": 0,
+    "m11": 1,
+    "m12": 216
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 1,
+      "g": 1,
+      "b": 1,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": false
+    }
+   ],
+   "strokePaints": [],
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": true,
+   "resizeToFit": false
+  },
+  {
+   "guid": "1:49",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:53",
+    "position": "!"
+   },
+   "type": "ROUNDED_RECTANGLE",
+   "name": "Rectangle 2",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 100,
+    "y": 100
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.8509804010391235,
+      "g": 0.8509804010391235,
+      "b": 0.8509804010391235,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "rectangleTopLeftCornerRadius": 0,
+   "rectangleTopRightCornerRadius": 0,
+   "rectangleBottomLeftCornerRadius": 0,
+   "rectangleBottomRightCornerRadius": 0,
+   "rectangleCornerRadiiIndependent": false,
+   "proportionsConstrained": true,
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN"
+  },
+  {
+   "guid": "1:50",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:52",
+    "position": "!"
+   },
+   "type": "ROUNDED_RECTANGLE",
+   "name": "Rectangle 3",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 100,
+    "y": 100
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 0,
+    "m10": 0,
+    "m11": 1,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.8509804010391235,
+      "g": 0.8509804010391235,
+      "b": 0.8509804010391235,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "rectangleTopLeftCornerRadius": 0,
+   "rectangleTopRightCornerRadius": 0,
+   "rectangleBottomLeftCornerRadius": 0,
+   "rectangleBottomRightCornerRadius": 0,
+   "rectangleCornerRadiiIndependent": false,
+   "proportionsConstrained": true,
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN"
+  },
+  {
+   "guid": "1:51",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:52",
+    "position": "\""
+   },
+   "type": "ROUNDED_RECTANGLE",
+   "name": "Rectangle 4",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 100,
+    "y": 100
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 100,
+    "m10": 0,
+    "m11": 1,
+    "m12": 100
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [
+    {
+     "type": "SOLID",
+     "color": {
+      "r": 0.8509804010391235,
+      "g": 0.8509804010391235,
+      "b": 0.8509804010391235,
+      "a": 1
+     },
+     "opacity": 1,
+     "visible": true
+    }
+   ],
+   "strokePaints": [],
+   "rectangleTopLeftCornerRadius": 0,
+   "rectangleTopRightCornerRadius": 0,
+   "rectangleBottomLeftCornerRadius": 0,
+   "rectangleBottomRightCornerRadius": 0,
+   "rectangleCornerRadiiIndependent": false,
+   "proportionsConstrained": true,
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN"
+  },
+  {
+   "guid": "1:52",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:53",
+    "position": "\""
+   },
+   "type": "FRAME",
+   "name": "Group 1",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 200,
+    "y": 200
+   },
+   "transform": {
+    "m00": 0.7071067690849304,
+    "m01": -0.7071067690849304,
+    "m02": 186.42135620117188,
+    "m10": 0.7071067690849304,
+    "m11": 0.7071067690849304,
+    "m12": 0
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [],
+   "strokePaints": [],
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": false,
+   "resizeToFit": true
+  },
+  {
+   "guid": "1:53",
+   "phase": "CREATED",
+   "parentIndex": {
+    "guid": "1:2",
+    "position": "!O"
+   },
+   "type": "FRAME",
+   "name": "Group 2",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "size": {
+    "x": 327.84271240234375,
+    "y": 282.84271240234375
+   },
+   "transform": {
+    "m00": 1,
+    "m01": 0,
+    "m02": 37,
+    "m10": 0,
+    "m11": 1,
+    "m12": 34
+   },
+   "cornerRadius": 0,
+   "strokeWeight": 1,
+   "strokeAlign": "INSIDE",
+   "fillPaints": [],
+   "strokePaints": [],
+   "horizontalConstraint": "MIN",
+   "verticalConstraint": "MIN",
+   "frameMaskDisabled": false,
+   "resizeToFit": true
+  }
+ ]
+}

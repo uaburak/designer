@@ -6,69 +6,58 @@
 
 ---
 
-## Status at handoff (2026-10-06)
+## Status at handoff (2026-10-06, round 2)
 
-The session was stopped early (owner's pause). **The foundation is written and tested; no UI is mounted yet.** `?editor` does not exist yet — opening it falls through to the normal shell. No screenshots were taken.
+The editor UI is built and runs end to end in a browser: `npx vite --config vite.web.config.ts --mode demo --port 5202`, then `http://localhost:5202/?editor` (the engine's sample), `?editor&doc=reference` (the owner's file "burakkoc" as in the reference screenshots), `?editor&doc=empty`, or `?editor&file=<fileKey>` (a file on the store: the desktop's editor tabs; in a browser the dev store's demo files). `npm run typecheck`, `npm run lint` and `npm test` are green for the whole repo at handoff (the editor's: 43 tests; after the round-2 follow-ups `main.tsx`/app may be red while the desktop agent removes legacy code — not the editor).
 
-### Done (compiles, lints, tested)
+### Done (built, looked at in screenshots, driven with playwright)
 
-| File | What it is | Tests |
-|---|---|---|
-| `editor/documentSource.ts` | The `DocumentSource` interface (below), `memoryDocumentSource(doc, {fileName, location, sessionID})` (keeps the snapshot and applies every change, exposes `snapshot()` and `changes`), `applyMessage` (schema.md §4.3 apply algorithm), `orderParentsFirst` | `__tests__/model.test.ts` |
-| `editor/engineCompat.ts` | The adapter for engine features still landing: `hasCommand`, `runCommand`, `commandState` (feature-detect the name in `CommandId`), `pageArgs(guid)`, `canMoveNodes`/`moveNodes`, `canCopy`/`encodeSelection`, `canPaste`/`paste` (feature-detect the method on `Engine`), `supportsField(engine, field)` (does the engine keep a NodeChange field — read once from `readNode("0:0")`'s keys) | — |
-| `editor/model/layerTree.ts` | Pure Layers logic: `treeFromNodes`, `visibleRows` (top layer first, indent per depth), `ancestorsOf`, `normalizeSelection`, `rangeSelection` (⇧-click), `toggleSelection` (⌘-click), `revealed` (expand ancestors of a canvas selection), `withSubtree` (⌥-click expand/collapse all), `selectionRuns` (LayerRow `run`), `dropZone`/`dropTarget` (before/after/inside → `{parent, index}` in paint order counted without the dragged layers, the `Engine.moveNodes` convention), `draggedLayers` | `__tests__/layerTree.test.ts` (14) |
-| `editor/model/mixed.ts` | `mixed`, `mixedNumber` (panel precision), `sameData`, `mixedPaints` (→ `MIXED` from `ds/types`) | model.test.ts |
-| `editor/model/geometry.ts` | Panel transform math: `rotationOf` (Figma: atan2(−m10, m00), CCW positive), `rotateBy`/`rotateTo`/`rotateAbout` (about the centre), `flip` (local) and `mirrorAbout` (canvas axes, Figma's flip), `boundsOf`, `unionBoxes`, `panelPosition`/`withPanelPosition` (X/Y from the nearest non-group ancestor), `multiply`, `invert` | model.test.ts |
-| `editor/model/color.ts` | `colorToHex`, `hexToColor`, `toPercent`, `solidPaint`, `sameColor`, `luminance` | model.test.ts |
-| `editor/model/clipboard.ts` | Clipboard formats (desktop.md §13): `encodeClipboard` → `application/x-designerv2-kiwi` (base64 Message), `text/html` envelope `(designerv2)…(/designerv2)`, `text/plain` (layer names); `decodeClipboard` (our type → HTML envelope → envelope in plain text); `plainTextOf`, base64 helpers | model.test.ts |
-| `editor/model/rulers.ts` | `rulerStep(zoom)` (50 at 100%), `rulerTicks`, `toScreen`/`toValue` (screen = (origin + value)·zoom + camera offset), `rulerLabel`, `labelAlpha` (labels fade near the selection's edge labels: hidden < 44px, full at 84px — fitted to screenshot 3) | model.test.ts |
-| `editor/uiStore.ts` | `Store<T>` (tiny external store) + `useStoreSlice`; `UIState` (fileName, railTab, leftWidth, rightWidth, rightTab, uiHidden ⌘\, uiMinimized ⇧\, rulers ⇧R, renaming, expanded, anchor, pageSearch, shortcutsOpen, propertyLabels) | — |
-| `editor/controller.ts` | `EditorController`: engine + `EngineStore` + source + `ui` store; `getTree`/`subscribeTree` (Layers tree read level by level with `readNodes(…, {childIds})`, cached per page/structure/layout version); `setProps(refs, fields, label)` and `batch(label, fn)` (one undo step); `edit(label, info, write)` + `cancelEdit()` (DS `ChangeInfo` → one open `txnBegin` during a scrub, `txnCommit` on the final value, `txnCancel` on Esc); `setTool` (only tools the engine implements, probed once); `engineKey`; `EditorContext`/`useEditor` | — |
-| `editor/hooks.ts` | `useUI(select)`, `useLayerTree()`, `usePages()` (re-read on pages or structure — renames are structure changes), `useNodes(refs)` (stable array), `useTopics(store, topics)` | — |
-| `editor/commands.ts` | The command registry (~90 commands, Figma labels and keys): tools, Edit, View, Object, Arrange, Text (disabled until E3), File, help. `comboText` (DS `keys()` formatting), `matchesCombo`, `commandForKey`, `runEditorCommand`, `shortcutOf`, `isEnabled`. Engine commands go through engineCompat; `native` commands (⌘C ⌘X ⌘V ⇧⌘V) leave the key to the browser | — |
-| `editor/actions.ts` | TS-side edits until the engine has commands: `flipSelection` (FLIP_* when present, else mirror about the selection's centre per parent), `rotateSelection` (Rotate 90°/180°), `zoomTo(ed, zoom)` (about the viewport centre); geometry reads: `groupChain`, `worldTransform`, `pageBounds`, `topLevelOf` | — |
-| `editor/clipboardIO.ts` | DOM `copy`/`cut`/`paste` listeners (`attachClipboard`), `copyFromMenu` (execCommand, else async API with HTML + text), `pasteFromMenu` (execCommand, else `navigator.clipboard.read()` HTML, else the last copy in this tab); paste modes: normal, `inPlace` (⇧⌘V), `point` ("Paste here": paste, then move to the point, one undo step) | — |
-| `editor/keyboard.ts` | The shortcut layer (`attachKeyboard(ed, canvas)`): keys on the canvas already went to the engine (CanvasController, created with `shortcuts: []`); keys elsewhere (Layers, body) go to `engine.key` first; then the registry. Skips fields, overlays, controls' own Enter/Space, anything `defaultPrevented`. `isEditable` | — |
+- **Mount** (`EditorApp.tsx`, named + default export, `{ source, onBackToFiles?, onReady?, initialView? }`; public entry `editor/index.ts`): `source.load()` → `Engine.create` → `engine.load` → `EngineStore` → `EditorController` → `CanvasController({ shortcuts: [] })` → every commit to `source.onChanges(message, { kind, label })` → `onExternalChanges` applied as "remote", `onMetaChanged` → the header's name → keyboard, clipboard, canvas menu, desktop hooks, persistence → the file's saved camera/page (else zoom to fit, or `initialView`). The `<canvas>` is one element from the first render on (the panels are placeholders until the engine is up). Theme through `ds/theme.ts` (`useThemeRoot`, `engine.setTheme`). `TooltipManager` + `ToastHost` mounted. ⌘-wheel never zooms the page.
+- **Route** (`EditorRoute.tsx`): memory sources for the sample / `doc=reference` / `doc=empty` (`fixtures.ts`); `&file=` opens the store's source (`openDocument` from `@/store`), once per file per page (StrictMode-safe, refcounted), closed after the last mount goes. `&rulers=0`. `window.__designerEditor` for scripts.
+- **Layout shell**: rail 48 (Figma main menu, File, Assets, Insert, Resources, Settings), left panel 240 (resizable), canvas, right panel 240 (resizable, `data-panel="right"` for the colour picker), help button (24 from the window's right, centred with the toolbar), toolbar centred on the window (clamped inside the canvas when the panels are wide).
+- **Main menu** (`menus.ts`, built from `commands.ts` when it opens, enablement and checks live): Back to files, Actions…, File / Edit / View / Object / Text / Arrange submenus, Preferences (Theme), Help and account.
+- **Left panel** (`panels/LeftPanel.tsx`, `Pages.tsx`, `Layers.tsx`): file header (name ▾ → file menu incl. Rename — inline field, `source.rename` —, Save to version history, Show version history, Back to files; location; Minimize UI). Pages: PageRow list, current highlighted, click to switch, double-click rename, context menu (Rename / Duplicate / Delete / Go to page — CREATE/DUPLICATE/DELETE_PAGE with `{ page: "s:l" }`), search, "+", drag to reorder (`engine.moveNodes(…, "0:0", i)`). Layers: VirtualList + LayerRow, top first, type / auto-layout glyphs, strong top-level frames, click / ⇧ range / ⌘ toggle, selection runs, selected-ancestor fill, hover ↔ canvas outline, double-click / ⌘R / Enter rename with Tab to the next row, lock / eye, chevrons (⌥ opens every level), drag reorder/reparent with the drop indicator (`dropTarget` → `engine.moveNodes`), reveal + scroll to a canvas selection, right click → the canvas menu. Assets tab: search + empty state.
+- **Rulers** (`canvas/Rulers.tsx`): two 2D canvases redrawn on camera / selection / page / node changes / theme / resize (never React state per frame); colours `canvasChrome.ruler*`, metrics `canvasChromeMetrics.ruler`; labels every `rulerStep(zoom)` centred on 4px ticks; 0 at the selection's top-level frame corner; selection band with blue edge labels, neighbours faded (`labelAlpha`); ⇧R.
+- **Right panel** (`panels/RightPanel.tsx`): header 48 (avatar ▾ with Theme, Present ▸ ▾, Share), Design / Prototype tabs, zoom menu ("87% ⌄": zoom in/out/fit/selection/50/100/200, view toggles, Property labels). **Design panel** (`panels/design/`): nothing selected → Page (colour + opacity + eye; the engine's dark default shown as #1E1E1E), Styles, Export; a selection → type header (Frame ▾ with presets / Rectangle / Ellipse / Group / Mixed), Position (6 align buttons, X / Y, rotation + rotate 90° / flip H / flip V), Layout or Auto layout (+ / − ; direction, AlignmentMatrix, gap, horizontal / vertical padding; W / H, Constrain proportions when the engine keeps it, Clip content), Appearance (opacity, corner radius, individual corners, visibility, blend mode), Fill and Stroke (rows top first: ColorInput, eye, minus; "+"; "Click + to replace mixed fills"; stroke position + weight; the DS **ColorPicker**, SOLID only), Effects, Layout guide (frames), Export. Every edit is one undo step; scrubs/picker drags are one open transaction (`ed.edit`), Esc cancels; Mixed fields step each layer (`onStep`); Property labels.
+- **Bottom toolbar** (`canvas/BottomToolbar.tsx`): DS `EditorToolbar`; the engine's tool drives the active slot, slots remember their last tool (by click or key); tools the engine doesn't implement are passed as `disabledTools`; modes Draw / Motion / Dev Mode disabled.
+- **Canvas context menu** (`canvas/CanvasMenu.tsx`): built from the engine's `CONTEXT_MENU` event (the engine selects what a left click would pick first, also on ⌃-click); Copy, Paste here (at the point), Paste over selection, Copy/Paste as ▸, arrange, Group / Frame selection / Ungroup, Show/Hide, Lock/Unlock, Flip, Add auto layout, Duplicate, Delete, Select layer ▸ (the event's `hits`, flattened, innermost first); empty canvas: Paste here, Show/Hide UI, Rulers, Select all.
+- **Shortcuts dialog** (`ShortcutsDialog.tsx`, ⌃⇧? and the help button): the registry's keys by group + the engine's canvas keys. **⌘\\** hides all UI, **⇧\\** minimizes it into two floating cards (`panels/Minimized.tsx`).
+- **Version history** (`VersionDialogs.tsx`): ⌥⌘S "Save to version history" (title, description) and "Show version history" (newest first, Restore = `restoreVersion` applied as one "Restore version" edit); enabled when the source has them.
+- **Persistence** (`persistence.ts`): restores `source.uiState` (page, camera, selection, panel widths) on open and writes it as it changes; saves a thumbnail of the first page (the engine's offscreen `renderThumbnailPixels`, the content's own aspect, no overlays, within 800 × 600 PNG) 4 s after the last change and on close — the pixels are taken synchronously, so the close-time one is read before the engine goes.
+- **Desktop hooks** (`desktop.ts`, only when `window.designer.role === "editor"`): `tab.onFlush` → `source.flush()`; `menu.onCommand` → `runEditorCommand` with the editor's own ids (`edit.*` natively in a focused text field; `file.save` flushes); `menu.setState` patches of every registry command's enabled / checked, at most once a frame after selection / undo / tool / pages / structure / node / UI changes; `tab.report({ title, status })` with the file's name, again on rename; a file trashed or deleted elsewhere closes its tab. "Back to files" = `onBackToFiles`, else `nav.goHome()`.
+- **Engine API**: every command (incl. FLIP_*, SELECT_INVERSE ⇧⌘A, page commands with `{ page: "s:l" }`) and `moveNodes` / `encodeSelection` / `paste` / `renderThumbnailPixels` / the `CONTEXT_MENU` event are called directly; `engineCompat.ts` is field detection only (`supportsField`). The TS flip fallback is gone.
+- **Registry ↔ app menu**: every id the desktop's menu bar places exists in `commands.ts` (incl. `file.save-version`, `file.export-frames-to-pdf`, `edit.copy-as-text`, `vector.*` with Figma's keys, disabled until implemented); the main menu has a Vector submenu.
+- **Tests**: `__tests__/editor.wasm.test.ts` (the real engine headless: Layers tree, reference fixture, labelled edit = one undo step reaching the source, scrub = one step, Esc rollback, registry commands, flip, menus, moveNodes with the panel's drop target, copy/paste, page commands, menu-state patches, select inverse, CONTEXT_MENU → the menu, tool/glyph/type helpers) + the earlier model tests.
 
-### Partial
+### Visual / end-to-end check
 
-- `editor/EditorApp.module.css` — the layout's CSS (editor root, left/right panel shells, canvas area, help-button position, loading/error status). **No `EditorApp.tsx` uses it yet.**
+`node src/renderer/src/editor/tools/editor-shot.mjs [outDir]` (own Vite server, or `EDITOR_URL=http://localhost:5202`; playwright-core, SwiftShader, 1512 × 945, dark and light). Checks (all ok at handoff): click selects Frame 1; ⇧A auto layout; ⇧\\ / ⌘\\ / ⌃⇧?; F + drag frame; R + drag rectangle inside it; Layers rows; Esc → parent → nothing; ⌘Z / ⇧⌘Z; Layers click selects; double-click rename; X field moves; Delete; the source got every change; a store file opens, ⌥⌘S version listed, thumbnail saved, the change and the camera survive a reload. Screenshots in `/tmp/designer-work/editor/`:
 
-### Not started
+- `01-nothing-{dark,light}.png` (reference file, nothing selected), `02-frame-selected-*`, `03-auto-layout-*`, `04-sample-rectangle-*`, `05-context-menu-*`, `06-main-menu-*` (Object submenu), `07-zoom-menu-*`
+- dark only: `08-minimized`, `09-hidden`, `10-shortcuts`, `11-drawn-frame`, `12-drawn-rectangle`, `13-after-edits`, `14-store-file`, `15-version-history`
 
-In this order of dependency (see "Next steps"):
-- `editor/EditorApp.tsx` (default export, `{ source: DocumentSource }`) — mounts the engine (own mount, not `EngineCanvas`, because the shortcut table must be empty): `source.load()` → `Engine.create(canvas, {sessionID, theme})` → `engine.load(doc)` → `new EngineStore` → `new EditorController` → `new CanvasController(canvas, engine, { shortcuts: [] }).attach()` → `engine.onDocumentChanged((_, e) => source.onChanges(e.message))` → `attachKeyboard` → `attachClipboard` → `ZOOM_TO_FIT`; theme sync (`useThemeRoot()`, `engine.setTheme`); ⌘-wheel `preventDefault` on window (as Playground); `TooltipManager` + `ToastHost`; desktop hooks when `window.designer` exists (`tab.onRequest`: "is-dirty" → false, "save" → `source.flush()`; `menu.onCommand` for `edit.undo/redo/delete/select-all`; `tab.report({title})`).
-- `editor/EditorRoute.tsx` + the `?editor` line in `src/renderer/src/main.tsx` (add `"./editor/EditorRoute.tsx"` to the `import.meta.glob` list and `if (params.has("editor")) return lazyOptional("./editor/EditorRoute.tsx");`). The route renders `<EditorApp source={memoryDocumentSource(SAMPLE_DOCUMENT, …)}/>`; `&doc=reference` should load a fixture matching the owner's screenshots (file "burakkoc" in "Drafts", pages Page 10 / New Page / burakkoc.net ( new ) / OXTV / Page 7 / theStudio / CV / Logolar, page colour 232323, one frame "Frame 1" 437×305 at (−34, 3), white fill).
-- Rail + main menu, left panel (file header with menu and rename, Pages section, Layers panel), Assets placeholder, rulers, bottom toolbar, right panel (header, tabs, zoom menu) and every Design-panel section, canvas context menu, shortcuts dialog (⌃⇧?), minimized/hidden UI, the visual check script and screenshots.
+Compared with the measurements in `docs/research/visual-diff.md` (no reference images available): rail 48, panels 240, header 64, section headers 40, page pitch 32 / highlight 24 inset 8, layer rows 24, right header 48 + tabs 32 (line at 80), Share ending 8 from the edge, toolbar centred on the window 12 from the bottom, help 24 from the right — match.
 
-### Engine APIs
+### Partial / placeholders
 
-- **Called directly** (exist today): `Engine.create/load/destroy/on/onDocumentChanged/readNodes/readNode({childIds})/setProps/txnBegin/txnCommit/txnCancel/command/commandState/undo/redo/getCamera/setCamera/setTool/pages/setCurrentPage/key/setTheme`, `EngineStore` (+ its topics), `CanvasController` + `modifiersOf`, `CommandId`/`TOOLS`/`Status`/`KEY_HANDLED`/`CMD_*` from `abi.ts`. Commands in `abi.ts` today: UNDO, REDO, SELECT_ALL/NONE/CHILDREN/PARENT/NEXT_SIBLING/PREV_SIBLING, DELETE, NUDGE, BRING_FORWARD, SEND_BACKWARD, BRING_TO_FRONT, SEND_TO_BACK, TOGGLE_LOCK, TOGGLE_VISIBLE, ZOOM_IN/OUT/TO_100/TO_FIT/TO_SELECTION.
-- **Through `editor/engineCompat.ts`** (missing from the TS facade at handoff): commands GROUP, UNGROUP, FRAME_SELECTION, DUPLICATE, FLIP_HORIZONTAL, FLIP_VERTICAL, ALIGN_LEFT/HORIZONTAL_CENTER/RIGHT/TOP/VERTICAL_CENTER/BOTTOM, DISTRIBUTE_HORIZONTAL/VERTICAL, ADD_AUTO_LAYOUT, REMOVE_AUTO_LAYOUT, CREATE_PAGE, DELETE_PAGE, DUPLICATE_PAGE (and SELECT_INVERSE, not planned yet); methods `moveNodes`, `encodeSelection`, `paste`; field support (`supportsField`: stack*, effects, layoutGrids, exportSettings, proportionsConstrained, backgroundOpacity, blendMode…).
-  - **At handoff the engine agent had added these ids to `engine/src/editor/Commands.h`** (GROUP 60, UNGROUP 61, FRAME_SELECTION 62, DUPLICATE 63, FLIP_HORIZONTAL 64, FLIP_VERTICAL 65, ALIGN_LEFT 70 … ALIGN_BOTTOM 75, DISTRIBUTE_HORIZONTAL 76, DISTRIBUTE_VERTICAL 77, ADD_AUTO_LAYOUT 80, REMOVE_AUTO_LAYOUT 81, CREATE_PAGE 90, DELETE_PAGE 91 `args {page}` (current page when absent), DUPLICATE_PAGE 92 `args {page}`) **but not yet to `abi.ts`**. Once `abi.ts` has them: replace `runCommand(engine, "X")` with `engine.command("X")` in `commands.ts`/`actions.ts`, and drop them from `PendingCommand`. Check how `{page}` is encoded (args are numbers today: `pageArgs()` sends `page`=localID, `pageSession`/`sessionID`/`localID` — adjust to the engine's choice).
-- **Not available yet, so not used:** `engine_layer_rows` (the tree is built in TS), `engine_read_derived` (X/Y/rotation computed in TS: `panelPosition`, `rotationOf`), `engine_set_geometry` (W/H/rotation written as `size`/`transform`; W/H of groups can't scale children yet), `CONTEXT_MENU` event (the editor listens to `contextmenu` on the canvas; for an unselected hit it should send a synthetic left click so the engine's picking selects it), `engine_hit_test` returns one hit path (innermost first), not every overlapping layer.
+- Prototype tab: an empty state. Assets: search + empty state. Insert / Resources rail items, Actions (⌘K), Present, Share: toasts.
+- Effects / Layout guide / Export "+" stay disabled until `supportsField` sees `effects` / `layoutGrids` / `exportSettings`; blend mode likewise.
+- W / H are disabled for groups (the engine refits groups to their children); no Hug / Fill / Fixed sizing menus, no min / max, no constraints UI, no auto-layout advanced menu.
+- ColorPicker limited to SOLID (the engine's `Paint` type); no "On this page" colours yet.
+- Frame titles and the size badge's number on the canvas wait for E3 text (the badge draws empty).
+- Versions: no view-only "open version", rename or duplicate-from-version UI.
 
-### DS components still awaited
+### Needed from other workstreams
 
-- **ColorPicker** (the fill/stroke swatch's popover): leave a clearly marked placeholder (`onSwatchClick` → nothing or a "Color picker comes with the design system" toast) until `ds/index.ts` exports it.
-- **AlignmentMatrix** (3×3 auto-layout alignment): placeholder until exported.
-- **The exact UI3 bottom Toolbar**: until it lands, compose the existing `Toolbar`/`ToolbarGroup`/`ToolButton`/`ToolbarDivider`/`HelpButton`.
-- Re-check `ds/index.ts` first thing: the DS agent was adding all three at handoff.
+- **DS**: the disabled modes don't look disabled in the light theme.
+- **Engine**: nothing blocking; E3 text (frame titles, the size badge's number), E4 vectors/booleans for the Vector menu, effects / layout guides / export fields.
 
-### Known breakage
+### Next steps
 
-- `npm test`: 1 failure, **not in the editor** — `src/renderer/src/engine/__tests__/abi.test.ts › commands: abi.ts = Commands.h` (the engine agent's in-progress change: `Commands.h` updated, `abi.ts` not yet). Editor tests: 30/30 pass. `npm run typecheck` and `npm run lint`: clean.
-
-### Next steps, in order
-
-1. Re-read `ds/index.ts`, `engine/abi.ts`, `engine/Engine.ts`; switch engineCompat calls to direct ones where names now exist.
-2. `EditorApp.tsx` + `EditorRoute.tsx` + the `?editor` route (above), with the reference fixture. Verify the engine loads in `npm run web:demo` → http://localhost:5199/?editor.
-3. Layout shell per the metrics below: rail (Main menu → DS `ContextMenu` with Back to files, Quick actions…, File/Edit/View/Object/Text/Arrange submenus built from `commands.ts`), left panel 240 (DS `ResizeHandle`), canvas area, right panel 240, `HelpButton` (in `.help`), toolbar (offset `(rightWidth − (48 + leftWidth)) / 2` to centre on the window).
-4. Left panel: file header (name + chevron menu: Rename via `source.rename`, Duplicate/Move/Version history/Delete disabled; "Minimize UI" icon), Pages (DS `PageRow`; search; + = CREATE_PAGE; double-click rename via `setProps([page], {name})`; context menu Rename/Duplicate/Delete; drag reorder = `moveNodes([page], "0:0", index)`), Layers (DS `VirtualList` + `LayerRow` with `model/layerTree.ts`; icons by type/auto layout; hover ↔ `engine.setHover` / `useHover`; click/⇧/⌘ selection; double-click and ⌘R rename; lock/eye via setProps `locked`/`visible`; drag with `dropTarget` → `moveNodes`; `revealed` on canvas selection + `scrollToIndex`).
-5. Rulers: two 2D canvases redrawn on `store.subscribe("camera")` + selection + node changes + theme; colours from `canvasChrome.ruler*` (ds/tokens.ts), metrics from `canvasChromeMetrics.ruler`; origin = the selection's top-level frame corner (else 0); band + blue edge labels + `labelAlpha` fading.
-6. Right panel: header (Avatar + chevron, Present ▸ menu, Share), `Tabs` Design/Prototype, zoom `MenuButton` (Zoom in/out/to fit/to selection/50%/100%/200%, Property labels). Design panel by selection: nothing → Page (CANVAS `backgroundColor`, show the effective colour — the engine draws `#1E1E1E` for the default `#F5F5F5` in dark), Styles (header + "+" only when there are no local styles), Export; selection → header (Frame ▾ presets / Rectangle / Ellipse / Group / Mixed), Position, Layout / Auto layout, Appearance, Fill, Stroke, Effects, Layout guide, Export — every edit via `ed.setProps`/`ed.edit` (scrubs) with `mixed*` for multi-selection and `onStep` deltas.
-7. Bottom toolbar (tools the engine has enabled, the rest disabled), canvas context menu (Copy, Paste here, Copy/Paste as ▸, Bring to front…, Group/Frame selection/Ungroup, Show/Hide, Lock/Unlock, Flip, Add auto layout, Select layer ▸ from `hitTest`), shortcuts dialog, ⌘\ / ⇧\.
-8. Visual check: a playwright-core script (like `scripts/engine-shot.mjs`: its own Vite server, SwiftShader Chromium, `page.emulateMedia({colorScheme})`) shooting nothing-selected / frame-selected / auto-layout states, light and dark, at 1512×945 into the session scratchpad `…/scratchpad/editor/`; compare region by region with the references (`…/images/1–4.webp`, 1 CSS px = 1.3228 image px).
+1. Viewing a reference screenshot again (when the owner re-shares them) and tuning pixel details with `tools/editor-shot.mjs`.
+2. Sizing menus (Hug / Fill / Fixed), min / max, constraints, auto-layout advanced settings once the engine's E2 fields are all in the facade's types.
+3. Effects / layout guides / export rows when the engine keeps those fields; gradients and images in the picker with E5.
+4. Text (E3): the Text section, frame titles, the size badge.
 
 ---
 
@@ -76,39 +65,51 @@ In this order of dependency (see "Next steps"):
 
 ```
 editor/
-  EditorApp.tsx        (to write) the root: engine mount, layout, overlays
-  EditorRoute.tsx      (to write) ?editor: EditorApp on memoryDocumentSource
+  index.ts             public entry: EditorApp, DocumentSource, memoryDocumentSource
+  EditorApp.tsx        the root: engine mount, layout, overlays
+  EditorRoute.tsx      ?editor: memory sample / &doc=reference|empty / &file=<fileKey> (store)
+  fixtures.ts          the reference and empty documents
   documentSource.ts    DocumentSource, memoryDocumentSource, applyMessage
-  engineCompat.ts      feature-detected engine calls (shrinks as the engine grows)
+  engineCompat.ts      field detection (supportsField)
   controller.ts        EditorController, EditorContext, readTree
   uiStore.ts           Store<T>, UIState
   hooks.ts             useUI, useLayerTree, usePages, useNodes, useTopics
-  commands.ts          the command registry (menus, shortcuts, buttons)
+  commands.ts          the command registry (menus, shortcuts, buttons, the app menu)
+  menus.ts             main menu and canvas menu entries from the registry
   keyboard.ts          the shortcut layer
   clipboardIO.ts       DOM clipboard events
-  actions.ts           TS edits (flip/rotate fallbacks, zoom), geometry reads
+  actions.ts           TS edits (flip fallback, rotate, zoom), geometry reads
+  desktop.ts           window.designer hooks: flush, menu commands and state, tab title
+  persistence.ts       UI state per file, thumbnails
+  ShortcutsDialog.tsx  VersionDialogs.tsx
+  panels/              Rail, LeftPanel, Pages, Layers, RightPanel, Minimized, design/ (DesignPanel, Sections, Paints, shared)
+  canvas/              Rulers, BottomToolbar, CanvasMenu
+  tools/editor-shot.mjs  the visual + end-to-end check (playwright-core)
   model/               pure logic: layerTree, mixed, geometry, color, clipboard, rulers
-  __tests__/           vitest for model/ and documentSource
+  __tests__/           vitest: model, layerTree, the editor on the headless engine
 ```
 
 ## The DocumentSource interface
 
 ```ts
 export interface DocumentSource {
-  /** The file's name, as the left panel's header shows it ("burakkoc"). */
-  readonly fileName: string;
-  /** Where the file lives, under its name ("Drafts", a project's name). */
-  readonly location: string;
-  /** The session new nodes are created in (allocated by storage, docs/data.md §1); default 1. */
-  readonly sessionID?: number;
-  /** The document to open: a snapshot Message (DOCUMENT first, parents before children). */
-  load(): Promise<Message>;
-  /** One committed change (a NODE_CHANGES Message carrying only the touched fields), in commit order. */
-  onChanges(changes: Message): void;
-  /** Resolves once every change handed to `onChanges` is stored. */
-  flush(): Promise<void>;
-  /** The file was renamed from the file menu; absent: the name can't be changed here. */
+  readonly fileName: string;          // the left panel's header ("burakkoc")
+  readonly location: string;          // "Drafts", a folder's name
+  readonly sessionID?: number;        // new nodes' session (storage allocates it); default 1
+  load(): Promise<Message>;           // a snapshot Message (DOCUMENT first, parents before children)
+  onChanges(changes: Message, info?: { kind?: "USER" | "UNDO" | "REDO" | "SYSTEM"; label?: string }): void;
+  flush(): Promise<void>;             // every change handed to onChanges is stored
   rename?(name: string): void | Promise<void>;
+  // Optional (round 2; the store's source has them all):
+  onExternalChanges?(listener: (changes: Message) => void): () => void;   // applied as "remote"
+  onMetaChanged?(listener: (meta: { fileName; location; trashed?; deleted? }) => void): () => void;
+  close?(): Promise<void>;
+  readonly uiState?: EditorUiState | null;        // page, camera + selection per page, panel widths
+  setUiState?(patch: Partial<EditorUiState>): void;
+  saveThumbnail?(png: Uint8Array, size: { width: number; height: number }): Promise<void>;
+  listVersions?(): Promise<VersionInfo[]>;
+  saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
+  restoreVersion?(id: string, apply: (diff: Message) => void | Promise<void>): Promise<VersionInfo>;
 }
 ```
 

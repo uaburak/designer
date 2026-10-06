@@ -35,6 +35,7 @@ import { formatEdited } from "../util/time";
 import { FileKindIcon } from "../components/FileCard";
 import { FolderIcon, SidebarDivider } from "../components/SidebarItem";
 import { PickerDemos } from "./PickerDemos";
+import { BrowserDemos } from "./BrowserDemos";
 import { Cell, Comp, noop, Row, Section } from "./parts";
 import styles from "./Gallery.module.css";
 
@@ -498,6 +499,8 @@ export function ComponentMatrix() {
           </Cell>
         </Row>
       </Comp>
+
+      <BrowserDemos />
 
       <Comp name="Badge / Avatar / Spinner / Kbd / Divider">
         <Row>

@@ -1,0 +1,28 @@
+@layer ds {
+  /* Inherits the surrounding text's font and colour, so the field matches what it replaces */
+  .root { position: relative; display: inline-grid; min-width: 0; max-width: 100%; vertical-align: middle; }
+  .text { grid-area: 1 / 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The field and its invisible twin share one grid cell: the twin's text gives the width */
+  .sizer, .input {
+    grid-area: 1 / 1;
+    min-width: 0;
+    padding: 0 var(--ds-space-1);
+    border: 1px solid transparent;
+    font: inherit;
+    letter-spacing: inherit;
+    white-space: pre;
+  }
+  .sizer { visibility: hidden; overflow: hidden; }
+  .input {
+    width: 100%;
+    margin: 0;
+    border-color: var(--figma-color-border-selected);
+    border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    outline: none;
+  }
+  .input::selection { background: var(--ds-color-text-selection); }
+  /* Editing, the box grows outwards by its padding and border: the text stays where it was */
+  .root[data-editing] { margin: -1px calc((var(--ds-space-1) + 1px) * -1); max-width: calc(100% + 2 * (var(--ds-space-1) + 1px)); }
+}

@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { POINTER_CAPTURE, PointerType } from "../abi";
+import { CMD_ENABLED, POINTER_CAPTURE, PointerType, Status } from "../abi";
 import type { EngineEvent, Message } from "../codec";
 import { Engine } from "../Engine";
 import { loadEngine } from "../loadEngine";
@@ -119,6 +119,88 @@ describe("engine (wasm, headless)", () => {
     expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "1:5", phase: "REMOVED" }] }, "remote")).toBe(0);
     expect(engine.readNode("1:5")).toBeNull();
     expect(engine.getSelection().refs).toEqual([]);
+    engine.destroy();
+  });
+
+  it("editor support: commands with a page argument, moveNodes, encodeSelection and paste", async () => {
+    const engine = await engineWithSample();
+    // Group and ungroup the two cards: one undo step each, labelled as Figma's.
+    const labels: string[] = [];
+    engine.on("DOCUMENT_CHANGED", (e) => labels.push(e.label));
+    engine.setSelection(["1:5", "1:6"]);
+    expect(engine.commandState("GROUP") & CMD_ENABLED).toBeTruthy();
+    expect(engine.command("GROUP")).toBe(Status.OK);
+    const [group] = engine.getSelection().refs;
+    expect(engine.readNode(group, { childIds: true })).toMatchObject({ name: "Group 2", resizeToFit: true, childIds: ["1:5", "1:6"] });
+    expect(engine.command("UNGROUP")).toBe(Status.OK);
+    expect(engine.getSelection().refs).toEqual(["1:5", "1:6"]);
+    expect(labels).toEqual(["Group selection", "Ungroup selection"]);
+
+    // Pages: the args carry a GUID string.
+    expect(engine.command("DUPLICATE_PAGE", { page: "0:1" })).toBe(Status.OK);
+    const pages = engine.pages();
+    expect(pages.map((p) => p.name)).toEqual(["Page 1", "Page 1 copy"]);
+    expect(engine.command("DELETE_PAGE", { page: pages[1].guid })).toBe(Status.OK);
+    expect(engine.pages()).toHaveLength(1);
+    expect(engine.command("DELETE_PAGE")).toBe(Status.E_INVALID);
+
+    // The Layers panel: Card to the bottom of Desktop, then out onto the page (its place kept).
+    expect(engine.moveNodes(["1:5"], "1:1", 0)).toBe(1);
+    expect(engine.readNode("1:1", { childIds: true })!.childIds![0]).toBe("1:5");
+    expect(engine.moveNodes(["1:5"], "0:1", 0)).toBe(1);
+    expect(engine.readNode("1:5")).toMatchObject({ parentIndex: { guid: "0:1" }, transform: { m02: 24, m12: 88 } });
+    expect(engine.moveNodes(["1:1"], "1:7", 0)).toBe(0);
+
+    // Copy and paste.
+    engine.setSelection([]);
+    expect(engine.encodeSelection()).toBeNull();
+    engine.setSelection(["1:10"]);
+    const clip = engine.encodeSelection()!;
+    expect(clip.nodeChanges.map((n) => n.guid)).toEqual(["1:10", "1:11", "1:12", "1:13"]);
+    expect(clip.pastePageId).toBe("0:1");
+    expect(clip.clipboardSelectionRegions).toEqual([{ parent: "0:1", nodes: ["1:10"], enclosingFrameOffset: { x: 0, y: 0 } }]);
+    engine.setSelection([]);
+    expect(engine.paste(clip, { inPlace: true })).toBe(1);
+    const [pasted] = engine.getSelection().refs;
+    expect(pasted.startsWith("9:")).toBe(true);
+    expect(engine.readNode(pasted, { childIds: true })).toMatchObject({ name: "Mobile", transform: { m02: 720, m12: 0 } });
+    expect(engine.readNode(pasted, { childIds: true })!.childIds).toHaveLength(3);
+    engine.destroy();
+  });
+
+  it("round 2 follow-ups: flips, select inverse, the context menu event, a thumbnail", async () => {
+    const engine = await engineWithSample();
+    engine.setSelection(["1:5"]);
+    expect(engine.command("FLIP_HORIZONTAL")).toBe(Status.OK);
+    expect(engine.readNode("1:5")!.transform).toMatchObject({ m00: -1, m02: 304 });
+    expect(engine.command("FLIP_VERTICAL")).toBe(Status.OK);
+    expect(engine.readNode("1:5")!.transform).toMatchObject({ m11: -1, m12: 248 });
+    expect(engine.commandState("FLIP_HORIZONTAL") & CMD_ENABLED).toBeTruthy();
+
+    engine.setSelection(["1:10"]);
+    expect(engine.command("SELECT_INVERSE")).toBe(Status.OK);
+    expect(engine.getSelection().refs).toEqual(["1:1", "1:20", "1:21", "1:22", "1:23"]);  // "Locked" (1:26) is left out
+
+    // Right-click on Card: it becomes the selection, then CONTEXT_MENU lists what is under the point.
+    const order: string[] = [];
+    let menu: EngineEvent | undefined;
+    engine.onAny((e) => {
+      order.push(e.type);
+      if (e.type === "CONTEXT_MENU") menu = e;
+    });
+    engine.pointer(PointerType.DOWN, 100, 150, 2, 2, 0);
+    engine.pointer(PointerType.UP, 100, 150, 2, 0, 0);
+    expect(engine.getSelection().refs).toEqual(["1:5"]);
+    expect(menu).toEqual({ type: "CONTEXT_MENU", targetKind: "SELECTION", x: 100, y: 150, hits: [["1:5", "1:1"]] });
+    expect(order.indexOf("SELECTION_CHANGED")).toBeLessThan(order.indexOf("CONTEXT_MENU"));
+
+    // Thumbnail: the content's aspect, fitted; headless gives the page colour.
+    const thumb = engine.renderThumbnailPixels({ maxSize: 200 })!;
+    expect(thumb.width).toBe(200);
+    expect(thumb.height).toBeLessThan(200);
+    expect(thumb.pixels.length).toBe(thumb.width * thumb.height * 4);
+    expect(thumb.pixels[3]).toBe(255);
+    expect(engine.renderThumbnailPixels({ page: "9:9", maxSize: 200 })).toBeNull();
     engine.destroy();
   });
 });

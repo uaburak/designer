@@ -49,10 +49,14 @@ bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel) {
   return std::fabs(d - centre) <= std::max(half, slop);
 }
 
-std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pixel) {
-  // Candidates from the page's spatial index, topmost first; the first whose
-  // own geometry is hit (and that no hidden ancestor hides and no clipping
-  // ancestor cuts off) wins.
+namespace {
+
+// Calls f(path) for each node hit at `world`, topmost first; stops when f returns false.
+template <typename F>
+void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f) {
+  // Candidates from the page's spatial index, topmost first; a candidate counts when
+  // its own geometry is hit and no hidden ancestor hides it and no clipping ancestor
+  // cuts it off.
   double reach = pixel * kHitSlopCss;
   std::vector<Guid> candidates;
   doc.query(page, {world.x - reach, world.y - reach, 2 * reach, 2 * reach}, [&](Guid id) {
@@ -89,9 +93,31 @@ std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pix
         break;
       }
     }
-    return path;
+    if (!f(std::move(path))) return;
   }
-  return {};
+}
+
+}  // namespace
+
+std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pixel) {
+  std::vector<Guid> out;
+  forEachHit(doc, page, world, pixel, [&](std::vector<Guid> path) {
+    out = std::move(path);
+    return false;
+  });
+  return out;
+}
+
+std::vector<std::vector<Guid>> hitPaths(const Document& doc, Guid page, Vec2 world, double pixel) {
+  std::vector<std::vector<Guid>> out;
+  forEachHit(doc, page, world, pixel, [&](std::vector<Guid> path) {
+    if (path.empty()) return true;
+    for (const auto& seen : out)
+      if (seen.size() >= path.size() && std::equal(path.begin(), path.end(), seen.begin())) return true;
+    out.push_back(std::move(path));
+    return true;
+  });
+  return out;
 }
 
 }  // namespace eng

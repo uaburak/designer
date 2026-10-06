@@ -392,7 +392,7 @@ void Layout::arrangeAutoLayout(Guid id, Vec2 size) {
   const NodeProps p = doc_.get(id)->props;
   for (const Placement& pl : place(id, size)) {
     const Node* cn = doc_.get(pl.id);
-    if (!cn) continue;
+    if (!cn || host_.placedByGesture(pl.id)) continue;
     const NodeProps& cp = cn->props;
     bool decided = (cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary()) || cp.stackChildAlignSelf == StackCounterAlign::STRETCH;
     // The child's own layout first (its children, its group fitting)…

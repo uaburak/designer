@@ -35,6 +35,12 @@ int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uint32_t argsL
 int32_t engine_take_events(Handle h);
 int32_t engine_stats(Handle h);
 int32_t engine_set_tool(Handle h, uint32_t tool);
+int32_t engine_set_selection(Handle h, Ptr ptr, uint32_t len);
+int32_t engine_command_state(Handle h, uint32_t commandId);
+int32_t engine_move_nodes(Handle h, Ptr refsPtr, uint32_t refsLen, uint32_t parentSessionID, uint32_t parentLocalID, uint32_t index);
+int32_t engine_encode_selection(Handle h, uint32_t flags);
+int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags);
+int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, uint32_t maxSize, uint32_t flags);
 }
 
 namespace {
@@ -165,5 +171,104 @@ TEST_CASE("api: the headless engine end to end") {
   Payload bad{"{nope"};
   CHECK(engine_apply_changes(h, bad.ptr(), bad.len(), 1) == -2);
   CHECK(engine_load(12345, doc.ptr(), doc.len()) == -1);
+  engine_destroy(h);
+}
+
+TEST_CASE("api: editor support — page args, moveNodes, encodeSelection, paste") {
+  Payload opts{R"({"sessionID":7})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  Payload doc{kDoc};
+  REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
+  engine_set_viewport(h, 800, 600, 1, 800, 600);
+
+  // Pages: CREATE_PAGE, DUPLICATE_PAGE {"page":"0:1"}, DELETE_PAGE with the numeric form.
+  CHECK(engine_command(h, 90, 0, 0) == 0);
+  Payload dup{R"({"page":"0:1"})"};
+  CHECK(engine_command(h, 92, dup.ptr(), dup.len()) == 0);
+  REQUIRE(engine_pages(h) == 0);
+  auto pages = resultJson().get("pages")->array;
+  REQUIRE(pages.size() == 3);
+  CHECK(pages[1].get("name")->string == "Page 1 copy");
+  std::string copy = pages[1].get("guid")->string;
+  auto colon = copy.find(':');
+  std::string numeric = R"({"page":)" + copy.substr(colon + 1) + R"(,"pageSession":)" + copy.substr(0, colon) + "}";
+  Payload del{numeric};
+  CHECK(engine_command(h, 91, del.ptr(), del.len()) == 0);
+  REQUIRE(engine_pages(h) == 0);
+  CHECK(resultJson().get("pages")->array.size() == 2);
+  Payload bad{R"({"page":"nope"})"};
+  CHECK(engine_command(h, 91, bad.ptr(), bad.len()) == -3);
+  CHECK(engine_command_state(h, 91) == 1);
+
+  // Back on page 1: move the rectangle out of the frame onto the page.
+  Payload moving{R"({"refs":["1:2"]})"};
+  CHECK(engine_move_nodes(h, moving.ptr(), moving.len(), 0, 1, 1) == 1);
+  Payload rect{R"({"refs":["1:2"]})"};
+  engine_read_nodes(h, rect.ptr(), rect.len(), 0);
+  auto node = resultJson().get("nodeChanges")->array.at(0);
+  CHECK(node.get("parentIndex")->get("guid")->string == "0:1");
+  CHECK(node.get("transform")->get("m02")->number == 10);
+  CHECK(engine_move_nodes(h, moving.ptr(), moving.len(), 1, 2, 0) == 0);  // into itself
+
+  // Copy: nothing selected, then the frame.
+  CHECK(engine_encode_selection(h, 0) == -5);
+  Payload frame{R"({"refs":["1:1"]})"};
+  REQUIRE(engine_set_selection(h, frame.ptr(), frame.len()) == 0);
+  REQUIRE(engine_encode_selection(h, 0) == 0);
+  std::string clip = result();
+  {
+    eng::json::Value v;
+    REQUIRE(eng::json::parse(clip, v));
+    CHECK(v.get("nodeChanges")->array.size() == 1);
+    CHECK(v.get("pastePageId")->string == "0:1");
+    auto& region = v.get("clipboardSelectionRegions")->array.at(0);
+    CHECK(region.get("parent")->string == "0:1");
+    CHECK(region.get("nodes")->array.at(0).string == "1:1");
+    CHECK(region.get("enclosingFrameOffset")->get("x")->number == 0);
+  }
+  // Paste in place: a fresh id from session 7, selected.
+  Payload message{clip};
+  CHECK(engine_paste(h, message.ptr(), message.len(), 1) == 1);
+  REQUIRE(engine_get_selection(h) == 0);
+  auto sel = resultJson().get("refs")->array;
+  REQUIRE(sel.size() == 1);
+  CHECK(sel[0].string.rfind("7:", 0) == 0);
+  Payload junk{"{"};
+  CHECK(engine_paste(h, junk.ptr(), junk.len(), 0) == -2);
+  engine_destroy(h);
+}
+
+TEST_CASE("api: a page thumbnail fits its content, offscreen, without touching the canvas") {
+  Payload opts{R"({"sessionID":1,"theme":"DARK"})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  Payload doc{kDoc};
+  REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
+  // Content: Frame 1, 200×200 at the origin → 64×64.
+  REQUIRE(engine_render_thumbnail(h, 0xffffffffu, 0xffffffffu, 64, 0) == 0);
+  std::string r = result();
+  REQUIRE(r.size() == 8 + 64 * 64 * 4);
+  auto u32 = [&](size_t at) {
+    return static_cast<uint32_t>(static_cast<uint8_t>(r[at])) | static_cast<uint32_t>(static_cast<uint8_t>(r[at + 1])) << 8 |
+           static_cast<uint32_t>(static_cast<uint8_t>(r[at + 2])) << 16 | static_cast<uint32_t>(static_cast<uint8_t>(r[at + 3])) << 24;
+  };
+  CHECK(u32(0) == 64);
+  CHECK(u32(4) == 64);
+  // The recording device returns the pass's clear colour: the dark theme's page colour, opaque.
+  CHECK(static_cast<uint8_t>(r[8]) == 0x1e);
+  CHECK(static_cast<uint8_t>(r[11]) == 255);
+  // A wide page keeps its aspect: add a layer far to the right.
+  Payload wide{R"({"nodeChanges":[{"guid":"1:9","phase":"CREATED","type":"ROUNDED_RECTANGLE","parentIndex":{"guid":"0:1","position":"~"},
+    "size":{"x":100,"y":100},"transform":{"m00":1,"m01":0,"m02":700,"m10":0,"m11":1,"m12":0}}]})"};
+  REQUIRE(engine_apply_changes(h, wide.ptr(), wide.len(), 2) == 0);
+  REQUIRE(engine_render_thumbnail(h, 0, 1, 400, 0) == 0);
+  r = result();
+  CHECK(u32(0) == 400);
+  CHECK(u32(4) == 100);
+  // No such page; an empty page.
+  CHECK(engine_render_thumbnail(h, 5, 5, 64, 0) == -5);
+  CHECK(engine_command(h, 90, 0, 0) == 0);  // CREATE_PAGE: empty, and current
+  CHECK(engine_render_thumbnail(h, 0xffffffffu, 0xffffffffu, 64, 0) == -5);
   engine_destroy(h);
 }

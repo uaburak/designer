@@ -48,7 +48,7 @@ describe("ColorPicker", () => {
     const onCancel = spy<[]>();
     const { onChange } = setup(red, { onCancel });
     const hue = $('[aria-label="Hue"]');
-    box(hue, { left: 0, top: 0, width: 360, height: 12 });
+    box(hue, { left: 0, top: 0, width: 372, height: 12 }); // 360 + the 6px insets
     pointer(hue, "pointerdown", { clientX: 120, clientY: 6 });
     pointer(hue, "pointermove", { clientX: 240, clientY: 6 });
     key(window.document.body, "Escape");
@@ -59,9 +59,9 @@ describe("ColorPicker", () => {
   it("drags opacity into the paint's opacity (SOLID keeps its colour opaque)", () => {
     const { onChange } = setup();
     const alpha = $('[aria-label="Opacity"][role="slider"]');
-    box(alpha, { left: 0, top: 0, width: 100, height: 12 });
-    pointer(alpha, "pointerdown", { clientX: 25, clientY: 6 });
-    pointer(alpha, "pointerup", { clientX: 25, clientY: 6 });
+    box(alpha, { left: 0, top: 0, width: 112, height: 12 }); // the thumb's centre travels 6…106
+    pointer(alpha, "pointerdown", { clientX: 31, clientY: 6 });
+    pointer(alpha, "pointerup", { clientX: 31, clientY: 6 });
     const [paint] = finals(onChange.calls)[0];
     expect(paint.opacity).toBeCloseTo(0.25);
     expect(paint.color!.a).toBe(1);
@@ -105,10 +105,10 @@ describe("ColorPicker", () => {
     const gradient: Paint = { type: "GRADIENT_LINEAR", opacity: 1, stops: [{ color: { r: 0, g: 0, b: 0, a: 1 }, position: 0 }, { color: { r: 1, g: 1, b: 1, a: 1 }, position: 1 }] };
     const { onChange } = setup(gradient);
     const bar = $('[data-ds="GradientBar"]');
-    box(bar, { left: 0, top: 0, width: 200, height: 24 });
-    pointer(bar, "pointerdown", { clientX: 100, clientY: 12 });
-    pointer(bar, "pointermove", { clientX: 150, clientY: 12 });
-    pointer(bar, "pointerup", { clientX: 150, clientY: 12 });
+    box(bar, { left: 0, top: 0, width: 212, height: 24 }); // stops travel 6…206
+    pointer(bar, "pointerdown", { clientX: 106, clientY: 12 });
+    pointer(bar, "pointermove", { clientX: 156, clientY: 12 });
+    pointer(bar, "pointerup", { clientX: 156, clientY: 12 });
     const done = finals(onChange.calls);
     expect(done).toHaveLength(1);
     const stops = done[0][0].stops!;

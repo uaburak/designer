@@ -28,7 +28,8 @@
   .chevron:hover, .chevron[data-open] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
   .tool[data-active] .button { background: var(--figma-color-bg-brand); color: var(--figma-color-icon-onbrand); }
   .button:focus-visible, .chevron:focus-visible, .button[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
-  .button:disabled { color: var(--figma-color-icon-disabled); background: transparent; }
+  .button:disabled, .button[aria-disabled="true"], .button[aria-disabled="true"]:hover { color: var(--figma-color-icon-disabled); background: transparent; }
+  .chevron:disabled, .chevron:disabled:hover { color: var(--figma-color-icon-disabled); background: transparent; }
   .help {
     position: absolute; right: var(--ds-size-toolbar-bottom); bottom: var(--ds-size-toolbar-bottom); z-index: var(--ds-z-floating);
     display: flex; align-items: center; justify-content: center; width: var(--ds-size-control-large); height: var(--ds-size-control-large); padding: 0; border: 0;
@@ -47,5 +48,6 @@
   .mode:hover, .mode[data-hover] { color: var(--figma-color-icon); }
   .mode[aria-checked="true"] { background: var(--figma-color-bg); color: var(--figma-color-icon-brand); }
   .mode:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
-  .mode:disabled { color: var(--figma-color-icon-disabled); }
+  /* Disabled: the disabled ink (after :hover, so hovering doesn't brighten it), and no chosen fill */
+  .mode:disabled, .mode[aria-disabled="true"], .mode[aria-disabled="true"]:hover { color: var(--figma-color-icon-disabled); background: transparent; }
 }

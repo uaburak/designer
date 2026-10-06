@@ -91,6 +91,10 @@
   /* Image */
   .image {
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--figma-color-icon-tertiary);
     height: 140px;
     border-radius: var(--ds-radius-medium);
     background-color: var(--figma-color-bg-secondary);

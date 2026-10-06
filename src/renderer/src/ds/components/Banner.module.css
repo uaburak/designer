@@ -1,0 +1,24 @@
+@layer ds {
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-height: var(--ds-size-control-large);
+    padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-1);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .icon { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
+  .text { flex: 1 1 auto; min-width: 0; padding: var(--ds-space-1) 0; }
+  .banner:not(:has(.icon)) .text { padding-left: var(--ds-space-2); }
+  .banner .action { flex: none; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .brand { background: var(--figma-color-bg-brand-tertiary); }
+  .brand .icon { color: var(--figma-color-icon-brand); }
+  .warning { background: var(--figma-color-bg-warning-tertiary); }
+  .warning .icon { color: var(--figma-color-icon-warning); }
+  .danger { background: var(--figma-color-bg-danger-tertiary); }
+  .danger .icon { color: var(--figma-color-icon-danger); }
+}

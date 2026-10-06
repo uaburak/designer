@@ -58,4 +58,35 @@ describe("EditorToolbar", () => {
     click($('[aria-label="Dev Mode"]', m!.host));
     expect(onMode.calls).toEqual([["dev"]]);
   });
+
+  it("disabled tools: dimmed, not clickable, tooltip kept; the slot menu still offers the rest", () => {
+    const { onTool } = setup({ disabledTools: ["pen", "comment", "annotation", "measurement", "polygon"] });
+    const pen = $('[aria-label="Pen"]', m!.host);
+    expect(pen.getAttribute("aria-disabled")).toBe("true");
+    expect(pen.hasAttribute("disabled")).toBe(false); // hoverable, so the tooltip still shows
+    expect(pen.getAttribute("data-tooltip")).toBe("Pen");
+    click(pen);
+    expect(onTool.calls).toHaveLength(0);
+    // Pencil is enabled: the Creation chevron opens, Pen is greyed in it
+    const creation = $('[aria-label="Creation tools"]', m!.host) as HTMLButtonElement;
+    expect(creation.disabled).toBe(false);
+    click(creation);
+    const items = $$('#ds-overlays [role="menuitemcheckbox"]');
+    expect(items[0].getAttribute("aria-disabled")).toBe("true");
+    click(items[0]);
+    expect(onTool.calls).toHaveLength(0);
+    click(items[1]);
+    expect(onTool.calls).toEqual([["pencil"]]);
+    // every comment tool off: its chevron is disabled too
+    expect(($('[aria-label="Comment tools"]', m!.host) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("disabled modes keep their tooltip and can't be chosen", () => {
+    const { onMode } = setup({ disabledModes: ["motion"] });
+    const motion = $('[aria-label="Motion"]', m!.host);
+    expect(motion.getAttribute("aria-disabled")).toBe("true");
+    expect(motion.getAttribute("data-tooltip")).toBe("Motion");
+    click(motion);
+    expect(onMode.calls).toHaveLength(0);
+  });
 });

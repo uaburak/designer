@@ -1,12 +1,15 @@
-// The theme on the page before anything paints. The preference: the one the app's pages keep ("designer-theme" in
-// localStorage — ThemeContext, ds/theme.ts), else the desktop app's (the preload's window.designer.theme, from main's
-// settings), else the system's. Main sets nativeTheme from the same preference, so prefers-color-scheme resolves "system".
+// The theme on the page before anything paints (docs/design-system.md §2.3, ds/theme.ts). In the desktop app the
+// preference is main's (the preload's window.designer.theme, from settings.json, already resolved); in a browser it is
+// the page's own ("designer-theme" in localStorage, ds/theme.ts), else the system's.
 (function () {
   var desktop = window.designer && window.designer.theme;
-  var pref = null;
-  try { pref = localStorage.getItem("designer-theme"); } catch (e) { /* the desktop's or the system's */ }
-  if (pref !== "light" && pref !== "dark") pref = desktop ? desktop.preference : "system";
-  var dark = pref === "dark" || (pref !== "light" && (desktop && desktop.preference === pref ? desktop.resolved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches));
+  var dark;
+  if (desktop) dark = desktop.resolved === "dark";
+  else {
+    var pref = null;
+    try { pref = localStorage.getItem("designer-theme"); } catch (e) { /* the system's */ }
+    dark = pref === "dark" || (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
   var root = document.documentElement;
   root.setAttribute("data-theme", dark ? "dark" : "light");
   root.style.colorScheme = dark ? "dark" : "light";

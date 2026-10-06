@@ -20,6 +20,8 @@ export { keys, IS_MAC } from "./util/keys";
 export { typeahead, createTypeahead } from "./util/typeahead";
 export { selectAllOnClick } from "./util/selectAll";
 export { nextEnabled, rovingTarget } from "./util/rovingFocus";
+export { FOLDER_COLOR_IDS, FOLDER_COLOR_VARS, FOLDER_COLOR_LABEL, folderColor, type FolderColorId } from "./util/folderColor";
+export { clickSelection, moveSelection, inOrder, idsInRect, isToggleModifier, selectionModifiers, useSelection, type SelectionState, type SelectionModifiers } from "./util/selection";
 
 export { Portal, overlayRoot, themeOf } from "./overlay/Portal";
 export { place, placeMenu, placeOverTrigger, EDGE } from "./overlay/position";
@@ -61,3 +63,9 @@ export * from "./components/FileCard";
 export * from "./components/Misc";
 export * from "./components/ScrollArea";
 export * from "./components/VirtualList";
+export * from "./components/Breadcrumb";
+export * from "./components/InlineEdit";
+export * from "./components/ListView";
+export * from "./components/CollectionView";
+export * from "./components/FolderCard";
+export * from "./components/Banner";

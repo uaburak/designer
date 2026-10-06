@@ -124,6 +124,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         tabIndex={-1}
         data-ds="Menu"
         data-theme="dark"
+        data-theme-forced=""
         data-static={isStatic || undefined}
         className={cx(styles.panel, isStatic && styles.static)}
         style={isStatic ? undefined : { left: x, top: y, visibility: "hidden" }}

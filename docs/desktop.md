@@ -318,6 +318,8 @@ Figma saves continuously, so there is nothing to ask the user. The only question
 3. The timeout is `FLUSH_TIMEOUT_MS = 3000`.
 4. Views that are crashed or discarded resolve immediately with `ok: true`: nothing in them is unsent that could still be sent.
 
+Decision (2026-10-06): `reason` also takes `"hide"`, sent without waiting when a file tab is hidden (another tab comes in front, Save local copy) and when the Mac sleeps or locks.
+
 **Close tab**: flush. On `ok`, destroy the view and record the tab as closed. Otherwise show a native dialog:
 
 | Case | `dialog.showMessageBox(win, …)` |
@@ -419,6 +421,12 @@ On macOS, Chromium gives every key event to the focused page first. Only events 
    - For `source: "menu"`, the view runs the command against the editor even if a field has focus, after blurring the field.
 5. **Copy, Cut and Paste** stay Electron roles. Chromium dispatches DOM `copy`, `cut` and `paste` events in the focused view, and both text fields and the editor listen to them (§13).
 6. **Hung views**: main's `before-input-event` on every view intercepts ⌘W, ⌃Tab, ⌃⇧Tab and ⌘1–⌘9 while that view's status is `unresponsive`, so a hung tab can still be left or closed.
+
+**Decisions recorded during integration (2026-10-06):**
+- File menu wording follows Home: "Move to folder…" (workspace folders, docs/data.md) and "Move to trash".
+- Menu labels use Figma's sentence case ("Group selection", "Paste over selection"), as Figma's own menus and the editor's command table write them. macOS's own items keep title case.
+- Command ids are the editor's (`object.group`, `help.shortcuts`, …). Scopes are `app`, `shell`, `view` (Home or a file, whichever is in front) and `editor`.
+- Accelerators without ⌘ or ⌃ are displayed and not registered (`registerAccelerator: false`), so a registered ⇧R or ⌥A can't take a character typed into a field.
 
 ### 8.4 Menu state
 

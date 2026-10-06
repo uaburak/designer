@@ -38,7 +38,7 @@ const subscribe = (l: () => void) => {
 /** A toast's look (contract §4.22): 40px, radius 9, dark (red for errors), an action and ×. */
 export function Toast({ message, kind = "default", action, onClose, static: isStatic }: ToastOptions & { onClose?: () => void; static?: boolean }) {
   return (
-    <div role={kind === "error" ? "alert" : "status"} data-ds="Toast" data-theme="dark" className={cx(styles.toast, kind === "error" && styles.error, isStatic && styles.static)}>
+    <div role={kind === "error" ? "alert" : "status"} data-ds="Toast" data-theme="dark" data-theme-forced="" className={cx(styles.toast, kind === "error" && styles.error, isStatic && styles.static)}>
       {kind === "success" && <span className={styles.lead}><Icon name="24.check" /></span>}
       <span className={styles.message}>{message}</span>
       {action && (

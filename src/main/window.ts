@@ -3,6 +3,7 @@ import type { WindowState } from "../shared/ipc";
 import { DEFAULT_WINDOW_SIZE, MIN_WINDOW_SIZE, TABBAR_HEIGHT, TRAFFIC_LIGHT_POSITION } from "../shared/layout";
 import { persistable, restoreTabs } from "../shared/tabs";
 import { flushSession, readSession, writeSession, type WindowBounds, type WindowSession } from "./session";
+import { stopStoreHost } from "./storeHost";
 import { emit, TabManager } from "./tabs";
 import { backgroundOf, createView, destroyView } from "./views";
 
@@ -14,6 +15,22 @@ import { backgroundOf, createView, destroyView } from "./views";
  */
 
 export const lifecycle = { quitting: false };
+
+let finishing: Promise<void> | null = null;
+
+/**
+ * The end of a quit, once every window's files have flushed (docs/desktop.md
+ * §6): the store flushes and shuts down (lock released), session.json is
+ * written, and the app exits. Explicit, because a second `app.quit()` after
+ * a cancelled one is ignored on some paths (a SIGTERM's).
+ */
+export function finishQuit(): Promise<void> {
+  finishing ??= stopStoreHost().finally(() => {
+    flushSession();
+    app.exit(0);
+  });
+  return finishing;
+}
 
 export const controllers = new Map<string, WindowController>();
 
@@ -177,7 +194,8 @@ export class WindowController {
       this.closeAllowed = true;
       this.persist();
       flushSession();
-      if (lifecycle.quitting) app.quit();
+      // Quitting: the other windows (v1 has none) close with the app.
+      if (lifecycle.quitting) void finishQuit();
       else this.win.close();
     } finally {
       this.closing = false;

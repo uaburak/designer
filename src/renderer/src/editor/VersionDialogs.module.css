@@ -1,0 +1,15 @@
+@layer app {
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .loading { display: flex; justify-content: center; padding: var(--ds-space-6); }
+  .list { max-height: 360px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-height: var(--ds-space-12);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .title { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .meta { overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+}

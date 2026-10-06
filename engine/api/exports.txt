@@ -41,6 +41,10 @@ _engine_txn_commit
 _engine_txn_cancel
 _engine_command
 _engine_command_state
+_engine_move_nodes
+_engine_encode_selection
+_engine_paste
+_engine_render_thumbnail
 _engine_has_events
 _engine_take_events
 _engine_stats

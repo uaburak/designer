@@ -6,8 +6,7 @@
  */
 import type { Guid, Matrix, NodeChange, Vector } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { hasCommand, runCommand } from "./engineCompat";
-import { boundsOf, IDENTITY, mirrorAbout, multiply, rotateAbout, unionBoxes, type Box } from "./model/geometry";
+import { boundsOf, IDENTITY, multiply, rotateAbout, unionBoxes, type Box } from "./model/geometry";
 
 const isGroup = (n: NodeChange | null) => !!n && (n.type === "GROUP" || (n.type === "FRAME" && n.resizeToFit === true));
 
@@ -81,15 +80,6 @@ function transformSelection(ed: EditorController, label: string, fn: (m: Matrix,
       for (const n of siblings) ed.engine.setProps([n.guid], { transform: fn(n.transform!, center) });
     }
   });
-}
-
-export function flipSelection(ed: EditorController, axis: "x" | "y"): void {
-  const name = axis === "x" ? "FLIP_HORIZONTAL" : "FLIP_VERTICAL";
-  if (hasCommand(name)) {
-    runCommand(ed.engine, name);
-    return;
-  }
-  transformSelection(ed, axis === "x" ? "Flip horizontal" : "Flip vertical", (m, c) => mirrorAbout(m, axis, c));
 }
 
 /** Turns the selection by `degrees` (Figma's sense: positive = counter-clockwise, "Rotate 90° left"). */

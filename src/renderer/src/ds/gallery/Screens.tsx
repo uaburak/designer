@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Breadcrumb } from "../components/Breadcrumb";
+import { CollectionView } from "../components/CollectionView";
 import { MIXED } from "../types";
 import { Button, IconButton, ToggleIconButton } from "../components/Button";
 import { NumericInput } from "../components/NumericInput";
@@ -148,7 +150,7 @@ export function HomeScreen() {
         <div className={styles.homeTop}>
           <IconButton icon="24.arrow.left" label="Back" tone="secondary" />
           <IconButton icon="24.arrow.right" label="Forward" tone="secondary" />
-          <span style={{ marginLeft: 4 }}>Drafts</span>
+          <Breadcrumb items={[{ id: "drafts", label: "Drafts" }]} onNavigate={noop} style={{ marginLeft: 4 }} />
           <span className={styles.grow} />
           <Button variant="tinted" icon="24.figma">Design</Button>
           <Button variant="tinted" icon="24.plus.small">Import</Button>
@@ -160,11 +162,11 @@ export function HomeScreen() {
             <Select label="Sort" variant="ghost" width="hug" value="modified" options={[{ value: "viewed", label: "Last viewed" }, { value: "modified", label: "Last modified" }, { value: "name", label: "Alphabetical" }, { value: "created", label: "Date created" }]} onChange={noop} />
             <SegmentedControl label="View" value="grid" onChange={noop} options={[{ value: "grid", icon: "24.view.grid", tooltip: "Grid view" }, { value: "list", icon: "24.view.list", tooltip: "List view" }]} />
           </div>
-          <div className={styles.cards}>
+          <CollectionView label="Files" className={styles.cards}>
             {files.map(([t, ago], i) => (
               <FileCard key={`${t}-${i}`} id={`${t}-${i}`} title={t} subtitle={formatEdited(now - ago, now)} selected={i === 1} />
             ))}
-          </div>
+          </CollectionView>
         </div>
       </div>
     </div>

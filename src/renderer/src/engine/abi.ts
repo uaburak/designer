@@ -23,6 +23,7 @@ export const CommandId = {
   SELECT_PARENT: 13,
   SELECT_NEXT_SIBLING: 14,
   SELECT_PREV_SIBLING: 15,
+  SELECT_INVERSE: 16,
   DELETE: 20,
   NUDGE: 21,
   BRING_FORWARD: 30,
@@ -36,8 +37,6 @@ export const CommandId = {
   ZOOM_TO_100: 52,
   ZOOM_TO_FIT: 53,
   ZOOM_TO_SELECTION: 54,
-  // Round 2 — the ids are final; the engine answers E_UNSUPPORTED (-8) until each is implemented
-  // (docs/engine-build.md, "Status at handoff").
   GROUP: 60,
   UNGROUP: 61,
   FRAME_SELECTION: 62,
@@ -55,7 +54,9 @@ export const CommandId = {
   ADD_AUTO_LAYOUT: 80,
   REMOVE_AUTO_LAYOUT: 81,
   CREATE_PAGE: 90,
+  /** args { page: "s:l" } (the current page when absent) */
   DELETE_PAGE: 91,
+  /** args { page: "s:l" } (the current page when absent) */
   DUPLICATE_PAGE: 92,
 } as const;
 export type CommandName = keyof typeof CommandId;
@@ -84,6 +85,8 @@ export const APPLY_REMOTE = 2;
 export const APPLY_LOAD = 4;
 /** engine_read_nodes flags. */
 export const INCLUDE_CHILD_IDS = 1;
+/** engine_paste flags. */
+export const PASTE_IN_PLACE = 1;
 
 /** Status codes (§10.3). */
 export const Status = {

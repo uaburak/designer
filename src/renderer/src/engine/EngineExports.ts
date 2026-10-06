@@ -144,6 +144,13 @@ export class EngineExports {
   command = (h: number, id: number, args: Uint8Array | null): number =>
     args ? this.withBytes([args], (p) => this.fn("command")(h, id, p[0], p[1])) : this.fn("command")(h, id, 0, 0);
   commandState = (h: number, id: number): number => this.fn("command_state")(h, id) >>> 0;
+  moveNodes = (h: number, refs: Uint8Array, parentSessionID: number, parentLocalID: number, index: number): number =>
+    this.withBytes([refs], (p) => this.fn("move_nodes")(h, p[0], p[1], parentSessionID, parentLocalID, index));
+  encodeSelection = (h: number, flags: number): number => this.fn("encode_selection")(h, flags);
+  paste = (h: number, message: Uint8Array, flags: number): number =>
+    this.withBytes([message], (p) => this.fn("paste")(h, p[0], p[1], flags));
+  renderThumbnail = (h: number, pageSessionID: number, pageLocalID: number, maxSize: number, flags: number): number =>
+    this.fn("render_thumbnail")(h, pageSessionID, pageLocalID, maxSize, flags);
 
   // ---- Events and diagnostics ----
   hasEvents = (h: number): boolean => (this.fn("has_events")(h) >>> 0) !== 0;
@@ -159,5 +166,6 @@ export const USED_EXPORTS = [
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored",
   "get_selection", "set_selection", "read_nodes", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
+  "move_nodes", "encode_selection", "paste", "render_thumbnail",
   "has_events", "take_events", "stats",
 ].map((name) => `engine_${name}`);

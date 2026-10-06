@@ -25,9 +25,31 @@ PipelineId NullDevice::createPipeline(const PipelineDesc& desc) {
 }
 
 bool NullDevice::beginPass(const PassDesc& pass) {
+  if (pass.target && (pass.target >= targets_.size() || !targets_[pass.target].live)) return false;
   draws.clear();
   lastPass = pass;
   passes++;
+  if (pass.target)
+    for (int i = 0; i < 4; i++) targets_[pass.target].clear[i] = pass.clear[i];
+  return true;
+}
+
+TargetId NullDevice::createTarget(uint32_t width, uint32_t height) {
+  if (!width || !height) return 0;
+  targets_.push_back({width, height, {0, 0, 0, 0}, true});
+  return static_cast<TargetId>(targets_.size() - 1);
+}
+
+void NullDevice::destroyTarget(TargetId target) {
+  if (target && target < targets_.size()) targets_[target].live = false;
+}
+
+bool NullDevice::readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) {
+  if (!target || target >= targets_.size() || !targets_[target].live) return false;
+  if (rgba8.size() < static_cast<size_t>(rect.w) * rect.h * 4) return false;
+  const Target& t = targets_[target];
+  for (size_t i = 0; i + 3 < rgba8.size(); i += 4)
+    for (int c = 0; c < 4; c++) rgba8[i + c] = static_cast<uint8_t>(t.clear[c] * 255 + 0.5f);
   return true;
 }
 

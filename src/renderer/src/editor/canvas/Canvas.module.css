@@ -1,0 +1,15 @@
+@layer app {
+  /* Rulers: 20 along the canvas's top and left, over it; the corner square where they meet */
+  .rulerTop, .rulerLeft, .rulerCorner { position: absolute; z-index: var(--ds-z-base); pointer-events: none; }
+  .rulerTop { top: 0; left: 0; width: 100%; height: var(--ds-size-ruler); }
+  .rulerLeft { top: 0; left: 0; width: var(--ds-size-ruler); height: 100%; }
+  .rulerCorner {
+    top: 0;
+    left: 0;
+    width: var(--ds-size-ruler);
+    height: var(--ds-size-ruler);
+    border-right: 1px solid var(--figma-color-border);
+    border-bottom: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+}

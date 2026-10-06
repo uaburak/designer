@@ -24,4 +24,10 @@ bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel);
 // path stops before the first locked node. `pixel` is one CSS px in world units.
 std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pixel);
 
+// Every layer under `world`, topmost first, each as its path from the page's
+// direct child down to it (the same rules as hitPath); a path that is the
+// prefix of one already listed (a frame under its own hit child) isn't repeated.
+// For the context menu's "Select layer".
+std::vector<std::vector<Guid>> hitPaths(const Document& doc, Guid page, Vec2 world, double pixel);
+
 }  // namespace eng

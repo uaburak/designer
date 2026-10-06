@@ -1,20 +1,21 @@
-import { app, Menu, nativeImage, session } from "electron";
+import { app, Menu, nativeImage, powerMonitor, session } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isCommandId } from "../shared/commands";
-import { asked, testAnswers } from "./dialogs";
+import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { registerIpc } from "./ipc";
 import { appMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
-import { flushSession } from "./session";
+import { flushStore, retryStoreHost, startStoreHost, storeClient, storeDebug } from "./storeHost";
 import { initTheme } from "./theme";
-import { controllers, lifecycle, openWindow, type WindowController } from "./window";
+import { controllers, finishQuit, lifecycle, openWindow, type WindowController } from "./window";
 
 /**
  * DesignerV2's desktop side (docs/desktop-impl.md): one window of views —
- * the tab bar, Home, each open file — each its own renderer process; main
- * keeps the tabs, the menu, the questions about unsaved work, and what only
- * the desktop can do (the Google sign-in in the browser, links, the theme).
+ * the tab bar, Home, each open file — each its own renderer process; the
+ * store, a utility process, the only writer of the workspace; main keeps
+ * the tabs, the menu, the flushes and questions on closing, and what only
+ * the desktop can do (native dialogs, links, the theme).
  */
 
 // The dev server's page can't have the built page's CSP (Vite's hot reload is inline): Electron's warning about it is for the built app only.
@@ -23,7 +24,7 @@ if (DEV_URL) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 registerScheme();
 app.enableSandbox();
 
-// A run of its own (scripts/drive.mjs): its sign-in, its demo data, its window — not the everyday app's.
+// A run of its own (scripts/drive.mjs): its workspace, its windows — not the everyday app's.
 if (process.env.DESIGNER_USER_DATA) app.setPath("userData", process.env.DESIGNER_USER_DATA);
 
 /** The window in front (v1 has one). */
@@ -43,18 +44,11 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", () => void windowOrNew());
 
   app.whenReady().then(() => {
-    app.setAboutPanelOptions({ applicationName: "DesignerV2", applicationVersion: app.getVersion(), copyright: "burakkoc.net" });
+    app.setAboutPanelOptions({ applicationName: "DesignerV2", applicationVersion: app.getVersion(), copyright: "Burak Koç" });
     initTheme();
     handleScheme();
     registerIpc();
 
-    // The bucket's files are public, but it sends no CORS header for them: the editor's export couldn't read the pictures it
-    // embeds (inline.ts). The app may — a read of a public file, never a write (uploads have Storage's own CORS). Legacy data layer.
-    session.defaultSession.webRequest.onHeadersReceived({ urls: ["https://firebasestorage.googleapis.com/*"] }, (details, callback) => {
-      const headers = details.responseHeaders ?? {};
-      if (details.method === "GET" && !Object.keys(headers).some((h) => h.toLowerCase() === "access-control-allow-origin")) headers["Access-Control-Allow-Origin"] = ["*"];
-      callback({ responseHeaders: headers });
-    });
 
     // While developing, the dock shows the app's icon (a packaged app has it in its bundle).
     if (DEV_URL && process.platform === "darwin") {
@@ -69,7 +63,16 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setDevicePermissionHandler(() => false);
 
     Menu.setApplicationMenu(appMenu(current, Boolean(DEV_URL)));
+    // The store first: Home and the file tabs get their ports as their pages load.
+    startStoreHost(() => {
+      void askStoreGone().then((answer) => (answer === "quit" ? app.quit() : retryStoreHost()));
+    });
     openWindow();
+
+    // The Mac sleeps or locks: what the files hold goes to disk, without a question.
+    const flushAll = () => void Promise.all([...controllers.values()].map((c) => c.tabs.flushQuietly())).then(flushStore);
+    powerMonitor.on("suspend", flushAll);
+    powerMonitor.on("lock-screen", flushAll);
 
     app.on("activate", () => {
       if (!current()) openWindow();
@@ -79,7 +82,11 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     lifecycle.quitting = true;
   });
-  app.on("will-quit", () => flushSession());
+  // No window left to settle (macOS keeps running without one): the store flushes and shuts down, then the app exits.
+  app.on("will-quit", (e) => {
+    e.preventDefault();
+    void finishQuit();
+  });
   // macOS: closing the window doesn't quit (the Dock brings it back).
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin" || lifecycle.quitting) app.quit();
@@ -99,6 +106,8 @@ if (process.env.DESIGNER_TEST === "1") {
       },
       answers: testAnswers,
       asked,
+      store: storeDebug,
+      storeClient,
     },
   });
 }

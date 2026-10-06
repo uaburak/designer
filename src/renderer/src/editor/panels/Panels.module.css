@@ -1,0 +1,162 @@
+@layer app {
+  /* ---- Left panel ---- */
+  .left {
+    position: relative;
+    z-index: var(--ds-z-panel);
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  /* File header: 64, name 13/22 550 + chevron, the location under it, Minimize UI at the right */
+  .fileHeader {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-panel-header);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .fileTitle {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+  }
+  .fileButton {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-half);
+    align-self: flex-start;
+    max-width: 100%;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+    outline: none;
+  }
+  .fileButton:hover, .fileButton[data-open] { background: var(--figma-color-bg-hover); }
+  .fileButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .fileButton > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fileButton svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .fileLocation {
+    padding-left: var(--ds-space-2);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+  }
+  .fileRename { width: 100%; }
+
+  .pages { flex: none; }
+  .pageList { max-height: 40vh; overflow-y: auto; padding-bottom: var(--ds-space-2); }
+  .pageSearch { flex: 1 1 auto; min-width: 0; margin-right: var(--ds-space-1); }
+  .pageDragging { opacity: 0.5; }
+  .noResults { padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-2); color: var(--figma-color-text-secondary); }
+
+  .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; border-bottom: 0; }
+  .layerList { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-2); outline: none; }
+  .layersEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  .assets { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
+
+  /* ---- Right panel ---- */
+  .right {
+    position: relative;
+    z-index: var(--ds-z-panel);
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  /* Header 48: avatar + chevron at 16; Present ▸ + chevron; Share 55 × 32 ending 8 from the edge */
+  .rightHeader {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-space-12);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-3);
+  }
+  .grow { flex: 1 1 auto; }
+  .chip {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon);
+    outline: none;
+  }
+  .chip:hover, .chip[data-open] { background: var(--figma-color-bg-hover); }
+  .chip:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .chip > svg:last-child { color: var(--figma-color-icon-secondary); }
+  .present { display: flex; align-items: center; gap: 1px; }
+  .presentChevron { width: 16px; padding: 0; justify-content: center; }
+  /* Tabs row 32 (Design, Prototype; the zoom at the right), a line at 80 */
+  .rightTabs {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .zoom {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-control);
+    padding: 0 0 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    font-variant-numeric: tabular-nums;
+    outline: none;
+  }
+  .zoom:hover, .zoom[data-open] { background: var(--figma-color-bg-hover); }
+  .zoom:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .zoom svg { color: var(--figma-color-icon-secondary); }
+  .rightBody { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+
+  /* ---- Minimized UI (⇧\): the panels as two floating cards ---- */
+  .card {
+    position: absolute;
+    top: var(--ds-space-3);
+    z-index: var(--ds-z-floating);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-space-12);
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-100);
+  }
+  .cardLeft { left: var(--ds-space-3); max-width: 280px; }
+  .cardRight { right: var(--ds-space-3); }
+  .cardName {
+    min-width: 0;
+    overflow: hidden;
+    padding: 0 var(--ds-space-1);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

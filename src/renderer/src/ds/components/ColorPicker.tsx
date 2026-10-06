@@ -57,16 +57,26 @@ const HUE_TRACK = "linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff,
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const byte = (n: number) => Math.round(clamp01(n) * 255);
 const pct = (n: number) => Math.round(clamp01(n) * 100);
+/** Half a slider thumb / gradient stop (12px wide): their centres travel from 6px to width − 6px, so they never hang off the track. */
+const INSET = 6;
+/** A pointer's x as a fraction of a track inset by `inset` px on each side. */
+const fractionX = (clientX: number, r: DOMRect, inset: number) => {
+  const w = r.width - 2 * inset;
+  return clamp01((clientX - r.left - inset) / (w > 0 ? w : 1));
+};
+/** A thumb's `left` on an inset track. */
+const insetLeft = (f: number) => `calc(${INSET}px + (100% - ${2 * INSET}px) * ${clamp01(f)})`;
 
 /**
  * Follows a pointer from a press until release (pointer captured on the
- * pressed element): `onMove` gets its position as fractions of `area`'s box;
+ * pressed element): `onMove` gets its position as fractions of `area`'s box
+ * (x measured `inset` px in from each side);
  * `onEnd(cancelled)` runs once — Esc or a lost pointer cancels.
  */
-function trackPointer(e: React.PointerEvent<HTMLElement>, area: HTMLElement, onMove: (fx: number, fy: number, dy: number) => void, onEnd: (cancelled: boolean) => void) {
+function trackPointer(e: React.PointerEvent<HTMLElement>, area: HTMLElement, onMove: (fx: number, fy: number, dy: number) => void, onEnd: (cancelled: boolean) => void, inset = 0) {
   const el = e.currentTarget;
   const r = area.getBoundingClientRect();
-  const at = (ev: { clientX: number; clientY: number }) => onMove(clamp01((ev.clientX - r.left) / (r.width || 1)), clamp01((ev.clientY - r.top) / (r.height || 1)), ev.clientY - (r.top + r.height / 2));
+  const at = (ev: { clientX: number; clientY: number }) => onMove(fractionX(ev.clientX, r, inset), clamp01((ev.clientY - r.top) / (r.height || 1)), ev.clientY - (r.top + r.height / 2));
   try {
     el.setPointerCapture?.(e.pointerId);
   } catch {
@@ -242,7 +252,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     } else latest.current.onChange(g.last, { final: true, source: "drag" });
   };
 
-  const dragColor = (e: React.PointerEvent<HTMLDivElement>, compute: (fx: number, fy: number) => { hsv: HSV; a: number }) => {
+  const dragColor = (e: React.PointerEvent<HTMLDivElement>, compute: (fx: number, fy: number) => { hsv: HSV; a: number }, inset = 0) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.currentTarget.focus({ preventScroll: true });
@@ -252,7 +262,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       const next = compute(fx, fy);
       setLocalHsv(next.hsv);
       preview(withTargetColor(start, stop, { ...hsvToRgb(next.hsv), a: next.a }));
-    }, end);
+    }, end, inset);
   };
 
   const keyStep = (e: React.KeyboardEvent, apply: (dx: number, dy: number) => void) => {
@@ -273,12 +283,12 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     const el = bar.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const { stops, index } = addStop(value.stops ?? [], (e.clientX - r.left) / (r.width || 1));
+    const { stops, index } = addStop(value.stops ?? [], fractionX(e.clientX, r, INSET));
     begin();
     selectStop(index);
     const start = { ...gesture.current!.start, stops };
     preview(start);
-    trackPointer(e, el, (fx) => preview({ ...start, stops: moveStop(stops, index, fx) }), end);
+    trackPointer(e, el, (fx) => preview({ ...start, stops: moveStop(stops, index, fx) }), end, INSET);
   };
   const pressStop = (e: React.PointerEvent<HTMLButtonElement>, i: number) => {
     if (e.button !== 0) return;
@@ -299,7 +309,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     }, (cancelled) => {
       if (!cancelled && gesture.current && (gesture.current.last.stops?.length ?? 0) < stops.length) selectStop(0);
       end(cancelled);
-    });
+    }, INSET);
   };
 
   const typeOptions = PAINT_TYPES.filter((t) => !paintTypes || paintTypes.includes(t.value)).map((t) => ({ value: t.value, icon: t.icon as IconName, tooltip: t.label }));
@@ -427,7 +437,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                       aria-selected={i === stop}
                       data-removing={removing === i || undefined}
                       className={styles.stop}
-                      style={{ left: `${s.position * 100}%`, background: rgbaToCss({ ...s.color, a: 1 }) }}
+                      style={{ left: insetLeft(s.position), background: rgbaToCss({ ...s.color, a: 1 }) }}
                       onPointerDown={(e) => pressStop(e, i)}
                       onFocus={() => i !== stop && selectStop(i)}
                       onKeyDown={(e) => {
@@ -452,11 +462,13 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
             {value.type === "IMAGE" ? (
               <>
                 <div
-                  className={cx(styles.image, styles.checker)}
+                  className={styles.image}
                   role="img"
-                  aria-label="Image preview"
+                  aria-label={imageUrl ? "Image preview" : "No image"}
                   style={imageUrl ? { backgroundImage: `url("${imageUrl}")`, backgroundSize: value.imageScaleMode === "FIT" ? "contain" : value.imageScaleMode === "TILE" ? "auto" : "cover", backgroundRepeat: value.imageScaleMode === "TILE" ? "repeat" : "no-repeat" } : undefined}
-                />
+                >
+                  {!imageUrl && <Icon name="24.image" />}
+                </div>
                 <div className={styles.imageRow}>
                   <Select label="Image scale mode" value={value.imageScaleMode ?? "FILL"} options={SCALE_MODES} onChange={(m) => onChange({ ...value, imageScaleMode: m as ImageScaleMode }, { final: true, source: "pick" })} />
                   <Button variant="secondary" disabled={!onChooseImage} onClick={onChooseImage}>Choose image…</Button>
@@ -493,10 +505,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                       aria-valuenow={Math.round(hsv.h)}
                       tabIndex={0}
                       style={{ background: HUE_TRACK }}
-                      onPointerDown={(e) => dragColor(e, (fx) => ({ hsv: { ...hsv, h: fx * 360 }, a: target.a }))}
+                      onPointerDown={(e) => dragColor(e, (fx) => ({ hsv: { ...hsv, h: fx * 360 }, a: target.a }), INSET)}
                       onKeyDown={(e) => keyStep(e, (dx, dy) => { const next = { ...hsv, h: Math.min(360, Math.max(0, hsv.h + (dx + dy) * 360)) }; setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next); })}
                     >
-                      <span className={styles.thumb} style={{ left: `${(hsv.h / 360) * 100}%`, background: rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 })) }} />
+                      <span className={styles.thumb} style={{ left: insetLeft(hsv.h / 360), background: rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 })) }} />
                     </div>
                     <div
                       className={cx(styles.slider, styles.checker)}
@@ -506,11 +518,11 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                       aria-valuemax={100}
                       aria-valuenow={pct(target.a)}
                       tabIndex={0}
-                      onPointerDown={(e) => dragColor(e, (fx) => ({ hsv, a: fx }))}
+                      onPointerDown={(e) => dragColor(e, (fx) => ({ hsv, a: fx }), INSET)}
                       onKeyDown={(e) => keyStep(e, (dx, dy) => setColor({ ...target, a: clamp01(target.a + dx + dy) }, { final: true, source: "step" }, hsv))}
                     >
                       <span className={styles.barFill} style={{ background: `linear-gradient(to right, transparent, ${opaque})` }} />
-                      <span className={styles.thumb} style={{ left: `${target.a * 100}%`, background: rgbaToCss(target) }} />
+                      <span className={styles.thumb} style={{ left: insetLeft(target.a), background: rgbaToCss(target) }} />
                     </div>
                   </div>
                 </div>

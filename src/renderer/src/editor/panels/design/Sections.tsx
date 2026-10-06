@@ -1,0 +1,332 @@
+/**
+ * The Design panel's geometry sections for a selection (UI3): Position
+ * (alignment, X/Y, rotation with rotate / flip), Layout (auto layout,
+ * W/H with Constrain proportions, Clip content) and Appearance (opacity,
+ * corner radius, visibility, blend mode). Every edit is one undo step; a
+ * scrub is one open transaction committed on release (ed.edit); a Mixed
+ * field steps each layer by the delta (onStep).
+ */
+import { useState } from "react";
+import { AlignmentMatrix, Checkbox, IconButton, MIXED, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, ToggleIconButton, type Alignment, type ChangeInfo, type Mixed } from "@/ds";
+import type { Guid } from "@/engine/codec";
+import { useEditor, type EditorController } from "../../controller";
+import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
+import { groupChain } from "../../actions";
+import { useUI } from "../../hooks";
+import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
+import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
+import { fields, hasCorners, isFrameNode, isGroupNode, useSupports, type PanelNode } from "./shared";
+import styles from "./Design.module.css";
+
+/** Writes `fn(fresh node)` to every node as one undo step (a scrub: one open transaction). */
+function editEach(ed: EditorController, label: string, info: ChangeInfo, refs: readonly Guid[], fn: (n: PanelNode) => Parameters<EditorController["engine"]["setProps"]>[1] | null) {
+  ed.edit(label, info, () => {
+    for (const n of ed.engine.readNodes(refs) as PanelNode[]) {
+      const f = fn(n);
+      if (f) ed.engine.setProps([n.guid], f);
+    }
+  });
+}
+
+const stepInfo: ChangeInfo = { final: true, source: "step" };
+
+function CommandButton({ id, icon }: { id: string; icon: Parameters<typeof IconButton>[0]["icon"] }) {
+  const ed = useEditor();
+  const c = command(id);
+  return <IconButton icon={icon} label={c.label} shortcut={shortcutOf(c)} disabled={!isEnabled(ed, c)} onClick={() => runEditorCommand(ed, id)} />;
+}
+
+// ---- Position ------------------------------------------------------------------------------
+
+export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const labels = useUI((s) => s.propertyLabels);
+  const refs = nodes.map((n) => n.guid);
+  const pos = nodes.map((n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n)));
+  const x = mixedNumber(pos.map((p) => roundPanel(p.x)));
+  const y = mixedNumber(pos.map((p) => roundPanel(p.y)));
+  const rotation = mixedNumber(nodes.map((n) => roundPanel(rotationOf(n.transform ?? IDENTITY))));
+  const setAxis = (axis: "x" | "y", v: number, info: ChangeInfo) =>
+    editEach(ed, "Position", info, refs, (n) => ({ transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), axis === "x" ? v : null, axis === "y" ? v : null) }));
+  const stepAxis = (axis: "x" | "y", d: number) =>
+    editEach(ed, "Position", stepInfo, refs, (n) => {
+      const p = panelPosition(n.transform ?? IDENTITY, groupChain(ed, n));
+      return { transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), axis === "x" ? p.x + d : null, axis === "y" ? p.y + d : null) };
+    });
+  const setRotation = (deg: number, info: ChangeInfo) => editEach(ed, "Rotate", info, refs, (n) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null));
+  const stepRotation = (d: number) => editEach(ed, "Rotate", stepInfo, refs, (n) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, rotationOf(n.transform ?? IDENTITY) + d) } : null));
+  return (
+    <PanelSection title="Position">
+      <PropertyGrid labels={labels}>
+        <PropertyRow label="Alignment">
+          <div className={styles.buttons}>
+            <CommandButton id="arrange.align-left" icon="24.layout-align-left" />
+            <CommandButton id="arrange.align-horizontal-center" icon="24.layout-align-horizontal-center" />
+            <CommandButton id="arrange.align-right" icon="24.layout-align-right" />
+          </div>
+          <div className={styles.buttons}>
+            <CommandButton id="arrange.align-top" icon="24.layout-align-top" />
+            <CommandButton id="arrange.align-vertical-center" icon="24.layout-align-vertical-center" />
+            <CommandButton id="arrange.align-bottom" icon="24.layout-align-bottom" />
+          </div>
+        </PropertyRow>
+        <PropertyRow label="Position">
+          <NumericInput label="X" prefix="X" value={fieldValue(x)} onChange={(v, info) => setAxis("x", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepAxis("x", d)} onExit={exitToCanvas(ed)} />
+          <NumericInput label="Y" prefix="Y" value={fieldValue(y)} onChange={(v, info) => setAxis("y", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepAxis("y", d)} onExit={exitToCanvas(ed)} />
+        </PropertyRow>
+        <PropertyRow label="Rotation">
+          <NumericInput label="Rotation" prefix="24.rotation" unit="°" value={fieldValue(rotation)} min={-360} max={360} onChange={(v, info) => setRotation(v, info)} onCancel={() => ed.cancelEdit()} onStep={stepRotation} onExit={exitToCanvas(ed)} />
+          <div className={styles.buttons}>
+            <CommandButton id="object.rotate-90-right" icon="24.rotate" />
+            <CommandButton id="object.flip-horizontal" icon="24.flip.horizontal.small" />
+            <CommandButton id="object.flip-vertical" icon="24.flip.vertical" />
+          </div>
+        </PropertyRow>
+      </PropertyGrid>
+    </PanelSection>
+  );
+}
+
+/** Enter / Esc in a panel field give the keyboard back to the canvas (Figma). */
+export const exitToCanvas = (ed: EditorController) => (reason: string) => {
+  if (reason === "enter" || reason === "escape") ed.focusCanvas();
+};
+
+// ---- Layout ----------------------------------------------------------------------------------
+
+type Direction = "v" | "h" | "w";
+
+const directionOf = (n: PanelNode): Direction | null => (n.stackMode === "VERTICAL" ? "v" : n.stackMode === "HORIZONTAL" ? (n.stackWrap === "WRAP" ? "w" : "h") : null);
+
+export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const labels = useUI((s) => s.propertyLabels);
+  const autoLayoutKept = useSupports("stackMode");
+  const constrainKept = useSupports("proportionsConstrained");
+  const refs = nodes.map((n) => n.guid);
+  const frames = nodes.every(isFrameNode);
+  const groups = nodes.some(isGroupNode);
+  const directions = nodes.map(directionOf);
+  const auto = autoLayoutKept && frames && directions.every((d) => d !== null);
+  const w = mixedNumber(nodes.map((n) => roundPanel(n.size?.x ?? 0)));
+  const h = mixedNumber(nodes.map((n) => roundPanel(n.size?.y ?? 0)));
+  const constrained = mixed(nodes.map((n) => n.proportionsConstrained === true));
+
+  const setSize = (axis: "x" | "y", v: number, info: ChangeInfo) =>
+    editEach(ed, "Resize", info, refs, (n) => {
+      const s = n.size ?? { x: 0, y: 0 };
+      const keep = n.proportionsConstrained && s.x > 0 && s.y > 0;
+      const size = axis === "x" ? { x: v, y: keep ? (v * s.y) / s.x : s.y } : { x: keep ? (v * s.x) / s.y : s.x, y: v };
+      return { size: { x: Math.max(0.01, size.x), y: Math.max(0.01, size.y) } };
+    });
+  const stepSize = (axis: "x" | "y", d: number) => editEach(ed, "Resize", stepInfo, refs, (n) => (n.size ? { size: axis === "x" ? { x: Math.max(0.01, n.size.x + d), y: n.size.y } : { x: n.size.x, y: Math.max(0.01, n.size.y + d) } } : null));
+
+  const addAutoLayout = () => {
+    if (runEditorCommand(ed, "object.add-auto-layout")) return;
+    if (autoLayoutKept && frames) ed.setProps(refs, fields({ stackMode: "VERTICAL", stackSpacing: 10, stackHorizontalPadding: 10, stackVerticalPadding: 10, stackPaddingRight: 10, stackPaddingBottom: 10 }), "Add auto layout");
+  };
+  const removeAutoLayout = () => {
+    if (runEditorCommand(ed, "object.remove-auto-layout")) return;
+    ed.setProps(refs, fields({ stackMode: "NONE" }), "Remove auto layout");
+  };
+  const addCommand = command("object.add-auto-layout");
+  const actions = frames ? (
+    auto ? (
+      <IconButton icon="24.minus.small" label="Remove auto layout" shortcut={shortcutOf(command("object.remove-auto-layout"))} tone="secondary" onClick={removeAutoLayout} />
+    ) : (
+      <IconButton icon="24.autolayout-add-vertical" label="Add auto layout" shortcut={shortcutOf(addCommand)} tone="secondary" disabled={!autoLayoutKept && !isEnabled(ed, addCommand)} onClick={addAutoLayout} />
+    )
+  ) : undefined;
+
+  return (
+    <PanelSection title={auto ? "Auto layout" : "Layout"} actions={actions}>
+      <PropertyGrid labels={labels}>
+        {auto && <AutoLayoutRows nodes={nodes} />}
+        <PropertyRow
+          label="Dimensions"
+          action={constrainKept ? <ToggleIconButton icon="24.constrain-proportions" label="Constrain proportions" pressed={constrained ?? false} onPressedChange={(on) => ed.setProps(refs, fields({ proportionsConstrained: on }), "Constrain proportions")} /> : undefined}
+        >
+          <NumericInput label="Width" prefix="W" value={fieldValue(w)} min={0.01} disabled={groups} onChange={(v, info) => setSize("x", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepSize("x", d)} onExit={exitToCanvas(ed)} />
+          <NumericInput label="Height" prefix="H" value={fieldValue(h)} min={0.01} disabled={groups} onChange={(v, info) => setSize("y", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepSize("y", d)} onExit={exitToCanvas(ed)} />
+        </PropertyRow>
+      </PropertyGrid>
+      {frames && (
+        <div className={styles.checkRow}>
+          <Checkbox label="Clip content" checked={mixed(nodes.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(refs, { frameMaskDisabled: !on }, "Clip content")} />
+        </div>
+      )}
+    </PanelSection>
+  );
+}
+
+function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const refs = nodes.map((n) => n.guid);
+  const direction = mixed(nodes.map((n) => directionOf(n) ?? "v"));
+  const first = nodes[0];
+  const horizontal = direction !== "v";
+  const alignment: Alignment = {
+    primary: first.stackPrimaryAlignItems === "CENTER" || first.stackPrimaryAlignItems === "MAX" || first.stackPrimaryAlignItems === "SPACE_BETWEEN" ? first.stackPrimaryAlignItems : "MIN",
+    counter: first.stackCounterAlignItems === "CENTER" || first.stackCounterAlignItems === "MAX" ? first.stackCounterAlignItems : "MIN",
+  };
+  const gap = mixedNumber(nodes.map((n) => n.stackSpacing ?? 0));
+  const padH = mixedNumber(nodes.map((n) => n.stackHorizontalPadding ?? 0));
+  const padV = mixedNumber(nodes.map((n) => n.stackVerticalPadding ?? 0));
+  const set = (label: string, info: ChangeInfo, f: (n: PanelNode) => ReturnType<typeof fields>) => editEach(ed, label, info, refs, f);
+  return (
+    <>
+      <PropertyRow span={2} label="Direction">
+        <SegmentedControl
+          label="Direction"
+          fullWidth
+          value={direction ?? MIXED}
+          options={[
+            { value: "v", icon: "24.al.layout-vertical", tooltip: "Vertical layout" },
+            { value: "h", icon: "24.al.layout-horizontal", tooltip: "Horizontal layout" },
+            { value: "w", icon: "24.al.layout-wrap", tooltip: "Wrap" },
+          ]}
+          onChange={(v) => ed.setProps(refs, fields({ stackMode: v === "v" ? "VERTICAL" : "HORIZONTAL", stackWrap: v === "w" ? "WRAP" : "NO_WRAP" }), "Auto layout direction")}
+        />
+      </PropertyRow>
+      <PropertyRow label="Alignment and gap">
+        <div className={styles.matrix}>
+          <AlignmentMatrix direction={horizontal ? "horizontal" : "vertical"} value={alignment} onChange={(a) => ed.setProps(refs, fields({ stackPrimaryAlignItems: a.primary, stackCounterAlignItems: a.counter }), "Alignment")} />
+        </div>
+        <NumericInput
+          label="Gap between items"
+          prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
+          value={fieldValue(gap)}
+          min={0}
+          onChange={(v, info) => set("Gap", info, () => fields({ stackSpacing: v }))}
+          onCancel={() => ed.cancelEdit()}
+          onStep={(d) => set("Gap", stepInfo, (n) => fields({ stackSpacing: Math.max(0, (n.stackSpacing ?? 0) + d) }))}
+          onExit={exitToCanvas(ed)}
+        />
+      </PropertyRow>
+      <PropertyRow label="Padding">
+        <NumericInput
+          label="Horizontal padding"
+          prefix="24.al.padding-horizontal"
+          value={fieldValue(padH)}
+          min={0}
+          onChange={(v, info) => set("Padding", info, () => fields({ stackHorizontalPadding: v, stackPaddingRight: v }))}
+          onCancel={() => ed.cancelEdit()}
+          onExit={exitToCanvas(ed)}
+        />
+        <NumericInput
+          label="Vertical padding"
+          prefix="24.al.padding-vertical"
+          value={fieldValue(padV)}
+          min={0}
+          onChange={(v, info) => set("Padding", info, () => fields({ stackVerticalPadding: v, stackPaddingBottom: v }))}
+          onCancel={() => ed.cancelEdit()}
+          onExit={exitToCanvas(ed)}
+        />
+      </PropertyRow>
+    </>
+  );
+}
+
+// ---- Appearance ----------------------------------------------------------------------------
+
+const CORNERS = [
+  ["rectangleTopLeftCornerRadius", "24.radius.top.left", "Top left corner radius"],
+  ["rectangleTopRightCornerRadius", "24.radius.top.right", "Top right corner radius"],
+  ["rectangleBottomLeftCornerRadius", "24.radius.bottom.left", "Bottom left corner radius"],
+  ["rectangleBottomRightCornerRadius", "24.radius.bottom.right", "Bottom right corner radius"],
+] as const;
+
+type CornerField = (typeof CORNERS)[number][0];
+
+export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const labels = useUI((s) => s.propertyLabels);
+  const blendKept = useSupports("blendMode");
+  const refs = nodes.map((n) => n.guid);
+  const opacity = mixedNumber(nodes.map((n) => Math.round((n.opacity ?? 1) * 100)));
+  const visible = mixed(nodes.map((n) => n.visible !== false));
+  const corners = nodes.every(hasCorners);
+  const radius = mixedNumber(nodes.map((n) => n.cornerRadius ?? 0));
+  const independentNow = nodes.some((n) => n.rectangleCornerRadiiIndependent === true);
+  const [independentOpen, setIndependentOpen] = useState(false);
+  const independent = independentNow || independentOpen;
+  const corner = (f: CornerField): Mixed<number> | undefined => mixedNumber(nodes.map((n) => n[f] ?? n.cornerRadius ?? 0));
+
+  const setRadius = (v: number, info: ChangeInfo) =>
+    editEach(ed, "Corner radius", info, refs, () => ({
+      cornerRadius: v,
+      rectangleCornerRadiiIndependent: false,
+      rectangleTopLeftCornerRadius: v,
+      rectangleTopRightCornerRadius: v,
+      rectangleBottomRightCornerRadius: v,
+      rectangleBottomLeftCornerRadius: v,
+    }));
+  const setCorner = (f: CornerField, v: number, info: ChangeInfo) =>
+    editEach(ed, "Corner radius", info, refs, (n) => {
+      const all = Object.fromEntries(CORNERS.map(([k]) => [k, n[k] ?? n.cornerRadius ?? 0])) as Record<CornerField, number>;
+      all[f] = v;
+      const same = CORNERS.every(([k]) => all[k] === all.rectangleTopLeftCornerRadius);
+      return { ...all, rectangleCornerRadiiIndependent: !same, cornerRadius: same ? v : (n.cornerRadius ?? 0) };
+    });
+
+  return (
+    <PanelSection
+      title="Appearance"
+      actions={
+        <>
+          <IconButton
+            icon={visible === false ? "24.hidden.small" : "24.eye.small"}
+            label={visible === false ? "Show" : "Hide"}
+            shortcut={shortcutOf(command("object.toggle-visible"))}
+            tone="secondary"
+            onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
+          />
+          <IconButton icon="24.blendmode.small" label="Blend mode" tone="secondary" disabled={!blendKept} />
+        </>
+      }
+    >
+      <PropertyGrid labels={labels}>
+        <PropertyRow label={corners ? "Opacity and corner radius" : "Opacity"} action={corners ? <ToggleIconButton icon="24.corners.independent" label="Individual corners" pressed={independent} onPressedChange={setIndependentOpen} /> : undefined}>
+          <NumericInput
+            label="Opacity"
+            prefix="24.opacity"
+            unit="%"
+            precision={0}
+            min={0}
+            max={100}
+            value={fieldValue(opacity)}
+            onChange={(v, info) => editEach(ed, "Opacity", info, refs, () => ({ opacity: v / 100 }))}
+            onCancel={() => ed.cancelEdit()}
+            onStep={(d) => editEach(ed, "Opacity", stepInfo, refs, (n) => ({ opacity: Math.min(1, Math.max(0, (n.opacity ?? 1) + d / 100)) }))}
+            onExit={exitToCanvas(ed)}
+          />
+          {corners ? (
+            <NumericInput
+              label="Corner radius"
+              prefix="24.corners"
+              min={0}
+              value={independentNow ? MIXED : fieldValue(radius)}
+              onChange={setRadius}
+              onCancel={() => ed.cancelEdit()}
+              onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => ({ cornerRadius: Math.max(0, (n.cornerRadius ?? 0) + d) }))}
+              onExit={exitToCanvas(ed)}
+            />
+          ) : (
+            <span />
+          )}
+        </PropertyRow>
+        {corners && independent && (
+          <>
+            {[CORNERS.slice(0, 2), CORNERS.slice(2)].map((pair, i) => (
+              <PropertyRow key={i} label={i === 0 ? "Top corners" : "Bottom corners"}>
+                {pair.map(([f, icon, label]) => (
+                  <NumericInput key={f} label={label} prefix={icon} min={0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+                ))}
+              </PropertyRow>
+            ))}
+          </>
+        )}
+      </PropertyGrid>
+    </PanelSection>
+  );
+}

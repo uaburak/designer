@@ -4,9 +4,10 @@
 // WebGL2 implements it today (gfx/gl), the native tests use a recording device
 // (gfx/null), a WebGPU backend comes later (E9).
 //
-// Interim (E1) subset of §6.1: buffers, pipelines over the built-in shaders,
-// one pass on the default framebuffer, small inline uniforms. Textures,
-// targets, MSAA resolve and readback come with E3/E5.
+// Interim subset of §6.1: buffers, pipelines over the built-in shaders, passes
+// on the default framebuffer or on an offscreen RGBA8 + stencil target (with
+// readback, for thumbnails), small inline uniforms. Textures, MSAA resolve
+// and sampling targets come with E3/E5.
 #pragma once
 
 #include <cstdint>
@@ -16,6 +17,7 @@ namespace eng::gfx {
 
 using BufferId = uint32_t;    // 0 = none
 using PipelineId = uint32_t;  // 0 = none
+using TargetId = uint32_t;    // 0 = the default framebuffer (the canvas)
 
 enum class BufferKind : uint8_t { Vertex, Instance, Index, Uniform };
 enum class Usage : uint8_t { Static, Dynamic, Stream };
@@ -55,6 +57,7 @@ struct BufferSlice {
 };
 
 struct PassDesc {
+  TargetId target = 0;
   float clear[4] = {0, 0, 0, 1};
   uint8_t clearStencil = 0;
   IRect viewport;
@@ -92,6 +95,12 @@ class Device {
   virtual void endPass() = 0;
   virtual void submit() = 0;
   virtual void destroyBuffer(BufferId buffer) = 0;
+  // An offscreen colour (RGBA8) + stencil target of w×h device px; 0 when it can't be made.
+  virtual TargetId createTarget(uint32_t width, uint32_t height) = 0;
+  virtual void destroyTarget(TargetId target) = 0;
+  // The target's pixels in `rect` (origin top left), rows top to bottom, premultiplied
+  // RGBA8 into `rgba8` (rect.w × rect.h × 4 bytes). False when nothing could be read.
+  virtual bool readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) = 0;
 };
 
 }  // namespace eng::gfx

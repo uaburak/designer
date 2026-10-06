@@ -44,13 +44,15 @@ export interface ToolButtonProps {
   /** The chevron's name (Figma: "Move tools", "Shape tools"…); default "<label> options" */
   menuLabel?: string;
   disabled?: boolean;
+  /** The chevron's own disabled state; default `disabled` (a slot whose shown tool is off can still offer the others) */
+  menuDisabled?: boolean;
   /** Gallery: forced states */
   forceHover?: boolean;
   forceOpen?: boolean;
 }
 
 /** A 32px tool; active, the brand fill with the white glyph; tooltip above with its key. */
-export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMenuSelect, menuLabel, disabled, forceHover, forceOpen }: ToolButtonProps) {
+export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMenuSelect, menuLabel, disabled, menuDisabled = disabled, forceHover, forceOpen }: ToolButtonProps) {
   const chevron = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const toggle = () => {
@@ -61,7 +63,8 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
   };
   return (
     <div data-ds="ToolButton" className={styles.tool} data-active={active || undefined}>
-      <button type="button" aria-label={label} aria-pressed={active} aria-keyshortcuts={shortcut} disabled={disabled} data-hover={forceHover || undefined} className={styles.button} onClick={onSelect} {...tooltipProps(label, shortcut, "top")}>
+      {/* Disabled stays hoverable (aria-disabled, not the attribute) so its tooltip still says what it is */}
+      <button type="button" aria-label={label} aria-pressed={active} aria-keyshortcuts={shortcut} aria-disabled={disabled || undefined} data-hover={forceHover || undefined} className={styles.button} onClick={disabled ? undefined : onSelect} {...tooltipProps(label, shortcut, "top")}>
         <Icon name={icon} />
       </button>
       {menu && (
@@ -73,7 +76,7 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
             aria-haspopup="menu"
             aria-expanded={Boolean(at) || Boolean(forceOpen)}
             data-open={at || forceOpen ? "" : undefined}
-            disabled={disabled}
+            disabled={menuDisabled}
             className={styles.chevron}
             onClick={toggle}
           >

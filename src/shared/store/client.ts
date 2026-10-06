@@ -363,6 +363,7 @@ export class StoreClient implements StoreApi {
     restoreDiff: (fileKey, id) => this.call("files.restoreDiff", [fileKey, id]),
     duplicateVersion: (fileKey, id) => this.call("files.duplicateVersion", [fileKey, id]),
     importLocalCopy: (path, folderId) => this.call("files.importLocalCopy", [path, folderId]),
+    importFigBytes: (bytes, name, folderId) => this.call("files.importFigBytes", [bytes, name, folderId ?? null]),
     exportLocalCopy: (fileKey, path) => this.call("files.exportLocalCopy", [fileKey, path]),
   };
 

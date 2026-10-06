@@ -27,6 +27,10 @@ class NullDevice final : public Device {
   void endPass() override {}
   void submit() override {}
   void destroyBuffer(BufferId buffer) override;
+  // Targets record their size and the last pass's clear colour; readback returns that colour.
+  TargetId createTarget(uint32_t width, uint32_t height) override;
+  void destroyTarget(TargetId target) override;
+  bool readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) override;
 
   std::vector<Recorded> draws;  // this frame's
   PassDesc lastPass;
@@ -44,6 +48,19 @@ class NullDevice final : public Device {
  private:
   std::vector<std::vector<uint8_t>> buffers_{{}};  // index = BufferId; 0 unused
   std::vector<PipelineDesc> pipelines_{{}};
+  struct Target {
+    uint32_t width = 0, height = 0;
+    float clear[4] = {0, 0, 0, 0};
+    bool live = false;
+  };
+  std::vector<Target> targets_{{}};  // index = TargetId; 0 = the default framebuffer
+
+ public:
+  size_t liveTargets() const {
+    size_t n = 0;
+    for (auto& t : targets_) n += t.live ? 1 : 0;
+    return n;
+  }
 };
 
 }  // namespace eng::gfx

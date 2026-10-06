@@ -1,0 +1,150 @@
+/* Home, the file browser (docs/home.md). Screen styles: every value from the DS's tokens. */
+@layer app {
+  .app {
+    display: grid;
+    grid-template-columns: var(--ds-size-home-sidebar) minmax(0, 1fr);
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-large);
+    letter-spacing: var(--ds-tracking-body-large);
+  }
+  .center { display: flex; align-items: center; justify-content: center; height: 100%; }
+
+  /* --- Sidebar --- */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-bottom: var(--ds-space-4);
+    border-right: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  .account {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-home-topbar);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+  }
+  .accountName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search { flex: none; padding: 0 var(--ds-space-4) var(--ds-space-2); }
+  .team {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-4);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .teamName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .navGroup { display: flex; flex: none; flex-direction: column; }
+  .treeRow { position: relative; }
+  .disclosure {
+    position: absolute;
+    top: var(--ds-space-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-icon-16);
+    height: var(--ds-size-icon-16);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-small);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    cursor: default;
+  }
+  .disclosure:hover { color: var(--figma-color-icon); }
+  .disclosure[aria-expanded="false"] svg { transform: rotate(-90deg); }
+  /* --- Main area --- */
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; outline: none; }
+  .topbar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-home-topbar);
+    padding: 0 var(--ds-space-6) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .nav { display: flex; flex: none; gap: var(--ds-space-half); }
+  .title {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    margin-left: var(--ds-space-1);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+    white-space: nowrap;
+  }
+  .create { display: flex; flex: none; gap: var(--ds-space-2); }
+
+  .filters {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-row);
+    margin: var(--ds-space-4) var(--ds-space-8) var(--ds-space-4);
+  }
+  .grow { flex: 1 1 auto; }
+  .sortLabel { display: inline-flex; align-items: center; gap: var(--ds-space-half); }
+
+  .content { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 var(--ds-space-8) var(--ds-space-12); outline: none; user-select: none; }
+  .content:focus-visible { outline: none; }
+  .collection { min-height: 100%; }
+  .dragWrap { display: block; min-width: 0; }
+  /* The list's name cell: the glyph, the name (renamed in place), a star when starred */
+  .rowName { display: flex; align-items: center; gap: var(--ds-space-3); min-width: 0; }
+  .rowTitle { flex: 1 1 auto; min-width: 0; }
+  .kindCell { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); }
+  .rowStar { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
+
+  .empty { display: flex; align-items: center; justify-content: center; min-height: 60%; padding-top: var(--ds-space-12); }
+
+  /* Dialogs */
+  .dialogText { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .dialogField { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .moveList {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(var(--ds-size-row) * 10);
+    margin-top: var(--ds-space-2);
+    overflow-y: auto;
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    padding: var(--ds-space-1) 0;
+  }
+  .moveRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+    cursor: default;
+  }
+  .moveRow:hover { background: var(--figma-color-bg-hover); }
+  .moveRow[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .moveRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .moveRow[aria-disabled="true"] { color: var(--figma-color-text-disabled); }
+  .moveName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}

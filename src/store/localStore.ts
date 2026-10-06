@@ -101,6 +101,8 @@ export class LocalStore {
   readonly fileChanges: Emitter<FileChange>;
   private gcTimer: unknown = null;
   private closed = false;
+  /** Set while Firebase sync runs (sync/replicator.ts `startSync`) */
+  replicator: { stop(): Promise<void> } | null = null;
 
   private constructor(
     readonly dirs: WorkspaceDirs,
@@ -114,7 +116,9 @@ export class LocalStore {
     readonly generation: number,
     readonly sync: SyncConfig | null,
     private readonly compactor: Compactor,
-    private readonly timers: Timers,
+    readonly timers: Timers,
+    /** Stamps journal frames and records; sync moves it past remote stamps it sees */
+    readonly hlc: HlcClock,
   ) {
     this.workspaceEvents = ws.events;
     this.libraryEvents = libraries.events;
@@ -155,7 +159,7 @@ export class LocalStore {
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);
       const sync = opts.userDataDir ? await loadSyncConfig(opts.userDataDir, log) : null;
-      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, sync, compactor, timers);
+      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, sync, compactor, timers, hlc);
       // Background start-up work: sizes for the file list, version thinning, the first GC.
       void Promise.all([...ws.files.keys()].map((k) => files.sizeOf(k).catch(() => 0))).catch(() => {});
       void files.thinAll([...ws.files.keys()]).catch((e) => log("warn", "version thinning failed", e));
@@ -309,13 +313,25 @@ export class LocalStore {
     } catch (e) {
       throw new StoreError("not-found", `Couldn't read ${path}: ${(e as Error).message}`);
     }
+    return this.importFig(bytes, path, folderId ?? null);
+  }
+
+  /** `files.importFigBytes`: a `.fig` the page read itself (Home's Import, a file dropped from Finder). */
+  async importFigBytes(bytes: Uint8Array, name: string, folderId: FolderId | null = null): Promise<FileMeta> {
+    this.guard();
+    if (!(bytes instanceof Uint8Array)) throw new StoreError("invalid", "importFigBytes needs the file's bytes");
+    this.checkFolder(folderId ?? null);
+    return this.importFig(bytes, typeof name === "string" ? name : "", folderId ?? null);
+  }
+
+  private async importFig(bytes: Uint8Array, name: string, folderId: FolderId | null): Promise<FileMeta> {
     // The import keeps GUIDs below 2^20 and moves the rest to the new file's first session.
-    const prepared = prepareFigImport(bytes, { path, sessionID: sessionIdFor(this.deviceOrdinal, 1) });
+    const prepared = prepareFigImport(bytes, { name, sessionID: sessionIdFor(this.deviceOrdinal, 1) });
     for (const data of prepared.images.values()) await this.blobs.put(data);
     const key = newFileKey();
     await this.files.createFile(key, prepared.message, prepared.blobRefs);
     await this.setNextLocal(key, 2);
-    const meta = newMeta(key, prepared.name, folderId ?? null, this.clock.now());
+    const meta = newMeta(key, prepared.name, folderId, this.clock.now());
     meta.importedFrom = { kind: "fig", name: prepared.name };
     if (prepared.thumbnail) {
       const dims = pngSize(prepared.thumbnail);
@@ -324,7 +340,7 @@ export class LocalStore {
         meta.thumbnail = { version: 1, width: dims.width, height: dims.height };
       }
     }
-    if (prepared.report) this.log("info", `imported ${path}: ${prepared.report.nodesIn} → ${prepared.report.nodesOut} nodes`, prepared.report);
+    if (prepared.report) this.log("info", `imported ${name}: ${prepared.report.nodesIn} → ${prepared.report.nodesOut} nodes`, prepared.report);
     const created = await this.ws.queue.run(() => this.ws.addFile(meta));
     await this.files.addVersion(key, { kind: "import", title: null, description: null, restoredFrom: null, libraryVersion: null });
     return created;
@@ -391,6 +407,7 @@ export class LocalStore {
     if (this.closed) return;
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
+    await this.replicator?.stop().catch((e) => this.log("warn", "stopping sync failed", e));
     await this.files.shutdown();
     await this.ws.queue.idle();
     await this.libraries.queue.idle();
@@ -465,6 +482,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     restoreDiff: (fileKey, id) => s.files.restoreDiff(fileKey, id),
     duplicateVersion: (fileKey, id) => s.duplicateVersion(fileKey, id),
     importLocalCopy: (path, folderId) => s.importLocalCopy(path, folderId ?? null),
+    importFigBytes: (bytes, name, folderId) => s.importFigBytes(bytes, name, folderId ?? null),
     exportLocalCopy: (fileKey, path) => s.exportLocalCopy(fileKey, path),
   };
   const blobs: BlobStore = {
@@ -506,7 +524,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
       deviceOrdinal: s.deviceOrdinal,
       generation: s.generation,
       openFiles: s.files.openFiles(),
-      sync: { configured: !!s.sync, enabled: false },
+      sync: { configured: !!s.sync, enabled: !!s.replicator },
     }),
     collectGarbage: () => s.collectGarbage(),
   };

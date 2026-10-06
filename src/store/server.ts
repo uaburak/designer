@@ -4,9 +4,27 @@
  * subscriptions. Events go to every port, except `file.changes`, which goes only to ports that subscribed.
  */
 import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
-import type { FileChange, OpenedFile, StoreApi } from "../shared/store/repositories";
+import type { FileChange, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
-import type { LocalStore } from "./localStore";
+
+/**
+ * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
+ * (src/renderer/src/store/memory), which serves the very same protocol. This file imports nothing from Node.
+ */
+export interface ServableStore {
+  /** The repositories, bound to one owner of edit sessions (a port) */
+  api(owner: object): StoreApi;
+  readonly workspaceEvents: { on(listener: (e: WorkspaceEvent) => void): Unsubscribe };
+  readonly libraryEvents: { on(listener: (e: LibraryEvent) => void): Unsubscribe };
+  readonly fileChanges: { on(listener: (c: FileChange) => void): Unsubscribe };
+  readonly files: {
+    /** Frames after `fromSeq` for a subscriber catching up */
+    backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
+    /** A port closed: end the edit sessions it held */
+    endSessionsOf(owner: object): Promise<void>;
+  };
+  log(level: "debug" | "info" | "warn" | "error", message: string, detail?: unknown): void;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- arguments arrive as structured clones and are checked by the repositories */
 
@@ -86,7 +104,7 @@ export class StoreServer {
   private readonly offs: (() => void)[] = [];
 
   constructor(
-    readonly store: LocalStore,
+    readonly store: ServableStore,
     readonly opts: StoreServerOptions,
   ) {
     this.offs.push(store.workspaceEvents.on((d) => this.broadcast({ t: "evt", topic: "workspace", d })));

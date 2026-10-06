@@ -1,7 +1,7 @@
 import { app } from "electron";
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ThemePreference } from "../shared/api";
+import type { ThemePreference } from "../shared/ipc";
 import type { ClosedTab, TabRecord } from "../shared/tabs";
 
 /**
@@ -113,6 +113,7 @@ export function readSettings(): Settings {
   const old = readJson("window.json") as { theme?: unknown } | null;
   return { theme: isTheme(old?.theme) ? old.theme : "system" };
 }
+
 
 export function writeSettings(settings: Settings) {
   writeAtomic("settings.json", settings);

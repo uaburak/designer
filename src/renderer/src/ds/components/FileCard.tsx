@@ -49,6 +49,7 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
       role="option"
       data-ds="FileCard"
       data-id={id}
+      data-collection-item=""
       aria-selected={Boolean(selected)}
       aria-label={title}
       tabIndex={0}
@@ -90,7 +91,7 @@ export function FileCard({ id, title, subtitle, thumbnail, starred, selected, re
 /** The list view's row (40 high, same data). */
 export function FileRow({ id, title, subtitle, selected, onOpen, onSelect, onContextMenu }: Pick<FileCardProps, "id" | "title" | "subtitle" | "selected" | "onOpen" | "onSelect" | "onContextMenu">) {
   return (
-    <div role="option" data-ds="FileRow" data-id={id} aria-selected={Boolean(selected)} tabIndex={0} className={styles.row} onClick={onSelect} onDoubleClick={onOpen} onContextMenu={onContextMenu} onKeyDown={(e) => e.key === "Enter" && onOpen?.()}>
+    <div role="option" data-ds="FileRow" data-id={id} data-collection-item="" aria-selected={Boolean(selected)} tabIndex={0} className={styles.row} onClick={onSelect} onDoubleClick={onOpen} onContextMenu={onContextMenu} onKeyDown={(e) => e.key === "Enter" && onOpen?.()}>
       <FileKindIcon />
       <span className={styles.rowTitle}>{title}</span>
       <span className={styles.subtitle}>{subtitle}</span>

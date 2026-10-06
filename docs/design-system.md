@@ -277,6 +277,8 @@ These are colours Figma does not publish. Components use `--figma-color-*` whene
 | `--ds-color-card-border-hover` | #cccccc | #5c5c5c | K | FileCard hover |
 | `--ds-color-file-design` | #0c8ce9 | #0c8ce9 | K | Design-file glyph (Home, tab) |
 | `--ds-color-canvas-default` | #f5f5f5 | #1e1e1e | K | Gallery canvas stand-in; mirrors the engine's `canvasDefault` |
+| `--ds-color-folder-{red, orange, yellow, green, teal, blue, purple, pink, gray}` | #f24822 #ffa629 #ffcd29 #14ae5c #0fa8a8 #0d99ff #9747ff #ff24bd #b3b3b3 | #e03e1a #f0941d #f3c11b #198f51 #119a9a #0c8ce9 #8a38f5 #e81fae #8c8c8c | G (red/yellow/green/blue/purple = Figma's danger/warning/success/brand/component) | folder glyphs; ids = the store's `FolderColor` ("none" = icon-secondary) |
+| `--ds-color-marquee-fill` | #0d99ff1a | #0c8ce926 | G | drag-select rectangle in Home's grid and list (`CollectionView`); its border is `--figma-color-border-selected` |
 | `--ds-checkerboard` | `repeating-conic-gradient(#e6e6e6 0% 25%, #ffffff 0% 50%) 0 0 / 8px 8px` | same | G | alpha behind chits and swatches |
 
 ### 1.4 Canvas chrome colours (the engine's palette)
@@ -374,6 +376,9 @@ Off-grid values are allowed only where measured (marked M below, e.g. 38, 55, 67
 | `--ds-size-home-sidebar` | 240 | G |
 | Home nav row | 32 pitch, 28 highlight | M |
 | `--ds-size-card` | 268 × 213 (thumbnail 268 × 151, footer 62); grid gap 36; first row 67 below the top bar | M / G (split) |
+| `--ds-size-list-row` | 40 (Home list view row, §4.27) | K |
+| `--ds-size-list-header` | 32 (list view column header) | G |
+| `--ds-size-breadcrumb-max` | 160 (an ancestor crumb's width before it ellipsizes) | G |
 | Checkbox / radio | 16 | M / F |
 | Switch | 28 × 16 track, 14 × 10 knob | K |
 | Chit (colour field) | 14 in a 24 cell, radius 2 | K |
@@ -1210,6 +1215,7 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
 - **Keyboard**: Enter opens; Space selects; ⌫ moves to Trash (Home's); F2/Enter-hold renames (Home's).
 - **Grid** (Home screen CSS): `grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 36px;`, first row 67 below the top bar (M). **FileRow** (list view) is 40 high with the same data.
 - **Tags**: M (size, gap, offsets), G (footer split, hover).
+- **Decision (2026-10-06, file browser pieces)**: the grid uses fixed 268 columns (`repeat(auto-fill, 268px)`, gap 36), not `minmax(240px, 1fr)`, because the card is fixed-width and the measured gap is 36. Added, all G: `FolderCard` (the FileCard frame; up to four of its files 2×2, or the folder glyph in the folder's colour), `ListHeader` / `ListRow` (list view: shared grid columns, 32 header with sortable buttons and `aria-sort`, 40 rows), `CollectionView` (arrow navigation by layout, ⌘A / Esc / ⌫, marquee on empty space; selection stays the caller's via `useSelection`), `Breadcrumb`, `InlineEdit` (rename in the text's own font), `Banner`, `Skeleton` (flat, no shimmer: the chrome doesn't move).
 
 ### 4.28 SearchField
 

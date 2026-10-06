@@ -1,10 +1,94 @@
 # Using the design system
 
-## Status at handoff (2026-10-06)
+## Status at handoff (2026-10-06, round 3)
 
-The session was paused mid-round 2. Everything below compiles and the DS's own checks pass: `npm run typecheck` passes; `npm run lint` passes (`src/renderer/src/ds`, `scripts/gen-tokens.ts` and `scripts/gen-icons.ts` are clean); `npm test` runs 14 DS test files, 122 tests, all green. The only failing test in the repo is the engine's `src/renderer/src/engine/__tests__/abi.test.ts` ("commands: abi.ts = Commands.h"), which is outside the DS. Nothing was committed.
+Everything compiles and the DS's checks pass: `npm run typecheck` and `npm run lint` are clean for `src/renderer/src/ds`, `scripts/gen-tokens.ts` and `scripts/gen-icons.ts` (the one lint warning in the repo is in `src/renderer/src/store/memory/memoryStore.ts`, not the DS); `npm test` runs 47 files / 381 tests, all green (the DS's own: 19 files); `npm run tokens -- --check` and `npm run icons -- --check` pass. Nothing was committed.
 
-### Round 2: done
+### Round 3: done
+
+- **Looked at the gallery in a real browser** (Chrome through playwright-core, dark and light; script and screenshots in `/tmp/designer-work/ds/`). Fixed:
+  - ColorPicker: the hue and opacity thumbs and the gradient stops hung half off their tracks at 0 and 100%. Their centres now travel from 6px to width − 6px, and the pointer maps over the same inset track, so the thumb stays under the pointer.
+  - ColorPicker, Image paint: the empty preview showed one stray checkerboard tile (the `checker` class with `background-repeat: no-repeat`). It now shows a tertiary image glyph until there is an image.
+  - Checked and left as they are: the picker is 240 wide; AlignmentMatrix is 88 × 56; EditorToolbar measures 529 × 48 (530 ± 1 in the reference); the divider is #444 and the mode switch #444 / #2c2c2c in dark; the Home sidebar (28 highlight on a 32 pitch, label at x 44, bell in the account row), cards 268 × 213 with 36 gaps.
+- **Component tests (happy-dom):** `tabBar.test.ts` (4px threshold, dragging right and left with the others making room, drop index, close button doesn't drag, middle click, ← →, unsaved dot), `scrollArea.test.ts` (thumb size and offset, show while scrolling and hide after 1s, hover, thumb drag, track paging, forceVisible), `dialog.test.ts` (initial focus, Tab / ⇧Tab trap, Esc, focus back to the opener, Enter on the primary, the scrim, static).
+- **New for the file browser and other lists** (all exported from `@/ds`, demos in `?gallery&section=components`, tests in `selection.test.ts` and `fileBrowser.dom.test.ts`):
+
+  ```ts
+  // A selectable collection (Home's grid and list). Items are descendants with data-collection-item + data-id
+  // (FileCard, FileRow, FolderCard, ListRow carry both).
+  <CollectionView layout?="grid" | "list" label="Files" header?={<ListHeader …/>}
+    onNavigate?={(id, extend) => …}            // arrows by layout, Home/End; extend = ⇧
+    onSelectAll?={() => …} onClearSelection?={() => …} onDelete?={() => …}   // ⌘A, Esc or an empty click, ⌫/Delete
+    onMarquee?={(ids, { additive, final }) => …}   // drag on empty space; additive = ⇧/⌘ held at the press
+    role? className? … />
+  collectionTarget(key, items, from, layout)     // the pure arrow-key logic
+
+  // Selection state (pure helpers + a hook)
+  const sel = useSelection(orderedIds);  // { selected, isSelected, anchor, select(id, event?), extendTo(id, extend), selectAll, clear, set(ids, anchor?) }
+  clickSelection(order, state, id, { shift, toggle }) · moveSelection · inOrder · idsInRect · isToggleModifier(e) · selectionModifiers(e)
+
+  // List view
+  type ListColumn = { id: string; label: string; width?: number | string; align?: "start" | "end"; sortable?: boolean };
+  type ListSort = { column: string; direction: "ascending" | "descending" };
+  <ListHeader columns sort? onSort?={(column) => setSort(nextSort(sort, column, firstDirection?))} />
+  <ListRow id columns cells={{ [columnId]: ReactNode }} selected? dropTarget? muted? onOpen? onSelect?={(e) => …} onContextMenu? forceHover? />
+  listTemplate(columns), nextSort(sort, column, firstDirection = "ascending")
+
+  <FolderCard id title subtitle thumbnails?={string[] /* up to 4 */} color?={cssColor} starred? selected? renaming? dropTarget?
+    onOpen? onSelect?={(e) => …} onContextMenu? onRename?={(name | null) => …} onStar? forceHover? />
+  <FolderGlyph color? size?={16 | 24 | 48} />
+
+  <Breadcrumb items={{ id, label, icon? }[]} onNavigate={(id) => …} menu?={MenuEntry[]} onMenuSelect?={(id) => …}
+    maxItems?={4} size?="large" | "default" label? />       // long paths fold the middle into "…"
+
+  <InlineEdit label="Rename" value editing onCommit={(next) => …} onCancel?={() => …} onEditingChange?={(editing) => …}
+    onExit?={(reason) => …} select?="all" | "name" | "end" editOnDoubleClick? placeholder? maxLength? />
+  renameSelection(value, select)
+
+  <Banner tone?="default" | "brand" | "warning" | "danger" icon?={IconName | null} action?={{ label, onClick }} onDismiss?>text</Banner>
+  <Skeleton width? height?={16} radius?="small" | "medium" | "medium-large" | "full" />
+  ```
+
+  - `InlineEdit` swaps the text for a field in the same font and place, focused with the text selected (`select="name"` leaves out the extension). Enter, Tab or blur keeps a trimmed, changed, non-empty name (`onCommit`); otherwise `onCancel`. Keys stop at the field.
+  - `CollectionView` leaves keys typed in fields alone, so a rename inside a card is safe. The marquee works in content coordinates, so it survives the collection's own scrolling.
+  - The toast with an action (Undo) already existed: `showToast({ message, action: { label: "Undo", onAction } })`.
+  - Additions to existing pieces: FileCard and FileRow roots carry `data-collection-item`.
+  - New tokens: `--ds-size-list-row` (40), `--ds-size-list-header` (32), `--ds-size-breadcrumb-max` (160), `--ds-color-marquee-fill`.
+  - New icons: `16.arrow.up`, `16.arrow.down` (sort), `24.info`, `24.warning` (Banner).
+- The gallery's Home screen now uses `Breadcrumb` and `CollectionView`. A live file browser demo (`CollectionView` in the gallery) wires all of it: grid/list toggle, sorting, ⌘/⇧-click, arrows, ⌘A, Esc, marquee, a context menu with Rename and Move to trash, and Undo in the toast.
+
+### Round 3, follow-up fixes (asked for by the Home and Editor agents)
+
+- **Folder colours.** There are tokens `--ds-color-folder-{red, orange, yellow, green, teal, blue, purple, pink, gray}` (light and dark, G). Their ids are the store's `FolderColor`, and a test keeps them in step with `src/shared/store/types.ts`. Exports:
+  - `FOLDER_COLOR_IDS`, `FolderColorId`;
+  - `FOLDER_COLOR_VARS` (id → `var(--ds-color-folder-*)`; "none" is `--figma-color-icon-secondary`);
+  - `FOLDER_COLOR_LABEL` ("No color", "Red"…);
+  - `folderColor(id)` (undefined for "none" or an unknown id). Pass it as `FolderCard` or `FolderGlyph` `color`. Don't use `color-mix()`.
+- **`24.star` is solid now.** It was an outline drawn in even-odd fill, so starred and unstarred looked the same. `24.star.outline` is unchanged.
+- **Overlay theme.** A `Portal` without an anchor (Dialog, Popover) takes its theme from what had focus, but now skips forced-dark overlays. Menus, Select lists, tooltips and toasts mark their wrapper `data-theme-forced`. So a dialog opened from a context-menu item gets the app's theme. With nothing focused it uses the document root's theme. A themed subtree, such as the Gallery's columns, still wins. The logic is in `inheritedTheme(el)`.
+- **EditorToolbar.**
+  - `disabledTools?: ToolId[]`: a disabled tool is dimmed, can't be clicked, and keeps its tooltip (`aria-disabled`, not the `disabled` attribute). It is greyed in its slot's menu too. A slot's chevron is disabled only when every tool in that slot is.
+  - Disabled modes use the same approach. They now draw in `icon-disabled` with no hover brightening, so they read as disabled in light too.
+  - `ToolButton` gained `menuDisabled` (default: `disabled`). `ToolButton` with `disabled` now uses `aria-disabled`.
+- Tests: `round2fixes.dom.test.ts` and two new cases in `editorToolbar.test.ts`. Gallery: the folder colour row, a starred FolderCard and FileCard, "a dialog from a context menu" (live), and a disabled EditorToolbar.
+- Nothing in `ds/` imports the legacy folders or Tailwind. The only matches are comments that say where `evaluate` was ported from.
+- `main.tsx` currently imports the deleted `./styles/app.css` and `@/figma/tokens` (the desktop agent's work in progress). Until it is fixed, `?gallery` through the app entry fails; `ds/gallery/main.tsx` still mounts the gallery standalone.
+
+### Not done
+
+- ColorPicker extras: gradient handles on the canvas (the engine's), image adjustments, the "+ create style/variable" header action (the `headerActions` slot exists), a Video paint type.
+- File browser extras: dragging files onto folders (`dropTarget` styling exists on FolderCard, ListRow and SidebarItem; the drag itself and its "N files" ghost are the Home agent's), auto-scroll while marquee-selecting, a "Move to…" folder-picker dialog (build it from `Dialog`, `SidebarItem` with `indent` and `FolderGlyph`).
+- Editor: no gaps found that the existing `PanelSection` (title, actions, `empty` "+") and `PropertyRow` (two fields plus the 24 action column) don't cover. Figma UI3's fill rows put the visibility toggle inside the same 24 column, so no new row component was added.
+- The theme aliases in `src/preload/common.ts` belong to the desktop agent (not touched here).
+- Light-theme values are still unmeasured (contract §7.1).
+
+### Next steps
+
+1. The Home agent: build the browser from `CollectionView` + `useSelection` + `FileCard` / `FolderCard` / `ListHeader` / `ListRow` + `Breadcrumb` + `InlineEdit`; `BrowserDemos.tsx` in `ds/gallery/` is a working reference.
+2. The Editor agent: adopt `ColorPicker`, `AlignmentMatrix` and `EditorToolbar` (props below). `InlineEdit` also fits page and file-name renames.
+
+### Round 2 (for reference: the APIs it added)
+
 
 - **ColorPicker** (`ds/components/ColorPicker.tsx`, model in `ds/util/paint.ts`, colour maths in `ds/util/color.ts`). A Figma UI3 picker in a 240px popover:
   - Custom / Libraries tabs.
@@ -89,33 +173,6 @@ The session was paused mid-round 2. Everything below compiles and the DS's own c
   - Pointer capture never throws (`ds/util/pointer.ts`).
   - Two new tokens: `--ds-color-picker-thumb` and `--ds-color-picker-thumb-ring`.
 
-### Partial
-
-- **Gallery for the new pieces** (`ds/gallery/PickerDemos.tsx`, `Screens.tsx`, `ComponentMatrix.tsx`):
-  - The ColorPicker, AlignmentMatrix and EditorToolbar demos, plus the new Home screen, compile, but I didn't get to look at them in a browser.
-  - The last screenshot attempt failed only because `&component=ColorPicker` hides the other sections.
-  - Next: open `?gallery&section=components` (or the scratch server, see the round-1 report) and check the picker at 240px, the matrix against `images/4.webp` (88 × 56), the toolbar against `images/1.webp` (530 × 48, the divider and mode-switch colours), and the Home sidebar against `images/5.webp`.
-
-### Not started
-
-- ColorPicker extras:
-  - gradient transform handles (they belong on the canvas, so they're the engine's);
-  - image adjustments (exposure, contrast…);
-  - the "+ create style/variable" header action (the slot exists as `headerActions`);
-  - a Video paint type.
-- Component-level tests for TabBar drag, ScrollArea and Dialog focus.
-- Replacing the remaining legacy screens (contract §4.35).
-
-### Next steps
-
-1. Look at the gallery (above) and fix any visual differences from the reference images.
-2. The editor agent should adopt `ColorPicker`, `AlignmentMatrix` and `EditorToolbar` with the props above. Map `PickerPaint` 1:1 onto the kiwi `Paint`. Let `final: false` changes preview inside an open engine transaction and commit on `final: true`.
-3. Remove the temporary theme aliases in `src/preload/common.ts` (`onThemeChange`, `legacyDesktopAlias`). `ds/theme.ts` uses `window.designer.setTheme` / `onThemeChanged`.
-
-### Known breakage
-
-- None in the DS.
-- Outside it: the engine's `abi.test.ts`, as above.
 
 ---
 
@@ -260,6 +317,12 @@ Import everything from `@/ds`. Sizes are CSS px.
 | `SidebarItem`, `SidebarHeader` | Home navigation | `icon`, `label`, `selected`, `count`, `indent`, `trailing`, `dropTarget` | Buttons |
 | `FileCard`, `FileRow` | Home files | `id`, `title`, `subtitle`, `thumbnail`, `starred`, `selected`, `renaming`, `onOpen`, `onSelect`, `onContextMenu`, `onRename`, `onStar` | Enter opens, Space selects |
 | `Badge`, `Avatar`, `Spinner`, `EmptyState`, `Divider`, `Kbd`, `CodeBlock` | Support pieces | See each file's doc comment | – |
+| `FolderCard`, `FolderGlyph` | Home folders | FileCard's props plus `thumbnails` (≤ 4), `color`, `dropTarget` | Enter opens, Space selects |
+| `ListHeader`, `ListRow` | List views | `columns` (`{id, label, width?, align?, sortable?}`), header `sort` + `onSort` (`nextSort`); row `cells` by column id, `selected`, `dropTarget`, `muted` | Enter opens, Space selects |
+| `CollectionView` | Home's grid / list (selection, keys, marquee) | `layout`, `label`, `header`, `onNavigate(id, extend)`, `onSelectAll`, `onClearSelection`, `onDelete`, `onMarquee(ids, {additive, final})`; pair with `useSelection(order)` | Arrows by layout, Home End, ⌘A, Esc, ⌫ |
+| `Breadcrumb` | Where you are | `items` (`{id, label, icon?}`), `onNavigate`, `menu` + `onMenuSelect` (the current place's menu), `maxItems` | Buttons; the fold and the current place open menus |
+| `InlineEdit` | Rename in place | `value`, `editing`, `onCommit`, `onCancel`, `onEditingChange`, `select` (all / name / end), `editOnDoubleClick` | Enter, Tab or blur keeps; Esc cancels |
+| `Banner`, `Skeleton` | Notices in a page; loading blocks | Banner `tone`, `icon`, `action`, `onDismiss`; Skeleton `width`, `height`, `radius` | – |
 | `ScrollArea`, `VirtualList` | Scrolling | ScrollArea `axis`, `viewportRef(el)`; VirtualList `count`, `rowHeight` (fixed), `renderRow`, `scrollToIndex` | Native scrolling, with overlay thumbs that can be dragged |
 | `Icon` | Glyphs | `name: IconName`, `size`, `label` | – |
 
@@ -314,7 +377,7 @@ Import everything from `@/ds`. Sizes are CSS px.
 - the generators: `tokens.test.ts` and `icons.test.ts` run the same checks as `npm run tokens -- --check` and `npm run icons -- --check`;
 - relative times.
 
-Component tests run in happy-dom (`// @vitest-environment happy-dom` per file; helpers in `__tests__/dom.ts`; plain `.test.ts` files with `createElement`, because Vitest only picks up `*.test.ts`). They cover NumericInput, ContextMenu, Select, ColorPicker, AlignmentMatrix and EditorToolbar.
+Component tests run in happy-dom (`// @vitest-environment happy-dom` per file; helpers in `__tests__/dom.ts`; plain `.test.ts` files with `createElement`, because Vitest only picks up `*.test.ts`). They cover NumericInput, ContextMenu, Select, ColorPicker, AlignmentMatrix, EditorToolbar, TabBar (drag), ScrollArea, Dialog (focus), and the file-browser pieces (CollectionView, ListHeader/ListRow, InlineEdit, Breadcrumb, FolderCard, Banner). The selection model, arrow-key targets and list helpers are tested in Node (`selection.test.ts`).
 
 ## 9. Not done yet
 

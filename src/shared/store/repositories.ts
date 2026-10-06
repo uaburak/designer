@@ -128,6 +128,12 @@ export interface FileRepository {
 
   /** Main only (takes a path) */
   importLocalCopy(path: string, folderId: FolderId | null): Promise<FileMeta>;
+  /**
+   * A `.fig` from its bytes (Home's Import in any window, a file dropped from Finder, the browser demo): a new file in
+   * `folderId` (default Drafts) named from the .fig's meta (else `name`, ".fig" dropped), with its images, thumbnail
+   * and an "import" version. `unsupported-format` for FigJam/Slides/not a .fig, `corrupt`, `too-large` (> 1 GB).
+   */
+  importFigBytes(bytes: Uint8Array, name: string, folderId?: FolderId | null): Promise<FileMeta>;
   /** Main only */
   exportLocalCopy(fileKey: FileKey, path: string): Promise<void>;
 }

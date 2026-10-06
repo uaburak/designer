@@ -31,6 +31,13 @@ export class EditorController {
   pendingPaste: { mode: "inPlace" } | { mode: "point"; x: number; y: number } | null = null;
   /** The last copy's formats (a paste with no system clipboard access falls back to them) */
   lastCopy: Record<string, string> | null = null;
+  /** "Back to files" (EditorApp's `onBackToFiles`); null: the desktop's Home, else a note */
+  backToFiles: (() => void) | null = null;
+  /**
+   * Work that must reach the store before the tab may close (the thumbnail of the last edits): the desktop's flush
+   * handshake (desktop.ts) awaits each before it answers, since main ends the view right after.
+   */
+  readonly beforeFlush = new Set<() => Promise<void>>();
 
   private treeCache: { key: string; tree: LayerTree } | null = null;
   private layoutVersion = 0;
@@ -57,6 +64,8 @@ export class EditorController {
       pageSearch: null,
       shortcutsOpen: false,
       propertyLabels: false,
+      contextMenu: null,
+      versionDialog: null,
       ...ui,
     });
     this.tools = probeTools(engine);
@@ -71,6 +80,11 @@ export class EditorController {
         }
       })
     );
+  }
+
+  /** EditorApp's `onBackToFiles` (null: the desktop's Home, else a note). */
+  setBackToFiles(go: (() => void) | null): void {
+    this.backToFiles = go;
   }
 
   dispose(): void {

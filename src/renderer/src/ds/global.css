@@ -1,9 +1,9 @@
 /*
  * The design system's global stylesheet (contract §3): imported once by
- * every entry, before anything else. Layer order first, so Tailwind's own
- * layers (theme, base, components, utilities) slot in around ours: DS
- * components (ds) win over Tailwind preflight (base), legacy utilities still
- * win inside legacy markup.
+ * every entry (main.tsx, and pages that run on their own), before anything
+ * else. Layer order first: the reset and base rules, then the components
+ * (ds), then app-level overrides (app). The other layer names are kept so
+ * the order stays fixed if a layer is ever added.
  */
 @layer reset, tokens, theme, base, ds, components, utilities, app;
 @import "@fontsource-variable/inter";

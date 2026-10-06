@@ -17,6 +17,7 @@ import {
   CommandId,
   INCLUDE_CHILD_IDS,
   KeyType,
+  PASTE_IN_PLACE,
   Status,
   TICK_NEEDS_RENDER,
   TOOLS,
@@ -28,6 +29,7 @@ import {
   decodeEvents,
   decodeMessage,
   decodePages,
+  decodePixels,
   decodeRefs,
   decodeSelection,
   decodeStats,
@@ -48,6 +50,7 @@ import {
   type NodeChange,
   type NodeFields,
   type PageInfo,
+  type Pixels,
   type Selection,
 } from "./codec";
 import type { EngineExports } from "./EngineExports";
@@ -331,13 +334,73 @@ export class Engine {
     this.after(this.x.txnCancel(this.h));
   }
 
-  command(name: CommandName, args?: Record<string, number>): number {
+  /**
+   * Runs a command; one undo step labelled with Figma's name. `args`: `{ dx, dy }` for NUDGE,
+   * `{ page: "s:l" }` for DELETE_PAGE / DUPLICATE_PAGE (the current page when absent).
+   */
+  command(name: CommandName, args?: Record<string, number | string>): number {
     return this.after(this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null));
   }
 
   /** CMD_ENABLED | CMD_CHECKED, for menus. */
   commandState(name: CommandName): number {
     return this.after(this.x.commandState(this.h, CommandId[name]));
+  }
+
+  /**
+   * The Layers panel's drag: `refs` to `parent` at `index` in its paint order (0 = bottom), counted
+   * without them; they keep their relative order and their place on the page. Pages move under the
+   * document ("0:0"). One undo step. Returns how many moved (0 = refused: a cycle, a page under a layer…).
+   */
+  moveNodes(refs: readonly Guid[], parent: Guid, index: number): number {
+    const [s, l] = parent.split(":").map(Number);
+    return this.after(this.x.moveNodes(this.h, encodeRefs(refs), s, l, index));
+  }
+
+  /** The selection as a clipboard Message (docs/schema.md §4.1), or null when nothing is selected. */
+  encodeSelection(): Message | null {
+    const status = this.x.encodeSelection(this.h, 0);
+    return this.after(status === Status.OK ? decodeMessage(this.x.result()) : null);
+  }
+
+  /**
+   * Pastes a clipboard Message with fresh ids: into the selected frame, beside the selected layer, or on the
+   * page (where it was when that is in view, else in the middle of the view); `inPlace` (⇧⌘V) keeps the page
+   * position. Selects what was pasted; returns how many top-level layers that was (negative: a Status).
+   */
+  paste(message: Message, options: { inPlace?: boolean } = {}): number {
+    return this.after(this.x.paste(this.h, encodeMessage(message), options.inPlace ? PASTE_IN_PLACE : 0));
+  }
+
+  /**
+   * A page's thumbnail as pixels: its content (the union of its visible layers) fitted into maxSize × maxSize
+   * device px in the content's own aspect, the page colour behind it, no selection or other overlays. Drawn
+   * offscreen (the canvas is untouched; headless engines return the page colour only). `page` defaults to the
+   * current one. Null when the page is empty or missing, or the GPU can't make the target.
+   */
+  renderThumbnailPixels(options: { page?: Guid; maxSize: number }): Pixels | null {
+    const [s, l] = options.page ? options.page.split(":").map(Number) : [0xffffffff, 0xffffffff];
+    const status = this.x.renderThumbnail(this.h, s >>> 0, l >>> 0, Math.max(1, Math.round(options.maxSize)), 0);
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
+  }
+
+  /** The same thumbnail encoded as an image (PNG by default) through an OffscreenCanvas, or null. */
+  async renderThumbnail(options: { page?: Guid; maxSize: number; type?: string }): Promise<Blob | null> {
+    const image = this.renderThumbnailPixels(options);
+    if (!image) return null;
+    const data = new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height);
+    const type = options.type ?? "image/png";
+    if (typeof OffscreenCanvas !== "undefined") {
+      const canvas = new OffscreenCanvas(image.width, image.height);
+      canvas.getContext("2d")?.putImageData(data, 0, 0);
+      return canvas.convertToBlob({ type });
+    }
+    if (typeof document === "undefined") return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    canvas.getContext("2d")?.putImageData(data, 0, 0);
+    return new Promise((resolve) => canvas.toBlob(resolve, type));
   }
 
   undo(): boolean {

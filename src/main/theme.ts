@@ -1,6 +1,5 @@
 import { Menu, nativeTheme, webContents } from "electron";
-import type { ThemePreference } from "../shared/api";
-import type { ThemeState } from "../shared/ipc";
+import type { ThemePreference, ThemeState } from "../shared/ipc";
 import { readSettings, writeSettings } from "./session";
 import { viewOf } from "./views";
 import { controllers } from "./window";

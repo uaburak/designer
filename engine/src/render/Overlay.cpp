@@ -76,6 +76,13 @@ void Renderer::drawOverlay(const Document& doc, const Camera& camera, const Over
     outline(m, {lb.w, lb.h}, kind, rounded ? n->props.cornerRadii : kSquare, weight);
   };
 
+  // Auto-layout padding / gap bands under the pointer.
+  for (const Rect& band : overlay.bands) {
+    Rect r = transformedBounds(view * Mat2x3::translate(band.x, band.y), band.w, band.h);
+    ScreenBox b = screenBox(Mat2x3::translate(r.x, r.y), {r.w, r.h}, dpr);
+    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.autoLayoutBand, style.bandAlpha, blue, 0, 0, 0), Pass::Color);
+  }
+
   // Hover: the hovered layer's own outline (not when it is selected).
   for (Guid h : overlay.hover) {
     bool selected = false;
@@ -119,6 +126,76 @@ void Renderer::drawOverlay(const Document& doc, const Camera& camera, const Over
            Pass::Color);
     }
   }
+
+  // A straight line between two world points, `width` CSS px across; axis-aligned ones land on device pixels.
+  auto line = [&](Vec2 aw, Vec2 bw, double width, const Color& color) {
+    Vec2 a = view.apply(aw), b = view.apply(bw);
+    Vec2 d = b - a;
+    double len = d.length();
+    if (len < 1e-9) return;
+    auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+    double minPx = 1 / dpr;
+    if (std::fabs(d.y) < 1e-9 || std::fabs(d.x) < 1e-9) {
+      bool horizontal = std::fabs(d.y) < 1e-9;
+      double lo = horizontal ? std::min(a.x, b.x) : std::min(a.y, b.y), hi = horizontal ? std::max(a.x, b.x) : std::max(a.y, b.y);
+      double mid = horizontal ? a.y : a.x;
+      double c0 = snap(mid - width / 2), c1 = std::max(c0 + minPx, snap(mid + width / 2));
+      double l0 = snap(lo), l1 = std::max(l0 + minPx, snap(hi));
+      Rect r = horizontal ? Rect{l0, c0, l1 - l0, c1 - c0} : Rect{c0, l0, c1 - c0, l1 - l0};
+      emit(makeShape(Mat2x3::translate(r.x, r.y), {r.w, r.h}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Color);
+      return;
+    }
+    Vec2 u{d.x / len, d.y / len}, n{-u.y, u.x};
+    Mat2x3 m{u.x, n.x, a.x - n.x * width / 2, u.y, n.y, a.y - n.y * width / 2};
+    emit(makeShape(m, {len, width}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Color);
+  };
+  // A dashed line (⌥ measurement's extension lines): 4 px dashes, 4 px gaps on screen.
+  auto dashed = [&](Vec2 aw, Vec2 bw, const Color& color) {
+    Vec2 a = view.apply(aw), b = view.apply(bw);
+    double len = (b - a).length();
+    if (len < 1e-9) return;
+    Mat2x3 back = view.inverse();
+    for (double t = 0; t < len; t += 8) {
+      double e = std::min(len, t + 4);
+      Vec2 p0 = a + (b - a) * (t / len), p1 = a + (b - a) * (e / len);
+      line(back.apply(p0), back.apply(p1), 1, color);
+    }
+  };
+  // A measured distance: the line, a tick across each end, and a pill for its number in the middle.
+  auto distance = [&](const SpacingMark& m, const Color& color) {
+    line(m.a, m.b, 1, color);
+    Vec2 a = view.apply(m.a), b = view.apply(m.b);
+    Vec2 d = b - a;
+    double len = d.length();
+    if (len < 1e-9) return;
+    Vec2 n{-d.y / len, d.x / len};
+    Mat2x3 back = view.inverse();
+    for (Vec2 end : {a, b}) line(back.apply(end - n * (style.tick / 2)), back.apply(end + n * (style.tick / 2)), 1, color);
+    // The number (text comes with E3): the world distance, sized for its digits.
+    double value = (m.b - m.a).length();
+    std::string label = formatNumber(value);
+    double pw = 8 + 6.2 * static_cast<double>(label.size()), ph = style.pillHeight, rr = style.pillRadius;
+    Vec2 c = (a + b) * 0.5;
+    double px = std::round((c.x - pw / 2) * dpr) / dpr, py = std::round((c.y - ph / 2) * dpr) / dpr;
+    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Color);
+  };
+
+  // Smart guides and equal spacing while moving, resizing or drawing.
+  for (const GuideLine& g : overlay.guides) line(g.a, g.b, 1, style.measure);
+  for (const SpacingMark& m : overlay.spacings) distance(m, style.measure);
+
+  // ⌥ measurement: the measured layer outlined in red, its distances, and dashed extensions.
+  if (overlay.measureTarget != kNoGuid && doc.has(overlay.measureTarget)) {
+    Guid id = overlay.measureTarget;
+    Rect lb = doc.localBounds(id);
+    ScreenBox b = screenBox(view * doc.worldTransform(id) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr);
+    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.measure, 0, style.measure, 1, 1, 0), Pass::Color);
+  }
+  for (const GuideLine& g : overlay.measureGuides) dashed(g.a, g.b, style.measure);
+  for (const SpacingMark& m : overlay.measures) distance(m, style.measure);
+
+  // Where a dragged layer will join an auto-layout flow.
+  if (overlay.hasInsertion) line(overlay.insertion.a, overlay.insertion.b, style.insertionWidth, blue);
 
   if (overlay.hasMarquee) {
     const Rect& q = overlay.marquee;

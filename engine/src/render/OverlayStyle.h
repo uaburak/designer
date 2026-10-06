@@ -17,6 +17,15 @@ struct OverlayStyle {
   double badgeRadius = 2;
   double badgeGap = 6;
   double marqueeFill = 0.1;
+  // Smart guides, spacing and ⌥ measurement: 1 px lines and number pills.
+  Color measure = Color::hex(0xF24822);
+  double pillHeight = 16;
+  double pillRadius = 2;
+  double tick = 6;  // the end ticks of a measured distance
+  // Auto layout: the padding / gap bands and the insertion indicator.
+  Color autoLayoutBand = Color::hex(0xFF24BD);
+  double bandAlpha = 0.15;
+  double insertionWidth = 2;
 
   static OverlayStyle of(Theme t) {
     OverlayStyle s;

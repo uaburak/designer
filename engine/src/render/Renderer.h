@@ -58,8 +58,9 @@ class Renderer {
  public:
   explicit Renderer(gfx::Device& device) : device_(device) {}
   ~Renderer();
+  // Draws `page` through `camera` into `target` (0 = the canvas), viewport.deviceWidth × deviceHeight.
   RenderStats render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
-                     const Overlay& overlay, const OverlayStyle& style);
+                     const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target = 0);
 
  private:
   enum class Pass : uint8_t { Color, ColorClipped, StencilIncrement, StencilDecrement, Count };

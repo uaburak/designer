@@ -1,11 +1,10 @@
 import { app, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
-import type { GoogleCredential, SignInResult } from "../shared/api";
-import type { TabKind } from "../shared/tabs";
+import { isFileKey } from "../shared/tabs";
 import { isAppUrl } from "./protocol";
+import { workspaceDir } from "./storeHost";
 import { setThemePreference, themeState } from "./theme";
-import { cancelSignIn, signInWithGoogle } from "./signIn";
-import { settleRequest } from "./tabs";
+import { settleFlush } from "./tabs";
 import { viewOf, type ViewInfo } from "./views";
 import { controllers, type WindowController } from "./window";
 
@@ -57,11 +56,11 @@ function onInvoke<C extends keyof IpcInvoke>(channel: C, fn: (caller: Caller, ..
 }
 
 const str = (v: unknown, max = 512) => (typeof v === "string" && v.length <= max ? v : null);
-const isKind = (k: unknown): k is TabKind => k === "project" || k === "preview" || k === "cv";
+const folderOf = (v: unknown) => (v === null || v === undefined ? null : str(v, 64));
 
 export function registerIpc() {
   // ── Init and window ──
-  onInvoke("desktop:init", ({ info, ctl }) => ({ version: app.getVersion(), platform: process.platform, role: info.role, tabId: info.tabId, windowId: ctl.id, theme: themeState() }));
+  onInvoke("desktop:init", ({ info, ctl }) => ({ version: app.getVersion(), platform: process.platform, role: info.role, tabId: info.tabId, fileKey: info.fileKey, windowId: ctl.id, theme: themeState() }));
   onSend("shell:ready", ({ info, ctl }) => ctl.markReady(info.role === "tabbar" ? "tabbar" : "content"));
 
   // ── Tabs ──
@@ -83,48 +82,43 @@ export function registerIpc() {
     const id = str(p?.tabId, 64);
     if (id && typeof p.x === "number" && typeof p.y === "number") ctl.tabs.contextMenu(id, p.x, p.y);
   });
-  onSend("tabs:reopen", ({ ctl }) => ctl.tabs.reopen());
+  onSend("tabs:reopen", ({ ctl }) => void ctl.tabs.reopen());
 
   // ── Navigation ──
   onInvoke("nav:open-file", ({ ctl }, file) => {
-    const slug = str(file?.slug, 200);
-    if (!slug || !isKind(file.kind)) throw new Error("nav:open-file: a kind and a slug");
-    return { tabId: ctl.tabs.open({ kind: file.kind, slug, title: str(file.title, 300) ?? undefined }) };
+    if (!isFileKey(file?.fileKey)) throw new Error("nav:open-file: not a file key");
+    return ctl.tabs.openFile({ fileKey: file.fileKey, title: str(file.title, 300) ?? undefined, background: file.background === true, pageId: str(file.pageId, 64) ?? undefined, nodeId: str(file.nodeId, 64) ?? undefined });
   });
-  onSend("nav:new-file", ({ ctl }) => ctl.tabs.newFile());
-  onSend("nav:go-home", ({ ctl }) => ctl.tabs.activate("home"));
+  onInvoke("nav:new-file", ({ ctl }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined }));
+  onSend("nav:go-home", ({ ctl, info }, p) => {
+    // "Back to files": Home shows the file it came from, unless told another.
+    const reveal = str(p?.revealFileKey, 64);
+    ctl.tabs.goHome(reveal && isFileKey(reveal) ? reveal : (info.fileKey ?? undefined));
+  });
+
+  // ── Files that need a native dialog or a path ──
+  onInvoke("file:import", ({ ctl }, p) => ctl.tabs.importFiles(folderOf(p?.folderId), Array.isArray(p?.paths) ? p.paths.map((x) => str(x, 4096)).filter((x): x is string => x !== null) : undefined));
+  onInvoke("file:save-local-copy", ({ ctl }, p) => {
+    if (!isFileKey(p?.fileKey)) throw new Error("file:save-local-copy: not a file key");
+    return ctl.tabs.saveLocalCopy(p.fileKey);
+  });
+  onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));
 
   // ── A file tab ──
   onSend("tab:report", ({ ctl, sender }, r) => {
     if (!r || typeof r !== "object") return;
-    const status = r.status === "loading" || r.status === "ready" || r.status === "missing" || r.status === "error" ? r.status : undefined;
-    ctl.tabs.report(sender, { title: str(r.title, 300) ?? undefined, dirty: typeof r.dirty === "boolean" ? r.dirty : undefined, status, savedAt: typeof r.savedAt === "number" ? r.savedAt : undefined });
+    const status = r.status === "loading" || r.status === "ready" || r.status === "error" ? r.status : undefined;
+    ctl.tabs.report(sender, { title: str(r.title, 300) ?? undefined, status, error: str(r.error, 2000) ?? undefined });
   });
-  onSend("tab:response", ({ sender }, r) => {
-    if (r && typeof r.reqId === "number") settleRequest(sender, { reqId: r.reqId, ok: r.ok === true, value: r.value === true, error: str(r.error, 2000) ?? undefined });
+  onSend("tab:flushed", ({ sender }, r) => {
+    if (r && typeof r.reqId === "number") settleFlush(sender, { reqId: r.reqId, ok: r.ok === true, error: str(r.error, 2000) ?? undefined });
   });
 
-  // ── The sign-in (legacy) ──
-  onSend("session:auth", ({ ctl }, p) => ctl.tabs.setSignedIn(p?.signedIn === true));
-  onSend("session:request-sign-out", ({ ctl }) => void ctl.tabs.signOut());
-  onInvoke("auth:google", async ({ ctl }): Promise<SignInResult> => {
-    let credential: GoogleCredential;
-    try {
-      credential = await signInWithGoogle();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return message === "cancelled" ? { cancelled: true } : { error: message };
-    }
-    // Back to the app from the browser.
-    if (!ctl.win.isDestroyed()) {
-      if (ctl.win.isMinimized()) ctl.win.restore();
-      ctl.win.show();
-      ctl.win.focus();
-    }
-    if (process.platform === "darwin") app.focus({ steal: true });
-    return { credential };
+  // ── The menu bar's state, from the views ──
+  onSend("menu:state", ({ ctl, sender }, p) => {
+    if (p && typeof p === "object") ctl.tabs.setMenuState(sender, p);
   });
-  onSend("auth:cancel", () => cancelSignIn());
+
 
   // ── Links, theme ──
   onSend("shell:open-external", (_c, p) => {

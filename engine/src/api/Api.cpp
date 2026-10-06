@@ -193,6 +193,14 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("undoLabel").string(u.undoLabel()).key("redoLabel").string(u.redoLabel());
     w.endObject();
   }
+  // Last: by then the selection the right-click made has been reported.
+  for (auto& m : ev.contextMenus) {
+    w.beginObject().key("type").string("CONTEXT_MENU");
+    w.key("targetKind").string(m.selection ? "SELECTION" : "CANVAS");
+    w.key("x").number(m.x).key("y").number(m.y).key("hits").beginArray();
+    for (auto& path : m.hits) writeIds(w, path);
+    w.endArray().endObject();
+  }
   w.endArray().endObject();
 }
 
@@ -542,24 +550,168 @@ ENG_EXPORT void engine_txn_cancel(Handle h) {
   if (Engine* e = engineOf(h)) e->editor.txnCancel();
 }
 
-// commandId from editor/Commands.h (commands.ts); args JSON ({"dx","dy"} for NUDGE) or empty.
+// commandId from editor/Commands.h (commands.ts); args JSON or empty:
+// {"dx","dy"} for NUDGE; {"page":"0:3"} for DELETE_PAGE / DUPLICATE_PAGE (also
+// {"page":<localID>,"pageSession":<sessionID>} or {"sessionID","localID"}).
 ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uint32_t argsLen) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
-  double a = 0, b = 0;
+  CommandArgs a;
   json::Value args;
   if (argsLen && json::parse(bytes(argsPtr, argsLen), args)) {
-    if (auto* x = args.get("dx")) a = x->numberOr(0);
-    if (auto* y = args.get("dy")) b = y->numberOr(0);
+    if (auto* x = args.get("dx")) a.dx = x->numberOr(0);
+    if (auto* y = args.get("dy")) a.dy = y->numberOr(0);
+    auto* session = args.get("pageSession");
+    if (!session) session = args.get("sessionID");
+    if (auto* page = args.get("page")) {
+      bool ok = false;
+      if (page->isString()) {
+        Guid g = Guid::parse(page->string, &ok);
+        if (!ok) return E_INVALID;
+        a.page = g;
+      } else if (page->isNumber()) {
+        a.page = {static_cast<uint32_t>(session ? session->numberOr(0) : 0), static_cast<uint32_t>(page->number)};
+      } else if (page->isObject()) {
+        if (!codec::readGuid(*page, a.page)) return E_INVALID;
+      }
+    } else if (auto* local = args.get("localID"); local && local->isNumber() && session) {
+      a.page = {static_cast<uint32_t>(session->numberOr(0)), static_cast<uint32_t>(local->number)};
+    }
   }
-  return e->editor.command(static_cast<CommandId>(commandId), a, b);
+  return e->editor.command(static_cast<CommandId>(commandId), a);
 }
 
 ENG_EXPORT uint32_t engine_command_state(Handle h, uint32_t commandId) {
   Call call;
   Engine* e = engineOf(h);
   return e ? e->editor.commandState(static_cast<CommandId>(commandId)) : 0;
+}
+
+// The Layers panel's drag: `refs` to `parent` at `index` in its paint order
+// (0 = bottom), counted without them; pages when `parent` is the document.
+// Returns how many moved (0 = refused).
+ENG_EXPORT int32_t engine_move_nodes(Handle h, Ptr refsPtr, uint32_t refsLen, uint32_t parentSessionID, uint32_t parentLocalID,
+                                     uint32_t index) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(refsPtr, refsLen, v)) return E_DECODE;
+  return static_cast<int32_t>(e->editor.moveNodes(readRefs(v), {parentSessionID, parentLocalID}, index));
+}
+
+// The selection as a clipboard Message (docs/schema.md §4.1): the copied nodes
+// as CREATED with their source GUIDs, parents first, plus "pastePageId" and
+// "clipboardSelectionRegions" [{parent, nodes, enclosingFrameOffset}]. E_NOT_FOUND
+// when nothing is selected.
+ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t /*flags*/) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Clipboard clip;
+  if (!e->editor.copySelection(clip)) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginObject();
+  w.key("type").string("NODE_CHANGES");
+  w.key("sessionID").number(e->editor.sessionID());
+  w.key("nodeChanges");
+  codec::writeChanges(w, clip.nodes);
+  w.key("pastePageId").string(clip.page.toString());
+  w.key("clipboardSelectionRegions").beginArray();
+  for (auto& r : clip.regions) {
+    w.beginObject().key("parent").string(r.parent.toString()).key("nodes");
+    writeIds(w, r.nodes);
+    w.key("enclosingFrameOffset").beginObject().key("x").number(r.offset.x).key("y").number(r.offset.y).endObject();
+    w.endObject();
+  }
+  w.endArray();
+  w.endObject();
+  return setResult(w.take());
+}
+
+// Pastes a clipboard Message with fresh GUIDs. flags: PASTE_IN_PLACE (1) keeps the
+// page position. Returns how many top-level layers were pasted (they are selected).
+ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  if (e->editor.busy()) return E_BUSY;
+  Clipboard clip;
+  clip.nodes = readMessage(v);
+  if (auto* p = v.get("pastePageId")) codec::readGuid(*p, clip.page);
+  if (auto* regions = v.get("clipboardSelectionRegions"); regions && regions->isArray()) {
+    for (auto& r : regions->array) {
+      Clipboard::Region region;
+      if (auto* parent = r.get("parent"); !parent || !codec::readGuid(*parent, region.parent)) continue;
+      if (auto* nodes = r.get("nodes")) region.nodes = readRefs(*nodes);
+      if (auto* o = r.get("enclosingFrameOffset"); o && o->isObject()) {
+        if (auto* x = o->get("x")) region.offset.x = x->numberOr(0);
+        if (auto* y = o->get("y")) region.offset.y = y->numberOr(0);
+      }
+      clip.regions.push_back(std::move(region));
+    }
+  }
+  return static_cast<int32_t>(e->editor.paste(clip, (flags & PASTE_IN_PLACE) != 0));
+}
+
+// A thumbnail of a page: its content (the union of its visible layers' render
+// bounds) fitted into maxSize × maxSize device px — the content's own aspect, not
+// the canvas's — drawn without overlays into an offscreen target and read back.
+// Page (sessionID, localID) = (0xffffffff, 0xffffffff): the current page.
+// Result: u32 width, u32 height (little endian), then width × height × 4 bytes of
+// straight RGBA8, rows top to bottom. E_NOT_FOUND: no such page, or nothing on it;
+// E_UNSUPPORTED: the device can't make the target (context lost).
+ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, uint32_t maxSize, uint32_t /*flags*/) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  const Document& doc = ed.document();
+  Guid page{pageSessionID, pageLocalID};
+  if (page == kNoGuid) page = ed.page();
+  const Node* pn = doc.get(page);
+  if (!pn || pn->props.type != NodeType::CANVAS || maxSize == 0) return E_NOT_FOUND;
+  bool any = false;
+  Rect bounds;
+  for (Guid c : doc.children(page)) {
+    const Node* n = doc.get(c);
+    if (!n || !n->props.visible) continue;
+    Rect b = doc.renderBounds(c);
+    bounds = any ? bounds.united(b) : b;
+    any = true;
+  }
+  if (!any || !(bounds.w > 0) || !(bounds.h > 0)) return E_NOT_FOUND;
+  double limit = std::min<double>(maxSize, e->device->caps().maxTextureSize);
+  double zoom = Camera::clampZoom(std::min(limit / bounds.w, limit / bounds.h));
+  int width = std::clamp(static_cast<int>(std::lround(bounds.w * zoom)), 1, static_cast<int>(limit));
+  int height = std::clamp(static_cast<int>(std::lround(bounds.h * zoom)), 1, static_cast<int>(limit));
+  Camera camera{-bounds.x * zoom, -bounds.y * zoom, zoom};
+  Viewport viewport{static_cast<double>(width), static_cast<double>(height), 1, width, height};
+  Overlay none;
+  none.handles = false;
+  none.sizeBadge = false;
+  gfx::TargetId target = e->device->createTarget(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (!target) return E_UNSUPPORTED;
+  e->renderer->render(doc, page, camera, viewport, none, OverlayStyle::of(ed.theme()), target);
+  std::string out(8 + static_cast<size_t>(width) * height * 4, '\0');
+  for (int i = 0; i < 4; i++) {
+    out[static_cast<size_t>(i)] = static_cast<char>((static_cast<uint32_t>(width) >> (8 * i)) & 0xff);
+    out[static_cast<size_t>(4 + i)] = static_cast<char>((static_cast<uint32_t>(height) >> (8 * i)) & 0xff);
+  }
+  auto* px = reinterpret_cast<uint8_t*>(out.data() + 8);
+  bool read = e->device->readPixels(target, {0, 0, width, height}, {px, out.size() - 8});
+  e->device->destroyTarget(target);
+  if (!read) return E_UNSUPPORTED;
+  // Premultiplied → straight (the page colour is opaque, so this only matters at transparent edges).
+  for (size_t i = 0; i + 3 < out.size() - 8; i += 4) {
+    uint8_t a = px[i + 3];
+    if (a == 0 || a == 255) continue;
+    for (int c = 0; c < 3; c++) px[i + c] = static_cast<uint8_t>(std::min(255, (px[i + c] * 255 + a / 2) / a));
+  }
+  return setResult(std::move(out));
 }
 
 // ---- Events and diagnostics ------------------------------------------------------

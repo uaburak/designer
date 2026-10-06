@@ -2,14 +2,12 @@
  * The editor's commands (docs/editor.md §5): one registry for the main menu,
  * the canvas context menu, the shortcut layer and the panel buttons. Labels
  * and keys are Figma's (docs/research/figma/R7-editor.md). A command the
- * engine doesn't have yet runs through engineCompat and reads as disabled.
+ * engine doesn't implement yet reads as disabled (its commandState).
  */
 import { CMD_ENABLED, type CommandName, type ToolName } from "@/engine/abi";
-import { IS_MAC, keys as keyText } from "@/ds";
-import { showToast } from "@/ds";
+import { currentTheme, IS_MAC, keys as keyText, setThemePreference, showToast, type ThemePreference } from "@/ds";
 import type { EditorController } from "./controller";
-import { commandState, hasCommand, runCommand, type AnyCommand } from "./engineCompat";
-import { flipSelection, rotateSelection, zoomTo } from "./actions";
+import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
 
 export interface KeyCombo {
@@ -79,15 +77,15 @@ const k = (code: string, mods: Omit<KeyCombo, "code"> = {}): KeyCombo => ({ code
 const hasSelection = (ed: EditorController) => ed.selection.length > 0;
 
 /** An engine command (in abi.ts or still pending): enabled as the engine says. */
-function engine(id: string, label: string, name: AnyCommand, keys?: KeyCombo[], extra: Partial<EditorCommand> = {}): EditorCommand {
+function engine(id: string, label: string, name: CommandName, keys?: KeyCombo[], extra: Partial<EditorCommand> = {}): EditorCommand {
   return {
     id,
     label,
     keys,
     run: (ed) => {
-      runCommand(ed.engine, name);
+      ed.engine.command(name);
     },
-    enabled: (ed) => commandState(ed.engine, name).enabled,
+    enabled: (ed) => (ed.engine.commandState(name) & CMD_ENABLED) !== 0,
     ...extra,
   };
 }
@@ -106,6 +104,14 @@ function tool(id: string, label: string, name: ToolName, keys: KeyCombo[]): Edit
 function ui(id: string, label: string, keys: KeyCombo[] | undefined, run: (ed: EditorController) => void, checked?: (ed: EditorController) => boolean): EditorCommand {
   return { id, label, keys, run, checked };
 }
+
+/** Preferences ▸ Theme: the app-wide choice (ds/theme.ts; main owns it on the desktop). */
+const theme = (id: string, label: string, preference: ThemePreference): EditorCommand => ({
+  id,
+  label,
+  run: () => setThemePreference(preference),
+  checked: () => currentTheme().preference === preference,
+});
 
 /** Not built yet: shown, disabled (Figma's menus list them). */
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
@@ -166,7 +172,22 @@ export const COMMANDS: EditorCommand[] = [
     },
     run: (ed) => pasteFromMenu(ed, { mode: "inPlace" }),
   },
+  {
+    id: "edit.paste-here",
+    label: "Paste here",
+    run: (ed) => {
+      // Where the context menu was opened (canvas px → page units); without one, a plain paste.
+      const at = ed.ui.get().contextMenu?.canvas;
+      if (!at) return pasteFromMenu(ed, null);
+      const cam = ed.engine.getCamera();
+      pasteFromMenu(ed, { mode: "point", x: (at.x - cam.x) / cam.zoom, y: (at.y - cam.y) / cam.zoom });
+    },
+  },
   later("edit.paste-to-replace", "Paste to replace", [k("KeyR", { mod: true, shift: true })]),
+  later("edit.copy-as-png", "Copy as PNG", [k("KeyC", { mod: true, shift: true })]),
+  later("edit.copy-as-svg", "Copy as SVG"),
+  later("edit.copy-as-code", "Copy as code"),
+  later("edit.copy-as-text", "Copy as text"),
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
   later("edit.copy-properties", "Copy properties", [k("KeyC", { mod: true, alt: true })]),
@@ -208,8 +229,8 @@ export const COMMANDS: EditorCommand[] = [
   engine("object.bring-forward", "Bring forward", "BRING_FORWARD", [k("BracketRight", { mod: true })]),
   engine("object.send-backward", "Send backward", "SEND_BACKWARD", [k("BracketLeft", { mod: true })]),
   engine("object.send-to-back", "Send to back", "SEND_TO_BACK", [k("BracketLeft", { mod: true, alt: true })]),
-  { id: "object.flip-horizontal", label: "Flip horizontal", keys: [k("KeyH", { shift: true })], run: (ed) => flipSelection(ed, "x"), enabled: hasSelection },
-  { id: "object.flip-vertical", label: "Flip vertical", keys: [k("KeyV", { shift: true })], run: (ed) => flipSelection(ed, "y"), enabled: hasSelection },
+  engine("object.flip-horizontal", "Flip horizontal", "FLIP_HORIZONTAL", [k("KeyH", { shift: true })]),
+  engine("object.flip-vertical", "Flip vertical", "FLIP_VERTICAL", [k("KeyV", { shift: true })]),
   { id: "object.rotate-180", label: "Rotate 180°", run: (ed) => rotateSelection(ed, 180), enabled: hasSelection },
   { id: "object.rotate-90-left", label: "Rotate 90° left", run: (ed) => rotateSelection(ed, 90), enabled: hasSelection },
   { id: "object.rotate-90-right", label: "Rotate 90° right", run: (ed) => rotateSelection(ed, -90), enabled: hasSelection },
@@ -237,6 +258,14 @@ export const COMMANDS: EditorCommand[] = [
   engine("arrange.distribute-vertical", "Distribute vertical spacing", "DISTRIBUTE_VERTICAL", [k("KeyV", { alt: true, ctrl: true })]),
   later("arrange.tidy-up", "Tidy up", [k("KeyT", { alt: true, ctrl: true })]),
 
+  // ---- Vector, booleans (E4) ----
+  later("vector.flatten", "Flatten", [k("KeyE", { mod: true })]),
+  later("vector.outline-stroke", "Outline stroke", [k("KeyO", { mod: true, alt: true })]),
+  later("vector.union", "Union selection", [k("KeyU", { alt: true, shift: true })]),
+  later("vector.subtract", "Subtract selection", [k("KeyS", { alt: true, shift: true })]),
+  later("vector.intersect", "Intersect selection", [k("KeyI", { alt: true, shift: true })]),
+  later("vector.exclude", "Exclude selection", [k("KeyE", { alt: true, shift: true })]),
+
   // ---- Text (E3) ----
   later("text.bold", "Bold", [k("KeyB", { mod: true })]),
   later("text.italic", "Italic", [k("KeyI", { mod: true })]),
@@ -261,18 +290,35 @@ export const COMMANDS: EditorCommand[] = [
   },
   later("file.duplicate", "Duplicate"),
   later("file.move", "Move to project…"),
-  later("file.version-history", "Show version history"),
+  {
+    id: "file.save-version",
+    label: "Save to version history…",
+    keys: [k("KeyS", { mod: true, alt: true })],
+    run: (ed) => ed.ui.set({ versionDialog: "save" }),
+    enabled: (ed) => typeof ed.source.saveVersion === "function",
+  },
+  {
+    id: "file.version-history",
+    label: "Show version history",
+    run: (ed) => ed.ui.set({ versionDialog: "history" }),
+    enabled: (ed) => typeof ed.source.listVersions === "function",
+  },
   later("file.export", "Export…", [k("KeyE", { mod: true, shift: true })]),
+  later("file.export-frames-to-pdf", "Export frames to PDF…"),
   later("file.place-image", "Place image…", [k("KeyK", { mod: true, shift: true })]),
   {
     id: "file.back-to-files",
     label: "Back to files",
-    run: () => {
+    run: (ed) => {
       const nav = designerNav();
-      if (nav?.goHome) nav.goHome();
+      if (ed.backToFiles) ed.backToFiles();
+      else if (nav?.goHome) nav.goHome();
       else showToast({ message: "Files open in the desktop app's Home" });
     },
   },
+  theme("theme.light", "Light", "light"),
+  theme("theme.dark", "Dark", "dark"),
+  theme("theme.system", "Use system setting", "system"),
   ui("help.shortcuts", "Keyboard shortcuts", [k("Slash", { ctrl: true, shift: true })], (ed) => ed.ui.set((s) => ({ shortcutsOpen: !s.shortcutsOpen }))),
 ];
 
@@ -309,4 +355,4 @@ export function commandForKey(e: KeyboardEvent): EditorCommand | null {
 export const shortcutOf = (c: EditorCommand): string | undefined => (c.keys?.length ? comboText(c.keys[0]) : undefined);
 
 /** Engine command state bits, for callers holding a CommandName. */
-export const engineEnabled = (ed: EditorController, name: CommandName) => hasCommand(name) && (ed.engine.commandState(name) & CMD_ENABLED) !== 0;
+export const engineEnabled = (ed: EditorController, name: CommandName) => (ed.engine.commandState(name) & CMD_ENABLED) !== 0;
