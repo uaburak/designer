@@ -13,7 +13,7 @@ import { Banner, ContextMenu, EmptyState, Icon, IconButton, SearchField, cx, sho
 import type { Pixels } from "@/engine/codec";
 import type { LibraryAsset } from "../../../../shared/store/types";
 import { useEditor, type EditorController } from "../controller";
-import { goToMainComponent, insertInstance } from "../components";
+import { goToComponent, insertInstance } from "../components";
 import { engineMethod } from "../engineCompat";
 import { useLibraries, useUI } from "../hooks";
 import { insertLibraryComponent, isHiddenWhenPublishing, setHiddenWhenPublishing } from "../libraries";
@@ -272,8 +272,7 @@ function AssetMenu({ ed, at, asset, onClose }: { ed: EditorController; at: { x: 
       onSelect={(id) => {
         if (id === "go") {
           ed.ui.set({ railTab: "file" });
-          ed.engine.setSelection([asset.target]);
-          goToMainComponent(ed, asset.target);
+          goToComponent(ed, asset.id);
         } else if (id === "hide") setHiddenWhenPublishing(ed, asset.id, !hidden);
         onClose();
       }}

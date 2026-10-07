@@ -807,10 +807,27 @@ export function goToMainComponent(ed: EditorController, instanceRef: Guid = ed.s
     ed.ui.set({ returnToInstance: from });
     return true;
   }
-  if (page !== ed.store.page) ed.engine.setCurrentPage(page);
-  ed.engine.setSelection([main.guid]);
-  ed.engine.command("ZOOM_TO_SELECTION");
+  showComponent(ed, main.guid, page);
   ed.ui.set({ returnToInstance: from });
+  return true;
+}
+
+/** A component (or a set) on its page: the page shown, it selected and zoomed into view. */
+function showComponent(ed: EditorController, id: Guid, page: Guid): void {
+  if (page !== ed.store.page) ed.engine.setCurrentPage(page);
+  ed.engine.setSelection([id]);
+  ed.engine.command("ZOOM_TO_SELECTION");
+}
+
+/**
+ * Go to main component from Assets (a local component or set, not an instance): its page, selected and zoomed into
+ * view. False when it isn't on a page of this file.
+ */
+export function goToComponent(ed: EditorController, id: Guid): boolean {
+  const n = readC(ed, id);
+  const page = n ? pageOf(ed, id) : null;
+  if (!n || !page || n.isSoftDeleted || (ed.engine.readNode(page) as { internalOnly?: boolean } | null)?.internalOnly) return false;
+  showComponent(ed, id, page);
   return true;
 }
 

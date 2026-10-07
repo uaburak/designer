@@ -119,10 +119,14 @@ describe("libraries (docs/data.md §9)", () => {
       ],
     });
     expect((await libraries.getRecord(b.fileKey))!.movedIn).toEqual([expect.objectContaining({ fromLibraryFileKey: a.fileKey, fromKey: card.key, toLibraryFileKey: b.fileKey, toKey: moved.key, version: 1 })]);
-    // Consumers of A see the card as moved, not removed — even before A publishes again.
+    // Consumers of A see the card as moved, not removed — even before A publishes again (§9.5 step 2).
     const d = await libraries.diff(a.fileKey, [{ key: card.key, versionHash: card.versionHash }]);
     expect(d.updated).toEqual([]);
     expect(d.removed).toEqual([]);
+    expect(d.moved.map((m) => [m.fromKey, m.toKey])).toEqual([[card.key, moved.key]]);
+    // The same move published again records no second redirect.
+    await libraries.publish({ libraryFileKey: b.fileKey, description: "", assets: [{ ...moved, payload: undefined }, { ...copy, payload: undefined }], moves: [{ key: moved.key, fromLibraryFileKey: a.fileKey, fromKey: card.key, mode: "move" }] });
+    expect((await libraries.getRecord(b.fileKey))!.movedIn).toHaveLength(1);
     // When A publishes without it, the Publish dialog lists it as moved.
     const p = await libraries.previewPublish(a.fileKey, []);
     expect(p.removed).toEqual([]);

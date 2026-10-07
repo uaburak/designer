@@ -108,10 +108,14 @@ describe("the dev store's libraries (docs/data.md §9)", () => {
       ],
     });
     expect((await libraries.getRecord(b.fileKey))!.movedIn).toEqual([expect.objectContaining({ fromLibraryFileKey: a.fileKey, fromKey: card.key, toLibraryFileKey: b.fileKey, toKey: moved.key, version: 1 })]);
-    // Consumers of A see the card as moved, not removed — even before A publishes again.
+    // Consumers of A see the card as moved, not removed — even before A publishes again (§9.5 step 2; finding 14).
     const d = await libraries.diff(a.fileKey, [{ key: card.key, versionHash: card.versionHash }]);
     expect(d.updated).toEqual([]);
     expect(d.removed).toEqual([]);
+    expect(d.moved.map((m) => [m.fromKey, m.toKey])).toEqual([[card.key, moved.key]]);
+    // Publishing the same move again (an undone bookkeeping write) records no second redirect (finding 13).
+    await libraries.publish({ libraryFileKey: b.fileKey, description: "", assets: [{ ...moved, payload: undefined }], moves: [{ key: moved.key, fromLibraryFileKey: a.fileKey, fromKey: card.key, mode: "move" }] });
+    expect((await libraries.getRecord(b.fileKey))!.movedIn).toHaveLength(1);
     // When A publishes without it, the Publish dialog lists it as moved.
     const p = await libraries.previewPublish(a.fileKey, []);
     expect(p.removed).toEqual([]);
@@ -120,6 +124,40 @@ describe("the dev store's libraries (docs/data.md §9)", () => {
     const d2 = await libraries.diff(a.fileKey, [{ key: card.key, versionHash: card.versionHash }]);
     expect(d2.moved.map((m) => m.toLibraryFileKey)).toEqual([b.fileKey]);
     expect(d2.removed).toEqual([]);
+  });
+
+  it("a publish the browser's storage can't keep fails and leaves the library as it was (finding 11)", async () => {
+    const base = memoryStorage();
+    let refuse: RegExp | null = null;
+    const storage = { ...base, set: (k: string, v: string) => (refuse?.test(k) ? false : base.set(k, v)) };
+    const store = await MemoryStore.open({ storage, log: () => {} } as never);
+    const { workspace, libraries } = store.api({});
+    const folder = await workspace.createFolder({ name: "Team", parentId: null });
+    const lib = await workspace.createFile({ name: "DS", folderId: folder.id });
+    const events: LibraryEvent[] = [];
+    libraries.watch((e) => events.push(e));
+    const button = asset("button", "Button", "button@1");
+    const color = asset("color", "Color", "color@1", { kind: "STYLE", styleType: "FILL" });
+    await libraries.publish({ libraryFileKey: lib.fileKey, description: "", assets: [button, color], moves: [] });
+    const payloadKeys = () => base.keys(`${KV_PREFIX}libasset.`).sort();
+    const stored = payloadKeys();
+    // The manifest can't be written: the publish fails, the record still points at v1, consumers see no removal.
+    for (const pattern of [/libver\./, /libasset\./, /\.lib\./]) {
+      refuse = pattern;
+      const button2 = asset("button", "Button", `button@2-${pattern.source}`);
+      await expect(libraries.publish({ libraryFileKey: lib.fileKey, description: "", assets: [button2, { ...color, payload: undefined }], moves: [] })).rejects.toMatchObject({ code: "io" });
+      refuse = null;
+      expect((await libraries.getRecord(lib.fileKey))!.latestVersion).toBe(1);
+      expect((await libraries.getVersion(lib.fileKey)).version).toBe(1);
+      expect(base.keys(`${KV_PREFIX}libver.`)).toHaveLength(1);
+      expect(payloadKeys()).toEqual(stored); // what this publish wrote is taken back
+      const d = await libraries.diff(lib.fileKey, [{ key: button.key, versionHash: button.versionHash }, { key: color.key, versionHash: color.versionHash }]);
+      expect(d.removed).toEqual([]);
+    }
+    expect(events.filter((e) => e.type === "published")).toHaveLength(1);
+    // With room again it publishes, and the unchanged colour needs no payload (it is still stored).
+    const v2 = await libraries.publish({ libraryFileKey: lib.fileKey, description: "", assets: [asset("button", "Button", "button@2"), { ...color, payload: undefined }], moves: [] });
+    expect(v2.version).toBe(2);
   });
 
   it("is shared through the storage: another page's publish is an event; deleting the file forgets its versions", async () => {

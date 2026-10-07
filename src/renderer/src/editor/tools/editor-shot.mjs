@@ -585,7 +585,7 @@ async function librariesSection(page, theme) {
     const mem = await s.getDevStore().ready;
     const folder = await api.workspace.createFolder({ name: "Design system", parentId: null });
     const add = async (name, doc, folderId) => (await mem.addFile({ name, folderId, snapshot: encodeMessage(s.messageToKiwi(doc)) })).fileKey;
-    return { kit: await add("Kit", COMPONENTS_DOCUMENT, folder.id), tokens: await add("Tokens", VARIABLES_DOCUMENT, folder.id), app: await add("App", newDocumentMessage(), null) };
+    return { kit: await add("Kit", COMPONENTS_DOCUMENT, folder.id), tokens: await add("Tokens", VARIABLES_DOCUMENT, folder.id), app: await add("App", newDocumentMessage(), null), kit2: await add("Kit 2", newDocumentMessage(), folder.id) };
   }, repo);
   const ed = (fn, arg) => page.evaluate(fn, arg);
   const dialog = page.getByRole("dialog");
@@ -713,6 +713,94 @@ async function librariesSection(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
   await shot(page, `84-updated-${theme}`);
+  await page.evaluate(() => window.__designerEditor.source.flush());
+
+  // ---- What a published asset uses goes with it: the Kit changes the Star and the Button; the Star's row is locked
+  // ("Used by Button") while the Button is selected.
+  await open(page, `&file=${keys.kit}`);
+  await ed(() => {
+    const e = window.__designerEditor;
+    e.setProps(["1:20"], { size: { x: 20, y: 20 } }, "Resize");
+    e.setProps(["1:1"], { fillPaints: [{ type: "SOLID", color: { r: 0.08, g: 0.68, b: 0.36, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }] }, "Fill");
+  });
+  await ed(() => window.__designerEditor.ui.set({ publishOpen: true }));
+  const starRow = page.locator('[data-publish-dialog] [data-change="Icons/Star"]');
+  await starRow.waitFor({ timeout: 10000 });
+  await settle(page);
+  check("Publish: a modified component the selected Button uses goes with it (Used by Button, locked)", (await page.locator('[data-change="Icons/Star"][data-locked]').count()) === 1 && (await starRow.getByText("Used by Button").count()) === 1);
+  await shot(page, `85-publish-used-by-${theme}`);
+  await page.locator('[data-publish-dialog] [data-change="Button"]').getByRole("checkbox").click({ force: true });
+  await settle(page);
+  check("Publish: deselecting the Button frees the Star's row", (await page.locator('[data-change="Icons/Star"][data-locked]').count()) === 0);
+  await page.locator('[data-publish-dialog] [data-change="Button"]').getByRole("checkbox").click({ force: true });
+  await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+  await page.locator("[data-publish-dialog]").waitFor({ state: "detached", timeout: 10000 });
+
+  // ---- Moved out: ⌘X of Icons/Heart in the Kit, ⌘V in Kit 2, which publishes with Move to this file; the Kit's
+  // Publish then lists it under Moved components ("Moved to Kit 2") and can publish that alone.
+  const cut = await ed(() => {
+    const e = window.__designerEditor;
+    e.engine.setSelection(["1:21"]);
+    const m = e.engine.encodeSelection({ cut: true });
+    e.engine.command("DELETE");
+    return m;
+  });
+  await page.evaluate(() => window.__designerEditor.source.flush());
+  await open(page, `&file=${keys.kit2}`);
+  await ed((m) => window.__designerEditor.engine.paste(m), cut);
+  await publishFromUi(`86-publish-move-here-${theme}`);
+  await page.evaluate(() => window.__designerEditor.source.flush());
+  await open(page, `&file=${keys.kit}`);
+  await ed(() => window.__designerEditor.ui.set({ publishOpen: true }));
+  await page.locator('[data-publish-dialog] [data-moved-out="Icons/Heart"]').waitFor({ timeout: 10000 }).catch(() => {});
+  await settle(page);
+  const movedOut = page.locator('[data-moved-out="Icons/Heart"]');
+  check("Publish in the old library: the moved component is listed (Moved to Kit 2) and Publish is enabled", (await movedOut.getByText("Moved to Kit 2").count()) === 1 && (await dialog.getByRole("button", { name: "Publish", exact: true }).isEnabled()));
+  await shot(page, `87-publish-moved-out-${theme}`);
+  await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+  await page.locator("[data-publish-dialog]").waitFor({ state: "detached", timeout: 10000 });
+  await page.evaluate(() => window.__designerEditor.source.flush());
+
+  // ---- The App: one row per asset; Update selected instance on a second instance, then Update all (one step).
+  await open(page, `&file=${keys.app}`);
+  const second = await ed(async (k) => {
+    const e = window.__designerEditor;
+    const { insertLibraryComponent } = await import("/src/editor/libraries.ts");
+    const v = await e.source.libraries.version(k);
+    return insertLibraryComponent(e, k, v.assets.find((a) => a.name === "Button"));
+  }, keys.kit);
+  await ed(() => window.__designerEditor.libraries.refresh());
+  await ed((id) => window.__designerEditor.engine.setSelection([id]), inserted.id);
+  await ed(() => window.__designerEditor.ui.set({ railTab: "assets", librariesDialog: { tab: "updates" } }));
+  await page.locator('[data-update="Button"]').waitFor({ timeout: 10000 });
+  check("Updates: one row per asset", (await page.locator('[data-update="Button"]').count()) === 1);
+  await page.locator('[data-update="Button"]').click();
+  await page.locator("[data-review-update]").waitFor({ timeout: 5000 });
+  const layersBefore = await ed((id) => window.__designerEditor.engine.readNode(id, { childIds: true })?.childIds?.length ?? 0, second);
+  await page.locator("[data-review-update]").getByRole("button", { name: "Update selected instance" }).click();
+  await page.waitForFunction(() => window.__designerEditor.libraries.copies().filter((c) => c.name === "Button").length === 2, null, { timeout: 10000 }).catch(() => {});
+  await settle(page);
+  const after = await ed(
+    ([a, b]) => {
+      const e = window.__designerEditor;
+      const kids = (id) => e.engine.readNode(id, { childIds: true })?.childIds?.length ?? 0;
+      const g = (id) => Math.round((e.engine.readNode(id)?.fillPaints?.[0]?.color?.g ?? 0) * 255);
+      return { a: kids(a), b: kids(b), ga: g(a), gb: g(b), copies: e.libraries.copies().filter((c) => c.name === "Button").length };
+    },
+    [inserted.id, second]
+  );
+  check("Update selected instance: a complete second copy, the selected instance on it with its layers, the other unchanged", after.copies === 2 && after.a === layersBefore && after.ga === 173 && after.gb !== 173, JSON.stringify(after));
+  await shot(page, `88-update-selected-instance-${theme}`);
+  await page.locator("[data-review-update]").getByRole("button", { name: "Back to updates" }).click().catch(() => {});
+  await page.getByRole("button", { name: "Update all" }).click();
+  await page.waitForFunction(() => window.__designerEditor.libraries.pendingCount() === 0, null, { timeout: 10000 }).catch(() => {});
+  const all = await ed(() => {
+    const e = window.__designerEditor;
+    return { pending: e.libraries.pendingCount(), undo: e.store.undo.undoLabel };
+  });
+  check("Update all: every copy of every asset updated, one undo step", all.pending === 0 && all.undo === "Update library assets", JSON.stringify(all));
+  await settle(page);
+  await shot(page, `89-updated-all-${theme}`);
 }
 
 try {

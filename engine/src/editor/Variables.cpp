@@ -468,6 +468,66 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
   }
 }
 
+// What resolveBindings writes, reset: a style's values in its user, every variable-bound field. The binding is the
+// content; the value depends on where the node sits (its modes) and on the variable / style (their own content).
+void Editor::clearBoundValues(NodeProps& p) {
+  const NodeProps none;
+  if (p.styleIdForFill.present()) p.fillPaints.clear();
+  if (p.styleIdForStrokeFill.present()) p.strokePaints.clear();
+  if (p.styleIdForEffect.present()) p.effects.clear();
+  if (p.styleIdForGrid.present()) p.layoutGrids.clear();
+  if (p.styleIdForText.present() && p.type == NodeType::TEXT) {
+    copyFields(p, none, kTextStyleNodeFields);
+    // The style's typography bindings, copied into the layer, are the style's.
+    auto& map = p.parameterConsumptionMap;
+    map.erase(std::remove_if(map.begin(), map.end(), [](const ParamBinding& b) { return b.isVariable() && isTextStyleField(b.field); }),
+              map.end());
+  }
+  for (const ParamBinding& b : p.parameterConsumptionMap) {
+    if (!b.isVariable()) continue;
+    switch (b.field) {
+      case VariableField::VISIBLE: p.visible = none.visible; break;
+      case VariableField::TEXT_DATA:
+        if (p.type == NodeType::TEXT) {
+          p.textData.characters.clear();
+          p.textData.characterStyleIDs.clear();
+          p.textData.lines.clear();
+        }
+        break;
+      case VariableField::FONT_FAMILY: p.fontName.family.clear(), p.fontName.postscript.clear(); break;
+      case VariableField::FONT_STYLE: p.fontName.style.clear(), p.fontName.postscript.clear(); break;
+      case VariableField::FONT_SIZE: p.fontSize = none.fontSize; break;
+      case VariableField::LINE_HEIGHT: p.lineHeight = none.lineHeight; break;
+      case VariableField::LETTER_SPACING: p.letterSpacing = none.letterSpacing; break;
+      default: setFloatField(p, b.field, 0); break;
+    }
+  }
+  auto paints = [](std::vector<Paint>& list) {
+    for (Paint& pt : list) {
+      if (pt.colorVar.present()) pt.color = Color{};
+      if (pt.opacityVar.present()) pt.opacity = 1;
+      for (size_t i = 0; i < pt.stopVars.size() && i < pt.stops.size(); i++)
+        if (pt.stopVars[i].present()) pt.stops[i].color = Color{};
+    }
+  };
+  paints(p.fillPaints);
+  paints(p.strokePaints);
+  for (TextStyle& run : p.textData.styleOverrideTable) paints(run.fillPaints);
+  for (Effect& e : p.effects) {
+    if (e.colorVar.present()) e.color = Color{};
+    if (e.radiusVar.present()) e.radius = 0;
+    if (e.spreadVar.present()) e.spread = 0;
+    if (e.xVar.present()) e.offset.x = 0;
+    if (e.yVar.present()) e.offset.y = 0;
+  }
+  for (LayoutGrid& g : p.layoutGrids) {
+    if (g.numSectionsVar.present()) g.numSections = 0;
+    if (g.offsetVar.present()) g.offset = 0;
+    if (g.sectionSizeVar.present()) g.sectionSize = 0;
+    if (g.gutterSizeVar.present()) g.gutterSize = 0;
+  }
+}
+
 // ---- Dependencies ---------------------------------------------------------------------------------
 
 void Editor::dropDeps(Guid id) {

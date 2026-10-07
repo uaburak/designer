@@ -1461,6 +1461,8 @@ bool readGuid(const json::Value& v, Guid& out) {
 FieldMask presentFields(const NodeProps& p) {
   // Absent = the absence value (NodeProps{}); type and parentIndex are always carried.
   FieldMask mask = differingFields(p, NodeProps{}, F_ALL) | F_TYPE;
+  // A variable's type even when it is the absence value (BOOLEAN = 0): readers outside the engine need it.
+  if (p.type == NodeType::VARIABLE) mask |= F_VARIABLE_RESOLVED_TYPE;
   if (p.parentIndex.guid != kNoGuid) mask |= F_PARENT_INDEX;
   else mask &= ~static_cast<FieldMask>(F_PARENT_INDEX);
   return mask;

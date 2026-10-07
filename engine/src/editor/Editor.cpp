@@ -113,9 +113,10 @@ void Editor::write(const NodeChange& change) {
       return write(redirected);
     }
   }
-  if (userEdit && hasLibraryCopies_) {
-    // Library copies are read-only (docs/schema.md §8.2): nothing in them is written, removed or added to — except a
-    // copy's root made local (its sourceLibraryKey cleared: Restore component of a removed library component).
+  if (hasLibraryCopies_ && (userEdit || (applyGuard_ && !libraryWrite_ && !deriving_ && !inLayout_ && !resolving_))) {
+    // Library copies are read-only (docs/schema.md §8.2) for user edits and system changes from outside: nothing in
+    // them is written, removed or added to — except a copy's root made local (its sourceLibraryKey cleared: Restore
+    // component of a removed library component).
     if (isLibraryCopy(change.guid)) {
       bool makeLocal = change.phase == Phase::CHANGED && (change.mask & F_SOURCE_LIBRARY_KEY) && change.props.sourceLibraryKey.empty() &&
                        existing && !existing->props.sourceLibraryKey.empty();
@@ -556,8 +557,18 @@ void Editor::setSessionID(uint32_t sessionID) {
 
 Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t flags) {
   if (busy()) return E_BUSY;
-  TxnKind kind = (flags & APPLY_USER) ? TxnKind::USER : (flags & APPLY_LOAD) ? TxnKind::LOAD : TxnKind::REMOTE;
+  TxnKind kind = (flags & APPLY_USER)     ? TxnKind::USER
+                 : (flags & APPLY_SYSTEM) ? TxnKind::SYSTEM
+                 : (flags & APPLY_LOAD)   ? TxnKind::LOAD
+                                          : TxnKind::REMOTE;
+  // A system change inside an open user step would become part of that undo step.
+  if (kind == TxnKind::SYSTEM && txn_.open && txn_.kind != TxnKind::SYSTEM) return E_BUSY;
   begin(kind, "Edit");
+  // APPLY_EXACT (Restore version): a whole document state computed elsewhere — written as it is, library copies too.
+  bool exact = (flags & APPLY_EXACT) != 0;
+  bool libraryWriteBefore = libraryWrite_, guardBefore = applyGuard_;
+  if (exact) libraryWrite_ = true;
+  else if (kind == TxnKind::SYSTEM) applyGuard_ = true;
   for (const NodeChange& c : changes) {
     // CANVAS only under DOCUMENT (docs/engine.md §2.4).
     if (c.phase != Phase::REMOVED && (c.mask & F_PARENT_INDEX) && c.props.type == NodeType::CANVAS) {
@@ -566,6 +577,8 @@ Status Editor::applyChanges(const std::vector<NodeChange>& changes, uint32_t fla
     }
     write(c);
   }
+  libraryWrite_ = libraryWriteBefore;
+  applyGuard_ = guardBefore;
   commit();
   pruneSelection();
   if (!doc_.has(page_)) {

@@ -11,7 +11,7 @@ import { Button, EmptyState, Icon, IconButton, SearchField, SegmentedControl, Sp
 import type { LibraryAsset, LibraryVersion } from "../../../../../shared/store/types";
 import { useEditor } from "../../controller";
 import { useDocumentVersion, useLibraries, useUI } from "../../hooks";
-import { acceptUpdates, restoreRemovedComponent, selectedInstancesOf, setLibraryEnabled, updateSelectedInstances, type UpdateItem } from "../../libraries";
+import { acceptUpdates, restoreRemovedComponent, selectedInstancesOf, setLibraryEnabled, updateId, updateSelectedInstances, type UpdateItem } from "../../libraries";
 import type { LibraryEntry } from "../../documentSource";
 import { NodeThumb, RemoteThumb, kindGlyph } from "./Thumbs";
 import styles from "./Libraries.module.css";
@@ -250,8 +250,9 @@ function LibraryPreview({ lib, onBack }: { lib: string; onBack: () => void }) {
   );
 }
 
-const updateId = (u: UpdateItem) => `${u.library}/${u.copy.guid}`;
 const KIND_TEXT: Record<UpdateItem["kind"], string> = { modified: "Modified", removed: "Removed from library", moved: "Moved" };
+
+const instancesText = (n: number) => (n ? ` · ${n} ${n === 1 ? "instance" : "instances"}` : "");
 
 function Updates({ onOpen }: { onOpen: (id: string) => void }) {
   const ed = useEditor();
@@ -259,7 +260,6 @@ function Updates({ onOpen }: { onOpen: (id: string) => void }) {
   useDocumentVersion();
   const [busy, setBusy] = useState(false);
   const updates = ed.libraries.updates();
-  const usage = ed.libraries.usage();
   const byLib = new Map<string, UpdateItem[]>();
   for (const u of updates) byLib.set(u.library, [...(byLib.get(u.library) ?? []), u]);
   const acceptable = updates.filter((u) => u.kind !== "removed");
@@ -267,7 +267,7 @@ function Updates({ onOpen }: { onOpen: (id: string) => void }) {
     setBusy(true);
     try {
       const n = await acceptUpdates(ed, acceptable);
-      showToast({ message: n === 1 ? "Updated 1 asset" : `Updated ${n} assets`, kind: "success" });
+      if (n) showToast({ message: n === 1 ? "Updated 1 asset" : `Updated ${n} assets`, kind: "success" });
     } finally {
       setBusy(false);
     }
@@ -291,7 +291,7 @@ function Updates({ onOpen }: { onOpen: (id: string) => void }) {
                 <span className={styles.libName}>{u.copy.name}</span>
                 <span className={styles.meta}>
                   {u.kind === "moved" ? `Moved to ${u.redirect?.toLibraryFileKey ? (ed.libraries.get().names.get(u.redirect.toLibraryFileKey) ?? "another library") : "another library"}` : KIND_TEXT[u.kind]}
-                  {usage.get(u.copy.guid) ? ` · ${usage.get(u.copy.guid)} ${usage.get(u.copy.guid) === 1 ? "instance" : "instances"}` : ""}
+                  {instancesText(ed.libraries.usageOf(u))}
                 </span>
               </span>
               <Icon name="16.chevron.right" className={styles.caret} />
@@ -311,7 +311,7 @@ function ReviewUpdate({ id, onBack }: { id: string; onBack: () => void }) {
   const [mode, setMode] = useState<"side" | "overlay">("side");
   const [busy, setBusy] = useState(false);
   const u = ed.libraries.updates().find((x) => updateId(x) === id);
-  const selected = useMemo(() => (u ? selectedInstancesOf(ed, u.copy.guid) : []), [ed, u]);
+  const selected = useMemo(() => (u ? selectedInstancesOf(ed, u.copies.map((c) => c.guid)) : []), [ed, u]);
   if (!u) {
     return (
       <div className={styles.listBody}>
@@ -323,18 +323,18 @@ function ReviewUpdate({ id, onBack }: { id: string; onBack: () => void }) {
       </div>
     );
   }
-  const run = async (f: () => Promise<unknown>, message: string, back = false) => {
+  const run = async <T,>(f: () => Promise<T>, message: (result: T) => string | null, back = false) => {
     setBusy(true);
     try {
-      await f();
-      showToast({ message, kind: "success" });
+      const text = message(await f());
+      if (text) showToast({ message: text, kind: "success" });
       if (back) onBack(); // the list again (Figma), what's left to review
     } finally {
       setBusy(false);
     }
   };
   const isComponent = u.copy.kind === "COMPONENT" || u.copy.kind === "COMPONENT_SET";
-  const usage = ed.libraries.usage().get(u.copy.guid) ?? 0;
+  const usage = ed.libraries.usageOf(u);
   return (
     <div className={styles.listBody} data-review-update={u.copy.name}>
       <div className={styles.previewHeader}>
@@ -370,12 +370,12 @@ function ReviewUpdate({ id, onBack }: { id: string; onBack: () => void }) {
       {u.asset?.description && <div className={styles.meta}>{u.asset.description}</div>}
       <div className={styles.reviewActions}>
         {u.kind === "modified" && isComponent && (
-          <Button variant="secondary" disabled={busy || !selected.length} tooltip={selected.length ? undefined : "Select instances of this component on the canvas"} onClick={() => void run(() => updateSelectedInstances(ed, u), selected.length === 1 ? "Updated 1 instance" : `Updated ${selected.length} instances`)}>
+          <Button variant="secondary" disabled={busy || !selected.length} tooltip={selected.length ? undefined : "Select instances of this component on the canvas"} onClick={() => void run(() => updateSelectedInstances(ed, u), (n) => (n === 1 ? "Updated 1 instance" : n ? `Updated ${n} instances` : null))}>
             {selected.length > 1 ? `Update ${selected.length} selected instances` : "Update selected instance"}
           </Button>
         )}
         {u.kind !== "removed" && (
-          <Button variant="primary" loading={busy} onClick={() => void run(() => acceptUpdates(ed, [u]), u.kind === "moved" ? "Moved to the new library" : "Updated", true)}>
+          <Button variant="primary" loading={busy} onClick={() => void run(() => acceptUpdates(ed, [u]), (n) => (!n ? null : u.kind === "moved" ? "Moved to the new library" : "Updated"), true)}>
             {u.kind === "moved" ? "Accept" : "Update"}
           </Button>
         )}

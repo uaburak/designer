@@ -1,20 +1,26 @@
 /**
  * Publish library (UI3; help.figma.com "Publish a library", R5): what changed since the last publish — new,
  * modified and removed components, styles and variables, each with a checkbox (deselecting a modified asset keeps
- * its last published version; a removed one stays published) — a description subscribers see with the update,
- * components pasted from another library (Move to this file / Publish as a copy), what is hidden when publishing,
- * then progress and "Library published". Files in Drafts can't publish ("Move to a folder to publish").
+ * its last published version; a removed one stays published; what a selected asset uses goes with it: "Used by …",
+ * its checkbox locked) — a description subscribers see with the update, components pasted from another library
+ * (Move to this file / Publish as a copy) and the ones moved out to another library ("Moved to …"), what is hidden
+ * when publishing, then progress and "Library published". Files in Drafts can't publish ("Move to a folder to
+ * publish").
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Dialog, EmptyState, Icon, MIXED, Select, Spinner, TextArea, showToast } from "@/ds";
 import type { LibraryAsset } from "../../../../../shared/store/types";
 import { useEditor } from "../../controller";
 import { useLibraries, useUI } from "../../hooks";
-import { draftPublish, publishLibrary, type PublishDraft, type PublishItem } from "../../libraries";
+import { draftPublish, publishLibrary, publishPlan, type PublishDraft, type PublishItem } from "../../libraries";
 import { NodeThumb, RemoteThumb } from "./Thumbs";
 import styles from "./Libraries.module.css";
 
 type Row = { key: string; name: string; kind: LibraryAsset["kind"]; status: "created" | "modified" | "removed"; item?: PublishItem; removed?: LibraryAsset };
+
+/** "Used by Button", "Used by Button and Chip", "Used by Button and 2 others". */
+export const usedByText = (names: readonly string[]): string =>
+  names.length <= 1 ? `Used by ${names[0] ?? ""}` : names.length === 2 ? `Used by ${names[0]} and ${names[1]}` : `Used by ${names[0]} and ${names.length - 1} others`;
 
 const STATUS_LABEL: Record<Row["status"], string> = { created: "New", modified: "Modified", removed: "Removed" };
 const GROUPS: { title: string; kinds: LibraryAsset["kind"][] }[] = [
@@ -65,6 +71,10 @@ function Publish() {
       ...draft.removed.map((r) => ({ key: r.key, name: r.name, kind: r.kind, status: "removed" as const, removed: r })),
     ];
   }, [draft]);
+  const plan = useMemo(() => (draft ? publishPlan(draft, selected) : null), [draft, selected]);
+  // A new or modified asset a published one uses goes with it: checked, and locked while that one is selected.
+  const locked = (r: Row) => r.status !== "removed" && !!plan?.usedBy.has(r.key);
+  const checked = (r: Row) => (r.status === "removed" ? selected.has(r.key) : !!plan?.chosen.has(r.key));
   const hiddenCount = draft?.hiddenCount ?? 0;
   const toggle = (keys: string[], on: boolean) =>
     setSelected((s) => {
@@ -89,7 +99,9 @@ function Publish() {
     }
   };
   const firstPublish = !state.own;
-  const count = rows.filter((r) => selected.has(r.key)).length;
+  const count = rows.filter(checked).length;
+  const movedOut = draft?.movedOut ?? [];
+  const nothing = !!draft && rows.length === 0 && !draft.moves.length && !movedOut.length;
 
   if (inDrafts) {
     return (
@@ -117,7 +129,7 @@ function Publish() {
           <Button variant="secondary" onClick={close} disabled={!!progress}>
             Cancel
           </Button>
-          <Button variant="primary" loading={!!progress} disabled={!draft || (count === 0 && !draft.moves.length)} onClick={() => void publish()}>
+          <Button variant="primary" loading={!!progress} disabled={!draft || (count === 0 && !draft.moves.length && !movedOut.length)} onClick={() => void publish()}>
             Publish
           </Button>
         </>
@@ -138,7 +150,7 @@ function Publish() {
             <Spinner /> Looking for changes…
           </div>
         )}
-        {draft && rows.length === 0 && !draft.moves.length && <div className={styles.none}>No changes to publish</div>}
+        {nothing && <div className={styles.none}>No changes to publish</div>}
         {draft && rows.length > 0 && (
           <div className={styles.changes} role="group" aria-label="Changes">
             <div className={styles.changesHeader}>
@@ -152,22 +164,37 @@ function Publish() {
                   <div className={styles.changeGroupTitle}>
                     {g.title} <span className={styles.meta}>{list.length}</span>
                   </div>
-                  {list.map((r) => (
-                    <label key={r.key} className={styles.changeRow} data-change={r.name} data-status={r.status}>
-                      <Checkbox label={r.name} hideLabel checked={selected.has(r.key)} onChange={(on) => toggle([r.key], on)} />
-                      {r.item ? <NodeThumb node={r.item.asset.guid} kind={r.kind} size={32} /> : <RemoteThumb asset={r.removed!} size={32} />}
-                      <span className={styles.changeName}>{r.name}</span>
-                      <span className={styles[`status_${r.status}`]}>{STATUS_LABEL[r.status]}</span>
-                    </label>
-                  ))}
+                  {list.map((r) => {
+                    const users = plan?.usedBy.get(r.key);
+                    return (
+                      <label key={r.key} className={styles.changeRow} data-change={r.name} data-status={r.status} data-locked={locked(r) ? "" : undefined}>
+                        <Checkbox label={r.name} hideLabel checked={checked(r)} disabled={locked(r)} onChange={(on) => toggle([r.key], on)} />
+                        {r.item ? <NodeThumb node={r.item.asset.guid} kind={r.kind} size={32} /> : <RemoteThumb asset={r.removed!} size={32} />}
+                        <span className={styles.changeText}>
+                          <span className={styles.changeName}>{r.name}</span>
+                          {users?.length ? <span className={styles.meta}>{usedByText(users)}</span> : null}
+                        </span>
+                        <span className={styles[`status_${r.status}`]}>{STATUS_LABEL[r.status]}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               );
             })}
           </div>
         )}
-        {draft && draft.moves.length > 0 && (
+        {draft && (draft.moves.length > 0 || movedOut.length > 0) && (
           <div className={styles.changeGroup} role="group" aria-label="Moved components">
             <div className={styles.changeGroupTitle}>Moved components</div>
+            {movedOut.map((m) => (
+              <div key={m.key} className={styles.moveRow} data-moved-out={m.name}>
+                <RemoteThumb asset={m.asset ?? { kind: m.kind, thumbnail: null }} size={32} />
+                <div className={styles.moveText}>
+                  <span className={styles.changeName}>{m.name}</span>
+                  <span className={styles.meta}>Moved to {m.toName}</span>
+                </div>
+              </div>
+            ))}
             {draft.moves.map((m) => (
               <div key={m.fromKey} className={styles.moveRow} data-move={m.item.asset.name}>
                 <NodeThumb node={m.item.asset.guid} kind={m.item.asset.kind} size={32} />

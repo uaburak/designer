@@ -70,28 +70,39 @@ export function previewAgainst(prev: LibraryVersion | null, assets: readonly Pub
   };
 }
 
-/** A consumer's copies `have` against the latest version (§9.4): newer versions, removed assets, moved ones. */
+/**
+ * A consumer's copies `have` against the latest version (§9.4): newer versions, removed assets, moved ones — each
+ * asset once, however many copies of it the consumer holds (Update selected instance leaves two of one key). A move
+ * another library recorded wins over the old library's manifest: its consumers see "Moved" as soon as the new
+ * library publishes (§9.5 step 2), not only after the old one publishes the removal.
+ */
 export function diffAgainst(latest: LibraryVersion | null, latestVersion: number, have: readonly { key: string; versionHash: string }[], movedOut: readonly Redirect[]): LibraryDiff {
   const byKey = new Map((latest?.assets ?? []).map((a) => [a.key, a]));
+  const versions = new Map<string, Set<string>>();
+  for (const h of have) versions.set(h.key, (versions.get(h.key) ?? new Set<string>()).add(h.versionHash));
   const updated: LibraryAsset[] = [];
   const removed: string[] = [];
   const moved: Redirect[] = [];
-  for (const h of have) {
-    const a = byKey.get(h.key);
-    if (a) {
-      if (a.versionHash !== h.versionHash) updated.push(a);
+  for (const [key, hashes] of versions) {
+    const m = movedOut.find((x) => x.fromKey === key);
+    if (m) {
+      moved.push(m);
       continue;
     }
-    const m = movedOut.find((x) => x.fromKey === h.key);
-    if (m) moved.push(m);
-    else removed.push(h.key);
+    const a = byKey.get(key);
+    if (!a) removed.push(key);
+    else if ([...hashes].some((h) => h !== a.versionHash)) updated.push(a);
   }
   return { latestVersion, updated, removed, moved };
 }
 
-/** The moves a publish records as redirects (mode "move"; "copy" records none). */
-export function movesOf(moves: PublishMoves, lib: string, version: number, at: number): Redirect[] {
-  return (moves ?? []).filter((m) => m.mode === "move").map((m) => ({ fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, toLibraryFileKey: lib, toKey: m.key, version, at }));
+/**
+ * The moves a publish records as redirects (mode "move"; "copy" records none) — a move `recorded` already holds
+ * (the same asset to the same key) isn't recorded twice.
+ */
+export function movesOf(moves: PublishMoves, lib: string, version: number, at: number, recorded: readonly Redirect[] = []): Redirect[] {
+  const known = (m: { fromLibraryFileKey: string; fromKey: string; key: string }) => recorded.some((r) => r.fromLibraryFileKey === m.fromLibraryFileKey && r.fromKey === m.fromKey && r.toKey === m.key);
+  return (moves ?? []).filter((m) => m.mode === "move" && !known(m)).map((m) => ({ fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, toLibraryFileKey: lib, toKey: m.key, version, at }));
 }
 
 export type PublishMoves = { key: string; fromLibraryFileKey: string; fromKey: string; mode: "move" | "copy" }[] | undefined;

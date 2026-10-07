@@ -211,6 +211,10 @@ export const TICK_NEEDS_RENDER = 1;
 export const APPLY_USER = 1;
 export const APPLY_REMOTE = 2;
 export const APPLY_LOAD = 4;
+/** Journaled and emitted, not an undo step (library bookkeeping); never writes into library copies. */
+export const APPLY_SYSTEM = 8;
+/** A store-computed document state (Restore version): library copies written too, none of the user-edit rules. */
+export const APPLY_EXACT = 16;
 /** engine_read_nodes flags. */
 export const INCLUDE_CHILD_IDS = 1;
 /** engine_paste flags. */

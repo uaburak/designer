@@ -8,6 +8,7 @@
 // tools/ToolController.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -52,7 +53,10 @@ enum KeyResult : uint32_t { K_HANDLED = 1 };
 enum WheelFlags : uint32_t { WHEEL_PINCH = 1 };
 enum class DeltaMode : uint8_t { PIXEL = 0, LINE = 1, PAGE = 2 };
 
-enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4 };
+// APPLY_SYSTEM: journaled and emitted, not an undo step (library bookkeeping); APPLY_EXACT (with APPLY_USER: Restore
+// version): the changes are a whole document state computed elsewhere — written as they are, library copies included,
+// none of the user-edit rules (no read-only refusal, no detaching, no instance root overrides).
+enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4, APPLY_SYSTEM = 8, APPLY_EXACT = 16 };
 enum SetPropsFlags : uint32_t { NO_UNDO_MERGE = 1 };
 enum PasteFlags : uint32_t { PASTE_IN_PLACE = 1 };
 
@@ -152,8 +156,9 @@ class Editor : private LayoutHost, public TextLayouts {
   void loadDocument(const std::vector<NodeChange>& nodes, Guid page);
   void setSessionID(uint32_t sessionID);
   uint32_t sessionID() const { return sessionID_; }
-  // Changes from outside. APPLY_USER: undoable and emitted (one step);
-  // APPLY_REMOTE / APPLY_LOAD: neither.
+  // Changes from outside. APPLY_USER: undoable and emitted (one step); APPLY_SYSTEM: emitted, not undoable
+  // (E_BUSY inside an open user step); APPLY_REMOTE / APPLY_LOAD: neither. User and system changes never write into
+  // library copies, unless APPLY_EXACT (a store-computed state: Restore version).
   Status applyChanges(const std::vector<NodeChange>& changes, uint32_t flags);
   // Every node, parents before children (a full snapshot).
   std::vector<NodeChange> encodeDocument() const;
@@ -396,13 +401,21 @@ class Editor : private LayoutHost, public TextLayouts {
     AssetInfo info;
     bool dependencyOnly = false;
     std::vector<NodeChange> nodes;  // the payload: the asset's nodes and every node it depends on (library GUIDs)
+    std::vector<ImageHash> images;  // the images the payload's nodes use
+  };
+  struct Redirect {
+    std::string fromKey, toKey;
+    std::string fromLibraryKey;  // "": the copies of fromKey from any library
   };
   struct LibraryOptions {
     std::string libraryKey;
     bool update = false;    // applyLibraryUpdate: replace copies (one undo step); else import (SYSTEM)
-    bool hasKeys = false;   // only these keys are replaced (update)
+    bool hasKeys = false;   // update: only these keys are replaced; asNew: these keys get new copies
     std::vector<std::string> keys;
-    std::vector<std::pair<std::string, std::string>> redirects;  // fromKey → toKey (Move to this file)
+    std::vector<Redirect> redirects;  // Move to this file
+    bool asNew = false;     // import: a new copy of the asked assets even when copies of them are here
+    bool hasCopies = false;  // update: only these copy roots are replaced
+    std::vector<Guid> copies;
   };
   struct ImportedAsset {
     std::string key;
@@ -410,6 +423,10 @@ class Editor : private LayoutHost, public TextLayouts {
     AssetKind kind = AssetKind::NONE;
     std::string libraryKey, version;
     bool created = false, updated = false;
+  };
+  // markPublished: an asset of the new version (its versionHash), or one the version no longer has (removed: "").
+  struct PublishedEntry {
+    std::string key, versionHash;
   };
   // This file's FileKey (clipboard pasteFileKey; cross-file paste).
   void setFileKey(const std::string& key) { fileKey_ = key; }
@@ -428,8 +445,12 @@ class Editor : private LayoutHost, public TextLayouts {
   void encodeAssets(const std::vector<std::string>& keys, std::vector<EncodedAsset>& out, std::vector<ImageHash>& images);
   // The content hash of an asset (docs/data.md §9.1).
   std::string assetVersionHash(Guid id) const;
-  Status markPublished(const std::vector<std::pair<std::string, std::string>>& entries);
-  Status importLibrary(const std::vector<std::vector<NodeChange>>& messages, const LibraryOptions& opts, std::vector<ImportedAsset>& out);
+  // After a publish: publishedVersion on the version's assets (libraryMoveInfo cleared on its mains); cleared on assets
+  // the version removed (an entry with an empty hash). SYSTEM.
+  Status markPublished(const std::vector<PublishedEntry>& entries);
+  // `images`: the images the copies written or reused use.
+  Status importLibrary(const std::vector<std::vector<NodeChange>>& messages, const LibraryOptions& opts, std::vector<ImportedAsset>& out,
+                       std::vector<ImageHash>* images = nullptr);
   std::vector<AssetInfo> libraryUsage() const;
 
   // Whether a gesture is in progress (undo and txn calls are refused meanwhile).
@@ -470,7 +491,11 @@ class Editor : private LayoutHost, public TextLayouts {
     std::unordered_map<Guid, const NodeChange*, GuidHash> byId;
     std::unordered_map<Guid, std::vector<const NodeChange*>, GuidHash> kids;
     std::vector<Guid> roots;
+    std::vector<Guid> own;  // addMessages: each message's own asset root (its first node's), in message order
     void add(const NodeChange& c);
+    // Payloads: each message's own asset (its first node's subtree) wins over copies of it embedded in other messages;
+    // an embedded asset is taken whole from the first message that has it (never two versions mixed).
+    void addMessages(const std::vector<std::vector<NodeChange>>& messages);
     void link();  // kids (by position) and roots, after every add
     void subtree(Guid root, std::vector<const NodeChange*>& out) const;  // pre-order
   };
@@ -483,15 +508,38 @@ class Editor : private LayoutHost, public TextLayouts {
     Guid target = kNoGuid;  // the node it becomes (kNoGuid: created)
     bool replace = false;   // the target's content is replaced
     bool redirected = false;
+    Guid result = kNoGuid;  // writeImports: the node the root became
   };
-  // Writes the plans in the open transaction; `map` gets source GUID → local GUID for every node they reach.
+  // Writes the plans in the open transaction; `map` gets source GUID → local GUID for every node they reach (a source
+  // with several plans: the first one's). An existing target that isn't replaced but lacks a node a written plan
+  // refers to (a variant added since) becomes a new copy.
   void writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map);
+  // Source nodes (pre-order, the root first) matched to an existing tree top-down: the root to `target`, each node only
+  // among its mapped parent's children, each existing node once; components by publishID (`byPublishID`), then key +
+  // name, then key; other layers by key; a key unique in the tree as a last resort (a layer moved to another parent).
+  struct MatchNode {
+    Guid id, parent;
+    const NodeProps* props;
+  };
+  void matchTree(const std::vector<MatchNode>& nodes, Guid target, bool byPublishID, GuidMap& out) const;
   // Move to this file, when this file is where the asset moved: every user of each library copy (first) is relinked to
   // this file's own asset (second), nodes matched by key, and the copy is removed. In the open transaction.
   void relinkCopies(const std::vector<std::pair<Guid, Guid>>& copyToLocal);
-  // A source node's references mapped into this document (`map`, then library copies by publishID, then by key).
-  void remapRefs(NodeProps& p, const GuidMap& map, const std::string& libraryKey) const;
-  Guid copyRootByKey(const std::string& key) const;
+  // A source node's references mapped into this document (`own`, then `map`, then library copies by publishID, then by
+  // library + key).
+  void remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, const std::string& libraryKey) const;
+  // The copy root of (library, key): the one at `version` if any, else the first by GUID; kNoGuid when none.
+  Guid copyRootByKey(const std::string& libraryKey, const std::string& key, const std::string& version = std::string()) const;
+  // An asset's content hash (docs/data.md §9.1) over nodes from anywhere: the document's, or a clipboard's.
+  struct HashView {
+    std::function<const NodeProps*(Guid)> get;
+    std::function<void(Guid, std::vector<Guid>&)> kids;          // real children, in order
+    std::function<std::string(Guid)> mainKey;                    // a referenced main's (or set's) key; "" none
+    std::function<std::string(const AssetId&, AssetKind)> assetKey;  // a referenced style's / variable's / collection's
+  };
+  std::string hashAsset(Guid root, const HashView& v) const;
+  // Bound values left out (Variables.cpp): every field a variable binding or a style sets, reset (the binding counts).
+  static void clearBoundValues(NodeProps& p);
   Guid localAssetByKey(const std::string& key) const;
   Guid copyByPublishID(const std::string& libraryKey, Guid publishID) const;
   // The node an asset's payload starts at (a variant: its set).
@@ -977,7 +1025,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // Libraries.
   std::string fileKey_;
   bool hasLibraryCopies_ = false;  // any node carries sourceLibraryKey (read-only checks only then)
-  bool libraryWrite_ = false;      // the library code's own writes into copies
+  bool libraryWrite_ = false;      // the library code's own writes into copies (and APPLY_EXACT)
+  bool applyGuard_ = false;        // applyChanges(APPLY_SYSTEM): copies are read-only for it too
 };
 
 }  // namespace eng

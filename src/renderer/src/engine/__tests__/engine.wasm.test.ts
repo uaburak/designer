@@ -783,4 +783,107 @@ describe("engine (wasm, headless): libraries (E6)", () => {
     lib.destroy();
     con.destroy();
   });
+
+  it("review fixes: asNew copies, every copy updated, system / restore applies, removed assets, images, BOOLEAN types", async () => {
+    const IMAGE = "3333333333333333333333333333333333333333";
+    const lib = await Engine.create(null, { sessionID: 1 });
+    lib.load(
+      base([
+        { guid: "1:10", phase: "CREATED", type: "SYMBOL", name: "Button", parentIndex: { guid: "0:1", position: "!" }, size: { x: 120, y: 40 } },
+        {
+          guid: "1:11", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Background", parentIndex: { guid: "1:10", position: "!" }, size: { x: 120, y: 40 },
+          fillPaints: [{ type: "IMAGE", image: { hash: IMAGE }, imageScaleMode: "FILL", opacity: 1, visible: true } as never],
+        },
+        { guid: "1:12", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Label", parentIndex: { guid: "1:10", position: "\"" }, size: { x: 60, y: 20 }, fillPaints: [solid(0, 0, 0)], opacity: 0.75 },
+      ]),
+    );
+    lib.setFileKey(LIB);
+    const [set] = lib.runCommand("CREATE_VARIABLE_COLLECTION", { name: "Flags" }).created;
+    const flag = lib.runCommand("CREATE_VARIABLE", { collection: set, type: "BOOLEAN", name: "On" }).created[0];
+    const keys = lib.ensureAssetKeys();
+    const button = keys.find((k) => k.id === "1:10")!.key;
+    const flagKey = keys.find((k) => k.id === flag)!.key;
+    const v1 = lib.encodeAssets([button, flagKey]);
+    expect(v1.assets[0].images).toEqual([IMAGE]);
+    expect(v1.images).toEqual([IMAGE]);
+    expect(v1.assets.find((a) => a.key === flagKey)?.message.nodeChanges[0]).toMatchObject({ variableResolvedType: "BOOLEAN" });
+    expect(lib.markPublished(v1.assets.map((a) => ({ key: a.key, versionHash: a.versionHash })))).toBe(Status.OK);
+    const con = await Engine.create(null, { sessionID: 1 });
+    con.load(base([{ guid: "1:1", phase: "CREATED", type: "FRAME", name: "Screen", parentIndex: { guid: "0:1", position: "!" }, size: { x: 400, y: 400 } }]));
+    con.setFileKey(CONSUMER);
+    const messages = (v: typeof v1) => v.assets.map((a) => messageToEngine(decodeKiwi(encodeKiwi(messageToKiwi(a.message)))));
+    const imported = con.importLibraryAssets(messages(v1), { libraryKey: LIB });
+    expect(imported.images).toEqual([IMAGE]);
+    const oldCopy = imported.assets.find((a) => a.key === button)!.id;
+    expect(con.readNode(imported.assets.find((a) => a.key === flagKey)!.id)).toMatchObject({ variableResolvedType: "BOOLEAN" });
+    expect(con.command("INSERT_INSTANCE", { main: oldCopy, x: 0, y: 0 })).toBe(Status.OK);
+    const a = con.getSelection().refs[0];
+    expect(con.command("INSERT_INSTANCE", { main: oldCopy, x: 0, y: 100 })).toBe(Status.OK);
+    const b = con.getSelection().refs[0];
+    const saved = con.encodeDocument();
+
+    // v2; Update selected instance on `a`: a new, complete copy (asNew) and a swap, one step.
+    expect(lib.setProps(["1:12"], { opacity: 0.5 })).toBe(Status.OK);
+    const v2 = lib.encodeAssets([button]);
+    expect(con.txnBegin("Update instance")).toBe(Status.OK);
+    const fresh = con.importLibraryAssets(messages(v2), { libraryKey: LIB, asNew: true });
+    const newCopy = fresh.assets.find((x) => x.key === button)!;
+    expect(newCopy).toMatchObject({ created: true, version: v2.assets[0].versionHash });
+    expect(newCopy.id).not.toBe(oldCopy);
+    expect(con.readNode(newCopy.id, { childIds: true })?.childIds).toHaveLength(2);
+    expect(con.command("SWAP_INSTANCE", { main: newCopy.id, ref: a })).toBe(Status.OK);
+    expect(con.txnCommit()).toBe(Status.OK);
+    expect(con.readNode(`I${a};1:12`)?.opacity).toBe(0.5);
+    expect(con.readNode(`I${b};1:12`)?.opacity).toBe(0.75);
+    expect(con.libraryUsage().filter((u) => u.key === button).map((u) => u.id).sort()).toEqual([oldCopy, newCopy.id].sort());
+    // Update: every copy of the key (the old one too).
+    const upd = con.applyLibraryUpdate(messages(v2), { libraryKey: LIB, keys: [button] });
+    expect(upd.assets.filter((x) => x.key === button).map((x) => [x.id, x.updated])).toEqual(
+      expect.arrayContaining([[oldCopy, true], [newCopy.id, false]]),
+    );
+    expect(con.readNode(`I${b};1:12`)?.opacity).toBe(0.5);
+    // `copies` restricts it.
+    expect(lib.setProps(["1:12"], { opacity: 0.25 })).toBe(Status.OK);
+    const v3 = lib.encodeAssets([button]);
+    con.applyLibraryUpdate(messages(v3), { libraryKey: LIB, copies: [newCopy.id] });
+    expect(con.readNode(`I${a};1:12`)?.opacity).toBe(0.25);
+    expect(con.readNode(`I${b};1:12`)?.opacity).toBe(0.5);
+
+    // "system": emitted, not an undo step, never into a copy.
+    const kinds: string[] = [];
+    con.onDocumentChanged((_c, event) => kinds.push(event.kind));
+    expect(
+      con.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: "1:1", name: "Sys" }, { guid: oldCopy, name: "x" }] }, "system"),
+    ).toBe(Status.OK);
+    expect(kinds).toEqual(["SYSTEM"]);
+    expect(con.readNode("1:1")?.name).toBe("Sys");
+    expect(con.readNode(oldCopy)?.name).toBe("Button");
+    expect(con.txnBegin("open")).toBe(Status.OK);
+    expect(con.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [{ guid: "1:1", name: "Sys 2" }] }, "system")).toBe(Status.E_BUSY);
+    con.txnCancel();
+    // "restore": the saved version's state, library copies included, one undo step.
+    const now = new Map(con.encodeDocument().nodeChanges.map((n) => [n.guid, n]));
+    const diff: NodeChange[] = [];
+    for (const n of saved.nodeChanges) {
+      const cur = now.get(n.guid);
+      if (!cur || JSON.stringify(cur) !== JSON.stringify(n)) diff.push({ ...n, phase: cur ? undefined : "CREATED" } as NodeChange);
+      now.delete(n.guid);
+    }
+    for (const gone of [...now.keys()].reverse()) diff.push({ guid: gone, phase: "REMOVED" } as NodeChange);
+    expect(con.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: diff }, "restore")).toBe(Status.OK);
+    expect(kinds.at(-1)).toBe("USER");
+    expect(con.readNode(oldCopy)?.version).toBe(v1.assets[0].versionHash);
+    expect(con.readNode(newCopy.id)).toBeNull();
+    // (the saved state holds every field this diff restores: Label's opacity is not the default)
+    expect(con.readNode(`I${a};1:12`)?.opacity).toBe(0.75);
+    expect(con.readNode(`I${b};1:12`)?.opacity).toBe(0.75);
+    expect(con.readNode(a)?.symbolData?.symbolOverrides ?? []).toEqual([]);
+    expect(con.readNode(b)?.symbolData?.symbolOverrides ?? []).toEqual([]);
+
+    // A removed asset: versionHash null clears publishedVersion.
+    expect(lib.markPublished([{ key: button, versionHash: null }])).toBe(Status.OK);
+    expect(lib.localAssets().find((x) => x.key === button)?.publishedVersion).toBeNull();
+    lib.destroy();
+    con.destroy();
+  });
 });

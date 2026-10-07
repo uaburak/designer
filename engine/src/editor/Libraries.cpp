@@ -4,13 +4,16 @@
 //   asked (ensureAssetKeys, before a publish); it never changes after that, and duplicates don't inherit it.
 // - Publish: encodeAssets turns assets into payloads — a NODE_CHANGES Message per asset holding its nodes and every
 //   node it depends on (nested mains, styles, variables, collections, library copies it uses), with the library's
-//   GUIDs — and a content versionHash per asset (SHA-1 of its own nodes, canonical; its place on the page, publishing
-//   flags and library bookkeeping left out), which changes only when the asset does.
+//   GUIDs — and a content versionHash per asset (SHA-1 of its own nodes, canonical: GUIDs, bound values, its place on
+//   the page, publishing flags and library bookkeeping left out; references by key), which changes only when the
+//   asset does.
 // - Consume: importLibrary puts read-only copies on the internal canvas (docs/schema.md §8.2): fresh GUIDs, every
 //   node's overrideKey = the library node's effective key, roots marked sourceLibraryKey / key / publishID / version.
-//   Instances, aliases and style references then point at the copies by GUID, so everything that works for local
-//   assets works for them. An update (one undo step) rewrites a copy in place, its nodes matched by overrideKey, so
-//   GUIDs — and every instance's link and overrides — stay.
+//   A copy is one library's: (sourceLibraryKey, key). Instances, aliases and style references then point at the
+//   copies by GUID, so everything that works for local assets works for them. An update (one undo step) rewrites
+//   every copy of a key in place, its nodes matched top-down (components by publishID, layers by overrideKey among
+//   their parent's children), so GUIDs — and every instance's link and overrides — stay. asNew writes a second copy
+//   (Update selected instance).
 // - Cross-file paste (paste() in Commands.cpp) brings referenced assets in through the same writer.
 
 #include <algorithm>
@@ -98,12 +101,31 @@ void collectImages(const NodeProps& p, std::set<std::string>& out) {
   for (const SymbolOverride& o : p.symbolData.overrides) collectImages(o.props, out);
 }
 
-// Assets by key, for calls that look many up: library copy roots, and local assets (a live one over a deleted one).
+bool isComponentNode(const NodeProps& p) { return p.type == NodeType::SYMBOL || p.isComponentSet(); }
+
+// Of several copies of one asset (Update selected instance leaves two), the one a reference or a reuse takes: the one
+// at `version`, else the first by GUID (sorted lists).
+Guid pickCopy(const Document& doc, const std::vector<Guid>& copies, const std::string& version) {
+  if (!version.empty())
+    for (Guid g : copies)
+      if (doc.get(g)->props.version == version) return g;
+  return copies.empty() ? kNoGuid : copies[0];
+}
+
+// Assets by key, for calls that look many up: library copy roots by (library, key) (docs/schema.md §8.2: a key is one
+// library's; a duplicated library has the same keys under another FileKey), and local assets (a live one over a
+// deleted one).
 struct KeyIndex {
-  std::unordered_map<std::string, Guid> copies, locals;
-  Guid copy(const std::string& key) const {
-    auto it = copies.find(key);
-    return it == copies.end() ? kNoGuid : it->second;
+  std::unordered_map<std::string, std::vector<Guid>> copies;    // library + "\n" + key → copy roots, by GUID
+  std::unordered_map<std::string, std::vector<Guid>> anyLibrary;  // key → copy roots of every library, by GUID
+  std::unordered_map<std::string, Guid> locals;
+  static std::string id(const std::string& library, const std::string& key) { return library + '\n' + key; }
+  // "" library: the copies of the key from any library.
+  const std::vector<Guid>& copiesOf(const std::string& library, const std::string& key) const {
+    static const std::vector<Guid> kNone;
+    const auto& map = library.empty() ? anyLibrary : copies;
+    auto it = map.find(library.empty() ? key : id(library, key));
+    return it == map.end() ? kNone : it->second;
   }
   Guid local(const std::string& key) const {
     auto it = locals.find(key);
@@ -117,14 +139,31 @@ KeyIndex indexKeys(const Editor& ed) {
   doc.forEach([&](const Node& n) {
     if (n.guid.isDerived() || n.props.key.empty() || ed.assetKindOf(n.guid) == Kind::NONE) return;
     if (!n.props.sourceLibraryKey.empty()) {
-      ix.copies.emplace(n.props.key, n.guid);
+      ix.copies[KeyIndex::id(n.props.sourceLibraryKey, n.props.key)].push_back(n.guid);
+      ix.anyLibrary[n.props.key].push_back(n.guid);
       return;
     }
     if (ed.isLibraryCopy(n.guid)) return;
     auto [it, fresh] = ix.locals.emplace(n.props.key, n.guid);
-    if (!fresh && doc.get(it->second)->props.isSoftDeleted && !n.props.isSoftDeleted) it->second = n.guid;
+    if (fresh) return;
+    // A live asset over a deleted one; else the first by GUID (deterministic).
+    const NodeProps& was = doc.get(it->second)->props;
+    if (was.isSoftDeleted != n.props.isSoftDeleted ? was.isSoftDeleted : n.guid < it->second) it->second = n.guid;
   });
+  for (auto* m : {&ix.copies, &ix.anyLibrary})
+    for (auto& [k, list] : *m) std::sort(list.begin(), list.end());
   return ix;
+}
+
+// A key as a GUID-shaped value (a reference outside an asset, in its content hash).
+Guid keyAsGuid(const std::string& key) {
+  Sha1 h;
+  h.update(key);
+  auto d = h.digest();
+  auto word = [&](size_t i) { return uint32_t{d[i]} << 24 | uint32_t{d[i + 1]} << 16 | uint32_t{d[i + 2]} << 8 | uint32_t{d[i + 3]}; };
+  Guid g{word(0), word(4)};
+  if (g.isDerived() || g == kNoGuid) g.sessionID ^= 1;
+  return g;
 }
 
 }  // namespace
@@ -184,13 +223,15 @@ bool Editor::isCopiedMain(Guid id) const {
   return !deleted && !isLibraryCopy(id);
 }
 
-Guid Editor::copyRootByKey(const std::string& key) const {
-  if (key.empty() || !hasLibraryCopies_) return kNoGuid;
-  Guid found = kNoGuid;
+Guid Editor::copyRootByKey(const std::string& libraryKey, const std::string& key, const std::string& version) const {
+  if (key.empty() || libraryKey.empty() || !hasLibraryCopies_) return kNoGuid;
+  std::vector<Guid> found;
   doc_.forEach([&](const Node& n) {
-    if (found == kNoGuid && !n.guid.isDerived() && n.props.key == key && !n.props.sourceLibraryKey.empty()) found = n.guid;
+    if (!n.guid.isDerived() && n.props.key == key && n.props.sourceLibraryKey == libraryKey && assetKindOf(n.guid) != AssetKind::NONE)
+      found.push_back(n.guid);
   });
-  return found;
+  std::sort(found.begin(), found.end());
+  return pickCopy(doc_, found, version);
 }
 
 Guid Editor::localAssetByKey(const std::string& key) const {
@@ -208,7 +249,7 @@ Guid Editor::copyByPublishID(const std::string& libraryKey, Guid publishID) cons
   if (publishID == kNoGuid || !hasLibraryCopies_) return kNoGuid;
   Guid found = kNoGuid;
   doc_.forEach([&](const Node& n) {
-    if (found != kNoGuid || n.guid.isDerived() || n.props.publishID != publishID) return;
+    if (n.guid.isDerived() || n.props.publishID != publishID || (found != kNoGuid && found < n.guid)) return;
     if (!(n.props.type == NodeType::SYMBOL || n.props.isComponentSet())) return;
     Guid root = libraryRootOf(n.guid);
     if (root != kNoGuid && (libraryKey.empty() || doc_.get(root)->props.sourceLibraryKey == libraryKey)) found = n.guid;
@@ -362,34 +403,102 @@ std::vector<std::pair<Guid, std::string>> Editor::ensureAssetKeys(const std::vec
 
 // ---- Publish --------------------------------------------------------------------------------------
 
-std::string Editor::assetVersionHash(Guid id) const {
-  std::vector<Guid> nodes;
-  realSubtree(id, nodes);
-  std::sort(nodes.begin(), nodes.end());
+// Visible content only (docs/data.md §9.1: "if the content is unchanged, the hash is unchanged"): the asset's nodes in
+// tree order (children by position) with their own GUIDs, parents' GUIDs and overrideKeys left out; references to its
+// own nodes by their place in it, to anything else by the target's key (its GUID while it has none); values a variable
+// or a style sets left out (the binding counts: the value depends on the modes where the asset sits and on the
+// variable's or style's own content, hashed with them); publishing flags, library bookkeeping, the panels' order and
+// where it sits on its page left out. Each node is the engine's canonical JSON, blobs by content.
+std::string Editor::hashAsset(Guid root, const HashView& v) const {
+  constexpr uint32_t kInner = 0xFFFFFFF0u;  // a node of the asset, by its place in it
+  std::vector<Guid> order;
+  std::unordered_map<Guid, uint32_t, GuidHash> index;
+  auto walk = [&](auto&& self, Guid g) -> void {
+    if (index.count(g) || !v.get(g)) return;
+    index.emplace(g, static_cast<uint32_t>(order.size()));
+    order.push_back(g);
+    std::vector<Guid> list;
+    v.kids(g, list);
+    for (Guid k : list) self(self, k);
+  };
+  walk(walk, root);
+  auto inner = [&](Guid g, Guid& out) {
+    auto it = index.find(g);
+    if (it == index.end()) return false;
+    out = Guid{kInner, it->second};
+    return true;
+  };
+  auto symbol = [&](Guid& g) {
+    if (inner(g, g)) return;
+    std::string k = v.mainKey(g);
+    if (!k.empty()) g = keyAsGuid(k);
+  };
+  Refs refs;
+  refs.symbol = symbol;
+  refs.asset = [&](AssetId& a, Kind k) {
+    std::string key = v.assetKey(a, k);
+    if (!key.empty()) a.guid = kNoGuid, a.key = key;
+    a.version.clear();
+  };
   Sha1 h;
-  for (Guid g : nodes) {
-    NodeProps q = doc_.get(g)->props;
-    // Not content: library bookkeeping, publishing flags, the panels' order, where the asset sits on its page.
+  for (size_t i = 0; i < order.size(); i++) {
+    NodeProps q = *v.get(order[i]);
+    clearBoundValues(q);
     clearIdentity(q);
+    q.overrideKey = kNoGuid;
     q.isPublishable = true;
     q.extra.erase("isSymbolPublishable");
     q.sortPosition.clear();
     q.isSoftDeleted = false;
     q.ancestorPathBeforeDeletion.clear();
-    if (g == id) {
+    if (i == 0) {
       q.parentIndex = {};
       q.transform.m02 = q.transform.m12 = 0;
+    } else {
+      Guid parent;
+      if (!inner(q.parentIndex.guid, parent)) parent = kNoGuid;
+      q.parentIndex = {parent, std::string()};
     }
+    visitProps(q, refs);
+    if (q.detachedSymbolId != kNoGuid) symbol(q.detachedSymbolId);
+    for (ComponentPropDef& d : q.componentPropDefs)
+      for (PreferredValue& pv : d.preferredValues) {
+        bool ok = false;
+        Guid m = Guid::parse(pv.key, &ok);
+        if (!ok) continue;
+        symbol(m);
+        pv.key = m.toString();
+      }
     json::Writer w;
     codec::BlobsOut blobs;
-    codec::writeChange(w, NodeChange::created(g, q), &blobs);
-    std::string s = w.take();
-    h.update(s);
+    codec::writeChange(w, NodeChange::created(Guid{kInner, static_cast<uint32_t>(i)}, q), &blobs);
+    h.update(w.take());
     for (const Bytes& b : blobs.list())
       if (b) h.update(b->data(), b->size());
     h.update("\n", 1);
   }
   return h.hexDigest();
+}
+
+std::string Editor::assetVersionHash(Guid id) const {
+  HashView v;
+  v.get = [&](Guid g) -> const NodeProps* {
+    const Node* n = g.isDerived() ? nullptr : doc_.get(g);
+    return n ? &n->props : nullptr;
+  };
+  v.kids = [&](Guid g, std::vector<Guid>& out) {
+    for (Guid c : doc_.children(g))
+      if (!c.isDerived()) out.push_back(c);
+  };
+  v.mainKey = [&](Guid g) {
+    const Node* n = doc_.get(g);
+    return n ? n->props.key : std::string();
+  };
+  v.assetKey = [&](const AssetId& a, Kind k) {
+    Guid t = k == Kind::STYLE ? findStyle(a) : k == Kind::VARIABLE ? findVariable(a) : findCollection(a);
+    return t != kNoGuid && !doc_.get(t)->props.key.empty() ? doc_.get(t)->props.key : a.key;
+  };
+  return hashAsset(id, v);
 }
 
 std::vector<Editor::AssetInfo> Editor::localAssets() const {
@@ -510,7 +619,11 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
   };
 
   std::set<std::string> imageSet;
-  std::unordered_map<Guid, std::vector<NodeChange>, GuidHash> payloads;  // by payload root
+  struct Payload {
+    std::vector<NodeChange> nodes;
+    std::vector<ImageHash> images;
+  };
+  std::unordered_map<Guid, Payload, GuidHash> payloads;  // by payload root
   for (auto& [id, depOnly] : entries) {
     EncodedAsset e;
     fillAssetInfo(id, e.info);
@@ -523,17 +636,20 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
       if (!isLibraryCopy(d) && !doc_.get(d)->props.key.empty()) e.info.dependencies.push_back(doc_.get(d)->props.key);
     auto it = payloads.find(root);
     if (it == payloads.end()) {
-      std::vector<NodeChange> nodes;
+      Payload pl;
       std::vector<Guid> order;
       realSubtree(root, order);
       for (Guid d : closure) realSubtree(d, order);
+      std::set<std::string> mine;
       for (Guid g : order) {
-        nodes.push_back(payloadNode(g));
-        collectImages(nodes.back().props, imageSet);
+        pl.nodes.push_back(payloadNode(g));
+        collectImages(pl.nodes.back().props, mine);
       }
-      it = payloads.emplace(root, std::move(nodes)).first;
+      for (const std::string& hx : mine) pl.images.push_back(ImageHash::fromHex(hx)), imageSet.insert(hx);
+      it = payloads.emplace(root, std::move(pl)).first;
     }
-    e.nodes = it->second;
+    e.nodes = it->second.nodes;
+    e.images = it->second.images;
     Guid page = doc_.pageOf(id);
     const Node* pn = doc_.get(page);
     if (pn && !pn->props.internalOnly) {
@@ -547,16 +663,23 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
   for (const std::string& h : imageSet) images.push_back(ImageHash::fromHex(h));
 }
 
-Status Editor::markPublished(const std::vector<std::pair<std::string, std::string>>& entries) {
+Status Editor::markPublished(const std::vector<PublishedEntry>& entries) {
   if (busy() || txn_.open) return E_BUSY;
   std::vector<NodeChange> changes;
   KeyIndex ix = indexKeys(*this);
-  for (auto& [key, hash] : entries) {
-    Guid id = ix.local(key);
+  for (const PublishedEntry& e : entries) {
+    Guid id = ix.local(e.key);
     if (id == kNoGuid) continue;
+    const NodeProps& p = doc_.get(id)->props;
     NodeChange c = NodeChange::changed(id);
     c.mask = F_PUBLISHED_VERSION;
-    c.props.publishedVersion = hash;
+    c.props.publishedVersion = e.versionHash;  // "": the version removed it (no longer published)
+    // A moved main, published here: the move is done (docs/data.md §9.5).
+    AssetKind k = assetKindOf(id);
+    if (!e.versionHash.empty() && (k == AssetKind::COMPONENT || k == AssetKind::COMPONENT_SET) && p.libraryMoveInfo.present()) {
+      c.mask |= F_LIBRARY_MOVE_INFO;
+      c.props.libraryMoveInfo = {};
+    }
     changes.push_back(std::move(c));
   }
   if (changes.empty()) return OK;
@@ -568,11 +691,60 @@ Status Editor::markPublished(const std::vector<std::pair<std::string, std::strin
 
 // ---- Import -------------------------------------------------------------------------------------
 
-void Editor::SourceNodes::add(const NodeChange& c) {
-  if (c.phase == Phase::REMOVED || c.guid.isDerived()) return;
+namespace {
+bool acceptedSource(const NodeChange& c) {
+  if (c.phase == Phase::REMOVED || c.guid.isDerived()) return false;
   NodeType t = c.props.type;
-  if (t == NodeType::NONE || t == NodeType::CANVAS || t == NodeType::DOCUMENT) return;
-  byId.emplace(c.guid, &c);  // the first copy of a node wins
+  return !(t == NodeType::NONE || t == NodeType::CANVAS || t == NodeType::DOCUMENT);
+}
+}  // namespace
+
+void Editor::SourceNodes::add(const NodeChange& c) {
+  if (acceptedSource(c)) byId.emplace(c.guid, &c);  // the first copy of a node wins
+}
+
+void Editor::SourceNodes::addMessages(const std::vector<std::vector<NodeChange>>& messages) {
+  // Each message's nodes, grouped by their root in that message (a payload: its asset's subtree first, then the
+  // subtrees of the assets it depends on, each as it was when that payload was published).
+  struct Group {
+    Guid root;
+    std::vector<const NodeChange*> nodes;
+  };
+  std::vector<std::vector<Group>> groups(messages.size());
+  own.assign(messages.size(), kNoGuid);
+  for (size_t m = 0; m < messages.size(); m++) {
+    std::unordered_map<Guid, const NodeChange*, GuidHash> ids;
+    for (const NodeChange& c : messages[m])
+      if (acceptedSource(c)) ids.emplace(c.guid, &c);
+    std::unordered_map<Guid, size_t, GuidHash> groupOf;
+    for (const NodeChange& c : messages[m]) {
+      auto it = ids.find(c.guid);
+      if (it == ids.end() || it->second != &c) continue;
+      Guid r = c.guid;
+      for (size_t steps = 0; steps < ids.size(); steps++) {
+        auto parent = ids.find(ids.at(r)->props.parentIndex.guid);
+        if (parent == ids.end() || parent->first == r) break;
+        r = parent->first;
+      }
+      auto [g, fresh] = groupOf.emplace(r, groups[m].size());
+      if (fresh) groups[m].push_back({r, {}});
+      groups[m][g->second].nodes.push_back(&c);
+      if (own[m] == kNoGuid) own[m] = r;
+    }
+  }
+  // Every message's own asset first; an embedded one only when no message of its own came, whole, from the first
+  // message that has it.
+  GuidSet claimed;
+  auto take = [&](const Group& g) {
+    if (!claimed.insert(g.root).second) return;
+    for (const NodeChange* c : g.nodes) byId.emplace(c->guid, c);
+  };
+  for (size_t m = 0; m < messages.size(); m++)
+    for (const Group& g : groups[m])
+      if (g.root == own[m]) take(g);
+  for (size_t m = 0; m < messages.size(); m++)
+    for (const Group& g : groups[m])
+      if (g.root != own[m]) take(g);
 }
 
 void Editor::SourceNodes::link() {
@@ -600,81 +772,180 @@ void Editor::SourceNodes::subtree(Guid root, std::vector<const NodeChange*>& out
   for (const NodeChange* c : k->second) subtree(c->guid, out);
 }
 
-void Editor::remapRefs(NodeProps& p, const GuidMap& map, const std::string& libraryKey) const {
+void Editor::matchTree(const std::vector<MatchNode>& nodes, Guid target, bool byPublishID, GuidMap& out) const {
+  if (nodes.empty() || !doc_.has(target)) return;
+  GuidSet used{target};
+  out[nodes[0].id] = target;
+  std::vector<Guid> have;
+  realSubtree(target, have);
+  // Components by the library GUID they carry, wherever they are (a copy's publishID); reserved for them.
+  std::unordered_map<Guid, Guid, GuidHash> reserved;
+  GuidSet reservedTargets;
+  if (byPublishID) {
+    std::unordered_map<Guid, Guid, GuidHash> byPub;
+    for (Guid g : have) {
+      const NodeProps& p = doc_.get(g)->props;
+      if (g != target && isComponentNode(p) && p.publishID != kNoGuid) byPub.emplace(p.publishID, g);
+    }
+    for (size_t i = 1; i < nodes.size(); i++) {
+      if (!isComponentNode(*nodes[i].props)) continue;
+      auto it = byPub.find(nodes[i].id);
+      if (it != byPub.end() && reservedTargets.insert(it->second).second) reserved[nodes[i].id] = it->second;
+    }
+  }
+  // Keys that occur once in the existing tree: a layer moved to another parent is still found.
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> byKey;
+  for (Guid g : have) byKey[doc_.get(g)->props.keyOf(g)].push_back(g);
+  for (size_t i = 1; i < nodes.size(); i++) {
+    const MatchNode& c = nodes[i];
+    Guid found = kNoGuid;
+    if (auto r = reserved.find(c.id); r != reserved.end()) found = r->second;
+    Guid key = c.props->keyOf(c.id);
+    bool comp = isComponentNode(*c.props);
+    auto free = [&](Guid k) { return !k.isDerived() && !used.count(k) && !reservedTargets.count(k) && isComponentNode(doc_.get(k)->props) == comp; };
+    auto parent = out.find(c.parent);
+    if (found == kNoGuid && parent != out.end() && doc_.has(parent->second)) {
+      const std::vector<Guid>& kids = doc_.children(parent->second);
+      auto pass = [&](const std::function<bool(Guid, const NodeProps&)>& ok) {
+        for (Guid k : kids)
+          if (free(k) && ok(k, doc_.get(k)->props)) return k;
+        return kNoGuid;
+      };
+      if (comp) found = pass([&](Guid k, const NodeProps& kp) { return kp.keyOf(k) == key && kp.name == c.props->name; });
+      if (found == kNoGuid) found = pass([&](Guid k, const NodeProps& kp) { return kp.keyOf(k) == key; });
+    }
+    if (found == kNoGuid) {
+      auto it = byKey.find(key);
+      if (it != byKey.end() && it->second.size() == 1 && free(it->second[0])) found = it->second[0];
+    }
+    if (found == kNoGuid) continue;
+    out[c.id] = found;
+    used.insert(found);
+  }
+}
+
+void Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, const std::string& libraryKey) const {
+  auto mapped = [&](Guid g, Guid& out) {
+    if (own) {
+      auto it = own->find(g);
+      if (it != own->end()) return out = it->second, true;
+    }
+    auto it = map.find(g);
+    if (it != map.end()) return out = it->second, true;
+    return false;
+  };
   Refs refs;
   refs.symbol = [&](Guid& g) {
-    auto it = map.find(g);
-    if (it != map.end()) {
-      g = it->second;
-      return;
-    }
+    if (mapped(g, g)) return;
     // A main the payload didn't bring: a copy of it already here; else none (never a local node that happens to share
     // the GUID).
     g = copyByPublishID(libraryKey, g);
   };
   refs.asset = [&](AssetId& a, Kind k) {
-    if (a.guid != kNoGuid) {
-      auto it = map.find(a.guid);
-      if (it != map.end()) {
-        a.guid = it->second;
-        a.key.clear();
-        a.version.clear();
-        return;
-      }
+    if (a.guid != kNoGuid && mapped(a.guid, a.guid)) {
+      a.key.clear();
+      a.version.clear();
+      return;
     }
     a.guid = kNoGuid;
-    if (!a.key.empty()) {
+    if (a.key.empty()) return;
+    auto find = [&](const AssetId& id) { return k == Kind::STYLE ? findStyle(id) : k == Kind::VARIABLE ? findVariable(id) : findCollection(id); };
+    // This library's copy of it, else any asset with the key.
+    AssetId byCopy;
+    byCopy.guid = copyRootByKey(libraryKey, a.key);
+    Guid t = byCopy.guid != kNoGuid ? find(byCopy) : kNoGuid;
+    if (t == kNoGuid) {
       AssetId byKey;
       byKey.key = a.key;
-      Guid t = k == Kind::STYLE ? findStyle(byKey) : k == Kind::VARIABLE ? findVariable(byKey) : findCollection(byKey);
-      if (t != kNoGuid) {
-        a.guid = t;
-        a.key.clear();
-        a.version.clear();
-      }
+      t = find(byKey);
+    }
+    if (t != kNoGuid) {
+      a.guid = t;
+      a.key.clear();
+      a.version.clear();
     }
   };
   visitProps(p, refs);
   if (p.detachedSymbolId != kNoGuid) {
-    auto it = map.find(p.detachedSymbolId);
-    p.detachedSymbolId = it != map.end() ? it->second : kNoGuid;
+    Guid g;
+    p.detachedSymbolId = mapped(p.detachedSymbolId, g) ? g : kNoGuid;
   }
 }
 
 void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map) {
-  // Node ids first (references between assets need them all).
-  std::vector<std::vector<const NodeChange*>> trees(plans.size());
-  std::vector<std::unordered_map<Guid, Guid, GuidHash>> existingByKey(plans.size());
-  for (size_t i = 0; i < plans.size(); i++) {
+  const size_t n = plans.size();
+  std::vector<std::vector<const NodeChange*>> trees(n);
+  std::vector<GuidMap> own(n);
+  // A source with several plans (several copies of one asset): references from the other plans go to its first.
+  std::unordered_map<Guid, size_t, GuidHash> primary;
+  for (size_t i = 0; i < n; i++) primary.emplace(plans[i].src, i);
+  auto written = [&](size_t i) { return plans[i].target == kNoGuid || plans[i].replace; };
+  auto fresh = [&](size_t i) {
+    own[i].clear();
+    for (const NodeChange* c : trees[i]) own[i][c->guid] = newGuid();
+  };
+  auto publish = [&](size_t i) {
+    for (auto& [from, to] : own[i]) map[from] = to;
+  };
+  // Node ids first (references between assets need them all): new ones, or an existing copy's, matched top-down.
+  for (size_t i = 0; i < n; i++) {
     ImportPlan& plan = plans[i];
     src.subtree(plan.src, trees[i]);
     if (plan.target == kNoGuid) {
-      for (const NodeChange* c : trees[i]) map[c->guid] = newGuid();
+      fresh(i);
       continue;
     }
-    // An existing node: its nodes by key (copies keep the library's keys).
-    std::vector<Guid> have;
-    realSubtree(plan.target, have);
-    for (Guid g : have) existingByKey[i][doc_.get(g)->props.keyOf(g)] = g;
-    map[plan.src] = plan.target;
-    for (const NodeChange* c : trees[i]) {
-      if (c->guid == plan.src) continue;
-      auto it = existingByKey[i].find(c->props.keyOf(c->guid));
-      if (it != existingByKey[i].end()) map[c->guid] = it->second;
-      else if (plan.replace) map[c->guid] = newGuid();
+    std::vector<MatchNode> nodes;
+    for (const NodeChange* c : trees[i]) nodes.push_back({c->guid, c->props.parentIndex.guid, &c->props});
+    matchTree(nodes, plan.target, plan.mode == ImportPlan::Mode::COPY, own[i]);
+    if (plan.replace)
+      for (const NodeChange* c : trees[i])
+        if (!own[i].count(c->guid)) own[i][c->guid] = newGuid();
+  }
+  for (auto& [root, i] : primary) publish(i);
+  // A copy kept as it is that lacks a node a written plan refers to (a variant added since): that asset comes in as a
+  // new copy (the old one keeps its users), so no reference is left pointing at nothing.
+  std::unordered_map<Guid, Guid, GuidHash> rootOf;
+  for (size_t i = 0; i < n; i++)
+    for (const NodeChange* c : trees[i]) rootOf.emplace(c->guid, plans[i].src);
+  for (bool again = true; again;) {
+    again = false;
+    for (size_t i = 0; i < n; i++) {
+      if (!written(i)) continue;
+      Refs refs;
+      refs.symbol = [&](Guid& g) {
+        if (own[i].count(g) || map.count(g)) return;
+        auto r = rootOf.find(g);
+        if (r == rootOf.end()) return;
+        size_t j = primary.at(r->second);
+        if (written(j) || plans[j].mode != ImportPlan::Mode::COPY) return;
+        plans[j].target = kNoGuid;
+        fresh(j);
+        publish(j);
+        again = true;
+      };
+      refs.asset = [](AssetId&, Kind) {};
+      for (const NodeChange* c : trees[i]) {
+        NodeProps p = c->props;
+        visitProps(p, refs);
+      }
     }
   }
+
   Guid canvas = internalCanvas(true);
+  bool libraryWriteBefore = libraryWrite_;
   libraryWrite_ = true;
-  for (size_t i = 0; i < plans.size(); i++) {
+  for (size_t i = 0; i < n; i++) {
     ImportPlan& plan = plans[i];
-    if (plan.target != kNoGuid && !plan.replace) continue;
-    GuidSet written;
+    auto r = own[i].find(plan.src);
+    plan.result = r != own[i].end() ? r->second : plan.target;
+    if (!written(i)) continue;
+    GuidSet done;
     bool copy = plan.mode == ImportPlan::Mode::COPY;
     for (const NodeChange* c : trees[i]) {
-      Guid id = map[c->guid];
+      Guid id = own[i][c->guid];
       NodeProps q = c->props;
-      remapRefs(q, map, plan.libraryKey);
+      remapRefs(q, &own[i], map, plan.libraryKey);
       bool root = c->guid == plan.src;
       bool component = q.type == NodeType::SYMBOL || q.isComponentSet();
       bool assetNode = component || q.isStyle() || q.type == NodeType::VARIABLE || q.type == NodeType::VARIABLE_SET;
@@ -706,9 +977,9 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
         if (plan.target != kNoGuid) q.parentIndex = doc_.get(plan.target)->props.parentIndex;
         else q.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
       } else {
-        q.parentIndex = {map[c->props.parentIndex.guid], c->props.parentIndex.position};
+        q.parentIndex = {own[i][c->props.parentIndex.guid], c->props.parentIndex.position};
       }
-      written.insert(id);
+      done.insert(id);
       const Node* existing = doc_.get(id);
       if (!existing) {
         write(NodeChange::created(id, q));
@@ -728,27 +999,28 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
       std::vector<Guid> have;
       realSubtree(plan.target, have);
       for (auto it = have.rbegin(); it != have.rend(); ++it)
-        if (!written.count(*it) && doc_.has(*it)) write(NodeChange::removed(*it));
+        if (!done.count(*it) && doc_.has(*it)) write(NodeChange::removed(*it));
     }
   }
-  libraryWrite_ = false;
+  libraryWrite_ = libraryWriteBefore;
 }
 
 void Editor::relinkCopies(const std::vector<std::pair<Guid, Guid>>& copyToLocal) {
   GuidMap relink;
   GuidSet gone;
   for (auto& [copy, local] : copyToLocal) {
-    // The local asset's nodes by key (a main pasted from the library kept the library's keys, as the copy did).
-    std::unordered_map<Guid, Guid, GuidHash> byKey;
-    std::vector<Guid> mine, theirs;
-    realSubtree(local, mine);
-    for (Guid g : mine) byKey.emplace(doc_.get(g)->props.keyOf(g), g);
+    // The copy's nodes matched to the local asset's top-down (a main pasted from the library kept the library's keys,
+    // as the copy did).
+    std::vector<Guid> theirs;
     realSubtree(copy, theirs);
+    std::vector<MatchNode> nodes;
     for (Guid g : theirs) {
       gone.insert(g);
-      auto it = byKey.find(doc_.get(g)->props.keyOf(g));
-      if (it != byKey.end()) relink[g] = it->second;
+      nodes.push_back({g, doc_.get(g)->props.parentIndex.guid, &doc_.get(g)->props});
     }
+    GuidMap m;
+    matchTree(nodes, local, false, m);
+    for (auto& [from, to] : m) relink[from] = to;
     relink[copy] = local;
   }
   constexpr FieldMask kRefFields = F_SYMBOL_DATA | F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_DEFS | F_COMPONENT_PROP_ASSIGNMENTS |
@@ -760,6 +1032,7 @@ void Editor::relinkCopies(const std::vector<std::pair<Guid, Guid>>& copyToLocal)
     if (!n.guid.isDerived() && !gone.count(n.guid)) ids.push_back(n.guid);
   });
   std::sort(ids.begin(), ids.end());
+  bool libraryWriteBefore = libraryWrite_;
   libraryWrite_ = true;
   for (Guid id : ids) {
     NodeProps p = doc_.get(id)->props;
@@ -785,26 +1058,39 @@ void Editor::relinkCopies(const std::vector<std::pair<Guid, Guid>>& copyToLocal)
   for (auto& [copy, local] : copyToLocal) {
     std::vector<Guid> nodes;
     realSubtree(copy, nodes);
-    for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) write(NodeChange::removed(*it));
+    for (auto it = nodes.rbegin(); it != nodes.rend(); ++it)
+      if (doc_.has(*it)) write(NodeChange::removed(*it));
   }
-  libraryWrite_ = false;
+  libraryWrite_ = libraryWriteBefore;
 }
 
 Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& messages, const LibraryOptions& opts,
-                             std::vector<ImportedAsset>& out) {
+                             std::vector<ImportedAsset>& out, std::vector<ImageHash>* images) {
   out.clear();
-  if (busy() || txn_.open) return E_BUSY;
+  if (images) images->clear();
+  if (busy()) return E_BUSY;
   if (opts.libraryKey.empty()) return E_INVALID;
   SourceNodes src;
-  for (const auto& m : messages)
-    for (const NodeChange& c : m) src.add(c);
+  src.addMessages(messages);
   src.link();
-  auto wanted = [&](const std::string& key) {
-    return !opts.hasKeys || std::find(opts.keys.begin(), opts.keys.end(), key) != opts.keys.end();
-  };
+  auto listed = [](const auto& list, const auto& x) { return std::find(list.begin(), list.end(), x) != list.end(); };
+  auto wanted = [&](const std::string& key) { return !opts.hasKeys || listed(opts.keys, key); };
+  auto inCopies = [&](Guid g) { return !opts.hasCopies || listed(opts.copies, g); };
+  // asNew: the assets asked for (`keys`; default the first message's own asset) get new copies.
+  std::string firstKey;
+  if (!src.own.empty() && src.byId.count(src.own[0])) firstKey = src.byId.at(src.own[0])->props.key;
+  auto asNew = [&](const std::string& key) { return opts.asNew && !opts.update && (opts.hasKeys ? listed(opts.keys, key) : key == firstKey); };
+  KeyIndex ix = indexKeys(*this);
+  std::set<std::string> rootKeys;
+  for (Guid r : src.roots) rootKeys.insert(src.byId.at(r)->props.key);
+  // Copies a redirect re-points (Move to this file): replaced by the new asset's payload, not their own.
+  GuidSet redirectedCopies;
+  if (opts.update)
+    for (const Redirect& rd : opts.redirects)
+      if (rootKeys.count(rd.toKey) && wanted(rd.toKey))
+        for (Guid g : ix.copiesOf(rd.fromLibraryKey, rd.fromKey)) redirectedCopies.insert(g);
   std::vector<ImportPlan> plans;
   GuidMap map;
-  KeyIndex ix = indexKeys(*this);
   for (Guid r : src.roots) {
     const NodeProps& rp = src.byId.at(r)->props;
     bool asset = rp.type == NodeType::SYMBOL || rp.isComponentSet() || rp.isStyle() || rp.type == NodeType::VARIABLE ||
@@ -826,46 +1112,71 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
         continue;
       }
     }
-    plan.target = ix.copy(plan.key);
-    if (plan.target == kNoGuid && opts.update)
-      for (auto& [from, to] : opts.redirects)
-        if (to == plan.key) {
-          Guid old = ix.copy(from);
-          if (old != kNoGuid) plan.target = old, plan.redirected = true;
-        }
-    if (plan.target != kNoGuid) {
-      const NodeProps& tp = doc_.get(plan.target)->props;
-      plan.replace = opts.update && wanted(plan.key) && (plan.redirected || tp.version != plan.version || tp.sourceLibraryKey != plan.libraryKey);
+    if (asNew(plan.key)) {
+      plans.push_back(plan);  // a new copy
+      continue;
     }
-    plans.push_back(plan);
+    const std::vector<Guid>& have = ix.copiesOf(plan.libraryKey, plan.key);
+    // Update: every copy of the key here (or those of `copies`), and the copies redirected to it.
+    std::vector<std::pair<Guid, bool>> targets;  // copy, redirected
+    if (opts.update && wanted(plan.key)) {
+      for (Guid g : have)
+        if (inCopies(g) && !redirectedCopies.count(g)) targets.push_back({g, false});
+      for (const Redirect& rd : opts.redirects)
+        if (rd.toKey == plan.key)
+          for (Guid g : ix.copiesOf(rd.fromLibraryKey, rd.fromKey))
+            if (inCopies(g) && std::none_of(targets.begin(), targets.end(), [&](const auto& t) { return t.first == g; }))
+              targets.push_back({g, true});
+      std::sort(targets.begin(), targets.end());
+    }
+    if (targets.empty()) {
+      // Reused (the copy at the payload's version, else the first), or created when there is none.
+      plan.target = pickCopy(doc_, have, plan.version);
+      plans.push_back(plan);
+      continue;
+    }
+    for (auto& [g, redirected] : targets) {
+      ImportPlan p = plan;
+      p.target = g;
+      p.redirected = redirected;
+      const NodeProps& tp = doc_.get(g)->props;
+      p.replace = redirected || tp.version != plan.version || tp.sourceLibraryKey != plan.libraryKey;
+      plans.push_back(p);
+    }
   }
   // Redirects to this file's own assets (it is where they moved): their copies' users are relinked to them.
   std::vector<std::pair<Guid, Guid>> toLocal;
   if (opts.update)
-    for (auto& [from, to] : opts.redirects) {
-      Guid old = ix.copy(from), local = ix.local(to);
-      if (old != kNoGuid && local != kNoGuid && assetKindOf(old) == assetKindOf(local)) toLocal.push_back({old, local});
+    for (const Redirect& rd : opts.redirects) {
+      Guid local = ix.local(rd.toKey);
+      if (local == kNoGuid) continue;
+      for (Guid old : ix.copiesOf(rd.fromLibraryKey, rd.fromKey))
+        if (inCopies(old) && assetKindOf(old) == assetKindOf(local)) toLocal.push_back({old, local});
     }
   bool writes = !toLocal.empty() ||
                 std::any_of(plans.begin(), plans.end(), [](const ImportPlan& p) { return p.target == kNoGuid || p.replace; });
   if (writes) {
+    // Inside an open step (txnBegin): part of it.
     begin(opts.update ? TxnKind::USER : TxnKind::SYSTEM, opts.update ? "Update library assets" : "Library");
     writeImports(src, plans, map);
     if (!toLocal.empty()) relinkCopies(toLocal);
     commit();
   } else {
     // Nothing to write; the ids are still answered.
-    for (ImportPlan& p : plans) map[p.src] = p.target;
+    for (ImportPlan& p : plans) p.result = p.target;
   }
+  std::set<std::string> imageSet;
+  GuidSet listedCopies;
   for (const ImportPlan& p : plans) {
-    auto it = map.find(p.src);
-    if (it == map.end() || !doc_.has(it->second)) continue;
+    Guid root = p.result;
+    if (root == kNoGuid || !doc_.has(root) || !listedCopies.insert(root).second) continue;
     std::vector<Guid> nodes;
-    realSubtree(it->second, nodes);
+    realSubtree(root, nodes);
     for (Guid g : nodes) {
+      const NodeProps& q = doc_.get(g)->props;
+      collectImages(q, imageSet);
       AssetKind k = assetKindOf(g);
       if (k == AssetKind::NONE) continue;
-      const NodeProps& q = doc_.get(g)->props;
       ImportedAsset a;
       a.key = q.key;
       a.id = g;
@@ -877,6 +1188,8 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
       out.push_back(std::move(a));
     }
   }
+  if (images)
+    for (const std::string& h : imageSet) images->push_back(ImageHash::fromHex(h));
   return OK;
 }
 

@@ -1266,6 +1266,26 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
         asInstance.insert(r->guid);
       }
     src.link();
+    // An asset's content hash over the clipboard's nodes (the same as the source file's assetVersionHash).
+    HashView view;
+    view.get = [&](Guid g) -> const NodeProps* {
+      auto it = src.byId.find(g);
+      return it == src.byId.end() ? nullptr : &it->second->props;
+    };
+    view.kids = [&](Guid g, std::vector<Guid>& out) {
+      auto it = src.kids.find(g);
+      if (it != src.kids.end())
+        for (const NodeChange* c : it->second) out.push_back(c->guid);
+    };
+    view.mainKey = [&](Guid g) {
+      auto it = all.find(g);
+      return it == all.end() ? std::string() : it->second->props.key;
+    };
+    view.assetKey = [&](const AssetId& a, AssetKind) {
+      auto it = a.guid != kNoGuid ? all.find(a.guid) : all.end();
+      return it != all.end() && !it->second->props.key.empty() ? it->second->props.key : a.key;
+    };
+    auto clipHash = [&](Guid root) { return hashAsset(root, view); };
     std::vector<ImportPlan> plans;
     for (Guid r : src.roots) {
       const NodeProps& rp = src.byId.at(r)->props;
@@ -1284,13 +1304,15 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
         plan.key = rp.key;
         plan.version = rp.version;
         plan.publishID = rp.publishID != kNoGuid ? rp.publishID : r;
-        plan.target = copyRootByKey(rp.key);
+        plan.target = copyRootByKey(plan.libraryKey, rp.key, rp.version);
       } else if (published(rp)) {
         plan.libraryKey = clip.fileKey;
         plan.key = rp.key;
-        plan.version = rp.publishedVersion;
+        // The copy is made from the clipboard's content: its version is that content's hash — the published one when
+        // the content is the published one, else never it (the next diff offers the published version as an update).
+        plan.version = clipHash(r);
         plan.publishID = r;
-        plan.target = copyRootByKey(rp.key);
+        plan.target = copyRootByKey(plan.libraryKey, rp.key, plan.version);
       } else {
         // Unpublished: copied in as this file's own, once (a later paste finds it by its source).
         plan.mode = ImportPlan::Mode::LOCAL;
@@ -1373,7 +1395,7 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     }
     Guid id;
     if (crossFile) {
-      remapRefs(p, map, clip.fileKey);
+      remapRefs(p, nullptr, map, clip.fileKey);
       id = map.count(src.guid) ? map[src.guid] : newGuid();
     } else {
       id = newGuid();

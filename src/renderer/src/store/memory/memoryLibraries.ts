@@ -51,8 +51,15 @@ export class MemoryLibraries {
     }
   }
 
+  /**
+   * Writes a record or throws (`io`) when the browser's storage refuses it (quota): a publish then stops before its
+   * record moves on, as `LocalLibraries` does on a failed file write — never a record pointing at a missing manifest.
+   */
   private write(key: string, value: unknown): void {
-    if (!this.d.storage.set(key, stringifyWithBytes(value))) this.d.log("warn", `the browser's storage is full; ${key} wasn't kept`);
+    if (!this.d.storage.set(key, stringifyWithBytes(value))) {
+      this.d.log("warn", `the browser's storage is full; ${key} wasn't kept`);
+      throw new StoreError("io", "The browser's storage is full");
+    }
   }
 
   private serial<T>(fn: () => Promise<T>): Promise<T> {
@@ -177,56 +184,66 @@ export class MemoryLibraries {
       const preview = previewAgainst(prev, req.assets, movedOutOf(this.records(), lib));
       const now = this.d.clock.now();
       const assets: LibraryAsset[] = [];
-      for (const a of req.assets) {
-        const key = LIB_KEYS.payload(lib, a.key, a.versionHash);
-        if (this.d.storage.get(key) === null) {
-          if (!(a.payload instanceof Uint8Array)) throw new StoreError("invalid", `asset ${a.key} needs its payload`);
-          try {
-            decodeMessage(a.payload);
-          } catch {
-            throw new StoreError("invalid", `asset ${a.key}'s payload is not a NODE_CHANGES message`);
-          }
-          this.write(key, { message: a.payload });
-        }
-        let thumbnail: LibraryAsset["thumbnail"] = prev?.assets.find((p) => p.key === a.key && p.versionHash === a.versionHash)?.thumbnail ?? null;
-        if (a.thumbnailPng instanceof Uint8Array) {
-          const dims = this.d.pngSize(a.thumbnailPng);
-          if (!dims) throw new StoreError("invalid", `asset ${a.key}'s thumbnail must be a PNG`);
-          const put = await this.d.putBlob(a.thumbnailPng, { mime: "image/png" });
-          thumbnail = { sha1: put.sha1, width: dims.width, height: dims.height };
-        }
-        assets.push(toLibraryAsset(a, thumbnail));
-      }
-      const record = this.record(lib);
-      const n = (record?.latestVersion ?? 0) + 1;
-      const moves = movesOf(req.moves, lib, n, now);
-      const version: LibraryVersion = {
-        libraryFileKey: lib,
-        version: n,
-        publishedAt: now,
-        description: typeof req.description === "string" ? req.description : "",
-        changes: { created: preview.created.map((a) => a.key), modified: preview.modified.map((a) => a.key), removed: preview.removed.map((a) => a.key), moved: [...preview.moved, ...moves] },
-        assets,
-      };
-      this.write(LIB_KEYS.version(lib, n), version);
-      const h = this.d.hlc.now();
-      const next: LibraryRecord = record
-        ? { ...record, movedIn: [...record.movedIn, ...moves], _clk: { ...record._clk } }
-        : { libraryFileKey: lib, status: "published", latestVersion: 0, firstPublishedAt: now, lastPublishedAt: now, counts: { components: 0, styles: 0, variables: 0 }, movedIn: moves, _clk: { firstPublishedAt: h } };
-      next.status = "published";
-      next.latestVersion = n;
-      next.lastPublishedAt = now;
-      next.counts = libraryCounts(assets);
-      for (const f of ["status", "latestVersion", "lastPublishedAt", "counts", ...(moves.length ? ["movedIn"] : [])]) next._clk[f] = h;
-      this.write(LIB_KEYS.record(lib), next);
+      // What this publish wrote, taken back if a later write fails (§9.3: payloads, then the manifest, then the
+      // record — a failure anywhere leaves the library as it was).
+      const written: string[] = [];
       try {
-        this.d.addVersion(lib, { kind: "publish", title: null, description: version.description || null, restoredFrom: null, libraryVersion: n });
-      } catch (e) {
-        this.d.log("warn", `${lib}: publish version entry`, e);
+        for (const a of req.assets) {
+          const key = LIB_KEYS.payload(lib, a.key, a.versionHash);
+          if (this.d.storage.get(key) === null) {
+            if (!(a.payload instanceof Uint8Array)) throw new StoreError("invalid", `asset ${a.key} needs its payload`);
+            try {
+              decodeMessage(a.payload);
+            } catch {
+              throw new StoreError("invalid", `asset ${a.key}'s payload is not a NODE_CHANGES message`);
+            }
+            this.write(key, { message: a.payload });
+            written.push(key);
+          }
+          let thumbnail: LibraryAsset["thumbnail"] = prev?.assets.find((p) => p.key === a.key && p.versionHash === a.versionHash)?.thumbnail ?? null;
+          if (a.thumbnailPng instanceof Uint8Array) {
+            const dims = this.d.pngSize(a.thumbnailPng);
+            if (!dims) throw new StoreError("invalid", `asset ${a.key}'s thumbnail must be a PNG`);
+            const put = await this.d.putBlob(a.thumbnailPng, { mime: "image/png" });
+            thumbnail = { sha1: put.sha1, width: dims.width, height: dims.height };
+          }
+          assets.push(toLibraryAsset(a, thumbnail));
+        }
+        const record = this.record(lib);
+        const n = (record?.latestVersion ?? 0) + 1;
+        const moves = movesOf(req.moves, lib, n, now, record?.movedIn);
+        const version: LibraryVersion = {
+          libraryFileKey: lib,
+          version: n,
+          publishedAt: now,
+          description: typeof req.description === "string" ? req.description : "",
+          changes: { created: preview.created.map((a) => a.key), modified: preview.modified.map((a) => a.key), removed: preview.removed.map((a) => a.key), moved: [...preview.moved, ...moves] },
+          assets,
+        };
+        this.write(LIB_KEYS.version(lib, n), version);
+        written.push(LIB_KEYS.version(lib, n));
+        const h = this.d.hlc.now();
+        const next: LibraryRecord = record
+          ? { ...record, movedIn: [...record.movedIn, ...moves], _clk: { ...record._clk } }
+          : { libraryFileKey: lib, status: "published", latestVersion: 0, firstPublishedAt: now, lastPublishedAt: now, counts: { components: 0, styles: 0, variables: 0 }, movedIn: moves, _clk: { firstPublishedAt: h } };
+        next.status = "published";
+        next.latestVersion = n;
+        next.lastPublishedAt = now;
+        next.counts = libraryCounts(assets);
+        for (const f of ["status", "latestVersion", "lastPublishedAt", "counts", ...(moves.length ? ["movedIn"] : [])]) next._clk[f] = h;
+        this.write(LIB_KEYS.record(lib), next);
+        written.length = 0; // published: nothing to take back
+        try {
+          this.d.addVersion(lib, { kind: "publish", title: null, description: version.description || null, restoredFrom: null, libraryVersion: n });
+        } catch (e) {
+          this.d.log("warn", `${lib}: publish version entry`, e);
+        }
+        await this.d.ws.queue.run(() => this.d.ws.patchFile(lib, { library: { status: "published", latestVersion: n } }));
+        this.events.emit({ type: "published", libraryFileKey: lib, version: n });
+        return version;
+      } finally {
+        for (const k of written) this.d.storage.remove(k);
       }
-      await this.d.ws.queue.run(() => this.d.ws.patchFile(lib, { library: { status: "published", latestVersion: n } }));
-      this.events.emit({ type: "published", libraryFileKey: lib, version: n });
-      return version;
     });
   }
 
@@ -247,6 +264,10 @@ export class MemoryLibraries {
   forget(lib: FileKey): void {
     for (const k of [...this.d.storage.keys(`${KV_PREFIX}libver.${lib}.`), ...this.d.storage.keys(`${KV_PREFIX}libasset.${lib}.`)]) this.d.storage.remove(k);
     const r = this.record(lib);
-    if (r) this.write(LIB_KEYS.record(lib), { ...r, status: "deleted" });
+    try {
+      if (r) this.write(LIB_KEYS.record(lib), { ...r, status: "deleted" });
+    } catch {
+      /* logged; the record follows the file anyway (`status()`: no file → deleted) */
+    }
   }
 }

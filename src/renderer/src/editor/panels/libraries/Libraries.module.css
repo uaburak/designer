@@ -44,6 +44,7 @@
   }
   .changeRow:hover { background: var(--figma-color-bg-hover); }
   .changeName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .changeText { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
   .status_created { flex: none; color: var(--figma-color-text-success); }
   .status_modified { flex: none; color: var(--figma-color-text-secondary); }
   .status_removed { flex: none; color: var(--figma-color-text-danger); }

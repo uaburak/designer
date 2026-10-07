@@ -353,7 +353,8 @@ ENG_EXPORT int32_t engine_load(Handle h, Ptr ptr, uint32_t len) {
   return OK;
 }
 
-// flags: APPLY_USER (1, undoable and emitted) | APPLY_REMOTE (2) | APPLY_LOAD (4).
+// flags: APPLY_USER (1, undoable and emitted) | APPLY_REMOTE (2) | APPLY_LOAD (4) | APPLY_SYSTEM (8, emitted, not
+// undoable) | APPLY_EXACT (16, a store-computed state: library copies written too, no user-edit rules).
 ENG_EXPORT int32_t engine_apply_changes(Handle h, Ptr ptr, uint32_t len, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
@@ -1699,10 +1700,18 @@ int32_t libraryImport(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32
     for (auto& x : r->array) {
       auto* from = x.get("fromKey");
       auto* to = x.get("toKey");
-      if (from && to && from->isString() && to->isString()) o.redirects.push_back({from->string, to->string});
+      auto* fromLib = x.get("fromLibraryKey");
+      if (from && to && from->isString() && to->isString())
+        o.redirects.push_back({from->string, to->string, fromLib && fromLib->isString() ? fromLib->string : std::string()});
     }
+  if (auto* n = opts.get("asNew"); n && n->isBool()) o.asNew = n->boolean;
+  if (auto* c = opts.get("copies"); c && c->isArray()) {
+    o.hasCopies = true;
+    o.copies = readRefs(*c);
+  }
   std::vector<Editor::ImportedAsset> imported;
-  int32_t status = e->editor.importLibrary(readMessages(msg), o, imported);
+  std::vector<ImageHash> images;
+  int32_t status = e->editor.importLibrary(readMessages(msg), o, imported, &images);
   json::Writer w;
   w.beginObject().key("status").number(status).key("assets").beginArray();
   for (auto& a : imported) {
@@ -1710,6 +1719,8 @@ int32_t libraryImport(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32
     w.key("libraryKey").string(a.libraryKey).key("version").string(a.version);
     w.key("created").boolean(a.created).key("updated").boolean(a.updated).endObject();
   }
+  w.endArray().key("images").beginArray();
+  for (const ImageHash& i : images) w.string(i.hex());
   w.endArray().endObject();
   setResult(w.take());
   return status;
@@ -1775,7 +1786,9 @@ ENG_EXPORT int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen)
   for (auto& a : assets) {
     w.beginObject();
     writeLocalAsset(w, e->editor, a.info);
-    w.key("dependencyOnly").boolean(a.dependencyOnly);
+    w.key("dependencyOnly").boolean(a.dependencyOnly).key("images").beginArray();
+    for (const ImageHash& i : a.images) w.string(i.hex());
+    w.endArray();
     w.key("message").beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(0).key("nodeChanges");
     codec::BlobsOut blobs;
     codec::writeChanges(w, a.nodes, &blobs);
@@ -1788,7 +1801,7 @@ ENG_EXPORT int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen)
   return setResult(w.take());
 }
 
-// [{key, versionHash}] (or {"entries": [...]}).
+// [{key, versionHash}] (or {"entries": [...]}); versionHash null (or ""): the version removed that asset.
 ENG_EXPORT int32_t engine_mark_published(Handle h, Ptr ptr, uint32_t len) {
   Call call;
   Engine* e = engineOf(h);
@@ -1796,23 +1809,25 @@ ENG_EXPORT int32_t engine_mark_published(Handle h, Ptr ptr, uint32_t len) {
   json::Value v;
   if (!parse(ptr, len, v)) return E_DECODE;
   const json::Value* list = v.isArray() ? &v : v.get("entries");
-  std::vector<std::pair<std::string, std::string>> entries;
+  std::vector<Editor::PublishedEntry> entries;
   if (list && list->isArray())
     for (auto& x : list->array) {
       auto* k = x.get("key");
       auto* hash = x.get("versionHash");
-      if (k && hash && k->isString() && hash->isString()) entries.push_back({k->string, hash->string});
+      if (!k || !k->isString() || k->string.empty()) continue;
+      if (hash && hash->isString()) entries.push_back({k->string, hash->string});
+      else if (!hash || hash->isNull()) entries.push_back({k->string, std::string()});
     }
   return e->editor.markPublished(entries);
 }
 
-// msg: a Message, an array of them or {"messages": [...]}; opts: {libraryKey}. Result: LibraryImportResult.
+// msg: a Message, an array of them or {"messages": [...]}; opts: {libraryKey, asNew?, keys?}. Result: LibraryImportResult.
 ENG_EXPORT int32_t engine_import_library_assets(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen) {
   Call call;
   return libraryImport(h, msgPtr, msgLen, optsPtr, optsLen, false);
 }
 
-// The same, opts {libraryKey, keys?, redirects?: [{fromKey, toKey}]}: one undo step.
+// The same, opts {libraryKey, keys?, copies?: Guid[], redirects?: [{fromKey, toKey, fromLibraryKey?}]}: one undo step.
 ENG_EXPORT int32_t engine_apply_library_update(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen) {
   Call call;
   return libraryImport(h, msgPtr, msgLen, optsPtr, optsLen, true);

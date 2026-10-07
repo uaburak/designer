@@ -1,9 +1,8 @@
 /**
  * Libraries, pure (docs/data.md §9, docs/schema.md §8): payloads as the engine's `encodeAssets` writes them (an
  * asset's nodes and every node it depends on; each asset root carrying its `key` and the `version` it was published
- * at), the library copies under the internal canvas, and how payloads become copies — the one write the editor makes
- * itself is a second copy of an asset beside the one here (Update selected instance), since the engine reuses a copy
- * by key; `planImport` also models the engine's import and update (tests).
+ * at), the library copies under the internal canvas, and how payloads become copies — only the engine writes them;
+ * `planImport` models its import and update rules for the tests.
  *
  * GUIDs in the engine's JSON are "s:l" strings at the top level (`guid`, `parentIndex.guid`) and `{sessionID,
  * localID}` objects inside structures (both forms are read).
@@ -215,10 +214,8 @@ export function payloadRoot(message: Message, key: string): LNode | null {
 export interface PlanOptions {
   /** Replace copies already here with the payloads' versions (an update); else they are reused as they are */
   update?: boolean;
-  /** Only these keys are replaced (update) or made anew (fresh); other roots are added when missing */
+  /** Only these keys are replaced (update); other roots are added when missing */
   keys?: readonly string[];
-  /** Make new copies of `keys` even where copies exist ("Update selected instance": a second copy at the new version) */
-  fresh?: boolean;
 }
 
 /**
@@ -258,7 +255,7 @@ export function planImport(doc: DocIndex, library: string, payloads: readonly Pa
   }
   const plans: { nodes: LNode[]; existing: Map<Guid, LNode>; rootLib: Guid; key: string; version: string; keep: Set<Guid> }[] = [];
   for (const r of assetRoots) {
-    const have = opts.fresh && wanted(r.key) ? undefined : byKey.get(r.key);
+    const have = byKey.get(r.key);
     if (have && !(opts.update && wanted(r.key))) {
       // Already here: reused as it is.
       map.set(r.node.guid, have.guid);
@@ -319,5 +316,14 @@ export function planImport(doc: DocIndex, library: string, payloads: readonly Pa
   return { changes: [...changes, ...removed.reverse()], roots };
 }
 
-/** The (key, version) of every copy from `library` (what `diff` compares). */
-export const copiesHave = (copies: readonly LibraryCopy[], library: string) => copies.filter((c) => c.library === library).map((c) => ({ key: c.key, versionHash: c.version }));
+/** The (key, version) pairs of the copies from `library` (what `diff` compares), each once. */
+export function copiesHave(copies: readonly LibraryCopy[], library: string): { key: string; versionHash: string }[] {
+  const seen = new Set<string>();
+  const out: { key: string; versionHash: string }[] = [];
+  for (const c of copies) {
+    if (c.library !== library || seen.has(`${c.key}@${c.version}`)) continue;
+    seen.add(`${c.key}@${c.version}`);
+    out.push({ key: c.key, versionHash: c.version });
+  }
+  return out;
+}

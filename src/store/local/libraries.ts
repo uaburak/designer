@@ -185,7 +185,7 @@ export class LocalLibraries {
       // 2. The manifest, then the record (in that order: a record never points at a missing manifest).
       const record = this.records.get(lib);
       const n = (record?.latestVersion ?? 0) + 1;
-      const moves: Redirect[] = movesOf(req.moves, lib, n, now);
+      const moves: Redirect[] = movesOf(req.moves, lib, n, now, record?.movedIn);
       const version: LibraryVersion = {
         libraryFileKey: lib,
         version: n,

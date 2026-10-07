@@ -686,17 +686,36 @@ export interface LocalAssetInfo {
 export interface EncodedAsset extends LocalAssetInfo {
   dependencyOnly: boolean;
   message: Message;
+  /** Image hashes the payload's nodes use (a consumer's file needs them: blobRefs). */
+  images: string[];
 }
+/** engine.importLibraryAssets / engine.applyLibraryUpdate options. */
 export interface LibraryImportOptions {
   libraryKey: string;
-  /** applyLibraryUpdate: only these keys are replaced (default: every asset in the messages that has a copy here). */
+  /**
+   * importLibraryAssets: a new, complete copy of the asked assets (new GUIDs, every child and variant) even when
+   * copies of them are here (Update selected instance); the result's `id` for those keys is the new copy. The asked
+   * assets: `keys`, default the first message's own asset (getPayloads puts the asked one first). Dependencies are
+   * reused as usual.
+   */
+  asNew?: boolean;
+  /** applyLibraryUpdate: only these keys are replaced (default: every asset in the messages that has a copy here). With asNew: the assets that get new copies. */
   keys?: string[];
-  /** applyLibraryUpdate: Move to this file — the copy of fromKey becomes toKey's. */
-  redirects?: { fromKey: string; toKey: string }[];
+  /** applyLibraryUpdate: only these copy roots are replaced (default: every copy of each key — a file can hold several). */
+  copies?: Guid[];
+  /**
+   * applyLibraryUpdate: Move to this file — the copies of fromKey (from fromLibraryKey; absent: from any library)
+   * become toKey's (toKey's payload in the messages, or this file's own asset toKey).
+   */
+  redirects?: { fromKey: string; toKey: string; fromLibraryKey?: string }[];
 }
+export type LibraryUpdateOptions = LibraryImportOptions;
 export interface LibraryImportResult {
   status: number;
+  /** Every copy written or reused (several copies of one key: each listed with its own id). */
   assets: { key: string; id: Guid; kind: AssetKind; libraryKey: string; version: string; created: boolean; updated: boolean }[];
+  /** Image hashes the copies written or reused use (the file's blobRefs need them). */
+  images: string[];
 }
 /** engine.libraryUsage(): a library copy in this file. */
 export interface LibraryAssetUsage {

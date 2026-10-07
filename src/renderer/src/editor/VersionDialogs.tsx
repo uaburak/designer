@@ -91,7 +91,9 @@ function History() {
     if (!ed.source.restoreVersion) return;
     try {
       await ed.source.flush();
-      await ed.source.restoreVersion(v.id, (diff) => ed.batch(RESTORE_LABEL, () => void ed.engine.applyChanges(diff, "user")));
+      // "restore": the store's diff written exactly (library copies included, docs/engine-build.md "Libraries — review
+      // fixes" (d)), one undo step.
+      await ed.source.restoreVersion(v.id, (diff) => ed.batch(RESTORE_LABEL, () => void ed.engine.applyChanges(diff, "restore")));
       showToast({ message: "Version restored" });
       close();
     } catch {

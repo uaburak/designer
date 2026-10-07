@@ -11,8 +11,10 @@
  *   schedules one requestAnimationFrame; nothing runs while idle.
  */
 import {
+  APPLY_EXACT,
   APPLY_LOAD,
   APPLY_REMOTE,
+  APPLY_SYSTEM,
   APPLY_USER,
   CommandId,
   ENCODE_SELECTION_CUT,
@@ -60,6 +62,7 @@ import {
   type LibraryAssetUsage,
   type LibraryImportOptions,
   type LibraryImportResult,
+  type LibraryUpdateOptions,
   type LocalAssetInfo,
   type Message,
   type NodeChange,
@@ -88,7 +91,14 @@ export interface EngineOptions {
   theme?: "LIGHT" | "DARK";
 }
 
-export type ApplyKind = "user" | "remote" | "load";
+/**
+ * How applyChanges takes changes: "user" = undoable and emitted; "system" = emitted, not an undo step (library
+ * bookkeeping: libraryMoveInfo, publishedVersion, publishing flags; E_BUSY inside an open batch); "restore" = a
+ * store-computed state (Restore version's diff): undoable and emitted, written as it is — library copies included, no
+ * detaching, no instance root overrides; "remote" / "load" = neither emitted nor undoable. "user" and "system" never
+ * write into library copies (docs/schema.md §8.2).
+ */
+export type ApplyKind = "user" | "system" | "restore" | "remote" | "load";
 
 /** Where image bytes come from (the file's image store): the image file for a SHA-1 hash, or null. */
 export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
@@ -259,9 +269,14 @@ export class Engine {
     return this.load(message);
   }
 
-  /** Changes from outside: "user" = undoable and emitted; "remote" / "load" = neither. */
+  /** Changes from outside (see ApplyKind). */
   applyChanges(message: Message, kind: ApplyKind = "user"): number {
-    const flags = kind === "user" ? APPLY_USER : kind === "remote" ? APPLY_REMOTE : APPLY_LOAD;
+    const flags =
+      kind === "user" ? APPLY_USER
+      : kind === "system" ? APPLY_SYSTEM
+      : kind === "restore" ? APPLY_USER | APPLY_EXACT
+      : kind === "remote" ? APPLY_REMOTE
+      : APPLY_LOAD;
     return this.after(this.x.applyChanges(this.h, encodeMessage(message), flags));
   }
 
@@ -552,18 +567,28 @@ export class Engine {
     return this.json(this.x.encodeAssets(this.h, encodeText(JSON.stringify(keys))), { assets: [], images: [] });
   }
 
-  /** After a successful publish: `publishedVersion` on those local assets (SYSTEM, not undoable). */
-  markPublished(entries: readonly { key: string; versionHash: string }[]): number {
+  /**
+   * After a successful publish (SYSTEM, not undoable): `publishedVersion` = `versionHash` on the version's assets (pass
+   * all of them, dependencies and kept versions too) and `libraryMoveInfo` cleared on its mains; `versionHash: null`
+   * = the version removed that asset (hidden or deleted, then published): `publishedVersion` cleared.
+   */
+  markPublished(entries: readonly { key: string; versionHash: string | null }[]): number {
     return this.after(this.x.markPublished(this.h, encodeText(JSON.stringify(entries))));
   }
 
-  /** Read-only library copies on the internal canvas (SYSTEM, not undoable); an asset already copied is reused. */
+  /**
+   * Read-only library copies on the internal canvas (SYSTEM, not undoable; inside an open batch: part of its step); a
+   * copy already here (same library and key) is reused — unless `asNew`: a new, complete copy of the asked assets.
+   */
   importLibraryAssets(messages: Message | readonly Message[], options: LibraryImportOptions): LibraryImportResult {
     return this.libraryCall(this.x.importLibraryAssets, messages, options);
   }
 
-  /** Replaces copies with new versions (instances keep overrides; users re-resolve) and applies redirects: one undo step. */
-  applyLibraryUpdate(messages: Message | readonly Message[], options: LibraryImportOptions): LibraryImportResult {
+  /**
+   * Replaces copies with new versions — every copy of each key (or only `copies`); instances keep overrides; users
+   * re-resolve — and applies redirects: one undo step.
+   */
+  applyLibraryUpdate(messages: Message | readonly Message[], options: LibraryUpdateOptions): LibraryImportResult {
     return this.libraryCall(this.x.applyLibraryUpdate, messages, options);
   }
 
@@ -575,16 +600,17 @@ export class Engine {
   private libraryCall(
     call: (h: number, messages: Uint8Array, options: Uint8Array) => number,
     messages: Message | readonly Message[],
-    options: LibraryImportOptions,
+    options: LibraryImportOptions | LibraryUpdateOptions,
   ): LibraryImportResult {
     const list = Array.isArray(messages) ? messages : [messages];
     const status = call(this.h, encodeText(JSON.stringify({ messages: list })), encodeText(JSON.stringify(options)));
-    let result: LibraryImportResult = { status, assets: [] };
+    let result: LibraryImportResult = { status, assets: [], images: [] };
     if (status === Status.OK) {
       try {
         result = JSON.parse(decodeText(this.x.result())) as LibraryImportResult;
+        result.images ??= [];
       } catch {
-        result = { status, assets: [] };
+        result = { status, assets: [], images: [] };
       }
     }
     return this.after({ ...result, status });

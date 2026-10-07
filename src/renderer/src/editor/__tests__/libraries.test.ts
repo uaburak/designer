@@ -1,10 +1,12 @@
-// Libraries, pure (model/libraries.ts): payloads as the engine's encodeAssets writes them (an asset and what it needs
-// in one Message, each root with its key and version) read into asset roots, and copies under the internal canvas
-// with Figma's library fields — imported (references remapped to the copies), reused, updated in place, made fresh
-// (the second copy Update selected instance writes).
+// Libraries, pure (model/libraries.ts, the registry's rules in shared/store/libraryRules.ts): payloads as the engine's
+// encodeAssets writes them (an asset and what it needs in one Message, each root with its key and version) read into
+// asset roots, and copies under the internal canvas with Figma's library fields — imported (references remapped to
+// the copies), reused, updated in place; what a consumer's copies are missing, one row per asset however many copies.
 import { describe, expect, it } from "vitest";
 import type { Message, NodeChange } from "@/engine/codec";
-import { indexDocument, libraryCopies, payloadRoot, payloadRoots, planImport, type LNode, type PayloadIn } from "../model/libraries";
+import { diffAgainst, movesOf } from "../../../../shared/store/libraryRules";
+import type { LibraryAsset, LibraryVersion, Redirect } from "../../../../shared/store/types";
+import { copiesHave, indexDocument, libraryCopies, payloadRoot, payloadRoots, planImport, type LibraryCopy, type LNode, type PayloadIn } from "../model/libraries";
 
 const K = (c: string) => c.repeat(40);
 const g = (s: number, l: number) => ({ sessionID: s, localID: l });
@@ -73,7 +75,7 @@ describe("copies", () => {
     expect(doc.byId.get(root)!.overrideKey).toEqual(g(1, 2)); // every node keyed by the library node
   });
 
-  it("an import reuses a copy already here; an update rewrites it in place (same GUIDs, dropped nodes removed); fresh makes a second one", () => {
+  it("an import reuses a copy already here; an update rewrites it in place (same GUIDs, dropped nodes removed)", () => {
     n = 0;
     const first = planImport(consumer(), "lib", [payload(K("a"), K("1"), [...button(K("1")), ...star(K("2"))])], "0:2", fresh, pos);
     let doc = apply(consumer(), first.changes);
@@ -88,8 +90,34 @@ describe("copies", () => {
     const copy = libraryCopies(doc).find((c) => c.key === K("a"))!;
     expect(copy.version).toBe(K("3"));
     expect((doc.byId.get(copy.guid)!.fillPaints as { color: { r: number } }[])[0].color.r).toBe(1);
-    const second = planImport(doc, "lib", v2, "0:2", fresh, pos, { fresh: true, keys: [K("a")] });
-    expect(second.roots.get(K("a"))).not.toBe(copy.guid);
-    expect(libraryCopies(apply(doc, second.changes)).filter((c) => c.key === K("a"))).toHaveLength(2);
+  });
+});
+
+describe("updates (review findings 9, 10, 14)", () => {
+  const copy = (guid: string, key: string, version: string): LibraryCopy => ({ guid, library: "lib", key, version, publishID: "1:4", kind: "COMPONENT", name: "Icons/Star" });
+  const asset = (key: string, versionHash: string): LibraryAsset => ({ key, kind: "COMPONENT", name: "Icons/Star", description: "", guid: "1:4", versionHash, dependencyOnly: false, dependencies: [], thumbnail: null });
+  const version = (assets: LibraryAsset[]): LibraryVersion => ({ libraryFileKey: "lib", version: 3, publishedAt: 0, description: "", changes: { created: [], modified: [], removed: [], moved: [] }, assets });
+
+  it("two copies of one asset (Update selected instance): `have` lists each version once, the diff the asset once", () => {
+    const copies = [copy("5:1", K("b"), K("1")), copy("5:9", K("b"), K("2")), copy("5:10", K("b"), K("2"))];
+    expect(copiesHave(copies, "lib")).toEqual([
+      { key: K("b"), versionHash: K("1") },
+      { key: K("b"), versionHash: K("2") },
+    ]);
+    const d = diffAgainst(version([asset(K("b"), K("3"))]), 3, copiesHave(copies, "lib"), []);
+    expect(d.updated.map((a) => a.key)).toEqual([K("b")]);
+    // A copy at the latest version and one behind: still one update (the one behind needs it).
+    expect(diffAgainst(version([asset(K("b"), K("2"))]), 3, copiesHave(copies, "lib"), []).updated).toHaveLength(1);
+    expect(diffAgainst(version([asset(K("b"), K("2"))]), 3, [{ key: K("b"), versionHash: K("2") }], []).updated).toHaveLength(0);
+  });
+
+  it("a recorded move is seen before the old library publishes again (data.md §9.5 step 2); a move is recorded once", () => {
+    const r: Redirect = { fromLibraryFileKey: "lib", fromKey: K("b"), toLibraryFileKey: "next", toKey: K("c"), version: 1, at: 0 };
+    const d = diffAgainst(version([asset(K("b"), K("1"))]), 1, [{ key: K("b"), versionHash: K("1") }], [r]);
+    expect(d.moved).toEqual([r]);
+    expect(d.updated).toEqual([]);
+    const moves = [{ key: K("c"), fromLibraryFileKey: "lib", fromKey: K("b"), mode: "move" as const }];
+    expect(movesOf(moves, "next", 2, 0, [r])).toEqual([]);
+    expect(movesOf(moves, "next", 2, 0, [])).toHaveLength(1);
   });
 });
