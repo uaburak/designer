@@ -2,6 +2,12 @@
 
 First written 2026-10-06 when the first Claude session stopped and the owner moved the work to another Claude account through GitHub (`https://github.com/uaburak/designer`). Updated the same day by the second session, which finished every workstream's partial items and ran the integration round. Read `AGENTS.md`, `docs/architecture.md` and `docs/roadmap.md` first; the contracts in `docs/` decide everything; `docs/research/` holds the verified facts about Figma (with sources).
 
+## Status 2026-10-07 (third session, sansato team account)
+
+Phases 3 and 4 are done and pushed: E3 text, E4 vectors, E5 paints / effects / images, E6 components and instances, local variables / modes / styles, and libraries (publish, Libraries modal, Assets sections, updates with Review, Move to this file, Restore component, cross-file paste). The libraries round got a four-lens review (24 confirmed findings) and two fix rounds, each finding re-verified by an independent agent (commits `25239de`, `a37b00e`). Green at `a37b00e`: `npm run check` 562 tests, `npm run engine:test` 236 cases, `engine:shot` 52/52, `editor-shot.mjs` 110/110. The workstream docs' status sections (`docs/engine-build.md` "Libraries — review fixes", `docs/editor.md`, `docs/data-impl.md`) list what is still open; small engine item: `clearedFields` for unmodelled fields.
+
+Next: Phase 5 of `docs/roadmap.md` — export, developer previews, Firebase adapter wiring, `.fig` import polish — unless the owner's review of the app comes first.
+
 ## Starting the next session
 
 1. Get the code: `git clone https://github.com/uaburak/designer.git && cd designer && npm install` (Node 24; `.nvmrc`), or `git pull` in an existing clone.
@@ -48,7 +54,7 @@ Reference screenshots of the real Figma desktop app (UI3, dark) are not in the r
 
 Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch → Home (no sign-in) → new design file → draw frames/rects → close and reopen → everything is there; Trash/restore; two files open in separate processes; quitting with a file open restores it. `npm run check` and `npm run engine:test` green.
 
-## Next
+## Next (as written after the second session; superseded by the status at the top)
 
 `docs/roadmap.md` Phase 3: E3 text (HarfBuzz, fonts from the system), E4 vectors/pen/booleans, E5 paints/effects/images/tiles (gradients and images in the picker); kiwi at the engine boundary; GRID. Then components/variables/styles/libraries (Phase 4); export, developer previews, the Firebase adapter wiring, `.fig` import polish (Phase 5).
 
