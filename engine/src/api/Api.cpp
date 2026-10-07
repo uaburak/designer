@@ -249,6 +249,24 @@ void writeEvents(json::Writer& w, Engine& e) {
     writeIds(w, refs);
     w.endObject();
   }
+  auto unique = [](const std::vector<Guid>& list) {
+    std::vector<Guid> out;
+    for (Guid g : list)
+      if (g != kNoGuid && std::find(out.begin(), out.end(), g) == out.end()) out.push_back(g);
+    return out;
+  };
+  if (!ev.collections.empty() || !ev.variables.empty()) {
+    w.beginObject().key("type").string("VARIABLES_CHANGED").key("collections");
+    writeIds(w, unique(ev.collections));
+    w.key("variables");
+    writeIds(w, unique(ev.variables));
+    w.endObject();
+  }
+  if (!ev.styles.empty()) {
+    w.beginObject().key("type").string("STYLES_CHANGED").key("styles");
+    writeIds(w, unique(ev.styles));
+    w.endObject();
+  }
   if (ev.navigation) {
     w.beginObject().key("type").string("INSTANCE_NAVIGATION").key("main");
     if (ed.navigationMain() == kNoGuid) w.null();
@@ -663,7 +681,14 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
     if (auto* m = args.get("hash"); m && m->isString()) a.hash = ImageHash::fromHex(m->string);
     a.raw = std::move(args);
   }
-  return e->editor.command(static_cast<CommandId>(commandId), a);
+  int32_t status = e->editor.command(static_cast<CommandId>(commandId), a);
+  // What the command created (variables, collections, modes, styles): {"created": [...]}.
+  json::Writer w;
+  w.beginObject().key("created");
+  writeIds(w, e->editor.lastCreated());
+  w.endObject();
+  setResult(w.take());
+  return status;
 }
 
 ENG_EXPORT uint32_t engine_command_state(Handle h, uint32_t commandId) {
@@ -1250,4 +1275,330 @@ ENG_EXPORT int32_t engine_render_node_thumbnail(Handle h, Ptr refPtr, uint32_t r
     for (int c = 0; c < 3; c++) px[i + c] = static_cast<uint8_t>(std::min(255, (px[i + c] * 255 + a / 2) / a));
   }
   return setResult(std::move(out));
+}
+
+// ---- Variables, modes, styles (docs/engine-build.md "E6 variables") ----
+
+namespace {
+
+Guid parseRef(Ptr ptr, uint32_t len) {
+  bool ok = false;
+  Guid g = Guid::parse(bytes(ptr, len), &ok);
+  return ok ? g : kNoGuid;
+}
+
+void writeColorValue(json::Writer& w, const Color& c) {
+  w.beginObject().key("r").number(c.r).key("g").number(c.g).key("b").number(c.b).key("a").number(c.a).endObject();
+}
+
+void writeResolved(json::Writer& w, const Editor::Resolved& r, bool ok) {
+  using K = Editor::Resolved::Kind;
+  if (!ok) {
+    w.null();
+    return;
+  }
+  switch (r.kind) {
+    case K::BOOL: w.boolean(r.b); break;
+    case K::FLOAT: w.number(r.f); break;
+    case K::STRING: w.string(r.s); break;
+    case K::COLOR: writeColorValue(w, r.c); break;
+    case K::OTHER: w.raw(r.raw.empty() ? std::string("null") : "{" + r.raw + "}"); break;
+    default: w.null(); break;
+  }
+}
+
+// A VariableValue in Figma's plugin shapes (docs/engine-build.md "Values").
+void writeVariableValue(json::Writer& w, const VariableData& d, const Editor& ed) {
+  using K = VariableData::Kind;
+  switch (d.kind) {
+    case K::BOOL: w.boolean(d.boolValue); break;
+    case K::FLOAT: w.number(d.floatValue); break;
+    case K::TEXT: w.string(d.textValue); break;
+    case K::COLOR: writeColorValue(w, d.colorValue); break;
+    case K::ALIAS: {
+      Guid v = ed.findVariable(d.alias);
+      if (v == kNoGuid) v = d.alias.guid;
+      w.beginObject().key("type").string("VARIABLE_ALIAS").key("id");
+      if (v == kNoGuid) w.null();
+      else w.string(v.toString());
+      w.endObject();
+      break;
+    }
+    case K::EXPRESSION:
+      if (d.function == ExpressionFunction::COMPOSE_COLOR && d.args.size() >= 2) {
+        w.beginObject().key("color");
+        writeVariableValue(w, d.args[0], ed);
+        w.key("opacity");
+        writeVariableValue(w, d.args[1], ed);
+        w.endObject();
+      } else {
+        codec::writeVariable(w, d);
+      }
+      break;
+    case K::FONT_STYLE:
+      for (auto& a : d.args)
+        if (a.present()) {
+          writeVariableValue(w, a, ed);
+          return;
+        }
+      w.null();
+      break;
+    case K::NONE: w.null(); break;
+    default: codec::writeVariable(w, d); break;
+  }
+}
+
+void writeVariableInfo(json::Writer& w, const Editor& ed, Guid v) {
+  const Document& doc = ed.document();
+  const NodeProps& p = doc.get(v)->props;
+  Guid set = ed.findCollection(p.variableSetID);
+  const Node* sn = doc.get(set);
+  w.beginObject().key("id").string(v.toString()).key("name").string(p.name).key("collectionId");
+  if (set == kNoGuid) w.null();
+  else w.string(set.toString());
+  w.key("resolvedType").string(enumName(p.variableResolvedType));
+  std::vector<VariableSetMode> modes = sn ? sn->props.orderedModes() : std::vector<VariableSetMode>{};
+  Guid def = sn ? sn->props.defaultMode() : kNoGuid;
+  auto valueFor = [&](Guid mode) -> const VariableData* {
+    const VariableData* fallback = nullptr;
+    for (auto& mv : p.variableDataValues) {
+      if (mv.modeID == mode) return &mv.data;
+      if (mv.modeID == def) fallback = &mv.data;
+    }
+    return fallback;
+  };
+  w.key("valuesByMode").beginObject();
+  for (auto& m : modes) {
+    w.key(m.id.toString());
+    if (const VariableData* d = valueFor(m.id)) writeVariableValue(w, *d, ed);
+    else w.null();
+  }
+  w.endObject();
+  w.key("resolvedValuesByMode").beginObject();
+  for (auto& m : modes) {
+    Editor::Resolved r;
+    bool ok = ed.resolveVariableInMode(v, m.id, r);
+    w.key(m.id.toString());
+    writeResolved(w, r, ok);
+  }
+  w.endObject();
+  w.key("scopes").beginArray();
+  if (!p.variableScopes) w.string("ALL_SCOPES");
+  else
+    for (VariableScope sc : *p.variableScopes) w.string(enumName(sc));
+  w.endArray();
+  w.key("codeSyntax").beginObject();
+  for (auto& cs : p.codeSyntax) w.key(enumName(cs.platform)).string(cs.value);
+  w.endObject();
+  w.key("description").string(p.description).key("hiddenFromPublishing").boolean(!p.isPublishable);
+  w.key("key").string(p.key).key("deletedButReferenced").boolean(p.isSoftDeleted);
+  w.endObject();
+}
+
+}  // namespace
+
+ENG_EXPORT int32_t engine_variable_collections(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  json::Writer w;
+  w.beginArray();
+  for (Guid c : ed.collections()) {
+    const NodeProps& p = ed.document().get(c)->props;
+    std::vector<VariableSetMode> modes = p.orderedModes();
+    w.beginObject().key("id").string(c.toString()).key("name").string(p.name).key("modes").beginArray();
+    for (auto& m : modes) w.beginObject().key("modeId").string(m.id.toString()).key("name").string(m.name).endObject();
+    w.endArray().key("defaultModeId");
+    if (modes.empty()) w.null();
+    else w.string(modes[0].id.toString());
+    w.key("variableIds");
+    writeIds(w, ed.variablesOf(c));
+    bool hidden = !p.isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.'));
+    w.key("hiddenFromPublishing").boolean(hidden).key("key").string(p.key).key("description").string(p.description);
+    w.endObject();
+  }
+  w.endArray();
+  return setResult(w.take());
+}
+
+// collPtr/collLen: a collection's ref ("s:l"); empty = every collection's.
+ENG_EXPORT int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  std::vector<Guid> vars;
+  if (collLen) {
+    Guid c = parseRef(collPtr, collLen);
+    const Node* n = ed.document().get(c);
+    if (!n || n->props.type != NodeType::VARIABLE_SET) return E_NOT_FOUND;
+    vars = ed.variablesOf(c);
+  } else {
+    for (Guid c : ed.collections())
+      for (Guid v : ed.variablesOf(c)) vars.push_back(v);
+  }
+  json::Writer w;
+  w.beginArray();
+  for (Guid v : vars) writeVariableInfo(w, ed, v);
+  w.endArray();
+  return setResult(w.take());
+}
+
+ENG_EXPORT int32_t engine_variable(Handle h, Ptr idPtr, uint32_t idLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Guid v = parseRef(idPtr, idLen);
+  const Node* n = e->editor.document().get(v);
+  if (!n || n->props.type != NodeType::VARIABLE) return E_NOT_FOUND;
+  json::Writer w;
+  writeVariableInfo(w, e->editor, v);
+  return setResult(w.take());
+}
+
+// Figma's resolveForConsumer; consumer empty = the default modes. Result: the value, or null.
+ENG_EXPORT int32_t engine_resolve_variable(Handle h, Ptr varPtr, uint32_t varLen, Ptr consumerPtr, uint32_t consumerLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Guid v = parseRef(varPtr, varLen);
+  Guid consumer = consumerLen ? parseRef(consumerPtr, consumerLen) : kNoGuid;
+  Editor::Resolved r;
+  bool ok = e->editor.resolveVariable(v, consumer, r);
+  json::Writer w;
+  writeResolved(w, r, ok);
+  return setResult(w.take());
+}
+
+ENG_EXPORT int32_t engine_bound_variables(Handle h, Ptr refPtr, uint32_t refLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Guid id = parseRef(refPtr, refLen);
+  if (!e->editor.document().has(id)) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginArray();
+  for (auto& b : e->editor.boundVariables(id)) {
+    w.beginObject().key("target").string(b.target).key("variable");
+    if (b.variable == kNoGuid) w.null();
+    else w.string(b.variable.toString());
+    w.key("value");
+    writeVariableValue(w, b.value, e->editor);
+    w.key("resolved");
+    writeResolved(w, b.resolved, b.ok);
+    w.endObject();
+  }
+  w.endArray();
+  return setResult(w.take());
+}
+
+ENG_EXPORT int32_t engine_resolved_value(Handle h, Ptr refPtr, uint32_t refLen, Ptr targetPtr, uint32_t targetLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Guid id = parseRef(refPtr, refLen);
+  if (!e->editor.document().has(id)) return E_NOT_FOUND;
+  Editor::Resolved r;
+  bool ok = e->editor.resolvedValue(id, std::string(bytes(targetPtr, targetLen)), r);
+  json::Writer w;
+  writeResolved(w, r, ok);
+  return setResult(w.take());
+}
+
+// Every collection's mode for a layer or a page: [{collectionId, explicitModeId, resolvedModeId}].
+ENG_EXPORT int32_t engine_variable_modes(Handle h, Ptr refPtr, uint32_t refLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  Guid id = parseRef(refPtr, refLen);
+  const Node* n = ed.document().get(id);
+  if (!n) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginArray();
+  for (Guid c : ed.collections()) {
+    const NodeProps& sp = ed.document().get(c)->props;
+    Guid explicitMode = n->props.explicitMode(c, sp.key);
+    bool valid = false;
+    for (auto& m : sp.variableSetModes) valid |= m.id == explicitMode;
+    w.beginObject().key("collectionId").string(c.toString()).key("explicitModeId");
+    if (!valid) w.null();
+    else w.string(explicitMode.toString());
+    Guid resolved = ed.resolvedMode(id, c);
+    w.key("resolvedModeId");
+    if (resolved == kNoGuid) w.null();
+    else w.string(resolved.toString());
+    w.endObject();
+  }
+  w.endArray();
+  return setResult(w.take());
+}
+
+// type: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6); 0 = every style.
+ENG_EXPORT int32_t engine_styles(Handle h, uint32_t type) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  json::Writer w;
+  w.beginArray();
+  for (Guid s : ed.stylesOf(static_cast<StyleType>(type))) {
+    const NodeProps& p = ed.document().get(s)->props;
+    w.beginObject().key("id").string(s.toString()).key("name").string(p.name).key("styleType").string(enumName(p.styleType));
+    w.key("description").string(p.description).key("key").string(p.key);
+    w.key("hiddenFromPublishing").boolean(!p.isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.')));
+    w.key("usageCount").number(ed.styleUsage(s));
+    switch (p.styleType) {
+      case StyleType::FILL:
+        w.key("fillPaints");
+        codec::writePaints(w, p.fillPaints);
+        break;
+      case StyleType::EFFECT:
+        w.key("effects");
+        codec::writeEffects(w, p.effects);
+        break;
+      case StyleType::GRID:
+        w.key("layoutGrids");
+        codec::writeLayoutGrids(w, p.layoutGrids);
+        break;
+      case StyleType::TEXT:
+        w.key("text").beginObject().key("fontName").beginObject();
+        w.key("family").string(p.fontName.family).key("style").string(p.fontName.style).key("postscript").string(p.fontName.postscript);
+        w.endObject().key("fontSize").number(p.fontSize);
+        w.key("lineHeight").beginObject().key("value").number(p.lineHeight.value).key("units").string(enumName(p.lineHeight.units)).endObject();
+        w.key("letterSpacing").beginObject().key("value").number(p.letterSpacing.value).key("units").string(enumName(p.letterSpacing.units)).endObject();
+        w.key("paragraphSpacing").number(p.paragraphSpacing).key("paragraphIndent").number(p.paragraphIndent);
+        w.key("textCase").string(enumName(p.textCase)).key("textDecoration").string(enumName(p.textDecoration));
+        w.endObject();
+        break;
+      default: break;
+    }
+    w.key("boundVariables").beginArray();
+    for (auto& b : ed.boundVariables(s)) {
+      w.beginObject().key("target").string(b.target).key("variable");
+      if (b.variable == kNoGuid) w.null();
+      else w.string(b.variable.toString());
+      w.key("value");
+      writeVariableValue(w, b.value, ed);
+      w.key("resolved");
+      writeResolved(w, b.resolved, b.ok);
+      w.endObject();
+    }
+    w.endArray();
+    w.endObject();
+  }
+  w.endArray();
+  return setResult(w.take());
+}
+
+// How many layers use a style (≥ 0), or a status.
+ENG_EXPORT int32_t engine_style_usage(Handle h, Ptr idPtr, uint32_t idLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Guid s = parseRef(idPtr, idLen);
+  const Node* n = e->editor.document().get(s);
+  if (!n || !n->props.isStyle()) return E_NOT_FOUND;
+  return static_cast<int32_t>(e->editor.styleUsage(s));
 }

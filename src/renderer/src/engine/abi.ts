@@ -113,6 +113,79 @@ export const CommandId = {
   INSERT_INSTANCE: 137,
   /** args { ref?, values: { [property]: value } }: a variant's own values in its set (renames it). */
   SET_VARIANT_PROPERTIES: 138,
+  // E6: variables, modes and styles (docs/engine-build.md "E6 variables"). `engine.runCommand` returns what was created.
+  /** args { name? } ("Collection", one mode "Mode 1"); created: [collection, its mode]. */
+  CREATE_VARIABLE_COLLECTION: 140,
+  /** args { collection, name } */
+  RENAME_VARIABLE_COLLECTION: 141,
+  /** args { collection } (its variables too; soft-deleted while used) */
+  DELETE_VARIABLE_COLLECTION: 142,
+  /** args { collection, index } */
+  MOVE_VARIABLE_COLLECTION: 143,
+  /** args { collection }; created: [the copy, its variables…] */
+  DUPLICATE_VARIABLE_COLLECTION: 144,
+  /** args { collection, name? } ("Mode N", values copied from the default mode); created: [mode] */
+  ADD_VARIABLE_MODE: 145,
+  /** args { collection, mode, name } (≤ 40 characters) */
+  RENAME_VARIABLE_MODE: 146,
+  /** args { collection, mode } (never the last) */
+  DELETE_VARIABLE_MODE: 147,
+  /** args { collection, mode, index } (index 0 = "Set as default") */
+  MOVE_VARIABLE_MODE: 148,
+  /** args { collection, mode }; created: [mode] */
+  DUPLICATE_VARIABLE_MODE: 149,
+  /** args { collection, type: "COLOR" | "FLOAT" | "STRING" | "BOOLEAN", name?, value?, group? }; created: [variable] */
+  CREATE_VARIABLE: 150,
+  /** args { variable, name } (unique in its collection; no `.`, `{`, `}`) */
+  RENAME_VARIABLE: 151,
+  /** args { variables } */
+  DELETE_VARIABLES: 152,
+  /** args { variables, index, group? } */
+  MOVE_VARIABLES: 153,
+  /** args { variables }; created: the copies */
+  DUPLICATE_VARIABLES: 154,
+  /** args { variable, mode?, value: VariableValue } */
+  SET_VARIABLE_VALUE: 155,
+  /** args { variables, scopes: VariableScope[] } */
+  SET_VARIABLE_SCOPES: 156,
+  /** args { variable, platform: "WEB" | "ANDROID" | "iOS", value } ("" removes) */
+  SET_VARIABLE_CODE_SYNTAX: 157,
+  /** args { variable, description } */
+  SET_VARIABLE_DESCRIPTION: 158,
+  /** args { variables, hidden } (Hide from publishing) */
+  SET_VARIABLE_HIDDEN: 159,
+  /** args { variables, name } ("New group with selection") */
+  GROUP_VARIABLES: 160,
+  /** args { collection, group, name } */
+  RENAME_VARIABLE_GROUP: 161,
+  /** args { collection, group } */
+  UNGROUP_VARIABLES: 162,
+  /** args { collection, group } */
+  DELETE_VARIABLE_GROUP: 163,
+  /** args { collection, group }; created: the copies */
+  DUPLICATE_VARIABLE_GROUP: 164,
+  /** args { refs?, target: BindingTarget, variable } (variable "" / null detaches) */
+  BIND_VARIABLE: 165,
+  /** args { refs?, target } */
+  DETACH_VARIABLE: 166,
+  /** args { refs?, page?, collection, mode } (mode "" = Auto) */
+  SET_VARIABLE_MODE: 167,
+  /** args { type: "FILL" | "TEXT" | "EFFECT" | "GRID", name?, from?, apply?, target?: "FILL" | "STROKE" }; created: [style] */
+  CREATE_STYLE: 170,
+  /** args { style } (its users keep the values, detached) */
+  DELETE_STYLE: 171,
+  /** args { refs?, style, target?: "FILL" | "STROKE" } */
+  APPLY_STYLE: 172,
+  /** args { refs?, target: "FILL" | "STROKE" | "TEXT" | "EFFECT" | "GRID" } */
+  DETACH_STYLE: 173,
+  /** args { style, index } (among its type) */
+  MOVE_STYLE: 174,
+  /** args { styles, name } ("Add new folder") */
+  GROUP_STYLES: 175,
+  /** args { type, group, name } */
+  RENAME_STYLE_GROUP: 176,
+  /** args { type, group } */
+  UNGROUP_STYLES: 177,
 } as const;
 export type CommandName = keyof typeof CommandId;
 

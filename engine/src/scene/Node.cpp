@@ -1,5 +1,6 @@
 #include "scene/Node.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace eng {
@@ -65,6 +66,145 @@ bool NodeProps::isPathShape() const {
     case NodeType::ROUNDED_RECTANGLE: return cornerSmoothing > 0 || !dashPattern.empty();
     default: return false;
   }
+}
+
+// Never inlined (LTO would): see Node.h.
+#define ENG_OUTLINE __attribute__((noinline))
+ENG_OUTLINE NodeProps::NodeProps() = default;
+ENG_OUTLINE NodeProps::NodeProps(const NodeProps&) = default;
+ENG_OUTLINE NodeProps::NodeProps(NodeProps&&) noexcept = default;
+ENG_OUTLINE NodeProps& NodeProps::operator=(const NodeProps&) = default;
+ENG_OUTLINE NodeProps& NodeProps::operator=(NodeProps&&) noexcept = default;
+ENG_OUTLINE NodeProps::~NodeProps() = default;
+
+ENG_OUTLINE Paint::Paint() = default;
+ENG_OUTLINE Paint::Paint(const Paint&) = default;
+ENG_OUTLINE Paint::Paint(Paint&&) noexcept = default;
+ENG_OUTLINE Paint& Paint::operator=(const Paint&) = default;
+ENG_OUTLINE Paint& Paint::operator=(Paint&&) noexcept = default;
+ENG_OUTLINE Paint::~Paint() = default;
+#undef ENG_OUTLINE
+
+VariableData VariableData::boolean(bool v) {
+  VariableData d;
+  d.kind = Kind::BOOL;
+  d.boolValue = v;
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::BOOLEAN;
+  d.resolvedDataType = VariableResolvedType::BOOLEAN;
+  return d;
+}
+
+VariableData VariableData::number(double v) {
+  VariableData d;
+  d.kind = Kind::FLOAT;
+  d.floatValue = v;
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::FLOAT;
+  d.resolvedDataType = VariableResolvedType::FLOAT;
+  return d;
+}
+
+VariableData VariableData::string(std::string v) {
+  VariableData d;
+  d.kind = Kind::TEXT;
+  d.textValue = std::move(v);
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::STRING;
+  d.resolvedDataType = VariableResolvedType::STRING;
+  return d;
+}
+
+VariableData VariableData::color(Color c) {
+  VariableData d;
+  d.kind = Kind::COLOR;
+  d.colorValue = c;
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::COLOR;
+  d.resolvedDataType = VariableResolvedType::COLOR;
+  return d;
+}
+
+VariableData VariableData::aliasOf(Guid variable, VariableResolvedType resolved) {
+  VariableData d;
+  d.kind = Kind::ALIAS;
+  d.alias = AssetId::of(variable);
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::ALIAS;
+  d.resolvedDataType = resolved;
+  return d;
+}
+
+VariableData VariableData::composeColor(VariableData color, VariableData opacity) {
+  VariableData d;
+  d.kind = Kind::EXPRESSION;
+  d.function = ExpressionFunction::COMPOSE_COLOR;
+  d.args = {std::move(color), std::move(opacity)};
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::EXPRESSION;
+  d.resolvedDataType = VariableResolvedType::COLOR;
+  return d;
+}
+
+bool NodeProps::hasBindings() const {
+  if (styleIdForFill.present() || styleIdForStrokeFill.present() || styleIdForText.present() || styleIdForEffect.present() ||
+      styleIdForGrid.present())
+    return true;
+  for (auto& b : parameterConsumptionMap)
+    if (b.isVariable()) return true;
+  for (auto& p : fillPaints)
+    if (p.hasVariables()) return true;
+  for (auto& p : strokePaints)
+    if (p.hasVariables()) return true;
+  for (auto& e : effects)
+    if (e.hasVariables()) return true;
+  for (auto& g : layoutGrids)
+    if (g.hasVariables()) return true;
+  for (auto& run : textData.styleOverrideTable)
+    for (auto& p : run.fillPaints)
+      if (p.hasVariables()) return true;
+  return false;
+}
+
+Guid NodeProps::defaultMode() const {
+  const VariableSetMode* best = nullptr;
+  for (auto& m : variableSetModes)
+    if (!best || m.sortPosition < best->sortPosition) best = &m;
+  return best ? best->id : kNoGuid;
+}
+
+std::vector<VariableSetMode> NodeProps::orderedModes() const {
+  std::vector<VariableSetMode> modes = variableSetModes;
+  std::stable_sort(modes.begin(), modes.end(), [](const VariableSetMode& a, const VariableSetMode& b) { return a.sortPosition < b.sortPosition; });
+  return modes;
+}
+
+void mergeParams(std::vector<ParamBinding>& base, const std::vector<ParamBinding>& over) {
+  for (const ParamBinding& o : over) {
+    auto it = std::find_if(base.begin(), base.end(), [&](const ParamBinding& b) { return b.field == o.field; });
+    if (o.isUnbind()) {
+      if (it != base.end()) base.erase(it);
+    } else if (it != base.end()) {
+      *it = o;
+    } else {
+      base.push_back(o);
+    }
+  }
+}
+
+std::vector<ParamBinding> paramDiff(const std::vector<ParamBinding>& before, const std::vector<ParamBinding>& after) {
+  std::vector<ParamBinding> out;
+  for (const ParamBinding& a : after) {
+    auto it = std::find_if(before.begin(), before.end(), [&](const ParamBinding& b) { return b.field == a.field; });
+    if (it == before.end() || !(*it == a)) out.push_back(a);
+  }
+  for (const ParamBinding& b : before)
+    if (std::none_of(after.begin(), after.end(), [&](const ParamBinding& a) { return a.field == b.field; })) {
+      ParamBinding unbind;
+      unbind.field = b.field;
+      out.push_back(unbind);
+    }
+  return out;
 }
 
 bool SymbolData::operator==(const SymbolData& o) const {
@@ -174,6 +314,23 @@ bool TextStyle::operator==(const TextStyle& o) const {
   X(F_DETACHED_SYMBOL_ID, detachedSymbolId, 342)             \
   X(F_IS_SOFT_DELETED, isSoftDeleted, 330)                   \
   X(F_ANCESTOR_PATH, ancestorPathBeforeDeletion, 235)        \
+  X(F_VARIABLE_MODES, variableModeBySetMap, 316)             \
+  X(F_STYLE_ID_FILL, styleIdForFill, 332)                    \
+  X(F_STYLE_ID_STROKE, styleIdForStrokeFill, 333)            \
+  X(F_STYLE_ID_TEXT, styleIdForText, 334)                    \
+  X(F_STYLE_ID_EFFECT, styleIdForEffect, 335)                \
+  X(F_STYLE_ID_GRID, styleIdForGrid, 336)                    \
+  X(F_STYLE_TYPE, styleType, 163)                            \
+  X(F_SORT_POSITION, sortPosition, 320)                      \
+  X(F_DESCRIPTION, description, 318)                         \
+  X(F_KEY, key, 319)                                         \
+  X(F_IS_PUBLISHABLE, isPublishable, 174)                    \
+  X(F_VARIABLE_SET_MODES, variableSetModes, 312)             \
+  X(F_VARIABLE_SET_ID, variableSetID, 313)                   \
+  X(F_VARIABLE_RESOLVED_TYPE, variableResolvedType, 314)     \
+  X(F_VARIABLE_DATA_VALUES, variableDataValues, 315)         \
+  X(F_VARIABLE_SCOPES, variableScopes, 353)                  \
+  X(F_CODE_SYNTAX, codeSyntax, 358)                          \
   X(F_EXTRA, extra, 0)
 
 const char* nodeTypeName(NodeType t) {
@@ -266,6 +423,7 @@ uint32_t fieldGroups(FieldMask m) {
   if (m & F_NAME) g |= G_NAME;
   if (m & (F_VISIBLE | F_LOCKED | F_INTERNAL_ONLY)) g |= G_VISIBILITY;
   if (m & kComponentFields) g |= G_COMPONENT;
+  if (m & (F_PARAM_MAP | F_VARIABLE_MODES | kStyleIdFields | kAssetFields)) g |= G_BINDINGS;
   return g;
 }
 

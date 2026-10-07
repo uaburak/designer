@@ -65,8 +65,8 @@ export function keepsField(engine: Engine, field: keyof NodeChange | string): bo
 /** Is `name` one of the engine's commands in this build? */
 export const hasCommand = (name: string): name is CommandName => Object.prototype.hasOwnProperty.call(CommandId, name);
 
-/** A command's arguments (E6's take booleans and string arrays too). */
-export type CommandArgs = Record<string, number | string | boolean | readonly string[]>;
+/** A command's arguments (E6's take booleans, string arrays and, for variables, any JSON value). */
+export type CommandArgs = Record<string, unknown>;
 
 /** Runs an engine command by name if this build has it (Status.E_UNSUPPORTED otherwise). */
 export function runEngineCommand(engine: Engine, name: string, args?: CommandArgs): number {

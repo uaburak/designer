@@ -1,0 +1,233 @@
+@layer app {
+  /* ---- The variable / style picker (a 240 popover: search, then collections and groups) ---- */
+  .picker { display: flex; flex-direction: column; max-height: 440px; }
+  .pickSearch { padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  .pickList { overflow: auto; padding-bottom: var(--ds-space-2); }
+  .pickHeader {
+    padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-1);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .pickGroup { padding: var(--ds-space-1) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  .pickEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  .pickItem {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    width: 100%;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-4) 0 var(--ds-space-4);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .pickItem:hover, .pickItem:focus-visible { background: var(--figma-color-bg-hover); }
+  .pickItemOn { background: var(--figma-color-bg-selected); }
+  .pickItemOn:hover { background: var(--figma-color-bg-selected-hover); }
+  .pickGlyph { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; color: var(--figma-color-icon-secondary); }
+  .pickName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .pickValue { flex: none; max-width: 72px; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  .pickFooter { display: flex; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-space-2) 0; border-top: 1px solid var(--figma-color-border); }
+
+  /* ---- A bound field: the variable as a pill in the field's place (Figma's variable chip) ---- */
+  .bindWrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
+  .bindWrap > :first-child { flex: 1 1 auto; min-width: 0; }
+  /* The "Apply variable" button inside an unbound field's right end, on hover */
+  .applyButton {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-icon-secondary);
+    opacity: 0;
+    outline: none;
+  }
+  .bindWrap:hover .applyButton, .applyButton:focus-visible, .applyButton[aria-expanded="true"] { opacity: 1; }
+  .applyButton:hover { color: var(--figma-color-icon); }
+  .applyButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+
+  .bound {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 0 0 var(--ds-space-half);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .boundPrefix { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); color: var(--figma-color-icon-secondary); }
+  .pill {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: 20px;
+    padding: 0 var(--ds-space-1-5);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-component-tertiary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .pill:hover { background: var(--figma-color-bg-component-secondary); }
+  .pill:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .pillText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .pillMissing { color: var(--figma-color-text-danger); text-decoration: line-through; }
+  /* Detach: over the pill's right end, on hover (the name keeps the whole field) */
+  .detach {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-icon-secondary);
+    opacity: 0;
+    outline: none;
+  }
+  .bound:hover .detach, .detach:focus-visible { opacity: 1; }
+  .detach:hover { color: var(--figma-color-icon); }
+
+  /* ---- Applied style rows (Fill, Stroke, Effects, Layout guide, Typography) ---- */
+  .styleRow { display: flex; align-items: center; padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); min-height: var(--ds-size-row); }
+  .styleBox {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-1-5);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .styleBox:hover { background: var(--figma-color-bg-tertiary); }
+  .styleBox:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .styleName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .styleMeta { flex: none; color: var(--figma-color-text-secondary); }
+  .styleActions { display: flex; flex: none; align-items: center; margin-left: var(--ds-space-1); }
+  .ag { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; font: var(--ds-font-body-medium-strong); letter-spacing: 0; color: var(--figma-color-text); }
+
+  /* ---- The Styles list (nothing selected) ---- */
+  .styleList { display: flex; flex-direction: column; padding-bottom: var(--ds-space-2); }
+  .styleKind {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+    color: var(--figma-color-text-secondary);
+  }
+  .styleItem {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2) 0 calc(var(--ds-size-panel-pad-left) + var(--indent, 0px));
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+    user-select: none;
+  }
+  .styleItem:hover { background: var(--figma-color-bg-hover); }
+  .styleItem:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .styleItemOn { background: var(--figma-color-bg-selected); }
+  .styleItem .itemEdit { opacity: 0; margin-left: auto; }
+  .styleItem:hover .itemEdit, .itemEdit:focus-visible { opacity: 1; }
+  .folderChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); transition: transform var(--ds-duration-fast) var(--ds-ease-out); }
+  .folderClosed .folderChevron { transform: rotate(-90deg); }
+  .openVariables {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    width: calc(100% - var(--ds-space-4));
+    height: var(--ds-size-control);
+    margin: 0 var(--ds-space-2) var(--ds-space-2);
+    padding: 0 var(--ds-space-2) 0 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .openVariables:hover { background: var(--figma-color-bg-hover); }
+  .openVariables:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .openVariables svg { color: var(--figma-color-icon-secondary); }
+
+  /* ---- Apply variable mode: one row per collection set on the selection ---- */
+  .modeRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
+  .modePill {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-half);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .modePill > [data-ds="Select"] { flex: 1 1 auto; min-width: 0; }
+  .modeName { flex: none; max-width: 88px; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  .modeIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); }
+
+  /* ---- Edit style / Edit variable popovers ---- */
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4); }
+  .formRow { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-control); }
+  .formLabel { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  .formSection {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--ds-size-control);
+    margin-top: var(--ds-space-2);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .formIndent { padding-left: var(--ds-space-6); }
+  .formFooter { display: flex; justify-content: flex-end; margin-top: var(--ds-space-2); }
+  .formPair { display: flex; gap: var(--ds-space-2); }
+  .formPair > * { flex: 1 1 0; min-width: 0; }
+  .codeRow { display: grid; grid-template-columns: 64px minmax(0, 1fr) var(--ds-size-control); align-items: center; gap: var(--ds-space-1); }
+  .effectEditRow { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .effectEditRow > [data-ds="Select"] { flex: 1 1 auto; min-width: 0; }
+}

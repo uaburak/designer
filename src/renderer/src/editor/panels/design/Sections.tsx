@@ -18,6 +18,7 @@ import { hasConstraints } from "../../model/constraints";
 import { ancestorsOf } from "../../model/layerTree";
 import { isAutoLayout } from "../../model/sizing";
 import { ConstraintsRow } from "./Constraints";
+import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { AutoLayoutSettingsButton, LimitRow, SizeField, useLimitAxes } from "./Sizing";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
@@ -232,6 +233,7 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
         <div className={styles.matrix}>
           <AlignmentMatrix direction={horizontal ? "horizontal" : "vertical"} value={alignment} onChange={(a) => ed.setProps(refs, fields({ stackPrimaryAlignItems: a.primary, stackCounterAlignItems: a.counter }), "Alignment")} />
         </div>
+        <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}>
         <NumericInput
           label="Gap between items"
           prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
@@ -243,8 +245,10 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           onStep={(d) => set("Gap", stepInfo, (n) => fields({ stackSpacing: Math.max(0, (n.stackSpacing ?? 0) + d) }))}
           onExit={exitToCanvas(ed)}
         />
+        </VariableField>
       </PropertyRow>
       <PropertyRow label="Padding">
+        <VariableField nodes={nodes} fields={["STACK_PADDING_LEFT", "STACK_PADDING_RIGHT"]} prefix="24.al.padding-horizontal">
         <NumericInput
           label="Horizontal padding"
           prefix="24.al.padding-horizontal"
@@ -254,6 +258,8 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           onCancel={() => ed.cancelEdit()}
           onExit={exitToCanvas(ed)}
         />
+        </VariableField>
+        <VariableField nodes={nodes} fields={["STACK_PADDING_TOP", "STACK_PADDING_BOTTOM"]} prefix="24.al.padding-vertical">
         <NumericInput
           label="Vertical padding"
           prefix="24.al.padding-vertical"
@@ -263,6 +269,7 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           onCancel={() => ed.cancelEdit()}
           onExit={exitToCanvas(ed)}
         />
+        </VariableField>
       </PropertyRow>
     </>
   );
@@ -278,6 +285,13 @@ const CORNERS = [
 ] as const;
 
 type CornerField = (typeof CORNERS)[number][0];
+
+const CORNER_FIELD = {
+  rectangleTopLeftCornerRadius: "RECTANGLE_TOP_LEFT_CORNER_RADIUS",
+  rectangleTopRightCornerRadius: "RECTANGLE_TOP_RIGHT_CORNER_RADIUS",
+  rectangleBottomLeftCornerRadius: "RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS",
+  rectangleBottomRightCornerRadius: "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS",
+} as const;
 
 export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
@@ -325,6 +339,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
       title="Appearance"
       actions={
         <>
+          <ApplyModeButton refs={refs} />
           {nodes.length === 1 && <BindButton layer={nodes[0]} field="VISIBLE" type="BOOL" />}
           <IconButton
             icon={visible === false ? "24.hidden.small" : "24.eye.small"}
@@ -345,6 +360,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
     >
       <PropertyGrid labels={labels}>
         <PropertyRow label={corners ? "Opacity and corner radius" : "Opacity"} action={corners ? <ToggleIconButton icon="24.corners.independent" label="Individual corners" pressed={independent} onPressedChange={setIndependentOpen} /> : undefined}>
+          <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
           <NumericInput
             label="Opacity"
             prefix="24.opacity"
@@ -358,7 +374,9 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             onStep={(d) => editEach(ed, "Opacity", stepInfo, refs, (n) => ({ opacity: Math.min(1, Math.max(0, (n.opacity ?? 1) + d / 100)) }))}
             onExit={exitToCanvas(ed)}
           />
+          </VariableField>
           {corners ? (
+            <VariableField nodes={nodes} fields={["CORNER_RADIUS"]} prefix="24.corners" disabled={independentNow}>
             <NumericInput
               label="Corner radius"
               prefix="24.corners"
@@ -369,6 +387,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
               onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => ({ cornerRadius: Math.max(0, (n.cornerRadius ?? 0) + d) }))}
               onExit={exitToCanvas(ed)}
             />
+            </VariableField>
           ) : (
             <span />
           )}
@@ -410,13 +429,16 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             {[CORNERS.slice(0, 2), CORNERS.slice(2)].map((pair, i) => (
               <PropertyRow key={i} label={i === 0 ? "Top corners" : "Bottom corners"}>
                 {pair.map(([f, icon, label]) => (
-                  <NumericInput key={f} label={label} prefix={icon} min={0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+                  <VariableField key={f} nodes={nodes} fields={[CORNER_FIELD[f]]} prefix={icon}>
+                    <NumericInput label={label} prefix={icon} min={0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+                  </VariableField>
                 ))}
               </PropertyRow>
             ))}
           </>
         )}
       </PropertyGrid>
+      <ModeRows refs={refs} />
     </PanelSection>
   );
 }

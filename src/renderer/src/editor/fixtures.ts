@@ -239,3 +239,147 @@ export const COMPONENTS_DOCUMENT: Message = {
     node({ guid: "2:3", type: "INSTANCE", name: "Chip", parentIndex: { guid: "2:1", position: '"' }, transform: at(24, 96), ...CHIP_SMALL, symbolData: { symbolID: g(1, 41), symbolOverrides: [] } }),
   ],
 };
+
+// ---- `&doc=variables`: collections, modes, aliases, styles, bound layers ------------------------------------------
+
+const mode = (l: number) => g(5, l);
+const vColor = (rgb: number, a = 1) => ({ dataType: "COLOR", resolvedDataType: "COLOR", value: { colorValue: hex(rgb, a) } });
+const vFloat = (n: number) => ({ dataType: "FLOAT", resolvedDataType: "FLOAT", value: { floatValue: n } });
+const vString = (s: string) => ({ dataType: "STRING", resolvedDataType: "STRING", value: { textValue: s } });
+const vBool = (b: boolean) => ({ dataType: "BOOLEAN", resolvedDataType: "BOOLEAN", value: { boolValue: b } });
+const vAlias = (l: number, type: string) => ({ dataType: "ALIAS", resolvedDataType: type, value: { alias: { guid: g(5, l) } } });
+const alias = (l: number, type: string) => ({ dataType: "ALIAS", resolvedDataType: type, value: { alias: { guid: g(5, l) } } });
+const PRIMITIVES = "7:1";
+const THEME = "7:2";
+const VALUE = mode(100);
+const LIGHT = mode(200);
+const DARK = mode(201);
+
+/** A VARIABLE under the internal canvas: one value per mode. */
+function variable(l: number, name: string, collection: string, type: string, values: [ReturnType<typeof mode>, unknown][], position: string, extra: Record<string, unknown> = {}): NodeChange {
+  const [s, c] = collection.split(":").map(Number);
+  return node({
+    guid: `5:${l}`,
+    type: "VARIABLE",
+    name,
+    parentIndex: { guid: "0:2", position: `v${position}` },
+    variableSetID: { guid: g(s, c) },
+    variableResolvedType: type,
+    variableDataValues: { entries: values.map(([m, d]) => ({ modeID: m, variableData: d })) },
+    sortPosition: position,
+    ...extra,
+  });
+}
+
+/** A style node under the internal canvas. */
+function style(l: number, kind: "FILL" | "TEXT" | "EFFECT" | "GRID", name: string, position: string, fields: Record<string, unknown>): NodeChange {
+  return node({ guid: `6:${l}`, type: kind === "TEXT" ? "TEXT" : "ROUNDED_RECTANGLE", name, parentIndex: { guid: "0:2", position: `s${position}` }, styleType: kind, sortPosition: position, size: { x: 100, y: 100 }, visible: false, ...fields });
+}
+
+const styleRef = (l: number) => ({ guid: g(6, l) });
+const bindNum = (field: string, l: number) => ({ variableField: field, variableData: alias(l, "FLOAT") });
+const colorVarOf = (l: number) => ({ colorVar: vAlias(l, "COLOR") });
+const H2 = { fontName: { family: "Inter", style: "Semi Bold", postscript: "" }, fontSize: 24, lineHeight: { value: 32, units: "PIXELS" }, letterSpacing: { value: -1, units: "PERCENT" } };
+const SHADOW_SMALL = [{ type: "DROP_SHADOW", color: hex(0x000000, 0.15), offset: { x: 0, y: 2 }, radius: 4, spread: 0, visible: true, blendMode: "NORMAL", showShadowBehindNode: false }];
+
+/** One card: a vertical auto-layout frame bound to Theme's variables, with a styled title and accent. */
+function card(id: number, name: string, x: number, dark: boolean, position: string): NodeChange[] {
+  const bg = dark ? 0x1e1e1e : 0xf5f5f5;
+  const fg = dark ? 0xffffff : 0x1e1e1e;
+  const radius = dark ? 16 : 8;
+  return [
+    node({
+      guid: `2:${id}`,
+      type: "FRAME",
+      name,
+      parentIndex: { guid: "0:1", position },
+      size: { x: 280, y: 180 },
+      transform: at(x, 0),
+      fillPaints: [{ ...solidFill(bg)[0], ...colorVarOf(20) }],
+      cornerRadius: radius,
+      rectangleTopLeftCornerRadius: radius,
+      rectangleTopRightCornerRadius: radius,
+      rectangleBottomLeftCornerRadius: radius,
+      rectangleBottomRightCornerRadius: radius,
+      stackMode: "VERTICAL",
+      stackSpacing: 16,
+      stackHorizontalPadding: 24,
+      stackVerticalPadding: 24,
+      stackPaddingRight: 24,
+      stackPaddingBottom: 24,
+      parameterConsumptionMap: { entries: [bindNum("CORNER_RADIUS", 23), bindNum("STACK_SPACING", 12)] },
+      ...(dark ? { variableModeBySetMap: { entries: [{ variableSetID: { guid: g(7, 2) }, variableModeID: DARK }] } } : {}),
+    }),
+    node({
+      guid: `2:${id + 1}`,
+      type: "TEXT",
+      name: "Title",
+      parentIndex: { guid: `2:${id}`, position: "!" },
+      size: { x: 232, y: 32 },
+      transform: at(24, 24),
+      textData: { characters: "Card title" },
+      textAutoResize: "HEIGHT",
+      ...H2,
+      styleIdForText: styleRef(2),
+      fillPaints: [{ ...solidFill(fg)[0], ...colorVarOf(22) }],
+    }),
+    node({
+      guid: `2:${id + 2}`,
+      type: "ROUNDED_RECTANGLE",
+      name: "Accent",
+      parentIndex: { guid: `2:${id}`, position: '"' },
+      size: { x: 232, y: 60 },
+      transform: at(24, 72),
+      cornerRadius: 8,
+      fillPaints: solidFill(0x0d99ff),
+      styleIdForFill: styleRef(10),
+      effects: SHADOW_SMALL,
+      styleIdForEffect: styleRef(20),
+    }),
+  ];
+}
+
+/**
+ * `&doc=variables`: two collections — "Primitives" (one mode: colours, spacing, radii) and "Theme" (Light / Dark:
+ * aliases into Primitives, a literal colour, a number alias, a string and a boolean) — local text, color, effect and
+ * layout guide styles in folders, and two cards bound to Theme (fill, corner radius, gap; a styled title and
+ * accent), the second set to Dark.
+ */
+export const VARIABLES_DOCUMENT: Message = {
+  type: "NODE_CHANGES",
+  sessionID: 0,
+  nodeChanges: [
+    { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+    page("0:1", "Page 1", 0, 0x2c2c2c),
+    internalCanvas(),
+    node({ guid: PRIMITIVES, type: "VARIABLE_SET", name: "Primitives", parentIndex: { guid: "0:2", position: "a" }, sortPosition: "a", variableSetModes: [{ id: VALUE, name: "Value", sortPosition: "a" }] }),
+    node({ guid: THEME, type: "VARIABLE_SET", name: "Theme", parentIndex: { guid: "0:2", position: "b" }, sortPosition: "b", variableSetModes: [{ id: LIGHT, name: "Light", sortPosition: "a" }, { id: DARK, name: "Dark", sortPosition: "b" }] }),
+    variable(1, "color/blue/500", PRIMITIVES, "COLOR", [[VALUE, vColor(0x0d99ff)]], "a"),
+    variable(2, "color/blue/100", PRIMITIVES, "COLOR", [[VALUE, vColor(0xe5f4ff)]], "b"),
+    variable(3, "color/gray/900", PRIMITIVES, "COLOR", [[VALUE, vColor(0x1e1e1e)]], "c"),
+    variable(4, "color/gray/50", PRIMITIVES, "COLOR", [[VALUE, vColor(0xf5f5f5)]], "d"),
+    variable(5, "color/white", PRIMITIVES, "COLOR", [[VALUE, vColor(0xffffff)]], "e"),
+    variable(11, "spacing/sm", PRIMITIVES, "FLOAT", [[VALUE, vFloat(8)]], "f", { variableScopes: ["GAP"] }),
+    variable(12, "spacing/md", PRIMITIVES, "FLOAT", [[VALUE, vFloat(16)]], "g", { variableScopes: ["GAP"] }),
+    variable(13, "spacing/lg", PRIMITIVES, "FLOAT", [[VALUE, vFloat(24)]], "h", { variableScopes: ["GAP"], description: "Space between a card's blocks" }),
+    variable(14, "radius/md", PRIMITIVES, "FLOAT", [[VALUE, vFloat(8)]], "i", { variableScopes: ["CORNER_RADIUS"] }),
+    variable(15, "radius/lg", PRIMITIVES, "FLOAT", [[VALUE, vFloat(16)]], "j", { variableScopes: ["CORNER_RADIUS"] }),
+    variable(20, "bg/primary", THEME, "COLOR", [[LIGHT, vAlias(4, "COLOR")], [DARK, vAlias(3, "COLOR")]], "a", { codeSyntax: { entries: [{ platform: "WEB", value: "var(--bg-primary)" }] } }),
+    variable(21, "bg/brand", THEME, "COLOR", [[LIGHT, vAlias(1, "COLOR")], [DARK, vAlias(1, "COLOR")]], "b"),
+    variable(22, "text/primary", THEME, "COLOR", [[LIGHT, vColor(0x1e1e1e)], [DARK, vColor(0xffffff)]], "c"),
+    variable(23, "radius/card", THEME, "FLOAT", [[LIGHT, vAlias(14, "FLOAT")], [DARK, vAlias(15, "FLOAT")]], "d", { variableScopes: ["CORNER_RADIUS"] }),
+    variable(24, "label/cta", THEME, "STRING", [[LIGHT, vString("Sign up")], [DARK, vString("Join now")]], "e"),
+    variable(25, "feature/beta", THEME, "BOOLEAN", [[LIGHT, vBool(true)], [DARK, vBool(false)]], "f"),
+    style(1, "TEXT", "Heading/H1", "a", { fontName: { family: "Inter", style: "Bold", postscript: "" }, fontSize: 32, lineHeight: { value: 40, units: "PIXELS" }, letterSpacing: { value: -2, units: "PERCENT" }, textData: { characters: "Ag" } }),
+    style(2, "TEXT", "Heading/H2", "b", { ...H2, textData: { characters: "Ag" } }),
+    style(3, "TEXT", "Body/Regular", "c", { fontName: { family: "Inter", style: "Regular", postscript: "" }, fontSize: 14, lineHeight: { value: 1.5, units: "RAW" }, letterSpacing: { value: 0, units: "PERCENT" }, textData: { characters: "Ag" } }),
+    style(10, "FILL", "Brand/Primary", "a", { fillPaints: solidFill(0x0d99ff) }),
+    style(11, "FILL", "Brand/Secondary", "b", { fillPaints: solidFill(0x9747ff) }),
+    style(12, "FILL", "Neutral/Gray 100", "c", { fillPaints: solidFill(0xf5f5f5) }),
+    style(20, "EFFECT", "Shadow/Small", "a", { effects: SHADOW_SMALL }),
+    style(21, "EFFECT", "Shadow/Large", "b", { effects: [{ ...SHADOW_SMALL[0], offset: { x: 0, y: 8 }, radius: 24, color: hex(0x000000, 0.2) }] }),
+    style(30, "GRID", "Grid/8pt", "a", { layoutGrids: [{ pattern: "GRID", sectionSize: 8, visible: true, color: hex(0xff0000, 0.1) }] }),
+    ...card(1, "Card", 0, false, "!"),
+    ...card(10, "Card (Dark)", 320, true, '"'),
+  ],
+};

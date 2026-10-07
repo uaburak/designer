@@ -11,7 +11,9 @@ void UndoStack::begin(const std::vector<Guid>& selection, const std::string& lab
   }
 }
 
-void UndoStack::record(const NodeChange& inverse) {
+void UndoStack::record(const NodeChange& inverse) { record(NodeChange(inverse)); }
+
+void UndoStack::record(NodeChange&& inverse) {
   if (depth_ == 0) return;
   if (inverse.phase == Phase::CHANGED) {
     auto it = foldable_.find(inverse.guid);
@@ -29,7 +31,7 @@ void UndoStack::record(const NodeChange& inverse) {
     // Created or removed in between: later changes can't fold across it.
     foldable_.erase(inverse.guid);
   }
-  open_.inverse.push_back(inverse);
+  open_.inverse.push_back(std::move(inverse));
 }
 
 const NodeChange* UndoStack::openInverse(Guid id) const {

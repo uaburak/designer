@@ -34,7 +34,7 @@ constexpr FieldMask kOwnFields = F_PARENT_INDEX | F_TRANSFORM | F_LOCKED | F_H_C
 // What an instance root doesn't inherit from its main's root: its own fields, identity, component-only fields,
 // page-only fields and unmodelled ones.
 constexpr FieldMask kNotInherited = kOwnFields | F_TYPE | kComponentFields | F_BACKGROUND_COLOR | F_BACKGROUND_ENABLED |
-                                    F_INTERNAL_ONLY | F_EXTRA;
+                                    F_INTERNAL_ONLY | F_EXTRA | kAssetFields;
 // Figma's overridable fields (docs/schema.md §5.4, R4 §3).
 constexpr FieldMask kOverridable =
     F_NAME | F_VISIBLE | F_LOCKED | F_OPACITY | F_SIZE | F_FILLS | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN | F_CORNER_RADII |
@@ -43,7 +43,7 @@ constexpr FieldMask kOverridable =
     F_STACK_COUNTER_ALIGN_CONTENT | F_STACK_COUNTER_SPACING | F_STACK_CHILD_GROW | F_STACK_CHILD_ALIGN_SELF | F_STACK_POSITIONING |
     F_MIN_SIZE | F_MAX_SIZE | F_PROPORTIONS_CONSTRAINED | kTextLayoutFields | F_AUTO_RENAME | F_BLEND_MODE | F_STROKE_CAP |
     F_STROKE_JOIN | F_MITER_LIMIT | F_DASH_PATTERN | F_BORDER_WEIGHTS | F_CORNER_SMOOTHING | F_EFFECTS | F_LAYOUT_GRIDS |
-    F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_ASSIGNMENTS | F_EXTRA;
+    F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_ASSIGNMENTS | F_EXTRA | F_PARAM_MAP | F_VARIABLE_MODES | kStyleIdFields;
 // Unmodelled fields an override may carry.
 bool overridableExtra(const std::string& key) {
   return key == "exportSettings" || key == "prototypeInteractions" || key == "annotations" || key == "styleIdForFill" ||
@@ -51,7 +51,9 @@ bool overridableExtra(const std::string& key) {
 }
 
 void mergeInto(NodeProps& to, const NodeProps& from, FieldMask mask) {
-  copyFields(to, from, mask & ~static_cast<FieldMask>(F_EXTRA));
+  copyFields(to, from, mask & ~static_cast<FieldMask>(F_EXTRA | F_PARAM_MAP));
+  // Bindings merge per field (override entries hold them sparsely, as Figma's files do).
+  if (mask & F_PARAM_MAP) mergeParams(to.parameterConsumptionMap, from.parameterConsumptionMap);
   if (mask & F_EXTRA)
     for (auto& [k, v] : from.extra) {
       if (v.empty()) to.extra.erase(k);
@@ -158,6 +160,13 @@ const std::vector<ComponentPropDef>* Editor::defsOf(Guid symbol) const {
 NodeProps Editor::instanceRoot(const NodeProps& own, const NodeProps& main, Guid mainId) const {
   NodeProps r = main;
   copyFields(r, own, kNotInherited);
+  // Bindings: the main root's (its variables), with the instance's own component-property bindings on top (a
+  // nested instance's, where it sits in its main); the root override entry adds the instance's own changes.
+  r.parameterConsumptionMap = main.parameterConsumptionMap;
+  std::vector<ParamBinding> ownRefs;
+  for (const ParamBinding& b : own.parameterConsumptionMap)
+    if (b.propRef != kNoGuid) ownRefs.push_back(b);
+  mergeParams(r.parameterConsumptionMap, ownRefs);
   r.type = NodeType::INSTANCE;
   // An instance of a variant is named after its set (Figma).
   if (Guid set = mainId != kNoGuid ? setOf(mainId) : kNoGuid; set != kNoGuid) r.name = doc_.get(set)->props.name;
@@ -287,9 +296,11 @@ void Editor::removeDerived(Guid instance) {
       }
       derivedInfo_.erase(*r);
       blueprint_.erase(*r);
+      dropDeps(*r);
     }
     events_.components.push_back(instance);
   }
+  instanceBindings_.erase(instance);
   blueprint_.erase(instance);
   if (auto s = instanceSources_.find(instance); s != instanceSources_.end()) {
     for (Guid src : s->second) {
@@ -445,12 +456,21 @@ void Editor::materialize(Guid R) {
     // The root: the main's root fields, the instance's own fields, its root override.
     NodeProps root = instanceRoot(rn->props, mp, main);
     ex.stack.apply({}, root);
+    // Its variables and styles in its own modes (the main's root holds the main's).
+    if (root.hasBindings()) {
+      BindingDeps deps;
+      resolveBindings(R, root, &deps);
+      setDeps(R, std::move(deps));
+    }
     FieldMask rootMask = F_ALL & ~kNotInherited;
     NodeChange c = NodeChange::changed(R);
     c.mask = differingFields(rn->props, root, rootMask);
     if (c.mask) {
       copyFields(c.props, root, c.mask);
+      bool prevResolving = resolving_;
+      resolving_ = true;
       write(c);
+      resolving_ = prevResolving;
     }
     rn = doc_.get(R);
     ex.sources.push_back(setOf(main));
@@ -472,11 +492,22 @@ void Editor::materialize(Guid R) {
     }
     derivedInfo_.erase(*it);
     blueprint_.erase(*it);
+    dropDeps(*it);
   }
   std::vector<Guid> ids;
   ids.reserve(ex.rows.size());
+  bool boundRows = false;
   for (size_t i = 0; i < ex.rows.size(); i++) {
-    const DerivedRow& row = ex.rows[i];
+    DerivedRow& row = ex.rows[i];
+    // Its variables and styles in its own modes (parents are in place: rows go parents first).
+    if (row.props.hasBindings()) {
+      boundRows = true;
+      BindingDeps deps;
+      resolveBindings(row.id, row.props, &deps);
+      setDeps(row.id, std::move(deps));
+    } else if (deps_.count(row.id)) {
+      dropDeps(row.id);
+    }
     const Node* n = doc_.get(row.id);
     if (!n) {
       NodeChange c = NodeChange::created(row.id, row.props);
@@ -498,6 +529,8 @@ void Editor::materialize(Guid R) {
     ids.push_back(row.id);
   }
   derivedRows_[R] = ids;
+  if (boundRows) instanceBindings_.insert(R);
+  else instanceBindings_.erase(R);
 
   // Dependencies.
   std::sort(ex.sources.begin(), ex.sources.end());
@@ -680,9 +713,17 @@ void Editor::writeAssignment(Guid level, Guid def, const ComponentPropValue& val
   writeOverride(d.instance, d.path, F_COMPONENT_PROP_ASSIGNMENTS, values);
 }
 
-void Editor::recordRootOverride(Guid instance, const NodeChange& change) {
+void Editor::recordRootOverride(Guid instance, const NodeChange& change, const std::vector<ParamBinding>* mapBefore) {
   FieldMask mask = change.mask & kOverridable & ~(kOwnFields | static_cast<FieldMask>(F_COMPONENT_PROP_ASSIGNMENTS));
-  if (mask) writeOverride(instance, {}, mask, change.props);
+  if (!mask) return;
+  if ((mask & F_PARAM_MAP) && mapBefore) {
+    // Only the bindings that changed (sparse, per field).
+    NodeProps values = change.props;
+    values.parameterConsumptionMap = paramDiff(*mapBefore, change.props.parameterConsumptionMap);
+    writeOverride(instance, {}, mask, values);
+    return;
+  }
+  writeOverride(instance, {}, mask, change.props);
 }
 
 void Editor::writeDerived(const NodeChange& change) {
@@ -690,13 +731,17 @@ void Editor::writeDerived(const NodeChange& change) {
   const Node* n = doc_.get(change.guid);
   auto info = derivedInfo_.find(change.guid);
   if (!n || info == derivedInfo_.end()) return;
-  FieldMask mask = differingFields(n->props, change.props, change.mask & kOverridable);
+  NodeChange edit = change;
+  edit.mask = differingFields(n->props, change.props, change.mask & kOverridable);
+  // A user's edit of a bound value detaches the variable or style (an override of the binding).
+  if (!resolving_ && edit.mask && n->props.hasBindings()) detachEdited(n->props, edit);
+  FieldMask mask = differingFields(n->props, edit.props, edit.mask & kOverridable);
   if (mask & F_TEXT_DATA) mask &= ~static_cast<FieldMask>(F_NAME | F_AUTO_RENAME);  // a text in an instance keeps its layer name
   if (!mask) return;
   const DerivedInfo d = info->second;
   NodeChange shown = NodeChange::changed(change.guid);
   shown.mask = mask;
-  copyFields(shown.props, change.props, mask);
+  copyFields(shown.props, edit.props, mask);
   // A field bound to a component property sets that property's value where it is defined (docs/schema.md §5.3).
   if (const Node* src = doc_.get(d.source)) {
     for (const ParamBinding& b : src->props.parameterConsumptionMap) {
@@ -706,21 +751,23 @@ void Editor::writeDerived(const NodeChange& change) {
       if (b.field == VariableField::VISIBLE && (mask & F_VISIBLE)) {
         bit = F_VISIBLE;
         v.hasBool = true;
-        v.boolValue = change.props.visible;
+        v.boolValue = edit.props.visible;
       } else if (b.field == VariableField::TEXT_DATA && (mask & F_TEXT_DATA)) {
         bit = F_TEXT_DATA;
         v.hasText = true;
-        v.textValue = change.props.textData;
+        v.textValue = edit.props.textData;
       } else if (b.field == VariableField::OVERRIDDEN_SYMBOL_ID && (mask & F_OVERRIDDEN_SYMBOL_ID)) {
         bit = F_OVERRIDDEN_SYMBOL_ID;
-        v.guidValue = change.props.overriddenSymbolID;
+        v.guidValue = edit.props.overriddenSymbolID;
       }
       if (!bit) continue;
       writeAssignment(d.level, b.propRef, v);
       mask &= ~bit;
     }
   }
-  if (mask) writeOverride(d.instance, d.path, mask, change.props);
+  // Bindings go into the override entry sparsely (only the fields that changed).
+  if (mask & F_PARAM_MAP) edit.props.parameterConsumptionMap = paramDiff(n->props.parameterConsumptionMap, edit.props.parameterConsumptionMap);
+  if (mask) writeOverride(d.instance, d.path, mask, edit.props);
   shown.mask &= ~static_cast<FieldMask>(F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_ASSIGNMENTS);
   if (shown.mask) applyDerivedDirect(shown);
   instanceDirty_.insert(d.instance);

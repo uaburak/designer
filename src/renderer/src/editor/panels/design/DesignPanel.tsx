@@ -1,6 +1,7 @@
 /**
  * The Design tab, by selection (UI3): nothing selected → Page (the page's
- * colour), Styles, Export; a selection → its type (Frame ▾ with presets,
+ * colour, Apply variable mode), Local variables (Open variables), the local
+ * Styles list, Export; a selection → its type (Frame ▾ with presets,
  * Rectangle, Ellipse, Group, Vector path, Text…, Mixed), Position (with
  * Constraints), Layout / Auto layout (sizing menus, min / max), Appearance,
  * Typography (text), Fill, Stroke, Selection colors, Effects, Layout guide
@@ -24,6 +25,8 @@ import { EffectsSection, LayoutGuideSection } from "./Effects";
 import { VectorPointSection } from "./VectorPoints";
 import { fields, isFrameNode, isTextNode, typeLabel, typeOf, useSelectedNodes, useSupports, type PanelNode } from "./shared";
 import { ComponentHeader, CurrentVariantSection, InstanceHeader, InstanceProperties, PropertiesSection, componentSelection } from "./Component";
+import { ApplyModeButton, ModeRows } from "./Variables";
+import { LocalStylesSection, LocalVariablesSection } from "./Styles";
 import styles from "./Design.module.css";
 
 /** Figma's frame presets (the Frame tool's list in the panel, the most used ones). */
@@ -62,7 +65,7 @@ export function DesignPanel() {
     <>
       {nodes.length === 0 ? (
         <>
-          <PanelSection title="Page">
+          <PanelSection title="Page" actions={<ApplyModeButton refs={[page]} />}>
             <div className={styles.paintRow}>
               <ColorInput
                 className={styles.paintField}
@@ -80,8 +83,10 @@ export function DesignPanel() {
                 onClick={() => ed.setProps([page], { backgroundEnabled: pageNode?.backgroundEnabled === false }, "Page colour")}
               />
             </div>
+            <ModeRows refs={[page]} />
           </PanelSection>
-          <PanelSection title="Styles" empty actions={<IconButton icon="24.plus.small" label="Create style" tone="secondary" onClick={() => showToast({ message: "Styles come with variables and libraries" })} />} />
+          <LocalVariablesSection />
+          <LocalStylesSection />
           <ExportSection />
         </>
       ) : (

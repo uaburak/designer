@@ -3,7 +3,7 @@
  * - `&file=<fileKey>[&tab=<id>]` (the desktop's editor tabs; a browser opens the dev store's files):
  *   the file on the store, through the data workstream's DocumentSource (`@/store`).
  * - otherwise a document held in memory: the engine's sample, `&doc=reference` (the owner's file as
- *   in the reference screenshots), `&doc=empty` (a new file), `&doc=components` (components, a set, instances) or `&doc=types` (Phase 2's sizing, constraints
+ *   in the reference screenshots), `&doc=empty` (a new file), `&doc=components` (components, a set, instances), `&doc=variables` (collections, modes, styles, bound layers) or `&doc=types` (Phase 2's sizing, constraints
  *   and layer types).
  * `&rulers=0` starts with the rulers off. The editor is on `window.__designerEditor` for scripts
  * (tools/editor-shot.mjs) and the console.
@@ -16,7 +16,7 @@ import { memoryDocumentSource, type DocumentSource } from "./documentSource";
 import { EditorApp } from "./EditorApp";
 import type { EditorController } from "./controller";
 import type { ImageStore } from "./images";
-import { COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, REFERENCE_DOCUMENT, TYPES_DOCUMENT } from "./fixtures";
+import { COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, REFERENCE_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
 import styles from "./EditorApp.module.css";
 
 declare global {
@@ -31,6 +31,7 @@ function memorySource(doc: string | null): DocumentSource {
   if (doc === "types") return memoryDocumentSource(TYPES_DOCUMENT, { fileName: "Layer types", location: "Drafts" });
   if (doc === "paints") return memoryDocumentSource(PAINTS_DOCUMENT, { fileName: "Paints and effects", location: "Drafts" });
   if (doc === "components") return memoryDocumentSource(COMPONENTS_DOCUMENT, { fileName: "Components", location: "Drafts" });
+  if (doc === "variables") return memoryDocumentSource(VARIABLES_DOCUMENT, { fileName: "Variables and styles", location: "Drafts" });
   return memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Sample file", location: "Drafts" });
 }
 

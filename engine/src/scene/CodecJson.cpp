@@ -59,6 +59,182 @@ std::string withExtra(json::Writer& w, const std::string& extra) {
   return s;
 }
 
+// ---- Variables (docs/schema.md §6) ----
+
+Color readColor(const json::Value& c, Color fallback);
+void appendMember(std::string& extra, const std::string& key, const json::Value& x);
+void writeGuidObject(json::Writer& w, Guid g);
+
+// A GUID inside a structure; Figma's "none" sentinel (4294967295:4294967295) reads as absent.
+bool readStructGuid(const json::Value& v, Guid& out) {
+  Guid g;
+  if (!readGuid(v, g)) return false;
+  if (g.sessionID == 0xFFFFFFFFu && g.localID == 0xFFFFFFFFu) return false;
+  out = g;
+  return true;
+}
+
+void writeAssetId(json::Writer& w, const AssetId& a) {
+  w.beginObject();
+  if (a.guid != kNoGuid) {
+    w.key("guid");
+    writeGuidObject(w, a.guid);
+  }
+  if (!a.key.empty()) {
+    w.key("assetRef").beginObject().key("key").string(a.key);
+    if (!a.version.empty()) w.key("version").string(a.version);
+    w.endObject();
+  }
+  w.endObject();
+}
+
+AssetId readAssetId(const json::Value& v) {
+  AssetId a;
+  if (v.isString()) {  // a bare GUID
+    readStructGuid(v, a.guid);
+    return a;
+  }
+  if (!v.isObject()) return a;
+  if (auto* g = v.get("guid")) readStructGuid(*g, a.guid);
+  if (auto* r = v.get("assetRef"); r && r->isObject()) {
+    if (auto* k = r->get("key"); k && k->isString()) a.key = k->string;
+    if (auto* ver = r->get("version"); ver && ver->isString()) a.version = ver->string;
+  }
+  return a;
+}
+
+void writeVariableData(json::Writer& out, const VariableData& d) {
+  using K = VariableData::Kind;
+  if (d.kind == K::OTHER) {
+    out.raw(d.extra.empty() ? std::string("{}") : d.extra);
+    return;
+  }
+  json::Writer w;
+  w.beginObject();
+  if (d.kind != K::NONE || !d.valueExtra.empty()) {
+    json::Writer v;
+    v.beginObject();
+    switch (d.kind) {
+      case K::BOOL: v.key("boolValue").boolean(d.boolValue); break;
+      case K::TEXT: v.key("textValue").string(d.textValue); break;
+      case K::FLOAT: v.key("floatValue").number(d.floatValue); break;
+      case K::ALIAS:
+        v.key("alias");
+        writeAssetId(v, d.alias);
+        break;
+      case K::COLOR:
+        v.key("colorValue");
+        writeColor(v, d.colorValue);
+        break;
+      case K::EXPRESSION:
+        v.key("expressionValue").beginObject().key("expressionFunction").string(enumName(d.function));
+        v.key("expressionArguments").beginArray();
+        for (const VariableData& a : d.args) writeVariableData(v, a);
+        v.endArray().endObject();
+        break;
+      case K::FONT_STYLE: {
+        static const char* kKeys[3] = {"asString", "asFloat", "asVariations"};
+        v.key("fontStyleValue").beginObject();
+        for (size_t i = 0; i < d.args.size() && i < 3; i++)
+          if (d.args[i].present()) {
+            v.key(kKeys[i]);
+            writeVariableData(v, d.args[i]);
+          }
+        v.endObject();
+        break;
+      }
+      case K::PROP_REF:
+        v.key("propRefValue").beginObject().key("defId");
+        writeGuidObject(v, d.propRef);
+        v.endObject();
+        break;
+      default: break;
+    }
+    v.endObject();
+    w.key("value").raw(withExtra(v, d.valueExtra));
+  }
+  if (d.hasDataType) w.key("dataType").string(enumName(d.dataType));
+  if (d.hasResolvedType) w.key("resolvedDataType").string(enumName(d.resolvedDataType));
+  w.endObject();
+  out.raw(withExtra(w, d.extra));
+}
+
+template <typename E>
+bool readEnumMember(const json::Value& x, E& out) {
+  if (x.isString()) return enumFromName(x.string, out);
+  if (x.isNumber() && x.number >= 0 && static_cast<size_t>(x.number) < EnumNames<E>::count &&
+      EnumNames<E>::names[static_cast<size_t>(x.number)][0]) {
+    out = static_cast<E>(static_cast<int>(x.number));
+    return true;
+  }
+  return false;
+}
+
+VariableData readVariableData(const json::Value& v) {
+  using K = VariableData::Kind;
+  VariableData d;
+  if (!v.isObject()) return d;
+  auto other = [&]() {
+    VariableData o;
+    o.kind = K::OTHER;
+    o.extra = json::encode(v);
+    return o;
+  };
+  const json::Value* value = nullptr;
+  for (auto& [k, x] : v.object) {
+    if (k == "dataType") {
+      if (!readEnumMember(x, d.dataType)) return other();
+      d.hasDataType = true;
+    } else if (k == "resolvedDataType") {
+      if (!readEnumMember(x, d.resolvedDataType)) return other();
+      d.hasResolvedType = true;
+    } else if (k == "value") {
+      value = &x;
+    } else {
+      appendMember(d.extra, k, x);
+    }
+  }
+  if (value && value->isObject()) {
+    for (auto& [k, x] : value->object) {
+      if (k == "boolValue" && x.isBool()) d.kind = K::BOOL, d.boolValue = x.boolean;
+      else if (k == "textValue" && x.isString()) d.kind = K::TEXT, d.textValue = x.string;
+      else if (k == "floatValue" && x.isNumber()) d.kind = K::FLOAT, d.floatValue = x.number;
+      else if (k == "alias" && (x.isObject() || x.isString())) d.kind = K::ALIAS, d.alias = readAssetId(x);
+      else if (k == "colorValue" && x.isObject()) d.kind = K::COLOR, d.colorValue = readColor(x, Color{0, 0, 0, 1});
+      else if (k == "expressionValue" && x.isObject()) {
+        const json::Value* fn = x.get("expressionFunction");
+        if (!fn || !readEnumMember(*fn, d.function)) return other();
+        for (auto& [ek, ex] : x.object)
+          if (ek != "expressionFunction" && ek != "expressionArguments") return other();
+        d.kind = K::EXPRESSION;
+        if (auto* args = x.get("expressionArguments"); args && args->isArray())
+          for (auto& a : args->array) {
+            VariableData arg = readVariableData(a);
+            if (arg.kind == K::OTHER) return other();
+            d.args.push_back(std::move(arg));
+          }
+      } else if (k == "fontStyleValue" && x.isObject()) {
+        d.kind = K::FONT_STYLE;
+        d.args.assign(3, VariableData{});
+        for (auto& [fk, fx] : x.object) {
+          size_t i = fk == "asString" ? 0 : fk == "asFloat" ? 1 : fk == "asVariations" ? 2 : 3;
+          if (i == 3) return other();
+          d.args[i] = readVariableData(fx);
+        }
+        while (!d.args.empty() && !d.args.back().present()) d.args.pop_back();
+      } else if (k == "propRefValue" && x.isObject()) {
+        d.kind = K::PROP_REF;
+        if (auto* id = x.get("defId")) readStructGuid(*id, d.propRef);
+      } else {
+        appendMember(d.valueExtra, k, x);
+      }
+    }
+  } else if (value) {
+    appendMember(d.extra, "value", *value);
+  }
+  return d;
+}
+
 void writePaint(json::Writer& out, const Paint& p) {
   if (p.type == PaintType::OTHER) {
     out.raw(p.extra);
@@ -115,6 +291,29 @@ void writePaint(json::Writer& out, const Paint& p) {
       if (v != 0) w.key(k).number(v);
     w.endObject();
   }
+  if (p.colorVar.present()) {
+    w.key("colorVar");
+    writeVariableData(w, p.colorVar);
+  }
+  bool stopVars = false;
+  for (auto& sv : p.stopVars) stopVars |= sv.present();
+  if (stopVars) {
+    w.key("stopsVar").beginArray();
+    for (size_t i = 0; i < p.stops.size(); i++) {
+      w.beginObject().key("color");
+      writeColor(w, p.stops[i].color);
+      if (i < p.stopVars.size() && p.stopVars[i].present()) {
+        w.key("colorVar");
+        writeVariableData(w, p.stopVars[i]);
+      }
+      w.key("position").number(p.stops[i].position).endObject();
+    }
+    w.endArray();
+  }
+  if (p.opacityVar.present()) {
+    w.key("opacityVar");
+    writeVariableData(w, p.opacityVar);
+  }
   w.endObject();
   out.raw(withExtra(w, p.extra));
 }
@@ -132,6 +331,13 @@ void writeEffect(json::Writer& out, const Effect& e) {
   w.key("blendMode").string(enumName(e.blendMode));
   w.key("spread").number(e.spread);
   w.key("showShadowBehindNode").boolean(e.showShadowBehindNode);
+  std::pair<const char*, const VariableData*> vars[] = {
+      {"radiusVar", &e.radiusVar}, {"colorVar", &e.colorVar}, {"spreadVar", &e.spreadVar}, {"xVar", &e.xVar}, {"yVar", &e.yVar}};
+  for (auto& [k, d] : vars)
+    if (d->present()) {
+      w.key(k);
+      writeVariableData(w, *d);
+    }
   w.endObject();
   out.raw(withExtra(w, e.extra));
 }
@@ -333,7 +539,8 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
     for (const ParamBinding& b : p.parameterConsumptionMap) {
       w.beginObject();
       w.key("variableField").string(enumName(b.field));
-      w.key("variableData");
+      // No variableData: an override entry's unbind (the field's binding removed there).
+      if (b.propRef != kNoGuid || b.data.present()) w.key("variableData");
       if (b.propRef != kNoGuid) {
         const char* resolved = b.field == VariableField::VISIBLE ? "BOOLEAN"
                                : b.field == VariableField::TEXT_DATA ? "TEXT_DATA"
@@ -342,8 +549,8 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
         w.beginObject().key("value").beginObject().key("propRefValue").beginObject().key("defId");
         writeGuidObject(w, b.propRef);
         w.endObject().endObject().key("dataType").string("PROP_REF").key("resolvedDataType").string(resolved).endObject();
-      } else {
-        w.raw(b.variableData.empty() ? std::string("{}") : b.variableData);
+      } else if (b.data.present()) {
+        writeVariableData(w, b.data);
       }
       w.endObject();
     }
@@ -385,6 +592,75 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
     w.key("ancestorPathBeforeDeletion").beginArray();
     for (Guid g : p.ancestorPathBeforeDeletion) writeGuidObject(w, g);
     w.endArray();
+  }
+}
+
+void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update, std::vector<uint32_t>& cleared) {
+  if (mask & F_VARIABLE_MODES) {
+    w.key("variableModeBySetMap").beginObject().key("entries").beginArray();
+    for (const VariableModeEntry& e : p.variableModeBySetMap) {
+      w.beginObject().key("variableSetID");
+      writeAssetId(w, e.set);
+      w.key("variableModeID");
+      writeGuidObject(w, e.mode);
+      w.endObject();
+    }
+    w.endArray().endObject();
+  }
+  auto assetOrClear = [&](FieldMask bit, const char* key, const AssetId& a) {
+    if (!(mask & bit)) return;
+    if (a.present()) {
+      w.key(key);
+      writeAssetId(w, a);
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(static_cast<Field>(bit)));
+    }
+  };
+  assetOrClear(F_STYLE_ID_FILL, "styleIdForFill", p.styleIdForFill);
+  assetOrClear(F_STYLE_ID_STROKE, "styleIdForStrokeFill", p.styleIdForStrokeFill);
+  assetOrClear(F_STYLE_ID_TEXT, "styleIdForText", p.styleIdForText);
+  assetOrClear(F_STYLE_ID_EFFECT, "styleIdForEffect", p.styleIdForEffect);
+  assetOrClear(F_STYLE_ID_GRID, "styleIdForGrid", p.styleIdForGrid);
+  if (mask & F_STYLE_TYPE) writeEnum(w, "styleType", p.styleType);
+  if (mask & F_SORT_POSITION) w.key("sortPosition").string(p.sortPosition);
+  if (mask & F_DESCRIPTION) w.key("description").string(p.description);
+  if (mask & F_KEY) w.key("key").string(p.key);
+  if (mask & F_IS_PUBLISHABLE) w.key("isPublishable").boolean(p.isPublishable);
+  if (mask & F_VARIABLE_SET_MODES) {
+    w.key("variableSetModes").beginArray();
+    for (const VariableSetMode& m : p.variableSetModes) {
+      w.beginObject().key("id");
+      writeGuidObject(w, m.id);
+      w.key("name").string(m.name).key("sortPosition").string(m.sortPosition).endObject();
+    }
+    w.endArray();
+  }
+  assetOrClear(F_VARIABLE_SET_ID, "variableSetID", p.variableSetID);
+  if (mask & F_VARIABLE_RESOLVED_TYPE) writeEnum(w, "variableResolvedType", p.variableResolvedType);
+  if (mask & F_VARIABLE_DATA_VALUES) {
+    w.key("variableDataValues").beginObject().key("entries").beginArray();
+    for (const VariableModeValue& v : p.variableDataValues) {
+      w.beginObject().key("modeID");
+      writeGuidObject(w, v.modeID);
+      w.key("variableData");
+      writeVariableData(w, v.data);
+      w.endObject();
+    }
+    w.endArray().endObject();
+  }
+  if (mask & F_VARIABLE_SCOPES) {
+    if (p.variableScopes) {
+      w.key("variableScopes").beginArray();
+      for (VariableScope sc : *p.variableScopes) w.string(enumName(sc));
+      w.endArray();
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(F_VARIABLE_SCOPES));
+    }
+  }
+  if (mask & F_CODE_SYNTAX) {
+    w.key("codeSyntax").beginObject().key("entries").beginArray();
+    for (const CodeSyntaxEntry& e : p.codeSyntax) w.beginObject().key("platform").string(enumName(e.platform)).key("value").string(e.value).endObject();
+    w.endArray().endObject();
   }
 }
 
@@ -555,12 +831,20 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
       one.key("gutterSize").number(g.gutterSize).key("color");
       writeColor(one, g.color);
       one.key("pattern").string(enumName(g.pattern));
+      std::pair<const char*, const VariableData*> vars[] = {{"numSectionsVar", &g.numSectionsVar}, {"offsetVar", &g.offsetVar},
+                                                            {"sectionSizeVar", &g.sectionSizeVar}, {"gutterSizeVar", &g.gutterSizeVar}};
+      for (auto& [k, d] : vars)
+        if (d->present()) {
+          one.key(k);
+          writeVariableData(one, *d);
+        }
       one.endObject();
       w.raw(withExtra(one, g.extra));
     }
     w.endArray();
   }
   writeComponentFields(w, p, mask, update, cleared, blobs);
+  writeVariableFields(w, p, mask, update, cleared);
   if (mask & F_EXTRA)
     for (auto& [k, v] : p.extra)
       if (!v.empty()) w.key(k).raw(v);
@@ -633,6 +917,7 @@ Paint readPaint(const json::Value& e, const BlobsIn* blobs) {
     return p;
   }
   Bytes imageData;
+  const json::Value* stopsVar = nullptr;
   for (auto& [k, x] : e.object) {
     if (k == "type") continue;
     if (k == "color") p.color = readColor(x, Color{0, 0, 0, 1});
@@ -667,9 +952,31 @@ Paint readPaint(const json::Value& e, const BlobsIn* blobs) {
                                                  {"contrast", &f.contrast}, {"brightness", &f.brightness}};
       for (auto& [fk, fv] : fields)
         if (auto* n = x.get(fk)) *fv = static_cast<float>(n->numberOr(0));
+    } else if (k == "colorVar" && x.isObject()) {
+      p.colorVar = readVariableData(x);
+    } else if (k == "opacityVar" && x.isObject()) {
+      p.opacityVar = readVariableData(x);
+    } else if (k == "stopsVar" && x.isArray()) {
+      stopsVar = &x;
     } else {
       appendMember(p.extra, k, x);
     }
+  }
+  if (stopsVar) {
+    // Each stop's binding (index-aligned with `stops`); the stops themselves come from here when `stops` is absent.
+    bool fill = p.stops.empty();
+    for (auto& st : stopsVar->array) {
+      VariableData var;
+      if (auto* cv = st.get("colorVar"); cv && cv->isObject()) var = readVariableData(*cv);
+      p.stopVars.push_back(std::move(var));
+      if (fill) {
+        ColorStop cs;
+        if (auto* c = st.get("color")) cs.color = readColor(*c, Color{0, 0, 0, 1});
+        if (auto* pos = st.get("position")) cs.position = pos->numberOr(0);
+        p.stops.push_back(cs);
+      }
+    }
+    while (!p.stopVars.empty() && !p.stopVars.back().present()) p.stopVars.pop_back();
   }
   // A clipboard image travels inside the Message (Image.dataBlob): its bytes go to whoever draws images.
   if (imageData && p.image.present && gImageDataSink) gImageDataSink(p.image, imageData);
@@ -688,6 +995,11 @@ Effect readEffect(const json::Value& e) {
     else if (k == "blendMode" && x.isString() && enumFromName(x.string, f.blendMode)) {
     } else if (k == "spread" && x.isNumber()) f.spread = x.number;
     else if (k == "showShadowBehindNode" && x.isBool()) f.showShadowBehindNode = x.boolean;
+    else if (k == "radiusVar" && x.isObject()) f.radiusVar = readVariableData(x);
+    else if (k == "colorVar" && x.isObject()) f.colorVar = readVariableData(x);
+    else if (k == "spreadVar" && x.isObject()) f.spreadVar = readVariableData(x);
+    else if (k == "xVar" && x.isObject()) f.xVar = readVariableData(x);
+    else if (k == "yVar" && x.isObject()) f.yVar = readVariableData(x);
     else appendMember(f.extra, k, x);
   }
   return f;
@@ -790,7 +1102,10 @@ bool knownKey(std::string_view k) {
       "cornerSmoothing", "effects", "count", "starInnerScale", "arcData", "vectorData", "handleMirroring", "booleanOperation", "layoutGrids",
       "overrideKey", "symbolData", "overriddenSymbolID", "componentPropDefs", "componentPropAssignments", "parameterConsumptionMap",
       "componentPropRefs", "isStateGroup", "variantPropSpecs", "stateGroupPropertyValueOrders", "propsAreBubbled", "isSlot",
-      "isSlotContent", "detachedSymbolId", "isSoftDeleted", "ancestorPathBeforeDeletion",
+      "isSlotContent", "detachedSymbolId", "isSoftDeleted", "ancestorPathBeforeDeletion", "variableModeBySetMap",
+      "styleIdForFill", "styleIdForStrokeFill", "styleIdForText", "styleIdForEffect", "styleIdForGrid", "styleType",
+      "sortPosition", "description", "key", "isPublishable", "variableSetModes", "variableSetID", "variableResolvedType",
+      "variableDataValues", "variableScopes", "codeSyntax",
       // Not kept: derived (recomputed) or panel-only.
       "derivedTextData", "derivedSymbolData", "childIds", "fillGeometry", "strokeGeometry", "blobs", "guidPath"};
   for (std::string_view known : kKnown)
@@ -959,7 +1274,7 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
         if (data && type && type->isString() && type->string == "PROP_REF")
           if (auto* val = data->get("value"))
             if (auto* pr = val->get("propRefValue")) ref = pr->get("defId");
-        if (!(ref && readGuid(*ref, b.propRef)) && data) b.variableData = json::encode(*data);
+        if (!(ref && readGuid(*ref, b.propRef)) && data) b.data = readVariableData(*data);
         p.parameterConsumptionMap.push_back(std::move(b));
       }
     m |= F_PARAM_MAP;
@@ -1015,6 +1330,77 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
       if (readGuid(e, g)) p.ancestorPathBeforeDeletion.push_back(g);
     }
     m |= F_ANCESTOR_PATH;
+  }
+}
+
+void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
+  if (auto* x = v.get("variableModeBySetMap"); x && x->isObject()) {
+    if (auto* entries = x->get("entries"); entries && entries->isArray())
+      for (auto& e : entries->array) {
+        VariableModeEntry me;
+        if (auto* set = e.get("variableSetID")) me.set = readAssetId(*set);
+        if (auto* mode = e.get("variableModeID")) readStructGuid(*mode, me.mode);
+        if (me.set.present()) p.variableModeBySetMap.push_back(std::move(me));
+      }
+    m |= F_VARIABLE_MODES;
+  }
+  auto asset = [&](const char* key, AssetId& out, FieldMask bit) {
+    if (auto* x = v.get(key); x && (x->isObject() || x->isString())) {
+      out = readAssetId(*x);
+      m |= bit;
+    }
+  };
+  asset("styleIdForFill", p.styleIdForFill, F_STYLE_ID_FILL);
+  asset("styleIdForStrokeFill", p.styleIdForStrokeFill, F_STYLE_ID_STROKE);
+  asset("styleIdForText", p.styleIdForText, F_STYLE_ID_TEXT);
+  asset("styleIdForEffect", p.styleIdForEffect, F_STYLE_ID_EFFECT);
+  asset("styleIdForGrid", p.styleIdForGrid, F_STYLE_ID_GRID);
+  if (auto* x = v.get("styleType"); x && readEnumMember(*x, p.styleType)) m |= F_STYLE_TYPE;
+  if (auto* x = v.get("sortPosition"); x && x->isString()) p.sortPosition = x->string, m |= F_SORT_POSITION;
+  if (auto* x = v.get("description"); x && x->isString()) p.description = x->string, m |= F_DESCRIPTION;
+  if (auto* x = v.get("key"); x && x->isString()) p.key = x->string, m |= F_KEY;
+  readBool(v, "isPublishable", p.isPublishable, F_IS_PUBLISHABLE, m);
+  if (auto* x = v.get("variableSetModes"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      VariableSetMode mode;
+      if (auto* id = e.get("id")) readStructGuid(*id, mode.id);
+      if (auto* name = e.get("name"); name && name->isString()) mode.name = name->string;
+      if (auto* pos = e.get("sortPosition"); pos && pos->isString()) mode.sortPosition = pos->string;
+      p.variableSetModes.push_back(std::move(mode));
+    }
+    m |= F_VARIABLE_SET_MODES;
+  }
+  asset("variableSetID", p.variableSetID, F_VARIABLE_SET_ID);
+  if (auto* x = v.get("variableResolvedType"); x && readEnumMember(*x, p.variableResolvedType)) m |= F_VARIABLE_RESOLVED_TYPE;
+  if (auto* x = v.get("variableDataValues"); x && x->isObject()) {
+    if (auto* entries = x->get("entries"); entries && entries->isArray())
+      for (auto& e : entries->array) {
+        VariableModeValue mv;
+        if (auto* mode = e.get("modeID")) readStructGuid(*mode, mv.modeID);
+        if (auto* data = e.get("variableData")) mv.data = readVariableData(*data);
+        p.variableDataValues.push_back(std::move(mv));
+      }
+    m |= F_VARIABLE_DATA_VALUES;
+  }
+  if (auto* x = v.get("variableScopes"); x && x->isArray()) {
+    std::vector<VariableScope> scopes;
+    for (auto& e : x->array) {
+      VariableScope sc = VariableScope::ALL_SCOPES;
+      if (e.isString() && e.string == "STROKE_COLOR") scopes.push_back(VariableScope::STROKE);  // the plugin API's name
+      else if (readEnumMember(e, sc)) scopes.push_back(sc);
+    }
+    p.variableScopes = std::move(scopes);
+    m |= F_VARIABLE_SCOPES;
+  }
+  if (auto* x = v.get("codeSyntax"); x && x->isObject()) {
+    if (auto* entries = x->get("entries"); entries && entries->isArray())
+      for (auto& e : entries->array) {
+        CodeSyntaxEntry cs;
+        if (auto* pl = e.get("platform"); !pl || !readEnumMember(*pl, cs.platform)) continue;
+        if (auto* val = e.get("value"); val && val->isString()) cs.value = val->string;
+        p.codeSyntax.push_back(std::move(cs));
+      }
+    m |= F_CODE_SYNTAX;
   }
 }
 
@@ -1200,7 +1586,11 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
         else if (k == "gutterSize" && y.isNumber()) g.gutterSize = y.number;
         else if (k == "color") g.color = readColor(y, Color{1, 0, 0, 0.1f});
         else if (k == "pattern" && y.isString() && enumFromName(y.string, g.pattern)) {
-        } else appendMember(g.extra, k, y);
+        } else if (k == "numSectionsVar" && y.isObject()) g.numSectionsVar = readVariableData(y);
+        else if (k == "offsetVar" && y.isObject()) g.offsetVar = readVariableData(y);
+        else if (k == "sectionSizeVar" && y.isObject()) g.sectionSizeVar = readVariableData(y);
+        else if (k == "gutterSizeVar" && y.isObject()) g.gutterSizeVar = readVariableData(y);
+        else appendMember(g.extra, k, y);
       }
       p.layoutGrids.push_back(g);
     }
@@ -1215,12 +1605,23 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
     m |= F_PARENT_INDEX;
   }
   readComponentFields(v, p, m, blobs);
+  readVariableFields(v, p, m);
   // Everything else round-trips as it came.
   for (auto& [k, x] : v.object)
     if (!knownKey(k)) {
-      p.extra[k] = json::encode(x);
+      // An update setting a field the engine doesn't model to null clears it (an empty value removes the key).
+      if (x.isNull() && !update) continue;
+      p.extra[k] = x.isNull() ? std::string() : json::encode(x);
       m |= F_EXTRA;
     }
+  // An update setting a modelled field to null clears it (like clearedFields).
+  if (update)
+    for (auto& [k, x] : v.object)
+      if (x.isNull())
+        if (FieldMask f = fieldOfKey(k) & ~static_cast<FieldMask>(F_TYPE | F_PARENT_INDEX)) {
+          copyFields(p, NodeProps{}, f);
+          m |= f;
+        }
   // clearedFields: kiwi field ids reset to absent (their default) — an update only.
   if (auto* x = v.get("clearedFields"); x && x->isArray() && update) {
     NodeProps defaults;
@@ -1328,6 +1729,33 @@ std::vector<Paint> readPaints(const json::Value& v, const BlobsIn* blobs) {
 
 void setImageDataSink(ImageDataSink sink) { gImageDataSink = sink; }
 
+void writeEffects(json::Writer& w, const std::vector<Effect>& effects) {
+  NodeProps p;
+  p.effects = effects;
+  json::Writer o;
+  o.beginObject();
+  writeFields(o, p, F_EFFECTS, false, nullptr);
+  o.endObject();
+  json::Value v;
+  json::parse(o.str(), v);
+  w.raw(v.get("effects") ? json::encode(*v.get("effects")) : std::string("[]"));
+}
+
+void writeLayoutGrids(json::Writer& w, const std::vector<LayoutGrid>& grids) {
+  NodeProps p;
+  p.layoutGrids = grids;
+  json::Writer o;
+  o.beginObject();
+  writeFields(o, p, F_LAYOUT_GRIDS, false, nullptr);
+  o.endObject();
+  json::Value v;
+  json::parse(o.str(), v);
+  w.raw(v.get("layoutGrids") ? json::encode(*v.get("layoutGrids")) : std::string("[]"));
+}
+
+void writeVariable(json::Writer& w, const VariableData& d) { writeVariableData(w, d); }
+VariableData readVariable(const json::Value& v) { return readVariableData(v); }
+
 namespace {
 struct FieldKey {
   FieldMask bit;
@@ -1363,7 +1791,13 @@ const FieldKey kFieldKeys[] = {
     {F_PARAM_MAP, "parameterConsumptionMap"}, {F_IS_STATE_GROUP, "isStateGroup"}, {F_VARIANT_PROP_SPECS, "variantPropSpecs"},
     {F_STATE_GROUP_ORDERS, "stateGroupPropertyValueOrders"}, {F_PROPS_ARE_BUBBLED, "propsAreBubbled"}, {F_IS_SLOT, "isSlot"},
     {F_IS_SLOT_CONTENT, "isSlotContent"}, {F_DETACHED_SYMBOL_ID, "detachedSymbolId"}, {F_IS_SOFT_DELETED, "isSoftDeleted"},
-    {F_ANCESTOR_PATH, "ancestorPathBeforeDeletion"},
+    {F_ANCESTOR_PATH, "ancestorPathBeforeDeletion"}, {F_VARIABLE_MODES, "variableModeBySetMap"},
+    {F_STYLE_ID_FILL, "styleIdForFill"}, {F_STYLE_ID_STROKE, "styleIdForStrokeFill"}, {F_STYLE_ID_TEXT, "styleIdForText"},
+    {F_STYLE_ID_EFFECT, "styleIdForEffect"}, {F_STYLE_ID_GRID, "styleIdForGrid"}, {F_STYLE_TYPE, "styleType"},
+    {F_SORT_POSITION, "sortPosition"}, {F_DESCRIPTION, "description"}, {F_KEY, "key"}, {F_IS_PUBLISHABLE, "isPublishable"},
+    {F_VARIABLE_SET_MODES, "variableSetModes"}, {F_VARIABLE_SET_ID, "variableSetID"},
+    {F_VARIABLE_RESOLVED_TYPE, "variableResolvedType"}, {F_VARIABLE_DATA_VALUES, "variableDataValues"},
+    {F_VARIABLE_SCOPES, "variableScopes"}, {F_CODE_SYNTAX, "codeSyntax"},
 };
 }  // namespace
 

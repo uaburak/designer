@@ -250,6 +250,7 @@ export const COMMANDS: EditorCommand[] = [
   // ---- Panels ----
   ui("view.layers", "Layers", [k("Digit1", { alt: true })], (ed) => ed.ui.set({ railTab: "file", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "file"),
   ui("view.assets", "Assets", [k("Digit2", { alt: true })], (ed) => ed.ui.set({ railTab: "assets", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "assets"),
+  ui("view.local-variables", "Local variables", undefined, (ed) => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen, uiHidden: false })), (ed) => ed.ui.get().variablesOpen),
 
   // ---- Object ----
   engine("object.group", "Group selection", "GROUP", [k("KeyG", { mod: true })]),

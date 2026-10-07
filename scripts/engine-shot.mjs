@@ -5,6 +5,7 @@
 //   npm run engine:shot -- [outDir]     (default: $TMPDIR/engine-shots)
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
+//   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
 // (CHROMIUM=/path overrides). Software GL (SwiftShader) for determinism.
@@ -435,14 +436,126 @@ async function e6Checks(files) {
   files.push(await shot("41-component-set-instance"));
 }
 
+// Variables, modes and styles (E6): two frames, Light and Dark, of the same bound content (fills, text, radius, padding,
+// a colour style holding a variable, an instance of a bound component); a mode switch and a value edit redraw them.
+async function variablesChecks(files) {
+  const made = await engine(() => {
+    const e = window.__designerEngine;
+    const solid = (r, g, b) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: 1, visible: true });
+    const T = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
+    const run = (name, args) => e.runCommand(name, args);
+    const [set, light] = run("CREATE_VARIABLE_COLLECTION", { name: "Theme" }).created;
+    run("RENAME_VARIABLE_MODE", { collection: set, mode: light, name: "Light" });
+    const dark = run("ADD_VARIABLE_MODE", { collection: set, name: "Dark" }).created[0];
+    const [prims, base] = run("CREATE_VARIABLE_COLLECTION", { name: "Primitives" }).created;
+    const v = (collection, type, name, value) => run("CREATE_VARIABLE", { collection, type, name, value }).created[0];
+    const blue = v(prims, "COLOR", "blue/500", { r: 0.05, g: 0.6, b: 1, a: 1 });
+    const surface = v(set, "COLOR", "surface", { r: 1, g: 1, b: 1, a: 1 });
+    const card = v(set, "COLOR", "card", { r: 0.94, g: 0.94, b: 0.94, a: 1 });
+    const text = v(set, "COLOR", "text", { r: 0.1, g: 0.1, b: 0.1, a: 1 });
+    const accent = v(set, "COLOR", "accent", { type: "VARIABLE_ALIAS", id: blue });
+    const alpha = v(set, "FLOAT", "accent/alpha", 100);
+    const tint = v(set, "COLOR", "accent/tint", { color: { type: "VARIABLE_ALIAS", id: accent }, opacity: { type: "VARIABLE_ALIAS", id: alpha } });
+    const radius = v(set, "FLOAT", "radius", 8);
+    const pad = v(set, "FLOAT", "space/pad", 16);
+    const label = v(set, "STRING", "label", "Light mode");
+    const set2 = (variable, value) => e.command("SET_VARIABLE_VALUE", { variable, mode: dark, value });
+    set2(surface, { r: 0.12, g: 0.12, b: 0.12, a: 1 });
+    set2(card, { r: 0.2, g: 0.2, b: 0.22, a: 1 });
+    set2(text, { r: 1, g: 1, b: 1, a: 1 });
+    set2(alpha, 40);
+    set2(radius, 24);
+    set2(pad, 32);
+    set2(label, "Dark mode");
+    // A component: a card (auto layout, padding bound) with a bound fill, a title and an accent bar.
+    e.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [
+      { guid: "70:1", phase: "CREATED", type: "FRAME", name: "Light", parentIndex: { guid: "0:1", position: "~~~~" }, size: { x: 360, y: 300 },
+        transform: T(0, 3000), fillPaints: [solid(1, 1, 1)] },
+      { guid: "70:2", phase: "CREATED", type: "FRAME", name: "Dark", parentIndex: { guid: "0:1", position: "~~~~~" }, size: { x: 360, y: 300 },
+        transform: T(400, 3000), fillPaints: [solid(1, 1, 1)] },
+      { guid: "70:10", phase: "CREATED", type: "SYMBOL", name: "Card", parentIndex: { guid: "0:1", position: "~~~~~~" }, size: { x: 240, y: 120 },
+        transform: T(0, 3400), fillPaints: [solid(0.9, 0.9, 0.9)], stackMode: "VERTICAL", stackSpacing: 12, stackPrimarySizing: "FIXED",
+        stackHorizontalPadding: 16, stackVerticalPadding: 16, stackPaddingRight: 16, stackPaddingBottom: 16 },
+      { guid: "70:11", phase: "CREATED", type: "TEXT", name: "Title", parentIndex: { guid: "70:10", position: "!" }, size: { x: 100, y: 20 },
+        transform: T(16, 16), textData: { characters: "Title" }, fontSize: 18, fontName: { family: "Inter", style: "Semi Bold", postscript: "" },
+        textAutoResize: "WIDTH_AND_HEIGHT", fillPaints: [solid(0, 0, 0)] },
+      { guid: "70:12", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Accent", parentIndex: { guid: "70:10", position: "\"" }, size: { x: 200, y: 24 },
+        transform: T(16, 50), fillPaints: [solid(0, 0, 1)] },
+    ] }, "user");
+    const bind = (refs, target, variable) => e.command("BIND_VARIABLE", { refs, target, variable });
+    bind(["70:1", "70:2"], "fillPaints[0].color", surface);
+    bind(["70:10"], "fillPaints[0].color", card);
+    bind(["70:10"], "CORNER_RADIUS", radius);
+    for (const side of ["LEFT", "TOP", "RIGHT", "BOTTOM"]) bind(["70:10"], `STACK_PADDING_${side}`, pad);
+    bind(["70:11"], "fillPaints[0].color", text);
+    bind(["70:11"], "TEXT_DATA", label);
+    // The accent bar through a colour style that holds the composed colour.
+    const style = run("CREATE_STYLE", { type: "FILL", name: "Accent/Tint", from: "70:12", apply: true }).created[0];
+    bind([style], "fillPaints[0].color", tint);
+    // An instance in each frame; the Dark frame set to Dark.
+    e.command("INSERT_INSTANCE", { main: "70:10", x: 180, y: 3150, parent: "70:1" });
+    const i1 = e.getSelection().refs[0];
+    e.command("INSERT_INSTANCE", { main: "70:10", x: 580, y: 3150, parent: "70:2" });
+    const i2 = e.getSelection().refs[0];
+    e.command("SET_VARIABLE_MODE", { refs: ["70:2"], collection: set, mode: dark });
+    e.setSelection(["70:1", "70:2"]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([]);
+    return { set, light, dark, prims, base, blue, surface, card, alpha, style, i1, i2, rows: [`I${i1};70:12`, `I${i2};70:12`],
+      titles: [e.readNode(`I${i1};70:11`)?.textData?.characters, e.readNode(`I${i2};70:11`)?.textData?.characters],
+      pads: [e.readNode(`I${i1};70:11`)?.transform?.m02, e.readNode(`I${i2};70:11`)?.transform?.m02],
+      collections: e.variableCollections().map((c) => c.name), styles: e.styles().map((s) => `${s.name}×${s.usageCount}`) };
+  });
+  await page.waitForTimeout(300);
+  await settle();
+  check("collections and a style exist", made.collections.join() === "Theme,Primitives" && made.styles.join() === "Accent/Tint×1",
+    `${made.collections.join()} / ${made.styles.join()}`);
+  check("instances resolve text and padding in their frame's mode", made.titles.join() === "Light mode,Dark mode" && made.pads.join() === "16,32",
+    `${made.titles.join(" | ")}; padding ${made.pads.join(" | ")}`);
+  const sample = async () => {
+    const pts = [await screenOf("70:1", 10, 10), await screenOf("70:2", 10, 10), await screenOf(made.i1, 6, 100), await screenOf(made.i2, 6, 100),
+      await screenOf(made.rows[0], 100, 12), await screenOf(made.rows[1], 100, 12)];
+    return pixelsAt(pts);
+  };
+  let [lf, df, lc, dc, la, da] = await sample();
+  check("Light frame: white surface, light card", near(lf, [255, 255, 255, 255], 6) && near(lc, [240, 240, 240, 255], 8), `${lf} / ${lc}`);
+  check("Dark frame: dark surface, dark card", near(df, [31, 31, 31, 255], 8) && near(dc, [51, 51, 56, 255], 8), `${df} / ${dc}`);
+  check("the style's composed colour: the accent alias at 100 % / 40 %", near(la, [13, 153, 255, 255], 12) && near(da, [28, 77, 113, 255], 30),
+    `${la} / ${da}`);
+  files.push(await shot("50-variables-modes"));
+  // The Light frame switches to Dark; a primitive's value edit reaches both accents through the alias chain.
+  const after = await engine((m) => {
+    const e = window.__designerEngine;
+    e.command("SET_VARIABLE_MODE", { refs: ["70:1"], collection: m.set, mode: m.dark });
+    e.command("SET_VARIABLE_VALUE", { variable: m.blue, mode: m.base, value: { r: 1, g: 0.3, b: 0.1, a: 1 } });
+    return { title: e.readNode(`I${m.i1};70:11`)?.textData?.characters };
+  }, made);
+  await settle();
+  [lf, df, lc, dc, la, da] = await sample();
+  check("a mode switch redraws the Light frame dark", near(lf, [31, 31, 31, 255], 8) && near(lc, [51, 51, 56, 255], 8) && after.title === "Dark mode",
+    `${lf} / ${lc} / ${after.title}`);
+  check("a primitive's edit reaches both accents (alias chain, style, instances)", la && la[0] > 80 && la[2] < 80 && da && da[0] > 80 && da[2] < 80,
+    `${la} / ${da}`);
+  files.push(await shot("51-mode-switch"));
+  // Undo puts the Light frame back.
+  await engine(() => {
+    window.__designerEngine.undo();
+    window.__designerEngine.undo();
+  });
+  await settle();
+  [lf] = await sample();
+  check("undo restores the Light frame", near(lf, [255, 255, 255, 255], 6), `${lf}`);
+}
+
 try {
   await page.goto(url);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
   await settle();
-  if (only === "e4" || only === "e6") {
+  if (only === "e4" || only === "e6" || only === "vars") {
     const files = [];
     if (only === "e4") await e4Checks(files);
-    else await e6Checks(files);
+    else if (only === "e6") await e6Checks(files);
+    else await variablesChecks(files);
     console.log(results.join("\n"));
     console.log(`\nscreenshots:\n${files.join("\n")}`);
     if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);
@@ -617,6 +730,7 @@ try {
   await e4Checks(files);
   // E6.
   await e6Checks(files);
+  await variablesChecks(files);
 
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);

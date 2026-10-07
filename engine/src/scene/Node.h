@@ -201,6 +201,127 @@ struct ColorStop {
   bool operator==(const ColorStop& o) const { return color == o.color && position == o.position; }
 };
 
+// ---- Variables (docs/schema.md §6) ----
+
+enum class VariableDataType : uint8_t {
+  BOOLEAN = 0, FLOAT = 1, STRING = 2, ALIAS = 3, COLOR = 4, EXPRESSION = 5, SYMBOL_ID = 7, FONT_STYLE = 8, TEXT_DATA = 9,
+  PROP_REF = 13, EASING = 22, TIMING = 23
+};
+enum class VariableResolvedType : uint8_t {
+  BOOLEAN = 0, FLOAT = 1, STRING = 2, COLOR = 4, SYMBOL_ID = 6, FONT_STYLE = 7, TEXT_DATA = 8, SLOT_CONTENT_ID = 12, EASING = 15,
+  TIMING = 16
+};
+enum class ExpressionFunction : uint8_t {
+  ADDITION = 0, SUBTRACTION = 1, RESOLVE_VARIANT = 2, MULTIPLY = 3, DIVIDE = 4, EQUALS = 5, NOT_EQUAL = 6, LESS_THAN = 7,
+  LESS_THAN_OR_EQUAL = 8, GREATER_THAN = 9, GREATER_THAN_OR_EQUAL = 10, AND = 11, OR = 12, NOT = 13, STRINGIFY = 14, TERNARY = 15,
+  VAR_MODE_LOOKUP = 16, NEGATE = 17, IS_TRUTHY = 18, COMPOSE_COLOR = 20
+};
+enum class VariableScope : uint8_t {
+  ALL_SCOPES = 0, TEXT_CONTENT = 1, CORNER_RADIUS = 2, WIDTH_HEIGHT = 3, GAP = 4, ALL_FILLS = 5, FRAME_FILL = 6, SHAPE_FILL = 7,
+  TEXT_FILL = 8, STROKE = 9, STROKE_FLOAT = 10, EFFECT_FLOAT = 11, EFFECT_COLOR = 12, OPACITY = 13, FONT_STYLE = 14, FONT_FAMILY = 15,
+  FONT_SIZE = 16, LINE_HEIGHT = 17, LETTER_SPACING = 18, PARAGRAPH_SPACING = 19, PARAGRAPH_INDENT = 20, FONT_VARIATIONS = 21,
+  TRANSFORM = 22, COLOR_OPACITY = 23
+};
+enum class CodeSyntaxPlatform : uint8_t { WEB = 0, ANDROID = 1, iOS = 2 };
+// schema StyleType: FILL = "Color style", GRID = "Layout guide style".
+enum class StyleType : uint8_t { NONE = 0, FILL = 1, TEXT = 3, EFFECT = 4, GRID = 6 };
+
+#define ENG_ENUM_NAMES(E, ...)                                        \
+  template <>                                                         \
+  struct EnumNames<E> {                                               \
+    static constexpr const char* names[] = {__VA_ARGS__};             \
+    static constexpr size_t count = sizeof(names) / sizeof(names[0]); \
+  };
+ENG_ENUM_NAMES(VariableDataType, "BOOLEAN", "FLOAT", "STRING", "ALIAS", "COLOR", "EXPRESSION", "", "SYMBOL_ID", "FONT_STYLE",
+               "TEXT_DATA", "", "", "", "PROP_REF", "", "", "", "", "", "", "", "", "EASING", "TIMING")
+ENG_ENUM_NAMES(VariableResolvedType, "BOOLEAN", "FLOAT", "STRING", "", "COLOR", "", "SYMBOL_ID", "FONT_STYLE", "TEXT_DATA", "", "",
+               "", "SLOT_CONTENT_ID", "", "", "EASING", "TIMING")
+ENG_ENUM_NAMES(ExpressionFunction, "ADDITION", "SUBTRACTION", "RESOLVE_VARIANT", "MULTIPLY", "DIVIDE", "EQUALS", "NOT_EQUAL",
+               "LESS_THAN", "LESS_THAN_OR_EQUAL", "GREATER_THAN", "GREATER_THAN_OR_EQUAL", "AND", "OR", "NOT", "STRINGIFY", "TERNARY",
+               "VAR_MODE_LOOKUP", "NEGATE", "IS_TRUTHY", "", "COMPOSE_COLOR")
+ENG_ENUM_NAMES(VariableScope, "ALL_SCOPES", "TEXT_CONTENT", "CORNER_RADIUS", "WIDTH_HEIGHT", "GAP", "ALL_FILLS", "FRAME_FILL",
+               "SHAPE_FILL", "TEXT_FILL", "STROKE", "STROKE_FLOAT", "EFFECT_FLOAT", "EFFECT_COLOR", "OPACITY", "FONT_STYLE",
+               "FONT_FAMILY", "FONT_SIZE", "LINE_HEIGHT", "LETTER_SPACING", "PARAGRAPH_SPACING", "PARAGRAPH_INDENT",
+               "FONT_VARIATIONS", "TRANSFORM", "COLOR_OPACITY")
+ENG_ENUM_NAMES(CodeSyntaxPlatform, "WEB", "ANDROID", "iOS")
+ENG_ENUM_NAMES(StyleType, "NONE", "FILL", "", "TEXT", "EFFECT", "", "GRID")
+#undef ENG_ENUM_NAMES
+
+// A reference to an asset (schema VariableID / VariableSetID / StyleId): DesignerV2 writes the GUID; an imported
+// .fig may reference a library asset by its key (assetRef), which resolves to the local copy with that key.
+struct AssetId {
+  Guid guid = kNoGuid;
+  std::string key, version;  // assetRef
+  bool present() const { return guid != kNoGuid || !key.empty(); }
+  bool operator==(const AssetId& o) const { return guid == o.guid && key == o.key && version == o.version; }
+  static AssetId of(Guid g) {
+    AssetId a;
+    a.guid = g;
+    return a;
+  }
+};
+
+// schema VariableData: a value (literal, alias, expression, font style, property reference) with its types.
+struct VariableData {
+  // Which VariableAnyValue member is set. OTHER: a VariableData the engine doesn't model (kept whole in `extra`).
+  enum class Kind : uint8_t { NONE, BOOL, TEXT, FLOAT, ALIAS, COLOR, EXPRESSION, FONT_STYLE, PROP_REF, OTHER };
+  Kind kind = Kind::NONE;
+  bool hasDataType = false, hasResolvedType = false;
+  VariableDataType dataType = VariableDataType::BOOLEAN;
+  VariableResolvedType resolvedDataType = VariableResolvedType::BOOLEAN;
+  bool boolValue = false;
+  double floatValue = 0;
+  std::string textValue;
+  Color colorValue;
+  AssetId alias;
+  Guid propRef = kNoGuid;
+  ExpressionFunction function = ExpressionFunction::ADDITION;
+  // EXPRESSION: its arguments. FONT_STYLE: asString, asFloat, asVariations (an absent one has kind NONE).
+  std::vector<VariableData> args;
+  std::string valueExtra;  // other VariableAnyValue members (symbolIdValue, textDataValue, easingValue…), encoded
+  std::string extra;       // other members, encoded; OTHER: the whole VariableData, encoded
+  bool present() const { return kind != Kind::NONE || hasDataType || !extra.empty() || !valueExtra.empty(); }
+  bool operator==(const VariableData& o) const {
+    return kind == o.kind && hasDataType == o.hasDataType && hasResolvedType == o.hasResolvedType && dataType == o.dataType &&
+           resolvedDataType == o.resolvedDataType && boolValue == o.boolValue && floatValue == o.floatValue &&
+           textValue == o.textValue && colorValue == o.colorValue && alias == o.alias && propRef == o.propRef &&
+           function == o.function && args == o.args && valueExtra == o.valueExtra && extra == o.extra;
+  }
+  // Constructors for literal values and aliases (dataType / resolvedDataType set as Figma writes them).
+  static VariableData boolean(bool v);
+  static VariableData number(double v);
+  static VariableData string(std::string v);
+  static VariableData color(Color c);
+  static VariableData aliasOf(Guid variable, VariableResolvedType resolved);
+  // "Control opacity at scale": a COLOR from a colour (literal or alias) and an opacity in % (literal or alias).
+  static VariableData composeColor(VariableData color, VariableData opacity);
+};
+
+// One column of a collection (schema VariableSetMode).
+struct VariableSetMode {
+  Guid id = kNoGuid;
+  std::string name;
+  std::string sortPosition;
+  bool operator==(const VariableSetMode& o) const { return id == o.id && name == o.name && sortPosition == o.sortPosition; }
+};
+// A variable's value in one mode (schema VariableDataValuesEntry).
+struct VariableModeValue {
+  Guid modeID = kNoGuid;
+  VariableData data;
+  bool operator==(const VariableModeValue& o) const { return modeID == o.modeID && data == o.data; }
+};
+// An explicit mode of a node ("Apply variable mode"; schema VariableModeBySetMapEntry).
+struct VariableModeEntry {
+  AssetId set;
+  Guid mode = kNoGuid;
+  bool operator==(const VariableModeEntry& o) const { return set == o.set && mode == o.mode; }
+};
+struct CodeSyntaxEntry {
+  CodeSyntaxPlatform platform = CodeSyntaxPlatform::WEB;
+  std::string value;
+  bool operator==(const CodeSyntaxEntry& o) const { return platform == o.platform && value == o.value; }
+};
+
 // Image adjustments (schema PaintFilterMessage), each −1…1, 0 = unchanged.
 struct PaintFilter {
   float tint = 0, shadows = 0, highlights = 0, detail = 0, exposure = 0, vignette = 0, temperature = 0, vibrance = 0,
@@ -226,6 +347,13 @@ struct ImageHash {
 // other member (colorVar, stopsVar, imageThumbnail, thumbHash, …) is kept
 // encoded in `extra` ("key":value,…) so it round-trips.
 struct Paint {
+  Paint();
+  Paint(const Paint&);
+  Paint(Paint&&) noexcept;
+  Paint& operator=(const Paint&);
+  Paint& operator=(Paint&&) noexcept;
+  ~Paint();
+
   PaintType type = PaintType::SOLID;
   Color color;
   float opacity = 1;
@@ -240,14 +368,25 @@ struct Paint {
   float scale = 1;     // TILE
   PaintFilter paintFilter;
   uint32_t originalImageWidth = 0, originalImageHeight = 0;
+  // Variable bindings (docs/schema.md §6.3): `color` (an alias or a composed colour), `opacity` (a FLOAT, in %), and
+  // each gradient stop's colour (schema stopsVar, index-aligned with `stops`; an unbound stop has kind NONE).
+  VariableData colorVar, opacityVar;
+  std::vector<VariableData> stopVars;
   std::string extra;  // other members, encoded; OTHER: the whole paint, encoded
   bool operator==(const Paint& o) const {
     return type == o.type && color == o.color && opacity == o.opacity && visible == o.visible && blendMode == o.blendMode &&
            stops == o.stops && transform == o.transform && image == o.image && imageName == o.imageName &&
            imageScaleMode == o.imageScaleMode && rotation == o.rotation && scale == o.scale && paintFilter == o.paintFilter &&
-           originalImageWidth == o.originalImageWidth && originalImageHeight == o.originalImageHeight && extra == o.extra;
+           originalImageWidth == o.originalImageWidth && originalImageHeight == o.originalImageHeight && colorVar == o.colorVar &&
+           opacityVar == o.opacityVar && stopVars == o.stopVars && extra == o.extra;
   }
   bool isGradient() const { return type >= PaintType::GRADIENT_LINEAR && type <= PaintType::GRADIENT_DIAMOND; }
+  bool hasVariables() const {
+    if (colorVar.present() || opacityVar.present()) return true;
+    for (auto& v : stopVars)
+      if (v.present()) return true;
+    return false;
+  }
   static Paint solid(Color c, float opacity = 1) {
     Paint p;
     p.color = c;
@@ -266,12 +405,18 @@ struct Effect {
   BlendMode blendMode = BlendMode::NORMAL;
   double spread = 0;
   bool showShadowBehindNode = false;
+  VariableData radiusVar, colorVar, spreadVar, xVar, yVar;  // variable bindings
   std::string extra;
   bool operator==(const Effect& o) const {
     return type == o.type && color == o.color && offset == o.offset && radius == o.radius && visible == o.visible &&
-           blendMode == o.blendMode && spread == o.spread && showShadowBehindNode == o.showShadowBehindNode && extra == o.extra;
+           blendMode == o.blendMode && spread == o.spread && showShadowBehindNode == o.showShadowBehindNode &&
+           radiusVar == o.radiusVar && colorVar == o.colorVar && spreadVar == o.spreadVar && xVar == o.xVar && yVar == o.yVar &&
+           extra == o.extra;
   }
   bool isShadow() const { return type == EffectType::DROP_SHADOW || type == EffectType::INNER_SHADOW; }
+  bool hasVariables() const {
+    return radiusVar.present() || colorVar.present() || spreadVar.present() || xVar.present() || yVar.present();
+  }
 };
 
 // A layout guide on a frame (schema LayoutGrid): columns (X), rows (Y) or a square grid.
@@ -283,10 +428,16 @@ struct LayoutGrid {
   double offset = 0, sectionSize = 0, gutterSize = 0;
   Color color{1, 0, 0, 0.1f};
   LayoutGridPattern pattern = LayoutGridPattern::STRIPES;
+  VariableData numSectionsVar, offsetVar, sectionSizeVar, gutterSizeVar;  // variable bindings
   std::string extra;
   bool operator==(const LayoutGrid& o) const {
     return type == o.type && axis == o.axis && visible == o.visible && numSections == o.numSections && offset == o.offset &&
-           sectionSize == o.sectionSize && gutterSize == o.gutterSize && color == o.color && pattern == o.pattern && extra == o.extra;
+           sectionSize == o.sectionSize && gutterSize == o.gutterSize && color == o.color && pattern == o.pattern &&
+           numSectionsVar == o.numSectionsVar && offsetVar == o.offsetVar && sectionSizeVar == o.sectionSizeVar &&
+           gutterSizeVar == o.gutterSizeVar && extra == o.extra;
+  }
+  bool hasVariables() const {
+    return numSectionsVar.present() || offsetVar.present() || sectionSizeVar.present() || gutterSizeVar.present();
   }
 };
 
@@ -431,13 +582,21 @@ struct ComponentPropAssignment {
   bool operator==(const ComponentPropAssignment& o) const { return defID == o.defID && value == o.value && extra == o.extra; }
 };
 // One parameterConsumptionMap entry: a field bound to a component property (PROP_REF, `propRef`) or to a
-// variable (kept encoded in `variableData` until the variables round).
+// variable (`data`: an alias, a composed colour, a font style).
 struct ParamBinding {
   VariableField field = VariableField::MISSING;
-  Guid propRef = kNoGuid;    // PROP_REF: the ComponentPropDef id
-  std::string variableData;  // anything else: the whole VariableData, encoded
-  bool operator==(const ParamBinding& o) const { return field == o.field && propRef == o.propRef && variableData == o.variableData; }
+  Guid propRef = kNoGuid;  // PROP_REF: the ComponentPropDef id
+  VariableData data;       // anything else
+  bool isVariable() const { return propRef == kNoGuid && data.present(); }
+  // In an override entry only: the field's binding is removed there (an instance detached it).
+  bool isUnbind() const { return propRef == kNoGuid && !data.present(); }
+  bool operator==(const ParamBinding& o) const { return field == o.field && propRef == o.propRef && data == o.data; }
 };
+// Override entries hold parameterConsumptionMap sparsely, per field (as Figma's files do): `over`'s entries replace
+// `base`'s for their field, and an unbind entry removes it.
+void mergeParams(std::vector<ParamBinding>& base, const std::vector<ParamBinding>& over);
+// The sparse entries that turn `before` into `after` (changed or new fields, unbind entries for removed ones).
+std::vector<ParamBinding> paramDiff(const std::vector<ParamBinding>& before, const std::vector<ParamBinding>& after);
 struct VariantPropSpec {
   Guid propDefId = kNoGuid;
   std::string value;
@@ -566,13 +725,40 @@ enum Field : FieldMask {
   F_DETACHED_SYMBOL_ID = ENG_FIELD_BIT(86),
   F_IS_SOFT_DELETED = ENG_FIELD_BIT(87),
   F_ANCESTOR_PATH = ENG_FIELD_BIT(88),  // ancestorPathBeforeDeletion
-  F_ALL = ENG_FIELD_BIT(89) - 1,
+  // Variables, modes, styles, assets (docs/schema.md §6, §8.1).
+  F_VARIABLE_MODES = ENG_FIELD_BIT(89),      // variableModeBySetMap
+  F_STYLE_ID_FILL = ENG_FIELD_BIT(90),       // styleIdForFill
+  F_STYLE_ID_STROKE = ENG_FIELD_BIT(91),     // styleIdForStrokeFill
+  F_STYLE_ID_TEXT = ENG_FIELD_BIT(92),       // styleIdForText
+  F_STYLE_ID_EFFECT = ENG_FIELD_BIT(93),     // styleIdForEffect
+  F_STYLE_ID_GRID = ENG_FIELD_BIT(94),       // styleIdForGrid
+  F_STYLE_TYPE = ENG_FIELD_BIT(95),
+  F_SORT_POSITION = ENG_FIELD_BIT(96),
+  F_DESCRIPTION = ENG_FIELD_BIT(97),
+  F_KEY = ENG_FIELD_BIT(98),
+  F_IS_PUBLISHABLE = ENG_FIELD_BIT(99),
+  F_VARIABLE_SET_MODES = ENG_FIELD_BIT(100),
+  F_VARIABLE_SET_ID = ENG_FIELD_BIT(101),
+  F_VARIABLE_RESOLVED_TYPE = ENG_FIELD_BIT(102),
+  F_VARIABLE_DATA_VALUES = ENG_FIELD_BIT(103),
+  F_VARIABLE_SCOPES = ENG_FIELD_BIT(104),
+  F_CODE_SYNTAX = ENG_FIELD_BIT(105),
+  F_ALL = ENG_FIELD_BIT(106) - 1,
 };
 
 inline constexpr FieldMask kComponentFields = F_OVERRIDE_KEY | F_SYMBOL_DATA | F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_DEFS |
                                               F_COMPONENT_PROP_ASSIGNMENTS | F_PARAM_MAP | F_IS_STATE_GROUP | F_VARIANT_PROP_SPECS |
                                               F_STATE_GROUP_ORDERS | F_PROPS_ARE_BUBBLED | F_IS_SLOT | F_IS_SLOT_CONTENT |
                                               F_DETACHED_SYMBOL_ID | F_IS_SOFT_DELETED | F_ANCESTOR_PATH;
+// The style references of a consumer.
+inline constexpr FieldMask kStyleIdFields = F_STYLE_ID_FILL | F_STYLE_ID_STROKE | F_STYLE_ID_TEXT | F_STYLE_ID_EFFECT | F_STYLE_ID_GRID;
+// An asset's own fields (styles, collections, variables; components' description / key): never an instance's.
+inline constexpr FieldMask kAssetFields = F_STYLE_TYPE | F_SORT_POSITION | F_DESCRIPTION | F_KEY | F_IS_PUBLISHABLE |
+                                          F_VARIABLE_SET_MODES | F_VARIABLE_SET_ID | F_VARIABLE_RESOLVED_TYPE |
+                                          F_VARIABLE_DATA_VALUES | F_VARIABLE_SCOPES | F_CODE_SYNTAX;
+// Fields whose change means a node's bindings (variables, styles, modes) must be resolved again.
+inline constexpr FieldMask kBindingInputFields = F_PARAM_MAP | F_FILLS | F_STROKES | F_EFFECTS | F_LAYOUT_GRIDS | F_TEXT_DATA |
+                                                 kStyleIdFields | F_VARIABLE_MODES | F_TYPE;
 
 // Fields that feed auto layout (a write marks the layout dirty).
 inline constexpr FieldMask kStackContainerFields = F_STACK_MODE | F_STACK_SPACING | F_STACK_PADDING_LEFT | F_STACK_PADDING_TOP |
@@ -621,6 +807,15 @@ using CornerRadii = std::array<double, 4>;
 // transform = identity, stackPrimarySizing = Hug, stackChildAlignSelf = AUTO.
 // Tools write Figma's per-tool defaults explicitly (defaultProps).
 struct NodeProps {
+  // Out of line (Node.cpp): a NodeProps is large, and inlining its members' construction and destruction at every
+  // NodeChange made the Wasm grow by hundreds of KB.
+  NodeProps();
+  NodeProps(const NodeProps&);
+  NodeProps(NodeProps&&) noexcept;
+  NodeProps& operator=(const NodeProps&);
+  NodeProps& operator=(NodeProps&&) noexcept;
+  ~NodeProps();
+
   NodeType type = NodeType::NONE;
   std::string name;
   bool visible = true;
@@ -715,8 +910,22 @@ struct NodeProps {
   bool isSlot = false;                 // FRAME inside a component: a slot
   bool isSlotContent = false;          // FRAME under an instance: its slot content
   Guid detachedSymbolId = kNoGuid;     // a frame detached from this main
-  bool isSoftDeleted = false;          // a deleted main kept for its instances (on the internal canvas)
+  bool isSoftDeleted = false;          // a deleted main / variable kept for what uses it (on the internal canvas)
   std::vector<Guid> ancestorPathBeforeDeletion;
+  // Variables, modes and styles (docs/schema.md §6).
+  std::vector<VariableModeEntry> variableModeBySetMap;  // explicit modes; no entry for a collection = Auto
+  AssetId styleIdForFill, styleIdForStrokeFill, styleIdForText, styleIdForEffect, styleIdForGrid;
+  StyleType styleType = StyleType::NONE;  // a style node (under the internal canvas)
+  std::string sortPosition;               // styles, collections, variables: their order in the panels
+  std::string description;
+  std::string key;                        // assets: the stable 40-hex key
+  bool isPublishable = true;              // false = "Hide when publishing"
+  std::vector<VariableSetMode> variableSetModes;       // VARIABLE_SET
+  AssetId variableSetID;                               // VARIABLE: its collection
+  VariableResolvedType variableResolvedType = VariableResolvedType::BOOLEAN;
+  std::vector<VariableModeValue> variableDataValues;   // VARIABLE: one value per mode
+  std::optional<std::vector<VariableScope>> variableScopes;  // absent = [ALL_SCOPES]; empty = no picker
+  std::vector<CodeSyntaxEntry> codeSyntax;
   // The fields the engine doesn't model (vectorData, blendMode, effects…): name →
   // encoded JSON value. A CHANGED change's `extra` merges into the node's (an
   // empty value removes that field); CREATED replaces it.
@@ -750,6 +959,19 @@ struct NodeProps {
   bool isComponentish() const { return type == NodeType::SYMBOL || type == NodeType::INSTANCE || isComponentSet(); }
   // The stable key of a node inside a component (docs/schema.md §5.1).
   Guid keyOf(Guid guid) const { return overrideKey != kNoGuid ? overrideKey : guid; }
+  bool isStyle() const { return styleType != StyleType::NONE; }
+  // Whether anything on the node is bound to a variable or a style (what the resolver looks at).
+  bool hasBindings() const;
+  // The explicit mode for a collection (kNoGuid: Auto).
+  Guid explicitMode(Guid set, const std::string& setKey = {}) const {
+    for (auto& e : variableModeBySetMap)
+      if ((set != kNoGuid && e.set.guid == set) || (!setKey.empty() && e.set.key == setKey)) return e.mode;
+    return kNoGuid;
+  }
+  // VARIABLE_SET: its default mode (the first by sortPosition), kNoGuid when it has none.
+  Guid defaultMode() const;
+  // VARIABLE_SET: its modes in order (the default first).
+  std::vector<VariableSetMode> orderedModes() const;
 };
 
 // One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root).

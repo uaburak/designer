@@ -27,6 +27,11 @@ import { useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
 import { StrokeRows, StrokeSettingsButton } from "./Stroke";
 import { isFrameNode, type PanelNode } from "./shared";
+import { BoundPaintRow, paintScope } from "./Variables";
+import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
+import { VariableList } from "../variables/VariablePicker";
+import { paintVariable } from "../../model/variables";
+import { applyStyle, bindPaint } from "../../variables";
 import styles from "./Design.module.css";
 
 type PaintField = "fillPaints" | "strokePaints";
@@ -91,33 +96,42 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
   };
   const empty = !isMixed(shared) && paints.length === 0;
   const stroked = field === "strokePaints" && (isMixed(shared) || paints.length > 0);
+  const slot = field === "fillPaints" ? "fill" : "stroke";
+  const styled = sharedStyle(nodes, slot);
+  const hasStyle = !!styled && styled !== "mixed";
   return (
     <PanelSection
       title={title}
       empty={empty}
       actions={
         <>
-          {!empty && <IconButton icon="24.styles" label={`${label} styles`} tone="secondary" disabled />}
+          {!empty && <StylesButton nodes={nodes} slot={slot} />}
           {stroked && <StrokeSettingsButton nodes={nodes} />}
-          <IconButton icon="24.plus.small" label={`Add ${word}`} tone="secondary" onClick={add} />
+          {!hasStyle && <IconButton icon="24.plus.small" label={`Add ${word}`} tone="secondary" onClick={add} />}
         </>
       }
     >
-      {isMixed(shared) && <div className={styles.note}>Click + to replace mixed {word}s</div>}
+      {hasStyle && <AppliedStyle nodes={nodes} slot={slot} />}
+      {!hasStyle && isMixed(shared) && <div className={styles.note}>Click + to replace mixed {word}s</div>}
       {/* Top paint first: the list's last entry is drawn on top */}
-      {paints
+      {!hasStyle &&
+        paints
         .map((p, i) => ({ p, i }))
         .reverse()
         .map(({ p, i }) => (
           <div key={i} className={styles.paintRow} data-paint-row={p.type}>
-            <PaintRow
-              className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
-              paint={p}
-              label={label}
-              onColor={(hex, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1) } : q)), `${label} colour`, info)}
-              onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
-              onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
-            />
+            {paintVariable(p) ? (
+              <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
+            ) : (
+              <PaintRow
+                className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
+                paint={p}
+                label={label}
+                onColor={(hex, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1) } : q)), `${label} colour`, info)}
+                onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
+                onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
+              />
+            )}
             <IconButton
               icon={p.visible === false ? "24.hidden.small" : "24.eye.small"}
               label={p.visible === false ? `Show ${word}` : `Hide ${word}`}
@@ -267,9 +281,24 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   if (!paints || !paint || !field) return null;
   const write = (next: FullPaint, info: ChangeInfo, label: string) => writePaints(ed, refs, field, paints.map((q, j) => (j === index ? next : q)), label, info);
   const label = field === "fillPaints" ? "Fill" : "Stroke";
+  const slot = field === "fillPaints" ? "fill" : "stroke";
   return (
     <ColorPicker
       value={toPicker(paint)}
+      initialTab={paintVariable(paint) ? "libraries" : "custom"}
+      libraries={
+        <VariableList
+          types={["COLOR"]}
+          scope={paintScope(nodes, field)}
+          current={paintVariable(paint)}
+          consumer={refs[0] ?? null}
+          styleKind="FILL"
+          onPick={(v) => bindPaint(ed, refs, field, index, v.id)}
+          onPickStyle={(st) => applyStyle(ed, refs, slot, st.id)}
+          label="Libraries"
+          onDone={onClose}
+        />
+      }
       documentColors={documentColors}
       anchor={target.anchor}
       colorModel={model}

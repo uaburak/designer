@@ -20,6 +20,8 @@ import { exitToCanvas } from "./Sections";
 import { SETTINGS_WIDTH } from "./Sizing";
 import { fields, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
+import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
+import { VariableField } from "./Variables";
 
 /** Figma's text defaults (schema/document.kiwi @default). */
 export const TEXT_DEFAULTS = {
@@ -33,7 +35,7 @@ export const TEXT_DEFAULTS = {
 export const FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 20, 24, 32, 36, 40, 48, 64, 96, 128];
 
 /** The styles offered until the fonts process lists a family's own (Inter's). */
-const FALLBACK_STYLES = ["Thin", "Extra Light", "Light", "Regular", "Medium", "Semi Bold", "Bold", "Extra Bold", "Black"];
+export const FALLBACK_STYLES = ["Thin", "Extra Light", "Light", "Regular", "Medium", "Semi Bold", "Bold", "Extra Bold", "Black"];
 
 /** The families the picker lists (the fonts utility process fills this with E3; until then the file's own and Inter). */
 export function fontFamilies(nodes: readonly PanelNode[]): string[] {
@@ -59,6 +61,9 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const alignKept = useSupports("textAlignHorizontal");
   const valignKept = useSupports("textAlignVertical");
   const [details, setDetails] = useState<HTMLElement | null>(null);
+  const [sizePicker, setSizePicker] = useState<HTMLElement | null>(null);
+  const styled = sharedStyle(nodes, "text");
+  const hasStyle = !!styled && styled !== "mixed";
   const refs = nodes.map((n) => n.guid);
   const write = (label: string, f: ExtraFields, info?: ChangeInfo) => (info ? ed.edit(label, info, () => void ed.engine.setProps(refs, fields(f))) : ed.setProps(refs, fields(f), label));
 
@@ -74,7 +79,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const align = mixed(nodes.map((n) => n.textAlignHorizontal ?? "LEFT"));
   const valign = mixed(nodes.map((n) => n.textAlignVertical ?? "TOP"));
   const families = fontFamilies(nodes);
-  const sizeEntries: MenuEntry[] = FONT_SIZES.map((s) => ({ id: String(s), label: String(s), checked: size === s }));
+  const sizeEntries: MenuEntry[] = [...FONT_SIZES.map((s) => ({ id: String(s), label: String(s), checked: size === s })), "-", { id: "apply-variable", label: "Apply variable…" }];
 
   return (
     <PanelSection
@@ -82,11 +87,14 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
       actions={
         <>
           {nodes.length === 1 && <BindButton layer={nodes[0]} field="TEXT_DATA" type="TEXT" />}
-          <IconButton icon="24.styles" label="Text styles" tone="secondary" disabled />
+          <StylesButton nodes={nodes} slot="text" />
         </>
       }
     >
+      {hasStyle && <AppliedStyle nodes={nodes} slot="text" />}
       <PropertyGrid labels={labels}>
+        {!hasStyle && (
+          <>
         <PropertyRow span={2} label="Font family">
           <Select
             label="Font family"
@@ -104,6 +112,8 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             options={[...new Set([...(isMixed(style) ? [] : [style]), ...FALLBACK_STYLES])].map((s) => ({ value: s, label: s }))}
             onChange={(s) => write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } })}
           />
+          <span data-font-size="" style={{ display: "contents" }}>
+          <VariableField nodes={nodes} fields={["FONT_SIZE"]} prefix="24.text.font-size" button={false} open={sizePicker} onOpenChange={setSizePicker}>
           <NumericInput
             label="Font size"
             value={fieldValue(size)}
@@ -116,14 +126,22 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onExit={exitToCanvas(ed)}
             suffix={
               kept ? (
-                <MenuButton label="Font sizes" entries={sizeEntries} onSelect={(id) => write("Font size", { fontSize: Number(id) })} className={styles.sizeMenu}>
+                <MenuButton
+                  label="Font sizes"
+                  entries={sizeEntries}
+                  onSelect={(id) => (id === "apply-variable" ? setSizePicker(document.querySelector<HTMLElement>('[data-font-size] [data-bind-field]')) : write("Font size", { fontSize: Number(id) }))}
+                  className={styles.sizeMenu}
+                >
                   <Icon name="16.chevron.down" />
                 </MenuButton>
               ) : undefined
             }
           />
+          </VariableField>
+          </span>
         </PropertyRow>
         <PropertyRow label="Line height and letter spacing">
+          <VariableField nodes={nodes} fields={["LINE_HEIGHT"]} prefix="24.text.line-height" disabled={!lhKept}>
           <NumericInput
             label="Line height"
             prefix="24.text.line-height"
@@ -138,6 +156,8 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onCancel={() => ed.cancelEdit()}
             onExit={exitToCanvas(ed)}
           />
+          </VariableField>
+          <VariableField nodes={nodes} fields={["LETTER_SPACING"]} prefix="24.text.letter-spacing" disabled={!lsKept}>
           <NumericInput
             label="Letter spacing"
             prefix="24.text.letter-spacing"
@@ -148,7 +168,10 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onCancel={() => ed.cancelEdit()}
             onExit={exitToCanvas(ed)}
           />
+          </VariableField>
         </PropertyRow>
+          </>
+        )}
         <PropertyRow
           label="Alignment"
           action={<IconButton icon="24.adjust.small" label="Type settings" tone="secondary" aria-expanded={!!details} onClick={(e) => setDetails(details ? null : e.currentTarget)} />}

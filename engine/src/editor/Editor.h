@@ -231,12 +231,15 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<ContextMenu> contextMenus;
     std::vector<std::pair<Guid, uint32_t>> nodes;  // NODES_CHANGED: node, field groups (merged)
     std::vector<Guid> components;                  // COMPONENTS_CHANGED: instances re-derived, the mains they come from
+    std::vector<Guid> collections, variables;      // VARIABLES_CHANGED
+    std::vector<Guid> styles;                      // STYLES_CHANGED: styles changed, or their usage
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
-      return !documents.empty() || !contextMenus.empty() || !nodes.empty() || !components.empty() || selection || camera || tool ||
-             cursor || hover || undo || structure || pages || currentPage || textEdit || vectorEdit || paintEdit || navigation;
+      return !documents.empty() || !contextMenus.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
+             currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
   };
   bool hasEvents() const { return events_.any(); }
@@ -322,10 +325,81 @@ class Editor : private LayoutHost, public TextLayouts {
   // The real main component (SYMBOL) an instance (real or derived) shows now; kNoGuid when it has none.
   Guid mainOf(Guid instance) const;
 
+  // ---- Variables, modes and styles (editor/Variables.cpp, editor/VariableCommands.cpp; docs/schema.md §6) ----
+  // A resolved variable value.
+  struct Resolved {
+    enum class Kind : uint8_t { NONE, BOOL, FLOAT, STRING, COLOR, OTHER };
+    Kind kind = Kind::NONE;
+    bool b = false;
+    double f = 0;
+    std::string s;
+    Color c;
+    std::string raw;  // OTHER (EASING…): the literal VariableData, encoded
+  };
+  // Figma's resolveForConsumer: `variable`'s value for `consumer` (kNoGuid: every collection's default mode).
+  bool resolveVariable(Guid variable, Guid consumer, Resolved& out) const;
+  // `variable`'s value in `mode` of its own collection (aliases into other collections: their default modes).
+  bool resolveVariableInMode(Guid variable, Guid mode, Resolved& out) const;
+  // The mode of collection `set` that a node (or page) uses: its explicit one, else an ancestor's, else the default.
+  Guid resolvedMode(Guid node, Guid set) const;
+  // Assets by reference: a GUID, or a library key (imported files).
+  Guid findVariable(const AssetId& id) const;
+  Guid findCollection(const AssetId& id) const;
+  Guid findStyle(const AssetId& id) const;
+  // Live collections in the panel's order; a collection's variables in order; styles of a type (NONE: all) in order.
+  std::vector<Guid> collections() const;
+  std::vector<Guid> variablesOf(Guid collection, bool includeDeleted = false) const;
+  std::vector<Guid> stylesOf(StyleType type) const;
+  // How many layers use a style.
+  uint32_t styleUsage(Guid style) const;
+  struct BoundVariable {
+    std::string target;     // BindingTarget (docs/engine-build.md)
+    Guid variable = kNoGuid;  // the alias (a composed colour: its colour's alias)
+    VariableData value;
+    Resolved resolved;
+    bool ok = false;        // resolved
+  };
+  std::vector<BoundVariable> boundVariables(Guid node) const;
+  bool resolvedValue(Guid node, const std::string& target, Resolved& out) const;
+  // What the last command created (variables, collections, modes, styles).
+  const std::vector<Guid>& lastCreated() const { return created_; }
+
   // Whether a gesture is in progress (undo and txn calls are refused meanwhile).
   bool busy() const { return gesture_ != Gesture::None && gesture_ != Gesture::Press; }
 
  private:
+  // ---- Variables and styles: resolution (editor/Variables.cpp) ----
+  struct BindingDeps {
+    std::vector<Guid> vars, sets, styles;
+  };
+  // Where modes come from: the consumer and its ancestors; `self`: the consumer's props when the document's copy
+  // is stale (rows being built); `forcedSet` / `forcedMode`: one collection's mode chosen (the table's columns).
+  struct ModeContext {
+    Guid consumer = kNoGuid;
+    const NodeProps* self = nullptr;
+    Guid forcedSet = kNoGuid, forcedMode = kNoGuid;
+  };
+  Guid modeFor(const ModeContext& ctx, Guid set) const;
+  bool resolveData(const VariableData& d, const ModeContext& ctx, Resolved& out, BindingDeps* deps, int depth) const;
+  bool resolveVar(Guid variable, const ModeContext& ctx, Resolved& out, BindingDeps* deps, int depth) const;
+  // A node's styles copied in, then its variable bindings resolved into its fields (`p`: its props, changed in place).
+  void resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const;
+  const NodeProps* styleNode(const AssetId& id, StyleType type) const;
+  void setDeps(Guid id, BindingDeps&& deps);
+  void dropDeps(Guid id);
+  // A change applied: what must be resolved again (and the panels' events).
+  void noteBindings(const NodeChange& c, NodeType typeBefore);
+  void markBindingsSubtree(Guid id);
+  void flushBindings();
+  // A user's edit of a bound value detaches it (Figma): the binding, a paint's colorVar, the style.
+  void detachEdited(const NodeProps& before, NodeChange& c) const;
+  void rebuildAssetKeys() const;
+
+  // ---- Variables and styles: commands (editor/VariableCommands.cpp) ----
+  Status variableCommand(CommandId id, const CommandArgs& args);
+  uint32_t variableCommandState(CommandId id) const;
+  std::string newAssetKey();
+
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint };
 
   struct Target {
@@ -422,7 +496,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // The overrides in force for a derived nested instance, relative to it (usage site over its own), and its assignments.
   void composedOverrides(Guid nested, std::vector<SymbolOverride>& out, std::vector<ComponentPropAssignment>& assigns) const;
   void writeDerived(const NodeChange& change);
-  void recordRootOverride(Guid instance, const NodeChange& change);
+  void recordRootOverride(Guid instance, const NodeChange& change, const std::vector<ParamBinding>* mapBefore = nullptr);
   // Writes `fields` of `entry` into the override at `path` of top-level instance `instance` (merged).
   void writeOverride(Guid instance, const std::vector<Guid>& path, FieldMask fields, const NodeProps& values);
   // Sets property `def` to `value` on the instance level (a real instance, or a derived nested one).
@@ -771,6 +845,23 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid navMain_ = kNoGuid, returnTo_ = kNoGuid;
   std::unordered_map<Guid, Guid, GuidHash> detachMap_;  // the last detach: derived id → the real node made for it
   bool pasteAsInstances_ = true;
+
+  // Variables and styles.
+  using GuidSet = std::unordered_set<Guid, GuidHash>;
+  GuidSet bindingsDirty_;                                     // nodes to resolve again
+  std::unordered_map<Guid, BindingDeps, GuidHash> deps_;      // a consumer → what its resolution read
+  std::unordered_map<Guid, GuidSet, GuidHash> varConsumers_;  // a variable → consumers (real nodes and derived rows)
+  std::unordered_map<Guid, GuidSet, GuidHash> setConsumers_;  // a collection → consumers
+  std::unordered_map<Guid, GuidSet, GuidHash> styleConsumers_;  // a style → consumers
+  GuidSet styleIds_;                                          // style nodes seen (their removal is an event)
+  GuidSet collectionIds_;                                     // collections seen (likewise)
+  std::unordered_map<Guid, Guid, GuidHash> variableSets_;     // variables seen → their collection
+  GuidSet instanceBindings_;                                  // instances with bound sublayers
+  mutable std::unordered_map<std::string, Guid> assetKeys_;   // key → asset (imported library references)
+  mutable bool assetKeysDirty_ = true;
+  bool resolving_ = false;                                    // the resolver's own writes
+  std::vector<Guid> created_;
+  uint64_t keyState_ = 0;
 };
 
 }  // namespace eng

@@ -11,6 +11,7 @@
 //   EDITOR_URL=http://localhost:5202 node …                       (use a running server instead of starting one)
 //   EDITOR_ONLY=paints node …                                      (only the E4 / E5 section: paints, effects, images, vectors)
 //   EDITOR_ONLY=components node …                                  (only the E6 section: components, instances, Assets)
+//   EDITOR_ONLY=variables node …                                   (only the variables / modes / styles section)
 /* global process, console, window, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -416,7 +417,166 @@ async function componentsSection(page, theme) {
   await page.keyboard.press("Alt+Digit1");
 }
 
+/** Variables, modes and styles on `?editor&doc=variables` (dark): the Local variables window, binding, modes, styles. */
+async function variablesSection(page, theme) {
+  await open(page, "&doc=variables");
+  const panel = page.locator('[data-panel="right"]');
+  const win = page.locator("[data-local-variables]");
+  const select = async (...ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const info = await page.evaluate(() => typeof window.__designerEditor.engine.variableCollections === "function");
+  results.push(`info engine: variables build ${info}`);
+  const fillHex = (id) =>
+    page.evaluate((id) => {
+      const c = window.__designerEditor.engine.readNode(id).fillPaints[0].color;
+      return "#" + [c.r, c.g, c.b].map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+    }, id);
+
+  // Nothing selected: Page (Apply variable mode), Local variables, the Styles list by kind and folder.
+  await select();
+  check("nothing selected: Local variables and the Styles list (Text, Color, Effect, Layout guide)", (await panel.locator("[data-open-variables]").count()) === 1 && (await panel.locator("[data-style-item]").count()) === 9);
+  await shot(page, `53-styles-list-${theme}`);
+
+  // The Local variables window: collections, groups, a column per mode, aliases.
+  await panel.locator("[data-open-variables]").click();
+  await settle(page);
+  check("Local variables opens with the collections and the first one's groups", (await win.locator("[data-collection]").count()) === 2 && (await win.locator("[data-group]").count()) >= 4);
+  await win.locator('[data-collection="Theme"]').click();
+  await settle(page);
+  check("Theme: Light and Dark columns, aliases as pills", (await win.locator("[data-mode]").count()) === 2 && (await win.locator('[data-value-cell="bg/primary|Dark"]').getByText("color/gray/900").count()) === 1);
+  await shot(page, `54-local-variables-${theme}`);
+  // A literal edited in place reaches the bound layers (one step).
+  const cell = win.locator('[data-value-cell="text/primary|Light"]').getByRole("textbox");
+  await cell.click();
+  await page.keyboard.press("Meta+a");
+  await page.keyboard.type("FF0000");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("a value typed in the table reaches the bound text in that mode", (await fillHex("2:2")) === "#ff0000", await fillHex("2:2"));
+  await win.press("Meta+z");
+  await settle(page);
+  // "+ Create variable" with its type menu; the new row renames in place.
+  await win.getByRole("button", { name: "Create variable" }).click();
+  await settle(page);
+  await shot(page, `55-create-variable-menu-${theme}`);
+  await page.getByRole("menuitem", { name: "Number" }).click();
+  await settle(page);
+  await page.keyboard.type("gap");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("+ Create variable ▸ Number adds a row renamed in place", (await win.locator('[data-name-cell="gap"]').count()) === 1);
+  // Mode header menu; "+" adds a mode.
+  await win.locator('[data-mode="Dark"]').click({ button: "right" });
+  await settle(page);
+  await shot(page, `56-mode-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await win.getByRole("button", { name: "New variable mode" }).click();
+  await settle(page);
+  await page.keyboard.press("Enter");
+  check("New variable mode adds a third column", (await win.locator("[data-mode]").count()) === 3);
+  // Edit variable; the alias picker.
+  await win.locator('[data-variable-row] [data-name-cell="bg/primary"]').hover();
+  await win.locator('[data-name-cell="bg/primary"]').getByRole("button", { name: "Edit variable" }).click();
+  await settle(page);
+  check("Edit variable: name, values per mode, scoping, code syntax, publishing", (await page.locator("[data-edit-variable]").count()) === 1 && (await page.getByText("Show in all supported properties").count()) === 1);
+  await shot(page, `57-edit-variable-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  await win.locator('[data-value-cell="text/primary|Dark"]').hover();
+  await win.locator('[data-value-cell="text/primary|Dark"]').getByRole("button", { name: "Apply variable" }).click();
+  await settle(page);
+  await shot(page, `58-alias-picker-${theme}`);
+  await page.locator('[data-variable-picker] [data-variable="color/white"]').click();
+  await settle(page);
+  check("aliasing from the picker", (await win.locator('[data-value-cell="text/primary|Dark"]').getByText("color/white").count()) === 1);
+  // Row context menu with two rows selected; Delete removes both (one step).
+  await win.locator('[data-name-cell="label/cta"]').click();
+  await win.locator('[data-name-cell="feature/beta"]').click({ modifiers: ["Meta"] });
+  await win.locator('[data-name-cell="feature/beta"]').click({ button: "right" });
+  await settle(page);
+  await shot(page, `59-variable-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await win.press("Backspace");
+  await settle(page);
+  check("⌫ deletes the selected variables", (await win.locator('[data-name-cell="label/cta"], [data-name-cell="feature/beta"]').count()) === 0);
+  await win.press("Meta+z");
+  await win.getByRole("button", { name: "Close" }).click();
+  await settle(page);
+  check("× closes the window", (await win.count()) === 0);
+
+  // Binding in the Design panel: hover "Apply variable", the picker, the pill, Detach.
+  await select("2:3");
+  const radius = panel.locator('[data-bind-field="CORNER_RADIUS"]');
+  await radius.hover();
+  await settle(page);
+  await shot(page, `60-apply-variable-hover-${theme}`);
+  await radius.getByRole("button", { name: "Apply variable" }).click();
+  await settle(page);
+  await shot(page, `61-variable-picker-${theme}`);
+  await page.locator('[data-variable-picker] [data-variable="radius/lg"]').click();
+  await settle(page);
+  const bound = await page.evaluate(() => window.__designerEditor.engine.readNode("2:3").cornerRadius);
+  check("a picked variable binds the field: a pill, the resolved value written", (await radius.locator("[data-bound-variable]").count()) === 1 && bound === 16, String(bound));
+  await shot(page, `62-bound-pill-${theme}`);
+  await radius.hover();
+  await radius.getByRole("button", { name: "Detach variable" }).click();
+  await settle(page);
+  check("Detach variable keeps the value", (await radius.locator("[data-bound-variable]").count()) === 0 && (await page.evaluate(() => window.__designerEditor.engine.readNode("2:3").cornerRadius)) === 16);
+
+  // Apply variable mode on a frame, the mode row; Auto back.
+  await select("2:1");
+  await panel.getByRole("button", { name: "Apply variable mode" }).click();
+  await settle(page);
+  await page.getByRole("menuitem", { name: "Theme" }).click();
+  await page.waitForTimeout(300);
+  await shot(page, `63-apply-mode-menu-${theme}`);
+  await page.locator('[role="menu"]').getByText("Dark", { exact: true }).last().click();
+  await settle(page);
+  check("Apply variable mode ▸ Dark: the frame and its layers resolve Dark, the mode row shows", (await fillHex("2:1")) === "#1e1e1e" && (await panel.locator('[data-mode-row="Theme"]').count()) === 1, await fillHex("2:1"));
+  await shot(page, `64-mode-row-${theme}`);
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+
+  // Styles: the applied style row, the picker (styles and colour variables), Edit style, the text style row.
+  await select("2:12");
+  check("a fill style shows as its row; an effect style too", (await panel.locator('[data-applied-style="Brand/Primary"]').count()) === 1 && (await panel.locator('[data-applied-style="Shadow/Small"]').count()) === 1);
+  await panel.locator('[data-styles-button="fill"]').click();
+  await settle(page);
+  await shot(page, `65-style-picker-${theme}`);
+  await page.locator('[data-variable-picker] [data-style="Brand/Secondary"]').click();
+  await settle(page);
+  check("picking another style applies it", (await fillHex("2:12")) === "#9747ff", await fillHex("2:12"));
+  await panel.locator('[data-applied-style="Brand/Secondary"] button').first().click();
+  await settle(page);
+  await shot(page, `66-edit-style-${theme}`);
+  await page.keyboard.press("Escape");
+  await panel.locator('[data-applied-style="Brand/Secondary"]').getByRole("button", { name: "Detach style" }).click();
+  await settle(page);
+  check("Detach style keeps the colour", (await panel.locator("[data-applied-style]").count()) === 1 && (await fillHex("2:12")) === "#9747ff");
+  await select("2:11");
+  check("a text style replaces the font rows", (await panel.locator('[data-applied-style="Heading/H2"]').count()) === 1);
+  await shot(page, `67-text-style-${theme}`);
+  // The Styles list's context menu; View ▸ Local variables.
+  await select();
+  await panel.locator('[data-style-item="Brand/Primary"]').click({ button: "right" });
+  await settle(page);
+  await shot(page, `68-style-menu-${theme}`);
+  await page.keyboard.press("Escape");
+}
+
 try {
+  if (only === "variables") {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await variablesSection(page, "dark");
+    await context.close();
+  }
   if (only === "paints") {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
@@ -573,6 +733,9 @@ try {
 
       // ---- E6: components, instances, variants, properties, Assets ----
       await componentsSection(page, theme);
+
+      // ---- Variables, modes, styles ----
+      await variablesSection(page, theme);
 
       // ---- End to end: draw, Esc, undo / redo, delete, rename, the source's changes ----
       await open(page, "&doc=empty");

@@ -1138,6 +1138,11 @@ Status Editor::pushChangesToMain(Guid R) {
     c.mask = o.mask & ~static_cast<FieldMask>(F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_ASSIGNMENTS | F_EXTRA);
     copyFields(c.props, o.props, c.mask);
     const Node* tn = doc_.get(target);
+    if ((o.mask & F_PARAM_MAP) && tn) {
+      // Bindings are sparse in an override: merged per field into the main's.
+      c.props.parameterConsumptionMap = tn->props.parameterConsumptionMap;
+      mergeParams(c.props.parameterConsumptionMap, o.props.parameterConsumptionMap);
+    }
     if (tn && tn->props.type == NodeType::INSTANCE) {
       if (o.mask & F_OVERRIDDEN_SYMBOL_ID) {
         c.mask |= F_SYMBOL_DATA;

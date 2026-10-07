@@ -510,3 +510,141 @@ describe("engine (wasm, headless): E4 + E5", () => {
     engine.destroy();
   });
 });
+
+describe("engine (wasm, headless): variables, modes and styles (E6)", () => {
+  it("collections, modes, variables, bindings, mode switches, styles, reads and events through the facade", async () => {
+    const engine = await engineWithSample();
+    const events: EngineEvent[] = [];
+    engine.onAny((e) => events.push(e));
+    const collection = engine.runCommand("CREATE_VARIABLE_COLLECTION", { name: "Theme" });
+    expect(collection.status).toBe(Status.OK);
+    const [set, light] = collection.created;
+    const dark = engine.runCommand("ADD_VARIABLE_MODE", { collection: set, name: "Dark" }).created[0];
+    const bg = engine.runCommand("CREATE_VARIABLE", { collection: set, type: "COLOR", name: "surface/bg", value: { r: 1, g: 0, b: 0, a: 1 } }).created[0];
+    expect(engine.command("SET_VARIABLE_VALUE", { variable: bg, mode: dark, value: { r: 0, g: 0, b: 1, a: 1 } })).toBe(Status.OK);
+    const radius = engine.runCommand("CREATE_VARIABLE", { collection: set, type: "FLOAT", name: "radius", value: 4 }).created[0];
+    expect(engine.command("SET_VARIABLE_VALUE", { variable: radius, mode: dark, value: 20 })).toBe(Status.OK);
+    expect(events.some((e) => e.type === "VARIABLES_CHANGED")).toBe(true);
+
+    // Reads.
+    const cols = engine.variableCollections();
+    expect(cols).toHaveLength(1);
+    expect(cols[0]).toMatchObject({ id: set, name: "Theme", defaultModeId: light, variableIds: [bg, radius] });
+    expect(cols[0].modes.map((m) => m.name)).toEqual(["Mode 1", "Dark"]);
+    const vars = engine.variables(set);
+    expect(vars.map((v) => v.name)).toEqual(["surface/bg", "radius"]);
+    expect(vars[0].valuesByMode[dark]).toEqual({ r: 0, g: 0, b: 1, a: 1 });
+    expect(vars[1].resolvedValuesByMode[dark]).toBe(20);
+
+    // Bind the card's fill and radius; the Desktop frame switches to Dark.
+    engine.setSelection(["1:5"]);
+    expect(engine.command("BIND_VARIABLE", { target: "fillPaints[0].color", variable: bg })).toBe(Status.OK);
+    expect(engine.command("BIND_VARIABLE", { target: "CORNER_RADIUS", variable: radius })).toBe(Status.OK);
+    expect(engine.readNode("1:5")?.fillPaints?.[0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(engine.readNode("1:5")?.cornerRadius).toBe(4);
+    expect(engine.command("SET_VARIABLE_MODE", { refs: ["1:1"], collection: set, mode: dark })).toBe(Status.OK);
+    expect(engine.readNode("1:5")?.fillPaints?.[0].color).toEqual({ r: 0, g: 0, b: 1, a: 1 });
+    expect(engine.readNode("1:5")?.cornerRadius).toBe(20);
+    expect(engine.readNode("1:1")?.variableModeBySetMap?.entries).toHaveLength(1);
+    expect(engine.variableModes("1:5")).toEqual([{ collectionId: set, explicitModeId: null, resolvedModeId: dark }]);
+    expect(engine.boundVariables("1:5").map((b) => [b.target, b.variable])).toEqual([
+      ["CORNER_RADIUS", radius],
+      ["fillPaints[0].color", bg],
+    ]);
+    expect(engine.resolvedValue("1:5", "CORNER_RADIUS")).toBe(20);
+    expect(engine.resolveVariable(bg)).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(engine.resolveVariable(bg, "1:5")).toEqual({ r: 0, g: 0, b: 1, a: 1 });
+
+    // Aliases and composed colours; cycles are refused.
+    const accent = engine.runCommand("CREATE_VARIABLE", { collection: set, type: "COLOR", name: "accent", value: { type: "VARIABLE_ALIAS", id: bg } }).created[0];
+    expect(engine.command("SET_VARIABLE_VALUE", { variable: bg, value: { type: "VARIABLE_ALIAS", id: accent } })).toBe(Status.E_INVALID);
+    const alpha = engine.runCommand("CREATE_VARIABLE", { collection: set, type: "FLOAT", name: "alpha", value: 50 }).created[0];
+    const overlay = engine.runCommand("CREATE_VARIABLE", {
+      collection: set,
+      type: "COLOR",
+      name: "overlay",
+      value: { color: { type: "VARIABLE_ALIAS", id: accent }, opacity: { type: "VARIABLE_ALIAS", id: alpha } },
+    }).created[0];
+    expect(engine.variable(overlay)?.valuesByMode[light]).toEqual({
+      color: { type: "VARIABLE_ALIAS", id: accent },
+      opacity: { type: "VARIABLE_ALIAS", id: alpha },
+    });
+    expect(engine.resolveVariable(overlay)).toEqual({ r: 1, g: 0, b: 0, a: 0.5 });
+
+    // A value edit is one DOCUMENT_CHANGED with the variable and the layer; undo restores both.
+    const docs: NodeChange[][] = [];
+    engine.onDocumentChanged((changes) => docs.push(changes));
+    expect(engine.command("SET_VARIABLE_VALUE", { variable: bg, mode: dark, value: { r: 0, g: 1, b: 0, a: 1 } })).toBe(Status.OK);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].map((c) => c.guid).sort()).toEqual([bg, "1:5"].sort());
+    expect(engine.readNode("1:5")?.fillPaints?.[0].color).toEqual({ r: 0, g: 1, b: 0, a: 1 });
+    expect(engine.undo()).toBe(true);
+    expect(engine.readNode("1:5")?.fillPaints?.[0].color).toEqual({ r: 0, g: 0, b: 1, a: 1 });
+
+    // Styles: a colour style from the header, applied; its users follow its edits.
+    const style = engine.runCommand("CREATE_STYLE", { type: "FILL", name: "Brand/Dark", from: "1:2", apply: true }).created[0];
+    expect(engine.command("APPLY_STYLE", { refs: ["1:4"], style })).toBe(Status.OK);
+    expect(engine.styles("FILL")).toMatchObject([{ id: style, name: "Brand/Dark", styleType: "FILL", usageCount: 2 }]);
+    expect(engine.styleUsage(style)).toBe(2);
+    events.length = 0;
+    expect(engine.setProps([style], { fillPaints: [{ type: "SOLID", color: { r: 1, g: 1, b: 0, a: 1 }, opacity: 1, visible: true }] })).toBe(Status.OK);
+    expect(engine.readNode("1:4")?.fillPaints?.[0].color).toEqual({ r: 1, g: 1, b: 0, a: 1 });
+    expect(engine.readNode("1:4")?.styleIdForFill).toEqual({ guid: { sessionID: 9, localID: Number(style.split(":")[1]) } });
+    expect(events.some((e) => e.type === "STYLES_CHANGED" && e.styles.includes(style))).toBe(true);
+    expect(engine.command("DETACH_STYLE", { refs: ["1:4"], target: "FILL" })).toBe(Status.OK);
+    expect(engine.styleUsage(style)).toBe(1);
+
+    // The document round-trips: a second engine loads it and resolves the same.
+    const copy = await Engine.create(null, { sessionID: 10 });
+    copy.load(engine.encodeDocument());
+    expect(copy.variableCollections()).toEqual(engine.variableCollections());
+    expect(copy.readNode("1:5")?.fillPaints?.[0].color).toEqual({ r: 0, g: 0, b: 1, a: 1 });
+    copy.destroy();
+    engine.destroy();
+  });
+
+  it("a mode switch over 10,000 bound layers", async () => {
+    const engine = await Engine.create(null, { sessionID: 3 });
+    const layers: NodeChange[] = [];
+    const message: Message = {
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      nodeChanges: [
+        { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+        { guid: "0:1", phase: "CREATED", type: "CANVAS", name: "Page 1", parentIndex: { guid: "0:0", position: "!" } },
+        { guid: "0:2", phase: "CREATED", type: "CANVAS", name: "Internal Only Canvas", internalOnly: true, parentIndex: { guid: "0:0", position: "~" } },
+        { guid: "2:1", phase: "CREATED", type: "FRAME", name: "Frame", parentIndex: { guid: "0:1", position: "!" }, size: { x: 4000, y: 4000 } },
+      ],
+    };
+    engine.load(message);
+    const [set] = engine.runCommand("CREATE_VARIABLE_COLLECTION", { name: "Theme" }).created;
+    const dark = engine.runCommand("ADD_VARIABLE_MODE", { collection: set }).created[0];
+    const bg = engine.runCommand("CREATE_VARIABLE", { collection: set, type: "COLOR", value: { r: 1, g: 0, b: 0, a: 1 } }).created[0];
+    engine.command("SET_VARIABLE_VALUE", { variable: bg, mode: dark, value: { r: 0, g: 0, b: 1, a: 1 } });
+    const [s, l] = bg.split(":").map(Number);
+    for (let i = 0; i < 10000; i++)
+      layers.push({
+        guid: `4:${i + 1}`,
+        phase: "CREATED",
+        type: "ROUNDED_RECTANGLE",
+        parentIndex: { guid: "2:1", position: String(i) },
+        size: { x: 30, y: 30 },
+        transform: { m00: 1, m01: 0, m02: (i % 100) * 40, m10: 0, m11: 1, m12: Math.floor(i / 100) * 40 },
+        fillPaints: [
+          { type: "SOLID", color: { r: 1, g: 0, b: 0, a: 1 }, colorVar: { value: { alias: { guid: { sessionID: s, localID: l } } }, dataType: "ALIAS", resolvedDataType: "COLOR" } },
+        ],
+      });
+    expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 3, nodeChanges: layers })).toBe(Status.OK);
+    // Each switch, alternating; the best of a few (the first runs while the Wasm is still being tiered up).
+    let best = Infinity;
+    for (let i = 0; i < 6; i++) {
+      const t0 = performance.now();
+      expect(engine.command("SET_VARIABLE_MODE", { refs: ["2:1"], collection: set, mode: i % 2 ? "" : dark })).toBe(Status.OK);
+      best = Math.min(best, performance.now() - t0);
+    }
+    expect(engine.readNode("4:10000")?.fillPaints?.[0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    console.log(`wasm: a mode switch over 10,000 bound layers: ${best.toFixed(1)} ms (its DOCUMENT_CHANGED and NODES_CHANGED included)`);
+    expect(best).toBeLessThan(1000);
+    engine.destroy();
+  });
+});

@@ -115,6 +115,7 @@ export const MAIN_MENU: Spec[] = [
     items: [
       "view.layers",
       "view.assets",
+      "view.local-variables",
       "-",
       "view.pixel-grid",
       "view.snap-pixel-grid",

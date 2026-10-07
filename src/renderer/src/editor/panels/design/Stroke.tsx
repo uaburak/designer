@@ -9,6 +9,7 @@
  * miterLimit.
  */
 import { useState } from "react";
+import { VariableField } from "./Variables";
 import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, Select, Icon, IconButton, type ChangeInfo, type MenuEntry } from "@/ds";
 import type { NodeFields, StrokeAlign } from "@/engine/codec";
 import { useEditor } from "../../controller";
@@ -95,6 +96,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           ]}
           onChange={(v) => ed.setProps(refs, { strokeAlign: v as StrokeAlign }, "Stroke position")}
         />
+        <VariableField nodes={nodes} fields={["STROKE_WEIGHT"]} prefix="24.stroke-weight" disabled={side === "CUSTOM"}>
         <NumericInput
           label="Stroke weight"
           prefix="24.stroke-weight"
@@ -105,6 +107,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           onStep={(d) => ed.batch("Stroke weight", () => nodes.forEach((n) => ed.engine.setProps([n.guid], { strokeWeight: Math.max(0, (n.strokeWeight ?? 1) + d) })))}
           onExit={exitToCanvas(ed)}
         />
+        </VariableField>
       </PropertyRow>
       {perSide && side === "CUSTOM" && (
         <>
@@ -114,8 +117,8 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           ].map((pair) => (
             <PropertyRow key={pair[0]} label={`${pair[0]} and ${pair[1].toLowerCase()} stroke`}>
               {(pair as (typeof SIDES)[number][]).map((s) => (
+                <VariableField key={s} nodes={nodes} fields={[`BORDER_${s.toUpperCase()}_WEIGHT` as "BORDER_TOP_WEIGHT"]} prefix={`24.al.padding-${s.toLowerCase()}` as "24.al.padding-top"}>
                 <NumericInput
-                  key={s}
                   label={`${s} stroke`}
                   prefix={`24.al.padding-${s.toLowerCase()}` as "24.al.padding-top"}
                   min={0}
@@ -125,6 +128,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
                   onStep={(d) => ed.batch("Stroke weight", () => nodes.forEach((n) => ed.engine.setProps([n.guid], fields({ [sideField(s)]: Math.max(0, (n[sideField(s)] ?? n.strokeWeight ?? 1) + d) }))))}
                   onExit={exitToCanvas(ed)}
                 />
+                </VariableField>
               ))}
             </PropertyRow>
           ))}

@@ -1,0 +1,194 @@
+@layer app {
+  /* The Local variables window: edge to edge over the canvas and the panels, the rail left visible (2026 UI3) */
+  .window {
+    position: absolute;
+    inset: 0 0 0 var(--ds-size-rail);
+    z-index: var(--ds-z-floating);
+    display: grid;
+    grid-template-columns: var(--ds-size-panel) minmax(0, 1fr);
+    grid-template-rows: var(--ds-size-right-header) minmax(0, 1fr);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+
+  /* Header: the title over the sidebar, then search and close over the table */
+  .titleBar {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border-right: 1px solid var(--figma-color-border);
+    border-bottom: 1px solid var(--figma-color-border);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .collectionTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); white-space: nowrap; text-overflow: ellipsis; }
+  .search { width: 200px; }
+
+  /* Sidebar: collections, then "All variables" and the group tree */
+  .sidebar { display: flex; flex-direction: column; min-height: 0; overflow: auto; border-right: 1px solid var(--figma-color-border); padding-bottom: var(--ds-space-2); }
+  .sideHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .sideRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-row);
+    margin: 0 var(--ds-space-2);
+    padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-2) + var(--indent, 0px));
+    border-radius: var(--ds-radius-medium);
+    color: var(--figma-color-text);
+    user-select: none;
+    outline: none;
+  }
+  .sideRow:hover { background: var(--figma-color-bg-hover); }
+  .sideRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .sideRowOn, .sideRowOn:hover { background: var(--figma-color-bg-selected); }
+  .sideName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .sideCount { flex: none; color: var(--figma-color-text-secondary); }
+  .sideDivider { height: 1px; margin: var(--ds-space-2) 0; background: var(--figma-color-border); }
+
+  /* The table */
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .table { display: grid; min-width: max-content; }
+  .row { display: contents; }
+  .cell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: 40px;
+    padding: 0 var(--ds-space-2);
+    border-right: 1px solid var(--figma-color-border);
+    border-bottom: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  .head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: var(--ds-size-section-header);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+  }
+  .headName { padding-left: var(--ds-space-4); }
+  .modeHead { justify-content: space-between; user-select: none; }
+  .modeHead[data-default] .modeLabel::after { content: ""; }
+  .modeLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--figma-color-text); }
+  .addMode { border-right: 0; padding: 0 var(--ds-space-1); }
+  .groupCell {
+    grid-column: 1 / -1;
+    height: var(--ds-size-row);
+    padding-left: var(--ds-space-4);
+    border-right: 0;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .nameCell { padding-left: var(--ds-space-4); user-select: none; cursor: default; }
+  .nameText { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .glyph { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; color: var(--figma-color-icon-secondary); }
+  .rowEdit { opacity: 0; }
+  .row:hover .rowEdit, .rowEdit:focus-visible, .rowEdit[aria-expanded="true"] { opacity: 1; }
+  .rowSelected > .cell { background: var(--figma-color-bg-selected); }
+  .row[data-drop="before"] > .cell { box-shadow: inset 0 2px 0 var(--figma-color-border-selected-strong); }
+  .row[data-drop="after"] > .cell { box-shadow: inset 0 -2px 0 var(--figma-color-border-selected-strong); }
+  .row:hover > .cell { background: var(--figma-color-bg-hover); }
+  .rowSelected:hover > .cell { background: var(--figma-color-bg-selected-hover); }
+  .filler { border-right: 0; }
+
+  /* A value cell */
+  .value { padding: 0 var(--ds-space-1); }
+  .value > [data-ds="TextInput"], .value > [data-ds="NumericInput"] { flex: 1 1 auto; min-width: 0; }
+  .swatchButton {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    outline: none;
+  }
+  .swatchButton:hover { background: var(--ds-color-bg-transparent-hover); }
+  .swatchButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .alias {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: 20px;
+    padding: 0 var(--ds-space-1-5) 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-component-tertiary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .alias:hover { background: var(--figma-color-bg-component-secondary); }
+  .aliasText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .cellButton {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    opacity: 0;
+    outline: none;
+  }
+  .value:hover .cellButton, .cellButton:focus-visible, .cellButton[aria-expanded="true"] { opacity: 1; }
+  .cellButton:hover { color: var(--figma-color-icon); background: var(--ds-color-bg-transparent-hover); }
+
+  /* The same editor in the Edit variable modal: no table borders */
+  .formValue { height: var(--ds-size-control); padding: 0; border: 0; background: transparent; }
+
+  .footer { display: flex; align-items: center; height: var(--ds-size-section-header); padding: 0 var(--ds-space-2); }
+  .createButton {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .createButton:hover, .createButton[data-open] { background: var(--figma-color-bg-hover); }
+  .createButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .emptyPane { display: flex; align-items: center; justify-content: center; grid-column: 1 / -1; }
+}

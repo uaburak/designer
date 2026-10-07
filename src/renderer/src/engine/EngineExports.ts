@@ -159,6 +159,23 @@ export class EngineExports {
   refId = (ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("ref_id")(p[0], p[1]) >>> 0);
   componentInfo = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("component_info")(h, p[0], p[1]));
 
+  // ---- Variables, modes, styles ----
+  variableCollections = (h: number): number => this.fn("variable_collections")(h);
+  /** `collection`: a ref, or empty for every collection's variables. */
+  variables = (h: number, collection: Uint8Array): number =>
+    collection.length ? this.withBytes([collection], (p) => this.fn("variables")(h, p[0], p[1])) : this.fn("variables")(h, 0, 0);
+  variable = (h: number, id: Uint8Array): number => this.withBytes([id], (p) => this.fn("variable")(h, p[0], p[1]));
+  /** `consumer` empty: the default modes. */
+  resolveVariable = (h: number, id: Uint8Array, consumer: Uint8Array): number =>
+    this.withBytes([id, consumer], (p) => this.fn("resolve_variable")(h, p[0], p[1], consumer.length ? p[2] : 0, p[3]));
+  boundVariables = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("bound_variables")(h, p[0], p[1]));
+  resolvedValue = (h: number, ref: Uint8Array, target: Uint8Array): number =>
+    this.withBytes([ref, target], (p) => this.fn("resolved_value")(h, p[0], p[1], p[2], p[3]));
+  variableModes = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("variable_modes")(h, p[0], p[1]));
+  /** `type`: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6), 0 for all. */
+  styles = (h: number, type: number): number => this.fn("styles")(h, type);
+  styleUsage = (h: number, id: Uint8Array): number => this.withBytes([id], (p) => this.fn("style_usage")(h, p[0], p[1]));
+
   // ---- Fonts (module-wide) ----
   /** Copies a font file into the module's heap and hands it over (the engine frees it); the face id or a Status. */
   fontAddTake(bytes: Uint8Array, faceIndex: number): number {
@@ -217,6 +234,8 @@ export const USED_EXPORTS = [
   "get_selection", "set_selection", "read_nodes", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_node_thumbnail", "ref_id", "component_info",
+  "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",
+  "styles", "style_usage",
   "has_events", "take_events", "stats",
   "font_add_take", "font_bind", "font_missing", "set_fallback_fonts",
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",

@@ -47,6 +47,10 @@ export interface UIState {
   assetsView: "grid" | "list";
   /** Assets: the closed page / frame groups */
   assetsClosed: ReadonlySet<string>;
+  /** The Local variables window */
+  variablesOpen: boolean;
+  /** Styles list (nothing selected): the closed folders ("KIND:path") */
+  stylesClosed: ReadonlySet<string>;
 }
 
 export class Store<T> {

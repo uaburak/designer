@@ -36,6 +36,7 @@ import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { VersionDialogs } from "./VersionDialogs";
+import { LocalVariables } from "./panels/variables/LocalVariables";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -213,9 +214,11 @@ function CanvasOverlays() {
 
 function Overlays() {
   const hidden = useUI((s) => s.uiHidden);
+  const variables = useUI((s) => s.variablesOpen);
   return (
     <>
-      {!hidden && <Help />}
+      {variables && <LocalVariables />}
+      {!hidden && !variables && <Help />}
       <CanvasMenu />
       <ShortcutsDialog />
       <VersionDialogs />

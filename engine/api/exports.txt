@@ -72,3 +72,12 @@ _engine_paint_edit_stop
 _engine_ref_id
 _engine_component_info
 _engine_render_node_thumbnail
+_engine_variable_collections
+_engine_variables
+_engine_variable
+_engine_resolve_variable
+_engine_bound_variables
+_engine_resolved_value
+_engine_variable_modes
+_engine_styles
+_engine_style_usage

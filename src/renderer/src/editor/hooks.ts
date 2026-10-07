@@ -5,6 +5,7 @@ import type { Engine } from "@/engine/Engine";
 import type { EngineStore, Topic } from "@/engine/EngineStore";
 import { useEditor } from "./controller";
 import type { LayerTree } from "./model/layerTree";
+import type { LocalAssets } from "./variables";
 import { useStoreSlice, type UIState } from "./uiStore";
 
 interface Source<T> {
@@ -117,4 +118,14 @@ export function useDocumentVersion(): number {
     };
   }, [engine, store]);
   return useSyncExternalStore(source.subscribe, source.get);
+}
+
+/** The file's local collections, variables and styles (re-read after a change touches them). */
+export function useLocalAssets(): LocalAssets {
+  const ed = useEditor();
+  const version = useSyncExternalStore(ed.variables.subscribe, ed.variables.getVersion);
+  return useMemo(() => {
+    void version;
+    return ed.variables.get();
+  }, [ed, version]);
 }

@@ -16,6 +16,7 @@ import { keepsField } from "./engineCompat";
 import { ImageService } from "./images";
 import { VectorEditor } from "./vectorEdit";
 import { ComponentIndex, deriveInstanceRows, type DerivedRow } from "./components";
+import { VariableIndex } from "./variables";
 import type { CNode } from "./model/components";
 import { EMPTY_TREE, treeFromNodes, type LayerTree } from "./model/layerTree";
 import { Store, type UIState } from "./uiStore";
@@ -41,6 +42,8 @@ export class EditorController {
   readonly vector: VectorEditor;
   /** The file's local components (Assets, the instance menu) */
   readonly components: ComponentIndex;
+  /** The file's local collections, variables and styles (the internal canvas) */
+  readonly variables: VariableIndex;
   /** The next paste: where it goes (⇧⌘V sets "inPlace" before the DOM paste event) */
   pendingPaste: { mode: "inPlace" } | { mode: "point"; x: number; y: number } | null = null;
   /** The last copy's formats (a paste with no system clipboard access falls back to them) */
@@ -92,12 +95,15 @@ export class EditorController {
       returnToInstance: null,
       assetsView: "list",
       assetsClosed: new Set(),
+      variablesOpen: false,
+      stylesClosed: new Set(),
       ...ui,
     });
     this.tools = probeTools(engine);
     this.images = new ImageService(engine, source.images ?? null);
     this.vector = new VectorEditor(engine);
     this.components = new ComponentIndex(this);
+    this.variables = new VariableIndex(this);
     // Whether the engine keeps fields it doesn't model yet is probed now, before any edit opens a transaction.
     keepsField(engine, "effects");
     const bump = () => this.treeListeners.forEach((l) => l());
@@ -136,6 +142,7 @@ export class EditorController {
     this.images.dispose();
     this.vector.dispose();
     this.components.dispose();
+    this.variables.dispose();
   }
 
   // ---- Reads ----------------------------------------------------------------------------

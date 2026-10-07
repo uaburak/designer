@@ -18,6 +18,7 @@ void ChangeSet::clear() {
 
 std::vector<NodeChange> ChangeSet::build(const Document& doc) const {
   std::vector<NodeChange> out;
+  out.reserve(order_.size());
   for (Guid id : order_) {
     const Entry& e = entries_.at(id);
     const Node* now = doc.get(id);
@@ -25,11 +26,11 @@ std::vector<NodeChange> ChangeSet::build(const Document& doc) const {
       out.push_back(NodeChange::created(id, now->props));
     } else if (e.existedBefore && !now) {
       out.push_back(NodeChange::removed(id));
-    } else if (e.existedBefore && now) {
-      NodeChange c = NodeChange::changed(id);
+    } else if (e.existedBefore && now && e.mask) {
+      NodeChange& c = out.emplace_back();  // in place: a NodeChange is large
+      c.guid = id;
       c.mask = e.mask;
       copyFields(c.props, now->props, c.mask);
-      if (c.mask) out.push_back(std::move(c));
     }
   }
   return out;

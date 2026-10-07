@@ -89,5 +89,10 @@ void setImageDataSink(ImageDataSink sink);
 // Paints and effects on their own (style tables, tests).
 void writePaints(json::Writer& w, const std::vector<Paint>& paints);
 std::vector<Paint> readPaints(const json::Value& v, const BlobsIn* blobs = nullptr);
+void writeEffects(json::Writer& w, const std::vector<Effect>& effects);
+void writeLayoutGrids(json::Writer& w, const std::vector<LayoutGrid>& grids);
+// schema VariableData (docs/schema.md §6.2) on its own.
+void writeVariable(json::Writer& w, const VariableData& d);
+VariableData readVariable(const json::Value& v);
 
 }  // namespace eng::codec

@@ -44,7 +44,10 @@ import {
   encodeRefs,
   encodeText,
   type Camera,
+  type BindingTarget,
+  type BoundVariable,
   type CommandArgValue,
+  type CommandResult,
   type ComponentInfo,
   type CursorKind,
   type EngineEvent,
@@ -53,9 +56,15 @@ import {
   type Guid,
   type Message,
   type NodeChange,
-  type NodeFields,
+  type NodeFieldsPatch,
   type PageInfo,
   type Pixels,
+  type ResolvedVariableValue,
+  type StyleInfo,
+  type StyleType,
+  type VariableCollectionInfo,
+  type VariableInfo,
+  type VariableModeInfo,
   type Selection,
   type StrokeCap,
   type TextLayoutInfo,
@@ -358,7 +367,7 @@ export class Engine {
   // ---- Writes and commands ------------------------------------------------------------
 
   /** The generic setter: these fields on every ref, one undo step (or part of an open txn). */
-  setProps(refs: readonly Guid[], fields: NodeFields, flags = 0): number {
+  setProps(refs: readonly Guid[], fields: NodeFieldsPatch, flags = 0): number {
     return this.after(this.x.setProps(this.h, encodeRefs(refs), encodeFields(fields), flags));
   }
 
@@ -440,6 +449,71 @@ export class Engine {
   componentInfo(ref: Guid): ComponentInfo | null {
     const status = this.x.componentInfo(this.h, encodeText(ref));
     return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as ComponentInfo) : null);
+  }
+
+  // ---- Variables, modes, styles (docs/engine-build.md "E6 variables") ----
+
+  /** The same as `command`, plus what it created (collections and their first mode, modes, variables, styles). */
+  runCommand(name: CommandName, args?: Readonly<Record<string, CommandArgValue>>): CommandResult {
+    const status = this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null);
+    let created: Guid[] = [];
+    try {
+      created = (JSON.parse(decodeText(this.x.result())) as { created?: Guid[] }).created ?? [];
+    } catch {
+      created = [];
+    }
+    return this.after({ status, created });
+  }
+
+  /** The result slot as JSON when `status` is OK, else `fallback`. */
+  private json<T>(status: number, fallback: T): T {
+    return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as T) : fallback);
+  }
+
+  /** The file's live collections, in the panel's order. */
+  variableCollections(): VariableCollectionInfo[] {
+    return this.json(this.x.variableCollections(this.h), []);
+  }
+
+  /** A collection's live variables in order (none given: every collection's). */
+  variables(collection?: Guid): VariableInfo[] {
+    return this.json(this.x.variables(this.h, encodeText(collection ?? "")), []);
+  }
+
+  /** One variable (deleted-but-referenced ones too). */
+  variable(id: Guid): VariableInfo | null {
+    return this.json<VariableInfo | null>(this.x.variable(this.h, encodeText(id)), null);
+  }
+
+  /** Figma's resolveForConsumer: the value for `consumer`'s modes (none: every collection's default mode). */
+  resolveVariable(id: Guid, consumer?: Guid): ResolvedVariableValue | null {
+    return this.json<ResolvedVariableValue | null>(this.x.resolveVariable(this.h, encodeText(id), encodeText(consumer ?? "")), null);
+  }
+
+  /** A node's variable bindings (fields, paints, effects, layout guides). */
+  boundVariables(ref: Guid): BoundVariable[] {
+    return this.json(this.x.boundVariables(this.h, encodeText(ref)), []);
+  }
+
+  /** The resolved value of one binding of a node (null: unbound or unresolved). */
+  resolvedValue(ref: Guid, target: BindingTarget): ResolvedVariableValue | null {
+    return this.json<ResolvedVariableValue | null>(this.x.resolvedValue(this.h, encodeText(ref), encodeText(target)), null);
+  }
+
+  /** A layer's (or page's) mode for every collection: explicit (null = Auto) and resolved. */
+  variableModes(ref: Guid): VariableModeInfo[] {
+    return this.json(this.x.variableModes(this.h, encodeText(ref)), []);
+  }
+
+  /** Local styles of a type (none: all), in the panel's order, with their values and usage. */
+  styles(type?: StyleType): StyleInfo[] {
+    const id = type === "FILL" ? 1 : type === "TEXT" ? 3 : type === "EFFECT" ? 4 : type === "GRID" ? 6 : 0;
+    return this.json(this.x.styles(this.h, id), []);
+  }
+
+  /** How many layers use a style. */
+  styleUsage(id: Guid): number {
+    return Math.max(0, this.after(this.x.styleUsage(this.h, encodeText(id))));
   }
 
   /** (sessionID, localID) of a ref for the calls that take them; derived refs ("I…;…") resolve through the engine. */

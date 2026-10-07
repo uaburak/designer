@@ -4,6 +4,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <deque>
 #include <vector>
 
 #include <string>
@@ -15,7 +16,7 @@ namespace eng {
 
 struct UndoBatch {
   std::string label;
-  std::vector<NodeChange> inverse;  // in the order they were recorded; applied backwards
+  std::deque<NodeChange> inverse;  // in the order they were recorded; applied backwards (a deque: never relocated)
   std::vector<Guid> selectionBefore;
   std::vector<Guid> selectionAfter;
 };
@@ -27,6 +28,7 @@ class UndoStack {
   // Records the inverse of a change applied inside the transaction. Successive
   // CHANGED inverses of one node fold into the first (its oldest values win).
   void record(const NodeChange& inverse);
+  void record(NodeChange&& inverse);
   // Closes the transaction; a non-empty one becomes an undo step and clears redo.
   // `mergeWithLast` joins it to the previous step instead (key-repeat nudges).
   // Past kMaxBatches the oldest steps are dropped.

@@ -6,7 +6,7 @@
  * The auto-layout settings popover: spacing mode, strokes in layout, canvas
  * stacking, text baseline. All on the schema's fields (model/sizing.ts).
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Checkbox, Icon, IconButton, MenuButton, NumericInput, Popover, PropertyRow, Select, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
 import { supportsField } from "../../engineCompat";
@@ -14,6 +14,7 @@ import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { roundPanel } from "../../model/geometry";
 import { canFill, canHug, canLimit, hasLimits, isAutoLayout, limitOf, newLimit, sizingChanges, sizingOf, withLimit, withoutLimits, type Axis, type Limit, type Sizing } from "../../model/sizing";
 import { exitToCanvas } from "./Sections";
+import { VariableField } from "./Variables";
 import { fields, isGroupNode, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
@@ -34,6 +35,8 @@ function applySizing(ed: EditorController, nodes: readonly PanelNode[], parents:
 /** The W or H field with its sizing menu. */
 export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; nodes: PanelNode[]; parents: (PanelNode | null)[]; onAddLimit: (axis: Axis) => void }) {
   const ed = useEditor();
+  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const field = useRef<HTMLDivElement>(null);
   const word = AXIS_WORD[axis];
   const value = mixedNumber(nodes.map((n) => roundPanel(n.size?.[axis] ?? 0)));
   const sizing = mixed(nodes.map((n, i) => sizingOf(n, parents[i], axis)));
@@ -78,9 +81,12 @@ export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; no
               ]),
         ]
       : []),
+    "-",
+    { id: "apply-variable", label: "Apply variable…" },
   ];
-  const menu = hug || fill || limits;
+  const menu = true;
   const onMenu = (id: string) => {
+    if (id === "apply-variable") return setPicker(field.current?.querySelector<HTMLElement>("[data-bind-field]") ?? null);
     if (id === "FIXED" || id === "HUG" || id === "FILL") applySizing(ed, nodes, parents, axis, id);
     else if (id === "remove-limits") ed.batch(`Remove min and max ${word}`, () => nodes.forEach((n) => ed.engine.setProps([n.guid], withoutLimits(n, axis))));
     else if (id === "add-min" || id === "add-max") {
@@ -92,6 +98,8 @@ export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; no
   };
   const label = sizing === "HUG" ? "Hug" : sizing === "FILL" ? "Fill" : undefined;
   return (
+    <div ref={field} style={{ display: "contents" }}>
+    <VariableField nodes={nodes} fields={[axis === "x" ? "WIDTH" : "HEIGHT"]} prefix={axis === "x" ? "W" : "H"} button={false} open={picker} onOpenChange={setPicker} disabled={groups}>
     <NumericInput
       label={axis === "x" ? "Width" : "Height"}
       prefix={axis === "x" ? "W" : "H"}
@@ -112,6 +120,8 @@ export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; no
         ) : undefined
       }
     />
+    </VariableField>
+    </div>
   );
 }
 
@@ -129,6 +139,7 @@ export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
       for (const n of ed.engine.readNodes(nodes.map((x) => x.guid)) as PanelNode[]) ed.engine.setProps([n.guid], withLimit(n, which, axis, v));
     });
   const field = (which: Limit) => (
+    <VariableField nodes={nodes} fields={[`${which.toUpperCase()}_${axis === "x" ? "WIDTH" : "HEIGHT"}` as "MIN_WIDTH"]} prefix={`24.al.${word}-${which}` as "24.al.width-min"}>
     <NumericInput
       label={`${which === "min" ? "Min" : "Max"} ${word}`}
       prefix={`24.al.${word}-${which}` as "24.al.width-min"}
@@ -140,6 +151,7 @@ export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
       onCancel={() => ed.cancelEdit()}
       onExit={exitToCanvas(ed)}
     />
+    </VariableField>
   );
   return (
     <PropertyRow

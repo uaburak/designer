@@ -66,6 +66,7 @@ void Editor::noteNode(Guid id, uint32_t groups) {
 
 void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   markInstanceDirty(c);
+  noteBindings(c, typeBefore);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
   if (typeBefore == NodeType::TEXT || c.phase != Phase::CHANGED) textCache_.erase(c.guid);
   else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE)) textCache_.erase(c.guid);
@@ -86,16 +87,23 @@ void Editor::write(const NodeChange& change) {
     return;
   }
   const NodeChange* c = &change;
-  NodeChange reduced;
+  // A reduced copy of the change, made only when needed (a NodeChange is large: writes are hot).
+  std::unique_ptr<NodeChange> reduced;
+  auto own = [&]() -> NodeChange& {
+    if (!reduced) {
+      reduced = std::make_unique<NodeChange>(*c);
+      c = reduced.get();
+    }
+    return *reduced;
+  };
   const Node* existing = doc_.get(change.guid);
-  bool userEdit = !deriving_ && !inLayout_ && txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
-  NodeChange redirected;
+  bool userEdit = !deriving_ && !inLayout_ && !resolving_ && txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
   if (userEdit && change.phase != Phase::REMOVED && (change.phase == Phase::CREATED || (change.mask & F_PARENT_INDEX)) &&
       change.props.parentIndex.guid.isDerived()) {
     // Into a slot of an instance: into its content frame (the slot diverges from the main on its first edit).
     Guid content = slotContentFor(change.props.parentIndex.guid, true);
     if (content != kNoGuid) {
-      redirected = change;
+      NodeChange redirected = change;
       redirected.props.parentIndex.guid = content;
       return write(redirected);
     }
@@ -105,10 +113,8 @@ void Editor::write(const NodeChange& change) {
     if (change.phase == Phase::CREATED && isStructuralTarget(change.props.parentIndex.guid) && !change.props.isSlotContent) return;
     if (change.phase == Phase::CHANGED && (change.mask & F_PARENT_INDEX) && isStructuralTarget(change.props.parentIndex.guid) &&
         !(existing && existing->props.parentIndex.guid == change.props.parentIndex.guid)) {
-      reduced = change;
-      reduced.mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TRANSFORM);
-      if (!reduced.mask) return;
-      c = &reduced;
+      own().mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TRANSFORM);
+      if (!c->mask) return;
     }
     // An instance takes overridable fields and its own; the rest comes from its main.
     if (c->phase == Phase::CHANGED && existing && existing->props.type == NodeType::INSTANCE) {
@@ -116,12 +122,10 @@ void Editor::write(const NodeChange& change) {
           ~(F_TYPE | F_STACK_MODE | F_STACK_WRAP | F_STACK_REVERSE_Z | F_BORDERS_TAKE_SPACE | F_VECTOR_DATA | F_BOOLEAN_OPERATION |
             F_MASK | F_RESIZE_TO_FIT | F_COUNT | F_STAR_INNER_SCALE | F_ARC_DATA | F_HANDLE_MIRRORING | F_COMPONENT_PROP_DEFS |
             F_IS_STATE_GROUP | F_VARIANT_PROP_SPECS | F_STATE_GROUP_ORDERS | F_IS_SLOT | F_IS_SLOT_CONTENT | F_IS_SOFT_DELETED |
-            F_ANCESTOR_PATH | F_BACKGROUND_COLOR | F_BACKGROUND_ENABLED | F_INTERNAL_ONLY);
+            F_ANCESTOR_PATH | F_BACKGROUND_COLOR | F_BACKGROUND_ENABLED | F_INTERNAL_ONLY | kAssetFields);
       if (c->mask & ~kInstanceWritable) {
-        if (c != &reduced) reduced = *c;
-        reduced.mask &= kInstanceWritable;
-        if (!reduced.mask) return;
-        c = &reduced;
+        own().mask &= kInstanceWritable;
+        if (!c->mask) return;
       }
     }
   }
@@ -130,23 +134,34 @@ void Editor::write(const NodeChange& change) {
     if (!existing) return;
     FieldMask mask = differingFields(existing->props, c->props, c->mask);
     if (!mask) return;
-    if (mask != c->mask) {
-      if (c != &reduced) reduced = *c;
-      reduced.mask = mask;
-      c = &reduced;
+    if (mask != c->mask) own().mask = mask;
+    // A user's edit of a bound value detaches the variable or the style it came from (Figma).
+    if (userEdit && existing->props.hasBindings()) {
+      NodeChange& r = own();
+      detachEdited(existing->props, r);
+      r.mask = differingFields(existing->props, r.props, r.mask);
+      if (!r.mask) return;
     }
   }
   NodeType typeBefore = existing ? existing->props.type : NodeType::NONE;
   Guid parentBefore = existing ? existing->props.parentIndex.guid : kNoGuid;
   bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
+  // An instance's bindings as they were (its root override records only what changed).
+  std::vector<ParamBinding> mapBefore;
+  bool rootOverride = userEdit && c->phase == Phase::CHANGED && typeBefore == NodeType::INSTANCE;
+  if (rootOverride && (c->mask & F_PARAM_MAP)) mapBefore = existing->props.parameterConsumptionMap;
   if (txn_.open) txn_.changes.touch(doc_, *c);
-  NodeChange inverse;
-  if (!doc_.apply(*c, record ? &inverse : nullptr)) return;
-  if (record) undo_.record(inverse);
+  if (record) {
+    NodeChange inverse;
+    if (!doc_.apply(*c, &inverse)) return;
+    undo_.record(std::move(inverse));
+  } else if (!doc_.apply(*c)) {
+    return;
+  }
   markLayout(*c, parentBefore);
   noteChange(*c, typeBefore);
   // An edit of an instance's own fields that are its root's is kept as its root override (docs/schema.md §5.2).
-  if (userEdit && c->phase == Phase::CHANGED && typeBefore == NodeType::INSTANCE) recordRootOverride(c->guid, *c);
+  if (rootOverride) recordRootOverride(c->guid, *c, &mapBefore);
 }
 
 void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
@@ -190,6 +205,7 @@ void Editor::flushLayout() {
   // Layout, then the instances its results (and the transaction's edits) reach, then layout again for what
   // re-derived instances moved (docs/engine.md §3.3).
   for (int pass = 0; pass < 8; pass++) {
+    flushBindings();  // styles and variables first: their values feed layout (docs/engine.md §3.3)
     if (!layoutDirty_.empty()) {
       if (txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE)) {
         std::vector<Guid> dirty(layoutDirty_.begin(), layoutDirty_.end());
@@ -201,9 +217,9 @@ void Editor::flushLayout() {
         layoutDirty_.clear();
       }
     }
-    if (instanceDirty_.empty()) break;
+    if (instanceDirty_.empty() && bindingsDirty_.empty()) break;
     flushInstances();
-    if (layoutDirty_.empty()) break;
+    if (layoutDirty_.empty() && bindingsDirty_.empty() && instanceDirty_.empty()) break;
   }
 }
 
@@ -258,7 +274,7 @@ void Editor::rollback() {
   txn_.changes.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
-  if (!instanceDirty_.empty()) {
+  if (!instanceDirty_.empty() || !bindingsDirty_.empty()) {
     // The instances the cancelled edit reached show their restored mains again.
     begin(TxnKind::SYSTEM, "Instances");
     commit();
@@ -280,6 +296,11 @@ void Editor::relayoutAll() {
         if (o.mask & F_OVERRIDDEN_SYMBOL_ID) used.insert(o.props.overriddenSymbolID);
     }
     for (const ComponentPropAssignment& a : n.props.componentPropAssignments) used.insert(a.value.guidValue);
+    // Bound values as the variables and styles say they are now (stored copies can be stale).
+    if (n.props.hasBindings()) bindingsDirty_.insert(n.guid);
+    if (n.props.isStyle()) styleIds_.insert(n.guid);
+    if (n.props.type == NodeType::VARIABLE_SET) collectionIds_.insert(n.guid);
+    if (n.props.type == NodeType::VARIABLE) variableSets_[n.guid] = n.props.variableSetID.guid;
   });
   // Deleted mains kept for their instances go once nothing uses them (docs/schema.md §5.7).
   doc_.forEach([&](const Node& n) {
@@ -289,7 +310,7 @@ void Editor::relayoutAll() {
       if (!anyUsed) unusedDeleted.push_back(n.guid);
     }
   });
-  if (dirty.empty() && instanceDirty_.empty() && unusedDeleted.empty()) return;
+  if (dirty.empty() && instanceDirty_.empty() && unusedDeleted.empty() && bindingsDirty_.empty()) return;
   std::sort(dirty.begin(), dirty.end());
   std::sort(unusedDeleted.begin(), unusedDeleted.end());
   begin(TxnKind::SYSTEM, "Layout");
@@ -303,6 +324,7 @@ void Editor::relayoutAll() {
     collect(collect, g);
     for (Guid id : order) write(NodeChange::removed(id));
   }
+  flushBindings();
   inLayout_ = true;
   Layout(*this).run(dirty);
   inLayout_ = false;
@@ -474,6 +496,16 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   derivedRows_.clear();
   derivedInfo_.clear();
   blueprint_.clear();
+  bindingsDirty_.clear();
+  deps_.clear();
+  varConsumers_.clear();
+  setConsumers_.clear();
+  styleConsumers_.clear();
+  styleIds_.clear();
+  collectionIds_.clear();
+  variableSets_.clear();
+  instanceBindings_.clear();
+  assetKeysDirty_ = true;
   navMain_ = returnTo_ = kNoGuid;
   if (text_.node != kNoGuid) events_.textEdit = true;
   text_ = TextSession{};

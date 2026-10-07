@@ -24,6 +24,7 @@ import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixed, sameData } from "../../model/mixed";
 import { fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
+import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 
 // ---- Effects ---------------------------------------------------------------------------------------
 
@@ -70,10 +71,13 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const [open, setOpen] = useState<{ index: number; anchor: HTMLElement } | null>(null);
   const add = () => writeEffects(ed, refs, isMixedList ? [defaultEffect()] : [...effects, defaultEffect()], "Add effect");
   const empty = !isMixedList && effects.length === 0;
+  const styled = sharedStyle(nodes, "effect");
+  const hasStyle = !!styled && styled !== "mixed";
   return (
-    <PanelSection title="Effects" empty={empty} actions={<>{!empty && <IconButton icon="24.styles" label="Effect styles" tone="secondary" disabled />}<IconButton icon="24.plus.small" label="Add effect" tone="secondary" disabled={!kept} onClick={add} /></>}>
-      {isMixedList && <div className={styles.note}>Click + to replace mixed effects</div>}
-      {effects
+    <PanelSection title="Effects" empty={empty} actions={<>{!empty && <StylesButton nodes={nodes} slot="effect" />}{!hasStyle && <IconButton icon="24.plus.small" label="Add effect" tone="secondary" disabled={!kept} onClick={add} />}</>}>
+      {hasStyle && <AppliedStyle nodes={nodes} slot="effect" />}
+      {!hasStyle && isMixedList && <div className={styles.note}>Click + to replace mixed effects</div>}
+      {!hasStyle && effects
         .map((e, i) => ({ e, i }))
         .reverse()
         .map(({ e, i }) => {
@@ -167,7 +171,7 @@ export function guideLabel(g: LayoutGrid): string {
   return `${kind === "ROWS" ? "Rows" : "Columns"} ${g.numSections ?? 5}`;
 }
 
-const GUIDE_ICON: Record<GuideKind, IconName> = { GRID: "24.grid", COLUMNS: "24.grid-column", ROWS: "24.grid-row" };
+export const GUIDE_ICON: Record<GuideKind, IconName> = { GRID: "24.grid", COLUMNS: "24.grid-column", ROWS: "24.grid-row" };
 
 export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
@@ -179,9 +183,12 @@ export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
   const [open, setOpen] = useState<{ index: number; anchor: HTMLElement } | null>(null);
   const write = (next: LayoutGrid[], label: string, info: ChangeInfo = { final: true, source: "pick" }) => ed.edit(label, info, () => void ed.engine.setProps(refs, fields({ layoutGrids: next })));
   const empty = !isMixedList && grids.length === 0;
+  const styled = sharedStyle(nodes, "grid");
+  const hasStyle = !!styled && styled !== "mixed";
   return (
-    <PanelSection title="Layout guide" empty={empty} actions={<>{!empty && <IconButton icon="24.styles" label="Layout guide styles" tone="secondary" disabled />}<IconButton icon="24.plus.small" label="Add layout guide" tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} /></>}>
-      {grids
+    <PanelSection title="Layout guide" empty={empty} actions={<>{!empty && <StylesButton nodes={nodes} slot="grid" />}{!hasStyle && <IconButton icon="24.plus.small" label="Add layout guide" tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} />}</>}>
+      {hasStyle && <AppliedStyle nodes={nodes} slot="grid" />}
+      {!hasStyle && grids
         .map((g, i) => ({ g, i }))
         .reverse()
         .map(({ g, i }) => (

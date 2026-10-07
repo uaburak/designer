@@ -32,7 +32,14 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
                 id == CommandId::ZOOM_TO_FIT || id == CommandId::ZOOM_TO_SELECTION;
     if (!zoom) endTextEdit();
   }
+  created_.clear();
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommand(id, args);
+  if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
+    Status st = variableCommand(id, args);
+    // Inside an open transaction (a scrub in the variables table): applied live, one undo step at its commit.
+    if (txn_.open) flushLayout();
+    return st;
+  }
   // Structure can't change inside an instance (docs/schema.md §5.4).
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
@@ -123,6 +130,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
 uint32_t Editor::commandState(CommandId id) const {
   bool any = !selection_.empty();
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommandState(id);
+  if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
   if (derivedSelected && id != CommandId::UNDO && id != CommandId::REDO && id != CommandId::TOGGLE_VISIBLE && id != CommandId::TOGGLE_LOCK &&

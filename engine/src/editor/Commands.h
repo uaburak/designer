@@ -82,6 +82,43 @@ enum class CommandId : uint32_t {
   RESET_SLOT = 136,                 // args {ref?}
   INSERT_INSTANCE = 137,            // args {main, x?, y?, parent?}
   SET_VARIANT_PROPERTIES = 138,     // args {ref?, values: {prop: value}}
+  // E6: variables, modes and styles (docs/engine-build.md "E6 variables"). `created` ids go to the result slot.
+  CREATE_VARIABLE_COLLECTION = 140,     // args {name?}
+  RENAME_VARIABLE_COLLECTION = 141,     // args {collection, name}
+  DELETE_VARIABLE_COLLECTION = 142,     // args {collection}
+  MOVE_VARIABLE_COLLECTION = 143,       // args {collection, index}
+  DUPLICATE_VARIABLE_COLLECTION = 144,  // args {collection}
+  ADD_VARIABLE_MODE = 145,              // args {collection, name?}
+  RENAME_VARIABLE_MODE = 146,           // args {collection, mode, name}
+  DELETE_VARIABLE_MODE = 147,           // args {collection, mode}
+  MOVE_VARIABLE_MODE = 148,             // args {collection, mode, index}
+  DUPLICATE_VARIABLE_MODE = 149,        // args {collection, mode}
+  CREATE_VARIABLE = 150,                // args {collection, type, name?, value?, group?}
+  RENAME_VARIABLE = 151,                // args {variable, name}
+  DELETE_VARIABLES = 152,               // args {variables}
+  MOVE_VARIABLES = 153,                 // args {variables, index, group?}
+  DUPLICATE_VARIABLES = 154,            // args {variables}
+  SET_VARIABLE_VALUE = 155,             // args {variable, mode?, value}
+  SET_VARIABLE_SCOPES = 156,            // args {variables, scopes}
+  SET_VARIABLE_CODE_SYNTAX = 157,       // args {variable, platform, value}
+  SET_VARIABLE_DESCRIPTION = 158,       // args {variable, description}
+  SET_VARIABLE_HIDDEN = 159,            // args {variables, hidden}
+  GROUP_VARIABLES = 160,                // args {variables, name}
+  RENAME_VARIABLE_GROUP = 161,          // args {collection, group, name}
+  UNGROUP_VARIABLES = 162,              // args {collection, group}
+  DELETE_VARIABLE_GROUP = 163,          // args {collection, group}
+  DUPLICATE_VARIABLE_GROUP = 164,       // args {collection, group}
+  BIND_VARIABLE = 165,                  // args {refs?, target, variable}
+  DETACH_VARIABLE = 166,                // args {refs?, target}
+  SET_VARIABLE_MODE = 167,              // args {refs?, page?, collection, mode}
+  CREATE_STYLE = 170,                   // args {type, name?, from?, apply?, target?}
+  DELETE_STYLE = 171,                   // args {style}
+  APPLY_STYLE = 172,                    // args {refs?, style, target?}
+  DETACH_STYLE = 173,                   // args {refs?, target}
+  MOVE_STYLE = 174,                     // args {style, index}
+  GROUP_STYLES = 175,                   // args {styles, name}
+  RENAME_STYLE_GROUP = 176,             // args {type, group, name}
+  UNGROUP_STYLES = 177,                 // args {type, group}
 };
 
 // engine_command_state bits.

@@ -86,6 +86,11 @@ export interface Paint {
   paintFilter?: PaintFilter;
   originalImageWidth?: number;
   originalImageHeight?: number;
+  /** Variable bindings (docs/schema.md §6.3): the colour (an alias or a composed colour), the opacity (a FLOAT, in %). */
+  colorVar?: VariableData;
+  opacityVar?: VariableData;
+  /** Gradient stops' bindings, index-aligned with `stops`. */
+  stopsVar?: { color: Color; colorVar?: VariableData; position: number }[];
   [other: string]: unknown;
 }
 export type EffectType = "INNER_SHADOW" | "DROP_SHADOW" | "FOREGROUND_BLUR" | "BACKGROUND_BLUR" | "GRAIN" | "NOISE" | "GLASS";
@@ -100,6 +105,12 @@ export interface Effect {
   spread?: number;
   /** "Show behind transparent areas". */
   showShadowBehindNode?: boolean;
+  /** Variable bindings. */
+  colorVar?: VariableData;
+  radiusVar?: VariableData;
+  spreadVar?: VariableData;
+  xVar?: VariableData;
+  yVar?: VariableData;
   [other: string]: unknown;
 }
 export type StrokeCap = "NONE" | "ROUND" | "SQUARE" | "ARROW_LINES" | "ARROW_EQUILATERAL" | "DIAMOND_FILLED" | "TRIANGLE_FILLED" | "CIRCLE_FILLED";
@@ -121,6 +132,11 @@ export interface LayoutGrid {
   gutterSize?: number;
   color?: Color;
   pattern?: "STRIPES" | "GRID";
+  /** Variable bindings. */
+  numSectionsVar?: VariableData;
+  offsetVar?: VariableData;
+  sectionSizeVar?: VariableData;
+  gutterSizeVar?: VariableData;
   [other: string]: unknown;
 }
 export interface ArcData {
@@ -338,8 +354,163 @@ export interface NodeFields {
   detachedSymbolId?: { guid: GuidValue };
   isSoftDeleted?: boolean;
   ancestorPathBeforeDeletion?: GuidValue[];
+  // ---- Variables, modes, styles (docs/schema.md §6; docs/engine-build.md "E6 variables") ----
+  /** Explicit modes ("Apply variable mode"): no entry for a collection = Auto. Any node, pages included. */
+  variableModeBySetMap?: { entries: { variableSetID: AssetId; variableModeID: GuidValue }[] };
+  /** Style references; the node's own fields hold the style's values. */
+  styleIdForFill?: AssetId;
+  styleIdForStrokeFill?: AssetId;
+  styleIdForText?: AssetId;
+  styleIdForEffect?: AssetId;
+  styleIdForGrid?: AssetId;
+  /** A style node (under the internal canvas). */
+  styleType?: StyleType | "NONE";
+  /** Styles, collections, variables: their order in the panels (fractional index). */
+  sortPosition?: string;
+  description?: string;
+  /** Assets: the stable 40-hex key. */
+  key?: string;
+  /** Absent = true; false = "Hide when publishing". */
+  isPublishable?: boolean;
+  /** VARIABLE_SET: its modes (the default is the first by sortPosition). */
+  variableSetModes?: { id: GuidValue; name: string; sortPosition: string }[];
+  /** VARIABLE: its collection. */
+  variableSetID?: AssetId;
+  variableResolvedType?: VariableResolvedType;
+  /** VARIABLE: one value per mode. */
+  variableDataValues?: { entries: { modeID: GuidValue; variableData: VariableData }[] };
+  /** Absent = ["ALL_SCOPES"]; [] = shown in no picker. */
+  variableScopes?: VariableScope[];
+  codeSyntax?: { entries: { platform: CodeSyntaxPlatform; value: string }[] };
   /** Kiwi field ids reset to absent (updates only). */
   clearedFields?: number[];
+}
+
+// ---- Variables (docs/schema.md §6) ----
+
+export type VariableResolvedType = "BOOLEAN" | "FLOAT" | "STRING" | "COLOR" | "EASING" | "TIMING";
+/** STROKE = "Stroke color" (the plugin API's STROKE_COLOR is read too). */
+export type VariableScope =
+  | "ALL_SCOPES" | "TEXT_CONTENT" | "CORNER_RADIUS" | "WIDTH_HEIGHT" | "GAP" | "ALL_FILLS" | "FRAME_FILL" | "SHAPE_FILL"
+  | "TEXT_FILL" | "STROKE" | "STROKE_FLOAT" | "EFFECT_FLOAT" | "EFFECT_COLOR" | "OPACITY" | "FONT_STYLE" | "FONT_FAMILY"
+  | "FONT_SIZE" | "LINE_HEIGHT" | "LETTER_SPACING" | "PARAGRAPH_SPACING" | "PARAGRAPH_INDENT" | "FONT_VARIATIONS" | "TRANSFORM"
+  | "COLOR_OPACITY";
+export type CodeSyntaxPlatform = "WEB" | "ANDROID" | "iOS";
+/** FILL = "Color style", GRID = "Layout guide style". */
+export type StyleType = "FILL" | "TEXT" | "EFFECT" | "GRID";
+/** A reference to an asset: by GUID (what DesignerV2 writes), or by a library key (imported .fig files). */
+export interface AssetId {
+  guid?: GuidValue;
+  assetRef?: { key: string; version?: string };
+}
+/** schema VariableData: a literal, an alias, a composed colour (COMPOSE_COLOR), a font style, a property reference. */
+export interface VariableData {
+  value?: {
+    boolValue?: boolean;
+    textValue?: string;
+    floatValue?: number;
+    alias?: AssetId;
+    colorValue?: Color;
+    expressionValue?: { expressionFunction: string; expressionArguments?: VariableData[] };
+    fontStyleValue?: { asString?: VariableData; asFloat?: VariableData; asVariations?: VariableData };
+    propRefValue?: { defId: GuidValue };
+    [other: string]: unknown;
+  };
+  dataType?: string;
+  resolvedDataType?: string;
+  [other: string]: unknown;
+}
+
+/** A value as the panels read and write it (Figma's plugin shapes). */
+export interface VariableAlias {
+  type: "VARIABLE_ALIAS";
+  id: Guid | null;
+}
+/** "Control opacity at scale": a colour (or an alias) with its own opacity (%, or an alias to a number). */
+export interface ComposedColor {
+  color: Color | VariableAlias;
+  opacity: number | VariableAlias;
+}
+export type VariableValue = boolean | number | string | Color | VariableAlias | ComposedColor;
+/** A value with every alias followed (EASING: its raw data). */
+export type ResolvedVariableValue = boolean | number | string | Color | Record<string, unknown>;
+/**
+ * What a binding binds: a VariableField name for node fields ("WIDTH", "OPACITY", "STACK_SPACING", "FONT_SIZE"…) or a
+ * list member: "fillPaints[i].color" | ".opacity" | ".stops[j].color", the same for strokePaints,
+ * "effects[i].color" | ".radius" | ".spread" | ".x" | ".y", "layoutGrids[i].numSections" | ".offset" | ".sectionSize" | ".gutterSize".
+ */
+export type BindingTarget = string;
+
+/** engine.variableCollections(). */
+export interface VariableCollectionInfo {
+  id: Guid;
+  name: string;
+  modes: { modeId: Guid; name: string }[];
+  defaultModeId: Guid | null;
+  variableIds: Guid[];
+  hiddenFromPublishing: boolean;
+  key: string;
+  description: string;
+}
+/** engine.variables() / engine.variable(). */
+export interface VariableInfo {
+  id: Guid;
+  name: string;
+  collectionId: Guid | null;
+  resolvedType: VariableResolvedType;
+  valuesByMode: Record<Guid, VariableValue | null>;
+  resolvedValuesByMode: Record<Guid, ResolvedVariableValue | null>;
+  scopes: VariableScope[];
+  codeSyntax: Partial<Record<CodeSyntaxPlatform, string>>;
+  description: string;
+  hiddenFromPublishing: boolean;
+  key: string;
+  /** Deleted while something still uses it (Figma's deletedButReferenced). */
+  deletedButReferenced: boolean;
+}
+/** engine.boundVariables(): one per binding of a node. */
+export interface BoundVariable {
+  target: BindingTarget;
+  /** The alias (a composed colour: its colour's alias). */
+  variable: Guid | null;
+  value: VariableValue | null;
+  resolved: ResolvedVariableValue | null;
+}
+/** engine.variableModes(): a layer's or page's mode for every collection. */
+export interface VariableModeInfo {
+  collectionId: Guid;
+  /** Its own ("Apply variable mode"); null = Auto. */
+  explicitModeId: Guid | null;
+  resolvedModeId: Guid | null;
+}
+/** engine.styles(). */
+export interface StyleInfo {
+  id: Guid;
+  name: string;
+  styleType: StyleType;
+  description: string;
+  key: string;
+  hiddenFromPublishing: boolean;
+  usageCount: number;
+  fillPaints?: Paint[];
+  effects?: Effect[];
+  layoutGrids?: LayoutGrid[];
+  text?: {
+    fontName: FontName;
+    fontSize: number;
+    lineHeight: NumberValue;
+    letterSpacing: NumberValue;
+    paragraphSpacing: number;
+    paragraphIndent: number;
+    textCase: TextCase;
+    textDecoration: TextDecoration;
+  };
+  boundVariables: BoundVariable[];
+}
+/** engine.runCommand(): the status, and what the command created. */
+export interface CommandResult {
+  status: number;
+  created: Guid[];
 }
 
 /** A GUID inside a structure (symbolData, property defs…), as decoded .fig files write it. */
@@ -370,7 +541,8 @@ export interface ComponentPropAssignment {
 }
 export interface ParameterEntry {
   variableField: string;
-  variableData: { dataType?: string; resolvedDataType?: string; value?: { propRefValue?: { defId: GuidValue } } & Record<string, unknown> };
+  /** PROP_REF (a component property), ALIAS / COMPOSE_COLOR / FONT_STYLE (a variable). */
+  variableData: VariableData;
 }
 /** One override entry: the overridden fields of the sublayer at `guidPath` (empty or absent: the instance root). */
 export type SymbolOverride = NodeFields & { guidPath?: { guids?: GuidValue[] } } & Record<string, unknown>;
@@ -522,7 +694,11 @@ export type EngineEvent =
   /** Instances re-derived (and the mains they come from) after a change reached them. */
   | { type: "COMPONENTS_CHANGED"; refs: Guid[] }
   /** After GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where it went, and the instance "Return to instance" goes back to. */
-  | { type: "INSTANCE_NAVIGATION"; main: Guid | null; returnTo: Guid | null };
+  | { type: "INSTANCE_NAVIGATION"; main: Guid | null; returnTo: Guid | null }
+  /** Collections or variables changed (any commit, undo, redo, remote change or load). */
+  | { type: "VARIABLES_CHANGED"; collections: Guid[]; variables: Guid[] }
+  /** Styles changed, or how many layers use them. */
+  | { type: "STYLES_CHANGED"; styles: Guid[] };
 
 export type EngineEventType = EngineEvent["type"];
 export type EventOf<T extends EngineEventType> = Extract<EngineEvent, { type: T }>;
@@ -539,10 +715,16 @@ export const encodeMessage = (message: Message): Uint8Array => encode(message);
 export const decodeMessage = (bytes: Uint8Array): Message => decode<Message>(bytes);
 export const encodeRefs = (refs: readonly Guid[]): Uint8Array => encode({ refs });
 /** A sparse NodeChange for engine_set_props (no guid: the refs say which nodes). */
-export const encodeFields = (fields: NodeFields): Uint8Array => encode(fields);
-/** Command args: numbers, and GUID strings ({ page: "0:3" }). */
-/** Command args: numbers, strings, booleans, string arrays, or a string map (SET_VARIANT_PROPERTIES `values`). */
-export type CommandArgValue = number | string | boolean | readonly string[] | Readonly<Record<string, string>>;
+/**
+ * What setProps writes: any NodeFields; a field set to null is cleared (absent), modelled or not — e.g.
+ * `{ styleIdForFill: null }` detaches a style; an unmodelled field (`{ exportSettings: null }`) needs a cast.
+ */
+export type NodeFieldsPatch = { [K in keyof NodeFields]?: NodeFields[K] | null };
+export const encodeFields = (fields: NodeFieldsPatch): Uint8Array => encode(fields);
+/** A JSON value. */
+export type JsonValue = null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+/** Command args: any JSON (GUIDs as "s:l" strings; variable values in Figma's shapes). */
+export type CommandArgValue = JsonValue;
 export const encodeArgs = (args: Readonly<Record<string, CommandArgValue>>): Uint8Array => encode(args);
 export const encodeOptions = (options: object): Uint8Array => encode(options);
 export const encodeText = (text: string): Uint8Array => encoder.encode(text);
