@@ -37,6 +37,8 @@ import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { VersionDialogs } from "./VersionDialogs";
 import { LocalVariables } from "./panels/variables/LocalVariables";
+import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
+import { PublishDialog } from "./panels/libraries/PublishDialog";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -222,6 +224,8 @@ function Overlays() {
       <CanvasMenu />
       <ShortcutsDialog />
       <VersionDialogs />
+      <LibrariesDialog />
+      <PublishDialog />
     </>
   );
 }

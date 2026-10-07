@@ -6,6 +6,7 @@ import type { EngineStore, Topic } from "@/engine/EngineStore";
 import { useEditor } from "./controller";
 import type { LayerTree } from "./model/layerTree";
 import type { LocalAssets } from "./variables";
+import type { LibraryState } from "./libraries";
 import { useStoreSlice, type UIState } from "./uiStore";
 
 interface Source<T> {
@@ -127,5 +128,15 @@ export function useLocalAssets(): LocalAssets {
   return useMemo(() => {
     void version;
     return ed.variables.get();
+  }, [ed, version]);
+}
+
+/** This file's libraries (the registry's view, updates, copies), re-read after any library change. */
+export function useLibraries(): LibraryState {
+  const ed = useEditor();
+  const version = useSyncExternalStore(ed.libraries.subscribe, ed.libraries.getVersion);
+  return useMemo(() => {
+    void version;
+    return ed.libraries.get();
   }, [ed, version]);
 }

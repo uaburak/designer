@@ -166,7 +166,9 @@ export function readVariable(n: VNode): Variable {
     const v = fromData(e.variableData);
     if (v) values.set(guidStr(e.modeID), v);
   }
-  const type = (VAR_TYPES as readonly string[]).includes(n.variableResolvedType ?? "") ? (n.variableResolvedType as VarType) : "FLOAT";
+  // Absent = BOOLEAN in the kiwi enum (0); some writers leave it out then, so the values' own type decides.
+  const declared = n.variableResolvedType ?? n.variableDataValues?.entries?.find((e) => e.variableData?.resolvedDataType)?.variableData?.resolvedDataType;
+  const type = (VAR_TYPES as readonly string[]).includes(declared ?? "") ? (declared as VarType) : "FLOAT";
   return {
     id: n.guid,
     name: n.name ?? "",

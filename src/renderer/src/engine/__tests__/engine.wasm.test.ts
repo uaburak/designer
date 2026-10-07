@@ -10,6 +10,8 @@ import { Engine } from "../Engine";
 import { BUNDLED_FACES, fonts } from "../fonts";
 import { loadEngine } from "../loadEngine";
 import { SAMPLE_DOCUMENT } from "../sampleDocument";
+import { decodeMessage as decodeKiwi, encodeMessage as encodeKiwi } from "@shared/schema/codec";
+import { messageToEngine, messageToKiwi } from "../../store/engineMessage";
 
 const wasm = fileURLToPath(new URL("../wasm/engine.wasm", import.meta.url));
 
@@ -646,5 +648,139 @@ describe("engine (wasm, headless): variables, modes and styles (E6)", () => {
     console.log(`wasm: a mode switch over 10,000 bound layers: ${best.toFixed(1)} ms (its DOCUMENT_CHANGED and NODES_CHANGED included)`);
     expect(best).toBeLessThan(1000);
     engine.destroy();
+  });
+});
+
+describe("engine (wasm, headless): libraries (E6)", () => {
+  const LIB = "LibraryFileKey000001";
+  const CONSUMER = "ConsumerFileKey00002";
+  const base = (extra: NodeChange[]): Message => ({
+    type: "NODE_CHANGES",
+    sessionID: 0,
+    nodeChanges: [
+      { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+      { guid: "0:1", phase: "CREATED", type: "CANVAS", name: "Page 1", parentIndex: { guid: "0:0", position: "!" } },
+      { guid: "0:2", phase: "CREATED", type: "CANVAS", name: "Internal Only Canvas", internalOnly: true, parentIndex: { guid: "0:0", position: "~" } },
+      ...extra,
+    ],
+  });
+  const solid = (r: number, g: number, b: number) => ({ type: "SOLID" as const, color: { r, g, b, a: 1 }, opacity: 1, visible: true });
+
+  it("publish (keys, local assets, payloads), import as read-only copies, use, update as one undo step, cross-file paste", async () => {
+    // The library: a main Button (Background + Label) and its instance; a collection with Brand, a colour style bound to it.
+    const lib = await Engine.create(null, { sessionID: 1 });
+    lib.load(
+      base([
+        { guid: "1:10", phase: "CREATED", type: "SYMBOL", name: "Button", parentIndex: { guid: "0:1", position: "!" }, size: { x: 120, y: 40 } },
+        { guid: "1:11", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Background", parentIndex: { guid: "1:10", position: "!" }, size: { x: 120, y: 40 }, fillPaints: [solid(0.5, 0.5, 0.5)] },
+        { guid: "1:12", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Label", parentIndex: { guid: "1:10", position: "\"" }, size: { x: 60, y: 20 }, fillPaints: [solid(0, 0, 0)] },
+        {
+          guid: "1:40", phase: "CREATED", type: "INSTANCE", name: "Button", parentIndex: { guid: "0:1", position: "\"" }, size: { x: 120, y: 40 },
+          transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 200 }, symbolData: { symbolID: { sessionID: 1, localID: 10 }, symbolOverrides: [] },
+        },
+      ]),
+    );
+    lib.setFileKey(LIB);
+    const [set] = lib.runCommand("CREATE_VARIABLE_COLLECTION", { name: "Theme" }).created;
+    const dark = lib.runCommand("ADD_VARIABLE_MODE", { collection: set, name: "Dark" }).created[0];
+    const brand = lib.runCommand("CREATE_VARIABLE", { collection: set, type: "COLOR", name: "Brand", value: { r: 1, g: 0, b: 0, a: 1 } }).created[0];
+    expect(lib.command("SET_VARIABLE_VALUE", { variable: brand, mode: dark, value: { r: 0, g: 0, b: 1, a: 1 } })).toBe(Status.OK);
+    const style = lib.runCommand("CREATE_STYLE", { type: "FILL", name: "Primary", from: "1:11", apply: true }).created[0];
+    expect(lib.command("BIND_VARIABLE", { refs: [style], target: "fillPaints[0].color", variable: brand })).toBe(Status.OK);
+    expect(lib.readNode("1:11")?.fillPaints?.[0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+
+    // Keys (a SYSTEM change: no undo step), local assets.
+    const keys = lib.ensureAssetKeys();
+    expect(keys).toHaveLength(4);
+    const button = keys.find((k) => k.id === "1:10")!.key;
+    expect(button).toMatch(/^[0-9a-f]{40}$/);
+    expect(lib.undo()).toBe(true); // the binding, not the keys
+    expect(lib.readNode("1:10")?.key).toBe(button);
+    expect(lib.redo()).toBe(true);
+    expect(lib.ensureAssetKeys(["1:10"])).toEqual([{ id: "1:10", key: button }]);
+    const local = lib.localAssets();
+    const buttonInfo = local.find((a) => a.key === button)!;
+    expect(buttonInfo).toMatchObject({ kind: "COMPONENT", name: "Button", hiddenFromPublishing: false, softDeleted: false, publishedVersion: null, containingFrame: { pageId: "0:1", pageName: "Page 1" } });
+    expect(buttonInfo.versionHash).toMatch(/^[0-9a-f]{40}$/);
+    expect(buttonInfo.dependencies).toHaveLength(3); // Primary, Brand, Theme
+    expect(local.find((a) => a.id === brand)).toMatchObject({ kind: "VARIABLE", resolvedType: "COLOR", collectionId: set, containingFrame: null });
+    expect(local.find((a) => a.id === style)).toMatchObject({ kind: "STYLE", styleType: "FILL" });
+
+    // Payloads (through the store's kiwi and back), then publishedVersion.
+    const encoded = lib.encodeAssets([button]);
+    expect(encoded.assets.map((a) => [a.id, a.dependencyOnly])).toEqual([
+      ["1:10", false],
+      [style, true],
+      [brand, true],
+      [set, true],
+    ]);
+    expect(encoded.assets[0].message.nodeChanges[0]).toMatchObject({ guid: "1:10", key: button, version: buttonInfo.versionHash });
+    const stored = encoded.assets.map((a) => messageToEngine(decodeKiwi(encodeKiwi(messageToKiwi(a.message)))));
+    expect(lib.markPublished(encoded.assets.map((a) => ({ key: a.key, versionHash: a.versionHash })))).toBe(Status.OK);
+    expect(lib.localAssets().find((a) => a.key === button)?.publishedVersion).toBe(buttonInfo.versionHash);
+
+    // The consumer imports them: read-only copies under the internal canvas.
+    const con = await Engine.create(null, { sessionID: 1 });
+    con.load(base([{ guid: "1:1", phase: "CREATED", type: "FRAME", name: "Screen", parentIndex: { guid: "0:1", position: "!" }, size: { x: 400, y: 400 } }]));
+    con.setFileKey(CONSUMER);
+    const imported = con.importLibraryAssets(stored, { libraryKey: LIB });
+    expect(imported.status).toBe(Status.OK);
+    const copy = imported.assets.find((a) => a.key === button)!;
+    expect(copy).toMatchObject({ kind: "COMPONENT", libraryKey: LIB, version: buttonInfo.versionHash, created: true, updated: false });
+    expect(con.readNode(copy.id)).toMatchObject({ sourceLibraryKey: LIB, key: button, publishID: { sessionID: 1, localID: 10 }, parentIndex: { guid: "0:2" } });
+    expect(con.setProps([copy.id], { name: "Mine" })).toBe(Status.E_READONLY);
+    expect(con.variableCollections()).toEqual([]);
+    expect(con.variableCollections({ includeRemote: true })).toMatchObject([{ name: "Theme", remote: true, libraryKey: LIB }]);
+    expect(con.variables(undefined, { includeRemote: true })).toMatchObject([{ name: "Brand", remote: true, libraryKey: LIB }]);
+    expect(con.styles()).toEqual([]);
+    const remoteStyle = con.styles(undefined, { includeRemote: true });
+    expect(remoteStyle).toMatchObject([{ name: "Primary", remote: true, libraryKey: LIB }]);
+    expect(con.command("RENAME_VARIABLE", { variable: con.variables(undefined, { includeRemote: true })[0].id, name: "x" })).toBe(Status.E_READONLY);
+
+    // An instance of the copy; a remote style on a frame.
+    expect(con.command("INSERT_INSTANCE", { main: copy.id, x: 100, y: 100 })).toBe(Status.OK);
+    const inst = con.getSelection().refs[0];
+    const info = con.componentInfo(inst)!;
+    expect(info.main).toMatchObject({ ref: copy.id, remote: { libraryKey: LIB, key: button, version: buttonInfo.versionHash }, copied: false });
+    expect(info.canPush).toBe(false);
+    const bg = con.readNode(inst, { childIds: true })!.childIds![0];
+    expect(con.readNode(bg)?.fillPaints?.[0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(con.setProps([`${inst.replace(/^/, "I")};1:12`], { fillPaints: [solid(1, 1, 1)] })).toBe(Status.OK);
+    expect(con.command("APPLY_STYLE", { refs: ["1:1"], style: remoteStyle[0].id })).toBe(Status.OK);
+    expect(con.readNode("1:1")?.fillPaints?.[0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(con.libraryUsage().find((u) => u.key === button)).toMatchObject({ kind: "COMPONENT", libraryKey: LIB, usageCount: 1, publishID: "1:10" });
+
+    // The library changes Brand and Background; the consumer accepts the update — one undo step, the override kept.
+    expect(lib.command("SET_VARIABLE_VALUE", { variable: brand, value: { r: 0, g: 1, b: 0, a: 1 } })).toBe(Status.OK);
+    expect(lib.setProps(["1:11"], { opacity: 0.5 })).toBe(Status.OK);
+    const v2 = lib.encodeAssets([button]);
+    expect(v2.assets[0].versionHash).not.toBe(buttonInfo.versionHash);
+    const docs: NodeChange[][] = [];
+    con.onDocumentChanged((c) => docs.push(c));
+    const updated = con.applyLibraryUpdate(v2.assets.map((a) => a.message), { libraryKey: LIB });
+    expect(updated.status).toBe(Status.OK);
+    expect(updated.assets.find((a) => a.key === button)).toMatchObject({ id: copy.id, updated: true, version: v2.assets[0].versionHash });
+    expect(docs).toHaveLength(1);
+    expect(con.readNode(bg)?.opacity).toBe(0.5);
+    expect(con.readNode(bg)?.fillPaints?.[0].color).toEqual({ r: 0, g: 1, b: 0, a: 1 });
+    expect(con.readNode("1:1")?.fillPaints?.[0].color).toEqual({ r: 0, g: 1, b: 0, a: 1 });
+    expect(con.readNode(`I${inst};1:12`)?.fillPaints?.[0].color).toEqual({ r: 1, g: 1, b: 1, a: 1 });
+    expect(con.undo()).toBe(true);
+    expect(con.readNode(bg)?.opacity).toBe(1);
+    expect(con.readNode("1:1")?.fillPaints?.[0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(con.redo()).toBe(true);
+
+    // Cross-file paste: an instance of the published main pastes as an instance of the same copy.
+    lib.setSelection(["1:40"]);
+    const clip = lib.encodeSelection()!;
+    expect(clip.pasteFileKey).toBe(LIB);
+    expect(clip.nodeChanges.length).toBeGreaterThan(1); // the instance, then what it references
+    expect(lib.encodeSelection({ cut: true })?.isCut).toBe(true);
+    con.setSelection([]);
+    expect(con.paste(clip, { inPlace: true })).toBe(1);
+    expect(con.readNode(con.getSelection().refs[0])?.symbolData?.symbolID).toEqual(con.readNode(inst)?.symbolData?.symbolID);
+    expect(con.libraryUsage().find((u) => u.key === button)?.usageCount).toBe(2);
+    lib.destroy();
+    con.destroy();
   });
 });

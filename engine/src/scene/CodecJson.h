@@ -51,6 +51,7 @@ class BlobsOut {
   bool empty() const { return list_.empty(); }
   // `"blobs": [...]` as the next member of an open object (nothing when there are none).
   void writeMember(json::Writer& w) const;
+  const std::vector<Bytes>& list() const { return list_; }
 
  private:
   std::vector<Bytes> list_;

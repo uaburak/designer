@@ -13,19 +13,42 @@ import { decodeClipboard, encodeClipboard, messageAt } from "./model/clipboard";
 import { isEditable } from "./keyboard";
 import { isImageFile } from "./images";
 import { frameAt, placeImages } from "./placeImages";
+import { movedAmong } from "./libraries";
+import { showToast } from "@/ds";
 
 
 function writeTo(data: DataTransfer, formats: Record<string, string>) {
   for (const [type, value] of Object.entries(formats)) data.setData(type, value);
 }
 
-/** The selection's clipboard formats, or null (nothing selected, or no engine support yet). */
-function copyFormats(ed: EditorController): Record<string, string> | null {
-  const message = ed.engine.encodeSelection();
+/**
+ * The selection's clipboard formats, or null (nothing selected, or no engine support yet). The engine writes Figma's
+ * `pasteFileKey` (this file, `setFileKey`) and `isCut` (⌘X) into the Message and, after the selection, the mains,
+ * styles and variables it references (docs/engine-build.md "Clipboard (cross-file)").
+ */
+function copyFormats(ed: EditorController, cut = false): Record<string, string> | null {
+  const message = ed.engine.encodeSelection({ cut });
   return message && message.nodeChanges.length ? encodeClipboard(message) : null;
 }
 
+/**
+ * A paste: from another file the engine sorts published components, styles and variables out itself (library
+ * copies; a cut published main is moved here, `libraryMoveInfo`) — a moved component's toast offers Publish….
+ */
 function pasteMessage(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
+  const fileKey = ed.source.libraries?.fileKey ?? null;
+  const from = (message as Message & { pasteFileKey?: string }).pasteFileKey;
+  pasteInto(ed, message, mode);
+  const moved = fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0;
+  if (moved) {
+    showToast({
+      message: moved === 1 ? "Pasted a published component. Publish this file to move it here." : `Pasted ${moved} published components. Publish this file to move them here.`,
+      action: ed.source.libraries?.inDrafts() ? undefined : { label: "Publish…", onAction: () => ed.ui.set({ publishOpen: true }) },
+    });
+  }
+}
+
+function pasteInto(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
   if (mode?.mode === "point") {
     // "Paste here": the Message moved so its corner is under the pointer, pasted in place in the frame there.
     const cam = ed.engine.getCamera();
@@ -41,7 +64,7 @@ export function attachClipboard(ed: EditorController): () => void {
   const onCopy = (e: ClipboardEvent, cut: boolean) => {
     if (isEditable(e.target) || !e.clipboardData) return;
     if (!ed.selection.length) return;
-    const formats = copyFormats(ed);
+    const formats = copyFormats(ed, cut);
     e.preventDefault();
     if (!formats) return;
     writeTo(e.clipboardData, formats);
@@ -84,7 +107,7 @@ export function attachClipboard(ed: EditorController): () => void {
 export function copyFromMenu(ed: EditorController, cut: boolean): void {
   ed.focusCanvas();
   if (document.execCommand(cut ? "cut" : "copy")) return;
-  const formats = copyFormats(ed);
+  const formats = copyFormats(ed, cut);
   if (!formats) return;
   ed.lastCopy = formats;
   const item = new ClipboardItem({ "text/html": new Blob([formats["text/html"]], { type: "text/html" }), "text/plain": new Blob([formats["text/plain"]], { type: "text/plain" }) });

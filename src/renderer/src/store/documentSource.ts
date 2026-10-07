@@ -17,13 +17,14 @@
  * `openVersion` (a read-only document), `restoreVersion` (the restore diff handed to the editor to apply as one
  * undoable "Restore version" edit, journaled as `restore`, then a "restore" history entry), `duplicateVersion`.
  */
-import type { DocumentSource } from "@/editor/documentSource";
+import type { DocumentSource, LibraryAccess } from "@/editor/documentSource";
 import type { Message as EngineMessage } from "@/engine/codec";
 import { decodeMessage, encodeMessage } from "../../../shared/schema/codec";
 import { messageImageHashes, NodeTable } from "../../../shared/schema/patch";
 import type { FileChange, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../../../shared/store/repositories";
 import type { BatchKind, ChangeBatch, FileKey, FileMeta, FileUiState, Folder, FolderId, VersionId, VersionRecord } from "../../../shared/store/types";
 import { messageToEngine, messageToKiwi } from "./engineMessage";
+import { storeLibraryAccess } from "./libraryAccess";
 
 /** The engine's transaction kinds (DOCUMENT_CHANGED's `kind`, engine.md §9.2). */
 export type EngineChangeKind = "USER" | "UNDO" | "REDO" | "SYSTEM";
@@ -110,6 +111,9 @@ export interface StoreDocumentSource extends DocumentSource {
 
   /** Writes the pending UI state, flushes, ends the edit session. Idempotent. */
   close(): Promise<void>;
+
+  /** The workspace's libraries for this file (docs/data.md §9) */
+  readonly libraries: LibraryAccess;
 }
 
 export const RESTORE_LABEL = "Restore version";
@@ -177,6 +181,8 @@ class Source implements StoreDocumentSource {
   private readonly external = new Listeners<{ message: EngineMessage; seq: number; kind: BatchKind }>();
   private externalOff: Unsubscribe | null = null;
   private readonly offWatch: Unsubscribe;
+  private readonly fileMeta = new Listeners<FileMeta>();
+  readonly libraries: LibraryAccess;
   private uiPatch: Partial<FileUiState> | null = null;
   private uiTimer: ReturnType<typeof setTimeout> | null = null;
   private closing: Promise<void> | null = null;
@@ -195,7 +201,12 @@ class Source implements StoreDocumentSource {
     this.headSeq = o.headSeq;
     this.meta = o.meta;
     for (const f of folders) this.folderNames.set(f.id, f.name);
-    this.offWatch = store.workspace.watch((e) => this.onWorkspaceEvent(e));
+    this.offWatch = store.workspace.watch((e) => {
+      const before = this.meta;
+      this.onWorkspaceEvent(e);
+      if (this.meta !== before) this.fileMeta.emit(this.meta);
+    });
+    this.libraries = storeLibraryAccess(store, () => this.meta, (l) => this.fileMeta.add(l));
   }
 
   get fileName(): string {

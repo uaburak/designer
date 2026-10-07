@@ -22,6 +22,7 @@ import type { Guid, Message, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { engineCommandEnabled, engineMethod, hasCommand, runEngineCommand, type CommandArgs } from "./engineCompat";
 import { frameAt, toPage } from "./placeImages";
+import { libraryOfMain, openLibraryFile } from "./libraries";
 import {
   assignedValue,
   bindingsOf,
@@ -784,7 +785,19 @@ export function goToMainComponent(ed: EditorController, instanceRef: Guid = ed.s
     showToast({ message: "The main component isn't in this file" });
     return false;
   }
+  // A library instance: its main lives in the library file (Figma opens that file).
+  const lib = libraryOfMain(ed, main.guid);
+  if (lib) {
+    const name = ed.libraries.get().names.get(lib);
+    void openLibraryFile(lib, name).catch(() => showToast({ message: `The main component is in ${name ?? "a library"}` }));
+    return true;
+  }
   const page = pageOf(ed, main.guid);
+  if (page && !main.isSoftDeleted && (ed.engine.readNode(page) as { internalOnly?: boolean } | null)?.internalOnly) {
+    // A main copied in from another file (kept on the internal canvas): nothing to show here.
+    showToast({ message: "The main component is in another file" });
+    return false;
+  }
   if (!page || main.isSoftDeleted) {
     showToast({ message: "The main component was deleted", action: hasCommand(COMPONENT_COMMAND.restore) ? { label: "Restore component", onAction: () => void runEngineCommand(ed.engine, COMPONENT_COMMAND.restore, { ref: instanceRef }) } : undefined });
     return false;

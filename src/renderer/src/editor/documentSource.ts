@@ -7,6 +7,8 @@
  * `?editor` route and the tests use `memoryDocumentSource`.
  */
 import type { Guid, Message, NodeChange } from "@/engine/codec";
+import type { LibraryEvent } from "../../../shared/store/repositories";
+import type { LibraryDiff, LibraryRecord, LibraryVersion, PublishAsset, PublishPreview } from "../../../shared/store/types";
 import { memoryImageStore, type ImageStore } from "./images";
 
 export interface DocumentSource {
@@ -43,6 +45,52 @@ export interface DocumentSource {
   restoreVersion?(id: string, apply: (diff: Message) => void | Promise<void>): Promise<VersionInfo>;
   /** The file's images by SHA-1 (the store's blobs). Optional: absent, images can't be placed or drawn. */
   readonly images?: ImageStore;
+  /** The workspace's libraries as this file sees them (docs/data.md §9). Optional: absent, libraries are off. */
+  readonly libraries?: LibraryAccess;
+}
+
+/** A publish's asset with its payload as the engine's Message (the source encodes it for the store). */
+export type EditorPublishAsset = Omit<PublishAsset, "payload"> & { payload?: Message };
+
+/** A published library in the workspace, as the Libraries modal lists it. */
+export interface LibraryEntry {
+  fileKey: string;
+  /** The library file's name */
+  name: string;
+  /** "Drafts" or its folder's name */
+  location: string;
+  record: LibraryRecord;
+}
+
+/** What a library event or a change of this file's enabled libraries looks like to the editor. */
+export type LibraryNotice = LibraryEvent | { type: "enabled"; enabled: readonly string[] } | { type: "moved"; inDrafts: boolean };
+
+/**
+ * The library registry for one open file (docs/data.md §9): publish this file, enable others, fetch payloads,
+ * find updates. Payloads cross as the engine's Messages; the store keeps kiwi.
+ */
+export interface LibraryAccess {
+  /** This file's key (the library's key when it publishes) */
+  readonly fileKey: string;
+  /** In Drafts: Figma refuses to publish ("Move to a folder to publish") */
+  inDrafts(): boolean;
+  /** The libraries enabled in this file */
+  enabled(): readonly string[];
+  /** Every published library in the workspace but this file */
+  available(): Promise<LibraryEntry[]>;
+  /** A library file's name (null when it is gone) */
+  fileName(lib: string): Promise<string | null>;
+  record(lib: string): Promise<LibraryRecord | null>;
+  version(lib: string, version?: number): Promise<LibraryVersion>;
+  previewPublish(assets: EditorPublishAsset[]): Promise<PublishPreview>;
+  publish(input: { description: string; assets: EditorPublishAsset[]; moves: { key: string; fromLibraryFileKey: string; fromKey: string; mode: "move" | "copy" }[] }): Promise<LibraryVersion>;
+  setEnabled(lib: string, enabled: boolean): Promise<void>;
+  payloads(lib: string, wants: { key: string; versionHash: string }[], opts: { withDependencies: boolean }): Promise<{ key: string; versionHash: string; message: Message }[]>;
+  diff(lib: string, have: { key: string; versionHash: string }[]): Promise<LibraryDiff>;
+  /** Published / status events of every library, and this file's own enabled list or folder changing */
+  onChange(listener: (e: LibraryNotice) => void): () => void;
+  /** Where a manifest's thumbnail (a blob) can be shown; "" when it can't */
+  blobUrl(sha1: string): string;
 }
 
 /** What a source keeps of the editor's UI between sessions (the store's FileUiState). */

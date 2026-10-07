@@ -12,6 +12,7 @@
 //   EDITOR_ONLY=paints node …                                      (only the E4 / E5 section: paints, effects, images, vectors)
 //   EDITOR_ONLY=components node …                                  (only the E6 section: components, instances, Assets)
 //   EDITOR_ONLY=variables node …                                   (only the variables / modes / styles section)
+//   EDITOR_ONLY=libraries node …                                   (only the libraries section: publish, enable, insert, update)
 /* global process, console, window, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -566,7 +567,165 @@ async function variablesSection(page, theme) {
   await page.keyboard.press("Escape");
 }
 
+/**
+ * Libraries on the browser's dev store (docs/data.md §9): two library files in a folder ("Kit": components;
+ * "Tokens": variables and styles) and an "App" in Drafts. Publish library (the modal, then the toast), Drafts can't
+ * publish, the Libraries modal (Add to file, a library's preview), Assets with the libraries' sections, a remote
+ * component inserted (an instance of its read-only copy), a remote variable bound through the picker's library
+ * list; the Kit changes and publishes again; the App opens with the blue badge, the Updates list and the review
+ * (side by side, overlay), Update.
+ */
+async function librariesSection(page, theme) {
+  await open(page, "&doc=empty");
+  const keys = await page.evaluate(async (repo) => {
+    const s = await import("/src/store/index.ts");
+    const { encodeMessage, newDocumentMessage } = await import(`/@fs${repo}/src/shared/schema/codec.ts`);
+    const { COMPONENTS_DOCUMENT, VARIABLES_DOCUMENT } = await import("/src/editor/fixtures.ts");
+    const api = s.getStoreClient();
+    const mem = await s.getDevStore().ready;
+    const folder = await api.workspace.createFolder({ name: "Design system", parentId: null });
+    const add = async (name, doc, folderId) => (await mem.addFile({ name, folderId, snapshot: encodeMessage(s.messageToKiwi(doc)) })).fileKey;
+    return { kit: await add("Kit", COMPONENTS_DOCUMENT, folder.id), tokens: await add("Tokens", VARIABLES_DOCUMENT, folder.id), app: await add("App", newDocumentMessage(), null) };
+  }, repo);
+  const ed = (fn, arg) => page.evaluate(fn, arg);
+  const dialog = page.getByRole("dialog");
+  const publishFromUi = async (name) => {
+    await ed(() => window.__designerEditor.ui.set({ publishOpen: true }));
+    await page.locator("[data-publish-dialog] [data-change]").first().waitFor({ timeout: 10000 });
+    await settle(page);
+    if (name) await shot(page, name);
+    await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.locator("[data-publish-dialog]").waitFor({ state: "detached", timeout: 10000 });
+  };
+
+  // ---- The Kit publishes (the modal lists its components as new); the Tokens too.
+  await open(page, `&file=${keys.kit}`);
+  await publishFromUi(`70-publish-library-${theme}`);
+  await page.getByText("Library published").first().waitFor({ timeout: 5000 }).catch(() => {});
+  await shot(page, `71-library-published-${theme}`);
+  const v1 = await ed(async (k) => (await (await import("/src/store/index.ts")).getStoreClient().libraries.getRecord(k))?.latestVersion ?? 0, keys.kit);
+  check("Publish library: version 1 of the Kit is in the registry", v1 === 1, `version ${v1}`);
+  await open(page, `&file=${keys.tokens}`);
+  await publishFromUi(null);
+
+  // ---- The App (in Drafts): Publish says "Move to a folder to publish"; the Libraries modal adds both.
+  await open(page, `&file=${keys.app}`);
+  await ed(() => window.__designerEditor.ui.set({ publishOpen: true }));
+  await page.locator("[data-publish-drafts]").waitFor({ timeout: 5000 });
+  await shot(page, `72-publish-drafts-${theme}`);
+  check("a file in Drafts can't publish (Move to a folder to publish)", (await page.getByText("Move to a folder to publish").count()) > 0);
+  await page.keyboard.press("Escape");
+  await ed(() => window.__designerEditor.ui.set({ railTab: "assets", publishOpen: false }));
+  await settle(page);
+  await page.locator("[data-libraries-button]").click();
+  await page.locator('[data-library-row="Kit"]').waitFor({ timeout: 10000 });
+  await settle(page);
+  await shot(page, `73-libraries-modal-${theme}`);
+  for (const name of ["Kit", "Tokens"]) {
+    await page.locator(`[data-library-row="${name}"]`).getByRole("button", { name: "Add to file" }).click();
+    await page.locator('section[aria-label="Added to this file"]').locator(`[data-library-row="${name}"]`).waitFor({ timeout: 10000 });
+  }
+  check("Add to file: both libraries are enabled in the App", (await ed(() => window.__designerEditor.libraries.get().enabled.length)) === 2);
+  await page.getByRole("button", { name: "Preview Kit" }).click();
+  await page.locator("[data-library-preview] img, [data-library-preview] canvas").first().waitFor({ timeout: 5000 }).catch(() => {});
+  await settle(page);
+  await shot(page, `74-library-preview-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("Esc closes the Libraries modal from a library's preview", (await page.locator("[data-libraries-dialog]").count()) === 0);
+  if (await page.locator("[data-libraries-dialog]").count()) await dialog.getByRole("button", { name: "Close" }).click();
+
+  // ---- Assets: the libraries' sections with their thumbnails; a click inserts an instance of the Button.
+  await page.locator('[data-assets-section="Kit"] [data-asset-name="Button"]').waitFor({ timeout: 10000 });
+  await settle(page);
+  await shot(page, `75-assets-libraries-${theme}`);
+  await page.locator('[data-assets-section="Kit"] [data-asset-name="Button"]').click();
+  await page.waitForFunction(() => window.__designerEditor.selection.length === 1, null, { timeout: 10000 }).catch(() => {});
+  const inserted = await ed(() => {
+    const e = window.__designerEditor;
+    const id = e.selection[0];
+    const n = id ? e.engine.readNode(id) : null;
+    const main = n?.symbolData?.symbolID;
+    const copy = main ? e.engine.readNode(`${main.sessionID}:${main.localID}`) : null;
+    return { id, type: n?.type, library: copy?.sourceLibraryKey ?? null };
+  });
+  check("a click on a library component inserts an instance of its read-only copy", inserted.type === "INSTANCE" && inserted.library === keys.kit, JSON.stringify(inserted));
+  await settle(page);
+  await shot(page, `76-library-instance-${theme}`);
+
+  // ---- A remote variable bound through the picker (its library listed under "All libraries").
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("r");
+  const area = await page.locator("#engine-canvas").boundingBox();
+  await drag(page, [area.x + 120, area.y + 120], [area.x + 220, area.y + 200]);
+  await settle(page);
+  const panel = page.locator('[data-panel="right"]');
+  const radius = panel.locator('[data-bind-field="CORNER_RADIUS"]');
+  await radius.hover();
+  await radius.getByRole("button", { name: "Apply variable" }).click();
+  await page.locator('[data-variable-picker] [data-picker-library="Tokens"]').waitFor({ timeout: 10000 }).catch(() => {});
+  await settle(page);
+  await shot(page, `77-variable-picker-libraries-${theme}`);
+  const remoteVar = page.locator('[data-variable-picker] [data-library="Tokens"][data-variable="radius/lg"]');
+  if (await remoteVar.count()) {
+    await remoteVar.click();
+    await radius.locator("[data-bound-variable]").waitFor({ timeout: 10000 }).catch(() => {});
+    await settle(page);
+    check("a library variable binds through its copy (the pill shows its name)", (await radius.locator("[data-bound-variable]").count()) === 1);
+    await shot(page, `78-bound-pill-library-${theme}`);
+  } else check("a library variable binds through its copy (the pill shows its name)", false, "radius/lg not listed under Tokens");
+  await page.evaluate(() => window.__designerEditor.source.flush());
+
+  // ---- The Kit changes its Button and publishes v2 (the modal lists it as modified).
+  await open(page, `&file=${keys.kit}`);
+  await ed(() => {
+    const e = window.__designerEditor;
+    e.setProps(["1:1"], { fillPaints: [{ type: "SOLID", color: { r: 0.95, g: 0.28, b: 0.13, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }] }, "Fill");
+  });
+  await publishFromUi(`79-publish-modified-${theme}`);
+  await page.evaluate(() => window.__designerEditor.source.flush());
+
+  // ---- The App opens with the update waiting: the blue badge, the toast; the Updates list and the review.
+  await open(page, `&file=${keys.app}`);
+  await ed(() => window.__designerEditor.ui.set({ railTab: "assets" }));
+  await page.locator("[data-updates-badge]").waitFor({ timeout: 10000 }).catch(() => {});
+  await settle(page);
+  check("the Libraries icon has the blue badge when an enabled library has a newer version", (await page.locator("[data-updates-badge]").count()) === 1);
+  await shot(page, `80-updates-badge-${theme}`);
+  await page.locator("[data-libraries-button]").click();
+  await page.locator('[data-update="Button"]').waitFor({ timeout: 10000 });
+  await settle(page);
+  await shot(page, `81-updates-list-${theme}`);
+  await page.locator('[data-update="Button"]').click();
+  await page.locator("[data-review-update]").waitFor({ timeout: 5000 });
+  await settle(page);
+  await shot(page, `82-review-side-by-side-${theme}`);
+  await page.locator("[data-review-update]").getByText("Overlay", { exact: true }).click();
+  await settle(page);
+  await shot(page, `83-review-overlay-${theme}`);
+  await page.locator("[data-review-update]").getByRole("button", { name: "Update", exact: true }).click();
+  await page.waitForFunction(() => window.__designerEditor.libraries.pendingCount() === 0, null, { timeout: 10000 }).catch(() => {});
+  const fill = await ed((id) => {
+    const c = window.__designerEditor.engine.readNode(id)?.fillPaints?.[0]?.color;
+    return c ? Math.round(c.r * 255) : null;
+  }, inserted.id);
+  check("Update: the instance follows the new version (one step), no updates left", fill === 242 && (await ed(() => window.__designerEditor.libraries.pendingCount())) === 0, `r = ${fill}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  await shot(page, `84-updated-${theme}`);
+}
+
 try {
+  if (only === "libraries") {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()} (${m.location()?.url ?? ""})`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await librariesSection(page, "dark");
+    await context.close();
+  }
   if (only === "variables") {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
@@ -736,6 +895,9 @@ try {
 
       // ---- Variables, modes, styles ----
       await variablesSection(page, theme);
+
+      // ---- Libraries (the dev store: publish, enable, insert, update) ----
+      if (theme === "dark") await librariesSection(page, theme);
 
       // ---- End to end: draw, Esc, undo / redo, delete, rename, the source's changes ----
       await open(page, "&doc=empty");

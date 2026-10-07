@@ -160,10 +160,13 @@ export class EngineExports {
   componentInfo = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("component_info")(h, p[0], p[1]));
 
   // ---- Variables, modes, styles ----
-  variableCollections = (h: number): number => this.fn("variable_collections")(h);
-  /** `collection`: a ref, or empty for every collection's variables. */
-  variables = (h: number, collection: Uint8Array): number =>
-    collection.length ? this.withBytes([collection], (p) => this.fn("variables")(h, p[0], p[1])) : this.fn("variables")(h, 0, 0);
+  /** `flags`: INCLUDE_REMOTE (1) adds library copies. */
+  variableCollections = (h: number, flags: number): number => this.fn("variable_collections")(h, flags);
+  /** `collection`: a ref, or empty for every collection's variables; `flags`: INCLUDE_REMOTE (1). */
+  variables = (h: number, collection: Uint8Array, flags: number): number =>
+    collection.length
+      ? this.withBytes([collection], (p) => this.fn("variables")(h, p[0], p[1], flags))
+      : this.fn("variables")(h, 0, 0, flags);
   variable = (h: number, id: Uint8Array): number => this.withBytes([id], (p) => this.fn("variable")(h, p[0], p[1]));
   /** `consumer` empty: the default modes. */
   resolveVariable = (h: number, id: Uint8Array, consumer: Uint8Array): number =>
@@ -173,8 +176,23 @@ export class EngineExports {
     this.withBytes([ref, target], (p) => this.fn("resolved_value")(h, p[0], p[1], p[2], p[3]));
   variableModes = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("variable_modes")(h, p[0], p[1]));
   /** `type`: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6), 0 for all. */
-  styles = (h: number, type: number): number => this.fn("styles")(h, type);
+  styles = (h: number, type: number, flags: number): number => this.fn("styles")(h, type, flags);
   styleUsage = (h: number, id: Uint8Array): number => this.withBytes([id], (p) => this.fn("style_usage")(h, p[0], p[1]));
+
+  // ---- Libraries (JSON in and out) ----
+  setFileKey = (h: number, key: Uint8Array): number =>
+    key.length ? this.withBytes([key], (p) => this.fn("set_file_key")(h, p[0], p[1])) : this.fn("set_file_key")(h, 0, 0);
+  /** `refs`: a NodeRefList, or empty for every local asset. */
+  ensureAssetKeys = (h: number, refs: Uint8Array): number =>
+    refs.length ? this.withBytes([refs], (p) => this.fn("ensure_asset_keys")(h, p[0], p[1])) : this.fn("ensure_asset_keys")(h, 0, 0);
+  localAssets = (h: number): number => this.fn("local_assets")(h);
+  encodeAssets = (h: number, keys: Uint8Array): number => this.withBytes([keys], (p) => this.fn("encode_assets")(h, p[0], p[1]));
+  markPublished = (h: number, entries: Uint8Array): number => this.withBytes([entries], (p) => this.fn("mark_published")(h, p[0], p[1]));
+  importLibraryAssets = (h: number, messages: Uint8Array, options: Uint8Array): number =>
+    this.withBytes([messages, options], (p) => this.fn("import_library_assets")(h, p[0], p[1], p[2], p[3]));
+  applyLibraryUpdate = (h: number, messages: Uint8Array, options: Uint8Array): number =>
+    this.withBytes([messages, options], (p) => this.fn("apply_library_update")(h, p[0], p[1], p[2], p[3]));
+  libraryUsage = (h: number): number => this.fn("library_usage")(h);
 
   // ---- Fonts (module-wide) ----
   /** Copies a font file into the module's heap and hands it over (the engine frees it); the face id or a Status. */
@@ -236,6 +254,8 @@ export const USED_EXPORTS = [
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_node_thumbnail", "ref_id", "component_info",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",
   "styles", "style_usage",
+  "set_file_key", "ensure_asset_keys", "local_assets", "encode_assets", "mark_published", "import_library_assets",
+  "apply_library_update", "library_usage",
   "has_events", "take_events", "stats",
   "font_add_take", "font_bind", "font_missing", "set_fallback_fonts",
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",

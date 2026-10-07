@@ -422,10 +422,15 @@ TEST_CASE("components: copy/paste, ⌘D and ⌥-drag of a main make instances; d
   e.setSelection({M});
   e.command(CommandId::DUPLICATE);
   CHECK(props(e, e.selection()[0]).type == NodeType::INSTANCE);
-  // An instance copies as an instance (its sublayers aren't on the clipboard).
+  // An instance copies as an instance (its sublayers aren't on the clipboard); its main comes along after it, outside
+  // the selection's regions (for a paste in another file).
   e.setSelection({I});
   REQUIRE(e.copySelection(clip));
-  CHECK(clip.nodes.size() == 1);
+  REQUIRE(clip.nodes.size() == 4);
+  CHECK(clip.nodes[0].guid == I);
+  CHECK(clip.regions.size() == 1);
+  CHECK(clip.regions[0].nodes == std::vector<Guid>{I});
+  CHECK(clip.nodes[1].guid == M);
   // Delete the main: its instances keep rendering; Restore component puts it back.
   e.setSelection({M});
   e.command(CommandId::DELETE);

@@ -331,6 +331,11 @@ bool TextStyle::operator==(const TextStyle& o) const {
   X(F_VARIABLE_DATA_VALUES, variableDataValues, 315)         \
   X(F_VARIABLE_SCOPES, variableScopes, 353)                  \
   X(F_CODE_SYNTAX, codeSyntax, 358)                          \
+  X(F_VERSION, version, 171)                                 \
+  X(F_PUBLISHED_VERSION, publishedVersion, 218)              \
+  X(F_SOURCE_LIBRARY_KEY, sourceLibraryKey, 395)             \
+  X(F_PUBLISH_ID, publishID, 215)                            \
+  X(F_LIBRARY_MOVE_INFO, libraryMoveInfo, 256)               \
   X(F_EXTRA, extra, 0)
 
 const char* nodeTypeName(NodeType t) {

@@ -81,3 +81,11 @@ _engine_resolved_value
 _engine_variable_modes
 _engine_styles
 _engine_style_usage
+_engine_set_file_key
+_engine_ensure_asset_keys
+_engine_local_assets
+_engine_encode_assets
+_engine_mark_published
+_engine_import_library_assets
+_engine_apply_library_update
+_engine_library_usage

@@ -98,7 +98,8 @@ export type CNode = Omit<NodeChange, "type"> & ComponentFields & { type?: string
 
 // ---- GUIDs ------------------------------------------------------------------------------------------------------
 
-export const guidStr = (g: GuidValue | undefined | null): Guid => (g ? `${g.sessionID}:${g.localID}` : "");
+/** A GUID structure as "s:l" (the engine writes `{sessionID, localID}`; payloads read back from the store may hold "s:l"). */
+export const guidStr = (g: GuidValue | Guid | undefined | null): Guid => (!g ? "" : typeof g === "string" ? g : `${g.sessionID}:${g.localID}`);
 export function guidVal(s: Guid): GuidValue {
   const [a, b] = s.split(":").map(Number);
   return { sessionID: a >>> 0, localID: b >>> 0 };

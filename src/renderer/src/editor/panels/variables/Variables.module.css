@@ -10,6 +10,15 @@
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
   .pickGroup { padding: var(--ds-space-1) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  /* The source dropdown under the search (All libraries / Created in this file / a library) */
+  .pickSource { display: flex; padding: 0 var(--ds-space-2) var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  /* A source's heading when every source is listed */
+  .pickSection {
+    padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-1);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
   .pickEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .pickItem {
     display: flex;
@@ -34,7 +43,9 @@
   .pickValue { flex: none; max-width: 72px; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   .pickFooter { display: flex; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-space-2) 0; border-top: 1px solid var(--figma-color-border); }
 
-  /* ---- A bound field: the variable as a pill in the field's place (Figma's variable chip) ---- */
+  /* ---- A bound field: the variable as a chip in the field's place. Figma's (help.figma.com "Apply variables to
+     designs", its UI3 screenshots): the surface colour with a hairline border inside the grey field, the name in
+     the text colour — neutral; the purple pill belongs to component properties ---- */
   .bindWrap { position: relative; display: flex; flex: 1 1 auto; min-width: 0; }
   .bindWrap > :first-child { flex: 1 1 auto; min-width: 0; }
   /* The "Apply variable" button inside an unbound field's right end, on hover */
@@ -78,18 +89,18 @@
     align-items: center;
     gap: var(--ds-space-1);
     min-width: 0;
-    height: 20px;
-    padding: 0 var(--ds-space-1-5);
-    border: 0;
+    height: calc(var(--ds-size-control) - var(--ds-space-1-5));
+    padding: 0 var(--ds-space-1);
+    border: 1px solid var(--figma-color-border);
     border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-component-tertiary);
+    background: var(--figma-color-bg);
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
     text-align: left;
     outline: none;
   }
-  .pill:hover { background: var(--figma-color-bg-component-secondary); }
+  .pill:hover { border-color: var(--figma-color-border-strong); }
   .pill:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .pillText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .pillMissing { color: var(--figma-color-text-danger); text-decoration: line-through; }

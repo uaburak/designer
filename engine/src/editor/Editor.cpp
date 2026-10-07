@@ -65,6 +65,8 @@ void Editor::noteNode(Guid id, uint32_t groups) {
 }
 
 void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
+  if (c.phase != Phase::REMOVED && (c.phase == Phase::CREATED || (c.mask & F_SOURCE_LIBRARY_KEY)) && !c.props.sourceLibraryKey.empty())
+    hasLibraryCopies_ = true;
   markInstanceDirty(c);
   noteBindings(c, typeBefore);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
@@ -97,7 +99,10 @@ void Editor::write(const NodeChange& change) {
     return *reduced;
   };
   const Node* existing = doc_.get(change.guid);
-  bool userEdit = !deriving_ && !inLayout_ && !resolving_ && txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
+  // The library code's own writes (copies replaced, assets brought in) are the payload's values as they are: not user
+  // edits (no detaching, no instance overrides), though undoable.
+  bool userEdit = !deriving_ && !inLayout_ && !resolving_ && !libraryWrite_ && txn_.open &&
+                  (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
   if (userEdit && change.phase != Phase::REMOVED && (change.phase == Phase::CREATED || (change.mask & F_PARENT_INDEX)) &&
       change.props.parentIndex.guid.isDerived()) {
     // Into a slot of an instance: into its content frame (the slot diverges from the main on its first edit).
@@ -107,6 +112,18 @@ void Editor::write(const NodeChange& change) {
       redirected.props.parentIndex.guid = content;
       return write(redirected);
     }
+  }
+  if (userEdit && hasLibraryCopies_) {
+    // Library copies are read-only (docs/schema.md §8.2): nothing in them is written, removed or added to — except a
+    // copy's root made local (its sourceLibraryKey cleared: Restore component of a removed library component).
+    if (isLibraryCopy(change.guid)) {
+      bool makeLocal = change.phase == Phase::CHANGED && (change.mask & F_SOURCE_LIBRARY_KEY) && change.props.sourceLibraryKey.empty() &&
+                       existing && !existing->props.sourceLibraryKey.empty();
+      if (!makeLocal) return;
+    }
+    if (change.phase != Phase::REMOVED && (change.phase == Phase::CREATED || (change.mask & F_PARENT_INDEX)) &&
+        isLibraryCopy(change.props.parentIndex.guid))
+      return;
   }
   if (userEdit) {
     // Layers can't be added to or moved into an instance (slot content frames aside).
@@ -509,12 +526,14 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   navMain_ = returnTo_ = kNoGuid;
   if (text_.node != kNoGuid) events_.textEdit = true;
   text_ = TextSession{};
+  hasLibraryCopies_ = false;
   for (const NodeChange& c : nodes) {
     if (c.guid.isDerived()) continue;
     NodeChange created = c;
     created.phase = Phase::CREATED;
     created.mask = F_ALL;
     doc_.apply(created);
+    if (!c.props.sourceLibraryKey.empty()) hasLibraryCopies_ = true;
   }
   page_ = kNoGuid;
   auto all = pages();
@@ -694,8 +713,10 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
   if (busy()) return E_BUSY;
   FieldMask mask = props.mask & ~static_cast<FieldMask>(F_TYPE);
   if (!mask) return E_INVALID;
-  for (Guid id : ids)
+  for (Guid id : ids) {
     if (!doc_.has(id)) return E_NOT_FOUND;
+    if (isLibraryCopy(id)) return E_READONLY;
+  }
   begin(TxnKind::USER, "Edit");
   for (Guid id : ids) {
     const NodeProps& before = doc_.get(id)->props;

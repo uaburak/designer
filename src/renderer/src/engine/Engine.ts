@@ -15,7 +15,9 @@ import {
   APPLY_REMOTE,
   APPLY_USER,
   CommandId,
+  ENCODE_SELECTION_CUT,
   INCLUDE_CHILD_IDS,
+  INCLUDE_REMOTE,
   KeyType,
   PASTE_IN_PLACE,
   Status,
@@ -50,10 +52,15 @@ import {
   type CommandResult,
   type ComponentInfo,
   type CursorKind,
+  type EncodedAsset,
   type EngineEvent,
   type EngineEventType,
   type EventOf,
   type Guid,
+  type LibraryAssetUsage,
+  type LibraryImportOptions,
+  type LibraryImportResult,
+  type LocalAssetInfo,
   type Message,
   type NodeChange,
   type NodeFieldsPatch,
@@ -407,9 +414,13 @@ export class Engine {
     return this.after(this.x.moveNodes(this.h, encodeRefs(refs), s, l, index));
   }
 
-  /** The selection as a clipboard Message (docs/schema.md §4.1), or null when nothing is selected. */
-  encodeSelection(): Message | null {
-    const status = this.x.encodeSelection(this.h, 0);
+  /**
+   * The selection as a clipboard Message (docs/schema.md §4.1), or null when nothing is selected. It carries this
+   * file's `pasteFileKey` (setFileKey) and `isCut` (`cut`: ⌘X), and, after the selection, every main, component set,
+   * style, variable and collection it references (outside `clipboardSelectionRegions`) for a paste in another file.
+   */
+  encodeSelection(options: { cut?: boolean } = {}): Message | null {
+    const status = this.x.encodeSelection(this.h, options.cut ? ENCODE_SELECTION_CUT : 0);
     return this.after(status === Status.OK ? decodeMessage(this.x.result()) : null);
   }
 
@@ -470,14 +481,14 @@ export class Engine {
     return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as T) : fallback);
   }
 
-  /** The file's live collections, in the panel's order. */
-  variableCollections(): VariableCollectionInfo[] {
-    return this.json(this.x.variableCollections(this.h), []);
+  /** The file's live collections, in the panel's order (`includeRemote`: library copies too). */
+  variableCollections(options: { includeRemote?: boolean } = {}): VariableCollectionInfo[] {
+    return this.json(this.x.variableCollections(this.h, options.includeRemote ? INCLUDE_REMOTE : 0), []);
   }
 
-  /** A collection's live variables in order (none given: every collection's). */
-  variables(collection?: Guid): VariableInfo[] {
-    return this.json(this.x.variables(this.h, encodeText(collection ?? "")), []);
+  /** A collection's live variables in order (none given: every local collection's; `includeRemote`: copies' too). */
+  variables(collection?: Guid, options: { includeRemote?: boolean } = {}): VariableInfo[] {
+    return this.json(this.x.variables(this.h, encodeText(collection ?? ""), options.includeRemote ? INCLUDE_REMOTE : 0), []);
   }
 
   /** One variable (deleted-but-referenced ones too). */
@@ -505,15 +516,78 @@ export class Engine {
     return this.json(this.x.variableModes(this.h, encodeText(ref)), []);
   }
 
-  /** Local styles of a type (none: all), in the panel's order, with their values and usage. */
-  styles(type?: StyleType): StyleInfo[] {
+  /** Local styles of a type (none: all), in the panel's order, with their values and usage (`includeRemote`: copies too). */
+  styles(type?: StyleType, options: { includeRemote?: boolean } = {}): StyleInfo[] {
     const id = type === "FILL" ? 1 : type === "TEXT" ? 3 : type === "EFFECT" ? 4 : type === "GRID" ? 6 : 0;
-    return this.json(this.x.styles(this.h, id), []);
+    return this.json(this.x.styles(this.h, id, options.includeRemote ? INCLUDE_REMOTE : 0), []);
   }
 
   /** How many layers use a style. */
   styleUsage(id: Guid): number {
     return Math.max(0, this.after(this.x.styleUsage(this.h, encodeText(id))));
+  }
+
+  // ---- Libraries (docs/data.md §9, docs/engine-build.md "E6 libraries") -------------------------
+
+  /** This file's FileKey: clipboard Messages carry it as `pasteFileKey`; a paste from another file is cross-file. */
+  setFileKey(fileKey: string): void {
+    this.after(this.x.setFileKey(this.h, encodeText(fileKey)));
+  }
+
+  /**
+   * Gives local assets in `refs` (default: all) that lack one a fresh 40-hex key — a journaled SYSTEM change, not an
+   * undo step. Keys never change afterwards. Returns every asset's key.
+   */
+  ensureAssetKeys(refs?: readonly Guid[]): { id: Guid; key: string }[] {
+    return this.json(this.x.ensureAssetKeys(this.h, refs?.length ? encodeRefs(refs) : new Uint8Array()), []);
+  }
+
+  /** Every local asset (components, sets, styles, collections, variables), publishable or not, deleted-but-kept too. */
+  localAssets(): LocalAssetInfo[] {
+    return this.json(this.x.localAssets(this.h), []);
+  }
+
+  /** Publish payloads: the assets with these keys and their dependencies (`dependencyOnly`), each with its Message. */
+  encodeAssets(keys: readonly string[]): { assets: EncodedAsset[]; images: string[] } {
+    return this.json(this.x.encodeAssets(this.h, encodeText(JSON.stringify(keys))), { assets: [], images: [] });
+  }
+
+  /** After a successful publish: `publishedVersion` on those local assets (SYSTEM, not undoable). */
+  markPublished(entries: readonly { key: string; versionHash: string }[]): number {
+    return this.after(this.x.markPublished(this.h, encodeText(JSON.stringify(entries))));
+  }
+
+  /** Read-only library copies on the internal canvas (SYSTEM, not undoable); an asset already copied is reused. */
+  importLibraryAssets(messages: Message | readonly Message[], options: LibraryImportOptions): LibraryImportResult {
+    return this.libraryCall(this.x.importLibraryAssets, messages, options);
+  }
+
+  /** Replaces copies with new versions (instances keep overrides; users re-resolve) and applies redirects: one undo step. */
+  applyLibraryUpdate(messages: Message | readonly Message[], options: LibraryImportOptions): LibraryImportResult {
+    return this.libraryCall(this.x.applyLibraryUpdate, messages, options);
+  }
+
+  /** Every library copy in this file, its version and how many layers use it. */
+  libraryUsage(): LibraryAssetUsage[] {
+    return this.json(this.x.libraryUsage(this.h), []);
+  }
+
+  private libraryCall(
+    call: (h: number, messages: Uint8Array, options: Uint8Array) => number,
+    messages: Message | readonly Message[],
+    options: LibraryImportOptions,
+  ): LibraryImportResult {
+    const list = Array.isArray(messages) ? messages : [messages];
+    const status = call(this.h, encodeText(JSON.stringify({ messages: list })), encodeText(JSON.stringify(options)));
+    let result: LibraryImportResult = { status, assets: [] };
+    if (status === Status.OK) {
+      try {
+        result = JSON.parse(decodeText(this.x.result())) as LibraryImportResult;
+      } catch {
+        result = { status, assets: [] };
+      }
+    }
+    return this.after({ ...result, status });
   }
 
   /** (sessionID, localID) of a ref for the calls that take them; derived refs ("I…;…") resolve through the engine. */

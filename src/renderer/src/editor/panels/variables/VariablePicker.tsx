@@ -13,13 +13,14 @@ import {
   Icon,
   Popover,
   SearchField,
+  Select,
   Swatch,
   cx,
   type PopoverPlacement,
 } from "@/ds";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor } from "../../controller";
-import { useLocalAssets } from "../../hooks";
+import { useLibraries, useLocalAssets } from "../../hooks";
 import { colorToHex, toPercent } from "../../model/color";
 import {
   formatLiteral,
@@ -39,6 +40,7 @@ import {
 } from "../../model/styles";
 import { paintSwatch } from "../../model/paints";
 import { resolveAt } from "../../variables";
+import { pickRemote, remoteDefaultValue, useRemoteAssets, type RemoteStyle, type RemoteVariable } from "../libraries/remoteAssets";
 import styles from "./Variables.module.css";
 
 export interface VariablePickerProps {
@@ -74,12 +76,13 @@ export function VariableGlyph({
 }) {
   if (type === "COLOR" && value && typeof value === "object") {
     const c = value as Color;
+    // Figma: colour variables show square swatches, colour styles round ones.
     return (
       <span className={styles.pickGlyph}>
         <Swatch
           color={colorToHex(c)}
           opacity={toPercent(c.a ?? 1)}
-          shape="round"
+          shape="square"
           size={14}
         />
       </span>
@@ -205,10 +208,43 @@ export function VariableList({
   const byCollection = a.collections
     .map((c) => ({ c, vars: found.filter((v) => v.collection === c.id) }))
     .filter((g) => g.vars.length);
+  // The enabled libraries' styles and variables (a pick copies one in first, with what it needs), and the
+  // dropdown that narrows the list to one source (Figma's "All libraries" / "Created in this file" / a library).
+  const remote = useRemoteAssets();
+  const libraryState = useLibraries();
+  const [source, setSource] = useState<string>("all");
+  const showLocal = source === "all" || source === "local";
+  const q = query.trim().toLowerCase();
+  const libraries = remote
+    .filter((lib) => source === "all" || source === lib.library)
+    .map((lib) => {
+      const vars = lib.variables.filter((v) => types.includes(v.type) && scopeAllows(v.scopes, scope) && !exclude?.has(v.id) && (!q || v.name.toLowerCase().includes(q) || lib.name.toLowerCase().includes(q)));
+      return {
+        lib,
+        styles: styleKind ? lib.styles.filter((s) => s.kind === styleKind && (!q || s.name.toLowerCase().includes(q))) : [],
+        byCollection: lib.collections.map((c) => ({ c, vars: vars.filter((v) => v.collection === c.id) })).filter((g) => g.vars.length),
+      };
+    })
+    .filter((l) => l.styles.length || l.byCollection.length);
+  const pickRemoteVariable = (v: RemoteVariable) => {
+    onClose();
+    void pickRemote(ed, v).then((id) => {
+      const local = id ? ed.variables.get().lookup.variable(id) : undefined;
+      if (local) onPick(local);
+    });
+  };
+  const pickRemoteStyle = (s: RemoteStyle) => {
+    onClose();
+    void pickRemote(ed, s).then((id) => {
+      const local = id ? ed.variables.get().style(id) : undefined;
+      if (local) onPickStyle?.(local);
+    });
+  };
 
-  const item = (v: Variable) => {
+  const item = (v: Variable | RemoteVariable, collections?: readonly { id: Guid; defaultMode: Guid }[]) => {
     const on = current === v.id;
-    const value = values.get(v.id) ?? null;
+    const r = "remote" in v ? v : null;
+    const value = (r && !r.remote.imported ? (remoteDefaultValue(r, (collections ?? []) as never) as Literal | null) : r ? resolveAt(ed, v.id, consumer) : values.get(v.id)) ?? null;
     return (
       <button
         key={v.id}
@@ -216,8 +252,10 @@ export function VariableList({
         role="menuitemradio"
         aria-checked={on}
         data-variable={v.name}
+        data-library={r?.remote.libraryName}
         className={cx(styles.pickItem, on && styles.pickItemOn)}
         onClick={() => {
+          if (r) return pickRemoteVariable(r);
           onPick(v);
           onClose();
         }}
@@ -233,8 +271,9 @@ export function VariableList({
     );
   };
 
-  const styleItem = (s: Style) => {
+  const styleItem = (s: Style | RemoteStyle) => {
     const on = currentStyle === s.id;
+    const r = "remote" in s ? s : null;
     return (
       <button
         key={s.id}
@@ -242,8 +281,10 @@ export function VariableList({
         role="menuitemradio"
         aria-checked={on}
         data-style={s.name}
+        data-library={r?.remote.libraryName}
         className={cx(styles.pickItem, on && styles.pickItemOn)}
         onClick={() => {
+          if (r) return pickRemoteStyle(r);
           onPickStyle?.(s);
           onClose();
         }}
@@ -257,8 +298,8 @@ export function VariableList({
     );
   };
 
-  const groups = (vars: Variable[]) => {
-    const out: { group: string; vars: Variable[] }[] = [];
+  const groups = <V extends Variable>(vars: V[]) => {
+    const out: { group: string; vars: V[] }[] = [];
     for (const v of vars) {
       const g = splitName(v.name).group;
       const last = out[out.length - 1];
@@ -268,9 +309,9 @@ export function VariableList({
     return out;
   };
 
-  const styleFolders = () => {
-    const out: { folder: string; list: Style[] }[] = [];
-    for (const s of styleList) {
+  const styleFolders = <S extends Style>(list: S[] = styleList as S[]) => {
+    const out: { folder: string; list: S[] }[] = [];
+    for (const s of list) {
       const f = s.name.includes("/")
         ? s.name.slice(0, s.name.lastIndexOf("/"))
         : "";
@@ -281,7 +322,14 @@ export function VariableList({
     return out;
   };
 
-  const nothing = !byCollection.length && !styleList.length;
+  const localStyles = showLocal ? styleList : [];
+  const localCollections = showLocal ? byCollection : [];
+  const nothing = !localCollections.length && !localStyles.length && !libraries.length;
+  const sources = [
+    { value: "all", label: "All libraries" },
+    { value: "local", label: "Created in this file" },
+    ...remote.map((lib) => ({ value: lib.library, label: lib.name })),
+  ];
   return (
     <div className={styles.picker} data-variable-picker="">
       <div className={styles.pickSearch}>
@@ -292,10 +340,26 @@ export function VariableList({
           autoFocus
         />
       </div>
+      {libraryState.on && (
+        <div className={styles.pickSource}>
+          <Select
+            label="Library"
+            variant="outlined"
+            width="hug"
+            value={sources.some((o) => o.value === source) ? source : "all"}
+            options={sources}
+            onChange={setSource}
+            data-picker-source=""
+          />
+        </div>
+      )}
       <div className={styles.pickList} role="menu" aria-label={title}>
-        {styleList.length > 0 && (
+        {source === "all" && libraries.length > 0 && (localStyles.length > 0 || localCollections.length > 0) && (
+          <div className={styles.pickSection}>Created in this file</div>
+        )}
+        {localStyles.length > 0 && (
           <>
-            <div className={styles.pickHeader}>Local styles</div>
+            <div className={styles.pickHeader}>Styles</div>
             {styleFolders().map((f) => (
               <div key={f.folder || "root"}>
                 {f.folder && (
@@ -308,7 +372,7 @@ export function VariableList({
             ))}
           </>
         )}
-        {byCollection.map(({ c, vars }) => (
+        {localCollections.map(({ c, vars }) => (
           <div key={c.id}>
             <div className={styles.pickHeader}>{c.name}</div>
             {groups(vars).map((g) => (
@@ -318,7 +382,28 @@ export function VariableList({
                     {g.group.split("/").join(" / ")}
                   </div>
                 )}
-                {g.vars.map(item)}
+                {g.vars.map((v) => item(v))}
+              </div>
+            ))}
+          </div>
+        ))}
+        {libraries.map(({ lib, styles: libStyles, byCollection: libCollections }) => (
+          <div key={lib.library} data-picker-library={lib.name}>
+            <div className={styles.pickSection}>{lib.name}</div>
+            {styleFolders(libStyles).map((f) => (
+              <div key={`s:${f.folder || "root"}`}>
+                {f.folder && <div className={styles.pickGroup}>{f.folder.split("/").join(" / ")}</div>}
+                {f.list.map(styleItem)}
+              </div>
+            ))}
+            {libCollections.map(({ c, vars }) => (
+              <div key={c.id}>
+                {groups(vars).map((g) => (
+                  <div key={g.group || "root"}>
+                    <div className={styles.pickGroup}>{[c.name, ...(g.group ? g.group.split("/") : [])].join(" / ")}</div>
+                    {g.vars.map((v) => item(v, lib.collections))}
+                  </div>
+                ))}
               </div>
             ))}
           </div>

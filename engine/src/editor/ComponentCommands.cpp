@@ -308,6 +308,13 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
     for (const PreferredValue& pv : d->preferredValues) {
       bool ok = false;
       Guid g = Guid::parse(pv.key, &ok);
+      // A library copy's (and a .fig's) preferred values name mains by asset key.
+      if (!ok && pv.key.size() == 40)
+        doc_.forEach([&](const Node& n) {
+          if (!ok && !n.guid.isDerived() && n.props.key == pv.key && !n.props.isSoftDeleted &&
+              (n.props.type == NodeType::SYMBOL || n.props.isComponentSet()))
+            g = n.guid, ok = true;
+        });
       if (ok) p.preferredValues.push_back(g);
     }
     if (d->type == ComponentPropType::VARIANT) {
@@ -359,6 +366,15 @@ bool Editor::componentInfo(Guid id, ComponentInfo& out) const {
     out.mainSet = setOf(main);
     out.mainSoftDeleted = mn->props.isSoftDeleted || (out.mainSet != kNoGuid && doc_.get(out.mainSet)->props.isSoftDeleted);
     out.mainDeleted = out.mainSoftDeleted;
+    Guid copyRoot = libraryRootOf(main);
+    if (copyRoot != kNoGuid) {
+      const NodeProps& rp = doc_.get(copyRoot)->props;
+      out.mainRemote = true;
+      out.mainLibraryKey = rp.sourceLibraryKey;
+      out.mainKey = mn->props.key.empty() ? rp.key : mn->props.key;
+      out.mainVersion = rp.version;
+    }
+    out.mainCopied = !out.mainRemote && isCopiedMain(main);
   };
   auto overridesOf = [&](Guid top, const std::vector<Guid>& under, bool exact) {
     const Node* tn = doc_.get(top);
@@ -437,7 +453,8 @@ bool Editor::componentInfo(Guid id, ComponentInfo& out) const {
     exposedOf(id);
     bool insideMain = false;
     for (Guid cur = doc_.parentOf(id); doc_.has(cur); cur = doc_.parentOf(cur)) insideMain |= doc_.get(cur)->props.type == NodeType::SYMBOL;
-    out.canPush = main != kNoGuid && !out.mainSoftDeleted && !insideMain && !p.symbolData.overrides.empty();
+    out.canPush = main != kNoGuid && !out.mainSoftDeleted && !out.mainRemote && !out.mainCopied && !insideMain &&
+                  !p.symbolData.overrides.empty();
     out.canReset = !p.symbolData.overrides.empty() || !p.componentPropAssignments.empty();
     out.canDetach = true;
     return true;
@@ -505,8 +522,10 @@ uint32_t Editor::componentCommandState(CommandId id) const {
       ComponentInfo info;
       return selection_.size() == 1 && componentInfo(selection_[0], info) && info.canPush ? CMD_ENABLED : 0;
     }
-    case CommandId::GO_TO_MAIN_COMPONENT:
-      return selection_.size() == 1 && mainOf(selection_[0]) != kNoGuid ? CMD_ENABLED : 0;
+    case CommandId::GO_TO_MAIN_COMPONENT: {
+      Guid main = selection_.size() == 1 ? mainOf(selection_[0]) : kNoGuid;
+      return main != kNoGuid && !isLibraryCopy(main) && !isCopiedMain(main) ? CMD_ENABLED : 0;
+    }
     case CommandId::RETURN_TO_INSTANCE: return doc_.has(returnTo_) ? CMD_ENABLED : 0;
     case CommandId::SWAP_INSTANCE:
     case CommandId::SET_COMPONENT_PROPERTY:
@@ -1186,6 +1205,8 @@ Status Editor::goToMainComponent(Guid ref) {
   const Node* mn = doc_.get(main);
   Guid set = setOf(main);
   if (mn->props.isSoftDeleted || (set != kNoGuid && doc_.get(set)->props.isSoftDeleted)) return E_INVALID;  // Restore component first
+  // A library copy or a main copied from another file lives on the internal canvas: nothing to go to here.
+  if (isLibraryCopy(main) || isCopiedMain(main)) return E_INVALID;
   setSelection({main});
   zoomToSelection();
   navMain_ = main;
@@ -1753,7 +1774,37 @@ Status Editor::restoreComponent(Guid ref) {
     if (set != kNoGuid && doc_.get(set)->props.isSoftDeleted) main = set;
   }
   const Node* mn = doc_.get(main);
-  if (!mn || !mn->props.isSoftDeleted) return E_INVALID;
+  if (!mn) return E_INVALID;
+  // A library copy (its asset removed from the library) or a main copied in from another file: made this file's own,
+  // on the current page in the middle of the view; instances stay linked. A new local asset (a key on request).
+  Guid copyRoot = libraryRootOf(main);
+  if ((copyRoot != kNoGuid || isCopiedMain(main)) && page_ != kNoGuid && (mn->props.type == NodeType::SYMBOL || mn->props.isComponentSet())) {
+    Guid root = copyRoot != kNoGuid ? copyRoot : payloadRoot(main);
+    const Node* rn = doc_.get(root);
+    Vec2 at = camera_.toWorld({viewport_.width / 2, viewport_.height / 2});
+    Mat2x3 world = Mat2x3::translate(std::round(at.x - rn->props.size.x / 2), std::round(at.y - rn->props.size.y / 2));
+    std::vector<Guid> nodes;
+    realSubtree(root, nodes);
+    begin(TxnKind::USER, "Restore component");
+    libraryWrite_ = true;
+    NodeChange c = NodeChange::changed(root);
+    c.mask = F_PARENT_INDEX | F_TRANSFORM | kAssetIdentityFields;
+    c.props.parentIndex = {page_, doc_.positionAtEnd(page_)};
+    c.props.transform = localFor(page_, world);
+    write(c);
+    for (Guid g : nodes) {
+      const NodeProps& p = doc_.get(g)->props;
+      if (g == root || !(p.type == NodeType::SYMBOL || p.isComponentSet())) continue;
+      NodeChange inner = NodeChange::changed(g);
+      inner.mask = kAssetIdentityFields;
+      write(inner);
+    }
+    libraryWrite_ = false;
+    changeSelection({root});
+    commit();
+    return OK;
+  }
+  if (!mn->props.isSoftDeleted) return E_INVALID;
   Guid parent = kNoGuid;
   for (auto it = mn->props.ancestorPathBeforeDeletion.rbegin(); it != mn->props.ancestorPathBeforeDeletion.rend(); ++it) {
     const Node* a = doc_.get(*it);

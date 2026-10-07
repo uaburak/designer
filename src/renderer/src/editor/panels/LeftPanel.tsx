@@ -38,7 +38,7 @@ function FileHeader() {
   const ed = useEditor();
   const name = useUI((s) => s.fileName);
   const renaming = useUI((s) => s.renaming?.kind === "file");
-  const entries = [commandItem(ed, "file.save-version"), commandItem(ed, "file.version-history"), "-" as const, commandItem(ed, "file.duplicate"), commandItem(ed, "file.rename"), commandItem(ed, "file.move"), "-" as const, commandItem(ed, "file.export"), "-" as const, commandItem(ed, "file.back-to-files")];
+  const entries = [commandItem(ed, "file.save-version"), commandItem(ed, "file.version-history"), "-" as const, commandItem(ed, "file.publish-library"), "-" as const, commandItem(ed, "file.duplicate"), commandItem(ed, "file.rename"), commandItem(ed, "file.move"), "-" as const, commandItem(ed, "file.export"), "-" as const, commandItem(ed, "file.back-to-files")];
   return (
     <div className={styles.fileHeader}>
       <div className={styles.fileTitle}>

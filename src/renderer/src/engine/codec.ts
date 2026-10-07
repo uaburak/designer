@@ -382,6 +382,17 @@ export interface NodeFields {
   /** Absent = ["ALL_SCOPES"]; [] = shown in no picker. */
   variableScopes?: VariableScope[];
   codeSyntax?: { entries: { platform: CodeSyntaxPlatform; value: string }[] };
+  // Libraries (docs/schema.md §8).
+  /** A library copy: the versionHash it was copied at. */
+  version?: string;
+  /** A local asset: its versionHash at its last publish. */
+  publishedVersion?: string;
+  /** A library copy's root: its library's FileKey. */
+  sourceLibraryKey?: string;
+  /** A library copy (and every SYMBOL / set inside one): the asset's GUID in its library file. */
+  publishID?: GuidValue;
+  /** A published main cut from another file and pasted here (Move to this file). */
+  libraryMoveInfo?: { oldKey: string; pasteFileKey: string };
   /** Kiwi field ids reset to absent (updates only). */
   clearedFields?: number[];
 }
@@ -451,6 +462,10 @@ export interface VariableCollectionInfo {
   hiddenFromPublishing: boolean;
   key: string;
   description: string;
+  /** A library copy (read-only). */
+  remote: boolean;
+  /** A library copy's library (FileKey); null for local ones. */
+  libraryKey: string | null;
 }
 /** engine.variables() / engine.variable(). */
 export interface VariableInfo {
@@ -467,6 +482,8 @@ export interface VariableInfo {
   key: string;
   /** Deleted while something still uses it (Figma's deletedButReferenced). */
   deletedButReferenced: boolean;
+  remote: boolean;
+  libraryKey: string | null;
 }
 /** engine.boundVariables(): one per binding of a node. */
 export interface BoundVariable {
@@ -492,6 +509,8 @@ export interface StyleInfo {
   key: string;
   hiddenFromPublishing: boolean;
   usageCount: number;
+  remote: boolean;
+  libraryKey: string | null;
   fillPaints?: Paint[];
   effects?: Effect[];
   layoutGrids?: LayoutGrid[];
@@ -572,7 +591,17 @@ export interface ComponentProperty {
 export interface ComponentInfo {
   ref: Guid;
   kind: "COMPONENT" | "VARIANT" | "COMPONENT_SET" | "INSTANCE" | "NESTED_INSTANCE" | "INSTANCE_SUBLAYER" | "COMPONENT_SUBLAYER" | "NONE";
-  main: { ref: Guid; name: string; page: Guid | null; set: Guid | null; softDeleted: boolean } | null;
+  main: {
+    ref: Guid;
+    name: string;
+    page: Guid | null;
+    set: Guid | null;
+    softDeleted: boolean;
+    /** A library copy's main: its library, key and the version copied. */
+    remote: { libraryKey: string; key: string; version: string } | null;
+    /** A main copied in from another file (unpublished there), kept on the internal canvas. */
+    copied: boolean;
+  } | null;
   /** A sublayer or nested instance: the top-level instance holding it. */
   instance: Guid | null;
   /** Its guidPath (override keys) from that instance. */
@@ -617,6 +646,75 @@ export interface Message {
   /** Clipboard Messages (docs/schema.md §4.1): the page copied from, and each source parent's place. */
   pastePageId?: Guid;
   clipboardSelectionRegions?: ClipboardSelectionRegion[];
+  /** Clipboard: the FileKey of the file it was copied from (engine.setFileKey); another file's paste is cross-file. */
+  pasteFileKey?: string;
+  /** Clipboard: a cut (⌘X). */
+  isCut?: boolean;
+}
+
+// ---- Libraries (docs/data.md §9, docs/engine-build.md "E6 libraries") ----
+
+export type AssetKind = "COMPONENT" | "COMPONENT_SET" | "STYLE" | "VARIABLE_COLLECTION" | "VARIABLE";
+/** engine.localAssets(): a local asset, publishable or not. */
+export interface LocalAssetInfo {
+  id: Guid;
+  /** "" until ensureAssetKeys / encodeAssets gives it one. */
+  key: string;
+  kind: AssetKind;
+  name: string;
+  description: string;
+  styleType?: StyleType;
+  resolvedType?: VariableResolvedType;
+  /** A variant: its set. */
+  componentSetKey?: string;
+  componentSetId?: Guid;
+  /** A variable: its collection. */
+  collectionKey?: string;
+  collectionId?: Guid;
+  /** Hide when publishing, a name starting with "." or "_", or a hidden set / collection. */
+  hiddenFromPublishing: boolean;
+  /** Deleted but kept for what uses it ("Removed" when publishedVersion is set). */
+  softDeleted: boolean;
+  /** 40-hex SHA-1 of the asset's content. */
+  versionHash: string;
+  publishedVersion: string | null;
+  /** Keys of this file's assets it needs. */
+  dependencies: string[];
+  containingFrame: { pageId: Guid; pageName: string; frameId?: Guid; frameName?: string } | null;
+}
+/** engine.encodeAssets(): an asset and its payload (its nodes and every node it depends on, library GUIDs). */
+export interface EncodedAsset extends LocalAssetInfo {
+  dependencyOnly: boolean;
+  message: Message;
+}
+export interface LibraryImportOptions {
+  libraryKey: string;
+  /** applyLibraryUpdate: only these keys are replaced (default: every asset in the messages that has a copy here). */
+  keys?: string[];
+  /** applyLibraryUpdate: Move to this file — the copy of fromKey becomes toKey's. */
+  redirects?: { fromKey: string; toKey: string }[];
+}
+export interface LibraryImportResult {
+  status: number;
+  assets: { key: string; id: Guid; kind: AssetKind; libraryKey: string; version: string; created: boolean; updated: boolean }[];
+}
+/** engine.libraryUsage(): a library copy in this file. */
+export interface LibraryAssetUsage {
+  id: Guid;
+  key: string;
+  kind: AssetKind;
+  name: string;
+  description: string;
+  libraryKey: string;
+  version: string;
+  publishID: Guid | null;
+  usageCount: number;
+  componentSetKey?: string;
+  componentSetId?: Guid;
+  collectionKey?: string;
+  collectionId?: Guid;
+  styleType?: StyleType;
+  resolvedType?: VariableResolvedType;
 }
 
 export interface Camera {

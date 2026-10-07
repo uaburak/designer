@@ -80,6 +80,20 @@ export function engineCommandEnabled(engine: Engine, name: string): boolean {
 
 // ---- Methods -------------------------------------------------------------------------------------
 
+/**
+ * Does the loaded module export `engine_<name>`? The facade (Engine.ts) can be ahead of the wasm in hand — its
+ * method is there, the C export not yet — so calls new in a round check both.
+ */
+export function engineExports(engine: Engine, cName: string): boolean {
+  const module = (engine as unknown as { x?: { module?: Record<string, unknown> } }).x?.module;
+  return !module || typeof module[`_engine_${cName}`] === "function";
+}
+
+/** A facade method that the module in hand also exports (`cName`: its C name without `engine_`), bound; else null. */
+export function engineCall<F extends (...args: never[]) => unknown>(engine: Engine, name: string, cName: string): F | null {
+  return engineExports(engine, cName) ? engineMethod<F>(engine, name) : null;
+}
+
 /** One of the facade's methods by name (the first of `names` it has), bound; null when the build has none. */
 export function engineMethod<F extends (...args: never[]) => unknown>(engine: Engine, ...names: string[]): F | null {
   const e = engine as unknown as Record<string, unknown>;

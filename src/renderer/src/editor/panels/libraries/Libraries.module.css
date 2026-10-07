@@ -1,0 +1,126 @@
+@layer app {
+  /* ---- Thumbnails ---- */
+  .thumb {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    overflow: hidden;
+  }
+  .thumbCanvas, .thumbImage { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .thumbCanvas:not([data-drawn]) { display: none; }
+  .thumbCanvas[data-drawn] ~ * { display: none; }
+  .thumbGlyph { flex: none; color: var(--figma-color-icon-secondary); }
+  .componentGlyph { color: var(--figma-color-icon-component); }
+  .ag { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); color: var(--figma-color-text); }
+
+  .meta { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  .none { padding: var(--ds-space-2) 0; color: var(--figma-color-text-secondary); }
+  .error { color: var(--figma-color-text-danger); }
+  .loading { display: flex; align-items: center; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); }
+  .caret { flex: none; color: var(--figma-color-icon-tertiary); }
+
+  /* ---- Publish library ---- */
+  .publish { display: flex; flex-direction: column; gap: var(--ds-space-4); }
+  .publishEmpty { padding: var(--ds-space-6) 0; }
+  .publishFile { display: flex; align-items: center; gap: var(--ds-space-3); }
+  .publishFileIcon { flex: none; color: var(--figma-color-icon); }
+  .publishFileText, .libText, .moveText { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .publishFileName, .libName { min-width: 0; overflow: hidden; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); white-space: nowrap; text-overflow: ellipsis; }
+  .changes { display: flex; flex-direction: column; gap: var(--ds-space-2); max-height: 50vh; overflow-y: auto; }
+  .changesHeader { display: flex; align-items: center; padding-bottom: var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .changeGroup { display: flex; flex-direction: column; }
+  .changeGroupTitle { display: flex; gap: var(--ds-space-1); align-items: center; height: var(--ds-size-row); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .changeRow, .moveRow, .assetRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-3);
+    min-height: var(--ds-size-list-row);
+    padding: 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-medium);
+  }
+  .changeRow:hover { background: var(--figma-color-bg-hover); }
+  .changeName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .status_created { flex: none; color: var(--figma-color-text-success); }
+  .status_modified { flex: none; color: var(--figma-color-text-secondary); }
+  .status_removed { flex: none; color: var(--figma-color-text-danger); }
+  .progress { display: inline-flex; align-items: center; gap: var(--ds-space-2); margin-right: auto; color: var(--figma-color-text-secondary); }
+
+  /* ---- Libraries ---- */
+  .libraries { display: flex; flex-direction: column; gap: var(--ds-space-3); min-height: 50vh; }
+  .listBody { display: flex; flex-direction: column; gap: var(--ds-space-3); max-height: 60vh; overflow-y: auto; }
+  .sectionTitle { display: flex; align-items: center; height: var(--ds-size-row); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .libRow { display: flex; align-items: center; gap: var(--ds-space-3); min-height: var(--ds-size-list-row); padding: var(--ds-space-1) 0; }
+  .libIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control-large); height: var(--ds-size-control-large); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-icon); }
+  .libOpen {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .libOpen:not(:disabled):hover .libName { text-decoration: underline; }
+  .libOpen:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .previewHeader { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .previewGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--ds-space-3); }
+  .previewTile { display: flex; flex-direction: column; gap: var(--ds-space-1); min-width: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); letter-spacing: var(--ds-tracking-body-small); }
+  .previewThumb { width: 100% !important; aspect-ratio: 1; height: auto !important; padding: var(--ds-space-3); }
+  .tileName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* ---- Updates ---- */
+  .updatesHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+  .updateRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-3);
+    width: 100%;
+    min-height: var(--ds-size-list-row);
+    padding: 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .updateRow:hover { background: var(--figma-color-bg-hover); }
+  .updateRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-4); }
+  .compareSide { display: flex; flex-direction: column; align-items: center; gap: var(--ds-space-2); margin: 0; padding: var(--ds-space-4); border-radius: var(--ds-radius-medium-large); background: var(--figma-color-bg-secondary); }
+  .compareThumb { background: transparent; }
+  /* Overlay: the updated version over the current one, half see-through */
+  .compareOverlay { grid-template-columns: 1fr; }
+  .compareOverlay .compareSide { grid-area: 1 / 1; }
+  .compareOverlay .compareSide:last-child { background: transparent; opacity: 0.5; }
+  .compareOverlay .compareSide figcaption { visibility: hidden; }
+  .notice { padding: var(--ds-space-3); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .reviewActions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
+
+  /* ---- Assets: library sections and the Libraries button's badge ---- */
+  .libButton { position: relative; display: inline-flex; }
+  .badge {
+    position: absolute;
+    top: var(--ds-space-1);
+    right: var(--ds-space-1);
+    width: var(--ds-space-2);
+    height: var(--ds-space-2);
+    border: 1px solid var(--figma-color-bg);
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-brand);
+    pointer-events: none;
+  }
+  .updatesBanner { margin: 0 var(--ds-space-2) var(--ds-space-2); }
+}

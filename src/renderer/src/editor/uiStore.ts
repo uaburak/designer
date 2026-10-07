@@ -51,6 +51,10 @@ export interface UIState {
   variablesOpen: boolean;
   /** Styles list (nothing selected): the closed folders ("KIND:path") */
   stylesClosed: ReadonlySet<string>;
+  /** The Libraries modal: its tab, and the library previewed (null: the list) */
+  librariesDialog: { tab: "libraries" | "updates"; library?: string | null; update?: string | null } | null;
+  /** The Publish library modal */
+  publishOpen: boolean;
 }
 
 export class Store<T> {

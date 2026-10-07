@@ -5,8 +5,9 @@
  *
  * Faithful where Home and the editor look: the workspace rules are the store's own `WorkspaceModel` (Drafts, nested
  * folders, Trash with restore-to-Drafts, Recents, Starred, search); files have a snapshot + journal with sessions,
- * the edit lock, batch dedupe, subscriptions, versions, restore diffs, thumbnails and UI state. Not here: libraries
- * and previews (they answer empty / `offline`), `.fig` import/export (main-only paths), crash recovery, fsync.
+ * the edit lock, batch dedupe, subscriptions, versions, restore diffs, thumbnails and UI state; libraries with the
+ * store's own rules (memoryLibraries.ts). Not here: previews (they answer empty / `offline`), `.fig` import/export
+ * (main-only paths), crash recovery, fsync.
  */
 import { prepareFigImportAsync } from "../../../../shared/fig/importFig";
 import { decodeMessage, encodeMessage, newDocumentMessage, SCHEMA_BINARY } from "../../../../shared/schema/codec";
@@ -34,6 +35,7 @@ import {
 } from "../../../../shared/store/types";
 import { defaultPrefs, newMeta, WorkspaceModel } from "../../../../shared/store/workspaceModel";
 import { KV_PREFIX, memoryStorage, parseWithBytes, stringifyWithBytes, type KeyValueStorage } from "./kv";
+import { MemoryLibraries } from "./memoryLibraries";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -173,7 +175,9 @@ async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
 export class MemoryStore {
   readonly ws: WorkspaceModel;
   readonly workspaceEvents: Emitter<WorkspaceEvent>;
-  readonly libraryEvents = new Emitter<LibraryEvent>();
+  readonly libraryEvents: Emitter<LibraryEvent>;
+  /** The library registry (docs/data.md §9) on the same storage */
+  readonly libraries: MemoryLibraries;
   readonly fileChanges = new Emitter<FileChange>();
   readonly deviceOrdinal = 1;
   readonly clock: { now(): number };
@@ -217,6 +221,17 @@ export class MemoryStore {
         for (const [key, rt] of this.runtime) for (const [sid, s] of [...rt.sessions]) if (s.owner === owner) this.close(key, sid);
       },
     };
+    this.libraries = new MemoryLibraries({
+      storage: kv,
+      ws: this.ws,
+      clock: this.clock,
+      hlc: this.hlc,
+      putBlob: (bytes, hint) => this.putBlob(bytes, hint),
+      pngSize,
+      addVersion: (fileKey, input) => void this.addVersion(fileKey, input),
+      log: (level, message, detail) => this.log(level, message, detail),
+    });
+    this.libraryEvents = this.libraries.events;
     this.offWatch = kv.watch?.((key, value) => this.onExternalWrite(key, value)) ?? null;
   }
 
@@ -277,6 +292,7 @@ export class MemoryStore {
     };
     const rest = key.slice(KV_PREFIX.length);
     const ws = this.ws;
+    if (rest.startsWith("lib.")) return this.libraries.noteExternalWrite(key, value);
     const kept = { persist: false }; // already in the storage
     if (rest === "workspace") {
       const w = parse<Workspace>();
@@ -437,6 +453,7 @@ export class MemoryStore {
 
   private async deleteItems(doomed: { files: FileKey[]; folders: FolderId[] }): Promise<void> {
     for (const k of doomed.files) {
+      if (this.storage.get(`${KV_PREFIX}lib.${k}`) !== null) this.libraries.forget(k);
       this.data.delete(k);
       this.runtime.delete(k);
       this.storage.remove(K.file(k));
@@ -544,10 +561,10 @@ export class MemoryStore {
   // Versions, thumbnails, UI state
   // -------------------------------------------------------------------------------------------------------------------
 
-  addVersion(fileKey: FileKey, input: Pick<VersionRecord, "kind" | "title" | "description" | "restoredFrom">): VersionRecord {
+  addVersion(fileKey: FileKey, input: Pick<VersionRecord, "kind" | "title" | "description" | "restoredFrom"> & { libraryVersion?: number | null }): VersionRecord {
     const d = this.fileData(fileKey);
     this.compact(d);
-    const record: VersionRecord = { ...input, id: newVersionId(), createdAt: this.clock.now(), seq: d.snapshotSeq, sizeBytes: d.snapshot.length, blobRefs: [...d.blobRefs], libraryVersion: null };
+    const record: VersionRecord = { libraryVersion: null, ...input, id: newVersionId(), createdAt: this.clock.now(), seq: d.snapshotSeq, sizeBytes: d.snapshot.length, blobRefs: [...d.blobRefs] };
     d.versions.unshift({ record, snapshot: d.snapshot });
     this.saveData(fileKey, d);
     return { ...record };
@@ -718,21 +735,7 @@ export class MemoryStore {
       },
       url: (sha1) => `app://designer/_blob/${sha1}`,
     };
-    const offline = async (): Promise<never> => {
-      throw new StoreError("offline", "Libraries aren't available in the browser demo");
-    };
-    const libraries: LibraryRegistry = {
-      listAvailable: async () => [],
-      getRecord: async () => null,
-      getVersion: offline,
-      previewPublish: offline,
-      publish: offline,
-      unpublish: offline,
-      setEnabled: offline,
-      getPayloads: offline,
-      diff: offline,
-      watch: (listener) => this.libraryEvents.on(listener),
-    };
+    const libraries: LibraryRegistry = this.libraries.registry();
     const previews: PreviewService = {
       list: async () => [],
       publish: async () => {

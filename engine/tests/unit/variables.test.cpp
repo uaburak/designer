@@ -974,14 +974,14 @@ void engine_destroy(Handle h);
 int32_t engine_load(Handle h, Ptr ptr, uint32_t len);
 int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uint32_t argsLen);
 int32_t engine_take_events(Handle h);
-int32_t engine_variable_collections(Handle h);
-int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen);
+int32_t engine_variable_collections(Handle h, uint32_t flags);
+int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen, uint32_t flags);
 int32_t engine_variable(Handle h, Ptr idPtr, uint32_t idLen);
 int32_t engine_resolve_variable(Handle h, Ptr varPtr, uint32_t varLen, Ptr consumerPtr, uint32_t consumerLen);
 int32_t engine_bound_variables(Handle h, Ptr refPtr, uint32_t refLen);
 int32_t engine_resolved_value(Handle h, Ptr refPtr, uint32_t refLen, Ptr targetPtr, uint32_t targetLen);
 int32_t engine_variable_modes(Handle h, Ptr refPtr, uint32_t refLen);
-int32_t engine_styles(Handle h, uint32_t type);
+int32_t engine_styles(Handle h, uint32_t type, uint32_t flags);
 int32_t engine_style_usage(Handle h, Ptr idPtr, uint32_t idLen);
 }
 
@@ -1034,7 +1034,7 @@ TEST_CASE("variables: the C ABI — created ids, collections, variables, resolut
   std::string events(reinterpret_cast<const char*>(engine_result_ptr()), engine_result_len());
   CHECK(events.find("\"VARIABLES_CHANGED\"") != std::string::npos);
   // Collections.
-  REQUIRE(engine_variable_collections(h) == OK);
+  REQUIRE(engine_variable_collections(h, 0) == OK);
   json::Value cols = resultJson();
   REQUIRE(cols.array.size() == 1);
   CHECK(cols.array[0].get("name")->string == "Theme");
@@ -1043,7 +1043,7 @@ TEST_CASE("variables: the C ABI — created ids, collections, variables, resolut
   CHECK(cols.array[0].get("variableIds")->array.size() == 2);
   // Variables (values in Figma's shapes, resolved per mode).
   Text s{set};
-  REQUIRE(engine_variables(h, s.ptr(), s.len()) == OK);
+  REQUIRE(engine_variables(h, s.ptr(), s.len(), 0) == OK);
   json::Value vars = resultJson();
   REQUIRE(vars.array.size() == 2);
   const json::Value& refInfo = vars.array[1];
@@ -1086,14 +1086,14 @@ TEST_CASE("variables: the C ABI — created ids, collections, variables, resolut
   // Styles.
   REQUIRE(cmd(h, CommandId::CREATE_STYLE, R"({"type":"FILL","name":"Brand","from":"1:2","apply":true})") == OK);
   std::string style = createdId();
-  REQUIRE(engine_styles(h, 0) == OK);
+  REQUIRE(engine_styles(h, 0, 0) == OK);
   json::Value styles = resultJson();
   REQUIRE(styles.array.size() == 1);
   CHECK(styles.array[0].get("styleType")->string == "FILL");
   CHECK(styles.array[0].get("usageCount")->number == 1);
   CHECK(styles.array[0].get("fillPaints")->array.size() == 1);
   CHECK(styles.array[0].get("boundVariables")->array.size() == 1);
-  REQUIRE(engine_styles(h, static_cast<uint32_t>(StyleType::TEXT)) == OK);
+  REQUIRE(engine_styles(h, static_cast<uint32_t>(StyleType::TEXT), 0) == OK);
   CHECK(resultJson().array.empty());
   Text st{style};
   CHECK(engine_style_usage(h, st.ptr(), st.len()) == 1);

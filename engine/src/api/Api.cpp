@@ -714,12 +714,12 @@ ENG_EXPORT int32_t engine_move_nodes(Handle h, Ptr refsPtr, uint32_t refsLen, ui
 // as CREATED with their source GUIDs, parents first, plus "pastePageId" and
 // "clipboardSelectionRegions" [{parent, nodes, enclosingFrameOffset}]. E_NOT_FOUND
 // when nothing is selected.
-ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t /*flags*/) {
+ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   Clipboard clip;
-  if (!e->editor.copySelection(clip)) return E_NOT_FOUND;
+  if (!e->editor.copySelection(clip, (flags & 1) != 0)) return E_NOT_FOUND;
   json::Writer w;
   codec::BlobsOut blobs;
   w.beginObject();
@@ -729,6 +729,8 @@ ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t /*flags*/) {
   codec::writeChanges(w, clip.nodes, &blobs);
   blobs.writeMember(w);
   w.key("pastePageId").string(clip.page.toString());
+  if (!clip.fileKey.empty()) w.key("pasteFileKey").string(clip.fileKey);
+  if (clip.isCut) w.key("isCut").boolean(true);
   w.key("clipboardSelectionRegions").beginArray();
   for (auto& r : clip.regions) {
     w.beginObject().key("parent").string(r.parent.toString()).key("nodes");
@@ -753,6 +755,8 @@ ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags)
   Clipboard clip;
   clip.nodes = readMessage(v);
   if (auto* p = v.get("pastePageId")) codec::readGuid(*p, clip.page);
+  if (auto* k = v.get("pasteFileKey"); k && k->isString()) clip.fileKey = k->string;
+  if (auto* c = v.get("isCut"); c && c->isBool()) clip.isCut = c->boolean;
   if (auto* regions = v.get("clipboardSelectionRegions"); regions && regions->isArray()) {
     for (auto& r : regions->array) {
       Clipboard::Region region;
@@ -1194,7 +1198,15 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
     w.key("set");
     if (info.mainSet == kNoGuid) w.null();
     else w.string(info.mainSet.toString());
-    w.key("softDeleted").boolean(info.mainSoftDeleted).endObject();
+    w.key("softDeleted").boolean(info.mainSoftDeleted);
+    w.key("remote");
+    if (!info.mainRemote) {
+      w.null();
+    } else {
+      w.beginObject().key("libraryKey").string(info.mainLibraryKey).key("key").string(info.mainKey);
+      w.key("version").string(info.mainVersion).endObject();
+    }
+    w.key("copied").boolean(info.mainCopied).endObject();
   }
   w.key("instance");
   if (info.instance == kNoGuid) w.null();
@@ -1285,6 +1297,14 @@ Guid parseRef(Ptr ptr, uint32_t len) {
   bool ok = false;
   Guid g = Guid::parse(bytes(ptr, len), &ok);
   return ok ? g : kNoGuid;
+}
+
+// "remote" and "libraryKey" members of an asset's info (a library copy: its library).
+void writeRemote(json::Writer& w, const Editor& ed, Guid id) {
+  Guid root = ed.libraryRootOf(id);
+  w.key("remote").boolean(root != kNoGuid).key("libraryKey");
+  if (root == kNoGuid) w.null();
+  else w.string(ed.document().get(root)->props.sourceLibraryKey);
 }
 
 void writeColorValue(json::Writer& w, const Color& c) {
@@ -1392,19 +1412,21 @@ void writeVariableInfo(json::Writer& w, const Editor& ed, Guid v) {
   w.endObject();
   w.key("description").string(p.description).key("hiddenFromPublishing").boolean(!p.isPublishable);
   w.key("key").string(p.key).key("deletedButReferenced").boolean(p.isSoftDeleted);
+  writeRemote(w, ed, v);
   w.endObject();
 }
 
 }  // namespace
 
-ENG_EXPORT int32_t engine_variable_collections(Handle h) {
+// flags: INCLUDE_REMOTE (1) adds library copies.
+ENG_EXPORT int32_t engine_variable_collections(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   Editor& ed = e->editor;
   json::Writer w;
   w.beginArray();
-  for (Guid c : ed.collections()) {
+  for (Guid c : ed.collections((flags & 1) != 0)) {
     const NodeProps& p = ed.document().get(c)->props;
     std::vector<VariableSetMode> modes = p.orderedModes();
     w.beginObject().key("id").string(c.toString()).key("name").string(p.name).key("modes").beginArray();
@@ -1416,14 +1438,15 @@ ENG_EXPORT int32_t engine_variable_collections(Handle h) {
     writeIds(w, ed.variablesOf(c));
     bool hidden = !p.isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.'));
     w.key("hiddenFromPublishing").boolean(hidden).key("key").string(p.key).key("description").string(p.description);
+    writeRemote(w, ed, c);
     w.endObject();
   }
   w.endArray();
   return setResult(w.take());
 }
 
-// collPtr/collLen: a collection's ref ("s:l"); empty = every collection's.
-ENG_EXPORT int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen) {
+// collPtr/collLen: a collection's ref ("s:l"); empty = every collection's (flags INCLUDE_REMOTE (1): library copies' too).
+ENG_EXPORT int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
@@ -1435,7 +1458,7 @@ ENG_EXPORT int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen) {
     if (!n || n->props.type != NodeType::VARIABLE_SET) return E_NOT_FOUND;
     vars = ed.variablesOf(c);
   } else {
-    for (Guid c : ed.collections())
+    for (Guid c : ed.collections((flags & 1) != 0))
       for (Guid v : ed.variablesOf(c)) vars.push_back(v);
   }
   json::Writer w;
@@ -1517,7 +1540,7 @@ ENG_EXPORT int32_t engine_variable_modes(Handle h, Ptr refPtr, uint32_t refLen) 
   if (!n) return E_NOT_FOUND;
   json::Writer w;
   w.beginArray();
-  for (Guid c : ed.collections()) {
+  for (Guid c : ed.collections(true)) {
     const NodeProps& sp = ed.document().get(c)->props;
     Guid explicitMode = n->props.explicitMode(c, sp.key);
     bool valid = false;
@@ -1535,20 +1558,21 @@ ENG_EXPORT int32_t engine_variable_modes(Handle h, Ptr refPtr, uint32_t refLen) 
   return setResult(w.take());
 }
 
-// type: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6); 0 = every style.
-ENG_EXPORT int32_t engine_styles(Handle h, uint32_t type) {
+// type: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6); 0 = every style. flags: INCLUDE_REMOTE (1).
+ENG_EXPORT int32_t engine_styles(Handle h, uint32_t type, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   Editor& ed = e->editor;
   json::Writer w;
   w.beginArray();
-  for (Guid s : ed.stylesOf(static_cast<StyleType>(type))) {
+  for (Guid s : ed.stylesOf(static_cast<StyleType>(type), (flags & 1) != 0)) {
     const NodeProps& p = ed.document().get(s)->props;
     w.beginObject().key("id").string(s.toString()).key("name").string(p.name).key("styleType").string(enumName(p.styleType));
     w.key("description").string(p.description).key("key").string(p.key);
     w.key("hiddenFromPublishing").boolean(!p.isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.')));
     w.key("usageCount").number(ed.styleUsage(s));
+    writeRemote(w, ed, s);
     switch (p.styleType) {
       case StyleType::FILL:
         w.key("fillPaints");
@@ -1601,4 +1625,213 @@ ENG_EXPORT int32_t engine_style_usage(Handle h, Ptr idPtr, uint32_t idLen) {
   const Node* n = e->editor.document().get(s);
   if (!n || !n->props.isStyle()) return E_NOT_FOUND;
   return static_cast<int32_t>(e->editor.styleUsage(s));
+}
+
+// ---- Libraries (docs/data.md §9, docs/engine-build.md "E6 libraries") ---------------------------
+
+namespace {
+
+void writeAssetCommon(json::Writer& w, const Editor& ed, const Editor::AssetInfo& a) {
+  w.key("id").string(a.id.toString()).key("key").string(a.key).key("kind").string(Editor::assetKindName(a.kind));
+  w.key("name").string(a.name).key("description").string(a.description);
+  if (a.kind == Editor::AssetKind::STYLE) w.key("styleType").string(enumName(a.styleType));
+  if (a.hasResolvedType) w.key("resolvedType").string(enumName(a.resolvedType));
+  if (a.owner != kNoGuid) {
+    bool set = a.kind == Editor::AssetKind::COMPONENT;
+    w.key(set ? "componentSetKey" : "collectionKey").string(a.ownerKey);
+    w.key(set ? "componentSetId" : "collectionId").string(a.owner.toString());
+  }
+  (void)ed;
+}
+
+void writeLocalAsset(json::Writer& w, const Editor& ed, const Editor::AssetInfo& a) {
+  writeAssetCommon(w, ed, a);
+  w.key("hiddenFromPublishing").boolean(a.hidden).key("softDeleted").boolean(a.softDeleted);
+  w.key("versionHash").string(a.versionHash).key("publishedVersion");
+  if (a.publishedVersion.empty()) w.null();
+  else w.string(a.publishedVersion);
+  w.key("dependencies").beginArray();
+  for (const std::string& k : a.dependencies) w.string(k);
+  w.endArray().key("containingFrame");
+  if (a.pageId == kNoGuid) {
+    w.null();
+  } else {
+    w.beginObject().key("pageId").string(a.pageId.toString()).key("pageName").string(a.pageName);
+    if (a.frameId != kNoGuid) w.key("frameId").string(a.frameId.toString()).key("frameName").string(a.frameName);
+    w.endObject();
+  }
+}
+
+std::vector<std::string> readStrings(const json::Value& v, const char* member) {
+  const json::Value* list = v.isArray() ? &v : v.get(member);
+  std::vector<std::string> out;
+  if (list && list->isArray())
+    for (auto& e : list->array)
+      if (e.isString()) out.push_back(e.string);
+  return out;
+}
+
+// A Message, an array of Messages, or {"messages": [...]}: each Message's changes (blobs resolved).
+std::vector<std::vector<NodeChange>> readMessages(const json::Value& v) {
+  std::vector<std::vector<NodeChange>> out;
+  const json::Value* list = v.isArray() ? &v : v.get("messages");
+  if (list && list->isArray()) {
+    for (auto& m : list->array) out.push_back(codec::readMessage(m));
+  } else {
+    out.push_back(codec::readMessage(v));
+  }
+  return out;
+}
+
+int32_t libraryImport(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen, bool update) {
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value msg, opts;
+  if (!parse(msgPtr, msgLen, msg) || !parse(optsPtr, optsLen, opts)) return E_DECODE;
+  Editor::LibraryOptions o;
+  o.update = update;
+  if (auto* k = opts.get("libraryKey"); k && k->isString()) o.libraryKey = k->string;
+  if (auto* keys = opts.get("keys"); keys && keys->isArray()) {
+    o.hasKeys = true;
+    o.keys = readStrings(*keys, "keys");
+  }
+  if (auto* r = opts.get("redirects"); r && r->isArray())
+    for (auto& x : r->array) {
+      auto* from = x.get("fromKey");
+      auto* to = x.get("toKey");
+      if (from && to && from->isString() && to->isString()) o.redirects.push_back({from->string, to->string});
+    }
+  std::vector<Editor::ImportedAsset> imported;
+  int32_t status = e->editor.importLibrary(readMessages(msg), o, imported);
+  json::Writer w;
+  w.beginObject().key("status").number(status).key("assets").beginArray();
+  for (auto& a : imported) {
+    w.beginObject().key("key").string(a.key).key("id").string(a.id.toString()).key("kind").string(Editor::assetKindName(a.kind));
+    w.key("libraryKey").string(a.libraryKey).key("version").string(a.version);
+    w.key("created").boolean(a.created).key("updated").boolean(a.updated).endObject();
+  }
+  w.endArray().endObject();
+  setResult(w.take());
+  return status;
+}
+
+}  // namespace
+
+ENG_EXPORT int32_t engine_set_file_key(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  e->editor.setFileKey(std::string(bytes(ptr, len)));
+  return OK;
+}
+
+// refs: a NodeRefList (empty = every local asset). Result: [{id, key}].
+ENG_EXPORT int32_t engine_ensure_asset_keys(Handle h, Ptr refsPtr, uint32_t refsLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  std::vector<Guid> refs;
+  if (refsLen) {
+    json::Value v;
+    if (!parse(refsPtr, refsLen, v)) return E_DECODE;
+    refs = readRefs(v);
+  }
+  if (e->editor.busy()) return E_BUSY;
+  json::Writer w;
+  w.beginArray();
+  for (auto& [id, key] : e->editor.ensureAssetKeys(refs)) w.beginObject().key("id").string(id.toString()).key("key").string(key).endObject();
+  w.endArray();
+  return setResult(w.take());
+}
+
+ENG_EXPORT int32_t engine_local_assets(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Writer w;
+  w.beginArray();
+  for (auto& a : e->editor.localAssets()) {
+    w.beginObject();
+    writeLocalAsset(w, e->editor, a);
+    w.endObject();
+  }
+  w.endArray();
+  return setResult(w.take());
+}
+
+// keys: a JSON array of asset keys (or {"keys": [...]}). Result: {assets: EncodedAsset[], images: hash[]}.
+ENG_EXPORT int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(keysPtr, keysLen, v)) return E_DECODE;
+  if (e->editor.busy()) return E_BUSY;
+  std::vector<Editor::EncodedAsset> assets;
+  std::vector<ImageHash> images;
+  e->editor.encodeAssets(readStrings(v, "keys"), assets, images);
+  json::Writer w;
+  w.beginObject().key("assets").beginArray();
+  for (auto& a : assets) {
+    w.beginObject();
+    writeLocalAsset(w, e->editor, a.info);
+    w.key("dependencyOnly").boolean(a.dependencyOnly);
+    w.key("message").beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(0).key("nodeChanges");
+    codec::BlobsOut blobs;
+    codec::writeChanges(w, a.nodes, &blobs);
+    blobs.writeMember(w);
+    w.endObject().endObject();
+  }
+  w.endArray().key("images").beginArray();
+  for (const ImageHash& i : images) w.string(i.hex());
+  w.endArray().endObject();
+  return setResult(w.take());
+}
+
+// [{key, versionHash}] (or {"entries": [...]}).
+ENG_EXPORT int32_t engine_mark_published(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Value v;
+  if (!parse(ptr, len, v)) return E_DECODE;
+  const json::Value* list = v.isArray() ? &v : v.get("entries");
+  std::vector<std::pair<std::string, std::string>> entries;
+  if (list && list->isArray())
+    for (auto& x : list->array) {
+      auto* k = x.get("key");
+      auto* hash = x.get("versionHash");
+      if (k && hash && k->isString() && hash->isString()) entries.push_back({k->string, hash->string});
+    }
+  return e->editor.markPublished(entries);
+}
+
+// msg: a Message, an array of them or {"messages": [...]}; opts: {libraryKey}. Result: LibraryImportResult.
+ENG_EXPORT int32_t engine_import_library_assets(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen) {
+  Call call;
+  return libraryImport(h, msgPtr, msgLen, optsPtr, optsLen, false);
+}
+
+// The same, opts {libraryKey, keys?, redirects?: [{fromKey, toKey}]}: one undo step.
+ENG_EXPORT int32_t engine_apply_library_update(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen) {
+  Call call;
+  return libraryImport(h, msgPtr, msgLen, optsPtr, optsLen, true);
+}
+
+ENG_EXPORT int32_t engine_library_usage(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Writer w;
+  w.beginArray();
+  for (auto& a : e->editor.libraryUsage()) {
+    w.beginObject();
+    writeAssetCommon(w, e->editor, a);
+    w.key("libraryKey").string(a.libraryKey).key("version").string(a.version).key("publishID");
+    if (a.publishID == kNoGuid) w.null();
+    else w.string(a.publishID.toString());
+    w.key("usageCount").number(a.usage).endObject();
+  }
+  w.endArray();
+  return setResult(w.take());
 }

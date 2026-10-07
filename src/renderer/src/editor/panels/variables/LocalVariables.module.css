@@ -139,17 +139,18 @@
     align-items: center;
     gap: var(--ds-space-1);
     min-width: 0;
-    height: 20px;
+    height: calc(var(--ds-size-control) - var(--ds-space-1));
     padding: 0 var(--ds-space-1-5) 0 var(--ds-space-1);
-    border: 0;
+    border: 1px solid transparent;
     border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-component-tertiary);
+    /* An alias: the same neutral chip as a bound field's, set off from the table's surface by its fill */
+    background: var(--figma-color-bg-secondary);
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
     outline: none;
   }
-  .alias:hover { background: var(--figma-color-bg-component-secondary); }
+  .alias:hover { border-color: var(--figma-color-border-strong); }
   .aliasText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .cellButton {
     display: inline-flex;

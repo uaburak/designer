@@ -38,6 +38,7 @@ add_library(eng_core STATIC
   src/editor/ComponentCommands.cpp
   src/editor/Variables.cpp
   src/editor/VariableCommands.cpp
+  src/editor/Libraries.cpp
   src/tools/Gestures.cpp
   src/render/Renderer.cpp
   src/render/Overlay.cpp
@@ -107,6 +108,7 @@ else()
     tests/unit/scene.kiwi.test.cpp
     tests/unit/components.test.cpp
     tests/unit/variables.test.cpp
+    tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
     tests/unit/text.render.test.cpp

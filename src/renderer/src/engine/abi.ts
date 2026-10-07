@@ -215,6 +215,10 @@ export const APPLY_LOAD = 4;
 export const INCLUDE_CHILD_IDS = 1;
 /** engine_paste flags. */
 export const PASTE_IN_PLACE = 1;
+/** engine_encode_selection flags. */
+export const ENCODE_SELECTION_CUT = 1;
+/** engine_variable_collections / engine_variables / engine_styles flags: library copies too. */
+export const INCLUDE_REMOTE = 1;
 /** engine_text_edit flags. */
 export const TEXT_EDIT_SELECT_ALL = 1;
 /** engine_vector_edit_tool values. */

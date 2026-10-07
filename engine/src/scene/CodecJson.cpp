@@ -662,6 +662,31 @@ void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bo
     for (const CodeSyntaxEntry& e : p.codeSyntax) w.beginObject().key("platform").string(enumName(e.platform)).key("value").string(e.value).endObject();
     w.endArray().endObject();
   }
+  // Libraries (docs/schema.md §8): absent strings / GUIDs are cleared on update.
+  auto stringOrClear = [&](FieldMask bit, const char* key, const std::string& s) {
+    if (!(mask & bit)) return;
+    if (!s.empty()) w.key(key).string(s);
+    else if (update) cleared.push_back(kiwiFieldId(static_cast<Field>(bit)));
+  };
+  stringOrClear(F_VERSION, "version", p.version);
+  stringOrClear(F_PUBLISHED_VERSION, "publishedVersion", p.publishedVersion);
+  stringOrClear(F_SOURCE_LIBRARY_KEY, "sourceLibraryKey", p.sourceLibraryKey);
+  if (mask & F_PUBLISH_ID) {
+    if (p.publishID != kNoGuid) {
+      w.key("publishID");
+      writeGuidObject(w, p.publishID);
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(F_PUBLISH_ID));
+    }
+  }
+  if (mask & F_LIBRARY_MOVE_INFO) {
+    if (p.libraryMoveInfo.present()) {
+      w.key("libraryMoveInfo").beginObject().key("oldKey").string(p.libraryMoveInfo.oldKey);
+      w.key("pasteFileKey").string(p.libraryMoveInfo.pasteFileKey).endObject();
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(F_LIBRARY_MOVE_INFO));
+    }
+  }
 }
 
 // Writes the fields in `mask`; for an update, an optional field that is unset
@@ -1105,7 +1130,8 @@ bool knownKey(std::string_view k) {
       "isSlotContent", "detachedSymbolId", "isSoftDeleted", "ancestorPathBeforeDeletion", "variableModeBySetMap",
       "styleIdForFill", "styleIdForStrokeFill", "styleIdForText", "styleIdForEffect", "styleIdForGrid", "styleType",
       "sortPosition", "description", "key", "isPublishable", "variableSetModes", "variableSetID", "variableResolvedType",
-      "variableDataValues", "variableScopes", "codeSyntax",
+      "variableDataValues", "variableScopes", "codeSyntax", "version", "publishedVersion", "sourceLibraryKey", "publishID",
+      "libraryMoveInfo",
       // Not kept: derived (recomputed) or panel-only.
       "derivedTextData", "derivedSymbolData", "childIds", "fillGeometry", "strokeGeometry", "blobs", "guidPath"};
   for (std::string_view known : kKnown)
@@ -1401,6 +1427,15 @@ void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
         p.codeSyntax.push_back(std::move(cs));
       }
     m |= F_CODE_SYNTAX;
+  }
+  if (auto* x = v.get("version"); x && x->isString()) p.version = x->string, m |= F_VERSION;
+  if (auto* x = v.get("publishedVersion"); x && x->isString()) p.publishedVersion = x->string, m |= F_PUBLISHED_VERSION;
+  if (auto* x = v.get("sourceLibraryKey"); x && x->isString()) p.sourceLibraryKey = x->string, m |= F_SOURCE_LIBRARY_KEY;
+  if (auto* x = v.get("publishID"); x && readStructGuid(*x, p.publishID)) m |= F_PUBLISH_ID;
+  if (auto* x = v.get("libraryMoveInfo"); x && x->isObject()) {
+    if (auto* k = x->get("oldKey"); k && k->isString()) p.libraryMoveInfo.oldKey = k->string;
+    if (auto* k = x->get("pasteFileKey"); k && k->isString()) p.libraryMoveInfo.pasteFileKey = k->string;
+    m |= F_LIBRARY_MOVE_INFO;
   }
 }
 
@@ -1797,7 +1832,9 @@ const FieldKey kFieldKeys[] = {
     {F_SORT_POSITION, "sortPosition"}, {F_DESCRIPTION, "description"}, {F_KEY, "key"}, {F_IS_PUBLISHABLE, "isPublishable"},
     {F_VARIABLE_SET_MODES, "variableSetModes"}, {F_VARIABLE_SET_ID, "variableSetID"},
     {F_VARIABLE_RESOLVED_TYPE, "variableResolvedType"}, {F_VARIABLE_DATA_VALUES, "variableDataValues"},
-    {F_VARIABLE_SCOPES, "variableScopes"}, {F_CODE_SYNTAX, "codeSyntax"},
+    {F_VARIABLE_SCOPES, "variableScopes"}, {F_CODE_SYNTAX, "codeSyntax"}, {F_VERSION, "version"},
+    {F_PUBLISHED_VERSION, "publishedVersion"}, {F_SOURCE_LIBRARY_KEY, "sourceLibraryKey"}, {F_PUBLISH_ID, "publishID"},
+    {F_LIBRARY_MOVE_INFO, "libraryMoveInfo"},
 };
 }  // namespace
 

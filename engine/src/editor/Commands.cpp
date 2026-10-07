@@ -4,6 +4,7 @@
 // clipboard (copySelection / paste).
 
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 #include <optional>
 #include <unordered_map>
@@ -33,6 +34,40 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     if (!zoom) endTextEdit();
   }
   created_.clear();
+  if (hasLibraryCopies_ && id != CommandId::RESTORE_COMPONENT &&
+      ((id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) ||
+                            (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES))) {
+    // Library copies are read-only: commands may use them (bind, apply, insert, swap) but never change them.
+    bool consumer = id == CommandId::BIND_VARIABLE || id == CommandId::DETACH_VARIABLE || id == CommandId::SET_VARIABLE_MODE ||
+                    id == CommandId::APPLY_STYLE || id == CommandId::DETACH_STYLE || id == CommandId::CREATE_STYLE;
+    bool component = id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES;
+    std::vector<const char*> keys = {"ref", "refs", "parent", "page"};
+    if (!consumer && !component) {
+      for (const char* k : {"collection", "variable", "variables", "style", "styles"}) keys.push_back(k);
+    }
+    std::vector<Guid> targets;
+    bool hasRef = false;
+    for (const char* k : keys) {
+      const json::Value* v = args.raw.isObject() ? args.raw.get(k) : nullptr;
+      if (!v) continue;
+      if (!std::strcmp(k, "ref") || !std::strcmp(k, "refs")) hasRef = true;
+      auto take = [&](const json::Value& e) {
+        bool ok = false;
+        Guid g = e.isString() ? Guid::parse(e.string, &ok) : Guid{};
+        if (ok) targets.push_back(g);
+      };
+      if (v->isArray())
+        for (auto& e : v->array) take(e);
+      else
+        take(*v);
+    }
+    bool usesSelection = (component && id != CommandId::INSERT_INSTANCE && id != CommandId::GO_TO_MAIN_COMPONENT &&
+                          id != CommandId::RETURN_TO_INSTANCE) ||
+                         (consumer && id != CommandId::CREATE_STYLE);
+    if (!hasRef && usesSelection) targets.insert(targets.end(), selection_.begin(), selection_.end());
+    for (Guid g : targets)
+      if (isLibraryCopy(g)) return E_READONLY;
+  }
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommand(id, args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
@@ -588,6 +623,7 @@ Guid Editor::cloneTree(Guid src, Guid parent, const std::string& position, const
   const Node* n = doc_.get(src);
   if (!n) return kNoGuid;
   NodeProps p = n->props;
+  clearIdentity(p);  // a duplicate is a new asset: a key of its own when asked (docs/schema.md §8.1)
   std::vector<Guid> kids = doc_.children(src);
   Guid id = newGuid();
   p.parentIndex = {parent, position};
@@ -1010,6 +1046,7 @@ uint32_t Editor::moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t i
   if (busy() || txn_.open) return 0;
   const Node* pn = doc_.get(parent);
   if (!pn || !pn->props.isContainer()) return 0;
+  if (isLibraryCopy(parent)) return 0;  // read-only (docs/schema.md §8.2)
   bool pagesMove = pn->props.type == NodeType::DOCUMENT;
   std::vector<Guid> live;
   for (Guid id : ids) {
@@ -1018,6 +1055,7 @@ uint32_t Editor::moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t i
     // Pages go only under the document, and nothing else does.
     if ((n->props.type == NodeType::CANVAS) != pagesMove) return 0;
     if (id == parent || doc_.isAncestor(id, parent)) return 0;  // into itself
+    if (isLibraryCopy(id)) return 0;
     live.push_back(id);
   }
   live = topLevelSelection(doc_, live);
@@ -1041,11 +1079,13 @@ uint32_t Editor::moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t i
   return static_cast<uint32_t>(live.size());
 }
 
-bool Editor::copySelection(Clipboard& out) const {
+bool Editor::copySelection(Clipboard& out, bool cut) const {
   out = Clipboard{};
   std::vector<Guid> top = topSelectionInPaintOrder();
   if (top.empty()) return false;
   out.page = page_;
+  out.fileKey = fileKey_;
+  out.isCut = cut;
   auto visit = [&](auto&& self, Guid id) -> void {
     NodeChange c = NodeChange::created(id, doc_.get(id)->props);
     if (id.isDerived()) {
@@ -1068,27 +1108,65 @@ bool Editor::copySelection(Clipboard& out) const {
     }
     region->nodes.push_back(id);
   }
+  // What the selection references — mains, component sets, styles, variables, collections — after it, outside the
+  // regions (docs/schema.md §4.1): a paste in another file brings them in (Libraries.cpp).
+  GuidSet copied;
+  std::vector<const NodeProps*> props;
+  for (const NodeChange& c : out.nodes) copied.insert(c.guid), props.push_back(&c.props);
+  std::vector<Guid> deps = dependencyRoots({}, &props);
+  std::vector<NodeChange> extra;
+  for (Guid d : deps) {
+    if (copied.count(d)) continue;
+    std::vector<Guid> nodes;
+    realSubtree(d, nodes);
+    for (Guid g : nodes)
+      if (copied.insert(g).second) extra.push_back(NodeChange::created(g, doc_.get(g)->props));
+  }
+  for (NodeChange& c : extra) out.nodes.push_back(std::move(c));
   return true;
 }
 
 uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   if (busy() || txn_.open || page_ == kNoGuid) return 0;
-  std::unordered_map<Guid, const NodeChange*, GuidHash> byId;
+  // The selection: the regions' nodes and what is below them. Anything else came along as what they reference.
+  std::unordered_map<Guid, const NodeChange*, GuidHash> all;
   for (const NodeChange& c : clip.nodes)
-    if (c.phase != Phase::REMOVED && c.props.type != NodeType::CANVAS && c.props.type != NodeType::DOCUMENT && c.props.type != NodeType::NONE)
-      byId[c.guid] = &c;
+    // (Derived ids too: a copied instance sublayer, or a caller's placeholder ids in the derived session.)
+    if (c.phase != Phase::REMOVED && c.props.type != NodeType::CANVAS && c.props.type != NodeType::DOCUMENT && c.props.type != NodeType::NONE &&
+        !all.count(c.guid))
+      all[c.guid] = &c;
+  std::unordered_map<Guid, std::vector<const NodeChange*>, GuidHash> kidsAll;
+  for (const NodeChange& c : clip.nodes)
+    if (all.count(c.guid) && all[c.guid] == &c && c.props.parentIndex.guid != c.guid && all.count(c.props.parentIndex.guid))
+      kidsAll[c.props.parentIndex.guid].push_back(&c);
+  GuidSet listed;
+  for (auto& r : clip.regions)
+    for (Guid g : r.nodes) listed.insert(g);
   std::vector<const NodeChange*> roots;
-  std::unordered_map<Guid, std::vector<const NodeChange*>, GuidHash> kids;
   for (const NodeChange& c : clip.nodes) {
-    if (!byId.count(c.guid) || byId[c.guid] != &c) continue;
-    if (byId.count(c.props.parentIndex.guid)) kids[c.props.parentIndex.guid].push_back(&c);
-    else roots.push_back(&c);
+    if (!all.count(c.guid) || all[c.guid] != &c) continue;
+    bool root = listed.empty() ? !all.count(c.props.parentIndex.guid) : listed.count(c.guid) != 0;
+    if (root) roots.push_back(&c);
   }
   if (roots.empty()) return 0;
+  std::unordered_map<Guid, const NodeChange*, GuidHash> byId;
+  std::unordered_map<Guid, std::vector<const NodeChange*>, GuidHash> kids;
+  auto take = [&](auto&& self, const NodeChange* c) -> void {
+    if (byId.count(c->guid)) return;
+    byId[c->guid] = c;
+    auto it = kidsAll.find(c->guid);
+    if (it == kidsAll.end()) return;
+    for (const NodeChange* k : it->second) {
+      kids[c->guid].push_back(k);
+      self(self, k);
+    }
+  };
+  for (const NodeChange* r : roots) take(take, r);
   for (auto& [parent, list] : kids)
     std::stable_sort(list.begin(), list.end(), [](const NodeChange* a, const NodeChange* b) {
       return a->props.parentIndex.position < b->props.parentIndex.position;
     });
+  bool crossFile = !clip.fileKey.empty() && clip.fileKey != fileKey_;
 
   // Where each root was on its page, and their union.
   auto offsetOf = [&](Guid parent) {
@@ -1114,7 +1192,7 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   std::vector<Guid> sel = topSelectionInPaintOrder();
   if (!sel.empty()) {
     Guid s = sel.back();
-    if (sel.size() == 1 && acceptsChildren(s) && !sourceRoots.count(s)) {
+    if (sel.size() == 1 && acceptsChildren(s) && !sourceRoots.count(s) && !isLibraryCopy(s)) {
       target = s;
       index = doc_.children(s).size();
       intoFrame = true;
@@ -1164,15 +1242,112 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   begin(TxnKind::USER, "Paste");
   auto keys = placeManyAt(target, index, roots.size(), {});
   std::vector<Guid> pasted;
+
+  // From another file (R4 §8, docs/data.md §9.5): what the selection references comes in first — published assets
+  // and library copies as library copies, unpublished ones as this file's own (mains on the internal canvas).
+  GuidMap map;
+  GuidSet asInstance;  // pasted mains that become instances of their library copy
+  if (crossFile) {
+    SourceNodes src;
+    for (auto& [id, c] : all)
+      if (!byId.count(id)) src.add(*c);
+    auto published = [](const NodeProps& p) { return !p.key.empty() && !p.publishedVersion.empty(); };
+    // A published main pasted itself (not cut): an instance of its library copy.
+    for (const NodeChange* r : roots)
+      if (r->props.type == NodeType::SYMBOL && published(r->props) && !clip.isCut) {
+        std::vector<const NodeChange*> tree;
+        auto add = [&](auto&& self, const NodeChange* c) -> void {
+          src.add(*c);
+          auto it = kids.find(c->guid);
+          if (it != kids.end())
+            for (const NodeChange* k : it->second) self(self, k);
+        };
+        add(add, r);
+        asInstance.insert(r->guid);
+      }
+    src.link();
+    std::vector<ImportPlan> plans;
+    for (Guid r : src.roots) {
+      const NodeProps& rp = src.byId.at(r)->props;
+      bool asset = rp.type == NodeType::SYMBOL || rp.isComponentSet() || rp.isStyle() || rp.type == NodeType::VARIABLE ||
+                   rp.type == NodeType::VARIABLE_SET;
+      if (!asset) continue;
+      ImportPlan plan;
+      plan.src = r;
+      if (!rp.sourceLibraryKey.empty() && rp.sourceLibraryKey == fileKey_) {
+        // A copy of one of this file's own assets: the asset itself.
+        plan.mode = ImportPlan::Mode::LOCAL;
+        plan.target = localAssetByKey(rp.key);
+        if (plan.target == kNoGuid) plan.publishID = r;
+      } else if (!rp.sourceLibraryKey.empty() && !rp.key.empty()) {
+        plan.libraryKey = rp.sourceLibraryKey;
+        plan.key = rp.key;
+        plan.version = rp.version;
+        plan.publishID = rp.publishID != kNoGuid ? rp.publishID : r;
+        plan.target = copyRootByKey(rp.key);
+      } else if (published(rp)) {
+        plan.libraryKey = clip.fileKey;
+        plan.key = rp.key;
+        plan.version = rp.publishedVersion;
+        plan.publishID = r;
+        plan.target = copyRootByKey(rp.key);
+      } else {
+        // Unpublished: copied in as this file's own, once (a later paste finds it by its source).
+        plan.mode = ImportPlan::Mode::LOCAL;
+        plan.publishID = r;
+        doc_.forEach([&](const Node& n) {
+          const NodeProps& q = n.props;
+          if (plan.target == kNoGuid && !n.guid.isDerived() && q.publishID == r && q.type == rp.type && q.styleType == rp.styleType &&
+              q.name == rp.name && !q.isSoftDeleted && q.sourceLibraryKey.empty() && !isLibraryCopy(n.guid))
+            plan.target = n.guid;
+        });
+      }
+      plans.push_back(plan);
+    }
+    writeImports(src, plans, map);
+    // The pasted nodes' own ids (instances of pasted mains point at them).
+    auto assign = [&](auto&& self, const NodeChange* c) -> void {
+      if (asInstance.count(c->guid)) return;
+      map[c->guid] = newGuid();
+      auto it = kids.find(c->guid);
+      if (it != kids.end())
+        for (const NodeChange* k : it->second) self(self, k);
+    };
+    for (const NodeChange* r : roots) assign(assign, r);
+  }
+
   auto create = [&](auto&& self, const NodeChange& src, Guid parent, const std::string& position, const Mat2x3& transform) -> void {
     NodeProps p = src.props;
     p.parentIndex = {parent, position};
     p.transform = transform;
     p.isSoftDeleted = false;
-    // A main component of this file pastes as an instance of it (R4 §2, §8); a component set as a new set.
-    const Node* live = doc_.get(src.guid);
-    if (parent == target && src.props.type == NodeType::SYMBOL && live && live->props.type == NodeType::SYMBOL && !live->props.isSoftDeleted) {
-      Guid inst = createInstance(src.guid, parent, position, transform);
+    const Node* live = crossFile ? nullptr : doc_.get(src.guid);
+    bool root = parent == target;
+    if (crossFile && asInstance.count(src.guid)) {
+      Guid copy = map.count(src.guid) ? map[src.guid] : kNoGuid;
+      Guid inst = copy != kNoGuid ? createInstance(copy, parent, position, transform) : kNoGuid;
+      if (inst != kNoGuid) pasted.push_back(inst);
+      return;
+    }
+    bool component = src.props.type == NodeType::SYMBOL || src.props.isComponentSet();
+    if (root && component && live && (live->props.type == NodeType::SYMBOL || live->props.isComponentSet()) && live->props.isSoftDeleted) {
+      // A main cut in this file (kept for its instances): moved back, keeping its GUID, key and instances.
+      NodeChange c = NodeChange::changed(src.guid);
+      c.mask = F_PARENT_INDEX | F_TRANSFORM | F_IS_SOFT_DELETED | F_ANCESTOR_PATH;
+      c.props.parentIndex = p.parentIndex;
+      c.props.transform = transform;
+      c.props.isSoftDeleted = false;
+      write(c);
+      pasted.push_back(src.guid);
+      return;
+    }
+    // A main component of this file pastes as an instance of it (R4 §2, §8); a component set as a new set. So does a
+    // cut main pasted a second time (the first paste is that main now: same key).
+    Guid sameKey = !crossFile && !live && component && !src.props.key.empty() ? localAssetByKey(src.props.key) : kNoGuid;
+    if (sameKey != kNoGuid && doc_.get(sameKey)->props.isSoftDeleted) sameKey = kNoGuid;
+    Guid mainHere = live && live->props.type == NodeType::SYMBOL && !live->props.isSoftDeleted ? src.guid : sameKey;
+    if (root && src.props.type == NodeType::SYMBOL && mainHere != kNoGuid && doc_.get(mainHere)->props.type == NodeType::SYMBOL) {
+      Guid inst = createInstance(mainHere, parent, position, transform);
       if (inst != kNoGuid) {
         pasted.push_back(inst);
         return;
@@ -1181,9 +1356,30 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     // Copies of whole components keep their keys (docs/schema.md §5.1); anything else gets none.
     if (wholeComponent.count(src.guid)) p.overrideKey = src.props.keyOf(src.guid);
     else p.overrideKey = kNoGuid;
-    Guid id = newGuid();
+    // Library identity: a cut main moved within the file keeps its key; any other copy is a new asset. A published
+    // main cut from another file remembers its old key ("Move to this file", docs/data.md §9.5).
+    bool keepIdentity = !crossFile && clip.isCut && component && !live && sameKey == kNoGuid;
+    if (!keepIdentity) {
+      std::string oldKey = src.props.key;
+      bool published = !src.props.publishedVersion.empty() && !oldKey.empty();
+      LibraryMoveInfo moved = src.props.libraryMoveInfo;
+      clearIdentity(p);
+      if (crossFile && clip.isCut && component) {
+        if (published) p.libraryMoveInfo = {oldKey, clip.fileKey};
+        else if (moved.present()) p.libraryMoveInfo = moved;  // moved here before and not published since: still that move
+      }
+    } else {
+      p.publishedVersion = src.props.publishedVersion;
+    }
+    Guid id;
+    if (crossFile) {
+      remapRefs(p, map, clip.fileKey);
+      id = map.count(src.guid) ? map[src.guid] : newGuid();
+    } else {
+      id = newGuid();
+    }
     write(NodeChange::created(id, p));
-    if (parent == target) pasted.push_back(id);
+    if (root) pasted.push_back(id);
     auto it = kids.find(src.guid);
     if (it == kids.end()) return;
     for (const NodeChange* c : it->second) self(self, *c, id, c->props.parentIndex.position, c->props.transform);

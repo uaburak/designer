@@ -617,6 +617,13 @@ struct SymbolData {
   bool present() const;
 };
 
+// schema LibraryMoveInfo: set on a pasted copy of a published main ("Move to this file").
+struct LibraryMoveInfo {
+  std::string oldKey, pasteFileKey;
+  bool present() const { return !oldKey.empty() || !pasteFileKey.empty(); }
+  bool operator==(const LibraryMoveInfo& o) const { return oldKey == o.oldKey && pasteFileKey == o.pasteFileKey; }
+};
+
 struct ParentIndex {
   Guid guid = kNoGuid;
   std::string position;
@@ -743,7 +750,13 @@ enum Field : FieldMask {
   F_VARIABLE_DATA_VALUES = ENG_FIELD_BIT(103),
   F_VARIABLE_SCOPES = ENG_FIELD_BIT(104),
   F_CODE_SYNTAX = ENG_FIELD_BIT(105),
-  F_ALL = ENG_FIELD_BIT(106) - 1,
+  // Libraries (docs/schema.md §8).
+  F_VERSION = ENG_FIELD_BIT(106),             // version: a library copy's versionHash
+  F_PUBLISHED_VERSION = ENG_FIELD_BIT(107),   // publishedVersion: a local asset's versionHash at its last publish
+  F_SOURCE_LIBRARY_KEY = ENG_FIELD_BIT(108),  // sourceLibraryKey: a library copy's library (FileKey)
+  F_PUBLISH_ID = ENG_FIELD_BIT(109),          // publishID: a library copy's GUID in its library
+  F_LIBRARY_MOVE_INFO = ENG_FIELD_BIT(110),   // libraryMoveInfo
+  F_ALL = ENG_FIELD_BIT(111) - 1,
 };
 
 inline constexpr FieldMask kComponentFields = F_OVERRIDE_KEY | F_SYMBOL_DATA | F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_DEFS |
@@ -755,7 +768,11 @@ inline constexpr FieldMask kStyleIdFields = F_STYLE_ID_FILL | F_STYLE_ID_STROKE 
 // An asset's own fields (styles, collections, variables; components' description / key): never an instance's.
 inline constexpr FieldMask kAssetFields = F_STYLE_TYPE | F_SORT_POSITION | F_DESCRIPTION | F_KEY | F_IS_PUBLISHABLE |
                                           F_VARIABLE_SET_MODES | F_VARIABLE_SET_ID | F_VARIABLE_RESOLVED_TYPE |
-                                          F_VARIABLE_DATA_VALUES | F_VARIABLE_SCOPES | F_CODE_SYNTAX;
+                                          F_VARIABLE_DATA_VALUES | F_VARIABLE_SCOPES | F_CODE_SYNTAX | F_VERSION |
+                                          F_PUBLISHED_VERSION | F_SOURCE_LIBRARY_KEY | F_PUBLISH_ID | F_LIBRARY_MOVE_INFO;
+// An asset's identity in libraries: never copied into a duplicate (it gets a key of its own when asked).
+inline constexpr FieldMask kAssetIdentityFields =
+    F_KEY | F_VERSION | F_PUBLISHED_VERSION | F_SOURCE_LIBRARY_KEY | F_PUBLISH_ID | F_LIBRARY_MOVE_INFO;
 // Fields whose change means a node's bindings (variables, styles, modes) must be resolved again.
 inline constexpr FieldMask kBindingInputFields = F_PARAM_MAP | F_FILLS | F_STROKES | F_EFFECTS | F_LAYOUT_GRIDS | F_TEXT_DATA |
                                                  kStyleIdFields | F_VARIABLE_MODES | F_TYPE;
@@ -926,6 +943,12 @@ struct NodeProps {
   std::vector<VariableModeValue> variableDataValues;   // VARIABLE: one value per mode
   std::optional<std::vector<VariableScope>> variableScopes;  // absent = [ALL_SCOPES]; empty = no picker
   std::vector<CodeSyntaxEntry> codeSyntax;
+  // Libraries (docs/schema.md §8).
+  std::string version;                    // a library copy: the versionHash it was copied at
+  std::string publishedVersion;           // a local asset: its versionHash at its last publish
+  std::string sourceLibraryKey;           // a library copy's root: its library's FileKey
+  Guid publishID = kNoGuid;               // a library copy (its SYMBOLs and sets too): the asset's GUID in its library
+  LibraryMoveInfo libraryMoveInfo;        // a published main pasted from another file
   // The fields the engine doesn't model (vectorData, blendMode, effects…): name →
   // encoded JSON value. A CHANGED change's `extra` merges into the node's (an
   // empty value removes that field); CREATED replaces it.

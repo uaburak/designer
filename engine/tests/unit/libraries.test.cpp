@@ -1,0 +1,1221 @@
+// Libraries (E6, docs/data.md §9, docs/schema.md §8, docs/engine-build.md "E6 libraries"): stable asset keys, publish
+// payloads and content hashes, read-only library copies that instances, styles and variables use like local assets,
+// updates (one undo step, overrides kept), usage, redirects (Move to this file), removed assets, and the cross-file
+// clipboard (R4 §8: published → library copy, unpublished → copied in as this file's own).
+#include <algorithm>
+#include <cctype>
+#include <functional>
+#include <set>
+#include <string>
+
+#include "doctest.h"
+#include "Helpers.h"
+#include "base/DerivedIds.h"
+#include "editor/Editor.h"
+#include "scene/CodecJson.h"
+
+using namespace eng;
+using namespace eng::test;
+
+namespace {
+
+// The library file: a main "Icon" (Glyph), a main "Button" (Background, Label, a nested Icon instance), a hidden
+// main "_Private", a frame "Card" with a swatch, and an instance of Button on the page.
+const Guid ICON{1, 1}, GLYPH{1, 2}, BUTTON{1, 10}, BG{1, 11}, LABEL{1, 12}, NESTED{1, 13}, PRIVATE{1, 20}, CARD{1, 30},
+    SWATCH{1, 31}, IB{1, 40};
+// The consumer file: a frame "Screen" with a rectangle.
+const Guid SCREEN{1, 1}, RECT{1, 2};
+
+const char* const kLibKey = "LibraryFileKey000001";
+const char* const kConsumerKey = "ConsumerFileKey00002";
+
+NodeChange textNode(Guid id, Guid parent, const std::string& position, Rect r, const std::string& chars) {
+  NodeChange c = make(id, NodeType::TEXT, parent, position, r, chars);
+  c.props.textData.characters = chars;
+  c.props.textAutoResize = TextAutoResize::NONE;
+  return c;
+}
+
+std::vector<NodeChange> libDoc() {
+  auto nodes = baseChanges();
+  NodeChange icon = make(ICON, NodeType::SYMBOL, kPage, "!", {0, 0, 24, 24}, "Icon");
+  icon.props.fillPaints.clear();
+  nodes.push_back(icon);
+  nodes.push_back(make(GLYPH, NodeType::ROUNDED_RECTANGLE, ICON, "!", {4, 4, 16, 16}, "Glyph"));
+  NodeChange button = make(BUTTON, NodeType::SYMBOL, kPage, "\"", {100, 0, 120, 40}, "Button");
+  button.props.fillPaints.clear();
+  nodes.push_back(button);
+  nodes.push_back(make(BG, NodeType::ROUNDED_RECTANGLE, BUTTON, "!", {0, 0, 120, 40}, "Background"));
+  nodes.push_back(textNode(LABEL, BUTTON, "\"", {40, 10, 70, 20}, "Label"));
+  NodeChange nested = make(NESTED, NodeType::INSTANCE, BUTTON, "#", {8, 8, 24, 24}, "Icon");
+  nested.props.symbolData.symbolID = ICON;
+  nested.props.fillPaints.clear();
+  nodes.push_back(nested);
+  nodes.push_back(make(PRIVATE, NodeType::SYMBOL, kPage, "#", {300, 0, 10, 10}, "_Private"));
+  nodes.push_back(make(CARD, NodeType::FRAME, kPage, "$", {0, 200, 200, 200}, "Card"));
+  nodes.push_back(make(SWATCH, NodeType::ROUNDED_RECTANGLE, CARD, "!", {10, 10, 50, 50}, "Swatch"));
+  NodeChange ib = make(IB, NodeType::INSTANCE, kPage, "%", {100, 100, 120, 40}, "Button");
+  ib.props.symbolData.symbolID = BUTTON;
+  ib.props.fillPaints.clear();
+  nodes.push_back(ib);
+  return nodes;
+}
+
+std::vector<NodeChange> consumerDoc() {
+  auto nodes = baseChanges();
+  nodes.push_back(make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 400, 400}, "Screen"));
+  nodes.push_back(make(RECT, NodeType::ROUNDED_RECTANGLE, SCREEN, "!", {300, 300, 50, 50}, "Rect"));
+  return nodes;
+}
+
+Editor load(const std::vector<NodeChange>& nodes, const std::string& fileKey) {
+  Editor e;
+  e.setSessionID(1);  // every file in the same session: GUIDs collide across files on purpose
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(nodes, kNoGuid);
+  e.setFileKey(fileKey);
+  e.takeEvents();
+  return e;
+}
+
+const NodeProps& props(const Editor& e, Guid id) { return e.document().get(id)->props; }
+std::string q(Guid g) { return "\"" + g.toString() + "\""; }
+Guid sub(Guid instance, std::vector<Guid> keys) { return derived::intern(instance, keys); }
+
+CommandArgs args(const std::string& jsonText) {
+  CommandArgs a;
+  REQUIRE(json::parse(jsonText, a.raw));
+  return a;
+}
+Status run(Editor& e, CommandId id, const std::string& json) { return e.command(id, args(json)); }
+
+NodeChange change(FieldMask mask, const std::function<void(NodeProps&)>& f) {
+  NodeChange c = NodeChange::changed(Guid{0, 0});
+  c.mask = mask;
+  f(c.props);
+  return c;
+}
+
+bool isKey(const std::string& k) {
+  return k.size() == 40 && std::all_of(k.begin(), k.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) || (c >= 'a' && c <= 'f'); });
+}
+
+// The library's assets made with commands: a collection Theme (Light / Dark) with Brand (red / blue) and Radius (6),
+// a colour style Primary taken from Background and bound to Brand, Background's corner radius bound to Radius.
+struct Lib {
+  Guid set, light, dark, brand, radius, style;
+};
+
+Lib makeAssets(Editor& e) {
+  Lib l;
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"Theme"})") == OK);
+  l.set = e.lastCreated()[0];
+  l.light = e.lastCreated()[1];
+  REQUIRE(run(e, CommandId::RENAME_VARIABLE_MODE, "{\"collection\":" + q(l.set) + ",\"mode\":" + q(l.light) + ",\"name\":\"Light\"}") == OK);
+  REQUIRE(run(e, CommandId::ADD_VARIABLE_MODE, "{\"collection\":" + q(l.set) + ",\"name\":\"Dark\"}") == OK);
+  l.dark = e.lastCreated()[0];
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(l.set) + R"(,"type":"COLOR","name":"Brand","value":{"r":1,"g":0,"b":0,"a":1}})") == OK);
+  l.brand = e.lastCreated()[0];
+  REQUIRE(run(e, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(l.brand) + ",\"mode\":" + q(l.dark) + R"(,"value":{"r":0,"g":0,"b":1,"a":1}})") == OK);
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(l.set) + R"(,"type":"FLOAT","name":"Radius","value":6})") == OK);
+  l.radius = e.lastCreated()[0];
+  REQUIRE(run(e, CommandId::CREATE_STYLE, "{\"type\":\"FILL\",\"name\":\"Primary\",\"from\":" + q(BG) + ",\"apply\":true}") == OK);
+  l.style = e.lastCreated()[0];
+  REQUIRE(run(e, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(l.style) + "],\"target\":\"fillPaints[0].color\",\"variable\":" + q(l.brand) + "}") == OK);
+  REQUIRE(run(e, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(BG) + "],\"target\":\"CORNER_RADIUS\",\"variable\":" + q(l.radius) + "}") == OK);
+  e.takeEvents();
+  return l;
+}
+
+std::string keyOf(const Editor& e, Guid id) { return props(e, id).key; }
+
+// A payload as the store keeps it: through the wire format (JSON) and back.
+std::vector<NodeChange> wire(const std::vector<NodeChange>& nodes) {
+  json::Writer w;
+  codec::writeMessage(w, 0, nodes);
+  json::Value v;
+  REQUIRE(json::parse(w.take(), v));
+  return codec::readMessage(v);
+}
+
+// Publishes `keys` from the library: their payloads (through the wire) and, as the store would, publishedVersion.
+std::vector<std::vector<NodeChange>> publish(Editor& lib, const std::vector<std::string>& keys,
+                                             std::vector<Editor::EncodedAsset>* out = nullptr) {
+  std::vector<Editor::EncodedAsset> assets;
+  std::vector<ImageHash> images;
+  lib.encodeAssets(keys, assets, images);
+  std::vector<std::vector<NodeChange>> messages;
+  std::vector<std::pair<std::string, std::string>> published;
+  for (auto& a : assets) {
+    messages.push_back(wire(a.nodes));
+    published.push_back({a.info.key, a.info.versionHash});
+  }
+  REQUIRE(lib.markPublished(published) == OK);
+  if (out) *out = assets;
+  return messages;
+}
+
+Editor::LibraryOptions opts(const std::string& libraryKey, bool update = false) {
+  Editor::LibraryOptions o;
+  o.libraryKey = libraryKey;
+  o.update = update;
+  return o;
+}
+
+// The library copy root with this key (kNoGuid: none).
+Guid copyOf(const Editor& e, const std::string& key) {
+  Guid found = kNoGuid;
+  e.document().forEach([&](const Node& n) {
+    if (!n.guid.isDerived() && n.props.key == key && !n.props.sourceLibraryKey.empty()) found = n.guid;
+  });
+  return found;
+}
+
+size_t countWhere(const Editor& e, const std::function<bool(const Node&)>& f) {
+  size_t n = 0;
+  e.document().forEach([&](const Node& node) {
+    if (!node.guid.isDerived() && f(node)) n++;
+  });
+  return n;
+}
+
+const Editor::AssetInfo* findAsset(const std::vector<Editor::AssetInfo>& list, Guid id) {
+  for (auto& a : list)
+    if (a.id == id) return &a;
+  return nullptr;
+}
+
+bool has(const std::vector<std::string>& list, const std::string& s) { return std::find(list.begin(), list.end(), s) != list.end(); }
+
+Color fillOf(const Editor& e, Guid id) {
+  const auto& fills = props(e, id).fillPaints;
+  REQUIRE(!fills.empty());
+  return fills[0].color;
+}
+
+}  // namespace
+
+TEST_CASE("libraries: every asset gets a stable 40-hex key on request; edits, undo and moves keep it; duplicates don't") {
+  Editor e = load(libDoc(), kLibKey);
+  // Mains imported without keys get them on request — a journaled SYSTEM edit, not an undo step.
+  CHECK(keyOf(e, BUTTON).empty());
+  CHECK(!e.canUndo());
+  auto keys = e.ensureAssetKeys({});
+  CHECK(!e.canUndo());
+  REQUIRE(keys.size() == 3);  // Icon, Button, _Private
+  for (auto& [id, key] : keys) {
+    CHECK(isKey(key));
+    CHECK(keyOf(e, id) == key);
+  }
+  auto ev = e.takeEvents();
+  REQUIRE(ev.documents.size() == 1);
+  CHECK(ev.documents[0].kind == TxnKind::SYSTEM);
+  CHECK(ev.documents[0].changes.size() == 3);
+  std::string button = keyOf(e, BUTTON);
+  CHECK(button != keyOf(e, ICON));
+  // Asked again: the same keys, nothing written.
+  CHECK(e.ensureAssetKeys({BUTTON})[0].second == button);
+  CHECK(e.takeEvents().documents.empty());
+  // Styles, collections and variables have one from birth.
+  Lib l = makeAssets(e);
+  for (Guid g : {l.set, l.brand, l.radius, l.style}) CHECK(isKey(keyOf(e, g)));
+  // Rename, move, undo: the key stays.
+  REQUIRE(e.setProps({BUTTON}, change(F_NAME, [](NodeProps& p) { p.name = "Button / Primary"; }), 0) == OK);
+  REQUIRE(e.setProps({BUTTON}, change(F_TRANSFORM, [](NodeProps& p) { p.transform = Mat2x3::translate(500, 0); }), 0) == OK);
+  CHECK(keyOf(e, BUTTON) == button);
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  CHECK(keyOf(e, BUTTON) == button);
+  CHECK(props(e, BUTTON).name == "Button");
+  // Duplicates are new assets: Duplicate variable / collection give new keys.
+  REQUIRE(run(e, CommandId::DUPLICATE_VARIABLES, "{\"variables\":[" + q(l.brand) + "]}") == OK);
+  Guid copy = e.lastCreated()[0];
+  CHECK(isKey(keyOf(e, copy)));
+  CHECK(keyOf(e, copy) != keyOf(e, l.brand));
+  // Combined as variants and the set duplicated: the duplicate set and its variants have no key (one on request).
+  e.setSelection({ICON, PRIVATE});
+  REQUIRE(e.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  Guid set = e.selection()[0];
+  REQUIRE(props(e, set).isComponentSet());
+  e.ensureAssetKeys({set});
+  REQUIRE(isKey(keyOf(e, set)));
+  CHECK(keyOf(e, ICON) == keys[0].second);  // a variant keeps its key
+  e.setSelection({set});
+  REQUIRE(e.command(CommandId::DUPLICATE) == OK);
+  Guid dup = e.selection()[0];
+  REQUIRE(dup != set);
+  CHECK(props(e, dup).isComponentSet());
+  CHECK(keyOf(e, dup).empty());
+  for (Guid v : e.document().children(dup)) CHECK(keyOf(e, v).empty());
+  e.ensureAssetKeys({dup});
+  CHECK(isKey(keyOf(e, dup)));
+  CHECK(keyOf(e, dup) != keyOf(e, set));
+}
+
+TEST_CASE("libraries: a main cut and pasted in its own file keeps its key; with instances it moves back with its GUID") {
+  Editor e = load(libDoc(), kLibKey);
+  e.ensureAssetKeys({});
+  std::string privateKey = keyOf(e, PRIVATE), button = keyOf(e, BUTTON);
+  // No instances: removed by the cut, pasted as a new node with the same key.
+  e.setSelection({PRIVATE});
+  Clipboard clip;
+  REQUIRE(e.copySelection(clip, true));
+  CHECK(clip.isCut);
+  CHECK(clip.fileKey == kLibKey);
+  REQUIRE(e.command(CommandId::DELETE) == OK);
+  CHECK(!e.document().has(PRIVATE));
+  e.setSelection({});
+  REQUIRE(e.paste(clip, true) == 1);
+  Guid pasted = e.selection()[0];
+  CHECK(props(e, pasted).type == NodeType::SYMBOL);
+  CHECK(keyOf(e, pasted) == privateKey);
+  // Pasted again: that main is here now — an instance of it (no second main with the key).
+  REQUIRE(e.paste(clip, false) == 1);
+  CHECK(props(e, e.selection()[0]).type == NodeType::INSTANCE);
+  CHECK(props(e, e.selection()[0]).symbolData.symbolID == pasted);
+  // With instances: soft-deleted by the cut (its instances keep rendering), moved back by the paste — GUID, key and
+  // instances kept.
+  e.setSelection({BUTTON});
+  REQUIRE(e.copySelection(clip, true));
+  REQUIRE(e.command(CommandId::DELETE) == OK);
+  REQUIRE(props(e, BUTTON).isSoftDeleted);
+  e.setSelection({CARD});
+  REQUIRE(e.paste(clip, false) == 1);
+  CHECK(e.selection()[0] == BUTTON);
+  CHECK(!props(e, BUTTON).isSoftDeleted);
+  CHECK(e.document().parentOf(BUTTON) == CARD);
+  CHECK(keyOf(e, BUTTON) == button);
+  CHECK(props(e, IB).symbolData.symbolID == BUTTON);
+  // A copy (not a cut) of a main still pastes as an instance in its own file; nothing else comes in.
+  size_t internalBefore = e.document().children(kInternal).size();
+  e.setSelection({IB});
+  REQUIRE(e.copySelection(clip));
+  CHECK(clip.nodes.size() > 1);  // the instance, then Button and what it references
+  e.setSelection({});
+  REQUIRE(e.paste(clip, false) == 1);
+  CHECK(props(e, e.selection()[0]).symbolData.symbolID == BUTTON);
+  CHECK(e.document().children(kInternal).size() == internalBefore);
+}
+
+TEST_CASE("libraries: localAssets — kinds, hidden assets, dependencies, containing frame, publishedVersion") {
+  Editor e = load(libDoc(), kLibKey);
+  Lib l = makeAssets(e);
+  // Hide when publishing on Icon (it is still shipped as a dependency of Button).
+  REQUIRE(e.setProps({ICON}, change(F_IS_PUBLISHABLE, [](NodeProps& p) { p.isPublishable = false; }), 0) == OK);
+  // A main inside a frame.
+  REQUIRE(e.moveNodes({PRIVATE}, CARD, 1) == 1);
+  e.ensureAssetKeys({});
+  auto assets = e.localAssets();
+  CHECK(assets.size() == 7);  // Icon, Button, _Private, Theme, Brand, Radius, Primary
+  const Editor::AssetInfo* b = findAsset(assets, BUTTON);
+  REQUIRE(b);
+  CHECK(b->kind == Editor::AssetKind::COMPONENT);
+  CHECK(!b->hidden);
+  CHECK(isKey(b->versionHash));
+  const std::string buttonHash = b->versionHash;
+  CHECK(b->publishedVersion.empty());
+  CHECK(b->pageId == kPage);
+  CHECK(b->pageName == "Page 1");
+  CHECK(b->frameId == kNoGuid);
+  // Button needs Icon (nested instance), Primary (Background's style), Brand (the style's colour), Radius (Background's
+  // corner radius) and their collection.
+  for (Guid g : {ICON, l.style, l.brand, l.radius, l.set}) CHECK(has(b->dependencies, keyOf(e, g)));
+  CHECK(b->dependencies.size() == 5);
+  const Editor::AssetInfo* icon = findAsset(assets, ICON);
+  REQUIRE(icon);
+  CHECK(icon->hidden);
+  const Editor::AssetInfo* priv = findAsset(assets, PRIVATE);
+  REQUIRE(priv);
+  CHECK(priv->hidden);  // a name starting with "_"
+  CHECK(priv->frameId == CARD);
+  CHECK(priv->frameName == "Card");
+  const Editor::AssetInfo* brand = findAsset(assets, l.brand);
+  REQUIRE(brand);
+  CHECK(brand->kind == Editor::AssetKind::VARIABLE);
+  CHECK(brand->hasResolvedType);
+  CHECK(brand->resolvedType == VariableResolvedType::COLOR);
+  CHECK(brand->owner == l.set);
+  CHECK(brand->ownerKey == keyOf(e, l.set));
+  CHECK(brand->pageId == kNoGuid);  // on the internal canvas
+  CHECK(brand->dependencies == std::vector<std::string>{keyOf(e, l.set)});
+  const Editor::AssetInfo* style = findAsset(assets, l.style);
+  REQUIRE(style);
+  CHECK(style->kind == Editor::AssetKind::STYLE);
+  CHECK(style->styleType == StyleType::FILL);
+  // Hide from publishing on a variable; a collection whose name starts with "_" hides its variables.
+  REQUIRE(run(e, CommandId::SET_VARIABLE_HIDDEN, "{\"variables\":[" + q(l.radius) + "],\"hidden\":true}") == OK);
+  CHECK(findAsset(e.localAssets(), l.radius)->hidden);
+  REQUIRE(run(e, CommandId::RENAME_VARIABLE_COLLECTION, "{\"collection\":" + q(l.set) + ",\"name\":\"_Theme\"}") == OK);
+  assets = e.localAssets();
+  CHECK(findAsset(assets, l.set)->hidden);
+  CHECK(findAsset(assets, l.brand)->hidden);
+  // markPublished: a SYSTEM change, reported by localAssets.
+  bool couldUndo = e.canUndo();
+  std::string label = e.undoStack().undoLabel();
+  REQUIRE(e.markPublished({{keyOf(e, BUTTON), buttonHash}}) == OK);
+  CHECK(e.canUndo() == couldUndo);
+  CHECK(e.undoStack().undoLabel() == label);
+  CHECK(findAsset(e.localAssets(), BUTTON)->publishedVersion == buttonHash);
+  // A deleted published main is kept (soft-deleted) while its instance uses it: "Removed" at the next publish.
+  e.setSelection({BUTTON});
+  REQUIRE(e.command(CommandId::DELETE) == OK);
+  assets = e.localAssets();
+  const Editor::AssetInfo* gone = findAsset(assets, BUTTON);
+  REQUIRE(gone);
+  CHECK(gone->softDeleted);
+  CHECK(gone->publishedVersion == buttonHash);
+}
+
+TEST_CASE("libraries: versionHash changes only when the asset's content changes") {
+  Editor e = load(libDoc(), kLibKey);
+  Lib l = makeAssets(e);
+  std::string h0 = e.assetVersionHash(BUTTON);
+  CHECK(isKey(h0));
+  CHECK(h0 != e.assetVersionHash(ICON));
+  // Not content: keys, publishing, where it sits on the page, its order, Hide when publishing.
+  e.ensureAssetKeys({});
+  REQUIRE(e.markPublished({{keyOf(e, BUTTON), h0}}) == OK);
+  REQUIRE(e.setProps({BUTTON}, change(F_TRANSFORM, [](NodeProps& p) { p.transform = Mat2x3::translate(700, 300); }), 0) == OK);
+  REQUIRE(e.moveNodes({BUTTON}, CARD, 0) == 1);
+  REQUIRE(e.setProps({BUTTON}, change(F_IS_PUBLISHABLE, [](NodeProps& p) { p.isPublishable = false; }), 0) == OK);
+  CHECK(e.assetVersionHash(BUTTON) == h0);
+  // Content: a sublayer's text, its name.
+  REQUIRE(e.setProps({LABEL}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Buy"; }), 0) == OK);
+  std::string h1 = e.assetVersionHash(BUTTON);
+  CHECK(h1 != h0);
+  e.command(CommandId::UNDO);
+  CHECK(e.assetVersionHash(BUTTON) == h0);
+  REQUIRE(e.setProps({BUTTON}, change(F_NAME, [](NodeProps& p) { p.name = "Button 2"; }), 0) == OK);
+  CHECK(e.assetVersionHash(BUTTON) != h0);
+  e.command(CommandId::UNDO);
+  // A variable's value is its content; its collection's hash is the collection's own (modes, name).
+  std::string brand0 = e.assetVersionHash(l.brand), set0 = e.assetVersionHash(l.set), radius0 = e.assetVersionHash(l.radius);
+  REQUIRE(run(e, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(l.brand) + ",\"mode\":" + q(l.light) + R"(,"value":{"r":0,"g":1,"b":0,"a":1}})") == OK);
+  CHECK(e.assetVersionHash(l.brand) != brand0);
+  CHECK(e.assetVersionHash(l.set) == set0);
+  CHECK(e.assetVersionHash(l.radius) == radius0);
+  // Deterministic: the same document loaded elsewhere hashes the same.
+  Editor other = load(e.encodeDocument(), kLibKey);
+  for (Guid g : {BUTTON, ICON, l.brand, l.set, l.style}) CHECK(other.assetVersionHash(g) == e.assetVersionHash(g));
+}
+
+TEST_CASE("libraries: encodeAssets ships each asset with its dependency closure, library GUIDs and versions") {
+  Editor e = load(libDoc(), kLibKey);
+  Lib l = makeAssets(e);
+  // Button's key isn't there yet: encodeAssets is given keys, so ask for them first.
+  e.ensureAssetKeys({BUTTON});
+  std::string button = keyOf(e, BUTTON);
+  std::vector<Editor::EncodedAsset> assets;
+  std::vector<ImageHash> images;
+  e.encodeAssets({button}, assets, images);
+  REQUIRE(assets.size() == 6);  // Button + Icon, Primary, Brand, Theme, Radius
+  CHECK(assets[0].info.id == BUTTON);
+  CHECK(!assets[0].dependencyOnly);
+  std::set<Guid> deps;
+  for (size_t i = 1; i < assets.size(); i++) {
+    CHECK(assets[i].dependencyOnly);
+    CHECK(isKey(assets[i].info.key));  // dependencies get keys too
+    deps.insert(assets[i].info.id);
+  }
+  CHECK(deps == std::set<Guid>{ICON, l.style, l.brand, l.set, l.radius});
+  // Button's payload: its nodes, then everything it depends on, with the library's GUIDs.
+  std::set<Guid> nodes;
+  for (const NodeChange& c : assets[0].nodes) {
+    CHECK(c.phase == Phase::CREATED);
+    nodes.insert(c.guid);
+  }
+  CHECK(nodes == std::set<Guid>{BUTTON, BG, LABEL, NESTED, ICON, GLYPH, l.style, l.brand, l.set, l.radius});
+  const NodeChange& root = assets[0].nodes[0];
+  CHECK(root.guid == BUTTON);
+  CHECK(root.props.key == button);
+  CHECK(root.props.version == assets[0].info.versionHash);
+  CHECK(assets[0].info.versionHash == e.assetVersionHash(BUTTON));
+  // References carry the target's key beside its GUID (styles, variables).
+  for (const NodeChange& c : assets[0].nodes)
+    if (c.guid == BG) {
+      CHECK(c.props.styleIdForFill.guid == l.style);
+      CHECK(c.props.styleIdForFill.key == keyOf(e, l.style));
+    }
+  // Brand's payload is itself and its collection.
+  for (auto& a : assets)
+    if (a.info.id == l.brand) {
+      CHECK(a.nodes.size() == 2);
+      CHECK(a.info.dependencies == std::vector<std::string>{keyOf(e, l.set)});
+    }
+  CHECK(images.empty());
+  // A variant's key encodes its whole set.
+  e.setSelection({ICON, PRIVATE});
+  REQUIRE(e.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  Guid set = e.selection()[0];
+  e.encodeAssets({keyOf(e, ICON)}, assets, images);
+  REQUIRE(!assets.empty());
+  CHECK(assets[0].info.id == ICON);
+  CHECK(assets[0].info.owner == set);
+  CHECK(isKey(assets[0].info.ownerKey));
+  CHECK(assets[0].nodes[0].guid == set);
+  CHECK(assets[0].nodes.size() == 4);  // the set, Icon, Glyph, _Private
+  // Unknown keys: nothing.
+  e.encodeAssets({"0000000000000000000000000000000000000000"}, assets, images);
+  CHECK(assets.empty());
+}
+
+TEST_CASE("libraries: imported library copies are read-only, on the internal canvas, and used like local assets") {
+  Editor lib = load(libDoc(), kLibKey);
+  Lib l = makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON), style = keyOf(lib, l.style), brand = keyOf(lib, l.brand);
+  std::vector<Editor::EncodedAsset> encoded;
+  auto messages = publish(lib, {button, style, brand}, &encoded);
+
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  CHECK(!c.canUndo());  // SYSTEM
+  auto importEvents = c.takeEvents();
+  REQUIRE(importEvents.documents.size() == 1);
+  CHECK(importEvents.documents[0].kind == TxnKind::SYSTEM);
+  CHECK(!importEvents.collections.empty());  // VARIABLES_CHANGED, STYLES_CHANGED: the panels refresh
+  CHECK(!importEvents.variables.empty());
+  CHECK(!importEvents.styles.empty());
+  Guid copy = copyOf(c, button);
+  REQUIRE(copy != kNoGuid);
+  // Fresh GUIDs on the internal canvas, marked with where they came from.
+  CHECK(copy != BUTTON);
+  CHECK(c.document().parentOf(copy) == kInternal);
+  const NodeProps& cp = props(c, copy);
+  CHECK(cp.type == NodeType::SYMBOL);
+  CHECK(cp.sourceLibraryKey == kLibKey);
+  CHECK(cp.publishID == BUTTON);
+  CHECK(cp.version == encoded[0].info.versionHash);
+  CHECK(cp.overrideKey == BUTTON);
+  auto kids = c.document().children(copy);
+  REQUIRE(kids.size() == 3);
+  CHECK(props(c, kids[0]).overrideKey == BG);
+  CHECK(props(c, kids[1]).overrideKey == LABEL);
+  CHECK(props(c, kids[2]).overrideKey == NESTED);
+  // Its dependencies came too, each its own copy: Icon (the nested instance points at its copy), Primary, Brand, Theme, Radius.
+  Guid iconCopy = copyOf(c, keyOf(lib, ICON)), styleCopy = copyOf(c, style), brandCopy = copyOf(c, brand);
+  Guid setCopy = copyOf(c, keyOf(lib, l.set)), radiusCopy = copyOf(c, keyOf(lib, l.radius));
+  REQUIRE(iconCopy != kNoGuid);
+  REQUIRE(styleCopy != kNoGuid);
+  REQUIRE(brandCopy != kNoGuid);
+  REQUIRE(setCopy != kNoGuid);
+  REQUIRE(radiusCopy != kNoGuid);
+  CHECK(props(c, kids[2]).symbolData.symbolID == iconCopy);
+  CHECK(c.findStyle(props(c, kids[0]).styleIdForFill) == styleCopy);
+  CHECK(c.findCollection(props(c, brandCopy).variableSetID) == setCopy);
+  CHECK(out.size() == 6);
+  for (auto& a : out) {
+    CHECK(a.created);
+    CHECK(a.libraryKey == kLibKey);
+  }
+  CHECK(c.isLibraryCopy(copy));
+  CHECK(c.isLibraryCopy(kids[1]));
+  CHECK(!c.isLibraryCopy(RECT));
+  CHECK(c.libraryRootOf(kids[1]) == copy);
+  // Not this file's own: lists of local assets leave them out unless asked.
+  CHECK(c.collections().empty());
+  CHECK(c.collections(true) == std::vector<Guid>{setCopy});
+  CHECK(c.stylesOf(StyleType::NONE).empty());
+  CHECK(c.stylesOf(StyleType::NONE, true) == std::vector<Guid>{styleCopy});
+  CHECK(c.localAssets().empty());
+  // Imported again: reused, nothing written.
+  c.takeEvents();
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  CHECK(c.takeEvents().documents.empty());
+  CHECK(copyOf(c, button) == copy);
+  for (auto& a : out) CHECK(!a.created);
+
+  // An instance of the copy: everything resolves through the copies (style → variable → value; radius variable).
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copy) + ",\"x\":100,\"y\":100}") == OK);
+  Guid inst = c.selection()[0];
+  CHECK(props(c, inst).symbolData.symbolID == copy);
+  CHECK(c.document().pageOf(inst) == kPage);
+  Guid bg = sub(inst, {BG}), label = sub(inst, {LABEL}), icon = sub(inst, {NESTED});
+  REQUIRE(c.document().has(bg));
+  CHECK(fillOf(c, bg) == Color{1, 0, 0, 1});
+  CHECK(props(c, bg).cornerRadii[0] == 6);
+  CHECK(props(c, label).textData.characters == "Label");
+  CHECK(c.document().children(icon).size() == 1);
+  ComponentInfo info;
+  REQUIRE(c.componentInfo(inst, info));
+  CHECK(info.mainRemote);
+  CHECK(info.mainLibraryKey == kLibKey);
+  CHECK(info.mainKey == button);
+  CHECK(info.mainVersion == cp.version);
+  CHECK(!info.mainCopied);
+  CHECK(!info.canPush);
+  c.setSelection({inst});
+  CHECK(c.commandState(CommandId::GO_TO_MAIN_COMPONENT) == 0);
+  // Overrides on the instance work as for local mains.
+  REQUIRE(c.setProps({label}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Buy"; }), 0) == OK);
+  CHECK(props(c, label).textData.characters == "Buy");
+  // A remote mode on the frame: the instance resolves Dark.
+  REQUIRE(c.moveNodes({inst}, SCREEN, 0) == 1);
+  REQUIRE(run(c, CommandId::SET_VARIABLE_MODE, "{\"refs\":[" + q(SCREEN) + "],\"collection\":" + q(setCopy) + ",\"mode\":" + q(l.dark) + "}") == OK);
+  CHECK(fillOf(c, bg) == Color{0, 0, 1, 1});
+  // Remote styles and variables apply and bind like local ones.
+  REQUIRE(run(c, CommandId::APPLY_STYLE, "{\"refs\":[" + q(RECT) + "],\"style\":" + q(styleCopy) + "}") == OK);
+  CHECK(fillOf(c, RECT) == Color{0, 0, 1, 1});  // in the Dark frame
+  REQUIRE(run(c, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(RECT) + "],\"target\":\"CORNER_RADIUS\",\"variable\":" + q(radiusCopy) + "}") == OK);
+  CHECK(props(c, RECT).cornerRadii[0] == 6);
+  CHECK(c.styleUsage(styleCopy) == 1);
+
+  // Read-only: nothing in a copy is changed by the generic setter, commands or structural edits.
+  c.takeEvents();
+  CHECK(c.setProps({copy}, change(F_NAME, [](NodeProps& p) { p.name = "Mine"; }), 0) == E_READONLY);
+  CHECK(c.setProps({kids[1]}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "X"; }), 0) == E_READONLY);
+  CHECK(c.setProps({styleCopy}, change(F_NAME, [](NodeProps& p) { p.name = "Mine"; }), 0) == E_READONLY);
+  CHECK(run(c, CommandId::RENAME_VARIABLE, "{\"variable\":" + q(brandCopy) + ",\"name\":\"Mine\"}") == E_READONLY);
+  CHECK(run(c, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(brandCopy) + R"(,"value":{"r":0,"g":1,"b":0,"a":1}})") == E_READONLY);
+  CHECK(run(c, CommandId::DELETE_VARIABLES, "{\"variables\":[" + q(brandCopy) + "]}") == E_READONLY);
+  CHECK(run(c, CommandId::ADD_VARIABLE_MODE, "{\"collection\":" + q(setCopy) + "}") == E_READONLY);
+  CHECK(run(c, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(setCopy) + ",\"type\":\"FLOAT\"}") == E_READONLY);
+  CHECK(run(c, CommandId::DELETE_STYLE, "{\"style\":" + q(styleCopy) + "}") == E_READONLY);
+  CHECK(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(iconCopy) + ",\"parent\":" + q(copy) + "}") == E_READONLY);
+  CHECK(c.moveNodes({RECT}, copy, 0) == 0);
+  c.applyChanges({NodeChange::removed(kids[0])}, APPLY_USER);
+  CHECK(c.document().has(kids[0]));
+  CHECK(props(c, copy).name == "Button");
+  CHECK(props(c, brandCopy).name == "Brand");
+  for (auto& d : c.takeEvents().documents) CHECK(d.changes.empty());
+  // They round-trip through the document (encodeDocument → load).
+  Editor again = load(c.encodeDocument(), kConsumerKey);
+  CHECK(again.isLibraryCopy(copy));
+  CHECK(again.setProps({copy}, change(F_NAME, [](NodeProps& p) { p.name = "Mine"; }), 0) == E_READONLY);
+  CHECK(fillOf(again, bg) == Color{0, 0, 1, 1});
+}
+
+TEST_CASE("libraries: applyLibraryUpdate rewrites copies in place as one undo step; instances keep their overrides") {
+  Editor lib = load(libDoc(), kLibKey);
+  Lib l = makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON), brand = keyOf(lib, l.brand);
+  std::vector<Editor::EncodedAsset> v1;
+  auto messages = publish(lib, {button}, &v1);
+
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  Guid copy = copyOf(c, button), brandCopy = copyOf(c, brand);
+  auto kidsBefore = c.document().children(copy);
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copy) + ",\"x\":100,\"y\":100}") == OK);
+  Guid inst = c.selection()[0];
+  Guid bg = sub(inst, {BG}), label = sub(inst, {LABEL});
+  REQUIRE(c.setProps({label}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Buy"; }), 0) == OK);
+  REQUIRE(run(c, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(RECT) + "],\"target\":\"fillPaints[0].color\",\"variable\":" + q(brandCopy) + "}") == OK);
+  CHECK(fillOf(c, RECT) == Color{1, 0, 0, 1});
+
+  // The library changes: Background's opacity, Label's text, a new Badge layer, Brand's Light value; Glyph is removed.
+  REQUIRE(lib.setProps({BG}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.5f; }), 0) == OK);
+  REQUIRE(lib.setProps({LABEL}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Label v2"; }), 0) == OK);
+  const Guid BADGE{1, 50};
+  REQUIRE(lib.applyChanges({make(BADGE, NodeType::ELLIPSE, BUTTON, "$", {110, 0, 10, 10}, "Badge")}, APPLY_USER) == OK);
+  REQUIRE(run(lib, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(l.brand) + ",\"mode\":" + q(l.light) + R"(,"value":{"r":0,"g":1,"b":0,"a":1}})") == OK);
+  REQUIRE(run(lib, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(l.radius) + ",\"value\":8}") == OK);
+  lib.setSelection({GLYPH});
+  REQUIRE(lib.command(CommandId::DELETE) == OK);
+  std::vector<Editor::EncodedAsset> v2;
+  auto messages2 = publish(lib, {button}, &v2);
+  CHECK(v2[0].info.versionHash != v1[0].info.versionHash);
+
+  // Import (not update) never replaces a copy.
+  REQUIRE(c.importLibrary(messages2, opts(kLibKey), out) == OK);
+  CHECK(props(c, copy).version == v1[0].info.versionHash);
+
+  // The update: one undo step; same GUIDs; the instance shows the new content and keeps "Buy".
+  c.takeEvents();
+  REQUIRE(c.importLibrary(messages2, opts(kLibKey, true), out) == OK);
+  auto ev = c.takeEvents();
+  REQUIRE(ev.documents.size() == 1);
+  CHECK(ev.documents[0].kind == TxnKind::USER);
+  CHECK(c.undoStack().undoLabel() == "Update library assets");
+  CHECK(copyOf(c, button) == copy);
+  CHECK(props(c, copy).version == v2[0].info.versionHash);
+  auto kidsAfter = c.document().children(copy);
+  REQUIRE(kidsAfter.size() == 4);
+  for (size_t i = 0; i < 3; i++) CHECK(kidsAfter[i] == kidsBefore[i]);
+  CHECK(props(c, kidsAfter[3]).overrideKey == BADGE);
+  CHECK(props(c, bg).opacity == doctest::Approx(0.5));
+  CHECK(props(c, label).textData.characters == "Buy");
+  CHECK(c.document().has(sub(inst, {BADGE})));
+  CHECK(fillOf(c, bg) == Color{0, 1, 0, 1});      // Brand's new value through the style copy
+  CHECK(fillOf(c, RECT) == Color{0, 1, 0, 1});    // and on a layer bound to the remote variable
+  CHECK(props(c, bg).cornerRadii[0] == 8);
+  // The copies' own bindings survive the rewrite (their values changed with the payload, not by an edit).
+  Guid styleCopy = copyOf(c, keyOf(lib, l.style));
+  CHECK(props(c, styleCopy).fillPaints[0].colorVar.kind == VariableData::Kind::ALIAS);
+  CHECK(props(c, kidsAfter[0]).parameterConsumptionMap.size() == 1);
+  CHECK(props(c, inst).symbolData.overrides.size() == 1);  // only the label's text
+  REQUIRE(run(c, CommandId::SET_VARIABLE_MODE, "{\"refs\":[" + q(inst) + "],\"collection\":" + q(copyOf(c, keyOf(lib, l.set))) + ",\"mode\":" + q(l.dark) + "}") == OK);
+  CHECK(fillOf(c, bg) == Color{0, 0, 1, 1});
+  c.command(CommandId::UNDO);
+  CHECK(copyOf(c, brand) == brandCopy);
+  Guid iconCopy = copyOf(c, keyOf(lib, ICON));
+  CHECK(c.document().children(iconCopy).empty());  // Glyph removed
+  bool updatedButton = false;
+  for (auto& a : out)
+    if (a.key == button) updatedButton = a.updated;
+  CHECK(updatedButton);
+  // Undo puts the old copies (and what they derive) back; redo the new ones.
+  REQUIRE(c.command(CommandId::UNDO) == OK);
+  CHECK(props(c, copy).version == v1[0].info.versionHash);
+  CHECK(c.document().children(copy).size() == 3);
+  CHECK(props(c, bg).opacity == doctest::Approx(1));
+  CHECK(fillOf(c, bg) == Color{1, 0, 0, 1});
+  CHECK(props(c, label).textData.characters == "Buy");
+  CHECK(c.document().children(iconCopy).size() == 1);
+  REQUIRE(c.command(CommandId::REDO) == OK);
+  CHECK(props(c, copy).version == v2[0].info.versionHash);
+  CHECK(fillOf(c, bg) == Color{0, 1, 0, 1});
+  // Same version again: nothing to do.
+  c.takeEvents();
+  REQUIRE(c.importLibrary(messages2, opts(kLibKey, true), out) == OK);
+  CHECK(c.takeEvents().documents.empty());
+
+  // libraryUsage: every copy, its version and how many layers use it.
+  auto usage = c.libraryUsage();
+  CHECK(usage.size() == 6);
+  for (auto& u : usage) {
+    CHECK(u.libraryKey == kLibKey);
+    if (u.key == button) {
+      CHECK(u.usage == 1);
+      CHECK(u.version == v2[0].info.versionHash);
+      CHECK(u.publishID == BUTTON);
+    }
+    if (u.key == brand) CHECK(u.usage == 1);  // the rectangle (the style copy's own binding doesn't count)
+    if (u.key == keyOf(lib, ICON)) CHECK(u.usage == 0);
+  }
+}
+
+TEST_CASE("libraries: an update limited to some keys; a removed asset's copy stays and keeps rendering") {
+  Editor lib = load(libDoc(), kLibKey);
+  Lib l = makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON), icon = keyOf(lib, ICON);
+  auto messages = publish(lib, {button});
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  Guid copy = copyOf(c, button), iconCopy = copyOf(c, icon);
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copy) + "}") == OK);
+  Guid inst = c.selection()[0];
+  std::string iconV1 = props(c, iconCopy).version, buttonV1 = props(c, copy).version;
+  // Both change in the library; the consumer accepts only Icon's update.
+  REQUIRE(lib.setProps({GLYPH}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.25f; }), 0) == OK);
+  REQUIRE(lib.setProps({LABEL}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "v2"; }), 0) == OK);
+  auto messages2 = publish(lib, {button});
+  Editor::LibraryOptions o = opts(kLibKey, true);
+  o.hasKeys = true;
+  o.keys = {icon};
+  REQUIRE(c.importLibrary(messages2, o, out) == OK);
+  CHECK(props(c, iconCopy).version != iconV1);
+  CHECK(props(c, copy).version == buttonV1);
+  CHECK(props(c, sub(inst, {LABEL})).textData.characters == "Label");
+  CHECK(props(c, sub(inst, {NESTED, GLYPH})).opacity == doctest::Approx(0.25));
+  // Button removed from the library (deleted, published): the consumer's copy stays and its instance renders.
+  lib.setSelection({BUTTON});
+  REQUIRE(lib.command(CommandId::DELETE) == OK);
+  REQUIRE(c.importLibrary({}, opts(kLibKey, true), out) == OK);
+  CHECK(c.document().has(copy));
+  CHECK(c.document().has(sub(inst, {BG})));
+  ComponentInfo info;
+  REQUIRE(c.componentInfo(inst, info));
+  CHECK(info.mainRemote);
+  CHECK(!info.mainSoftDeleted);
+  // Restore component: the copy becomes this file's own main, on the page; the instance stays linked. One undo step.
+  REQUIRE(run(c, CommandId::RESTORE_COMPONENT, "{\"ref\":" + q(inst) + "}") == OK);
+  CHECK(c.document().pageOf(copy) == kPage);
+  CHECK(c.selection() == std::vector<Guid>{copy});
+  CHECK(props(c, copy).sourceLibraryKey.empty());
+  CHECK(props(c, copy).key.empty());
+  CHECK(!c.isLibraryCopy(copy));
+  CHECK(props(c, inst).symbolData.symbolID == copy);
+  REQUIRE(c.componentInfo(inst, info));
+  CHECK(!info.mainRemote);
+  CHECK(info.canPush == false);  // no changes to push
+  CHECK(c.setProps({copy}, change(F_NAME, [](NodeProps& p) { p.name = "Mine"; }), 0) == OK);
+  c.command(CommandId::UNDO);
+  CHECK(c.isLibraryCopy(iconCopy));  // its nested Icon is still the library's
+  CHECK(c.undoStack().undoLabel() == "Restore component");
+  REQUIRE(c.command(CommandId::UNDO) == OK);
+  CHECK(c.isLibraryCopy(copy));
+  CHECK(c.document().pageOf(copy) == kInternal);
+  // The generic path takes it too: a copy's root whose sourceLibraryKey is cleared (nothing else in a copy is written).
+  NodeChange local = NodeChange::changed(copy);
+  local.mask = F_SOURCE_LIBRARY_KEY | F_PARENT_INDEX;
+  local.props.parentIndex = {kPage, "~"};
+  REQUIRE(c.applyChanges({local}, APPLY_USER) == OK);
+  CHECK(!c.isLibraryCopy(copy));
+  CHECK(c.document().pageOf(copy) == kPage);
+}
+
+TEST_CASE("libraries: Move to this file — a redirect re-points a copy at the new library and key; instances stay linked") {
+  Editor lib = load(libDoc(), kLibKey);
+  makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string oldKey = keyOf(lib, BUTTON);
+  auto messages = publish(lib, {oldKey});
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  Guid copy = copyOf(c, oldKey);
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copy) + "}") == OK);
+  Guid inst = c.selection()[0];
+  REQUIRE(c.setProps({sub(inst, {LABEL})}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Buy"; }), 0) == OK);
+
+  // Button is cut from the library and pasted into another file, which publishes it with a new key.
+  const char* newLibKey = "NewLibraryFileKey003";
+  lib.setSelection({BUTTON});
+  Clipboard clip;
+  REQUIRE(lib.copySelection(clip, true));
+  REQUIRE(lib.command(CommandId::DELETE) == OK);
+  Editor moved = load(consumerDoc(), newLibKey);
+  moved.setSelection({});
+  REQUIRE(moved.paste(clip, true) == 1);
+  Guid main = moved.selection()[0];
+  REQUIRE(props(moved, main).type == NodeType::SYMBOL);
+  CHECK(props(moved, main).key.empty());
+  CHECK(props(moved, main).libraryMoveInfo.oldKey == oldKey);
+  CHECK(props(moved, main).libraryMoveInfo.pasteFileKey == kLibKey);
+  moved.ensureAssetKeys({main});
+  std::string newKey = keyOf(moved, main);
+  CHECK(newKey != oldKey);
+  auto movedMessages = publish(moved, {newKey});
+
+  // The consumer accepts the move: the same copy (GUID) now comes from the new library under the new key.
+  Editor::LibraryOptions o = opts(newLibKey, true);
+  o.redirects = {{oldKey, newKey}};
+  REQUIRE(c.importLibrary(movedMessages, o, out) == OK);
+  CHECK(copyOf(c, newKey) == copy);
+  CHECK(copyOf(c, oldKey) == kNoGuid);
+  CHECK(props(c, copy).sourceLibraryKey == newLibKey);
+  CHECK(props(c, copy).publishID == main);
+  CHECK(props(c, inst).symbolData.symbolID == copy);
+  CHECK(props(c, sub(inst, {LABEL})).textData.characters == "Buy");
+  CHECK(c.undoStack().undoLabel() == "Update library assets");
+}
+
+TEST_CASE("libraries: Move to this file, into a file that used the copy — its instances are relinked to the local main") {
+  Editor lib = load(libDoc(), kLibKey);
+  makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string oldKey = keyOf(lib, BUTTON);
+  auto messages = publish(lib, {oldKey});
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(messages, opts(kLibKey), out) == OK);
+  Guid copy = copyOf(c, oldKey);
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copy) + "}") == OK);
+  Guid inst = c.selection()[0];
+  REQUIRE(c.setProps({sub(inst, {LABEL})}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Buy"; }), 0) == OK);
+  // Button is cut from the library and pasted here: a local main (its dependencies stay library copies).
+  lib.setSelection({BUTTON});
+  Clipboard clip;
+  REQUIRE(lib.copySelection(clip, true));
+  c.setSelection({});
+  REQUIRE(c.paste(clip, true) == 1);
+  Guid main = c.selection()[0];
+  REQUIRE(props(c, main).libraryMoveInfo.oldKey == oldKey);
+  CHECK(c.isLibraryCopy(props(c, c.document().children(main)[2]).symbolData.symbolID));  // Icon: still the library's
+  c.ensureAssetKeys({main});
+  std::string newKey = keyOf(c, main);
+  // This file publishes it with Move to this file, then accepts its own redirect.
+  Editor::LibraryOptions o = opts(kConsumerKey, true);
+  o.redirects = {{oldKey, newKey}};
+  REQUIRE(c.importLibrary({}, o, out) == OK);
+  CHECK(props(c, inst).symbolData.symbolID == main);
+  CHECK(props(c, sub(inst, {LABEL})).textData.characters == "Buy");
+  CHECK(!c.document().has(copy));
+  CHECK(copyOf(c, oldKey) == kNoGuid);
+  CHECK(c.undoStack().undoLabel() == "Update library assets");
+  REQUIRE(c.command(CommandId::UNDO) == OK);
+  CHECK(props(c, inst).symbolData.symbolID == copy);
+  CHECK(props(c, sub(inst, {LABEL})).textData.characters == "Buy");
+}
+
+TEST_CASE("libraries: cross-file paste — published assets become library copies, unpublished ones are copied in") {
+  Editor lib = load(libDoc(), kLibKey);
+  Lib l = makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON);
+
+  SUBCASE("an instance of an unpublished main: the main is copied in as a local component, once") {
+    lib.setSelection({IB});
+    Clipboard clip;
+    REQUIRE(lib.copySelection(clip));
+    Editor c = load(consumerDoc(), kConsumerKey);
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    Guid inst = c.selection()[0];
+    REQUIRE(props(c, inst).type == NodeType::INSTANCE);
+    Guid main = props(c, inst).symbolData.symbolID;
+    REQUIRE(c.document().has(main));
+    CHECK(main != BUTTON);
+    CHECK(c.document().pageOf(main) == kInternal);
+    CHECK(!c.isLibraryCopy(main));
+    CHECK(c.isCopiedMain(main));
+    CHECK(props(c, main).key.empty());
+    ComponentInfo info;
+    REQUIRE(c.componentInfo(inst, info));
+    CHECK(info.mainCopied);
+    CHECK(!info.mainRemote);
+    CHECK(!info.canPush);
+    // Its style and variables came in as this file's own (new keys).
+    auto styles = c.stylesOf(StyleType::NONE);
+    REQUIRE(styles.size() == 1);
+    CHECK(props(c, styles[0]).name == "Primary");
+    CHECK(isKey(props(c, styles[0]).key));
+    CHECK(props(c, styles[0]).key != keyOf(lib, l.style));
+    CHECK(c.collections().size() == 1);
+    CHECK(fillOf(c, sub(inst, {BG})) == Color{1, 0, 0, 1});
+    CHECK(props(c, sub(inst, {BG})).cornerRadii[0] == 6);
+    // It is this file's own: editable (not read-only).
+    CHECK(c.setProps({main}, change(F_NAME, [](NodeProps& p) { p.name = "Button (copy)"; }), 0) == OK);
+    c.command(CommandId::UNDO);
+    // Pasted again: the same main, style and collection.
+    size_t symbols = countWhere(c, [](const Node& n) { return n.props.type == NodeType::SYMBOL; });
+    REQUIRE(c.paste(clip, false) == 1);
+    CHECK(props(c, c.selection()[0]).symbolData.symbolID == main);
+    CHECK(countWhere(c, [](const Node& n) { return n.props.type == NodeType::SYMBOL; }) == symbols);
+    CHECK(c.stylesOf(StyleType::NONE).size() == 1);
+    CHECK(c.collections().size() == 1);
+    // Undo removes the paste (the first paste's copies stay with it).
+    c.command(CommandId::UNDO);
+    CHECK(c.document().has(main));
+    c.command(CommandId::UNDO);
+    CHECK(!c.document().has(main));
+    CHECK(c.stylesOf(StyleType::NONE).empty());
+  }
+
+  SUBCASE("an instance of a published main: an instance of a library copy") {
+    publish(lib, {button});
+    lib.setSelection({IB});
+    Clipboard clip;
+    REQUIRE(lib.copySelection(clip));
+    Editor c = load(consumerDoc(), kConsumerKey);
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    Guid inst = c.selection()[0];
+    Guid copy = copyOf(c, button);
+    REQUIRE(copy != kNoGuid);
+    CHECK(props(c, inst).symbolData.symbolID == copy);
+    CHECK(props(c, copy).sourceLibraryKey == kLibKey);
+    CHECK(props(c, copy).version == props(lib, BUTTON).publishedVersion);
+    CHECK(props(c, copy).publishID == BUTTON);
+    // Its published dependencies are library copies too; nothing local came in.
+    CHECK(c.stylesOf(StyleType::NONE).empty());
+    CHECK(c.stylesOf(StyleType::NONE, true).size() == 1);
+    CHECK(c.collections().empty());
+    CHECK(fillOf(c, sub(inst, {BG})) == Color{1, 0, 0, 1});
+    auto usage = c.libraryUsage();
+    bool found = false;
+    for (auto& u : usage)
+      if (u.key == button) {
+        found = true;
+        CHECK(u.usage == 1);
+      }
+    CHECK(found);
+    // Pasted again: the same copy.
+    REQUIRE(c.paste(clip, false) == 1);
+    CHECK(props(c, c.selection()[0]).symbolData.symbolID == copy);
+    CHECK(countWhere(c, [&](const Node& n) { return n.props.key == button; }) == 1);
+    // From this file into a third: still the library's copy (sourceLibraryKey kept, not this file).
+    c.setSelection({inst});
+    Clipboard clip2;
+    REQUIRE(c.copySelection(clip2));
+    CHECK(clip2.fileKey == kConsumerKey);
+    Editor d = load(consumerDoc(), "ThirdFileKey00000004");
+    REQUIRE(d.paste(clip2, true) == 1);
+    Guid dcopy = copyOf(d, button);
+    REQUIRE(dcopy != kNoGuid);
+    CHECK(props(d, dcopy).sourceLibraryKey == kLibKey);
+    CHECK(props(d, d.selection()[0]).symbolData.symbolID == dcopy);
+    // And back into the library itself: an instance of its own main.
+    lib.setSelection({});
+    REQUIRE(lib.paste(clip2, true) == 1);
+    CHECK(props(lib, lib.selection()[0]).symbolData.symbolID == BUTTON);
+    CHECK(copyOf(lib, button) == kNoGuid);
+  }
+
+  SUBCASE("a published main itself: an instance of its copy; cut: a new main marked for Move to this file") {
+    publish(lib, {button});
+    lib.setSelection({BUTTON});
+    Clipboard clip;
+    REQUIRE(lib.copySelection(clip));
+    Editor c = load(consumerDoc(), kConsumerKey);
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    Guid inst = c.selection()[0];
+    CHECK(props(c, inst).type == NodeType::INSTANCE);
+    CHECK(props(c, inst).symbolData.symbolID == copyOf(c, button));
+    // Cut: a new main with no key, remembering the old one.
+    REQUIRE(lib.copySelection(clip, true));
+    Editor m = load(consumerDoc(), kConsumerKey);
+    m.setSelection({});
+    REQUIRE(m.paste(clip, true) == 1);
+    Guid main = m.selection()[0];
+    CHECK(props(m, main).type == NodeType::SYMBOL);
+    CHECK(m.document().pageOf(main) == kPage);
+    CHECK(props(m, main).key.empty());
+    CHECK(props(m, main).publishedVersion.empty());
+    CHECK(props(m, main).libraryMoveInfo.oldKey == button);
+    CHECK(props(m, main).libraryMoveInfo.pasteFileKey == kLibKey);
+    CHECK(m.document().children(main).size() == 3);
+    // Its nested Icon instance points at a copy of Icon (published with Button as its dependency).
+    Guid nested = m.document().children(main)[2];
+    Guid iconMain = props(m, nested).symbolData.symbolID;
+    REQUIRE(m.document().has(iconMain));
+    CHECK(m.isLibraryCopy(iconMain));
+  }
+
+  SUBCASE("an unpublished main itself: a new main") {
+    lib.setSelection({BUTTON});
+    Clipboard clip;
+    REQUIRE(lib.copySelection(clip));
+    Editor c = load(consumerDoc(), kConsumerKey);
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    Guid main = c.selection()[0];
+    CHECK(props(c, main).type == NodeType::SYMBOL);
+    CHECK(c.document().pageOf(main) == kPage);
+    CHECK(props(c, main).key.empty());
+    CHECK(!props(c, main).libraryMoveInfo.present());
+    CHECK(!c.isLibraryCopy(main));
+    // Its references came in as this file's own.
+    Guid bg = c.document().children(main)[0];
+    Guid style = c.findStyle(props(c, bg).styleIdForFill);
+    REQUIRE(style != kNoGuid);
+    CHECK(!c.isLibraryCopy(style));
+    CHECK(fillOf(c, bg) == Color{1, 0, 0, 1});
+  }
+
+  SUBCASE("a layer using an unpublished style and variable; then the same with them published") {
+    REQUIRE(run(lib, CommandId::APPLY_STYLE, "{\"refs\":[" + q(SWATCH) + "],\"style\":" + q(l.style) + "}") == OK);
+    lib.setSelection({SWATCH});
+    Clipboard clip;
+    REQUIRE(lib.copySelection(clip));
+    Editor c = load(consumerDoc(), kConsumerKey);
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    Guid swatch = c.selection()[0];
+    Guid style = c.findStyle(props(c, swatch).styleIdForFill);
+    REQUIRE(style != kNoGuid);
+    CHECK(!c.isLibraryCopy(style));
+    CHECK(c.stylesOf(StyleType::NONE) == std::vector<Guid>{style});
+    REQUIRE(c.collections().size() == 1);
+    CHECK(c.variablesOf(c.collections()[0]).size() == 1);  // Brand (what the style uses), not Radius
+    CHECK(fillOf(c, swatch) == Color{1, 0, 0, 1});
+    // Published: library copies.
+    publish(lib, {keyOf(lib, l.style)});
+    REQUIRE(lib.copySelection(clip));
+    Editor p = load(consumerDoc(), kConsumerKey);
+    REQUIRE(p.paste(clip, true) == 1);
+    Guid pstyle = p.findStyle(props(p, p.selection()[0]).styleIdForFill);
+    CHECK(p.isLibraryCopy(pstyle));
+    CHECK(props(p, pstyle).key == keyOf(lib, l.style));
+    CHECK(p.stylesOf(StyleType::NONE).empty());
+  }
+}
+
+// ---- The C ABI ----
+
+using Ptr = uintptr_t;
+using Handle = uintptr_t;
+extern "C" {
+Ptr engine_result_ptr();
+uint32_t engine_result_len();
+Handle engine_create(const char* selector, Ptr optsPtr, uint32_t optsLen);
+void engine_destroy(Handle h);
+int32_t engine_load(Handle h, Ptr ptr, uint32_t len);
+int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uint32_t argsLen);
+int32_t engine_get_selection(Handle h);
+int32_t engine_set_selection(Handle h, Ptr ptr, uint32_t len);
+int32_t engine_encode_selection(Handle h, uint32_t flags);
+int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags);
+int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen);
+int32_t engine_variable_collections(Handle h, uint32_t flags);
+int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen, uint32_t flags);
+int32_t engine_styles(Handle h, uint32_t type, uint32_t flags);
+int32_t engine_set_file_key(Handle h, Ptr ptr, uint32_t len);
+int32_t engine_ensure_asset_keys(Handle h, Ptr refsPtr, uint32_t refsLen);
+int32_t engine_local_assets(Handle h);
+int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen);
+int32_t engine_mark_published(Handle h, Ptr ptr, uint32_t len);
+int32_t engine_import_library_assets(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen);
+int32_t engine_apply_library_update(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen);
+int32_t engine_library_usage(Handle h);
+}
+
+namespace {
+struct Text {
+  std::string s;
+  Ptr ptr() const { return reinterpret_cast<Ptr>(s.data()); }
+  uint32_t len() const { return static_cast<uint32_t>(s.size()); }
+};
+std::string resultText() { return std::string(reinterpret_cast<const char*>(engine_result_ptr()), engine_result_len()); }
+json::Value resultJson() {
+  json::Value v;
+  REQUIRE(json::parse(resultText(), v));
+  return v;
+}
+Handle openFile(const std::vector<NodeChange>& nodes, const std::string& fileKey, uint32_t session) {
+  Text opts{"{\"sessionID\":" + std::to_string(session) + "}"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h);
+  json::Writer w;
+  codec::writeMessage(w, 0, nodes);
+  Text d{w.take()};
+  REQUIRE(engine_load(h, d.ptr(), d.len()) == OK);
+  Text k{fileKey};
+  REQUIRE(engine_set_file_key(h, k.ptr(), k.len()) == OK);
+  return h;
+}
+const json::Value* byMember(const json::Value& list, const char* member, const std::string& value) {
+  for (auto& e : list.array)
+    if (auto* m = e.get(member); m && m->isString() && m->string == value) return &e;
+  return nullptr;
+}
+}  // namespace
+
+TEST_CASE("libraries: the C ABI — keys, local assets, payloads, publish, import, update, usage, cross-file clipboard") {
+  // The library: its assets made in an Editor, then loaded into an engine.
+  Editor made = load(libDoc(), kLibKey);
+  Lib l = makeAssets(made);
+  Handle lib = openFile(made.encodeDocument(), kLibKey, 3);
+  Handle con = openFile(consumerDoc(), kConsumerKey, 4);
+
+  // ensureAssetKeys (all), then localAssets.
+  REQUIRE(engine_ensure_asset_keys(lib, 0, 0) == OK);
+  json::Value keys = resultJson();
+  REQUIRE(keys.isArray());
+  CHECK(keys.array.size() == 7);
+  const json::Value* b = byMember(keys, "id", BUTTON.toString());
+  REQUIRE(b);
+  std::string button = b->get("key")->string;
+  CHECK(isKey(button));
+  Text one{"[\"" + BUTTON.toString() + "\"]"};
+  REQUIRE(engine_ensure_asset_keys(lib, one.ptr(), one.len()) == OK);
+  CHECK(resultJson().array.size() == 1);
+  REQUIRE(engine_local_assets(lib) == OK);
+  json::Value assets = resultJson();
+  CHECK(assets.array.size() == 7);
+  const json::Value* ba = byMember(assets, "key", button);
+  REQUIRE(ba);
+  CHECK(ba->get("kind")->string == "COMPONENT");
+  CHECK(ba->get("name")->string == "Button");
+  CHECK(!ba->get("hiddenFromPublishing")->boolean);
+  CHECK(!ba->get("softDeleted")->boolean);
+  CHECK(isKey(ba->get("versionHash")->string));
+  CHECK(ba->get("publishedVersion")->isNull());
+  CHECK(ba->get("dependencies")->array.size() == 5);
+  CHECK(ba->get("containingFrame")->get("pageName")->string == "Page 1");
+  const json::Value* brandInfo = byMember(assets, "id", l.brand.toString());
+  REQUIRE(brandInfo);
+  CHECK(brandInfo->get("kind")->string == "VARIABLE");
+  CHECK(brandInfo->get("resolvedType")->string == "COLOR");
+  CHECK(brandInfo->get("collectionId")->string == l.set.toString());
+  CHECK(brandInfo->get("containingFrame")->isNull());
+  CHECK(byMember(assets, "id", l.style.toString())->get("styleType")->string == "FILL");
+
+  // encodeAssets: payload Messages; markPublished.
+  Text ask{"[\"" + button + "\"]"};
+  REQUIRE(engine_encode_assets(lib, ask.ptr(), ask.len()) == OK);
+  json::Value encoded = resultJson();
+  const json::Value& list = *encoded.get("assets");
+  REQUIRE(list.array.size() == 6);
+  CHECK(!list.array[0].get("dependencyOnly")->boolean);
+  CHECK(list.array[1].get("dependencyOnly")->boolean);
+  CHECK(list.array[0].get("message")->get("type")->string == "NODE_CHANGES");
+  CHECK(list.array[0].get("message")->get("nodeChanges")->array.size() == 10);
+  CHECK(encoded.get("images")->array.empty());
+  std::string messages = "{\"messages\":[", published = "[";
+  for (size_t i = 0; i < list.array.size(); i++) {
+    const json::Value& a = list.array[i];
+    messages += (i ? "," : "") + json::encode(*a.get("message"));
+    published += std::string(i ? "," : "") + "{\"key\":\"" + a.get("key")->string + "\",\"versionHash\":\"" + a.get("versionHash")->string + "\"}";
+  }
+  messages += "]}";
+  published += "]";
+  Text pub{published};
+  REQUIRE(engine_mark_published(lib, pub.ptr(), pub.len()) == OK);
+  REQUIRE(engine_local_assets(lib) == OK);
+  CHECK(byMember(resultJson(), "key", button)->get("publishedVersion")->string == list.array[0].get("versionHash")->string);
+
+  // importLibraryAssets.
+  Text msg{messages}, opts{std::string("{\"libraryKey\":\"") + kLibKey + "\"}"};
+  REQUIRE(engine_import_library_assets(con, msg.ptr(), msg.len(), opts.ptr(), opts.len()) == OK);
+  json::Value imported = resultJson();
+  CHECK(imported.get("status")->number == 0);
+  const json::Value* bc = byMember(*imported.get("assets"), "key", button);
+  REQUIRE(bc);
+  CHECK(bc->get("kind")->string == "COMPONENT");
+  CHECK(bc->get("libraryKey")->string == kLibKey);
+  CHECK(bc->get("created")->boolean);
+  CHECK(!bc->get("updated")->boolean);
+  std::string copy = bc->get("id")->string;
+  // An instance of the copy; componentInfo says where its main comes from.
+  std::string insert = "{\"main\":\"" + copy + "\"}";
+  Text ins{insert};
+  REQUIRE(engine_command(con, static_cast<uint32_t>(CommandId::INSERT_INSTANCE), ins.ptr(), ins.len()) == OK);
+  REQUIRE(engine_get_selection(con) == OK);
+  std::string inst = resultJson().get("refs")->array[0].string;
+  Text ref{inst};
+  REQUIRE(engine_component_info(con, ref.ptr(), ref.len()) == OK);
+  json::Value info = resultJson();
+  const json::Value* remote = info.get("main")->get("remote");
+  REQUIRE(remote->isObject());
+  CHECK(remote->get("libraryKey")->string == kLibKey);
+  CHECK(remote->get("key")->string == button);
+  CHECK(!info.get("main")->get("copied")->boolean);
+  CHECK(!info.get("canPush")->boolean);
+  // Reads: local only unless INCLUDE_REMOTE.
+  REQUIRE(engine_variable_collections(con, 0) == OK);
+  CHECK(resultJson().array.empty());
+  REQUIRE(engine_variable_collections(con, 1) == OK);
+  json::Value cols = resultJson();
+  REQUIRE(cols.array.size() == 1);
+  CHECK(cols.array[0].get("remote")->boolean);
+  CHECK(cols.array[0].get("libraryKey")->string == kLibKey);
+  REQUIRE(engine_variables(con, 0, 0, 1) == OK);
+  CHECK(resultJson().array.size() == 2);
+  REQUIRE(engine_styles(con, 0, 0) == OK);
+  CHECK(resultJson().array.empty());
+  REQUIRE(engine_styles(con, 0, 1) == OK);
+  CHECK(resultJson().array[0].get("remote")->boolean);
+  // libraryUsage.
+  REQUIRE(engine_library_usage(con) == OK);
+  json::Value usage = resultJson();
+  CHECK(usage.array.size() == 6);
+  const json::Value* bu = byMember(usage, "key", button);
+  REQUIRE(bu);
+  CHECK(bu->get("usageCount")->number == 1);
+  CHECK(bu->get("libraryKey")->string == kLibKey);
+  CHECK(bu->get("publishID")->string == BUTTON.toString());
+  CHECK(bu->get("version")->string == list.array[0].get("versionHash")->string);
+  // applyLibraryUpdate (nothing new: OK, nothing updated).
+  Text upd{std::string("{\"libraryKey\":\"") + kLibKey + "\",\"keys\":[\"" + button + "\"],\"redirects\":[]}"};
+  REQUIRE(engine_apply_library_update(con, msg.ptr(), msg.len(), upd.ptr(), upd.len()) == OK);
+  CHECK(!byMember(*resultJson().get("assets"), "key", button)->get("updated")->boolean);
+  Text bad{"{}"};
+  CHECK(engine_import_library_assets(con, msg.ptr(), msg.len(), bad.ptr(), bad.len()) == E_INVALID);
+
+  // The clipboard carries the file and the cut; a paste in another file brings the library copy.
+  Text sel{"[\"" + IB.toString() + "\"]"};
+  REQUIRE(engine_set_selection(lib, sel.ptr(), sel.len()) == OK);
+  REQUIRE(engine_encode_selection(lib, 1) == OK);
+  std::string clip = resultText();
+  json::Value clipJson = resultJson();
+  CHECK(clipJson.get("pasteFileKey")->string == kLibKey);
+  CHECK(clipJson.get("isCut")->boolean);
+  REQUIRE(engine_encode_selection(lib, 0) == OK);
+  clip = resultText();
+  CHECK(resultJson().get("isCut") == nullptr);
+  Text c{clip};
+  REQUIRE(engine_paste(con, c.ptr(), c.len(), 1) == 1);
+  REQUIRE(engine_library_usage(con) == OK);
+  CHECK(byMember(resultJson(), "key", button)->get("usageCount")->number == 2);
+
+  engine_destroy(lib);
+  engine_destroy(con);
+}

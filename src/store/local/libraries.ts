@@ -14,6 +14,7 @@ import { decodeCanvas } from "../../shared/fig/container";
 import { codec } from "../../shared/schema/document.generated";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
+import { diffAgainst, libraryCounts, movedOutOf, movesOf, previewAgainst, toLibraryAsset, validatePublishAssets } from "../../shared/store/libraryRules";
 import type { LibraryEvent } from "../../shared/store/repositories";
 import {
   isAssetKey,
@@ -49,18 +50,6 @@ export interface LibrariesDeps {
   hlc: HlcClock;
   clock: Clock;
   log: Log;
-}
-
-const listed = (a: LibraryAsset) => !a.dependencyOnly;
-
-function counts(assets: LibraryAsset[]): LibraryRecord["counts"] {
-  const c = { components: 0, styles: 0, variables: 0 };
-  for (const a of assets.filter(listed)) {
-    if (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") c.components++;
-    else if (a.kind === "STYLE") c.styles++;
-    else if (a.kind === "VARIABLE") c.variables++;
-  }
-  return c;
 }
 
 export class LocalLibraries {
@@ -135,9 +124,7 @@ export class LocalLibraries {
 
   /** Redirects recorded by other libraries for assets that moved out of `lib`. */
   private movedOutOf(lib: FileKey): Redirect[] {
-    const out: Redirect[] = [];
-    for (const r of this.records.values()) for (const m of r.movedIn) if (m.fromLibraryFileKey === lib) out.push(m);
-    return out;
+    return movedOutOf(this.records.values(), lib);
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -145,47 +132,17 @@ export class LocalLibraries {
   // -------------------------------------------------------------------------------------------------------------------
 
   private validateAssets(assets: PublishAsset[]): void {
-    if (!Array.isArray(assets)) throw new StoreError("invalid", "assets must be a list");
-    const seen = new Set<string>();
-    for (const a of assets) {
-      if (!isAssetKey(a?.key)) throw new StoreError("invalid", `an asset key is 40 lowercase hex characters: ${a?.key}`);
-      if (seen.has(a.key)) throw new StoreError("invalid", `asset ${a.key} is listed twice`);
-      seen.add(a.key);
-      if (typeof a.versionHash !== "string" || !/^[0-9a-f]{40}$/.test(a.versionHash)) throw new StoreError("invalid", `asset ${a.key} has no versionHash`);
-    }
+    validatePublishAssets(assets);
   }
 
   private toAsset(a: PublishAsset, thumbnail: LibraryAsset["thumbnail"]): LibraryAsset {
-    const { payload: _payload, thumbnailPng: _png, ...rest } = a;
-    return { ...rest, dependencies: [...(rest.dependencies ?? [])], thumbnail };
+    return toLibraryAsset(a, thumbnail);
   }
 
   async previewPublish(lib: FileKey, assets: PublishAsset[]): Promise<PublishPreview> {
     this.d.workspace.getMeta(lib);
     this.validateAssets(assets);
-    const prev = await this.latest(lib);
-    const prevByKey = new Map((prev?.assets ?? []).map((a) => [a.key, a]));
-    const created: LibraryAsset[] = [];
-    const modified: LibraryAsset[] = [];
-    const unchanged: string[] = [];
-    for (const a of assets.filter((x) => !x.dependencyOnly)) {
-      const p = prevByKey.get(a.key);
-      const asset = this.toAsset(a, p?.thumbnail ?? null);
-      if (!p || p.dependencyOnly) created.push(asset);
-      else if (p.versionHash !== a.versionHash) modified.push(asset);
-      else unchanged.push(a.key);
-    }
-    const nextListed = new Set(assets.filter((x) => !x.dependencyOnly).map((x) => x.key));
-    const movedOut = this.movedOutOf(lib);
-    const movedKeys = new Set(movedOut.map((m) => m.fromKey));
-    const gone = (prev?.assets ?? []).filter((p) => listed(p) && !nextListed.has(p.key));
-    return {
-      created,
-      modified,
-      removed: gone.filter((p) => !movedKeys.has(p.key)),
-      moved: movedOut.filter((m) => gone.some((g) => g.key === m.fromKey)),
-      unchanged,
-    };
+    return previewAgainst(await this.latest(lib), assets, this.movedOutOf(lib));
   }
 
   async publish(req: PublishRequest): Promise<LibraryVersion> {
@@ -228,7 +185,7 @@ export class LocalLibraries {
       // 2. The manifest, then the record (in that order: a record never points at a missing manifest).
       const record = this.records.get(lib);
       const n = (record?.latestVersion ?? 0) + 1;
-      const moves: Redirect[] = (req.moves ?? []).filter((m) => m.mode === "move").map((m) => ({ fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, toLibraryFileKey: lib, toKey: m.key, version: n, at: now }));
+      const moves: Redirect[] = movesOf(req.moves, lib, n, now);
       const version: LibraryVersion = {
         libraryFileKey: lib,
         version: n,
@@ -250,7 +207,7 @@ export class LocalLibraries {
       next.status = "published";
       next.latestVersion = n;
       next.lastPublishedAt = now;
-      next.counts = counts(assets);
+      next.counts = libraryCounts(assets);
       this.stamp(next, ["status", "latestVersion", "lastPublishedAt", "counts", ...(moves.length ? ["movedIn"] : []), ...(record ? [] : ["firstPublishedAt"])]);
       await this.saveRecord(next);
       // 3. The library file's history and record.
@@ -342,23 +299,7 @@ export class LocalLibraries {
     const r = this.records.get(lib);
     const latestVersion = r?.latestVersion ?? 0;
     if (!r || r.status !== "published") return { latestVersion, updated: [], removed: [], moved: [] };
-    const latest = await this.latest(lib);
-    const byKey = new Map((latest?.assets ?? []).map((a) => [a.key, a]));
-    const updated: LibraryAsset[] = [];
-    const removed: string[] = [];
-    const moved: Redirect[] = [];
-    const movedOut = this.movedOutOf(lib);
-    for (const h of have) {
-      const a = byKey.get(h.key);
-      if (a) {
-        if (a.versionHash !== h.versionHash) updated.push(a);
-        continue;
-      }
-      const m = movedOut.find((x) => x.fromKey === h.key);
-      if (m) moved.push(m);
-      else removed.push(h.key);
-    }
-    return { latestVersion, updated, removed, moved };
+    return diffAgainst(await this.latest(lib), latestVersion, have, this.movedOutOf(lib));
   }
 
   // -------------------------------------------------------------------------------------------------------------------

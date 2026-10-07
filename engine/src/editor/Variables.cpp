@@ -171,10 +171,12 @@ __attribute__((noinline)) void sortAssets(const Document& doc, std::vector<Guid>
 }
 }  // namespace
 
-std::vector<Guid> Editor::collections() const {
+std::vector<Guid> Editor::collections(bool includeRemote) const {
   std::vector<Guid> out;
   doc_.forEach([&](const Node& n) {
-    if (n.props.type == NodeType::VARIABLE_SET && !n.props.isSoftDeleted && !n.guid.isDerived()) out.push_back(n.guid);
+    if (n.props.type == NodeType::VARIABLE_SET && !n.props.isSoftDeleted && !n.guid.isDerived() &&
+        (includeRemote || !isLibraryCopy(n.guid)))
+      out.push_back(n.guid);
   });
   sortAssets(doc_, out);
   return out;
@@ -193,10 +195,11 @@ std::vector<Guid> Editor::variablesOf(Guid collection, bool includeDeleted) cons
   return out;
 }
 
-std::vector<Guid> Editor::stylesOf(StyleType type) const {
+std::vector<Guid> Editor::stylesOf(StyleType type, bool includeRemote) const {
   std::vector<Guid> out;
   doc_.forEach([&](const Node& n) {
     if (!n.props.isStyle() || n.guid.isDerived() || n.props.isSoftDeleted) return;
+    if (!includeRemote && isLibraryCopy(n.guid)) return;
     if (type == StyleType::NONE || n.props.styleType == type) out.push_back(n.guid);
   });
   sortAssets(doc_, out);
@@ -204,12 +207,13 @@ std::vector<Guid> Editor::stylesOf(StyleType type) const {
 }
 
 uint32_t Editor::styleUsage(Guid style) const {
-  // Layers that reference it (real ones: an instance's sublayers come with their main).
+  // Layers that reference it (real ones: an instance's sublayers come with their main; library copies' layers are
+  // the copies' own, not uses in this file).
   const Node* s = doc_.get(style);
   if (!s) return 0;
   uint32_t count = 0;
   doc_.forEach([&](const Node& n) {
-    if (n.guid.isDerived() || n.props.isStyle()) return;
+    if (n.guid.isDerived() || n.props.isStyle() || isLibraryCopy(n.guid)) return;
     const NodeProps& p = n.props;
     for (const AssetId* id : {&p.styleIdForFill, &p.styleIdForStrokeFill, &p.styleIdForText, &p.styleIdForEffect, &p.styleIdForGrid})
       if (id->present() && (id->guid == style || (!id->key.empty() && id->key == s->props.key))) {

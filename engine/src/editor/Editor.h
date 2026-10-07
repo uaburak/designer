@@ -104,6 +104,8 @@ struct ComponentInfo {
   Guid main = kNoGuid, mainPage = kNoGuid, mainSet = kNoGuid;
   std::string mainName;
   bool mainSoftDeleted = false;
+  bool mainRemote = false, mainCopied = false;  // a library copy; copied in from another file
+  std::string mainLibraryKey, mainKey, mainVersion;
   Guid instance = kNoGuid;
   std::vector<Guid> path;
   struct Override {
@@ -128,7 +130,7 @@ struct ComponentInfo {
 // CREATED with their source GUIDs, parents first; for each source parent, its
 // origin on the page (Figma's clipboardSelectionRegions.enclosingFrameOffset).
 struct Clipboard {
-  std::vector<NodeChange> nodes;
+  std::vector<NodeChange> nodes;  // the selection (in `regions`) and, cross-file, what it references (outside them)
   struct Region {
     Guid parent;
     std::vector<Guid> nodes;
@@ -136,6 +138,8 @@ struct Clipboard {
   };
   std::vector<Region> regions;
   Guid page = kNoGuid;
+  std::string fileKey;  // pasteFileKey: the file it was copied from
+  bool isCut = false;
 };
 
 class Editor : private LayoutHost, public TextLayouts {
@@ -204,7 +208,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // page. Pages: parent = the DOCUMENT. Returns how many moved (0 = refused).
   uint32_t moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t index);
   // The selection as a clipboard Message (nothing selected: false).
-  bool copySelection(Clipboard& out) const;
+  bool copySelection(Clipboard& out, bool cut = false) const;
   // Pastes with fresh GUIDs: into the selected frame, beside the selected layer,
   // or on the page (where it was if that's in view, else at the view's centre);
   // `inPlace` (⇧⌘V): exactly where it was. Selects what was pasted; returns how
@@ -347,9 +351,9 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid findCollection(const AssetId& id) const;
   Guid findStyle(const AssetId& id) const;
   // Live collections in the panel's order; a collection's variables in order; styles of a type (NONE: all) in order.
-  std::vector<Guid> collections() const;
+  std::vector<Guid> collections(bool includeRemote = false) const;
   std::vector<Guid> variablesOf(Guid collection, bool includeDeleted = false) const;
-  std::vector<Guid> stylesOf(StyleType type) const;
+  std::vector<Guid> stylesOf(StyleType type, bool includeRemote = false) const;
   // How many layers use a style.
   uint32_t styleUsage(Guid style) const;
   struct BoundVariable {
@@ -363,6 +367,70 @@ class Editor : private LayoutHost, public TextLayouts {
   bool resolvedValue(Guid node, const std::string& target, Resolved& out) const;
   // What the last command created (variables, collections, modes, styles).
   const std::vector<Guid>& lastCreated() const { return created_; }
+
+  // ---- Libraries (editor/Libraries.cpp; docs/data.md §9, docs/schema.md §8) ----
+  enum class AssetKind : uint8_t { NONE, COMPONENT, COMPONENT_SET, STYLE, VARIABLE_COLLECTION, VARIABLE };
+  static const char* assetKindName(AssetKind k);
+  // A local asset (localAssets, encodeAssets) or a library copy (libraryUsage).
+  struct AssetInfo {
+    Guid id = kNoGuid;
+    std::string key;
+    AssetKind kind = AssetKind::NONE;
+    std::string name, description;
+    StyleType styleType = StyleType::NONE;
+    bool hasResolvedType = false;
+    VariableResolvedType resolvedType = VariableResolvedType::BOOLEAN;
+    Guid owner = kNoGuid;  // a variant's component set, a variable's collection
+    std::string ownerKey;
+    bool hidden = false, softDeleted = false;
+    std::string versionHash, publishedVersion;
+    std::vector<std::string> dependencies;  // keys of this file's assets it needs (transitively)
+    Guid pageId = kNoGuid, frameId = kNoGuid;
+    std::string pageName, frameName;
+    // Library copies.
+    std::string libraryKey, version;
+    Guid publishID = kNoGuid;
+    uint32_t usage = 0;
+  };
+  struct EncodedAsset {
+    AssetInfo info;
+    bool dependencyOnly = false;
+    std::vector<NodeChange> nodes;  // the payload: the asset's nodes and every node it depends on (library GUIDs)
+  };
+  struct LibraryOptions {
+    std::string libraryKey;
+    bool update = false;    // applyLibraryUpdate: replace copies (one undo step); else import (SYSTEM)
+    bool hasKeys = false;   // only these keys are replaced (update)
+    std::vector<std::string> keys;
+    std::vector<std::pair<std::string, std::string>> redirects;  // fromKey → toKey (Move to this file)
+  };
+  struct ImportedAsset {
+    std::string key;
+    Guid id = kNoGuid;
+    AssetKind kind = AssetKind::NONE;
+    std::string libraryKey, version;
+    bool created = false, updated = false;
+  };
+  // This file's FileKey (clipboard pasteFileKey; cross-file paste).
+  void setFileKey(const std::string& key) { fileKey_ = key; }
+  const std::string& fileKey() const { return fileKey_; }
+  AssetKind assetKindOf(Guid id) const;
+  // The root of the library copy holding `id` (itself included), kNoGuid when it isn't in one.
+  Guid libraryRootOf(Guid id) const;
+  // Read-only: inside a library copy.
+  bool isLibraryCopy(Guid id) const { return hasLibraryCopies_ && libraryRootOf(id) != kNoGuid; }
+  // A main (or set) copied in from another file onto the internal canvas (local, not a library copy).
+  bool isCopiedMain(Guid id) const;
+  // Gives local assets in `refs` (empty: all) a key when they have none (SYSTEM); returns each one's key.
+  std::vector<std::pair<Guid, std::string>> ensureAssetKeys(const std::vector<Guid>& refs);
+  std::vector<AssetInfo> localAssets() const;
+  // The assets with these keys and their dependencies (keys are given to dependencies that lack one).
+  void encodeAssets(const std::vector<std::string>& keys, std::vector<EncodedAsset>& out, std::vector<ImageHash>& images);
+  // The content hash of an asset (docs/data.md §9.1).
+  std::string assetVersionHash(Guid id) const;
+  Status markPublished(const std::vector<std::pair<std::string, std::string>>& entries);
+  Status importLibrary(const std::vector<std::vector<NodeChange>>& messages, const LibraryOptions& opts, std::vector<ImportedAsset>& out);
+  std::vector<AssetInfo> libraryUsage() const;
 
   // Whether a gesture is in progress (undo and txn calls are refused meanwhile).
   bool busy() const { return gesture_ != Gesture::None && gesture_ != Gesture::Press; }
@@ -394,6 +462,49 @@ class Editor : private LayoutHost, public TextLayouts {
   // A user's edit of a bound value detaches it (Figma): the binding, a paint's colorVar, the style.
   void detachEdited(const NodeProps& before, NodeChange& c) const;
   void rebuildAssetKeys() const;
+
+  // ---- Libraries (editor/Libraries.cpp) ----
+  using GuidMap = std::unordered_map<Guid, Guid, GuidHash>;
+  // Nodes from outside (a library payload, a clipboard): by id, children in order, roots.
+  struct SourceNodes {
+    std::unordered_map<Guid, const NodeChange*, GuidHash> byId;
+    std::unordered_map<Guid, std::vector<const NodeChange*>, GuidHash> kids;
+    std::vector<Guid> roots;
+    void add(const NodeChange& c);
+    void link();  // kids (by position) and roots, after every add
+    void subtree(Guid root, std::vector<const NodeChange*>& out) const;  // pre-order
+  };
+  // One asset to bring in: as a library copy (read-only, COPY) or as a local asset (LOCAL: copied from another file).
+  struct ImportPlan {
+    Guid src = kNoGuid;
+    enum class Mode : uint8_t { COPY, LOCAL } mode = Mode::COPY;
+    std::string libraryKey, key, version;
+    Guid publishID = kNoGuid;
+    Guid target = kNoGuid;  // the node it becomes (kNoGuid: created)
+    bool replace = false;   // the target's content is replaced
+    bool redirected = false;
+  };
+  // Writes the plans in the open transaction; `map` gets source GUID → local GUID for every node they reach.
+  void writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map);
+  // Move to this file, when this file is where the asset moved: every user of each library copy (first) is relinked to
+  // this file's own asset (second), nodes matched by key, and the copy is removed. In the open transaction.
+  void relinkCopies(const std::vector<std::pair<Guid, Guid>>& copyToLocal);
+  // A source node's references mapped into this document (`map`, then library copies by publishID, then by key).
+  void remapRefs(NodeProps& p, const GuidMap& map, const std::string& libraryKey) const;
+  Guid copyRootByKey(const std::string& key) const;
+  Guid localAssetByKey(const std::string& key) const;
+  Guid copyByPublishID(const std::string& libraryKey, Guid publishID) const;
+  // The node an asset's payload starts at (a variant: its set).
+  Guid payloadRoot(Guid asset) const;
+  // Real nodes of a subtree, pre-order.
+  void realSubtree(Guid root, std::vector<Guid>& out) const;
+  // The payload roots `roots` depend on, transitively (`roots` excluded).
+  // `extra`: nodes outside the document (a clipboard's) whose references count too.
+  std::vector<Guid> dependencyRoots(const std::vector<Guid>& roots, const std::vector<const NodeProps*>* extra = nullptr) const;
+  bool assetHidden(Guid id) const;
+  void fillAssetInfo(Guid id, AssetInfo& info) const;
+  // Clears an asset's library identity (duplicates: a key of their own later).
+  static void clearIdentity(NodeProps& p);
 
   // ---- Variables and styles: commands (editor/VariableCommands.cpp) ----
   Status variableCommand(CommandId id, const CommandArgs& args);
@@ -862,6 +973,11 @@ class Editor : private LayoutHost, public TextLayouts {
   bool resolving_ = false;                                    // the resolver's own writes
   std::vector<Guid> created_;
   uint64_t keyState_ = 0;
+
+  // Libraries.
+  std::string fileKey_;
+  bool hasLibraryCopies_ = false;  // any node carries sourceLibraryKey (read-only checks only then)
+  bool libraryWrite_ = false;      // the library code's own writes into copies
 };
 
 }  // namespace eng

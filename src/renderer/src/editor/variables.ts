@@ -155,15 +155,24 @@ const asFields = (f: Record<string, unknown>): NodeFields => f as NodeFields;
 export interface LocalAssets {
   /** The internal canvas (null: the file has none yet) */
   internal: Guid | null;
+  /** This file's own collections (library copies left out) */
   collections: Collection[];
-  /** Every live variable (soft-deleted ones left out), by collection then sortPosition */
+  /** Every live variable of this file (soft-deleted ones and library copies left out), by collection then sortPosition */
   variables: Variable[];
+  /** This file's own styles (library copies left out) */
   styles: Style[];
+  /** Library copies used here (docs/schema.md §8.2): read-only, listed under their library */
+  library: { collections: Collection[]; variables: Variable[]; styles: Style[] };
+  /** Local and library variables / collections */
   lookup: VariableLookup;
+  /** A local or library style */
   style(id: Guid): Style | undefined;
 }
 
-const EMPTY: LocalAssets = { internal: null, collections: [], variables: [], styles: [], lookup: { variable: () => undefined, collection: () => undefined }, style: () => undefined };
+const EMPTY: LocalAssets = { internal: null, collections: [], variables: [], styles: [], library: { collections: [], variables: [], styles: [] }, lookup: { variable: () => undefined, collection: () => undefined }, style: () => undefined };
+
+/** A library copy (its library's FileKey on the node). */
+export const libraryOf = (x: { node: unknown }): string | null => ((x.node as { sourceLibraryKey?: string }).sourceLibraryKey ?? null) || null;
 
 export class VariableIndex {
   private cache: { version: number; assets: LocalAssets } | null = null;
@@ -249,7 +258,17 @@ export class VariableIndex {
     const byId = new Map(variables.map((v) => [v.id, v]));
     const cById = new Map(collections.map((c) => [c.id, c]));
     const sById = new Map(styles.map((s) => [s.id, s]));
-    return { internal, collections, variables, styles, lookup: { variable: (id) => byId.get(id), collection: (id) => cById.get(id) }, style: (id) => sById.get(id) };
+    const own = <T extends { node: unknown }>(list: T[]) => list.filter((x) => !libraryOf(x));
+    const copies = <T extends { node: unknown }>(list: T[]) => list.filter((x) => !!libraryOf(x));
+    return {
+      internal,
+      collections: own(collections),
+      variables: own(variables),
+      styles: own(styles),
+      library: { collections: copies(collections), variables: copies(variables), styles: copies(styles) },
+      lookup: { variable: (id) => byId.get(id), collection: (id) => cById.get(id) },
+      style: (id) => sById.get(id),
+    };
   }
 }
 
@@ -267,6 +286,9 @@ export function internalCanvasOf(ed: EditorController): Guid | null {
 /** New nodes' local ids: a range of their own above the engine's (it allocates from the bottom, skipping taken ids). */
 const NODE_ID_BASE = 0x40000000;
 let nextLocal = NODE_ID_BASE;
+
+/** A fresh node GUID in this session's editor range (library copies use it too). */
+export const newNodeGuid = (ed: EditorController): Guid => newGuid(ed);
 
 function newGuid(ed: EditorController): Guid {
   const session = ed.source.sessionID ?? 1;
@@ -292,7 +314,7 @@ function apply(ed: EditorController, changes: NodeChange[]): number {
 }
 
 /** The internal canvas, created (in the current step) when the file has none. */
-function ensureInternal(ed: EditorController): Guid {
+export function ensureInternal(ed: EditorController): Guid {
   const found = internalCanvasOf(ed);
   if (found) return found;
   const id = newGuid(ed);
