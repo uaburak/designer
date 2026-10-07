@@ -23,6 +23,7 @@ import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
 import { VectorPointSection } from "./VectorPoints";
 import { fields, isFrameNode, isTextNode, typeLabel, typeOf, useSelectedNodes, useSupports, type PanelNode } from "./shared";
+import { ComponentHeader, CurrentVariantSection, InstanceHeader, InstanceProperties, PropertiesSection, componentSelection } from "./Component";
 import styles from "./Design.module.css";
 
 /** Figma's frame presets (the Frame tool's list in the panel, the most used ones). */
@@ -97,9 +98,20 @@ function Selected({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTar
   const text = nodes.every(isTextNode);
   const vectorRef = useStoreSlice(ed.vector.state, (s) => (s.active ? s.ref : null));
   const editingVector = !!vectorRef && nodes.length === 1 && nodes[0].guid === vectorRef;
+  // One component, set, variant or instance: its header and properties come first (UI3).
+  const comp = componentSelection(ed, nodes);
   return (
     <>
-      <TypeHeader nodes={nodes} />
+      {comp?.kind === "instance" ? (
+        <InstanceHeader instance={comp.node} />
+      ) : comp ? (
+        <ComponentHeader sel={comp} />
+      ) : (
+        <TypeHeader nodes={nodes} />
+      )}
+      {comp?.kind === "instance" && <InstanceProperties instance={comp.node} />}
+      {(comp?.kind === "component" || comp?.kind === "set") && <PropertiesSection owner={comp.node} />}
+      {comp?.kind === "variant" && <CurrentVariantSection variant={comp.node} />}
       {editingVector && <VectorPointSection />}
       <PositionSection nodes={nodes} />
       <LayoutSection nodes={nodes} />
@@ -126,7 +138,7 @@ const BOOLEAN_ITEMS: { id: string; op: "UNION" | "SUBTRACT" | "INTERSECT" | "XOR
 /** Layers vector edit mode opens (the engine turns shapes into a vector at their first edit). */
 const EDITABLE = new Set(["VECTOR", "LINE", "STAR", "REGULAR_POLYGON", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "BOOLEAN_OPERATION"]);
 
-/** The selection header's actions (UI3): Edit object, Use as mask, the boolean groups menu, Create component. */
+/** The selection header's actions (UI3): Edit object, Create component, Use as mask, the boolean groups menu. */
 function HeaderActions({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   // Command states change with the selection and the document.
@@ -148,7 +160,14 @@ function HeaderActions({ nodes }: { nodes: PanelNode[] }) {
   return (
     <div className={styles.headerActions}>
       {editable && <IconButton icon="24.pen" label="Edit object" shortcut={keys(["enter"])} tone="secondary" onClick={() => ed.vector.start(nodes[0].guid)} />}
-      <IconButton icon="24.component.small" label="Create component" shortcut={shortcutOf(command("object.create-component"))} tone="secondary" disabled />
+      <IconButton
+        icon="24.component.small"
+        label={command("object.create-component").label}
+        shortcut={shortcutOf(command("object.create-component"))}
+        tone="secondary"
+        disabled={!isEnabled(ed, command("object.create-component"))}
+        onClick={() => runEditorCommand(ed, "object.create-component")}
+      />
       <IconButton icon="24.mask" label={mask.label} shortcut={shortcutOf(mask)} tone="secondary" disabled={!isEnabled(ed, mask)} aria-pressed={mask.checked?.(ed) ?? false} onClick={() => runEditorCommand(ed, mask.id)} />
       {anyBoolean ? (
         <MenuButton label="Boolean groups" entries={entries} className={styles.iconMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>

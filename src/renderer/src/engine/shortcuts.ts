@@ -35,6 +35,8 @@ export const DEFAULT_SHORTCUTS: Shortcut[] = [
   { code: "KeyL", shift: true, run: (e) => e.setTool("ARROW") },
   tool("KeyP", "PEN"),
   { code: "KeyP", shift: true, run: (e) => e.setTool("PENCIL") },
+  cmd("KeyK", "CREATE_COMPONENT", { primary: true, alt: true }),
+  cmd("KeyB", "DETACH_INSTANCE", { primary: true, alt: true }),
   cmd("KeyU", "BOOLEAN_UNION", { alt: true, shift: true }),
   cmd("KeyS", "BOOLEAN_SUBTRACT", { alt: true, shift: true }),
   cmd("KeyI", "BOOLEAN_INTERSECT", { alt: true, shift: true }),

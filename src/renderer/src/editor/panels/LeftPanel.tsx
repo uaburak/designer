@@ -4,13 +4,14 @@
  * Pages and Layers, or Assets.
  */
 import { useState } from "react";
-import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, TextInput, showToast } from "@/ds";
+import { Icon, IconButton, MenuButton, ResizeHandle, TextInput, showToast } from "@/ds";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
 import { useUI } from "../hooks";
 import { commandItem } from "../menus";
 import { Pages } from "./Pages";
 import { Layers } from "./Layers";
+import { Assets } from "./Assets";
 import styles from "./Panels.module.css";
 
 export function LeftPanel() {
@@ -80,15 +81,3 @@ function RenameFile({ name }: { name: string }) {
   );
 }
 
-/** Assets (the rail's second tab): components and libraries come with E6 — a search and a note until then. */
-function Assets() {
-  const [query, setQuery] = useState("");
-  return (
-    <div className={styles.assets}>
-      <div className={styles.assetsSearch}>
-        <SearchField value={query} onChange={setQuery} placeholder="Search assets" />
-      </div>
-      <EmptyState icon="24.component" title="No components yet" body="Components you create in this file and the libraries you add show up here." />
-    </div>
-  );
-}

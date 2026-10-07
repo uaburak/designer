@@ -1,0 +1,38 @@
+@layer app {
+  /* Centred over the canvas, 12 above the toolbar (toolbar 48 + 12 from the bottom) */
+  .pill {
+    position: absolute;
+    bottom: calc(var(--ds-size-toolbar) + var(--ds-space-6));
+    left: 50%;
+    z-index: var(--ds-z-floating);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-half);
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-medium-large);
+    background: var(--figma-color-bg-component);
+    box-shadow: var(--ds-elevation-200);
+    color: var(--figma-color-text-oncomponent);
+    transform: translateX(-50%);
+  }
+  .action {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: inherit;
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    white-space: nowrap;
+    outline: none;
+  }
+  .action:hover { background: var(--figma-color-bg-component-hover); }
+  .action:focus-visible { outline: var(--ds-focus-width) solid var(--figma-color-border-oncomponent-strong); }
+  .close { color: var(--figma-color-icon-oncomponent); }
+  .close:hover { background: var(--figma-color-bg-component-hover); color: var(--figma-color-icon-oncomponent); }
+}

@@ -1,0 +1,109 @@
+@layer app {
+  .assets { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .toolbar { display: flex; align-items: center; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
+  .search { flex: 1 1 auto; min-width: 0; }
+  .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: var(--ds-space-4); }
+  .heading {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-4);
+    border-top: 1px solid var(--figma-color-border);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .none { padding: 0 var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  .group {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    width: 100%;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    text-align: left;
+    outline: none;
+  }
+  .group:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .subgroup { padding-left: var(--ds-space-6); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .caret { flex: none; color: var(--figma-color-icon-tertiary); }
+  .caretClosed { transform: rotate(-90deg); }
+  .groupName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* List: rows 32 with the component glyph */
+  .list { display: flex; flex-direction: column; padding: 0 var(--ds-space-2); }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-6);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+    cursor: grab;
+  }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row:focus-visible, .tile:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .rowName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .glyph { flex: none; color: var(--figma-color-icon-component); }
+
+  /* Grid: three 72 tiles a row, the name under each */
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--ds-space-2); padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-2); }
+  .tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-small);
+    letter-spacing: var(--ds-tracking-body-small);
+    outline: none;
+    cursor: grab;
+  }
+  .thumb {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    overflow: hidden;
+  }
+  .tile:hover .thumb { box-shadow: inset 0 0 0 1px var(--figma-color-border-component); }
+  .thumbCanvas { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .thumbCanvas:not([data-drawn]) { display: none; }
+  .thumbCanvas[data-drawn] + .glyph { display: none; }
+  .tileName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+
+  /* The dragged asset follows the pointer */
+  .ghost {
+    position: fixed;
+    z-index: var(--ds-z-drag);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-menu-bg);
+    box-shadow: var(--ds-elevation-menu);
+    color: var(--ds-color-menu-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    pointer-events: none;
+    transform: translate(8px, 8px);
+  }
+}

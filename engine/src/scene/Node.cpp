@@ -67,6 +67,16 @@ bool NodeProps::isPathShape() const {
   }
 }
 
+bool SymbolData::operator==(const SymbolData& o) const {
+  return symbolID == o.symbolID && uniformScaleFactor == o.uniformScaleFactor && overrides == o.overrides;
+}
+
+bool SymbolData::present() const { return symbolID != kNoGuid || !overrides.empty(); }
+
+bool SymbolOverride::operator==(const SymbolOverride& o) const {
+  return path == o.path && mask == o.mask && differingFields(props, o.props, mask) == 0;
+}
+
 bool TextStyle::operator==(const TextStyle& o) const {
   return styleID == o.styleID && mask == o.mask && fontName == o.fontName && fontSize == o.fontSize && lineHeight == o.lineHeight &&
          letterSpacing == o.letterSpacing && textCase == o.textCase && textDecoration == o.textDecoration &&
@@ -149,6 +159,21 @@ bool TextStyle::operator==(const TextStyle& o) const {
   X(F_HANDLE_MIRRORING, handleMirroring, 44)                 \
   X(F_BOOLEAN_OPERATION, booleanOperation, 36)               \
   X(F_LAYOUT_GRIDS, layoutGrids, 47)                         \
+  X(F_OVERRIDE_KEY, overrideKey, 213)                        \
+  X(F_SYMBOL_DATA, symbolData, 113)                          \
+  X(F_OVERRIDDEN_SYMBOL_ID, overriddenSymbolID, 143)         \
+  X(F_COMPONENT_PROP_DEFS, componentPropDefs, 266)           \
+  X(F_COMPONENT_PROP_ASSIGNMENTS, componentPropAssignments, 268) \
+  X(F_PARAM_MAP, parameterConsumptionMap, 445)               \
+  X(F_IS_STATE_GROUP, isStateGroup, 225)                     \
+  X(F_VARIANT_PROP_SPECS, variantPropSpecs, 483)             \
+  X(F_STATE_GROUP_ORDERS, stateGroupPropertyValueOrders, 238) \
+  X(F_PROPS_ARE_BUBBLED, propsAreBubbled, 305)               \
+  X(F_IS_SLOT, isSlot, 463)                                  \
+  X(F_IS_SLOT_CONTENT, isSlotContent, 495)                   \
+  X(F_DETACHED_SYMBOL_ID, detachedSymbolId, 342)             \
+  X(F_IS_SOFT_DELETED, isSoftDeleted, 330)                   \
+  X(F_ANCESTOR_PATH, ancestorPathBeforeDeletion, 235)        \
   X(F_EXTRA, extra, 0)
 
 const char* nodeTypeName(NodeType t) {
@@ -240,6 +265,7 @@ uint32_t fieldGroups(FieldMask m) {
   if (m & (kTextLayoutFields | F_AUTO_RENAME)) g |= G_TEXT;
   if (m & F_NAME) g |= G_NAME;
   if (m & (F_VISIBLE | F_LOCKED | F_INTERNAL_ONLY)) g |= G_VISIBILITY;
+  if (m & kComponentFields) g |= G_COMPONENT;
   return g;
 }
 

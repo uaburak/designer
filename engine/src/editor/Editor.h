@@ -16,6 +16,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "base/Json.h"
 #include "editor/Commands.h"
 #include "editor/Keys.h"
 #include "editor/Selection.h"
@@ -81,6 +82,46 @@ struct CommandArgs {
   ImageHash hash;                          // PLACE_IMAGES
   double width = 0, height = 0;
   std::string name;
+  json::Value raw;                         // the whole args object (component commands read theirs from it)
+};
+
+// What the panels show for a node's component side (componentInfo, docs/engine-build.md "E6").
+struct ComponentProperty {
+  Guid id = kNoGuid;
+  std::string name;
+  ComponentPropType type = ComponentPropType::BOOL;
+  ComponentPropValue defaultValue, value;
+  std::string defaultVariant, variantValue;  // VARIANT
+  bool overridden = false;
+  std::vector<Guid> preferredValues;
+  std::vector<std::string> variantOptions;
+  std::vector<Guid> boundLayers;
+};
+struct ComponentInfo {
+  enum class Kind : uint8_t { NONE, COMPONENT, VARIANT, COMPONENT_SET, INSTANCE, NESTED_INSTANCE, INSTANCE_SUBLAYER, COMPONENT_SUBLAYER };
+  Kind kind = Kind::NONE;
+  Guid ref = kNoGuid;
+  Guid main = kNoGuid, mainPage = kNoGuid, mainSet = kNoGuid;
+  std::string mainName;
+  bool mainSoftDeleted = false;
+  Guid instance = kNoGuid;
+  std::vector<Guid> path;
+  struct Override {
+    Guid ref;
+    std::vector<std::string> fields;
+  };
+  std::vector<Override> overrides;
+  std::vector<ComponentProperty> properties;
+  struct Exposed {
+    Guid ref;
+    std::string name;
+    std::vector<ComponentProperty> properties;
+  };
+  std::vector<Exposed> exposedInstances;
+  bool hasVariantProperties = false;
+  std::vector<std::pair<std::string, std::string>> variantProperties;
+  bool canPush = false, canReset = false, canDetach = false, isExposed = false, mainDeleted = false;
+  uint32_t instanceCount = 0;
 };
 
 // What a copy puts on the clipboard (docs/schema.md §4.1): the copied nodes as
@@ -189,11 +230,13 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<DocumentChanged> documents;        // DOCUMENT_CHANGED, one per committed transaction
     std::vector<ContextMenu> contextMenus;
     std::vector<std::pair<Guid, uint32_t>> nodes;  // NODES_CHANGED: node, field groups (merged)
+    std::vector<Guid> components;                  // COMPONENTS_CHANGED: instances re-derived, the mains they come from
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
-         structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false;
+         structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
+         navigation = false;
     bool any() const {
-      return !documents.empty() || !contextMenus.empty() || !nodes.empty() || selection || camera || tool || cursor || hover || undo ||
-             structure || pages || currentPage || textEdit || vectorEdit || paintEdit;
+      return !documents.empty() || !contextMenus.empty() || !nodes.empty() || !components.empty() || selection || camera || tool ||
+             cursor || hover || undo || structure || pages || currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
   };
   bool hasEvents() const { return events_.any(); }
@@ -265,6 +308,20 @@ class Editor : private LayoutHost, public TextLayouts {
   int paintStop() const { return paint_.stop; }
   Status setPaintStop(int stop);
 
+  // ---- Components and instances (editor/Instances.cpp, editor/ComponentCommands.cpp) ----
+  bool componentInfo(Guid id, ComponentInfo& out) const;
+  // GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where the last navigation went and where it came from.
+  Guid navigationMain() const { return navMain_; }
+  Guid returnToInstance() const { return returnTo_; }
+  // A derived node (an instance's sublayer).
+  bool isDerived(Guid id) const { return id.isDerived(); }
+  // The real instance a derived node belongs to (kNoGuid for real nodes).
+  Guid instanceOfDerived(Guid id) const;
+  // Whether `id` can take new layers: a frame that isn't an instance and isn't inside one.
+  bool acceptsChildren(Guid id) const;
+  // The real main component (SYMBOL) an instance (real or derived) shows now; kNoGuid when it has none.
+  Guid mainOf(Guid instance) const;
+
   // Whether a gesture is in progress (undo and txn calls are refused meanwhile).
   bool busy() const { return gesture_ != Gesture::None && gesture_ != Gesture::Press; }
 
@@ -317,6 +374,107 @@ class Editor : private LayoutHost, public TextLayouts {
   void zoomToSelection();
   void zoomTo(double zoom);
 
+  // ---- Instances (editor/Instances.cpp) ----
+  struct OverrideStack;
+  // One derived row of an instance's materialization.
+  struct DerivedRow {
+    Guid id;
+    NodeProps props;
+    Guid source;             // the real node in a main it mirrors
+    Guid level;              // the instance (real or derived) whose main holds `source`
+    std::vector<Guid> path;  // keys from the top-level instance
+  };
+  struct DerivedInfo {
+    Guid instance = kNoGuid;  // the top-level real instance
+    std::vector<Guid> path;
+    Guid source = kNoGuid;
+    Guid level = kNoGuid;
+    std::vector<Guid> levelPath;  // `level`'s path from the instance (empty: the instance itself)
+    Guid symbol = kNoGuid;        // derived instances: the main they show
+  };
+  struct Blueprint {
+    Mat2x3 transform;
+    Vec2 size;
+    bool geometry = false;  // transform / size: the node before the instance's own layout (constraints start here)
+    Vec2 sourceSize;        // frames and the instance: the size their children were laid out for in the main
+    bool frame = false;
+  };
+  // Layout of derived subtrees: resizedInTxn / base answer from these.
+  bool blueprintBase(Guid id, Mat2x3& transform, Vec2& size) const;
+  bool blueprintSourceSize(Guid id, Vec2& size) const;
+  // The instance's main as it is now (a SYMBOL), or kNoGuid.
+  Guid symbolOf(const NodeProps& instance) const;
+  // The component properties defined for a main: its own, or its set's.
+  const std::vector<ComponentPropDef>* defsOf(Guid symbol) const;
+  Guid setOf(Guid symbol) const;  // the component set holding a variant (kNoGuid otherwise)
+  // An instance root's effective fields: the main's root, the instance's own fields kept.
+  NodeProps instanceRoot(const NodeProps& own, const NodeProps& main, Guid mainId = kNoGuid) const;
+  void markInstanceDirty(const NodeChange& c);
+  void flushInstances();
+  void materialize(Guid instance);
+  void removeDerived(Guid instance);
+  struct Expansion;
+  void expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid parentRow, const std::vector<Guid>& prefix, Guid level,
+                      const std::vector<Guid>& levelPath, const std::vector<ComponentPropAssignment>& assigns, int depth);
+  void applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, const std::vector<ComponentPropAssignment>& assigns,
+                     Guid* swap, Guid* slotContent) const;
+  void applyDerivedDirect(const NodeChange& change);
+  // The overrides in force for a derived nested instance, relative to it (usage site over its own), and its assignments.
+  void composedOverrides(Guid nested, std::vector<SymbolOverride>& out, std::vector<ComponentPropAssignment>& assigns) const;
+  void writeDerived(const NodeChange& change);
+  void recordRootOverride(Guid instance, const NodeChange& change);
+  // Writes `fields` of `entry` into the override at `path` of top-level instance `instance` (merged).
+  void writeOverride(Guid instance, const std::vector<Guid>& path, FieldMask fields, const NodeProps& values);
+  // Sets property `def` to `value` on the instance level (a real instance, or a derived nested one).
+  void writeAssignment(Guid level, Guid def, const ComponentPropValue& value);
+  // The assignments in force for an instance level (its own, with usage-site overrides on top).
+  std::vector<ComponentPropAssignment> assignmentsOf(Guid level) const;
+  std::vector<ComponentProperty> propertiesOf(Guid level, Guid symbol) const;
+  bool isStructuralTarget(Guid parent) const;
+  // Remaps an instance's overrides from one main to another (variant switch / swap; Figma's name rules).
+  std::vector<SymbolOverride> remapOverrides(const std::vector<SymbolOverride>& overrides, Guid from, Guid to, bool variant) const;
+
+  // ---- Component commands (editor/ComponentCommands.cpp) ----
+  Status componentCommand(CommandId id, const CommandArgs& args);
+  uint32_t componentCommandState(CommandId id) const;
+  std::vector<Guid> refsArg(const CommandArgs& args, const char* key) const;
+  Status createComponent(const std::string& mode);
+  Guid makeComponentFrom(Guid node);
+  Status combineAsVariants(std::vector<Guid> symbols, Guid* setOut = nullptr);
+  Status addVariant();
+  Status detachInstance(const std::vector<Guid>& ids);
+  Guid detachOne(Guid instance);
+  Status resetOverrides(const std::vector<Guid>& ids, const std::vector<std::string>& fields);
+  Status insertInstance(Guid main, const CommandArgs& args);
+  Status setVariantProperties(Guid variant, const CommandArgs& args);
+  Status pushChangesToMain(Guid instance);
+  Status goToMainComponent(Guid ref);
+  Status returnToInstanceCmd();
+  Status swapInstance(const std::vector<Guid>& ids, Guid main);
+  Status setComponentProperty(Guid ref, const std::string& prop, const json::Value& value);
+  Status addComponentProperty(Guid ref, const CommandArgs& args);
+  Status editComponentProperty(Guid ref, const CommandArgs& args);
+  Status deleteComponentProperty(Guid ref, const std::string& prop);
+  Status bindComponentProperty(const std::vector<Guid>& ids, const std::string& field, const std::string& prop);
+  Status restoreComponent(Guid ref);
+  Status setExposedInstance(Guid ref, bool exposed);
+  Status resetSlot(Guid ref);
+  // A slot inside an instance (a derived slot frame): its content frame, made on the first edit — the whole slot
+  // diverges from the main then (copies of its default content), as Figma.
+  Guid slotContentFor(Guid slotRow, bool create);
+  // A soft delete of a main that still has instances (docs/schema.md §5.7). False when it has none.
+  bool softDeleteMain(Guid main);
+  Guid internalCanvas(bool create);
+  uint32_t instanceCount(Guid symbol) const;
+  // The owner of a main's property definitions (the main, or its component set).
+  Guid propOwner(Guid ref) const;
+  const ComponentPropDef* findDef(Guid owner, const std::string& prop) const;
+  void renameVariants(Guid set);
+  // An instance of `symbol` (real) under `parent` at `position` with `transform`.
+  Guid createInstance(Guid symbol, Guid parent, const std::string& position, const Mat2x3& transform);
+  // Copies keep the keys of a whole component they copy (docs/schema.md §5.1).
+  void keepKeys(Guid src, NodeProps& p) const;
+
   // ---- Commands (editor/Commands.cpp) ----
   // Top-level frames duplicated with ⌘D land this far to the right of the originals.
   static constexpr double kDuplicateGap = 100;
@@ -345,6 +503,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // A copy of `src`'s subtree with fresh GUIDs under `parent` at `position`; its root
   // gets `transform`. Returns the copy's id.
   Guid cloneSubtree(Guid src, Guid parent, const std::string& position, const Mat2x3& transform, const std::string* name = nullptr);
+  Guid cloneTree(Guid src, Guid parent, const std::string& position, const Mat2x3& transform, const std::string* name, bool keepKeys);
   void deleteSelection();
   void nudge(double dx, double dy, bool repeat);
   // Arrows on auto-layout children: one place along the flow. False when the selection isn't that.
@@ -598,6 +757,20 @@ class Editor : private LayoutHost, public TextLayouts {
   PaintSession paint_;
   double timeMs_ = 0;
   int clickCount_ = 1;
+
+  // Instances.
+  std::unordered_set<Guid, GuidHash> instanceDirty_;
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> sourceDeps_;       // a real node → instances derived from it
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> instanceSources_;  // an instance → what it read
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> derivedRows_;      // an instance → its derived rows
+  std::unordered_map<Guid, DerivedInfo, GuidHash> derivedInfo_;
+  std::unordered_map<Guid, Blueprint, GuidHash> blueprint_;
+  bool deriving_ = false;
+  Guid materializing_ = kNoGuid;
+  bool intrinsicLayout_ = false;  // stage A of an instance's layout: no constraints
+  Guid navMain_ = kNoGuid, returnTo_ = kNoGuid;
+  std::unordered_map<Guid, Guid, GuidHash> detachMap_;  // the last detach: derived id → the real node made for it
+  bool pasteAsInstances_ = true;
 };
 
 }  // namespace eng

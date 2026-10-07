@@ -357,7 +357,9 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
 void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
   if (!(p.strokeWeight > 0) || !anyVisible(p.strokePaints)) return;
   bool independent = p.borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
-  bool sdf = !p.isPathShape() && !independent && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  // A dashed frame stroke (a component set's) goes through the stroker like a dashed rectangle's.
+  bool dashedFrame = p.isFrameLike() && !p.dashPattern.empty();
+  bool sdf = !p.isPathShape() && !independent && !dashedFrame && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
@@ -1211,7 +1213,7 @@ void Renderer::execute(int index, gfx::TargetId target, const float clear[4]) {
 }
 
 RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
-                             const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target) {
+                             const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target, Guid only) {
   ensurePipelines();
   frame_++;
   doc_ = &doc;
@@ -1236,7 +1238,8 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   current_ = 0;
 
   Mat2x3 view = camera.matrix();
-  drawChildren(doc, doc.children(page), 0, view, 1);
+  if (only != kNoGuid) drawChildren(doc, {only}, 0, view * doc.worldTransform(doc.parentOf(only)), 1);  // one node, nothing else
+  else drawChildren(doc, doc.children(page), 0, view, 1);
   scissorEnabled_ = false;
   stencilDepth_ = 0;
   clips_.clear();
@@ -1249,10 +1252,11 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     bool figmaDefault = std::fabs(bg.r - light.r) < 0.003f && std::fabs(bg.g - light.g) < 0.003f && std::fabs(bg.b - light.b) < 0.003f;
     if (!figmaDefault) clear = bg;
   }
+  if (only != kNoGuid) clear = Color{0, 0, 0, 0};  // a node's thumbnail: transparent around it
   // Frame titles read on the page's colour.
   OverlayStyle adapted = style;
   adapted.title = titleColor(clear, &adapted.titleAlpha);
-  drawOverlay(doc, page, camera, overlay, adapted);
+  if (only == kNoGuid) drawOverlay(doc, page, camera, overlay, adapted);
 
   curveTexture_ = curves_.flush();
   // Gradient ramps.
@@ -1291,6 +1295,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   }
 
   float clearColor[4] = {clear.r, clear.g, clear.b, 1};
+  if (only != kNoGuid) clearColor[0] = clearColor[1] = clearColor[2] = clearColor[3] = 0;
   execute(0, target, clearColor);
   device_.submit();
   // Every layer's target goes back to the pool; ones unused for a while are freed.

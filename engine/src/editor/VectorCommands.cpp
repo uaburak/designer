@@ -288,7 +288,7 @@ Status Editor::placeImage(const CommandArgs& a) {
   Guid parent = page_;
   if (selection_.size() == 1) {
     const Node* s = doc_.get(selection_[0]);
-    if (s && s->props.isFrameLike()) parent = selection_[0];
+    if (s && acceptsChildren(selection_[0])) parent = selection_[0];
   }
   Vec2 at;
   if (a.hasX && a.hasY) {

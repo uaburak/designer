@@ -6,7 +6,7 @@
  * engine's (EngineStore).
  */
 import { useCallback, useSyncExternalStore } from "react";
-import type { Guid } from "@/engine/codec";
+import type { Camera, Guid } from "@/engine/codec";
 import type { ImportedImage } from "./images";
 
 export type RailTab = "file" | "assets";
@@ -41,6 +41,12 @@ export interface UIState {
   contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[] } | null;
   /** Images chosen with the Image tool, waiting for a click each (the first is next) */
   placingImages: readonly ImportedImage[] | null;
+  /** After "Go to main component": where "Return to instance" goes back to */
+  returnToInstance: { instance: Guid; page: Guid; camera: Camera } | null;
+  /** Assets: grid or list */
+  assetsView: "grid" | "list";
+  /** Assets: the closed page / frame groups */
+  assetsClosed: ReadonlySet<string>;
 }
 
 export class Store<T> {

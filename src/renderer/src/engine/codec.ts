@@ -322,8 +322,100 @@ export interface NodeFields {
   booleanOperation?: BooleanOperation;
   /** Layout guides on a frame. */
   layoutGrids?: LayoutGrid[];
+  // ---- Components and instances (docs/schema.md §5; GUIDs inside are {sessionID, localID} objects, "s:l" read too) ----
+  overrideKey?: GuidValue;
+  symbolData?: SymbolData;
+  overriddenSymbolID?: GuidValue;
+  componentPropDefs?: ComponentPropDef[];
+  componentPropAssignments?: ComponentPropAssignment[];
+  parameterConsumptionMap?: { entries: ParameterEntry[] };
+  isStateGroup?: boolean;
+  variantPropSpecs?: { propDefId: GuidValue; value: string }[];
+  stateGroupPropertyValueOrders?: { property: string; values: string[] }[];
+  propsAreBubbled?: boolean;
+  isSlot?: boolean;
+  isSlotContent?: boolean;
+  detachedSymbolId?: { guid: GuidValue };
+  isSoftDeleted?: boolean;
+  ancestorPathBeforeDeletion?: GuidValue[];
   /** Kiwi field ids reset to absent (updates only). */
   clearedFields?: number[];
+}
+
+/** A GUID inside a structure (symbolData, property defs…), as decoded .fig files write it. */
+export interface GuidValue {
+  sessionID: number;
+  localID: number;
+}
+export type ComponentPropType = "BOOL" | "TEXT" | "INSTANCE_SWAP" | "VARIANT" | "SLOT";
+export interface ComponentPropValue {
+  boolValue?: boolean;
+  textValue?: { characters: string } & Record<string, unknown>;
+  guidValue?: GuidValue;
+}
+export interface ComponentPropDef {
+  id: GuidValue;
+  name: string;
+  type: ComponentPropType;
+  initialValue?: ComponentPropValue;
+  sortPosition?: string;
+  preferredValues?: { instanceSwapValues?: { type: "COMPONENT" | "STATE_GROUP"; key: string }[]; [other: string]: unknown };
+  description?: string;
+  [other: string]: unknown;
+}
+export interface ComponentPropAssignment {
+  defID: GuidValue;
+  value?: ComponentPropValue;
+  [other: string]: unknown;
+}
+export interface ParameterEntry {
+  variableField: string;
+  variableData: { dataType?: string; resolvedDataType?: string; value?: { propRefValue?: { defId: GuidValue } } & Record<string, unknown> };
+}
+/** One override entry: the overridden fields of the sublayer at `guidPath` (empty or absent: the instance root). */
+export type SymbolOverride = NodeFields & { guidPath?: { guids?: GuidValue[] } } & Record<string, unknown>;
+export interface SymbolData {
+  symbolID?: GuidValue;
+  symbolOverrides?: SymbolOverride[];
+  uniformScaleFactor?: number;
+}
+
+/** A component property as the panels show it (engine.componentInfo). */
+export interface ComponentProperty {
+  id: Guid;
+  name: string;
+  /** Figma's `Name#id` (a VARIANT property: its name). */
+  apiName: string;
+  type: ComponentPropType;
+  /** BOOL: boolean; TEXT and VARIANT: string; INSTANCE_SWAP and SLOT: a GUID; null when none. */
+  defaultValue: boolean | string | null;
+  value: boolean | string | null;
+  /** The instance set it itself (not the default). */
+  overridden: boolean;
+  preferredValues: Guid[];
+  variantOptions: string[];
+  boundLayers: Guid[];
+}
+/** What a node is on the component side and what the panels show for it (engine.componentInfo). */
+export interface ComponentInfo {
+  ref: Guid;
+  kind: "COMPONENT" | "VARIANT" | "COMPONENT_SET" | "INSTANCE" | "NESTED_INSTANCE" | "INSTANCE_SUBLAYER" | "COMPONENT_SUBLAYER" | "NONE";
+  main: { ref: Guid; name: string; page: Guid | null; set: Guid | null; softDeleted: boolean } | null;
+  /** A sublayer or nested instance: the top-level instance holding it. */
+  instance: Guid | null;
+  /** Its guidPath (override keys) from that instance. */
+  path: Guid[];
+  /** The changes ("overrides"): per sublayer (the instance root: the instance's ref), the schema fields changed. */
+  overrides: { ref: Guid; fields: string[] }[];
+  properties: ComponentProperty[];
+  exposedInstances: { ref: Guid; name: string; properties: ComponentProperty[] }[];
+  variantProperties: Record<string, string> | null;
+  canPush: boolean;
+  canReset: boolean;
+  canDetach: boolean;
+  isExposed: boolean;
+  mainDeleted: boolean;
+  instanceCount: number;
 }
 
 export interface NodeChange extends NodeFields {
@@ -426,7 +518,11 @@ export type EngineEvent =
       points: { index: number; x: number; y: number; cornerRadius: number; mirroring: VectorMirror }[];
     }
   /** Gradient (paint) edit mode: which paint's handles are on the canvas, and the selected stop. */
-  | { type: "PAINT_EDIT"; active: boolean; ref: Guid | null; paints: "FILL" | "STROKE"; index: number; stop: number };
+  | { type: "PAINT_EDIT"; active: boolean; ref: Guid | null; paints: "FILL" | "STROKE"; index: number; stop: number }
+  /** Instances re-derived (and the mains they come from) after a change reached them. */
+  | { type: "COMPONENTS_CHANGED"; refs: Guid[] }
+  /** After GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where it went, and the instance "Return to instance" goes back to. */
+  | { type: "INSTANCE_NAVIGATION"; main: Guid | null; returnTo: Guid | null };
 
 export type EngineEventType = EngineEvent["type"];
 export type EventOf<T extends EngineEventType> = Extract<EngineEvent, { type: T }>;
@@ -445,7 +541,9 @@ export const encodeRefs = (refs: readonly Guid[]): Uint8Array => encode({ refs }
 /** A sparse NodeChange for engine_set_props (no guid: the refs say which nodes). */
 export const encodeFields = (fields: NodeFields): Uint8Array => encode(fields);
 /** Command args: numbers, and GUID strings ({ page: "0:3" }). */
-export const encodeArgs = (args: Record<string, number | string>): Uint8Array => encode(args);
+/** Command args: numbers, strings, booleans, string arrays, or a string map (SET_VARIANT_PROPERTIES `values`). */
+export type CommandArgValue = number | string | boolean | readonly string[] | Readonly<Record<string, string>>;
+export const encodeArgs = (args: Readonly<Record<string, CommandArgValue>>): Uint8Array => encode(args);
 export const encodeOptions = (options: object): Uint8Array => encode(options);
 export const encodeText = (text: string): Uint8Array => encoder.encode(text);
 export const decodeEvents = (bytes: Uint8Array): EngineEvent[] => decode<{ events: EngineEvent[] }>(bytes).events;

@@ -15,6 +15,8 @@ import type { DocumentSource } from "./documentSource";
 import { keepsField } from "./engineCompat";
 import { ImageService } from "./images";
 import { VectorEditor } from "./vectorEdit";
+import { ComponentIndex, deriveInstanceRows, type DerivedRow } from "./components";
+import type { CNode } from "./model/components";
 import { EMPTY_TREE, treeFromNodes, type LayerTree } from "./model/layerTree";
 import { Store, type UIState } from "./uiStore";
 
@@ -37,6 +39,8 @@ export class EditorController {
   readonly images: ImageService;
   /** The engine's vector edit mode (E4): the toolbar and the panel follow it */
   readonly vector: VectorEditor;
+  /** The file's local components (Assets, the instance menu) */
+  readonly components: ComponentIndex;
   /** The next paste: where it goes (⇧⌘V sets "inPlace" before the DOM paste event) */
   pendingPaste: { mode: "inPlace" } | { mode: "point"; x: number; y: number } | null = null;
   /** The last copy's formats (a paste with no system clipboard access falls back to them) */
@@ -51,6 +55,8 @@ export class EditorController {
 
   private treeCache: { key: string; tree: LayerTree } | null = null;
   private layoutVersion = 0;
+  /** Bumped by changes that can change instances' derived rows in Layers (a main's layers, a swap) */
+  private instanceVersion = 0;
   private readonly treeListeners = new Set<() => void>();
   private readonly cleanups: (() => void)[] = [];
   private openEdit: string | null = null;
@@ -83,17 +89,32 @@ export class EditorController {
       contextMenu: null,
       versionDialog: null,
       placingImages: null,
+      returnToInstance: null,
+      assetsView: "list",
+      assetsClosed: new Set(),
       ...ui,
     });
     this.tools = probeTools(engine);
     this.images = new ImageService(engine, source.images ?? null);
     this.vector = new VectorEditor(engine);
+    this.components = new ComponentIndex(this);
     // Whether the engine keeps fields it doesn't model yet is probed now, before any edit opens a transaction.
     keepsField(engine, "effects");
     const bump = () => this.treeListeners.forEach((l) => l());
     this.cleanups.push(
       store.subscribe("structure", bump),
       store.subscribe("page", bump),
+      engine.on("DOCUMENT_CHANGED", (e) => {
+        if (!this.treeCache?.tree.hasInstances) return;
+        const touches = e.message.nodeChanges.some((c) => {
+          const f = c as unknown as Record<string, unknown>;
+          return c.phase !== undefined || "symbolData" in f || "overriddenSymbolID" in f || "name" in f || "visible" in f || "parentIndex" in f;
+        });
+        if (touches) {
+          this.instanceVersion++;
+          bump();
+        }
+      }),
       engine.on("NODES_CHANGED", (e) => {
         if (e.fieldGroupMask.some((m) => (m & LAYOUT_GROUP) !== 0)) {
           this.layoutVersion++;
@@ -114,6 +135,7 @@ export class EditorController {
     this.treeListeners.clear();
     this.images.dispose();
     this.vector.dispose();
+    this.components.dispose();
   }
 
   // ---- Reads ----------------------------------------------------------------------------
@@ -161,7 +183,7 @@ export class EditorController {
   readonly getTree = (): LayerTree => {
     if (this.engine.destroyed) return EMPTY_TREE;
     const page = this.store.page;
-    const key = `${page}#${this.store.structure}#${this.layoutVersion}`;
+    const key = `${page}#${this.store.structure}#${this.layoutVersion}#${this.instanceVersion}`;
     if (this.treeCache?.key === key) return this.treeCache.tree;
     const tree = readTree(this.engine, page, this.withRealType);
     this.treeCache = { key, tree };
@@ -258,7 +280,18 @@ export function readTree(engine: Engine, page: Guid, resolve: (n: NodeChange) =>
     }
     level = next;
   }
-  return treeFromNodes(page, nodes);
+  // Instance sublayers: the engine lists them once it materializes instances (E6); until then they are derived
+  // here from the main component, for Layers only (ids `I<instance>;<key>…`, docs/schema.md §5.1).
+  const read = (ids: Guid[]) => (ids.length ? engine.readNodes(ids, { childIds: true }).map((n) => resolve(n) as CNode) : []);
+  const derived: NodeChange[] = [];
+  for (const n of nodes) {
+    if (n.type !== "INSTANCE" || n.childIds?.length) continue;
+    const rows: DerivedRow[] = [];
+    const kids = deriveInstanceRows(read, n as CNode, 0, [], n as CNode, rows);
+    n.childIds = kids;
+    for (const r of rows) derived.push({ ...(r.node as NodeChange), parentIndex: { guid: r.parent, position: "" }, childIds: r.children, derived: true } as NodeChange);
+  }
+  return treeFromNodes(page, derived.length ? [...nodes, ...derived] : nodes);
 }
 
 /** Which tools the engine implements: setTool answers OK only for those. */

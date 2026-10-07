@@ -62,6 +62,12 @@ class Layout {
   };
   std::vector<Placement> place(Guid frame, Vec2 frameSize);
 
+  // Lays out one node on its own (its hug size, its children; a text its measured size), as if it were a layout
+  // root. Instance materialization uses it bottom-up on derived subtrees (docs/engine.md §3.3 step 2).
+  void settle(Guid id);
+  // A frame's children follow its size by their constraints (from where LayoutHost::base says they were).
+  void constrainChildren(Guid frame);
+
   // The flow children of an auto-layout frame, in order.
   std::vector<Guid> flowChildren(Guid frame) const;
 

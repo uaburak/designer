@@ -33,6 +33,7 @@ import { Rulers } from "./canvas/Rulers";
 import { BottomToolbar } from "./canvas/BottomToolbar";
 import { CanvasMenu, attachCanvasMenu } from "./canvas/CanvasMenu";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
+import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { VersionDialogs } from "./VersionDialogs";
 import styles from "./EditorApp.module.css";
@@ -194,7 +195,7 @@ function RightSide() {
   return docked ? <RightPanel /> : null;
 }
 
-/** Over the canvas: the rulers, the toolbar, the minimized cards. */
+/** Over the canvas: the rulers, the toolbar, "Return to instance", the minimized cards. */
 function CanvasOverlays() {
   const hidden = useUI((s) => s.uiHidden);
   const minimized = useUI((s) => s.uiMinimized);
@@ -203,6 +204,7 @@ function CanvasOverlays() {
     <>
       <Rulers />
       <ImagePlacer />
+      <ReturnToInstance />
       <BottomToolbar />
       {minimized && <MinimizedPanels />}
     </>

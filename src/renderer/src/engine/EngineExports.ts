@@ -151,6 +151,13 @@ export class EngineExports {
     this.withBytes([message], (p) => this.fn("paste")(h, p[0], p[1], flags));
   renderThumbnail = (h: number, pageSessionID: number, pageLocalID: number, maxSize: number, flags: number): number =>
     this.fn("render_thumbnail")(h, pageSessionID, pageLocalID, maxSize, flags);
+  renderNodeThumbnail = (h: number, ref: Uint8Array, maxSize: number, flags: number): number =>
+    this.withBytes([ref], (p) => this.fn("render_node_thumbnail")(h, p[0], p[1], maxSize, flags));
+
+  // ---- Components ----
+  /** A derived ref ("I…;…") → its localID in the derived session (0xFFFFFFFE); 0 for anything else. */
+  refId = (ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("ref_id")(p[0], p[1]) >>> 0);
+  componentInfo = (h: number, ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("component_info")(h, p[0], p[1]));
 
   // ---- Fonts (module-wide) ----
   /** Copies a font file into the module's heap and hands it over (the engine frees it); the face id or a Status. */
@@ -209,7 +216,7 @@ export const USED_EXPORTS = [
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored",
   "get_selection", "set_selection", "read_nodes", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
-  "move_nodes", "encode_selection", "paste", "render_thumbnail",
+  "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_node_thumbnail", "ref_id", "component_info",
   "has_events", "take_events", "stats",
   "font_add_take", "font_bind", "font_missing", "set_fallback_fonts",
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",

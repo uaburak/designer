@@ -96,6 +96,20 @@ enum class TextTruncation : uint8_t { DISABLED = 0, ENDING = 1 };
 enum class TextCase : uint8_t { ORIGINAL = 0, UPPER = 1, LOWER = 2, TITLE = 3, SMALL_CAPS = 4, SMALL_CAPS_FORCED = 5 };
 enum class TextDecoration : uint8_t { NONE = 0, UNDERLINE = 1, STRIKETHROUGH = 2 };
 
+// Components (docs/schema.md §5.5).
+enum class ComponentPropType : uint8_t { BOOL = 0, TEXT = 1, INSTANCE_SWAP = 3, VARIANT = 4, SLOT = 7 };
+// schema VariableField: which node field a parameterConsumptionMap entry binds.
+enum class VariableField : uint8_t {
+  MISSING = 0, CORNER_RADIUS = 1, PARAGRAPH_SPACING = 2, PARAGRAPH_INDENT = 3, STROKE_WEIGHT = 4, STACK_SPACING = 5,
+  STACK_PADDING_LEFT = 6, STACK_PADDING_TOP = 7, STACK_PADDING_RIGHT = 8, STACK_PADDING_BOTTOM = 9, VISIBLE = 10, TEXT_DATA = 11,
+  WIDTH = 12, HEIGHT = 13, RECTANGLE_TOP_LEFT_CORNER_RADIUS = 14, RECTANGLE_TOP_RIGHT_CORNER_RADIUS = 15,
+  RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS = 16, RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS = 17, BORDER_TOP_WEIGHT = 18,
+  BORDER_BOTTOM_WEIGHT = 19, BORDER_LEFT_WEIGHT = 20, BORDER_RIGHT_WEIGHT = 21, VARIANT_PROPERTIES = 22, STACK_COUNTER_SPACING = 23,
+  MIN_WIDTH = 24, MAX_WIDTH = 25, MIN_HEIGHT = 26, MAX_HEIGHT = 27, FONT_FAMILY = 28, FONT_STYLE = 29, FONT_VARIATIONS = 30,
+  OPACITY = 31, FONT_SIZE = 32, LETTER_SPACING = 34, LINE_HEIGHT = 36, OVERRIDDEN_SYMBOL_ID = 37, HYPERLINK = 38,
+  SLOT_CONTENT_ID = 40, GRID_ROW_GAP = 41, GRID_COLUMN_GAP = 42
+};
+
 const char* nodeTypeName(NodeType t);
 NodeType nodeTypeFromName(std::string_view s);
 
@@ -154,6 +168,15 @@ ENG_ENUM_NAMES(TextAutoResize, "NONE", "WIDTH_AND_HEIGHT", "HEIGHT")
 ENG_ENUM_NAMES(TextTruncation, "DISABLED", "ENDING")
 ENG_ENUM_NAMES(TextCase, "ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED")
 ENG_ENUM_NAMES(TextDecoration, "NONE", "UNDERLINE", "STRIKETHROUGH")
+ENG_ENUM_NAMES(ComponentPropType, "BOOL", "TEXT", "", "INSTANCE_SWAP", "VARIANT", "", "", "SLOT")
+ENG_ENUM_NAMES(VariableField, "MISSING", "CORNER_RADIUS", "PARAGRAPH_SPACING", "PARAGRAPH_INDENT", "STROKE_WEIGHT", "STACK_SPACING",
+               "STACK_PADDING_LEFT", "STACK_PADDING_TOP", "STACK_PADDING_RIGHT", "STACK_PADDING_BOTTOM", "VISIBLE", "TEXT_DATA",
+               "WIDTH", "HEIGHT", "RECTANGLE_TOP_LEFT_CORNER_RADIUS", "RECTANGLE_TOP_RIGHT_CORNER_RADIUS",
+               "RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS", "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS", "BORDER_TOP_WEIGHT",
+               "BORDER_BOTTOM_WEIGHT", "BORDER_LEFT_WEIGHT", "BORDER_RIGHT_WEIGHT", "VARIANT_PROPERTIES", "STACK_COUNTER_SPACING",
+               "MIN_WIDTH", "MAX_WIDTH", "MIN_HEIGHT", "MAX_HEIGHT", "FONT_FAMILY", "FONT_STYLE", "FONT_VARIATIONS", "OPACITY",
+               "FONT_SIZE", "", "LETTER_SPACING", "", "LINE_HEIGHT", "OVERRIDDEN_SYMBOL_ID", "HYPERLINK", "", "SLOT_CONTENT_ID",
+               "GRID_ROW_GAP", "GRID_COLUMN_GAP")
 #undef ENG_ENUM_NAMES
 
 inline const char* strokeAlignName(StrokeAlign a) { return enumName(a); }
@@ -366,6 +389,75 @@ struct TextData {
   }
 };
 
+// ---- Components (docs/schema.md §5) ----
+
+// schema ComponentPropValue: a BOOL, TEXT (TextData), or GUID (INSTANCE_SWAP: a SYMBOL; SLOT: a content FRAME) value.
+struct ComponentPropValue {
+  bool hasBool = false, boolValue = false;
+  bool hasText = false;
+  TextData textValue;
+  Guid guidValue = kNoGuid;
+  std::string extra;  // other members, encoded
+  bool operator==(const ComponentPropValue& o) const {
+    return hasBool == o.hasBool && boolValue == o.boolValue && hasText == o.hasText && textValue == o.textValue &&
+           guidValue == o.guidValue && extra == o.extra;
+  }
+  bool empty() const { return !hasBool && !hasText && guidValue == kNoGuid && extra.empty(); }
+};
+// schema InstanceSwapPreferredValue.
+struct PreferredValue {
+  bool stateGroup = false;  // type STATE_GROUP (else COMPONENT)
+  std::string key;          // component key; local components: their GUID "s:l"
+  bool operator==(const PreferredValue& o) const { return stateGroup == o.stateGroup && key == o.key; }
+};
+struct ComponentPropDef {
+  Guid id = kNoGuid;
+  std::string name;
+  ComponentPropValue initialValue;
+  std::string sortPosition;
+  ComponentPropType type = ComponentPropType::BOOL;
+  std::vector<PreferredValue> preferredValues;  // preferredValues.instanceSwapValues
+  std::string description;
+  std::string extra;  // varValue, slotPropConfig, preferredValues.stringValues…, encoded
+  bool operator==(const ComponentPropDef& o) const {
+    return id == o.id && name == o.name && initialValue == o.initialValue && sortPosition == o.sortPosition && type == o.type &&
+           preferredValues == o.preferredValues && description == o.description && extra == o.extra;
+  }
+};
+struct ComponentPropAssignment {
+  Guid defID = kNoGuid;
+  ComponentPropValue value;
+  std::string extra;  // varValue, encoded
+  bool operator==(const ComponentPropAssignment& o) const { return defID == o.defID && value == o.value && extra == o.extra; }
+};
+// One parameterConsumptionMap entry: a field bound to a component property (PROP_REF, `propRef`) or to a
+// variable (kept encoded in `variableData` until the variables round).
+struct ParamBinding {
+  VariableField field = VariableField::MISSING;
+  Guid propRef = kNoGuid;    // PROP_REF: the ComponentPropDef id
+  std::string variableData;  // anything else: the whole VariableData, encoded
+  bool operator==(const ParamBinding& o) const { return field == o.field && propRef == o.propRef && variableData == o.variableData; }
+};
+struct VariantPropSpec {
+  Guid propDefId = kNoGuid;
+  std::string value;
+  bool operator==(const VariantPropSpec& o) const { return propDefId == o.propDefId && value == o.value; }
+};
+struct StateGroupOrder {
+  std::string property;
+  std::vector<std::string> values;
+  bool operator==(const StateGroupOrder& o) const { return property == o.property && values == o.values; }
+};
+struct SymbolOverride;  // below NodeProps
+// An instance's link to its main (schema SymbolData; one property, rewritten whole).
+struct SymbolData {
+  Guid symbolID = kNoGuid;
+  std::vector<SymbolOverride> overrides;  // symbolOverrides: one sparse entry per guidPath (empty path = the root)
+  double uniformScaleFactor = 1;
+  bool operator==(const SymbolData& o) const;
+  bool present() const;
+};
+
 struct ParentIndex {
   Guid guid = kNoGuid;
   std::string position;
@@ -458,8 +550,29 @@ enum Field : FieldMask {
   F_LAYOUT_GRIDS = ENG_FIELD_BIT(72),
   // Every NodeChange field the engine doesn't model, kept as encoded JSON.
   F_EXTRA = ENG_FIELD_BIT(73),
-  F_ALL = ENG_FIELD_BIT(74) - 1,
+  // Components (E6).
+  F_OVERRIDE_KEY = ENG_FIELD_BIT(74),
+  F_SYMBOL_DATA = ENG_FIELD_BIT(75),
+  F_OVERRIDDEN_SYMBOL_ID = ENG_FIELD_BIT(76),
+  F_COMPONENT_PROP_DEFS = ENG_FIELD_BIT(77),
+  F_COMPONENT_PROP_ASSIGNMENTS = ENG_FIELD_BIT(78),
+  F_PARAM_MAP = ENG_FIELD_BIT(79),  // parameterConsumptionMap
+  F_IS_STATE_GROUP = ENG_FIELD_BIT(80),
+  F_VARIANT_PROP_SPECS = ENG_FIELD_BIT(81),
+  F_STATE_GROUP_ORDERS = ENG_FIELD_BIT(82),  // stateGroupPropertyValueOrders
+  F_PROPS_ARE_BUBBLED = ENG_FIELD_BIT(83),
+  F_IS_SLOT = ENG_FIELD_BIT(84),
+  F_IS_SLOT_CONTENT = ENG_FIELD_BIT(85),
+  F_DETACHED_SYMBOL_ID = ENG_FIELD_BIT(86),
+  F_IS_SOFT_DELETED = ENG_FIELD_BIT(87),
+  F_ANCESTOR_PATH = ENG_FIELD_BIT(88),  // ancestorPathBeforeDeletion
+  F_ALL = ENG_FIELD_BIT(89) - 1,
 };
+
+inline constexpr FieldMask kComponentFields = F_OVERRIDE_KEY | F_SYMBOL_DATA | F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_DEFS |
+                                              F_COMPONENT_PROP_ASSIGNMENTS | F_PARAM_MAP | F_IS_STATE_GROUP | F_VARIANT_PROP_SPECS |
+                                              F_STATE_GROUP_ORDERS | F_PROPS_ARE_BUBBLED | F_IS_SLOT | F_IS_SLOT_CONTENT |
+                                              F_DETACHED_SYMBOL_ID | F_IS_SOFT_DELETED | F_ANCESTOR_PATH;
 
 // Fields that feed auto layout (a write marks the layout dirty).
 inline constexpr FieldMask kStackContainerFields = F_STACK_MODE | F_STACK_SPACING | F_STACK_PADDING_LEFT | F_STACK_PADDING_TOP |
@@ -588,6 +701,22 @@ struct NodeProps {
   TextCase textCase = TextCase::ORIGINAL;
   TextDecoration textDecoration = TextDecoration::NONE;
   bool autoRename = false;
+  // Components and instances (docs/schema.md §5).
+  Guid overrideKey = kNoGuid;          // a node inside a component: its stable key (absent = its own GUID)
+  SymbolData symbolData;               // INSTANCE: its main and its overrides
+  Guid overriddenSymbolID = kNoGuid;   // override entries: a nested instance swapped to another main
+  std::vector<ComponentPropDef> componentPropDefs;           // a SYMBOL, or a component set (all its properties)
+  std::vector<ComponentPropAssignment> componentPropAssignments;  // an instance's property values
+  std::vector<ParamBinding> parameterConsumptionMap;         // fields bound to properties (and variables)
+  bool isStateGroup = false;           // FRAME: a component set
+  std::vector<VariantPropSpec> variantPropSpecs;             // a variant: its value for each VARIANT property
+  std::vector<StateGroupOrder> stateGroupPropertyValueOrders;
+  bool propsAreBubbled = false;        // a nested instance exposed to its component's instances
+  bool isSlot = false;                 // FRAME inside a component: a slot
+  bool isSlotContent = false;          // FRAME under an instance: its slot content
+  Guid detachedSymbolId = kNoGuid;     // a frame detached from this main
+  bool isSoftDeleted = false;          // a deleted main kept for its instances (on the internal canvas)
+  std::vector<Guid> ancestorPathBeforeDeletion;
   // The fields the engine doesn't model (vectorData, blendMode, effects…): name →
   // encoded JSON value. A CHANGED change's `extra` merges into the node's (an
   // empty value removes that field); CREATED replaces it.
@@ -616,6 +745,19 @@ struct NodeProps {
   bool hugsCounter() const { return stackCounterSizing != StackSize::FIXED; }
   // Whether this node is laid out by its auto-layout parent (absolute ones aren't).
   bool inFlow() const { return visible && stackPositioning != StackPositioning::ABSOLUTE; }
+  bool isComponentSet() const { return type == NodeType::FRAME && isStateGroup; }
+  // A component, a component set or an instance: drawn selected / hovered in the component purple.
+  bool isComponentish() const { return type == NodeType::SYMBOL || type == NodeType::INSTANCE || isComponentSet(); }
+  // The stable key of a node inside a component (docs/schema.md §5.1).
+  Guid keyOf(Guid guid) const { return overrideKey != kNoGuid ? overrideKey : guid; }
+};
+
+// One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root).
+struct SymbolOverride {
+  std::vector<Guid> path;
+  FieldMask mask = 0;
+  NodeProps props;
+  bool operator==(const SymbolOverride& o) const;
 };
 
 // Copies the fields in `mask` from `from` to `to`.

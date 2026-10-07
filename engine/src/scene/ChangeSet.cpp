@@ -27,7 +27,7 @@ std::vector<NodeChange> ChangeSet::build(const Document& doc) const {
       out.push_back(NodeChange::removed(id));
     } else if (e.existedBefore && now) {
       NodeChange c = NodeChange::changed(id);
-      c.mask = e.mask & ~F_TYPE;
+      c.mask = e.mask;
       copyFields(c.props, now->props, c.mask);
       if (c.mask) out.push_back(std::move(c));
     }

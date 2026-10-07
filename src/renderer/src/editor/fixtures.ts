@@ -120,3 +120,122 @@ export const PAINTS_DOCUMENT: Message = {
     ] }),
   ],
 };
+
+// ---- `&doc=components`: components, a set with variants, instances on another page ----------------------------
+
+const g = (s: number, l: number) => ({ sessionID: s, localID: l });
+const def = (l: number) => g(1, 0x7fffff00 + l);
+const text = (characters: string) => ({ characters });
+const propRef = (field: string, resolved: string, id: { sessionID: number; localID: number }) => ({ variableField: field, variableData: { dataType: "PROP_REF", resolvedDataType: resolved, value: { propRefValue: { defId: id } } } });
+const purple = { r: 0x97 / 255, g: 0x47 / 255, b: 1, a: 1 };
+
+const BUTTON_ROOT = {
+  size: { x: 120, y: 40 },
+  fillPaints: solidFill(0x0d99ff),
+  cornerRadius: 8,
+  stackMode: "HORIZONTAL",
+  stackSpacing: 8,
+  stackHorizontalPadding: 16,
+  stackVerticalPadding: 12,
+  stackPaddingRight: 16,
+  stackPaddingBottom: 12,
+  stackPrimaryAlignItems: "CENTER",
+  stackCounterAlignItems: "CENTER",
+};
+const CHIP_SMALL = { size: { x: 80, y: 28 }, fillPaints: solidFill(0xe5f4ff), cornerRadius: 14 };
+const CHIP_LARGE = { size: { x: 104, y: 36 }, fillPaints: solidFill(0xe5f4ff), cornerRadius: 18 };
+
+/**
+ * `&doc=components`: page "Screens" with instances (a Button with a changed label and fill, a Chip of a set) and
+ * page "Components" with the mains: "Button" (Boolean, Text and Instance swap properties bound to its layers, an
+ * exposed nested "Icon" instance), two icons in a frame, and the set "Chip" (State × Size).
+ */
+export const COMPONENTS_DOCUMENT: Message = {
+  type: "NODE_CHANGES",
+  sessionID: 0,
+  nodeChanges: [
+    { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+    page("0:1", "Screens", 0, 0x1e1e1e),
+    page("0:3", "Components", 1, 0x1e1e1e),
+    internalCanvas(),
+    // Components
+    node({
+      guid: "1:1",
+      type: "SYMBOL",
+      name: "Button",
+      parentIndex: { guid: "0:3", position: "!" },
+      transform: at(0, 0),
+      ...BUTTON_ROOT,
+      description: "The primary action.",
+      componentPropDefs: [
+        { id: def(1), name: "Show icon", type: "BOOL", initialValue: { boolValue: true }, sortPosition: "!" },
+        { id: def(2), name: "Label", type: "TEXT", initialValue: { textValue: text("Button") }, sortPosition: '"' },
+        { id: def(3), name: "Icon", type: "INSTANCE_SWAP", initialValue: { guidValue: g(1, 20) }, sortPosition: "#", preferredValues: { instanceSwapValues: [{ type: "COMPONENT", key: "1:20" }, { type: "COMPONENT", key: "1:21" }] } },
+      ],
+    }),
+    node({
+      guid: "1:2",
+      type: "INSTANCE",
+      name: "Icons/Star",
+      parentIndex: { guid: "1:1", position: "!" },
+      size: { x: 16, y: 16 },
+      transform: at(16, 12),
+      symbolData: { symbolID: g(1, 20), symbolOverrides: [] },
+      propsAreBubbled: true,
+      parameterConsumptionMap: { entries: [propRef("VISIBLE", "BOOLEAN", def(1)), propRef("OVERRIDDEN_SYMBOL_ID", "SYMBOL_ID", def(3))] },
+    }),
+    node({ guid: "1:3", type: "TEXT", name: "Label", parentIndex: { guid: "1:1", position: '"' }, size: { x: 48, y: 16 }, transform: at(40, 12), fillPaints: solidFill(0xffffff), textData: text("Button"), fontSize: 13, textAutoResize: "WIDTH_AND_HEIGHT", parameterConsumptionMap: { entries: [propRef("TEXT_DATA", "TEXT_DATA", def(2))] } }),
+    node({ guid: "1:30", type: "FRAME", name: "Icons", parentIndex: { guid: "0:3", position: '"' }, size: { x: 96, y: 48 }, transform: at(0, 80), fillPaints: solidFill(0x2c2c2c) }),
+    node({ guid: "1:20", type: "SYMBOL", name: "Icons/Star", parentIndex: { guid: "1:30", position: "!" }, size: { x: 16, y: 16 }, transform: at(16, 16), componentPropDefs: [{ id: def(9), name: "Filled", type: "BOOL", initialValue: { boolValue: true } }] }),
+    node({ guid: "1:22", type: "STAR", name: "Star", parentIndex: { guid: "1:20", position: "!" }, size: { x: 16, y: 16 }, transform: at(0, 0), fillPaints: solidFill(0xffc700), count: 5, starInnerScale: 0.382, parameterConsumptionMap: { entries: [propRef("VISIBLE", "BOOLEAN", def(9))] } }),
+    node({ guid: "1:21", type: "SYMBOL", name: "Icons/Heart", parentIndex: { guid: "1:30", position: '"' }, size: { x: 16, y: 16 }, transform: at(56, 16) }),
+    node({ guid: "1:23", type: "ELLIPSE", name: "Heart", parentIndex: { guid: "1:21", position: "!" }, size: { x: 16, y: 16 }, transform: at(0, 0), fillPaints: solidFill(0xf24822) }),
+    node({
+      guid: "1:40",
+      type: "FRAME",
+      name: "Chip",
+      isStateGroup: true,
+      parentIndex: { guid: "0:3", position: "#" },
+      size: { x: 264, y: 112 },
+      transform: at(200, 0),
+      fillPaints: [],
+      strokePaints: [{ type: "SOLID", color: purple, opacity: 1, visible: true }],
+      strokeWeight: 1,
+      strokeAlign: "INSIDE",
+      dashPattern: [10, 5],
+      cornerRadius: 5,
+      componentPropDefs: [
+        { id: def(10), name: "State", type: "VARIANT", initialValue: { textValue: text("Default") } },
+        { id: def(11), name: "Size", type: "VARIANT", initialValue: { textValue: text("Small") } },
+      ],
+      stateGroupPropertyValueOrders: [
+        { property: "State", values: ["Default", "Hover"] },
+        { property: "Size", values: ["Small", "Large"] },
+      ],
+    }),
+    ...(
+      [
+        ["1:41", "Default", "Small", 20, 20, CHIP_SMALL, '!'],
+        ["1:42", "Hover", "Small", 140, 20, { ...CHIP_SMALL, fillPaints: solidFill(0xbde3ff) }, '"'],
+        ["1:43", "Default", "Large", 20, 60, CHIP_LARGE, "#"],
+        ["1:44", "Hover", "Large", 140, 60, { ...CHIP_LARGE, fillPaints: solidFill(0xbde3ff) }, "$"],
+      ] as const
+    ).map(([guid, state, sz, x, y, root, position]) =>
+      node({ guid, type: "SYMBOL", name: `State=${state}, Size=${sz}`, parentIndex: { guid: "1:40", position }, transform: at(x, y), ...root, variantPropSpecs: [{ propDefId: def(10), value: state }, { propDefId: def(11), value: sz }] })
+    ),
+    // Instances (their root fields are the main's, as the engine materializes them)
+    node({ guid: "2:1", type: "FRAME", name: "Sign in", parentIndex: { guid: "0:1", position: "!" }, size: { x: 375, y: 240 }, transform: at(0, 0), fillPaints: solidFill(0xffffff) }),
+    node({
+      guid: "2:2",
+      type: "INSTANCE",
+      name: "Button",
+      parentIndex: { guid: "2:1", position: "!" },
+      transform: at(24, 24),
+      ...BUTTON_ROOT,
+      fillPaints: solidFill(0x14ae5c),
+      symbolData: { symbolID: g(1, 1), symbolOverrides: [{ guidPath: { guids: [] }, fillPaints: solidFill(0x14ae5c) }, { guidPath: { guids: [g(1, 3)] }, fontSize: 14 }] },
+      componentPropAssignments: [{ defID: def(2), value: { textValue: text("Sign in") } }],
+    }),
+    node({ guid: "2:3", type: "INSTANCE", name: "Chip", parentIndex: { guid: "2:1", position: '"' }, transform: at(24, 96), ...CHIP_SMALL, symbolData: { symbolID: g(1, 41), symbolOverrides: [] } }),
+  ],
+};

@@ -313,7 +313,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     drawParent_ = page_;
     auto path = hitPath(doc_, page_, downWorld_, pixel());
     for (auto it = path.rbegin(); it != path.rend(); ++it)
-      if (doc_.get(*it)->props.isFrameLike()) {
+      if (acceptsChildren(*it)) {
         drawParent_ = *it;
         break;
       }
@@ -356,7 +356,8 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   pressedWasSelected_ = pressed_ != kNoGuid && selected(pressed_);
   if (pressed_ == kNoGuid) {
     pressMarquee_ = true;
-  } else if (!deep && path.size() == 1 && doc_.get(path[0])->props.isFrameLike() && !pressedWasSelected_ &&
+  } else if (!deep && path.size() == 1 && doc_.get(path[0])->props.isFrameLike() &&
+             doc_.get(path[0])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
              !doc_.children(path[0]).empty()) {
     // A top-level frame's own background: a drag is a marquee among its children, a click selects it.
     pressMarquee_ = true;
@@ -601,7 +602,7 @@ Guid Editor::dropTargetAt(Vec2 world) const {
   Guid best = page_;
   doc_.query(page_, Rect{world.x, world.y, 0, 0}, [&](Guid id) {
     const Node* n = doc_.get(id);
-    if (!n || !n->props.isFrameLike() || n->props.type == NodeType::INSTANCE) return true;
+    if (!n || !acceptsChildren(id)) return true;
     if (!doc_.visibleInTree(id)) return true;
     bool ok = true;
     for (Guid cur = id; ok && doc_.has(cur); cur = doc_.parentOf(cur)) {
@@ -632,6 +633,8 @@ Guid Editor::containerOf(Guid parent) const {
 void Editor::startMove(uint32_t mods) {
   begin(TxnKind::GESTURE, "Move");
   targets_ = targetsOf(topSelectionInPaintOrder());
+  // Layers inside an instance can't be moved (Figma): they stay where their main puts them.
+  targets_.erase(std::remove_if(targets_.begin(), targets_.end(), [](const Target& t) { return t.id.isDerived(); }), targets_.end());
   originalTargets_ = targets_;
   originals_.clear();
   duplicating_ = false;
@@ -669,7 +672,10 @@ void Editor::setDuplicating(bool on) {
       size_t index = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), t.id) - siblings.begin()) + 1;
       std::string key = placeAt(t.parent, index, kNoGuid);
       Target copy = t;
-      copy.id = cloneSubtree(t.id, t.parent, key, t.transform);
+      // ⌥-drag of a main component makes an instance of it (R4 §2).
+      const Node* tn = doc_.get(t.id);
+      bool main = tn && tn->props.type == NodeType::SYMBOL && setOf(t.id) == kNoGuid;
+      copy.id = main ? createInstance(t.id, t.parent, key, t.transform) : cloneSubtree(t.id, t.parent, key, t.transform);
       copy.position = key;
       targets_.push_back(copy);
       originals_.push_back(t.id);
@@ -1005,6 +1011,8 @@ void Editor::startRotate() {
   begin(TxnKind::GESTURE, "Rotate");
   box_ = selectionBox(doc_, selection_);
   targets_ = targetsOf(topLevelSelection(doc_, selection_));
+  // Layers inside an instance keep their place (Figma).
+  targets_.erase(std::remove_if(targets_.begin(), targets_.end(), [](const Target& t) { return t.id.isDerived(); }), targets_.end());
 }
 
 void Editor::dragRotate(Vec2 world, uint32_t mods) {

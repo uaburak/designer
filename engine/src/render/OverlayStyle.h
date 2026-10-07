@@ -10,6 +10,7 @@ enum class Theme : uint8_t { Light = 0, Dark = 1 };
 struct OverlayStyle {
   Color canvas;          // the page background when the page has none
   Color selection;       // selection, hover, handles' border, badge, marquee
+  Color component;       // the same for components, component sets and instances (Figma's purple)
   double hoverWidth = 2;
   double handleSize = 8;
   double handlesMinBox = 24;  // handles hidden when the box is smaller on screen
@@ -41,10 +42,12 @@ struct OverlayStyle {
     if (t == Theme::Dark) {
       s.canvas = Color::hex(0x1E1E1E);
       s.selection = Color::hex(0x0C8CE9);
+      s.component = Color::hex(0x8A38F5);
       s.title = Color::hex(0x898989);
     } else {
       s.canvas = Color::hex(0xF5F5F5);
       s.selection = Color::hex(0x0D99FF);
+      s.component = Color::hex(0x9747FF);
       s.title = Color::hex(0x000000);
       s.titleAlpha = 0.5;
     }

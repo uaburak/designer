@@ -4,6 +4,7 @@
 //
 //   npm run engine:shot -- [outDir]     (default: $TMPDIR/engine-shots)
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
+//   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
 // (CHROMIUM=/path overrides). Software GL (SwiftShader) for determinism.
@@ -356,13 +357,92 @@ async function e4Checks(files) {
   check("thumbnails draw the new content", thumb && thumb.colours > 40, thumb ? `${thumb.w}×${thumb.h}, ${thumb.colours} colours` : "null");
 }
 
+// E6: components and instances — Figma's own instances (structure.fig), then a set, an instance and their purple.
+async function e6Checks(files) {
+  await loadSample("structure");
+  await settle();
+  {
+    const red = await screenOf("I1:45;1:35", 20, 20);  // "Component 3": its rectangle overridden red
+    const grey = await screenOf("I1:38;1:35", 20, 20);  // "Component 2": the main's grey
+    const [pr, pg] = await pixelsAt([red, grey]);
+    check("structure.fig's instance overrides draw (red rectangle)", near(pr, [255, 0, 0, 255], 40), `${pr}`);
+    check("structure.fig's other instance keeps the main's fill", near(pg, [217, 217, 217, 255], 30), `${pg}`);
+    const xyz = await engine(() => window.__designerEngine.readNode("I1:38;1:42")?.textData?.characters);
+    check("its text override reads back", xyz === "XYZ", JSON.stringify(xyz));
+  }
+  // A click picks the instance whole; a double-click goes inside.
+  await page.waitForTimeout(600);
+  const at = await screenOf("1:45", 20, 20);
+  await page.mouse.click(...at);
+  await settle();
+  let sel = await engine(() => window.__designerEngine.getSelection().refs);
+  check("a click selects the instance whole", sel.join() === "1:45", sel.join());
+  {
+    // The selection box is purple (component colour) on the instance's top edge.
+    const edge = await screenOf("1:45", 50, 0);
+    const [pe] = await pixelsAt([edge]);
+    check("an instance's selection is purple", pe && pe[0] > 110 && pe[2] > 200 && pe[1] < 120, `${pe}`);
+  }
+  files.push(await shot("40-instance-selected"));
+  await page.mouse.dblclick(...at);
+  await settle();
+  sel = await engine(() => window.__designerEngine.getSelection().refs);
+  check("double-click selects inside the instance", sel.join() === "I1:45;1:35", sel.join());
+  await page.mouse.dblclick(...at);  // again: no vector editing inside an instance
+  await settle();
+  const ve = await engine(() => window.__designerEngine.vectorEdit);
+  check("a shape inside an instance doesn't enter vector edit mode", ve === null, JSON.stringify(ve?.ref));
+
+  // A component, a variant, a set and an instance made with the commands.
+  const made = await engine(() => {
+    const e = window.__designerEngine;
+    const red = { type: "SOLID", color: { r: 0.95, g: 0.3, b: 0.3, a: 1 }, opacity: 1, visible: true };
+    e.applyChanges({ type: "NODE_CHANGES", sessionID: 1, nodeChanges: [
+      { guid: "60:1", phase: "CREATED", type: "FRAME", name: "Button", parentIndex: { guid: "0:1", position: "~~~" }, size: { x: 120, y: 40 },
+        transform: { m00: 1, m01: 0, m02: 800, m10: 0, m11: 1, m12: 0 }, fillPaints: [red], cornerRadius: 8, rectangleCornerRadiiIndependent: false },
+      { guid: "60:2", phase: "CREATED", type: "TEXT", name: "Label", parentIndex: { guid: "60:1", position: "!" }, size: { x: 80, y: 20 },
+        transform: { m00: 1, m01: 0, m02: 20, m10: 0, m11: 1, m12: 10 }, textData: { characters: "Button" }, fontSize: 14,
+        fillPaints: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 }, opacity: 1, visible: true }], textAutoResize: "WIDTH_AND_HEIGHT" },
+    ] }, "user");
+    e.setSelection(["60:1"]);
+    const created = e.command("CREATE_COMPONENT");
+    const variant = e.command("ADD_VARIANT");
+    const set = e.readNode("60:1")?.parentIndex?.guid;
+    const inserted = e.command("INSERT_INSTANCE", { main: "60:1", x: 1100, y: 20 });
+    const inst = e.getSelection().refs[0];
+    e.setProps([`I${inst};60:2`], { textData: { characters: "Instance" } });
+    e.setSelection([set, inst]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([inst]);
+    const info = e.componentInfo(inst);
+    return { created, variant, inserted, set, inst, setNode: e.readNode(set), label: e.readNode(`I${inst};60:2`), info };
+  });
+  await settle();
+  check("Create component + Add variant make a set", made.created === 0 && made.variant === 0 && made.setNode?.isStateGroup === true,
+    `${made.setNode?.name}: ${made.setNode?.componentPropDefs?.map((d) => d.name).join()}`);
+  check("an inserted instance takes a text override", made.inserted === 0 && made.label?.textData?.characters === "Instance",
+    JSON.stringify(made.label?.textData?.characters));
+  check("componentInfo reads the instance's variant and changes", made.info?.kind === "INSTANCE" && made.info.overrides.length === 1 &&
+    made.info.properties[0]?.type === "VARIANT", `${made.info?.properties.map((p) => `${p.name}=${p.value}`).join(", ")}`);
+  {
+    const dash = await screenOf(made.set, 0.5, 30);  // the set's dashed purple stroke (left edge)
+    const [pd] = await pixelsAt([dash]);
+    check("a component set has the dashed purple stroke", pd && pd[2] > 180 && pd[1] < 160, `${pd}`);
+    const top = await screenOf(made.inst, 60, 0);  // the selected instance's box: purple
+    const [pt] = await pixelsAt([top]);
+    check("the selected instance's box is purple", pt && pt[2] > 200 && pt[1] < 120, `${pt}`);
+  }
+  files.push(await shot("41-component-set-instance"));
+}
+
 try {
   await page.goto(url);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
   await settle();
-  if (only === "e4") {
+  if (only === "e4" || only === "e6") {
     const files = [];
-    await e4Checks(files);
+    if (only === "e4") await e4Checks(files);
+    else await e6Checks(files);
     console.log(results.join("\n"));
     console.log(`\nscreenshots:\n${files.join("\n")}`);
     if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);
@@ -535,6 +615,8 @@ try {
 
   // E4 / E5.
   await e4Checks(files);
+  // E6.
+  await e6Checks(files);
 
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);

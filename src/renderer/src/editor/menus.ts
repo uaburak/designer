@@ -7,7 +7,9 @@
 import type { MenuEntry, MenuItem } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { COMMAND_BY_ID, isEnabled, shortcutOf } from "./commands";
+import { COMMAND_BY_ID, isEnabled, runEditorCommand, shortcutOf } from "./commands";
+import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
+import { isComponent, isComponentSet, isInstance } from "./model/components";
 
 /** A command as a menu item: its label and first shortcut, disabled when it can't run now, checked when it toggles. */
 export function commandItem(ed: EditorController, id: string, label?: string): MenuItem {
@@ -16,15 +18,62 @@ export function commandItem(ed: EditorController, id: string, label?: string): M
   return { id, label: label ?? c.label, shortcut: shortcutOf(c), disabled: !isEnabled(ed, c), checked: c.checked ? c.checked(ed) : undefined };
 }
 
-type Spec = string | "-" | { label: string; items: Spec[] };
+type Spec = string | "-" | { label: string; items: Spec[] } | ((ed: EditorController) => MenuEntry | null);
 
 function build(ed: EditorController, specs: Spec[], prefix: string): MenuEntry[] {
-  return specs.map((s, i) => {
-    if (s === "-") return "-";
-    if (typeof s === "string") return commandItem(ed, s);
+  return specs.flatMap((s, i): MenuEntry[] => {
+    if (s === "-") return ["-"];
+    if (typeof s === "string") return [commandItem(ed, s)];
+    if (typeof s === "function") {
+      const e = s(ed);
+      return e ? [e] : [];
+    }
     const items = build(ed, s.items, `${prefix}${i}.`);
-    return { id: `submenu:${prefix}${i}`, label: s.label, items, disabled: !items.some((e) => typeof e === "object" && "id" in e && !e.disabled) };
+    return [{ id: `submenu:${prefix}${i}`, label: s.label, items, disabled: !items.some((e) => typeof e === "object" && "id" in e && !e.disabled) }];
   });
+}
+
+/** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields. */
+const RESET_PREFIX = "reset-changes:";
+
+/**
+ * "Reset ▸" for the selected instance (R4 §3): Reset all changes, then one item per changed property group (only
+ * those it has). Null when nothing is an instance.
+ */
+export function resetSubmenu(ed: EditorController): MenuItem | null {
+  const inst = selectedInstance(ed);
+  if (!inst) return null;
+  const groups = instanceChanges(ed, inst);
+  const items: MenuEntry[] = [commandItem(ed, "object.reset-all-changes")];
+  if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.fields.join(",")}`, label: `Reset ${g.label.toLowerCase()}` })));
+  return { id: "submenu:reset", label: "Reset", items, disabled: !groups.length };
+}
+
+/** Runs a menu pick: a registry command, or a dynamic item (Reset ▸ group, Select layer ▸). True when it ran. */
+export function runMenuItem(ed: EditorController, id: string): boolean {
+  if (id.startsWith(RESET_PREFIX)) {
+    const inst = selectedInstance(ed);
+    if (!inst) return false;
+    resetChanges(ed, inst, id.slice(RESET_PREFIX.length).split(","));
+    return true;
+  }
+  if (id.startsWith("select-layer:")) {
+    ed.engine.setSelection([id.slice("select-layer:".length)]);
+    return true;
+  }
+  return runEditorCommand(ed, id);
+}
+
+/** The component items a selection gets in the canvas menu (Figma's): instance actions, or create / combine / add variant. */
+function componentEntries(ed: EditorController): Spec[] {
+  const nodes = selectionNodes(ed);
+  if (nodes.some(isInstance)) return ["object.go-to-main-component", "object.push-changes", resetSubmenu, "object.detach-instance"];
+  const out: Spec[] = [];
+  if (nodes.length > 1 && nodes.every(isComponent)) out.push("object.combine-as-variants");
+  else if (nodes.length === 1 && (isComponentSet(nodes[0]) || isComponent(nodes[0]))) out.push("object.add-variant");
+  if (!nodes.every((n) => isComponent(n) || isComponentSet(n))) out.push("object.create-component", ...(nodes.length > 1 ? ["object.create-multiple-components"] : []));
+  if (nodes.some((n) => n.isSoftDeleted)) out.push("object.restore-component");
+  return out;
 }
 
 /** Figma's menus, in Figma's order (R7-editor.md, the UI3 main menu). */
@@ -64,6 +113,9 @@ export const MAIN_MENU: Spec[] = [
   {
     label: "View",
     items: [
+      "view.layers",
+      "view.assets",
+      "-",
       "view.pixel-grid",
       "view.snap-pixel-grid",
       "view.layout-guides",
@@ -95,6 +147,13 @@ export const MAIN_MENU: Spec[] = [
       "object.remove-auto-layout",
       "-",
       "object.create-component",
+      "object.create-multiple-components",
+      "object.combine-as-variants",
+      "object.add-variant",
+      resetSubmenu,
+      "object.detach-instance",
+      { label: "Main component", items: ["object.go-to-main-component", "object.push-changes", "object.restore-component"] },
+      "-",
       "object.use-as-mask",
       "-",
       "object.bring-to-front",
@@ -179,7 +238,7 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
       "object.flip-vertical",
       "-",
       "object.add-auto-layout",
-      "object.create-component",
+      ...componentEntries(ed),
       "-",
       "edit.duplicate",
       "edit.delete",

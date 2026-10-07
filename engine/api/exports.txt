@@ -69,3 +69,6 @@ _engine_end_caps
 _engine_paint_edit
 _engine_paint_edit_end
 _engine_paint_edit_stop
+_engine_ref_id
+_engine_component_info
+_engine_render_node_thumbnail

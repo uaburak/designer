@@ -447,4 +447,66 @@ describe("engine (wasm, headless): E4 + E5", () => {
     expect(n.layoutGrids?.[0]).toMatchObject({ numSections: 12, gutterSize: 20 });
     engine.destroy();
   });
+
+  it("components (E6): derived sublayers by I-refs, overrides, properties, commands, componentInfo", async () => {
+    const engine = await Engine.create(null, { sessionID: 1 });
+    const id = (n: number) => ({ type: "SOLID", color: { r: n, g: 0, b: 0, a: 1 }, opacity: 1, visible: true });
+    engine.load({
+      type: "NODE_CHANGES",
+      sessionID: 1,
+      nodeChanges: [
+        { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+        { guid: "0:1", phase: "CREATED", type: "CANVAS", name: "Page 1", parentIndex: { guid: "0:0", position: "!" } },
+        {
+          guid: "1:1", phase: "CREATED", type: "SYMBOL", name: "Button", parentIndex: { guid: "0:1", position: "!" }, size: { x: 100, y: 40 },
+          componentPropDefs: [{ id: { sessionID: 1, localID: 50 }, name: "Show icon", type: "BOOL", initialValue: { boolValue: true } }],
+        },
+        {
+          guid: "1:2", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Icon", parentIndex: { guid: "1:1", position: "!" }, size: { x: 10, y: 10 },
+          fillPaints: [id(0)],
+          parameterConsumptionMap: { entries: [{ variableField: "VISIBLE", variableData: { dataType: "PROP_REF", resolvedDataType: "BOOLEAN", value: { propRefValue: { defId: { sessionID: 1, localID: 50 } } } } }] },
+        },
+        {
+          guid: "1:3", phase: "CREATED", type: "INSTANCE", name: "Button", parentIndex: { guid: "0:1", position: "\"" }, size: { x: 100, y: 40 },
+          transform: { m00: 1, m01: 0, m02: 200, m10: 0, m11: 1, m12: 0 }, symbolData: { symbolID: { sessionID: 1, localID: 1 }, symbolOverrides: [] },
+        },
+      ],
+    } as Message);
+    const instance = engine.readNode("1:3", { childIds: true })!;
+    expect(instance.childIds).toEqual(["I1:3;1:2"]);
+    expect(engine.readNode("I1:3;1:2")?.visible).toBe(true);
+    const changed: EventOf<"COMPONENTS_CHANGED">[] = [];
+    engine.on("COMPONENTS_CHANGED", (e) => changed.push(e));
+    // An override through setProps on a derived ref; never in DOCUMENT_CHANGED.
+    const docs: NodeChange[][] = [];
+    engine.onDocumentChanged((c) => docs.push(c));
+    expect(engine.setProps(["I1:3;1:2"], { fillPaints: [id(1)] })).toBe(Status.OK);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].every((c) => !c.guid.startsWith("I"))).toBe(true);
+    expect(engine.readNode("1:3")?.symbolData?.symbolOverrides?.[0]?.guidPath?.guids).toEqual([{ sessionID: 1, localID: 2 }]);
+    // A property value.
+    engine.setSelection(["1:3"]);
+    expect(engine.command("SET_COMPONENT_PROPERTY", { prop: "Show icon", value: false })).toBe(Status.OK);
+    expect(engine.readNode("I1:3;1:2")?.visible).toBe(false);
+    const info = engine.componentInfo("1:3")!;
+    expect(info.kind).toBe("INSTANCE");
+    expect(info.main?.ref).toBe("1:1");
+    expect(info.properties[0]).toMatchObject({ name: "Show icon", type: "BOOL", value: false, defaultValue: true, overridden: true, boundLayers: ["I1:3;1:2"] });
+    expect(info.overrides).toEqual([{ ref: "I1:3;1:2", fields: ["fillPaints"] }]);
+    expect(engine.componentInfo("I1:3;1:2")?.kind).toBe("INSTANCE_SUBLAYER");
+    expect(changed.length).toBeGreaterThan(0);
+    // Insert an instance; detach it.
+    expect(engine.command("INSERT_INSTANCE", { main: "1:1", x: 500, y: 20 })).toBe(Status.OK);
+    const inserted = engine.getSelection().refs[0];
+    expect(engine.readNode(inserted)?.type).toBe("INSTANCE");
+    expect(engine.commandState("DETACH_INSTANCE")).toBe(CMD_ENABLED);
+    expect(engine.command("DETACH_INSTANCE")).toBe(Status.OK);
+    expect(engine.readNode(inserted)?.type).toBe("FRAME");
+    // Go to main and back.
+    engine.setSelection(["1:3"]);
+    expect(engine.command("GO_TO_MAIN_COMPONENT")).toBe(Status.OK);
+    expect(engine.returnToInstance).toBe("1:3");
+    expect(engine.getSelection().refs).toEqual(["1:1"]);
+    engine.destroy();
+  });
 });

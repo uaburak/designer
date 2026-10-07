@@ -19,6 +19,7 @@
 #include <string_view>
 #include <vector>
 
+#include "base/DerivedIds.h"
 #include "base/Json.h"
 #include "editor/Editor.h"
 #include "gfx/null/NullDevice.h"
@@ -239,6 +240,23 @@ void writeEvents(json::Writer& w, Engine& e) {
     else w.null();
     w.key("paints").string(ed.paintStrokes() ? "STROKE" : "FILL").key("index").number(ed.paintIndex());
     w.key("stop").number(ed.paintStop()).endObject();
+  }
+  if (!ev.components.empty()) {
+    std::vector<Guid> refs;
+    for (Guid g : ev.components)
+      if (std::find(refs.begin(), refs.end(), g) == refs.end()) refs.push_back(g);
+    w.beginObject().key("type").string("COMPONENTS_CHANGED").key("refs");
+    writeIds(w, refs);
+    w.endObject();
+  }
+  if (ev.navigation) {
+    w.beginObject().key("type").string("INSTANCE_NAVIGATION").key("main");
+    if (ed.navigationMain() == kNoGuid) w.null();
+    else w.string(ed.navigationMain().toString());
+    w.key("returnTo");
+    if (ed.returnToInstance() == kNoGuid) w.null();
+    else w.string(ed.returnToInstance().toString());
+    w.endObject();
   }
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
@@ -643,6 +661,7 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
     if (auto* m = args.get("height"); m && m->isNumber()) a.height = m->number;
     if (auto* m = args.get("name"); m && m->isString()) a.name = m->string;
     if (auto* m = args.get("hash"); m && m->isString()) a.hash = ImageHash::fromHex(m->string);
+    a.raw = std::move(args);
   }
   return e->editor.command(static_cast<CommandId>(commandId), a);
 }
@@ -1057,4 +1076,178 @@ ENG_EXPORT int32_t engine_text_layout(Handle h, uint32_t sessionID, uint32_t loc
   w.key("missingFont").boolean(L->missingFont).key("pendingFont").boolean(L->pendingFont);
   w.endObject();
   return setResult(w.take());
+}
+
+// ---- Components and instances (docs/engine-build.md "E6") ----------------------------------------
+
+namespace {
+
+void writePropValue(json::Writer& w, ComponentPropType type, const ComponentPropValue& v, const std::string& variant) {
+  switch (type) {
+    case ComponentPropType::BOOL:
+      if (v.hasBool) w.boolean(v.boolValue);
+      else w.null();
+      return;
+    case ComponentPropType::TEXT:
+      if (v.hasText) w.string(v.textValue.characters);
+      else w.null();
+      return;
+    case ComponentPropType::VARIANT: w.string(variant); return;
+    default:
+      if (v.guidValue != kNoGuid) w.string(v.guidValue.toString());
+      else w.null();
+  }
+}
+
+void writeProperties(json::Writer& w, const std::vector<ComponentProperty>& props) {
+  w.beginArray();
+  for (const ComponentProperty& p : props) {
+    w.beginObject();
+    w.key("id").string(p.id.toString()).key("name").string(p.name);
+    w.key("apiName").string(p.type == ComponentPropType::VARIANT ? p.name : p.name + "#" + p.id.toString());
+    w.key("type").string(enumName(p.type));
+    w.key("defaultValue");
+    writePropValue(w, p.type, p.defaultValue, p.defaultVariant);
+    w.key("value");
+    writePropValue(w, p.type, p.value, p.variantValue);
+    w.key("overridden").boolean(p.overridden);
+    w.key("preferredValues");
+    writeIds(w, p.preferredValues);
+    w.key("variantOptions").beginArray();
+    for (auto& o : p.variantOptions) w.string(o);
+    w.endArray();
+    w.key("boundLayers");
+    writeIds(w, p.boundLayers);
+    w.endObject();
+  }
+  w.endArray();
+}
+
+const char* kindName(ComponentInfo::Kind k) {
+  switch (k) {
+    case ComponentInfo::Kind::COMPONENT: return "COMPONENT";
+    case ComponentInfo::Kind::VARIANT: return "VARIANT";
+    case ComponentInfo::Kind::COMPONENT_SET: return "COMPONENT_SET";
+    case ComponentInfo::Kind::INSTANCE: return "INSTANCE";
+    case ComponentInfo::Kind::NESTED_INSTANCE: return "NESTED_INSTANCE";
+    case ComponentInfo::Kind::INSTANCE_SUBLAYER: return "INSTANCE_SUBLAYER";
+    case ComponentInfo::Kind::COMPONENT_SUBLAYER: return "COMPONENT_SUBLAYER";
+    default: return "NONE";
+  }
+}
+
+}  // namespace
+
+// A ref string ("s:l" or a derived "I…;…") → the local id of its Guid in the derived session
+// (0xFFFFFFFE), for the calls that take (sessionID, localID). 0 when it isn't a derived ref.
+ENG_EXPORT uint32_t engine_ref_id(Ptr ptr, uint32_t len) {
+  Call call;
+  bool ok = false;
+  Guid g = Guid::parse(bytes(ptr, len), &ok);
+  return ok && g.isDerived() ? g.localID : 0;
+}
+
+// Result: ComponentInfo JSON for a ref (UTF-8 string); E_NOT_FOUND when there is no such node.
+ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  bool ok = false;
+  Guid id = Guid::parse(bytes(refPtr, refLen), &ok);
+  ComponentInfo info;
+  if (!ok || !e->editor.componentInfo(id, info)) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginObject();
+  w.key("ref").string(info.ref.toString()).key("kind").string(kindName(info.kind));
+  w.key("main");
+  if (info.main == kNoGuid) {
+    w.null();
+  } else {
+    w.beginObject().key("ref").string(info.main.toString()).key("name").string(info.mainName).key("page");
+    if (info.mainPage == kNoGuid) w.null();
+    else w.string(info.mainPage.toString());
+    w.key("set");
+    if (info.mainSet == kNoGuid) w.null();
+    else w.string(info.mainSet.toString());
+    w.key("softDeleted").boolean(info.mainSoftDeleted).endObject();
+  }
+  w.key("instance");
+  if (info.instance == kNoGuid) w.null();
+  else w.string(info.instance.toString());
+  w.key("path");
+  writeIds(w, info.path);
+  w.key("overrides").beginArray();
+  for (auto& o : info.overrides) {
+    w.beginObject().key("ref").string(o.ref.toString()).key("fields").beginArray();
+    for (auto& f : o.fields) w.string(f);
+    w.endArray().endObject();
+  }
+  w.endArray();
+  w.key("properties");
+  writeProperties(w, info.properties);
+  w.key("exposedInstances").beginArray();
+  for (auto& x : info.exposedInstances) {
+    w.beginObject().key("ref").string(x.ref.toString()).key("name").string(x.name).key("properties");
+    writeProperties(w, x.properties);
+    w.endObject();
+  }
+  w.endArray();
+  w.key("variantProperties");
+  if (!info.hasVariantProperties) {
+    w.null();
+  } else {
+    w.beginObject();
+    for (auto& [k, v] : info.variantProperties) w.key(k).string(v);
+    w.endObject();
+  }
+  w.key("canPush").boolean(info.canPush).key("canReset").boolean(info.canReset).key("canDetach").boolean(info.canDetach);
+  w.key("isExposed").boolean(info.isExposed).key("mainDeleted").boolean(info.mainDeleted);
+  w.key("instanceCount").number(info.instanceCount);
+  w.endObject();
+  return setResult(w.take());
+}
+
+// A thumbnail of one node (its subtree alone, transparent around it) fitted into maxSize × maxSize device px; the
+// same result layout as engine_render_thumbnail. For the Assets panel's grid.
+ENG_EXPORT int32_t engine_render_node_thumbnail(Handle h, Ptr refPtr, uint32_t refLen, uint32_t maxSize, uint32_t /*flags*/) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  const Document& doc = ed.document();
+  bool ok = false;
+  Guid id = Guid::parse(bytes(refPtr, refLen), &ok);
+  const Node* n = ok ? doc.get(id) : nullptr;
+  Guid page = n ? doc.pageOf(id) : kNoGuid;
+  if (!n || page == kNoGuid || maxSize == 0) return E_NOT_FOUND;
+  Rect bounds = doc.renderBounds(id);
+  if (!(bounds.w > 0) || !(bounds.h > 0)) return E_NOT_FOUND;
+  double limit = std::min<double>(maxSize, e->device->caps().maxTextureSize);
+  double zoom = Camera::clampZoom(std::min(limit / bounds.w, limit / bounds.h));
+  int width = std::clamp(static_cast<int>(std::lround(bounds.w * zoom)), 1, static_cast<int>(limit));
+  int height = std::clamp(static_cast<int>(std::lround(bounds.h * zoom)), 1, static_cast<int>(limit));
+  Camera camera{-bounds.x * zoom, -bounds.y * zoom, zoom};
+  Viewport viewport{static_cast<double>(width), static_cast<double>(height), 1, width, height};
+  Overlay none;
+  none.handles = false;
+  none.sizeBadge = false;
+  none.frameTitles = false;
+  gfx::TargetId target = e->device->createTarget(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (!target) return E_UNSUPPORTED;
+  e->renderer->render(doc, page, camera, viewport, none, OverlayStyle::of(ed.theme()), target, id);
+  std::string out(8 + static_cast<size_t>(width) * height * 4, '\0');
+  for (int i = 0; i < 4; i++) {
+    out[static_cast<size_t>(i)] = static_cast<char>((static_cast<uint32_t>(width) >> (8 * i)) & 0xff);
+    out[static_cast<size_t>(4 + i)] = static_cast<char>((static_cast<uint32_t>(height) >> (8 * i)) & 0xff);
+  }
+  auto* px = reinterpret_cast<uint8_t*>(out.data() + 8);
+  bool read = e->device->readPixels(target, {0, 0, width, height}, {px, out.size() - 8});
+  e->device->destroyTarget(target);
+  if (!read) return E_UNSUPPORTED;
+  for (size_t i = 0; i + 3 < out.size() - 8; i += 4) {
+    uint8_t a = px[i + 3];
+    if (a == 0 || a == 255) continue;
+    for (int c = 0; c < 3; c++) px[i + c] = static_cast<uint8_t>(std::min(255, (px[i + c] * 255 + a / 2) / a));
+  }
+  return setResult(std::move(out));
 }

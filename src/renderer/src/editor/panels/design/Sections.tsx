@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { AlignmentMatrix, BLEND_LABEL, BLEND_MODES, Checkbox, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, ToggleIconButton, type Alignment, type ChangeInfo, type Mixed } from "@/ds";
 import type { Guid } from "@/engine/codec";
+import { BindButton } from "./Component";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { groupChain } from "../../actions";
@@ -324,6 +325,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
       title="Appearance"
       actions={
         <>
+          {nodes.length === 1 && <BindButton layer={nodes[0]} field="VISIBLE" type="BOOL" />}
           <IconButton
             icon={visible === false ? "24.hidden.small" : "24.eye.small"}
             label={visible === false ? "Show" : "Hide"}

@@ -75,6 +75,13 @@ std::vector<NodeChange> readChanges(const json::Value& v, const BlobsIn* blobs =
 // The changes of a Message (or a bare array of changes), its blobs resolved.
 std::vector<NodeChange> readMessage(const json::Value& message);
 
+// The schema key a Field bit is written under (its first key: "cornerRadius" for the corner radii, "borderTopWeight"
+// for the border weights…), and the bits a key stands for (0 when the engine doesn't model it).
+const char* fieldKey(FieldMask bit);
+FieldMask fieldOfKey(std::string_view key);
+// The keys of every bit in `mask`, in bit order.
+std::vector<std::string> fieldKeys(FieldMask mask);
+
 // Where clipboard images' bytes (Image.dataBlob) go when a paint is read (the image registry).
 using ImageDataSink = void (*)(const ImageHash& hash, Bytes bytes);
 void setImageDataSink(ImageDataSink sink);

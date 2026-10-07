@@ -32,6 +32,24 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
                 id == CommandId::ZOOM_TO_FIT || id == CommandId::ZOOM_TO_SELECTION;
     if (!zoom) endTextEdit();
   }
+  if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommand(id, args);
+  // Structure can't change inside an instance (docs/schema.md §5.4).
+  bool derivedSelected = false;
+  for (Guid s : selection_) derivedSelected |= s.isDerived();
+  if (derivedSelected) {
+    switch (id) {
+      case CommandId::GROUP: case CommandId::UNGROUP: case CommandId::FRAME_SELECTION: case CommandId::DUPLICATE:
+      case CommandId::FLIP_HORIZONTAL: case CommandId::FLIP_VERTICAL: case CommandId::ALIGN_LEFT: case CommandId::ALIGN_HORIZONTAL_CENTER:
+      case CommandId::ALIGN_RIGHT: case CommandId::ALIGN_TOP: case CommandId::ALIGN_VERTICAL_CENTER: case CommandId::ALIGN_BOTTOM:
+      case CommandId::DISTRIBUTE_HORIZONTAL: case CommandId::DISTRIBUTE_VERTICAL: case CommandId::ADD_AUTO_LAYOUT:
+      case CommandId::REMOVE_AUTO_LAYOUT: case CommandId::BOOLEAN_UNION: case CommandId::BOOLEAN_SUBTRACT:
+      case CommandId::BOOLEAN_INTERSECT: case CommandId::BOOLEAN_EXCLUDE: case CommandId::FLATTEN: case CommandId::OUTLINE_STROKE:
+      case CommandId::USE_AS_MASK: case CommandId::BRING_FORWARD: case CommandId::SEND_BACKWARD: case CommandId::BRING_TO_FRONT:
+      case CommandId::SEND_TO_BACK: case CommandId::NUDGE:
+        return E_INVALID;
+      default: break;
+    }
+  }
   switch (id) {
     case CommandId::UNDO: undoStep(false); return OK;
     case CommandId::REDO: undoStep(true); return OK;
@@ -88,6 +106,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
       return setVectorMirroring(m);
     }
     case CommandId::VECTOR_DELETE_AND_HEAL: return vectorDeleteAndHeal();
+    default: break;
     case CommandId::VECTOR_SET_POINTS:
       return setVectorPoints(args.hasX ? &args.x : nullptr, args.hasY ? &args.y : nullptr, args.hasCornerRadius ? &args.cornerRadius : nullptr);
     case CommandId::SET_END_CAPS: {
@@ -103,6 +122,14 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
 
 uint32_t Editor::commandState(CommandId id) const {
   bool any = !selection_.empty();
+  if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommandState(id);
+  bool derivedSelected = false;
+  for (Guid s : selection_) derivedSelected |= s.isDerived();
+  if (derivedSelected && id != CommandId::UNDO && id != CommandId::REDO && id != CommandId::TOGGLE_VISIBLE && id != CommandId::TOGGLE_LOCK &&
+      id != CommandId::DELETE && id != CommandId::SELECT_ALL && id != CommandId::SELECT_NONE && id != CommandId::SELECT_INVERSE &&
+      id != CommandId::SELECT_CHILDREN && id != CommandId::SELECT_PARENT && id != CommandId::SELECT_NEXT_SIBLING &&
+      id != CommandId::SELECT_PREV_SIBLING && !(id >= CommandId::ZOOM_IN && id <= CommandId::ZOOM_TO_SELECTION))
+    return 0;
   switch (id) {
     case CommandId::UNDO: return undo_.canUndo() ? CMD_ENABLED : 0;
     case CommandId::REDO: return undo_.canRedo() ? CMD_ENABLED : 0;
@@ -201,10 +228,23 @@ void Editor::deleteSelection() {
   std::vector<Guid> order;
   auto collect = [&](auto&& self, Guid id) -> void {
     std::vector<Guid> kids = doc_.children(id);
-    for (Guid c : kids) self(self, c);
+    for (Guid c : kids)
+      if (!c.isDerived()) self(self, c);
     order.push_back(id);
   };
-  for (Guid id : top) collect(collect, id);
+  for (Guid id : top) {
+    if (id.isDerived()) {
+      // A layer inside an instance can't be removed: it is hidden (Figma).
+      NodeChange c = NodeChange::changed(id);
+      c.mask = F_VISIBLE;
+      c.props.visible = false;
+      write(c);
+      continue;
+    }
+    // A main component with instances goes to the internal canvas, where "Restore component" finds it.
+    if (softDeleteMain(id)) continue;
+    collect(collect, id);
+  }
   for (Guid id : order) write(NodeChange::removed(id));
   changeSelection({});
   commit();
@@ -525,16 +565,36 @@ void Editor::reparent(Guid id, Guid parent, const std::string& position) {
 Guid Editor::cloneSubtree(Guid src, Guid parent, const std::string& position, const Mat2x3& transform, const std::string* name) {
   const Node* n = doc_.get(src);
   if (!n) return kNoGuid;
+  // A copy of a whole component keeps its nodes' keys (docs/schema.md §5.1): within it, nodes inside a component
+  // copy keep theirs; any other copy inside a component gets none (its own GUID is its key).
+  bool keep = false;
+  for (Guid cur = src; doc_.has(cur) && !keep; cur = doc_.parentOf(cur)) {
+    const NodeProps& cp = doc_.get(cur)->props;
+    if (cur == src && (cp.type == NodeType::SYMBOL || cp.isComponentSet())) keep = true;
+    if (cp.type == NodeType::CANVAS) break;
+  }
+  return cloneTree(src, parent, position, transform, name, keep);
+}
+
+Guid Editor::cloneTree(Guid src, Guid parent, const std::string& position, const Mat2x3& transform, const std::string* name, bool keepKeys_) {
+  const Node* n = doc_.get(src);
+  if (!n) return kNoGuid;
   NodeProps p = n->props;
   std::vector<Guid> kids = doc_.children(src);
   Guid id = newGuid();
   p.parentIndex = {parent, position};
   p.transform = transform;
   if (name) p.name = *name;
+  // Inside a copied component (whole), nodes keep their keys.
+  bool keepHere = keepKeys_ || p.type == NodeType::SYMBOL || p.isComponentSet();
+  if (keepHere) keepKeys(src, p);
+  else p.overrideKey = kNoGuid;
+  p.isSoftDeleted = false;
   write(NodeChange::created(id, p));
   for (Guid c : kids) {
+    if (c.isDerived()) continue;  // an instance's sublayers are derived again for the copy
     const Node* cn = doc_.get(c);
-    if (cn) cloneSubtree(c, id, cn->props.parentIndex.position, cn->props.transform);
+    if (cn) cloneTree(c, id, cn->props.parentIndex.position, cn->props.transform, nullptr, keepHere);
   }
   return id;
 }
@@ -566,9 +626,10 @@ Guid Editor::wrapSelection(const char* kind) {
     any = true;
   }
 
-  begin(TxnKind::USER, group ? "Group selection" : k == "Frame" ? "Frame selection" : "Add auto layout");
-  NodeProps p = defaultProps(NodeType::FRAME);
-  p.name = nextName(group ? "Group" : "Frame");
+  const bool component = k == "Component";
+  begin(TxnKind::USER, group ? "Group selection" : k == "Frame" ? "Frame selection" : component ? "Create component" : "Add auto layout");
+  NodeProps p = defaultProps(component ? NodeType::SYMBOL : NodeType::FRAME);
+  p.name = nextName(group ? "Group" : component ? "Component" : "Frame");
   if (group) p.resizeToFit = true;
   if (k != "Frame") p.fillPaints.clear();  // a group and an auto-layout wrapper have no fill
   p.frameMaskDisabled = true;              // none of them clips
@@ -652,7 +713,10 @@ void Editor::duplicate() {
     std::string key = placeAt(parent, index, kNoGuid);
     Mat2x3 t = n->props.transform;
     t.m02 += dx;
-    copies.push_back(cloneSubtree(id, parent, key, t));
+    // ⌘D on a main component makes an instance of it (R4 §2); a variant in its set, a new variant.
+    if (n->props.type == NodeType::SYMBOL && setOf(id) == kNoGuid) copies.push_back(createInstance(id, parent, key, t));
+    else copies.push_back(cloneSubtree(id, parent, key, t));
+    if (n->props.type == NodeType::SYMBOL && setOf(id) != kNoGuid) renameVariants(parent);
   }
   changeSelection(std::move(copies));
   commit();
@@ -975,8 +1039,16 @@ bool Editor::copySelection(Clipboard& out) const {
   if (top.empty()) return false;
   out.page = page_;
   auto visit = [&](auto&& self, Guid id) -> void {
-    out.nodes.push_back(NodeChange::created(id, doc_.get(id)->props));
-    for (Guid c : doc_.children(id)) self(self, c);
+    NodeChange c = NodeChange::created(id, doc_.get(id)->props);
+    if (id.isDerived()) {
+      // A sublayer of an instance copies as a plain layer; a nested instance as an instance with its changes.
+      c.props.overrideKey = kNoGuid;
+      c.props.parameterConsumptionMap.clear();
+      if (c.props.type == NodeType::INSTANCE) composedOverrides(id, c.props.symbolData.overrides, c.props.componentPropAssignments);
+    }
+    out.nodes.push_back(std::move(c));
+    if (doc_.get(id)->props.type == NodeType::INSTANCE) return;  // its sublayers are derived again where it lands
+    for (Guid k : doc_.children(id)) self(self, k);
   };
   for (Guid id : top) {
     visit(visit, id);
@@ -1034,13 +1106,17 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   std::vector<Guid> sel = topSelectionInPaintOrder();
   if (!sel.empty()) {
     Guid s = sel.back();
-    const Node* sn = doc_.get(s);
-    if (sel.size() == 1 && sn->props.isFrameLike() && !sourceRoots.count(s)) {
+    if (sel.size() == 1 && acceptsChildren(s) && !sourceRoots.count(s)) {
       target = s;
       index = doc_.children(s).size();
       intoFrame = true;
     } else {
       target = doc_.parentOf(s);
+      // Beside a layer inside an instance: beside the instance itself.
+      while (isStructuralTarget(target) && doc_.has(target)) {
+        s = target.isDerived() ? instanceOfDerived(target) : target;
+        target = doc_.parentOf(s);
+      }
       const auto& siblings = doc_.children(target);
       index = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
     }
@@ -1068,6 +1144,15 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     }
   }
 
+  GuidSet wholeComponent;
+  auto markWhole = [&](auto&& self, Guid id) -> void {
+    wholeComponent.insert(id);
+    auto it = kids.find(id);
+    if (it != kids.end())
+      for (const NodeChange* c : it->second) self(self, c->guid);
+  };
+  for (const NodeChange* r : roots)
+    if (r->props.type == NodeType::SYMBOL || r->props.isComponentSet()) markWhole(markWhole, r->guid);
   begin(TxnKind::USER, "Paste");
   auto keys = placeManyAt(target, index, roots.size(), {});
   std::vector<Guid> pasted;
@@ -1075,6 +1160,19 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     NodeProps p = src.props;
     p.parentIndex = {parent, position};
     p.transform = transform;
+    p.isSoftDeleted = false;
+    // A main component of this file pastes as an instance of it (R4 §2, §8); a component set as a new set.
+    const Node* live = doc_.get(src.guid);
+    if (parent == target && src.props.type == NodeType::SYMBOL && live && live->props.type == NodeType::SYMBOL && !live->props.isSoftDeleted) {
+      Guid inst = createInstance(src.guid, parent, position, transform);
+      if (inst != kNoGuid) {
+        pasted.push_back(inst);
+        return;
+      }
+    }
+    // Copies of whole components keep their keys (docs/schema.md §5.1); anything else gets none.
+    if (wholeComponent.count(src.guid)) p.overrideKey = src.props.keyOf(src.guid);
+    else p.overrideKey = kNoGuid;
     Guid id = newGuid();
     write(NodeChange::created(id, p));
     if (parent == target) pasted.push_back(id);

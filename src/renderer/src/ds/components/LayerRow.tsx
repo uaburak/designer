@@ -13,6 +13,8 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   /** The layer type's 16 glyph */
   icon: IconName;
   kind?: "default" | "component" | "instance";
+  /** Inside a component or an instance (or one itself): the selection highlights in the component purple */
+  tone?: "default" | "component";
   /** undefined: a leaf (no chevron) */
   expanded?: boolean;
   selected?: boolean;
@@ -65,7 +67,7 @@ function RenameField({ value, onDone, className }: { value: string; onDone: (nam
  * and instances in purple; hidden layers faded. Enter on a focused row
  * starts the rename (the editor drives `renaming`).
  */
-export function LayerRow({ id, depth, name, icon, kind = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onRequestRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
+export function LayerRow({ id, depth, name, icon, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onRequestRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
   return (
     <div
       role="treeitem"
@@ -78,6 +80,7 @@ export function LayerRow({ id, depth, name, icon, kind = "default", expanded, se
       data-hover={hovered || undefined}
       data-run={selected || selectedAncestor ? run : undefined}
       data-drop={drop}
+      data-tone={tone === "component" ? "component" : undefined}
       className={cx(styles.row, kind !== "default" && styles.component, hidden && styles.hiddenLayer, strong && styles.strong, className)}
       style={{ ...style, ["--drop-indent" as string]: `${8 + 4 + depth * 16 + 16}px` }}
       onPointerDown={onPointerDown}

@@ -130,7 +130,7 @@ class Renderer {
   const text::TextLayout* label(const std::string& text, const char* style, double size, double maxWidth = -1);
   // Draws `page` through `camera` into `target` (0 = the canvas), viewport.deviceWidth × deviceHeight.
   RenderStats render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
-                     const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target = 0);
+                     const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target = 0, Guid only = kNoGuid);
 
   // The frame-title colour for a page colour (Figma picks it by the page's luminance).
   static Color titleColor(const Color& page, double* alpha);

@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { Checkbox, Icon, IconButton, MIXED, MenuButton, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
 import { useEditor } from "../../controller";
+import { BindButton } from "./Component";
 import { supportsField } from "../../engineCompat";
 import { useUI } from "../../hooks";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
@@ -76,7 +77,15 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const sizeEntries: MenuEntry[] = FONT_SIZES.map((s) => ({ id: String(s), label: String(s), checked: size === s }));
 
   return (
-    <PanelSection title="Typography" actions={<IconButton icon="24.styles" label="Text styles" tone="secondary" disabled />}>
+    <PanelSection
+      title="Typography"
+      actions={
+        <>
+          {nodes.length === 1 && <BindButton layer={nodes[0]} field="TEXT_DATA" type="TEXT" />}
+          <IconButton icon="24.styles" label="Text styles" tone="secondary" disabled />
+        </>
+      }
+    >
       <PropertyGrid labels={labels}>
         <PropertyRow span={2} label="Font family">
           <Select

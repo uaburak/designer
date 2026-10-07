@@ -8,9 +8,8 @@
 import { ContextMenu } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
-import { runEditorCommand } from "../commands";
 import { useUI } from "../hooks";
-import { canvasMenu } from "../menus";
+import { canvasMenu, runMenuItem } from "../menus";
 
 /** The layers "Select layer ▸" offers: each hit's path, innermost first, without repeats. */
 export function layersUnder(hits: readonly (readonly Guid[])[]): Guid[] {
@@ -36,10 +35,7 @@ export function CanvasMenu() {
       at={{ x: at.x, y: at.y }}
       entries={canvasMenu(ed, layers)}
       label="Canvas"
-      onSelect={(id) => {
-        if (id.startsWith("select-layer:")) ed.engine.setSelection([id.slice("select-layer:".length)]);
-        else runEditorCommand(ed, id);
-      }}
+      onSelect={(id) => void runMenuItem(ed, id)}
       onClose={() => {
         ed.ui.set({ contextMenu: null });
         if (!ed.ui.get().renaming) ed.focusCanvas();

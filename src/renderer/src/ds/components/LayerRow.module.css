@@ -23,6 +23,8 @@
   .row:hover .box, .row[data-hover] .box { background: var(--figma-color-bg-hover); }
   .row[aria-selected="true"] .box { background: var(--figma-color-bg-selected); }
   .row[data-selected-ancestor] .box { background: var(--figma-color-bg-selected-secondary); }
+  .row[data-tone="component"][aria-selected="true"] .box { background: var(--figma-color-bg-component-tertiary); }
+  .row[data-tone="component"][data-selected-ancestor] .box { background: color-mix(in srgb, var(--figma-color-bg-component-tertiary) 45%, var(--figma-color-bg)); }
   .row[data-run="start"] .box { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .row[data-run="middle"] .box { border-radius: 0; }
   .row[data-run="end"] .box { border-top-left-radius: 0; border-top-right-radius: 0; }

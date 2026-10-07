@@ -6,6 +6,31 @@
 
 ---
 
+## Status at handoff (2026-10-07, round 5 — components and instances, E6 in the chrome)
+
+Round 5 built the editor's side of components (`docs/research/figma/R4-components.md`), coded against the names `docs/engine-build.md` "E6 components + instances API" publishes (read at the start, midway and at the end of the round). The committed wasm has no E6 yet (abi.ts names none of its commands, the facade has no `componentInfo`): the structural actions show disabled, and everything that is document data the engine already round-trips works today through the editor's own fallbacks, which write the schema's fields (`docs/schema.md` §5) as one undo step each. When the engine's build lands, `components.ts` switches to its commands and reads by itself (`hasCommand`, `engineMethod(engine, "componentInfo")`). `npm run check` is green (55 files, 487 tests; the editor's: 7 files, 109 — new `components.test.ts` 17 and `components.wasm.test.ts` 9). `tools/editor-shot.mjs` passes every check (`EDITOR_ONLY=components` runs the round's 24; the round-4 "L + drag draws a line" check now draws where the canvas is visible — it started under the toolbar once the engine had LINE).
+
+### Round 5: done
+
+- **Model** (`model/components.ts`, pure): the schema's component shapes; GUID and derived-id helpers (`I<instance>;<key>…`); variant names (`Prop=Value, …`), **Combine as variants** naming (Variant, Property 2…, a repeated combination numbered), the **default variant** (top-left), a variant switch's target (the variant with the value that keeps the most other values), a set's properties in `stateGroupPropertyValueOrders` order; property defs (Figma's defaults and "Property N" names, `Name#id`, variant properties first), values (`withAssignment`), PROP_REF **bindings** (`withBinding`, `bindingsOf`, `unbindAll`, `canBind`: Boolean → visibility, Text → a text layer, Instance swap → a nested instance, Slot → a frame); overrides (`withOverride` / `withoutOverrides` on `symbolData`, one entry per guidPath) and the **Reset ▸** groups (Fill, Stroke, Effects, Text, Text style, Layer name, Visibility, Opacity, Size, Corner radius, Auto layout, Layout guide, Export, Instance, Properties); Assets grouping (page → top-level frame) and search; preferred values matched by GUID string (local, the engine's rule) or key; definition ids counted down from the top of the session's range (`0x7fffffff`), apart from the engine's node ids.
+- **Controller side** (`components.ts`): `ComponentIndex` on the controller (`ed.components`: every page's local components and sets, re-read after any change or the engine's `COMPONENTS_CHANGED`), reads (`mainOf`, `setOf`, `variantsOf`, `owningComponent`, `pageOf`), **instance rows** (`instanceInfo`: `engine.componentInfo` when present, else the main's or set's defs with the instance's assignments; one level of exposed nested instances), and every action engine-first: `setPropertyValue` / `setVariant` (SET_COMPONENT_PROPERTY), `swapInstance` (SWAP_INSTANCE), `resetChanges` (RESET_OVERRIDES, one field per command), `addProperty` / `updateProperty` / `renameVariantValue` / `deleteProperty` (ADD / EDIT / DELETE_COMPONENT_PROPERTY), `bindLayer` (BIND_COMPONENT_PROPERTY), `setExposed` (SET_EXPOSED_INSTANCE), `goToMainComponent` / `returnToInstance` (GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE). Fallbacks: the same edits through `setProps` — `componentPropAssignments`; `symbolData` (symbolID and overrides; a nested instance's as an override entry of the top instance); `componentPropDefs` (plus every variant's name and `variantPropSpecs` for Variant properties); `parameterConsumptionMap`; `propsAreBubbled`; navigation by page, selection and ZOOM_TO_SELECTION. A Variant property on a lone component needs the engine (it becomes a set).
+- **Layers**: component (`16.component`), set (`16.component.set`) and instance (`16.instance`) glyphs and names in the component purple; top-level components and sets strong; rows in a component, a set or an instance (and those rows themselves) select in `bg-component-tertiary` (DS `LayerRow tone="component"`, additive). **An instance's layers** are listed under it: the engine's derived `childIds` once E6 lands; until then derived by the editor from the main (`deriveInstanceRows`, nested instances included, names and visibility after overrides) — clicking one selects the instance, the eye and a rename write overrides, no lock, nothing dragged in or out.
+- **Commands** (`commands.ts`, Figma's wording and keys): Create component ⌥⌘K, Create multiple components (`CREATE_COMPONENT {mode: "MULTIPLE"}`), Combine as variants, Add variant, Detach instance ⌥⌘B, Go to main component ⌃⌥⌘K, Push changes to main component, Reset all changes, Restore component, Reset slot, Return to instance; Layers ⌥1, Assets ⌥2. **Menus**: the main menu's Object submenu (Create component, Create multiple components, Combine as variants, Add variant, Reset ▸, Detach instance, Main component ▸ Go to main component / Push changes / Restore component) and View (Layers, Assets); the canvas menu by selection (an instance: Go to main component, Push changes, Reset ▸, Detach instance; several components: Combine as variants; a component or set: Add variant; else Create component and, for several layers, Create multiple components). Reset ▸ = Reset all changes, then one item per changed group (`menus.ts resetSubmenu`; dynamic ids run by `runMenuItem`, which the rail, the canvas menu and the panel's ⋯ share).
+- **Design panel, an instance** (`panels/design/Component.tsx`): the header (instance glyph, the main's name ▾ = the **instance menu** — search, local components by page and frame, the current one ticked; a pick swaps, a set keeps the current variant —, Go to main component, ⋯ with Go to main component, Push changes to main component, Reset ▸, Detach instance); then its **properties**: Variant dropdowns (outlined Select), Boolean switches, Text fields, Instance swap pickers (preferred values first, under "Preferred"); then each **exposed nested instance** (its name and properties, written as its override).
+- **Design panel, a main component / set / variant**: the header (purple "Component", "Component set" or "Variant", Add variant); **Properties** with "+" (Variant, Boolean, Instance swap, Text, Slot; "Expose properties from ▸ Nested instances" when the component has nested instances, ticked when exposed): a row per property (type glyph, name, default — a set's Variant rows list the values) opening its **settings popover** (Name; Value: True / False, a text, a component, or for a Variant property each value renamed in place; Instance swap: Preferred values with + and −); "−" deletes it (not a set's last Variant property); "Create … property" popovers end with **Create property**; the **description** ("Add a description"). A variant shows **Current variant** (its value per property, written into its name and `variantPropSpecs`) and its description.
+- **Binding** (`BindButton`): on a layer inside a main component, the purple "Apply … property" button next to the field it binds — Appearance (visibility → Boolean), Typography (text → Text), a nested instance's header (→ Instance swap): the component's properties of that type (the bound one ticked), Create … property… (pre-filled from the layer: its visibility, its text and name, its main), Detach property; a bound field shows the property as a purple pill.
+- **Return to instance** (`canvas/ReturnToInstance.tsx`): the purple pill above the toolbar after Go to main component (back to the instance's page, the camera there, the instance selected); × dismisses it; the engine's `INSTANCE_NAVIGATION` without a return clears it.
+- **Assets** (`panels/Assets.tsx`, rail or ⌥2): search, list / grid switch, "Created in this file" → pages → top-level frames (collapsible), a set shown once. A click inserts an instance in the middle of the view; a drag drops one where it is let go (in the innermost frame there), selected, one undo step — pasted as an INSTANCE node with the main's root fields and `symbolData` (`instanceMessage`; the engine materializes it). Grid tiles draw the engine's node thumbnail when it has `renderNodeThumbnailPixels`, else the glyph.
+- **Fixture** `?editor&doc=components` (`fixtures.ts COMPONENTS_DOCUMENT`): page "Screens" (a Button instance with a changed fill, text style and label; a Chip instance of a set) and page "Components" ("Button" with Boolean, Text and Instance swap properties bound to its layers and an exposed nested "Icons/Star" instance; two icons in a frame "Icons"; the set "Chip", State × Size, with its dashed purple stroke).
+- **Screenshots** (dark, `/tmp/designer-work/editor/`): `38-instance`, `39-instance-menu`, `40-instance-more`, `41-variant-instance`, `42-instance-canvas-menu`, `43-object-menu`, `44-go-to-main`, `45-property-settings`, `46-add-property-menu`, `47-component-set`, `48-variant`, `49-bind-menu`, `50-assets-list`, `51-assets-grid`, `52-assets-dropped`.
+
+Unverified against Figma (no reference screenshots): the instance header's layout and the ⋯ menu's order, the property rows' label column (88), the property-type glyphs (Boolean uses the eye), the settings popover's titles ("Create boolean property", "Edit … property") and fields, where the description sits, "Current variant", the Object menu's component items and its "Main component ▸" submenu, the Reset ▸ item names, the Return to instance pill (purple, above the toolbar), the purple selected rows in Layers, Assets' metrics and its grid of three, a click inserting (UI3 may open the asset's details instead), the bind button's glyph (`24.component.small`), how far Go to main component zooms in on a small main (the fallback zooms to selection).
+
+### Round 5: needed from other workstreams
+
+- **Engine (E6, in progress)**: the build with the published names — abi.ts `CommandId` 120–136, `engine.componentInfo`, the events `COMPONENTS_CHANGED` / `INSTANCE_NAVIGATION` in `codec.ts EngineEvent`, `Engine.command` args typed for booleans and string arrays. Not in the published API, wanted by the panels: **`renderNodeThumbnailPixels({node, maxSize})`** (Assets' grid, the instance menu), **placing an instance** at a point or into a frame (`INSERT_INSTANCE {main, x, y, parent?}`; today a paste of an INSTANCE node), **RESET_OVERRIDES with several fields** in one step (Reset ▸ a group is one command per field), a way to **set a variant's own values** (today `name` + `variantPropSpecs` by the setter), `SLOT_CONTENT_ID` in BIND_COMPONENT_PROPERTY.
+- **Desktop** (`src/shared/commands.ts`, the app menu): the new ids — `object.create-multiple-components`, `object.combine-as-variants`, `object.add-variant`, `object.detach-instance` (Alt+CmdOrCtrl+B), `object.go-to-main-component` (Ctrl+Alt+CmdOrCtrl+K), `object.push-changes`, `object.reset-all-changes`, `object.restore-component`, `view.layers` (Alt+1), `view.assets` (Alt+2) — in Figma's Object and View menus.
+
 ## Status at handoff (2026-10-07, round 4 — E4 / E5 in the chrome)
 
 Round 4 built the editor's side of the engine's E4 (vectors, pen, booleans, masks) and E5 (gradients, images, effects) against the names `docs/engine-build.md` "E4 + E5 API" publishes. The committed wasm is still E3 (the engine agent was mid-way), so everything the engine hasn't shipped shows disabled — never an error — and lights up by itself when it lands (`engineCompat.ts`: `hasCommand`, `engineMethod`, `keepsField`). `npm run typecheck`, `npm test` (53 files, 459 tests; the editor's: 5 files, 83) and `eslint` on `editor/` + `ds/` are green; `npm run lint` is red only in the engine agent's in-progress `engine/tools/fig.mjs` / `fixtures.mjs` (`Buffer` global). `tools/editor-shot.mjs` passes every check; the new ones run on `?editor&doc=paints` (`EDITOR_ONLY=paints` runs just them).
@@ -87,7 +112,7 @@ Compared with the measurements in `docs/research/visual-diff.md` (no reference i
 
 ### Partial / placeholders
 
-- Prototype tab: an empty state. Assets: search + empty state. Insert / Resources rail items, Actions (⌘K), Present, Share: toasts.
+- Prototype tab: an empty state. Assets: the file's own components only (no libraries yet). Insert / Resources rail items, Actions (⌘K), Present, Share: toasts.
 - Export "+" stays disabled until the engine exports (engine_export); its rows aren't built.
 - W / H are disabled for groups (the engine refits groups to their children; a group resize from the panel would scale the children — not built).
 - The picker's Libraries tab (variables, styles) is empty until E6; "Paste to replace" (⇧⌘R) and image fills copied between files (Image.dataBlob) aren't built.
@@ -114,6 +139,7 @@ Compared with the measurements in `docs/research/visual-diff.md` (no reference i
 1. Viewing a reference screenshot again (when the owner re-shares them) and tuning pixel details with `tools/editor-shot.mjs` (the round-3 items listed as unverified above first).
 2. Text (E3): re-check `docs/engine-build.md`; when the wasm keeps the text fields, try Typography on `?editor&doc=types` (the Heading layer), wire text editing (double-click / Enter into the engine's text mode), a fonts list from the fonts process, and the Text submenu's commands (`text.*` in `commands.ts`).
 3. After the engine's E4/E5 release build: run `EDITOR_ONLY=paints node src/renderer/src/editor/tools/editor-shot.mjs` (Union, vector edit, gradient handles, images drawn), look at the canvas in the screenshots, then wire the vector points' X / Y / radius and Start / End point when the engine publishes them. Export rows with engine_export; Grid flow with the engine's GRID.
+4. After the engine's E6 build: run `npm test` (the `components.wasm.test.ts` checks hold on either path) and `EDITOR_ONLY=components node src/renderer/src/editor/tools/editor-shot.mjs` — instances drawn whole, the purple selection, Layers listing the engine's own sublayers (the editor's derivation then stops by itself), `componentInfo` feeding the instance panel; check that the engine's `componentInfo` property ids match `componentPropDefs` (the panel edits through them), then drop the fallbacks the engine makes redundant. Then libraries (publish, enable, review updates), slots (Convert to slot ⌘⇧S, settings, Reset slot), Shift+I quick insert and the asset details popover.
 
 ---
 
@@ -124,13 +150,14 @@ editor/
   index.ts             public entry: EditorApp, DocumentSource, memoryDocumentSource
   EditorApp.tsx        the root: engine mount, layout, overlays
   EditorRoute.tsx      ?editor: memory sample / &doc=reference|empty / &file=<fileKey> (store)
-  fixtures.ts          the reference and empty documents
+  fixtures.ts          the reference, empty, types, paints and components documents
   documentSource.ts    DocumentSource, memoryDocumentSource, applyMessage
   engineCompat.ts      feature detection: supportsField / keepsField, hasCommand, engineMethod
   images.ts            ImageStore, import (4096 cap, SHA-1), ImageService (REQUEST_IMAGE, object URLs)
   placeImages.ts       images → rectangles pasted at a point / like a paste
   vectorEdit.ts        VectorEditor (VECTOR_EDIT, tools, mirroring), gradient handles (startPaintEdit)
-  controller.ts        EditorController, EditorContext, readTree
+  components.ts        components and instances: ComponentIndex, instance rows, every action (engine first, fallbacks)
+  controller.ts        EditorController, EditorContext, readTree (an instance's layers derived until E6)
   uiStore.ts           Store<T>, UIState
   hooks.ts             useUI, useLayerTree, usePages, useNodes, useTopics
   commands.ts          the command registry (menus, shortcuts, buttons, the app menu)
@@ -141,13 +168,15 @@ editor/
   desktop.ts           window.designer hooks: flush, menu commands and state, tab title
   persistence.ts       UI state per file, thumbnails
   ShortcutsDialog.tsx  VersionDialogs.tsx
-  panels/              Rail, LeftPanel, Pages, Layers, RightPanel, Minimized, design/ (DesignPanel, Sections, Sizing,
-                       Constraints, Paints, Stroke, Effects, VectorPoints, SelectionColors, Typography, shared)
-  canvas/              Rulers, BottomToolbar (+ the vector-edit toolbar), CanvasMenu, ImagePlacer
+  panels/              Rail, LeftPanel, Pages, Layers, Assets, RightPanel, Minimized, design/ (DesignPanel, Sections, Sizing,
+                       Constraints, Paints, Stroke, Effects, VectorPoints, SelectionColors, Typography, Component,
+                       ComponentPicker, shared)
+  canvas/              Rulers, BottomToolbar (+ the vector-edit toolbar), CanvasMenu, ImagePlacer, ReturnToInstance
   tools/editor-shot.mjs  the visual + end-to-end check (playwright-core)
   model/               pure logic: layerTree, mixed, geometry, color, clipboard, rulers, sizing, constraints,
-                       selectionColors, paints
-  __tests__/           vitest: model, layerTree, panels (Phase 2 rules), paints (E4/E5 rules), the editor on the headless engine
+                       selectionColors, paints, components
+  __tests__/           vitest: model, layerTree, panels (Phase 2 rules), paints (E4/E5 rules), components (E6 rules), the editor
+                       and its components on the headless engine
 ```
 
 ## The DocumentSource interface
@@ -198,4 +227,4 @@ export interface DocumentSource {
 
 ## Gaps (by design, until the engine or DS has them)
 
-the Text menu's commands, export (engine_export), the vector points' positions / radius and per-end caps (engine), components (E6), prototype tab content, Quick actions (⌘K), group resize from the panel, the pages-panel height splitter.
+the Text menu's commands, export (engine_export), the vector points' positions / radius and per-end caps (engine), libraries (publish, enable, review updates), slots' settings and contents, prototype tab content, Quick actions (⌘K), group resize from the panel, the pages-panel height splitter.

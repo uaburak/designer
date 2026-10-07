@@ -62,6 +62,26 @@ enum class CommandId : uint32_t {
   VECTOR_DELETE_AND_HEAL = 111,
   VECTOR_SET_POINTS = 112,       // args {x?, y?, cornerRadius?}
   SET_END_CAPS = 113,            // args {start?, end?: StrokeCap}
+  // E6: components and instances (docs/engine-build.md "E6").
+  CREATE_COMPONENT = 120,           // args {mode?: "SINGLE" | "MULTIPLE" | "SET"}
+  COMBINE_AS_VARIANTS = 121,
+  ADD_VARIANT = 122,
+  DETACH_INSTANCE = 123,            // args {ref?}
+  RESET_OVERRIDES = 124,            // args {ref?, field? | fields?}
+  PUSH_CHANGES_TO_MAIN = 125,
+  GO_TO_MAIN_COMPONENT = 126,
+  RETURN_TO_INSTANCE = 127,
+  SWAP_INSTANCE = 128,              // args {main, ref?}
+  SET_COMPONENT_PROPERTY = 129,     // args {ref?, prop, value}
+  ADD_COMPONENT_PROPERTY = 130,     // args {ref?, name?, type, defaultValue?, bind?, preferredValues?}
+  EDIT_COMPONENT_PROPERTY = 131,    // args {ref?, prop, name?, defaultValue?, preferredValues?, oldValue?, newValue?}
+  DELETE_COMPONENT_PROPERTY = 132,  // args {ref?, prop}
+  BIND_COMPONENT_PROPERTY = 133,    // args {refs?, field, prop}
+  RESTORE_COMPONENT = 134,          // args {ref?}
+  SET_EXPOSED_INSTANCE = 135,       // args {ref?, exposed}
+  RESET_SLOT = 136,                 // args {ref?}
+  INSERT_INSTANCE = 137,            // args {main, x?, y?, parent?}
+  SET_VARIANT_PROPERTIES = 138,     // args {ref?, values: {prop: value}}
 };
 
 // engine_command_state bits.

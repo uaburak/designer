@@ -44,6 +44,8 @@ import {
   encodeRefs,
   encodeText,
   type Camera,
+  type CommandArgValue,
+  type ComponentInfo,
   type CursorKind,
   type EngineEvent,
   type EngineEventType,
@@ -109,6 +111,8 @@ export class Engine {
   vectorEdit: EventOf<"VECTOR_EDIT"> | null = null;
   /** Gradient handles, as the last PAINT_EDIT event said (null when none are shown). */
   paintEdit: EventOf<"PAINT_EDIT"> | null = null;
+  /** "Return to instance": the instance the last GO_TO_MAIN_COMPONENT came from (null after returning). */
+  returnToInstance: Guid | null = null;
   private imageSource: ImageSource | null = null;
   private readonly imageLoads = new Map<string, Promise<number>>();
   private readonly unsubscribeFonts: () => void;
@@ -185,6 +189,7 @@ export class Engine {
           else if (event.type === "TEXT_EDIT") this.textEdit = event.active ? event : null;
           else if (event.type === "VECTOR_EDIT") this.vectorEdit = event.active ? event : null;
           else if (event.type === "PAINT_EDIT") this.paintEdit = event.active ? event : null;
+          else if (event.type === "INSTANCE_NAVIGATION") this.returnToInstance = event.returnTo;
           else if (event.type === "REQUEST_IMAGE") this.answerImage(event.hash);
           this.handlers.get(event.type)?.forEach((handler) => handler(event));
           this.handlers.get("*")?.forEach((handler) => handler(event));
@@ -374,7 +379,7 @@ export class Engine {
    * Runs a command; one undo step labelled with Figma's name. `args`: `{ dx, dy }` for NUDGE,
    * `{ page: "s:l" }` for DELETE_PAGE / DUPLICATE_PAGE (the current page when absent).
    */
-  command(name: CommandName, args?: Record<string, number | string>): number {
+  command(name: CommandName, args?: Readonly<Record<string, CommandArgValue>>): number {
     return this.after(this.x.command(this.h, CommandId[name], args ? encodeArgs(args) : null));
   }
 
@@ -389,7 +394,7 @@ export class Engine {
    * document ("0:0"). One undo step. Returns how many moved (0 = refused: a cycle, a page under a layer…).
    */
   moveNodes(refs: readonly Guid[], parent: Guid, index: number): number {
-    const [s, l] = parent.split(":").map(Number);
+    const [s, l] = this.ids(parent);
     return this.after(this.x.moveNodes(this.h, encodeRefs(refs), s, l, index));
   }
 
@@ -420,6 +425,30 @@ export class Engine {
     return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
   }
 
+  /**
+   * One node's thumbnail as pixels (its subtree alone, transparent around it), fitted into maxSize × maxSize device
+   * px — the Assets grid. Null when it is missing, empty, or the GPU can't make the target.
+   */
+  renderNodeThumbnailPixels(options: { node: Guid; maxSize: number }): Pixels | null {
+    const status = this.x.renderNodeThumbnail(this.h, encodeText(options.node), Math.max(1, Math.round(options.maxSize)), 0);
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
+  }
+
+  // ---- Components (docs/engine-build.md "E6") -------------------------------------------------
+
+  /** What a node is on the component side, with its main, changes, properties and exposed instances; null if missing. */
+  componentInfo(ref: Guid): ComponentInfo | null {
+    const status = this.x.componentInfo(this.h, encodeText(ref));
+    return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as ComponentInfo) : null);
+  }
+
+  /** (sessionID, localID) of a ref for the calls that take them; derived refs ("I…;…") resolve through the engine. */
+  private ids(ref: Guid): [number, number] {
+    if (ref.startsWith("I")) return [0xfffffffe, this.x.refId(encodeText(ref))];
+    const [s, l] = ref.split(":").map(Number);
+    return [s >>> 0, l >>> 0];
+  }
+
   /** The same thumbnail encoded as an image (PNG by default) through an OffscreenCanvas, or null. */
   async renderThumbnail(options: { page?: Guid; maxSize: number; type?: string }): Promise<Blob | null> {
     const image = this.renderThumbnailPixels(options);
@@ -443,7 +472,7 @@ export class Engine {
 
   /** Edits a TEXT node: all its text selected, or the caret at its end. Status.E_UNSUPPORTED: its font is missing. */
   startTextEdit(ref: Guid, options: { selectAll?: boolean } = {}): number {
-    const [s, l] = ref.split(":").map(Number);
+    const [s, l] = this.ids(ref);
     return this.after(this.x.textEdit(this.h, s, l, options.selectAll ? TEXT_EDIT_SELECT_ALL : 0));
   }
 
@@ -475,7 +504,7 @@ export class Engine {
 
   /** A TEXT node's layout (baselines, glyphs, missing font…), or null for other nodes. */
   textLayout(ref: Guid): TextLayoutInfo | null {
-    const [s, l] = ref.split(":").map(Number);
+    const [s, l] = this.ids(ref);
     const status = this.x.textLayout(this.h, s, l);
     return this.after(status === Status.OK ? decodeTextLayout(this.x.result()) : null);
   }
@@ -487,7 +516,7 @@ export class Engine {
    * at its first edit, same GUID). Status.E_UNSUPPORTED for others. `vectorEdit` follows the VECTOR_EDIT events.
    */
   startVectorEdit(ref: Guid): number {
-    const [s, l] = ref.split(":").map(Number);
+    const [s, l] = this.ids(ref);
     return this.after(this.x.vectorEdit(this.h, s, l));
   }
 
@@ -503,7 +532,7 @@ export class Engine {
 
   /** An open path's ends (Figma's Start point / End point), or null when the node has none. */
   endCaps(ref: Guid): { start: StrokeCap; end: StrokeCap } | null {
-    const [s, l] = ref.split(":").map(Number);
+    const [s, l] = this.ids(ref);
     const status = this.x.endCaps(this.h, s, l);
     return this.after(status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as { start: StrokeCap; end: StrokeCap }) : null);
   }
@@ -512,7 +541,7 @@ export class Engine {
 
   /** Shows a gradient paint's handles and stops on the canvas (fills or strokes, its index). */
   startPaintEdit(ref: Guid, options: { paints: "FILL" | "STROKE"; index: number }): number {
-    const [s, l] = ref.split(":").map(Number);
+    const [s, l] = this.ids(ref);
     return this.after(this.x.paintEdit(this.h, s, l, options.paints === "STROKE" ? 1 : 0, options.index));
   }
 

@@ -11,6 +11,7 @@ import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
 import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
+import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 
 export interface KeyCombo {
   /** KeyboardEvent.code */
@@ -246,13 +247,57 @@ export const COMMANDS: EditorCommand[] = [
   { id: "view.previous-page", label: "Previous page", keys: [k("PageUp")], run: (ed) => goToPage(ed, -1) },
   { id: "view.next-page", label: "Next page", keys: [k("PageDown")], run: (ed) => goToPage(ed, 1) },
 
+  // ---- Panels ----
+  ui("view.layers", "Layers", [k("Digit1", { alt: true })], (ed) => ed.ui.set({ railTab: "file", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "file"),
+  ui("view.assets", "Assets", [k("Digit2", { alt: true })], (ed) => ed.ui.set({ railTab: "assets", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "assets"),
+
   // ---- Object ----
   engine("object.group", "Group selection", "GROUP", [k("KeyG", { mod: true })]),
   engine("object.ungroup", "Ungroup selection", "UNGROUP", [k("KeyG", { mod: true, shift: true })]),
   engine("object.frame-selection", "Frame selection", "FRAME_SELECTION", [k("KeyG", { mod: true, alt: true })]),
   engine("object.add-auto-layout", "Add auto layout", "ADD_AUTO_LAYOUT", [k("KeyA", { shift: true })]),
   engine("object.remove-auto-layout", "Remove auto layout", "REMOVE_AUTO_LAYOUT", [k("KeyA", { shift: true, alt: true })]),
-  later("object.create-component", "Create component", [k("KeyK", { mod: true, alt: true })]),
+  // Components (E6: the structural ones are the engine's; R4-components.md for the wording and keys)
+  pending("object.create-component", "Create component", COMPONENT_COMMAND.create, [k("KeyK", { mod: true, alt: true })]),
+  pending("object.create-multiple-components", "Create multiple components", COMPONENT_COMMAND.create, undefined, {
+    run: (ed) => void runEngineCommand(ed.engine, COMPONENT_COMMAND.create, { mode: "MULTIPLE" }),
+    enabled: (ed) => ed.selection.length > 1 && engineCommandEnabled(ed.engine, COMPONENT_COMMAND.create),
+  }),
+  pending("object.combine-as-variants", "Combine as variants", COMPONENT_COMMAND.combine),
+  pending("object.add-variant", "Add variant", COMPONENT_COMMAND.addVariant),
+  pending("object.detach-instance", "Detach instance", COMPONENT_COMMAND.detach, [k("KeyB", { mod: true, alt: true })]),
+  {
+    id: "object.go-to-main-component",
+    label: "Go to main component",
+    keys: [k("KeyK", { mod: true, alt: true, ctrl: true })],
+    run: (ed) => void goToMainComponent(ed),
+    enabled: (ed) => {
+      const inst = selectedInstance(ed);
+      const main = inst ? mainOf(ed, inst) : null;
+      return !!main && !!pageOf(ed, main.guid);
+    },
+  },
+  pending("object.push-changes", "Push changes to main component", COMPONENT_COMMAND.push, undefined, { enabled: (ed) => canPushChanges(ed) }),
+  {
+    id: "object.reset-all-changes",
+    label: "Reset all changes",
+    run: (ed) => {
+      const inst = selectedInstance(ed);
+      if (inst) resetChanges(ed, inst, null);
+    },
+    enabled: (ed) => {
+      const inst = selectedInstance(ed);
+      return !!inst && instanceChanges(ed, inst).length > 0;
+    },
+  },
+  pending("object.restore-component", "Restore component", COMPONENT_COMMAND.restore),
+  pending("object.reset-slot", "Reset slot", COMPONENT_COMMAND.resetSlot),
+  {
+    id: "object.return-to-instance",
+    label: "Return to instance",
+    run: (ed) => returnToInstance(ed),
+    enabled: (ed) => !!ed.ui.get().returnToInstance,
+  },
   pending("object.use-as-mask", "Use as mask", "USE_AS_MASK", [k("KeyM", { mod: true, ctrl: true })], {
     checked: (ed) => ed.selectedNodes().some((n) => (n as { mask?: boolean }).mask === true),
   }),

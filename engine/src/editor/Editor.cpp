@@ -65,6 +65,7 @@ void Editor::noteNode(Guid id, uint32_t groups) {
 }
 
 void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
+  markInstanceDirty(c);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
   if (typeBefore == NodeType::TEXT || c.phase != Phase::CHANGED) textCache_.erase(c.guid);
   else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE)) textCache_.erase(c.guid);
@@ -78,16 +79,59 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
 }
 
 void Editor::write(const NodeChange& change) {
+  // An instance's sublayers: the materializer and layout write them directly; edits become overrides.
+  if (change.guid.isDerived()) {
+    if (deriving_ || inLayout_) applyDerivedDirect(change);
+    else writeDerived(change);
+    return;
+  }
   const NodeChange* c = &change;
   NodeChange reduced;
   const Node* existing = doc_.get(change.guid);
-  if (change.phase == Phase::CHANGED) {
+  bool userEdit = !deriving_ && !inLayout_ && txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
+  NodeChange redirected;
+  if (userEdit && change.phase != Phase::REMOVED && (change.phase == Phase::CREATED || (change.mask & F_PARENT_INDEX)) &&
+      change.props.parentIndex.guid.isDerived()) {
+    // Into a slot of an instance: into its content frame (the slot diverges from the main on its first edit).
+    Guid content = slotContentFor(change.props.parentIndex.guid, true);
+    if (content != kNoGuid) {
+      redirected = change;
+      redirected.props.parentIndex.guid = content;
+      return write(redirected);
+    }
+  }
+  if (userEdit) {
+    // Layers can't be added to or moved into an instance (slot content frames aside).
+    if (change.phase == Phase::CREATED && isStructuralTarget(change.props.parentIndex.guid) && !change.props.isSlotContent) return;
+    if (change.phase == Phase::CHANGED && (change.mask & F_PARENT_INDEX) && isStructuralTarget(change.props.parentIndex.guid) &&
+        !(existing && existing->props.parentIndex.guid == change.props.parentIndex.guid)) {
+      reduced = change;
+      reduced.mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TRANSFORM);
+      if (!reduced.mask) return;
+      c = &reduced;
+    }
+    // An instance takes overridable fields and its own; the rest comes from its main.
+    if (c->phase == Phase::CHANGED && existing && existing->props.type == NodeType::INSTANCE) {
+      constexpr FieldMask kInstanceWritable =
+          ~(F_TYPE | F_STACK_MODE | F_STACK_WRAP | F_STACK_REVERSE_Z | F_BORDERS_TAKE_SPACE | F_VECTOR_DATA | F_BOOLEAN_OPERATION |
+            F_MASK | F_RESIZE_TO_FIT | F_COUNT | F_STAR_INNER_SCALE | F_ARC_DATA | F_HANDLE_MIRRORING | F_COMPONENT_PROP_DEFS |
+            F_IS_STATE_GROUP | F_VARIANT_PROP_SPECS | F_STATE_GROUP_ORDERS | F_IS_SLOT | F_IS_SLOT_CONTENT | F_IS_SOFT_DELETED |
+            F_ANCESTOR_PATH | F_BACKGROUND_COLOR | F_BACKGROUND_ENABLED | F_INTERNAL_ONLY);
+      if (c->mask & ~kInstanceWritable) {
+        if (c != &reduced) reduced = *c;
+        reduced.mask &= kInstanceWritable;
+        if (!reduced.mask) return;
+        c = &reduced;
+      }
+    }
+  }
+  if (c->phase == Phase::CHANGED) {
     // Equal values are no-ops (docs/engine.md §9.1).
     if (!existing) return;
-    FieldMask mask = differingFields(existing->props, change.props, change.mask);
+    FieldMask mask = differingFields(existing->props, c->props, c->mask);
     if (!mask) return;
-    if (mask != change.mask) {
-      reduced = change;
+    if (mask != c->mask) {
+      if (c != &reduced) reduced = *c;
       reduced.mask = mask;
       c = &reduced;
     }
@@ -101,6 +145,8 @@ void Editor::write(const NodeChange& change) {
   if (record) undo_.record(inverse);
   markLayout(*c, parentBefore);
   noteChange(*c, typeBefore);
+  // An edit of an instance's own fields that are its root's is kept as its root override (docs/schema.md §5.2).
+  if (userEdit && c->phase == Phase::CHANGED && typeBefore == NodeType::INSTANCE) recordRootOverride(c->guid, *c);
 }
 
 void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
@@ -140,16 +186,25 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
 }
 
 void Editor::flushLayout() {
-  if (layoutDirty_.empty() || inLayout_) return;
-  if (!txn_.open || !(txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE)) {
-    layoutDirty_.clear();
-    return;
+  if (inLayout_ || deriving_) return;
+  // Layout, then the instances its results (and the transaction's edits) reach, then layout again for what
+  // re-derived instances moved (docs/engine.md §3.3).
+  for (int pass = 0; pass < 8; pass++) {
+    if (!layoutDirty_.empty()) {
+      if (txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE)) {
+        std::vector<Guid> dirty(layoutDirty_.begin(), layoutDirty_.end());
+        layoutDirty_.clear();
+        inLayout_ = true;
+        Layout(*this).run(dirty);
+        inLayout_ = false;
+      } else {
+        layoutDirty_.clear();
+      }
+    }
+    if (instanceDirty_.empty()) break;
+    flushInstances();
+    if (layoutDirty_.empty()) break;
   }
-  std::vector<Guid> dirty(layoutDirty_.begin(), layoutDirty_.end());
-  layoutDirty_.clear();
-  inLayout_ = true;
-  Layout(*this).run(dirty);
-  inLayout_ = false;
 }
 
 void Editor::removeEmptyGroups() {
@@ -174,6 +229,8 @@ void Editor::commit(bool mergeWithLast) {
     flushLayout();
     removeEmptyGroups();
     flushLayout();
+  } else {
+    flushLayout();  // instances re-derive after undo, redo, remote changes and loads
   }
   txn_.depth = 0;
   txn_.open = false;
@@ -201,17 +258,51 @@ void Editor::rollback() {
   txn_.changes.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
+  if (!instanceDirty_.empty()) {
+    // The instances the cancelled edit reached show their restored mains again.
+    begin(TxnKind::SYSTEM, "Instances");
+    commit();
+  }
   pruneSelection();
 }
 
 void Editor::relayoutAll() {
   std::vector<Guid> dirty;
+  std::vector<Guid> unusedDeleted;
+  std::unordered_set<Guid, GuidHash> used;
   doc_.forEach([&](const Node& n) {
+    if (n.guid.isDerived()) return;
     if (n.props.isAutoLayout() || n.props.fitsChildren()) dirty.push_back(n.guid);
+    if (n.props.type == NodeType::INSTANCE) {
+      instanceDirty_.insert(n.guid);
+      used.insert(n.props.symbolData.symbolID);
+      for (const SymbolOverride& o : n.props.symbolData.overrides)
+        if (o.mask & F_OVERRIDDEN_SYMBOL_ID) used.insert(o.props.overriddenSymbolID);
+    }
+    for (const ComponentPropAssignment& a : n.props.componentPropAssignments) used.insert(a.value.guidValue);
   });
-  if (dirty.empty()) return;
+  // Deleted mains kept for their instances go once nothing uses them (docs/schema.md §5.7).
+  doc_.forEach([&](const Node& n) {
+    if (n.props.isSoftDeleted && !used.count(n.guid)) {
+      bool anyUsed = false;
+      for (Guid c : doc_.children(n.guid)) anyUsed |= used.count(c) != 0;
+      if (!anyUsed) unusedDeleted.push_back(n.guid);
+    }
+  });
+  if (dirty.empty() && instanceDirty_.empty() && unusedDeleted.empty()) return;
   std::sort(dirty.begin(), dirty.end());
+  std::sort(unusedDeleted.begin(), unusedDeleted.end());
   begin(TxnKind::SYSTEM, "Layout");
+  for (Guid g : unusedDeleted) {
+    std::vector<Guid> order;
+    auto collect = [&](auto&& self, Guid id) -> void {
+      for (Guid c : std::vector<Guid>(doc_.children(id)))
+        if (!c.isDerived()) self(self, c);
+      order.push_back(id);
+    };
+    collect(collect, g);
+    for (Guid id : order) write(NodeChange::removed(id));
+  }
   inLayout_ = true;
   Layout(*this).run(dirty);
   inLayout_ = false;
@@ -229,6 +320,9 @@ void Editor::writeGeometry(Guid id, const Mat2x3& transform, Vec2 size) {
 }
 
 bool Editor::resizedInTxn(Guid frame, Vec2& oldSize) const {
+  // An instance and its sublayers: their children were laid out for the main's sizes.
+  if (blueprintSourceSize(frame, oldSize)) return !intrinsicLayout_;
+  if (frame.isDerived()) return false;
   const NodeChange* inv = undo_.openInverse(frame);
   if (!inv || !(inv->mask & F_SIZE)) return false;
   oldSize = inv->props.size;
@@ -238,9 +332,12 @@ bool Editor::resizedInTxn(Guid frame, Vec2& oldSize) const {
 void Editor::base(Guid id, Mat2x3& transform, Vec2& size) const {
   const Node* n = doc_.get(id);
   if (!n) return;
+  if (blueprintBase(id, transform, size)) return;
   transform = n->props.transform;
   size = n->props.size;
   if (const NodeChange* inv = undo_.openInverse(id)) {
+    // Moved to another parent in this transaction: its old transform was in the old parent's space.
+    if ((inv->mask & F_PARENT_INDEX) && inv->props.parentIndex.guid != n->props.parentIndex.guid) return;
     if (inv->mask & F_TRANSFORM) transform = inv->props.transform;
     if (inv->mask & F_SIZE) size = inv->props.size;
   }
@@ -293,6 +390,7 @@ std::string Editor::nextName(const char* base) const {
   std::string prefix = std::string(base) + " ";
   unsigned long highest = 0;
   doc_.forEach([&](const Node& n) {
+    if (n.guid.isDerived()) return;
     const std::string& name = n.props.name;
     if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0) return;
     unsigned long v = 0;
@@ -370,9 +468,17 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   pinned_.clear();
   textCache_.clear();
   unmeasured_.clear();
+  instanceDirty_.clear();
+  sourceDeps_.clear();
+  instanceSources_.clear();
+  derivedRows_.clear();
+  derivedInfo_.clear();
+  blueprint_.clear();
+  navMain_ = returnTo_ = kNoGuid;
   if (text_.node != kNoGuid) events_.textEdit = true;
   text_ = TextSession{};
   for (const NodeChange& c : nodes) {
+    if (c.guid.isDerived()) continue;
     NodeChange created = c;
     created.phase = Phase::CREATED;
     created.mask = F_ALL;
@@ -423,12 +529,13 @@ std::vector<NodeChange> Editor::encodeDocument() const {
   std::vector<NodeChange> out;
   std::vector<Guid> roots;
   doc_.forEach([&](const Node& n) {
-    if (!doc_.has(n.props.parentIndex.guid)) roots.push_back(n.guid);
+    if (!n.guid.isDerived() && !doc_.has(n.props.parentIndex.guid)) roots.push_back(n.guid);
   });
   std::sort(roots.begin(), roots.end());
   auto visit = [&](auto&& self, Guid id) -> void {
     out.push_back(NodeChange::created(id, doc_.get(id)->props));
-    for (Guid c : doc_.children(id)) self(self, c);
+    for (Guid c : doc_.children(id))
+      if (!c.isDerived()) self(self, c);  // an instance's sublayers are derived, never stored
   };
   for (Guid r : roots) visit(visit, r);
   return out;

@@ -231,6 +231,163 @@ void writeVectorData(json::Writer& w, const VectorData& v, BlobsOut* blobs) {
   w.endObject();
 }
 
+// GUIDs inside component structures: {"sessionID","localID"} (as decoded .fig files and the editor's model).
+void writeGuidObject(json::Writer& w, Guid g) {
+  w.beginObject().key("sessionID").number(g.sessionID).key("localID").number(g.localID).endObject();
+}
+
+void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update, BlobsOut* blobs);
+
+void writePropValue(json::Writer& out, const ComponentPropValue& v) {
+  json::Writer w;
+  w.beginObject();
+  if (v.hasBool) w.key("boolValue").boolean(v.boolValue);
+  if (v.hasText) {
+    w.key("textValue");
+    writeTextData(w, v.textValue);
+  }
+  if (v.guidValue != kNoGuid) {
+    w.key("guidValue");
+    writeGuidObject(w, v.guidValue);
+  }
+  w.endObject();
+  out.raw(withExtra(w, v.extra));
+}
+
+void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update, std::vector<uint32_t>& cleared,
+                          BlobsOut* blobs) {
+  auto guidOrClear = [&](FieldMask bit, const char* key, Guid g) {
+    if (!(mask & bit)) return;
+    if (g != kNoGuid) {
+      w.key(key);
+      writeGuidObject(w, g);
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(static_cast<Field>(bit)));
+    }
+  };
+  guidOrClear(F_OVERRIDE_KEY, "overrideKey", p.overrideKey);
+  if (mask & F_SYMBOL_DATA) {
+    if (p.symbolData.present()) {
+      w.key("symbolData").beginObject();
+      if (p.symbolData.symbolID != kNoGuid) {
+        w.key("symbolID");
+        writeGuidObject(w, p.symbolData.symbolID);
+      }
+      w.key("symbolOverrides").beginArray();
+      for (const SymbolOverride& o : p.symbolData.overrides) {
+        w.beginObject();
+        w.key("guidPath").beginObject().key("guids").beginArray();
+        for (Guid g : o.path) writeGuidObject(w, g);
+        w.endArray().endObject();
+        writeFields(w, o.props, o.mask & ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE), false, blobs);
+        w.endObject();
+      }
+      w.endArray();
+      w.key("uniformScaleFactor").number(p.symbolData.uniformScaleFactor);
+      w.endObject();
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(F_SYMBOL_DATA));
+    }
+  }
+  guidOrClear(F_OVERRIDDEN_SYMBOL_ID, "overriddenSymbolID", p.overriddenSymbolID);
+  if (mask & F_COMPONENT_PROP_DEFS) {
+    w.key("componentPropDefs").beginArray();
+    for (const ComponentPropDef& d : p.componentPropDefs) {
+      json::Writer one;
+      one.beginObject();
+      one.key("id");
+      writeGuidObject(one, d.id);
+      one.key("name").string(d.name);
+      one.key("initialValue");
+      writePropValue(one, d.initialValue);
+      if (!d.sortPosition.empty()) one.key("sortPosition").string(d.sortPosition);
+      one.key("type").string(enumName(d.type));
+      if (!d.preferredValues.empty()) {
+        one.key("preferredValues").beginObject().key("instanceSwapValues").beginArray();
+        for (const PreferredValue& v : d.preferredValues)
+          one.beginObject().key("type").string(v.stateGroup ? "STATE_GROUP" : "COMPONENT").key("key").string(v.key).endObject();
+        one.endArray().endObject();
+      }
+      if (!d.description.empty()) one.key("description").string(d.description);
+      one.endObject();
+      w.raw(withExtra(one, d.extra));
+    }
+    w.endArray();
+  }
+  if (mask & F_COMPONENT_PROP_ASSIGNMENTS) {
+    w.key("componentPropAssignments").beginArray();
+    for (const ComponentPropAssignment& a : p.componentPropAssignments) {
+      json::Writer one;
+      one.beginObject();
+      one.key("defID");
+      writeGuidObject(one, a.defID);
+      one.key("value");
+      writePropValue(one, a.value);
+      one.endObject();
+      w.raw(withExtra(one, a.extra));
+    }
+    w.endArray();
+  }
+  if (mask & F_PARAM_MAP) {
+    w.key("parameterConsumptionMap").beginObject().key("entries").beginArray();
+    for (const ParamBinding& b : p.parameterConsumptionMap) {
+      w.beginObject();
+      w.key("variableField").string(enumName(b.field));
+      w.key("variableData");
+      if (b.propRef != kNoGuid) {
+        const char* resolved = b.field == VariableField::VISIBLE ? "BOOLEAN"
+                               : b.field == VariableField::TEXT_DATA ? "TEXT_DATA"
+                               : b.field == VariableField::OVERRIDDEN_SYMBOL_ID ? "SYMBOL_ID"
+                               : b.field == VariableField::SLOT_CONTENT_ID ? "SLOT_CONTENT_ID" : "STRING";
+        w.beginObject().key("value").beginObject().key("propRefValue").beginObject().key("defId");
+        writeGuidObject(w, b.propRef);
+        w.endObject().endObject().key("dataType").string("PROP_REF").key("resolvedDataType").string(resolved).endObject();
+      } else {
+        w.raw(b.variableData.empty() ? std::string("{}") : b.variableData);
+      }
+      w.endObject();
+    }
+    w.endArray().endObject();
+  }
+  if (mask & F_IS_STATE_GROUP) w.key("isStateGroup").boolean(p.isStateGroup);
+  if (mask & F_VARIANT_PROP_SPECS) {
+    w.key("variantPropSpecs").beginArray();
+    for (const VariantPropSpec& v : p.variantPropSpecs) {
+      w.beginObject().key("propDefId");
+      writeGuidObject(w, v.propDefId);
+      w.key("value").string(v.value).endObject();
+    }
+    w.endArray();
+  }
+  if (mask & F_STATE_GROUP_ORDERS) {
+    w.key("stateGroupPropertyValueOrders").beginArray();
+    for (const StateGroupOrder& o : p.stateGroupPropertyValueOrders) {
+      w.beginObject().key("property").string(o.property).key("values").beginArray();
+      for (auto& v : o.values) w.string(v);
+      w.endArray().endObject();
+    }
+    w.endArray();
+  }
+  if (mask & F_PROPS_ARE_BUBBLED) w.key("propsAreBubbled").boolean(p.propsAreBubbled);
+  if (mask & F_IS_SLOT) w.key("isSlot").boolean(p.isSlot);
+  if (mask & F_IS_SLOT_CONTENT) w.key("isSlotContent").boolean(p.isSlotContent);
+  if (mask & F_DETACHED_SYMBOL_ID) {
+    if (p.detachedSymbolId != kNoGuid) {
+      w.key("detachedSymbolId").beginObject().key("guid");
+      writeGuidObject(w, p.detachedSymbolId);
+      w.endObject();
+    } else if (update) {
+      cleared.push_back(kiwiFieldId(F_DETACHED_SYMBOL_ID));
+    }
+  }
+  if (mask & F_IS_SOFT_DELETED) w.key("isSoftDeleted").boolean(p.isSoftDeleted);
+  if (mask & F_ANCESTOR_PATH) {
+    w.key("ancestorPathBeforeDeletion").beginArray();
+    for (Guid g : p.ancestorPathBeforeDeletion) writeGuidObject(w, g);
+    w.endArray();
+  }
+}
+
 // Writes the fields in `mask`; for an update, an optional field that is unset
 // in `p` goes to clearedFields instead.
 void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update, BlobsOut* blobs) {
@@ -403,6 +560,7 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
     }
     w.endArray();
   }
+  writeComponentFields(w, p, mask, update, cleared, blobs);
   if (mask & F_EXTRA)
     for (auto& [k, v] : p.extra)
       if (!v.empty()) w.key(k).raw(v);
@@ -630,8 +788,11 @@ bool knownKey(std::string_view k) {
       "autoRename", "blendMode", "mask", "maskType", "strokeCap", "strokeJoin", "miterLimit", "dashPattern",
       "borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight", "borderStrokeWeightsIndependent",
       "cornerSmoothing", "effects", "count", "starInnerScale", "arcData", "vectorData", "handleMirroring", "booleanOperation", "layoutGrids",
+      "overrideKey", "symbolData", "overriddenSymbolID", "componentPropDefs", "componentPropAssignments", "parameterConsumptionMap",
+      "componentPropRefs", "isStateGroup", "variantPropSpecs", "stateGroupPropertyValueOrders", "propsAreBubbled", "isSlot",
+      "isSlotContent", "detachedSymbolId", "isSoftDeleted", "ancestorPathBeforeDeletion",
       // Not kept: derived (recomputed) or panel-only.
-      "derivedTextData", "childIds", "fillGeometry", "strokeGeometry", "blobs"};
+      "derivedTextData", "derivedSymbolData", "childIds", "fillGeometry", "strokeGeometry", "blobs", "guidPath"};
   for (std::string_view known : kKnown)
     if (k == known) return true;
   return false;
@@ -676,6 +837,185 @@ TextData readTextData(const json::Value& v) {
   if (auto* x = v.get("lines"); x && x->isArray())
     for (auto& e : x->array) t.lines.push_back(json::encode(e));
   return t;
+}
+
+
+// ---- Components ----
+
+void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, const BlobsIn* blobs);
+
+ComponentPropValue readPropValue(const json::Value& v) {
+  ComponentPropValue out;
+  if (!v.isObject()) return out;
+  for (auto& [k, x] : v.object) {
+    if (k == "boolValue" && x.isBool()) out.hasBool = true, out.boolValue = x.boolean;
+    else if (k == "textValue" && x.isObject()) out.hasText = true, out.textValue = readTextData(x);
+    else if (k == "guidValue") readGuid(x, out.guidValue);
+    else appendMember(out.extra, k, x);
+  }
+  return out;
+}
+
+VariableField variableFieldOf(const json::Value& x) {
+  VariableField f = VariableField::MISSING;
+  if (x.isString()) enumFromName(x.string, f);
+  else if (x.isNumber() && x.number >= 0 && x.number < 64) f = static_cast<VariableField>(static_cast<int>(x.number));
+  return f;
+}
+
+void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const BlobsIn* blobs) {
+  if (auto* x = v.get("overrideKey"); x && readGuid(*x, p.overrideKey)) m |= F_OVERRIDE_KEY;
+  if (auto* x = v.get("symbolData"); x && x->isObject()) {
+    SymbolData d;
+    if (auto* id = x->get("symbolID")) readGuid(*id, d.symbolID);
+    if (auto* f = x->get("uniformScaleFactor"); f && f->isNumber()) d.uniformScaleFactor = f->number;
+    if (auto* list = x->get("symbolOverrides"); list && list->isArray()) {
+      for (auto& e : list->array) {
+        if (!e.isObject()) continue;
+        SymbolOverride o;
+        if (auto* gp = e.get("guidPath"); gp && gp->isObject())
+          if (auto* guids = gp->get("guids"); guids && guids->isArray())
+            for (auto& g : guids->array) {
+              Guid key;
+              if (readGuid(g, key)) o.path.push_back(key);
+            }
+        // Figma writes the root's entry as [symbolID]: the empty path here (docs/schema.md §5.1).
+        if (o.path.size() == 1 && o.path[0] == d.symbolID) o.path.clear();
+        readFields(e, o.props, o.mask, false, blobs);
+        o.mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE);
+        // Entries for the same path merge (later fields win).
+        auto same = std::find_if(d.overrides.begin(), d.overrides.end(), [&](const SymbolOverride& q) { return q.path == o.path; });
+        if (same != d.overrides.end()) {
+          copyFields(same->props, o.props, o.mask & ~static_cast<FieldMask>(F_EXTRA));
+          for (auto& [k, val] : o.props.extra) same->props.extra[k] = val;
+          same->mask |= o.mask;
+        } else {
+          d.overrides.push_back(std::move(o));
+        }
+      }
+    }
+    p.symbolData = std::move(d);
+    m |= F_SYMBOL_DATA;
+  }
+  if (auto* x = v.get("overriddenSymbolID"); x && readGuid(*x, p.overriddenSymbolID)) m |= F_OVERRIDDEN_SYMBOL_ID;
+  if (auto* x = v.get("componentPropDefs"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      if (!e.isObject()) continue;
+      ComponentPropDef d;
+      for (auto& [k, y] : e.object) {
+        if (k == "id") readGuid(y, d.id);
+        else if (k == "name" && y.isString()) d.name = y.string;
+        else if (k == "initialValue") d.initialValue = readPropValue(y);
+        else if (k == "sortPosition" && y.isString()) d.sortPosition = y.string;
+        else if (k == "type" && (y.isString() || y.isNumber())) {
+          if (y.isString()) enumFromName(y.string, d.type);
+          else d.type = static_cast<ComponentPropType>(static_cast<int>(y.number));
+        } else if (k == "description" && y.isString()) d.description = y.string;
+        else if (k == "preferredValues" && y.isObject()) {
+          std::string rest;
+          for (auto& [pk, pv] : y.object) {
+            if (pk == "instanceSwapValues" && pv.isArray()) {
+              for (auto& iv : pv.array) {
+                PreferredValue pref;
+                if (auto* t = iv.get("type"); t && t->isString()) pref.stateGroup = t->string == "STATE_GROUP";
+                if (auto* key = iv.get("key"); key && key->isString()) pref.key = key->string;
+                d.preferredValues.push_back(pref);
+              }
+            } else {
+              appendMember(rest, pk, pv);
+            }
+          }
+          if (!rest.empty()) d.extra += (d.extra.empty() ? "" : ",") + std::string("\"preferredValues\":{") + rest + "}";
+        } else {
+          appendMember(d.extra, k, y);
+        }
+      }
+      p.componentPropDefs.push_back(std::move(d));
+    }
+    m |= F_COMPONENT_PROP_DEFS;
+  }
+  if (auto* x = v.get("componentPropAssignments"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      if (!e.isObject()) continue;
+      ComponentPropAssignment a;
+      for (auto& [k, y] : e.object) {
+        if (k == "defID") readGuid(y, a.defID);
+        else if (k == "value") a.value = readPropValue(y);
+        else appendMember(a.extra, k, y);
+      }
+      p.componentPropAssignments.push_back(std::move(a));
+    }
+    m |= F_COMPONENT_PROP_ASSIGNMENTS;
+  }
+  if (auto* x = v.get("parameterConsumptionMap"); x && x->isObject()) {
+    if (auto* entries = x->get("entries"); entries && entries->isArray())
+      for (auto& e : entries->array) {
+        if (!e.isObject()) continue;
+        ParamBinding b;
+        if (auto* f = e.get("variableField")) b.field = variableFieldOf(*f);
+        const json::Value* data = e.get("variableData");
+        const json::Value* type = data ? data->get("dataType") : nullptr;
+        const json::Value* ref = nullptr;
+        if (data && type && type->isString() && type->string == "PROP_REF")
+          if (auto* val = data->get("value"))
+            if (auto* pr = val->get("propRefValue")) ref = pr->get("defId");
+        if (!(ref && readGuid(*ref, b.propRef)) && data) b.variableData = json::encode(*data);
+        p.parameterConsumptionMap.push_back(std::move(b));
+      }
+    m |= F_PARAM_MAP;
+  }
+  // Figma's older componentPropRefs [{defID, componentPropNodeField}] become PROP_REF bindings (docs/schema.md §5.5).
+  if (auto* x = v.get("componentPropRefs"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      ParamBinding b;
+      const json::Value* def = e.get("defID");
+      const json::Value* field = e.get("componentPropNodeField");
+      if (!def || !readGuid(*def, b.propRef) || !field || !field->isString()) continue;
+      if (field->string == "VISIBLE") b.field = VariableField::VISIBLE;
+      else if (field->string == "TEXT_DATA") b.field = VariableField::TEXT_DATA;
+      else if (field->string == "OVERRIDDEN_SYMBOL_ID") b.field = VariableField::OVERRIDDEN_SYMBOL_ID;
+      else if (field->string == "SLOT_CONTENT_ID") b.field = VariableField::SLOT_CONTENT_ID;
+      else continue;
+      bool dup = false;
+      for (auto& q : p.parameterConsumptionMap) dup |= q.field == b.field;
+      if (!dup) p.parameterConsumptionMap.push_back(b);
+      m |= F_PARAM_MAP;
+    }
+  }
+  readBool(v, "isStateGroup", p.isStateGroup, F_IS_STATE_GROUP, m);
+  if (auto* x = v.get("variantPropSpecs"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      VariantPropSpec spec;
+      if (auto* id = e.get("propDefId")) readGuid(*id, spec.propDefId);
+      if (auto* val = e.get("value"); val && val->isString()) spec.value = val->string;
+      p.variantPropSpecs.push_back(spec);
+    }
+    m |= F_VARIANT_PROP_SPECS;
+  }
+  if (auto* x = v.get("stateGroupPropertyValueOrders"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      StateGroupOrder o;
+      if (auto* prop = e.get("property"); prop && prop->isString()) o.property = prop->string;
+      if (auto* vals = e.get("values"); vals && vals->isArray())
+        for (auto& val : vals->array)
+          if (val.isString()) o.values.push_back(val.string);
+      p.stateGroupPropertyValueOrders.push_back(o);
+    }
+    m |= F_STATE_GROUP_ORDERS;
+  }
+  readBool(v, "propsAreBubbled", p.propsAreBubbled, F_PROPS_ARE_BUBBLED, m);
+  readBool(v, "isSlot", p.isSlot, F_IS_SLOT, m);
+  readBool(v, "isSlotContent", p.isSlotContent, F_IS_SLOT_CONTENT, m);
+  if (auto* x = v.get("detachedSymbolId"); x && x->isObject())
+    if (auto* g = x->get("guid"); g && readGuid(*g, p.detachedSymbolId)) m |= F_DETACHED_SYMBOL_ID;
+  readBool(v, "isSoftDeleted", p.isSoftDeleted, F_IS_SOFT_DELETED, m);
+  if (auto* x = v.get("ancestorPathBeforeDeletion"); x && x->isArray()) {
+    for (auto& e : x->array) {
+      Guid g;
+      if (readGuid(e, g)) p.ancestorPathBeforeDeletion.push_back(g);
+    }
+    m |= F_ANCESTOR_PATH;
+  }
 }
 
 }  // namespace
@@ -728,17 +1068,8 @@ void writeNode(json::Writer& w, const Node& node, BlobsOut* blobs) {
   w.endObject();
 }
 
-bool readChange(const json::Value& v, NodeChange& out, const BlobsIn* blobs) {
-  if (!v.isObject()) return false;
-  const json::Value* g = v.get("guid");
-  out = NodeChange{};
-  if (!g || !readGuid(*g, out.guid)) return false;
-  if (auto* ph = v.get("phase"); ph && ph->isString()) {
-    if (ph->string == "CREATED") out.phase = Phase::CREATED;
-    else if (ph->string == "REMOVED") out.phase = Phase::REMOVED;
-  }
-  NodeProps& p = out.props;
-  FieldMask m = 0;
+namespace {
+void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, const BlobsIn* blobs) {
   if (auto* x = v.get("type"); x && x->isString()) { p.type = nodeTypeFromName(x->string); m |= F_TYPE; }
   if (auto* x = v.get("name"); x && x->isString()) { p.name = x->string; m |= F_NAME; }
   readBool(v, "visible", p.visible, F_VISIBLE, m);
@@ -883,6 +1214,7 @@ bool readChange(const json::Value& v, NodeChange& out, const BlobsIn* blobs) {
     if (auto* pos = x->get("position"); pos && pos->isString()) p.parentIndex.position = pos->string;
     m |= F_PARENT_INDEX;
   }
+  readComponentFields(v, p, m, blobs);
   // Everything else round-trips as it came.
   for (auto& [k, x] : v.object)
     if (!knownKey(k)) {
@@ -890,7 +1222,7 @@ bool readChange(const json::Value& v, NodeChange& out, const BlobsIn* blobs) {
       m |= F_EXTRA;
     }
   // clearedFields: kiwi field ids reset to absent (their default) — an update only.
-  if (auto* x = v.get("clearedFields"); x && x->isArray() && out.phase == Phase::CHANGED) {
+  if (auto* x = v.get("clearedFields"); x && x->isArray() && update) {
     NodeProps defaults;
     for (auto& id : x->array) {
       FieldMask f = fieldsOfKiwiId(static_cast<uint32_t>(id.numberOr(0))) & ~static_cast<FieldMask>(F_TYPE | F_PARENT_INDEX);
@@ -899,6 +1231,20 @@ bool readChange(const json::Value& v, NodeChange& out, const BlobsIn* blobs) {
       m |= f;
     }
   }
+}
+}  // namespace
+
+bool readChange(const json::Value& v, NodeChange& out, const BlobsIn* blobs) {
+  if (!v.isObject()) return false;
+  const json::Value* g = v.get("guid");
+  out = NodeChange{};
+  if (!g || !readGuid(*g, out.guid)) return false;
+  if (auto* ph = v.get("phase"); ph && ph->isString()) {
+    if (ph->string == "CREATED") out.phase = Phase::CREATED;
+    else if (ph->string == "REMOVED") out.phase = Phase::REMOVED;
+  }
+  FieldMask m = 0;
+  readFields(v, out.props, m, out.phase == Phase::CHANGED, blobs);
   out.mask = out.phase == Phase::CREATED ? F_ALL : (out.phase == Phase::REMOVED ? 0 : m);
   return true;
 }
@@ -981,5 +1327,67 @@ std::vector<Paint> readPaints(const json::Value& v, const BlobsIn* blobs) {
 }
 
 void setImageDataSink(ImageDataSink sink) { gImageDataSink = sink; }
+
+namespace {
+struct FieldKey {
+  FieldMask bit;
+  const char* key;
+};
+const FieldKey kFieldKeys[] = {
+    {F_TYPE, "type"}, {F_NAME, "name"}, {F_VISIBLE, "visible"}, {F_LOCKED, "locked"}, {F_OPACITY, "opacity"},
+    {F_TRANSFORM, "transform"}, {F_SIZE, "size"}, {F_FILLS, "fillPaints"}, {F_STROKES, "strokePaints"},
+    {F_STROKE_WEIGHT, "strokeWeight"}, {F_STROKE_ALIGN, "strokeAlign"}, {F_CORNER_RADII, "cornerRadius"},
+    {F_FRAME_MASK_DISABLED, "frameMaskDisabled"}, {F_PARENT_INDEX, "parentIndex"}, {F_RESIZE_TO_FIT, "resizeToFit"},
+    {F_BACKGROUND_COLOR, "backgroundColor"}, {F_BACKGROUND_ENABLED, "backgroundEnabled"}, {F_INTERNAL_ONLY, "internalOnly"},
+    {F_STACK_MODE, "stackMode"}, {F_STACK_SPACING, "stackSpacing"}, {F_STACK_PADDING_LEFT, "stackHorizontalPadding"},
+    {F_STACK_PADDING_TOP, "stackVerticalPadding"}, {F_STACK_PADDING_RIGHT, "stackPaddingRight"},
+    {F_STACK_PADDING_BOTTOM, "stackPaddingBottom"}, {F_STACK_PRIMARY_SIZING, "stackPrimarySizing"},
+    {F_STACK_COUNTER_SIZING, "stackCounterSizing"}, {F_STACK_PRIMARY_ALIGN, "stackPrimaryAlignItems"},
+    {F_STACK_COUNTER_ALIGN, "stackCounterAlignItems"}, {F_STACK_COUNTER_ALIGN_CONTENT, "stackCounterAlignContent"},
+    {F_STACK_WRAP, "stackWrap"}, {F_STACK_COUNTER_SPACING, "stackCounterSpacing"}, {F_STACK_REVERSE_Z, "stackReverseZIndex"},
+    {F_BORDERS_TAKE_SPACE, "bordersTakeSpace"}, {F_STACK_CHILD_GROW, "stackChildPrimaryGrow"},
+    {F_STACK_CHILD_ALIGN_SELF, "stackChildAlignSelf"}, {F_STACK_POSITIONING, "stackPositioning"}, {F_MIN_SIZE, "minSize"},
+    {F_MAX_SIZE, "maxSize"}, {F_H_CONSTRAINT, "horizontalConstraint"}, {F_V_CONSTRAINT, "verticalConstraint"},
+    {F_PROPORTIONS_CONSTRAINED, "proportionsConstrained"}, {F_TEXT_DATA, "textData"}, {F_FONT_NAME, "fontName"},
+    {F_FONT_SIZE, "fontSize"}, {F_LINE_HEIGHT, "lineHeight"}, {F_LETTER_SPACING, "letterSpacing"},
+    {F_PARAGRAPH_SPACING, "paragraphSpacing"}, {F_PARAGRAPH_INDENT, "paragraphIndent"}, {F_TEXT_ALIGN_H, "textAlignHorizontal"},
+    {F_TEXT_ALIGN_V, "textAlignVertical"}, {F_TEXT_AUTO_RESIZE, "textAutoResize"}, {F_TEXT_TRUNCATION, "textTruncation"},
+    {F_MAX_LINES, "maxLines"}, {F_TEXT_CASE, "textCase"}, {F_TEXT_DECORATION, "textDecoration"}, {F_AUTO_RENAME, "autoRename"},
+    {F_BLEND_MODE, "blendMode"}, {F_MASK, "mask"}, {F_MASK_TYPE, "maskType"}, {F_STROKE_CAP, "strokeCap"},
+    {F_STROKE_JOIN, "strokeJoin"}, {F_MITER_LIMIT, "miterLimit"}, {F_DASH_PATTERN, "dashPattern"},
+    {F_BORDER_WEIGHTS, "borderTopWeight"}, {F_CORNER_SMOOTHING, "cornerSmoothing"}, {F_EFFECTS, "effects"}, {F_COUNT, "count"},
+    {F_STAR_INNER_SCALE, "starInnerScale"}, {F_ARC_DATA, "arcData"}, {F_VECTOR_DATA, "vectorData"},
+    {F_HANDLE_MIRRORING, "handleMirroring"}, {F_BOOLEAN_OPERATION, "booleanOperation"}, {F_LAYOUT_GRIDS, "layoutGrids"},
+    {F_OVERRIDE_KEY, "overrideKey"}, {F_SYMBOL_DATA, "symbolData"}, {F_OVERRIDDEN_SYMBOL_ID, "overriddenSymbolID"},
+    {F_COMPONENT_PROP_DEFS, "componentPropDefs"}, {F_COMPONENT_PROP_ASSIGNMENTS, "componentPropAssignments"},
+    {F_PARAM_MAP, "parameterConsumptionMap"}, {F_IS_STATE_GROUP, "isStateGroup"}, {F_VARIANT_PROP_SPECS, "variantPropSpecs"},
+    {F_STATE_GROUP_ORDERS, "stateGroupPropertyValueOrders"}, {F_PROPS_ARE_BUBBLED, "propsAreBubbled"}, {F_IS_SLOT, "isSlot"},
+    {F_IS_SLOT_CONTENT, "isSlotContent"}, {F_DETACHED_SYMBOL_ID, "detachedSymbolId"}, {F_IS_SOFT_DELETED, "isSoftDeleted"},
+    {F_ANCESTOR_PATH, "ancestorPathBeforeDeletion"},
+};
+}  // namespace
+
+const char* fieldKey(FieldMask bit) {
+  for (const FieldKey& k : kFieldKeys)
+    if (k.bit == bit) return k.key;
+  return "";
+}
+
+FieldMask fieldOfKey(std::string_view key) {
+  for (const FieldKey& k : kFieldKeys)
+    if (key == k.key) return k.bit;
+  for (int i = 0; i < 4; i++)
+    if (key == kCornerKeys[i] || key == "rectangleCornerRadiiIndependent") return F_CORNER_RADII;
+  if (key == "borderRightWeight" || key == "borderBottomWeight" || key == "borderLeftWeight" || key == "borderStrokeWeightsIndependent")
+    return F_BORDER_WEIGHTS;
+  return 0;
+}
+
+std::vector<std::string> fieldKeys(FieldMask mask) {
+  std::vector<std::string> out;
+  for (const FieldKey& k : kFieldKeys)
+    if (mask & k.bit) out.push_back(k.key);
+  return out;
+}
 
 }  // namespace eng::codec

@@ -545,6 +545,19 @@ void Layout::fitGroup(Guid id) {
   }
 }
 
+void Layout::settle(Guid id) {
+  memo_.clear();
+  const Node* n = doc_.get(id);
+  if (n) arrange(id, n->props.size, false);
+  memo_.clear();
+}
+
+void Layout::constrainChildren(Guid frame) {
+  memo_.clear();
+  if (doc_.has(frame)) applyConstraints(frame, true);
+  memo_.clear();
+}
+
 void Layout::run(const std::vector<Guid>& dirty) {
   memo_.clear();
   std::unordered_set<Guid, GuidHash> roots;

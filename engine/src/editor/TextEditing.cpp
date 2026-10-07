@@ -236,7 +236,7 @@ void Editor::createTextAt(Vec2 world, double width) {
   Guid parent = page_;
   auto path = hitPath(doc_, page_, world, pixel());
   for (auto it = path.rbegin(); it != path.rend(); ++it)
-    if (doc_.get(*it)->props.isFrameLike()) {
+    if (acceptsChildren(*it)) {
       parent = *it;
       break;
     }

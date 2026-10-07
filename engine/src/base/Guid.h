@@ -11,6 +11,13 @@
 
 namespace eng {
 
+struct Guid;
+// Instance sublayers are derived rows (docs/schema.md §5.1): their ids live in this session and print as
+// Figma's "I<instance>;<key>;…" (base/DerivedIds.h interns the paths).
+inline constexpr uint32_t kDerivedSession = 0xFFFFFFFEu;
+std::string derivedGuidString(uint32_t localID);
+bool parseDerivedGuid(std::string_view s, Guid& out);
+
 struct Guid {
   uint32_t sessionID = 0;
   uint32_t localID = 0;
@@ -21,11 +28,21 @@ struct Guid {
     return sessionID != o.sessionID ? sessionID < o.sessionID : localID < o.localID;
   }
 
-  std::string toString() const { return std::to_string(sessionID) + ":" + std::to_string(localID); }
+  bool isDerived() const { return sessionID == kDerivedSession; }
 
-  // "s:l" → Guid; `ok` false for anything else.
+  std::string toString() const {
+    if (sessionID == kDerivedSession) return derivedGuidString(localID);
+    return std::to_string(sessionID) + ":" + std::to_string(localID);
+  }
+
+  // "s:l" (or a derived "I…;…") → Guid; `ok` false for anything else.
   static Guid parse(std::string_view s, bool* ok = nullptr) {
     Guid g;
+    if (!s.empty() && s[0] == 'I') {
+      bool good = parseDerivedGuid(s, g);
+      if (ok) *ok = good;
+      return good ? g : Guid{};
+    }
     size_t colon = s.find(':');
     bool good = colon != std::string_view::npos && colon > 0 && colon + 1 < s.size();
     for (size_t i = 0; good && i < s.size(); i++)

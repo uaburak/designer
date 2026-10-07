@@ -78,6 +78,41 @@ export const CommandId = {
   VECTOR_SET_POINTS: 112,
   /** args { start?, end?: StrokeCap }: open paths' ends (the selection, or the vector being edited). */
   SET_END_CAPS: 113,
+  // E6: components and instances (docs/engine-build.md "E6"). `ref` args default to the selection.
+  /** ⌥⌘K. args { mode?: "SINGLE" | "MULTIPLE" | "SET" } ("Create component" / "Create multiple components" / "Create component set"). */
+  CREATE_COMPONENT: 120,
+  COMBINE_AS_VARIANTS: 121,
+  ADD_VARIANT: 122,
+  /** ⌥⌘B. args { ref? } (a nested instance detaches its ancestors first). */
+  DETACH_INSTANCE: 123,
+  /** args { ref?, field?, fields? }: "Reset all changes", or Reset › those properties (schema field names). */
+  RESET_OVERRIDES: 124,
+  PUSH_CHANGES_TO_MAIN: 125,
+  /** ⌃⌥⌘K: selects the main (switching page), zooms to it; INSTANCE_NAVIGATION follows. */
+  GO_TO_MAIN_COMPONENT: 126,
+  RETURN_TO_INSTANCE: 127,
+  /** args { main, ref? } */
+  SWAP_INSTANCE: 128,
+  /** args { ref?, prop: id | name, value: boolean | string | Guid } */
+  SET_COMPONENT_PROPERTY: 129,
+  /** args { ref?, name?, type: "BOOL" | "TEXT" | "INSTANCE_SWAP" | "VARIANT" | "SLOT", defaultValue?, bind?: Guid[], preferredValues?: Guid[] } */
+  ADD_COMPONENT_PROPERTY: 130,
+  /** args { ref?, prop, name?, defaultValue?, preferredValues?, oldValue?, newValue? } */
+  EDIT_COMPONENT_PROPERTY: 131,
+  /** args { ref?, prop } */
+  DELETE_COMPONENT_PROPERTY: 132,
+  /** args { refs?, field: "VISIBLE" | "TEXT_DATA" | "OVERRIDDEN_SYMBOL_ID" | "SLOT_CONTENT_ID", prop ("" unbinds) } */
+  BIND_COMPONENT_PROPERTY: 133,
+  /** args { ref? }: an instance whose main was deleted, or the deleted main. */
+  RESTORE_COMPONENT: 134,
+  /** args { ref?, exposed: boolean }: a nested instance in a main ("Expose properties from nested instances"). */
+  SET_EXPOSED_INSTANCE: 135,
+  /** args { ref? }: a slot (or its content) back to the main's content. */
+  RESET_SLOT: 136,
+  /** args { main, x?, y?, parent? }: an instance of a main (a set: its default variant) centred at the page point (else the view's centre). */
+  INSERT_INSTANCE: 137,
+  /** args { ref?, values: { [property]: value } }: a variant's own values in its set (renames it). */
+  SET_VARIANT_PROPERTIES: 138,
 } as const;
 export type CommandName = keyof typeof CommandId;
 

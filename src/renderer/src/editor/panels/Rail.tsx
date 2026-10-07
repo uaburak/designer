@@ -8,9 +8,8 @@
 import { useRef, useState } from "react";
 import { ContextMenu, Rail as DSRail, RailItem, RailSeparator, showToast, type MenuEntry } from "@/ds";
 import { useEditor } from "../controller";
-import { runEditorCommand } from "../commands";
 import { useUI } from "../hooks";
-import { commandItem, mainMenu } from "../menus";
+import { commandItem, mainMenu, runMenuItem } from "../menus";
 
 type Open = { owner: "main" | "settings"; at: { x: number; y: number }; entries: MenuEntry[] } | null;
 
@@ -53,7 +52,7 @@ export function Rail() {
           label={menu.owner === "main" ? "Main menu" : "Settings"}
           ignore={menu.owner === "main" ? figma : settings}
           onSelect={(id) => {
-            if (!runEditorCommand(ed, id)) return;
+            if (!runMenuItem(ed, id)) return;
             if (!id.startsWith("view.toggle")) ed.focusCanvas();
           }}
           onClose={() => setMenu(null)}

@@ -61,11 +61,16 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   const Color white{1, 1, 1, 1};
   Mat2x3 view = camera.matrix();
 
-  auto outline = [&](const Mat2x3& toScreen, Vec2 size, ShapeKind kind, const CornerRadii& radii, double weight) {
+  // Components, component sets and instances are outlined in the component purple.
+  auto colorOf = [&](Guid id) -> const Color& {
+    const Node* n = doc.get(id);
+    return n && n->props.isComponentish() ? style.component : blue;
+  };
+  auto outline = [&](const Mat2x3& toScreen, Vec2 size, ShapeKind kind, const CornerRadii& radii, double weight, const Color& color) {
     ScreenBox b = screenBox(toScreen, size, dpr);
     CornerRadii r = kSquare;
     for (int i = 0; i < 4; i++) r[i] = radii[i] * b.axisScale;
-    emit(makeShape(b.m, b.size, kind, r, blue, 0, blue, 1, weight, 0), Pass::Shape);
+    emit(makeShape(b.m, b.size, kind, r, color, 0, color, 1, weight, 0), Pass::Shape);
   };
   // A polyline on screen (CSS px), `width` across: one thin rectangle per segment, squares at the joins.
   auto polyline = [&](const std::vector<Vec2>& pts, bool closed, double width, const Color& color, double alpha) {
@@ -86,9 +91,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
              Pass::Shape);
     }
   };
-  auto pathOutline = [&](const geom::Path& path, const Mat2x3& toScreen, double width) {
+  auto pathOutline = [&](const geom::Path& path, const Mat2x3& toScreen, double width, const Color& color) {
     geom::Path screen = path.transformed(toScreen);
-    for (const geom::Polyline& pl : geom::flatten(screen, 0.25)) polyline(pl.points, pl.closed, width, blue, 1);
+    for (const geom::Polyline& pl : geom::flatten(screen, 0.25)) polyline(pl.points, pl.closed, width, color, 1);
   };
   auto nodeOutline = [&](Guid id, double weight, bool ownShape) {
     const Node* n = doc.get(id);
@@ -97,9 +102,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // Vectors, stars, booleans…: their own outline.
       if (const NodeGeometry* g = doc.geometry(id)) {
         Mat2x3 m = view * doc.worldTransform(id);
-        if (!g->stroke.path.empty()) pathOutline(g->stroke.path, m, weight);
+        if (!g->stroke.path.empty()) pathOutline(g->stroke.path, m, weight, colorOf(id));
         else
-          for (auto& f : g->fills) pathOutline(f.path, m, weight);
+          for (auto& f : g->fills) pathOutline(f.path, m, weight, colorOf(id));
         return;
       }
     }
@@ -107,7 +112,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Mat2x3 m = view * doc.worldTransform(id) * Mat2x3::translate(lb.x, lb.y);
     ShapeKind kind = ownShape && n->props.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     bool rounded = ownShape && (n->props.isRectLike() || n->props.isFrameLike());
-    outline(m, {lb.w, lb.h}, kind, rounded ? n->props.cornerRadii : kSquare, weight);
+    outline(m, {lb.w, lb.h}, kind, rounded ? n->props.cornerRadii : kSquare, weight, colorOf(id));
   };
 
   // Text being edited: the selection highlight and the caret.
@@ -150,7 +155,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       double x = std::round(b.x * dpr) / dpr;
       double baseline = std::round((b.y - style.titleBaselineGap) * dpr) / dpr;
       Mat2x3 m = Mat2x3::translate(x, baseline - L->lines[0].baseline);
-      drawGlyphs(*L, m, isSelected ? blue : style.title, isSelected ? 1 : style.titleAlpha);
+      // Components' and sets' names are in the component purple (Figma).
+      if (n->props.isComponentish()) drawGlyphs(*L, m, style.component, 1);
+      else drawGlyphs(*L, m, isSelected ? blue : style.title, isSelected ? 1 : style.titleAlpha);
     }
   }
 
@@ -170,7 +177,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // Selection: each layer's box, the selection's box, its handles and size badge.
   SelectionBox box = selectionBox(doc, overlay.selection);
+  // The selection's box, handles and badge: purple when everything selected is a component or an instance.
+  bool allComponents = !overlay.selection.empty();
+  for (Guid s : overlay.selection) allComponents &= &colorOf(s) == &style.component;
+  const Color& blueSel = allComponents ? style.component : blue;
   if (box.valid && overlay.selectionBox) {
+    const Color& blue = blueSel;
     if (overlay.selection.size() > 1)
       for (Guid s : overlay.selection) nodeOutline(s, 1, false);
     Mat2x3 toScreen = view * box.toWorld;

@@ -297,6 +297,7 @@ void Editor::reloadVector() {
 Status Editor::startVectorEdit(Guid id) {
   const Node* n = doc_.get(id);
   if (!n || n->props.locked) return E_INVALID;
+  if (id.isDerived()) return E_UNSUPPORTED;  // a layer inside an instance: its geometry is its main's
   VectorNetwork net;
   bool convert = false;
   if (!networkOf(id, net, convert)) return E_UNSUPPORTED;
@@ -422,7 +423,7 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
     Guid parent = page_;
     auto path = hitPath(doc_, page_, world, pixel());
     for (auto it = path.rbegin(); it != path.rend(); ++it)
-      if (doc_.get(*it)->props.isFrameLike()) {
+      if (acceptsChildren(*it)) {
         parent = *it;
         break;
       }

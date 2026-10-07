@@ -1,0 +1,202 @@
+@layer app {
+  /* The component / instance header row (40, like the type header): glyph + name, actions on the right */
+  .header {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .headerLabel {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    padding-left: var(--ds-space-2);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  /* The instance's main ▾: opens the instance menu */
+  .headerName {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    outline: none;
+  }
+  .headerName:hover, .headerName[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .headerName:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .headerText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .headerActions { display: flex; flex: none; align-items: center; margin-left: auto; }
+  .chevron { flex: none; color: var(--figma-color-icon-secondary); }
+  .purpleIcon { flex: none; color: var(--figma-color-icon-component); }
+  .purpleText { color: var(--figma-color-text-component); }
+  .muted { color: var(--figma-color-text-secondary); }
+
+  /* An icon that opens a menu, in an icon button's box */
+  .iconMenu {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .iconMenu:hover { background: var(--ds-color-bg-transparent-hover); color: var(--figma-color-icon); }
+  .iconMenu[data-open] { background: var(--ds-color-bg-transparent-pressed); color: var(--figma-color-icon); }
+  .iconMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+
+  /* Instance properties: label column (88), control column */
+  .instanceBody { padding: var(--ds-space-2) 0; border-bottom: 1px solid var(--figma-color-border); }
+  .propRow {
+    display: grid;
+    grid-template-columns: var(--ds-size-field) minmax(0, 1fr);
+    gap: var(--ds-space-2);
+    align-items: center;
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+  }
+  .propLabel { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  .propControl { display: flex; align-items: center; min-width: 0; }
+  .propControl > [data-ds="Select"], .propControl > [data-ds="TextInput"] { flex: 1 1 auto; min-width: 0; }
+  .nested { margin-top: var(--ds-space-2); }
+  .nestedHeader {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+
+  /* An Instance swap value: like an outlined dropdown, with the instance glyph */
+  .swapField {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-1);
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .swapField:hover { border-color: var(--figma-color-border-strong); }
+  .swapField:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .swapField .chevron { margin-left: auto; }
+
+  /* The main component's properties: glyph, name, default value; − on the right */
+  .defs { display: flex; flex-direction: column; padding-bottom: var(--ds-space-2); }
+  .defRow { display: flex; align-items: center; gap: var(--ds-space-1); padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2); }
+  .defButton {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-width: 0;
+    height: var(--ds-size-row);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .defButton:hover { background: var(--figma-color-bg-hover); }
+  .defButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .defName { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .defValue { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; text-align: right; }
+  .empty { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left); color: var(--figma-color-text-secondary); }
+  .description { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); }
+  .description > * { width: 100%; }
+
+  /* The property settings popover */
+  .editor {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: var(--ds-space-2);
+    align-items: center;
+    padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4);
+  }
+  .editorLabel { color: var(--figma-color-text-secondary); }
+  .editorWide { grid-column: 1 / -1; }
+  .editorHeader { display: flex; align-items: center; justify-content: space-between; margin-top: var(--ds-space-1); }
+  .editorFooter { display: flex; justify-content: flex-end; margin-top: var(--ds-space-1); }
+  .preferredRow { display: flex; align-items: center; gap: var(--ds-space-1); }
+
+  /* The bind ("Apply property") button and the bound property's pill (component purple) */
+  .bindWrap { display: inline-flex; align-items: center; gap: var(--ds-space-1); }
+  .bindButton { color: var(--figma-color-icon-secondary); }
+  .bindOn, .bindOn:hover { color: var(--figma-color-icon-component); }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ds-space-half);
+    max-width: 112px;
+    height: 20px;
+    padding: 0 var(--ds-space-1-5) 0 var(--ds-space-half);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-component-tertiary);
+    color: var(--figma-color-text-component);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .pillText { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* The instance menu (component picker) */
+  .picker { display: flex; flex-direction: column; max-height: 420px; }
+  .pickSearch { padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  .pickList { overflow: auto; padding-bottom: var(--ds-space-2); }
+  .pickHeader {
+    padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-1);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .pickSubheader { padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-1); color: var(--figma-color-text-tertiary); }
+  .pickEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  .pickItem {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    width: 100%;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .pickItem:hover, .pickItem:focus-visible { background: var(--figma-color-bg-hover); }
+  .pickItemOn { background: var(--figma-color-bg-component-tertiary); }
+  .pickCheck { display: inline-flex; flex: none; width: 16px; }
+  .pickName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}

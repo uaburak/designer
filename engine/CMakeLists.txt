@@ -19,6 +19,7 @@ include(cmake/ThirdParty.cmake)
 add_library(eng_core STATIC
   src/base/FractionalIndex.cpp
   src/base/Json.cpp
+  src/base/DerivedIds.cpp
   src/scene/Node.cpp
   src/scene/Document.cpp
   src/scene/ChangeSet.cpp
@@ -33,6 +34,8 @@ add_library(eng_core STATIC
   src/editor/Undo.cpp
   src/editor/Editor.cpp
   src/editor/Commands.cpp
+  src/editor/Instances.cpp
+  src/editor/ComponentCommands.cpp
   src/tools/Gestures.cpp
   src/render/Renderer.cpp
   src/render/Overlay.cpp
@@ -100,6 +103,7 @@ else()
     tests/unit/editor.move.test.cpp
     tests/unit/layout.figma_golden.test.cpp
     tests/unit/scene.kiwi.test.cpp
+    tests/unit/components.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
     tests/unit/text.render.test.cpp

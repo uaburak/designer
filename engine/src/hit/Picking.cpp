@@ -18,7 +18,10 @@ Guid pick(const Document& doc, const std::vector<Guid>& path, const std::vector<
   for (size_t i = path.size() - 1; i >= 1; i--)
     if (open.count(path[i - 1])) return path[i];
   const Node* top = doc.get(path[0]);
-  if (top && top->props.isFrameLike() && path.size() > 1) return path[1];
+  // An instance is picked whole until it is opened (double-click, Enter, ⌘-click), as Figma.
+  if (top && top->props.isFrameLike() && top->props.type != NodeType::INSTANCE && path.size() > 1) {
+    return path[1];
+  }
   return path[0];
 }
 

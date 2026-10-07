@@ -11,7 +11,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LayerRow, PanelSection, VirtualList, showToast, type IconName } from "@/ds";
 import { useHover, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
-import { useEditor } from "../controller";
+import { useEditor, type EditorController } from "../controller";
+import { writeOn } from "../components";
+import { parseDerivedId } from "../model/components";
 import { useLayerTree, useUI } from "../hooks";
 import {
   ancestorsOf,
@@ -33,6 +35,7 @@ const ROW = 24;
 /** The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction, groups. */
 export function layerIcon(node: TreeNode): IconName {
   if (node.group) return "16.group";
+  if (node.stateGroup) return "16.component.set";
   switch (node.type) {
     case "FRAME":
       if (node.stackMode === "HORIZONTAL") return node.stackWrap === "WRAP" ? "16.autolayout.wrap" : "16.autolayout.horizontal";
@@ -73,6 +76,19 @@ export function layerIcon(node: TreeNode): IconName {
   }
 }
 
+const isComponentish = (n: TreeNode | undefined) => !!n && (n.type === "SYMBOL" || n.type === "INSTANCE" || n.stateGroup === true);
+
+/** Refs the engine can select: an instance's derived layer it doesn't know yet (before E6) selects the instance. */
+export function selectable(ed: EditorController, refs: readonly Guid[]): Guid[] {
+  const out: Guid[] = [];
+  for (const id of refs) {
+    const d = parseDerivedId(id);
+    const ref = d && !ed.store.readNode(id) ? d.instance : id;
+    if (!out.includes(ref)) out.push(ref);
+  }
+  return out;
+}
+
 export function Layers() {
   const ed = useEditor();
   const tree = useLayerTree();
@@ -91,6 +107,15 @@ export function Layers() {
     return out;
   }, [rows, selected, tree]);
   const runs = useMemo(() => selectionRuns(rows, (id) => selected.has(id) || insideSelected.has(id)), [rows, selected, insideSelected]);
+  // Rows in a component, a set or an instance (or one itself) highlight in the component purple (Figma).
+  const componentRows = useMemo(() => {
+    const out = new Set<Guid>();
+    for (const r of rows) {
+      const own = tree.nodes.get(r.id);
+      if (isComponentish(own) || ancestorsOf(tree, r.id).some((a) => isComponentish(tree.nodes.get(a)))) out.add(r.id);
+    }
+    return out;
+  }, [rows, tree]);
 
   // A selection made on the canvas opens its ancestors (Figma reveals it) and scrolls to it.
   useEffect(() => {
@@ -100,7 +125,7 @@ export function Layers() {
   }, [ed, tree, selection]);
   const firstSelected = rows.findIndex((r) => selected.has(r.id));
 
-  const select = (refs: Guid[]) => ed.engine.setSelection(refs);
+  const select = (refs: Guid[]) => ed.engine.setSelection(selectable(ed, refs));
 
   const onPointerDown = (e: React.PointerEvent, id: Guid) => {
     if (e.button !== 0 || renaming === id) return;
@@ -120,6 +145,7 @@ export function Layers() {
       if (!p) return;
       if (!p.dragging) {
         if (Math.hypot(ev.clientX - p.x, ev.clientY - p.y) < 4) return;
+        if (tree.nodes.get(p.id)?.derived) return; // an instance's layers stay where the main has them
         p.dragging = draggedLayers(tree, rows, ed.selection, p.id);
       }
       setDrop(targetAt(ev.clientX, ev.clientY, p.dragging));
@@ -163,7 +189,10 @@ export function Layers() {
   };
 
   const rename = (id: Guid, name: string | null, exit: string) => {
-    if (name && name !== tree.nodes.get(id)?.name) ed.setProps([id], { name }, "Rename");
+    if (name && name !== tree.nodes.get(id)?.name) {
+      if (tree.nodes.get(id)?.derived) ed.batch("Rename", () => writeOn(ed, id, { name }));
+      else ed.setProps([id], { name }, "Rename");
+    }
     const at = rows.findIndex((r) => r.id === id);
     const next = exit === "tab" ? rows[at + 1] : exit === "shift-tab" ? rows[at - 1] : undefined;
     ed.ui.set({ renaming: next ? { kind: "layer", id: next.id } : null });
@@ -206,7 +235,8 @@ export function Layers() {
                 depth={row.depth}
                 name={node.name}
                 icon={layerIcon(node)}
-                kind={node.type === "SYMBOL" ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
+                kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
+                tone={componentRows.has(row.id) ? "component" : "default"}
                 expanded={row.expandable ? row.expanded : undefined}
                 selected={selected.has(row.id)}
                 selectedAncestor={insideSelected.has(row.id)}
@@ -220,7 +250,7 @@ export function Layers() {
                 tabIndex={selected.has(row.id) ? 0 : -1}
                 onPointerDown={(e) => onPointerDown(e, row.id)}
                 onPointerEnter={() => {
-                  if (!press.current) ed.engine.setHover([row.id]);
+                  if (!press.current) ed.engine.setHover(selectable(ed, [row.id]));
                 }}
                 onDoubleClick={() => ed.ui.set({ renaming: { kind: "layer", id: row.id } })}
                 onContextMenu={(e) => {
@@ -229,8 +259,10 @@ export function Layers() {
                   ed.ui.set({ contextMenu: { x: e.clientX, y: e.clientY, canvas: null } });
                 }}
                 onToggleExpand={(alt) => toggleExpand(row.id, alt)}
-                onToggleLock={() => ed.setProps([row.id], { locked: !node.locked }, node.locked ? "Unlock" : "Lock")}
-                onToggleVisible={() => ed.setProps([row.id], { visible: !node.visible }, node.visible ? "Hide" : "Show")}
+                onToggleLock={node.derived ? undefined : () => ed.setProps([row.id], { locked: !node.locked }, node.locked ? "Unlock" : "Lock")}
+                onToggleVisible={() =>
+                  node.derived ? ed.batch(node.visible ? "Hide" : "Show", () => writeOn(ed, row.id, { visible: !node.visible })) : ed.setProps([row.id], { visible: !node.visible }, node.visible ? "Hide" : "Show")
+                }
                 onRequestRename={() => ed.ui.set({ renaming: { kind: "layer", id: row.id } })}
                 onRename={(name, exit) => rename(row.id, name, exit)}
               />

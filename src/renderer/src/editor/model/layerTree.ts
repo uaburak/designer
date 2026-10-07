@@ -22,11 +22,17 @@ export interface TreeNode {
   booleanOperation?: string;
   /** Children back to front (paint order, index 0 = bottom), as the engine lists them */
   children: Guid[];
+  /** A component set (FRAME + isStateGroup) */
+  stateGroup?: boolean;
+  /** An instance's sublayer derived by the editor from the main (not an engine node until E6) */
+  derived?: boolean;
 }
 
 export interface LayerTree {
   page: Guid;
   nodes: ReadonlyMap<Guid, TreeNode>;
+  /** The page has instances (their derived rows follow their mains) */
+  hasInstances?: boolean;
 }
 
 export const EMPTY_TREE: LayerTree = { page: "", nodes: new Map() };
@@ -34,8 +40,10 @@ export const EMPTY_TREE: LayerTree = { page: "", nodes: new Map() };
 /** The tree from engine reads (each node read with `childIds`). */
 export function treeFromNodes(page: Guid, nodes: readonly NodeChange[]): LayerTree {
   const map = new Map<Guid, TreeNode>();
+  let hasInstances = false;
   for (const n of nodes) {
-    const extra = n as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string };
+    const extra = n as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string; isStateGroup?: boolean; derived?: boolean };
+    if (n.type === "INSTANCE") hasInstances = true;
     map.set(n.guid, {
       id: n.guid,
       parent: n.parentIndex?.guid || null,
@@ -48,14 +56,16 @@ export function treeFromNodes(page: Guid, nodes: readonly NodeChange[]): LayerTr
       stackWrap: extra.stackWrap,
       booleanOperation: extra.booleanOperation,
       children: n.childIds ?? [],
+      ...(extra.isStateGroup === true && n.type === "FRAME" ? { stateGroup: true } : {}),
+      ...(extra.derived || n.guid.startsWith("I") ? { derived: true } : {}),
     });
   }
-  return { page, nodes: map };
+  return { page, nodes: map, hasInstances };
 }
 
 /** Can layers be dropped inside it? */
 export function isContainer(node: TreeNode | undefined): boolean {
-  return !!node && (node.type === "FRAME" || node.type === "GROUP" || node.type === "SECTION" || node.type === "SYMBOL" || node.type === "CANVAS");
+  return !!node && !node.derived && (node.type === "FRAME" || node.type === "GROUP" || node.type === "SECTION" || node.type === "SYMBOL" || node.type === "CANVAS");
 }
 
 export interface RowData {
@@ -217,7 +227,7 @@ export function dropTarget(tree: LayerTree, rows: readonly RowData[], rowIndex: 
   }
   const row = rows[Math.max(0, rowIndex)];
   const node = tree.nodes.get(row.id);
-  if (!node) return null;
+  if (!node || node.derived) return null;
   if (moving.has(row.id) || ancestorsOf(tree, row.id).some((a) => moving.has(a))) return null;
   const position = dropZone(fraction, isContainer(node));
   if (position === "inside") return { row: row.id, position, parent: row.id, index: without(node.children, moving).length };

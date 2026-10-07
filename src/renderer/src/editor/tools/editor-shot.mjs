@@ -10,6 +10,7 @@
 //   node src/renderer/src/editor/tools/editor-shot.mjs [outDir]   (default /tmp/designer-work/editor)
 //   EDITOR_URL=http://localhost:5202 node …                       (use a running server instead of starting one)
 //   EDITOR_ONLY=paints node …                                      (only the E4 / E5 section: paints, effects, images, vectors)
+//   EDITOR_ONLY=components node …                                  (only the E6 section: components, instances, Assets)
 /* global process, console, window, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -230,10 +231,189 @@ async function paintsSection(page, theme) {
   if (capable.tools.includes("LINE")) {
     await page.locator("#engine-canvas").focus();
     await page.keyboard.press("l");
-    await drag(page, await toScreen(page, 0, 460), await toScreen(page, 200, 460));
+    // In screen space near the canvas's top left: the fitted content can reach under the toolbar.
+    const area = await page.locator("#engine-canvas").boundingBox();
+    await drag(page, [area.x + 60, area.y + 60], [area.x + 260, area.y + 60]);
     const line = await page.evaluate(() => window.__designerEditor.selectedNodes()[0]?.type);
     check("L + drag draws a line", line === "LINE", line);
   }
+}
+
+/** Components on `?editor&doc=components` (dark): Layers, the instance panel and menus, variants, Go to main component, a main's Properties, binding, Assets. */
+async function componentsSection(page, theme) {
+  await open(page, "&doc=components");
+  const panel = page.locator('[data-panel="right"]');
+  const row = (id) => page.locator(`[data-ds="LayerRow"][data-id="${id}"]`);
+  const select = async (...ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const info = await page.evaluate(() => {
+    const e = window.__designerEditor.engine;
+    return { componentInfo: typeof e.componentInfo === "function" };
+  });
+  results.push(`info engine: componentInfo ${info.componentInfo}`);
+
+  // Layers: the instance with its layers (derived from the main until the engine materializes them), purple.
+  await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["2:1", "2:2", "I2:2;1:2"]) }));
+  await select("2:2");
+  check("Layers: an instance row in purple with its layers below", (await row("2:2").getAttribute("data-tone")) === "component" && (await row("I2:2;1:3").count()) === 1);
+  check("the instance panel: header, Boolean, Text, Instance swap, the exposed nested instance", (await panel.getByRole("button", { name: "Instance menu: Button" }).count()) === 1 && (await panel.getByRole("switch", { name: "Show icon" }).count()) === 1 && (await panel.getByRole("textbox", { name: "Label" }).inputValue()) === "Sign in" && (await panel.locator('[data-nested-instance]').count()) === 1);
+  await shot(page, `38-instance-${theme}`);
+
+  // A Text property: the field writes the instance's value (one step).
+  const label = panel.getByRole("textbox", { name: "Label" });
+  await label.click();
+  await page.keyboard.press("Meta+a");
+  await page.keyboard.type("Log in");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const assigned = await page.evaluate(() => JSON.stringify(window.__designerEditor.engine.readNode("2:2").componentPropAssignments ?? []));
+  check("a Text property's field writes the value", assigned.includes("Log in"), assigned);
+  await panel.getByRole("switch", { name: "Show icon" }).click();
+  await settle(page);
+  const toggled = await page.evaluate(() => JSON.stringify(window.__designerEditor.engine.readNode("2:2").componentPropAssignments ?? []));
+  check("a Boolean property's toggle writes the value", toggled.includes("false"), toggled);
+
+  // The instance menu (swap), the ⋯ menu with Reset ▸.
+  await panel.getByRole("button", { name: "Instance menu: Button" }).click();
+  await settle(page);
+  check("the instance menu lists the file's components by page and frame", (await page.locator("[data-component-picker]").getByRole("menuitemradio").count()) >= 4);
+  await shot(page, `39-instance-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await panel.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Reset" }).hover();
+  await page.waitForTimeout(400);
+  const resetText = await page.getByRole("menu").last().innerText();
+  check("⋯ › Reset lists Reset all changes and the changed properties", resetText.includes("Reset all changes") && resetText.includes("Reset fill"), resetText.replace(/\n/g, " | "));
+  await shot(page, `40-instance-more-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await select("2:2");
+
+  // An Instance swap property: its picker (preferred first).
+  await panel.getByRole("button", { name: /^Icon: / }).click();
+  await settle(page);
+  check("an Instance swap picker lists Preferred first", (await page.locator("[data-component-picker]").getByText("Preferred").count()) === 1);
+  await page.locator("[data-component-picker]").getByRole("menuitemradio", { name: "Heart" }).first().click();
+  await settle(page);
+  const swapped = await page.evaluate(() => JSON.stringify(window.__designerEditor.engine.readNode("2:2").componentPropAssignments ?? []));
+  check("picking writes the Instance swap value", swapped.includes('"localID":21') || swapped.includes("1:21"), swapped);
+
+  // A variant instance: one dropdown per property; a pick switches the variant.
+  await select("2:3");
+  check("a variant instance shows State and Size", (await panel.getByRole("combobox", { name: "State" }).count()) === 1 && (await panel.getByRole("combobox", { name: "Size" }).count()) === 1);
+  await panel.getByRole("combobox", { name: "State" }).click();
+  await settle(page);
+  await shot(page, `41-variant-instance-${theme}`);
+  await page.getByRole("option", { name: "Hover" }).click();
+  await settle(page);
+  const chip = await node(page, "2:3");
+  const target = chip.symbolData?.symbolID;
+  check("a variant pick switches to that variant", target && target.sessionID === 1 && target.localID === 42, JSON.stringify(target));
+
+  // Reset all changes (⋯) on the button.
+  await select("2:2");
+  await panel.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Reset" }).hover();
+  await page.waitForTimeout(300);
+  await page.getByRole("menuitem", { name: "Reset all changes" }).click();
+  await settle(page);
+  const reset = await node(page, "2:2");
+  check("Reset all changes clears the overrides and the values", (reset.symbolData?.symbolOverrides ?? []).length === 0 && (reset.componentPropAssignments ?? []).length === 0, JSON.stringify({ o: reset.symbolData?.symbolOverrides, a: reset.componentPropAssignments }));
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+
+  // The canvas menu on an instance, the main menu's Object submenu.
+  await select("2:2");
+  const box = await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const n = ed.engine.readNode("2:2");
+    return [n.transform.m02 + 10, n.transform.m12 + 10];
+  });
+  await page.mouse.click(...(await toScreen(page, ...box)), { button: "right" });
+  await settle(page);
+  const canvasText = (await page.getByRole("menu").count()) ? await page.getByRole("menu").first().innerText() : "";
+  check("the canvas menu on an instance: Go to main component, Reset, Detach instance", canvasText.includes("Go to main component") && canvasText.includes("Detach instance"), canvasText.replace(/\n/g, " | "));
+  await shot(page, `42-instance-canvas-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Main menu" }).first().click();
+  await page.getByRole("menuitem", { name: "Object" }).hover();
+  await page.waitForTimeout(400);
+  await shot(page, `43-object-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+
+  // Go to main component (⌃⌥⌘K): its page, selected; Return to instance comes back.
+  await select("2:2");
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Control+Alt+Meta+KeyK");
+  await settle(page);
+  const went = await page.evaluate(() => ({ page: window.__designerEditor.store.page, sel: window.__designerEditor.selection }));
+  check("⌃⌥⌘K goes to the main on its page", went.page === "0:3" && went.sel.join() === "1:1", JSON.stringify(went));
+  check("the Return to instance pill shows", (await page.locator("[data-return-to-instance]").count()) === 1);
+  await shot(page, `44-go-to-main-${theme}`);
+
+  // The main component: Properties (+), its rows, the description.
+  check("a main component shows Properties with its three", (await panel.locator("[data-component-properties]").getByRole("button", { name: /^Edit property / }).count()) === 3);
+  await panel.getByRole("button", { name: "Edit property Icon" }).click();
+  await settle(page);
+  check("an Instance swap property's settings list its preferred values", (await page.locator('[data-property-editor="INSTANCE_SWAP"]').getByText("Preferred values").count()) === 1);
+  await shot(page, `45-property-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  await panel.getByRole("button", { name: "Create component property" }).click();
+  await settle(page);
+  await shot(page, `46-add-property-menu-${theme}`);
+  await page.getByRole("menuitem", { name: "Boolean" }).click();
+  await settle(page);
+  await page.locator('[data-property-editor="BOOL"]').getByRole("textbox", { name: "Name" }).fill("Disabled");
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Create property" }).click();
+  await settle(page);
+  const defs = (await node(page, "1:1")).componentPropDefs ?? [];
+  check("Create property adds a Boolean property", defs.some((d) => d.name === "Disabled" && d.type === "BOOL"), defs.map((d) => d.name).join(", "));
+
+  await page.locator("[data-return-to-instance] button").first().click();
+  await settle(page);
+  const back = await page.evaluate(() => ({ page: window.__designerEditor.store.page, sel: window.__designerEditor.selection }));
+  check("Return to instance goes back", back.page === "0:1" && back.sel.join() === "2:2", JSON.stringify(back));
+
+  // The set, a variant, a bound layer.
+  await page.evaluate(() => window.__designerEditor.engine.setCurrentPage("0:3"));
+  await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["1:1", "1:40", "1:30"]) }));
+  await select("1:40");
+  check("Layers: the set's glyph, purple", (await row("1:40").getAttribute("data-tone")) === "component");
+  check("a component set shows its variant properties", (await panel.getByRole("button", { name: "Edit property State" }).count()) === 1);
+  await shot(page, `47-component-set-${theme}`);
+  await select("1:42");
+  check("a variant shows Current variant", (await panel.locator("[data-current-variant]").count()) === 1);
+  await shot(page, `48-variant-${theme}`);
+  await select("1:3");
+  const pill = panel.locator('[data-bind="TEXT_DATA"]');
+  check("a bound text layer shows its property's pill", (await pill.innerText()).includes("Label"), await pill.innerText());
+  await pill.getByRole("button", { name: "Apply text property" }).click();
+  await settle(page);
+  await shot(page, `49-bind-menu-${theme}`);
+  await page.keyboard.press("Escape");
+
+  // Assets: list and grid; a click inserts an instance.
+  await page.keyboard.press("Alt+Digit2");
+  await settle(page);
+  check("⌥2 opens Assets with the file's components", (await page.locator("[data-asset]").count()) === 4, String(await page.locator("[data-asset]").count()));
+  await shot(page, `50-assets-list-${theme}`);
+  await page.getByRole("button", { name: "Show as grid" }).click();
+  await settle(page);
+  await shot(page, `51-assets-grid-${theme}`);
+  const before = await page.evaluate(() => window.__designerEditor.engine.encodeDocument().nodeChanges.filter((n) => n.type === "INSTANCE").length);
+  const asset = page.locator('[data-asset="1:1"]');
+  const from = await asset.boundingBox();
+  const canvasBox = await page.locator("#engine-canvas").boundingBox();
+  await drag(page, [from.x + from.width / 2, from.y + from.height / 2], [canvasBox.x + canvasBox.width / 2 + 200, canvasBox.y + 300], 12);
+  const after = await page.evaluate(() => window.__designerEditor.engine.encodeDocument().nodeChanges.filter((n) => n.type === "INSTANCE").length);
+  const made = await page.evaluate(() => window.__designerEditor.selectedNodes()[0]);
+  check("dragging an asset onto the canvas inserts an instance", after === before + 1 && made?.type === "INSTANCE", `${before} → ${after}`);
+  await shot(page, `52-assets-dropped-${theme}`);
+  await page.keyboard.press("Alt+Digit1");
 }
 
 try {
@@ -248,6 +428,16 @@ try {
       if (r.status() >= 400) problems.push(`dark ${r.status()}: ${r.url()}`);
     });
     await paintsSection(page, "dark");
+    await context.close();
+  }
+  if (only === "components") {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await componentsSection(page, "dark");
     await context.close();
   }
   for (const theme of only ? [] : ["dark", "light"]) {
@@ -380,6 +570,9 @@ try {
 
       // ---- E4 / E5: paints, effects, guides, strokes, booleans, images, vector edit ----
       await paintsSection(page, theme);
+
+      // ---- E6: components, instances, variants, properties, Assets ----
+      await componentsSection(page, theme);
 
       // ---- End to end: draw, Esc, undo / redo, delete, rename, the source's changes ----
       await open(page, "&doc=empty");
