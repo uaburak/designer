@@ -4,6 +4,7 @@
 // clipboard (copySelection / paste).
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <optional>
@@ -1123,6 +1124,24 @@ bool Editor::copySelection(Clipboard& out, bool cut) const {
       if (copied.insert(g).second) extra.push_back(NodeChange::created(g, doc_.get(g)->props));
   }
   for (NodeChange& c : extra) out.nodes.push_back(std::move(c));
+  // Each local asset with a key carries its versionHash, computed here (as a payload's do): a paste in another file
+  // makes its library copy at exactly that version — the published one when it is unchanged since its publish —
+  // whatever the clipboard carries of what it uses.
+  HashMemo memo;
+  for (NodeChange& c : out.nodes)
+    if (!c.guid.isDerived() && !c.props.key.empty() && doc_.has(c.guid) && assetKindOf(c.guid) != AssetKind::NONE &&
+        !isLibraryCopy(c.guid))
+      c.props.version = versionHashOf(c.guid, memo);
+  // Preferred instances that don't come along are named by key (as in a payload): another file can't know them by
+  // GUID, and this one finds them by key.
+  for (NodeChange& c : out.nodes)
+    for (ComponentPropDef& d : c.props.componentPropDefs)
+      for (PreferredValue& v : d.preferredValues) {
+        bool ok = false;
+        Guid g = Guid::parse(v.key, &ok);
+        const Node* n = ok && !copied.count(g) ? doc_.get(g) : nullptr;
+        if (n && !n->props.key.empty()) v.key = n->props.key;
+      }
   return true;
 }
 
@@ -1242,6 +1261,8 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   begin(TxnKind::USER, "Paste");
   auto keys = placeManyAt(target, index, roots.size(), {});
   std::vector<Guid> pasted;
+  std::vector<std::pair<Guid, Guid>> movedMains;  // a main cut in this file: its GUID → the pasted one
+  unresolved_ = 0;
 
   // From another file (R4 §8, docs/data.md §9.5): what the selection references comes in first — published assets
   // and library copies as library copies, unpublished ones as this file's own (mains on the internal canvas).
@@ -1285,6 +1306,7 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       auto it = a.guid != kNoGuid ? all.find(a.guid) : all.end();
       return it != all.end() && !it->second->props.key.empty() ? it->second->props.key : a.key;
     };
+    view.exists = [&](Guid g) { return all.count(g) != 0; };
     auto clipHash = [&](Guid root) { return hashAsset(root, view); };
     std::vector<ImportPlan> plans;
     for (Guid r : src.roots) {
@@ -1310,32 +1332,38 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
         plan.key = rp.key;
         // The copy is made from the clipboard's content: its version is that content's hash — the published one when
         // the content is the published one, else never it (the next diff offers the published version as an update).
-        plan.version = clipHash(r);
+        // The source computed it (copySelection); a clipboard without it is hashed here.
+        plan.version = !rp.version.empty() ? rp.version : clipHash(r);
         plan.publishID = r;
         plan.target = copyRootByKey(plan.libraryKey, rp.key, plan.version);
       } else {
-        // Unpublished: copied in as this file's own, once (a later paste finds it by its source).
+        // Unpublished: copied in as this file's own, once (a later paste finds it by its source: the newest, when one
+        // lacking what a paste needs was copied in again).
         plan.mode = ImportPlan::Mode::LOCAL;
+        plan.copiedIn = true;
         plan.publishID = r;
         doc_.forEach([&](const Node& n) {
           const NodeProps& q = n.props;
-          if (plan.target == kNoGuid && !n.guid.isDerived() && q.publishID == r && q.type == rp.type && q.styleType == rp.styleType &&
-              q.name == rp.name && !q.isSoftDeleted && q.sourceLibraryKey.empty() && !isLibraryCopy(n.guid))
+          if ((plan.target == kNoGuid || plan.target < n.guid) && !n.guid.isDerived() && q.publishID == r && q.type == rp.type &&
+              q.styleType == rp.styleType && q.name == rp.name && !q.isSoftDeleted && q.sourceLibraryKey.empty() && !isLibraryCopy(n.guid))
             plan.target = n.guid;
         });
       }
       plans.push_back(plan);
     }
-    writeImports(src, plans, map);
-    // The pasted nodes' own ids (instances of pasted mains point at them).
+    // The pasted nodes' own ids first (instances of pasted mains point at them, and so may what comes in). Their
+    // references must find their mains too: a copy here that lacks one (a variant added since) is brought in new.
+    std::vector<const NodeProps*> pastedProps;
     auto assign = [&](auto&& self, const NodeChange* c) -> void {
       if (asInstance.count(c->guid)) return;
       map[c->guid] = newGuid();
+      pastedProps.push_back(&c->props);
       auto it = kids.find(c->guid);
       if (it != kids.end())
         for (const NodeChange* k : it->second) self(self, k);
     };
     for (const NodeChange* r : roots) assign(assign, r);
+    writeImports(src, plans, map, &pastedProps);
   }
 
   auto create = [&](auto&& self, const NodeChange& src, Guid parent, const std::string& position, const Mat2x3& transform) -> void {
@@ -1392,15 +1420,17 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       }
     } else {
       p.publishedVersion = src.props.publishedVersion;
+      p.version.clear();  // the clipboard's note of its hash (copySelection), not a library copy's version
     }
     Guid id;
     if (crossFile) {
-      remapRefs(p, nullptr, map, clip.fileKey);
+      unresolved_ += remapRefs(p, nullptr, map, clip.fileKey);
       id = map.count(src.guid) ? map[src.guid] : newGuid();
     } else {
       id = newGuid();
     }
     write(NodeChange::created(id, p));
+    if (keepIdentity) movedMains.push_back({src.guid, id});
     if (root) pasted.push_back(id);
     auto it = kids.find(src.guid);
     if (it == kids.end()) return;
@@ -1408,8 +1438,37 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   };
   for (size_t i = 0; i < roots.size(); i++)
     create(create, *roots[i], target, keys[i], localFor(target, Mat2x3::translate(d.x, d.y) * worlds[i]));
+  // A main cut and pasted in its own file is the same main under a new GUID: preferred instances that named it (by
+  // GUID) name it again.
+  if (!movedMains.empty()) {
+    std::unordered_map<std::string, std::string> renamed;
+    for (auto& [from, to] : movedMains) renamed[from.toString()] = to.toString();
+    std::vector<Guid> owners;
+    doc_.forEach([&](const Node& n) {
+      if (n.guid.isDerived() || isLibraryCopy(n.guid)) return;
+      for (const ComponentPropDef& def : n.props.componentPropDefs)
+        for (const PreferredValue& v : def.preferredValues)
+          if (renamed.count(v.key)) {
+            owners.push_back(n.guid);
+            return;
+          }
+    });
+    std::sort(owners.begin(), owners.end());
+    for (Guid g : owners) {
+      NodeChange c = NodeChange::changed(g);
+      c.mask = F_COMPONENT_PROP_DEFS;
+      c.props.componentPropDefs = doc_.get(g)->props.componentPropDefs;
+      for (ComponentPropDef& def : c.props.componentPropDefs)
+        for (PreferredValue& v : def.preferredValues)
+          if (auto it = renamed.find(v.key); it != renamed.end()) v.key = it->second;
+      write(c);
+    }
+  }
   changeSelection(pasted);
   commit();
+#ifndef NDEBUG
+  if (crossFile && unresolved_) std::fprintf(stderr, "engine: a paste left %zu main reference(s) pointing at nothing\n", unresolved_);
+#endif
   return static_cast<uint32_t>(pasted.size());
 }
 

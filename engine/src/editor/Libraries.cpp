@@ -17,6 +17,7 @@
 // - Cross-file paste (paste() in Commands.cpp) brings referenced assets in through the same writer.
 
 #include <algorithm>
+#include <cstdio>
 #include <functional>
 #include <set>
 
@@ -245,6 +246,17 @@ Guid Editor::localAssetByKey(const std::string& key) const {
   return found;
 }
 
+Guid Editor::copyMainByKey(const std::string& libraryKey, const std::string& key) const {
+  if (key.empty() || libraryKey.empty() || !hasLibraryCopies_) return kNoGuid;
+  Guid found = kNoGuid;
+  doc_.forEach([&](const Node& n) {
+    if (n.guid.isDerived() || n.props.key != key || !isComponentNode(n.props) || (found != kNoGuid && found < n.guid)) return;
+    Guid root = libraryRootOf(n.guid);
+    if (root != kNoGuid && doc_.get(root)->props.sourceLibraryKey == libraryKey) found = n.guid;
+  });
+  return found;
+}
+
 Guid Editor::copyByPublishID(const std::string& libraryKey, Guid publishID) const {
   if (publishID == kNoGuid || !hasLibraryCopies_) return kNoGuid;
   Guid found = kNoGuid;
@@ -411,6 +423,7 @@ std::vector<std::pair<Guid, std::string>> Editor::ensureAssetKeys(const std::vec
 // where it sits on its page left out. Each node is the engine's canonical JSON, blobs by content.
 std::string Editor::hashAsset(Guid root, const HashView& v) const {
   constexpr uint32_t kInner = 0xFFFFFFF0u;  // a node of the asset, by its place in it
+  const Guid kMissing{0xFFFFFFEFu, 0};      // a reference to a node that isn't there (never its GUID)
   std::vector<Guid> order;
   std::unordered_map<Guid, uint32_t, GuidHash> index;
   auto walk = [&](auto&& self, Guid g) -> void {
@@ -432,12 +445,14 @@ std::string Editor::hashAsset(Guid root, const HashView& v) const {
     if (inner(g, g)) return;
     std::string k = v.mainKey(g);
     if (!k.empty()) g = keyAsGuid(k);
+    else if (v.exists && !v.exists(g)) g = kMissing;
   };
   Refs refs;
   refs.symbol = symbol;
   refs.asset = [&](AssetId& a, Kind k) {
     std::string key = v.assetKey(a, k);
     if (!key.empty()) a.guid = kNoGuid, a.key = key;
+    else if (a.guid != kNoGuid && v.exists && !v.exists(a.guid)) a.guid = kMissing;
     a.version.clear();
   };
   Sha1 h;
@@ -461,12 +476,14 @@ std::string Editor::hashAsset(Guid root, const HashView& v) const {
     }
     visitProps(q, refs);
     if (q.detachedSymbolId != kNoGuid) symbol(q.detachedSymbolId);
+    // Preferred instances name mains by GUID (local) or by key (a copy's, a .fig's, a clipboard's): hashed alike.
     for (ComponentPropDef& d : q.componentPropDefs)
       for (PreferredValue& pv : d.preferredValues) {
         bool ok = false;
         Guid m = Guid::parse(pv.key, &ok);
-        if (!ok) continue;
-        symbol(m);
+        if (ok) symbol(m);
+        else if (pv.key.size() == 40) m = keyAsGuid(pv.key);
+        else continue;
         pv.key = m.toString();
       }
     json::Writer w;
@@ -480,7 +497,38 @@ std::string Editor::hashAsset(Guid root, const HashView& v) const {
   return h.hexDigest();
 }
 
-std::string Editor::assetVersionHash(Guid id) const {
+std::vector<Guid> Editor::hiddenDependencies(Guid id) const {
+  std::vector<Guid> out;
+  Guid self = payloadRoot(id);
+  GuidSet seen;
+  auto add = [&](Guid g) {
+    if (g == kNoGuid || g.isDerived() || !doc_.has(g) || isLibraryCopy(g)) return;
+    Guid r = payloadRoot(g);
+    if (r == self || !seen.insert(r).second) return;
+    // Hidden (Hide when publishing, a "_" / "." name, a copied-in main) or deleted but kept: shipped only as a
+    // dependency, never listed, so a change to it has to show in what uses it.
+    const NodeProps& p = doc_.get(r)->props;
+    if (assetHidden(r) || p.isSoftDeleted) out.push_back(r);
+  };
+  Refs refs;
+  refs.symbol = [&](Guid& g) {
+    const Node* n = g.isDerived() ? nullptr : doc_.get(g);
+    if (n && isComponentNode(n->props)) add(g);
+  };
+  refs.asset = [&](AssetId& a, Kind k) { add(k == Kind::STYLE ? findStyle(a) : k == Kind::VARIABLE ? findVariable(a) : findCollection(a)); };
+  std::vector<Guid> nodes;
+  realSubtree(id, nodes);
+  for (Guid g : nodes) {
+    NodeProps p = doc_.get(g)->props;
+    visitProps(p, refs);
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+std::string Editor::versionHashOf(Guid id, HashMemo& memo) const {
+  if (auto it = memo.find(id); it != memo.end()) return it->second;
+  memo[id] = std::string();  // a dependency cycle adds nothing
   HashView v;
   v.get = [&](Guid g) -> const NodeProps* {
     const Node* n = g.isDerived() ? nullptr : doc_.get(g);
@@ -498,7 +546,29 @@ std::string Editor::assetVersionHash(Guid id) const {
     Guid t = k == Kind::STYLE ? findStyle(a) : k == Kind::VARIABLE ? findVariable(a) : findCollection(a);
     return t != kNoGuid && !doc_.get(t)->props.key.empty() ? doc_.get(t)->props.key : a.key;
   };
-  return hashAsset(id, v);
+  v.exists = [&](Guid g) { return !g.isDerived() && doc_.has(g); };
+  std::string own = hashAsset(id, v);
+  // The hidden assets it uses (through any chain of hidden ones: theirs fold in theirs): their content is part of
+  // what consumers get with this asset. Listed assets are published on their own and stay out.
+  std::set<std::string> deps;
+  for (Guid d : hiddenDependencies(id)) {
+    std::string h = versionHashOf(d, memo);
+    if (!h.empty()) deps.insert(h);
+  }
+  std::string out = own;
+  if (!deps.empty()) {
+    Sha1 h;
+    h.update(own);
+    for (const std::string& d : deps) h.update("\n" + d);
+    out = h.hexDigest();
+  }
+  memo[id] = out;
+  return out;
+}
+
+std::string Editor::assetVersionHash(Guid id) const {
+  HashMemo memo;
+  return versionHashOf(id, memo);
 }
 
 std::vector<Editor::AssetInfo> Editor::localAssets() const {
@@ -509,11 +579,12 @@ std::vector<Editor::AssetInfo> Editor::localAssets() const {
   std::sort(ids.begin(), ids.end());
   std::vector<AssetInfo> out;
   std::unordered_map<Guid, std::vector<std::string>, GuidHash> depsByRoot;
+  HashMemo memo;
   for (Guid id : ids) {
     AssetInfo info;
     fillAssetInfo(id, info);
     info.hidden = assetHidden(id);
-    info.versionHash = assetVersionHash(id);
+    info.versionHash = versionHashOf(id, memo);
     Guid root = payloadRoot(id);
     auto it = depsByRoot.find(root);
     if (it == depsByRoot.end()) {
@@ -577,12 +648,8 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
   for (Guid d : deps)
     if (!isLibraryCopy(d) && std::find(asked.begin(), asked.end(), d) == asked.end()) entries.push_back({d, true});
 
-  std::unordered_map<Guid, std::string, GuidHash> hashes;
-  auto hashOf = [&](Guid g) -> const std::string& {
-    auto it = hashes.find(g);
-    if (it == hashes.end()) it = hashes.emplace(g, assetVersionHash(g)).first;
-    return it->second;
-  };
+  HashMemo hashes;
+  auto hashOf = [&](Guid g) { return versionHashOf(g, hashes); };
   // A node as the payload carries it: references by GUID with the target's key beside it, local bookkeeping out,
   // each asset root's versionHash in `version`.
   auto payloadNode = [&](Guid g) {
@@ -781,16 +848,26 @@ void Editor::matchTree(const std::vector<MatchNode>& nodes, Guid target, bool by
   // Components by the library GUID they carry, wherever they are (a copy's publishID); reserved for them.
   std::unordered_map<Guid, Guid, GuidHash> reserved;
   GuidSet reservedTargets;
+  // Components that copy a library node the source no longer has (a deleted variant): never taken by key or name for
+  // another one (a variant added since with the same key) — they keep their content for what uses them.
+  GuidSet orphans;
   if (byPublishID) {
     std::unordered_map<Guid, Guid, GuidHash> byPub;
     for (Guid g : have) {
       const NodeProps& p = doc_.get(g)->props;
       if (g != target && isComponentNode(p) && p.publishID != kNoGuid) byPub.emplace(p.publishID, g);
     }
+    GuidSet pubs;
     for (size_t i = 1; i < nodes.size(); i++) {
       if (!isComponentNode(*nodes[i].props)) continue;
-      auto it = byPub.find(nodes[i].id);
+      Guid pub = nodes[i].pub != kNoGuid ? nodes[i].pub : nodes[i].id;
+      pubs.insert(pub);
+      auto it = byPub.find(pub);
       if (it != byPub.end() && reservedTargets.insert(it->second).second) reserved[nodes[i].id] = it->second;
+    }
+    for (Guid g : have) {
+      const NodeProps& p = doc_.get(g)->props;
+      if (g != target && isComponentNode(p) && p.publishID != kNoGuid && !pubs.count(p.publishID)) orphans.insert(g);
     }
   }
   // Keys that occur once in the existing tree: a layer moved to another parent is still found.
@@ -802,7 +879,9 @@ void Editor::matchTree(const std::vector<MatchNode>& nodes, Guid target, bool by
     if (auto r = reserved.find(c.id); r != reserved.end()) found = r->second;
     Guid key = c.props->keyOf(c.id);
     bool comp = isComponentNode(*c.props);
-    auto free = [&](Guid k) { return !k.isDerived() && !used.count(k) && !reservedTargets.count(k) && isComponentNode(doc_.get(k)->props) == comp; };
+    auto free = [&](Guid k) {
+      return !k.isDerived() && !used.count(k) && !reservedTargets.count(k) && !orphans.count(k) && isComponentNode(doc_.get(k)->props) == comp;
+    };
     auto parent = out.find(c.parent);
     if (found == kNoGuid && parent != out.end() && doc_.has(parent->second)) {
       const std::vector<Guid>& kids = doc_.children(parent->second);
@@ -824,7 +903,7 @@ void Editor::matchTree(const std::vector<MatchNode>& nodes, Guid target, bool by
   }
 }
 
-void Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, const std::string& libraryKey) const {
+size_t Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, const std::string& libraryKey) const {
   auto mapped = [&](Guid g, Guid& out) {
     if (own) {
       auto it = own->find(g);
@@ -834,12 +913,14 @@ void Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, con
     if (it != map.end()) return out = it->second, true;
     return false;
   };
+  size_t unresolved = 0;
   Refs refs;
   refs.symbol = [&](Guid& g) {
     if (mapped(g, g)) return;
     // A main the payload didn't bring: a copy of it already here; else none (never a local node that happens to share
-    // the GUID).
+    // the GUID) — counted: the callers bring every main a reference needs, so this is a payload that lacks one.
     g = copyByPublishID(libraryKey, g);
+    if (g == kNoGuid) unresolved++;
   };
   refs.asset = [&](AssetId& a, Kind k) {
     if (a.guid != kNoGuid && mapped(a.guid, a.guid)) {
@@ -868,11 +949,26 @@ void Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, con
   visitProps(p, refs);
   if (p.detachedSymbolId != kNoGuid) {
     Guid g;
-    p.detachedSymbolId = mapped(p.detachedSymbolId, g) ? g : kNoGuid;
+    p.detachedSymbolId = mapped(p.detachedSymbolId, g) ? g : kNoGuid;  // only a note of where it came from
   }
+  // Preferred instances by GUID: the main that came along; one that didn't is the other file's and goes (never a
+  // node here that happens to share the GUID). By key: kept (resolved within the main's library when read).
+  for (ComponentPropDef& d : p.componentPropDefs) {
+    std::vector<PreferredValue> kept;
+    for (PreferredValue& v : d.preferredValues) {
+      bool ok = false;
+      Guid g = Guid::parse(v.key, &ok);
+      if (ok && !mapped(g, g)) continue;
+      if (ok) v.key = g.toString();
+      kept.push_back(v);
+    }
+    d.preferredValues = std::move(kept);
+  }
+  return unresolved;
 }
 
-void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map) {
+void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map,
+                          const std::vector<const NodeProps*>* extra) {
   const size_t n = plans.size();
   std::vector<std::vector<const NodeChange*>> trees(n);
   std::vector<GuidMap> own(n);
@@ -880,6 +976,12 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
   std::unordered_map<Guid, size_t, GuidHash> primary;
   for (size_t i = 0; i < n; i++) primary.emplace(plans[i].src, i);
   auto written = [&](size_t i) { return plans[i].target == kNoGuid || plans[i].replace; };
+  // A source that is itself a library copy (a library using another one, a paste from a file that has the copy): its
+  // components carry the library's GUIDs (publishID), kept; else the source's own GUIDs are the library's.
+  auto sourceIsCopy = [&](size_t i) {
+    auto it = src.byId.find(plans[i].src);
+    return it != src.byId.end() && !it->second->props.sourceLibraryKey.empty();
+  };
   auto fresh = [&](size_t i) {
     own[i].clear();
     for (const NodeChange* c : trees[i]) own[i][c->guid] = newGuid();
@@ -895,46 +997,60 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
       fresh(i);
       continue;
     }
+    bool keepPub = sourceIsCopy(i);
     std::vector<MatchNode> nodes;
-    for (const NodeChange* c : trees[i]) nodes.push_back({c->guid, c->props.parentIndex.guid, &c->props});
+    for (const NodeChange* c : trees[i])
+      nodes.push_back({c->guid, c->props.parentIndex.guid, &c->props, keepPub && c->props.publishID != kNoGuid ? c->props.publishID : c->guid});
     matchTree(nodes, plan.target, plan.mode == ImportPlan::Mode::COPY, own[i]);
     if (plan.replace)
       for (const NodeChange* c : trees[i])
         if (!own[i].count(c->guid)) own[i][c->guid] = newGuid();
   }
   for (auto& [root, i] : primary) publish(i);
-  // A copy kept as it is that lacks a node a written plan refers to (a variant added since): that asset comes in as a
-  // new copy (the old one keeps its users), so no reference is left pointing at nothing.
+  // A copy kept as it is that lacks a node a written plan — or the paste's own nodes — refers to (a variant added
+  // since): that asset comes in as a new copy (the old one keeps its users), so no reference is left pointing at
+  // nothing.
   std::unordered_map<Guid, Guid, GuidHash> rootOf;
   for (size_t i = 0; i < n; i++)
     for (const NodeChange* c : trees[i]) rootOf.emplace(c->guid, plans[i].src);
   for (bool again = true; again;) {
     again = false;
+    const GuidMap* mine = nullptr;
+    Refs refs;
+    refs.symbol = [&](Guid& g) {
+      if ((mine && mine->count(g)) || map.count(g)) return;
+      auto r = rootOf.find(g);
+      if (r == rootOf.end()) return;
+      size_t j = primary.at(r->second);
+      if (written(j) || (plans[j].mode != ImportPlan::Mode::COPY && !plans[j].copiedIn)) return;
+      plans[j].target = kNoGuid;
+      fresh(j);
+      publish(j);
+      again = true;
+    };
+    refs.asset = [](AssetId&, Kind) {};
     for (size_t i = 0; i < n; i++) {
       if (!written(i)) continue;
-      Refs refs;
-      refs.symbol = [&](Guid& g) {
-        if (own[i].count(g) || map.count(g)) return;
-        auto r = rootOf.find(g);
-        if (r == rootOf.end()) return;
-        size_t j = primary.at(r->second);
-        if (written(j) || plans[j].mode != ImportPlan::Mode::COPY) return;
-        plans[j].target = kNoGuid;
-        fresh(j);
-        publish(j);
-        again = true;
-      };
-      refs.asset = [](AssetId&, Kind) {};
+      mine = &own[i];
       for (const NodeChange* c : trees[i]) {
         NodeProps p = c->props;
         visitProps(p, refs);
       }
     }
+    mine = nullptr;
+    if (extra)
+      for (const NodeProps* e : *extra) {
+        NodeProps p = *e;
+        visitProps(p, refs);
+      }
   }
 
   Guid canvas = internalCanvas(true);
   bool libraryWriteBefore = libraryWrite_;
   libraryWrite_ = true;
+  // What replaced copies no longer have, removed once every plan is written (what uses it is known then).
+  std::vector<Guid> leftovers;
+  std::unordered_map<Guid, std::string, GuidHash> leftoverMains;  // a component left over → its copy's library
   for (size_t i = 0; i < n; i++) {
     ImportPlan& plan = plans[i];
     auto r = own[i].find(plan.src);
@@ -942,10 +1058,12 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
     if (!written(i)) continue;
     GuidSet done;
     bool copy = plan.mode == ImportPlan::Mode::COPY;
+    bool keepPub = sourceIsCopy(i);
+    std::string oldLibrary = plan.target != kNoGuid ? doc_.get(plan.target)->props.sourceLibraryKey : std::string();
     for (const NodeChange* c : trees[i]) {
       Guid id = own[i][c->guid];
       NodeProps q = c->props;
-      remapRefs(q, &own[i], map, plan.libraryKey);
+      unresolved_ += remapRefs(q, &own[i], map, plan.libraryKey);
       bool root = c->guid == plan.src;
       bool component = q.type == NodeType::SYMBOL || q.isComponentSet();
       bool assetNode = component || q.isStyle() || q.type == NodeType::VARIABLE || q.type == NodeType::VARIABLE_SET;
@@ -962,7 +1080,8 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
           q.version = plan.version;
           q.publishID = plan.publishID;
         } else if (component) {
-          if (q.publishID == kNoGuid || c->props.sourceLibraryKey.empty()) q.publishID = c->guid;
+          // The library's GUID: the source's own, or (a source that is a copy) the one it carries.
+          if (!keepPub || q.publishID == kNoGuid) q.publishID = c->guid;
         } else {
           q.publishID = kNoGuid;
           if (!assetNode) q.key.clear(), q.version.clear();
@@ -998,10 +1117,57 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
       // What the new version no longer has.
       std::vector<Guid> have;
       realSubtree(plan.target, have);
-      for (auto it = have.rbegin(); it != have.rend(); ++it)
-        if (!done.count(*it) && doc_.has(*it)) write(NodeChange::removed(*it));
+      for (Guid g : have) {
+        if (done.count(g)) continue;
+        leftovers.push_back(g);
+        if (copy && !oldLibrary.empty() && isComponentNode(doc_.get(g)->props)) leftoverMains.emplace(g, oldLibrary);
+      }
     }
   }
+  // A component the new version no longer has (a deleted variant) stays while something uses it — an instance, a
+  // copy that wasn't updated — as a copy of its own, still the removed asset's (docs/data.md §9.6: instances keep
+  // rendering; the editor offers Detach and Restore component).
+  GuidSet kept;
+  if (!leftoverMains.empty()) {
+    GuidSet left(leftovers.begin(), leftovers.end());
+    std::vector<Guid> queue;
+    Refs refs;
+    refs.symbol = [&](Guid& g) {
+      if (leftoverMains.count(g) && kept.insert(g).second) queue.push_back(g);
+    };
+    refs.asset = [](AssetId&, Kind) {};
+    doc_.forEach([&](const Node& node) {
+      if (node.guid.isDerived() || left.count(node.guid)) return;
+      NodeProps p = node.props;
+      visitProps(p, refs);
+    });
+    for (size_t k = 0; k < queue.size(); k++) {
+      std::vector<Guid> inner;
+      realSubtree(queue[k], inner);
+      for (Guid g : inner) {
+        NodeProps p = doc_.get(g)->props;
+        visitProps(p, refs);
+      }
+    }
+    std::vector<Guid> roots(kept.begin(), kept.end());
+    std::sort(roots.begin(), roots.end());
+    for (Guid g : roots) {
+      NodeChange c = NodeChange::changed(g);
+      c.mask = F_PARENT_INDEX | F_TRANSFORM | F_SOURCE_LIBRARY_KEY;
+      c.props.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
+      c.props.transform = doc_.worldTransform(g);
+      c.props.sourceLibraryKey = leftoverMains.at(g);
+      write(c);
+    }
+  }
+  GuidSet keptNodes;
+  for (Guid g : kept) {
+    std::vector<Guid> inner;
+    realSubtree(g, inner);
+    keptNodes.insert(inner.begin(), inner.end());
+  }
+  for (auto it = leftovers.rbegin(); it != leftovers.rend(); ++it)
+    if (!keptNodes.count(*it) && doc_.has(*it)) write(NodeChange::removed(*it));
   libraryWrite_ = libraryWriteBefore;
 }
 
@@ -1070,6 +1236,7 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
   if (images) images->clear();
   if (busy()) return E_BUSY;
   if (opts.libraryKey.empty()) return E_INVALID;
+  unresolved_ = 0;
   SourceNodes src;
   src.addMessages(messages);
   src.link();
@@ -1161,6 +1328,9 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
     writeImports(src, plans, map);
     if (!toLocal.empty()) relinkCopies(toLocal);
     commit();
+#ifndef NDEBUG
+    if (unresolved_) std::fprintf(stderr, "engine: a library import left %zu main reference(s) pointing at nothing\n", unresolved_);
+#endif
   } else {
     // Nothing to write; the ids are still answered.
     for (ImportPlan& p : plans) p.result = p.target;

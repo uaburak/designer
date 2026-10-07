@@ -298,6 +298,21 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
     return false;
   });
   Guid defaultVariant = set != kNoGuid ? defaultVariantOf(doc_, set) : kNoGuid;
+  // Preferred values that name mains by asset key (a library copy's, a .fig's) resolve within the main's own library:
+  // its library's copies; for a local main, this file's own asset, else a copy (first by GUID).
+  Guid copyRoot = libraryRootOf(symbol);
+  std::string library = copyRoot != kNoGuid ? doc_.get(copyRoot)->props.sourceLibraryKey : std::string();
+  auto isMain = [](const NodeProps& p) { return (p.type == NodeType::SYMBOL || p.isComponentSet()) && !p.isSoftDeleted; };
+  auto mainByKey = [&](const std::string& key) {
+    if (!library.empty()) return copyMainByKey(library, key);
+    Guid local = localAssetByKey(key);
+    if (local != kNoGuid && isMain(doc_.get(local)->props)) return local;
+    Guid any = kNoGuid;
+    doc_.forEach([&](const Node& n) {
+      if (!n.guid.isDerived() && n.props.key == key && isMain(n.props) && isLibraryCopy(n.guid) && (any == kNoGuid || n.guid < any)) any = n.guid;
+    });
+    return any;
+  };
   for (const ComponentPropDef* d : sorted) {
     ComponentProperty p;
     p.id = d->id;
@@ -309,12 +324,10 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       bool ok = false;
       Guid g = Guid::parse(pv.key, &ok);
       // A library copy's (and a .fig's) preferred values name mains by asset key.
-      if (!ok && pv.key.size() == 40)
-        doc_.forEach([&](const Node& n) {
-          if (!ok && !n.guid.isDerived() && n.props.key == pv.key && !n.props.isSoftDeleted &&
-              (n.props.type == NodeType::SYMBOL || n.props.isComponentSet()))
-            g = n.guid, ok = true;
-        });
+      if (!ok && pv.key.size() == 40) {
+        g = mainByKey(pv.key);
+        ok = g != kNoGuid;
+      }
       if (ok) p.preferredValues.push_back(g);
     }
     if (d->type == ComponentPropType::VARIANT) {

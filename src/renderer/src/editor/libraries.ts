@@ -43,6 +43,38 @@ function systemChange(ed: EditorController, nodeChanges: Message["nodeChanges"])
   return ed.engine.applyChanges({ type: "NODE_CHANGES", sessionID: ed.source.sessionID ?? 1, nodeChanges }, "system");
 }
 
+/** How long a bookkeeping write waits for an open step (a scrub, a drag) to close: tries × ms (tests shorten it). */
+export const BOOKKEEPING_WAIT = { tries: 100, ms: 100 };
+
+/**
+ * A bookkeeping write (`markPublished`, a "system" change) the engine refuses with `E_BUSY` while a step is open —
+ * it would become part of that undo step — tried again until the step closes (`BOOKKEEPING_WAIT`). The last status.
+ */
+async function whenIdle(ed: EditorController, write: () => number): Promise<number> {
+  for (let i = 0; ; i++) {
+    if (ed.engine.destroyed) return Status.E_HANDLE;
+    const status = write();
+    if (status !== Status.E_BUSY || i >= BOOKKEEPING_WAIT.tries) return status;
+    await new Promise((resolve) => setTimeout(resolve, BOOKKEEPING_WAIT.ms));
+  }
+}
+
+/** Restore version's undo label (VersionDialogs): the step that writes a saved version back. */
+export const RESTORE_VERSION = "Restore version";
+
+/** Does a change carry library bookkeeping (a published version, a move) — written, or on a node brought back? */
+const touchesBookkeeping = (c: Message["nodeChanges"][number]): boolean => {
+  const f = c as unknown as Record<string, unknown>;
+  return "publishedVersion" in f || "libraryMoveInfo" in f;
+};
+
+/** A fresh asset key: 40 lowercase hex characters, 160 random bits (docs/schema.md §8.1). */
+function newAssetKey(): string {
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // ---- The index -------------------------------------------------------------------------------------------------------
 
 export interface LibraryState {
@@ -101,6 +133,16 @@ export class LibraryIndex {
   /** Payloads of styles / variables fetched for previews and pickers, by library */
   private readonly previews = new Map<string, Promise<Map<string, Message>>>();
   private toasted = false;
+  /** This file's own latest version as this editor published it: a manifest read before that is out of date */
+  private publishedHere = 0;
+  /** This file's own record and latest manifest, as last read */
+  private own: { record: LibraryRecord | null; manifest: LibraryVersion | null } | null = null;
+  /** The own version the assets were last checked against (-1: not yet) — a refresh checks again when it moves */
+  private checkedVersion = -1;
+  private reconciling: Promise<void> | null = null;
+  private reconcileAgain = false;
+  private busyRetries = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly ed: EditorController) {
     const access = ed.source.libraries;
@@ -119,7 +161,13 @@ export class LibraryIndex {
           const f = c as unknown as Record<string, unknown>;
           return c.phase !== undefined || "sourceLibraryKey" in f || "version" in f || "key" in f;
         });
+        // Undo / redo and Restore version bring back document states, bookkeeping included (a deleted main with the
+        // version a later publish removed): checked against this file's latest manifest at once (the last one read),
+        // then against a fresh read.
+        const back = (e.kind === "UNDO" || e.kind === "REDO" || e.label === RESTORE_VERSION) && e.message.nodeChanges.some(touchesBookkeeping);
+        if (back && this.own) this.reconcileWith(this.own.record, this.own.manifest);
         if (copiesChanged) void this.refresh();
+        else if (back) void this.reconcile();
       })
     );
     void this.refresh();
@@ -128,6 +176,8 @@ export class LibraryIndex {
   dispose(): void {
     this.offs.splice(0).forEach((off) => off());
     this.listeners.clear();
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
   }
 
   readonly subscribe = (l: () => void): (() => void) => {
@@ -191,7 +241,9 @@ export class LibraryIndex {
       do {
         this.again = false;
         try {
-          const [own, available] = await Promise.all([access.record(access.fileKey).catch(() => null), access.available().catch(() => [] as LibraryEntry[])]);
+          const [ownRead, available] = await Promise.all([this.readOwn(), access.available().catch(() => [] as LibraryEntry[])]);
+          if (ownRead && (ownRead.manifest?.version ?? 0) !== this.checkedVersion) this.reconcileWith(ownRead.record, ownRead.manifest);
+          const own = ownRead?.record ?? null;
           const enabled = [...access.enabled()];
           const copies = this.copies();
           const libs = [...new Set([...enabled, ...copies.map((c) => c.library)])].filter((lib) => lib !== access.fileKey);
@@ -218,6 +270,88 @@ export class LibraryIndex {
       this.announceUpdates();
     })();
     return this.refreshing;
+  }
+
+  /** This file published `version` (a manifest older than that, read before, is out of date). */
+  notePublished(version: number): void {
+    this.publishedHere = Math.max(this.publishedHere, version);
+  }
+
+  /** This file's own record and latest manifest; null when the store didn't answer (nothing is known then). */
+  private async readOwn(): Promise<{ record: LibraryRecord | null; manifest: LibraryVersion | null } | null> {
+    const access = this.access;
+    if (!access) return null;
+    try {
+      const record = await access.record(access.fileKey);
+      const manifest = record && record.status !== "deleted" && record.latestVersion > 0 ? await access.version(access.fileKey) : null;
+      if ((manifest?.version ?? 0) >= (this.own?.manifest?.version ?? 0)) this.own = { record, manifest };
+      return { record, manifest };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * This file's assets against its own latest published version (docs/data.md §9.1, §9.5, §9.6): an asset the version
+   * lists has that version's `publishedVersion`, and a published main is no longer "moved"; every other asset has
+   * none (never published, or removed since — a cross-file paste then treats it as unpublished). A SYSTEM change
+   * (`markPublished`), never an undo step. On open and when a refresh finds a new version, after undo / redo and
+   * Restore version (which bring back document states, bookkeeping included), and after a publish whose own marking
+   * couldn't run.
+   */
+  reconcile(): Promise<void> {
+    if (this.reconciling) {
+      this.reconcileAgain = true;
+      return this.reconciling;
+    }
+    this.reconciling = (async () => {
+      do {
+        this.reconcileAgain = false;
+        const own = await this.readOwn();
+        if (own) this.reconcileWith(own.record, own.manifest);
+      } while (this.reconcileAgain);
+      this.reconciling = null;
+    })();
+    return this.reconciling;
+  }
+
+  private reconcileWith(record: LibraryRecord | null, manifest: LibraryVersion | null): void {
+    const ed = this.ed;
+    const fileKey = this.access?.fileKey;
+    if (!this.state.on || !fileKey || ed.engine.destroyed || (manifest?.version ?? 0) < this.publishedHere) return;
+    const listed = new Map((manifest?.assets ?? []).map((a) => [a.key, a.versionHash]));
+    const movedHere = (m: { oldKey?: string; pasteFileKey?: string }) => !!record?.movedIn.some((r) => r.fromLibraryFileKey === m.pasteFileKey && r.fromKey === m.oldKey && r.toLibraryFileKey === fileKey);
+    const entries = new Map<string, string | null>();
+    const clears: Record<string, unknown>[] = [];
+    for (const a of ed.engine.localAssets()) {
+      const n = ed.engine.readNode(a.id) as LNode | null;
+      const move = n?.libraryMoveInfo?.oldKey ? n.libraryMoveInfo : null;
+      const main = a.kind === "COMPONENT" || a.kind === "COMPONENT_SET";
+      const want = a.key ? (listed.get(a.key) ?? null) : null;
+      if (a.key && ((a.publishedVersion || null) !== want || (move && main && want !== null))) {
+        entries.set(a.key, want);
+        continue;
+      }
+      // No key (never published from here), or nothing markPublished would change: by GUID.
+      const clear: Record<string, unknown> = {};
+      if (!a.key && a.publishedVersion) clear.publishedVersion = null;
+      if (move && main && movedHere(move)) clear.libraryMoveInfo = null; // the move was published (a restored state)
+      if (Object.keys(clear).length) clears.push({ guid: a.id, ...clear });
+    }
+    let status: number = Status.OK;
+    if (entries.size) status = ed.engine.markPublished([...entries].map(([key, versionHash]) => ({ key, versionHash })));
+    if (status === Status.OK && clears.length) status = systemChange(ed, clears as never);
+    if (status !== Status.E_BUSY) {
+      this.busyRetries = 0;
+      this.checkedVersion = manifest?.version ?? 0;
+      return;
+    }
+    // Inside an open step: again once it has closed.
+    if (this.retryTimer || this.busyRetries++ >= BOOKKEEPING_WAIT.tries) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.reconcile();
+    }, BOOKKEEPING_WAIT.ms);
   }
 
   /**
@@ -433,9 +567,13 @@ export function publishPlan(draft: PublishDraft, selected: ReadonlySet<string>):
       }
     }
   }
-  // Removed rows still shipped for an asset that stays (its stored payload carries them): who uses them.
+  // Removed rows still shipped for an asset that stays — as it is now, or, deselected, at its last published version
+  // (its stored payload carries what that version used): who uses them.
   const removed = new Set(draft.removed.map((r) => r.key));
-  for (const i of draft.items) if (shipped(i)) for (const dep of i.dependencies) if (removed.has(dep) && dep !== i.key) note(dep, i.asset.name);
+  for (const i of draft.items) {
+    const deps = shipped(i) ? i.dependencies : (prev.get(i.key)?.dependencies ?? []);
+    for (const dep of deps) if (removed.has(dep) && dep !== i.key) note(dep, i.asset.name);
+  }
   return { chosen, usedBy };
 }
 
@@ -468,14 +606,19 @@ export interface PublishChoices {
   moveModes: ReadonlyMap<string, "move" | "copy">;
 }
 
+/** A published version, and whether this file recorded it on its assets (`markPublished`) yet. */
+export type PublishedLibrary = LibraryVersion & { recorded: boolean };
+
 /**
  * Publishes (`publishPlan`): selected new / modified assets — and the new / modified ones they use — go out with
  * their new payloads (and thumbnails); a deselected modified one keeps its last published version; a deselected
  * removed one stays published (listed again if it now ships only for what uses it); unchanged assets and
  * dependencies always go. Then the engine records the version on the assets (`markPublished`, SYSTEM: published
- * versions written, removed assets' cleared, moved ones no longer "moved" — never an undo step, docs/data.md §9.5).
+ * versions written, removed assets' cleared, moved ones no longer "moved" — never an undo step, docs/data.md §9.5);
+ * refused while a step is open, it runs once that step closes (`whenIdle`). Should it still not run, `recorded` is
+ * false (the dialog says so) and the library index records it at its next check (`reconcile`).
  */
-export async function publishLibrary(ed: EditorController, draft: PublishDraft, choices: PublishChoices, onProgress?: (done: number, total: number) => void): Promise<LibraryVersion> {
+export async function publishLibrary(ed: EditorController, draft: PublishDraft, choices: PublishChoices, onProgress?: (done: number, total: number) => void): Promise<PublishedLibrary> {
   const access = ed.source.libraries;
   if (!access || !libraryEngine(ed)) throw new Error("Libraries aren't available here");
   const plan = publishPlan(draft, choices.selected);
@@ -506,15 +649,19 @@ export async function publishLibrary(ed: EditorController, draft: PublishDraft, 
   onProgress?.(total, total);
   const moves = draft.moves.filter((m) => assets.some((a) => a.key === m.item.key)).map((m) => ({ key: m.item.key, fromLibraryFileKey: m.fromLibraryFileKey, fromKey: m.fromKey, mode: choices.moveModes.get(m.fromKey) ?? ("move" as const) }));
   const version = await access.publish({ description: choices.description, assets, moves });
+  ed.libraries.notePublished(version.version);
+  let recorded = true;
   if (!ed.engine.destroyed) {
     // Every asset of the new version — dependencies and kept versions too (a paste elsewhere treats an asset with
     // `publishedVersion` as published) — and the ones it removed (no longer published).
     const listed = new Set(version.assets.map((a) => a.key));
     const gone = [...draft.removed.map((r) => r.key), ...draft.movedOut.map((m) => m.key)].filter((k) => !listed.has(k));
-    ed.engine.markPublished([...version.assets.map((a) => ({ key: a.key, versionHash: a.versionHash })), ...gone.map((key) => ({ key, versionHash: null }))]);
+    const entries = [...version.assets.map((a) => ({ key: a.key, versionHash: a.versionHash })), ...gone.map((key) => ({ key, versionHash: null }))];
+    recorded = (await whenIdle(ed, () => ed.engine.markPublished(entries))) === Status.OK;
+    if (!recorded) void ed.libraries.reconcile();
   }
   void ed.libraries.refresh();
-  return version;
+  return { ...version, recorded };
 }
 
 /** A component's PNG thumbnail (≤ 256 px, the engine's node render), or null where it can't be drawn. */
@@ -543,7 +690,9 @@ export function setHiddenWhenPublishing(ed: EditorController, guid: Guid, hidden
   const n = ed.engine.readNode(guid) as LNode | null;
   if (!n) return;
   const field = n.type === "SYMBOL" ? "isSymbolPublishable" : "isPublishable";
-  ed.setProps([guid], { [field]: hidden ? false : null } as never, hidden ? "Hide when publishing" : "Show when publishing");
+  // Shown again: written as `true` (what absence means, docs/schema.md §3.4) rather than cleared — the engine keeps
+  // these flags without modelling them, and a cleared one would not reach the store.
+  ed.setProps([guid], { [field]: !hidden } as never, hidden ? "Hide when publishing" : "Show when publishing");
 }
 
 /** Is a local asset hidden from publishing by its flag? */
@@ -557,17 +706,25 @@ export function isHiddenWhenPublishing(ed: EditorController, guid: Guid): boolea
 /**
  * "Add to file" / "Remove from file" (removing keeps the copies already used here). The document keeps its own list
  * too (docs/schema.md §8.2: DOCUMENT.librarySubscriptions), written as a system change: like the store's list it is
- * not undone with ⌘Z (Figma doesn't undo enabling a library), so the two never disagree.
+ * not undone with ⌘Z (Figma doesn't undo enabling a library), so the two never disagree — the write waits for an
+ * open step to close (`whenIdle`), and should it still be refused the store's change is taken back and this throws.
  */
 export async function setLibraryEnabled(ed: EditorController, lib: string, enabled: boolean, opts: { refresh?: boolean } = {}): Promise<void> {
   const access = ed.source.libraries;
   if (!access) return;
   await access.setEnabled(lib, enabled);
   if (!ed.engine.destroyed) {
-    const doc = ed.engine.readNode("0:0") as { librarySubscriptions?: { libraryKey: string; name: string }[] } | null;
-    const list = (doc?.librarySubscriptions ?? []).filter((s) => s.libraryKey !== lib);
-    if (enabled) list.push({ libraryKey: lib, name: (await access.fileName(lib).catch(() => null)) ?? "" });
-    if (!ed.engine.destroyed) systemChange(ed, [{ guid: "0:0", librarySubscriptions: list } as never]); // (a DOCUMENT field NodeChange leaves out)
+    const name = enabled ? ((await access.fileName(lib).catch(() => null)) ?? "") : "";
+    const status = await whenIdle(ed, () => {
+      const doc = ed.engine.readNode("0:0") as { librarySubscriptions?: { libraryKey: string; name: string }[] } | null;
+      const list = (doc?.librarySubscriptions ?? []).filter((s) => s.libraryKey !== lib);
+      if (enabled) list.push({ libraryKey: lib, name });
+      return systemChange(ed, [{ guid: "0:0", librarySubscriptions: list } as never]); // (a DOCUMENT field NodeChange leaves out)
+    });
+    if (status !== Status.OK && !ed.engine.destroyed) {
+      await access.setEnabled(lib, !enabled).catch(() => {});
+      throw new Error(enabled ? "The library couldn't be added" : "The library couldn't be removed");
+    }
   }
   if (opts.refresh !== false) await ed.libraries.refresh();
 }
@@ -626,6 +783,32 @@ export async function insertLibraryComponent(ed: EditorController, lib: string, 
 // ---- Updates --------------------------------------------------------------------------------------------------------------
 
 /**
+ * The hidden assets (`dependencyOnly` in the library's latest manifest) an asset uses — through chains of hidden ones
+ * — whose copies here are behind that manifest. They are never listed on their own in the library, and the engine
+ * updates only the keys it is given (a copy of a dependency is otherwise reused as it is), so accepting the asset
+ * alone has to bring them too, or what it shows of them (a hidden variable's value, a nested private component)
+ * stays old. Keys with their latest versionHash.
+ */
+function outdatedHiddenDependencies(ed: EditorController, lib: string, manifest: LibraryVersion | null | undefined, key: string): { key: string; versionHash: string }[] {
+  if (!manifest) return [];
+  const byKey = new Map(manifest.assets.map((a) => [a.key, a]));
+  const copies = ed.libraries.copies().filter((c) => c.library === lib);
+  const out: { key: string; versionHash: string }[] = [];
+  const seen = new Set([key]);
+  const queue = [key];
+  while (queue.length) {
+    for (const d of byKey.get(queue.shift()!)?.dependencies ?? []) {
+      const dep = byKey.get(d);
+      if (!dep?.dependencyOnly || seen.has(d)) continue;
+      seen.add(d);
+      queue.push(d);
+      if (copies.some((c) => c.key === d && c.version !== dep.versionHash)) out.push({ key: d, versionHash: dep.versionHash });
+    }
+  }
+  return out;
+}
+
+/**
  * "Update all" (or the items given): every copy of each asset replaced by its library's latest version in place —
  * instances keep their overrides — and a moved asset's copies re-pointed at its new library (enabled here for it)
  * and updated from there; all of it **one undo step** "Update library assets" (docs/data.md §9.4). Returns how many
@@ -651,9 +834,12 @@ export async function acceptUpdates(ed: EditorController, items: readonly Update
   for (const u of items) {
     if (u.kind === "modified" && u.asset) {
       const c = call(u.library);
-      if (!c.keys.includes(u.key)) c.keys.push(u.key);
+      // The asset, and the hidden assets it uses that are behind (an item accepted on its own).
+      for (const w of [{ key: u.key, versionHash: u.asset.versionHash }, ...outdatedHiddenDependencies(ed, u.library, ed.libraries.get().manifests.get(u.library), u.key)]) {
+        if (!c.keys.includes(w.key)) c.keys.push(w.key);
+        want(u.library, w.key, w.versionHash);
+      }
       c.items.push(u);
-      want(u.library, u.key, u.asset.versionHash);
     } else if (u.kind === "moved" && u.redirect) {
       const r = u.redirect;
       const v = await access.version(r.toLibraryFileKey).catch(() => null);
@@ -671,20 +857,31 @@ export async function acceptUpdates(ed: EditorController, items: readonly Update
   // A moved asset's new library is added to the file (Figma) — bookkeeping, not part of the step.
   for (const lib of enable) await setLibraryEnabled(ed, lib, true, { refresh: false }).catch(() => {});
   if (ed.engine.destroyed || !calls.size) return 0;
-  const run = (c: Call) => ed.engine.applyLibraryUpdate(c.payloads.map((p) => p.message), { libraryKey: c.lib, keys: c.keys, ...(c.redirects.length ? { redirects: c.redirects } : {}) });
-  const done: Call[] = [];
+  // The copies the engine actually wrote ("library/key"): a copy already at that version is reused, not written.
+  const written = new Set<string>();
+  const run = (c: Call) => {
+    const r = ed.engine.applyLibraryUpdate(c.payloads.map((p) => p.message), { libraryKey: c.lib, keys: c.keys, ...(c.redirects.length ? { redirects: c.redirects } : {}) });
+    if (r.status === Status.OK) for (const a of r.assets) if (a.updated) written.add(`${a.libraryKey}/${a.key}`);
+    return r;
+  };
   const list = [...calls.values()];
   let next = 0;
   ed.batch("Update library assets", () => {
-    for (; next < list.length; next++) {
-      const r = run(list[next]);
-      if (r.status === Status.E_BUSY) return; // an engine that can't join the open step: one step per library below
-      if (r.status === Status.OK) done.push(list[next]);
-    }
+    for (; next < list.length; next++) if (run(list[next]).status === Status.E_BUSY) return; // an engine that can't join the open step: one step per library below
   });
-  for (; next < list.length; next++) if (run(list[next]).status === Status.OK) done.push(list[next]);
+  for (; next < list.length; next++) run(list[next]);
+  // A moved asset whose new library is this file: its copies are gone, their users relinked to the main here.
+  const relinked = (u: UpdateItem) => u.copies.every((c) => {
+    const n = ed.engine.readNode(c.guid) as LNode | null;
+    return !n || n.sourceLibraryKey !== u.library || n.key !== u.key;
+  });
+  const updated = new Set<string>();
+  for (const u of items) {
+    const done = u.kind === "modified" ? written.has(updateId(u)) : u.kind === "moved" && !!u.redirect && (written.has(`${u.redirect.toLibraryFileKey}/${u.redirect.toKey}`) || relinked(u));
+    if (done) updated.add(updateId(u));
+  }
   await ed.libraries.refresh();
-  return done.reduce((n, c) => n + new Set(c.items.map(updateId)).size, 0);
+  return updated.size;
 }
 
 /**
@@ -698,13 +895,15 @@ export async function updateSelectedInstances(ed: EditorController, item: Update
   if (!access || item.kind !== "modified" || !item.asset) return 0;
   const instances = selectedInstancesOf(ed, item.copies.map((c) => c.guid));
   if (!instances.length) return 0;
-  const payloads = await access.payloads(item.library, [{ key: item.asset.key, versionHash: item.asset.versionHash }], { withDependencies: true });
+  // The hidden assets it uses that are behind get new copies with it (the other instances keep the old ones).
+  const hidden = outdatedHiddenDependencies(ed, item.library, await ed.libraries.manifest(item.library), item.key);
+  const payloads = await access.payloads(item.library, [{ key: item.asset.key, versionHash: item.asset.versionHash }, ...hidden], { withDependencies: true });
   if (ed.engine.destroyed) return 0;
   const before = new Set(ed.libraries.copies().map((c) => c.guid));
   let n = 0;
   ed.batch("Update instance", () => {
     // Inside the step: undo takes the new copy away with the swap.
-    const r = ed.engine.importLibraryAssets(payloads.map((p) => p.message), { libraryKey: item.library, asNew: true, keys: [item.key] });
+    const r = ed.engine.importLibraryAssets(payloads.map((p) => p.message), { libraryKey: item.library, asNew: true, keys: [item.key, ...hidden.map((h) => h.key)] });
     const fresh = r.status === Status.OK ? r.assets.find((a) => a.key === item.key && a.libraryKey === item.library && a.created && !before.has(a.id)) : undefined;
     if (!fresh) return; // an engine without `asNew` reuses the copy here: nothing to swap onto
     const target = item.copy.kind === "COMPONENT_SET" ? null : fresh.id;
@@ -744,12 +943,27 @@ export function selectedInstancesOf(ed: EditorController, copies: Guid | readonl
 /**
  * "Restore component" for a component its library removed (offered only for what the diff says was removed): the
  * engine's RESTORE_COMPONENT makes the copy (its whole set) this file's main on the current page, in the middle of
- * the view — library identity cleared, a new key at the next publish, every instance still linked; one undo step.
+ * the view — library identity cleared, every instance still linked. The asset's other copies here (Update selected
+ * instance leaves several) go too: their users — instances, nested instances — are relinked to the restored main,
+ * overrides kept (the engine's relink of copies to one of this file's own assets, a redirect to its new key). One
+ * undo step.
  */
 export function restoreRemovedComponent(ed: EditorController, copy: Guid): Guid | null {
   const n = ed.engine.readNode(copy) as LNode | null;
   if (!n || !n.sourceLibraryKey) return null;
-  if (runEngineCommand(ed.engine, "RESTORE_COMPONENT", { ref: copy }) !== Status.OK || (ed.engine.readNode(copy) as LNode | null)?.sourceLibraryKey) return null;
+  const lib = n.sourceLibraryKey;
+  const key = n.key ?? "";
+  const others = key ? ed.libraries.copies().filter((c) => c.library === lib && c.key === key && c.guid !== copy).map((c) => c.guid) : [];
+  let restored = false;
+  ed.batch("Restore component", () => {
+    if (runEngineCommand(ed.engine, "RESTORE_COMPONENT", { ref: copy }) !== Status.OK || (ed.engine.readNode(copy) as LNode | null)?.sourceLibraryKey) return;
+    restored = true;
+    if (!others.length) return;
+    const localKey = newAssetKey();
+    if (ed.engine.applyChanges({ type: "NODE_CHANGES", sessionID: ed.source.sessionID ?? 1, nodeChanges: [{ guid: copy, key: localKey } as never] }, "user") !== Status.OK) return;
+    ed.engine.applyLibraryUpdate([], { libraryKey: lib, keys: [], copies: others, redirects: [{ fromKey: key, toKey: localKey, fromLibraryKey: lib }] });
+  });
+  if (!restored) return null;
   ed.engine.setSelection([copy]);
   return copy;
 }

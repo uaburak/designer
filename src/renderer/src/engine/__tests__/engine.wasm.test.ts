@@ -886,4 +886,76 @@ describe("engine (wasm, headless): libraries (E6)", () => {
     lib.destroy();
     con.destroy();
   });
+
+  it("review fixes, round 2: hidden dependencies in the hash, unchanged pastes at the published version, preferred instances per library", async () => {
+    const symbolOf = (localID: number) => ({ symbolID: { sessionID: 1, localID }, symbolOverrides: [] });
+    const lib = await Engine.create(null, { sessionID: 1 });
+    lib.load(
+      base([
+        { guid: "1:1", phase: "CREATED", type: "SYMBOL", name: "Icon", parentIndex: { guid: "0:1", position: "!" }, size: { x: 24, y: 24 } },
+        { guid: "1:2", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Glyph", parentIndex: { guid: "1:1", position: "!" }, size: { x: 16, y: 16 }, fillPaints: [solid(0, 0, 0)] },
+        { guid: "1:20", phase: "CREATED", type: "SYMBOL", name: "_Private", parentIndex: { guid: "0:1", position: "\"" }, size: { x: 10, y: 10 } },
+        { guid: "1:10", phase: "CREATED", type: "SYMBOL", name: "Button", parentIndex: { guid: "0:1", position: "#" }, size: { x: 120, y: 40 } },
+        { guid: "1:11", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Background", parentIndex: { guid: "1:10", position: "!" }, size: { x: 120, y: 40 }, fillPaints: [solid(0.5, 0.5, 0.5)] },
+        { guid: "1:12", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Label", parentIndex: { guid: "1:10", position: "\"" }, size: { x: 60, y: 20 }, fillPaints: [solid(0, 0, 0)] },
+        { guid: "1:13", phase: "CREATED", type: "INSTANCE", name: "Icon", parentIndex: { guid: "1:10", position: "#" }, size: { x: 24, y: 24 }, symbolData: symbolOf(1) },
+        { guid: "1:40", phase: "CREATED", type: "INSTANCE", name: "Button", parentIndex: { guid: "0:1", position: "$" }, size: { x: 120, y: 40 }, symbolData: symbolOf(10) },
+      ]),
+    );
+    lib.setFileKey(LIB);
+    // An instance-swap property preferring Icon and _Private; Label bound to a hidden variable.
+    expect(lib.command("ADD_COMPONENT_PROPERTY", { ref: "1:10", name: "Icon", type: "INSTANCE_SWAP", defaultValue: "1:1", preferredValues: ["1:1", "1:20"] })).toBe(Status.OK);
+    const [hidden, mode] = lib.runCommand("CREATE_VARIABLE_COLLECTION", { name: "_Tokens" }).created;
+    const secret = lib.runCommand("CREATE_VARIABLE", { collection: hidden, type: "COLOR", name: "Secret", value: { r: 1, g: 0, b: 0, a: 1 } }).created[0];
+    expect(lib.command("BIND_VARIABLE", { refs: ["1:12"], target: "fillPaints[0].color", variable: secret })).toBe(Status.OK);
+    const keys = lib.ensureAssetKeys();
+    const keyOf = (id: string) => keys.find((k) => k.id === id)!.key;
+    const button = keyOf("1:10");
+    const v1 = lib.encodeAssets([button]);
+    expect(v1.assets.find((a) => a.id === secret)?.dependencyOnly).toBe(true);
+    expect(lib.markPublished(v1.assets.map((a) => ({ key: a.key, versionHash: a.versionHash })))).toBe(Status.OK);
+    const published = v1.assets[0].versionHash;
+
+    // Unchanged since the publish: pasted elsewhere (the clipboard's JSON), its copy is at exactly the published
+    // version — though _Private, a preferred instance, doesn't come along — so no update is pending.
+    lib.setSelection(["1:40"]);
+    const clip = JSON.parse(JSON.stringify(lib.encodeSelection()!)) as Message;
+    expect(clip.nodeChanges.some((n) => n.guid === "1:20")).toBe(false);
+    const con = await Engine.create(null, { sessionID: 1 });
+    con.load(base([{ guid: "1:1", phase: "CREATED", type: "FRAME", name: "Screen", parentIndex: { guid: "0:1", position: "!" }, size: { x: 400, y: 400 } }]));
+    con.setFileKey(CONSUMER);
+    expect(con.paste(clip, { inPlace: true })).toBe(1);
+    const pasted = con.getSelection().refs[0];
+    expect(con.libraryUsage().find((u) => u.key === button)?.version).toBe(published);
+    // Its preferred instances: Icon's copy here — never this file's 1:1 (the Screen frame).
+    const iconCopy = con.libraryUsage().find((u) => u.key === keyOf("1:1"))!.id;
+    expect(con.componentInfo(pasted)!.properties.find((p) => p.name === "Icon")?.preferredValues).toEqual([iconCopy]);
+
+    // The hidden variable's value: Button is modified (the publish lists it); the update brings the new colour.
+    expect(lib.command("SET_VARIABLE_VALUE", { variable: secret, mode, value: { r: 0, g: 1, b: 0, a: 1 } })).toBe(Status.OK);
+    const now = lib.localAssets().find((a) => a.key === button)!;
+    expect(now.versionHash).not.toBe(now.publishedVersion);
+    const v2 = lib.encodeAssets([button]);
+    expect(v2.assets[0].versionHash).toBe(now.versionHash);
+    expect(con.readNode(`I${pasted};1:12`)?.fillPaints?.[0].color).toEqual({ r: 1, g: 0, b: 0, a: 1 });
+    expect(con.applyLibraryUpdate(v2.assets.map((a) => a.message), { libraryKey: LIB }).status).toBe(Status.OK);
+    expect(con.readNode(`I${pasted};1:12`)?.fillPaints?.[0].color).toEqual({ r: 0, g: 1, b: 0, a: 1 });
+
+    // A duplicated library (same keys, another FileKey): each Button copy's preferred Icon is its own library's.
+    const DUP = "DuplicatedLibKey0007";
+    const dup = await Engine.create(null, { sessionID: 1 });
+    dup.load(lib.encodeDocument());
+    dup.setFileKey(DUP);
+    expect(con.importLibraryAssets(dup.encodeAssets([button]).assets.map((a) => a.message), { libraryKey: DUP }).status).toBe(Status.OK);
+    const usage = con.libraryUsage();
+    const copyIn = (library: string, key: string) => usage.find((u) => u.libraryKey === library && u.key === key)!.id;
+    for (const library of [LIB, DUP]) {
+      expect(con.command("INSERT_INSTANCE", { main: copyIn(library, button), x: 0, y: 0 })).toBe(Status.OK);
+      const info = con.componentInfo(con.getSelection().refs[0])!;
+      expect(info.properties.find((p) => p.name === "Icon")?.preferredValues).toEqual([copyIn(library, keyOf("1:1"))]);
+    }
+    lib.destroy();
+    dup.destroy();
+    con.destroy();
+  });
 });

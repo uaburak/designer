@@ -748,6 +748,16 @@ async function librariesSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.source.flush());
   await open(page, `&file=${keys.kit2}`);
   await ed((m) => window.__designerEditor.engine.paste(m), cut);
+  await ed(() => window.__designerEditor.ui.set({ publishOpen: true }));
+  const moveRow = page.locator('[data-publish-dialog] [data-move="Icons/Heart"]');
+  await moveRow.waitFor({ timeout: 10000 });
+  await settle(page);
+  const fit = await moveRow.evaluate((row) => {
+    const name = row.querySelector("[class*=changeName]");
+    const select = row.querySelector('[data-ds="Select"]');
+    return { name: !!name && name.scrollWidth <= name.clientWidth, select: Math.round(select?.getBoundingClientRect().width ?? 0), row: Math.round(row.getBoundingClientRect().width) };
+  });
+  check("Publish: a moved component's name keeps its row (Move / Copy hugs its value)", fit.name && fit.select > 0 && fit.select < fit.row / 2, JSON.stringify(fit));
   await publishFromUi(`86-publish-move-here-${theme}`);
   await page.evaluate(() => window.__designerEditor.source.flush());
   await open(page, `&file=${keys.kit}`);

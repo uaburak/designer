@@ -443,8 +443,12 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<AssetInfo> localAssets() const;
   // The assets with these keys and their dependencies (keys are given to dependencies that lack one).
   void encodeAssets(const std::vector<std::string>& keys, std::vector<EncodedAsset>& out, std::vector<ImageHash>& images);
-  // The content hash of an asset (docs/data.md §9.1).
+  // The content hash of an asset (docs/data.md §9.1): its own content, and the hashes of the hidden (dependency-only)
+  // assets it uses, which are never listed on their own.
   std::string assetVersionHash(Guid id) const;
+  // The references the last library import / update or cross-file paste could not resolve (each left pointing at
+  // nothing; 0 when every reference found its node). A debug build also reports them on stderr.
+  size_t unresolvedReferences() const { return unresolved_; }
   // After a publish: publishedVersion on the version's assets (libraryMoveInfo cleared on its mains); cleared on assets
   // the version removed (an entry with an empty hash). SYSTEM.
   Status markPublished(const std::vector<PublishedEntry>& entries);
@@ -508,36 +512,52 @@ class Editor : private LayoutHost, public TextLayouts {
     Guid target = kNoGuid;  // the node it becomes (kNoGuid: created)
     bool replace = false;   // the target's content is replaced
     bool redirected = false;
+    bool copiedIn = false;  // LOCAL: a main copied in from another file (not this file's own asset)
     Guid result = kNoGuid;  // writeImports: the node the root became
   };
   // Writes the plans in the open transaction; `map` gets source GUID → local GUID for every node they reach (a source
-  // with several plans: the first one's). An existing target that isn't replaced but lacks a node a written plan
-  // refers to (a variant added since) becomes a new copy.
-  void writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map);
+  // with several plans: the first one's). An existing target that isn't replaced but lacks a node a written plan — or
+  // `extra` (a paste's own nodes) — refers to (a variant added since) becomes a new copy (a copied-in main: copied in
+  // again). A replaced copy's components
+  // the new version no longer has (a deleted variant) stay for what uses them, as copies of their own.
+  void writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans, GuidMap& map,
+                    const std::vector<const NodeProps*>* extra = nullptr);
   // Source nodes (pre-order, the root first) matched to an existing tree top-down: the root to `target`, each node only
-  // among its mapped parent's children, each existing node once; components by publishID (`byPublishID`), then key +
-  // name, then key; other layers by key; a key unique in the tree as a last resort (a layer moved to another parent).
+  // among its mapped parent's children, each existing node once; components by publishID (`byPublishID`; `pub`: the
+  // library GUID the source node copies), then key + name, then key — never onto a component that copies a library
+  // node the source no longer has; other layers by key; a key unique in the tree as a last resort (a layer moved to
+  // another parent).
   struct MatchNode {
     Guid id, parent;
     const NodeProps* props;
+    Guid pub = kNoGuid;  // kNoGuid: `id`
   };
   void matchTree(const std::vector<MatchNode>& nodes, Guid target, bool byPublishID, GuidMap& out) const;
   // Move to this file, when this file is where the asset moved: every user of each library copy (first) is relinked to
   // this file's own asset (second), nodes matched by key, and the copy is removed. In the open transaction.
   void relinkCopies(const std::vector<std::pair<Guid, Guid>>& copyToLocal);
   // A source node's references mapped into this document (`own`, then `map`, then library copies by publishID, then by
-  // library + key).
-  void remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, const std::string& libraryKey) const;
+  // library + key). Returns how many main references it could not map (left pointing at nothing: the caller counts
+  // them in unresolved_).
+  size_t remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, const std::string& libraryKey) const;
   // The copy root of (library, key): the one at `version` if any, else the first by GUID; kNoGuid when none.
   Guid copyRootByKey(const std::string& libraryKey, const std::string& key, const std::string& version = std::string()) const;
+  // A main (component or set, a variant included) in a library's copies by its key: the first by GUID; kNoGuid when none.
+  Guid copyMainByKey(const std::string& libraryKey, const std::string& key) const;
   // An asset's content hash (docs/data.md §9.1) over nodes from anywhere: the document's, or a clipboard's.
   struct HashView {
     std::function<const NodeProps*(Guid)> get;
     std::function<void(Guid, std::vector<Guid>&)> kids;          // real children, in order
     std::function<std::string(Guid)> mainKey;                    // a referenced main's (or set's) key; "" none
     std::function<std::string(const AssetId&, AssetKind)> assetKey;  // a referenced style's / variable's / collection's
+    std::function<bool(Guid)> exists;                            // a referenced node is there (unset: always)
   };
   std::string hashAsset(Guid root, const HashView& v) const;
+  // assetVersionHash with the hashes already computed (several assets in one call).
+  using HashMemo = std::unordered_map<Guid, std::string, GuidHash>;
+  std::string versionHashOf(Guid id, HashMemo& memo) const;
+  // The hidden (dependency-only) local assets an asset's nodes use directly (their payload roots).
+  std::vector<Guid> hiddenDependencies(Guid id) const;
   // Bound values left out (Variables.cpp): every field a variable binding or a style sets, reset (the binding counts).
   static void clearBoundValues(NodeProps& p);
   Guid localAssetByKey(const std::string& key) const;
@@ -1026,6 +1046,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string fileKey_;
   bool hasLibraryCopies_ = false;  // any node carries sourceLibraryKey (read-only checks only then)
   bool libraryWrite_ = false;      // the library code's own writes into copies (and APPLY_EXACT)
+  size_t unresolved_ = 0;          // references the last import / cross-file paste left pointing at nothing
   bool applyGuard_ = false;        // applyChanges(APPLY_SYSTEM): copies are read-only for it too
 };
 

@@ -12,7 +12,8 @@
 import { prepareFigImportAsync } from "../../../../shared/fig/importFig";
 import { decodeMessage, encodeMessage, newDocumentMessage, SCHEMA_BINARY } from "../../../../shared/schema/codec";
 import { RESERVED_SESSION_LIMIT, sessionIdFor, splitSessionId } from "../../../../shared/schema/guid";
-import { diffTables, NodeTable } from "../../../../shared/schema/patch";
+import { NodeTable } from "../../../../shared/schema/patch";
+import { restoreDiff, withNewAssetIdentity } from "../../../../shared/store/assetIdentity";
 import { Emitter } from "../../../../shared/store/emitter";
 import { StoreError } from "../../../../shared/store/protocol";
 import type { BlobStore, FileChange, FileRepository, LibraryEvent, LibraryRegistry, OpenedFile, PreviewService, StoreAdmin, StoreApi, WorkspaceEvent, WorkspaceRepository } from "../../../../shared/store/repositories";
@@ -96,6 +97,13 @@ function pngSize(b: Uint8Array): { width: number; height: number } | null {
 async function sha1Hex(bytes: Uint8Array): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-1", bytes.slice().buffer as ArrayBuffer));
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** A duplicate's snapshot (Duplicate file, Duplicate version): its local assets are new assets (docs/schema.md §8.1). */
+function duplicateSnapshot(snapshot: Uint8Array): Uint8Array {
+  const message = decodeMessage(snapshot);
+  const fresh = withNewAssetIdentity(message);
+  return fresh === message ? snapshot : encodeMessage(fresh);
 }
 
 export function versionDateLabel(ms: number): string {
@@ -444,7 +452,7 @@ export class MemoryStore {
     return this.addFile({
       name: `${src.name} (Copy)`,
       folderId,
-      snapshot: d.snapshot,
+      snapshot: duplicateSnapshot(d.snapshot),
       nextLocal: d.nextLocal,
       thumbnail: d.thumbnail,
       thumbSize: src.thumbnail ? { width: src.thumbnail.width, height: src.thumbnail.height } : undefined,
@@ -608,13 +616,13 @@ export class MemoryStore {
 
   restoreDiff(fileKey: FileKey, id: VersionId): Uint8Array {
     const v = this.version(fileKey, id);
-    return encodeMessage(diffTables(this.headTable(this.fileData(fileKey)), NodeTable.fromMessage(decodeMessage(v.snapshot))));
+    return encodeMessage(restoreDiff(this.headTable(this.fileData(fileKey)), NodeTable.fromMessage(decodeMessage(v.snapshot))));
   }
 
   async duplicateVersion(fileKey: FileKey, id: VersionId): Promise<FileMeta> {
     const src = this.ws.getMeta(fileKey);
     const v = this.version(fileKey, id);
-    return this.addFile({ name: `${src.name} (${v.record.title ?? versionDateLabel(v.record.createdAt)})`, folderId: null, snapshot: v.snapshot, nextLocal: this.fileData(fileKey).nextLocal });
+    return this.addFile({ name: `${src.name} (${v.record.title ?? versionDateLabel(v.record.createdAt)})`, folderId: null, snapshot: duplicateSnapshot(v.snapshot), nextLocal: this.fileData(fileKey).nextLocal });
   }
 
   async saveThumbnail(fileKey: FileKey, png: Uint8Array, size: { width: number; height: number }): Promise<void> {

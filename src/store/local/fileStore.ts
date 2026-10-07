@@ -15,7 +15,8 @@ import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { codec, DOCUMENT_FORMAT_VERSION, SCHEMA_BINARY, SCHEMA_SHA1 } from "../../shared/schema/document.generated";
 import { RESERVED_SESSION_LIMIT, sessionIdFor, splitSessionId } from "../../shared/schema/guid";
-import { diffTables, messageImageHashes, NodeTable } from "../../shared/schema/patch";
+import { messageImageHashes, NodeTable } from "../../shared/schema/patch";
+import { restoreDiff } from "../../shared/store/assetIdentity";
 import { StoreError } from "../../shared/store/protocol";
 import type { FileChange, OpenedFile } from "../../shared/store/repositories";
 import { isSha1, MAX_BATCH_BYTES, type AppendAck, type ChangeBatch, type FileKey, type FileUiState, type VersionId, type VersionRecord } from "../../shared/store/types";
@@ -980,12 +981,15 @@ export class FileStore {
     });
   }
 
-  /** The NODE_CHANGES message that turns the head into the version (non-destructive restore, §6). */
+  /**
+   * The NODE_CHANGES message that turns the head into the version (non-destructive restore, §6); local assets keep
+   * their library bookkeeping (`restoreDiff`, src/shared/store/assetIdentity.ts).
+   */
   async restoreDiff(fileKey: FileKey, id: VersionId): Promise<Uint8Array> {
     const { path } = await this.getVersion(fileKey, id);
     const target = NodeTable.fromMessage(currentMessage(await readSnapshotFile(path)));
     const { table } = await this.headTable(fileKey);
-    return codec.encodeMessage(diffTables(table, target));
+    return codec.encodeMessage(restoreDiff(table, target));
   }
 
   /** The head snapshot file after a flush and a compaction (Save Local Copy, duplicate). */

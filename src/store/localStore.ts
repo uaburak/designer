@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { newDocumentMessage } from "../shared/schema/codec";
 import { codec } from "../shared/schema/document.generated";
 import { sessionIdFor } from "../shared/schema/guid";
+import { withNewAssetIdentity } from "../shared/store/assetIdentity";
 import { StoreError } from "../shared/store/protocol";
 import type {
   BlobStore,
@@ -220,12 +221,23 @@ export class LocalStore {
     const src = this.ws.getMeta(fileKey);
     const head = await this.files.compactedHead(fileKey);
     const key = newFileKey();
-    await this.files.createFileFromSnapshot(key, head.path, head.blobRefs);
+    await this.createDuplicate(key, head.path, head.blobRefs);
     const folderId = src.folderId && !this.ws.isFolderTrashed(src.folderId) ? src.folderId : null;
     const meta = newMeta(key, `${src.name} (Copy)`, folderId, this.clock.now());
     meta.enabledLibraries = [...src.enabledLibraries];
     meta.thumbnail = await this.copyThumbnail(fileKey, key, src.thumbnail);
     return this.ws.queue.run(() => this.ws.addFile(meta));
+  }
+
+  /**
+   * A duplicate's first snapshot (Duplicate file, Duplicate version): the snapshot as it is, except that its local
+   * assets are new assets — no key, published version or move of the original's (docs/schema.md §8.1).
+   */
+  private async createDuplicate(key: FileKey, snapshotPath: string, blobRefs: string[]): Promise<void> {
+    const message = currentMessage(await readSnapshotFile(snapshotPath));
+    const fresh = withNewAssetIdentity(message);
+    if (fresh === message) await this.files.createFileFromSnapshot(key, snapshotPath, blobRefs);
+    else await this.files.createFile(key, codec.encodeMessage(fresh), blobRefs);
   }
 
   private async copyThumbnail(from: FileKey, to: FileKey, thumb: FileMeta["thumbnail"]): Promise<FileMeta["thumbnail"]> {
@@ -297,7 +309,7 @@ export class LocalStore {
     const src = this.ws.getMeta(fileKey);
     const { record, path } = await this.files.getVersion(fileKey, id);
     const key = newFileKey();
-    await this.files.createFileFromSnapshot(key, path, record.blobRefs);
+    await this.createDuplicate(key, path, record.blobRefs);
     const meta = newMeta(key, `${src.name} (${record.title ?? versionDateLabel(record.createdAt)})`, null, this.clock.now());
     meta.enabledLibraries = [...src.enabledLibraries];
     return this.ws.queue.run(() => this.ws.addFile(meta));

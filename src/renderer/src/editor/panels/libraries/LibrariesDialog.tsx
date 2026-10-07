@@ -185,6 +185,8 @@ function LibraryPreview({ lib, onBack }: { lib: string; onBack: () => void }) {
     setBusy(true);
     try {
       await setLibraryEnabled(ed, lib, !enabled);
+    } catch {
+      showToast({ message: enabled ? "The library couldn't be removed" : "The library couldn't be added", kind: "error" });
     } finally {
       setBusy(false);
     }

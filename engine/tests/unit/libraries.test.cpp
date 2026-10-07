@@ -1696,6 +1696,512 @@ TEST_CASE("libraries (review #24, contract c): copies are one library's — a du
   CHECK(props(c, c.selection()[0]).symbolData.symbolID == fromDup);
 }
 
+// ---- Review fixes, second round (docs/engine-build.md "Libraries — review fixes") ----
+
+namespace {
+// Every GUID reference this file's fixtures use, mapped (the same document in another file: other GUIDs everywhere).
+void remapVariableData(VariableData& d, const std::function<void(Guid&)>& f) {
+  f(d.alias.guid);
+  for (VariableData& a : d.args) remapVariableData(a, f);
+}
+void remapDoc(std::vector<NodeChange>& doc, const std::function<void(Guid&)>& f) {
+  for (NodeChange& n : doc) {
+    NodeProps& p = n.props;
+    f(n.guid);
+    f(p.parentIndex.guid);
+    f(p.symbolData.symbolID);
+    for (Paint& pt : p.fillPaints) remapVariableData(pt.colorVar, f);
+    for (ParamBinding& b : p.parameterConsumptionMap) remapVariableData(b.data, f);
+    for (VariableModeValue& v : p.variableDataValues) remapVariableData(v.data, f);
+    f(p.styleIdForFill.guid);
+    f(p.variableSetID.guid);
+    for (VariableModeEntry& m : p.variableModeBySetMap) f(m.set.guid);
+    for (ComponentPropDef& d : p.componentPropDefs) {
+      f(d.initialValue.guidValue);
+      for (PreferredValue& v : d.preferredValues) {
+        bool ok = false;
+        Guid g = Guid::parse(v.key, &ok);
+        if (ok) f(g), v.key = g.toString();
+      }
+    }
+  }
+}
+
+// An INSTANCE_SWAP property on `main` (default Icon) preferring `preferred`.
+ComponentPropDef swapProp(std::vector<std::string> preferred) {
+  ComponentPropDef d;
+  d.id = Guid{1, 500};
+  d.name = "Icon";
+  d.type = ComponentPropType::INSTANCE_SWAP;
+  d.initialValue.guidValue = ICON;
+  d.sortPosition = "!";
+  for (const std::string& k : preferred) d.preferredValues.push_back(PreferredValue{false, k});
+  return d;
+}
+
+Guid sublayerMain(const Editor& c, Guid inst) { return props(c, inst).symbolData.symbolID; }
+}  // namespace
+
+TEST_CASE("libraries (review #4): a hidden asset an asset uses — directly or through hidden aliases — is part of its versionHash") {
+  Editor e = load(libDoc(), kLibKey);
+  makeAssets(e);
+  // _Primitives (hidden): Blue, and Alias → Blue. Tokens (listed): Accent → Blue.
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"_Primitives"})") == OK);
+  Guid prims = e.lastCreated()[0], primMode = e.lastCreated()[1];
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(prims) + R"(,"type":"COLOR","name":"Blue","value":{"r":0,"g":0,"b":1,"a":1}})") == OK);
+  Guid blue = e.lastCreated()[0];
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(prims) + R"(,"type":"COLOR","name":"Alias","value":{"type":"VARIABLE_ALIAS","id":)" + q(blue) + "}}") == OK);
+  Guid alias = e.lastCreated()[0];
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"Tokens"})") == OK);
+  Guid tokens = e.lastCreated()[0];
+  REQUIRE(run(e, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(tokens) + R"(,"type":"COLOR","name":"Accent","value":{"type":"VARIABLE_ALIAS","id":)" + q(blue) + "}}") == OK);
+  Guid accent = e.lastCreated()[0];
+  // Button's Label bound to the hidden Alias; Icon's Glyph to the listed Accent.
+  REQUIRE(run(e, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(LABEL) + "],\"target\":\"fillPaints[0].color\",\"variable\":" + q(alias) + "}") == OK);
+  REQUIRE(run(e, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(GLYPH) + "],\"target\":\"fillPaints[0].color\",\"variable\":" + q(accent) + "}") == OK);
+  CHECK(fillOf(e, LABEL) == Color{0, 0, 1, 1});
+  e.ensureAssetKeys({});
+  auto assets = e.localAssets();
+  REQUIRE(findAsset(assets, blue));
+  CHECK(findAsset(assets, blue)->hidden);
+  CHECK(findAsset(assets, alias)->hidden);
+  CHECK(!findAsset(assets, accent)->hidden);
+  std::string button0 = e.assetVersionHash(BUTTON), icon0 = e.assetVersionHash(ICON), accent0 = e.assetVersionHash(accent),
+              alias0 = e.assetVersionHash(alias), blue0 = e.assetVersionHash(blue);
+
+  // The hidden primitive's value: what uses it through hidden assets changes (Button, through Alias; Alias); the
+  // listed Accent changes (it is published on its own), and what uses Accent doesn't (Icon).
+  REQUIRE(run(e, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(blue) + ",\"mode\":" + q(primMode) + R"(,"value":{"r":0,"g":1,"b":0,"a":1}})") == OK);
+  CHECK(fillOf(e, LABEL) == Color{0, 1, 0, 1});
+  CHECK(e.assetVersionHash(blue) != blue0);
+  CHECK(e.assetVersionHash(alias) != alias0);
+  CHECK(e.assetVersionHash(BUTTON) != button0);
+  CHECK(e.assetVersionHash(accent) != accent0);
+  CHECK(e.assetVersionHash(ICON) == icon0);
+  // localAssets and encodeAssets agree.
+  assets = e.localAssets();
+  CHECK(findAsset(assets, BUTTON)->versionHash == e.assetVersionHash(BUTTON));
+  std::vector<Editor::EncodedAsset> enc;
+  std::vector<ImageHash> images;
+  e.encodeAssets({keyOf(e, BUTTON)}, enc, images);
+  REQUIRE(!enc.empty());
+  CHECK(enc[0].info.versionHash == e.assetVersionHash(BUTTON));
+  // Undone: the hashes are what they were (content only).
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  CHECK(e.assetVersionHash(BUTTON) == button0);
+  CHECK(e.assetVersionHash(accent) == accent0);
+
+  // A hidden main nested in Button: its content is Button's too.
+  const Guid PK{1, 21}, NESTP{1, 14};
+  NodeChange np = make(NESTP, NodeType::INSTANCE, BUTTON, "$", {0, 0, 10, 10}, "_Private");
+  np.props.symbolData.symbolID = PRIVATE;
+  np.props.fillPaints.clear();
+  REQUIRE(e.applyChanges({make(PK, NodeType::ELLIPSE, PRIVATE, "!", {0, 0, 10, 10}, "Dot"), np}, APPLY_USER) == OK);
+  std::string button1 = e.assetVersionHash(BUTTON);
+  REQUIRE(e.setProps({PK}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.5f; }), 0) == OK);
+  CHECK(e.assetVersionHash(BUTTON) != button1);
+  // Hidden mains, variables and styles listed (Hide when publishing): the same.
+  REQUIRE(e.setProps({PK}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 1; }), 0) == OK);
+  CHECK(e.assetVersionHash(BUTTON) == button1);
+
+  // No GUIDs: the same content in another file (every GUID different) hashes the same.
+  std::vector<NodeChange> doc = e.encodeDocument();
+  remapDoc(doc, [](Guid& g) {
+    if (g.sessionID == 1) g = Guid{9, g.localID + 1000};
+  });
+  Editor other = load(doc, "OtherFileKey00000009");
+  REQUIRE(other.document().has(Guid{9, BUTTON.localID + 1000}));
+  CHECK(other.assetVersionHash(Guid{9, BUTTON.localID + 1000}) == e.assetVersionHash(BUTTON));
+  CHECK(other.assetVersionHash(Guid{9, accent.localID + 1000}) == e.assetVersionHash(accent));
+}
+
+TEST_CASE("libraries (review #4): a hidden variable's new value is published with what uses it and reaches consumers") {
+  Editor lib = load(libDoc(), kLibKey);
+  makeAssets(lib);
+  REQUIRE(run(lib, CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"_Tokens"})") == OK);
+  Guid set = lib.lastCreated()[0], mode = lib.lastCreated()[1];
+  REQUIRE(run(lib, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + R"(,"type":"COLOR","name":"Secret","value":{"r":1,"g":0,"b":0,"a":1}})") == OK);
+  Guid secret = lib.lastCreated()[0];
+  REQUIRE(run(lib, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(LABEL) + "],\"target\":\"fillPaints[0].color\",\"variable\":" + q(secret) + "}") == OK);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON);
+  std::vector<Editor::EncodedAsset> v1;
+  auto m1 = publish(lib, {button}, &v1);
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(m1, opts(kLibKey), out) == OK);
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copyOf(c, button)) + ",\"x\":100,\"y\":100}") == OK);
+  Guid inst = c.selection()[0];
+  CHECK(fillOf(c, sub(inst, {LABEL})) == Color{1, 0, 0, 1});
+  // The library edits the hidden variable: Button is Modified (the publish lists it), its payload carries the value.
+  REQUIRE(run(lib, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(secret) + ",\"mode\":" + q(mode) + R"(,"value":{"r":0,"g":1,"b":0,"a":1}})") == OK);
+  auto assets = lib.localAssets();
+  const Editor::AssetInfo* b = findAsset(assets, BUTTON);
+  REQUIRE(b);
+  CHECK(b->versionHash != b->publishedVersion);
+  std::vector<Editor::EncodedAsset> v2;
+  auto m2 = publish(lib, {button}, &v2);
+  CHECK(v2[0].info.versionHash != v1[0].info.versionHash);
+  // Update all (the asset and the dependency-only copy it uses): the new colour.
+  REQUIRE(c.importLibrary(m2, opts(kLibKey, true), out) == OK);
+  CHECK(props(c, copyOf(c, button)).version == v2[0].info.versionHash);
+  CHECK(fillOf(c, sub(inst, {LABEL})) == Color{0, 1, 0, 1});
+}
+
+TEST_CASE("libraries (review #4): a reference to a node that isn't there hashes the same whatever its GUID was") {
+  Editor e = load(libDoc(), kLibKey);
+  const Guid PK{1, 21};
+  REQUIRE(e.applyChanges({make(PK, NodeType::ELLIPSE, PRIVATE, "!", {0, 0, 10, 10}, "Dot")}, APPLY_USER) == OK);
+  REQUIRE(e.setProps({BUTTON}, change(F_COMPONENT_PROP_DEFS, [&](NodeProps& p) { p.componentPropDefs = {swapProp({ICON.toString(), PRIVATE.toString()})}; }), 0) == OK);
+  e.ensureAssetKeys({});
+  std::string button0 = e.assetVersionHash(BUTTON), private0 = e.assetVersionHash(PRIVATE);
+  // A cut + paste of the preferred main in its own file: the same main under a new GUID — the preferred value follows.
+  e.setSelection({PRIVATE});
+  Clipboard clip;
+  REQUIRE(e.copySelection(clip, true));
+  REQUIRE(e.command(CommandId::DELETE) == OK);
+  e.setSelection({});
+  REQUIRE(e.paste(clip, true) == 1);
+  Guid pasted = e.selection()[0];
+  REQUIRE(pasted != PRIVATE);
+  CHECK(props(e, pasted).version.empty());  // the clipboard's hash note isn't kept
+  CHECK(props(e, BUTTON).componentPropDefs[0].preferredValues[1].key == pasted.toString());
+  CHECK(e.assetVersionHash(pasted) == private0);
+  CHECK(e.assetVersionHash(BUTTON) == button0);
+  REQUIRE(e.command(CommandId::UNDO) == OK);  // the paste (and the preferred value) undone
+  CHECK(props(e, BUTTON).componentPropDefs[0].preferredValues[1].key == PRIVATE.toString());
+  // Now it points at nothing: a real change, hashed the same whichever GUID it named (never the GUID).
+  std::string dangling = e.assetVersionHash(BUTTON);
+  CHECK(dangling != button0);
+  REQUIRE(e.setProps({BUTTON}, change(F_COMPONENT_PROP_DEFS, [&](NodeProps& p) { p.componentPropDefs = {swapProp({ICON.toString(), "7:999"})}; }), 0) == OK);
+  CHECK(e.assetVersionHash(BUTTON) == dangling);
+  // A bound style that isn't there: the same.
+  REQUIRE(e.setProps({BG}, change(kStyleIdFields, [&](NodeProps& p) { p.styleIdForFill = AssetId::of(Guid{7, 998}); }), 0) == OK);
+  std::string noStyle = e.assetVersionHash(BUTTON);
+  REQUIRE(e.setProps({BG}, change(kStyleIdFields, [&](NodeProps& p) { p.styleIdForFill = AssetId::of(Guid{7, 997}); }), 0) == OK);
+  CHECK(e.assetVersionHash(BUTTON) == noStyle);
+}
+
+TEST_CASE("libraries (review #5): an unchanged published main pastes at exactly its publishedVersion, whatever its preferred values name") {
+  Editor lib = load(libDoc(), kLibKey);
+  makeAssets(lib);
+  // Preferred instances: Icon (in the clipboard: Button nests it) and _Private (not in it).
+  REQUIRE(lib.setProps({BUTTON}, change(F_COMPONENT_PROP_DEFS, [&](NodeProps& p) { p.componentPropDefs = {swapProp({ICON.toString(), PRIVATE.toString()})}; }), 0) == OK);
+  // And a hidden variable it uses (its hash folds in).
+  REQUIRE(run(lib, CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"_Tokens"})") == OK);
+  Guid set = lib.lastCreated()[0];
+  REQUIRE(run(lib, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + R"(,"type":"COLOR","name":"Secret","value":{"r":1,"g":0,"b":0,"a":1}})") == OK);
+  REQUIRE(run(lib, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(LABEL) + "],\"target\":\"fillPaints[0].color\",\"variable\":" + q(lib.lastCreated()[0]) + "}") == OK);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON);
+  std::vector<Editor::EncodedAsset> v1;
+  publish(lib, {button}, &v1);
+  REQUIRE(props(lib, BUTTON).publishedVersion == v1[0].info.versionHash);
+  lib.setSelection({IB});
+  Clipboard clip;
+  REQUIRE(lib.copySelection(clip));
+  bool hasPrivate = false;
+  for (auto& n : clip.nodes) hasPrivate |= n.guid == PRIVATE;
+  CHECK(!hasPrivate);
+  // Through the wire (the system clipboard carries the engine's JSON).
+  clip.nodes = wire(clip.nodes);
+  Editor c = load(consumerDoc(), kConsumerKey);
+  c.setSelection({});
+  REQUIRE(c.paste(clip, true) == 1);
+  CHECK(c.unresolvedReferences() == 0);
+  Guid copy = copyOf(c, button);
+  REQUIRE(copy != kNoGuid);
+  CHECK(props(c, copy).version == v1[0].info.versionHash);
+  // Its preferred instances: Icon's copy here; _Private (not here) by key — never this file's node with its GUID
+  // (here 1:1 is the Screen frame).
+  ComponentInfo info;
+  REQUIRE(c.componentInfo(c.selection()[0], info));
+  REQUIRE(info.properties.size() == 1);
+  CHECK(info.properties[0].preferredValues == std::vector<Guid>{copyOf(c, keyOf(lib, ICON))});
+  CHECK(props(c, copy).componentPropDefs[0].preferredValues.size() == 2);
+  CHECK(props(c, copy).componentPropDefs[0].preferredValues[1].key == keyOf(lib, PRIVATE));
+  // Edited since: never the published version (the hash of what it holds).
+  REQUIRE(lib.setProps({BG}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.5f; }), 0) == OK);
+  lib.setSelection({IB});
+  REQUIRE(lib.copySelection(clip));
+  Editor d = load(consumerDoc(), kConsumerKey);
+  REQUIRE(d.paste(clip, true) == 1);
+  CHECK(props(d, copyOf(d, button)).version == lib.assetVersionHash(BUTTON));
+  CHECK(props(d, copyOf(d, button)).version != v1[0].info.versionHash);
+}
+
+TEST_CASE("libraries (review #1): a set copy pasted from another consumer carries the library's GUIDs; a deleted variant's copy keeps rendering") {
+  Editor lib = load(libDoc(), kLibKey);
+  // A set of three variants, two sharing name and key (Add variant, Duplicate); each glyph its own opacity.
+  lib.setSelection({ICON});
+  REQUIRE(lib.command(CommandId::ADD_VARIANT) == OK);
+  Guid set = lib.document().parentOf(ICON);
+  lib.setSelection({ICON});
+  REQUIRE(lib.command(CommandId::DUPLICATE) == OK);
+  auto variants = lib.document().children(set);
+  REQUIRE(variants.size() == 3);
+  std::map<Guid, float> op;
+  float o = 1;
+  for (Guid v : variants) {
+    float oo = o;
+    REQUIRE(lib.setProps({lib.document().children(v)[0]}, change(F_OPACITY, [&](NodeProps& p) { p.opacity = oo; }), 0) == OK);
+    op[v] = oo;
+    o -= 0.25f;
+  }
+  lib.ensureAssetKeys({});
+  std::string setKey = keyOf(lib, set);
+  auto m1 = publish(lib, {setKey});
+  auto glyphOp = [](const Editor& e, Guid main) { return props(e, e.document().children(main)[0]).opacity; };
+
+  SUBCASE("pasted from another consumer") {
+    Editor c1 = load(consumerDoc(), "Consumer1FileKey0001");
+    std::vector<Editor::ImportedAsset> out;
+    REQUIRE(c1.importLibrary(m1, opts(kLibKey), out) == OK);
+    auto by1 = variantsByPublishID(c1, copyOf(c1, setKey));
+    Editor c2 = load(consumerDoc(), "Consumer2FileKey0002");
+    c2.setSelection({RECT});
+    REQUIRE(c2.command(CommandId::DUPLICATE) == OK);  // c2's GUIDs differ from c1's
+    std::map<Guid, Guid> inst;
+    for (Guid v : variants) {
+      REQUIRE(run(c1, CommandId::INSERT_INSTANCE, "{\"main\":" + q(by1[v]) + ",\"x\":10,\"y\":10}") == OK);
+      Clipboard clip;
+      REQUIRE(c1.copySelection(clip));
+      c2.setSelection({});
+      REQUIRE(c2.paste(clip, true) == 1);
+      inst[v] = c2.selection()[0];
+    }
+    Guid set2 = copyOf(c2, setKey);
+    REQUIRE(set2 != kNoGuid);
+    // The library's GUIDs, not c1's.
+    auto by2 = variantsByPublishID(c2, set2);
+    REQUIRE(by2.size() == 3);
+    for (Guid v : variants) CHECK(by2.count(v) == 1);
+    // The library deletes the first Default (its duplicate keeps the name and the key): the survivors keep their own
+    // content, and the deleted one's instance keeps rendering it.
+    lib.setSelection({ICON});
+    REQUIRE(lib.command(CommandId::DELETE) == OK);
+    auto m2 = publish(lib, {setKey});
+    REQUIRE(c2.importLibrary(m2, opts(kLibKey, true), out) == OK);
+    CHECK(c2.document().children(set2).size() == 2);
+    for (Guid v : variants) {
+      CAPTURE(v.toString());
+      Guid main = sublayerMain(c2, inst[v]);
+      REQUIRE(c2.document().has(main));
+      CHECK(glyphOp(c2, main) == doctest::Approx(op[v]));
+      CHECK(props(c2, main).publishID == v);
+    }
+  }
+
+  SUBCASE("a variant deleted and one added with the same key in one publish") {
+    Editor c = load(consumerDoc(), kConsumerKey);
+    std::vector<Editor::ImportedAsset> out;
+    REQUIRE(c.importLibrary(m1, opts(kLibKey), out) == OK);
+    Guid setCopy = copyOf(c, setKey);
+    auto by = variantsByPublishID(c, setCopy);
+    REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(by[ICON]) + ",\"x\":10,\"y\":10}") == OK);
+    Guid inst = c.selection()[0];
+    // Library: a variant added from the last one (Add variant: its key), then the first Default deleted.
+    lib.setSelection({variants[2]});
+    REQUIRE(lib.command(CommandId::ADD_VARIANT) == OK);
+    Guid added = lib.selection()[0];
+    REQUIRE(lib.setProps({lib.document().children(added)[0]}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.1f; }), 0) == OK);
+    lib.setSelection({ICON});
+    REQUIRE(lib.command(CommandId::DELETE) == OK);
+    auto m2 = publish(lib, {setKey});
+    c.takeEvents();
+    REQUIRE(c.importLibrary(m2, opts(kLibKey, true), out) == OK);
+    // The new variant is a new node; the deleted one's copy isn't overwritten by it.
+    Guid main = sublayerMain(c, inst);
+    REQUIRE(main == by[ICON]);
+    CHECK(props(c, main).publishID == ICON);
+    CHECK(props(c, main).name == "Property 1=Default");
+    CHECK(glyphOp(c, main) == doctest::Approx(1));
+    CHECK(props(c, sub(inst, {GLYPH})).opacity == doctest::Approx(1));
+    auto after = variantsByPublishID(c, setCopy);
+    CHECK(after.size() == 3);
+    CHECK(!after.count(ICON));
+    REQUIRE(after.count(added));
+    CHECK(after[added] != main);
+    CHECK(glyphOp(c, after[added]) == doctest::Approx(0.1));
+    // It stays as a copy of its own (the removed asset's: the editor lists it as removed), out of the set.
+    CHECK(c.document().parentOf(main) == kInternal);
+    CHECK(c.isLibraryCopy(main));
+    CHECK(props(c, main).sourceLibraryKey == kLibKey);
+    bool listed = false;
+    for (auto& u : c.libraryUsage()) listed |= u.id == main && u.key == props(c, main).key && u.usage == 1;
+    CHECK(listed);
+    // Not used: removed as before.
+    REQUIRE(c.command(CommandId::UNDO) == OK);
+    CHECK(c.document().parentOf(main) == setCopy);
+    c.setSelection({inst});
+    REQUIRE(c.command(CommandId::DELETE) == OK);
+    REQUIRE(c.importLibrary(m2, opts(kLibKey, true), out) == OK);
+    CHECK(!c.document().has(main));
+    CHECK(c.document().children(setCopy).size() == 3);
+  }
+}
+
+TEST_CASE("libraries (review #3): a cross-file paste of an instance of a variant the set copy here lacks brings a new copy") {
+  Editor lib = load(libDoc(), kLibKey);
+  makeAssets(lib);
+  lib.setSelection({ICON, PRIVATE});
+  REQUIRE(lib.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  Guid set = lib.selection()[0];
+  lib.ensureAssetKeys({});
+  std::string setKey = keyOf(lib, set), button = keyOf(lib, BUTTON);
+  auto m1 = publish(lib, {button});
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(m1, opts(kLibKey), out) == OK);
+  Guid setCopy = copyOf(c, setKey);
+  REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(copyOf(c, button)) + ",\"x\":100,\"y\":100}") == OK);
+  Guid used = c.selection()[0];
+  // A variant added in the library and published.
+  const Guid NV{1, 70}, NVK{1, 71};
+  REQUIRE(lib.applyChanges({make(NV, NodeType::SYMBOL, kPage, "~", {800, 0, 24, 24}, "Variant=Star"),
+                            make(NVK, NodeType::ELLIPSE, NV, "!", {0, 0, 24, 24}, "Dot")},
+                           APPLY_USER) == OK);
+  REQUIRE(lib.moveNodes({NV}, set, 2) == 1);
+  lib.ensureAssetKeys({});
+  auto m2 = publish(lib, {setKey});
+
+  SUBCASE("from the library") {
+    REQUIRE(run(lib, CommandId::INSERT_INSTANCE, "{\"main\":" + q(NV) + ",\"x\":900,\"y\":900}") == OK);
+    Clipboard clip;
+    REQUIRE(lib.copySelection(clip));
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    Guid pasted = c.selection()[0];
+    Guid main = sublayerMain(c, pasted);
+    REQUIRE(c.document().has(main));
+    CHECK(props(c, main).publishID == NV);
+    CHECK(c.document().children(pasted).size() == 1);
+    CHECK(c.unresolvedReferences() == 0);
+    CHECK(c.document().parentOf(main) != setCopy);  // a new set copy; the old one keeps its users as they were
+    CHECK(c.document().children(setCopy).size() == 2);
+    CHECK(c.document().children(sub(used, {NESTED})).size() == 1);
+  }
+
+  SUBCASE("from a file that has the newer copy") {
+    Editor d = load(consumerDoc(), "ThirdFileKey00000004");
+    REQUIRE(d.importLibrary(m2, opts(kLibKey), out) == OK);
+    Guid dNV = variantsByPublishID(d, copyOf(d, setKey))[NV];
+    REQUIRE(dNV != kNoGuid);
+    REQUIRE(run(d, CommandId::INSERT_INSTANCE, "{\"main\":" + q(dNV) + ",\"x\":100,\"y\":100}") == OK);
+    Clipboard clip;
+    REQUIRE(d.copySelection(clip));
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    Guid pasted = c.selection()[0];
+    Guid main = sublayerMain(c, pasted);
+    REQUIRE(c.document().has(main));
+    CHECK(props(c, main).publishID == NV);
+    CHECK(c.document().children(pasted).size() == 1);
+    CHECK(c.unresolvedReferences() == 0);
+    CHECK(c.document().children(setCopy).size() == 2);
+  }
+
+  SUBCASE("a clipboard without the main: counted, never silent") {
+    Clipboard clip;
+    clip.fileKey = "SomeOtherFileKey0009";
+    NodeChange inst = make(Guid{5, 1}, NodeType::INSTANCE, Guid{5, 0}, "!", {0, 0, 24, 24}, "Lost");
+    inst.props.symbolData.symbolID = Guid{5, 77};
+    clip.nodes = {inst};
+    clip.regions = {{Guid{5, 0}, {Guid{5, 1}}, {}}};
+    c.setSelection({});
+    REQUIRE(c.paste(clip, true) == 1);
+    CHECK(c.unresolvedReferences() == 1);
+    CHECK(sublayerMain(c, c.selection()[0]) == kNoGuid);
+  }
+}
+
+TEST_CASE("libraries (review #3): a main copied in from another file that lacks a variant a later paste needs is copied in again") {
+  Editor lib = load(libDoc(), kLibKey);
+  lib.setSelection({ICON, PRIVATE});
+  REQUIRE(lib.command(CommandId::COMBINE_AS_VARIANTS) == OK);
+  Guid set = lib.selection()[0];
+  // Unpublished: an instance of a variant pasted elsewhere copies the set in as that file's own.
+  REQUIRE(run(lib, CommandId::INSERT_INSTANCE, "{\"main\":" + q(ICON) + ",\"x\":900,\"y\":900}") == OK);
+  Clipboard clip;
+  REQUIRE(lib.copySelection(clip));
+  Editor c = load(consumerDoc(), kConsumerKey);
+  c.setSelection({});
+  REQUIRE(c.paste(clip, true) == 1);
+  Guid first = c.selection()[0];
+  Guid copiedSet = c.document().parentOf(sublayerMain(c, first));
+  REQUIRE(c.isCopiedMain(copiedSet));
+  // Pasted again: the same copied-in set.
+  REQUIRE(lib.copySelection(clip));
+  REQUIRE(c.paste(clip, true) == 1);
+  CHECK(c.document().parentOf(sublayerMain(c, c.selection()[0])) == copiedSet);
+  // A variant added in the source; an instance of it pasted: the set is copied in again (the old one keeps its users).
+  const Guid NV{1, 70}, NVK{1, 71};
+  REQUIRE(lib.applyChanges({make(NV, NodeType::SYMBOL, kPage, "~", {800, 0, 24, 24}, "Variant=Star"),
+                            make(NVK, NodeType::ELLIPSE, NV, "!", {0, 0, 24, 24}, "Dot")},
+                           APPLY_USER) == OK);
+  REQUIRE(lib.moveNodes({NV}, set, 2) == 1);
+  REQUIRE(run(lib, CommandId::INSERT_INSTANCE, "{\"main\":" + q(NV) + ",\"x\":900,\"y\":900}") == OK);
+  REQUIRE(lib.copySelection(clip));
+  REQUIRE(c.paste(clip, true) == 1);
+  CHECK(c.unresolvedReferences() == 0);
+  Guid star = sublayerMain(c, c.selection()[0]);
+  REQUIRE(c.document().has(star));
+  CHECK(c.document().children(c.selection()[0]).size() == 1);
+  CHECK(c.document().parentOf(star) != copiedSet);
+  CHECK(c.isCopiedMain(c.document().parentOf(star)));
+  CHECK(c.document().children(copiedSet).size() == 2);
+  CHECK(c.document().parentOf(sublayerMain(c, first)) == copiedSet);
+  // A later paste takes the newest copy.
+  lib.setSelection({lib.selection()[0]});
+  REQUIRE(lib.copySelection(clip));
+  REQUIRE(c.paste(clip, true) == 1);
+  CHECK(c.document().parentOf(sublayerMain(c, c.selection()[0])) == c.document().parentOf(star));
+}
+
+TEST_CASE("libraries (review #24): preferred instances named by key resolve in the main's own library") {
+  Editor lib = load(libDoc(), kLibKey);
+  makeAssets(lib);
+  lib.ensureAssetKeys({});
+  std::string button = keyOf(lib, BUTTON), icon = keyOf(lib, ICON);
+  // A local main: its own file's asset, named by GUID or (as a .fig has it) by key.
+  ComponentInfo info;
+  for (const std::string& named : {ICON.toString(), icon}) {
+    REQUIRE(lib.setProps({BUTTON}, change(F_COMPONENT_PROP_DEFS, [&](NodeProps& p) { p.componentPropDefs = {swapProp({named})}; }), 0) == OK);
+    REQUIRE(lib.componentInfo(IB, info));
+    REQUIRE(info.properties.size() == 1);
+    CHECK(info.properties[0].preferredValues == std::vector<Guid>{ICON});
+  }
+  auto m1 = publish(lib, {button});
+  const char* dupKey = "DuplicatedLibKey0007";
+  Editor dup = load(lib.encodeDocument(), dupKey);
+  auto d1 = publish(dup, {button});
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  // The duplicate's copies first (lower GUIDs here), then the library's.
+  REQUIRE(c.importLibrary(d1, opts(dupKey), out) == OK);
+  REQUIRE(c.importLibrary(m1, opts(kLibKey), out) == OK);
+  auto copyIn = [&](const std::string& library, const std::string& key) {
+    Guid found = kNoGuid;
+    c.document().forEach([&](const Node& n) {
+      if (!n.guid.isDerived() && n.props.key == key && n.props.sourceLibraryKey == library) found = n.guid;
+    });
+    return found;
+  };
+  Guid libButton = copyIn(kLibKey, button), dupButton = copyIn(dupKey, button);
+  Guid libIcon = copyIn(kLibKey, icon), dupIcon = copyIn(dupKey, icon);
+  REQUIRE(libButton != kNoGuid);
+  REQUIRE(dupButton != kNoGuid);
+  REQUIRE(libIcon != dupIcon);
+  // The copies name it by key.
+  CHECK(props(c, libButton).componentPropDefs[0].preferredValues[0].key == icon);
+  for (auto [main, want] : {std::pair{libButton, libIcon}, std::pair{dupButton, dupIcon}}) {
+    REQUIRE(run(c, CommandId::INSERT_INSTANCE, "{\"main\":" + q(main) + ",\"x\":0,\"y\":0}") == OK);
+    REQUIRE(c.componentInfo(c.selection()[0], info));
+    REQUIRE(info.properties.size() == 1);
+    CHECK(info.properties[0].preferredValues == std::vector<Guid>{want});
+  }
+}
+
 TEST_CASE("libraries (review): BOOLEAN variables keep their type; payloads and imports report their images") {
   Editor lib = load(libDoc(), kLibKey);
   Lib l = makeAssets(lib);

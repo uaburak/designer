@@ -404,10 +404,10 @@ export interface VersionRecord {            // files/<key>/versions/index.json (
 - **Publish** (§9) and **import** (§11) also create version entries. The publish entry carries the publish description, as Figma shows it in history.
 - **View a version**: `files.openVersion(fileKey, versionId)` opens a view-mode session with that snapshot. The editor shows it read-only, with "Restore this version".
 - **Restore** (non-destructive):
-  1. `files.restoreDiff(fileKey, versionId)` returns a NODE_CHANGES message that turns the current head into the version. It contains `REMOVED` for GUIDs that do not exist in the version, full `CREATED` nodes for GUIDs that the current head lacks, and field-level changes for the rest; fields to clear follow the §5.5 requirement.
-  2. The editor applies it with `engine_apply_changes(diff, APPLY_USER)`, as **one undoable batch** with label "Restore version". It is journaled as `kind: "restore"`.
+  1. `files.restoreDiff(fileKey, versionId)` returns a NODE_CHANGES message that turns the current head into the version. It contains `REMOVED` for GUIDs that do not exist in the version, full `CREATED` nodes for GUIDs that the current head lacks, and field-level changes for the rest; fields to clear follow the §5.5 requirement. A field the version leaves absent and the head holds at the value absence means (docs/schema.md §3.4) is no change, and one going back to a non-zero `@default` is written as that value. Local assets keep their library bookkeeping and the document its enabled libraries (§9.1).
+  2. The editor applies it with `applyChanges(diff, "restore")` (APPLY_USER | APPLY_EXACT: library copies written too), as **one undoable batch** with label "Restore version". It is journaled as `kind: "restore"`.
   3. It then calls `files.createVersion({kind: "restore", restoredFrom})`, which appears as "Restored version from ‹date›".
-- **Duplicate**: `files.duplicateVersion` creates a new file in Drafts named `‹name› (‹version title or date›)`.
+- **Duplicate**: `files.duplicateVersion` creates a new file in Drafts named `‹name› (‹version title or date›)`. Its assets are new assets (§9.1).
 - **Retention** (thinned at store start and after each checkpoint):
 
   | Kind | Kept |
@@ -639,9 +639,11 @@ export interface LibraryAsset {
   - components and sets whose name starts with `.` or `_`, or marked Hide when publishing;
   - collections named with a leading `_` or `.`;
   - variables with `hiddenFromPublishing`.
-- An excluded asset that a published one depends on is still shipped, with `dependencyOnly: true`, so consumers render correctly.
-- **Key**: at the first publish, the engine writes a fresh `key` into every asset node that lacks one. That is an ordinary journaled edit in the library file. The key never changes afterwards. A cut-and-paste into another file makes a new component with a new key, and the old key is kept only in `libraryMoveInfo` (§9.5).
-- **versionHash** (**Needs from engine**): the payload encoding is deterministic. It holds the asset subtree in GUID order, fields in schema order, derived fields excluded, and `versionHash` = sha1 of those bytes. If the content is unchanged, the hash is unchanged.
+- An excluded asset that a published one depends on is still shipped, with `dependencyOnly: true` (unlisted: never in Assets, never "removed" for consumers), so consumers render correctly and their copies of it keep getting its updates through the asset that uses it. That includes a component hidden or deleted after it was published that a published asset still nests: the Publish dialog shows its row as **Removed** with "Used by ‹asset›"; selected (the default), it ships unlisted; deselected, it stays listed — never both (§9.6).
+- **What a published asset uses goes with it**: an asset whose payload a publish writes carries what it uses as it is now, so a new or modified asset it uses ships in the same version, at that content, listed — even when its own row is deselected. In the Publish dialog that row is checked and locked, with "Used by Button" ("Used by Button and Chip", "Used by Button and 2 others"), until every asset that uses it is deselected. A deselected asset keeps its last published entry, and what that entry's payload uses keeps shipping with it. The manifest and the payloads therefore always agree.
+- **Key**: at the first publish, the engine writes a fresh `key` into every asset node that lacks one. That is an ordinary journaled edit in the library file, not an undo step. The key never changes afterwards: not by undo, not by Restore version. A cut-and-paste into another file makes a new component with a new key, and the old key is kept only in `libraryMoveInfo` (§9.5). **Duplicate file** and **Duplicate version** make new assets: the copy's local assets lose `key`, `publishedVersion` and `libraryMoveInfo` (library copies keep theirs), so the duplicate publishes as a new library with keys of its own (`src/shared/store/assetIdentity.ts`, both stores).
+- **Published state follows publishes**: after a publish, the library file's assets carry the version's hashes in `publishedVersion` and published moved mains lose `libraryMoveInfo` (the engine's `markPublished`, a SYSTEM change: journaled, never an undo step). An asset the version removed has no `publishedVersion`, so a cross-file paste treats it as unpublished. Undo / redo and Restore version can bring back older document states, so the editor checks the assets against the file's latest manifest (on open, when a refresh finds a new version, after an undo / redo or a restore that brings bookkeeping back) and fixes them the same way. Restore version restores content and Hide when publishing, never a local asset's `key`, `publishedVersion` or `libraryMoveInfo`, nor the document's enabled libraries (§6).
+- **versionHash**: the engine's content hash of the asset (docs/engine-build.md, "Libraries — review fixes"): the subtree in tree order, fields in schema order, derived fields, GUIDs, its place on the page, bound values and library bookkeeping left out, references outside it by the target asset's key; the hashes of the hidden assets it ships with (`dependencyOnly`) fold in, so a change to a hidden asset — or hiding one it nests — makes what uses it Modified. If the content is unchanged, the hash is unchanged.
 
 ### 9.2 Registry on disk
 
@@ -712,7 +714,7 @@ export interface AssetPayload { key: string; versionHash: string; message: Uint8
   ```
 
   A non-empty diff shows Figma's blue badge on Assets/Libraries and the toast "Library updates available".
-- **Review and accept**: the Updates modal lists the changed components, styles and variables, comparing old (rendered from the copy) with new (manifest thumbnail or payload). "Update all" or a per-asset update fetches the payloads, and the engine replaces the copies in **one undo batch**. Instances re-materialise. Updates never apply automatically.
+- **Review and accept**: the Updates modal lists the changed components, styles and variables, comparing old (rendered from the copy) with new (manifest thumbnail or payload). "Update all" or a per-asset update fetches the payloads, and the engine replaces the copies in **one undo batch**. Accepting one asset also brings the hidden (`dependencyOnly`) assets it uses whose copies are behind, so it shows them as published. Instances re-materialise. Updates never apply automatically.
 
 ### 9.5 Move to this file, Publish as a copy
 
@@ -727,7 +729,9 @@ export interface AssetPayload { key: string; versionHash: string; message: Uint8
 
 ### 9.6 Removed assets, unpublishing, lost libraries
 
-- **Removed** (deleted or hidden in the library, then published): it appears in `diff().removed`. Consumers keep the copy, and instances keep rendering. Assets no longer lists it. The instance menu shows that the main component was removed from the library and offers Detach.
+- **Removed** (deleted or hidden in the library, then published, and nested in no published asset): it appears in `diff().removed`. Consumers keep the copy, and instances keep rendering. Assets no longer lists it. The instance menu shows that the main component was removed from the library and offers Detach. In the library file the asset loses `publishedVersion` (§9.1).
+- **Still used**: a component hidden or deleted in the library that a published asset still nests is not removed: it ships unlisted (`dependencyOnly`) with that asset, its row in the Publish dialog reads **Removed** with "Used by ‹asset›", consumers see no "Removed from library" and their copies keep getting its updates (§9.1).
+- **Restore component** (a consumer, on a removed component): the copy becomes this file's own main, on the current page; its instances stay linked. When the file holds several copies of it (Update selected instance leaves them), every copy's instances, nested ones included, move to that main, overrides kept, and the other copies go. One undo step.
 - **Unpublish** (`libraries.unpublish`): status becomes `unpublished`, and the library is hidden from `listAvailable`. Consumers keep their copies and get no updates. Publishing again continues the version numbering.
 - **Library file trashed**: status `trashed`, hidden. Restoring the file restores the status.
 - **Library file deleted forever**: status `deleted`, and the registry deletes its payloads and manifests. Consumers are unaffected: they have copies. Their Libraries modal shows "Missing library".

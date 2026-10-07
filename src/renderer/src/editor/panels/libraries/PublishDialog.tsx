@@ -89,8 +89,9 @@ function Publish() {
     if (!draft) return;
     setProgress({ done: 0, total: draft.items.length });
     try {
-      await publishLibrary(ed, draft, { description: description.trim(), selected, moveModes }, (done, total) => setProgress({ done, total }));
-      showToast({ message: "Library published", kind: "success" });
+      const published = await publishLibrary(ed, draft, { description: description.trim(), selected, moveModes }, (done, total) => setProgress({ done, total }));
+      // Published; should this file not have recorded it on its assets yet (an edit kept the engine busy), it says so.
+      showToast(published.recorded ? { message: "Library published", kind: "success" } : { message: "Library published, but this file couldn't record it yet", kind: "error" });
       close();
     } catch (e) {
       setProgress(null);
@@ -203,6 +204,7 @@ function Publish() {
                   <span className={styles.meta}>From {m.fromName}</span>
                 </div>
                 <Select
+                  width="hug"
                   label={`${m.item.asset.name}: move or copy`}
                   value={moveModes.get(m.fromKey) ?? "move"}
                   options={[

@@ -10,9 +10,8 @@ import { useEditor } from "./controller";
 import type { VersionInfo } from "./documentSource";
 import { useUI } from "./hooks";
 import { command, shortcutOf } from "./commands";
+import { RESTORE_VERSION } from "./libraries";
 import styles from "./VersionDialogs.module.css";
-
-const RESTORE_LABEL = "Restore version";
 
 export function VersionDialogs() {
   const which = useUI((s) => s.versionDialog);
@@ -93,7 +92,9 @@ function History() {
       await ed.source.flush();
       // "restore": the store's diff written exactly (library copies included, docs/engine-build.md "Libraries — review
       // fixes" (d)), one undo step.
-      await ed.source.restoreVersion(v.id, (diff) => ed.batch(RESTORE_LABEL, () => void ed.engine.applyChanges(diff, "restore")));
+      await ed.source.restoreVersion(v.id, (diff) => ed.batch(RESTORE_VERSION, () => void ed.engine.applyChanges(diff, "restore")));
+      // Assets the version brings back carry the bookkeeping they had then: checked against the latest publish.
+      void ed.libraries.reconcile();
       showToast({ message: "Version restored" });
       close();
     } catch {
