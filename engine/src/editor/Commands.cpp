@@ -520,11 +520,7 @@ Mat2x3 Editor::localFor(Guid parent, const Mat2x3& world) const {
 Guid Editor::documentNode() const {
   Guid d = doc_.parentOf(page_);
   if (doc_.has(d)) return d;
-  Guid found = kNoGuid;
-  doc_.forEach([&](const Node& n) {
-    if (n.props.type == NodeType::DOCUMENT) found = n.guid;
-  });
-  return found;
+  return doc_.has(docNode_) ? docNode_ : kNoGuid;
 }
 
 std::vector<Guid> Editor::topSelectionInPaintOrder() const {

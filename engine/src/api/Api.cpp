@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 #include "base/DerivedIds.h"
@@ -51,7 +52,9 @@ namespace {
 
 constexpr uint32_t kAbiVersion = 1;
 enum TickFlags : uint32_t { TICK_NEEDS_RENDER = 1 };
-enum ReadFlags : uint32_t { INCLUDE_CHILD_IDS = 1 };
+// engine_read_nodes: INCLUDE_CHILD_IDS adds "childIds"; READ_SUBTREE follows each ref with its descendants (pre-order,
+// children back to front); READ_VISIBLE_ONLY leaves hidden layers and what is under them out of those subtrees.
+enum ReadFlags : uint32_t { INCLUDE_CHILD_IDS = 1, READ_SUBTREE = 2, READ_VISIBLE_ONLY = 4 };
 
 struct Engine {
   std::string selector;  // empty: headless
@@ -172,7 +175,13 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.endArray();
     w.endObject();
   }
-  if (ev.structure) w.beginObject().key("type").string("STRUCTURE_CHANGED").key("pageId").string(page).endObject();
+  if (ev.structure) {
+    // `parents`: whose child lists changed (a Layers tree patches those); null when the engine can't say.
+    w.beginObject().key("type").string("STRUCTURE_CHANGED").key("pageId").string(page).key("parents");
+    if (ev.structureAll) w.null();
+    else writeIds(w, ev.structureParents);
+    w.endObject();
+  }
   if (ev.pages) w.beginObject().key("type").string("PAGES_CHANGED").key("pageId").string(page).endObject();
   if (ev.currentPage) w.beginObject().key("type").string("CURRENT_PAGE_CHANGED").key("pageId").string(page).endObject();
   if (ev.selection) {
@@ -575,13 +584,47 @@ ENG_EXPORT int32_t engine_set_selection(Handle h, Ptr ptr, uint32_t len) {
   return e->editor.setSelection(readRefs(v));
 }
 
-// The generic getter: a Message with one NodeChange (every field) per ref that
-// exists; INCLUDE_CHILD_IDS (1) adds "childIds" (back to front).
-// The Layers panel's tree of a page in one read: the page and every layer under it (hidden ones and instance
-// sublayers included), parents before children, with only what a row shows —
-// {"nodes":[{"guid","parentIndex":{"guid"},"type","name","visible","locked","childIds"[, "resizeToFit",
-// "stackMode", "stackWrap", "booleanOperation", "isStateGroup"]}…]} (the last ones only when set). A page of
-// tens of thousands of layers reads in milliseconds, where engine_read_nodes writes every field of each.
+// One Layers row: {"guid","parentIndex":{"guid"},"type","name","visible","locked","childIds"[, "resizeToFit",
+// "stackMode", "stackWrap", "booleanOperation", "isStateGroup"]} (the last ones only when set).
+void writeLayerRow(json::Writer& w, const Document& doc, Guid id, const NodeProps& p) {
+  w.beginObject().key("guid").string(id.toString());
+  if (p.parentIndex.guid != kNoGuid) w.key("parentIndex").beginObject().key("guid").string(p.parentIndex.guid.toString()).endObject();
+  w.key("type").string(nodeTypeName(p.type)).key("name").string(p.name).key("visible").boolean(p.visible).key("locked").boolean(p.locked);
+  if (p.resizeToFit) w.key("resizeToFit").boolean(true);
+  if (p.stackMode != StackMode::NONE) w.key("stackMode").string(enumName(p.stackMode));
+  if (p.stackWrap != StackWrap::NO_WRAP) w.key("stackWrap").string(enumName(p.stackWrap));
+  if (p.type == NodeType::BOOLEAN_OPERATION) w.key("booleanOperation").string(enumName(p.booleanOperation));
+  if (p.isStateGroup) w.key("isStateGroup").boolean(true);
+  w.key("childIds");
+  writeIds(w, doc.children(id));
+  w.endObject();
+}
+
+// The page and every layer under it, parents before children (hidden ones and instance sublayers included).
+void writeLayerRows(json::Writer& w, const Document& doc, Guid page) {
+  std::vector<Guid> stack{page};
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    const Node* n = doc.get(id);
+    if (!n) continue;
+    writeLayerRow(w, doc, id, n->props);
+    const std::vector<Guid>& kids = doc.children(id);
+    // Pre-order with the first child read first.
+    for (size_t i = kids.size(); i-- > 0;) stack.push_back(kids[i]);
+  }
+}
+
+// What a Layers row shows, or where it is: a change of these changes the row.
+constexpr FieldMask kLayerRowFields = F_PARENT_INDEX | F_NAME | F_VISIBLE | F_LOCKED | F_TYPE | F_RESIZE_TO_FIT | F_STACK_MODE |
+                                      F_STACK_WRAP | F_BOOLEAN_OPERATION | F_IS_STATE_GROUP;
+// Past this many changed rows a delta is not worth it: the whole tree is given.
+constexpr size_t kMaxLayerDelta = 4096;
+
+// The Layers panel's tree of a page in one read: {"version", "nodes": [rows…]} (writeLayerRows). A page of tens of
+// thousands of layers reads in milliseconds, where engine_read_nodes writes every field of each. `version` is the
+// document version the read is of — what engine_layer_changes takes. Derives the page first (its instance
+// sublayers are rows).
 ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t pageLocalID) {
   Call call;
   Engine* e = engineOf(h);
@@ -589,60 +632,128 @@ ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t 
   const Document& doc = e->editor.document();
   Guid page{pageSessionID, pageLocalID};
   if (!doc.has(page)) return E_NOT_FOUND;
+  e->editor.derivePage(page);
   json::Writer w;
-  w.beginObject().key("nodes").beginArray();
-  std::vector<Guid> stack{page};
-  while (!stack.empty()) {
-    Guid id = stack.back();
-    stack.pop_back();
-    const Node* n = doc.get(id);
-    if (!n) continue;
-    const NodeProps& p = n->props;
-    w.beginObject().key("guid").string(id.toString());
-    if (p.parentIndex.guid != kNoGuid) w.key("parentIndex").beginObject().key("guid").string(p.parentIndex.guid.toString()).endObject();
-    w.key("type").string(nodeTypeName(p.type)).key("name").string(p.name).key("visible").boolean(p.visible).key("locked").boolean(p.locked);
-    if (p.resizeToFit) w.key("resizeToFit").boolean(true);
-    if (p.stackMode != StackMode::NONE) w.key("stackMode").string(enumName(p.stackMode));
-    if (p.stackWrap != StackWrap::NO_WRAP) w.key("stackWrap").string(enumName(p.stackWrap));
-    if (p.type == NodeType::BOOLEAN_OPERATION) w.key("booleanOperation").string(enumName(p.booleanOperation));
-    if (p.isStateGroup) w.key("isStateGroup").boolean(true);
-    const std::vector<Guid>& kids = doc.children(id);
-    w.key("childIds");
-    writeIds(w, kids);
-    w.endObject();
-    // Pre-order with the first child read first.
-    for (size_t i = kids.size(); i-- > 0;) stack.push_back(kids[i]);
-  }
+  w.beginObject().key("version").number(static_cast<double>(doc.version())).key("nodes").beginArray();
+  writeLayerRows(w, doc, page);
   w.endArray().endObject();
   return setResult(w.take());
 }
 
+// The Layers rows of `page` changed since document version `since`: {"version", "full": false, "nodes": [rows of the
+// nodes whose row or place changed, and of their current and previous parents (their childIds complete)],
+// "removed": [ids no longer in the document]}; or {"version", "full": true, "nodes": [the whole tree], "removed": []}
+// when `since` is outside what the change log keeps or more than kMaxLayerDelta rows changed. The editor drops
+// `removed`, upserts `nodes` by guid.
+ENG_EXPORT int32_t engine_layer_changes(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, double since) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  const Document& doc = e->editor.document();
+  Guid page{pageSessionID, pageLocalID};
+  if (!doc.has(page)) return E_NOT_FOUND;
+  e->editor.derivePage(page);
+  std::vector<Document::ChangeRecord> changes;
+  bool delta = since >= 0 && since <= static_cast<double>(doc.version()) && doc.changesSince(static_cast<uint64_t>(since), changes);
+  std::vector<Guid> rows, removed;
+  std::unordered_set<Guid, GuidHash> seen;
+  auto row = [&](Guid id) {
+    if (id == kNoGuid || !seen.insert(id).second) return;
+    const Node* n = doc.get(id);
+    if (!n) {
+      removed.push_back(id);
+      return;
+    }
+    if (id != page && doc.pageOf(id) != page) return;  // another page's: not this tree's
+    rows.push_back(id);
+  };
+  if (delta) {
+    for (const Document::ChangeRecord& c : changes) {
+      if (rows.size() > kMaxLayerDelta) {
+        delta = false;
+        break;
+      }
+      bool structural = c.fields == F_ALL || (c.fields & F_PARENT_INDEX);
+      if (!structural && !(c.fields & kLayerRowFields)) continue;
+      row(c.id);
+      if (!structural) continue;
+      row(c.parentBefore);
+      if (const Node* n = doc.get(c.id)) row(n->props.parentIndex.guid);
+    }
+  }
+  json::Writer w;
+  w.beginObject().key("version").number(static_cast<double>(doc.version())).key("full").boolean(!delta).key("nodes").beginArray();
+  if (delta) {
+    for (Guid id : rows) writeLayerRow(w, doc, id, doc.get(id)->props);
+  } else {
+    writeLayerRows(w, doc, page);
+    removed.clear();
+  }
+  w.endArray().key("removed");
+  writeIds(w, removed);
+  w.endObject();
+  return setResult(w.take());
+}
+
+// The generic getter: a Message with one NodeChange per ref that exists — every field, or only the schema keys in
+// the payload's "fields" (`{"refs": […], "fields": ["fillPaints", …]}`; unknown keys ignored; guid and type always);
+// flags: ReadFlags. Derives the pages of the refs first (an instance's sublayers are nodes).
 ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   json::Value v;
   if (!parse(ptr, len, v)) return E_DECODE;
-  const Document& doc = e->editor.document();
+  Editor& ed = e->editor;
+  const Document& doc = ed.document();
+  FieldMask mask = F_ALL;
+  if (const json::Value* fields = v.isArray() ? nullptr : v.get("fields"); fields && fields->isArray()) {
+    mask = 0;
+    for (auto& f : fields->array)
+      if (f.isString()) mask |= codec::fieldOfKey(f.string);
+  }
+  std::vector<Guid> refs = readRefs(v);
+  for (Guid id : refs) ed.derivePageOf(id);
   json::Writer w;
   codec::BlobsOut blobs;
-  w.beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(e->editor.sessionID());
+  w.beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(ed.sessionID());
   w.key("nodeChanges").beginArray();
-  for (Guid id : readRefs(v)) {
-    const Node* n = doc.get(id);
-    if (!n) continue;
+  std::unordered_set<Guid, GuidHash> written;
+  auto one = [&](Guid id, const Node& n) {
+    if (!written.insert(id).second) return;
     if (flags & INCLUDE_CHILD_IDS) {
       // writeNode closes the object; build it by hand to add childIds.
-      json::Writer one;
-      codec::writeNode(one, *n, &blobs);
-      std::string s = one.take();
+      json::Writer single;
+      codec::writeNode(single, n, mask, &blobs);
+      std::string s = single.take();
       s.pop_back();
       json::Writer kids;
       writeIds(kids, doc.children(id));
       s += ",\"childIds\":" + kids.take() + "}";
       w.raw(s);
     } else {
-      codec::writeNode(w, *n, &blobs);
+      codec::writeNode(w, n, mask, &blobs);
+    }
+  };
+  std::vector<Guid> stack;
+  for (Guid id : refs) {
+    const Node* n = doc.get(id);
+    if (!n) continue;
+    one(id, *n);
+    if (!(flags & READ_SUBTREE)) continue;
+    // Its descendants, pre-order, children back to front (paint order); hidden subtrees left out when asked.
+    if ((flags & READ_VISIBLE_ONLY) && !n->props.visible) continue;
+    stack.clear();
+    const std::vector<Guid>& kids = doc.children(id);
+    for (size_t i = kids.size(); i-- > 0;) stack.push_back(kids[i]);
+    while (!stack.empty()) {
+      Guid c = stack.back();
+      stack.pop_back();
+      const Node* cn = doc.get(c);
+      if (!cn || ((flags & READ_VISIBLE_ONLY) && !cn->props.visible)) continue;
+      one(c, *cn);
+      const std::vector<Guid>& more = doc.children(c);
+      for (size_t i = more.size(); i-- > 0;) stack.push_back(more[i]);
     }
   }
   w.endArray();
@@ -852,6 +963,7 @@ ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uin
   if (page == kNoGuid) page = ed.page();
   const Node* pn = doc.get(page);
   if (!pn || pn->props.type != NodeType::CANVAS || maxSize == 0) return E_NOT_FOUND;
+  ed.derivePage(page);  // its instances' sublayers draw
   bool any = false;
   Rect bounds;
   for (Guid c : doc.children(page)) {
@@ -1253,6 +1365,7 @@ ENG_EXPORT int32_t engine_component_info(Handle h, Ptr refPtr, uint32_t refLen) 
   bool ok = false;
   Guid id = Guid::parse(bytes(refPtr, refLen), &ok);
   ComponentInfo info;
+  if (ok) e->editor.derivePageOf(id);
   if (!ok || !e->editor.componentInfo(id, info)) return E_NOT_FOUND;
   json::Writer w;
   w.beginObject();

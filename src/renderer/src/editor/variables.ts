@@ -272,12 +272,21 @@ export class VariableIndex {
   }
 }
 
-/** The internal canvas's id (the CANVAS with `internalOnly`), or null. */
+/**
+ * The internal canvas's id (the CANVAS with `internalOnly`), or null. Found without reading the page nodes: the
+ * document's children that `engine.pages()` doesn't list (it skips internal canvases) — an engine with lazy per-page
+ * derivation derives a page on the first read of any node on it, the page node included, so reading every page
+ * node to find the internal one derived every page of the file (1.1 s on a 15-page file).
+ */
 export function internalCanvasOf(ed: EditorController): Guid | null {
   const doc = ed.engine.readNode("0:0", { childIds: true });
   const kids = doc?.childIds ?? [];
   if (!kids.length) return null;
-  const found = ed.engine.readNodes(kids).find((n) => n.type === "CANVAS" && n.internalOnly === true);
+  const pages = new Set(ed.engine.pages().map((p) => p.guid));
+  const candidates = kids.filter((id) => !pages.has(id));
+  if (candidates.length === 1) return candidates[0];
+  if (!candidates.length) return null;
+  const found = ed.engine.readNodes(candidates).find((n) => n.type === "CANVAS" && n.internalOnly === true);
   return found?.guid ?? null;
 }
 

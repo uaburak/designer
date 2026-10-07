@@ -4,6 +4,11 @@
 
 namespace eng {
 
+namespace {
+// Past this many structural changes in one sync the page's tree is rebuilt instead of re-placed piecemeal.
+constexpr size_t kMaxRelocations = 24;
+}  // namespace
+
 void RenderTree::add(const Document& doc, Guid id, uint32_t parent, int depth) {
   const Node* n = doc.get(id);
   if (!n || !n->props.visible || depth > 256) return;
@@ -18,6 +23,22 @@ void RenderTree::add(const Document& doc, Guid id, uint32_t parent, int depth) {
   nodes_[i].hasChildren = !kids.empty();
   for (Guid c : kids) add(doc, c, i, depth + 1);
   nodes_[i].end = static_cast<uint32_t>(nodes_.size());
+}
+
+void RenderTree::addTo(std::vector<RenderNode>& out, const Document& doc, Guid id, uint32_t parent, int depth, uint32_t base) {
+  const Node* n = doc.get(id);
+  if (!n || !n->props.visible || depth > 256) return;
+  uint32_t i = base + static_cast<uint32_t>(out.size());
+  RenderNode r;
+  r.id = id;
+  r.node = n;
+  r.parent = parent;
+  out.push_back(r);
+  size_t at = out.size() - 1;
+  const std::vector<Guid>& kids = doc.children(id);
+  out[at].hasChildren = !kids.empty();
+  for (Guid c : kids) addTo(out, doc, c, i, depth + 1, base);
+  out[at].end = base + static_cast<uint32_t>(out.size());
 }
 
 void RenderTree::bound(const Document& doc, uint32_t i) {
@@ -50,6 +71,21 @@ void RenderTree::bound(const Document& doc, uint32_t i) {
   r.visual = u;
 }
 
+void RenderTree::rebound(const Document& doc, std::vector<Guid>& ids) {
+  std::vector<uint32_t> at;
+  for (Guid id : ids) {
+    auto it = index_.find(id);
+    // An ancestor the document has removed (its own record comes later in this sync) has nothing to bound.
+    if (it == index_.end() || !doc.get(id)) continue;
+    at.push_back(it->second);
+    nodes_[it->second].hasChildren = !doc.children(id).empty();  // a first child came, or the last went
+  }
+  // Deepest first: a node's index is always past its ancestors' (pre-order), so descending index order does it.
+  std::sort(at.begin(), at.end(), std::greater<uint32_t>());
+  at.erase(std::unique(at.begin(), at.end()), at.end());
+  for (uint32_t i : at) bound(doc, i);
+}
+
 void RenderTree::build(const Document& doc) {
   rebuilds_++;
   nodes_.clear();
@@ -59,6 +95,64 @@ void RenderTree::build(const Document& doc) {
     for (Guid c : doc.children(page_)) add(doc, c, kNoParent, 0);
   for (size_t i = nodes_.size(); i-- > 0;) bound(doc, static_cast<uint32_t>(i));
   built_ = true;
+}
+
+void RenderTree::detach(const Document& doc, Guid id, std::vector<Guid>& chains) {
+  auto it = index_.find(id);
+  if (it == index_.end()) return;
+  uint32_t i = it->second;
+  uint32_t end = nodes_[i].end, len = end - i;
+  damage(nodes_[i].visual);
+  for (uint32_t a = nodes_[i].parent; a != kNoParent; a = nodes_[a].parent) chains.push_back(nodes_[a].id);
+  for (uint32_t j = i; j < end; j++) index_.erase(nodes_[j].id);
+  nodes_.erase(nodes_.begin() + i, nodes_.begin() + end);
+  for (uint32_t j = 0; j < nodes_.size(); j++) {
+    RenderNode& r = nodes_[j];
+    if (r.end > i) r.end -= len;  // a range past the gap, or one that held it (ancestors): both shrink
+    if (r.parent != kNoParent && r.parent >= end) r.parent -= len;
+    if (j >= i) index_[r.id] = j;
+  }
+  (void)doc;
+}
+
+void RenderTree::attach(const Document& doc, Guid id, std::unordered_set<Guid, GuidHash>& placed, std::vector<Guid>& chains) {
+  // Where it belongs now: under a drawn parent (or the page), after the nearest earlier sibling that is drawn. Every
+  // drawn node is at its right place by now (the changed ones were all taken out first), so that sibling's end is it.
+  const Node* n = doc.get(id);
+  if (!n || !n->props.visible) return;
+  Guid parent = n->props.parentIndex.guid;
+  uint32_t parentIndex = kNoParent;
+  if (parent != page_) {
+    auto pit = index_.find(parent);
+    if (pit == index_.end()) return;  // its parent isn't drawn (hidden, elsewhere, or itself waiting to be attached)
+    parentIndex = pit->second;
+  }
+  const std::vector<Guid>& siblings = doc.children(parent);
+  uint32_t pos = parentIndex == kNoParent ? 0 : parentIndex + 1;
+  for (size_t k = 0; k < siblings.size() && siblings[k] != id; k++)
+    if (auto sit = index_.find(siblings[k]); sit != index_.end() && nodes_[sit->second].parent == parentIndex) pos = nodes_[sit->second].end;
+  std::vector<RenderNode> fresh;
+  addTo(fresh, doc, id, parentIndex, 0, pos);
+  if (fresh.empty()) return;
+  uint32_t len = static_cast<uint32_t>(fresh.size());
+  // Ancestors of the insertion point: their ranges grow; everything from `pos` on moves up by `len`.
+  std::vector<uint8_t> ancestor(nodes_.size(), 0);
+  for (uint32_t a = parentIndex; a != kNoParent; a = nodes_[a].parent) {
+    ancestor[a] = 1;
+    chains.push_back(nodes_[a].id);
+  }
+  for (uint32_t j = 0; j < nodes_.size(); j++) {
+    RenderNode& r = nodes_[j];
+    if (r.end > pos || (r.end == pos && ancestor[j])) r.end += len;
+    if (r.parent != kNoParent && r.parent >= pos) r.parent += len;
+  }
+  nodes_.insert(nodes_.begin() + pos, fresh.begin(), fresh.end());
+  for (uint32_t j = pos; j < nodes_.size(); j++) index_[nodes_[j].id] = j;
+  for (uint32_t j = pos + len; j-- > pos;) {
+    bound(doc, j);
+    placed.insert(nodes_[j].id);
+  }
+  damage(nodes_[pos].visual);
 }
 
 void RenderTree::damage(const Rect& r) {
@@ -91,24 +185,43 @@ bool RenderTree::sync(const Document& doc, Guid page) {
     damage_ = Damage{true, {}};
     return true;
   }
-  // A structural change here (or one that brings a node here) rebuilds; one elsewhere doesn't matter.
+  // Structural changes here (or ones that bring a node here) re-place the node's subtree; the page itself changing,
+  // or many at once, rebuild. A change elsewhere doesn't matter.
   auto here = [&](Guid id) { return id == page_ || index_.count(id) != 0; };
+  std::vector<Guid> structural;
   for (const Document::ChangeRecord& c : changes_) {
     if (!c.structural) continue;
-    if (index_.count(c.id) || here(doc.parentOf(c.id))) {
-      // What the changed nodes covered before and cover now.
-      for (const Document::ChangeRecord& k : changes_)
-        if (auto it = index_.find(k.id); it != index_.end()) damage(nodes_[it->second].visual);
-      build(doc);
-      for (const Document::ChangeRecord& k : changes_)
-        if (auto it = index_.find(k.id); it != index_.end()) damage(nodes_[it->second].visual);
-      return true;
+    if (c.id == page_) {
+      structural.clear();
+      structural.push_back(page_);
+      break;
     }
+    if (index_.count(c.id) || here(doc.parentOf(c.id)) || here(c.parentBefore)) structural.push_back(c.id);
   }
-  // Otherwise the changed nodes' subtrees and their ancestors get their bounds again, children before parents.
+  if (!structural.empty() && (structural.size() > kMaxRelocations || structural[0] == page_)) {
+    for (const Document::ChangeRecord& k : changes_)
+      if (auto it = index_.find(k.id); it != index_.end()) damage(nodes_[it->second].visual);
+    build(doc);
+    for (const Document::ChangeRecord& k : changes_)
+      if (auto it = index_.find(k.id); it != index_.end()) damage(nodes_[it->second].visual);
+    return true;
+  }
+  // Two passes: every changed subtree out, then each back in where the document puts it now. Taking them all out
+  // first matters: a changed sibling still at its stale place would otherwise decide where another one goes.
+  relocations_ += static_cast<uint32_t>(structural.size());
+  std::vector<Guid> chains;
+  for (Guid id : structural) detach(doc, id, chains);
+  std::unordered_set<Guid, GuidHash> placed;
+  for (Guid id : structural) {
+    if (placed.count(id)) continue;  // built already as part of an ancestor attached this sync, from the same document
+    attach(doc, id, placed, chains);
+  }
+  rebound(doc, chains);
+  // The other changed nodes' subtrees and their ancestors get their bounds again, children before parents.
   marks_.assign(nodes_.size(), 0);
   bool any = false;
   for (const Document::ChangeRecord& c : changes_) {
+    if (c.structural) continue;
     auto it = index_.find(c.id);
     if (it == index_.end()) continue;
     uint32_t i = it->second;
@@ -128,6 +241,26 @@ bool RenderTree::sync(const Document& doc, Guid page) {
   }
   version_ = doc.version();
   return false;
+}
+
+bool RenderTree::consistent(const Document& doc) const {
+  RenderTree fresh;
+  fresh.ink_ = ink_;
+  fresh.page_ = page_;
+  fresh.build(doc);
+  if (fresh.nodes_.size() != nodes_.size() || fresh.index_.size() != index_.size()) return false;
+  auto near = [](const Rect& a, const Rect& b) {
+    return std::fabs(a.x - b.x) < 1e-6 && std::fabs(a.y - b.y) < 1e-6 && std::fabs(a.w - b.w) < 1e-6 && std::fabs(a.h - b.h) < 1e-6;
+  };
+  for (size_t i = 0; i < nodes_.size(); i++) {
+    const RenderNode& a = nodes_[i];
+    const RenderNode& b = fresh.nodes_[i];
+    if (a.id != b.id || a.end != b.end || a.parent != b.parent || a.hasChildren != b.hasChildren || a.node != b.node || !near(a.visual, b.visual))
+      return false;
+    auto it = index_.find(a.id);
+    if (it == index_.end() || it->second != i) return false;
+  }
+  return true;
 }
 
 }  // namespace eng

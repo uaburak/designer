@@ -1077,15 +1077,22 @@ try {
         check("⌥⌘S saves a version the history lists", (await page.getByText("Before review").count()) > 0);
         await shot(page, `15-version-history-${theme}`);
         await page.keyboard.press("Escape");
-        // The camera is kept per file (UI state, debounced 2 s); the thumbnail a few seconds after the last change.
+        // The camera is kept per file (UI state, debounced 2 s). The thumbnail comes a few seconds after the last
+        // change on an idle moment — never within 10 s of the open — and at the latest when the tab flushes (main's
+        // close / quit handshake runs `ed.beforeFlush`): the flush path is what is checked here.
         await page.evaluate(() => window.__designerEditor.engine.setCamera({ x: 40, y: 30, zoom: 2 }));
-        await page.waitForTimeout(5000);
+        await page.waitForTimeout(2500);
+        await page.evaluate(async () => {
+          const ed = window.__designerEditor;
+          await Promise.all([...ed.beforeFlush].map((work) => work().catch(() => {})));
+          await ed.source.flush();
+        });
         const thumb = await page.evaluate(async (key) => {
           const s = await import("/src/store/index.ts");
           const files = await s.getStoreClient().workspace.listFiles({ in: "recents" });
           return files.find((f) => f.fileKey === key)?.thumbnail ?? null;
         }, key);
-        check("a thumbnail is saved for Home", !!thumb, thumb ? JSON.stringify(thumb) : "none");
+        check("a thumbnail is saved for Home (at the latest when the tab flushes)", !!thumb, thumb ? JSON.stringify(thumb) : "none");
         await page.reload();
         await page.waitForFunction(() => window.__designerEditor && !window.__designerEditor.engine.destroyed, null, { timeout: 20000 });
         check("a change on a store file survives a reload", !!made && (await node(page, made)) !== null, made);

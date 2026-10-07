@@ -92,13 +92,17 @@ class Document {
     Guid id;
     bool structural = false;
     Rect before;  // its render bounds before the change (world; empty when it had none)
+    Guid parentBefore = kNoGuid;  // its parent before the change (kNoGuid: it had none, or was created)
+    FieldMask fields = 0;         // the fields the change carried (F_ALL for created, replaced and removed)
   };
   uint64_t version() const { return version_; }
   // The changes after version `since`, in order; false when they are no longer kept (start over).
   bool changesSince(uint64_t since, std::vector<ChangeRecord>& out) const;
+  // The record of the change applied last (nullptr before any).
+  const ChangeRecord* lastChange() const { return log_.empty() ? nullptr : &log_.back(); }
 
  private:
-  void record(Guid id, bool structural, const Rect& before);
+  void record(Guid id, bool structural, const Rect& before, Guid parentBefore, FieldMask fields);
   Rect boundsBefore(Guid id) const;
   struct Derived {
     Mat2x3 world;

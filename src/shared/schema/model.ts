@@ -37,6 +37,9 @@ export class SchemaModel {
   /** "Def.field" keys of blob-index fields */
   readonly blobFields: ReadonlySet<string>;
   private readonly reachCache = new Map<string, Set<string>>();
+  /** `canContain` per targets set (by identity) per type: a walk over a document asks it once per field per node. */
+  private readonly containCache = new WeakMap<ReadonlySet<string>, Map<string, boolean>>();
+  private owners: Set<string> | null = null;
 
   constructor(schema: KiwiSchema, deprecated: Readonly<Record<string, readonly number[]>> = {}, blobFields?: Iterable<string>) {
     for (const d of schema.definitions) {
@@ -103,15 +106,29 @@ export class SchemaModel {
   /** True when a value of type `type` can (transitively) contain a value of one of `targets`. */
   canContain(type: string, targets: ReadonlySet<string>): boolean {
     if (NATIVE_TYPES.has(type)) return false;
-    for (const t of this.reach(type)) if (targets.has(t)) return true;
-    return false;
+    let perType = this.containCache.get(targets);
+    if (!perType) this.containCache.set(targets, (perType = new Map()));
+    let known = perType.get(type);
+    if (known === undefined) {
+      known = false;
+      for (const t of this.reach(type)) {
+        if (targets.has(t)) {
+          known = true;
+          break;
+        }
+      }
+      perType.set(type, known);
+    }
+    return known;
   }
 
-  /** Definitions that own at least one blob-index field. */
-  blobOwners(): Set<string> {
-    const owners = new Set<string>();
-    for (const key of this.blobFields) owners.add(key.slice(0, key.indexOf(".")));
-    return owners;
+  /** Definitions that own at least one blob-index field (the same set every time, so callers' caches keyed by it hit). */
+  blobOwners(): ReadonlySet<string> {
+    if (!this.owners) {
+      this.owners = new Set<string>();
+      for (const key of this.blobFields) this.owners.add(key.slice(0, key.indexOf(".")));
+    }
+    return this.owners;
   }
 }
 

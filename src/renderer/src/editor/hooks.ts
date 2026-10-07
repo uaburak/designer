@@ -18,9 +18,10 @@ export function useUI<S>(select: (s: UIState) => S): S {
   return useStoreSlice(useEditor().ui, select);
 }
 
+/** The current page's Layers tree, refreshed once per frame after a change (after the gesture while one is live). */
 export function useLayerTree(): LayerTree {
   const ed = useEditor();
-  return useSyncExternalStore(ed.subscribeTree, ed.getTree);
+  return useSyncExternalStore(ed.subscribeTree, ed.getTreeSnapshot);
 }
 
 /** A counter bumped whenever any of `topics` fires. */
@@ -101,8 +102,16 @@ export function useNodes(refs: readonly Guid[]): (NodeChange | null)[] {
   return useSyncExternalStore(source.subscribe, source.get);
 }
 
-/** A number bumped by every change to any node (NODES_CHANGED, DOCUMENT_CHANGED) and by structure changes — for reads over many nodes (Selection colors). */
-export function useDocumentVersion(): number {
+/** NODES_CHANGED's GEOMETRY and LAYOUT groups: what a move or a resize touches before it commits (engine.md §10.4). */
+export const GEOMETRY_GROUPS = 1 | 2;
+
+/**
+ * A number bumped by every committed change (DOCUMENT_CHANGED), by structure changes and by live changes
+ * (NODES_CHANGED, before a commit) whose field groups intersect `liveGroups` (default: every group) — for reads
+ * over many nodes. A reader that doesn't depend on geometry passes `~GEOMETRY_GROUPS`, so a drag's frames don't
+ * re-run it.
+ */
+export function useDocumentVersion(liveGroups = 0xff): number {
   const { engine, store } = useEditor();
   const source = useMemo<Source<number>>(() => {
     let version = 0;
@@ -112,7 +121,61 @@ export function useDocumentVersion(): number {
           version++;
           listener();
         };
-        const offs = [engine.on("NODES_CHANGED", bump), engine.on("DOCUMENT_CHANGED", bump), store.subscribe("structure", bump)];
+        const offs = [
+          engine.on("NODES_CHANGED", (e) => {
+            if (e.fieldGroupMask.some((m) => (m & liveGroups) !== 0)) bump();
+          }),
+          engine.on("DOCUMENT_CHANGED", bump),
+          store.subscribe("structure", bump),
+        ];
+        return () => offs.forEach((off) => off());
+      },
+      get: () => version,
+    };
+  }, [engine, store, liveGroups]);
+  return useSyncExternalStore(source.subscribe, source.get);
+}
+
+/** NODES_CHANGED groups that can change the colours a selection shows (engine.md §10.4: PAINT, VISIBILITY). */
+const COLOR_GROUPS = 4 | 32;
+/** Committed fields that can change the colours a selection shows, or what is inside it. */
+const COLOR_FIELDS = ["fillPaints", "strokePaints", "visible", "mask", "parentIndex", "symbolData", "overriddenSymbolID", "componentPropAssignments"];
+
+/** Does a committed change touch the selection's colours (paints, visibility, masks) or the layers inside it? */
+export function changeTouchesColors(message: { nodeChanges: readonly NodeChange[] }): boolean {
+  for (const c of message.nodeChanges) {
+    if (c.phase !== undefined) return true;
+    const f = c as unknown as Record<string, unknown>;
+    for (const key of COLOR_FIELDS) if (key in f) return true;
+  }
+  return false;
+}
+
+/**
+ * A number bumped only by changes that can alter "Selection colors": a paint or visibility change (live or
+ * committed), a layer added, removed or moved, an instance re-pointed — never by a plain move or resize, so a
+ * drag doesn't re-read the selected subtree every frame.
+ */
+export function useSelectionColorsVersion(): number {
+  const { engine, store } = useEditor();
+  const source = useMemo<Source<number>>(() => {
+    let version = 0;
+    return {
+      subscribe: (listener) => {
+        const bump = () => {
+          version++;
+          listener();
+        };
+        const offs = [
+          engine.on("NODES_CHANGED", (e) => {
+            if (e.fieldGroupMask.some((m) => (m & COLOR_GROUPS) !== 0)) bump();
+          }),
+          engine.on("DOCUMENT_CHANGED", (e) => {
+            if (changeTouchesColors(e.message)) bump();
+          }),
+          engine.on("COMPONENTS_CHANGED", bump),
+          store.subscribe("structure", bump),
+        ];
         return () => offs.forEach((off) => off());
       },
       get: () => version,

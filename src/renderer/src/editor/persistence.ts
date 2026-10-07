@@ -19,6 +19,8 @@ import { colorToHex, hexToColor, sameColor } from "./model/color";
 const THUMB_SIZE = { width: 800, height: 600 };
 const THUMB_CONTENT = { width: 600, height: 340 };
 const THUMB_DELAY_MS = 4000;
+/** No thumbnail within this long of the open: the card already shows the file; the first seconds are the user's. */
+const OPEN_QUIET_MS = 10000;
 /** After an image's bytes are in, the engine decodes and uploads it (createImageBitmap): a moment to let it. */
 const IMAGE_UPLOAD_MS = 100;
 /** Figma's default page colour, which the engine draws as #1E1E1E in the dark theme (as the Design panel shows it) */
@@ -28,7 +30,7 @@ const DEFAULT_PAGE = hexToColor("#f5f5f5");
 export function restoreUiState(ed: EditorController): boolean {
   const state = ed.source.uiState;
   if (!state) return false;
-  const pages = ed.engine.pages();
+  const pages = ed.store.pages; // the EngineStore's list (read once at construction, again on PAGES_CHANGED)
   if (state.currentPageId && pages.some((p) => p.guid === state.currentPageId)) ed.engine.setCurrentPage(state.currentPageId);
   if (state.leftPanelWidth > 0 || state.rightPanelWidth > 0) ed.ui.set({ ...(state.leftPanelWidth > 0 ? { leftWidth: state.leftPanelWidth } : {}), ...(state.rightPanelWidth > 0 ? { rightWidth: state.rightPanelWidth } : {}) });
   const page = state.pages[ed.store.page];
@@ -90,7 +92,7 @@ function pageColor(ed: EditorController, page: string): string {
  * gives null (Home shows its blank card).
  */
 export async function captureThumbnail(ed: EditorController): Promise<{ png: Uint8Array; width: number; height: number } | null> {
-  const first = ed.engine.pages()[0];
+  const first = ed.store.pages[0];
   if (!first || ed.engine.destroyed) return null;
   // maxSize bounds the longer side: content taller than 4:3 is rendered smaller so it stays within the height.
   const render = () => {
@@ -130,12 +132,19 @@ export async function captureThumbnail(ed: EditorController): Promise<{ png: Uin
 function trackThumbnail(ed: EditorController): () => void {
   const save = ed.source.saveThumbnail;
   if (!save) return () => {};
+  const opened = performance.now();
   let timer = 0;
+  let idle = 0;
   let stale = false;
   let writing: Promise<void> = Promise.resolve();
+  const cancelIdle = () => {
+    if (idle && typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
+    idle = 0;
+  };
   const write = (): Promise<void> => {
     window.clearTimeout(timer);
     timer = 0;
+    cancelIdle();
     if (!stale || ed.engine.destroyed) return writing;
     stale = false;
     writing = captureThumbnail(ed)
@@ -143,10 +152,23 @@ function trackThumbnail(ed: EditorController): () => void {
       .catch(() => {});
     return writing;
   };
-  const off = ed.engine.on("DOCUMENT_CHANGED", () => {
-    stale = true;
+  // A few seconds after the last change, on an idle moment (the capture is a 60–70 ms task), never while the file is
+  // still opening — and only for the user's changes: a SYSTEM change (fonts arriving and relaying out text, library
+  // bookkeeping) doesn't earn a new card.
+  const schedule = () => {
     window.clearTimeout(timer);
-    timer = window.setTimeout(() => void write(), THUMB_DELAY_MS);
+    cancelIdle();
+    const wait = Math.max(THUMB_DELAY_MS, OPEN_QUIET_MS - (performance.now() - opened));
+    timer = window.setTimeout(() => {
+      timer = 0;
+      if (typeof requestIdleCallback === "function") idle = requestIdleCallback(() => void write(), { timeout: 2000 });
+      else void write();
+    }, wait);
+  };
+  const off = ed.engine.on("DOCUMENT_CHANGED", (e) => {
+    if (e.kind === "SYSTEM") return;
+    stale = true;
+    schedule();
   });
   ed.beforeFlush.add(write);
   return () => {

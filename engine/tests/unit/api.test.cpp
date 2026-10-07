@@ -42,6 +42,7 @@ int32_t engine_encode_selection(Handle h, uint32_t flags);
 int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags);
 int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, uint32_t maxSize, uint32_t flags);
 int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t pageLocalID);
+int32_t engine_layer_changes(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, double since);
 int32_t engine_font_bind(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen, int32_t faceId);
 void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen);
 int32_t engine_next_frame_delay(Handle h);
@@ -296,6 +297,146 @@ TEST_CASE("api: the Layers tree of a page in one read") {
   CHECK(nodes[2].get("childIds")->array.empty());
   CHECK(nodes[2].get("fillPaints") == nullptr);  // only what a row shows
   CHECK(engine_layer_tree(h, 9, 9) == -5);  // E_NOT_FOUND: no such page
+  engine_destroy(h);
+}
+
+TEST_CASE("api: the Layers rows changed since a version — a delta of rows and removals, or the whole tree") {
+  Payload opts{R"({"sessionID":7})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  Payload doc{kDoc};
+  REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
+  REQUIRE(engine_layer_tree(h, 0, 1) == 0);
+  auto tree = resultJson();
+  REQUIRE(tree.get("version") != nullptr);
+  double v0 = tree.get("version")->number;
+  // Nothing changed: an empty delta at the same version.
+  REQUIRE(engine_layer_changes(h, 0, 1, v0) == 0);
+  auto d = resultJson();
+  CHECK_FALSE(d.get("full")->boolean);
+  CHECK(d.get("nodes")->array.empty());
+  CHECK(d.get("removed")->array.empty());
+  CHECK(d.get("version")->number == v0);
+  // A rename: that row only. A move within the frame (transform): no row.
+  Payload sel{R"({"refs":["1:2"]})"};
+  Payload rename{R"({"name":"Renamed"})"};
+  REQUIRE(engine_set_props(h, sel.ptr(), sel.len(), rename.ptr(), rename.len(), 0) == 0);
+  Payload moved{R"({"transform":{"m00":1,"m01":0,"m02":40,"m10":0,"m11":1,"m12":10}})"};
+  REQUIRE(engine_set_props(h, sel.ptr(), sel.len(), moved.ptr(), moved.len(), 0) == 0);
+  REQUIRE(engine_layer_changes(h, 0, 1, v0) == 0);
+  d = resultJson();
+  CHECK_FALSE(d.get("full")->boolean);
+  REQUIRE(d.get("nodes")->array.size() == 1);
+  CHECK(d.get("nodes")->array[0].get("guid")->string == "1:2");
+  CHECK(d.get("nodes")->array[0].get("name")->string == "Renamed");
+  double v1 = d.get("version")->number;
+  CHECK(v1 > v0);
+  // A reparent to the page: the node's row, the old parent's and the new parent's (with their childIds).
+  Payload refs{R"({"refs":["1:2"]})"};
+  REQUIRE(engine_move_nodes(h, refs.ptr(), refs.len(), 0, 1, 1) == 1);
+  REQUIRE(engine_layer_changes(h, 0, 1, v1) == 0);
+  d = resultJson();
+  CHECK_FALSE(d.get("full")->boolean);
+  std::string ids;
+  for (auto& n : d.get("nodes")->array) ids += n.get("guid")->string + " ";
+  CHECK(ids.find("1:2") != std::string::npos);
+  CHECK(ids.find("1:1") != std::string::npos);
+  CHECK(ids.find("0:1") != std::string::npos);
+  for (auto& n : d.get("nodes")->array)
+    if (n.get("guid")->string == "0:1") CHECK(n.get("childIds")->array.size() == 2);
+  double v2 = d.get("version")->number;
+  // A removal: in `removed`, its parent's row given.
+  Payload none{R"({"refs":[]})"};
+  REQUIRE(engine_set_selection(h, refs.ptr(), refs.len()) == 0);
+  REQUIRE(engine_command(h, 20 /* DELETE */, 0, 0) == 0);
+  REQUIRE(engine_layer_changes(h, 0, 1, v2) == 0);
+  d = resultJson();
+  CHECK_FALSE(d.get("full")->boolean);
+  REQUIRE(d.get("removed")->array.size() == 1);
+  CHECK(d.get("removed")->array[0].string == "1:2");
+  bool pageRow = false;
+  for (auto& n : d.get("nodes")->array) pageRow |= n.get("guid")->string == "0:1";
+  CHECK(pageRow);
+  // A version ahead of the engine's, or absurdly old: the whole tree.
+  REQUIRE(engine_layer_changes(h, 0, 1, 1e12) == 0);
+  d = resultJson();
+  CHECK(d.get("full")->boolean);
+  CHECK(d.get("nodes")->array.size() == 2);  // the page and the frame
+  CHECK(engine_layer_changes(h, 9, 9, 0) == -5);
+  engine_destroy(h);
+}
+
+TEST_CASE("api: read_nodes with a field list and a subtree — one read of the paints under a selection") {
+  Payload opts{R"({"sessionID":7})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  Payload doc{kDoc};
+  REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
+  // A hidden child with a child of its own, to be left out.
+  Payload hidden{R"({"type":"NODE_CHANGES","sessionID":7,"nodeChanges":[
+    {"guid":"7:1","phase":"CREATED","type":"FRAME","name":"Hidden","visible":false,"parentIndex":{"guid":"1:1","position":"#"},
+     "size":{"x":20,"y":20},"fillPaints":[{"type":"SOLID","color":{"r":1,"g":0,"b":0,"a":1}}]},
+    {"guid":"7:2","phase":"CREATED","type":"ELLIPSE","name":"In hidden","parentIndex":{"guid":"7:1","position":"!"},
+     "size":{"x":10,"y":10},"fillPaints":[{"type":"SOLID","color":{"r":0,"g":1,"b":0,"a":1}}]}]})"};
+  REQUIRE(engine_apply_changes(h, hidden.ptr(), hidden.len(), 2) == 0);
+  Payload q{R"({"refs":["1:1"],"fields":["fillPaints","visible","nonsense"]})"};
+  REQUIRE(engine_read_nodes(h, q.ptr(), q.len(), 2 | 4) == 0);  // READ_SUBTREE | READ_VISIBLE_ONLY
+  auto v = resultJson();
+  auto& nodes = v.get("nodeChanges")->array;
+  REQUIRE(nodes.size() == 2);  // the frame and its visible rectangle; the hidden frame and what's in it left out
+  CHECK(nodes[0].get("guid")->string == "1:1");
+  CHECK(nodes[0].get("type")->string == "FRAME");
+  CHECK(nodes[0].get("fillPaints")->array.size() == 1);
+  CHECK(nodes[0].get("visible")->boolean);
+  CHECK(nodes[0].get("name") == nullptr);
+  CHECK(nodes[0].get("size") == nullptr);
+  CHECK(nodes[1].get("guid")->string == "1:2");
+  // Without VISIBLE_ONLY the hidden subtree comes too, pre-order; with childIds.
+  REQUIRE(engine_read_nodes(h, q.ptr(), q.len(), 1 | 2) == 0);
+  v = resultJson();
+  auto& all = v.get("nodeChanges")->array;
+  REQUIRE(all.size() == 4);
+  CHECK(all[0].get("childIds")->array.size() == 2);
+  CHECK(all[1].get("guid")->string == "1:2");
+  CHECK(all[2].get("guid")->string == "7:1");
+  CHECK_FALSE(all[2].get("visible")->boolean);
+  CHECK(all[3].get("guid")->string == "7:2");
+  // A plain read is unchanged: every field.
+  Payload plain{R"({"refs":["1:2"]})"};
+  REQUIRE(engine_read_nodes(h, plain.ptr(), plain.len(), 0) == 0);
+  v = resultJson();
+  CHECK(v.get("nodeChanges")->array[0].get("size") != nullptr);
+  engine_destroy(h);
+}
+
+TEST_CASE("api: STRUCTURE_CHANGED names the parents whose child lists changed") {
+  Payload opts{R"({"sessionID":7})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  Payload doc{kDoc};
+  REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
+  REQUIRE(engine_take_events(h) == 0);
+  auto v = resultJson();
+  bool sawNull = false;
+  for (auto& e : v.get("events")->array)
+    if (e.get("type")->string == "STRUCTURE_CHANGED") sawNull = e.get("parents")->isNull();
+  CHECK(sawNull);  // a load: re-read the page
+  Payload refs{R"({"refs":["1:2"]})"};
+  REQUIRE(engine_move_nodes(h, refs.ptr(), refs.len(), 0, 1, 1) == 1);
+  REQUIRE(engine_take_events(h) == 0);
+  v = resultJson();
+  std::string parents;
+  for (auto& e : v.get("events")->array)
+    if (e.get("type")->string == "STRUCTURE_CHANGED")
+      for (auto& p : e.get("parents")->array) parents += p.string + " ";
+  CHECK(parents == "1:1 0:1 ");  // the frame it left, the page it joined
+  // A rename: a structure event (rows re-read) with no parents.
+  Payload rename{R"({"name":"Renamed"})"};
+  REQUIRE(engine_set_props(h, refs.ptr(), refs.len(), rename.ptr(), rename.len(), 0) == 0);
+  REQUIRE(engine_take_events(h) == 0);
+  v = resultJson();
+  for (auto& e : v.get("events")->array)
+    if (e.get("type")->string == "STRUCTURE_CHANGED") CHECK(e.get("parents")->array.empty());
   engine_destroy(h);
 }
 

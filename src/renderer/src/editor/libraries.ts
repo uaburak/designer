@@ -323,10 +323,13 @@ export class LibraryIndex {
     const movedHere = (m: { oldKey?: string; pasteFileKey?: string }) => !!record?.movedIn.some((r) => r.fromLibraryFileKey === m.pasteFileKey && r.fromKey === m.oldKey && r.toLibraryFileKey === fileKey);
     const entries = new Map<string, string | null>();
     const clears: Record<string, unknown>[] = [];
+    // A move matters only once this library has recorded one (a publish with Move to this file records it): until
+    // then no node is read — on an engine with lazy per-page derivation a read of a main derives its whole page, and
+    // reading every main derived every page of the file at open.
+    const movesRecorded = (record?.movedIn.length ?? 0) > 0;
     for (const a of ed.engine.localAssets()) {
-      const n = ed.engine.readNode(a.id) as LNode | null;
-      const move = n?.libraryMoveInfo?.oldKey ? n.libraryMoveInfo : null;
       const main = a.kind === "COMPONENT" || a.kind === "COMPONENT_SET";
+      const move = main ? moveOf(ed, a, movesRecorded) : null;
       const want = a.key ? (listed.get(a.key) ?? null) : null;
       if (a.key && ((a.publishedVersion || null) !== want || (move && main && want !== null))) {
         entries.set(a.key, want);
@@ -450,6 +453,19 @@ export interface PublishDraft {
 
 const RESOLVED = new Set(["COLOR", "FLOAT", "STRING", "BOOLEAN"]);
 
+/**
+ * A main's `libraryMoveInfo` (a published main cut from another file and pasted here): from the asset record when the
+ * engine's `localAssets` carries it, else from the node — only when `always` or a move was recorded (a node read
+ * derives the main's page on an engine with lazy per-page derivation).
+ */
+function moveOf(ed: EditorController, a: LocalAssetInfo, always: boolean): { oldKey?: string; pasteFileKey?: string } | null {
+  const info = a as LocalAssetInfo & { libraryMoveInfo?: { oldKey?: string; pasteFileKey?: string } | null };
+  if ("libraryMoveInfo" in info) return info.libraryMoveInfo?.oldKey ? info.libraryMoveInfo : null;
+  if (!always) return null;
+  const n = ed.engine.readNode(a.id) as LNode | null;
+  return n?.libraryMoveInfo?.oldKey ? n.libraryMoveInfo : null;
+}
+
 /** The engine's asset, in the editor's LocalAsset shape (Hide when publishing and moves read from the node). */
 function fromEngineAsset(ed: EditorController, e: LocalAssetInfo): LocalAsset {
   const n = ed.engine.readNode(e.id) as LNode | null;
@@ -476,6 +492,12 @@ function fromEngineAsset(ed: EditorController, e: LocalAssetInfo): LocalAsset {
 /** Keys given to every asset that lacks one, then the publishable ones encoded with what they need (closures). */
 function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: number } {
   ed.engine.ensureAssetKeys();
+  // A publish hashes every main: on an engine with lazy per-page derivation the mains' pages are derived first, so
+  // `localAssets`' versionHash and `encodeAssets`' agree (a main hashed before its page was derived came out as
+  // "modified" right after its own publish). The editor avoids this read everywhere else (opening a file derives only
+  // the page shown); a publish is the user's own action over the whole file.
+  const mains = ed.engine.localAssets().filter((a) => (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !a.softDeleted);
+  if (mains.length) ed.engine.readNodes(mains.map((a) => a.id), { fields: ["guid"] } as never);
   const all = ed.engine.localAssets();
   const top = all.filter((a) => !a.componentSetId && !a.softDeleted); // a variant publishes with its set
   const listed = top.filter((a) => !a.hiddenFromPublishing && !!a.key && (a.kind !== "VARIABLE" || RESOLVED.has(a.resolvedType ?? "")));

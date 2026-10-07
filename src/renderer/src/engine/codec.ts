@@ -619,6 +619,19 @@ export interface ComponentInfo {
   instanceCount: number;
 }
 
+/**
+ * Engine.layerChanges: the Layers rows (layer-tree shape) changed since a version, or the whole page's tree when a
+ * delta can't be given (`full`). To apply: drop `removed`, upsert `nodes` by guid (a row's `childIds` is complete).
+ */
+export interface LayerChanges {
+  /** The document version these rows are of (pass it to the next layerChanges). */
+  version: number;
+  full: boolean;
+  nodes: NodeChange[];
+  /** Ids no longer in the document (any page; ignore unknown ones). Empty when `full`. */
+  removed: Guid[];
+}
+
 export interface NodeChange extends NodeFields {
   guid: Guid;
   /** Absent: an update of an existing node. */
@@ -767,7 +780,13 @@ export type CursorKind =
 export type EngineEvent =
   | { type: "DOCUMENT_CHANGED"; kind: "USER" | "UNDO" | "REDO" | "SYSTEM"; label: string; message: Message }
   | { type: "NODES_CHANGED"; refs: Guid[]; fieldGroupMask: number[] }
-  | { type: "STRUCTURE_CHANGED"; pageId: Guid }
+  /**
+   * The current page's tree shape changed (a Layers row's place, name, visibility or lock). `parents`: the nodes (the
+   * page included) whose child lists changed this tick — the current and the previous parents of layers created,
+   * removed, reparented or reordered, instance sublayers included; null when the engine can't name them (a load, a
+   * page switch, too many): re-read the page. A Layers tree patches itself with `Engine.layerChanges`.
+   */
+  | { type: "STRUCTURE_CHANGED"; pageId: Guid; parents: Guid[] | null }
   | { type: "PAGES_CHANGED"; pageId: Guid }
   | { type: "CURRENT_PAGE_CHANGED"; pageId: Guid }
   | ({ type: "SELECTION_CHANGED" } & Selection)

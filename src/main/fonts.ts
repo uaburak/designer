@@ -13,8 +13,9 @@ import type { FontFaceInfo, FontIndex } from "../shared/ipc";
  * changed files are parsed again. Views get the index (`fonts:list`, no
  * paths) and a face's whole file (`fonts:read`), which the engine parses.
  *
- * Interim (minimal): in the main process, on the first `fonts:list`, not yet
- * the separate fonts utility process §14 describes; no `fs.watch` rescan.
+ * Interim (minimal): in the main process, on the first `fonts:list` (or
+ * `warmFontIndex()` at launch), not yet the separate fonts utility process
+ * §14 describes; no `fs.watch` rescan.
  */
 
 const VERSION = 1;
@@ -32,6 +33,7 @@ interface Cache {
 
 let indexing: Promise<FontIndex> | null = null;
 const paths = new Map<string, string>(); // face id → file path
+const collectionIndices = new Map<string, number>(); // face id → its index in a collection (0 for a single-face file)
 
 /** Where fonts live on this platform: [directory, source]. */
 function fontDirs(): [string, FontFaceInfo["source"]][] {
@@ -231,6 +233,7 @@ async function buildIndex(): Promise<FontIndex> {
         next.files[path] = entry;
         for (const f of entry.faces) {
           paths.set(f.id, path);
+          collectionIndices.set(f.id, f.collectionIndex);
           faces.push(f);
         }
       } catch {
@@ -248,6 +251,11 @@ async function buildIndex(): Promise<FontIndex> {
   return { version: VERSION, faces };
 }
 
+/** Builds the index ahead of the first view's `fonts:list` (the cached JSON makes it a few ms; a first scan more). */
+export function warmFontIndex(): void {
+  void fontIndex().catch(() => {});
+}
+
 /** The installed fonts (scanned once per launch). */
 export function fontIndex(): Promise<FontIndex> {
   indexing ??= buildIndex().catch((error: unknown) => {
@@ -257,10 +265,72 @@ export function fontIndex(): Promise<FontIndex> {
   return indexing;
 }
 
-/** A face's whole font file. */
+/**
+ * A face's font file for the engine. A single-face file (TTF, OTF, a variable font) is read whole. A collection
+ * (TTC / OTC — Helvetica, PingFang, Hiragino: tens of MB, every face of a family in one file) is **sliced** to the
+ * one face asked for: its tables alone, in a collection header that still lists it at its `collectionIndex` (every
+ * entry before it points at the same face), so the engine's `engine_font_add_take(bytes, collectionIndex)` reads
+ * it as before. A 74 MB file crossed the IPC and lived in the Wasm heap for one face of ~10 MB.
+ */
 export async function readFont(id: string): Promise<Uint8Array> {
   if (!paths.has(id)) await fontIndex();
   const path = paths.get(id);
   if (!path) throw new Error(`fonts: no face ${id}`);
-  return new Uint8Array(await readFile(path));
+  const index = collectionIndices.get(id) ?? 0;
+  const fh = await open(path, "r");
+  try {
+    const head = await readAt(fh, 0, 12);
+    if (head.length < 12 || head.toString("latin1", 0, 4) !== "ttcf") return new Uint8Array(await readFile(path));
+    const n = head.readUInt32BE(8);
+    if (index >= n) throw new Error(`fonts: face ${index} is not in the collection`);
+    const dir = await readAt(fh, 12, n * 4);
+    const base = dir.readUInt32BE(index * 4);
+    const sliced = await sliceFace(fh, base, index);
+    return sliced ?? new Uint8Array(await readFile(path));
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
+ * One face of a collection as a collection of its own: a `ttcf` header (version 1, `index + 1` entries, all at the
+ * face's offset table), the face's table directory with new offsets, then its tables, each 4-byte aligned. Null
+ * when the face's header isn't an sfnt (the whole file is sent instead).
+ */
+export async function sliceFace(fh: Awaited<ReturnType<typeof open>>, base: number, index: number): Promise<Uint8Array | null> {
+  const header = await readAt(fh, base, 12);
+  if (header.length < 12) return null;
+  const tag = header.readUInt32BE(0);
+  if (tag !== 0x00010000 && tag !== 0x4f54544f /* OTTO */ && tag !== 0x74727565 /* true */) return null;
+  const numTables = header.readUInt16BE(4);
+  const records = await readAt(fh, base + 12, numTables * 16);
+  const tables: { tag: Buffer; checksum: number; offset: number; length: number }[] = [];
+  for (let t = 0; t + 16 <= records.length; t += 16) tables.push({ tag: records.subarray(t, t + 4), checksum: records.readUInt32BE(t + 4), offset: records.readUInt32BE(t + 8), length: records.readUInt32BE(t + 12) });
+  const align = (x: number) => (x + 3) & ~3;
+  const ttcHeader = 12 + (index + 1) * 4;
+  const faceStart = ttcHeader;
+  const dirSize = 12 + tables.length * 16;
+  let at = align(faceStart + dirSize);
+  const placed = tables.map((t) => {
+    const offset = at;
+    at = align(at + t.length);
+    return { ...t, newOffset: offset };
+  });
+  const out = Buffer.alloc(at);
+  out.write("ttcf", 0, "latin1");
+  out.writeUInt32BE(0x00010000, 4);
+  out.writeUInt32BE(index + 1, 8);
+  for (let i = 0; i <= index; i++) out.writeUInt32BE(faceStart, 12 + i * 4);
+  header.copy(out, faceStart, 0, 12);
+  for (let i = 0; i < placed.length; i++) {
+    const t = placed[i];
+    const r = faceStart + 12 + i * 16;
+    t.tag.copy(out, r);
+    out.writeUInt32BE(t.checksum, r + 4);
+    out.writeUInt32BE(t.newOffset, r + 8);
+    out.writeUInt32BE(t.length, r + 12);
+    const { bytesRead } = await fh.read(out, t.newOffset, t.length, t.offset);
+    if (bytesRead !== t.length) return null;
+  }
+  return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
 }

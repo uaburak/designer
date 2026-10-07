@@ -75,7 +75,7 @@ export function Assets() {
     sections.push({
       key: "local",
       title: "Created in this file",
-      groups: groupAssets(localFound, ed.engine.pages().map((p) => p.guid)),
+      groups: groupAssets(localFound, ed.store.pages.map((p) => p.guid)),
       total: local.length,
     });
   for (const lib of libs.enabled) {

@@ -13,7 +13,13 @@
 //   --json <file>       write every number as JSON
 //   --page <n|name>     the page to measure (default: the page with the most layers)
 //   --size WxH --dpr D  the canvas in CSS px and its device pixel ratio (default 1440x900 @2, a Retina editor)
-//   --only a,b          run only these scenarios (rest, slowPan, fastPan, zoom, dense, hover, select, drag)
+//   --only a,b          run only these scenarios (rest, slowPan, fastPan, zoom, dense, hover, select, drag, and the
+//                       instance ones: instSelect, instDrag, altDrag, multiDrag; menuState in --editor mode)
+//   --open              the file-open path instead: the real EditorApp mounted (panels, Layers, fonts, images,
+//                       thumbnail) on a DocumentSource over the imported snapshot; marks every step (see "Open")
+//   --no-strict         --open without React.StrictMode (the app's main.tsx mounts under StrictMode, which in dev
+//                       runs the mount effect twice: source.load() twice)
+//   --no-prepare        --open through source.load() on the main thread instead of the source's load worker
 //   --headed            a visible window instead of headless (the GPU is used either way on macOS)
 //   --timeout <s>       stop the run after this long (default 180)
 //   --gpu-limit <MB>    stop when Chrome's GPU process uses more than this (default 3072), or the engine's own GPU
@@ -67,7 +73,9 @@ const only = (opt("--only", "") ?? "").split(",").filter(Boolean);
 const headed = flag("--headed");
 const timeoutSec = Number(opt("--timeout", "180"));
 const gpuLimitMB = Number(opt("--gpu-limit", "3072"));
-const editor = flag("--editor");  // the real editor (?editor: panels, Layers, rulers) around the engine
+const openMode = flag("--open");  // the file-open path: the real EditorApp mounted on the snapshot
+const noStrict = flag("--no-strict");
+const editor = flag("--editor") || openMode;  // the real editor (?editor: panels, Layers, rulers) around the engine
 const synthetic = flag("--synthetic");
 const syntheticCount = synthetic && argv[0] && /^\d+$/.test(argv[0]) ? Number(argv.shift()) : 25000;
 const figPath = synthetic ? null : (argv[0] ?? process.env.DESIGNER_BENCH_FIG);
@@ -258,11 +266,12 @@ function pageMain() {
   };
   window.__bench = { ready: false };
   (async () => {
-    const [{ Engine }, { fonts, BUNDLED_FACES }, { mergedDocument }, codec] = await Promise.all([
+    const [{ Engine }, { fonts, BUNDLED_FACES }, { mergedDocument }, codec, abi] = await Promise.all([
       import("@/engine/Engine.ts"),
       import("@/engine/fonts.ts"),
       import("@/store/documentSource.ts"),
       import("@/engine/codec.ts"),
+      import("@/engine/abi.ts"),
     ]);
     const params = new URLSearchParams(location.search);
     // Editor mode: the real editor (?editor) around the engine — panels, Layers, rulers, the canvas controller —
@@ -310,11 +319,17 @@ function pageMain() {
         const b = box();
         canvas.dispatchEvent(new WheelEvent("wheel", { clientX: b.left + px, clientY: b.top + py, deltaX: dx, deltaY: dy, deltaMode: 0, ctrlKey: !!pinch, bubbles: true, cancelable: true }));
       },
-      pointer(type, px, py, buttons) {
-        if (!editorMode) return engine.pointer(type, px, py, 0, buttons, 0, 0, 1, 0, performance.now());
+      // `mods`: the engine's modifier bits (abi MOD_*); editor mode turns them into the event's key flags.
+      pointer(type, px, py, buttons, mods = 0) {
+        if (!editorMode) return engine.pointer(type, px, py, 0, buttons, mods, 0, 1, 0, performance.now());
         const b = box();
         const name = ["pointerdown", "pointermove", "pointerup"][type];
-        canvas.dispatchEvent(new PointerEvent(name, { clientX: b.left + px, clientY: b.top + py, pointerId: 1, pointerType: "mouse", isPrimary: true, button: type === 1 ? -1 : 0, buttons, bubbles: true, cancelable: true }));
+        canvas.dispatchEvent(
+          new PointerEvent(name, {
+            clientX: b.left + px, clientY: b.top + py, pointerId: 1, pointerType: "mouse", isPrimary: true, button: type === 1 ? -1 : 0, buttons,
+            shiftKey: !!(mods & abi.MOD_SHIFT), altKey: !!(mods & abi.MOD_ALT), metaKey: !!(mods & (abi.MOD_META | abi.MOD_PRIMARY)), bubbles: true, cancelable: true,
+          })
+        );
       },
     };
     const gl = canvas.getContext("webgl2");
@@ -359,12 +374,19 @@ function pageMain() {
         synced = performance.now() - t0;
       }
       if (recording) {
-        const rec = { at: t0, cpu: t1 - t0 + tickMs, render: t1 - t0, synced, gpu: NaN };
+        const rec = { at: t0, cpu: t1 - t0 + tickMs, render: t1 - t0, synced, gpu: NaN, regions: NaN, draws: NaN };
+        if (perFrameStats) {
+          // What the frame drew: the content cache's regions (0 = composite only, 1 = one part or the whole page) and draws.
+          const s = engine.stats();
+          rec.regions = s.cachedRegions;
+          rec.draws = s.drawCalls;
+        }
         renders.push(rec);
         if (q) pendingQueries.push([q, rec]);
       }
       tickMs = 0;
     };
+    let perFrameStats = false;
     const collectQueries = async () => {
       for (let tries = 0; tries < 200 && pendingQueries.length; tries++) {
         while (pendingQueries.length) {
@@ -392,13 +414,18 @@ function pageMain() {
     } catch {
       // no long-task timing here
     }
+    // `opts.micro`: also time each input until after a microtask checkpoint — React flushes the panels' store updates
+    // (useSyncExternalStore) in a microtask right after the DOM event, so `inputMicro` − `input` is the panels' synchronous
+    // re-render work the input caused. `opts.frameStats`: the content cache's regions and draws per frame.
     async function scenario(name, steps, input, opts = {}) {
       await settleFrames(2);
       renders.length = 0;
       longTasks = [];
       const inputs = [];
+      const micros = [];
       const frames = [];
       syncEach = !!opts.sync;
+      perFrameStats = !!opts.frameStats;
       recording = true;
       const t0 = performance.now();
       let last = await nextFrame();
@@ -409,11 +436,16 @@ function pageMain() {
         const a = performance.now();
         input(i);
         inputs.push(performance.now() - a);
+        if (opts.micro) {
+          await null;
+          micros.push(performance.now() - a);
+        }
       }
       await settleFrames(3);
       const elapsed = performance.now() - t0;
       recording = false;
       syncEach = false;
+      perFrameStats = false;
       await collectQueries();
       const intervals = [];
       for (let i = 1; i < renders.length; i++) intervals.push(renders[i].at - renders[i - 1].at);
@@ -421,9 +453,324 @@ function pageMain() {
       return {
         name, steps, renders: renders.length, fps: (renders.length / elapsed) * 1000,
         cpu: stats(renders.map((r) => r.cpu)), gpu: stats(renders.map((r) => r.gpu)), synced: stats(renders.map((r) => r.synced)),
-        input: stats(inputs), interval: stats(intervals), frame: stats(frames), longTasks: { n: longTasks.length, total: longTasks.reduce((a, b) => a + b, 0), max: Math.max(0, ...longTasks) },
+        input: stats(inputs), inputMicro: opts.micro ? stats(micros) : null, interval: stats(intervals), frame: stats(frames),
+        longTasks: { n: longTasks.length, total: longTasks.reduce((a, b) => a + b, 0), max: Math.max(0, ...longTasks) },
+        regions: opts.frameStats ? stats(renders.map((r) => r.regions)) : null, draws: opts.frameStats ? stats(renders.map((r) => r.draws)) : null,
         last: { shapes: s.shapes, drawCalls: s.drawCalls, glyphs: s.glyphs, paths: s.paths, layers: s.layers },
       };
+    }
+
+    // ---- Instance scenarios (docs: what a drag or a click costs on instances, variants, nested instances) ----
+
+    // The world transform of a node (derived ones included): its parents' transforms composed, up to the page.
+    const mul = (a, b) => ({
+      m00: a.m00 * b.m00 + a.m01 * b.m10, m01: a.m00 * b.m01 + a.m01 * b.m11, m02: a.m00 * b.m02 + a.m01 * b.m12 + a.m02,
+      m10: a.m10 * b.m00 + a.m11 * b.m10, m11: a.m10 * b.m01 + a.m11 * b.m11, m12: a.m10 * b.m02 + a.m11 * b.m12 + a.m12,
+    });
+    const I = { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+    function worldOf(id) {
+      let m = I;
+      let n = engine.readNode(id);
+      const first = n;
+      for (let depth = 0; n && n.type !== "CANVAS" && n.type !== "DOCUMENT" && depth < 256; depth++) {
+        m = mul(n.transform ?? I, m);
+        n = n.parentIndex?.guid ? engine.readNode(n.parentIndex.guid) : null;
+      }
+      const w = first?.size?.x ?? 0, h = first?.size?.y ?? 0;
+      const c = { x: m.m00 * (w / 2) + m.m01 * (h / 2) + m.m02, y: m.m10 * (w / 2) + m.m11 * (h / 2) + m.m12 };
+      return { m, w, h, cx: c.x, cy: c.y };
+    }
+    // The camera that puts world point (x, y) at the canvas centre.
+    const centreOn = async (x, y, zoom = 1) => {
+      engine.setCamera({ x: W2 - x * zoom, y: H2 - y * zoom, zoom });
+      engine.pump();
+      await settleFrames(2);
+    };
+    const screenOf = (x, y) => {
+      const c = engine.getCamera();
+      return [x * c.zoom + c.x, y * c.zoom + c.y];
+    };
+    // The drawn subtree of a node, read through the engine (derived rows included), up to `max` nodes.
+    function subtree(id, max = 20000) {
+      const out = [];
+      let level = [id];
+      while (level.length && out.length < max) {
+        const next = [];
+        for (const n of engine.readNodes(level, { childIds: true })) {
+          out.push(n);
+          for (const c of n.childIds ?? []) next.push(c);
+        }
+        level = next;
+      }
+      return out;
+    }
+    const describe = (id) => {
+      const sub = subtree(id, 5000);
+      const effects = sub.filter((k) => (k.effects ?? []).some((e) => e.visible !== false)).length;
+      const texts = sub.filter((k) => k.type === "TEXT").length;
+      return { subtree: sub.length, effects, texts };
+    };
+    // Targets on `page`, chosen from the stored document: a plain shape, instances (free and in an auto-layout
+    // parent), variant instances of the largest component sets (free and in auto layout), a nested instance in one,
+    // and twenty instances. Only ids, types and counts are reported — never names or text.
+    function findTargets(page) {
+      const byId = this._byId;
+      const parentOf = (n) => (n?.parentIndex ? byId.get(n.parentIndex.guid) : undefined);
+      const pageOf = (id) => {
+        let cur = byId.get(id);
+        for (let i = 0; cur && i < 1000; i++) {
+          if (cur.type === "CANVAS") return cur.guid;
+          cur = parentOf(cur);
+        }
+        return null;
+      };
+      const isAuto = (p) => !!p && !!p.stackMode && p.stackMode !== "NONE";
+      const area = (n) => (n.size?.x ?? 0) * (n.size?.y ?? 0);
+      const children = new Map();
+      for (const n of byId.values()) {
+        const p = n.parentIndex?.guid;
+        if (!p) continue;
+        if (!children.has(p)) children.set(p, []);
+        children.get(p).push(n.guid);
+      }
+      const descCount = new Map();
+      const countDesc = (id) => {
+        if (descCount.has(id)) return descCount.get(id);
+        let n = 0;
+        for (const c of children.get(id) ?? []) n += 1 + countDesc(c);
+        descCount.set(id, n);
+        return n;
+      };
+      const onPage = [...byId.values()].filter((n) => n.visible !== false && n.locked !== true && pageOf(n.guid) === page);
+      const visibleChain = (n) => {
+        for (let cur = parentOf(n); cur && cur.type !== "CANVAS"; cur = parentOf(cur)) if (cur.visible === false) return false;
+        return true;
+      };
+      // Ancestors below the page: 1 = on the page itself, 2 = in a top-level frame. One click selects depth ≤ 2 (the
+      // engine picks a top-level frame's child, as Figma); deeper layers need the parents opened first.
+      const depth = (n) => {
+        let d = 0;
+        for (let cur = n; cur && cur.type !== "CANVAS"; cur = parentOf(cur)) d++;
+        return d;
+      };
+      const clickable = (n) => depth(n) <= 2 && !(depth(n) === 2 && parentOf(n)?.type === "INSTANCE");
+      const shapes = onPage
+        .filter((n) => ["RECTANGLE", "ROUNDED_RECTANGLE", "ELLIPSE"].includes(n.type) && !isAuto(parentOf(n)) && area(n) >= 400 && area(n) <= 400000 && visibleChain(n))
+        .sort((a, b) => Number(clickable(b)) - Number(clickable(a)) || area(b) - area(a));
+      const instances = onPage.filter((n) => n.type === "INSTANCE" && n.symbolData?.symbolID && byId.has(n.symbolData.symbolID) && visibleChain(n));
+      const setOf = (sym) => {
+        const p = parentOf(sym);
+        return p && p.isStateGroup ? p : null;
+      };
+      const info = (n) => {
+        const sym = byId.get(n.symbolData.symbolID);
+        const set = setOf(sym);
+        return { sym, set, variants: set ? (children.get(set.guid) ?? []).length : 0, mainSize: countDesc(sym.guid), auto: isAuto(parentOf(n)) };
+      };
+      const plain = instances.filter((n) => !info(n).set);
+      const variants = instances.filter((n) => info(n).set);
+      // One-click-selectable candidates first, then by the main's size (or the set's variants × size).
+      const bySize = (list) => [...list].sort((a, b) => Number(clickable(b)) - Number(clickable(a)) || info(b).mainSize - info(a).mainSize);
+      const byVariants = (list) =>
+        [...list].sort((a, b) => Number(clickable(b)) - Number(clickable(a)) || info(b).variants * (1 + info(b).mainSize) - info(a).variants * (1 + info(a).mainSize));
+      // Among the clickable ones, middle-of-the-pack sizes for the plain instances (the biggest is a whole screen).
+      const pickMid = (list) => {
+        const c = list.filter(clickable);
+        const pool = c.length >= 4 ? c : list;
+        return pool.length > 6 ? pool.slice(Math.floor(pool.length * 0.2), Math.floor(pool.length * 0.2) + 2) : pool.slice(0, 2);
+      };
+      const t = {
+        shape: shapes.slice(0, 2).map((n) => n.guid),
+        instanceFree: pickMid(bySize(plain.filter((n) => !info(n).auto))).map((n) => n.guid),
+        instanceAuto: pickMid(bySize(plain.filter((n) => info(n).auto))).map((n) => n.guid),
+        variantFree: byVariants(variants.filter((n) => !info(n).auto)).slice(0, 2).map((n) => n.guid),
+        variantAuto: byVariants(variants.filter((n) => info(n).auto)).slice(0, 2).map((n) => n.guid),
+        nested: [],
+        many: [],
+      };
+      // A nested instance inside the first variant instance (or the first instance): a derived INSTANCE row.
+      const host = t.variantFree[0] ?? t.variantAuto[0] ?? t.instanceFree[0] ?? t.instanceAuto[0];
+      if (host) {
+        const rows = subtree(host, 5000).slice(1).filter((n) => n.type === "INSTANCE" && n.guid.startsWith("I"));
+        rows.sort((a, b) => (b.childIds?.length ?? 0) - (a.childIds?.length ?? 0));
+        t.nested = rows.slice(0, 2).map((n) => n.guid);
+        t.nestedHost = host;
+      }
+      // Twenty instances: siblings of the first free instance where it has them, the rest by size.
+      const sib = t.instanceFree[0] ? instances.filter((n) => n.parentIndex?.guid === byId.get(t.instanceFree[0]).parentIndex?.guid) : [];
+      const many = [...sib];
+      for (const n of bySize(instances)) if (many.length < 20 && !many.includes(n)) many.push(n);
+      t.many = many.slice(0, 20).map((n) => n.guid);
+      const about = (id) => {
+        const n = byId.get(id) ?? engine.readNode(id);
+        if (!n) return null;
+        const p = parentOf(n) ?? (n.parentIndex ? engine.readNode(n.parentIndex.guid) : null);
+        const d = describe(id);
+        const base = { id, type: n.type, size: [Math.round(n.size?.x ?? 0), Math.round(n.size?.y ?? 0)], parentType: p?.type, parentAuto: isAuto(p), depth: byId.has(id) ? depth(n) : -1, ...d };
+        if (n.type === "INSTANCE" && n.symbolData?.symbolID && byId.has(n.symbolData.symbolID)) {
+          const i = info(n);
+          return { ...base, mainSize: i.mainSize, variants: i.variants };
+        }
+        return base;
+      };
+      const out = {};
+      for (const [k, v] of Object.entries(t)) out[k] = Array.isArray(v) ? v.map(about).filter(Boolean) : v;
+      out.page = { layers: onPage.length, instances: instances.length, instancesFree: instances.filter((n) => !info(n).auto).length, variantInstances: variants.length, clickableInstances: instances.filter(clickable).length };
+      return out;
+    }
+
+    // Figma's pick: a click selects a top-level frame's child; deeper layers need their parent selected first. So a
+    // target deeper than that is reached in two steps — its parent selected through the API, then the click.
+    const parentOfRef = (id) => engine.readNode(id)?.parentIndex?.guid ?? null;
+    const oneClick = (id) => {
+      const p = parentOfRef(id);
+      const pp = p ? parentOfRef(p) : null;
+      const pn = p ? engine.readNode(p) : null;
+      return !p || pn?.type === "CANVAS" || (pp && engine.readNode(pp)?.type === "CANVAS" && pn?.type !== "INSTANCE");
+    };
+
+    // Click-select. Targets a click reaches (on the page, or in a top-level frame): clicks alternate between A and B,
+    // both in view. Deeper targets (inside nested frames, as most instances are): the parent is selected through the
+    // API on the even steps and the click on A follows on the odd ones — every step is a selection change, and the
+    // odd steps select the target itself. `mods` is held on the clicks; what each click selected is counted.
+    async function clickScenario(name, ids, mods = 0) {
+      const a = worldOf(ids[0]);
+      const direct = oneClick(ids[0]) || mods !== 0;
+      const b = direct && ids[1] ? worldOf(ids[1]) : null;
+      let zoom = 1;
+      if (b) {
+        const dx = Math.abs(a.cx - b.cx) + (a.w + b.w) / 2, dy = Math.abs(a.cy - b.cy) + (a.h + b.h) / 2;
+        zoom = Math.min(1, 0.8 * Math.min(W / Math.max(dx, 1), H / Math.max(dy, 1)));
+      }
+      await centreOn(b ? (a.cx + b.cx) / 2 : a.cx, b ? (a.cy + b.cy) / 2 : a.cy, zoom);
+      engine.setSelection([]);
+      engine.pump();
+      await settleFrames(2);
+      const parent = direct ? null : parentOfRef(ids[0]);
+      const hits = { A: 0, B: 0, other: 0, none: 0, parent: 0 };
+      let selected = [];
+      const off = engine.on("SELECTION_CHANGED", (e) => (selected = e.refs));
+      const r = await scenario(
+        name, 20,
+        (i) => {
+          if (!direct) {
+            if (i % 2 === 0) {
+              engine.setSelection([parent]);
+              if (selected.includes(parent)) hits.parent++;
+              return;
+            }
+            const [px, py] = screenOf(a.cx, a.cy);
+            input.pointer(0, px, py, 1, mods);
+            input.pointer(2, px, py, 0, mods);
+            if (!selected.length) hits.none++;
+            else if (selected.includes(ids[0])) hits.A++;
+            else hits.other++;
+            return;
+          }
+          const t = i % 2 === 0 || !b ? a : b;
+          const [px, py] = screenOf(t.cx, t.cy);
+          if (i % 2 === 1 && !b) {
+            engine.setSelection([]);  // no second target: deselect through the API
+          } else {
+            input.pointer(0, px, py, 1, mods);
+            input.pointer(2, px, py, 0, mods);
+          }
+          const want = i % 2 === 0 || !b ? ids[0] : ids[1];
+          if (!selected.length) hits.none++;
+          else if (selected.includes(want)) hits[i % 2 === 0 || !b ? "A" : "B"]++;
+          else hits.other++;
+        },
+        { micro: true, frameStats: true }
+      );
+      off();
+      r.hits = hits;
+      r.direct = direct;
+      r.lastSelected = selected.slice(0, 3);
+      r.targets = ids;
+      engine.setSelection([]);
+      engine.pump();
+      return r;
+    }
+
+    // Drag: the pointer pressed on the first target (at 100%), moved 60 frames with `mods` held (⌥ duplicates),
+    // released; then undone. In the editor the whole chrome follows (the panels re-read, Layers).
+    // One target: its parent is selected first (nothing for a top-level one), so the press selects the target and
+    // drags it — the engine picks the child of the deepest selected ancestor, and a press on a child of an already
+    // selected layer selects that child instead (Figma keeps the selection on mouse-down and drills in on a click;
+    // here a selected instance covered by its children can't be dragged by the pointer at all — see the no-op rows).
+    // Several targets (or a derived one): they are selected and the first one pressed, as a user would.
+    async function dragScenario(name, ids, mods = 0) {
+      const t = worldOf(ids[0]);
+      await centreOn(t.cx, t.cy, 1);
+      const single = ids.length === 1 && !ids[0].startsWith("I");
+      const parent = single ? parentOfRef(ids[0]) : null;
+      const parentIsPage = parent ? engine.readNode(parent)?.type === "CANVAS" : true;
+      engine.setSelection(single ? (parentIsPage ? [] : [parent]) : ids);
+      engine.pump();
+      await settleFrames(3);
+      const counts = {};
+      const offAny = engine.onAny((e) => (counts[e.type] = (counts[e.type] ?? 0) + 1));
+      // A press point of its own: the centre, else near a corner or an edge, where nothing under the pointer is a
+      // child of it (the hit path then holds only it and its ancestors).
+      let [px, py] = [W2, H2];
+      let pressHit = null;
+      {
+        const chain = new Set([ids[0]]);
+        for (let p = parentOfRef(ids[0]); p; p = parentOfRef(p)) chain.add(p);
+        const hw = t.w / 2, hh = t.h / 2, in3 = 3;
+        const candidates = [[0, 0], [-hw + in3, -hh + in3], [hw - in3, -hh + in3], [-hw + in3, hh - in3], [hw - in3, hh - in3], [0, -hh + in3], [0, hh - in3], [-hw + in3, 0], [hw - in3, 0], [-hw + 12, -hh + 6], [hw - 12, hh - 6]];
+        for (const [dx, dy] of candidates) {
+          const x = W2 + dx, y = H2 + dy;
+          if (x < 2 || y < 2 || x > W - 2 || y > H - 2) continue;
+          const hit = engine.hitTest(x, y);
+          if (hit.includes(ids[0]) && hit.every((h) => chain.has(h))) {
+            [px, py] = [x, y];
+            pressHit = hit;
+            break;
+          }
+        }
+        pressHit ??= engine.hitTest(px, py);
+      }
+      let selected = null;
+      const off = engine.on("SELECTION_CHANGED", (e) => (selected = e.refs));
+      input.pointer(0, px, py, 1, mods);
+      const r = await scenario(name, 60, (i) => input.pointer(1, px + 3 * (i + 1), py + 20 * Math.sin(i / 5), 1, mods), { micro: true, frameStats: true });
+      input.pointer(2, px + 183, py, 0, mods);
+      engine.pump();
+      await settleFrames(2);
+      off();
+      offAny();
+      const movedId = selected?.[0] ?? ids[0];
+      const after = worldOf(movedId);
+      r.moved = selected ? selected.slice(0, 3) : ids.slice(0, 3);
+      r.movedTarget = movedId === ids[0] || (mods & abi.MOD_ALT ? true : false);
+      r.movedBy = [Math.round(after.m.m02 - t.m.m02), Math.round(after.m.m12 - t.m.m12)];
+      r.pressOffset = [Math.round(px - W2), Math.round(py - H2)];
+      r.pressHit = pressHit.length;
+      r.locked = engine.readNode(ids[0])?.locked === true;
+      r.events = counts;
+      r.targets = ids;
+      engine.undo();
+      engine.pump();
+      engine.setSelection([]);
+      engine.pump();
+      await settleFrames(2);
+      return r;
+    }
+
+    // The desktop's per-frame work the browser bench can't see otherwise: menuState(ed) runs every registry command's
+    // enabled() after each NODES_CHANGED (desktop.ts), then the menu patch goes to main over IPC.
+    async function menuStateScenario() {
+      if (!editorMode || !window.__designerEditor) return null;
+      const { menuState } = await import("@/editor/desktop.ts");
+      const ed = window.__designerEditor;
+      const times = [];
+      for (let i = 0; i < 20; i++) {
+        const a = performance.now();
+        menuState(ed);
+        times.push(performance.now() - a);
+      }
+      return { name: "menuState(ed) ×20 (desktop only)", ms: stats(times), commands: Object.keys(menuState(ed).enabled).length };
     }
 
     const W2 = W / 2, H2 = H / 2;
@@ -659,6 +1006,54 @@ function pageMain() {
         }
         return results;
       },
+      // The instance scenarios, one group per call (so Node can profile each): targets found once per page.
+      targets(page) {
+        this._targets ??= {};
+        return (this._targets[page] ??= findTargets.call(this, page));
+      },
+      async runOne(kind, page) {
+        const t = this.targets(page);
+        const ids = (k) => (t[k] ?? []).map((x) => x.id);
+        const out = [];
+        const sel = async (label, k, mods = 0) => {
+          const list = ids(k);
+          if (list.length) out.push(await clickScenario(`click ${label}`, list, mods));
+        };
+        const drag = async (label, list, mods = 0) => {
+          if (list.length) out.push(await dragScenario(`drag ${label}`, list, mods));
+        };
+        switch (kind) {
+          case "instSelect":
+            await sel("plain shape", "shape");
+            await sel("instance (free)", "instanceFree");
+            await sel("instance (auto layout)", "instanceAuto");
+            await sel("variant instance (free)", "variantFree");
+            await sel("variant instance (auto)", "variantAuto");
+            await sel("nested instance (⌘-click)", "nested", abi.MOD_PRIMARY);
+            break;
+          case "instDrag":
+            await drag("plain shape", ids("shape").slice(0, 1));
+            await drag("instance (free)", ids("instanceFree").slice(0, 1));
+            await drag("instance (auto layout)", ids("instanceAuto").slice(0, 1));
+            await drag("variant instance (free)", ids("variantFree").slice(0, 1));
+            await drag("variant instance (auto)", ids("variantAuto").slice(0, 1));
+            await drag("nested instance (selected)", ids("nested").slice(0, 1));
+            break;
+          case "altDrag":
+            await drag("⌥-drag instance (free)", ids("instanceFree").slice(0, 1), abi.MOD_ALT);
+            await drag("⌥-drag variant instance", (ids("variantFree").length ? ids("variantFree") : ids("variantAuto")).slice(0, 1), abi.MOD_ALT);
+            break;
+          case "multiDrag":
+            await drag(`${ids("many").length} instances`, ids("many"));
+            break;
+          case "menuState": {
+            const m = await menuStateScenario();
+            if (m) out.push(m);
+            break;
+          }
+        }
+        return out;
+      },
       heap,
       engine,
       stats: () => engine.stats(),
@@ -688,6 +1083,214 @@ function pageMain() {
     };
   })().catch((e) => {
     window.__bench = { ready: false, error: String(e?.stack ?? e) };
+  });
+}
+
+// ---- The open page: the real EditorApp mounted on the snapshot, every step marked -----------------------------------
+
+// Runs as an inline module in /__bench/open.html (editor server mode: `@/` and bare imports resolve). It mounts
+// EditorApp exactly as EditorRoute does (StrictMode unless ?strict=0) on a DocumentSource whose load() is the app's
+// own mergedDocument over the imported snapshot, images from the bench server, and records: modules loaded, snapshot
+// fetched, mergedDocument (per call — StrictMode calls it twice), Engine.create, engine.load (+ the JSON encode on its
+// own), onReady (the chrome's first commit), the chrome painted, Layers rows and the Design panel in the DOM, the
+// first canvas frame, fonts settled (+ the relayout frame), images settled (+ frame), the thumbnail written, long
+// tasks throughout.
+function openPageMain() {
+  const now = () => performance.now();
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const painted = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 0))));
+  const marks = { t0: now(), long: [] };
+  window.__open = { done: false, marks };
+  try {
+    new PerformanceObserver((l) => {
+      for (const e of l.getEntries()) marks.long.push({ at: Math.round(e.startTime), ms: Math.round(e.duration) });
+    }).observe({ type: "longtask", buffered: true });
+  } catch {
+    // no long-task timing
+  }
+  const mo = new MutationObserver(() => {
+    if (!marks.layersDom && document.querySelector('[data-ds="LayerRow"]')) marks.layersDom = now();
+    if (!marks.designDom && document.querySelector("[data-open-variables], [data-instance-header], [data-component-header]")) marks.designDom = now();
+  });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+  (async () => {
+    const params = new URLSearchParams(location.search);
+    const strict = params.get("strict") !== "0";
+    const pageGuid = params.get("page") || null;
+    const [{ Engine }, { fonts, BUNDLED_FACES }, { mergedDocument, prepareDocument }, codec, React, { createRoot }, { EditorApp }] = await Promise.all([
+      import("@/engine/Engine.ts"),
+      import("@/engine/fonts.ts"),
+      import("@/store/documentSource.ts"),
+      import("@/engine/codec.ts"),
+      import("react"),
+      import("react-dom/client"),
+      import("@/editor/EditorApp.tsx"),
+    ]);
+    // ?prepare=0: the editor's older path (source.load() on the main thread) instead of the source's worker.
+    const usePrepare = params.get("prepare") !== "0" && typeof prepareDocument === "function";
+    marks.modules = now();
+    const system = await (await fetch("/__bench/fonts.json")).json();
+    marks.fontIndex = now();
+    const bundled = new Map(BUNDLED_FACES.map((f) => [f.id, f]));
+    // Every font the editor or the engine asks for, and when (the ones after engine_load cause a relayout).
+    marks.fontRequests = [];
+    const req0 = fonts.request.bind(fonts);
+    fonts.request = (family, style) => {
+      marks.fontRequests.push({ at: Math.round(now() - marks.t0), family: String(family).slice(0, 24), style: String(style).slice(0, 16) });
+      return req0(family, style);
+    };
+    fonts.setSource({
+      async list() {
+        return [...BUNDLED_FACES, ...system.filter((f) => f.family.toLowerCase() !== "inter")];
+      },
+      async read(face) {
+        if (bundled.has(face.id)) {
+          const url = face.id === "bundled:inter" ? (await import("@/engine/fonts/InterVariable.ttf?url")).default : (await import("@/engine/fonts/InterVariable-Italic.ttf?url")).default;
+          return new Uint8Array(await (await fetch(url)).arrayBuffer());
+        }
+        return new Uint8Array(await (await fetch(`/__bench/font?id=${encodeURIComponent(face.id)}`)).arrayBuffer());
+      },
+    });
+    const snapshot = new Uint8Array(await (await fetch("/__bench/doc.bin")).arrayBuffer());
+    marks.fetched = now();
+    marks.snapshotBytes = snapshot.length;
+    let engine = null;
+    const origCreate = Engine.create;
+    Engine.create = async (...a) => {
+      const t = now();
+      const e = await origCreate.apply(Engine, a);
+      marks.engineCreateMs = (marks.engineCreateMs ?? 0) + (now() - t);
+      marks.engineCreated = now();
+      engine = e;
+      const x = e["x"];
+      const r0 = x.render;
+      let n = 0;
+      x.render = (hh) => {
+        const t1 = now();
+        r0(hh);
+        if (!n++) {
+          marks.firstRender = now();
+          marks.firstRenderMs = marks.firstRender - t1;
+        }
+      };
+      // engine_load itself (the worker path hands the bytes straight to it; Engine.load encodes first). The first
+      // canvas frame that counts is the first one after it (Engine.create draws an empty canvas before).
+      const l0 = x.load;
+      x.load = (hh, bytes) => {
+        const t1 = now();
+        const r = l0(hh, bytes);
+        marks.engineLoadRawMs = now() - t1;
+        marks.engineLoaded = now();
+        marks.jsonBytes ??= bytes.length;
+        n = 0;
+        delete marks.firstRender;
+        return r;
+      };
+      return e;
+    };
+    const origLoad = Engine.prototype.load;
+    Engine.prototype.load = function (m) {
+      const t = now();
+      const r = origLoad.call(this, m);
+      marks.engineLoadMs = now() - t;
+      marks.engineLoaded = now();
+      return r;
+    };
+    let loads = 0;
+    const source = {
+      fileName: "Bench",
+      location: "Drafts",
+      sessionID: 1,
+      async load() {
+        loads++;
+        const t = now();
+        const m = mergedDocument({ snapshot, journal: [], sessionID: 1 });
+        marks.mergedMs = (marks.mergedMs ?? 0) + (now() - t);
+        marks.loads = loads;
+        if (loads === 1) {
+          const t2 = now();
+          marks.jsonBytes = codec.encodeMessage(m).length;
+          marks.encodeMs = now() - t2;
+          marks.storedNodes = m.nodeChanges.length;
+        }
+        return m;
+      },
+      onChanges() {},
+      async flush() {},
+      ...(usePrepare
+        ? {
+            // The app's path: the store's source prepares the engine's bytes in its worker (memoized across StrictMode's two mounts).
+            prepare() {
+              if (this._prepared) return this._prepared;
+              const t = now();
+              marks.prepareStart = now();
+              const p = prepareDocument({ snapshot, journal: [], sessionID: 1 });
+              void p.fonts.then((known) => {
+                marks.fontsKnown = now();
+                marks.fontCount = (known.fonts ?? known).length + (known.needsFallbackFont ? 1 : 0);
+              });
+              void p.document.then((d) => {
+                marks.preparedMs = now() - t;
+                marks.prepared = now();
+                marks.jsonBytes = d.bytes.length;
+                marks.storedNodes = d.nodeCount;
+                marks.prepareTiming = d.timing;
+              });
+              this._prepared = p;
+              return p;
+            },
+          }
+        : {}),
+      images: {
+        async put() {
+          return "";
+        },
+        async get(hash) {
+          const r = await fetch(`/__bench/image?hash=${hash}`);
+          return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+        },
+      },
+      uiState: pageGuid ? { currentPageId: pageGuid, pages: {}, leftPanelWidth: 0, rightPanelWidth: 0 } : null,
+      setUiState() {},
+      async saveThumbnail(png) {
+        marks.thumbnail = now();
+        marks.thumbnailBytes = png.length;
+      },
+    };
+    const root = createRoot(document.getElementById("root"));
+    marks.mountStart = now();
+    const app = React.createElement(EditorApp, {
+      source,
+      onReady: (ed) => {
+        marks.ready ??= now();
+        window.__designerEditor = ed;
+      },
+    });
+    root.render(strict ? React.createElement(React.StrictMode, null, app) : app);
+    while (!marks.ready) await sleep(5);
+    await painted();
+    marks.chromePainted = now();
+    await fonts.settled();
+    marks.fonts = now();
+    engine.pump();  // the relayout the fonts caused runs on this call; its frame follows
+    await painted();
+    marks.fontsFrame = now();
+    await engine.imagesSettled();
+    await window.__designerEditor?.images?.settled?.();
+    marks.images = now();
+    engine.pump();
+    await painted();
+    marks.imagesFrame = now();
+    for (let i = 0; i < 70 && !marks.thumbnail; i++) await sleep(100);
+    marks.end = now();
+    marks.heap = engine["x"].module.HEAPU8.length;
+    marks.stats = engine.stats();
+    marks.pages = engine.pages().length;
+    marks.page = engine.getSelection().pageId;
+    window.__open.done = true;
+  })().catch((e) => {
+    window.__open.error = String(e?.stack ?? e);
+    window.__open.done = true;
   });
 }
 
@@ -726,6 +1329,12 @@ const server = await createServer({
           const url = new URL(req.url, "http://x");
           if (url.pathname === "/__bench/index.html") {
             const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#1e1e1e;overflow:hidden}canvas{display:block}</style></head><body><canvas id="engine-canvas"></canvas><script type="module" src="/__bench/page.js"></script></body></html>`;
+            res.setHeader("content-type", "text/html");
+            res.end(await s.transformIndexHtml(req.url, html));
+            return;
+          }
+          if (url.pathname === "/__bench/open.html") {
+            const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>DesignerV2</title></head><body><div id="root"></div><script type="module">(${openPageMain.toString()})();</script></body></html>`;
             res.setHeader("content-type", "text/html");
             res.end(await s.transformIndexHtml(req.url, html));
             return;
@@ -897,24 +1506,7 @@ page.on("console", (m) => {
   if ((m.type() === "error" || process.env.BENCH_LOG) && !/favicon|404/.test(m.text())) problems.push(m.text());
 });
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
-if (editor) {
-  await page.goto(`${base}?editor&doc=empty&bench=editor`);
-  await page.waitForFunction(() => window.__designerEditor && window.__designerEditor.canvas, null, { timeout: 60000 }).catch(async (e) => {
-    console.error(problems.join("\n"));
-    throw e;
-  });
-  await page.addScriptTag({ type: "module", url: "/__bench/page.js" });
-} else {
-  await page.goto(`${base}__bench/index.html?w=${cssW}&h=${cssH}`);
-}
-await page.waitForFunction(() => window.__bench && (window.__bench.ready || window.__bench.error), null, { timeout: 120000 });
-const bootError = await page.evaluate(() => window.__bench.error);
-if (bootError) {
-  console.error(bootError, problems.join("\n"));
-  process.exit(1);
-}
-report.gpu = await page.evaluate(() => window.__bench.gpuInfo);
-// CPU profiles (Chrome's sampling profiler): one over the load, one over the scenarios.
+// CPU profiles (Chrome's sampling profiler): one over the load, one per scenario group (or the open).
 let cdp = null;
 if (profileOut) {
   cdp = await page.context().newCDPSession(page);
@@ -964,6 +1556,73 @@ const pageChoice = (pages) => {
   }
   return [...pages].sort((a, b) => b.layers - a.layers)[0]?.guid ?? null;
 };
+
+if (openMode) {
+  // The open path. The page to open: --page, else the one with the most stored layers (decoded here).
+  let openPage = null;
+  {
+    const { decodeMessage } = await server.ssrLoadModule(path.join(repo, "src/shared/schema/codec.ts"));
+    const t = performance.now();
+    const msg = decodeMessage(doc.message);
+    report.nodeDecodeMs = performance.now() - t;
+    const key = (g) => `${g.sessionID}:${g.localID}`;
+    const byId = new Map();
+    for (const n of msg.nodeChanges) if (n.guid) byId.set(key(n.guid), n);
+    const pageOf = (n) => {
+      let cur = n;
+      for (let i = 0; cur && i < 1000; i++) {
+        if (cur.type === "CANVAS") return cur.internalOnly ? null : key(cur.guid);
+        cur = cur.parentIndex ? byId.get(key(cur.parentIndex.guid)) : null;
+      }
+      return null;
+    };
+    const counts = new Map();
+    const names = new Map();
+    for (const n of byId.values()) {
+      if (n.type === "CANVAS" && !n.internalOnly) names.set(key(n.guid), n.name ?? "");
+      const p = pageOf(n);
+      if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
+    const pages = [...names.keys()].map((guid) => ({ guid, name: names.get(guid), layers: (counts.get(guid) ?? 1) - 1 }));
+    report.load = { pages, storedNodes: msg.nodeChanges.length };
+    openPage = pageChoice(pages);
+    report.page = pages.find((p) => p.guid === openPage) ?? null;
+  }
+  await profiled("open", async () => {
+    await page.goto(`${base}__bench/open.html?strict=${noStrict ? 0 : 1}&prepare=${flag("--no-prepare") ? 0 : 1}&page=${encodeURIComponent(openPage ?? "")}`);
+    await page.waitForFunction(() => window.__open && window.__open.done, null, { timeout: 150000 });
+  });
+  const open = await page.evaluate(() => window.__open);
+  if (open.error) {
+    console.error(open.error, problems.join("\n"));
+    process.exit(1);
+  }
+  report.open = open.marks;
+  // The dev server's module requests (the app loads this way under `npm run dev`): count and span.
+  report.open.resources = await page.evaluate(() =>
+    performance.getEntriesByType("resource").map((e) => ({ name: e.name.replace(location.origin, ""), start: Math.round(e.startTime), dur: Math.round(e.duration), bytes: e.transferSize }))
+  );
+  report.gpuSteps = { end: gpuFootprintMB(browserPid) };
+  report.totalMs = performance.now() - t0;
+  report.problems = problems.slice(0, 20);
+} else {
+if (editor) {
+  await page.goto(`${base}?editor&doc=empty&bench=editor`);
+  await page.waitForFunction(() => window.__designerEditor && window.__designerEditor.canvas, null, { timeout: 60000 }).catch(async (e) => {
+    console.error(problems.join("\n"));
+    throw e;
+  });
+  await page.addScriptTag({ type: "module", url: "/__bench/page.js" });
+} else {
+  await page.goto(`${base}__bench/index.html?w=${cssW}&h=${cssH}`);
+}
+await page.waitForFunction(() => window.__bench && (window.__bench.ready || window.__bench.error), null, { timeout: 120000 });
+const bootError = await page.evaluate(() => window.__bench.error);
+if (bootError) {
+  console.error(bootError, problems.join("\n"));
+  process.exit(1);
+}
+report.gpu = await page.evaluate(() => window.__bench.gpuInfo);
 let pageGuid = null;
 report.gpuSteps = { start: gpuFootprintMB(browserPid) };
 await profiled("load", async () => {
@@ -975,7 +1634,19 @@ await profiled("load", async () => {
 });
 report.page = report.load.pages.find((p) => p.guid === pageGuid) ?? null;
 report.dense = await page.evaluate((p) => window.__bench.denseTarget(p), pageGuid);
-report.scenarios = await profiled("frames", () => page.evaluate(({ names, p }) => window.__bench.run(names, p), { names: only, p: pageGuid }));
+// The instance scenario groups run one at a time from here (each gets its own CPU profile); the rest as before.
+const GROUPS = ["instSelect", "instDrag", "altDrag", "multiDrag", "menuState"];
+const groups = only.filter((n) => GROUPS.includes(n));
+const legacy = only.filter((n) => !GROUPS.includes(n));
+report.scenarios = [];
+if (!only.length || legacy.length) report.scenarios = await profiled("frames", () => page.evaluate(({ names, p }) => window.__bench.run(names, p), { names: legacy, p: pageGuid }));
+if (groups.length) {
+  report.targets = await page.evaluate((p) => window.__bench.targets(p), pageGuid);
+  for (const g of groups) {
+    const out = await profiled(g, () => page.evaluate(({ g, p }) => window.__bench.runOne(g, p), { g, p: pageGuid }));
+    report.scenarios.push(...out);
+  }
+}
 if (inspect) {
   const out = await page.evaluate((code) => new Function("engine", `return (async () => { ${code} })()`)(window.__bench.engine), inspect);
   console.log(JSON.stringify(out, null, 1));
@@ -1001,6 +1672,7 @@ report.heapEnd = await page.evaluate(() => window.__bench.heap());
 report.gpuEnd = await page.evaluate(() => window.__bench.stats());
 report.totalMs = performance.now() - t0;
 report.problems = problems.slice(0, 20);
+}
 } finally {
   clearInterval(gpuWatch);
   if (engineWatch) clearInterval(engineWatch);
@@ -1015,6 +1687,62 @@ report.engineGpuPeakMB = engineGpuPeak / 1048576;
 const f1 = (v) => (v === undefined || v === null || Number.isNaN(v) ? "—" : v >= 100 ? v.toFixed(0) : v.toFixed(1));
 const mb = (b) => `${(b / 1048576).toFixed(1)} MB`;
 const L = report.load;
+if (openMode) {
+  // The open path, step by step, as the editor's own code ran it.
+  const m = report.open;
+  const rel = (k) => (m[k] === undefined ? null : m[k] - m.t0);
+  const at = (k) => (rel(k) === null ? "—" : `${rel(k).toFixed(0)} ms`);
+  console.log(`\nengine-bench --open — ${report.file}  (${noStrict ? "no StrictMode" : "StrictMode, as main.tsx"}; wasm ${report.wasm})`);
+  console.log(`viewport ${cssW}×${cssH} CSS @${dpr}x · page "${report.page?.name}" (${report.page?.layers} stored layers) · ${L.storedNodes} stored nodes, ${m.pages} pages`);
+  if (report.importMs !== undefined) console.log(`  .fig import (store, Node)            ${f1(report.importMs)} ms   (${mb(report.figBytes)} → ${mb(report.snapshotBytes)} snapshot; once, at import)`);
+  console.log(`\nOpen (time since the page started; the dev server serves modules as npm run dev does)`);
+  console.log(`  modules loaded (editor code)          ${at("modules")}   (${report.open.resources.filter((r) => /\.(tsx?|mjs|js)(\?|$)/.test(r.name)).length} script requests)`);
+  console.log(`  system font index fetched             ${at("fontIndex")}`);
+  console.log(`  snapshot fetched                      ${at("fetched")}   (${mb(m.snapshotBytes)})`);
+  console.log(`  mount started                         ${at("mountStart")}`);
+  if (m.preparedMs !== undefined) {
+    const pt = m.prepareTiming ?? {};
+    console.log(`  source.prepare() in the load worker   ${f1(m.preparedMs)} ms wall → at ${at("prepared")}   (worker: table ${f1(pt.table)} + engine form ${f1(pt.convert)} + bytes ${f1(pt.encode)} ms; ${m.storedNodes} nodes, ${mb(m.jsonBytes)}; fonts known at ${at("fontsKnown")}, ${m.fontCount} faces)`);
+  } else {
+    console.log(`  source.load() = mergedDocument        ${f1(m.mergedMs)} ms total over ${m.loads} call(s)${m.loads > 1 ? " (StrictMode: the first result is thrown away)" : ""}; ${m.storedNodes} nodes`);
+    console.log(`  engine JSON encode (measured apart)   ${f1(m.encodeMs)} ms   (${mb(m.jsonBytes)})`);
+  }
+  console.log(`  Engine.create (wasm + GL)             ${f1(m.engineCreateMs)} ms → at ${at("engineCreated")}`);
+  if (m.engineLoadMs !== undefined) console.log(`  engine.load (encode + engine_load)    ${f1(m.engineLoadMs)} ms → at ${at("engineLoaded")}   (engine_load alone ≈ ${f1(m.engineLoadRawMs ?? m.engineLoadMs - m.encodeMs)} ms)`);
+  else console.log(`  engine_load (the prepared bytes)      ${f1(m.engineLoadRawMs)} ms → at ${at("engineLoaded")}`);
+  console.log(`  onReady (chrome committed)            ${at("ready")}`);
+  console.log(`  chrome painted                        ${at("chromePainted")}`);
+  console.log(`  Layers rows in the DOM                ${at("layersDom")}`);
+  console.log(`  Design panel in the DOM               ${at("designDom")}`);
+  console.log(`  first canvas frame                    ${at("firstRender")}   (${f1(m.firstRenderMs)} ms CPU)`);
+  console.log(`  fonts settled                         ${at("fonts")}; relayout frame painted ${at("fontsFrame")}`);
+  console.log(`  images settled                        ${at("images")}; frame painted ${at("imagesFrame")}`);
+  console.log(`  thumbnail written                     ${at("thumbnail")}${m.thumbnailBytes ? ` (${mb(m.thumbnailBytes)})` : " (none within 7 s)"}`);
+  console.log(`  wasm memory                           ${mb(m.heap)}`);
+  if (m.fontRequests?.length) {
+    const loadedAt = rel("engineLoaded") ?? Infinity;
+    const after = m.fontRequests.filter((r) => r.at > loadedAt);
+    console.log(`  font requests                         ${m.fontRequests.length} (${m.fontRequests.length - after.length} before engine_load, ${after.length} after${after.length ? `: ${after.map((r) => `${r.family} ${r.style} @${r.at}`).join(", ")}` : ""})`);
+  }
+  const long = m.long.filter((l) => l.ms >= 50);
+  console.log(`\nLong tasks (≥ 50 ms, main thread blocked): ${long.length}, total ${long.reduce((a, l) => a + l.ms, 0)} ms`);
+  for (const l of long) console.log(`  at ${String(l.at).padStart(6)} ms  ${String(l.ms).padStart(5)} ms`);
+  const res = report.open.resources;
+  const scripts = res.filter((r) => /\.(tsx?|mjs|js)(\?|$)/.test(r.name));
+  const fontsRes = res.filter((r) => r.name.includes("/__bench/font?"));
+  const imgRes = res.filter((r) => r.name.includes("/__bench/image?"));
+  const span = (list) => (list.length ? `${Math.min(...list.map((r) => r.start)).toFixed(0)}–${Math.max(...list.map((r) => r.start + r.dur)).toFixed(0)} ms` : "—");
+  console.log(`\nRequests: ${scripts.length} scripts (${span(scripts)}), ${fontsRes.length} font files (${span(fontsRes)}, ${mb(fontsRes.reduce((a, r) => a + (r.bytes || 0), 0))}), ${imgRes.length} images (${span(imgRes)})`);
+  for (const [name, prof] of Object.entries(report.profiles)) {
+    console.log(`\nCPU profile: ${name} (${prof.totalMs} ms sampled) — self time`);
+    for (const r of prof.self.slice(0, 30)) console.log(`  ${String(r.ms).padStart(6)} ms ${String(r.pct).padStart(5)}%  ${r.fn}`);
+    console.log(`inclusive`);
+    for (const r of prof.inclusive.slice(0, 40)) console.log(`  ${String(r.ms).padStart(6)} ms ${String(r.pct).padStart(5)}%  ${r.fn}`);
+  }
+  if (problems.length) console.log(`\nconsole errors:\n  ${problems.slice(0, 10).join("\n  ")}`);
+  if (jsonOut) writeFileSync(jsonOut, JSON.stringify(report, null, 1));
+  process.exit(0);
+}
 console.log(`\nengine-bench — ${report.file}  (${report.gpu.renderer}; timer query ${report.gpu.timerQuery ? "yes" : "no"})`);
 console.log(`viewport ${cssW}×${cssH} CSS @${dpr}x · wasm ${report.wasm}`);
 console.log(`\nDocument: ${L.storedNodes} stored nodes, ${report.first.engineNodes} in the engine (instance sublayers included); ${report.images} images (${mb(report.imageBytes)}), ${L.imageRefs} referenced; ${L.pages.length} pages`);
@@ -1035,10 +1763,40 @@ console.log(`\nFrames (ms; frame = animation-frame interval while it ran, CPU = 
 console.log(`        input = the input's own handling (editor mode: the DOM event and everything it ran), long = long tasks)`);
 console.log(`  ${"scenario".padEnd(40)} ${"frame med".padStart(9)} ${"p95".padStart(6)}  ${"CPU med".padStart(7)} ${"p95".padStart(6)}  ${"GPU med".padStart(7)} ${"p95".padStart(6)}  ${"input med".padStart(9)} ${"p95".padStart(6)}  ${"long".padStart(5)}  draws`);
 for (const s of report.scenarios) {
+  if (!s.frame) continue;
   const sy = s.synced ? ` (synced ${f1(s.synced.median)})` : "";
   console.log(
     `  ${s.name.padEnd(40)} ${f1(s.frame?.median).padStart(9)} ${f1(s.frame?.p95).padStart(6)}  ${f1(s.cpu?.median).padStart(7)} ${f1(s.cpu?.p95).padStart(6)}  ${f1(s.gpu?.median).padStart(7)} ${f1(s.gpu?.p95).padStart(6)}  ${f1(s.input?.median).padStart(9)} ${f1(s.input?.p95).padStart(6)}  ${f1(s.longTasks?.total).padStart(5)}  ${s.last.drawCalls} calls, ${s.last.shapes} inst, ${s.last.layers} layers${sy}`
   );
+}
+const inst = report.scenarios.filter((s) => s.inputMicro);
+if (inst.length) {
+  console.log(`\nInstance scenarios (input+micro = the input and the panels' synchronous re-render after it; regions = content-cache parts drawn per frame,`);
+  console.log(`        0 composite only, 1 whole or one part; hits = what the clicks selected; moved = the drag's selection and its offset)`);
+  console.log(`  ${"scenario".padEnd(34)} ${"frame med".padStart(9)} ${"p95".padStart(6)}  ${"CPU med".padStart(7)} ${"p95".padStart(6)}  ${"GPU med".padStart(7)}  ${"input med".padStart(9)} ${"p95".padStart(6)}  ${"+micro".padStart(7)} ${"p95".padStart(6)}  ${"long".padStart(5)}  ${"regions".padStart(7)}  ${"draws".padStart(5)}  notes`);
+  for (const s of inst) {
+    const notes = s.hits
+      ? s.direct
+        ? `1-click: hits A ${s.hits.A} B ${s.hits.B} other ${s.hits.other} none ${s.hits.none}`
+        : `parent then click: parent ${s.hits.parent} target ${s.hits.A} other ${s.hits.other}`
+      : s.moved !== undefined
+        ? `${s.movedTarget ? "target" : "a CHILD"} moved by ${s.movedBy ? s.movedBy.join(",") : "—"} (${s.pressHit} under the press${s.locked ? ", locked" : ""}); events ${Object.entries(s.events ?? {}).map(([k, v]) => `${k.replace("_CHANGED", "")}:${v}`).join(" ")}`
+        : "";
+    console.log(
+      `  ${s.name.padEnd(34)} ${f1(s.frame?.median).padStart(9)} ${f1(s.frame?.p95).padStart(6)}  ${f1(s.cpu?.median).padStart(7)} ${f1(s.cpu?.p95).padStart(6)}  ${f1(s.gpu?.median).padStart(7)}  ${f1(s.input?.median).padStart(9)} ${f1(s.input?.p95).padStart(6)}  ${f1(s.inputMicro?.median).padStart(7)} ${f1(s.inputMicro?.p95).padStart(6)}  ${f1(s.longTasks?.total).padStart(5)}  ${`${f1(s.regions?.median)}/${f1(s.regions?.max)}`.padStart(7)}  ${f1(s.draws?.median).padStart(5)}  ${notes}`
+    );
+  }
+}
+for (const s of report.scenarios) if (s.ms) console.log(`\n${s.name}: median ${f1(s.ms.median)} ms, p95 ${f1(s.ms.p95)} ms (${s.commands} commands)`);
+if (report.targets) {
+  const pg = report.targets.page;
+  if (pg) console.log(`\nPage: ${pg.layers} visible stored layers, ${pg.instances} instances (${pg.instancesFree} in free parents, ${pg.variantInstances} of component sets, ${pg.clickableInstances} reachable by one click)`);
+  console.log(`Targets (ids and counts only): subtree = drawn nodes under it, effects = nodes with visible effects, texts = TEXT nodes; mainSize = the main's stored subtree, variants = the set's`);
+  for (const [k, list] of Object.entries(report.targets)) {
+    if (!Array.isArray(list)) continue;
+    for (const t of list)
+      console.log(`  ${k.padEnd(13)} ${t.id.padEnd(12)} ${t.type.padEnd(18)} ${`${t.size[0]}×${t.size[1]}`.padEnd(10)} in ${String(t.parentType).padEnd(9)}${t.parentAuto ? " auto " : " free "} depth ${String(t.depth).padStart(2)} subtree ${String(t.subtree).padStart(5)} effects ${String(t.effects).padStart(3)} texts ${String(t.texts).padStart(4)}${t.mainSize !== undefined ? ` mainSize ${t.mainSize} variants ${t.variants}` : ""}`);
+  }
 }
 for (const [name, prof] of Object.entries(report.profiles)) {
   console.log(`\nCPU profile: ${name} (${prof.totalMs} ms sampled) — self time`);

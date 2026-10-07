@@ -110,12 +110,19 @@ export function componentSelection(ed: EditorController, nodes: readonly PanelNo
 /** The instance's header row: ◇, the main's name ▾ (the instance menu), Go to main component, ⋯. */
 export function InstanceHeader({ instance }: { instance: CNode }) {
   const ed = useEditor();
-  useDocVersion();
-  useTopics(ed.store, ["selection", "undo"]);
+  const version = useDocVersion();
+  const topics = useTopics(ed.store, ["selection", "undo"]);
   const main = mainOf(ed, instance);
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const goTo = command("object.go-to-main-component");
-  const more: MenuEntry[] = [commandItem(ed, "object.go-to-main-component"), commandItem(ed, "object.push-changes"), "-", ...(resetSubmenu(ed) ? [resetSubmenu(ed)!] : []), commandItem(ed, "object.detach-instance")];
+  // The ⋯ menu's entries change with the document and the selection, not with every re-render of the panel (a drag
+  // re-renders it per frame): built once per change, each item's state from the shared component read.
+  const more = useMemo<MenuEntry[]>(() => {
+    void version;
+    void topics;
+    const reset = resetSubmenu(ed);
+    return [commandItem(ed, "object.go-to-main-component"), commandItem(ed, "object.push-changes"), "-", ...(reset ? [reset] : []), commandItem(ed, "object.detach-instance")];
+  }, [ed, version, topics]);
   const name = main ? main.name ?? "" : "Missing component";
   return (
     <div className={styles.header} data-instance-header="">

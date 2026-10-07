@@ -1491,6 +1491,13 @@ void writeNode(json::Writer& w, const Node& node, BlobsOut* blobs) {
   w.endObject();
 }
 
+void writeNode(json::Writer& w, const Node& node, FieldMask mask, BlobsOut* blobs) {
+  w.beginObject();
+  w.key("guid").string(node.guid.toString());
+  writeFields(w, node.props, mask | F_TYPE, false, blobs);
+  w.endObject();
+}
+
 namespace {
 void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, const BlobsIn* blobs) {
   if (auto* x = v.get("type"); x && x->isString()) { p.type = nodeTypeFromName(x->string); m |= F_TYPE; }

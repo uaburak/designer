@@ -22,6 +22,8 @@ import {
   INCLUDE_REMOTE,
   KeyType,
   PASTE_IN_PLACE,
+  READ_SUBTREE,
+  READ_VISIBLE_ONLY,
   Status,
   TEXT_EDIT_SELECT_ALL,
   TICK_NEEDS_RENDER,
@@ -59,6 +61,7 @@ import {
   type EngineEventType,
   type EventOf,
   type Guid,
+  type LayerChanges,
   type LibraryAssetUsage,
   type LibraryImportOptions,
   type LibraryImportResult,
@@ -370,13 +373,22 @@ export class Engine {
     return this.after(this.x.setSelection(this.h, encodeRefs(refs)));
   }
 
-  /** The nodes with every field the engine keeps; `childIds` adds their children (back to front). */
-  readNodes(refs: readonly Guid[], options: { childIds?: boolean } = {}): NodeChange[] {
-    this.x.readNodes(this.h, encodeRefs(refs), options.childIds ? INCLUDE_CHILD_IDS : 0);
+  /**
+   * The nodes with every field the engine keeps, or only `fields` (schema keys: "fillPaints", "strokePaints",
+   * "visible", "name", …; guid and type always); `childIds` adds their children (back to front); `subtree` follows
+   * each ref with its descendants, pre-order, children back to front (paint order), each node once; `visibleOnly`
+   * (with `subtree`) leaves hidden layers and what is under them out — the refs themselves are always written.
+   * Selection colors: `readNodes(selection, {fields: ["fillPaints", "strokePaints", "visible"], subtree: true,
+   * visibleOnly: true})` is one read of just the paints under the selection.
+   */
+  readNodes(refs: readonly Guid[], options: { childIds?: boolean; fields?: readonly string[]; subtree?: boolean; visibleOnly?: boolean } = {}): NodeChange[] {
+    const flags = (options.childIds ? INCLUDE_CHILD_IDS : 0) | (options.subtree ? READ_SUBTREE : 0) | (options.visibleOnly ? READ_VISIBLE_ONLY : 0);
+    const payload = options.fields ? encodeText(JSON.stringify({ refs, fields: options.fields })) : encodeRefs(refs);
+    this.x.readNodes(this.h, payload, flags);
     return this.after(decodeMessage(this.x.result()).nodeChanges);
   }
 
-  readNode(ref: Guid, options: { childIds?: boolean } = {}): NodeChange | null {
+  readNode(ref: Guid, options: { childIds?: boolean; fields?: readonly string[] } = {}): NodeChange | null {
     return this.readNodes([ref], options)[0] ?? null;
   }
 
@@ -384,13 +396,32 @@ export class Engine {
    * The Layers panel's tree of `page` in one read: the page and every layer under it (hidden ones and instance
    * sublayers included), parents before children, each with only what a row shows — guid, parentIndex.guid, type,
    * name, visible, locked, childIds, and resizeToFit / stackMode / stackWrap / booleanOperation / isStateGroup when
-   * set. Empty when the page doesn't exist.
+   * set. Empty when the page doesn't exist. Derives the page first (its instances' sublayers are rows).
    */
   layerTree(page: Guid): NodeChange[] {
+    return this.layerTreeVersioned(page).nodes;
+  }
+
+  /** `layerTree` with the document version the read is of (what `layerChanges` takes); version 0 when the page doesn't exist. */
+  layerTreeVersioned(page: Guid): { version: number; nodes: NodeChange[] } {
     const [s, l] = this.ids(page);
     const status = this.x.layerTree(this.h, s, l);
-    if (status !== Status.OK) return this.after([]);
-    return this.after((JSON.parse(decodeText(this.x.result())) as { nodes: NodeChange[] }).nodes);
+    if (status !== Status.OK) return this.after({ version: 0, nodes: [] });
+    return this.after(JSON.parse(decodeText(this.x.result())) as { version: number; nodes: NodeChange[] });
+  }
+
+  /**
+   * The Layers rows of `page` changed since document version `since` (from `layerTreeVersioned` or the previous call):
+   * the row of every node whose row data or place changed, plus the rows — with their complete, current childIds — of
+   * its current and previous parents; `removed`: ids no longer in the document. `full: true` with the whole tree when
+   * a delta can't be given (`since` too old or ahead, or more than 4096 rows changed). A reparented layer's subtree
+   * rows don't repeat; a created layer's whole subtree does.
+   */
+  layerChanges(page: Guid, since: number): LayerChanges {
+    const [s, l] = this.ids(page);
+    const status = this.x.layerChanges(this.h, s, l, since);
+    if (status !== Status.OK) return this.after({ version: 0, full: true, nodes: [], removed: [] });
+    return this.after(JSON.parse(decodeText(this.x.result())) as LayerChanges);
   }
 
   /** What is under (x, y), innermost first (for "Select layer" in the context menu). */

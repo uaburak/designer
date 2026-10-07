@@ -17,14 +17,16 @@
  * `openVersion` (a read-only document), `restoreVersion` (the restore diff handed to the editor to apply as one
  * undoable "Restore version" edit, journaled as `restore`, then a "restore" history entry), `duplicateVersion`.
  */
-import type { DocumentSource, LibraryAccess } from "@/editor/documentSource";
+import type { DocumentSource, LibraryAccess, PreparedLoad } from "@/editor/documentSource";
 import type { Message as EngineMessage } from "@/engine/codec";
 import { decodeMessage, encodeMessage } from "../../../shared/schema/codec";
-import { messageImageHashes, NodeTable } from "../../../shared/schema/patch";
+import { messageImageHashes } from "../../../shared/schema/patch";
 import type { FileChange, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../../../shared/store/repositories";
 import type { BatchKind, ChangeBatch, FileKey, FileMeta, FileUiState, Folder, FolderId, VersionId, VersionRecord } from "../../../shared/store/types";
 import { messageToEngine, messageToKiwi } from "./engineMessage";
 import { storeLibraryAccess } from "./libraryAccess";
+import { engineDocumentFromTable, prepareEngineDocument, tableOf, type FontRef, type OpenedDocument, type PreparedDocument } from "./loadDocument";
+import type { LoadWorkerReply, LoadWorkerRequest } from "./loadWorker";
 
 /** The engine's transaction kinds (DOCUMENT_CHANGED's `kind`, engine.md §9.2). */
 export type EngineChangeKind = "USER" | "UNDO" | "REDO" | "SYSTEM";
@@ -53,6 +55,8 @@ export interface StoreDocumentSourceOptions {
   tabId?: string;
   /** Record the file in Recents on open (default true; Figma does it when the tab activates) */
   recordViewed?: boolean;
+  /** Start preparing the engine's bytes in the load worker as soon as the file is open (default true) */
+  prepareEagerly?: boolean;
   /** Problems no caller awaits (an append the store refused, a failed UI-state write) */
   onError?: (e: unknown) => void;
   /** `setUiState` debounce (docs/data.md §5.7: 2 s) */
@@ -126,10 +130,107 @@ function batchKind(info: ChangeInfo | undefined, restoring: boolean): BatchKind 
 }
 
 /** The opened file's snapshot with its journal applied: one snapshot Message, DOCUMENT first, parents before children. */
-export function mergedDocument(opened: Pick<OpenedFile, "snapshot" | "journal" | "sessionID">): EngineMessage {
-  const table = NodeTable.fromMessage(decodeMessage(opened.snapshot));
-  for (const frame of opened.journal) table.apply(decodeMessage(frame.message));
-  return messageToEngine(table.toMessage({ sessionID: 0 }));
+export function mergedDocument(opened: OpenedDocument): EngineMessage {
+  return engineDocumentFromTable(tableOf(opened), 0);
+}
+
+// ---- The load worker -----------------------------------------------------------------------------------------------
+
+let worker: Worker | null = null;
+let workerFailed = false;
+let nextLoadId = 1;
+/** A worker that hasn't even decoded the file in this long is taken as stuck: the work moves to this thread. */
+const WORKER_FIRST_REPLY_MS = 30000;
+type FontsKnown = { fonts: FontRef[]; needsFallbackFont: boolean };
+const loads = new Map<number, { onFonts: (f: FontsKnown) => void; resolve: (d: PreparedDocument) => void; reject: (e: Error) => void }>();
+
+/** The process's load worker (one per renderer; a tab is a process), or null where workers can't run (tests) or it failed. */
+function loadWorker(): Worker | null {
+  if (worker || workerFailed) return worker;
+  if (typeof Worker === "undefined") return null;
+  try {
+    worker = new Worker(new URL("./loadWorker.ts", import.meta.url), { type: "module" });
+  } catch {
+    workerFailed = true;
+    return null;
+  }
+  worker.onmessage = (e: MessageEvent<LoadWorkerReply>) => {
+    const r = e.data;
+    const load = loads.get(r.id);
+    if (!load) return;
+    if (r.type === "fonts") load.onFonts({ fonts: r.fonts, needsFallbackFont: r.needsFallbackFont });
+    else {
+      loads.delete(r.id);
+      if (r.type === "done") load.resolve(r.document);
+      else load.reject(new Error(r.error));
+    }
+  };
+  // The worker is gone (its module failed to load, it crashed): every pending load falls back to the main thread.
+  const fail = () => {
+    workerFailed = true;
+    worker?.terminate();
+    worker = null;
+    for (const [id, load] of [...loads]) {
+      loads.delete(id);
+      load.reject(new Error("load worker failed"));
+    }
+  };
+  worker.onerror = fail;
+  worker.onmessageerror = fail;
+  return worker;
+}
+
+/**
+ * Prepares an opened file for the engine: in the load worker when there is one (the fonts reported as soon as the
+ * file is decoded, the bytes transferred back), else inline on this thread.
+ */
+export function prepareDocument(opened: OpenedDocument): PreparedLoad {
+  let fontsResolve: (f: FontsKnown) => void = () => {};
+  const fonts = new Promise<FontsKnown>((resolve) => (fontsResolve = resolve));
+  const inline = (): PreparedDocument => prepareEngineDocument(opened, (list, needsFallbackFont) => fontsResolve({ fonts: list, needsFallbackFont }));
+  const known = (d: PreparedDocument) => fontsResolve({ fonts: d.fonts, needsFallbackFont: d.needsFallbackFont });
+  const w = loadWorker();
+  if (!w) {
+    const document = Promise.resolve().then(inline);
+    void document.then(known);
+    return { fonts, document };
+  }
+  const id = nextLoadId++;
+  const document = new Promise<PreparedDocument>((resolve, reject) => {
+    const watchdog = setTimeout(() => {
+      if (!loads.has(id)) return;
+      loads.delete(id);
+      reject(new Error("load worker did not answer"));
+    }, WORKER_FIRST_REPLY_MS);
+    loads.set(id, {
+      onFonts: (f) => {
+        clearTimeout(watchdog);
+        fontsResolve(f);
+      },
+      resolve: (d) => {
+        clearTimeout(watchdog);
+        resolve(d);
+      },
+      reject: (e) => {
+        clearTimeout(watchdog);
+        reject(e);
+      },
+    });
+    try {
+      // The snapshot and the frames are copied (structured clone, a few ms), not transferred: the source keeps them.
+      w.postMessage({ id, opened: { snapshot: opened.snapshot, journal: opened.journal.map((f) => ({ message: f.message })), sessionID: opened.sessionID } } satisfies LoadWorkerRequest);
+    } catch (e) {
+      loads.delete(id);
+      reject(e instanceof Error ? e : new Error(String(e)));
+    }
+  }).catch(() => {
+    // The worker couldn't do it: the same work here.
+    const d = inline();
+    known(d);
+    return d;
+  });
+  void document.then(known);
+  return { fonts, document };
 }
 
 class Listeners<T> {
@@ -157,8 +258,11 @@ export async function openStoreDocument(store: StoreApi, fileKey: FileKey, opts:
   const opened = await store.files.open(fileKey, { mode: "edit", tabId: opts.tabId });
   let folders: Folder[] = [];
   if (opened.meta.folderId) folders = await store.workspace.listFolders().catch(() => []);
+  const source = new Source(store, opened, folders, opts);
+  // The worker starts on the document now, while the editor mounts and the engine's Wasm comes up (both wait for it).
+  if (opts.prepareEagerly !== false) source.prepare();
   if (opts.recordViewed !== false) await store.workspace.recordViewed(fileKey).catch((e) => opts.onError?.(e));
-  return new Source(store, opened, folders, opts);
+  return source;
 }
 
 class Source implements StoreDocumentSource {
@@ -186,6 +290,9 @@ class Source implements StoreDocumentSource {
   private uiPatch: Partial<FileUiState> | null = null;
   private uiTimer: ReturnType<typeof setTimeout> | null = null;
   private closing: Promise<void> | null = null;
+  /** `load()` / `prepare()` once: React's StrictMode mounts the editor twice and both mounts ask for the document. */
+  private loading: Promise<EngineMessage> | null = null;
+  private preparing: PreparedLoad | null = null;
 
   constructor(
     private readonly store: StoreApi,
@@ -281,9 +388,22 @@ class Source implements StoreDocumentSource {
     if (changed) this.metaListeners.emit(this.snapshotMeta());
   }
 
-  async load(): Promise<EngineMessage> {
-    if (!this.opened) throw new Error("This document source was closed");
-    return mergedDocument(this.opened);
+  load(): Promise<EngineMessage> {
+    if (!this.opened) return Promise.reject(new Error("This document source was closed"));
+    const opened = this.opened;
+    this.loading ??= Promise.resolve().then(() => mergedDocument(opened));
+    return this.loading;
+  }
+
+  /** The engine's bytes, prepared in the load worker (the fonts first); memoized like `load()`. */
+  prepare(): PreparedLoad {
+    if (!this.opened) {
+      const failed = Promise.reject(new Error("This document source was closed"));
+      void failed.catch(() => {});
+      return { fonts: Promise.resolve({ fonts: [], needsFallbackFont: false }), document: failed };
+    }
+    this.preparing ??= prepareDocument(this.opened);
+    return this.preparing;
   }
 
   onChanges(changes: EngineMessage, info?: ChangeInfo): void {

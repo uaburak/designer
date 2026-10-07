@@ -224,36 +224,48 @@ bool Editor::isCopiedMain(Guid id) const {
   return !deleted && !isLibraryCopy(id);
 }
 
+// The key lookups go through the key index (Editor::indexChange): a bucket holds the few real nodes carrying a key,
+// never a walk over the document (componentInfo asks for a preferred value's main on every panel render).
 Guid Editor::copyRootByKey(const std::string& libraryKey, const std::string& key, const std::string& version) const {
   if (key.empty() || libraryKey.empty() || !hasLibraryCopies_) return kNoGuid;
+  const std::vector<Guid>* bucket = nodesWithKey(key);
+  if (!bucket) return kNoGuid;
   std::vector<Guid> found;
-  doc_.forEach([&](const Node& n) {
-    if (!n.guid.isDerived() && n.props.key == key && n.props.sourceLibraryKey == libraryKey && assetKindOf(n.guid) != AssetKind::NONE)
-      found.push_back(n.guid);
-  });
+  for (Guid g : *bucket) {
+    const Node* n = doc_.get(g);
+    if (n && n->props.sourceLibraryKey == libraryKey && assetKindOf(g) != AssetKind::NONE) found.push_back(g);
+  }
   std::sort(found.begin(), found.end());
   return pickCopy(doc_, found, version);
 }
 
 Guid Editor::localAssetByKey(const std::string& key) const {
   if (key.empty()) return kNoGuid;
+  const std::vector<Guid>* bucket = nodesWithKey(key);
+  if (!bucket) return kNoGuid;
   Guid found = kNoGuid;
-  doc_.forEach([&](const Node& n) {
-    if (n.guid.isDerived() || n.props.key != key || assetKindOf(n.guid) == AssetKind::NONE || isLibraryCopy(n.guid)) return;
-    // A live asset over a deleted one with the same key.
-    if (found == kNoGuid || (doc_.get(found)->props.isSoftDeleted && !n.props.isSoftDeleted)) found = n.guid;
-  });
+  for (Guid g : *bucket) {
+    const Node* n = doc_.get(g);
+    if (!n || assetKindOf(g) == AssetKind::NONE || isLibraryCopy(g)) continue;
+    // A live asset over a deleted one with the same key; of equals, the smallest GUID.
+    bool better = found == kNoGuid || (doc_.get(found)->props.isSoftDeleted && !n->props.isSoftDeleted) ||
+                  (doc_.get(found)->props.isSoftDeleted == n->props.isSoftDeleted && g < found);
+    if (better) found = g;
+  }
   return found;
 }
 
 Guid Editor::copyMainByKey(const std::string& libraryKey, const std::string& key) const {
   if (key.empty() || libraryKey.empty() || !hasLibraryCopies_) return kNoGuid;
+  const std::vector<Guid>* bucket = nodesWithKey(key);
+  if (!bucket) return kNoGuid;
   Guid found = kNoGuid;
-  doc_.forEach([&](const Node& n) {
-    if (n.guid.isDerived() || n.props.key != key || !isComponentNode(n.props) || (found != kNoGuid && found < n.guid)) return;
-    Guid root = libraryRootOf(n.guid);
-    if (root != kNoGuid && doc_.get(root)->props.sourceLibraryKey == libraryKey) found = n.guid;
-  });
+  for (Guid g : *bucket) {
+    const Node* n = doc_.get(g);
+    if (!n || !isComponentNode(n->props) || (found != kNoGuid && found < g)) continue;
+    Guid root = libraryRootOf(g);
+    if (root != kNoGuid && doc_.get(root)->props.sourceLibraryKey == libraryKey) found = g;
+  }
   return found;
 }
 

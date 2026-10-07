@@ -356,6 +356,8 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   }
   pressed_ = pick(doc_, path, selection_, deep);
   pressMarquee_ = false;
+  pressInSelected_ = false;
+  pressNoop_ = false;
   marqueeScope_ = kNoGuid;
   pressedWasSelected_ = pressed_ != kNoGuid && selected(pressed_);
   if (pressed_ == kNoGuid) {
@@ -367,9 +369,22 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     pressMarquee_ = true;
     marqueeScope_ = path[0];
   } else if (!pressedWasSelected_) {
-    std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
-    next.push_back(pressed_);
-    changeSelection(std::move(next));
+    // Figma's press rule: a press on a layer inside a selected layer keeps the selection — a drag moves the
+    // selection (⇧ then locks the axis), and the pressed layer is selected only by a click (finishClick). A press
+    // outside the selection selects what it picked at once (⌘ deep-selects at once too).
+    if (!deep)
+      for (Guid p : path) {
+        if (p == pressed_) break;
+        if (selected(p)) {
+          pressInSelected_ = true;
+          break;
+        }
+      }
+    if (!pressInSelected_) {
+      std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
+      next.push_back(pressed_);
+      changeSelection(std::move(next));
+    }
   }
   gesture_ = Gesture::Press;
   return P_HANDLED | P_CAPTURE;
@@ -417,14 +432,18 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       break;
     }
     case Gesture::Press:
-      if ((s - downScreen_).length() < kDragThreshold) break;
+      if (pressNoop_ || (s - downScreen_).length() < kDragThreshold) break;
       if (pressMarquee_) {
         gesture_ = Gesture::Marquee;
         dragMarquee(world, mods);
-      } else {
-        startMove(mods);
+      } else if (startMove(mods)) {
         gesture_ = Gesture::Move;
         dragMove(world, mods);
+      } else {
+        // Nothing movable under the press (instance sublayers stay where their main puts them; locked layers):
+        // no gesture, no transaction — the press ends as nothing when the button comes up.
+        pressNoop_ = true;
+        changeCursor(CursorKind::NOT_ALLOWED);
       }
       break;
     case Gesture::Move: dragMove(world, mods); break;
@@ -549,6 +568,19 @@ void Editor::cancelGesture() {
 
 void Editor::finishClick(uint32_t mods) {
   bool shift = (mods & MOD_SHIFT) != 0;
+  if (pressNoop_) {
+    pressNoop_ = false;
+    changeCursor(CursorKind::DEFAULT);
+    return;
+  }
+  if (pressInSelected_) {
+    // Released without a drag inside a selected layer: the pressed layer is selected (⇧: added).
+    pressInSelected_ = false;
+    std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
+    if (std::find(next.begin(), next.end(), pressed_) == next.end()) next.push_back(pressed_);
+    changeSelection(std::move(next));
+    return;
+  }
   if (pressMarquee_) {
     if (marqueeScope_ != kNoGuid) {
       std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
@@ -639,11 +671,13 @@ Guid Editor::containerOf(Guid parent) const {
   return cur;
 }
 
-void Editor::startMove(uint32_t mods) {
-  begin(TxnKind::GESTURE, "Move");
-  targets_ = targetsOf(topSelectionInPaintOrder());
+bool Editor::startMove(uint32_t mods) {
+  std::vector<Target> targets = targetsOf(topSelectionInPaintOrder());
   // Layers inside an instance can't be moved (Figma): they stay where their main puts them.
-  targets_.erase(std::remove_if(targets_.begin(), targets_.end(), [](const Target& t) { return t.id.isDerived(); }), targets_.end());
+  targets.erase(std::remove_if(targets.begin(), targets.end(), [](const Target& t) { return t.id.isDerived(); }), targets.end());
+  if (targets.empty()) return false;
+  begin(TxnKind::GESTURE, "Move");
+  targets_ = std::move(targets);
   originalTargets_ = targets_;
   originals_.clear();
   duplicating_ = false;
@@ -659,6 +693,7 @@ void Editor::startMove(uint32_t mods) {
   dropParent_ = snapParent_ = kNoGuid;
   hasInsertion_ = false;
   if (mods & MOD_ALT) setDuplicating(true);
+  return true;
 }
 
 void Editor::setDuplicating(bool on) {

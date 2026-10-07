@@ -634,3 +634,164 @@ TEST_CASE("components: an inserted instance draws its purple selection; no vecto
   RenderStats without = r.render(e.document(), kPage, {-900, 100, 1}, vp, o, OverlayStyle::of(Theme::Dark));
   CHECK(with.shapes > without.shapes);
 }
+
+TEST_CASE("components: a press-drag on a selected instance sublayer is a no-op — no gesture, no re-materialization") {
+  Editor e = load(buttonDoc());
+  Guid bg = sub(I, {BG});
+  e.setSelection({bg});
+  e.takeEvents();
+  e.pointer(PointerEvent::DOWN, 5, 105, 0, 1, 0);  // on the background, beside the label
+  for (int i = 1; i <= 5; i++) e.pointer(PointerEvent::MOVE, 5 + 20 * i, 105 + 10 * i, 0, 1, 0);
+  CHECK_FALSE(e.busy());
+  CHECK(e.cursor() == CursorKind::NOT_ALLOWED);
+  e.pointer(PointerEvent::UP, 105, 155, 0, 0, 0);
+  auto ev = e.takeEvents();
+  CHECK(ev.documents.empty());
+  CHECK(ev.components.empty());
+  CHECK(ev.nodes.empty());
+  CHECK(e.selection() == std::vector<Guid>{bg});
+  CHECK(props(e, I).transform.m12 == doctest::Approx(100));
+  CHECK(e.cursor() != CursorKind::NOT_ALLOWED);
+}
+
+TEST_CASE("components: a selected instance covered by its children drags by any of them (Figma's press rule)") {
+  Editor e = load(buttonDoc());
+  e.setSelection({I});
+  e.takeEvents();
+  e.pointer(PointerEvent::DOWN, 5, 105, 0, 1, 0);  // on the background sublayer
+  CHECK(e.selection() == std::vector<Guid>{I});
+  for (int i = 1; i <= 5; i++) e.pointer(PointerEvent::MOVE, 5 + 20 * i, 105, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 105, 105, 0, 0, 0);
+  CHECK(e.selection() == std::vector<Guid>{I});
+  CHECK(props(e, I).transform.m02 == doctest::Approx(100));
+  auto ev = e.takeEvents();
+  REQUIRE(ev.documents.size() == 1);
+  CHECK(ev.documents[0].label == "Move");
+  CHECK(ev.components.empty());  // a move of the instance root re-derives nothing
+  // A click on the background then selects the sublayer.
+  e.pointer(PointerEvent::DOWN, 105, 105, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 105, 105, 0, 0, 0);
+  CHECK(e.selection() == std::vector<Guid>{sub(I, {BG})});
+}
+
+TEST_CASE("components: pages derive on first show — instances on another page have no rows until it is shown") {
+  auto nodes = buttonDoc();
+  const Guid PAGE2{0, 3}, I2{1, 20};
+  NodeProps page;
+  page.type = NodeType::CANVAS;
+  page.name = "Page 2";
+  page.parentIndex = {kDoc, "\""};
+  nodes.push_back(NodeChange::created(PAGE2, page));
+  nodes.push_back(instanceOf(I2, M, PAGE2, "!", {0, 0, 100, 40}));
+  Editor e = load(nodes);
+  const Document& doc = e.document();
+  CHECK(e.pages() == std::vector<Guid>{kPage, PAGE2});
+  CHECK(e.pageDerived(kPage));
+  CHECK_FALSE(e.pageDerived(PAGE2));
+  CHECK(doc.children(I).size() == 2);
+  CHECK(doc.children(I2).empty());  // not materialized: its page was never shown
+  // Shown: derived as page loading (kind LOAD) — its rows appear, nothing is emitted, nothing to undo.
+  e.takeEvents();
+  REQUIRE(e.setCurrentPage(PAGE2) == OK);
+  CHECK(e.pageDerived(PAGE2));
+  CHECK(doc.children(I2) == std::vector<Guid>{sub(I2, {BG}), sub(I2, {LABEL})});
+  CHECK(props(e, sub(I2, {LABEL})).textData.characters == "Label");
+  auto ev = e.takeEvents();
+  CHECK(ev.documents.empty());
+  CHECK_FALSE(ev.components.empty());  // COMPONENTS_CHANGED: the panels learn the instance has its rows
+  CHECK_FALSE(e.canUndo());
+  CHECK(ev.structureAll);  // a page switch: the Layers tree re-reads
+  // The main edited while another page is current: the shown instances follow; the other page's follow on show.
+  e.setCurrentPage(kPage);
+  e.setSelection({LABEL});
+  NodeChange rename = NodeChange::changed(LABEL);
+  rename.mask = F_TEXT_DATA;
+  rename.props.textData.characters = "Go";
+  e.setProps({LABEL}, rename, 0);
+  CHECK(props(e, sub(I, {LABEL})).textData.characters == "Go");
+  CHECK(props(e, sub(I2, {LABEL})).textData.characters == "Go");  // derived once: it depends on the main like any
+  // Pages listed without a scan, pages() unchanged by derivation.
+  CHECK(e.pages() == std::vector<Guid>{kPage, PAGE2});
+}
+
+TEST_CASE("components: a read of a node on a page never shown derives that page first") {
+  auto nodes = buttonDoc();
+  const Guid PAGE2{0, 3}, I2{1, 20};
+  NodeProps page;
+  page.type = NodeType::CANVAS;
+  page.name = "Page 2";
+  page.parentIndex = {kDoc, "\""};
+  nodes.push_back(NodeChange::created(PAGE2, page));
+  nodes.push_back(instanceOf(I2, M, PAGE2, "!", {0, 0, 100, 40}));
+  Editor e = load(nodes);
+  CHECK(e.document().children(I2).empty());
+  e.derivePageOf(sub(I2, {BG}));
+  CHECK(e.pageDerived(PAGE2));
+  CHECK(e.document().children(I2).size() == 2);
+  ComponentInfo info;
+  REQUIRE(e.componentInfo(I2, info));
+  CHECK(info.kind == ComponentInfo::Kind::INSTANCE);
+  CHECK(info.main == M);
+}
+
+TEST_CASE("components: instance counts and preferred values by key come from indexes kept on every write") {
+  auto nodes = buttonDoc();
+  const Guid ICON{1, 30}, BUTTON2{1, 31}, I2{1, 32};
+  const std::string KEY = "0123456789abcdef0123456789abcdef01234567";
+  NodeChange icon = make(ICON, NodeType::SYMBOL, kPage, "#", {300, 0, 20, 20}, "Icon");
+  icon.props.key = KEY;
+  nodes.push_back(icon);
+  // A second main whose instance-swap property prefers the Icon by key (as a library copy's or a .fig's would).
+  NodeChange button2 = make(BUTTON2, NodeType::SYMBOL, kPage, "$", {400, 0, 100, 40}, "Button 2");
+  ComponentPropDef def;
+  def.id = Guid{1, 99};
+  def.name = "Icon";
+  def.type = ComponentPropType::INSTANCE_SWAP;
+  def.preferredValues.push_back(PreferredValue{false, KEY});
+  button2.props.componentPropDefs.push_back(def);
+  nodes.push_back(button2);
+  nodes.push_back(instanceOf(I2, M, kPage, "%", {0, 200, 100, 40}));
+  Editor e = load(nodes);
+  ComponentInfo info;
+  REQUIRE(e.componentInfo(M, info));
+  CHECK(info.instanceCount == 2);
+  REQUIRE(e.componentInfo(BUTTON2, info));
+  REQUIRE(info.properties.size() == 1);
+  CHECK(info.properties[0].preferredValues == std::vector<Guid>{ICON});
+  // The cache answers the same until the document changes; a change re-derives: an instance removed…
+  e.setSelection({I2});
+  REQUIRE(e.command(CommandId::DELETE) == OK);
+  REQUIRE(e.componentInfo(M, info));
+  CHECK(info.instanceCount == 1);
+  // …and back by undo.
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  REQUIRE(e.componentInfo(M, info));
+  CHECK(info.instanceCount == 2);
+  // An instance swapped to another main counts there.
+  NodeChange swap = NodeChange::changed(I2);
+  swap.mask = F_SYMBOL_DATA;
+  swap.props.symbolData.symbolID = ICON;
+  e.setProps({I2}, swap, 0);
+  REQUIRE(e.componentInfo(M, info));
+  CHECK(info.instanceCount == 1);
+  REQUIRE(e.componentInfo(ICON, info));
+  CHECK(info.instanceCount == 1);
+  // The Icon's key changed: the preferred value no longer resolves; changed back: it does; the Icon removed: not.
+  NodeChange rekey = NodeChange::changed(ICON);
+  rekey.mask = F_KEY;
+  rekey.props.key = "fedcba9876543210fedcba9876543210fedcba98";
+  REQUIRE(e.applyChanges({rekey}, APPLY_SYSTEM) == OK);
+  REQUIRE(e.componentInfo(BUTTON2, info));
+  CHECK(info.properties[0].preferredValues.empty());
+  rekey.props.key = KEY;
+  REQUIRE(e.applyChanges({rekey}, APPLY_SYSTEM) == OK);
+  REQUIRE(e.componentInfo(BUTTON2, info));
+  CHECK(info.properties[0].preferredValues == std::vector<Guid>{ICON});
+  e.setSelection({ICON});
+  REQUIRE(e.command(CommandId::DELETE) == OK);  // used by I2: kept soft-deleted — not offered as a preferred value
+  REQUIRE(e.componentInfo(BUTTON2, info));
+  CHECK(info.properties[0].preferredValues.empty());
+  REQUIRE(e.command(CommandId::UNDO) == OK);
+  REQUIRE(e.componentInfo(BUTTON2, info));
+  CHECK(info.properties[0].preferredValues == std::vector<Guid>{ICON});
+}

@@ -147,7 +147,7 @@ const placeImage = (id: string, label: string, keys?: KeyCombo[]): EditorCommand
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
 
 function goToPage(ed: EditorController, step: 1 | -1) {
-  const pages = ed.engine.pages();
+  const pages = ed.store.pages;
   const at = pages.findIndex((p) => p.guid === ed.store.page);
   const next = pages[at + step];
   if (next) ed.engine.setCurrentPage(next.guid);

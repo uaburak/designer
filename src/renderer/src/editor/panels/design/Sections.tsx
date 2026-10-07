@@ -13,9 +13,9 @@ import { BindButton } from "./Component";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { groupChain } from "../../actions";
-import { useLayerTree, useUI } from "../../hooks";
-import { hasConstraints } from "../../model/constraints";
-import { ancestorsOf } from "../../model/layerTree";
+import { ancestors } from "../../components";
+import { useTopics, useUI } from "../../hooks";
+import { hasConstraints, type ConstraintHost } from "../../model/constraints";
 import { isAutoLayout } from "../../model/sizing";
 import { ConstraintsRow } from "./Constraints";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
@@ -45,26 +45,25 @@ function CommandButton({ id, icon }: { id: string; icon: Parameters<typeof IconB
 
 // ---- Position ------------------------------------------------------------------------------
 
+/** A layer's ancestors up to the page as `hasConstraints` reads them (cached node reads, not the whole Layers tree). */
+function constraintChain(ed: EditorController, n: PanelNode): ConstraintHost[] {
+  const chain: ConstraintHost[] = ancestors(ed, n.guid).map((a) => ({ type: a.type ?? "NONE", group: a.type === "GROUP" || (a.type === "FRAME" && a.resizeToFit === true), stackMode: (a as { stackMode?: string }).stackMode }));
+  chain.push({ type: "CANVAS", group: false, stackMode: undefined });
+  return chain;
+}
+
 export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
-  const tree = useLayerTree();
+  // The ancestors can change (a reparent, auto layout added above): re-read on structure changes, not per frame.
+  useTopics(ed.store, ["structure"]);
   const parents = useParents(nodes);
   const positioningKept = useSupports("stackPositioning");
   const constraintsKept = useSupports("horizontalConstraint");
   // "Ignore auto layout": every layer sits in an auto-layout frame.
   const inAutoLayout = positioningKept && nodes.every((_, i) => isAutoLayout(parents[i]));
   const absolute = mixed(nodes.map((n) => n.stackPositioning === "ABSOLUTE"));
-  const constraints =
-    constraintsKept &&
-    nodes.every((n) => {
-      const chain = ancestorsOf(tree, n.guid)
-        .map((id) => tree.nodes.get(id)!)
-        .concat(tree.nodes.get(tree.page) ?? [])
-        .map((t) => ({ type: t.type, group: t.group, stackMode: t.stackMode }));
-      if (!chain.length) chain.push({ type: "CANVAS", group: false, stackMode: undefined });
-      return hasConstraints(chain, n.stackPositioning === "ABSOLUTE");
-    });
+  const constraints = constraintsKept && nodes.every((n) => hasConstraints(constraintChain(ed, n), n.stackPositioning === "ABSOLUTE"));
   const refs = nodes.map((n) => n.guid);
   const pos = nodes.map((n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n)));
   const x = mixedNumber(pos.map((p) => roundPanel(p.x)));

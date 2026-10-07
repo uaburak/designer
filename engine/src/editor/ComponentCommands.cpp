@@ -152,13 +152,14 @@ const ComponentPropDef* Editor::findDef(Guid owner, const std::string& prop) con
 uint32_t Editor::instanceCount(Guid symbol) const {
   const Node* sn = doc_.get(symbol);
   if (!sn) return 0;
-  GuidSet mains{symbol};
+  // Real instances by the main they show, from the index kept on every write (indexChange).
+  auto countOf = [&](Guid main) {
+    auto it = instanceCounts_.find(main);
+    return it == instanceCounts_.end() ? 0u : it->second;
+  };
+  uint32_t count = countOf(symbol);
   if (sn->props.isComponentSet())
-    for (Guid c : doc_.children(symbol)) mains.insert(c);
-  uint32_t count = 0;
-  doc_.forEach([&](const Node& n) {
-    if (!n.guid.isDerived() && n.props.type == NodeType::INSTANCE && mains.count(n.props.symbolData.symbolID)) count++;
-  });
+    for (Guid c : doc_.children(symbol)) count += countOf(c);
   return count;
 }
 
@@ -308,9 +309,11 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
     Guid local = localAssetByKey(key);
     if (local != kNoGuid && isMain(doc_.get(local)->props)) return local;
     Guid any = kNoGuid;
-    doc_.forEach([&](const Node& n) {
-      if (!n.guid.isDerived() && n.props.key == key && isMain(n.props) && isLibraryCopy(n.guid) && (any == kNoGuid || n.guid < any)) any = n.guid;
-    });
+    if (const std::vector<Guid>* bucket = nodesWithKey(key))
+      for (Guid g : *bucket) {
+        const Node* n = doc_.get(g);
+        if (n && isMain(n->props) && isLibraryCopy(g) && (any == kNoGuid || g < any)) any = g;
+      }
     return any;
   };
   for (const ComponentPropDef* d : sorted) {
@@ -366,6 +369,21 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
 }
 
 bool Editor::componentInfo(Guid id, ComponentInfo& out) const {
+  // Cached per document version: a panel render asks several times for the same node (the header's menus, its
+  // properties, the commands' states), and nothing it answers from changes without a document change.
+  if (infoCache_.size() > 512) infoCache_.clear();
+  CachedInfo& cached = infoCache_[id];
+  if (cached.version == doc_.version() && doc_.version() != 0) {
+    out = cached.info;
+    return cached.ok;
+  }
+  cached.ok = computeComponentInfo(id, cached.info);
+  cached.version = doc_.version();
+  out = cached.info;
+  return cached.ok;
+}
+
+bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
   out = ComponentInfo{};
   const Node* n = doc_.get(id);
   if (!n) return false;

@@ -86,9 +86,14 @@ export async function importImage(file: Blob & { name?: string }, store: ImageSt
 
 type RequestImageEvent = { type: "REQUEST_IMAGE"; hash: unknown; maxDevicePx?: number };
 
+/** Bitmaps handed to the engine per animation frame: each upload is a synchronous GPU copy (~10 ms for a big one). */
+const UPLOADS_PER_FRAME = 2;
+
 /**
  * One editor's images: object URLs for the panels, the engine's REQUEST_IMAGE answered from the store, and
- * `settled()` for work that must see every image drawn (the thumbnail).
+ * `settled()` for work that must see every image drawn (the thumbnail). The bytes are decoded off the main thread
+ * (createImageBitmap); the uploads wait for the chrome's first paint (`releaseUploads`) and go a few per frame, so
+ * a file's images never make the first frames long (Figma shows the canvas before its images are in).
  */
 export class ImageService {
   private readonly urls = new Map<string, string>();
@@ -99,6 +104,12 @@ export class ImageService {
   private version = 0;
   /** Bumped by every first request of a hash (a render that needed an image it didn't have). */
   requests = 0;
+  /** Decoded bitmaps waiting for their upload (after the first paint, a few per frame). */
+  private readonly uploads: { hash: string; bitmap: ImageBitmap }[] = [];
+  private uploadFrame = 0;
+  private released = false;
+  private releaseResolve: () => void = () => {};
+  private readonly releasedPromise = new Promise<void>((resolve) => (this.releaseResolve = resolve));
 
   constructor(
     private readonly engine: Engine,
@@ -108,6 +119,17 @@ export class ImageService {
   /** Starts answering the engine (E5). Returns the detach. */
   attach(): () => void {
     const engine = this.engine;
+    const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(engine, "addImage", "addImageBitmap", "imageAdd");
+    if (addBitmap && typeof createImageBitmap !== "undefined") {
+      // The event path with this service's own scheduling: decode here, upload after the first paint, a few per frame.
+      this.offs.push(
+        engine.onAny((e) => {
+          const ev = e as unknown as RequestImageEvent;
+          if (ev.type === "REQUEST_IMAGE") this.track(this.answer(ev.hash));
+        })
+      );
+      return () => this.dispose();
+    }
     // A loader the engine calls itself, if the facade takes one; else the REQUEST_IMAGE event.
     const setSource = engineMethod<(load: (hash: string) => Promise<Uint8Array | null>) => void>(engine, "setImageSource", "setImageLoader");
     if (setSource) setSource((hash) => this.bytes(hash));
@@ -121,11 +143,70 @@ export class ImageService {
     return () => this.dispose();
   }
 
+  /** The chrome has painted: the decoded images may go to the GPU now (EditorApp calls it after its first frame). */
+  releaseUploads(): void {
+    if (this.released) return;
+    this.released = true;
+    this.releaseResolve();
+    this.scheduleUploads();
+  }
+
   dispose(): void {
     for (const off of this.offs.splice(0)) off();
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
     this.listeners.clear();
+    if (this.uploadFrame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.uploadFrame);
+    this.uploadFrame = 0;
+    for (const u of this.uploads.splice(0)) u.bitmap.close();
+    this.released = true;
+    this.releaseResolve();
+  }
+
+  private scheduleUploads(): void {
+    if (this.uploadFrame || !this.uploads.length || !this.released) return;
+    if (typeof requestAnimationFrame !== "function") {
+      this.drainUploads(Infinity);
+      return;
+    }
+    this.uploadFrame = requestAnimationFrame(() => {
+      this.uploadFrame = 0;
+      this.drainUploads(UPLOADS_PER_FRAME);
+      this.scheduleUploads();
+    });
+  }
+
+  private drainUploads(count: number): void {
+    const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(this.engine, "addImage", "addImageBitmap", "imageAdd");
+    const failed = engineMethod<(hash: string) => void>(this.engine, "imageFailed", "failImage");
+    for (let i = 0; i < count && this.uploads.length; i++) {
+      const { hash, bitmap } = this.uploads.shift()!;
+      if (this.engine.destroyed) {
+        bitmap.close();
+        continue;
+      }
+      if (!addBitmap) {
+        bitmap.close();
+        failed?.(hash);
+        continue;
+      }
+      const s = addBitmap(hash, bitmap);
+      if (typeof s === "number" && s !== Status.OK) failed?.(hash);
+    }
+  }
+
+  /** A decoded bitmap, uploaded after the first paint in its turn; resolves when it is in (or the engine is gone). */
+  private enqueueUpload(hash: string, bitmap: ImageBitmap): Promise<void> {
+    this.uploads.push({ hash, bitmap });
+    this.scheduleUploads();
+    return new Promise<void>((resolve) => {
+      const check = () => {
+        if (this.engine.destroyed || !this.uploads.some((u) => u.hash === hash && u.bitmap === bitmap)) resolve();
+        else if (typeof requestAnimationFrame === "function") requestAnimationFrame(check);
+        else setTimeout(check, 16);
+      };
+      void this.releasedPromise.then(check);
+    });
   }
 
   /** The image's bytes from the store (once per hash), or null. */
@@ -217,19 +298,24 @@ export class ImageService {
     if (engine.destroyed) return;
     const failed = engineMethod<(hash: string) => void>(engine, "imageFailed", "failImage");
     if (!bytes) return void failed?.(hash);
+    const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(engine, "addImage", "addImageBitmap", "imageAdd");
+    if (addBitmap && typeof createImageBitmap !== "undefined") {
+      // Decoded off the main thread; the upload waits for the first paint and its turn (a few per frame).
+      let bitmap: ImageBitmap;
+      try {
+        bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { premultiplyAlpha: "premultiply", colorSpaceConversion: "default" });
+      } catch {
+        failed?.(hash);
+        return;
+      }
+      if (engine.destroyed) return void bitmap.close();
+      await this.enqueueUpload(hash, bitmap);
+      return;
+    }
     const addBytes = engineMethod<(hash: string, bytes: Uint8Array) => number | Promise<number>>(engine, "addImageBytes", "imageAddBytes");
     if (addBytes) {
       const s = await addBytes(hash, bytes);
       if (typeof s === "number" && s !== Status.OK) failed?.(hash);
-      return;
-    }
-    const addBitmap = engineMethod<(hash: string, bitmap: ImageBitmap) => number>(engine, "addImage", "addImageBitmap", "imageAdd");
-    if (!addBitmap || typeof createImageBitmap === "undefined") return;
-    try {
-      const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { premultiplyAlpha: "premultiply", colorSpaceConversion: "default" });
-      if (!engine.destroyed) addBitmap(hash, bitmap);
-    } catch {
-      failed?.(hash);
     }
   }
 }

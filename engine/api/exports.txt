@@ -35,6 +35,7 @@ _engine_get_selection
 _engine_set_selection
 _engine_read_nodes
 _engine_layer_tree
+_engine_layer_changes
 _engine_hit_test
 _engine_set_props
 _engine_txn_begin

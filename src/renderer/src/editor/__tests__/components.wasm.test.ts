@@ -170,6 +170,9 @@ describe("components on the engine (wasm, headless)", () => {
 
   it("inserting an instance from Assets: one step, selected, linked to the main", async () => {
     const { ed, engine, source } = await editor();
+    // On an engine with lazy per-page derivation the first read of the main derives its page (a SYSTEM "Layout"
+    // change of its own); the insert is counted after it.
+    readC(ed, "1:1");
     const before = source.changes.length;
     const made = insertInstance(ed, "1:1");
     expect(made).toBeTruthy();

@@ -7,6 +7,7 @@
  * `?editor` route and the tests use `memoryDocumentSource`.
  */
 import type { Guid, Message, NodeChange } from "@/engine/codec";
+import type { FontRef, PreparedDocument } from "@/store/loadDocument";
 import type { LibraryEvent } from "../../../shared/store/repositories";
 import type { LibraryDiff, LibraryRecord, LibraryVersion, PublishAsset, PublishPreview } from "../../../shared/store/types";
 import { memoryImageStore, type ImageStore } from "./images";
@@ -20,6 +21,13 @@ export interface DocumentSource {
   readonly sessionID?: number;
   /** The document to open: a snapshot Message (DOCUMENT first, parents before children). */
   load(): Promise<Message>;
+  /**
+   * The document as the engine's wire bytes, prepared off the main thread where the source can (the store's source
+   * runs a worker), with the fonts it uses known before the bytes are (requested ahead of the load). Optional: the
+   * editor falls back to `load()`. Both answer the same document; a source memoizes them (React's StrictMode mounts
+   * twice).
+   */
+  prepare?(): PreparedLoad;
   /** One committed change (a NODE_CHANGES Message carrying only the touched fields), in commit order; `info`: the engine's kind and undo label. */
   onChanges(changes: Message, info?: ChangeKindInfo): void;
   /** Resolves once every change handed to `onChanges` is stored. */
@@ -47,6 +55,12 @@ export interface DocumentSource {
   readonly images?: ImageStore;
   /** The workspace's libraries as this file sees them (docs/data.md §9). Optional: absent, libraries are off. */
   readonly libraries?: LibraryAccess;
+}
+
+/** `prepare()`'s two answers: the fonts first (as soon as the file is decoded), the engine's bytes when converted. */
+export interface PreparedLoad {
+  fonts: Promise<{ fonts: FontRef[]; needsFallbackFont: boolean }>;
+  document: Promise<PreparedDocument>;
 }
 
 /** A publish's asset with its payload as the engine's Message (the source encodes it for the store). */

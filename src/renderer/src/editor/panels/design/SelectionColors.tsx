@@ -8,10 +8,12 @@
  */
 import { useMemo, useState } from "react";
 import { Button, ColorInput, IconButton, PanelSection, type ChangeInfo } from "@/ds";
+import * as abi from "@/engine/abi";
 import type { Color, Guid, NodeChange } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
 import { useEditor, type EditorController } from "../../controller";
-import { useDocumentVersion } from "../../hooks";
+import { engineExports } from "../../engineCompat";
+import { useSelectionColorsVersion } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { paintLabel, paintSwatch } from "../../model/paints";
 import { SELECTION_COLORS_MAX_NODES, SELECTION_COLORS_SHOWN, collectColors, recolor, showSelectionColors, type PaintUse, type SelectionColor } from "../../model/selectionColors";
@@ -19,23 +21,42 @@ import type { PickerTarget } from "./Paints";
 import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
+/** What Selection colors reads of a layer (docs/engine-build.md "Performance round 2": a paints-only read). */
+const COLOR_FIELDS = ["fillPaints", "strokePaints", "visible", "mask"];
+
+/**
+ * Does the engine build read a subtree with chosen fields in one call? abi.ts names READ_SUBTREE and the module in
+ * hand is the round that added it (its `engine_layer_changes` export) — the facade can be ahead of the wasm, and an
+ * older wasm given the flag would answer the refs alone.
+ */
+const hasSubtreeRead = (engine: Engine): boolean => "READ_SUBTREE" in abi && engineExports(engine, "layer_changes");
+
 /**
  * The visible layers inside `refs` (not the selected ones), each selected
- * layer's subtree top first, read one level at a time; null past `max` layers.
+ * layer's subtree top first; null past `max` layers. One engine read of the
+ * paints alone when the build has it (`readNodes` with `fields`, `subtree`,
+ * `visibleOnly`: hidden subtrees left out by the engine), else read one level
+ * at a time with every field.
  */
 export function readInside(engine: Engine, refs: readonly Guid[], max = SELECTION_COLORS_MAX_NODES): NodeChange[] | null {
   const byId = new Map<Guid, NodeChange>();
-  let level = [...refs];
-  while (level.length) {
-    const next: Guid[] = [];
-    for (const n of engine.readNodes(level, { childIds: true })) {
-      if (byId.has(n.guid)) continue;
-      byId.set(n.guid, n);
-      if (n.visible === false) continue;
-      for (const c of n.childIds ?? []) if (!byId.has(c)) next.push(c);
+  if (hasSubtreeRead(engine)) {
+    const rows = (engine.readNodes as (r: readonly Guid[], o: object) => NodeChange[])(refs, { childIds: true, fields: COLOR_FIELDS, subtree: true, visibleOnly: true });
+    if (rows.length > max) return null;
+    for (const n of rows) byId.set(n.guid, n);
+  } else {
+    let level = [...refs];
+    while (level.length) {
+      const next: Guid[] = [];
+      for (const n of engine.readNodes(level, { childIds: true })) {
+        if (byId.has(n.guid)) continue;
+        byId.set(n.guid, n);
+        if (n.visible === false) continue;
+        for (const c of n.childIds ?? []) if (!byId.has(c)) next.push(c);
+      }
+      if (byId.size > max) return null;
+      level = next;
     }
-    if (byId.size > max) return null;
-    level = next;
   }
   const out: NodeChange[] = [];
   const walk = (id: Guid) => {
@@ -89,10 +110,12 @@ export function writeSelectionColor(ed: EditorController, uses: readonly PaintUs
 
 export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
   const ed = useEditor();
-  const version = useDocumentVersion();
+  // The subtree is read again only when a paint, a visibility or the layers inside changed — a move or a resize
+  // re-renders the panel each frame but leaves the colours as they were (engine.md §10.4's groups).
+  const version = useSelectionColorsVersion();
   const key = nodes.map((n) => n.guid).join(",");
   const [all, setAll] = useState<{ key: string; on: boolean }>({ key: "", on: false });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when any node changed (version) or the selection did (key)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when a colour-bearing change happened (version) or the selection did (key)
   const { show, colors } = useMemo(() => selectionColorsOf(ed.engine, nodes), [ed, key, version]);
   if (!show || !colors.length) return null;
   const expanded = all.key === key && all.on;

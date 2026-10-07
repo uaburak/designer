@@ -163,7 +163,13 @@ class Editor : private LayoutHost, public TextLayouts {
   // Every node, parents before children (a full snapshot).
   std::vector<NodeChange> encodeDocument() const;
   Status setCurrentPage(Guid page);
-  std::vector<Guid> pages() const;
+  std::vector<Guid> pages() const;  // O(1): the DOCUMENT node's canvases (the internal one left out)
+  // Materializes `page`'s instances and verifies its auto layout, once (docs/engine.md §3.4 as built: per page, on
+  // first show — setCurrentPage, a Layers read, a thumbnail, a read of one of its nodes). One SYSTEM change; a no-op
+  // for a page already derived. `derivePageOf(id)`: the page holding `id`.
+  void derivePage(Guid page);
+  void derivePageOf(Guid id) { derivePage(doc_.pageOf(id.isDerived() ? instanceOfDerived(id) : id)); }
+  bool pageDerived(Guid page) const { return derivedPages_.count(page) != 0; }
   const Document& document() const override { return doc_; }
   Guid page() const { return page_; }
 
@@ -242,6 +248,10 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Guid> components;                  // COMPONENTS_CHANGED: instances re-derived, the mains they come from
     std::vector<Guid> collections, variables;      // VARIABLES_CHANGED
     std::vector<Guid> styles;                      // STYLES_CHANGED: styles changed, or their usage
+    // STRUCTURE_CHANGED: the nodes (the page included) whose child lists changed; `structureAll`: can't say (a load,
+    // a page switch, too many) — the event carries null and the Layers tree re-reads the page.
+    std::vector<Guid> structureParents;
+    bool structureAll = false;
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
@@ -321,7 +331,8 @@ class Editor : private LayoutHost, public TextLayouts {
   Status setPaintStop(int stop);
 
   // ---- Components and instances (editor/Instances.cpp, editor/ComponentCommands.cpp) ----
-  bool componentInfo(Guid id, ComponentInfo& out) const;
+  bool componentInfo(Guid id, ComponentInfo& out) const;  // cached per document version
+  bool computeComponentInfo(Guid id, ComponentInfo& out) const;
   // GO_TO_MAIN_COMPONENT / RETURN_TO_INSTANCE: where the last navigation went and where it came from.
   Guid navigationMain() const { return navMain_; }
   Guid returnToInstance() const { return returnTo_; }
@@ -610,8 +621,16 @@ class Editor : private LayoutHost, public TextLayouts {
   void markLayout(const NodeChange& c, Guid parentBefore);
   void flushLayout();
   void removeEmptyGroups();
-  // Lays out every auto-layout frame and group (a file just loaded), as one SYSTEM change.
+  // A file just loaded: the global bookkeeping (styles, collections, deleted mains nobody uses, bound values), as one
+  // SYSTEM change; the per-page work (instances, auto layout) waits for derivePage.
   void relayoutAll();
+
+  // ---- Indexes kept on every write (no document scans on the hot paths) ----
+  // Called after every applied change of a real node (noteChange): the key, instance-count and document indexes.
+  void indexChange(const NodeChange& c);
+  void rebuildIndexes();
+  // The real nodes carrying an asset key (nullptr: none).
+  const std::vector<Guid>* nodesWithKey(const std::string& key) const;
 
   void changeSelection(std::vector<Guid> ids);
   void changeCamera(const Camera& c);
@@ -816,7 +835,8 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid containerOf(Guid parent) const;
   void keepResizedSize(Guid id, bool x, bool y);
   void endGesture();
-  void startMove(uint32_t mods);
+  // Opens the Move gesture for the selection's movable layers; false (nothing opened) when there are none.
+  bool startMove(uint32_t mods);
   void setDuplicating(bool on);
   void dragMove(Vec2 world, uint32_t mods);
   void finishMove();
@@ -1066,6 +1086,27 @@ class Editor : private LayoutHost, public TextLayouts {
   bool libraryWrite_ = false;      // the library code's own writes into copies (and APPLY_EXACT)
   size_t unresolved_ = 0;          // references the last import / cross-file paste left pointing at nothing
   bool applyGuard_ = false;        // applyChanges(APPLY_SYSTEM): copies are read-only for it too
+
+  // Indexes (indexChange): what the hot reads looked the whole document up for.
+  std::unordered_map<std::string, std::vector<Guid>> keyIndex_;   // an asset key → the real nodes carrying it
+  std::unordered_map<Guid, std::string, GuidHash> keyOf_;        // the reverse: what keyIndex_ holds for a node
+  std::unordered_map<Guid, uint32_t, GuidHash> instanceCounts_;  // a main (symbolID) → real instances showing it
+  std::unordered_map<Guid, Guid, GuidHash> instanceMain_;        // a real instance → the symbolID it is counted under
+  Guid docNode_ = kNoGuid;                                       // the DOCUMENT node
+  // componentInfo's answers, each good for one document version (a panel asks five times per render).
+  struct CachedInfo {
+    uint64_t version = 0;
+    bool ok = false;
+    ComponentInfo info;
+  };
+  mutable std::unordered_map<Guid, CachedInfo, GuidHash> infoCache_;
+  // Pages whose instances are materialized and auto layout verified (derivePage); others wait for their first show.
+  std::unordered_set<Guid, GuidHash> derivedPages_;
+
+  // The press (Gestures.cpp pointerDown): inside a selected layer — the selection stays, a drag moves it, a click
+  // selects the pressed layer; a press-drag with nothing movable (instance sublayers, locked layers) is a no-op.
+  bool pressInSelected_ = false;
+  bool pressNoop_ = false;
 };
 
 }  // namespace eng

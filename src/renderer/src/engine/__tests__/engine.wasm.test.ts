@@ -208,6 +208,61 @@ describe("engine (wasm, headless)", () => {
   });
 });
 
+describe("engine (wasm, headless): performance round 2", () => {
+  it("masked subtree reads, layer-tree deltas, the structure event's parents, Figma's press rule", async () => {
+    const engine = await engineWithSample();
+    // One read of the paints under a frame: the frame, then its visible subtree in paint order, only those fields.
+    const paints = engine.readNodes(["1:7"], { fields: ["fillPaints", "visible"], subtree: true, visibleOnly: true });
+    expect(paints.map((n) => n.guid)).toEqual(["1:7", "1:8", "1:9"]);
+    expect(paints[0].fillPaints).toHaveLength(1);
+    expect(paints[0].type).toBe("FRAME");
+    expect(paints[0].visible).toBe(true);
+    expect(paints[0].name).toBeUndefined();
+    expect(paints[0].size).toBeUndefined();
+    expect(engine.readNodes(["1:7"], { fields: ["name"] })[0]).toMatchObject({ guid: "1:7", type: "FRAME", name: "Clip" });
+
+    // The Layers tree carries its version; a reparent names the parents touched and gives a delta of three rows.
+    const tree = engine.layerTreeVersioned("0:1");
+    expect(tree.version).toBeGreaterThan(0);
+    expect(tree.nodes[0].guid).toBe("0:1");
+    expect(engine.layerTree("0:1")).toHaveLength(tree.nodes.length);
+    const parents: (string[] | null)[] = [];
+    engine.on("STRUCTURE_CHANGED", (e) => parents.push(e.parents));
+    expect(engine.moveNodes(["1:8"], "1:1", 0)).toBe(1);
+    expect(parents.at(-1)).toEqual(["1:7", "1:1"]);
+    const delta = engine.layerChanges("0:1", tree.version);
+    expect(delta.full).toBe(false);
+    expect(delta.nodes.map((n) => n.guid).sort()).toEqual(["1:1", "1:7", "1:8"]);
+    expect(delta.nodes.find((n) => n.guid === "1:7")!.childIds).toEqual(["1:9"]);
+    expect(delta.removed).toEqual([]);
+    expect(delta.version).toBeGreaterThan(tree.version);
+    engine.setSelection(["1:9"]);
+    expect(engine.command("DELETE")).toBe(Status.OK);
+    const next = engine.layerChanges("0:1", delta.version);
+    expect(next.removed).toEqual(["1:9"]);
+    expect(next.nodes.map((n) => n.guid)).toContain("1:7");
+    const full = engine.layerChanges("0:1", 1e12);
+    expect(full.full).toBe(true);
+    expect(full.nodes).toHaveLength(tree.nodes.length - 1);
+    expect(engine.layerChanges("9:9", 0)).toMatchObject({ full: true, nodes: [] });
+
+    // The press rule: Desktop (1:1) selected, a press on Card (1:5, inside it) keeps the selection and a drag moves
+    // Desktop; a click on Card then selects Card.
+    engine.setSelection(["1:1"]);
+    engine.pointer(PointerType.DOWN, 100, 150, 0, 1, 0);
+    expect(engine.getSelection().refs).toEqual(["1:1"]);
+    for (let x = 105; x <= 160; x += 5) engine.pointer(PointerType.MOVE, x, 150, 0, 1, 0);
+    engine.pointer(PointerType.UP, 160, 150, 0, 0, 0);
+    expect(engine.getSelection().refs).toEqual(["1:1"]);
+    expect(engine.readNode("1:1")!.transform!.m02).toBe(60);
+    expect(engine.readNode("1:5")!.transform!.m02).toBe(24);
+    engine.pointer(PointerType.DOWN, 160, 150, 0, 1, 0);
+    engine.pointer(PointerType.UP, 160, 150, 0, 0, 0);
+    expect(engine.getSelection().refs).toEqual(["1:5"]);
+    engine.destroy();
+  });
+});
+
 describe("engine (wasm, headless): text (E3)", () => {
   const fontFile = (name: string) => new Uint8Array(readFileSync(fileURLToPath(new URL(`../fonts/${name}`, import.meta.url))));
 

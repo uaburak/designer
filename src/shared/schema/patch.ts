@@ -67,7 +67,7 @@ export class BlobPool {
 }
 
 /** Collects the blobs a Message references, densely, in first-reference order. */
-class DenseBlobs {
+export class DenseBlobs {
   readonly blobs: { bytes: Uint8Array }[] = [];
   private readonly map = new Map<number, number>();
   constructor(private readonly pool: BlobPool) {}
@@ -178,6 +178,9 @@ export class NodeTable {
       }
       return p;
     };
+    // A Message without blobs has no blob index to rebase: its nodes are taken as they are (a blob index it still
+    // carries points at nothing either way). The walk over every node's fields is most of a large snapshot's cost.
+    const rebase = msgBlobs.length ? (nc: NodeChange) => rebaseBlobIndices(this.model, nc, toPool) : (nc: NodeChange) => nc;
     for (const nc of message.nodeChanges ?? []) {
       if (!nc.guid) {
         report.invalid++;
@@ -190,7 +193,7 @@ export class NodeTable {
         continue;
       }
       if (nc.phase === "CREATED") {
-        const rec: any = rebaseBlobIndices(this.model, nc, toPool);
+        const rec: any = rebase(nc);
         const clean: any = { ...rec };
         delete clean.phase;
         delete clean.clearedFields;
@@ -204,7 +207,7 @@ export class NodeTable {
         report.missing.push(key);
         continue;
       }
-      const carried: any = rebaseBlobIndices(this.model, nc, toPool);
+      const carried: any = rebase(nc);
       const next: any = { ...cur };
       for (const f in carried) {
         if (f === "guid" || f === "phase" || f === "clearedFields") continue;
@@ -276,6 +279,17 @@ export class NodeTable {
   toMessage(opts: ToMessageOptions = {}): Message {
     const dense = new DenseBlobs(this.blobs);
     const nodeChanges: NodeChange[] = [];
+    for (const n of this.snapshotNodes(opts, dense)) nodeChanges.push({ ...n, phase: "CREATED" });
+    return { type: "NODE_CHANGES", sessionID: opts.sessionID ?? 0, ackID: 0, nodeChanges, blobs: dense.blobs };
+  }
+
+  /**
+   * The nodes of a snapshot, in snapshot order, derived fields stripped (unless kept) and blob indices rebased onto
+   * `dense` (which collects the blobs referenced) — without `phase`. `toMessage` wraps them; a converter that wants
+   * another shape (the engine's) reads them straight from here instead of converting a Message twice.
+   */
+  *snapshotNodes(opts: ToMessageOptions = {}, dense: DenseBlobs = new DenseBlobs(this.blobs)): IterableIterator<NodeChange> {
+    const rebase = this.blobs.size > 0;
     for (const key of this.orderedKeys()) {
       let n: any = this.nodes.get(key)!;
       if (!opts.keepDerived && DERIVED_FIELDS.size) {
@@ -288,10 +302,14 @@ export class NodeTable {
         }
         n = stripped ?? n;
       }
-      n = rebaseBlobIndices(this.model, n, (i) => dense.index(i));
-      nodeChanges.push({ ...n, phase: "CREATED" });
+      if (rebase) n = rebaseBlobIndices(this.model, n, (i) => dense.index(i));
+      yield n as NodeChange;
     }
-    return { type: "NODE_CHANGES", sessionID: opts.sessionID ?? 0, ackID: 0, nodeChanges, blobs: dense.blobs };
+  }
+
+  /** A dense blob table for `snapshotNodes` (its `blobs` are the Message's `blobs`, in first-reference order). */
+  denseBlobs(): DenseBlobs {
+    return new DenseBlobs(this.blobs);
   }
 
   clone(): NodeTable {

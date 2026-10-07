@@ -51,13 +51,13 @@ constexpr size_t kMaxLog = 1 << 16;
 // Fields that change which nodes draw or how they nest (Document::ChangeRecord::structural).
 constexpr FieldMask kStructuralFields = F_PARENT_INDEX | F_VISIBLE | F_TYPE | F_RESIZE_TO_FIT | F_FRAME_MASK_DISABLED | F_MASK | F_MASK_TYPE;
 
-void Document::record(Guid id, bool structural, const Rect& before) {
+void Document::record(Guid id, bool structural, const Rect& before, Guid parentBefore, FieldMask fields) {
   if (log_.size() >= kMaxLog) {
     log_.clear();
     logStart_ = version_;
   }
   version_++;
-  log_.push_back({id, structural, before});
+  log_.push_back({id, structural, before, parentBefore, fields});
 }
 
 Rect Document::boundsBefore(Guid id) const {
@@ -333,7 +333,7 @@ bool Document::apply(const NodeChange& change, NodeChange* inverse) {
       if (it != nodes_.end()) {
         // CREATED for a live GUID is a full replace (docs/schema.md §4.2); its inverse puts the old state back.
         if (inverse) *inverse = NodeChange::created(change.guid, it->second.props);
-        record(change.guid, true, boundsBefore(change.guid));
+        record(change.guid, true, boundsBefore(change.guid), it->second.props.parentIndex.guid, F_ALL);
         unlink(change.guid, it->second.props.parentIndex.guid);
         it->second.props = change.props;
         link(change.guid, parent);
@@ -341,7 +341,7 @@ bool Document::apply(const NodeChange& change, NodeChange* inverse) {
         return true;
       }
       nodes_.emplace(change.guid, Node{change.guid, change.props});
-      record(change.guid, true, {});
+      record(change.guid, true, {}, kNoGuid, F_ALL);
       link(change.guid, parent);
       invalidate(change.guid);  // its subtree too: parked children may be waiting for it
       if (inverse) *inverse = NodeChange::removed(change.guid);
@@ -350,7 +350,7 @@ bool Document::apply(const NodeChange& change, NodeChange* inverse) {
     case Phase::REMOVED: {
       if (it == nodes_.end()) return false;
       if (inverse) *inverse = NodeChange::created(change.guid, it->second.props);
-      record(change.guid, true, boundsBefore(change.guid));
+      record(change.guid, true, boundsBefore(change.guid), it->second.props.parentIndex.guid, F_ALL);
       // Its children (if any are left) become parked: out of the index.
       for (Guid c : children(change.guid)) invalidate(c);
       auto d = derived_.find(change.guid);
@@ -372,7 +372,7 @@ bool Document::apply(const NodeChange& change, NodeChange* inverse) {
         if (np == change.guid || (np != kNoGuid && isAncestor(change.guid, np))) return false;
       }
       FieldMask plain = change.mask & ~static_cast<FieldMask>(F_EXTRA);
-      record(change.guid, (change.mask & kStructuralFields) != 0, boundsBefore(change.guid));
+      record(change.guid, (change.mask & kStructuralFields) != 0, boundsBefore(change.guid), oldParent, change.mask);
       if (inverse) {
         *inverse = NodeChange::changed(change.guid);
         inverse->mask = change.mask;

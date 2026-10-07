@@ -376,3 +376,69 @@ TEST_CASE("editor: pages keep their own selection") {
   e.setSelection({{1, 2}});  // a node on another page switches to it
   CHECK(e.page() == Guid{0, 3});
 }
+
+TEST_CASE("editor: a press inside a selected layer keeps it; a drag moves the selection; a click selects the child (Figma)") {
+  Editor e = makeEditor();
+  click(e, 150, 150);  // the frame's own background: selects the frame
+  REQUIRE(e.selection() == std::vector<Guid>{F});
+  e.takeEvents();
+  // Press on Rectangle 1 inside the selected frame and drag: the frame moves, the rectangle keeps its place in it.
+  down(e, 20, 20);
+  CHECK(e.selection() == std::vector<Guid>{F});  // not changed on the press
+  for (int i = 1; i <= 5; i++) move(e, 20 + 20 * i, 20 + 10 * i);
+  up(e, 120, 70);
+  CHECK(e.selection() == std::vector<Guid>{F});
+  CHECK(props(e, F).transform.m02 == doctest::Approx(100));
+  CHECK(props(e, F).transform.m12 == doctest::Approx(50));
+  CHECK(props(e, R1).transform.m02 == doctest::Approx(10));
+  CHECK(props(e, R1).transform.m12 == doctest::Approx(10));
+  // A click (no drag) on the rectangle selects it.
+  click(e, 130, 80);
+  CHECK(e.selection() == std::vector<Guid>{R1});
+  // ⇧-click on a layer inside a selected one adds it on release; ⇧-drag moves the selection with the axis locked.
+  e.setSelection({F});
+  click(e, 130, 80, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{F, R1});
+  e.setSelection({F});
+  down(e, 130, 80, MOD_SHIFT);
+  for (int i = 1; i <= 5; i++) move(e, 130 + 20 * i, 80 + 2 * i, MOD_SHIFT);
+  up(e, 230, 90, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{F});
+  CHECK(props(e, F).transform.m02 == doctest::Approx(200));
+  CHECK(props(e, F).transform.m12 == doctest::Approx(50));  // the axis lock kept y
+  // Two selected layers: a press on a child of one of them drags both.
+  e.setSelection({F, TOP});
+  down(e, 230, 90);
+  for (int i = 1; i <= 5; i++) move(e, 230 - 20 * i, 90);
+  up(e, 130, 90);
+  CHECK(e.selection() == std::vector<Guid>{F, TOP});
+  CHECK(props(e, F).transform.m02 == doctest::Approx(100));
+  CHECK(props(e, TOP).transform.m02 == doctest::Approx(300));
+  // A press on a layer outside the selection selects it on the press, as before.
+  e.setSelection({F});
+  down(e, 380, 20);  // TOP (now at 300..400 × 0..100), away from the selected frame's edge handles
+  CHECK(e.selection() == std::vector<Guid>{TOP});
+  up(e, 380, 20);
+  // ⌘-press deep-selects on the press.
+  e.setSelection({});
+  down(e, 120, 70, MOD_PRIMARY);  // R1 inside F at (110, 60)
+  CHECK(e.selection() == std::vector<Guid>{R1});
+  up(e, 120, 70, MOD_PRIMARY);
+}
+
+TEST_CASE("editor: a press on a locked layer is a press on the canvas (a marquee), never a move") {
+  Editor e = makeEditor();
+  NodeChange lock = NodeChange::changed(TOP);
+  lock.mask = F_LOCKED;
+  lock.props.locked = true;
+  e.setProps({TOP}, lock, 0);
+  e.setSelection({TOP});
+  e.takeEvents();
+  down(e, 450, 50);
+  for (int i = 1; i <= 5; i++) move(e, 450 + 10 * i, 50 + 10 * i);
+  up(e, 500, 100);
+  auto ev = e.takeEvents();
+  CHECK(ev.documents.empty());
+  CHECK(props(e, TOP).transform.m02 == doctest::Approx(400));
+  CHECK(e.selection().empty());  // the marquee over nothing selectable
+}

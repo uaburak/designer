@@ -64,9 +64,80 @@ void Editor::noteNode(Guid id, uint32_t groups) {
   }
 }
 
+void Editor::indexChange(const NodeChange& c) {
+  if (c.guid.isDerived()) return;
+  const Node* n = c.phase == Phase::REMOVED ? nullptr : doc_.get(c.guid);
+  FieldMask m = c.phase == Phase::CHANGED ? c.mask : F_ALL;
+  if (m & F_KEY) {
+    auto old = keyOf_.find(c.guid);
+    const std::string* now = n && !n->props.key.empty() ? &n->props.key : nullptr;
+    if (old != keyOf_.end() && (!now || old->second != *now)) {
+      auto bucket = keyIndex_.find(old->second);
+      if (bucket != keyIndex_.end()) {
+        auto& list = bucket->second;
+        list.erase(std::remove(list.begin(), list.end(), c.guid), list.end());
+        if (list.empty()) keyIndex_.erase(bucket);
+      }
+      keyOf_.erase(old);
+      old = keyOf_.end();
+    }
+    if (now && old == keyOf_.end()) {
+      keyIndex_[*now].push_back(c.guid);
+      keyOf_[c.guid] = *now;
+    }
+  }
+  if (m & (F_SYMBOL_DATA | F_TYPE)) {
+    auto old = instanceMain_.find(c.guid);
+    Guid now = n && n->props.type == NodeType::INSTANCE ? n->props.symbolData.symbolID : kNoGuid;
+    if (old != instanceMain_.end() && old->second != now) {
+      auto count = instanceCounts_.find(old->second);
+      if (count != instanceCounts_.end() && --count->second == 0) instanceCounts_.erase(count);
+      instanceMain_.erase(old);
+      old = instanceMain_.end();
+    }
+    if (now != kNoGuid && old == instanceMain_.end()) {
+      instanceCounts_[now]++;
+      instanceMain_[c.guid] = now;
+    }
+  }
+  if (m & F_TYPE) {
+    if (n && n->props.type == NodeType::DOCUMENT) docNode_ = c.guid;
+    else if (c.guid == docNode_) docNode_ = kNoGuid;
+  }
+}
+
+void Editor::rebuildIndexes() {
+  keyIndex_.clear();
+  keyOf_.clear();
+  instanceCounts_.clear();
+  instanceMain_.clear();
+  docNode_ = kNoGuid;
+  infoCache_.clear();
+  doc_.forEach([&](const Node& n) {
+    if (n.guid.isDerived()) return;
+    if (!n.props.key.empty()) {
+      keyIndex_[n.props.key].push_back(n.guid);
+      keyOf_[n.guid] = n.props.key;
+    }
+    if (n.props.type == NodeType::INSTANCE && n.props.symbolData.symbolID != kNoGuid) {
+      instanceCounts_[n.props.symbolData.symbolID]++;
+      instanceMain_[n.guid] = n.props.symbolData.symbolID;
+    }
+    if (n.props.type == NodeType::DOCUMENT) docNode_ = n.guid;
+  });
+  // Deterministic buckets (a lookup that ties picks the smallest GUID).
+  for (auto& [key, list] : keyIndex_) std::sort(list.begin(), list.end());
+}
+
+const std::vector<Guid>* Editor::nodesWithKey(const std::string& key) const {
+  auto it = keyIndex_.find(key);
+  return it == keyIndex_.end() ? nullptr : &it->second;
+}
+
 void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   if (c.phase != Phase::REMOVED && (c.phase == Phase::CREATED || (c.mask & F_SOURCE_LIBRARY_KEY)) && !c.props.sourceLibraryKey.empty())
     hasLibraryCopies_ = true;
+  indexChange(c);
   markInstanceDirty(c);
   noteBindings(c, typeBefore);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
@@ -77,6 +148,26 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   noteNode(c.guid, fieldGroups(mask));
   if (c.phase != Phase::CHANGED || (c.mask & (F_PARENT_INDEX | F_NAME | F_VISIBLE | F_LOCKED | F_TYPE | F_STACK_MODE)))
     events_.structure = true;
+  if (c.phase != Phase::CHANGED || (c.mask & F_PARENT_INDEX)) {
+    // Whose child lists changed: the parent it left and the one it joined (the change log knows the former).
+    const Document::ChangeRecord* rec = doc_.lastChange();
+    Guid before = rec && rec->id == c.guid ? rec->parentBefore : kNoGuid;
+    const Node* now = c.phase == Phase::REMOVED ? nullptr : doc_.get(c.guid);
+    Guid after = now ? now->props.parentIndex.guid : kNoGuid;
+    auto note = [&](Guid parent) {
+      if (parent == kNoGuid || events_.structureAll) return;
+      auto& list = events_.structureParents;
+      if (std::find(list.begin(), list.end(), parent) != list.end()) return;
+      if (list.size() >= 256) {
+        events_.structureAll = true;
+        list.clear();
+        return;
+      }
+      list.push_back(parent);
+    };
+    note(before);
+    if (after != before) note(after);
+  }
   bool canvas = typeBefore == NodeType::CANVAS || (c.phase == Phase::CREATED && c.props.type == NodeType::CANVAS);
   if (canvas && (c.phase != Phase::CHANGED || (c.mask & (F_NAME | F_PARENT_INDEX | F_INTERNAL_ONLY)))) events_.pages = true;
   needsRender_ = true;
@@ -302,14 +393,12 @@ void Editor::rollback() {
 }
 
 void Editor::relayoutAll() {
-  std::vector<Guid> dirty;
+  std::vector<Guid> dirty;  // kept empty: pages lay out when first shown (derivePage)
   std::vector<Guid> unusedDeleted;
   std::unordered_set<Guid, GuidHash> used;
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
-    if (n.props.isAutoLayout() || n.props.fitsChildren()) dirty.push_back(n.guid);
     if (n.props.type == NodeType::INSTANCE) {
-      instanceDirty_.insert(n.guid);
       used.insert(n.props.symbolData.symbolID);
       for (const SymbolOverride& o : n.props.symbolData.overrides)
         if (o.mask & F_OVERRIDDEN_SYMBOL_ID) used.insert(o.props.overriddenSymbolID);
@@ -343,6 +432,41 @@ void Editor::relayoutAll() {
     collect(collect, g);
     for (Guid id : order) write(NodeChange::removed(id));
   }
+  flushBindings();
+  inLayout_ = true;
+  Layout(*this).run(dirty);
+  inLayout_ = false;
+  commit();
+}
+
+void Editor::derivePage(Guid page) {
+  const Node* pn = doc_.get(page);
+  if (!pn || pn->props.type != NodeType::CANVAS || derivedPages_.count(page)) return;
+  // Not inside an open step (a gesture, a panel scrub): its writes would join that undo step. The next call derives.
+  if (txn_.open) return;
+  derivedPages_.insert(page);
+  // Its instances (their sublayers were never stored) and its auto-layout frames and groups (stored geometry can be
+  // stale), as Figma loads a page with its dependencies on first show.
+  std::vector<Guid> dirty;
+  std::vector<Guid> stack{page};
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    for (Guid c : doc_.children(id)) {
+      if (c.isDerived()) continue;
+      const Node* n = doc_.get(c);
+      if (!n) continue;
+      if (n->props.type == NodeType::INSTANCE && !derivedRows_.count(c)) instanceDirty_.insert(c);
+      if (n->props.isAutoLayout() || n->props.fitsChildren()) dirty.push_back(c);
+      stack.push_back(c);
+    }
+  }
+  if (dirty.empty() && instanceDirty_.empty()) return;
+  std::sort(dirty.begin(), dirty.end());
+  // Page loading (docs/engine.md §9.2, kind LOAD): derived data, nothing emitted, not an undo step — a read that
+  // derives a page is still a read. Stale stored geometry of the page is corrected in memory and reaches the file
+  // with the next edit of those nodes (and is re-derived the same way at the next load).
+  begin(TxnKind::LOAD, "Page");
   flushBindings();
   inLayout_ = true;
   Layout(*this).run(dirty);
@@ -534,6 +658,13 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   if (text_.node != kNoGuid) events_.textEdit = true;
   text_ = TextSession{};
   hasLibraryCopies_ = false;
+  derivedPages_.clear();
+  keyIndex_.clear();
+  keyOf_.clear();
+  instanceCounts_.clear();
+  instanceMain_.clear();
+  infoCache_.clear();
+  docNode_ = kNoGuid;
   for (const NodeChange& c : nodes) {
     if (c.guid.isDerived()) continue;
     NodeChange created = c;
@@ -542,6 +673,7 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
     doc_.apply(created);
     if (!c.props.sourceLibraryKey.empty()) hasLibraryCopies_ = true;
   }
+  rebuildIndexes();
   page_ = kNoGuid;
   auto all = pages();
   if (std::find(all.begin(), all.end(), page) != all.end()) page_ = page;
@@ -550,9 +682,12 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   selection_.clear();
   hover_ = kNoGuid;
   events_.selection = events_.undo = events_.structure = events_.pages = events_.currentPage = true;
+  events_.structureAll = true;
   needsRender_ = true;
-  // Auto layout as the file says it should be (stored geometry can be stale); not an undo step.
+  // The file's global bookkeeping, then the opened page's instances and auto layout (other pages on their first
+  // show: docs/engine.md §3.4 as built); neither is an undo step.
   relayoutAll();
+  derivePage(page_);
   events_.undo = true;
 }
 
@@ -613,13 +748,11 @@ std::vector<NodeChange> Editor::encodeDocument() const {
 
 std::vector<Guid> Editor::pages() const {
   std::vector<Guid> out;
-  doc_.forEach([&](const Node& n) {
-    if (n.props.type != NodeType::DOCUMENT) return;
-    for (Guid c : doc_.children(n.guid)) {
-      const Node* p = doc_.get(c);
-      if (p && p->props.type == NodeType::CANVAS && !p->props.internalOnly) out.push_back(c);
-    }
-  });
+  if (!doc_.has(docNode_)) return out;
+  for (Guid c : doc_.children(docNode_)) {
+    const Node* p = doc_.get(c);
+    if (p && p->props.type == NodeType::CANVAS && !p->props.internalOnly) out.push_back(c);
+  }
   return out;
 }
 
@@ -629,6 +762,7 @@ Status Editor::setCurrentPage(Guid page) {
   if (page == page_) return OK;
   cancelGesture();
   endTextEdit();
+  derivePage(page);
   pageSelections_[page_] = selection_;
   page_ = page;
   std::vector<Guid> kept;
@@ -639,7 +773,7 @@ Status Editor::setCurrentPage(Guid page) {
   measureTarget_ = kNoGuid;
   measures_.clear();
   bands_.clear();
-  events_.currentPage = events_.structure = true;
+  events_.currentPage = events_.structure = events_.structureAll = true;
   needsRender_ = true;
   return OK;
 }

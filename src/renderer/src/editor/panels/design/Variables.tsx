@@ -8,11 +8,11 @@
  * nothing selected) sets a collection's mode on the layers or the page, and
  * each mode set there shows as a row with its collection and the mode.
  */
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { FieldPrefix, Icon, IconButton, MenuButton, Select, Swatch, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor } from "../../controller";
-import { useDocumentVersion, useLocalAssets } from "../../hooks";
+import { GEOMETRY_GROUPS, useDocumentVersion, useLocalAssets } from "../../hooks";
 import { colorToHex, toPercent } from "../../model/color";
 import { BIND_TYPE, modeCollections, paintVariable, splitName, variableBindings, type BindField, type Variable } from "../../model/variables";
 import { bindPaint, bindVariable, modesAt, resolveAt, setExplicitMode } from "../../variables";
@@ -159,11 +159,14 @@ export function paintScope(nodes: readonly PanelNode[], field: "fillPaints" | "s
 export function ApplyModeButton({ refs }: { refs: readonly Guid[] }) {
   const ed = useEditor();
   const a = useLocalAssets();
-  useDocumentVersion();
+  const version = useDocumentVersion(~GEOMETRY_GROUPS); // modes never change with a move or a resize
   const collections = modeCollections(a.collections);
+  const first = refs[0];
+  // Two engine reads per layer: not per render (the panel re-renders every frame of a drag), only per change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the document (version) or the layer changed
+  const modes = useMemo(() => (first ? modesAt(ed, first) : new Map<Guid, { mode: Guid; explicit: boolean; inherited: Guid }>()), [ed, first, version, a]);
   if (!refs.length) return null;
   if (!collections.length) return <IconButton icon="24.variable.mode.small" label="Apply variable mode" tone="secondary" disabled />;
-  const modes = modesAt(ed, refs[0]);
   const entries: MenuEntry[] = collections.map((c) => {
     const m = modes.get(c.id);
     const inherited = c.modes.find((x) => x.id === m?.inherited)?.name ?? c.modes[0]?.name;
@@ -196,9 +199,11 @@ export function ApplyModeButton({ refs }: { refs: readonly Guid[] }) {
 export function ModeRows({ refs }: { refs: readonly Guid[] }) {
   const ed = useEditor();
   const a = useLocalAssets();
-  useDocumentVersion();
+  const version = useDocumentVersion(~GEOMETRY_GROUPS);
+  const key = refs.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the document (version) or the selection (key) changed
+  const per = useMemo(() => refs.map((r) => modesAt(ed, r)), [ed, key, version, a]);
   if (!refs.length) return null;
-  const per = refs.map((r) => modesAt(ed, r));
   const rows = a.collections.filter((c) => per.every((m) => m.get(c.id)?.explicit));
   if (!rows.length) return null;
   return (

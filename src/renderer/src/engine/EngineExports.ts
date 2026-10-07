@@ -132,6 +132,7 @@ export class EngineExports {
   getSelection = (h: number): number => this.fn("get_selection")(h);
   setSelection = (h: number, refs: Uint8Array): number => this.withBytes([refs], (p) => this.fn("set_selection")(h, p[0], p[1]));
   layerTree = (h: number, sessionID: number, localID: number): number => this.fn("layer_tree")(h, sessionID, localID);
+  layerChanges = (h: number, sessionID: number, localID: number, since: number): number => this.fn("layer_changes")(h, sessionID, localID, since);
   readNodes = (h: number, refs: Uint8Array, flags: number): number =>
     this.withBytes([refs], (p) => this.fn("read_nodes")(h, p[0], p[1], flags));
   hitTest = (h: number, x: number, y: number, flags: number): number => this.fn("hit_test")(h, x, y, flags);
@@ -250,7 +251,7 @@ export const USED_EXPORTS = [
   "create", "destroy", "load", "apply_changes", "encode_document", "set_current_page", "pages",
   "set_viewport", "set_camera", "get_camera", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored",
-  "get_selection", "set_selection", "read_nodes", "layer_tree", "hit_test",
+  "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_node_thumbnail", "ref_id", "component_info",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",

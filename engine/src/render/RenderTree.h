@@ -8,13 +8,16 @@
 //
 // It is kept in step with the document through Document's change log: a
 // structural change (a node added, removed, moved, shown or hidden, its type,
-// clipping or masking changed) rebuilds the page's tree; any other change only
+// clipping or masking changed) re-places that node's subtree in the array —
+// taken out where it was, built again where it belongs now — and only many
+// such changes at once rebuild the page's tree; any other change only
 // recomputes the bounds of the changed node's subtree and of its ancestors.
 #pragma once
 
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "scene/Document.h"
@@ -51,9 +54,13 @@ class RenderTree {
     auto it = index_.find(id);
     return it == index_.end() ? -1 : static_cast<int>(it->second);
   }
-  // Rebuilds and bound updates since construction (tests, stats).
+  // Rebuilds, subtree relocations and bound updates since construction (tests, stats).
   uint32_t rebuilds() const { return rebuilds_; }
+  uint32_t relocations() const { return relocations_; }
   uint32_t updates() const { return updates_; }
+  // The array as a fresh build would make it (tests): false when it differs (an index, range, parent or
+  // visual-bounds mismatch).
+  bool consistent(const Document& doc) const;
 
   // Damage: where the page's pixels may have changed since the last takeDamage (world space) — each changed
   // node's visual bounds before and after the change. `all`: everything (a first build, a page that changed,
@@ -67,8 +74,18 @@ class RenderTree {
  private:
   void build(const Document& doc);
   void add(const Document& doc, Guid id, uint32_t parent, int depth);
+  // `id`'s subtree built into `out` (indices absolute from `base`), as add() would.
+  void addTo(std::vector<RenderNode>& out, const Document& doc, Guid id, uint32_t parent, int depth, uint32_t base);
+  // Re-placing a changed subtree, in two passes over all of them: detach() takes it out of where it is (damage where
+  // it was; its ancestors go into `chains` for rebound()); attach() builds it again where the document puts it now
+  // (nowhere when it is hidden or gone; damage where it is; `placed` gathers the ids built, so a later record of one
+  // of them is skipped).
+  void detach(const Document& doc, Guid id, std::vector<Guid>& chains);
+  void attach(const Document& doc, Guid id, std::unordered_set<Guid, GuidHash>& placed, std::vector<Guid>& chains);
   // The visual bounds of node `i` from its own render bounds and its children's (already current).
   void bound(const Document& doc, uint32_t i);
+  // bound() for `ids` (ancestor chains), deepest first.
+  void rebound(const Document& doc, std::vector<Guid>& ids);
 
   Guid page_ = kNoGuid;
   bool built_ = false;
@@ -77,7 +94,7 @@ class RenderTree {
   std::unordered_map<Guid, uint32_t, GuidHash> index_;
   std::vector<Document::ChangeRecord> changes_;
   std::vector<uint8_t> marks_;
-  uint32_t rebuilds_ = 0, updates_ = 0;
+  uint32_t rebuilds_ = 0, relocations_ = 0, updates_ = 0;
   Damage damage_{true, {}};
   std::function<bool(Guid, Rect&)> ink_;
   void damage(const Rect& r);

@@ -62,8 +62,9 @@ FieldMask presentFields(const NodeProps& p);
 // Writes one change. Blob fields need `blobs` (the Message's blob table); without it they're left out.
 void writeChange(json::Writer& w, const NodeChange& change, BlobsOut* blobs = nullptr);
 void writeChanges(json::Writer& w, const std::vector<NodeChange>& changes, BlobsOut* blobs = nullptr);
-// A node with every field (for panels).
+// A node with every field (for panels), or with the fields of `mask` (`type` always; a panel that needs only paints).
 void writeNode(json::Writer& w, const Node& node, BlobsOut* blobs = nullptr);
+void writeNode(json::Writer& w, const Node& node, FieldMask mask, BlobsOut* blobs);
 // {"type":"NODE_CHANGES","sessionID":…,"nodeChanges":[…],"blobs":[…]}.
 void writeMessage(json::Writer& w, uint32_t sessionID, const std::vector<NodeChange>& changes);
 

@@ -78,6 +78,26 @@ export function engineCommandEnabled(engine: Engine, name: string): boolean {
   return hasCommand(name) && (engine.commandState(name) & CMD_ENABLED) !== 0;
 }
 
+// ---- Loading -------------------------------------------------------------------------------------
+
+/**
+ * Loads a document the source already encoded in the engine's wire form (the load worker's bytes): through the
+ * facade's own method when it has one (`loadEncoded` / `loadBytes`), else straight through the module's
+ * `engine_load` — the same call `Engine.load` makes after encoding — followed by the facade's event pump.
+ */
+export function loadEngineBytes(engine: Engine, bytes: Uint8Array): number {
+  const direct = engineMethod<(b: Uint8Array) => number>(engine, "loadEncoded", "loadBytes");
+  if (direct) return direct(bytes);
+  // Engine.ts keeps its exports and handle private; this is the one place outside it that reaches them (the engine
+  // owner can replace it with a facade method — see docs/editor.md "Needed from other workstreams").
+  const x = engine["x" as keyof Engine] as unknown as { load(h: number, bytes: Uint8Array): number } | undefined;
+  const h = engine["h" as keyof Engine] as unknown as number | undefined;
+  if (!x || typeof x.load !== "function" || !h) return Status.E_UNSUPPORTED;
+  const status = x.load(h, bytes);
+  engine.pump();
+  return status;
+}
+
 // ---- Methods -------------------------------------------------------------------------------------
 
 /**

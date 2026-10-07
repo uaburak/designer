@@ -173,7 +173,8 @@ function HeaderActions({ nodes }: { nodes: PanelNode[] }) {
         disabled={!isEnabled(ed, command("object.create-component"))}
         onClick={() => runEditorCommand(ed, "object.create-component")}
       />
-      <IconButton icon="24.mask" label={mask.label} shortcut={shortcutOf(mask)} tone="secondary" disabled={!isEnabled(ed, mask)} aria-pressed={mask.checked?.(ed) ?? false} onClick={() => runEditorCommand(ed, mask.id)} />
+      {/* Pressed when every selected layer is a mask: read from the panel's nodes (the command's own check re-reads the selection from the engine on every render). */}
+      <IconButton icon="24.mask" label={mask.label} shortcut={shortcutOf(mask)} tone="secondary" disabled={!isEnabled(ed, mask)} aria-pressed={nodes.some((n) => (n as { mask?: boolean }).mask === true)} onClick={() => runEditorCommand(ed, mask.id)} />
       {anyBoolean ? (
         <MenuButton label="Boolean groups" entries={entries} className={styles.iconMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
           <Icon name="24.boolean.small" />

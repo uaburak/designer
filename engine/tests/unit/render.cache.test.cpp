@@ -79,23 +79,178 @@ TEST_CASE("render tree: paint order, subtrees, visual bounds") {
   CHECK(damage.rects[0].x == doctest::Approx(380));  // before
   CHECK(damage.rects[1].x == doctest::Approx(310));  // after
 
-  // Showing a node rebuilds; a change on another page doesn't touch this one.
+  // Showing a node re-places its subtree (no rebuild); a change on another page doesn't touch this one.
   NodeChange show = NodeChange::changed({1, 5});
   show.mask = F_VISIBLE;
   show.props.visible = true;
   d.apply(show);
   t.sync(d, kPage);
-  CHECK(t.rebuilds() == rebuilds + 1);
+  CHECK(t.rebuilds() == rebuilds);
+  CHECK(t.relocations() == 1);
   CHECK(t.indexOf({1, 5}) == 4);
-  t.takeDamage();
+  CHECK(t.consistent(d));
+  damage = t.takeDamage();
+  REQUIRE(damage.rects.size() == 1);  // where it is now (it drew nowhere before)
+  CHECK(damage.rects[0].w == doctest::Approx(10));
   NodeProps other;
   other.type = NodeType::CANVAS;
   other.parentIndex = {kDoc, "#"};
   d.apply(NodeChange::created({9, 1}, other));
   d.apply(make({9, 2}, NodeType::ELLIPSE, {9, 1}, "!", {0, 0, 10, 10}));
   t.sync(d, kPage);
-  CHECK(t.rebuilds() == rebuilds + 1);
+  CHECK(t.rebuilds() == rebuilds);
+  CHECK(t.relocations() == 1);
   CHECK(t.takeDamage().rects.empty());
+}
+
+TEST_CASE("render tree: structural changes re-place subtrees and leave the array as a fresh build would") {
+  Document d;
+  base(d);
+  grid(d, 30);  // 30 frames with a rectangle each, in a 10 × 3 grid
+  // A frame with a nested frame and two leaves inside, and a group, to move things into and out of.
+  d.apply(make({3, 1}, NodeType::FRAME, kPage, "~", {0, 500, 300, 300}, "Holder"));
+  d.apply(make({3, 2}, NodeType::FRAME, {3, 1}, "!", {10, 10, 100, 100}, "Inner"));
+  d.apply(make({3, 3}, NodeType::ROUNDED_RECTANGLE, {3, 2}, "!", {5, 5, 20, 20}));
+  d.apply(make({3, 4}, NodeType::ELLIPSE, {3, 1}, "\"", {150, 150, 40, 40}));
+  RenderTree t;
+  t.sync(d, kPage);
+  REQUIRE(t.consistent(d));
+  uint32_t rebuilds = t.rebuilds();
+  auto reparent = [&](Guid id, Guid parent, const std::string& position) {
+    NodeChange c = NodeChange::changed(id);
+    c.mask = F_PARENT_INDEX;
+    c.props.parentIndex = {parent, position};
+    REQUIRE(d.apply(c));
+  };
+  auto step = [&](const char* what) {
+    INFO(what);
+    t.sync(d, kPage);
+    CHECK(t.rebuilds() == rebuilds);
+    CHECK(t.consistent(d));
+  };
+  // Into a deeper frame, to the end; then back to the page's top (first in paint order); then reordered among
+  // siblings; into a frame it was never in; out to the page's last place.
+  reparent({2, 5}, {3, 2}, "~");
+  step("a leaf into a nested frame");
+  CHECK(t.indexOf({2, 5}) == t.indexOf({3, 2}) + 2);
+  reparent({2, 5}, kPage, " ");
+  step("the leaf to the page's first place");
+  CHECK(t.indexOf({2, 5}) == 0);
+  reparent({1, 7}, kPage, "~~");
+  step("a frame to the page's last place");
+  CHECK(t.indexOf({1, 7}) == static_cast<int>(t.size()) - 2);
+  reparent({3, 2}, {1, 7}, "~");
+  step("a frame with children into another frame");
+  reparent({3, 4}, {3, 2}, "!");
+  step("a leaf into the moved frame, first among its children");
+  // Hidden, shown, removed, created (with a child), the type changed, clipping changed; a CREATED replace.
+  NodeChange hide = NodeChange::changed({1, 3});
+  hide.mask = F_VISIBLE;
+  hide.props.visible = false;
+  d.apply(hide);
+  step("a frame hidden");
+  CHECK(t.indexOf({1, 3}) == -1);
+  CHECK(t.indexOf({2, 3}) == -1);
+  hide.props.visible = true;
+  d.apply(hide);
+  step("shown again");
+  CHECK(t.indexOf({2, 3}) == t.indexOf({1, 3}) + 1);
+  d.apply(NodeChange::removed({2, 9}));
+  d.apply(NodeChange::removed({1, 9}));
+  step("a frame and its child removed");
+  d.apply(make({4, 1}, NodeType::FRAME, {1, 4}, "~", {50, 50, 30, 30}));
+  d.apply(make({4, 2}, NodeType::ELLIPSE, {4, 1}, "!", {0, 0, 10, 10}));
+  step("a frame with a child created inside a frame");
+  NodeChange clip = NodeChange::changed({3, 1});
+  clip.mask = F_FRAME_MASK_DISABLED;
+  clip.props.frameMaskDisabled = true;
+  d.apply(clip);
+  step("a frame stops clipping (its visual bounds grow to its children)");
+  NodeChange retype = NodeChange::changed({2, 1});
+  retype.mask = F_TYPE;
+  retype.props.type = NodeType::ELLIPSE;
+  d.apply(retype);
+  step("a leaf's type changed");
+  d.apply(make({3, 1}, NodeType::FRAME, kPage, "~", {0, 500, 300, 300}, "Holder again"));
+  step("a CREATED for a live id (a replace)");
+  // Several at once, in one sync: a hide, a reparent, a creation and a removal.
+  d.apply(hide);
+  reparent({1, 12}, {3, 1}, "!");
+  d.apply(make({5, 1}, NodeType::ROUNDED_RECTANGLE, kPage, "~~~", {1, 1, 5, 5}));
+  d.apply(NodeChange::removed({2, 14}));
+  step("four structural changes in one sync");
+  CHECK(t.relocations() >= 14);
+  // A batch below the rebuild limit: reorders among stale siblings, moves into the same new parent in both orders,
+  // a node moved twice. Re-placed, and still as a fresh build would make it.
+  for (uint32_t i = 15; i <= 20; i++) reparent({1, i}, {3, 1}, "~");
+  reparent({1, 16}, {3, 1}, "!");
+  reparent({1, 1}, {3, 1}, "~");
+  reparent({1, 2}, {3, 1}, "~");
+  reparent({1, 19}, {3, 1}, " ");
+  reparent({1, 15}, {3, 1}, "~~");
+  t.sync(d, kPage);
+  CHECK(t.rebuilds() == rebuilds);
+  CHECK(t.consistent(d));
+  // Reorders only, in one sync: the first child to the end, the last to the front, the middle one swapped.
+  reparent({1, 21}, kPage, "~~~~");
+  reparent({1, 28}, kPage, "  ");
+  reparent({1, 24}, kPage, "   ");
+  reparent({1, 25}, kPage, "    ");
+  t.sync(d, kPage);
+  CHECK(t.rebuilds() == rebuilds);
+  CHECK(t.consistent(d));
+  // Many at once rebuild instead (and stay consistent).
+  for (uint32_t i = 21; i <= 28; i++) reparent({1, i}, {3, 1}, "~");
+  reparent({1, 4}, {3, 1}, "~");
+  reparent({1, 5}, {3, 1}, "~");
+  reparent({1, 6}, {3, 1}, "~");
+  reparent({1, 8}, {3, 1}, "~");
+  reparent({1, 10}, {3, 1}, "~");
+  reparent({1, 11}, {3, 1}, "~");
+  reparent({1, 13}, {3, 1}, "~");
+  reparent({1, 14}, {3, 1}, "~");
+  reparent({1, 15}, {3, 1}, "!");
+  reparent({1, 17}, {3, 1}, "!");
+  reparent({1, 18}, {3, 1}, "!");
+  reparent({1, 19}, {3, 1}, "!");
+  reparent({1, 20}, {3, 1}, "!");
+  reparent({1, 21}, {3, 1}, "!");
+  reparent({1, 22}, {3, 1}, "!");
+  reparent({1, 23}, {3, 1}, "!");
+  reparent({1, 24}, {3, 1}, "!");
+  t.sync(d, kPage);
+  CHECK(t.rebuilds() == rebuilds + 1);
+  CHECK(t.consistent(d));
+  // The page's own change rebuilds too.
+  NodeChange pg = NodeChange::changed(kPage);
+  pg.mask = F_VISIBLE;
+  pg.props.visible = true;
+  d.apply(pg);
+  t.sync(d, kPage);
+  CHECK(t.rebuilds() == rebuilds + 2);
+}
+
+TEST_CASE("render tree: a relocation's damage is where the subtree was and where it is") {
+  Document d;
+  base(d);
+  d.apply(make({1, 1}, NodeType::FRAME, kPage, "A", {0, 0, 100, 100}));
+  d.apply(make({1, 2}, NodeType::ROUNDED_RECTANGLE, {1, 1}, "A", {10, 10, 20, 20}));
+  d.apply(make({1, 3}, NodeType::FRAME, kPage, "B", {500, 0, 100, 100}));
+  RenderTree t;
+  t.sync(d, kPage);
+  t.takeDamage();
+  NodeChange c = NodeChange::changed({1, 2});
+  c.mask = F_PARENT_INDEX | F_TRANSFORM;
+  c.props.parentIndex = {{1, 3}, "A"};
+  c.props.transform = Mat2x3::translate(30, 30);
+  d.apply(c);
+  t.sync(d, kPage);
+  CHECK(t.consistent(d));
+  auto damage = t.takeDamage();
+  CHECK_FALSE(damage.all);
+  REQUIRE(damage.rects.size() >= 2);
+  CHECK(damage.rects.front().x == doctest::Approx(10));   // where it was
+  CHECK(damage.rects.back().x == doctest::Approx(530));   // where it is
 }
 
 TEST_CASE("renderer: off-screen subtrees are culled whole, sub-pixel ones skipped, tiny text greeked") {

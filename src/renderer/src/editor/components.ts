@@ -20,7 +20,7 @@ import { showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { Guid, Message, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { engineCommandEnabled, engineMethod, hasCommand, runEngineCommand, type CommandArgs } from "./engineCompat";
+import { engineCall, engineCommandEnabled, engineMethod, hasCommand, runEngineCommand, type CommandArgs } from "./engineCompat";
 import { frameAt, toPage } from "./placeImages";
 import { libraryOfMain, openLibraryFile } from "./libraries";
 import {
@@ -134,10 +134,14 @@ export interface EngineComponentInfo {
   instanceCount: number;
 }
 
-/** `engine.componentInfo(ref)` when the build has it (E6), else undefined (null: the engine says nothing). */
+/**
+ * `engine.componentInfo(ref)` when the build has it (E6), else undefined (null: the engine says nothing). Read once
+ * per (ref, document version) through the ComponentIndex: the instance header, its properties, the bind button,
+ * the command states and the Reset ▸ menu all ask for the same instance in one render (five reads of a whole-
+ * document walk per render was most of a variant instance's selection cost).
+ */
 export function engineInfo(ed: EditorController, ref: Guid): EngineComponentInfo | null | undefined {
-  const read = engineMethod<(ref: Guid) => EngineComponentInfo | null>(ed.engine, "componentInfo");
-  return read ? read(ref) : undefined;
+  return ed.components.info(ref);
 }
 
 /** The engine's property value as the schema's ComponentPropValue. */
@@ -255,10 +259,16 @@ export function subtree(ed: EditorController, root: Guid, limit = 5000): CNode[]
 
 // ---- The file's components ---------------------------------------------------------------------------------------
 
+/** NODES_CHANGED field groups that can change what `componentInfo` says before the change commits (engine.md §10.4). */
+const COMPONENT_GROUPS = 64 | 128; // G_COMPONENT | G_BINDINGS
+
 /** The file's local components on its pages, read again after any change (Assets, the instance menu, swaps). */
 export class ComponentIndex {
   private cache: { version: number; assets: ComponentAsset[] } | null = null;
   private version = 0;
+  /** `engine.componentInfo` per ref, valid for one document version (and dropped by a live component-group change). */
+  private infoCache = new Map<Guid, EngineComponentInfo | null>();
+  private infoVersion = -1;
   private readonly offs: (() => void)[] = [];
   private readonly listeners = new Set<() => void>();
 
@@ -271,6 +281,11 @@ export class ComponentIndex {
       ed.engine.on("DOCUMENT_CHANGED", bump),
       ed.store.subscribe("structure", bump),
       ed.store.subscribe("pages", bump),
+      ed.engine.on("NODES_CHANGED", (e) => {
+        // A live change to properties or bindings (before its commit): the next read asks the engine again. A move
+        // or a resize (GEOMETRY / LAYOUT) changes nothing an instance's panel shows until it commits.
+        if (e.fieldGroupMask.some((m) => (m & COMPONENT_GROUPS) !== 0)) this.infoCache.clear();
+      }),
       // E6: instances re-derived (a main's change reaching them); navigation clears the pill when the engine returns.
       ed.engine.onAny((e) => {
         const type = (e as { type: string }).type;
@@ -283,6 +298,7 @@ export class ComponentIndex {
   dispose(): void {
     this.offs.splice(0).forEach((off) => off());
     this.listeners.clear();
+    this.infoCache.clear();
   }
 
   readonly subscribe = (l: () => void): (() => void) => {
@@ -292,13 +308,38 @@ export class ComponentIndex {
 
   readonly getVersion = (): number => this.version;
 
+  /**
+   * `engine.componentInfo(ref)` (E6), read once per document version per ref; undefined when the build has no such
+   * read, null when the engine says nothing about the ref.
+   */
+  info(ref: Guid): EngineComponentInfo | null | undefined {
+    const read = engineMethod<(ref: Guid) => EngineComponentInfo | null>(this.ed.engine, "componentInfo");
+    if (!read || this.ed.engine.destroyed) return undefined;
+    if (this.infoVersion !== this.version) {
+      this.infoCache.clear();
+      this.infoVersion = this.version;
+    }
+    const cached = this.infoCache.get(ref);
+    if (cached !== undefined || this.infoCache.has(ref)) return cached ?? null;
+    const info = read(ref);
+    this.infoCache.set(ref, info);
+    return info;
+  }
+
+  /** Forgets the cached component reads (a write inside an open step, before its DOCUMENT_CHANGED). */
+  invalidateInfo(): void {
+    this.infoCache.clear();
+  }
+
   /** Every local component and set on the file's pages (variants are reached through their set). */
   assets(): ComponentAsset[] {
     if (this.cache?.version === this.version) return this.cache.assets;
     const ed = this.ed;
     const assets: ComponentAsset[] = [];
-    if (!ed.engine.destroyed) {
-      for (const page of ed.engine.pages()) {
+    const indexed = ed.engine.destroyed ? null : this.assetsFromIndex();
+    if (indexed) assets.push(...indexed);
+    else if (!ed.engine.destroyed) {
+      for (const page of ed.store.pages) {
         const walk = (ids: Guid[], frame: CNode | null) => {
           if (!ids.length) return;
           for (const raw of ed.engine.readNodes(ids, { childIds: true })) {
@@ -323,6 +364,35 @@ export class ComponentIndex {
     }
     this.cache = { version: this.version, assets };
     return assets;
+  }
+
+  /**
+   * The assets from the engine's asset index (`localAssets`, docs/engine-build.md "E6 libraries API": every local
+   * component and set with the page and top-level frame it sits in) — no walk over the document. Null without it.
+   */
+  private assetsFromIndex(): ComponentAsset[] | null {
+    const ed = this.ed;
+    const read = engineCall<() => { id: Guid; kind: string; name: string; description: string; key: string; componentSetId?: Guid; softDeleted: boolean; containingFrame: { pageId: Guid; pageName: string; frameId?: Guid; frameName?: string } | null }[]>(ed.engine, "localAssets", "local_assets");
+    if (!read) return null;
+    const infos = read().filter((a) => (a.kind === "COMPONENT" || a.kind === "COMPONENT_SET") && !a.softDeleted && a.containingFrame);
+    const out: ComponentAsset[] = [];
+    const variantsOfSet = new Map<Guid, number>();
+    for (const a of infos) if (a.kind === "COMPONENT" && a.componentSetId) variantsOfSet.set(a.componentSetId, (variantsOfSet.get(a.componentSetId) ?? 0) + 1);
+    for (const a of infos) {
+      const where = a.containingFrame!;
+      const page = { guid: where.pageId, name: where.pageName };
+      const frame = where.frameId ? ({ guid: where.frameId, name: where.frameName ?? "" } as CNode) : null;
+      if (a.kind === "COMPONENT_SET") {
+        const set = readC(ed, a.id);
+        if (!set) continue;
+        const first = defaultVariant(variantsOf(ed, set));
+        if (first) out.push(asset({ ...set, name: a.name, description: a.description, key: a.key || set.key } as CNode, "set", first.guid, page, frame, variantsOfSet.get(a.id) ?? 0));
+        continue;
+      }
+      if (a.componentSetId) continue; // a variant: reached through its set
+      out.push({ id: a.id, name: a.name, kind: "component", target: a.id, page: page.guid, pageName: page.name, frame: frame?.guid ?? null, frameName: frame?.name ?? null, description: a.description || undefined, key: a.key || undefined });
+    }
+    return out;
   }
 
   /** The asset a component belongs to (its own, or its set's). */
@@ -837,7 +907,7 @@ export function returnToInstance(ed: EditorController): void {
   ed.ui.set({ returnToInstance: null });
   if (!back) return;
   if (engineDid(ed, COMPONENT_COMMAND.returnToInstance)) return;
-  if (back.page !== ed.store.page && ed.engine.pages().some((p) => p.guid === back.page)) ed.engine.setCurrentPage(back.page);
+  if (back.page !== ed.store.page && ed.store.pages.some((p) => p.guid === back.page)) ed.engine.setCurrentPage(back.page);
   ed.engine.setCamera(back.camera);
   const instance = readC(ed, back.instance) ?? readC(ed, parseDerivedId(back.instance)?.instance ?? "");
   if (instance) ed.engine.setSelection([instance.guid]);
@@ -902,9 +972,12 @@ export function selectedInstance(ed: EditorController): CNode | null {
 /** Push changes to main component: the instance itself, a top-level one, its main in this file (R4 §3). */
 export function canPushChanges(ed: EditorController): boolean {
   const inst = selectedInstance(ed);
-  if (!inst || !engineCommandEnabled(ed.engine, COMPONENT_COMMAND.push)) return false;
+  if (!inst || !hasCommand(COMPONENT_COMMAND.push)) return false;
+  // The cached component read answers it; the engine's command state (a walk of the document on older builds) is
+  // asked only when the build has no componentInfo.
   const info = engineInfo(ed, inst.guid);
   if (info) return info.canPush;
+  if (info === null || !engineCommandEnabled(ed.engine, COMPONENT_COMMAND.push)) return false;
   if (parseDerivedId(inst.guid)) return false;
   const main = mainOf(ed, inst);
   return !!main && !!pageOf(ed, main.guid) && changedGroups(inst).length > 0;

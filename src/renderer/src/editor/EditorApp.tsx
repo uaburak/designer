@@ -17,8 +17,10 @@ import { Status } from "@/engine/abi";
 import { CanvasController } from "@/engine/CanvasController";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
+import { FALLBACK_FAMILIES, fonts } from "@/engine/fonts";
 import type { DocumentSource } from "./documentSource";
 import { EditorContext, EditorController, useEditor } from "./controller";
+import { loadEngineBytes } from "./engineCompat";
 import { attachKeyboard } from "./keyboard";
 import { attachClipboard } from "./clipboardIO";
 import { attachDesktop } from "./desktop";
@@ -54,6 +56,17 @@ export interface EditorAppProps {
 
 const engineTheme = (t: ThemeName) => (t === "light" ? "LIGHT" : "DARK");
 
+/**
+ * How long the load waits for the document's fonts once they are requested (they are asked for as soon as the file is
+ * decoded, while it is still being converted): a font that is in before `engine_load` is shaped once; one that arrives
+ * after it costs a relayout of every text and a second first frame. Bundled Inter takes a few ms; a system face
+ * crosses the desktop's IPC. Past this the canvas shows with what has arrived (Figma draws before fonts too).
+ */
+const FONT_WAIT_MS = 300;
+
+/** Resolves when the font service is idle, or after `ms`. */
+const fontsSettledWithin = (ms: number) => Promise.race([fonts.settled(), new Promise<void>((r) => setTimeout(r, ms))]);
+
 export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" }: EditorAppProps) {
   const theme = useThemeRoot();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -75,19 +88,45 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
     let controller: EditorController | null = null;
     const cleanups: (() => void)[] = [];
     (async () => {
-      const doc = await source.load();
-      if (disposed) return;
-      const created = await Engine.create(canvas, { sessionID: source.sessionID ?? 1, theme: engineTheme(currentTheme().resolved) });
-      if (disposed) return created.destroy();
-      engine = created;
-      const loaded = engine.load(doc);
+      // The engine (Wasm compile, GL init, the bundled fonts' request) and the document (decoded and converted in the
+      // source's worker when it has one) are prepared together; the document's fonts are requested as soon as it is
+      // decoded, so they arrive while it is converted and `engine_load` shapes its text once.
+      const prepared = source.prepare?.() ?? null;
+      const creating = Engine.create(canvas, { sessionID: source.sessionID ?? 1, theme: engineTheme(currentTheme().resolved) });
+      let loaded: number;
+      let types: Parameters<EditorController["noteSourceTypes"]>[0];
+      if (prepared) {
+        const created = await creating;
+        if (disposed) return created.destroy();
+        void prepared.fonts.then((known) => {
+          if (disposed) return;
+          for (const f of known.fonts) fonts.request(f.family, f.style);
+          // Text in a script the Latin fonts lack: the engine will ask for its first fallback family after the load.
+          if (known.needsFallbackFont && FALLBACK_FAMILIES[0]) fonts.request(FALLBACK_FAMILIES[0], "Regular");
+        });
+        const doc = await prepared.document;
+        if (disposed) return created.destroy();
+        await fontsSettledWithin(FONT_WAIT_MS);
+        if (disposed) return created.destroy();
+        engine = created;
+        loaded = loadEngineBytes(engine, doc.bytes);
+        types = { nodeChanges: doc.types };
+      } else {
+        const [doc, created] = await Promise.all([source.load(), creating]);
+        if (disposed) return created.destroy();
+        engine = created;
+        loaded = engine.load(doc);
+        types = doc;
+      }
       if (loaded !== Status.OK) throw new Error(`the document could not be read (${loaded})`);
+      const created = engine;
       store = new EngineStore(engine);
       controller = new EditorController(engine, store, source);
-      controller.noteSourceTypes(doc);
+      controller.noteSourceTypes(types);
       controller.canvas = canvas;
       const ed = controller;
       cleanups.push(new CanvasController(canvas, engine, { shortcuts: [] }).attach());
+      cleanups.push(ed.attachGestureTracking(canvas));
       cleanups.push(engine.onDocumentChanged((_, e) => source.onChanges(e.message, { kind: e.kind, label: e.label })));
       // Changes made elsewhere (another window, sync) come in without an undo entry; a rename elsewhere shows here.
       const external = source.onExternalChanges?.((changes) => {
@@ -136,6 +175,15 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
   useEffect(() => {
     if (ed) onReady?.(ed);
   }, [ed, onReady]);
+
+  // The chrome has painted (two frames after its first commit): the file's images may go to the GPU now.
+  useEffect(() => {
+    if (!ed) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => ed.images.releaseUploads());
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [ed]);
 
   // ⌘-wheel and pinches anywhere in the editor zoom the canvas, never the page.
   useEffect(() => {

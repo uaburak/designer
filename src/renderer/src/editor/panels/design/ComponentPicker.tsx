@@ -38,7 +38,7 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
   const ed = useEditor();
   const assets = useComponentAssets();
   const [query, setQuery] = useState("");
-  const pages = ed.engine.pages().map((p) => p.guid);
+  const pages = ed.store.pages.map((p) => p.guid);
   const offered = assets.filter((a) => !exclude?.has(a.id) && !exclude?.has(a.target));
   const found = searchAssets(offered, query);
   const preferred = preferredKeys?.length ? found.filter((a) => preferredKeys.some((k) => isPreferred(a, k))) : [];

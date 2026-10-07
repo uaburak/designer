@@ -217,6 +217,10 @@ export const APPLY_SYSTEM = 8;
 export const APPLY_EXACT = 16;
 /** engine_read_nodes flags. */
 export const INCLUDE_CHILD_IDS = 1;
+/** Each ref followed by its descendants (pre-order, children back to front: paint order). */
+export const READ_SUBTREE = 2;
+/** With READ_SUBTREE: hidden layers and what is under them left out (the refs themselves are always written). */
+export const READ_VISIBLE_ONLY = 4;
 /** engine_paste flags. */
 export const PASTE_IN_PLACE = 1;
 /** engine_encode_selection flags. */
