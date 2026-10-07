@@ -238,7 +238,7 @@ std::vector<ComponentPropAssignment> Editor::assignmentsOf(Guid level) const {
 // ---- Dirty tracking -----------------------------------------------------------------
 
 void Editor::markInstanceDirty(const NodeChange& c) {
-  if (c.guid.isDerived() || c.guid == materializing_) return;
+  if (c.guid.isDerived() || c.guid == materializing_ || (!layingOut_.empty() && layingOut_.count(c.guid))) return;
   const Node* n = doc_.get(c.guid);
   FieldMask m = c.phase == Phase::CHANGED ? c.mask : F_ALL;
   if (c.phase == Phase::REMOVED) {
@@ -262,7 +262,16 @@ void Editor::flushInstances() {
     std::vector<Guid> list(instanceDirty_.begin(), instanceDirty_.end());
     instanceDirty_.clear();
     std::sort(list.begin(), list.end());
+    if (list.size() == 1 || deferredLayout_) {
+      for (Guid r : list) materialize(r);
+      continue;
+    }
+    // Many at once (a load, a font arriving, a main edited): every instance expanded, then laid out together.
+    std::vector<PendingLayout> batch;
+    deferredLayout_ = &batch;
     for (Guid r : list) materialize(r);
+    deferredLayout_ = nullptr;
+    finishLayouts(batch);
   }
   instanceDirty_.clear();
 }
@@ -579,32 +588,62 @@ void Editor::materialize(Guid R) {
       b.size = n->props.size;
       b.geometry = true;
     }
-    if (main != kNoGuid) L.run({R});
-    for (const DerivedRow& row : ex.rows) {
-      const Node* n = doc_.get(row.id);
-      const Blueprint& b = blueprint_[row.id];
-      if (n && b.frame && !n->props.isAutoLayout() && n->props.isFrameLike() && !sameSize(n->props.size, b.sourceSize))
-        L.constrainChildren(row.id);
+  }
+  inLayout_ = prevInLayout;
+  events_.components.push_back(R);
+  if (main != kNoGuid) events_.components.push_back(main);
+  PendingLayout pending{R, std::move(ids), main != kNoGuid, std::move(ex.slots)};
+  if (deferredLayout_) {
+    // A batch (flushInstances): stage B runs once for every instance of the batch (finishLayouts), so an
+    // auto-layout tree holding many instances is laid out once, not once per instance.
+    deferredLayout_->push_back(std::move(pending));
+  } else {
+    finishLayouts({std::move(pending)});
+  }
+  deriving_ = prevDeriving;
+  materializing_ = prevMaterializing;
+}
+
+void Editor::finishLayouts(const std::vector<PendingLayout>& batch) {
+  if (batch.empty()) return;
+  bool prevDeriving = deriving_, prevInLayout = inLayout_;
+  deriving_ = true;
+  inLayout_ = true;
+  // Stage B writes into these instances themselves (their size, their rows): that is their own derivation, not
+  // an edit that would derive them again (materializing_ in the single case).
+  for (const PendingLayout& p : batch) layingOut_.insert(p.instance);
+  {
+    Layout L(*this);
+    std::vector<Guid> roots;
+    for (const PendingLayout& p : batch)
+      if (p.hasMain && doc_.has(p.instance)) roots.push_back(p.instance);
+    if (!roots.empty()) L.run(roots, true);
+    for (const PendingLayout& p : batch) {
+      for (Guid row : p.rows) {
+        const Node* n = doc_.get(row);
+        auto b = blueprint_.find(row);
+        if (n && b != blueprint_.end() && b->second.frame && !n->props.isAutoLayout() && n->props.isFrameLike() &&
+            !sameSize(n->props.size, b->second.sourceSize))
+          L.constrainChildren(row);
+      }
     }
   }
   inLayout_ = prevInLayout;
-
   // Diverged slots: their content frame (a real child of the instance) sits where the slot is.
-  for (auto& [slot, content] : ex.slots) {
-    const Node* sn = doc_.get(slot);
-    const Node* cn = doc_.get(content);
-    if (!sn || !cn) continue;
-    NodeChange c = NodeChange::changed(content);
-    c.mask = F_TRANSFORM | F_SIZE;
-    c.props.transform = doc_.worldTransform(R).inverse() * doc_.worldTransform(slot);
-    c.props.size = sn->props.size;
-    write(c);
+  for (const PendingLayout& p : batch) {
+    for (auto& [slot, content] : p.slots) {
+      const Node* sn = doc_.get(slot);
+      const Node* cn = doc_.get(content);
+      if (!sn || !cn) continue;
+      NodeChange c = NodeChange::changed(content);
+      c.mask = F_TRANSFORM | F_SIZE;
+      c.props.transform = doc_.worldTransform(p.instance).inverse() * doc_.worldTransform(slot);
+      c.props.size = sn->props.size;
+      write(c);
+    }
   }
-
-  events_.components.push_back(R);
-  if (main != kNoGuid) events_.components.push_back(main);
+  for (const PendingLayout& p : batch) layingOut_.erase(p.instance);
   deriving_ = prevDeriving;
-  materializing_ = prevMaterializing;
 }
 
 Guid Editor::slotContentFor(Guid row, bool create) {

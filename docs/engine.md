@@ -343,6 +343,8 @@ Run by `Txn::flush()` (inside a gesture), by `Txn::commit()`, and by `engine_tic
 7. **World transforms and bounds** for `WORLD`/`BOUNDS`-dirty subtrees; update the spatial index (§8.1).
 8. **Render tree sync** for `RENDER`-dirty nodes; invalidate tiles (§6.9).
 
+*As built (2026-10-07), batches of instances:* when several instances derive at once (a load, a font arriving, a main edited), each is expanded and laid out on its own first (stage A), then every instance's layout root is arranged once, outer roots first (`Layout::run(dirty, everyRoot)`), then each instance's frames take their constraints and slots their place (`Editor::finishLayouts`). Laying each instance out alone re-arranged the whole auto-layout tree around it once per instance — 80 % of the large private test file's 10 s load. Results are identical (checked on every node of the owner's file).
+
 Steps 1–5 run before a transaction commits, so their writes join its change message and undo batch. Steps 6–8 run lazily in `engine_tick`. Stages 2–5 depend on each other (an instance resized by layout changes its derived children's layout). One ordered pass per flush is enough: layout handles the instance sublayers in the same recursion, and materialization never depends on layout output.
 
 ### 3.4 Load
@@ -536,7 +538,14 @@ The render tree is separate from the scene graph (Figma's `render-tree/`). It is
 
 It is synced from `RENDER`-dirty nodes. Hidden nodes, the internal canvas and other pages have no render nodes. `stackReverseZIndex` reverses the children range.
 
+**As built (performance round, 2026-10-07).** `render/RenderTree.{h,cpp}`: per page, the drawn nodes flattened in paint order (a node, its subtree, its next sibling). A `RenderNode` holds the node's id, a pointer to its `Node`, the index one past its subtree, its parent's index, whether it has children (hidden ones included) and its **visual bounds in world space** — what the node and its subtree can cover: render bounds (strokes, effects), children a frame doesn't clip, a group's children, a TEXT node's glyph ink (text overflows fixed boxes). Paints, effects and geometry are read from the `Node` at draw time (not copied). The renderer keeps one tree per page it drew (the current page's, thumbnails'), at most a few.
+- **Sync** through `Document`'s change log (`Document::version()`, `changesSince`; every `apply` records the node, whether the change was *structural* — created, removed, reparented or reordered, shown or hidden, type, group-ness, clipping, masks — and the node's render bounds before it). A structural change on this page rebuilds the page's tree (≈ 2–5 ms for 30k nodes); any other change recomputes the visual bounds of the changed node's subtree and of its ancestors (children before parents). Changes on other pages are ignored; a log that overflowed, or a font that arrived (text ink), rebuilds.
+- **Damage**: each sync also records, in world space, every changed node's visual bounds before and after the change (`takeDamage()`); the content cache (§6.9) draws those parts again.
+- Drawing walks the array from the page's first child: a subtree whose visual bounds miss the part being drawn is skipped by one test, a frame's children are the range after it, masks mask the sibling range after them. No node is looked up by GUID on the way.
+
 ### 6.3 Primitives and paths
+
+*As built (2026-10-07): one program for everything instanced.* Shapes (the SDF kinds) and paths / glyphs (curve coverage, below) are one uber shader (`gfx/gl/Shaders.h kDraw*`, `gfx::ShaderId::Shape`) branching on the instance's kind, with one instance layout (`render/DrawInstance.h`, 10 vec4s: the 7 below plus a clip rectangle and an axis-aligned rounded clip with its radii, in canvas device px). A run of mixed content — a card's fill, its text, its icon, the next card — is one draw call: only a different image texture, a backdrop, a stencil clip or a layer splits a batch, and an instance that samples no image joins a batch that binds one. (Before: Shape and Path were two programs and every scissor change split a batch: ~1 draw per node, 8.5k draws for the owner's 23k-instance page; Chrome's GPU process also keeps ~20 KB per draw call per frame under ANGLE/Metal.)
 
 **Primitives** (the bulk of design content) draw as one instanced, batched **analytic-SDF** quad pipeline (`shape.vert/frag`). One instance carries:
 - the 2×3 transform and size;
@@ -634,6 +643,8 @@ A leaf with opacity just multiplies alpha, with no layer.
 - `maskType VECTOR` / `maskIsOutline`: the mask's geometry becomes a clip (below). No layer.
 - `ALPHA` / `LUMINANCE`: render the mask into an R8 target (its alpha or luminance) and the masked siblings into a layer, then `composite.frag` multiplies.
 
+*As built (2026-10-07):* an axis-aligned clip travels with each instance (`DrawInstance::clip`, the pixels the frame touches — what the scissor did, without splitting batches); an **axis-aligned rounded** clip too (`round` + `radii`, anti-aliased by the rounded-box SDF in the shader, and in the Composite shader for layers composited inside it), when it nests with the one already in force (the inner one stays clear of the outer one's corners). Only turned frames, smoothed corners and two sets of corners that overlap use the stencil. Offscreen layers' targets come from a pool with a **192 MB budget** (idle targets least recently used go first; sizes in 64 px steps up to 1024, then 256; unused 30 frames: freed) — the unbudgeted pool kept every size it made for 120 frames, gigabytes during a zoom over faded frames.
+
 **Clipping frames** (`frameMaskDisabled=false`):
 - An axis-aligned rect clip in device space becomes the **scissor**.
 - Anything else (rounded, rotated, nested) renders the clip stack's coverage into an R8 **clip-mask** target with the SDF/path pipelines (AA edges). Shaders multiply by `uClipMask` when the instance's clip flag is set.
@@ -647,7 +658,19 @@ A leaf with opacity just multiplies alpha, with no layer.
   - Containers smaller than 2 px draw as one rect in the average of their fills (only in tiles at zoom < 0.25).
   - Text whose em is < 3 device px draws as greeked bars: line boxes at 35% of the text colour. It draws glyphs from 3 px up.
 
+*As built (2026-10-07):* culling is hierarchical over the render tree (§6.2): a subtree whose visual bounds miss the part being drawn (+2 CSS px) goes with one test, and so does one whose visual bounds are under half a device pixel on both axes; the spatial index stays for hit-testing, marquee and snapping (a paint-order walk with subtree bounds is cheaper than a query plus sorting by paint order). Greeked text: one bar per line, from the line's start over its width, 0.7 × ascent high on the baseline, in the first visible solid fill (grey for other paints) at 35 %. Not built: tiny containers as one rect.
+
 ### 6.9 Tiles (`render/Tiles`)
+
+**As built (2026-10-07): a content cache, not tiles** (`Renderer::renderCached`). The canvas engine keeps the page's pixels without the overlays in a canvas-sized target (and a second one to shift into) across frames:
+- a frame where only overlays changed (hover, selection, the caret, guides) **composites** the cache and draws the overlays over it;
+- a **pan** by whole device pixels **shifts** the cache and draws only the strips that came into view (wheel and hand-tool pans move by whole device pixels: `Editor::wheel`, the Pan gesture); a sub-pixel pan, a resize, another page, the theme's page colour, a font or an image arriving draw everything;
+- an **edit** draws again only where the changed layers were and are (the render tree's damage, §6.2, 4 device px wider), each part with every instance clipped to it; more than 16 parts, or more than 60 % of the canvas, draw everything at once;
+- a **zoom** draws everything at the new scale — except during a **continuous zoom in** (wheel, pinch: `Overlay::zooming`) on a page whose last full raster took more than 6 ms: then the cache is shown scaled (bilinear), as long as it still covers the canvas, and the page is drawn sharp 120 ms after the zoom stops (zooming out draws every frame: a scaled cache would leave blank margins) (`Renderer::wantsFrameAt`, through `engine_tick` / `engine_next_frame_delay`); an edit meanwhile is drawn by that frame. Discrete zoom steps draw at once.
+- Partial drawing: a recording of one part of the canvas clips everything to it (instances' clip rectangles, composites' scissors), culls against it, and sizes layers to it plus their effects' reach; the backdrop of a background blur outside the part is the cache's (unchanged) pixels.
+- Why not tiles (yet): the cache gives the cases tiles were for — rest, pans, overlay changes, edits, smooth zooms — with one target and no per-tile recordings, raster queues or stale-tile bookkeeping, and pixels identical to a direct draw at rest. What tiles would add: zooming out on a page that takes more than a frame to draw whole draws it every frame (tiles from a coarser zoom would stand in), and such a page still takes that frame once after each zoom in. If a benchmark needs it, tiles can be built on the same partial-drawing path (a tile is a part).
+
+The plan as written before:
 Tiles exist for large documents at low zoom, as Figma's `RTTileRasterizer`/`RTCompositeTileCache` do.
 
 **Grid.**
@@ -728,6 +751,7 @@ Overlays are drawn by the engine after the scene, straight into the default fram
   ```
 
   Any input or engine call that changes something sets the engine's `needsFrame`. The facade calls `schedule()` after every call when `engine_needs_frame(h)` returns true.
+  *As built:* `engine_tick` also asks for a render when the content cache wants its settle frame (a continuous zoom that stopped, §6.9), and `engine_next_frame_delay` returns the time until then.
 - **Colour**: the canvas is `drawingBufferColorSpace = "srgb"`, or `"display-p3"` when the document's `documentColorProfile` is DISPLAY_P3. Colours are stored as float RGBA in the document's space. No linear-light blending.
 
 ---
@@ -747,6 +771,7 @@ Overlays are drawn by the engine after the scene, straight into the default fram
   - its `DerivedInfo.missingFont` is set (the panel shows "Missing fonts");
   - text editing on it is refused with `NOTIFY{MISSING_FONT}`.
 - **Fallback**: TS calls `engine_set_fallback_fonts([...])` once at startup, with an ordered list of families (Apple Color Emoji, PingFang SC, Hiragino Sans, Apple SD Gothic Neo, Noto Sans …). The engine requests each the first time a codepoint isn't covered by the primary face.
+- *As built (2026-10-07):* `engine_font_bind`, `engine_font_missing` and `engine_set_fallback_fonts` only register; the relayout they cause runs at the next call that can observe it — `engine_tick`, a read, an edit — not at `engine_needs_frame` / `engine_next_frame_delay` / `engine_has_events` (which ask for a frame meanwhile). A file's dozens of fonts arriving within a frame cost one relayout instead of one each (large private test file: 10 s of main-thread work after opening → 0.7 s). Text measurements are cached per node and width until the text's layout fields change or a font arrives (`Editor::measureText`).
 
 ### 7.2 Shaping: **vendor HarfBuzz**
 Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/GPOS, complex scripts, variable fonts, features) is years of work. We do not write our own.
@@ -816,6 +841,7 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 - One **dynamic AABB tree** per loaded page (Box2D-style: fat AABBs with 2 px margin, incremental insert, remove and move).
 - It holds every rendered node, derived instance sublayers included, keyed by `worldBounds` (`renderBounds` for culling).
 - Used by culling, hit-tests, marquee and snapping candidates.
+- *As built:* culling uses the render tree's subtree bounds instead (§6.8).
 
 ### 8.2 Hit-test (`hit/HitTest`, `hit/Picking`)
 `hitTest(worldPt, slopCss=4)`:
@@ -1048,6 +1074,7 @@ Status codes (`i32`): `OK=0, E_HANDLE=-1, E_DECODE=-2, E_INVALID=-3, E_OOM=-4, E
 | `result:Message engine_read_nodes(h, bytes refs, u16[] fields, u32 flags)` | **the generic property getter**: one NodeChange per ref holding only the requested fields (empty list = all typed fields); derived nodes are encoded with their effective values and `guidPath` set; flags `INCLUDE_CHILD_IDS` |
 | `result:ApiDerivedInfoList engine_read_derived(h, bytes refs)` | per ref: `absoluteTransform`, `absoluteBoundingBox`, `absoluteRenderBounds`, `panelX/panelY` (the transform's translation relative to the nearest non-group ancestor, Figma's x/y), `panelRotation = atan2(−m10, m00)` in degrees (Figma's API definition), `panelW/H`, `overriddenFields u16[]`, `mainComponent NodeRef`, `isMainRemote`, `resolvedModes {setGUID→modeGUID}`, `boundFieldValues` (resolved), `missingFont`, `textStyleRanges`, `layoutContext` (parent stackMode, which sizing modes are legal) |
 | `result:ApiLayerRows engine_layer_rows(h, u32 pageSess, u32 pageLocal, bytes ApiExpandedSet, u32 firstRow, u32 count)` | windowed rows: `{totalRows, rows[{ref, depth, type, name, visible, locked, hasChildren, expanded, selected, inSelectionPath, icon, isComponentish, isDerived}]}`, top layer first (Layers order) |
+| *as built:* `result engine_layer_tree(h, u32 pageSess, u32 pageLocal)` | the page's whole Layers tree in one read, only what rows show: `{nodes:[{guid, parentIndex:{guid}, type, name, visible, locked, childIds[, resizeToFit, stackMode, stackWrap, booleanOperation, isStateGroup]}]}`, the page first, parents before children, hidden layers and instance sublayers included (`Engine.layerTree`; the editor's Layers panel reads it after structure changes instead of `engine_read_nodes` level by level with every field: 1.5 s → milliseconds on a 30k-layer page). Not windowed: the panel virtualizes its rows itself. |
 | `result:ApiHit engine_hit_test(h, f64 x, f64 y, u32 flags)` | refs under the point (top first) for the context menu's "Select layer" |
 | `result:ApiFindResults engine_find(h, bytes ApiFindQuery)` | names and text, this page or all pages, type filters |
 | `result:ApiNodeList engine_list_nodes(h, bytes ApiListQuery)` | e.g. local styles, variable collections, components (they are nodes on the internal canvas or on pages) |
@@ -1072,6 +1099,7 @@ Status codes (`i32`): `OK=0, E_HANDLE=-1, E_DECODE=-2, E_INVALID=-3, E_OOM=-4, E
 | `result:EngineEvents engine_take_events(h)` | drains the queue |
 
 **Diagnostics**: `result:ApiStats engine_stats(h)` (frame ms, raster ms, nodes, derived nodes, GPU bytes, heap bytes) and `void engine_set_debug(h, u32 flags)` (show tiles, dirty rects, wireframe, overdraw).
+*As built:* `engine_stats` → `{nodes, shapes, drawCalls, glyphs, paths, layers, visited, culled, tiny, greeked, cachedRegions, stale, gpuBytes, gpuTextures, gpuTargets, gpuBuffers, layerPoolBytes, curveTexels, images, imageBytes, viewport}` for the last frame (`gpuBytes`: what the engine holds on the GPU, from `gfx::Device::memory()`).
 
 ### 10.4 Events (engine → JS), delivered through a queue
 The engine never calls JS back during its own work. It appends `EngineEvent`s to a per-handle queue and sets the events flag. **After every export call**, the generated wrapper checks `HEAPU32[eventsFlagPtr>>2]`. If it is set, the wrapper calls `engine_take_events`, decodes the events and dispatches them to subscribers synchronously, after the engine has returned. The TS-level "callbacks" (`onSelectionChanged`, `onDocumentChanged`, …) are these dispatches.
@@ -1222,6 +1250,24 @@ Targets on the owner's M3:
 | core memory | ≤ 400 B/node plus facets |
 
 `engine_stats` feeds a debug HUD (⌥⌘P toggles it). `scripts/drive.mjs` gets a `perf` command that records frame times.
+
+**As built: `scripts/engine-bench.mjs`** (2026-10-07). Loads a `.fig` through the app's own path (the store's import in Node → snapshot → `mergedDocument` → `engine.load`; system fonts through `src/main/fonts.ts`'s index; images through `createImageBitmap`) — or `--synthetic N`, a generated document (screens of auto-layout cards: images, text, instances, shadows, faded frames; no private file) — into headless Chrome on the real GPU (ANGLE Metal; the renderer is reported), and measures: node counts, load stages, the first frames, wasm and GPU memory, then frame interval, CPU (`tick` + `render`), GPU (timer queries) and input handling for rest, slow and fast pans, a pinch zoom in and out, 100 % on the densest frame, hover, click-select and drag. `--editor` runs the same inside the real editor (`?editor`, its panels, Layers and rulers, DOM events on its canvas); `--profile` records Chrome CPU profiles of the load and the frames (build the wasm with `--profiling-funcs` into a scratch directory and pass `--wasm`); `--only pages` draws every page at fit. Guards: it refuses to start with less than 25 % free memory, stops after 180 s, and stops when Chrome's GPU process passes 3 GB or the engine's own GPU memory (`engine_stats` `gpuBytes`) half of that; the browser is always closed.
+
+Measured on the owner's file (32k stored layers, 101k in the engine with instance sublayers, 15 pages; M3, 1440 × 900 @2×), before → after the performance round:
+
+| | before | after |
+|---|---|---|
+| `engine_load` (parse, instances, layout) | 10.4 s | 1.5 s |
+| fonts arriving after open (engine relayout) | ~10 s of main-thread work, one relayout per font | 0.7 s, once |
+| heaviest page at fit, any redraw (hover, selection, blink) | 36 ms CPU + 24 ms GPU, 8.5k draws (~17 fps) | composite: 0.1–0.3 ms CPU, ~1.5 ms GPU |
+| same page, a full raster (zoom settled, page switch) | — | ~8.5 ms CPU, ~6 ms GPU, 1.5k draws |
+| pan at fit (slow / fast) | 37 / 33 ms CPU | 0.3 / 0.5 ms CPU (median), 60 fps |
+| pinch zoom in / out | 38 ms CPU per frame | in: the cache scaled, 0.3 ms; out: drawn, ≤ 10 ms |
+| editor: drag a layer (frame interval) | 100 ms (Layers re-read + variable modes per frame) | 16.7 ms |
+| editor: click to select (frame interval p95) | 150 ms | 67 ms (Selection colors reads the subtree) |
+| Chrome GPU process, peak | — (the synthetic page: > 3 GB, aborted) | 0.5–0.6 GB |
+
+Synthetic 25k (37k in the engine): a redraw at fit 98 ms CPU + 59 ms GPU (40k draws, GPU process > 3 GB within seconds) → 0.6 ms CPU + 2.9 ms GPU; full raster 1.3k draws; every scenario at 60 fps.
 
 ---
 

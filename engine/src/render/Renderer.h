@@ -33,6 +33,7 @@
 #include "render/DrawInstance.h"
 #include "render/ImageCache.h"
 #include "render/OverlayStyle.h"
+#include "render/RenderTree.h"
 #include "scene/Document.h"
 #include "text/TextLayout.h"
 
@@ -80,6 +81,9 @@ struct Overlay {
   std::vector<Rect> bands;
   // Top-level frames' names above them.
   bool frameTitles = true;
+  // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
+  // pixels scaled until the zoom settles (docs/engine.md §6.9).
+  bool zooming = false;
   // Text editing: the node, its selection highlight and caret (node space).
   Guid textNode = kNoGuid;
   std::vector<Rect> textSelection;
@@ -116,6 +120,12 @@ struct RenderStats {
   uint32_t paths = 0;
   uint32_t layers = 0;  // offscreen layers
   uint32_t drawCalls = 0;
+  uint32_t nodes = 0;    // render-tree nodes visited (drawn or culled at their subtree)
+  uint32_t culled = 0;   // subtrees skipped: off screen
+  uint32_t tiny = 0;     // subtrees skipped: under half a device pixel (LOD)
+  uint32_t greeked = 0;  // texts drawn as bars (em under 3 device px)
+  uint32_t cachedRegions = 0;  // content cache: parts drawn again this frame (0: composited only)
+  uint32_t stale = 0;          // content cache: shown scaled (a zoom settling)
 };
 
 class Renderer {
@@ -124,6 +134,11 @@ class Renderer {
   ~Renderer();
   void setTextLayouts(TextLayouts* texts) { texts_ = texts; }
   const CurveCache& curveCache() const { return curves_; }
+  // The render tree of `page` as the last frame drew it (tests, diagnostics); nullptr before any.
+  const RenderTree* renderTree(Guid page) const {
+    auto it = trees_.find(page);
+    return it == trees_.end() ? nullptr : &it->second;
+  }
   const ImageCache& imageCache() const { return images_; }
   // A label's layout (overlay text: Inter at `size` CSS px, `style` "Regular" / "Medium"), cut with "…" past
   // `maxWidth` (< 0: never); nullptr until Inter has loaded.
@@ -131,6 +146,27 @@ class Renderer {
   // Draws `page` through `camera` into `target` (0 = the canvas), viewport.deviceWidth × deviceHeight.
   RenderStats render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
                      const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target = 0, Guid only = kNoGuid);
+  // The content cache (canvas frames only; off by default): see renderCached.
+  void setContentCache(bool on) {
+    cacheEnabled_ = on;
+    if (!on) dropCache();
+  }
+  bool contentCache() const { return cacheEnabled_; }
+  // When the next frame is wanted (a continuous zoom settling: draw the page sharp again), in nowMs() time; 0: none.
+  double wantsFrameAt() const;
+  // The clock the cache measures with (ms); tests set their own.
+  void setClock(std::function<double()> clock) { clock_ = std::move(clock); }
+  double nowMs() const;
+  // How long a full raster may take before a continuous zoom shows the cache scaled instead, and how long after
+  // the last zoom change the page is drawn sharp again.
+  static constexpr double kZoomRasterBudgetMs = 6;
+  static constexpr double kZoomSettleMs = 120;
+  // Offscreen layers' targets kept for reuse, at most (colour + stencil bytes; targets in use by the frame
+  // being drawn can go past it).
+  static constexpr uint64_t kPoolBudgetBytes = 192ull << 20;
+  // Layers' pooled targets (tests, engine_stats).
+  size_t poolTargets() const { return pool_.size(); }
+  uint64_t poolTargetBytes() const { return poolBytes(); }
 
   // The frame-title colour for a page colour (Figma picks it by the page's luminance).
   static Color titleColor(const Color& page, double* alpha);
@@ -142,6 +178,12 @@ class Renderer {
     Composite, CompositeClipped, CompositeReplace, CompositeReplaceClipped,
     Blur, Count
   };
+  // An axis-aligned rounded clip, anti-aliased in the shaders (DrawInstance::round / radii): canvas device px.
+  struct RoundClip {
+    bool on = false;
+    float rect[4] = {0, 0, 0, 0};   // x0 y0 x1 y1
+    float radii[4] = {0, 0, 0, 0};  // tl tr br bl
+  };
   // A draw's extra state (batches only merge when it is equal).
   struct DrawState {
     gfx::TextureId image = 0;   // the image paint's texture, or the blurred backdrop
@@ -150,7 +192,7 @@ class Renderer {
     bool operator==(const DrawState& o) const;
   };
   struct Cmd {
-    enum class Kind : uint8_t { Draw, Composite, BackdropBlur } kind = Kind::Draw;
+    enum class Kind : uint8_t { Draw, Composite, BackdropBlur, Blit } kind = Kind::Draw;
     Pass pass = Pass::Shape;
     uint32_t first = 0, count = 0;  // Draw: instances_
     bool scissorEnabled = false;
@@ -167,6 +209,13 @@ class Renderer {
     bool knockout = false;
     gfx::IRect rect;  // Composite: the quad; BackdropBlur: the region (device px, canvas space)
     double sigma = 0;  // BackdropBlur: device px
+    // Blit (the content cache onto the canvas): the texture, where its top-left lands (device px), texels per
+    // device px, its height in texels.
+    RoundClip round;  // Composite: the rounded clip it lands in
+    gfx::TextureId blitTexture = 0;
+    Vec2 blitOrigin;
+    double blitScale = 1;
+    int blitHeight = 0;
   };
   struct Layer {
     gfx::IRect rect;           // device px, canvas space
@@ -187,6 +236,7 @@ class Renderer {
     gfx::IRect scissor;
     DrawInstance shape;
     bool path;
+    RoundClip round;  // the rounded clip before this one
   };
   struct PoolTarget {
     gfx::TargetId target = 0;
@@ -205,9 +255,11 @@ class Renderer {
   // Recording.
   void emit(const DrawInstance& s, Pass pass, const DrawState& state);
   void emit(const DrawInstance& s, Pass pass);
-  void drawNode(const Document& doc, Guid id, const Mat2x3& parentCss, double alpha);
-  void drawChildren(const Document& doc, const std::vector<Guid>& kids, size_t from, const Mat2x3& m, double alpha);
-  void drawContent(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone);
+  // Render-tree node `i` (its subtree), `parentCss`: its parent's space → CSS px.
+  void drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss, double alpha);
+  // The siblings from render-tree node `first` up to `end` (one past the last), in paint order.
+  void drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha);
+  void drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone);
   void drawFills(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool whiteMask = false);
   void drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
@@ -231,15 +283,28 @@ class Renderer {
   int beginLayer(gfx::IRect rect);
   void endLayer(int saved);
   gfx::IRect deviceRect(const Rect& css, double margin) const;
-  Rect visualBounds(const Document& doc, Guid id, const Mat2x3& m, int depth = 0) const;
+  // Render-tree node `i`'s visual bounds on screen (CSS px).
+  Rect screenBounds(uint32_t i) const;
   double levelScale(const Mat2x3& m) const;
   // Execution.
-  void execute(int layer, gfx::TargetId target, const float clear[4]);
+  void execute(int layer, gfx::TargetId target, const float clear[4], bool keep = false);
   void runLayer(int index);
-  void runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4]);
+  void runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep);
+  // A recording of `region` (device px; clipToRegion: nothing drawn outside it), then its execution into `target`
+  // (keep: what the target holds stays outside the region).
+  void beginRecording(gfx::IRect region, bool clipToRegion);
+  void finishRecording(gfx::TargetId target, const float clear[4], bool keep);
+  // The page's layers (into the part being recorded), over the page colour when `background`.
+  void drawPageContent(const Document& doc, const Color& page, bool background);
+  void renderCached(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style,
+                    const Color& clear, const float clearColor[4]);
+  // `from` into `to`, shifted by (dx, dy) device px, `scale` texels per device px.
+  void blitCache(gfx::TargetId from, gfx::TargetId to, int dx, int dy, double scale);
+  void dropCache();
   void blurLayer(Layer& L);
   PoolTarget* acquire(int w, int h);
   void release(gfx::TargetId target);
+  uint64_t poolBytes() const;
   void rows(float out[2][4], double sx, double sy, int ox, int oy, int w, int h) const;
 
   gfx::Device& device_;
@@ -250,6 +315,29 @@ class Renderer {
   ImageCache images_;
   TextLayouts* texts_ = nullptr;
   std::unordered_map<std::string, std::unique_ptr<text::TextLayout>> labels_;
+  // The pages' render trees (the current page's, and those thumbnails were drawn from), kept in step with the
+  // document (render/RenderTree.h).
+  std::unordered_map<Guid, RenderTree, GuidHash> trees_;
+  const RenderTree* tree_ = nullptr;  // this frame's
+  uint32_t treeFonts_ = 0;            // the font generation the trees' text bounds are from
+  Mat2x3 view_;                       // this frame's world → CSS px
+  gfx::IRect region_;                 // the part being recorded (device px)
+  // The content cache (renderCached).
+  bool cacheEnabled_ = false;
+  struct ContentCache {
+    gfx::TargetId target = 0, spare = 0;  // the pixels, and the other one (shifts ping-pong)
+    int w = 0, h = 0;
+    bool valid = false;
+    bool pendingFull = false;  // changes came while it was shown scaled: draw everything
+    Guid page = kNoGuid;
+    double zoom = 0, camX = 0, camY = 0;  // the camera it was drawn with
+    double sx = 0, sy = 0;
+    uint32_t fonts = 0, images = 0;       // the registries' generations it was drawn with
+    Color clear;
+    double fullMs = 0;                    // how long its last full raster took
+    double lastZoom = 0, zoomChangedAt = 0, settleAt = 0;
+  } cache_;
+  std::function<double()> clock_;
   uint32_t labelsGeneration_ = 0;
   // Gradient ramps: 256 premultiplied texels per row.
   std::unordered_map<uint64_t, int> rampRows_;
@@ -272,6 +360,7 @@ class Renderer {
   std::vector<Clip> clips_;
   bool scissorEnabled_ = false;
   gfx::IRect scissor_;
+  RoundClip round_;
   uint8_t stencilDepth_ = 0;
   gfx::TextureId curveTexture_ = 0;
   RenderStats stats_;

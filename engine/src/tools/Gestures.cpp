@@ -239,14 +239,18 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
 
 uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode, uint32_t mods, uint32_t flags) {
   double unit = mode == DeltaMode::LINE ? 16 : mode == DeltaMode::PAGE ? std::max(1.0, viewport_.height) : 1;
+  // Pans move by whole device pixels, so the page's cached pixels can simply shift (docs/engine.md §6.9).
+  double sx = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1, sy = viewport_.scaleY() > 0 ? viewport_.scaleY() : 1;
+  auto pan = [&](double px, double py) { changeCamera(camera_.panned(std::round(px * sx) / sx, std::round(py * sy) / sy)); };
   if ((flags & WHEEL_PINCH) || (mods & (MOD_CTRL | MOD_META))) {
     // A pinch (ctrlKey from a trackpad) or ⌘/Ctrl + wheel zooms about the pointer.
     double rate = mode == DeltaMode::LINE ? 0.05 : 0.01;
+    zooming_ = true;
     changeCamera(camera_.zoomedAround(camera_.zoom * std::exp(-dy * (mode == DeltaMode::PAGE ? unit : 1) * rate), {x, y}));
   } else if ((mods & MOD_SHIFT) && dx == 0) {
-    changeCamera(camera_.panned(-dy * unit, 0));
+    pan(-dy * unit, 0);
   } else {
-    changeCamera(camera_.panned(-dx * unit, -dy * unit));
+    pan(-dx * unit, -dy * unit);
   }
   // The pointer now sits over another part of the page: carry on whatever it was doing there.
   lastScreen_ = {x, y};
@@ -406,7 +410,12 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       if (pencilPoints_.empty() || (camera_.toScreen(pencilPoints_.back()) - s).length() >= 1) pencilPoints_.push_back(world);
       needsRender_ = true;
       break;
-    case Gesture::Pan: changeCamera(downCamera_.panned(s.x - downScreen_.x, s.y - downScreen_.y)); break;
+    case Gesture::Pan: {
+      // By whole device pixels (the cached page pixels shift, docs/engine.md §6.9).
+      double sx = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1, sy = viewport_.scaleY() > 0 ? viewport_.scaleY() : 1;
+      changeCamera(downCamera_.panned(std::round((s.x - downScreen_.x) * sx) / sx, std::round((s.y - downScreen_.y) * sy) / sy));
+      break;
+    }
     case Gesture::Press:
       if ((s - downScreen_).length() < kDragThreshold) break;
       if (pressMarquee_) {

@@ -80,6 +80,7 @@ TextureId NullDevice::createTexture(const TextureDesc& desc) {
   // Float data is kept (tests read the curves back); colour textures only by size.
   if (desc.format == TextureFormat::RGBA32F) t.bytes.assign(static_cast<size_t>(desc.width) * desc.height * 16, 0);
   t.live = true;
+  t.mipmaps = desc.mipmaps;
   textures_.push_back(std::move(t));
   return static_cast<TextureId>(textures_.size() - 1);
 }
@@ -101,5 +102,26 @@ void NullDevice::destroyTexture(TextureId id) {
 }
 
 void NullDevice::destroyBuffer(BufferId buffer) { buffers_.at(buffer).clear(); }
+
+MemoryStats NullDevice::memory() const {
+  MemoryStats m;
+  for (const Texture& t : textures_) {
+    if (!t.live) continue;
+    m.textures++;
+    uint64_t b = static_cast<uint64_t>(t.width) * t.height * (t.format == TextureFormat::RGBA32F ? 16 : 4);
+    m.bytes += t.mipmaps ? b * 4 / 3 : b;
+  }
+  for (const Target& t : targets_) {
+    if (!t.live) continue;
+    m.targets++;
+    m.bytes += static_cast<uint64_t>(t.width) * t.height * 4;  // its stencil (its colour is a texture)
+  }
+  for (const auto& b : buffers_) {
+    if (b.empty()) continue;
+    m.buffers++;
+    m.bytes += b.size();
+  }
+  return m;
+}
 
 }  // namespace eng::gfx

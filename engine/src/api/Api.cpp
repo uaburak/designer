@@ -80,19 +80,28 @@ void setError(std::string text) {
   *gError = std::move(text);
 }
 
-// Refreshes the events flag when an export returns.
+// Fonts arrived or went missing since the last relayout (engine_font_bind / _missing / set_fallback_fonts). The
+// relayout they cause waits for the next call that can observe it (any export but the font ones and the frame
+// queries), so a burst of fonts — the dozens a file asks for at open — costs one relayout, not one each.
+bool gFontsDirty = false;
+
+// A font arrived or went missing: every engine lays its text out again.
+void fontsChanged() {
+  gFontsDirty = false;
+  for (Engine* e : engines()) e->editor.fontsChanged();
+}
+
+// Every export: catches up with fonts first (unless `observes` is false), refreshes the events flag on return.
 struct Call {
+  explicit Call(bool observes = true) {
+    if (observes && gFontsDirty) fontsChanged();
+  }
   ~Call() {
     uint32_t any = (text::FontRegistry::get().hasRequests() || ImageRegistry::get().hasRequests()) && !engines().empty() ? 1u : 0u;
     for (Engine* e : engines()) any |= e->editor.hasEvents() ? 1u : 0u;
     gEventsFlag = any;
   }
 };
-
-// A font arrived or went missing: every engine lays its text out again.
-void fontsChanged() {
-  for (Engine* e : engines()) e->editor.fontsChanged();
-}
 
 Engine* engineOf(Handle h) {
   for (Engine* e : engines())
@@ -320,6 +329,8 @@ ENG_EXPORT Handle engine_create(const char* selector, Ptr optsPtr, uint32_t opts
   }
   e->renderer = std::make_unique<Renderer>(*e->device);
   e->renderer->setTextLayouts(&e->editor);
+  // A canvas keeps its page's pixels between frames (the content cache, docs/engine.md §6.9).
+  e->renderer->setContentCache(!e->selector.empty());
   json::Value opts;
   if (optsLen && json::parse(bytes(optsPtr, optsLen), opts)) {
     if (auto* s = opts.get("sessionID"); s && s->isNumber()) e->editor.setSessionID(static_cast<uint32_t>(s->number));
@@ -483,7 +494,12 @@ ENG_EXPORT void engine_set_hover(Handle h, Ptr ptr, uint32_t len) {
 ENG_EXPORT uint32_t engine_tick(Handle h, double timeMs) {
   Call call;
   Engine* e = engineOf(h);
-  return e && e->editor.tick(timeMs) ? TICK_NEEDS_RENDER : 0;
+  if (!e) return 0;
+  bool render = e->editor.tick(timeMs);
+  // A zoom that settled: the page is drawn sharp again (render/Renderer.h wantsFrameAt).
+  double at = e->renderer->wantsFrameAt();
+  if (at > 0 && e->renderer->nowMs() >= at) render = true;
+  return render ? TICK_NEEDS_RENDER : 0;
 }
 
 ENG_EXPORT void engine_render(Handle h) {
@@ -496,17 +512,22 @@ ENG_EXPORT void engine_render(Handle h) {
 }
 
 ENG_EXPORT int32_t engine_next_frame_delay(Handle h) {
-  Call call;
+  Call call(false);
   Engine* e = engineOf(h);
   if (!e) return -1;
-  if (e->editor.needsFrame()) return 0;
-  return e->editor.textEditing() ? 265 : -1;  // the caret blinks (530 ms phases)
+  if (e->editor.needsFrame() || gFontsDirty) return 0;
+  int32_t delay = e->editor.textEditing() ? 265 : -1;  // the caret blinks (530 ms phases)
+  if (double at = e->renderer->wantsFrameAt(); at > 0) {
+    int32_t settle = static_cast<int32_t>(std::max(1.0, std::ceil(at - e->renderer->nowMs())));
+    delay = delay < 0 ? settle : std::min(delay, settle);
+  }
+  return delay;
 }
 
 ENG_EXPORT uint32_t engine_needs_frame(Handle h) {
-  Call call;
+  Call call(false);  // a pending font relayout is a frame's work (engine_tick catches up)
   Engine* e = engineOf(h);
-  return e && e->editor.needsFrame() ? 1 : 0;
+  return e && (e->editor.needsFrame() || gFontsDirty) ? 1 : 0;
 }
 
 ENG_EXPORT void engine_gl_context_lost(Handle h) {
@@ -525,6 +546,7 @@ ENG_EXPORT void engine_gl_context_restored(Handle h) {
   if (!e->device) e->device = std::make_unique<gfx::NullDevice>();
   e->renderer = std::make_unique<Renderer>(*e->device);
   e->renderer->setTextLayouts(&e->editor);
+  e->renderer->setContentCache(true);
   e->editor.setViewport(e->editor.viewport().width, e->editor.viewport().height, e->editor.viewport().dpr,
                         e->editor.viewport().pixelWidth, e->editor.viewport().pixelHeight);
 #endif
@@ -555,6 +577,46 @@ ENG_EXPORT int32_t engine_set_selection(Handle h, Ptr ptr, uint32_t len) {
 
 // The generic getter: a Message with one NodeChange (every field) per ref that
 // exists; INCLUDE_CHILD_IDS (1) adds "childIds" (back to front).
+// The Layers panel's tree of a page in one read: the page and every layer under it (hidden ones and instance
+// sublayers included), parents before children, with only what a row shows —
+// {"nodes":[{"guid","parentIndex":{"guid"},"type","name","visible","locked","childIds"[, "resizeToFit",
+// "stackMode", "stackWrap", "booleanOperation", "isStateGroup"]}…]} (the last ones only when set). A page of
+// tens of thousands of layers reads in milliseconds, where engine_read_nodes writes every field of each.
+ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t pageLocalID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  const Document& doc = e->editor.document();
+  Guid page{pageSessionID, pageLocalID};
+  if (!doc.has(page)) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginObject().key("nodes").beginArray();
+  std::vector<Guid> stack{page};
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    const Node* n = doc.get(id);
+    if (!n) continue;
+    const NodeProps& p = n->props;
+    w.beginObject().key("guid").string(id.toString());
+    if (p.parentIndex.guid != kNoGuid) w.key("parentIndex").beginObject().key("guid").string(p.parentIndex.guid.toString()).endObject();
+    w.key("type").string(nodeTypeName(p.type)).key("name").string(p.name).key("visible").boolean(p.visible).key("locked").boolean(p.locked);
+    if (p.resizeToFit) w.key("resizeToFit").boolean(true);
+    if (p.stackMode != StackMode::NONE) w.key("stackMode").string(enumName(p.stackMode));
+    if (p.stackWrap != StackWrap::NO_WRAP) w.key("stackWrap").string(enumName(p.stackWrap));
+    if (p.type == NodeType::BOOLEAN_OPERATION) w.key("booleanOperation").string(enumName(p.booleanOperation));
+    if (p.isStateGroup) w.key("isStateGroup").boolean(true);
+    const std::vector<Guid>& kids = doc.children(id);
+    w.key("childIds");
+    writeIds(w, kids);
+    w.endObject();
+    // Pre-order with the first child read first.
+    for (size_t i = kids.size(); i-- > 0;) stack.push_back(kids[i]);
+  }
+  w.endArray().endObject();
+  return setResult(w.take());
+}
+
 ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
@@ -833,7 +895,7 @@ ENG_EXPORT int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uin
 // ---- Events and diagnostics ------------------------------------------------------
 
 ENG_EXPORT uint32_t engine_has_events(Handle h) {
-  Call call;
+  Call call(false);
   Engine* e = engineOf(h);
   return e && (e->editor.hasEvents() || text::FontRegistry::get().hasRequests() || ImageRegistry::get().hasRequests()) ? 1 : 0;
 }
@@ -858,6 +920,12 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   w.beginObject().key("nodes").number(static_cast<double>(e->editor.document().size()));
   w.key("shapes").number(e->stats.shapes).key("drawCalls").number(e->stats.drawCalls);
   w.key("glyphs").number(e->stats.glyphs).key("paths").number(e->stats.paths).key("layers").number(e->stats.layers);
+  w.key("visited").number(e->stats.nodes).key("culled").number(e->stats.culled).key("tiny").number(e->stats.tiny);
+  w.key("greeked").number(e->stats.greeked).key("cachedRegions").number(e->stats.cachedRegions).key("stale").number(e->stats.stale);
+  // What the engine holds on the GPU (estimated): budgets are checked against it (scripts/engine-bench.mjs).
+  gfx::MemoryStats gm = e->device->memory();
+  w.key("gpuBytes").number(static_cast<double>(gm.bytes)).key("gpuTextures").number(gm.textures).key("gpuTargets").number(gm.targets);
+  w.key("gpuBuffers").number(gm.buffers).key("layerPoolBytes").number(static_cast<double>(e->renderer->poolTargetBytes()));
   w.key("curveTexels").number(e->renderer->curveCache().texelCount());
   w.key("images").number(static_cast<double>(e->renderer->imageCache().count()));
   w.key("imageBytes").number(static_cast<double>(e->renderer->imageCache().bytes()));
@@ -872,7 +940,7 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
 // Takes an engine_alloc'd font file (TTF/OTF; TTC/OTC with `faceIndex`): the engine frees it.
 // Returns the face id (≥ 0), or E_DECODE when it isn't a font.
 ENG_EXPORT int32_t engine_font_add_take(Ptr ptr, uint32_t len, uint32_t faceIndex) {
-  Call call;
+  Call call(false);
   int32_t id = text::FontRegistry::get().addFace(reinterpret_cast<uint8_t*>(ptr), len, faceIndex);
   if (id < 0) setError("not a font file");
   return id < 0 ? E_DECODE : id;
@@ -881,30 +949,30 @@ ENG_EXPORT int32_t engine_font_add_take(Ptr ptr, uint32_t len, uint32_t faceInde
 // `faceId` answers the FontName {family, style} (UTF-8 strings): its named instance (or the
 // weight/italic axes) for that style. Text using it is laid out again.
 ENG_EXPORT int32_t engine_font_bind(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen, int32_t faceId) {
-  Call call;
+  Call call(false);
   if (!text::FontRegistry::get().bind(std::string(bytes(familyPtr, familyLen)), std::string(bytes(stylePtr, styleLen)), faceId))
     return E_NOT_FOUND;
-  fontsChanged();
+  gFontsDirty = true;
   return OK;
 }
 
 // Nobody has {family, style}: its text draws with Inter and is marked missing.
 ENG_EXPORT void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen) {
-  Call call;
+  Call call(false);
   text::FontRegistry::get().markMissing(std::string(bytes(familyPtr, familyLen)), std::string(bytes(stylePtr, styleLen)));
-  fontsChanged();
+  gFontsDirty = true;
 }
 
 // ["Apple Color Emoji", "PingFang SC", …]: tried in order for characters a text's font lacks.
 ENG_EXPORT int32_t engine_set_fallback_fonts(Ptr ptr, uint32_t len) {
-  Call call;
+  Call call(false);
   json::Value v;
   if (!parse(ptr, len, v) || !v.isArray()) return E_DECODE;
   std::vector<std::string> families;
   for (auto& f : v.array)
     if (f.isString()) families.push_back(f.string);
   text::FontRegistry::get().setFallbacks(std::move(families));
-  fontsChanged();
+  gFontsDirty = true;
   return OK;
 }
 

@@ -1,7 +1,7 @@
 // The built-in shaders, GLSL ES 3.00 (WebGL2). Interim: written by hand until
 // tools/shadergen exists (docs/engine.md §6.10).
 //
-// Every shader takes `uniform vec4 u_v[10]` (gfx::DrawCall::uniforms): slots 0
+// Every shader takes `uniform vec4 u_v[12]` (gfx::DrawCall::uniforms): slots 0
 // and 1 are the rows mapping draw space to clip space; the rest are per shader,
 // listed with it. Textures are u_t0, u_t1, u_t2 (DrawCall::textures).
 #pragma once
@@ -71,11 +71,25 @@ vec4 paintAt(vec2 local, int kind) {
 }
 )";
 
-// ---- Shape: SDF rect / rounded rect / ellipse, analytic shadows ----------------
-// One instanced quad per shape (6 vertices from gl_VertexID) around its box; the fragment computes the signed
-// distance in the shape's own space and turns it into coverage with its screen-space derivative (analytic
-// anti-aliasing, no MSAA). u_stencilPass = 1: only discards outside the fill (clip masks).
-inline constexpr const char* kShapeVertex = R"(#version 300 es
+// ---- Draw: shapes, paths and glyphs in one program ------------------------------
+// One instanced quad per shape, path or glyph (6 vertices from gl_VertexID; render/DrawInstance.h), so a run of
+// them batches into one draw whatever they are (an uber shader branching per instance, docs/engine.md §6.10):
+// - Rect / Ellipse / DropShadow / InnerShadow (kind 0–3): the quad around the box; the fragment computes the
+//   signed distance in the shape's own space and turns it into coverage with its screen-space derivative
+//   (analytic anti-aliasing, no MSAA); shadows are Evan Wallace's blurred rounded rectangle.
+// - Path (kind 4): the quad over the curves' bounds; coverage from quadratic curves. Each path's curves live in
+//   u_t0 (RGBA32F, 2048 texels per row) after a header: texel 0 = (horizontal bands, vertical bands, curves, 0),
+//   texel 1 = the bounds (x0, y0, x1, y1), then one texel per band (first index texel, count), then the bands'
+//   curve indices (4 per texel), then the curves (2 texels each: p0 p1, p2 + the curve's max x and max y). Per
+//   pixel a ray along +x crosses the curves of its horizontal band and one along +y those of its vertical band
+//   (Lengyel, JCGT 2017); each crossing adds or removes coverage by how far into the pixel it lies, the two rays
+//   blended by proximity. Bands' curves are sorted by max x / max y, so a ray stops at the first curve wholly
+//   behind it. render/CurveCoverage.h is the same code in C++ for the native tests. Flags: the ODD rule, × a
+//   clip path's coverage (intersect / subtract).
+// - Every instance carries a clip rectangle in canvas device px (a frame's axis-aligned clip: what a scissor
+//   did, without breaking the batch). Slot 5 = (the pass's origin x, y in canvas device px, its height).
+// u_stencilPass = 1: only discards outside the fill (clip masks).
+inline constexpr const char* kDrawVertex = R"(#version 300 es
 layout(location = 0) in vec4 a_linear;
 layout(location = 1) in vec4 a_origin;
 layout(location = 2) in vec4 a_box;
@@ -83,51 +97,72 @@ layout(location = 3) in vec4 a_geom;
 layout(location = 4) in vec4 a_color;
 layout(location = 5) in vec4 a_paint0;
 layout(location = 6) in vec4 a_paint1;
-uniform vec4 u_v[10];
+layout(location = 7) in vec4 a_clip;
+layout(location = 8) in vec4 a_round;
+layout(location = 9) in vec4 a_radii;
+uniform vec4 u_v[12];
 out vec2 v_local;
-flat out vec2 v_size;
+flat out vec4 v_origin;
 flat out vec4 v_box;
 flat out vec4 v_geom;
 flat out vec4 v_color;
 flat out vec4 v_paint0;
 flat out vec4 v_paint1;
+flat out vec4 v_clip;
+flat out vec4 v_round;
+flat out vec4 v_radii;
 void main() {
   int id = gl_VertexID;
   vec2 corner = vec2((id == 1 || id == 2 || id == 4) ? 1.0 : 0.0, (id == 2 || id == 4 || id == 5) ? 1.0 : 0.0);
-  vec2 size = a_origin.zw;
   float sx = max(length(a_linear.xy), 1e-6);
   float sy = max(length(a_linear.zw), 1e-6);
   int kind = int(a_geom.z + 0.5);
-  float grow = kind == 2 ? 3.0 * a_geom.x : (kind == 3 ? 0.0 : a_geom.y);
-  vec2 pad = vec2(grow) + vec2(2.0 / sx, 2.0 / sy);
-  vec2 local = mix(-pad, size + pad, corner);
+  vec2 local;
+  if (kind == 4) {
+    vec2 pad = vec2(1.5 / sx, 1.5 / sy);
+    local = mix(a_box.xy - pad, a_box.zw + pad, corner);
+  } else {
+    vec2 size = a_origin.zw;
+    float grow = kind == 2 ? 3.0 * a_geom.x : (kind == 3 ? 0.0 : a_geom.y);
+    vec2 pad = vec2(grow) + vec2(2.0 / sx, 2.0 / sy);
+    local = mix(-pad, size + pad, corner);
+  }
   vec2 p = mat2(a_linear.xy, a_linear.zw) * local + a_origin.xy;
   gl_Position = vec4(dot(u_v[0].xyz, vec3(p, 1.0)), dot(u_v[1].xyz, vec3(p, 1.0)), 0.0, 1.0);
   v_local = local;
-  v_size = size;
+  v_origin = a_origin;
   v_box = a_box;
   v_geom = a_geom;
   v_color = a_color;
   v_paint0 = a_paint0;
   v_paint1 = a_paint1;
+  v_clip = a_clip;
+  v_round = a_round;
+  v_radii = a_radii;
 }
 )";
 
-inline constexpr const char* kShapeFragmentHead = R"(#version 300 es
+inline constexpr const char* kDrawFragmentHead = R"(#version 300 es
 precision highp float;
+precision highp int;
+precision highp sampler2D;
 in vec2 v_local;
-flat in vec2 v_size;
+flat in vec4 v_origin;
 flat in vec4 v_box;
 flat in vec4 v_geom;
 flat in vec4 v_color;
 flat in vec4 v_paint0;
 flat in vec4 v_paint1;
-uniform vec4 u_v[10];
+flat in vec4 v_clip;
+flat in vec4 v_round;
+flat in vec4 v_radii;
+uniform vec4 u_v[12];
 uniform int u_stencilPass;
+uniform sampler2D u_t0;
 out vec4 o_color;
 )";
 
-inline constexpr const char* kShapeFragmentBody = R"(
+inline constexpr const char* kDrawFragmentBody = R"(
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   float rr = p.x > 0.0 ? (p.y > 0.0 ? r.z : r.y) : (p.y > 0.0 ? r.w : r.x);
   rr = clamp(rr, 0.0, min(b.x, b.y));
@@ -174,7 +209,8 @@ float boxShadow(vec2 lo, vec2 hi, vec4 r, vec2 p, float sigma, float px) {
   return value;
 }
 
-void main() {
+void shapeMain() {
+  vec2 v_size = v_origin.zw;
   vec2 halfSize = v_size * 0.5;
   vec2 p = v_local - halfSize;
   int kind = int(v_geom.z + 0.5);
@@ -220,65 +256,7 @@ void main() {
   if (c.a <= 0.0) discard;
   o_color = c;
 }
-)";
 
-// ---- Path: coverage from quadratic curves (paths and glyphs) ------------------
-// One instanced quad per path over its bounds. Each path's curves live in u_t0 (RGBA32F, 2048 texels per row)
-// after a header: texel 0 = (horizontal bands, vertical bands, curves, 0), texel 1 = the bounds (x0, y0, x1, y1),
-// then one texel per band (first index texel, count), then the bands' curve indices (4 per texel), then the
-// curves (2 texels each: p0 p1, p2 + the curve's max x and max y). Per pixel a ray along +x crosses the curves of
-// its horizontal band and one along +y those of its vertical band (Lengyel, JCGT 2017); each crossing adds or
-// removes coverage by how far into the pixel it lies, the two rays blended by proximity. Bands' curves are
-// sorted by max x / max y, so a ray stops at the first curve wholly behind it. render/CurveCoverage.h is the
-// same code in C++ for the native tests. Flags: the ODD rule, × a clip path's coverage (intersect / subtract).
-inline constexpr const char* kPathVertex = R"(#version 300 es
-layout(location = 0) in vec4 a_linear;
-layout(location = 1) in vec4 a_origin;
-layout(location = 2) in vec4 a_box;
-layout(location = 3) in vec4 a_geom;
-layout(location = 4) in vec4 a_color;
-layout(location = 5) in vec4 a_paint0;
-layout(location = 6) in vec4 a_paint1;
-uniform vec4 u_v[10];
-out vec2 v_local;
-flat out vec4 v_origin;
-flat out vec4 v_geom;
-flat out vec4 v_color;
-flat out vec4 v_paint0;
-flat out vec4 v_paint1;
-void main() {
-  int id = gl_VertexID;
-  vec2 corner = vec2((id == 1 || id == 2 || id == 4) ? 1.0 : 0.0, (id == 2 || id == 4 || id == 5) ? 1.0 : 0.0);
-  vec2 pad = vec2(1.5 / max(length(a_linear.xy), 1e-6), 1.5 / max(length(a_linear.zw), 1e-6));
-  vec2 local = mix(a_box.xy - pad, a_box.zw + pad, corner);
-  vec2 p = mat2(a_linear.xy, a_linear.zw) * local + a_origin.xy;
-  gl_Position = vec4(dot(u_v[0].xyz, vec3(p, 1.0)), dot(u_v[1].xyz, vec3(p, 1.0)), 0.0, 1.0);
-  v_local = local;
-  v_origin = a_origin;
-  v_geom = a_geom;
-  v_color = a_color;
-  v_paint0 = a_paint0;
-  v_paint1 = a_paint1;
-}
-)";
-
-inline constexpr const char* kPathFragmentHead = R"(#version 300 es
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-in vec2 v_local;
-flat in vec4 v_origin;
-flat in vec4 v_geom;
-flat in vec4 v_color;
-flat in vec4 v_paint0;
-flat in vec4 v_paint1;
-uniform vec4 u_v[10];
-uniform int u_stencilPass;
-uniform sampler2D u_t0;
-out vec4 o_color;
-)";
-
-inline constexpr const char* kPathFragmentBody = R"(
 vec4 texel(int i) { return texelFetch(u_t0, ivec2(i & 2047, i >> 11), 0); }
 
 void crossX(vec2 p0, vec2 p1, vec2 p2, float ppe, inout float cov, inout float wgt) {
@@ -338,7 +316,7 @@ float coverage(int start, vec2 p, vec2 ppe, bool evenOdd) {
   return clamp(max((ch * hw + cv * vw) / max(hw + vw, 1.0 / 65536.0), min(ch, cv)), 0.0, 1.0);
 }
 
-void main() {
+void pathMain() {
   vec2 dx = dFdx(v_local), dy = dFdy(v_local);
   vec2 ppe = 1.0 / max(vec2(length(vec2(dx.x, dy.x)), length(vec2(dx.y, dy.y))), vec2(1e-12));
   int flags = int(v_geom.w + 0.5);
@@ -357,6 +335,23 @@ void main() {
   if (c.a <= 0.0) discard;
   o_color = c;
 }
+
+// An axis-aligned rounded clip's coverage at canvas device px `dp` (1 when there is none).
+float roundClip(vec2 dp) {
+  if (v_round.z <= v_round.x) return 1.0;
+  vec2 half_ = (v_round.zw - v_round.xy) * 0.5;
+  return clamp(0.5 - sdRoundedBox(dp - (v_round.xy + half_), half_, v_radii), 0.0, 1.0);
+}
+
+void main() {
+  vec2 dp = vec2(gl_FragCoord.x, u_v[5].z - gl_FragCoord.y) + u_v[5].xy;
+  if (dp.x < v_clip.x || dp.y < v_clip.y || dp.x >= v_clip.z || dp.y >= v_clip.w) discard;
+  float clipCoverage = roundClip(dp);
+  if (clipCoverage <= 0.0 || (u_stencilPass == 1 && clipCoverage < 0.5)) discard;
+  if (int(v_geom.z + 0.5) == 4) pathMain();
+  else shapeMain();
+  o_color *= clipCoverage;
+}
 )";
 
 // ---- Composite: a layer onto its parent ----------------------------------------
@@ -367,7 +362,7 @@ void main() {
 // the blurred alpha behind, knocked out by the node's alpha), 4 inner shadow (colour × the node's alpha × (1 −
 // the blurred alpha)). Blend modes other than NORMAL read the backdrop and write the result (Blend::Replace).
 inline constexpr const char* kCompositeVertex = R"(#version 300 es
-uniform vec4 u_v[10];
+uniform vec4 u_v[12];
 out vec2 v_dev;
 void main() {
   int id = gl_VertexID;
@@ -381,7 +376,7 @@ void main() {
 inline constexpr const char* kCompositeFragment = R"(#version 300 es
 precision highp float;
 in vec2 v_dev;
-uniform vec4 u_v[10];
+uniform vec4 u_v[12];
 uniform sampler2D u_t0;
 uniform sampler2D u_t1;
 uniform sampler2D u_t2;
@@ -437,11 +432,27 @@ vec3 blendColor(int m, vec3 b, vec3 s) {
   return s;
 }
 
+// The rounded clip the layer lands in (slots 9: x0 y0 x1 y1, 10: radii; canvas device px; x1 < x0: none).
+float sdBox4(vec2 p, vec2 b, vec4 r) {
+  float rr = p.x > 0.0 ? (p.y > 0.0 ? r.z : r.y) : (p.y > 0.0 ? r.w : r.x);
+  rr = clamp(rr, 0.0, min(b.x, b.y));
+  vec2 q = abs(p) - b + rr;
+  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - rr;
+}
+float roundClip(vec2 d) {
+  vec4 r = u_v[9];
+  if (r.z <= r.x) return 1.0;
+  vec2 h = (r.zw - r.xy) * 0.5;
+  return clamp(0.5 - sdBox4(d - (r.xy + h), h, u_v[10]), 0.0, 1.0);
+}
+
 void main() {
   vec4 params = u_v[7];
   int mode = int(params.z + 0.5);
   int blend = int(params.y + 0.5);
   vec4 c;
+  float cov = roundClip(v_dev);
+  if (cov <= 0.0) discard;
   if (mode == 3) {
     float a = at(u_t0, u_v[3], v_dev - u_v[8].xy).a;
     if (params.w > 0.5) a *= 1.0 - at(u_t1, u_v[4], v_dev).a;
@@ -467,6 +478,9 @@ void main() {
     vec3 mixed = (1.0 - b.a) * cs + b.a * clamp(blendColor(blend, cb, cs), 0.0, 1.0);
     float a = c.a + b.a * (1.0 - c.a);
     c = vec4(c.a * mixed + (1.0 - c.a) * b.rgb, a);
+    c = mix(b, c, cov);  // written over the backdrop: outside the clip the backdrop stays
+  } else {
+    c *= cov;
   }
   o_color = c;
 }
@@ -485,7 +499,7 @@ void main() {
 
 inline constexpr const char* kBlurFragment = R"(#version 300 es
 precision highp float;
-uniform vec4 u_v[10];
+uniform vec4 u_v[12];
 uniform sampler2D u_t0;
 out vec4 o_color;
 void main() {

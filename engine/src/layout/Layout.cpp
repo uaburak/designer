@@ -422,13 +422,20 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
 void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
   const Node* n = doc_.get(id);
   if (!n) return;
-  NodeProps p = n->props;  // a copy: writes below change the node
-  if (p.isAutoLayout()) {
+  // What is read after the writes below (they change the node; a whole NodeProps is too large to copy here).
+  const NodeProps& live = n->props;
+  const bool autoLayout = live.isAutoLayout(), fits = live.fitsChildren(), frameLike = live.isFrameLike();
+  const NodeType type = live.type;
+  const TextAutoResize autoResize = live.textAutoResize;
+  const TextAlignHorizontal alignH = live.textAlignHorizontal;
+  const Mat2x3 transform0 = live.transform;
+  const Vec2 size0 = live.size;
+  if (autoLayout) {
     if (!sizeFromParent) size = natural(id);
-    if (!sameSize(size, p.size)) host_.writeGeometry(id, p.transform, size);
+    if (!sameSize(size, size0)) host_.writeGeometry(id, transform0, size);
     arrangeAutoLayout(id, size);
     applyConstraints(id, false);  // absolute children follow the frame
-  } else if (p.fitsChildren()) {
+  } else if (fits) {
     for (Guid c : std::vector<Guid>(doc_.children(id))) {
       const Node* cn = doc_.get(c);
       if (cn && (cn->props.isAutoLayout() || cn->props.fitsChildren() || cn->props.isFrameLike())) arrange(c, natural(c), false);
@@ -436,30 +443,29 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
     fitGroup(id);
   } else {
     if (!sizeFromParent) {
-      if (p.type == NodeType::TEXT) size = natural(id);
-      size = clampSize(size, p);
+      if (type == NodeType::TEXT) size = natural(id);
+      size = clampSize(size, live);
     }
-    Mat2x3 t = p.transform;
-    if (p.type == NodeType::TEXT && !sizeFromParent && p.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT &&
-        std::fabs(size.x - p.size.x) > kEps) {
+    Mat2x3 t = transform0;
+    if (type == NodeType::TEXT && !sizeFromParent && autoResize == TextAutoResize::WIDTH_AND_HEIGHT && std::fabs(size.x - size0.x) > kEps) {
       // An auto-width text grows from the side its alignment holds (centre, right).
-      double f = p.textAlignHorizontal == TextAlignHorizontal::CENTER ? 0.5 : p.textAlignHorizontal == TextAlignHorizontal::RIGHT ? 1 : 0;
-      Vec2 shift = t.applyLinear({(p.size.x - size.x) * f, 0});
+      double f = alignH == TextAlignHorizontal::CENTER ? 0.5 : alignH == TextAlignHorizontal::RIGHT ? 1 : 0;
+      Vec2 shift = t.applyLinear({(size0.x - size.x) * f, 0});
       t.m02 += shift.x;
       t.m12 += shift.y;
     }
-    if (!sameSize(size, p.size) || !(t == p.transform)) host_.writeGeometry(id, t, size);
-    if (p.isFrameLike()) applyConstraints(id, true);
+    if (!sameSize(size, size0) || !(t == transform0)) host_.writeGeometry(id, t, size);
+    if (frameLike) applyConstraints(id, true);
   }
 }
 
 void Layout::arrangeAutoLayout(Guid id, Vec2 size) {
-  const NodeProps p = doc_.get(id)->props;
+  const bool hugsPrimary = doc_.get(id)->props.hugsPrimary();
   for (const Placement& pl : place(id, size)) {
     const Node* cn = doc_.get(pl.id);
     if (!cn || host_.placedByGesture(pl.id)) continue;
     const NodeProps& cp = cn->props;
-    bool decided = (cp.stackChildPrimaryGrow > 0 && !p.hugsPrimary()) || cp.stackChildAlignSelf == StackCounterAlign::STRETCH;
+    bool decided = (cp.stackChildPrimaryGrow > 0 && !hugsPrimary) || cp.stackChildAlignSelf == StackCounterAlign::STRETCH;
     // The child's own layout first (its children, its group fitting)…
     if (cp.isAutoLayout() || cp.fitsChildren() || cp.isFrameLike()) arrange(pl.id, pl.size, decided || !cp.isAutoLayout());
     else if (!sameSize(pl.size, cp.size)) host_.writeGeometry(pl.id, cp.transform, pl.size);
@@ -478,15 +484,16 @@ void Layout::arrangeAutoLayout(Guid id, Vec2 size) {
 void Layout::applyConstraints(Guid frame, bool flowChildrenToo) {
   Vec2 oldSize;
   if (!host_.resizedInTxn(frame, oldSize)) return;
-  const NodeProps fp = doc_.get(frame)->props;
-  Vec2 newSize = fp.size;
+  const NodeProps& fp = doc_.get(frame)->props;
+  const Vec2 newSize = fp.size;
+  const bool frameAutoLayout = fp.isAutoLayout();
   bool ignore = host_.ignoreConstraints(frame);
   for (Guid c : std::vector<Guid>(doc_.children(frame))) {
     const Node* cn = doc_.get(c);
     if (!cn) continue;
     const NodeProps& cp = cn->props;
     if (host_.excludedFromFlow(c)) continue;  // being dragged: the gesture places it
-    if (!flowChildrenToo && fp.isAutoLayout() && cp.inFlow()) continue;
+    if (!flowChildrenToo && frameAutoLayout && cp.inFlow()) continue;
     Mat2x3 t0;
     Vec2 s0;
     host_.base(c, t0, s0);
@@ -528,20 +535,22 @@ void Layout::fitGroup(Guid id) {
     u = any ? u.united(b) : b;
     any = true;
   }
-  const NodeProps gp = doc_.get(id)->props;
-  if (std::fabs(u.x) < kEps && std::fabs(u.y) < kEps && std::fabs(u.w - gp.size.x) < kEps && std::fabs(u.h - gp.size.y) < kEps) return;
+  const Mat2x3 gt = doc_.get(id)->props.transform;
+  const Vec2 gs = doc_.get(id)->props.size;
+  if (std::fabs(u.x) < kEps && std::fabs(u.y) < kEps && std::fabs(u.w - gs.x) < kEps && std::fabs(u.h - gs.y) < kEps) return;
   // The group's box becomes the union; the children shift so nothing moves on the page.
-  Mat2x3 t = gp.transform;
-  Vec2 shift = gp.transform.applyLinear({u.x, u.y});
+  Mat2x3 t = gt;
+  Vec2 shift = gt.applyLinear({u.x, u.y});
   t.m02 += shift.x;
   t.m12 += shift.y;
   host_.writeGeometry(id, t, {u.w, u.h});
   for (Guid c : kids) {
-    const NodeProps cp = doc_.get(c)->props;
-    Mat2x3 ct = cp.transform;
+    const Mat2x3 cs = doc_.get(c)->props.transform;
+    const Vec2 csize = doc_.get(c)->props.size;
+    Mat2x3 ct = cs;
     ct.m02 -= u.x;
     ct.m12 -= u.y;
-    host_.writeGeometry(c, ct, cp.size);
+    host_.writeGeometry(c, ct, csize);
   }
 }
 
@@ -558,7 +567,7 @@ void Layout::constrainChildren(Guid frame) {
   memo_.clear();
 }
 
-void Layout::run(const std::vector<Guid>& dirty) {
+void Layout::run(const std::vector<Guid>& dirty, bool everyRoot) {
   memo_.clear();
   std::unordered_set<Guid, GuidHash> roots;
   for (Guid d : dirty) {
@@ -572,14 +581,22 @@ void Layout::run(const std::vector<Guid>& dirty) {
     }
     roots.insert(r);
   }
-  std::vector<Guid> ordered;
+  // everyRoot: every root is arranged, outer ones first, as if each had been laid out on its own (a root inside
+  // another one is not always reached by the outer one's arrangement: its parent is a plain or grid frame,
+  // which passes layout down only when it was resized). Otherwise a root inside another root is left to it.
+  std::vector<std::pair<int, Guid>> ordered;
   for (Guid r : roots) {
+    int depth = 0;
     bool nested = false;
-    for (Guid a = doc_.parentOf(r); a != kNoGuid && !nested; a = doc_.parentOf(a)) nested = roots.count(a) != 0;
-    if (!nested) ordered.push_back(r);
+    for (Guid a = doc_.parentOf(r); a != kNoGuid && depth < 10000; a = doc_.parentOf(a)) {
+      depth++;
+      nested = nested || roots.count(a) != 0;
+    }
+    if (everyRoot) ordered.push_back({depth, r});
+    else if (!nested) ordered.push_back({0, r});
   }
   std::sort(ordered.begin(), ordered.end());  // deterministic
-  for (Guid r : ordered) {
+  for (auto [depth, r] : ordered) {
     const Node* n = doc_.get(r);
     if (!n) continue;
     arrange(r, n->props.size, false);

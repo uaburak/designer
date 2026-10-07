@@ -18,6 +18,7 @@ class NullDevice final : public Device {
   };
 
   Caps caps() const override { return {}; }
+  MemoryStats memory() const override;
   BufferId createBuffer(BufferKind kind, uint32_t bytes, Usage usage) override;
   void reserve(BufferId buffer, uint32_t bytes) override;
   void write(BufferId buffer, uint32_t offset, std::span<const uint8_t> data) override;
@@ -46,6 +47,7 @@ class NullDevice final : public Device {
     uint32_t width = 0, height = 0;
     std::vector<uint8_t> bytes;
     bool live = false;
+    bool mipmaps = false;
   };
   const Texture& texture(TextureId id) const { return textures_.at(id); }
 

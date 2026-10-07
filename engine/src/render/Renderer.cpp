@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstring>
 
 #include "geometry/Shapes.h"
@@ -132,6 +133,7 @@ Color Renderer::titleColor(const Color& page, double* alpha) {
 Renderer::Renderer(gfx::Device& device) : device_(device), curves_(device), images_(device) {}
 
 Renderer::~Renderer() {
+  dropCache();
   if (buffer_) device_.destroyBuffer(buffer_);
   if (ramp_) device_.destroyTexture(ramp_);
   if (white_) device_.destroyTexture(white_);
@@ -155,10 +157,7 @@ void Renderer::ensurePipelines() {
   make(Pass::ShapeClipped, ShaderId::Shape, Blend::Premultiplied, equal, ColorMask::All);
   make(Pass::ShapeStencilInc, ShaderId::Shape, Blend::Premultiplied, inc, ColorMask::None);
   make(Pass::ShapeStencilDec, ShaderId::Shape, Blend::Premultiplied, dec, ColorMask::None);
-  make(Pass::Path, ShaderId::Path, Blend::Premultiplied, none, ColorMask::All);
-  make(Pass::PathClipped, ShaderId::Path, Blend::Premultiplied, equal, ColorMask::All);
-  make(Pass::PathStencilInc, ShaderId::Path, Blend::Premultiplied, inc, ColorMask::None);
-  make(Pass::PathStencilDec, ShaderId::Path, Blend::Premultiplied, dec, ColorMask::None);
+  // Paths and glyphs share the shapes' program (one uber shader): their passes are the shapes' (emit()).
   make(Pass::Composite, ShaderId::Composite, Blend::Premultiplied, none, ColorMask::All);
   make(Pass::CompositeClipped, ShaderId::Composite, Blend::Premultiplied, equal, ColorMask::All);
   make(Pass::CompositeReplace, ShaderId::Composite, Blend::Replace, none, ColorMask::All);
@@ -176,36 +175,51 @@ void Renderer::ensurePipelines() {
 void Renderer::emit(const DrawInstance& s, Pass pass) { emit(s, pass, DrawState{}); }
 
 void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state) {
+  // Shapes, paths and glyphs are one program: their passes are one.
+  if (pass == Pass::Path) pass = Pass::Shape;
+  else if (pass == Pass::PathClipped) pass = Pass::ShapeClipped;
+  else if (pass == Pass::PathStencilInc) pass = Pass::ShapeStencilInc;
+  else if (pass == Pass::PathStencilDec) pass = Pass::ShapeStencilDec;
   uint8_t ref = stencilDepth_;
-  if (stencilDepth_ > 0) {
-    if (pass == Pass::Shape) pass = Pass::ShapeClipped;
-    else if (pass == Pass::Path) pass = Pass::PathClipped;
-  }
-  if (pass == Pass::ShapeStencilDec || pass == Pass::PathStencilDec) ref = static_cast<uint8_t>(stencilDepth_ + 1);
+  if (stencilDepth_ > 0 && pass == Pass::Shape) pass = Pass::ShapeClipped;
+  if (pass == Pass::ShapeStencilDec) ref = static_cast<uint8_t>(stencilDepth_ + 1);
   std::vector<Cmd>& cmds = layers_[static_cast<size_t>(current_)].cmds;
   bool merge = !cmds.empty();
   if (merge) {
+    // An axis-aligned clip travels with the instance (DrawInstance::clip), so it never splits a batch.
     const Cmd& d = cmds.back();
-    merge = d.kind == Cmd::Kind::Draw && d.pass == pass && d.stencilRef == ref && d.scissorEnabled == scissorEnabled_ &&
-            d.first + d.count == instances_.size() && d.state == state &&
-            (!scissorEnabled_ || (d.scissor.x == scissor_.x && d.scissor.y == scissor_.y && d.scissor.w == scissor_.w &&
-                                   d.scissor.h == scissor_.h));
+    // Instances that sample no image (state.image 0: solids, gradients, glyphs) join a batch that binds one, and
+    // the other way round: only two different images (or backdrops) split a run.
+    bool states = d.state == state || (d.state.backdrop == state.backdrop && (state.image == 0 || d.state.image == 0) &&
+                                       (state.image == 0 ? true : std::memcmp(d.state.filters, DrawState{}.filters, sizeof d.state.filters) == 0));
+    merge = d.kind == Cmd::Kind::Draw && d.pass == pass && d.stencilRef == ref && d.first + d.count == instances_.size() && states;
   }
   if (merge) {
-    cmds.back().count++;
+    Cmd& d = cmds.back();
+    d.count++;
+    if (d.state.image == 0 && state.image != 0) d.state = state;  // the batch binds the image now
   } else {
     Cmd c;
     c.kind = Cmd::Kind::Draw;
     c.pass = pass;
     c.first = static_cast<uint32_t>(instances_.size());
     c.count = 1;
-    c.scissorEnabled = scissorEnabled_;
-    c.scissor = scissor_;
     c.stencilRef = ref;
     c.state = state;
     cmds.push_back(c);
   }
   instances_.push_back(s);
+  if (round_.on) {
+    DrawInstance& q = instances_.back();
+    for (int i = 0; i < 4; i++) q.round[i] = round_.rect[i], q.radii[i] = round_.radii[i];
+  }
+  if (scissorEnabled_) {
+    DrawInstance& q = instances_.back();
+    q.clip[0] = static_cast<float>(scissor_.x);
+    q.clip[1] = static_cast<float>(scissor_.y);
+    q.clip[2] = static_cast<float>(scissor_.x + scissor_.w);
+    q.clip[3] = static_cast<float>(scissor_.y + scissor_.h);
+  }
   stats_.shapes++;
   if (s.geom[2] == static_cast<float>(ShapeKind::Path)) stats_.paths++;
 }
@@ -434,14 +448,14 @@ namespace {
 
 // Whether a node's shadows can be drawn analytically: a rectangle or frame without smoothing, with an
 // opaque solid fill hiding what is under it (and a frame clipping its children to it).
-bool analyticShadows(const Document& doc, Guid id, const NodeProps& p) {
+bool analyticShadows(const NodeProps& p, bool hasChildren) {
   if (!(p.isRectLike() || p.isFrameLike()) || p.cornerSmoothing > 0) return false;
   bool opaque = false;
   for (auto& f : p.fillPaints)
     opaque |= f.visible && f.type == PaintType::SOLID && f.opacity >= 1 && f.color.a >= 1 &&
               (f.blendMode == BlendMode::NORMAL || f.blendMode == BlendMode::PASS_THROUGH);
   if (!opaque) return false;
-  if (p.isFrameLike() && !p.clipsContent() && !doc.children(id).empty()) return false;
+  if (p.isFrameLike() && !p.clipsContent() && hasChildren) return false;
   for (auto& e : p.effects)
     if (e.visible && e.isShadow() && e.blendMode != BlendMode::NORMAL && e.blendMode != BlendMode::PASS_THROUGH) return false;
   return true;
@@ -534,14 +548,27 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
   }
 }
 
+namespace {
+
+// Whether `inner` stays clear of `outer`'s rounded corners (so `outer` ∩ `inner` is `inner`, cut only by
+// `outer`'s straight edges — which the scissor does).
+bool clearOfCorners(const float outer[4], const float radii[4], const float inner[4]) {
+  const float x0 = outer[0], y0 = outer[1], x1 = outer[2], y1 = outer[3];
+  if (radii[0] > 0 && inner[0] < x0 + radii[0] && inner[1] < y0 + radii[0]) return false;
+  if (radii[1] > 0 && inner[2] > x1 - radii[1] && inner[1] < y0 + radii[1]) return false;
+  if (radii[2] > 0 && inner[2] > x1 - radii[2] && inner[3] > y1 - radii[2]) return false;
+  if (radii[3] > 0 && inner[0] < x0 + radii[3] && inner[3] > y1 - radii[3]) return false;
+  return true;
+}
+
+}  // namespace
+
 void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m) {
   bool square = p.cornerRadii[0] <= 0 && p.cornerRadii[1] <= 0 && p.cornerRadii[2] <= 0 && p.cornerRadii[3] <= 0;
-  Clip clip{false, scissorEnabled_, scissor_, {}, false};
-  if (square && nearlyAxisAligned(m)) {
-    // Axis-aligned and square: a scissor rect, intersected with the current one.
-    Rect r = transformedBounds(m, p.size.x, p.size.y);
-    double sx = viewport_.scaleX(), sy = viewport_.scaleY();
-    // Every pixel the frame touches: its children's anti-aliased edges are not cut off.
+  Clip clip{false, scissorEnabled_, scissor_, {}, false, round_};
+  double sx = viewport_.scaleX(), sy = viewport_.scaleY();
+  // Every pixel the frame touches into the scissor (its children's anti-aliased edges are not cut off).
+  auto scissorTo = [&](const Rect& r) {
     int x0 = static_cast<int>(std::floor(r.x * sx)), y0 = static_cast<int>(std::floor(r.y * sy));
     int x1 = static_cast<int>(std::ceil(r.right() * sx)), y1 = static_cast<int>(std::ceil(r.bottom() * sy));
     if (scissorEnabled_) {
@@ -552,6 +579,36 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
     }
     scissorEnabled_ = true;
     scissor_ = {x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0)};
+  };
+  // Axis-aligned and rounded: an anti-aliased rounded clip in the shaders (no stencil passes, so whatever is
+  // inside batches with everything else), when it combines with the one already in force.
+  RoundClip next;
+  bool rounded = false;
+  if (!square && p.cornerSmoothing <= 0 && nearlyAxisAligned(m)) {
+    Rect r = transformedBounds(m, p.size.x, p.size.y);
+    next.on = true;
+    next.rect[0] = static_cast<float>(r.x * sx), next.rect[1] = static_cast<float>(r.y * sy);
+    next.rect[2] = static_cast<float>(r.right() * sx), next.rect[3] = static_cast<float>(r.bottom() * sy);
+    CornerRadii cr = geom::clampRadii(p.size, p.cornerRadii);
+    double k = std::min(std::fabs(m.m00) * sx, std::fabs(m.m11) * sy);
+    for (size_t i = 0; i < 4; i++) next.radii[i] = static_cast<float>(cr[i] * k);
+    rounded = true;
+    if (round_.on) {
+      if (clearOfCorners(round_.rect, round_.radii, next.rect)) {
+        // inside the one in force: this one is the clip
+      } else if (clearOfCorners(next.rect, next.radii, round_.rect)) {
+        next = round_;  // the one in force is inside this one
+      } else {
+        rounded = false;  // two sets of corners: the stencil
+      }
+    }
+  }
+  if (square && nearlyAxisAligned(m)) {
+    // Axis-aligned and square: a scissor rect, intersected with the current one.
+    scissorTo(transformedBounds(m, p.size.x, p.size.y));
+  } else if (rounded) {
+    scissorTo(transformedBounds(m, p.size.x, p.size.y));
+    round_ = next;
   } else if (p.cornerSmoothing > 0) {
     // Smoothed corners: the path into the stencil.
     clip.stencil = true;
@@ -593,13 +650,14 @@ void Renderer::popClip() {
   }
   scissorEnabled_ = clip.scissorEnabled;
   scissor_ = clip.scissor;
+  round_ = clip.round;
 }
 
 gfx::IRect Renderer::deviceRect(const Rect& css, double margin) const {
   double sx = viewport_.scaleX(), sy = viewport_.scaleY();
   double x0 = css.x * sx - margin, y0 = css.y * sy - margin, x1 = css.right() * sx + margin, y1 = css.bottom() * sy + margin;
-  // What can matter: the viewport, plus the margin (blurs read past the edge).
-  double vx0 = -margin, vy0 = -margin, vx1 = viewport_.deviceWidth() + margin, vy1 = viewport_.deviceHeight() + margin;
+  // What can matter: the part being drawn, plus the margin (blurs read past the edge).
+  double vx0 = region_.x - margin, vy0 = region_.y - margin, vx1 = region_.x + region_.w + margin, vy1 = region_.y + region_.h + margin;
   x0 = std::max(x0, vx0), y0 = std::max(y0, vy0), x1 = std::min(x1, vx1), y1 = std::min(y1, vy1);
   if (x1 <= x0 || y1 <= y0) return {0, 0, 0, 0};
   int ix0 = static_cast<int>(std::floor(x0)), iy0 = static_cast<int>(std::floor(y0));
@@ -609,38 +667,10 @@ gfx::IRect Renderer::deviceRect(const Rect& css, double margin) const {
   return {ix0, iy0, std::min(ix1 - ix0, cap), std::min(iy1 - iy0, cap)};
 }
 
-Rect Renderer::visualBounds(const Document& doc, Guid id, const Mat2x3& m, int depth) const {
-  const Node* n = doc.get(id);
-  if (!n) return {};
-  const NodeProps& p = n->props;
-  double scale = std::sqrt(std::fabs(m.determinant()));
-  Rect own = transformedBounds(m, p.size.x, p.size.y);
-  // The outside of strokes and effects (Document::renderBounds' outset, in this space).
-  Rect world = doc.renderBounds(id), box = doc.worldBounds(id);
-  double grow = std::max({box.x - world.x, world.right() - box.right(), box.y - world.y, world.bottom() - box.bottom(), 0.0});
-  double worldScale = std::sqrt(std::fabs(doc.worldTransform(id).determinant()));
-  double g = worldScale > 0 ? grow / worldScale * scale : 0;
-  own = {own.x - g, own.y - g, own.w + 2 * g, own.h + 2 * g};
-  bool group = p.fitsChildren() && !p.isBoolean();
-  if ((p.isFrameLike() && !p.clipsContent()) || group) {
-    bool any = !group;
-    Rect u = group ? Rect{} : own;
-    if (depth < 64)
-      for (Guid c : doc.children(id)) {
-        const Node* cn = doc.get(c);
-        if (!cn || !cn->props.visible) continue;
-        Rect cb = visualBounds(doc, c, m * cn->props.transform, depth + 1);
-        u = any ? u.united(cb) : cb;
-        any = true;
-      }
-    if (group) {
-      // A group's own effects reach past its children.
-      u = {u.x - g, u.y - g, u.w + 2 * g, u.h + 2 * g};
-      return any ? u : own;
-    }
-    return u;
-  }
-  return own;
+Rect Renderer::screenBounds(uint32_t i) const {
+  // The view is a scale and a translation: the world box maps to the screen box exactly.
+  const Rect& w = tree_->nodes()[i].visual;
+  return {w.x * view_.m00 + view_.m02, w.y * view_.m11 + view_.m12, w.w * view_.m00, w.h * view_.m11};
 }
 
 int Renderer::beginLayer(gfx::IRect rect) {
@@ -650,8 +680,9 @@ int Renderer::beginLayer(gfx::IRect rect) {
   layers_.push_back(std::move(L));
   current_ = static_cast<int>(layers_.size() - 1);
   // A layer starts unclipped (its parent's clip applies when it is composited).
-  clips_.push_back({false, scissorEnabled_, scissor_, {}, false});
+  clips_.push_back({false, scissorEnabled_, scissor_, {}, false, round_});
   scissorEnabled_ = false;
+  round_ = RoundClip{};
   stencilDepth_ = 0;
   return saved;
 }
@@ -661,35 +692,36 @@ void Renderer::endLayer(int saved) {
   clips_.pop_back();
   scissorEnabled_ = c.scissorEnabled;
   scissor_ = c.scissor;
+  round_ = c.round;
   // The parent's stencil depth: count the stencil clips still open below.
   stencilDepth_ = 0;
   for (auto& k : clips_) stencilDepth_ += k.stencil ? 1 : 0;
   current_ = saved;
 }
 
-void Renderer::drawChildren(const Document& doc, const std::vector<Guid>& kids, size_t from, const Mat2x3& m, double alpha) {
-  for (size_t i = from; i < kids.size(); i++) {
-    const Node* n = doc.get(kids[i]);
-    if (!n) continue;
-    if (n->props.mask && n->props.visible) {
+void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha) {
+  const std::vector<RenderNode>& nodes = tree_->nodes();
+  for (uint32_t i = first; i < end; i = nodes[i].end) {
+    const NodeProps& p = nodes[i].node->props;
+    if (p.mask) {
       // A mask: it masks the layers above it in this parent (and is not drawn itself).
-      Mat2x3 mm = m * n->props.transform;
-      Rect mb = visualBounds(doc, kids[i], mm);
-      gfx::IRect r = deviceRect(mb, 2);
-      if (r.w <= 0 || r.h <= 0 || i + 1 >= kids.size()) return;
+      Mat2x3 mm = m * p.transform;
+      gfx::IRect r = deviceRect(screenBounds(i), 2);
+      uint32_t next = nodes[i].end;
+      if (r.w <= 0 || r.h <= 0 || next >= end) return;
       int saved = beginLayer(r);
       int M = current_;
-      if (n->props.maskType == MaskType::OUTLINE) {
+      if (p.maskType == MaskType::OUTLINE) {
         // The mask's geometry, opaque.
-        drawFills(doc, kids[i], n->props, mm, 1, true);
-        if (n->props.fitsChildren()) drawChildren(doc, doc.children(kids[i]), 0, mm, 1);
+        drawFills(doc, nodes[i].id, p, mm, 1, true);
+        if (p.fitsChildren()) drawChildren(doc, i + 1, nodes[i].end, mm, 1);
       } else {
-        drawNode(doc, kids[i], m, 1);
+        drawNode(doc, i, m, 1);
       }
       endLayer(saved);
       int saved2 = beginLayer(r);
       int C = current_;
-      drawChildren(doc, kids, i + 1, m, 1);
+      drawChildren(doc, next, end, m, 1);
       endLayer(saved2);
       Cmd c;
       c.kind = Cmd::Kind::Composite;
@@ -697,19 +729,22 @@ void Renderer::drawChildren(const Document& doc, const std::vector<Guid>& kids, 
       c.stencilRef = stencilDepth_;
       c.scissorEnabled = scissorEnabled_;
       c.scissor = scissor_;
+      c.round = round_;
       c.layer = C;
       c.aux = M;
-      c.mode = n->props.maskType == MaskType::LUMINANCE ? 2 : 1;
+      c.mode = p.maskType == MaskType::LUMINANCE ? 2 : 1;
       c.opacity = static_cast<float>(alpha);
       c.rect = r;
       layers_[static_cast<size_t>(current_)].cmds.push_back(c);
       return;
     }
-    drawNode(doc, kids[i], m, alpha);
+    drawNode(doc, i, m, alpha);
   }
 }
 
-void Renderer::drawContent(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic) {
+void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic) {
+  const RenderNode& rn = tree_->nodes()[i];
+  Guid id = rn.id;
   if (analytic) drawAnalyticShadows(p, m, alpha, false);
   if (p.type == NodeType::TEXT) {
     drawText(doc, p, id, m, alpha);
@@ -722,19 +757,18 @@ void Renderer::drawContent(const Document& doc, Guid id, const NodeProps& p, con
     return;
   }
   if (p.isGroupLike()) {
-    drawChildren(doc, doc.children(id), 0, m, alpha);
+    drawChildren(doc, i + 1, rn.end, m, alpha);
     return;
   }
   drawFills(doc, id, p, m, alpha);
   if (analytic) drawAnalyticShadows(p, m, alpha, true);
   if (p.isFrameLike()) {
-    const auto& kids = doc.children(id);
     bool clips = p.clipsContent();
     bool grids = false;
     for (auto& g : p.layoutGrids) grids |= g.visible;
-    if (!kids.empty() || grids) {
+    if (rn.hasChildren || grids) {
       if (clips) pushClip(doc, id, p, m);
-      drawChildren(doc, kids, 0, m, alpha);
+      drawChildren(doc, i + 1, rn.end, m, alpha);
       if (grids) {
         // Layout guides over the frame's content (columns, rows, grid).
         for (const LayoutGrid& g : p.layoutGrids) {
@@ -783,6 +817,7 @@ void Renderer::compositeLayer(int src, int aux, int mode, float opacity, BlendMo
   c.stencilRef = stencilDepth_;
   c.scissorEnabled = scissorEnabled_;
   c.scissor = scissor_;
+  c.round = round_;
   c.layer = src;
   c.aux = aux;
   c.mode = mode;
@@ -809,17 +844,27 @@ void Renderer::blendedPaint(const Paint& paint, const Mat2x3& m, Vec2 size, doub
   compositeLayer(L, -1, 0, static_cast<float>(alpha), paint.blendMode, Color{}, {}, false, r);
 }
 
-void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentCss, double alpha) {
-  const Node* n = doc.get(id);
-  if (!n || !n->props.visible) return;
-  const NodeProps& p = n->props;
+void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss, double alpha) {
+  const RenderNode& rn = tree_->nodes()[i];
+  Guid id = rn.id;
+  const NodeProps& p = rn.node->props;
   if (p.opacity <= 0 || alpha <= 0) return;
-  Mat2x3 m = parentCss * p.transform;
-  Rect vb = visualBounds(doc, id, m);
+  stats_.nodes++;
+  // Culling (docs/engine.md §6.8): the whole subtree goes when what it can cover is off screen…
+  Rect vb = screenBounds(i);
   Rect padded{vb.x - 2, vb.y - 2, vb.w + 4, vb.h + 4};
-  if (!padded.intersects(screen_)) return;
+  if (!padded.intersects(screen_)) {
+    stats_.culled++;
+    return;
+  }
+  // …or smaller than half a device pixel (LOD).
+  if (std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < 0.5) {
+    stats_.tiny++;
+    return;
+  }
+  Mat2x3 m = parentCss * p.transform;
 
-  bool analytic = analyticShadows(doc, id, p);
+  bool analytic = analyticShadows(p, rn.hasChildren);
   std::vector<const Effect*> drops, inners, backgrounds;
   double layerBlur = 0;
   for (const Effect& e : p.effects) {
@@ -830,7 +875,7 @@ void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentCss, d
     else if (e.type == EffectType::FOREGROUND_BLUR && e.radius > 0) layerBlur = std::max(layerBlur, e.radius);
   }
   bool generic = !analytic && (!drops.empty() || !inners.empty());
-  bool container = (p.isFrameLike() || p.isGroupLike()) && !doc.children(id).empty();
+  bool container = (p.isFrameLike() || p.isGroupLike()) && rn.hasChildren;
   size_t paints = 0;
   for (auto& f : p.fillPaints) paints += f.visible ? 1 : 0;
   if (p.strokeWeight > 0)
@@ -842,7 +887,7 @@ void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentCss, d
 
   for (const Effect* e : backgrounds) drawBackgroundBlur(doc, id, p, m, a, *e);
   if (!needsLayer) {
-    drawContent(doc, id, p, m, a, analytic);
+    drawContent(doc, i, p, m, a, analytic);
     return;
   }
   stats_.layers++;
@@ -852,7 +897,7 @@ void Renderer::drawNode(const Document& doc, Guid id, const Mat2x3& parentCss, d
   if (r.w <= 0 || r.h <= 0) return;
   int saved = beginLayer(r);
   int C = current_;
-  drawContent(doc, id, p, m, 1, analytic);
+  drawContent(doc, i, p, m, 1, analytic);
   endLayer(saved);
   layers_[static_cast<size_t>(C)].blur = blurSigma;
 
@@ -910,14 +955,34 @@ void Renderer::rows(float out[2][4], double sx, double sy, int ox, int oy, int w
   out[1][3] = 0;
 }
 
+namespace {
+
+// Pool sizes: 64 px steps up to 1024, 256 px steps above (fewer sizes to keep: a zoom changes layers' sizes every
+// frame).
+int poolSize(int v) { return v <= 1024 ? roundUp(v, 64) : roundUp(v, 256); }
+uint64_t targetBytes(int w, int h) { return static_cast<uint64_t>(w) * static_cast<uint64_t>(h) * 8; }  // colour + stencil
+
+}  // namespace
+
 Renderer::PoolTarget* Renderer::acquire(int w, int h) {
-  int bw = roundUp(w, 64), bh = roundUp(h, 64);
+  int bw = poolSize(w), bh = poolSize(h);
   for (auto& t : pool_)
     if (!t.busy && t.w == bw && t.h == bh) {
       t.busy = true;
       t.lastUsed = frame_;
       return &t;
     }
+  // Within the budget: idle targets go first, least recently used first (layers of other sizes from earlier
+  // frames — during a zoom every frame's are new — must not pile up on the GPU).
+  uint64_t need = targetBytes(bw, bh);
+  while (poolBytes() + need > kPoolBudgetBytes) {
+    size_t victim = pool_.size();
+    for (size_t i = 0; i < pool_.size(); i++)
+      if (!pool_[i].busy && (victim == pool_.size() || pool_[i].lastUsed < pool_[victim].lastUsed)) victim = i;
+    if (victim == pool_.size()) break;  // everything is in use this frame
+    device_.destroyTarget(pool_[victim].target);
+    pool_.erase(pool_.begin() + static_cast<long>(victim));
+  }
   gfx::TargetId id = device_.createTarget(static_cast<uint32_t>(bw), static_cast<uint32_t>(bh));
   if (!id) return nullptr;
   PoolTarget t;
@@ -929,6 +994,12 @@ Renderer::PoolTarget* Renderer::acquire(int w, int h) {
   t.lastUsed = frame_;
   pool_.push_back(t);
   return &pool_.back();
+}
+
+uint64_t Renderer::poolBytes() const {
+  uint64_t b = 0;
+  for (const PoolTarget& t : pool_) b += targetBytes(t.w, t.h);
+  return b;
 }
 
 void Renderer::release(gfx::TargetId target) {
@@ -1079,15 +1150,16 @@ void Renderer::runLayer(int index) {
       device_.endPass();
     }
   } else {
-    runCmds(L, t->target, {0, 0, L.rect.w, L.rect.h}, transparent);
+    runCmds(L, t->target, {0, 0, L.rect.w, L.rect.h}, transparent, false);
   }
   blurLayer(layers_[static_cast<size_t>(index)]);
 }
 
-void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4]) {
+void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, const float clear[4], bool keep) {
   gfx::PassDesc pd;
   pd.target = target;
   pd.viewport = viewport;
+  pd.keep = keep;
   for (int i = 0; i < 4; i++) pd.clear[i] = clear[i];
   if (!device_.beginPass(pd)) return;
   const int ox = L.rect.x, oy = L.rect.y, W = viewport.w, H = viewport.h;
@@ -1102,14 +1174,16 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
   gfx::TextureId white = white_;
   for (const Cmd& c : L.cmds) {
     if (c.kind == Cmd::Kind::Draw) {
-      bool path = c.pass == Pass::Path || c.pass == Pass::PathClipped || c.pass == Pass::PathStencilInc || c.pass == Pass::PathStencilDec;
-      if (path && !curveTexture_) continue;
       gfx::DrawCall call;
       call.pipeline = pipelines_[static_cast<int>(c.pass)];
       call.instances = {buffer_, static_cast<uint32_t>(c.first * sizeof(DrawInstance)), static_cast<uint32_t>(c.count * sizeof(DrawInstance))};
       call.instanceCount = c.count;
       for (int i = 0; i < 4; i++) call.uniforms[0][i] = cssRows[0][i], call.uniforms[1][i] = cssRows[1][i];
       for (int i = 0; i < 4; i++) call.uniforms[2][i] = c.state.filters[i], call.uniforms[3][i] = c.state.filters[4 + i];
+      // Where this pass lies on the canvas (instances' clip rectangles are in canvas device px).
+      call.uniforms[5][0] = static_cast<float>(ox);
+      call.uniforms[5][1] = static_cast<float>(oy);
+      call.uniforms[5][2] = static_cast<float>(H);
       call.textures[0] = curveTexture_ ? curveTexture_ : white;
       call.textures[1] = ramp_ ? ramp_ : white;
       call.textures[2] = c.state.image ? c.state.image : white;
@@ -1159,7 +1233,28 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       call.uniforms[7][3] = c.knockout ? 1.f : 0.f;
       call.uniforms[8][0] = static_cast<float>(c.offset.x);
       call.uniforms[8][1] = static_cast<float>(c.offset.y);
+      if (c.round.on)
+        for (int i = 0; i < 4; i++) call.uniforms[9][i] = c.round.rect[i], call.uniforms[10][i] = c.round.radii[i];
       localScissor(call, c);
+      device_.draw(call);
+      stats_.drawCalls++;
+    } else if (c.kind == Cmd::Kind::Blit) {
+      // The content cache onto the canvas (scaled while a zoom settles).
+      gfx::IRect quad = intersect(c.rect, L.rect);
+      if (quad.w <= 0 || quad.h <= 0 || !c.blitTexture) continue;
+      gfx::DrawCall call;
+      call.pipeline = pipelines_[static_cast<int>(Pass::Composite)];
+      call.instanceCount = 1;
+      compositeUniforms(call, devRows, quad);
+      call.uniforms[3][0] = static_cast<float>(c.blitOrigin.x);
+      call.uniforms[3][1] = static_cast<float>(c.blitOrigin.y);
+      call.uniforms[3][2] = static_cast<float>(c.blitHeight);
+      call.uniforms[3][3] = static_cast<float>(c.blitScale);
+      call.textures[0] = c.blitTexture;
+      call.textures[1] = white;
+      call.textures[2] = white;
+      call.uniforms[7][0] = 1;
+      call.uniforms[7][1] = static_cast<float>(BlendMode::NORMAL);
       device_.draw(call);
       stats_.drawCalls++;
     } else if (c.kind == Cmd::Kind::BackdropBlur) {
@@ -1199,7 +1294,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
   device_.endPass();
 }
 
-void Renderer::execute(int index, gfx::TargetId target, const float clear[4]) {
+void Renderer::execute(int index, gfx::TargetId target, const float clear[4], bool keep) {
   Layer& root = layers_[static_cast<size_t>(index)];
   root.executed = true;
   for (size_t i = 0; i < root.cmds.size(); i++) {
@@ -1209,55 +1304,33 @@ void Renderer::execute(int index, gfx::TargetId target, const float clear[4]) {
     if (c.aux >= 0) runLayer(c.aux);
   }
   Layer& L = layers_[static_cast<size_t>(index)];
-  runCmds(L, target, {0, 0, L.rect.w, L.rect.h}, clear);
+  runCmds(L, target, {0, 0, L.rect.w, L.rect.h}, clear, keep);
 }
 
-RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
-                             const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target, Guid only) {
-  ensurePipelines();
-  frame_++;
-  doc_ = &doc;
-  viewport_ = viewport;
-  screen_ = {0, 0, viewport.width, viewport.height};
-  stats_ = {};
+void Renderer::beginRecording(gfx::IRect region, bool clipToRegion) {
   instances_.clear();
   layers_.clear();
   backdrops_.clear();
   clips_.clear();
-  scissorEnabled_ = false;
   stencilDepth_ = 0;
-  curves_.beginFrame();
-  if (rampData_.size() > static_cast<size_t>(kRampWidth) * 4 * 2048) {
-    rampRows_.clear();
-    rampData_.clear();
-    rampRowsUploaded_ = 0;
-  }
   Layer root;
-  root.rect = {0, 0, viewport.deviceWidth(), viewport.deviceHeight()};
+  root.rect = {0, 0, viewport_.deviceWidth(), viewport_.deviceHeight()};
   layers_.push_back(root);
   current_ = 0;
+  region_ = region;
+  double sx = viewport_.scaleX(), sy = viewport_.scaleY();
+  screen_ = {region.x / sx, region.y / sy, region.w / sx, region.h / sy};
+  // A part of the frame: everything drawn into it is clipped to it (frames' clips intersect with it).
+  scissorEnabled_ = clipToRegion;
+  scissor_ = region;
+  round_ = RoundClip{};
+}
 
-  Mat2x3 view = camera.matrix();
-  if (only != kNoGuid) drawChildren(doc, {only}, 0, view * doc.worldTransform(doc.parentOf(only)), 1);  // one node, nothing else
-  else drawChildren(doc, doc.children(page), 0, view, 1);
+void Renderer::finishRecording(gfx::TargetId target, const float clear[4], bool keep) {
   scissorEnabled_ = false;
   stencilDepth_ = 0;
   clips_.clear();
   current_ = 0;
-  // The page's own colour, unless it is Figma's default (#F5F5F5), which follows the theme.
-  Color clear = style.canvas;
-  if (const Node* pg = doc.get(page); pg && pg->props.backgroundEnabled) {
-    const Color& bg = pg->props.backgroundColor;
-    Color light = Color::hex(0xF5F5F5);
-    bool figmaDefault = std::fabs(bg.r - light.r) < 0.003f && std::fabs(bg.g - light.g) < 0.003f && std::fabs(bg.b - light.b) < 0.003f;
-    if (!figmaDefault) clear = bg;
-  }
-  if (only != kNoGuid) clear = Color{0, 0, 0, 0};  // a node's thumbnail: transparent around it
-  // Frame titles read on the page's colour.
-  OverlayStyle adapted = style;
-  adapted.title = titleColor(clear, &adapted.titleAlpha);
-  if (only == kNoGuid) drawOverlay(doc, page, camera, overlay, adapted);
-
   curveTexture_ = curves_.flush();
   // Gradient ramps.
   int rows = static_cast<int>(rampData_.size() / (kRampWidth * 4));
@@ -1281,7 +1354,6 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
       rampRowsUploaded_ = rows;
     }
   }
-
   uint32_t bytes = static_cast<uint32_t>(instances_.size() * sizeof(DrawInstance));
   if (bytes) {
     if (!buffer_) {
@@ -1293,16 +1365,105 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     }
     device_.write(buffer_, 0, {reinterpret_cast<const uint8_t*>(instances_.data()), bytes});
   }
-
-  float clearColor[4] = {clear.r, clear.g, clear.b, 1};
-  if (only != kNoGuid) clearColor[0] = clearColor[1] = clearColor[2] = clearColor[3] = 0;
-  execute(0, target, clearColor);
-  device_.submit();
-  // Every layer's target goes back to the pool; ones unused for a while are freed.
+  execute(0, target, clear, keep);
+  // Every layer's target goes back to the pool.
   for (auto& t : pool_) t.busy = false;
   scratch_.clear();
+}
+
+void Renderer::drawPageContent(const Document& doc, const Color& page, bool background) {
+  if (background) {
+    // The page colour under the part being drawn again (the cache keeps the rest).
+    DrawInstance q = makeShape(Mat2x3::translate(screen_.x, screen_.y), {screen_.w, screen_.h}, ShapeKind::Rect, kSquare,
+                               Color{page.r, page.g, page.b, 1}, 1, Color{}, 0, 0, 0);
+    emit(q, Pass::Shape);
+  }
+  drawChildren(doc, 0, static_cast<uint32_t>(tree_->size()), view_, 1);
+}
+
+double Renderer::nowMs() const {
+  if (clock_) return clock_();
+  return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+double Renderer::wantsFrameAt() const { return cache_.settleAt; }
+
+void Renderer::dropCache() {
+  if (cache_.target) device_.destroyTarget(cache_.target);
+  if (cache_.spare) device_.destroyTarget(cache_.spare);
+  cache_ = ContentCache{};
+}
+
+RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
+                             const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target, Guid only) {
+  ensurePipelines();
+  frame_++;
+  doc_ = &doc;
+  viewport_ = viewport;
+  stats_ = {};
+  curves_.beginFrame();
+  if (rampData_.size() > static_cast<size_t>(kRampWidth) * 4 * 2048) {
+    rampRows_.clear();
+    rampData_.clear();
+    rampRowsUploaded_ = 0;
+  }
+  view_ = camera.matrix();
+  // The page's render tree, brought up to the document (a few trees are kept: the current page's, thumbnails').
+  if (trees_.size() > 4 && !trees_.count(page)) trees_.clear();
+  RenderTree& tree = trees_[page];
+  // Text's glyphs reach past their box at times: the tree knows where (and starts over when fonts change it).
+  uint32_t fontGeneration = text::FontRegistry::get().generation();
+  if (fontGeneration != treeFonts_) {
+    for (auto& [id, t] : trees_) t.invalidate();
+    treeFonts_ = fontGeneration;
+  }
+  tree.setTextInk([this](Guid id, Rect& out) {
+    const text::TextLayout* L = texts_ ? texts_->textLayout(id) : nullptr;
+    if (!L) return false;
+    out = L->inkBounds;
+    return true;
+  });
+  tree.sync(doc, page);
+  tree_ = &tree;
+  // The page's own colour, unless it is Figma's default (#F5F5F5), which follows the theme.
+  Color clear = style.canvas;
+  if (const Node* pg = doc.get(page); pg && pg->props.backgroundEnabled) {
+    const Color& bg = pg->props.backgroundColor;
+    Color light = Color::hex(0xF5F5F5);
+    bool figmaDefault = std::fabs(bg.r - light.r) < 0.003f && std::fabs(bg.g - light.g) < 0.003f && std::fabs(bg.b - light.b) < 0.003f;
+    if (!figmaDefault) clear = bg;
+  }
+  if (only != kNoGuid) clear = Color{0, 0, 0, 0};  // a node's thumbnail: transparent around it
+  // Frame titles read on the page's colour.
+  OverlayStyle adapted = style;
+  adapted.title = titleColor(clear, &adapted.titleAlpha);
+  float clearColor[4] = {clear.r, clear.g, clear.b, 1};
+  if (only != kNoGuid) clearColor[0] = clearColor[1] = clearColor[2] = clearColor[3] = 0;
+  const int W = viewport.deviceWidth(), H = viewport.deviceHeight();
+  const gfx::IRect full{0, 0, W, H};
+
+  if (!cacheEnabled_ || target != 0 || only != kNoGuid || W <= 0 || H <= 0) {
+    // Direct: everything into the target this frame (thumbnails, tests, no cache).
+    beginRecording(full, false);
+    if (only != kNoGuid) {
+      // One node, nothing else.
+      int i = tree.indexOf(only);
+      if (i >= 0)
+        drawChildren(doc, static_cast<uint32_t>(i), tree.nodes()[static_cast<size_t>(i)].end, view_ * doc.worldTransform(doc.parentOf(only)), 1);
+    } else {
+      drawChildren(doc, 0, static_cast<uint32_t>(tree.size()), view_, 1);
+      current_ = 0;
+      scissorEnabled_ = false;
+      drawOverlay(doc, page, camera, overlay, adapted);
+    }
+    finishRecording(target, clearColor, false);
+  } else {
+    renderCached(doc, page, camera, overlay, adapted, clear, clearColor);
+  }
+  device_.submit();
+  // Pooled targets unused for a while are freed.
   for (size_t i = 0; i < pool_.size();) {
-    if (frame_ - pool_[i].lastUsed > 120) {
+    if (frame_ - pool_[i].lastUsed > 30) {
       device_.destroyTarget(pool_[i].target);
       pool_.erase(pool_.begin() + static_cast<long>(i));
     } else {
@@ -1312,6 +1473,179 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   images_.endFrame();
   RenderStats s = stats_;
   return s;
+}
+
+// ---- The content cache ---------------------------------------------------------------------------
+//
+// The page's pixels without the overlays, kept in a canvas-sized target across frames (docs/engine.md §6.9, as
+// built): a frame where only the overlays changed (hover, selection, the caret) composites it; a pan by whole
+// device pixels shifts it and draws only the strips that came into view; an edit draws again only where the
+// changed layers were and are (the render tree's damage). A zoom draws everything again — or, during a
+// continuous zoom on a page that takes long to draw, shows the cache scaled and draws once the zoom settles.
+
+void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style,
+                            const Color& clear, const float clearColor[4]) {
+  const int W = viewport_.deviceWidth(), H = viewport_.deviceHeight();
+  const gfx::IRect full{0, 0, W, H};
+  const double sx = viewport_.scaleX(), sy = viewport_.scaleY();
+  const double now = nowMs();
+  RenderTree::Damage damage = trees_[page].takeDamage();
+  ContentCache& c = cache_;
+  if (c.target && (c.w != W || c.h != H)) dropCache();
+  if (!c.target) {
+    c.target = device_.createTarget(static_cast<uint32_t>(W), static_cast<uint32_t>(H));
+    c.spare = device_.createTarget(static_cast<uint32_t>(W), static_cast<uint32_t>(H));
+    c.w = W;
+    c.h = H;
+    c.valid = false;
+    if (!c.target || !c.spare) {
+      // No room for a cache: draw directly.
+      dropCache();
+      cacheEnabled_ = false;
+      beginRecording(full, false);
+      drawChildren(doc, 0, static_cast<uint32_t>(tree_->size()), view_, 1);
+      current_ = 0;
+      scissorEnabled_ = false;
+      drawOverlay(doc, page, camera, overlay, style);
+      finishRecording(0, clearColor, false);
+      return;
+    }
+  }
+  uint32_t fonts = text::FontRegistry::get().generation(), images = ImageRegistry::get().generation();
+  bool same = c.valid && c.page == page && c.fonts == fonts && c.images == images && c.sx == sx && c.sy == sy &&
+              c.clear.r == clear.r && c.clear.g == clear.g && c.clear.b == clear.b && !damage.all;
+  if (camera.zoom != c.lastZoom) {
+    c.lastZoom = camera.zoom;
+    c.zoomChangedAt = now;
+  }
+  bool needFull = !same || c.pendingFull || c.zoom != camera.zoom;
+  // A continuous zoom on a page that takes long to draw: the cache, scaled, until the zoom settles — when the scaled
+  // cache covers the canvas (zooming in; zooming out would show blank margins: drawn sharp instead).
+  bool covers = false;
+  if (same && c.zoom > 0) {
+    double k = camera.zoom / c.zoom;
+    double ox = camera.x * sx - c.camX * sx * k, oy = camera.y * sy - c.camY * sy * k;
+    covers = ox <= 0.5 && oy <= 0.5 && ox + W * k >= W - 0.5 && oy + H * k >= H - 0.5;
+  }
+  bool stale = same && covers && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomRasterBudgetMs &&
+               now - c.zoomChangedAt < kZoomSettleMs;
+  std::vector<gfx::IRect> regions;
+  double shiftX = (camera.x - c.camX) * sx, shiftY = (camera.y - c.camY) * sy;
+  if (stale) {
+    c.settleAt = c.zoomChangedAt + kZoomSettleMs;
+  } else {
+    c.settleAt = 0;
+    if (!needFull && (std::fabs(shiftX - std::round(shiftX)) > 1e-6 || std::fabs(shiftY - std::round(shiftY)) > 1e-6)) needFull = true;
+    if (!needFull && (std::fabs(shiftX) >= W || std::fabs(shiftY) >= H)) needFull = true;
+    if (needFull) {
+      regions.push_back(full);
+    } else {
+      int dx = static_cast<int>(std::lround(shiftX)), dy = static_cast<int>(std::lround(shiftY));
+      if (dx || dy) {
+        // Shift what is there; draw what came into view.
+        blitCache(c.target, c.spare, dx, dy, 1);
+        std::swap(c.target, c.spare);
+        if (dx > 0) regions.push_back({0, 0, dx, H});
+        if (dx < 0) regions.push_back({W + dx, 0, -dx, H});
+        int x0 = std::max(0, dx), x1 = std::min(W, W + dx);
+        if (dy > 0) regions.push_back({x0, 0, x1 - x0, dy});
+        if (dy < 0) regions.push_back({x0, H + dy, x1 - x0, -dy});
+        c.camX = camera.x;
+        c.camY = camera.y;
+      }
+      // Where layers changed: their visual bounds before and after, on screen, a little wider for anti-aliasing.
+      for (const Rect& w : damage.rects) {
+        double x0 = (w.x * view_.m00 + view_.m02) * sx - 4, y0 = (w.y * view_.m11 + view_.m12) * sy - 4;
+        double x1 = (w.right() * view_.m00 + view_.m02) * sx + 4, y1 = (w.bottom() * view_.m11 + view_.m12) * sy + 4;
+        int ix0 = std::max(0, static_cast<int>(std::floor(x0))), iy0 = std::max(0, static_cast<int>(std::floor(y0)));
+        int ix1 = std::min(W, static_cast<int>(std::ceil(x1))), iy1 = std::min(H, static_cast<int>(std::ceil(y1)));
+        if (ix1 > ix0 && iy1 > iy0) regions.push_back({ix0, iy0, ix1 - ix0, iy1 - iy0});
+      }
+      // Many or large: once, whole.
+      double area = 0;
+      for (auto& r : regions) area += static_cast<double>(r.w) * r.h;
+      if (regions.size() > 16 || area > 0.6 * W * H) {
+        regions.clear();
+        regions.push_back(full);
+      }
+    }
+  }
+  // Changes while a zoom goes on are not drawn into the cache: the settle frame draws everything.
+  if (stale && !damage.rects.empty()) c.pendingFull = true;
+  bool drewFull = false;
+  for (const gfx::IRect& r : regions) {
+    double t0 = now;
+    bool whole = r.x == 0 && r.y == 0 && r.w == W && r.h == H;
+    beginRecording(r, !whole);
+    drawPageContent(doc, clear, !whole);
+    finishRecording(c.target, clearColor, !whole);
+    stats_.cachedRegions++;
+    if (whole) {
+      drewFull = true;
+      c.fullMs = nowMs() - t0;
+    }
+  }
+  if (drewFull) {
+    c.valid = true;
+    c.page = page;
+    c.zoom = camera.zoom;
+    c.camX = camera.x;
+    c.camY = camera.y;
+    c.fonts = fonts;
+    c.images = images;
+    c.sx = sx;
+    c.sy = sy;
+    c.clear = clear;
+    c.pendingFull = false;
+  }
+  // The canvas: the cache (scaled while a zoom settles), then the overlays.
+  beginRecording(full, false);
+  double k = camera.zoom / c.zoom;
+  Cmd b;
+  b.kind = Cmd::Kind::Blit;
+  b.blitTexture = device_.targetTexture(c.target);
+  // Cache px u lands at u·k + (current offset − cached offset · k), in device px.
+  b.blitOrigin = Vec2{camera.x * sx - c.camX * sx * k, camera.y * sy - c.camY * sy * k};
+  b.blitScale = 1 / k;
+  b.blitHeight = H;
+  double qx0 = std::max(0.0, b.blitOrigin.x), qy0 = std::max(0.0, b.blitOrigin.y);
+  double qx1 = std::min<double>(W, b.blitOrigin.x + W * k), qy1 = std::min<double>(H, b.blitOrigin.y + H * k);
+  b.rect = {static_cast<int>(std::floor(qx0)), static_cast<int>(std::floor(qy0)), static_cast<int>(std::ceil(qx1) - std::floor(qx0)),
+            static_cast<int>(std::ceil(qy1) - std::floor(qy0))};
+  if (b.rect.w > 0 && b.rect.h > 0) layers_[0].cmds.push_back(b);
+  drawOverlay(doc, page, camera, overlay, style);
+  finishRecording(0, clearColor, false);
+  if (stale) stats_.stale = 1;
+}
+
+void Renderer::blitCache(gfx::TargetId from, gfx::TargetId to, int dx, int dy, double scale) {
+  const int W = viewport_.deviceWidth(), H = viewport_.deviceHeight();
+  gfx::PassDesc pd;
+  pd.target = to;
+  pd.viewport = {0, 0, W, H};
+  for (int i = 0; i < 4; i++) pd.clear[i] = 0;
+  if (!device_.beginPass(pd)) return;
+  gfx::DrawCall call;
+  call.pipeline = pipelines_[static_cast<int>(Pass::CompositeReplace)];
+  call.instanceCount = 1;
+  float r[2][4];
+  rows(r, 1, 1, 0, 0, W, H);
+  for (int i = 0; i < 4; i++) call.uniforms[0][i] = r[0][i], call.uniforms[1][i] = r[1][i];
+  call.uniforms[2][0] = 0;
+  call.uniforms[2][1] = 0;
+  call.uniforms[2][2] = static_cast<float>(W);
+  call.uniforms[2][3] = static_cast<float>(H);
+  call.uniforms[3][0] = static_cast<float>(dx);
+  call.uniforms[3][1] = static_cast<float>(dy);
+  call.uniforms[3][2] = static_cast<float>(H);
+  call.uniforms[3][3] = static_cast<float>(scale);
+  call.uniforms[7][0] = 1;
+  call.uniforms[7][1] = 1;
+  call.textures[0] = device_.targetTexture(from);
+  call.textures[1] = call.textures[2] = white_;
+  device_.draw(call);
+  stats_.drawCalls++;
+  device_.endPass();
 }
 
 }  // namespace eng

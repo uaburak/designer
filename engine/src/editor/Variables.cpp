@@ -171,13 +171,15 @@ __attribute__((noinline)) void sortAssets(const Document& doc, std::vector<Guid>
 }
 }  // namespace
 
+// Collections, variables and styles come from the ids kept as they are written (noteBindings), not from a walk
+// over the whole document: the panels ask for them on every selection change and every frame of a drag.
 std::vector<Guid> Editor::collections(bool includeRemote) const {
   std::vector<Guid> out;
-  doc_.forEach([&](const Node& n) {
-    if (n.props.type == NodeType::VARIABLE_SET && !n.props.isSoftDeleted && !n.guid.isDerived() &&
-        (includeRemote || !isLibraryCopy(n.guid)))
-      out.push_back(n.guid);
-  });
+  for (Guid g : collectionIds_) {
+    const Node* n = doc_.get(g);
+    if (n && n->props.type == NodeType::VARIABLE_SET && !n->props.isSoftDeleted && !g.isDerived() && (includeRemote || !isLibraryCopy(g)))
+      out.push_back(g);
+  }
   sortAssets(doc_, out);
   return out;
 }
@@ -185,23 +187,27 @@ std::vector<Guid> Editor::collections(bool includeRemote) const {
 std::vector<Guid> Editor::variablesOf(Guid collection, bool includeDeleted) const {
   std::vector<Guid> out;
   const Node* set = doc_.get(collection);
-  doc_.forEach([&](const Node& n) {
-    if (n.props.type != NodeType::VARIABLE || n.guid.isDerived() || (n.props.isSoftDeleted && !includeDeleted)) return;
-    const AssetId& s = n.props.variableSetID;
+  for (const auto& [g, s0] : variableSets_) {
+    const Node* n = doc_.get(g);
+    if (!n || n->props.type != NodeType::VARIABLE || g.isDerived() || (n->props.isSoftDeleted && !includeDeleted)) continue;
+    const AssetId& s = n->props.variableSetID;
     bool mine = collection == kNoGuid || s.guid == collection || (set && !s.key.empty() && s.key == set->props.key);
-    if (mine) out.push_back(n.guid);
-  });
+    if (mine) out.push_back(g);
+  }
   sortAssets(doc_, out);
   return out;
 }
 
 std::vector<Guid> Editor::stylesOf(StyleType type, bool includeRemote) const {
   std::vector<Guid> out;
-  doc_.forEach([&](const Node& n) {
-    if (!n.props.isStyle() || n.guid.isDerived() || n.props.isSoftDeleted) return;
-    if (!includeRemote && isLibraryCopy(n.guid)) return;
+  for (Guid g : styleIds_) {
+    const Node* np = doc_.get(g);
+    if (!np) continue;
+    const Node& n = *np;
+    if (!n.props.isStyle() || n.guid.isDerived() || n.props.isSoftDeleted) continue;
+    if (!includeRemote && isLibraryCopy(n.guid)) continue;
     if (type == StyleType::NONE || n.props.styleType == type) out.push_back(n.guid);
-  });
+  }
   sortAssets(doc_, out);
   return out;
 }

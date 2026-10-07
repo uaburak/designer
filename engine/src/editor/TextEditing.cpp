@@ -35,12 +35,26 @@ const text::TextLayout* Editor::textLayout(Guid id) {
 bool Editor::measureText(Guid id, double width, Vec2& size) {
   const Node* n = doc_.get(id);
   if (!n || n->props.type != NodeType::TEXT) return false;
+  // Measures are kept (per width, until the text's layout fields change or a font arrives): layout asks for
+  // the same text many times (hug sizes, each instance's stages, every relayout of its tree).
+  uint32_t generation = text::FontRegistry::get().generation();
+  auto& entries = measured_[id];
+  for (const MeasuredText& m : entries) {
+    if (m.width != width || m.generation != generation) continue;
+    if (m.pending) unmeasured_.insert(id);
+    if (!m.ok) return false;
+    size = m.size;
+    return true;
+  }
   text::LayoutOptions o;
   o.width = width;
   auto L = text::layoutText(n->props, o);
+  MeasuredText m{width, generation, L->size, !(L->pendingFont || L->missingFont), L->pendingFont};
+  if (entries.size() >= 4) entries.erase(entries.begin());
+  entries.push_back(m);
   // A font still loading: measured again when it arrives. A missing one: the stored size stands (Figma).
   if (L->pendingFont) unmeasured_.insert(id);
-  if (L->pendingFont || L->missingFont) return false;
+  if (!m.ok) return false;
   size = L->size;
   return true;
 }
@@ -56,6 +70,7 @@ double Editor::firstBaseline(Guid id, Vec2 size) {
 
 void Editor::fontsChanged() {
   textCache_.clear();
+  measured_.clear();
   needsRender_ = true;
   if (text_.node != kNoGuid) events_.textEdit = true;
   if (unmeasured_.empty() || busy() || txn_.open) return;

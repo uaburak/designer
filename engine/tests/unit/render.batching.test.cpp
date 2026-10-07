@@ -55,7 +55,7 @@ TEST_CASE("renderer: the page colour, or the theme's for Figma's default") {
   CHECK(dev.lastPass.clear[0] == doctest::Approx(0x33 / 255.0));
 }
 
-TEST_CASE("renderer: frames clip — scissor when axis-aligned, stencil when rounded or turned") {
+TEST_CASE("renderer: frames clip — a clip rectangle when axis-aligned, a rounded clip when rounded, stencil when turned") {
   Document d;
   base(d);
   d.apply(make({1, 1}, NodeType::FRAME, kPage, "A", {0, 0, 100, 100}));
@@ -64,14 +64,33 @@ TEST_CASE("renderer: frames clip — scissor when axis-aligned, stencil when rou
   rounded.props.cornerRadii = {16, 16, 16, 16};
   d.apply(rounded);
   d.apply(make({1, 4}, NodeType::ELLIPSE, {1, 3}, "A", {0, 0, 100, 100}));
+  NodeChange turned = make({1, 5}, NodeType::FRAME, kPage, "C", {400, 0, 100, 100});
+  turned.props.transform = Mat2x3::translate(450, 0) * Mat2x3::rotate(0.3);
+  d.apply(turned);
+  d.apply(make({1, 6}, NodeType::ELLIPSE, {1, 5}, "A", {0, 0, 100, 100}));
   gfx::NullDevice dev;
   Renderer r(dev);
   r.render(d, kPage, Camera{}, {800, 600, 2}, Overlay{}, kDark);
-  bool scissored = false, incremented = false, decremented = false, tested = false;
-  for (auto& c : dev.draws) {
-    if (c.call.scissorEnabled) {
-      scissored = true;
-      CHECK(c.call.scissor.w == 200);  // device pixels at dpr 2
+  bool scissored = false, roundedClip = false, incremented = false, decremented = false, tested = false;
+  size_t drawsOfShapes = 0;
+  for (size_t i = 0; i < dev.draws.size(); i++) {
+    const auto& c = dev.draws[i];
+    // The axis-aligned clip travels with each instance (canvas device px), not as a scissor that splits batches.
+    if (c.pipeline.shader == gfx::ShaderId::Shape) {
+      drawsOfShapes++;
+      for (auto& q : dev.instancesOf<DrawInstance>(i)) {
+        if (q.clip[0] > -1e8f && q.round[2] <= q.round[0]) {
+          scissored = true;
+          CHECK(q.clip[2] - q.clip[0] == 200);  // device pixels at dpr 2
+        }
+        if (q.round[2] > q.round[0]) {
+          // The rounded frame's box and radii in device px (dpr 2): the ellipse inside it is clipped by them.
+          roundedClip = true;
+          CHECK(q.round[0] == doctest::Approx(400));
+          CHECK(q.round[2] == doctest::Approx(600));
+          CHECK(q.radii[0] == doctest::Approx(32));
+        }
+      }
     }
     if (c.pipeline.stencil.enabled) {
       incremented |= c.pipeline.stencil.pass == gfx::StencilOp::Increment;
@@ -81,9 +100,32 @@ TEST_CASE("renderer: frames clip — scissor when axis-aligned, stencil when rou
     }
   }
   CHECK(scissored);
+  CHECK(roundedClip);
+  // Only the turned frame uses the stencil: increment, its clipped content, decrement.
   CHECK(incremented);
   CHECK(decremented);
   CHECK(tested);
+}
+
+TEST_CASE("renderer: rounded clipping frames batch — no stencil passes between them") {
+  // Cards: rounded frames that clip, each with a fill and a child. Rounded clips are per instance, so the page is
+  // a handful of draws however many cards there are (stencil clips once cost three or more draws per card).
+  Document d;
+  base(d);
+  std::string key;
+  for (uint32_t i = 1; i <= 200; i++) {
+    key = fractional::keyBetween(key, std::nullopt, fractional::Bias::Low);
+    NodeChange card = make({1, i}, NodeType::FRAME, kPage, key, {(i % 20) * 40.0, (i / 20) * 40.0, 36, 36});
+    card.props.cornerRadii = {8, 8, 8, 8};
+    card.props.fillPaints = {Paint::solid(Color{1, 1, 1, 1})};
+    d.apply(card);
+    d.apply(make({2, i}, NodeType::ELLIPSE, {1, i}, "!", {20, 20, 30, 30}));
+  }
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  RenderStats s = r.render(d, kPage, Camera{}, {800, 600, 2}, Overlay{}, kDark);
+  CHECK(s.shapes == 400);
+  CHECK(s.drawCalls <= 2);
 }
 
 TEST_CASE("renderer: hidden and off-screen nodes are skipped; strokes after fills") {
@@ -151,12 +193,14 @@ TEST_CASE("renderer: scissors use the canvas's real backing scale") {
   // dpr 2, but the backing store is only 1× (as under an emulated device scale).
   r.render(d, kPage, Camera{}, {800, 600, 2, 800, 600}, Overlay{}, kDark);
   bool found = false;
-  for (auto& c : dev.draws)
-    if (c.call.scissorEnabled) {
-      found = true;
-      CHECK(c.call.scissor.x == 100);
-      CHECK(c.call.scissor.w == 200);
-    }
+  for (size_t i = 0; i < dev.draws.size(); i++)
+    if (dev.draws[i].pipeline.shader == gfx::ShaderId::Shape)
+      for (auto& q : dev.instancesOf<DrawInstance>(i))
+        if (q.clip[0] > -1e8f) {
+          found = true;
+          CHECK(q.clip[0] == 100);
+          CHECK(q.clip[2] - q.clip[0] == 200);
+        }
   CHECK(found);
 }
 
@@ -193,4 +237,37 @@ TEST_CASE("renderer: guides, spacing, ⌥ measurement, insertion and bands are d
   CHECK(guide);
   CHECK(band);
   CHECK(insertion);
+}
+
+TEST_CASE("renderer: GPU memory stays bounded while a zoom changes layers' sizes every frame") {
+  // Faded frames (opacity on a container: an offscreen layer each) seen through a continuous zoom: each frame's
+  // layers have new sizes. The layer pool must not keep every size it ever made (it once kept them 120 frames:
+  // gigabytes on the GPU during a long zoom).
+  Document d;
+  base(d);
+  std::string key;
+  for (uint32_t i = 1; i <= 6; i++) {
+    key = fractional::keyBetween(key, std::nullopt, fractional::Bias::Low);
+    NodeChange f = make({1, i}, NodeType::FRAME, kPage, key, {(i - 1) * 140.0, 0, 120, 200});
+    f.props.opacity = 0.5;
+    d.apply(f);
+    d.apply(make({2, i}, NodeType::ROUNDED_RECTANGLE, {1, i}, "!", {10, 10, 50, 50}));
+    d.apply(make({3, i}, NodeType::ELLIPSE, {1, i}, "\"", {30, 30, 50, 50}));
+  }
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  uint64_t peak = 0;
+  for (int frame = 0; frame < 400; frame++) {
+    double zoom = 0.5 + frame * 0.02;  // 0.5 → 8.5: layers grow from tiny to larger than the viewport
+    Overlay o;
+    o.zooming = true;
+    r.render(d, kPage, Camera{-frame * 3.0, 0, zoom}, {1440, 900, 2, 2880, 1800}, o, kDark);
+    peak = std::max(peak, dev.memory().bytes);
+  }
+  // The pool's budget, the content cache (two canvas-sized targets) and small change (ramps, buffers).
+  uint64_t cache = 2ull * 2880 * 1800 * 8;
+  MESSAGE("GPU memory peak over the zoom: " << (peak >> 20) << " MB, layer pool " << (r.poolTargetBytes() >> 20) << " MB");
+  CHECK(r.poolTargetBytes() <= Renderer::kPoolBudgetBytes);
+  CHECK(peak <= Renderer::kPoolBudgetBytes + cache + (64ull << 20));
 }

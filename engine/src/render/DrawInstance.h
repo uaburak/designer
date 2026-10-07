@@ -1,6 +1,6 @@
-// The instance layout of the Shape and Path shaders (gfx::ShaderId::Shape /
-// Path, gfx/gl/Shaders.h): one shape, path or glyph, placed in draw space (CSS
-// px), with one paint. 7 vec4s.
+// The instance layout of the Draw shader (gfx::ShaderId::Shape, gfx/gl/Shaders.h
+// kDraw*): one shape, path or glyph, placed in draw space (CSS px), with one
+// paint, a clip rectangle and a rounded clip. 10 vec4s.
 //
 //   linear  local → draw space, columns (m00, m10), (m01, m11)
 //   origin  tx, ty, then — Shape: width, height; Path: first curve texel, clip path's first texel (−1: none)
@@ -10,6 +10,9 @@
 //   color   premultiplied colour (SOLID; shadows), else (1, 1, 1, alpha) multiplying the paint
 //   paint0  paint matrix row 0 (local → paint space: gradient / image uv) + aux (images: 1 = repeat)
 //   paint1  paint matrix row 1 + gradient ramp row; Shape kind FILL_AND_STROKE: paint0 = the stroke colour
+//   clip    x0 y0 x1 y1 in canvas device px: pixels outside are not drawn (a frame's axis-aligned clip)
+//   round   x0 y0 x1 y1 in canvas device px of an axis-aligned rounded clip (x1 < x0: none), anti-aliased
+//   radii   its corner radii in device px: top-left, top-right, bottom-right, bottom-left
 #pragma once
 
 #include <cstdint>
@@ -24,8 +27,11 @@ struct DrawInstance {
   float color[4];
   float paint0[4];
   float paint1[4];
+  float clip[4] = {-1e9f, -1e9f, 1e9f, 1e9f};
+  float round[4] = {0, 0, -1, -1};
+  float radii[4] = {0, 0, 0, 0};
 };
-static_assert(sizeof(DrawInstance) == 112, "DrawInstance is 7 vec4s");
+static_assert(sizeof(DrawInstance) == 160, "DrawInstance is 10 vec4s");
 
 // geom[2]: what the instance is.
 enum class ShapeKind : uint8_t {

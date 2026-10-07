@@ -38,10 +38,12 @@ enum class Usage : uint8_t { Static, Dynamic, Stream };
 
 // The built-in shaders (engine/src/gfx/gl/Shaders.h).
 enum class ShaderId : uint8_t {
-  Shape = 0,      // SDF rect / rounded rect / ellipse, fill or stroke, shadows, every paint; render/DrawInstance.h
-  Path = 1,       // coverage from quadratic curves (paths and glyphs) with fill rules and a clip path, every paint
-  Composite = 2,  // a layer onto its parent: opacity, blend modes, masks, shadows (one quad, no instances)
-  Blur = 3,       // separable Gaussian blur and dilate / erode (one quad, no instances)
+  // Instanced shapes, paths and glyphs in one program (render/DrawInstance.h): SDF rect / rounded rect / ellipse
+  // (fill or stroke, shadows) and coverage from quadratic curves (fill rules, a clip path), every paint, a clip
+  // rectangle per instance — so runs of mixed content batch into one draw.
+  Shape = 0,
+  Composite = 1,  // a layer onto its parent: opacity, blend modes, masks, shadows (one quad, no instances)
+  Blur = 2,       // separable Gaussian blur and dilate / erode (one quad, no instances)
 };
 
 enum class StencilFunc : uint8_t { Always, Equal };
@@ -83,18 +85,18 @@ struct PassDesc {
 
 // Inline uniforms: vec4 slots. Slots 0–1 map draw space to clip space (rows m00 m01 m02 / m10 m11 m12);
 // the others mean what each shader says (gfx/gl/Shaders.h).
-inline constexpr int kUniformSlots = 10;
+inline constexpr int kUniformSlots = 12;
 
 struct DrawCall {
   PipelineId pipeline = 0;
-  BufferSlice instances;  // Shape / Path: the instances; Composite / Blur: none (one quad)
+  BufferSlice instances;  // Shape: the instances; Composite / Blur: none (one quad)
   uint32_t count = 6;     // vertices per instance
   uint32_t instanceCount = 1;
   float uniforms[kUniformSlots][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}};
   bool scissorEnabled = false;
   IRect scissor;
   uint8_t stencilRef = 0;
-  // Shape / Path: 0 curves (Path), 1 gradient ramps, 2 image or backdrop. Composite: 0 source, 1 mask /
+  // Shape: 0 curves (paths), 1 gradient ramps, 2 image or backdrop. Composite: 0 source, 1 mask /
   // node alpha, 2 backdrop. Blur: 0 source.
   TextureId textures[3] = {0, 0, 0};
 };
@@ -104,10 +106,18 @@ struct Caps {
   bool stencil = true;
 };
 
+// What the device holds on the GPU now (estimated bytes: colour texels, mip levels, stencil buffers, buffers).
+struct MemoryStats {
+  uint32_t textures = 0, targets = 0, buffers = 0;
+  uint64_t bytes = 0;
+};
+
 class Device {
  public:
   virtual ~Device() = default;
   virtual Caps caps() const = 0;
+  // Live resources and their size (budgets are checked against it: tests, engine_stats).
+  virtual MemoryStats memory() const = 0;
   virtual BufferId createBuffer(BufferKind kind, uint32_t bytes, Usage usage) = 0;
   // Grows the buffer (contents lost) when `bytes` exceeds its size.
   virtual void reserve(BufferId buffer, uint32_t bytes) = 0;

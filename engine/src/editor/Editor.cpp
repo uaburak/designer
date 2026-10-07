@@ -72,6 +72,7 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
   if (typeBefore == NodeType::TEXT || c.phase != Phase::CHANGED) textCache_.erase(c.guid);
   else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE)) textCache_.erase(c.guid);
+  if (c.phase != Phase::CHANGED || (mask & (kTextLayoutFields | F_FILLS | F_TYPE | F_EXTRA))) measured_.erase(c.guid);
   if (text_.node == c.guid) events_.textEdit = true;
   noteNode(c.guid, fieldGroups(mask));
   if (c.phase != Phase::CHANGED || (c.mask & (F_PARENT_INDEX | F_NAME | F_VISIBLE | F_LOCKED | F_TYPE | F_STACK_MODE)))
@@ -352,6 +353,9 @@ void Editor::relayoutAll() {
 // ---- LayoutHost -------------------------------------------------------------
 
 void Editor::writeGeometry(Guid id, const Mat2x3& transform, Vec2 size) {
+  // Equal values are no-ops (write() would find so too): skip building a NodeChange, layout writes are hot.
+  if (!id.isDerived() || deriving_ || inLayout_)
+    if (const Node* n = doc_.get(id); n && n->props.transform == transform && n->props.size == size) return;
   NodeChange c = NodeChange::changed(id);
   c.mask = F_TRANSFORM | F_SIZE;
   c.props.transform = transform;
@@ -452,6 +456,7 @@ Editor::Events Editor::takeEvents() {
 
 Overlay Editor::overlay() const {
   Overlay o;
+  o.zooming = zooming_;
   if (gesture_ == Gesture::None && hover_ != kNoGuid && measureTarget_ == kNoGuid) o.hover.push_back(hover_);
   for (Guid h : layersHover_) o.hover.push_back(h);
   o.selection = selection_;
@@ -507,6 +512,7 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   excluded_.clear();
   pinned_.clear();
   textCache_.clear();
+  measured_.clear();
   unmeasured_.clear();
   instanceDirty_.clear();
   sourceDeps_.clear();
@@ -645,7 +651,10 @@ void Editor::setViewport(double cssWidth, double cssHeight, double dpr, int pixe
   needsRender_ = true;
 }
 
-void Editor::setCamera(const Camera& c) { changeCamera({c.x, c.y, Camera::clampZoom(c.zoom)}); }
+void Editor::setCamera(const Camera& c) {
+  zooming_ = false;
+  changeCamera({c.x, c.y, Camera::clampZoom(c.zoom)});
+}
 
 void Editor::setTheme(Theme t) {
   theme_ = t;
@@ -660,7 +669,10 @@ Camera Editor::snapped(Camera c) const {
   return c;
 }
 
-void Editor::zoomTo(double zoom) { changeCamera(snapped(camera_.zoomedAround(zoom, {viewport_.width / 2, viewport_.height / 2}))); }
+void Editor::zoomTo(double zoom) {
+  zooming_ = false;
+  changeCamera(snapped(camera_.zoomedAround(zoom, {viewport_.width / 2, viewport_.height / 2})));
+}
 
 void Editor::zoomToFit() {
   bool any = false;
@@ -672,6 +684,7 @@ void Editor::zoomToFit() {
     r = any ? r.united(b) : b;
     any = true;
   }
+  zooming_ = false;
   if (any) changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, true)));
 }
 
@@ -684,6 +697,7 @@ void Editor::zoomToSelection() {
     r = any ? r.united(b) : b;
     any = true;
   }
+  zooming_ = false;
   if (any) changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, false)));
 }
 

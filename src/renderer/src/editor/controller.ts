@@ -277,22 +277,15 @@ export class EditorController {
   }
 }
 
-/** The Layers tree of `page`, one engine read per level. */
+/** The Layers tree of `page`, in one engine read of only what the rows show (Engine.layerTree). */
 export function readTree(engine: Engine, page: Guid, resolve: (n: NodeChange) => NodeChange = (n) => n): LayerTree {
   if (!page) return EMPTY_TREE;
   const nodes: NodeChange[] = [];
   const seen = new Set<Guid>();
-  let level: Guid[] = [page];
-  while (level.length) {
-    const read = engine.readNodes(level, { childIds: true });
-    const next: Guid[] = [];
-    for (const n of read) {
-      if (seen.has(n.guid)) continue;
-      seen.add(n.guid);
-      nodes.push(resolve(n));
-      for (const c of n.childIds ?? []) if (!seen.has(c)) next.push(c);
-    }
-    level = next;
+  for (const n of engine.layerTree(page)) {
+    if (seen.has(n.guid)) continue;
+    seen.add(n.guid);
+    nodes.push(resolve(n));
   }
   // Instance sublayers: the engine lists them once it materializes instances (E6); until then they are derived
   // here from the main component, for Layers only (ids `I<instance>;<key>…`, docs/schema.md §5.1).
@@ -301,7 +294,8 @@ export function readTree(engine: Engine, page: Guid, resolve: (n: NodeChange) =>
   for (const n of nodes) {
     if (n.type !== "INSTANCE" || n.childIds?.length) continue;
     const rows: DerivedRow[] = [];
-    const kids = deriveInstanceRows(read, n as CNode, 0, [], n as CNode, rows);
+    const full = (read([n.guid])[0] ?? n) as CNode;  // layerTree's rows carry no symbolData
+    const kids = deriveInstanceRows(read, full, 0, [], full, rows);
     n.childIds = kids;
     for (const r of rows) derived.push({ ...(r.node as NodeChange), parentIndex: { guid: r.parent, position: "" }, childIds: r.children, derived: true } as NodeChange);
   }

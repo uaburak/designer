@@ -29,15 +29,17 @@ TEST_CASE("render: a text node draws one glyph instance per visible glyph, curve
   CHECK(stats.glyphs == 5);  // the space has no outline
   bool glyphDraw = false;
   for (auto& d : device.draws)
-    if (d.pipeline.shader == gfx::ShaderId::Path) {
-      glyphDraw = true;
-      CHECK(d.call.textures[0] != 0);
+    if (d.pipeline.shader == gfx::ShaderId::Shape) {
       auto inst = device.instancesOf<DrawInstance>(static_cast<size_t>(&d - &device.draws[0]));
-      CHECK(inst[0].linear[0] == doctest::Approx(12));  // em → px: the font size
-      CHECK(inst[0].geom[2] == static_cast<float>(ShapeKind::Path));
-      CHECK(inst[0].color[3] == doctest::Approx(1));
-      const auto& tex = device.texture(d.call.textures[0]);
-      CHECK(tex.width == CurveCache::kWidth);
+      for (auto& q : inst) {
+        if (q.geom[2] != static_cast<float>(ShapeKind::Path) || glyphDraw) continue;
+        glyphDraw = true;
+        CHECK(d.call.textures[0] != 0);
+        CHECK(q.linear[0] == doctest::Approx(12));  // em → px: the font size
+        CHECK(q.color[3] == doctest::Approx(1));
+        const auto& tex = device.texture(d.call.textures[0]);
+        CHECK(tex.width == CurveCache::kWidth);
+      }
     }
   CHECK(glyphDraw);
   CHECK(r.curveCache().glyphCount() == 6);  // H, i, space (no curves), y, o, u

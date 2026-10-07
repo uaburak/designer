@@ -84,7 +84,22 @@ class Document {
     for (auto& [id, node] : nodes_) f(node);
   }
 
+  // Every applied change bumps the version and is logged, so caches built from the document (the render tree,
+  // the tiles) catch up with what changed instead of starting over. `structural`: the node appeared, went, moved
+  // to another parent or place, or changed in a way that changes which nodes draw and how they nest (type,
+  // visibility, group-ness, clipping, masks).
+  struct ChangeRecord {
+    Guid id;
+    bool structural = false;
+    Rect before;  // its render bounds before the change (world; empty when it had none)
+  };
+  uint64_t version() const { return version_; }
+  // The changes after version `since`, in order; false when they are no longer kept (start over).
+  bool changesSince(uint64_t since, std::vector<ChangeRecord>& out) const;
+
  private:
+  void record(Guid id, bool structural, const Rect& before);
+  Rect boundsBefore(Guid id) const;
   struct Derived {
     Mat2x3 world;
     Rect bounds;  // render bounds, world
@@ -109,6 +124,9 @@ class Document {
   mutable std::vector<Guid> dirty_;
   mutable std::vector<Guid> stack_;
   mutable GeometryCache geometry_;
+  uint64_t version_ = 0;
+  uint64_t logStart_ = 0;  // log_[k] is the change of version logStart_ + 1 + k
+  std::vector<ChangeRecord> log_;
 };
 
 }  // namespace eng

@@ -1,5 +1,29 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries)
 
+## Status (2026-10-07): performance round (large files)
+
+The owner's 37 MB file (32k stored layers, 101k in the engine, 5.6k instances, 15 pages) was "çok kasıyor": a 10 s load, ~10 s more of relayout as fonts arrived, 17 fps at fit on its heaviest page, 100 ms frames while dragging in the editor, and Chrome's GPU process growing past 3 GB on a synthetic page. Measured with the new `scripts/engine-bench.mjs` (engine.md §11.4: the app's own load path, the real GPU, CPU profiles, an `--editor` mode, guards on memory and time); numbers before → after are in engine.md §11.4.
+
+What was built (engine.md has each "as built" note):
+- **Load** (§3.3): instances derived in a batch are expanded first and laid out together, each layout root once (`Editor::finishLayouts`, `Layout::run(dirty, everyRoot)`) — laying each instance out alone re-arranged its whole auto-layout tree per instance; no whole-`NodeProps` copies in `Layout`; equal geometry writes skip building a `NodeChange`; text measurements cached per node and width (`Editor::measureText`). Fonts (§7.1): `engine_font_bind` / `_missing` / `set_fallback_fonts` only register; the relayout runs once at the next call that can observe it. Large private test file (32k layers): `engine_load` 10.4 s → 1.5 s, fonts' relayout ~10 s → 0.7 s; every node's geometry and every page's pixels compared with the old engine: identical (but for the LOD below).
+- **Render tree** (§6.2, `render/RenderTree`): per page, flat paint order, subtree ranges, world visual bounds (text ink included), kept in step through `Document`'s new change log (`version()`, `changesSince`), rebuilt only for structural changes; it records damage.
+- **Culling and LOD** (§6.8): whole subtrees off screen or under half a device pixel are skipped by one test; text with an em under 3 device px is greeked (one bar per line).
+- **One instanced program** (§6.3): shapes, paths and glyphs share an uber shader and a 10-vec4 instance; axis-aligned clips (rect and rounded, the rounded one anti-aliased) travel per instance instead of scissors and stencil passes; instances without an image join image batches. the large private test file's heaviest page: 8.5k → 1.5k draws a full raster; the synthetic page 29k → 1.3k (ANGLE/Metal keeps ~20 KB of GPU memory per draw call per frame).
+- **WebGL state caching** (`gfx/gl/GLDevice`): program, attributes, uniforms, textures, blend, stencil and scissor only re-sent when they change (forgotten whenever a resource call binds behind the draws).
+- **Content cache** (§6.9, instead of tiles for now): the page's pixels are kept; overlay-only frames composite, pans shift and draw the strips that came in, edits draw their damage, a continuous zoom in on a slow page shows the cache scaled and draws sharp 120 ms after it stops. Wheel and hand pans move by whole device pixels.
+- **GPU memory**: the layer target pool has a 192 MB budget (it kept every size for 120 frames: gigabytes during a zoom); `gfx::Device::memory()`; `engine_stats` reports `gpuBytes`, `layerPoolBytes` and the culling/LOD/cache counters.
+- **Editor side** (performance only): the Layers tree is read with the new `engine_layer_tree` (one compact read, engine.md §10.3) instead of `engine_read_nodes` level by level with every field; the panels' collections / variables / styles come from the id sets the editor keeps, not a walk over the whole document per call (`engine_variable_modes` was 25 % of the editor's frame time while dragging). The Layers panel was already virtualized (`VirtualList`).
+- JSON writing: strings appended in runs, numbers with `std::to_chars` (events of big changes).
+
+Tests: `npm run engine:test` 245 cases (new: `render.cache.test.cpp` — render tree, damage, culling, LOD, the cache's composite / shift / damage / stale zoom; batching of rounded clips; a 400-frame zoom asserting GPU memory stays in budget; `engine_layer_tree`; deferred fonts). `npm run check` 562 tests, `engine:shot` 52/52, `editor-shot` 110/110.
+
+Not done / next:
+- **Memory**: 782 MB of wasm heap for 101k nodes (~7.7 KB a node). `NodeProps` is 1.8 KB, a `Paint` 664 B and an `Effect` 1.1 KB, mostly inline `VariableData` bindings that are almost always empty; boxing them (and engine.md §2.2's facets) is the way down. Not started: it touches every reader of paints and effects.
+- **Load, TS side**: the renderer's `mergedDocument` (kiwi decode → `NodeTable` → engine JSON) 0.7 s and the JSON encode 0.2 s (data workstream; kiwi at the boundary removes both); the store's `.fig` import 3 s (once). Instances on pages not shown are still derived at load (engine.md: lazily per page).
+- **Tiles**: zooming out on a page whose full raster takes longer than a frame draws every frame; tiles from a coarser zoom would stand in (the cache's partial drawing is the path to build them on).
+- **Selection colors** read the selected subtree's nodes with every field on each selection change (p95 67 ms on a big frame): an engine read of just the paints would do.
+- Background blur near a damaged part may keep stale pixels within its blur radius; the LOD's tiny containers as one rect is not built; images are uploaded at full size (no downscaled copies at low zoom).
+
 ## Libraries — review fixes (API published first; status at the end of this section)
 
 The engine side of the review of the libraries round (a75036f). These are the calls the editor codes against; everything in "E6 libraries API" below still holds unless changed here.

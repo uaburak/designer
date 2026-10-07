@@ -41,6 +41,10 @@ int32_t engine_move_nodes(Handle h, Ptr refsPtr, uint32_t refsLen, uint32_t pare
 int32_t engine_encode_selection(Handle h, uint32_t flags);
 int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags);
 int32_t engine_render_thumbnail(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, uint32_t maxSize, uint32_t flags);
+int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t pageLocalID);
+int32_t engine_font_bind(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen, int32_t faceId);
+void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen);
+int32_t engine_next_frame_delay(Handle h);
 }
 
 namespace {
@@ -270,5 +274,48 @@ TEST_CASE("api: a page thumbnail fits its content, offscreen, without touching t
   CHECK(engine_render_thumbnail(h, 5, 5, 64, 0) == -5);
   CHECK(engine_command(h, 90, 0, 0) == 0);  // CREATE_PAGE: empty, and current
   CHECK(engine_render_thumbnail(h, 0xffffffffu, 0xffffffffu, 64, 0) == -5);
+  engine_destroy(h);
+}
+
+TEST_CASE("api: the Layers tree of a page in one read") {
+  Payload opts{R"({"sessionID":7})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  Payload doc{kDoc};
+  REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
+  REQUIRE(engine_layer_tree(h, 0, 1) == 0);
+  auto v = resultJson();
+  auto& nodes = v.get("nodes")->array;
+  REQUIRE(nodes.size() == 3);  // the page, the frame, the rectangle: parents first
+  CHECK(nodes[0].get("guid")->string == "0:1");
+  CHECK(nodes[0].get("childIds")->array.at(0).string == "1:1");
+  CHECK(nodes[1].get("type")->string == "FRAME");
+  CHECK(nodes[1].get("name")->string == "Frame 1");
+  CHECK(nodes[1].get("parentIndex")->get("guid")->string == "0:1");
+  CHECK(nodes[2].get("visible")->boolean);
+  CHECK(nodes[2].get("childIds")->array.empty());
+  CHECK(nodes[2].get("fillPaints") == nullptr);  // only what a row shows
+  CHECK(engine_layer_tree(h, 9, 9) == -5);  // E_NOT_FOUND: no such page
+  engine_destroy(h);
+}
+
+TEST_CASE("api: fonts arriving in a burst are laid out once, at the next call that looks") {
+  Payload opts{R"({"sessionID":7})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  Payload doc{kDoc};
+  REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
+  engine_tick(h, 0);
+  engine_render(h);
+  CHECK(engine_needs_frame(h) == 0);
+  Payload family{"Nowhere Sans"}, style{"Regular"};
+  engine_font_missing(family.ptr(), family.len(), style.ptr(), style.len());
+  engine_font_missing(family.ptr(), family.len(), style.ptr(), style.len());
+  // The relayout waits: a frame is wanted (it happens in engine_tick, or any call that reads the document).
+  CHECK(engine_needs_frame(h) == 1);
+  CHECK(engine_next_frame_delay(h) == 0);
+  CHECK(engine_tick(h, 16) == 1);
+  engine_render(h);
+  CHECK(engine_needs_frame(h) == 0);
   engine_destroy(h);
 }

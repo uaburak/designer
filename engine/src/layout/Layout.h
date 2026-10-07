@@ -46,7 +46,9 @@ class Layout {
   // Lays out everything that depends on the nodes in `dirty` (whose layout
   // inputs changed): their layout roots are found by walking up through
   // auto-layout parents and groups.
-  void run(const std::vector<Guid>& dirty);
+  // everyRoot: each dirty node's root is arranged even when it lies inside another root (outer roots first):
+  // what laying out each dirty node on its own would give, once per root (instance batches).
+  void run(const std::vector<Guid>& dirty, bool everyRoot = false);
 
   // The size `id` takes on its own (Hug computed, Fixed as is, clamped by
   // min/max); `width` / `height` > 0 fix that axis first (a Fill width decides

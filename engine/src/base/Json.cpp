@@ -1,5 +1,7 @@
 #include "base/Json.h"
 
+#include <charconv>
+
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -235,7 +237,13 @@ Writer& Writer::string(std::string_view s) {
 }
 void Writer::quoted(std::string_view s) {
   out_ += '"';
-  for (unsigned char c : s) {
+  // Runs that need no escaping go in at once (most strings are all one run).
+  size_t run = 0;
+  for (size_t i = 0; i < s.size(); i++) {
+    unsigned char c = static_cast<unsigned char>(s[i]);
+    if (c >= 0x20 && c != '"' && c != '\\') continue;
+    out_.append(s.data() + run, i - run);
+    run = i + 1;
     switch (c) {
       case '"': out_ += "\\\""; break;
       case '\\': out_ += "\\\\"; break;
@@ -252,6 +260,7 @@ void Writer::quoted(std::string_view s) {
         }
     }
   }
+  out_.append(s.data() + run, s.size() - run);
   out_ += '"';
 }
 Writer& Writer::number(double n) {
@@ -260,10 +269,10 @@ Writer& Writer::number(double n) {
     out_ += "0";
     return *this;
   }
-  char buf[32];
-  if (n == std::floor(n) && std::fabs(n) < 1e15) std::snprintf(buf, sizeof buf, "%.0f", n);
-  else std::snprintf(buf, sizeof buf, "%.17g", n);
-  out_ += buf;
+  // The shortest text that reads back as the same double (std::to_chars), much faster than printf.
+  char buf[40];
+  auto r = std::to_chars(buf, buf + sizeof buf, n);
+  out_.append(buf, static_cast<size_t>(r.ptr - buf));
   return *this;
 }
 Writer& Writer::boolean(bool b) {

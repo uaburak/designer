@@ -41,6 +41,7 @@ add_library(eng_core STATIC
   src/editor/Libraries.cpp
   src/tools/Gestures.cpp
   src/render/Renderer.cpp
+  src/render/RenderTree.cpp
   src/render/Overlay.cpp
   src/gfx/null/NullDevice.cpp
   src/api/Api.cpp
@@ -116,6 +117,7 @@ else()
     tests/unit/geometry.boolean.test.cpp
     tests/unit/editor.vector.test.cpp
     tests/unit/render.paths.test.cpp
+    tests/unit/render.cache.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)

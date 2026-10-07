@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -93,14 +94,36 @@ class WebGL2Device final : public Device {
     }
     emscripten_webgl_make_context_current(context_);
     using namespace gl;
-    if (!build(programs_[0], kShapeVertex, std::string(kShapeFragmentHead) + kPaintFunctions + kShapeFragmentBody)) return false;
-    if (!build(programs_[1], kPathVertex, std::string(kPathFragmentHead) + kPaintFunctions + kPathFragmentBody)) return false;
-    if (!build(programs_[2], kCompositeVertex, kCompositeFragment)) return false;
-    if (!build(programs_[3], kBlurVertex, kBlurFragment)) return false;
+    if (!build(programs_[0], kDrawVertex, std::string(kDrawFragmentHead) + kPaintFunctions + kDrawFragmentBody)) return false;
+    if (!build(programs_[1], kCompositeVertex, kCompositeFragment)) return false;
+    if (!build(programs_[2], kBlurVertex, kBlurFragment)) return false;
     glGenVertexArrays(1, &vao_);
     glBindVertexArray(vao_);
-    for (GLuint i = 0; i < 7; i++) glVertexAttribDivisor(i, 1);
+    for (GLuint i = 0; i < kAttributes; i++) glVertexAttribDivisor(i, 1);
     return true;
+  }
+
+  MemoryStats memory() const override {
+    MemoryStats m;
+    for (size_t i = 1; i < textures_.size(); i++) {
+      const Texture& t = textures_[i];
+      if (!t.gl) continue;
+      m.textures++;
+      uint64_t b = static_cast<uint64_t>(t.width) * t.height * (t.format == TextureFormat::RGBA32F ? 16 : 4);
+      m.bytes += t.mipmaps ? b * 4 / 3 : b;
+    }
+    for (size_t i = 1; i < targets_.size(); i++) {
+      const Target& t = targets_[i];
+      if (!t.framebuffer) continue;
+      m.targets++;
+      m.bytes += static_cast<uint64_t>(t.width) * t.height * 4;  // depth-stencil (the colour is a texture)
+    }
+    for (size_t i = 1; i < buffers_.size(); i++) {
+      if (!buffers_[i].gl) continue;
+      m.buffers++;
+      m.bytes += buffers_[i].size;
+    }
+    return m;
   }
 
   Caps caps() const override {
@@ -112,6 +135,7 @@ class WebGL2Device final : public Device {
   }
 
   BufferId createBuffer(BufferKind kind, uint32_t bytes, Usage usage) override {
+    forget();  // binds behind the draws' back
     Buffer b;
     glGenBuffers(1, &b.gl);
     b.target = kind == BufferKind::Index ? GL_ELEMENT_ARRAY_BUFFER : kind == BufferKind::Uniform ? GL_UNIFORM_BUFFER : GL_ARRAY_BUFFER;
@@ -124,6 +148,7 @@ class WebGL2Device final : public Device {
   }
 
   void reserve(BufferId id, uint32_t bytes) override {
+    forget();  // binds behind the draws' back
     Buffer& b = buffers_.at(id);
     if (bytes <= b.size) return;
     b.size = bytes;
@@ -132,6 +157,7 @@ class WebGL2Device final : public Device {
   }
 
   void write(BufferId id, uint32_t offset, std::span<const uint8_t> data) override {
+    forget();  // binds behind the draws' back
     Buffer& b = buffers_.at(id);
     glBindBuffer(b.target, b.gl);
     // Writing from the start: orphan the old store so the GPU never waits on last frame's draws.
@@ -167,7 +193,15 @@ class WebGL2Device final : public Device {
       glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     }
     glBindVertexArray(vao_);
+    forget();
     return true;
+  }
+
+  // What the last draws left bound (draws only re-send what changes: every GL call crosses into JavaScript and
+  // the browser's command buffer). Anything that binds behind the draws' back (texture uploads, copies, other
+  // framebuffers) calls forget().
+  void forget() {
+    state_ = State{};
   }
 
   void draw(const DrawCall& call) override {
@@ -176,48 +210,99 @@ class WebGL2Device final : public Device {
     int index = static_cast<int>(p.shader);
     const Program& prog = programs_[index];
     if (!prog.program) return;
-    glUseProgram(prog.program);
-    const bool instanced = p.shader == ShaderId::Shape || p.shader == ShaderId::Path;
+    State& st = state_;
+    if (st.program != prog.program) {
+      glUseProgram(prog.program);
+      st.program = prog.program;
+    }
+    const bool instanced = p.shader == ShaderId::Shape;
     if (instanced) {
       const Buffer& b = buffers_.at(call.instances.buffer);
-      glBindBuffer(GL_ARRAY_BUFFER, b.gl);
-      const GLsizei stride = 7 * 4 * sizeof(float);  // render/DrawInstance.h
-      for (GLuint i = 0; i < 7; i++) {
-        glEnableVertexAttribArray(i);
-        glVertexAttribPointer(i, 4, GL_FLOAT, GL_FALSE, stride,
-                              reinterpret_cast<const void*>(static_cast<uintptr_t>(call.instances.offset + i * 4 * sizeof(float))));
+      if (st.attributes != 1) {
+        for (GLuint i = 0; i < kAttributes; i++) glEnableVertexAttribArray(i);
+        st.attributes = 1;
       }
-    } else {
-      for (GLuint i = 0; i < 7; i++) glDisableVertexAttribArray(i);
+      const uint32_t instOffset = call.instances.offset;
+      if (st.instanceBuffer != b.gl || st.instanceOffset != instOffset) {
+        glBindBuffer(GL_ARRAY_BUFFER, b.gl);
+        const GLsizei stride = kAttributes * 4 * sizeof(float);  // render/DrawInstance.h
+        for (GLuint i = 0; i < kAttributes; i++)
+          glVertexAttribPointer(i, 4, GL_FLOAT, GL_FALSE, stride,
+                                reinterpret_cast<const void*>(static_cast<uintptr_t>(instOffset + i * 4 * sizeof(float))));
+        st.instanceBuffer = b.gl;
+        st.instanceOffset = instOffset;
+      }
+    } else if (st.attributes != 0) {
+      for (GLuint i = 0; i < kAttributes; i++) glDisableVertexAttribArray(i);
+      st.attributes = 0;
     }
-    glUniform4fv(prog.v, kUniformSlots, &call.uniforms[0][0]);
+    int pi = index;
+    if (!st.uniformsValid[pi] || std::memcmp(st.uniforms[pi], call.uniforms, sizeof call.uniforms) != 0) {
+      glUniform4fv(prog.v, kUniformSlots, &call.uniforms[0][0]);
+      std::memcpy(st.uniforms[pi], call.uniforms, sizeof call.uniforms);
+      st.uniformsValid[pi] = true;
+    }
     for (int t = 0; t < 3; t++) {
-      glActiveTexture(GL_TEXTURE0 + t);
       TextureId id = call.textures[t];
-      glBindTexture(GL_TEXTURE_2D, id && id < textures_.size() ? textures_[id].gl : 0);
+      GLuint gl = id && id < textures_.size() ? textures_[id].gl : 0;
+      if (st.textures[t] == gl && st.texturesValid) continue;
+      glActiveTexture(GL_TEXTURE0 + t);
+      glBindTexture(GL_TEXTURE_2D, gl);
+      st.textures[t] = gl;
     }
-    if (p.blend == Blend::Premultiplied) {
-      glEnable(GL_BLEND);
-      glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    } else {
-      glDisable(GL_BLEND);
+    st.texturesValid = true;
+    int blend = p.blend == Blend::Premultiplied ? 1 : 0;
+    if (st.blend != blend) {
+      if (blend) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+      } else {
+        glDisable(GL_BLEND);
+      }
+      st.blend = blend;
     }
     bool colour = p.colorMask == ColorMask::All;
-    glColorMask(colour, colour, colour, colour);
-    if (prog.stencilPass >= 0) glUniform1i(prog.stencilPass, colour ? 0 : 1);
+    if (st.colour != (colour ? 1 : 0)) {
+      glColorMask(colour, colour, colour, colour);
+      st.colour = colour ? 1 : 0;
+    }
+    if (prog.stencilPass >= 0 && st.stencilPass[pi] != (colour ? 0 : 1)) {
+      glUniform1i(prog.stencilPass, colour ? 0 : 1);
+      st.stencilPass[pi] = colour ? 0 : 1;
+    }
     if (p.stencil.enabled) {
-      glEnable(GL_STENCIL_TEST);
-      glStencilFunc(p.stencil.func == StencilFunc::Equal ? GL_EQUAL : GL_ALWAYS, call.stencilRef, 0xff);
-      GLenum op = p.stencil.pass == StencilOp::Increment ? GL_INCR : p.stencil.pass == StencilOp::Decrement ? GL_DECR : GL_KEEP;
-      glStencilOp(GL_KEEP, GL_KEEP, op);
-    } else {
+      if (st.stencil != 1) {
+        glEnable(GL_STENCIL_TEST);
+        st.stencil = 1;
+      }
+      int func = p.stencil.func == StencilFunc::Equal ? GL_EQUAL : GL_ALWAYS;
+      if (st.stencilFunc != func || st.stencilRef != call.stencilRef) {
+        glStencilFunc(static_cast<GLenum>(func), call.stencilRef, 0xff);
+        st.stencilFunc = func;
+        st.stencilRef = call.stencilRef;
+      }
+      int op = p.stencil.pass == StencilOp::Increment ? GL_INCR : p.stencil.pass == StencilOp::Decrement ? GL_DECR : GL_KEEP;
+      if (st.stencilOp != op) {
+        glStencilOp(GL_KEEP, GL_KEEP, static_cast<GLenum>(op));
+        st.stencilOp = op;
+      }
+    } else if (st.stencil != 0) {
       glDisable(GL_STENCIL_TEST);
+      st.stencil = 0;
     }
     if (call.scissorEnabled) {
-      glEnable(GL_SCISSOR_TEST);
-      glScissor(call.scissor.x, height_ - call.scissor.y - call.scissor.h, std::max(0, call.scissor.w), std::max(0, call.scissor.h));
-    } else {
+      if (st.scissor != 1) {
+        glEnable(GL_SCISSOR_TEST);
+        st.scissor = 1;
+      }
+      int box[4] = {call.scissor.x, height_ - call.scissor.y - call.scissor.h, std::max(0, call.scissor.w), std::max(0, call.scissor.h)};
+      if (std::memcmp(box, st.scissorBox, sizeof box) != 0) {
+        glScissor(box[0], box[1], box[2], box[3]);
+        std::memcpy(st.scissorBox, box, sizeof box);
+      }
+    } else if (st.scissor != 0) {
       glDisable(GL_SCISSOR_TEST);
+      st.scissor = 0;
     }
     if (instanced)
       glDrawArraysInstanced(GL_TRIANGLES, 0, static_cast<GLsizei>(call.count), static_cast<GLsizei>(call.instanceCount));
@@ -231,9 +316,11 @@ class WebGL2Device final : public Device {
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     bound_ = 0;
+    forget();
   }
 
   TargetId createTarget(uint32_t width, uint32_t height) override {
+    forget();  // binds behind the draws' back
     if (!context_ || emscripten_is_webgl_context_lost(context_) || !width || !height) return 0;
     emscripten_webgl_make_context_current(context_);
     Target t;
@@ -270,6 +357,7 @@ class WebGL2Device final : public Device {
   }
 
   void destroyTarget(TargetId id) override {
+    forget();  // binds behind the draws' back
     if (!id || id >= targets_.size()) return;
     release(targets_[id]);
   }
@@ -277,6 +365,7 @@ class WebGL2Device final : public Device {
   TextureId targetTexture(TargetId id) override { return id && id < targets_.size() ? targets_[id].texture : 0; }
 
   bool readPixels(TargetId id, IRect rect, std::span<uint8_t> rgba8) override {
+    forget();  // binds behind the draws' back
     if (!id || id >= targets_.size() || !targets_[id].framebuffer) return false;
     size_t row = static_cast<size_t>(rect.w) * 4;
     if (rect.w <= 0 || rect.h <= 0 || rgba8.size() < row * static_cast<size_t>(rect.h)) return false;
@@ -304,15 +393,18 @@ class WebGL2Device final : public Device {
     int w = std::min<int>(rect.w, static_cast<int>(textures_[texture].width));
     int h = std::min<int>(rect.h, static_cast<int>(textures_[texture].height));
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rect.x, height_ - rect.y - rect.h, w, h);
+    forget();
   }
 
   TextureId createTexture(const TextureDesc& desc) override {
+    forget();  // binds behind the draws' back
     if (!context_ || emscripten_is_webgl_context_lost(context_) || !desc.width || !desc.height) return 0;
     emscripten_webgl_make_context_current(context_);
     Texture t;
     t.width = desc.width;
     t.height = desc.height;
     t.format = desc.format;
+    t.mipmaps = desc.mipmaps && desc.format == TextureFormat::RGBA8;
     glGenTextures(1, &t.gl);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, t.gl);
@@ -344,6 +436,7 @@ class WebGL2Device final : public Device {
   }
 
   void writeTexture(TextureId id, IRect rect, std::span<const uint8_t> data) override {
+    forget();  // binds behind the draws' back
     if (!id || id >= textures_.size() || !textures_[id].gl) return;
     emscripten_webgl_make_context_current(context_);
     glActiveTexture(GL_TEXTURE0);
@@ -359,6 +452,7 @@ class WebGL2Device final : public Device {
   }
 
   void generateMipmaps(TextureId id) override {
+    forget();  // binds behind the draws' back
     if (!id || id >= textures_.size() || !textures_[id].gl) return;
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, textures_[id].gl);
@@ -367,6 +461,7 @@ class WebGL2Device final : public Device {
   }
 
   bool uploadBitmap(TextureId id, uint32_t bitmapId) override {
+    forget();  // binds behind the draws' back
     if (!id || id >= textures_.size() || !textures_[id].gl) return false;
     emscripten_webgl_make_context_current(context_);
     bool ok = eng_upload_bitmap(textures_[id].gl, bitmapId) != 0;
@@ -375,6 +470,7 @@ class WebGL2Device final : public Device {
   }
 
   void destroyTexture(TextureId id) override {
+    forget();  // binds behind the draws' back
     if (!id || id >= textures_.size() || !textures_[id].gl) return;
     glDeleteTextures(1, &textures_[id].gl);
     textures_[id] = Texture{};
@@ -383,6 +479,7 @@ class WebGL2Device final : public Device {
   void submit() override {}  // the browser presents the canvas after the task
 
   void destroyBuffer(BufferId id) override {
+    forget();  // binds behind the draws' back
     Buffer& b = buffers_.at(id);
     if (b.gl) glDeleteBuffers(1, &b.gl);
     b.gl = 0;
@@ -426,10 +523,28 @@ class WebGL2Device final : public Device {
     GLuint gl = 0;
     uint32_t width = 0, height = 0;
     TextureFormat format = TextureFormat::RGBA8;
+    bool mipmaps = false;
+  };
+
+  static constexpr GLuint kAttributes = 10;  // vec4s per instance (render/DrawInstance.h)
+  struct State {
+    GLuint program = 0;
+    int attributes = -1;  // −1: unknown
+    GLuint instanceBuffer = 0;
+    uint32_t instanceOffset = 0xffffffffu;
+    float uniforms[3][kUniformSlots][4] = {};
+    bool uniformsValid[3] = {false, false, false};
+    int stencilPass[3] = {-1, -1, -1};
+    GLuint textures[3] = {0, 0, 0};
+    bool texturesValid = false;
+    int blend = -1, colour = -1, stencil = -1, stencilFunc = -1, stencilOp = -1, scissor = -1;
+    int stencilRef = -1;
+    int scissorBox[4] = {-1, -1, -1, -1};
   };
 
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context_ = 0;
-  Program programs_[4];
+  Program programs_[3];
+  State state_;
   std::vector<Texture> textures_{Texture{}};  // index = TextureId; 0 unused
   GLuint vao_ = 0;
   std::vector<Buffer> buffers_{Buffer{}};          // index = BufferId; 0 unused

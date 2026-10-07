@@ -23,6 +23,34 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   Rect onScreen = transformedBounds(m * Mat2x3::translate(ink.x, ink.y), ink.w, ink.h);
   Rect padded{onScreen.x - 2, onScreen.y - 2, onScreen.w + 4, onScreen.h + 4};
   if (!padded.intersects(screen_)) return;
+  // LOD (docs/engine.md §6.8): an em under 3 device pixels draws as greeked bars — each line's extent at 35 % of
+  // its colour — instead of glyphs nobody can read.
+  double scale = levelScale(m);
+  float em = 0;
+  for (const text::LaidGlyph& g : L->glyphs) em = std::max(em, g.size);
+  if (!L->glyphs.empty() && em * scale < 3) {
+    stats_.greeked++;
+    const text::LaidGlyph& first = L->glyphs.front();
+    const auto* fills = L->styles[first.style].fills;
+    const Paint* paint = nullptr;
+    if (fills)
+      for (const Paint& f : *fills)
+        if (f.visible && f.opacity > 0) paint = &f;
+    if (!paint) return;
+    static const Paint kGrey = Paint::solid(Color{0.5f, 0.5f, 0.5f, 1});  // gradients and images: a neutral bar
+    const Paint& bar = paint->type == PaintType::SOLID ? *paint : kGrey;
+    for (const text::LaidLine& l : L->lines) {
+      if (l.width <= 0 || l.glyphCount == 0) continue;
+      double h = std::max(l.ascent * 0.7, 0.0);
+      Rect r{l.x, l.baseline - h, l.width, h};
+      Mat2x3 bm = m * Mat2x3::translate(r.x, r.y);
+      DrawInstance q = makeShape(bm, {r.w, r.h}, ShapeKind::Rect, kSquare, Color{}, 1, Color{}, 0, 0, 0);
+      DrawState state;
+      if (!setPaint(q, state, bar, Mat2x3::translate(r.x, r.y), p.size, alpha * 0.35)) continue;
+      emit(q, Pass::Shape, state);
+    }
+    return;
+  }
   // Fill by fill (bottom first), each glyph in its run's fills.
   size_t layers = 0;
   for (const auto& s : L->styles) layers = std::max(layers, s.fills ? s.fills->size() : 0);

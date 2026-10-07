@@ -665,6 +665,14 @@ class Editor : private LayoutHost, public TextLayouts {
   void markInstanceDirty(const NodeChange& c);
   void flushInstances();
   void materialize(Guid instance);
+  // Stage B of materialization (layout to the instance's size, constraints, slots), for one instance or a batch.
+  struct PendingLayout {
+    Guid instance;
+    std::vector<Guid> rows;
+    bool hasMain = false;
+    std::vector<std::pair<Guid, Guid>> slots;
+  };
+  void finishLayouts(const std::vector<PendingLayout>& batch);
   void removeDerived(Guid instance);
   struct Expansion;
   void expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid parentRow, const std::vector<Guid>& prefix, Guid level,
@@ -929,6 +937,7 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t nextLocalID_ = 1;
   std::vector<Guid> selection_;
   Camera camera_;
+  bool zooming_ = false;  // the camera's zoom last changed by the wheel or a pinch (Overlay::zooming)
   Viewport viewport_{800, 600, 1, 0, 0};
   Theme theme_ = Theme::Dark;
   Tool tool_ = Tool::MOVE;
@@ -1004,6 +1013,13 @@ class Editor : private LayoutHost, public TextLayouts {
     uint32_t generation = 0;
   };
   std::unordered_map<Guid, CachedText, GuidHash> textCache_;
+  struct MeasuredText {
+    double width = 0;
+    uint32_t generation = 0;
+    Vec2 size;
+    bool ok = false, pending = false;
+  };
+  std::unordered_map<Guid, std::vector<MeasuredText>, GuidHash> measured_;  // measureText's results
   std::unordered_set<Guid, GuidHash> unmeasured_;  // auto-resized texts measured while their font loaded
   TextSession text_;
   VectorSession vector_;
@@ -1020,6 +1036,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_map<Guid, Blueprint, GuidHash> blueprint_;
   bool deriving_ = false;
   Guid materializing_ = kNoGuid;
+  std::vector<PendingLayout>* deferredLayout_ = nullptr;  // flushInstances' batch: stage B waits for all of it
+  std::unordered_set<Guid, GuidHash> layingOut_;          // instances in stage B (their writes don't dirty them)
   bool intrinsicLayout_ = false;  // stage A of an instance's layout: no constraints
   Guid navMain_ = kNoGuid, returnTo_ = kNoGuid;
   std::unordered_map<Guid, Guid, GuidHash> detachMap_;  // the last detach: derived id → the real node made for it

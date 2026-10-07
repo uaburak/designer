@@ -380,6 +380,19 @@ export class Engine {
     return this.readNodes([ref], options)[0] ?? null;
   }
 
+  /**
+   * The Layers panel's tree of `page` in one read: the page and every layer under it (hidden ones and instance
+   * sublayers included), parents before children, each with only what a row shows — guid, parentIndex.guid, type,
+   * name, visible, locked, childIds, and resizeToFit / stackMode / stackWrap / booleanOperation / isStateGroup when
+   * set. Empty when the page doesn't exist.
+   */
+  layerTree(page: Guid): NodeChange[] {
+    const [s, l] = this.ids(page);
+    const status = this.x.layerTree(this.h, s, l);
+    if (status !== Status.OK) return this.after([]);
+    return this.after((JSON.parse(decodeText(this.x.result())) as { nodes: NodeChange[] }).nodes);
+  }
+
   /** What is under (x, y), innermost first (for "Select layer" in the context menu). */
   hitTest(x: number, y: number): Guid[] {
     this.x.hitTest(this.h, x, y, 0);

@@ -29,13 +29,17 @@ Frame record(Renderer& r, gfx::NullDevice& dev, const Document& d) {
   for (size_t i = 0; i < dev.draws.size(); i++) {
     const auto& c = dev.draws[i];
     switch (c.pipeline.shader) {
-      case gfx::ShaderId::Path: f.paths += c.call.instanceCount; break;
-      case gfx::ShaderId::Shape: f.shapes += c.call.instanceCount; break;
+      case gfx::ShaderId::Shape:
+        // One program draws shapes, paths and glyphs: told apart by the instance's kind.
+        for (auto& q : dev.instancesOf<DrawInstance>(i)) {
+          if (q.geom[2] == static_cast<float>(ShapeKind::Path)) f.paths++;
+          else f.shapes++;
+          f.instances.push_back(q);
+        }
+        break;
       case gfx::ShaderId::Composite: f.composites++; break;
       case gfx::ShaderId::Blur: f.blurs++; break;
     }
-    if (c.pipeline.shader == gfx::ShaderId::Path || c.pipeline.shader == gfx::ShaderId::Shape)
-      for (auto& q : dev.instancesOf<DrawInstance>(i)) f.instances.push_back(q);
   }
   return f;
 }
