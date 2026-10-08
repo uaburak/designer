@@ -164,12 +164,41 @@ Line arcPiece(const std::vector<Vec2>& pts, const std::vector<bool>& corner, con
   return out;
 }
 
-// Figma's fitted dashes of a closed contour (StrokeStyle::fitDashes).
+// Figma's fitted dashes of a closed contour (StrokeStyle::fitDashes), or of a straight open line (always).
 std::vector<Line> fittedDash(const Line& line, const std::vector<double>& pattern) {
   double period = 0;
   for (double d : pattern) period += std::max(0.0, d);
   size_t n = line.pts.size();
-  if (pattern.empty() || period <= 0 || !line.closed || n < 2) return {line};
+  if (pattern.empty() || period <= 0 || n < 2) return {line};
+  if (!line.closed) {
+    // A straight open line (Figma's exports of dashed lines): the pattern fitted to its length the same way, half a
+    // dash at each end. Other open paths dash continuously from their start (unverified).
+    Vec2 d0 = unit(line.pts[1] - line.pts[0]);
+    for (size_t i = 1; i + 1 < n; i++) {
+      Vec2 d = unit(line.pts[i + 1] - line.pts[i]);
+      if (std::fabs(cross(d0, d)) > 1e-9 || dot(d0, d) <= 0) return dash(line, pattern);
+    }
+    std::vector<double> cum{0};
+    for (size_t i = 1; i < n; i++) cum.push_back(cum.back() + (line.pts[i] - line.pts[i - 1]).length());
+    double len = cum.back();
+    if (!(len > 0)) return {line};
+    double k = std::max(1.0, std::round(len / period)), scale = len / (k * period);
+    double t = -std::max(0.0, pattern[0]) * scale / 2;
+    std::vector<Line> out;
+    for (size_t j = 0; t < len - 1e-9; j = (j + 1) % pattern.size()) {
+      double d = std::max(0.0, pattern[j]) * scale;
+      if (j % 2 == 0) {
+        double a = std::max(t, 0.0), b = std::min(t + d, len);
+        if (b > a) {
+          out.push_back(arcPiece(line.pts, line.corner, cum, a, b));
+          if (a <= 0) out.back().pts.front() = line.pts.front();  // exactly: the ends keep their caps
+          if (b >= len) out.back().pts.back() = line.pts.back();
+        }
+      }
+      t += d;
+    }
+    return out;
+  }
   // Edges i → i + 1 (cyclic) that are a straight segment of the path (no flattening points inside), and the points
   // where the outline really turns or a curve starts: a side is the straight run between two of them.
   auto straight = [&](size_t i) { return line.corner[i] && line.corner[(i + 1) % n]; };
@@ -416,7 +445,7 @@ Path strokePath(const Path& center, const StrokeStyle& style, double tolerance) 
     auto plain = [&](StrokeCap c) {
       return c == StrokeCap::ROUND || c == StrokeCap::SQUARE ? c : (style.cap == StrokeCap::ROUND || style.cap == StrokeCap::SQUARE ? style.cap : StrokeCap::NONE);
     };
-    std::vector<Line> dashes = style.fitDashes && lines[i].closed ? fittedDash(lines[i], style.dashes) : dash(lines[i], style.dashes);
+    std::vector<Line> dashes = style.fitDashes || !lines[i].closed ? fittedDash(lines[i], style.dashes) : dash(lines[i], style.dashes);
     for (size_t k = 0; k < dashes.size(); k++) {
       bool first = !lines[i].closed && k == 0 && dashes[k].pts.front() == lines[i].pts.front();
       bool lastOne = !lines[i].closed && k + 1 == dashes.size() && dashes[k].pts.back() == lines[i].pts.back();
