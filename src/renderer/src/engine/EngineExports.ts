@@ -216,6 +216,7 @@ export class EngineExports {
   /** `type`: a StyleType value (FILL 1, TEXT 3, EFFECT 4, GRID 6), 0 for all. */
   styles = (h: number, type: number, flags: number): number => this.fn("styles")(h, type, flags);
   styleUsage = (h: number, id: Uint8Array): number => this.withBytes([id], (p) => this.fn("style_usage")(h, p[0], p[1]));
+  documentFonts = (h: number): number => this.fn("document_fonts")(h);
 
   // ---- Libraries (JSON in and out) ----
   setFileKey = (h: number, key: Uint8Array): number =>
@@ -308,7 +309,7 @@ export const USED_EXPORTS = [
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",
   "export", "export_info", "export_image", "export_clear_images", "export_list",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",
-  "styles", "style_usage",
+  "styles", "style_usage", "document_fonts",
   "set_file_key", "ensure_asset_keys", "local_assets", "encode_assets", "mark_published", "import_library_assets",
   "apply_library_update", "library_usage",
   "has_events", "take_events", "stats",

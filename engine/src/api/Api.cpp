@@ -2228,6 +2228,21 @@ ENG_EXPORT int32_t engine_style_usage(Handle h, Ptr idPtr, uint32_t idLen) {
   return static_cast<int32_t>(e->editor.styleUsage(s));
 }
 
+// The fonts the document names (text, its runs, instance overrides; text styles too), each with its number of
+// uses: [{family, style, uses}] sorted by family and style. The Missing fonts dialog and the font picker's
+// "In this file" read it (docs/engine-build.md "Fonts").
+ENG_EXPORT int32_t engine_document_fonts(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  json::Writer w;
+  w.beginArray();
+  for (const Editor::DocumentFont& f : e->editor.documentFonts())
+    w.beginObject().key("family").string(f.font.family).key("style").string(f.font.style).key("uses").number(f.uses).endObject();
+  w.endArray();
+  return setResult(w.take());
+}
+
 // ---- Libraries (docs/data.md §9, docs/engine-build.md "E6 libraries") ---------------------------
 
 namespace {

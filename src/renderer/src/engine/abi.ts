@@ -190,6 +190,8 @@ export const CommandId = {
   RENAME_STYLE_GROUP: 176,
   /** args { type, group } */
   UNGROUP_STYLES: 177,
+  /** args { fonts: [{ from: { family, style }, to: { family, style } }] } (the Missing fonts dialog's "Replace fonts") */
+  REPLACE_FONTS: 190,
 } as const;
 export type CommandName = keyof typeof CommandId;
 

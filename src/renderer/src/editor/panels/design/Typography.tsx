@@ -18,8 +18,9 @@ import { useUI } from "../../hooks";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
 import { SETTINGS_WIDTH } from "./Sizing";
-import { closestStyle, type FontFamily } from "@/engine/fonts";
+import type { FontFamily } from "@/engine/fonts";
 import { familyNames, familyStyles, useFontFamilies } from "../../fontList";
+import { FontField } from "./FontPicker";
 import { fields, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -49,6 +50,15 @@ export function fontStyles(list: readonly FontFamily[] | null, family: string, s
   const styles = familyStyles(list, family, style);
   if (!list && family.toLowerCase() === "inter") return [...new Set([...(style ? [style] : []), ...FALLBACK_STYLES])];
   return styles;
+}
+
+/** The families the document names, lower case (the font picker's "In this file"). */
+export function documentFamilies(engine: { documentFonts?: () => { family: string }[] }): Set<string> {
+  try {
+    return new Set((engine.documentFonts?.() ?? []).map((f) => f.family.toLowerCase()));
+  } catch {
+    return new Set();
+  }
 }
 
 /** Line height as the field shows it: "Auto" ({100, PERCENT}), px, or a percent (the UI's "140%" = {1.4, RAW}, docs/schema.md). */
@@ -88,7 +98,6 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const align = mixed(nodes.map((n) => n.textAlignHorizontal ?? "LEFT"));
   const valign = mixed(nodes.map((n) => n.textAlignVertical ?? "TOP"));
   const fontList = useFontFamilies();
-  const families = fontFamilies(fontList, nodes);
   const styleOptions = isMixed(family) ? (isMixed(style) ? [] : [style]) : fontStyles(fontList, family, isMixed(style) ? undefined : style);
   const sizeEntries: MenuEntry[] = [...FONT_SIZES.map((s) => ({ id: String(s), label: String(s), checked: size === s })), "-", { id: "apply-variable", label: "Apply variable…" }];
 
@@ -107,12 +116,14 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
         {!hasStyle && (
           <>
         <PropertyRow span={2} label="Font family">
-          <Select
-            label="Font family"
-            value={family}
+          <FontField
+            family={family}
+            style={style}
+            list={fontList}
+            fileFamilies={() => documentFamilies(ed.engine)}
             disabled={!fontKept}
-            options={families.map((f) => ({ value: f, label: f }))}
-            onChange={(f) => write("Font", { fontName: { family: f, style: closestStyle(fontStyles(fontList, f, undefined), isMixed(style) ? "Regular" : style), postscript: "" } })}
+            onPreview={(f) => (f ? ed.edit("Font", { final: false, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } }))) : ed.cancelEdit())}
+            onPick={(f) => ed.edit("Font", { final: true, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } })))}
           />
         </PropertyRow>
         <PropertyRow label="Font style and size">

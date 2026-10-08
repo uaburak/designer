@@ -445,6 +445,13 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> stylesOf(StyleType type, bool includeRemote = false) const;
   // How many layers use a style.
   uint32_t styleUsage(Guid style) const;
+  // The fonts the document names (text, runs, instance overrides), each with how many places name it
+  // (editor/FontCommands.cpp).
+  struct DocumentFont {
+    FontName font;
+    uint32_t uses = 0;
+  };
+  std::vector<DocumentFont> documentFonts() const;
   struct BoundVariable {
     std::string target;     // BindingTarget (docs/engine-build.md)
     Guid variable = kNoGuid;  // the alias (a composed colour: its colour's alias)
@@ -670,6 +677,8 @@ class Editor : private LayoutHost, public TextLayouts {
 
   // ---- Variables and styles: commands (editor/VariableCommands.cpp) ----
   Status variableCommand(CommandId id, const CommandArgs& args);
+  // REPLACE_FONTS (editor/FontCommands.cpp).
+  Status replaceFonts(const CommandArgs& args);
   uint32_t variableCommandState(CommandId id) const;
   std::string newAssetKey();
 

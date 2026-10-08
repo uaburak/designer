@@ -43,6 +43,7 @@ add_library(eng_core STATIC
   src/editor/ComponentCommands.cpp
   src/editor/Variables.cpp
   src/editor/VariableCommands.cpp
+  src/editor/FontCommands.cpp
   src/editor/Libraries.cpp
   src/tools/Gestures.cpp
   src/render/Renderer.cpp
@@ -138,6 +139,7 @@ else()
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
+    tests/unit/text.fonts.test.cpp
     tests/unit/text.render.test.cpp
     tests/unit/geometry.path.test.cpp
     tests/unit/geometry.boolean.test.cpp

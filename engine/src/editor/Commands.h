@@ -121,6 +121,7 @@ enum class CommandId : uint32_t {
   GROUP_STYLES = 175,                   // args {styles, name}
   RENAME_STYLE_GROUP = 176,             // args {type, group, name}
   UNGROUP_STYLES = 177,                 // args {type, group}
+  REPLACE_FONTS = 190,                  // args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' "Replace fonts")
 };
 
 // engine_command_state bits.
