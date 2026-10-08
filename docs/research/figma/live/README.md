@@ -248,3 +248,22 @@ a nested instance inside `Card`, a fixed auto-layout parent with children, and a
   with its More menu.
 * `img/` — 46 screenshots, mainly canvas states (`canvas-*`, `grid-*`), plus menus, left rail and
   panel views.
+
+## Behaviour (`behaviour/`)
+
+Interaction tests run on the page **Behaviour** in Untitled at a 1440×900 viewport. There is one file per area, and each holds the findings followed by a log of every action with its before/after state and its status. Screenshots are in `behaviour/img/`.
+
+| Area | File | Observed | Could not reproduce / to do |
+|---|---|---|---|
+| Selection keys | `keyboard.md` | Esc clears the selection (it does not select the parent). ⇧Enter and \ select the parent. Enter on a frame selects all children (hidden and locked too), and Enter again goes one level deeper. Enter on a shape opens vector edit. Tab and ⇧Tab walk siblings in Layers order, wrap, and do not skip hidden or locked layers. | The tool's real "\\" key does not reach the page (the JavaScript keydown works) |
+| Text | `text.md` | Double-click on text edits immediately and selects the word. The first Esc leaves edit mode and keeps the layer selected; the second Esc deselects. | — |
+| Number fields | `fields.md` | Click selects all. Enter commits and returns focus to the canvas. Esc reverts and stays in the field, and a second Esc returns focus to the canvas. `500+10`, `*2` and `2^3` work. `+10` typed alone is absolute. `Mixed+100` is applied to each layer. Tab follows DOM order. ↑ steps by 1 and ⇧↑ by 10. Gap "Auto" gives Space between. In the H-padding field, `1,2,3,4` sets left=1 and right=2. Dragging the label scrubs. | ⌥-hover over a field |
+| Canvas | `canvas.md` | Frame title: click selects, drag moves, double-click renames. Clicking the empty background of a top-level frame acts like empty canvas; a nested frame gets selected. A drag from a frame's background is a marquee. A marquee that covers part of a frame selects its children. A larger layer dropped onto a frame nests by cursor position. | ⌘-marquee (nested); ⌘, Space and ⌃ while dragging |
+| Resize | `resize.md` | With Lock aspect ratio on, an edge drag scales proportionally. Line and radius handles are covered by the visual pass. | ⇧, ⌃ and ⌘ during resize |
+| Layers | `layers.md` | Auto-layout children are listed in flow order (first on top). Enter after a row click equals canvas Enter. Double-clicking the name renames. ⌘R opens "Rename N layers". Chevrons are always visible. ⌥-click on a chevron is recursive. ⌥L collapses all. Dragging across eye icons hides every crossed row. | — |
+| Shortcuts | `keys.md` | Opacity digits with a two-digit buffer of about 450–500 ms (0 = 100%, 0 then 5 = 5%). ] / [ send to front and back, ⌘] / ⌘[ move one step. N and ⇧N zoom to the next and previous frame. ⌘D repeats the last offset. ⇧⌘O outline mode. ⌃P pixel preview. The pixel grid shows from 300%, and its shortcut is ⇧'. | ⌥⌘A select matching; ⇧⌘R, ⇧⌘V and paste placement (the clipboard is not reachable from the tool); confirming that the ⇧' toggle works |
+| Smart selection | `smart-selection.md` | Equally spaced layers get dots, a Spacing field and pink gap handles. Dragging one gap handle sets every gap. | Dragging the center dots (reordering) |
+| Pages | `pages.md` | "+" opens inline rename. A page named "---" is a divider. | Duplicate page naming |
+| Minimize UI | `ui.md` | Minimized: full-width canvas and floating pills. A selection shows a floating Design panel, which hides again on deselect. | The ⇧⌘\ shortcut itself (only the menu item was used) |
+
+**Tool limits:** modifiers can't be held through a drag or hover, the clipboard isn't reachable, and right-click menus sometimes fail to open. Any item that needs one of these is marked "could not reproduce".
