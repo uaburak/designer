@@ -14,7 +14,7 @@ namespace {
 json::Value membersOf(const char* def, const std::string& extra) {
   json::Value v;
   if (extra.empty()) return v;
-  std::string members = extraToJsonMembers(def, extra);
+  std::string members = codec::extraToJsonMembers(def, extra);
   if (members.empty()) return v;
   json::parse("{" + members + "}", v);
   return v;
