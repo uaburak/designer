@@ -32,7 +32,7 @@ namespace {
 constexpr uint32_t kGridRows = 435, kGridColumns = 436, kGridRowGap = 437, kGridColumnGap = 438, kGridRowAnchor = 439,
                    kGridColumnAnchor = 440, kGridRowSpan = 441, kGridColumnSpan = 442, kGridColumnsSizing = 474,
                    kGridRowsSizing = 475, kGridChildVerticalAlign = 476, kGridChildHorizontalAlign = 477,
-                   kGridReflowEnabled = 556;
+                   kGridReflowEnabled = 556, kGridAutoTracks = 555;
 
 enum class Sizing : uint8_t { FLEX = 0, FIXED = 1, HUG = 2 };
 
@@ -315,7 +315,8 @@ Layout::Grid Layout::grid(Guid frame, Vec2 size, bool hugW, bool hugH) {
       for (size_t x = 0; x < it.cs; x++) taken.insert({it.row + y, it.col + x});
     g.items.push_back(it);
   }
-  size_t R = s.rows.size();
+  // Rows: the defined ones, more when items need them; with Auto rows (gridAutoTracks ROWS) as many as the items need.
+  size_t R = gridAutoRows(p) ? 0 : s.rows.size();
   for (const Grid::Item& it : g.items) R = std::max(R, it.row + it.rs);
   R = std::max<size_t>(R, 1);
   auto rowTrack = [&](size_t i) -> Track { return i < s.rows.size() ? s.rows[i] : Track{}; };
@@ -484,6 +485,67 @@ std::string Layout::gridSpanBytes(bool column, uint32_t span) {
   kiwi::ByteBuffer bb;
   bb.writeVarUint(column ? kGridColumnSpan : kGridRowSpan);
   bb.writeVarUint(std::max<uint32_t>(1, span));
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
+std::vector<Layout::GridTrackDef> Layout::gridTrackDefs(const NodeProps& p, bool column) {
+  std::vector<Track> tracks;
+  readTracks(p, column ? "gridColumns" : "gridRows", column ? kGridColumns : kGridRows, tracks);
+  readSizing(p, column ? "gridColumnsSizing" : "gridRowsSizing", column ? kGridColumnsSizing : kGridRowsSizing, tracks);
+  std::vector<GridTrackDef> out;
+  for (const Track& t : tracks) out.push_back({t.id, t.position, static_cast<uint8_t>(t.sizing), t.value});
+  return out;
+}
+
+void Layout::setGridTrackDefs(NodeProps& p, bool column, const std::vector<GridTrackDef>& tracks) {
+  auto bytes = [](kiwi::ByteBuffer& bb) { return std::string(reinterpret_cast<const char*>(bb.data()), bb.size()); };
+  kiwi::ByteBuffer list;
+  list.writeVarUint(column ? kGridColumns : kGridRows);
+  list.writeVarUint(1);
+  list.writeVarUint(static_cast<uint32_t>(tracks.size()));
+  for (const GridTrackDef& t : tracks) {
+    list.writeVarUint(1);
+    list.writeVarUint(t.id.sessionID);
+    list.writeVarUint(t.id.localID);
+    list.writeVarUint(2);
+    list.writeString(t.position.c_str());
+    list.writeVarUint(0);
+  }
+  list.writeVarUint(0);
+  kiwi::ByteBuffer sizing;
+  sizing.writeVarUint(column ? kGridColumnsSizing : kGridRowsSizing);
+  sizing.writeVarUint(1);
+  sizing.writeVarUint(static_cast<uint32_t>(tracks.size()));
+  for (const GridTrackDef& t : tracks) {
+    sizing.writeVarUint(1);
+    sizing.writeVarUint(t.id.sessionID);
+    sizing.writeVarUint(t.id.localID);
+    sizing.writeVarUint(2);
+    for (uint32_t f : {1u, 2u}) {  // Figma writes the same function as min and max
+      sizing.writeVarUint(f);
+      sizing.writeVarUint(1);
+      sizing.writeVarUint(t.sizing);
+      sizing.writeVarUint(2);
+      sizing.writeVarFloat(static_cast<float>(t.value));
+      sizing.writeVarUint(0);
+    }
+    sizing.writeVarUint(0);
+    sizing.writeVarUint(0);
+  }
+  sizing.writeVarUint(0);
+  p.extra[column ? "gridColumns" : "gridRows"] = bytes(list);
+  p.extra[column ? "gridColumnsSizing" : "gridRowsSizing"] = bytes(sizing);
+}
+
+bool Layout::gridAutoRows(const NodeProps& p) {
+  uint32_t v = 0;
+  return readUintField(p, "gridAutoTracks", kGridAutoTracks, v) && v == 1;
+}
+
+std::string Layout::gridAutoRowsBytes(bool on) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(kGridAutoTracks);
+  bb.writeVarUint(on ? 1 : 0);
   return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
 }
 

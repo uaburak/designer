@@ -672,7 +672,10 @@ Overlay Editor::overlay() const {
   }
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
-  if (gesture_ == Gesture::None && selection_.size() == 1 && text_.node == kNoGuid) gridTrackOverlay(o);
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid) && selection_.size() == 1 && text_.node == kNoGuid) {
+    gridTrackOverlay(o);
+    gridSpanOverlay(o);
+  }
   if (text_.node != kNoGuid) {
     // Editing text: the text's own box stays outlined (no handles, no badge), plus the selection and caret.
     o.textNode = text_.node;
@@ -1195,6 +1198,9 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     }
   }
   if (viewer_ && code != KeyCode::Escape && code != KeyCode::Tab && code != KeyCode::Enter && code != KeyCode::NumpadEnter) return 0;
+  // Selected grid tracks: ⌫ deletes them, Enter edits them, Esc lets them go (tools/GridGestures.cpp).
+  if (!viewer_)
+    if (uint32_t r = gridKey(code, mods)) return r;
   if (code == KeyCode::Escape) {
     if (gesture_ != Gesture::None) cancelGesture();
     else if (tool_ != Tool::MOVE) setTool(Tool::MOVE);

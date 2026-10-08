@@ -123,10 +123,16 @@ struct Overlay {
   struct GridTrack {
     Vec2 a, b;           // world: the track's extent along the edge
     bool column = true;  // along the top edge (else the left)
-    bool hovered = false;
+    bool hovered = false;   // labelled
+    bool selected = false;  // solid, labelled
+    bool grabber = false;   // the grabber before the label
     std::string label;
   };
   std::vector<GridTrack> gridTracks;
+  // Reordering tracks: where they will land (world). A grid item's span handles: its sides' midpoints (world).
+  bool hasGridDrop = false;
+  GuideLine gridDrop;
+  std::vector<Vec2> gridSpanHandles;
   // Top-level frames' names above them.
   bool frameTitles = true;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached

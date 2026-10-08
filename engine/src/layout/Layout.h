@@ -109,6 +109,19 @@ class Layout {
   // GUID), gridColumnSpan / gridRowSpan.
   static std::string gridAnchorBytes(bool column, Guid track);
   static std::string gridSpanBytes(bool column, uint32_t span);
+  // A grid's track definitions along an axis, in order (sizing: 0 FLEX fr, 1 FIXED px, 2 HUG), read from and written
+  // to the frame's kiwi bytes (gridColumns / gridRows with gridColumnsSizing / gridRowsSizing, both written whole).
+  struct GridTrackDef {
+    Guid id = kNoGuid;
+    std::string position;
+    uint8_t sizing = 2;
+    double value = 1;
+  };
+  static std::vector<GridTrackDef> gridTrackDefs(const NodeProps& p, bool column);
+  static void setGridTrackDefs(NodeProps& p, bool column, const std::vector<GridTrackDef>& tracks);
+  // gridAutoTracks ROWS ("Number of rows: Auto"): the rows are as many as the items need (empty ones go).
+  static bool gridAutoRows(const NodeProps& p);
+  static std::string gridAutoRowsBytes(bool on);
 
  private:
   // Grid auto layout (GridLayout.cpp): tracks sized and items placed for a size (hugW / hugH: that axis hugs).

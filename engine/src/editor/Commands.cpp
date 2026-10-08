@@ -90,6 +90,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
       if (isLibraryCopy(g)) return E_READONLY;
   }
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommand(id, args);
+  if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommand(id, args);
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
@@ -187,6 +188,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
 uint32_t Editor::commandState(CommandId id) const {
   bool any = !selection_.empty();
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommandState(id);
+  if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();

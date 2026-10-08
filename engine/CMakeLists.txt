@@ -46,6 +46,8 @@ add_library(eng_core STATIC
   src/editor/FontCommands.cpp
   src/editor/Libraries.cpp
   src/tools/Gestures.cpp
+  src/tools/GridGestures.cpp
+  src/editor/SlotCommands.cpp
   src/render/Renderer.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp
@@ -138,6 +140,7 @@ else()
     tests/unit/scene.kiwi.test.cpp
     tests/unit/components.test.cpp
     tests/unit/variables.test.cpp
+    tests/unit/r6.grid_slots.test.cpp
     tests/unit/variables.extended.test.cpp
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
