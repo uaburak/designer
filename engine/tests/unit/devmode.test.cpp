@@ -361,6 +361,34 @@ TEST_CASE("devmode: statuses on titles; editInfo stamped on edits makes a ready 
   CHECK(f.extraJson(B, "editInfo").isNull());
 }
 
+TEST_CASE("devmode: editInfo on an instance is its own field, not an override") {
+  const Guid MAIN{1, 30}, MAIN_RECT{1, 31}, INST{1, 32};
+  auto nodes = designs();
+  nodes.push_back(make(MAIN, NodeType::SYMBOL, kPage, "c", {0, 300, 100, 100}, "Main"));
+  nodes.push_back(make(MAIN_RECT, NodeType::ROUNDED_RECTANGLE, MAIN, "a", {10, 10, 40, 40}, "Dot"));
+  NodeChange inst = make(INST, NodeType::INSTANCE, A, "b", {100, 10, 100, 100}, "Instance");
+  inst.props.comp().symbolData.symbolID = MAIN;
+  nodes.push_back(inst);
+  Fixture f(nodes);
+  f.ed.setEditTracking(true);
+  f.now = 5000;
+  NodeChange c = NodeChange::changed(INST);
+  c.mask = F_OPACITY;
+  c.props.opacity = 0.5;
+  REQUIRE(f.ed.setProps({INST}, c, 0) == OK);
+  CHECK(f.extraJson(INST, "editInfo").get("lastEditedAt")->number == 5000);
+  CHECK(f.extraJson(A, "editInfo").get("lastEditedAt")->number == 5000);
+  for (const SymbolOverride& o : f.ed.document().get(INST)->props.comp().symbolData.overrides) CHECK(!(o.path.empty() && o.mask == F_EXTRA));
+  // An edit inside the main stamps the main, not its instances.
+  f.now = 6000;
+  NodeChange r = NodeChange::changed(MAIN_RECT);
+  r.mask = F_OPACITY;
+  r.props.opacity = 0.5;
+  REQUIRE(f.ed.setProps({MAIN_RECT}, r, 0) == OK);
+  CHECK(f.extraJson(MAIN, "editInfo").get("lastEditedAt")->number == 6000);
+  CHECK(f.extraJson(INST, "editInfo").get("lastEditedAt")->number == 5000);
+}
+
 TEST_CASE("devmode: focus view draws and picks one design") {
   Fixture f(designs());
   REQUIRE(f.ed.setFocus(B) == OK);

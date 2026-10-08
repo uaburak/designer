@@ -613,6 +613,9 @@ void Editor::stampEdited() {
   double now = std::floor(wallClock());
   std::vector<Guid> order(targets.begin(), targets.end());
   std::sort(order.begin(), order.end());
+  // Bookkeeping, not a user edit: no instance overrides (an instance's editInfo is its own), no detaching.
+  bool libraryWriteBefore = libraryWrite_;
+  libraryWrite_ = true;
   for (Guid g : order) {
     const Node* n = doc_.get(g);
     if (!n) continue;
@@ -635,6 +638,7 @@ void Editor::stampEdited() {
     c.props.extra["editInfo"] = codec::extraFromJson("NodeChange", "editInfo", v);
     write(c);
   }
+  libraryWrite_ = libraryWriteBefore;
 }
 
 void Editor::noteAnnotated(const NodeChange& c) {
