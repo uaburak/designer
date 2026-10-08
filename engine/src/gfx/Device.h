@@ -88,7 +88,7 @@ struct PassDesc {
 
 // Inline uniforms: vec4 slots. Slots 0–1 map draw space to clip space (rows m00 m01 m02 / m10 m11 m12);
 // the others mean what each shader says (gfx/gl/Shaders.h).
-inline constexpr int kUniformSlots = 16;
+inline constexpr int kUniformSlots = 20;
 
 struct DrawCall {
   PipelineId pipeline = 0;

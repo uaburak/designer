@@ -592,7 +592,7 @@ bool readPaintInto(kiwi::ByteBuffer& bb, Paint& p, KiwiBlobs* blobs) {
       case 1: {
         uint32_t t = 0;
         if (!bb.readVarUint(t)) return false;
-        if (t <= 5 || t == 7) {
+        if (t <= 5 || (t >= 7 && t <= 9)) {
           p.type = static_cast<PaintType>(t);
           break;
         }
@@ -777,10 +777,10 @@ void putPaint(Out& o, const Paint& p, BlobsOut* /*blobs*/) {
     if (!p.imageName.empty()) putString(o, 2, p.imageName);
     o.byte(0);
   }
+  if ((isImageLike(p.type) || p.type == PaintType::PATTERN) && p.scale != 1) putFloat(o, 12, p.scale);  // TILE / pattern "Scale"
   if (isImageLike(p.type)) {
     putEnum(o, 10, p.imageScaleMode);
     if (p.rotation != 0) putFloat(o, 11, p.rotation);
-    if (p.scale != 1) putFloat(o, 12, p.scale);
     if (p.originalImageWidth) putUint(o, 19, p.originalImageWidth);
     if (p.originalImageHeight) putUint(o, 20, p.originalImageHeight);
   }

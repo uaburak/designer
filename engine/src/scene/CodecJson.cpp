@@ -24,13 +24,15 @@ const char* paintTypeName(PaintType t) {
     case PaintType::GRADIENT_DIAMOND: return "GRADIENT_DIAMOND";
     case PaintType::IMAGE: return "IMAGE";
     case PaintType::VIDEO: return "VIDEO";
+    case PaintType::PATTERN: return "PATTERN";
+    case PaintType::NOISE: return "NOISE";
     default: return "SOLID";
   }
 }
 
 bool paintTypeFromName(std::string_view s, PaintType& out) {
   for (PaintType t : {PaintType::SOLID, PaintType::GRADIENT_LINEAR, PaintType::GRADIENT_RADIAL, PaintType::GRADIENT_ANGULAR,
-                      PaintType::GRADIENT_DIAMOND, PaintType::IMAGE, PaintType::VIDEO})
+                      PaintType::GRADIENT_DIAMOND, PaintType::IMAGE, PaintType::VIDEO, PaintType::PATTERN, PaintType::NOISE})
     if (s == paintTypeName(t)) {
       out = t;
       return true;
@@ -328,10 +330,10 @@ void writePaint(json::Writer& out, const Paint& p) {
     if (!p.imageName.empty()) w.key("name").string(p.imageName);
     w.endObject();
   }
+  if ((isImageLike(p.type) || p.type == PaintType::PATTERN) && p.scale != 1) w.key("scale").number(p.scale);
   if (isImageLike(p.type)) {
     w.key("imageScaleMode").string(enumName(p.imageScaleMode));
     if (p.rotation != 0) w.key("rotation").number(p.rotation);
-    if (p.scale != 1) w.key("scale").number(p.scale);
     if (p.originalImageWidth) w.key("originalImageWidth").number(p.originalImageWidth);
     if (p.originalImageHeight) w.key("originalImageHeight").number(p.originalImageHeight);
   }

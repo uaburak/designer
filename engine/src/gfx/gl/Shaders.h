@@ -1,7 +1,7 @@
 // The built-in shaders, GLSL ES 3.00 (WebGL2). Interim: written by hand until
 // tools/shadergen exists (docs/engine.md §6.10).
 //
-// Every shader takes `uniform vec4 u_v[16]` (gfx::DrawCall::uniforms): slots 0
+// Every shader takes `uniform vec4 u_v[20]` (gfx::DrawCall::uniforms): slots 0
 // and 1 are the rows mapping draw space to clip space; the rest are per shader,
 // listed with it. Textures are u_t0, u_t1, u_t2 (DrawCall::textures).
 #pragma once
@@ -40,8 +40,35 @@ vec3 adjust(vec3 c) {
   return clamp(c, 0.0, 1.0);
 }
 
+// Glass (slots 6 = (depth in device px, refraction, dispersion, splay), 8 = (the light's direction x, y in canvas
+// device px — y down —, intensity, 0)): the frosted backdrop (u_t2) seen through a curved edge — bent toward the
+// edge, split by colour, lit along the side facing the light.
+vec4 glassAt() {
+  vec4 G = u_v[6], L = u_v[8];
+  vec2 sz = u_v[4].zw;
+  vec2 base = gl_FragCoord.xy - u_v[4].xy;
+  float depth = max(G.x, 1e-3);
+  float e = clamp(1.0 + g_sdf / depth, 0.0, 1.0);
+  float bend = e * e * G.y * depth;
+  vec2 o = vec2(g_normal.x, -g_normal.y) * bend;  // gl_FragCoord's y runs up
+  float k = G.z * 0.5;
+  vec4 mid = texture(u_t2, (base + o) / sz);
+  float r = texture(u_t2, (base + o * (1.0 + k)) / sz).r;
+  float b = texture(u_t2, (base + o * (1.0 - k)) / sz).b;
+  float facing = max(dot(g_normal, L.xy), 0.0);
+  float spec = L.z * pow(facing, mix(6.0, 1.0, clamp(G.w, 0.0, 1.0))) * e;
+  return vec4(min(vec3(r, mid.g, b) + spec * mid.a, vec3(mid.a)), mid.a);
+}
+
 vec4 paintAt(vec2 local, int kind) {
   if (kind == 0) return v_color;
+  if (kind == 7) {
+    // A progressive background blur: the backdrop at the start's blur (u_t3, slot 7) to the end's (u_t2, slot 4).
+    vec2 uv1 = (gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw;
+    vec2 uv0 = (gl_FragCoord.xy - u_v[7].xy) / u_v[7].zw;
+    return mix(texture(u_t3, uv0), texture(u_t2, uv1), progressT(g_dp)) * v_color.a;
+  }
+  if (kind == 8) return glassAt() * v_color.a;
   if (kind == 6) {
     vec2 uv = (gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw;
     return texture(u_t2, uv) * v_color.a;
@@ -168,6 +195,26 @@ float shapeClip(vec2 dp) {
   vec2 ppe = 1.0 / max(vec2(length(A.xy), length(B.xy)), vec2(1e-12));
   return coverage(int(B.w + 0.5), l, ppe, A.w > 2.5);
 }
+
+// Effects' node space: slots 16–17 map canvas device px to it ((a b c ·), (d e f ·)).
+vec2 effectSpace(vec2 dp) { return vec2(dot(u_v[16].xyz, vec3(dp, 1.0)), dot(u_v[17].xyz, vec3(dp, 1.0))); }
+// A progressive blur's place between its start (0) and its end (1): slot 18 = (start x, y, end x, y) in the node's
+// box (0..1), effectSpace being that box.
+float progressT(vec2 dp) {
+  vec2 u = effectSpace(dp), s = u_v[18].xy, d = u_v[18].zw - s;
+  return clamp(dot(u - s, d) / max(dot(d, d), 1e-12), 0.0, 1.0);
+}
+// Noise and texture: a hash per cell of the node's space (sizes in its px) and the effect's seed.
+uint hashU(uint x) {
+  x ^= x >> 16;
+  x *= 0x7feb352du;
+  x ^= x >> 15;
+  x *= 0x846ca68bu;
+  x ^= x >> 16;
+  return x;
+}
+uint hashCell(vec2 cell, uint seed) { return hashU((uint(int(cell.x)) * 0x8da6b343u) ^ hashU(uint(int(cell.y)) ^ (seed * 0xcb1ab31fu))); }
+float unitOf(uint h) { return float(h >> 8) / 16777215.0; }
 )";
 
 // ---- Draw: shapes, paths and glyphs in one program ------------------------------
@@ -199,7 +246,7 @@ layout(location = 6) in vec4 a_paint1;
 layout(location = 7) in vec4 a_clip;
 layout(location = 8) in vec4 a_round;
 layout(location = 9) in vec4 a_radii;
-uniform vec4 u_v[16];
+uniform vec4 u_v[20];
 out vec2 v_local;
 flat out vec4 v_origin;
 flat out vec4 v_box;
@@ -255,11 +302,17 @@ flat in vec4 v_paint1;
 flat in vec4 v_clip;
 flat in vec4 v_round;
 flat in vec4 v_radii;
-uniform vec4 u_v[16];
+uniform vec4 u_v[20];
 uniform int u_stencilPass;
 uniform sampler2D u_t0;
+uniform sampler2D u_t3;
 out vec4 o_color;
 #define CURVES u_t0
+// The fragment's canvas device px; a shape's signed distance (device px, < 0 inside) and outward normal (canvas
+// device px, y down) — for glass.
+vec2 g_dp;
+float g_sdf = -1e9;
+vec2 g_normal = vec2(0.0);
 )";
 
 inline constexpr const char* kDrawFragmentBody = R"(
@@ -324,6 +377,8 @@ void shapeMain() {
   }
   float d = kind == 1 ? sdEllipse(p, halfSize) : sdRoundedBox(p, halfSize, v_box);
   float fillCoverage = clamp(0.5 - d / px, 0.0, 1.0);
+  g_sdf = d / px;
+  g_normal = normalize(vec2(dFdx(d), -dFdy(d)) + vec2(1e-12, 0.0));
   if (u_stencilPass == 1) {
     if (fillCoverage < 0.5) discard;
     o_color = vec4(0.0);
@@ -386,6 +441,7 @@ float roundClip(vec2 dp) {
 
 void main() {
   vec2 dp = vec2(gl_FragCoord.x, u_v[5].z - gl_FragCoord.y) + u_v[5].xy;
+  g_dp = dp;
   float clipCoverage = clipRectCoverage(dp, v_clip);
   if (clipCoverage <= 0.0) discard;
   clipCoverage *= roundClip(dp) * shapeClip(dp);
@@ -404,7 +460,7 @@ void main() {
 // the blurred alpha behind, knocked out by the node's alpha), 4 inner shadow (colour × the node's alpha × (1 −
 // the blurred alpha)). Blend modes other than NORMAL read the backdrop and write the result (Blend::Replace).
 inline constexpr const char* kCompositeVertex = R"(#version 300 es
-uniform vec4 u_v[16];
+uniform vec4 u_v[20];
 out vec2 v_dev;
 void main() {
   int id = gl_VertexID;
@@ -420,7 +476,7 @@ precision highp float;
 precision highp int;
 precision highp sampler2D;
 in vec2 v_dev;
-uniform vec4 u_v[16];
+uniform vec4 u_v[20];
 uniform sampler2D u_t0;
 uniform sampler2D u_t1;
 uniform sampler2D u_t2;
@@ -436,6 +492,24 @@ vec4 at(sampler2D t, vec4 map, vec2 d) {
   vec2 q = (d - map.xy) * map.w;
   if (q.x < 0.0 || q.y < 0.0 || q.y > map.z) return vec4(0.0);
   return texture(t, vec2(q.x / sz.x, (map.z - q.y) / sz.y));
+}
+
+// Noise (slots 16–17: canvas device px → the node's px; 18 = (size x, y, density, type: 0 Multi, 1 Mono, 2 Duo);
+// 6 = the colour, 19 = the second colour (premultiplied); 8 = (seed, Multi's opacity)).
+vec4 noiseAt(vec2 dp) {
+  vec2 cell = floor(effectSpace(dp) / max(u_v[18].xy, vec2(1e-3)));
+  uint h = hashCell(cell, uint(u_v[8].x));
+  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= u_v[18].z) return vec4(0.0);
+  int type = int(u_v[18].w + 0.5);
+  if (type == 0) return vec4(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * u_v[8].y;
+  if (type == 2) return unitOf(h) < 0.5 ? u_v[6] : u_v[19];
+  return u_v[6] * unitOf(h);
+}
+// Texture (slot 18 = (size x, y, radius in device px, clip to shape); 8.x = seed): a shift per cell, ± radius.
+vec2 textureShift(vec2 dp) {
+  vec2 cell = floor(effectSpace(dp) / max(u_v[18].xy, vec2(1e-3)));
+  uint h = hashCell(cell, uint(u_v[8].x));
+  return (vec2(unitOf(h), unitOf(hashU(h + 7u))) * 2.0 - 1.0) * u_v[18].z;
 }
 
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
@@ -505,7 +579,17 @@ void main() {
   if (cov <= 0.0) discard;
   cov *= roundClip(v_dev) * shapeClip(v_dev);
   if (cov <= 0.0) discard;
-  if (mode == 3) {
+  if (mode == 5) {
+    // A progressive layer blur: the layer at the start's blur (u_t0) to the end's (u_t1).
+    c = mix(at(u_t0, u_v[3], v_dev), at(u_t1, u_v[4], v_dev), progressT(v_dev));
+  } else if (mode == 6) {
+    // Noise over the layer (its alpha).
+    c = noiseAt(v_dev) * at(u_t0, u_v[3], v_dev).a;
+  } else if (mode == 7) {
+    // Texture: the layer read through a per-cell shift (its edge roughened), within its shape when clipped.
+    c = at(u_t0, u_v[3], v_dev + textureShift(v_dev));
+    if (u_v[18].w > 0.5) c *= at(u_t0, u_v[3], v_dev).a;
+  } else if (mode == 3) {
     float a = at(u_t0, u_v[3], v_dev - u_v[8].xy).a;
     if (params.w > 0.5) a *= 1.0 - at(u_t1, u_v[4], v_dev).a;
     c = u_v[6] * a;
@@ -551,7 +635,7 @@ void main() {
 
 inline constexpr const char* kBlurFragment = R"(#version 300 es
 precision highp float;
-uniform vec4 u_v[16];
+uniform vec4 u_v[20];
 uniform sampler2D u_t0;
 out vec4 o_color;
 void main() {

@@ -872,6 +872,8 @@ class WebGPUDevice final : public Device {
         sampler(2, tex[1]);
         texture(3, tex[2]);
         sampler(4, tex[2]);
+        texture(5, tex[3]);
+        sampler(6, tex[3]);
       } else if (layout == kLayoutComposite) {
         for (uint32_t i = 0; i < 3; i++) {
           texture(i * 2, tex[i]);
@@ -964,7 +966,7 @@ class WebGPUDevice final : public Device {
       d.entries = e;
       return wgpuDeviceCreateBindGroupLayout(device_, &d);
     };
-    textureLayouts_[kLayoutDraw] = layout({1, 0, 2, 0, 2});
+    textureLayouts_[kLayoutDraw] = layout({1, 0, 2, 0, 2, 0, 2});
     textureLayouts_[kLayoutComposite] = layout({0, 2, 0, 2, 0, 2, 1});
     textureLayouts_[kLayoutBlur] = layout({0, 2});
     textureLayouts_[kLayoutUtility] = layout({0, 2});

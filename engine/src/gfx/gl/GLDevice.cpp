@@ -104,7 +104,7 @@ class WebGL2Device final : public Device {
     }
     emscripten_webgl_make_context_current(context_);
     using namespace gl;
-    if (!build(programs_[0], kDrawVertex, std::string(kDrawFragmentHead) + kPaintFunctions + kCurveFunctions + kClipFunctions + kDrawFragmentBody))
+    if (!build(programs_[0], kDrawVertex, std::string(kDrawFragmentHead) + kCurveFunctions + kClipFunctions + kPaintFunctions + kDrawFragmentBody))
       return false;
     if (!build(programs_[1], kCompositeVertex, std::string(kCompositeFragmentHead) + kCurveFunctions + kClipFunctions + kCompositeFragmentBody))
       return false;

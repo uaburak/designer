@@ -1,5 +1,7 @@
 #include "scene/Document.h"
 
+#include "scene/Extras.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -39,7 +41,9 @@ double effectsOutset(const NodeProps& p) {
     if (e.type == EffectType::DROP_SHADOW)
       out = std::max(out, std::max(std::fabs(e.offset.x), std::fabs(e.offset.y)) + e.radius + std::max(0.0, e.spread));
     else if (e.type == EffectType::FOREGROUND_BLUR)
-      out = std::max(out, e.radius);
+      out = std::max(out, std::max(e.radius, effectExtras(e).startRadius));  // progressive: the larger end
+    else if (e.type == EffectType::GRAIN)
+      out = std::max(out, e.radius);  // texture: "how far past the layer's boundary the effect will spread"
   }
   return out;
 }

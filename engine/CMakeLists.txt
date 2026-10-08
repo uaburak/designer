@@ -24,6 +24,7 @@ add_library(eng_core STATIC
   src/base/DerivedIds.cpp
   src/schema/SchemaTable.cpp
   src/scene/Node.cpp
+  src/scene/Extras.cpp
   src/scene/Document.cpp
   src/scene/ChangeSet.cpp
   src/scene/CodecJson.cpp
