@@ -173,6 +173,20 @@ export class EngineExports {
   renderNodeThumbnail = (h: number, ref: Uint8Array, maxSize: number, flags: number): number =>
     this.withBytes([ref], (p) => this.fn("render_node_thumbnail")(h, p[0], p[1], maxSize, flags));
 
+  // ---- Export (E7) ----
+  /** `refs`: a NodeRefList (empty: the page's canvas); `settings`: an ExportSettings (JSON); flags: EXPORT_ALLOW_PENDING. */
+  exportNodes = (h: number, refs: Uint8Array, settings: Uint8Array, flags: number): number =>
+    this.withBytes([refs, settings], (p) => this.fn("export")(h, p[0], p[1], p[2], p[3], flags));
+  exportInfo = (h: number, refs: Uint8Array, settings: Uint8Array): number =>
+    this.withBytes([refs, settings], (p) => this.fn("export_info")(h, p[0], p[1], p[2], p[3]));
+  /** `hash`: 40 hex digits; kind 0 the file, 1 a JPEG of the colour, 2 raw RGB8; `alpha` empty when opaque. */
+  exportImage = (h: number, hash: string, kind: number, width: number, height: number, data: Uint8Array, alpha: Uint8Array): number =>
+    this.withBytes([new TextEncoder().encode(hash), data, alpha], (p) =>
+      this.fn("export_image")(h, p[0], p[1], kind, width, height, p[2], p[3], alpha.length ? p[4] : 0, p[5])
+    );
+  exportClearImages = (): void => void this.fn("export_clear_images")();
+  exportList = (h: number, pageSessionID: number, pageLocalID: number): number => this.fn("export_list")(h, pageSessionID, pageLocalID);
+
   // ---- Components ----
   /** A derived ref ("I…;…") → its localID in the derived session (0xFFFFFFFE); 0 for anything else. */
   refId = (ref: Uint8Array): number => this.withBytes([ref], (p) => this.fn("ref_id")(p[0], p[1]) >>> 0);
@@ -272,6 +286,7 @@ export const USED_EXPORTS = [
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",
+  "export", "export_info", "export_image", "export_clear_images", "export_list",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",
   "styles", "style_usage",
   "set_file_key", "ensure_asset_keys", "local_assets", "encode_assets", "mark_published", "import_library_assets",

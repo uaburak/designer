@@ -6,6 +6,7 @@
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
+//   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
 // (CHROMIUM=/path overrides). Software GL (SwiftShader) for determinism.
@@ -547,14 +548,243 @@ async function variablesChecks(files) {
   check("undo restores the Light frame", near(lf, [255, 255, 255, 255], 6), `${lf}`);
 }
 
+// E7: exports drawn by the engine against what the canvas shows; SVG and PDF drawn again by a browser / macOS and
+// compared with the PNG export.
+async function exportChecks(files) {
+  // The E4 / E5 sheet (on its own run: the sample's images first, for the image fills).
+  const has = await engine(() => !!window.__designerEngine.readNode("50:1"));
+  if (!has) {
+    await loadSample("structure");
+    await engine((message) => window.__designerEngine.applyChanges(message, "user"), e4Scene("93e8eeb27e934c4b9ae9e7929c7df9e96a6ec90c"));
+    await page.waitForTimeout(200);
+    await engine(() => window.__designerEngine.imagesSettled());
+  }
+  // A text layer (Inter Semi Bold 40) for the vector writers' text: outlines in SVG, Type 3 glyphs in PDF.
+  await engine(() =>
+    window.__designerEngine.applyChanges(
+      { type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "51:1", phase: "CREATED", type: "TEXT", name: "Export text",
+        parentIndex: { guid: "0:1", position: "~~~" }, size: { x: 300, y: 48 }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 2300 },
+        textData: { characters: "Export 123" }, fontName: { family: "Inter", style: "Semi Bold", postscript: "" }, fontSize: 40, textAutoResize: "WIDTH_AND_HEIGHT",
+        fillPaints: [{ type: "SOLID", color: { r: 0.1, g: 0.1, b: 0.4, a: 1 }, opacity: 1, visible: true }] }] },
+      "user"
+    )
+  );
+  await page.waitForTimeout(300);
+  await settle();
+  const imageHash = "93e8eeb27e934c4b9ae9e7929c7df9e96a6ec90c";
+  const imageB64 = readFileSync(path.join(figmaDir, "images", imageHash)).toString("base64");
+  // Each layer's 2x PNG export against the canvas at 100 % (the page is 2 device px per CSS px): every opaque pixel.
+  const layers = { "50:3": "star", "50:18": "linear gradient", "50:21": "angular gradient", "50:25": "image (Fill)", "50:31": "drop shadow", "50:12": "centre stroke" };
+  for (const [ref, name] of Object.entries(layers)) {
+    const info = await engine((ref) => window.__designerEngine.exportInfo([ref], { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 } }), ref);
+    const b = info.targets[0].bounds;
+    await engine(({ b }) => {
+      const e = window.__designerEngine;
+      e.setSelection([]);
+      e.setCamera({ x: 100 - b.x, y: 100 - b.y, zoom: 1 });
+    }, { b });
+    await page.mouse.move(5, 5);
+    await settle();
+    await page.waitForTimeout(100);
+    await engine(() => window.__designerEngine.imagesSettled());
+    await settle();
+    const png = (await page.screenshot()).toString("base64");
+    const r = await page.evaluate(
+      async ({ png, ref }) => {
+        const e = window.__designerEngine;
+        let out = e.exportNodes([ref], { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 } });
+        for (let i = 0; out.status === "busy" && i < 50; i++) {
+          await new Promise((r) => setTimeout(r, 60));
+          out = e.exportNodes([ref], { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 } });
+        }
+        if (out.status !== "ok") return { error: JSON.stringify(out) };
+        const { width, height, pixels } = out.pixels;
+        const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+        const c = new OffscreenCanvas(img.width, img.height);
+        const g = c.getContext("2d");
+        g.drawImage(img, 0, 0);
+        const screen = g.getImageData(200, 200, width, height).data;
+        let opaque = 0, same = 0;
+        for (let i = 0; i < width * height; i++) {
+          if (pixels[i * 4 + 3] !== 255) continue;
+          opaque++;
+          const d = Math.max(...[0, 1, 2].map((k) => Math.abs(pixels[i * 4 + k] - screen[i * 4 + k])));
+          if (d <= 12) same++;
+        }
+        return { width, height, opaque, same };
+      },
+      { png, ref }
+    );
+    check(`PNG export = the canvas: ${name}`, !r.error && r.opaque > 100 && r.same / r.opaque >= 0.98,
+      r.error ?? `${r.width}×${r.height}, ${r.same}/${r.opaque} opaque pixels match`);
+  }
+  files.push(await shot("40-export-canvas"));
+
+  // SVG drawn again by the browser — an <img> on the page, on white, screenshotted at 2 device px per px (an SVG with a
+  // foreignObject would taint a canvas) — against the 2x PNG export on white: every pixel.
+  const svgLayers = { "50:3": "star", "50:12": "centre stroke", "50:11": "inside stroke", "50:13": "outside stroke", "50:18": "linear gradient",
+    "50:19": "linear 45°", "50:20": "radial", "50:21": "angular", "50:22": "diamond", "50:25": "image (Fill)", "50:28": "image (Tile)",
+    "50:31": "drop shadow", "50:33": "inner shadow", "50:36": "layer blur", "50:44": "alpha mask", "50:47": "vector mask", "51:1": "text (outlines)" };
+  for (const [ref, name] of Object.entries(svgLayers)) {
+    const shown = await page.evaluate(
+      async ({ ref, imageHash, imageB64 }) => {
+        const e = window.__designerEngine;
+        const bytes = Uint8Array.from(atob(imageB64), (c) => c.charCodeAt(0));
+        e.exportImage(imageHash, { kind: "file", width: 1024, height: 512, data: bytes });
+        const svg = e.exportNodes([ref], { imageType: "SVG", svgOutlineText: true }, { allowPending: true });
+        e.clearExportImages();
+        if (svg.status !== "ok") return { error: svg.status };
+        document.getElementById("svg-check")?.remove();
+        const host = document.createElement("div");
+        host.id = "svg-check";
+        host.style.cssText = "position:fixed;left:0;top:0;z-index:99999;background:#fff;line-height:0";
+        const img = new Image();
+        img.src = URL.createObjectURL(new Blob([svg.bytes], { type: "image/svg+xml" }));
+        host.appendChild(img);
+        document.body.appendChild(host);
+        try {
+          await img.decode();
+        } catch {
+          return { error: "the SVG doesn't load" };
+        }
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        return { w: img.naturalWidth, h: img.naturalHeight, size: svg.bytes.length };
+      },
+      { ref, imageHash, imageB64 }
+    );
+    if (shown.error) {
+      check(`SVG re-renders the same: ${name}`, false, shown.error);
+      continue;
+    }
+    const shotB64 = (await page.screenshot({ clip: { x: 0, y: 0, width: shown.w, height: shown.h }, path: path.join(outDir, `41-svg-${ref.replace(":", "_")}.png`) })).toString("base64");
+    const r = await page.evaluate(
+      async ({ ref, shotB64 }) => {
+        document.getElementById("svg-check")?.remove();
+        const e = window.__designerEngine;
+        const png = e.exportNodes([ref], { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 } }, { allowPending: true });
+        if (png.status !== "ok") return { error: png.status };
+        const { width, height, pixels } = png.pixels;
+        const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${shotB64}`)).blob());
+        const c = new OffscreenCanvas(width, height);
+        const g = c.getContext("2d");
+        g.drawImage(img, 0, 0, width, height);
+        const drawn = g.getImageData(0, 0, width, height).data;
+        let same = 0;
+        for (let i = 0; i < width * height; i++) {
+          const a = pixels[i * 4 + 3] / 255;
+          let d = 0;
+          for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(pixels[i * 4 + k] * a + 255 * (1 - a) - drawn[i * 4 + k]));
+          if (d <= 24) same++;
+        }
+        return { width, height, same, total: width * height };
+      },
+      { ref, shotB64 }
+    );
+    // Photos (the browser resamples the original, the canvas a mipmapped texture), the engine's approximate blur and
+    // flattened stroke outlines, and text (a fractional size: the <img> lands a sub-pixel off) differ at a few edge pixels
+    // more than flat shapes do.
+    const loose = /image|mask|inner|outside|text/.test(name);
+    check(`SVG re-renders the same: ${name}`, !r.error && r.same / r.total >= (loose ? 0.93 : 0.97),
+      r.error ?? `${r.width}×${r.height}, ${((100 * r.same) / r.total).toFixed(1)} % of pixels, ${shown.size} bytes`);
+  }
+
+  // PDF drawn by macOS (sips: CoreGraphics, 72 dpi = 1x) against the 1x PNG export, where the export is opaque.
+  if (existsSync("/usr/bin/sips")) {
+    const { execFileSync } = await import("node:child_process");
+    const { writeFileSync } = await import("node:fs");
+    const pdfLayers = { "50:3": "star", "50:18": "linear gradient", "50:20": "radial gradient", "50:21": "angular gradient", "50:25": "image (Fill)", "50:12": "centre stroke", "50:11": "inside stroke", "50:31": "drop shadow (an image)", "50:44": "alpha mask", "51:1": "text (Type 3 glyphs)" };
+    for (const [ref, name] of Object.entries(pdfLayers)) {
+      const made = await page.evaluate(
+        async ({ ref, imageHash, imageB64 }) => {
+          const e = window.__designerEngine;
+          // PDF images: a JPEG of the colour (the playground has no store: made here).
+          const bytes = Uint8Array.from(atob(imageB64), (c) => c.charCodeAt(0));
+          const bmp = await createImageBitmap(new Blob([bytes]));
+          const c = new OffscreenCanvas(bmp.width, bmp.height);
+          c.getContext("2d").drawImage(bmp, 0, 0);
+          const jpeg = new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg", quality: 0.92 })).arrayBuffer());
+          e.exportImage(imageHash, { kind: "jpeg", width: bmp.width, height: bmp.height, data: jpeg });
+          const pdf = e.exportNodes([ref], { imageType: "PDF" }, { allowPending: true });
+          const png = e.exportNodes([ref], { imageType: "PNG" }, { allowPending: true });
+          e.clearExportImages();
+          if (pdf.status !== "ok" || png.status !== "ok") return { error: `${pdf.status} / ${png.status}` };
+          let s = "";
+          for (let i = 0; i < pdf.bytes.length; i += 0x8000) s += String.fromCharCode(...pdf.bytes.subarray(i, i + 0x8000));
+          return { pdf: btoa(s), width: png.pixels.width, height: png.pixels.height, rgba: Array.from(png.pixels.pixels) };
+        },
+        { ref, imageHash, imageB64 }
+      );
+      if (made.error) {
+        check(`PDF renders the same: ${name}`, false, made.error);
+        continue;
+      }
+      const pdfPath = path.join(outDir, `export-${ref.replace(":", "_")}.pdf`);
+      const pngPath = pdfPath.replace(/\.pdf$/, ".png");
+      writeFileSync(pdfPath, Buffer.from(made.pdf, "base64"));
+      try {
+        execFileSync("/usr/bin/sips", ["-s", "format", "png", pdfPath, "--out", pngPath], { stdio: "ignore", timeout: 20000 });
+      } catch (err) {
+        check(`PDF renders the same: ${name}`, false, `sips: ${err.message}`);
+        continue;
+      }
+      const drawn = readFileSync(pngPath).toString("base64");
+      const r = await page.evaluate(
+        async ({ drawn, width, height, rgba }) => {
+          const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${drawn}`)).blob());
+          const c = new OffscreenCanvas(width, height);
+          const g = c.getContext("2d");
+          g.drawImage(img, 0, 0, width, height);
+          const d = g.getImageData(0, 0, width, height).data;
+          let opaque = 0, same = 0;
+          for (let i = 0; i < width * height; i++) {
+            if (rgba[i * 4 + 3] !== 255) continue;
+            opaque++;
+            const diff = Math.max(...[0, 1, 2].map((k) => Math.abs(rgba[i * 4 + k] - d[i * 4 + k])));
+            if (diff <= 24) same++;
+          }
+          return { pdfSize: [img.width, img.height], opaque, same };
+        },
+        { drawn, width: made.width, height: made.height, rgba: made.rgba }
+      );
+      check(`PDF renders the same: ${name}`, r.opaque > 50 && r.same / r.opaque >= 0.95 && r.pdfSize[0] === made.width,
+        `${r.pdfSize.join("×")} pt, ${r.same}/${r.opaque} opaque pixels match`);
+    }
+  }
+
+  // A 4x export of the whole sheet (4960 px wide) is drawn in tiles: no seam where they meet.
+  const tiles = await page.evaluate(() => {
+    const e = window.__designerEngine;
+    const big = e.exportNodes(["50:1"], { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 4 } }, { allowPending: true });
+    const half = e.exportNodes(["50:1"], { imageType: "PNG", constraint: { type: "CONTENT_SCALE", value: 2 } }, { allowPending: true });
+    if (big.status !== "ok" || half.status !== "ok") return { error: `${big.status} / ${half.status}` };
+    const B = big.pixels, H = half.pixels;
+    // Around x = 4096 (the first tile's edge): the 4x pixels, averaged 2 × 2, against the 2x ones (a seam: far apart).
+    let bad = 0, total = 0;
+    for (let y = 0; y + 1 < B.height; y += 2)
+      for (let x = 4088; x < 4104; x += 2) {
+        for (let k = 0; k < 4; k++) {
+          const at = (xx, yy) => B.pixels[(yy * B.width + xx) * 4 + k];
+          const avg = (at(x, y) + at(x + 1, y) + at(x, y + 1) + at(x + 1, y + 1)) / 4;
+          const h = H.pixels[((y / 2) * H.width + x / 2) * 4 + k];
+          total++;
+          if (Math.abs(avg - h) > 96) bad++;
+        }
+      }
+    return { size: [B.width, B.height], bad, total };
+  });
+  check("a 4x export larger than a texture is drawn in tiles, without seams", !tiles.error && tiles.size[0] === 4960 && tiles.bad / tiles.total < 0.01,
+    tiles.error ?? `${tiles.size.join("×")}, ${tiles.bad} of ${tiles.total} samples apart at the tiles' edge`);
+}
+
 try {
   await page.goto(url);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
   await settle();
-  if (only === "e4" || only === "e6" || only === "vars") {
+  if (only === "e4" || only === "e6" || only === "vars" || only === "export") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "e6") await e6Checks(files);
+    else if (only === "export") await exportChecks(files);
     else await variablesChecks(files);
     console.log(results.join("\n"));
     console.log(`\nscreenshots:\n${files.join("\n")}`);
@@ -731,6 +961,8 @@ try {
   // E6.
   await e6Checks(files);
   await variablesChecks(files);
+  // E7.
+  await exportChecks(files);
 
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);

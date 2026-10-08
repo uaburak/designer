@@ -9,7 +9,7 @@
  * Sections whose fields the engine doesn't keep yet show their "+" disabled.
  */
 import { useState } from "react";
-import { ColorInput, Icon, IconButton, keys, MenuButton, PanelSection, showToast, useTheme, type MenuEntry } from "@/ds";
+import { ColorInput, Icon, IconButton, keys, MenuButton, PanelSection, useTheme, type MenuEntry } from "@/ds";
 import { useCurrentPage } from "@/engine/hooks";
 import type { Color } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
@@ -22,8 +22,9 @@ import { PaintPicker, PaintsSection, type PickerTarget } from "./Paints";
 import { SelectionColorsSection } from "./SelectionColors";
 import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
+import { ExportSection, type ExportTarget } from "./Export";
 import { VectorPointSection } from "./VectorPoints";
-import { fields, isFrameNode, isTextNode, typeLabel, typeOf, useSelectedNodes, useSupports, type PanelNode } from "./shared";
+import { fields, isFrameNode, isTextNode, typeLabel, typeOf, useSelectedNodes, type PanelNode } from "./shared";
 import { ComponentHeader, CurrentVariantSection, InstanceHeader, InstanceProperties, PropertiesSection, componentSelection } from "./Component";
 import { ApplyModeButton, ModeRows } from "./Variables";
 import { LocalStylesSection, LocalVariablesSection } from "./Styles";
@@ -87,7 +88,7 @@ export function DesignPanel() {
           </PanelSection>
           <LocalVariablesSection />
           <LocalStylesSection />
-          <ExportSection />
+          {pageNode && <ExportSection targets={[pageNode as ExportTarget]} page />}
         </>
       ) : (
         <Selected nodes={nodes} onPick={open} />
@@ -127,7 +128,7 @@ function Selected({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTar
       <SelectionColorsSection nodes={nodes} onPick={onPick} />
       <EffectsSection nodes={nodes} />
       {frames && <LayoutGuideSection nodes={nodes} />}
-      <ExportSection />
+      <ExportSection targets={nodes as ExportTarget[]} page={false} />
     </>
   );
 }
@@ -236,12 +237,3 @@ function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
   );
 }
 
-/** A section whose field the engine doesn't keep yet: "+" disabled until it does. */
-function LaterSection({ title, field, add }: { title: string; field: string; add: string }) {
-  const kept = useSupports(field);
-  return <PanelSection title={title} empty actions={<IconButton icon="24.plus.small" label={add} tone="secondary" disabled={!kept} onClick={() => showToast({ message: `${title} come with the renderer's next milestone` })} />} />;
-}
-
-function ExportSection() {
-  return <LaterSection title="Export" field="exportSettings" add="Add export settings" />;
-}

@@ -1445,12 +1445,12 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     bool figmaDefault = std::fabs(bg.r - light.r) < 0.003f && std::fabs(bg.g - light.g) < 0.003f && std::fabs(bg.b - light.b) < 0.003f;
     if (!figmaDefault) clear = bg;
   }
-  if (only != kNoGuid) clear = Color{0, 0, 0, 0};  // a node's thumbnail: transparent around it
+  if (only != kNoGuid || exporting_) clear = Color{0, 0, 0, 0};  // a node's thumbnail, an export: transparent around it
   // Frame titles read on the page's colour.
   OverlayStyle adapted = style;
   adapted.title = titleColor(clear, &adapted.titleAlpha);
   float clearColor[4] = {clear.r, clear.g, clear.b, 1};
-  if (only != kNoGuid) clearColor[0] = clearColor[1] = clearColor[2] = clearColor[3] = 0;
+  if (only != kNoGuid || exporting_) clearColor[0] = clearColor[1] = clearColor[2] = clearColor[3] = 0;
   const int W = viewport.deviceWidth(), H = viewport.deviceHeight();
   const gfx::IRect full{0, 0, W, H};
 

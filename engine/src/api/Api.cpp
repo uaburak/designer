@@ -23,6 +23,9 @@
 #include "base/DerivedIds.h"
 #include "base/Json.h"
 #include "editor/Editor.h"
+#include "export/Export.h"
+#include "export/PdfWriter.h"
+#include "export/SvgWriter.h"
 #include "gfx/null/NullDevice.h"
 #include "hit/HitTest.h"
 #include "render/ImageCache.h"
@@ -2378,3 +2381,6 @@ ENG_EXPORT int32_t engine_library_usage(Handle h) {
   w.endArray();
   return setResult(w.take());
 }
+
+// ---- Export (E7) ----
+#include "export/ExportApi.inc"

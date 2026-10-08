@@ -1,0 +1,38 @@
+@layer app {
+  .list {
+    max-height: 360px;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-height: 48px;
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .thumb {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-checkerboard);
+    cursor: pointer;
+    outline: none;
+  }
+  .thumb:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .thumb canvas { display: block; max-width: 32px; max-height: 32px; }
+  .text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .name { overflow: hidden; color: var(--figma-color-text); white-space: nowrap; text-overflow: ellipsis; }
+  .detail { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  .empty { color: var(--figma-color-text); }
+  .empty p { margin: 0 0 var(--ds-space-2); }
+  .hint { color: var(--figma-color-text-secondary); }
+}

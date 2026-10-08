@@ -6,6 +6,18 @@
 
 ---
 
+## Status at handoff (2026-10-08, E7 — export)
+
+Built on the engine's "E7 export" ABI (top of `docs/engine-build.md`), gated on `canExport` (the module exports `engine_export`):
+
+- **Design panel › Export** (`panels/design/Export.tsx`): "+" (Add export settings) adds Figma's 1x, then 2x "@2x", then 3x "@3x" (PNG); each row: the scale field (type `2x`, `0.5`, `512w`, `512h`, or pick 0.5x…4x/512w/512h from its chevron; off for SVG/PDF), the format (PNG/JPG/SVG/PDF; the suffix stays, as in Figma), "…" (Export settings: Suffix; Color profile, Image quality, Image resampling by format; Ignore overlapping layers, Include bounding box; SVG's Include "id" attribute, Outline text, Simplify stroke), minus. "Export Frame 1" / "Export N layers"; "Preview" (one layer). Nothing selected: the page's settings, exporting the canvas. Mixed: "Click + to replace mixed export settings". Stored as `exportSettings` (one undo step per edit).
+- **File › Export… (⇧⌘E)** (`ExportDialog.tsx`): the page's layers with export settings — checkbox, thumbnail (click: select + zoom to it), name (hover: the file names), settings and size — "Export" the checked ones.
+- **File › Export frames to PDF…**: every top-level frame of the page, in reading order (rows top to bottom, left to right), one PDF named after the file.
+- **Copy/Paste as**: Copy as PNG (⇧⌘C, 2x, the selection as one image), Copy as SVG (markup as text), Copy as code (Figma's CSS: name comment, box, auto layout, fills/border/radius/shadows/opacity, text styles), Copy as text (text layers' characters).
+- **Files** (`exporting.ts`, `model/exports.ts`, `shared/exportFiles.ts`): names = layer + suffix + extension, "/" makes folders, repeats/existing get " 2"; PNGs carry Figma's DPI (pHYs 72 × scale); SVG/PDF get the images from the file's store first (PDF: JPEG + alpha). Desktop: `file:export-assets` (main shows the Save dialog for one file, a folder picker for several, writes them; the view never writes files). Browser: a download, a stored ZIP for several.
+- Tests: `__tests__/exports.test.ts` (scales, defaults, names, DPI, ZIP, reading order, CSS), `__tests__/export.wasm.test.ts` (settings kept and listed by the engine; SVG/PDF/PNG sizes; the Export section mounted — rows, suffixes, remove, undo; the dialog; commands). `editor-shot.mjs` (`EDITOR_ONLY=export`, also in the full run): rows and defaults, SVG format, the settings popover, the preview, "Export Frame 1" → the ZIP's three files, ⇧⌘E, Copy as PNG on the clipboard; shots 90–94.
+- Open: "Copy as code" is one item (CSS), not Figma's CSS/iOS/Android submenu; the export dialog's wording for its empty state is ours; colour profiles and image resampling are stored but not applied (engine).
+
 ## Status at handoff (2026-10-08, Figma parity round 4 — fonts per page, typed facet reads, kiwi-only loads)
 
 The editor's side of the engine's round 4 (`docs/engine-build.md` "Figma parity round 4"); the round-3 section below still holds unless changed here. Both items under "Needed from the engine" in round 3 are done engine-side: the engine's snapshot keeps every reference the file holds (the owner's file's derived snapshot is adopted; its second open paints the chrome in 0.86 s from stored glyphs and instance layout), and frames bound to `Table/Padding` read what Figma stored (slot content resolved where its slot is).

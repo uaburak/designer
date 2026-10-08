@@ -28,7 +28,7 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   double scale = levelScale(m);
   float em = 0;
   for (const text::LaidGlyph& g : L->glyphs) em = std::max(em, g.size);
-  if (!L->glyphs.empty() && em * scale < 3) {
+  if (!L->glyphs.empty() && em * scale < 3 && !exporting_) {
     stats_.greeked++;
     const text::LaidGlyph& first = L->glyphs.front();
     const auto* fills = L->styles[first.style].fills;

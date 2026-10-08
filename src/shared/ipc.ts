@@ -170,6 +170,12 @@ export interface FontIndex {
   faces: FontFaceInfo[];
 }
 
+/** One exported file: its name (relative, "/" for folders) and bytes. */
+export interface ExportAsset {
+  name: string;
+  bytes: Uint8Array;
+}
+
 export interface IpcInvoke {
   "desktop:init": { args: []; result: InitInfo };
   "tabs:get": { args: []; result: TabsSnapshot };
@@ -179,6 +185,12 @@ export interface IpcInvoke {
   "file:import": { args: [{ folderId: string | null; paths?: string[] }]; result: ImportResult };
   /** A file written out as a .fig where the system's Save dialog says */
   "file:save-local-copy": { args: [{ fileKey: string }]; result: { path: string } | { cancelled: true } };
+  /**
+   * Exported files (File › Export…, the Design panel's Export section, Export frames to PDF): one through the system's
+   * Save dialog, more into a folder picked in its Open dialog; names with "/" make folders, a name already taken
+   * becomes "name 2.png" (shared/exportFiles.ts)
+   */
+  "file:export-assets": { args: [{ files: ExportAsset[] }]; result: { paths: string[] } | { cancelled: true } };
   /** The theme preference set: main keeps it, tells every view (`theme:changed`) and answers what it resolves to */
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** A native menu at a point of the view (`at` in the view's CSS pixels): the picked item's id, or null */
@@ -233,6 +245,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "nav:new-file": ["tabbar", "home", "editor"],
   "file:import": ["home", "editor"],
   "file:save-local-copy": ["home", "editor"],
+  "file:export-assets": ["editor"],
   "theme:set": ["tabbar", "home", "editor"],
   "menu:popup": ["tabbar", "home", "editor"],
   "fonts:list": ["editor"],

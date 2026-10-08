@@ -1,0 +1,46 @@
+@layer app {
+  /* An export row's fields: the scale (with its presets' chevron) and the format, in one field */
+  .fields {
+    display: flex;
+    flex: 1 1 auto;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    margin-right: var(--ds-space-1);
+  }
+  .scale { flex: 1 1 0; min-width: 0; padding-right: 0; }
+  .format { flex: 1 1 0; min-width: 0; }
+
+  /* "Export Frame 1" under the rows */
+  .actions { padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); }
+
+  /* "▸ Preview" */
+  .disclosure {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    width: 100%;
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .disclosure svg { color: var(--figma-color-icon-secondary); }
+  .disclosure:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(-1 * var(--ds-focus-width)); }
+
+  /* The preview: the image on the checkerboard, fitted in the panel's width */
+  .preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 64px;
+    margin: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left);
+    padding: var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-checkerboard);
+  }
+  .preview img { display: block; max-width: 100%; max-height: 240px; object-fit: contain; }
+}

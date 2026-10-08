@@ -14,6 +14,8 @@ Figma parity round 4 (2026-10-08): snapshot fidelity (every field the engine rea
 
 .fig import fidelity (2026-10-08, branch `fig-import-fidelity`, merged after round 4): `scripts/fig-fidelity.mjs` compares Figma's own thumbnail of a `.fig` (and its stored geometry) with ours. Fixed: override and derivedSymbolData paths in Figma's form (the engine used tree paths, so Figma's overrides on layers inside frames of a component never applied; old files are normalized at load, `kDerivedDataVersion` 3 after the merge with round 4); Figma's derived data kept at import (missing fonts draw Figma's outlines, instances open as Figma laid them out); slots (content frames moved under their instances — drawn in their slot and resolved in its modes); GRID layout; SPACE_EVENLY = space between; NaN row gaps; Display P3. Owner's file vs its thumbnail: mean ΔE 1.56 → 0.47. Details and what's left: `docs/data-impl.md` "Import fidelity", `docs/engine-build.md` "Import fidelity".
 
+E7 export (2026-10-08, branch `e7-export`, merged after import fidelity): the engine's exporters (PNG / JPEG offscreen, SVG and PDF writers, zlib), the Design panel's Export section, File › Export… (⇧⌘E), Export frames to PDF, Copy as PNG / SVG / code / text, `file:export-assets` through main. `docs/engine-build.md` "E7 export", `docs/editor.md` "E7 — export".
+
 Next: Phase 5 of `docs/roadmap.md` — export, developer previews, Firebase adapter wiring, `.fig` import polish — unless the owner's review of the app comes first.
 
 ## Starting the next session

@@ -947,6 +947,26 @@ export interface TextLayoutInfo {
 }
 export const decodeTextLayout = (bytes: Uint8Array): TextLayoutInfo => decode<TextLayoutInfo>(bytes);
 
+/** engine_export's result (docs/engine-build.md "E7 export"). */
+export type ExportOutput =
+  | { status: "ok"; format: "PNG" | "JPEG"; pixels: Pixels }
+  | { status: "ok"; format: "SVG" | "PDF"; bytes: Uint8Array }
+  | { status: "busy" }
+  | { status: "error"; code: number; message: string };
+/** engine_export_info: per layer its size (px; PNG / JPEG: the pixels) and bounds, the images an SVG / PDF needs. */
+export interface ExportInfo {
+  targets: { ref: Guid | null; width: number; height: number; bounds: { x: number; y: number; w: number; h: number } }[];
+  images: string[];
+  ready: boolean;
+}
+/** engine_export_list: a layer with export settings (the schema's ExportSettings, as JSON). */
+export interface ExportListEntry {
+  guid: Guid;
+  name: string;
+  type: string;
+  exportSettings: import("../../../shared/schema/document.generated").ExportSettings[];
+}
+
 /** A rendered image: straight RGBA8, rows top to bottom. */
 export interface Pixels {
   width: number;

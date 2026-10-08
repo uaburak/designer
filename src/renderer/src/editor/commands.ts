@@ -11,6 +11,7 @@ import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
 import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
+import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportFramesToPdf, hasTextSelected } from "./exporting";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 
 export interface KeyCombo {
@@ -214,10 +215,10 @@ export const COMMANDS: EditorCommand[] = [
     },
   },
   later("edit.paste-to-replace", "Paste to replace", [k("KeyR", { mod: true, shift: true })]),
-  later("edit.copy-as-png", "Copy as PNG", [k("KeyC", { mod: true, shift: true })]),
-  later("edit.copy-as-svg", "Copy as SVG"),
-  later("edit.copy-as-code", "Copy as code"),
-  later("edit.copy-as-text", "Copy as text"),
+  { id: "edit.copy-as-png", label: "Copy as PNG", keys: [k("KeyC", { mod: true, shift: true })], run: (ed) => void copyAsPng(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
+  { id: "edit.copy-as-svg", label: "Copy as SVG", run: (ed) => void copyAsSvg(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
+  { id: "edit.copy-as-code", label: "Copy as code", run: (ed) => void copyAsCode(ed), enabled: hasSelection },
+  { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: hasTextSelected },
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
   later("edit.copy-properties", "Copy properties", [k("KeyC", { mod: true, alt: true })]),
@@ -392,8 +393,8 @@ export const COMMANDS: EditorCommand[] = [
     run: (ed) => ed.ui.set({ publishOpen: true, uiHidden: false }),
     enabled: (ed) => ed.libraries.get().on,
   },
-  later("file.export", "Export…", [k("KeyE", { mod: true, shift: true })]),
-  later("file.export-frames-to-pdf", "Export frames to PDF…"),
+  { id: "file.export", label: "Export…", keys: [k("KeyE", { mod: true, shift: true })], run: (ed) => ed.ui.set({ exportDialog: true, uiHidden: false }), enabled: canExport },
+  { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", run: (ed) => void exportFramesToPdf(ed), enabled: canExport },
   placeImage("file.place-image", "Place image…", [k("KeyK", { mod: true, shift: true })]),
   {
     id: "file.back-to-files",
