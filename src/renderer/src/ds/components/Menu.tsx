@@ -69,7 +69,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     if (!el) return;
     if (!isStatic && over) {
       const { rect, align = "left", dy = 0 } = over;
-      if (align === "left") el.style.minWidth = `${Math.round(rect.width + 8)}px`;
+      // Live: a list over its field's left edge is the field + 8 wide (font size); one at its right edge at least 156 (gap).
+      el.style.minWidth = `${align === "left" ? Math.round(rect.width + 8) : 156}px`;
       const item = el.querySelector<HTMLElement>('[aria-checked="true"]');
       const { width, height } = el.getBoundingClientRect();
       const top = item ? rect.top - item.offsetTop + dy : rect.bottom + 4;

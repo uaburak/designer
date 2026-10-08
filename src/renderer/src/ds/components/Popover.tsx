@@ -58,8 +58,11 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
       // Live capture (popovers/*.txt, 1440 wide): flush with the panel's content (x 960 = 1200 − 240), level with the
       // anchor row, at most 16 from the window's bottom (every tall popover ends at 884).
       // (A rect anchor — a fill row's swatch — finds its panel by the point.)
-      const at = anchor instanceof HTMLElement ? anchor : document.elementFromPoint?.(r.left + 1, r.top + 1);
-      const panelEl = at instanceof HTMLElement ? at.closest<HTMLElement>("[data-panel]") : null;
+      const holds = (el: Element) => {
+        const b = el.getBoundingClientRect();
+        return r.left + 1 >= b.left && r.left + 1 <= b.right && r.top + 1 >= b.top && r.top + 1 <= b.bottom;
+      };
+      const panelEl = anchor instanceof HTMLElement ? anchor.closest<HTMLElement>("[data-panel]") : ([...document.querySelectorAll<HTMLElement>("[data-panel]")].find(holds) ?? null);
       const left = panelEl ? panelEl.getBoundingClientRect().left + panelEl.clientLeft : r.left - 8;
       x = Math.max(EDGE, left - el.offsetWidth);
       y = Math.max(EDGE, Math.min(r.top, view.height - BOTTOM - el.offsetHeight));
