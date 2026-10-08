@@ -35,7 +35,7 @@ function build(ed: EditorController, specs: Spec[], prefix: string): MenuEntry[]
 }
 
 /** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields. */
-const RESET_PREFIX = "reset-changes:";
+export const RESET_PREFIX = "reset-changes:";
 
 /**
  * "Reset ▸" for the selected instance (R4 §3): Reset all changes, then one item per changed property group (only

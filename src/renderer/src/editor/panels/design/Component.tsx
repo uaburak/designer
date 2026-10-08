@@ -23,9 +23,11 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { Button, Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, Select, Switch, TextArea, TextInput, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
-import { commandItem, resetSubmenu, runMenuItem } from "../../menus";
+import { commandItem, RESET_PREFIX, runMenuItem } from "../../menus";
+import { statusOfTargets, statusTargets } from "../../devStatus";
 import { useTopics } from "../../hooks";
 import {
+  instanceChanges,
   addInstanceToSlot,
   addProperty,
   bindLayer,
@@ -136,27 +138,60 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
   const goTo = command("object.go-to-main-component");
   // The ⋯ menu's entries change with the document and the selection, not with every re-render of the panel (a drag
   // re-renders it per frame): built once per change, each item's state from the shared component read.
+  // Figma's live "More actions" (popovers/instance-more-actions-menu.txt): Toggle ready for dev status · Create
+  // component, Detach instance, Reset instance, Reset name · Use as mask · Union … Flatten. Built once per change.
   const more = useMemo<MenuEntry[]>(() => {
     void version;
     void topics;
-    const reset = resetSubmenu(ed);
-    return [commandItem(ed, "object.go-to-main-component"), commandItem(ed, "object.push-changes"), "-", ...(reset ? [reset] : []), commandItem(ed, "object.detach-instance")];
-  }, [ed, version, topics]);
+    const targets = statusTargets(ed);
+    const ready = targets.length > 0 && statusOfTargets(ed, targets) === "BUILD";
+    const changes = instanceChanges(ed, instance);
+    const nameGroup = changes.find((g) => g.fields.includes("name"));
+    const live = (e: MenuEntry) => e === "-" || !("id" in e) || !e.disabled;
+    return [
+      ...(targets.length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", checked: ready }, "-" as const] : []),
+      ...[commandItem(ed, "object.create-component"), commandItem(ed, "object.detach-instance"), { ...commandItem(ed, "object.reset-all-changes"), label: "Reset instance" }].filter(live),
+      ...(nameGroup ? [{ id: `${RESET_PREFIX}${nameGroup.fields.join(",")}`, label: "Reset name" }] : []),
+      ...(isEnabled(ed, command("object.push-changes")) ? [commandItem(ed, "object.push-changes")] : []),
+      "-",
+      ...[commandItem(ed, "object.use-as-mask")].filter(live),
+      "-",
+      ...[
+        commandItem(ed, "vector.union", "Union"),
+        commandItem(ed, "vector.subtract", "Subtract"),
+        commandItem(ed, "vector.intersect", "Intersect"),
+        commandItem(ed, "vector.exclude", "Exclude"),
+        commandItem(ed, "vector.flatten"),
+      ].filter(live),
+    ];
+  }, [ed, instance, version, topics]);
   const name = main ? main.name ?? "" : "Missing component";
+  const onMore = (id: string) => {
+    if (id === "ready-for-dev") {
+      const targets = statusTargets(ed);
+      runEditorCommand(ed, statusOfTargets(ed, targets) === "BUILD" ? "object.remove-dev-status" : "object.mark-ready-for-dev");
+    } else void runMenuItem(ed, id);
+  };
+  const bound = !!(instance as { componentPropRefs?: unknown[] }).componentPropRefs?.length;
   return (
-    <div className={styles.header} data-instance-header="">
-      <button type="button" className={styles.headerName} aria-label={`Instance menu: ${name}`} aria-expanded={!!picker} onClick={(e) => setPicker(picker ? null : e.currentTarget)}>
-        <Icon name="16.instance" className={styles.purpleIcon} />
-        <span className={styles.headerText}>{assetLabel(name)}</span>
-        <Icon name="16.chevron.down" className={styles.chevron} />
-      </button>
-      <div className={styles.headerActions}>
-        <BindButton layer={instance} field="OVERRIDDEN_SYMBOL_ID" type="INSTANCE_SWAP" />
-        <IconButton icon="24.go.to.main.component.small" label={goTo.label} shortcut={shortcutOf(goTo)} tone="secondary" disabled={!isEnabled(ed, goTo)} onClick={() => runEditorCommand(ed, goTo.id)} />
-        <MenuButton label="More actions" entries={more} className={styles.iconMenu} onSelect={(id) => void runMenuItem(ed, id)}>
-          <Icon name="24.more" />
-        </MenuButton>
+    <div className={styles.instanceHead} data-instance-header="">
+      {/* Figma's live panel: the main's name (13px, the instance menu) and More actions; under it "Go to main component" reading where the main lives */}
+      <div className={styles.instanceTitleRow}>
+        <button type="button" className={styles.instanceName} aria-label={`Instance menu: ${name}`} aria-expanded={!!picker} onClick={(e) => setPicker(picker ? null : e.currentTarget)}>
+          <span className={styles.headerText}>{assetLabel(name)}</span>
+          <Icon name="16.chevron.down" className={styles.chevron} />
+        </button>
+        <div className={styles.headerActions}>
+          {bound && <BindButton layer={instance} field="OVERRIDDEN_SYMBOL_ID" type="INSTANCE_SWAP" />}
+          <MenuButton label="More actions" entries={more} className={styles.iconMenu} onSelect={onMore}>
+            <Icon name="24.more" />
+          </MenuButton>
+        </div>
       </div>
+      <button type="button" className={styles.fromRow} aria-label={goTo.label} {...tooltipProps(goTo.label)} disabled={!isEnabled(ed, goTo)} onClick={() => runEditorCommand(ed, goTo.id)}>
+        {main ? "From this file" : "Missing component"}
+      </button>
+      <InstanceProperties instance={instance} />
       {picker && (
         <ComponentPicker anchor={picker} current={main?.guid ?? null} onPick={(a) => swapTo(ed, [instance.guid], a, main)} onClose={() => setPicker(null)} />
       )}
@@ -269,7 +304,6 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
       control = (
         <TextInput
           label={def.name}
-          variant="outlined"
           value={row.value?.textValue?.characters ?? ""}
           onCommit={(v) => setPropertyValue(ed, readC(ed, instance.guid) ?? instance, def, { textValue: { characters: v } })}
         />

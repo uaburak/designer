@@ -25,7 +25,7 @@ import { ExportSection, type ExportTarget } from "./Export";
 import { VectorPointSection } from "./VectorPoints";
 import { isFrameNode, isTextNode, usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { TypeHeader } from "./Header";
-import { ComponentHeader, CurrentVariantSection, InstanceHeader, InstanceProperties, PropertiesSection, componentSelection } from "./Component";
+import { ComponentHeader, CurrentVariantSection, InstanceHeader, PropertiesSection, componentSelection } from "./Component";
 import { ApplyModeButton, ModeRows } from "./Variables";
 import { LocalStylesSection } from "./Styles";
 import styles from "./Design.module.css";
@@ -112,7 +112,6 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
       ) : (
         <TypeHeader nodes={nodes} />
       )}
-      {comp?.kind === "instance" && <InstanceProperties instance={comp.node} />}
       {(comp?.kind === "component" || comp?.kind === "set") && <PropertiesSection owner={comp.node} />}
       {comp?.kind === "variant" && <CurrentVariantSection variant={comp.node} />}
       {editingVector && <VectorPointSection />}
