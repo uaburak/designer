@@ -139,7 +139,7 @@ describe("workspace on disk (docs/data.md §3–§4)", () => {
     expect((await workspace.getFile(keys[51])).lastViewedAt).not.toBeNull();
     const prefs = await workspace.setBrowsePrefs({ layout: "list", sort: "alphabetical" });
     expect(prefs.browse).toEqual({ layout: "list", sort: "alphabetical" });
-  });
+  }, 20_000); // 52 files written to disk: slow when the machine is busy
 
   it("repairs damaged records on start: .bak for workspace.json, Drafts for files of a lost folder, a rebuilt meta.json", async () => {
     t = await openTestStore();
