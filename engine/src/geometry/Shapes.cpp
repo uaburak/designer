@@ -110,15 +110,43 @@ Path rectPath(Vec2 size, const CornerRadii& radii0, double smoothing) {
     path.close();
     return path;
   }
-  double budget = std::min(std::fabs(w), std::fabs(h)) / 2;
+  CornerRadii budget = cornerBudgets({std::fabs(w), std::fabs(h)}, r);
   // Start mid-way along the top edge, clockwise.
   path.moveTo({w / 2, 0});
-  corner(path, {w, 0}, {1, 0}, {0, 1}, r[1], smoothing, budget);
-  corner(path, {w, h}, {0, 1}, {-1, 0}, r[2], smoothing, budget);
-  corner(path, {0, h}, {-1, 0}, {0, -1}, r[3], smoothing, budget);
-  corner(path, {0, 0}, {0, -1}, {1, 0}, r[0], smoothing, budget);
+  corner(path, {w, 0}, {1, 0}, {0, 1}, r[1], smoothing, budget[1]);
+  corner(path, {w, h}, {0, 1}, {-1, 0}, r[2], smoothing, budget[2]);
+  corner(path, {0, h}, {-1, 0}, {0, -1}, r[3], smoothing, budget[3]);
+  corner(path, {0, 0}, {0, -1}, {1, 0}, r[0], smoothing, budget[0]);
   path.close();
   return path;
+}
+
+CornerRadii cornerBudgets(Vec2 size, CornerRadii& r) {
+  // Each corner's room along its two edges (figma-squircle's distributeAndNormalize, which Figma's smoothed
+  // outlines follow): largest radius first, a corner takes its share of each edge by radius (r / (r + r'), the
+  // edge's rest when the neighbour has had its share), the smaller of its two edges; the radius is kept within it.
+  // Next to a square corner a corner has the whole edge — smoothing isn't given up for room it has.
+  static constexpr int kAdjacent[4][2] = {{1, 3}, {0, 2}, {3, 1}, {2, 0}};  // tl: tr (top), bl (left); …
+  CornerRadii budget{-1, -1, -1, -1};
+  int order[4] = {0, 1, 2, 3};
+  std::stable_sort(order, order + 4, [&](int a, int b) { return r[static_cast<size_t>(a)] > r[static_cast<size_t>(b)]; });
+  for (int c : order) {
+    double radius = r[static_cast<size_t>(c)];
+    double room = 1e300;
+    for (int k = 0; k < 2; k++) {
+      int n = kAdjacent[c][k];
+      double rn = r[static_cast<size_t>(n)];
+      double side = k == 0 ? size.x : size.y;  // the first neighbour is along the top or bottom edge
+      double share;
+      if (radius == 0 && rn == 0) share = 0;
+      else if (budget[static_cast<size_t>(n)] >= 0) share = side - budget[static_cast<size_t>(n)];
+      else share = radius / (radius + rn) * side;
+      room = std::min(room, share);
+    }
+    budget[static_cast<size_t>(c)] = room;
+    r[static_cast<size_t>(c)] = std::min(radius, room);
+  }
+  return budget;
 }
 
 void arcTo(Path& path, Vec2 c, double rx, double ry, double a0, double a1) {

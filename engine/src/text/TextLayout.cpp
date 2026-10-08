@@ -331,7 +331,8 @@ void resolveStyles(const NodeProps& p, std::vector<ResolvedStyle>& styles, std::
     if (!s.font) {
       s.missing = state == FontRegistry::State::Missing;
       s.pending = !s.missing;
-      s.font = fonts.defaultFont();
+      // A missing font keeps its weight and slant (Inter at the nearest one); a font still loading waits in Regular.
+      s.font = s.missing ? fonts.substituteFor(s.fontName) : fonts.defaultFont();
     } else if (!s.features.variations.empty()) {
       s.font = s.font->withVariations(s.features.variations);
     }

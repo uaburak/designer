@@ -24,7 +24,10 @@ bool plainShape(const NodeProps& p) {
 
 }  // namespace
 
-bool drawable(const Paint& p) { return p.visible && p.type != PaintType::OTHER && p.opacity > 0; }
+// Pattern and noise paints aren't written as vectors (PNG / JPG exports draw them).
+bool drawable(const Paint& p) {
+  return p.visible && p.type != PaintType::OTHER && p.type != PaintType::PATTERN && p.type != PaintType::NOISE && p.opacity > 0;
+}
 
 geom::Path Shape::path() const {
   switch (kind) {
@@ -66,6 +69,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   s.join = p.strokeJoin;
   s.miterLimit = p.miterLimit;
   s.dashes = p.stroke().dashPattern;
+  s.fitDashes = p.isRectLike() || p.isFrameLike();
   s.size = p.size;
   bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
@@ -119,6 +123,7 @@ geom::Path strokeOutline(const Stroke& s, double tolerance) {
   style.miterLimit = s.miterLimit;
   style.cap = s.cap;
   style.dashes = s.dashes;
+  style.fitDashes = s.fitDashes;
   style.caps = s.caps.empty() ? nullptr : &s.caps;
   return geom::strokePath(s.center, style, tolerance);
 }

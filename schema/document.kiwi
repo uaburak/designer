@@ -274,7 +274,9 @@ enum PaintType {
   GRADIENT_DIAMOND = 4;
   IMAGE = 5;
   VIDEO = 7;               // a video fill (drawn from its poster frame, `image`, in the editor)
-  // Dropped: EMOJI=6, PATTERN=8, NOISE=9.
+  PATTERN = 8;             // "Pattern": another layer of the file (sourceNodeId) tiled
+  NOISE = 9;               // a noise paint (Figma Draw)
+  // Dropped: EMOJI=6.
 }
 
 enum ImageScaleMode {
@@ -340,11 +342,30 @@ message Paint {
   byte[] thumbHash = 25;                 // ThumbHash of the image for progressive display
   VariableData opacityVar = 38;          // binding of `opacity` to a FLOAT variable
   Video video = 18;                      // VIDEO: the video file
-  // Reserved field numbers (18): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  GUID sourceNodeId = 26;                // PATTERN: the layer tiled ("Select source…")
+  float spacing = 27;                    // PATTERN: Figma's older single spacing (patternSpacing replaces it)
+  PatternTileType patternTileType = 28;  // PATTERN: "Tile type"
+  PatternAlignment verticalAlignment = 29;    // PATTERN: "Alignment" (the anchor point), vertical
+  PatternAlignment horizontalAlignment = 30;  // PATTERN: "Alignment", horizontal
+  NoiseType noiseType = 34;              // NOISE
+  float density = 35;                    // NOISE
+  Vector noiseSize = 36;                 // NOISE
+  Vector patternSpacing = 37;            // PATTERN: "Spacing" X / Y, as a share of the tile (0.2 = 20 %)
+  // Reserved field numbers (11): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
-  byte _r24 = 24 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated]; byte _r30 = 30 [deprecated];
-  byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
-  byte _r37 = 37 [deprecated];
+  byte _r24 = 24 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated];
+}
+
+enum PatternTileType {
+  RECTANGULAR = 0;
+  HORIZONTAL_HEXAGONAL = 1;
+  VERTICAL_HEXAGONAL = 2;
+}
+
+enum PatternAlignment {
+  START = 0;
+  CENTER = 1;
+  END = 2;
 }
 
 enum StrokeAlign {
@@ -376,9 +397,9 @@ enum EffectType {
   DROP_SHADOW = 1;
   FOREGROUND_BLUR = 2;     // "Layer blur"
   BACKGROUND_BLUR = 3;
-  GRAIN = 6;               // @later "Texture"
-  NOISE = 7;               // @later
-  GLASS = 8;               // @later
+  GRAIN = 6;               // "Texture"
+  NOISE = 7;               // "Noise"
+  GLASS = 8;               // "Glass"
   // Dropped: REPEAT=4, SYMMETRY=5 (illustration modifiers), CUSTOM=9 (code effects).
 }
 
@@ -387,7 +408,7 @@ enum BlurOpType {
   PROGRESSIVE = 1;
 }
 
-enum NoiseType {           // @later
+enum NoiseType {           // "Multi" / "Mono" / "Duo"
   MULTITONE = 0;
   MONOTONE = 1;
   DUOTONE = 2;
@@ -407,24 +428,24 @@ message Effect {
   VariableData spreadVar = 11;
   VariableData xVar = 12;
   VariableData yVar = 13;
-  BlurOpType blurOpType = 19;            // progressive blur
-  Vector startOffset = 20;               // progressive blur start point
-  float startRadius = 21;
-  Vector noiseSize = 22;                 // @later
-  bool clipToShape = 23;                 // @later
-  Color secondaryColor = 24;             // @later
-  float density = 25;                    // @later
-  NoiseType noiseType = 26;              // @later
-  float opacity = 27;                    // @later
-  Vector endOffset = 28;                 // progressive blur end point
-  uint seed = 29;                        // @later
-  float refractionRadius = 30;           // @later glass
-  float specularAngle = 31;              // @later glass
-  float specularIntensity = 32;          // @later glass
-  float bevelSize = 33;                  // @later glass
-  float chromaticAberration = 34;        // @later glass
-  float reflectionDistance = 35;         // @later glass
-  float refractionIntensity = 36;        // @later glass
+  BlurOpType blurOpType = 19;            // layer / background blur "Type": Uniform (NORMAL) / Progressive
+  Vector startOffset = 20;               // progressive blur: where it starts (the node's box, 0..1)
+  float startRadius = 21;                // progressive blur "Start" (radius = "End")
+  Vector noiseSize = 22;                 // noise "Noise size" / texture "Size" (X, Y)
+  bool clipToShape = 23;                 // texture "Clip to shape"
+  Color secondaryColor = 24;             // noise, Duo: the second colour
+  float density = 25;                    // noise "Density" (0..1)
+  NoiseType noiseType = 26;              // noise "Mono" / "Duo" / "Multi"
+  float opacity = 27;                    // noise, Multi: "Opacity"
+  Vector endOffset = 28;                 // progressive blur: where it ends (the node's box, 0..1)
+  uint seed = 29;                        // noise / texture: the random pattern
+  float refractionRadius = 30;           // glass "Splay"
+  float specularAngle = 31;              // glass light "Angle" (degrees)
+  float specularIntensity = 32;          // glass light "Intensity" (0..1)
+  float bevelSize = 33;                  // glass "Depth"
+  float chromaticAberration = 34;        // glass "Dispersion" (0..1)
+  float reflectionDistance = 35;         // glass (not in the panel)
+  float refractionIntensity = 36;        // glass "Refraction" (0..1); "Frost" is `radius`
   // Reserved field numbers (5): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
 }

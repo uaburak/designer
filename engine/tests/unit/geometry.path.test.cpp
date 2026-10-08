@@ -130,6 +130,20 @@ TEST_CASE("shapes: rounded and smoothed rectangles, arcs, polygons, stars") {
   double round20 = 10000 - (4 - kPi) * 400;
   CHECK(sa < round20);
   CHECK(sa > round20 - 300);
+  // Next to square corners a smoothed corner has its whole edge (Figma's fillGeometry; figma-squircle's per-edge
+  // budget): 122 × 28, radii 14 14 0 0, smoothing 0.6 → the top right corner starts (1 + 0.6) × 14 = 22.4 before the
+  // corner (a budget of min(w, h) / 2 = 14 gave up the smoothing).
+  Path tab = rectPath({122, 28}, {14, 14, 0, 0}, 0.6);
+  REQUIRE(tab.points.size() > 2);
+  CHECK(tab.points[1].x == doctest::Approx(122 - 22.4));
+  CHECK(tab.points[1].y == doctest::Approx(0));
+  CornerRadii tabRadii{14, 14, 0, 0};
+  CornerRadii budgets = cornerBudgets({122, 28}, tabRadii);
+  CHECK(budgets[0] == doctest::Approx(28));
+  CHECK(budgets[1] == doctest::Approx(28));
+  // Equal radii: half the shorter side, as before.
+  CornerRadii even{20, 20, 20, 20};
+  CHECK(cornerBudgets({100, 60}, even)[2] == doctest::Approx(30));
   // Smoothing 0 is the plain rounded rectangle.
   CHECK(test::mismatch(rectPath({100, 100}, {20, 20, 20, 20}, 0), false, rectPath({100, 100}, {20, 20, 20, 20}), false, 0.1) < 1e-9);
   // Ellipses and arcs.
@@ -205,6 +219,12 @@ TEST_CASE("stroker: caps, joins, dashes") {
   Rect arrow = strokePath(line, s, 0.05).bounds();
   CHECK(arrow.h > 6);
   CHECK(strokeReach(s, true) > 5);
+  // Figma's line arrow at 1 px (live capture, docs/research/figma/live/img/canvas-arrow-line-selected.png): arms
+  // about 4.5 long, 45° off the line — ±3.5 across with the stroke, reaching about 3.3 back from the tip.
+  s.cap = StrokeCap::ARROW_LINES;
+  s.width = 1;
+  Rect lineArrow = strokePath(line, s, 0.05).bounds();
+  CHECK(lineArrow.h == doctest::Approx(7.1).epsilon(0.08));
 }
 
 TEST_CASE("corner radius on a vector network rounds its sharp corners") {

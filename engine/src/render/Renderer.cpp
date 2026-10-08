@@ -9,6 +9,7 @@
 
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
+#include "scene/Extras.h"
 
 namespace eng {
 
@@ -89,6 +90,24 @@ Mat2x3 imageMatrix(const Paint& paint, Vec2 size, double iw, double ih) {
   return {};
 }
 
+// Canvas device px → the node's space (its px ÷ `unit`): uniform slots 16–17 of the effects' shaders.
+void effectRows(float out[2][4], const Mat2x3& m, double sx, double sy, Vec2 unit) {
+  Mat2x3 t = Mat2x3{1 / std::max(unit.x, 1e-9), 0, 0, 0, 1 / std::max(unit.y, 1e-9), 0} * m.inverse() * Mat2x3{1 / sx, 0, 0, 0, 1 / sy, 0};
+  out[0][0] = static_cast<float>(t.m00), out[0][1] = static_cast<float>(t.m01), out[0][2] = static_cast<float>(t.m02), out[0][3] = 0;
+  out[1][0] = static_cast<float>(t.m10), out[1][1] = static_cast<float>(t.m11), out[1][2] = static_cast<float>(t.m12), out[1][3] = 0;
+}
+
+// A progressive blur's levels between σ `a` and σ `b` (device px), ascending: the larger halved down to the smaller,
+// at most Renderer's kMaxBlurLevels (8).
+std::vector<double> blurLevels(double a, double b) {
+  double lo = std::min(a, b), hi = std::max(a, b);
+  std::vector<double> out{hi};
+  for (double s = hi / 2; s > std::max(lo, 0.5) * 1.25 && out.size() < 7; s /= 2) out.push_back(s);
+  out.push_back(lo);
+  std::reverse(out.begin(), out.end());
+  return out;
+}
+
 }  // namespace
 
 DrawInstance makeShape(const Mat2x3& m, Vec2 size, ShapeKind kind, const CornerRadii& radii, const Color& fill,
@@ -117,7 +136,8 @@ DrawInstance makeShape(const Mat2x3& m, Vec2 size, ShapeKind kind, const CornerR
 }
 
 bool Renderer::DrawState::operator==(const DrawState& o) const {
-  return image == o.image && backdrop == o.backdrop && std::memcmp(filters, o.filters, sizeof filters) == 0;
+  return image == o.image && backdrop == o.backdrop && level == o.level && clip == o.clip &&
+         std::memcmp(filters, o.filters, sizeof filters) == 0;
 }
 
 Color Renderer::titleColor(const Color& page, double* alpha) {
@@ -177,7 +197,9 @@ void Renderer::ensurePipelines() {
 
 void Renderer::emit(const DrawInstance& s, Pass pass) { emit(s, pass, DrawState{}); }
 
-void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state) {
+void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state0) {
+  DrawState state = state0;
+  state.clip = shapeClip_;  // the clip shape in force (uniforms: batches split where it changes)
   // Shapes, paths and glyphs are one program: their passes are one.
   if (pass == Pass::Path) pass = Pass::Shape;
   else if (pass == Pass::PathClipped) pass = Pass::ShapeClipped;
@@ -193,7 +215,8 @@ void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state) {
     const Cmd& d = cmds.back();
     // Instances that sample no image (state.image 0: solids, gradients, glyphs) join a batch that binds one, and
     // the other way round: only two different images (or backdrops) split a run.
-    bool states = d.state == state || (d.state.backdrop == state.backdrop && (state.image == 0 || d.state.image == 0) &&
+    bool states = d.state == state || (d.state.backdrop == state.backdrop && d.state.level == state.level && d.state.clip == state.clip &&
+                                       (state.image == 0 || d.state.image == 0) &&
                                        (state.image == 0 ? true : std::memcmp(d.state.filters, DrawState{}.filters, sizeof d.state.filters) == 0));
     merge = d.kind == Cmd::Kind::Draw && d.pass == pass && d.stencilRef == ref && d.first + d.count == instances_.size() && states;
   }
@@ -217,11 +240,9 @@ void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state) {
     for (int i = 0; i < 4; i++) q.round[i] = round_.rect[i], q.radii[i] = round_.radii[i];
   }
   if (scissorEnabled_) {
+    // The clip rectangle at its exact place: the shaders cover the pixels its edges cross by how much they're in.
     DrawInstance& q = instances_.back();
-    q.clip[0] = static_cast<float>(scissor_.x);
-    q.clip[1] = static_cast<float>(scissor_.y);
-    q.clip[2] = static_cast<float>(scissor_.x + scissor_.w);
-    q.clip[3] = static_cast<float>(scissor_.y + scissor_.h);
+    for (int i = 0; i < 4; i++) q.clip[i] = clipRect_[i];
   }
   stats_.shapes++;
   if (s.geom[2] == static_cast<float>(ShapeKind::Path)) stats_.paths++;
@@ -259,7 +280,8 @@ int Renderer::rampRow(const std::vector<ColorStop>& stops0) {
 }
 
 bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, const Mat2x3& localToNode, Vec2 nodeSize, double alpha) {
-  if (!paint.visible || paint.type == PaintType::OTHER) return false;
+  // PATTERN fills go through layers (drawPattern); a pattern stroke isn't drawn.
+  if (!paint.visible || paint.type == PaintType::OTHER || paint.type == PaintType::PATTERN) return false;
   double a = alpha * paint.opacity;
   if (a <= 0) return false;
   uint32_t flags = static_cast<uint32_t>(q.geom[3]) & 0xff;
@@ -277,6 +299,18 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
            : paint.type == PaintType::GRADIENT_RADIAL  ? PaintKind::Radial
            : paint.type == PaintType::GRADIENT_ANGULAR ? PaintKind::Angular
                                                        : PaintKind::Diamond;
+  } else if (paint.type == PaintType::NOISE) {
+    // Noise (Figma Draw): grains of noiseSize (node px) — Mono in the paint's colour at a random strength, Duo the
+    // colour or nothing, Multi random colours — `density` of the cells showing one.
+    const PaintExtras& x = paintExtras(paint);
+    Mat2x3 P = Mat2x3{1 / std::max(x.noiseSize.x, 1e-3), 0, 0, 0, 1 / std::max(x.noiseSize.y, 1e-3), 0} * localToNode;
+    if (x.noiseType == NoiseType::MULTITONE) q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(a);
+    else premultiply(q.color, paint.color, a);
+    q.paint0[0] = static_cast<float>(P.m00), q.paint0[1] = static_cast<float>(P.m01), q.paint0[2] = static_cast<float>(P.m02);
+    q.paint1[0] = static_cast<float>(P.m10), q.paint1[1] = static_cast<float>(P.m11), q.paint1[2] = static_cast<float>(P.m12);
+    q.paint0[3] = static_cast<float>(std::clamp(x.density, 0.0, 1.0));
+    q.paint1[3] = static_cast<float>(x.noiseType);
+    kind = PaintKind::Noise;
   } else if (isImageLike(paint.type)) {
     bool failed = false, placeholder = false;
     // How large the image is drawn (device px): the node's box through this draw's transform. The registry asks for
@@ -352,12 +386,17 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
-    for (const Paint& f : fills)
+    for (const Paint& f : fills) {
+      if (f.type == PaintType::PATTERN) {
+        if (f.visible) drawPattern(doc, id, p, m, alpha, f);
+        continue;
+      }
       blendedPaint(f, m, p.size, alpha, [&](double a) {
         DrawInstance q = makeShape(m, p.size, kind, radii, Color{}, 1, Color{}, 0, 0, 0);
         DrawState state;
         if (setPaint(q, state, f, Mat2x3{}, p.size, a)) emit(q, Pass::Shape, state);
       });
+    }
     return;
   }
   const NodeGeometry* g = doc.geometry(id);
@@ -374,9 +413,86 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
     if (!anyVisible(*paints)) continue;
     uint64_t key = Hash().add(g->fillKey).add(r).add(level).add(0xF111ull).h;
     const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(region.path, tol, out); });
-    for (const Paint& f : *paints)
+    for (const Paint& f : *paints) {
+      if (f.type == PaintType::PATTERN) {
+        if (f.visible && r == 0) drawPattern(doc, id, p, m, alpha, f);
+        continue;
+      }
       blendedPaint(f, m, p.size, alpha, [&](double a) { emitPath(entry, m, region.windingRule == WindingRule::ODD, f, p.size, a); });
+    }
   }
+}
+
+void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint) {
+  double a = alpha * paint.opacity;
+  const PaintExtras& x = paintExtras(paint);
+  if (!(a > 0) || patternDepth_ > 1 || x.sourceNodeId == kNoGuid || x.sourceNodeId == id) return;
+  // The source's render tree: this page's, or the page it is on.
+  const RenderTree* tree = tree_;
+  int src = tree->indexOf(x.sourceNodeId);
+  if (src < 0) {
+    Guid page = doc.pageOf(x.sourceNodeId);
+    if (page == kNoGuid || page == tree_->page()) return;
+    RenderTree& t = trees_[page];
+    t.sync(doc, page);
+    tree = &t;
+    src = t.indexOf(x.sourceNodeId);
+    if (src < 0) return;
+  }
+  const NodeProps& sp = tree->nodes()[static_cast<size_t>(src)].node->props;
+  // A tile: the source's box at the paint's scale, apart by "Spacing" (a share of the tile), anchored at the
+  // "Alignment" point of the node's box; hexagonal tiles shift every other row (or column) by half a step.
+  double scale = paint.scale > 0 ? paint.scale : 1;
+  Vec2 tile{sp.size.x * scale, sp.size.y * scale};
+  if (!(tile.x > 0) || !(tile.y > 0)) return;
+  if (std::max(tile.x, tile.y) * levelScale(m) < 0.5) return;  // under half a device px: nothing to see
+  Vec2 step{std::max(tile.x * (1 + x.patternSpacing.x), tile.x * 0.01), std::max(tile.y * (1 + x.patternSpacing.y), tile.y * 0.01)};
+  auto anchor = [](PatternAlignment al, double len, double t) {
+    return al == PatternAlignment::START ? 0.0 : al == PatternAlignment::CENTER ? (len - t) / 2 : len - t;
+  };
+  Vec2 origin{anchor(x.horizontalAlignment, p.size.x, tile.x), anchor(x.verticalAlignment, p.size.y, tile.y)};
+  // The part of the box on screen (node space).
+  Mat2x3 inv = m.inverse();
+  Rect seen = Rect::fromPoints(inv.apply({screen_.x, screen_.y}), inv.apply({screen_.right(), screen_.bottom()}));
+  seen = seen.united(Rect::fromPoints(inv.apply({screen_.right(), screen_.y}), inv.apply({screen_.x, screen_.bottom()})));
+  double x0 = std::max(0.0, seen.x), y0 = std::max(0.0, seen.y);
+  double x1 = std::min(p.size.x, seen.right()), y1 = std::min(p.size.y, seen.bottom());
+  if (x1 <= x0 || y1 <= y0) return;
+  gfx::IRect r = deviceRect(transformedBounds(m, p.size.x, p.size.y), 2);
+  if (r.w <= 0 || r.h <= 0) return;
+  bool hexRows = x.tileType == PatternTileType::HORIZONTAL_HEXAGONAL, hexCols = x.tileType == PatternTileType::VERTICAL_HEXAGONAL;
+  long i0 = static_cast<long>(std::floor((x0 - origin.x - tile.x) / step.x)) - (hexRows ? 1 : 0);
+  long i1 = static_cast<long>(std::ceil((x1 - origin.x) / step.x));
+  long j0 = static_cast<long>(std::floor((y0 - origin.y - tile.y) / step.y)) - (hexCols ? 1 : 0);
+  long j1 = static_cast<long>(std::ceil((y1 - origin.y) / step.y));
+  if ((i1 - i0 + 1) * (j1 - j0 + 1) > 4096) return;  // too many to draw one by one
+  int saved = beginLayer(r);
+  int P = current_;
+  const RenderTree* savedTree = tree_;
+  bool savedCull = cull_;
+  tree_ = tree;
+  cull_ = false;  // the tiles aren't where the tree's bounds say
+  patternDepth_++;
+  Mat2x3 back = sp.transform.inverse();
+  for (long j = j0; j <= j1; j++)
+    for (long i = i0; i <= i1; i++) {
+      double tx = origin.x + static_cast<double>(i) * step.x + (hexRows && (j & 1) ? step.x / 2 : 0);
+      double ty = origin.y + static_cast<double>(j) * step.y + (hexCols && (i & 1) ? step.y / 2 : 0);
+      if (tx >= x1 || ty >= y1 || tx + tile.x <= x0 || ty + tile.y <= y0) continue;
+      drawNode(doc, static_cast<uint32_t>(src), m * Mat2x3::translate(tx, ty) * Mat2x3::scale(scale) * back, 1);
+    }
+  patternDepth_--;
+  cull_ = savedCull;
+  tree_ = savedTree;
+  endLayer(saved);
+  // Through the node's fill shape.
+  int saved2 = beginLayer(r);
+  int M = current_;
+  drawFills(doc, id, p, m, 1, true);
+  endLayer(saved2);
+  stats_.layers += 2;
+  compositeLayer(P, M, 1, static_cast<float>(a), paint.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : paint.blendMode,
+                 Color{}, {}, false, r);
 }
 
 void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
@@ -447,9 +563,10 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   style.miterLimit = p.miterLimit;
   style.cap = p.strokeCap;
   style.dashes = p.stroke().dashPattern;
+  style.fitDashes = p.isRectLike() || p.isFrameLike();
   style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
   Hash h;
-  h.add(g->strokeKey).add(style.width).add(style.join).add(style.miterLimit).add(style.cap).add(level).add(0x57ull);
+  h.add(g->strokeKey).add(style.width).add(style.join).add(style.miterLimit).add(style.cap).add(style.fitDashes).add(level).add(0x57ull);
   for (double d : style.dashes) h.add(d);
   const CurveEntry* entry =
       curves_.path(h.h, [&](std::vector<float>& out) { geom::toQuads(geom::strokePath(g->stroke.path, style, tol), tol, out); });
@@ -483,6 +600,43 @@ bool analyticShadows(const NodeProps& p, bool hasChildren) {
   return true;
 }
 
+// A shadow's spread as Figma draws it: "only supported on rectangles, ellipses, frames, and components" (help
+// 360041488473) — a frame or component only when it clips its content and has a visible fill (≥ 1 % opacity).
+double shadowSpread(const NodeProps& p, const Effect& e) {
+  if (e.spread == 0) return 0;
+  if (p.isFrameLike()) {
+    bool fill = false;
+    for (const Paint& f : p.fillPaints)
+      fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.01f;
+    return p.clipsContent() && fill ? e.spread : 0;
+  }
+  return p.isRectLike() || p.type == NodeType::ELLIPSE ? e.spread : 0;
+}
+
+// Whether every paint the node draws itself is opaque (its alpha is then its shape's coverage).
+bool opaquePaints(const NodeProps& p) {
+  auto opaque = [](const std::vector<Paint>& paints) {
+    for (const Paint& f : paints)
+      if (f.visible && (f.type != PaintType::SOLID || f.opacity < 1 || f.color.a < 1 ||
+                        (f.blendMode != BlendMode::NORMAL && f.blendMode != BlendMode::PASS_THROUGH)))
+        return false;
+    return true;
+  };
+  return opaque(p.fillPaints) && (!(p.strokeWeight > 0) || opaque(p.strokePaints));
+}
+
+// The node's paints made opaque white (its geometry's coverage): what hides a drop shadow under the layer.
+NodeProps opaqueCopy(const NodeProps& p) {
+  NodeProps q = p;
+  auto whiten = [](std::vector<Paint>& paints) {
+    for (Paint& f : paints)
+      if (f.visible) f = Paint::solid(Color{1, 1, 1, 1});
+  };
+  whiten(q.fillPaints);
+  whiten(q.strokePaints);
+  return q;
+}
+
 // A shadow's offset in the node's own space, so it falls the same way on screen however the node is turned.
 Vec2 localOffset(const Mat2x3& m, Vec2 offset) {
   double s = std::sqrt(std::fabs(m.determinant()));
@@ -500,7 +654,7 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
     double sigma = std::max(0.0, e.radius / 2);
     Vec2 off = localOffset(m, e.offset);
     if (!inner) {
-      double s = e.spread;
+      double s = shadowSpread(p, e);
       Vec2 size{p.size.x + 2 * s, p.size.y + 2 * s};
       if (size.x <= 0 || size.y <= 0) continue;
       CornerRadii r;
@@ -513,7 +667,7 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
     } else {
       DrawInstance q = makeShape(m, p.size, ShapeKind::InnerShadow, radii, e.color, alpha, Color{}, 0, 0, 0);
       q.geom[0] = static_cast<float>(sigma);
-      q.geom[1] = static_cast<float>(e.spread);
+      q.geom[1] = static_cast<float>(shadowSpread(p, e));
       q.geom[2] = static_cast<float>(ShapeKind::InnerShadow);
       q.paint0[0] = static_cast<float>(off.x);
       q.paint0[1] = static_cast<float>(off.y);
@@ -522,51 +676,125 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
   }
 }
 
-void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e) {
+void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e,
+                                  bool glass) {
+  const EffectExtras& x = effectExtras(e);
   double scale = levelScale(m);
-  double sigma = std::max(0.0, e.radius / 2) * scale;
-  if (sigma <= 0.01) return;
+  double s1 = std::max(0.0, e.radius / 2) * scale;
+  double s0 = std::max(0.0, x.startRadius / 2) * scale;
+  bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(s0 - s1) > 0.01;
+  if (!glass && !progressive && s1 <= 0.01) return;
+  BackdropBlur b;
+  double reach = 3 * (progressive ? std::max(s0, s1) : s1) + 2;
+  if (glass) {
+    // Glass: the backdrop frosted by "Frost" (the radius), bent toward the edge within "Depth", split by colour
+    // ("Dispersion"), lit along the edges facing the light ("Angle", "Intensity").
+    b.kind = BackdropBlur::Kind::Glass;
+    double depth = std::max(0.0, x.bevelSize) * scale;
+    double dispersion = std::clamp(x.chromaticAberration, 0.0, 1.0);
+    reach += depth * (1 + dispersion);
+    double th = x.specularAngle * 3.14159265358979323846 / 180;
+    float g0[4] = {static_cast<float>(depth), static_cast<float>(std::clamp(x.refractionIntensity, 0.0, 1.0)), static_cast<float>(dispersion),
+                   static_cast<float>(std::clamp(x.refractionRadius / 100, 0.0, 1.0))};
+    // The light's direction in canvas device px (y down): the angle counter-clockwise from +x, pointing at the light.
+    float g1[4] = {static_cast<float>(-std::cos(th)), static_cast<float>(std::sin(th)), static_cast<float>(std::clamp(x.specularIntensity, 0.0, 1.0)), 0};
+    std::memcpy(b.glass[0], g0, sizeof g0);
+    std::memcpy(b.glass[1], g1, sizeof g1);
+    b.sigmas[0] = s1;
+  } else if (progressive) {
+    b.kind = BackdropBlur::Kind::Progressive;
+    std::vector<double> lv = blurLevels(s0, s1);
+    b.count = static_cast<int>(lv.size());
+    for (size_t k = 0; k < lv.size(); k++) b.sigmas[k] = lv[k];
+    b.start = s0;
+    b.end = s1;
+    float rows2[2][4];
+    effectRows(rows2, m, viewport_.scaleX(), viewport_.scaleY(), p.size);
+    std::memcpy(b.fx, rows2, sizeof rows2);
+    b.fx[2][0] = static_cast<float>(x.startOffset.x), b.fx[2][1] = static_cast<float>(x.startOffset.y);
+    b.fx[2][2] = static_cast<float>(x.endOffset.x), b.fx[2][3] = static_cast<float>(x.endOffset.y);
+  } else {
+    b.sigmas[0] = s1;
+  }
   Rect own = transformedBounds(m, p.size.x, p.size.y);
-  gfx::IRect r = deviceRect(own, 3 * sigma + 2);
+  gfx::IRect r = deviceRect(own, reach);
   r = intersect(r, layers_[static_cast<size_t>(current_)].rect);
   if (r.w <= 0 || r.h <= 0) return;
-  int b = static_cast<int>(backdrops_.size());
-  backdrops_.push_back({0, r, {0, 0, 1, 1}});
+  int bi = static_cast<int>(backdrops_.size());
+  backdrops_.push_back(b);
   Cmd c;
   c.kind = Cmd::Kind::BackdropBlur;
   c.rect = r;
-  c.sigma = sigma;
-  c.layer = b;
+  c.sigma = s1;
+  c.layer = bi;
   layers_[static_cast<size_t>(current_)].cmds.push_back(c);
-  // The node's shape, painted with the blurred backdrop.
-  DrawState state;
-  state.backdrop = b;
+  // The node's shape, painted with the blurred backdrop: once per interval between a progressive blur's levels.
+  PaintKind kind = glass ? PaintKind::Glass : progressive ? PaintKind::Progressive : PaintKind::Backdrop;
+  int intervals = progressive ? b.count - 1 : 1;
   bool sdf = !p.isPathShape() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
-  if (sdf) {
-    ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
-    DrawInstance q = makeShape(m, p.size, kind, kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare,
-                               Color{1, 1, 1, 1}, alpha, Color{}, 0, 0, 0);
-    q.geom[3] = drawFlags(0, PaintKind::Backdrop);
-    emit(q, Pass::Shape, state);
-    return;
-  }
-  const NodeGeometry* g = doc.geometry(id);
-  if (!g) return;
+  const NodeGeometry* g = sdf ? nullptr : doc.geometry(id);
+  if (!sdf && !g) return;
   int level = levelOf(levelScale(m));
   double tol = toleranceOf(level);
-  for (size_t i = 0; i < g->fills.size(); i++) {
-    uint64_t key = Hash().add(g->fillKey).add(i).add(level).add(0xF111ull).h;
-    const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(g->fills[i].path, tol, out); });
-    if (!entry) continue;
-    DrawInstance q{};
-    setLinear(q, m);
-    q.origin[2] = static_cast<float>(entry->start);
-    q.origin[3] = -1;
-    for (int k = 0; k < 4; k++) q.box[k] = entry->bounds[k];
-    q.geom[2] = static_cast<float>(ShapeKind::Path);
-    q.geom[3] = drawFlags(g->fills[i].windingRule == WindingRule::ODD ? DF_EVEN_ODD : 0, PaintKind::Backdrop);
-    q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(alpha);
-    emit(q, Pass::Path, state);
+  for (int k = 0; k < intervals; k++) {
+    DrawState state;
+    state.backdrop = bi;
+    state.level = k;
+    if (sdf) {
+      ShapeKind sk = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
+      DrawInstance q = makeShape(m, p.size, sk, sk == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare,
+                                 Color{1, 1, 1, 1}, alpha, Color{}, 0, 0, 0);
+      q.geom[3] = drawFlags(0, kind);
+      emit(q, Pass::Shape, state);
+      continue;
+    }
+    for (size_t i = 0; i < g->fills.size(); i++) {
+      uint64_t key = Hash().add(g->fillKey).add(i).add(level).add(0xF111ull).h;
+      const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(g->fills[i].path, tol, out); });
+      if (!entry) continue;
+      DrawInstance q{};
+      setLinear(q, m);
+      q.origin[2] = static_cast<float>(entry->start);
+      q.origin[3] = -1;
+      for (int j = 0; j < 4; j++) q.box[j] = entry->bounds[j];
+      q.geom[2] = static_cast<float>(ShapeKind::Path);
+      q.geom[3] = drawFlags(g->fills[i].windingRule == WindingRule::ODD ? DF_EVEN_ODD : 0, kind);
+      q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(alpha);
+      emit(q, Pass::Path, state);
+    }
+  }
+}
+
+void Renderer::progressiveComposite(int src, float opacity, BlendMode bm, gfx::IRect r, double s0, double s1, const Effect& e,
+                                    const Mat2x3& m, Vec2 size) {
+  std::vector<double> lv = blurLevels(s0, s1);
+  std::vector<int> ids;
+  for (double s : lv) {
+    if (s <= 0.01) {
+      ids.push_back(src);
+      continue;
+    }
+    Layer S;
+    S.rect = r;
+    S.copyOf = src;
+    S.blur = s;
+    layers_.push_back(std::move(S));
+    stats_.layers++;
+    ids.push_back(static_cast<int>(layers_.size() - 1));
+  }
+  const EffectExtras& x = effectExtras(e);
+  float rows2[2][4];
+  effectRows(rows2, m, viewport_.scaleX(), viewport_.scaleY(), size);
+  for (size_t k = 0; k + 1 < lv.size(); k++) {
+    compositeLayer(ids[k], ids[k + 1], 5, opacity, bm, Color{}, {}, false, r);
+    Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+    c.fxOn = true;
+    std::memcpy(c.fx, rows2, sizeof rows2);
+    c.fx[2][0] = static_cast<float>(x.startOffset.x), c.fx[2][1] = static_cast<float>(x.startOffset.y);
+    c.fx[2][2] = static_cast<float>(x.endOffset.x), c.fx[2][3] = static_cast<float>(x.endOffset.y);
+    bool last = k + 2 == lv.size();
+    c.fx[3][0] = static_cast<float>(s0), c.fx[3][1] = static_cast<float>(s1);
+    c.fx[3][2] = static_cast<float>(lv[k]), c.fx[3][3] = static_cast<float>(last ? lv[k + 1] * 1.001 + 1e-3 : lv[k + 1]);
   }
 }
 
@@ -588,8 +816,15 @@ bool clearOfCorners(const float outer[4], const float radii[4], const float inne
 void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m) {
   bool square = p.cornerRadii[0] <= 0 && p.cornerRadii[1] <= 0 && p.cornerRadii[2] <= 0 && p.cornerRadii[3] <= 0;
   Clip clip{false, scissorEnabled_, scissor_, {}, false, round_};
+  for (int i = 0; i < 4; i++) clip.clipRect[i] = clipRect_[i];
+  clip.shapeClip = shapeClip_;
   double sx = viewport_.scaleX(), sy = viewport_.scaleY();
-  // Every pixel the frame touches into the scissor (its children's anti-aliased edges are not cut off).
+  // Clips are anti-aliased at their exact place (Figma clips at the frame's edge, not at whole pixels): the scissor
+  // keeps every pixel the clip touches (hard bounds: culling, GPU scissors), the clip rectangle / rounded clip / clip
+  // shape cover the pixels on its edge by how much of them is inside.
+  Rect box = transformedBounds(m, p.size.x, p.size.y);
+  float dev[4] = {static_cast<float>(box.x * sx), static_cast<float>(box.y * sy), static_cast<float>(box.right() * sx),
+                  static_cast<float>(box.bottom() * sy)};
   auto scissorTo = [&](const Rect& r) {
     int x0 = static_cast<int>(std::floor(r.x * sx)), y0 = static_cast<int>(std::floor(r.y * sy));
     int x1 = static_cast<int>(std::ceil(r.right() * sx)), y1 = static_cast<int>(std::ceil(r.bottom() * sy));
@@ -598,40 +833,121 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
       y0 = std::max(y0, scissor_.y);
       x1 = std::min(x1, scissor_.x + scissor_.w);
       y1 = std::min(y1, scissor_.y + scissor_.h);
+    } else {
+      // No clip rectangle yet: none (whatever is drawn is inside it).
+      clipRect_[0] = clipRect_[1] = -1e9f;
+      clipRect_[2] = clipRect_[3] = 1e9f;
     }
     scissorEnabled_ = true;
     scissor_ = {x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0)};
   };
+  // The clip rectangle ∩ `r` (device px).
+  auto clipRectTo = [&](const float r[4]) {
+    clipRect_[0] = std::max(clipRect_[0], r[0]);
+    clipRect_[1] = std::max(clipRect_[1], r[1]);
+    clipRect_[2] = std::min(clipRect_[2], r[2]);
+    clipRect_[3] = std::min(clipRect_[3], r[3]);
+  };
+  // Whether `r` lies inside the clip rectangle in force (then the shape cutting it also does what the rectangle does,
+  // and the rectangle steps aside: two coverages of one edge would multiply).
+  auto insideClipRect = [&](const float r[4]) {
+    return !scissorEnabled_ || (r[0] >= clipRect_[0] - 1e-3f && r[1] >= clipRect_[1] - 1e-3f && r[2] <= clipRect_[2] + 1e-3f &&
+                                r[3] <= clipRect_[3] + 1e-3f);
+  };
+  auto clearClipRect = [&]() {
+    // The scissor still bounds what is drawn (whole pixels around the shape).
+    clipRect_[0] = clipRect_[1] = -1e9f;
+    clipRect_[2] = clipRect_[3] = 1e9f;
+  };
+  if (square && nearlyAxisAligned(m)) {
+    // Axis-aligned and square: the clip rectangle, intersected with the one in force.
+    scissorTo(box);
+    clipRectTo(dev);
+    clips_.push_back(clip);
+    return;
+  }
   // Axis-aligned and rounded: an anti-aliased rounded clip in the shaders (no stencil passes, so whatever is
   // inside batches with everything else), when it combines with the one already in force.
   RoundClip next;
   bool rounded = false;
+  bool outerRounded = false;  // the rounded clip in force stays, this one is inside it
   if (!square && p.stroke().cornerSmoothing <= 0 && nearlyAxisAligned(m)) {
-    Rect r = transformedBounds(m, p.size.x, p.size.y);
     next.on = true;
-    next.rect[0] = static_cast<float>(r.x * sx), next.rect[1] = static_cast<float>(r.y * sy);
-    next.rect[2] = static_cast<float>(r.right() * sx), next.rect[3] = static_cast<float>(r.bottom() * sy);
+    for (int i = 0; i < 4; i++) next.rect[i] = dev[i];
     CornerRadii cr = geom::clampRadii(p.size, p.cornerRadii);
     double k = std::min(std::fabs(m.m00) * sx, std::fabs(m.m11) * sy);
     for (size_t i = 0; i < 4; i++) next.radii[i] = static_cast<float>(cr[i] * k);
     rounded = true;
     if (round_.on) {
       if (clearOfCorners(round_.rect, round_.radii, next.rect)) {
-        // inside the one in force: this one is the clip
+        // Inside the one in force (clear of its corners): this one is the clip; the outer one's straight edges, where
+        // this one reaches past them, go into the clip rectangle.
+        float outer[4] = {round_.rect[0], round_.rect[1], round_.rect[2], round_.rect[3]};
+        bool past = next.rect[0] < outer[0] || next.rect[1] < outer[1] || next.rect[2] > outer[2] || next.rect[3] > outer[3];
+        if (past) {
+          scissorTo(box);
+          clipRectTo(outer);
+        }
+        outerRounded = !past;
       } else if (clearOfCorners(next.rect, next.radii, round_.rect)) {
         next = round_;  // the one in force is inside this one
+        outerRounded = true;
       } else {
-        rounded = false;  // two sets of corners: the stencil
+        rounded = false;  // two sets of corners: the clip shape (below)
       }
     }
   }
-  if (square && nearlyAxisAligned(m)) {
-    // Axis-aligned and square: a scissor rect, intersected with the current one.
-    scissorTo(transformedBounds(m, p.size.x, p.size.y));
-  } else if (rounded) {
-    scissorTo(transformedBounds(m, p.size.x, p.size.y));
+  if (rounded) {
+    bool inside = insideClipRect(next.rect);
+    scissorTo(box);
+    if (inside && !outerRounded) clearClipRect();
+    else if (!inside) clipRectTo(dev);
     round_ = next;
-  } else if (p.stroke().cornerSmoothing > 0) {
+    clips_.push_back(clip);
+    return;
+  }
+  // Turned, smoothed, or a second set of corners: the clip shape, anti-aliased by its coverage in the shaders — a
+  // rounded box, or the smoothed outline's path. A clip shape already in force: the stencil (whole pixels).
+  ShapeClip sc;
+  bool shape = false;
+  Mat2x3 toDevice = Mat2x3{sx, 0, 0, 0, sy, 0} * m;
+  if (std::fabs(toDevice.determinant()) > 1e-12 && shapeClip_ < 0) {
+    Mat2x3 inv = toDevice.inverse();
+    sc.rows[0][0] = static_cast<float>(inv.m00), sc.rows[0][1] = static_cast<float>(inv.m01), sc.rows[0][2] = static_cast<float>(inv.m02);
+    sc.rows[1][0] = static_cast<float>(inv.m10), sc.rows[1][1] = static_cast<float>(inv.m11), sc.rows[1][2] = static_cast<float>(inv.m12);
+    if (p.stroke().cornerSmoothing > 0) {
+      const NodeGeometry* g = doc.geometry(id);
+      int level = levelOf(levelScale(m));
+      if (g && !g->fills.empty()) {
+        uint64_t key = Hash().add(g->fillKey).add(size_t{0}).add(level).add(0xF111ull).h;
+        double tol = toleranceOf(level);
+        const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(g->fills[0].path, tol, out); });
+        if (entry) {
+          sc.rows[0][3] = g->fills[0].windingRule == WindingRule::ODD ? 3.f : 2.f;
+          sc.rows[1][3] = static_cast<float>(entry->start);
+          shape = true;
+        }
+      }
+    } else {
+      CornerRadii cr = geom::clampRadii(p.size, p.cornerRadii);
+      sc.rows[0][3] = 1;
+      sc.size[0] = static_cast<float>(p.size.x);
+      sc.size[1] = static_cast<float>(p.size.y);
+      for (size_t i = 0; i < 4; i++) sc.radii[i] = static_cast<float>(cr[i]);
+      shape = true;
+    }
+  }
+  if (shape) {
+    bool inside = insideClipRect(dev);
+    scissorTo(box);
+    if (inside) clearClipRect();
+    shapeClips_.push_back(sc);
+    shapeClip_ = static_cast<int>(shapeClips_.size() - 1);
+    clips_.push_back(clip);
+    return;
+  }
+  scissorTo(box);
+  if (p.stroke().cornerSmoothing > 0) {
     // Smoothed corners: the path into the stencil.
     clip.stencil = true;
     clip.path = true;
@@ -673,6 +989,8 @@ void Renderer::popClip() {
   scissorEnabled_ = clip.scissorEnabled;
   scissor_ = clip.scissor;
   round_ = clip.round;
+  for (int i = 0; i < 4; i++) clipRect_[i] = clip.clipRect[i];
+  shapeClip_ = clip.shapeClip;
 }
 
 gfx::IRect Renderer::deviceRect(const Rect& css, double margin) const {
@@ -704,9 +1022,13 @@ int Renderer::beginLayer(gfx::IRect rect) {
   layers_.push_back(std::move(L));
   current_ = static_cast<int>(layers_.size() - 1);
   // A layer starts unclipped (its parent's clip applies when it is composited).
-  clips_.push_back({false, scissorEnabled_, scissor_, {}, false, round_});
+  Clip saved0{false, scissorEnabled_, scissor_, {}, false, round_};
+  for (int i = 0; i < 4; i++) saved0.clipRect[i] = clipRect_[i];
+  saved0.shapeClip = shapeClip_;
+  clips_.push_back(saved0);
   scissorEnabled_ = false;
   round_ = RoundClip{};
+  shapeClip_ = -1;
   stencilDepth_ = 0;
   return saved;
 }
@@ -717,6 +1039,8 @@ void Renderer::endLayer(int saved) {
   scissorEnabled_ = c.scissorEnabled;
   scissor_ = c.scissor;
   round_ = c.round;
+  for (int i = 0; i < 4; i++) clipRect_[i] = c.clipRect[i];
+  shapeClip_ = c.shapeClip;
   // The parent's stencil depth: count the stencil clips still open below.
   stencilDepth_ = 0;
   for (auto& k : clips_) stencilDepth_ += k.stencil ? 1 : 0;
@@ -754,6 +1078,9 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
       c.scissorEnabled = scissorEnabled_;
       c.scissor = scissor_;
       c.round = round_;
+      if (scissorEnabled_)
+        for (int k = 0; k < 4; k++) c.clipRect[k] = clipRect_[k];
+      c.shapeClip = shapeClip_;
       c.layer = C;
       c.aux = M;
       c.mode = p.maskType == MaskType::LUMINANCE ? 2 : 1;
@@ -766,18 +1093,19 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
   }
 }
 
-void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic) {
+void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic,
+                           bool strokes) {
   const RenderNode& rn = tree_->nodes()[i];
   Guid id = rn.id;
   if (analytic) drawAnalyticShadows(p, m, alpha, false);
   if (p.type == NodeType::TEXT) {
     drawText(doc, p, id, m, alpha);
-    drawStrokes(doc, id, p, m, alpha);
+    if (strokes) drawStrokes(doc, id, p, m, alpha);
     return;
   }
   if (p.isBoolean()) {
     drawFills(doc, id, p, m, alpha);
-    drawStrokes(doc, id, p, m, alpha);
+    if (strokes) drawStrokes(doc, id, p, m, alpha);
     return;
   }
   if (p.isGroupLike()) {
@@ -828,7 +1156,7 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
     }
   }
   // Strokes go over the fills (and over a frame's content).
-  drawStrokes(doc, id, p, m, alpha);
+  if (strokes) drawStrokes(doc, id, p, m, alpha);
 }
 
 void Renderer::compositeLayer(int src, int aux, int mode, float opacity, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
@@ -842,6 +1170,9 @@ void Renderer::compositeLayer(int src, int aux, int mode, float opacity, BlendMo
   c.scissorEnabled = scissorEnabled_;
   c.scissor = scissor_;
   c.round = round_;
+  if (scissorEnabled_)
+    for (int k = 0; k < 4; k++) c.clipRect[k] = clipRect_[k];
+  c.shapeClip = shapeClip_;
   c.layer = src;
   c.aux = aux;
   c.mode = mode;
@@ -881,23 +1212,68 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     stats_.culled++;
     return;
   }
-  // …or smaller than half a device pixel (LOD).
-  if (cull_ && std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < 0.5) {
+  // …or smaller than a quarter of a device pixel (LOD: what is larger still darkens the pixel it falls on, as in
+  // Figma's renders of zoomed-out pages).
+  if (cull_ && std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < 0.25) {
     stats_.tiny++;
     return;
   }
   Mat2x3 m = parentCss * p.transform;
 
-  bool analytic = analyticShadows(p, rn.hasChildren);
-  std::vector<const Effect*> drops, inners, backgrounds;
-  double layerBlur = 0;
+  // Figma's limits (help 360041488473): up to eight drop and eight inner shadows, one layer blur and one background
+  // blur — the first of each kind is drawn; one texture, one glass; noises stack.
+  std::vector<const Effect*> drops, inners, backgrounds, noises;
+  const Effect* layerBlurE = nullptr;
+  const Effect* textureE = nullptr;
+  const Effect* glassE = nullptr;
   for (const Effect& e : p.effects) {
     if (!e.visible) continue;
-    if (e.type == EffectType::DROP_SHADOW) drops.push_back(&e);
-    else if (e.type == EffectType::INNER_SHADOW) inners.push_back(&e);
-    else if (e.type == EffectType::BACKGROUND_BLUR && e.radius > 0) backgrounds.push_back(&e);
-    else if (e.type == EffectType::FOREGROUND_BLUR && e.radius > 0) layerBlur = std::max(layerBlur, e.radius);
+    switch (e.type) {
+      case EffectType::DROP_SHADOW:
+        if (drops.size() < 8) drops.push_back(&e);
+        break;
+      case EffectType::INNER_SHADOW:
+        if (inners.size() < 8) inners.push_back(&e);
+        break;
+      case EffectType::BACKGROUND_BLUR:
+        if (backgrounds.empty() && (e.radius > 0 || effectExtras(e).startRadius > 0)) backgrounds.push_back(&e);
+        break;
+      case EffectType::FOREGROUND_BLUR:
+        if (!layerBlurE) layerBlurE = &e;
+        break;
+      case EffectType::NOISE:
+        if (noises.size() < 8) noises.push_back(&e);
+        break;
+      case EffectType::GRAIN:
+        if (!textureE) textureE = &e;
+        break;
+      case EffectType::GLASS:
+        if (!glassE) glassE = &e;
+        break;
+    }
   }
+  // A background blur shows through the layer's fill: none without a visible fill (Figma: "set the layer's fill
+  // opacity to any value between .10 and 99.99%"; at 100 % the fill covers it).
+  if (!backgrounds.empty()) {
+    bool fill = false;
+    for (const Paint& f : p.fillPaints) fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.001f;
+    if (!fill && !p.isGroupLike()) backgrounds.clear();
+  }
+  double scale = levelScale(m);
+  // The layer blur: uniform (σ = radius / 2), or progressive from "Start" at its start offset to the radius ("End").
+  double blurSigma = layerBlurE ? std::max(0.0, layerBlurE->radius) / 2 * scale : 0;
+  double startSigma = blurSigma;
+  bool progressive = false;
+  if (layerBlurE) {
+    const EffectExtras& x = effectExtras(*layerBlurE);
+    if (x.blurOpType == BlurOpType::PROGRESSIVE) {
+      startSigma = std::max(0.0, x.startRadius) / 2 * scale;
+      progressive = std::fabs(startSigma - blurSigma) > 0.01;
+    }
+  }
+  // Effects drawn over the content or through it need the content apart from its shadows.
+  bool post = progressive || textureE || !noises.empty();
+  bool analytic = !post && analyticShadows(p, rn.hasChildren);
   bool generic = !analytic && (!drops.empty() || !inners.empty());
   bool container = (p.isFrameLike() || p.isGroupLike()) && rn.hasChildren;
   size_t paints = 0;
@@ -906,31 +1282,50 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     for (auto& s : p.strokePaints) paints += s.visible ? 1 : 0;
   bool blend = p.blendMode != BlendMode::PASS_THROUGH && p.blendMode != BlendMode::NORMAL;
   bool opacityLayer = p.opacity < 1 && (container || paints > 1 || p.type == NodeType::TEXT || generic);
-  bool needsLayer = opacityLayer || blend || layerBlur > 0 || generic;
+  bool needsLayer = opacityLayer || blend || std::max(blurSigma, startSigma) > 0 || generic || post;
   double a = alpha * p.opacity;
 
   for (const Effect* e : backgrounds) drawBackgroundBlur(doc, id, p, m, a, *e);
+  if (glassE) drawBackgroundBlur(doc, id, p, m, a, *glassE, true);
   if (!needsLayer) {
     drawContent(doc, i, p, m, a, analytic);
     return;
   }
   stats_.layers++;
-  double scale = levelScale(m);
-  double blurSigma = layerBlur / 2 * scale;
-  gfx::IRect r = deviceRect(vb, 3 * blurSigma + 2);
+  double reach = 3 * std::max(blurSigma, startSigma) + (textureE ? std::max(0.0, textureE->radius) * scale : 0);
+  gfx::IRect r = deviceRect(vb, reach + 2);
   if (r.w <= 0 || r.h <= 0) return;
+  // Figma's order, top to bottom (help 360041488473): layer blur, stroke paints, inner shadow, fill paints, drop
+  // shadow. Inner shadows under visible strokes: the content without its strokes, the inner shadows, then the
+  // strokes, all in one layer that takes the node's opacity, blend mode and blur. Noise goes over it all, texture
+  // and a progressive blur work on the whole (a layer of their own).
+  bool strokes = false;
+  if (p.strokeWeight > 0)
+    for (const Paint& s : p.strokePaints) strokes |= s.visible && s.opacity > 0;
+  bool split = generic && !inners.empty() && strokes;
+  bool finish = a < 1 || blend || blurSigma > 0.01;
+  bool wrap = (split && finish) || progressive || textureE || (!noises.empty() && finish);
   int saved = beginLayer(r);
   int C = current_;
   drawContent(doc, i, p, m, 1, analytic);
   endLayer(saved);
-  layers_[static_cast<size_t>(C)].blur = blurSigma;
+  int outer = -1, savedOuter = 0;
+  if (wrap) {
+    savedOuter = beginLayer(r);
+    outer = current_;
+  } else {
+    layers_[static_cast<size_t>(C)].blur = blurSigma;
+  }
+  // What the node draws, composited: at the node's opacity and blend mode, or as is inside the wrapping layer.
+  float opacity = wrap ? 1.f : static_cast<float>(a);
+  BlendMode nodeBlend = wrap ? BlendMode::NORMAL : p.blendMode;
 
-  auto composite = [&](int src, int aux, int mode, float opacity, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
-                       gfx::IRect rect) { compositeLayer(src, aux, mode, opacity, bm, color, offset, knockout, rect); };
+  auto composite = [&](int src, int aux, int mode, float op, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
+                       gfx::IRect rect) { compositeLayer(src, aux, mode, op, bm, color, offset, knockout, rect); };
   auto shadowLayer = [&](const Effect& e, double morph) {
     double sigma = std::max(0.0, e.radius / 2) * scale;
-    double spread = e.spread * scale;
-    double grow = 3 * sigma + std::max(0.0, morph) + 2;
+    double spread = shadowSpread(p, e) * scale;
+    double grow = 3 * sigma + std::max(0.0, morph > 0 ? spread : 0.0) + 2;
     gfx::IRect sr{r.x - static_cast<int>(std::ceil(grow)), r.y - static_cast<int>(std::ceil(grow)),
                   r.w + 2 * static_cast<int>(std::ceil(grow)), r.h + 2 * static_cast<int>(std::ceil(grow))};
     Layer S;
@@ -943,24 +1338,95 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     return static_cast<int>(layers_.size() - 1);
   };
   auto deviceOffset = [&](Vec2 o) { return Vec2{o.x * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleX(), o.y * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleY()}; };
+  auto effectBlend = [](const Effect& e) { return e.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : e.blendMode; };
   if (generic) {
+    // "Show behind transparent areas" off (Figma's default): the shadow is hidden under the layer's shape — its
+    // geometry, not its alpha (a 50 % fill doesn't let half of the shadow through).
+    int knock = C;
+    bool anyHidden = false;
+    for (const Effect* e : drops) anyHidden |= !e->showShadowBehindNode;
+    if (anyHidden && !opaquePaints(p)) {
+      NodeProps solid = opaqueCopy(p);
+      int s2 = beginLayer(r);
+      knock = current_;
+      drawContent(doc, i, solid, m, 1, false);
+      endLayer(s2);
+      stats_.layers++;
+    }
     for (const Effect* e : drops) {
-      int S = shadowLayer(*e, e->spread);
+      int S = shadowLayer(*e, shadowSpread(p, *e));
       Vec2 off = deviceOffset(e->offset);
       gfx::IRect q = layers_[static_cast<size_t>(S)].rect;
       q.x += static_cast<int>(std::floor(off.x));
       q.y += static_cast<int>(std::floor(off.y));
       q.w += 2;
       q.h += 2;
-      Color premul = e->color;
-      composite(S, C, 3, static_cast<float>(a), BlendMode::NORMAL, premul, off, !e->showShadowBehindNode, q);
+      composite(S, knock, 3, opacity, effectBlend(*e), e->color, off, !e->showShadowBehindNode, q);
     }
   }
-  composite(C, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
+  int K = -1;
+  if (split) {
+    // The content without its strokes, then (below) the inner shadows, then the strokes.
+    int s1 = beginLayer(r);
+    int F = current_;
+    drawContent(doc, i, p, m, 1, analytic, false);
+    endLayer(s1);
+    int s2 = beginLayer(r);
+    K = current_;
+    drawStrokes(doc, id, p, m, 1);
+    endLayer(s2);
+    stats_.layers += 2;
+    composite(F, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  } else {
+    composite(C, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  }
   if (generic) {
     for (const Effect* e : inners) {
-      int S = shadowLayer(*e, e->spread != 0 ? -1 : 0);
-      composite(S, C, 4, static_cast<float>(a), BlendMode::NORMAL, e->color, deviceOffset(e->offset), false, r);
+      int S = shadowLayer(*e, shadowSpread(p, *e) != 0 ? -1 : 0);
+      composite(S, C, 4, opacity, effectBlend(*e), e->color, deviceOffset(e->offset), false, r);
+    }
+  }
+  if (K >= 0) composite(K, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  // Noise (Mono / Duo / Multi): grains over what the node draws, within its alpha, in the effect's blend mode.
+  if (!noises.empty()) {
+    float nodeRows[2][4];
+    effectRows(nodeRows, m, viewport_.scaleX(), viewport_.scaleY(), {1, 1});
+    for (const Effect* e : noises) {
+      const EffectExtras& x = effectExtras(*e);
+      Color second = x.noiseType == NoiseType::DUOTONE ? x.secondaryColor : Color{0, 0, 0, 0};
+      composite(C, -1, 6, opacity, effectBlend(*e), e->color, Vec2{static_cast<double>(x.seed % 65536u), std::clamp(x.opacity, 0.0, 1.0)}, false, r);
+      Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+      c.fxOn = true;
+      std::memcpy(c.fx, nodeRows, sizeof nodeRows);
+      c.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), c.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
+      c.fx[2][2] = static_cast<float>(std::clamp(x.density, 0.0, 1.0)), c.fx[2][3] = static_cast<float>(x.noiseType);
+      premultiply(c.fx[3], second, 1);
+    }
+  }
+  if (wrap) {
+    endLayer(savedOuter);
+    int top = outer;
+    if (textureE) {
+      // Texture: what the node draws, read through a random shift per grain (± the radius), within its shape when
+      // "Clip to shape" is on.
+      const EffectExtras& x = effectExtras(*textureE);
+      int s3 = beginLayer(r);
+      int T = current_;
+      compositeLayer(top, -1, 7, 1, BlendMode::NORMAL, Color{}, Vec2{static_cast<double>(x.seed % 65536u), 0}, false, r);
+      Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+      c.fxOn = true;
+      effectRows(c.fx, m, viewport_.scaleX(), viewport_.scaleY(), {1, 1});
+      c.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), c.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
+      c.fx[2][2] = static_cast<float>(std::max(0.0, textureE->radius) * scale), c.fx[2][3] = x.clipToShape ? 1.f : 0.f;
+      endLayer(s3);
+      stats_.layers++;
+      top = T;
+    }
+    if (progressive) {
+      progressiveComposite(top, static_cast<float>(a), p.blendMode, r, startSigma, blurSigma, *layerBlurE, m, p.size);
+    } else {
+      layers_[static_cast<size_t>(top)].blur = blurSigma;
+      compositeLayer(top, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
     }
   }
 }
@@ -987,6 +1453,17 @@ int poolSize(int v) { return v <= 1024 ? roundUp(v, 64) : roundUp(v, 256); }
 uint64_t targetBytes(int w, int h) { return static_cast<uint64_t>(w) * static_cast<uint64_t>(h) * 8; }  // colour + stencil
 
 }  // namespace
+
+void Renderer::setShapeClip(gfx::DrawCall& call, int index) const {
+  if (index < 0 || index >= static_cast<int>(shapeClips_.size())) return;  // slot 12.w = 0: none
+  const ShapeClip& sc = shapeClips_[static_cast<size_t>(index)];
+  for (int i = 0; i < 4; i++) {
+    call.uniforms[12][i] = sc.rows[0][i];
+    call.uniforms[13][i] = sc.rows[1][i];
+    call.uniforms[14][i] = sc.size[i];
+    call.uniforms[15][i] = sc.radii[i];
+  }
+}
 
 Renderer::PoolTarget* Renderer::acquire(int w, int h) {
   int bw = poolSize(w), bh = poolSize(h);
@@ -1079,6 +1556,7 @@ void Renderer::blurLayer(Layer& L) {
   auto blurPass = [&](PoolTarget* src, PoolTarget* dst, int vw, int vh, float dx, float dy, float sigma, int mode, float radius) {
     if (!pass(dst, vw, vh)) return;
     gfx::DrawCall call;
+    call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
     call.pipeline = pipelines_[static_cast<int>(Pass::Blur)];
     call.instanceCount = 1;
     call.uniforms[2][0] = dx, call.uniforms[2][1] = dy, call.uniforms[2][2] = sigma, call.uniforms[2][3] = static_cast<float>(mode);
@@ -1107,6 +1585,7 @@ void Renderer::blurLayer(Layer& L) {
     PoolTarget* down = acquire(nw, nh);
     if (!down || !pass(down, nw, nh)) break;
     gfx::DrawCall call;
+    call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
     call.pipeline = pipelines_[static_cast<int>(Pass::CompositeReplace)];
     call.instanceCount = 1;
     float r[2][4];
@@ -1170,6 +1649,7 @@ void Renderer::runLayer(int index) {
     for (int i = 0; i < 4; i++) pd.clear[i] = 0;
     if (device_.beginPass(pd) && src.texture) {
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(Pass::CompositeReplace)];
       call.instanceCount = 1;
       float r[2][4];
@@ -1210,6 +1690,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
   for (const Cmd& c : L.cmds) {
     if (c.kind == Cmd::Kind::Draw) {
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(c.pass)];
       call.instances = {buffer_, static_cast<uint32_t>(c.first * sizeof(DrawInstance)), static_cast<uint32_t>(c.count * sizeof(DrawInstance))};
       call.instanceCount = c.count;
@@ -1219,14 +1700,34 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       call.uniforms[5][0] = static_cast<float>(ox);
       call.uniforms[5][1] = static_cast<float>(oy);
       call.uniforms[5][2] = static_cast<float>(H);
+      setShapeClip(call, c.state.clip);
       call.textures[0] = curveTexture_ ? curveTexture_ : white;
       call.textures[1] = ramp_ ? ramp_ : white;
       call.textures[2] = c.state.image ? c.state.image : white;
       if (c.state.backdrop >= 0) {
         const BackdropBlur& b = backdrops_[static_cast<size_t>(c.state.backdrop)];
-        if (!b.texture) continue;
-        call.textures[2] = b.texture;
-        for (int i = 0; i < 4; i++) call.uniforms[4][i] = b.place[i];
+        int k = std::clamp(c.state.level, 0, b.count - 1);
+        if (b.kind == BackdropBlur::Kind::Progressive) {
+          // The interval between levels k (u_t3, slot 7) and k + 1 (u_t2, slot 4); slots 16–18 the node's box and the
+          // effect's start / end, 19 = (σ at the start, at the end, the interval's two σ).
+          int k1 = std::min(k + 1, b.count - 1);
+          if (!b.textures[k] || !b.textures[k1]) continue;
+          call.textures[3] = b.textures[k];
+          call.textures[2] = b.textures[k1];
+          for (int i = 0; i < 4; i++) call.uniforms[7][i] = b.places[k][i], call.uniforms[4][i] = b.places[k1][i];
+          for (int j = 0; j < 3; j++)
+            for (int i = 0; i < 4; i++) call.uniforms[16 + j][i] = b.fx[j][i];
+          bool last = k1 == b.count - 1;
+          call.uniforms[19][0] = static_cast<float>(b.start), call.uniforms[19][1] = static_cast<float>(b.end);
+          call.uniforms[19][2] = static_cast<float>(b.sigmas[k]);
+          call.uniforms[19][3] = static_cast<float>(last ? b.sigmas[k1] * 1.001 + 1e-3 : b.sigmas[k1]);
+        } else {
+          if (!b.textures[0]) continue;
+          call.textures[2] = b.textures[0];
+          for (int i = 0; i < 4; i++) call.uniforms[4][i] = b.places[0][i];
+          if (b.kind == BackdropBlur::Kind::Glass)
+            for (int i = 0; i < 4; i++) call.uniforms[6][i] = b.glass[0][i], call.uniforms[8][i] = b.glass[1][i];
+        }
       }
       localScissor(call, c);
       device_.draw(call);
@@ -1237,6 +1738,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       gfx::IRect quad = intersect(c.rect, L.rect);
       if (quad.w <= 0 || quad.h <= 0) continue;
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(c.pass)];
       call.instanceCount = 1;
       compositeUniforms(call, devRows, quad);
@@ -1268,8 +1770,14 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       call.uniforms[7][3] = c.knockout ? 1.f : 0.f;
       call.uniforms[8][0] = static_cast<float>(c.offset.x);
       call.uniforms[8][1] = static_cast<float>(c.offset.y);
+      if (c.fxOn)
+        for (int j = 0; j < 4; j++)
+          for (int i = 0; i < 4; i++) call.uniforms[16 + j][i] = c.fx[j][i];
       if (c.round.on)
         for (int i = 0; i < 4; i++) call.uniforms[9][i] = c.round.rect[i], call.uniforms[10][i] = c.round.radii[i];
+      for (int i = 0; i < 4; i++) call.uniforms[11][i] = c.clipRect[i];
+      setShapeClip(call, c.shapeClip);
+      if (curveTexture_) call.textures[3] = curveTexture_;
       localScissor(call, c);
       device_.draw(call);
       stats_.drawCalls++;
@@ -1278,6 +1786,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       gfx::IRect quad = intersect(c.rect, L.rect);
       if (quad.w <= 0 || quad.h <= 0 || !c.blitTexture) continue;
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(Pass::Composite)];
       call.instanceCount = 1;
       compositeUniforms(call, devRows, quad);
@@ -1297,29 +1806,37 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       gfx::IRect r = intersect(c.rect, L.rect);
       if (r.w <= 0 || r.h <= 0) continue;
       gfx::IRect local{r.x - ox, r.y - oy, r.w, r.h};
-      PoolTarget* copy = acquire(r.w, r.h);
-      if (!copy) continue;
-      device_.copyToTexture(copy->texture, local);
+      // The backdrop, copied once per level (a progressive blur's), before anything is drawn over it.
+      gfx::TargetId copies[kMaxBlurLevels] = {};
+      for (int k = 0; k < b.count; k++) {
+        PoolTarget* copy = acquire(r.w, r.h);
+        if (!copy) break;
+        device_.copyToTexture(copy->texture, local);
+        copies[k] = copy->target;
+      }
       device_.endPass();
-      // Blur it as a layer of its own.
-      Layer tmp;
-      tmp.rect = r;
-      tmp.target = copy->target;
-      tmp.texture = copy->texture;
-      tmp.blur = c.sigma;
-      tmp.contentH = r.h;
-      blurLayer(tmp);
-      scratch_.push_back(tmp.target);
-      b.texture = tmp.texture;
-      // gl_FragCoord (window px, origin bottom left) → the blurred texture's uv.
-      PoolTarget* res = nullptr;
-      for (auto& t : pool_)
-        if (t.target == tmp.target) res = &t;
-      double sw = res ? res->w : r.w, sh = res ? res->h : r.h;
-      b.place[0] = static_cast<float>(local.x);
-      b.place[1] = static_cast<float>(H - local.y - local.h);
-      b.place[2] = static_cast<float>(sw / tmp.scale);
-      b.place[3] = static_cast<float>(sh / tmp.scale);
+      for (int k = 0; k < b.count; k++) {
+        if (!copies[k]) continue;
+        // Blur it as a layer of its own.
+        Layer tmp;
+        tmp.rect = r;
+        tmp.target = copies[k];
+        tmp.texture = device_.targetTexture(copies[k]);
+        tmp.blur = b.sigmas[k];
+        tmp.contentH = r.h;
+        blurLayer(tmp);
+        scratch_.push_back(tmp.target);
+        b.textures[k] = tmp.texture;
+        // gl_FragCoord (window px, origin bottom left) → the blurred texture's uv.
+        PoolTarget* res = nullptr;
+        for (auto& t : pool_)
+          if (t.target == tmp.target) res = &t;
+        double sw = res ? res->w : r.w, sh = res ? res->h : r.h;
+        b.places[k][0] = static_cast<float>(local.x);
+        b.places[k][1] = static_cast<float>(H - local.y - local.h);
+        b.places[k][2] = static_cast<float>(sw / tmp.scale);
+        b.places[k][3] = static_cast<float>(sh / tmp.scale);
+      }
       // Back to this layer, as it was.
       gfx::PassDesc resume = pd;
       resume.keep = true;
@@ -1358,11 +1875,16 @@ void Renderer::beginRecording(gfx::IRect region, bool clipToRegion) {
   // A part of the frame: everything drawn into it is clipped to it (frames' clips intersect with it).
   scissorEnabled_ = clipToRegion;
   scissor_ = region;
+  clipRect_[0] = static_cast<float>(region.x), clipRect_[1] = static_cast<float>(region.y);
+  clipRect_[2] = static_cast<float>(region.x + region.w), clipRect_[3] = static_cast<float>(region.y + region.h);
   round_ = RoundClip{};
+  shapeClips_.clear();
+  shapeClip_ = -1;
 }
 
 void Renderer::finishRecording(gfx::TargetId target, const float clear[4], bool keep) {
   scissorEnabled_ = false;
+  shapeClip_ = -1;
   stencilDepth_ = 0;
   clips_.clear();
   current_ = 0;
@@ -1899,6 +2421,7 @@ void Renderer::blitCache(gfx::TargetId from, gfx::TargetId to, int dx, int dy, d
   for (int i = 0; i < 4; i++) pd.clear[i] = 0;
   if (!device_.beginPass(pd)) return;
   gfx::DrawCall call;
+  call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
   call.pipeline = pipelines_[static_cast<int>(Pass::CompositeReplace)];
   call.instanceCount = 1;
   float r[2][4];

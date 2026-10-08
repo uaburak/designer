@@ -38,6 +38,7 @@ struct Stroke {
   StrokeJoin join = StrokeJoin::MITER;
   double miterLimit = 4;
   std::vector<double> dashes;
+  bool fitDashes = false;  // rectangles and frames: Figma's dashes fitted to each side (geom::StrokeStyle)
   Shape::Kind primitive = Shape::Kind::Path;  // Rect / Ellipse: a plain shape's box (SVG insets or outsets it)
   Vec2 size;
   CornerRadii radii{0, 0, 0, 0};

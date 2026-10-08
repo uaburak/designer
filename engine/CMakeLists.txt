@@ -24,6 +24,7 @@ add_library(eng_core STATIC
   src/base/DerivedIds.cpp
   src/schema/SchemaTable.cpp
   src/scene/Node.cpp
+  src/scene/Extras.cpp
   src/scene/Document.cpp
   src/scene/ChangeSet.cpp
   src/scene/CodecJson.cpp
@@ -152,8 +153,10 @@ else()
     tests/unit/text.render.test.cpp
     tests/unit/geometry.path.test.cpp
     tests/unit/geometry.boolean.test.cpp
+    tests/unit/geometry.figma_golden.test.cpp
     tests/unit/editor.vector.test.cpp
     tests/unit/render.paths.test.cpp
+    tests/unit/render.effects.test.cpp
     tests/unit/render.cache.test.cpp
     tests/unit/text.stored.test.cpp
     tests/unit/text.parity.test.cpp

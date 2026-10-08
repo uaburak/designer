@@ -134,6 +134,9 @@ class FontRegistry {
   // requests it) or when it is missing.
   Font* find(const FontName& name, State* state = nullptr);
   State state(const FontName& name) const;
+  // What text in a missing font draws with: Inter at the nearest weight and slant of `name`'s style (a missing Bold
+  // stays bold), Inter Regular until that arrives (nullptr while neither has loaded).
+  Font* substituteFor(const FontName& name);
   // Inter Regular: what missing fonts and the overlays draw with (nullptr while it loads).
   Font* defaultFont();
   // A fallback font that has `codePoint` (requesting the list's fonts in turn), or nullptr.

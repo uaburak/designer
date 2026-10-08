@@ -2,6 +2,7 @@
 // the CurveCache), any paint (gradients and images span the text box),
 // decorations as rectangles (docs/engine.md §7.5).
 
+#include <algorithm>
 #include <cmath>
 
 #include "render/Renderer.h"
@@ -23,12 +24,13 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   Rect onScreen = transformedBounds(m * Mat2x3::translate(ink.x, ink.y), ink.w, ink.h);
   Rect padded{onScreen.x - 2, onScreen.y - 2, onScreen.w + 4, onScreen.h + 4};
   if (!padded.intersects(screen_)) return;
-  // LOD (docs/engine.md §6.8): an em under 3 device pixels draws as greeked bars — each line's extent at 35 % of
-  // its colour — instead of glyphs nobody can read.
+  // LOD (docs/engine.md §6.8): glyphs down to an em of one device pixel (Figma still draws small text as glyphs:
+  // dark blobs, not faint bars, in its own thumbnails); under that, each line as a bar holding the line's ink — its
+  // glyphs' area spread over the bar (full colour × coverage), so the text weighs on the page as its glyphs would.
   double scale = levelScale(m);
   float em = 0;
   for (const text::LaidGlyph& g : L->glyphs) em = std::max(em, g.size);
-  if (!L->glyphs.empty() && em * scale < 3 && !exporting_) {
+  if (!L->glyphs.empty() && em * scale < kGlyphMinEmPx && !exporting_) {
     stats_.greeked++;
     const text::LaidGlyph& first = L->glyphs.front();
     const auto* fills = L->styles[first.style].fills;
@@ -43,10 +45,17 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       if (l.width <= 0 || l.glyphCount == 0) continue;
       double h = std::max(l.ascent * 0.7, 0.0);
       Rect r{l.x, l.baseline - h, l.width, h};
+      double ink = 0;
+      for (uint32_t k = l.firstGlyph; k < l.firstGlyph + l.glyphCount && k < L->glyphs.size(); k++) {
+        const text::LaidGlyph& g = L->glyphs[k];
+        ink += glyphArea(g.font, g.glyph) * static_cast<double>(g.size) * g.size;
+      }
+      double coverage = r.w * r.h > 0 ? std::clamp(ink / (r.w * r.h), 0.0, 1.0) : 0;
+      if (coverage <= 0) continue;
       Mat2x3 bm = m * Mat2x3::translate(r.x, r.y);
       DrawInstance q = makeShape(bm, {r.w, r.h}, ShapeKind::Rect, kSquare, Color{}, 1, Color{}, 0, 0, 0);
       DrawState state;
-      if (!setPaint(q, state, bar, Mat2x3::translate(r.x, r.y), p.size, alpha * 0.35)) continue;
+      if (!setPaint(q, state, bar, Mat2x3::translate(r.x, r.y), p.size, alpha * coverage)) continue;
       emit(q, Pass::Shape, state);
     }
     return;
@@ -99,6 +108,22 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       emit(q, Pass::Shape, state);
     }
   }
+}
+
+double Renderer::glyphArea(text::Font* font, uint32_t glyph) {
+  if (!font) return 0;
+  uint64_t key = (static_cast<uint64_t>(font->id()) << 32) | glyph;
+  auto it = glyphAreas_.find(key);
+  if (it != glyphAreas_.end()) return it->second;
+  // The outline's area (em²) by Green's theorem over its quadratics: ∑ (2 p0×p1 + 2 p1×p2 + p0×p2) / 6.
+  const text::GlyphOutline& o = font->outline(glyph);
+  double a = 0;
+  for (size_t i = 0; i + 6 <= o.curves.size(); i += 6) {
+    double x0 = o.curves[i], y0 = o.curves[i + 1], x1 = o.curves[i + 2], y1 = o.curves[i + 3], x2 = o.curves[i + 4], y2 = o.curves[i + 5];
+    a += (2 * (x0 * y1 - y0 * x1) + 2 * (x1 * y2 - y1 * x2) + (x0 * y2 - y0 * x2)) / 6;
+  }
+  if (glyphAreas_.size() > 65536) glyphAreas_.clear();
+  return glyphAreas_[key] = std::fabs(a);
 }
 
 void Renderer::drawGlyphs(const text::TextLayout& L, const Mat2x3& m, const Color& color, double alpha) {

@@ -4,6 +4,7 @@
 //
 //   npm run engine:shot -- [outDir]     (default: $TMPDIR/engine-shots)
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
+//   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass)
 //   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
@@ -378,6 +379,86 @@ async function e4Checks(files) {
     return { w: t.width, h: t.height, colours: colours.size };
   });
   check("thumbnails draw the new content", thumb && thumb.colours > 40, thumb ? `${thumb.w}×${thumb.h}, ${thumb.colours} colours` : "null");
+}
+
+// Round 7: Figma's newer effects and paints — progressive layer and background blurs, noise, texture, glass, NOISE and
+// PATTERN fills — on a sheet of their own (51:x), each checked by its pixels.
+function r7Scene() {
+  const solid = (r, g, b, a = 1) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: a, visible: true });
+  const T = (x, y) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y } });
+  const nodes = [];
+  let n = 1;
+  const add = (type, name, x, y, w, h, extra = {}, parent = "51:1") => {
+    const guid = `51:${++n}`;
+    nodes.push({ guid, phase: "CREATED", type, name, parentIndex: { guid: parent, position: `!${String(n).padStart(3, "0")}` },
+      size: { x: w, y: h }, ...T(x, y), fillPaints: [solid(0.85, 0.85, 0.85)], ...extra });
+    return guid;
+  };
+  nodes.push({ guid: "51:1", phase: "CREATED", type: "FRAME", name: "Round 7 effects", parentIndex: { guid: "0:1", position: "~~~" },
+    size: { x: 1240, y: 300 }, ...T(0, 2400), fillPaints: [solid(1, 1, 1)] });
+  const stripes = (x0, y0, w, h) => {
+    for (let i = 0; i * 10 < w; i++) add("ROUNDED_RECTANGLE", `Stripe ${i}`, x0 + i * 10, y0, 10, h, { fillPaints: [i % 2 ? solid(0.1, 0.2, 1) : solid(1, 0.1, 0.1)] });
+  };
+  // 51:2 progressive layer blur (sharp at the top, σ 12 at the bottom).
+  add("ROUNDED_RECTANGLE", "Progressive layer blur", 40, 40, 120, 200, { fillPaints: [solid(0.1, 0.1, 0.1)],
+    effects: [{ type: "FOREGROUND_BLUR", radius: 24, visible: true, blurOpType: "PROGRESSIVE", startRadius: 0, startOffset: { x: 0.5, y: 0 }, endOffset: { x: 0.5, y: 1 } }] });
+  // Stripes, a progressive background blur over them (51:…), glass over more stripes.
+  stripes(220, 40, 160, 200);
+  const pbg = add("ROUNDED_RECTANGLE", "Progressive background blur", 220, 40, 160, 200, { fillPaints: [solid(1, 1, 1, 0.01)],
+    effects: [{ type: "BACKGROUND_BLUR", radius: 40, visible: true, blurOpType: "PROGRESSIVE", startRadius: 0, startOffset: { x: 0.5, y: 0 }, endOffset: { x: 0.5, y: 1 } }] });
+  stripes(420, 40, 160, 200);
+  const glass = add("ROUNDED_RECTANGLE", "Glass", 440, 60, 120, 160, { fillPaints: [solid(1, 1, 1, 0.05)], cornerRadius: 40,
+    effects: [{ type: "GLASS", radius: 8, visible: true, specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, bevelSize: 20, chromaticAberration: 0.5, refractionRadius: 0 }] });
+  const noise = add("ROUNDED_RECTANGLE", "Noise", 620, 40, 120, 200, { fillPaints: [solid(1, 1, 1)],
+    effects: [{ type: "NOISE", color: { r: 0, g: 0, b: 0, a: 1 }, visible: true, blendMode: "NORMAL", noiseType: "MONOTONE", noiseSize: { x: 4, y: 4 }, density: 1 }] });
+  const texture = add("ROUNDED_RECTANGLE", "Texture", 780, 40, 120, 200, { fillPaints: [solid(0, 0, 0)],
+    effects: [{ type: "GRAIN", radius: 10, visible: true, noiseSize: { x: 3, y: 3 }, clipToShape: false }] });
+  const noisePaint = add("ROUNDED_RECTANGLE", "Noise fill", 940, 40, 120, 90, {
+    fillPaints: [{ type: "NOISE", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 1, visible: true, noiseType: "MULTITONE", density: 1, noiseSize: { x: 4, y: 4 } }] });
+  const dot = add("ELLIPSE", "Pattern source", 1100, 40, 20, 20, { fillPaints: [solid(1, 0, 0)] });
+  const pattern = add("ROUNDED_RECTANGLE", "Pattern fill", 940, 150, 200, 100, {
+    fillPaints: [{ type: "PATTERN", opacity: 1, visible: true, scale: 1, sourceNodeId: { sessionID: 51, localID: Number(dot.split(":")[1]) }, patternSpacing: { x: 1, y: 1 } }] });
+  return { message: { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes }, pbg, glass, noise, texture, noisePaint, pattern };
+}
+
+async function r7Checks(files) {
+  const scene = r7Scene();
+  await engine((message) => {
+    const e = window.__designerEngine;
+    e.applyChanges(message, "user");
+    e.setSelection(["51:1"]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([]);
+  }, scene.message);
+  await page.mouse.move(2, 2);
+  await settle();
+  files.push(await shot("37-round7-effects"));
+  const [top, bottom] = await pixelsAt([await screenOf("51:2", -3, 8), await screenOf("51:2", -3, 192)]);
+  check("progressive layer blur: sharp at the start, blurred at the end", top && bottom && top[0] > 245 && bottom[0] < 235, `${top} / ${bottom}`);
+  // The stripes: a red one's middle at the top (σ ≈ 0) stays red; at the bottom (σ 20) red and blue mix.
+  const [sharp, mixed] = await pixelsAt([await screenOf(scene.pbg, 5, 4), await screenOf(scene.pbg, 5, 196)]);
+  check("progressive background blur: sharp at the start, mixed at the end", sharp && mixed && sharp[0] > 200 && sharp[2] < 80 && mixed[2] > 60 && mixed[0] > 60,
+    `${sharp} / ${mixed}`);
+  // Glass: the frosted stripes in the middle (mixed), lit at the top-left edge.
+  const [mid, lit] = await pixelsAt([await screenOf(scene.glass, 60, 80), await screenOf(scene.glass, 14, 14)]);
+  check("glass: the backdrop frosted inside, lit along the edge facing the light", mid && lit && mid[0] > 40 && mid[2] > 40 && lit[0] + lit[1] + lit[2] > mid[0] + mid[1] + mid[2],
+    `${mid} / ${lit}`);
+  // Noise: grains of different strengths over the white fill; nothing outside the shape.
+  const grains = await pixelsAt(await Promise.all([...Array(12).keys()].map((k) => screenOf(scene.noise, 10 + k * 8.5, 100))));
+  const values = new Set(grains.map((g) => g[0] >> 3));
+  const [outside] = await pixelsAt([await screenOf(scene.noise, -4, 100)]);
+  check("noise: grains of different strengths within the shape", values.size >= 4 && near(outside, [255, 255, 255, 255], 2), `${values.size} levels, outside ${outside}`);
+  // Texture: the black layer's edge spattered past its box (radius 10): along a line 4 px outside, some dark, some white.
+  const edge = await pixelsAt(await Promise.all([...Array(16).keys()].map((k) => screenOf(scene.texture, -4, 20 + k * 10))));
+  const dark = edge.filter((p) => p[0] < 128).length;
+  check("texture: the edge spattered past the box", dark >= 2 && dark <= 14, `${dark} of 16 dark`);
+  // NOISE fill (Multi): colours vary.
+  const multi = await pixelsAt(await Promise.all([...Array(8).keys()].map((k) => screenOf(scene.noisePaint, 10 + k * 13, 45))));
+  const hues = new Set(multi.map((p) => `${p[0] >> 6}${p[1] >> 6}${p[2] >> 6}`));
+  check("NOISE fill: Multi draws grains of many colours", hues.size >= 4, `${hues.size} colours`);
+  // PATTERN fill: the 20 px dot tiled 40 px apart (spacing 100 %): red at a tile's middle, white between.
+  const [tile, gap] = await pixelsAt([await screenOf(scene.pattern, 50, 50), await screenOf(scene.pattern, 70, 70)]);
+  check("PATTERN fill: the source tiled", tile && gap && tile[0] > 200 && tile[1] < 60 && gap[1] > 200, `${tile} / ${gap}`);
 }
 
 // E6: components and instances — Figma's own instances (structure.fig), then a set, an instance and their purple.
@@ -982,9 +1063,10 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
+    else if (only === "r7") await r7Checks(files);
     else if (only === "e6") await e6Checks(files);
     else if (only === "export") await exportChecks(files);
     else if (only === "e8") await e8Checks(files);
@@ -1162,6 +1244,7 @@ try {
 
   // E4 / E5.
   await e4Checks(files);
+  await r7Checks(files);
   // E6.
   await e6Checks(files);
   await variablesChecks(files);

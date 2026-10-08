@@ -104,8 +104,10 @@ class WebGL2Device final : public Device {
     }
     emscripten_webgl_make_context_current(context_);
     using namespace gl;
-    if (!build(programs_[0], kDrawVertex, std::string(kDrawFragmentHead) + kPaintFunctions + kDrawFragmentBody)) return false;
-    if (!build(programs_[1], kCompositeVertex, kCompositeFragment)) return false;
+    if (!build(programs_[0], kDrawVertex, std::string(kDrawFragmentHead) + kCurveFunctions + kClipFunctions + kPaintFunctions + kDrawFragmentBody))
+      return false;
+    if (!build(programs_[1], kCompositeVertex, std::string(kCompositeFragmentHead) + kCurveFunctions + kClipFunctions + kCompositeFragmentBody))
+      return false;
     if (!build(programs_[2], kBlurVertex, kBlurFragment)) return false;
     glGenVertexArrays(1, &vao_);
     glBindVertexArray(vao_);
@@ -267,7 +269,7 @@ class WebGL2Device final : public Device {
       std::memcpy(st.uniforms[pi], call.uniforms, sizeof call.uniforms);
       st.uniformsValid[pi] = true;
     }
-    for (int t = 0; t < 3; t++) {
+    for (int t = 0; t < DrawCall::kTextures; t++) {
       TextureId id = call.textures[t];
       GLuint gl = id && id < textures_.size() ? textures_[id].gl : 0;
       if (st.textures[t] == gl && st.texturesValid) continue;
@@ -538,8 +540,8 @@ class WebGL2Device final : public Device {
     p.v = glGetUniformLocation(p.program, "u_v");
     p.stencilPass = glGetUniformLocation(p.program, "u_stencilPass");
     glUseProgram(p.program);
-    const char* samplers[3] = {"u_t0", "u_t1", "u_t2"};
-    for (int i = 0; i < 3; i++) {
+    const char* samplers[DrawCall::kTextures] = {"u_t0", "u_t1", "u_t2", "u_t3"};
+    for (int i = 0; i < DrawCall::kTextures; i++) {
       GLint loc = glGetUniformLocation(p.program, samplers[i]);
       if (loc >= 0) glUniform1i(loc, i);
     }
@@ -561,7 +563,7 @@ class WebGL2Device final : public Device {
     float uniforms[3][kUniformSlots][4] = {};
     bool uniformsValid[3] = {false, false, false};
     int stencilPass[3] = {-1, -1, -1};
-    GLuint textures[3] = {0, 0, 0};
+    GLuint textures[DrawCall::kTextures] = {0, 0, 0, 0};
     bool texturesValid = false;
     int blend = -1, colour = -1, stencil = -1, stencilFunc = -1, stencilOp = -1, scissor = -1;
     int stencilRef = -1;

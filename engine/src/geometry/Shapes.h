@@ -15,6 +15,9 @@ namespace eng::geom {
 // side, both shrink by the same factor (the smallest factor over the four sides wins).
 CornerRadii clampRadii(Vec2 size, const CornerRadii& radii);
 
+// Each corner's room for its rounding and smoothing (tl tr br bl), and `radii` kept within it (figma-squircle's
+// per-edge budget: a corner next to a square one has the whole edge).
+CornerRadii cornerBudgets(Vec2 size, CornerRadii& radii);
 Path rectPath(Vec2 size, const CornerRadii& radii, double smoothing = 0);
 Path ellipsePath(Vec2 size, const ArcData& arc);
 // Regular polygon / star with `count` points, stretched to fill the box (top point at the top), corners rounded by `cornerRadius`.

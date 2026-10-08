@@ -90,7 +90,8 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
           className={cx(styles.header, canDrag && styles.draggable)}
           onPointerDown={(e) => {
             const el = panel.current;
-            if (!canDrag || !el || e.button !== 0 || (e.target as Element).closest("button,input,[role=tab],[role=combobox]")) return;
+            // (A press in an overlay the header opened — a Select's list — bubbles here through the portal: not a drag.)
+            if (!canDrag || !el || e.button !== 0 || !e.currentTarget.contains(e.target as Node) || (e.target as Element).closest("button,input,[role=tab],[role=combobox]")) return;
             capture(e.currentTarget, e.pointerId);
             const start = { x: e.clientX, y: e.clientY, left: el.offsetLeft, top: el.offsetTop };
             const move = (ev: PointerEvent) => {

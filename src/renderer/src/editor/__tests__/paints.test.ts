@@ -25,7 +25,7 @@ import {
 import { collectColors, regradient, showSelectionColors } from "../model/selectionColors";
 import { hexToColor } from "../model/color";
 import { messageAt } from "../model/clipboard";
-import { defaultEffect, defaultGuide, guideKind, guideLabel, withEffectType } from "../panels/design/Effects";
+import { EFFECT_TYPES, defaultEffect, defaultGuide, guideKind, guideLabel, hasEffectBlend, withBlurType, withEffectType } from "../panels/design/Effects";
 import { dashOf, miterAngle, miterLimitOf, strokeSideFields, strokeSideOf } from "../panels/design/Stroke";
 import type { PanelNode } from "../panels/design/shared";
 import { fitImageSize, imageLayerName, memoryImageStore, sha1Hex } from "../images";
@@ -219,6 +219,23 @@ describe("effects and layout guides", () => {
     expect(inner).toMatchObject({ type: "INNER_SHADOW", offset: { x: 2, y: 9 }, radius: 12 });
     expect(inner.showShadowBehindNode).toBeUndefined();
     expect(withEffectType(s, "BACKGROUND_BLUR")).toEqual({ type: "BACKGROUND_BLUR", radius: 12, visible: true });
+  });
+
+  it("the type menu's order and Figma's new Noise, Texture and Glass (live popovers)", () => {
+    expect(EFFECT_TYPES.map((t) => t.label)).toEqual(["Inner shadow", "Drop shadow", "Layer blur", "Background blur", "Noise", "Texture", "Glass"]);
+    expect(defaultEffect("NOISE")).toMatchObject({ type: "NOISE", noiseType: "MONOTONE", noiseSize: { x: 0.5, y: 0.5 }, density: 1, color: { r: 0, g: 0, b: 0, a: 0.25 } });
+    expect(defaultEffect("GRAIN")).toMatchObject({ type: "GRAIN", noiseSize: { x: 0.5, y: 0.5 }, radius: 4, clipToShape: false });
+    expect(defaultEffect("GLASS")).toMatchObject({ type: "GLASS", specularAngle: -45, specularIntensity: 0.8, refractionIntensity: 0.8, bevelSize: 20, chromaticAberration: 0.5, radius: 4, refractionRadius: 0 });
+    // Blend mode on shadows and noise only.
+    expect(EFFECT_TYPES.filter((t) => hasEffectBlend(defaultEffect(t.value))).map((t) => t.value)).toEqual(["INNER_SHADOW", "DROP_SHADOW", "NOISE"]);
+  });
+
+  it("blurs: Uniform / Progressive (Start 0, End the radius, top to bottom); a blur keeps its type across blurs", () => {
+    const p = withBlurType({ ...defaultEffect("FOREGROUND_BLUR"), radius: 10 }, true);
+    expect(p).toMatchObject({ blurOpType: "PROGRESSIVE", startRadius: 0, radius: 10, startOffset: { x: 0.5, y: 0 }, endOffset: { x: 0.5, y: 1 } });
+    expect(withEffectType(p, "BACKGROUND_BLUR")).toMatchObject({ type: "BACKGROUND_BLUR", blurOpType: "PROGRESSIVE", radius: 10 });
+    expect(withBlurType(p, false).blurOpType).toBe("NORMAL");
+    expect(withEffectType(p, "NOISE")).toMatchObject({ type: "NOISE", noiseType: "MONOTONE" });
   });
 
   it("guides: Grid 10px red 10%; Columns / Rows 5 stretch, gutter 20", () => {

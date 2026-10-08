@@ -333,10 +333,19 @@ class Renderer {
     float rect[4] = {0, 0, 0, 0};   // x0 y0 x1 y1
     float radii[4] = {0, 0, 0, 0};  // tl tr br bl
   };
+  // A clip shape (a turned, smoothed or second rounded clipping frame), anti-aliased in the shaders by its coverage
+  // (gfx/gl/Shaders.h kClipFunctions, uniform slots 12–15): canvas device px → the shape's own space, and the shape.
+  struct ShapeClip {
+    float rows[2][4] = {};  // (a b c kind), (d e f first curve texel); kind 1 rounded box, 2 path, 3 path (ODD)
+    float size[4] = {};     // the box's width, height
+    float radii[4] = {};    // tl tr br bl, in its own space
+  };
   // A draw's extra state (batches only merge when it is equal).
   struct DrawState {
     gfx::TextureId image = 0;   // the image paint's texture, or the blurred backdrop
-    int backdrop = -1;          // the backdrop blur whose texture paints (PaintKind::Backdrop)
+    int backdrop = -1;          // the backdrop blur whose texture paints (PaintKind::Backdrop / Progressive / Glass)
+    int level = 0;              // a progressive backdrop blur: the interval between its levels `level` and `level + 1`
+    int clip = -1;              // the clip shape in force (shapeClips_), −1: none
     float filters[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     bool operator==(const DrawState& o) const;
   };
@@ -360,7 +369,12 @@ class Renderer {
     double sigma = 0;  // BackdropBlur: device px
     // Blit (the content cache onto the canvas): the texture, where its top-left lands (device px), texels per
     // device px, its height in texels.
+    // Composite modes 5–7 (progressive blur, noise, texture): uniform slots 16–19 (gfx/gl/Shaders.h).
+    bool fxOn = false;
+    float fx[4][4] = {};
     RoundClip round;  // Composite: the rounded clip it lands in
+    float clipRect[4] = {0, 0, -1, -1};  // Composite: the clip rectangle it lands in (canvas device px; x1 < x0: none)
+    int shapeClip = -1;                  // Composite: the clip shape it lands in
     gfx::TextureId blitTexture = 0;
     Vec2 blitOrigin;
     double blitScale = 1;
@@ -386,6 +400,8 @@ class Renderer {
     DrawInstance shape;
     bool path;
     RoundClip round;  // the rounded clip before this one
+    float clipRect[4] = {0, 0, 0, 0};  // the clip rectangle before this one
+    int shapeClip = -1;                // the clip shape before this one
   };
   struct PoolTarget {
     gfx::TargetId target = 0;
@@ -394,10 +410,18 @@ class Renderer {
     bool busy = false;
     uint64_t lastUsed = 0;
   };
+  // A background blur's (or glass's) copy of the backdrop, blurred: one level, or a progressive blur's levels (σ
+  // ascending; the shape is drawn once per interval between two, each pixel by the one its σ falls in).
+  static constexpr int kMaxBlurLevels = 8;
   struct BackdropBlur {
-    gfx::TextureId texture = 0;  // set at execution
-    gfx::IRect rect;             // device px, canvas space (window y computed per pass)
-    float place[4] = {0, 0, 1, 1};
+    enum class Kind : uint8_t { Plain, Progressive, Glass } kind = Kind::Plain;
+    int count = 1;
+    double sigmas[kMaxBlurLevels] = {};                    // device px
+    gfx::TextureId textures[kMaxBlurLevels] = {};          // set at execution
+    float places[kMaxBlurLevels][4] = {};                  // x, y in window px, width, height in texels
+    float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
+    double start = 0, end = 0;                             // progressive: σ at the start and at the end (device px)
+    float glass[2][4] = {};                                // glass: slots 6 and 8
   };
 
   void ensurePipelines();
@@ -408,12 +432,26 @@ class Renderer {
   void drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss, double alpha);
   // The siblings from render-tree node `first` up to `end` (one past the last), in paint order.
   void drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha);
-  void drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone);
+  // strokes = false: without the node's own strokes (drawn apart, above its inner shadows).
+  void drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone, bool strokes = true);
   void drawFills(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool whiteMask = false);
   void drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
-  void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e);
+  // A background blur (uniform or progressive), or glass: the backdrop copied, blurred and painted into the shape.
+  void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e,
+                          bool glass = false);
+  // Layer `src` composited through a progressive blur (σ `s0` at the effect's start to `s1` at its end, device px):
+  // copies of it at levels between, each pixel from the two levels around its σ.
+  void progressiveComposite(int src, float opacity, BlendMode bm, gfx::IRect r, double s0, double s1, const Effect& e,
+                            const Mat2x3& m, Vec2 size);
+  // A PATTERN fill: its source layer tiled over the node's box, through the node's fill shape.
+  void drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint);
+  int patternDepth_ = 0;
   void drawText(const Document& doc, const NodeProps& p, Guid id, const Mat2x3& m, double alpha);
+  // The smallest em (device px) drawn as glyphs; smaller text is a bar per line holding the line's ink.
+  static constexpr double kGlyphMinEmPx = 1;
+  // A glyph's outline area in em² (cached): the ink of greeked lines.
+  double glyphArea(text::Font* font, uint32_t glyph);
   // Glyphs of `layout` placed by `m` (layout space → CSS px), all in `color`.
   void drawGlyphs(const text::TextLayout& layout, const Mat2x3& m, const Color& color, double alpha);
   void drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
@@ -488,6 +526,8 @@ class Renderer {
   uint64_t poolBytes() const;
   void dropIdleTargets();  // after a frame: pooled targets unused for 30 frames
   void rows(float out[2][4], double sx, double sy, int ox, int oy, int w, int h) const;
+  // Uniform slots 12–15 of a draw or composite: the clip shape `index` (−1: none).
+  void setShapeClip(gfx::DrawCall& call, int index) const;
 
   gfx::Device& device_;
   gfx::PipelineId pipelines_[static_cast<int>(Pass::Count)] = {};
@@ -497,6 +537,7 @@ class Renderer {
   ImageCache images_;
   TextLayouts* texts_ = nullptr;
   std::unordered_map<std::string, std::unique_ptr<text::TextLayout>> labels_;
+  std::unordered_map<uint64_t, double> glyphAreas_;
   // The pages' render trees (the current page's, and those thumbnails were drawn from), kept in step with the
   // document (render/RenderTree.h).
   std::unordered_map<Guid, RenderTree, GuidHash> trees_;
@@ -561,8 +602,11 @@ class Renderer {
   int current_ = 0;  // the layer being recorded
   std::vector<Clip> clips_;
   bool scissorEnabled_ = false;
-  gfx::IRect scissor_;
+  gfx::IRect scissor_;     // whole device px: every pixel the clips touch (hard bounds: GPU scissors, culling)
+  float clipRect_[4] = {0, 0, 0, 0};  // the same clip, exact (fractional device px): anti-aliased in the shaders
   RoundClip round_;
+  std::vector<ShapeClip> shapeClips_;  // this frame's
+  int shapeClip_ = -1;                 // the clip shape in force
   uint8_t stencilDepth_ = 0;
   gfx::TextureId curveTexture_ = 0;
   RenderStats stats_;

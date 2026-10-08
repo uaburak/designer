@@ -431,6 +431,20 @@ Font* FontRegistry::find(const FontName& name, State* state) {
 
 Font* FontRegistry::defaultFont() { return find(FontName{"Inter", "Regular", ""}); }
 
+Font* FontRegistry::substituteFor(const FontName& name) {
+  int weight = 400;
+  bool italic = false;
+  styleWeight(name.style, weight, italic);
+  static constexpr const char* kNames[] = {"Thin", "Extra Light", "Light", "Regular", "Medium", "Semi Bold", "Bold", "Extra Bold", "Black"};
+  int i = std::clamp((weight + 50) / 100 - 1, 0, 8);
+  std::string style = kNames[i];
+  if (italic) style = i == 3 ? "Italic" : style + " Italic";
+  if (style == "Regular") return defaultFont();
+  State s;
+  Font* f = find(FontName{"Inter", style, ""}, &s);
+  return f ? f : defaultFont();
+}
+
 Font* FontRegistry::fallbackFor(uint32_t cp) {
   for (const std::string& family : fallbacks_) {
     State s;

@@ -316,7 +316,7 @@ const server = await createServer({
   mode: "demo",
   root: repo,
   resolve: { alias: [{ find: /^@\//, replacement: path.join(repo, "src/renderer/src") + "/" }] },
-  server: { port: 5241, strictPort: false, fs: { allow: [repo] }, hmr: false, watch: null },
+  server: { port: 5411, strictPort: false, fs: { allow: [repo] }, hmr: false, watch: null },
   appType: "custom",
   logLevel: "error",
   ssr: { noExternal: ["electron"] },
@@ -325,13 +325,23 @@ const server = await createServer({
     {
       name: "fig-fidelity",
       enforce: "pre",
-      resolveId: (id) => (id === "/__fid/page.js" ? "\0fid-page" : id === "electron" ? "\0fid-electron" : null),
+      // src/main/fonts.ts imports ./views (the WebContentsView wiring, which reads __dirname at load): a stub.
+      resolveId: (id, importer) =>
+        id === "/__fid/page.js"
+          ? "\0fid-page"
+          : id === "electron"
+            ? "\0fid-electron"
+            : id === "./views" && importer?.endsWith(path.join("src", "main", "fonts.ts"))
+              ? "\0fid-views"
+              : null,
       load: (id) =>
         id === "\0fid-page"
           ? `(${pageMain.toString()})();`
           : id === "\0fid-electron"
-            ? `export const app = { getPath: () => ${JSON.stringify(path.join(tmpdir(), "designer-fig-fidelity"))} }; export default { app };`
-            : null,
+            ? `export const app = { getPath: () => ${JSON.stringify(path.join(tmpdir(), "designer-fig-fidelity"))} }; export const webContents = { getAllWebContents: () => [] }; export default { app };`
+            : id === "\0fid-views"
+              ? "export const viewOf = () => null;"
+              : null,
       configureServer(s) {
         s.middlewares.use(async (req, res, next) => {
           const url = new URL(req.url, "http://x");

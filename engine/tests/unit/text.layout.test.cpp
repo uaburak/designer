@@ -229,6 +229,17 @@ TEST_CASE("text: a font nobody has is requested, then missing: drawn with Inter,
   CHECK(M->missingFont);
   CHECK_FALSE(M->pendingFont);
   CHECK(M->glyphs[0].font == fonts.find({"Inter", "Regular", ""}));
+  // A missing Bold stays bold (audit 2026-10-08 #12: the bold title drawn regular): Inter at the nearest weight.
+  p.text().fontName = {"No Such Font", "Bold", ""};
+  lay(p);
+  fonts.markMissing("No Such Font", "Bold");
+  auto B = lay(p);
+  CHECK(B->missingFont);
+  CHECK(B->glyphs[0].font == fonts.find({"Inter", "Bold", ""}));
+  p.text().fontName = {"No Such Font", "SemiBold Italic", ""};
+  lay(p);
+  fonts.markMissing("No Such Font", "SemiBold Italic");
+  CHECK(lay(p)->glyphs[0].font == fonts.find({"Inter", "Semi Bold Italic", ""}));
 }
 
 TEST_CASE("text: caret positions, line lookup, hit-testing, selection rects") {

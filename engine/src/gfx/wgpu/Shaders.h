@@ -2,7 +2,7 @@
 // draw the same pixels. Interim: translated by hand until tools/shadergen generates both from one source (Figma
 // keeps GLSL as the source and generates WGSL with naga, docs/research/figma/R10-webgpu.md).
 //
-// Uniforms: `u.v[0..11]` are gfx::DrawCall::uniforms (the GLSL `u_v[12]`); the device appends `u.v[12]` = (y sign,
+// Uniforms: `u.v[0..19]` are gfx::DrawCall::uniforms (the GLSL `u_v[20]`); the device appends `u.v[20]` = (y sign,
 // the framebuffer's height in px, stencil pass, 0). WebGPU's framebuffer y runs down where GL's runs up: offscreen
 // targets are drawn with clip y negated (y sign −1), so a target's rows sit in memory as GL leaves them (bottom row
 // first) and every texture read, copy and scissor means the same thing on both backends; the canvas is drawn
@@ -15,21 +15,146 @@ namespace eng::gfx::wgsl {
 inline constexpr const char* kCommon = R"(
 diagnostic(off, derivative_uniformity);
 
-struct Uniforms { v: array<vec4f, 13> };
+struct Uniforms { v: array<vec4f, 21> };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
 // GL's gl_FragCoord.xy (origin bottom left of the framebuffer) from WebGPU's position (origin top left).
 fn glFragCoord(p: vec4f) -> vec2f {
-  return vec2f(p.x, select(u.v[12].y - p.y, p.y, u.v[12].x < 0.0));
+  return vec2f(p.x, select(u.v[20].y - p.y, p.y, u.v[20].x < 0.0));
 }
 // GL's clip position from the draw's: y negated on offscreen targets (see the header).
 fn clipOut(x: f32, y: f32) -> vec4f {
-  return vec4f(x, y * u.v[12].x, 0.0, 1.0);
+  return vec4f(x, y * u.v[20].x, 0.0, 1.0);
 }
 fn quadCorner(id: u32) -> vec2f {
   return vec2f(select(0.0, 1.0, id == 1u || id == 2u || id == 4u), select(0.0, 1.0, id == 2u || id == 4u || id == 5u));
 }
 fn glMod(x: f32, y: f32) -> f32 { return x - y * floor(x / y); }
+)";
+
+
+// ---- Curves and clips, shared by Draw and Composite (gl/Shaders.h kCurveFunctions, kClipFunctions); CURVES is
+// replaced by the program's curve texture (Draw: t0, Composite: t3) ----
+inline constexpr const char* kCurveFunctions = R"(
+fn texel(i: i32) -> vec4f { return textureLoad(CURVES, vec2i(i & 2047, i >> 11u), 0); }
+
+fn crossX(p0: vec2f, p1: vec2f, p2: vec2f, ppe: f32, cov: ptr<function, f32>, wgt: ptr<function, f32>) {
+  let code = (0x2E74u >> (select(0u, 2u, p0.y > 0.0) + select(0u, 4u, p1.y > 0.0) + select(0u, 8u, p2.y > 0.0))) & 3u;
+  if (code == 0u) { return; }
+  let ay = p0.y - 2.0 * p1.y + p2.y;
+  let by = p0.y - p1.y;
+  let ax = p0.x - 2.0 * p1.x + p2.x;
+  let bx = p0.x - p1.x;
+  var t1v: f32;
+  var t2v: f32;
+  if (abs(ay) < 1e-5 * max(abs(by), 1e-30) || abs(ay) < 1e-12) {
+    t1v = p0.y / (2.0 * by);
+    t2v = t1v;
+  } else {
+    let d = sqrt(max(by * by - ay * p0.y, 0.0));
+    t1v = (by - d) / ay;
+    t2v = (by + d) / ay;
+  }
+  let x1 = (ax * t1v - 2.0 * bx) * t1v + p0.x;
+  let x2 = (ax * t2v - 2.0 * bx) * t2v + p0.x;
+  if ((code & 1u) != 0u) {
+    *cov += clamp(x1 * ppe + 0.5, 0.0, 1.0);
+    *wgt = max(*wgt, clamp(1.0 - abs(x1 * ppe) * 2.0, 0.0, 1.0));
+  }
+  if (code > 1u) {
+    *cov -= clamp(x2 * ppe + 0.5, 0.0, 1.0);
+    *wgt = max(*wgt, clamp(1.0 - abs(x2 * ppe) * 2.0, 0.0, 1.0));
+  }
+}
+
+fn fold(w: f32, evenOdd: bool) -> f32 { return select(min(abs(w), 1.0), 1.0 - abs(glMod(w, 2.0) - 1.0), evenOdd); }
+
+fn coverage(start: i32, p: vec2f, ppe: vec2f, evenOdd: bool) -> f32 {
+  let h = texel(start);
+  let b = texel(start + 1);
+  let nH = i32(h.x);
+  let nV = i32(h.y);
+  let size = max(b.zw - b.xy, vec2f(1e-20));
+  let bh = clamp(i32(floor((p.y - b.y) / size.y * f32(nH))), 0, nH - 1);
+  let bv = clamp(i32(floor((p.x - b.x) / size.x * f32(nV))), 0, nV - 1);
+  let dh = texel(start + 2 + bh);
+  let dv = texel(start + 2 + nH + bv);
+  var hc = 0.0;
+  var hw = 0.0;
+  var vc = 0.0;
+  var vw = 0.0;
+  var first = i32(dh.x);
+  var count = i32(dh.y);
+  for (var k = 0; k < count; k++) {
+    let ci = i32(texel(first + (k >> 2u))[k & 3]);
+    let a = texel(ci);
+    let c = texel(ci + 1);
+    if ((c.z - p.x) * ppe.x < -0.5) { break; }
+    crossX(a.xy - p, a.zw - p, c.xy - p, ppe.x, &hc, &hw);
+  }
+  first = i32(dv.x);
+  count = i32(dv.y);
+  for (var k = 0; k < count; k++) {
+    let ci = i32(texel(first + (k >> 2u))[k & 3]);
+    let a = texel(ci);
+    let c = texel(ci + 1);
+    if ((c.w - p.y) * ppe.y < -0.5) { break; }
+    crossX((a.xy - p).yx, (a.zw - p).yx, (c.xy - p).yx, ppe.y, &vc, &vw);
+  }
+  let ch = fold(hc, evenOdd);
+  let cv = fold(vc, evenOdd);
+  return clamp(max((ch * hw + cv * vw) / max(hw + vw, 1.0 / 65536.0), min(ch, cv)), 0.0, 1.0);
+}
+
+)";
+
+inline constexpr const char* kClipFunctions = R"(
+fn clipRectCoverage(dp: vec2f, r: vec4f) -> f32 {
+  let lo = max(dp - 0.5, r.xy);
+  let hi = min(dp + 0.5, r.zw);
+  let c = clamp(hi - lo, vec2f(0.0), vec2f(1.0));
+  return c.x * c.y;
+}
+fn sdClipBox(p: vec2f, b: vec2f, r: vec4f) -> f32 {
+  var rr = select(select(r.x, r.w, p.y > 0.0), select(r.y, r.z, p.y > 0.0), p.x > 0.0);
+  rr = clamp(rr, 0.0, min(b.x, b.y));
+  let q = abs(p) - b + rr;
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2f(0.0))) - rr;
+}
+fn shapeClip(dp: vec2f) -> f32 {
+  let A = u.v[12];
+  if (A.w < 0.5) { return 1.0; }
+  let B = u.v[13];
+  let l = vec2f(dot(A.xyz, vec3f(dp, 1.0)), dot(B.xyz, vec3f(dp, 1.0)));
+  if (A.w < 1.5) {
+    let px = max(0.5 * (length(vec2f(A.x, B.x)) + length(vec2f(A.y, B.y))), 1e-6);
+    let h = u.v[14].xy * 0.5;
+    return clamp(0.5 - sdClipBox(l - h, h, u.v[15]) / px, 0.0, 1.0);
+  }
+  let ppe = 1.0 / max(vec2f(length(A.xy), length(B.xy)), vec2f(1e-12));
+  return coverage(i32(B.w + 0.5), l, ppe, A.w > 2.5);
+}
+
+fn effectSpace(dp: vec2f) -> vec2f { return vec2f(dot(u.v[16].xyz, vec3f(dp, 1.0)), dot(u.v[17].xyz, vec3f(dp, 1.0))); }
+fn progressT(dp: vec2f) -> f32 {
+  let uu = effectSpace(dp);
+  let s = u.v[18].xy;
+  let d = u.v[18].zw - s;
+  return clamp(dot(uu - s, d) / max(dot(d, d), 1e-12), 0.0, 1.0);
+}
+fn hashU(x0: u32) -> u32 {
+  var x = x0;
+  x ^= x >> 16u;
+  x *= 0x7feb352du;
+  x ^= x >> 15u;
+  x *= 0x846ca68bu;
+  x ^= x >> 16u;
+  return x;
+}
+fn hashCell(cell: vec2f, seed: u32) -> u32 {
+  return hashU((u32(i32(cell.x)) * 0x8da6b343u) ^ hashU(u32(i32(cell.y)) ^ (seed * 0xcb1ab31fu)));
+}
+fn unitOf(h: u32) -> f32 { return f32(h >> 8u) / 16777215.0; }
 )";
 
 // ---- Draw: shapes, paths and glyphs in one program (gl/Shaders.h kDrawVertex, kPaintFunctions, kDrawFragment*) ----
@@ -39,6 +164,8 @@ inline constexpr const char* kDraw = R"(
 @group(1) @binding(2) var s1: sampler;
 @group(1) @binding(3) var t2: texture_2d<f32>;
 @group(1) @binding(4) var s2: sampler;
+@group(1) @binding(5) var t3: texture_2d<f32>;
+@group(1) @binding(6) var s3: sampler;
 
 struct VIn {
   @builtin(vertex_index) id: u32,
@@ -112,8 +239,11 @@ var<private> v_round: vec4f;
 var<private> v_radii: vec4f;
 var<private> fragCoord: vec2f;
 var<private> o_color: vec4f;
+var<private> g_dp: vec2f;
+var<private> g_sdf: f32 = -1e9;
+var<private> g_normal: vec2f = vec2f(0.0);
 
-fn stencilPass() -> bool { return u.v[12].z > 0.5; }
+fn stencilPass() -> bool { return u.v[20].z > 0.5; }
 
 // ---- The paint (kPaintFunctions) ----
 fn rampAt(t: f32, row: f32) -> vec4f {
@@ -139,8 +269,56 @@ fn adjust(c0: vec3f) -> vec3f {
   return clamp(c, vec3f(0.0), vec3f(1.0));
 }
 
+fn glassAt() -> vec4f {
+  let G = u.v[6];
+  let L = u.v[8];
+  let sz = u.v[4].zw;
+  let base = fragCoord - u.v[4].xy;
+  let depth = max(G.x, 1e-3);
+  let e = clamp(1.0 + g_sdf / depth, 0.0, 1.0);
+  let bend = e * e * G.y * depth;
+  let o = vec2f(g_normal.x, -g_normal.y) * bend;
+  let k = G.z * 0.5;
+  let mid = textureSampleLevel(t2, s2, (base + o) / sz, 0.0);
+  let r = textureSampleLevel(t2, s2, (base + o * (1.0 + k)) / sz, 0.0).r;
+  let b = textureSampleLevel(t2, s2, (base + o * (1.0 - k)) / sz, 0.0).b;
+  let facing = dot(g_normal, L.xy);
+  let sharp = mix(6.0, 1.5, clamp(G.w, 0.0, 1.0));
+  let rim = pow(clamp(1.0 + g_sdf / max(depth * 0.25, 1.0), 0.0, 1.0), 2.0);
+  let spec = L.z * (pow(max(facing, 0.0), sharp) + 0.4 * pow(max(-facing, 0.0), sharp)) * rim;
+  let rgb = min(vec3f(r, mid.g, b), vec3f(mid.a));
+  return vec4f(rgb + (mid.a - rgb) * clamp(spec, 0.0, 1.0), mid.a);
+}
+
+fn noiseCell(cell: vec2f, seed: u32, density: f32, kind: i32, color: vec4f, second: vec4f) -> vec4f {
+  let h = hashCell(cell, seed);
+  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= density) { return vec4f(0.0); }
+  if (kind == 0) { return vec4f(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * color.a; }
+  if (kind == 2) { return select(second, color, unitOf(hashU(h + 5u)) < 0.5); }
+  return color * unitOf(h);
+}
+
+fn dither(c: vec4f) -> vec4f {
+  let n = fract(52.9829189 * fract(dot(fragCoord, vec2f(0.06711056, 0.00583715))));
+  return select(c, c * (max(c.a + (n - 0.5) / 255.0, 0.0) / max(c.a, 1e-9)), c.a > 0.0);
+}
+
 fn paintAt(local: vec2f, kind: i32) -> vec4f {
   if (kind == 0) { return v_color; }
+  if (kind == 7) {
+    let P = u.v[19];
+    let s = mix(P.x, P.y, progressT(g_dp));
+    if (s < P.z || s >= P.w) { return vec4f(0.0); }
+    let f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
+    let uv1 = (fragCoord - u.v[4].xy) / u.v[4].zw;
+    let uv0 = (fragCoord - u.v[7].xy) / u.v[7].zw;
+    return mix(textureSampleLevel(t3, s3, uv0, 0.0), textureSampleLevel(t2, s2, uv1, 0.0), f) * v_color.a;
+  }
+  if (kind == 8) { return glassAt() * v_color.a; }
+  if (kind == 9) {
+    let gn = vec2f(dot(v_paint0.xy, local) + v_paint0.z, dot(v_paint1.xy, local) + v_paint1.z);
+    return noiseCell(floor(gn), 0u, v_paint0.w, i32(v_paint1.w + 0.5), v_color, vec4f(0.0));
+  }
   if (kind == 6) {
     let uv = (fragCoord - u.v[4].xy) / u.v[4].zw;
     return textureSampleLevel(t2, s2, uv, 0.0) * v_color.a;
@@ -152,7 +330,7 @@ fn paintAt(local: vec2f, kind: i32) -> vec4f {
   if (kind == 5) {
     let repeat = v_paint0.w > 0.5;
     if (!repeat && (g.x < 0.0 || g.y < 0.0 || g.x > 1.0 || g.y > 1.0)) { return vec4f(0.0); }
-    c = textureSampleGrad(t2, s2, select(g, fract(g), repeat), gx, gy);
+    c = textureSampleGrad(t2, s2, select(g, fract(g), repeat), gx * 0.5, gy * 0.5);  // LOD bias −1 (gl/Shaders.h)
     if (any(u.v[2] != vec4f(0.0)) || any(u.v[3] != vec4f(0.0))) {
       let rgb = select(vec3f(0.0), c.rgb / c.a, c.a > 0.0);
       c = vec4f(adjust(rgb) * c.a, c.a);
@@ -231,11 +409,15 @@ fn shapeMain() -> bool {
   if (kind == 2) {
     let a = boxShadow(vec2f(0.0), v_size, v_box, v_local, v_geom.x, px);
     if (a <= 0.0) { return false; }
-    o_color = v_color * a;
+    o_color = dither(v_color * a);
     return true;
   }
   let d = select(sdRoundedBox(p, halfSize, v_box), sdEllipse(p, halfSize), kind == 1);
   let fillCoverage = clamp(0.5 - d / px, 0.0, 1.0);
+  g_sdf = d / px;
+  // The outward normal in canvas device px (y down): WebGPU's dpdy runs down the framebuffer, which is up the canvas
+  // on offscreen targets (drawn with y negated, see the header).
+  g_normal = normalize(vec2f(dpdx(d), dpdy(d) * select(-1.0, 1.0, u.v[20].x > 0.0)) + vec2f(1e-12, 0.0));
   if (stencilPass()) {
     if (fillCoverage < 0.5) { return false; }
     o_color = vec4f(0.0);
@@ -273,76 +455,6 @@ fn shapeMain() -> bool {
 }
 
 // ---- Paths: coverage from quadratic curves ----
-fn texel(i: i32) -> vec4f { return textureLoad(t0, vec2i(i & 2047, i >> 11u), 0); }
-
-fn crossX(p0: vec2f, p1: vec2f, p2: vec2f, ppe: f32, cov: ptr<function, f32>, wgt: ptr<function, f32>) {
-  let code = (0x2E74u >> (select(0u, 2u, p0.y > 0.0) + select(0u, 4u, p1.y > 0.0) + select(0u, 8u, p2.y > 0.0))) & 3u;
-  if (code == 0u) { return; }
-  let ay = p0.y - 2.0 * p1.y + p2.y;
-  let by = p0.y - p1.y;
-  let ax = p0.x - 2.0 * p1.x + p2.x;
-  let bx = p0.x - p1.x;
-  var t1v: f32;
-  var t2v: f32;
-  if (abs(ay) < 1e-5 * max(abs(by), 1e-30) || abs(ay) < 1e-12) {
-    t1v = p0.y / (2.0 * by);
-    t2v = t1v;
-  } else {
-    let d = sqrt(max(by * by - ay * p0.y, 0.0));
-    t1v = (by - d) / ay;
-    t2v = (by + d) / ay;
-  }
-  let x1 = (ax * t1v - 2.0 * bx) * t1v + p0.x;
-  let x2 = (ax * t2v - 2.0 * bx) * t2v + p0.x;
-  if ((code & 1u) != 0u) {
-    *cov += clamp(x1 * ppe + 0.5, 0.0, 1.0);
-    *wgt = max(*wgt, clamp(1.0 - abs(x1 * ppe) * 2.0, 0.0, 1.0));
-  }
-  if (code > 1u) {
-    *cov -= clamp(x2 * ppe + 0.5, 0.0, 1.0);
-    *wgt = max(*wgt, clamp(1.0 - abs(x2 * ppe) * 2.0, 0.0, 1.0));
-  }
-}
-
-fn fold(w: f32, evenOdd: bool) -> f32 { return select(min(abs(w), 1.0), 1.0 - abs(glMod(w, 2.0) - 1.0), evenOdd); }
-
-fn coverage(start: i32, p: vec2f, ppe: vec2f, evenOdd: bool) -> f32 {
-  let h = texel(start);
-  let b = texel(start + 1);
-  let nH = i32(h.x);
-  let nV = i32(h.y);
-  let size = max(b.zw - b.xy, vec2f(1e-20));
-  let bh = clamp(i32(floor((p.y - b.y) / size.y * f32(nH))), 0, nH - 1);
-  let bv = clamp(i32(floor((p.x - b.x) / size.x * f32(nV))), 0, nV - 1);
-  let dh = texel(start + 2 + bh);
-  let dv = texel(start + 2 + nH + bv);
-  var hc = 0.0;
-  var hw = 0.0;
-  var vc = 0.0;
-  var vw = 0.0;
-  var first = i32(dh.x);
-  var count = i32(dh.y);
-  for (var k = 0; k < count; k++) {
-    let ci = i32(texel(first + (k >> 2u))[k & 3]);
-    let a = texel(ci);
-    let c = texel(ci + 1);
-    if ((c.z - p.x) * ppe.x < -0.5) { break; }
-    crossX(a.xy - p, a.zw - p, c.xy - p, ppe.x, &hc, &hw);
-  }
-  first = i32(dv.x);
-  count = i32(dv.y);
-  for (var k = 0; k < count; k++) {
-    let ci = i32(texel(first + (k >> 2u))[k & 3]);
-    let a = texel(ci);
-    let c = texel(ci + 1);
-    if ((c.w - p.y) * ppe.y < -0.5) { break; }
-    crossX((a.xy - p).yx, (a.zw - p).yx, (c.xy - p).yx, ppe.y, &vc, &vw);
-  }
-  let ch = fold(hc, evenOdd);
-  let cv = fold(vc, evenOdd);
-  return clamp(max((ch * hw + cv * vw) / max(hw + vw, 1.0 / 65536.0), min(ch, cv)), 0.0, 1.0);
-}
-
 fn pathMain() -> bool {
   let dx = dpdx(v_local);
   let dy = dpdy(v_local);
@@ -384,8 +496,10 @@ fn roundClip(dp: vec2f) -> f32 {
   v_radii = vin.radii;
   fragCoord = glFragCoord(vin.pos);
   let dp = vec2f(fragCoord.x, u.v[5].z - fragCoord.y) + u.v[5].xy;
-  if (dp.x < v_clip.x || dp.y < v_clip.y || dp.x >= v_clip.z || dp.y >= v_clip.w) { discard; }
-  let clipCoverage = roundClip(dp);
+  g_dp = dp;
+  var clipCoverage = clipRectCoverage(dp, v_clip);
+  if (clipCoverage <= 0.0) { discard; }
+  clipCoverage *= roundClip(dp) * shapeClip(dp);
   if (clipCoverage <= 0.0 || (stencilPass() && clipCoverage < 0.5)) { discard; }
   var kept: bool;
   if (i32(v_geom.z + 0.5) == 4) { kept = pathMain(); }
@@ -403,6 +517,7 @@ inline constexpr const char* kComposite = R"(
 @group(1) @binding(3) var s1: sampler;
 @group(1) @binding(4) var t2: texture_2d<f32>;
 @group(1) @binding(5) var s2: sampler;
+@group(1) @binding(6) var t3: texture_2d<f32>;
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -435,6 +550,21 @@ fn at2(map: vec4f, d: vec2f) -> vec4f {
   let q = (d - map.xy) * map.w;
   if (q.x < 0.0 || q.y < 0.0 || q.y > map.z) { return vec4f(0.0); }
   return textureSampleLevel(t2, s2, vec2f(q.x / sz.x, (map.z - q.y) / sz.y), 0.0);
+}
+
+fn noiseAt(dp: vec2f) -> vec4f {
+  let cell = floor(effectSpace(dp) / max(u.v[18].xy, vec2f(1e-3)));
+  let h = hashCell(cell, u32(u.v[8].x));
+  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= u.v[18].z) { return vec4f(0.0); }
+  let kind = i32(u.v[18].w + 0.5);
+  if (kind == 0) { return vec4f(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * u.v[8].y; }
+  if (kind == 2) { return select(u.v[19], u.v[6], unitOf(hashU(h + 5u)) < 0.5); }
+  return u.v[6] * unitOf(h);
+}
+fn textureShift(dp: vec2f) -> vec2f {
+  let cell = floor(effectSpace(dp) / max(u.v[18].xy, vec2f(1e-3)));
+  let h = hashCell(cell, u32(u.v[8].x));
+  return (vec2f(unitOf(h), unitOf(hashU(h + 7u))) * 2.0 - 1.0) * u.v[18].z;
 }
 
 fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.3, 0.59, 0.11)); }
@@ -510,9 +640,22 @@ fn roundClip(d: vec2f) -> f32 {
   let mode = i32(params.z + 0.5);
   let blend = i32(params.y + 0.5);
   var c: vec4f;
-  let cov = roundClip(v_dev);
+  var cov = select(1.0, clipRectCoverage(v_dev, u.v[11]), u.v[11].z > u.v[11].x);
   if (cov <= 0.0) { discard; }
-  if (mode == 3) {
+  cov *= roundClip(v_dev) * shapeClip(v_dev);
+  if (cov <= 0.0) { discard; }
+  if (mode == 5) {
+    let P = u.v[19];
+    let s = mix(P.x, P.y, progressT(v_dev));
+    if (s < P.z || s >= P.w) { discard; }
+    let f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
+    c = mix(at0(u.v[3], v_dev), at1(u.v[4], v_dev), f);
+  } else if (mode == 6) {
+    c = noiseAt(v_dev) * at0(u.v[3], v_dev).a;
+  } else if (mode == 7) {
+    c = at0(u.v[3], v_dev + textureShift(v_dev));
+    if (u.v[18].w > 0.5) { c *= at0(u.v[3], v_dev).a; }
+  } else if (mode == 3) {
     var a = at0(u.v[3], v_dev - u.v[8].xy).a;
     if (params.w > 0.5) { a *= 1.0 - at1(u.v[4], v_dev).a; }
     c = u.v[6] * a;
@@ -570,7 +713,9 @@ inline constexpr const char* kBlur = R"(
       sum += textureSampleLevel(t0, s0, uv + dir * f32(i), 0.0) * w;
       total += w;
     }
-    return sum / total;
+    let c = sum / total;
+    let d = fract(52.9829189 * fract(dot(glFragCoord(pos), vec2f(0.06711056, 0.00583715))));
+    return select(c, c * (max(c.a + (d - 0.5) / 255.0, 0.0) / max(c.a, 1e-9)), c.a > 0.0);
   }
   let r = min(i32(ceil(u.v[3].x)), 64);
   var m = select(1.0, 0.0, mode == 1);

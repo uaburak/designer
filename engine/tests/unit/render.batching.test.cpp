@@ -55,10 +55,11 @@ TEST_CASE("renderer: the page colour, or the theme's for Figma's default") {
   CHECK(dev.lastPass.clear[0] == doctest::Approx(0x33 / 255.0));
 }
 
-TEST_CASE("renderer: frames clip — a clip rectangle when axis-aligned, a rounded clip when rounded, stencil when turned") {
+TEST_CASE("renderer: frames clip exactly — a clip rectangle, a rounded clip, a clip shape when turned; stencil only nested") {
   Document d;
   base(d);
-  d.apply(make({1, 1}, NodeType::FRAME, kPage, "A", {0, 0, 100, 100}));
+  // At a fractional place: the clip rectangle is exact (anti-aliased in the shader), the scissor whole pixels.
+  d.apply(make({1, 1}, NodeType::FRAME, kPage, "A", {0.3, 0, 100, 100}));
   d.apply(make({1, 2}, NodeType::ROUNDED_RECTANGLE, {1, 1}, "A", {50, 50, 100, 100}));
   NodeChange rounded = make({1, 3}, NodeType::FRAME, kPage, "B", {200, 0, 100, 100});
   rounded.props.cornerRadii = {16, 16, 16, 16};
@@ -66,22 +67,27 @@ TEST_CASE("renderer: frames clip — a clip rectangle when axis-aligned, a round
   d.apply(make({1, 4}, NodeType::ELLIPSE, {1, 3}, "A", {0, 0, 100, 100}));
   NodeChange turned = make({1, 5}, NodeType::FRAME, kPage, "C", {400, 0, 100, 100});
   turned.props.transform = Mat2x3::translate(450, 0) * Mat2x3::rotate(0.3);
+  turned.props.cornerRadii = {8, 8, 8, 8};
   d.apply(turned);
   d.apply(make({1, 6}, NodeType::ELLIPSE, {1, 5}, "A", {0, 0, 100, 100}));
+  // A turned frame inside the turned one: a second clip shape goes to the stencil.
+  NodeChange inner = make({1, 7}, NodeType::FRAME, {1, 5}, "B", {10, 10, 50, 50});
+  inner.props.transform = Mat2x3::translate(10, 10) * Mat2x3::rotate(0.2);
+  d.apply(inner);
+  d.apply(make({1, 8}, NodeType::ELLIPSE, {1, 7}, "A", {0, 0, 100, 100}));
   gfx::NullDevice dev;
   Renderer r(dev);
   r.render(d, kPage, Camera{}, {800, 600, 2}, Overlay{}, kDark);
-  bool scissored = false, roundedClip = false, incremented = false, decremented = false, tested = false;
-  size_t drawsOfShapes = 0;
+  bool scissored = false, roundedClip = false, shapeClip = false, incremented = false, decremented = false, tested = false;
   for (size_t i = 0; i < dev.draws.size(); i++) {
     const auto& c = dev.draws[i];
     // The axis-aligned clip travels with each instance (canvas device px), not as a scissor that splits batches.
     if (c.pipeline.shader == gfx::ShaderId::Shape) {
-      drawsOfShapes++;
       for (auto& q : dev.instancesOf<DrawInstance>(i)) {
-        if (q.clip[0] > -1e8f && q.round[2] <= q.round[0]) {
+        if (q.clip[0] > -1e8f && q.round[2] <= q.round[0] && c.call.uniforms[12][3] == 0) {
           scissored = true;
-          CHECK(q.clip[2] - q.clip[0] == 200);  // device pixels at dpr 2
+          CHECK(q.clip[0] == doctest::Approx(0.6));  // device pixels at dpr 2, not widened to whole ones
+          CHECK(q.clip[2] == doctest::Approx(200.6));
         }
         if (q.round[2] > q.round[0]) {
           // The rounded frame's box and radii in device px (dpr 2): the ellipse inside it is clipped by them.
@@ -91,17 +97,31 @@ TEST_CASE("renderer: frames clip — a clip rectangle when axis-aligned, a round
           CHECK(q.radii[0] == doctest::Approx(32));
         }
       }
+      if (c.call.uniforms[12][3] == 1) {
+        // The turned frame: device px → its own space, a rounded box 100 × 100 with radius 8.
+        shapeClip = true;
+        CHECK(c.call.uniforms[14][0] == doctest::Approx(100));
+        CHECK(c.call.uniforms[15][0] == doctest::Approx(8));
+        Mat2x3 toLocal{c.call.uniforms[12][0], c.call.uniforms[12][1], c.call.uniforms[12][2],
+                       c.call.uniforms[13][0], c.call.uniforms[13][1], c.call.uniforms[13][2]};
+        Vec2 origin = toLocal.apply({900, 0});  // the frame's origin at dpr 2
+        CHECK(origin.x == doctest::Approx(0).epsilon(1e-3));
+        CHECK(origin.y == doctest::Approx(0).epsilon(1e-3));
+      }
     }
     if (c.pipeline.stencil.enabled) {
       incremented |= c.pipeline.stencil.pass == gfx::StencilOp::Increment;
       decremented |= c.pipeline.stencil.pass == gfx::StencilOp::Decrement;
       tested |= c.pipeline.stencil.pass == gfx::StencilOp::Keep && c.call.stencilRef == 1;
       if (c.pipeline.stencil.pass != gfx::StencilOp::Keep) CHECK(c.pipeline.colorMask == gfx::ColorMask::None);
+      // The stencil level sits inside the outer clip shape.
+      CHECK(c.call.uniforms[12][3] == 1);
     }
   }
   CHECK(scissored);
   CHECK(roundedClip);
-  // Only the turned frame uses the stencil: increment, its clipped content, decrement.
+  CHECK(shapeClip);
+  // Only the frame turned inside the turned one uses the stencil: increment, its clipped content, decrement.
   CHECK(incremented);
   CHECK(decremented);
   CHECK(tested);

@@ -55,7 +55,10 @@ enum class NodeType : uint8_t {
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };
 // schema/document.kiwi's PaintType; OTHER: a paint type the schema doesn't know, kept as it came (Paint::extra).
 enum class PaintType : uint8_t {
-  SOLID = 0, GRADIENT_LINEAR = 1, GRADIENT_RADIAL = 2, GRADIENT_ANGULAR = 3, GRADIENT_DIAMOND = 4, IMAGE = 5, VIDEO = 7, OTHER = 255
+  SOLID = 0, GRADIENT_LINEAR = 1, GRADIENT_RADIAL = 2, GRADIENT_ANGULAR = 3, GRADIENT_DIAMOND = 4, IMAGE = 5, VIDEO = 7,
+  PATTERN = 8,  // another layer of the file tiled (its fields — sourceNodeId, patternSpacing, … — in `extra`)
+  NOISE = 9,    // a noise paint (noiseType, density, noiseSize in `extra`)
+  OTHER = 255
 };
 // IMAGE, or VIDEO: a video fill draws its poster frame (`image`) the way an image fill draws (Figma's canvas shows
 // the frame; the video itself plays in presentation).

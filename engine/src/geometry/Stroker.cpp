@@ -132,6 +132,125 @@ std::vector<Line> dash(const Line& line, const std::vector<double>& pattern) {
   return out;
 }
 
+// The part of a closed contour unrolled into `pts` (its first point repeated at the end; `cum`: arc length at each
+// point) between arc lengths a and b, 0 ≤ a < b ≤ a + the length (past the end it carries on from the start).
+Line arcPiece(const std::vector<Vec2>& pts, const std::vector<bool>& corner, const std::vector<double>& cum, double a, double b) {
+  double total = cum.back();
+  size_t n = pts.size();
+  auto pointAt = [&](double s) {
+    while (s > total) s -= total;
+    size_t i = static_cast<size_t>(std::lower_bound(cum.begin(), cum.end(), s) - cum.begin());
+    i = std::clamp<size_t>(i, 1, n - 1);
+    double seg = cum[i] - cum[i - 1];
+    double f = seg > 0 ? std::clamp((s - cum[i - 1]) / seg, 0.0, 1.0) : 0;
+    return pts[i - 1] + (pts[i] - pts[i - 1]) * f;
+  };
+  Line out;
+  out.pts.push_back(pointAt(a));
+  out.corner.push_back(false);
+  for (int lap = 0; lap < 2; lap++)
+    for (size_t i = 1; i < n; i++) {
+      double L = cum[i] + lap * total;
+      if (L <= a + 1e-9) continue;
+      if (L >= b - 1e-9) {
+        lap = 2;
+        break;
+      }
+      out.pts.push_back(pts[i]);
+      out.corner.push_back(corner[i]);
+    }
+  out.pts.push_back(pointAt(b));
+  out.corner.push_back(false);
+  return out;
+}
+
+// Figma's fitted dashes of a closed contour (StrokeStyle::fitDashes).
+std::vector<Line> fittedDash(const Line& line, const std::vector<double>& pattern) {
+  double period = 0;
+  for (double d : pattern) period += std::max(0.0, d);
+  size_t n = line.pts.size();
+  if (pattern.empty() || period <= 0 || !line.closed || n < 2) return {line};
+  // Edges i → i + 1 (cyclic) that are a straight segment of the path (no flattening points inside), and the points
+  // where the outline really turns or a curve starts: a side is the straight run between two of them.
+  auto straight = [&](size_t i) { return line.corner[i] && line.corner[(i + 1) % n]; };
+  auto dir = [&](size_t i) { return unit(line.pts[(i + 1) % n] - line.pts[i]); };
+  std::vector<bool> joint(n);
+  bool anyJoint = false, anyStraight = false;
+  for (size_t i = 0; i < n; i++) {
+    size_t prev = (i + n - 1) % n;
+    bool through = straight(prev) && straight(i) && std::fabs(cross(dir(prev), dir(i))) < 1e-9 && dot(dir(prev), dir(i)) > 0;
+    joint[i] = line.corner[i] && !through;
+    anyJoint |= joint[i];
+    anyStraight |= straight(i);
+  }
+  // Unrolled from a joint (its first point repeated at the end), with the arc length at each point.
+  size_t s0 = 0;
+  if (anyJoint)
+    while (!joint[s0]) s0++;
+  std::vector<Vec2> pts;
+  std::vector<bool> corner, isJoint, edgeStraight;
+  for (size_t k = 0; k <= n; k++) {
+    size_t i = (s0 + k) % n;
+    pts.push_back(line.pts[i]);
+    corner.push_back(line.corner[i]);
+    isJoint.push_back(k == 0 || k == n || joint[i]);
+    edgeStraight.push_back(straight(i));
+  }
+  std::vector<double> cum{0};
+  for (size_t i = 1; i < pts.size(); i++) cum.push_back(cum.back() + (pts[i] - pts[i - 1]).length());
+  double total = cum.back();
+  if (!(total > 0)) return {line};
+  std::vector<std::pair<double, double>> on;  // "on" spans in arc length, in order
+  auto fit = [&](double from, double len) {
+    // The pattern scaled to fit `len` a whole number of times, its first dash centred on the start.
+    double k = std::max(1.0, std::round(len / period));
+    double scale = len / (k * period);
+    double t = -std::max(0.0, pattern[0]) * scale / 2;
+    size_t j = 0;
+    while (t < len - 1e-9) {
+      double d = std::max(0.0, pattern[j]) * scale;
+      if (j % 2 == 0) {
+        double a = std::max(t, 0.0), b = std::min(t + d, len);
+        if (b > a || (d == 0 && t >= 0)) on.push_back({from + a, from + b});
+      }
+      t += d;
+      j = (j + 1) % pattern.size();
+    }
+  };
+  if (!anyJoint || !anyStraight) {
+    fit(0, total);
+  } else {
+    for (size_t a = 0; a < n;) {
+      size_t b = a + 1;
+      while (b < n && !isJoint[b]) b++;
+      bool side = true;
+      for (size_t i = a; i < b; i++) side = side && edgeStraight[i];
+      if (side) fit(cum[a], cum[b] - cum[a]);
+      else on.push_back({cum[a], cum[b]});  // a curved corner: whole
+      a = b;
+    }
+  }
+  // Spans that touch become one dash (half dashes around a corner); the last joins the first across the start.
+  std::vector<std::pair<double, double>> merged;
+  for (auto& sp : on) {
+    if (!merged.empty() && sp.first <= merged.back().second + 1e-6) merged.back().second = std::max(merged.back().second, sp.second);
+    else merged.push_back(sp);
+  }
+  if (merged.size() > 1 && merged.front().first <= 1e-6 && merged.back().second >= total - 1e-6) {
+    merged.front().first = merged.back().first - total;
+    merged.pop_back();
+  }
+  std::vector<Line> out;
+  for (auto& [a, b] : merged) {
+    if (b - a >= total - 1e-6) return {line};  // all on
+    Line l = arcPiece(pts, corner, cum, a < 0 ? a + total : a, a < 0 ? b + total : b);
+    if (b <= a) l.pts.resize(1), l.corner.resize(1);
+    if (l.pts.size() == 1) l.pts.push_back(l.pts.front()), l.corner.push_back(false);
+    out.push_back(std::move(l));
+  }
+  return out;
+}
+
 // Trims `len` off the end (atEnd) or the start of an open line.
 void trim(Line& l, double len, bool atEnd) {
   if (len <= 0 || l.pts.size() < 2) return;
@@ -157,8 +276,11 @@ void trim(Line& l, double len, bool atEnd) {
   }
 }
 
-// Arrowhead sizes (unverified against Figma: chosen to look like its defaults at 1–4 px).
-double lineArrowLength(double w) { return 2.5 * w + 4; }
+// Arrowhead sizes. The line arrow is measured on live Figma (docs/research/figma/live/img/canvas-arrow-line-selected.png,
+// a 1 px line at 287 %): arms about 4.5 long along their centre lines, 45° off the line. The others are unverified
+// (chosen to look like Figma's at 1–4 px).
+double lineArrowLength(double w) { return 3 * w + 1.5; }
+constexpr double kLineArrowAngle = 45;  // degrees off the line
 double triangleSide(double w) { return 3 * w + 4; }
 double circleRadius(double w) { return 1.5 * w + 1.5; }
 double diamondHalf(double w) { return 1.5 * w + 2.5; }
@@ -175,7 +297,7 @@ void cap(Path& out, Vec2 p, Vec2 d, StrokeCap c, const StrokeStyle& s, double to
     case StrokeCap::ROUND: disc(out, p, hw); break;
     case StrokeCap::ARROW_LINES: {
       double L = lineArrowLength(s.width);
-      double a = 40 * kPi / 180;
+      double a = kLineArrowAngle * kPi / 180;
       Vec2 back = d * -1;
       Line arms{{p + rotate(back, a) * L, p, p + rotate(back, -a) * L}, {true, true, true}, false};
       StrokeStyle st = s;
@@ -292,7 +414,7 @@ Path strokePath(const Path& center, const StrokeStyle& style, double tolerance) 
     auto plain = [&](StrokeCap c) {
       return c == StrokeCap::ROUND || c == StrokeCap::SQUARE ? c : (style.cap == StrokeCap::ROUND || style.cap == StrokeCap::SQUARE ? style.cap : StrokeCap::NONE);
     };
-    std::vector<Line> dashes = dash(lines[i], style.dashes);
+    std::vector<Line> dashes = style.fitDashes && lines[i].closed ? fittedDash(lines[i], style.dashes) : dash(lines[i], style.dashes);
     for (size_t k = 0; k < dashes.size(); k++) {
       bool first = !lines[i].closed && k == 0 && dashes[k].pts.front() == lines[i].pts.front();
       bool lastOne = !lines[i].closed && k + 1 == dashes.size() && dashes[k].pts.back() == lines[i].pts.back();
