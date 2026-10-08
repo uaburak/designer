@@ -8,6 +8,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "base/Sha1.h"
+
 namespace eng::text {
 
 // A parsed font file (one face of it).
@@ -26,10 +28,24 @@ class Face {
   Face& operator=(const Face&) = delete;
   hb_face_t* hb() const { return face_; }
   bool valid() const { return hb_face_get_glyph_count(face_) > 0; }
+  // SHA-1 of the file's bytes, computed once (when derived text data is written or checked).
+  const std::array<uint8_t, 20>& digest() {
+    if (!hasDigest_) {
+      unsigned len = 0;
+      const char* data = hb_blob_get_data(blob_, &len);
+      Sha1 h;
+      h.update(data, len);
+      digest_ = h.digest();
+      hasDigest_ = true;
+    }
+    return digest_;
+  }
 
  private:
   hb_blob_t* blob_ = nullptr;
   hb_face_t* face_ = nullptr;
+  std::array<uint8_t, 20> digest_{};
+  bool hasDigest_ = false;
 };
 
 // ---- Font -------------------------------------------------------------------------------
@@ -71,14 +87,25 @@ Font::Font(std::shared_ptr<Face> face, int namedInstance, std::vector<std::pair<
   if (strikeoutThickness <= 0) strikeoutThickness = underlineThickness;
 }
 
-Font::~Font() { hb_font_destroy(font_); }
+Font::Font() : id_(nextId_++) {}
+
+Font::~Font() {
+  if (font_) hb_font_destroy(font_);
+}
+
+const std::array<uint8_t, 20>& Font::digest() const {
+  static const std::array<uint8_t, 20> kNone{};
+  return face_ ? face_->digest() : kNone;
+}
 
 uint32_t Font::glyphFor(uint32_t cp) const {
   hb_codepoint_t g = 0;
-  return hb_font_get_nominal_glyph(font_, cp, &g) ? g : 0;
+  return font_ && hb_font_get_nominal_glyph(font_, cp, &g) ? g : 0;
 }
 
-double Font::advance(uint32_t glyph) const { return static_cast<double>(hb_font_get_glyph_h_advance(font_, glyph)) / kHbScale; }
+double Font::advance(uint32_t glyph) const {
+  return font_ ? static_cast<double>(hb_font_get_glyph_h_advance(font_, glyph)) / kHbScale : 0;
+}
 
 namespace {
 
@@ -178,6 +205,7 @@ const GlyphOutline& Font::outline(uint32_t glyph) {
   auto it = outlines_.find(glyph);
   if (it != outlines_.end()) return it->second;
   GlyphOutline& o = outlines_[glyph];
+  if (!font_) return o;  // an outline-only font: what it was given
   OutlineBuilder b{&o};
   hb_font_draw_glyph(font_, glyph, drawFuncs(), &b);
   b.close();

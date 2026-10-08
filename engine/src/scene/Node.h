@@ -278,8 +278,8 @@ struct VariableData {
   ExpressionFunction function = ExpressionFunction::ADDITION;
   // EXPRESSION: its arguments. FONT_STYLE: asString, asFloat, asVariations (an absent one has kind NONE).
   std::vector<VariableData> args;
-  std::string valueExtra;  // other VariableAnyValue members (symbolIdValue, textDataValue, easingValue…), encoded
-  std::string extra;       // other members, encoded; OTHER: the whole VariableData, encoded
+  std::string valueExtra;  // other VariableAnyValue members (symbolIdValue, textDataValue, easingValue…), kiwi bytes
+  std::string extra;       // other members, kiwi bytes; OTHER: the whole VariableData
   bool present() const { return kind != Kind::NONE || hasDataType || !extra.empty() || !valueExtra.empty(); }
   bool operator==(const VariableData& o) const {
     return kind == o.kind && hasDataType == o.hasDataType && hasResolvedType == o.hasResolvedType && dataType == o.dataType &&
@@ -296,6 +296,58 @@ struct VariableData {
   // "Control opacity at scale": a COLOR from a colour (literal or alias) and an opacity in % (literal or alias).
   static VariableData composeColor(VariableData color, VariableData opacity);
 };
+
+// A value kept out of line while it is empty (docs/engine.md §2.2's facets, in small): the variable bindings of paints,
+// effects and layout guides are almost always absent, and inline they made a Paint 3× and an Effect 6× their size.
+// Reads see the empty value; a write of the empty value frees the box.
+template <typename T>
+class Box {
+ public:
+  Box() = default;
+  Box(const T& v) { set(v); }
+  Box(const Box& o) : p_(o.p_ ? std::make_unique<T>(*o.p_) : nullptr) {}
+  Box(Box&&) noexcept = default;
+  Box& operator=(const Box& o) {
+    if (this != &o) p_ = o.p_ ? std::make_unique<T>(*o.p_) : nullptr;
+    return *this;
+  }
+  Box& operator=(Box&&) noexcept = default;
+  Box& operator=(const T& v) {
+    set(v);
+    return *this;
+  }
+  Box& operator=(T&& v) {
+    if (!v.present()) p_.reset();
+    else if (p_) *p_ = std::move(v);
+    else p_ = std::make_unique<T>(std::move(v));
+    return *this;
+  }
+  const T& get() const { return p_ ? *p_ : empty(); }
+  operator const T&() const { return get(); }
+  const T* operator->() const { return &get(); }
+  const T& operator*() const { return get(); }
+  // For writing in place (allocates).
+  T& edit() {
+    if (!p_) p_ = std::make_unique<T>();
+    return *p_;
+  }
+  bool present() const { return p_ && p_->present(); }
+  bool operator==(const Box& o) const { return get() == o.get(); }
+  bool operator==(const T& o) const { return get() == o; }
+  static const T& empty() {
+    static const T kEmpty{};
+    return kEmpty;
+  }
+
+ private:
+  void set(const T& v) {
+    if (!v.present()) p_.reset();
+    else if (p_) *p_ = v;
+    else p_ = std::make_unique<T>(v);
+  }
+  std::unique_ptr<T> p_;
+};
+using VarBox = Box<VariableData>;
 
 // One column of a collection (schema VariableSetMode).
 struct VariableSetMode {
@@ -344,8 +396,14 @@ struct ImageHash {
 };
 
 // A fill or stroke (schema Paint). The fields the renderer uses are typed; every
-// other member (colorVar, stopsVar, imageThumbnail, thumbHash, …) is kept
-// encoded in `extra` ("key":value,…) so it round-trips.
+// other member (imageThumbnail, thumbHash, …) is kept as it came in `extra`.
+//
+// `extra` everywhere in this file: the kiwi bytes of the fields the engine
+// doesn't model — a raw field sequence (varuint id, value)* of the enclosing
+// schema message, without its terminator — written back verbatim by
+// scene/CodecKiwi and shown as JSON by scene/CodecJson through the schema
+// (schema/SchemaTable). NodeProps::extra keys them by schema name, each value
+// id-prefixed the same way (an empty value in a change removes the field).
 struct Paint {
   Paint();
   Paint(const Paint&);
@@ -370,9 +428,9 @@ struct Paint {
   uint32_t originalImageWidth = 0, originalImageHeight = 0;
   // Variable bindings (docs/schema.md §6.3): `color` (an alias or a composed colour), `opacity` (a FLOAT, in %), and
   // each gradient stop's colour (schema stopsVar, index-aligned with `stops`; an unbound stop has kind NONE).
-  VariableData colorVar, opacityVar;
+  VarBox colorVar, opacityVar;
   std::vector<VariableData> stopVars;
-  std::string extra;  // other members, encoded; OTHER: the whole paint, encoded
+  std::string extra;  // other members, kiwi bytes; OTHER: the whole paint
   bool operator==(const Paint& o) const {
     return type == o.type && color == o.color && opacity == o.opacity && visible == o.visible && blendMode == o.blendMode &&
            stops == o.stops && transform == o.transform && image == o.image && imageName == o.imageName &&
@@ -405,7 +463,7 @@ struct Effect {
   BlendMode blendMode = BlendMode::NORMAL;
   double spread = 0;
   bool showShadowBehindNode = false;
-  VariableData radiusVar, colorVar, spreadVar, xVar, yVar;  // variable bindings
+  VarBox radiusVar, colorVar, spreadVar, xVar, yVar;  // variable bindings
   std::string extra;
   bool operator==(const Effect& o) const {
     return type == o.type && color == o.color && offset == o.offset && radius == o.radius && visible == o.visible &&
@@ -428,7 +486,7 @@ struct LayoutGrid {
   double offset = 0, sectionSize = 0, gutterSize = 0;
   Color color{1, 0, 0, 0.1f};
   LayoutGridPattern pattern = LayoutGridPattern::STRIPES;
-  VariableData numSectionsVar, offsetVar, sectionSizeVar, gutterSizeVar;  // variable bindings
+  VarBox numSectionsVar, offsetVar, sectionSizeVar, gutterSizeVar;  // variable bindings
   std::string extra;
   bool operator==(const LayoutGrid& o) const {
     return type == o.type && axis == o.axis && visible == o.visible && numSections == o.numSections && offset == o.offset &&
@@ -502,8 +560,7 @@ struct FontName {
 
 // A run style of TextData.styleOverrideTable (a sparse NodeChange keyed by
 // styleID ≥ 1): the run fields the engine uses, in `mask`, and every other
-// field of the entry kept as encoded JSON members ("key":value,…) so they
-// survive edits.
+// field of the entry kept as it came (kiwi bytes) so they survive edits.
 enum TextRunField : uint32_t {
   R_FONT_NAME = 1,
   R_FONT_SIZE = 2,
@@ -523,7 +580,7 @@ struct TextStyle {
   TextCase textCase = TextCase::ORIGINAL;
   TextDecoration textDecoration = TextDecoration::NONE;
   std::vector<Paint> fillPaints;
-  std::string extra;  // other members, already encoded
+  std::string extra;  // other members, kiwi bytes
   bool operator==(const TextStyle& o) const;
 };
 
@@ -533,7 +590,7 @@ struct TextData {
   std::string characters;                    // UTF-8; paragraphs split by "\n", U+2028 a line break inside one
   std::vector<uint32_t> characterStyleIDs;   // per UTF-16 unit; a missing tail = 0 (the node's own style)
   std::vector<TextStyle> styleOverrideTable;
-  std::vector<std::string> lines;            // TextLineData per paragraph, kept as encoded JSON (lists come with E3.2)
+  std::vector<std::string> lines;            // TextLineData per paragraph, each kept as kiwi bytes (lists come with E3.2)
   bool operator==(const TextData& o) const {
     return characters == o.characters && characterStyleIDs == o.characterStyleIDs && styleOverrideTable == o.styleOverrideTable &&
            lines == o.lines;
@@ -548,7 +605,7 @@ struct ComponentPropValue {
   bool hasText = false;
   TextData textValue;
   Guid guidValue = kNoGuid;
-  std::string extra;  // other members, encoded
+  std::string extra;  // other members, kiwi bytes
   bool operator==(const ComponentPropValue& o) const {
     return hasBool == o.hasBool && boolValue == o.boolValue && hasText == o.hasText && textValue == o.textValue &&
            guidValue == o.guidValue && extra == o.extra;
@@ -568,17 +625,18 @@ struct ComponentPropDef {
   std::string sortPosition;
   ComponentPropType type = ComponentPropType::BOOL;
   std::vector<PreferredValue> preferredValues;  // preferredValues.instanceSwapValues
+  std::string preferredExtra;                   // preferredValues' other members (stringValues), kiwi bytes
   std::string description;
-  std::string extra;  // varValue, slotPropConfig, preferredValues.stringValues…, encoded
+  std::string extra;  // varValue, slotPropConfig…, kiwi bytes
   bool operator==(const ComponentPropDef& o) const {
     return id == o.id && name == o.name && initialValue == o.initialValue && sortPosition == o.sortPosition && type == o.type &&
-           preferredValues == o.preferredValues && description == o.description && extra == o.extra;
+           preferredValues == o.preferredValues && preferredExtra == o.preferredExtra && description == o.description && extra == o.extra;
   }
 };
 struct ComponentPropAssignment {
   Guid defID = kNoGuid;
   ComponentPropValue value;
-  std::string extra;  // varValue, encoded
+  std::string extra;  // varValue, kiwi bytes
   bool operator==(const ComponentPropAssignment& o) const { return defID == o.defID && value == o.value && extra == o.extra; }
 };
 // One parameterConsumptionMap entry: a field bound to a component property (PROP_REF, `propRef`) or to a
@@ -949,9 +1007,9 @@ struct NodeProps {
   std::string sourceLibraryKey;           // a library copy's root: its library's FileKey
   Guid publishID = kNoGuid;               // a library copy (its SYMBOLs and sets too): the asset's GUID in its library
   LibraryMoveInfo libraryMoveInfo;        // a published main pasted from another file
-  // The fields the engine doesn't model (vectorData, blendMode, effects…): name →
-  // encoded JSON value. A CHANGED change's `extra` merges into the node's (an
-  // empty value removes that field); CREATED replaces it.
+  // The fields the engine doesn't model (exportSettings, guides, prototype…): schema
+  // name → the field's kiwi bytes (varuint id, value). A CHANGED change's `extra`
+  // merges into the node's (an empty value removes that field); CREATED replaces it.
   std::map<std::string, std::string> extra;
 
   bool isGroupLike() const { return type == NodeType::GROUP || (type == NodeType::FRAME && resizeToFit); }

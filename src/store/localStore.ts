@@ -221,7 +221,7 @@ export class LocalStore {
     const src = this.ws.getMeta(fileKey);
     const head = await this.files.compactedHead(fileKey);
     const key = newFileKey();
-    await this.createDuplicate(key, head.path, head.blobRefs);
+    await this.createDuplicate(key, head.path, head.blobRefs, head.derivedDataVersion);
     const folderId = src.folderId && !this.ws.isFolderTrashed(src.folderId) ? src.folderId : null;
     const meta = newMeta(key, `${src.name} (Copy)`, folderId, this.clock.now());
     meta.enabledLibraries = [...src.enabledLibraries];
@@ -233,11 +233,11 @@ export class LocalStore {
    * A duplicate's first snapshot (Duplicate file, Duplicate version): the snapshot as it is, except that its local
    * assets are new assets — no key, published version or move of the original's (docs/schema.md §8.1).
    */
-  private async createDuplicate(key: FileKey, snapshotPath: string, blobRefs: string[]): Promise<void> {
+  private async createDuplicate(key: FileKey, snapshotPath: string, blobRefs: string[], derivedDataVersion = 0): Promise<void> {
     const message = currentMessage(await readSnapshotFile(snapshotPath));
     const fresh = withNewAssetIdentity(message);
-    if (fresh === message) await this.files.createFileFromSnapshot(key, snapshotPath, blobRefs);
-    else await this.files.createFile(key, codec.encodeMessage(fresh), blobRefs);
+    if (fresh === message) await this.files.createFileFromSnapshot(key, snapshotPath, blobRefs, derivedDataVersion || (message.derivedDataVersion ?? 0));
+    else await this.files.createFile(key, codec.encodeMessage(fresh), blobRefs, fresh.derivedDataVersion ?? 0);
   }
 
   private async copyThumbnail(from: FileKey, to: FileKey, thumb: FileMeta["thumbnail"]): Promise<FileMeta["thumbnail"]> {
@@ -309,7 +309,7 @@ export class LocalStore {
     const src = this.ws.getMeta(fileKey);
     const { record, path } = await this.files.getVersion(fileKey, id);
     const key = newFileKey();
-    await this.createDuplicate(key, path, record.blobRefs);
+    await this.createDuplicate(key, path, record.blobRefs, record.derivedDataVersion ?? 0);
     const meta = newMeta(key, `${src.name} (${record.title ?? versionDateLabel(record.createdAt)})`, null, this.clock.now());
     meta.enabledLibraries = [...src.enabledLibraries];
     return this.ws.queue.run(() => this.ws.addFile(meta));
@@ -341,7 +341,7 @@ export class LocalStore {
     const prepared = prepareFigImport(bytes, { name, sessionID: sessionIdFor(this.deviceOrdinal, 1) });
     for (const data of prepared.images.values()) await this.blobs.put(data);
     const key = newFileKey();
-    await this.files.createFile(key, prepared.message, prepared.blobRefs);
+    await this.files.createFile(key, prepared.message, prepared.blobRefs, prepared.derivedDataVersion);
     await this.setNextLocal(key, 2);
     const meta = newMeta(key, prepared.name, folderId, this.clock.now());
     meta.importedFrom = { kind: "fig", name: prepared.name };
@@ -487,6 +487,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     subscribe: (fileKey, fromSeq, listener) => subscribeLocal(s, fileKey, fromSeq, listener),
     saveThumbnail: (fileKey, png, size) => s.files.saveThumbnail(fileKey, png, size ?? { width: 0, height: 0 }),
     setUiState: (fileKey, patch) => s.files.setUiState(fileKey, patch ?? {}),
+    saveSnapshot: (fileKey, save) => s.files.saveSnapshot(fileKey, save, owner),
     listVersions: (fileKey) => s.files.listVersions(fileKey),
     createVersion: (fileKey, input) => s.createVersion(fileKey, input ?? {}),
     updateVersion: (fileKey, id, patch) => s.files.updateVersion(fileKey, id, patch ?? {}),

@@ -10,6 +10,7 @@
 // size and keeps its characters (Figma).
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -43,6 +44,9 @@ class Face;
 class Font {
  public:
   Font(std::shared_ptr<Face> face, int namedInstance, std::vector<std::pair<uint32_t, float>> variations);
+  // A font with no face: only the outlines given to it (setOutline). Stored glyph outlines (derivedTextData) are
+  // drawn through one of these (text/DerivedText).
+  Font();
   ~Font();
   Font(const Font&) = delete;
   Font& operator=(const Font&) = delete;
@@ -60,6 +64,10 @@ class Font {
   bool covers(uint32_t codePoint) const { return glyphFor(codePoint) != 0; }
   const GlyphOutline& outline(uint32_t glyph);
   double advance(uint32_t glyph) const;  // em
+  // Outline-only fonts: the outline of `glyph`.
+  void setOutline(uint32_t glyph, GlyphOutline outline) { outlines_[glyph] = std::move(outline); }
+  // The SHA-1 of the font file the face came from (derivedTextData's FontMetaData.fontDigest); zeros without a face.
+  const std::array<uint8_t, 20>& digest() const;
 
  private:
   static uint32_t nextId_;

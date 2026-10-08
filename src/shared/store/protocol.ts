@@ -80,6 +80,7 @@ export const STORE_METHODS = {
     "unsubscribe",
     "saveThumbnail",
     "setUiState",
+    "saveSnapshot",
     "listVersions",
     "createVersion",
     "updateVersion",

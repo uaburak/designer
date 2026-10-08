@@ -776,9 +776,16 @@ export type CursorKind =
   | "DEFAULT" | "HAND" | "GRABBING" | "CROSSHAIR" | "PEN" | "PEN_ADD" | "PEN_REMOVE" | "PEN_CLOSE" | "IBEAM"
   | "RESIZE" | "ROTATE" | "MOVE_DUPLICATE" | "ZOOM_IN" | "ZOOM_OUT" | "EYEDROPPER" | "NOT_ALLOWED";
 
-/** Engine → JS events (docs/engine.md §10.4), drained after every call. */
+/**
+ * Engine → JS events (docs/engine.md §10.4), drained after every call.
+ *
+ * DOCUMENT_CHANGED: one committed transaction's Message. With `wire: "kiwi"` (docs/engine-build.md "Figma parity
+ * round 3") `bytes` is the kiwi Message (what the store journals as it is) and `message` is the kiwi-shaped Message
+ * (`@shared/schema` types: GUID objects, `blobs: [{bytes}]`) decoded lazily on first access — the type below is the
+ * interim JSON shape, which `wire: "json"` (the default) still delivers.
+ */
 export type EngineEvent =
-  | { type: "DOCUMENT_CHANGED"; kind: "USER" | "UNDO" | "REDO" | "SYSTEM"; label: string; message: Message }
+  | { type: "DOCUMENT_CHANGED"; kind: "USER" | "UNDO" | "REDO" | "SYSTEM"; label: string; message: Message; bytes?: Uint8Array }
   | { type: "NODES_CHANGED"; refs: Guid[]; fieldGroupMask: number[] }
   /**
    * The current page's tree shape changed (a Layers row's place, name, visibility or lock). `parents`: the nodes (the
@@ -808,8 +815,14 @@ export type EngineEvent =
    */
   | { type: "TEXT_EDIT"; active: boolean; ref: Guid | null; caretRectCss: { x: number; y: number; width: number; height: number }; selStart: number; selEnd: number }
   | ({ type: "UNDO_STATE" } & UndoState)
-  /** An image the document draws that the engine has no pixels for (40 hex digits); Engine.ts answers it from its image source. */
-  | { type: "REQUEST_IMAGE"; hash: string }
+  /**
+   * An image the document draws that the engine has no pixels for (40 hex digits); Engine.ts answers it from its image
+   * source. `maxDevicePx`: the largest device-pixel extent the paint has been drawn at (0: unknown) — the answer may be
+   * downscaled to it; the engine asks again, larger, when a copy it was given is drawn bigger (never past the original).
+   * `thumbnailHash`: the paint's `imageThumbnail.hash`, the low-res tier the file carries. Until pixels arrive the
+   * engine draws the paint's `thumbHash` itself.
+   */
+  | { type: "REQUEST_IMAGE"; hash: string; maxDevicePx?: number; thumbnailHash?: string }
   /** Vector edit mode started, ended, or its tool or selection changed (indices into the network's vertices / segments). */
   | {
       type: "VECTOR_EDIT";
@@ -849,6 +862,51 @@ function decode<T>(bytes: Uint8Array): T {
 
 export const encodeMessage = (message: Message): Uint8Array => encode(message);
 export const decodeMessage = (bytes: Uint8Array): Message => decode<Message>(bytes);
+
+/** Does `bytes` hold a kiwi Message (as against the interim JSON, which starts with `{`, `[` or whitespace)? */
+export function looksKiwi(bytes: Uint8Array): boolean {
+  for (const b of bytes) {
+    if (b === 0x20 || b === 0x0a || b === 0x0d || b === 0x09) continue;
+    return b !== 0x7b && b !== 0x5b;
+  }
+  return false;
+}
+
+function varuint(out: number[], value: number): void {
+  let v = value >>> 0;
+  do {
+    const byte = v & 127;
+    v >>>= 7;
+    out.push(v ? byte | 128 : byte);
+  } while (v);
+}
+
+/**
+ * A kiwi message list (library import / update payloads): 0x00, varuint count, count × (varuint length, the Message's
+ * bytes). The engine tells it from a Message by its first byte.
+ */
+export function encodeMessageList(messages: readonly Uint8Array[]): Uint8Array {
+  const header: number[] = [0];
+  varuint(header, messages.length);
+  const parts: number[][] = [];
+  let total = header.length;
+  for (const m of messages) {
+    const len: number[] = [];
+    varuint(len, m.length);
+    parts.push(len);
+    total += len.length + m.length;
+  }
+  const out = new Uint8Array(total);
+  out.set(header, 0);
+  let at = header.length;
+  messages.forEach((m, i) => {
+    out.set(parts[i], at);
+    at += parts[i].length;
+    out.set(m, at);
+    at += m.length;
+  });
+  return out;
+}
 export const encodeRefs = (refs: readonly Guid[]): Uint8Array => encode({ refs });
 /** A sparse NodeChange for engine_set_props (no guid: the refs say which nodes). */
 /**

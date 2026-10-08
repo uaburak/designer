@@ -1,18 +1,25 @@
-import { describe, expect, it } from "vitest";
-import type { NodeChange } from "@/engine/codec";
+import { describe, expect, it, vi } from "vitest";
+import type { Guid, NodeChange } from "@/engine/codec";
+import { patchTree } from "../controller";
 import {
   ancestorsOf,
+  DETAILS_WINDOW,
+  detailsWindow,
   draggedLayers,
   dropTarget,
   dropZone,
+  isContainer,
   normalizeSelection,
   rangeSelection,
   revealed,
+  RowDetailsStore,
   selectionRuns,
   toggleSelection,
   treeFromNodes,
+  treeFromOutline,
   visibleRows,
   withSubtree,
+  type OutlineNode,
 } from "../model/layerTree";
 
 // Page 0:1 holds (bottom → top): A (frame: a1, a2 (frame: a2x)), B (rectangle), G (group: g1, g2).
@@ -56,6 +63,125 @@ describe("visible rows", () => {
     const open = revealed(tree, ["a2x"], new Set());
     expect([...open].sort()).toEqual(["A", "a2"]);
     expect(revealed(tree, ["a2x"], open)).toBe(open);
+  });
+});
+
+// A page of `count` layers under `parent`, as an outline (pass 1) and as the engine rows pass 2 would read.
+function bigPage(count: number) {
+  const outline: OutlineNode[] = [{ id: "0:1", parent: null, type: "CANVAS", children: [], group: false }];
+  const rows = new Map<Guid, NodeChange>();
+  for (let i = 1; i <= count; i++) {
+    const id = `1:${i}`;
+    outline[0].children.push(id);
+    outline.push({ id, parent: "0:1", type: i % 10 === 0 ? "FRAME" : "ROUNDED_RECTANGLE", children: [], group: false });
+    rows.set(id, { guid: id, type: i % 10 === 0 ? "FRAME" : "ROUNDED_RECTANGLE", name: `Layer ${i}`, visible: i % 7 !== 0, locked: i % 5 === 0, ...(i % 10 === 0 ? { stackMode: "VERTICAL" } : {}) } as NodeChange);
+  }
+  const read = vi.fn((ids: readonly Guid[]) => ids.map((id) => rows.get(id)!).filter(Boolean));
+  return { outline, rows, read };
+}
+
+describe("two passes (Figma's Layers panel)", () => {
+  it("pass 1: the rows the panel shows come from the outline alone — no details read", () => {
+    const { outline, read } = bigPage(500);
+    const tree = treeFromOutline("0:1", outline, new RowDetailsStore(read));
+    const rows = visibleRows(tree, new Set());
+    expect(rows).toHaveLength(500);
+    expect(rows[0].id).toBe("1:500"); // top layer first
+    expect(ancestorsOf(tree, "1:3")).toEqual([]);
+    expect(isContainer(tree.nodes.get("1:10"))).toBe(true);
+    expect(isContainer(tree.nodes.get("1:11"))).toBe(false);
+    expect(dropTarget(tree, rows, 0, 0.1, new Set(["1:3"]))).toMatchObject({ parent: "0:1", position: "before" });
+    expect(read).not.toHaveBeenCalled();
+    expect(tree.details.size).toBe(0);
+  });
+
+  it("pass 2: details are read for a window of rows in one call and computed only for the rows drawn", () => {
+    const { outline, read } = bigPage(500);
+    const tree = treeFromOutline("0:1", outline, new RowDetailsStore(read));
+    const rows = visibleRows(tree, new Set());
+    // The list draws rows 0..39 (what fits): the first row without details brings its window in one read.
+    const draw = (i: number) => {
+      if (!tree.details.has(rows[i].id)) tree.details.prefetch(detailsWindow(rows, i));
+      const node = tree.nodes.get(rows[i].id)!;
+      return { name: node.name, visible: node.visible, locked: node.locked, stackMode: node.stackMode };
+    };
+    expect(draw(0)).toEqual({ name: "Layer 500", visible: true, locked: true, stackMode: "VERTICAL" });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read.mock.calls[0][0]).toHaveLength(DETAILS_WINDOW.below); // rows 0..47
+    for (let i = 1; i < 40; i++) draw(i);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(tree.details.size).toBe(40); // built for the rows drawn, not the 48 read, not the 500
+    expect(tree.details.computed("1:500")).toBe(true);
+    expect(tree.details.computed("1:450")).toBe(false);
+    // A scroll by one window: rows 48.. miss; one read brings the ones not in hand (24 above are).
+    draw(48);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read.mock.calls[1][0]).toHaveLength(48); // rows 48..95
+    expect(draw(60).name).toBe("Layer 440");
+    expect(read).toHaveBeenCalledTimes(2);
+    // A row asked outside any window (a rename of a row not drawn) reads that row alone.
+    expect(tree.nodes.get("1:7")!.name).toBe("Layer 7");
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(read.mock.calls[2][0]).toEqual(["1:7"]);
+  });
+
+  it("the window around a row: 24 above, 48 below, clipped to the list", () => {
+    const rows = Array.from({ length: 100 }, (_, i) => ({ id: `r${i}`, depth: 0, expandable: false, expanded: false }));
+    expect(detailsWindow(rows, 0)).toHaveLength(48);
+    expect(detailsWindow(rows, 50).map((id) => id)).toEqual(rows.slice(26, 98).map((r) => r.id));
+    expect(detailsWindow(rows, 99)).toHaveLength(25);
+  });
+
+  it("patching from a delta keeps the details of untouched rows and replaces the touched rows'", () => {
+    const { outline, read } = bigPage(200);
+    const tree = treeFromOutline("0:1", outline, new RowDetailsStore(read));
+    const rows = visibleRows(tree, new Set());
+    tree.details.prefetch(detailsWindow(rows, 0));
+    const before = tree.details.of("1:199");
+    expect(tree.nodes.get("1:200")!.name).toBe("Layer 200");
+    // 1:200 renamed, 1:3 moved under 1:10 (a frame): the delta carries their rows and the parents' child lists.
+    const next = patchTree(tree, {
+      removed: ["1:1"],
+      nodes: [
+        { guid: "1:200", type: "ROUNDED_RECTANGLE", name: "Renamed", visible: true, locked: false, parentIndex: { guid: "0:1", position: "!" }, childIds: [] },
+        { guid: "1:3", type: "ROUNDED_RECTANGLE", name: "Layer 3", parentIndex: { guid: "1:10", position: "!" }, childIds: [] },
+        { guid: "1:10", type: "FRAME", name: "Layer 10", stackMode: "VERTICAL", parentIndex: { guid: "0:1", position: "!" }, childIds: ["1:3"] } as NodeChange,
+        { guid: "0:1", type: "CANVAS", name: "Page", childIds: outline[0].children.filter((id) => id !== "1:1" && id !== "1:3") },
+      ],
+    });
+    expect(next).not.toBe(tree);
+    expect(next.nodes.has("1:1")).toBe(false);
+    expect(next.nodes.get("1:3")!.parent).toBe("1:10");
+    expect(next.nodes.get("1:10")!.children).toEqual(["1:3"]);
+    expect(next.nodes.get("1:200")!.name).toBe("Renamed"); // from the delta's row, no read
+    expect(next.details.of("1:199")).toBe(before); // untouched: the same details object
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(tree.nodes.has("1:1")).toBe(true); // the old tree's hierarchy is untouched
+    // Nothing structural (a rename alone): the node map is reused, the details replaced.
+    const renamed = patchTree(next, { removed: [], nodes: [{ guid: "1:199", type: "ROUNDED_RECTANGLE", name: "Again", parentIndex: { guid: "0:1", position: "!" }, childIds: [] }] }, undefined, { detailsOnly: true });
+    expect(renamed.nodes).toBe(next.nodes);
+    expect(renamed.nodes.get("1:199")!.name).toBe("Again");
+    expect(renamed.details.of("1:200").name).toBe("Renamed");
+    // `detailsOnly` asked but a child list did change: the full patch runs.
+    const moved = patchTree(renamed, { removed: [], nodes: [{ guid: "1:10", type: "FRAME", name: "Layer 10", parentIndex: { guid: "0:1", position: "!" }, childIds: [] }] }, undefined, { detailsOnly: true });
+    expect(moved.nodes).not.toBe(renamed.nodes);
+    expect(moved.nodes.get("1:10")!.children).toEqual([]);
+  });
+
+  it("a row invalidated reads again when next shown; rows kept with the tree need no read", () => {
+    const { outline, read, rows: engineRows } = bigPage(50);
+    const tree = treeFromOutline("0:1", outline, new RowDetailsStore(read));
+    expect(tree.nodes.get("1:50")!.name).toBe("Layer 50");
+    engineRows.set("1:50", { ...engineRows.get("1:50")!, name: "Changed" });
+    expect(tree.nodes.get("1:50")!.name).toBe("Layer 50"); // in hand: no read
+    tree.details.invalidate("1:50");
+    expect(tree.details.has("1:50")).toBe(false);
+    expect(tree.nodes.get("1:50")!.name).toBe("Changed");
+    expect(read).toHaveBeenCalledTimes(2);
+    // treeFromNodes keeps the rows it is given (a delta's, a test's): details from them, never a read.
+    const kept = treeFromNodes("0:1", [...engineRows.values()].map((r) => ({ ...r, parentIndex: { guid: "0:1", position: "!" } })), new RowDetailsStore(read));
+    expect(kept.nodes.get("1:7")!.name).toBe("Layer 7");
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });
 

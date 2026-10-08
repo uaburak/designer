@@ -709,11 +709,26 @@ export function emitNodeFieldsHeader(s: LoadedSchema): string {
   return L.join("\n");
 }
 
+/** The binary schema as a C array: the engine's SchemaTable parses it (names and types of every definition). */
+export function emitSchemaBinaryHeader(s: LoadedSchema): string {
+  const L: string[] = [];
+  L.push(...BANNER, "// encodeBinarySchema(document.kiwi): the same bytes as SCHEMA_BINARY in document.generated.ts.", "");
+  L.push("#pragma once", "", "#include <cstddef>", "#include <cstdint>", "", "namespace schema {", "");
+  L.push(`inline constexpr uint32_t kDocumentFormatVersion = ${s.tags.documentFormatVersion};`);
+  L.push(`inline constexpr char kSchemaSha1[] = ${JSON.stringify(s.sha1)};`);
+  L.push(`inline constexpr size_t kSchemaBinarySize = ${s.binary.length};`);
+  L.push("inline constexpr uint8_t kSchemaBinary[] = {");
+  for (let i = 0; i < s.binary.length; i += 24) L.push(`  ${Array.from(s.binary.subarray(i, i + 24)).join(",")},`);
+  L.push("};", "", "}  // namespace schema", "");
+  return L.join("\n");
+}
+
 export function emitCpp(s: LoadedSchema): Record<string, string> {
   return {
     "document.kiwi.h": compileSchemaCPP({ ...s.schema, package: "schema" }),
     "document.stream.h": compileSchemaCallbackCPP({ ...s.schema, package: "schema_stream" }),
     "node_fields.h": emitNodeFieldsHeader(s),
+    "document.schema.h": emitSchemaBinaryHeader(s),
   };
 }
 

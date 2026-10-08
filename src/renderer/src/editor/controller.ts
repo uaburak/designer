@@ -5,28 +5,32 @@
  * Not React: components get it from EditorContext and read through hooks.
  */
 import { createContext, useContext } from "react";
-import { KEY_HANDLED, Status, TOOLS, type ToolName } from "@/engine/abi";
+import { FieldGroup, KEY_HANDLED, Status, TOOLS, type ToolName } from "@/engine/abi";
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
 import type { EngineStore } from "@/engine/EngineStore";
 import { size } from "@/ds/tokens";
 import type { ChangeInfo } from "@/ds/types";
 import type { DocumentSource } from "./documentSource";
-import { engineCall, keepsField } from "./engineCompat";
+import { changesOf, engineCall, keepsField } from "./engineCompat";
 import { ImageService } from "./images";
 import { VectorEditor } from "./vectorEdit";
 import { ComponentIndex, deriveInstanceRows, type DerivedRow } from "./components";
 import { VariableIndex } from "./variables";
 import { LibraryIndex } from "./libraries";
 import type { CNode } from "./model/components";
-import { EMPTY_TREE, treeFromNodes, type LayerTree } from "./model/layerTree";
+import { DETAIL_FIELDS, EMPTY_TREE, RowDetailsStore, treeFromNodes, treeFromOutline, type LayerTree, type OutlineNode, type RowReader } from "./model/layerTree";
 import { Store, type UIState } from "./uiStore";
 
 /** Node types the engine reads back as they are (anything else reads NONE until the engine has it). */
 const ENGINE_TYPES = new Set(["DOCUMENT", "CANVAS", "GROUP", "FRAME", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "SYMBOL", "INSTANCE", "SECTION"]);
 
 /** Groups of NODES_CHANGED that can change a Layers row's icon (auto layout). */
-const LAYOUT_GROUP = 2;
+const LAYOUT_GROUP = FieldGroup.LAYOUT;
+/** Groups of NODES_CHANGED that change what a Layers row shows (its details): the name, the eye, the lock, the icon. */
+const DETAIL_GROUPS = FieldGroup.NAME | FieldGroup.VISIBILITY | FieldGroup.LAYOUT;
+/** Committed fields that change a Layers row's details (the engine's `kLayerRowFields` without the place and the type). */
+const DETAIL_KEYS: readonly string[] = DETAIL_FIELDS;
 
 /** What `noteSourceTypes` reads of a change: a Message's NodeChange, or the load worker's slimmer record. */
 export type SourceTypeChange = Pick<NodeChange, "guid" | "type"> & { phase?: NodeChange["phase"]; booleanOperation?: string };
@@ -62,10 +66,18 @@ export class EditorController {
    */
   readonly beforeFlush = new Set<() => Promise<void>>();
 
-  private treeCache: { key: string; tree: LayerTree } | null = null;
+  /** The tree last read, its key, and the part of the key under which its outline (places, kinds) still holds */
+  private treeCache: { key: string; outlineKey: string; tree: LayerTree } | null = null;
   /** The document version the cached tree is of (the engine's layer_tree / layer_changes), for the next delta */
   private treeVersion: number | null = null;
   private layoutVersion = 0;
+  /** Bumped when a row's details changed without its place (a live rename, the eye, the lock): the rows re-read */
+  private detailsVersion = 0;
+  /**
+   * `STRUCTURE_CHANGED.parents` since the tree was last read: the nodes whose child lists changed (undefined: none —
+   * a rename, the eye or the lock changed a row, not the hierarchy; null: the engine couldn't say).
+   */
+  private pendingParents: Set<Guid> | null | undefined = undefined;
   /** Bumped by changes that can change instances' derived rows in Layers (a main's layers, a swap) */
   private instanceVersion = 0;
   /** Bumped by types noted from the source (a node the engine reads as NONE): part of the tree's key */
@@ -126,24 +138,50 @@ export class EditorController {
     keepsField(engine, "effects");
     const bump = () => this.invalidateTree();
     this.cleanups.push(
+      engine.on("STRUCTURE_CHANGED", (e) => {
+        // Whose child lists changed since the tree was last read: none → the next delta touches details only.
+        if (e.parents === null || this.pendingParents === null) this.pendingParents = null;
+        else {
+          this.pendingParents ??= new Set();
+          for (const p of e.parents) this.pendingParents.add(p);
+        }
+      }),
       store.subscribe("structure", bump),
       store.subscribe("page", () => this.invalidateTree({ now: true })),
       engine.on("DOCUMENT_CHANGED", (e) => {
-        if (!this.treeCache?.tree.hasInstances) return;
-        const touches = e.message.nodeChanges.some((c) => {
+        const tree = this.treeCache?.tree;
+        if (!tree) return;
+        // The rows whose details a committed change touched read again when next shown (their place: the delta).
+        // Rows derived here from a main (an engine without materialized sublayers) follow the main's changes.
+        let details = false;
+        let instances = false;
+        for (const c of changesOf(e)) {
           const f = c as unknown as Record<string, unknown>;
-          return c.phase !== undefined || "symbolData" in f || "overriddenSymbolID" in f || "name" in f || "visible" in f || "parentIndex" in f;
-        });
-        if (touches) {
-          this.instanceVersion++;
-          bump();
+          if (DETAIL_KEYS.some((key) => key in f)) {
+            tree.details.invalidate(c.guid);
+            details = true;
+          }
+          if (tree.derivedSublayers && (c.phase !== undefined || "symbolData" in f || "overriddenSymbolID" in f || "name" in f || "visible" in f || "parentIndex" in f)) instances = true;
         }
+        if (details) this.detailsVersion++;
+        if (instances) this.instanceVersion++;
+        if (details || instances) bump();
       }),
       engine.on("NODES_CHANGED", (e) => {
-        if (e.fieldGroupMask.some((m) => (m & LAYOUT_GROUP) !== 0)) {
-          this.layoutVersion++;
-          bump();
+        // A live change of what a row shows: those rows' details are dropped, read again at the next refresh.
+        let details = false;
+        let layout = false;
+        for (let i = 0; i < e.refs.length; i++) {
+          const m = e.fieldGroupMask[i] ?? 0;
+          if ((m & DETAIL_GROUPS) === 0) continue;
+          this.treeCache?.tree.details.invalidate(e.refs[i]);
+          details = true;
+          if (m & LAYOUT_GROUP) layout = true;
         }
+        if (!details) return;
+        if (layout) this.layoutVersion++;
+        else this.detailsVersion++;
+        bump();
       })
     );
   }
@@ -276,28 +314,51 @@ export class EditorController {
   }
 
   /**
-   * The current page's Layers tree, read again only after its structure changed (synchronous, always current). With
-   * an engine that keeps a change log (`layerChanges`, docs/engine-build.md "Performance round 2") a stale tree of
-   * the same page is patched from the rows that changed since its version instead of re-read whole.
+   * The current page's Layers tree, read again only after its structure changed (synchronous, always current), in
+   * two passes as Figma's panel (model/layerTree.ts): pass 1 reads the page's outline — every row's place and kind,
+   * O(rows) — from the engine's outline read when the build has one (`layerOutline`), else from the layer-tree rows
+   * (the cheapest read in hand that also gives the version; the rows are kept for pass 2); pass 2 computes a row's
+   * details when the panel shows it (`LayerTree.details`), one engine read per window of rows. With an engine that
+   * keeps a change log (`layerChanges`, docs/engine-build.md "Performance round 2") a stale tree of the same page is
+   * patched from the rows that changed since its version instead of re-read whole — and when no child list changed
+   * (`STRUCTURE_CHANGED.parents` empty: a rename, the eye, the lock, auto layout) the delta touches details only.
    */
   readonly getTree = (): LayerTree => {
     if (this.engine.destroyed) return EMPTY_TREE;
     const page = this.store.page;
-    const key = `${page}#${this.store.structure}#${this.layoutVersion}#${this.instanceVersion}#${this.typesVersion}`;
+    const key = `${page}#${this.store.structure}#${this.layoutVersion}#${this.instanceVersion}#${this.typesVersion}#${this.detailsVersion}`;
     if (this.treeCache?.key === key) return this.treeCache.tree;
     const previous = this.treeCache?.tree;
-    const changes = previous && previous.page === page && this.treeVersion !== null ? layerChangesOf(this.engine, page, this.treeVersion) : null;
+    const samePage = !!previous && previous.page === page;
+    const outlineKey = `${this.instanceVersion}#${this.typesVersion}`;
+    const sameOutline = samePage && this.treeCache?.outlineKey === outlineKey;
+    const structural = this.pendingParents === null || (this.pendingParents?.size ?? 0) > 0;
+    this.pendingParents = undefined;
+    const changes = samePage && this.treeVersion !== null ? layerChangesOf(this.engine, page, this.treeVersion) : null;
     let tree: LayerTree;
     if (changes && !changes.full && previous) {
-      tree = patchTree(previous, changes, this.withRealType);
+      tree = patchTree(previous, changes, this.withRealType, { detailsOnly: sameOutline && !structural });
       this.treeVersion = changes.version;
     } else {
-      const read = changes ? { version: changes.version, nodes: changes.nodes } : layerTreeOf(this.engine, page);
-      tree = treeFromRows(this.engine, page, read.nodes, this.withRealType);
-      this.treeVersion = read.version;
+      const outline = changes ? null : layerOutlineOf(this.engine, page);
+      if (outline) {
+        tree = treeFromOutline(page, outline.nodes.map(this.withRealOutlineType), new RowDetailsStore(detailsReader(this.engine, this.withRealType)));
+        this.treeVersion = outline.version;
+      } else {
+        const read = changes ? { version: changes.version, nodes: changes.nodes } : layerTreeOf(this.engine, page);
+        tree = treeFromRows(this.engine, page, read.nodes, this.withRealType);
+        this.treeVersion = read.version;
+      }
     }
-    this.treeCache = { key, tree };
+    this.treeCache = { key, outlineKey, tree };
     return tree;
+  };
+
+  /** An outline row with its real type (`withRealType` for rows that carry no fields). */
+  private readonly withRealOutlineType = (o: OutlineNode): OutlineNode => {
+    const known = this.sourceTypes.get(o.id);
+    if (!known || (o.type !== "NONE" && known.type === o.type)) return o;
+    return { ...o, type: o.type !== "NONE" ? o.type : known.type };
   };
 
   /**
@@ -408,17 +469,92 @@ function layerChangesOf(engine: Engine, page: Guid, since: number): LayerDelta |
 }
 
 /**
- * The tree with a delta applied (docs/engine-build.md): `removed` dropped, each row upserted (its `childIds`
- * replacing the old ones), the rest kept as they were.
+ * The outline read asked of the engine (docs/editor.md "Needed from the engine"; not in the build in hand — gated
+ * on `Engine.layerOutline` and the `layer_outline` export): the page's rows in pre-order, each followed by its
+ * children in `childIds` order (bottom first), with their place and kind only — no names. `ids[i]` the row's guid
+ * (instance sublayers as their "I…" strings), `parents[i]` the row index of its parent (−1 for the page),
+ * `kinds[i]` = type code | flags << 8 with the type names in `types` and the flags `OUTLINE_FLAGS`.
  */
-export function patchTree(tree: LayerTree, delta: Pick<LayerDelta, "nodes" | "removed">, resolve: (n: NodeChange) => NodeChange = (n) => n): LayerTree {
+export interface LayerOutline {
+  version: number;
+  ids: Guid[];
+  parents: ArrayLike<number>;
+  kinds: ArrayLike<number>;
+  types: readonly string[];
+}
+/** `LayerOutline.kinds` flags (bits above the type code). */
+export const OUTLINE_FLAGS = { derived: 1, stateGroup: 2, group: 4 } as const;
+
+function layerOutlineOf(engine: Engine, page: Guid): { version: number; nodes: OutlineNode[] } | null {
+  if (!page) return null;
+  const read = engineCall<(p: Guid) => LayerOutline | null>(engine, "layerOutline", "layer_outline");
+  if (!read) return null;
+  const o = read(page);
+  if (!o || !Array.isArray(o.ids) || !o.parents || !o.kinds || !Array.isArray(o.types) || typeof o.version !== "number") return null;
+  return { version: o.version, nodes: decodeLayerOutline(o) };
+}
+
+/** The outline rows of an engine outline read: children rebuilt from the parent indexes, in stream order. */
+export function decodeLayerOutline(o: Pick<LayerOutline, "ids" | "parents" | "kinds" | "types">): OutlineNode[] {
+  const { ids, parents, kinds, types } = o;
+  const out: OutlineNode[] = new Array(ids.length);
+  for (let i = 0; i < ids.length; i++) {
+    const kind = kinds[i] ?? 0;
+    const type = types[kind & 0xff] ?? "NONE";
+    const flags = kind >>> 8;
+    const at = parents[i] ?? -1;
+    const parent = at >= 0 && at < i ? out[at] : null;
+    const node: OutlineNode = { id: ids[i], parent: parent?.id ?? null, type, children: [], group: type === "GROUP" || (type === "FRAME" && (flags & OUTLINE_FLAGS.group) !== 0) };
+    if (type === "FRAME" && flags & OUTLINE_FLAGS.stateGroup) node.stateGroup = true;
+    if (flags & OUTLINE_FLAGS.derived || ids[i].startsWith("I")) node.derived = true;
+    out[i] = node;
+    parent?.children.push(ids[i]);
+  }
+  return out;
+}
+
+/** Pass 2's engine read: the layer-tree fields of the rows asked, in one call (`engine_read_nodes` with `fields`). */
+export function detailsReader(engine: Engine, resolve: (n: NodeChange) => NodeChange = (n) => n): RowReader {
+  return (ids) => (engine.destroyed || !ids.length ? [] : engine.readNodes(ids, { fields: DETAIL_FIELDS }).map(resolve));
+}
+
+/** Do a delta row's children match the tree's (the delta changed nothing structural about it)? */
+function sameChildren(tree: LayerTree, row: NodeChange): boolean {
+  const node = tree.nodes.get(row.guid);
+  if (!node) return false;
+  if ((row.parentIndex?.guid || null) !== node.parent) return false;
+  const kids = row.childIds ?? [];
+  if (kids.length !== node.children.length) return false;
+  for (let i = 0; i < kids.length; i++) if (kids[i] !== node.children[i]) return false;
+  return true;
+}
+
+/**
+ * The tree with a delta applied (docs/engine-build.md): `removed` dropped, each row upserted (its `childIds`
+ * replacing the old ones), the rest kept as they were — the details of rows the delta didn't touch stay in hand
+ * (the page's `RowDetailsStore` is shared). `detailsOnly` (nothing structural happened, `STRUCTURE_CHANGED.parents`
+ * empty): when every row's place and children indeed match, the rows' details are replaced and the node map is
+ * reused — no O(rows) copy for a rename, the eye or the lock.
+ */
+export function patchTree(tree: LayerTree, delta: Pick<LayerDelta, "nodes" | "removed">, resolve: (n: NodeChange) => NodeChange = (n) => n, options: { detailsOnly?: boolean } = {}): LayerTree {
+  const rows = delta.nodes.map(resolve);
+  const details = tree.details;
+  if (options.detailsOnly && !delta.removed.length && rows.every((r) => sameChildren(tree, r))) {
+    for (const r of rows) details.keep(r);
+    return { page: tree.page, nodes: tree.nodes, hasInstances: tree.hasInstances, details };
+  }
   const nodes = new Map(tree.nodes);
-  for (const id of delta.removed) nodes.delete(id);
-  const fresh = treeFromNodes(tree.page, delta.nodes.map(resolve));
+  for (const id of delta.removed) {
+    nodes.delete(id);
+    details.delete(id);
+  }
+  const fresh = treeFromNodes(tree.page, rows, details);
   for (const [id, node] of fresh.nodes) nodes.set(id, node);
   // Rows no longer in the document or on this page: a removed id, or a parent whose child list no longer lists it
   // would only be dropped if the engine said so (`removed` names every node that left the document).
-  return { page: tree.page, nodes, hasInstances: tree.hasInstances || fresh.hasInstances };
+  const out: LayerTree = { page: tree.page, nodes, hasInstances: tree.hasInstances || fresh.hasInstances, details };
+  if (tree.derivedSublayers) out.derivedSublayers = true;
+  return out;
 }
 
 /** The Layers tree of `page`, in one engine read of only what the rows show (Engine.layerTree). */
@@ -427,18 +563,18 @@ export function readTree(engine: Engine, page: Guid, resolve: (n: NodeChange) =>
   return treeFromRows(engine, page, engine.layerTree(page), resolve);
 }
 
-/** The tree from the rows an engine read gave (`layerTree` / `layerChanges` with `full`). */
+/**
+ * The tree from the rows an engine read gave (`layerTree` / `layerChanges` with `full`): pass 1 takes each row's
+ * place and kind and lets the rows go; pass 2 reads a row's details from the engine when it is shown, a window of
+ * rows per read (`RowDetailsStore`). Rows derived here (an engine without materialized sublayers) are kept: the
+ * engine can't read them.
+ */
 export function treeFromRows(engine: Engine, page: Guid, rows: readonly NodeChange[], resolve: (n: NodeChange) => NodeChange = (n) => n): LayerTree {
   if (!page) return EMPTY_TREE;
-  const nodes: NodeChange[] = [];
-  const seen = new Set<Guid>();
-  for (const n of rows) {
-    if (seen.has(n.guid)) continue;
-    seen.add(n.guid);
-    nodes.push(resolve(n));
-  }
+  const nodes = rows.map(resolve); // each node once: the engine walks the tree (a repeated id would take the last row)
   // Instance sublayers: the engine lists them once it materializes instances (E6); until then they are derived
-  // here from the main component, for Layers only (ids `I<instance>;<key>…`, docs/schema.md §5.1).
+  // here from the main component, for Layers only (ids `I<instance>;<key>…`, docs/schema.md §5.1). An instance
+  // with children listed costs nothing here.
   const read = (ids: Guid[]) => (ids.length ? engine.readNodes(ids, { childIds: true }).map((n) => resolve(n) as CNode) : []);
   const derived: NodeChange[] = [];
   for (const n of nodes) {
@@ -449,7 +585,9 @@ export function treeFromRows(engine: Engine, page: Guid, rows: readonly NodeChan
     n.childIds = kids;
     for (const r of rows) derived.push({ ...(r.node as NodeChange), parentIndex: { guid: r.parent, position: "" }, childIds: r.children, derived: true } as NodeChange);
   }
-  return treeFromNodes(page, derived.length ? [...nodes, ...derived] : nodes);
+  const tree = treeFromNodes(page, derived.length ? [...nodes, ...derived] : nodes, new RowDetailsStore(detailsReader(engine, resolve)), false);
+  if (derived.length) tree.derivedSublayers = true;
+  return tree;
 }
 
 /** Which tools the engine implements: setTool answers OK only for those. */

@@ -22,6 +22,7 @@ import type {
   OpenFileResult,
   OpenWorkspaceFile,
   Role,
+  TabAttach,
   TabsSnapshot,
   ThemePreference,
   ThemeState,
@@ -121,6 +122,14 @@ export interface HomeApi extends DesktopCommon {
 export interface EditorApi extends DesktopCommon {
   role: "editor";
   tab: {
+    /**
+     * Which tab and file this view is (`tab:attach`, docs/desktop.md §3.1):
+     * sent when main adopts the spare editor for a file that opens. An
+     * attach that arrived before the handler was registered is handed over
+     * as soon as it is. A view made for a tab has them in its URL and in
+     * `init()` instead.
+     */
+    onAttach(cb: (a: TabAttach) => void): Unsubscribe;
     /** title, status */
     report(r: TabReport): void;
     onVisibility(cb: (v: { visible: boolean }) => void): Unsubscribe;

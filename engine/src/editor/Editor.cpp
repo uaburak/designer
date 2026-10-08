@@ -137,6 +137,7 @@ const std::vector<Guid>* Editor::nodesWithKey(const std::string& key) const {
 void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   if (c.phase != Phase::REMOVED && (c.phase == Phase::CREATED || (c.mask & F_SOURCE_LIBRARY_KEY)) && !c.props.sourceLibraryKey.empty())
     hasLibraryCopies_ = true;
+  if (!applyingStored_ && (!storedText_.empty() || !storedSymbols_.empty())) invalidateStored(c, typeBefore);
   indexChange(c);
   markInstanceDirty(c);
   noteBindings(c, typeBefore);
@@ -457,7 +458,8 @@ void Editor::derivePage(Guid page) {
       const Node* n = doc_.get(c);
       if (!n) continue;
       if (n->props.type == NodeType::INSTANCE && !derivedRows_.count(c)) instanceDirty_.insert(c);
-      if (n->props.isAutoLayout() || n->props.fitsChildren()) dirty.push_back(c);
+      // Geometry this engine stored (the snapshot carries its stamp) is what layout would give: not verified again.
+      if (!trustLayout_ && (n->props.isAutoLayout() || n->props.fitsChildren())) dirty.push_back(c);
       stack.push_back(c);
     }
   }
@@ -625,8 +627,17 @@ Overlay Editor::overlay() const {
 
 // ---- Document ---------------------------------------------------------------
 
-void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
+void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDerived* derived) {
   cancelGesture();
+  storedText_.clear();
+  storedSymbols_.clear();
+  storedLayouts_.clear();
+  derivedUsed_ = derivedStale_ = 0;
+  trustLayout_ = derived != nullptr;
+  if (derived) {
+    storedText_ = std::move(derived->texts);
+    storedSymbols_ = std::move(derived->symbols);
+  }
   txn_ = Txn{};
   doc_.clear();
   undo_.clear();
@@ -665,14 +676,17 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   instanceMain_.clear();
   infoCache_.clear();
   docNode_ = kNoGuid;
-  for (const NodeChange& c : nodes) {
+  doc_.reserve(nodes.size());
+  for (NodeChange& c : nodes) {
     if (c.guid.isDerived()) continue;
-    NodeChange created = c;
-    created.phase = Phase::CREATED;
-    created.mask = F_ALL;
-    doc_.apply(created);
+    c.phase = Phase::CREATED;
+    c.mask = F_ALL;
     if (!c.props.sourceLibraryKey.empty()) hasLibraryCopies_ = true;
+    doc_.adopt(std::move(c));
+    c.props = NodeProps{};  // what was moved out of, freed now (the peak stays one copy of the document)
   }
+  nodes.clear();
+  nodes.shrink_to_fit();
   rebuildIndexes();
   page_ = kNoGuid;
   auto all = pages();
@@ -685,8 +699,11 @@ void Editor::loadDocument(const std::vector<NodeChange>& nodes, Guid page) {
   events_.structureAll = true;
   needsRender_ = true;
   // The file's global bookkeeping, then the opened page's instances and auto layout (other pages on their first
-  // show: docs/engine.md §3.4 as built); neither is an undo step.
+  // show: docs/engine.md §3.4 as built); neither is an undo step. The bookkeeping (a deleted main nobody uses going,
+  // bound values brought up to date) doesn't make the stored derived data stale.
+  applyingStored_ = derived != nullptr;
   relayoutAll();
+  applyingStored_ = false;
   derivePage(page_);
   events_.undo = true;
 }
@@ -744,6 +761,102 @@ std::vector<NodeChange> Editor::encodeDocument() const {
   };
   for (Guid r : roots) visit(visit, r);
   return out;
+}
+
+// ---- Derived data (docs/engine-build.md "Figma parity round 3" §2) -------------------
+
+void Editor::invalidateStored(const NodeChange& c, NodeType typeBefore) {
+  FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
+  // A text's stored layout stands for one set of text fields and one box: any change of them makes it stale (the
+  // creation of an instance sublayer by its first materialization is not a change of it).
+  if (mask & (kTextLayoutFields | F_SIZE | F_TYPE))
+    if (!(c.guid.isDerived() && c.phase == Phase::CREATED)) {
+      storedText_.erase(c.guid);
+      storedLayouts_.erase(c.guid);
+    }
+  if (storedSymbols_.empty() || deriving_ || inLayout_ || (txn_.open && txn_.kind == TxnKind::LOAD)) return;
+  // Instances not derived yet keep their stored sublayers until something they may depend on changes: their own
+  // fields, a component (anything inside a SYMBOL), variables, collections, styles, explicit modes.
+  if (!c.guid.isDerived()) storedSymbols_.erase(c.guid);
+  NodeType type = c.phase == Phase::REMOVED ? typeBefore : c.props.type;
+  if (const Node* n = doc_.get(c.guid)) type = n->props.type;
+  bool global = type == NodeType::VARIABLE || type == NodeType::VARIABLE_SET || type == NodeType::SYMBOL ||
+                typeBefore == NodeType::SYMBOL || (mask & (F_VARIABLE_MODES | F_STYLE_TYPE));
+  if (!global)
+    if (const Node* n = doc_.get(c.guid)) global = n->props.isStyle();
+  for (Guid a = doc_.parentOf(c.guid); !global && a != kNoGuid; a = doc_.parentOf(a))
+    if (const Node* an = doc_.get(a)) global = an->props.type == NodeType::SYMBOL || (an->props.type == NodeType::FRAME && an->props.isStateGroup);
+  if (global) storedSymbols_.clear();
+}
+
+void Editor::encodeDerivedFields(Guid id, std::string& fields, codec::BlobsOut& blobs) {
+  const Node* n = doc_.get(id);
+  if (!n) return;
+  schema::Out o;
+  if (n->props.type == NodeType::TEXT) {
+    std::shared_ptr<const text::StoredText> s;
+    Guid page = doc_.pageOf(id);
+    if (derivedPages_.count(page) || !storedText_.count(id)) {
+      if (derivedPages_.count(page))
+        if (const text::TextLayout* L = textLayout(id)) s = text::storedFromLayout(*L);
+    } else {
+      s = storedText_[id];
+    }
+    if (s) {
+      o.varuint(359);
+      text::writeStoredText(o, *s, blobs);
+    }
+  } else if (n->props.type == NodeType::INSTANCE) {
+    // One entry per sublayer, keyed by its guidPath (the root excluded): its size, its transform, a text's layout.
+    std::vector<StoredRow> rows;
+    auto live = derivedRows_.find(id);
+    if (live != derivedRows_.end()) {
+      for (Guid r : live->second) {
+        const Node* rn = doc_.get(r);
+        auto info = derivedInfo_.find(r);
+        if (!rn || info == derivedInfo_.end()) continue;
+        StoredRow row;
+        row.path = info->second.path;
+        row.hasSize = row.hasTransform = true;
+        row.size = rn->props.size;
+        row.transform = rn->props.transform;
+        if (rn->props.type == NodeType::TEXT)
+          if (const text::TextLayout* L = textLayout(r)) row.text = text::storedFromLayout(*L);
+        rows.push_back(std::move(row));
+      }
+    } else if (auto stored = storedSymbols_.find(id); stored != storedSymbols_.end()) {
+      rows = stored->second;
+    } else {
+      return;
+    }
+    o.varuint(125);
+    o.varuint(static_cast<uint32_t>(rows.size()));
+    for (const StoredRow& row : rows) {
+      o.varuint(111);  // guidPath
+      o.varuint(1);
+      o.varuint(static_cast<uint32_t>(row.path.size()));
+      for (Guid g : row.path) o.varuint(g.sessionID), o.varuint(g.localID);
+      o.byte(0);
+      if (row.hasSize) {
+        o.varuint(11);
+        o.varfloat(static_cast<float>(row.size.x));
+        o.varfloat(static_cast<float>(row.size.y));
+      }
+      if (row.hasTransform) {
+        const Mat2x3& m = row.transform;
+        o.varuint(12);
+        for (double v : {m.m00, m.m01, m.m02, m.m10, m.m11, m.m12}) o.varfloat(static_cast<float>(v));
+      }
+      if (row.text) {
+        o.varuint(359);
+        text::writeStoredText(o, *row.text, blobs);
+      }
+      o.byte(0);
+    }
+  } else {
+    return;
+  }
+  fields += o.s;
 }
 
 std::vector<Guid> Editor::pages() const {

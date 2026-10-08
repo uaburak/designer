@@ -28,6 +28,8 @@
 #include "render/ImageCache.h"
 #include "render/Renderer.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
+#include "text/DerivedText.h"
 #include "text/Fonts.h"
 #include "text/TextLayout.h"
 
@@ -56,12 +58,22 @@ enum TickFlags : uint32_t { TICK_NEEDS_RENDER = 1 };
 // children back to front); READ_VISIBLE_ONLY leaves hidden layers and what is under them out of those subtrees.
 enum ReadFlags : uint32_t { INCLUDE_CHILD_IDS = 1, READ_SUBTREE = 2, READ_VISIBLE_ONLY = 4 };
 
+// What the engine's structured outputs are encoded as (docs/engine-build.md "Figma parity round 3"): the interim JSON
+// (the default during the transition) or kiwi Messages. Inputs are detected by their first byte either way.
+enum WireFormat : uint32_t { WIRE_JSON = 0, WIRE_KIWI = 1 };
+// engine_encode_document flags.
+enum EncodeFlags : uint32_t { ENCODE_DERIVED = 1 };
+
 struct Engine {
   std::string selector;  // empty: headless
   std::unique_ptr<gfx::Device> device;
   std::unique_ptr<Renderer> renderer;
   Editor editor;
   RenderStats stats;
+  WireFormat wire = WIRE_JSON;
+  // Binary payloads a JSON result refers to by index (engine_attachment): the Messages of DOCUMENT_CHANGED events,
+  // library payloads. Replaced by the next call that produces attachments.
+  std::vector<std::string> attachments;
 };
 
 // Module state. Trivially constructed (no work before main).
@@ -151,18 +163,41 @@ void writeMessage(json::Writer& w, uint32_t sessionID, const std::vector<NodeCha
   codec::writeMessage(w, sessionID, changes);
 }
 
-std::vector<NodeChange> readMessage(const json::Value& v) { return codec::readMessage(v); }
+// A Message payload in either encoding: kiwi (the store's bytes) or the interim JSON. False (E_DECODE) when it is
+// neither; `v` holds the parsed JSON when it was JSON (the clipboard and load read their extras from it).
+bool readAnyMessage(Ptr ptr, uint32_t len, codec::KiwiMessage& out, json::Value* v = nullptr, codec::DerivedSink* derived = nullptr) {
+  std::string_view in = bytes(ptr, len);
+  if (codec::looksKiwi(in)) {
+    if (codec::readMessage(in, out, derived)) return true;
+    setError("the payload is not a valid kiwi Message");
+    return false;
+  }
+  json::Value local;
+  json::Value& j = v ? *v : local;
+  if (!parse(ptr, len, j)) return false;
+  out = codec::KiwiMessage{};
+  out.changes = codec::readMessage(j);
+  if (auto* s = j.get("sessionID"); s && s->isNumber()) out.sessionID = static_cast<uint32_t>(s->number);
+  return true;
+}
 
 void writeEvents(json::Writer& w, Engine& e) {
   Editor& ed = e.editor;
   Editor::Events ev = ed.takeEvents();
   std::string page = ed.page() == kNoGuid ? std::string() : ed.page().toString();
   w.beginObject().key("events").beginArray();
+  e.attachments.clear();
   for (auto& d : ev.documents) {
     w.beginObject().key("type").string("DOCUMENT_CHANGED");
     w.key("kind").string(txnKindName(d.kind)).key("label").string(d.label);
-    w.key("message");
-    writeMessage(w, ed.sessionID(), d.changes);
+    // The Message as kiwi bytes (what the store journals as it is), fetched with engine_attachment(payload) —
+    // whatever the wire format; the JSON wire also carries it as JSON (`message`).
+    w.key("payload").number(static_cast<double>(e.attachments.size()));
+    e.attachments.push_back(codec::writeMessage(ed.sessionID(), d.changes));
+    if (e.wire == WIRE_JSON) {
+      w.key("message");
+      writeMessage(w, ed.sessionID(), d.changes);
+    }
     w.endObject();
   }
   if (!ev.nodes.empty()) {
@@ -216,8 +251,12 @@ void writeEvents(json::Writer& w, Engine& e) {
   for (const FontName& f : text::FontRegistry::get().takeRequests())
     w.beginObject().key("type").string("REQUEST_FONT").key("family").string(f.family).key("style").string(f.style).endObject();
   // Images the documents draw that nobody has supplied yet (module-wide, like fonts).
-  for (const ImageHash& h : ImageRegistry::get().takeRequests())
-    w.beginObject().key("type").string("REQUEST_IMAGE").key("hash").string(h.hex()).endObject();
+  // maxDevicePx: the largest the image has been drawn at (0 unknown); thumbnailHash: the low-res tier the file carries.
+  for (const ImageRegistry::Request& r : ImageRegistry::get().takeRequests()) {
+    w.beginObject().key("type").string("REQUEST_IMAGE").key("hash").string(r.hash.hex()).key("maxDevicePx").number(r.maxDevicePx);
+    if (r.thumbnail.present) w.key("thumbnailHash").string(r.thumbnail.hex());
+    w.endObject();
+  }
   if (ev.textEdit) {
     w.beginObject().key("type").string("TEXT_EDIT").key("active").boolean(ed.textEditing()).key("ref");
     if (ed.textEditing()) w.string(ed.textNode().toString());
@@ -345,6 +384,7 @@ ENG_EXPORT Handle engine_create(const char* selector, Ptr optsPtr, uint32_t opts
     if (auto* s = opts.get("sessionID"); s && s->isNumber()) e->editor.setSessionID(static_cast<uint32_t>(s->number));
     if (auto* t = opts.get("theme"); t && t->isString()) e->editor.setTheme(t->string == "LIGHT" ? Theme::Light : Theme::Dark);
     if (auto* d = opts.get("devicePixelRatio"); d && d->isNumber()) e->editor.setViewport(0, 0, d->number, 0, 0);
+    if (auto* wire = opts.get("wire"); wire && wire->isString() && wire->string == "kiwi") e->wire = WIRE_KIWI;
   }
   Engine* raw = e.release();
   engines().push_back(raw);
@@ -360,37 +400,136 @@ ENG_EXPORT void engine_destroy(Handle h) {
   delete e;
 }
 
-// A Message: {"type":"NODE_CHANGES","sessionID":…,"nodeChanges":[…]} — the whole document.
-ENG_EXPORT int32_t engine_load(Handle h, Ptr ptr, uint32_t len) {
+// The whole document as a Message — the store's snapshot bytes (kiwi), or the interim JSON
+// {"type":"NODE_CHANGES","sessionID":…,"nodeChanges":[…]} — and the page to show first ((0xffffffff, 0xffffffff): the
+// first page; JSON may name it as "currentPage"). Only that page is derived (docs/engine.md §3.4).
+// What a snapshot stores as derived data, as it is read (blob indices resolve once the Message is read).
+struct DerivedCollector : codec::DerivedSink {
+  std::vector<std::pair<Guid, std::vector<codec::DerivedSymbolEntry>>> symbols;
+  std::vector<std::pair<Guid, std::string>> texts;
+  void symbolData(Guid instance, std::vector<codec::DerivedSymbolEntry>&& entries) override {
+    symbols.emplace_back(instance, std::move(entries));
+  }
+  void textData(Guid node, codec::DerivedTextEntry&& entry) override { texts.emplace_back(node, std::move(entry.bytes)); }
+  // Into the editor's form, outlines interned (text/DerivedText).
+  Editor::StoredDerived take(const std::vector<Bytes>& blobs) {
+    Editor::StoredDerived out;
+    auto text = [&](const std::string& fields) -> std::shared_ptr<const text::StoredText> {
+      auto s = std::make_shared<text::StoredText>();
+      if (!text::readStoredText(fields, blobs, *s)) return nullptr;
+      return s;
+    };
+    for (auto& [id, fields] : texts)
+      if (auto s = text(fields)) out.texts[id] = std::move(s);
+    for (auto& [id, entries] : symbols) {
+      std::vector<Editor::StoredRow> rows;
+      rows.reserve(entries.size());
+      for (auto& e : entries) {
+        Editor::StoredRow r;
+        r.path = std::move(e.path);
+        r.hasSize = e.hasSize;
+        r.hasTransform = e.hasTransform;
+        r.size = e.size;
+        r.transform = e.transform;
+        if (!e.text.empty()) r.text = text(e.text);
+        rows.push_back(std::move(r));
+      }
+      out.symbols[id] = std::move(rows);
+    }
+    return out;
+  }
+};
+
+ENG_EXPORT int32_t engine_load_at(Handle h, Ptr ptr, uint32_t len, uint32_t pageSessionID, uint32_t pageLocalID) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  codec::KiwiMessage m;
   json::Value v;
-  if (!parse(ptr, len, v)) return E_DECODE;
-  Guid page = kNoGuid;
-  if (auto* p = v.get("currentPage"); p && p->isString()) page = Guid::parse(p->string);
-  e->editor.loadDocument(readMessage(v), page);
+  DerivedCollector derived;
+  std::string_view in = bytes(ptr, len);
+  if (codec::looksKiwi(in)) {
+    if (!codec::readMessage(in, m, &derived)) {
+      setError("the payload is not a valid kiwi Message");
+      return E_DECODE;
+    }
+  } else if (!readAnyMessage(ptr, len, m, &v)) {
+    return E_DECODE;
+  }
+  Guid page{pageSessionID, pageLocalID};
+  if (page == kNoGuid && v.isObject())
+    if (auto* p = v.get("currentPage"); p && p->isString()) page = Guid::parse(p->string);
+  // Derived data is trusted only when this engine wrote it (docs/schema.md §1.3: a reader ignores another stamp's).
+  if (m.derivedDataVersion == Editor::kDerivedDataVersion) {
+    Editor::StoredDerived stored = derived.take(m.blobs);
+    e->editor.loadDocument(std::move(m.changes), page, &stored);
+  } else {
+    e->editor.loadDocument(std::move(m.changes), page);
+  }
   return OK;
 }
 
+// The stamp of the derived data this engine writes and trusts (Message.derivedDataVersion).
+ENG_EXPORT uint32_t engine_derived_data_version() { return Editor::kDerivedDataVersion; }
+
+ENG_EXPORT int32_t engine_load(Handle h, Ptr ptr, uint32_t len) { return engine_load_at(h, ptr, len, 0xffffffffu, 0xffffffffu); }
+
 // flags: APPLY_USER (1, undoable and emitted) | APPLY_REMOTE (2) | APPLY_LOAD (4) | APPLY_SYSTEM (8, emitted, not
-// undoable) | APPLY_EXACT (16, a store-computed state: library copies written too, no user-edit rules).
+// undoable) | APPLY_EXACT (16, a store-computed state: library copies written too, no user-edit rules). The Message
+// in either encoding.
 ENG_EXPORT int32_t engine_apply_changes(Handle h, Ptr ptr, uint32_t len, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
-  json::Value v;
-  if (!parse(ptr, len, v)) return E_DECODE;
-  return e->editor.applyChanges(readMessage(v), flags);
+  codec::KiwiMessage m;
+  if (!readAnyMessage(ptr, len, m)) return E_DECODE;
+  return e->editor.applyChanges(m.changes, flags);
 }
 
-ENG_EXPORT int32_t engine_encode_document(Handle h, uint32_t /*flags*/) {
+// The full snapshot (DOCUMENT first, parents before children) in the engine's wire format. flags: ENCODE_DERIVED (1)
+// adds the derived data (derivedSymbolData, derivedTextData, Message.derivedDataVersion) — kiwi only.
+ENG_EXPORT int32_t engine_encode_document(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  if (e->wire == WIRE_KIWI) {
+    codec::KiwiWriteOptions opts;
+    if (flags & ENCODE_DERIVED) {
+      // Figma's files: derivedSymbolData per instance, derivedTextData per text, stamped.
+      opts.derivedDataVersion = Editor::kDerivedDataVersion;
+      Editor& ed = e->editor;
+      opts.extraFields = [&ed](const NodeChange& c, std::string& fields, codec::BlobsOut& blobs) { ed.encodeDerivedFields(c.guid, fields, blobs); };
+    }
+    return setResult(codec::writeMessage(e->editor.sessionID(), e->editor.encodeDocument(), opts));
+  }
   json::Writer w;
   writeMessage(w, e->editor.sessionID(), e->editor.encodeDocument());
   return setResult(w.take());
+}
+
+// The wire format of the engine's outputs: 0 = the interim JSON, 1 = kiwi (docs/engine-build.md "Figma parity round 3").
+ENG_EXPORT int32_t engine_set_wire_format(Handle h, uint32_t format) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (format > WIRE_KIWI) return E_INVALID;
+  e->wire = static_cast<WireFormat>(format);
+  return OK;
+}
+
+ENG_EXPORT int32_t engine_wire_format(Handle h) {
+  Call call(false);
+  Engine* e = engineOf(h);
+  return e ? static_cast<int32_t>(e->wire) : E_HANDLE;
+}
+
+// A binary payload a JSON result referred to by index (`payload`): the result slot gets its bytes.
+ENG_EXPORT int32_t engine_attachment(Handle h, uint32_t index) {
+  Call call(false);
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (index >= e->attachments.size()) return E_NOT_FOUND;
+  return setResult(e->attachments[index]);
 }
 
 ENG_EXPORT int32_t engine_set_current_page(Handle h, uint32_t sessionID, uint32_t localID) {
@@ -638,6 +777,67 @@ ENG_EXPORT int32_t engine_layer_tree(Handle h, uint32_t pageSessionID, uint32_t 
   writeLayerRows(w, doc, page);
   w.endArray().endObject();
   return setResult(w.take());
+}
+
+// Pass 1 of Figma's two-pass Layers panel: only the outline of `page` — every row's place and kind, no names —
+// {"version", "ids": [guid…], "parents": [row index, -1 for the page], "kinds": [typeCode | flags << 8],
+// "types": [type name by code]}; rows in pre-order, each node followed by its children bottom first (as
+// engine_layer_tree), hidden layers and instance sublayers included. Flags: 1 instance sublayer, 2 isStateGroup,
+// 4 resizeToFit. Derives the page first.
+ENG_EXPORT int32_t engine_layer_outline(Handle h, uint32_t pageSessionID, uint32_t pageLocalID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  const Document& doc = e->editor.document();
+  Guid page{pageSessionID, pageLocalID};
+  if (!doc.has(page)) return E_NOT_FOUND;
+  e->editor.derivePage(page);
+  std::vector<Guid> ids;
+  std::vector<int64_t> parents;
+  std::vector<uint32_t> kinds;
+  std::vector<std::pair<Guid, int64_t>> stack{{page, -1}};
+  while (!stack.empty()) {
+    auto [id, parent] = stack.back();
+    stack.pop_back();
+    const Node* n = doc.get(id);
+    if (!n) continue;
+    int64_t index = static_cast<int64_t>(ids.size());
+    ids.push_back(id);
+    parents.push_back(parent);
+    uint32_t flags = (id.isDerived() ? 1u : 0u) | (n->props.isStateGroup ? 2u : 0u) | (n->props.resizeToFit ? 4u : 0u);
+    kinds.push_back(static_cast<uint32_t>(n->props.type) | flags << 8);
+    const std::vector<Guid>& kids = doc.children(id);
+    for (size_t i = kids.size(); i-- > 0;) stack.push_back({kids[i], index});
+  }
+  std::string out;
+  out.reserve(ids.size() * 24 + 256);
+  out += "{\"version\":" + std::to_string(doc.version()) + ",\"ids\":[";
+  for (size_t i = 0; i < ids.size(); i++) {
+    if (i) out += ',';
+    out += '"';
+    out += ids[i].toString();
+    out += '"';
+  }
+  out += "],\"parents\":[";
+  for (size_t i = 0; i < parents.size(); i++) {
+    if (i) out += ',';
+    out += std::to_string(parents[i]);
+  }
+  out += "],\"kinds\":[";
+  for (size_t i = 0; i < kinds.size(); i++) {
+    if (i) out += ',';
+    out += std::to_string(kinds[i]);
+  }
+  out += "],\"types\":[";
+  for (uint32_t t = 0; t < 32; t++) {
+    if (t) out += ',';
+    const char* name = nodeTypeName(static_cast<NodeType>(t));
+    out += '"';
+    out += std::string_view(name) == "NONE" && t != 0 ? "" : name;
+    out += '"';
+  }
+  out += "]}";
+  return setResult(std::move(out));
 }
 
 // The Layers rows of `page` changed since document version `since`: {"version", "full": false, "nodes": [rows of the
@@ -894,6 +1094,16 @@ ENG_EXPORT int32_t engine_encode_selection(Handle h, uint32_t flags) {
   if (!e) return E_HANDLE;
   Clipboard clip;
   if (!e->editor.copySelection(clip, (flags & 1) != 0)) return E_NOT_FOUND;
+  if (e->wire == WIRE_KIWI) {
+    std::vector<codec::KiwiRegion> regions;
+    for (auto& r : clip.regions) regions.push_back({r.parent, r.nodes, r.offset});
+    codec::KiwiWriteOptions opts;
+    opts.pastePageId = &clip.page;
+    opts.pasteFileKey = clip.fileKey;
+    opts.isCut = clip.isCut;
+    opts.regions = &regions;
+    return setResult(codec::writeMessage(e->editor.sessionID(), clip.nodes, opts));
+  }
   json::Writer w;
   codec::BlobsOut blobs;
   w.beginObject();
@@ -923,11 +1133,16 @@ ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags)
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  codec::KiwiMessage m;
   json::Value v;
-  if (!parse(ptr, len, v)) return E_DECODE;
+  if (!readAnyMessage(ptr, len, m, &v)) return E_DECODE;
   if (e->editor.busy()) return E_BUSY;
   Clipboard clip;
-  clip.nodes = readMessage(v);
+  clip.nodes = std::move(m.changes);
+  if (m.hasPastePage) clip.page = m.pastePageId;
+  clip.fileKey = m.pasteFileKey;
+  clip.isCut = m.isCut;
+  for (auto& r : m.regions) clip.regions.push_back({r.parent, r.nodes, r.offset});
   if (auto* p = v.get("pastePageId")) codec::readGuid(*p, clip.page);
   if (auto* k = v.get("pasteFileKey"); k && k->isString()) clip.fileKey = k->string;
   if (auto* c = v.get("isCut"); c && c->isBool()) clip.isCut = c->boolean;
@@ -1034,11 +1249,20 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   w.key("glyphs").number(e->stats.glyphs).key("paths").number(e->stats.paths).key("layers").number(e->stats.layers);
   w.key("visited").number(e->stats.nodes).key("culled").number(e->stats.culled).key("tiny").number(e->stats.tiny);
   w.key("greeked").number(e->stats.greeked).key("cachedRegions").number(e->stats.cachedRegions).key("stale").number(e->stats.stale);
+  w.key("tiles").number(static_cast<double>(e->renderer->tileCount())).key("tileBytes").number(static_cast<double>(e->renderer->tileBytes()));
+  w.key("tilesRastered").number(e->stats.tilesRastered).key("tilesStale").number(e->stats.tilesStale).key("tilesShown").number(e->stats.tilesShown);
   // What the engine holds on the GPU (estimated): budgets are checked against it (scripts/engine-bench.mjs).
   gfx::MemoryStats gm = e->device->memory();
   w.key("gpuBytes").number(static_cast<double>(gm.bytes)).key("gpuTextures").number(gm.textures).key("gpuTargets").number(gm.targets);
   w.key("gpuBuffers").number(gm.buffers).key("layerPoolBytes").number(static_cast<double>(e->renderer->poolTargetBytes()));
   w.key("curveTexels").number(e->renderer->curveCache().texelCount());
+  w.key("derivedUsed").number(e->editor.derivedUsed()).key("derivedStale").number(e->editor.derivedStale());
+#ifdef __EMSCRIPTEN__
+  w.key("heapBytes").number(static_cast<double>(__builtin_wasm_memory_size(0)) * 65536.0);
+#else
+  w.key("heapBytes").number(0);
+#endif
+  w.key("nodeBytes").number(static_cast<double>(e->editor.document().approxBytes()));
   w.key("images").number(static_cast<double>(e->renderer->imageCache().count()));
   w.key("imageBytes").number(static_cast<double>(e->renderer->imageCache().bytes()));
   w.key("viewport").beginObject().key("width").number(v.width).key("height").number(v.height).key("dpr").number(v.dpr);
@@ -1865,11 +2089,40 @@ std::vector<std::vector<NodeChange>> readMessages(const json::Value& v) {
   return out;
 }
 
+// Library payloads: a kiwi message list (0x00, varuint count, count × (varuint length, Message)), one kiwi Message,
+// or the interim JSON ({"messages": […]}, an array, or one Message).
+bool readLibraryMessages(Ptr ptr, uint32_t len, std::vector<std::vector<NodeChange>>& out) {
+  std::string_view in = bytes(ptr, len);
+  if (codec::isMessageList(in)) {
+    std::vector<codec::KiwiMessage> list;
+    if (!codec::readMessageList(in, list)) {
+      setError("the payload is not a valid kiwi message list");
+      return false;
+    }
+    for (auto& m : list) out.push_back(std::move(m.changes));
+    return true;
+  }
+  if (codec::looksKiwi(in)) {
+    codec::KiwiMessage m;
+    if (!codec::readMessage(in, m)) {
+      setError("the payload is not a valid kiwi Message");
+      return false;
+    }
+    out.push_back(std::move(m.changes));
+    return true;
+  }
+  json::Value msg;
+  if (!parse(ptr, len, msg)) return false;
+  out = readMessages(msg);
+  return true;
+}
+
 int32_t libraryImport(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32_t optsLen, bool update) {
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
-  json::Value msg, opts;
-  if (!parse(msgPtr, msgLen, msg) || !parse(optsPtr, optsLen, opts)) return E_DECODE;
+  std::vector<std::vector<NodeChange>> messages;
+  json::Value opts;
+  if (!readLibraryMessages(msgPtr, msgLen, messages) || !parse(optsPtr, optsLen, opts)) return E_DECODE;
   Editor::LibraryOptions o;
   o.update = update;
   if (auto* k = opts.get("libraryKey"); k && k->isString()) o.libraryKey = k->string;
@@ -1892,7 +2145,7 @@ int32_t libraryImport(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr optsPtr, uint32
   }
   std::vector<Editor::ImportedAsset> imported;
   std::vector<ImageHash> images;
-  int32_t status = e->editor.importLibrary(readMessages(msg), o, imported, &images);
+  int32_t status = e->editor.importLibrary(messages, o, imported, &images);
   json::Writer w;
   w.beginObject().key("status").number(status).key("assets").beginArray();
   for (auto& a : imported) {
@@ -1963,6 +2216,7 @@ ENG_EXPORT int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen)
   std::vector<ImageHash> images;
   e->editor.encodeAssets(readStrings(v, "keys"), assets, images);
   json::Writer w;
+  e->attachments.clear();
   w.beginObject().key("assets").beginArray();
   for (auto& a : assets) {
     w.beginObject();
@@ -1970,11 +2224,18 @@ ENG_EXPORT int32_t engine_encode_assets(Handle h, Ptr keysPtr, uint32_t keysLen)
     w.key("dependencyOnly").boolean(a.dependencyOnly).key("images").beginArray();
     for (const ImageHash& i : a.images) w.string(i.hex());
     w.endArray();
-    w.key("message").beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(0).key("nodeChanges");
-    codec::BlobsOut blobs;
-    codec::writeChanges(w, a.nodes, &blobs);
-    blobs.writeMember(w);
-    w.endObject().endObject();
+    if (e->wire == WIRE_KIWI) {
+      // The payload as kiwi bytes (sessionID 0, as a library payload is), fetched with engine_attachment(payload).
+      w.key("payload").number(static_cast<double>(e->attachments.size()));
+      e->attachments.push_back(codec::writeMessage(0, a.nodes));
+    } else {
+      w.key("message").beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(0).key("nodeChanges");
+      codec::BlobsOut blobs;
+      codec::writeChanges(w, a.nodes, &blobs);
+      blobs.writeMember(w);
+      w.endObject();
+    }
+    w.endObject();
   }
   w.endArray().key("images").beginArray();
   for (const ImageHash& i : images) w.string(i.hex());

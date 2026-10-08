@@ -24,6 +24,7 @@
 #include "base/Sha1.h"
 #include "editor/Editor.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng {
 
@@ -45,6 +46,10 @@ struct Refs {
 void visitData(VariableData& d, const Refs& r) {
   if (d.kind == VariableData::Kind::ALIAS) r.asset(d.alias, Kind::VARIABLE);
   for (VariableData& a : d.args) visitData(a, r);
+}
+
+void visitData(VarBox& b, const Refs& r) {
+  if (b.present()) visitData(b.edit(), r);
 }
 
 void visitPaints(std::vector<Paint>& paints, const Refs& r) {
@@ -352,8 +357,7 @@ bool Editor::assetHidden(Guid id) const {
   const NodeProps& p = n->props;
   switch (assetKindOf(id)) {
     case AssetKind::COMPONENT: {
-      auto it = p.extra.find("isSymbolPublishable");
-      if ((it != p.extra.end() && it->second == "false") || !p.isPublishable || hiddenName(p.name)) return true;
+      if (!codec::extraBool(p.extra, "isSymbolPublishable", true) || !p.isPublishable || hiddenName(p.name)) return true;
       Guid set = setOf(id);
       if (set != kNoGuid && assetHidden(set)) return true;
       return isCopiedMain(id);  // shipped only as a dependency

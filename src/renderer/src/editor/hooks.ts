@@ -4,6 +4,7 @@ import type { Guid, NodeChange, PageInfo } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
 import type { EngineStore, Topic } from "@/engine/EngineStore";
 import { useEditor } from "./controller";
+import { changesOf } from "./engineCompat";
 import type { LayerTree } from "./model/layerTree";
 import type { LocalAssets } from "./variables";
 import type { LibraryState } from "./libraries";
@@ -18,7 +19,11 @@ export function useUI<S>(select: (s: UIState) => S): S {
   return useStoreSlice(useEditor().ui, select);
 }
 
-/** The current page's Layers tree, refreshed once per frame after a change (after the gesture while one is live). */
+/**
+ * The current page's Layers tree, refreshed once per frame after a change (after the gesture while one is live).
+ * Two passes (model/layerTree.ts): the tree holds every row's place and kind; a row's name, eye, lock and icon
+ * come from `tree.details` as the panel draws it (Layers.tsx prefetches the window of rows it is about to draw).
+ */
 export function useLayerTree(): LayerTree {
   const ed = useEditor();
   return useSyncExternalStore(ed.subscribeTree, ed.getTreeSnapshot);
@@ -171,7 +176,7 @@ export function useSelectionColorsVersion(): number {
             if (e.fieldGroupMask.some((m) => (m & COLOR_GROUPS) !== 0)) bump();
           }),
           engine.on("DOCUMENT_CHANGED", (e) => {
-            if (changeTouchesColors(e.message)) bump();
+            if (changeTouchesColors({ nodeChanges: changesOf(e) })) bump();
           }),
           engine.on("COMPONENTS_CHANGED", bump),
           store.subscribe("structure", bump),

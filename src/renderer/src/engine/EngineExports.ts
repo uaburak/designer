@@ -97,10 +97,21 @@ export class EngineExports {
     );
   }
   destroy = (h: number): void => void this.fn("destroy")(h);
+  /** A Message in either encoding (kiwi bytes, or the interim JSON): detected by its first byte. */
   load = (h: number, message: Uint8Array): number => this.withBytes([message], (p) => this.fn("load")(h, p[0], p[1]));
+  /** `load` plus the page to show first (0xffffffff, 0xffffffff: the first page): only that page is derived. */
+  loadAt = (h: number, message: Uint8Array, pageSessionID: number, pageLocalID: number): number =>
+    this.withBytes([message], (p) => this.fn("load_at")(h, p[0], p[1], pageSessionID, pageLocalID));
   applyChanges = (h: number, message: Uint8Array, flags: number): number =>
     this.withBytes([message], (p) => this.fn("apply_changes")(h, p[0], p[1], flags));
   encodeDocument = (h: number, flags: number): number => this.fn("encode_document")(h, flags);
+  /** The engine's output format: WIRE_JSON (0) or WIRE_KIWI (1). */
+  setWireFormat = (h: number, format: number): number => this.fn("set_wire_format")(h, format);
+  wireFormat = (h: number): number => this.fn("wire_format")(h);
+  /** A binary payload a JSON result referred to by index (`payload`): into the result slot. */
+  attachment = (h: number, index: number): number => this.fn("attachment")(h, index);
+  /** The stamp of the derived data the engine writes and trusts (Message.derivedDataVersion). */
+  derivedDataVersion = (): number => this.fn("derived_data_version")() >>> 0;
   setCurrentPage = (h: number, sessionID: number, localID: number): number => this.fn("set_current_page")(h, sessionID, localID);
   pages = (h: number): number => this.fn("pages")(h);
 
@@ -133,6 +144,7 @@ export class EngineExports {
   setSelection = (h: number, refs: Uint8Array): number => this.withBytes([refs], (p) => this.fn("set_selection")(h, p[0], p[1]));
   layerTree = (h: number, sessionID: number, localID: number): number => this.fn("layer_tree")(h, sessionID, localID);
   layerChanges = (h: number, sessionID: number, localID: number, since: number): number => this.fn("layer_changes")(h, sessionID, localID, since);
+  layerOutline = (h: number, sessionID: number, localID: number): number => this.fn("layer_outline")(h, sessionID, localID);
   readNodes = (h: number, refs: Uint8Array, flags: number): number =>
     this.withBytes([refs], (p) => this.fn("read_nodes")(h, p[0], p[1], flags));
   hitTest = (h: number, x: number, y: number, flags: number): number => this.fn("hit_test")(h, x, y, flags);
@@ -248,10 +260,11 @@ export class EngineExports {
 /** Every export this wrapper calls, as the module names them (checked against engine/api/exports.txt). */
 export const USED_EXPORTS = [
   "abi_version", "alloc", "free", "result_ptr", "result_len", "events_flag_ptr", "last_error",
-  "create", "destroy", "load", "apply_changes", "encode_document", "set_current_page", "pages",
+  "create", "destroy", "load", "load_at", "apply_changes", "encode_document", "set_wire_format", "wire_format", "attachment", "derived_data_version",
+  "set_current_page", "pages",
   "set_viewport", "set_camera", "get_camera", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored",
-  "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "hit_test",
+  "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_node_thumbnail", "ref_id", "component_info",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",

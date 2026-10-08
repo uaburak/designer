@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "base/Base64.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng::codec {
 
@@ -49,20 +50,26 @@ void writeMatrix(json::Writer& w, const Mat2x3& m) {
 }
 
 // Closes an object written by `w` with already-encoded members ("k":v,…) appended.
-std::string withExtra(json::Writer& w, const std::string& extra) {
+std::string withMembers(json::Writer& w, const std::string& members) {
   std::string s = w.take();
-  if (!extra.empty()) {
+  if (!members.empty()) {
     s.pop_back();
     if (s.size() > 1) s += ",";
-    s += extra + "}";
+    s += members + "}";
   }
   return s;
+}
+// The same, the members being the unmodelled fields of schema message `def` kept as kiwi bytes.
+std::string withExtra(json::Writer& w, const char* def, const std::string& extra) { return withMembers(w, extraToJsonMembers(def, extra)); }
+// A JSON member the engine doesn't model → its kiwi bytes appended to `extra` (dropped when the schema has no such field).
+void appendExtra(std::string& extra, const char* def, const std::string& key, const json::Value& x) {
+  if (x.isNull()) return;
+  extra += extraFromJson(def, key, x);
 }
 
 // ---- Variables (docs/schema.md §6) ----
 
 Color readColor(const json::Value& c, Color fallback);
-void appendMember(std::string& extra, const std::string& key, const json::Value& x);
 void writeGuidObject(json::Writer& w, Guid g);
 
 // A GUID inside a structure; Figma's "none" sentinel (4294967295:4294967295) reads as absent.
@@ -106,7 +113,7 @@ AssetId readAssetId(const json::Value& v) {
 void writeVariableData(json::Writer& out, const VariableData& d) {
   using K = VariableData::Kind;
   if (d.kind == K::OTHER) {
-    out.raw(d.extra.empty() ? std::string("{}") : d.extra);
+    out.raw("{" + extraToJsonMembers("VariableData", d.extra) + "}");
     return;
   }
   json::Writer w;
@@ -151,12 +158,12 @@ void writeVariableData(json::Writer& out, const VariableData& d) {
       default: break;
     }
     v.endObject();
-    w.key("value").raw(withExtra(v, d.valueExtra));
+    w.key("value").raw(withExtra(v, "VariableAnyValue", d.valueExtra));
   }
   if (d.hasDataType) w.key("dataType").string(enumName(d.dataType));
   if (d.hasResolvedType) w.key("resolvedDataType").string(enumName(d.resolvedDataType));
   w.endObject();
-  out.raw(withExtra(w, d.extra));
+  out.raw(withExtra(w, "VariableData", d.extra));
 }
 
 template <typename E>
@@ -175,9 +182,13 @@ VariableData readVariableData(const json::Value& v) {
   VariableData d;
   if (!v.isObject()) return d;
   auto other = [&]() {
+    // Not a VariableData the engine models: kept whole as kiwi bytes (dropped when it can't be encoded at all).
     VariableData o;
+    std::string whole;
+    for (auto& [k, x] : v.object) whole += extraFromJson("VariableData", k, x);
+    if (whole.empty()) return o;
     o.kind = K::OTHER;
-    o.extra = json::encode(v);
+    o.extra = std::move(whole);
     return o;
   };
   const json::Value* value = nullptr;
@@ -191,7 +202,7 @@ VariableData readVariableData(const json::Value& v) {
     } else if (k == "value") {
       value = &x;
     } else {
-      appendMember(d.extra, k, x);
+      appendExtra(d.extra, "VariableData", k, x);
     }
   }
   if (value && value->isObject()) {
@@ -226,18 +237,18 @@ VariableData readVariableData(const json::Value& v) {
         d.kind = K::PROP_REF;
         if (auto* id = x.get("defId")) readStructGuid(*id, d.propRef);
       } else {
-        appendMember(d.valueExtra, k, x);
+        appendExtra(d.valueExtra, "VariableAnyValue", k, x);
       }
     }
   } else if (value) {
-    appendMember(d.extra, "value", *value);
+    appendExtra(d.extra, "VariableData", "value", *value);
   }
   return d;
 }
 
 void writePaint(json::Writer& out, const Paint& p) {
   if (p.type == PaintType::OTHER) {
-    out.raw(p.extra);
+    out.raw("{" + extraToJsonMembers("Paint", p.extra) + "}");
     return;
   }
   json::Writer w;
@@ -315,7 +326,7 @@ void writePaint(json::Writer& out, const Paint& p) {
     writeVariableData(w, p.opacityVar);
   }
   w.endObject();
-  out.raw(withExtra(w, p.extra));
+  out.raw(withExtra(w, "Paint", p.extra));
 }
 
 void writeEffect(json::Writer& out, const Effect& e) {
@@ -332,14 +343,14 @@ void writeEffect(json::Writer& out, const Effect& e) {
   w.key("spread").number(e.spread);
   w.key("showShadowBehindNode").boolean(e.showShadowBehindNode);
   std::pair<const char*, const VariableData*> vars[] = {
-      {"radiusVar", &e.radiusVar}, {"colorVar", &e.colorVar}, {"spreadVar", &e.spreadVar}, {"xVar", &e.xVar}, {"yVar", &e.yVar}};
+      {"radiusVar", &e.radiusVar.get()}, {"colorVar", &e.colorVar.get()}, {"spreadVar", &e.spreadVar.get()}, {"xVar", &e.xVar.get()}, {"yVar", &e.yVar.get()}};
   for (auto& [k, d] : vars)
     if (d->present()) {
       w.key(k);
       writeVariableData(w, *d);
     }
   w.endObject();
-  out.raw(withExtra(w, e.extra));
+  out.raw(withExtra(w, "Effect", e.extra));
 }
 
 template <typename E>
@@ -379,12 +390,7 @@ void writeTextStyle(json::Writer& out, const TextStyle& st) {
     writePaints(w, st.fillPaints);
   }
   w.endObject();
-  std::string s = w.take();
-  if (!st.extra.empty()) {
-    s.pop_back();
-    s += "," + st.extra + "}";
-  }
-  out.raw(s);
+  out.raw(withExtra(w, "NodeChange", st.extra));
 }
 
 void writeTextData(json::Writer& w, const TextData& t) {
@@ -402,7 +408,7 @@ void writeTextData(json::Writer& w, const TextData& t) {
   }
   if (!t.lines.empty()) {
     w.key("lines").beginArray();
-    for (auto& l : t.lines) w.raw(l);
+    for (auto& l : t.lines) w.raw("{" + extraToJsonMembers("TextLineData", l) + "}");
     w.endArray();
   }
   w.endObject();
@@ -421,7 +427,7 @@ void writeVectorStyle(json::Writer& out, const VectorStyle& st) {
   if (st.mask & VS_MIRRORING) w.key("handleMirroring").string(enumName(st.handleMirroring));
   if (st.mask & VS_CORNER_RADIUS) w.key("cornerRadius").number(st.cornerRadius);
   w.endObject();
-  out.raw(withExtra(w, st.extra));
+  out.raw(withExtra(w, "NodeChange", st.extra));
 }
 
 void writeVectorData(json::Writer& w, const VectorData& v, BlobsOut* blobs) {
@@ -457,7 +463,7 @@ void writePropValue(json::Writer& out, const ComponentPropValue& v) {
     writeGuidObject(w, v.guidValue);
   }
   w.endObject();
-  out.raw(withExtra(w, v.extra));
+  out.raw(withExtra(w, "ComponentPropValue", v.extra));
 }
 
 void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update, std::vector<uint32_t>& cleared,
@@ -508,15 +514,21 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
       writePropValue(one, d.initialValue);
       if (!d.sortPosition.empty()) one.key("sortPosition").string(d.sortPosition);
       one.key("type").string(enumName(d.type));
-      if (!d.preferredValues.empty()) {
-        one.key("preferredValues").beginObject().key("instanceSwapValues").beginArray();
-        for (const PreferredValue& v : d.preferredValues)
-          one.beginObject().key("type").string(v.stateGroup ? "STATE_GROUP" : "COMPONENT").key("key").string(v.key).endObject();
-        one.endArray().endObject();
+      if (!d.preferredValues.empty() || !d.preferredExtra.empty()) {
+        json::Writer pv;
+        pv.beginObject();
+        if (!d.preferredValues.empty()) {
+          pv.key("instanceSwapValues").beginArray();
+          for (const PreferredValue& v : d.preferredValues)
+            pv.beginObject().key("type").string(v.stateGroup ? "STATE_GROUP" : "COMPONENT").key("key").string(v.key).endObject();
+          pv.endArray();
+        }
+        pv.endObject();
+        one.key("preferredValues").raw(withExtra(pv, "ComponentPropPreferredValues", d.preferredExtra));
       }
       if (!d.description.empty()) one.key("description").string(d.description);
       one.endObject();
-      w.raw(withExtra(one, d.extra));
+      w.raw(withExtra(one, "ComponentPropDef", d.extra));
     }
     w.endArray();
   }
@@ -530,7 +542,7 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
       one.key("value");
       writePropValue(one, a.value);
       one.endObject();
-      w.raw(withExtra(one, a.extra));
+      w.raw(withExtra(one, "ComponentPropAssignment", a.extra));
     }
     w.endArray();
   }
@@ -856,23 +868,25 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
       one.key("gutterSize").number(g.gutterSize).key("color");
       writeColor(one, g.color);
       one.key("pattern").string(enumName(g.pattern));
-      std::pair<const char*, const VariableData*> vars[] = {{"numSectionsVar", &g.numSectionsVar}, {"offsetVar", &g.offsetVar},
-                                                            {"sectionSizeVar", &g.sectionSizeVar}, {"gutterSizeVar", &g.gutterSizeVar}};
+      std::pair<const char*, const VariableData*> vars[] = {{"numSectionsVar", &g.numSectionsVar.get()}, {"offsetVar", &g.offsetVar.get()},
+                                                            {"sectionSizeVar", &g.sectionSizeVar.get()}, {"gutterSizeVar", &g.gutterSizeVar.get()}};
       for (auto& [k, d] : vars)
         if (d->present()) {
           one.key(k);
           writeVariableData(one, *d);
         }
       one.endObject();
-      w.raw(withExtra(one, g.extra));
+      w.raw(withExtra(one, "LayoutGrid", g.extra));
     }
     w.endArray();
   }
   writeComponentFields(w, p, mask, update, cleared, blobs);
   writeVariableFields(w, p, mask, update, cleared);
   if (mask & F_EXTRA)
-    for (auto& [k, v] : p.extra)
-      if (!v.empty()) w.key(k).raw(v);
+    for (auto& [k, v] : p.extra) {
+      if (!v.empty()) w.key(k).raw(extraValueToJson("NodeChange", v));
+      else if (update) w.key(k).null();
+    }
   if (!cleared.empty()) {
     w.key("clearedFields").beginArray();
     for (uint32_t id : cleared) w.number(id);
@@ -896,17 +910,6 @@ Vec2 readVector(const json::Value& v) {
   if (auto* x = v.get("x")) out.x = x->numberOr(0);
   if (auto* y = v.get("y")) out.y = y->numberOr(0);
   return out;
-}
-
-// A member written back as encoded JSON ("key":value) for an `extra` string.
-void appendMember(std::string& extra, const std::string& key, const json::Value& x) {
-  json::Writer one;
-  one.beginObject().key(key);
-  json::write(one, x);
-  one.endObject();
-  std::string member = one.take();
-  if (!extra.empty()) extra += ",";
-  extra += member.substr(1, member.size() - 2);
 }
 
 Mat2x3 readMatrix(const json::Value& x) {
@@ -935,9 +938,9 @@ Paint readPaint(const json::Value& e, const BlobsIn* blobs) {
   Paint p;
   const json::Value* type = e.get("type");
   if (type && type->isString() && !paintTypeFromName(type->string, p.type)) {
-    // A paint type the schema doesn't know: kept as it came.
+    // A paint type the schema doesn't know: kept as it came (what the schema can encode of it).
     p.type = PaintType::OTHER;
-    p.extra = json::encode(e);
+    for (auto& [k, x] : e.object) p.extra += extraFromJson("Paint", k, x);
     if (auto* vis = e.get("visible"); vis && vis->isBool()) p.visible = vis->boolean;
     return p;
   }
@@ -984,7 +987,7 @@ Paint readPaint(const json::Value& e, const BlobsIn* blobs) {
     } else if (k == "stopsVar" && x.isArray()) {
       stopsVar = &x;
     } else {
-      appendMember(p.extra, k, x);
+      appendExtra(p.extra, "Paint", k, x);
     }
   }
   if (stopsVar) {
@@ -1025,7 +1028,7 @@ Effect readEffect(const json::Value& e) {
     else if (k == "spreadVar" && x.isObject()) f.spreadVar = readVariableData(x);
     else if (k == "xVar" && x.isObject()) f.xVar = readVariableData(x);
     else if (k == "yVar" && x.isObject()) f.yVar = readVariableData(x);
-    else appendMember(f.extra, k, x);
+    else appendExtra(f.extra, "Effect", k, x);
   }
   return f;
 }
@@ -1039,7 +1042,7 @@ VectorStyle readVectorStyle(const json::Value& v, const BlobsIn* blobs) {
     else if (k == "strokeJoin" && x.isString() && enumFromName(x.string, st.strokeJoin)) st.mask |= VS_STROKE_JOIN;
     else if (k == "handleMirroring" && x.isString() && enumFromName(x.string, st.handleMirroring)) st.mask |= VS_MIRRORING;
     else if (k == "cornerRadius" && x.isNumber()) st.cornerRadius = x.number, st.mask |= VS_CORNER_RADIUS;
-    else if (k != "guid" && k != "phase") appendMember(st.extra, k, x);
+    else if (k != "guid" && k != "phase") appendExtra(st.extra, "NodeChange", k, x);
   }
   return st;
 }
@@ -1150,15 +1153,7 @@ TextStyle readTextStyle(const json::Value& v) {
     else if (k == "textCase" && readEnumValue(x, st.textCase)) st.mask |= R_TEXT_CASE;
     else if (k == "textDecoration" && readEnumValue(x, st.textDecoration)) st.mask |= R_TEXT_DECORATION;
     else if (k == "fillPaints" && x.isArray()) st.fillPaints = readPaints(x, nullptr), st.mask |= R_FILLS;
-    else if (k != "guid" && k != "phase") {
-      json::Writer one;
-      one.beginObject().key(k);
-      json::write(one, x);
-      one.endObject();
-      std::string member = one.take();
-      if (!st.extra.empty()) st.extra += ",";
-      st.extra += member.substr(1, member.size() - 2);
-    }
+    else if (k != "guid" && k != "phase") appendExtra(st.extra, "NodeChange", k, x);
   }
   return st;
 }
@@ -1176,7 +1171,12 @@ TextData readTextData(const json::Value& v) {
     for (auto& e : x->array)
       if (e.isObject()) t.styleOverrideTable.push_back(readTextStyle(e));
   if (auto* x = v.get("lines"); x && x->isArray())
-    for (auto& e : x->array) t.lines.push_back(json::encode(e));
+    for (auto& e : x->array) {
+      std::string line;
+      if (e.isObject())
+        for (auto& [k, y] : e.object) line += extraFromJson("TextLineData", k, y);
+      t.lines.push_back(std::move(line));
+    }
   return t;
 }
 
@@ -1192,7 +1192,7 @@ ComponentPropValue readPropValue(const json::Value& v) {
     if (k == "boolValue" && x.isBool()) out.hasBool = true, out.boolValue = x.boolean;
     else if (k == "textValue" && x.isObject()) out.hasText = true, out.textValue = readTextData(x);
     else if (k == "guidValue") readGuid(x, out.guidValue);
-    else appendMember(out.extra, k, x);
+    else appendExtra(out.extra, "ComponentPropValue", k, x);
   }
   return out;
 }
@@ -1253,7 +1253,6 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
           else d.type = static_cast<ComponentPropType>(static_cast<int>(y.number));
         } else if (k == "description" && y.isString()) d.description = y.string;
         else if (k == "preferredValues" && y.isObject()) {
-          std::string rest;
           for (auto& [pk, pv] : y.object) {
             if (pk == "instanceSwapValues" && pv.isArray()) {
               for (auto& iv : pv.array) {
@@ -1263,12 +1262,11 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
                 d.preferredValues.push_back(pref);
               }
             } else {
-              appendMember(rest, pk, pv);
+              appendExtra(d.preferredExtra, "ComponentPropPreferredValues", pk, pv);
             }
           }
-          if (!rest.empty()) d.extra += (d.extra.empty() ? "" : ",") + std::string("\"preferredValues\":{") + rest + "}";
         } else {
-          appendMember(d.extra, k, y);
+          appendExtra(d.extra, "ComponentPropDef", k, y);
         }
       }
       p.componentPropDefs.push_back(std::move(d));
@@ -1282,7 +1280,7 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
       for (auto& [k, y] : e.object) {
         if (k == "defID") readGuid(y, a.defID);
         else if (k == "value") a.value = readPropValue(y);
-        else appendMember(a.extra, k, y);
+        else appendExtra(a.extra, "ComponentPropAssignment", k, y);
       }
       p.componentPropAssignments.push_back(std::move(a));
     }
@@ -1634,7 +1632,7 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
         else if (k == "offsetVar" && y.isObject()) g.offsetVar = readVariableData(y);
         else if (k == "sectionSizeVar" && y.isObject()) g.sectionSizeVar = readVariableData(y);
         else if (k == "gutterSizeVar" && y.isObject()) g.gutterSizeVar = readVariableData(y);
-        else appendMember(g.extra, k, y);
+        else appendExtra(g.extra, "LayoutGrid", k, y);
       }
       p.layoutGrids.push_back(g);
     }
@@ -1650,12 +1648,19 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
   }
   readComponentFields(v, p, m, blobs);
   readVariableFields(v, p, m);
-  // Everything else round-trips as it came.
+  // Everything else the schema knows round-trips as it came (as its kiwi bytes).
   for (auto& [k, x] : v.object)
     if (!knownKey(k)) {
       // An update setting a field the engine doesn't model to null clears it (an empty value removes the key).
-      if (x.isNull() && !update) continue;
-      p.extra[k] = x.isNull() ? std::string() : json::encode(x);
+      if (x.isNull()) {
+        if (!update || !fieldIdOf("NodeChange", k)) continue;
+        p.extra[k] = std::string();
+        m |= F_EXTRA;
+        continue;
+      }
+      std::string bytes = extraFromJson("NodeChange", k, x);
+      if (bytes.empty()) continue;
+      p.extra[k] = std::move(bytes);
       m |= F_EXTRA;
     }
   // An update setting a modelled field to null clears it (like clearedFields).
@@ -1733,10 +1738,20 @@ BlobsIn readBlobs(const json::Value& message) {
 }
 
 uint32_t BlobsOut::add(const Bytes& bytes) {
-  for (size_t i = 0; i < list_.size(); i++)
-    if (list_[i] == bytes || (bytes && list_[i] && *list_[i] == *bytes)) return static_cast<uint32_t>(i);
+  // FNV-1a over the bytes: each distinct blob once.
+  uint64_t h = 1469598103934665603ull;
+  if (bytes)
+    for (uint8_t b : *bytes) h = (h ^ b) * 1099511628211ull;
+  auto [from, to] = index_.equal_range(h);
+  for (auto it = from; it != to; ++it) {
+    const Bytes& have = list_[it->second];
+    if (have == bytes || (bytes && have && *have == *bytes) || (!bytes && have && have->empty()) || (bytes && !have && bytes->empty()))
+      return it->second;
+  }
   list_.push_back(bytes);
-  return static_cast<uint32_t>(list_.size() - 1);
+  uint32_t i = static_cast<uint32_t>(list_.size() - 1);
+  index_.emplace(h, i);
+  return i;
 }
 
 void BlobsOut::writeMember(json::Writer& w) const {
@@ -1772,6 +1787,7 @@ std::vector<Paint> readPaints(const json::Value& v, const BlobsIn* blobs) {
 }
 
 void setImageDataSink(ImageDataSink sink) { gImageDataSink = sink; }
+ImageDataSink imageDataSink() { return gImageDataSink; }
 
 void writeEffects(json::Writer& w, const std::vector<Effect>& effects) {
   NodeProps p;

@@ -10,8 +10,13 @@ _engine_last_error
 _engine_create
 _engine_destroy
 _engine_load
+_engine_load_at
 _engine_apply_changes
 _engine_encode_document
+_engine_set_wire_format
+_engine_wire_format
+_engine_attachment
+_engine_derived_data_version
 _engine_set_current_page
 _engine_pages
 _engine_set_viewport
@@ -36,6 +41,7 @@ _engine_set_selection
 _engine_read_nodes
 _engine_layer_tree
 _engine_layer_changes
+_engine_layer_outline
 _engine_hit_test
 _engine_set_props
 _engine_txn_begin

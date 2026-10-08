@@ -1,5 +1,31 @@
 # Desktop shell — as built
 
+## Status (2026-10-07): the spare editor
+
+Figma Desktop keeps a hidden, preloaded web-app view and "steals" it for the file being opened (`startStolenPreloadedTab`). `docs/desktop.md` §3.1 specifies the same; it is built now.
+
+**What was built**
+
+- **Main.** `src/main/spare.ts` — `SpareEditor`, the scheduling with the window's parts injected (create / destroy / attach / crash listener / timers / env), so it is tested without Electron (`src/main/spare.test.ts`, 8 tests: made 3 s after the content is ready, adopted once, replaced 3 s after an adoption, at most one, off under `DESIGNER_DISABLE_SPARE=1`, dropped and replaced when its renderer dies — given up after 3 deaths in a row — gone with the window). `TabManager` (`src/main/tabs.ts`) owns the instance: the spare is `createView("editor", …, { editor: "" })` — no `file`, no `tab` — hidden at the content bounds and added to `win.contentView`; its clock starts from `WindowController.markReady("content")` (`contentShown`'s `did-finish-load` of the first content view, Home at launch). `ensure(tab)` adopts it when there is one: `adoptView(contents, tabId, fileKey)` (`src/main/views.ts`) rewrites the view's registry entry first — so `desktop:init` answers the tab and file to a page that initialises after the adoption — then `tab:attach { tabId, fileKey, mode: "edit" }` is sent, and the Runtime is wired as any tab's (crash, hang, menu state, flush). Without a spare the old path runs unchanged (`?editor&file=…&tab=…`). The spare is never a tab: it is not in `runtime`, so `tabs:state`, the menu, the flush handshake and the reports ignore it until adopted; `contentViews()` includes it so it is placed, themed and hidden with the rest. `debug()` lists it (`role: "editor", spare: true`, its webContents id and pid, whether its page has loaded) plus `spareEnabled` and `opens` — the last ten opens with main's time of the request and whether the tab adopted the spare.
+- **Preload and contract.** `tab:attach` in `IpcEvents` (`TabAttach` in `src/shared/ipc.ts`), `EditorApi.tab.onAttach(cb)` (`src/shared/desktop.ts`). `src/preload/editor.ts` holds an attach that arrives before the page registered its handler (as `forwardStorePort` holds the store port) and hands it over when the handler registers; only the contract's fields cross, as plain data.
+- **Renderer.** `src/renderer/src/editor/EditorRoute.tsx`: a `?editor` page with neither `file` nor `doc`, under the editor preload, is the spare. It pre-warms — `loadEngine()` (the Wasm compiled and instantiated; `Engine.create` itself waits for the file, since it takes the session id and the canvas), `getStoreClient()` (the store-port handshake done), `fonts.list()` (the desktop's font index) — and waits for `designer.tab.onAttach`, or an `init()` that already names the tab (whichever comes first, once per page), then mounts the file exactly as `?editor&file=…&tab=…` does (`useStoreSource(fileKey, tabId)` → `EditorApp`). The page records `window.__designerOpen = { timeOrigin, attached, sourceOpened, ready, firstFrame }` (`performance.now()` marks; `firstFrame` is the second animation frame after `onReady`, the engine having asked for its frame before the editor was up).
+- **`scripts/drive.mjs`.** `spare` prints main's spare (webContents id, pid, loaded or loading, age). `open-timing home | tabbar | <fileKey>` opens a file — a double click on the first card in Home (stepping into the sidebar's Samples or Drafts when Recents is empty), "+" in the tab bar (a new file), or main's `openFile` — and prints main's time of the open (`nav:open-file`, or `nav:new-file` before the store creates the file), the page's marks relative to it, and whether the tab's view is the very spare that was waiting before the click. `pageOf` tells two pages at the same `?editor` URL apart (an adopted spare and the next spare) by asking each preload's `init()` for its tab.
+
+**Measured** (built demo app, `npm run build -- --mode demo`, `DESIGNER_SEED=demo`, a fresh launch per run, the open 6.5 s after launch; ms after main received the open; three runs each):
+
+| Open | Spare | attached | source opened | editor ready | **first frame** |
+|---|---|---|---|---|---|
+| Home, double-click a sample card (`structure`, a real `.fig`) | adopted | 1–2 | 28–32 | 127–131 | **135–139** |
+| Home, the same | `DESIGNER_DISABLE_SPARE=1` | 381–406 | 396–426 | 493–537 | **499–546** |
+| Tab bar "+" (new file; the time includes the store's `createFile`) | adopted | 28–33 | 51–59 | 124–135 | **129–141** |
+| Tab bar "+", the same | `DESIGNER_DISABLE_SPARE=1` | 441–467 | 465–486 | 556–576 | **561–581** |
+
+The spare removes the process start, the page load, the JS parse and the Wasm compile — about 400–440 ms of each open, four times faster to the first canvas frame. The driver's click reached main 14–33 ms after it was issued (Playwright and IPC; the same either way). One earlier verification run of the Home path with the spare took 408 ms to the first frame (editor ready at 381), the others 135–139; the spread is in `source opened → ready` (decode, fonts, `engine_load`), not in the adoption. Adoption was confirmed in every run on both paths: the tab's view's webContents id and pid equal the spare's before the click, and the next spare appeared 3 s after.
+
+**How to see it**: `npm run build -- --mode demo`, then `DESIGNER_SEED=demo node scripts/drive.mjs launch "sleep 6500" spare "open-timing home" "sleep 6500" spare "open-timing tabbar" tabs quit` (`tabs` shows the adopted tab's pid equal to the spare's). `DESIGNER_DISABLE_SPARE=1` in the environment for the comparison.
+
+**Still open**: `mode: "prototype"`, `pageId` / `nodeId` on attach (no prototype tabs or deep links yet); the spare is per window and v1 has one window; a spare adopted while its page is still loading (an open within about a second of its creation) is told its file by `init()` rather than the attach, which is covered by the same code path but not measured.
+
 ## Status (final integration round, 2026-10-06)
 
 - **Home thumbnails (fixed).** There were two causes:
@@ -361,7 +387,7 @@ How commands are routed:
 | Separate `tabbar.html`, `home.html`, `editor.html` | One `index.html`, the role in the query | It keeps the existing build and the browser shell. Splitting is a build-config change (`vite.shared.ts` inputs) once the legacy pages go. |
 | Tab kinds `file` / `prototype`, `fileKey` | `file` (with `fileKey`) built, next to the legacy `project` / `preview` / `cv` (`slug`); no `prototype` yet | The legacy kinds go with the legacy pages. |
 | `nav:new-file` invoke → `{fileKey, tabId}` | Built; returns `null` when "+"/⌘N open the legacy Home's dialog | Until the new Home is the default. |
-| Spare pre-warmed editor | Not built | Needs the engine's attach-later boot (`tab:attach`). |
+| Spare pre-warmed editor | Built (status section "the spare editor" at the top): `src/main/spare.ts`, `tab:attach`, the renderer's spare page | Figma's preloaded tab, as §3.1 specifies. |
 | `crashed.html` view after a crash loop; auto-reload after more than 60 s | Native `Reload / Close Tab` dialog, no auto-reload | As briefed. The `restarting` flag is where auto-reload would go. |
 | Discard policy (12 loaded tabs, 24 h idle) | Not built | Lazy restore is built; discarding is a timer plus `drop()`. |
 | `tab:memory`, `tabs:overflow-menu`, fonts and clipboard channels | Not built (`menu:state`, the store port and the file channels are built) | They belong with the engine and fonts work. |

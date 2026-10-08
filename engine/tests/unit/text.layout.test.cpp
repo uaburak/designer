@@ -334,8 +334,9 @@ TEST_CASE("text: structure.fig's text node, decoded from Figma's file, lays out 
     const json::Value& baseline = figma.get("baselines")->array[0];
     CHECK(L->lines[0].height == baseline.get("lineHeight")->number);
     CHECK(std::fabs(L->lines[0].width - baseline.get("width")->number) <= 0.5);
-    // Unknown fields (fontVariant*, textUserLayoutVersion…) ride along unchanged.
-    CHECK(c.props.extra.count("textUserLayoutVersion") == 1);
+    // Fields the engine doesn't model but the schema has (fontVariant*) ride along as their kiwi bytes; fields
+    // outside schema/document.kiwi (Figma's textUserLayoutVersion, dropped) can't be encoded and go.
+    CHECK(c.props.extra.count("textUserLayoutVersion") == 0);
     CHECK(c.props.extra.count("fontVariantCommonLigatures") == 1);
   }
   CHECK(texts == 1);

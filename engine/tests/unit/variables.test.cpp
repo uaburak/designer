@@ -128,7 +128,7 @@ TEST_CASE("variables: the wire encoding round-trips every variable, mode, bindin
      "isSoftDeleted":false,"key":"def"},
     {"guid":"5:5","phase":"CREATED","type":"VARIABLE","name":"none","parentIndex":{"guid":"0:2","position":"#"},
      "variableSetID":{"assetRef":{"key":"k1","version":"1:2"}},"variableResolvedType":"FLOAT","variableScopes":[],
-     "variableDataValues":{"entries":[{"modeID":"5:2","variableData":{"value":{"mapValue":{"values":[]}},"dataType":"MAP","resolvedDataType":"MAP"}}]}},
+     "variableDataValues":{"entries":[{"modeID":"5:2","variableData":{"value":{"textDataValue":{"characters":"m"}},"dataType":14,"resolvedDataType":9}}]}},
     {"guid":"1:2","phase":"CREATED","type":"ROUNDED_RECTANGLE","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":10,"y":10},
      "fillPaints":[{"type":"SOLID","color":{"r":1,"g":0,"b":0,"a":1},"colorVar":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"COLOR"},
                     "opacityVar":{"value":{"alias":{"assetRef":{"key":"xyz","version":"3:4"}}},"dataType":"ALIAS","resolvedDataType":"FLOAT"}},
@@ -171,13 +171,14 @@ TEST_CASE("variables: the wire encoding round-trips every variable, mode, bindin
   CHECK(*var.variableScopes == std::vector<VariableScope>{VariableScope::ALL_FILLS, VariableScope::STROKE});
   CHECK(var.codeSyntax.size() == 1);
   CHECK(var.extra.empty());
-  // An unknown value kind (Figma's MAP) is kept whole; an explicitly empty scope list stays empty.
+  // An unknown value kind (Figma's IMAGE = 14, dropped from our schema, so a number) is kept whole; an explicitly
+  // empty scope list stays empty.
   CHECK(first[2].props.variableDataValues[0].data.kind == VariableData::Kind::OTHER);
   CHECK(first[2].props.variableScopes->empty());
   CHECK(first[2].props.variableSetID.key == "k1");
   const NodeProps& r = first[3].props;
-  CHECK(r.fillPaints[0].colorVar.alias.guid == Guid{5, 4});
-  CHECK(r.fillPaints[0].opacityVar.alias.key == "xyz");
+  CHECK(r.fillPaints[0].colorVar->alias.guid == Guid{5, 4});
+  CHECK(r.fillPaints[0].opacityVar->alias.key == "xyz");
   REQUIRE(r.fillPaints[1].stopVars.size() == 2);
   CHECK(!r.fillPaints[1].stopVars[0].present());
   CHECK(r.fillPaints[1].stopVars[1].alias.guid == Guid{5, 4});
@@ -280,7 +281,7 @@ TEST_CASE("variables: a bound fill resolves in the layer's mode — explicit, in
   setValue(e, bg, dark, R"({"r":0,"g":0,"b":1})");
   bind(e, R, "fillPaints[0].color", bg);
   CHECK(fill(e, R) == kRed);
-  CHECK(props(e, R).fillPaints[0].colorVar.alias.guid == bg);
+  CHECK(props(e, R).fillPaints[0].colorVar->alias.guid == bg);
   // The frame in Dark: its child follows (Auto).
   setMode(e, F, set, dark);
   CHECK(fill(e, R) == kBlue);

@@ -18,6 +18,8 @@
 
 namespace eng::text {
 
+struct StoredText;
+
 // One run style, resolved: the node's own style (index 0) with an override on top.
 struct ResolvedStyle {
   uint32_t styleID = 0;
@@ -78,6 +80,8 @@ struct TextLayout {
   Rect inkBounds;
   // Per UTF-16 index (size + 1): the caret's x before that unit on its line.
   std::vector<double> caretXs;
+  // Made from stored derived data (derivedTextData) instead of shaping: what it was made from (text/DerivedText).
+  std::shared_ptr<const StoredText> stored;
 
   // Caret geometry: the x of the caret before UTF-16 unit `index` on `line`.
   double caretX(uint32_t index, size_t line) const;

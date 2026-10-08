@@ -365,7 +365,14 @@ describe("engine (wasm, headless): text (E3)", () => {
           parentIndex: { guid: "0:1", position: "~~" },
           size: { x: 10, y: 10 },
           vectorData: { vectorNetworkBlob: 0, normalizedSize: { x: 10, y: 10 } },
-          fillPaints: [{ type: "GRADIENT_LINEAR", visible: true, stops: [], colorVar: { value: 1 } }],
+          fillPaints: [
+            {
+              type: "GRADIENT_LINEAR",
+              visible: true,
+              stops: [],
+              colorVar: { value: { alias: { guid: { sessionID: 5, localID: 4 } } }, dataType: "ALIAS", resolvedDataType: "COLOR" },
+            },
+          ],
         } as unknown as NodeChange,
       ],
     });
@@ -376,7 +383,11 @@ describe("engine (wasm, headless): text (E3)", () => {
     expect(copy.type).toBe("VECTOR");
     expect(copy.vectorData?.normalizedSize).toEqual({ x: 10, y: 10 });
     expect(clip.blobs?.[copy.vectorData!.vectorNetworkBlob!]).toBe(base64);
-    expect(copy.fillPaints?.[0]).toMatchObject({ type: "GRADIENT_LINEAR", visible: true, colorVar: { value: 1 } });
+    expect(copy.fillPaints?.[0]).toMatchObject({
+      type: "GRADIENT_LINEAR",
+      visible: true,
+      colorVar: { value: { alias: { guid: { sessionID: 5, localID: 4 } } }, dataType: "ALIAS", resolvedDataType: "COLOR" },
+    });
     engine.destroy();
   });
 });
@@ -1012,5 +1023,156 @@ describe("engine (wasm, headless): libraries (E6)", () => {
     lib.destroy();
     dup.destroy();
     con.destroy();
+  });
+});
+
+describe("engine (wasm, headless): kiwi at the boundary (Figma parity round 3)", () => {
+  it("loads the store's kiwi bytes as they are, emits kiwi changes, encodes kiwi snapshots and clipboards", async () => {
+    const engine = await Engine.create(null, { sessionID: 9, wire: "kiwi" });
+    expect(engine.wire).toBe("kiwi");
+    // What the store hands over: the generated TS codec's bytes of the document.
+    const bytes = encodeKiwi(messageToKiwi(SAMPLE_DOCUMENT));
+    expect(engine.loadKiwi(bytes, { page: "0:1" })).toBe(Status.OK);
+    engine.setViewport(1280, 800, 2, 2560, 1600);
+    engine.setCamera({ x: 0, y: 0, zoom: 1 });
+    // Node for node what the interim JSON load gives.
+    const json = await engineWithSample();
+    for (const id of ["0:0", "0:1", "1:1", "1:5", "1:10"]) expect(engine.readNode(id, { childIds: true })).toEqual(json.readNode(id, { childIds: true }));
+    expect(engine.pages()).toEqual(json.pages());
+
+    // A drag: DOCUMENT_CHANGED carries the Message's kiwi bytes; `message` is the kiwi-shaped Message, decoded lazily.
+    const changes: EventOf<"DOCUMENT_CHANGED">[] = [];
+    engine.on("DOCUMENT_CHANGED", (e) => changes.push(e));
+    engine.pointer(PointerType.DOWN, 100, 150, 0, 1, 0);
+    for (let x = 105; x <= 160; x += 5) engine.pointer(PointerType.MOVE, x, 150, 0, 1, 0);
+    engine.pointer(PointerType.UP, 160, 150, 0, 0, 0);
+    expect(changes).toHaveLength(1);
+    expect(changes[0].bytes).toBeInstanceOf(Uint8Array);
+    const decoded = decodeKiwi(changes[0].bytes!);
+    expect(decoded.sessionID).toBe(9);
+    expect(decoded.nodeChanges).toHaveLength(1);
+    expect(decoded.nodeChanges![0].guid).toEqual({ sessionID: 1, localID: 5 });
+    expect(decoded.nodeChanges![0].transform?.m02).toBe(84);
+    expect(decoded.nodeChanges![0].name).toBeUndefined();
+    expect((changes[0].message as unknown as typeof decoded).nodeChanges![0].guid).toEqual({ sessionID: 1, localID: 5 });
+
+    // The snapshot as kiwi (every node, the generated codec reads it); the JSON method still answers.
+    const snapshot = decodeKiwi(engine.encodeDocumentKiwi());
+    expect(snapshot.nodeChanges).toHaveLength(SAMPLE_DOCUMENT.nodeChanges.length);
+    expect(snapshot.nodeChanges![0].guid).toEqual({ sessionID: 0, localID: 0 });
+    expect(snapshot.nodeChanges![0].phase).toBe("CREATED");
+    expect(engine.encodeDocument().nodeChanges[0].guid).toBe("0:0");
+    expect(engine.wire).toBe("kiwi");
+
+    // A change from outside as kiwi bytes (a journal frame).
+    const rename = encodeKiwi({ type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: [{ guid: { sessionID: 1, localID: 5 }, name: "Renamed" }], blobs: [] });
+    expect(engine.applyChangesKiwi(rename, "remote")).toBe(Status.OK);
+    expect(engine.readNode("1:5")!.name).toBe("Renamed");
+
+    // The clipboard as a kiwi Message with its extras, pasted back from the bytes.
+    engine.setSelection(["1:10"]);
+    const clip = engine.encodeSelectionKiwi()!;
+    const clipMessage = decodeKiwi(clip);
+    expect(clipMessage.pastePageId).toEqual({ sessionID: 0, localID: 1 });
+    expect(clipMessage.clipboardSelectionRegions?.[0].nodes).toEqual([{ sessionID: 1, localID: 10 }]);
+    expect(clipMessage.nodeChanges!.map((n) => `${n.guid!.sessionID}:${n.guid!.localID}`)).toEqual(["1:10", "1:11", "1:12", "1:13"]);
+    engine.setSelection([]);
+    expect(engine.pasteKiwi(clip, { inPlace: true })).toBe(1);
+    expect(engine.getSelection().refs[0].startsWith("9:")).toBe(true);
+
+    // The engine's own snapshot loads into another engine and reads identically.
+    const second = await Engine.create(null, { sessionID: 9, wire: "kiwi" });
+    expect(second.loadKiwi(engine.encodeDocumentKiwi())).toBe(Status.OK);
+    expect(second.encodeDocument()).toEqual(engine.encodeDocument());
+
+    // Fields the engine doesn't model, written as JSON by a panel, read back as JSON and kept in the kiwi snapshot.
+    expect(engine.setProps(["0:1"], { guides: [{ axis: "Y", offset: 12, guid: { sessionID: 1, localID: 2 } }] } as never)).toBe(Status.OK);
+    expect(engine.readNode("0:1")).toMatchObject({ guides: [{ axis: "Y", offset: 12, guid: { sessionID: 1, localID: 2 } }] });
+    const withGuides = decodeKiwi(engine.encodeDocumentKiwi());
+    expect(withGuides.nodeChanges!.find((n) => n.guid!.sessionID === 0 && n.guid!.localID === 1)?.guides).toEqual([{ axis: "Y", offset: 12, guid: { sessionID: 1, localID: 2 } }]);
+    expect(engine.setProps(["0:1"], { guides: null } as never)).toBe(Status.OK);
+    expect((engine.readNode("0:1") as unknown as Record<string, unknown>).guides).toBeUndefined();
+
+    // Bad bytes are refused without breaking the engine.
+    expect(engine.loadKiwi(new Uint8Array([5, 1, 2]))).toBe(Status.E_DECODE);
+    expect(engine.readNode("1:5")!.name).toBe("Renamed");
+    engine.destroy();
+    second.destroy();
+    json.destroy();
+  });
+
+  it("the interim JSON engine keeps working, and switches to kiwi on request", async () => {
+    const engine = await engineWithSample();
+    expect(engine.wire).toBe("json");
+    const kiwiBytes = encodeKiwi(messageToKiwi(SAMPLE_DOCUMENT));
+    // Either encoding goes into the same calls.
+    expect(engine.loadBytes(kiwiBytes)).toBe(Status.OK);
+    expect(engine.readNode("1:1")!.name).toBe("Desktop");
+    const changes: EventOf<"DOCUMENT_CHANGED">[] = [];
+    engine.on("DOCUMENT_CHANGED", (e) => changes.push(e));
+    engine.setProps(["1:5"], { opacity: 0.5 });
+    // The JSON wire: the message as JSON, and its kiwi bytes too (what the store journals as it is).
+    expect(changes[0].message).toMatchObject({ nodeChanges: [{ guid: "1:5", opacity: 0.5 }] });
+    expect(decodeKiwi(changes[0].bytes!).nodeChanges![0]).toMatchObject({ guid: { sessionID: 1, localID: 5 }, opacity: 0.5 });
+    expect(engine.setWireFormat("kiwi")).toBe(Status.OK);
+    engine.setProps(["1:5"], { opacity: 0.25 });
+    expect(decodeKiwi(changes[1].bytes!).nodeChanges![0]).toMatchObject({ guid: { sessionID: 1, localID: 5 }, opacity: 0.25 });
+    // The kiwi wire: `message` is the kiwi-shaped Message, decoded on first access.
+    expect((changes[1].message as unknown as { nodeChanges: { guid: unknown }[] }).nodeChanges[0].guid).toEqual({ sessionID: 1, localID: 5 });
+    engine.destroy();
+  });
+});
+
+describe("engine (wasm, headless): derived data, the Layers outline, change bytes (Figma parity round 3)", () => {
+  const g = (sessionID: number, localID: number) => ({ sessionID, localID });
+  const doc: Message = {
+    type: "NODE_CHANGES",
+    sessionID: 0,
+    nodeChanges: [
+      { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+      { guid: "0:1", phase: "CREATED", type: "CANVAS", name: "Page 1", parentIndex: { guid: "0:0", position: "!" } },
+      { guid: "0:2", phase: "CREATED", type: "CANVAS", name: "Internal Only Canvas", internalOnly: true, visible: false, parentIndex: { guid: "0:0", position: "~" } },
+      {
+        guid: "1:1", phase: "CREATED", type: "SYMBOL", name: "Button", parentIndex: { guid: "0:1", position: "!" }, size: { x: 10, y: 10 },
+        stackMode: "HORIZONTAL", stackSpacing: 4, stackHorizontalPadding: 8, stackVerticalPadding: 6, stackPaddingRight: 8, stackPaddingBottom: 6, stackCounterSizing: "RESIZE_TO_FIT",
+      },
+      { guid: "1:2", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Icon", parentIndex: { guid: "1:1", position: "!" }, size: { x: 16, y: 16 } },
+      { guid: "1:3", phase: "CREATED", type: "TEXT", name: "Label", parentIndex: { guid: "1:1", position: "\"" }, size: { x: 10, y: 10 }, textData: { characters: "Label" }, textAutoResize: "WIDTH_AND_HEIGHT" },
+      { guid: "1:21", phase: "CREATED", type: "INSTANCE", name: "Button", parentIndex: { guid: "0:1", position: "\"" }, size: { x: 10, y: 10 }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 100 }, symbolData: { symbolID: g(1, 1) } },
+    ],
+  };
+
+  it("a derived snapshot loads its instances' layout as stored; the outline read; DOCUMENT_CHANGED bytes on the JSON wire", async () => {
+    const a = await Engine.create(null, { sessionID: 9 });
+    a.load(doc);
+    expect(a.derivedDataVersion()).toBe(1);
+    const stored = a.encodeDocumentKiwi({ derived: true });
+    const decoded = decodeKiwi(stored);
+    expect((decoded as { derivedDataVersion?: number }).derivedDataVersion).toBe(1);
+    const instance = decoded.nodeChanges!.find((n) => n.guid!.localID === 21)!;
+    expect(instance.derivedSymbolData?.map((e) => e.guidPath?.guids?.map((k) => k.localID))).toEqual([[2], [3]]);
+
+    const b = await Engine.create(null, { sessionID: 9, wire: "kiwi" });
+    expect(b.loadKiwi(stored, { page: "0:1" })).toBe(Status.OK);
+    expect(b.stats().derivedUsed).toBe(1);
+    for (const id of ["1:21", "I1:21;1:2", "I1:21;1:3"])
+      expect(b.readNode(id, { fields: ["size", "transform"] })).toEqual(a.readNode(id, { fields: ["size", "transform"] }));
+
+    // Pass 1 of the Layers panel: the outline only.
+    const outline = b.layerOutline("0:1")!;
+    expect(outline.ids).toEqual(["0:1", "1:1", "1:2", "1:3", "1:21", "I1:21;1:2", "I1:21;1:3"]);
+    expect(outline.parents).toEqual([-1, 0, 1, 1, 0, 4, 4]);
+    expect(outline.types[outline.kinds[4] & 0xff]).toBe("INSTANCE");
+    expect(outline.kinds[5] >> 8).toBe(1);  // an instance sublayer
+    expect(b.layerOutline("7:7")).toBeNull();
+
+    // The JSON wire's DOCUMENT_CHANGED carries the kiwi bytes too.
+    const events: EventOf<"DOCUMENT_CHANGED">[] = [];
+    a.on("DOCUMENT_CHANGED", (e) => events.push(e));
+    a.setProps(["1:21"], { name: "Renamed" });
+    expect(events[0].message.nodeChanges[0]).toMatchObject({ guid: "1:21", name: "Renamed" });
+    expect(decodeKiwi(events[0].bytes!).nodeChanges![0]).toMatchObject({ guid: g(1, 21), name: "Renamed" });
+    a.destroy();
+    b.destroy();
   });
 });

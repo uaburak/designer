@@ -25,17 +25,19 @@ import type { FileChange, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } fr
 import type { BatchKind, ChangeBatch, FileKey, FileMeta, FileUiState, Folder, FolderId, VersionId, VersionRecord } from "../../../shared/store/types";
 import { messageToEngine, messageToKiwi } from "./engineMessage";
 import { storeLibraryAccess } from "./libraryAccess";
-import { engineDocumentFromTable, prepareEngineDocument, tableOf, type FontRef, type OpenedDocument, type PreparedDocument } from "./loadDocument";
+import { engineDocumentFromTable, prepareEngineDocument, tableOf, type DocumentFacts, type EngineWireFormat, type OpenedDocument, type PreparedDocument } from "./loadDocument";
 import type { LoadWorkerReply, LoadWorkerRequest } from "./loadWorker";
 
 /** The engine's transaction kinds (DOCUMENT_CHANGED's `kind`, engine.md §9.2). */
 export type EngineChangeKind = "USER" | "UNDO" | "REDO" | "SYSTEM";
 
-/** What the editor knows about a change besides its Message (both optional). */
+/** What the editor knows about a change besides its Message (all optional). */
 export interface ChangeInfo {
   kind?: EngineChangeKind;
   /** The undo label ("Move", "Paste"); "Restore version" makes the batch a `restore` */
   label?: string;
+  /** The change as the kiwi Message the engine wrote (kiwi at the engine's boundary): journaled as it is, no conversion */
+  bytes?: Uint8Array;
 }
 
 /** Where the file is and whether it still exists, as the header and the tab show it. */
@@ -81,13 +83,23 @@ export interface StoreDocumentSource extends DocumentSource {
   readonly closed: boolean;
 
   load(): Promise<EngineMessage>;
+  /** What the engine loads, prepared in the load worker (the facts first); memoized like `load()`. */
+  prepare(format?: EngineWireFormat): PreparedLoad;
   /** One committed change, in commit order. `info` maps the engine's kind and label onto the batch. */
   onChanges(changes: EngineMessage, info?: ChangeInfo): void;
   flush(): Promise<void>;
   rename(name: string): Promise<void>;
+  /**
+   * The engine's own snapshot of the whole document (derived fields included): flushes, then asks the store to adopt
+   * it as the file's snapshot at the head this source knows (docs/data.md §5.5). False when the store declined (the
+   * head moved: another session's frame) or the source is closed.
+   */
+  saveSnapshot(snapshot: Uint8Array, info: { derivedDataVersion: number }): Promise<boolean | "refused">;
+  /** The journal seq this source's document stands at: the head it opened at, moved by every ack and external frame */
+  readonly knownHeadSeq: number;
 
-  /** Changes to this file that this source did not make (sync pulls, kind "remote"), to apply without an undo entry. */
-  onExternalChanges(listener: (changes: EngineMessage, info: { seq: number; kind: BatchKind }) => void): Unsubscribe;
+  /** Changes to this file that this source did not make (sync pulls, kind "remote"), to apply without an undo entry; `bytes`: the frame as the store holds it. */
+  onExternalChanges(listener: (changes: EngineMessage, info: { seq: number; kind: BatchKind; bytes: Uint8Array }) => void): Unsubscribe;
   /** The file was renamed, moved, trashed, restored or deleted (from Home, the menu or another window). */
   onMetaChanged(listener: (meta: DocumentMeta) => void): Unsubscribe;
   onError(listener: (e: unknown) => void): Unsubscribe;
@@ -105,11 +117,12 @@ export interface StoreDocumentSource extends DocumentSource {
   /** A version as a read-only document (view mode) */
   openVersion(id: VersionId): Promise<EngineMessage>;
   /**
-   * Non-destructive restore: hands `apply` the diff that turns the current document into the version; the editor
-   * applies it as one undoable edit (APPLY_USER, label "Restore version"), whose change comes back through
-   * `onChanges` and is journaled as `restore`. Then records a "restore" version and returns it.
+   * Non-destructive restore: hands `apply` the diff that turns the current document into the version (and its kiwi
+   * bytes, for an engine that reads them); the editor applies it as one undoable edit (APPLY_USER | APPLY_EXACT,
+   * label "Restore version"), whose change comes back through `onChanges` and is journaled as `restore`. Then
+   * records a "restore" version and returns it.
    */
-  restoreVersion(id: VersionId, apply: (diff: EngineMessage) => void | Promise<void>): Promise<VersionRecord>;
+  restoreVersion(id: VersionId, apply: (diff: EngineMessage, bytes: Uint8Array) => void | Promise<void>): Promise<VersionRecord>;
   /** A new file in Drafts from a version */
   duplicateVersion(id: VersionId): Promise<FileMeta>;
 
@@ -141,8 +154,19 @@ let workerFailed = false;
 let nextLoadId = 1;
 /** A worker that hasn't even decoded the file in this long is taken as stuck: the work moves to this thread. */
 const WORKER_FIRST_REPLY_MS = 30000;
-type FontsKnown = { fonts: FontRef[]; needsFallbackFont: boolean };
-const loads = new Map<number, { onFonts: (f: FontsKnown) => void; resolve: (d: PreparedDocument) => void; reject: (e: Error) => void }>();
+const loads = new Map<number, { onFacts: (f: DocumentFacts) => void; resolve: (d: PreparedDocument) => void; reject: (e: Error) => void }>();
+
+/**
+ * The wire form the engine in hand reads, as the editor found out (`setEngineWireFormat`, once its module is up):
+ * what an eager `prepare()` — started as soon as the file is open, before any engine exists — asks the worker for.
+ * "json" until told; a kiwi-reading engine still takes the store's bytes as they are (the worker's conversion is
+ * then only wasted work, and only on the very first open of a process whose engine module wasn't warm).
+ */
+let engineWireFormat: EngineWireFormat = "json";
+export function setEngineWireFormat(format: EngineWireFormat): void {
+  engineWireFormat = format;
+}
+export const defaultEngineWireFormat = (): EngineWireFormat => engineWireFormat;
 
 /** The process's load worker (one per renderer; a tab is a process), or null where workers can't run (tests) or it failed. */
 function loadWorker(): Worker | null {
@@ -158,8 +182,10 @@ function loadWorker(): Worker | null {
     const r = e.data;
     const load = loads.get(r.id);
     if (!load) return;
-    if (r.type === "fonts") load.onFonts({ fonts: r.fonts, needsFallbackFont: r.needsFallbackFont });
-    else {
+    if (r.type === "facts") {
+      const { id: _id, type: _type, ...facts } = r;
+      load.onFacts(facts);
+    } else {
       loads.delete(r.id);
       if (r.type === "done") load.resolve(r.document);
       else load.reject(new Error(r.error));
@@ -181,19 +207,24 @@ function loadWorker(): Worker | null {
 }
 
 /**
- * Prepares an opened file for the engine: in the load worker when there is one (the fonts reported as soon as the
- * file is decoded, the bytes transferred back), else inline on this thread.
+ * Prepares an opened file for the engine: in the load worker when there is one (the facts reported as soon as the
+ * file is decoded, the bytes transferred back), else inline on this thread. The store's own bytes are there at once
+ * (`raw`) for an engine that reads kiwi.
  */
-export function prepareDocument(opened: OpenedDocument): PreparedLoad {
-  let fontsResolve: (f: FontsKnown) => void = () => {};
-  const fonts = new Promise<FontsKnown>((resolve) => (fontsResolve = resolve));
-  const inline = (): PreparedDocument => prepareEngineDocument(opened, (list, needsFallbackFont) => fontsResolve({ fonts: list, needsFallbackFont }));
-  const known = (d: PreparedDocument) => fontsResolve({ fonts: d.fonts, needsFallbackFont: d.needsFallbackFont });
+export function prepareDocument(opened: OpenedDocument, format: EngineWireFormat = defaultEngineWireFormat()): PreparedLoad {
+  let factsResolve: (f: DocumentFacts) => void = () => {};
+  const facts = new Promise<DocumentFacts>((resolve) => (factsResolve = resolve));
+  const inline = (): PreparedDocument => prepareEngineDocument(opened, (f) => factsResolve(f), format);
+  const known = (d: PreparedDocument) => {
+    const { bytes: _b, format: _f, timing: _t, ...f } = d;
+    factsResolve(f);
+  };
+  const raw = { snapshot: opened.snapshot, frames: opened.journal.map((f) => f.message), derivedDataVersion: opened.derivedDataVersion ?? 0 };
   const w = loadWorker();
   if (!w) {
     const document = Promise.resolve().then(inline);
     void document.then(known);
-    return { fonts, document };
+    return { raw, facts, document };
   }
   const id = nextLoadId++;
   const document = new Promise<PreparedDocument>((resolve, reject) => {
@@ -203,9 +234,9 @@ export function prepareDocument(opened: OpenedDocument): PreparedLoad {
       reject(new Error("load worker did not answer"));
     }, WORKER_FIRST_REPLY_MS);
     loads.set(id, {
-      onFonts: (f) => {
+      onFacts: (f) => {
         clearTimeout(watchdog);
-        fontsResolve(f);
+        factsResolve(f);
       },
       resolve: (d) => {
         clearTimeout(watchdog);
@@ -218,7 +249,7 @@ export function prepareDocument(opened: OpenedDocument): PreparedLoad {
     });
     try {
       // The snapshot and the frames are copied (structured clone, a few ms), not transferred: the source keeps them.
-      w.postMessage({ id, opened: { snapshot: opened.snapshot, journal: opened.journal.map((f) => ({ message: f.message })), sessionID: opened.sessionID } } satisfies LoadWorkerRequest);
+      w.postMessage({ id, opened: { snapshot: opened.snapshot, journal: opened.journal.map((f) => ({ message: f.message })), sessionID: opened.sessionID, derivedDataVersion: opened.derivedDataVersion }, format } satisfies LoadWorkerRequest);
     } catch (e) {
       loads.delete(id);
       reject(e instanceof Error ? e : new Error(String(e)));
@@ -230,7 +261,7 @@ export function prepareDocument(opened: OpenedDocument): PreparedLoad {
     return d;
   });
   void document.then(known);
-  return { fonts, document };
+  return { raw, facts, document };
 }
 
 class Listeners<T> {
@@ -282,7 +313,7 @@ class Source implements StoreDocumentSource {
   private firstError: unknown = null;
   private readonly errors = new Listeners<unknown>();
   private readonly metaListeners = new Listeners<DocumentMeta>();
-  private readonly external = new Listeners<{ message: EngineMessage; seq: number; kind: BatchKind }>();
+  private readonly external = new Listeners<{ message: EngineMessage; seq: number; kind: BatchKind; bytes: Uint8Array }>();
   private externalOff: Unsubscribe | null = null;
   private readonly offWatch: Unsubscribe;
   private readonly fileMeta = new Listeners<FileMeta>();
@@ -292,7 +323,11 @@ class Source implements StoreDocumentSource {
   private closing: Promise<void> | null = null;
   /** `load()` / `prepare()` once: React's StrictMode mounts the editor twice and both mounts ask for the document. */
   private loading: Promise<EngineMessage> | null = null;
-  private preparing: PreparedLoad | null = null;
+  private preparing: { format: EngineWireFormat; load: PreparedLoad } | null = null;
+  /** The head this source's document stands at (the open's head, then every ack and external frame) */
+  private headKnown: number;
+  /** The journal seq each of this session's batches got (by batchSeq), for `saveSnapshot` */
+  private readonly ackSeqs = new Map<number, number>();
 
   constructor(
     private readonly store: StoreApi,
@@ -306,6 +341,7 @@ class Source implements StoreDocumentSource {
     this.recovery = o.recovery;
     this.uiState = o.ui;
     this.headSeq = o.headSeq;
+    this.headKnown = o.headSeq;
     this.meta = o.meta;
     for (const f of folders) this.folderNames.set(f.id, f.name);
     this.offWatch = store.workspace.watch((e) => {
@@ -395,15 +431,55 @@ class Source implements StoreDocumentSource {
     return this.loading;
   }
 
-  /** The engine's bytes, prepared in the load worker (the fonts first); memoized like `load()`. */
-  prepare(): PreparedLoad {
+  get knownHeadSeq(): number {
+    return this.headKnown;
+  }
+
+  /**
+   * What the engine loads, prepared in the load worker (the facts first); memoized like `load()`. Asked again for
+   * another wire form (the eager call guessed before the engine was up), the worker runs once more for that form —
+   * the first run's facts are reused.
+   */
+  prepare(format: EngineWireFormat = defaultEngineWireFormat()): PreparedLoad {
     if (!this.opened) {
       const failed = Promise.reject(new Error("This document source was closed"));
       void failed.catch(() => {});
-      return { fonts: Promise.resolve({ fonts: [], needsFallbackFont: false }), document: failed };
+      return { raw: null, facts: Promise.resolve({ nodeCount: 0, types: [], fonts: [], fontsByPage: {}, needsFallbackFont: false, derivedDataVersion: 0 }), document: failed };
     }
-    this.preparing ??= prepareDocument(this.opened);
-    return this.preparing;
+    if (this.preparing && this.preparing.format !== format) {
+      const facts = this.preparing.load.facts;
+      const again = prepareDocument(this.opened, format);
+      this.preparing = { format, load: { ...again, facts } };
+    }
+    this.preparing ??= { format, load: prepareDocument(this.opened, format) };
+    return this.preparing.load;
+  }
+
+  /**
+   * Call it in the same task as the engine's encode: the snapshot stands at the head of everything handed to
+   * `onChanges` so far (acknowledged or not) and every external frame seen — that is the seq the store must be at.
+   * A change committed while the acks come in moves the store's head past it, and the store declines (the next
+   * attempt carries it).
+   */
+  async saveSnapshot(snapshot: Uint8Array, info: { derivedDataVersion: number }): Promise<boolean | "refused"> {
+    if (this.closed || !(snapshot instanceof Uint8Array) || !snapshot.length) return false;
+    const lastBatch = this.batchSeq;
+    const base = this.headKnown;
+    try {
+      await this.flush();
+      const headSeq = Math.max(base, lastBatch ? (this.ackSeqs.get(lastBatch) ?? 0) : 0);
+      const r = await this.store.files.saveSnapshot(this.fileKey, { sessionID: this.sessionID, message: snapshot, headSeq });
+      if (r.adopted && r.seq > this.headKnown) this.headKnown = r.seq;
+      void info;
+      if (r.refused) {
+        console.warn(`The store refused the engine's snapshot (${r.refused}):`, r.losses);
+        return "refused";
+      }
+      return r.adopted;
+    } catch (e) {
+      this.fail(e);
+      return false;
+    }
   }
 
   onChanges(changes: EngineMessage, info?: ChangeInfo): void {
@@ -411,17 +487,21 @@ class Source implements StoreDocumentSource {
       this.fail(new Error("A change arrived after the document was closed; it wasn't saved"));
       return;
     }
-    if (!changes?.nodeChanges?.length) return;
+    if (!info?.bytes?.length && !changes?.nodeChanges?.length) return;
     let batch: ChangeBatch;
     try {
-      const kiwi = messageToKiwi({ ...changes, sessionID: this.sessionID });
+      // The engine's own kiwi bytes go to the journal as they are (its sessionID is this session's); the interim JSON
+      // is converted. Either way the images the change starts using are noted for the file's blob refs.
+      const bytes = info?.bytes;
+      const kiwi = bytes ? decodeMessage(bytes) : messageToKiwi({ ...changes, sessionID: this.sessionID });
+      if (!kiwi.nodeChanges?.length) return;
       const refs = [...messageImageHashes(kiwi)];
       batch = {
         sessionID: this.sessionID,
         batchSeq: ++this.batchSeq,
         kind: batchKind(info, this.restoring),
         label: info?.label ?? (this.restoring ? RESTORE_LABEL : undefined),
-        message: encodeMessage(kiwi),
+        message: bytes ?? encodeMessage(kiwi),
         ...(refs.length ? { blobRefsAdded: refs } : {}),
         wallClock: (this.opts.now ?? Date.now)(),
       };
@@ -429,8 +509,14 @@ class Source implements StoreDocumentSource {
       this.fail(e);
       return;
     }
+    const seqOf = batch.batchSeq;
     const p = this.store.files.append(this.fileKey, batch).then(
-      () => undefined,
+      (ack) => {
+        if (!ack) return;
+        this.ackSeqs.set(seqOf, ack.seq);
+        if (this.ackSeqs.size > 256) this.ackSeqs.delete(this.ackSeqs.keys().next().value!);
+        if (ack.seq > this.headKnown) this.headKnown = ack.seq;
+      },
       (e) => this.fail(e),
     );
     this.inFlight.add(p);
@@ -453,13 +539,14 @@ class Source implements StoreDocumentSource {
     }
   }
 
-  onExternalChanges(listener: (changes: EngineMessage, info: { seq: number; kind: BatchKind }) => void): Unsubscribe {
-    const off = this.external.add((e) => listener(e.message, { seq: e.seq, kind: e.kind }));
+  onExternalChanges(listener: (changes: EngineMessage, info: { seq: number; kind: BatchKind; bytes: Uint8Array }) => void): Unsubscribe {
+    const off = this.external.add((e) => listener(e.message, { seq: e.seq, kind: e.kind, bytes: e.bytes }));
     if (!this.externalOff && !this.closed) {
       this.externalOff = this.store.files.subscribe(this.fileKey, this.headSeq, (c: FileChange) => {
         if (c.sessionID === this.sessionID) return; // our own batches
         try {
-          this.external.emit({ message: messageToEngine(decodeMessage(c.message)), seq: c.seq, kind: c.kind });
+          if (c.seq > this.headKnown) this.headKnown = c.seq;
+          this.external.emit({ message: messageToEngine(decodeMessage(c.message)), seq: c.seq, kind: c.kind, bytes: c.message });
         } catch (e) {
           this.fail(e);
         }
@@ -519,12 +606,13 @@ class Source implements StoreDocumentSource {
     return mergedDocument(await this.store.files.openVersion(this.fileKey, id));
   }
 
-  async restoreVersion(id: VersionId, apply: (diff: EngineMessage) => void | Promise<void>): Promise<VersionRecord> {
+  async restoreVersion(id: VersionId, apply: (diff: EngineMessage, bytes: Uint8Array) => void | Promise<void>): Promise<VersionRecord> {
     await this.flush();
-    const diff = messageToEngine(decodeMessage(await this.store.files.restoreDiff(this.fileKey, id)));
+    const bytes = await this.store.files.restoreDiff(this.fileKey, id);
+    const diff = messageToEngine(decodeMessage(bytes));
     this.restoring = true;
     try {
-      await apply(diff);
+      await apply(diff, bytes);
     } finally {
       this.restoring = false;
     }

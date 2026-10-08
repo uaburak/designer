@@ -84,5 +84,9 @@ if (wasm) {
 
 if (runTests) {
   if (preset !== "native-test") fail("--test runs the native-test preset");
+  // The vendored libraries are built without the sanitizers: libc++'s container annotations then disagree between a
+  // template instantiated in an instrumented and an uninstrumented TU (a known ASan false positive, "container-overflow"
+  // in Clipper2's priority_queue). Everything else ASan checks stays on.
+  env.ASAN_OPTIONS = env.ASAN_OPTIONS ?? "detect_container_overflow=0";
   run(path.join(buildDir, "engine_tests"), extra, env);
 }

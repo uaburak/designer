@@ -385,3 +385,90 @@ TEST_CASE("content cache: a continuous zoom on a slow page shows the cache scale
   CHECK(s.stale == 0);
   CHECK(s.cachedRegions == 1);
 }
+
+TEST_CASE("tiles: zooming out on a slow page composites tiles instead of drawing every frame; budget, invalidation") {
+  Document d;
+  base(d);
+  grid(d, 100);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  double now = 1000;
+  double rasterCost = 10;  // each raster (a full one or a tile) advances the clock this much
+  bool slow = true;
+  r.setClock([&] {
+    if (slow) now += rasterCost;
+    return now;
+  });
+  Overlay o;
+  o.frameTitles = false;
+  Camera cam{0, 0, 1};
+  r.render(d, kPage, cam, kView, o, kDark);  // a slow full raster: 20 ms
+  // At rest, quiet frames draw the coarser level's tiles ahead, within the idle budget, a frame asked for meanwhile.
+  RenderStats s = r.render(d, kPage, cam, kView, o, kDark);
+  CHECK(s.cachedRegions == 0);
+  CHECK(s.tilesRastered >= 1);
+  CHECK(s.tilesRastered <= 2);  // 10 ms each, a 12 ms budget: one, and the one that crossed it
+  CHECK(r.wantsFrameAt() > 0);
+  for (int i = 0; i < 64 && r.wantsFrameAt() > 0; i++) r.render(d, kPage, cam, kView, o, kDark);
+  CHECK(r.wantsFrameAt() == 0);
+  size_t ahead = r.tileCount();
+  CHECK(ahead > 0);
+  CHECK(r.tileBytes() <= Renderer::kTileBudgetBytes);
+
+  // A continuous zoom out: nothing is drawn whole; the tiles (and the scaled cache where it lands) show, the
+  // missing ones of the zoom's own level drawn within the interacting budget.
+  o.zooming = true;
+  for (double z : {0.9, 0.8, 0.7, 0.6}) {
+    s = r.render(d, kPage, Camera{0, 0, z}, kView, o, kDark);
+    CHECK(s.cachedRegions == 0);
+    CHECK(s.stale == 1);
+    CHECK(s.tilesShown > 0);
+    CHECK(s.tilesRastered <= 1);  // 10 ms tiles, a 6 ms budget: one per frame
+  }
+  // The zoom settles: drawn sharp, whole, once.
+  now += Renderer::kZoomSettleMs + 1;
+  s = r.render(d, kPage, Camera{0, 0, 0.6}, kView, o, kDark);
+  CHECK(s.stale == 0);
+  CHECK(s.cachedRegions == 1);
+
+  // An edit drops the tiles under it (where it was and where it is), keeps the others.
+  o.zooming = false;
+  size_t before = r.tileCount();
+  NodeChange move = NodeChange::changed({2, 1});
+  move.mask = F_TRANSFORM;
+  move.props.transform = Mat2x3::translate(30, 30);
+  d.apply(move);
+  r.render(d, kPage, Camera{0, 0, 0.6}, kView, o, kDark);
+  CHECK(r.tileCount() < before);
+  CHECK(r.tileCount() > 0);
+  // Another page, or the fonts: all of them.
+  slow = false;
+  Document other;
+  base(other);
+  r.render(other, kPage, Camera{0, 0, 0.6}, kView, o, kDark);
+  CHECK(r.tileCount() == 0);
+}
+
+TEST_CASE("tiles: the budget holds while the zoom roams; least recently shown go first") {
+  Document d;
+  base(d);
+  grid(d, 100);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  double now = 1000;
+  r.setClock([&] { return now += 10; });
+  Overlay o;
+  o.frameTitles = false;
+  r.render(d, kPage, Camera{}, kView, o, kDark);
+  o.zooming = true;
+  // A long zoom over many levels and places: every frame zooms out (tiled), the budget is never passed.
+  for (int i = 0; i < 300; i++) {
+    double z = 0.9 * std::pow(0.97, i % 120);
+    r.render(d, kPage, Camera{-(i % 37) * 400.0, -(i % 23) * 300.0, z}, kView, o, kDark);
+    CHECK(r.tileBytes() <= Renderer::kTileBudgetBytes);
+  }
+  CHECK(r.tileCount() > 0);
+  CHECK(dev.memory().bytes < (512ull << 20));
+}

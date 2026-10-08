@@ -134,6 +134,7 @@ Renderer::Renderer(gfx::Device& device) : device_(device), curves_(device), imag
 
 Renderer::~Renderer() {
   dropCache();
+  dropTiles();
   if (buffer_) device_.destroyBuffer(buffer_);
   if (ramp_) device_.destroyTexture(ramp_);
   if (white_) device_.destroyTexture(white_);
@@ -275,13 +276,21 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
            : paint.type == PaintType::GRADIENT_ANGULAR ? PaintKind::Angular
                                                        : PaintKind::Diamond;
   } else if (paint.type == PaintType::IMAGE) {
-    bool failed = false;
-    ImageCache::Texture t = images_.texture(paint.image, &failed);
+    bool failed = false, placeholder = false;
+    // How large the image is drawn (device px): the node's box through this draw's transform. The registry asks for
+    // a larger copy when a tier is drawn bigger than it is (docs/engine-build.md "Figma parity round 3" §5).
+    double det = std::fabs(static_cast<double>(q.linear[0]) * q.linear[3] - static_cast<double>(q.linear[1]) * q.linear[2]);
+    double local = std::fabs(localToNode.m00 * localToNode.m11 - localToNode.m01 * localToNode.m10);
+    double devicePx = std::max(nodeSize.x, nodeSize.y) * std::sqrt(det / std::max(local, 1e-12)) * viewport_.scaleX();
+    ImageHints hints = imageHints(paint);
+    ImageCache::Texture t = images_.texture(paint.image, &failed, devicePx, &hints, &placeholder);
     if (!t.id) {
-      // Loading (or missing): Figma's grey.
+      // Loading (or missing), and no ThumbHash: Figma's grey.
       premultiply(q.color, Color::hex(0xE6E6E6), a);
     } else {
+      // The image's own size (a tier, a downscaled copy or the ThumbHash stands in for it): the original's when known.
       double iw = t.width, ih = t.height;
+      if (hints.originalWidth && hints.originalHeight) iw = hints.originalWidth, ih = hints.originalHeight;
       Mat2x3 P = imageMatrix(paint, nodeSize, iw, ih) * localToNode;
       q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(a);
       q.paint0[0] = static_cast<float>(P.m00), q.paint0[1] = static_cast<float>(P.m01), q.paint0[2] = static_cast<float>(P.m02);
@@ -1386,7 +1395,10 @@ double Renderer::nowMs() const {
   return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-double Renderer::wantsFrameAt() const { return cache_.settleAt; }
+double Renderer::wantsFrameAt() const {
+  if (cache_.settleAt) return cache_.settleAt;
+  return tiles_.prefetchAt;
+}
 
 void Renderer::dropCache() {
   if (cache_.target) device_.destroyTarget(cache_.target);
@@ -1527,11 +1539,32 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     double ox = camera.x * sx - c.camX * sx * k, oy = camera.y * sy - c.camY * sy * k;
     covers = ox <= 0.5 && oy <= 0.5 && ox + W * k >= W - 0.5 && oy + H * k >= H - 0.5;
   }
-  bool stale = same && covers && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomRasterBudgetMs &&
-               now - c.zoomChangedAt < kZoomSettleMs;
+  bool slowZoom = same && c.zoom != camera.zoom && overlay.zooming && c.fullMs > kZoomRasterBudgetMs &&
+                  now - c.zoomChangedAt < kZoomSettleMs;
+  // Zooming in, the cache scaled covers the canvas; zooming out it doesn't: tiles fill in around it.
+  bool stale = slowZoom && covers;
+  bool tiled = slowZoom && !covers;
+  // Tiles follow the document: whatever changed is drawn again when shown; a new page, fonts, images: start over.
+  if (tiles_.page != page || tiles_.fonts != fonts || tiles_.images != images || tiles_.sx != sx || tiles_.sy != sy ||
+      !(tiles_.clear == clear) || damage.all) {
+    dropTiles();
+    tiles_.page = page;
+    tiles_.fonts = fonts;
+    tiles_.images = images;
+    tiles_.sx = sx;
+    tiles_.sy = sy;
+    tiles_.clear = clear;
+  } else if (!damage.rects.empty()) {
+    invalidateTiles(damage.rects);
+  }
+  tiles_.prefetchAt = 0;
+  // The level a zoom's tiles are drawn at: the power of two at or above it (never blurrier than the zoom).
+  int level = static_cast<int>(std::ceil(std::log2(std::max(camera.zoom, 1e-6)) - 1e-9));
+  level = std::clamp(level, -12, 8);
+  if (tiled) rasterTiles(doc, visibleTiles(camera, level, 0), kTileInteractingMs, clear, clearColor);
   std::vector<gfx::IRect> regions;
   double shiftX = (camera.x - c.camX) * sx, shiftY = (camera.y - c.camY) * sy;
-  if (stale) {
+  if (stale || tiled) {
     c.settleAt = c.zoomChangedAt + kZoomSettleMs;
   } else {
     c.settleAt = 0;
@@ -1571,7 +1604,7 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     }
   }
   // Changes while a zoom goes on are not drawn into the cache: the settle frame draws everything.
-  if (stale && !damage.rects.empty()) c.pendingFull = true;
+  if ((stale || tiled) && !damage.rects.empty()) c.pendingFull = true;
   bool drewFull = false;
   for (const gfx::IRect& r : regions) {
     double t0 = now;
@@ -1598,8 +1631,10 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     c.clear = clear;
     c.pendingFull = false;
   }
-  // The canvas: the cache (scaled while a zoom settles), then the overlays.
+  // The canvas: the cache (scaled while a zoom settles), then the overlays. Zooming out on tiles: the coarser levels'
+  // tiles under the cache (it is sharper where it lands), the zoom's own level over it.
   beginRecording(full, false);
+  if (tiled) composeTiles(camera, level, true);
   double k = camera.zoom / c.zoom;
   Cmd b;
   b.kind = Cmd::Kind::Blit;
@@ -1613,9 +1648,218 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
   b.rect = {static_cast<int>(std::floor(qx0)), static_cast<int>(std::floor(qy0)), static_cast<int>(std::ceil(qx1) - std::floor(qx0)),
             static_cast<int>(std::ceil(qy1) - std::floor(qy0))};
   if (b.rect.w > 0 && b.rect.h > 0) layers_[0].cmds.push_back(b);
+  if (tiled) composeTiles(camera, level, false);
   drawOverlay(doc, page, camera, overlay, style);
   finishRecording(0, clearColor, false);
-  if (stale) stats_.stale = 1;
+  if (stale || tiled) stats_.stale = 1;
+  // At rest on a slow page: the next zoom out's tiles (one level coarser, twice the view around it), drawn ahead in
+  // quiet frames within the idle budget; a frame is asked for while some are missing.
+  if (!slowZoom && !overlay.zooming && c.valid && c.fullMs > kZoomRasterBudgetMs) {
+    std::vector<TileCoord> ahead = visibleTiles(camera, level - 1, 1.0);
+    size_t left = 0;
+    if (regions.empty() && damage.rects.empty()) {
+      left = rasterTiles(doc, ahead, kTileIdleMs, clear, clearColor);
+    } else {
+      for (const TileCoord& t : ahead) {
+        uint64_t key;
+        if (tileKey(t, key) && !tiles_.map.count(key)) left++;
+      }
+    }
+    if (left) tiles_.prefetchAt = nowMs() + 16;
+  }
+}
+
+// ---- Tiles ------------------------------------------------------------------------------------------
+
+bool Renderer::tileKey(const TileCoord& t, uint64_t& key) {
+  constexpr int kHalf = 1 << 23;
+  if (t.tx < -kHalf || t.tx >= kHalf || t.ty < -kHalf || t.ty >= kHalf || t.level < -64 || t.level > 63) return false;
+  key = (static_cast<uint64_t>(t.level + 64) << 48) | (static_cast<uint64_t>(t.tx + kHalf) << 24) | static_cast<uint64_t>(t.ty + kHalf);
+  return true;
+}
+
+std::vector<Renderer::TileCoord> Renderer::visibleTiles(const Camera& camera, int level, double grow) const {
+  std::vector<TileCoord> out;
+  const double sx = viewport_.scaleX(), sy = viewport_.scaleY();
+  const double W = viewport_.deviceWidth(), H = viewport_.deviceHeight();
+  const double Z = std::ldexp(1.0, level);
+  // The canvas in world units, grown by `grow` of its size on each side; then in tiles of `level`.
+  double wx0 = (0 / sx - camera.x) / camera.zoom, wx1 = (W / sx - camera.x) / camera.zoom;
+  double wy0 = (0 / sy - camera.y) / camera.zoom, wy1 = (H / sy - camera.y) / camera.zoom;
+  double gx = (wx1 - wx0) * grow, gy = (wy1 - wy0) * grow;
+  wx0 -= gx, wx1 += gx, wy0 -= gy, wy1 += gy;
+  double perX = kTileContent / (Z * sx), perY = kTileContent / (Z * sy);  // a tile's world size
+  int tx0 = static_cast<int>(std::floor(wx0 / perX)), tx1 = static_cast<int>(std::ceil(wx1 / perX));
+  int ty0 = static_cast<int>(std::floor(wy0 / perY)), ty1 = static_cast<int>(std::ceil(wy1 / perY));
+  if (static_cast<double>(tx1 - tx0) * (ty1 - ty0) > 4096) return out;  // a level far from the zoom: nothing
+  double cx = (wx0 + wx1) / 2 / perX, cy = (wy0 + wy1) / 2 / perY;
+  for (int ty = ty0; ty < ty1; ty++)
+    for (int tx = tx0; tx < tx1; tx++) out.push_back({level, tx, ty});
+  std::sort(out.begin(), out.end(), [&](const TileCoord& a, const TileCoord& b) {
+    double da = (a.tx + 0.5 - cx) * (a.tx + 0.5 - cx) + (a.ty + 0.5 - cy) * (a.ty + 0.5 - cy);
+    double db = (b.tx + 0.5 - cx) * (b.tx + 0.5 - cx) + (b.ty + 0.5 - cy) * (b.ty + 0.5 - cy);
+    return da < db;
+  });
+  return out;
+}
+
+bool Renderer::rasterTile(const Document& doc, const TileCoord& t, const Color& clear, const float clearColor[4]) {
+  uint64_t key;
+  if (!tileKey(t, key)) return false;
+  constexpr uint32_t kPerRow = kAtlasSize / kTileSize, kPerAtlas = kPerRow * kPerRow;
+  uint32_t slot;
+  if (!tiles_.free.empty()) {
+    slot = tiles_.free.back();
+    tiles_.free.pop_back();
+  } else if (tileBytes() + static_cast<uint64_t>(kAtlasSize) * kAtlasSize * 8 <= kTileBudgetBytes) {
+    gfx::TargetId atlas = device_.createTarget(kAtlasSize, kAtlasSize);
+    if (!atlas) return false;
+    uint32_t a = static_cast<uint32_t>(tiles_.atlases.size());
+    tiles_.atlases.push_back(atlas);
+    for (uint32_t i = kPerAtlas; i-- > 1;) tiles_.free.push_back(a * kPerAtlas + i);
+    slot = a * kPerAtlas;
+  } else {
+    // The budget is full: the tile shown least recently goes (never one shown this frame).
+    auto oldest = tiles_.map.end();
+    for (auto it = tiles_.map.begin(); it != tiles_.map.end(); ++it)
+      if (oldest == tiles_.map.end() || it->second.used < oldest->second.used) oldest = it;
+    if (oldest == tiles_.map.end() || oldest->second.used >= frame_) return false;
+    slot = oldest->second.slot;
+    tiles_.map.erase(oldest);
+  }
+  gfx::TargetId atlas = tiles_.atlases[slot / kPerAtlas];
+  int ax = static_cast<int>((slot % kPerAtlas) % kPerRow) * kTileSize, ay = static_cast<int>((slot % kPerAtlas) / kPerRow) * kTileSize;
+  // The tile's world origin lands on its slot: device px = (world · Z + cam) · s.
+  const Viewport saved = viewport_;
+  const Mat2x3 savedView = view_;
+  const double sx = saved.scaleX(), sy = saved.scaleY();
+  viewport_ = Viewport{kAtlasSize / sx, kAtlasSize / sy, saved.dpr, kAtlasSize, kAtlasSize};
+  // Its content starts 1 px into the slot (the apron around it is drawn too).
+  Camera cam{(ax + 1) / sx - static_cast<double>(t.tx) * kTileContent / sx, (ay + 1) / sy - static_cast<double>(t.ty) * kTileContent / sy,
+             std::ldexp(1.0, t.level)};
+  view_ = cam.matrix();
+  beginRecording({ax, ay, kTileSize, kTileSize}, true);
+  drawPageContent(doc, clear, true);
+  finishRecording(atlas, clearColor, true);
+  viewport_ = saved;
+  view_ = savedView;
+  tiles_.map[key] = TileEntry{t, slot, frame_};
+  stats_.tilesRastered++;
+  return true;
+}
+
+size_t Renderer::rasterTiles(const Document& doc, const std::vector<TileCoord>& want, double budgetMs, const Color& clear,
+                             const float clearColor[4]) {
+  double start = nowMs();
+  size_t left = 0;
+  bool any = false;
+  for (const TileCoord& t : want) {
+    uint64_t key;
+    if (!tileKey(t, key)) continue;
+    auto it = tiles_.map.find(key);
+    if (it != tiles_.map.end()) {
+      it->second.used = frame_;
+      continue;
+    }
+    // Within the budget, one at least (a tile can't be drawn in parts).
+    if (any && nowMs() - start >= budgetMs) {
+      left++;
+      continue;
+    }
+    if (!rasterTile(doc, t, clear, clearColor)) {
+      left++;
+      continue;
+    }
+    any = true;
+  }
+  return left;
+}
+
+void Renderer::composeTiles(const Camera& camera, int level, bool coarseOnly) {
+  constexpr uint32_t kPerRow = kAtlasSize / kTileSize, kPerAtlas = kPerRow * kPerRow;
+  const double sx = viewport_.scaleX(), sy = viewport_.scaleY();
+  const int W = viewport_.deviceWidth(), H = viewport_.deviceHeight();
+  auto blit = [&](const TileEntry& e) {
+    const TileCoord& t = e.coord;
+    double Z = std::ldexp(1.0, t.level);
+    double k = camera.zoom / Z;  // canvas px per tile px
+    // The tile's origin on the canvas (device px).
+    double px = (static_cast<double>(t.tx) * kTileContent / (Z * sx) * camera.zoom + camera.x) * sx;
+    double py = (static_cast<double>(t.ty) * kTileContent / (Z * sy) * camera.zoom + camera.y) * sy;
+    int ax = static_cast<int>((e.slot % kPerAtlas) % kPerRow) * kTileSize + 1, ay = static_cast<int>((e.slot % kPerAtlas) / kPerRow) * kTileSize + 1;
+    Cmd b;
+    b.kind = Cmd::Kind::Blit;
+    b.blitTexture = device_.targetTexture(tiles_.atlases[e.slot / kPerAtlas]);
+    b.blitOrigin = Vec2{px - ax * k, py - ay * k};
+    b.blitScale = 1 / k;
+    b.blitHeight = kAtlasSize;
+    int x0 = static_cast<int>(std::floor(px)), y0 = static_cast<int>(std::floor(py));
+    int x1 = static_cast<int>(std::ceil(px + kTileContent * k)), y1 = static_cast<int>(std::ceil(py + kTileContent * k));
+    x0 = std::max(x0, 0), y0 = std::max(y0, 0), x1 = std::min(x1, W), y1 = std::min(y1, H);
+    if (x1 <= x0 || y1 <= y0) return;
+    b.rect = {x0, y0, x1 - x0, y1 - y0};
+    layers_[0].cmds.push_back(b);
+    stats_.tilesShown++;
+  };
+  std::vector<TileCoord> want = visibleTiles(camera, level, 0);
+  // Coarser levels first (under), each tile once; then the level's own tiles over them.
+  std::vector<uint64_t> drawn;
+  std::vector<const TileEntry*> exact, coarse;
+  for (const TileCoord& t : want) {
+    uint64_t key;
+    if (!tileKey(t, key)) continue;
+    auto it = tiles_.map.find(key);
+    if (it != tiles_.map.end()) {
+      it->second.used = frame_;
+      exact.push_back(&it->second);
+      continue;
+    }
+    for (int up = 1; up <= 4; up++) {
+      TileCoord p{t.level - up, t.tx >> up, t.ty >> up};
+      uint64_t pk;
+      if (!tileKey(p, pk)) break;
+      auto pit = tiles_.map.find(pk);
+      if (pit == tiles_.map.end()) continue;
+      if (std::find(drawn.begin(), drawn.end(), pk) == drawn.end()) {
+        drawn.push_back(pk);
+        pit->second.used = frame_;
+        coarse.push_back(&pit->second);
+        if (coarseOnly) stats_.tilesStale++;
+      }
+      break;
+    }
+  }
+  if (coarseOnly) {
+    std::sort(coarse.begin(), coarse.end(), [](const TileEntry* a, const TileEntry* b) { return a->coord.level < b->coord.level; });
+    for (const TileEntry* e : coarse) blit(*e);
+  } else {
+    for (const TileEntry* e : exact) blit(*e);
+  }
+}
+
+void Renderer::invalidateTiles(const std::vector<Rect>& world) {
+  const double sx = tiles_.sx > 0 ? tiles_.sx : 1, sy = tiles_.sy > 0 ? tiles_.sy : 1;
+  for (auto it = tiles_.map.begin(); it != tiles_.map.end();) {
+    const TileCoord& t = it->second.coord;
+    double Z = std::ldexp(1.0, t.level);
+    double perX = kTileContent / (Z * sx), perY = kTileContent / (Z * sy);
+    // Anti-aliasing and effects reach a little past a layer's bounds: a few device px of margin.
+    double mx = 4 / (Z * sx), my = 4 / (Z * sy);
+    Rect r{t.tx * perX - mx, t.ty * perY - my, perX + 2 * mx, perY + 2 * my};
+    bool hit = false;
+    for (const Rect& w : world) hit |= r.intersects(w);
+    if (hit) {
+      tiles_.free.push_back(it->second.slot);
+      it = tiles_.map.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void Renderer::dropTiles() {
+  for (gfx::TargetId a : tiles_.atlases) device_.destroyTarget(a);
+  tiles_ = TileCache{};
 }
 
 void Renderer::blitCache(gfx::TargetId from, gfx::TargetId to, int dx, int dy, double scale) {

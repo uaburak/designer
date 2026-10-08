@@ -65,7 +65,11 @@ export class EngineStore {
           for (const ref of event.refs) this.touch(ref);
           return;
         case "DOCUMENT_CHANGED":
-          for (const change of event.message.nodeChanges) this.touch(change.guid);
+          // Either wire: a kiwi-wire message carries GUID objects (docs/engine-build.md "Figma parity round 3").
+          for (const change of event.message.nodeChanges) {
+            const g = change.guid as Guid | { sessionID: number; localID: number };
+            this.touch(typeof g === "string" ? g : `${g.sessionID}:${g.localID}`);
+          }
           return;
       }
     });

@@ -28,6 +28,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "base/Json.h"
@@ -55,6 +56,8 @@ class BlobsOut {
 
  private:
   std::vector<Bytes> list_;
+  // By content hash (a snapshot with derived text holds thousands of glyph outlines).
+  std::unordered_multimap<uint64_t, uint32_t> index_;
 };
 
 // The fields a CREATED change of `p` carries.
@@ -87,6 +90,7 @@ std::vector<std::string> fieldKeys(FieldMask mask);
 // Where clipboard images' bytes (Image.dataBlob) go when a paint is read (the image registry).
 using ImageDataSink = void (*)(const ImageHash& hash, Bytes bytes);
 void setImageDataSink(ImageDataSink sink);
+ImageDataSink imageDataSink();
 
 // Paints and effects on their own (style tables, tests).
 void writePaints(json::Writer& w, const std::vector<Paint>& paints);

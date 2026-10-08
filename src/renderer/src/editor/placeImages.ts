@@ -34,7 +34,8 @@ export function imageRectangles(images: readonly ImportedImage[], origin: Vector
       parentIndex: { guid: "4294967294:0", position: String.fromCharCode(33 + i) },
       size: { x: w, y: h },
       transform: { m00: 1, m01: 0, m02: Math.round(x), m10: 0, m11: 1, m12: Math.round(origin.y) },
-      fillPaints: [imagePaint(img.hash, { width: img.width, height: img.height }, img.name)],
+      // The paint carries the image's ThumbHash and low-res copy (progressive display) when the import made them.
+      fillPaints: [imagePaint(img.hash, img, img.name)],
       strokeWeight: 1,
       strokeAlign: "INSIDE",
     });

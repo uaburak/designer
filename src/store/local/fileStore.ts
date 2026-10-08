@@ -17,9 +17,10 @@ import { codec, DOCUMENT_FORMAT_VERSION, SCHEMA_BINARY, SCHEMA_SHA1 } from "../.
 import { RESERVED_SESSION_LIMIT, sessionIdFor, splitSessionId } from "../../shared/schema/guid";
 import { messageImageHashes, NodeTable } from "../../shared/schema/patch";
 import { restoreDiff } from "../../shared/store/assetIdentity";
+import { snapshotLosses } from "../../shared/store/snapshotCheck";
 import { StoreError } from "../../shared/store/protocol";
 import type { FileChange, OpenedFile } from "../../shared/store/repositories";
-import { isSha1, MAX_BATCH_BYTES, type AppendAck, type ChangeBatch, type FileKey, type FileUiState, type VersionId, type VersionRecord } from "../../shared/store/types";
+import { isSha1, MAX_BATCH_BYTES, MAX_SNAPSHOT_BYTES, type AppendAck, type ChangeBatch, type FileKey, type FileUiState, type SnapshotSave, type SnapshotSaved, type VersionId, type VersionRecord } from "../../shared/store/types";
 import type { Compactor } from "../compactor";
 import { nodeCodecs, own } from "../kiwi/codecs";
 import { decodeWithSchema } from "../kiwi/schemas";
@@ -41,6 +42,8 @@ export interface Generation {
   snapshot: string;
   snapshotSeq: number;
   segments: string[];
+  /** `Message.derivedDataVersion` of the snapshot (absent / 0: none): what an open tells the editor before it decodes */
+  derivedDataVersion?: number;
 }
 
 export interface FileStoreState {
@@ -56,11 +59,11 @@ export interface FileStoreState {
   sync: { pushedSeq: number; pullCursor: string | null } | null;
 }
 
-function newState(snapshot: string, blobRefs: string[]): FileStoreState {
+function newState(snapshot: string, blobRefs: string[], derivedDataVersion = 0): FileStoreState {
   return {
     formatVersion: 1,
     documentFormatVersion: DOCUMENT_FORMAT_VERSION,
-    head: { snapshot, snapshotSeq: 0, segments: [], previous: null },
+    head: { snapshot, snapshotSeq: 0, segments: [], previous: null, ...(derivedDataVersion ? { derivedDataVersion } : {}) },
     sessions: { nextLocal: 1, lastBatchSeq: {} },
     checkpoint: { lastAt: null, editedSince: false },
     thumbnail: { seq: null },
@@ -197,22 +200,23 @@ export class FileStore {
   // -------------------------------------------------------------------------------------------------------------------
 
   /** Writes a new file directory: the snapshot at seq 0 (a raw Message in the current schema) and store.json. */
-  async createFile(fileKey: FileKey, message: Uint8Array, blobRefs?: string[]): Promise<void> {
+  async createFile(fileKey: FileKey, message: Uint8Array, blobRefs?: string[], derivedDataVersion?: number): Promise<void> {
     const dir = join(this.d.dirs.files, fileKey);
     await ensureDir(join(dir, "versions"));
     const name = snapshotName(0);
     await atomicWrite(this.d.dirs.tmp, join(dir, name), encodeSnapshot(message));
-    const refs = blobRefs ?? [...messageImageHashes(codec.decodeMessage(message))];
-    await writeJsonAtomic(this.d.dirs.tmp, join(dir, "store.json"), newState(name, refs.sort()));
+    const decoded = blobRefs && derivedDataVersion !== undefined ? null : codec.decodeMessage(message);
+    const refs = blobRefs ?? [...messageImageHashes(decoded!)];
+    await writeJsonAtomic(this.d.dirs.tmp, join(dir, "store.json"), newState(name, refs.sort(), derivedDataVersion ?? decoded?.derivedDataVersion ?? 0));
   }
 
   /** A new file from an existing snapshot file (duplicate, duplicate version): linked or copied as its seq-0 snapshot. */
-  async createFileFromSnapshot(fileKey: FileKey, snapshotPath: string, blobRefs: string[]): Promise<void> {
+  async createFileFromSnapshot(fileKey: FileKey, snapshotPath: string, blobRefs: string[], derivedDataVersion = 0): Promise<void> {
     const dir = join(this.d.dirs.files, fileKey);
     await ensureDir(join(dir, "versions"));
     const name = snapshotName(0);
     await linkOrCopy(snapshotPath, join(dir, name));
-    await writeJsonAtomic(this.d.dirs.tmp, join(dir, "store.json"), newState(name, [...blobRefs].sort()));
+    await writeJsonAtomic(this.d.dirs.tmp, join(dir, "store.json"), newState(name, [...blobRefs].sort(), derivedDataVersion));
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -278,14 +282,14 @@ export class FileStore {
     };
 
     // 1. A snapshot that decodes: the head, else the previous generation (+ its segments), else the newest version.
-    let gen: Generation = { snapshot: state.head.snapshot, snapshotSeq: state.head.snapshotSeq, segments: [...state.head.segments] };
+    let gen: Generation = { snapshot: state.head.snapshot, snapshotSeq: state.head.snapshotSeq, segments: [...state.head.segments], derivedDataVersion: state.head.derivedDataVersion };
     let snapOk = await this.snapshotReadable(this.path(a, gen.snapshot));
     if (!snapOk && state.head.previous) {
       const p = state.head.previous;
       if (await this.snapshotReadable(this.path(a, p.snapshot))) {
         this.d.log("warn", `${a.key}: head snapshot ${gen.snapshot} is damaged; recovering from ${p.snapshot}`);
         await this.setAside(a, gen.snapshot, "damaged");
-        gen = { snapshot: p.snapshot, snapshotSeq: p.snapshotSeq, segments: [...p.segments, ...state.head.segments] };
+        gen = { snapshot: p.snapshot, snapshotSeq: p.snapshotSeq, segments: [...p.segments, ...state.head.segments], derivedDataVersion: p.derivedDataVersion };
         state.head.previous = null;
         snapOk = true;
         fall("previous-snapshot");
@@ -302,7 +306,7 @@ export class FileStore {
         this.d.log("error", `${a.key}: no readable snapshot; recovering from version ${v.id} (${new Date(v.createdAt).toISOString()})`);
         for (const s of [state.head.snapshot, ...state.head.segments, ...(state.head.previous ? [state.head.previous.snapshot, ...state.head.previous.segments] : [])]) await this.setAside(a, s, "damaged");
         await linkOrCopy(vp, this.path(a, name));
-        gen = { snapshot: name, snapshotSeq: top, segments: [] };
+        gen = { snapshot: name, snapshotSeq: top, segments: [], derivedDataVersion: v.derivedDataVersion };
         state.head.previous = null;
         snapOk = true;
         fall("version");
@@ -398,6 +402,10 @@ export class FileStore {
     state.head.snapshot = gen.snapshot;
     state.head.snapshotSeq = gen.snapshotSeq;
     state.head.segments = keep;
+    if (gen.derivedDataVersion !== state.head.derivedDataVersion) {
+      if (gen.derivedDataVersion) state.head.derivedDataVersion = gen.derivedDataVersion;
+      else delete state.head.derivedDataVersion;
+    }
     // The last segment stays open for appends if it was written with the current schema.
     if (lastScan && lastScan.header.schemaSha1 === SCHEMA_SHA1 && keep[keep.length - 1] === lastScan.name) {
       h.writer = SegmentWriter.reopen(this.path(a, lastScan.name), lastScan.header, lastScan.goodLength, lastScan.frames);
@@ -500,6 +508,7 @@ export class FileStore {
       schema: own(SCHEMA_BINARY),
       snapshot: currentMessageBytes(snap),
       snapshotSeq: h.state.head.snapshotSeq,
+      derivedDataVersion: h.state.head.derivedDataVersion ?? 0,
       journal,
       headSeq: h.lastSeq,
       ui,
@@ -808,26 +817,7 @@ export class FileStore {
       await a.queue.run(async () => {
         const h = plan.h;
         if (a.head !== h) return; // the actor was reset meanwhile (deleted)
-        const name = snapshotName(plan.upTo);
-        await atomicWrite(this.d.dirs.tmp, this.path(a, name), new Uint8Array(out.snapshot));
-        const old = h.state.head;
-        const remaining = old.segments.filter((s) => !plan.segments.includes(s));
-        const stale = old.previous ? [old.previous.snapshot, ...old.previous.segments] : [];
-        h.state.head = { snapshot: name, snapshotSeq: plan.upTo, segments: remaining, previous: { snapshot: old.snapshot, snapshotSeq: old.snapshotSeq, segments: plan.segments } };
-        const added = [...h.pendingRefs].filter((r) => !plan.refsBefore.has(r));
-        h.state.blobRefs = [...new Set([...out.blobRefs, ...added])].sort();
-        h.pendingRefs = new Set(added);
-        await this.saveState(a, h);
-        const live = new Set([name, ...remaining, old.snapshot, ...plan.segments]);
-        for (const f of stale) if (!live.has(f)) await fsp.rm(this.path(a, f), { force: true });
-        // Only frames after the previous snapshot stay reachable for subscribers.
-        h.frames = h.frames.filter((f) => f.seq > old.snapshotSeq);
-        h.journalBytes = 0;
-        h.journalFrames = 0;
-        for (const s of remaining) h.journalBytes += await fileSize(this.path(a, s));
-        h.journalFrames = h.frames.filter((f) => f.seq > plan.upTo).length;
-        a.lastCompactionAt = this.d.clock.now();
-        a.sizeBytes = null;
+        await this.adoptSnapshot(a, h, new Uint8Array(out.snapshot), plan.upTo, plan.segments, out.blobRefs, plan.refsBefore, out.derivedDataVersion ?? 0);
       });
       return true;
     };
@@ -835,6 +825,89 @@ export class FileStore {
       a.compacting = null;
     });
     return a.compacting;
+  }
+
+  /**
+   * Makes `bytes` (a snapshot container) the head snapshot at `upTo`: the segments it folds in become the previous
+   * generation, the one before is dropped, store.json is saved, and the head's counters start over. In the queue.
+   */
+  private async adoptSnapshot(a: FileActor, h: Head, bytes: Uint8Array, upTo: number, folded: string[], blobRefs: string[], refsBefore: Set<string>, derivedDataVersion: number): Promise<void> {
+    const name = snapshotName(upTo);
+    await atomicWrite(this.d.dirs.tmp, this.path(a, name), bytes);
+    const old = h.state.head;
+    const remaining = old.segments.filter((s) => !folded.includes(s));
+    const stale = old.previous ? [old.previous.snapshot, ...old.previous.segments] : [];
+    // The same seq again (an engine snapshot of an unchanged head): the file is replaced in place, the generations stay.
+    const previous = old.snapshotSeq === upTo ? old.previous : { snapshot: old.snapshot, snapshotSeq: old.snapshotSeq, segments: folded, ...(old.derivedDataVersion ? { derivedDataVersion: old.derivedDataVersion } : {}) };
+    h.state.head = { snapshot: name, snapshotSeq: upTo, segments: remaining, previous, ...(derivedDataVersion ? { derivedDataVersion } : {}) };
+    const added = [...h.pendingRefs].filter((r) => !refsBefore.has(r));
+    h.state.blobRefs = [...new Set([...blobRefs, ...added])].sort();
+    h.pendingRefs = new Set(added);
+    await this.saveState(a, h);
+    if (previous !== old.previous) {
+      const live = new Set([name, ...remaining, old.snapshot, ...folded]);
+      for (const f of stale) if (!live.has(f)) await fsp.rm(this.path(a, f), { force: true });
+    } else {
+      // Nothing after the snapshot: the folded segments held no frames (a header at most) and go.
+      for (const f of folded) if (f !== name && !remaining.includes(f)) await fsp.rm(this.path(a, f), { force: true });
+    }
+    // Only frames after the previous snapshot stay reachable for subscribers.
+    h.frames = h.frames.filter((f) => f.seq > (previous?.snapshotSeq ?? upTo));
+    h.journalBytes = 0;
+    h.journalFrames = 0;
+    for (const s of remaining) h.journalBytes += await fileSize(this.path(a, s));
+    h.journalFrames = h.frames.filter((f) => f.seq > upTo).length;
+    a.lastCompactionAt = this.d.clock.now();
+    a.sizeBytes = null;
+  }
+
+  /**
+   * The editor's engine wrote the whole document — every node with its `@derived` fields (docs/data.md §5.5
+   * "Snapshots from the engine", docs/schema.md §1.3): adopted as the head snapshot when the store's head is exactly
+   * `save.headSeq` (every change of the session is in the journal and nothing else arrived), so the next open draws
+   * its first frame from stored geometry. Declined — not an error — when the head moved on; the editor tries again.
+   * Only an edit session's owner may send one. The journal frames up to the head fold into it, like a compaction.
+   */
+  async saveSnapshot(fileKey: FileKey, save: SnapshotSave, owner: SessionOwner): Promise<SnapshotSaved> {
+    if (this.closing) throw new StoreError("shutting-down", "The store is shutting down");
+    if (!save || !(save.message instanceof Uint8Array) || !save.message.length) throw new StoreError("invalid", "a snapshot needs a message");
+    if (save.message.length > MAX_SNAPSHOT_BYTES) throw new StoreError("too-large", "This snapshot is too large to save");
+    if (!Number.isInteger(save.headSeq) || save.headSeq < 0) throw new StoreError("invalid", `bad headSeq ${save.headSeq}`);
+    const a = this.actor(fileKey);
+    // A compaction in flight would race the generations: it finishes first (its result is then replaced).
+    if (a.compacting) await a.compacting.catch(() => false);
+    return a.queue.run(async () => {
+      const h = await this.loaded(a);
+      const session = a.sessions.get(save.sessionID);
+      if (!session) throw new StoreError("read-only", "This file isn't open for editing in this session");
+      if (session.owner !== owner) throw new StoreError("forbidden", "This session belongs to another view");
+      if (h.lastSeq !== save.headSeq) return { adopted: false, seq: h.lastSeq };
+      // Refused before anything is written: what doesn't decode, or isn't a whole document, can't become the head.
+      let message;
+      try {
+        message = codec.decodeMessage(save.message);
+      } catch (e) {
+        throw new StoreError("invalid", `the snapshot doesn't decode: ${(e as Error).message}`);
+      }
+      const first = message.nodeChanges?.[0];
+      if (!first?.guid || first.type !== "DOCUMENT" || first.guid.sessionID !== 0 || first.guid.localID !== 0) throw new StoreError("invalid", "a snapshot starts with the DOCUMENT node");
+      if (message.nodeChanges!.some((n) => n.phase !== "CREATED")) throw new StoreError("invalid", "a snapshot holds CREATED nodes only");
+      // Never a snapshot that loses what the head holds (a node, a value): the journal and its snapshot stay.
+      const head = NodeTable.fromMessage(currentMessage(await readSnapshotFile(this.path(a, h.state.head.snapshot))));
+      for (const f of await this.readFrames(a, h, h.state.head.snapshotSeq)) head.apply(codec.decodeMessage(f.message));
+      const losses = snapshotLosses(head, NodeTable.fromMessage(message));
+      if (losses.total) {
+        this.d.log("warn", `${fileKey}: refused the engine's snapshot: it lacks ${losses.missingNodes} nodes and ${losses.total - losses.missingNodes} values the head holds`, losses);
+        return { adopted: false, seq: h.lastSeq, refused: "loses-data", losses: { missingNodes: losses.missingNodes, droppedFields: losses.droppedFields, examples: losses.examples } };
+      }
+      if (h.writer) {
+        await h.writer.close();
+        h.writer = null;
+      }
+      const folded = [...h.state.head.segments];
+      await this.adoptSnapshot(a, h, encodeSnapshot(save.message), h.lastSeq, folded, [...messageImageHashes(message)].sort(), new Set(h.pendingRefs), message.derivedDataVersion ?? 0);
+      return { adopted: true, seq: h.lastSeq };
+    });
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -883,6 +956,7 @@ export class FileStore {
         seq: h.state.head.snapshotSeq,
         sizeBytes: await fileSize(src),
         blobRefs: [...h.state.blobRefs],
+        ...(h.state.head.derivedDataVersion ? { derivedDataVersion: h.state.head.derivedDataVersion } : {}),
       };
       const records = [rec, ...(await this.readVersionIndex(a))];
       await this.writeVersionIndex(a, await this.thin(a, records));
@@ -955,6 +1029,7 @@ export class FileStore {
       schema: own(SCHEMA_BINARY),
       snapshot: currentMessageBytes(snap),
       snapshotSeq: v.seq,
+      derivedDataVersion: v.derivedDataVersion ?? 0,
       journal: [],
       headSeq: v.seq,
       ui: null,
@@ -993,13 +1068,13 @@ export class FileStore {
   }
 
   /** The head snapshot file after a flush and a compaction (Save Local Copy, duplicate). */
-  async compactedHead(fileKey: FileKey): Promise<{ path: string; seq: number; blobRefs: string[] }> {
+  async compactedHead(fileKey: FileKey): Promise<{ path: string; seq: number; blobRefs: string[]; derivedDataVersion: number }> {
     const a = this.actor(fileKey);
     await this.flush(fileKey);
     await this.compactNow(a, true);
     return a.queue.run(async () => {
       const h = await this.loaded(a);
-      return { path: this.path(a, h.state.head.snapshot), seq: h.state.head.snapshotSeq, blobRefs: [...new Set([...h.state.blobRefs, ...h.pendingRefs])] };
+      return { path: this.path(a, h.state.head.snapshot), seq: h.state.head.snapshotSeq, blobRefs: [...new Set([...h.state.blobRefs, ...h.pendingRefs])], derivedDataVersion: h.state.head.derivedDataVersion ?? 0 };
     });
   }
 

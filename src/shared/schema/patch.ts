@@ -22,8 +22,32 @@ const FIELD_BY_ID = new Map(NODE_FIELDS.map((f) => [f.id, f]));
 const FIELD_BY_NAME = new Map(NODE_FIELDS.map((f) => [f.name as string, f]));
 /** Fields a change may never clear (docs/schema.md §4.2.1). */
 const UNCLEARABLE = new Set(["guid", "phase", "parentIndex", "type", "guidPath", "clearedFields"]);
-/** `@derived` NodeChange fields: never stored in a snapshot (only viewer snapshots ask for them). */
+/**
+ * `@derived` NodeChange fields (docs/schema.md §1.3): the engine's caches — `fillGeometry`, `strokeGeometry`,
+ * `derivedTextData`, `derivedSymbolData`. Never in a change Message or the journal; a snapshot may carry them with
+ * `Message.derivedDataVersion` (the engine version that computed them), as Figma's files do, so an open draws its
+ * first frame from stored geometry and glyph outlines before fonts arrive. A reader ignores them when the version is
+ * not its own; the table drops a node's when a change touches the node (they were computed from its old values).
+ */
 export const DERIVED_FIELDS: ReadonlySet<string> = new Set(NODE_FIELDS.filter((f) => f.flags & FIELD_FLAGS.DERIVED).map((f) => f.name));
+
+/** `node` without its `@derived` fields (the same object when it has none). */
+export function withoutDerived<T extends object>(node: T): T {
+  let stripped: any = null;
+  for (const f of DERIVED_FIELDS) {
+    if (f in node) {
+      stripped ??= { ...node };
+      delete stripped[f];
+    }
+  }
+  return stripped ?? node;
+}
+
+/** Does any node of the Message carry a `@derived` field? */
+export function hasDerivedFields(message: Message): boolean {
+  for (const n of message.nodeChanges ?? []) for (const f of DERIVED_FIELDS) if (f in n) return true;
+  return false;
+}
 
 export const nodeFieldId = (name: string): number | undefined => FIELD_BY_NAME.get(name)?.id;
 export const nodeFieldName = (id: number): string | undefined => FIELD_BY_ID.get(id)?.name;
@@ -125,7 +149,10 @@ export interface ApplyReport {
 export const emptyApplyReport = (): ApplyReport => ({ created: 0, replaced: 0, updated: 0, removed: 0, ignoredRemoves: 0, missing: [], invalidClears: 0, invalid: 0, badBlobRefs: 0 });
 
 export interface ToMessageOptions {
-  /** Keep `@derived` fields (viewer/preview snapshots). Default false. */
+  /**
+   * Keep the `@derived` fields the table holds (and write their `derivedDataVersion`): disk snapshots, versions,
+   * what the engine loads. Default false: a payload, a diff, a snapshot for another engine.
+   */
   keepDerived?: boolean;
   sessionID?: number;
 }
@@ -143,6 +170,11 @@ export class NodeTable {
   /** Node records by "s:l": every field of the node, without `phase` and `clearedFields`. */
   readonly nodes = new Map<string, NodeChange>();
   readonly blobs = new BlobPool();
+  /**
+   * The engine version of the `@derived` fields the table's nodes carry (`Message.derivedDataVersion` of the snapshot
+   * they came from); 0 when none do. A change to a node drops that node's derived fields, so what stays is current.
+   */
+  derivedDataVersion = 0;
 
   constructor(readonly model: SchemaModel = MODEL) {}
 
@@ -181,6 +213,12 @@ export class NodeTable {
     // A Message without blobs has no blob index to rebase: its nodes are taken as they are (a blob index it still
     // carries points at nothing either way). The walk over every node's fields is most of a large snapshot's cost.
     const rebase = msgBlobs.length ? (nc: NodeChange) => rebaseBlobIndices(this.model, nc, toPool) : (nc: NodeChange) => nc;
+    // A snapshot's derived fields are of its engine version; a Message without one (a change) carries none.
+    if (message.derivedDataVersion) this.derivedDataVersion = message.derivedDataVersion;
+    const derivedIn = (nc: NodeChange) => {
+      for (const f of DERIVED_FIELDS) if (f in nc) return true;
+      return false;
+    };
     for (const nc of message.nodeChanges ?? []) {
       if (!nc.guid) {
         report.invalid++;
@@ -193,8 +231,10 @@ export class NodeTable {
         continue;
       }
       if (nc.phase === "CREATED") {
+        // A change creating a node carries no derived fields (a snapshot's CREATED nodes may); a change that does
+        // is of a version the table can't name, so its caches are dropped.
         const rec: any = rebase(nc);
-        const clean: any = { ...rec };
+        const clean: any = message.derivedDataVersion || !derivedIn(nc) ? { ...rec } : withoutDerived({ ...rec });
         delete clean.phase;
         delete clean.clearedFields;
         if (this.nodes.has(key)) report.replaced++;
@@ -208,8 +248,10 @@ export class NodeTable {
         continue;
       }
       const carried: any = rebase(nc);
-      const next: any = { ...cur };
+      // The node's derived fields were computed from the values this change replaces: they go with it.
+      const next: any = withoutDerived({ ...cur });
       for (const f in carried) {
+        if (DERIVED_FIELDS.has(f)) continue;
         if (f === "guid" || f === "phase" || f === "clearedFields") continue;
         if (carried[f] === undefined) continue;
         next[f] = carried[f];
@@ -280,7 +322,9 @@ export class NodeTable {
     const dense = new DenseBlobs(this.blobs);
     const nodeChanges: NodeChange[] = [];
     for (const n of this.snapshotNodes(opts, dense)) nodeChanges.push({ ...n, phase: "CREATED" });
-    return { type: "NODE_CHANGES", sessionID: opts.sessionID ?? 0, ackID: 0, nodeChanges, blobs: dense.blobs };
+    const out: Message = { type: "NODE_CHANGES", sessionID: opts.sessionID ?? 0, ackID: 0, nodeChanges, blobs: dense.blobs };
+    if (opts.keepDerived && this.derivedDataVersion) out.derivedDataVersion = this.derivedDataVersion;
+    return out;
   }
 
   /**
@@ -292,16 +336,7 @@ export class NodeTable {
     const rebase = this.blobs.size > 0;
     for (const key of this.orderedKeys()) {
       let n: any = this.nodes.get(key)!;
-      if (!opts.keepDerived && DERIVED_FIELDS.size) {
-        let stripped: any = null;
-        for (const f of DERIVED_FIELDS) {
-          if (f in n) {
-            stripped ??= { ...n };
-            delete stripped[f];
-          }
-        }
-        n = stripped ?? n;
-      }
+      if (!opts.keepDerived) n = withoutDerived(n);
       if (rebase) n = rebaseBlobIndices(this.model, n, (i) => dense.index(i));
       yield n as NodeChange;
     }
@@ -315,6 +350,7 @@ export class NodeTable {
   clone(): NodeTable {
     const t = new NodeTable(this.model);
     t.apply(this.toMessage({ keepDerived: true }));
+    t.derivedDataVersion = this.derivedDataVersion;
     return t;
   }
 
@@ -359,15 +395,6 @@ export function diffTables(current: NodeTable, target: NodeTable, model: SchemaM
     const key = currentOrder[i];
     if (!target.nodes.has(key)) out.push({ guid: current.nodes.get(key)!.guid, phase: "REMOVED" });
   }
-  const withoutDerived = (n: any) => {
-    let s: any = null;
-    for (const f of DERIVED_FIELDS)
-      if (f in n) {
-        s ??= { ...n };
-        delete s[f];
-      }
-    return s ?? n;
-  };
   for (const key of target.orderedKeys()) {
     const t: any = withoutDerived(target.nodes.get(key)!);
     const c: any = current.nodes.get(key);

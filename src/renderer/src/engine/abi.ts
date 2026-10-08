@@ -225,6 +225,11 @@ export const READ_VISIBLE_ONLY = 4;
 export const PASTE_IN_PLACE = 1;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
+/** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */
+export const ENCODE_DERIVED = 1;
+/** engine_set_wire_format values (docs/engine-build.md "Figma parity round 3"): the engine's structured outputs. */
+export const WIRE_JSON = 0;
+export const WIRE_KIWI = 1;
 /** engine_variable_collections / engine_variables / engine_styles flags: library copies too. */
 export const INCLUDE_REMOTE = 1;
 /** engine_text_edit flags. */

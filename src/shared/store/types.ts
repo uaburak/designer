@@ -105,6 +105,37 @@ export interface AppendAck {
   hlc: Hlc;
 }
 
+/**
+ * The whole document as the editor's engine holds it (docs/data.md §5.5 "Snapshots from the engine"): every live
+ * node CREATED, in snapshot order, with its `@derived` fields and the Message's `derivedDataVersion` — what Figma's
+ * files store, so the next open draws its first frame from stored geometry. The store adopts it as the head snapshot
+ * only when its journal head is exactly `headSeq` (every change the editor made is journaled, nothing else arrived).
+ */
+export interface SnapshotSave {
+  sessionID: number;
+  /** kiwi Message NODE_CHANGES, uncompressed, current schema */
+  message: Uint8Array;
+  /** The journal seq the document corresponds to (the last ack the editor saw, or the head it opened at) */
+  headSeq: number;
+}
+
+export interface SnapshotSaved {
+  /** False: the head moved past `headSeq` (or the store was busy); the editor may try again later */
+  adopted: boolean;
+  /** The store's head seq now */
+  seq: number;
+  /**
+   * Set when the store refused the snapshot for what it is, not for when it came: "loses-data" — it lacks a node or a
+   * value the head holds (docs/data.md §5.5); the editor stops sending snapshots for this session.
+   */
+  refused?: "loses-data";
+  /** With `refused`: how many nodes and values it would have lost, and a few examples */
+  losses?: { missingNodes: number; droppedFields: Record<string, number>; examples: string[] };
+}
+
+/** An engine snapshot is at most this large. */
+export const MAX_SNAPSHOT_BYTES = 1024 * 1024 * 1024;
+
 /** A batch is at most this large (`too-large` otherwise). */
 export const MAX_BATCH_BYTES = 64 * 1024 * 1024;
 
@@ -123,6 +154,8 @@ export interface VersionRecord {
   restoredFrom: VersionId | null;
   /** kind "publish": the library version it published */
   libraryVersion: number | null;
+  /** `Message.derivedDataVersion` of the version's snapshot (absent / 0: none) */
+  derivedDataVersion?: number;
 }
 
 // --- libraries (docs/data.md §9) ---

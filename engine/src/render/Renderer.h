@@ -125,6 +125,9 @@ struct RenderStats {
   uint32_t tiny = 0;     // subtrees skipped: under half a device pixel (LOD)
   uint32_t greeked = 0;  // texts drawn as bars (em under 3 device px)
   uint32_t cachedRegions = 0;  // content cache: parts drawn again this frame (0: composited only)
+  uint32_t tilesRastered = 0;  // tiles drawn this frame (docs/engine.md §6.9)
+  uint32_t tilesStale = 0;     // tiles shown from another zoom level this frame
+  uint32_t tilesShown = 0;     // tiles composited this frame
   uint32_t stale = 0;          // content cache: shown scaled (a zoom settling)
 };
 
@@ -161,6 +164,23 @@ class Renderer {
   // the last zoom change the page is drawn sharp again.
   static constexpr double kZoomRasterBudgetMs = 6;
   static constexpr double kZoomSettleMs = 120;
+  // Tiles (docs/engine.md §6.9, Figma's RTTileRasterizer / RTCompositeTileCache): the page in 256² device-px tiles at
+  // power-of-two zoom levels, kept in atlas targets (64 tiles each) within a budget, least recently shown first out.
+  // A continuous zoom on a slow page that the scaled content cache can't cover (zooming out) composites them — the
+  // level at or above the zoom, else a coarser one scaled — and draws the missing ones from the viewport's centre
+  // outward within kTileInteractingMs per frame; at rest on a slow page, the coarser level around the view is drawn
+  // ahead within kTileIdleMs per frame, so the next zoom out has it.
+  static constexpr int kTileSize = 256;
+  // What a tile shows: its slot less a 1 px apron drawn from its neighbours' content, so bilinear sampling at its edge
+  // reads real pixels (no seams between tiles).
+  static constexpr int kTileContent = kTileSize - 2;
+  static constexpr int kAtlasSize = 2048;
+  // Colour + stencil of the atlases (4 of 64 tiles: 256 tiles, three Retina screens of a level).
+  static constexpr uint64_t kTileBudgetBytes = 128ull << 20;
+  static constexpr double kTileInteractingMs = 6;
+  static constexpr double kTileIdleMs = 12;
+  size_t tileCount() const { return tiles_.map.size(); }
+  uint64_t tileBytes() const { return static_cast<uint64_t>(tiles_.atlases.size()) * kAtlasSize * kAtlasSize * 8; }
   // Offscreen layers' targets kept for reuse, at most (colour + stencil bytes; targets in use by the frame
   // being drawn can go past it).
   static constexpr uint64_t kPoolBudgetBytes = 192ull << 20;
@@ -301,6 +321,22 @@ class Renderer {
   // `from` into `to`, shifted by (dx, dy) device px, `scale` texels per device px.
   void blitCache(gfx::TargetId from, gfx::TargetId to, int dx, int dy, double scale);
   void dropCache();
+  // Tiles.
+  struct TileCoord {
+    int level = 0, tx = 0, ty = 0;
+  };
+  static bool tileKey(const TileCoord& t, uint64_t& key);
+  // The tiles of `level` that the canvas shows through `camera`, nearest the centre first.
+  std::vector<TileCoord> visibleTiles(const Camera& camera, int level, double grow) const;
+  // Draws one tile into its atlas slot (false: no room).
+  bool rasterTile(const Document& doc, const TileCoord& t, const Color& clear, const float clearColor[4]);
+  // Missing tiles of `want` drawn within `budgetMs` (one at least): how many remain.
+  size_t rasterTiles(const Document& doc, const std::vector<TileCoord>& want, double budgetMs, const Color& clear, const float clearColor[4]);
+  // Blits of the tiles covering the canvas at `level` (coarser cached levels standing in) into the canvas recording.
+  // coarse: the coarser levels standing in (drawn under the scaled cache), else the level's own (over it).
+  void composeTiles(const Camera& camera, int level, bool coarse);
+  void invalidateTiles(const std::vector<Rect>& world);
+  void dropTiles();
   void blurLayer(Layer& L);
   PoolTarget* acquire(int w, int h);
   void release(gfx::TargetId target);
@@ -337,6 +373,21 @@ class Renderer {
     double fullMs = 0;                    // how long its last full raster took
     double lastZoom = 0, zoomChangedAt = 0, settleAt = 0;
   } cache_;
+  struct TileEntry {
+    TileCoord coord;
+    uint32_t slot = 0;  // atlas × 64 + index
+    uint64_t used = 0;  // the frame it was last shown or drawn
+  };
+  struct TileCache {
+    std::vector<gfx::TargetId> atlases;
+    std::vector<uint32_t> free;
+    std::unordered_map<uint64_t, TileEntry> map;
+    Guid page = kNoGuid;
+    uint32_t fonts = 0, images = 0;
+    double sx = 0, sy = 0;
+    Color clear;
+    double prefetchAt = 0;  // when the next idle frame should draw tiles ahead (0: none wanted)
+  } tiles_;
   std::function<double()> clock_;
   uint32_t labelsGeneration_ = 0;
   // Gradient ramps: 256 premultiplied texels per row.

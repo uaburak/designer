@@ -7,11 +7,28 @@ import type { EditorPublishAsset, LibraryAccess, LibraryEntry, LibraryNotice } f
 import { decodeMessage, encodeMessage } from "../../../shared/schema/codec";
 import type { StoreApi, Unsubscribe } from "../../../shared/store/repositories";
 import type { FileMeta, PublishAsset } from "../../../shared/store/types";
+import type { Message as EngineMessage } from "@/engine/codec";
+import type { AssetPayload } from "../../../shared/store/types";
 import { messageToEngine, messageToKiwi } from "./engineMessage";
+
+/** A payload from the store: its kiwi bytes as they are, the engine's Message decoded on first read (a kiwi-reading engine never asks). */
+function payloadIn(p: AssetPayload): { key: string; versionHash: string; message: EngineMessage; bytes: Uint8Array } {
+  let message: EngineMessage | null = null;
+  return {
+    key: p.key,
+    versionHash: p.versionHash,
+    bytes: p.message,
+    get message() {
+      return (message ??= messageToEngine(decodeMessage(p.message)));
+    },
+  };
+}
 
 export function storeLibraryAccess(store: StoreApi, meta: () => FileMeta, onMeta: (l: (m: FileMeta) => void) => Unsubscribe): LibraryAccess {
   const fileKey = meta().fileKey;
-  const encode = (assets: EditorPublishAsset[]): PublishAsset[] => assets.map((a) => ({ ...a, payload: a.payload ? encodeMessage(messageToKiwi({ ...a.payload, sessionID: 0 })) : undefined }));
+  // A payload the engine wrote as kiwi is stored as it is; the interim JSON is converted.
+  const encode = (assets: EditorPublishAsset[]): PublishAsset[] =>
+    assets.map(({ payloadBytes, ...a }) => ({ ...a, payload: payloadBytes ?? (a.payload ? encodeMessage(messageToKiwi({ ...a.payload, sessionID: 0 })) : undefined) }));
   const folderName = async (m: FileMeta): Promise<string> => {
     if (!m.folderId) return "Drafts";
     const folders = await store.workspace.listFolders().catch(() => []);
@@ -38,7 +55,7 @@ export function storeLibraryAccess(store: StoreApi, meta: () => FileMeta, onMeta
     setEnabled: async (lib, enabled) => {
       await store.libraries.setEnabled(fileKey, lib, enabled);
     },
-    payloads: async (lib, wants, opts) => (await store.libraries.getPayloads(lib, wants, opts)).map((p) => ({ key: p.key, versionHash: p.versionHash, message: messageToEngine(decodeMessage(p.message)) })),
+    payloads: async (lib, wants, opts) => (await store.libraries.getPayloads(lib, wants, opts)).map(payloadIn),
     diff: (lib, have) => store.libraries.diff(lib, have),
     onChange: (listener: (e: LibraryNotice) => void) => {
       let last = meta();

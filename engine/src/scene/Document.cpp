@@ -323,6 +323,37 @@ uint32_t Document::maxLocalID(uint32_t sessionID) const {
 
 // ---- Changes ------------------------------------------------------------------------
 
+uint64_t Document::approxBytes() const {
+  uint64_t total = 0;
+  auto paints = [](const std::vector<Paint>& list) {
+    uint64_t b = list.capacity() * sizeof(Paint);
+    for (const Paint& p : list) b += p.extra.capacity() + p.stops.capacity() * sizeof(ColorStop) + (p.colorVar.present() ? sizeof(VariableData) : 0) +
+                                 (p.opacityVar.present() ? sizeof(VariableData) : 0) + p.stopVars.capacity() * sizeof(VariableData);
+    return b;
+  };
+  for (const auto& [id, n] : nodes_) {
+    const NodeProps& p = n.props;
+    total += sizeof(Node) + 2 * sizeof(void*) + p.name.capacity() + paints(p.fillPaints) + paints(p.strokePaints) +
+             p.effects.capacity() * sizeof(Effect) + p.layoutGrids.capacity() * sizeof(LayoutGrid) + p.textData.characters.capacity() +
+             p.textData.characterStyleIDs.capacity() * 4 + p.textData.styleOverrideTable.capacity() * sizeof(TextStyle) +
+             p.symbolData.overrides.capacity() * sizeof(SymbolOverride) + p.parameterConsumptionMap.capacity() * sizeof(ParamBinding);
+    for (const auto& [k, v] : p.extra) total += k.capacity() + v.capacity() + 48;
+  }
+  return total;
+}
+
+bool Document::adopt(NodeChange&& change) {
+  if (change.phase != Phase::CREATED || change.guid == kNoGuid || nodes_.count(change.guid) ||
+      change.props.parentIndex.guid == change.guid)
+    return apply(change);
+  Guid id = change.guid, parent = change.props.parentIndex.guid;
+  nodes_.emplace(id, Node{id, std::move(change.props)});
+  record(id, true, {}, kNoGuid, F_ALL);
+  link(id, parent);
+  invalidate(id);
+  return true;
+}
+
 bool Document::apply(const NodeChange& change, NodeChange* inverse) {
   auto it = nodes_.find(change.guid);
   switch (change.phase) {

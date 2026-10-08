@@ -7,7 +7,7 @@
  * `?editor` route and the tests use `memoryDocumentSource`.
  */
 import type { Guid, Message, NodeChange } from "@/engine/codec";
-import type { FontRef, PreparedDocument } from "@/store/loadDocument";
+import type { DocumentFacts, EngineWireFormat, PreparedDocument } from "@/store/loadDocument";
 import type { LibraryEvent } from "../../../shared/store/repositories";
 import type { LibraryDiff, LibraryRecord, LibraryVersion, PublishAsset, PublishPreview } from "../../../shared/store/types";
 import { memoryImageStore, type ImageStore } from "./images";
@@ -22,20 +22,31 @@ export interface DocumentSource {
   /** The document to open: a snapshot Message (DOCUMENT first, parents before children). */
   load(): Promise<Message>;
   /**
-   * The document as the engine's wire bytes, prepared off the main thread where the source can (the store's source
-   * runs a worker), with the fonts it uses known before the bytes are (requested ahead of the load). Optional: the
-   * editor falls back to `load()`. Both answer the same document; a source memoizes them (React's StrictMode mounts
-   * twice).
+   * The document as the engine loads it, prepared off the main thread where the source can (the store's source runs
+   * a worker), with what is known of the file (its fonts by page, derived data) before the bytes are. `format`: the
+   * wire form the engine in hand reads (the store's own kiwi, or the interim JSON). Optional: the editor falls back
+   * to `load()`. Both answer the same document; a source memoizes them (React's StrictMode mounts twice).
    */
-  prepare?(): PreparedLoad;
-  /** One committed change (a NODE_CHANGES Message carrying only the touched fields), in commit order; `info`: the engine's kind and undo label. */
+  prepare?(format?: EngineWireFormat): PreparedLoad;
+  /**
+   * One committed change (a NODE_CHANGES Message carrying only the touched fields), in commit order; `info`: the
+   * engine's kind and undo label, and the change as kiwi bytes when the engine wrote them (journaled as they are).
+   */
   onChanges(changes: Message, info?: ChangeKindInfo): void;
+  /**
+   * The engine's own snapshot of the whole document, derived fields included (docs/data.md §5.5): the store adopts it
+   * as the file's snapshot when nothing it doesn't know of happened since — the next open then draws its first frame
+   * from stored geometry, before fonts arrive, as Figma's files do. Optional. Resolves to whether it was adopted —
+   * "refused" when the store won't take this engine's snapshots at all (it would lose a node or a value the file
+   * holds): the editor stops sending them.
+   */
+  saveSnapshot?(snapshot: Uint8Array, info: { derivedDataVersion: number }): Promise<boolean | "refused">;
   /** Resolves once every change handed to `onChanges` is stored. */
   flush(): Promise<void>;
   /** The file was renamed from the file menu; absent: the name can't be changed here. */
   rename?(name: string): void | Promise<void>;
-  /** Changes this editor didn't make (another window, sync): applied without an undo entry. Optional. */
-  onExternalChanges?(listener: (changes: Message) => void): () => void;
+  /** Changes this editor didn't make (another window, sync): applied without an undo entry; `info.bytes`: the change as the store holds it (kiwi), for an engine that reads it. Optional. */
+  onExternalChanges?(listener: (changes: Message, info?: { seq?: number; bytes?: Uint8Array }) => void): () => void;
   /** The file was renamed, moved, trashed or deleted elsewhere. Optional. */
   onMetaChanged?(listener: (meta: { fileName: string; location: string; trashed?: boolean; deleted?: boolean }) => void): () => void;
   /** The editor is going away: flush and end the session. Optional. */
@@ -49,22 +60,28 @@ export interface DocumentSource {
   /** Version history (docs/data.md §6). Optional: absent, the File menu's version items are disabled. */
   listVersions?(): Promise<VersionInfo[]>;
   saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
-  /** Non-destructive restore: `apply` gets the diff and applies it as one undoable edit labelled "Restore version". */
-  restoreVersion?(id: string, apply: (diff: Message) => void | Promise<void>): Promise<VersionInfo>;
+  /** Non-destructive restore: `apply` gets the diff (and its kiwi bytes when the source has them) and applies it as one undoable edit labelled "Restore version". */
+  restoreVersion?(id: string, apply: (diff: Message, bytes?: Uint8Array) => void | Promise<void>): Promise<VersionInfo>;
   /** The file's images by SHA-1 (the store's blobs). Optional: absent, images can't be placed or drawn. */
   readonly images?: ImageStore;
   /** The workspace's libraries as this file sees them (docs/data.md §9). Optional: absent, libraries are off. */
   readonly libraries?: LibraryAccess;
 }
 
-/** `prepare()`'s two answers: the fonts first (as soon as the file is decoded), the engine's bytes when converted. */
+/**
+ * `prepare()`'s answers: the store's own bytes at once (a kiwi-reading engine takes them as they are, docs/desktop.md
+ * §3.1: `engine_load(snapshot)`, then each journal frame with `applyChanges(frame, "load")`), the document's facts as
+ * soon as it is decoded (its fonts by page, derived data), the converted bytes when there are any to convert.
+ */
 export interface PreparedLoad {
-  fonts: Promise<{ fonts: FontRef[]; needsFallbackFont: boolean }>;
+  /** The snapshot and its journal as the store holds them (kiwi Messages); null when the source has no such bytes */
+  raw: { snapshot: Uint8Array; frames: readonly Uint8Array[]; derivedDataVersion: number } | null;
+  facts: Promise<DocumentFacts>;
   document: Promise<PreparedDocument>;
 }
 
-/** A publish's asset with its payload as the engine's Message (the source encodes it for the store). */
-export type EditorPublishAsset = Omit<PublishAsset, "payload"> & { payload?: Message };
+/** A publish's asset with its payload as the engine's Message (the source encodes it for the store), or as the kiwi bytes a kiwi-writing engine gave (`encodeAssetsKiwi`): stored as they are. */
+export type EditorPublishAsset = Omit<PublishAsset, "payload"> & { payload?: Message; payloadBytes?: Uint8Array };
 
 /** A published library in the workspace, as the Libraries modal lists it. */
 export interface LibraryEntry {
@@ -99,7 +116,8 @@ export interface LibraryAccess {
   previewPublish(assets: EditorPublishAsset[]): Promise<PublishPreview>;
   publish(input: { description: string; assets: EditorPublishAsset[]; moves: { key: string; fromLibraryFileKey: string; fromKey: string; mode: "move" | "copy" }[] }): Promise<LibraryVersion>;
   setEnabled(lib: string, enabled: boolean): Promise<void>;
-  payloads(lib: string, wants: { key: string; versionHash: string }[], opts: { withDependencies: boolean }): Promise<{ key: string; versionHash: string; message: Message }[]>;
+  /** Payloads as the store holds them (`bytes`, kiwi) and as the engine's Message (`message`, decoded lazily) */
+  payloads(lib: string, wants: { key: string; versionHash: string }[], opts: { withDependencies: boolean }): Promise<{ key: string; versionHash: string; message: Message; bytes?: Uint8Array }[]>;
   diff(lib: string, have: { key: string; versionHash: string }[]): Promise<LibraryDiff>;
   /** Published / status events of every library, and this file's own enabled list or folder changing */
   onChange(listener: (e: LibraryNotice) => void): () => void;
@@ -129,6 +147,8 @@ export interface ChangeKindInfo {
   kind?: "USER" | "UNDO" | "REDO" | "SYSTEM";
   /** The undo label ("Move", "Rename") */
   label?: string;
+  /** The change as the kiwi Message the engine wrote (an engine with kiwi at its boundary): the store journals it as it is */
+  bytes?: Uint8Array;
 }
 
 /**

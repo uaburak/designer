@@ -215,6 +215,104 @@ describe("compaction (docs/data.md §5.5)", () => {
   });
 });
 
+describe("snapshots from the engine (docs/data.md §5.5, docs/schema.md §1.3)", () => {
+  const derived = (x: number) => ({ layoutSize: { x, y: 20 } });
+
+  it("adopts the engine's snapshot at the head it names, declines when the head moved, and tells the open its derived version", async () => {
+    t = await openTestStore();
+    const f = await t.api.workspace.createFile({ folderId: null });
+    const o = await t.api.files.open(f.fileKey, { mode: "edit" });
+    expect(o.derivedDataVersion).toBe(0);
+    const s = o.sessionID;
+    await t.api.files.append(f.fileKey, batch(s, 1, [rect(s, 1, "!", { type: "TEXT" }), rect(s, 2, '"')]));
+    const ack = await t.api.files.append(f.fileKey, batch(s, 2, [{ guid: { sessionID: s, localID: 2 }, name: "Second" }]));
+    // What the engine would encode: every node CREATED, the text's layout along, the engine's version on the Message.
+    const table = tableOf(await t.api.files.open(f.fileKey, { mode: "view" }));
+    const whole = table.toMessage({ keepDerived: true });
+    whole.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === 1)!.derivedTextData = derived(40);
+    whole.derivedDataVersion = 5;
+    const bytes = encodeMessage(whole);
+    // Behind the head: declined, nothing written.
+    expect(await t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: bytes, headSeq: ack.seq - 1 })).toEqual({ adopted: false, seq: ack.seq });
+    const dir = fileDir(t, f.fileKey);
+    expect(readdirSync(dir).filter((n) => n.startsWith("snapshot-"))).toEqual(["snapshot-000000000000.kiwi"]);
+    // At the head: adopted — the journal folds into it, the open sees it with its version, a version keeps it.
+    expect(await t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: bytes, headSeq: ack.seq })).toEqual({ adopted: true, seq: ack.seq });
+    const state = JSON.parse(readFileSync(join(dir, "store.json"), "utf8"));
+    expect(state.head).toMatchObject({ snapshot: "snapshot-000000000002.kiwi", snapshotSeq: 2, segments: [], derivedDataVersion: 5, previous: { snapshot: "snapshot-000000000000.kiwi" } });
+    const again = await t.api.files.open(f.fileKey, { mode: "view" });
+    expect(again.journal).toEqual([]);
+    expect(again.derivedDataVersion).toBe(5);
+    const stored = decodeMessage(again.snapshot);
+    expect(stored.derivedDataVersion).toBe(5);
+    expect(stored.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === 1)!.derivedTextData).toEqual(derived(40));
+    expect(tablesEqual(NodeTable.fromMessage(tableOf(again).toMessage()), NodeTable.fromMessage(table.toMessage()))).toBe(true); // the same document, derived data aside
+    const v = await t.api.files.createVersion(f.fileKey, { kind: "named", title: "With derived data" });
+    expect(v.derivedDataVersion).toBe(5);
+    expect((await t.api.files.openVersion(f.fileKey, v.id)).derivedDataVersion).toBe(5);
+    // The same head again (nothing changed, a newer derivation): replaced in place, the generations as they were.
+    whole.derivedDataVersion = 6;
+    expect(await t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: encodeMessage(whole), headSeq: ack.seq })).toEqual({ adopted: true, seq: ack.seq });
+    const state2 = JSON.parse(readFileSync(join(dir, "store.json"), "utf8"));
+    expect(state2.head).toMatchObject({ snapshot: "snapshot-000000000002.kiwi", snapshotSeq: 2, derivedDataVersion: 6, previous: { snapshot: "snapshot-000000000000.kiwi" } });
+    expect((await t.api.files.open(f.fileKey, { mode: "view" })).derivedDataVersion).toBe(6);
+    // The version's hard link kept the bytes it was made of.
+    expect(decodeMessage((await t.api.files.openVersion(f.fileKey, v.id)).snapshot).derivedDataVersion).toBe(5);
+    // Appends keep working after it, and a later compaction keeps the derived fields of the nodes no frame touched.
+    await t.api.files.append(f.fileKey, batch(s, 3, [{ guid: { sessionID: s, localID: 2 }, name: "Third" }]));
+    expect(await t.store.files.compact(f.fileKey)).toBe(true);
+    const compacted = await t.api.files.open(f.fileKey, { mode: "view" });
+    expect(compacted.derivedDataVersion).toBe(6);
+    const m = decodeMessage(compacted.snapshot);
+    expect(m.derivedDataVersion).toBe(6);
+    expect(m.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === 1)!.derivedTextData).toEqual(derived(40));
+    expect(m.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === 2)!.name).toBe("Third");
+  });
+
+  it("refuses a snapshot that loses a node or a reference the head holds; changed values (to defaults too) aren't losses", async () => {
+    t = await openTestStore();
+    const f = await t.api.workspace.createFile({ folderId: null });
+    const o = await t.api.files.open(f.fileKey, { mode: "edit" });
+    const s = o.sessionID;
+    const ack = await t.api.files.append(f.fileKey, batch(s, 1, [rect(s, 1, "!", { stackHorizontalPadding: 12, cornerRadius: 4, detachedSymbolId: { guid: { sessionID: 3, localID: 3 } } }), rect(s, 2, '"')]));
+    const whole = tableOf(await t.api.files.open(f.fileKey, { mode: "view" })).toMessage({ keepDerived: true });
+    const node = (m: typeof whole, l: number) => m.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === l)!;
+    // A reference gone (the main a frame was detached from): refused, with what it would have lost.
+    const lossy = structuredClone(whole);
+    delete node(lossy, 1).detachedSymbolId;
+    const r1 = await t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: encodeMessage(lossy), headSeq: ack.seq });
+    expect(r1).toMatchObject({ adopted: false, refused: "loses-data", losses: { missingNodes: 0, droppedFields: { detachedSymbolId: 1 } } });
+    // A node gone: refused.
+    const fewer = { ...whole, nodeChanges: whole.nodeChanges!.filter((n) => !(n.guid!.sessionID === s && n.guid!.localID === 2)) };
+    expect(await t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: encodeMessage(fewer), headSeq: ack.seq })).toMatchObject({ refused: "loses-data", losses: { missingNodes: 1 } });
+    expect(readdirSync(fileDir(t, f.fileKey)).filter((n) => n.startsWith("snapshot-"))).toEqual(["snapshot-000000000000.kiwi"]);
+    // A changed value (geometry the engine corrected), an empty map dropped, a default dropped: adopted.
+    const fine = structuredClone(whole);
+    node(fine, 1).cornerRadius = 6;
+    delete node(fine, 1).stackHorizontalPadding; // a padding a variable now resolves to 0: a value, not a loss
+    node(fine, 2).parameterConsumptionMap = undefined;
+    const withEmpty = structuredClone(whole);
+    node(withEmpty, 2).parameterConsumptionMap = { entries: [] };
+    expect(await t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: encodeMessage(fine), headSeq: ack.seq })).toEqual({ adopted: true, seq: ack.seq });
+    void withEmpty;
+  });
+
+  it("refuses what isn't a whole document, and another session's or a viewer's snapshot", async () => {
+    t = await openTestStore();
+    const f = await t.api.workspace.createFile({ folderId: null });
+    const o = await t.api.files.open(f.fileKey, { mode: "edit" });
+    const s = o.sessionID;
+    const partial = encodeMessage({ type: "NODE_CHANGES", sessionID: s, ackID: 0, nodeChanges: [{ guid: { sessionID: s, localID: 1 }, name: "Not a snapshot" }], blobs: [] });
+    await expect(t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: partial, headSeq: 0 })).rejects.toMatchObject({ code: "invalid" });
+    await expect(t.api.files.saveSnapshot(f.fileKey, { sessionID: s, message: new Uint8Array([1, 2, 3]), headSeq: 0 })).rejects.toMatchObject({ code: "invalid" });
+    await expect(t.api.files.saveSnapshot(f.fileKey, { sessionID: s + 1, message: o.snapshot, headSeq: 0 })).rejects.toMatchObject({ code: "read-only" });
+    const other = t.store.api({});
+    await expect(other.files.saveSnapshot(f.fileKey, { sessionID: s, message: o.snapshot, headSeq: 0 })).rejects.toMatchObject({ code: "forbidden" });
+    // The file is untouched by the refusals.
+    expect(readdirSync(fileDir(t, f.fileKey)).filter((n) => n.startsWith("snapshot-"))).toEqual(["snapshot-000000000000.kiwi"]);
+  });
+});
+
 describe("version history (docs/data.md §6)", () => {
   it("names versions, opens them read-only, restores non-destructively and duplicates them", async () => {
     t = await openTestStore();

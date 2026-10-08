@@ -9,6 +9,7 @@
 #include "Helpers.h"
 #include "render/CurveCoverage.h"
 #include "render/Renderer.h"
+#include "scene/CodecKiwi.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -113,9 +114,9 @@ TEST_CASE("renderer: vectors, stars and dashed strokes are paths; gradients and 
   // The image was asked for once.
   auto requests = ImageRegistry::get().takeRequests();
   REQUIRE(requests.size() == 1);
-  CHECK(requests[0].hex() == "1111111111111111111111111111111111111111");
+  CHECK(requests[0].hash.hex() == "1111111111111111111111111111111111111111");
   // Pixels arrive: drawn as an image paint.
-  ImageRegistry::get().addRgba(requests[0], 2, 2, std::make_shared<std::vector<uint8_t>>(16, 255));
+  ImageRegistry::get().addRgba(requests[0].hash, 2, 2, std::make_shared<std::vector<uint8_t>>(16, 255));
   Frame f2 = record(r, dev, d);
   bool image = false;
   for (auto& q : f2.instances) image |= ((static_cast<uint32_t>(q.geom[3]) >> 8) & 15) == static_cast<uint32_t>(PaintKind::Image);
@@ -194,4 +195,87 @@ TEST_CASE("renderer: frame titles read on the page's colour") {
   CHECK(a == doctest::Approx(0.5));
   // A mid-dark page (#555) still gets the light label.
   CHECK(Renderer::titleColor(Color::hex(0x555555), &a).r == 1);
+}
+
+TEST_CASE("images: ThumbHash placeholders decode as the reference does (github.com/evanw/thumbhash)") {
+  // Hashes and decodes from the reference algorithm (the editor's port, src/renderer/src/editor/thumbHash.ts): a
+  // 40 × 20 image, red | blue; and a green one, half translucent.
+  const std::vector<uint8_t> opaque{21, 246, 2, 244, 168, 120, 143, 77, 130, 135, 120, 119, 136, 151, 143, 120, 248, 136, 136};
+  const std::vector<uint8_t> alpha{149, 121, 128, 3, 128, 73, 120, 120, 128, 120, 135, 120, 112, 119, 248, 136, 120, 120, 143, 136, 136, 88, 136};
+  ThumbImage a, b;
+  REQUIRE(decodeThumbHash(opaque.data(), opaque.size(), a));
+  REQUIRE(decodeThumbHash(alpha.data(), alpha.size(), b));
+  CHECK(a.width == 32);
+  CHECK(a.height == 18);
+  CHECK(b.width == 32);
+  CHECK(b.height == 19);
+  uint64_t sumA = 0, sumB = 0;
+  for (uint8_t v : a.rgba) sumA += v;
+  for (uint8_t v : b.rgba) sumB += v;
+  CHECK(sumA == 294877);
+  CHECK(sumB == 178377);
+  CHECK(std::vector<uint8_t>(a.rgba.begin(), a.rgba.begin() + 8) == std::vector<uint8_t>{255, 0, 0, 255, 255, 0, 0, 255});
+  CHECK(std::vector<uint8_t>(b.rgba.begin(), b.rgba.begin() + 8) == std::vector<uint8_t>{3, 201, 49, 255, 3, 201, 49, 255});
+  CHECK(!decodeThumbHash(opaque.data(), 3, a));
+}
+
+TEST_CASE("images: the ThumbHash draws until the bitmap; requests carry the drawn size; a tier is asked again, larger") {
+  ImageRegistry::get().clear();
+  Document d;
+  base(d);
+  NodeChange rect = make({1, 1}, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 200, 100});
+  Paint img;
+  img.type = PaintType::IMAGE;
+  img.image = ImageHash::fromHex("2222222222222222222222222222222222222222");
+  img.imageScaleMode = ImageScaleMode::FILL;
+  img.originalImageWidth = 2000;
+  img.originalImageHeight = 1000;
+  const std::vector<uint8_t> hash{21, 246, 2, 244, 168, 120, 143, 77, 130, 135, 120, 119, 136, 151, 143, 120, 248, 136, 136};
+  json::Value bytes;
+  bytes.kind = json::Value::Kind::Array;
+  for (uint8_t v : hash) {
+    json::Value n;
+    n.kind = json::Value::Kind::Number;
+    n.number = v;
+    bytes.array.push_back(n);
+  }
+  img.extra = codec::extraFromJson("Paint", "thumbHash", bytes);
+  json::Value thumbnail;
+  REQUIRE(json::parse(R"({"hash":"3333333333333333333333333333333333333333"})", thumbnail));
+  img.extra += codec::extraFromJson("Paint", "imageThumbnail", thumbnail);
+  rect.props.fillPaints = {img};
+  d.apply(rect);
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  Overlay o;
+  o.frameTitles = false;
+  // At zoom 1 on a 2× canvas: 400 device px wide.
+  auto imageDraws = [&]() {
+    int n = 0;
+    for (size_t i = 0; i < dev.draws.size(); i++)
+      if (dev.draws[i].pipeline.shader == gfx::ShaderId::Shape)
+        for (auto& q : dev.instancesOf<DrawInstance>(i)) n += ((static_cast<uint32_t>(q.geom[3]) >> 8) & 15) == static_cast<uint32_t>(PaintKind::Image);
+    return n;
+  };
+  r.render(d, kPage, Camera{}, Viewport{800, 600, 2, 1600, 1200}, o, OverlayStyle::of(Theme::Dark));
+  CHECK(imageDraws() == 1);  // the ThumbHash, not grey
+  auto requests = ImageRegistry::get().takeRequests();
+  REQUIRE(requests.size() == 1);
+  CHECK(requests[0].maxDevicePx == 400);
+  CHECK(requests[0].thumbnail.hex() == "3333333333333333333333333333333333333333");
+  // The editor answers with a tier (≤ 512 px): drawn; drawn at 4× it is asked for again with the size it needs.
+  ImageRegistry::get().addRgba(img.image, 512, 256, std::make_shared<std::vector<uint8_t>>(512 * 256 * 4, 255));
+  r.render(d, kPage, Camera{}, Viewport{800, 600, 2, 1600, 1200}, o, OverlayStyle::of(Theme::Dark));
+  CHECK(ImageRegistry::get().takeRequests().empty());
+  r.render(d, kPage, Camera{0, 0, 4}, Viewport{800, 600, 2, 1600, 1200}, o, OverlayStyle::of(Theme::Dark));
+  requests = ImageRegistry::get().takeRequests();
+  REQUIRE(requests.size() == 1);
+  CHECK(requests[0].maxDevicePx == 1600);
+  // The full image arrives; a late tier doesn't replace it; nothing more is asked.
+  ImageRegistry::get().addRgba(img.image, 2000, 1000, std::make_shared<std::vector<uint8_t>>(2000 * 1000 * 4, 255));
+  ImageRegistry::get().addRgba(img.image, 512, 256, std::make_shared<std::vector<uint8_t>>(512 * 256 * 4, 255));
+  r.render(d, kPage, Camera{0, 0, 8}, Viewport{800, 600, 2, 1600, 1200}, o, OverlayStyle::of(Theme::Dark));
+  CHECK(ImageRegistry::get().takeRequests().empty());
+  CHECK(r.imageCache().bytes() >= 2000ull * 1000 * 4);
+  ImageRegistry::get().clear();
 }

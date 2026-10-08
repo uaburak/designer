@@ -29,6 +29,7 @@
 #include "render/Renderer.h"
 #include "scene/ChangeSet.h"
 #include "scene/Document.h"
+#include "text/DerivedText.h"
 #include "text/TextLayout.h"
 
 namespace eng {
@@ -151,9 +152,36 @@ class Editor : private LayoutHost, public TextLayouts {
   Editor();
 
   // ---- Document ----
+  // ---- Derived data stored in the file (docs/engine-build.md "Figma parity round 3" §2; Figma's derivedSymbolData
+  // 125 and derivedTextData 359). The stamp the engine writes into Message.derivedDataVersion and trusts at load: bump it
+  // whenever layout or text layout would give a different result.
+  static constexpr uint32_t kDerivedDataVersion = 1;
+  // One stored instance sublayer: where it is (its guidPath from the instance) and what layout gave it.
+  struct StoredRow {
+    std::vector<Guid> path;
+    bool hasSize = false, hasTransform = false;
+    Vec2 size;
+    Mat2x3 transform;
+    std::shared_ptr<const text::StoredText> text;
+  };
+  struct StoredDerived {
+    std::unordered_map<Guid, std::shared_ptr<const text::StoredText>, GuidHash> texts;  // real TEXT nodes
+    std::unordered_map<Guid, std::vector<StoredRow>, GuidHash> symbols;                 // per real INSTANCE
+  };
+  // Instances / texts whose stored data was used at their derivation, and those whose stored data didn't match.
+  uint32_t derivedUsed() const { return derivedUsed_; }
+  uint32_t derivedStale() const { return derivedStale_; }
+  // A node's derived fields for a snapshot (derivedTextData of a TEXT node, derivedSymbolData of an instance): kiwi
+  // fields appended to `fields`, their outlines to `blobs`. What isn't derived yet (pages never shown) is written from
+  // what was loaded, when it is still current.
+  void encodeDerivedFields(Guid id, std::string& fields, codec::BlobsOut& blobs);
+
   // Replaces the document with `nodes` (any order) and shows `page` (the first
-  // CANVAS when kNoGuid). Resets undo and the selection. Emits nothing to storage.
-  void loadDocument(const std::vector<NodeChange>& nodes, Guid page);
+  // CANVAS when kNoGuid). Resets undo and the selection. Emits nothing to storage. `derived`: the data the snapshot
+  // stored with this engine's stamp — the opened page's instances take their sublayers' layout from it, texts draw
+  // from it until their fonts arrive (and when a font is missing), stored auto-layout geometry is trusted.
+  void loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDerived* derived = nullptr);
+  void loadDocument(const std::vector<NodeChange>& nodes, Guid page) { loadDocument(std::vector<NodeChange>(nodes), page); }
   void setSessionID(uint32_t sessionID);
   uint32_t sessionID() const { return sessionID_; }
   // Changes from outside. APPLY_USER: undoable and emitted (one step); APPLY_SYSTEM: emitted, not undoable
@@ -690,7 +718,14 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Guid> rows;
     bool hasMain = false;
     std::vector<std::pair<Guid, Guid>> slots;
+    bool stored = false;  // its rows took the stored layout (derivedSymbolData): nothing to lay out
   };
+  // The stored layout of `R`'s rows when it matches them (every row's path stored, nothing more): applied, true.
+  bool applyStoredRows(Guid R, const std::vector<Guid>& rows);
+  // The stored text layout of `id` when it can stand for its real layout `real` (fonts pending or missing).
+  const text::TextLayout* storedLayout(Guid id, const NodeProps& p, const text::TextLayout& real);
+  // A change from outside the derivation: what stored derived data it makes stale.
+  void invalidateStored(const NodeChange& c, NodeType typeBefore);
   void finishLayouts(const std::vector<PendingLayout>& batch);
   void removeDerived(Guid instance);
   struct Expansion;
@@ -1102,6 +1137,17 @@ class Editor : private LayoutHost, public TextLayouts {
   mutable std::unordered_map<Guid, CachedInfo, GuidHash> infoCache_;
   // Pages whose instances are materialized and auto layout verified (derivePage); others wait for their first show.
   std::unordered_set<Guid, GuidHash> derivedPages_;
+  // Derived data loaded from the snapshot (this engine's stamp), until used or made stale.
+  std::unordered_map<Guid, std::shared_ptr<const text::StoredText>, GuidHash> storedText_;  // real texts and sublayers
+  std::unordered_map<Guid, std::vector<StoredRow>, GuidHash> storedSymbols_;             // instances not derived yet
+  struct StoredLayout {
+    std::unique_ptr<text::TextLayout> layout;
+    double width = 0, height = 0;
+  };
+  std::unordered_map<Guid, StoredLayout, GuidHash> storedLayouts_;  // drawn from storedText_ (fonts pending / missing)
+  bool trustLayout_ = false;     // the snapshot's geometry is this engine's own: pages derive without re-verifying it
+  bool applyingStored_ = false;  // writes of stored geometry (not edits)
+  uint32_t derivedUsed_ = 0, derivedStale_ = 0;
 
   // The press (Gestures.cpp pointerDown): inside a selected layer — the selection stays, a drag moves it, a click
   // selects the pressed layer; a press-drag with nothing movable (instance sublayers, locked layers) is a no-op.

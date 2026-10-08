@@ -1,31 +1,200 @@
 /**
- * The Layers panel's tree, as plain data (no engine, no React): the page's
- * nodes with their children in paint order, the rows the panel shows (top
- * layer first, children of expanded layers indented), and the panel's
- * selection and drag-and-drop rules — Figma's (docs/research/figma/R7-editor.md).
+ * The Layers panel's tree, as plain data (no engine, no React), in two passes
+ * as Figma's Layers panel computes it (docs/research: "Improving performance
+ * in the layers panel"): PASS 1, the outline — every row's place and kind (its
+ * parent, its children in paint order, its type and the flags that decide
+ * what may be dropped where and which glyph family it gets); PASS 2, the
+ * details a row shows (name, visibility, lock, auto layout, boolean
+ * operation), computed only for the rows the panel is about to draw, from the
+ * row the outline read brought or from one engine read per window of rows.
+ * Also the rows the panel shows (top layer first, children of expanded layers
+ * indented) and the panel's selection and drag-and-drop rules — Figma's
+ * (docs/research/figma/R7-editor.md).
  */
 import type { Guid, NodeChange } from "@/engine/codec";
 
-export interface TreeNode {
+/** PASS 1 — a row's place and kind: what the hierarchy, the selection rules and drops need. */
+export interface OutlineNode {
   id: Guid;
   parent: Guid | null;
   type: string;
+  /** Children back to front (paint order, index 0 = bottom), as the engine lists them */
+  children: Guid[];
+  /** FRAME + resizeToFit (DesignerV2's groups) or an imported GROUP */
+  group: boolean;
+  /** A component set (FRAME + isStateGroup) */
+  stateGroup?: boolean;
+  /** An instance's sublayer (ids `I<instance>;<key>…`): it keeps the main's place, no drops, no lock */
+  derived?: boolean;
+}
+
+/** PASS 2 — what a row shows; read for the rows in view. */
+export interface RowDetails {
   name: string;
   visible: boolean;
   locked: boolean;
-  /** FRAME + resizeToFit (DesignerV2's groups) or an imported GROUP */
-  group: boolean;
   /** Auto layout direction, when the engine keeps it */
   stackMode?: string;
   stackWrap?: string;
   /** BOOLEAN_OPERATION's operation (UNION, INTERSECT, SUBTRACT, XOR) */
   booleanOperation?: string;
-  /** Children back to front (paint order, index 0 = bottom), as the engine lists them */
-  children: Guid[];
-  /** A component set (FRAME + isStateGroup) */
-  stateGroup?: boolean;
-  /** An instance's sublayer derived by the editor from the main (not an engine node until E6) */
-  derived?: boolean;
+}
+
+/** A row: its outline, and its details filled on first use (`LayerTree.details`). */
+export interface TreeNode extends OutlineNode, RowDetails {}
+
+/** What a details read asks the engine for (schema keys of `engine_read_nodes` `fields`). */
+export const DETAIL_FIELDS: readonly string[] = ["name", "visible", "locked", "resizeToFit", "stackMode", "stackWrap", "booleanOperation", "isStateGroup"];
+
+/** Reads the layer-tree rows of `ids` (guid, type, name, visible, locked, the optional flags) in one engine call. */
+export type RowReader = (ids: readonly Guid[]) => readonly NodeChange[];
+
+const UNKNOWN: RowDetails = { name: "", visible: true, locked: false };
+
+/** A row's details from its engine row. */
+export function detailsOf(row: NodeChange | undefined): RowDetails {
+  if (!row) return UNKNOWN;
+  const extra = row as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string };
+  const out: RowDetails = { name: row.name ?? "", visible: row.visible !== false, locked: row.locked === true };
+  if (extra.stackMode !== undefined) out.stackMode = extra.stackMode;
+  if (extra.stackWrap !== undefined) out.stackWrap = extra.stackWrap;
+  if (extra.booleanOperation !== undefined) out.booleanOperation = extra.booleanOperation;
+  return out;
+}
+
+/**
+ * PASS 2's store, one per page: the details of the rows shown so far, computed on first use from the row pass 1
+ * brought (a layer-tree row carries them) or read from the engine — `prefetch` reads a window of rows in one call,
+ * so a scroll costs one read per window, never a read per row. Shared by every tree of the same page (a patched
+ * tree keeps the details of the rows the delta didn't touch); invalidated per row, never whole.
+ */
+export class RowDetailsStore {
+  /** Rows pass 1 or a delta brought, not yet turned into details (freed as they are) */
+  private readonly rows = new Map<Guid, NodeChange>();
+  /** The details computed so far (the rows shown) */
+  private readonly known = new Map<Guid, RowDetails>();
+  private readonly read: RowReader | null;
+  /** Engine reads made, and the rows they asked for (tests, the perf bench) */
+  reads = 0;
+  rowsRead = 0;
+
+  constructor(read: RowReader | null = null) {
+    this.read = read;
+  }
+
+  /** A row pass 1 or a delta brought: its details come from it when first asked (what it had before is dropped). */
+  keep(row: NodeChange): void {
+    this.rows.set(row.guid, row);
+    this.known.delete(row.guid);
+  }
+
+  /** Are the row's details in hand (computed, or its row kept) — no engine read needed? */
+  has(id: Guid): boolean {
+    return this.known.has(id) || this.rows.has(id);
+  }
+
+  /** Is the row's details object built (tests: details are computed for the rows shown, not the whole page)? */
+  computed(id: Guid): boolean {
+    return this.known.has(id);
+  }
+
+  /** How many rows have their details built */
+  get size(): number {
+    return this.known.size;
+  }
+
+  /** The row's details: from the row kept, else one engine read of that row (the panel prefetches its window first). */
+  of(id: Guid): RowDetails {
+    const d = this.known.get(id);
+    if (d) return d;
+    let row = this.rows.get(id);
+    if (!row && this.read) {
+      this.reads++;
+      this.rowsRead++;
+      row = this.read([id])[0];
+    }
+    const details = detailsOf(row);
+    this.known.set(id, details);
+    this.rows.delete(id);
+    return details;
+  }
+
+  /** Reads the rows of `ids` not yet in hand in one engine call (a window of the panel); how many it asked for. */
+  prefetch(ids: readonly Guid[]): number {
+    if (!this.read) return 0;
+    const missing: Guid[] = [];
+    for (const id of ids) if (!this.has(id)) missing.push(id);
+    if (!missing.length) return 0;
+    this.reads++;
+    this.rowsRead += missing.length;
+    for (const row of this.read(missing)) this.rows.set(row.guid, row);
+    return missing.length;
+  }
+
+  /** The row changed (NODES_CHANGED, a committed change): its details are read again when next shown. */
+  invalidate(id: Guid): void {
+    this.rows.delete(id);
+    this.known.delete(id);
+  }
+
+  /** The row left the document. */
+  delete(id: Guid): void {
+    this.invalidate(id);
+  }
+}
+
+/** A row: the outline as own fields, the details through the page's store (built when first asked). */
+class Row implements TreeNode {
+  readonly id: Guid;
+  readonly parent: Guid | null;
+  readonly type: string;
+  readonly children: Guid[];
+  readonly group: boolean;
+  readonly stateGroup?: true;
+  readonly derived?: true;
+  private readonly store: RowDetailsStore;
+
+  constructor(id: Guid, parent: Guid | null, type: string, children: Guid[], group: boolean, stateGroup: boolean, derived: boolean, store: RowDetailsStore) {
+    this.id = id;
+    this.parent = parent;
+    this.type = type;
+    this.children = children;
+    this.group = group;
+    if (stateGroup) this.stateGroup = true;
+    if (derived) this.derived = true;
+    this.store = store;
+  }
+
+  static fromOutline(o: OutlineNode, store: RowDetailsStore): Row {
+    return new Row(o.id, o.parent, o.type, o.children, o.group, o.stateGroup === true, o.derived === true, store);
+  }
+
+  /** From an engine row (a layer-tree row, or a read with `childIds`) — one allocation per row in pass 1. */
+  static fromNode(n: NodeChange, store: RowDetailsStore): Row {
+    const extra = n as NodeChange & { isStateGroup?: boolean; derived?: boolean };
+    const type = n.type ?? "NONE";
+    const group = type === "GROUP" || (type === "FRAME" && n.resizeToFit === true);
+    return new Row(n.guid, n.parentIndex?.guid || null, type, n.childIds ?? [], group, extra.isStateGroup === true && type === "FRAME", extra.derived === true || n.guid.startsWith("I"), store);
+  }
+
+  get name(): string {
+    return this.store.of(this.id).name;
+  }
+  get visible(): boolean {
+    return this.store.of(this.id).visible;
+  }
+  get locked(): boolean {
+    return this.store.of(this.id).locked;
+  }
+  get stackMode(): string | undefined {
+    return this.store.of(this.id).stackMode;
+  }
+  get stackWrap(): string | undefined {
+    return this.store.of(this.id).stackWrap;
+  }
+  get booleanOperation(): string | undefined {
+    return this.store.of(this.id).booleanOperation;
+  }
 }
 
 export interface LayerTree {
@@ -33,38 +202,48 @@ export interface LayerTree {
   nodes: ReadonlyMap<Guid, TreeNode>;
   /** The page has instances (their derived rows follow their mains) */
   hasInstances?: boolean;
+  /** Holds sublayer rows the editor derived from mains (an engine without materialized sublayers): they follow the mains' changes */
+  derivedSublayers?: boolean;
+  /** PASS 2: the rows' details, built for the rows shown (`RowDetailsStore.prefetch` a window before drawing it) */
+  details: RowDetailsStore;
 }
 
-export const EMPTY_TREE: LayerTree = { page: "", nodes: new Map() };
+export const EMPTY_TREE: LayerTree = { page: "", nodes: new Map(), details: new RowDetailsStore() };
 
-/** The tree from engine reads (each node read with `childIds`). */
-export function treeFromNodes(page: Guid, nodes: readonly NodeChange[]): LayerTree {
+/**
+ * The tree from engine rows (each read with `childIds`): pass 1 takes every row's place and kind. `keepRows`
+ * (the default: tests, a delta's rows) keeps the rows in `details`, so pass 2 has them without a read; the
+ * controller's page read passes false — the rows are let go and pass 2 reads the engine per window (rows the
+ * engine can't read, the sublayers derived here for an older engine, are kept whatever `keepRows`). `details`
+ * given: the page's store (a patch), else a new one.
+ */
+export function treeFromNodes(page: Guid, nodes: readonly NodeChange[], details = new RowDetailsStore(), keepRows = true): LayerTree {
   const map = new Map<Guid, TreeNode>();
   let hasInstances = false;
   for (const n of nodes) {
-    const extra = n as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string; isStateGroup?: boolean; derived?: boolean };
     if (n.type === "INSTANCE") hasInstances = true;
-    map.set(n.guid, {
-      id: n.guid,
-      parent: n.parentIndex?.guid || null,
-      type: n.type ?? "NONE",
-      name: n.name ?? "",
-      visible: n.visible !== false,
-      locked: n.locked === true,
-      group: n.type === "GROUP" || (n.type === "FRAME" && n.resizeToFit === true),
-      stackMode: extra.stackMode,
-      stackWrap: extra.stackWrap,
-      booleanOperation: extra.booleanOperation,
-      children: n.childIds ?? [],
-      ...(extra.isStateGroup === true && n.type === "FRAME" ? { stateGroup: true } : {}),
-      ...(extra.derived || n.guid.startsWith("I") ? { derived: true } : {}),
-    });
+    if (keepRows || (n as { derived?: boolean }).derived === true) details.keep(n);
+    map.set(n.guid, Row.fromNode(n, details));
   }
-  return { page, nodes: map, hasInstances };
+  return { page, nodes: map, hasInstances, details };
+}
+
+/**
+ * The tree from an outline alone (an engine read of places and kinds, no names): pass 2 reads every row's details
+ * from `details`' reader as the panel shows it.
+ */
+export function treeFromOutline(page: Guid, rows: readonly OutlineNode[], details: RowDetailsStore): LayerTree {
+  const map = new Map<Guid, TreeNode>();
+  let hasInstances = false;
+  for (const o of rows) {
+    if (o.type === "INSTANCE") hasInstances = true;
+    map.set(o.id, Row.fromOutline(o, details));
+  }
+  return { page, nodes: map, hasInstances, details };
 }
 
 /** Can layers be dropped inside it? */
-export function isContainer(node: TreeNode | undefined): boolean {
+export function isContainer(node: OutlineNode | undefined): boolean {
   return !!node && !node.derived && (node.type === "FRAME" || node.type === "GROUP" || node.type === "SECTION" || node.type === "SYMBOL" || node.type === "CANVAS");
 }
 
@@ -93,6 +272,21 @@ export function visibleRows(tree: LayerTree, expanded: ReadonlySet<Guid>): RowDa
   };
   walk(tree.page, 0);
   return rows;
+}
+
+/** How far around a row the panel reads details: the rows above and below it that one window read covers. */
+export const DETAILS_WINDOW = { above: 24, below: 48 } as const;
+
+/**
+ * The ids whose details one read should bring when `rows[index]` is drawn without them: the window around it, so a
+ * scroll costs one read per ~50 rows and the rows about to come into view are already in hand.
+ */
+export function detailsWindow(rows: readonly RowData[], index: number): Guid[] {
+  const from = Math.max(0, index - DETAILS_WINDOW.above);
+  const to = Math.min(rows.length, index + DETAILS_WINDOW.below);
+  const out: Guid[] = [];
+  for (let i = from; i < to; i++) out.push(rows[i].id);
+  return out;
 }
 
 /** The layer's ancestors below the page, nearest first. */

@@ -17,6 +17,7 @@ import { parseDerivedId } from "../model/components";
 import { useLayerTree, useUI } from "../hooks";
 import {
   ancestorsOf,
+  detailsWindow,
   draggedLayers,
   dropTarget,
   rangeSelection,
@@ -26,6 +27,7 @@ import {
   visibleRows,
   withSubtree,
   type DropTarget,
+  type OutlineNode,
   type TreeNode,
 } from "../model/layerTree";
 import styles from "./Panels.module.css";
@@ -76,7 +78,8 @@ export function layerIcon(node: TreeNode): IconName {
   }
 }
 
-const isComponentish = (n: TreeNode | undefined) => !!n && (n.type === "SYMBOL" || n.type === "INSTANCE" || n.stateGroup === true);
+/** In the component purple: a component, a set or an instance — the outline knows (no details read for the rows between). */
+const isComponentish = (n: OutlineNode | undefined) => !!n && (n.type === "SYMBOL" || n.type === "INSTANCE" || n.stateGroup === true);
 
 /** Refs the engine can select: an instance's derived layer it doesn't know yet (before E6) selects the instance. */
 export function selectable(ed: EditorController, refs: readonly Guid[]): Guid[] {
@@ -229,6 +232,9 @@ export function Layers() {
           renderRow={(i) => {
             const row = rows[i];
             const node = tree.nodes.get(row.id)!;
+            // Pass 2 (Figma's two-pass panel): the row's name, eye, lock and icon are computed only now, for the rows
+            // the list draws; a row without them in hand brings its whole window in one engine read.
+            if (!tree.details.has(row.id)) tree.details.prefetch(detailsWindow(rows, i));
             return (
               <LayerRow
                 id={row.id}

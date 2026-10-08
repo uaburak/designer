@@ -24,12 +24,39 @@ const text::TextLayout* Editor::textLayout(Guid id) {
   text::LayoutOptions o = text::optionsFor(n->props);
   uint32_t generation = text::FontRegistry::get().generation();
   CachedText& c = textCache_[id];
-  if (c.layout && c.width == o.width && c.height == o.height && c.generation == generation) return c.layout.get();
-  c.layout = text::layoutText(n->props, o);
-  c.width = o.width;
-  c.height = o.height;
-  c.generation = generation;
+  if (!(c.layout && c.width == o.width && c.height == o.height && c.generation == generation)) {
+    c.layout = text::layoutText(n->props, o);
+    c.width = o.width;
+    c.height = o.height;
+    c.generation = generation;
+    // Its fonts arrived and they are the ones the stored layout was made with: the stored data has done its work.
+    if (!c.layout->pendingFont && !c.layout->missingFont && !storedText_.empty()) {
+      auto st = storedText_.find(id);
+      if (st != storedText_.end() && text::sameFonts(*st->second, *c.layout)) {
+        storedText_.erase(st);
+        storedLayouts_.erase(id);
+      }
+    }
+  }
+  if ((c.layout->pendingFont || c.layout->missingFont) && !storedText_.empty())
+    if (const text::TextLayout* stored = storedLayout(id, n->props, *c.layout)) return stored;
   return c.layout.get();
+}
+
+const text::TextLayout* Editor::storedLayout(Guid id, const NodeProps& p, const text::TextLayout& real) {
+  auto st = storedText_.find(id);
+  if (st == storedText_.end()) return nullptr;
+  text::LayoutOptions o = text::optionsFor(p);
+  StoredLayout& s = storedLayouts_[id];
+  if (!s.layout || s.width != o.width || s.height != o.height) {
+    s.layout = text::layoutFromStored(st->second, p);
+    s.width = o.width;
+    s.height = o.height;
+  }
+  // What a reader of the layout needs to know about its fonts (editing refuses a missing one).
+  s.layout->pendingFont = real.pendingFont;
+  s.layout->missingFont = real.missingFont;
+  return s.layout.get();
 }
 
 bool Editor::measureText(Guid id, double width, Vec2& size) {
@@ -49,6 +76,16 @@ bool Editor::measureText(Guid id, double width, Vec2& size) {
   text::LayoutOptions o;
   o.width = width;
   auto L = text::layoutText(n->props, o);
+  // Its fonts not in yet, and a stored layout for this box: its size is the text's (the stored data was made by this
+  // engine with these fonts), nothing to measure again when they arrive.
+  if ((L->pendingFont || L->missingFont) && !storedText_.empty())
+    if (auto st = storedText_.find(id); st != storedText_.end() && text::optionsFor(n->props).width == width) {
+      MeasuredText m{width, generation, st->second->layoutSize, true, false};
+      if (entries.size() >= 4) entries.erase(entries.begin());
+      entries.push_back(m);
+      size = m.size;
+      return true;
+    }
   MeasuredText m{width, generation, L->size, !(L->pendingFont || L->missingFont), L->pendingFont};
   if (entries.size() >= 4) entries.erase(entries.begin());
   entries.push_back(m);

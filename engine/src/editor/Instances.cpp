@@ -448,6 +448,9 @@ void Editor::materialize(Guid R) {
     removeDerived(R);
     return;
   }
+  // Its stored size (a snapshot's own, laid out): the root's fields below come from the main, layout would size it again.
+  const bool hasStored = !storedSymbols_.empty() && storedSymbols_.count(R);
+  const Vec2 storedSize = rn->props.size;
   Guid prevMaterializing = materializing_;
   bool prevDeriving = deriving_;
   materializing_ = R;
@@ -540,6 +543,10 @@ void Editor::materialize(Guid R) {
   derivedRows_[R] = ids;
   if (boundRows) instanceBindings_.insert(R);
   else instanceBindings_.erase(R);
+  // A re-derivation: what was stored for its sublayers' texts no longer stands for them.
+  if (!storedText_.empty() && !storedSymbols_.count(R))
+    for (Guid r : ids)
+      if (storedText_.erase(r)) storedLayouts_.erase(r);
 
   // Dependencies.
   std::sort(ex.sources.begin(), ex.sources.end());
@@ -564,9 +571,20 @@ void Editor::materialize(Guid R) {
       b.sourceSize = ss->second;
     }
   }
+  // The snapshot stored this instance's sublayers' layout (derivedSymbolData) and it matches them: taken as it is,
+  // no layout pass (Figma: "no need to materialize sublayers on initial file load", the file keeps the result).
+  bool stored = hasStored && applyStoredRows(R, ids);
+  if (stored)
+    if (const Node* now = doc_.get(R); now && !(now->props.size == storedSize)) {
+      bool prev = applyingStored_;
+      applyingStored_ = true;
+      writeGeometry(R, now->props.transform, storedSize);
+      applyingStored_ = prev;
+      if (const Node* again = doc_.get(R)) blueprint_[R].sourceSize = again->props.size;
+    }
   bool prevInLayout = inLayout_;
   inLayout_ = true;
-  {
+  if (!stored) {
     Layout L(*this);
     intrinsicLayout_ = true;
     for (size_t i = ex.rows.size(); i-- > 0;) {
@@ -592,7 +610,7 @@ void Editor::materialize(Guid R) {
   inLayout_ = prevInLayout;
   events_.components.push_back(R);
   if (main != kNoGuid) events_.components.push_back(main);
-  PendingLayout pending{R, std::move(ids), main != kNoGuid, std::move(ex.slots)};
+  PendingLayout pending{R, std::move(ids), main != kNoGuid, std::move(ex.slots), stored};
   if (deferredLayout_) {
     // A batch (flushInstances): stage B runs once for every instance of the batch (finishLayouts), so an
     // auto-layout tree holding many instances is laid out once, not once per instance.
@@ -616,9 +634,10 @@ void Editor::finishLayouts(const std::vector<PendingLayout>& batch) {
     Layout L(*this);
     std::vector<Guid> roots;
     for (const PendingLayout& p : batch)
-      if (p.hasMain && doc_.has(p.instance)) roots.push_back(p.instance);
+      if (p.hasMain && !p.stored && doc_.has(p.instance)) roots.push_back(p.instance);
     if (!roots.empty()) L.run(roots, true);
     for (const PendingLayout& p : batch) {
+      if (p.stored) continue;
       for (Guid row : p.rows) {
         const Node* n = doc_.get(row);
         auto b = blueprint_.find(row);
@@ -644,6 +663,54 @@ void Editor::finishLayouts(const std::vector<PendingLayout>& batch) {
   }
   for (const PendingLayout& p : batch) layingOut_.erase(p.instance);
   deriving_ = prevDeriving;
+}
+
+bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
+  auto it = storedSymbols_.find(R);
+  if (it == storedSymbols_.end()) return false;
+  std::vector<StoredRow> stored = std::move(it->second);
+  storedSymbols_.erase(it);  // used once: a later derivation lays out as usual
+  bool match = stored.size() == rows.size();
+  std::vector<const StoredRow*> byRow(rows.size(), nullptr);
+  if (match) {
+    std::map<std::vector<Guid>, const StoredRow*> byPath;
+    for (const StoredRow& s : stored) byPath.emplace(s.path, &s);
+    for (size_t i = 0; i < rows.size() && match; i++) {
+      auto info = derivedInfo_.find(rows[i]);
+      auto found = info == derivedInfo_.end() ? byPath.end() : byPath.find(info->second.path);
+      if (found == byPath.end()) match = false;
+      else byRow[i] = found->second;
+    }
+  }
+  if (!match) {
+    derivedStale_++;
+    return false;
+  }
+  bool prev = applyingStored_;
+  applyingStored_ = true;
+  for (size_t i = 0; i < rows.size(); i++) {
+    const StoredRow& s = *byRow[i];
+    NodeChange c = NodeChange::changed(rows[i]);
+    if (s.hasSize) c.mask |= F_SIZE, c.props.size = s.size;
+    if (s.hasTransform) c.mask |= F_TRANSFORM, c.props.transform = s.transform;
+    if (c.mask) applyDerivedDirect(c);
+    if (s.text) storedText_[rows[i]] = s.text;
+  }
+  applyingStored_ = prev;
+  // The blueprint is the stored result at the instance's current size: a later layout of these sublayers finds them
+  // unresized (no constraints applied twice); resizing the instance derives it again, as any resize does.
+  for (Guid r : rows) {
+    const Node* n = doc_.get(r);
+    if (!n) continue;
+    Blueprint& b = blueprint_[r];
+    b.transform = n->props.transform;
+    b.size = n->props.size;
+    b.geometry = true;
+    if (b.frame) b.sourceSize = n->props.size;
+  }
+  if (const Node* rn = doc_.get(R)) blueprint_[R].sourceSize = rn->props.size;
+  derivedUsed_++;
+  return true;
 }
 
 Guid Editor::slotContentFor(Guid row, bool create) {

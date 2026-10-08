@@ -20,6 +20,8 @@
 //   --no-strict         --open without React.StrictMode (the app's main.tsx mounts under StrictMode, which in dev
 //                       runs the mount effect twice: source.load() twice)
 //   --no-prepare        --open through source.load() on the main thread instead of the source's load worker
+//   --snapshot-out <f>  --open: save the engine's own snapshot (derived data included) once the editor writes it (~15 s)
+//   --snapshot-in <f>   --open from that snapshot instead of the import's, as the next open of the file would
 //   --headed            a visible window instead of headless (the GPU is used either way on macOS)
 //   --timeout <s>       stop the run after this long (default 180)
 //   --gpu-limit <MB>    stop when Chrome's GPU process uses more than this (default 3072), or the engine's own GPU
@@ -67,6 +69,11 @@ const jsonOut = opt("--json");
 const pageArg = opt("--page");
 const dumpDir = opt("--dump");
 const inspect = opt("--inspect");  // JS run in the page after the first frames (\`engine\` in scope); its JSON is printed
+// --open with a kiwi-reading engine: --snapshot-out saves the engine's own snapshot (derived data included, what the
+// editor hands the store) once the editor writes it; --snapshot-in opens that file instead of the import's snapshot,
+// as the next open of the file would (the first frame from stored glyphs and instance layout).
+const snapshotOut = opt("--snapshot-out");
+const snapshotIn = opt("--snapshot-in");
 const [cssW, cssH] = (opt("--size", "1440x900") ?? "").split("x").map(Number);
 const dpr = Number(opt("--dpr", "2"));
 const only = (opt("--only", "") ?? "").split(",").filter(Boolean);
@@ -1151,9 +1158,12 @@ function openPageMain() {
         return new Uint8Array(await (await fetch(`/__bench/font?id=${encodeURIComponent(face.id)}`)).arrayBuffer());
       },
     });
-    const snapshot = new Uint8Array(await (await fetch("/__bench/doc.bin")).arrayBuffer());
+    const docResponse = await fetch("/__bench/doc.bin");
+    const snapshot = new Uint8Array(await docResponse.arrayBuffer());
     marks.fetched = now();
     marks.snapshotBytes = snapshot.length;
+    // The snapshot's derived-data stamp, as the store would record it (a snapshot the engine wrote, --snapshot-in).
+    const derivedVersion = Number(docResponse.headers.get("x-derived-data-version") || params.get("derived") || 0) || 0;
     let engine = null;
     const origCreate = Engine.create;
     Engine.create = async (...a) => {
@@ -1173,17 +1183,38 @@ function openPageMain() {
           marks.firstRenderMs = marks.firstRender - t1;
         }
       };
-      // engine_load itself (the worker path hands the bytes straight to it; Engine.load encodes first). The first
-      // canvas frame that counts is the first one after it (Engine.create draws an empty canvas before).
-      const l0 = x.load;
-      x.load = (hh, bytes) => {
-        const t1 = now();
-        const r = l0(hh, bytes);
+      // engine_load itself (the worker path hands the bytes straight to it; Engine.load encodes first; a kiwi-reading
+      // engine takes the store's snapshot bytes through `loadKiwi` → engine_load / engine_load_at). The first canvas
+      // frame that counts is the first one after it (Engine.create draws an empty canvas before).
+      const onLoad = (bytes, t1) => {
         marks.engineLoadRawMs = now() - t1;
         marks.engineLoaded = now();
+        marks.loadBytes ??= bytes.length;
         marks.jsonBytes ??= bytes.length;
+        // The first byte tells the two forms apart (docs/engine-build.md "Figma parity round 3"): "{" is the JSON.
+        marks.wire ??= bytes[0] === 0x7b || bytes[0] === 0x5b || bytes[0] === 0x20 ? "json" : "kiwi";
         n = 0;
         delete marks.firstRender;
+      };
+      for (const name of ["load", "loadAt"]) {
+        const f = x[name];
+        if (typeof f !== "function") continue;
+        x[name] = (hh, bytes, ...rest) => {
+          const t1 = now();
+          const r = f(hh, bytes, ...rest);
+          onLoad(bytes, t1);
+          return r;
+        };
+      }
+      // Journal frames replayed after the load (a kiwi engine applies the store's frames as they are).
+      const a0 = x.applyChanges;
+      x.applyChanges = (hh, bytes, flags) => {
+        const t1 = now();
+        const r = a0(hh, bytes, flags);
+        if (!marks.ready) {
+          marks.framesReplayed = (marks.framesReplayed ?? 0) + 1;
+          marks.framesReplayMs = (marks.framesReplayMs ?? 0) + (now() - t1);
+        }
         return r;
       };
       return e;
@@ -1219,25 +1250,40 @@ function openPageMain() {
       async flush() {},
       ...(usePrepare
         ? {
-            // The app's path: the store's source prepares the engine's bytes in its worker (memoized across StrictMode's two mounts).
-            prepare() {
-              if (this._prepared) return this._prepared;
+            // The app's path: the store's source prepares the engine's bytes in its worker (memoized across StrictMode's
+            // two mounts; asked again for the wire form the engine turned out to read, as the store's source does).
+            prepare(format) {
+              if (this._prepared && (!format || this._prepared.format === format)) return this._prepared.load;
               const t = now();
-              marks.prepareStart = now();
-              const p = prepareDocument({ snapshot, journal: [], sessionID: 1 });
-              void p.fonts.then((known) => {
-                marks.fontsKnown = now();
-                marks.fontCount = (known.fonts ?? known).length + (known.needsFallbackFont ? 1 : 0);
+              marks.prepareStart ??= now();
+              marks.prepareFormat = format ?? "json";
+              const p = prepareDocument({ snapshot, journal: [], sessionID: 1, derivedDataVersion: derivedVersion }, format);
+              const facts = this._prepared ? this._prepared.load.facts : p.facts;
+              void facts.then((known) => {
+                marks.fontsKnown ??= now();
+                marks.fontCount = known.fonts.length + (known.needsFallbackFont ? 1 : 0);
+                marks.fontPages = Object.keys(known.fontsByPage ?? {}).length;
+                marks.storedDerivedVersion = known.derivedDataVersion;
               });
               void p.document.then((d) => {
                 marks.preparedMs = now() - t;
                 marks.prepared = now();
-                marks.jsonBytes = d.bytes.length;
+                marks.jsonBytes = d.bytes ? d.bytes.length : 0;
+                marks.convertedBytes = d.bytes ? d.bytes.length : 0;
                 marks.storedNodes = d.nodeCount;
                 marks.prepareTiming = d.timing;
+                marks.preparedFormat = d.format;
               });
-              this._prepared = p;
-              return p;
+              this._prepared = { format: format ?? "json", load: { ...p, facts } };
+              return this._prepared.load;
+            },
+            async saveSnapshot(bytes, info) {
+              marks.snapshotSaved ??= now();
+              marks.savedSnapshotBytes = bytes.length;
+              marks.snapshotDerivedVersion = info?.derivedDataVersion ?? 0;
+              // Kept by the bench server when --snapshot-out asks (the next run opens from it).
+              await fetch(`/__bench/snapshot?derived=${info?.derivedDataVersion ?? 0}`, { method: "POST", body: bytes }).catch(() => {});
+              return true;
             },
           }
         : {}),
@@ -1282,9 +1328,12 @@ function openPageMain() {
     await painted();
     marks.imagesFrame = now();
     for (let i = 0; i < 70 && !marks.thumbnail; i++) await sleep(100);
+    // --snapshot-out: the engine's snapshot is written ~15 s after an open whose snapshot lacked this engine's derived data.
+    if (params.get("waitSnapshot") === "1") for (let i = 0; i < 300 && !marks.snapshotSaved; i++) await sleep(100);
     marks.end = now();
     marks.heap = engine["x"].module.HEAPU8.length;
     marks.stats = engine.stats();
+    marks.engineWire = typeof engine.wire === "string" ? engine.wire : undefined;
     marks.pages = engine.pages().length;
     marks.page = engine.getSelection().pageId;
     window.__open.done = true;
@@ -1341,7 +1390,35 @@ const server = await createServer({
           }
           if (url.pathname === "/__bench/doc.bin") {
             res.setHeader("content-type", "application/octet-stream");
+            if (doc.derivedDataVersion) res.setHeader("x-derived-data-version", String(doc.derivedDataVersion));
             res.end(Buffer.from(doc.message));
+            return;
+          }
+          if (url.pathname === "/__bench/snapshot" && req.method === "POST") {
+            const chunks = [];
+            req.on("data", (c) => chunks.push(c));
+            req.on("end", async () => {
+              const bytes = Buffer.concat(chunks);
+              report.engineSnapshotBytes = bytes.length;
+              // The store's check (src/shared/store/snapshotCheck.ts): would it adopt this snapshot over the file?
+              try {
+                const [{ decodeMessage }, { NodeTable }, { snapshotLosses }] = await Promise.all([
+                  s.ssrLoadModule(path.join(repo, "src/shared/schema/codec.ts")),
+                  s.ssrLoadModule(path.join(repo, "src/shared/schema/patch.ts")),
+                  s.ssrLoadModule(path.join(repo, "src/shared/store/snapshotCheck.ts")),
+                ]);
+                const l = snapshotLosses(NodeTable.fromMessage(decodeMessage(doc.message)), NodeTable.fromMessage(decodeMessage(new Uint8Array(bytes))));
+                report.engineSnapshotLosses = { total: l.total, missingNodes: l.missingNodes, droppedFields: l.droppedFields, examples: l.examples };
+              } catch (e) {
+                report.engineSnapshotLosses = { error: String(e) };
+              }
+              report.engineSnapshotDerivedVersion = Number(url.searchParams.get("derived") || 0);
+              if (snapshotOut) {
+                writeFileSync(snapshotOut, bytes);
+                writeFileSync(`${snapshotOut}.json`, JSON.stringify({ derivedDataVersion: report.engineSnapshotDerivedVersion, bytes: bytes.length, file: report.file }));
+              }
+              res.end("ok");
+            });
             return;
           }
           if (url.pathname === "/__bench/image") {
@@ -1393,6 +1470,13 @@ let doc;
     report.importMs = performance.now() - t1;
     report.figBytes = bytes.length;
     doc = { message: prepared.message, images: prepared.images };
+    if (snapshotIn) {
+      // The engine's own snapshot of this file (a previous run's --snapshot-out): the images stay the import's.
+      const meta = existsSync(`${snapshotIn}.json`) ? JSON.parse(readFileSync(`${snapshotIn}.json`, "utf8")) : {};
+      doc.message = new Uint8Array(readFileSync(snapshotIn));
+      doc.derivedDataVersion = Number(meta.derivedDataVersion || 0);
+      report.snapshotIn = { path: snapshotIn, derivedDataVersion: doc.derivedDataVersion };
+    }
   } else {
     const { encodeMessage } = await server.ssrLoadModule(path.join(repo, "src/shared/schema/codec.ts"));
     const { message, images } = syntheticMessage(syntheticCount);
@@ -1589,7 +1673,7 @@ if (openMode) {
     report.page = pages.find((p) => p.guid === openPage) ?? null;
   }
   await profiled("open", async () => {
-    await page.goto(`${base}__bench/open.html?strict=${noStrict ? 0 : 1}&prepare=${flag("--no-prepare") ? 0 : 1}&page=${encodeURIComponent(openPage ?? "")}`);
+    await page.goto(`${base}__bench/open.html?strict=${noStrict ? 0 : 1}&prepare=${flag("--no-prepare") ? 0 : 1}&page=${encodeURIComponent(openPage ?? "")}&waitSnapshot=${snapshotOut ? 1 : 0}`);
     await page.waitForFunction(() => window.__open && window.__open.done, null, { timeout: 150000 });
   });
   const open = await page.evaluate(() => window.__open);
@@ -1709,7 +1793,13 @@ if (openMode) {
   }
   console.log(`  Engine.create (wasm + GL)             ${f1(m.engineCreateMs)} ms → at ${at("engineCreated")}`);
   if (m.engineLoadMs !== undefined) console.log(`  engine.load (encode + engine_load)    ${f1(m.engineLoadMs)} ms → at ${at("engineLoaded")}   (engine_load alone ≈ ${f1(m.engineLoadRawMs ?? m.engineLoadMs - m.encodeMs)} ms)`);
-  else console.log(`  engine_load (the prepared bytes)      ${f1(m.engineLoadRawMs)} ms → at ${at("engineLoaded")}`);
+  else console.log(`  engine_load (${m.wire === "kiwi" ? "the store's kiwi bytes" : "the prepared bytes"})${m.wire === "kiwi" ? " " : "      "}${f1(m.engineLoadRawMs)} ms → at ${at("engineLoaded")}   (${mb(m.loadBytes ?? m.jsonBytes)} ${m.wire ?? "json"}${m.framesReplayed ? `, ${m.framesReplayed} journal frames replayed in ${f1(m.framesReplayMs)} ms` : ""}${m.prepareFormat ? `; worker asked for ${m.prepareFormat}` : ""})`);
+  if (m.storedDerivedVersion || m.stats?.derivedUsed || m.stats?.derivedStale) console.log(`  derived data                          stored version ${m.storedDerivedVersion ?? 0}; at load: ${m.stats?.derivedUsed ?? "—"} entries used, ${m.stats?.derivedStale ?? "—"} re-derived`);
+  if (m.snapshotSaved) console.log(`  engine snapshot saved                 ${at("snapshotSaved")}   (${mb(m.savedSnapshotBytes)}, derived version ${m.snapshotDerivedVersion})`);
+  if (report.engineSnapshotLosses) {
+    const l = report.engineSnapshotLosses;
+    console.log(l.total ? `  the store would REFUSE it:            ${l.missingNodes} nodes and ${l.total - l.missingNodes} values the file holds are missing — ${Object.entries(l.droppedFields).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([f, n]) => `${f}×${n}`).join(", ")}` : `  the store would adopt it              (nothing of the file's is missing)${l.error ? ` — check failed: ${l.error}` : ""}`);
+  }
   console.log(`  onReady (chrome committed)            ${at("ready")}`);
   console.log(`  chrome painted                        ${at("chromePainted")}`);
   console.log(`  Layers rows in the DOM                ${at("layersDom")}`);

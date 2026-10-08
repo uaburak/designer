@@ -29,6 +29,18 @@ const registry = new Map<number, ViewInfo>();
 export const viewOf = (contents: WebContents): ViewInfo | undefined => registry.get(contents.id);
 export const allViews = () => [...registry.entries()];
 
+/**
+ * The spare editor adopted for a tab (docs/desktop.md §3.1): from now on IPC
+ * from this view is the tab's, and `desktop:init` answers the tab and file —
+ * before `tab:attach` is sent, so a page that initialises after the adoption
+ * learns its file either way.
+ */
+export function adoptView(contents: WebContents, tabId: string, fileKey: string): void {
+  const info = registry.get(contents.id);
+  if (!info) return;
+  registry.set(contents.id, { ...info, tabId, fileKey });
+}
+
 export const backgroundOf = (role: Role) => VIEW_BACKGROUND[role][nativeTheme.shouldUseDarkColors ? "dark" : "light"];
 
 export function createView(role: Role, windowId: string, tabId: string | null, query: Record<string, string>, fileKey: string | null = null): WebContentsView {

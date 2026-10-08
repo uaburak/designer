@@ -24,6 +24,8 @@ import type {
   PublishAsset,
   PublishPreview,
   PublishRequest,
+  SnapshotSave,
+  SnapshotSaved,
   VersionId,
   VersionRecord,
   Workspace,
@@ -91,6 +93,8 @@ export interface OpenedFile {
   /** Raw kiwi Message, uncompressed, current schema */
   snapshot: Uint8Array;
   snapshotSeq: number;
+  /** `Message.derivedDataVersion` of the snapshot (0: it carries no `@derived` fields), as the store recorded it */
+  derivedDataVersion: number;
   journal: { seq: number; kind: BatchKind; message: Uint8Array }[];
   headSeq: number;
   ui: FileUiState | null;
@@ -116,6 +120,11 @@ export interface FileRepository {
 
   saveThumbnail(fileKey: FileKey, png: Uint8Array, size: { width: number; height: number }): Promise<void>;
   setUiState(fileKey: FileKey, patch: Partial<FileUiState>): Promise<void>;
+  /**
+   * The engine's own snapshot of the whole document, derived fields included, to replace snapshot + journal at the
+   * head (docs/data.md §5.5): adopted when the store's head is exactly `save.headSeq`, else declined.
+   */
+  saveSnapshot(fileKey: FileKey, save: SnapshotSave): Promise<SnapshotSaved>;
 
   listVersions(fileKey: FileKey): Promise<VersionRecord[]>;
   createVersion(fileKey: FileKey, input: { kind?: "named" | "restore"; title?: string; description?: string; restoredFrom?: VersionId }): Promise<VersionRecord>;

@@ -18,9 +18,10 @@ import { showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { EncodedAsset, Guid, LibraryAssetUsage, LocalAssetInfo, Message, Pixels } from "@/engine/codec";
 import type { LibraryDiff, LibraryRecord, LibraryVersion, PublishPreview, Redirect, LibraryAsset } from "../../../shared/store/types";
+import type { Engine } from "@/engine/Engine";
 import type { EditorController } from "./controller";
 import type { EditorPublishAsset, LibraryAccess, LibraryEntry } from "./documentSource";
-import { engineExports, engineMethod, runEngineCommand } from "./engineCompat";
+import { changesOf, engineCall, engineExports, engineMethod, runEngineCommand } from "./engineCompat";
 import { frameAt, toPage } from "./placeImages";
 import { editorUrl } from "../files/desktop";
 import { copiesHave, guidText, type LibraryCopy, type LNode, type LocalAsset, type PayloadIn } from "./model/libraries";
@@ -157,14 +158,14 @@ export class LibraryIndex {
       }),
       ed.engine.on("DOCUMENT_CHANGED", (e) => {
         this.docVersion++; // usage may have changed
-        const copiesChanged = e.message.nodeChanges.some((c) => {
+        const copiesChanged = changesOf(e).some((c) => {
           const f = c as unknown as Record<string, unknown>;
           return c.phase !== undefined || "sourceLibraryKey" in f || "version" in f || "key" in f;
         });
         // Undo / redo and Restore version bring back document states, bookkeeping included (a deleted main with the
         // version a later publish removed): checked against this file's latest manifest at once (the last one read),
         // then against a fresh read.
-        const back = (e.kind === "UNDO" || e.kind === "REDO" || e.label === RESTORE_VERSION) && e.message.nodeChanges.some(touchesBookkeeping);
+        const back = (e.kind === "UNDO" || e.kind === "REDO" || e.label === RESTORE_VERSION) && changesOf(e).some(touchesBookkeeping);
         if (back && this.own) this.reconcileWith(this.own.record, this.own.manifest);
         if (copiesChanged) void this.refresh();
         else if (back) void this.reconcile();
@@ -429,7 +430,10 @@ export interface PublishItem {
   versionHash: string;
   dependencies: string[];
   dependencyOnly: boolean;
-  payload: Message;
+  /** The payload as the engine's Message (an engine with the interim JSON), or … */
+  payload?: Message;
+  /** … as the kiwi bytes a kiwi-writing engine gave (`encodeAssetsKiwi`): the store keeps them as they are */
+  payloadBytes?: Uint8Array;
   status: "created" | "modified" | "unchanged" | "dependency";
   /** A variable's collection's key */
   collectionKey?: string;
@@ -501,7 +505,10 @@ function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: 
   const all = ed.engine.localAssets();
   const top = all.filter((a) => !a.componentSetId && !a.softDeleted); // a variant publishes with its set
   const listed = top.filter((a) => !a.hiddenFromPublishing && !!a.key && (a.kind !== "VARIABLE" || RESOLVED.has(a.resolvedType ?? "")));
-  const encoded: EncodedAsset[] = listed.length ? ed.engine.encodeAssets(listed.map((a) => a.key)).assets : [];
+  // A kiwi-writing engine hands the payloads as the bytes the store keeps (`encodeAssetsKiwi`); else the JSON Messages.
+  const keys = listed.map((a) => a.key);
+  const encodeKiwi = engineCall<(keys: string[]) => { assets: (Omit<EncodedAsset, "message"> & { bytes: Uint8Array })[] }>(ed.engine, "encodeAssetsKiwi", "set_wire_format");
+  const encoded: (Omit<EncodedAsset, "message"> & { message?: Message; bytes?: Uint8Array })[] = !listed.length ? [] : encodeKiwi ? encodeKiwi(keys).assets : ed.engine.encodeAssets(keys).assets;
   const items = encoded.map(
     (a): PublishItem => ({
       asset: fromEngineAsset(ed, a),
@@ -509,7 +516,7 @@ function draftItems(ed: EditorController): { items: PublishItem[]; hiddenCount: 
       versionHash: a.versionHash,
       dependencies: [...a.dependencies],
       dependencyOnly: a.dependencyOnly,
-      payload: a.message,
+      ...(a.bytes ? { payloadBytes: a.bytes } : { payload: a.message }),
       status: "unchanged",
       ...(a.collectionKey ? { collectionKey: a.collectionKey } : {}),
       ...(a.componentSetKey ? { componentSetKey: a.componentSetKey } : {}),
@@ -615,7 +622,7 @@ function toPublishAsset(i: PublishItem, withPayload: boolean, thumbnailPng?: Uin
     ...(a.containingFrame ? { containingFrame: a.containingFrame } : {}),
     ...(i.collectionKey ? { collectionKey: i.collectionKey } : {}),
     ...(i.componentSetKey ? { componentSetKey: i.componentSetKey } : {}),
-    ...(withPayload ? { payload: i.payload } : {}),
+    ...(withPayload ? (i.payloadBytes ? { payloadBytes: i.payloadBytes } : { payload: i.payload }) : {}),
     ...(thumbnailPng ? { thumbnailPng } : {}),
   };
 }
@@ -766,9 +773,25 @@ async function fetchForImport(ed: EditorController, lib: string, wants: { key: s
  * Library copies in (docs/schema.md §8.2): the engine's `importLibraryAssets` — a SYSTEM change (journaled, not an
  * undo step); a copy already here is reused. Returns asset key → the copy root here.
  */
+/**
+ * The engine's import / update with the payloads as the store holds them (kiwi) when the engine reads kiwi
+ * (`importLibraryAssetsKiwi` / `applyLibraryUpdateKiwi`, docs/engine-build.md "Figma parity round 3") — nothing
+ * decoded or converted on the way — else as the interim JSON Messages.
+ */
+function importAssets(ed: EditorController, payloads: readonly PayloadIn[], opts: Parameters<Engine["importLibraryAssets"]>[1]): ReturnType<Engine["importLibraryAssets"]> {
+  const kiwi = engineCall<(messages: Uint8Array[], o: typeof opts) => ReturnType<Engine["importLibraryAssets"]>>(ed.engine, "importLibraryAssetsKiwi", "set_wire_format");
+  if (kiwi && payloads.every((p) => p.bytes)) return kiwi(payloads.map((p) => p.bytes!), opts);
+  return ed.engine.importLibraryAssets(payloads.map((p) => p.message), opts);
+}
+function updateAssets(ed: EditorController, payloads: readonly PayloadIn[], opts: Parameters<Engine["applyLibraryUpdate"]>[1]): ReturnType<Engine["applyLibraryUpdate"]> {
+  const kiwi = engineCall<(messages: Uint8Array[], o: typeof opts) => ReturnType<Engine["applyLibraryUpdate"]>>(ed.engine, "applyLibraryUpdateKiwi", "set_wire_format");
+  if (kiwi && payloads.every((p) => p.bytes)) return kiwi(payloads.map((p) => p.bytes!), opts);
+  return ed.engine.applyLibraryUpdate(payloads.map((p) => p.message), opts);
+}
+
 function importCopies(ed: EditorController, lib: string, payloads: PayloadIn[]): Map<string, Guid> {
   if (!payloads.length) return new Map();
-  const r = ed.engine.importLibraryAssets(payloads.map((p) => p.message), { libraryKey: lib });
+  const r = importAssets(ed, payloads, { libraryKey: lib });
   return r.status === Status.OK ? new Map(r.assets.filter((a) => a.libraryKey === lib).map((a) => [a.key, a.id])) : new Map();
 }
 
@@ -882,7 +905,7 @@ export async function acceptUpdates(ed: EditorController, items: readonly Update
   // The copies the engine actually wrote ("library/key"): a copy already at that version is reused, not written.
   const written = new Set<string>();
   const run = (c: Call) => {
-    const r = ed.engine.applyLibraryUpdate(c.payloads.map((p) => p.message), { libraryKey: c.lib, keys: c.keys, ...(c.redirects.length ? { redirects: c.redirects } : {}) });
+    const r = updateAssets(ed, c.payloads, { libraryKey: c.lib, keys: c.keys, ...(c.redirects.length ? { redirects: c.redirects } : {}) });
     if (r.status === Status.OK) for (const a of r.assets) if (a.updated) written.add(`${a.libraryKey}/${a.key}`);
     return r;
   };
@@ -925,7 +948,7 @@ export async function updateSelectedInstances(ed: EditorController, item: Update
   let n = 0;
   ed.batch("Update instance", () => {
     // Inside the step: undo takes the new copy away with the swap.
-    const r = ed.engine.importLibraryAssets(payloads.map((p) => p.message), { libraryKey: item.library, asNew: true, keys: [item.key, ...hidden.map((h) => h.key)] });
+    const r = importAssets(ed, payloads, { libraryKey: item.library, asNew: true, keys: [item.key, ...hidden.map((h) => h.key)] });
     const fresh = r.status === Status.OK ? r.assets.find((a) => a.key === item.key && a.libraryKey === item.library && a.created && !before.has(a.id)) : undefined;
     if (!fresh) return; // an engine without `asNew` reuses the copy here: nothing to swap onto
     const target = item.copy.kind === "COMPONENT_SET" ? null : fresh.id;

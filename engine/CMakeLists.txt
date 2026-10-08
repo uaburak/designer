@@ -15,15 +15,19 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(ENG_SANITIZE "" CACHE STRING "Sanitizers for native builds, e.g. address;undefined")
 include(cmake/Flags.cmake)
 include(cmake/ThirdParty.cmake)
+# schemagen's headers (the binary schema the kiwi codec reads; the generated codecs for the native tests).
+include(cmake/Generators.cmake)
 
 add_library(eng_core STATIC
   src/base/FractionalIndex.cpp
   src/base/Json.cpp
   src/base/DerivedIds.cpp
+  src/schema/SchemaTable.cpp
   src/scene/Node.cpp
   src/scene/Document.cpp
   src/scene/ChangeSet.cpp
   src/scene/CodecJson.cpp
+  src/scene/CodecKiwi.cpp
   src/hit/SpatialIndex.cpp
   src/hit/HitTest.cpp
   src/hit/Picking.cpp
@@ -48,6 +52,7 @@ add_library(eng_core STATIC
   src/text/Unicode.cpp
   src/text/Fonts.cpp
   src/text/TextLayout.cpp
+  src/text/DerivedText.cpp
   src/text/TextEdit.cpp
   src/editor/TextEditing.cpp
   src/editor/VectorEditing.cpp
@@ -64,11 +69,16 @@ add_library(eng_core STATIC
   src/geometry/NodeGeometry.cpp
 )
 target_include_directories(eng_core PUBLIC src)
+# kiwi.h (the runtime) and the generated binary schema: SYSTEM, so their warnings don't fail -Werror.
+target_include_directories(eng_core SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/kiwi ${ENG_GENERATED})
+add_dependencies(eng_core eng_schema_gen)
 target_link_libraries(eng_core PUBLIC eng_third_party)
 eng_compile_flags(eng_core)
 
 if(EMSCRIPTEN)
   include(cmake/Emscripten.cmake)
+  # The kiwi runtime (natively it comes with the generated codecs in eng_schema, whose templates need it in one TU).
+  target_sources(eng_core PRIVATE src/schema/KiwiRuntime.cpp)
   target_compile_options(eng_core PRIVATE -msimd128)
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(eng_core PRIVATE -O3 -flto -DNDEBUG)
@@ -88,8 +98,6 @@ if(EMSCRIPTEN)
   eng_compile_flags(engine_wasm)
   eng_wasm_target(engine_wasm)
 else()
-  # The generated kiwi codecs (native only for now: nothing in the Wasm uses them yet).
-  include(cmake/Generators.cmake)
   add_executable(engine_tests
     tests/main.cpp
     tests/unit/base.fractional_index.test.cpp
@@ -118,6 +126,7 @@ else()
     tests/unit/editor.vector.test.cpp
     tests/unit/render.paths.test.cpp
     tests/unit/render.cache.test.cpp
+    tests/unit/text.stored.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)

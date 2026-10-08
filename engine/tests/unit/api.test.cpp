@@ -5,6 +5,8 @@
 #include "base/Json.h"
 #include "doctest.h"
 #include "editor/Keys.h"
+#include "Helpers.h"
+#include "scene/CodecKiwi.h"
 
 using Ptr = uintptr_t;
 using Handle = uintptr_t;
@@ -46,6 +48,10 @@ int32_t engine_layer_changes(Handle h, uint32_t pageSessionID, uint32_t pageLoca
 int32_t engine_font_bind(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen, int32_t faceId);
 void engine_font_missing(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen);
 int32_t engine_next_frame_delay(Handle h);
+int32_t engine_load_at(Handle h, Ptr ptr, uint32_t len, uint32_t pageSessionID, uint32_t pageLocalID);
+int32_t engine_set_wire_format(Handle h, uint32_t format);
+int32_t engine_wire_format(Handle h);
+int32_t engine_attachment(Handle h, uint32_t index);
 }
 
 namespace {
@@ -458,5 +464,118 @@ TEST_CASE("api: fonts arriving in a burst are laid out once, at the next call th
   CHECK(engine_tick(h, 16) == 1);
   engine_render(h);
   CHECK(engine_needs_frame(h) == 0);
+  engine_destroy(h);
+}
+
+TEST_CASE("api: kiwi at the boundary — load_at, events with payloads, encode, selection, paste, apply, lists") {
+  using namespace eng;
+  using namespace eng::test;
+  Payload opts{R"({"sessionID":3,"wire":"kiwi"})"};
+  Handle h = engine_create(nullptr, opts.ptr(), opts.len());
+  REQUIRE(h != 0);
+  CHECK(engine_wire_format(h) == 1);
+  // The document as the store hands it over: kiwi Message bytes (two pages; the second one is shown first).
+  std::vector<NodeChange> nodes = baseChanges();
+  NodeProps page2;
+  page2.type = NodeType::CANVAS;
+  page2.name = "Page 2";
+  page2.parentIndex = {eng::test::kDoc, "\""};
+  nodes.push_back(NodeChange::created({0, 3}, page2));
+  nodes.push_back(make({1, 1}, NodeType::FRAME, kPage, "!", {0, 0, 200, 200}, "Frame 1"));
+  nodes.push_back(make({1, 2}, NodeType::ROUNDED_RECTANGLE, {1, 1}, "!", {10, 10, 50, 50}, "Rectangle 1"));
+  nodes.push_back(make({1, 3}, NodeType::ROUNDED_RECTANGLE, {0, 3}, "!", {0, 0, 50, 50}, "On page 2"));
+  Payload doc{codec::writeMessage(0, nodes)};
+  REQUIRE(engine_load_at(h, doc.ptr(), doc.len(), 0, 3) == 0);
+  engine_set_viewport(h, 800, 600, 2, 1600, 1200);
+  REQUIRE(engine_get_selection(h) == 0);
+  CHECK(result() == R"({"pageId":"0:3","refs":[]})");
+  engine_take_events(h);
+
+  // Reads stay JSON.
+  Payload refs{R"({"refs":["1:2"]})"};
+  REQUIRE(engine_read_nodes(h, refs.ptr(), refs.len(), 0) == 0);
+  CHECK(resultJson().get("nodeChanges")->array.at(0).get("name")->string == "Rectangle 1");
+
+  // An edit: DOCUMENT_CHANGED carries a payload index; the Message is an attachment (kiwi).
+  Payload change{R"({"opacity":0.5})"};
+  REQUIRE(engine_set_props(h, refs.ptr(), refs.len(), change.ptr(), change.len(), 0) == 0);
+  REQUIRE(engine_take_events(h) == 0);
+  {
+    auto v = resultJson();
+    int payload = -1;
+    for (auto& e : v.get("events")->array)
+      if (e.get("type")->string == "DOCUMENT_CHANGED") {
+        CHECK(e.get("message") == nullptr);
+        payload = static_cast<int>(e.get("payload")->number);
+      }
+    REQUIRE(payload == 0);
+    REQUIRE(engine_attachment(h, 0) == 0);
+    std::string bytes = result();
+    CHECK(codec::looksKiwi(bytes));
+    codec::KiwiMessage m;
+    REQUIRE(codec::readMessage(bytes, m));
+    CHECK(m.sessionID == 3);
+    REQUIRE(m.changes.size() == 1);
+    CHECK(m.changes[0].guid == Guid{1, 2});
+    CHECK(m.changes[0].phase == Phase::CHANGED);
+    CHECK(m.changes[0].mask == F_OPACITY);
+    CHECK(m.changes[0].props.opacity == 0.5);
+    CHECK(engine_attachment(h, 1) == -5);  // E_NOT_FOUND
+  }
+
+  // The snapshot as kiwi.
+  REQUIRE(engine_encode_document(h, 0) == 0);
+  {
+    codec::KiwiMessage m;
+    REQUIRE(codec::readMessage(result(), m));
+    CHECK(m.changes.size() == nodes.size());
+    CHECK(m.changes[0].guid == eng::test::kDoc);
+  }
+
+  // The clipboard as kiwi, then pasted from those bytes (fresh ids: one more node).
+  REQUIRE(engine_set_selection(h, refs.ptr(), refs.len()) == 0);
+  REQUIRE(engine_encode_selection(h, 0) == 0);
+  std::string clip = result();
+  {
+    codec::KiwiMessage m;
+    REQUIRE(codec::readMessage(clip, m));
+    CHECK(m.hasPastePage);
+    CHECK(m.pastePageId == kPage);
+    REQUIRE(m.regions.size() == 1);
+    CHECK(m.regions[0].nodes == std::vector<Guid>{{1, 2}});
+  }
+  Payload clipPayload{clip};
+  CHECK(engine_paste(h, clipPayload.ptr(), clipPayload.len(), 1) == 1);
+  engine_take_events(h);
+  REQUIRE(engine_encode_document(h, 0) == 0);
+  {
+    codec::KiwiMessage m;
+    REQUIRE(codec::readMessage(result(), m));
+    CHECK(m.changes.size() == nodes.size() + 1);
+  }
+
+  // Changes from outside as kiwi (a rename), and the interim JSON still accepted on the same call.
+  NodeChange rename = NodeChange::changed({1, 2});
+  rename.mask = F_NAME;
+  rename.props.name = "Renamed";
+  Payload renameBytes{codec::writeMessage(5, {rename})};
+  REQUIRE(engine_apply_changes(h, renameBytes.ptr(), renameBytes.len(), 2) == 0);
+  Payload renameJson{R"({"type":"NODE_CHANGES","sessionID":5,"nodeChanges":[{"guid":"1:1","name":"Via JSON"}]})"};
+  REQUIRE(engine_apply_changes(h, renameJson.ptr(), renameJson.len(), 2) == 0);
+  Payload both{R"({"refs":["1:2","1:1"]})"};
+  REQUIRE(engine_read_nodes(h, both.ptr(), both.len(), 0) == 0);
+  {
+    auto v = resultJson();
+    CHECK(v.get("nodeChanges")->array.at(0).get("name")->string == "Renamed");
+    CHECK(v.get("nodeChanges")->array.at(1).get("name")->string == "Via JSON");
+  }
+
+  // Back to JSON outputs on request; bad bytes are refused.
+  REQUIRE(engine_set_wire_format(h, 0) == 0);
+  REQUIRE(engine_encode_document(h, 0) == 0);
+  CHECK(resultJson().get("nodeChanges")->array.size() == nodes.size() + 1);
+  CHECK(engine_set_wire_format(h, 7) == -3);
+  Payload broken{std::string("\x05\x01\x02", 3)};
+  CHECK(engine_load(h, broken.ptr(), broken.len()) == -2);
   engine_destroy(h);
 }

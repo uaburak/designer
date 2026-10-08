@@ -117,6 +117,21 @@ export interface OpenFileResult {
   existing: boolean;
 }
 
+/**
+ * `tab:attach` (docs/desktop.md §3.1, §10.2): an editor view told which tab
+ * and file it is. A view made for a tab has them in its URL already; the
+ * spare editor — pre-warmed with no file — learns them from this message
+ * when a file opens and main adopts it.
+ */
+export interface TabAttach {
+  tabId: string;
+  fileKey: string;
+  mode: "edit" | "prototype";
+  pageId?: string;
+  nodeId?: string;
+  startNodeId?: string;
+}
+
 /** `nav:new-file`: a new design file in a folder (null: Drafts), opened in a tab. */
 export interface NewFileRequest {
   folderId?: string | null;
@@ -196,6 +211,8 @@ export interface IpcEvents {
   "tabs:state": TabsSnapshot;
   "window:state": WindowState;
   "menu:command": MenuCommandEvent;
+  /** An editor view's tab and file (the spare editor adopted for a file that opens) */
+  "tab:attach": TabAttach;
   "tab:visibility": { visible: boolean };
   /** A file tab: send every change to the store and flush it, then answer `tab:flushed` */
   "tab:flush": TabFlush;

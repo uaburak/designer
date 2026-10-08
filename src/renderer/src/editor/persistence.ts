@@ -8,8 +8,10 @@
  * hides).
  */
 import { currentTheme } from "@/ds";
+import { Status } from "@/engine/abi";
 import type { EditorController } from "./controller";
 import type { EditorUiState } from "./documentSource";
+import { encodeDocumentBytes, engineDerivedDataVersion } from "./engineCompat";
 import { colorToHex, hexToColor, sameColor } from "./model/color";
 
 /**
@@ -178,7 +180,137 @@ function trackThumbnail(ed: EditorController): () => void {
   };
 }
 
+// ---- The engine's snapshot with its derived data (docs/data.md §5.5) -----------------------------------------------
+
+/** How long after the last change the engine's snapshot is taken (on an idle moment). */
+const SNAPSHOT_DELAY_MS = 5000;
+/** A file whose stored snapshot lacks this engine's derived data gets one this long after the open, edits or not. */
+const SNAPSHOT_AFTER_OPEN_MS = 15000;
+/** An encode + hand-over slower than this is kept off the flush handshake (main waits 3 s) and left to idle moments. */
+const SNAPSHOT_FLUSH_BUDGET_MS = 1200;
+/** Snapshots at most this often while editing (the flush's is always taken). */
+const SNAPSHOT_MIN_INTERVAL_MS = 60_000;
+
+/** What EditorApp knows of the open that the snapshot schedule needs. */
+const openInfo = new WeakMap<EditorController, { derivedStored: boolean }>();
+
+/** Whether the file's stored snapshot already carried this engine's derived data at open (EditorApp says so). */
+export function noteOpenInfo(ed: EditorController, info: { derivedStored: boolean }): void {
+  openInfo.set(ed, info);
+}
+
+/**
+ * The engine's own snapshot of the document — every node with its `@derived` fields (`fillGeometry`, `strokeGeometry`,
+ * `derivedTextData`, `derivedSymbolData`) and the engine's `derivedDataVersion` — handed to the store, which adopts it
+ * as the file's snapshot when nothing else happened since (`DocumentSource.saveSnapshot`), as Figma's files keep
+ * their derived data: the next open draws its first frame from stored glyph outlines and instance layout, before any
+ * font arrives. Null when this engine build can't encode kiwi with derived data, or a transaction is open.
+ */
+export function captureSnapshot(ed: EditorController): { bytes: Uint8Array; derivedDataVersion: number } | null {
+  const engine = ed.engine;
+  if (engine.destroyed) return null;
+  const version = engineDerivedDataVersion(engine);
+  if (!version) return null;
+  // Never in the middle of a transaction: the snapshot would hold writes the journal doesn't have (yet, or ever).
+  if (engine.txnBegin("snapshot") !== Status.OK) return null;
+  engine.txnCancel();
+  const bytes = encodeDocumentBytes(engine, { derived: true });
+  return bytes ? { bytes, derivedDataVersion: version } : null;
+}
+
+/**
+ * Saves the engine's snapshot a few seconds after the last change (on an idle moment), once after the open when the
+ * stored one lacked this engine's derived data, and at the tab's flush (close, quit, hide) when the encode is quick
+ * enough for the handshake. Off for a source without `saveSnapshot` or an engine without the encode.
+ */
+function trackSnapshot(ed: EditorController): () => void {
+  const save = ed.source.saveSnapshot;
+  if (!save || !engineDerivedDataVersion(ed.engine)) return () => {};
+  let timer = 0;
+  let idle = 0;
+  let stale = false;
+  let supported = true;
+  let lastCostMs = 0;
+  let lastSavedAt = -Infinity;
+  let writing: Promise<void> = Promise.resolve();
+  const cancelIdle = () => {
+    if (idle && typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
+    idle = 0;
+  };
+  const write = (reason: "idle" | "flush"): Promise<void> => {
+    window.clearTimeout(timer);
+    timer = 0;
+    cancelIdle();
+    if (!stale || !supported || ed.engine.destroyed) return writing;
+    if (reason === "flush" && lastCostMs > SNAPSHOT_FLUSH_BUDGET_MS) return writing;
+    // At most one a minute while editing (an encode and the store's check are ~0.5 s of work on a big file).
+    if (reason === "idle" && performance.now() - lastSavedAt < SNAPSHOT_MIN_INTERVAL_MS) {
+      schedule(SNAPSHOT_MIN_INTERVAL_MS - (performance.now() - lastSavedAt));
+      return writing;
+    }
+    if (ed.gestureActive) {
+      if (reason === "idle") schedule(SNAPSHOT_DELAY_MS);
+      return writing;
+    }
+    const t0 = performance.now();
+    const snapshot = captureSnapshot(ed);
+    if (!snapshot) {
+      // An open transaction (a scrub): again later. No encode at all: this build can't; stop asking.
+      if (!encodeDocumentBytes(ed.engine, { derived: false })) supported = false;
+      else if (reason === "idle") schedule(SNAPSHOT_DELAY_MS);
+      return writing;
+    }
+    stale = false;
+    // In the same task as the encode (the source names the head the snapshot stands at).
+    writing = save
+      .call(ed.source, snapshot.bytes, { derivedDataVersion: snapshot.derivedDataVersion })
+      .then((adopted) => {
+        lastCostMs = performance.now() - t0;
+        if (adopted === "refused") {
+          // The store won't take this engine's snapshots (they would lose what the file holds): no more this session.
+          supported = false;
+          return;
+        }
+        lastSavedAt = performance.now();
+        if (!adopted && !ed.engine.destroyed) {
+          // The head moved past the snapshot (a frame from elsewhere): the next quiet moment carries it.
+          stale = true;
+          schedule(SNAPSHOT_DELAY_MS);
+        }
+      })
+      .catch(() => {});
+    return writing;
+  };
+  const schedule = (wait: number) => {
+    window.clearTimeout(timer);
+    cancelIdle();
+    timer = window.setTimeout(() => {
+      timer = 0;
+      if (typeof requestIdleCallback === "function") idle = requestIdleCallback(() => void write("idle"), { timeout: 4000 });
+      else void write("idle");
+    }, wait);
+  };
+  const off = ed.engine.on("DOCUMENT_CHANGED", () => {
+    // Every committed change, the engine's own included (fonts arriving relaid text: new glyph data to keep).
+    stale = true;
+    schedule(SNAPSHOT_DELAY_MS);
+  });
+  if (openInfo.get(ed)?.derivedStored === false) {
+    stale = true;
+    schedule(SNAPSHOT_AFTER_OPEN_MS);
+  }
+  const onFlush = () => write("flush");
+  ed.beforeFlush.add(onFlush);
+  return () => {
+    off();
+    ed.beforeFlush.delete(onFlush);
+    window.clearTimeout(timer);
+    cancelIdle();
+    void write("flush"); // the last state, before the engine goes
+  };
+}
+
 export function attachPersistence(ed: EditorController): () => void {
-  const offs = [trackUiState(ed), trackThumbnail(ed)];
+  const offs = [trackUiState(ed), trackThumbnail(ed), trackSnapshot(ed)];
   return () => offs.forEach((off) => off());
 }

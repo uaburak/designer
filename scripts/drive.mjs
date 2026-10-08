@@ -6,7 +6,9 @@
 //   (unset ELECTRON_RUN_AS_NODE first if your shell has it: Electron would run as plain Node)
 //
 // The window is a set of views, each its own page and renderer process (docs/desktop-impl.md):
-// the tab bar (`?tabbar`), Home (`?files`) and one per open file (`?editor&file=<fileKey>&tab=<id>`).
+// the tab bar (`?tabbar`), Home (`?files`), one per open file (`?editor&file=<fileKey>&tab=<id>`) and the
+// spare editor (`?editor`, pre-warmed, adopted by the next file that opens; `spare` prints it,
+// `open-timing home|tabbar|<fileKey>` measures click → first canvas frame; DESIGNER_DISABLE_SPARE=1 turns it off).
 // The store runs as a utility process (`store` prints it; `new-file`, `open-file`, `files` go through
 // main's own store client). DESIGNER_SEED=demo puts the sample .fig files into a new workspace.
 // Page commands act on a target — the content view in front unless told otherwise:
@@ -47,27 +49,37 @@ let target = "active";
 /** Main's view of the window (src/main/tabs.ts debug()). */
 const debug = () => app.evaluate(() => globalThis.__designer.debug());
 
-/** The page of a view: "tabbar", "home", "active" (the content view in front) or a tab's id. */
+/** The tab a page's preload says it is (`desktop:init`): a tab's id, null for the spare, undefined when it can't say. */
+const tabIdOf = (page) => page.evaluate(() => window.designer?.init?.().then((i) => i.tabId)).catch(() => undefined);
+
+/** The page of a view: "tabbar", "home", "active" (the content view in front), "spare" or a tab's id. */
 async function pageOf(which = target, timeout = 10_000) {
   if (!app) throw new Error("launch first");
   const deadline = Date.now() + timeout;
   for (;;) {
     let match;
+    let id = null;
     if (which === "tabbar") match = (u) => new URL(u).searchParams.has("tabbar");
     else {
-      // The view's page as main has it (Home is ?files; a file tab ?editor&file=…&tab=<id>).
+      // The view's page as main has it (Home is ?files; a file tab ?editor&file=…&tab=<id>; the spare, and a tab
+      // that adopted one, plain ?editor).
       const d = await debug();
-      const id = which === "active" ? d?.shown : which;
+      id = which === "active" ? d?.shown : which;
       const url = d?.views.find((v) => v.id === id)?.url;
       match = (u) => Boolean(url) && u === url;
     }
-    const pages = app.windows().filter((p) => {
+    let pages = app.windows().filter((p) => {
       try {
         return match(p.url());
       } catch {
         return false;
       }
     });
+    // Two pages at the same URL (an adopted spare and the next spare): the one whose preload names this tab.
+    if (pages.length > 1 && id !== null) {
+      const ids = await Promise.all(pages.map(tabIdOf));
+      pages = pages.filter((_, i) => (id === "spare" ? ids[i] === null : ids[i] === id));
+    }
     const page = pages.find((p) => !crashed.has(p));
     if (page) return page;
     if (pages.length) throw new Error(`the page of ${which} crashed (main reloaded it, Playwright can't drive it again) — main-eval and ss still work`);
@@ -166,10 +178,91 @@ const COMMANDS = {
     console.log(` tabbar  pid ${pid}`);
     for (const v of d.views) {
       const tab = d.state.tabs.find((t) => t.id === v.id);
-      console.log(` ${v.visible ? "*" : " "} ${v.id.padEnd(10)} ${v.role.padEnd(6)} pid ${String(v.pid).padEnd(6)} wc ${v.webContentsId}${tab ? `  ${what(tab)} "${tab.title}" ${tab.status}` : `  ${new URL(v.url).search}`}`);
+      console.log(` ${v.visible ? "*" : " "} ${v.id.padEnd(10)} ${v.role.padEnd(6)} pid ${String(v.pid).padEnd(6)} wc ${v.webContentsId}${tab ? `  ${what(tab)} "${tab.title}" ${tab.status}` : `  ${new URL(v.url).search}${v.spare ? ` (spare, ${v.loading ? "loading" : "loaded"})` : ""}`}`);
     }
     for (const t of d.state.tabs.filter((t) => !d.views.some((v) => v.id === t.id))) console.log(`   ${t.id.padEnd(10)} (no view) ${what(t)} "${t.title}" ${t.status}`);
     console.log(` order: ${["home", ...d.state.tabs.map((t) => t.title)].join(" | ")}`);
+  },
+
+  /** The spare editor (docs/desktop.md §3.1): whether one is waiting, its process, whether its page has loaded. */
+  async spare() {
+    if (!app) return console.log("ERROR: launch first");
+    const d = await debug();
+    const s = d.views.find((v) => v.spare);
+    if (!s) return console.log(`spare: none${d.spareEnabled === false ? " (DESIGNER_DISABLE_SPARE=1)" : ""}`);
+    console.log(`spare: wc ${s.webContentsId} pid ${s.pid} ${s.loading ? "loading" : "loaded"}, made ${((Date.now() - s.since) / 1000).toFixed(1)}s ago  ${new URL(s.url).search}`);
+  },
+
+  /**
+   * Click → first canvas frame of a file opened from Home (`open-timing home`: a double click on the first card),
+   * from the tab bar (`open-timing tabbar`: "+", a new file) or by key (`open-timing <fileKey>`, main's open path):
+   * main's time of the open (`nav:open-file` / `nav:new-file`), the page's marks (`window.__designerOpen`:
+   * attached, store source open, editor ready, first frame), and whether the spare was adopted — the tab's view is
+   * the spare that was waiting before the click.
+   */
+  async "open-timing"(arg) {
+    if (!app) return console.log("ERROR: launch first");
+    const how = arg || "home";
+    const before = await debug();
+    const spareBefore = before.views.find((v) => v.spare) ?? null;
+    const lastBefore = before.opens.at(-1) ?? null;
+    const fileCard = '[data-collection-item][data-id^="file:"]';
+    if (how === "home") {
+      // A fresh workspace starts on an empty Recents (DESIGNER_SEED=demo puts the samples in a "Samples" folder): a folder
+      // with files is shown first — a folder card in the view, else the sidebar's Samples (or Drafts).
+      const home = await pageOf("home");
+      if (!(await home.waitForSelector(fileCard, { timeout: 2_000 }).catch(() => null))) {
+        const folderCard = await home.$('[data-collection-item][data-id^="folder:"]');
+        if (folderCard) await folderCard.dblclick();
+        else {
+          // A real click (the sidebar's rows act on pointer events) on the first of these the sidebar has.
+          let picked = null;
+          for (const name of ["Samples", "Drafts"]) {
+            const item = home.getByText(name, { exact: true }).first();
+            if (await item.count()) {
+              await item.click({ timeout: 5_000 });
+              picked = name;
+              break;
+            }
+          }
+          if (!picked) return console.log("open-timing home: Home shows no file, no folder, and no Samples or Drafts in the sidebar");
+        }
+        await home.waitForSelector(fileCard, { timeout: 5_000 });
+        // The cards are in; a moment for the thumbnails and the selection model to settle before the double click.
+        await home.waitForTimeout(300);
+      }
+    }
+    const t0 = Date.now();
+    if (how === "home") await (await pageOf("home")).dblclick(fileCard, { timeout: 5_000 });
+    else if (how === "tabbar") await (await pageOf("tabbar")).click('button[aria-label="New design file"]', { timeout: 5_000 });
+    else await app.evaluate((_e, k) => globalThis.__designer.current().tabs.openFile({ fileKey: k }), how);
+    // The open as main saw it, then the page's marks (the frame is on screen within a few seconds; a slow machine gets 30).
+    const deadline = Date.now() + 30_000;
+    let open;
+    for (;;) {
+      const last = (await debug()).opens.at(-1) ?? null;
+      if (last && (!lastBefore || last.tabId !== lastBefore.tabId || last.at !== lastBefore.at)) {
+        open = last;
+        break;
+      }
+      if (Date.now() > deadline) return console.log("open-timing: main recorded no open in 30s");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const page = await pageOf(open.tabId, 15_000);
+    let marks = null;
+    while (Date.now() < deadline) {
+      marks = await page.evaluate(() => window.__designerOpen ?? null).catch(() => null);
+      if (marks?.firstFrame !== undefined) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const after = await debug();
+    const view = after.views.find((v) => v.id === open.tabId);
+    const ms = (m) => (marks && m !== undefined ? `${Math.round(marks.timeOrigin + m - open.at)} ms` : "—");
+    const adopted = open.adopted && spareBefore && spareBefore.webContentsId === open.webContentsId;
+    console.log(`open-timing ${how}: tab ${open.tabId} (${open.fileKey}); the driver's click reached main after ${open.at - t0} ms`);
+    console.log(`  main open → attached ${ms(marks?.attached)}, source opened ${ms(marks?.sourceOpened)}, editor ready ${ms(marks?.ready)}, first frame ${ms(marks?.firstFrame)}${marks?.firstFrame === undefined ? " (no first frame in 30s)" : ""}`);
+    console.log(`  spare: ${adopted ? "ADOPTED" : open.adopted ? "adopted (but not the one seen before the click)" : "not adopted"} — before: ${spareBefore ? `wc ${spareBefore.webContentsId} pid ${spareBefore.pid}` : "none"}; the tab's view: wc ${view?.webContentsId} pid ${view?.pid}`);
+    console.log(`  TIMING ${JSON.stringify({ how, adopted: Boolean(adopted), mainToDriver: open.at - t0, attached: marks?.attached === undefined ? null : Math.round(marks.timeOrigin + marks.attached - open.at), sourceOpened: marks?.sourceOpened === undefined ? null : Math.round(marks.timeOrigin + marks.sourceOpened - open.at), ready: marks?.ready === undefined ? null : Math.round(marks.timeOrigin + marks.ready - open.at), firstFrame: marks?.firstFrame === undefined ? null : Math.round(marks.timeOrigin + marks.firstFrame - open.at) })}`);
   },
 
   /** The store's utility process: its pid, generation, workspace, the views it has ports for, and what it says about itself. */

@@ -2,16 +2,25 @@
  * `?editor`: the editor view.
  * - `&file=<fileKey>[&tab=<id>]` (the desktop's editor tabs; a browser opens the dev store's files):
  *   the file on the store, through the data workstream's DocumentSource (`@/store`).
+ * - neither `file` nor `doc`, in an editor view of the desktop app: the SPARE editor (docs/desktop.md §3.1) —
+ *   the page pre-warms (the Wasm module compiled and instantiated, the store port taken, the font index read)
+ *   and waits for main to adopt it for a file that opens (`tab:attach`, or an `init()` that already names the
+ *   tab), then mounts that file exactly as `&file=…&tab=…` does.
  * - otherwise a document held in memory: the engine's sample, `&doc=reference` (the owner's file as
  *   in the reference screenshots), `&doc=empty` (a new file), `&doc=components` (components, a set, instances), `&doc=variables` (collections, modes, styles, bound layers) or `&doc=types` (Phase 2's sizing, constraints
  *   and layer types).
  * `&rulers=0` starts with the rulers off. The editor is on `window.__designerEditor` for scripts
- * (tools/editor-shot.mjs) and the console.
+ * (tools/editor-shot.mjs) and the console; the open's timing marks on `window.__designerOpen`
+ * (scripts/drive.mjs `open-timing`).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { EditorApi } from "@shared/desktop";
 import { showToast } from "@/ds";
+import { fonts } from "@/engine/fonts";
+import { loadEngine } from "@/engine/loadEngine";
 import { SAMPLE_DOCUMENT } from "@/engine/sampleDocument";
 import { getStoreClient, openDocument } from "@/store";
+import { editorBridge } from "./desktop";
 import { memoryDocumentSource, type DocumentSource } from "./documentSource";
 import { EditorApp } from "./EditorApp";
 import type { EditorController } from "./controller";
@@ -19,10 +28,30 @@ import type { ImageStore } from "./images";
 import { COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, REFERENCE_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
 import styles from "./EditorApp.module.css";
 
+/**
+ * When the open's steps happened, as `performance.now()` of this page (`timeOrigin` turns them into epoch ms, to set
+ * against main's time of the open): the file known (an attach, or the URL at mount), the store's source open, the
+ * editor up (`onReady`), the first canvas frame presented.
+ */
+export interface OpenMarks {
+  timeOrigin: number;
+  attached?: number;
+  sourceOpened?: number;
+  ready?: number;
+  firstFrame?: number;
+}
+
 declare global {
   interface Window {
     __designerEditor?: EditorController;
+    __designerOpen?: OpenMarks;
   }
+}
+
+/** The first time only: a mark already set stays. */
+function mark(name: Exclude<keyof OpenMarks, "timeOrigin">): void {
+  const marks = (window.__designerOpen ??= { timeOrigin: performance.timeOrigin });
+  marks[name] ??= performance.now();
 }
 
 function memorySource(doc: string | null): DocumentSource {
@@ -100,6 +129,7 @@ function useStoreSource(fileKey: string | null, tabId: string | undefined): { so
     acquire(fileKey, tabId)
       .then((source) => {
         if (!live) return;
+        mark("sourceOpened");
         if (source.recovery) showToast({ message: "This file was recovered after an unexpected quit" });
         setState({ source: withImages(source), error: null });
       })
@@ -114,16 +144,91 @@ function useStoreSource(fileKey: string | null, tabId: string | undefined): { so
   return state;
 }
 
+// ── The spare editor ──────────────────────────────────────────────────────────
+
+interface Adoption {
+  fileKey: string;
+  tabId: string;
+}
+
+/**
+ * The spare's adoption, once per page (the preload hands an attach over once, and React's StrictMode runs effects
+ * twice): main's `tab:attach`, or an `init()` that already names the tab (a page that came up after the adoption).
+ */
+let adoption: Promise<Adoption> | null = null;
+
+function awaitAdoption(d: EditorApi): Promise<Adoption> {
+  adoption ??= new Promise<Adoption>((resolve) => {
+    d.tab.onAttach((a) => resolve({ fileKey: a.fileKey, tabId: a.tabId }));
+    void d
+      .init()
+      .then((info) => {
+        if (info.fileKey && info.tabId) resolve({ fileKey: info.fileKey, tabId: info.tabId });
+      })
+      .catch(() => {});
+  });
+  return adoption;
+}
+
+/**
+ * What a spare does before it has a file: the engine's Wasm compiled and instantiated (`Engine.create` itself
+ * waits for the file — it takes the session id and the canvas), the store port taken (the handshake with the
+ * preload done), the font index read. Each is cached by its module, so the file's open finds them ready.
+ */
+function prewarm(): void {
+  void loadEngine().catch((e: unknown) => console.warn("[spare] the engine could not be loaded ahead:", e));
+  try {
+    getStoreClient();
+  } catch (e) {
+    console.warn("[spare] no store client ahead:", e);
+  }
+  void fonts.list().catch(() => {});
+}
+
+/** The spare's file, once main adopts it (null until then); pre-warms meanwhile. */
+function useAdoption(spare: boolean): Adoption | null {
+  const [adopted, setAdopted] = useState<Adoption | null>(null);
+  useEffect(() => {
+    if (!spare) return;
+    const d = editorBridge();
+    if (!d) return;
+    prewarm();
+    let live = true;
+    void awaitAdoption(d).then((a) => {
+      if (!live) return;
+      mark("attached");
+      setAdopted(a);
+    });
+    return () => {
+      live = false;
+    };
+  }, [spare]);
+  return adopted;
+}
+
 export default function EditorRoute() {
   const params = useMemo(() => new URLSearchParams(location.search), []);
   const doc = params.get("doc");
-  const fileKey = params.get("file");
-  const stored = useStoreSource(fileKey, params.get("tab") ?? undefined);
-  const memory = useMemo(() => (fileKey ? null : memorySource(doc)), [fileKey, doc]);
+  const urlFile = params.get("file");
+  // No file and no sample asked for, in the desktop's editor view: the spare, waiting to be adopted.
+  const spare = useMemo(() => !urlFile && !doc && editorBridge() !== null, [urlFile, doc]);
+  const adopted = useAdoption(spare);
+  const fileKey = urlFile ?? adopted?.fileKey ?? null;
+  const tabId = urlFile ? (params.get("tab") ?? undefined) : adopted?.tabId;
+  // A view made for its file: the file is known from the start.
+  useEffect(() => {
+    if (urlFile) mark("attached");
+  }, [urlFile]);
+  const stored = useStoreSource(fileKey, tabId);
+  const memory = useMemo(() => (fileKey || spare ? null : memorySource(doc)), [fileKey, spare, doc]);
   const source = memory ?? stored.source;
   const onReady = useCallback(
     (ed: EditorController) => {
       window.__designerEditor = ed;
+      mark("ready");
+      // The engine asked for its first frame before the editor was up (load, zoom to fit); it is drawn in the next
+      // animation frame and on screen by the one after.
+      requestAnimationFrame(() => requestAnimationFrame(() => mark("firstFrame")));
       if (params.get("rulers") === "0") ed.ui.set({ rulers: false });
     },
     [params]

@@ -57,6 +57,45 @@ describe("NodeTable.apply (docs/schema.md §4.3)", () => {
     expect(t.get(g(1))!.type).toBe("ROUNDED_RECTANGLE");
   });
 
+  it("keeps a snapshot's derived fields with their engine version, and drops a node's when a change touches it", () => {
+    const t = base();
+    const derived = { layoutSize: { x: 120, y: 24 }, baselines: [{ position: { x: 0, y: 18 }, width: 120, lineY: 0, lineHeight: 24, firstCharacter: 0, endCharacter: 5 }] };
+    const snapshot = msg([rect(1, "!", PAGE, { type: "TEXT", derivedTextData: derived, fillGeometry: [{ windingRule: "NONZERO", commandsBlob: 0 }] }), rect(2, '"', PAGE, { strokeGeometry: [{ windingRule: "NONZERO", commandsBlob: 0 }] })], [new Uint8Array([1, 2])]);
+    snapshot.derivedDataVersion = 7;
+    t.apply(snapshot);
+    expect(t.derivedDataVersion).toBe(7);
+    expect(t.get(g(1))!.derivedTextData).toEqual(derived);
+    // Kept for disk snapshots (with the version), stripped for payloads and diffs (no version either).
+    const kept = t.toMessage({ keepDerived: true });
+    expect(kept.derivedDataVersion).toBe(7);
+    const own = (m: Message, localID: number) => m.nodeChanges!.find((n) => n.guid!.sessionID === S && n.guid!.localID === localID)!;
+    expect(own(kept, 1).derivedTextData).toEqual(derived);
+    expect(own(kept, 2).strokeGeometry).toEqual([{ windingRule: "NONZERO", commandsBlob: 0 }]);
+    const plain = t.toMessage();
+    expect(plain.derivedDataVersion).toBeUndefined();
+    expect(plain.nodeChanges!.every((n) => !("derivedTextData" in n) && !("fillGeometry" in n) && !("strokeGeometry" in n))).toBe(true);
+    // A change to the text node (a rename is enough: its caches were computed from the old values) drops its derived
+    // fields; the untouched rectangle keeps its stroke geometry; a change never writes derived fields of its own.
+    t.apply(msg([{ guid: g(1), name: "Renamed", derivedTextData: { layoutSize: { x: 1, y: 1 } } }]));
+    const text = t.get(g(1))!;
+    expect(text.name).toBe("Renamed");
+    expect(text.derivedTextData).toBeUndefined();
+    expect(text.fillGeometry).toBeUndefined();
+    expect(t.get(g(2))!.strokeGeometry).toBeDefined();
+    expect(t.toMessage({ keepDerived: true }).derivedDataVersion).toBe(7);
+    // A CREATED change (no version) carrying derived fields: they are dropped too; a CREATED in a versioned snapshot keeps them.
+    t.apply(msg([rect(3, "#", PAGE, { fillGeometry: [{ windingRule: "NONZERO", commandsBlob: 0 }] })], [new Uint8Array([9])]));
+    expect(t.get(g(3))!.fillGeometry).toBeUndefined();
+    const clone = t.clone();
+    expect(clone.derivedDataVersion).toBe(7);
+    expect(clone.get(g(2))!.strokeGeometry).toBeDefined();
+    // A restore diff never carries derived fields.
+    const target = t.clone();
+    target.apply(msg([{ guid: g(2), name: "Target" }]));
+    const diff = diffTables(t, target);
+    expect(diff.nodeChanges!.every((n) => !("strokeGeometry" in n))).toBe(true);
+  });
+
   it("does not infer descendants: a subtree is removed by one REMOVED per node", () => {
     const t = base();
     t.apply(msg([{ ...rect(1, "!"), type: "FRAME" }, rect(2, "!", g(1))]));
@@ -96,8 +135,10 @@ describe("snapshot order and blobs", () => {
     expect(out.blobs!.map((x) => [...x.bytes])).toEqual([[1, 2, 3]]); // fillGeometry is @derived: dropped with its blob
     const v = out.nodeChanges!.filter((n) => n.type === "VECTOR");
     expect(v.map((n) => n.vectorData!.vectorNetworkBlob)).toEqual([0, 0]);
+    // A change (no derivedDataVersion) never brings derived fields in: the third node's fillGeometry was dropped at
+    // apply, so even a snapshot that keeps derived fields has no blob for it.
     const kept = t.toMessage({ keepDerived: true });
-    expect(kept.blobs!.length).toBe(2);
+    expect(kept.blobs!.length).toBe(1);
     expect(decodeMessage(encodeMessage(out))).toEqual(out);
   });
 

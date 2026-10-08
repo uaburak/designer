@@ -17,6 +17,7 @@
 
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng {
 
@@ -347,7 +348,12 @@ bool Editor::resolveData(const VariableData& d, const ModeContext& ctx, Resolved
     default: {
       if (d.hasDataType && (d.dataType == VariableDataType::EASING)) {
         out.kind = Resolved::Kind::OTHER;
-        out.raw = d.extra + d.valueExtra;
+        // The literal VariableData as JSON members (its unmodelled fields, and its value's).
+        out.raw = codec::extraToJsonMembers("VariableData", d.extra);
+        if (!d.valueExtra.empty()) {
+          if (!out.raw.empty()) out.raw += ",";
+          out.raw += "\"value\":{" + codec::extraToJsonMembers("VariableAnyValue", d.valueExtra) + "}";
+        }
         return true;
       }
       return false;
@@ -752,8 +758,8 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
     for (size_t i = 0; i < list.size() && i < old.size(); i++) {
       Paint& p = list[i];
       const Paint& o = old[i];
-      if (p.colorVar.present() && p.colorVar == o.colorVar && !(p.color == o.color)) p.colorVar = {};
-      if (p.opacityVar.present() && p.opacityVar == o.opacityVar && p.opacity != o.opacity) p.opacityVar = {};
+      if (p.colorVar.present() && p.colorVar == o.colorVar && !(p.color == o.color)) p.colorVar = VarBox();
+      if (p.opacityVar.present() && p.opacityVar == o.opacityVar && p.opacity != o.opacity) p.opacityVar = VarBox();
       for (size_t s = 0; s < p.stopVars.size() && s < p.stops.size() && s < o.stops.size() && s < o.stopVars.size(); s++)
         if (p.stopVars[s].present() && p.stopVars[s] == o.stopVars[s] && !(p.stops[s].color == o.stops[s].color)) p.stopVars[s] = {};
     }
@@ -764,20 +770,20 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
     for (size_t i = 0; i < c.props.effects.size() && i < before.effects.size(); i++) {
       Effect& e = c.props.effects[i];
       const Effect& o = before.effects[i];
-      if (e.colorVar.present() && e.colorVar == o.colorVar && !(e.color == o.color)) e.colorVar = {};
-      if (e.radiusVar.present() && e.radiusVar == o.radiusVar && e.radius != o.radius) e.radiusVar = {};
-      if (e.spreadVar.present() && e.spreadVar == o.spreadVar && e.spread != o.spread) e.spreadVar = {};
-      if (e.xVar.present() && e.xVar == o.xVar && e.offset.x != o.offset.x) e.xVar = {};
-      if (e.yVar.present() && e.yVar == o.yVar && e.offset.y != o.offset.y) e.yVar = {};
+      if (e.colorVar.present() && e.colorVar == o.colorVar && !(e.color == o.color)) e.colorVar = VarBox();
+      if (e.radiusVar.present() && e.radiusVar == o.radiusVar && e.radius != o.radius) e.radiusVar = VarBox();
+      if (e.spreadVar.present() && e.spreadVar == o.spreadVar && e.spread != o.spread) e.spreadVar = VarBox();
+      if (e.xVar.present() && e.xVar == o.xVar && e.offset.x != o.offset.x) e.xVar = VarBox();
+      if (e.yVar.present() && e.yVar == o.yVar && e.offset.y != o.offset.y) e.yVar = VarBox();
     }
   if (m & F_LAYOUT_GRIDS)
     for (size_t i = 0; i < c.props.layoutGrids.size() && i < before.layoutGrids.size(); i++) {
       LayoutGrid& g = c.props.layoutGrids[i];
       const LayoutGrid& o = before.layoutGrids[i];
-      if (g.numSectionsVar.present() && g.numSectionsVar == o.numSectionsVar && g.numSections != o.numSections) g.numSectionsVar = {};
-      if (g.offsetVar.present() && g.offsetVar == o.offsetVar && g.offset != o.offset) g.offsetVar = {};
-      if (g.sectionSizeVar.present() && g.sectionSizeVar == o.sectionSizeVar && g.sectionSize != o.sectionSize) g.sectionSizeVar = {};
-      if (g.gutterSizeVar.present() && g.gutterSizeVar == o.gutterSizeVar && g.gutterSize != o.gutterSize) g.gutterSizeVar = {};
+      if (g.numSectionsVar.present() && g.numSectionsVar == o.numSectionsVar && g.numSections != o.numSections) g.numSectionsVar = VarBox();
+      if (g.offsetVar.present() && g.offsetVar == o.offsetVar && g.offset != o.offset) g.offsetVar = VarBox();
+      if (g.sectionSizeVar.present() && g.sectionSizeVar == o.sectionSizeVar && g.sectionSize != o.sectionSize) g.sectionSizeVar = VarBox();
+      if (g.gutterSizeVar.present() && g.gutterSizeVar == o.gutterSizeVar && g.gutterSize != o.gutterSize) g.gutterSizeVar = VarBox();
     }
   // Styles: values that no longer match detach the style.
   auto detach = [&](FieldMask valueBits, FieldMask styleBit, AssetId& out, const AssetId& was) {

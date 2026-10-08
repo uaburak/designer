@@ -186,6 +186,30 @@ const INHERITED_STYLES: [string, string][] = [
   ["inheritGridStyleID", "styleIdForGrid"],
 ];
 
+/** Base64 → bytes without Node's Buffer (the import also runs in the browser's dev store). */
+function base64Bytes(text: string): Uint8Array | null {
+  try {
+    const bin = atob(text);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Figma's newer paints carry the ThumbHash twice — `thumbHashBase64` (24, a string our schema reserves) and
+ * `thumbHash` (25, bytes); a paint with only the string gets the bytes, so the first frame can draw the placeholder.
+ */
+function figmaPaintFixups(p: any, report: ImportReport): any {
+  if (!p || typeof p !== "object" || typeof p.thumbHashBase64 !== "string" || p.thumbHash !== undefined) return p;
+  const bytes = base64Bytes(p.thumbHashBase64);
+  if (!bytes || !bytes.length) return p;
+  inc(report.mappings, "thumbHashBase64 → thumbHash");
+  return { ...p, thumbHash: bytes };
+}
+
 /** The pre-projection pass over every NodeChange (nodes, overrides, text runs): Figma's names → ours. */
 function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, any>): any {
   const m: any = { ...n };
@@ -318,9 +342,13 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
   const report = newImportReport();
   const variantDefs = new Map<string, any>();
   const nodeTargets = new Set(["NodeChange"]);
+  const paintTargets = new Set(["Paint"]);
   const fixed = {
     ...message,
-    nodeChanges: (message.nodeChanges ?? []).map((n: any) => mapValue(theirs, "NodeChange", n, nodeTargets, (_def, v) => figmaNodeFixups(v, report, variantDefs))),
+    nodeChanges: (message.nodeChanges ?? []).map((n: any) => {
+      const node = mapValue(theirs, "NodeChange", n, nodeTargets, (_def, v) => figmaNodeFixups(v, report, variantDefs));
+      return theirs.defs.get("Paint")?.byName.has("thumbHashBase64") ? mapValue(theirs, "NodeChange", node, paintTargets, (_def, p) => figmaPaintFixups(p, report)) : node;
+    }),
   };
   const projected = projectMessageByName(fixed, theirs, ours, report);
   let nodes = projected.nodeChanges ?? [];

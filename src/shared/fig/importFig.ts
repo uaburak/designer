@@ -14,7 +14,7 @@ import { GuidAllocator, guidKey, RESERVED_SESSION_LIMIT, type GUID } from "../sc
 import { MODEL, SchemaModel } from "../schema/model";
 import { NodeTable } from "../schema/patch";
 import { interpretSchema } from "../schema/dynamic";
-import { bytesEqual, fromHex, mapValue } from "../schema/visit";
+import { bytesEqual, fromHex, mapValue, toHex } from "../schema/visit";
 import type { FigCodecs } from "./compression";
 import { decodeCanvas, FigFormatError, type DecodedCanvas } from "./container";
 import { convertFigMessage, type ImportReport } from "./convert";
@@ -36,6 +36,8 @@ export interface PreparedImport {
   /** Nodes whose GUIDs moved to the import session */
   remapped: number;
   nodes: number;
+  /** `Message.derivedDataVersion` of the snapshot (0: Figma's derived data was dropped or absent) */
+  derivedDataVersion: number;
 }
 
 export interface FigImportDeps {
@@ -71,19 +73,30 @@ export function remapSessions(message: Message, sessionID: number): { message: M
   return { message: { ...message, nodeChanges }, remapped: map.size };
 }
 
-/** Re-points `Image.hash` values from one hash to another (an image whose bytes do not match its name). */
-function rehashImages(message: Message, renames: Map<string, string>): Message {
-  if (!renames.size) return message;
+/**
+ * Re-points `Image.hash` values from one hash to another (an image whose bytes do not match its name), and drops a
+ * paint's `imageThumbnail` (Figma's low-res copy, docs/data.md §10) when the file doesn't carry that image: the
+ * paint then loads its full image as before instead of asking for a tier that isn't there.
+ */
+function fixImages(message: Message, renames: Map<string, string>, present: ReadonlySet<string>): Message {
   const pairs = [...renames].map(([from, to]) => [fromHex(from), fromHex(to)] as const);
-  const targets = new Set(["Image"]);
-  const nodeChanges = (message.nodeChanges ?? []).map(
-    (n) =>
-      mapValue(MODEL, "NodeChange", n, targets, (_d, img) => {
+  const images = new Set(["Image"]);
+  const paints = new Set(["Paint"]);
+  const nodeChanges = (message.nodeChanges ?? []).map((n) => {
+    let node: NodeChange = n;
+    if (renames.size)
+      node = mapValue(MODEL, "NodeChange", node, images, (_d, img) => {
         if (!(img.hash instanceof Uint8Array)) return img;
         const hit = pairs.find(([from]) => bytesEqual(from, img.hash));
         return hit ? { ...img, hash: hit[1] } : img;
-      }) as NodeChange,
-  );
+      }) as NodeChange;
+    return mapValue(MODEL, "NodeChange", node, paints, (_d, p) => {
+      const thumb = p?.imageThumbnail;
+      if (!thumb || !(thumb.hash instanceof Uint8Array) || present.has(toHex(thumb.hash))) return p;
+      const { imageThumbnail: _drop, ...rest } = p;
+      return rest;
+    }) as NodeChange;
+  });
   return { ...message, nodeChanges };
 }
 
@@ -130,13 +143,13 @@ export function prepareFromContainer(c: { file: FigFile; canvas: DecodedCanvas }
     images.set(sha1, data);
     if (/^[0-9a-f]{40}$/.test(name) && name !== sha1) renames.set(name, sha1);
   }
-  const message = rehashImages(remapped, renames);
+  const message = fixImages(remapped, renames, new Set(images.keys()));
   const table = NodeTable.fromMessage(message);
   if (!table.get("0:0")) throw new StoreError("corrupt", "This file has no document");
   const fileName = c.file.meta?.file_name;
   const name = (typeof fileName === "string" && fileName.trim()) || figBaseName(opts.name) || "Untitled";
   return {
-    message: codec.encodeMessage(table.toMessage()),
+    message: codec.encodeMessage(table.toMessage({ keepDerived: true })),
     name,
     thumbnail: c.file.thumbnail,
     images,
@@ -144,6 +157,7 @@ export function prepareFromContainer(c: { file: FigFile; canvas: DecodedCanvas }
     report: decoded.report,
     remapped: count,
     nodes: table.size,
+    derivedDataVersion: table.derivedDataVersion,
   };
 }
 

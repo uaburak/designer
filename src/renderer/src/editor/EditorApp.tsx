@@ -17,14 +17,20 @@ import { Status } from "@/engine/abi";
 import { CanvasController } from "@/engine/CanvasController";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
-import { FALLBACK_FAMILIES, fonts } from "@/engine/fonts";
+import { fonts } from "@/engine/fonts";
+import { setEngineWireFormat } from "@/store/documentSource";
+import { canReplayJournal, type DocumentFacts } from "@/store/loadDocument";
 import type { DocumentSource } from "./documentSource";
 import { EditorContext, EditorController, useEditor } from "./controller";
-import { loadEngineBytes } from "./engineCompat";
+import type { Message } from "@/engine/codec";
+import { messageToEngine } from "@/store/engineMessage";
+import { decodeMessage as decodeKiwiMessage } from "../../../shared/schema/codec";
+import { applyEngineBytes, changeBytesOf, engineDerivedDataVersion, engineMethod, engineWireFormat, loadEngineBytes } from "./engineCompat";
+import { planFonts, requestFonts } from "./openFonts";
 import { attachKeyboard } from "./keyboard";
 import { attachClipboard } from "./clipboardIO";
 import { attachDesktop } from "./desktop";
-import { attachPersistence, restoreUiState } from "./persistence";
+import { attachPersistence, noteOpenInfo, restoreUiState } from "./persistence";
 import { runEditorCommand } from "./commands";
 import { useUI } from "./hooks";
 import { Rail } from "./panels/Rail";
@@ -88,51 +94,122 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
     let controller: EditorController | null = null;
     const cleanups: (() => void)[] = [];
     (async () => {
-      // The engine (Wasm compile, GL init, the bundled fonts' request) and the document (decoded and converted in the
-      // source's worker when it has one) are prepared together; the document's fonts are requested as soon as it is
-      // decoded, so they arrive while it is converted and `engine_load` shapes its text once.
-      const prepared = source.prepare?.() ?? null;
+      // The engine (Wasm compile, GL init, the bundled fonts' request) and the document (decoded in the source's
+      // worker when it has one) are prepared together. An engine that reads kiwi takes the store's own bytes as they
+      // are — the snapshot, then each journal frame (docs/desktop.md §3.1) — with no conversion; the shown page's
+      // fonts are requested as soon as the file is decoded, so they bind during the hand-over and the first frame's
+      // text is shaped once. A snapshot that carries this engine's derived data (stored glyphs and instance layout,
+      // as Figma's files do) draws its first frame before any font: the load doesn't wait for them then.
+      const eager = source.prepare?.() ?? null;
       const creating = Engine.create(canvas, { sessionID: source.sessionID ?? 1, theme: engineTheme(currentTheme().resolved) });
       let loaded: number;
-      let types: Parameters<EditorController["noteSourceTypes"]>[0];
-      if (prepared) {
+      let facts: DocumentFacts | null = null;
+      let factsLater: Promise<DocumentFacts> | null = null;
+      let derivedStored = false;
+      const shownPage = source.uiState?.currentPageId ?? null;
+      const askFonts = (known: DocumentFacts) => {
+        if (disposed) return;
+        cleanups.push(requestFonts(planFonts(known, shownPage)));
+      };
+      if (eager) {
         const created = await creating;
         if (disposed) return created.destroy();
-        void prepared.fonts.then((known) => {
-          if (disposed) return;
-          for (const f of known.fonts) fonts.request(f.family, f.style);
-          // Text in a script the Latin fonts lack: the engine will ask for its first fallback family after the load.
-          if (known.needsFallbackFont && FALLBACK_FAMILIES[0]) fonts.request(FALLBACK_FAMILIES[0], "Regular");
-        });
-        const doc = await prepared.document;
-        if (disposed) return created.destroy();
-        await fontsSettledWithin(FONT_WAIT_MS);
-        if (disposed) return created.destroy();
-        engine = created;
-        loaded = loadEngineBytes(engine, doc.bytes);
-        types = { nodeChanges: doc.types };
+        const format = engineWireFormat(created);
+        setEngineWireFormat(format);
+        // The kiwi wire for the engine's outputs too: changes come as the kiwi Message the journal keeps (`bytes`),
+        // the panels read them through `changesOf` (GUIDs as strings on either wire).
+        if (format === "kiwi") engineMethod<(w: "kiwi") => number>(created, "setWireFormat")?.("kiwi");
+        const prepared = source.prepare!(format);
+        const raw = prepared.raw;
+        derivedStored = !!raw && raw.derivedDataVersion > 0 && raw.derivedDataVersion === engineDerivedDataVersion(created);
+        if (format === "kiwi" && raw && canReplayJournal(raw.frames.map((message) => ({ message })))) {
+          // Zero conversions: the worker's decode only tells the fonts and the types, and the load needn't wait for
+          // it when the first frame draws from stored derived data.
+          if (derivedStored) factsLater = prepared.facts.then((f) => (askFonts(f), f));
+          else {
+            facts = await prepared.facts;
+            if (disposed) return created.destroy();
+            askFonts(facts);
+            await fontsSettledWithin(FONT_WAIT_MS);
+          }
+          if (disposed) return created.destroy();
+          engine = created;
+          // The saved page is the one derived at load (`engine_load_at`); `restoreUiState` then finds it current.
+          loaded = loadEngineBytes(engine, raw.snapshot, "kiwi", { page: shownPage });
+          for (const frame of raw.frames) {
+            if (loaded !== Status.OK) break;
+            const s = applyEngineBytes(engine, frame, "load");
+            if (s !== null && s !== Status.OK) loaded = s;
+          }
+        } else {
+          facts = await prepared.facts;
+          if (disposed) return created.destroy();
+          askFonts(facts);
+          const doc = await prepared.document;
+          if (disposed) return created.destroy();
+          if (!derivedStored || doc.format !== "kiwi") await fontsSettledWithin(FONT_WAIT_MS);
+          if (disposed) return created.destroy();
+          engine = created;
+          loaded = doc.bytes ? loadEngineBytes(engine, doc.bytes, doc.format, { page: shownPage }) : loadEngineBytes(engine, raw!.snapshot, "kiwi", { page: shownPage });
+          if (!doc.bytes) {
+            for (const frame of raw!.frames) {
+              if (loaded !== Status.OK) break;
+              const s = applyEngineBytes(engine, frame, "load");
+              if (s !== null && s !== Status.OK) loaded = s;
+            }
+          }
+        }
       } else {
         const [doc, created] = await Promise.all([source.load(), creating]);
         if (disposed) return created.destroy();
         engine = created;
         loaded = engine.load(doc);
-        types = doc;
+        facts = { nodeCount: doc.nodeChanges.length, types: doc.nodeChanges.filter((c) => c.type !== undefined || "booleanOperation" in c), fonts: [], fontsByPage: {}, needsFallbackFont: false, derivedDataVersion: 0 };
       }
       if (loaded !== Status.OK) throw new Error(`the document could not be read (${loaded})`);
       const created = engine;
       store = new EngineStore(engine);
       controller = new EditorController(engine, store, source);
-      controller.noteSourceTypes(types);
+      if (facts) controller.noteSourceTypes({ nodeChanges: facts.types });
+      else if (factsLater) {
+        const ctl = controller;
+        void factsLater.then((f) => {
+          if (!disposed && controller === ctl) ctl.noteSourceTypes({ nodeChanges: f.types });
+        });
+      }
       controller.canvas = canvas;
       const ed = controller;
       cleanups.push(new CanvasController(canvas, engine, { shortcuts: [] }).attach());
       cleanups.push(ed.attachGestureTracking(canvas));
-      cleanups.push(engine.onDocumentChanged((_, e) => source.onChanges(e.message, { kind: e.kind, label: e.label })));
+      // The change as the engine wrote it (kiwi, when the engine speaks it) goes to the store as it is.
+      cleanups.push(
+        engine.on("DOCUMENT_CHANGED", (e) => {
+          const bytes = changeBytesOf(e);
+          // The engine's JSON form for a source that keeps Messages (memory sources, tests), converted only if read;
+          // the store's source journals `bytes` as they are.
+          const kiwiShaped = created.wire === "kiwi" && !!bytes;
+          let converted: Message | null = null;
+          const message = kiwiShaped
+            ? ({
+                type: "NODE_CHANGES",
+                sessionID: source.sessionID ?? 1,
+                get nodeChanges() {
+                  return (converted ??= messageToEngine(decodeKiwiMessage(bytes!))).nodeChanges;
+                },
+                get blobs() {
+                  return (converted ??= messageToEngine(decodeKiwiMessage(bytes!))).blobs;
+                },
+              } as Message)
+            : e.message;
+          source.onChanges(message, { kind: e.kind, label: e.label, bytes });
+        })
+      );
       // Changes made elsewhere (another window, sync) come in without an undo entry; a rename elsewhere shows here.
-      const external = source.onExternalChanges?.((changes) => {
+      const external = source.onExternalChanges?.((changes, info) => {
         if (created.destroyed) return;
         ed.noteSourceTypes(changes);
-        created.applyChanges(changes, "remote");
+        const bytes = (info as { bytes?: Uint8Array } | undefined)?.bytes;
+        if (!bytes || applyEngineBytes(created, bytes, "remote") === null) created.applyChanges(changes, "remote");
       });
       if (external) cleanups.push(external);
       const meta = source.onMetaChanged?.((m) => ed.ui.set({ fileName: m.fileName }));
@@ -149,6 +226,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
         if (view === "fit") engine.command("ZOOM_TO_FIT");
         else engine.setCamera({ x: view.at.x, y: view.at.y, zoom: view.zoom });
       }
+      noteOpenInfo(ed, { derivedStored });
       cleanups.push(attachPersistence(ed));
       canvas.focus({ preventScroll: true });
       setState({ source, ed, error: null });

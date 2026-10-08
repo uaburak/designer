@@ -3,7 +3,8 @@
  * (schema/document.kiwi `Paint`, docs/engine.md §6.5): every type —
  * SOLID, GRADIENT_LINEAR / RADIAL / ANGULAR / DIAMOND, IMAGE — mapped 1:1
  * to the DS picker's paint (`PickerPaint`, Figma's names), the row's label
- * and swatch, image references (20-byte SHA-1 `image.hash`) and the image
+ * and swatch, image references (20-byte SHA-1 `image.hash`), the image's
+ * progressive-display fields (`thumbHash`, `imageThumbnail`) and the image
  * adjustments (`paintFilter`). Plain data; no engine, no React.
  */
 import { colorAt, paintCss, sortStops, type PickerPaint } from "@/ds/util/paint";
@@ -46,8 +47,70 @@ export function hashBytes(hex: string): number[] {
 /** The paint's image (hex hash), or null. */
 export const paintImageHash = (p: FullPaint): string | null => (p.type === "IMAGE" ? hashHex(p.image?.hash) : null);
 
-/** A new IMAGE paint for an imported image (Figma: Fill mode, full opacity). */
-export function imagePaint(hex: string, size: { width: number; height: number }, name?: string): FullPaint {
+/**
+ * What a paint carries for progressive display (docs/schema.md: `thumbHash` field 25, `imageThumbnail` field 9):
+ * Evan Wallace's ThumbHash of the image (drawn in the first frame), and Figma's low-res copy of it — the image
+ * itself when it is at most 512 px, as Figma's own files have it — fetched instead of the full image when the paint
+ * covers no more than 512 device px.
+ */
+export interface ProgressiveImage {
+  thumbHash: Uint8Array | number[] | null;
+  /** The tier's hash (hex); `width` / `height` when known. */
+  thumbnail: { hash: string; width?: number; height?: number } | null;
+}
+
+/** The two fields on the wire: `thumbHash` as numbers (kiwi byte[]), `imageThumbnail` an Image with the tier's 20-byte hash. */
+export interface ProgressivePaintFields {
+  thumbHash?: number[];
+  imageThumbnail?: { hash: number[] };
+}
+
+/** The Paint fields for `progressive` on the engine's wire: byte[] as numbers; nothing for what isn't known. */
+export function progressivePaintFields(progressive: Partial<ProgressiveImage> | null | undefined): ProgressivePaintFields {
+  const out: ProgressivePaintFields = {};
+  if (progressive?.thumbHash?.length) out.thumbHash = Array.from(progressive.thumbHash as ArrayLike<number>);
+  if (progressive?.thumbnail?.hash && /^[0-9a-f]{40}$/i.test(progressive.thumbnail.hash)) out.imageThumbnail = { hash: hashBytes(progressive.thumbnail.hash.toLowerCase()) };
+  return out;
+}
+
+/** ThumbHash bytes as they may arrive (Uint8Array, kiwi byte[] as numbers, or base64 text), or null. */
+export function thumbHashBytes(v: unknown): Uint8Array | null {
+  if (v instanceof Uint8Array) return v.length ? v : null;
+  if (Array.isArray(v)) return v.length && v.every((b) => typeof b === "number") ? Uint8Array.from(v as number[]) : null;
+  if (typeof v === "string" && v) {
+    try {
+      const bytes = Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
+      return bytes.length ? bytes : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** The paint's `thumbHash` bytes, or null. */
+export const paintThumbHash = (p: FullPaint): Uint8Array | null => thumbHashBytes(p.thumbHash);
+
+/** The paint's low-res copy (`imageThumbnail.hash`, hex), or null. */
+export const paintThumbnailHash = (p: FullPaint): string | null => hashHex((p.imageThumbnail as { hash?: ImageHash } | undefined)?.hash);
+
+/** An IMAGE paint with an image but without a ThumbHash or a low-res copy: a candidate for the write-back. */
+export const paintLacksProgressive = (p: FullPaint): boolean => p.type === "IMAGE" && !!paintImageHash(p) && (!paintThumbHash(p) || !paintThumbnailHash(p));
+
+/** The paint with `progressive`'s fields added where it lacks them (nothing else changes). */
+export function withProgressive(p: FullPaint, progressive: ProgressiveImage): FullPaint {
+  const fields = progressivePaintFields(progressive);
+  const out: FullPaint = { ...p };
+  if (fields.thumbHash && !paintThumbHash(p)) out.thumbHash = fields.thumbHash;
+  if (fields.imageThumbnail && !paintThumbnailHash(p)) out.imageThumbnail = fields.imageThumbnail;
+  return out;
+}
+
+/**
+ * A new IMAGE paint for an imported image (Figma: Fill mode, full opacity), with its ThumbHash and low-res copy
+ * when `size` carries them (an `ImportedImage` does).
+ */
+export function imagePaint(hex: string, size: { width: number; height: number } & Partial<ProgressiveImage>, name?: string): FullPaint {
   return {
     type: "IMAGE",
     image: { hash: hashBytes(hex), ...(name ? { name } : {}) },
@@ -58,6 +121,7 @@ export function imagePaint(hex: string, size: { width: number; height: number },
     transform: IDENTITY_MATRIX,
     originalImageWidth: size.width,
     originalImageHeight: size.height,
+    ...progressivePaintFields(size),
   };
 }
 
@@ -103,7 +167,7 @@ export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
 }
 
 function dropImage(p: FullPaint) {
-  for (const k of ["image", "imageScaleMode", "rotation", "scale", "paintFilter", "originalImageWidth", "originalImageHeight"] as const) delete p[k];
+  for (const k of ["image", "imageThumbnail", "thumbHash", "imageScaleMode", "rotation", "scale", "paintFilter", "originalImageWidth", "originalImageHeight"] as const) delete p[k];
 }
 
 // ---- A row's view ------------------------------------------------------------------------------

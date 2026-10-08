@@ -12,14 +12,16 @@
 import { prepareFigImportAsync } from "../../../../shared/fig/importFig";
 import { decodeMessage, encodeMessage, newDocumentMessage, SCHEMA_BINARY } from "../../../../shared/schema/codec";
 import { RESERVED_SESSION_LIMIT, sessionIdFor, splitSessionId } from "../../../../shared/schema/guid";
-import { NodeTable } from "../../../../shared/schema/patch";
+import { messageImageHashes, NodeTable } from "../../../../shared/schema/patch";
 import { restoreDiff, withNewAssetIdentity } from "../../../../shared/store/assetIdentity";
+import { snapshotLosses } from "../../../../shared/store/snapshotCheck";
 import { Emitter } from "../../../../shared/store/emitter";
 import { StoreError } from "../../../../shared/store/protocol";
 import type { BlobStore, FileChange, FileRepository, LibraryEvent, LibraryRegistry, OpenedFile, PreviewService, StoreAdmin, StoreApi, WorkspaceEvent, WorkspaceRepository } from "../../../../shared/store/repositories";
 import {
   isSha1,
   MAX_BATCH_BYTES,
+  MAX_SNAPSHOT_BYTES,
   type AppendAck,
   type BatchKind,
   type ChangeBatch,
@@ -30,6 +32,8 @@ import {
   type FolderId,
   type Hlc,
   type Prefs,
+  type SnapshotSave,
+  type SnapshotSaved,
   type VersionId,
   type VersionRecord,
   type Workspace,
@@ -130,6 +134,8 @@ export interface FileData {
   /** kiwi Message, uncompressed (what `OpenedFile.snapshot` carries) */
   snapshot: Uint8Array;
   snapshotSeq: number;
+  /** `Message.derivedDataVersion` of the snapshot (absent / 0: none) */
+  derivedDataVersion?: number;
   frames: Frame[];
   nextLocal: number;
   lastBatchSeq: Record<string, number>;
@@ -370,7 +376,8 @@ export class MemoryStore {
     if (!d.frames.length) return;
     const table = this.headTable(d);
     d.snapshotSeq = this.headSeq(d);
-    d.snapshot = encodeMessage(table.toMessage());
+    d.snapshot = encodeMessage(table.toMessage({ keepDerived: true }));
+    d.derivedDataVersion = table.derivedDataVersion || undefined;
     d.frames = [];
     d.blobRefs = [...table.imageHashes()];
   }
@@ -396,6 +403,7 @@ export class MemoryStore {
     this.saveData(key, {
       snapshot: input.snapshot,
       snapshotSeq: 0,
+      ...(table.derivedDataVersion ? { derivedDataVersion: table.derivedDataVersion } : {}),
       frames: [],
       nextLocal: input.nextLocal ?? 1,
       lastBatchSeq: {},
@@ -484,6 +492,7 @@ export class MemoryStore {
       schema: SCHEMA_BINARY.slice(),
       snapshot: d.snapshot,
       snapshotSeq: d.snapshotSeq,
+      derivedDataVersion: d.derivedDataVersion ?? 0,
       journal: d.frames.map((f) => ({ seq: f.seq, kind: f.kind, message: f.message })),
       headSeq: this.headSeq(d),
       ui: d.ui,
@@ -560,6 +569,39 @@ export class MemoryStore {
     this.runtime.get(fileKey)?.sessions.delete(sessionID);
   }
 
+  /** The engine's own snapshot of the whole document (derived fields included) replaces snapshot + journal at the head it names (docs/data.md §5.5). */
+  saveSnapshot(fileKey: FileKey, save: SnapshotSave, owner: object): SnapshotSaved {
+    if (!save || !(save.message instanceof Uint8Array) || !save.message.length) throw new StoreError("invalid", "a snapshot needs a message");
+    if (save.message.length > MAX_SNAPSHOT_BYTES) throw new StoreError("too-large", "This snapshot is too large to save");
+    const d = this.fileData(fileKey);
+    const session = this.rt(fileKey).sessions.get(save.sessionID);
+    if (!session) throw new StoreError("read-only", "This file isn't open for editing in this session");
+    if (session.owner !== owner) throw new StoreError("forbidden", "This session belongs to another view");
+    const head = this.headSeq(d);
+    if (head !== save.headSeq) return { adopted: false, seq: head };
+    let message;
+    try {
+      message = decodeMessage(save.message);
+    } catch (e) {
+      throw new StoreError("invalid", `the snapshot doesn't decode: ${(e as Error).message}`);
+    }
+    const first = message.nodeChanges?.[0];
+    if (!first?.guid || first.type !== "DOCUMENT" || first.guid.sessionID !== 0 || first.guid.localID !== 0) throw new StoreError("invalid", "a snapshot starts with the DOCUMENT node");
+    if (message.nodeChanges!.some((n) => n.phase !== "CREATED")) throw new StoreError("invalid", "a snapshot holds CREATED nodes only");
+    const losses = snapshotLosses(this.headTable(d), NodeTable.fromMessage(message));
+    if (losses.total) {
+      this.log("warn", `${fileKey}: refused the engine's snapshot (it lacks ${losses.total} nodes or values the head holds)`, losses);
+      return { adopted: false, seq: head, refused: "loses-data", losses: { missingNodes: losses.missingNodes, droppedFields: losses.droppedFields, examples: losses.examples } };
+    }
+    d.snapshot = save.message;
+    d.snapshotSeq = head;
+    d.derivedDataVersion = message.derivedDataVersion || undefined;
+    d.frames = [];
+    d.blobRefs = [...messageImageHashes(message)];
+    this.saveData(fileKey, d);
+    return { adopted: true, seq: head };
+  }
+
   backlog(fileKey: FileKey, fromSeq: number): FileChange[] {
     const d = this.fileData(fileKey);
     return d.frames.filter((f) => f.seq > fromSeq).map((f) => ({ fileKey, seq: f.seq, sessionID: f.sessionID, kind: f.kind, message: f.message }));
@@ -572,7 +614,7 @@ export class MemoryStore {
   addVersion(fileKey: FileKey, input: Pick<VersionRecord, "kind" | "title" | "description" | "restoredFrom"> & { libraryVersion?: number | null }): VersionRecord {
     const d = this.fileData(fileKey);
     this.compact(d);
-    const record: VersionRecord = { libraryVersion: null, ...input, id: newVersionId(), createdAt: this.clock.now(), seq: d.snapshotSeq, sizeBytes: d.snapshot.length, blobRefs: [...d.blobRefs] };
+    const record: VersionRecord = { libraryVersion: null, ...input, id: newVersionId(), createdAt: this.clock.now(), seq: d.snapshotSeq, sizeBytes: d.snapshot.length, blobRefs: [...d.blobRefs], ...(d.derivedDataVersion ? { derivedDataVersion: d.derivedDataVersion } : {}) };
     d.versions.unshift({ record, snapshot: d.snapshot });
     this.saveData(fileKey, d);
     return { ...record };
@@ -611,7 +653,7 @@ export class MemoryStore {
 
   openVersion(fileKey: FileKey, id: VersionId): OpenedFile {
     const v = this.version(fileKey, id);
-    return { meta: { ...this.ws.getMeta(fileKey) }, mode: "view", sessionID: 0, schema: SCHEMA_BINARY.slice(), snapshot: v.snapshot, snapshotSeq: v.record.seq, journal: [], headSeq: v.record.seq, ui: null, recovery: null };
+    return { meta: { ...this.ws.getMeta(fileKey) }, mode: "view", sessionID: 0, schema: SCHEMA_BINARY.slice(), snapshot: v.snapshot, snapshotSeq: v.record.seq, derivedDataVersion: v.record.derivedDataVersion ?? 0, journal: [], headSeq: v.record.seq, ui: null, recovery: null };
   }
 
   restoreDiff(fileKey: FileKey, id: VersionId): Uint8Array {
@@ -719,6 +761,7 @@ export class MemoryStore {
       },
       saveThumbnail: (fileKey, png, size) => this.saveThumbnail(fileKey, png, size),
       setUiState: async (fileKey, patch) => this.setUiState(fileKey, patch),
+      saveSnapshot: async (fileKey, save) => this.saveSnapshot(fileKey, save, owner),
       listVersions: async (fileKey) => this.fileData(fileKey).versions.map((v) => ({ ...v.record })),
       createVersion: async (fileKey, input) => this.createVersion(fileKey, input ?? {}),
       updateVersion: async (fileKey, id, patch) => this.updateVersion(fileKey, id, patch),

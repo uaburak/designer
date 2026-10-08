@@ -151,9 +151,10 @@ export class WindowController {
     for (const view of [this.tabbar, ...this.tabs.contentViews()]) emit(view.webContents, "window:state", state);
   }
 
-  /** `shell:ready` from the tab bar, or a content view loaded. */
+  /** `shell:ready` from the tab bar, or a content view loaded (which also starts the spare editor's clock, docs/desktop.md §3.1). */
   markReady(part: "tabbar" | "content") {
     this.ready[part] = true;
+    if (part === "content") this.tabs.contentReady();
     if (this.ready.tabbar && this.ready.content) this.showWindow();
   }
 

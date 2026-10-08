@@ -17,6 +17,7 @@ import {
   APPLY_SYSTEM,
   APPLY_USER,
   CommandId,
+  ENCODE_DERIVED,
   ENCODE_SELECTION_CUT,
   INCLUDE_CHILD_IDS,
   INCLUDE_REMOTE,
@@ -29,9 +30,12 @@ import {
   TICK_NEEDS_RENDER,
   TOOLS,
   VECTOR_EDIT_TOOLS,
+  WIRE_JSON,
+  WIRE_KIWI,
   type CommandName,
   type ToolName,
 } from "./abi";
+import { decodeMessage as decodeKiwiMessage } from "../../../shared/schema/codec";
 import {
   decodeCamera,
   decodeEvents,
@@ -46,6 +50,7 @@ import {
   encodeArgs,
   encodeFields,
   encodeMessage,
+  encodeMessageList,
   encodeOptions,
   encodeRefs,
   encodeText,
@@ -88,10 +93,20 @@ import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { loadEngine } from "./loadEngine";
 
+/** The encoding of the engine's structured outputs (docs/engine-build.md "Figma parity round 3"). */
+export type WireFormat = "json" | "kiwi";
+
 export interface EngineOptions {
   /** The session new nodes are created in (allocated by storage, docs/data.md §1). */
   sessionID?: number;
   theme?: "LIGHT" | "DARK";
+  /**
+   * "kiwi": documents and changes cross as schema/document.kiwi Messages — `encodeDocumentKiwi`, `encodeSelectionKiwi`,
+   * `encodeAssetsKiwi` return bytes and DOCUMENT_CHANGED carries `bytes` (its `message` is then the kiwi-shaped
+   * Message, decoded lazily). "json" (the default during the transition): the interim JSON as before. Inputs
+   * (`loadKiwi`, `applyChangesKiwi`, `pasteKiwi`, the library payloads) take either encoding whatever the setting.
+   */
+  wire?: WireFormat;
 }
 
 /**
@@ -115,13 +130,14 @@ export class Engine {
   static async create(canvas: HTMLCanvasElement | null, options: EngineOptions = {}): Promise<Engine> {
     const exports = await loadEngine();
     if (canvas && !canvas.id) canvas.id = "engine-canvas";
-    const handle = exports.create(canvas ? `#${canvas.id}` : null, encodeOptions({ sessionID: options.sessionID ?? 1, theme: options.theme ?? "DARK" }));
+    const wire = options.wire ?? "json";
+    const handle = exports.create(canvas ? `#${canvas.id}` : null, encodeOptions({ sessionID: options.sessionID ?? 1, theme: options.theme ?? "DARK", wire }));
     if (!handle) {
       exports.lastError();
       throw new Error(`engine: ${decodeText(exports.result()) || "could not start"}`);
     }
     fonts.attach(exports);
-    return new Engine(exports, handle, canvas === null);
+    return new Engine(exports, handle, canvas === null, wire);
   }
 
   private readonly x: EngineExports;
@@ -145,11 +161,13 @@ export class Engine {
   private imageSource: ImageSource | null = null;
   private readonly imageLoads = new Map<string, Promise<number>>();
   private readonly unsubscribeFonts: () => void;
+  private wireFormat: WireFormat;
 
-  private constructor(exports: EngineExports, handle: number, headless: boolean) {
+  private constructor(exports: EngineExports, handle: number, headless: boolean, wire: WireFormat) {
     this.x = exports;
     this.h = handle;
     this.headless = headless;
+    this.wireFormat = wire;
     // A font arrived or went missing: the engine relaid its text; drain what that changed and draw.
     this.unsubscribeFonts = fonts.onChange(() => this.pump());
   }
@@ -205,7 +223,9 @@ export class Engine {
     if (!this.h) return value;
     if (this.x.eventsPending() && this.x.hasEvents(this.h)) {
       this.x.takeEvents(this.h);
-      this.queue.push(...decodeEvents(this.x.result()));
+      const events = decodeEvents(this.x.result());
+      for (const event of events) if (event.type === "DOCUMENT_CHANGED") this.attachPayload(event);
+      this.queue.push(...events);
     }
     if (this.x.needsFrame(this.h)) this.schedule();
     if (!this.dispatching) {
@@ -230,9 +250,156 @@ export class Engine {
     return value;
   }
 
+  /**
+   * A kiwi-wire DOCUMENT_CHANGED names its Message by attachment index (`payload`): fetch the bytes now (the result
+   * slot is per call) and give the event its `bytes`, with `message` decoded only if someone reads it.
+   */
+  private attachPayload(event: EventOf<"DOCUMENT_CHANGED">): void {
+    const payload = (event as { payload?: number }).payload;
+    if (typeof payload !== "number") return;
+    if (this.x.attachment(this.h, payload) !== Status.OK) return;
+    const bytes = this.x.result();
+    event.bytes = bytes;
+    if (event.message) return;  // the JSON wire: the message came as JSON too
+    let decoded: Message | null = null;
+    Object.defineProperty(event, "message", {
+      enumerable: true,
+      configurable: true,
+      get: () => (decoded ??= decodeKiwiMessage(bytes) as unknown as Message),
+    });
+  }
+
   /** Drains pending events and schedules a frame if one is wanted (after work the engine did on its own). */
   pump(): void {
     if (this.h) this.after(undefined);
+  }
+
+  // ---- Wire format (docs/engine-build.md "Figma parity round 3") ------------------------------------------
+
+  /** The encoding of the engine's structured outputs. */
+  get wire(): WireFormat {
+    return this.wireFormat;
+  }
+
+  setWireFormat(wire: WireFormat): number {
+    const status = this.x.setWireFormat(this.h, wire === "kiwi" ? WIRE_KIWI : WIRE_JSON);
+    if (status === Status.OK) this.wireFormat = wire;
+    return this.after(status);
+  }
+
+  /** Runs `fn` with the engine's outputs in `wire` (the legacy JSON methods under a kiwi engine). */
+  private withWire<T>(wire: WireFormat, fn: () => T): T {
+    if (this.wireFormat === wire) return fn();
+    const before = this.wireFormat;
+    this.x.setWireFormat(this.h, wire === "kiwi" ? WIRE_KIWI : WIRE_JSON);
+    try {
+      return fn();
+    } finally {
+      this.x.setWireFormat(this.h, before === "kiwi" ? WIRE_KIWI : WIRE_JSON);
+    }
+  }
+
+  /**
+   * Replaces the document with a kiwi `Message` (the store's snapshot bytes, decompressed, as they are; the interim
+   * JSON is accepted too), showing `page` first ("s:l"; default the first page) — only that page is derived. Resets
+   * undo and the selection.
+   */
+  loadKiwi(bytes: Uint8Array, options: { page?: Guid } = {}): number {
+    const [s, l] = options.page ? this.ids(options.page) : [0xffffffff, 0xffffffff];
+    return this.after(this.x.loadAt(this.h, bytes, s, l));
+  }
+
+  /**
+   * The stamp of the derived data this engine writes (`encodeDocumentKiwi({derived: true})`) and trusts at load
+   * (`Message.derivedDataVersion`): a snapshot carrying another stamp is derived again.
+   */
+  derivedDataVersion(): number {
+    return this.x.derivedDataVersion();
+  }
+
+  /** `loadKiwi` under the name the editor's loader looks for (either encoding). */
+  loadBytes(bytes: Uint8Array, options: { page?: Guid } = {}): number {
+    return this.loadKiwi(bytes, options);
+  }
+
+  /** Changes from outside as a kiwi Message (a journal frame, a restore diff; either encoding). See ApplyKind. */
+  applyChangesKiwi(bytes: Uint8Array, kind: ApplyKind = "user"): number {
+    return this.after(this.x.applyChanges(this.h, bytes, Engine.applyFlags(kind)));
+  }
+
+  /**
+   * The whole document as a kiwi snapshot Message (DOCUMENT first, parents before children). `derived`: with the
+   * derived data (derivedSymbolData per instance, derivedTextData per text, Message.derivedDataVersion) for a
+   * snapshot that loads without materializing or shaping.
+   */
+  encodeDocumentKiwi(options: { derived?: boolean } = {}): Uint8Array {
+    return this.withWire("kiwi", () => {
+      this.x.encodeDocument(this.h, options.derived ? ENCODE_DERIVED : 0);
+      return this.after(this.x.result());
+    });
+  }
+
+  /** The selection as a kiwi clipboard Message (pastePageId, pasteFileKey, isCut, clipboardSelectionRegions), or null. */
+  encodeSelectionKiwi(options: { cut?: boolean } = {}): Uint8Array | null {
+    return this.withWire("kiwi", () => {
+      const status = this.x.encodeSelection(this.h, options.cut ? ENCODE_SELECTION_CUT : 0);
+      return this.after(status === Status.OK ? this.x.result() : null);
+    });
+  }
+
+  /** Pastes a clipboard Message given as bytes (either encoding); see `paste`. */
+  pasteKiwi(bytes: Uint8Array, options: { inPlace?: boolean } = {}): number {
+    return this.after(this.x.paste(this.h, bytes, options.inPlace ? PASTE_IN_PLACE : 0));
+  }
+
+  /** `encodeAssets` with each payload as kiwi Message bytes (`bytes`; sessionID 0, as a library payload is). */
+  encodeAssetsKiwi(keys: readonly string[]): { assets: (Omit<EncodedAsset, "message"> & { bytes: Uint8Array })[]; images: string[] } {
+    return this.withWire("kiwi", () => {
+      const status = this.x.encodeAssets(this.h, encodeText(JSON.stringify(keys)));
+      if (status !== Status.OK) return this.after({ assets: [], images: [] });
+      const raw = JSON.parse(decodeText(this.x.result())) as { assets: (Omit<EncodedAsset, "message"> & { payload: number })[]; images: string[] };
+      const assets = raw.assets.map(({ payload, ...info }) => {
+        const bytes = this.x.attachment(this.h, payload) === Status.OK ? this.x.result() : new Uint8Array();
+        return { ...info, bytes };
+      });
+      return this.after({ assets, images: raw.images ?? [] });
+    });
+  }
+
+  /** `importLibraryAssets` with the payloads as kiwi Message bytes. */
+  importLibraryAssetsKiwi(messages: readonly Uint8Array[], options: LibraryImportOptions): LibraryImportResult {
+    return this.libraryCallBytes(this.x.importLibraryAssets, messages, options);
+  }
+
+  /** `applyLibraryUpdate` with the payloads as kiwi Message bytes. */
+  applyLibraryUpdateKiwi(messages: readonly Uint8Array[], options: LibraryUpdateOptions): LibraryImportResult {
+    return this.libraryCallBytes(this.x.applyLibraryUpdate, messages, options);
+  }
+
+  private libraryCallBytes(
+    call: (h: number, messages: Uint8Array, options: Uint8Array) => number,
+    messages: readonly Uint8Array[],
+    options: LibraryImportOptions | LibraryUpdateOptions,
+  ): LibraryImportResult {
+    const status = call(this.h, encodeMessageList(messages), encodeText(JSON.stringify(options)));
+    let result: LibraryImportResult = { status, assets: [], images: [] };
+    if (status === Status.OK) {
+      try {
+        result = JSON.parse(decodeText(this.x.result())) as LibraryImportResult;
+        result.images ??= [];
+      } catch {
+        result = { status, assets: [], images: [] };
+      }
+    }
+    return this.after({ ...result, status });
+  }
+
+  private static applyFlags(kind: ApplyKind): number {
+    return kind === "user" ? APPLY_USER
+      : kind === "system" ? APPLY_SYSTEM
+      : kind === "restore" ? APPLY_USER | APPLY_EXACT
+      : kind === "remote" ? APPLY_REMOTE
+      : APPLY_LOAD;
   }
 
   // ---- Frames -----------------------------------------------------------------
@@ -274,19 +441,15 @@ export class Engine {
 
   /** Changes from outside (see ApplyKind). */
   applyChanges(message: Message, kind: ApplyKind = "user"): number {
-    const flags =
-      kind === "user" ? APPLY_USER
-      : kind === "system" ? APPLY_SYSTEM
-      : kind === "restore" ? APPLY_USER | APPLY_EXACT
-      : kind === "remote" ? APPLY_REMOTE
-      : APPLY_LOAD;
-    return this.after(this.x.applyChanges(this.h, encodeMessage(message), flags));
+    return this.after(this.x.applyChanges(this.h, encodeMessage(message), Engine.applyFlags(kind)));
   }
 
-  /** The whole document as a snapshot Message (DOCUMENT first, parents before children). */
+  /** The whole document as a snapshot Message (DOCUMENT first, parents before children) in the interim JSON shape. */
   encodeDocument(): Message {
-    this.x.encodeDocument(this.h, 0);
-    return this.after(decodeMessage(this.x.result()));
+    return this.withWire("json", () => {
+      this.x.encodeDocument(this.h, 0);
+      return this.after(decodeMessage(this.x.result()));
+    });
   }
 
   pages(): PageInfo[] {
@@ -424,6 +587,18 @@ export class Engine {
     return this.after(JSON.parse(decodeText(this.x.result())) as LayerChanges);
   }
 
+  /**
+   * Pass 1 of the two-pass Layers panel: the outline of `page` — rows in pre-order (each node followed by its children
+   * bottom first), `parents[i]` the parent's row index (−1 for the page), `kinds[i] = typeCode | flags << 8` (flags 1
+   * instance sublayer, 2 isStateGroup, 4 resizeToFit; `types[code]` the type's name), `version` for `layerChanges`.
+   * Null for a missing page. Derives the page first.
+   */
+  layerOutline(page: Guid): { version: number; ids: Guid[]; parents: number[]; kinds: number[]; types: string[] } | null {
+    const [s, l] = this.ids(page);
+    const status = this.x.layerOutline(this.h, s, l);
+    return this.json(status, null);
+  }
+
   /** What is under (x, y), innermost first (for "Select layer" in the context menu). */
   hitTest(x: number, y: number): Guid[] {
     this.x.hitTest(this.h, x, y, 0);
@@ -479,8 +654,10 @@ export class Engine {
    * style, variable and collection it references (outside `clipboardSelectionRegions`) for a paste in another file.
    */
   encodeSelection(options: { cut?: boolean } = {}): Message | null {
-    const status = this.x.encodeSelection(this.h, options.cut ? ENCODE_SELECTION_CUT : 0);
-    return this.after(status === Status.OK ? decodeMessage(this.x.result()) : null);
+    return this.withWire("json", () => {
+      const status = this.x.encodeSelection(this.h, options.cut ? ENCODE_SELECTION_CUT : 0);
+      return this.after(status === Status.OK ? decodeMessage(this.x.result()) : null);
+    });
   }
 
   /**
@@ -608,7 +785,7 @@ export class Engine {
 
   /** Publish payloads: the assets with these keys and their dependencies (`dependencyOnly`), each with its Message. */
   encodeAssets(keys: readonly string[]): { assets: EncodedAsset[]; images: string[] } {
-    return this.json(this.x.encodeAssets(this.h, encodeText(JSON.stringify(keys))), { assets: [], images: [] });
+    return this.withWire("json", () => this.json(this.x.encodeAssets(this.h, encodeText(JSON.stringify(keys))), { assets: [], images: [] }));
   }
 
   /**

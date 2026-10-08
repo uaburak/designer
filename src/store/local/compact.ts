@@ -31,6 +31,8 @@ export interface CompactOutput {
   blobRefs: string[];
   nodes: number;
   frames: number;
+  /** `Message.derivedDataVersion` of the merged snapshot (0: none) */
+  derivedDataVersion: number;
   /** Updates of nodes that did not exist, and other merge anomalies (logged) */
   anomalies: { missing: number; invalidClears: number; badBlobRefs: number };
 }
@@ -70,6 +72,8 @@ export async function compactFiles(input: CompactInput): Promise<CompactOutput> 
     if (scan.badBytes && expect <= input.upTo) throw new Error(`segment ${path} is damaged before seq ${input.upTo}`);
   }
   if (expect <= input.upTo) throw new Error(`frames ${expect}..${input.upTo} are missing`);
-  const message = codec.encodeMessage(table.toMessage());
-  return { snapshot: encodeSnapshot(message), blobRefs: [...table.imageHashes()].sort(), nodes: table.size, frames, anomalies };
+  // The snapshot's derived fields (docs/schema.md §1.3) stay for the nodes no frame touched — the table dropped the
+  // others' — so an open after a compaction still draws its first frame from stored geometry.
+  const message = codec.encodeMessage(table.toMessage({ keepDerived: true }));
+  return { snapshot: encodeSnapshot(message), blobRefs: [...table.imageHashes()].sort(), nodes: table.size, frames, derivedDataVersion: table.derivedDataVersion, anomalies };
 }

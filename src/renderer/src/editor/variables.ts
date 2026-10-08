@@ -19,7 +19,7 @@ import { showToast } from "@/ds";
 import { Status } from "@/engine/abi";
 import type { Color, Guid, Message, NodeChange, NodeFields, Paint } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { engineMethod, hasCommand, runEngineCommand, type CommandArgs } from "./engineCompat";
+import { engineMethod, hasCommand, runEngineCommand, type CommandArgs, changesOf } from "./engineCompat";
 import { sameData } from "./model/mixed";
 import {
   aliasMakesCycle,
@@ -189,7 +189,7 @@ export class VariableIndex {
     this.offs.push(
       ed.engine.on("DOCUMENT_CHANGED", (e) => {
         const internal = this.cache?.assets.internal ?? null;
-        const touches = e.message.nodeChanges.some((c) => {
+        const touches = changesOf(e).some((c) => {
           const f = c as unknown as Record<string, unknown>;
           return (
             this.known.has(c.guid) ||

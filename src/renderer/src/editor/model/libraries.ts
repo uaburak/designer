@@ -164,7 +164,10 @@ export interface ImportPlan {
 export interface PayloadIn {
   key: string;
   versionHash: string;
+  /** The payload as the engine's Message (the store's source decodes it lazily, on first read) */
   message: Message;
+  /** The payload as the store holds it — the kiwi Message: a kiwi-reading engine takes it as it is, no conversion */
+  bytes?: Uint8Array;
 }
 
 /**

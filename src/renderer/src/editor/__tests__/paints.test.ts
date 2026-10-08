@@ -3,7 +3,25 @@
 // placed images, the vector-edit state.
 import { describe, expect, it } from "vitest";
 import type { Message, NodeChange, Paint } from "@/engine/codec";
-import { DEFAULT_LINEAR_TRANSFORM, fromPicker, gradientKey, hashBytes, hashHex, imagePaint, paintLabel, paintSwatch, rotated90, toPicker, withAdjustment } from "../model/paints";
+import {
+  DEFAULT_LINEAR_TRANSFORM,
+  fromPicker,
+  gradientKey,
+  hashBytes,
+  hashHex,
+  imagePaint,
+  paintLabel,
+  paintLacksProgressive,
+  paintSwatch,
+  paintThumbHash,
+  paintThumbnailHash,
+  progressivePaintFields,
+  rotated90,
+  thumbHashBytes,
+  toPicker,
+  withAdjustment,
+  withProgressive,
+} from "../model/paints";
 import { collectColors, regradient, showSelectionColors } from "../model/selectionColors";
 import { hexToColor } from "../model/color";
 import { messageAt } from "../model/clipboard";
@@ -18,6 +36,7 @@ const red = hexToColor("#ff0000");
 const blue = hexToColor("#0000ff");
 const linear: Paint = { type: "GRADIENT_LINEAR", stops: [{ color: red, position: 0 }, { color: blue, position: 1 }], transform: DEFAULT_LINEAR_TRANSFORM, opacity: 1, visible: true };
 const HASH = "a9993e364706816aba3e25717850c26c9cd0d89d"; // SHA-1("abc")
+const TIER = "da39a3ee5e6b4b0d3255bfef95601890afd80709"; // SHA-1("") — stands in for a low-res copy's hash
 
 describe("paints ↔ the picker", () => {
   it("maps every type with Figma's names (STRETCH is Crop)", () => {
@@ -87,10 +106,10 @@ describe("images", () => {
     expect(rotated90({ type: "IMAGE", rotation: 270 }).rotation).toBe(0);
   });
 
-  it("placed images: rectangles their size in a row, filled, pasted in place", () => {
+  it("placed images: rectangles their size in a row, filled, pasted in place, with their progressive fields", () => {
     const m = imageRectangles(
       [
-        { hash: HASH, width: 100, height: 50, name: "a", mime: "image/png" },
+        { hash: HASH, width: 100, height: 50, name: "a", mime: "image/png", thumbHash: new Uint8Array([9, 8, 7, 6, 5]), thumbnail: { hash: TIER, width: 100, height: 50 } },
         { hash: HASH, width: 40, height: 40, name: "b", mime: "image/png" },
       ],
       { x: 10, y: 20 }
@@ -100,6 +119,69 @@ describe("images", () => {
       ["b", { x: 40, y: 40 }, 10 + 100 + PLACE_GAP, 20],
     ]);
     expect(m.nodeChanges[0].fillPaints?.[0].type).toBe("IMAGE");
+    expect(m.nodeChanges[0].fillPaints?.[0].thumbHash).toEqual([9, 8, 7, 6, 5]);
+    expect(paintThumbnailHash(m.nodeChanges[0].fillPaints![0])).toBe(TIER);
+    expect(m.nodeChanges[1].fillPaints?.[0].thumbHash).toBeUndefined();
+    expect(m.nodeChanges[1].fillPaints?.[0].imageThumbnail).toBeUndefined();
+  });
+});
+
+describe("progressive images (Paint.thumbHash, Paint.imageThumbnail)", () => {
+  const thumb = new Uint8Array([21, 246, 2, 156, 154, 1, 2, 3]);
+
+  it("the wire fields: thumbHash as numbers, imageThumbnail as a 20-byte Image; nothing for what isn't known", () => {
+    expect(progressivePaintFields({ thumbHash: thumb, thumbnail: { hash: TIER } })).toEqual({ thumbHash: [...thumb], imageThumbnail: { hash: hashBytes(TIER) } });
+    expect(progressivePaintFields({ thumbHash: null, thumbnail: null })).toEqual({});
+    expect(progressivePaintFields(undefined)).toEqual({});
+    expect(progressivePaintFields({ thumbnail: { hash: "not a hash" } })).toEqual({});
+    const p = imagePaint(HASH, { width: 640, height: 480, thumbHash: thumb, thumbnail: { hash: TIER, width: 512, height: 384 } }, "photo");
+    expect(p.thumbHash).toEqual([...thumb]);
+    expect(paintThumbnailHash(p)).toBe(TIER);
+    expect(hashHex(p.image?.hash)).toBe(HASH);
+  });
+
+  it("reads thumbHash as bytes, numbers or base64; knows the low-res copy", () => {
+    expect(paintThumbHash({ type: "IMAGE", thumbHash: [...thumb] })).toEqual(thumb);
+    expect(paintThumbHash({ type: "IMAGE", thumbHash: thumb })).toBe(thumb);
+    expect(paintThumbHash({ type: "IMAGE", thumbHash: btoa(String.fromCharCode(...thumb)) })).toEqual(thumb);
+    expect(paintThumbHash({ type: "IMAGE", thumbHash: [] })).toBeNull();
+    expect(paintThumbHash({ type: "IMAGE" })).toBeNull();
+    expect(thumbHashBytes("%%%")).toBeNull();
+    expect(thumbHashBytes(["x"])).toBeNull();
+    expect(paintThumbnailHash({ type: "IMAGE", imageThumbnail: { hash: hashBytes(TIER) } })).toBe(TIER);
+    expect(paintThumbnailHash({ type: "IMAGE", imageThumbnail: { hash: TIER } })).toBe(TIER);
+    expect(paintThumbnailHash({ type: "IMAGE" })).toBeNull();
+  });
+
+  it("a paint lacking either field is a write-back candidate; withProgressive fills only what is missing", () => {
+    const bare: Paint = { type: "IMAGE", image: { hash: hashBytes(HASH) }, opacity: 0.5 };
+    expect(paintLacksProgressive(bare)).toBe(true);
+    expect(paintLacksProgressive({ ...bare, thumbHash: [...thumb] })).toBe(true);
+    expect(paintLacksProgressive({ ...bare, imageThumbnail: { hash: hashBytes(TIER) } })).toBe(true);
+    expect(paintLacksProgressive({ ...bare, thumbHash: [...thumb], imageThumbnail: { hash: hashBytes(TIER) } })).toBe(false);
+    expect(paintLacksProgressive({ type: "IMAGE" })).toBe(false); // no image: nothing to compute from
+    expect(paintLacksProgressive({ type: "SOLID", color: red })).toBe(false);
+    const filled = withProgressive(bare, { thumbHash: thumb, thumbnail: { hash: TIER } });
+    expect(filled).toEqual({ ...bare, thumbHash: [...thumb], imageThumbnail: { hash: hashBytes(TIER) } });
+    expect(filled).not.toBe(bare);
+    // What the paint has is kept (Figma's own values win over ours).
+    const theirs = { ...bare, thumbHash: [1, 2, 3, 4, 5], imageThumbnail: { hash: hashBytes("ab".repeat(20)) } };
+    expect(withProgressive(theirs, { thumbHash: thumb, thumbnail: { hash: TIER } })).toEqual(theirs);
+    const half = withProgressive({ ...bare, thumbHash: [1, 2, 3, 4, 5] }, { thumbHash: thumb, thumbnail: { hash: TIER } });
+    expect(half.thumbHash).toEqual([1, 2, 3, 4, 5]);
+    expect(paintThumbnailHash(half)).toBe(TIER);
+  });
+
+  it("a type change away from IMAGE drops the progressive fields with the image", () => {
+    const image: Paint = { type: "IMAGE", image: { hash: hashBytes(HASH) }, thumbHash: [...thumb], imageThumbnail: { hash: hashBytes(TIER) }, imageScaleMode: "FILL", opacity: 1 };
+    const solid = fromPicker(image, { type: "SOLID", color: { ...red, a: 1 }, opacity: 1 });
+    expect(solid.thumbHash).toBeUndefined();
+    expect(solid.imageThumbnail).toBeUndefined();
+    expect(solid.image).toBeUndefined();
+    // An image → image edit keeps them.
+    const crop = fromPicker(image, { type: "IMAGE", imageScaleMode: "CROP", opacity: 1 });
+    expect(crop.thumbHash).toEqual([...thumb]);
+    expect(paintThumbnailHash(crop)).toBe(TIER);
   });
 });
 

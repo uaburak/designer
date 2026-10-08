@@ -28,6 +28,11 @@ class Document {
   // parent isn't there yet is kept (parked) and joins its parent when that
   // arrives. On success `inverse` (if given) is the change that puts things back.
   bool apply(const NodeChange& change, NodeChange* inverse = nullptr);
+  // A CREATED change whose props are moved in (a load: no copy of every node's props alongside the Message's).
+  bool adopt(NodeChange&& change);
+  void reserve(size_t nodes) { nodes_.reserve(nodes); }
+  // An estimate of the bytes the nodes hold (their props and what those own; not the derived caches): engine_stats.
+  uint64_t approxBytes() const;
 
   const Node* get(Guid id) const;
   bool has(Guid id) const { return nodes_.count(id) != 0; }

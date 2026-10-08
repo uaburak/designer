@@ -45,6 +45,54 @@ describe("engine ⇄ kiwi messages", () => {
   });
 });
 
+describe("the engine's snapshot through the DocumentSource (docs/data.md §5.5)", () => {
+  it("journals a change given as kiwi bytes as it is, saves the engine's snapshot at the head it stands at, and declines a stale one", async () => {
+    bed = await rpcTestbed();
+    const editor = await bed.connect("editor");
+    const f = await editor.workspace.createFile({ name: "Derived", folderId: null });
+    const src = await openStoreDocument(editor, f.fileKey, { tabId: "t1" });
+    const s = src.sessionID;
+    // A change as the engine's kiwi bytes (kiwi at the engine's boundary): the store gets those very bytes.
+    const kiwiChange = encodeMessage({ type: "NODE_CHANGES", sessionID: s, ackID: 0, nodeChanges: [{ guid: { sessionID: s, localID: 1 }, phase: "CREATED", type: "TEXT", name: "Title", parentIndex: { guid: { sessionID: 0, localID: 1 }, position: "!" } }], blobs: [] });
+    src.onChanges({ type: "NODE_CHANGES", sessionID: s, nodeChanges: [] }, { kind: "USER", label: "Create", bytes: kiwiChange });
+    src.onChanges(msg(s, [rect(s, 2)]), { kind: "USER", label: "Create" });
+    await src.flush();
+    expect(src.knownHeadSeq).toBe(2);
+    const viewer = await bed.connect("editor");
+    const view = await viewer.files.open(f.fileKey, { mode: "view" });
+    expect(Buffer.from(view.journal[0].message).equals(Buffer.from(kiwiChange))).toBe(true);
+
+    // The engine's snapshot (derived data along) right after an edit, in the same task: the source names the head.
+    const whole = decodeMessage(view.snapshot);
+    for (const j of view.journal) for (const n of decodeMessage(j.message).nodeChanges ?? []) whole.nodeChanges!.push({ ...n, phase: "CREATED" });
+    whole.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === 1)!.derivedTextData = { layoutSize: { x: 80, y: 20 } };
+    whole.derivedDataVersion = 4;
+    src.onChanges(msg(s, [{ guid: `${s}:2`, name: "Renamed" }]), { kind: "USER" });
+    whole.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === 2)!.name = "Renamed";
+    const adopted = src.saveSnapshot(encodeMessage(whole), { derivedDataVersion: 4 }); // not yet acknowledged: flushed inside
+    // A change committed while the acks come in moves the head past the snapshot: that attempt is declined.
+    src.onChanges(msg(s, [{ guid: `${s}:2`, name: "Again" }]), { kind: "USER" });
+    expect(await adopted).toBe(false);
+    await src.flush();
+    expect(src.knownHeadSeq).toBe(4);
+    whole.nodeChanges!.find((n) => n.guid!.sessionID === s && n.guid!.localID === 2)!.name = "Again";
+    expect(await src.saveSnapshot(encodeMessage(whole), { derivedDataVersion: 4 })).toBe(true);
+    const after = await viewer.files.open(f.fileKey, { mode: "view" });
+    expect(after.journal).toEqual([]);
+    expect(after.derivedDataVersion).toBe(4);
+    expect(after.headSeq).toBe(4);
+    // The next open's facts know the stored derived data before any decode.
+    await src.close();
+    const again = await openStoreDocument(editor, f.fileKey);
+    const prepared = again.prepare("kiwi");
+    expect(prepared.raw?.derivedDataVersion).toBe(4);
+    expect(prepared.raw?.frames).toEqual([]);
+    expect((await prepared.facts).derivedDataVersion).toBe(4);
+    expect((await prepared.document).bytes).toBeNull();
+    await again.close();
+  });
+});
+
 describe("the store-backed DocumentSource", () => {
   it("opens a session, journals each change, and a reopened file shows them", async () => {
     bed = await rpcTestbed();

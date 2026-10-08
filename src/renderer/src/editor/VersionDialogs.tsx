@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Button, Dialog, EmptyState, Spinner, TextArea, TextInput, showToast } from "@/ds";
 import { useEditor } from "./controller";
 import type { VersionInfo } from "./documentSource";
+import { applyEngineBytes } from "./engineCompat";
 import { useUI } from "./hooks";
 import { command, shortcutOf } from "./commands";
 import { RESTORE_VERSION } from "./libraries";
@@ -92,7 +93,12 @@ function History() {
       await ed.source.flush();
       // "restore": the store's diff written exactly (library copies included, docs/engine-build.md "Libraries — review
       // fixes" (d)), one undo step.
-      await ed.source.restoreVersion(v.id, (diff) => ed.batch(RESTORE_VERSION, () => void ed.engine.applyChanges(diff, "restore")));
+      await ed.source.restoreVersion(v.id, (diff, bytes) =>
+        ed.batch(RESTORE_VERSION, () => {
+          // The store's diff as it is for an engine that reads kiwi; converted for one that doesn't.
+          if (!bytes || applyEngineBytes(ed.engine, bytes, "restore") === null) ed.engine.applyChanges(diff, "restore");
+        })
+      );
       // Assets the version brings back carry the bookkeeping they had then: checked against the latest publish.
       void ed.libraries.reconcile();
       showToast({ message: "Version restored" });

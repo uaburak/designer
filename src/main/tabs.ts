@@ -7,16 +7,19 @@ import type { WorkspaceEvent } from "../shared/store/repositories";
 import { askCrashed, askFlushFailed, askFlushTimeout, askUnresponsive, tellFileError } from "./dialogs";
 import { importFiles, saveLocalCopy } from "./files";
 import { onWorkspaceEvent, readyStore, storeClient, workspaceDir } from "./storeHost";
+import { SpareEditor } from "./spare";
 import { setThemePreference } from "./theme";
-import { createView, destroyView, viewOf } from "./views";
+import { adoptView, createView, destroyView, viewOf } from "./views";
 import type { WindowController } from "./window";
 
 /**
  * The window's tabs, kept by main (docs/desktop.md §4–6): the state (the
  * pure reducer in src/shared/tabs.ts), and each file tab's own view — made
  * the first time the tab is shown (restored tabs stay "discarded" until
- * then), shown and hidden with setVisible — a hidden page is `hidden` to
- * Chromium: no animation frames, timers throttled (measured in Electron 44,
+ * then), or adopted from the spare editor (§3.1: a hidden view whose page
+ * and Wasm are already loaded, told its file with `tab:attach`) — shown and
+ * hidden with setVisible — a hidden page is `hidden` to Chromium: no
+ * animation frames, timers throttled (measured in Electron 44,
  * docs/desktop-impl.md) — and never reloaded by a reorder.
  *
  * Files save as they go: closing, quitting and hiding run the flush
@@ -100,6 +103,12 @@ export class TabManager {
   /** Each content view's menu state (HOME or a tab's id) */
   private menuStates = new Map<string, MenuState>();
   private offWorkspace: () => void;
+  /** The pre-warmed editor view a file opens into (docs/desktop.md §3.1); never a tab until adopted. */
+  private readonly spare: SpareEditor<WebContentsView>;
+  /** The open under way (openFile → show → ensure), for the timing record. */
+  private openRequest: { at: number; fileKey: string } | null = null;
+  /** The last file opens: when main was asked, which view the tab got (scripts/drive.mjs `open-timing`). */
+  private opens: { at: number; fileKey: string; tabId: string; adopted: boolean; webContentsId: number }[] = [];
 
   constructor(
     private readonly ctl: WindowController,
@@ -113,6 +122,34 @@ export class TabManager {
       if (details.reason !== "clean-exit") this.home.webContents.reload();
     });
     this.offWorkspace = onWorkspaceEvent((e) => this.onWorkspaceEvent(e));
+    this.spare = new SpareEditor<WebContentsView>({
+      // `?editor` with no file and no tab: the page pre-warms and waits for `tab:attach`.
+      create: () => this.addView("editor", null, { editor: "" }),
+      destroy: (view) => {
+        if (!this.ctl.win.isDestroyed()) this.ctl.win.contentView.removeChildView(view);
+        destroyView(view);
+      },
+      // The registry first, so an `init()` racing the attach already answers the tab.
+      attach: (view, attach) => {
+        adoptView(view.webContents, attach.tabId, attach.fileKey);
+        emit(view.webContents, "tab:attach", attach);
+      },
+      onGone: (view, cb) => {
+        const contents = view.webContents;
+        const handler = (_e: unknown, details: { reason: string }) => {
+          if (details.reason !== "clean-exit") cb();
+        };
+        contents.on("render-process-gone", handler);
+        return () => {
+          if (!contents.isDestroyed()) contents.removeListener("render-process-gone", handler);
+        };
+      },
+    });
+  }
+
+  /** The content in front has painted (Home at launch): the spare editor comes 3 s on. */
+  contentReady() {
+    this.spare.ready();
   }
 
   /** The first show: Home or the tab that was in front (only its view is made); kept files checked against the store. */
@@ -140,11 +177,18 @@ export class TabManager {
     destroyView(rt.view);
   }
 
-  /** The tab's view, made now if it has none: the editor, `?editor&file=<fileKey>&tab=<id>`. */
+  /**
+   * The tab's view, made now if it has none: the spare editor when there is one (told its file: `tab:attach`), else
+   * a new view with the file in its URL, `?editor&file=<fileKey>&tab=<id>`.
+   */
   private ensure(tab: Tab): Runtime {
     const there = this.runtime.get(tab.id);
     if (there) return there;
-    const view = this.addView("editor", tab.id, { editor: "", file: tab.fileKey, tab: tab.id }, tab.fileKey);
+    const adopted = this.spare.adopt({ tabId: tab.id, fileKey: tab.fileKey, mode: "edit" });
+    const view = adopted ?? this.addView("editor", tab.id, { editor: "", file: tab.fileKey, tab: tab.id }, tab.fileKey);
+    const request = this.openRequest;
+    this.openRequest = null;
+    this.opens = [...this.opens.slice(-9), { at: request?.fileKey === tab.fileKey ? request.at : Date.now(), fileKey: tab.fileKey, tabId: tab.id, adopted: Boolean(adopted), webContentsId: view.webContents.id }];
     const rt: Runtime = { view, crashed: false, hung: null, asking: false, restarting: false };
     this.runtime.set(tab.id, rt);
     this.wire(tab.id, rt);
@@ -243,9 +287,10 @@ export class TabManager {
     return id === HOME ? this.home : this.runtime.get(id)?.view;
   }
 
-  /** Every loaded content view (Home first). */
+  /** Every loaded content view (Home first; the spare editor last — placed, themed and hidden with the rest, never a tab). */
   contentViews(): WebContentsView[] {
-    return [this.home, ...[...this.runtime.values()].map((r) => r.view)];
+    const spare = this.spare.view();
+    return [this.home, ...[...this.runtime.values()].map((r) => r.view), ...(spare ? [spare] : [])];
   }
 
   /** The content view in front. */
@@ -339,10 +384,14 @@ export class TabManager {
     if (revealFileKey) emit(this.home.webContents, "home:reveal", { fileKey: revealFileKey });
   }
 
-  /** A workspace file in a tab: its tab in front if it has one, else a new one at the end (from Home) or after the one in front. */
-  openFile(file: OpenWorkspaceFile): OpenFileResult {
+  /**
+   * A workspace file in a tab: its tab in front if it has one, else a new one at the end (from Home) or after the one
+   * in front. `requestedAt`: when the open was asked for (a new file's creation came first), for the timing record.
+   */
+  openFile(file: OpenWorkspaceFile, requestedAt = Date.now()): OpenFileResult {
     const find = () => this.state.tabs.find((t) => t.fileKey === file.fileKey);
     const existing = Boolean(find());
+    this.openRequest = { at: requestedAt, fileKey: file.fileKey };
     this.dispatch({ type: "open", fileKey: file.fileKey, title: file.title, background: file.background });
     const tab = find();
     if (!tab) return { tabId: HOME, existing };
@@ -371,9 +420,10 @@ export class TabManager {
 
   /** A new design file (Drafts unless a folder is given), created by the store and opened ("+", ⌘N, Home's New design file). */
   async newFile(request: { folderId?: string | null; name?: string } = {}): Promise<NewFileResult> {
+    const requestedAt = Date.now();
     const store = await readyStore();
     const meta = await store.workspace.createFile({ name: request.name, folderId: request.folderId ?? null });
-    const { tabId } = this.openFile({ fileKey: meta.fileKey, title: meta.name });
+    const { tabId } = this.openFile({ fileKey: meta.fileKey, title: meta.name }, requestedAt);
     return { fileKey: meta.fileKey, tabId };
   }
 
@@ -698,20 +748,26 @@ export class TabManager {
   /** Every view's webContents closed (the window is gone). */
   destroy() {
     this.offWorkspace();
+    this.spare.destroy();
     for (const rt of this.runtime.values()) destroyView(rt.view);
     this.runtime.clear();
     destroyView(this.home);
   }
 
-  /** For tests (scripts/drive.mjs): which tab has which view and process. */
+  /** For tests (scripts/drive.mjs): which tab has which view and process, the spare editor, the last opens. */
   debug() {
+    const spare = this.spare.view();
+    const pidOf = (view: WebContentsView) => (view.webContents.isDestroyed() ? 0 : view.webContents.getOSProcessId());
     return {
       shown: this.shown,
       state: this.state,
       views: [
-        { id: HOME, role: "home", webContentsId: this.home.webContents.id, pid: this.home.webContents.getOSProcessId(), visible: this.shown === HOME, url: this.home.webContents.getURL() },
-        ...[...this.runtime.entries()].map(([id, rt]) => ({ id, role: "editor", webContentsId: rt.view.webContents.id, pid: rt.view.webContents.isDestroyed() ? 0 : rt.view.webContents.getOSProcessId(), visible: this.shown === id, url: rt.view.webContents.getURL(), crashed: rt.crashed })),
+        { id: HOME, role: "home", webContentsId: this.home.webContents.id, pid: pidOf(this.home), visible: this.shown === HOME, url: this.home.webContents.getURL() },
+        ...[...this.runtime.entries()].map(([id, rt]) => ({ id, role: "editor", webContentsId: rt.view.webContents.id, pid: pidOf(rt.view), visible: this.shown === id, url: rt.view.webContents.getURL(), crashed: rt.crashed })),
+        ...(spare ? [{ id: "spare", role: "editor", spare: true, webContentsId: spare.webContents.id, pid: pidOf(spare), visible: false, url: spare.webContents.getURL(), loading: spare.webContents.isLoading(), since: this.spare.since() }] : []),
       ],
+      spareEnabled: this.spare.enabled,
+      opens: this.opens,
       menu: Object.fromEntries(this.menuStates),
     };
   }

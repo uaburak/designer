@@ -15,6 +15,7 @@
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -647,7 +648,7 @@ TEST_CASE("libraries: applyLibraryUpdate rewrites copies in place as one undo st
   CHECK(props(c, bg).cornerRadii[0] == 8);
   // The copies' own bindings survive the rewrite (their values changed with the payload, not by an edit).
   Guid styleCopy = copyOf(c, keyOf(lib, l.style));
-  CHECK(props(c, styleCopy).fillPaints[0].colorVar.kind == VariableData::Kind::ALIAS);
+  CHECK(props(c, styleCopy).fillPaints[0].colorVar->kind == VariableData::Kind::ALIAS);
   CHECK(props(c, kidsAfter[0]).parameterConsumptionMap.size() == 1);
   CHECK(props(c, inst).symbolData.overrides.size() == 1);  // only the label's text
   REQUIRE(run(c, CommandId::SET_VARIABLE_MODE, "{\"refs\":[" + q(inst) + "],\"collection\":" + q(copyOf(c, keyOf(lib, l.set))) + ",\"mode\":" + q(l.dark) + "}") == OK);
@@ -1371,7 +1372,8 @@ TEST_CASE("libraries (review #4): versionHash is content only — no GUIDs, no v
     remap(n.guid);
     remap(n.props.parentIndex.guid);
     remap(n.props.symbolData.symbolID);
-    for (Paint& pt : n.props.fillPaints) remap(pt.colorVar.alias.guid);
+    for (Paint& pt : n.props.fillPaints)
+      if (pt.colorVar.present()) remap(pt.colorVar.edit().alias.guid);
     for (ParamBinding& b : n.props.parameterConsumptionMap) remap(b.data.alias.guid);
     remap(n.props.styleIdForFill.guid);
     remap(n.props.variableSetID.guid);
@@ -1710,7 +1712,8 @@ void remapDoc(std::vector<NodeChange>& doc, const std::function<void(Guid&)>& f)
     f(n.guid);
     f(p.parentIndex.guid);
     f(p.symbolData.symbolID);
-    for (Paint& pt : p.fillPaints) remapVariableData(pt.colorVar, f);
+    for (Paint& pt : p.fillPaints)
+      if (pt.colorVar.present()) remapVariableData(pt.colorVar.edit(), f);
     for (ParamBinding& b : p.parameterConsumptionMap) remapVariableData(b.data, f);
     for (VariableModeValue& v : p.variableDataValues) remapVariableData(v.data, f);
     f(p.styleIdForFill.guid);
@@ -2275,6 +2278,8 @@ int32_t engine_apply_library_update(Handle h, Ptr msgPtr, uint32_t msgLen, Ptr o
 int32_t engine_library_usage(Handle h);
 int32_t engine_apply_changes(Handle h, Ptr ptr, uint32_t len, uint32_t flags);
 int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t flags);
+int32_t engine_set_wire_format(Handle h, uint32_t format);
+int32_t engine_attachment(Handle h, uint32_t index);
 }
 
 namespace {
@@ -2550,6 +2555,56 @@ TEST_CASE("libraries (review): the C ABI — asNew, copies, fromLibraryKey, imag
   REQUIRE(engine_read_nodes(con, two.ptr(), two.len(), 0) == OK);
   CHECK(byMember(*resultJson().get("nodeChanges"), "guid", oldCopy)->get("name")->string == "Renamed");
 
+  engine_destroy(lib);
+  engine_destroy(con);
+}
+
+TEST_CASE("libraries: the C ABI with kiwi payloads — encode_assets attachments, a message list import") {
+  Editor made = load(libDoc(), kLibKey);
+  Lib l = makeAssets(made);
+  (void)l;
+  Handle lib = openFile(made.encodeDocument(), kLibKey, 3);
+  Handle con = openFile(consumerDoc(), kConsumerKey, 4);
+  REQUIRE(engine_set_wire_format(lib, 1) == OK);
+  REQUIRE(engine_ensure_asset_keys(lib, 0, 0) == OK);
+  json::Value keys = resultJson();
+  const json::Value* b = byMember(keys, "id", BUTTON.toString());
+  REQUIRE(b);
+  std::string button = b->get("key")->string;
+  // The payloads come as attachments (kiwi Messages, sessionID 0), referred to by index.
+  Text ask{"[\"" + button + "\"]"};
+  REQUIRE(engine_encode_assets(lib, ask.ptr(), ask.len()) == OK);
+  json::Value encoded = resultJson();
+  const json::Value& list = *encoded.get("assets");
+  REQUIRE(list.array.size() == 6);
+  CHECK(list.array[0].get("message") == nullptr);
+  std::vector<std::string> payloads;
+  for (auto& a : list.array) {
+    REQUIRE(a.get("payload"));
+    REQUIRE(engine_attachment(lib, static_cast<uint32_t>(a.get("payload")->number)) == OK);
+    payloads.push_back(resultText());
+  }
+  codec::KiwiMessage first;
+  REQUIRE(codec::readMessage(payloads[0], first));
+  CHECK(first.sessionID == 0);
+  CHECK(first.changes.size() == 10);
+  // Imported from a kiwi message list.
+  Text msg{codec::writeMessageList(payloads)}, opts{std::string("{\"libraryKey\":\"") + kLibKey + "\"}"};
+  REQUIRE(engine_import_library_assets(con, msg.ptr(), msg.len(), opts.ptr(), opts.len()) == OK);
+  json::Value imported = resultJson();
+  CHECK(imported.get("status")->number == 0);
+  const json::Value* bc = byMember(*imported.get("assets"), "key", button);
+  REQUIRE(bc);
+  CHECK(bc->get("kind")->string == "COMPONENT");
+  CHECK(bc->get("created")->boolean);
+  // One kiwi Message alone is a payload too (the copy is reused).
+  Text single{payloads[0]};
+  REQUIRE(engine_import_library_assets(con, single.ptr(), single.len(), opts.ptr(), opts.len()) == OK);
+  json::Value importedAgain = resultJson();
+  const json::Value* again = byMember(*importedAgain.get("assets"), "key", button);
+  REQUIRE(again);
+  CHECK(!again->get("created")->boolean);
+  CHECK(again->get("id")->string == bc->get("id")->string);
   engine_destroy(lib);
   engine_destroy(con);
 }

@@ -8,8 +8,12 @@
  * Clipboard API's HTML, then the last copy made in this tab.
  */
 import type { Message } from "@/engine/codec";
+import { messageToEngine } from "@/store/engineMessage";
+import { decodeAnySchema } from "../../../shared/fig/importFig";
+import { decodeMessage } from "../../../shared/schema/codec";
 import type { EditorController } from "./controller";
-import { decodeClipboard, encodeClipboard, messageAt } from "./model/clipboard";
+import { engineCall } from "./engineCompat";
+import { archiveMessage, encodeClipboard, encodeClipboardKiwi, messageAt, readClipboard, type ClipboardPayload } from "./model/clipboard";
 import { isEditable } from "./keyboard";
 import { isImageFile } from "./images";
 import { frameAt, placeImages } from "./placeImages";
@@ -27,8 +31,45 @@ function writeTo(data: DataTransfer, formats: Record<string, string>) {
  * styles and variables it references (docs/engine-build.md "Clipboard (cross-file)").
  */
 function copyFormats(ed: EditorController, cut = false): Record<string, string> | null {
+  // Kiwi at the engine's boundary: the engine's clipboard Message goes into Figma's fig-kiwi archive as it is.
+  const kiwi = engineCall<(o: { cut?: boolean }) => Uint8Array | null>(ed.engine, "encodeSelectionKiwi", "set_wire_format");
+  if (kiwi) {
+    const bytes = kiwi({ cut });
+    return bytes && bytes.length ? encodeClipboardKiwi(bytes, { fileKey: ed.source.libraries?.fileKey ?? null }) : null;
+  }
   const message = ed.engine.encodeSelection({ cut });
   return message && message.nodeChanges.length ? encodeClipboard(message) : null;
+}
+
+/** A DecompressionStream inflate (Figma's compressed archives). */
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+ * A clipboard payload pasted: an archive's kiwi Message to the engine as it is (`pasteKiwi`; Figma's converted as a
+ * `.fig` import is), the interim JSON as before. "Paste here" moves the Message first, so it goes through the JSON.
+ */
+async function pastePayload(ed: EditorController, payload: ClipboardPayload, mode: EditorController["pendingPaste"]): Promise<void> {
+  if (payload.kind === "json") return pasteMessage(ed, payload.message, mode);
+  const bytes = await archiveMessage(payload.archive, { inflate: typeof DecompressionStream === "function" ? inflateRaw : undefined, convert: (schema, message) => decodeAnySchema(schema, message).message });
+  if (!bytes || ed.engine.destroyed) return;
+  const pasteKiwi = engineCall<(b: Uint8Array, o: { inPlace?: boolean }) => number>(ed.engine, "pasteKiwi", "set_wire_format");
+  if (!pasteKiwi || mode?.mode === "point") return pasteMessage(ed, messageToEngine(decodeMessage(bytes)), mode);
+  const fileKey = ed.source.libraries?.fileKey ?? null;
+  const from = decodeMessage(bytes).pasteFileKey;
+  pasteKiwi(bytes, { inPlace: mode?.mode === "inPlace" });
+  ed.focusCanvas();
+  movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);
+}
+
+function movedToast(ed: EditorController, moved: number): void {
+  if (!moved) return;
+  showToast({
+    message: moved === 1 ? "Pasted a published component. Publish this file to move it here." : `Pasted ${moved} published components. Publish this file to move them here.`,
+    action: ed.source.libraries?.inDrafts() ? undefined : { label: "Publish…", onAction: () => ed.ui.set({ publishOpen: true }) },
+  });
 }
 
 /**
@@ -39,13 +80,7 @@ function pasteMessage(ed: EditorController, message: Message, mode: EditorContro
   const fileKey = ed.source.libraries?.fileKey ?? null;
   const from = (message as Message & { pasteFileKey?: string }).pasteFileKey;
   pasteInto(ed, message, mode);
-  const moved = fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0;
-  if (moved) {
-    showToast({
-      message: moved === 1 ? "Pasted a published component. Publish this file to move it here." : `Pasted ${moved} published components. Publish this file to move them here.`,
-      action: ed.source.libraries?.inDrafts() ? undefined : { label: "Publish…", onAction: () => ed.ui.set({ publishOpen: true }) },
-    });
-  }
+  movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);
 }
 
 function pasteInto(ed: EditorController, message: Message, mode: EditorController["pendingPaste"]): void {
@@ -78,7 +113,7 @@ export function attachClipboard(ed: EditorController): () => void {
     const data = e.clipboardData;
     const mode = ed.pendingPaste;
     ed.pendingPaste = null;
-    const message = decodeClipboard((type) => data.getData(type)) ?? (data.types.length === 0 && ed.lastCopy ? decodeClipboard((t) => ed.lastCopy?.[t]) : null);
+    const message = readClipboard((type) => data.getData(type)) ?? (data.types.length === 0 && ed.lastCopy ? readClipboard((t) => ed.lastCopy?.[t]) : null);
     if (!message) {
       // An image on the clipboard (a screenshot, a copied file): placed like a paste (desktop.md §13 step 4).
       const files = [...data.files].filter(isImageFile);
@@ -91,7 +126,7 @@ export function attachClipboard(ed: EditorController): () => void {
       return;
     }
     e.preventDefault();
-    pasteMessage(ed, message, mode);
+    void pastePayload(ed, message, mode);
   };
   document.addEventListener("copy", copy);
   document.addEventListener("cut", cut);
@@ -121,20 +156,20 @@ export function pasteFromMenu(ed: EditorController, mode: EditorController["pend
   ed.focusCanvas();
   if (document.execCommand("paste")) return; // the paste event did it
   ed.pendingPaste = null;
-  void readSystemClipboard().then((message) => {
-    const m = message ?? (ed.lastCopy ? decodeClipboard((t) => ed.lastCopy?.[t]) : null);
-    if (m) pasteMessage(ed, m, mode);
+  void readSystemClipboard().then((payload) => {
+    const m = payload ?? (ed.lastCopy ? readClipboard((t) => ed.lastCopy?.[t]) : null);
+    if (m) void pastePayload(ed, m, mode);
   });
 }
 
-async function readSystemClipboard(): Promise<Message | null> {
+async function readSystemClipboard(): Promise<ClipboardPayload | null> {
   try {
     const items = await navigator.clipboard.read();
     for (const item of items) {
       for (const type of ["text/html", "text/plain"]) {
         if (!item.types.includes(type)) continue;
         const text = await (await item.getType(type)).text();
-        const m = decodeClipboard((t) => (t === type ? text : null));
+        const m = readClipboard((t) => (t === type ? text : null));
         if (m) return m;
       }
     }
