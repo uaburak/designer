@@ -155,6 +155,7 @@ else()
     tests/unit/geometry.boolean.test.cpp
     tests/unit/editor.vector.test.cpp
     tests/unit/render.paths.test.cpp
+    tests/unit/render.effects.test.cpp
     tests/unit/render.cache.test.cpp
     tests/unit/text.stored.test.cpp
     tests/unit/text.parity.test.cpp

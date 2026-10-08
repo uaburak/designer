@@ -1,5 +1,6 @@
 #include "scene/Extras.h"
 
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 
@@ -102,6 +103,11 @@ const PaintExtras& paintExtras(const Paint& p) {
       const json::Value* s = m.get("sessionID");
       const json::Value* l = m.get("localID");
       if (s && l) x.sourceNodeId = Guid{static_cast<uint32_t>(s->numberOr(0)), static_cast<uint32_t>(l->numberOr(0))};
+    } else if (k == "sourceNodeId" && m.isString()) {
+      size_t colon = m.string.find(':');
+      if (colon != std::string::npos)
+        x.sourceNodeId = Guid{static_cast<uint32_t>(std::strtoul(m.string.substr(0, colon).c_str(), nullptr, 10)),
+                              static_cast<uint32_t>(std::strtoul(m.string.substr(colon + 1).c_str(), nullptr, 10))};
     } else if (k == "patternSpacing") x.patternSpacing = vec(m, x.patternSpacing);
     else if (k == "spacing" && m.isNumber()) x.patternSpacing = {m.number, m.number};
     else if (k == "patternTileType")

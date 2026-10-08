@@ -282,19 +282,38 @@ fn glassAt() -> vec4f {
   let mid = textureSampleLevel(t2, s2, (base + o) / sz, 0.0);
   let r = textureSampleLevel(t2, s2, (base + o * (1.0 + k)) / sz, 0.0).r;
   let b = textureSampleLevel(t2, s2, (base + o * (1.0 - k)) / sz, 0.0).b;
-  let facing = max(dot(g_normal, L.xy), 0.0);
-  let spec = L.z * pow(facing, mix(6.0, 1.0, clamp(G.w, 0.0, 1.0))) * e;
-  return vec4f(min(vec3f(r, mid.g, b) + spec * mid.a, vec3f(mid.a)), mid.a);
+  let facing = dot(g_normal, L.xy);
+  let sharp = mix(6.0, 1.5, clamp(G.w, 0.0, 1.0));
+  let rim = pow(clamp(1.0 + g_sdf / max(depth * 0.25, 1.0), 0.0, 1.0), 2.0);
+  let spec = L.z * (pow(max(facing, 0.0), sharp) + 0.4 * pow(max(-facing, 0.0), sharp)) * rim;
+  let rgb = min(vec3f(r, mid.g, b), vec3f(mid.a));
+  return vec4f(rgb + (mid.a - rgb) * clamp(spec, 0.0, 1.0), mid.a);
+}
+
+fn noiseCell(cell: vec2f, seed: u32, density: f32, kind: i32, color: vec4f, second: vec4f) -> vec4f {
+  let h = hashCell(cell, seed);
+  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= density) { return vec4f(0.0); }
+  if (kind == 0) { return vec4f(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * color.a; }
+  if (kind == 2) { return select(second, color, unitOf(hashU(h + 5u)) < 0.5); }
+  return color * unitOf(h);
 }
 
 fn paintAt(local: vec2f, kind: i32) -> vec4f {
   if (kind == 0) { return v_color; }
   if (kind == 7) {
+    let P = u.v[19];
+    let s = mix(P.x, P.y, progressT(g_dp));
+    if (s < P.z || s >= P.w) { return vec4f(0.0); }
+    let f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
     let uv1 = (fragCoord - u.v[4].xy) / u.v[4].zw;
     let uv0 = (fragCoord - u.v[7].xy) / u.v[7].zw;
-    return mix(textureSampleLevel(t3, s3, uv0, 0.0), textureSampleLevel(t2, s2, uv1, 0.0), progressT(g_dp)) * v_color.a;
+    return mix(textureSampleLevel(t3, s3, uv0, 0.0), textureSampleLevel(t2, s2, uv1, 0.0), f) * v_color.a;
   }
   if (kind == 8) { return glassAt() * v_color.a; }
+  if (kind == 9) {
+    let gn = vec2f(dot(v_paint0.xy, local) + v_paint0.z, dot(v_paint1.xy, local) + v_paint1.z);
+    return noiseCell(floor(gn), 0u, v_paint0.w, i32(v_paint1.w + 0.5), v_color, vec4f(0.0));
+  }
   if (kind == 6) {
     let uv = (fragCoord - u.v[4].xy) / u.v[4].zw;
     return textureSampleLevel(t2, s2, uv, 0.0) * v_color.a;
@@ -534,7 +553,7 @@ fn noiseAt(dp: vec2f) -> vec4f {
   if (unitOf(hashU(h ^ 0x9e3779b9u)) >= u.v[18].z) { return vec4f(0.0); }
   let kind = i32(u.v[18].w + 0.5);
   if (kind == 0) { return vec4f(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * u.v[8].y; }
-  if (kind == 2) { return select(u.v[19], u.v[6], unitOf(h) < 0.5); }
+  if (kind == 2) { return select(u.v[19], u.v[6], unitOf(hashU(h + 5u)) < 0.5); }
   return u.v[6] * unitOf(h);
 }
 fn textureShift(dp: vec2f) -> vec2f {
@@ -621,7 +640,11 @@ fn roundClip(d: vec2f) -> f32 {
   cov *= roundClip(v_dev) * shapeClip(v_dev);
   if (cov <= 0.0) { discard; }
   if (mode == 5) {
-    c = mix(at0(u.v[3], v_dev), at1(u.v[4], v_dev), progressT(v_dev));
+    let P = u.v[19];
+    let s = mix(P.x, P.y, progressT(v_dev));
+    if (s < P.z || s >= P.w) { discard; }
+    let f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
+    c = mix(at0(u.v[3], v_dev), at1(u.v[4], v_dev), f);
   } else if (mode == 6) {
     c = noiseAt(v_dev) * at0(u.v[3], v_dev).a;
   } else if (mode == 7) {

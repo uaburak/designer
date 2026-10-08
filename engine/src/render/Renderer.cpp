@@ -9,6 +9,7 @@
 
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
+#include "scene/Extras.h"
 
 namespace eng {
 
@@ -89,6 +90,24 @@ Mat2x3 imageMatrix(const Paint& paint, Vec2 size, double iw, double ih) {
   return {};
 }
 
+// Canvas device px → the node's space (its px ÷ `unit`): uniform slots 16–17 of the effects' shaders.
+void effectRows(float out[2][4], const Mat2x3& m, double sx, double sy, Vec2 unit) {
+  Mat2x3 t = Mat2x3{1 / std::max(unit.x, 1e-9), 0, 0, 0, 1 / std::max(unit.y, 1e-9), 0} * m.inverse() * Mat2x3{1 / sx, 0, 0, 0, 1 / sy, 0};
+  out[0][0] = static_cast<float>(t.m00), out[0][1] = static_cast<float>(t.m01), out[0][2] = static_cast<float>(t.m02), out[0][3] = 0;
+  out[1][0] = static_cast<float>(t.m10), out[1][1] = static_cast<float>(t.m11), out[1][2] = static_cast<float>(t.m12), out[1][3] = 0;
+}
+
+// A progressive blur's levels between σ `a` and σ `b` (device px), ascending: the larger halved down to the smaller,
+// at most Renderer's kMaxBlurLevels (8).
+std::vector<double> blurLevels(double a, double b) {
+  double lo = std::min(a, b), hi = std::max(a, b);
+  std::vector<double> out{hi};
+  for (double s = hi / 2; s > std::max(lo, 0.5) * 1.25 && out.size() < 7; s /= 2) out.push_back(s);
+  out.push_back(lo);
+  std::reverse(out.begin(), out.end());
+  return out;
+}
+
 }  // namespace
 
 DrawInstance makeShape(const Mat2x3& m, Vec2 size, ShapeKind kind, const CornerRadii& radii, const Color& fill,
@@ -117,7 +136,8 @@ DrawInstance makeShape(const Mat2x3& m, Vec2 size, ShapeKind kind, const CornerR
 }
 
 bool Renderer::DrawState::operator==(const DrawState& o) const {
-  return image == o.image && backdrop == o.backdrop && clip == o.clip && std::memcmp(filters, o.filters, sizeof filters) == 0;
+  return image == o.image && backdrop == o.backdrop && level == o.level && clip == o.clip &&
+         std::memcmp(filters, o.filters, sizeof filters) == 0;
 }
 
 Color Renderer::titleColor(const Color& page, double* alpha) {
@@ -195,7 +215,8 @@ void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state0) {
     const Cmd& d = cmds.back();
     // Instances that sample no image (state.image 0: solids, gradients, glyphs) join a batch that binds one, and
     // the other way round: only two different images (or backdrops) split a run.
-    bool states = d.state == state || (d.state.backdrop == state.backdrop && d.state.clip == state.clip && (state.image == 0 || d.state.image == 0) &&
+    bool states = d.state == state || (d.state.backdrop == state.backdrop && d.state.level == state.level && d.state.clip == state.clip &&
+                                       (state.image == 0 || d.state.image == 0) &&
                                        (state.image == 0 ? true : std::memcmp(d.state.filters, DrawState{}.filters, sizeof d.state.filters) == 0));
     merge = d.kind == Cmd::Kind::Draw && d.pass == pass && d.stencilRef == ref && d.first + d.count == instances_.size() && states;
   }
@@ -259,7 +280,8 @@ int Renderer::rampRow(const std::vector<ColorStop>& stops0) {
 }
 
 bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, const Mat2x3& localToNode, Vec2 nodeSize, double alpha) {
-  if (!paint.visible || paint.type == PaintType::OTHER) return false;
+  // PATTERN fills go through layers (drawPattern); a pattern stroke isn't drawn.
+  if (!paint.visible || paint.type == PaintType::OTHER || paint.type == PaintType::PATTERN) return false;
   double a = alpha * paint.opacity;
   if (a <= 0) return false;
   uint32_t flags = static_cast<uint32_t>(q.geom[3]) & 0xff;
@@ -277,6 +299,18 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
            : paint.type == PaintType::GRADIENT_RADIAL  ? PaintKind::Radial
            : paint.type == PaintType::GRADIENT_ANGULAR ? PaintKind::Angular
                                                        : PaintKind::Diamond;
+  } else if (paint.type == PaintType::NOISE) {
+    // Noise (Figma Draw): grains of noiseSize (node px) — Mono in the paint's colour at a random strength, Duo the
+    // colour or nothing, Multi random colours — `density` of the cells showing one.
+    const PaintExtras& x = paintExtras(paint);
+    Mat2x3 P = Mat2x3{1 / std::max(x.noiseSize.x, 1e-3), 0, 0, 0, 1 / std::max(x.noiseSize.y, 1e-3), 0} * localToNode;
+    if (x.noiseType == NoiseType::MULTITONE) q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(a);
+    else premultiply(q.color, paint.color, a);
+    q.paint0[0] = static_cast<float>(P.m00), q.paint0[1] = static_cast<float>(P.m01), q.paint0[2] = static_cast<float>(P.m02);
+    q.paint1[0] = static_cast<float>(P.m10), q.paint1[1] = static_cast<float>(P.m11), q.paint1[2] = static_cast<float>(P.m12);
+    q.paint0[3] = static_cast<float>(std::clamp(x.density, 0.0, 1.0));
+    q.paint1[3] = static_cast<float>(x.noiseType);
+    kind = PaintKind::Noise;
   } else if (isImageLike(paint.type)) {
     bool failed = false, placeholder = false;
     // How large the image is drawn (device px): the node's box through this draw's transform. The registry asks for
@@ -352,12 +386,17 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
-    for (const Paint& f : fills)
+    for (const Paint& f : fills) {
+      if (f.type == PaintType::PATTERN) {
+        if (f.visible) drawPattern(doc, id, p, m, alpha, f);
+        continue;
+      }
       blendedPaint(f, m, p.size, alpha, [&](double a) {
         DrawInstance q = makeShape(m, p.size, kind, radii, Color{}, 1, Color{}, 0, 0, 0);
         DrawState state;
         if (setPaint(q, state, f, Mat2x3{}, p.size, a)) emit(q, Pass::Shape, state);
       });
+    }
     return;
   }
   const NodeGeometry* g = doc.geometry(id);
@@ -374,9 +413,86 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
     if (!anyVisible(*paints)) continue;
     uint64_t key = Hash().add(g->fillKey).add(r).add(level).add(0xF111ull).h;
     const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(region.path, tol, out); });
-    for (const Paint& f : *paints)
+    for (const Paint& f : *paints) {
+      if (f.type == PaintType::PATTERN) {
+        if (f.visible && r == 0) drawPattern(doc, id, p, m, alpha, f);
+        continue;
+      }
       blendedPaint(f, m, p.size, alpha, [&](double a) { emitPath(entry, m, region.windingRule == WindingRule::ODD, f, p.size, a); });
+    }
   }
+}
+
+void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint) {
+  double a = alpha * paint.opacity;
+  const PaintExtras& x = paintExtras(paint);
+  if (!(a > 0) || patternDepth_ > 1 || x.sourceNodeId == kNoGuid || x.sourceNodeId == id) return;
+  // The source's render tree: this page's, or the page it is on.
+  const RenderTree* tree = tree_;
+  int src = tree->indexOf(x.sourceNodeId);
+  if (src < 0) {
+    Guid page = doc.pageOf(x.sourceNodeId);
+    if (page == kNoGuid || page == tree_->page()) return;
+    RenderTree& t = trees_[page];
+    t.sync(doc, page);
+    tree = &t;
+    src = t.indexOf(x.sourceNodeId);
+    if (src < 0) return;
+  }
+  const NodeProps& sp = tree->nodes()[static_cast<size_t>(src)].node->props;
+  // A tile: the source's box at the paint's scale, apart by "Spacing" (a share of the tile), anchored at the
+  // "Alignment" point of the node's box; hexagonal tiles shift every other row (or column) by half a step.
+  double scale = paint.scale > 0 ? paint.scale : 1;
+  Vec2 tile{sp.size.x * scale, sp.size.y * scale};
+  if (!(tile.x > 0) || !(tile.y > 0)) return;
+  if (std::max(tile.x, tile.y) * levelScale(m) < 0.5) return;  // under half a device px: nothing to see
+  Vec2 step{std::max(tile.x * (1 + x.patternSpacing.x), tile.x * 0.01), std::max(tile.y * (1 + x.patternSpacing.y), tile.y * 0.01)};
+  auto anchor = [](PatternAlignment al, double len, double t) {
+    return al == PatternAlignment::START ? 0.0 : al == PatternAlignment::CENTER ? (len - t) / 2 : len - t;
+  };
+  Vec2 origin{anchor(x.horizontalAlignment, p.size.x, tile.x), anchor(x.verticalAlignment, p.size.y, tile.y)};
+  // The part of the box on screen (node space).
+  Mat2x3 inv = m.inverse();
+  Rect seen = Rect::fromPoints(inv.apply({screen_.x, screen_.y}), inv.apply({screen_.right(), screen_.bottom()}));
+  seen = seen.united(Rect::fromPoints(inv.apply({screen_.right(), screen_.y}), inv.apply({screen_.x, screen_.bottom()})));
+  double x0 = std::max(0.0, seen.x), y0 = std::max(0.0, seen.y);
+  double x1 = std::min(p.size.x, seen.right()), y1 = std::min(p.size.y, seen.bottom());
+  if (x1 <= x0 || y1 <= y0) return;
+  gfx::IRect r = deviceRect(transformedBounds(m, p.size.x, p.size.y), 2);
+  if (r.w <= 0 || r.h <= 0) return;
+  bool hexRows = x.tileType == PatternTileType::HORIZONTAL_HEXAGONAL, hexCols = x.tileType == PatternTileType::VERTICAL_HEXAGONAL;
+  long i0 = static_cast<long>(std::floor((x0 - origin.x - tile.x) / step.x)) - (hexRows ? 1 : 0);
+  long i1 = static_cast<long>(std::ceil((x1 - origin.x) / step.x));
+  long j0 = static_cast<long>(std::floor((y0 - origin.y - tile.y) / step.y)) - (hexCols ? 1 : 0);
+  long j1 = static_cast<long>(std::ceil((y1 - origin.y) / step.y));
+  if ((i1 - i0 + 1) * (j1 - j0 + 1) > 4096) return;  // too many to draw one by one
+  int saved = beginLayer(r);
+  int P = current_;
+  const RenderTree* savedTree = tree_;
+  bool savedCull = cull_;
+  tree_ = tree;
+  cull_ = false;  // the tiles aren't where the tree's bounds say
+  patternDepth_++;
+  Mat2x3 back = sp.transform.inverse();
+  for (long j = j0; j <= j1; j++)
+    for (long i = i0; i <= i1; i++) {
+      double tx = origin.x + static_cast<double>(i) * step.x + (hexRows && (j & 1) ? step.x / 2 : 0);
+      double ty = origin.y + static_cast<double>(j) * step.y + (hexCols && (i & 1) ? step.y / 2 : 0);
+      if (tx >= x1 || ty >= y1 || tx + tile.x <= x0 || ty + tile.y <= y0) continue;
+      drawNode(doc, static_cast<uint32_t>(src), m * Mat2x3::translate(tx, ty) * Mat2x3::scale(scale) * back, 1);
+    }
+  patternDepth_--;
+  cull_ = savedCull;
+  tree_ = savedTree;
+  endLayer(saved);
+  // Through the node's fill shape.
+  int saved2 = beginLayer(r);
+  int M = current_;
+  drawFills(doc, id, p, m, 1, true);
+  endLayer(saved2);
+  stats_.layers += 2;
+  compositeLayer(P, M, 1, static_cast<float>(a), paint.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : paint.blendMode,
+                 Color{}, {}, false, r);
 }
 
 void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
@@ -559,51 +675,125 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
   }
 }
 
-void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e) {
+void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e,
+                                  bool glass) {
+  const EffectExtras& x = effectExtras(e);
   double scale = levelScale(m);
-  double sigma = std::max(0.0, e.radius / 2) * scale;
-  if (sigma <= 0.01) return;
+  double s1 = std::max(0.0, e.radius / 2) * scale;
+  double s0 = std::max(0.0, x.startRadius / 2) * scale;
+  bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(s0 - s1) > 0.01;
+  if (!glass && !progressive && s1 <= 0.01) return;
+  BackdropBlur b;
+  double reach = 3 * (progressive ? std::max(s0, s1) : s1) + 2;
+  if (glass) {
+    // Glass: the backdrop frosted by "Frost" (the radius), bent toward the edge within "Depth", split by colour
+    // ("Dispersion"), lit along the edges facing the light ("Angle", "Intensity").
+    b.kind = BackdropBlur::Kind::Glass;
+    double depth = std::max(0.0, x.bevelSize) * scale;
+    double dispersion = std::clamp(x.chromaticAberration, 0.0, 1.0);
+    reach += depth * (1 + dispersion);
+    double th = x.specularAngle * 3.14159265358979323846 / 180;
+    float g0[4] = {static_cast<float>(depth), static_cast<float>(std::clamp(x.refractionIntensity, 0.0, 1.0)), static_cast<float>(dispersion),
+                   static_cast<float>(std::clamp(x.refractionRadius / 100, 0.0, 1.0))};
+    // The light's direction in canvas device px (y down): the angle counter-clockwise from +x, pointing at the light.
+    float g1[4] = {static_cast<float>(-std::cos(th)), static_cast<float>(std::sin(th)), static_cast<float>(std::clamp(x.specularIntensity, 0.0, 1.0)), 0};
+    std::memcpy(b.glass[0], g0, sizeof g0);
+    std::memcpy(b.glass[1], g1, sizeof g1);
+    b.sigmas[0] = s1;
+  } else if (progressive) {
+    b.kind = BackdropBlur::Kind::Progressive;
+    std::vector<double> lv = blurLevels(s0, s1);
+    b.count = static_cast<int>(lv.size());
+    for (size_t k = 0; k < lv.size(); k++) b.sigmas[k] = lv[k];
+    b.start = s0;
+    b.end = s1;
+    float rows2[2][4];
+    effectRows(rows2, m, viewport_.scaleX(), viewport_.scaleY(), p.size);
+    std::memcpy(b.fx, rows2, sizeof rows2);
+    b.fx[2][0] = static_cast<float>(x.startOffset.x), b.fx[2][1] = static_cast<float>(x.startOffset.y);
+    b.fx[2][2] = static_cast<float>(x.endOffset.x), b.fx[2][3] = static_cast<float>(x.endOffset.y);
+  } else {
+    b.sigmas[0] = s1;
+  }
   Rect own = transformedBounds(m, p.size.x, p.size.y);
-  gfx::IRect r = deviceRect(own, 3 * sigma + 2);
+  gfx::IRect r = deviceRect(own, reach);
   r = intersect(r, layers_[static_cast<size_t>(current_)].rect);
   if (r.w <= 0 || r.h <= 0) return;
-  int b = static_cast<int>(backdrops_.size());
-  backdrops_.push_back({0, r, {0, 0, 1, 1}});
+  int bi = static_cast<int>(backdrops_.size());
+  backdrops_.push_back(b);
   Cmd c;
   c.kind = Cmd::Kind::BackdropBlur;
   c.rect = r;
-  c.sigma = sigma;
-  c.layer = b;
+  c.sigma = s1;
+  c.layer = bi;
   layers_[static_cast<size_t>(current_)].cmds.push_back(c);
-  // The node's shape, painted with the blurred backdrop.
-  DrawState state;
-  state.backdrop = b;
+  // The node's shape, painted with the blurred backdrop: once per interval between a progressive blur's levels.
+  PaintKind kind = glass ? PaintKind::Glass : progressive ? PaintKind::Progressive : PaintKind::Backdrop;
+  int intervals = progressive ? b.count - 1 : 1;
   bool sdf = !p.isPathShape() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
-  if (sdf) {
-    ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
-    DrawInstance q = makeShape(m, p.size, kind, kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare,
-                               Color{1, 1, 1, 1}, alpha, Color{}, 0, 0, 0);
-    q.geom[3] = drawFlags(0, PaintKind::Backdrop);
-    emit(q, Pass::Shape, state);
-    return;
-  }
-  const NodeGeometry* g = doc.geometry(id);
-  if (!g) return;
+  const NodeGeometry* g = sdf ? nullptr : doc.geometry(id);
+  if (!sdf && !g) return;
   int level = levelOf(levelScale(m));
   double tol = toleranceOf(level);
-  for (size_t i = 0; i < g->fills.size(); i++) {
-    uint64_t key = Hash().add(g->fillKey).add(i).add(level).add(0xF111ull).h;
-    const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(g->fills[i].path, tol, out); });
-    if (!entry) continue;
-    DrawInstance q{};
-    setLinear(q, m);
-    q.origin[2] = static_cast<float>(entry->start);
-    q.origin[3] = -1;
-    for (int k = 0; k < 4; k++) q.box[k] = entry->bounds[k];
-    q.geom[2] = static_cast<float>(ShapeKind::Path);
-    q.geom[3] = drawFlags(g->fills[i].windingRule == WindingRule::ODD ? DF_EVEN_ODD : 0, PaintKind::Backdrop);
-    q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(alpha);
-    emit(q, Pass::Path, state);
+  for (int k = 0; k < intervals; k++) {
+    DrawState state;
+    state.backdrop = bi;
+    state.level = k;
+    if (sdf) {
+      ShapeKind sk = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
+      DrawInstance q = makeShape(m, p.size, sk, sk == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare,
+                                 Color{1, 1, 1, 1}, alpha, Color{}, 0, 0, 0);
+      q.geom[3] = drawFlags(0, kind);
+      emit(q, Pass::Shape, state);
+      continue;
+    }
+    for (size_t i = 0; i < g->fills.size(); i++) {
+      uint64_t key = Hash().add(g->fillKey).add(i).add(level).add(0xF111ull).h;
+      const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(g->fills[i].path, tol, out); });
+      if (!entry) continue;
+      DrawInstance q{};
+      setLinear(q, m);
+      q.origin[2] = static_cast<float>(entry->start);
+      q.origin[3] = -1;
+      for (int j = 0; j < 4; j++) q.box[j] = entry->bounds[j];
+      q.geom[2] = static_cast<float>(ShapeKind::Path);
+      q.geom[3] = drawFlags(g->fills[i].windingRule == WindingRule::ODD ? DF_EVEN_ODD : 0, kind);
+      q.color[0] = q.color[1] = q.color[2] = q.color[3] = static_cast<float>(alpha);
+      emit(q, Pass::Path, state);
+    }
+  }
+}
+
+void Renderer::progressiveComposite(int src, float opacity, BlendMode bm, gfx::IRect r, double s0, double s1, const Effect& e,
+                                    const Mat2x3& m, Vec2 size) {
+  std::vector<double> lv = blurLevels(s0, s1);
+  std::vector<int> ids;
+  for (double s : lv) {
+    if (s <= 0.01) {
+      ids.push_back(src);
+      continue;
+    }
+    Layer S;
+    S.rect = r;
+    S.copyOf = src;
+    S.blur = s;
+    layers_.push_back(std::move(S));
+    stats_.layers++;
+    ids.push_back(static_cast<int>(layers_.size() - 1));
+  }
+  const EffectExtras& x = effectExtras(e);
+  float rows2[2][4];
+  effectRows(rows2, m, viewport_.scaleX(), viewport_.scaleY(), size);
+  for (size_t k = 0; k + 1 < lv.size(); k++) {
+    compositeLayer(ids[k], ids[k + 1], 5, opacity, bm, Color{}, {}, false, r);
+    Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+    c.fxOn = true;
+    std::memcpy(c.fx, rows2, sizeof rows2);
+    c.fx[2][0] = static_cast<float>(x.startOffset.x), c.fx[2][1] = static_cast<float>(x.startOffset.y);
+    c.fx[2][2] = static_cast<float>(x.endOffset.x), c.fx[2][3] = static_cast<float>(x.endOffset.y);
+    bool last = k + 2 == lv.size();
+    c.fx[3][0] = static_cast<float>(s0), c.fx[3][1] = static_cast<float>(s1);
+    c.fx[3][2] = static_cast<float>(lv[k]), c.fx[3][3] = static_cast<float>(last ? lv[k + 1] * 1.001 + 1e-3 : lv[k + 1]);
   }
 }
 
@@ -1029,23 +1219,36 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   }
   Mat2x3 m = parentCss * p.transform;
 
-  bool analytic = analyticShadows(p, rn.hasChildren);
   // Figma's limits (help 360041488473): up to eight drop and eight inner shadows, one layer blur and one background
-  // blur — the first of each kind is drawn.
-  std::vector<const Effect*> drops, inners, backgrounds;
-  double layerBlur = 0;
-  bool haveLayerBlur = false;
+  // blur — the first of each kind is drawn; one texture, one glass; noises stack.
+  std::vector<const Effect*> drops, inners, backgrounds, noises;
+  const Effect* layerBlurE = nullptr;
+  const Effect* textureE = nullptr;
+  const Effect* glassE = nullptr;
   for (const Effect& e : p.effects) {
     if (!e.visible) continue;
-    if (e.type == EffectType::DROP_SHADOW) {
-      if (drops.size() < 8) drops.push_back(&e);
-    } else if (e.type == EffectType::INNER_SHADOW) {
-      if (inners.size() < 8) inners.push_back(&e);
-    } else if (e.type == EffectType::BACKGROUND_BLUR) {
-      if (backgrounds.empty() && e.radius > 0) backgrounds.push_back(&e);
-    } else if (e.type == EffectType::FOREGROUND_BLUR && !haveLayerBlur) {
-      haveLayerBlur = true;
-      layerBlur = std::max(0.0, e.radius);
+    switch (e.type) {
+      case EffectType::DROP_SHADOW:
+        if (drops.size() < 8) drops.push_back(&e);
+        break;
+      case EffectType::INNER_SHADOW:
+        if (inners.size() < 8) inners.push_back(&e);
+        break;
+      case EffectType::BACKGROUND_BLUR:
+        if (backgrounds.empty() && (e.radius > 0 || effectExtras(e).startRadius > 0)) backgrounds.push_back(&e);
+        break;
+      case EffectType::FOREGROUND_BLUR:
+        if (!layerBlurE) layerBlurE = &e;
+        break;
+      case EffectType::NOISE:
+        if (noises.size() < 8) noises.push_back(&e);
+        break;
+      case EffectType::GRAIN:
+        if (!textureE) textureE = &e;
+        break;
+      case EffectType::GLASS:
+        if (!glassE) glassE = &e;
+        break;
     }
   }
   // A background blur shows through the layer's fill: none without a visible fill (Figma: "set the layer's fill
@@ -1055,6 +1258,21 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     for (const Paint& f : p.fillPaints) fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.001f;
     if (!fill && !p.isGroupLike()) backgrounds.clear();
   }
+  double scale = levelScale(m);
+  // The layer blur: uniform (σ = radius / 2), or progressive from "Start" at its start offset to the radius ("End").
+  double blurSigma = layerBlurE ? std::max(0.0, layerBlurE->radius) / 2 * scale : 0;
+  double startSigma = blurSigma;
+  bool progressive = false;
+  if (layerBlurE) {
+    const EffectExtras& x = effectExtras(*layerBlurE);
+    if (x.blurOpType == BlurOpType::PROGRESSIVE) {
+      startSigma = std::max(0.0, x.startRadius) / 2 * scale;
+      progressive = std::fabs(startSigma - blurSigma) > 0.01;
+    }
+  }
+  // Effects drawn over the content or through it need the content apart from its shadows.
+  bool post = progressive || textureE || !noises.empty();
+  bool analytic = !post && analyticShadows(p, rn.hasChildren);
   bool generic = !analytic && (!drops.empty() || !inners.empty());
   bool container = (p.isFrameLike() || p.isGroupLike()) && rn.hasChildren;
   size_t paints = 0;
@@ -1063,27 +1281,29 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     for (auto& s : p.strokePaints) paints += s.visible ? 1 : 0;
   bool blend = p.blendMode != BlendMode::PASS_THROUGH && p.blendMode != BlendMode::NORMAL;
   bool opacityLayer = p.opacity < 1 && (container || paints > 1 || p.type == NodeType::TEXT || generic);
-  bool needsLayer = opacityLayer || blend || layerBlur > 0 || generic;
+  bool needsLayer = opacityLayer || blend || std::max(blurSigma, startSigma) > 0 || generic || post;
   double a = alpha * p.opacity;
 
   for (const Effect* e : backgrounds) drawBackgroundBlur(doc, id, p, m, a, *e);
+  if (glassE) drawBackgroundBlur(doc, id, p, m, a, *glassE, true);
   if (!needsLayer) {
     drawContent(doc, i, p, m, a, analytic);
     return;
   }
   stats_.layers++;
-  double scale = levelScale(m);
-  double blurSigma = layerBlur / 2 * scale;
-  gfx::IRect r = deviceRect(vb, 3 * blurSigma + 2);
+  double reach = 3 * std::max(blurSigma, startSigma) + (textureE ? std::max(0.0, textureE->radius) * scale : 0);
+  gfx::IRect r = deviceRect(vb, reach + 2);
   if (r.w <= 0 || r.h <= 0) return;
   // Figma's order, top to bottom (help 360041488473): layer blur, stroke paints, inner shadow, fill paints, drop
   // shadow. Inner shadows under visible strokes: the content without its strokes, the inner shadows, then the
-  // strokes, all in one layer that takes the node's opacity, blend mode and blur.
+  // strokes, all in one layer that takes the node's opacity, blend mode and blur. Noise goes over it all, texture
+  // and a progressive blur work on the whole (a layer of their own).
   bool strokes = false;
   if (p.strokeWeight > 0)
     for (const Paint& s : p.strokePaints) strokes |= s.visible && s.opacity > 0;
   bool split = generic && !inners.empty() && strokes;
-  bool wrap = split && (a < 1 || blend || blurSigma > 0.01);
+  bool finish = a < 1 || blend || blurSigma > 0.01;
+  bool wrap = (split && finish) || progressive || textureE || (!noises.empty() && finish);
   int saved = beginLayer(r);
   int C = current_;
   drawContent(doc, i, p, m, 1, analytic);
@@ -1166,10 +1386,47 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     }
   }
   if (K >= 0) composite(K, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  // Noise (Mono / Duo / Multi): grains over what the node draws, within its alpha, in the effect's blend mode.
+  if (!noises.empty()) {
+    float nodeRows[2][4];
+    effectRows(nodeRows, m, viewport_.scaleX(), viewport_.scaleY(), {1, 1});
+    for (const Effect* e : noises) {
+      const EffectExtras& x = effectExtras(*e);
+      Color second = x.noiseType == NoiseType::DUOTONE ? x.secondaryColor : Color{0, 0, 0, 0};
+      composite(C, -1, 6, opacity, effectBlend(*e), e->color, Vec2{static_cast<double>(x.seed % 65536u), std::clamp(x.opacity, 0.0, 1.0)}, false, r);
+      Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+      c.fxOn = true;
+      std::memcpy(c.fx, nodeRows, sizeof nodeRows);
+      c.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), c.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
+      c.fx[2][2] = static_cast<float>(std::clamp(x.density, 0.0, 1.0)), c.fx[2][3] = static_cast<float>(x.noiseType);
+      premultiply(c.fx[3], second, 1);
+    }
+  }
   if (wrap) {
     endLayer(savedOuter);
-    layers_[static_cast<size_t>(outer)].blur = blurSigma;
-    compositeLayer(outer, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
+    int top = outer;
+    if (textureE) {
+      // Texture: what the node draws, read through a random shift per grain (± the radius), within its shape when
+      // "Clip to shape" is on.
+      const EffectExtras& x = effectExtras(*textureE);
+      int s3 = beginLayer(r);
+      int T = current_;
+      compositeLayer(top, -1, 7, 1, BlendMode::NORMAL, Color{}, Vec2{static_cast<double>(x.seed % 65536u), 0}, false, r);
+      Cmd& c = layers_[static_cast<size_t>(current_)].cmds.back();
+      c.fxOn = true;
+      effectRows(c.fx, m, viewport_.scaleX(), viewport_.scaleY(), {1, 1});
+      c.fx[2][0] = static_cast<float>(std::max(x.noiseSize.x, 1e-3)), c.fx[2][1] = static_cast<float>(std::max(x.noiseSize.y, 1e-3));
+      c.fx[2][2] = static_cast<float>(std::max(0.0, textureE->radius) * scale), c.fx[2][3] = x.clipToShape ? 1.f : 0.f;
+      endLayer(s3);
+      stats_.layers++;
+      top = T;
+    }
+    if (progressive) {
+      progressiveComposite(top, static_cast<float>(a), p.blendMode, r, startSigma, blurSigma, *layerBlurE, m, p.size);
+    } else {
+      layers_[static_cast<size_t>(top)].blur = blurSigma;
+      compositeLayer(top, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
+    }
   }
 }
 
@@ -1448,9 +1705,28 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       call.textures[2] = c.state.image ? c.state.image : white;
       if (c.state.backdrop >= 0) {
         const BackdropBlur& b = backdrops_[static_cast<size_t>(c.state.backdrop)];
-        if (!b.texture) continue;
-        call.textures[2] = b.texture;
-        for (int i = 0; i < 4; i++) call.uniforms[4][i] = b.place[i];
+        int k = std::clamp(c.state.level, 0, b.count - 1);
+        if (b.kind == BackdropBlur::Kind::Progressive) {
+          // The interval between levels k (u_t3, slot 7) and k + 1 (u_t2, slot 4); slots 16–18 the node's box and the
+          // effect's start / end, 19 = (σ at the start, at the end, the interval's two σ).
+          int k1 = std::min(k + 1, b.count - 1);
+          if (!b.textures[k] || !b.textures[k1]) continue;
+          call.textures[3] = b.textures[k];
+          call.textures[2] = b.textures[k1];
+          for (int i = 0; i < 4; i++) call.uniforms[7][i] = b.places[k][i], call.uniforms[4][i] = b.places[k1][i];
+          for (int j = 0; j < 3; j++)
+            for (int i = 0; i < 4; i++) call.uniforms[16 + j][i] = b.fx[j][i];
+          bool last = k1 == b.count - 1;
+          call.uniforms[19][0] = static_cast<float>(b.start), call.uniforms[19][1] = static_cast<float>(b.end);
+          call.uniforms[19][2] = static_cast<float>(b.sigmas[k]);
+          call.uniforms[19][3] = static_cast<float>(last ? b.sigmas[k1] * 1.001 + 1e-3 : b.sigmas[k1]);
+        } else {
+          if (!b.textures[0]) continue;
+          call.textures[2] = b.textures[0];
+          for (int i = 0; i < 4; i++) call.uniforms[4][i] = b.places[0][i];
+          if (b.kind == BackdropBlur::Kind::Glass)
+            for (int i = 0; i < 4; i++) call.uniforms[6][i] = b.glass[0][i], call.uniforms[8][i] = b.glass[1][i];
+        }
       }
       localScissor(call, c);
       device_.draw(call);
@@ -1493,6 +1769,9 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       call.uniforms[7][3] = c.knockout ? 1.f : 0.f;
       call.uniforms[8][0] = static_cast<float>(c.offset.x);
       call.uniforms[8][1] = static_cast<float>(c.offset.y);
+      if (c.fxOn)
+        for (int j = 0; j < 4; j++)
+          for (int i = 0; i < 4; i++) call.uniforms[16 + j][i] = c.fx[j][i];
       if (c.round.on)
         for (int i = 0; i < 4; i++) call.uniforms[9][i] = c.round.rect[i], call.uniforms[10][i] = c.round.radii[i];
       for (int i = 0; i < 4; i++) call.uniforms[11][i] = c.clipRect[i];
@@ -1526,29 +1805,37 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       gfx::IRect r = intersect(c.rect, L.rect);
       if (r.w <= 0 || r.h <= 0) continue;
       gfx::IRect local{r.x - ox, r.y - oy, r.w, r.h};
-      PoolTarget* copy = acquire(r.w, r.h);
-      if (!copy) continue;
-      device_.copyToTexture(copy->texture, local);
+      // The backdrop, copied once per level (a progressive blur's), before anything is drawn over it.
+      gfx::TargetId copies[kMaxBlurLevels] = {};
+      for (int k = 0; k < b.count; k++) {
+        PoolTarget* copy = acquire(r.w, r.h);
+        if (!copy) break;
+        device_.copyToTexture(copy->texture, local);
+        copies[k] = copy->target;
+      }
       device_.endPass();
-      // Blur it as a layer of its own.
-      Layer tmp;
-      tmp.rect = r;
-      tmp.target = copy->target;
-      tmp.texture = copy->texture;
-      tmp.blur = c.sigma;
-      tmp.contentH = r.h;
-      blurLayer(tmp);
-      scratch_.push_back(tmp.target);
-      b.texture = tmp.texture;
-      // gl_FragCoord (window px, origin bottom left) → the blurred texture's uv.
-      PoolTarget* res = nullptr;
-      for (auto& t : pool_)
-        if (t.target == tmp.target) res = &t;
-      double sw = res ? res->w : r.w, sh = res ? res->h : r.h;
-      b.place[0] = static_cast<float>(local.x);
-      b.place[1] = static_cast<float>(H - local.y - local.h);
-      b.place[2] = static_cast<float>(sw / tmp.scale);
-      b.place[3] = static_cast<float>(sh / tmp.scale);
+      for (int k = 0; k < b.count; k++) {
+        if (!copies[k]) continue;
+        // Blur it as a layer of its own.
+        Layer tmp;
+        tmp.rect = r;
+        tmp.target = copies[k];
+        tmp.texture = device_.targetTexture(copies[k]);
+        tmp.blur = b.sigmas[k];
+        tmp.contentH = r.h;
+        blurLayer(tmp);
+        scratch_.push_back(tmp.target);
+        b.textures[k] = tmp.texture;
+        // gl_FragCoord (window px, origin bottom left) → the blurred texture's uv.
+        PoolTarget* res = nullptr;
+        for (auto& t : pool_)
+          if (t.target == tmp.target) res = &t;
+        double sw = res ? res->w : r.w, sh = res ? res->h : r.h;
+        b.places[k][0] = static_cast<float>(local.x);
+        b.places[k][1] = static_cast<float>(H - local.y - local.h);
+        b.places[k][2] = static_cast<float>(sw / tmp.scale);
+        b.places[k][3] = static_cast<float>(sh / tmp.scale);
+      }
       // Back to this layer, as it was.
       gfx::PassDesc resume = pd;
       resume.keep = true;

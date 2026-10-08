@@ -40,9 +40,9 @@ vec3 adjust(vec3 c) {
   return clamp(c, 0.0, 1.0);
 }
 
-// Glass (slots 6 = (depth in device px, refraction, dispersion, splay), 8 = (the light's direction x, y in canvas
+// Glass (slots 6 = (depth in device px, refraction, dispersion, splay), 8 = (the direction toward the light in canvas
 // device px — y down —, intensity, 0)): the frosted backdrop (u_t2) seen through a curved edge — bent toward the
-// edge, split by colour, lit along the side facing the light.
+// edge within the depth, split by colour, lit along the edges facing the light (and, fainter, the opposite ones).
 vec4 glassAt() {
   vec4 G = u_v[6], L = u_v[8];
   vec2 sz = u_v[4].zw;
@@ -55,20 +55,43 @@ vec4 glassAt() {
   vec4 mid = texture(u_t2, (base + o) / sz);
   float r = texture(u_t2, (base + o * (1.0 + k)) / sz).r;
   float b = texture(u_t2, (base + o * (1.0 - k)) / sz).b;
-  float facing = max(dot(g_normal, L.xy), 0.0);
-  float spec = L.z * pow(facing, mix(6.0, 1.0, clamp(G.w, 0.0, 1.0))) * e;
-  return vec4(min(vec3(r, mid.g, b) + spec * mid.a, vec3(mid.a)), mid.a);
+  float facing = dot(g_normal, L.xy);
+  float sharp = mix(6.0, 1.5, clamp(G.w, 0.0, 1.0));
+  float rim = pow(clamp(1.0 + g_sdf / max(depth * 0.25, 1.0), 0.0, 1.0), 2.0);
+  float spec = L.z * (pow(max(facing, 0.0), sharp) + 0.4 * pow(max(-facing, 0.0), sharp)) * rim;
+  vec3 rgb = min(vec3(r, mid.g, b), vec3(mid.a));
+  return vec4(rgb + (mid.a - rgb) * clamp(spec, 0.0, 1.0), mid.a);
+}
+
+// Noise cells (a NOISE paint, PaintKind 9, or the Noise effect): Multi (0) random colours, Mono (1) the colour at a
+// random strength, Duo (2) the colour or `second`; `density` of the cells show.
+vec4 noiseCell(vec2 cell, uint seed, float density, int type, vec4 color, vec4 second) {
+  uint h = hashCell(cell, seed);
+  if (unitOf(hashU(h ^ 0x9e3779b9u)) >= density) return vec4(0.0);
+  if (type == 0) return vec4(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * color.a;
+  if (type == 2) return unitOf(hashU(h + 5u)) < 0.5 ? color : second;
+  return color * unitOf(h);
 }
 
 vec4 paintAt(vec2 local, int kind) {
   if (kind == 0) return v_color;
   if (kind == 7) {
-    // A progressive background blur: the backdrop at the start's blur (u_t3, slot 7) to the end's (u_t2, slot 4).
+    // A progressive background blur: σ along the effect (slot 19 = (σ at the start, at the end, this interval's
+    // lower and upper σ)), the backdrop between the interval's two levels (u_t3 at slot 7, u_t2 at slot 4); pixels
+    // whose σ falls in another interval are that one's.
+    vec4 P = u_v[19];
+    float s = mix(P.x, P.y, progressT(g_dp));
+    if (s < P.z || s >= P.w) return vec4(0.0);
+    float f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
     vec2 uv1 = (gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw;
     vec2 uv0 = (gl_FragCoord.xy - u_v[7].xy) / u_v[7].zw;
-    return mix(texture(u_t3, uv0), texture(u_t2, uv1), progressT(g_dp)) * v_color.a;
+    return mix(texture(u_t3, uv0), texture(u_t2, uv1), f) * v_color.a;
   }
   if (kind == 8) return glassAt() * v_color.a;
+  if (kind == 9) {
+    vec2 g = vec2(dot(v_paint0.xy, local) + v_paint0.z, dot(v_paint1.xy, local) + v_paint1.z);
+    return noiseCell(floor(g), 0u, v_paint0.w, int(v_paint1.w + 0.5), v_color, vec4(0.0));
+  }
   if (kind == 6) {
     vec2 uv = (gl_FragCoord.xy - u_v[4].xy) / u_v[4].zw;
     return texture(u_t2, uv) * v_color.a;
@@ -458,7 +481,10 @@ void main() {
 // 6 = colour (shadows, premultiplied); 7 = (opacity, blend mode, mode, knockout); 8 = the source's offset in
 // device px (shadows). Modes: 0 source, 1 × the mask's alpha, 2 × the mask's luminance, 3 drop shadow (colour ×
 // the blurred alpha behind, knocked out by the node's alpha), 4 inner shadow (colour × the node's alpha × (1 −
-// the blurred alpha)). Blend modes other than NORMAL read the backdrop and write the result (Blend::Replace).
+// the blurred alpha)), 5 progressive blur (one interval between two blurred copies), 6 noise (within the source's
+// alpha), 7 texture (the source read through a shift per grain). Modes 5–7 read slots 16–19 (kClipFunctions'
+// effectSpace, progressT; noiseAt, textureShift). Blend modes other than NORMAL read the backdrop and write the
+// result (Blend::Replace).
 inline constexpr const char* kCompositeVertex = R"(#version 300 es
 uniform vec4 u_v[20];
 out vec2 v_dev;
@@ -502,7 +528,7 @@ vec4 noiseAt(vec2 dp) {
   if (unitOf(hashU(h ^ 0x9e3779b9u)) >= u_v[18].z) return vec4(0.0);
   int type = int(u_v[18].w + 0.5);
   if (type == 0) return vec4(unitOf(h), unitOf(hashU(h + 1u)), unitOf(hashU(h + 2u)), 1.0) * u_v[8].y;
-  if (type == 2) return unitOf(h) < 0.5 ? u_v[6] : u_v[19];
+  if (type == 2) return unitOf(hashU(h + 5u)) < 0.5 ? u_v[6] : u_v[19];
   return u_v[6] * unitOf(h);
 }
 // Texture (slot 18 = (size x, y, radius in device px, clip to shape); 8.x = seed): a shift per cell, ± radius.
@@ -580,8 +606,13 @@ void main() {
   cov *= roundClip(v_dev) * shapeClip(v_dev);
   if (cov <= 0.0) discard;
   if (mode == 5) {
-    // A progressive layer blur: the layer at the start's blur (u_t0) to the end's (u_t1).
-    c = mix(at(u_t0, u_v[3], v_dev), at(u_t1, u_v[4], v_dev), progressT(v_dev));
+    // A progressive layer blur, one interval of it (slot 19 = (σ at the start, at the end, the interval's lower and
+    // upper σ)): the layer between its copies at the two (u_t0, u_t1); pixels whose σ is elsewhere are another's.
+    vec4 P = u_v[19];
+    float s = mix(P.x, P.y, progressT(v_dev));
+    if (s < P.z || s >= P.w) discard;
+    float f = clamp((s - P.z) / max(P.w - P.z, 1e-6), 0.0, 1.0);
+    c = mix(at(u_t0, u_v[3], v_dev), at(u_t1, u_v[4], v_dev), f);
   } else if (mode == 6) {
     // Noise over the layer (its alpha).
     c = noiseAt(v_dev) * at(u_t0, u_v[3], v_dev).a;

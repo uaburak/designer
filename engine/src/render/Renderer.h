@@ -343,7 +343,8 @@ class Renderer {
   // A draw's extra state (batches only merge when it is equal).
   struct DrawState {
     gfx::TextureId image = 0;   // the image paint's texture, or the blurred backdrop
-    int backdrop = -1;          // the backdrop blur whose texture paints (PaintKind::Backdrop)
+    int backdrop = -1;          // the backdrop blur whose texture paints (PaintKind::Backdrop / Progressive / Glass)
+    int level = 0;              // a progressive backdrop blur: the interval between its levels `level` and `level + 1`
     int clip = -1;              // the clip shape in force (shapeClips_), −1: none
     float filters[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     bool operator==(const DrawState& o) const;
@@ -368,6 +369,9 @@ class Renderer {
     double sigma = 0;  // BackdropBlur: device px
     // Blit (the content cache onto the canvas): the texture, where its top-left lands (device px), texels per
     // device px, its height in texels.
+    // Composite modes 5–7 (progressive blur, noise, texture): uniform slots 16–19 (gfx/gl/Shaders.h).
+    bool fxOn = false;
+    float fx[4][4] = {};
     RoundClip round;  // Composite: the rounded clip it lands in
     float clipRect[4] = {0, 0, -1, -1};  // Composite: the clip rectangle it lands in (canvas device px; x1 < x0: none)
     int shapeClip = -1;                  // Composite: the clip shape it lands in
@@ -406,10 +410,18 @@ class Renderer {
     bool busy = false;
     uint64_t lastUsed = 0;
   };
+  // A background blur's (or glass's) copy of the backdrop, blurred: one level, or a progressive blur's levels (σ
+  // ascending; the shape is drawn once per interval between two, each pixel by the one its σ falls in).
+  static constexpr int kMaxBlurLevels = 8;
   struct BackdropBlur {
-    gfx::TextureId texture = 0;  // set at execution
-    gfx::IRect rect;             // device px, canvas space (window y computed per pass)
-    float place[4] = {0, 0, 1, 1};
+    enum class Kind : uint8_t { Plain, Progressive, Glass } kind = Kind::Plain;
+    int count = 1;
+    double sigmas[kMaxBlurLevels] = {};                    // device px
+    gfx::TextureId textures[kMaxBlurLevels] = {};          // set at execution
+    float places[kMaxBlurLevels][4] = {};                  // x, y in window px, width, height in texels
+    float fx[3][4] = {};                                   // progressive: slots 16–18 (the node's box, start / end)
+    double start = 0, end = 0;                             // progressive: σ at the start and at the end (device px)
+    float glass[2][4] = {};                                // glass: slots 6 and 8
   };
 
   void ensurePipelines();
@@ -425,7 +437,16 @@ class Renderer {
   void drawFills(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool whiteMask = false);
   void drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
-  void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e);
+  // A background blur (uniform or progressive), or glass: the backdrop copied, blurred and painted into the shape.
+  void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e,
+                          bool glass = false);
+  // Layer `src` composited through a progressive blur (σ `s0` at the effect's start to `s1` at its end, device px):
+  // copies of it at levels between, each pixel from the two levels around its σ.
+  void progressiveComposite(int src, float opacity, BlendMode bm, gfx::IRect r, double s0, double s1, const Effect& e,
+                            const Mat2x3& m, Vec2 size);
+  // A PATTERN fill: its source layer tiled over the node's box, through the node's fill shape.
+  void drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint);
+  int patternDepth_ = 0;
   void drawText(const Document& doc, const NodeProps& p, Guid id, const Mat2x3& m, double alpha);
   // The smallest em (device px) drawn as glyphs; smaller text is a bar per line holding the line's ink.
   static constexpr double kGlyphMinEmPx = 1;

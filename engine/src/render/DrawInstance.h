@@ -8,8 +8,10 @@
 //   geom    Shape: stroke inner extent, outer extent (or σ, spread for shadows), kind, flags;
 //           Path: unused, unused, kind (Path), flags
 //   color   premultiplied colour (SOLID; shadows), else (1, 1, 1, alpha) multiplying the paint
-//   paint0  paint matrix row 0 (local → paint space: gradient / image uv) + aux (images: 1 = repeat)
-//   paint1  paint matrix row 1 + gradient ramp row; Shape kind FILL_AND_STROKE: paint0 = the stroke colour
+//   paint0  paint matrix row 0 (local → paint space: gradient / image uv / noise cells) + aux (images: 1 = repeat;
+//           noise: density)
+//   paint1  paint matrix row 1 + gradient ramp row (noise: its type); Shape kind FILL_AND_STROKE: paint0 = the
+//           stroke colour
 //   clip    x0 y0 x1 y1 in canvas device px: pixels outside are not drawn (a frame's axis-aligned clip)
 //   round   x0 y0 x1 y1 in canvas device px of an axis-aligned rounded clip (x1 < x0: none), anti-aliased
 //   radii   its corner radii in device px: top-left, top-right, bottom-right, bottom-left
@@ -60,7 +62,10 @@ enum class PaintKind : uint32_t {
   Angular = 3,
   Diamond = 4,
   Image = 5,
-  Backdrop = 6,  // the blurred backdrop (background blur), by gl_FragCoord
+  Backdrop = 6,     // the blurred backdrop (background blur), by gl_FragCoord
+  Progressive = 7,  // a progressive background blur: the backdrop between two blur levels (u_t3 → u_t2)
+  Glass = 8,        // glass: the frosted backdrop refracted at the shape's edge, lit
+  Noise = 9,        // a NOISE paint: paint0 / paint1 rows map local → noise cells; .w = density, type
 };
 
 inline float drawFlags(uint32_t flags, PaintKind paint) { return static_cast<float>(flags | (static_cast<uint32_t>(paint) << 8)); }
