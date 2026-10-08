@@ -118,10 +118,12 @@ void Editor::updateCursor(Vec2 s) {
 void Editor::updateHover(Vec2 s, uint32_t mods) {
   Guid next = kNoGuid;
   int hx, hy;
-  if (tool_ == Tool::MOVE && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) == Handle::None) {
+  if ((tool_ == Tool::MOVE || tool_ == Tool::ANNOTATION) && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) == Handle::None) {
     auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel());
+    focusFilter(path);
     next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
   }
+  devHover(s);
   if (next != hover_) {
     hover_ = next;
     events_.hover = true;
@@ -281,6 +283,9 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (!viewer_ && (button == 2 || (button == 0 && (mods & MOD_CTRL) && !(mods & MOD_PRIMARY)))) return contextMenu(s, mods);
   if (button != 0) return 0;
 
+  // Dev Mode: status chips, annotation labels and dots, saved measurements, the Annotation and Measurement tools.
+  if (uint32_t r = devPointerDown(s, mods)) return r;
+
   // Editing text: a press in it moves the caret or selects; elsewhere it ends the editing first.
   if (text_.node != kNoGuid)
     if (uint32_t r = textPointerDown(s, mods, clickCount_)) return r;
@@ -351,6 +356,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
 
   bool deep = (mods & MOD_PRIMARY) != 0, shift = (mods & MOD_SHIFT) != 0;
   auto path = hitPath(doc_, page_, downWorld_, pixel());
+  focusFilter(path);
   if (!viewer_ && clickCount_ >= 2 && !shift && !path.empty()) {
     // Double-click on a text layer: edit it, the word under the pointer selected.
     const Node* hit = doc_.get(path.back());
@@ -430,6 +436,8 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       if (proto_.on) protoHover(s);
       break;
     case Gesture::Noodle: protoPointerMove(s); break;
+    case Gesture::Measure:
+    case Gesture::MeasureDrag: devPointerMove(s); break;
     case Gesture::Vector: vectorPointerMove(s, mods); break;
     case Gesture::Paint: paintPointerMove(s, mods); break;
     case Gesture::Pencil:
@@ -492,6 +500,13 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Noodle:
       protoPointerUp(s);
       gesture_ = Gesture::None;
+      return;
+    case Gesture::Measure:
+    case Gesture::MeasureDrag:
+      devPointerUp(s);
+      gesture_ = Gesture::None;
+      endGesture();
+      updateHover(s, mods);
       return;
     case Gesture::Pencil:
       pencilPoints_.push_back(world);
@@ -577,6 +592,8 @@ void Editor::cancelGesture() {
       changeSelection(baseSelection_);
       needsRender_ = true;
       break;
+    case Gesture::Measure:
+    case Gesture::MeasureDrag: needsRender_ = true; break;
     default: break;
   }
   gesture_ = Gesture::None;

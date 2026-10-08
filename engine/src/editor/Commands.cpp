@@ -91,6 +91,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   }
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommand(id, args);
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
+  if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
     // Inside an open transaction (a scrub in the variables table): applied live, one undo step at its commit.

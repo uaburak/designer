@@ -1426,6 +1426,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   ensurePipelines();
   frame_++;
   doc_ = &doc;
+  recordHits_ = target == 0 && only == kNoGuid && !exporting_;
   viewport_ = viewport;
   stats_ = {};
   curves_.beginFrame();
@@ -1469,10 +1470,19 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   const int W = viewport.deviceWidth(), H = viewport.deviceHeight();
   const gfx::IRect full{0, 0, W, H};
 
-  if (!cacheEnabled_ || target != 0 || only != kNoGuid || W <= 0 || H <= 0) {
+  if (!cacheEnabled_ || target != 0 || only != kNoGuid || overlay.dev.focus != kNoGuid || W <= 0 || H <= 0) {
     // Direct: everything into the target this frame (thumbnails, tests, no cache).
     beginRecording(full, false);
-    if (only != kNoGuid) {
+    if (only == kNoGuid && overlay.dev.focus != kNoGuid) {
+      // Focus view: the one design over the page, then the overlays.
+      int i = tree.indexOf(overlay.dev.focus);
+      if (i >= 0)
+        drawChildren(doc, static_cast<uint32_t>(i), tree.nodes()[static_cast<size_t>(i)].end,
+                     view_ * doc.worldTransform(doc.parentOf(overlay.dev.focus)), 1);
+      current_ = 0;
+      scissorEnabled_ = false;
+      drawOverlay(doc, page, camera, overlay, adapted);
+    } else if (only != kNoGuid) {
       // One node, nothing else.
       int i = tree.indexOf(only);
       if (i >= 0)

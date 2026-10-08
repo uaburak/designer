@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -207,6 +208,30 @@ void writeEvents(json::Writer& w, Engine& e) {
       w.key("message");
       writeMessage(w, ed.sessionID(), d.changes);
     }
+    w.endObject();
+  }
+  auto rect = [&](const Rect& r) {
+    w.key("x").number(r.x).key("y").number(r.y).key("width").number(r.w).key("height").number(r.h);
+  };
+  for (auto& a : ev.annotationOpens) {
+    w.beginObject().key("type").string("ANNOTATION_OPEN").key("ref").string(a.node.toString()).key("index").number(a.index);
+    rect(a.rect);
+    w.endObject();
+  }
+  for (auto& m : ev.measurementEdits) {
+    w.beginObject().key("type").string("MEASUREMENT_EDIT").key("id").string(m.id.toString()).key("text").string(m.text);
+    rect(m.rect);
+    w.endObject();
+  }
+  for (auto& s : ev.statusClicks) {
+    w.beginObject().key("type").string("DEV_STATUS").key("ref").string(s.frame.toString()).key("action").string(s.action);
+    rect(s.rect);
+    w.endObject();
+  }
+  if (ev.measurementSelection) {
+    w.beginObject().key("type").string("MEASUREMENT_SELECTED").key("id");
+    if (ed.selectedMeasurement() == kNoGuid) w.null();
+    else w.string(ed.selectedMeasurement().toString());
     w.endObject();
   }
   if (!ev.nodes.empty()) {
@@ -693,6 +718,7 @@ ENG_EXPORT void engine_render(Handle h) {
     return;
   }
   e->stats = e->renderer->render(ed.document(), ed.page(), ed.camera(), ed.viewport(), ed.overlay(), OverlayStyle::of(ed.theme()));
+  ed.setCanvasHits(e->renderer->canvasHits());
   ed.rendered();
 }
 
@@ -1090,9 +1116,16 @@ ENG_EXPORT int32_t engine_set_props(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
-  if (e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   json::Value refs, change;
   if (!parse(refsPtr, refsLen, refs) || !parse(changePtr, changeLen, change)) return E_DECODE;
+  if (e->editor.viewerMode()) {
+    // Viewer mode: read-only — but the editor's Dev Mode writes annotations, measurements, categories and statuses.
+    bool dev = e->editor.devEdits() && change.isObject();
+    if (dev)
+      for (auto& [k, v] : change.object)
+        dev &= k == "guid" || k == "annotations" || k == "measurements" || k == "annotationCategories" || k == "sectionStatusInfo";
+    if (!dev) return E_READONLY;
+  }
   if (change.isObject() && !change.get("guid")) {
     json::Value guid;
     guid.kind = json::Value::Kind::String;
@@ -1128,6 +1161,8 @@ ENG_EXPORT void engine_txn_cancel(Handle h) {
 // {"page":<localID>,"pageSession":<sessionID>} or {"sessionID","localID"}).
 // The commands viewer mode allows: selection and zoom (CommandId 10–16, 50–54).
 static bool viewerCommand(uint32_t id) { return (id >= 10 && id <= 16) || (id >= 50 && id <= 54); }
+// What the editor's Dev Mode (viewer mode with Dev Mode's own edits) may run besides: undo, redo, measurements.
+static bool devCommand(uint32_t id) { return id == 1 || id == 2 || (id >= 210 && id <= 212); }
 
 ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uint32_t argsLen) {
   Call call;
@@ -1167,7 +1202,7 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
     a.raw = std::move(args);
   }
   // Viewer mode: selecting and zooming only.
-  if (e->editor.viewerMode() && !viewerCommand(commandId)) return E_READONLY;
+  if (e->editor.viewerMode() && !viewerCommand(commandId) && !(e->editor.devEdits() && devCommand(commandId))) return E_READONLY;
   int32_t status = e->editor.command(static_cast<CommandId>(commandId), a);
   // What the command created (variables, collections, modes, styles): {"created": [...]}.
   json::Writer w;
@@ -1181,7 +1216,7 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
 ENG_EXPORT uint32_t engine_command_state(Handle h, uint32_t commandId) {
   Call call;
   Engine* e = engineOf(h);
-  if (e && e->editor.viewerMode() && !viewerCommand(commandId)) return 0;
+  if (e && e->editor.viewerMode() && !viewerCommand(commandId) && !(e->editor.devEdits() && devCommand(commandId))) return 0;
   return e ? e->editor.commandState(static_cast<CommandId>(commandId)) : 0;
 }
 
@@ -2579,10 +2614,105 @@ ENG_EXPORT int32_t engine_library_usage(Handle h) {
 
 // The editor's Prototype tab: connections, "+" handles and flow labels on the canvas (on = 1).
 // Viewer mode (developer previews): read-only, no resize handles (on = 1).
-ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t on) {
+// flags: 1 viewer mode; 2 with Dev Mode's own edits (the editor's Dev Mode: annotations, measurements, statuses).
+ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
   Call call;
   Engine* e = engineOf(h);
-  if (e) e->editor.setViewerMode(on != 0);
+  if (!e) return;
+  e->editor.setViewerMode((flags & 1) != 0);
+  e->editor.setDevEdits((flags & 1) != 0 && (flags & 2) != 0);
+}
+
+// ---- Dev Mode (editor/DevMode.cpp) ---------------------------------------------------------------------------------
+
+// View › Annotations: `show` labels, dots and measurements; `dots`: Dev Mode's dots.
+ENG_EXPORT void engine_set_annotation_view(Handle h, uint32_t show, uint32_t dots) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setAnnotationView(show != 0, dots != 0);
+}
+
+// editInfo stamped on every user edit (the editor turns it on).
+ENG_EXPORT void engine_set_edit_tracking(Handle h, uint32_t on) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setEditTracking(on != 0);
+}
+
+// Focus view: only this design is drawn and picked; (0, 0) leaves it.
+ENG_EXPORT int32_t engine_set_focus(Handle h, uint32_t sessionID, uint32_t localID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  return e->editor.setFocus(Guid{sessionID, localID});
+}
+
+// A saved measurement selected on the canvas ((0, 0): none).
+ENG_EXPORT int32_t engine_select_measurement(Handle h, uint32_t sessionID, uint32_t localID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  return e->editor.selectMeasurement(Guid{sessionID, localID});
+}
+
+// Dev Mode's state as JSON: {annotations, dots, focus, selectedMeasurement, statuses: [{ref, status}], measurements:
+// [{id, from, to, side, toSameSide, inner, outer, freeText, value, a, b}]} for the page ((0, 0): the current one).
+ENG_EXPORT int32_t engine_dev_info(Handle h, uint32_t pageSessionID, uint32_t pageLocalID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  Guid page{pageSessionID, pageLocalID};
+  if (page == kNoGuid) page = ed.page();
+  json::Writer w;
+  w.beginObject().key("annotations").boolean(ed.annotationsShown()).key("focus");
+  if (ed.focus() == kNoGuid) w.null();
+  else w.string(ed.focus().toString());
+  w.key("selectedMeasurement");
+  if (ed.selectedMeasurement() == kNoGuid) w.null();
+  else w.string(ed.selectedMeasurement().toString());
+  static const char* kStatus[] = {"NONE", "READY", "COMPLETED", "CHANGED"};
+  w.key("statuses").beginArray();
+  std::function<void(Guid, int)> walk = [&](Guid id, int depth) {
+    for (Guid c : ed.document().children(id)) {
+      const Node* n = ed.document().get(c);
+      if (!n) continue;
+      if (int st = ed.devStatus(c)) w.beginObject().key("ref").string(c.toString()).key("status").string(kStatus[st]).endObject();
+      if (n->props.type == NodeType::SECTION && depth < 8) walk(c, depth + 1);
+    }
+  };
+  walk(page, 0);
+  w.endArray().key("measurements").beginArray();
+  for (const annot::Measurement& m : ed.measurements(page)) {
+    w.beginObject().key("id").string(m.id.toString()).key("from").string(m.from.toString()).key("to").string(m.to.toString());
+    w.key("side").string(annot::sideName(m.side)).key("toSameSide").boolean(m.toSameSide);
+    w.key("inner").number(m.inner).key("outer").number(m.outer).key("freeText").string(m.freeText);
+    Vec2 a, b;
+    if (ed.measurementLine(m, a, b)) {
+      w.key("value").number((b - a).length());
+      w.key("a").beginObject().key("x").number(a.x).key("y").number(a.y).endObject();
+      w.key("b").beginObject().key("x").number(b.x).key("y").number(b.y).endObject();
+    }
+    w.endObject();
+  }
+  w.endArray();
+  // Where the last frame drew the clickable marks (CSS px), for scripts and tests.
+  const CanvasHits& hits = ed.canvasHits();
+  w.key("hits").beginObject().key("annotations").beginArray();
+  for (auto& a : hits.annotations)
+    w.beginObject().key("ref").string(a.node.toString()).key("index").number(a.index).key("dot").boolean(a.dot)
+        .key("x").number(a.rect.x).key("y").number(a.rect.y).key("width").number(a.rect.w).key("height").number(a.rect.h).endObject();
+  w.endArray().key("measurements").beginArray();
+  for (auto& m : hits.measurements)
+    w.beginObject().key("id").string(m.id.toString()).key("x").number(m.pill.x).key("y").number(m.pill.y).key("width").number(m.pill.w)
+        .key("height").number(m.pill.h).endObject();
+  w.endArray().key("statuses").beginArray();
+  for (auto& s : hits.statuses)
+    w.beginObject().key("ref").string(s.frame.toString()).key("kind").number(static_cast<int>(s.kind)).key("x").number(s.rect.x)
+        .key("y").number(s.rect.y).key("width").number(s.rect.w).key("height").number(s.rect.h).endObject();
+  w.endArray().endObject();
+  w.endObject();
+  return setResult(w.take());
 }
 
 ENG_EXPORT void engine_set_prototype_mode(Handle h, uint32_t on) {

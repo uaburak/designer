@@ -122,6 +122,10 @@ enum class CommandId : uint32_t {
   RENAME_STYLE_GROUP = 176,             // args {type, group, name}
   UNGROUP_STYLES = 177,                 // args {type, group}
   REPLACE_FONTS = 190,                  // args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' "Replace fonts")
+  // Dev Mode's saved measurements (editor/DevMode.cpp); 210+ so parallel rounds' commands don't collide.
+  MEASUREMENT_ADD = 210,                // args {from, to?, side, toSameSide?, inner?, outer?, freeText?, page?}; created: [id]
+  MEASUREMENT_UPDATE = 211,             // args {id, freeText?, inner?, outer?, page?}
+  MEASUREMENT_DELETE = 212,             // args {id, page?}
 };
 
 // engine_command_state bits.
