@@ -69,7 +69,9 @@
   .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
 
   /* ---- Right panel ---- */
+  /* 240 inside its line (Figma's design panel is 240 wide; the line is outside it) */
   .right {
+    box-sizing: content-box;
     position: relative;
     z-index: var(--ds-z-panel);
     display: flex;

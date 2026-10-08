@@ -11,8 +11,8 @@ export * from "./types";
 export { STRINGS } from "./strings";
 
 export { cx } from "./util/cx";
-export { evaluate, stripUnit, clampRound, commitTyped, formatNumber } from "./util/evaluate";
-export { scrubValue, stepValue, SCRUB_THRESHOLD } from "./util/scrub";
+export { evaluate, evaluateWith, parseExpression, usesMixed, stripUnit, clampRound, commitTyped, formatNumber, type Committed } from "./util/evaluate";
+export { scrubValue, scrubRate, stepValue, SCRUB_THRESHOLD, SCRUB_SPEEDS } from "./util/scrub";
 export { normalizeHex, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
 export * from "./util/paint";
 export { timeAgo, formatEdited } from "./util/time";

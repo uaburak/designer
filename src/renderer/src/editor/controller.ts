@@ -115,7 +115,7 @@ export class EditorController {
       anchor: null,
       pageSearch: null,
       shortcutsOpen: false,
-      propertyLabels: false,
+      propertyLabels: true,
       contextMenu: null,
       versionDialog: null,
       placingImages: null,

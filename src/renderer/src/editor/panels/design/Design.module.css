@@ -1,31 +1,58 @@
 @layer app {
-  /* The selection's header row: "Frame ▾" / "Rectangle" … (40 high, text at 16) */
+  /* The selection's header row: "Frame ▾" / "Rectangle" / "2 selected" (48 high, the type at 16 in 13px/550) */
   .typeHeader {
     display: flex;
     align-items: center;
-    height: var(--ds-size-section-header);
+    height: var(--ds-space-12);
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
     border-bottom: 1px solid var(--figma-color-border);
   }
   .typeLabel {
+    min-width: 0;
+    overflow: hidden;
     padding-left: var(--ds-space-2);
-    font: var(--ds-font-body-medium-strong);
-    letter-spacing: var(--ds-tracking-body-medium-strong);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .typeButton {
     display: flex;
+    flex: none;
     align-items: center;
-    gap: var(--ds-space-half);
+    gap: var(--ds-space-1);
     height: var(--ds-size-control);
     padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
     border: 0;
     border-radius: var(--ds-radius-medium);
     background: transparent;
     color: var(--figma-color-text);
-    font: var(--ds-font-body-medium-strong);
-    letter-spacing: var(--ds-tracking-body-medium-strong);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
     outline: none;
   }
+  /* The page's colour row: the field to 200, its eye at 208 */
+  .pageRow .paintField { margin-right: 0; }
+  /* Boolean operations: the operation (24) and its menu (16), 1 apart, one rounded box (Figma's 41) */
+  .splitButton { display: inline-flex; flex: none; gap: 1px; }
+  .splitMain { border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium); }
+  .splitChevron {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-space-4);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0;
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .splitChevron:hover, .splitChevron[data-open] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .splitChevron:disabled { color: var(--figma-color-icon-disabled); background: transparent; }
+  .splitChevron:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .typeButton:hover, .typeButton[data-open] { background: var(--figma-color-bg-hover); }
   .typeButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .typeButton svg { color: var(--figma-color-icon-secondary); }
@@ -114,7 +141,7 @@
 
 @layer app {
   /* The selection header's actions (Edit object, Create component, Use as mask, Boolean groups), right-aligned */
-  .headerActions { display: flex; align-items: center; gap: 0; margin-left: auto; }
+  .headerActions { display: flex; align-items: center; gap: var(--ds-space-1); margin-left: auto; }
   /* An icon that opens a menu (blend mode, individual strokes, boolean groups): an icon button's box */
   .iconMenu {
     display: inline-flex;

@@ -6,6 +6,7 @@ import { placeMenu } from "../overlay/position";
 import { Portal } from "../overlay/Portal";
 import { useDismiss } from "../overlay/useDismiss";
 import { Icon, iconBox, type IconName } from "../icons/Icon";
+import { tooltipProps } from "../overlay/TooltipManager";
 import { timing } from "../tokens";
 import styles from "./Menu.module.css";
 
@@ -297,10 +298,15 @@ export interface MenuButtonProps {
   placement?: "bottom" | "top";
   /** The trigger's look, replacing the default ghost one (it gets `data-open` while open) */
   className?: string;
+  disabled?: boolean;
+  /** A tooltip on hover (Figma's panel buttons: the label, or this text) */
+  tooltip?: boolean | string;
+  /** Shown next to the tooltip */
+  shortcut?: string;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const open = () => {
@@ -321,7 +327,9 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
         aria-expanded={Boolean(at)}
         aria-label={label}
         data-open={at ? "" : undefined}
+        disabled={disabled}
         className={className ?? styles.trigger}
+        {...(tooltip && !at ? tooltipProps(typeof tooltip === "string" ? tooltip : label, shortcut) : {})}
         onClick={() => (at ? setAt(null) : open())}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" && placement === "bottom") {

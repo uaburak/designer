@@ -95,8 +95,6 @@ export function ZoomMenu() {
     commandItem(ed, "view.layout-guides"),
     commandItem(ed, "view.rulers"),
     commandItem(ed, "view.outlines"),
-    "-",
-    commandItem(ed, "view.property-labels"),
   ];
   return (
     <MenuButton

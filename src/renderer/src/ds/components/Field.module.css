@@ -51,6 +51,26 @@
   .hug { flex: none; }
   .upper { text-transform: uppercase; }
   .mixed::placeholder { color: var(--figma-color-text-secondary); }
+  /* "Mixed" as the field's text (so "Mixed+100" can be typed after it), in the secondary colour until edited */
+  .mixedText { color: var(--figma-color-text-secondary); }
+  /* ⌥ over a field: it scrubs */
+  .field[data-alt-scrub], .field[data-alt-scrub] .input { cursor: ew-resize; }
+  /* W / H's sizing mode after the number ("Hug", "Fill"), right-aligned before the menu */
+  .modeLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-right: var(--ds-space-1); text-align: right; white-space: nowrap; text-overflow: ellipsis; cursor: text; user-select: none; }
+  /* A scrub's speed when it isn't 1x (help: "a notification … shows the current speed") */
+  .scrubSpeed {
+    position: absolute;
+    top: calc(100% + var(--ds-space-1));
+    left: 0;
+    z-index: var(--ds-z-tooltip);
+    padding: 0 var(--ds-space-1-5);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-menu-bg);
+    color: var(--ds-color-menu-text);
+    font: var(--ds-font-body-medium);
+    white-space: nowrap;
+    pointer-events: none;
+  }
 
   .prefix {
     display: flex;

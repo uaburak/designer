@@ -324,9 +324,11 @@ export const fontFamily = {
 
 export type TextStyle = { size: number; line: number; weight: number; tracking: string; mono?: boolean };
 
-/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. Only 450 / 550 (400 for mono). */
+/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. Only 450 / 550 (400 for mono; 500 for the panel labels, as Figma draws them). */
 export const text = {
   "body-small": { size: 9, line: 14, weight: 450, tracking: "0.045px" },
+  /** The Design panel's field labels ("Position", "Corner radius"): 9px/500 at 70% — Figma's live panel (docs/research/figma/live). */
+  "panel-label": { size: 9, line: 11, weight: 500, tracking: "0.045px" },
   "body-medium": { size: 11, line: 16, weight: 450, tracking: "0.055px" },
   "body-medium-strong": { size: 11, line: 16, weight: 550, tracking: "0.055px" },
   "body-ruler": { size: 10, line: 12, weight: 450, tracking: "0.05px" },

@@ -8,16 +8,39 @@
     min-height: var(--ds-size-row);
     padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
   }
+  /* Two actions (Stroke: "Advanced stroke settings" at 180, "Individual strokes" at 208 — 4 apart) */
+  .row.twoActions { grid-template-columns: var(--ds-row-columns, minmax(0, 1fr) minmax(0, 1fr)) var(--ds-size-control) calc(var(--ds-size-control) - var(--ds-space-1)); }
+  .row.custom:not(.twoActions) { grid-template-columns: var(--ds-row-columns) var(--ds-size-control); }
   .cell { display: flex; min-width: 0; }
   .cell > * { flex: 1 1 auto; min-width: 0; }
   .span2 { grid-column: 1 / 3; }
   .action { grid-column: 3; display: flex; align-items: center; justify-content: center; }
-  .label {
+  .twoActions .action2 { grid-column: 3; }
+  .twoActions .actionLast { grid-column: 4; width: var(--ds-size-control); margin-left: calc(-1 * var(--ds-space-1)); }
+
+  /*
+   * A row's label (Figma's "Additional labels"): 9px/500 at 70%, its text 4 under the row above (the row's own 4 of
+   * padding, then 16 to the field); a row with a label per column sits 2 lower (Figma's live panel).
+   */
+  .labelRow {
+    display: grid;
+    grid-template-columns: minmax(var(--ds-size-field), 1fr) minmax(var(--ds-size-field), 1fr) var(--ds-size-control);
+    column-gap: var(--ds-space-2);
+    box-sizing: border-box;
     height: 16px;
-    margin-top: var(--ds-space-1);
-    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
-    color: var(--figma-color-text-secondary);
-    font: var(--ds-font-body-medium);
-    letter-spacing: var(--ds-tracking-body-medium);
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
   }
+  .labelRow.custom { grid-template-columns: var(--ds-row-columns) var(--ds-size-control) calc(var(--ds-size-control) - var(--ds-space-1)); }
+  .labelRow.double { height: 18px; padding-top: var(--ds-space-1-5); }
+  .label {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-panel-label);
+    letter-spacing: var(--ds-tracking-panel-label);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    user-select: none;
+  }
+  .labelSpan { grid-column: 1 / -1; }
 }

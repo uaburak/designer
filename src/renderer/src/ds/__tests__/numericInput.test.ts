@@ -85,10 +85,78 @@ describe("NumericInput", () => {
   it("shows Mixed and hands the arrows' delta to onStep", () => {
     const onStep = spy<[number]>();
     const { onChange, input } = setup({ value: MIXED, onStep });
-    expect(input.placeholder).toBe("Mixed");
+    expect(input.value).toBe("Mixed");
     focus(input);
     key(input, "ArrowUp", { shiftKey: true });
     expect(onStep.calls).toEqual([[10]]);
     expect(onChange.calls).toHaveLength(0);
+  });
+
+  it("applies Mixed+100 to every layer's own value (onExpression), clamped and rounded", () => {
+    const onExpression = spy<[(x: number) => number, ChangeInfo]>();
+    const { onChange, input } = setup({ value: MIXED, onExpression, max: 500 });
+    focus(input);
+    type(input, "Mixed+100");
+    key(input, "Enter");
+    expect(onChange.calls).toHaveLength(0);
+    expect(onExpression.calls).toHaveLength(1);
+    const [each, info] = onExpression.calls[0];
+    expect([each(10), each(450), each(1.234)]).toEqual([110, 500, 101.23]);
+    expect(info).toEqual({ final: true, source: "type" });
+  });
+
+  it("reads Mixed as the value when there is one, and takes ^", () => {
+    const { onChange, input } = setup({ value: 10 });
+    focus(input);
+    type(input, "mixed*2");
+    key(input, "Enter");
+    type(input, "2^3");
+    key(input, "Enter");
+    expect(onChange.calls.map((c) => c[0])).toEqual([20, 8]);
+  });
+
+  it("takes its keywords in any case (a gap's Auto)", () => {
+    const onKeyword = spy<[string]>();
+    const { onChange, input } = setup({ keywords: ["Auto"], onKeyword });
+    focus(input);
+    type(input, "auto");
+    key(input, "Enter");
+    expect(onKeyword.calls).toEqual([["Auto"]]);
+    expect(onChange.calls).toHaveLength(0);
+  });
+
+  it("Enter commits and keeps the field focused; Esc leaves it", () => {
+    const exits: string[] = [];
+    const { onChange, input } = setup({ onExit: (r) => exits.push(r) });
+    focus(input);
+    type(input, "42");
+    key(input, "Enter");
+    expect(onChange.calls).toEqual([[42, { final: true, source: "type" }]]);
+    expect(document.activeElement).toBe(input);
+    key(input, "Escape");
+    expect(document.activeElement).not.toBe(input);
+    expect(exits).toEqual(["escape"]);
+  });
+
+  it("scrubs faster toward the top and slower toward the bottom (2x, 1x, 1/2, 1/4)", () => {
+    const { onChange, prefix } = setup({ value: 0 });
+    pointer(prefix, "pointerdown", { clientX: 100, clientY: 300 });
+    pointer(prefix, "pointermove", { clientX: 110, clientY: 300 }); // 1x: 10
+    pointer(prefix, "pointermove", { clientX: 110, clientY: 200 }); // up: 2x from here
+    pointer(prefix, "pointermove", { clientX: 120, clientY: 200 }); // +20
+    pointer(prefix, "pointermove", { clientX: 120, clientY: 600 }); // far down: 1/4
+    pointer(prefix, "pointermove", { clientX: 160, clientY: 600 }); // +10
+    expect(document.documentElement.getAttribute("data-scrub-speed")).toBe("0.25");
+    pointer(prefix, "pointerup", { clientX: 160, clientY: 600 });
+    expect(onChange.calls.at(-1)).toEqual([40, { final: true, source: "scrub" }]);
+  });
+
+  it("scrubs the field itself while ⌥ is held", () => {
+    const { onChange, input } = setup({ value: 0 });
+    pointer(input, "pointerdown", { clientX: 100, altKey: true });
+    pointer(input, "pointermove", { clientX: 105, altKey: true });
+    pointer(input, "pointerup", { clientX: 105 });
+    expect(onChange.calls.at(-1)).toEqual([5, { final: true, source: "scrub" }]);
+    expect(document.activeElement).not.toBe(input);
   });
 });

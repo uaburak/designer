@@ -33,7 +33,7 @@ export interface UIState {
   pageSearch: string | null;
   /** The shortcuts help (⌃⇧?) */
   shortcutsOpen: boolean;
-  /** Figma's "Property labels" (zoom menu) */
+  /** Figma's "Additional labels" (View menu, on by default since 2026; was "Property labels" in the zoom menu) */
   propertyLabels: boolean;
   /** Version history: "Save to version history" (⌥⌘S) or the list */
   versionDialog: "save" | "history" | null;

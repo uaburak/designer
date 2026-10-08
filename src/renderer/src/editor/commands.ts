@@ -281,7 +281,7 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden }))),
   ui("view.minimize-ui", "Minimize UI", [k("Backslash", { shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
   ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => ed.ui.set((s) => ({ rulers: !s.rulers })), (ed) => ed.ui.get().rulers),
-  ui("view.property-labels", "Property labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
+  ui("view.property-labels", "Additional labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
   // View › Annotations (help.figma.com 20774752502935; ⇧Y per a user report, unverified).
   ui("view.annotations", "Annotations", [k("KeyY", { shift: true })], (ed) => toggleAnnotations(ed), (ed) => annotationsShown(ed)),
   later("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })]),
