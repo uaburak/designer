@@ -26,8 +26,9 @@ import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
 import { pickImageFiles } from "../../canvas/ImagePlacer";
 import { startGradientEdit } from "../../vectorEdit";
-import { useLocalAssets, useUI } from "../../hooks";
+import { useDocumentVersion, useLocalAssets, useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
+import { SHADER_FILL_PRESETS, ShaderEffects } from "./Effects";
 import { StrokeRows } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
 import { isFrameNode, type PanelNode } from "./shared";
@@ -43,7 +44,7 @@ type PaintField = "fillPaints" | "strokePaints";
 
 /** What the open picker edits. */
 export type PickerTarget =
-  | { kind: "paint"; field: PaintField; index: number; anchor: DOMRect }
+  | { kind: "paint"; field: PaintField; index: number; anchor: DOMRect; /** "Apply styles and variables" opens it on Libraries (live) */ tab?: "libraries" }
   | { kind: "page"; page: Guid; anchor: DOMRect }
   /** A Selection colors row: every paint that used the colour (or gradient) when the picker opened */
   | { kind: "colors"; uses: PaintUse[]; anchor: DOMRect };
@@ -119,7 +120,13 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
       empty={empty}
       actions={
         <>
-          <StylesButton nodes={nodes} slot={slot} mixed={isMixed(shared) && !styled} />
+          <StylesButton
+            nodes={nodes}
+            slot={slot}
+            mixed={isMixed(shared) && !styled}
+            // Live (popovers/fill-styles-variables.txt): the colour picker on its Libraries tab, for the top paint.
+            onOpenPicker={paints.length && !hasStyle ? (anchor) => onPick({ kind: "paint", field, index: paints.length - 1, anchor, tab: "libraries" }) : undefined}
+          />
           {/* Figma's live panel: "Add stroke fill" once a stroke exists, "Add stroke" / "Add fill" otherwise */}
           {!hasStyle && <IconButton icon="24.plus.small" label={field === "strokePaints" && !empty ? "Add stroke fill" : `Add ${word}`} tone="secondary" onClick={add} />}
         </>
@@ -253,9 +260,6 @@ function VideoPreview({ hash }: { hash: string }) {
 function ImageControls({ paint, onChange }: { paint: FullPaint; onChange: (next: FullPaint, info: ChangeInfo) => void }) {
   return (
     <div className={styles.imageControls}>
-      <div className={styles.imageRotate}>
-        <IconButton icon="24.rotate" label="Rotate 90º" onClick={() => onChange(rotated90(paint), { final: true, source: "pick" })} />
-      </div>
       {IMAGE_ADJUSTMENTS.map(({ field, label }) => (
         <AdjustmentSlider key={field} label={label} value={Math.round((paint.paintFilter?.[field] ?? 0) * 100)} onChange={(v, info) => onChange(withAdjustment(paint, field, v), info)} />
       ))}
@@ -337,6 +341,10 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   const [stop, setStop] = useGradientHandles(ed, refs, field, index, !!paint && isGradientType(paint.type));
   const assets = useLocalAssets();
   const [creatingStyle, setCreatingStyle] = useState(false);
+  const [shaders, setShaders] = useState<HTMLElement | null>(null);
+  const patternSource = paint?.type === "PATTERN" ? guidOf(paint.sourceNodeId) : null;
+  const patternPreview = useNodePreview(ed, patternSource);
+  const [pickingSource, setPickingSource] = usePatternSourcePick(ed, refs, field, index, paints);
 
   if (target.kind === "page") {
     const color = pageColor ?? hexToColor("#f5f5f5");
@@ -401,10 +409,11 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   );
   if (creatingStyle) return <CreateStylePopover kind="FILL" slot={slot} from={refs[0] ?? null} applyTo={refs} anchor={target.anchor} onClose={() => { setCreatingStyle(false); onClose(); }} />;
   return (
+    <>
     <ColorPicker
       headerActions={headerActions}
       value={toPicker(paint)}
-      initialTab={paintVariable(paint) ? "libraries" : "custom"}
+      initialTab={(target.kind === "paint" && target.tab) || (paintVariable(paint) ? "libraries" : "custom")}
       libraries={
         <VariableList
           types={["COLOR"]}
@@ -415,6 +424,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           onPick={(v) => bindPaint(ed, refs, field, index, v.id)}
           onPickStyle={(st) => applyStyle(ed, refs, slot, st.id)}
           label="Libraries"
+          colorTab
           onDone={onClose}
         />
       }
@@ -435,14 +445,26 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
               })
           : undefined
       }
+      imageAction={isImageLike(paint) ? <IconButton icon="24.rotate" label="Rotate 90º" onClick={() => write(rotated90(paint), { final: true, source: "pick" }, "Rotate image")} /> : undefined}
       imageControls={
-        isImageLike(paint) ? (
-          <>
-            {paintVideoHash(paint) && <VideoPreview hash={paintVideoHash(paint)!} />}
-            <ImageControls paint={paint} onChange={(next, info) => write(next, info, "Image adjustments")} />
-          </>
+        // Live (popovers/fill-picker-image / -video): an image's adjustments; a video has none (its preview plays it).
+        paint.type === "VIDEO" ? (
+          paintVideoHash(paint) ? <VideoPreview hash={paintVideoHash(paint)!} /> : undefined
+        ) : isImageLike(paint) ? (
+          <ImageControls paint={paint} onChange={(next, info) => write(next, info, "Image adjustments")} />
         ) : undefined
       }
+      pattern={
+        paint.type === "PATTERN"
+          ? {
+              source: patternSource ? (ed.engine.readNode(patternSource)?.name ?? null) : null,
+              previewUrl: patternPreview,
+              selecting: pickingSource,
+              onSelectSource: () => setPickingSource((on) => !on),
+            }
+          : undefined
+      }
+      onShaders={(picker) => setShaders(picker)}
       contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], pageColor) : null}
       onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
@@ -454,7 +476,96 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
       onCancel={() => ed.cancelEdit()}
       onClose={onClose}
     />
+    {shaders && <ShaderEffects anchor={shaders} placement="left" title="Shader fills" list={SHADER_FILL_PRESETS} onboarding={false} onClose={() => setShaders(null)} />}
+    </>
   );
+}
+
+/** A PATTERN paint's source as "s:l" (the engine writes `{sessionID, localID}`; a string is taken too). */
+export function guidOf(v: unknown): Guid | null {
+  if (typeof v === "string") return /^\d+:\d+$/.test(v) ? v : null;
+  if (v && typeof v === "object" && "sessionID" in v && "localID" in v) return `${(v as { sessionID: number }).sessionID}:${(v as { localID: number }).localID}`;
+  return null;
+}
+
+/** A layer's picture (the engine's node render) as a data URL, for the Pattern tab's preview. */
+function useNodePreview(ed: EditorController, guid: Guid | null): string | null {
+  const version = useDocumentVersion();
+  return useMemo(() => {
+    void version;
+    if (!guid || typeof document === "undefined") return null;
+    const render = (ed.engine as unknown as { renderNodeThumbnailPixels?: (o: { node: Guid; maxSize: number }) => { width: number; height: number; pixels: Uint8Array } | null }).renderNodeThumbnailPixels;
+    let px: { width: number; height: number; pixels: Uint8Array } | null = null;
+    try {
+      px = render ? render.call(ed.engine, { node: guid, maxSize: 412 }) : null;
+    } catch {
+      px = null;
+    }
+    if (!px || !px.width || !px.height) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = px.width;
+    canvas.height = px.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(px.pixels), px.width, px.height), 0, 0);
+    return canvas.toDataURL("image/png");
+  }, [ed, guid, version]);
+}
+
+/**
+ * "Select source…" (the Pattern tab): the next layer clicked on the canvas — its top-level layer, as a click selects —
+ * becomes the pattern's source; the selection is left alone (the press never reaches the canvas). Esc or the button
+ * again stops picking. Unverified: what Figma's cursor shows meanwhile.
+ */
+function usePatternSourcePick(ed: EditorController, refs: readonly Guid[], field: PaintField | null, index: number, paints: FullPaint[] | null): [boolean, (f: (on: boolean) => boolean) => void] {
+  const [on, setOn] = useState(false);
+  const latest = useRef({ refs, field, index, paints });
+  useEffect(() => {
+    latest.current = { refs, field, index, paints };
+  });
+  useEffect(() => {
+    if (!on) return;
+    const canvas = document.getElementById("engine-canvas");
+    const down = (e: PointerEvent) => {
+      if (!canvas || e.target !== canvas || e.button !== 0) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const r = canvas.getBoundingClientRect();
+      const { refs, field, index, paints } = latest.current;
+      const top = topLevelAt(ed, e.clientX - r.left, e.clientY - r.top, refs);
+      setOn(false);
+      if (!top || !field || !paints?.[index]) return;
+      const [session, local] = top.split(":").map(Number);
+      const next = paints.map((p, i) => (i === index ? { ...p, sourceNodeId: { sessionID: session, localID: local } } : p));
+      writePaints(ed, refs, field, next, "Pattern source", { final: true, source: "pick" });
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setOn(false);
+    };
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("keydown", key, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [ed, on]);
+  return [on, setOn];
+}
+
+/** The top-level layer (child of the page) under a canvas point, never one of `not` or their ancestors. */
+export function topLevelAt(ed: EditorController, x: number, y: number, not: readonly Guid[]): Guid | null {
+  for (const id of ed.engine.hitTest(x, y)) {
+    let n = ed.store.readNode(id);
+    for (let depth = 0; n && depth < 256; depth++) {
+      const parent = n.parentIndex?.guid ? ed.store.readNode(n.parentIndex.guid) : null;
+      if (!parent || parent.type === "CANVAS") return not.includes(n.guid) ? null : n.guid;
+      n = parent;
+    }
+  }
+  return null;
 }
 
 /**

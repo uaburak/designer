@@ -117,23 +117,25 @@
   .textarea::placeholder { color: var(--figma-color-text-secondary); }
 
   /* Colour row: swatch cell, hex, a line in the panel colour, opacity */
+  /* Live capture (design/*.txt): the swatch is a 14 × 14 button 5 in from the field's edge, the hex at 24 */
   .swatchCell {
     display: flex;
     flex: none;
     align-items: center;
     justify-content: center;
-    width: var(--ds-size-control);
-    height: 100%;
+    width: 14px;
+    height: 14px;
+    margin: 0 5px;
     padding: 0;
     border: 0;
-    border-radius: var(--ds-radius-medium);
+    border-radius: var(--ds-radius-small);
     background: transparent;
     outline: none;
   }
   /* ColorInput's paint name ("Linear", "Image") in place of the hex: opens the picker */
   .valueLabel { color: var(--figma-color-text); text-align: left; cursor: default; outline: none; }
   .valueLabel:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
-  .swatchCell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+  .swatchCell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: 1px; }
   /* The colour row's opacity (Figma's live panel: a line at 117, the number 38 wide from 118, "%" after it; 55 in all) */
   .opacity { display: flex; flex: none; align-items: center; box-sizing: border-box; width: 55px; height: 100%; border-left: 1px solid var(--figma-color-bg); }
   .opacity .unit { color: var(--figma-color-text-secondary); }

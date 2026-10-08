@@ -22,7 +22,7 @@ import { useTextSummary } from "./useTextSummary";
 import type { FontFamily } from "@/engine/fonts";
 import { TypeSettings } from "./TypeSettings";
 import { exitToCanvas } from "./Sections";
-import { familyNames, familyStyles, useFontFamilies } from "../../fontList";
+import { familyNames, familyStyles, groupStyles, useFontFamilies } from "../../fontList";
 import { FontField } from "./FontPicker";
 import { fields, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
@@ -42,6 +42,8 @@ export const FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 20, 24, 32, 36, 40, 48, 6
 
 /** Inter's styles: offered before the font list has arrived (and for Inter in tests without a desktop). */
 export const FALLBACK_STYLES = ["Thin", "Extra Light", "Light", "Regular", "Medium", "Semi Bold", "Bold", "Extra Bold", "Black"];
+
+const VARIABLE_AXES = "\u0000variable-axes";
 
 /** The families the picker lists: every installed (and bundled) family, plus the selection's own when not installed. */
 export function fontFamilies(list: readonly FontFamily[] | null, nodes: readonly { fontName?: { family: string } }[]): string[] {
@@ -106,7 +108,11 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const valign = mixed(nodes.map((n) => n.textAlignVertical ?? "TOP"));
   const fontList = useFontFamilies();
   const styleOptions = isMixed(family) ? (isMixed(style) ? [] : [style]) : fontStyles(fontList, family, isMixed(style) ? undefined : style);
-  const sizeEntries: MenuEntry[] = [...FONT_SIZES.map((s) => ({ id: String(s), label: String(s), checked: size === s })), "-", { id: "apply-variable", label: "Apply variable…" }];
+  // Live (popovers/font-size-menu.txt): the sizes only, the current one checked, over the field.
+  const sizeEntries: MenuEntry[] = FONT_SIZES.map((s) => ({ id: String(s), label: String(s), checked: size === s }));
+  // Live (popovers/font-weight-menu.txt): the upright styles by weight, then the italics, then "Variable font axes…".
+  const styleGroups = groupStyles(styleOptions);
+  const variable = !isMixed(family) && !!fontList?.find((f) => f.family.toLowerCase() === family.toLowerCase())?.variable;
 
   return (
     <PanelSection
@@ -137,15 +143,24 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
         <PropertyRow>
           <Select
             label="Font style"
+            variant="ghost"
             value={style}
             disabled={!fontKept}
-            options={styleOptions.map((s) => ({ value: s, label: s }))}
-            onChange={(s) => write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } })}
+            options={[
+              ...styleGroups.upright.map((s) => ({ value: s, label: s })),
+              ...(styleGroups.upright.length && styleGroups.italic.length ? ["-" as const] : []),
+              ...styleGroups.italic.map((s) => ({ value: s, label: s })),
+              ...(variable ? ["-" as const, { value: VARIABLE_AXES, label: "Variable font axes…" }] : []),
+            ]}
+            onChange={(s) => (s === VARIABLE_AXES ? setDetails(document.querySelector<HTMLElement>('[aria-label="Type settings"]')) : write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } }))}
           />
           <span data-font-size="" style={{ display: "contents" }}>
+          {/* Live (design/text.txt): one 88 field, its list's chevron on hover — no hover Apply variable (unverified where Figma
+              offers the font size's variable: not in the captured panel) */}
           <VariableField nodes={nodes} fields={["FONT_SIZE"]} prefix="24.text.font-size" button={false} open={sizePicker} onOpenChange={setSizePicker}>
           <NumericInput
             label="Font size"
+            className={styles.fontSizeField}
             value={fieldValue(size)}
             min={1}
             max={1000}
@@ -159,8 +174,10 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
                 <MenuButton
                   label="Font sizes"
                   entries={sizeEntries}
-                  onSelect={(id) => (id === "apply-variable" ? setSizePicker(document.querySelector<HTMLElement>('[data-font-size] [data-bind-field]')) : write("Font size", { fontSize: Number(id) }))}
-                  className={styles.sizeMenu}
+                  overField='[data-ds="NumericInput"]'
+                  overOffset={-6}
+                  onSelect={(id) => write("Font size", { fontSize: Number(id) })}
+                  className={styles.fontSizeMenu}
                 >
                   <Icon name="16.chevron.down" />
                 </MenuButton>

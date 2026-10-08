@@ -43,4 +43,6 @@
     background: var(--ds-checkerboard);
   }
   .preview img { display: block; max-width: 100%; max-height: 240px; object-fit: contain; }
+  /* The settings popover (live): labels 108, fields 100 at 124, rows from 52 */
+  .exportSettings { grid-template-columns: 108px 100px; column-gap: 0; padding-top: var(--ds-space-3); }
 }

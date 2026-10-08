@@ -422,7 +422,8 @@ function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
     ...BOOLEAN_ITEMS.map((b) => {
       const c = command(b.id);
       // Figma's live menu: Union, Subtract, Intersect, Exclude, Flatten — no line, no "selection".
-      return { id: b.id, label: c.label.replace(" selection", ""), icon: b.icon, shortcut: shortcutOf(c), checked: current === b.op, disabled: !(booleans || isEnabled(ed, c)) };
+      // (No check column: live popovers/boolean-operations-menu.txt has the glyphs at 16, the labels at 44.)
+      return { id: b.id, label: c.label.replace(" selection", ""), icon: b.icon, shortcut: shortcutOf(c), disabled: !(booleans || isEnabled(ed, c)) };
     }),
     commandItem(ed, "vector.flatten"),
   ];

@@ -25,7 +25,7 @@ const byte = (n: number) => Math.round(n * 255);
 describe("ColorPicker", () => {
   it("drags the saturation/brightness square as one undo step: previews, then exactly one final change", () => {
     const { onChange } = setup();
-    const sv = $('[aria-label="Saturation and brightness"]');
+    const sv = $('[aria-label="Color picker reticle"]');
     box(sv, { left: 0, top: 0, width: 100, height: 100 });
     pointer(sv, "pointerdown", { clientX: 50, clientY: 50 });
     pointer(sv, "pointermove", { clientX: 60, clientY: 40 });
@@ -48,7 +48,7 @@ describe("ColorPicker", () => {
     const onCancel = spy<[]>();
     const { onChange } = setup(red, { onCancel });
     const hue = $('[aria-label="Hue"]');
-    box(hue, { left: 0, top: 0, width: 372, height: 12 }); // 360 + the 6px insets
+    box(hue, { left: 0, top: 0, width: 384, height: 24 }); // 360 + the 12px insets
     pointer(hue, "pointerdown", { clientX: 120, clientY: 6 });
     pointer(hue, "pointermove", { clientX: 240, clientY: 6 });
     key(window.document.body, "Escape");
@@ -59,9 +59,9 @@ describe("ColorPicker", () => {
   it("drags opacity into the paint's opacity (SOLID keeps its colour opaque)", () => {
     const { onChange } = setup();
     const alpha = $('[aria-label="Opacity"][role="slider"]');
-    box(alpha, { left: 0, top: 0, width: 112, height: 12 }); // the thumb's centre travels 6…106
-    pointer(alpha, "pointerdown", { clientX: 31, clientY: 6 });
-    pointer(alpha, "pointerup", { clientX: 31, clientY: 6 });
+    box(alpha, { left: 0, top: 0, width: 124, height: 24 }); // the thumb's centre travels 12…112 (live: 180 wide, 12 in)
+    pointer(alpha, "pointerdown", { clientX: 37, clientY: 12 });
+    pointer(alpha, "pointerup", { clientX: 37, clientY: 12 });
     const [paint] = finals(onChange.calls)[0];
     expect(paint.opacity).toBeCloseTo(0.25);
     expect(paint.color!.a).toBe(1);
@@ -69,7 +69,7 @@ describe("ColorPicker", () => {
 
   it("steps the square with the arrows (each a final change)", () => {
     const { onChange } = setup({ type: "SOLID", color: { r: 0.5, g: 0.25, b: 0.25, a: 1 }, opacity: 1 });
-    const sv = $('[aria-label="Saturation and brightness"]');
+    const sv = $('[aria-label="Color picker reticle"]');
     focus(sv);
     key(sv, "ArrowUp", { shiftKey: true });
     expect(onChange.calls).toHaveLength(1);
@@ -79,7 +79,7 @@ describe("ColorPicker", () => {
 
   it("takes a typed hex", () => {
     const { onChange } = setup();
-    const hex = $('input[aria-label="Hex"]') as HTMLInputElement;
+    const hex = $('input[aria-label="Color"]') as HTMLInputElement;
     expect(hex.value).toBe("FF0000");
     focus(hex);
     type(hex, "0c8ce9");
@@ -91,8 +91,8 @@ describe("ColorPicker", () => {
 
   it("switches the paint type: Solid → Gradient (Linear) gives Figma's default stops (the colour to transparent)", () => {
     const { onChange } = setup();
-    // Figma's live picker: Solid, Gradient, (Pattern), Image, Video — the gradient's type in its own dropdown.
-    expect($$('[role="radiogroup"][aria-label="Fill type"] [role="radio"]').map((r) => r.getAttribute("aria-label"))).toEqual(["Solid", "Gradient", "Image", "Video"]);
+    // Figma's live picker: Solid, Gradient, Pattern, Image, Video — the gradient's type in its own dropdown.
+    expect($$('[role="radiogroup"][aria-label="Fill type"] [role="radio"]').map((r) => r.getAttribute("aria-label"))).toEqual(["Solid", "Gradient", "Pattern", "Image", "Video"]);
     click($('[role="radio"][aria-label="Gradient"]'));
     const [paint, info] = onChange.calls[0];
     expect(info).toEqual({ final: true, source: "pick" });
@@ -107,10 +107,10 @@ describe("ColorPicker", () => {
     const gradient: Paint = { type: "GRADIENT_LINEAR", opacity: 1, stops: [{ color: { r: 0, g: 0, b: 0, a: 1 }, position: 0 }, { color: { r: 1, g: 1, b: 1, a: 1 }, position: 1 }] };
     const { onChange } = setup(gradient);
     const bar = $('[data-ds="GradientBar"]');
-    box(bar, { left: 0, top: 0, width: 212, height: 24 }); // stops travel 6…206
-    pointer(bar, "pointerdown", { clientX: 106, clientY: 12 });
-    pointer(bar, "pointermove", { clientX: 156, clientY: 12 });
-    pointer(bar, "pointerup", { clientX: 156, clientY: 12 });
+    box(bar, { left: 0, top: 0, width: 200, height: 24 }); // live: the bar's ends are 0 % and 100 %
+    pointer(bar, "pointerdown", { clientX: 100, clientY: 12 });
+    pointer(bar, "pointermove", { clientX: 150, clientY: 12 });
+    pointer(bar, "pointerup", { clientX: 150, clientY: 12 });
     const done = finals(onChange.calls);
     expect(done).toHaveLength(1);
     const stops = done[0][0].stops!;
@@ -134,11 +134,45 @@ describe("ColorPicker", () => {
 
   it("lists the document's colours under On this page", () => {
     const { onChange } = setup(red, { documentColors: ["#0c8ce9", "rgba(0, 0, 0, 0.5)"] });
-    const swatches = $$('[aria-label="#0c8ce9"], [aria-label="rgba(0, 0, 0, 0.5)"]');
+    // Live: "Solid color hex: …" squares
+    const swatches = $$('[aria-label="Solid color hex: 0C8CE9"], [aria-label="Solid color hex: 000000"]');
     expect(swatches).toHaveLength(2);
     click(swatches[1]);
     const [paint] = onChange.calls[0];
     expect(paint.opacity).toBeCloseTo(0.5);
+  });
+
+  it("Pattern: Tile type, Scale, Spacing and the anchor write Figma's PATTERN fields; Select source… asks the editor", () => {
+    const pattern: Paint = { type: "PATTERN", opacity: 1, scale: 1, patternSpacing: { x: 0, y: 0 }, patternTileType: "RECTANGULAR", horizontalAlignment: "START", verticalAlignment: "START" };
+    const onSelectSource = spy<[]>();
+    const { onChange } = setup(pattern, { pattern: { source: null, onSelectSource } });
+    click($('[role="radio"][aria-label="Hexagonal"]'));
+    expect(onChange.calls[0][0].patternTileType).toBe("HORIZONTAL_HEXAGONAL");
+    click($('[role="radio"][aria-label="Align bottom right"]'));
+    expect([onChange.calls[1][0].horizontalAlignment, onChange.calls[1][0].verticalAlignment]).toEqual(["END", "END"]);
+    const scale = $('input[aria-label="Scale"]') as HTMLInputElement;
+    expect(scale.value).toBe("100%");
+    focus(scale);
+    type(scale, "50");
+    key(scale, "Enter");
+    expect(onChange.calls[2][0].scale).toBeCloseTo(0.5);
+    click([...$$("button")].find((b) => b.textContent === "Select source…")!);
+    expect(onSelectSource.calls).toHaveLength(1);
+  });
+
+  it("Solid → Pattern: Figma's defaults (100 %, no spacing, rectangular, top left)", () => {
+    const { onChange } = setup();
+    click($('[role="radio"][aria-label="Pattern"]'));
+    const [paint] = onChange.calls[0];
+    expect(paint).toMatchObject({ type: "PATTERN", scale: 1, patternSpacing: { x: 0, y: 0 }, patternTileType: "RECTANGULAR", horizontalAlignment: "START", verticalAlignment: "START" });
+  });
+
+  it("the Shader tab opens Figma's shader fill browser (beside the picker) and paints nothing", () => {
+    const onShaders = spy<[HTMLElement]>();
+    const { onChange } = setup(red, { onShaders });
+    click($('button[aria-label="Shader"]'));
+    expect(onShaders.calls).toHaveLength(1);
+    expect(onChange.calls).toHaveLength(0);
   });
 
   it("shows the RGB model's channels", () => {

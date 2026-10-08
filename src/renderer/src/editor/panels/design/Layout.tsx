@@ -14,7 +14,7 @@
  * - Clip content.
  */
 import { useState } from "react";
-import { AlignmentMatrix, Checkbox, IconButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, ToggleIconButton, type Alignment } from "@/ds";
+import { AlignmentMatrix, Checkbox, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, ToggleIconButton, cx, isMixed, tooltipProps, type Alignment } from "@/ds";
 import { useEditor } from "../../controller";
 import { command, runEditorCommand, shortcutOf } from "../../commands";
 import { useUI } from "../../hooks";
@@ -278,15 +278,38 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           />
         </div>
         <div className={styles.gapStack}>
-          <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}>
+          {/* Live: the gap field's hover chevron at its right edge (its list) — the hover Apply variable left out there */}
+          <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"} button={false}>
             <NumericInput
               label={gapLabel("objects")}
               prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
+              className={styles.hoverMenuField}
               value={fieldValue(gap)}
               min={0}
               valueLabel={autoGap ? "Auto" : undefined}
               keywords={["Auto"]}
               onKeyword={() => editEach(ed, "Gap", stepInfo, refs, (n) => fields({ stackPrimaryAlignItems: autoMode(n) }))}
+              suffix={
+                // Live (popovers/gap-menu.txt): the hover chevron lists the gap's number and Auto, the current one checked.
+                <MenuButton
+                  label="Gap sizing"
+                  className={styles.hoverMenu}
+                  overField='[data-ds="NumericInput"]'
+                  overAlign="right"
+                  overOffset={-10}
+                  entries={[
+                    { id: "value", label: isMixed(gap) || gap === undefined ? "Mixed" : String(gap), checked: !autoGap },
+                    { id: "auto", label: "Auto", checked: !!autoGap },
+                  ]}
+                  onSelect={(id) =>
+                    id === "auto"
+                      ? editEach(ed, "Gap", stepInfo, refs, (n) => fields({ stackPrimaryAlignItems: autoMode(n) }))
+                      : editEach(ed, "Gap", stepInfo, refs, (n) => fields(isAutoGap(n.stackPrimaryAlignItems) ? { stackPrimaryAlignItems: "MIN" } : {}))
+                  }
+                >
+                  <Icon name="16.chevron.down" />
+                </MenuButton>
+              }
               {...gapHandlers}
             />
           </VariableField>
@@ -415,14 +438,58 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
   const horizontal = al.every((n) => n.stackMode === "HORIZONTAL");
   const grid = al.every((n) => n.stackMode === "GRID");
   const baseline = mixed(al.map((n) => n.stackCounterAlignItems === "BASELINE"));
+  const autoGap = al.every((n) => isAutoGap(n.stackPrimaryAlignItems));
+  // Live (popovers/autolayout-advanced-settings.txt, grid/grid-autolayout-settings.txt; 240 wide): a 120-high preview,
+  // then rows 32 apart from 173 — labels at 16, 112-wide dropdowns at 112: Inside stroke, Canvas stacking, Align text
+  // baseline (Disabled / Enabled), Auto spacing (only for an Auto gap), Layout ("Updated"); a grid has Inside stroke and
+  // Layout only.
   return (
-    <Popover anchor={anchor} title="Auto layout settings" width={SETTINGS_WIDTH} onClose={onClose} label="Auto layout settings">
-      <div className={styles.settings}>
+    <Popover anchor={anchor} title="Auto layout settings" width={240} onClose={onClose} label="Auto layout settings">
+      <div className={styles.alPreview} aria-hidden="true">Preview</div>
+      <div className={cx(styles.settings, styles.alSettings)}>
+        <span className={styles.settingsLabel}>Inside stroke</span>
+        <Select
+          label="Inside stroke"
+          variant="ghost"
+          value={strokes ?? MIXED}
+          options={[
+            { value: "INCLUDED", label: "Included" },
+            { value: "EXCLUDED", label: "Excluded" },
+          ]}
+          onChange={(v) => ed.setProps(refs, fields({ bordersTakeSpace: v === "INCLUDED" }), "Inside stroke")}
+        />
         {!grid && (
           <>
-            <span className={styles.settingsLabel}>Auto spacing</span>
+            <span className={styles.settingsLabel}>Canvas stacking</span>
+            <Select
+              label="Canvas stacking"
+              variant="ghost"
+              value={stacking ?? MIXED}
+              options={[
+                { value: "LAST", label: "Last on top" },
+                { value: "FIRST", label: "First on top" },
+              ]}
+              onChange={(v) => ed.setProps(refs, fields({ stackReverseZIndex: v === "FIRST" }), "Canvas stacking")}
+            />
+            <span className={styles.settingsLabel}>Align text baseline</span>
+            <span className={styles.alEnd}>
+              <SegmentedControl
+                className={styles.typeSeg}
+                label="Align text baseline"
+                disabled={!horizontal}
+                value={baseline === undefined ? "OFF" : isMixed(baseline) ? MIXED : baseline ? "ON" : "OFF"}
+                options={[
+                  { value: "OFF", icon: "24.minus.small", tooltip: "Disabled" },
+                  { value: "ON", icon: "24.check", tooltip: "Enabled" },
+                ]}
+                onChange={(v) => ed.setProps(refs, fields({ stackCounterAlignItems: v === "ON" ? "BASELINE" : "MIN" }), "Align text baseline")}
+              />
+            </span>
+            <span className={cx(styles.settingsLabel, !autoGap && styles.settingsLabelDisabled)} {...(!autoGap ? tooltipProps("Only applicable for Auto gap") : {})}>Auto spacing</span>
             <Select
               label="Auto spacing"
+              variant="ghost"
+              disabled={!autoGap}
               value={spacing ?? MIXED}
               options={AUTO_SPACING.map((o) => ({ ...o }))}
               // Picking one makes the gap Auto with that spacing (help 31289464393751).
@@ -430,40 +497,14 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
             />
           </>
         )}
-        <span className={styles.settingsLabel}>Strokes</span>
-        <Select
-          label="Strokes"
-          value={strokes ?? MIXED}
-          options={[
-            { value: "INCLUDED", label: "Included in layout" },
-            { value: "EXCLUDED", label: "Excluded from layout" },
-          ]}
-          onChange={(v) => ed.setProps(refs, fields({ bordersTakeSpace: v === "INCLUDED" }), "Strokes in layout")}
-        />
-        <span className={styles.settingsLabel}>Canvas stacking</span>
-        <Select
-          label="Canvas stacking"
-          value={stacking ?? MIXED}
-          options={[
-            { value: "FIRST", label: "First on top" },
-            { value: "LAST", label: "Last on top" },
-          ]}
-          onChange={(v) => ed.setProps(refs, fields({ stackReverseZIndex: v === "FIRST" }), "Canvas stacking")}
-        />
-        {!grid && (
-          <>
-            <span className={styles.settingsLabel}>Text baseline alignment</span>
-            <Checkbox
-              label="Text baseline alignment"
-              hideLabel
-              checked={baseline ?? false}
-              disabled={!horizontal}
-              onChange={(on) => ed.setProps(refs, fields({ stackCounterAlignItems: on ? "BASELINE" : "MIN" }), "Text baseline alignment")}
-            />
-          </>
-        )}
+        <span className={cx(styles.settingsLabel, styles.alLayoutLabel)}>
+          Layout
+          <button type="button" aria-label="More info" className={styles.alInfo} {...tooltipProps("Updated: Figma's current auto layout rules")}>
+            <Icon name="24.info" style={{ margin: -4 }} />
+          </button>
+        </span>
+        <Select label="Layout" variant="ghost" value="UPDATED" options={[{ value: "UPDATED", label: "Updated" }]} onChange={() => {}} />
       </div>
     </Popover>
   );
 }
-

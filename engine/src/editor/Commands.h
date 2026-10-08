@@ -137,6 +137,8 @@ enum class CommandId : uint32_t {
   TIDY_UP = 233,                        // ⌃⌥T
   ZOOM_TO_NEXT_FRAME = 234,             // N
   ZOOM_TO_PREVIOUS_FRAME = 235,         // ⇧N
+  // Round 8 (branch r8-design-panel): the Grid panel (tools/GridGestures.cpp); 260-269.
+  SELECT_GRID_TRACKS = 260,             // args {frame, axis: "COLUMNS" | "ROWS", tracks: number[]} — the selected grid's tracks ([] clears)
 };
 
 // engine_command_state bits.

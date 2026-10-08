@@ -7,7 +7,7 @@
  * W / H scale what is in it. min / max rows under the fields. All on the schema's fields (model/sizing.ts).
  */
 import { useRef, useState } from "react";
-import { Icon, IconButton, MenuButton, NumericInput, PropertyRow, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
+import { Icon, IconButton, MenuButton, NumericInput, PropertyRow, isMixed, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
 import { supportsField } from "../../engineCompat";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
@@ -78,23 +78,24 @@ export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; no
   const eachSize = (each: (x: number) => number, info: ChangeInfo) => ed.edit("Resize", info, () => read().forEach((n, i) => resizeOne(ed, n, parents[i], axis, Math.max(0.01, each(n.size?.[axis] ?? 0)))));
 
   const fixedLabel = `Fixed ${word}${isMixed(value) || value === undefined ? "" : ` (${value})`}`;
+  // Live (popovers/width-sizing-menu.txt, height-sizing-menu.txt, autolayout-child-width-menu.txt): Fixed (n), Hug contents,
+  // Fill container, then Add min / max — each with its glyph; no "Apply variable" (W / H take one from the hover button).
+  const glyph = (k: "fixed" | "hug" | "fill" | "min" | "max"): IconName => `24.al.${axis === "x" ? "width" : "height"}-${k}` as IconName;
   const entries: MenuEntry[] = [
-    { id: "FIXED", label: fixedLabel, checked: sizing === "FIXED" },
-    ...(hug ? [{ id: "HUG", label: "Hug contents", checked: sizing === "HUG", disabled: !nodes.every(hugs) }] : []),
-    ...(fill ? [{ id: "FILL", label: "Fill container", checked: sizing === "FILL", disabled: !nodes.every((n, i) => canFill(n, parents[i])) }] : []),
+    { id: "FIXED", label: fixedLabel, checked: sizing === "FIXED", icon: glyph("fixed") },
+    ...(hug ? [{ id: "HUG", label: "Hug contents", checked: sizing === "HUG", disabled: !nodes.every(hugs), icon: glyph("hug") }] : []),
+    ...(fill ? [{ id: "FILL", label: "Fill container", checked: sizing === "FILL", disabled: !nodes.every((n, i) => canFill(n, parents[i])), icon: glyph("fill") }] : []),
     ...(limits
       ? [
           "-" as const,
           ...(limited
             ? [{ id: "remove-limits", label: "Remove min and max" }]
             : [
-                { id: "add-min", label: `Add min ${word}…` },
-                { id: "add-max", label: `Add max ${word}…` },
+                { id: "add-min", label: `Add min ${word}…`, icon: glyph("min") },
+                { id: "add-max", label: `Add max ${word}…`, icon: glyph("max") },
               ]),
         ]
       : []),
-    "-",
-    { id: "apply-variable", label: "Apply variable…" },
   ];
   const onMenu = (id: string) => {
     if (id === "apply-variable") return setPicker(field.current?.querySelector<HTMLElement>("[data-bind-field]") ?? field.current ?? null);
@@ -126,7 +127,7 @@ export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; no
           onExit={exitToCanvas(ed)}
           suffix={
             menu ? (
-              <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={styles.sizeMenu}>
+              <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={-10}>
                 <Icon name="16.chevron.down" />
               </MenuButton>
             ) : undefined

@@ -5,7 +5,7 @@ import { createTypeahead, typeahead } from "../util/typeahead";
 import { placeMenu } from "../overlay/position";
 import { Portal } from "../overlay/Portal";
 import { useDismiss } from "../overlay/useDismiss";
-import { Icon, iconBox, type IconName } from "../icons/Icon";
+import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
 import { timing } from "../tokens";
 import styles from "./Menu.module.css";
@@ -39,9 +39,20 @@ interface PanelProps {
   onBack?: () => void;
   onClose: () => void;
   label?: string;
+  /** A context menu (canvas, layers, pages): live Figma's 11px / 400 items, at least 200 wide */
+  context?: boolean;
+  /** A dropdown under its trigger (MenuButton): a long one stays there and scrolls (live Figma) rather than moving up */
+  keepTop?: boolean;
+  /**
+   * A dropdown over its field (live: the font size, gap and W / H lists): the checked item at the field's top + `dy`,
+   * the list at the field's left (or right) edge, at least as wide as the field + 8
+   */
+  over?: MenuOver;
 }
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label }: PanelProps) {
+export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
+
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const subId = useId();
   const list = tidy(entries);
@@ -56,15 +67,31 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   useLayoutEffect(() => {
     const el = panel.current;
     if (!el) return;
-    if (!isStatic) {
+    if (!isStatic && over) {
+      const { rect, align = "left", dy = 0 } = over;
+      // Live: a list over its field's left edge is the field + 8 wide (font size); one at its right edge at least 156 (gap).
+      el.style.minWidth = `${align === "left" ? Math.round(rect.width + 8) : 156}px`;
+      const item = el.querySelector<HTMLElement>('[aria-checked="true"]');
       const { width, height } = el.getBoundingClientRect();
-      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height }, { width: window.innerWidth, height: window.innerHeight }, flipX);
+      const top = item ? rect.top - item.offsetTop + dy : rect.bottom + 4;
+      const left = align === "right" ? rect.right - width : rect.left;
+      el.style.left = `${Math.round(Math.max(8, Math.min(left, window.innerWidth - 8 - width)))}px`;
+      el.style.top = `${Math.round(Math.max(8, Math.min(top, window.innerHeight - 8 - height)))}px`;
+      el.style.visibility = "visible";
+      if (item) scrollWithin(el, item);
+    } else if (!isStatic) {
+      const { width, height } = el.getBoundingClientRect();
+      const room = window.innerHeight - 8 - y;
+      // Live Figma: a dropdown longer than the room below its trigger stays under it (and scrolls).
+      const keep = keepTop && !above && height > room && room >= 160;
+      if (keep) el.style.maxHeight = `${room}px`;
+      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX);
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, above, autoFocus, isStatic]);
+  }, [x, y, flipX, above, autoFocus, isStatic, keepTop, over]);
 
   useEffect(() => () => window.clearTimeout(intent.current), []);
   useEffect(() => {
@@ -127,7 +154,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         data-theme="dark"
         data-theme-forced=""
         data-static={isStatic || undefined}
-        className={cx(styles.panel, isStatic && styles.static)}
+        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList)}
         style={isStatic ? undefined : { left: x, top: y, visibility: "hidden" }}
         onPointerMove={(e) => {
           pointer.current = { x: e.clientX, y: e.clientY };
@@ -191,6 +218,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
             y={sub.y}
             flipX={sub.flipX}
             autoFocus={sub.focus}
+            context={context}
             onPick={onPick}
             onClose={onClose}
             onBack={() => {
@@ -204,9 +232,9 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   );
 }
 
-/** A menu item's glyph in its 16px column: a 16 icon as is, a 24 one at its size with its box overlapping the column (its glyph is ~16). */
+/** A menu item's glyph in its 24px column (a 16 icon centred in it). */
 export function MenuIcon({ name }: { name: IconName }) {
-  return iconBox(name) === 24 ? <Icon name={name} style={{ margin: -4 }} /> : <Icon name={name} />;
+  return <Icon name={name} />;
 }
 
 /** Scrolls a long menu so `item` is in view — the menu only, never the page behind it. */
@@ -241,10 +269,16 @@ export interface ContextMenuProps {
   /** Presses here do not close it (the button that toggles it) */
   ignore?: React.RefObject<HTMLElement | null>;
   label?: string;
+  /** A context menu (canvas, layers, pages): live Figma's 11px / 400 items, at least 200 wide */
+  context?: boolean;
+  /** A dropdown under its trigger: stays there when long (see MenuPanel) */
+  keepTop?: boolean;
+  /** A dropdown over its field (see MenuPanel) */
+  over?: MenuOver;
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -273,6 +307,9 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       isStatic={isStatic}
       highlighted={highlighted}
       label={label}
+      context={context}
+      keepTop={keepTop}
+      over={over}
       onPick={(id) => {
         onSelect(id);
         onClose();
@@ -303,15 +340,21 @@ export interface MenuButtonProps {
   tooltip?: boolean | string;
   /** Shown next to the tooltip */
   shortcut?: string;
+  /** Open over this field (the closest ancestor matching it): the checked item over it (live: the font size list) */
+  overField?: string;
+  /** With `overField`: which of its edges the list lines up with, and the checked item's offset from its top */
+  overAlign?: "left" | "right";
+  overOffset?: number;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver } | null>(null);
   const open = () => {
     const r = button.current?.getBoundingClientRect();
-    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + 4 });
+    const field = overField ? button.current?.closest(overField)?.getBoundingClientRect() : undefined;
+    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + 4, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined });
   };
   const close = () => {
     setAt(null);
@@ -340,7 +383,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop over={at.over} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

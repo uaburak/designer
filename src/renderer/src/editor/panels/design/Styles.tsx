@@ -10,7 +10,7 @@
  * Duplicate / Delete, "+" to create one.
  */
 import { useRef, useState, type ReactNode } from "react";
-import { ContextMenu, Icon, IconButton, InlineEdit, MenuButton, PanelSection, cx, tooltipProps, type MenuEntry } from "@/ds";
+import { ContextMenu, Icon, IconButton, InlineEdit, MenuButton, PanelSection, Popover, cx, tooltipProps, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { useLocalAssets, useUI } from "../../hooks";
@@ -18,7 +18,7 @@ import { groupTree, type GroupNode } from "../../model/variables";
 import { STYLE_KIND_LABEL, STYLE_KIND_SINGULAR, STYLE_KINDS, STYLE_SLOT, styleIdOf, styleLeaf, textStyleSummary, type Style, type StyleKind, type StyleSlot } from "../../model/styles";
 import { applyStyle, bindPaint, deleteStyle, duplicateStyle, renameStyle } from "../../variables";
 import { CreateStylePopover, EditStylePopover } from "../variables/EditStyle";
-import { OpenVariablesButton, StyleGlyph, VariablePicker } from "../variables/VariablePicker";
+import { OpenVariablesButton, StyleGlyph, VariableList, VariablePicker } from "../variables/VariablePicker";
 import vstyles from "../variables/Variables.module.css";
 import { paintScope } from "./Variables";
 import type { PanelNode } from "./shared";
@@ -40,7 +40,7 @@ export function sharedStyle(nodes: readonly PanelNode[], slot: StyleSlot): Guid 
 }
 
 /** The section header's "Apply styles" (four dots): the style picker, with colour variables for Fill and Stroke. */
-export function StylesButton({ nodes, slot, mixed }: { nodes: readonly PanelNode[]; slot: StyleSlot; /** Mixed paints: Figma names the button "Style" */ mixed?: boolean }) {
+export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: readonly PanelNode[]; slot: StyleSlot; /** Mixed paints: Figma names the button "Style" */ mixed?: boolean; /** Fill / Stroke: the colour picker's Libraries tab instead */ onOpenPicker?: (anchor: DOMRect) => void }) {
   const ed = useEditor();
   const [open, setOpen] = useState<HTMLElement | null>(null);
   const [create, setCreate] = useState<HTMLElement | DOMRect | null>(null);
@@ -51,13 +51,13 @@ export function StylesButton({ nodes, slot, mixed }: { nodes: readonly PanelNode
   const current = sharedStyle(nodes, slot);
   return (
     <>
-      <IconButton icon="24.styles" label={mixed ? "Style" : `${SECTION_TITLE[slot]}, ${label}`} tooltip={mixed ? "Style" : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => setOpen(open ? null : e.currentTarget)} />
-      {open && (
+      <IconButton icon="24.styles" label={mixed ? "Style" : `${SECTION_TITLE[slot]}, ${label}`} tooltip={mixed ? "Style" : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => (onOpenPicker ? onOpenPicker(e.currentTarget.getBoundingClientRect()) : setOpen(open ? null : e.currentTarget))} />
+      {open && paints && (
         <VariablePicker
           anchor={open}
-          title={paints ? "Libraries" : `${SLOT_LABEL[slot]} styles`}
-          types={paints ? ["COLOR"] : []}
-          scope={paints ? paintScope(nodes, slot === "fill" ? "fillPaints" : "strokePaints") : null}
+          title="Libraries"
+          types={["COLOR"]}
+          scope={paintScope(nodes, slot === "fill" ? "fillPaints" : "strokePaints")}
           consumer={refs[0] ?? null}
           styleKind={kind}
           currentStyle={current === "mixed" ? null : current}
@@ -73,11 +73,48 @@ export function StylesButton({ nodes, slot, mixed }: { nodes: readonly PanelNode
                   setOpen(null);
                 }}
               />
-              {paints && <OpenVariablesButton onDone={() => setOpen(null)} />}
+              <OpenVariablesButton onDone={() => setOpen(null)} />
             </>
           }
           onClose={() => setOpen(null)}
         />
+      )}
+      {open && !paints && (
+        // Live (popovers/effect-styles.txt, typography-styles.txt, layout-guide-styles.txt): 216 wide, "<Kind> styles"
+        // with Create style (+) before ×, the search across, the styles — or "No … styles." and "Browse libraries…".
+        <Popover
+          anchor={open}
+          title={`${SLOT_LABEL[slot]} styles`}
+          width={216}
+          label={`${SLOT_LABEL[slot]} styles`}
+          onClose={() => setOpen(null)}
+          headerActions={
+            <IconButton
+              icon="24.plus.small"
+              label="Create style"
+              onClick={(e) => {
+                setCreate(e.currentTarget.getBoundingClientRect());
+                setOpen(null);
+              }}
+            />
+          }
+        >
+          <VariableList
+            types={[]}
+            consumer={refs[0] ?? null}
+            styleKind={kind}
+            currentStyle={current === "mixed" ? null : current}
+            onPickStyle={(s) => applyStyle(ed, refs, slot, s.id)}
+            onPick={() => undefined}
+            label={`${SLOT_LABEL[slot]} styles`}
+            stylesTab={`No ${SLOT_LABEL[slot].toLowerCase()} styles.`}
+            onBrowse={() => {
+              ed.ui.set({ librariesDialog: { tab: "libraries" } });
+              setOpen(null);
+            }}
+            onDone={() => setOpen(null)}
+          />
+        </Popover>
       )}
       {create && <CreateStylePopover kind={kind} slot={slot} from={refs[0] ?? null} applyTo={refs} anchor={create} onClose={() => setCreate(null)} />}
     </>

@@ -1892,6 +1892,138 @@ async function designSection(page, theme) {
   check("Design: Frame ▾ lists Section / Frame / Group and the presets (Phone Presets: iPhone 17 402×874)", (await page.getByText("Phone Presets").count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: /iPhone 17\b/ }).count()) + (await page.getByRole("menuitem", { name: /iPhone 17\b/ }).count()) >= 1);
   await shot(page, `194-design-frame-presets-${theme}`);
   await page.keyboard.press("Escape");
+  await settle(page);
+  await designRound8(page, theme, panel, select, focus);
+}
+
+/** Round 8 (docs/editor.md "Round 8 — Design panel"): the live popovers, the picker's paint tabs, the Grid panel, ⇧ align. */
+async function designRound8(page, theme, panel, select, focus) {
+  const popup = () => page.locator('[data-ds="Popover"]').last();
+  const popupBox = async () => popup().boundingBox();
+  // Tab goes on through the panel's buttons as live (behaviour/fields.md #10): Rotation → Rotate 90˚ right → Flip horizontal.
+  await select(["7:60"]);
+  await panel.getByRole("textbox", { name: "Rotation" }).click();
+  await settle(page);
+  await page.keyboard.press("Tab");
+  const t1 = await focus();
+  await page.keyboard.press("Tab");
+  const t2 = await focus();
+  await page.keyboard.press("Shift+Tab");
+  check("Design r8: Tab from Rotation → Rotate 90˚ right → Flip horizontal, ⇧Tab back", t1 === "Rotate 90˚ right" && t2 === "Flip horizontal" && (await focus()) === "Rotate 90˚ right", `${t1} ${t2}`);
+  await select(["7:60"]);
+  // The colour picker as live: six paint types (Solid … Video, Shader), flush with the panel (x 960 of 1440 here: the
+  // panel's left − 240), the reticle 208 square, "On this page" squares named "Solid color hex: …".
+  await panel.getByRole("button", { name: "Solid color hex: D9D9D9" }).click();
+  await settle(page);
+  const picker = popup();
+  const types = await picker.locator('[role="radiogroup"][aria-label="Fill type"] button').evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+  const pb = await popupBox();
+  const panelBox = await panel.boundingBox();
+  const reticle = await picker.getByRole("slider", { name: "Color picker reticle" }).boundingBox();
+  check("Design r8: the picker's types are Solid, Gradient, Pattern, Image, Video, Shader", types.join() === "Solid,Gradient,Pattern,Image,Video,Shader", types.join());
+  check("Design r8: the picker sits flush with the panel; its reticle is 208 square", pb && panelBox && Math.abs(pb.x + pb.width - (panelBox.x + 1)) <= 1 && reticle && Math.round(reticle.width) === 208 && Math.round(reticle.height) === 208, JSON.stringify([pb, panelBox?.x, reticle]));
+  check("Design r8: the page's colours as live squares", (await picker.getByRole("button", { name: /^Solid color hex: [0-9A-F]{6}$/ }).count()) > 3);
+  await shot(page, `250-design-picker-solid-${theme}`);
+  // Pattern: Select source… then a click on a layer (Ellipse) sets it; Tile type / Scale / Spacing / Alignment.
+  await picker.getByRole("radio", { name: "Pattern" }).click();
+  await settle(page);
+  check("Design r8: Pattern makes a PATTERN fill with Figma's defaults", (await node(page, "7:60")).fillPaints?.[0]?.type === "PATTERN");
+  await picker.getByRole("button", { name: "Select source…" }).click();
+  await settle(page);
+  // (The Ellipse moved with "Mixed+100" above: its middle where it is now.)
+  const el = await node(page, "7:61");
+  const pt = await toScreen(page, el.transform.m02 + el.size.x / 2, el.transform.m12 + el.size.y / 2);
+  const under = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id ?? document.elementFromPoint(x, y)?.className, pt);
+  await page.mouse.click(...pt);
+  await settle(page);
+  const src = (await node(page, "7:60")).fillPaints?.[0]?.sourceNodeId;
+  check("Design r8: Select source… then a click on the Ellipse makes it the source (the selection kept)", src && `${src.sessionID}:${src.localID}` === "7:61" && (await selection(page)).join() === "7:60", `${JSON.stringify(src)} at ${pt} on ${under}, selection ${await selection(page)}`);
+  await popup().getByRole("radio", { name: "Align bottom right" }).click();
+  await settle(page);
+  const pat = (await node(page, "7:60")).fillPaints?.[0];
+  check("Design r8: the anchor writes the pattern's alignment", pat?.horizontalAlignment === "END" && pat?.verticalAlignment === "END", JSON.stringify(pat));
+  await shot(page, `251-design-picker-pattern-${theme}`);
+  // Shader: the "Shader fills (Beta)" browser beside the picker; nothing painted.
+  await popup().getByRole("button", { name: "Shader" }).click();
+  await settle(page);
+  check("Design r8: Shader opens the Shader fills browser", (await page.getByRole("dialog", { name: "Shader fills" }).count()) === 1);
+  await shot(page, `252-design-picker-shader-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
+  // The gap's list over its field: its number and Auto.
+  await select(["7:20"]);
+  const gapField = panel.getByRole("textbox", { name: "Horizontal gap between objects" });
+  await gapField.hover();
+  await panel.getByRole("button", { name: "Gap sizing" }).click({ force: true });
+  await settle(page);
+  const gapItems = (await page.getByRole("menu").last().getByRole("menuitemcheckbox").allTextContents()).map((t) => t.trim());
+  check("Design r8: the gap's list reads its number and Auto", gapItems.length === 2 && gapItems[1] === "Auto", gapItems.join());
+  await page.keyboard.press("Escape");
+  // Auto layout settings as live: 240 wide, Inside stroke / Canvas stacking / Align text baseline / Auto spacing / Layout.
+  await panel.getByRole("button", { name: "Auto layout settings" }).click();
+  await settle(page);
+  const alBox = await popupBox();
+  check("Design r8: Auto layout settings is 240 wide with Inside stroke, Canvas stacking, Align text baseline, Auto spacing, Layout", alBox && Math.round(alBox.width) === 240 && (await popup().getByRole("combobox", { name: "Inside stroke" }).count()) === 1 && (await popup().getByRole("radiogroup", { name: "Align text baseline" }).count()) === 1 && (await popup().getByRole("combobox", { name: "Layout" }).count()) === 1);
+  await shot(page, `253-design-autolayout-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  // Typography: the font size list over its field (the sizes only), Type settings with its preview, the font picker.
+  await select(["7:90"]);
+  await panel.locator('[aria-label="Font size"]').first().hover();
+  await panel.getByRole("button", { name: "Font sizes" }).click({ force: true });
+  await settle(page);
+  const sizes = (await page.getByRole("menu").last().locator('[role="menuitemcheckbox"]').allTextContents()).map((t) => t.trim());
+  check("Design r8: the font size list is 10 … 128, no Apply variable", sizes[0] === "10" && sizes[sizes.length - 1] === "128" && !sizes.some((s) => s.startsWith("Apply")), sizes.join());
+  await page.keyboard.press("Escape");
+  await panel.getByRole("button", { name: "Type settings" }).click();
+  await settle(page);
+  const ts = await popupBox();
+  check("Design r8: Type settings opens on its preview (506 high in all)", (await page.locator("[data-type-preview]").count()) === 1 && ts && Math.round(ts.height) === 506, JSON.stringify(ts));
+  await shot(page, `254-design-type-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  await panel.getByRole("button", { name: "Font family" }).click();
+  await settle(page);
+  check("Design r8: the font picker is titled Fonts, its search holding the family", (await popup().getByText("Fonts", { exact: true }).count()) >= 1 && (await popup().getByRole("searchbox", { name: "Search fonts" }).inputValue()) === "Inter");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  // Effects' styles: "Effect styles", Create style, "No effect styles." and Browse libraries….
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Effects, Apply styles" }).click();
+  await settle(page);
+  check("Design r8: Effect styles as live (216, Browse libraries…)", Math.round((await popupBox())?.width ?? 0) === 216 && (await popup().getByText("No effect styles.").count()) === 1 && (await popup().getByRole("button", { name: "Browse libraries…" }).count()) === 1);
+  await page.keyboard.press("Escape");
+  // Fill's "Apply styles and variables": the colour picker on Libraries.
+  await panel.getByRole("button", { name: "Fill, Apply styles and variables" }).click();
+  await settle(page);
+  check("Design r8: Fill's styles open the colour picker on Libraries", (await popup().getByRole("tab", { name: "Libraries" }).getAttribute("aria-selected")) === "true" && (await popup().getByText("No colors available").count()) === 1);
+  await page.keyboard.press("Escape");
+  // ⇧-click align: each layer to its own parent (the frame's child to F_frame's right edge, the page's Rect stays).
+  const x0 = await page.evaluate(() => window.__designerEditor.engine.readNode("7:60").transform.m02);
+  await select(["7:2", "7:60"]);
+  await panel.getByRole("button", { name: "Align right" }).click({ modifiers: ["Shift"] });
+  await settle(page);
+  const child = await node(page, "7:2");
+  check("Design r8: ⇧-click Align right aligns each layer in its own parent", Math.round(child.transform.m02 + child.size.x) === 240 && (await page.evaluate(() => window.__designerEditor.engine.readNode("7:60").transform.m02)) === x0, `${child.transform.m02}`);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  // The Grid panel: a selected track (the engine's SELECT_GRID_TRACKS, as a pill click) replaces the Design panel.
+  await select(["7:40"]);
+  await page.evaluate(() => window.__designerEditor.engine.command("SELECT_GRID_TRACKS", { frame: "7:40", axis: "ROWS", tracks: [1] }));
+  await settle(page);
+  const gp = panel.locator("[data-grid-panel]");
+  check("Design r8: a selected row shows the Grid panel (Columns 3, Rows 2, row 2 selected)", (await gp.count()) === 1 && (await gp.getByRole("button", { name: /^Grid column \d of 3/ }).count()) === 3 && (await gp.getByRole("button", { name: "Grid row 2 of 2, selected" }).count()) === 1);
+  await shot(page, `255-design-grid-panel-${theme}`);
+  await gp.getByRole("button", { name: "Add column" }).click();
+  await settle(page);
+  check("Design r8: Add column makes 4", (await node(page, "7:40")).gridColumns?.entries?.length === 4);
+  await gp.getByRole("button", { name: "Remove column 4 of 4" }).click();
+  await settle(page);
+  check("Design r8: Remove column 4 of 4 makes 3", (await node(page, "7:40")).gridColumns?.entries?.length === 3);
+  await gp.getByRole("button", { name: "Close" }).click();
+  await settle(page);
+  check("Design r8: × lets the tracks go — the Design panel again", (await panel.locator("[data-grid-panel]").count()) === 0 && (await panel.locator("[data-type-header]").count()) === 1);
 }
 
 /** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Toggle sidebar. */

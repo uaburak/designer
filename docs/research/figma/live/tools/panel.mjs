@@ -1,11 +1,11 @@
 // node panel.mjs <doc> <outPrefix> <name>=<guid,guid> ...  — dumps + screenshots the right panel per selection.
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync } from "node:fs";
-const require = createRequire("/Users/burak/Desktop/Burak/Code/DesignerV2/.claude/worktrees/agent-ab4131d246f72417a/package.json");
+const require = createRequire(new URL("../../../../../package.json", import.meta.url));
 const { chromium } = require("playwright-core");
 const [doc, outPrefix, ...cases] = process.argv.slice(2);
 const dump = readFileSync(new URL("./dumpPanel.js", import.meta.url), "utf8");
-const base = process.env.URL ?? "http://localhost:5421";
+const base = process.env.URL ?? "http://localhost:5461";
 const exe = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
 const browser = await chromium.launch({ executablePath: exe, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const stop = setTimeout(() => { browser.close(); process.exit(2); }, 170000);

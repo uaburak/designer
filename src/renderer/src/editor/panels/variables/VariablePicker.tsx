@@ -15,6 +15,7 @@ import {
   SearchField,
   Select,
   Swatch,
+  ToggleIconButton,
   cx,
   type PopoverPlacement,
 } from "@/ds";
@@ -65,6 +66,14 @@ export interface VariablePickerProps {
   /** "+ Create style" / "+ Create variable" */
   footer?: ReactNode;
   onClose: () => void;
+  /**
+   * The colour picker's Libraries tab (live popovers/fill-picker-libraries-tab.txt): the search across, "Variable set"
+   * (All libraries…) always shown with "Show as grid", "No colors available" when empty
+   */
+  colorTab?: boolean;
+  /** A styles popover (live: "Effect styles"…): the search across, this text when there are none, "Browse libraries…" */
+  stylesTab?: string;
+  onBrowse?: () => void;
 }
 
 export function VariableGlyph({
@@ -174,7 +183,11 @@ export function VariableList({
   footer,
   label = "Variables",
   onDone,
+  colorTab,
+  stylesTab,
+  onBrowse,
 }: VariableListProps) {
+  const [grid, setGrid] = useState(false);
   const ed = useEditor();
   const onClose = () => onDone?.();
   const title = label;
@@ -331,7 +344,7 @@ export function VariableList({
     ...remote.map((lib) => ({ value: lib.library, label: lib.name })),
   ];
   return (
-    <div className={styles.picker} data-variable-picker="">
+    <div className={cx(styles.picker, colorTab && styles.colorTab, stylesTab && styles.stylesTab)} data-variable-picker="">
       <div className={styles.pickSearch}>
         <SearchField
           value={query}
@@ -340,20 +353,21 @@ export function VariableList({
           autoFocus
         />
       </div>
-      {libraryState.on && (
+      {(libraryState.on || colorTab) && (
         <div className={styles.pickSource}>
           <Select
-            label="Library"
-            variant="outlined"
+            label={colorTab ? "Variable set" : "Library"}
+            variant={colorTab ? "ghost" : "outlined"}
             width="hug"
             value={sources.some((o) => o.value === source) ? source : "all"}
             options={sources}
             onChange={setSource}
             data-picker-source=""
           />
+          {colorTab && <ToggleIconButton icon="24.view.grid" label="Show as grid" tone="secondary" pressed={grid} onPressedChange={setGrid} />}
         </div>
       )}
-      <div className={styles.pickList} role="menu" aria-label={title}>
+      <div className={cx(styles.pickList, grid && styles.pickGrid)} role="menu" aria-label={title}>
         {source === "all" && libraries.length > 0 && (localStyles.length > 0 || localCollections.length > 0) && (
           <div className={styles.pickSection}>Created in this file</div>
         )}
@@ -409,8 +423,16 @@ export function VariableList({
           </div>
         ))}
         {nothing && (
-          <div className={styles.pickEmpty}>
-            {query
+          stylesTab && !query ? (
+            <div className={styles.stylesEmpty}>
+              <span>{stylesTab}</span>
+              {onBrowse && <Button variant="secondary" onClick={onBrowse}>Browse libraries…</Button>}
+            </div>
+          ) : (
+          <div className={cx(styles.pickEmpty, colorTab && styles.pickEmptyCentered)}>
+            {colorTab && !query
+              ? "No colors available"
+              : query
               ? `No results for “${query}”`
               : a.variables.length || a.styles.length
                 ? styleKind
@@ -420,6 +442,7 @@ export function VariableList({
                   ? "No styles or variables in this file"
                   : "No variables in this file"}
           </div>
+          )
         )}
       </div>
       {footer && <div className={styles.pickFooter}>{footer}</div>}

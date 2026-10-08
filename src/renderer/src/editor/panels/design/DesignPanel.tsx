@@ -12,7 +12,7 @@ import { ColorInput, PanelSection, ToggleIconButton, useTheme } from "@/ds";
 import { useCurrentPage } from "@/engine/hooks";
 import type { Color } from "@/engine/codec";
 import { useEditor } from "../../controller";
-import { useNodes } from "../../hooks";
+import { useNodes, useUI } from "../../hooks";
 import { useStoreSlice } from "../../uiStore";
 import { colorToHex, hexToColor, sameColor, toPercent } from "../../model/color";
 import { AppearanceSection, PositionSection } from "./Sections";
@@ -27,6 +27,7 @@ import { isFrameNode, isTextNode, usePaintTargets, useSelectedNodes, type PanelN
 import { TypeHeader } from "./Header";
 import { ComponentHeader, CurrentVariantSection, InstanceHeader, PropertiesSection, componentSelection } from "./Component";
 import { ApplyModeButton, ModeRows } from "./Variables";
+import { GridPanel } from "./Grid";
 import { LocalStylesSection } from "./Styles";
 import styles from "./Design.module.css";
 
@@ -55,6 +56,9 @@ export function DesignPanel() {
     setPickerKey(key);
     setPicker(t);
   };
+  // Live (grid/row-track-selected-panel.txt): tracks selected on the canvas replace the Design panel with "Grid".
+  const tracks = useUI((s) => s.gridTracks);
+  if (tracks && tracks.tracks.length && nodes.length === 1 && nodes[0].guid === tracks.frame) return <GridPanel frame={tracks.frame} />;
 
   return (
     <>

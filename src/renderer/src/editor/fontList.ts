@@ -173,3 +173,17 @@ export function missingFonts(list: readonly FontFamily[] | null, used: readonly 
     return !f || !hasStyle(f, u.style);
   });
 }
+
+/** Figma's weight order for a style's name ("Semi Bold Italic" → 600). */
+const WEIGHTS: [RegExp, number][] = [[/hairline|thin/i, 100], [/extra ?light|ultra ?light/i, 200], [/semi ?bold|demi ?bold/i, 600], [/extra ?bold|ultra ?bold/i, 800], [/light/i, 300], [/medium/i, 500], [/black|heavy/i, 900], [/bold/i, 700]];
+export function styleWeight(style: string): number {
+  for (const [re, w] of WEIGHTS) if (re.test(style)) return w;
+  return 400;
+}
+
+/** The Font style menu's groups (live): upright styles by weight, then the italic ones by weight. */
+export function groupStyles(list: readonly string[]): { upright: string[]; italic: string[] } {
+  const italic = (s: string) => /italic|oblique/i.test(s);
+  const order = (a: string, b: string) => styleWeight(a) - styleWeight(b);
+  return { upright: list.filter((s) => !italic(s)).sort(order), italic: list.filter(italic).sort(order) };
+}

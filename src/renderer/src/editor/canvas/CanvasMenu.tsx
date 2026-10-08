@@ -63,6 +63,7 @@ export function CanvasMenu() {
       at={{ x: at.x, y: at.y }}
       entries={canvasMenu(ed, layers)}
       label="Canvas"
+      context
       onSelect={(id) => void runMenuItem(ed, id)}
       onClose={() => {
         ed.ui.set({ contextMenu: null });

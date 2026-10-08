@@ -1,0 +1,124 @@
+// node popover.mjs <outDir> [case …] — opens each Design-panel popover / menu of live/popovers/ in our editor
+// (`?editor&doc=capture`, 1440×900 like the live captures), dumps the open popups (dumpPopups.js) to <outDir>/<case>.txt
+// with a screenshot, then compares with the live dump (compare-popups.mjs) when one exists. URL=… picks the server.
+import { createRequire } from "node:module";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+const require = createRequire(new URL("../../../../../package.json", import.meta.url));
+const { chromium } = require("playwright-core");
+const [outDir, ...only] = process.argv.slice(2);
+const dump = readFileSync(new URL("./dumpPopups.js", import.meta.url), "utf8");
+const base = process.env.URL ?? "http://localhost:5461";
+const exe = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+
+// Steps: ["select", ids] · ["click", aria-label] (in the Design panel first) · ["clickIn", aria-label] (in the last
+// popup) · ["text", text] (a visible text) · ["hover", aria-label] · ["key", key] · ["doc", name] (another fixture).
+const rect = ["select", ["7:60"]];
+const al = ["select", ["7:20"]];
+const text = ["select", ["7:90"]];
+const picker = [rect, ["click", "Solid color hex: D9D9D9"]];
+const stroke = [rect, ["click", "Add stroke"]];
+const effect = [["eval", "localStorage.setItem('designer.effects.shaderOnboarding', 'done')"], rect, ["click", "Add effect"], ["click", "Effect settings"]];
+const exportRow = [rect, ["click", "Add export settings"]];
+const guide = [["select", ["7:1"]], ["click", "Add layout guide"], ["click", "Layout guide settings"]];
+export const CASES = {
+  "fill-picker-solid": picker,
+  "fill-picker-gradient_linear": [...picker, ["clickIn", "Gradient"]],
+  "fill-picker-gradient-type-menu": [...picker, ["clickIn", "Gradient"], ["clickIn", "Paint type"]],
+  "fill-picker-pattern": [...picker, ["clickIn", "Pattern"]],
+  "fill-picker-image": [...picker, ["clickIn", "Image"]],
+  "fill-picker-video": [...picker, ["clickIn", "Video"]],
+  "fill-picker-custom": [...picker, ["clickIn", "Shader"]],
+  "fill-picker-color-format-menu": [...picker, ["clickIn", "Color format"]],
+  "fill-picker-swatch-set-menu": [...picker, ["clickIn", "Color swatch set selector"]],
+  "fill-picker-libraries-tab": [...picker, ["text", "Libraries"]],
+  "fill-styles-variables": [rect, ["click", "Fill, Apply styles and variables"]],
+  "blend-mode-menu": [rect, ["click", "Apply blend mode"]],
+  "boolean-operations-menu": [rect, ["click", "Boolean operations"]],
+  "constraint-horizontal-menu": [["select", ["7:2"]], ["click", "Constraints"], ["click", "Horizontal constraints"]],
+  "constraint-vertical-menu": [["select", ["7:2"]], ["click", "Constraints"], ["click", "Vertical constraints"]],
+  "autolayout-advanced-settings": [al, ["click", "Auto layout settings"]],
+  "width-sizing-menu": [al, ["click", "Horizontal resizing sizing"]],
+  "height-sizing-menu": [al, ["click", "Vertical resizing sizing"]],
+  "gap-menu": [al, ["hover", "Horizontal gap between objects"], ["click", "Gap sizing"]],
+  "autolayout-child-width-menu": [["select", ["7:51"]], ["click", "Width sizing"]],
+  "frame-presets-menu": [al, ["click", "Frame, Frame Dimension Presets"]],
+  "stroke-advanced-settings": [...stroke, ["click", "Advanced stroke settings"]],
+  "stroke-individual-strokes-menu": [...stroke, ["click", "Individual strokes"]],
+  "stroke-position-menu": [...stroke, ["click", "Stroke align"]],
+  "effect-settings-drop-shadow": effect,
+  "effect-type-menu": [...effect, ["clickIn", "Effect settings"]],
+  "effect-settings-inner-shadow": [...effect, ["clickIn", "Effect settings"], ["text", "Inner shadow"]],
+  "effect-settings-layer-blur": [...effect, ["clickIn", "Effect settings"], ["text", "Layer blur"]],
+  "effect-settings-background-blur": [...effect, ["clickIn", "Effect settings"], ["text", "Background blur"]],
+  "effect-settings-noise": [...effect, ["clickIn", "Effect settings"], ["text", "Noise"]],
+  "effect-settings-texture": [...effect, ["clickIn", "Effect settings"], ["text", "Texture"]],
+  "effect-settings-glass": [...effect, ["clickIn", "Effect settings"], ["text", "Glass"]],
+  "effect-styles": [rect, ["click", "Effects, Apply styles"]],
+  "export-advanced-settings": [...exportRow, ["click", "Export settings"]],
+  "export-format-menu": [...exportRow, ["click", "File format"]],
+  "layout-guide-settings-grid": guide,
+  "layout-guide-type-menu": [...guide, ["clickIn", "Layout guide type"]],
+  "layout-guide-styles": [["select", ["7:1"]], ["click", "Layout guide, Apply styles"]],
+  "font-picker": [text, ["click", "Font family"]],
+  "font-picker-filter-menu": [text, ["click", "Font family"], ["clickIn", "Font filter"]],
+  "font-size-menu": [text, ["click", "Font sizes"]],
+  "font-weight-menu": [text, ["click", "Font style"]],
+  "type-settings": [text, ["click", "Type settings"]],
+  "type-settings-details": [text, ["click", "Type settings"], ["text", "Details"]],
+  "type-settings-variable": [text, ["click", "Type settings"], ["text", "Variable"]],
+  "typography-styles": [text, ["click", "Typography, Apply styles"]],
+};
+
+const browser = await chromium.launch({ executablePath: exe, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+const stop = setTimeout(() => { browser.close(); process.exit(2); }, 170000);
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" });
+  await page.addInitScript(() => localStorage.setItem("designer-theme", "dark"));
+  page.on("pageerror", (e) => console.error("pageerror", e.message));
+  const open = async (doc) => {
+    await page.goto(`${base}/?editor&doc=${doc}&theme=dark`);
+    await page.waitForFunction(() => window.__designerEditor && !window.__designerEditor.engine.destroyed, null, { timeout: 30000 });
+    await page.waitForTimeout(600);
+  };
+  const panel = page.locator('[data-panel="right"]');
+  const lastPopup = () => page.locator('[data-ds="Popover"], [role="menu"], [role="listbox"]').last();
+  for (const [name, steps] of Object.entries(CASES)) {
+    if (only.length && !only.includes(name)) continue;
+    await open("capture");
+    let failed = null;
+    for (const [op, arg] of steps) {
+      try {
+        if (op === "eval") await page.evaluate(arg);
+        else if (op === "select") await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), arg);
+        else if (op === "doc") await open(arg);
+        else if (op === "click") {
+          // A control before a group of the same name (the Boolean operations chevron, not its split group)
+          const sel = `:is(button, input, [role="combobox"], [role="radio"], [role="tab"])[aria-label="${arg}"]`;
+          const candidates = [panel.locator(sel), panel.locator(`[aria-label="${arg}"]`), page.locator(sel), page.locator(`[aria-label="${arg}"]`)];
+          let target = null;
+          for (const c of candidates) if (!target && (await c.count())) target = c.first();
+          await (target ?? candidates[3].first()).click({ timeout: 3000, force: true });
+        } else if (op === "clickIn") await lastPopup().locator(`[aria-label="${arg}"]`).first().click({ timeout: 3000, force: true });
+        else if (op === "text") await page.getByText(arg, { exact: true }).filter({ visible: true }).last().click({ timeout: 3000 });
+        else if (op === "hover") await page.locator(`[aria-label="${arg}"]`).first().hover({ timeout: 3000, force: true });
+        else if (op === "key") await page.keyboard.press(arg);
+      } catch {
+        failed = `${op} ${arg}`;
+        break;
+      }
+      await page.waitForTimeout(250);
+    }
+    const text = await page.evaluate(dump);
+    writeFileSync(`${outDir}/${name}.txt`, `# ${failed ? "FAILED at " + failed : "ok"}\n${text}\n`);
+    await page.screenshot({ path: `${outDir}/${name}.png` });
+    const live = new URL(`../popovers/${name}.txt`, import.meta.url);
+    let diff = "";
+    if (existsSync(live)) diff = execFileSync("node", [new URL("./compare-popups.mjs", import.meta.url).pathname, live.pathname, `${outDir}/${name}.txt`], { encoding: "utf8" });
+    writeFileSync(`${outDir}/${name}.diff`, diff);
+    console.log(failed ? `FAIL ${name} (${failed})` : `ok   ${name}  ${diff.split("\n").filter((l) => /^(MISSING|DIFF|EXTRA)/.test(l)).length} differences`);
+  }
+} finally {
+  clearTimeout(stop);
+  await browser.close();
+}

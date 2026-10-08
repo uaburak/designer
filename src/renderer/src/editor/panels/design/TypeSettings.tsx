@@ -12,7 +12,9 @@
  */
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { fonts } from "@/engine/fonts";
-import { Checkbox, IconButton, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, type ChangeInfo } from "@/ds";
+import { Checkbox, IconButton, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, cx, tooltipProps, type ChangeInfo } from "@/ds";
+import type { CSSProperties } from "react";
+import { styleWeight } from "../../fontList";
 import { useEditor } from "../../controller";
 import { AXIS_LABELS, featureName, withAxis, type TextSummary } from "../../model/text";
 import { exitToCanvas } from "./Sections";
@@ -55,12 +57,39 @@ export function TypeSettings({ nodes, summary, anchor, onClose }: { nodes: Panel
       onClose={onClose}
       header={<Tabs label="Type settings" value={shown} tabs={tabs} onChange={(v) => setTab(v as Tab)} />}
     >
+      <TypePreview nodes={nodes} summary={summary} />
       <div className={styles.typeSettingsBody}>
         {shown === "basics" && <Basics nodes={nodes} summary={summary} info={info} />}
         {shown === "details" && <Details nodes={nodes} summary={summary} info={info} />}
         {shown === "variable" && <Variable nodes={nodes} summary={summary} axes={axes} />}
       </div>
     </Popover>
+  );
+}
+
+/**
+ * Live (popovers/type-settings*.txt): every tab opens on a 208 × 120 preview — "Preview" at 16px in the text's font,
+ * with its case and decoration (what Figma draws in it beyond the word is not captured).
+ */
+function TypePreview({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary | null }) {
+  const family = valueOf<string>(summary, "fontFamily", nodes[0]?.fontName?.family ?? "Inter");
+  const style = valueOf<string>(summary, "fontStyle", nodes[0]?.fontName?.style ?? "Regular");
+  const decoration = valueOf<string>(summary, "textDecoration", "NONE");
+  const textCase = valueOf<string>(summary, "textCase", "ORIGINAL");
+  const css: CSSProperties = {
+    fontFamily: family === MIXED ? undefined : `"${family}", var(--ds-font-family)`,
+    fontWeight: style === MIXED ? undefined : styleWeight(style),
+    fontStyle: style !== MIXED && /italic|oblique/i.test(style) ? "italic" : undefined,
+    textDecoration: decoration === "UNDERLINE" ? "underline" : decoration === "STRIKETHROUGH" ? "line-through" : undefined,
+    textTransform: textCase === "UPPER" ? "uppercase" : textCase === "LOWER" ? "lowercase" : textCase === "TITLE" ? "capitalize" : undefined,
+    fontVariantCaps: textCase === "SMALL_CAPS" ? "small-caps" : undefined,
+  };
+  return (
+    <div className={styles.typePreview} aria-hidden="true" data-type-preview="">
+      <div className={styles.typePreviewBox}>
+        <span style={css}>Preview</span>
+      </div>
+    </div>
   );
 }
 
@@ -123,6 +152,7 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
     <div className={`${styles.settings} ${styles.settingsEnd}`}>
       <span className={styles.settingsLabel}>Alignment</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Alignment"
         value={field(align, "")}
         options={[
@@ -136,10 +166,11 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       <span className={styles.settingsLabel}>Decoration</span>
       <div className={styles.settingsInline}>
         <SegmentedControl
+          className={styles.typeSeg}
           label="Decoration"
           value={field(decoration, "")}
           options={[
-            { value: "NONE", label: "—", tooltip: "None" },
+            { value: "NONE", icon: "24.minus.small", tooltip: "None" },
             { value: "UNDERLINE", icon: "24.text.underline", tooltip: "Underline" },
             { value: "STRIKETHROUGH", icon: "24.text.strikethrough", tooltip: "Strikethrough" },
           ]}
@@ -187,10 +218,11 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       )}
       <span className={styles.settingsLabel}>Case</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Case"
         value={field(textCase, "")}
         options={[
-          { value: "ORIGINAL", label: "—", tooltip: "As typed" },
+          { value: "ORIGINAL", icon: "24.minus.small", tooltip: "As typed" },
           { value: "UPPER", label: "AG", tooltip: "Uppercase" },
           { value: "LOWER", label: "ag", tooltip: "Lowercase" },
           { value: "TITLE", label: "Ag", tooltip: "Title case" },
@@ -198,8 +230,12 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
         ]}
         onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
       />
+      {/* Live: 21 more after Case (the trim / list / spacing group starts at 305, not 284) */}
+      <span className={styles.settingsGroupGap} />
+      <span className={styles.settingsGroupGap} />
       <span className={styles.settingsLabel}>Vertical trim</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Vertical trim"
         value={field(trim, "")}
         options={[
@@ -210,10 +246,11 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       />
       <span className={styles.settingsLabel}>List style</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="List style"
         value={lineType === MIXED ? "" : lineType === "ORDERED_LIST" ? "ORDERED" : lineType === "UNORDERED_LIST" ? "UNORDERED" : "NONE"}
         options={[
-          { value: "NONE", label: "—", tooltip: "No list" },
+          { value: "NONE", icon: "24.minus.small", tooltip: "No list" },
           { value: "UNORDERED", icon: "24.list-view", tooltip: "Bulleted list" },
           { value: "ORDERED", icon: "24.text.list-numbered", tooltip: "Numbered list" },
         ]}
@@ -229,6 +266,7 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       )}
       <span className={styles.settingsLabel}>Truncate text</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Truncate text"
         value={truncate === MIXED ? "" : truncate ? "ENDING" : "DISABLED"}
         options={[
@@ -309,70 +347,117 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
   const position = valueOf<string>(summary, "fontVariantPosition", "NORMAL");
   const sets = (info?.features ?? []).filter((f) => /^ss\d\d$/.test(f.tag));
   const variants = (info?.features ?? []).filter((f) => /^cv\d\d$/.test(f.tag));
-  const check = (label: string, checked: boolean, enabled: boolean, onChange: (v: boolean) => void) => (
+  // Live (popovers/type-settings-details.txt): each feature a Disabled / Enabled pair (48 at 176); what the font lacks
+  // reads tertiary, "Not applicable for selected text".
+  const toggle2 = (label: string, checked: boolean, enabled: boolean, onChange: (v: boolean) => void) => (
     <>
-      <span className={styles.settingsLabel}>{label}</span>
-      <Checkbox label={label} hideLabel checked={checked} disabled={!enabled} onChange={onChange} />
+      <span className={cx(styles.settingsLabel, !enabled && styles.settingsLabelDisabled)} {...(!enabled ? tooltipProps("Not applicable for selected text") : {})}>{label}</span>
+      <SegmentedControl
+        className={styles.typeSeg}
+        label={label}
+        disabled={!enabled}
+        value={checked ? "ON" : "OFF"}
+        options={[
+          { value: "OFF", icon: "24.minus.small", tooltip: "Disabled" },
+          { value: "ON", icon: "24.check", tooltip: "Enabled" },
+        ]}
+        onChange={(v) => onChange(v === "ON")}
+      />
     </>
   );
+  const heading = (title: string, first = false) => (
+    <>
+      {!first && (
+        <>
+          <span className={styles.settingsGroupGap} />
+          <span className={styles.settingsGroupGap} />
+        </>
+      )}
+      <span className={styles.settingsHeading}>{title}</span>
+      <span />
+    </>
+  );
+  const textCase = valueOf<string>(summary, "textCase", "ORIGINAL");
+  const smallCaps = has("smcp");
+  const oldstyle = has("onum");
+  const numberOptions = [
+    { value: "default", icon: "24.minus.small" as const, tooltip: "Font default" },
+    { value: "PROPORTIONAL/LINING", label: "P", tooltip: "Proportional uppercase/lining" },
+    ...(oldstyle ? [{ value: "PROPORTIONAL/OLDSTYLE", label: "p", tooltip: "Proportional lowercase/oldstyle" }] : []),
+    { value: "TABULAR/LINING", label: "M", tooltip: "Monospace uppercase/lining" },
+    ...(oldstyle ? [{ value: "TABULAR/OLDSTYLE", label: "m", tooltip: "Monospace lowercase/oldstyle" }] : []),
+  ];
+  const known = new Set(["case", "cpsp", "frac", "zero", "dlig", "calt", "ordn", "salt", "kern", "liga", "smcp", "onum", "lnum", "pnum", "tnum", "sups", "subs", "sinf"]);
+  const more = (info?.features ?? []).filter((f) => !known.has(f.tag) && !/^ss\d\d$/.test(f.tag) && !/^cv\d\d$/.test(f.tag));
   return (
     <div className={`${styles.settings} ${styles.settingsEnd}`}>
+      {heading("Indentation", true)}
+      {toggle2("Hanging punctuation", hanging === true, true, (v) => write("Hanging punctuation", { hangingPunctuation: v }))}
+      {toggle2("Hanging lists", hangingList === true, true, (v) => write("Hanging lists", { hangingList: v }))}
       <span className={styles.settingsLabel}>Paragraph indent</span>
       <NumericInput className={styles.settingsField} scrubHandle="previous" label="Paragraph indent" value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
-      {check("Hanging quotes", hanging === true, true, (v) => write("Hanging quotes", { hangingPunctuation: v }))}
-      {check("Hanging lists", hangingList === true, true, (v) => write("Hanging lists", { hangingList: v }))}
-      {check("Case-sensitive forms", toggled("case", false), has("case"), (v) => toggle("case", v, false, "Case-sensitive forms"))}
-      {check("Capital spacing", toggled("cpsp", false), has("cpsp"), (v) => toggle("cpsp", v, false, "Capital spacing"))}
-      <span className={styles.settingsLabel}>Numbers</span>
-      <Select
+      {heading("Letter case")}
+      <span className={styles.settingsLabel}>Case</span>
+      <SegmentedControl
+        className={styles.typeSeg}
+        label="Case"
+        value={field(textCase, "")}
+        options={[
+          { value: "ORIGINAL", icon: "24.minus.small", tooltip: "As typed" },
+          { value: "UPPER", label: "AG", tooltip: "Uppercase" },
+          { value: "LOWER", label: "ag", tooltip: "Lowercase" },
+          { value: "TITLE", label: "Ag", tooltip: "Title case" },
+          { value: "SMALL_CAPS", label: "ᴀɢ", tooltip: smallCaps ? "Small caps" : "Font doesn't support small caps", disabled: !smallCaps },
+        ]}
+        onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
+      />
+      {toggle2("Case-sensitive forms", toggled("case", false), has("case"), (v) => toggle("case", v, false, "Case-sensitive forms"))}
+      {toggle2("Capital spacing", toggled("cpsp", false), has("cpsp"), (v) => toggle("cpsp", v, false, "Capital spacing"))}
+      {heading("Numbers")}
+      <span className={cx(styles.settingsLabel, !has("lnum") && !has("tnum") && !has("pnum") && styles.settingsLabelDisabled)}>Style</span>
+      <SegmentedControl
+        className={styles.typeSeg}
         label="Number style"
         value={numberStyle as string}
-        options={NUMBER_STYLES.map((s) => ({ value: s.value, label: s.label }))}
+        options={numberOptions}
         onChange={(v) => {
-          const s = NUMBER_STYLES.find((x) => x.value === v) ?? NUMBER_STYLES[0];
-          write("Number style", { fontVariantNumericSpacing: s.spacing, fontVariantNumericFigure: s.figure });
+          const st = NUMBER_STYLES.find((x) => x.value === v) ?? NUMBER_STYLES[0];
+          write("Number style", { fontVariantNumericSpacing: st.spacing, fontVariantNumericFigure: st.figure });
         }}
       />
-      {check("Fractions", fraction !== MIXED && fraction !== "NORMAL", has("frac"), (v) => write("Fractions", { fontVariantNumericFraction: v ? "DIAGONAL" : "NORMAL" }))}
       <span className={styles.settingsLabel}>Position</span>
-      <Select
+      <SegmentedControl
+        className={styles.typeSeg}
         label="Position"
-        value={field(position, MIXED as unknown as string)}
+        value={field(position, "")}
         options={[
-          { value: "NORMAL", label: "None" },
-          { value: "SUPER", label: "Superscript" },
-          { value: "SUB", label: "Subscript" },
+          { value: "SUB", label: "x₂", tooltip: "Subscript" },
+          { value: "NORMAL", icon: "24.minus.small", tooltip: "Normal" },
+          { value: "SUPER", label: "x²", tooltip: "Superscript" },
         ]}
         onChange={(v) => write("Position", { fontVariantPosition: v as ExtraFields["fontVariantPosition"] })}
       />
-      {check("Slashed zero", variant("fontVariantSlashedZero", false), has("zero"), (v) => write("Slashed zero", { fontVariantSlashedZero: v }))}
-      <span className={styles.settingsHeading}>Letterforms</span>
-      <span />
-      {check("Ligatures", variant("fontVariantCommonLigatures", true), has("liga"), (v) => write("Ligatures", { fontVariantCommonLigatures: v }))}
-      {check("Rare ligatures", variant("fontVariantDiscretionaryLigatures", false), has("dlig"), (v) => write("Rare ligatures", { fontVariantDiscretionaryLigatures: v }))}
-      {check("Contextual alternates", variant("fontVariantContextualLigatures", true), has("calt"), (v) => write("Contextual alternates", { fontVariantContextualLigatures: v }))}
-      {check("Ordinals", variant("fontVariantOrdinal", false), has("ordn"), (v) => write("Ordinals", { fontVariantOrdinal: v }))}
-      {sets.length > 0 && (
-        <>
-          <span className={styles.settingsHeading}>Stylistic sets</span>
-          <span />
-        </>
-      )}
+      {toggle2("Fractions", fraction !== MIXED && fraction !== "NORMAL", has("frac"), (v) => write("Fractions", { fontVariantNumericFraction: v ? "DIAGONAL" : "NORMAL" }))}
+      {toggle2("Slashed zero", variant("fontVariantSlashedZero", false), has("zero"), (v) => write("Slashed zero", { fontVariantSlashedZero: v }))}
+      {heading("Letterforms")}
+      {toggle2("Rare ligatures", variant("fontVariantDiscretionaryLigatures", false), has("dlig"), (v) => write("Rare ligatures", { fontVariantDiscretionaryLigatures: v }))}
+      {toggle2("Contextual alternates", variant("fontVariantContextualLigatures", true), has("calt"), (v) => write("Contextual alternates", { fontVariantContextualLigatures: v }))}
+      {toggle2("Ordinals", variant("fontVariantOrdinal", false), has("ordn"), (v) => write("Ordinals", { fontVariantOrdinal: v }))}
+      {heading("Stylistic sets")}
+      {toggle2("Stylistic alternates", toggled("salt", false), has("salt"), (v) => toggle("salt", v, false, "Stylistic alternates"))}
       {sets.map((f) => (
-        <Fragment key={f.tag}>{check(f.name || `Stylistic set ${Number(f.tag.slice(2))}`, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, "Stylistic set"))}</Fragment>
+        <Fragment key={f.tag}>{toggle2(f.name || `Stylistic set ${Number(f.tag.slice(2))}`, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, "Stylistic set"))}</Fragment>
       ))}
-      {variants.length > 0 && (
-        <>
-          <span className={styles.settingsHeading}>Character variants</span>
-          <span />
-        </>
-      )}
+      {variants.length > 0 && heading("Character variants")}
       {variants.map((f) => (
-        <Fragment key={f.tag}>{check(f.name || `Character variant ${Number(f.tag.slice(2))}`, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, "Character variant"))}</Fragment>
+        <Fragment key={f.tag}>{toggle2(f.name || `Character variant ${Number(f.tag.slice(2))}`, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, "Character variant"))}</Fragment>
       ))}
-      <span className={styles.settingsHeading}>Horizontal spacing</span>
-      <span />
-      {check("Kerning", toggled("kern", true), has("kern"), (v) => toggle("kern", v, true, "Kerning"))}
+      {heading("Horizontal spacing")}
+      {toggle2("Kerning pairs", toggled("kern", true), has("kern"), (v) => toggle("kern", v, true, "Kerning pairs"))}
+      {more.length > 0 && heading("More features")}
+      {more.map((f) => (
+        <Fragment key={f.tag}>{toggle2(f.name || f.tag, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, f.name || f.tag))}</Fragment>
+      ))}
     </div>
   );
 }

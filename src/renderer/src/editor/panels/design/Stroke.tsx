@@ -14,7 +14,7 @@
  */
 import { useState } from "react";
 import { VariableField } from "./Variables";
-import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
+import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, cx, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
 import type { NodeFields, StrokeAlign, StrokeCap } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEngineCommand } from "../../engineCompat";
@@ -47,13 +47,14 @@ export function strokeSideFields(n: PanelNode, side: StrokeSide): NodeFields {
   return fields({ borderStrokeWeightsIndependent: true, strokeWeight: weight, ...Object.fromEntries(SIDES.map((s) => [sideField(s), s === which ? weight : 0])) });
 }
 
-const SIDE_ITEMS: { id: StrokeSide; label: string }[] = [
-  { id: "ALL", label: "All" },
-  { id: "TOP", label: "Top" },
-  { id: "BOTTOM", label: "Bottom" },
-  { id: "LEFT", label: "Left" },
-  { id: "RIGHT", label: "Right" },
-  { id: "CUSTOM", label: "Custom" },
+/** Live (popovers/stroke-individual-strokes-menu.txt): each side with its glyph, Custom after a line. */
+const SIDE_ITEMS: { id: StrokeSide; label: string; icon: IconName }[] = [
+  { id: "ALL", label: "All", icon: "24.stroke.side-all" },
+  { id: "TOP", label: "Top", icon: "24.stroke.side-top" },
+  { id: "BOTTOM", label: "Bottom", icon: "24.stroke.side-bottom" },
+  { id: "LEFT", label: "Left", icon: "24.stroke.side-left" },
+  { id: "RIGHT", label: "Right", icon: "24.stroke.side-right" },
+  { id: "CUSTOM", label: "Custom", icon: "24.strokes.individual" },
 ];
 
 export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: boolean }) {
@@ -75,7 +76,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
     ed.edit("Stroke weight", info, () => {
       for (const n of nodes) ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
     });
-  const sideMenu: MenuEntry[] = SIDE_ITEMS.map((s) => ({ id: s.id, label: s.label, checked: side === s.id }));
+  const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: s.label, icon: s.icon, checked: side === s.id }]);
   return (
     <PropertyGrid labels={labels}>
       <PropertyRow
@@ -98,9 +99,10 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         <Select
           label="Stroke align"
           value={align ?? "INSIDE"}
+          // Live order (popovers/stroke-position-menu.txt): Center, Inside, Outside.
           options={[
-            { value: "INSIDE", label: "Inside" },
             { value: "CENTER", label: "Center" },
+            { value: "INSIDE", label: "Inside" },
             { value: "OUTSIDE", label: "Outside" },
           ]}
           onChange={(v) => ed.setProps(refs, { strokeAlign: v as StrokeAlign }, "Stroke position")}
@@ -280,8 +282,8 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
   };
   return (
     <Popover anchor={anchor} title="Stroke settings" width={240} onClose={onClose} label="Stroke settings">
-      <div className={`${styles.settings} ${styles.settingsEnd}`}>
-        <div className={styles.settingsWide}>
+      <div className={`${styles.settings} ${styles.settingsEnd} ${styles.strokeSettings}`}>
+        <div className={cx(styles.settingsWide, styles.strokeType)}>
           <SegmentedControl
             label="Stroke Type"
             fullWidth
@@ -294,9 +296,13 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
             onChange={() => undefined}
           />
         </div>
+        {/* (keeps the grid's label / control parity after the full-width row) */}
+        <span style={{ display: "none" }} />
         <span className={styles.settingsLabel}>Style</span>
         <Select
           label="Style"
+          variant="ghost"
+          prefix={style === "DASHED" ? "24.stroke.dashed" : style === "CUSTOM" ? "24.stroke.custom" : "24.stroke.solid"}
           width={128}
           value={style === MIXED || style === undefined ? "" : style}
           placeholder="Mixed"
@@ -342,6 +348,12 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
             />
           </>
         )}
+        {/* Live: Width profile — "Uniform" (variable-width profiles aren't drawn here: the only choice) and Flip width points */}
+        <span className={styles.settingsLabel}>Width profile</span>
+        <span className={styles.widthProfile}>
+          <Select label="Width profile" variant="ghost" width={96} value="UNIFORM" options={[{ value: "UNIFORM", label: "Uniform" }]} onChange={() => undefined} />
+          <IconButton icon="24.flip.horizontal.small" label="Flip width points" disabled />
+        </span>
         <span className={styles.settingsLabel}>Join</span>
         <SegmentedControl
           label="Join"
@@ -349,9 +361,9 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
           fullWidth
           value={join === MIXED || join === undefined ? "" : join}
           options={[
-            { value: "MITER", label: "Miter" },
-            { value: "BEVEL", label: "Bevel" },
-            { value: "ROUND", label: "Round" },
+            { value: "MITER", icon: "24.join.miter", tooltip: "Miter" },
+            { value: "BEVEL", icon: "24.join.bevel", tooltip: "Bevel" },
+            { value: "ROUND", icon: "24.join.round", tooltip: "Round" },
           ]}
           onChange={(v) => set("Stroke join", fields({ strokeJoin: v as PanelNode["strokeJoin"] }))}
         />

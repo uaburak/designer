@@ -28,8 +28,9 @@ describe("menu placement", () => {
     expect(placeMenu(904, 100, { width: 200, height: 100 }, view, 700)).toEqual({ x: 500, y: 100 });
   });
   it("lays a Select's checked item over its trigger", () => {
-    // trigger at y 300 (24 high), checked item 32px into the list (24 high): the list starts 32px above the trigger
-    expect(placeOverTrigger({ left: 100, top: 300, right: 188, bottom: 324 }, 32, 24, { width: 120, height: 120 }, view)).toEqual({ x: 80, y: 268 });
+    // trigger at y 300 (24 high), checked item 32px into the list (24 high): the list starts 32px above the trigger,
+    // 8 to the left (live: the item's box over the field's)
+    expect(placeOverTrigger({ left: 100, top: 300, right: 188, bottom: 324 }, 32, 24, { width: 120, height: 120 }, view)).toEqual({ x: 92, y: 268 });
     // nothing checked: under the trigger
     expect(placeOverTrigger({ left: 100, top: 300, right: 188, bottom: 324 }, null, 24, { width: 120, height: 120 }, view)).toEqual({ x: 100, y: 328 });
   });

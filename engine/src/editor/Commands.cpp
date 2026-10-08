@@ -94,6 +94,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommand(id, args);
+  if (id == CommandId::SELECT_GRID_TRACKS) return selectGridTracksCommand(args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
     // Inside an open transaction (a scrub in the variables table): applied live, one undo step at its commit.
@@ -151,7 +152,12 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     case CommandId::ALIGN_RIGHT:
     case CommandId::ALIGN_TOP:
     case CommandId::ALIGN_VERTICAL_CENTER:
-    case CommandId::ALIGN_BOTTOM: align(id); return OK;
+    case CommandId::ALIGN_BOTTOM: {
+      // args {toParent: true}: each layer within its own parent frame (⇧-click in the Design panel's Alignment).
+      const json::Value* tp = args.raw.isObject() ? args.raw.get("toParent") : nullptr;
+      align(id, tp && tp->isBool() && tp->boolean);
+      return OK;
+    }
     case CommandId::DISTRIBUTE_HORIZONTAL: distribute(true); return OK;
     case CommandId::DISTRIBUTE_VERTICAL: distribute(false); return OK;
     case CommandId::ADD_AUTO_LAYOUT: addAutoLayout(); return OK;
@@ -193,6 +199,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommandState(id);
+  if (id == CommandId::SELECT_GRID_TRACKS) return gridFrameSelected() != kNoGuid ? CMD_ENABLED : 0;
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
   if (derivedSelected && id != CommandId::UNDO && id != CommandId::REDO && id != CommandId::TOGGLE_VISIBLE && id != CommandId::TOGGLE_LOCK &&
@@ -844,11 +851,26 @@ void Editor::shiftWorld(Guid id, Vec2 d) {
   write(c);
 }
 
-void Editor::align(CommandId how) {
+void Editor::align(CommandId how, bool toParent) {
   std::vector<Guid> ids = arrangeable();
   if (ids.empty()) return;
   Rect target;
-  if (ids.size() == 1) {
+  // To the parent: every layer in its own parent frame; layers on the page itself stay.
+  auto parentBounds = [&](Guid id, Rect& out) {
+    Guid parent = doc_.parentOf(id);
+    const Node* p = doc_.get(parent);
+    if (!p || p->props.type == NodeType::CANVAS || p->props.type == NodeType::DOCUMENT) return false;
+    out = doc_.worldBounds(parent);
+    return true;
+  };
+  if (toParent) {
+    bool any = false;
+    for (Guid id : ids) {
+      Rect r;
+      any |= parentBounds(id, r);
+    }
+    if (!any) return;
+  } else if (ids.size() == 1) {
     // One layer aligns within its parent frame (not the page).
     Guid parent = doc_.parentOf(ids[0]);
     const Node* p = doc_.get(parent);
@@ -869,6 +891,7 @@ void Editor::align(CommandId how) {
   }
   begin(TxnKind::USER, label);
   for (Guid id : ids) {
+    if (toParent && !parentBounds(id, target)) continue;
     Rect b = doc_.worldBounds(id);
     Vec2 d;
     switch (how) {

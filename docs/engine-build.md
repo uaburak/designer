@@ -1,5 +1,9 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode; round 7 and 8 render)
 
+## Round 8 — Design panel (branch `r8-design-panel`)
+
+Engine side of docs/editor.md "Round 8 — Design panel": `SELECT_GRID_TRACKS = 260` (`{frame?, axis: "COLUMNS" | "ROWS", tracks: number[]}` — the selected grid's tracks as a pill click selects them, `[]` clears; enabled while one grid frame is selected; `tools/GridGestures.cpp selectGridTracksCommand`) and `ALIGN_*` `{toParent: true}` (each layer within its own parent frame, page-level layers stay; `Commands.cpp align`). Native tests: `r6.grid_slots.test.cpp` "grid panel (round 8)", `r7.selection.test.cpp` "align (round 8)". Release wasm rebuilt.
+
 ## Round 8 — render: finished 2026-10-08 (branch `r8-render`)
 
 Goal: finish the render audit (`docs/research/audit-2026-10-08/render.md`) items round 7 left open, against Figma's own pixels and geometry. No live canvas capture was taken (the built-in browser is off limits for this round); the truths used are the samples' thumbnails and stored geometry and Figma's own SVG exports. Details and numbers: docs/engine.md §6.4–6.8.

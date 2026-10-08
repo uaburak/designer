@@ -41,7 +41,11 @@ export function Tabs({ label, value, tabs, onChange, idBase, className, ...rest 
             onChange(tabs[next].value);
           }}
         >
-          {t.label}
+          {/* Live Figma: a tab is as wide as its label in the selected weight (a hidden bold copy holds the room) */}
+          <span className={styles.labelBox}>
+            <span>{t.label}</span>
+            <span aria-hidden="true" className={styles.labelBold}>{t.label}</span>
+          </span>
           {t.badge !== undefined && t.badge > 0 && <span className={styles.badge}>{t.badge}</span>}
         </button>
       ))}

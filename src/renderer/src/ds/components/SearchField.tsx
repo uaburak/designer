@@ -15,10 +15,12 @@ export interface SearchFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "
   onSubmit?: () => void;
   onExit?: (r: ExitReason) => void;
   label?: string;
+  /** Focus selects the text (live: the font picker opens on the family's name, selected) */
+  selectOnFocus?: boolean;
 }
 
 /** A search box (contract §4.28): the magnifier, the query, × while there is text. Esc clears, a second Esc leaves; ↓ hands focus to the list. */
-export function SearchField({ value, onChange, placeholder = STRINGS.search, size = "default", autoFocus, onSubmit, onExit, label = STRINGS.search, className, ...rest }: SearchFieldProps) {
+export function SearchField({ value, onChange, placeholder = STRINGS.search, size = "default", autoFocus, onSubmit, onExit, label = STRINGS.search, selectOnFocus, className, ...rest }: SearchFieldProps) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <div data-ds="SearchField" role="search" className={cx(styles.field, size === "large" && styles.large, className)} {...rest}>
@@ -33,6 +35,7 @@ export function SearchField({ value, onChange, placeholder = STRINGS.search, siz
         placeholder={placeholder}
         autoFocus={autoFocus}
         spellCheck={false}
+        onFocus={selectOnFocus ? (e) => e.currentTarget.select() : undefined}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           e.stopPropagation();

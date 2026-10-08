@@ -5,11 +5,11 @@
  * "Column span" / "Row span". Edits go through the grid model (model/grid.ts) as whole field values, one undo step each.
  */
 import { useState, type ReactNode } from "react";
-import { MIXED, NumericInput, Popover, PropertyRow, Select, TextInput, type ChangeInfo } from "@/ds";
+import { Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, type ChangeInfo } from "@/ds";
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
-import { isAutoRows, parseRowCount, parseTrackInput, rowCountLabel, setTrackCount, setTrackSizing, spanOf, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
+import { isAutoRows, parseRowCount, parseTrackInput, removeTrackAt, rowCountLabel, setTrackCount, setTrackSizing, spanOf, trackLabel, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
 import { useUI } from "../../hooks";
 import styles from "./Grid.module.css";
 import { VariableField } from "./Variables";
@@ -278,3 +278,125 @@ export function GridSpanRow({ nodes }: { nodes: PanelNode[] }) {
   );
 }
 
+
+// ---- The Grid panel (live grid/row-track-selected-panel.txt) ----------------------------------------------------------
+
+/** The panel's sizing dropdown: Fixed, Hug, Fill (live: "Fill"). */
+const PANEL_TYPES: { value: TrackType; label: string }[] = [
+  { value: "FIXED", label: "Fixed" },
+  { value: "HUG", label: "Hug" },
+  { value: "FLEX", label: "Fill" },
+];
+
+/**
+ * While tracks of the selected grid are selected on the canvas, the Design tab is Figma's "Grid" panel: "Grid" and ×
+ * (lets the tracks go), then Columns and Rows — each track's number (a click selects it, ⇧ / ⌘ add), its sizing
+ * (Fixed / Hug / Fill) and its value ("1fr", "84", "Hug"), "Remove column n of m"; "Add column" / "Add row". The
+ * selected tracks' rows are highlighted. The value's own list (live: a combobox) is the pill menu's choices.
+ */
+export function GridPanel({ frame }: { frame: Guid }) {
+  const ed = useEditor();
+  const sel = useUI((s) => s.gridTracks);
+  const node = ed.engine.readNodes([frame])[0] as unknown as (GridNode & { guid: Guid }) | undefined;
+  if (!node) return null;
+  const select = (axis: GridAxis, tracks: number[]) => ed.engine.command("SELECT_GRID_TRACKS", { frame, axis: axis === "columns" ? "COLUMNS" : "ROWS", tracks });
+  const close = () => {
+    select("columns", []);
+    ed.ui.set({ gridTracks: null, gridTrackEditor: null });
+  };
+  const items = () => {
+    const kids = (ed.engine.readNodes([frame], { childIds: true })[0]?.childIds ?? []) as Guid[];
+    return (kids.length ? ed.engine.readNodes(kids) : []).map((k) => ({ guid: k.guid, node: k as unknown as GridItemNode }));
+  };
+  const add = (axis: GridAxis) => {
+    const count = tracksOf(node, axis).length + 1;
+    setCounts(ed, [frame], axis === "columns" ? "Add column" : "Add row", FINAL, axis === "columns" ? { columns: count } : { rows: count });
+  };
+  const remove = (axis: GridAxis, index: number) => {
+    const r = removeTrackAt(node, axis, index, items());
+    if (!r) return;
+    ed.batch(axis === "columns" ? "Remove column" : "Remove row", () => {
+      ed.engine.setProps([frame], asFields({ ...r.frame, ...(axis === "rows" ? { gridAutoTracks: "NONE" } : {}) }));
+      for (const it of r.items) ed.engine.setProps([it.guid], asFields(it.fields));
+    });
+    // The selected tracks stay selected (after the removed one, one index down); none left: the Design panel again.
+    if (sel && sel.frame === frame && (sel.axis === "COLUMNS") === (axis === "columns")) {
+      const next = sel.tracks.filter((x) => x !== index).map((x) => (x > index ? x - 1 : x));
+      select(axis, next);
+    }
+  };
+  const section = (axis: GridAxis) => {
+    const tracks = tracksOf(node, axis);
+    const selected = sel && sel.frame === frame && (sel.axis === "COLUMNS") === (axis === "columns") ? sel.tracks : [];
+    const word = axis === "columns" ? "column" : "row";
+    return (
+      <div className={styles.gpSection} data-grid-panel-axis={axis}>
+        <div className={styles.gpHeader}>
+          <span>{axis === "columns" ? "Columns" : "Rows"}</span>
+          <IconButton icon="24.plus.small" label={`Add ${word}`} tone="secondary" onClick={() => add(axis)} />
+        </div>
+        {tracks.map((t, i) => {
+          const on = selected.includes(i);
+          const name = `Grid ${word} ${i + 1} of ${tracks.length}`;
+          const size = (sizing: { type: TrackType; value: number }) => writeTrackSizing(ed, frame, axis, on ? selected : [i], sizing);
+          return (
+            <div key={`${t.id.sessionID}:${t.id.localID}`} className={cx(styles.gpRow, on && styles.gpRowOn)} role="row" aria-selected={on}>
+              <button
+                type="button"
+                className={styles.gpIndex}
+                aria-label={`${name}, ${on ? "selected" : "not selected"}`}
+                onClick={(e) => {
+                  const extend = e.shiftKey || e.metaKey || e.ctrlKey;
+                  select(axis, extend ? (on ? selected.filter((x) => x !== i) : [...selected, i]) : [i]);
+                }}
+              >
+                {i + 1}
+              </button>
+              <Select
+                label="Track sizing"
+                variant="ghost"
+                width={76}
+                value={t.sizing.type}
+                options={PANEL_TYPES}
+                onChange={(v) => size({ type: v as TrackType, value: v === "FIXED" ? Math.round(t.sizing.type === "FIXED" ? t.sizing.value : 100) : 1 })}
+              />
+              <span className={styles.gpValue}>
+                <TextInput
+                  label={axis === "columns" ? "Column width" : "Row height"}
+                  value={trackLabel(t.sizing)}
+                  onCommit={(text) => {
+                    const s = parseTrackInput(text);
+                    if (s) size(s);
+                  }}
+                />
+                <MenuButton
+                  label={`${axis === "columns" ? "Column" : "Row"} ${i + 1} sizing`}
+                  className={styles.gpValueMenu}
+                  entries={[
+                    { id: "FIXED", label: `Fixed ${axis === "columns" ? "width" : "height"}${t.sizing.type === "FIXED" ? ` (${Math.round(t.sizing.value)})` : ""}`, checked: t.sizing.type === "FIXED" },
+                    { id: "HUG", label: "Hug contents", checked: t.sizing.type === "HUG" },
+                    { id: "FLEX", label: `Fill container${t.sizing.type === "FLEX" ? ` (${trackLabel(t.sizing)})` : ""}`, checked: t.sizing.type === "FLEX" },
+                  ]}
+                  onSelect={(id) => size({ type: id as TrackType, value: id === "FIXED" ? Math.round(t.sizing.type === "FIXED" ? t.sizing.value : 100) : t.sizing.type === "FLEX" ? t.sizing.value : 1 })}
+                >
+                  <Icon name="16.chevron.down" />
+                </MenuButton>
+              </span>
+              <IconButton icon="24.minus.small" label={`Remove ${word} ${i + 1} of ${tracks.length}`} tone="secondary" disabled={tracks.length <= 1} onClick={() => remove(axis, i)} />
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+  return (
+    <div className={styles.gridPanel} data-grid-panel="">
+      <div className={styles.gpTitle}>
+        <span>Grid</span>
+        <IconButton icon="24.close.small" label="Close" onClick={close} />
+      </div>
+      {section("columns")}
+      {section("rows")}
+    </div>
+  );
+}

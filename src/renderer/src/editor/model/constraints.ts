@@ -1,6 +1,7 @@
 /**
  * Figma's constraints (help.figma.com "Apply constraints to define how layers
- * resize"; the help calls Stretch "Left and right", the dropdowns show "Left and right" to fit their 88px):
+ * resize"; the help calls Stretch "Left and right", the live dropdowns show "Left + Right" / "Top + Bottom" —
+ * popovers/constraint-*-menu.txt):
  * the Position section's widget and its two dropdowns, as plain data on
  * `horizontalConstraint` / `verticalConstraint` (schema/document.kiwi's
  * ConstraintType: MIN, CENTER, MAX, STRETCH, SCALE).
@@ -17,14 +18,14 @@ export const CONSTRAINT_OPTIONS: Record<ConstraintAxis, { value: ConstraintType;
   horizontal: [
     { value: "MIN", label: "Left" },
     { value: "MAX", label: "Right" },
-    { value: "STRETCH", label: "Left and right" },
+    { value: "STRETCH", label: "Left + Right" },
     { value: "CENTER", label: "Center" },
     { value: "SCALE", label: "Scale" },
   ],
   vertical: [
     { value: "MIN", label: "Top" },
     { value: "MAX", label: "Bottom" },
-    { value: "STRETCH", label: "Top and bottom" },
+    { value: "STRETCH", label: "Top + Bottom" },
     { value: "CENTER", label: "Center" },
     { value: "SCALE", label: "Scale" },
   ],
