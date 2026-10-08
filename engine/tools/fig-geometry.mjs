@@ -8,6 +8,7 @@
 //
 // Private files: the output names the file's layers — it goes to the terminal only.
 import { execFileSync } from "node:child_process";
+import console from "node:console";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
