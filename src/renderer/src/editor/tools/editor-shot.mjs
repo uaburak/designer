@@ -14,7 +14,7 @@
 //   EDITOR_ONLY=variables node …                                   (only the variables / modes / styles section)
 //   EDITOR_ONLY=libraries node …                                   (only the libraries section: publish, enable, insert, update)
 //   EDITOR_ONLY=export node …                                      (only the export section: Export panel, dialog, Copy as PNG)
-/* global process, console, window, requestAnimationFrame */
+/* global process, console, window, document, navigator, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";

@@ -559,6 +559,18 @@ async function exportChecks(files) {
     await page.waitForTimeout(200);
     await engine(() => window.__designerEngine.imagesSettled());
   }
+  // A text layer (Inter Semi Bold 40) for the vector writers' text: outlines in SVG, Type 3 glyphs in PDF.
+  await engine(() =>
+    window.__designerEngine.applyChanges(
+      { type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "51:1", phase: "CREATED", type: "TEXT", name: "Export text",
+        parentIndex: { guid: "0:1", position: "~~~" }, size: { x: 300, y: 48 }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 2300 },
+        textData: { characters: "Export 123" }, fontName: { family: "Inter", style: "Semi Bold", postscript: "" }, fontSize: 40, textAutoResize: "WIDTH_AND_HEIGHT",
+        fillPaints: [{ type: "SOLID", color: { r: 0.1, g: 0.1, b: 0.4, a: 1 }, opacity: 1, visible: true }] }] },
+      "user"
+    )
+  );
+  await page.waitForTimeout(300);
+  await settle();
   const imageHash = "93e8eeb27e934c4b9ae9e7929c7df9e96a6ec90c";
   const imageB64 = readFileSync(path.join(figmaDir, "images", imageHash)).toString("base64");
   // Each layer's 2x PNG export against the canvas at 100 % (the page is 2 device px per CSS px): every opaque pixel.
@@ -612,7 +624,7 @@ async function exportChecks(files) {
   // foreignObject would taint a canvas) — against the 2x PNG export on white: every pixel.
   const svgLayers = { "50:3": "star", "50:12": "centre stroke", "50:11": "inside stroke", "50:13": "outside stroke", "50:18": "linear gradient",
     "50:19": "linear 45°", "50:20": "radial", "50:21": "angular", "50:22": "diamond", "50:25": "image (Fill)", "50:28": "image (Tile)",
-    "50:31": "drop shadow", "50:33": "inner shadow", "50:36": "layer blur", "50:44": "alpha mask", "50:47": "vector mask" };
+    "50:31": "drop shadow", "50:33": "inner shadow", "50:36": "layer blur", "50:44": "alpha mask", "50:47": "vector mask", "51:1": "text (outlines)" };
   for (const [ref, name] of Object.entries(svgLayers)) {
     const shown = await page.evaluate(
       async ({ ref, imageHash, imageB64 }) => {
@@ -669,8 +681,9 @@ async function exportChecks(files) {
       { ref, shotB64 }
     );
     // Photos (the browser resamples the original, the canvas a mipmapped texture), the engine's approximate blur and
-    // flattened stroke outlines differ at a few edge pixels more than flat shapes do.
-    const loose = /image|mask|inner|outside/.test(name);
+    // flattened stroke outlines, and text (a fractional size: the <img> lands a sub-pixel off) differ at a few edge pixels
+    // more than flat shapes do.
+    const loose = /image|mask|inner|outside|text/.test(name);
     check(`SVG re-renders the same: ${name}`, !r.error && r.same / r.total >= (loose ? 0.93 : 0.97),
       r.error ?? `${r.width}×${r.height}, ${((100 * r.same) / r.total).toFixed(1)} % of pixels, ${shown.size} bytes`);
   }
@@ -679,7 +692,7 @@ async function exportChecks(files) {
   if (existsSync("/usr/bin/sips")) {
     const { execFileSync } = await import("node:child_process");
     const { writeFileSync } = await import("node:fs");
-    const pdfLayers = { "50:3": "star", "50:18": "linear gradient", "50:20": "radial gradient", "50:21": "angular gradient", "50:25": "image (Fill)", "50:12": "centre stroke", "50:11": "inside stroke" };
+    const pdfLayers = { "50:3": "star", "50:18": "linear gradient", "50:20": "radial gradient", "50:21": "angular gradient", "50:25": "image (Fill)", "50:12": "centre stroke", "50:11": "inside stroke", "50:31": "drop shadow (an image)", "50:44": "alpha mask", "51:1": "text (Type 3 glyphs)" };
     for (const [ref, name] of Object.entries(pdfLayers)) {
       const made = await page.evaluate(
         async ({ ref, imageHash, imageB64 }) => {

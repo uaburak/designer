@@ -18,6 +18,7 @@
 #include "export/SvgWriter.h"
 #include "geometry/Shapes.h"
 #include "Helpers.h"
+#include "render/ImageCache.h"
 #include "TextHelpers.h"
 
 using namespace eng;
@@ -222,6 +223,21 @@ geom::Path shapeOf(const El& e) {
   if (e.tag == "path") return parsePathData(*e.attr("d")).transformed(m);
   return {};
 }
+
+// Inter for a test, and the module-wide registries as they were afterwards: tests that run later (alphabetically,
+// render.*) count what they draw without fonts and expect no image requests of ours.
+struct Fonts {
+  Fonts() {
+    auto& fonts = text::FontRegistry::get();
+    int32_t upright = addFontFile(std::string(ENG_FONTS_DIR) + "/InterVariable.ttf");
+    for (const char* style : {"Regular", "Semi Bold", "Bold"}) fonts.bind("Inter", style, upright);
+    fonts.takeRequests();
+  }
+  ~Fonts() { text::FontRegistry::get().reset(); }
+};
+struct Images {
+  ~Images() { ImageRegistry::get().clear(); }
+};
 
 std::string resultBytes() { return std::string(reinterpret_cast<const char*>(engine_result_ptr()), engine_result_len()); }
 
@@ -545,7 +561,7 @@ TEST_CASE("export: SVG paints, strokes, effects, masks, ids") {
 }
 
 TEST_CASE("export: SVG text as outlines or as <text>") {
-  loadInter();
+  Fonts fonts;
   auto nodes = baseChanges();
   NodeChange t = make({3, 1}, NodeType::TEXT, kPage, "!", {10, 10, 100, 20}, "Hello");
   t.props.textData.characters = "Hello & <you>";
@@ -584,7 +600,7 @@ TEST_CASE("export: SVG text as outlines or as <text>") {
 }
 
 TEST_CASE("export: PDF structure, streams and text as Type 3 glyphs") {
-  loadInter();
+  Fonts fonts;
   auto nodes = sheet();
   NodeChange t = make({3, 1}, NodeType::TEXT, {1, 1}, "%", {10, 120, 100, 20}, "Label");
   t.props.textData.characters = "Hi";
@@ -668,6 +684,7 @@ TEST_CASE("export: the C ABI — PNG / JPEG pixels, SVG, PDF, info, images, the 
      "size":{"x":50,"y":50},"transform":{"m00":1,"m01":0,"m02":10,"m10":0,"m11":1,"m12":10},
      "fillPaints":[{"type":"IMAGE","imageScaleMode":"FILL","image":{"hash":"0123456789abcdef0123456789abcdef01234567"},"originalImageWidth":2,"originalImageHeight":2}]}
   ]})";
+  Images images;
   std::string opts = R"({"sessionID":1})";
   Handle h = engine_create(nullptr, reinterpret_cast<Ptr>(opts.data()), static_cast<uint32_t>(opts.size()));
   REQUIRE(h != 0);
