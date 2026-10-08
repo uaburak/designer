@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
@@ -15,6 +15,7 @@ import { rendererConfig } from "./vite.shared";
  */
 const outDir = fileURLToPath(new URL("./out/viewer", import.meta.url));
 const bootJs = fileURLToPath(new URL("./src/renderer/public/boot.js", import.meta.url));
+const previewConfig = fileURLToPath(new URL("./firebase/preview-config.json", import.meta.url));
 
 /** The theme's boot script inline (the page has no other files). */
 function inlineBoot(): Plugin {
@@ -63,6 +64,8 @@ function singleFile(): Plugin {
       if (/<link rel="(stylesheet|modulepreload)"|<script[^>]+src=/.test(html)) throw new Error("viewer build: a file was left outside the page");
       writeFileSync(htmlPath, html);
       rmSync(assets, { recursive: true, force: true });
+      // Firebase Hosting: where previews are stored (the owner's firebase/preview-config.json, never committed).
+      if (existsSync(previewConfig)) copyFileSync(previewConfig, join(outDir, "preview-config.json"));
     },
   };
 }

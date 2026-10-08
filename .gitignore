@@ -8,3 +8,9 @@ dist
 
 # Claude Code runtime state (not project config)
 .claude/scheduled_tasks.lock
+
+# Firebase (docs/data.md §12–13): the owner's project files stay local
+firebase/.firebaserc
+firebase/*.local.json
+firebase/preview-config.json
+firebase/.firebase

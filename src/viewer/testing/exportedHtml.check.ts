@@ -4,6 +4,7 @@
 // Dev Mode's Inspect (CSS with the variable's name, the text style), measure on hover and switch pages.
 // Screenshots go to $TMPDIR/designer-viewer-check. One browser, closed in finally, under 180 s.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -155,6 +156,55 @@ describe("the exported preview HTML (headless Chromium)", () => {
       expect(problems).toEqual([]);
     } finally {
       await browser.close();
+    }
+  }, 170_000);
+
+  it("reads a published preview's files over HTTP (the Firebase Storage layout), and refuses an expired one", async () => {
+    const { snapshot, image } = await syntheticPreview();
+    const build = (expiresInDays: 7 | null, now: number) =>
+      buildPreviewPackage(
+        { snapshot, fileName: "Published", previewId: "h".repeat(22), now, options: { pageIds: ["0:3"], inspect: false, export: false, expiresInDays }, readImage: async (s) => (s === image.sha1 ? image.bytes : null) },
+        { deflateRaw: (d) => new Uint8Array(deflateRawSync(d)) },
+      );
+    const live = await build(null, Date.now());
+    const expired = await build(7, Date.now() - 8 * 86400000);
+    const files = new Map<string, Uint8Array | string>([
+      ["/index.html", readFileSync(template, "utf8")],
+      ["/live/manifest.json", JSON.stringify(live.manifest)],
+      ["/live/doc.kiwi", live.doc],
+      ["/expired/manifest.json", JSON.stringify(expired.manifest)],
+      ["/expired/doc.kiwi", expired.doc],
+    ]);
+    const server = createServer((req, res) => {
+      const path = new URL(req.url ?? "/", "http://x").pathname;
+      const body = files.get(path);
+      if (body === undefined) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": path.endsWith(".html") ? "text/html" : path.endsWith(".json") ? "application/json" : "application/octet-stream" }).end(body);
+    });
+    await new Promise<void>((r) => server.listen(5234, "127.0.0.1", r));
+    const browser = await chromium.launch({ executablePath: chromiumPath(), args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+      page.setDefaultTimeout(15_000);
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.goto("http://127.0.0.1:5234/index.html?src=/live/");
+      await page.waitForSelector("[data-viewer][data-ready]", { timeout: 30_000 }).catch(async (e) => {
+        throw new Error(`${(e as Error).message}\npage: ${await page.locator("body").innerText()}\nerrors: ${errors.join("\n")}`);
+      });
+      // Only the chosen page; Inspect off as published.
+      await expect.poll(() => page.locator('[data-ds="LayerRow"]').count()).toBe(1);
+      expect(await page.locator('[data-panel="inspect"]').innerText()).toContain("Inspect is off");
+      await page.screenshot({ path: join(outDir, "07-published.png") });
+      await page.goto("http://127.0.0.1:5234/index.html?src=/expired/");
+      await expect.poll(() => page.locator("[data-viewer]").innerText()).toContain("This preview has expired");
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+      await new Promise((r) => server.close(r));
     }
   }, 170_000);
 });

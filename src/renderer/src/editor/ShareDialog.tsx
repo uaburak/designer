@@ -186,7 +186,7 @@ function Share() {
             </div>
           </div>
         ) : !canPublish ? (
-          <Banner tone="default">{`${status.reason ?? "Publishing links isn't available"}. Export the preview as an HTML file to send it instead.`}</Banner>
+          <Banner tone="default">{`${status.reason ?? "Publishing links isn't available"}. ${access.exportHtml ? "Export the preview as an HTML file to send it instead." : "Exporting it as an HTML file needs the desktop app."}`}</Banner>
         ) : null}
         {busy && busy !== "stop" && <p className={styles.note}>Preparing the preview… every page is laid out with its fonts first.</p>}
       </div>
