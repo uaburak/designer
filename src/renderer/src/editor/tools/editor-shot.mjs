@@ -169,6 +169,8 @@ async function paintsSection(page, theme) {
 
   // Selection colors list a frame's gradients as rows.
   await select("2:1");
+  const seeAll = panel.locator('section[aria-label="Selection colors"]').getByRole("button", { name: /^See all/ });
+  if (await seeAll.count()) await seeAll.click();
   check("Selection colors list gradients (one row each)", (await panel.locator("section[aria-label=\"Selection colors\"]").getByRole("button", { name: "Color: Diamond" }).count()) === 1);
   await shot(page, `27-selection-colors-gradients-${theme}`);
 
@@ -218,14 +220,14 @@ async function paintsSection(page, theme) {
 
   // Booleans: the header's menu on two shapes; a boolean group's operation.
   await select("2:10", "2:11");
-  const booleans = panel.getByRole("button", { name: "Boolean groups" });
+  const booleans = panel.getByRole("button", { name: "Boolean operations" });
   const menuOn = await booleans.isEnabled();
   if (menuOn) {
     await booleans.click();
     await settle(page);
   }
   await shot(page, `33-boolean-menu-${theme}`);
-  const union = page.getByRole("menuitemcheckbox", { name: /Union selection/ });
+  const union = page.getByRole("menuitemcheckbox", { name: /^Union/ });
   const unionEnabled = menuOn && (await union.count()) === 1 && (await union.getAttribute("aria-disabled")) !== "true";
   if (unionEnabled) {
     await union.click();
@@ -268,8 +270,10 @@ async function paintsSection(page, theme) {
 
   // Vector edit mode: the toolbar switches; Done leaves.
   if (capable.vector) {
+    // A star's header (Figma's live panel) has no Edit object button: it is in More actions.
     await select("2:20");
-    await panel.getByRole("button", { name: "Edit object" }).click();
+    await panel.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Edit object" }).click();
     await settle(page);
     check("vector edit mode: the vector-edit toolbar with Done", (await page.locator("[data-vector-toolbar]").count()) === 1);
     await shot(page, `37-vector-edit-${theme}`);
@@ -326,19 +330,17 @@ async function componentsSection(page, theme) {
   const toggled = await page.evaluate(() => JSON.stringify(window.__designerEditor.engine.readNode("2:2").componentPropAssignments ?? []));
   check("a Boolean property's toggle writes the value", toggled.includes("false"), toggled);
 
-  // The instance menu (swap), the ⋯ menu with Reset ▸.
+  // The instance menu (swap), the ⋯ menu (Figma's live list: … Create component, Detach instance, Reset instance …).
   await panel.getByRole("button", { name: "Instance menu: Button" }).click();
   await settle(page);
   check("the instance menu lists the file's components by page and frame", (await page.locator("[data-component-picker]").getByRole("menuitemradio").count()) >= 4);
   await shot(page, `39-instance-menu-${theme}`);
   await page.keyboard.press("Escape");
   await panel.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Reset" }).hover();
-  await page.waitForTimeout(400);
-  const resetText = await page.getByRole("menu").last().innerText();
-  check("⋯ › Reset lists Reset all changes and the changed properties", resetText.includes("Reset all changes") && resetText.includes("Reset fill"), resetText.replace(/\n/g, " | "));
+  await settle(page);
+  const moreText = await page.getByRole("menu").last().innerText();
+  check("⋯ lists Create component, Detach instance, Reset instance (the live menu)", ["Create component", "Detach instance", "Reset instance"].every((t) => moreText.includes(t)), moreText.replace(/\n/g, " | "));
   await shot(page, `40-instance-more-${theme}`);
-  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await select("2:2");
 
@@ -391,15 +393,13 @@ async function componentsSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.undo());
   await settle(page);
 
-  // Reset all changes (⋯) on the button.
+  // Reset instance (⋯) on the button: every change.
   await select("2:2");
   await panel.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Reset" }).hover();
-  await page.waitForTimeout(300);
-  await page.getByRole("menuitem", { name: "Reset all changes" }).click();
+  await page.getByRole("menuitem", { name: "Reset instance" }).click();
   await settle(page);
   const reset = await node(page, "2:2");
-  check("Reset all changes clears the overrides and the values", (reset.symbolData?.symbolOverrides ?? []).length === 0 && (reset.componentPropAssignments ?? []).length === 0, JSON.stringify({ o: reset.symbolData?.symbolOverrides, a: reset.componentPropAssignments }));
+  check("Reset instance clears the overrides and the values", (reset.symbolData?.symbolOverrides ?? []).length === 0 && (reset.componentPropAssignments ?? []).length === 0, JSON.stringify({ o: reset.symbolData?.symbolOverrides, a: reset.componentPropAssignments }));
   await page.keyboard.press("Meta+z");
   await settle(page);
 
@@ -2467,32 +2467,35 @@ try {
       const selectLayer = (id) => page.evaluate((id) => window.__designerEditor.engine.setSelection([id]), id);
       await row("1:1").click();
       await settle(page);
-      const width = panel.getByRole("textbox", { name: "Width", exact: true });
-      const height = panel.getByRole("textbox", { name: "Height", exact: true });
-      check("an auto-layout frame reads Fixed width and Hug height", (await width.inputValue()) === "320" && (await height.inputValue()) === "Hug", `${await width.inputValue()} × ${await height.inputValue()}`);
+      // Figma's live panel: an axis that hugs or fills makes the row "Resizing" ("Horizontal resizing" / "Vertical
+      // resizing"), each field the number and its mode ("320", "200 … Hug").
+      const width = panel.getByRole("textbox", { name: "Horizontal resizing", exact: true });
+      const height = panel.getByRole("textbox", { name: "Vertical resizing", exact: true });
+      const mode = async (field) => ((await field.locator("xpath=..").innerText().catch(() => "")) ?? "").replace(/\s+/g, " ").trim();
+      check("an auto-layout frame reads Fixed width and Hug height", (await width.inputValue()) === "320" && (await mode(height)).endsWith("Hug"), `${await width.inputValue()} × ${await mode(height)}`);
       await shot(page, `16-types-auto-layout-${theme}`);
       await width.hover();
-      await panel.getByRole("button", { name: "Width sizing" }).click();
+      await panel.getByRole("button", { name: "Horizontal resizing sizing" }).click();
       const menuText = await page.getByRole("menu").innerText();
       check("the W menu: Fixed width, Hug contents, Add min/max width…", ["Fixed width", "Hug contents", "Add min width…", "Add max width…"].every((t) => menuText.includes(t)), menuText.replace(/\n/g, " | "));
       await shot(page, `17-width-menu-${theme}`);
       await page.getByRole("menuitemcheckbox", { name: "Hug contents" }).click();
       await settle(page);
       const hugged = await node(page, "1:1");
-      check("Hug contents writes the frame's sizing", hugged.stackPrimarySizing !== "FIXED" && (await width.inputValue()) === "Hug", `${hugged.stackPrimarySizing}, W ${await width.inputValue()}`);
+      check("Hug contents writes the frame's sizing", hugged.stackPrimarySizing !== "FIXED" && (await mode(width)).endsWith("Hug"), `${hugged.stackPrimarySizing}, W ${await mode(width)}`);
       await page.keyboard.press("Meta+z");
       await settle(page);
-      await panel.getByRole("button", { name: "Advanced layout settings" }).click();
+      await panel.getByRole("button", { name: "Auto layout settings" }).click();
       await settle(page);
       check("the auto-layout settings open", (await page.getByRole("dialog", { name: "Auto layout settings" }).count()) === 1);
       await shot(page, `18-auto-layout-settings-${theme}`);
       await page.keyboard.press("Escape");
       await selectLayer("1:3");
       await settle(page);
-      check("a Fill child reads Fill", (await width.inputValue()) === "Fill", await width.inputValue());
+      check("a Fill child reads Fill", (await mode(width)).endsWith("Fill"), await mode(width));
       check("Ignore auto layout shows for an auto-layout child", (await panel.getByRole("button", { name: "Ignore auto layout" }).count()) === 1);
       await width.hover();
-      await panel.getByRole("button", { name: "Width sizing" }).click();
+      await panel.getByRole("button", { name: "Horizontal resizing sizing" }).click();
       await page.getByRole("menuitem", { name: "Add min width…" }).click();
       await settle(page);
       const minned = await node(page, "1:3");
@@ -2500,13 +2503,17 @@ try {
       await shot(page, `19-fill-child-min-width-${theme}`);
       await selectLayer("1:11");
       await settle(page);
+      // Constraints: Position's toggle opens the inline row (Figma's live panel).
       const widget = panel.locator('[data-ds-editor="ConstraintsWidget"]');
+      if (!(await widget.count())) await panel.getByRole("button", { name: "Constraints" }).click();
+      await settle(page);
       check("Constraints show for a frame's child", (await widget.count()) === 1);
       await widget.getByRole("button", { name: "Bottom" }).click();
       await widget.getByRole("button", { name: "Top" }).click({ modifiers: ["Shift"] });
       const pinned = await node(page, "1:11");
       check("the widget writes constraints (⇧ for both)", pinned.verticalConstraint === "STRETCH", pinned.verticalConstraint);
       await shot(page, `20-constraints-${theme}`);
+      await panel.getByRole("button", { name: "Constraints" }).click();
       await row("1:10").click();
       await settle(page);
       check("Selection colors list a frame's colours", (await panel.getByText("Selection colors").count()) === 1);
@@ -2571,7 +2578,7 @@ try {
       await settle(page);
       check("double-click renames in Layers", (await node(page, rectId))?.name === "Card", (await node(page, rectId))?.name);
       // The Design panel writes: X through the field.
-      const x = page.getByRole("textbox", { name: "X", exact: true });
+      const x = page.getByRole("textbox", { name: "X-position", exact: true });
       if (await x.count()) {
         await x.click();
         await page.keyboard.type("60");

@@ -421,9 +421,9 @@ function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
   const entries: MenuEntry[] = [
     ...BOOLEAN_ITEMS.map((b) => {
       const c = command(b.id);
-      return { id: b.id, label: c.label, icon: b.icon, shortcut: shortcutOf(c), checked: current === b.op, disabled: !(booleans || isEnabled(ed, c)) };
+      // Figma's live menu: Union, Subtract, Intersect, Exclude, Flatten — no line, no "selection".
+      return { id: b.id, label: c.label.replace(" selection", ""), icon: b.icon, shortcut: shortcutOf(c), checked: current === b.op, disabled: !(booleans || isEnabled(ed, c)) };
     }),
-    "-",
     commandItem(ed, "vector.flatten"),
   ];
   const first = BOOLEAN_ITEMS.find((b) => b.op === (current ?? "UNION")) ?? BOOLEAN_ITEMS[0];
