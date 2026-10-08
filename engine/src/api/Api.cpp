@@ -1325,7 +1325,7 @@ ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags)
       clip.regions.push_back(std::move(region));
     }
   }
-  return static_cast<int32_t>(e->editor.paste(clip, (flags & PASTE_IN_PLACE) != 0));
+  return static_cast<int32_t>(e->editor.pasteWith(clip, flags & (PASTE_IN_PLACE | PASTE_OVER | PASTE_REPLACE)));
 }
 
 namespace {

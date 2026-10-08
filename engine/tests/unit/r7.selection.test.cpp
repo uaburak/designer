@@ -509,3 +509,44 @@ TEST_CASE("r7 duplicate: ⌘D in place with the same name; moved, the next ⌘D 
   e.command(CommandId::DUPLICATE);
   CHECK(props(e, e.selection()[0]).transform == Mat2x3::translate(10, 10));
 }
+
+// ---- 11. Paste over selection, paste to replace ------------------------------------------------------------------
+
+TEST_CASE("r7 paste: ⇧⌘V over the selection (in place, above it, not into it); ⇧⌘R in each replaced layer's place") {
+  Editor e = makeEditor();
+  e.setSelection({TOP});
+  Clipboard clip;
+  REQUIRE(e.copySelection(clip));
+  // Over the selected frame F: where TOP was copied from, a sibling just above F (not inside it).
+  e.setSelection({F});
+  REQUIRE(e.pasteWith(clip, PASTE_IN_PLACE | PASTE_OVER) == 1);
+  Guid over = e.selection()[0];
+  CHECK(e.document().parentOf(over) == kPage);
+  CHECK(e.document().worldBounds(over) == Rect{400, 0, 100, 100});
+  CHECK(e.document().children(kPage)[1] == over);  // right above F
+  e.command(CommandId::UNDO);
+  // Paste to replace R2 (inside F): the copy takes R2's place and order, R2 goes; one undo step.
+  NodeChange c = NodeChange::changed(R2);
+  c.mask = F_H_CONSTRAINT;
+  c.props.horizontalConstraint = ConstraintType::MAX;
+  e.applyChanges({c}, APPLY_REMOTE);
+  e.setSelection({R2});
+  REQUIRE(e.pasteWith(clip, PASTE_REPLACE) == 1);
+  Guid rep = e.selection()[0];
+  CHECK(!e.document().has(R2));
+  CHECK(e.document().parentOf(rep) == F);
+  CHECK(e.document().children(F) == std::vector<Guid>{R1, rep});
+  CHECK(e.document().worldBounds(rep) == Rect{100, 10, 100, 100});
+  CHECK(props(e, rep).horizontalConstraint == ConstraintType::MAX);
+  auto ev = e.takeEvents();
+  CHECK(ev.documents.back().label == "Paste to replace");
+  e.command(CommandId::UNDO);
+  CHECK(e.document().has(R2));
+  CHECK(!e.document().has(rep));
+  // Two layers replaced: a copy in each place.
+  e.setSelection({R1, R2});
+  REQUIRE(e.pasteWith(clip, PASTE_REPLACE) == 2);
+  CHECK(e.document().children(F).size() == 2);
+  CHECK(e.document().worldBounds(e.selection()[0]) == Rect{10, 10, 100, 100});
+  CHECK(e.document().worldBounds(e.selection()[1]) == Rect{100, 10, 100, 100});
+}

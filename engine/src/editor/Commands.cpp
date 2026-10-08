@@ -1188,8 +1188,11 @@ bool Editor::copySelection(Clipboard& out, bool cut) const {
   return true;
 }
 
-uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
+uint32_t Editor::paste(const Clipboard& clip, bool inPlace) { return pasteWith(clip, inPlace ? PASTE_IN_PLACE : 0); }
+
+uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
   if (busy() || txn_.open || page_ == kNoGuid) return 0;
+  const bool inPlace = (flags & PASTE_IN_PLACE) != 0;
   // The selection: the regions' nodes and what is below them. Anything else came along as what they reference.
   std::unordered_map<Guid, const NodeChange*, GuidHash> all;
   for (const NodeChange& c : clip.nodes)
@@ -1269,8 +1272,42 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       index = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
     }
   }
+  // Where each copy goes: one place, or (Paste to replace) one per replaced layer.
+  struct Spot {
+    Guid parent;
+    size_t index;
+    Vec2 d;
+    Guid replaced;
+  };
+  std::vector<Spot> spots;
+  if ((flags & PASTE_REPLACE) && !sel.empty()) {
+    // ⇧⌘R "Paste to replace": each selected layer gives way to a copy at its place — its parent, its order, its x / y
+    // (the copy's top-left at its top-left) and its constraints.
+    for (Guid s : sel) {
+      const Node* n = doc_.get(s);
+      Guid parent = doc_.parentOf(s);
+      if (!n || s.isDerived() || n->props.locked || sourceRoots.count(s) || isLibraryCopy(s) || isStructuralTarget(parent)) continue;
+      const auto& siblings = doc_.children(parent);
+      size_t at = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
+      Rect rb = doc_.worldBounds(s);
+      spots.push_back({parent, at, {std::round(rb.x - u.x), std::round(rb.y - u.y)}, s});
+    }
+    if (spots.empty()) return 0;
+  } else if ((flags & PASTE_OVER) && !sel.empty()) {
+    // ⇧⌘V "Paste over selection": where it was copied from (in place), just above the selection — not into it.
+    Guid s = sel.back();
+    Guid parent = doc_.parentOf(s);
+    while (isStructuralTarget(parent) && doc_.has(parent)) {
+      s = parent.isDerived() ? instanceOfDerived(parent) : parent;
+      parent = doc_.parentOf(s);
+    }
+    const auto& siblings = doc_.children(parent);
+    size_t at = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
+    spots.push_back({parent, at, {}, kNoGuid});
+  }
   Vec2 d;
-  if (!inPlace) {
+  if (!spots.empty()) {
+  } else if (!inPlace) {
     auto centreIn = [&](const Rect& r) {
       return Vec2{std::round(r.x + r.w / 2 - u.w / 2) - u.x, std::round(r.y + r.h / 2 - u.h / 2) - u.y};
     };
@@ -1301,8 +1338,10 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   };
   for (const NodeChange* r : roots)
     if (r->props.type == NodeType::SYMBOL || r->props.isComponentSet()) markWhole(markWhole, r->guid);
-  begin(TxnKind::USER, "Paste");
-  auto keys = placeManyAt(target, index, roots.size(), {});
+  if (spots.empty()) spots.push_back({target, index, d, kNoGuid});
+  const NodeProps* replacedProps = nullptr;
+  size_t spotIndex = 0;
+  begin(TxnKind::USER, (flags & PASTE_REPLACE) ? "Paste to replace" : "Paste");
   std::vector<Guid> pasted;
   std::vector<std::pair<Guid, Guid>> movedMains;  // a main cut in this file: its GUID → the pasted one
   unresolved_ = 0;
@@ -1465,10 +1504,14 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       p.asset().publishedVersion = src.props.asset().publishedVersion;
       p.asset().version.clear();  // the clipboard's note of its hash (copySelection), not a library copy's version
     }
+    if (root && replacedProps) {
+      p.horizontalConstraint = replacedProps->horizontalConstraint;
+      p.verticalConstraint = replacedProps->verticalConstraint;
+    }
     Guid id;
     if (crossFile) {
       unresolved_ += remapRefs(p, nullptr, map, clip.fileKey);
-      id = map.count(src.guid) ? map[src.guid] : newGuid();
+      id = spotIndex == 0 && map.count(src.guid) ? map[src.guid] : newGuid();
     } else {
       id = newGuid();
     }
@@ -1479,8 +1522,28 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     if (it == kids.end()) return;
     for (const NodeChange* c : it->second) self(self, *c, id, c->props.parentIndex.position, c->props.transform);
   };
-  for (size_t i = 0; i < roots.size(); i++)
-    create(create, *roots[i], target, keys[i], localFor(target, Mat2x3::translate(d.x, d.y) * worlds[i]));
+  for (spotIndex = 0; spotIndex < spots.size(); spotIndex++) {
+    const Spot& spot = spots[spotIndex];
+    target = spot.parent;
+    const Node* rn = spot.replaced != kNoGuid ? doc_.get(spot.replaced) : nullptr;
+    replacedProps = rn ? &rn->props : nullptr;
+    auto keys = placeManyAt(target, spot.index, roots.size(), {});
+    for (size_t i = 0; i < roots.size(); i++)
+      create(create, *roots[i], target, keys[i], localFor(target, Mat2x3::translate(spot.d.x, spot.d.y) * worlds[i]));
+  }
+  replacedProps = nullptr;
+  // The replaced layers go (after their copies took their places).
+  for (const Spot& spot : spots) {
+    if (spot.replaced == kNoGuid || !doc_.has(spot.replaced)) continue;
+    std::vector<Guid> order;
+    auto collect = [&](auto&& self, Guid id) -> void {
+      for (Guid c : std::vector<Guid>(doc_.children(id))) self(self, c);
+      order.push_back(id);
+    };
+    collect(collect, spot.replaced);
+    for (Guid id : order)
+      if (!id.isDerived()) write(NodeChange::removed(id));
+  }
   // A main cut and pasted in its own file is the same main under a new GUID: preferred instances that named it (by
   // GUID) name it again.
   if (!movedMains.empty()) {

@@ -63,7 +63,9 @@ enum class DeltaMode : uint8_t { PIXEL = 0, LINE = 1, PAGE = 2 };
 // none of the user-edit rules (no read-only refusal, no detaching, no instance root overrides).
 enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4, APPLY_SYSTEM = 8, APPLY_EXACT = 16 };
 enum SetPropsFlags : uint32_t { NO_UNDO_MERGE = 1 };
-enum PasteFlags : uint32_t { PASTE_IN_PLACE = 1 };
+// PASTE_OVER (⇧⌘V "Paste over selection"): in place, just above the selection (not into it); PASTE_REPLACE (⇧⌘R
+// "Paste to replace"): a copy at each selected layer's place, which goes.
+enum PasteFlags : uint32_t { PASTE_IN_PLACE = 1, PASTE_OVER = 2, PASTE_REPLACE = 4 };
 
 // docs/engine.md §9.2.
 enum class TxnKind : uint8_t { USER, GESTURE, UNDO, REDO, SYSTEM, REMOTE, LOAD };
@@ -283,6 +285,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // `inPlace` (⇧⌘V): exactly where it was. Selects what was pasted; returns how
   // many top-level layers that was.
   uint32_t paste(const Clipboard& clip, bool inPlace);
+  uint32_t pasteWith(const Clipboard& clip, uint32_t flags);  // PasteFlags
   bool canUndo() const { return undo_.canUndo(); }
   bool canRedo() const { return undo_.canRedo(); }
   const UndoStack& undoStack() const { return undo_; }
