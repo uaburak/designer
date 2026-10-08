@@ -5,7 +5,7 @@
 ### Status (final, 2026-10-08)
 Goal: the selection / canvas audit (`docs/research/audit-2026-10-08/selection.md`) items round 7 left open — 13–23 and the LOW ones. Truth: live Figma (`docs/research/figma/live/`: behaviour/keys.md, smart-selection.md, canvas.md, keyboard.md; menus/; toolbar/); where live has no data, help.figma.com (marked "help") or nothing (marked unverified). Main (`r8-render`) merged at the end.
 
-**Checks (branch head, main merged):** CHECKS_PLACEHOLDER
+**Checks (branch head, main merged):** `npm run check` green (types, lint, 825 vitest in 97 files — `r8.selection.wasm.test.ts` 11); `npm run engine:test` 430 / 430 (ASan / UBSan; `r8.selection.test.cpp` 16 cases); `npm run engine:shot` 108 ok (WebGL2) and `--gfx webgpu` 110 ok (the round 8 sheet: guides, slices, pixel preview), no GPU validation errors; `editor-shot.mjs` full 287 ok, 0 failed, in 2:51 (`EDITOR_ONLY=selection8`: shots 180–189, 21 checks). One earlier full run had "X field moves the layer" fail once (x = 0: the first typed digit lost — a timing flake in the older end-to-end flow; the rerun passed). Release `engine.wasm` rebuilt after the merge and committed.
 
 | # | Item | State | Tests |
 |---|---|---|---|
