@@ -33,9 +33,10 @@ export function createPage(ed: EditorController): void {
   if (made) ed.ui.set({ railTab: "file", find: null, renaming: { kind: "page", id: made.guid } });
 }
 
-/** Is the page a divider: empty, and named with a leading dash (or only dashes and asterisks)? */
+/** Is the page a divider: empty, and named only with dashes or asterisks ("---")? Live Figma: "---" is a
+ *  divider, "- hyphen page" and "– Divider test" are ordinary pages (behaviour/pages.md #1). */
 export function isDividerName(name: string): boolean {
-  return /^\s*[-–—]/.test(name) || (/^[-–—*\s]+$/.test(name) && name.trim().length > 0);
+  return /^[-–—*\s]+$/.test(name) && name.trim().length > 0;
 }
 
 export function Pages() {

@@ -3,7 +3,9 @@
  * docs/research/figma/live): the current page's layers, top first (an auto layout's in flow order), rows on a 32
  * pitch (VirtualList + DS LayerRow). Click selects (⇧ a range from the anchor, ⌘ toggles), hovering a row outlines
  * the layer on the canvas (Preferences › Highlight layers on hover), double-click or ⌘R renames — Tab goes on to
- * the next row —, Enter selects the children and ⇧Enter the parent, the lock and eye toggle on press and a drag
+ * the next row —, Enter / ⇧Enter after a row click act as on the canvas (live: the row keeps no key focus of its
+ * own; the shortcut layer forwards them to the engine — children, vector or text edit, parent), the lock and eye
+ * toggle on press and a drag
  * from one goes on over the rows it crosses, a chevron opens (⌥ opens every level), "Collapse layers" (⌥L) closes
  * all but the selection's branch, a drag reorders and reparents (Engine.moveNodes; the list scrolls near its
  * edges), and a canvas selection opens its ancestors and scrolls into view.
@@ -296,14 +298,6 @@ export function Layers() {
       return { expanded: next };
     });
 
-  // Enter on the list selects the children, ⇧Enter the parent (Figma: as on the canvas, never a rename).
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key !== "Enter" || renaming || e.metaKey || e.ctrlKey || e.altKey) return;
-    if ((e.target as Element).closest("input, textarea")) return;
-    e.preventDefault();
-    ed.engine.command(e.shiftKey ? "SELECT_PARENT" : "SELECT_CHILDREN");
-  };
-
   const collapse = command("view.collapse-layers");
   return (
     <PanelSection
@@ -318,7 +312,6 @@ export function Layers() {
         aria-label="Layers"
         aria-multiselectable
         data-layer-list=""
-        onKeyDown={onKeyDown}
         onPointerLeave={() => {
           if (!press.current) ed.engine.setHover([]);
         }}

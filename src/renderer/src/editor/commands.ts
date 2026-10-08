@@ -486,7 +486,6 @@ export const COMMANDS: EditorCommand[] = [
   {
     id: "file.libraries",
     label: "Libraries…",
-    keys: [k("Digit3", { alt: true })],
     run: (ed) => ed.ui.set({ librariesDialog: { tab: "libraries" }, uiHidden: false }),
     enabled: (ed) => ed.libraries.get().on,
   },

@@ -135,7 +135,8 @@ describe("Rename layers (⌘R on several)", () => {
 describe("Pages and the keyboard", () => {
   it("a divider is a name starting with a dash (or only dashes / asterisks)", () => {
     expect(isDividerName("---")).toBe(true);
-    expect(isDividerName("- Archive")).toBe(true);
+    expect(isDividerName("- Archive")).toBe(false);
+    expect(isDividerName("– Divider test")).toBe(false);
     expect(isDividerName("***")).toBe(true);
     expect(isDividerName("Page 1")).toBe(false);
     expect(isDividerName("")).toBe(false);
