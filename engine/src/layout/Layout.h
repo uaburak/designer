@@ -37,6 +37,9 @@ class LayoutHost {
   virtual bool measureText(Guid id, double width, Vec2& size) { return false; }
   // A TEXT node's first baseline (from its top) at `size`; < 0 when it has none.
   virtual double firstBaseline(Guid id, Vec2 size) { return -1; }
+  // A diverged slot inside an instance (a derived slot frame): the content frame it shows, else kNoGuid. A slot
+  // that hugs, hugs its content (Figma).
+  virtual Guid slotContentOf(Guid id) { return kNoGuid; }
 };
 
 class Layout {

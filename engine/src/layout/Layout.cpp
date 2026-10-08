@@ -82,10 +82,13 @@ void Layout::padding(const NodeProps& p, double out[4]) {
 
 std::vector<Guid> Layout::flowChildren(Guid frame) const {
   std::vector<Guid> out;
+  // An instance's slot content frame sits where its slot is (the materializer places it), never in the flow (its own
+  // layers, marked the same, are in the content frame's flow).
+  const Node* fn = doc_.get(frame);
+  const bool inInstance = fn && fn->props.type == NodeType::INSTANCE;
   for (Guid c : doc_.children(frame)) {
     const Node* n = doc_.get(c);
-    // An instance's slot content frame sits where its slot is (the materializer places it), never in the flow.
-    if (n && n->props.inFlow() && !n->props.isSlotContent && !host_.excludedFromFlow(c)) out.push_back(c);
+    if (n && n->props.inFlow() && !(inInstance && n->props.isSlotContent) && !host_.excludedFromFlow(c)) out.push_back(c);
   }
   return out;
 }
@@ -108,7 +111,9 @@ Vec2 Layout::natural(Guid id, double width, double height) {
     bool hugP = p.hugsPrimary() && !(P == 0 ? width > 0 : height > 0);
     bool hugC = p.hugsCounter() && !(C == 0 ? width > 0 : height > 0);
     if (hugP || hugC) {
-      Vec2 content = contentSize(id, size);
+      Guid shown = host_.slotContentOf(id);
+      if (shown != kNoGuid && !doc_.get(shown)->props.isAutoLayout()) shown = kNoGuid;
+      Vec2 content = shown != kNoGuid ? contentSize(shown, size) : contentSize(id, size);
       if (hugP) setAxis(size, P, axis(content, P));
       if (hugC) setAxis(size, C, axis(content, C));
     }
@@ -500,7 +505,7 @@ void Layout::applyConstraints(Guid frame, bool flowChildrenToo) {
     if (!cn) continue;
     const NodeProps& cp = cn->props;
     if (host_.excludedFromFlow(c)) continue;  // being dragged: the gesture places it
-    if (cp.isSlotContent) continue;            // placed over its slot by the materializer
+    if (cp.isSlotContent && fp.type == NodeType::INSTANCE) continue;  // placed over its slot by the materializer
     if (!flowChildrenToo && frameAutoLayout && cp.inFlow()) continue;
     Mat2x3 t0;
     Vec2 s0;

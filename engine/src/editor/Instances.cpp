@@ -767,6 +767,15 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
   return true;
 }
 
+Guid Editor::slotContentOf(Guid id) {
+  if (!id.isDerived()) return kNoGuid;
+  const Node* n = doc_.get(id);
+  if (!n || !n->props.isSlot) return kNoGuid;
+  Guid c = slotContentFor(id, false);
+  const Node* cn = doc_.get(c);
+  return cn && cn->props.isSlotContent ? c : kNoGuid;
+}
+
 Guid Editor::slotContentFor(Guid row, bool create) {
   auto info = derivedInfo_.find(row);
   if (info == derivedInfo_.end()) return kNoGuid;

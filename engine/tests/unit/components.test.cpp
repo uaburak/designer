@@ -718,6 +718,25 @@ TEST_CASE("components: a slot's content frame in an auto-layout instance sits ov
   CHECK(e.document().worldBounds(sub(INST, {SLOT})) == Rect{24, 100, 176, 40});
   CHECK(e.document().worldBounds(CONTENT) == Rect{24, 100, 176, 40});
   CHECK(e.document().worldBounds(INNER) == Rect{24, 100, 50, 20});
+
+  // A slot that hugs its height hugs the content it shows (a vertical slot and content, a 60 tall layer in it).
+  NodeChange vs = slot;
+  vs.props.stackMode = StackMode::VERTICAL;
+  vs.props.stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange vc = content;
+  vc.props.stackMode = StackMode::VERTICAL;
+  vc.props.stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange tall = make(INNER, NodeType::ROUNDED_RECTANGLE, CONTENT, "!", {0, 0, 50, 60}, "Mine");
+  tall.props.isSlotContent = true;
+  auto nodes2 = nodes;
+  for (NodeChange& n : nodes2) {
+    if (n.guid == SLOT) n = vs;
+    if (n.guid == CONTENT) n = vc;
+    if (n.guid == INNER) n = tall;
+  }
+  Editor e2 = load(nodes2);
+  CHECK(e2.document().worldBounds(sub(INST, {SLOT})).h == doctest::Approx(60));
+  CHECK(e2.document().worldBounds(CONTENT).h == doctest::Approx(60));
 }
 
 TEST_CASE("components: Add variant on a lone component makes a set; the variants keep their place") {

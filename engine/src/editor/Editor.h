@@ -648,6 +648,7 @@ class Editor : private LayoutHost, public TextLayouts {
   bool ignoreConstraints(Guid frame) const override { return ignoreConstraints_; }
   bool measureText(Guid id, double width, Vec2& size) override;
   double firstBaseline(Guid id, Vec2 size) override;
+  Guid slotContentOf(Guid id) override;
 
   // ---- Transactions ----
   void begin(TxnKind kind, const std::string& label);
