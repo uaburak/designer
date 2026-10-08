@@ -57,7 +57,8 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
   const sidesKept = useKeeps("borderStrokeWeightsIndependent");
   const refs = nodes.map((n) => n.guid);
   const align = mixed(nodes.map((n) => n.strokeAlign ?? "INSIDE"));
-  const perSide = sidesKept && nodes.every((n) => hasCorners(n));
+  // Rectangles and frames; a section has none (Figma's live panel).
+  const perSide = sidesKept && nodes.every((n) => hasCorners(n) && typeOf(n) !== "SECTION");
   const stored = mixed(nodes.map(strokeSideOf));
   // "Custom" picked shows the four sides even when only one has a weight (kept for this selection).
   const key = refs.join(",");

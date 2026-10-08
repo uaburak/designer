@@ -29,10 +29,13 @@ import { sharedBinding } from "./Variables";
 import { fields, isGroupNode, typeLabel, typeOf, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
-/** Figma's frame presets (the Frame tool's list, also the header's "Frame ▾"), by category, in its order. */
+/**
+ * Figma's frame presets (the "Frame ▾" menu and the Frame tool's list), by category in its order — the live menu
+ * (docs/research/figma/live/popovers/frame-presets-menu.txt).
+ */
 export const FRAME_PRESETS: { header: string; items: [string, number, number][] }[] = [
   {
-    header: "Phone",
+    header: "Phone Presets",
     items: [
       ["iPhone 17", 402, 874],
       ["iPhone 16 & 17 Pro", 402, 874],
@@ -49,35 +52,35 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     ],
   },
   {
-    header: "Tablet",
+    header: "Tablet Presets",
     items: [
       ["iPad mini 8.3", 744, 1133],
       ["Surface Pro 8", 1440, 960],
-      ["iPad Pro 11\"", 834, 1194],
-      ["iPad Pro 12.9\"", 1024, 1366],
+      ["iPad Pro 11", 834, 1194],
+      ["iPad Pro 12.9", 1024, 1366],
       ["Android Expanded", 1280, 800],
     ],
   },
   {
-    header: "Desktop",
+    header: "Desktop Presets",
     items: [
       ["MacBook Air", 1280, 832],
+      ["MacBook Pro 14", 1512, 982],
+      ["MacBook Pro 16", 1728, 1117],
       ["Desktop", 1440, 1024],
-      ["MacBook Pro 14\"", 1512, 982],
-      ["MacBook Pro 16\"", 1728, 1117],
-      ["Wireframe", 1440, 1024],
+      ["Wireframes", 1440, 1024],
       ["TV", 1280, 720],
     ],
   },
   {
-    header: "Presentation",
+    header: "Presentation Presets",
     items: [
       ["Slide 16:9", 1920, 1080],
       ["Slide 4:3", 1024, 768],
     ],
   },
   {
-    header: "Watch",
+    header: "Watch Presets",
     items: [
       ["Apple Watch Series 10 42mm", 187, 223],
       ["Apple Watch Series 10 46mm", 208, 248],
@@ -88,7 +91,7 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     ],
   },
   {
-    header: "Paper",
+    header: "Paper Presets",
     items: [
       ["A4", 595, 842],
       ["A5", 420, 595],
@@ -98,7 +101,7 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     ],
   },
   {
-    header: "Social media",
+    header: "Social Media Presets",
     items: [
       ["Twitter post", 1200, 675],
       ["Twitter header", 1500, 500],
@@ -112,47 +115,53 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     ],
   },
   {
-    header: "Figma Community",
+    header: "Figma Presets",
     items: [
-      ["Plugin / widget icon", 128, 128],
-      ["Cover", 1920, 1080],
+      ["Plugin icon", 128, 128],
+      ["Profile banner", 1680, 240],
+      ["Plugin / file cover", 1920, 1080],
     ],
   },
   {
-    header: "Archive",
+    header: "Archived Presets",
     items: [
       ["iPhone 13 mini", 375, 812],
       ["iPhone SE", 320, 568],
+      ["iPhone 13 Pro Max", 428, 926],
+      ["iPhone 13 / 13 Pro", 390, 844],
+      ["iPhone 11 Pro Max", 414, 896],
+      ["iPhone 11 Pro / X", 375, 812],
       ["iPhone 8 Plus", 414, 736],
       ["iPhone 8", 375, 667],
       ["Android Small", 360, 640],
       ["Android Large", 360, 800],
       ["Google Pixel 2", 411, 731],
       ["Google Pixel 2 XL", 411, 823],
-      ["iPad Pro 10.5\"", 834, 1112],
-      ["Apple Watch 38mm", 136, 170],
-      ["Apple Watch 42mm", 156, 195],
+      ["iPad mini 5", 768, 1024],
+      ["Surface Pro 4", 1368, 912],
       ["MacBook", 1152, 700],
       ["MacBook Pro", 1440, 900],
       ["Surface Book", 1500, 1000],
+      ["Apple Watch 42mm", 156, 195],
+      ["Apple Watch 38mm", 136, 170],
       ["iMac", 1280, 720],
+      ["Macintosh 128k", 512, 342],
     ],
   },
 ];
 
-/** The "Frame ▾" menu: Frame / Group / Section (what the layer is, checked), then the presets by category. */
+/**
+ * The "Frame ▾" menu, one flat list as Figma draws it: "Frame Layout Options" — Section, Frame, Group (what the layer
+ * is, checked) —, then each preset category under its header, the size after the name.
+ */
 export function frameMenu(kind: "Frame" | "Group" | "Section"): MenuEntry[] {
   return [
-    { id: "kind:Frame", label: "Frame", checked: kind === "Frame", disabled: kind === "Section" },
-    { id: "kind:Group", label: "Group", checked: kind === "Group", disabled: kind === "Section" },
+    { header: "Frame Layout Options" },
     // A section is its own node type: converting to and from it isn't done in place here.
     { id: "kind:Section", label: "Section", checked: kind === "Section", disabled: kind !== "Section" },
-    "-",
-    ...FRAME_PRESETS.map((g) => ({
-      id: `submenu:${g.header}`,
-      label: g.header,
-      items: g.items.map(([name, w, h]) => ({ id: `${w}x${h}:${name}`, label: name, hint: `${w}×${h}` })),
-    })),
+    { id: "kind:Frame", label: "Frame", checked: kind === "Frame", disabled: kind === "Section" },
+    { id: "kind:Group", label: "Group", checked: kind === "Group", disabled: kind === "Section" },
+    ...FRAME_PRESETS.flatMap((g): MenuEntry[] => [{ header: g.header }, ...g.items.map(([name, w, h]) => ({ id: `${w}x${h}:${name}`, label: name, hint: `${w}×${h}` }))]),
   ];
 }
 
@@ -453,14 +462,23 @@ function pickBoolean(ed: EditorController, nodes: PanelNode[], id: string, boole
   runMenuItem(ed, id);
 }
 
-/** "More actions": what the header row leaves out, for this kind. */
+/**
+ * "More actions": what the header row leaves out, in the order of Figma's live menu (popovers/instance-more-actions-
+ * menu.txt): Create component · Use as mask · Union, Subtract, Intersect, Exclude, Flatten — each group apart by a
+ * line, what the row already shows left out, what can't run hidden. Edit object first for a shape the row has no
+ * button for (unverified: no capture of a shape's menu).
+ */
 function MoreActions({ nodes, omit }: { nodes: PanelNode[]; omit: string[] }) {
   const ed = useEditor();
   const editable = nodes.length === 1 && EDITABLE.has(typeOf(nodes[0])) && ed.vector.available;
-  const ids = ["object.use-as-mask", "object.create-component", "object.create-multiple-components", "-", "vector.flatten", "vector.outline-stroke", "object.frame-selection", "object.group"].filter((id) => !omit.includes(id));
+  const groups: [string, string?][][] = [
+    [["object.create-component"], ["object.create-multiple-components"]],
+    [["object.use-as-mask"]],
+    [["vector.union", "Union"], ["vector.subtract", "Subtract"], ["vector.intersect", "Intersect"], ["vector.exclude", "Exclude"], ["vector.flatten"]],
+  ];
   const entries: MenuEntry[] = [
     ...(editable ? [{ id: "edit-object", label: "Edit object", shortcut: keys(["enter"]) }, "-" as const] : []),
-    ...ids.map((id) => (id === "-" ? ("-" as const) : commandItem(ed, id))).filter((e) => e === "-" || !e.disabled),
+    ...groups.flatMap((g): MenuEntry[] => [...g.filter(([id]) => !omit.includes(id)).map(([id, label]) => commandItem(ed, id, label)).filter((e) => !e.disabled), "-"]),
   ];
   const trimmed = entries.filter((e, i, all) => e !== "-" || (i > 0 && i < all.length - 1 && all[i - 1] !== "-"));
   return (

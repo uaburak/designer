@@ -3,6 +3,8 @@
   /* Figma UI3: a section's last row ends 12 above its line (the live panel) */
   .padDefault { padding-bottom: var(--ds-space-3); }
   .padLarge { padding-bottom: var(--ds-space-4); }
+  /* An empty section (no fills / strokes / effects / exports) is its 40 header and the line: 41 (live dumps) */
+  .empty.padDefault, .empty.padLarge { padding-bottom: 0; }
   .header {
     display: flex;
     align-items: center;
@@ -22,6 +24,8 @@
     white-space: nowrap;
     user-select: none;
   }
+  /* The title's text sits 14 below the section's top, its buttons stay centred (live: Fill at 464, its buttons at 458) */
+  .header > .title, .toggle > .title { padding-top: var(--ds-space-half); }
   /* No fills / strokes / effects: the title stays 550, at 70% (Figma's live panel) */
   .empty .title { color: var(--figma-color-text-secondary); }
   .toggle {

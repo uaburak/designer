@@ -23,7 +23,7 @@ import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
 import { ExportSection, type ExportTarget } from "./Export";
 import { VectorPointSection } from "./VectorPoints";
-import { isFrameNode, isTextNode, useSelectedNodes, type PanelNode } from "./shared";
+import { isFrameNode, isTextNode, usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { TypeHeader } from "./Header";
 import { ComponentHeader, CurrentVariantSection, InstanceHeader, InstanceProperties, PropertiesSection, componentSelection } from "./Component";
 import { ApplyModeButton, ModeRows } from "./Variables";
@@ -36,6 +36,7 @@ const DEFAULT_PAGE_DARK = hexToColor("#1e1e1e");
 
 export function DesignPanel() {
   const { nodes } = useSelectedNodes();
+  const paintNodes = usePaintTargets(nodes);
   const [picker, setPicker] = useState<PickerTarget | null>(null);
   const ed = useEditor();
   const page = useCurrentPage(ed.store);
@@ -63,7 +64,8 @@ export function DesignPanel() {
             <div className={`${styles.paintRow} ${styles.pageRow}`}>
               <ColorInput
                 className={styles.paintField}
-                label="Page colour"
+                label="Color"
+                swatchLabel={`Solid color hex: ${colorToHex(shownPageColor).slice(1).toUpperCase()}`}
                 color={colorToHex(shownPageColor)}
                 opacity={toPercent(shownPageColor.a ?? 1)}
                 onColor={(hex, info) => ed.edit("Page colour", info, () => void ed.engine.setProps([page], { backgroundColor: hexToColor(hex, pageColor.a ?? 1) }))}
@@ -84,16 +86,17 @@ export function DesignPanel() {
           {pageNode && <ExportSection targets={[pageNode as ExportTarget]} page />}
         </>
       ) : (
-        <Selected nodes={nodes} onPick={open} />
+        <Selected nodes={nodes} paintNodes={paintNodes} onPick={open} />
       )}
-      {picker && <PaintPicker target={picker} nodes={nodes} pageColor={pageNode?.backgroundColor ?? null} onClose={() => setPicker(null)} />}
+      {picker && <PaintPicker target={picker} nodes={paintNodes} pageColor={pageNode?.backgroundColor ?? null} onClose={() => setPicker(null)} />}
     </>
   );
 }
 
-function Selected({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
+function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNodes: PanelNode[]; onPick: (t: PickerTarget) => void }) {
   const ed = useEditor();
   const frames = nodes.every(isFrameNode);
+  const sections = nodes.some((n) => n.type === "SECTION");
   // Typography shows when any selected layer is a text (Figma's live panel: "4 selected" with a text in it).
   const texts = nodes.filter(isTextNode);
   const vectorRef = useStoreSlice(ed.vector.state, (s) => (s.active ? s.ref : null));
@@ -117,11 +120,12 @@ function Selected({ nodes, onPick }: { nodes: PanelNode[]; onPick: (t: PickerTar
       <LayoutSection nodes={nodes} />
       <AppearanceSection nodes={nodes} />
       {texts.length > 0 && <TypographySection nodes={texts} />}
-      <PaintsSection title="Fill" field="fillPaints" nodes={nodes} onPick={onPick} />
-      <PaintsSection title="Stroke" field="strokePaints" nodes={nodes} onPick={onPick} />
+      <PaintsSection title="Fill" field="fillPaints" nodes={paintNodes} onPick={onPick} />
+      <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} />
+      {/* A section has neither effects nor layout guides (Figma's live panel: Fill, Stroke, Export) */}
+      {!sections && <EffectsSection nodes={nodes} />}
       <SelectionColorsSection nodes={nodes} onPick={onPick} />
-      <EffectsSection nodes={nodes} />
-      {frames && <LayoutGuideSection nodes={nodes} />}
+      {frames && !sections && <LayoutGuideSection nodes={nodes} />}
       <ExportSection targets={nodes as ExportTarget[]} page={false} />
     </>
   );

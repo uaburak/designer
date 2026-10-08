@@ -15,6 +15,8 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   label: string;
   /** A letter (W, H, X, Y) or a glyph; dragging it scrubs */
   prefix?: IconName | string;
+  /** The prefix letter in the text colour (Figma's X / Y) instead of secondary */
+  prefixTone?: "primary" | "secondary";
   /** null = empty */
   value: Mixed<number> | null;
   onChange: (v: number, info: ChangeInfo) => void;
@@ -71,7 +73,7 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * px (⇧ ×10), faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4): `final:
  * false` each frame, one `final: true` on release, Esc cancels; a press without movement focuses the field.
  */
-export function NumericInput({ label, prefix, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, className, ...rest }: NumericInputProps) {
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -204,7 +206,7 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
       {prefix !== undefined && (
         <FieldPrefix
           prefix={prefix}
-          className={cx(canScrub && styles.scrub)}
+          className={cx(canScrub && styles.scrub, prefixTone === "primary" && styles.prefixPrimary, modeLabel && styles.prefixMode)}
           onPointerDown={(e) => {
             if (!canScrub || e.button !== 0) return;
             e.preventDefault();

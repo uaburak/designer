@@ -93,7 +93,8 @@ export function scaleGroupTo(ed: EditorController, group: NodeChange, size: { x:
 
 /** The items "Spacing" reads: the layers (several selected) or a group's children, with their page bounds. */
 export function spacingItems(ed: EditorController, nodes: readonly NodeChange[]): SpacingItem[] {
-  const list = nodes.length === 1 && isGroup(nodes[0]) ? childrenOf(ed, nodes[0].guid) : nodes.length > 1 ? [...nodes] : [];
+  // A group's or a boolean's own layers (Figma's live panel: a boolean shows its operands' Spacing, −40).
+  const list = nodes.length === 1 && (isGroup(nodes[0]) || nodes[0].type === "BOOLEAN_OPERATION") ? childrenOf(ed, nodes[0].guid) : nodes.length > 1 ? [...nodes] : [];
   return list.filter((n) => n.visible !== false).map((n) => ({ id: n.guid, box: boundsOf(worldTransform(ed, n as EngineNode), n.size ?? { x: 0, y: 0 }) }));
 }
 

@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import { Children, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Icon } from "../icons/Icon";
 import styles from "./PanelSection.module.css";
@@ -21,7 +21,8 @@ export interface PanelSectionProps extends Omit<HTMLAttributes<HTMLElement>, "ti
 /** A panel section (contract §4.15): a 40px header (title at x+16, actions 8 from the right), its rows, a line under it. */
 export function PanelSection({ title, actions, empty, collapsible, open = true, onOpenChange, pad = "default", children, className, ...rest }: PanelSectionProps) {
   const showBody = !collapsible || open;
-  const hasBody = showBody && children !== undefined && children !== null && children !== false;
+  // Rows only: `{cond && <Row />}` that rendered nothing doesn't count (no bottom padding: a 41 high section).
+  const hasBody = showBody && Children.toArray(children).length > 0;
   return (
     <section
       data-ds="PanelSection"

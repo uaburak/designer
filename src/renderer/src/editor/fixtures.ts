@@ -544,7 +544,7 @@ export const CAPTURE_DOCUMENT: Message = {
     ...[0, 1, 2].map((i) => box(`7:2${i + 1}`, `AL_horizontal_item${i + 1}`, "7:20", String.fromCharCode(33 + i), 16 + i * 70, 16, 60, 40, 0xe5664d)),
     al("7:30", "AL_wrap", "$", 700, 0, { size: { x: 170, y: 120 }, stackMode: "HORIZONTAL", stackWrap: "WRAP", stackSpacing: 10, stackCounterSpacing: 8, ...pad(16), stackPrimarySizing: "FIXED", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" }),
     ...[0, 1, 2].map((i) => box(`7:3${i + 1}`, `AL_wrap_item${i + 1}`, "7:30", String.fromCharCode(33 + i), 16 + (i % 2) * 70, 16 + Math.floor(i / 2) * 48, 60, 40, 0xe5664d)),
-    al("7:40", "AL_grid", "%", 900, 0, { size: { x: 320, y: 200 }, ...gridTracks(3, 2, 7), gridReflowEnabled: true, gridColumnGap: 8, gridRowGap: 8, ...pad(12), stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED" }),
+    al("7:40", "AL_grid", "%", 900, 0, { size: { x: 320, y: 200 }, stackMode: "GRID", ...gridTracks(3, 2, 7), gridReflowEnabled: true, gridColumnGap: 8, gridRowGap: 8, ...pad(12), stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED" }),
     ...[0, 1, 2, 3].map((i) => box(`7:4${i + 1}`, `AL_grid_item${i + 1}`, "7:40", String.fromCharCode(33 + i), 12, 12, 60, 40, 0x66cc80)),
     al("7:50", "AL_parent", "&", 0, 850, { size: { x: 400, y: 100 }, stackMode: "HORIZONTAL", stackSpacing: 12, ...pad(16), stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED" }),
     box("7:51", "AL_child", "7:50", "!", 16, 16, 80, 50, 0xe58033),

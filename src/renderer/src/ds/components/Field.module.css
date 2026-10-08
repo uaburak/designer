@@ -60,6 +60,7 @@
   /* ⌥ over a field: it scrubs */
   .field[data-alt-scrub], .field[data-alt-scrub] .input { cursor: ew-resize; }
   /* W / H's sizing mode after the number ("Hug", "Fill"), right-aligned before the menu */
+  .field:has(> .suffix) .modeLabel { padding-right: 0; }
   .modeLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-right: var(--ds-space-1); text-align: right; white-space: nowrap; text-overflow: ellipsis; cursor: text; user-select: none; }
   /* A scrub's speed when it isn't 1x (help: "a notification … shows the current speed") */
   .scrubSpeed {
@@ -84,8 +85,12 @@
     width: var(--ds-size-control);
     height: 100%;
     color: var(--figma-color-text-secondary);
+    font-weight: var(--ds-weight-field-prefix);
     user-select: none;
   }
+  /* Figma's live panel: X / Y letters white, W / H at 70%, all 400; W / H with a mode ("Hug") 450 */
+  .prefixPrimary { color: var(--figma-color-text); }
+  .prefixMode { font-weight: var(--ds-weight-body-medium); }
   .large .prefix { width: var(--ds-size-control-large); }
   .scrub { cursor: ew-resize; touch-action: none; }
   .field[data-disabled] .scrub { cursor: default; }
@@ -131,6 +136,7 @@
   .swatchCell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
   /* The colour row's opacity (Figma's live panel: a line at 117, the number 38 wide from 118, "%" after it; 55 in all) */
   .opacity { display: flex; flex: none; align-items: center; box-sizing: border-box; width: 55px; height: 100%; border-left: 1px solid var(--figma-color-bg); }
+  .opacity .unit { color: var(--figma-color-text-secondary); }
   .opacityInput { flex: none; box-sizing: border-box; width: 38px; padding-left: var(--ds-space-2); }
 
   .clear {

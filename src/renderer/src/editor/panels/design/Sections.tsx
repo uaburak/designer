@@ -2,7 +2,7 @@
  * The Design panel's Position and Appearance sections (Figma UI3, as its live panel lays them out —
  * docs/research/figma/live/design): Position — "Ignore auto layout" in the header for a layer in auto layout,
  * Alignment (two button groups; "More actions" for several layers or a container), Position (X / Y; the
- * "Constraints" popover for a layer in a frame), Rotation (with Rotate 90° right / Flip). Appearance — Hide and
+ * "Constraints" popover for a layer in a frame), Rotation (with Rotate 90˚ right / Flip). Appearance — Hide and
  * "Apply blend mode" in the header, the blend mode row while one is set, Opacity and Corner radius ("Individual
  * corners", or "Corner smoothing" for polygons, stars and vectors), Count / Ratio. Layout is Layout.tsx.
  *
@@ -20,7 +20,7 @@ import { ancestors } from "../../components";
 import { useTopics, useUI } from "../../hooks";
 import { hasConstraints, type ConstraintHost } from "../../model/constraints";
 import { isAutoLayout } from "../../model/sizing";
-import { ConstraintsButton } from "./Constraints";
+import { ConstraintsRow, ConstraintsToggle } from "./Constraints";
 import { isGrid } from "../../model/grid";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
@@ -136,6 +136,7 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const inAutoLayout = positioningKept && nodes.every((_, i) => isAutoLayout(parents[i]));
   const inGrid = nodes.every((n, i) => isGrid(parents[i]) && n.stackPositioning !== "ABSOLUTE");
   const absolute = mixed(nodes.map((n) => n.stackPositioning === "ABSOLUTE"));
+  const constraintsOpen = useUI((s) => !!s.constraintsOpen);
   const constraints = constraintsKept && nodes.every((n) => hasConstraints(constraintChain(ed, n), n.stackPositioning === "ABSOLUTE"));
   const section = nodes.every((n) => typeOf(n) === "SECTION");
   const refs = nodes.map((n) => n.guid);
@@ -197,10 +198,11 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
             </div>
           </PropertyRow>
         )}
-        <PropertyRow label="Position" action={constraints && !section ? <ConstraintsButton nodes={nodes} /> : undefined}>
-          <NumericInput label="X-position" prefix="X" value={fieldValue(x)} {...axis("x")} />
-          <NumericInput label="Y-position" prefix="Y" value={fieldValue(y)} {...axis("y")} />
+        <PropertyRow label="Position" action={constraints && !section ? <ConstraintsToggle /> : undefined}>
+          <NumericInput label="X-position" prefix="X" prefixTone="primary" value={fieldValue(x)} {...axis("x")} />
+          <NumericInput label="Y-position" prefix="Y" prefixTone="primary" value={fieldValue(y)} {...axis("y")} />
         </PropertyRow>
+        {constraints && !section && constraintsOpen && <ConstraintsRow nodes={nodes} />}
         {!section && (
           <PropertyRow label="Rotation">
             <NumericInput label="Rotation" prefix="24.rotation" unit="°" value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
@@ -247,10 +249,14 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const labels = useUI((s) => s.propertyLabels);
   const blendKept = useKeeps("blendMode");
   const refs = nodes.map((n) => n.guid);
-  // Containers default to Pass through, leaves to Normal (docs/engine-build.md E4).
-  const defaultBlend = (n: PanelNode) => (isFrameNode(n) || isGroupNode(n) ? "PASS_THROUGH" : "NORMAL");
-  const blend = mixed(nodes.map((n) => n.blendMode ?? defaultBlend(n)));
-  const blendSet = nodes.some((n) => (n.blendMode ?? defaultBlend(n)) !== defaultBlend(n));
+  // Every layer starts on Pass through (Figma's live menu checks it for a rectangle); on a leaf Normal draws the
+  // same, so neither shows the Blend mode row there (docs/engine-build.md E4).
+  const isDefaultBlend = (n: PanelNode) => {
+    const b = n.blendMode ?? "PASS_THROUGH";
+    return b === "PASS_THROUGH" || (b === "NORMAL" && !isFrameNode(n) && !isGroupNode(n));
+  };
+  const blend = mixed(nodes.map((n) => n.blendMode ?? "PASS_THROUGH"));
+  const blendSet = nodes.some((n) => !isDefaultBlend(n));
   const blendEntries = [
     { id: "PASS_THROUGH", label: "Pass through", checked: blend === "PASS_THROUGH" },
     ...BLEND_MODES.map((m) => (m === "-" ? ("-" as const) : { id: m, label: BLEND_LABEL[m], checked: blend === m })),
@@ -319,7 +325,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
           <PropertyRow
             label="Blend mode"
             span={2}
-            action={<IconButton icon="24.minus.small" label="Remove blend mode" tone="secondary" onClick={() => editEach(ed, "Blend mode", stepInfo, refs, (n) => fields({ blendMode: defaultBlend(n) as BlendModeName }))} />}
+            action={<IconButton icon="24.minus.small" label="Remove blend mode" tone="secondary" onClick={() => ed.setProps(refs, fields({ blendMode: "PASS_THROUGH" }), "Blend mode")} />}
           >
             <Select label="Blend mode" value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} />
           </PropertyRow>

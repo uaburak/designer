@@ -364,8 +364,8 @@ export const COMMANDS: EditorCommand[] = [
   engine("object.flip-horizontal", "Flip horizontal", "FLIP_HORIZONTAL", [k("KeyH", { shift: true })]),
   engine("object.flip-vertical", "Flip vertical", "FLIP_VERTICAL", [k("KeyV", { shift: true })]),
   { id: "object.rotate-180", label: "Rotate 180°", run: (ed) => rotateSelection(ed, 180), enabled: hasSelection },
-  { id: "object.rotate-90-left", label: "Rotate 90° left", run: (ed) => rotateSelection(ed, 90), enabled: hasSelection },
-  { id: "object.rotate-90-right", label: "Rotate 90° right", run: (ed) => rotateSelection(ed, -90), enabled: hasSelection },
+  { id: "object.rotate-90-left", label: "Rotate 90˚ left", run: (ed) => rotateSelection(ed, 90), enabled: hasSelection },
+  { id: "object.rotate-90-right", label: "Rotate 90˚ right", run: (ed) => rotateSelection(ed, -90), enabled: hasSelection },
   engine("object.toggle-visible", "Show/Hide selection", "TOGGLE_VISIBLE", [k("KeyH", { mod: true, shift: true })]),
   engine("object.toggle-lock", "Lock/Unlock selection", "TOGGLE_LOCK", [k("KeyL", { mod: true, shift: true })]),
   {

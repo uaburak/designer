@@ -2,6 +2,7 @@ import { useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { hexDigits, normalizeHex } from "../util/color";
 import { selectAllOnClick } from "../util/selectAll";
+import { useReturnFocus } from "../util/returnFocus";
 import { isMixed, type ChangeInfo, type Mixed } from "../types";
 import { STRINGS } from "../strings";
 import { NumericInput } from "./NumericInput";
@@ -40,6 +41,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);
   const mixedColor = isMixed(color);
+  const returnFocus = useReturnFocus();
   const commit = (raw: string) => {
     const typed = draft !== null && !cancelled.current;
     cancelled.current = false;
@@ -78,11 +80,22 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
         onBlur={(e) => commit(e.currentTarget.value)}
         onKeyDown={(e) => {
           e.stopPropagation();
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") {
-            cancelled.current = true;
+          // As the number fields (live/behaviour/fields.md): Enter commits and gives focus back; the first Esc puts
+          // the hex back and stays, the second leaves.
+          if (e.key === "Escape" && draft !== null) {
+            e.preventDefault();
             setDraft(null);
+            const el = e.currentTarget;
+            requestAnimationFrame(() => {
+              if (document.activeElement === el) el.select();
+            });
+            return;
+          }
+          if (e.key === "Enter" || e.key === "Escape") {
+            e.preventDefault();
+            if (e.key === "Escape") cancelled.current = true;
             e.currentTarget.blur();
+            returnFocus?.();
           }
         }}
         className={cx(styles.input, !mixedColor && styles.upper, styles.tabular, mixedColor && styles.mixed)}

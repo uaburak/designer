@@ -330,6 +330,8 @@ export const text = {
   /** The Design panel's field labels ("Position", "Corner radius"): 9px/500 at 70% — Figma's live panel (docs/research/figma/live). */
   "panel-label": { size: 9, line: 11, weight: 500, tracking: "0.045px" },
   "body-medium": { size: 11, line: 16, weight: 450, tracking: "0.055px" },
+  /** A field's prefix letter (X, Y, W, H): 400 in Figma's live panel. */
+  "field-prefix": { size: 11, line: 16, weight: 400, tracking: "0.055px" },
   "body-medium-strong": { size: 11, line: 16, weight: 550, tracking: "0.055px" },
   "body-ruler": { size: 10, line: 12, weight: 450, tracking: "0.05px" },
   menu: { size: 12, line: 16, weight: 450, tracking: "0px" },

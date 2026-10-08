@@ -1,12 +1,13 @@
 @layer ds {
-  /* Figma's auto-layout alignment box: 88 × 56 on the field colour, a 3 × 3 grid of 28 × 16 cells */
+  /* Figma's auto-layout alignment box: 88 × 56 on the field colour, a 3 × 3 grid of cells inside its 1px border and 4
+     above and below (live: 29 × 15–16 at x 17 / 46 / 74) */
   .matrix {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     grid-template-rows: repeat(3, 1fr);
     width: var(--ds-size-field);
     height: 56px;
-    padding: var(--ds-space-1) 2px;
+    padding: var(--ds-space-1) 0;
     border: 1px solid transparent;
     border-radius: var(--ds-radius-medium);
     background: var(--figma-color-bg-secondary);

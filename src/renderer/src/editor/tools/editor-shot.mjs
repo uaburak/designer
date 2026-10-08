@@ -166,7 +166,7 @@ async function paintsSection(page, theme) {
 
   // Selection colors list a frame's gradients as rows.
   await select("2:1");
-  check("Selection colors list gradients (one row each)", (await panel.getByRole("button", { name: "Selection color: Diamond" }).count()) === 1);
+  check("Selection colors list gradients (one row each)", (await panel.locator("section[aria-label=\"Selection colors\"]").getByRole("button", { name: "Color: Diamond" }).count()) === 1);
   await shot(page, `27-selection-colors-gradients-${theme}`);
 
   // Effects: the row, its settings; "+" adds Figma's drop shadow.
@@ -257,9 +257,9 @@ async function paintsSection(page, theme) {
   await shot(page, `35-image-placed-${theme}`);
   await panel.getByRole("button", { name: "Fill: Image" }).click();
   await settle(page);
-  check("the image picker: scale mode, Choose image, Rotate 90°, adjustments", (await page.getByRole("slider", { name: "Exposure" }).count()) === 1 && (await page.getByRole("button", { name: "Rotate 90°", exact: true }).count()) === 1);
+  check("the image picker: scale mode, Choose image, Rotate 90°, adjustments", (await page.getByRole("slider", { name: "Exposure" }).count()) === 1 && (await page.getByRole("button", { name: "Rotate 90º", exact: true }).count()) === 1);
   await shot(page, `36-image-picker-${theme}`);
-  await page.getByRole("button", { name: "Rotate 90°", exact: true }).click();
+  await page.getByRole("button", { name: "Rotate 90º", exact: true }).click();
   check("Rotate 90° turns the image", (await page.evaluate(() => window.__designerEditor.selectedNodes()[0].fillPaints[0].rotation)) === 90);
   await page.keyboard.press("Escape");
 

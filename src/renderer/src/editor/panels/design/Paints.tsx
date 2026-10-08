@@ -10,7 +10,7 @@
  * Paint 1:1). While it shows a gradient on one layer, the engine's on-canvas
  * gradient handles are on (E5 `startPaintEdit`), the picker's stop and the
  * canvas's stop follow each other. An image paint gets Choose image…,
- * Rotate 90° and the adjustment sliders. A picker drag previews in one open
+ * Rotate 90º and the adjustment sliders. A picker drag previews in one open
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -118,7 +118,7 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
       empty={empty}
       actions={
         <>
-          <StylesButton nodes={nodes} slot={slot} />
+          <StylesButton nodes={nodes} slot={slot} mixed={isMixed(shared) && !styled} />
           {/* Figma's live panel: "Add stroke fill" once a stroke exists, "Add stroke" / "Add fill" otherwise */}
           {!hasStyle && <IconButton icon="24.plus.small" label={field === "strokePaints" && !empty ? "Add stroke fill" : `Add ${word}`} tone="secondary" onClick={add} />}
         </>
@@ -248,12 +248,12 @@ function VideoPreview({ hash }: { hash: string }) {
   );
 }
 
-/** Under the image's scale mode: Rotate 90° and Figma's adjustment sliders (−100…100, 0 in the middle). */
+/** Under the image's scale mode: Rotate 90º and Figma's adjustment sliders (−100…100, 0 in the middle). */
 function ImageControls({ paint, onChange }: { paint: FullPaint; onChange: (next: FullPaint, info: ChangeInfo) => void }) {
   return (
     <div className={styles.imageControls}>
       <div className={styles.imageRotate}>
-        <IconButton icon="24.rotate" label="Rotate 90°" onClick={() => onChange(rotated90(paint), { final: true, source: "pick" })} />
+        <IconButton icon="24.rotate" label="Rotate 90º" onClick={() => onChange(rotated90(paint), { final: true, source: "pick" })} />
       </div>
       {IMAGE_ADJUSTMENTS.map(({ field, label }) => (
         <AdjustmentSlider key={field} label={label} value={Math.round((paint.paintFilter?.[field] ?? 0) * 100)} onChange={(v, info) => onChange(withAdjustment(paint, field, v), info)} />

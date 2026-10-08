@@ -4,17 +4,21 @@
  * line to pin that side, ⇧-click for both — and the horizontal / vertical
  * dropdowns, writing `horizontalConstraint` / `verticalConstraint`.
  */
-import { useState } from "react";
-import { IconButton, MIXED, Popover, PropertyRow, Select, isMixed, type Mixed } from "@/ds";
+import { MIXED, PropertyRow, Select, ToggleIconButton, isMixed, type Mixed } from "@/ds";
 import type { ConstraintType } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { mixed } from "../../model/mixed";
 import { CONSTRAINT_OPTIONS, clickConstraint, normalizeConstraint, selectedSides, type ConstraintAxis, type ConstraintSide } from "../../model/constraints";
+import { useUI } from "../../hooks";
 import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 const FIELD: Record<ConstraintAxis, "horizontalConstraint" | "verticalConstraint"> = { horizontal: "horizontalConstraint", vertical: "verticalConstraint" };
 
+/**
+ * The inline Constraints row (Figma's live panel, a layer in a frame with Position's "Constraints" toggle on): the
+ * label, the horizontal and vertical dropdowns stacked in the first column (8 apart), the widget (88 × 57) in the second.
+ */
 export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
@@ -26,69 +30,42 @@ export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
     set(axis, clickConstraint(isMixed(now) || now === undefined ? "MIN" : now, side, shift));
   };
   return (
-    <PropertyRow label="Constraints" span={2}>
-      <div className={styles.constraintRow}>
-        <ConstraintsWidget horizontal={h ?? "MIN"} vertical={v ?? "MIN"} onClick={click} />
-        <div className={styles.constraintSelects}>
-          <Select label="Horizontal constraint" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
-          <Select label="Vertical constraint" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
-        </div>
+    <PropertyRow label="Constraints" data-constraints-row="">
+      <div className={styles.constraintSelects}>
+        <Select label="Horizontal constraints" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
+        <Select label="Vertical constraints" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
       </div>
+      <ConstraintsWidget horizontal={h ?? "MIN"} vertical={v ?? "MIN"} onClick={click} />
     </PropertyRow>
   );
 }
 
-/**
- * Figma's live panel: the Position row's "Constraints" button (a layer in a frame) opens the widget and the two
- * dropdowns in a popover.
- */
-export function ConstraintsButton({ nodes }: { nodes: PanelNode[] }) {
+/** Position's "Constraints" toggle (a layer in a frame): shows or hides the inline row, for every selection after. */
+export function ConstraintsToggle() {
   const ed = useEditor();
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const refs = nodes.map((n) => n.guid);
-  const h = mixed(nodes.map((n) => normalizeConstraint(n.horizontalConstraint)));
-  const v = mixed(nodes.map((n) => normalizeConstraint(n.verticalConstraint)));
-  const set = (axis: ConstraintAxis, c: ConstraintType) => ed.setProps(refs, { [FIELD[axis]]: c }, "Constraints");
-  const click = (axis: ConstraintAxis, side: ConstraintSide, shift: boolean) => {
-    const now = axis === "horizontal" ? h : v;
-    set(axis, clickConstraint(isMixed(now) || now === undefined ? "MIN" : now, side, shift));
-  };
-  return (
-    <>
-      <IconButton icon="24.constraints" label="Constraints" tone="secondary" aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
-      {anchor && (
-        <Popover anchor={anchor} title="Constraints" width={240} onClose={() => setAnchor(null)} label="Constraints">
-          <div className={styles.constraintPopover}>
-            <ConstraintsWidget horizontal={h ?? "MIN"} vertical={v ?? "MIN"} onClick={click} />
-            <div className={styles.constraintSelects}>
-              <Select label="Horizontal constraint" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
-              <Select label="Vertical constraint" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
-            </div>
-          </div>
-        </Popover>
-      )}
-    </>
-  );
+  const open = useUI((s) => !!s.constraintsOpen);
+  return <ToggleIconButton icon="24.constraints" label="Constraints" tone="secondary" pressed={open} aria-expanded={open} onPressedChange={(on) => ed.ui.set({ constraintsOpen: on })} />;
 }
 
 /** The widget: 4 edge lines and the middle cross, each a button (blue when on). */
 export function ConstraintsWidget({ horizontal, vertical, onClick }: { horizontal: Mixed<ConstraintType>; vertical: Mixed<ConstraintType>; onClick: (axis: ConstraintAxis, side: ConstraintSide, shift: boolean) => void }) {
   const hs = isMixed(horizontal) ? [] : selectedSides(horizontal);
   const vs = isMixed(vertical) ? [] : selectedSides(vertical);
-  // The 56 × 56 box; the inner square 24 in the middle (16 … 40).
+  // Figma's live widget: 88 × 57 on the field colour, a line in from each edge (10 long, 3 in), a cross in the middle
+  // (14), the chosen ones 3 thick in blue.
   const lines: { axis: ConstraintAxis; side: ConstraintSide; d: string; hit: [number, number, number, number]; label: string }[] = [
-    { axis: "vertical", side: "min", d: "M28 4.5V12.5", hit: [22, 0, 12, 16], label: "Top" },
-    { axis: "vertical", side: "max", d: "M28 43.5V51.5", hit: [22, 40, 12, 16], label: "Bottom" },
-    { axis: "horizontal", side: "min", d: "M4.5 28H12.5", hit: [0, 22, 16, 12], label: "Left" },
-    { axis: "horizontal", side: "max", d: "M43.5 28H51.5", hit: [40, 22, 16, 12], label: "Right" },
-    { axis: "horizontal", side: "center", d: "M22 28H34", hit: [17, 24, 22, 8], label: "Center horizontally" },
-    { axis: "vertical", side: "center", d: "M28 22V34", hit: [24, 17, 8, 22], label: "Center vertically" },
+    { axis: "vertical", side: "min", d: "M44 4.5V12.5", hit: [34, 0, 20, 17], label: "Top" },
+    { axis: "vertical", side: "max", d: "M44 44.5V52.5", hit: [34, 40, 20, 17], label: "Bottom" },
+    { axis: "horizontal", side: "min", d: "M4.5 28.5H12.5", hit: [0, 18, 22, 21], label: "Left" },
+    { axis: "horizontal", side: "max", d: "M75.5 28.5H83.5", hit: [66, 18, 22, 21], label: "Right" },
+    { axis: "horizontal", side: "center", d: "M37.5 28.5H50.5", hit: [32, 25, 24, 7], label: "Center horizontally" },
+    { axis: "vertical", side: "center", d: "M44 22V35", hit: [40, 18, 8, 21], label: "Center vertically" },
   ];
   const on = (axis: ConstraintAxis, side: ConstraintSide) => (axis === "horizontal" ? hs : vs).includes(side);
   return (
-    <svg data-ds-editor="ConstraintsWidget" className={styles.constraintWidget} viewBox="0 0 56 56" width="56" height="56" role="group" aria-label="Constraints">
-      <rect className={styles.constraintBox} x="0.5" y="0.5" width="55" height="55" rx="4.5" />
-      <rect className={styles.constraintInner} x="16.5" y="16.5" width="23" height="23" rx="1.5" />
+    <svg data-ds-editor="ConstraintsWidget" className={styles.constraintWidget} viewBox="0 0 88 57" width="88" height="57" role="group" aria-label="Constraint widget">
+      <rect className={styles.constraintBox} x="0" y="0" width="88" height="57" rx="5" />
+      <rect className={styles.constraintInner} x="20.5" y="16.5" width="47" height="24" rx="2" />
       {lines.map((l) => (
         <g key={l.label} role="button" aria-label={l.label} aria-pressed={on(l.axis, l.side)} className={styles.constraintLine} data-on={on(l.axis, l.side) || undefined} onPointerDown={(e) => e.preventDefault()} onClick={(e) => onClick(l.axis, l.side, e.shiftKey)}>
           <rect x={l.hit[0]} y={l.hit[1]} width={l.hit[2]} height={l.hit[3]} fill="transparent" />

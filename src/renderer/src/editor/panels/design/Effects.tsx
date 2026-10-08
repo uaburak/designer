@@ -74,7 +74,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const styled = sharedStyle(nodes, "effect");
   const hasStyle = !!styled && styled !== "mixed";
   return (
-    <PanelSection title="Effects" empty={empty} actions={<>{!empty && <StylesButton nodes={nodes} slot="effect" />}{!hasStyle && <IconButton icon="24.plus.small" label="Add effect" tone="secondary" disabled={!kept} onClick={add} />}</>}>
+    <PanelSection title="Effects" empty={empty} actions={<><StylesButton nodes={nodes} slot="effect" />{!hasStyle && <IconButton icon="24.plus.small" label="Add effect" tone="secondary" disabled={!kept} onClick={add} />}</>}>
       {hasStyle && <AppliedStyle nodes={nodes} slot="effect" />}
       {!hasStyle && isMixedList && <div className={styles.note}>Click + to replace mixed effects</div>}
       {!hasStyle && effects
@@ -186,7 +186,7 @@ export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
   const styled = sharedStyle(nodes, "grid");
   const hasStyle = !!styled && styled !== "mixed";
   return (
-    <PanelSection title="Layout guide" empty={empty} actions={<>{!empty && <StylesButton nodes={nodes} slot="grid" />}{!hasStyle && <IconButton icon="24.plus.small" label="Add layout guide" tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} />}</>}>
+    <PanelSection title="Layout guide" empty={empty} actions={<><StylesButton nodes={nodes} slot="grid" />{!hasStyle && <IconButton icon="24.plus.small" label="Add layout guide" tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} />}</>}>
       {hasStyle && <AppliedStyle nodes={nodes} slot="grid" />}
       {!hasStyle && grids
         .map((g, i) => ({ g, i }))
