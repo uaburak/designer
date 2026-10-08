@@ -70,6 +70,9 @@ _engine_text_composition
 _engine_text_composition_end
 _engine_text_selection
 _engine_text_layout
+_engine_text_range_style
+_engine_text_paragraphs
+_engine_font_info
 _engine_image_add_bitmap
 _engine_image_add_rgba
 _engine_image_failed

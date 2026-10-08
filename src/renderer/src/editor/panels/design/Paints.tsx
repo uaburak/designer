@@ -14,7 +14,8 @@
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ColorInput, ColorPicker, IconButton, isMixed, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
+import { ColorInput, ColorPicker, IconButton, isMixed, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
+import { useTextSummary } from "./useTextSummary";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
@@ -85,7 +86,11 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   const refs = nodes.map((n) => n.guid);
-  const shared = mixedPaints(nodes.map((n) => n[field] ?? []));
+  // A text's fills are its runs' (the edited selection's while editing): Mixed where they differ (Figma).
+  const texts = useMemo(() => (field === "fillPaints" && nodes.length && nodes.every((n) => n.type === "TEXT") ? nodes : []), [field, nodes]);
+  const runs = useTextSummary(texts);
+  const fromNodes = mixedPaints(nodes.map((n) => n[field] ?? []));
+  const shared = runs && runs.values.fillPaints !== undefined ? (runs.mixed.has("fillPaints") ? MIXED : (runs.values.fillPaints as Paint[])) : fromNodes;
   const paints = (shared === undefined || isMixed(shared) ? [] : [...shared]) as FullPaint[];
   const word = title === "Fill" ? "fill" : "stroke";
   const label = title === "Fill" ? "Fill" : "Stroke";

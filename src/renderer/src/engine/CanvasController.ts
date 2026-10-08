@@ -47,12 +47,15 @@ const POINTER_KIND: Record<string, number> = { mouse: 0, pen: 1, touch: 2 };
 
 export interface CanvasControllerOptions {
   shortcuts?: readonly Shortcut[];
+  /** A key the engine didn't use while a text is edited (true: it was taken). */
+  onTextKey?: (e: KeyboardEvent) => boolean;
 }
 
 export class CanvasController {
   private canvas: HTMLCanvasElement;
   private readonly engine: Engine;
   private readonly shortcuts: readonly Shortcut[];
+  private readonly onTextKey?: (e: KeyboardEvent) => boolean;
   private readonly cleanups: (() => void)[] = [];
   private textarea: HTMLTextAreaElement | null = null;
 
@@ -60,6 +63,7 @@ export class CanvasController {
     this.canvas = canvas;
     this.engine = engine;
     this.shortcuts = options.shortcuts ?? DEFAULT_SHORTCUTS;
+    this.onTextKey = options.onTextKey;
   }
 
   /** Starts listening; returns the detach. */
@@ -207,6 +211,9 @@ export class CanvasController {
     on("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       if (this.engine.key("down", e.code, e.key, modifiersOf(e), e.repeat) & KEY_HANDLED) {
+        e.preventDefault();
+        e.stopPropagation();
+      } else if (this.onTextKey?.(e)) {
         e.preventDefault();
         e.stopPropagation();
       }

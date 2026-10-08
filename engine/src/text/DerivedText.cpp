@@ -250,30 +250,11 @@ std::unique_ptr<TextLayout> layoutFromStored(const std::shared_ptr<const StoredT
   const uint32_t n = static_cast<uint32_t>(L.text.size());
   // Styles as layoutText resolves them (their fills are what draws; the font is the stored outlines').
   Font* font = storedGlyphFont();
-  ResolvedStyle base;
-  base.fontName = p.text().fontName;
-  base.font = font;
-  base.fontSize = p.text().fontSize;
-  base.lineHeight = p.text().lineHeight;
-  base.letterSpacing = p.text().letterSpacing;
-  base.textCase = p.text().textCase;
-  base.textDecoration = p.text().textDecoration;
-  base.fills = &p.fillPaints;
-  L.styles.push_back(base);
-  std::unordered_map<uint32_t, uint16_t> byId{{0, 0}};
-  for (const TextStyle& o : p.text().textData.styleOverrideTable) {
-    if (o.styleID == 0 || byId.count(o.styleID) || L.styles.size() >= 0xFFFF) continue;
-    ResolvedStyle st = base;
-    st.styleID = o.styleID;
-    if (o.mask & R_FONT_NAME) st.fontName = o.fontName;
-    if (o.mask & R_FONT_SIZE) st.fontSize = o.fontSize;
-    if (o.mask & R_LINE_HEIGHT) st.lineHeight = o.lineHeight;
-    if (o.mask & R_LETTER_SPACING) st.letterSpacing = o.letterSpacing;
-    if (o.mask & R_TEXT_CASE) st.textCase = o.textCase;
-    if (o.mask & R_TEXT_DECORATION) st.textDecoration = o.textDecoration;
-    if (o.mask & R_FILLS) st.fills = &o.fillPaints;
-    byId[o.styleID] = static_cast<uint16_t>(L.styles.size());
-    L.styles.push_back(st);
+  std::unordered_map<uint32_t, uint16_t> byId;
+  resolveStyles(p, L.styles, byId);
+  for (ResolvedStyle& st : L.styles) {
+    st.font = font;
+    st.missing = st.pending = false;
   }
   auto styleIndex = [&](uint32_t id) -> uint16_t {
     auto it = byId.find(id);

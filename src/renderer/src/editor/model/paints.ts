@@ -44,8 +44,11 @@ export function hashBytes(hex: string): number[] {
   return out;
 }
 
-/** The paint's image (hex hash), or null. */
-export const paintImageHash = (p: FullPaint): string | null => (p.type === "IMAGE" ? hashHex(p.image?.hash) : null);
+/** IMAGE, or VIDEO: a video fill draws its poster frame (`image`) as an image fill does. */
+export const isImageLike = (p: { type?: string }): boolean => p.type === "IMAGE" || p.type === "VIDEO";
+
+/** The paint's image (hex hash; a video's poster frame), or null. */
+export const paintImageHash = (p: FullPaint): string | null => (isImageLike(p) ? hashHex(p.image?.hash) : null);
 
 /**
  * What a paint carries for progressive display (docs/schema.md: `thumbHash` field 25, `imageThumbnail` field 9):
@@ -95,7 +98,7 @@ export const paintThumbHash = (p: FullPaint): Uint8Array | null => thumbHashByte
 export const paintThumbnailHash = (p: FullPaint): string | null => hashHex((p.imageThumbnail as { hash?: ImageHash } | undefined)?.hash);
 
 /** An IMAGE paint with an image but without a ThumbHash or a low-res copy: a candidate for the write-back. */
-export const paintLacksProgressive = (p: FullPaint): boolean => p.type === "IMAGE" && !!paintImageHash(p) && (!paintThumbHash(p) || !paintThumbnailHash(p));
+export const paintLacksProgressive = (p: FullPaint): boolean => isImageLike(p) && !!paintImageHash(p) && (!paintThumbHash(p) || !paintThumbnailHash(p));
 
 /** The paint with `progressive`'s fields added where it lacks them (nothing else changes). */
 export function withProgressive(p: FullPaint, progressive: ProgressiveImage): FullPaint {

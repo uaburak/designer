@@ -1,23 +1,27 @@
 /**
  * Typography (Figma UI3's text section) on the schema's text fields: font
  * family, style and size; line height ("Auto" = {100, PERCENT}) and letter
- * spacing; horizontal and vertical alignment; "Type settings" with resizing
- * (Auto width / Auto height / Fixed size), truncation and max lines, paragraph
- * spacing and indent, alignment incl. justified, case, decoration, vertical
- * trim, hanging punctuation.
+ * spacing; horizontal and vertical alignment; "Type settings" (TypeSettings.tsx:
+ * Basics, Details, Variable).
+ *
+ * The run fields show what the engine's range summary says (model/text.ts): the
+ * selected characters while a text is being edited (a caret: the style typing
+ * takes), else the whole layers' runs — "Mixed" where runs or layers differ.
+ * Writes go through setProps, which the engine sends to the selected range.
  *
  * The engine keeps text fields with E3; until `supportsField` sees one, its
  * control shows disabled with Figma's defaults (Inter Regular 12, Auto, 0%).
  */
-import { useState } from "react";
-import { Checkbox, Icon, IconButton, MIXED, MenuButton, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
+import { useEffect, useState } from "react";
+import { Icon, IconButton, MIXED, MenuButton, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, Select, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
 import { useEditor } from "../../controller";
 import { BindButton } from "./Component";
-import { supportsField } from "../../engineCompat";
 import { useUI } from "../../hooks";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
+import { useTextSummary } from "./useTextSummary";
+import { fonts } from "@/engine/fonts";
+import { TypeSettings } from "./TypeSettings";
 import { exitToCanvas } from "./Sections";
-import { SETTINGS_WIDTH } from "./Sizing";
 import { fields, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -51,6 +55,24 @@ export function lineHeightView(lh: NumberValue | undefined): { value: number | n
   return { value: v.value, unit: "%" };
 }
 
+
+/** A family's styles as the desktop's fonts list them (named instances of variable fonts included). */
+function useFamilyStyles(family: string | typeof MIXED): string[] {
+  const [list, setList] = useState<{ family: string; styles: string[] }[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void fonts
+      .families()
+      .then((f) => live && setList(f))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (isMixed(family)) return [];
+  return list?.find((f) => f.family === family)?.styles ?? FALLBACK_STYLES;
+}
+
 export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
@@ -67,13 +89,18 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const refs = nodes.map((n) => n.guid);
   const write = (label: string, f: ExtraFields, info?: ChangeInfo) => (info ? ed.edit(label, info, () => void ed.engine.setProps(refs, fields(f))) : ed.setProps(refs, fields(f), label));
 
+  // Run fields: the engine's summary of the selected characters / the layers' runs; node fields without it.
+  const summary = useTextSummary(nodes);
+  const run = <T,>(key: string, fromNodes: () => T | typeof MIXED | undefined): T | typeof MIXED | undefined =>
+    summary ? (summary.mixed.has(key) ? MIXED : (summary.values[key] as T)) : fromNodes();
   const font = mixed(nodes.map((n) => n.fontName ?? TEXT_DEFAULTS.fontName), sameData);
-  const family = font === undefined ? TEXT_DEFAULTS.fontName.family : isMixed(font) ? MIXED : font.family;
-  const style = font === undefined ? TEXT_DEFAULTS.fontName.style : isMixed(font) ? MIXED : font.style;
-  const size = mixedNumber(nodes.map((n) => n.fontSize ?? TEXT_DEFAULTS.fontSize));
-  const lh = mixed(nodes.map((n) => n.lineHeight ?? TEXT_DEFAULTS.lineHeight), sameData);
+  const family = run<string>("fontFamily", () => (font === undefined ? TEXT_DEFAULTS.fontName.family : isMixed(font) ? MIXED : font.family)) ?? TEXT_DEFAULTS.fontName.family;
+  const style = run<string>("fontStyle", () => (font === undefined ? TEXT_DEFAULTS.fontName.style : isMixed(font) ? MIXED : font.style)) ?? TEXT_DEFAULTS.fontName.style;
+  const familyStyles = useFamilyStyles(family);
+  const size = run<number>("fontSize", () => mixedNumber(nodes.map((n) => n.fontSize ?? TEXT_DEFAULTS.fontSize)));
+  const lh = run<NumberValue>("lineHeight", () => mixed(nodes.map((n) => n.lineHeight ?? TEXT_DEFAULTS.lineHeight), sameData));
   const lhView = lh === undefined || isMixed(lh) ? null : lineHeightView(lh);
-  const ls = mixed(nodes.map((n) => n.letterSpacing ?? TEXT_DEFAULTS.letterSpacing), sameData);
+  const ls = run<NumberValue>("letterSpacing", () => mixed(nodes.map((n) => n.letterSpacing ?? TEXT_DEFAULTS.letterSpacing), sameData));
   const lsValue = ls === undefined ? 0 : isMixed(ls) ? MIXED : ls.value;
   const lsUnit = ls && !isMixed(ls) && ls.units === "PIXELS" ? undefined : "%";
   const align = mixed(nodes.map((n) => n.textAlignHorizontal ?? "LEFT"));
@@ -109,7 +136,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             label="Font style"
             value={style}
             disabled={!fontKept}
-            options={[...new Set([...(isMixed(style) ? [] : [style]), ...FALLBACK_STYLES])].map((s) => ({ value: s, label: s }))}
+            options={[...new Set([...(isMixed(style) ? [] : [style]), ...familyStyles])].map((s) => ({ value: s, label: s }))}
             onChange={(s) => write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } })}
           />
           <span data-font-size="" style={{ display: "contents" }}>
@@ -202,106 +229,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           />
         </PropertyRow>
       </PropertyGrid>
-      {details && <TypeSettings nodes={nodes} anchor={details} onClose={() => setDetails(null)} />}
+      {details && <TypeSettings nodes={nodes} summary={summary} anchor={details} onClose={() => setDetails(null)} />}
     </PanelSection>
-  );
-}
-
-/** "Type settings": the details Figma keeps out of the section. */
-function TypeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor: HTMLElement; onClose: () => void }) {
-  const ed = useEditor();
-  const refs = nodes.map((n) => n.guid);
-  const kept = (f: string) => supportsField(ed.engine, f);
-  const write = (label: string, f: ExtraFields, info?: ChangeInfo) => (info ? ed.edit(label, info, () => void ed.engine.setProps(refs, fields(f))) : ed.setProps(refs, fields(f), label));
-  const resize = mixed(nodes.map((n) => n.textAutoResize ?? "NONE"));
-  const truncate = mixed(nodes.map((n) => n.textTruncation === "ENDING"));
-  const maxLines = mixedNumber(nodes.map((n) => n.maxLines ?? 0));
-  const paragraph = mixedNumber(nodes.map((n) => n.paragraphSpacing ?? 0));
-  const indent = mixedNumber(nodes.map((n) => n.paragraphIndent ?? 0));
-  const align = mixed(nodes.map((n) => n.textAlignHorizontal ?? "LEFT"));
-  const textCase = mixed(nodes.map((n) => n.textCase ?? "ORIGINAL"));
-  const decoration = mixed(nodes.map((n) => n.textDecoration ?? "NONE"));
-  const trim = mixed(nodes.map((n) => n.leadingTrim ?? "NONE"));
-  const hanging = mixed(nodes.map((n) => n.hangingPunctuation === true));
-  return (
-    <Popover anchor={anchor} title="Type settings" width={SETTINGS_WIDTH} onClose={onClose} label="Type settings">
-      <div className={styles.settings}>
-        <span className={styles.settingsLabel}>Resizing</span>
-        <SegmentedControl
-          label="Resizing"
-          fullWidth
-          disabled={!kept("textAutoResize")}
-          value={resize ?? "NONE"}
-          options={[
-            { value: "WIDTH_AND_HEIGHT", icon: "24.text.resize-width", tooltip: "Auto width" },
-            { value: "HEIGHT", icon: "24.text.resize-height", tooltip: "Auto height" },
-            { value: "NONE", icon: "24.text.resize-fixed", tooltip: "Fixed size" },
-          ]}
-          onChange={(v) => write("Text resizing", { textAutoResize: v as ExtraFields["textAutoResize"] })}
-        />
-        <span className={styles.settingsLabel}>Alignment</span>
-        <SegmentedControl
-          label="Text align horizontal"
-          fullWidth
-          disabled={!kept("textAlignHorizontal")}
-          value={align ?? "LEFT"}
-          options={[
-            { value: "LEFT", icon: "24.text.align-left", tooltip: "Align left" },
-            { value: "CENTER", icon: "24.text.align-center", tooltip: "Align center" },
-            { value: "RIGHT", icon: "24.text.align-right", tooltip: "Align right" },
-            { value: "JUSTIFIED", icon: "24.text.align-justified", tooltip: "Justified" },
-          ]}
-          onChange={(v) => write("Text alignment", { textAlignHorizontal: v as ExtraFields["textAlignHorizontal"] })}
-        />
-        <span className={styles.settingsLabel}>Paragraph spacing</span>
-        <NumericInput label="Paragraph spacing" value={fieldValue(paragraph)} min={0} disabled={!kept("paragraphSpacing")} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} />
-        <span className={styles.settingsLabel}>Paragraph indent</span>
-        <NumericInput label="Paragraph indent" value={fieldValue(indent)} min={0} disabled={!kept("paragraphIndent")} onChange={(v, info) => write("Paragraph indent", { paragraphIndent: v }, info)} onCancel={() => ed.cancelEdit()} />
-        <span className={styles.settingsLabel}>Truncate text</span>
-        <Checkbox label="Truncate text" hideLabel checked={truncate ?? false} disabled={!kept("textTruncation")} onChange={(on) => write("Truncate text", { textTruncation: on ? "ENDING" : "DISABLED" })} />
-        <span className={styles.settingsLabel}>Max lines</span>
-        <NumericInput label="Max lines" value={maxLines === 0 ? null : fieldValue(maxLines)} placeholder="—" min={1} precision={0} disabled={!kept("maxLines") || truncate !== true} onChange={(v, info) => write("Max lines", { maxLines: v }, info)} onClear={() => write("Max lines", { maxLines: 0 })} onCancel={() => ed.cancelEdit()} />
-        <span className={styles.settingsLabel}>Case</span>
-        <Select
-          label="Case"
-          value={textCase ?? "ORIGINAL"}
-          disabled={!kept("textCase")}
-          options={[
-            { value: "ORIGINAL", label: "As typed" },
-            { value: "UPPER", label: "Uppercase" },
-            { value: "LOWER", label: "Lowercase" },
-            { value: "TITLE", label: "Title case" },
-            { value: "SMALL_CAPS", label: "Small caps" },
-            { value: "SMALL_CAPS_FORCED", label: "Forced small caps" },
-          ]}
-          onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
-        />
-        <span className={styles.settingsLabel}>Decoration</span>
-        <Select
-          label="Decoration"
-          value={decoration ?? "NONE"}
-          disabled={!kept("textDecoration")}
-          options={[
-            { value: "NONE", label: "None" },
-            { value: "UNDERLINE", label: "Underline" },
-            { value: "STRIKETHROUGH", label: "Strikethrough" },
-          ]}
-          onChange={(v) => write("Text decoration", { textDecoration: v as ExtraFields["textDecoration"] })}
-        />
-        <span className={styles.settingsLabel}>Vertical trim</span>
-        <Select
-          label="Vertical trim"
-          value={trim ?? "NONE"}
-          disabled={!kept("leadingTrim")}
-          options={[
-            { value: "NONE", label: "Standard" },
-            { value: "CAP_HEIGHT", label: "Cap height to baseline" },
-          ]}
-          onChange={(v) => write("Vertical trim", { leadingTrim: v as ExtraFields["leadingTrim"] })}
-        />
-        <span className={styles.settingsLabel}>Hanging punctuation</span>
-        <Checkbox label="Hanging punctuation" hideLabel checked={hanging ?? false} disabled={!kept("hangingPunctuation")} onChange={(on) => write("Hanging punctuation", { hangingPunctuation: on })} />
-      </div>
-    </Popover>
   );
 }

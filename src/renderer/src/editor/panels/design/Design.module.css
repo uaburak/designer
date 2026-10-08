@@ -100,6 +100,13 @@
   }
   .settings > :nth-child(even) { justify-self: stretch; display: flex; }
   .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
+  /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */
+  .settingsHeading { padding-top: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); white-space: nowrap; }
+  /* One height for every tab (the popover is placed once, when it opens) */
+  .typeSettingsBody { height: min(420px, calc(100vh - 140px)); overflow-y: auto; overscroll-behavior: contain; }
+  .axisRow { display: flex; gap: var(--ds-space-2); align-items: center; min-width: 0; }
+  .axisRow > :last-child { flex: 0 0 64px; }
+  .axisSlider { flex: 1 1 auto; min-width: 0; accent-color: var(--figma-color-bg-brand); }
 
   /* "See all N colors" */
   .seeAll { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); }

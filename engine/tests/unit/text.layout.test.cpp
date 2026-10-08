@@ -79,7 +79,8 @@ TEST_CASE("text: auto width is the widest line; paragraphs and paragraph spacing
   p.text().paragraphSpacing = 10;
   auto L = lay(p);
   REQUIRE(L->lines.size() == 2);
-  CHECK(L->size.x == doctest::Approx(lineWidthOf(*L, 1)));
+  // Auto width: the widest line rounded up to whole pixels (Figma's layoutSize).
+  CHECK(L->size.x == std::ceil(lineWidthOf(*L, 1)));
   CHECK(lineWidthOf(*L, 1) > lineWidthOf(*L, 0));
   CHECK(L->lines[1].top == doctest::Approx(15 + 10));
   CHECK(L->size.y == doctest::Approx(15 + 10 + 15));
@@ -142,11 +143,12 @@ TEST_CASE("text: horizontal alignment in a fixed width, vertical alignment in a 
 TEST_CASE("text: letter spacing widens every gap but not after the line's last character") {
   loadInter();
   NodeProps p = textProps("ABCD");
-  double w0 = lay(p)->size.x;
+  double w0 = lay(p)->lines[0].width;
   p.text().letterSpacing = {10, NumberUnits::PERCENT};  // 1.2 px at 12
-  CHECK(lay(p)->size.x == doctest::Approx(w0 + 3 * 1.2).epsilon(1e-6));
+  CHECK(lay(p)->lines[0].width == doctest::Approx(w0 + 3 * 1.2).epsilon(1e-6));
+  CHECK(lay(p)->size.x == std::ceil(w0 + 3 * 1.2));
   p.text().letterSpacing = {2, NumberUnits::PIXELS};
-  CHECK(lay(p)->size.x == doctest::Approx(w0 + 3 * 2).epsilon(1e-6));
+  CHECK(lay(p)->lines[0].width == doctest::Approx(w0 + 3 * 2).epsilon(1e-6));
 }
 
 TEST_CASE("text: truncation with an ellipsis (maxLines, and a fixed box's height)") {

@@ -143,7 +143,7 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   noteBindings(c, typeBefore);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
   if (typeBefore == NodeType::TEXT || c.phase != Phase::CHANGED) textCache_.erase(c.guid);
-  else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE)) textCache_.erase(c.guid);
+  else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE | F_EXTRA)) textCache_.erase(c.guid);
   if (c.phase != Phase::CHANGED || (mask & (kTextLayoutFields | F_FILLS | F_TYPE | F_EXTRA))) measured_.erase(c.guid);
   if (text_.node == c.guid) events_.textEdit = true;
   noteNode(c.guid, fieldGroups(mask));
@@ -312,7 +312,8 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   }
   if (p.isFrameLike() && (m & F_SIZE)) layoutDirty_.insert(c.guid);  // its children's constraints
   if (m & (F_MIN_SIZE | F_MAX_SIZE)) layoutDirty_.insert(c.guid);   // its own size may break a new limit
-  if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE && (m & (kTextLayoutFields | F_SIZE | F_TYPE)))
+  if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE &&
+      ((m & (kTextLayoutFields | F_SIZE | F_TYPE)) || ((m & F_EXTRA) && text::changesTextLayout(c.props.extra))))
     layoutDirty_.insert(c.guid);  // auto width / auto height: its size follows its text
 }
 
@@ -850,7 +851,7 @@ void Editor::invalidateStored(const NodeChange& c, NodeType typeBefore) {
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
   // A text's stored layout stands for one set of text fields and one box: any change of them makes it stale (the
   // creation of an instance sublayer by its first materialization is not a change of it).
-  if (mask & (kTextLayoutFields | F_SIZE | F_TYPE))
+  if ((mask & (kTextLayoutFields | F_SIZE | F_TYPE)) || (c.phase == Phase::CHANGED && (mask & F_EXTRA) && text::changesTextLayout(c.props.extra)))
     if (!(c.guid.isDerived() && c.phase == Phase::CREATED)) {
       storedText_.erase(c.guid);
       storedLayouts_.erase(c.guid);
@@ -1075,7 +1076,10 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
   begin(TxnKind::USER, "Edit");
   for (Guid id : ids) {
     const NodeProps& before = doc_.get(id)->props;
-    if (before.type == NodeType::TEXT && text::runFieldsOf(mask)) {
+    bool runExtra = false;
+    if (before.type == NodeType::TEXT && (mask & F_EXTRA))
+      for (auto& [k, v] : props.props.extra) runExtra |= text::isRunExtraKey(k);
+    if (before.type == NodeType::TEXT && (text::runFieldsOf(mask) || runExtra)) {
       // Run fields go to the edited range, or to the whole text over its runs.
       applyTextStyle(id, props);
       continue;

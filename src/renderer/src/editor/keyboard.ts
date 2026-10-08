@@ -27,6 +27,17 @@ const inOverlay = (target: EventTarget | null) => target instanceof Element && !
 const isControl = (target: EventTarget | null) =>
   target instanceof Element && !!target.closest("button, a[href], [role='button'], [role='tab'], [role='radio'], [role='checkbox'], [role='switch'], [role='option']");
 
+/**
+ * A key the engine didn't use while a text is being edited (the hidden field has the focus, so the shortcut layer
+ * doesn't see it): the Text commands that act on the selected characters through the panel's path — ⇧⌘U Create link.
+ */
+export function runTextKey(ed: EditorController, e: KeyboardEvent): boolean {
+  const c = commandForKey(e);
+  if (!c || c.id !== "text.create-link") return false;
+  if (isEnabled(ed, c)) c.run(ed);
+  return true;
+}
+
 export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.isComposing || isEditable(e.target) || inOverlay(e.target)) return;

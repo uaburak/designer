@@ -337,7 +337,7 @@ std::vector<ImageHash> imagesOf(const Document& doc, TextLayouts* texts, const T
   std::unordered_set<std::string> seen;
   forEachDrawn(doc, t, [&](Guid, const Node& n) {
     paintsOf(n.props, [&](const Paint& paint) {
-      if (paint.type != PaintType::IMAGE || !paint.image.present || !paint.visible) return;
+      if (!isImageLike(paint.type) || !paint.image.present || !paint.visible) return;
       if (seen.insert(paint.image.hex()).second) out.push_back(paint.image);
     });
   });
@@ -354,7 +354,7 @@ bool ready(const Document& doc, TextLayouts* texts, const Target& t, double scal
     }
     double devicePx = std::max(p.size.x, p.size.y) * worldScale(doc.worldTransform(id)) * scale;
     paintsOf(p, [&](const Paint& paint) {
-      if (paint.type != PaintType::IMAGE || !paint.image.present || !paint.visible) return;
+      if (!isImageLike(paint.type) || !paint.image.present || !paint.visible) return;
       ImageHints hints = imageHints(paint);
       const ImageRegistry::Source* src = ImageRegistry::get().find(paint.image, devicePx, &hints);
       if (!src) {

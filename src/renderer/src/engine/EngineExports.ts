@@ -274,6 +274,11 @@ export class EngineExports {
     this.withBytes([text], (p) => this.fn("text_composition_end")(h, p[0], p[1]));
   textSelection = (h: number): number => this.fn("text_selection")(h);
   textLayout = (h: number, sessionID: number, localID: number): number => this.fn("text_layout")(h, sessionID, localID);
+  textRangeStyle = (h: number, sessionID: number, localID: number, from: number, to: number, flags: number): number =>
+    this.fn("text_range_style")(h, sessionID, localID, from >>> 0, to >>> 0, flags);
+  textParagraphs = (h: number, sessionID: number, localID: number, op: number, value: number): number =>
+    this.fn("text_paragraphs")(h, sessionID, localID, op, value);
+  fontInfo = (family: Uint8Array, style: Uint8Array): number => this.withBytes([family, style], (p) => this.fn("font_info")(p[0], p[1], p[2], p[3]));
 
   // ---- Prototyping (E8) ----
   setPrototypeMode = (h: number, on: boolean): void => void this.fn("set_prototype_mode")(h, on ? 1 : 0);
@@ -314,6 +319,7 @@ export const USED_EXPORTS = [
   "has_events", "take_events", "stats",
   "font_add_take", "font_bind", "font_missing", "set_fallback_fonts",
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",
+  "text_range_style", "text_paragraphs", "font_info",
   "image_add_bitmap", "image_add_rgba", "image_failed",
   "vector_edit", "vector_edit_end", "vector_edit_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
   "set_prototype_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",

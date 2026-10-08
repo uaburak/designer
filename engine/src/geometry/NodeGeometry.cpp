@@ -136,6 +136,7 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
     case NodeType::REGULAR_POLYGON: closedShape(polygonPath(p.size, p.shape().count ? p.shape().count : 3, p.cornerRadii[0])); break;
     case NodeType::STAR: closedShape(starPath(p.size, p.shape().count ? p.shape().count : 5, p.shape().starInnerScale, p.cornerRadii[0])); break;
     case NodeType::LINE:
+    case NodeType::BRUSH:
     case NodeType::VECTOR: {
       const VectorNetwork* net = network(p.shape().vectorData);
       if (net && !net->empty()) {

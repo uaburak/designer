@@ -20,6 +20,7 @@
 #include "base/FractionalIndex.h"
 #include "editor/Editor.h"
 #include "kiwi.h"
+#include "text/TextEdit.h"
 #include "scene/CodecKiwi.h"
 #include "schema/SchemaTable.h"
 
@@ -860,7 +861,7 @@ FieldMask Editor::boundFieldMask(const NodeProps& p) {
   if (paints(p.fillPaints)) m |= F_FILLS;
   if (paints(p.strokePaints)) m |= F_STROKES;
   for (const TextStyle& run : p.text().textData.styleOverrideTable)
-    if (paints(run.fillPaints)) m |= F_TEXT_DATA;
+    if (paints(run.fillPaints) || text::runHasBindings(run)) m |= F_TEXT_DATA;
   for (const Effect& e : p.effects)
     if (e.hasVariables()) m |= F_EFFECTS;
   for (const LayoutGrid& g : p.rare().layoutGrids)
@@ -916,6 +917,61 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
   ctx.self = &p;
   auto resolve = [&](const VariableData& d, Resolved& r) { return d.present() && resolveData(d, ctx, r, deps, 0); };
   Resolved r;
+  // Runs with their own text style or variable bindings (a style or variable applied to part of a text): their
+  // typography from the style, then from their variables.
+  if (p.type == NodeType::TEXT)
+    for (TextStyle& run : p.text().textData.styleOverrideTable) {
+      if (!text::runHasBindings(run)) continue;
+      NodeProps rp = text::runProps(run);
+      std::vector<ParamBinding> map = rp.parameterConsumptionMap;
+      if (const NodeProps* st = useStyle(rp.refs().styleIdForText, StyleType::TEXT)) {
+        run.fontName = st->text().fontName;
+        run.fontSize = st->text().fontSize;
+        run.lineHeight = st->text().lineHeight;
+        run.letterSpacing = st->text().letterSpacing;
+        run.textCase = st->text().textCase;
+        run.textDecoration = st->text().textDecoration;
+        run.mask |= R_FONT_NAME | R_FONT_SIZE | R_LINE_HEIGHT | R_LETTER_SPACING | R_TEXT_CASE | R_TEXT_DECORATION;
+        for (const ParamBinding& b : st->parameterConsumptionMap)
+          if (b.isVariable() && isTextStyleField(b.field)) map.push_back(b);
+      }
+      for (const ParamBinding& b : map) {
+        if (!b.isVariable() || !resolve(b.data, r)) continue;
+        switch (b.field) {
+          case VariableField::FONT_FAMILY:
+            if (r.kind == Resolved::Kind::STRING && !r.s.empty()) run.fontName.family = r.s, run.fontName.postscript.clear(), run.mask |= R_FONT_NAME;
+            break;
+          case VariableField::FONT_STYLE: {
+            std::string style = r.kind == Resolved::Kind::STRING ? r.s
+                                : r.kind == Resolved::Kind::FLOAT ? styleForWeight(r.f, isItalicStyle(run.fontName.style))
+                                                                 : std::string();
+            if (!style.empty()) {
+              if (!(run.mask & R_FONT_NAME)) run.fontName = p.text().fontName;
+              run.fontName.style = style, run.fontName.postscript.clear(), run.mask |= R_FONT_NAME;
+            }
+            break;
+          }
+          case VariableField::FONT_SIZE:
+            if (r.kind == Resolved::Kind::FLOAT) run.fontSize = std::max(1.0, r.f), run.mask |= R_FONT_SIZE;
+            break;
+          case VariableField::LINE_HEIGHT: {
+            // As on a node: RAW stays a percentage, Auto becomes pixels.
+            if (r.kind != Resolved::Kind::FLOAT || !std::isfinite(r.f)) break;
+            Number lh = (run.mask & R_LINE_HEIGHT) ? run.lineHeight : p.text().lineHeight;
+            run.lineHeight = lh.units == NumberUnits::RAW ? Number{r.f / 100, NumberUnits::RAW} : Number{r.f, NumberUnits::PIXELS};
+            run.mask |= R_LINE_HEIGHT;
+            break;
+          }
+          case VariableField::LETTER_SPACING:
+            if (r.kind == Resolved::Kind::FLOAT && std::isfinite(r.f)) {
+              if (!(run.mask & R_LETTER_SPACING)) run.letterSpacing = p.text().letterSpacing;
+              run.letterSpacing.value = r.f, run.mask |= R_LETTER_SPACING;
+            }
+            break;
+          default: break;
+        }
+      }
+    }
   // Node fields: the uniform corner radius first, so per-corner bindings win.
   std::vector<const ParamBinding*> bindings;
   for (const ParamBinding& b : p.parameterConsumptionMap)

@@ -293,7 +293,7 @@ class Writer {
                  "\">\n" + stops(paint) + "</radialGradient>\n";
       }
       out = std::string(" ") + prop + "=\"url(#" + id + ")\"";
-    } else if (paint.type == PaintType::IMAGE) {
+    } else if (isImageLike(paint.type)) {
       const ImageData* data = paint.image.present ? ImageStore::get().find(paint.image) : nullptr;
       if (!data || data->encoded.empty()) {
         // Not handed in: Figma's grey for an image that hasn't loaded.

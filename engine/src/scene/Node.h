@@ -49,13 +49,17 @@ enum class NodeType : uint8_t {
   VARIABLE = 28,
   VARIABLE_SET = 31,
   VARIABLE_OVERRIDE = 35,  // an extended collection's values for one inherited variable
+  BRUSH = 46,  // Figma Draw: a brush's artwork (a vector on the internal canvas)
 };
 
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };
 // schema/document.kiwi's PaintType; OTHER: a paint type the schema doesn't know, kept as it came (Paint::extra).
 enum class PaintType : uint8_t {
-  SOLID = 0, GRADIENT_LINEAR = 1, GRADIENT_RADIAL = 2, GRADIENT_ANGULAR = 3, GRADIENT_DIAMOND = 4, IMAGE = 5, OTHER = 255
+  SOLID = 0, GRADIENT_LINEAR = 1, GRADIENT_RADIAL = 2, GRADIENT_ANGULAR = 3, GRADIENT_DIAMOND = 4, IMAGE = 5, VIDEO = 7, OTHER = 255
 };
+// IMAGE, or VIDEO: a video fill draws its poster frame (`image`) the way an image fill draws (Figma's canvas shows
+// the frame; the video itself plays in presentation).
+inline bool isImageLike(PaintType t) { return t == PaintType::IMAGE || t == PaintType::VIDEO; }
 enum class BlendMode : uint8_t {
   PASS_THROUGH = 0, NORMAL, DARKEN, MULTIPLY, LINEAR_BURN, COLOR_BURN, LIGHTEN, SCREEN, LINEAR_DODGE, COLOR_DODGE,
   OVERLAY, SOFT_LIGHT, HARD_LIGHT, DIFFERENCE, EXCLUSION, HUE, SATURATION, COLOR, LUMINOSITY

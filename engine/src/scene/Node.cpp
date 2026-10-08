@@ -57,6 +57,7 @@ bool VectorData::operator==(const VectorData& o) const {
 bool NodeProps::isPathShape() const {
   switch (type) {
     case NodeType::VECTOR:
+    case NodeType::BRUSH:
     case NodeType::STAR:
     case NodeType::LINE:
     case NodeType::REGULAR_POLYGON:
@@ -413,6 +414,7 @@ const char* nodeTypeName(NodeType t) {
     case NodeType::VARIABLE: return "VARIABLE";
     case NodeType::VARIABLE_SET: return "VARIABLE_SET";
     case NodeType::VARIABLE_OVERRIDE: return "VARIABLE_OVERRIDE";
+    case NodeType::BRUSH: return "BRUSH";
     case NodeType::SYMBOL: return "SYMBOL";
     case NodeType::INSTANCE: return "INSTANCE";
     case NodeType::SECTION: return "SECTION";
@@ -426,7 +428,7 @@ NodeType nodeTypeFromName(std::string_view s) {
                                       NodeType::TEXT, NodeType::SYMBOL, NodeType::INSTANCE, NodeType::SECTION,
                                       NodeType::BOOLEAN_OPERATION, NodeType::VECTOR, NodeType::STAR, NodeType::LINE,
                                       NodeType::REGULAR_POLYGON, NodeType::SLICE, NodeType::VARIABLE, NodeType::VARIABLE_SET,
-                                      NodeType::VARIABLE_OVERRIDE};
+                                      NodeType::VARIABLE_OVERRIDE, NodeType::BRUSH};
   for (NodeType t : kAll)
     if (s == nodeTypeName(t)) return t;
   return NodeType::NONE;

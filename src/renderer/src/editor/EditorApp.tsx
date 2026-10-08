@@ -27,7 +27,7 @@ import { messageToEngine } from "@/store/engineMessage";
 import { decodeMessage as decodeKiwiMessage } from "../../../shared/schema/codec";
 import { applyEngineBytes, changeBytesOf, engineDerivedDataVersion, engineMethod, engineWireFormat, loadEngineBytes } from "./engineCompat";
 import { planFonts, requestFonts } from "./openFonts";
-import { attachKeyboard } from "./keyboard";
+import { attachKeyboard, runTextKey } from "./keyboard";
 import { attachClipboard } from "./clipboardIO";
 import { attachDesktop } from "./desktop";
 import { attachPersistence, noteOpenInfo, restoreUiState } from "./persistence";
@@ -48,6 +48,7 @@ import { LocalVariables } from "./panels/variables/LocalVariables";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
 import { PublishDialog } from "./panels/libraries/PublishDialog";
 import { ExportDialog } from "./ExportDialog";
+import { LinkEditor } from "./canvas/LinkEditor";
 import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
@@ -183,7 +184,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       }
       controller.canvas = canvas;
       const ed = controller;
-      cleanups.push(new CanvasController(canvas, engine, { shortcuts: [] }).attach());
+      cleanups.push(new CanvasController(canvas, engine, { shortcuts: [], onTextKey: (e) => runTextKey(ed, e) }).attach());
       cleanups.push(ed.attachGestureTracking(canvas));
       // The change as the engine wrote it (kiwi, when the engine speaks it) goes to the store as it is.
       cleanups.push(
@@ -359,6 +360,7 @@ function Overlays() {
       <ExportDialog />
       <Presenting />
       <ShareDialog />
+      <LinkEditor />
     </>
   );
 }

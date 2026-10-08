@@ -7,14 +7,29 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 #include "editor/Editor.h"
 #include "hit/HitTest.h"
 #include "layout/Layout.h"
+#include "base/Json.h"
+#include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 #include "text/TextEdit.h"
 #include "text/Unicode.h"
 
 namespace eng {
+
+namespace {
+
+// The list data of the paragraph holding UTF-16 index `at`, and that paragraph's [start, end).
+text::LineInfo paragraphLine(const TextData& t, const std::u16string& str, uint32_t at, size_t* index = nullptr) {
+  size_t para = static_cast<size_t>(std::count(str.begin(), str.begin() + std::min<size_t>(at, str.size()), u'\n'));
+  if (index) *index = para;
+  return para < t.lines.size() ? text::readLine(t.lines[para]) : text::LineInfo{};
+}
+
+}  // namespace
 
 // ---- Layouts ------------------------------------------------------------------------
 
@@ -235,7 +250,25 @@ Status Editor::textInput(std::string_view utf8) {
     return OK;
   }
   textReplace(textSelStart(), textSelEnd(), s, "Edit text");
+  if (s == u" ") textAutoformatList();
   return OK;
+}
+
+void Editor::textAutoformatList() {
+  const Node* n = doc_.get(text_.node);
+  if (!n || text_.anchor != text_.focus) return;
+  std::u16string str = text::utf8To16(n->props.text().textData.characters);
+  uint32_t focus = std::min<uint32_t>(text_.focus, static_cast<uint32_t>(str.size()));
+  size_t a, b;
+  text::paragraphAt(str, focus, a, b);
+  std::u16string head = str.substr(a, focus - a);
+  int type = head == u"- " || head == u"* " ? 2 : (head == u"1. " || head == u"1) ") ? 1 : 0;
+  if (!type) return;
+  text::LineInfo info = paragraphLine(n->props.text().textData, str, focus);
+  if (info.type != text::LineType::PLAIN) return;
+  // One step with the typing (⌘Z right after takes the list away, keeping what was typed).
+  textReplace(static_cast<uint32_t>(a), focus, u"", "Edit text");
+  textParagraphs(text_.node, 0, type);
 }
 
 Status Editor::textComposition(std::string_view utf8, uint32_t selStart, uint32_t selEnd) {
@@ -388,6 +421,7 @@ void Editor::textDrag(Vec2 s) {
 
 // ---- Keys -------------------------------------------------------------------------
 
+
 uint32_t Editor::textKey(KeyCode code, uint32_t mods) {
   const text::TextLayout* L = textLayout(text_.node);
   if (!L) {
@@ -481,6 +515,16 @@ uint32_t Editor::textKey(KeyCode code, uint32_t mods) {
     case KeyCode::Home: moveTo(lineStart(focus)); return K_HANDLED;
     case KeyCode::End: moveTo(lineEnd(focus), true); return K_HANDLED;
     case KeyCode::Backspace:
+      if (collapsed && !primary && !alt) {
+        // At a list item's start: its marker goes, its indent stays (Figma).
+        size_t a, b;
+        text::paragraphAt(str, focus, a, b);
+        const Node* tn = doc_.get(text_.node);
+        if (tn && focus == a && paragraphLine(tn->props.text().textData, str, focus).type != text::LineType::PLAIN) {
+          textParagraphs(text_.node, 0, static_cast<int>(paragraphLine(tn->props.text().textData, str, focus).type));
+          return K_HANDLED;
+        }
+      }
       if (!collapsed) erase(textSelStart(), textSelEnd());
       else if (primary) erase(lineStart(focus), focus);
       else if (alt) erase(static_cast<uint32_t>(text::prevWordStart(str, focus)), focus);
@@ -502,10 +546,43 @@ uint32_t Editor::textKey(KeyCode code, uint32_t mods) {
         endTextEdit();
         return K_HANDLED;
       }
-      textReplace(textSelStart(), textSelEnd(), shift ? u" " : u"\n", "Edit text");
+      if (!shift && collapsed) {
+        // Return on an empty list item: one level out, then out of the list (Figma).
+        size_t a, b;
+        text::paragraphAt(str, focus, a, b);
+        const Node* tn = doc_.get(text_.node);
+        text::LineInfo info = tn ? paragraphLine(tn->props.text().textData, str, focus) : text::LineInfo{};
+        if (a == b && info.type != text::LineType::PLAIN) {
+          if (info.indentationLevel > 1) textParagraphs(text_.node, 1, -1);
+          else textParagraphs(text_.node, 0, static_cast<int>(info.type));
+          return K_HANDLED;
+        }
+      }
+      textReplace(textSelStart(), textSelEnd(), shift ? u"\u2028" : u"\n", "Edit text");
       return K_HANDLED;
-    case KeyCode::Tab:
+    case KeyCode::Tab: {
+      // In a list (or with several paragraphs selected): indent / outdent; else a tab character.
+      const Node* tn = doc_.get(text_.node);
+      bool list = tn && paragraphLine(tn->props.text().textData, str, focus).type != text::LineType::PLAIN;
+      bool multi = std::count(str.begin() + textSelStart(), str.begin() + textSelEnd(), u'\n') > 0;
+      if (list || multi || shift) {
+        textParagraphs(text_.node, 1, shift ? -1 : 1);
+        return K_HANDLED;
+      }
       textReplace(textSelStart(), textSelEnd(), u"\t", "Edit text");
+      return K_HANDLED;
+    }
+    case KeyCode::BracketLeft:
+    case KeyCode::BracketRight:
+      // ⌘] / ⌘[: indentation.
+      if (!primary || shift || alt) return 0;
+      textParagraphs(text_.node, 1, code == KeyCode::BracketRight ? 1 : -1);
+      return K_HANDLED;
+    case KeyCode::Digit7:
+    case KeyCode::Digit8:
+      // ⇧⌘7 numbered list, ⇧⌘8 bulleted list.
+      if (!primary || !shift) return 0;
+      textParagraphs(text_.node, 0, code == KeyCode::Digit7 ? 1 : 2);
       return K_HANDLED;
     case KeyCode::KeyA:
       if (!primary) return 0;
@@ -579,19 +656,201 @@ Status Editor::applyTextStyle(Guid id, const NodeChange& change) {
   uint32_t len = text::length16(t);
   uint32_t from = textSelStart(), to = textSelEnd();
   bool ranged = text_.node == id && from < to && !(from == 0 && to >= len);
+  // Run fields kept as data (links, variable axes, OpenType switches, decoration details): to the range, or to the
+  // node and out of every run.
+  std::map<std::string, std::string> runExtras;
+  if (mask & F_EXTRA)
+    for (auto& [k, v] : change.props.extra)
+      if (text::isRunExtraKey(k)) runExtras[k] = v;
   if (ranged) {
     text::applyRunStyle(t, from, to, text::runStyleOf(change.props, run), p);
+    if (!runExtras.empty()) {
+      text::applyRunExtras(t, from, to, runExtras, p);
+      // The range takes them; the node keeps its own.
+      NodeProps rest = change.props;
+      for (auto& [k, v] : runExtras) rest.extra.erase(k);
+      c.mask &= ~static_cast<FieldMask>(F_EXTRA);
+      c.props.extra.clear();
+      if (!rest.extra.empty()) {
+        c.props.extra = rest.extra;
+        c.mask |= F_EXTRA;
+      }
+    }
   } else {
     FieldMask own = differingFields(p, change.props, mask & kRunNodeFields);
     copyFields(c.props, change.props, own);
     c.mask |= own;
     text::clearRunFields(t, run);
+    std::vector<std::string> keys;
+    for (auto& [k, v] : runExtras) keys.push_back(k);
+    text::clearRunExtras(t, keys);
   }
   if (!(t == p.text().textData)) {
     c.mask |= F_TEXT_DATA;
     c.props.text().textData = t;
   }
   if (c.mask) write(c);
+  return OK;
+}
+
+bool Editor::textRange(Guid id, uint32_t& from, uint32_t& to) const {
+  if (text_.node != id) return false;
+  const Node* n = doc_.get(id);
+  if (!n) return false;
+  uint32_t len = text::length16(n->props.text().textData);
+  from = textSelStart();
+  to = std::min(textSelEnd(), len);
+  return from < to && !(from == 0 && to >= len);
+}
+
+// ---- The Typography section's view of a range -----------------------------------------------
+
+std::string Editor::textRangeStyle(Guid id, uint32_t from, uint32_t to, bool useSelection) {
+  const Node* n = doc_.get(id);
+  if (!n || n->props.type != NodeType::TEXT) return {};
+  const NodeProps& p = n->props;
+  const text::TextLayout* L = textLayout(id);
+  if (!L) return {};
+  uint32_t len = static_cast<uint32_t>(L->text.size());
+  if (useSelection && text_.node == id) {
+    from = textSelStart();
+    to = textSelEnd();
+  } else if (useSelection) {
+    from = 0;
+    to = len;
+  }
+  to = std::min(to, len);
+  from = std::min(from, to);
+  // The styles in the range (a caret: the one typing takes, the character before it).
+  std::vector<uint16_t> used;
+  auto use = [&](uint16_t s) {
+    if (std::find(used.begin(), used.end(), s) == used.end()) used.push_back(s);
+  };
+  if (from == to || len == 0) use(len == 0 ? 0 : L->styleOf[std::min<uint32_t>(from > 0 ? from - 1 : 0, len - 1)]);
+  else
+    for (uint32_t i = from; i < to; i++) use(L->styleOf[i]);
+  // Each style's value of each field as JSON; a field whose values differ is mixed.
+  std::map<std::string, std::vector<std::string>> values;
+  auto put = [&](const std::string& k, std::string v) {
+    auto& list = values[k];
+    if (std::find(list.begin(), list.end(), v) == list.end()) list.push_back(std::move(v));
+  };
+  auto quoted = [](const char* v) { return std::string("\"") + v + "\""; };
+  std::map<std::string, std::string> nodeExtras;
+  for (auto& [k, v] : p.extra)
+    if (text::isRunExtraKey(k) && !v.empty()) nodeExtras[k] = codec::extraValueToJson("NodeChange", v);
+  for (uint16_t si : used) {
+    const text::ResolvedStyle& s = L->styles[si];
+    json::Writer w;
+    w.beginObject().key("family").string(s.fontName.family).key("style").string(s.fontName.style).key("postscript").string(s.fontName.postscript).endObject();
+    put("fontName", w.take());
+    // Family and style apart: the panel shows one "Mixed" without the other.
+    json::Writer wfam, wsty;
+    wfam.string(s.fontName.family);
+    wsty.string(s.fontName.style);
+    put("fontFamily", wfam.take());
+    put("fontStyle", wsty.take());
+    json::Writer ws;
+    ws.number(s.fontSize);
+    put("fontSize", ws.take());
+    auto number = [](Number v) {
+      json::Writer w;
+      w.beginObject().key("value").number(v.value).key("units").string(enumName(v.units)).endObject();
+      return w.take();
+    };
+    put("lineHeight", number(s.lineHeight));
+    put("letterSpacing", number(s.letterSpacing));
+    put("textCase", quoted(enumName(s.textCase)));
+    put("textDecoration", quoted(enumName(s.textDecoration)));
+    json::Writer wf;
+    codec::writePaints(wf, s.fills ? *s.fills : std::vector<Paint>{});
+    put("fillPaints", wf.take());
+    // Kept-as-data fields: the run's own, else the node's.
+    std::map<std::string, std::string> extras = nodeExtras;
+    if (s.styleID) {
+      for (const TextStyle& o : p.text().textData.styleOverrideTable)
+        if (o.styleID == s.styleID && !o.extra.empty()) {
+          json::Value obj;
+          if (json::parse("{" + codec::extraToJsonMembers("NodeChange", o.extra) + "}", obj))
+            for (auto& [k, x] : obj.object)
+              if (text::isRunExtraKey(k)) extras[k] = json::encode(x);
+        }
+    }
+    for (const char* k : {"hyperlink", "fontVariations", "toggledOnOTFeatures", "toggledOffOTFeatures", "fontVariantCommonLigatures",
+                          "fontVariantContextualLigatures", "fontVariantDiscretionaryLigatures", "fontVariantHistoricalLigatures",
+                          "fontVariantOrdinal", "fontVariantSlashedZero", "fontVariantNumericFigure", "fontVariantNumericSpacing",
+                          "fontVariantNumericFraction", "fontVariantCaps", "fontVariantPosition", "textDecorationStyle",
+                          "textDecorationSkipInk", "textUnderlineOffset", "textDecorationThickness", "textDecorationFillPaints",
+                          "styleIdForText", "parameterConsumptionMap"}) {
+      auto it = extras.find(k);
+      put(k, it == extras.end() ? "null" : it->second);
+    }
+    // The font's variable axes, at this run's values.
+    json::Writer wa;
+    wa.beginArray();
+    if (s.font)
+      for (const text::AxisInfo& a : s.font->axes()) {
+        wa.beginObject().key("tag").string(text::tagString(a.tag)).key("value").number(a.value).endObject();
+        // Each axis on its own too ("axis:wght"): one axis can be Mixed while another isn't.
+        json::Writer one;
+        one.number(a.value);
+        put("axis:" + text::tagString(a.tag), one.take());
+      }
+    wa.endArray();
+    put("axisValues", wa.take());
+  }
+  // Paragraphs: list type and indentation.
+  size_t first = 0, last = 0;
+  text::paragraphsOf(p.text().textData, from, to, first, last);
+  static const char* const kTypes[] = {"PLAIN", "ORDERED_LIST", "UNORDERED_LIST"};
+  for (size_t i = first; i <= last; i++) {
+    text::LineInfo info = i < p.text().textData.lines.size() ? text::readLine(p.text().textData.lines[i]) : text::LineInfo{};
+    put("lineType", quoted(kTypes[static_cast<int>(info.type)]));
+    put("indentationLevel", std::to_string(info.indentationLevel));
+  }
+  json::Writer w;
+  w.beginObject().key("from").number(from).key("to").number(to).key("values").beginObject();
+  for (auto& [k, list] : values) w.key(k).raw(list.front());
+  w.endObject().key("mixed").beginArray();
+  for (auto& [k, list] : values)
+    if (list.size() > 1) w.string(k);
+  w.endArray().endObject();
+  return w.take();
+}
+
+Status Editor::textParagraphs(Guid id, int op, int value) {
+  const Node* n = doc_.get(id);
+  if (!n || n->props.type != NodeType::TEXT) return E_NOT_FOUND;
+  if (busy()) return E_BUSY;
+  TextData t = n->props.text().textData;
+  size_t first = 0, last = 0;
+  uint32_t len = text::length16(t);
+  if (text_.node == id) text::paragraphsOf(t, textSelStart(), textSelEnd(), first, last);
+  else {
+    (void)len;
+    last = static_cast<size_t>(std::count(t.characters.begin(), t.characters.end(), '\n'));
+  }
+  if (op == 0) {
+    // The same type on every paragraph again: the list goes (Figma's toggles).
+    bool all = true;
+    for (size_t i = first; i <= last; i++) {
+      text::LineInfo info = i < t.lines.size() ? text::readLine(t.lines[i]) : text::LineInfo{};
+      all &= static_cast<int>(info.type) == value;
+    }
+    text::setListType(t, first, last, static_cast<uint8_t>(all ? 0 : std::clamp(value, 0, 2)));
+  } else if (op == 1) {
+    text::indentParagraphs(t, first, last, value);
+  } else {
+    return E_INVALID;
+  }
+  if (t == n->props.text().textData) return OK;
+  NodeChange c = NodeChange::changed(id);
+  c.mask = F_TEXT_DATA;
+  c.props.text().textData = t;
+  uint32_t a = text_.anchor, f = text_.focus;
+  bool editing = text_.node == id;
+  setProps({id}, c, 0);
+  if (editing) setTextSelection(a, f);
   return OK;
 }
 

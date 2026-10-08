@@ -8,6 +8,8 @@
 // "Set variable mode" write the document with APPLY_REMOTE (never journaled; Restart puts the original values back).
 #pragma once
 
+#include "text/TextLayout.h"
+
 #include <deque>
 #include <functional>
 #include <string>
@@ -216,6 +218,10 @@ class Player {
   void armTimers(Guid root);
   void dropTimers(Guid root);
   void hover(const Chain& c);
+  // The hyperlink under `css` in a text of the chain (Figma: "Links in text also work in prototypes").
+  const text::LinkBox* linkAt(const Chain& c, Vec2 css) const;
+  // Follows a link: a URL opens (OPEN_URL), a frame of this file is navigated to.
+  void follow(const text::LinkBox& link);
   void changed();
   bool frameExists(Guid id) const;
 
@@ -252,6 +258,7 @@ class Player {
   std::vector<Held> held_;     // While hovering
   Held pressed_;               // While pressing
   Chain hoverChain_, downChain_;
+  Vec2 hoverCss_;
   Vec2 downCss_;
   bool down_ = false, dragFired_ = false;
   bool hotspot_ = false;

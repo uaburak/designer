@@ -382,7 +382,7 @@ class Writer {
       o += std::string(fill) + "Q\n";
       return;
     }
-    if (paint.type == PaintType::IMAGE) {
+    if (isImageLike(paint.type)) {
       const ImageData* d = paint.image.present ? ImageStore::get().find(paint.image) : nullptr;
       if (!d || (d->jpeg.empty() && d->rgb.empty()) || !d->width || !d->height) {
         fillWith(o, p, evenOdd, Paint::solid(Color::hex(0xE6E6E6), paint.opacity), size, E, alpha);
@@ -598,7 +598,7 @@ class Writer {
         const auto* fills = L->styles[g.style].fills;
         if (!fills || f >= fills->size() || !drawable((*fills)[f])) continue;
         const Paint& paint = (*fills)[f];
-        if (paint.type == PaintType::IMAGE || paint.type == PaintType::GRADIENT_ANGULAR || paint.type == PaintType::GRADIENT_DIAMOND) {
+        if (isImageLike(paint.type) || paint.type == PaintType::GRADIENT_ANGULAR || paint.type == PaintType::GRADIENT_DIAMOND) {
           // Images and CSS-only gradients: the glyph's outline as a path.
           flush();
           current = nullptr;
@@ -621,9 +621,10 @@ class Writer {
       }
       flush();
       for (const text::Decoration& d : L->decorations) {
-        const auto* fills = L->styles[d.style].fills;
+        const auto* fills = text::decorationFills(*L, d);
         if (!fills || f >= fills->size()) continue;
-        geom::Path r = geom::rectPath({d.rect.w, d.rect.h}, CornerRadii{0, 0, 0, 0}).transformed(Mat2x3::translate(d.rect.x, d.rect.y));
+        geom::Path r = (d.round ? geom::ellipsePath({d.rect.w, d.rect.h}, ArcData{}) : geom::rectPath({d.rect.w, d.rect.h}, CornerRadii{0, 0, 0, 0}))
+                           .transformed(text::decorationTransform(d));
         fillWith(o, r, false, (*fills)[f], p.size, E, alpha);
       }
     }

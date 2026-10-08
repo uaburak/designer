@@ -557,7 +557,7 @@ TEST_CASE("kiwi codec: updates carry their fields and clearedFields; a paint kin
   std::sort(ids.begin(), ids.end());
   CHECK(ids == std::vector<uint32_t>{45, 324, 332, 353});
 
-  // A paint whose type the schema doesn't know (Figma's VIDEO = 7, dropped): hand-built bytes.
+  // A paint whose type the schema doesn't know (Figma's PATTERN = 8, dropped): hand-built bytes.
   eng::schema::Out o;
   o.varuint(1), o.varuint(1);  // type NODE_CHANGES
   o.varuint(4), o.varuint(1);  // one change
@@ -565,7 +565,7 @@ TEST_CASE("kiwi codec: updates carry their fields and clearedFields; a paint kin
   o.varuint(2), o.varuint(0);                // CREATED
   o.varuint(4), o.varuint(4);                // FRAME
   o.varuint(38), o.varuint(1);               // fillPaints ×1
-  o.varuint(1), o.varuint(7);                //   type 7
+  o.varuint(1), o.varuint(8);                //   type 8
   o.varuint(3), o.varfloat(0.5f);            //   opacity
   o.varuint(4), o.byte(0);                   //   visible false
   o.byte(0);                                 // end paint
@@ -577,7 +577,7 @@ TEST_CASE("kiwi codec: updates carry their fields and clearedFields; a paint kin
   CHECK(p.type == PaintType::OTHER);
   CHECK(!p.visible);
   std::string json = jsonOf({{1, 5}, back.changes[0].props});
-  CHECK(json.find("\"fillPaints\":[{\"type\":7,\"opacity\":0.5,\"visible\":false}]") != std::string::npos);
+  CHECK(json.find("\"fillPaints\":[{\"type\":8,\"opacity\":0.5,\"visible\":false}]") != std::string::npos);
   std::string again = codec::writeMessage(0, back.changes);
   codec::KiwiMessage twice;
   REQUIRE(codec::readMessage(again, twice));

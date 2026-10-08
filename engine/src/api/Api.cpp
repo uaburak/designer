@@ -1663,6 +1663,17 @@ ENG_EXPORT int32_t engine_text_layout(Handle h, uint32_t sessionID, uint32_t loc
     w.endObject().endArray().key("styleID").number(L->styles[d.style].styleID).endObject();
   }
   w.endArray();
+  w.key("hyperlinkBoxes").beginArray();
+  for (const text::LinkBox& b : L->links) {
+    w.beginObject().key("bounds").beginObject();
+    w.key("x").number(b.rect.x).key("y").number(b.rect.y).key("w").number(b.rect.w).key("h").number(b.rect.h).endObject();
+    if (!b.link.url.empty()) w.key("url").string(b.link.url);
+    if (b.link.guid != kNoGuid) w.key("guid").string(b.link.guid.toString());
+    w.key("hyperlinkID").number(b.id).key("openInNewTab").boolean(b.link.openInNewTab);
+    w.key("firstCharacter").number(b.start).key("endCharacter").number(b.end);
+    w.endObject();
+  }
+  w.endArray();
   w.key("truncationStartIndex").number(L->truncated ? static_cast<double>(L->truncationStart) : -1);
   w.key("truncatedHeight").number(L->truncated ? L->size.y : -1);
   w.key("logicalIndexToCharacterOffsetMap").beginArray();
@@ -1670,6 +1681,49 @@ ENG_EXPORT int32_t engine_text_layout(Handle h, uint32_t sessionID, uint32_t loc
   w.endArray();
   w.key("missingFont").boolean(L->missingFont).key("pendingFont").boolean(L->pendingFont);
   w.endObject();
+  return setResult(w.take());
+}
+
+// Result: the style of a text range as the Typography section shows it (Editor::textRangeStyle): {from, to,
+// values, mixed}. flags 1: the edited selection (or the whole text when it isn't being edited); else [from, to).
+ENG_EXPORT int32_t engine_text_range_style(Handle h, uint32_t sessionID, uint32_t localID, uint32_t from, uint32_t to, uint32_t flags) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  std::string out = e->editor.textRangeStyle({sessionID, localID}, from, to, (flags & 1) != 0);
+  if (out.empty()) return E_NOT_FOUND;
+  return setResult(std::move(out));
+}
+
+// Paragraph edits (Editor::textParagraphs): op 0 = list type (value 0 none, 1 numbered, 2 bulleted; a toggle), op 1 =
+// indentation by `value` levels; on the edited selection's paragraphs, or the whole text.
+ENG_EXPORT int32_t engine_text_paragraphs(Handle h, uint32_t sessionID, uint32_t localID, int32_t op, int32_t value) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.textParagraphs({sessionID, localID}, op, value) : E_HANDLE;
+}
+
+// Result: a font's variable axes and OpenType features, for the Type settings' Variable and Details tabs:
+// {axes: [{tag, name, min, default, max, value, hidden}], features: [{tag, name}]}. E_NOT_FOUND while the font isn't
+// loaded (it is requested: REQUEST_FONT) or when it's missing.
+ENG_EXPORT int32_t engine_font_info(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen) {
+  Call call(false);
+  text::Font* f = text::FontRegistry::get().find(FontName{std::string(bytes(familyPtr, familyLen)), std::string(bytes(stylePtr, styleLen)), ""});
+  if (!f) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginObject().key("axes").beginArray();
+  for (const text::AxisInfo& a : f->axes()) {
+    w.beginObject().key("tag").string(text::tagString(a.tag)).key("name").string(a.name);
+    w.key("min").number(a.min).key("default").number(a.def).key("max").number(a.max).key("value").number(a.value);
+    w.key("hidden").boolean(a.hidden).endObject();
+  }
+  w.endArray().key("features").beginArray();
+  for (const text::FeatureInfo& ft : f->features()) {
+    w.beginObject().key("tag").string(text::tagString(ft.tag));
+    if (!ft.name.empty()) w.key("name").string(ft.name);
+    w.endObject();
+  }
+  w.endArray().endObject();
   return setResult(w.take());
 }
 

@@ -25,7 +25,7 @@ import { Status } from "@/engine/abi";
 import type { Guid, Message, NodeChange, Paint } from "@/engine/codec";
 import type { Engine } from "@/engine/Engine";
 import { engineCall, engineMethod } from "./engineCompat";
-import { paintImageHash, paintLacksProgressive, paintThumbnailHash, thumbHashBytes, withProgressive, type ProgressiveImage } from "./model/paints";
+import { isImageLike, paintImageHash, paintLacksProgressive, paintThumbnailHash, thumbHashBytes, withProgressive, type ProgressiveImage } from "./model/paints";
 import { rgbaToThumbHash, THUMBHASH_MAX_INPUT, thumbHashToPremultipliedRGBA } from "./thumbHash";
 
 /** Where a file's images live (DocumentSource.images): content-addressed by the SHA-1 of their bytes. */
@@ -642,7 +642,7 @@ export class ImageService {
       if (!n.guid || !isDocumentRef(n.guid)) continue;
       for (const key of ["fillPaints", "strokePaints"] as const) {
         for (const p of n[key] ?? []) {
-          if (p.type !== "IMAGE") continue;
+          if (!isImageLike(p)) continue;
           const hash = paintImageHash(p);
           if (!hash) continue;
           const tier = paintThumbnailHash(p);

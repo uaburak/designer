@@ -53,6 +53,29 @@ export type ExtraFields = {
   textDecoration?: "NONE" | "UNDERLINE" | "STRIKETHROUGH";
   leadingTrim?: "NONE" | "CAP_HEIGHT";
   hangingPunctuation?: boolean;
+  // Text round: fields the engine keeps as data and applies (per run where Figma allows; null removes)
+  hangingList?: boolean;
+  listSpacing?: number;
+  textWrapStyle?: "AUTO" | "BALANCE" | "PRETTY";
+  textDecorationStyle?: "SOLID" | "DOTTED" | "WAVY";
+  textDecorationSkipInk?: boolean;
+  textDecorationThickness?: NumberValue | null;
+  textUnderlineOffset?: NumberValue | null;
+  hyperlink?: { url?: string; guid?: { sessionID: number; localID: number }; openInNewTab?: boolean } | null;
+  fontVariations?: { axisTag: number; axisName?: string; value: number }[] | null;
+  toggledOnOTFeatures?: string[] | null;
+  toggledOffOTFeatures?: string[] | null;
+  fontVariantCommonLigatures?: boolean | null;
+  fontVariantContextualLigatures?: boolean | null;
+  fontVariantDiscretionaryLigatures?: boolean | null;
+  fontVariantHistoricalLigatures?: boolean | null;
+  fontVariantOrdinal?: boolean | null;
+  fontVariantSlashedZero?: boolean | null;
+  fontVariantNumericFigure?: "NORMAL" | "LINING" | "OLDSTYLE";
+  fontVariantNumericSpacing?: "NORMAL" | "PROPORTIONAL" | "TABULAR";
+  fontVariantNumericFraction?: "NORMAL" | "DIAGONAL" | "STACKED";
+  fontVariantPosition?: "NORMAL" | "SUB" | "SUPER";
+  fontVariantCaps?: "NORMAL" | "SMALL" | "ALL_SMALL" | "PETITE" | "ALL_PETITE" | "UNICASE" | "TITLING";
 };
 
 /** A selected node as the panel reads it: its real type (controller.withRealType) and every field. */
