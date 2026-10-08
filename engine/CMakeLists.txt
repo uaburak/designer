@@ -83,6 +83,9 @@ add_library(eng_core STATIC
   src/proto/Player.cpp
   src/editor/PrototypeEditing.cpp
   src/render/PrototypeOverlay.cpp
+  src/editor/Annotations.cpp
+  src/editor/DevMode.cpp
+  src/render/AnnotationOverlay.cpp
   src/render/PresentRender.cpp
 )
 target_include_directories(eng_core PUBLIC src)
@@ -159,6 +162,7 @@ else()
     tests/unit/export.test.cpp
     tests/unit/prototype.test.cpp
     tests/unit/prototype.video.test.cpp
+    tests/unit/devmode.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

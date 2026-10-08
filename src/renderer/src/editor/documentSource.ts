@@ -60,6 +60,8 @@ export interface DocumentSource {
   /** Version history (docs/data.md §6). Optional: absent, the File menu's version items are disabled. */
   listVersions?(): Promise<VersionInfo[]>;
   saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
+  /** A saved version as a document, read-only (Dev Mode's Compare changes loads it into an engine of its own). Optional. */
+  openVersion?(id: string): Promise<Message>;
   /** Non-destructive restore: `apply` gets the diff (and its kiwi bytes when the source has them) and applies it as one undoable edit labelled "Restore version". */
   restoreVersion?(id: string, apply: (diff: Message, bytes?: Uint8Array) => void | Promise<void>): Promise<VersionInfo>;
   /** The file's images by SHA-1 (the store's blobs). Optional: absent, images can't be placed or drawn. */
@@ -204,12 +206,33 @@ export interface MemoryDocumentSource extends DocumentSource {
 }
 
 /** A DocumentSource held in memory: the snapshot it was given plus every change since. */
-export function memoryDocumentSource(document: Message, options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore } = {}): MemoryDocumentSource {
+export function memoryDocumentSource(
+  document: Message,
+  options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore; versions?: boolean } = {}
+): MemoryDocumentSource {
   const nodes = new Map<Guid, NodeChange>(document.nodeChanges.map((n) => [n.guid, { ...n, phase: "CREATED" as const }]));
   const changes: Message[] = [];
   let fileName = options.fileName ?? "Untitled";
   const snapshot = (): Message => ({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: orderParentsFirst([...nodes.values()]) });
+  // `versions`: version history in memory (the browser's demo files: Dev Mode's Compare changes reads it).
+  const saved: { info: VersionInfo; message: Message }[] = [];
+  const history = options.versions
+    ? {
+        listVersions: async () => saved.map((v) => ({ ...v.info })),
+        saveVersion: async (input: { title?: string; description?: string } = {}) => {
+          const info: VersionInfo = { id: `v${saved.length + 1}`, kind: "named", title: input.title ?? null, description: input.description ?? null, createdAt: Date.now() };
+          saved.push({ info, message: structuredClone(snapshot()) });
+          return { ...info };
+        },
+        openVersion: async (id: string) => {
+          const v = saved.find((x) => x.info.id === id);
+          if (!v) throw new Error("This version doesn't exist");
+          return structuredClone(v.message);
+        },
+      }
+    : {};
   return {
+    ...history,
     get fileName() {
       return fileName;
     },

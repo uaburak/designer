@@ -125,14 +125,14 @@ void Renderer::drawGlyphs(const text::TextLayout& L, const Mat2x3& m, const Colo
   }
 }
 
-const text::TextLayout* Renderer::label(const std::string& characters, const char* style, double size, double maxWidth) {
+const text::TextLayout* Renderer::label(const std::string& characters, const char* style, double size, double maxWidth, int maxLines) {
   text::FontRegistry& fonts = text::FontRegistry::get();
   if (labelsGeneration_ != fonts.generation() || labels_.size() > 512) {
     labels_.clear();
     labelsGeneration_ = fonts.generation();
   }
   double width = maxWidth >= 0 ? std::floor(maxWidth) : -1;
-  std::string key = std::string(style) + "\n" + std::to_string(size) + "\n" + std::to_string(width) + "\n" + characters;
+  std::string key = std::string(style) + "\n" + std::to_string(size) + "\n" + std::to_string(width) + "\n" + std::to_string(maxLines) + "\n" + characters;
   auto it = labels_.find(key);
   if (it != labels_.end()) return it->second.get();
   FontName name{"Inter", style, ""};
@@ -147,7 +147,7 @@ const text::TextLayout* Renderer::label(const std::string& characters, const cha
   text::LayoutOptions o;
   if (width >= 0) {
     p.text().textTruncation = TextTruncation::ENDING;
-    p.text().maxLines = 1;
+    p.text().maxLines = maxLines > 0 ? maxLines : 1;
     p.text().textAutoResize = TextAutoResize::HEIGHT;
     o.width = width;
   }

@@ -7,7 +7,7 @@ import type { Engine } from "@/engine/Engine";
 import type { AssetId, Guid, NodeChange } from "@/engine/codec";
 import type { BoundName, InspectInput } from "./inspect/model";
 import { boundsOf, IDENTITY, multiply, type Affine, type Box } from "./inspect/measure";
-import { annotationsOf, statusOf, type AnnotationView, type AssetNode, type DevStatus } from "./inspect/devMode";
+import { annotationsOf, statusOf, type AnnotationView, type AssetNode, type DevStatus, type StatusNode } from "./inspect/devMode";
 
 export interface LayerNode {
   id: Guid;
@@ -206,7 +206,7 @@ export class ViewerDoc {
     walk(tree.roots);
     const out: { id: Guid; name: string; status: DevStatus }[] = [];
     if (ids.length) {
-      const rows = this.engine.readNodes(ids, { fields: ["sectionStatusInfo"] }) as (NodeChange & { sectionStatusInfo?: { status?: string } })[];
+      const rows = this.engine.readNodes(ids, { fields: ["sectionStatusInfo", "editInfo"] }) as (NodeChange & StatusNode)[];
       rows.forEach((r, i) => {
         const status = statusOf(r);
         if (status) out.push({ id: ids[i], name: tree.nodes.get(ids[i])?.name ?? "", status });

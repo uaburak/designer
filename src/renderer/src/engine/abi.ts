@@ -9,6 +9,8 @@
 export const TOOLS = [
   "MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
   "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
+  // Dev Mode's tools (⇧T, ⇧M; engine/src/editor/DevMode.cpp)
+  "ANNOTATION", "MEASUREMENT",
 ] as const;
 export type ToolName = (typeof TOOLS)[number];
 export const toolId = (tool: ToolName): number => TOOLS.indexOf(tool);
@@ -199,6 +201,13 @@ export const CommandId = {
   WRAP_IN_NEW_SLOT: 211,
   /** args { ref? }: a slot emptied — an instance's slot row (its content diverges) or a main's slot frame ("Delete contents") */
   CLEAR_SLOT: 212,
+  // Round 6 (r6-annotations-devmode): Dev Mode's saved measurements; 220-229.
+  /** args { from, to?, side: "TOP" | "BOTTOM" | "LEFT" | "RIGHT", toSameSide?, inner?, outer?, freeText?, page? }; created: [id] */
+  MEASUREMENT_ADD: 220,
+  /** args { id, freeText?, inner?, outer?, page? } */
+  MEASUREMENT_UPDATE: 221,
+  /** args { id, page? } */
+  MEASUREMENT_DELETE: 222,
 } as const;
 export type CommandName = keyof typeof CommandId;
 

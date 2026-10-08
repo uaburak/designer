@@ -9,14 +9,16 @@ namespace eng {
 
 const char* toolName(Tool t) {
   static constexpr const char* kNames[] = {"MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
-                                           "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT"};
+                                           "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
+                                           "ANNOTATION", "MEASUREMENT"};
   auto i = static_cast<size_t>(t);
   return i < sizeof kNames / sizeof kNames[0] ? kNames[i] : "MOVE";
 }
 
 bool toolImplemented(Tool t) {
   return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
-         t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL;
+         t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL ||
+         t == Tool::ANNOTATION || t == Tool::MEASUREMENT;
 }
 
 const char* txnKindName(TxnKind k) {
@@ -51,6 +53,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   txn_.changes.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
+  edited_.clear();
   if (kind == TxnKind::USER || kind == TxnKind::GESTURE) undo_.begin(selection_, label);
 }
 
@@ -113,8 +116,10 @@ void Editor::rebuildIndexes() {
   instanceMain_.clear();
   docNode_ = kNoGuid;
   infoCache_.clear();
+  annotated_.clear();
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
+    if (annot::hasNotes(n.props)) annotated_.insert(n.guid);
     if (!n.props.asset().key.empty()) {
       keyIndex_[n.props.asset().key].push_back(n.guid);
       keyOf_[n.guid] = n.props.asset().key;
@@ -139,6 +144,7 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
     hasLibraryCopies_ = true;
   if (!applyingStored_ && (!storedText_.empty() || !storedSymbols_.empty())) invalidateStored(c, typeBefore);
   indexChange(c);
+  noteAnnotated(c);
   markInstanceDirty(c);
   noteBindings(c, typeBefore);
   FieldMask mask = c.phase == Phase::CHANGED ? c.mask : F_ALL;
@@ -254,6 +260,7 @@ void Editor::write(const NodeChange& change) {
       if (!r.mask) return;
     }
   }
+  if (userEdit && editTracking_) noteEdited(*c);
   NodeType typeBefore = existing ? existing->props.type : NodeType::NONE;
   Guid parentBefore = existing ? existing->props.parentIndex.guid : kNoGuid;
   bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
@@ -362,6 +369,7 @@ void Editor::commit(bool mergeWithLast) {
     flushLayout();
     removeEmptyGroups();
     flushLayout();
+    if (editTracking_) stampEdited();  // editInfo on what was edited and its ancestors (Dev Mode's "Changed")
   } else {
     flushLayout();  // instances re-derive after undo, redo, remote changes and loads
   }
@@ -391,6 +399,7 @@ void Editor::rollback() {
   txn_.changes.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
+  edited_.clear();
   if (!instanceDirty_.empty() || !bindingsDirty_.empty()) {
     // The instances the cancelled edit reached show their restored mains again.
     begin(TxnKind::SYSTEM, "Instances");
@@ -695,6 +704,7 @@ Overlay Editor::overlay() const {
   if (vector_.node != kNoGuid) vectorOverlay(o);
   if (paint_.node != kNoGuid) paintOverlay(o);
   if (proto_.on) protoOverlay(o);
+  devOverlay(o);
   if (gesture_ == Gesture::Pencil && pencilPoints_.size() > 1)
     for (size_t i = 1; i < pencilPoints_.size(); i++)
       o.curves.push_back({pencilPoints_[i - 1], pencilPoints_[i - 1], pencilPoints_[i], pencilPoints_[i], 1, true});
@@ -1197,6 +1207,7 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
       return K_HANDLED;
     }
   }
+  if (uint32_t r = devKey(code, mods)) return r;
   if (viewer_ && code != KeyCode::Escape && code != KeyCode::Tab && code != KeyCode::Enter && code != KeyCode::NumpadEnter) return 0;
   // Selected grid tracks: ⌫ deletes them, Enter edits them, Esc lets them go (tools/GridGestures.cpp).
   if (!viewer_)
@@ -1278,7 +1289,7 @@ void Editor::setViewerMode(bool on) {
 
 Status Editor::setTool(Tool t) {
   if (!toolImplemented(t)) return E_UNSUPPORTED;
-  if (viewer_ && t != Tool::MOVE && t != Tool::HAND) return E_READONLY;
+  if (viewer_ && t != Tool::MOVE && t != Tool::HAND && !(devEdits_ && (t == Tool::ANNOTATION || t == Tool::MEASUREMENT))) return E_READONLY;
   if (t != tool_ && text_.node != kNoGuid) endTextEdit();
   // In vector edit mode the Pen and Move switch its own tool; any other tool leaves it.
   if (vector_.node != kNoGuid) {

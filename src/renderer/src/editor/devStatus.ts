@@ -42,12 +42,30 @@ export function statusOfTargets(ed: EditorController, ids: readonly Guid[]): str
 
 /** Sets (or, with null, removes) the targets' status — one undo step. */
 export function setDevStatus(ed: EditorController, status: "BUILD" | "COMPLETED" | null): void {
-  const ids = statusTargets(ed);
+  setDevStatusOf(ed, statusTargets(ed), status);
+}
+
+/**
+ * Sets (or removes) the status of these designs — one undo step. A status set again ("Done with changes", with an
+ * optional `description`: the reason) restarts its clock, which clears "Changed" (the design's editInfo is older now).
+ */
+export function setDevStatusOf(ed: EditorController, ids: readonly Guid[], status: "BUILD" | "COMPLETED" | null, opts: { description?: string; label?: string } = {}): void {
   if (!ids.length) return;
   const before = statusOfTargets(ed, ids);
   const info = status
-    ? { status, lastUpdateUnixTimestamp: Math.floor(Date.now() / 1000), ...(before && before !== "mixed" && before !== status ? { prevStatus: before } : {}) }
+    ? {
+        status,
+        lastUpdateUnixTimestamp: Math.floor(Date.now() / 1000),
+        ...(opts.description ? { description: opts.description } : {}),
+        ...(before && before !== "mixed" ? { prevStatus: before } : {}),
+      }
     : null;
-  const label = status === "BUILD" ? "Mark as ready for dev" : status === "COMPLETED" ? "Mark as completed" : "Remove status";
+  const label = opts.label ?? (status === "BUILD" ? "Mark as ready for dev" : status === "COMPLETED" ? "Mark as completed" : "Remove status");
   ed.setProps(ids, { sectionStatusInfo: info } as unknown as NodeFields, label);
+  // A design marked ready is compared with the file as it was then (Compare changes): a version saved now
+  // (unverified: whether Figma saves one, or keeps its own snapshot).
+  if (status === "BUILD" && ed.source.saveVersion) {
+    const names = ids.map((id) => ed.engine.readNode(id, { fields: ["name"] })?.name ?? "").filter(Boolean);
+    void ed.source.saveVersion({ title: `${names.length === 1 ? `“${names[0]}”` : `${names.length} designs`} marked ready for dev` }).catch(() => {});
+  }
 }

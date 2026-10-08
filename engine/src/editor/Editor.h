@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "base/Json.h"
+#include "editor/Annotations.h"
 #include "editor/Commands.h"
 #include "editor/Keys.h"
 #include "editor/Selection.h"
@@ -38,8 +39,11 @@ namespace eng {
 // FRAME, RECTANGLE, ELLIPSE; setTool refuses the others.
 enum class Tool : uint8_t {
   MOVE, SCALE, HAND, FRAME, SECTION, SLICE, RECTANGLE, LINE, ARROW, ELLIPSE,
-  POLYGON, STAR, IMAGE, PEN, PENCIL, TEXT, COMMENT, Count
+  POLYGON, STAR, IMAGE, PEN, PENCIL, TEXT, COMMENT,
+  ANNOTATION, MEASUREMENT,
+  Count
 };
+// ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp.
 const char* toolName(Tool t);
 bool toolImplemented(Tool t);
 
@@ -306,7 +310,30 @@ class Editor : private LayoutHost, public TextLayouts {
     bool edit = false;
     Rect label;
   };
+  // ANNOTATION_OPEN: a click on an annotation's label or dot (index ≥ 0), or the Annotation tool's click on a layer
+  // (index −1: a new note); `rect`: CSS px in the canvas (the label, else the layer).
+  struct AnnotationOpen {
+    Guid node = kNoGuid;
+    int index = -1;
+    Rect rect;
+  };
+  // MEASUREMENT_EDIT: a double-click on a saved measurement (its custom text); `rect`: the value's pill.
+  struct MeasurementEdit {
+    Guid id = kNoGuid;
+    Rect rect;
+    std::string text;
+  };
+  // DEV_STATUS: a click on a design's status chip ("menu") or on "Mark as ready for dev" ("mark").
+  struct DevStatusClick {
+    Guid frame = kNoGuid;
+    std::string action;
+    Rect rect;
+  };
   struct Events {
+    std::vector<AnnotationOpen> annotationOpens;
+    std::vector<MeasurementEdit> measurementEdits;
+    std::vector<DevStatusClick> statusClicks;
+    bool measurementSelection = false;  // MEASUREMENT_SELECTED
     std::vector<DocumentChanged> documents;        // DOCUMENT_CHANGED, one per committed transaction
     std::vector<ContextMenu> contextMenus;
     std::vector<std::pair<Guid, uint32_t>> nodes;  // NODES_CHANGED: node, field groups (merged)
@@ -323,7 +350,8 @@ class Editor : private LayoutHost, public TextLayouts {
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
-      return !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+      return !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -421,6 +449,38 @@ class Editor : private LayoutHost, public TextLayouts {
   // tools; edits through the API are refused (E_READONLY, Api.cpp).
   void setViewerMode(bool on);
   bool viewerMode() const { return viewer_; }
+
+  // ---- Dev Mode (editor/DevMode.cpp; editor/Annotations.h; R9-dev-mode.md "Round 6") ----
+  // The editor's Dev Mode: viewer mode that still takes Dev Mode's own edits — annotations, measurements, statuses,
+  // annotation categories (Api lets those fields and the measurement commands through), the Annotation and
+  // Measurement tools.
+  void setDevEdits(bool on);
+  bool devEdits() const { return devEdits_; }
+  bool canEditDev() const { return !viewer_ || devEdits_; }
+  // View › Annotations (labels, dots and saved measurements); `dots`: Dev Mode's dots (a click opens one's label).
+  void setAnnotationView(bool show, bool dots);
+  bool annotationsShown() const { return dev_.show; }
+  // Every user edit stamps editInfo {lastEditedAt, createdAt} (unix seconds) on the edited nodes and their ancestors,
+  // as Figma's files do — a design marked ready whose lastEditedAt is later than its status shows "Changed". Edits of
+  // annotations, measurements and statuses don't count.
+  void setEditTracking(bool on) { editTracking_ = on; }
+  bool editTracking() const { return editTracking_; }
+  void setWallClock(std::function<double()> secondsNow) { wallClock_ = std::move(secondsNow); }
+  double wallClock() const;
+  // Focus view: only `id` (a design on the current page) is drawn, hovered and selected; kNoGuid leaves it.
+  Status setFocus(Guid id);
+  Guid focus() const { return dev_.focus; }
+  // What the last canvas frame drew that can be clicked (engine_render hands it over).
+  void setCanvasHits(const CanvasHits& hits) { hits_ = hits; }
+  const CanvasHits& canvasHits() const { return hits_; }
+  // A design's Dev Mode status as the canvas shows it: 0 none, 1 Ready for dev, 2 Completed, 3 Changed.
+  int devStatus(Guid id) const;
+  // The page's saved measurements; the selected one.
+  std::vector<annot::Measurement> measurements(Guid page = kNoGuid) const;
+  Guid selectedMeasurement() const { return dev_.selectedMeasurement; }
+  Status selectMeasurement(Guid id);
+  // Where a measurement is drawn (world): its line and the extension lines from the layers to it.
+  bool measurementLine(const annot::Measurement& m, Vec2& a, Vec2& b, std::vector<GuideLine>* extensions = nullptr) const;
 
   // ---- Components and instances (editor/Instances.cpp, editor/ComponentCommands.cpp) ----
   bool componentInfo(Guid id, ComponentInfo& out) const;  // cached per document version
@@ -716,7 +776,8 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t variableCommandState(CommandId id) const;
   std::string newAssetKey();
 
-  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid };
+  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
+                                 Measure, MeasureDrag };
 
   struct Target {
     Guid id;
@@ -1088,6 +1149,52 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   ProtoSession proto_;
   bool viewer_ = false;
+
+  // ---- Dev Mode (editor/DevMode.cpp) ----
+  struct DevSession {
+    bool show = true, dots = false;
+    Guid focus = kNoGuid;
+    Guid selectedMeasurement = kNoGuid;
+    Guid openNode = kNoGuid;  // dots: the annotation whose label is open
+    int openIndex = -1;
+    // The measurement tool: the edge under the pointer; a drag from it.
+    bool hasEdge = false;
+    Guid edgeNode = kNoGuid;
+    annot::Side edgeSide = annot::Side::LEFT;
+    Guid fromNode = kNoGuid;
+    annot::Side fromSide = annot::Side::LEFT;
+    Vec2 point;
+    bool hasTo = false;
+    Guid toNode = kNoGuid;
+    annot::Side toSide = annot::Side::LEFT;
+    // A saved measurement being dragged off the design.
+    annot::Measurement dragged;
+    bool draggedMoved = false;
+  };
+  DevSession dev_;
+  bool devEdits_ = false;
+  bool editTracking_ = false;
+  std::function<double()> wallClock_;
+  std::unordered_set<Guid, GuidHash> edited_;     // this transaction's edited nodes (editInfo)
+  std::unordered_set<Guid, GuidHash> annotated_;  // nodes with annotations
+  CanvasHits hits_;
+  void devOverlay(Overlay& o) const;
+  uint32_t devPointerDown(Vec2 s, uint32_t mods);
+  bool devPointerMove(Vec2 s);
+  bool devPointerUp(Vec2 s);
+  void devHover(Vec2 s);
+  uint32_t devKey(KeyCode code, uint32_t mods);
+  // Writes the page's measurements (one undo step).
+  void writeMeasurements(Guid page, const std::vector<annot::Measurement>& list, const char* label);
+  // editInfo: the user edits of the open transaction, stamped at its commit.
+  void noteEdited(const NodeChange& c);
+  void stampEdited();
+  void noteAnnotated(const NodeChange& c);
+  // The edge the measurement tool snaps to under `s` (`axis`: 0 any, 1 left / right, 2 top / bottom).
+  bool edgeAt(Vec2 s, int axis, Guid& node, annot::Side& side) const;
+  Status measurementCommand(CommandId id, const CommandArgs& args);
+  // Focus view: a hit path outside the focused design is no hit.
+  void focusFilter(std::vector<Guid>& path) const;
   const std::vector<ProtoLink>& protoLinks();
   // The hotspots that show a "+" handle (the selection, top-level layers and layers inside frames) and where it is.
   std::vector<Guid> protoHandleNodes() const;

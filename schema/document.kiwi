@@ -1553,6 +1553,13 @@ enum SectionStatus {
   COMPLETED = 2;           // "Completed"
 }
 
+message EditInfo {         // when a node (or something inside it) was last edited; Dev Mode's "Changed"
+  string timestampIso8601 = 1;
+  string userId = 2;
+  uint lastEditedAt = 3;   // unix seconds
+  uint createdAt = 4;      // unix seconds
+}
+
 message SectionStatusInfo {
   SectionStatus status = 1;
   uint lastUpdateUnixTimestamp = 2;
@@ -1602,11 +1609,10 @@ message AnnotationProperty {
 }
 
 message Annotation {       // Dev Mode annotation on a layer
-  string label = 1;        // rich text as HTML
+  string label = 1;        // the note as plain text (older files: rich text as HTML)
   AnnotationProperty[] properties = 2;
+  string labelV2 = 3;      // the note as markdown (the plugin API's labelMarkdown; unverified which field Figma uses)
   GUID categoryId = 4;
-  // Reserved field numbers (1): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r3 = 3 [deprecated];
 }
 
 enum AnnotationCategoryPreset {
@@ -1796,6 +1802,7 @@ message NodeChange {
   ScrollBehavior scrollBehavior = 186;            // @own
   bool sectionContentsHidden = 283;               // @nooverride
   SectionStatusInfo sectionStatusInfo = 355;      // @nooverride Dev Mode status of a SECTION/FRAME
+  EditInfo editInfo = 331;                        // @nooverride last edit of the node or its subtree (Dev Mode's "Changed")
 
   // --- auto layout ---
   StackMode stackMode = 105;                      // @nooverride
@@ -1974,7 +1981,7 @@ message NodeChange {
   byte _r286 = 286 [deprecated]; byte _r287 = 287 [deprecated]; byte _r288 = 288 [deprecated]; byte _r289 = 289 [deprecated]; byte _r290 = 290 [deprecated]; byte _r291 = 291 [deprecated];
   byte _r292 = 292 [deprecated]; byte _r293 = 293 [deprecated]; byte _r301 = 301 [deprecated]; byte _r302 = 302 [deprecated]; byte _r303 = 303 [deprecated];
   byte _r304 = 304 [deprecated]; byte _r306 = 306 [deprecated]; byte _r307 = 307 [deprecated]; byte _r308 = 308 [deprecated]; byte _r309 = 309 [deprecated]; byte _r310 = 310 [deprecated];
-  byte _r311 = 311 [deprecated]; byte _r321 = 321 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated]; byte _r331 = 331 [deprecated];
+  byte _r311 = 311 [deprecated]; byte _r321 = 321 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated];
   byte _r338 = 338 [deprecated]; byte _r340 = 340 [deprecated]; byte _r341 = 341 [deprecated]; byte _r344 = 344 [deprecated]; byte _r345 = 345 [deprecated]; byte _r346 = 346 [deprecated];
   byte _r347 = 347 [deprecated]; byte _r348 = 348 [deprecated]; byte _r350 = 350 [deprecated]; byte _r352 = 352 [deprecated]; byte _r354 = 354 [deprecated]; byte _r356 = 356 [deprecated];
   byte _r357 = 357 [deprecated]; byte _r360 = 360 [deprecated]; byte _r361 = 361 [deprecated]; byte _r362 = 362 [deprecated]; byte _r363 = 363 [deprecated]; byte _r364 = 364 [deprecated];

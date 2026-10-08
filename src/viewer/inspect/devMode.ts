@@ -11,18 +11,43 @@
 import type { NodeChange, Paint } from "@/engine/codec";
 import type { CssDecl } from "./css";
 import { cssColor, hexOf, num, typographyOf } from "./model";
+import { markdownPlain } from "@/editor/devmode/annotations";
 
 // ---- Statuses ----------------------------------------------------------------------------------------------------
 
-export type DevStatus = "READY_FOR_DEV" | "COMPLETED";
-export const STATUS_LABEL: Record<DevStatus, string> = { READY_FOR_DEV: "Ready for dev", COMPLETED: "Completed" };
+export type DevStatus = "READY_FOR_DEV" | "COMPLETED" | "CHANGED";
+export const STATUS_LABEL: Record<DevStatus, string> = { READY_FOR_DEV: "Ready for dev", COMPLETED: "Completed", CHANGED: "Changed" };
 
-/** The status a node carries (schema `SectionStatusInfo.status`: BUILD = "Ready for dev", COMPLETED), or null. */
-export function statusOf(node: { sectionStatusInfo?: { status?: string | number } } | null | undefined): DevStatus | null {
+export interface StatusNode {
+  sectionStatusInfo?: { status?: string | number; lastUpdateUnixTimestamp?: number };
+  editInfo?: { lastEditedAt?: number; createdAt?: number };
+}
+
+/**
+ * The status a node carries (schema `SectionStatusInfo.status`: BUILD = "Ready for dev", COMPLETED), or null; "Changed"
+ * (help.figma.com 26781702258583: set automatically when a Ready or Completed design is modified) when the design was
+ * edited after its status was set — `editInfo.lastEditedAt` later than `sectionStatusInfo.lastUpdateUnixTimestamp`, as
+ * Figma's files record it (R9 "Round 6").
+ */
+export function statusOf(node: StatusNode | null | undefined): DevStatus | null {
   const s = node?.sectionStatusInfo?.status;
-  if (s === "BUILD" || s === 1) return "READY_FOR_DEV";
-  if (s === "COMPLETED" || s === 2) return "COMPLETED";
-  return null;
+  const set = s === "BUILD" || s === 1 ? "READY_FOR_DEV" : s === "COMPLETED" || s === 2 ? "COMPLETED" : null;
+  if (!set) return null;
+  const edited = node?.editInfo?.lastEditedAt ?? 0;
+  const since = node?.sectionStatusInfo?.lastUpdateUnixTimestamp ?? 0;
+  return edited > since ? "CHANGED" : set;
+}
+
+/** "Edited 5 minutes ago" from a unix-seconds timestamp (Inspect's header; the left panel's designs). */
+export function editedAgo(unixSeconds: number | undefined | null, now = Date.now()): string | null {
+  if (!unixSeconds) return null;
+  const s = Math.max(0, Math.round(now / 1000 - unixSeconds));
+  if (s < 60) return "Edited just now";
+  const units: [number, string][] = [[60, "minute"], [3600, "hour"], [86400, "day"], [604800, "week"], [2629800, "month"], [31557600, "year"]];
+  let pick = units[0];
+  for (const u of units) if (s >= u[0]) pick = u;
+  const n = Math.floor(s / pick[0]);
+  return `Edited ${n} ${pick[1]}${n === 1 ? "" : "s"} ago`;
 }
 
 // ---- Annotations ---------------------------------------------------------------------------------------------------
@@ -71,10 +96,10 @@ export function annotationProperty(type: string, n: NodeChange): { label: string
     case "MAX_HEIGHT": return { label: "Max height", value: px(e.maxHeight as number | undefined) };
     case "FILL": return { label: "Fill", value: firstSolid(n.fillPaints) ?? "—" };
     case "STROKE": return { label: "Stroke", value: firstSolid(n.strokePaints) ?? "—" };
-    case "STROKE_WIDTH": return { label: "Stroke width", value: px(n.strokeWeight) };
+    case "STROKE_WIDTH": return { label: "Stroke weight", value: px(n.strokeWeight) };
     case "CORNER_RADIUS": return { label: "Corner radius", value: px(n.cornerRadius) };
     case "OPACITY": return { label: "Opacity", value: `${num((n.opacity ?? 1) * 100)}%` };
-    case "EFFECT": return { label: "Effect", value: (n.effects ?? []).filter((x) => x.visible !== false).map((x) => x.type.toLowerCase().replace(/_/g, " ")).join(", ") || "—" };
+    case "EFFECT": return { label: "Effects", value: (n.effects ?? []).filter((x) => x.visible !== false).map((x) => x.type.toLowerCase().replace(/_/g, " ")).join(", ") || "—" };
     case "TEXT_STYLE": return { label: "Text style", value: t ? `${t.family} ${t.style} ${num(t.size)}` : "—" };
     case "TEXT_ALIGN_HORIZONTAL": return { label: "Text align", value: t ? t.align.toLowerCase() : "—" };
     case "FONT_FAMILY": return { label: "Font family", value: t?.family ?? "—" };
@@ -87,15 +112,16 @@ export function annotationProperty(type: string, n: NodeChange): { label: string
     case "STACK_PADDING": return { label: "Padding", value: n.stackMode && n.stackMode !== "NONE" ? `${num(n.stackVerticalPadding ?? 0)} ${num(n.stackPaddingRight ?? n.stackHorizontalPadding ?? 0)} ${num(n.stackPaddingBottom ?? n.stackVerticalPadding ?? 0)} ${num(n.stackHorizontalPadding ?? 0)}` : "—" };
     case "STACK_MODE": return { label: "Layout", value: n.stackMode === "HORIZONTAL" ? "Horizontal" : n.stackMode === "VERTICAL" ? "Vertical" : n.stackMode === "GRID" ? "Grid" : "—" };
     case "STACK_ALIGNMENT": return { label: "Alignment", value: [n.stackPrimaryAlignItems, n.stackCounterAlignItems].filter(Boolean).join(" / ").toLowerCase() || "—" };
-    case "COMPONENT": return { label: "Component", value: n.name ?? "—" };
+    case "COMPONENT": return { label: "Main component", value: n.name ?? "—" };
     default: return { label: type.charAt(0) + type.slice(1).toLowerCase().replace(/_/g, " "), value: "—" };
   }
 }
 
 /** A layer's annotations, ready to show. */
-export function annotationsOf(n: NodeChange & { annotations?: { label?: string; properties?: { type?: string | number }[] }[] }): AnnotationView[] {
+export function annotationsOf(n: NodeChange & { annotations?: { label?: string; labelV2?: string; properties?: { type?: string | number }[] }[] }): AnnotationView[] {
   return (n.annotations ?? []).map((a) => ({
-    text: htmlText(a.label ?? ""),
+    // The markdown (labelV2, round 6) as text, else the label (older files: HTML).
+    text: a.labelV2 ? markdownPlain(a.labelV2) : htmlText(a.label ?? ""),
     properties: (a.properties ?? []).filter((p) => typeof p.type === "string").map((p) => annotationProperty(p.type as string, n)),
   }));
 }

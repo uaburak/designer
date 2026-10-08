@@ -49,14 +49,14 @@ export function layerIcon(n: LayerNode): IconName {
 }
 
 export function LeftPanel() {
-  const { preview } = useViewer();
+  const { preview, host } = useViewer();
   return (
     <aside className={styles.left} aria-label="Layers panel">
       <div className={styles.fileHeader}>
         <span className={styles.fileName} title={preview.manifest.fileName}>
           {preview.manifest.fileName || "Untitled"}
         </span>
-        <span className={styles.fileSub}>Developer preview</span>
+        <span className={styles.fileSub}>{host?.subtitle ?? "Developer preview"}</span>
       </div>
       <Pages />
       <Statuses />
@@ -99,7 +99,7 @@ function Pages() {
  * or "Completed"; a row selects and zooms to its design.
  */
 function Statuses() {
-  const { engine, store, doc } = useViewer();
+  const { engine, store, doc, host } = useViewer();
   const page = useCurrentPage(store);
   const list = useMemo(() => doc.statuses(page), [doc, page]);
   const [open, setOpen] = useState(true);
@@ -114,12 +114,16 @@ function Statuses() {
             className={styles.statusRow}
             data-status-row={s.status}
             onClick={() => {
+              // The editor's Dev Mode opens the design in focus view (help.figma.com 23918228264855); the viewer zooms to it.
+              if (host?.onFocus) return host.onFocus(s.id);
               engine.setSelection([s.id]);
               engine.command("ZOOM_TO_SELECTION");
             }}
           >
             <span>{s.name}</span>
-            <span className={styles.statusLabel}>{STATUS_LABEL[s.status]}</span>
+            <span className={styles.statusLabel} data-status={s.status}>
+              {STATUS_LABEL[s.status]}
+            </span>
           </button>
         ))}
     </PanelSection>

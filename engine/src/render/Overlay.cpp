@@ -57,6 +57,7 @@ std::string formatNumber(double v) {
 
 void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const double dpr = viewport_.scaleX();  // snap to the canvas's real pixels
+  if (recordHits_) hits_ = CanvasHits{};
   const Color& blue = style.selection;
   const Color white{1, 1, 1, 1};
   Mat2x3 view = camera.matrix();
@@ -148,6 +149,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     for (Guid c : doc.children(page)) {
       const Node* n = doc.get(c);
       if (!n || !n->props.visible || !(n->props.isFrameLike()) || n->props.type == NodeType::SECTION) continue;
+      if (overlay.dev.focus != kNoGuid && overlay.dev.focus != c) continue;
       Rect b = transformedBounds(view * doc.worldTransform(c), n->props.size.x, n->props.size.y);
       if (!b.intersects({screen_.x - 200, screen_.y - 40, screen_.w + 400, screen_.h + 80}) || b.w < 12) continue;
       bool isSelected = false;
@@ -160,6 +162,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // Components' and sets' names are in the component purple (Figma).
       if (n->props.isComponentish()) drawGlyphs(*L, m, style.component, 1);
       else drawGlyphs(*L, m, isSelected ? blue : style.title, isSelected ? 1 : style.titleAlpha);
+      // Dev Mode: the design's status (or, hovered or selected, "Mark as ready for dev") after its name.
+      for (const DevStatusMark& mark : overlay.dev.statuses)
+        if (mark.frame == c) drawStatusChip(mark, x + L->size.x + 6, baseline, style);
     }
   }
 
@@ -419,6 +424,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       }
     }
   }
+  // Dev Mode: saved measurements, annotation labels (or dots), the measurement tool.
+  drawDevOverlay(doc, camera, overlay, style);
+
   if (overlay.lasso.size() > 1) {
     std::vector<Vec2> pts;
     for (Vec2 w : overlay.lasso) pts.push_back(view.apply(w));

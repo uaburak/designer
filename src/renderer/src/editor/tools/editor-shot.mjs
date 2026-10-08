@@ -17,6 +17,7 @@
 //   EDITOR_ONLY=prototype node …                                   (only the E8 section: Prototype tab, noodles, presentation view, inline preview)
 //   EDITOR_ONLY=grid node …                                        (only the grid auto layout section: flow, counts, tracks, gaps, spans)
 //   EDITOR_ONLY=text node …                                        (only the text round: specimen, Mixed runs, Type settings, links, lists)
+//   EDITOR_ONLY=devmode node …                                     (only round 6: annotations, measurements, statuses, Dev Mode, Compare changes, focus view)
 //   EDITOR_ONLY=fonts node …                                       (only the fonts section: font picker, Google fonts, Missing fonts)
 //   EDITOR_ONLY=slots node …                                       (round 6: Convert to slot, an instance's slot, Limits, variant values)
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
@@ -1658,7 +1659,7 @@ async function slotsSection(page, theme) {
   await slot.locator("[data-slot-limits]").click();
   await settle(page);
   check("Slots: Limits lists its guidelines", (await page.locator("[data-slot-guidelines] [data-ok]").count()) >= 1);
-  await shot(page, `140-slot-limits-${theme}`);
+  await shot(page, `150-slot-limits-${theme}`);
   await page.keyboard.press("Escape");
   await slot.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("menuitem", { name: "Delete contents" }).click();
@@ -1667,7 +1668,7 @@ async function slotsSection(page, theme) {
   await panel.locator("[data-slot-control]").getByRole("button", { name: "Add instances" }).click();
   await settle(page);
   check("Slots: Add instances lists the components", (await page.locator("[data-component-picker]").getByRole("menuitemradio").count()) >= 1);
-  await shot(page, `141-slot-add-instances-${theme}`);
+  await shot(page, `151-slot-add-instances-${theme}`);
   await page.locator("[data-component-picker]").getByRole("menuitemradio").first().click();
   await settle(page);
   check("Slots: an added instance fills the slot", (await panel.locator("[data-slot-control]").getAttribute("data-slot-count").catch(() => null)) === "1" || (await selection(page)).length === 1);
@@ -1682,7 +1683,7 @@ async function variables6Section(page, theme) {
   await win.locator("[data-mode]").first().click({ button: "right" });
   await settle(page);
   check("Variables: a mode's menu has Import mode and Export mode", (await page.getByRole("menuitem", { name: "Import mode" }).count()) === 1 && (await page.getByRole("menuitem", { name: "Export mode" }).count()) === 1);
-  await shot(page, `142-variables-mode-menu-${theme}`);
+  await shot(page, `152-variables-mode-menu-${theme}`);
   await page.keyboard.press("Escape");
   await win.locator("[data-collection]").first().click({ button: "right" });
   await settle(page);
@@ -1691,7 +1692,7 @@ async function variables6Section(page, theme) {
   await win.getByRole("button", { name: "Minimize" }).click();
   await settle(page);
   check("Variables: Minimize makes it a modal", (await win.getAttribute("data-minimized")) === "true");
-  await shot(page, `143-variables-minimized-${theme}`);
+  await shot(page, `153-variables-minimized-${theme}`);
   await win.getByRole("button", { name: "Toggle sidebar" }).click();
   await settle(page);
   check("Variables: Toggle sidebar hides the collections", (await win.getByRole("complementary", { name: "Collections" }).count()) === 0);
@@ -1699,6 +1700,164 @@ async function variables6Section(page, theme) {
   await settle(page);
   check("Variables: Expand fills the window again", (await win.getAttribute("data-minimized")) === null);
 }
+
+/** Round 6 on `?editor&doc=reference` (dark): annotations (⇧T, the menu, + Property, a category), a measurement (⇧M), Mark as ready for dev on the frame's label, Changed after an edit, Dev Mode (⇧D: Inspect, dots), Compare changes, Done with changes, focus view. */
+async function devmodeSection(page, theme) {
+  await open(page, "&doc=reference");
+  const dev = () => page.evaluate(() => window.__designerEditor.engine.devInfo());
+  const canvasPoint = async (x, y) => page.evaluate(([x, y]) => {
+    const r = window.__designerEditor.canvas.getBoundingClientRect();
+    return [r.left + x, r.top + y];
+  }, [x, y]);
+  // A card and a button in Frame 1 (−34, 3, 437 × 305).
+  await page.evaluate(() => {
+    const rect = (guid, name, position, x, y, w, h, fill) => ({ guid, phase: "CREATED", type: "ROUNDED_RECTANGLE", name, parentIndex: { guid: "1:1", position }, size: { x: w, y: h }, transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y }, fillPaints: [{ type: "SOLID", color: fill, opacity: 1, visible: true }] });
+    window.__designerEditor.engine.applyChanges({ type: "NODE_CHANGES", nodeChanges: [rect("9:1", "Card", "!", 40, 40, 200, 120, { r: 0.05, g: 0.6, b: 1, a: 1 }), rect("9:2", "Button", '"', 40, 220, 140, 44, { r: 0.08, g: 0.68, b: 0.36, a: 1 })] });
+    window.__designerEditor.engine.command("ZOOM_TO_FIT");
+  });
+  await settle(page);
+  await page.locator("#engine-canvas").focus();
+
+  // ⇧T: the Annotation tool; a click on the card opens the annotation menu.
+  await page.keyboard.press("Shift+KeyT");
+  await settle(page);
+  check("Annotations: ⇧T picks the Annotation tool", (await page.evaluate(() => window.__designerEditor.store.tool)) === "ANNOTATION");
+  await page.mouse.click(...(await toScreen(page, -34 + 140, 3 + 100)));
+  await page.locator("[data-annotation-editor]").waitFor({ timeout: 5000 });
+  const note = page.getByRole("textbox", { name: "Note" });
+  await note.fill("Use the **brand** blue\n- 8 px radius");
+  await note.press("Meta+Enter");
+  await settle(page);
+  await page.getByRole("button", { name: "Property" }).click();
+  await page.getByRole("menuitem", { name: "Width" }).click();
+  await settle(page);
+  let card = await node(page, "9:1");
+  check("Annotations: the note is stored as Figma's annotation (markdown in labelV2, the pinned Width)",
+    card.annotations?.[0]?.labelV2 === "Use the **brand** blue\n- 8 px radius" && card.annotations?.[0]?.properties?.[0]?.type === "WIDTH", JSON.stringify(card.annotations));
+  // A category: Development (the file gets Figma's presets).
+  await page.locator("[data-annotation-editor]").getByRole("combobox", { name: "Category" }).click();
+  await page.getByRole("option", { name: "Development" }).click();
+  await settle(page);
+  card = await node(page, "9:1");
+  check("Annotations: a category from Figma's presets", !!card.annotations?.[0]?.categoryId, JSON.stringify(card.annotations?.[0]?.categoryId));
+  await shot(page, `160-annotation-menu-${theme}`);
+  await page.getByRole("button", { name: "Done" }).click();
+  await settle(page);
+  let info = await dev();
+  check("Annotations: the label drawn beside the design by the engine", info.hits.annotations.length === 1 && !info.hits.annotations[0].dot, JSON.stringify(info.hits.annotations));
+  await shot(page, `161-annotation-label-${theme}`);
+  // View › Annotations (⇧Y) hides them.
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Shift+KeyY");
+  await settle(page);
+  check("Annotations: ⇧Y hides them", (await dev()).hits.annotations.length === 0);
+  await page.keyboard.press("Shift+KeyY");
+  await settle(page);
+
+  // ⇧M: a measurement from the card's bottom edge to the button's top edge.
+  await page.keyboard.press("Shift+KeyM");
+  await settle(page);
+  const from = await toScreen(page, -34 + 120, 3 + 160 - 1);
+  const to = await toScreen(page, -34 + 120, 3 + 220 + 1);
+  await page.mouse.move(...from);
+  await settle(page);
+  await drag(page, from, to, 10);
+  info = await dev();
+  check("Measurements: ⇧M and a drag between two edges save a measurement (60)", info.measurements.length === 1 && Math.round(info.measurements[0].value) === 60, JSON.stringify(info.measurements));
+  await shot(page, `162-measurement-${theme}`);
+  // Its text: a double-click.
+  const pill = info.hits.measurements[0];
+  if (pill) {
+    await page.mouse.dblclick(...(await canvasPoint(pill.x + pill.width / 2, pill.y + pill.height / 2)));
+    const field = page.getByRole("textbox", { name: "Measurement text" });
+    await field.waitFor({ timeout: 5000 });
+    await field.fill("Gap 60");
+    await field.press("Enter");
+    await settle(page);
+    check("Measurements: a double-click customizes its text", (await dev()).measurements[0]?.freeText === "Gap 60");
+  } else check("Measurements: a double-click customizes its text", false, "no pill drawn");
+
+  // Mark as ready for dev on the frame's label (selected and under the pointer).
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
+  await page.mouse.move(...(await toScreen(page, -34 + 400, 3 + 290)));
+  await settle(page);
+  info = await dev();
+  const mark = info.hits.statuses.find((s) => s.ref === "1:1");
+  check("Statuses: \"Mark as ready for dev\" next to a selected frame's name", !!mark && mark.kind === 0, JSON.stringify(info.hits.statuses));
+  if (mark) await page.mouse.click(...(await canvasPoint(mark.x + 4, mark.y + 4)));
+  await settle(page);
+  check("Statuses: a click marks it ready for dev", (await dev()).statuses[0]?.status === "READY", JSON.stringify((await dev()).statuses));
+  await shot(page, `163-ready-for-dev-${theme}`);
+  // An edit a second later: Changed.
+  await page.waitForTimeout(1100);
+  await page.evaluate(() => window.__designerEditor.setProps(["9:2"], { size: { x: 180, y: 44 } }, "Resize"));
+  await settle(page);
+  check("Statuses: an edit after it was marked shows Changed", (await dev()).statuses[0]?.status === "CHANGED", JSON.stringify((await dev()).statuses));
+  await shot(page, `164-changed-${theme}`);
+
+  // ⇧D: Dev Mode — Inspect, the left panel, dots.
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Shift+KeyD");
+  await settle(page);
+  check("Dev Mode: ⇧D shows Inspect", await page.locator('[data-panel="inspect"]').isVisible());
+  check("Dev Mode: annotations as dots", (await dev()).hits.annotations[0]?.dot === true);
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
+  await settle(page);
+  const inspect = page.locator('[data-panel="inspect"]');
+  await expectText(inspect, "Changed");
+  await shot(page, `165-dev-mode-${theme}`);
+
+  // Compare changes: the version saved when it was marked, the button Edited.
+  await inspect.locator("[data-compare-changes]").click();
+  await page.locator("[data-compare]").waitFor({ timeout: 5000 });
+  await page.locator('[data-change="Edited"]').first().waitFor({ timeout: 10000 }).catch(() => {});
+  const edited = await page.locator('[data-change="Edited"]').allInnerTexts();
+  check("Compare changes: the button is listed Edited", edited.some((t) => t.includes("Button")), JSON.stringify(edited));
+  await page.locator('[data-change="Edited"]').filter({ hasText: "Button" }).first().click().catch(() => {});
+  await settle(page);
+  const props = await page.locator("[data-properties]").innerText().catch(() => "");
+  check("Compare changes: Size 140 × 44 → 180 × 44", props.includes("140 × 44") && props.includes("180 × 44"), props.replace(/\n/g, " | "));
+  await page.locator("[data-before]").waitFor({ timeout: 10000 }).catch(() => {});
+  await shot(page, `166-compare-changes-${theme}`);
+  await page.getByRole("radio", { name: "Overlay" }).click();
+  await settle(page);
+  await page.getByRole("radio", { name: "Compare code" }).click().catch(() => {});
+  await settle(page);
+  await shot(page, `167-compare-overlay-code-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+
+  // Done with changes, from Inspect's status.
+  await inspect.locator('[data-status="CHANGED"]').click();
+  await page.locator("[data-done-with-changes]").waitFor({ timeout: 5000 });
+  await page.getByRole("textbox", { name: "Reason" }).fill("Wider button");
+  await shot(page, `168-done-with-changes-${theme}`);
+  await page.getByRole("button", { name: "Done with changes" }).click();
+  await settle(page);
+  const status = (await node(page, "1:1")).sectionStatusInfo;
+  check("Statuses: Done with changes — Ready for dev again, with the reason", (await dev()).statuses[0]?.status === "READY" && status?.description === "Wider button", JSON.stringify(status));
+
+  // Focus view from the left panel's Ready for development.
+  await page.locator('[data-status-row]').first().click();
+  await settle(page);
+  check("Focus view: opened from Ready for development", (await dev()).focus === "1:1" && (await page.locator("[data-focus-bar]").isVisible()));
+  await shot(page, `169-focus-view-${theme}`);
+  await page.getByRole("button", { name: "Inspect on page" }).click();
+  await settle(page);
+  check("Focus view: Inspect on page leaves it, the design selected", (await dev()).focus === null && (await selection(page)).join() === "1:1");
+  await page.keyboard.press("Shift+KeyD");
+  await settle(page);
+  check("Dev Mode: ⇧D back to Design", await page.locator('[data-panel="right"]').isVisible());
+}
+
+const expectText = async (locator, text) => {
+  for (let i = 0; i < 40; i++) {
+    if ((await locator.innerText().catch(() => "")).includes(text)) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  check(`text "${text}" shown`, false);
+  return false;
+};
 
 /** The text round on `?editor&doc=text` (dark): the specimen, Typography's Mixed, Type settings' tabs, a link on a range (⇧⌘U), a list (⇧⌘8). */
 async function textSection(page, theme) {
@@ -1793,6 +1952,7 @@ try {
   for (const [name, section] of [
     ["slots", slotsSection],
     ["variables6", variables6Section],
+    ["devmode", devmodeSection],
   ]) {
     if (only !== name && only) continue;
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });

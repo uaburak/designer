@@ -870,7 +870,41 @@ export type EngineEvent =
    * Grid tracks selected on the canvas (round 6): the grid, the axis, the selected tracks' indices (empty: none);
    * `edit`: a pill's label was clicked (or Enter) — the label editor opens at (x, y, width, height), canvas CSS px.
    */
-  | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number };
+  | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number }
+  /** Dev Mode: an annotation's label or dot was clicked (index ≥ 0), or the Annotation tool clicked a layer (index −1: a new note); the rect in canvas CSS px. */
+  | { type: "ANNOTATION_OPEN"; ref: Guid; index: number; x: number; y: number; width: number; height: number }
+  /** Dev Mode: a saved measurement was double-clicked (its custom text); the rect is its value's pill. */
+  | { type: "MEASUREMENT_EDIT"; id: Guid; text: string; x: number; y: number; width: number; height: number }
+  /** Dev Mode: the selected saved measurement changed. */
+  | { type: "MEASUREMENT_SELECTED"; id: Guid | null }
+  /** Dev Mode: a design's status chip ("menu") or "Mark as ready for dev" ("mark") was clicked. */
+  | { type: "DEV_STATUS"; ref: Guid; action: "menu" | "mark"; x: number; y: number; width: number; height: number };
+
+/** engine_dev_info (Engine.devInfo). */
+export interface DevInfo {
+  annotations: boolean;
+  focus: Guid | null;
+  selectedMeasurement: Guid | null;
+  statuses: { ref: Guid; status: "READY" | "COMPLETED" | "CHANGED" }[];
+  measurements: {
+    id: Guid;
+    from: Guid;
+    to: Guid;
+    side: "TOP" | "BOTTOM" | "LEFT" | "RIGHT";
+    toSameSide: boolean;
+    inner: number;
+    outer: number;
+    freeText: string;
+    value?: number;
+    a?: { x: number; y: number };
+    b?: { x: number; y: number };
+  }[];
+  hits: {
+    annotations: { ref: Guid; index: number; dot: boolean; x: number; y: number; width: number; height: number }[];
+    measurements: { id: Guid; x: number; y: number; width: number; height: number }[];
+    statuses: { ref: Guid; kind: number; x: number; y: number; width: number; height: number }[];
+  };
+}
 
 export type EngineEventType = EngineEvent["type"];
 export type EventOf<T extends EngineEventType> = Extract<EngineEvent, { type: T }>;

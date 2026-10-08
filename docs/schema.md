@@ -135,6 +135,7 @@ Commands:
 ### 3.1 Document layout
 
 - **`0:0` DOCUMENT** is the root. It has no `parentIndex`. Document-level fields: `documentColorProfile` (new files `SRGB`), `thumbnailInfo` ("Set as thumbnail"), `annotationCategories` (Dev Mode), `librarySubscriptions` (libraries enabled in this file, §8).
+- **Dev Mode (round 6, R9 "Round 6")**: a layer's `annotations` keep the note's markdown in `labelV2` (3) and its plain text in `label` (1) (which field Figma uses for markdown is unverified); `editInfo` (331, `{lastEditedAt, createdAt, userId}`, unix seconds) is stamped by the engine on every user edit and the edited layer's ancestors up to the page — a design whose `editInfo.lastEditedAt` is later than its `sectionStatusInfo.lastUpdateUnixTimestamp` is "Changed" (Figma's files carry the same).
 - **Pages** are CANVAS children of `0:0`, ordered by `parentIndex.position`. A new file contains exactly three nodes:
 
   | GUID | Node | Fields |
@@ -150,7 +151,7 @@ Commands:
 
 | UI name | `type` | Distinguishing fields |
 |---|---|---|
-| Page | CANVAS | child of `0:0`; `backgroundColor/Opacity/Enabled`, `guides`, `prototypeDevice`, `prototypeBackgroundColor`, `variableModeBySetMap` |
+| Page | CANVAS | child of `0:0`; `backgroundColor/Opacity/Enabled`, `guides`, `prototypeDevice`, `prototypeBackgroundColor`, `variableModeBySetMap`, `measurements` (Dev Mode's saved measurements, round 6) |
 | Frame | FRAME | `frameMaskDisabled` (true = Clip content off), auto layout and grid fields, `layoutGrids` |
 | Group | FRAME | `resizeToFit true`, no paints or effects of its own (Figma's encoding, verified in `structure.fig`). DesignerV2 never writes `GROUP`; it is import-only. Answers `engine.md` §14 Q1 point 2. |
 | Section | SECTION | `sectionContentsHidden`, `sectionStatusInfo` (Dev Mode "Ready for dev") |

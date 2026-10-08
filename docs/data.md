@@ -1114,8 +1114,14 @@ To deploy, once the owner has a project:
 - **Expired previews** are revoked and deleted from Storage when sync starts (`previews.sweepExpired`, from `startSync`).
 - Checks: `inspect/devMode.test.ts` (statuses, annotations, asset detection, List rows, units), `preview.wasm.test.ts` (the status, annotation and icon through the snapshot; viewer mode), `previews.test.ts` (the sweep), `npm run viewer:check` (status, annotation, rem, List, Compose, the icon in Assets, an SVG export downloaded and read, Present).
 
+**Round 6 (2026-10-08, branch `r6-annotations-devmode`; R9-dev-mode.md "Round 6"):**
+- **Annotations drawn by the engine**: the viewer turns on the engine's Dev Mode dots (`setAnnotationView(true, true)`); a click opens the note's label with its leader line (the DOM pins are gone). Notes read `labelV2` (markdown) first.
+- **Statuses**: "Changed" when the design's `editInfo.lastEditedAt` is later than its status (the editor stamps editInfo; Figma's files carry it), in the left panel, Inspect and on the canvas; Inspect shows "Edited … ago".
+- **The editor's Dev Mode uses these panels** (docs/editor.md "round 6"), with `ViewerState.host` for what only the editor has (Compare changes, focus view, the status menu).
+- **Version history** for Compare changes: `DocumentSource.openVersion` (the store's `files.openVersion`).
+
 **Not done:**
-- Compare changes; annotation and measurement tools in Design (the viewer shows what a .fig brings); Figma's "Automatically detect icons" switch and its exact heuristic (ours: ≤ 128 px, vectors only); the exact unit conversion of native snippets.
+- Annotation and measurement tools in the viewer (it is read-only; the editor's Dev Mode has them) (the viewer shows what a .fig brings); Figma's "Automatically detect icons" switch and its exact heuristic (ours: ≤ 128 px, vectors only); the exact unit conversion of native snippets.
 - Publishing has not been tried against a real Firebase project, since there is no config yet. The desktop export path (editor → `file:export-preview` → the store) is checked by types and the store tests, not by driving the built app: the Save dialog is native. Reading `out/viewer/index.html` from inside `app.asar` in a packaged build is untried.
 - The exact SwiftUI / Compose output and the redline colours are unverified against Figma (R9).
 

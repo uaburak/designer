@@ -175,8 +175,15 @@ describe("the exported preview HTML (headless Chromium)", () => {
       expect(measured).not.toBe("");
       await page.screenshot({ path: join(outDir, "05-measure.png") });
 
-      // Annotations on the canvas: a dot and the note.
-      expect(await page.locator("[data-annotations]").getAttribute("data-annotations")).toBe("1");
+      // Annotations on the canvas: the engine draws the title's as a dot (Dev Mode), a click opens its label.
+      const devHits = () =>
+        page.evaluate(() => (window as unknown as { __designerViewer: { engine: { devInfo(): { hits: { annotations: { dot: boolean; x: number; y: number; width: number; height: number }[] } } } } }).__designerViewer.engine.devInfo().hits.annotations);
+      await expect.poll(async () => (await devHits()).length).toBe(1);
+      const dot = (await devHits())[0];
+      expect(dot.dot).toBe(true);
+      await page.mouse.click(area.x + dot.x + dot.width / 2, area.y + dot.y + dot.height / 2);
+      await expect.poll(async () => (await devHits())[0]?.dot).toBe(false);
+      await page.screenshot({ path: join(outDir, "05a-annotation.png") });
       // "Other": its icon among the Assets; Export as SVG by the engine's writer.
       await page.keyboard.press("Escape");
       await page.locator('[data-ds="LayerRow"][data-id="1:10"]').click();

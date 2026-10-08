@@ -54,6 +54,11 @@ import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
 import { InlinePreview } from "./InlinePreview";
+import { attachDevMode } from "./devmode/devMode";
+import { DevLeftPanel, DevMeasurements, DevRightPanel } from "./devmode/DevPanels";
+import { AnnotationEditor } from "./devmode/AnnotationEditor";
+import { CategoriesDialog, FocusBar, MeasurementText, StatusMenu } from "./devmode/DevOverlays";
+import { CompareChanges } from "./devmode/CompareChanges";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -228,6 +233,9 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachCanvasMenu(ed, canvas));
       cleanups.push(attachGridTracks(ed, canvas));
       cleanups.push(attachDesktop(ed));
+      // Dev Mode: every edit stamps editInfo (a design marked ready shows "Changed"); the engine's Dev Mode events.
+      engine.setEditTracking(true);
+      cleanups.push(attachDevMode(ed));
       // The file's last page and camera when the source kept them, else the first view asked for.
       if (!restoreUiState(ed)) {
         const view = viewRef.current;
@@ -319,6 +327,8 @@ function LeftPlaceholder() {
 /** The rail and the left panel, while docked (⌘\ hides them, ⇧\ folds them into a card). */
 function LeftSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
+  const dev = useUI((s) => s.mode === "dev");
+  if (docked && dev) return <DevLeftPanel />;
   return docked ? (
     <>
       <Rail />
@@ -329,6 +339,8 @@ function LeftSide() {
 
 function RightSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
+  const dev = useUI((s) => s.mode === "dev");
+  if (docked && dev) return <DevRightPanel />;
   return docked ? <RightPanel /> : null;
 }
 
@@ -336,9 +348,12 @@ function RightSide() {
 function CanvasOverlays() {
   const hidden = useUI((s) => s.uiHidden);
   const minimized = useUI((s) => s.uiMinimized);
+  const dev = useUI((s) => s.mode === "dev");
   if (hidden) return null;
   return (
     <>
+      {dev && <DevMeasurements />}
+      <FocusBar />
       <Rulers />
       <ImagePlacer />
       <ReturnToInstance />
@@ -366,6 +381,11 @@ function Overlays() {
       <ShareDialog />
       <LinkEditor />
       <GridTrackEditor />
+      <AnnotationEditor />
+      <MeasurementText />
+      <StatusMenu />
+      <CategoriesDialog />
+      <CompareChanges />
     </>
   );
 }

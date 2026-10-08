@@ -121,11 +121,15 @@ enum class CommandId : uint32_t {
   GROUP_STYLES = 175,                   // args {styles, name}
   RENAME_STYLE_GROUP = 176,             // args {type, group, name}
   UNGROUP_STYLES = 177,                 // args {type, group}
-  REPLACE_FONTS = 190,
+  REPLACE_FONTS = 190,                  // args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' "Replace fonts")
   // Round 6 (branch r6-components-grid; 210-219 kept clear of parallel rounds): slots.
   CONVERT_TO_SLOT = 210,                // args {ref?: Guid | Guid[]} ("Convert to slot", ⌘⇧S): nested frames of a main
   WRAP_IN_NEW_SLOT = 211,               // the selection framed, the frame made a slot ("Wrap in new slot")
-  CLEAR_SLOT = 212,                     // args {ref?}: a slot (an instance's slot row, or a main's slot frame) emptied ("Delete contents")                  // args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' "Replace fonts")
+  CLEAR_SLOT = 212,                     // args {ref?}: a slot (an instance's slot row, or a main's slot frame) emptied ("Delete contents")
+  // Round 6 (branch r6-annotations-devmode): Dev Mode's saved measurements (editor/DevMode.cpp); 220-229.
+  MEASUREMENT_ADD = 220,                // args {from, to?, side, toSameSide?, inner?, outer?, freeText?, page?}; created: [id]
+  MEASUREMENT_UPDATE = 221,             // args {id, freeText?, inner?, outer?, page?}
+  MEASUREMENT_DELETE = 222,             // args {id, page?}
 };
 
 // engine_command_state bits.

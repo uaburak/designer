@@ -97,6 +97,70 @@ struct NoodleCurve {
 };
 NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, Vec2 point);
 
+// Dev Mode's annotations, saved measurements and statuses (render/AnnotationOverlay.cpp; editor/Annotations.h).
+struct AnnotationCard {
+  Guid node = kNoGuid;
+  uint32_t index = 0;
+  Rect target;           // world: the annotated layer
+  Guid frame = kNoGuid;  // its top-level layer (the labels sit beside it)
+  Rect frameBounds;      // world
+  std::string title;     // the category's label ("" none)
+  Color color;
+  struct Line {
+    std::string text;
+    bool heading = false;
+  };
+  std::vector<Line> lines;
+  std::vector<std::pair<std::string, std::string>> properties;  // pinned: label, value
+  bool selected = false;  // the annotated layer is selected
+  bool open = true;       // a dot opened (Dev Mode); labels are always open in Design
+};
+struct MeasurementMark {
+  Guid id = kNoGuid;
+  Vec2 a, b;                       // world: the measured line
+  std::vector<GuideLine> extensions;  // world: from the layers' edges to the line
+  std::string text;                // the value, or its custom text
+  bool selected = false;
+};
+struct DevStatusMark {
+  Guid frame = kNoGuid;
+  enum class Kind : uint8_t { MarkButton, Ready, Completed, Changed } kind = Kind::Ready;
+};
+struct DevOverlay {
+  bool annotations = true;  // View › Annotations (labels, dots and measurements)
+  bool dots = false;        // Dev Mode: annotations as dots, the open one as its label
+  std::vector<AnnotationCard> cards;
+  std::vector<MeasurementMark> measurements;
+  // The measurement tool: the edge under the pointer, and the measurement being dragged out.
+  std::vector<GuideLine> edges;  // world
+  bool hasDraft = false;
+  MeasurementMark draft;
+  std::vector<DevStatusMark> statuses;
+  Guid focus = kNoGuid;  // focus view: only this layer is drawn
+};
+// Where the last canvas frame drew what can be clicked (CSS px in the canvas), for the editor's hit tests.
+struct CanvasHits {
+  struct Annotation {
+    Guid node = kNoGuid;
+    uint32_t index = 0;
+    Rect rect;
+    bool dot = false;
+  };
+  struct Measure {
+    Guid id = kNoGuid;
+    Rect pill;
+    Vec2 a, b;
+  };
+  struct Status {
+    Guid frame = kNoGuid;
+    Rect rect;
+    DevStatusMark::Kind kind = DevStatusMark::Kind::Ready;
+  };
+  std::vector<Annotation> annotations;
+  std::vector<Measure> measurements;
+  std::vector<Status> statuses;
+};
+
 // What the editor wants drawn over the scene.
 struct Overlay {
   std::vector<Guid> hover;  // outlined (the canvas hover, or rows hovered in Layers)
@@ -149,6 +213,8 @@ struct Overlay {
   std::vector<OverlayMark> marks;
   // Prototype mode.
   PrototypeOverlay prototype;
+  // Dev Mode: annotations, measurements, statuses, focus view.
+  DevOverlay dev;
 };
 
 // Where the renderer gets TEXT nodes' layouts (the editor caches them).
@@ -201,7 +267,9 @@ class Renderer {
   const ImageCache& imageCache() const { return images_; }
   // A label's layout (overlay text: Inter at `size` CSS px, `style` "Regular" / "Medium"), cut with "…" past
   // `maxWidth` (< 0: never); nullptr until Inter has loaded.
-  const text::TextLayout* label(const std::string& text, const char* style, double size, double maxWidth = -1);
+  const text::TextLayout* label(const std::string& text, const char* style, double size, double maxWidth = -1, int maxLines = 1);
+  // What the last canvas frame drew that the editor hit-tests (annotation labels, measurements, statuses).
+  const CanvasHits& canvasHits() const { return hits_; }
   // Draws `page` through `camera` into `target` (0 = the canvas), viewport.deviceWidth × deviceHeight.
   RenderStats render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
                      const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target = 0, Guid only = kNoGuid);
@@ -352,6 +420,10 @@ class Renderer {
   // Prototype mode's connections, hotspots and flow labels (render/PrototypeOverlay.cpp).
   void drawPrototypeOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   void drawPrototypeLabels(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
+  // Dev Mode (render/AnnotationOverlay.cpp): saved measurements, annotation labels with their leader lines (or dots),
+  // the measurement tool's edges and draft; a frame title's status chip (`x`: where it starts, `baseline`).
+  void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
+  void drawStatusChip(const DevStatusMark& mark, double x, double baseline, const OverlayStyle& style);
   // Render-tree node `i`'s props: the scene item's override when it has one (renderScene), else the document's.
   const NodeProps& propsAt(uint32_t i) const {
     const RenderNode& rn = tree_->nodes()[i];
@@ -465,6 +537,8 @@ class Renderer {
   } tiles_;
   std::function<double()> clock_;
   uint32_t labelsGeneration_ = 0;
+  CanvasHits hits_;
+  bool recordHits_ = false;  // this frame is the canvas's (not a thumbnail or an export)
   // Gradient ramps: 256 premultiplied texels per row.
   std::unordered_map<uint64_t, int> rampRows_;
   std::vector<uint8_t> rampData_;

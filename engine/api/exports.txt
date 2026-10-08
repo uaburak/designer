@@ -111,6 +111,11 @@ _engine_export_clear_images
 _engine_export_list
 _engine_set_prototype_mode
 _engine_set_viewer_mode
+_engine_set_annotation_view
+_engine_set_edit_tracking
+_engine_set_focus
+_engine_select_measurement
+_engine_dev_info
 _engine_present_start
 _engine_present_stop
 _engine_present_pointer

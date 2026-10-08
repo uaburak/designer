@@ -69,6 +69,22 @@ export interface UIState {
   gridTracks?: { frame: Guid; axis: "COLUMNS" | "ROWS"; tracks: number[] } | null;
   /** The track label editor on the canvas, over this rect (viewport px) */
   gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
+  /** Dev Mode (⇧D, the toolbar's mode switch): the Inspect panel, read-only canvas, annotations as dots (devmode/) */
+  mode?: "design" | "dev";
+  /** View › Annotations (labels, dots and saved measurements); default on */
+  annotations?: boolean;
+  /** The note editor: the layer, which note (−1: a new one), where (viewport px) */
+  annotationEditor?: { ref: Guid; index: number; x: number; y: number; width: number; height: number } | null;
+  /** A saved measurement's custom text being edited (viewport px: its pill) */
+  measurementEditor?: { id: Guid; text: string; x: number; y: number; width: number; height: number } | null;
+  /** A design's status menu (viewport px: the chip) */
+  statusMenu?: { ref: Guid; x: number; y: number; width: number; height: number } | null;
+  /** Edit categories… */
+  categoriesOpen?: boolean;
+  /** Compare changes: the design compared */
+  compare?: { ref: Guid } | null;
+  /** Focus view: the design shown alone */
+  focus?: Guid | null;
 }
 
 export class Store<T> {

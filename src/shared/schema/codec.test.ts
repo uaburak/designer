@@ -56,7 +56,7 @@ describe("generated codec", () => {
 
 describe("field registry (from the schema's tags)", () => {
   it("lists NodeChange's live fields with their flags", () => {
-    expect(NODE_FIELDS.length).toBe(205);  // + overriddenVariableId (extended collections, round 5), the brush fields and videoPlayback (text round)
+    expect(NODE_FIELDS.length).toBe(206);  // + overriddenVariableId (extended collections, round 5), the brush fields and videoPlayback (text round), editInfo (round 6)
     const cleared = NODE_FIELDS.find((f) => f.name === "clearedFields")!;
     expect(cleared.id).toBe(1000);
     expect(cleared.flags & FIELD_FLAGS.PATCH).toBeTruthy();
@@ -82,10 +82,10 @@ describe("field registry (from the schema's tags)", () => {
 
   it("knows the blob fields and the binary schema", () => {
     expect(BLOB_FIELDS.map((b) => `${b.message}.${b.field}`).sort()).toEqual(["Glyph.commandsBlob", "Image.dataBlob", "Path.commandsBlob", "VectorData.vectorNetworkBlob"]);
-    expect(SCHEMA_BINARY.length).toBe(31328);  // + SlotContentId and slotContentIdValue (round 4), gridReflowEnabled (import fidelity), MAP / VariableMap / extended collections, BRUSH / VIDEO and the brush fields (round 5), the video triggers / actions and MediaAction (round 6)
+    expect(SCHEMA_BINARY.length).toBe(31406);  // + SlotContentId and slotContentIdValue (round 4), gridReflowEnabled (import fidelity), MAP / VariableMap / extended collections, BRUSH / VIDEO and the brush fields (round 5), the video triggers / actions and MediaAction, EditInfo and Annotation.labelV2 (round 6)
     expect(SCHEMA_SHA1).toMatch(/^[0-9a-f]{40}$/);
     expect(DOCUMENT_FORMAT_VERSION).toBe(1);
-    expect(MODEL.def("NodeChange").fields.length).toBe(205);
+    expect(MODEL.def("NodeChange").fields.length).toBe(206);
     expect(MODEL.canContain("NodeChange", new Set(["Image"]))).toBe(true);
   });
 });

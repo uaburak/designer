@@ -21,7 +21,7 @@ import { useViewer } from "./context";
 import { layerIcon } from "./LeftPanel";
 import type { VariableUse } from "./viewerDoc";
 import { AnnotationsSection, AssetsSection, CodeSettings, ExportSection } from "./DevSections";
-import { listRows, STATUS_LABEL } from "./inspect/devMode";
+import { editedAgo, listRows, STATUS_LABEL } from "./inspect/devMode";
 import { composeInUnit, cssInUnit, storedUnits, storeUnits, swiftUIInUnit, type Language, type UnitSettings } from "./inspect/units";
 import styles from "./Viewer.module.css";
 
@@ -227,7 +227,7 @@ function VariablesTable({ onClose }: { onClose: () => void }) {
 // ---- One layer --------------------------------------------------------------------------------------------------
 
 function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
-  const { engine, doc, preview } = useViewer();
+  const { engine, doc, preview, host } = useViewer();
   const input = useMemo(() => doc.inspect(id), [doc, id]);
   const page = engine.getSelection().pageId;
   const status = useMemo(() => doc.statuses(page).find((s) => s.id === id)?.status ?? null, [doc, page, id]);
@@ -244,12 +244,29 @@ function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
           <span className={styles.layerName}>{n.name || typeLabel(n)}</span>
           <span className={styles.layerType}>{typeLabel(n)}</span>
         </div>
-        {status && (
-          <span className={styles.devStatus} data-status={status}>
-            {STATUS_LABEL[status]}
-          </span>
-        )}
+        {status &&
+          (host?.onStatus ? (
+            <button type="button" className={styles.devStatus} data-status={status} onClick={(e) => host.onStatus!(id, e.currentTarget.getBoundingClientRect())}>
+              {STATUS_LABEL[status]}
+            </button>
+          ) : (
+            <span className={styles.devStatus} data-status={status}>
+              {STATUS_LABEL[status]}
+            </span>
+          ))}
       </div>
+      {editedAgo((n as { editInfo?: { lastEditedAt?: number } }).editInfo?.lastEditedAt) && (
+        <div className={styles.edited} data-edited="">
+          {editedAgo((n as { editInfo?: { lastEditedAt?: number } }).editInfo?.lastEditedAt)}
+        </div>
+      )}
+      {host?.onCompare && doc.parentOf(id) === null && (n.type === "FRAME" || n.type === "SYMBOL" || n.type === "SECTION") && (
+        <div className={styles.compareRow}>
+          <Button variant="secondary" onClick={() => host.onCompare!(id)} data-compare-changes="">
+            Compare changes
+          </Button>
+        </div>
+      )}
       <AnnotationsSection notes={notes} />
       <ComponentSection id={id} />
       <LayoutSection node={n} sizing={sizingOf(input)} parentBox={doc.parentOf(id) ? doc.pageBox(doc.parentOf(id)!) : null} box={doc.pageBox(id)} />
