@@ -73,6 +73,7 @@ add_library(eng_core STATIC
   src/export/SvgWriter.cpp
   src/export/PdfWriter.cpp
   src/export/Deflate.cpp
+  src/proto/Devices.cpp
   src/proto/Prototype.cpp
   src/proto/Player.cpp
   src/editor/PrototypeEditing.cpp

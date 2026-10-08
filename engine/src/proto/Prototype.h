@@ -92,7 +92,8 @@ struct OverlaySettings {
 };
 
 struct Device {
-  bool none = true;  // PrototypeDeviceType NONE (or absent): frames shown at their own size
+  enum class Type : uint8_t { NONE, PRESET, CUSTOM, PRESENTATION } type = Type::NONE;
+  bool none = true;  // PrototypeDeviceType NONE (or absent, or PRESENTATION): frames shown at their own size
   Vec2 size;          // PRESET / CUSTOM: the screen
   std::string preset;
   bool rotated = false;  // CCW_90: landscape

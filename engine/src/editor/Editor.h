@@ -388,6 +388,11 @@ class Editor : private LayoutHost, public TextLayouts {
   // frame adds an On click → Navigate to interaction (Figma's defaults), dragging a noodle's end retargets or removes it.
   void setPrototypeMode(bool on);
   bool prototypeMode() const { return proto_.on; }
+  // Viewer mode (developer previews, Dev Mode): read-only — the selection without resize / rotate handles, clicks
+  // select and drags never move anything, no context menu, no text / vector / paint editing, only the Move and Hand
+  // tools; edits through the API are refused (E_READONLY, Api.cpp).
+  void setViewerMode(bool on);
+  bool viewerMode() const { return viewer_; }
 
   // ---- Components and instances (editor/Instances.cpp, editor/ComponentCommands.cpp) ----
   bool componentInfo(Guid id, ComponentInfo& out) const;  // cached per document version
@@ -1010,6 +1015,7 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<ProtoLink> links;
   };
   ProtoSession proto_;
+  bool viewer_ = false;
   const std::vector<ProtoLink>& protoLinks();
   // The hotspots that show a "+" handle (the selection, top-level layers and layers inside frames) and where it is.
   std::vector<Guid> protoHandleNodes() const;

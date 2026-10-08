@@ -498,6 +498,8 @@ ENG_EXPORT int32_t engine_apply_changes(Handle h, Ptr ptr, uint32_t len, uint32_
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   codec::KiwiMessage m;
+  // Viewer mode: user edits refused (loads and remote changes — a live preview — still apply).
+  if (e->editor.viewerMode() && (flags & APPLY_USER)) return E_READONLY;
   if (!readAnyMessage(ptr, len, m)) return E_DECODE;
   return e->editor.applyChanges(m.changes, flags);
 }
@@ -1047,6 +1049,7 @@ ENG_EXPORT int32_t engine_set_props(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   json::Value refs, change;
   if (!parse(refsPtr, refsLen, refs) || !parse(changePtr, changeLen, change)) return E_DECODE;
   if (change.isObject() && !change.get("guid")) {
@@ -1064,6 +1067,7 @@ ENG_EXPORT int32_t engine_set_props(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr
 ENG_EXPORT int32_t engine_txn_begin(Handle h, Ptr ptr, uint32_t len) {
   Call call;
   Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   return e ? e->editor.txnBegin(std::string(bytes(ptr, len))) : E_HANDLE;
 }
 
@@ -1081,6 +1085,9 @@ ENG_EXPORT void engine_txn_cancel(Handle h) {
 // commandId from editor/Commands.h (commands.ts); args JSON or empty:
 // {"dx","dy"} for NUDGE; {"page":"0:3"} for DELETE_PAGE / DUPLICATE_PAGE (also
 // {"page":<localID>,"pageSession":<sessionID>} or {"sessionID","localID"}).
+// The commands viewer mode allows: selection and zoom (CommandId 10–16, 50–54).
+static bool viewerCommand(uint32_t id) { return (id >= 10 && id <= 16) || (id >= 50 && id <= 54); }
+
 ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uint32_t argsLen) {
   Call call;
   Engine* e = engineOf(h);
@@ -1118,6 +1125,8 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
     if (auto* m = args.get("hash"); m && m->isString()) a.hash = ImageHash::fromHex(m->string);
     a.raw = std::move(args);
   }
+  // Viewer mode: selecting and zooming only.
+  if (e->editor.viewerMode() && !viewerCommand(commandId)) return E_READONLY;
   int32_t status = e->editor.command(static_cast<CommandId>(commandId), a);
   // What the command created (variables, collections, modes, styles): {"created": [...]}.
   json::Writer w;
@@ -1131,6 +1140,7 @@ ENG_EXPORT int32_t engine_command(Handle h, uint32_t commandId, Ptr argsPtr, uin
 ENG_EXPORT uint32_t engine_command_state(Handle h, uint32_t commandId) {
   Call call;
   Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode() && !viewerCommand(commandId)) return 0;
   return e ? e->editor.commandState(static_cast<CommandId>(commandId)) : 0;
 }
 
@@ -1142,6 +1152,7 @@ ENG_EXPORT int32_t engine_move_nodes(Handle h, Ptr refsPtr, uint32_t refsLen, ui
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   json::Value v;
   if (!parse(refsPtr, refsLen, v)) return E_DECODE;
   return static_cast<int32_t>(e->editor.moveNodes(readRefs(v), {parentSessionID, parentLocalID}, index));
@@ -1196,6 +1207,7 @@ ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags)
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   codec::KiwiMessage m;
   json::Value v;
   if (!readAnyMessage(ptr, len, m, &v)) return E_DECODE;
@@ -1437,6 +1449,7 @@ ENG_EXPORT int32_t engine_set_fallback_fonts(Ptr ptr, uint32_t len) {
 ENG_EXPORT int32_t engine_vector_edit(Handle h, uint32_t sessionID, uint32_t localID) {
   Call call;
   Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   return e ? e->editor.startVectorEdit({sessionID, localID}) : E_HANDLE;
 }
 
@@ -1470,6 +1483,7 @@ ENG_EXPORT int32_t engine_end_caps(Handle h, uint32_t sessionID, uint32_t localI
 ENG_EXPORT int32_t engine_paint_edit(Handle h, uint32_t sessionID, uint32_t localID, uint32_t paints, uint32_t index) {
   Call call;
   Engine* e = engineOf(h);
+  if (e && e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   return e ? e->editor.startPaintEdit({sessionID, localID}, paints == 1, index) : E_HANDLE;
 }
 
@@ -1544,6 +1558,7 @@ ENG_EXPORT int32_t engine_text_edit(Handle h, uint32_t sessionID, uint32_t local
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
   if (e->editor.busy()) return E_BUSY;
   return e->editor.startTextEdit({sessionID, localID}, (flags & 1) != 0);
 }
@@ -2418,6 +2433,13 @@ ENG_EXPORT int32_t engine_library_usage(Handle h) {
 // ---- Prototyping (docs/engine-build.md "E8") ------------------------------------------------------------------
 
 // The editor's Prototype tab: connections, "+" handles and flow labels on the canvas (on = 1).
+// Viewer mode (developer previews): read-only, no resize handles (on = 1).
+ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t on) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setViewerMode(on != 0);
+}
+
 ENG_EXPORT void engine_set_prototype_mode(Handle h, uint32_t on) {
   Call call;
   Engine* e = engineOf(h);
@@ -2497,11 +2519,14 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   json::Value v;
   if (!json::parse(bytes(ptr, len), v) || !v.isObject()) return E_DECODE;
   if (auto* s = v.get("scale"); s && s->isString()) {
-    const char* names[] = {"ACTUAL", "FIT_WIDTH", "FIT", "FILL"};
-    for (int i = 0; i < 4; i++)
+    const char* names[] = {"ACTUAL", "FIT_WIDTH", "FIT", "FILL", "RESPONSIVE"};
+    for (int i = 0; i < 5; i++)
       if (s->string == names[i]) e->player->setScale(static_cast<proto::ScaleMode>(i));
   }
   if (auto* hints = v.get("hints"); hints && hints->isBool()) e->player->setHints(hints->boolean);
+  // With a device: Responsive / Fixed size, Show device frame.
+  if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
+  if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);
   e->editor.invalidateCanvas();
   return OK;
 }

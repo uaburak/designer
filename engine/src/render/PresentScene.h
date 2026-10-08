@@ -24,6 +24,7 @@ struct PresentItem {
   // Clipped to this CSS rect (the device's screen).
   bool clip = false;
   Rect clipCss;
+  double clipRadius = 0;  // the clip's corners rounded (a device's screen), CSS px
   // Rect: filled with `color` × `alpha`, `radius` at its corners, an optional 1 px-ish border.
   Rect rect;
   Color color;

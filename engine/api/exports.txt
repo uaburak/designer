@@ -105,6 +105,7 @@ _engine_export_image
 _engine_export_clear_images
 _engine_export_list
 _engine_set_prototype_mode
+_engine_set_viewer_mode
 _engine_present_start
 _engine_present_stop
 _engine_present_pointer

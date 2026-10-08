@@ -648,7 +648,7 @@ Overlay Editor::overlay() const {
   if (gesture_ == Gesture::None && hover_ != kNoGuid && measureTarget_ == kNoGuid) o.hover.push_back(hover_);
   for (Guid h : layersHover_) o.hover.push_back(h);
   o.selection = selection_;
-  o.handles = gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate;
+  o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate;
   o.sizeBadge = true;
   o.hasMarquee = gesture_ == Gesture::Marquee ||
                  (gesture_ == Gesture::Draw && drawType_ == NodeType::TEXT && (lastScreen_ - downScreen_).length() >= 3);
@@ -1175,6 +1175,7 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
       return K_HANDLED;
     }
   }
+  if (viewer_ && code != KeyCode::Escape && code != KeyCode::Tab && code != KeyCode::Enter && code != KeyCode::NumpadEnter) return 0;
   if (code == KeyCode::Escape) {
     if (gesture_ != Gesture::None) cancelGesture();
     else if (tool_ != Tool::MOVE) setTool(Tool::MOVE);
@@ -1197,13 +1198,13 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     case KeyCode::NumpadEnter:
       if (selection_.empty()) return 0;
       // Enter on one text layer edits it, all its text selected (Figma).
-      if (!shift && selection_.size() == 1 && doc_.get(selection_[0])->props.type == NodeType::TEXT &&
+      if (!viewer_ && !shift && selection_.size() == 1 && doc_.get(selection_[0])->props.type == NodeType::TEXT &&
           !doc_.get(selection_[0])->props.locked) {
         startTextEdit(selection_[0], true);
         return K_HANDLED;
       }
       // Enter on a vector or a shape: vector edit mode.
-      if (!shift && selection_.size() == 1 && startVectorEdit(selection_[0]) == OK) return K_HANDLED;
+      if (!viewer_ && !shift && selection_.size() == 1 && startVectorEdit(selection_[0]) == OK) return K_HANDLED;
       selectRelative(shift ? 1 : 0);
       return K_HANDLED;
     case KeyCode::Tab:
@@ -1236,8 +1237,23 @@ void Editor::blur() {
   needsRender_ = true;
 }
 
+void Editor::setViewerMode(bool on) {
+  if (viewer_ == on) return;
+  cancelGesture();
+  if (on) {
+    if (text_.node != kNoGuid) endTextEdit();
+    if (vector_.node != kNoGuid) endVectorEdit();
+    if (paint_.node != kNoGuid) endPaintEdit();
+    setPrototypeMode(false);
+    setTool(Tool::MOVE);
+  }
+  viewer_ = on;
+  needsRender_ = true;
+}
+
 Status Editor::setTool(Tool t) {
   if (!toolImplemented(t)) return E_UNSUPPORTED;
+  if (viewer_ && t != Tool::MOVE && t != Tool::HAND) return E_READONLY;
   if (t != tool_ && text_.node != kNoGuid) endTextEdit();
   // In vector edit mode the Pen and Move switch its own tool; any other tool leaves it.
   if (vector_.node != kNoGuid) {
