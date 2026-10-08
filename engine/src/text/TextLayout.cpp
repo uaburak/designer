@@ -16,9 +16,24 @@ namespace {
 constexpr double kStandInAscent = 0.96875, kStandInDescent = 0.2412, kStandInLineHeight = 1.2099;
 // Lists: each indentation level indents by this many ems; a marker sits this far before its item's text.
 constexpr double kListIndentEm = 1.5, kMarkerGapEm = 0.5;
-// How far a line may overrun its width and still fit: Figma's pen positions are quantized to 1/256 px and come out a
-// few thousandths of a pixel off exact sums (a line Figma fits at 63.996 px in a 64 px box).
-constexpr double kFitSlack = 0.01;
+// Positions as Figma's (kFigmaUnitsPerEm): shaped in font units, a glyph's advance and its adjustment (kerning) are
+// each rounded to 1/1024 em from the font's own numbers (396 units of 1000 -> 406 = round(405.504); HarfBuzz at a
+// 1024 scale truncates its multiplier and says 405, and a 65536 scale rounds 618.496 up through 618.5). Pen positions
+// are then multiples of size / 1024 (3/256 px at 12 px) as Figma's are, and widths and line fits are exact: a line
+// fits when it isn't wider than the box (the epsilon only absorbs a float's rounding).
+constexpr double kFitSlack = 1e-6;
+
+// A shaped glyph's position in px, Figma's way.
+struct FigmaPos {
+  double dx, dy, advance;
+};
+FigmaPos figmaPos(const Font& font, const hb_glyph_info_t& info, const hb_glyph_position_t& pos, double fontSize) {
+  double upem = font.unitsPerEm();
+  auto em1024 = [&](double units) { return std::round(units * kFigmaUnitsPerEm / upem); };
+  double own = hb_font_get_glyph_h_advance(font.hbUnits(), info.codepoint);
+  double k = fontSize / kFigmaUnitsPerEm;
+  return {em1024(pos.x_offset) * k, -em1024(pos.y_offset) * k, (em1024(own) + em1024(pos.x_advance - own)) * k};
+}
 
 double letterSpacingPx(const ResolvedStyle& s) {
   // RAW letter spacing (legacy files: {1, RAW}, {0.5, RAW}) adds nothing in Figma's stored layouts.
@@ -129,7 +144,6 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
   const uint16_t* paragraph = reinterpret_cast<const uint16_t*>(display.data()) + pStart;
   for (const Run& run : runs) {
     const ResolvedStyle& st = L.styles[run.style];
-    double scale = st.fontSize / kHbScale;
     size_t firstGlyph = glyphs.size();
     if (!run.font) {
       // No font yet: one empty glyph per character keeps the clusters (and the caret) in place.
@@ -142,13 +156,14 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
       hb_buffer_set_direction(buf, HB_DIRECTION_LTR);  // bidi comes with E3.2
       hb_buffer_set_language(buf, hb_language_get_default());
       hb_buffer_set_cluster_level(buf, HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
-      shapeWith(run.font->hb(), buf, feats[run.style]);
+      shapeWith(run.font->hbUnits(), buf, feats[run.style]);
       unsigned count = 0;
       hb_glyph_info_t* info = hb_buffer_get_glyph_infos(buf, &count);
       hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(buf, &count);
-      for (unsigned g = 0; g < count; g++)
-        glyphs.push_back({run.font, info[g].codepoint, pos[g].x_offset * scale, -pos[g].y_offset * scale, pos[g].x_advance * scale,
-                          info[g].cluster + pStart, run.style});
+      for (unsigned g = 0; g < count; g++) {
+        FigmaPos fp = figmaPos(*run.font, info[g], pos[g], st.fontSize);
+        glyphs.push_back({run.font, info[g].codepoint, fp.dx, fp.dy, fp.advance, info[g].cluster + pStart, run.style});
+      }
     }
     // Clusters of this run (cluster values never decrease in an LTR run).
     for (size_t g = firstGlyph; g < glyphs.size();) {
@@ -179,14 +194,15 @@ double shapeString(const std::u16string& s, const ResolvedStyle& st, uint16_t st
   hb_buffer_t* buf = hb_buffer_create();
   hb_buffer_add_utf16(buf, reinterpret_cast<const uint16_t*>(s.data()), static_cast<int>(s.size()), 0, static_cast<int>(s.size()));
   hb_buffer_guess_segment_properties(buf);
-  shapeWith(st.font->hb(), buf, feats);
+  shapeWith(st.font->hbUnits(), buf, feats);
   unsigned count = 0;
   hb_glyph_info_t* info = hb_buffer_get_glyph_infos(buf, &count);
   hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(buf, &count);
-  double scale = st.fontSize / kHbScale, pen = 0;
+  double pen = 0;
   for (unsigned g = 0; g < count; g++) {
-    out.push_back({st.font, info[g].codepoint, pos[g].x_offset * scale, -pos[g].y_offset * scale, pos[g].x_advance * scale, 0, style});
-    pen += pos[g].x_advance * scale;
+    FigmaPos fp = figmaPos(*st.font, info[g], pos[g], st.fontSize);
+    out.push_back({st.font, info[g].codepoint, fp.dx, fp.dy, fp.advance, 0, style});
+    pen += out.back().advance;
   }
   hb_buffer_destroy(buf);
   return pen;
@@ -621,9 +637,9 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     y = L.lines.back().baseline;
   }
   // Auto width: Figma's box is the widest line rounded up to whole pixels (layoutSize.x of every auto-width text in a
-  // large private file is ⌈its widest baseline⌉); alignment uses that box. The slack: Figma's 1/256 px positions put
-  // a width we measure a few thousandths under a whole pixel just over it (→ the next pixel).
-  if (!wrap) widest = std::ceil(widest + kFitSlack);
+  // large private file is ⌈its widest baseline⌉); alignment uses that box. The widths are sums of 1/1024 em steps, so
+  // a whole-pixel width stays whole (the epsilon only absorbs a float's rounding).
+  if (!wrap) widest = std::ceil(widest - kFitSlack);
   L.size = {widest, y};
   L.boxWidth = wrap ? maxWidth : widest;
   if (opt.height >= 0 && p.text().textAutoResize == TextAutoResize::NONE) {

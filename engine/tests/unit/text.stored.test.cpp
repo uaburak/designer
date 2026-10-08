@@ -133,8 +133,8 @@ std::string layoutOf(Handle h, Guid id) {
 
 void reloadFonts() {
   auto& fonts = text::FontRegistry::get();
-  int32_t upright = test::addFontFile(std::string(ENG_FONTS_DIR) + "/InterVariable.ttf");
-  int32_t italic = test::addFontFile(std::string(ENG_FONTS_DIR) + "/InterVariable-Italic.ttf");
+  int32_t upright = test::addFontFile(test::interPath());
+  int32_t italic = upright;
   for (const char* s : {"Thin", "Extra Light", "Light", "Regular", "Medium", "Semi Bold", "Bold", "Extra Bold", "Black"}) {
     fonts.bind("Inter", s, upright);
     std::string it = std::string(s) == "Regular" ? "Italic" : std::string(s) + " Italic";

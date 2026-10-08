@@ -27,6 +27,11 @@ namespace eng::text {
 
 // HarfBuzz scale: font units are mapped to this many units per em.
 inline constexpr int kHbScale = 1 << 16;
+// Figma shapes text at 1024 units per em: every advance, kerning value and offset is a whole 1/1024 em, each rounded
+// on its own. Measured on a private file: every glyph pair of its 7,000 texts in three families steps by the advance
+// and the kerning each rounded to 1/1024 em (1000 units per em: 610 + (-10) units -> 625 - 10 = 615, where
+// round(600 x 1.024) would be 614).
+inline constexpr int kFigmaUnitsPerEm = 1024;
 
 // A glyph's outline as quadratic Béziers (lines are quadratics with the control
 // point in the middle; cubics are approximated), in em units, y down.
@@ -66,6 +71,10 @@ class Font {
 
   uint32_t id() const { return id_; }  // unique in the process (glyph caches key on it)
   hb_font_t* hb() const { return font_; }
+  // The same font in font units (scale = units per em): shaping, so advances and kerning can be rounded to 1/1024 em
+  // from the font's own numbers, as Figma rounds them.
+  hb_font_t* hbUnits() const { return units_ ? units_ : font_; }
+  int unitsPerEm() const { return units_ ? upem_ : kHbScale; }
   // Metrics in em (distances below the baseline are positive).
   double ascent = 0.9, descent = 0.25, lineGap = 0;
   double underlineOffset = 0.1, underlineThickness = 0.05;  // the underline's top, below the baseline
@@ -97,6 +106,8 @@ class Font {
   uint32_t id_;
   std::shared_ptr<Face> face_;
   hb_font_t* font_ = nullptr;
+  hb_font_t* units_ = nullptr;
+  int upem_ = 1000;
   std::vector<std::pair<uint32_t, float>> variations_;
   std::unordered_map<uint32_t, GlyphOutline> outlines_;
   std::unordered_map<std::string, std::unique_ptr<Font>> variants_;
