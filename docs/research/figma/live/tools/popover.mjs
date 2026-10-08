@@ -93,11 +93,15 @@ try {
         else if (op === "select") await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), arg);
         else if (op === "doc") await open(arg);
         else if (op === "click") {
-          const inPanel = panel.locator(`[aria-label="${arg}"]`);
-          await ((await inPanel.count()) ? inPanel.first() : page.locator(`[aria-label="${arg}"]`).first()).click({ timeout: 3000, force: true });
+          // A control before a group of the same name (the Boolean operations chevron, not its split group)
+          const sel = `:is(button, input, [role="combobox"], [role="radio"], [role="tab"])[aria-label="${arg}"]`;
+          const candidates = [panel.locator(sel), panel.locator(`[aria-label="${arg}"]`), page.locator(sel), page.locator(`[aria-label="${arg}"]`)];
+          let target = null;
+          for (const c of candidates) if (!target && (await c.count())) target = c.first();
+          await (target ?? candidates[3].first()).click({ timeout: 3000, force: true });
         } else if (op === "clickIn") await lastPopup().locator(`[aria-label="${arg}"]`).first().click({ timeout: 3000, force: true });
         else if (op === "text") await page.getByText(arg, { exact: true }).filter({ visible: true }).last().click({ timeout: 3000 });
-        else if (op === "hover") await page.locator(`[aria-label="${arg}"]`).first().hover({ timeout: 3000 });
+        else if (op === "hover") await page.locator(`[aria-label="${arg}"]`).first().hover({ timeout: 3000, force: true });
         else if (op === "key") await page.keyboard.press(arg);
       } catch {
         failed = `${op} ${arg}`;

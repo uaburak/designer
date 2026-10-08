@@ -171,18 +171,21 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
     </div>
   );
   return (
-    <Popover anchor={anchor} title="Export settings" width={240} onClose={onClose} label="Export settings">
-      <div className={styles.settings} data-export-settings="">
+    // Live (popovers/export-advanced-settings.txt): "Export", rows from 52 every 32 — labels 16, fields 100 wide at 124
+    // (Suffix "None", Color profile "sRGB (same as file)", Image resampling "Detailed"), Ignore overlapping layers.
+    <Popover anchor={anchor} title="Export" width={240} onClose={onClose} label="Export settings">
+      <div className={cx(styles.settings, own.exportSettings)} data-export-settings="">
         <span className={styles.settingsLabel}>Suffix</span>
-        <TextInput label="Suffix" placeholder="Suffix" value={setting.suffix ?? ""} onCommit={(v) => onChange({ ...setting, suffix: v })} />
+        <TextInput label="Suffix" placeholder="None" value={setting.suffix ?? ""} onCommit={(v) => onChange({ ...setting, suffix: v })} />
         {raster && (
           <>
             <span className={styles.settingsLabel}>Color profile</span>
             <Select
               label="Color profile"
+              variant="ghost"
               value={setting.colorProfile ?? "DOCUMENT"}
               options={[
-                { value: "DOCUMENT", label: "Same as file" },
+                { value: "DOCUMENT", label: "sRGB (same as file)" },
                 { value: "SRGB", label: "sRGB" },
                 { value: "DISPLAY_P3_V4", label: "Display P3" },
               ]}
@@ -193,7 +196,7 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
         {(format === "JPEG" || format === "PDF") && (
           <>
             <span className={styles.settingsLabel}>Image quality</span>
-            <Select label="Image quality" value={quality.value} options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: q.label }))} onChange={(v) => onChange({ ...setting, quality: QUALITY_LEVELS.find((q) => q.value === v)?.quality })} />
+            <Select label="Image quality" variant="ghost" value={quality.value} options={QUALITY_LEVELS.map((q) => ({ value: q.value, label: q.label }))} onChange={(v) => onChange({ ...setting, quality: QUALITY_LEVELS.find((q) => q.value === v)?.quality })} />
           </>
         )}
         {format !== "SVG" && (
@@ -201,6 +204,7 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
             <span className={styles.settingsLabel}>Image resampling</span>
             <Select
               label="Image resampling"
+              variant="ghost"
               value={setting.useBicubicSampler === false ? "basic" : "detailed"}
               options={[
                 { value: "detailed", label: "Detailed" },
@@ -211,7 +215,8 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
           </>
         )}
         {format !== "PDF" && check("Ignore overlapping layers", setting.contentsOnly !== false, (v) => ({ ...setting, contentsOnly: v }))}
-        {format !== "PDF" && check("Include bounding box", setting.useAbsoluteBounds === true, (v) => ({ ...setting, useAbsoluteBounds: v }))}
+        {/* Not in the live PNG settings; kept for SVG (unverified there) */}
+        {format === "SVG" && check("Include bounding box", setting.useAbsoluteBounds === true, (v) => ({ ...setting, useAbsoluteBounds: v }))}
         {format === "SVG" && check('Include "id" attribute', setting.svgIDMode === "ALWAYS", (v) => ({ ...setting, svgIDMode: v ? "ALWAYS" : "IF_NEEDED" }))}
         {format === "SVG" && check("Outline text", setting.svgOutlineText !== false, (v) => ({ ...setting, svgOutlineText: v }))}
         {format === "SVG" && check("Simplify stroke", setting.svgForceStrokeMasks !== true, (v) => ({ ...setting, svgForceStrokeMasks: !v }))}

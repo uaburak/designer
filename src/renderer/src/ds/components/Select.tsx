@@ -30,6 +30,8 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
   placeholder?: string;
   /** Gallery: draw the list open, in place */
   static?: boolean;
+  /** A list without the check column (live: the effect type menu — its icons at 16, the current one highlighted) */
+  noCheck?: boolean;
 }
 
 /**
@@ -39,7 +41,7 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
  * in the list ↑ ↓ Home End, typeahead, Enter picks, Esc closes (focus stays
  * on the trigger). Never a native <select>.
  */
-export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, className, style, ...rest }: SelectProps) {
+export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, className, style, ...rest }: SelectProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -81,12 +83,12 @@ export function Select({ label, value, options, onChange, variant = "filled", si
         <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? STRINGS.mixed : current?.label ?? placeholder}</span>
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>
-      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
+      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
     </div>
   );
 }
 
-function Listbox({ id, anchor, options, value, isStatic, onPick, onClose }: { id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: (SelectOption | "-")[]; value: string | null; isStatic?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
+function Listbox({ id, anchor, options, value, isStatic, noCheck, onPick, onClose }: { id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: (SelectOption | "-")[]; value: string | null; isStatic?: boolean; noCheck?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
   const panel = useRef<HTMLDivElement>(null);
   const selected = options.findIndex((o) => o !== "-" && o.value === value);
   const usable = options.map((o, i) => (o !== "-" && !o.disabled ? i : -1)).filter((i) => i >= 0);
@@ -107,11 +109,12 @@ function Listbox({ id, anchor, options, value, isStatic, onPick, onClose }: { id
     el.style.minWidth = `${Math.round(r.width + 16)}px`;
     const item = selected >= 0 ? el.querySelector<HTMLElement>(`[data-index="${selected}"]`) : null;
     const p = placeOverTrigger(r, item ? item.offsetTop : null, item ? item.offsetHeight : 0, { width: el.offsetWidth, height: el.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
-    el.style.left = `${p.x}px`;
+    // Without the check column the glyphs line up with the field's own (live effect type menu: at the field's left).
+    el.style.left = `${noCheck && item ? Math.min(r.left, window.innerWidth - 8 - el.offsetWidth) : p.x}px`;
     el.style.top = `${p.y}px`;
     el.style.visibility = "visible";
     el.focus({ preventScroll: true });
-  }, [anchor, selected, isStatic]);
+  }, [anchor, selected, isStatic, noCheck]);
   useEffect(() => {
     const el = panel.current;
     const item = active >= 0 ? el?.querySelector<HTMLElement>(`[data-index="${active}"]`) : null;
@@ -162,11 +165,11 @@ function Listbox({ id, anchor, options, value, isStatic, onPick, onClose }: { id
             aria-disabled={o.disabled || undefined}
             data-index={i}
             data-highlighted={(active === i && !o.disabled) || undefined}
-            className={cx(menu.item, menu.listItem)}
+            className={cx(menu.item, !noCheck && menu.listItem)}
             onPointerEnter={() => !o.disabled && setActive(i)}
             onClick={() => !o.disabled && onPick(o.value)}
           >
-            <span className={menu.check}>{o.value === value && <Icon name="16.check" />}</span>
+            {!noCheck && <span className={menu.check}>{o.value === value && <Icon name="16.check" />}</span>}
             {o.icon && <span className={menu.icon}><MenuIcon name={o.icon} /></span>}
             <span className={menu.label}>{o.label}</span>
             {o.hint && <span className={menu.hint}>{o.hint}</span>}

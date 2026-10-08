@@ -257,6 +257,8 @@ export function EffectSettings({
       label="Effect settings"
       variant="ghost"
       width="hug"
+      noCheck
+      prefix={EFFECT_TYPES.find((t) => t.value === effect.type)?.icon ?? "24.drop.shadow.mid.small"}
       value={effect.type}
       options={typeOptions}
       onChange={(v) => {
@@ -274,6 +276,7 @@ export function EffectSettings({
       <span className={styles.settingsLabel}>{label}</span>
       <ColorInput
         label={aria}
+        swatchLabel={`Solid color hex: ${colorToHex(value).replace("#", "").toUpperCase()}`}
         color={colorToHex(value)}
         opacity={toPercent(value.a ?? 1)}
         onColor={(hex, info) => set({ [key]: hexToColor(hex, value.a ?? 1) }, info)}
@@ -641,6 +644,7 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
           label="Layout guide type"
           variant="ghost"
           width="hug"
+          className={styles.guideType}
           value={kind}
           options={[
             { value: "GRID", label: "Grid" },
@@ -651,7 +655,7 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         />
       }
     >
-      <div className={`${styles.settings} ${styles.settingsGuide}`} data-guide-settings="">
+      <div className={`${styles.settings} ${styles.settingsGuide} ${styles.guideBody}`} data-guide-settings="">
         {kind === "GRID" ? (
           <>
             <span className={styles.settingsLabel}>Size</span>
@@ -666,6 +670,7 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         <span className={styles.settingsLabel}>Color</span>
         <ColorInput
           label="Layout guide color"
+          swatchLabel={`Solid color hex: ${colorToHex(color).replace("#", "").toUpperCase()}`}
           color={colorToHex(color)}
           opacity={toPercent(color.a ?? 0.1)}
           onColor={(hex, info, o) => onChange({ ...grid, color: hexToColor(hex, o !== undefined ? o / 100 : (color.a ?? 0.1)) }, info)}

@@ -5,7 +5,7 @@ import { createTypeahead, typeahead } from "../util/typeahead";
 import { placeMenu } from "../overlay/position";
 import { Portal } from "../overlay/Portal";
 import { useDismiss } from "../overlay/useDismiss";
-import { Icon, iconBox, type IconName } from "../icons/Icon";
+import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
 import { timing } from "../tokens";
 import styles from "./Menu.module.css";
@@ -231,9 +231,9 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   );
 }
 
-/** A menu item's glyph in its 16px column: a 16 icon as is, a 24 one at its size with its box overlapping the column (its glyph is ~16). */
+/** A menu item's glyph in its 24px column (a 16 icon centred in it). */
 export function MenuIcon({ name }: { name: IconName }) {
-  return iconBox(name) === 24 ? <Icon name={name} style={{ margin: -4 }} /> : <Icon name={name} />;
+  return <Icon name={name} />;
 }
 
 /** Scrolls a long menu so `item` is in view — the menu only, never the page behind it. */

@@ -47,7 +47,8 @@
   .item[aria-disabled="true"] { color: var(--ds-color-menu-text-disabled); }
   /* Live capture: a check column of 16 after the item's 8 — the label at 32 (16 without checks) */
   .check { display: flex; flex: none; width: 16px; margin-right: calc(var(--ds-space-2) * -1); }
-  .icon { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; }
+  /* Live (boolean operations, individual strokes): a 24 glyph column, the label 4 after it (44 without checks, 60 with) */
+  .icon { display: flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: calc(var(--ds-space-1) * -1); }
   .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .hint, .shortcut { flex: none; color: var(--ds-color-menu-text-secondary); }
   /* Live capture (Frame ▾ presets): a hint is the item's own colour, right-aligned */
