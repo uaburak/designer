@@ -428,9 +428,9 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       bool swapped = main != xn->props.comp().symbolData.symbolID;
       if (!swapped) ex.stack.add(xn->props.comp().symbolData.overrides, path, mn ? mn->props.keyOf(main) : kNoGuid);
       p = mn ? instanceRoot(xn->props, mn->props, main) : xn->props;
-      // Its size is its own, as it sits in its main (Figma's derivedSymbolData leaves out a nested instance whose size
-      // is that one); a swap takes the new main's.
-      if (!swapped) p.size = xn->props.size;
+      // Its size is its own, as it sits in its main, swapped or not (Figma: a swapped icon keeps its 20 × 20 where its
+      // new main is 24 × 24; Figma's derivedSymbolData leaves out a nested instance whose size is that one).
+      p.size = xn->props.size;
       ex.stack.apply(path, p);
       applyBindings(xn->props, p, symbol, assigns, nullptr, nullptr);
       p.type = NodeType::INSTANCE;
