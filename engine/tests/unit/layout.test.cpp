@@ -294,3 +294,120 @@ TEST_CASE("spatial index: stays balanced and valid under churn") {
   });
   CHECK(found > 0);
 }
+
+// ---- Figma's hug rules, as its files lay out (round 5: engine layout against a large file's stored geometry) -------
+
+TEST_CASE("layout: a stretched child of a parent hugging that axis counts for its content (Figma's table rows)") {
+  // A row hugging its height holds two cells that fill it (STRETCH), each a vertical stack of fixed height 28: the
+  // first holds two 28 px rows (gap 4), so the row — and both cells — are 60 tall, not the cells' stored 28.
+  const Guid ROW{9, 1}, A{9, 2}, B{9, 3};
+  NodeChange row = autoLayout(ROW, StackMode::HORIZONTAL, {0, 0, 200, 28}, 0, 0);
+  row.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange a = autoLayout(A, StackMode::VERTICAL, {0, 0, 100, 28}, 4, 0);
+  NodeChange b = autoLayout(B, StackMode::VERTICAL, {100, 0, 100, 28}, 4, 0);
+  for (NodeChange* c : {&a, &b}) {
+    c->props.parentIndex.guid = ROW;
+    c->props.stackChildAlignSelf = StackCounterAlign::STRETCH;
+  }
+  b.props.parentIndex.position = "#";
+  auto rowsA = squares(A, 2, 28), rowsB = squares(B, 1, 28);
+  std::vector<NodeChange> nodes{row, a, b};
+  nodes.insert(nodes.end(), rowsA.begin(), rowsA.end());
+  nodes.insert(nodes.end(), rowsB.begin(), rowsB.end());
+  Editor e = load(nodes);
+  touch(e, ROW, 0);
+  CHECK(e.document().get(ROW)->props.size.y == doctest::Approx(60));
+  CHECK(e.document().get(A)->props.size.y == doctest::Approx(60));
+  CHECK(e.document().get(B)->props.size.y == doctest::Approx(60));
+  CHECK(at(e, rowsA[1].guid).y == doctest::Approx(32));
+}
+
+TEST_CASE("layout: a Fill child on the primary axis of a parent hugging it keeps its own size") {
+  // A vertical stack hugging its height holds a child set to Fill height (grow), fixed at 28, whose content is 40:
+  // Figma measures it at its own 28, not its content.
+  const Guid V{9, 11}, C{9, 12};
+  NodeChange v = autoLayout(V, StackMode::VERTICAL, {0, 0, 100, 10}, 0, 2);
+  v.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange c = autoLayout(C, StackMode::HORIZONTAL, {0, 0, 100, 28}, 0, 0);
+  c.props.parentIndex.guid = V;
+  c.props.stackChildPrimaryGrow = 1;
+  NodeChange tall = make({9, 13}, NodeType::ROUNDED_RECTANGLE, C, "!", {0, 0, 40, 40});
+  Editor e = load({v, c, tall});
+  touch(e, V, 0);
+  CHECK(e.document().get(C)->props.size.y == doctest::Approx(28));
+  CHECK(e.document().get(V)->props.size.y == doctest::Approx(32));
+}
+
+TEST_CASE("layout: an auto-layout frame with nothing in its flow keeps its size") {
+  // Figma: emptying (or hiding everything in) a Hug frame doesn't collapse it to its padding.
+  const Guid H{9, 21};
+  NodeChange h = autoLayout(H, StackMode::HORIZONTAL, {0, 0, 12, 24}, 10, 2);
+  h.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  h.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange hidden = make({9, 22}, NodeType::ROUNDED_RECTANGLE, H, "!", {0, 0, 40, 40});
+  hidden.props.visible = false;
+  Editor e = load({h, hidden});
+  touch(e, H, 4);
+  CHECK(e.document().get(H)->props.size == Vec2{12, 24});
+}
+
+TEST_CASE("layout: an absolute auto-layout child is laid out too") {
+  const Guid F{9, 31}, A{9, 32};
+  NodeChange f = autoLayout(F, StackMode::VERTICAL, {0, 0, 200, 200}, 0, 0);
+  NodeChange a = autoLayout(A, StackMode::HORIZONTAL, {50, 50, 10, 10}, 0, 0);
+  a.props.parentIndex.guid = F;
+  a.props.stackPositioning = StackPositioning::ABSOLUTE;
+  a.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  a.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange r = make({9, 33}, NodeType::ROUNDED_RECTANGLE, A, "!", {0, 0, 50, 20});
+  Editor e = load({f, a, r});
+  touch(e, F, 0);
+  CHECK(e.document().get(A)->props.size == Vec2{50, 20});
+  CHECK(at(e, A).x == doctest::Approx(50));  // still where it was: absolute
+}
+
+TEST_CASE("layout: a group with a mask is the mask's size") {
+  // What is above a mask is clipped by it: Figma sizes the group to the mask (the circle a 28 px avatar mask cuts).
+  const Guid G{9, 41}, MASK{9, 42}, PIC{9, 43};
+  NodeChange g = make(G, NodeType::FRAME, kPage, "!", {100, 100, 60, 60}, "Group");
+  g.props.resizeToFit = true;
+  g.props.fillPaints.clear();
+  NodeChange mask = make(MASK, NodeType::ROUNDED_RECTANGLE, G, "!", {10, 10, 28, 28}, "mask");
+  mask.props.mask = true;
+  NodeChange pic = make(PIC, NodeType::ROUNDED_RECTANGLE, G, "#", {0, 0, 60, 60}, "picture");
+  Editor e = load({g, mask, pic});
+  e.setSelection({MASK});
+  e.command(CommandId::NUDGE, 1, 0);
+  CHECK(e.document().get(G)->props.size == Vec2{28, 28});
+  CHECK(e.document().worldBounds(MASK).x == doctest::Approx(111));
+}
+
+TEST_CASE("layout: grid — items that fill a row's height don't size a Hug row; a row nothing sizes takes the frame's height") {
+  // One Hug row; both items fill its height (as a table's cells do). Nothing sizes the row: the frame (Hug height)
+  // keeps its 32, the row takes it and the items fill it — Figma, not CSS's content height.
+  std::string cols = "[" + track(1, "!") + "," + track(2, "#") + "]";
+  std::string colSizing = "[" + sizing(1, "FLEX", 1) + "," + sizing(2, "FLEX", 1) + "]";
+  std::string rows = "[" + track(11, "!") + "]";
+  NodeChange f = gridNode(R"({"guid":"8:1","type":"FRAME","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":200,"y":32},)"
+                          R"("stackMode":"GRID","stackPrimarySizing":"FIXED","stackCounterSizing":"RESIZE_TO_FIT_WITH_IMPLICIT_SIZE",)"
+                          R"("gridReflowEnabled":true,"gridColumns":{"entries":)" + cols + R"(},"gridColumnsSizing":{"entries":)" + colSizing +
+                          R"(},"gridRows":{"entries":)" + rows + "}}");
+  auto cell = [](int id, const char* pos) {
+    return gridNode(R"({"guid":"8:)" + std::to_string(id) + R"(","type":"ROUNDED_RECTANGLE","parentIndex":{"guid":"8:1","position":")" + pos +
+                    R"("},"size":{"x":100,"y":26},"stackChildPrimaryGrow":1,"stackChildAlignSelf":"STRETCH"})");
+  };
+  NodeChange a = cell(2, "!"), b = cell(3, "#");
+  Editor e = load({f, a, b});
+  touch(e, F_GRID_FRAME, 0);
+  CHECK(e.document().get(F_GRID_FRAME)->props.size.y == doctest::Approx(32));
+  CHECK(e.document().get(a.guid)->props.size.y == doctest::Approx(32));
+  CHECK(e.document().get(b.guid)->props.size == Vec2{100, 32});
+  // An item that doesn't fill the row (fixed at 26) sizes it.
+  NodeChange c;
+  c.mask = F_STACK_CHILD_ALIGN_SELF | F_SIZE;
+  c.props.stackChildAlignSelf = StackCounterAlign::AUTO;
+  c.props.size = {100, 26};
+  REQUIRE(e.setProps({b.guid}, c, 0) == OK);
+  CHECK(e.document().get(F_GRID_FRAME)->props.size.y == doctest::Approx(26));
+  CHECK(e.document().get(a.guid)->props.size.y == doctest::Approx(26));
+}

@@ -3075,21 +3075,57 @@ uint32_t fieldIdOf(const char* defName, std::string_view key) {
   return f ? f->value : 0;
 }
 
-Guid assignmentSlotContent(std::string_view extra) {
-  if (extra.empty()) return kNoGuid;
+bool assignmentVarValue(std::string_view extra, VariableData& out) {
+  if (extra.empty()) return false;
   kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(extra.data()), extra.size());
   while (bb.index() < extra.size()) {
     uint32_t f = 0;
-    if (!bb.readVarUint(f) || !f) return kNoGuid;
-    if (f == 3) {  // varValue
-      VariableData d;
-      if (!readVariableDataInto(bb, d)) return kNoGuid;
-      return d.kind == VariableData::Kind::SLOT_CONTENT ? d.slotContent : kNoGuid;
-    }
+    if (!bb.readVarUint(f) || !f) return false;
+    if (f == 3) return readVariableDataInto(bb, out);  // varValue
     const FieldDef* fd = defs().propAssignment.byId(f);
-    if (!fd || !table().skipValue(bb, *fd)) return kNoGuid;
+    if (!fd || !table().skipValue(bb, *fd)) return false;
   }
-  return kNoGuid;
+  return false;
+}
+
+bool assignmentVarProp(std::string_view extra, ComponentPropValue& out) {
+  VariableData d;
+  if (!assignmentVarValue(extra, d)) return false;
+  if (d.kind == VariableData::Kind::BOOL) {
+    out.hasBool = true;
+    out.boolValue = d.boolValue;
+    return true;
+  }
+  if (d.valueExtra.empty()) return false;
+  // The members the engine keeps as bytes: symbolIdValue (8, SymbolId {1 guid}), textDataValue (10, TextData).
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(d.valueExtra.data()), d.valueExtra.size());
+  uint32_t f = 0;
+  if (!bb.readVarUint(f)) return false;
+  if (f == 10) {
+    TextData t;
+    if (!readTextData(bb, t, nullptr)) return false;
+    out.hasText = true;
+    out.textValue = std::move(t);
+    return true;
+  }
+  if (f == 8) {
+    for (;;) {
+      uint32_t e = 0;
+      if (!bb.readVarUint(e) || !e) break;
+      if (e != 1) return false;
+      Guid g;
+      if (!getGuid(bb, g)) return false;
+      out.guidValue = noneToAbsent(g);
+    }
+    return out.guidValue != kNoGuid;
+  }
+  return false;
+}
+
+Guid assignmentSlotContent(std::string_view extra) {
+  VariableData d;
+  if (!assignmentVarValue(extra, d)) return kNoGuid;
+  return d.kind == VariableData::Kind::SLOT_CONTENT ? d.slotContent : kNoGuid;
 }
 
 bool extraBool(const std::map<std::string, std::string>& extra, const char* key, bool fallback) {

@@ -1289,9 +1289,12 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
         case VariableField::PARAGRAPH_SPACING: return (m & F_PARAGRAPH_SPACING) != 0;
         case VariableField::PARAGRAPH_INDENT: return (m & F_PARAGRAPH_INDENT) != 0;
         case VariableField::GRID_ROW_GAP:
-          return (m & F_EXTRA) && now.extra.count("gridRowGap") && extraFloat(now, "gridRowGap", kGridRowGapId) != extraFloat(before, "gridRowGap", kGridRowGapId);
+          return (m & F_EXTRA) && now.extra.count("gridRowGap") &&
+                 (!before.extra.count("gridRowGap") || extraFloat(now, "gridRowGap", kGridRowGapId) != extraFloat(before, "gridRowGap", kGridRowGapId));
         case VariableField::GRID_COLUMN_GAP:
-          return (m & F_EXTRA) && now.extra.count("gridColumnGap") && extraFloat(now, "gridColumnGap", kGridColumnGapId) != extraFloat(before, "gridColumnGap", kGridColumnGapId);
+          return (m & F_EXTRA) && now.extra.count("gridColumnGap") &&
+                 (!before.extra.count("gridColumnGap") ||
+                  extraFloat(now, "gridColumnGap", kGridColumnGapId) != extraFloat(before, "gridColumnGap", kGridColumnGapId));
         default: return false;
       }
     };

@@ -15,6 +15,7 @@
 //   EDITOR_ONLY=libraries node …                                   (only the libraries section: publish, enable, insert, update)
 //   EDITOR_ONLY=export node …                                      (only the export section: Export panel, dialog, Copy as PNG)
 //   EDITOR_ONLY=prototype node …                                   (only the E8 section: Prototype tab, noodles, presentation view)
+//   EDITOR_ONLY=grid node …                                        (only the grid auto layout section: flow, counts, tracks, gaps, spans)
 /* global process, console, window, document, navigator, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -1098,7 +1099,75 @@ async function prototypeSection(page, theme) {
   await shot(page, `104-present-route-${theme}`);
 }
 
+/** Grid auto layout on `?editor&doc=reference` (dark): the Grid flow, its counts, track sizes, gaps, spans, the track pills. */
+async function gridSection(page, theme) {
+  await open(page, "&doc=reference");
+  const panel = page.locator('[data-panel="right"]');
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
+  await settle(page);
+  await panel.getByRole("button", { name: "Add auto layout" }).first().click();
+  await settle(page);
+  await panel.getByRole("radio", { name: "Grid" }).click();
+  await settle(page);
+  let n = await node(page, "1:1");
+  check("Grid: the flow makes a 2 × 2 grid with automatic positioning", n.stackMode === "GRID" && n.gridColumns?.entries?.length === 2 && n.gridRows?.entries?.length === 2 && n.gridReflowEnabled === true, JSON.stringify({ mode: n.stackMode, cols: n.gridColumns?.entries?.length, rows: n.gridRows?.entries?.length }));
+  const cols = panel.getByRole("textbox", { name: "Number of columns" });
+  await cols.click();
+  await cols.fill("3");
+  await cols.press("Enter");
+  await settle(page);
+  n = await node(page, "1:1");
+  check("Grid: Number of columns 3", n.gridColumns?.entries?.length === 3, `${n.gridColumns?.entries?.length}`);
+  const first = panel.getByRole("textbox", { name: "Column 1 size" });
+  await first.click();
+  await first.fill("2fr");
+  await first.press("Enter");
+  await settle(page);
+  n = await node(page, "1:1");
+  const sizing = n.gridColumnsSizing?.entries?.find((e) => e.id.localID === n.gridColumns.entries[0].id.localID)?.trackSize?.maxSizing;
+  check("Grid: typing 2fr makes column 1 Fill 2fr (the frame's width Fixed)", sizing?.type === "FLEX" && sizing?.value === 2 && n.stackPrimarySizing === "FIXED", JSON.stringify(sizing));
+  const gap = panel.getByRole("textbox", { name: "Gap between columns" });
+  await gap.click();
+  await gap.fill("24");
+  await gap.press("Enter");
+  await settle(page);
+  check("Grid: Gap between columns 24", (await node(page, "1:1")).gridColumnGap === 24);
+  await panel.locator('[aria-label="Auto layout"], [aria-label="Layout"]').first().scrollIntoViewIfNeeded().catch(() => {});
+  await shot(page, `110-grid-panel-${theme}`);
+  // The track pills: the pointer just above the frame's first column labels it.
+  const [x, y] = await toScreen(page, 30, -6);
+  await page.mouse.move(x, y);
+  await settle(page);
+  await shot(page, `111-grid-track-pill-${theme}`);
+  // Layers in the grid flow into its cells; one of them spans two columns.
+  await page.evaluate(() => {
+    const rect = (guid, position, fill) => ({ guid, phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Cell", parentIndex: { guid: "1:1", position }, size: { x: 60, y: 40 }, fillPaints: [{ type: "SOLID", color: fill, opacity: 1, visible: true }] });
+    window.__designerEditor.engine.applyChanges({ type: "NODE_CHANGES", nodeChanges: [rect("9:1", "!", { r: 0.05, g: 0.6, b: 1, a: 1 }), rect("9:2", '"', { r: 0.08, g: 0.68, b: 0.36, a: 1 }), rect("9:3", "#", { r: 1, g: 0.78, b: 0, a: 1 }), rect("9:4", "$", { r: 0.95, g: 0.28, b: 0.13, a: 1 })] });
+  });
+  await settle(page);
+  const kids = ["9:1", "9:2", "9:3", "9:4"];
+  await page.evaluate((id) => window.__designerEditor.engine.setSelection([id]), kids[0]);
+  await settle(page);
+  const span = panel.getByRole("textbox", { name: "Column span" });
+  await span.click();
+  await span.fill("2");
+  await span.press("Enter");
+  await settle(page);
+  check("Grid: Column span 2 on a layer in the grid", (await node(page, kids[0])).gridColumnSpan === 2);
+  await shot(page, `112-grid-span-${theme}`);
+}
+
 try {
+  if (only === "grid" || !only) {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await gridSection(page, "dark");
+    await context.close();
+  }
   if (only === "prototype") {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();

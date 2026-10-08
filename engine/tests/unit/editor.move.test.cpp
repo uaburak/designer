@@ -8,6 +8,8 @@
 #include "editor/Editor.h"
 #include "Helpers.h"
 #include "base/FractionalIndex.h"
+#include "base/Json.h"
+#include "scene/CodecJson.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -419,4 +421,93 @@ TEST_CASE("select inverse: the selection's siblings instead of it") {
   e.command(CommandId::SELECT_INVERSE);
   CHECK(e.selection().empty());  // A is Frame 1's only child
   CHECK(e.commandState(CommandId::SELECT_INVERSE) == CMD_ENABLED);
+}
+
+namespace {
+
+// A 2 × 2 grid of 50 px fixed tracks (100 × 100 at the origin), its items 40 × 40, from the JSON wire.
+NodeChange fromJson(const std::string& text) {
+  json::Value v;
+  REQUIRE(json::parse(text, v));
+  NodeChange c;
+  REQUIRE(codec::readChange(v, c));
+  c.phase = Phase::CREATED;
+  c.mask = F_ALL;
+  return c;
+}
+
+std::vector<NodeChange> gridScene(bool reflow) {
+  auto nodes = baseChanges();
+  auto track = [](int id, const char* pos) { return R"({"id":{"sessionID":9,"localID":)" + std::to_string(id) + R"(},"position":")" + pos + R"("})"; };
+  auto fixed = [](int id) {
+    return R"({"id":{"sessionID":9,"localID":)" + std::to_string(id) + R"(},"trackSize":{"minSizing":{"type":"FIXED","value":50},"maxSizing":{"type":"FIXED","value":50}}})";
+  };
+  nodes.push_back(fromJson(R"({"guid":"1:30","type":"FRAME","name":"Grid","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":100,"y":100},)"
+                           R"("stackMode":"GRID","stackPrimarySizing":"FIXED","stackCounterSizing":"FIXED","gridReflowEnabled":)" +
+                           std::string(reflow ? "true" : "false") + R"(,"gridColumns":{"entries":[)" + track(1, "!") + "," + track(2, "#") +
+                           R"(]},"gridColumnsSizing":{"entries":[)" + fixed(1) + "," + fixed(2) + R"(]},"gridRows":{"entries":[)" + track(11, "!") +
+                           "," + track(12, "#") + R"(]},"gridRowsSizing":{"entries":[)" + fixed(11) + "," + fixed(12) + "]}}"));
+  const char* anchors[3][2] = {{"1", "11"}, {"2", "11"}, {"1", "12"}};
+  const char* keys[3] = {"!", "#", "$"};
+  for (int i = 0; i < 3; i++) {
+    std::string a = reflow ? "" : std::string(R"(,"gridColumnAnchor":{"sessionID":9,"localID":)") + anchors[i][0] + R"(},"gridRowAnchor":{"sessionID":9,"localID":)" + anchors[i][1] + "}";
+    nodes.push_back(fromJson(R"({"guid":"1:)" + std::to_string(31 + i) + R"(","type":"ROUNDED_RECTANGLE","parentIndex":{"guid":"1:30","position":")" + keys[i] +
+                             R"("},"size":{"x":40,"y":40})" + a + "}"));
+  }
+  return nodes;
+}
+
+}  // namespace
+
+TEST_CASE("move: grid — a drag places the item in the cell under the pointer") {
+  const Guid GRID{1, 30}, I0{1, 31}, I1{1, 32}, I2{1, 33};
+  {
+    // Automatic placement: the item joins the flow at the cell — dropped on the empty last cell, it goes last.
+    Editor e = load(gridScene(true));
+    NodeChange touch;
+    touch.mask = F_STACK_SPACING;
+    e.setProps({GRID}, touch, 0);
+    REQUIRE(world(e, I2).y == 50);
+    e.setSelection({I0});
+    down(e, 20, 20);
+    steps(e, {20, 20}, {75, 75});
+    Overlay o = e.overlay();
+    REQUIRE(o.hasInsertion);
+    CHECK(o.insertion.a.x == 50);
+    CHECK(o.insertion.a.y == 50);
+    up(e, 75, 75);
+    CHECK(e.document().children(GRID) == std::vector<Guid>{I1, I2, I0});
+    CHECK(world(e, I1).x == 0);
+    CHECK(world(e, I2).x == 50);  // automatic placement leaves no gap: I0 takes the third cell
+    CHECK(world(e, I0).x == 0);
+    CHECK(world(e, I0).y == 50);
+  }
+  {
+    // Placed by hand: the item takes the empty cell; dropped on a taken one, the two swap.
+    Editor e = load(gridScene(false));
+    NodeChange touch;
+    touch.mask = F_STACK_SPACING;
+    e.setProps({GRID}, touch, 0);
+    e.setSelection({I0});
+    drag(e, {20, 20}, {75, 75});
+    CHECK(world(e, I0).x == 50);
+    CHECK(world(e, I0).y == 50);
+    CHECK(world(e, I1).x == 50);  // untouched
+    e.setSelection({I0});
+    drag(e, {75, 75}, {75, 25});
+    CHECK(world(e, I0).y == 0);
+    CHECK(world(e, I1).x == 50);
+    CHECK(world(e, I1).y == 50);  // took I0's cell
+    // The selected grid shows its tracks along its edges; the one under the pointer is labelled.
+    e.setSelection({GRID});
+    move(e, 75, -6);
+    Overlay o = e.overlay();
+    REQUIRE(o.gridTracks.size() == 4);
+    CHECK(o.gridTracks[0].column);
+    CHECK(o.gridTracks[1].a.x == 50);
+    CHECK(o.gridTracks[1].label == "50");
+    CHECK(o.gridTracks[1].hovered);
+    CHECK(!o.gridTracks[0].hovered);
+    CHECK(!o.gridTracks[2].column);
+  }
 }

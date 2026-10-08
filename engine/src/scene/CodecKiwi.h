@@ -128,6 +128,10 @@ uint32_t fieldIdOf(const char* def, std::string_view key);
 // A ComponentPropAssignment's slot content as Figma's files give it — its varValue's slotContentIdValue (the raw
 // field sequence `extra`); kNoGuid when it has none.
 Guid assignmentSlotContent(std::string_view extra);
+// A ComponentPropAssignment's varValue (Figma's files may give a property's value there only, `value` left empty).
+bool assignmentVarValue(std::string_view extra, VariableData& out);
+// That varValue as a property value: a boolean, a text (textDataValue) or a component (symbolIdValue); false otherwise.
+bool assignmentVarProp(std::string_view extra, ComponentPropValue& out);
 // A bool field of a raw sequence (Libraries' isSymbolPublishable): `fallback` when absent.
 bool extraBool(const std::map<std::string, std::string>& extra, const char* key, bool fallback);
 

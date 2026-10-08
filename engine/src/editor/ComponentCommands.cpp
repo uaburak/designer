@@ -15,6 +15,7 @@
 #include "editor/Editor.h"
 #include "hit/HitTest.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng {
 
@@ -358,8 +359,11 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       p.defaultValue = textValue(p.defaultVariant);
       p.value = textValue(level != kNoGuid ? p.variantValue : p.defaultVariant);
     } else {
-      for (const auto& a : assigns)
-        if (a.defID == d->id && !a.value.empty()) p.value = a.value;
+      for (const auto& a : assigns) {
+        if (a.defID != d->id) continue;
+        if (!a.value.empty()) p.value = a.value;
+        else codec::assignmentVarProp(a.extra, p.value);  // Figma's files: the value in varValue only
+      }
       p.overridden = usage.count(d->id) != 0;
       p.boundLayers = bound[d->id];
     }
@@ -384,8 +388,10 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       const ComponentPropAssignment* a = nullptr;
       for (const auto& x : assigns)
         if (x.defID == d->id) a = &x;
+      ComponentPropValue fromVar;  // Figma's files: an assignment's value in varValue only
+      const bool assigned = a && (!a->value.empty() || codec::assignmentVarProp(a->extra, fromVar));
       if (a && a->boundValue.present()) p.boundVariable = variableOf(a->boundValue);
-      else if (!a || a->value.empty()) p.boundVariable = variableOf(d->boundValue);
+      else if (!assigned) p.boundVariable = variableOf(d->boundValue);
     }
     out.push_back(std::move(p));
   }

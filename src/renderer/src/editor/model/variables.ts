@@ -563,6 +563,8 @@ export type BindField =
   | "MAX_HEIGHT"
   | "STACK_SPACING"
   | "STACK_COUNTER_SPACING"
+  | "GRID_ROW_GAP"
+  | "GRID_COLUMN_GAP"
   | "STACK_PADDING_LEFT"
   | "STACK_PADDING_TOP"
   | "STACK_PADDING_RIGHT"
@@ -597,6 +599,8 @@ export const BIND_TYPE: Record<BindField, { type: VarType; scope: string | null;
   MAX_HEIGHT: { type: "FLOAT", scope: "WIDTH_HEIGHT", label: "Max height" },
   STACK_SPACING: { type: "FLOAT", scope: "GAP", label: "Gap between items" },
   STACK_COUNTER_SPACING: { type: "FLOAT", scope: "GAP", label: "Gap between rows" },
+  GRID_ROW_GAP: { type: "FLOAT", scope: "GAP", label: "Gap between rows" },
+  GRID_COLUMN_GAP: { type: "FLOAT", scope: "GAP", label: "Gap between columns" },
   STACK_PADDING_LEFT: { type: "FLOAT", scope: "GAP", label: "Left padding" },
   STACK_PADDING_TOP: { type: "FLOAT", scope: "GAP", label: "Top padding" },
   STACK_PADDING_RIGHT: { type: "FLOAT", scope: "GAP", label: "Right padding" },
@@ -694,6 +698,10 @@ export function resolvedFields(field: string, value: Literal, n: BindableNode): 
       return Number.isFinite(num) ? { stackSpacing: num } : null;
     case "STACK_COUNTER_SPACING":
       return Number.isFinite(num) ? { stackCounterSpacing: num } : null;
+    case "GRID_ROW_GAP":
+      return Number.isFinite(num) ? { gridRowGap: Math.max(0, num) } : null;
+    case "GRID_COLUMN_GAP":
+      return Number.isFinite(num) ? { gridColumnGap: Math.max(0, num) } : null;
     case "STACK_PADDING_LEFT":
       return Number.isFinite(num) ? { stackHorizontalPadding: Math.max(0, num) } : null;
     case "STACK_PADDING_TOP":

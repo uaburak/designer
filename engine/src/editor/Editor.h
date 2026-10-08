@@ -1046,6 +1046,8 @@ class Editor : private LayoutHost, public TextLayouts {
   void protoPointerUp(Vec2 s);
   void protoHover(Vec2 s);
   void protoOverlay(Overlay& o) const;
+  // A selected grid's tracks along its edges (Gestures.cpp), the one under the pointer labelled.
+  void gridTrackOverlay(Overlay& o) const;
 
   // ---- Text editing (editor/TextEditing.cpp) ----
   struct TextSession {
@@ -1150,6 +1152,9 @@ class Editor : private LayoutHost, public TextLayouts {
   bool hasInsertion_ = false;
   GuideLine insertion_;
   size_t insertIndex_ = 0;
+  // Dropping into a grid without automatic placement: the cell the dragged layer takes (its anchors).
+  bool gridDrop_ = false;
+  Guid gridDropCol_ = kNoGuid, gridDropRow_ = kNoGuid;
   std::vector<Rect> bands_;  // auto-layout padding / gap bands under the pointer (world)
 
   // Text.

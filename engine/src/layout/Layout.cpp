@@ -95,25 +95,37 @@ std::vector<Guid> Layout::flowChildren(Guid frame) const {
 
 // ---- Measure ------------------------------------------------------------------------
 
-Vec2 Layout::natural(Guid id, double width, double height) {
-  MemoKey key{id, width, height};
+int Layout::fillHugAxes(const NodeProps& parent, const NodeProps& child) {
+  if (!parent.isAutoLayout() || !child.inFlow()) return 0;
+  const int P = parent.stack().stackMode == StackMode::VERTICAL ? 1 : 0;  // a grid's primary axis is its width
+  int out = 0;
+  if (child.stackChildAlignSelf == StackCounterAlign::STRETCH && parent.hugsCounter()) out |= P == 0 ? kHugHeight : kHugWidth;
+  return out;
+}
+
+Vec2 Layout::natural(Guid id, double width, double height, int hug) {
+  MemoKey key{id, width, height, hug};
   auto hit = memo_.find(key);
   if (hit != memo_.end()) return hit->second;
   const Node* n = doc_.get(id);
   if (!n) return {};
   const NodeProps& p = n->props;
-  Vec2 size = p.size;
+  // A slot showing its instance's content is as large as the content frame: its size, its own Hug (Figma: the slot
+  // layer keeps its place in the flow; the content frame is a frame of its own).
+  Guid shown = p.isFrameLike() ? host_.slotContentOf(id) : kNoGuid;
+  const NodeProps& lp = shown != kNoGuid ? doc_.get(shown)->props : p;
+  Vec2 size = lp.size;
   if (width > 0) size.x = width;
   if (height > 0) size.y = height;
-  if (p.isAutoLayout()) {
+  if (lp.isAutoLayout()) {
     // A grid's primary axis is its width (as a horizontal flow's).
-    int P = p.stack().stackMode == StackMode::VERTICAL ? 1 : 0, C = 1 - P;
-    bool hugP = p.hugsPrimary() && !(P == 0 ? width > 0 : height > 0);
-    bool hugC = p.hugsCounter() && !(C == 0 ? width > 0 : height > 0);
-    if (hugP || hugC) {
-      Guid shown = host_.slotContentOf(id);
-      if (shown != kNoGuid && !doc_.get(shown)->props.isAutoLayout()) shown = kNoGuid;
-      Vec2 content = shown != kNoGuid ? contentSize(shown, size) : contentSize(id, size);
+    int P = lp.stack().stackMode == StackMode::VERTICAL ? 1 : 0, C = 1 - P;
+    const int bitP = P == 0 ? kHugWidth : kHugHeight, bitC = P == 0 ? kHugHeight : kHugWidth;
+    bool hugP = (lp.hugsPrimary() || (hug & bitP)) && !(P == 0 ? width > 0 : height > 0);
+    bool hugC = (lp.hugsCounter() || (hug & bitC)) && !(C == 0 ? width > 0 : height > 0);
+    // An auto-layout frame with nothing in its flow keeps its size (Figma: emptying a Hug frame doesn't collapse it).
+    if ((hugP || hugC) && !flowChildren(shown != kNoGuid ? shown : id).empty()) {
+      Vec2 content = contentSize(shown != kNoGuid ? shown : id, size, (hugP ? bitP : 0) | (hugC ? bitC : 0));
       if (hugP) setAxis(size, P, axis(content, P));
       if (hugC) setAxis(size, C, axis(content, C));
     }
@@ -131,6 +143,7 @@ Vec2 Layout::natural(Guid id, double width, double height) {
       Rect b = layoutBox(cn->props.transform, natural(c));
       u = any ? u.united(b) : b;
       any = true;
+      if (cn->props.mask && cn->props.visible) break;  // what is above a mask is clipped by it (Figma: a masked group is the mask's size)
     }
     if (any) size = {u.w, u.h};
   }
@@ -157,16 +170,23 @@ double Layout::baselineOf(Guid id, Vec2 size, int depth) {
   return size.y;
 }
 
-Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
+Vec2 Layout::contentSize(Guid frame, Vec2 frameSize, int hug) {
   const NodeProps& p = doc_.get(frame)->props;
-  if (p.stack().stackMode == StackMode::GRID) return gridContentSize(frame, frameSize, p.hugsPrimary(), p.hugsCounter());
+  if (p.stack().stackMode == StackMode::GRID) return gridContentSize(frame, frameSize, (hug & kHugWidth) != 0, (hug & kHugHeight) != 0);
   int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
+  const int bitP = P == 0 ? kHugWidth : kHugHeight, bitC = P == 0 ? kHugHeight : kHugWidth;
+  // A child that stretches across the counter axis this frame hugs counts for its content there (fillHugAxes).
+  auto measure = [&](Guid c, const NodeProps& cp) {
+    int f = 0;
+    if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && (hug & bitC)) f |= bitC;
+    return natural(c, -1, -1, f);
+  };
   double pad[4];
   padding(p, pad);
   double padP = P == 0 ? pad[0] + pad[2] : pad[1] + pad[3];
   double padC = C == 0 ? pad[0] + pad[2] : pad[1] + pad[3];
   double gap = p.stack().stackSpacing, counterGap = p.stack().stackCounterSpacing.value_or(p.stack().stackSpacing);
-  bool wrap = p.stack().stackWrap == StackWrap::WRAP && P == 0 && !p.hugsPrimary();
+  bool wrap = p.stack().stackWrap == StackWrap::WRAP && P == 0 && !(hug & bitP);
   double main = 0, cross = 0;
   std::vector<Guid> kids = flowChildren(frame);
   if (!wrap) {
@@ -174,7 +194,7 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
     double above = 0, below = 0;
     for (size_t i = 0; i < kids.size(); i++) {
       const NodeProps& cp = doc_.get(kids[i])->props;
-      Vec2 s = natural(kids[i]);
+      Vec2 s = measure(kids[i], cp);
       Rect b = layoutBox(cp.transform, s);
       main += (P == 0 ? b.w : b.h) + (i ? gap : 0);
       cross = std::max(cross, C == 0 ? b.w : b.h);
@@ -191,7 +211,7 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
     int inLine = 0, lines = 0;
     for (Guid c : kids) {
       const NodeProps& cp = doc_.get(c)->props;
-      Rect b = layoutBox(cp.transform, natural(c));
+      Rect b = layoutBox(cp.transform, measure(c, cp));
       double bp = P == 0 ? b.w : b.h, bc = C == 0 ? b.w : b.h;
       if (inLine && lineMain + gap + bp > avail + kEps) {
         cross += lineCross + (lines ? counterGap : 0);
@@ -244,7 +264,7 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     const NodeProps& cp = doc_.get(c)->props;
     Item it;
     it.id = c;
-    it.size = natural(c);
+    it.size = natural(c, -1, -1, fillHugAxes(p, cp));
     it.aligned = axisAligned(cp.transform);
     Rect b = layoutBox(cp.transform, it.size);
     it.bp = P == 0 ? b.w : b.h;
@@ -447,6 +467,14 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
     if (!sameSize(size, size0)) host_.writeGeometry(id, transform0, size);
     arrangeAutoLayout(id, size);
     applyConstraints(id, false);  // absolute children follow the frame
+    // Absolute children take no place in the flow, but their own content is laid out. (Hidden ones are left as they
+    // are: Figma's files keep a hidden layer's geometry from when it was last shown.)
+    for (Guid c : std::vector<Guid>(doc_.children(id))) {
+      const Node* cn = doc_.get(c);
+      if (!cn || cn->props.inFlow() || !cn->props.visible || host_.excludedFromFlow(c) || host_.placedByGesture(c)) continue;
+      if (type == NodeType::INSTANCE && cn->props.comp().isSlotContent) continue;
+      if (cn->props.isAutoLayout() || cn->props.fitsChildren()) arrange(c, natural(c), false);
+    }
   } else if (fits) {
     for (Guid c : std::vector<Guid>(doc_.children(id))) {
       const Node* cn = doc_.get(c);
@@ -472,12 +500,12 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
 }
 
 void Layout::arrangeAutoLayout(Guid id, Vec2 size) {
-  const bool hugsPrimary = doc_.get(id)->props.hugsPrimary();
   for (const Placement& pl : place(id, size)) {
     const Node* cn = doc_.get(pl.id);
     if (!cn || host_.placedByGesture(pl.id)) continue;
     const NodeProps& cp = cn->props;
-    bool decided = (cp.stackChildPrimaryGrow > 0 && !hugsPrimary) || cp.stackChildAlignSelf == StackCounterAlign::STRETCH;
+    // The parent decides its size: Fill, or Stretch measured by its content where the parent hugs (fillHugAxes).
+    bool decided = cp.stackChildPrimaryGrow > 0 || cp.stackChildAlignSelf == StackCounterAlign::STRETCH;
     // The child's own layout first (its children, its group fitting)…
     if (cp.isAutoLayout() || cp.fitsChildren() || cp.isFrameLike()) arrange(pl.id, pl.size, decided || !cp.isAutoLayout());
     else if (!sameSize(pl.size, cp.size)) host_.writeGeometry(pl.id, cp.transform, pl.size);
@@ -547,6 +575,7 @@ void Layout::fitGroup(Guid id) {
     Rect b = layoutBox(cp.transform, cp.size);
     u = any ? u.united(b) : b;
     any = true;
+    if (cp.mask && cp.visible) break;  // the layers above a mask are clipped by it: the group is the mask's size
   }
   const Mat2x3 gt = doc_.get(id)->props.transform;
   const Vec2 gs = doc_.get(id)->props.size;

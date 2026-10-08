@@ -24,7 +24,7 @@ Thumbnails are small (≤ 400 px) and show one area, so the same run also compar
 
 Engine side (docs/engine-build.md "Import fidelity"): override and derivedSymbolData paths in Figma's form, NaN row gaps, SPACE_EVENLY = space between, GRID layout, slot content outside the flow, Display P3.
 
-**Left** (largest first, from the geometry check and the dropped-field report): our own layout still differs from Figma's on ~5k nodes / ~20k sublayers — table rows of slot content whose heights differ, variable-bound sizes inside nested instances, text measurement differences (fonts); `BRUSH` nodes (25 in the owner's file, dropped: they'd need their `fillGeometry` drawn); `VIDEO` paints (1); grid drag-reorder and the grid panel. Dropped fields that don't draw: `editInfo`, layout version stamps, `targetAspectRatio`, `textTracking` (6 non-zero), `Paint.authoredColor`, prototyping extras.
+**Left** (largest first, from the geometry check and the dropped-field report): our own layout (round 5, docs/engine-build.md "Round 5": 2,659 real nodes / 8,683 sublayers off, from 3,933 / 18,301, fonts settled) differs from Figma's mostly by text widths (Figma's auto-width texts are 0.7–1.3 px wider and whole-pixel) and hidden layers' stale geometry; `BRUSH` nodes (25 in the owner's file, dropped: they'd need their `fillGeometry` drawn); `VIDEO` paints (1); on-canvas grid track gestures (resize, reorder, span handles). Dropped fields that don't draw: `editInfo`, layout version stamps, `targetAspectRatio`, `textTracking` (6 non-zero), `Paint.authoredColor`, prototyping extras.
 
 ---
 

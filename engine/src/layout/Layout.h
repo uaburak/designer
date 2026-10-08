@@ -5,6 +5,7 @@
 // (system writes in the current transaction, through the host).
 #pragma once
 
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -55,8 +56,17 @@ class Layout {
 
   // The size `id` takes on its own (Hug computed, Fixed as is, clamped by
   // min/max); `width` / `height` > 0 fix that axis first (a Fill width decides
-  // a wrapping frame's height).
-  Vec2 natural(Guid id, double width = -1, double height = -1);
+  // a wrapping frame's height). `hug` (kHugWidth | kHugHeight): that axis hugs
+  // its content whatever its own sizing says (a Fill child measured by a parent
+  // that hugs that axis, fillHugAxes).
+  static constexpr int kHugWidth = 1, kHugHeight = 2;
+  Vec2 natural(Guid id, double width = -1, double height = -1, int hug = 0);
+  // Figma: a child that fills the counter axis (STRETCH) of a horizontal /
+  // vertical parent hugging that axis counts for its content there (a table row
+  // hugging cells that fill its height is as tall as its tallest cell's
+  // content). A Fill on the primary axis of a parent hugging it counts for its
+  // own size. kHugWidth / kHugHeight, 0 when none.
+  static int fillHugAxes(const NodeProps& parent, const NodeProps& child);
 
   // Where an auto-layout frame's children go, without writing anything:
   // their sizes and the positions of their layout boxes, in the frame's space.
@@ -79,18 +89,40 @@ class Layout {
   // Padding (left, top, right, bottom) of an auto-layout frame, strokes included when they take space.
   static void padding(const NodeProps& p, double out[4]);
 
+  // A grid frame's cells as laid out now (frame space): track offsets and sizes, track GUIDs (kNoGuid for rows past
+  // the defined ones), automatic placement, and where each flow item sits. Gestures and overlays use it.
+  struct GridCells {
+    std::vector<double> colX, colW, rowY, rowH;
+    std::vector<Guid> colIds, rowIds;
+    std::vector<std::string> colLabels, rowLabels;  // Figma's: "1fr", "120", "Hug"
+    bool reflow = false;
+    struct Item {
+      Guid id;
+      size_t col = 0, row = 0, colSpan = 1, rowSpan = 1;
+    };
+    std::vector<Item> items;
+    // The cell (col, row) a point falls in, the nearest one when it is outside or in a gap; false without tracks.
+    bool cellAt(Vec2 p, size_t& col, size_t& row) const;
+  };
+  GridCells gridCells(Guid frame);
+  // A grid item's placement fields as kiwi bytes for NodeProps::extra: gridColumnAnchor / gridRowAnchor (a track's
+  // GUID), gridColumnSpan / gridRowSpan.
+  static std::string gridAnchorBytes(bool column, Guid track);
+  static std::string gridSpanBytes(bool column, uint32_t span);
+
  private:
   // Grid auto layout (GridLayout.cpp): tracks sized and items placed for a size (hugW / hugH: that axis hugs).
   struct Grid;
   Grid grid(Guid frame, Vec2 size, bool hugW, bool hugH);
   Vec2 gridContentSize(Guid frame, Vec2 frameSize, bool hugW, bool hugH);
+  // An auto-layout frame's content size; `hug` as natural's (the axes it hugs, its own sizing or forced).
+  Vec2 contentSize(Guid frame, Vec2 frameSize, int hug);
   std::vector<Placement> gridPlace(Guid frame, Vec2 size);
 
   void arrange(Guid id, Vec2 size, bool sizeFromParent);
   void arrangeAutoLayout(Guid id, Vec2 size);
   void applyConstraints(Guid frame, bool flowChildrenToo);
   void fitGroup(Guid id);
-  Vec2 contentSize(Guid frame, Vec2 frameSize);
   // Where a child's first baseline is, from the top of its layout box (BASELINE alignment): a text's
   // first line, an auto-layout frame's first child's, else the box's bottom.
   double baselineOf(Guid id, Vec2 size, int depth = 0);
@@ -100,11 +132,12 @@ class Layout {
   struct MemoKey {
     Guid id;
     double w, h;
-    bool operator==(const MemoKey& o) const { return id == o.id && w == o.w && h == o.h; }
+    int hug;
+    bool operator==(const MemoKey& o) const { return id == o.id && w == o.w && h == o.h && hug == o.hug; }
   };
   struct MemoHash {
     size_t operator()(const MemoKey& k) const noexcept {
-      return GuidHash()(k.id) ^ (std::hash<double>()(k.w) * 31) ^ (std::hash<double>()(k.h) * 131);
+      return GuidHash()(k.id) ^ (std::hash<double>()(k.w) * 31) ^ (std::hash<double>()(k.h) * 131) ^ (static_cast<size_t>(k.hug) * 7919);
     }
   };
   std::unordered_map<MemoKey, Vec2, MemoHash> memo_;

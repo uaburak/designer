@@ -377,11 +377,16 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
       if (d.id == b.propRef) def = &d;
     if (!def) continue;  // a stale binding (its property was deleted)
     const ComponentPropAssignment* a = findAssign(assigns, def->id);
-    ComponentPropValue v = a && !a->value.empty() ? a->value : def->initialValue;
+    // The value: the assignment's (Figma's files may give it in varValue only, `value` empty: a boolean, a text or a
+    // component there), else the default.
+    ComponentPropValue fromVar;
+    if (a && a->value.empty()) codec::assignmentVarProp(a->extra, fromVar);
+    const bool assigned = a && (!a->value.empty() || !fromVar.empty());
+    ComponentPropValue v = !fromVar.empty() ? fromVar : a && !a->value.empty() ? a->value : def->initialValue;
     // A value (or, without one, the default) bound to a variable: the variable's value in the level's modes.
-    const VariableData* bound = a && a->boundValue.present()                   ? &a->boundValue
-                                : (!a || a->value.empty()) && def->boundValue.present() ? &def->boundValue
-                                                                                         : nullptr;
+    const VariableData* bound = a && a->boundValue.present()                  ? &a->boundValue
+                                : !assigned && def->boundValue.present() ? &def->boundValue
+                                                                         : nullptr;
     Resolved r;
     if (bound && resolve && (*resolve)(*bound, r)) {
       if (def->type == ComponentPropType::BOOL && r.kind == Resolved::Kind::BOOL) v.hasBool = true, v.boolValue = r.b;
@@ -480,6 +485,9 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
         }
       }
       p = mn ? instanceRoot(xn->props, mn->props, main) : xn->props;
+      // Its size is its own, as it sits in its main, swapped or not (Figma: a swapped icon keeps its 20 × 20 where its
+      // new main is 24 × 24; Figma's derivedSymbolData leaves out a nested instance whose size is that one).
+      p.size = xn->props.size;
       ex.stack.apply(path, p);
       applyBindings(xn->props, p, symbol, assigns, nullptr, nullptr, &resolveAtLevel);
       p.type = NodeType::INSTANCE;
@@ -487,6 +495,15 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       p.comp().symbolData.symbolID = main;
       std::vector<ComponentPropAssignment> nested = swapped ? std::vector<ComponentPropAssignment>{} : xn->props.comp().componentPropAssignments;
       ex.stack.assignments(path, nested);
+      // Exposed nested instances (Figma's "Expose properties from nested instances"): the instance above holds values
+      // for this one's properties; they win over its own.
+      if (const std::vector<ComponentPropDef>* defs = mn ? defsOf(main) : nullptr)
+        for (const ComponentPropAssignment& a : assigns) {
+          if (std::none_of(defs->begin(), defs->end(), [&](const ComponentPropDef& d) { return d.id == a.defID; })) continue;
+          auto at = std::find_if(nested.begin(), nested.end(), [&](const ComponentPropAssignment& b) { return b.defID == a.defID; });
+          if (at != nested.end()) *at = a;
+          else nested.push_back(a);
+        }
       p.comp().componentPropAssignments = nested;
       p.parentIndex = {parentRow, xn->props.parentIndex.position};
       p.transform = xn->props.transform;
@@ -937,6 +954,37 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
     if (s.hasTransform) c.mask |= F_TRANSFORM, c.props.transform = s.transform;
     if (c.mask) applyDerivedDirect(c);
     if (s.text) storedText_[rows[i]] = s.text;
+  }
+  if (storedSparse_) {
+    // Figma's data names only the sublayers its layout moved off the main's geometry; the others sit where the main's
+    // constraints put them in a parent of another size (a 24 px icon's vector in a 16 px instance of it).
+    std::vector<Guid> resized;
+    auto check = [&](Guid r) {
+      const Node* n = doc_.get(r);
+      if (!n) return;
+      Blueprint& b = blueprint_[r];
+      b.transform = n->props.transform;
+      b.size = n->props.size;
+      b.geometry = true;
+      if (b.frame && n->props.isFrameLike() && !n->props.isAutoLayout() && !sameSize(n->props.size, b.sourceSize)) resized.push_back(r);
+    };
+    check(R);
+    for (Guid r : rows) check(r);
+    if (!resized.empty()) {
+      bool prevInLayout = inLayout_;
+      inLayout_ = true;
+      Layout L(*this);
+      for (Guid r : resized) L.constrainChildren(r);
+      inLayout_ = prevInLayout;
+      for (size_t i = 0; i < rows.size(); i++) {
+        if (!byRow[i]) continue;
+        const StoredRow& s = *byRow[i];
+        NodeChange c = NodeChange::changed(rows[i]);
+        if (s.hasSize) c.mask |= F_SIZE, c.props.size = s.size;
+        if (s.hasTransform) c.mask |= F_TRANSFORM, c.props.transform = s.transform;
+        if (c.mask) applyDerivedDirect(c);
+      }
+    }
   }
   applyingStored_ = prev;
   // The blueprint is the stored result at the instance's current size: a later layout of these sublayers finds them

@@ -7,6 +7,7 @@
 #include <functional>
 #include <fstream>
 #include <sstream>
+#include <tuple>
 
 #include "doctest.h"
 #include "Helpers.h"
@@ -937,4 +938,127 @@ TEST_CASE("components: instance counts and preferred values by key come from ind
   REQUIRE(e.command(CommandId::UNDO) == OK);
   REQUIRE(e.componentInfo(BUTTON2, info));
   CHECK(info.properties[0].preferredValues == std::vector<Guid>{ICON});
+}
+
+namespace {
+
+// The Button main with a boolean (SHOW) and a text (TXT) property bound to its label (as the test above).
+const Guid SHOW{1, 0x7fffffff}, TXT{1, 0x7ffffffe};
+std::vector<NodeChange> propertyButtonDoc() {
+  auto nodes = buttonDoc();
+  ComponentPropDef b;
+  b.id = SHOW;
+  b.name = "Show label";
+  b.type = ComponentPropType::BOOL;
+  b.initialValue.hasBool = true;
+  b.initialValue.boolValue = true;
+  ComponentPropDef t;
+  t.id = TXT;
+  t.name = "Label";
+  t.type = ComponentPropType::TEXT;
+  t.initialValue.hasText = true;
+  t.initialValue.textValue.characters = "Label";
+  nodes[3].props.comp().componentPropDefs = {b, t};
+  ParamBinding vis;
+  vis.field = VariableField::VISIBLE;
+  vis.propRef = SHOW;
+  ParamBinding chars;
+  chars.field = VariableField::TEXT_DATA;
+  chars.propRef = TXT;
+  nodes[5].props.parameterConsumptionMap = {vis, chars};
+  return nodes;
+}
+
+// Assignments as Figma's recent files write them: `value` empty, the value in `varValue`.
+std::vector<ComponentPropAssignment> figmaAssignments(const std::string& entries) {
+  json::Value v;
+  REQUIRE(json::parse(R"({"guid":"1:99","type":"INSTANCE","componentPropAssignments":[)" + entries + "]}", v));
+  NodeChange c;
+  REQUIRE(codec::readChange(v, c));
+  return c.props.comp().componentPropAssignments;
+}
+
+const std::string kHiddenHello =
+    R"({"defID":"1:2147483647","value":{},"varValue":{"value":{"boolValue":false},"dataType":"BOOLEAN","resolvedDataType":"BOOLEAN"}},)"
+    R"({"defID":"1:2147483646","value":{},"varValue":{"value":{"textDataValue":{"characters":"Hello"}},"dataType":"TEXT_DATA","resolvedDataType":"TEXT_DATA"}})";
+
+}  // namespace
+
+TEST_CASE("components: Figma's property values in varValue (value left empty) — booleans, texts, instance swaps") {
+  auto nodes = propertyButtonDoc();
+  nodes[6].props.comp().componentPropAssignments = figmaAssignments(kHiddenHello);
+  REQUIRE(nodes[6].guid == I);
+  Editor e = load(nodes);
+  CHECK(!props(e, sub(I, {LABEL})).visible);
+  CHECK(props(e, sub(I, {LABEL})).text().textData.characters == "Hello");
+  ComponentInfo info;
+  REQUIRE(e.componentInfo(I, info));
+  CHECK(info.properties.size() == 2);
+}
+
+TEST_CASE("components: an exposed nested instance takes its property values from the instance above") {
+  // Card (5:1) holds a Button instance (5:5); an instance of the Card (5:10) sets the Button's Label property (Figma's
+  // "Expose properties from nested instances": the value is the top instance's assignment, with the nested def's id).
+  auto nodes = propertyButtonDoc();
+  const Guid CARD{5, 1}, NB{5, 5}, CI{5, 10};
+  NodeChange card = make(CARD, NodeType::SYMBOL, kPage, "#", {300, 0, 200, 100}, "Card");
+  card.props.fillPaints.clear();
+  nodes.push_back(card);
+  nodes.push_back(instanceOf(NB, M, CARD, "!", {10, 10, 100, 40}));
+  NodeChange ci = instanceOf(CI, CARD, kPage, "$", {300, 200, 200, 100});
+  ci.props.comp().componentPropAssignments = figmaAssignments(kHiddenHello);
+  nodes.push_back(ci);
+  Editor e = load(nodes);
+  CHECK(props(e, sub(CI, {NB, LABEL})).text().textData.characters == "Hello");
+  CHECK(!props(e, sub(CI, {NB, LABEL})).visible);
+  CHECK(props(e, sub(NB, {LABEL})).text().textData.characters == "Label");  // the main's own instance: its defaults
+}
+
+TEST_CASE("components: a nested instance keeps its own size, swapped or not; its layers follow their constraints") {
+  // Icon mains 24 × 24 (a 12 px shape at 6, SCALE); the Button main holds a 16 × 16 instance of the first. An instance
+  // of the Button swaps it for the second: still 16 × 16 (Figma), its shape scaled to 8 px at 4.
+  auto nodes = buttonDoc();
+  const Guid ICON{2, 1}, SHAPE{2, 2}, ICON2{3, 1}, SHAPE2{3, 2}, NI{1, 5}, I2{1, 11};
+  for (auto [icon, shape, pos] : {std::tuple{ICON, SHAPE, "#"}, std::tuple{ICON2, SHAPE2, "$"}}) {
+    nodes.push_back(make(icon, NodeType::SYMBOL, kPage, pos, {300, 0, 24, 24}, "Icon"));
+    NodeChange s = make(shape, NodeType::ELLIPSE, icon, "!", {6, 6, 12, 12}, "Shape");
+    s.props.horizontalConstraint = s.props.verticalConstraint = ConstraintType::SCALE;
+    nodes.push_back(s);
+  }
+  NodeChange ni = instanceOf(NI, ICON, M, "#", {80, 12, 16, 16});
+  SymbolOverride resized;  // Figma writes a resized instance's size as its root override
+  resized.mask = F_SIZE;
+  resized.props.size = {16, 16};
+  ni.props.comp().symbolData.overrides = {resized};
+  nodes.push_back(ni);
+  NodeChange i2 = instanceOf(I2, M, kPage, "%", {0, 300, 100, 40});
+  SymbolOverride swap;
+  swap.path = {NI};
+  swap.mask = F_OVERRIDDEN_SYMBOL_ID;
+  swap.props.comp().overriddenSymbolID = ICON2;
+  i2.props.comp().symbolData.overrides = {swap};
+  nodes.push_back(i2);
+  Editor e = load(nodes);
+  CHECK(props(e, sub(I, {NI})).size == Vec2{16, 16});
+  CHECK(props(e, sub(I2, {NI})).size == Vec2{16, 16});
+  for (Guid shape : {sub(I, {NI, SHAPE}), sub(I2, {NI, SHAPE2})}) {
+    REQUIRE(e.document().has(shape));
+    CHECK(props(e, shape).size.x == doctest::Approx(8));
+    CHECK(props(e, shape).transform.m02 == doctest::Approx(4));
+  }
+  // Figma's sparse derivedSymbolData that doesn't name the shape: it still follows its constraints in the 16 px icon.
+  Editor::StoredDerived stored;
+  stored.sparse = true;
+  Editor::StoredRow label;
+  label.path = {LABEL};
+  label.hasTransform = true;
+  label.transform = Mat2x3::translate(12, 10);
+  stored.symbols[I2] = {label};
+  Editor f;
+  f.setSessionID(1);
+  f.loadDocument(std::vector<NodeChange>(nodes), kNoGuid, &stored);
+  CHECK(f.derivedUsed() >= 1);
+  CHECK(props(f, sub(I2, {LABEL})).transform.m02 == doctest::Approx(12));
+  CHECK(props(f, sub(I2, {NI, SHAPE2})).size.x == doctest::Approx(8));
+  CHECK(props(f, sub(I2, {NI, SHAPE2})).transform.m02 == doctest::Approx(4));
 }

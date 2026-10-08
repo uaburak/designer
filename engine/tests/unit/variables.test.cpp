@@ -1440,3 +1440,32 @@ TEST_CASE("variables: bound values, instances and fonts of a page not shown wait
   e.derivePageOf({6, 2});
   CHECK(e.document().has(derived::intern({6, 2}, {{2, 2}})));
 }
+
+TEST_CASE("variables: a grid's column and row gaps bind (GRID_COLUMN_GAP / GRID_ROW_GAP) and lay the grid out") {
+  // A 2 × 1 grid of fixed 50 px columns; its column gap bound to a variable (12 in Light, 30 in Dark).
+  auto nodes = doc();
+  json::Value v;
+  REQUIRE(json::parse(
+      R"({"guid":"7:1","type":"FRAME","name":"Grid","parentIndex":{"guid":"0:1","position":"~"},"size":{"x":200,"y":50},"stackMode":"GRID",)"
+      R"("stackPrimarySizing":"FIXED","stackCounterSizing":"FIXED","gridReflowEnabled":true,"gridColumns":{"entries":[{"id":{"sessionID":9,"localID":1},"position":"!"},)"
+      R"({"id":{"sessionID":9,"localID":2},"position":"#"}]},"gridColumnsSizing":{"entries":[{"id":{"sessionID":9,"localID":1},"trackSize":{"minSizing":{"type":"FIXED","value":50},)"
+      R"("maxSizing":{"type":"FIXED","value":50}}},{"id":{"sessionID":9,"localID":2},"trackSize":{"minSizing":{"type":"FIXED","value":50},"maxSizing":{"type":"FIXED","value":50}}}]}})",
+      v));
+  NodeChange grid;
+  REQUIRE(codec::readChange(v, grid));
+  grid.phase = Phase::CREATED;
+  grid.mask = F_ALL;
+  nodes.push_back(grid);
+  nodes.push_back(make({7, 2}, NodeType::ROUNDED_RECTANGLE, {7, 1}, "!", {0, 0, 20, 20}, "A"));
+  nodes.push_back(make({7, 3}, NodeType::ROUNDED_RECTANGLE, {7, 1}, "#", {0, 0, 20, 20}, "B"));
+  Editor e = load(nodes);
+  auto [set, light, dark] = theme(e);
+  Guid gap = variable(e, set, "FLOAT", "gap", "12");
+  setValue(e, gap, dark, "30");
+  bind(e, {7, 1}, "GRID_COLUMN_GAP", gap);
+  CHECK(props(e, {7, 3}).transform.m02 == 62);
+  setMode(e, {7, 1}, set, dark);
+  CHECK(props(e, {7, 3}).transform.m02 == 80);
+  bind(e, {7, 1}, "GRID_ROW_GAP", gap);
+  CHECK(props(e, {7, 1}).extra.count("gridRowGap") == 1);
+}

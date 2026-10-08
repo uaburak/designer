@@ -1,4 +1,6 @@
-// Grid auto layout (docs/engine.md §4.3): `stackMode GRID`. Figma's fields are kept as the node's unmodelled kiwi
+// Grid auto layout (docs/engine.md §4.3): `stackMode GRID`. Items that fill a row's height don't size a Hug row (a row
+// nothing sizes takes the free height; a frame whose Hug rows nothing sizes keeps its height), as Figma lays its files out.
+// Figma's fields are kept as the node's unmodelled kiwi
 // bytes (NodeProps::extra) and read here: the frame's `gridColumns` / `gridRows` (tracks: a GUID and a fractional
 // position each), `gridColumnsSizing` / `gridRowsSizing` (FIXED px, FLEX fr, HUG), `gridColumnGap` / `gridRowGap`,
 // `gridReflowEnabled` (auto placement); a child's `gridColumnAnchor` / `gridRowAnchor` (track GUIDs),
@@ -215,6 +217,17 @@ ItemSpec readItem(const NodeProps& p) {
   return it;
 }
 
+// Hug tracks that nothing sized (every item fills them) share what the flex tracks leave, when there are none.
+template <typename F>
+void stretchAuto(std::vector<double>& sizes, F isHug, double fr, double free) {
+  if (fr > 0 || free <= 0) return;
+  size_t n = 0;
+  for (size_t i = 0; i < sizes.size(); i++) n += isHug(i) ? 1 : 0;
+  if (!n) return;
+  for (size_t i = 0; i < sizes.size(); i++)
+    if (isHug(i)) sizes[i] += free / static_cast<double>(n);
+}
+
 double alignOf(uint32_t a) { return a == 2 ? 0.5 : a == 3 ? 1 : 0; }
 
 }  // namespace
@@ -231,6 +244,7 @@ struct Layout::Grid {
   };
   std::vector<Item> items;
   std::vector<double> colW, rowH;
+  bool colsHug = false, rowsHug = false;  // an item gave the hugging tracks a size
   double padL = 0, padT = 0, padR = 0, padB = 0;
   double span(const std::vector<double>& sizes, size_t from, size_t n, double gap) const {
     double s = 0;
@@ -313,9 +327,10 @@ Layout::Grid Layout::grid(Guid frame, Vec2 size, bool hugW, bool hugH) {
     if (s.cols[i].sizing == Sizing::FIXED) g.colW[i] = std::max(0.0, s.cols[i].value);
   auto hugsCol = [&](size_t i) { return s.cols[i].sizing == Sizing::HUG || (s.cols[i].sizing == Sizing::FLEX && hugW); };
   for (const Grid::Item& it : g.items)
-    if (it.cs == 1 && hugsCol(it.col)) g.colW[it.col] = std::max(g.colW[it.col], it.size.x);
+    if (it.cs == 1 && hugsCol(it.col)) g.colW[it.col] = std::max(g.colW[it.col], it.size.x), g.colsHug = true;
   for (const Grid::Item& it : g.items) {
     if (it.cs < 2) continue;
+    g.colsHug = true;
     double have = g.span(g.colW, it.col, it.cs, s.colGap);
     std::vector<size_t> hugs;
     for (size_t i = it.col; i < it.col + it.cs; i++)
@@ -332,6 +347,7 @@ Layout::Grid Layout::grid(Guid frame, Vec2 size, bool hugW, bool hugH) {
     double free = std::max(0.0, size.x - g.padL - g.padR - used);
     for (size_t i = 0; i < C; i++)
       if (s.cols[i].sizing == Sizing::FLEX) g.colW[i] = fr > 0 ? free * std::max(0.0, s.cols[i].value) / fr : 0;
+    stretchAuto(g.colW, [&](size_t i) { return s.cols[i].sizing == Sizing::HUG && g.colW[i] <= 0; }, fr, free);
   }
 
   // The items' widths are known: a Fill-width text wraps in its cell.
@@ -350,9 +366,10 @@ Layout::Grid Layout::grid(Guid frame, Vec2 size, bool hugW, bool hugH) {
   for (size_t i = 0; i < R; i++)
     if (rowTrack(i).sizing == Sizing::FIXED) g.rowH[i] = std::max(0.0, rowTrack(i).value);
   for (const Grid::Item& it : g.items)
-    if (it.rs == 1 && hugsRow(it.row)) g.rowH[it.row] = std::max(g.rowH[it.row], it.size.y);
+    if (it.rs == 1 && hugsRow(it.row) && !it.fillH) g.rowH[it.row] = std::max(g.rowH[it.row], it.size.y), g.rowsHug = true;
   for (const Grid::Item& it : g.items) {
-    if (it.rs < 2) continue;
+    if (it.rs < 2 || it.fillH) continue;
+    g.rowsHug = true;
     double have = g.span(g.rowH, it.row, it.rs, s.rowGap);
     std::vector<size_t> hugs;
     for (size_t i = it.row; i < it.row + it.rs; i++)
@@ -369,6 +386,7 @@ Layout::Grid Layout::grid(Guid frame, Vec2 size, bool hugW, bool hugH) {
     double free = std::max(0.0, size.y - g.padT - g.padB - used);
     for (size_t i = 0; i < R; i++)
       if (rowTrack(i).sizing == Sizing::FLEX) g.rowH[i] = fr > 0 ? free * std::max(0.0, rowTrack(i).value) / fr : 0;
+    stretchAuto(g.rowH, [&](size_t i) { return rowTrack(i).sizing == Sizing::HUG && g.rowH[i] <= 0; }, fr, free);
   }
   for (Grid::Item& it : g.items)
     if (it.fillH) it.size.y = clampAxis(g.span(g.rowH, it.row, it.rs, s.rowGap), doc_.get(it.id)->props, 1);
@@ -377,7 +395,14 @@ Layout::Grid Layout::grid(Guid frame, Vec2 size, bool hugW, bool hugH) {
 
 Vec2 Layout::gridContentSize(Guid frame, Vec2 frameSize, bool hugW, bool hugH) {
   Grid g = grid(frame, frameSize, hugW, hugH);
-  return {g.padL + g.padR + g.span(g.colW, 0, g.colW.size(), g.spec.colGap), g.padT + g.padB + g.span(g.rowH, 0, g.rowH.size(), g.spec.rowGap)};
+  Vec2 out{g.padL + g.padR + g.span(g.colW, 0, g.colW.size(), g.spec.colGap), g.padT + g.padB + g.span(g.rowH, 0, g.rowH.size(), g.spec.rowGap)};
+  // Nothing gives the hugging tracks a size (every item fills them): the frame keeps its size on that axis.
+  bool fixedCols = false, fixedRows = false;
+  for (const auto& t : g.spec.cols) fixedCols |= t.sizing == Sizing::FIXED;
+  for (const auto& t : g.spec.rows) fixedRows |= t.sizing == Sizing::FIXED;
+  if (!g.colsHug && !fixedCols) out.x = frameSize.x;
+  if (!g.rowsHug && !fixedRows) out.y = frameSize.y;
+  return out;
 }
 
 std::vector<Layout::Placement> Layout::gridPlace(Guid frame, Vec2 size) {
@@ -396,6 +421,70 @@ std::vector<Layout::Placement> Layout::gridPlace(Guid frame, Vec2 size) {
     out.push_back(pl);
   }
   return out;
+}
+
+Layout::GridCells Layout::gridCells(Guid frame) {
+  GridCells out;
+  const Node* n = doc_.get(frame);
+  if (!n || n->props.stack().stackMode != StackMode::GRID) return out;
+  memo_.clear();
+  Grid g = grid(frame, n->props.size, false, false);
+  memo_.clear();
+  out.reflow = g.spec.reflow;
+  auto label = [](const Track* t) -> std::string {
+    if (!t || t->sizing == Sizing::HUG) return "Hug";
+    double v = std::round(t->value * 100) / 100;
+    std::string s = std::to_string(v);
+    s.erase(s.find_last_not_of('0') + 1);
+    if (!s.empty() && s.back() == '.') s.pop_back();
+    return t->sizing == Sizing::FLEX ? s + "fr" : s;
+  };
+  for (size_t i = 0; i < g.colW.size(); i++) {
+    out.colX.push_back(g.padL + g.offset(g.colW, i, g.spec.colGap));
+    out.colW.push_back(g.colW[i]);
+    out.colIds.push_back(i < g.spec.cols.size() ? g.spec.cols[i].id : kNoGuid);
+    out.colLabels.push_back(label(i < g.spec.cols.size() ? &g.spec.cols[i] : nullptr));
+  }
+  for (size_t i = 0; i < g.rowH.size(); i++) {
+    out.rowY.push_back(g.padT + g.offset(g.rowH, i, g.spec.rowGap));
+    out.rowH.push_back(g.rowH[i]);
+    out.rowIds.push_back(i < g.spec.rows.size() ? g.spec.rows[i].id : kNoGuid);
+    out.rowLabels.push_back(label(i < g.spec.rows.size() ? &g.spec.rows[i] : nullptr));
+  }
+  for (const Grid::Item& it : g.items) out.items.push_back({it.id, it.col, it.row, it.cs, it.rs});
+  return out;
+}
+
+bool Layout::GridCells::cellAt(Vec2 p, size_t& col, size_t& row) const {
+  if (colX.empty() || rowY.empty()) return false;
+  // The track whose middle of [start, next start) holds the point: a gap belongs to the nearer track.
+  auto pick = [](const std::vector<double>& at, const std::vector<double>& size, double v) {
+    size_t best = 0;
+    double bestD = 1e300;
+    for (size_t i = 0; i < at.size(); i++) {
+      double d = v < at[i] ? at[i] - v : v > at[i] + size[i] ? v - (at[i] + size[i]) : 0;
+      if (d < bestD) bestD = d, best = i;
+    }
+    return best;
+  };
+  col = pick(colX, colW, p.x);
+  row = pick(rowY, rowH, p.y);
+  return true;
+}
+
+std::string Layout::gridAnchorBytes(bool column, Guid track) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(column ? kGridColumnAnchor : kGridRowAnchor);
+  bb.writeVarUint(track.sessionID);
+  bb.writeVarUint(track.localID);
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
+std::string Layout::gridSpanBytes(bool column, uint32_t span) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(column ? kGridColumnSpan : kGridRowSpan);
+  bb.writeVarUint(std::max<uint32_t>(1, span));
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
 }
 
 }  // namespace eng
