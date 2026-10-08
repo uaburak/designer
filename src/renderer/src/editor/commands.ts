@@ -208,10 +208,11 @@ const selectAllWith = (id: string, label: string, mode: string): EditorCommand =
 /** View › Pixel grid's state (on unless turned off). */
 const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
 
-/** View › Pixel grid / Outlines: the UI's state and the engine's (engine_set_view_options). */
-export function setViewOption(ed: EditorController, patch: { pixelGrid?: boolean; outlines?: boolean }): void {
+/** View › Pixel grid / Outlines / Layout guides: the UI's state and the engine's (engine_set_view_options). */
+export function setViewOption(ed: EditorController, patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean }): void {
   ed.ui.set(patch);
-  ed.engine.setViewOptions({ pixelGrid: pixelGridOn(ed), outlines: !!ed.ui.get().outlines });
+  const ui = ed.ui.get();
+  ed.engine.setViewOptions({ pixelGrid: pixelGridOn(ed), outlines: !!ui.outlines, layoutGuides: ui.layoutGuides !== false });
   if (patch.outlines !== undefined) showToast({ message: patch.outlines ? "Outlines visible" : "Outlines hidden" });
 }
 
@@ -335,7 +336,7 @@ export const COMMANDS: EditorCommand[] = [
   // The live View menu: Pixel grid ⇧' (drawn from 300 % zoom), Layout guides ⇧G, Outlines ▸ (⇧⌘O), Pixel preview ⇧⌘P.
   ui("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })], (ed) => setViewOption(ed, { pixelGrid: !pixelGridOn(ed) }), (ed) => pixelGridOn(ed)),
   later("view.snap-pixel-grid", "Snap to pixel grid", [k("Quote", { mod: true, shift: true })]),
-  later("view.layout-guides", "Layout guides", [k("KeyG", { shift: true })]),
+  ui("view.layout-guides", "Layout guides", [k("KeyG", { shift: true })], (ed) => setViewOption(ed, { layoutGuides: ed.ui.get().layoutGuides === false }), (ed) => ed.ui.get().layoutGuides !== false),
   later("view.show-slices", "Show slices"),
   later("view.comments", "Comments", [k("KeyC", { shift: true })]),
   ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),

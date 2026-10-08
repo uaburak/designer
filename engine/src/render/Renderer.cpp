@@ -785,7 +785,7 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
   if (p.isFrameLike()) {
     bool clips = p.clipsContent();
     bool grids = false;
-    for (auto& g : p.rare().layoutGrids) grids |= g.visible;
+    for (auto& g : p.rare().layoutGrids) grids |= g.visible && layoutGuides_;
     if (rn.hasChildren || grids) {
       if (clips) pushClip(doc, id, p, m);
       drawChildren(doc, i + 1, rn.end, m, alpha);
@@ -1520,8 +1520,10 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   if (only != kNoGuid || exporting_) clear = Color{0, 0, 0, 0};  // a node's thumbnail, an export: transparent around it
   // Outline mode: the page's pixels are drawn another way — the cache starts over when it turns on or off.
   bool outlines = overlay.outlines && only == kNoGuid && !exporting_;
-  if (outlines != outlines_) {
+  bool guides = overlay.layoutGuides || only != kNoGuid || exporting_;
+  if (outlines != outlines_ || guides != layoutGuides_) {
     outlines_ = outlines;
+    layoutGuides_ = guides;
     dropCache();
     dropTiles();
   }

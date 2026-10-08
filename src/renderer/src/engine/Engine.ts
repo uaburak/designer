@@ -33,6 +33,7 @@ import {
   TICK_NEEDS_RENDER,
   TOOLS,
   VECTOR_EDIT_TOOLS,
+  VIEW_LAYOUT_GUIDES,
   VIEW_OUTLINES,
   VIEW_PIXEL_GRID,
   WIRE_JSON,
@@ -608,9 +609,10 @@ export class Engine {
 
   // ---- Dev Mode (round 6: docs/engine-build.md "Round 6") -------------------------
 
-  /** View › Pixel grid (drawn from 300 % zoom) and outline mode (⇧⌘O: every layer as a thin outline). */
-  setViewOptions(options: { pixelGrid: boolean; outlines: boolean }): void {
-    this.after(this.x.setViewOptions(this.h, (options.pixelGrid ? VIEW_PIXEL_GRID : 0) | (options.outlines ? VIEW_OUTLINES : 0)));
+  /** View › Pixel grid (drawn from 300 % zoom), outline mode (⇧⌘O: every layer as a thin outline), Layout guides (⇧G). */
+  setViewOptions(options: { pixelGrid: boolean; outlines: boolean; layoutGuides?: boolean }): void {
+    const flags = (options.pixelGrid ? VIEW_PIXEL_GRID : 0) | (options.outlines ? VIEW_OUTLINES : 0) | (options.layoutGuides !== false ? VIEW_LAYOUT_GUIDES : 0);
+    this.after(this.x.setViewOptions(this.h, flags));
   }
 
   /** View › Annotations: labels (or, `dots`, Dev Mode's dots), and saved measurements; off: none of them. */

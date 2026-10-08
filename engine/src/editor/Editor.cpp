@@ -668,7 +668,7 @@ Overlay Editor::overlay() const {
   o.selection = selection_;
   o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate;
   o.sizeBadge = true;
-  o.hasMarquee = gesture_ == Gesture::Marquee ||
+  o.hasMarquee = gesture_ == Gesture::Marquee || (gesture_ == Gesture::ZoomArea && (lastScreen_ - downScreen_).length() >= 3) ||
                  (gesture_ == Gesture::Draw && drawType_ == NodeType::TEXT && (lastScreen_ - downScreen_).length() >= 3);
   o.marquee = marquee_;
   o.guides = guides_;
@@ -712,6 +712,7 @@ Overlay Editor::overlay() const {
   }
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
+  o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
   if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid) && selection_.size() == 1 && text_.node == kNoGuid) {
@@ -1215,8 +1216,21 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     }
     return K_HANDLED;
   }
+  // Z held (no modifiers): the zoom tool until it is let go (Figma).
+  if (code == KeyCode::KeyZ && !(mods & (MOD_PRIMARY | MOD_CTRL | MOD_META | MOD_SHIFT)) && !viewer_) {
+    mods_ = mods;
+    if (type == KeyEvent::DOWN && !zoomHeld_ && gesture_ == Gesture::None) {
+      zoomHeld_ = true;
+      changeCursor((mods & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
+    } else if (type == KeyEvent::UP && zoomHeld_) {
+      zoomHeld_ = false;
+      if (gesture_ == Gesture::None) updateCursor(lastScreen_);
+    }
+    return K_HANDLED;
+  }
   if (isModifierKey(code)) {
     modifiers(mods);
+    if (zoomHeld_ && gesture_ == Gesture::None) changeCursor((mods & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
     return 0;  // modifier keys are TS's too
   }
   mods_ = mods;
@@ -1301,6 +1315,7 @@ void Editor::modifiers(uint32_t mods) {
 void Editor::blur() {
   cancelGesture();
   spaceHeld_ = false;
+  zoomHeld_ = false;
   mods_ = 0;
   measureTarget_ = kNoGuid;
   measures_.clear();

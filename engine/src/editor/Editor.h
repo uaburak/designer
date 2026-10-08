@@ -244,7 +244,7 @@ class Editor : private LayoutHost, public TextLayouts {
   void blur();
 
   // ---- View options (View › Pixel grid, Outlines) ----
-  enum ViewOption : uint32_t { VIEW_PIXEL_GRID = 1, VIEW_OUTLINES = 2 };
+  enum ViewOption : uint32_t { VIEW_PIXEL_GRID = 1, VIEW_OUTLINES = 2, VIEW_LAYOUT_GUIDES = 4 };
   void setViewOptions(uint32_t options);
   uint32_t viewOptions() const { return viewOptions_; }
 
@@ -795,7 +795,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string newAssetKey();
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
-                                 Measure, MeasureDrag, Radius, Gap, LayoutBar };
+                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea };
 
   struct Target {
     Guid id;
@@ -1357,7 +1357,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> layersHover_;
   bool spaceHeld_ = false;
   bool needsRender_ = true;
-  uint32_t viewOptions_ = VIEW_PIXEL_GRID;
+  uint32_t viewOptions_ = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES;
+  bool zoomHeld_ = false;  // Z held: the zoom tool (a click zooms in, ⌥ out, a drag to the area)
   uint32_t mods_ = 0;
   Events events_;
   std::unordered_map<Guid, size_t, GuidHash> nodeEventIndex_;

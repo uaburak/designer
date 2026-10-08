@@ -231,6 +231,7 @@ struct Overlay {
   // thin outline, no fills).
   bool pixelGrid = true;
   bool outlines = false;
+  bool layoutGuides = true;  // View › Layout guides (⇧G): frames' layout grids drawn
   // Top-level frames' names above them.
   bool frameTitles = true;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
@@ -612,6 +613,7 @@ class Renderer {
   const PropsOverrides* overrides_ = nullptr;
   bool cull_ = true;
   bool outlines_ = false;  // this frame draws the page in outline mode
+  bool layoutGuides_ = true;  // frames' layout grids drawn (View › Layout guides)
   Color outlineInk_;       // its colour (light on a dark page, dark on a light one)
 };
 

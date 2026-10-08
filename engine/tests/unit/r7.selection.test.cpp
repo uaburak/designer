@@ -693,3 +693,35 @@ TEST_CASE("r7 auto layout: padding and gap bars under the pointer; dragging one 
   CHECK(props(e, AL).stack().stackPaddingLeft == 16);
   CHECK(props(e, AL).stack().stackPaddingRight == 16);
 }
+
+// ---- 14. Z: the zoom tool while held ------------------------------------------------------------------------------------
+
+TEST_CASE("r7 zoom tool: Z held — a click zooms in about the point, ⌥ out, a drag to the area; let go, back") {
+  Editor e = makeEditor();
+  e.setSelection({TOP});
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyZ, 0, 0, false) == K_HANDLED);
+  CHECK(e.cursor() == CursorKind::ZOOM_IN);
+  click(e, 500, 400);
+  CHECK(e.camera().zoom == doctest::Approx(2));
+  CHECK(e.camera().toScreen({400, 300}).x == doctest::Approx(500));  // about the point
+  CHECK(e.selection() == std::vector<Guid>{TOP});                    // nothing selected or moved
+  click(e, 500, 400, MOD_ALT);
+  CHECK(e.camera().zoom == doctest::Approx(1));
+  // A drag: that area fills the view.
+  drag(e, {100, 100}, {400, 400});
+  CHECK(e.camera().zoom > 1.5);
+  Vec2 c = e.camera().toWorld({500, 400});
+  CHECK(c.x == doctest::Approx(150).epsilon(0.02));
+  e.key(KeyEvent::UP, KeyCode::KeyZ, 0, 0, false);
+  move(e, 10, 10);
+  CHECK(e.cursor() == CursorKind::DEFAULT);
+  // ⌘Z is still Undo (TS's): the engine leaves it.
+  CHECK(e.key(KeyEvent::DOWN, KeyCode::KeyZ, 0, MOD_PRIMARY, false) == 0);
+}
+
+TEST_CASE("r7 view: View › Layout guides reaches the overlay (on by default)") {
+  Editor e = makeEditor();
+  CHECK(e.overlay().layoutGuides);
+  e.setViewOptions(Editor::VIEW_PIXEL_GRID);
+  CHECK(!e.overlay().layoutGuides);
+}

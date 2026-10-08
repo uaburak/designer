@@ -36,12 +36,12 @@ describe("Dev Mode statuses (wasm, headless)", () => {
     expect(statusTargets(ed)).toEqual([]);
     engine.setSelection(["2:1"]);
     expect(statusTargets(ed)).toEqual(["2:1"]);
-    expect(ids(canvasMenu(ed, []))).toContain("object.mark-ready-for-dev");
+    // Live Figma's canvas menu has no status items (the frame's chip and the panel's toggle do it).
+    expect(ids(canvasMenu(ed, []))).not.toContain("object.mark-ready-for-dev");
     expect(runEditorCommand(ed, "object.mark-ready-for-dev")).toBe(true);
     const read = () => (engine.readNode("2:1", { fields: ["sectionStatusInfo"] }) as { sectionStatusInfo?: { status?: string; lastUpdateUnixTimestamp?: number } } | null)?.sectionStatusInfo;
     expect(read()).toMatchObject({ status: "BUILD" });
     expect(read()?.lastUpdateUnixTimestamp).toBeGreaterThan(0);
-    expect(ids(canvasMenu(ed, []))).toEqual(expect.arrayContaining(["object.mark-completed", "object.remove-dev-status"]));
     runEditorCommand(ed, "object.mark-completed");
     expect(statusOfTargets(ed, ["2:1"])).toBe("COMPLETED");
     runEditorCommand(ed, "object.remove-dev-status");

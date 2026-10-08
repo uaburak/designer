@@ -398,6 +398,7 @@ void Editor::dragGap(Vec2 world, uint32_t mods) {
 
 void Editor::updateCursor(Vec2 s) {
   if (spaceHeld_ || tool_ == Tool::HAND) return changeCursor(CursorKind::HAND);
+  if (zoomHeld_) return changeCursor((mods_ & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
   if (tool_ == Tool::TEXT || gesture_ == Gesture::TextSelect) return changeCursor(CursorKind::IBEAM);
   if (tool_ != Tool::MOVE) return changeCursor(CursorKind::CROSSHAIR);
   if (text_.node != kNoGuid) {
@@ -689,6 +690,12 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     changeCursor(CursorKind::GRABBING);
     return P_HANDLED | P_CAPTURE;
   }
+  // Z held: a click zooms in about the point (⌥ out), a drag zooms to the area (Figma's zoom tool).
+  if (button == 0 && zoomHeld_) {
+    gesture_ = Gesture::ZoomArea;
+    marquee_ = Rect{downWorld_.x, downWorld_.y, 0, 0};
+    return P_HANDLED | P_CAPTURE;
+  }
   // Viewer mode: no context menu, nothing but selecting (and panning, above).
   if (viewer_ && button != 0) return 0;
   // A right-click, or ⌃-click where ⌃ isn't the command key (a Mac).
@@ -951,6 +958,10 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       dragDraw(world, mods, false);
       break;
     case Gesture::Marquee: dragMarquee(world, mods); break;
+    case Gesture::ZoomArea:
+      marquee_ = Rect::fromPoints(downWorld_, world);
+      needsRender_ = true;
+      break;
     case Gesture::TextSelect: textDrag(s); break;
     case Gesture::Grid: gridPointerMove(s, mods); break;
   }
@@ -1018,6 +1029,20 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       setTool(Tool::MOVE);  // after a draw, back to Move (Figma)
       break;
     case Gesture::Marquee: needsRender_ = true; break;
+    case Gesture::ZoomArea: {
+      zooming_ = false;
+      Rect r = Rect::fromPoints(downWorld_, world);
+      if ((s - downScreen_).length() >= kDragThreshold && r.w > 0 && r.h > 0)
+        changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, false)));
+      else
+        changeCamera(snapped(camera_.zoomedAround(camera_.zoom * ((mods & MOD_ALT) ? 0.5 : 2), s)));
+      needsRender_ = true;
+      gesture_ = Gesture::None;
+      endGesture();
+      changeCursor(zoomHeld_ ? ((mods & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN) : CursorKind::DEFAULT);
+      if (!zoomHeld_) updateHover(s, mods);
+      return;
+    }
     case Gesture::TextSelect: break;
     case Gesture::Grid: gridPointerUp(s, mods); break;
   }

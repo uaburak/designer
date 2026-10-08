@@ -269,8 +269,10 @@ describe.each(["engine", "fallback"] as const)("variables and styles on the engi
     expect(command("view.local-variables").label).toBe("Local variables");
     runEditorCommand(ed, "view.local-variables");
     expect(ed.ui.get().variablesOpen).toBe(true);
-    const view = mainMenu(ed).find((e) => typeof e === "object" && "label" in e && e.label === "View") as { items: { id: string }[] };
-    expect(view.items.some((i) => i.id === "view.local-variables")).toBe(true);
+    // View ▸ Panels ▸ Local variables (live Figma's View menu).
+    const view = mainMenu(ed).find((e) => typeof e === "object" && "label" in e && e.label === "View") as { items: { id: string; label?: string; items?: { id: string }[] }[] };
+    const panels = view.items.find((i) => i.label === "Panels");
+    expect(panels?.items?.some((i) => i.id === "view.local-variables")).toBe(true);
   });
 });
 

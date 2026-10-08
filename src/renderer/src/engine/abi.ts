@@ -262,9 +262,10 @@ export const PASTE_IN_PLACE = 1;
 export const PASTE_OVER = 2;
 /** ⇧⌘R "Paste to replace": a copy at each selected layer's place, which goes. */
 export const PASTE_REPLACE = 4;
-/** engine_set_view_options bits: View › Pixel grid, outline mode (⇧⌘O). */
+/** engine_set_view_options bits: View › Pixel grid, outline mode (⇧⌘O), View › Layout guides (⇧G). */
 export const VIEW_PIXEL_GRID = 1;
 export const VIEW_OUTLINES = 2;
+export const VIEW_LAYOUT_GUIDES = 4;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
 /** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */

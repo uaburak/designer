@@ -322,6 +322,8 @@ void Editor::deleteSelection() {
 
 void Editor::nudge(double dx, double dy, bool repeat) {
   auto top = topLevelSelection(doc_, selection_);
+  // Layers inside an instance stay where their main puts them (as a drag leaves them, audit selection #24).
+  top.erase(std::remove_if(top.begin(), top.end(), [](Guid id) { return id.isDerived(); }), top.end());
   if (top.empty()) return;
   if (reorderInFlow(top, dx, dy)) return;
   bool merge = repeat && lastNudged_ == selection_ && undo_.canUndo() && undo_.undoLabel() == "Nudge";
@@ -1319,7 +1321,10 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
         Vec2 o = offsetOf(sourceParent);
         Vec2 rel{u.x - o.x, u.y - o.y};
         Rect placed{fb.x + rel.x, fb.y + rel.y, u.w, u.h};
-        d = fb.containsRect(placed) ? Vec2{placed.x - u.x, placed.y - u.y} : centreIn(fb);
+        // Each axis on its own (audit selection #18): where it sat when that fits the frame, else centred.
+        Vec2 centred = centreIn(fb);
+        bool fitsX = placed.x >= fb.x && placed.right() <= fb.right(), fitsY = placed.y >= fb.y && placed.bottom() <= fb.bottom();
+        d = {fitsX ? placed.x - u.x : centred.x, fitsY ? placed.y - u.y : centred.y};
       }
     } else if (target == page_ && sel.empty()) {
       // Where it was when that is in view; else in the middle of the view.

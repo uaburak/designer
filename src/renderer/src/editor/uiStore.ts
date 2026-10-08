@@ -28,6 +28,8 @@ export interface UIState {
   pixelGrid?: boolean;
   /** View › Outlines › Show outlines (⇧⌘O) */
   outlines?: boolean;
+  /** View › Layout guides (⇧G); default on */
+  layoutGuides?: boolean;
   renaming: Renaming;
   /** Layers shown open, every page's */
   expanded: ReadonlySet<Guid>;

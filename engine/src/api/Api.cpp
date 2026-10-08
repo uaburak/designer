@@ -2639,11 +2639,11 @@ ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
   e->editor.setDevEdits((flags & 1) != 0 && (flags & 2) != 0);
 }
 
-// View options (round 7): 1 the pixel grid (View › Pixel grid, ⇧'), 2 outline mode (⇧⌘O).
+// View options (round 7): 1 the pixel grid (View › Pixel grid, ⇧'), 2 outline mode (⇧⌘O), 4 layout guides (⇧G).
 ENG_EXPORT void engine_set_view_options(Handle h, uint32_t options) {
   Call call;
   Engine* e = engineOf(h);
-  if (e) e->editor.setViewOptions(options & (Editor::VIEW_PIXEL_GRID | Editor::VIEW_OUTLINES));
+  if (e) e->editor.setViewOptions(options & (Editor::VIEW_PIXEL_GRID | Editor::VIEW_OUTLINES | Editor::VIEW_LAYOUT_GUIDES));
 }
 
 // ---- Dev Mode (editor/DevMode.cpp) ---------------------------------------------------------------------------------

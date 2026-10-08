@@ -32,13 +32,35 @@ export function penCursor(kind: "PEN" | "PEN_ADD" | "PEN_REMOVE" | "PEN_CLOSE"):
   return css;
 }
 
-/** A resize cursor for a handle pointing at `angleDeg` on screen (0 = right, y down). */
-export function resizeCursor(angleDeg: number): string {
+/** The system resize cursor nearest to `angleDeg` (the fallback behind the drawn one). */
+export function resizeCursorFallback(angleDeg: number): string {
   const a = ((angleDeg % 180) + 180) % 180;
   if (a < 22.5 || a >= 157.5) return "ew-resize";
   if (a < 67.5) return "nwse-resize";
   if (a < 112.5) return "ns-resize";
   return "nesw-resize";
+}
+
+const resizeCache = new Map<number, string>();
+
+/**
+ * A resize cursor for a handle pointing at `angleDeg` on screen (0 = right, y down): Figma's double arrow turned to
+ * the handle's exact angle (a rotated layer's handles too), drawn as an SVG cursor, whole degrees; the system cursor
+ * nearest to it behind.
+ */
+export function resizeCursor(angleDeg: number): string {
+  const a = ((Math.round(angleDeg) % 180) + 180) % 180;
+  let css = resizeCache.get(a);
+  if (!css) {
+    const arrow = `M4 12 H20 M4 12 L8 8 M4 12 L8 16 M20 12 L16 8 M20 12 L16 16`;
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">` +
+      `<g transform="rotate(${a} 12 12)" fill="none" stroke-linecap="round" stroke-linejoin="round">` +
+      `<path d="${arrow}" stroke="#fff" stroke-width="4"/><path d="${arrow}" stroke="#000" stroke-width="1.5"/></g></svg>`;
+    css = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, ${resizeCursorFallback(a)}`;
+    resizeCache.set(a, css);
+  }
+  return css;
 }
 
 const rotateCache = new Map<number, string>();

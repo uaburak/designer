@@ -38,11 +38,14 @@ describe("engine ABI twins", () => {
 
 describe("cursors", () => {
   it("maps a resize handle's angle to the nearest CSS cursor", () => {
-    expect(resizeCursor(0)).toBe("ew-resize");
-    expect(resizeCursor(45)).toBe("nwse-resize");
-    expect(resizeCursor(-90)).toBe("ns-resize");
-    expect(resizeCursor(135)).toBe("nesw-resize");
-    expect(resizeCursor(-45)).toBe("nesw-resize");
+    // Drawn at the handle's exact angle (whole degrees), the nearest system cursor behind it.
+    expect(decodeURIComponent(resizeCursor(0))).toMatch(/rotate\(0 12 12\).* 12 12, ew-resize$/);
+    expect(resizeCursor(45)).toMatch(/, nwse-resize$/);
+    expect(resizeCursor(-90)).toMatch(/, ns-resize$/);
+    expect(resizeCursor(135)).toMatch(/, nesw-resize$/);
+    expect(decodeURIComponent(resizeCursor(30.4))).toContain("rotate(30 12 12)");
+    expect(resizeCursor(210)).toBe(resizeCursor(30));
+    expect(resizeCursor(-45)).toMatch(/, nesw-resize$/);
     expect(cssCursor("HAND", 0)).toBe("grab");
     expect(cssCursor("ROTATE", 30)).toMatch(/^url\("data:image\/svg\+xml,.*alias$/);
   });
