@@ -4,6 +4,11 @@
 // (the app's load path: the snapshot's kiwi bytes, the system's fonts as the desktop indexes them, the file's images)
 // → the same page and region drawn offscreen (engine_render_region, supersampled, then scaled down) → a perceptual
 // diff against Figma's thumbnail, both composited over the file's canvas colour.
+// Figma's thumbnails (round 8, measured on the samples): drawn at one scale (thumbnail width / render_coordinates
+// width — the height is rounded), each pixel the average of 2 × 2 point samples at (¼, ¾) with no anti-aliasing of
+// their own (coverage in quarters: stacks_wrap's edges reproduce to 99.1 % of pixels), then dithered to 8 bits. Ours
+// is drawn at that one scale too, at --ss (2: the same sample density) and averaged in ss × ss blocks.
+// FID_PORT picks the dev server's port (default 5411).
 //
 //   node scripts/fig-fidelity.mjs [--out dir] [--ss 2] [--json file] [--details] a.fig b.fig …
 //   node scripts/fig-fidelity.mjs --samples        docs/research/figma/samples/*.fig
@@ -148,6 +153,31 @@ function pageMain() {
       c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px.pixels.slice().buffer), px.width, px.height, { colorSpace }), 0, 0);
       return c;
     };
+    // ss × ss blocks averaged (premultiplied) into one pixel each → a canvas.
+    const boxDown = (px, k) => {
+      if (k === 1) return toCanvas(px);
+      const w = Math.floor(px.width / k), h = Math.floor(px.height / k), src = px.pixels, out = new Uint8Array(w * h * 4);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          let r = 0, g = 0, b = 0, a = 0;
+          for (let j = 0; j < k; j++)
+            for (let i = 0; i < k; i++) {
+              const o = ((y * k + j) * px.width + x * k + i) * 4, al = src[o + 3];
+              r += src[o] * al;
+              g += src[o + 1] * al;
+              b += src[o + 2] * al;
+              a += al;
+            }
+          const o = (y * w + x) * 4;
+          if (a > 0) {
+            out[o] = Math.round(r / a);
+            out[o + 1] = Math.round(g / a);
+            out[o + 2] = Math.round(b / a);
+          }
+          out[o + 3] = Math.round(a / (k * k));
+        }
+      return toCanvas({ width: w, height: h, pixels: out });
+    };
     // sRGB → Lab (D65).
     const lin = new Float32Array(256).map((_, i) => {
       const c = i / 255;
@@ -198,7 +228,10 @@ function pageMain() {
         if (st !== 0) out.problems.push(`load status ${st}`);
         if (page) engine.setCurrentPage(page);
         engine.pump();
-        const draw = () => engine.renderRegionPixels({ page: page ?? undefined, x: region.x, y: region.y, w: region.width, h: region.height, width: thumbW * ss, height: thumbH * ss });
+        // Figma draws the thumbnail at one scale, the width's (render_coordinates' height is rounded): the region's
+        // height follows from it, so the bottom rows land where Figma's do.
+        const regionH = (thumbH * region.width) / thumbW;
+        const draw = () => engine.renderRegionPixels({ page: page ?? undefined, x: region.x, y: region.y, w: region.width, h: regionH, width: thumbW * ss, height: thumbH * ss });
         // Drawing asks for the fonts and images of what is in the region; repeat until nothing more arrives.
         for (let round = 0; round < 6; round++) {
           draw();
@@ -214,8 +247,9 @@ function pageMain() {
           out.problems.push("render_region failed");
           return out;
         }
-        // Ours, scaled down to the thumbnail (area-ish: the browser's high-quality resampling).
-        const big = toCanvas(px);
+        // Ours, scaled down to the thumbnail by averaging each ss × ss block — Figma's thumbnails are sampled the same
+        // way: 2 × 2 points per pixel (docs/engine.md §6.8, round 8).
+        const big = boxDown(px, ss);
         if (!figmaPng) {
           out.images = { view: await pngOf(big) };
           return out;
@@ -229,7 +263,7 @@ function pageMain() {
           g.fillRect(0, 0, W, H);
           g.imageSmoothingEnabled = true;
           g.imageSmoothingQuality = "high";
-          g.drawImage(big, 0, 0, W, H);
+          g.drawImage(big, 0, 0);
         }
         const figma = new OffscreenCanvas(W, H);
         {
@@ -293,7 +327,7 @@ function pageMain() {
                   s += dE[y * W + x];
                   n++;
                 }
-              cells.push({ x: cx, y: cy, meanDE: s / n, world: { x: region.x + (cx / W) * region.width, y: region.y + (cy / H) * region.height } });
+              cells.push({ x: cx, y: cy, meanDE: s / n, world: { x: region.x + (cx / W) * region.width, y: region.y + (cy / W) * region.width } });
             }
           out.worst = cells.sort((p, q) => q.meanDE - p.meanDE).slice(0, 12);
         }
