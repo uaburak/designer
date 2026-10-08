@@ -473,8 +473,9 @@ void Player::fitResponsive() {
   // "The contents of the prototype will resize and re-layout as the prototype viewer resizes according to the
   // constraints and auto layout properties applied to the design": the frames shown take the window's width (the
   // device screen's) and its height when they are no taller (a taller one keeps its height and scrolls); their
-  // children follow by their constraints and auto layout (the editor's layout, written with APPLY_REMOTE — never
-  // journaled; the sizes go back when Responsive is turned off or the presentation stops).
+  // children follow by their constraints and auto layout (the editor's layout runs on a user write — the player's
+  // engine is its own, its undo never used; the sizes go back when Responsive is turned off or the presentation
+  // stops).
   const Viewport& vp = ed_.viewport();
   Device dev = device(*props(page_));
   Vec2 target = dev.none ? Vec2{std::max(1.0, vp.width), std::max(1.0, vp.height)} : dev.size;
@@ -498,11 +499,12 @@ void Player::fitResponsive() {
     NodeChange c = NodeChange::changed(f);
     c.mask = F_SIZE;
     c.props.size = want;
+    c.guid = f;
     changes.push_back(std::move(c));
   }
   if (changes.empty()) return;
   fitting_ = true;
-  ed_.applyChanges(changes, APPLY_REMOTE);
+  for (const NodeChange& c : changes) ed_.setProps({c.guid}, c, 0);
   fitting_ = false;
   dirty_ = true;
 }
@@ -519,7 +521,7 @@ void Player::restoreResponsive() {
   }
   responsiveSizes_.clear();
   fitting_ = true;
-  ed_.applyChanges(changes, APPLY_REMOTE);
+  for (const NodeChange& c : changes) ed_.setProps({c.guid}, c, 0);
   fitting_ = false;
   dirty_ = true;
 }

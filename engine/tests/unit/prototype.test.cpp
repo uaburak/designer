@@ -8,6 +8,7 @@
 #include "Helpers.h"
 #include "editor/Editor.h"
 #include "gfx/null/NullDevice.h"
+#include "proto/Devices.h"
 #include "proto/Player.h"
 #include "proto/Prototype.h"
 #include "render/Renderer.h"
@@ -523,4 +524,353 @@ TEST_CASE("prototype.editor: dragging the + handle to a frame connects it; dragg
   // Out of prototype mode: no handles, no noodles.
   ed.setPrototypeMode(false);
   CHECK(!ed.overlay().prototype.on);
+}
+
+// ---- Round 5: device frames, Responsive, On drag, Animate matching layers, Smart animate fallbacks, Change to's
+// old state, nested Fixed layers, Set variable per mode, viewer mode, inherited connections ----------------------
+
+namespace {
+
+size_t rects(const PresentScene& s) {
+  size_t n = 0;
+  for (auto& it : s.items) n += it.kind == PresentItem::Kind::Rect;
+  return n;
+}
+
+const PresentItem* itemOf(const PresentScene& s, Guid node) {
+  for (auto& it : s.items)
+    if (it.kind == PresentItem::Kind::Node && it.node == node) return &it;
+  return nullptr;
+}
+
+}  // namespace
+
+TEST_CASE("prototype.devices: presets, models and their frames") {
+  const proto::DeviceSpec* spec = nullptr;
+  const proto::DeviceModel* model = nullptr;
+  REQUIRE(proto::findDevice("IPHONE_16_PRO_DESERT_TITANIUM", spec, model));
+  CHECK(std::string(spec->id) == "IPHONE_16_PRO");
+  CHECK(std::string(model->name) == "Desert Titanium");
+  REQUIRE(proto::findDevice("IPHONE_16_PRO", spec, model));
+  CHECK(std::string(model->id) == "BLACK_TITANIUM");  // no model: the first
+  REQUIRE(proto::findDevice("IPHONE_16", spec, model));
+  CHECK(std::string(spec->id) == "IPHONE_16");
+  REQUIRE(proto::findDevice("IPHONE_15_PRO_MAX_BLUE_TITANIUM", spec, model));
+  CHECK(std::string(spec->id) == "IPHONE_15_PRO_MAX");
+  CHECK(spec->models.size() == 4);  // help: "the iPhone 15 Pro Max comes in four different colors"
+  CHECK(!proto::findDevice("NOKIA_3310", spec, model));
+  // Every preset draws a frame around its screen; landscape turns it.
+  for (const auto& s : proto::deviceSpecs()) {
+    auto f = proto::deviceFrame(s, s.models.front(), {s.width, s.height}, false);
+    CHECK(f.left > 0);
+    CHECK(f.bottom > 0);
+    CHECK(!f.shapes.empty());
+  }
+  REQUIRE(proto::findDevice("IPHONE_16", spec, model));
+  auto portrait = proto::deviceFrame(*spec, *model, {393, 852}, false);
+  auto landscape = proto::deviceFrame(*spec, *model, {852, 393}, true);
+  CHECK(landscape.left == doctest::Approx(portrait.top));
+  CHECK(landscape.bottom == doctest::Approx(portrait.left));
+}
+
+TEST_CASE("prototype.player: the device frame around the screen, Show device frame, Figma's default scales") {
+  auto nodes = screens();
+  for (auto& n : nodes)
+    if (n.guid == kPage)
+      n.props.extra["prototypeDevice"] = extra("prototypeDevice",
+          R"({"type":"PRESET","size":{"x":375,"y":812},"presetIdentifier":"IPHONE_16_PINK","rotation":"NONE"})");
+  Fixture f(nodes, 1200, 1000);
+  REQUIRE(f.player.start(kPage, A));
+  CHECK(f.player.scale() == proto::ScaleMode::FIT);  // Fit device on screen
+  CHECK(f.player.hasDeviceFrame());
+  const PresentScene& s = f.player.scene();
+  // The body and glass behind the screen, the Dynamic Island over it; the screen's corners rounded.
+  CHECK(rects(s) >= 3);
+  CHECK(s.items.front().kind == PresentItem::Kind::Rect);
+  CHECK(s.items.back().kind == PresentItem::Kind::Rect);
+  const PresentItem* a = itemOf(s, A);
+  REQUIRE(a);
+  CHECK(a->clipRadius > 0);
+  // The device fits the window with its frame, centred.
+  Rect r = f.player.screenRect();
+  CHECK(r.h < 1000 - 2 * 18);
+  CHECK(r.x + r.w / 2 == doctest::Approx(600).epsilon(0.05));
+  CHECK(f.player.stateJson().find("\"hasDeviceFrame\":true") != std::string::npos);
+  // Show device frame off: the screen alone.
+  f.player.setDeviceFrame(false);
+  const PresentScene& plain = f.player.scene();
+  CHECK(rects(plain) == 0);
+  CHECK(itemOf(plain, A)->clipRadius == 0);
+
+  // No device: Actual size (100%); a page of 16:9 frames: Fill screen.
+  Fixture g(screens(), 1200, 1000);
+  REQUIRE(g.player.start(kPage, A));
+  CHECK(g.player.scale() == proto::ScaleMode::ACTUAL);
+  auto wide = baseChanges();
+  wide.push_back(make(A, NodeType::FRAME, kPage, "!", {0, 0, 1920, 1080}, "Slide 1"));
+  wide.push_back(make(B, NodeType::FRAME, kPage, "\"", {2000, 0, 1280, 720}, "Slide 2"));
+  Fixture h(wide, 1200, 1000);
+  REQUIRE(h.player.start(kPage, A));
+  CHECK(h.player.scale() == proto::ScaleMode::FILL);
+  // Z goes through the options in the menu's order: Actual size → Responsive → …
+  g.player.key(true, 90, 0);
+  CHECK(g.player.scale() == proto::ScaleMode::RESPONSIVE);
+}
+
+TEST_CASE("prototype.player: Responsive resizes the frame to the window and lays it out by its constraints") {
+  auto nodes = screens();
+  const Guid PIN{1, 30};
+  NodeChange pin = make(PIN, NodeType::RECTANGLE, A, "%", {315, 20, 40, 40}, "Close");
+  pin.props.horizontalConstraint = ConstraintType::MAX;  // Right
+  nodes.push_back(pin);
+  Fixture f(nodes, 600, 900);
+  f.player.setScale(proto::ScaleMode::RESPONSIVE);
+  REQUIRE(f.player.start(kPage, A));
+  f.player.scene();
+  const NodeProps& a = f.ed.document().get(A)->props;
+  CHECK(a.size.x == doctest::Approx(600));
+  CHECK(a.size.y == doctest::Approx(900));  // shorter than the window: it fills it
+  CHECK(f.ed.document().get(PIN)->props.transform.m02 == doctest::Approx(315 + 225));
+  // Another option puts the frame back as it was.
+  f.player.setScale(proto::ScaleMode::ACTUAL);
+  f.player.scene();
+  CHECK(f.ed.document().get(A)->props.size.x == doctest::Approx(375));
+  CHECK(f.ed.document().get(PIN)->props.transform.m02 == doctest::Approx(315));
+  // And so does the end of the presentation.
+  f.player.setScale(proto::ScaleMode::RESPONSIVE);
+  f.player.scene();
+  CHECK(f.ed.document().get(A)->props.size.x == doctest::Approx(600));
+  f.player.stop();
+  CHECK(f.ed.document().get(A)->props.size.x == doctest::Approx(375));
+}
+
+TEST_CASE("prototype.player: On drag scrubs the transition; released it completes or goes back") {
+  auto nodes = screens();
+  for (auto& n : nodes)
+    if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(B, "DRAG", "NAVIGATE", "PUSH_FROM_RIGHT", 0.4));
+  Fixture f(nodes);
+  f.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(f.player.start(kPage, A));
+  f.advance(16);
+  auto bX = [&] {
+    const PresentItem* b = itemOf(f.player.scene(), B);
+    return b ? b->parentCss.m02 + 500 : 1e9;  // B's left edge on the screen
+  };
+  // Push from right: dragging left pulls B in.
+  f.player.pointer(PointerEvent::DOWN, 100, 720, 1, 0);
+  f.player.pointer(PointerEvent::MOVE, 90, 720, 1, 0);
+  CHECK(f.player.screen() == B);
+  CHECK(f.player.stateJson().find("\"scrubbing\":true") != std::string::npos);
+  f.player.pointer(PointerEvent::MOVE, 100 - 75, 720, 1, 0);  // 20 % of 375
+  CHECK(bX() == doctest::Approx(375 * 0.8).epsilon(0.01));
+  f.advance(500);  // time doesn't move it while dragging
+  CHECK(bX() == doctest::Approx(375 * 0.8).epsilon(0.01));
+  f.player.pointer(PointerEvent::MOVE, 100 - 150, 720, 1, 0);  // 40 %
+  CHECK(bX() == doctest::Approx(375 * 0.6).epsilon(0.01));
+  // Released before half way: it goes back, and the step is undone.
+  f.player.pointer(PointerEvent::UP, 100 - 150, 720, 0, 0);
+  f.advance(16);
+  f.advance(500);
+  CHECK(!f.player.animating());
+  CHECK(f.player.screen() == A);
+  CHECK(f.player.historySize() == 0);
+  // Past half way: it completes.
+  f.player.pointer(PointerEvent::DOWN, 100, 720, 1, 0);
+  f.player.pointer(PointerEvent::MOVE, 90, 720, 1, 0);
+  f.player.pointer(PointerEvent::MOVE, 100 - 250, 720, 1, 0);
+  f.player.pointer(PointerEvent::UP, 100 - 250, 720, 0, 0);
+  f.advance(16);
+  f.advance(500);
+  CHECK(f.player.screen() == B);
+  CHECK(f.player.historySize() == 1);
+}
+
+TEST_CASE("prototype.smart: Animate matching layers on Move in; shadows dissolve") {
+  auto nodes = screens();
+  for (auto& n : nodes)
+    if (n.guid == NEXT)
+      n.props.extra["prototypeInteractions"] =
+          extra("prototypeInteractions", nav(B, "ON_CLICK", "NAVIGATE", "MOVE_FROM_RIGHT", 0.4, ",\"transitionShouldSmartAnimate\":true"));
+  Fixture f(nodes);
+  f.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(f.player.start(kPage, A));
+  f.advance(16);
+  f.click(50, 720);
+  f.advance(16);
+  f.advance(200);  // half way
+  f.player.scene();
+  // The matching Card moves in place, half way between A's (y 100) and B's (y 300) — not with the screen.
+  const NodeProps* card = f.player.drawnProps(CARD_B);
+  REQUIRE(card);
+  CHECK(card->transform.m12 == doctest::Approx(200).epsilon(0.02));
+  CHECK(card->transform.m02 == doctest::Approx(20).epsilon(0.02));
+  CHECK(card->size.x == doctest::Approx(250).epsilon(0.02));
+
+  // A drop shadow on B's Card: not animatable — it dissolves in where it ends.
+  auto shadowed = screens();
+  for (auto& n : shadowed) {
+    if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(B, "ON_CLICK", "NAVIGATE", "SMART_ANIMATE", 0.4));
+    if (n.guid == CARD_B) {
+      Effect e;
+      e.type = EffectType::DROP_SHADOW;
+      e.radius = 8;
+      n.props.effects.push_back(e);
+    }
+  }
+  Fixture g(shadowed);
+  g.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(g.player.start(kPage, A));
+  g.advance(16);
+  g.click(50, 720);
+  g.advance(16);
+  g.advance(200);
+  g.player.scene();
+  const NodeProps* faded = g.player.drawnProps(CARD_B);
+  REQUIRE(faded);
+  CHECK(faded->transform.m12 == doctest::Approx(300));
+  CHECK(faded->opacity == doctest::Approx(0.5).epsilon(0.02));
+}
+
+TEST_CASE("prototype.player: Change to with Smart animate keeps the old state while its layers fade out") {
+  auto nodes = baseChanges();
+  const Guid SET{2, 1}, DEF{2, 2}, ON{2, 3}, BG1{2, 4}, BG2{2, 5}, DOT{2, 6}, SCREEN{2, 10}, INST{2, 11};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "~", {0, 1000, 300, 200}, "Toggle");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  NodeChange def = make(DEF, NodeType::SYMBOL, SET, "!", {20, 20, 100, 40}, "State=Off");
+  def.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(ON, "ON_CLICK", "SWAP_STATE", "SMART_ANIMATE", 0.4));
+  nodes.push_back(def);
+  nodes.push_back(make(BG1, NodeType::RECTANGLE, DEF, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(DOT, NodeType::ELLIPSE, DEF, "\"", {4, 4, 32, 32}, "Off dot"));
+  nodes.push_back(make(ON, NodeType::SYMBOL, SET, "\"", {150, 20, 100, 40}, "State=On"));
+  nodes.push_back(make(BG2, NodeType::RECTANGLE, ON, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Screen"));
+  NodeChange inst = make(INST, NodeType::INSTANCE, SCREEN, "!", {100, 100, 100, 40}, "Toggle");
+  inst.props.comp().symbolData.symbolID = DEF;
+  inst.props.fillPaints.clear();
+  nodes.push_back(inst);
+  Fixture f(nodes);
+  f.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  f.click(120, 110);
+  CHECK(f.ed.mainOf(INST) == ON);
+  // The old state stands beside it (a copy of the instance) until the animation ends.
+  REQUIRE(f.ed.document().children(SCREEN).size() == 2);
+  f.advance(16);
+  f.advance(200);
+  f.player.scene();
+  Guid ghost = f.ed.document().children(SCREEN).back();
+  CHECK(ghost != INST);
+  // Its unmatched "Off dot" fades out (half way: half its opacity).
+  bool dotFading = false;
+  for (Guid c : f.ed.document().children(ghost)) {
+    const NodeProps* p = f.player.drawnProps(c);
+    if (p && f.ed.document().get(c)->props.name == "Off dot") dotFading = std::fabs(p->opacity - 0.5) < 0.02;
+  }
+  CHECK(dotFading);
+  f.advance(400);
+  CHECK(f.ed.document().children(SCREEN).size() == 1);
+}
+
+TEST_CASE("prototype.player: Fixed layers of a nested scrolling frame are drawn above its other layers") {
+  auto nodes = baseChanges();
+  const Guid SCREEN{4, 1}, LIST{4, 2}, BADGE{4, 3}, ROW1{4, 4}, ROW2{4, 5};
+  nodes.push_back(make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Screen"));
+  NodeChange list = make(LIST, NodeType::FRAME, SCREEN, "!", {0, 100, 375, 300}, "List");
+  list.props.extra["scrollDirection"] = extra("scrollDirection", R"("VERTICAL")");
+  nodes.push_back(list);
+  NodeChange badge = make(BADGE, NodeType::RECTANGLE, LIST, "!", {300, 10, 60, 30}, "Badge");
+  badge.props.extra["scrollBehavior"] = extra("scrollBehavior", R"("FIXED_WHEN_CHILD_OF_SCROLLING_FRAME")");
+  nodes.push_back(badge);  // first: below the rows in layer order
+  nodes.push_back(make(ROW1, NodeType::RECTANGLE, LIST, "\"", {0, 0, 375, 400}, "Row"));
+  nodes.push_back(make(ROW2, NodeType::RECTANGLE, LIST, "#", {0, 400, 375, 400}, "Row"));
+  Fixture f(nodes);
+  f.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  f.player.wheel(100, 200, 0, 150);
+  CHECK(f.player.scrollOf(LIST).y == doctest::Approx(150));
+  const PresentScene& s = f.player.scene();
+  // Drawn after the screen, clipped to the list, unscrolled.
+  const PresentItem* b = itemOf(s, BADGE);
+  const PresentItem* screen = itemOf(s, SCREEN);
+  REQUIRE(b);
+  REQUIRE(screen);
+  CHECK(b > screen);
+  CHECK(b->clipCss.y == doctest::Approx(100));
+  CHECK(b->clipCss.h == doctest::Approx(300));
+  CHECK(b->parentCss.m12 == doctest::Approx(100));
+}
+
+TEST_CASE("prototype.player: Set variable writes the value of the mode the hotspot resolves") {
+  Fixture f(screens());
+  auto run = [&](CommandId id, const std::string& j) {
+    CommandArgs a;
+    REQUIRE(json::parse(j, a.raw));
+    REQUIRE(f.ed.command(id, a) == OK);
+  };
+  auto q = [](Guid g) { return "\"" + g.toString() + "\""; };
+  run(CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"Theme"})");
+  Guid set = f.ed.lastCreated()[0], light = f.ed.lastCreated()[1];
+  run(CommandId::ADD_VARIABLE_MODE, "{\"collection\":" + q(set) + ",\"name\":\"Dark\"}");
+  Guid dark = f.ed.lastCreated()[0];
+  run(CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + ",\"type\":\"FLOAT\",\"name\":\"count\",\"value\":1}");
+  Guid var = f.ed.lastCreated()[0];
+  run(CommandId::SET_VARIABLE_MODE, "{\"refs\":[" + q(A) + "],\"collection\":" + q(set) + ",\"mode\":" + q(dark) + "}");
+  NodeChange c = NodeChange::changed(NEXT);
+  c.mask = F_EXTRA;
+  c.props.extra["prototypeInteractions"] = extra("prototypeInteractions",
+      "[{\"event\":{\"interactionType\":\"ON_CLICK\"},\"actions\":[{\"connectionType\":\"SET_VARIABLE\",\"targetVariable\":{\"id\":{\"guid\":" + q(var) +
+          "}},\"targetVariableData\":{\"value\":{\"floatValue\":42},\"dataType\":\"FLOAT\"}}]}]");
+  f.ed.applyChanges({c}, APPLY_REMOTE);
+  f.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(f.player.start(kPage, A));
+  f.click(50, 720);
+  Editor::Resolved r;
+  REQUIRE(f.ed.resolveVariableInMode(var, dark, r));
+  CHECK(r.f == doctest::Approx(42));
+  REQUIRE(f.ed.resolveVariableInMode(var, light, r));
+  CHECK(r.f == doctest::Approx(1));  // the other mode keeps its value
+}
+
+TEST_CASE("prototype.editor: viewer mode is read-only; a selected instance shows its inherited connections") {
+  Editor ed;
+  ed.setSessionID(1);
+  ed.setViewport(1600, 1000, 1, 1600, 1000);
+  auto nodes = screens();
+  const Guid MAIN{5, 1}, INST{5, 2};
+  NodeChange main = make(MAIN, NodeType::SYMBOL, kPage, "~", {0, 1000, 100, 40}, "Button");
+  main.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(C));
+  nodes.push_back(main);
+  NodeChange inst = make(INST, NodeType::INSTANCE, A, "~", {200, 400, 100, 40}, "Button");
+  inst.props.comp().symbolData.symbolID = MAIN;
+  nodes.push_back(inst);
+  ed.loadDocument(nodes, kNoGuid);
+  Camera cam;
+  cam.zoom = 1;
+  ed.setCamera(cam);
+  ed.setPrototypeMode(true);
+  size_t before = ed.overlay().prototype.links.size();
+  ed.setSelection({INST});
+  CHECK(ed.overlay().prototype.links.size() == before + 1);  // Button → C, from the instance
+  ed.setPrototypeMode(false);
+
+  // Viewer mode: the selection has no handles, a drag moves nothing, editing tools are refused.
+  ed.setSelection({CARD});
+  CHECK(ed.overlay().handles);
+  ed.setViewerMode(true);
+  CHECK(!ed.overlay().handles);
+  CHECK(ed.setTool(Tool::RECTANGLE) == E_READONLY);
+  Mat2x3 t0 = ed.document().get(CARD)->props.transform;
+  ed.pointer(PointerEvent::DOWN, 100, 150, 0, 1, 0);
+  ed.pointer(PointerEvent::MOVE, 300, 300, 0, 1, 0);
+  ed.pointer(PointerEvent::UP, 300, 300, 0, 0, 0);
+  CHECK(ed.document().get(CARD)->props.transform.m02 == t0.m02);
+  CHECK(!ed.canUndo());
+  // A click selects.
+  ed.pointer(PointerEvent::DOWN, 70, 720, 0, 1, 0);
+  ed.pointer(PointerEvent::UP, 70, 720, 0, 0, 0);
+  CHECK(ed.selection() == std::vector<Guid>{NEXT});
+  // Arrow keys don't nudge.
+  ed.key(KeyEvent::DOWN, KeyCode::ArrowRight, 0, 0, false);
+  CHECK(ed.document().get(NEXT)->props.transform.m02 == 20);
 }
