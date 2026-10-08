@@ -673,6 +673,53 @@ TEST_CASE("components: an edit inside an instance's slot diverges the whole slot
   CHECK(props(e, sub(I, {SLOT, DEFAULT})).opacity == doctest::Approx(0.3));
 }
 
+TEST_CASE("components: a slot's content frame in an auto-layout instance sits over its slot, outside the flow") {
+  // Figma's structure, as an import adopts it: a horizontal auto-layout main (icon 16 + slot filling the rest), an
+  // instance whose slot content frame is a real child of the instance (a .fig keeps it on the internal canvas).
+  auto nodes = baseChanges();
+  const Guid MAIN{7, 1}, ICON{7, 2}, SLOT{7, 3}, DEF{7, 0x7ffffffd}, INST{7, 10}, CONTENT{7, 20}, INNER{7, 21};
+  NodeChange m = make(MAIN, NodeType::SYMBOL, kPage, "!", {0, 0, 200, 40}, "Row");
+  m.props.stackMode = StackMode::HORIZONTAL;
+  m.props.stackSpacing = 8;
+  m.props.stackPrimarySizing = StackSize::FIXED;
+  ComponentPropDef d;
+  d.id = DEF;
+  d.name = "Content";
+  d.type = ComponentPropType::SLOT;
+  m.props.componentPropDefs = {d};
+  nodes.push_back(m);
+  nodes.push_back(make(ICON, NodeType::ROUNDED_RECTANGLE, MAIN, "!", {0, 0, 16, 16}, "Icon"));
+  NodeChange slot = make(SLOT, NodeType::FRAME, MAIN, "\"", {24, 0, 176, 40}, "Slot");
+  slot.props.isSlot = true;
+  slot.props.stackChildPrimaryGrow = 1;
+  ParamBinding b;
+  b.field = VariableField::SLOT_CONTENT_ID;
+  b.propRef = DEF;
+  slot.props.parameterConsumptionMap = {b};
+  nodes.push_back(slot);
+  NodeChange inst = instanceOf(INST, MAIN, kPage, "\"", {0, 100, 200, 40});
+  inst.props.stackMode = StackMode::HORIZONTAL;
+  inst.props.stackSpacing = 8;
+  inst.props.stackPrimarySizing = StackSize::FIXED;
+  ComponentPropAssignment a;
+  a.defID = DEF;
+  a.value.guidValue = CONTENT;
+  inst.props.componentPropAssignments = {a};
+  nodes.push_back(inst);
+  NodeChange content = make(CONTENT, NodeType::FRAME, INST, "~", {0, 0, 176, 40}, "Slot");
+  content.props.isSlotContent = true;
+  nodes.push_back(content);
+  NodeChange inner = make(INNER, NodeType::ROUNDED_RECTANGLE, CONTENT, "!", {0, 0, 50, 20}, "Mine");
+  inner.props.isSlotContent = true;
+  nodes.push_back(inner);
+  Editor e = load(nodes);
+  // The icon keeps its place in the flow, the slot fills the rest, the content frame covers the slot.
+  CHECK(e.document().worldBounds(sub(INST, {ICON})) == Rect{0, 100, 16, 16});
+  CHECK(e.document().worldBounds(sub(INST, {SLOT})) == Rect{24, 100, 176, 40});
+  CHECK(e.document().worldBounds(CONTENT) == Rect{24, 100, 176, 40});
+  CHECK(e.document().worldBounds(INNER) == Rect{24, 100, 50, 20});
+}
+
 TEST_CASE("components: Add variant on a lone component makes a set; the variants keep their place") {
   auto nodes = baseChanges();
   nodes.push_back(make({60, 1}, NodeType::FRAME, kPage, "~", {800, 0, 120, 40}, "Button"));

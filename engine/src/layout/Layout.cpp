@@ -84,7 +84,8 @@ std::vector<Guid> Layout::flowChildren(Guid frame) const {
   std::vector<Guid> out;
   for (Guid c : doc_.children(frame)) {
     const Node* n = doc_.get(c);
-    if (n && n->props.inFlow() && !host_.excludedFromFlow(c)) out.push_back(c);
+    // An instance's slot content frame sits where its slot is (the materializer places it), never in the flow.
+    if (n && n->props.inFlow() && !n->props.isSlotContent && !host_.excludedFromFlow(c)) out.push_back(c);
   }
   return out;
 }
@@ -496,6 +497,7 @@ void Layout::applyConstraints(Guid frame, bool flowChildrenToo) {
     if (!cn) continue;
     const NodeProps& cp = cn->props;
     if (host_.excludedFromFlow(c)) continue;  // being dragged: the gesture places it
+    if (cp.isSlotContent) continue;            // placed over its slot by the materializer
     if (!flowChildrenToo && frameAutoLayout && cp.inFlow()) continue;
     Mat2x3 t0;
     Vec2 s0;
