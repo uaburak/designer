@@ -12,6 +12,7 @@ import { commandItem } from "../menus";
 import { Pages } from "./Pages";
 import { Layers } from "./Layers";
 import { Assets } from "./Assets";
+import { MissingFontsButton } from "./MissingFonts";
 import styles from "./Panels.module.css";
 
 export function LeftPanel() {
@@ -52,6 +53,7 @@ function FileHeader() {
         )}
         <span className={styles.fileLocation}>{ed.source.location}</span>
       </div>
+      <MissingFontsButton />
       <IconButton icon="24.sidebar.closed" label="Minimize UI" shortcut={shortcutOf(command("view.minimize-ui"))} onClick={() => runEditorCommand(ed, "view.minimize-ui")} />
     </div>
   );

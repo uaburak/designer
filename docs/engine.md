@@ -799,7 +799,7 @@ Overlays are drawn by the engine after the scene, straight into the default fram
 ### 7.1 Fonts
 - **Bytes come from TS** (fonts are I/O):
   1. The engine emits `REQUEST_FONT {family, style}` the first time a `FontName` is needed.
-  2. TS asks main over IPC (system fonts enumerated and read in main; Inter from `public/fonts/`; later Google Fonts) and calls `engine_font_add_take(ptr, len, faceIndex)`. The engine **takes ownership** of the `engine_alloc`'d buffer and frees it when the face is destroyed. It returns a `faceId`.
+  2. TS asks main over IPC (system fonts enumerated and read in main; Figma's Inter 3.19 bundled with the engine; Google Fonts downloaded by main on first use, docs/desktop.md §14.1) and calls `engine_font_add_take(ptr, len, faceIndex)`. The engine **takes ownership** of the `engine_alloc`'d buffer and frees it when the face is destroyed. It returns a `faceId`.
   3. If no font is found, TS calls `engine_font_missing(family, style)`.
 - **Parsing**: HarfBuzz `hb_blob` over the buffer (`HB_MEMORY_MODE_READONLY` + destroy callback) → `hb_face_create(blob, index)` → `hb_font`. Metrics come from OS/2 and hhea; `fontLineHeight` = ascender − descender + lineGap. Named instances come from `fvar`, and `fontVariations` set the axes with `hb_font_set_variations`.
 - **TTC/OTC** are supported through `faceIndex`. WOFF/WOFF2 are not supported: system fonts and Google's API both give TTF/OTF.

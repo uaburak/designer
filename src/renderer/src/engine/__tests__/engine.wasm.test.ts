@@ -280,7 +280,7 @@ describe("engine (wasm, headless): text (E3)", () => {
   async function textEngine() {
     fonts.setSource({
       list: async () => BUNDLED_FACES,
-      read: async (face) => fontFile(face.id === "bundled:inter" ? "InterVariable.ttf" : "InterVariable-Italic.ttf"),
+      read: async () => fontFile("Inter-3.19.ttf"),
     });
     const engine = await Engine.create(null, { sessionID: 3 });
     const doc: Message = {

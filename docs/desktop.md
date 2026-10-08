@@ -861,6 +861,13 @@ export interface FontIndex { version: number; faces: FontFaceInfo[] }   // paths
 - **Needs from engine**: shape and rasterise from these bytes (HarfBuzz and FreeType or equivalent, per `R1-engine.md` §d). The engine caches loaded faces per tab. DOM text is never used on the canvas.
 - **Missing fonts**: a layer whose font is not in the index draws with stored glyph outlines, if the document has them, or else with Inter. The editor shows Figma's "Missing fonts" UI.
 
+### 14.1 Google Fonts and Figma's Inter (as built, round 5 fonts; research: `docs/research/figma/R11-fonts.md`)
+
+- **As built, the index lives in main** (`src/main/fonts.ts`; the separate fonts utility process above is not built). `fonts-v2.json` adds `variable` to a face. `fs.watch` (recursive) on the user folders and `/System/Library/Fonts` rescans 600 ms after the last change; when the faces differ every editor view gets `fonts:changed {version}` and the renderer's font service reads `fonts:list` again and re-asks the names that were missing (loaded faces aren't read again).
+- **Google Fonts** (`src/main/googleFonts.ts`): the catalog from `fonts.google.com/metadata/fonts` (no key), reduced to `GoogleFontFamily {family, category, popularity, axes, styles [{style, weight, italic, id}]}` with Google's style names, cached in `userData/cache/google-fonts-v1.json` and refreshed in the background past a week (a changed catalog → `fonts:changed`); offline with no cache, no Google family is listed. `FontIndex.google` carries it. A face id `g:<v|vi|weight[i]>:<family>` (a variable family's styles share their slant's file) is downloaded by `fonts:read` on first use from the google/fonts repository (`METADATA.pb` names the files; the bytes Figma lays text out with), Google's download list as fallback, into `userData/fonts/google/<dir>/`; offline, cached files work and the rest are missing. `fonts:preview {family, text}` returns a css2 `text=` subset (≈2 KB, cached in `userData/cache/font-previews/`) for the picker's rows.
+- **Precedence** (Figma's): an installed family wins over the same family served by Figma; Figma's Inter wins over Google's.
+- **Inter** is Figma's own: rsms/inter 3.19 `Inter Variable/Inter.ttf` (the digest Figma stores for Inter text), bundled as `src/renderer/src/engine/fonts/Inter-3.19.ttf` (one file, 18 named instances), not `public/fonts/InterVariable.ttf`.
+
 ---
 
 ## 15. Opening files from outside, deep links

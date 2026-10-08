@@ -18,7 +18,8 @@ import { createStyle, renameStyle, updateStyle } from "../../variables";
 import { EFFECT_TYPES, EffectSettings, GUIDE_ICON, GuideSettings, defaultEffect, defaultGuide, guideKind, guideLabel, withEffectType } from "../design/Effects";
 import { closestStyle } from "@/engine/fonts";
 import { useFontFamilies } from "../../fontList";
-import { FONT_SIZES, fontFamilies, fontStyles, lineHeightView, TEXT_DEFAULTS } from "../design/Typography";
+import { FontField } from "../design/FontPicker";
+import { documentFamilies, FONT_SIZES, fontStyles, lineHeightView, TEXT_DEFAULTS } from "../design/Typography";
 import type { LayoutGrid } from "../design/shared";
 import { StyleGlyph } from "./VariablePicker";
 import styles from "./Variables.module.css";
@@ -109,14 +110,14 @@ function TextValues({ style }: { style: Style }) {
   const ls = n.letterSpacing ?? TEXT_DEFAULTS.letterSpacing;
   const write = (f: Record<string, unknown>, info: ChangeInfo = FINAL) => updateStyle(ed, style.id, f, "Edit style", info);
   const fontList = useFontFamilies();
-  const families = fontFamilies(fontList, [{ fontName: font }]);
   return (
     <>
-      <Select
-        label="Font family"
-        value={font.family}
-        options={families.map((f) => ({ value: f, label: f }))}
-        onChange={(family) => write({ fontName: { family, style: closestStyle(fontStyles(fontList, family, undefined), font.style), postscript: "" } })}
+      <FontField
+        family={font.family}
+        style={font.style}
+        list={fontList}
+        fileFamilies={() => documentFamilies(ed.engine)}
+        onPick={(f) => write({ fontName: { family: f.family, style: closestStyle(fontStyles(fontList, f.family, undefined), f.style), postscript: "" } })}
       />
       <div className={styles.formPair}>
         <Select label="Font style" value={font.style} options={fontStyles(fontList, font.family, font.style).map((s) => ({ value: s, label: s }))} onChange={(s) => write({ fontName: { ...font, style: s, postscript: "" } })} />

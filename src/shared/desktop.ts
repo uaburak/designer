@@ -157,10 +157,15 @@ export interface EditorApi extends DesktopCommon {
   files: FilesApi;
   menu: ViewMenuApi;
   openExternal(url: string): void;
-  /** Installed fonts for the engine (src/renderer/src/engine/fonts.ts reads this). */
+  /** Installed fonts and the Google Fonts catalog for the engine and the font picker (src/renderer/src/engine/fonts.ts). */
   fonts: {
     list(): Promise<FontIndex>;
+    /** A face's file (a Google face is downloaded on first use) */
     read(id: string): Promise<Uint8Array>;
+    /** A Google family's Regular subset to `text`, for the picker's row in its own face */
+    preview(family: string, text: string): Promise<Uint8Array>;
+    /** Fonts were installed or removed, or the Google catalog changed */
+    onChanged(cb: () => void): () => void;
   };
 }
 

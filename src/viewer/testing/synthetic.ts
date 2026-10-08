@@ -65,7 +65,7 @@ export function startHeadlessEngine(): Promise<unknown> {
   started = loadEngine({ wasmBinary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), printErr: () => {} });
   fonts.setSource({
     list: async () => BUNDLED_FACES,
-    read: async (face) => fontFile(face.id === "bundled:inter" ? "InterVariable.ttf" : "InterVariable-Italic.ttf"),
+    read: async () => fontFile("Inter-3.19.ttf"),
   });
   return started;
 }

@@ -17,7 +17,8 @@
 //   EDITOR_ONLY=prototype node …                                   (only the E8 section: Prototype tab, noodles, presentation view, inline preview)
 //   EDITOR_ONLY=grid node …                                        (only the grid auto layout section: flow, counts, tracks, gaps, spans)
 //   EDITOR_ONLY=text node …                                        (only the text round: specimen, Mixed runs, Type settings, links, lists)
-/* global process, console, window, document, navigator, requestAnimationFrame */
+//   EDITOR_ONLY=fonts node …                                       (only the fonts section: font picker, Google fonts, Missing fonts)
+/* global process, console, window, document, navigator, requestAnimationFrame, fetch */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -950,6 +951,175 @@ async function exportSection(page, theme) {
   check("Copy as PNG puts a PNG on the clipboard", types.includes("image/png"), types.join(", "));
 }
 
+/**
+ * Fonts (docs/editor.md "Font picker"): the desktop's font API mocked in the page — installed families, Figma's Inter,
+ * Google families, a font folder that changes — then Figma's font picker on `?editor&doc=types`'s Heading: the list
+ * in its faces, search, filters, on-canvas preview on hover, a pick (one undo step), a family's styles, a font
+ * installed while the picker is open (`fonts:changed`), and the Missing fonts dialog's "Replace fonts".
+ */
+async function fontsSection(page, theme) {
+  await page.addInitScript((repo) => {
+    const local = (family, styles) =>
+      styles.map(([style, weight, italic], i) => ({ id: `${family}-${i}`, family, style, postscriptName: "", weight, italic, stretch: 5, source: "user", collectionIndex: 0 }));
+    const google = (family, category, popularity, weights, variable) => ({
+      family, category, popularity, axes: variable ? [{ tag: "wght", min: 100, max: 900, default: 400 }] : [],
+      styles: weights.flatMap((w) => [false, true].filter((it) => it === false || weights.includes(-w)).map((it) => ({
+        style: ({ 100: "Thin", 400: "Regular", 600: "SemiBold", 700: "Bold", 900: "Black" })[w] + (it ? " Italic" : "").replace("Regular Italic", "Italic"),
+        weight: w, italic: it, id: `g:${variable ? (it ? "vi" : "v") : `${w}${it ? "i" : ""}`}:${family}`,
+      }))).filter((s) => s.weight > 0),
+    });
+    let faces = [
+      ...local("Helvetica Neue", [["Regular", 400, false], ["Italic", 400, true], ["Bold", 700, false], ["Bold Italic", 700, true]]),
+      ...local("Georgia", [["Regular", 400, false], ["Bold", 700, false]]),
+    ];
+    const catalog = [
+      google("Lora", "Serif", 40, [400, 700], true),
+      google("Outfit", "Sans Serif", 120, [100, 400, 600, 900], true),
+      google("Roboto Mono", "Monospace", 17, [400, 700], true),
+      google("Abril Fatface", "Display", 300, [400], false),
+      // Google's Inter: Figma's own (bundled) wins over it.
+      google("Inter", "Sans Serif", 5, [400, 700], true),
+    ];
+    const listeners = new Set();
+    let bytes = null;
+    const inter = async () => (bytes ??= new Uint8Array(await (await fetch(`/@fs${repo}/src/renderer/src/engine/fonts/Inter-3.19.ttf`)).arrayBuffer()));
+    window.__fontsMock = {
+      reads: [],
+      previews: [],
+      install(family) {
+        faces = [...faces, ...local(family, [["Regular", 400, false]])];
+        for (const l of listeners) l();
+      },
+    };
+    window.designer = {
+      fonts: {
+        list: async () => ({ version: 1, faces, google: catalog }),
+        read: async (id) => {
+          window.__fontsMock.reads.push(id);
+          return (await inter()).slice();
+        },
+        preview: async (family) => {
+          window.__fontsMock.previews.push(family);
+          return (await inter()).slice();
+        },
+        onChanged: (cb) => {
+          listeners.add(cb);
+          return () => listeners.delete(cb);
+        },
+      },
+    };
+  }, repo);
+  await open(page, "&doc=types");
+  const panel = page.locator('[data-panel="right"]');
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:22"]));
+  await settle(page);
+  const field = panel.locator("[data-font-field]");
+  check("Typography's Font family is the font picker's field, on Inter", (await field.count()) === 1 && (await field.innerText()).trim() === "Inter");
+  await field.click();
+  await settle(page);
+  const picker = page.locator("[data-font-picker]");
+  check("the font picker opens with Search fonts and All fonts", (await picker.count()) === 1 && (await picker.getByRole("searchbox", { name: "Search fonts" }).count()) === 1 && (await picker.locator("[data-font-filter]").innerText()).includes("All fonts"));
+  const rows = picker.locator("[data-font-row]");
+  await page.waitForFunction(() => document.querySelectorAll("[data-font-row] [data-font-preview]").length >= 5, null, { timeout: 8000 }).catch(() => {});
+  const names = await rows.evaluateAll((els) => els.map((e) => `${e.getAttribute("data-font-row")}:${e.getAttribute("data-font-source")}`));
+  check("one list: installed, Figma's Inter (over Google's) and Google families, by name", names.join(" ") === "Abril Fatface:google Georgia:local Helvetica Neue:local Inter:bundled Lora:google Outfit:google Roboto Mono:google", names.join(" "));
+  check("each name is drawn in its own face (Google ones from a subset of their name)", (await picker.locator("[data-font-preview]").count()) >= 5 && (await page.evaluate(() => window.__fontsMock.previews.includes("Lora"))));
+  check("the current family is ticked", (await picker.locator('[data-font-row="Inter"][aria-selected="true"]').count()) === 1);
+  await shot(page, `130-font-picker-${theme}`);
+
+  // Search.
+  await picker.getByRole("searchbox", { name: "Search fonts" }).fill("lo");
+  await settle(page);
+  check("a search narrows the list", (await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-font-row")))).join(",") === "Lora");
+  await shot(page, `131-font-search-${theme}`);
+  await picker.getByRole("searchbox", { name: "Search fonts" }).fill("");
+  await settle(page);
+
+  // Hover previews on the canvas; leaving puts the text back.
+  await picker.locator('[data-font-row="Lora"]').hover();
+  await page.waitForTimeout(400);
+  check("hovering a family previews it on the selected text", (await node(page, "1:22")).fontName?.family === "Lora", JSON.stringify((await node(page, "1:22")).fontName));
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
+  check("leaving the list puts the text's font back", ((await node(page, "1:22")).fontName?.family ?? "Inter") === "Inter");
+
+  // A pick: one undo step.
+  await picker.locator('[data-font-row="Outfit"]').click();
+  await settle(page);
+  const picked = (await node(page, "1:22")).fontName;
+  check("a click applies the family, keeping the style", picked?.family === "Outfit" && picked?.style === "Regular", JSON.stringify(picked));
+  check("the Google family's file was asked for (downloaded on first use)", await page.evaluate(() => window.__fontsMock.reads.includes("g:v:Outfit")));
+  check("the Font style menu lists the family's styles", (await panel.getByRole("combobox", { name: "Font style" }).count()) === 1);
+  await panel.getByRole("combobox", { name: "Font style" }).click();
+  const styleList = await page.locator('[data-ds="Menu"][role="listbox"]').innerText();
+  check("Outfit's styles: Thin, Regular, SemiBold, Black", ["Thin", "Regular", "SemiBold", "Black"].every((s) => styleList.includes(s)), styleList.replace(/\n/g, " | "));
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  check("one ⌘Z undoes the pick", ((await node(page, "1:22")).fontName?.family ?? "Inter") === "Inter");
+
+  // Filters and a family's styles.
+  await field.click();
+  await settle(page);
+  const filter = picker.locator("[data-font-filter]");
+  const pickFilter = async (label) => {
+    await filter.getByRole("combobox").click();
+    await page.getByRole("option", { name: label }).click();
+    await settle(page);
+    return rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-font-row")));
+  };
+  check("Google fonts lists Google's families only", (await pickFilter("Google fonts")).join(",") === "Abril Fatface,Lora,Outfit,Roboto Mono");
+  await shot(page, `132-font-filter-google-${theme}`);
+  check("Installed by you lists the computer's", (await pickFilter("Installed by you")).join(",") === "Georgia,Helvetica Neue");
+  const inFile = await pickFilter("In this file");
+  check("In this file lists the file's fonts", inFile.join(",") === "Inter", `${inFile.join(",")} / ${JSON.stringify(await page.evaluate(() => window.__designerEditor.engine.documentFonts()))}`);
+  check("Variable fonts lists families with axes", (await pickFilter("Variable fonts")).join(",") === "Inter,Lora,Outfit,Roboto Mono");
+  await pickFilter("All fonts");
+  await picker.locator('[data-font-row="Helvetica Neue"]').hover();
+  await picker.getByRole("button", { name: "Helvetica Neue styles" }).click();
+  await settle(page);
+  const menu = page.locator('[data-font-styles="Helvetica Neue"]');
+  check("a family's styles open beside it", (await menu.locator("[data-font-style]").evaluateAll((els) => els.map((e) => e.getAttribute("data-font-style")))).join(",") === "Regular,Italic,Bold,Bold Italic");
+  await shot(page, `133-font-styles-${theme}`);
+  await menu.locator('[data-font-style="Bold Italic"]').click();
+  await settle(page);
+  const styled = (await node(page, "1:22")).fontName;
+  check("a style from the submenu applies family and style", styled?.family === "Helvetica Neue" && styled?.style === "Bold Italic", JSON.stringify(styled));
+
+  // A font installed while the app runs appears (the desktop's fonts:changed).
+  await field.click();
+  await settle(page);
+  await page.evaluate(() => window.__fontsMock.install("Zilla Freshly Installed"));
+  await page.waitForTimeout(300);
+  check("a font installed while the picker is open appears (fonts:changed)", (await picker.locator('[data-font-row="Zilla Freshly Installed"]').count()) === 1);
+  await page.keyboard.press("Escape");
+  await settle(page);
+
+  // Missing fonts: a font nobody has; the icon, the dialog, Replace fonts.
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    ed.setProps(["1:22"], { fontName: { family: "Matter", style: "Medium", postscript: "" } }, "Font");
+  });
+  await page.waitForSelector("[data-missing-fonts]", { timeout: 4000 }).catch(() => {});
+  check("a missing font shows the left panel's missing font icon", (await page.locator("[data-missing-fonts]").count()) === 1);
+  check("and the missing font icon next to the family", (await panel.locator("[data-font-field] [data-missing-font]").count()) === 1);
+  await shot(page, `134-missing-font-${theme}`);
+  await page.locator("[data-missing-fonts]").click();
+  await settle(page);
+  const dialog = page.getByRole("dialog", { name: "Missing fonts" });
+  check("Missing fonts lists the font with its layers and a Replacement", (await dialog.count()) === 1 && (await dialog.locator('[data-missing-font="Matter Medium"]').count()) === 1 && (await dialog.innerText()).includes("Replacement"));
+  await shot(page, `135-missing-fonts-dialog-${theme}`);
+  await dialog.locator("[data-replace-fonts]").click();
+  await settle(page);
+  const replaced = (await node(page, "1:22")).fontName;
+  check("Replace fonts swaps it everywhere (Inter, same style)", replaced?.family === "Inter" && replaced?.style === "Medium", JSON.stringify(replaced));
+  await page.waitForTimeout(1300);
+  check("the missing font icon goes", (await page.locator("[data-missing-fonts]").count()) === 0);
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  check("one ⌘Z brings the missing font back", (await node(page, "1:22")).fontName?.family === "Matter");
+}
+
 /** E8 on `?editor&doc=prototype` (dark): the Prototype tab, interaction details, noodles and a noodle drag, flows, and the presentation view (in this tab, and the `?present` route on a store file). */
 async function prototypeSection(page, theme) {
   await open(page, "&doc=prototype");
@@ -1276,8 +1446,9 @@ async function textSection(page, theme) {
     check("Variable: a Weight slider", (await settings.getByRole("slider", { name: "Weight" }).count()) === 1);
     const weight = settings.getByRole("textbox", { name: "Weight value" });
     const weightShown = (await weight.inputValue()) || (await weight.getAttribute("placeholder"));
-    const opsz = await settings.getByRole("textbox", { name: "Optical size value" }).inputValue();
-    check("Variable: Weight Mixed (Regular and Bold runs), Optical size 14", weightShown === "Mixed" && opsz === "14", `${weightShown} / ${opsz}`);
+    // Figma's Inter 3.19 (bundled since the fonts round): wght and slnt (Inter 4's opsz isn't in it).
+    const slant = await settings.getByRole("textbox", { name: "Slant value" }).inputValue();
+    check("Variable: Weight Mixed (Regular and Bold runs), Slant 0", weightShown === "Mixed" && slant === "0", `${weightShown} / ${slant}`);
     await shot(page, `124-type-settings-variable-${theme}`);
   }
   await page.keyboard.press("Escape");
@@ -1339,6 +1510,16 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await prototypeSection(page, "dark");
+    await context.close();
+  }
+  if (only === "fonts" || !only) {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await fontsSection(page, "dark");
     await context.close();
   }
   if (only === "export" || !only) {

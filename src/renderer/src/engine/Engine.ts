@@ -1100,6 +1100,16 @@ export class Engine {
     return this.json(this.x.styles(this.h, id, options.includeRemote ? INCLUDE_REMOTE : 0), []);
   }
 
+  /**
+   * The fonts the document names — text, its runs, instance overrides, text styles — each with its number of uses
+   * (the Missing fonts dialog, the font picker's "In this file"). An engine without the export: none.
+   */
+  documentFonts(): { family: string; style: string; uses: number }[] {
+    const module = (this.x as unknown as { module?: Record<string, unknown> }).module;
+    if (module && typeof module._engine_document_fonts !== "function") return [];
+    return this.json(this.x.documentFonts(this.h), []);
+  }
+
   /** How many layers use a style. */
   styleUsage(id: Guid): number {
     return Math.max(0, this.after(this.x.styleUsage(this.h, encodeText(id))));

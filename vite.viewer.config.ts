@@ -37,35 +37,45 @@ function noItalicInter(): Plugin {
   };
 }
 
-/** After the build: the page's scripts, styles and the Wasm moved into index.html, their files removed. */
+/**
+ * Once the bundle is written: the page's scripts, styles and the Wasm moved into index.html, their files removed.
+ * In `writeBundle` (after every file of this output is on disk), not `closeBundle`: Vite calls closeBundle after a
+ * failed build too, and from a build that wrote nothing it read a missing index.html (ENOENT) instead of reporting
+ * the build's own error.
+ */
 function singleFile(): Plugin {
   return {
     name: "designer-viewer-single-file",
     apply: "build",
-    closeBundle() {
-      const htmlPath = join(outDir, "index.html");
-      let html = readFileSync(htmlPath, "utf8");
-      const assets = join(outDir, "assets");
-      const files = readdirSync(assets);
-      for (const f of files.filter((x) => x.endsWith(".css"))) {
-        const css = readFileSync(join(assets, f), "utf8");
-        html = html.replace(new RegExp(`<link rel="stylesheet"[^>]*href="[^"]*${f.replace(/\./g, "\\.")}"[^>]*>`), () => `<style>${css}</style>`);
-      }
-      for (const f of files.filter((x) => x.endsWith(".js"))) {
-        const js = readFileSync(join(assets, f), "utf8").replace(/<\/script/gi, "<\\/script").replace(/<!--/g, "<\\!--");
-        html = html.replace(new RegExp(`<script type="module" crossorigin src="[^"]*${f.replace(/\./g, "\\.")}"></script>`), () => `<script type="module">${js}</script>`);
-      }
-      // The module script stays where Vite put it (head); modules run after parsing, when the data block is there.
-      const wasm = files.find((x) => x.endsWith(".wasm"));
-      if (!wasm) throw new Error("viewer build: no engine.wasm asset");
-      const b64 = readFileSync(join(assets, wasm)).toString("base64");
-      if (!html.includes("<!--designer:preview-data-->")) throw new Error("viewer build: the data placeholder is gone");
-      html = html.replace("<!--designer:preview-data-->", () => `<script id="designer-engine-wasm" type="application/octet-stream">${b64}</script>\n    <!--designer:preview-data-->`);
-      if (/<link rel="(stylesheet|modulepreload)"|<script[^>]+src=/.test(html)) throw new Error("viewer build: a file was left outside the page");
-      writeFileSync(htmlPath, html);
-      rmSync(assets, { recursive: true, force: true });
-      // Firebase Hosting: where previews are stored (the owner's firebase/preview-config.json, never committed).
-      if (existsSync(previewConfig)) copyFileSync(previewConfig, join(outDir, "preview-config.json"));
+    writeBundle: {
+      order: "post",
+      sequential: true,
+      handler() {
+        const htmlPath = join(outDir, "index.html");
+        if (!existsSync(htmlPath)) throw new Error(`viewer build: ${htmlPath} wasn't written`);
+        let html = readFileSync(htmlPath, "utf8");
+        const assets = join(outDir, "assets");
+        const files = readdirSync(assets);
+        for (const f of files.filter((x) => x.endsWith(".css"))) {
+          const css = readFileSync(join(assets, f), "utf8");
+          html = html.replace(new RegExp(`<link rel="stylesheet"[^>]*href="[^"]*${f.replace(/\./g, "\\.")}"[^>]*>`), () => `<style>${css}</style>`);
+        }
+        for (const f of files.filter((x) => x.endsWith(".js"))) {
+          const js = readFileSync(join(assets, f), "utf8").replace(/<\/script/gi, "<\\/script").replace(/<!--/g, "<\\!--");
+          html = html.replace(new RegExp(`<script type="module" crossorigin src="[^"]*${f.replace(/\./g, "\\.")}"></script>`), () => `<script type="module">${js}</script>`);
+        }
+        // The module script stays where Vite put it (head); modules run after parsing, when the data block is there.
+        const wasm = files.find((x) => x.endsWith(".wasm"));
+        if (!wasm) throw new Error("viewer build: no engine.wasm asset");
+        const b64 = readFileSync(join(assets, wasm)).toString("base64");
+        if (!html.includes("<!--designer:preview-data-->")) throw new Error("viewer build: the data placeholder is gone");
+        html = html.replace("<!--designer:preview-data-->", () => `<script id="designer-engine-wasm" type="application/octet-stream">${b64}</script>\n    <!--designer:preview-data-->`);
+        if (/<link rel="(stylesheet|modulepreload)"|<script[^>]+src=/.test(html)) throw new Error("viewer build: a file was left outside the page");
+        writeFileSync(htmlPath, html);
+        rmSync(assets, { recursive: true, force: true });
+        // Firebase Hosting: where previews are stored (the owner's firebase/preview-config.json, never committed).
+        if (existsSync(previewConfig)) copyFileSync(previewConfig, join(outDir, "preview-config.json"));
+      },
     },
   };
 }

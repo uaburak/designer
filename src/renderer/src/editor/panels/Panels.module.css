@@ -159,4 +159,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  /* ---- Missing fonts (the dialog behind the left panel's missing font icon) ---- */
+  .missingFonts { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .missingIntro { margin: 0 0 var(--ds-space-2); color: var(--figma-color-text-secondary); }
+  .missingHead, .missingRow { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-3); align-items: center; }
+  .missingHead { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .missingName { display: flex; flex-direction: column; min-width: 0; }
+  .missingName > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .missingStyle { color: var(--figma-color-text-secondary); }
+  .missingPick { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); min-width: 0; }
 }

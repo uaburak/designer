@@ -175,10 +175,36 @@ export interface FontFaceInfo {
   stretch: number;
   source: "system" | "user";
   collectionIndex: number;
+  /** A variable font (`fvar`): its styles are named instances */
+  variable?: boolean;
 }
+
+/** One style of a Google Fonts family (docs/desktop.md §14.1): its id is what `fonts:read` downloads. */
+export interface GoogleFontStyle {
+  /** Google's name: "Regular", "SemiBold Italic" … (the variable font's named instance) */
+  style: string;
+  weight: number;
+  italic: boolean;
+  id: string;
+}
+/** A family of the Google Fonts catalog (fonts.google.com/metadata/fonts, reduced). */
+export interface GoogleFontFamily {
+  family: string;
+  /** "Sans Serif", "Serif", "Display", "Handwriting", "Monospace" */
+  category: string;
+  /** Google's popularity rank (1 = most used) */
+  popularity: number;
+  /** Variable axes (none: static files) */
+  axes: { tag: string; min: number; max: number; default: number }[];
+  styles: GoogleFontStyle[];
+}
+
 export interface FontIndex {
   version: number;
+  /** The installed fonts (system and user) */
   faces: FontFaceInfo[];
+  /** The Google Fonts catalog (empty offline before it was first fetched) */
+  google?: GoogleFontFamily[];
 }
 
 /** One exported file: its name (relative, "/" for folders) and bytes. */
@@ -221,8 +247,10 @@ export interface IpcInvoke {
   "menu:popup": { args: [{ template: NativeMenuItem[]; x: number; y: number }]; result: string | null };
   /** The system's and the user's fonts (scanned once, cached in userData/cache/fonts-v1.json) */
   "fonts:list": { args: []; result: FontIndex };
-  /** A face's whole font file (the engine parses it), by its index id */
+  /** A face's whole font file (the engine parses it), by its index id; a Google face is downloaded on first use */
   "fonts:read": { args: [{ id: string }]; result: Uint8Array };
+  /** A Google family's Regular subset to `text` (its name), for the font picker's row in its own face */
+  "fonts:preview": { args: [{ family: string; text: string }]; result: Uint8Array };
 }
 
 export interface IpcSend {
@@ -259,6 +287,8 @@ export interface IpcEvents {
   "store:port": { generation: number };
   /** The theme changed (a choice, or the system's appearance while the preference is "system") */
   "theme:changed": ThemeState;
+  /** Fonts were installed or removed (or the Google Fonts catalog changed): read `fonts:list` again */
+  "fonts:changed": { version: number };
 }
 
 /** Which roles may use which channel (main drops anything else). */
@@ -276,6 +306,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "menu:popup": ["tabbar", "home", "editor"],
   "fonts:list": ["editor"],
   "fonts:read": ["editor"],
+  "fonts:preview": ["editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

@@ -95,6 +95,7 @@ _engine_resolved_value
 _engine_variable_modes
 _engine_styles
 _engine_style_usage
+_engine_document_fonts
 _engine_set_file_key
 _engine_ensure_asset_keys
 _engine_local_assets

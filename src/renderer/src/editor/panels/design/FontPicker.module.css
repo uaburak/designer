@@ -1,0 +1,120 @@
+@layer app {
+  /* ---- The Font family field: a dropdown field whose value is the family (Figma UI3's Typography) ---- */
+  .field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+    cursor: default;
+  }
+  .field:hover { border-color: var(--figma-color-border); }
+  .field:focus-visible, .field[aria-expanded="true"] { border-color: var(--figma-color-border-selected); }
+  .field:disabled { opacity: 0.4; }
+  .field:disabled:hover { border-color: transparent; }
+  .fieldValue { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .fieldMixed { color: var(--figma-color-text-secondary); }
+  .fieldChevron { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
+  /* The missing font icon next to the family (help.figma.com "Missing font alert") */
+  .missingIcon { display: flex; flex: none; margin-right: var(--ds-space-1); color: var(--figma-color-icon-warning); }
+
+  /* ---- The picker: search, the filter, the families in their own faces ---- */
+  .picker { display: flex; flex-direction: column; height: 440px; }
+  .search { padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  .filter { display: flex; padding: 0 var(--ds-space-2) var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .list { flex: 1 1 auto; min-height: 0; padding: var(--ds-space-1) 0; }
+  .empty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    width: 100%;
+    height: 100%;
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-large);
+    text-align: left;
+    outline: none;
+    cursor: default;
+  }
+  .row[data-active] { background: var(--figma-color-bg-hover); }
+  .check { display: flex; flex: none; width: 16px; color: var(--figma-color-icon); }
+  .name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; line-height: 20px; }
+  /* A face still loading: a bar where its name will be */
+  .skeleton {
+    flex: 0 1 auto;
+    width: 60%;
+    height: 10px;
+    border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg-tertiary);
+  }
+  .source { flex: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .stylesButton {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    visibility: hidden;
+  }
+  .row[data-active] .stylesButton, .stylesButton[aria-expanded="true"] { visibility: visible; }
+  .stylesButton:hover { background: var(--figma-color-bg-pressed); }
+
+  /* ---- A family's styles (the submenu next to the picker), each in its own face ---- */
+  .styles {
+    position: fixed;
+    z-index: var(--ds-z-menu);
+    display: flex;
+    flex-direction: column;
+    width: 200px;
+    max-height: 360px;
+    padding: var(--ds-size-menu-pad);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--ds-radius-large);
+    background: var(--ds-color-menu-bg);
+    box-shadow: var(--ds-elevation-menu);
+    color: var(--ds-color-menu-text);
+    font: var(--ds-font-menu);
+    letter-spacing: var(--ds-tracking-menu);
+    user-select: none;
+  }
+  .styleItem {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-menu-item);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+    white-space: nowrap;
+    outline: none;
+    cursor: default;
+  }
+  .styleItem:hover, .styleItem:focus-visible { background: var(--ds-color-menu-highlight); }
+  .styleCheck { display: flex; flex: none; width: 16px; margin-left: calc(var(--ds-space-1) * -1); }
+  .styleName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}

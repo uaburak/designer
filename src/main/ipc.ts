@@ -3,6 +3,7 @@ import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenu
 import { isFileKey } from "../shared/tabs";
 import { exportAssets } from "./files";
 import { fontIndex, readFont } from "./fonts";
+import { googlePreview } from "./googleFonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
 import { setThemePreference, themeState } from "./theme";
@@ -162,9 +163,15 @@ export function registerIpc() {
   onInvoke("menu:popup", ({ ctl, sender }, p) => popupMenu(ctl, sender, p));
   onInvoke("fonts:list", () => fontIndex());
   onInvoke("fonts:read", (_c, p) => {
-    const id = str(p?.id, 64);
+    const id = str(p?.id, 300);
     if (!id) throw new Error("fonts:read: no id");
     return readFont(id);
+  });
+  onInvoke("fonts:preview", (_c, p) => {
+    const family = str(p?.family, 200);
+    const text = str(p?.text, 200);
+    if (!family || !text) throw new Error("fonts:preview: a family and a text");
+    return googlePreview(family, text);
   });
 }
 

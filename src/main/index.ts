@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isCommandId } from "../shared/commands";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
-import { warmFontIndex } from "./fonts";
+import { startFontWatch, warmFontIndex } from "./fonts";
 import { registerIpc } from "./ipc";
 import { appMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
@@ -71,6 +71,8 @@ if (!app.requestSingleInstanceLock()) {
     openWindow();
     // The font index (a cached JSON after the first launch) is ready before the first file's editor asks for it.
     setTimeout(warmFontIndex, 1500);
+    // Fonts installed or removed while the app runs reach every editor (as Figma's font helper's do).
+    setTimeout(startFontWatch, 3000);
 
     // The Mac sleeps or locks: what the files hold goes to disk, without a question.
     const flushAll = () => void Promise.all([...controllers.values()].map((c) => c.tabs.flushQuietly())).then(flushStore);

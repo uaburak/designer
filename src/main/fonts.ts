@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
+import { watch, type FSWatcher } from "node:fs";
 import { mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { app } from "electron";
+import { app, webContents } from "electron";
 import type { FontFaceInfo, FontIndex } from "../shared/ipc";
+import { googleCatalog, googleFontPath, onGoogleCatalogChanged, setGoogleFontsRoot } from "./googleFonts";
+import { viewOf } from "./views";
 
 /**
  * The installed fonts (docs/desktop.md §14): the system's and the user's
@@ -13,12 +16,16 @@ import type { FontFaceInfo, FontIndex } from "../shared/ipc";
  * changed files are parsed again. Views get the index (`fonts:list`, no
  * paths) and a face's whole file (`fonts:read`), which the engine parses.
  *
- * Interim (minimal): in the main process, on the first `fonts:list` (or
- * `warmFontIndex()` at launch), not yet the separate fonts utility process
- * §14 describes; no `fs.watch` rescan.
+ * The index also carries the Google Fonts catalog (`googleFonts.ts`): a
+ * Google face's id downloads its file on the first `fonts:read`.
+ *
+ * Font folders are watched (`watchFonts`): a font installed or removed while
+ * the app runs is rescanned and every view hears `fonts:changed`, as Figma's
+ * font helper does. Interim: in the main process, not yet the separate fonts
+ * utility process §14 describes.
  */
 
-const VERSION = 1;
+const VERSION = 2;
 const EXTENSIONS = /\.(ttf|otf|ttc|otc)$/i;
 
 interface CachedFile {
@@ -198,8 +205,8 @@ export async function parseFile(path: string, source: FontFaceInfo["source"]): P
           }
         }
       }
-      if (instances.length) faces.push(...instances);
-      else faces.push({ id, family, style, postscriptName, weight, italic, stretch, source, collectionIndex: index });
+      if (instances.length) faces.push(...instances.map((f) => ({ ...f, variable: true })));
+      else faces.push({ id, family, style, postscriptName, weight, italic, stretch, source, collectionIndex: index, ...(fvar ? { variable: true } : {}) });
     }
     return faces;
   } finally {
@@ -209,9 +216,23 @@ export async function parseFile(path: string, source: FontFaceInfo["source"]): P
 
 // ---- Index --------------------------------------------------------------------------------
 
-const cachePath = () => join(app.getPath("userData"), "cache", "fonts-v1.json");
+const cachePath = () => join(app.getPath("userData"), "cache", `fonts-v${VERSION}.json`);
+
+/** Bumped on every change of the installed fonts (the `fonts:changed` event carries it). */
+let indexVersion = 1;
+
+let googleRootSet = false;
 
 async function buildIndex(): Promise<FontIndex> {
+  if (!googleRootSet) {
+    googleRootSet = true;
+    setGoogleFontsRoot(app.getPath("userData"));
+  }
+  const [local, google] = await Promise.all([scanLocal(), googleCatalog().catch(() => [])]);
+  return { version: indexVersion, faces: local, google };
+}
+
+async function scanLocal(): Promise<FontFaceInfo[]> {
   let cache: Cache = { version: VERSION, files: {} };
   try {
     const read = JSON.parse(await readFile(cachePath(), "utf8")) as Cache;
@@ -248,7 +269,7 @@ async function buildIndex(): Promise<FontIndex> {
     // the cache is an optimisation
   }
   faces.sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight || Number(a.italic) - Number(b.italic));
-  return { version: VERSION, faces };
+  return faces;
 }
 
 /** Builds the index ahead of the first view's `fonts:list` (the cached JSON makes it a few ms; a first scan more). */
@@ -265,6 +286,79 @@ export function fontIndex(): Promise<FontIndex> {
   return indexing;
 }
 
+// ---- Watching ----------------------------------------------------------------------------
+
+/** The folders a user installs fonts into (and the system's own, which only an update changes). */
+export function watchedFontDirs(): string[] {
+  return fontDirs()
+    .filter(([dir, source]) => source === "user" || !dir.includes("AssetsV2"))
+    .map(([dir]) => dir);
+}
+
+/** A signature of the faces (what a picker shows): equal before and after a rescan → nothing to tell. */
+export const facesSignature = (faces: readonly FontFaceInfo[]) => faces.map((f) => `${f.id}\t${f.family}\t${f.style}`).join("\n");
+
+/**
+ * Watches the font folders (recursively where the platform can) and, a moment after the last change, rescans them;
+ * when the faces differ `changed(version)` is called (main sends `fonts:changed` to every view). The Google catalog's
+ * background refresh reports the same way. Returns a stop.
+ */
+export function watchFonts(changed: (version: number) => void, options: { dirs?: string[]; debounceMs?: number; rescan?: () => Promise<FontFaceInfo[]> } = {}): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let last: string | null = null;
+  const rescan = options.rescan ?? scanLocal;
+  const first = options.rescan ? rescan() : fontIndex().then((i) => i.faces);
+  void first.then((faces) => (last ??= facesSignature(faces))).catch(() => {});
+  const run = async () => {
+    timer = null;
+    try {
+      const faces = await rescan();
+      const sig = facesSignature(faces);
+      if (sig === last) return;
+      last = sig;
+      indexVersion++;
+      const google = await googleCatalog().catch(() => []);
+      indexing = Promise.resolve({ version: indexVersion, faces, google });
+      changed(indexVersion);
+    } catch {
+      // the next change tries again
+    }
+  };
+  const poke = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => void run(), options.debounceMs ?? 600);
+  };
+  const own: FSWatcher[] = [];
+  for (const dir of options.dirs ?? watchedFontDirs()) {
+    try {
+      const w = watch(dir, { recursive: process.platform !== "linux", persistent: false }, (_event, name) => {
+        if (!name || EXTENSIONS.test(String(name)) || !String(name).includes(".")) poke();
+      });
+      w.on("error", () => {});
+      own.push(w);
+    } catch {
+      // a folder that doesn't exist (no ~/Library/Fonts yet): nothing to watch
+    }
+  }
+  onGoogleCatalogChanged(() => {
+    indexVersion++;
+    indexing = null;
+    changed(indexVersion);
+  });
+  return () => {
+    if (timer) clearTimeout(timer);
+    for (const w of own) w.close();
+  };
+}
+
+/** Starts watching at launch: every editor view hears `fonts:changed` and reads the list again. */
+export function startFontWatch(): () => void {
+  return watchFonts((version) => {
+    for (const contents of webContents.getAllWebContents())
+      if (viewOf(contents)?.role === "editor" && !contents.isDestroyed()) contents.send("fonts:changed", { version });
+  });
+}
+
 /**
  * A face's font file for the engine. A single-face file (TTF, OTF, a variable font) is read whole. A collection
  * (TTC / OTC — Helvetica, PingFang, Hiragino: tens of MB, every face of a family in one file) is **sliced** to the
@@ -273,6 +367,7 @@ export function fontIndex(): Promise<FontIndex> {
  * it as before. A 74 MB file crossed the IPC and lived in the Wasm heap for one face of ~10 MB.
  */
 export async function readFont(id: string): Promise<Uint8Array> {
+  if (id.startsWith("g:")) return new Uint8Array(await readFile(await googleFontPath(id)));
   if (!paths.has(id)) await fontIndex();
   const path = paths.get(id);
   if (!path) throw new Error(`fonts: no face ${id}`);

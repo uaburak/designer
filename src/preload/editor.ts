@@ -86,6 +86,8 @@ const api: EditorApi = {
   fonts: {
     list: () => invoke("fonts:list"),
     read: (id) => invoke("fonts:read", { id: String(id) }),
+    preview: (family, text) => invoke("fonts:preview", { family: String(family), text: String(text) }),
+    onChanged: (cb) => on("fonts:changed", () => cb()),
   },
 };
 
