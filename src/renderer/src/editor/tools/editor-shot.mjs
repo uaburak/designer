@@ -22,7 +22,7 @@
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
 // own check skipped (gfx::samplesAttachment). The browser is closed after EDITOR_TIMEOUT seconds (default 180).
-/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout */
+/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -1244,6 +1244,39 @@ async function prototypeSection(page, theme) {
   let s = await state();
   check("presenting starts at the flow's frame (Home, Onboarding)", s.screen === "2:1" && s.flowName === "Onboarding", JSON.stringify(s));
   await shot(page, `97-present-home-${theme}`);
+  // Figma's toolbar: the sidebar toggle, comments (not available: no multiplayer), Share, the options, full screen.
+  const pres = page.locator("[data-presentation]");
+  check(
+    "the presentation's toolbar: sidebar, comments (disabled), Share, Options, Full screen, Restart",
+    (await pres.getByRole("button", { name: "Show sidebar" }).count()) === 1 &&
+      (await pres.getByRole("button", { name: "Comments aren't available in this app" }).isDisabled()) &&
+      (await pres.getByRole("button", { name: "Share" }).count()) === 1 &&
+      (await pres.getByRole("button", { name: "Options" }).count()) === 1 &&
+      (await pres.getByRole("button", { name: "Full screen" }).count()) === 1 &&
+      (await pres.getByRole("button", { name: "Restart" }).count()) === 1
+  );
+  await pres.getByRole("button", { name: "Show sidebar" }).click();
+  await settle(page);
+  check("the flows sidebar lists the page's flows", (await pres.getByRole("complementary", { name: "Flows" }).locator("[data-flow]").getByText("Onboarding").count()) === 1);
+  await shot(page, `140-present-flows-sidebar-${theme}`);
+  await pres.getByRole("button", { name: "Hide sidebar" }).click();
+  await pres.getByRole("button", { name: "Options" }).click();
+  check(
+    "the options: Enable Figma shortcuts, Show hints on click, Show sidebar, Hide UI, Recommended scales, Keyboard shortcuts",
+    (await page.getByRole("menuitemcheckbox", { name: "Enable Figma shortcuts" }).count()) === 1 &&
+      (await page.getByRole("menuitemcheckbox", { name: "Hide UI" }).count()) === 1 &&
+      (await page.getByText("Recommended").count()) >= 1 &&
+      (await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).count()) === 1
+  );
+  await page.keyboard.press("Escape");
+  await page.locator("[data-presentation] canvas").focus();
+  await page.keyboard.press("Shift+Slash");
+  await settle(page);
+  check("? shows the keyboard shortcuts", (await page.getByRole("dialog", { name: "Keyboard shortcuts" }).count()) === 1);
+  await shot(page, `142-present-keyboard-shortcuts-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("Esc closes the shortcuts, the presentation stays", (await page.getByRole("dialog", { name: "Keyboard shortcuts" }).count()) === 0 && (await pres.count()) === 1);
   // The carousel scrolls sideways.
   const [cx, cy] = await screenPoint(200, 400);
   await page.mouse.move(cx, cy);
@@ -1338,7 +1371,11 @@ async function prototypeSection(page, theme) {
   check("presenting on a device draws its frame (Fit device on screen)", s.hasDeviceFrame === true && s.deviceFrame === true && s.scale === "FIT", JSON.stringify(s));
   await shot(page, `108-present-device-frame-${theme}`);
   await page.locator("[data-presentation]").getByRole("button", { name: "Options" }).click();
-  check("the options with a device: Responsive / Fixed size, Show device frame", (await page.getByRole("menuitemcheckbox", { name: "Fixed size" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Show device frame" }).count()) === 1);
+  check("the options with a device: Responsive / Fixed size", (await page.getByRole("menuitemcheckbox", { name: "Fixed size" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Responsive" }).count()) === 1);
+  await page.keyboard.press("Escape");
+  await page.locator("[data-presentation]").getByRole("button", { name: "Device" }).click();
+  check("the bottom bar's device menu: Fit device on screen … Show device frame", (await page.getByRole("menuitemcheckbox", { name: "Fit device on screen" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Show device frame" }).count()) === 1);
+  await shot(page, `141-present-device-menu-${theme}`);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await settle(page);
@@ -1367,6 +1404,8 @@ async function prototypeSection(page, theme) {
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
+  await videoChecks(page, theme, panel, select);
+
   // The prototype tab's own route on a store file (Figma's Present opens a new tab): read-only, from the store.
   const fileKey = await page.evaluate(async (repo) => {
     const s = await import("/src/store/index.ts");
@@ -1382,6 +1421,116 @@ async function prototypeSection(page, theme) {
   check("?present&file= plays the store's file (read-only) at its flow", s.screen === "2:1" && s.flowName === "Onboarding", JSON.stringify(s));
   await shot(page, `104-present-route-${theme}`);
   if (gfx === "webgpu") check("?present&file= draws with WebGPU", (await page.evaluate(() => window.__designerPresent.gfx)) === "webgpu");
+}
+
+/**
+ * Video (help.figma.com 8878274530455): a .webm recorded in the page (a canvas's stream through MediaRecorder) dropped
+ * on Home — a layer its size with a VIDEO fill over its poster frame, Prototype › Video —, then presented: the browser
+ * plays it, its frames are drawn by the engine (two shots of the screen differ), and a video action pauses it.
+ */
+async function videoChecks(page, theme, panel, select) {
+  const made = await page.evaluate(async () => {
+    const c = document.createElement("canvas");
+    c.width = 160;
+    c.height = 96;
+    const g = c.getContext("2d");
+    const stream = c.captureStream(30);
+    const type = MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm";
+    const rec = new MediaRecorder(stream, { mimeType: type });
+    const chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    const done = new Promise((r) => (rec.onstop = r));
+    rec.start(100);
+    const t0 = performance.now();
+    await new Promise((resolve) => {
+      const draw = () => {
+        const t = (performance.now() - t0) / 1000;
+        g.fillStyle = `hsl(${(t * 240) % 360} 80% 50%)`;
+        g.fillRect(0, 0, 160, 96);
+        g.fillStyle = "#fff";
+        g.fillRect(((t * 120) % 200) - 40, 30, 40, 36);
+        if (t < 2) requestAnimationFrame(draw);
+        else resolve();
+      };
+      draw();
+    });
+    rec.stop();
+    await done;
+    const blob = new Blob(chunks, { type: "video/webm" });
+    const file = new File([blob], "Clip.webm", { type: "video/webm" });
+    const ed = window.__designerEditor;
+    const r = ed.canvas.getBoundingClientRect();
+    const cam = ed.engine.getCamera();
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const at = { clientX: r.left + 20 * cam.zoom + cam.x, clientY: r.top + 120 * cam.zoom + cam.y };
+    ed.canvas.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt, ...at }));
+    ed.canvas.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt, ...at }));
+    return file.size;
+  });
+  await page.waitForFunction(() => window.__designerEditor.engine.readNodes(["2:1"], { subtree: true, fields: ["fillPaints"] }).some((n) => n.fillPaints?.some((p) => p.type === "VIDEO")), null, { timeout: 15000 }).catch(() => {});
+  const placed = await page.evaluate(() => window.__designerEditor.engine.readNodes(["2:1"], { subtree: true, fields: ["name", "size", "fillPaints", "videoPlayback"] }).find((n) => n.fillPaints?.some((p) => p.type === "VIDEO")) ?? null);
+  const fill = placed?.fillPaints?.find((p) => p.type === "VIDEO");
+  const hex = (h) => (h ? h.map((b) => b.toString(16).padStart(2, "0")).join("") : "");
+  check(
+    "a dropped .webm becomes a layer its size with a VIDEO fill (poster + video), named after the file, autoplaying",
+    !!placed && placed.name === "Clip" && Math.round(placed.size.x) === 160 && Math.round(placed.size.y) === 96 && hex(fill?.video?.hash).length === 40 && hex(fill?.image?.hash).length === 40 && placed.videoPlayback?.autoplay === true,
+    placed ? `${placed.name} ${placed.size.x}×${placed.size.y} ${JSON.stringify(placed.videoPlayback)} (${made} bytes)` : `nothing (${made} bytes)`
+  );
+  if (!placed) return;
+  const stored = await page.evaluate(async ([v, p]) => {
+    const images = window.__designerEditor.source.images;
+    return [(await images.get(v))?.length ?? 0, (await images.get(p))?.length ?? 0];
+  }, [hex(fill.video.hash), hex(fill.image.hash)]);
+  check("the video file and its poster frame are in the file's image store", stored[0] > 1000 && stored[1] > 100, JSON.stringify(stored));
+  await select(placed.guid);
+  check("Prototype › Video: Autoplay, Loop, Sound", (await panel.getByRole("region", { name: "Video" }).count()) === 1 && (await panel.locator("[data-video-settings]").getByText("Autoplay").count()) === 1);
+  await shot(page, `143-video-prototype-section-${theme}`);
+  // Next (2:4): On click → Pause video on the clip.
+  await page.evaluate((clip) => {
+    const ed = window.__designerEditor;
+    const [s, l] = clip.split(":").map(Number);
+    ed.setProps(["2:4"], { prototypeInteractions: [{ event: { interactionType: "ON_CLICK" }, actions: [{ connectionType: "UPDATE_MEDIA_RUNTIME", transitionNodeID: { sessionID: s, localID: l }, mediaAction: "PAUSE" }] }] }, "Edit interaction");
+  }, placed.guid);
+  await select("2:4");
+  await panel.locator("[data-interaction]").first().getByRole("button").first().click();
+  await settle(page);
+  const details = page.getByRole("dialog", { name: "Interaction details" });
+  check("Interaction details: Play/pause video › Pause video on Clip", (await details.getByText("Play/pause video").count()) >= 1 && (await details.getByText("Pause video").count()) >= 1 && (await details.getByText("Clip").count()) >= 1);
+  await shot(page, `144-video-action-details-${theme}`);
+  await page.keyboard.press("Escape");
+  await select();
+  await page.evaluate(() => window.__designerEditor.ui.set({ presenting: { page: "0:1", node: "2:1" } }));
+  await page.waitForFunction(() => window.__designerPresent && window.__designerPresent.presentState().active, null, { timeout: 15000 });
+  await page.waitForFunction(() => (window.__designerPresent.presentMedia()[0]?.time ?? 0) > 0.3, null, { timeout: 8000 }).catch(() => {});
+  const media = await page.evaluate(() => window.__designerPresent.presentMedia());
+  check("presenting plays the video (the browser's time reaches the engine)", media.length === 1 && media[0].playing && media[0].time > 0.3, JSON.stringify(media));
+  const box = await page.evaluate((id) => {
+    const p = window.__designerPresent;
+    const s = p.presentState();
+    const r = document.querySelector("[data-presentation] canvas").getBoundingClientRect();
+    const k = s.screenRect.w / 375;
+    const n = window.__designerEditor.engine.readNode(id);
+    return { x: r.left + s.screenRect.x + n.transform.m02 * k, y: r.top + s.screenRect.y + n.transform.m12 * k, width: n.size.x * k, height: n.size.y * k };
+  }, placed.guid);
+  const a = await page.screenshot({ clip: box });
+  await page.waitForTimeout(400);
+  const b = await page.screenshot({ clip: box });
+  check("the video's frames are drawn on the screen (two moments differ)", !a.equals(b));
+  await shot(page, `145-present-video-${theme}`);
+  const pt = await page.evaluate(() => {
+    const s = window.__designerPresent.presentState();
+    const r = document.querySelector("[data-presentation] canvas").getBoundingClientRect();
+    const k = s.screenRect.w / 375;
+    return [r.left + s.screenRect.x + 100 * k, r.top + s.screenRect.y + 740 * k];
+  });
+  await page.mouse.click(pt[0], pt[1]);
+  await page.waitForTimeout(200);
+  const paused = await page.evaluate(() => [window.__designerPresent.presentMedia()[0]?.playing, [...(window.__designerVideos?.elements.values() ?? [])][0]?.paused]);
+  check("Pause video pauses it (the engine's state and the browser's video)", paused[0] === false && paused[1] === true, JSON.stringify(paused));
+  await page.keyboard.press("Escape");
+  await settle(page);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
 }
 
 /** Grid auto layout on `?editor&doc=reference` (dark): the Grid flow, its counts, track sizes, gaps, spans, the track pills. */

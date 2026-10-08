@@ -296,7 +296,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
       const engine = engineRef.current;
       if (!engine || engine.destroyed) return;
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.closest("[role='menu']"))) return;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.closest("[role='menu'],[role='dialog']"))) return;
       if (e.type === "keyup") {
         engine.presentKey("up", e.keyCode, modsOf(e));
         return;
