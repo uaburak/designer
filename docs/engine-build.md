@@ -1,5 +1,19 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries)
 
+## Import fidelity (2026-10-08, branch fig-import-fidelity)
+
+Figma's own `.fig` files against Figma's own rendering (`scripts/fig-fidelity.mjs`, docs/data-impl.md "Import fidelity": numbers, method, what's left). Engine changes:
+
+- **`engine_render_region(h, pageSessionID, pageLocalID, x, y, w, h, width, height, flags)`** (f64 region, u32 size): a page's world region drawn offscreen into width × height device px, the page colour behind, no overlays or frame titles; result as `engine_render_thumbnail`'s. TS: `engine.renderRegionPixels({page?, x, y, w, h, width, height})`. E_INVALID past the largest texture.
+- **Override paths are Figma's** (docs/schema.md §5.1): a `guidPath` crosses nested instances only. The materializer named every frame on the way down (`[frame, frame, text]`), so a Figma override of a layer inside a frame of a component never applied (5,161 of 9,229 non-root overrides in the owner's file). `DerivedInfo.path`, override entries written by edits, `derivedSymbolData` paths all follow; files this engine wrote before are normalized at load (`normalizeOverridePaths`: an element that isn't the last and isn't an instance goes; entries that then name one sublayer merge). **`kDerivedDataVersion` 2** (1's paths were tree paths).
+- **Figma's derived data** (`kFigmaDerivedDataVersion` = 0x46494701, written by the import): read like the engine's own; its `derivedSymbolData` is sparse (only sublayers whose geometry isn't the main's, plus slot-content entries), so with that stamp the named sublayers take it and the others keep the main's (`StoredDerived::sparse`); the engine's own data must still name every sublayer.
+- **NaN `stackCounterSpacing`** (Figma's "same as the column gap" for wraps) reads as absent — every child of such a frame was at NaN (stacks_wrap.fig's first frame drew empty).
+- **Space between**: Figma writes it as `SPACE_EVENLY` (the plugin API's SPACE_BETWEEN); kiwi `SPACE_BETWEEN` lays out the same; a lone child is centred; CSS space-evenly is `SPACE_EVENLY_CSS`. The panel reads both and writes `SPACE_EVENLY`.
+- **GRID** (`layout/GridLayout.cpp`, docs/engine.md §4.3): `isAutoLayout()` includes GRID; tracks FIXED / HUG / FLEX (FLEX hugs in a hugging frame), gaps, reflow placement (`gridReflowEnabled`, layer order, spans) or anchors, Fill width / height in the cell, `gridChildHorizontalAlign` / `VerticalAlign`, hug sizes. Grid fields are read from `NodeProps::extra` (no new NodeProps members). Not yet: gestures (drag reorder and insertion treat a grid as a vertical list), GRID_ROW_GAP / GRID_COLUMN_GAP bindings (the gaps are in `extra`, not written by the resolver), track editing.
+- **Slot content** (`isSlotContent`) stays out of its instance's flow and constraints; the materializer places it over the slot.
+- **Display P3**: `Engine.load*` sets the canvas's `drawingBufferColorSpace` / `unpackColorSpace` to `display-p3` for a DISPLAY_P3 document (`engine.colorProfile`); `renderThumbnail` converts to sRGB.
+- Tests: `scene.kiwi` (NaN gap), `components` (Figma paths and tree-path normalization, sparse Figma data, slot content in an auto-layout instance), `layout` (space between, grid tracks / reflow / spans / fill / alignment, anchors); `engine.wasm.test.ts` (colour profile).
+
 ## Figma parity round 3 — API (published first; stable)
 
 The engine side of the Figma-parity round (kiwi at the TS↔C++ boundary, derived data persisted, tiles, memory, image tiers). What the editor and store agents code against, with feature detection (`typeof engine.loadKiwi === "function"`, `engineExports(engine, "set_wire_format")`); everything below this section still holds unless changed here. Status: "Status (2026-10-07): Figma parity round 3" below.
@@ -253,7 +267,7 @@ Screenshots: `50-variables-modes` (a Light and a Dark frame holding the same bou
 
 ### Not done / next
 - Libraries (published keys, library copies, updates; next round). Copy/paste between files doesn't carry the variables / styles a selection references yet (schema.md §4.1).
-- Variable-driven variants (`VARIANT_PROPERTIES` / RESOLVE_VARIANT), `GRID_ROW_GAP` / `GRID_COLUMN_GAP` (grid layout isn't modelled), `HYPERLINK`, `FONT_VARIATIONS`, per-run text bindings and per-range text styles are kept as data, not applied. Timing / Easing values are data (`@later`). Extended collections are not modelled.
+- Variable-driven variants (`VARIANT_PROPERTIES` / RESOLVE_VARIANT), `GRID_ROW_GAP` / `GRID_COLUMN_GAP` (grid layout is in since 2026-10-08, its gaps aren't bindable yet), `HYPERLINK`, `FONT_VARIATIONS`, per-run text bindings and per-range text styles are kept as data, not applied. Timing / Easing values are data (`@later`). Extended collections are not modelled.
 - Figma's `variableConsumptionMap` (the legacy twin it still writes) is kept as an unknown field, not read.
 - Soft-deleted variables nobody uses any more are not collected on load (components' are).
 
@@ -495,7 +509,7 @@ The committed **release** wasm in `src/renderer/src/engine/wasm/` matches the so
 
 ### Not started
 
-- **GRID layout** (§4.3) and BASELINE alignment (which needs text).
+- ~~GRID layout~~ (done 2026-10-08, "Import fidelity" above) and BASELINE alignment (done with E3).
 - **Kiwi at the TS↔C++ boundary.** `scene/CodecJson` and `codec.ts` still speak JSON, and the Wasm doesn't link `eng_schema` yet.
 - **Smaller canvas gaps:**
   - double-click into layers;
@@ -760,7 +774,7 @@ The ABI does not change.
 
 ## Next
 
-- **E2 remainder:** GRID (§4.3).
+- **E2 remainder:** GRID (§4.3) — done 2026-10-08 ("Import fidelity").
 - **E3:** text — HarfBuzz, line breaking, glyphs (path renderer, MaskAtlas), editing with IME. This also unlocks the size-badge text, frame titles and measurement labels.
 - **Alongside:**
   - the generated kiwi codec at the boundary (schemagen's C++ compiles and is tested natively), and apigen;

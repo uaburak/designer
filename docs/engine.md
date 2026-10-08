@@ -412,6 +412,7 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
   - placement `gridColumnAnchor`/`gridRowAnchor` (track GUIDs) plus `gridColumnSpan`/`gridRowSpan`
   - alignment `gridChildHorizontalAlign`/`gridChildVerticalAlign` (AUTO/MIN/CENTER/MAX), with AUTO = stretch for Fill items
 - Automatic placement (2026 "auto rows/positioning") is row-major into the first free cells.
+- *As built (2026-10-08):* `gridReflowEnabled` selects automatic placement (layer order, row-major, spans); without it items sit at their anchors (an item without valid ones flows on). Rows past the defined ones are HUG. A spanning item widens the HUG tracks it spans, evenly; in a frame that hugs an axis, its FLEX tracks hug too. The primary sizing (`stackPrimarySizing`) is the width, the counter the height. Fill width = `stackChildPrimaryGrow`, Fill height = `stackChildAlignSelf: STRETCH`; AUTO alignment = MIN. Checked against Figma's stored geometry of a large file: 96.6 % of grid items within 0.6 px (the rest is stale stored geometry).
 
 ### 4.4 Constraints (`Constraints.cpp`)
 - Applies to children of non-auto-layout frames, and to absolute children of auto-layout frames.
@@ -761,7 +762,7 @@ Overlays are drawn by the engine after the scene, straight into the default fram
 
   Any input or engine call that changes something sets the engine's `needsFrame`. The facade calls `schedule()` after every call when `engine_needs_frame(h)` returns true.
   *As built:* `engine_tick` also asks for a render when the content cache wants its settle frame (a continuous zoom that stopped, §6.9), and `engine_next_frame_delay` returns the time until then.
-- **Colour**: the canvas is `drawingBufferColorSpace = "srgb"`, or `"display-p3"` when the document's `documentColorProfile` is DISPLAY_P3. Colours are stored as float RGBA in the document's space. No linear-light blending.
+- **Colour**: the canvas is `drawingBufferColorSpace = "srgb"`, or `"display-p3"` when the document's `documentColorProfile` is DISPLAY_P3. Colours are stored as float RGBA in the document's space. No linear-light blending. *As built (2026-10-08):* `Engine` sets it (and `unpackColorSpace`, so images convert into the canvas's space) after each load; thumbnails go to sRGB through an `ImageData` in the document's space.
 
 ---
 

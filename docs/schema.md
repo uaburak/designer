@@ -30,7 +30,7 @@ Readers: the engine (`docs/engine.md`), storage and sync (`docs/data.md`), the p
 
 Sources:
 - `docs/research/figma/figma-schema.kiwi`: Figma's schema as extracted from real files (526 definitions, `NodeChange` fields up to 530).
-- The schema embedded in `docs/research/figma/samples/sections.fig` (version 106, exported 2026-08-24; 637 definitions, `NodeChange` up to 610). It adds fields we keep: `textWrapStyle = 594`, `gridAutoTracks = 555`, `Paint.opacityVar = 38`, `ComponentPropDef.slotPropConfig = 12`, `ExpressionFunction.COMPOSE_COLOR = 20`, `StackJustify.SPACE_AROUND = 5`, `VariableScope.COLOR_OPACITY = 23`, `EasingType.HOLD/EASE_IN`.
+- The schema embedded in `docs/research/figma/samples/sections.fig` (version 106, exported 2026-08-24; 637 definitions, `NodeChange` up to 610). It adds fields we keep: `textWrapStyle = 594`, `gridAutoTracks = 555`, `Paint.opacityVar = 38`, `ComponentPropDef.slotPropConfig = 12`, `ExpressionFunction.COMPOSE_COLOR = 20`, `StackJustify.SPACE_AROUND = 5`, `VariableScope.COLOR_OPACITY = 23`, `EasingType.HOLD/EASE_IN`. Added 2026-10-08 from the owner's file (version 106): `gridReflowEnabled = 556` (a grid's auto placement). Semantics found against Figma's own geometry: `StackJustify.SPACE_EVENLY` is Figma's "Space between" (`SPACE_BETWEEN` lays out the same; CSS space-evenly is `SPACE_EVENLY_CSS`); `stackCounterSpacing` NaN means "the same as `stackSpacing`" (as absent).
 - The two Figma schemas never disagree on a field they share (checked: 0 conflicts). Figma does not renumber.
 
 What was verified on 2026-10-06 (scratch tests, not in the repo):
@@ -55,7 +55,7 @@ A field's trailing comment starts with zero or more tags, then free text. `@` ne
 
 | Tag | Meaning | Used by |
 |---|---|---|
-| `@derived` | Computed by the engine. Never in a change Message or the journal; only in snapshots that ask for it (preview/viewer snapshots). Readers ignore it if `Message.derivedDataVersion` differs from their engine's. | `fillGeometry`, `strokeGeometry`, `derivedTextData`, `derivedSymbolData` |
+| `@derived` | Computed by the engine. Never in a change Message or the journal; only in snapshots that ask for it (preview/viewer snapshots). Readers ignore it if `Message.derivedDataVersion` differs from their engine's — except `0x46494701` (`FIGMA_DERIVED_DATA_VERSION`): Figma's own text layout and instance geometry kept by a `.fig` import, read as the engine's own. | `fillGeometry`, `strokeGeometry`, `derivedTextData`, `derivedSymbolData` |
 | `@blob` | A `uint` index into the enclosing Message's `blobs`. Every `@blob` field's name ends in `Blob`, which is the rule `data.md` §5.5 uses; the generator asserts both agree. | `Path.commandsBlob`, `VectorData.vectorNetworkBlob`, `Glyph.commandsBlob`, `Image.dataBlob` |
 | `@nooverride` | Must not appear in a `symbolOverrides` entry (the engine rejects it). Everything not tagged is overridable. | identity, tree, constraints, structure, definitions, publishing, page/document fields |
 | `@own` | On an INSTANCE: the instance's own value. Never materialized from the main component's root and never in the root override entry (§5.2). | `parentIndex, transform, constraints, locked, stackChild*, stackPositioning, gridRow/ColumnAnchor/Span, gridChild*Align, scrollBehavior, prototypeStartingPoint, symbolData, componentPropAssignments` |
@@ -293,7 +293,7 @@ This is exactly the "generic merge" of `data.md` §5.5: the store can compact, d
 
 - Every node inside a SYMBOL subtree has an **effective override key** = `overrideKey` if set, else its own `guid`. Effective keys are unique within one SYMBOL subtree (not globally).
 - **Copying a whole component subtree keeps the effective keys**: duplicate component, paste, library copies, Move to this file (`engine.md` §2.5). Variants made by duplication therefore share keys, which is what lets overrides survive a variant switch. Copying nodes *into* an existing component keeps the key unless it already exists in that subtree; then the copy gets none (its own GUID becomes its key).
-- A **`guidPath`** is the list of effective keys from an instance down to a sublayer, crossing nested instances: `[A]` is the component's node A; `[A, B]` is node B inside the nested instance A. **An empty path (`guids` absent or `[]`) is the instance root itself.** (Figma writes the root as `[symbolID]`; import maps it to the empty path.)
+- A **`guidPath`** is the list of effective keys from an instance down to a sublayer, crossing nested instances: `[A]` is the component's node A; `[A, B]` is node B inside the nested instance A. **An empty path (`guids` absent or `[]`) is the instance root itself.** (Figma writes the root as `[symbolID]`; import maps it to the empty path.) Frames between are **not** in the path: a text inside a frame of the component is `[text]`, as Figma writes it (the engine wrote tree paths `[frame, text]` until 2026-10-08; it normalizes them at load). `derivedSymbolData` entries use the same paths (Figma's list starts with the root as `[symbolID]`, and lists only the sublayers whose geometry differs from the main's).
 - **Derived sublayer ids** (string form for TS keys, selection, `engine.md` §2.5): `"I" + instance GUID + (";" + key)*`, e.g. `I12:34;5:6;7:8`. A real node is `"12:34"`. Derived ids are never stored in a document.
 
 ### 5.2 The INSTANCE node

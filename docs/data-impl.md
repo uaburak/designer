@@ -4,6 +4,30 @@ Contracts: `docs/data.md` (store, workspace, journal, versions, libraries, Fireb
 
 ---
 
+## Import fidelity (2026-10-08, roadmap Phase 5 ".fig import polish")
+
+**The check.** `node scripts/fig-fidelity.mjs [--samples] [--details] [--out dir] a.fig …` compares Figma's own rendering of a file — the `thumbnail.png` every `.fig` carries, `meta.json`'s `client_meta.render_coordinates` drawn at `thumbnail_size` — with ours: the store's import (Node), the engine in headless Chromium on the app's load path (`loadKiwi` of the snapshot bytes, the system's fonts as `src/main/fonts.ts` indexes them, the file's images), the same page (DOCUMENT `thumbnailInfo`'s, else the first) and region drawn offscreen with **`engine_render_region`** (supersampled 2×, scaled down; a Display P3 file converted to sRGB as Figma's thumbnail is). It reports the mean CIE76 ΔE after a 3 × 3 blur and the share of pixels over ΔE 10 / 25, and writes ours / Figma's / diff / triplet PNGs. Also: `--view page,x,y,w,h,width` (ours only, any area), `--ignore-derived` (the snapshot without its derived-data stamp: our own layout everywhere), `--inspect "js" | @file.js` (code run in the page with `engine`). Machine guards as engine-bench (≥ 25 % free memory, 180 s, 3 GB GPU, one browser). Private files: output to a scratch directory only.
+
+| File | mean ΔE before → after | > 10 before → after |
+|---|---|---|
+| `structure.fig` | 0.11 → 0.11 | 0.00 % → 0.00 % |
+| `sections.fig` | 0.19 → 0.19 | 0.19 % → 0.19 % |
+| `stacks_wrap.fig` | 2.25 → 0.20 | 4.96 % → 0.09 % |
+| the owner's 32k-layer file (numbers only) | 1.56 → 0.47 | 3.27 % → 0.04 % |
+
+Thumbnails are small (≤ 400 px) and show one area, so the same run also compares **geometry** against the file's own: every real node's `transform` / `size` and every `derivedSymbolData` entry of Figma's (an inspect script, scratch only). On the owner's file, our own layout (`--ignore-derived`) went from 10,593 of 31,707 nodes and 23,711 of 38,265 instance sublayers off by > 0.5 px to 5,352 and 20,390; an open (Figma's derived data kept) puts every instance sublayer where Figma did (0 off, 5,579 instances from stored data, 0 stale).
+
+**What changed in the import** (`src/shared/fig/convert.ts`, tested in `convert.test.ts`):
+- **Figma's derived data is kept** (`convertFigMessage(…, {keepDerived: true})`, the store's and the dev store's import only; paste and old-schema snapshots still drop it): `derivedTextData` (from `textData`'s layout fields in older files) and `derivedSymbolData` (guidPath, size, transform, a text sublayer's `derivedTextData`; the root entry `[symbolID]` dropped), stamped **`FIGMA_DERIVED_DATA_VERSION` (0x46494701)**. The engine reads it as its own (`Editor::kFigmaDerivedDataVersion`; Figma's list is sparse — the sublayers it names take its geometry, the rest the main's): a text whose font is missing here draws Figma's glyph outlines (Figma: a collaborator without a font sees the text, can't edit it — before, Inter Regular), and instances and auto layout open as Figma laid them out. Not the engine's stamp, so the editor stores the engine's own derived snapshot after the open. Snapshot of the owner's file: 8.6 → 14.8 MB uncompressed.
+- **Slots** (Figma 2026): a slot frame in a main carries only its `SLOT_CONTENT_ID` binding → `isSlot`; an instance's content is a `SLOT_CONTENT_ID` variable value (`varValue.value.slotContentIdValue`, dropped by the projection) → the assignment's `guidValue`; the content frame (`isSlotContent`, which Figma keeps on the internal canvas) moves under the instance that references it (its own assignment or an override entry's), after its children — our model (docs/engine-build.md "E6"). Before, 2,156 slot contents of the owner's file were never drawn.
+- **`gridReflowEnabled`** (556) is in the schema now (Figma's auto placement for grids).
+
+Engine side (docs/engine-build.md "Import fidelity"): override and derivedSymbolData paths in Figma's form, NaN row gaps, SPACE_EVENLY = space between, GRID layout, slot content outside the flow, Display P3.
+
+**Left** (largest first, from the geometry check and the dropped-field report): our own layout still differs from Figma's on ~5k nodes / ~20k sublayers — a slot row hugging its diverged content (it hugs the main's default), variable-bound sizes inside nested instances, text measurement differences (fonts, Matter vs Figma's numbers); `BRUSH` nodes (25 in the owner's file, dropped: they'd need their `fillGeometry` drawn); `VIDEO` paints (1); a nested instance's own slot content inside a main; grid drag-reorder and the grid panel. Dropped fields that don't draw: `editInfo`, layout version stamps, `targetAspectRatio`, `textTracking` (6 non-zero), `Paint.authoredColor`, prototyping extras.
+
+---
+
 ## Status at handoff (2026-10-06, round 2)
 
 ### Checks
