@@ -153,6 +153,7 @@ Renderer::Renderer(gfx::Device& device) : device_(device), curves_(device), imag
 Renderer::~Renderer() {
   dropCache();
   dropTiles();
+  if (preview_.target) device_.destroyTarget(preview_.target);
   if (buffer_) device_.destroyBuffer(buffer_);
   if (ramp_) device_.destroyTexture(ramp_);
   if (white_) device_.destroyTexture(white_);
@@ -2061,6 +2062,16 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   const int W = viewport.deviceWidth(), H = viewport.deviceHeight();
   const gfx::IRect full{0, 0, W, H};
 
+  // Pixel preview (⌃P): the page at 1x / 2x, scaled up without smoothing (only where that is larger than the canvas's
+  // own pixels).
+  if (overlay.pixelPreview > 0 && target == 0 && only == kNoGuid && overlay.dev.focus == kNoGuid && !exporting_ && !inPreview_ && W > 0 && H > 0 &&
+      renderPixelPreview(doc, page, camera, viewport, overlay, adapted, clearColor, overlay.pixelPreview)) {
+    device_.submit();
+    dropIdleTargets();
+    images_.endFrame();
+    return stats_;
+  }
+
   if (!cacheEnabled_ || target != 0 || only != kNoGuid || overlay.dev.focus != kNoGuid || W <= 0 || H <= 0) {
     // Direct: everything into the target this frame (thumbnails, tests, no cache).
     beginRecording(full, false);
@@ -2094,6 +2105,68 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   images_.endFrame();
   RenderStats s = stats_;
   return s;
+}
+
+// ---- Pixel preview --------------------------------------------------------------------------------------------
+
+bool Renderer::renderPixelPreview(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport, const Overlay& overlay,
+                                  const OverlayStyle& style, const float clearColor[4], int factor) {
+  const double sx = viewport.scaleX(), sy = viewport.scaleY();
+  const double kx = camera.zoom * sx / factor, ky = camera.zoom * sy / factor;  // canvas device px per preview px
+  if (!(kx > 1.001) || !(ky > 1.001)) return false;
+  const int W = viewport.deviceWidth(), H = viewport.deviceHeight();
+  // Preview px (i, j) is page [i, i + 1) / factor: its grid is the page's, whatever the camera's offset.
+  const double ox = std::ceil(camera.x * sx / kx), oy = std::ceil(camera.y * sy / ky);
+  const int w = static_cast<int>(std::ceil(W / kx)) + 2, h = static_cast<int>(std::ceil(H / ky)) + 2;
+  if (w > static_cast<int>(device_.caps().maxTextureSize) || h > static_cast<int>(device_.caps().maxTextureSize)) return false;
+  if (preview_.target && (preview_.w != w || preview_.h != h)) {
+    device_.destroyTarget(preview_.target);
+    preview_ = {};
+  }
+  if (!preview_.target) {
+    preview_.target = device_.createTarget(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+    if (!preview_.target) return false;
+    preview_.w = w;
+    preview_.h = h;
+    device_.setTextureFiltering(device_.targetTexture(preview_.target), false);
+  }
+  // The page into the preview target (no overlays), directly.
+  Overlay none;
+  none.handles = false;
+  none.sizeBadge = false;
+  none.selectionBox = false;
+  none.frameTitles = false;
+  none.pixelGrid = false;
+  none.outlines = overlay.outlines;
+  none.layoutGuides = overlay.layoutGuides;
+  Viewport low{static_cast<double>(w), static_cast<double>(h), 1, w, h};
+  Camera lowCamera{ox, oy, static_cast<double>(factor)};
+  inPreview_ = true;
+  RenderStats inner = render(doc, page, lowCamera, low, none, style, preview_.target);
+  inPreview_ = false;
+  // The content cache isn't kept meanwhile: drawn whole when the preview ends.
+  (void)trees_[page].takeDamage();
+  cache_.valid = false;
+  // Back to the canvas: the preview scaled up (nearest), the overlays over it.
+  doc_ = &doc;
+  viewport_ = viewport;
+  view_ = camera.matrix();
+  tree_ = &trees_[page];
+  recordHits_ = true;
+  stats_ = inner;
+  beginRecording({0, 0, W, H}, false);
+  Cmd b;
+  b.kind = Cmd::Kind::Blit;
+  b.blitTexture = device_.targetTexture(preview_.target);
+  // Preview px u lands at u·k + (offset − ox·k), canvas device px.
+  b.blitOrigin = Vec2{camera.x * sx - ox * kx, camera.y * sy - oy * ky};
+  b.blitScale = 1 / kx;
+  b.blitHeight = h;
+  b.rect = {0, 0, W, H};
+  layers_[0].cmds.push_back(b);
+  drawOverlay(doc, page, camera, overlay, style);
+  finishRecording(0, clearColor, false);
+  return true;
 }
 
 // ---- The content cache ---------------------------------------------------------------------------

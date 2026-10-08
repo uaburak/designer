@@ -371,6 +371,28 @@ Status Editor::selectionCommand(CommandId id, const CommandArgs& args) {
       return OK;
     case CommandId::ZOOM_TO_NEXT_FRAME: return zoomToSiblingFrame(1);
     case CommandId::ZOOM_TO_PREVIOUS_FRAME: return zoomToSiblingFrame(-1);
+    case CommandId::SHOW_ROTATION_ORIGIN:
+      // ⌥R (a forum report, unverified on help.figma.com): the origin shows at the selection's centre; drag it, and
+      // the rotation handles turn the selection about it. Again: hidden.
+      if (selection_.empty()) return E_INVALID;
+      rotationOriginOn_ = !rotationOriginOn_;
+      needsRender_ = true;
+      return OK;
+    case CommandId::REMOVE_GUIDE: {
+      if (!hasSelectedGuide()) return E_INVALID;
+      RulerGuide g = selectedGuide_;
+      std::vector<RulerGuide> list = guidesOf(g.owner);
+      size_t before = list.size();
+      list.erase(std::remove_if(list.begin(), list.end(), [&](const RulerGuide& x) { return x.id == g.id && x.axis == g.axis && x.offset == g.offset; }),
+                 list.end());
+      selectedGuide_ = {};
+      needsRender_ = true;
+      if (list.size() == before) return E_NOT_FOUND;
+      begin(TxnKind::USER, "Remove guide");
+      writeGuides(g.owner, list);
+      commit();
+      return OK;
+    }
     default: return E_UNSUPPORTED;
   }
 }
@@ -395,6 +417,8 @@ uint32_t Editor::selectionCommandState(CommandId id) const {
     case CommandId::TIDY_UP: return !derived && arrangeable().size() >= 2 ? CMD_ENABLED : 0;
     case CommandId::ZOOM_TO_NEXT_FRAME:
     case CommandId::ZOOM_TO_PREVIOUS_FRAME: return page_ != kNoGuid ? CMD_ENABLED : 0;
+    case CommandId::SHOW_ROTATION_ORIGIN: return selection_.empty() ? 0 : CMD_ENABLED | (rotationOriginOn_ ? CMD_CHECKED : 0);
+    case CommandId::REMOVE_GUIDE: return hasSelectedGuide() ? CMD_ENABLED : 0;
     default: return 0;
   }
 }

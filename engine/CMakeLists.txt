@@ -48,6 +48,7 @@ add_library(eng_core STATIC
   src/editor/Libraries.cpp
   src/tools/Gestures.cpp
   src/tools/GridGestures.cpp
+  src/tools/CanvasTools.cpp
   src/editor/SlotCommands.cpp
   src/editor/SelectionCommands.cpp
   src/render/Renderer.cpp
@@ -169,6 +170,7 @@ else()
     tests/unit/prototype.video.test.cpp
     tests/unit/devmode.test.cpp
     tests/unit/r7.selection.test.cpp
+    tests/unit/r8.selection.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

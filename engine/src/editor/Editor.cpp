@@ -10,7 +10,7 @@ namespace eng {
 const char* toolName(Tool t) {
   static constexpr const char* kNames[] = {"MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
                                            "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
-                                           "ANNOTATION", "MEASUREMENT"};
+                                           "ANNOTATION", "MEASUREMENT", "EYEDROPPER"};
   auto i = static_cast<size_t>(t);
   return i < sizeof kNames / sizeof kNames[0] ? kNames[i] : "MOVE";
 }
@@ -18,7 +18,7 @@ const char* toolName(Tool t) {
 bool toolImplemented(Tool t) {
   return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::SECTION || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
          t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL ||
-         t == Tool::ANNOTATION || t == Tool::MEASUREMENT;
+         t == Tool::ANNOTATION || t == Tool::MEASUREMENT || t == Tool::SCALE || t == Tool::SLICE || t == Tool::COMMENT || t == Tool::EYEDROPPER;
 }
 
 const char* txnKindName(TxnKind k) {
@@ -33,7 +33,7 @@ const char* txnKindName(TxnKind k) {
 const char* cursorName(CursorKind k) {
   static constexpr const char* kNames[] = {"DEFAULT", "HAND", "GRABBING", "CROSSHAIR", "PEN", "PEN_ADD", "PEN_REMOVE", "PEN_CLOSE",
                                            "IBEAM", "RESIZE", "ROTATE", "MOVE_DUPLICATE", "ZOOM_IN", "ZOOM_OUT", "EYEDROPPER",
-                                           "NOT_ALLOWED"};
+                                           "NOT_ALLOWED", "COMMENT", "SCALE"};
   return kNames[static_cast<size_t>(k)];
 }
 
@@ -106,6 +106,8 @@ void Editor::indexChange(const NodeChange& c) {
   if (m & F_TYPE) {
     if (n && n->props.type == NodeType::DOCUMENT) docNode_ = c.guid;
     else if (c.guid == docNode_) docNode_ = kNoGuid;
+    if (n && n->props.type == NodeType::SLICE) slices_.insert(c.guid);
+    else slices_.erase(c.guid);
   }
 }
 
@@ -117,8 +119,10 @@ void Editor::rebuildIndexes() {
   docNode_ = kNoGuid;
   infoCache_.clear();
   annotated_.clear();
+  slices_.clear();
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
+    if (n.props.type == NodeType::SLICE) slices_.insert(n.guid);
     if (annot::hasNotes(n.props)) annotated_.insert(n.guid);
     if (!n.props.asset().key.empty()) {
       keyIndex_[n.props.asset().key].push_back(n.guid);
@@ -598,6 +602,9 @@ void Editor::base(Guid id, Mat2x3& transform, Vec2& size) const {
 void Editor::changeSelection(std::vector<Guid> ids) {
   if (ids == selection_) return;
   selection_ = std::move(ids);
+  // Layers selected: a selected ruler guide lets go; nothing selected: the ⌥R origin goes too.
+  if (!selection_.empty()) selectedGuide_ = {};
+  else rotationOriginOn_ = false;
   // Gradient handles belong to a selected layer.
   if (paint_.node != kNoGuid && std::find(selection_.begin(), selection_.end(), paint_.node) == selection_.end()) endPaintEdit();
   events_.selection = true;
@@ -666,7 +673,7 @@ Overlay Editor::overlay() const {
   if (gesture_ == Gesture::None && hover_ != kNoGuid && measureTarget_ == kNoGuid) o.hover.push_back(hover_);
   for (Guid h : layersHover_) o.hover.push_back(h);
   o.selection = selection_;
-  o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate;
+  o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate && gesture_ != Gesture::Reorder;
   o.sizeBadge = true;
   o.hasMarquee = gesture_ == Gesture::Marquee || (gesture_ == Gesture::ZoomArea && (lastScreen_ - downScreen_).length() >= 3) ||
                  (gesture_ == Gesture::Draw && drawType_ == NodeType::TEXT && (lastScreen_ - downScreen_).length() >= 3);
@@ -693,11 +700,21 @@ Overlay Editor::overlay() const {
   }
   // Smart selection: a dot on each equally spaced layer; the gap handles while the pointer is over the selection.
   SmartSelection smart;
-  if ((gesture_ == Gesture::None || gesture_ == Gesture::Gap) && !viewer_ && smartSelection(smart)) {
+  if (gesture_ == Gesture::Reorder) {
+    // Reordering: the rings where the layers are now, the dragged one's lit.
+    Guid dragged = reorderIndex_ >= 0 && static_cast<size_t>(reorderIndex_) < reorderFrom_.order.size() ? reorderFrom_.order[static_cast<size_t>(reorderIndex_)] : kNoGuid;
+    for (Guid id : reorderOrder_) {
+      if (!doc_.has(id)) continue;
+      Rect b = doc_.worldBounds(id);
+      if (id == dragged) o.centreDotHovered = static_cast<int>(o.centreDots.size());
+      o.centreDots.push_back({b.x + b.w / 2, b.y + b.h / 2});
+    }
+  } else if ((gesture_ == Gesture::None || gesture_ == Gesture::Gap) && !viewer_ && smartSelection(smart)) {
     for (Guid id : smart.order) {
       Rect b = doc_.worldBounds(id);
       o.centreDots.push_back({b.x + b.w / 2, b.y + b.h / 2});
     }
+    if (gesture_ == Gesture::None) o.centreDotHovered = reorderHover_;
     if (pointerInSelection_ || gesture_ == Gesture::Gap)
       for (size_t i = 1; i < smart.order.size(); i++) {
         Rect a = doc_.worldBounds(smart.order[i - 1]), b = doc_.worldBounds(smart.order[i]);
@@ -714,6 +731,20 @@ Overlay Editor::overlay() const {
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
   o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;
+  o.pixelPreview = (viewOptions_ & VIEW_PIXEL_PREVIEW_2X) ? 2 : (viewOptions_ & VIEW_PIXEL_PREVIEW) ? 1 : 0;
+  // Round 8: the ⌥R rotation origin, the angle while rotating, ruler guides, slices.
+  if (rotationOriginShown() || (gesture_ == Gesture::Rotate && rotationOriginOn_)) {
+    o.hasRotationOrigin = true;
+    o.rotationOrigin = gesture_ == Gesture::Rotate ? rotateCentre_ : rotationOrigin();
+  }
+  if (gesture_ == Gesture::Rotate) o.badgeText = rotateBadgeText();
+  guideOverlay(o);
+  if ((viewOptions_ & VIEW_SLICES) && !viewer_)
+    for (Guid id : slices_) {
+      const Node* n = doc_.get(id);
+      if (!n || doc_.pageOf(id) != page_ || !doc_.visibleInTree(id)) continue;
+      o.slices.push_back({doc_.worldTransform(id), n->props.size});
+    }
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
   if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid) && selection_.size() == 1 && text_.node == kNoGuid) {
@@ -1263,6 +1294,15 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
   // Selected grid tracks: ⌫ deletes them, Enter edits them, Esc lets them go (tools/GridGestures.cpp).
   if (!viewer_)
     if (uint32_t r = gridKey(code, mods)) return r;
+  // A selected ruler guide: ⌫ removes it, Esc lets it go (help.figma.com: "Select the guide and press delete").
+  if (hasSelectedGuide() && gesture_ == Gesture::None) {
+    if (code == KeyCode::Escape) {
+      selectedGuide_ = {};
+      needsRender_ = true;
+      return K_HANDLED;
+    }
+    if ((code == KeyCode::Backspace || code == KeyCode::Delete) && !viewer_) return command(CommandId::REMOVE_GUIDE) == OK ? K_HANDLED : 0;
+  }
   if (code == KeyCode::Escape) {
     if (gesture_ != Gesture::None) cancelGesture();
     else if (tool_ != Tool::MOVE) setTool(Tool::MOVE);
@@ -1271,10 +1311,11 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
   }
   if (busy() || primary || (mods & MOD_ALT)) return 0;
   switch (code) {
-    case KeyCode::ArrowLeft: nudge(shift ? -10 : -1, 0, repeat); return K_HANDLED;
-    case KeyCode::ArrowRight: nudge(shift ? 10 : 1, 0, repeat); return K_HANDLED;
-    case KeyCode::ArrowUp: nudge(0, shift ? -10 : -1, repeat); return K_HANDLED;
-    case KeyCode::ArrowDown: nudge(0, shift ? 10 : 1, repeat); return K_HANDLED;
+    // Preferences › Nudge amount… (Small nudge 1, Big nudge 10 by default).
+    case KeyCode::ArrowLeft: nudge(shift ? -nudgeBig_ : -nudgeSmall_, 0, repeat); return K_HANDLED;
+    case KeyCode::ArrowRight: nudge(shift ? nudgeBig_ : nudgeSmall_, 0, repeat); return K_HANDLED;
+    case KeyCode::ArrowUp: nudge(0, shift ? -nudgeBig_ : -nudgeSmall_, repeat); return K_HANDLED;
+    case KeyCode::ArrowDown: nudge(0, shift ? nudgeBig_ : nudgeSmall_, repeat); return K_HANDLED;
     case KeyCode::Enter:
     case KeyCode::NumpadEnter:
       if (selection_.empty()) return 0;
@@ -1341,6 +1382,7 @@ void Editor::setViewerMode(bool on) {
 void Editor::setViewOptions(uint32_t options) {
   if (options == viewOptions_) return;
   viewOptions_ = options;
+  if (!rulersOn()) selectedGuide_ = hoverGuide_ = {};
   needsRender_ = true;
 }
 

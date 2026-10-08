@@ -157,6 +157,43 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     }
   }
 
+  // Ruler guides (rulers on): 1 px lines in the guide colour, the selected or dragged one in the selection colour with
+  // its position in a pill by the ruler (unverified colours: Figma's guides read red).
+  for (const Overlay::RulerGuide& g : overlay.rulerGuides) {
+    Vec2 a = view.apply(g.a), b = view.apply(g.b);
+    const Color& color = g.active ? blue : style.measure;
+    if (g.vertical) {
+      double x = std::round(a.x * dpr) / dpr, y0 = std::max(screen_.y, std::min(a.y, b.y)), y1 = std::min(screen_.bottom(), std::max(a.y, b.y));
+      if (y1 > y0) emit(makeShape(Mat2x3::translate(x, y0), {1 / dpr * std::max(1.0, dpr), y1 - y0}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Shape);
+    } else {
+      double y = std::round(a.y * dpr) / dpr, x0 = std::max(screen_.x, std::min(a.x, b.x)), x1 = std::min(screen_.right(), std::max(a.x, b.x));
+      if (x1 > x0) emit(makeShape(Mat2x3::translate(x0, y), {x1 - x0, 1 / dpr * std::max(1.0, dpr)}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Shape);
+    }
+    if (!g.label) continue;
+    std::string text = formatNumber(g.value);
+    const text::TextLayout* L = label(text, "Medium", style.labelSize);
+    double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+    double pw = std::round(tw + 2 * style.badgePadding), ph = style.badgeHeight, rr = style.badgeRadius;
+    double px = g.vertical ? a.x + 4 : screen_.x + 24, py = g.vertical ? screen_.y + 24 : a.y + 4;
+    px = std::round(px * dpr) / dpr, py = std::round(py * dpr) / dpr;
+    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0), Pass::Shape);
+    if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round((py + (ph - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
+  }
+  // View › Show slices: each slice's box dashed (unverified look).
+  for (const Overlay::SliceBox& sl : overlay.slices) {
+    Mat2x3 m = view * sl.world;
+    Vec2 c[4] = {m.apply({0, 0}), m.apply({sl.size.x, 0}), m.apply({sl.size.x, sl.size.y}), m.apply({0, sl.size.y})};
+    const Color grey{0.55f, 0.55f, 0.55f, 1};
+    for (int k = 0; k < 4; k++) {
+      Vec2 a = c[k], e = c[(k + 1) % 4];
+      double len = (e - a).length();
+      for (double t = 0; t < len; t += 6) {
+        Vec2 p0 = a + (e - a) * (t / len), p1 = a + (e - a) * (std::min(len, t + 3) / len);
+        polyline({p0, p1}, false, 1, grey, 1);
+      }
+    }
+  }
+
   // Text being edited: the selection highlight and the caret.
   if (overlay.textNode != kNoGuid && doc.has(overlay.textNode)) {
     Mat2x3 m = view * doc.worldTransform(overlay.textNode);
@@ -422,6 +459,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
           }
         }
       std::string text = formatNumber(worldSize.x) + sx + " \u00D7 " + formatNumber(worldSize.y) + sy;
+      if (!overlay.badgeText.empty()) text = overlay.badgeText;  // rotating: the angle
       const text::TextLayout* L = label(text, "Medium", style.labelSize);
       double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
       double bw = std::round(tw + 2 * style.badgePadding), bh = style.badgeHeight;
@@ -512,11 +550,13 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // Smart selection: a pink dot in the middle of each equally spaced layer and a pink handle in each gap; the hovered
   // gap shows its value.
-  for (const Vec2& w : overlay.centreDots) {
-    Vec2 c = view.apply(w);
-    const double d = 7;
-    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare, white, 0,
-                   style.spacing, 1, 1.5, 0),
+  for (size_t k = 0; k < overlay.centreDots.size(); k++) {
+    Vec2 c = view.apply(overlay.centreDots[k]);
+    // The ring under the pointer (or dragged to reorder): larger and filled (unverified live: hover not captured).
+    bool lit = static_cast<int>(k) == overlay.centreDotHovered;
+    const double d = lit ? 9 : 7;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
+                   lit ? style.spacing : white, lit ? 1 : 0, lit ? white : style.spacing, 1, 1.5, 0),
          Pass::Shape);
   }
   for (const Overlay::GapHandle& g : overlay.gapHandles) {
@@ -535,6 +575,18 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, style.spacing, 1, style.spacing, 0, 0, 0), Pass::Shape);
     if (L && !L->lines.empty())
       drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round((py + (ph - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
+  }
+
+  // ⌥R: the rotation origin — a white ring with the selection colour and a dot in it (unverified look).
+  if (overlay.hasRotationOrigin) {
+    Vec2 c = view.apply(overlay.rotationOrigin);
+    const double d = 11, dot = 3;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
+                   white, 1, blueSel, 1, 1.5, 0),
+         Pass::Shape);
+    emit(makeShape(Mat2x3::translate(std::round((c.x - dot / 2) * dpr) / dpr, std::round((c.y - dot / 2) * dpr) / dpr), {dot, dot}, ShapeKind::Ellipse,
+                   kSquare, blueSel, 1, blueSel, 0, 0, 0),
+         Pass::Shape);
   }
 
   // ⌥ measurement: the measured layer outlined in red, its distances, and dashed extensions.

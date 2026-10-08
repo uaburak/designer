@@ -53,6 +53,8 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
   const Node* n = doc.get(id);
   if (!n) return false;
   const NodeProps& p = n->props;
+  // A slice is hit on its edge only (it paints nothing; the layers under it stay clickable — unverified live).
+  if (p.type == NodeType::SLICE) return std::fabs(shapeDistance(p, local)) <= slop;
   if (!p.isPathShape()) return hitsOwnShape(p, local, slop, topLevel);
   const NodeGeometry* g = doc.geometry(id);
   if (!g) return false;

@@ -227,6 +227,27 @@ struct Overlay {
   };
   std::vector<LayoutBar> layoutBars;
   std::vector<Vec2> centreDots;
+  int centreDotHovered = -1;  // round 8: the ring under the pointer, or the one being dragged (reorder)
+  // Round 8: the ⌥R rotation origin (world); a badge text in place of "W × H" (rotating: the angle); ruler guides
+  // (world ends, the selected or dragged one in the selection colour with its position); slices' boxes (View › Show
+  // slices, dashed); pixel preview (the page drawn at `pixelPreview`× and scaled up without smoothing; 0: off).
+  bool hasRotationOrigin = false;
+  Vec2 rotationOrigin;
+  std::string badgeText;
+  struct RulerGuide {
+    Vec2 a, b;           // world
+    bool vertical = false;
+    bool active = false;  // selected or dragged
+    bool label = false;   // show its position
+    double value = 0;
+  };
+  std::vector<RulerGuide> rulerGuides;
+  struct SliceBox {
+    Mat2x3 world;  // the slice's own space → world
+    Vec2 size;
+  };
+  std::vector<SliceBox> slices;
+  int pixelPreview = 0;
   // View options: the pixel grid (View › Pixel grid, drawn from 300 % zoom) and outline mode (⇧⌘O: every layer as a
   // thin outline, no fills).
   bool pixelGrid = true;
@@ -542,6 +563,15 @@ class Renderer {
   void finishRecording(gfx::TargetId target, const float clear[4], bool keep);
   // The page's layers (into the part being recorded), over the page colour when `background`.
   void drawPageContent(const Document& doc, const Color& page, bool background);
+  // Pixel preview (round 8, View › Pixel preview, ⌃P): the page drawn at `factor` px per page unit into its own target,
+  // then scaled onto the canvas without smoothing, the overlays over it. False: not drawn that way (too small a zoom).
+  bool renderPixelPreview(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport, const Overlay& overlay,
+                          const OverlayStyle& style, const float clearColor[4], int factor);
+  struct PixelPreviewTarget {
+    gfx::TargetId target = 0;
+    int w = 0, h = 0;
+  } preview_;
+  bool inPreview_ = false;
   void renderCached(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style,
                     const Color& clear, const float clearColor[4]);
   // `from` into `to`, shifted by (dx, dy) device px, `scale` texels per device px.

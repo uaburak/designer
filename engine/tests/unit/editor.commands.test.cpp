@@ -303,6 +303,7 @@ TEST_CASE("commands: copy and paste — fresh ids, beside the original, in place
   NodeChange frame = make(G, NodeType::FRAME, kPage, "#", {1000, 1000, 400, 400}, "Frame 2");
   e.applyChanges({frame}, APPLY_USER);
   e.setSelection({G});
+  e.setCamera({-900, -900, 1});  // the frame in view (far from it, the paste goes to the view's middle: r8.selection)
   CHECK(e.paste(clip, false) == 2);
   CHECK(e.document().parentOf(e.selection()[0]) == G);
   CHECK(world(e, e.selection()[0]) == Rect{1010, 1010, 50, 50});
@@ -311,6 +312,7 @@ TEST_CASE("commands: copy and paste — fresh ids, beside the original, in place
   NodeChange small = make({1, 31}, NodeType::FRAME, kPage, "$", {2000, 0, 100, 100}, "Frame 3");
   e.applyChanges({small}, APPLY_USER);
   e.setSelection({{1, 31}});
+  e.setCamera({-1700, 100, 1});
   e.paste(clip, false);
   CHECK(world(e, e.selection()[0]).x == 2000 + std::round(50 - 140 / 2.0));
 

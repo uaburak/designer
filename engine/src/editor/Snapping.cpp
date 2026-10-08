@@ -38,6 +38,13 @@ Rect shifted(const Rect& r, Vec2 d) { return {r.x + d.x, r.y + d.y, r.w, r.h}; }
 void Snapper::reset(std::vector<Rect> boxes, std::optional<Rect> container) {
   boxes_ = std::move(boxes);
   container_ = container;
+  lines_[0].clear();
+  lines_[1].clear();
+}
+
+void Snapper::setLines(std::vector<double> xs, std::vector<double> ys) {
+  lines_[0] = std::move(xs);
+  lines_[1] = std::move(ys);
 }
 
 SnapResult Snapper::snapBox(const Rect& m, double threshold, bool snapX, bool snapY) const {
@@ -67,6 +74,8 @@ SnapResult Snapper::snapBox(const Rect& m, double threshold, bool snapX, bool sn
     };
     for (const Rect& t : boxes_) lines(t);
     if (container_) lines(*container_);
+    for (double l : lines_[a])
+      for (double ml : mine) consider(l - ml, Choice{0, 0});
 
     // Equal spacing, among the boxes beside the moving one on this axis.
     std::vector<int> row;
@@ -148,6 +157,12 @@ SnapResult Snapper::snapPoint(Vec2 p, double threshold, bool snapX, bool snapY) 
     };
     for (const Rect& t : boxes_) lines(t);
     if (container_) lines(*container_);
+    for (double l : lines_[a])
+      if (std::fabs(l - v) < bestAbs) {
+        bestAbs = std::fabs(l - v);
+        best = l - v;
+        found = true;
+      }
     if (found) {
       (a == 0 ? res.offset.x : res.offset.y) = best;
       (a == 0 ? res.snappedX : res.snappedY) = true;
@@ -175,6 +190,9 @@ std::vector<GuideLine> Snapper::guidesFor(const Rect& box, bool x, bool y) const
       };
       for (const Rect& t : boxes_) check(t);
       if (container_) check(*container_);
+      // A guide or a layout grid's edge: the line along the box.
+      for (double l : lines_[a])
+        if (!any && std::fabs(l - ml) < kSame) any = true;
       if (!any) continue;
       out.push_back(a == 0 ? GuideLine{{ml, from}, {ml, to}} : GuideLine{{from, ml}, {to, ml}});
     }

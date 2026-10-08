@@ -112,6 +112,8 @@ _engine_export_list
 _engine_set_prototype_mode
 _engine_set_viewer_mode
 _engine_set_view_options
+_engine_set_nudge
+_engine_start_guide
 _engine_set_annotation_view
 _engine_set_edit_tracking
 _engine_set_focus

@@ -93,7 +93,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommand(id, args);
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
-  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommand(id, args);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommand(id, args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
     // Inside an open transaction (a scrub in the variables table): applied live, one undo step at its commit.
@@ -192,7 +192,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommandState(id);
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
-  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommandState(id);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommandState(id);
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
   if (derivedSelected && id != CommandId::UNDO && id != CommandId::REDO && id != CommandId::TOGGLE_VISIBLE && id != CommandId::TOGGLE_LOCK &&
@@ -1296,7 +1296,8 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     }
     if (spots.empty()) return 0;
   } else if ((flags & PASTE_OVER) && !sel.empty()) {
-    // ⇧⌘V "Paste over selection": where it was copied from (in place), just above the selection — not into it.
+    // ⇧⌘V "Paste over selection": on top of the selection, not into it, at its position (help.figma.com "Copy and
+    // paste objects": "matches the selected object's position"; live unverified — the capture tool has no clipboard).
     Guid s = sel.back();
     Guid parent = doc_.parentOf(s);
     while (isStructuralTarget(parent) && doc_.has(parent)) {
@@ -1305,19 +1306,36 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     }
     const auto& siblings = doc_.children(parent);
     size_t at = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
-    spots.push_back({parent, at, {}, kNoGuid});
+    Rect sb = doc_.worldBounds(s);
+    for (Guid o : sel)
+      if (doc_.has(o)) sb = sb.united(doc_.worldBounds(o));
+    spots.push_back({parent, at, (flags & PASTE_IN_PLACE) ? Vec2{} : Vec2{std::round(sb.x - u.x), std::round(sb.y - u.y)}, kNoGuid});
   }
   Vec2 d;
+  Vec2 va = camera_.toWorld({0, 0}), vb = camera_.toWorld({viewport_.width, viewport_.height});
+  const Rect view = Rect::fromPoints(va, vb);
   if (!spots.empty()) {
   } else if (!inPlace) {
     auto centreIn = [&](const Rect& r) {
       return Vec2{std::round(r.x + r.w / 2 - u.w / 2) - u.x, std::round(r.y + r.h / 2 - u.h / 2) - u.y};
     };
     if (intoFrame) {
+      // help.figma.com "Copy and paste objects": the selected frame far from the view — the view's centre on the page;
+      // just outside it — into the frame, the view following (revealPasted). "Far": more than half a view away.
+      Rect fb = doc_.worldBounds(target);
+      Rect near{view.x - view.w / 2, view.y - view.h / 2, view.w * 2, view.h * 2};
+      if (!near.intersects(fb)) {
+        target = page_;
+        index = doc_.children(page_).size();
+        intoFrame = false;
+        d = centreIn(view);
+      }
+    }
+    if (intoFrame) {
       // Where it sat in its own parent, if that fits in the frame; else in the frame's middle.
       Guid sourceParent = roots[0]->props.parentIndex.guid;
+      Rect fb = doc_.worldBounds(target);
       if (sourceParent != target) {
-        Rect fb = doc_.worldBounds(target);
         Vec2 o = offsetOf(sourceParent);
         Vec2 rel{u.x - o.x, u.y - o.y};
         Rect placed{fb.x + rel.x, fb.y + rel.y, u.w, u.h};
@@ -1326,10 +1344,14 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
         bool fitsX = placed.x >= fb.x && placed.right() <= fb.right(), fitsY = placed.y >= fb.y && placed.bottom() <= fb.bottom();
         d = {fitsX ? placed.x - u.x : centred.x, fitsY ? placed.y - u.y : centred.y};
       }
+      // A frame larger than the view: out of sight, the paste is centred in the frame's part in view.
+      Rect placed{u.x + d.x, u.y + d.y, u.w, u.h};
+      if ((fb.w > view.w || fb.h > view.h) && !view.intersects(placed) && view.intersects(fb)) {
+        double x0 = std::max(view.x, fb.x), y0 = std::max(view.y, fb.y), x1 = std::min(view.right(), fb.right()), y1 = std::min(view.bottom(), fb.bottom());
+        d = centreIn({x0, y0, x1 - x0, y1 - y0});
+      }
     } else if (target == page_ && sel.empty()) {
       // Where it was when that is in view; else in the middle of the view.
-      Vec2 a = camera_.toWorld({0, 0}), b = camera_.toWorld({viewport_.width, viewport_.height});
-      Rect view = Rect::fromPoints(a, b);
       if (!view.intersects(u)) d = centreIn(view);
     }
   }
@@ -1577,6 +1599,14 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
   }
   changeSelection(pasted);
   commit();
+  // The view follows what was pasted when it isn't all in view (larger than the view: zoomed out to it).
+  if (!(flags & PASTE_REPLACE)) {
+    bool any = false;
+    Rect all;
+    for (Guid id : pasted)
+      if (doc_.has(id)) all = any ? all.united(doc_.worldBounds(id)) : doc_.worldBounds(id), any = true;
+    if (any) revealPasted(all);
+  }
 #ifndef NDEBUG
   if (crossFile && unresolved_) std::fprintf(stderr, "engine: a paste left %zu main reference(s) pointing at nothing\n", unresolved_);
 #endif

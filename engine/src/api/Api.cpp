@@ -385,6 +385,13 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("x").number(g.label.x).key("y").number(g.label.y).key("width").number(g.label.w).key("height").number(g.label.h);
     w.endObject();
   }
+  for (const Vec2& p : ev.colorPicks) w.beginObject().key("type").string("COLOR_PICK").key("x").number(p.x).key("y").number(p.y).endObject();
+  for (auto& r : ev.inlineEdits) {
+    w.beginObject().key("type").string("REQUEST_INLINE_EDIT").key("ref").string(r.node.toString()).key("field").string(r.field);
+    w.key("value").number(r.value);
+    w.key("x").number(r.rect.x).key("y").number(r.rect.y).key("width").number(r.rect.w).key("height").number(r.rect.h);
+    w.endObject();
+  }
   for (auto& r : ev.renames) {
     w.beginObject().key("type").string("REQUEST_RENAME").key("ref").string(r.node.toString());
     w.key("x").number(r.rect.x).key("y").number(r.rect.y).key("width").number(r.rect.w).key("height").number(r.rect.h);
@@ -2639,11 +2646,30 @@ ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
   e->editor.setDevEdits((flags & 1) != 0 && (flags & 2) != 0);
 }
 
-// View options (round 7): 1 the pixel grid (View › Pixel grid, ⇧'), 2 outline mode (⇧⌘O), 4 layout guides (⇧G).
+// View options (round 7): 1 the pixel grid (View › Pixel grid, ⇧'), 2 outline mode (⇧⌘O), 4 layout guides (⇧G); round 8:
+// 8 rulers (⇧R: guides shown and dragged), 16 snap to pixel grid (⇧⌘′), 32 show slices, 64 pixel preview 1x, 128 2x.
 ENG_EXPORT void engine_set_view_options(Handle h, uint32_t options) {
   Call call;
   Engine* e = engineOf(h);
-  if (e) e->editor.setViewOptions(options & (Editor::VIEW_PIXEL_GRID | Editor::VIEW_OUTLINES | Editor::VIEW_LAYOUT_GUIDES));
+  if (e) e->editor.setViewOptions(options & Editor::kViewOptionsAll);
+}
+
+// Preferences › Nudge amount… (round 8): the arrows' and ⇧ arrows' steps, page units (> 0; others ignored).
+ENG_EXPORT void engine_set_nudge(Handle h, double small, double big) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setNudge(small, big);
+}
+
+// A ruler guide dragged out of a ruler (round 8): axis 0 the left ruler's vertical guide, 1 the top ruler's horizontal
+// one; (x, y) the press in canvas CSS px; `rulerSize` the rulers' thickness (let go over a ruler, the guide goes). The
+// pointer events that follow (engine_pointer MOVE / UP, canvas CSS px) drive it.
+ENG_EXPORT int32_t engine_start_guide(Handle h, uint32_t axis, double x, double y, double rulerSize) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;
+  return e->editor.startGuideDrag(axis == 1 ? 1 : 0, {x, y}, rulerSize);
 }
 
 // ---- Dev Mode (editor/DevMode.cpp) ---------------------------------------------------------------------------------

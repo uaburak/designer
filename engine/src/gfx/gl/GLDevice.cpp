@@ -488,6 +488,18 @@ class WebGL2Device final : public Device {
     glBindTexture(GL_TEXTURE_2D, 0);
   }
 
+  void setTextureFiltering(TextureId id, bool linear) override {
+    forget();  // binds behind the draws' back
+    if (!id || id >= textures_.size() || !textures_[id].gl || textures_[id].format != TextureFormat::RGBA8) return;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textures_[id].gl);
+    GLint mag = linear ? GL_LINEAR : GL_NEAREST;
+    GLint min = textures_[id].mipmaps ? (linear ? GL_LINEAR_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST) : mag;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag);
+    glBindTexture(GL_TEXTURE_2D, 0);
+  }
+
   bool uploadBitmap(TextureId id, uint32_t bitmapId) override {
     forget();  // binds behind the draws' back
     if (!id || id >= textures_.size() || !textures_[id].gl) return false;

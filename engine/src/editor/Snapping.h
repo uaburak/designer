@@ -34,7 +34,9 @@ class Snapper {
  public:
   // What can be snapped to: sibling boxes (world AABBs) and the parent frame's box.
   void reset(std::vector<Rect> boxes, std::optional<Rect> container);
-  bool empty() const { return boxes_.empty() && !container_; }
+  // Lines besides the boxes (round 8): ruler guides and layout grids' edges, world x (vertical) and y (horizontal).
+  void setLines(std::vector<double> xs, std::vector<double> ys);
+  bool empty() const { return boxes_.empty() && !container_ && lines_[0].empty() && lines_[1].empty(); }
 
   // Snaps a moving box: its edges and centre to theirs, or to equal spacing.
   SnapResult snapBox(const Rect& moving, double threshold, bool snapX = true, bool snapY = true) const;
@@ -47,6 +49,7 @@ class Snapper {
  private:
   std::vector<Rect> boxes_;
   std::optional<Rect> container_;
+  std::vector<double> lines_[2];
 };
 
 // Figma's ⌥ measurement between the selection's box and the hovered layer's box

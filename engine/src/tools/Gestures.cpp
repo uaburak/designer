@@ -26,6 +26,8 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kSnapReach = 6;      // CSS px: snapping threshold (docs/engine.md §8.5)
 constexpr double kRadiusMinBox = 64;  // CSS px: no corner radius handles on a smaller rectangle (unverified)
 constexpr double kGapReach = 6;       // CSS px around a smart selection's gap handle
+constexpr double kRingReach = 6;      // CSS px around a smart selection's centre ring (round 8: drag to reorder)
+constexpr double kOriginReach = 7;    // CSS px around the ⌥R rotation origin
 
 using GuidSet = std::unordered_set<Guid, GuidHash>;
 
@@ -90,7 +92,7 @@ std::vector<FrameTitle> Editor::titles() const {
 }
 
 Guid Editor::titleAt(Vec2 s) const {
-  if (tool_ != Tool::MOVE || spaceHeld_) return kNoGuid;
+  if (!selectingTool() || spaceHeld_) return kNoGuid;
   std::vector<FrameTitle> list = titles();
   // The topmost title first (later frames paint over earlier ones); locked frames' titles don't take a press.
   for (auto it = list.rbegin(); it != list.rend(); ++it) {
@@ -105,17 +107,23 @@ Guid Editor::titleAt(Vec2 s) const {
 // ---- Handles, cursor, hover -------------------------------------------------
 
 Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
-  if (tool_ != Tool::MOVE || spaceHeld_ || selection_.empty()) return Handle::None;
+  if (!selectingTool() || spaceHeld_ || selection_.empty()) return Handle::None;
   SelectionBox box = selectionBox(doc_, selection_);
   if (!box.valid) return Handle::None;
   for (Guid id : selection_) {
     const Node* n = doc_.get(id);
     if (n && n->props.locked) return Handle::None;
   }
+  // ⌥R: the rotation origin.
+  if (rotationOriginShown() && (s - camera_.toScreen(rotationOrigin())).length() <= kOriginReach) {
+    hx = hy = 0;
+    return Handle::RotationOrigin;
+  }
+  const bool scaleTool = tool_ == Tool::SCALE;
   // A line: its two ends, nothing else.
   Guid line = kNoGuid;
   Vec2 ends[2];
-  if (selectedLine(line, ends[0], ends[1])) {
+  if (!scaleTool && selectedLine(line, ends[0], ends[1])) {
     for (int i = 0; i < 2; i++)
       if ((s - camera_.toScreen(ends[i])).length() <= kCornerReach) {
         hx = i, hy = 0;
@@ -132,9 +140,16 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
         hx = i, hy = 0;
         return Handle::Radius;
       }
-  // A smart selection's gap handles.
+  // A smart selection's centre rings (drag: reorder) and gap handles.
   SmartSelection smart;
   if (gesture_ == Gesture::None && smartSelection(smart)) {
+    for (size_t i = 0; i < smart.order.size(); i++) {
+      Rect b = doc_.worldBounds(smart.order[i]);
+      if ((s - camera_.toScreen({b.x + b.w / 2, b.y + b.h / 2})).length() <= kRingReach) {
+        hx = static_cast<int>(i), hy = smart.axis;
+        return Handle::Reorder;
+      }
+    }
     for (size_t i = 1; i < smart.order.size(); i++) {
       Rect a = doc_.worldBounds(smart.order[i - 1]), b = doc_.worldBounds(smart.order[i]);
       Vec2 mid = smart.axis == 0 ? Vec2{(a.right() + b.x) / 2, (std::max(a.y, b.y) + std::min(a.bottom(), b.bottom())) / 2}
@@ -232,7 +247,7 @@ void Editor::dragLineEnd(Vec2 world, uint32_t mods) {
     d = {std::cos(angle) * len, std::sin(angle) * len};
   }
   Vec2 moved = fixed + d;
-  moved = {std::round(moved.x), std::round(moved.y)};
+  moved = {px(moved.x), px(moved.y)};
   Vec2 start = lineEnd_ == 0 ? moved : fixed, end = lineEnd_ == 0 ? fixed : moved;
   Vec2 v = end - start;
   double len = std::max(v.length(), 0.01);
@@ -400,7 +415,10 @@ void Editor::updateCursor(Vec2 s) {
   if (spaceHeld_ || tool_ == Tool::HAND) return changeCursor(CursorKind::HAND);
   if (zoomHeld_) return changeCursor((mods_ & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
   if (tool_ == Tool::TEXT || gesture_ == Gesture::TextSelect) return changeCursor(CursorKind::IBEAM);
-  if (tool_ != Tool::MOVE) return changeCursor(CursorKind::CROSSHAIR);
+  if (tool_ == Tool::EYEDROPPER) return changeCursor(CursorKind::EYEDROPPER);
+  if (tool_ == Tool::COMMENT) return changeCursor(CursorKind::COMMENT);
+  if (gesture_ == Gesture::Guide) return changeCursor(CursorKind::RESIZE, guideDrag_.axis == 0 ? 0 : 90);
+  if (!selectingTool()) return changeCursor(CursorKind::CROSSHAIR);
   if (text_.node != kNoGuid) {
     // Over the text being edited: an I-beam.
     Vec2 local = doc_.worldTransform(text_.node).inverse().apply(camera_.toWorld(s));
@@ -411,7 +429,14 @@ void Editor::updateCursor(Vec2 s) {
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::Rotate && titleAt(s) != kNoGuid) h = Handle::None;  // a title takes the press, not the rotation zone
-  if (h == Handle::None || h == Handle::LineEnd || h == Handle::Radius) return changeCursor(CursorKind::DEFAULT);
+  // A ruler guide under the pointer (rulers on): a resize cursor across it.
+  if (h == Handle::None && gesture_ == Gesture::None && !viewer_) {
+    RulerGuide g;
+    if (guideAt(s, g)) return changeCursor(CursorKind::RESIZE, g.axis == 0 ? 0 : 90);
+  }
+  if (h == Handle::None && tool_ == Tool::SCALE) return changeCursor(CursorKind::SCALE);
+  if (h == Handle::None || h == Handle::LineEnd || h == Handle::Radius || h == Handle::Reorder || h == Handle::RotationOrigin)
+    return changeCursor(CursorKind::DEFAULT);
   if (h == Handle::Gap) return changeCursor(CursorKind::RESIZE, hy == 0 ? 0 : 90);
   // The angle of the handle's direction on screen (0 = pointing right).
   SelectionBox box = selectionBox(doc_, selection_);
@@ -425,7 +450,7 @@ void Editor::updateCursor(Vec2 s) {
 void Editor::updateHover(Vec2 s, uint32_t mods) {
   Guid next = kNoGuid;
   int hx, hy;
-  if ((tool_ == Tool::MOVE || tool_ == Tool::ANNOTATION) && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) != Handle::Resize) {
+  if ((selectingTool() || tool_ == Tool::ANNOTATION) && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) != Handle::Resize) {
     // Over a frame's title: that frame (Figma outlines it).
     next = titleAt(s);
     if (next == kNoGuid && handleAt(s, hx, hy) == Handle::None) {
@@ -437,11 +462,12 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
   devHover(s);
   {
     int hx2 = -1, hy2 = 0;
-    Handle h2 = (tool_ == Tool::MOVE && !spaceHeld_ && page_ != kNoGuid) ? handleAt(s, hx2, hy2) : Handle::None;
-    int rh = h2 == Handle::Radius ? hx2 : -1, gh = h2 == Handle::Gap ? hx2 : -1;
-    if (rh != radiusHover_ || gh != gapHover_) needsRender_ = true;
+    Handle h2 = (selectingTool() && !spaceHeld_ && page_ != kNoGuid) ? handleAt(s, hx2, hy2) : Handle::None;
+    int rh = h2 == Handle::Radius ? hx2 : -1, gh = h2 == Handle::Gap ? hx2 : -1, oh = h2 == Handle::Reorder ? hx2 : -1;
+    if (rh != radiusHover_ || gh != gapHover_ || oh != reorderHover_) needsRender_ = true;
     radiusHover_ = rh;
     gapHover_ = gh;
+    reorderHover_ = oh;
     // The radius handles and gap handles come and go with the pointer over the selection.
     if (selectionHoverChanged(s)) needsRender_ = true;
   }
@@ -463,7 +489,7 @@ void Editor::updateMeasure(uint32_t mods) {
   Guid target = kNoGuid;
   std::vector<SpacingMark> marks;
   std::vector<GuideLine> extensions;
-  if ((mods & MOD_ALT) && gesture_ == Gesture::None && tool_ == Tool::MOVE && !spaceHeld_ && !selection_.empty()) {
+  if ((mods & MOD_ALT) && gesture_ == Gesture::None && selectingTool() && !spaceHeld_ && !selection_.empty()) {
     bool any = false;
     Rect sel;
     for (Guid id : selection_)
@@ -703,6 +729,15 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (!viewer_ && (button == 2 || (button == 0 && (mods & MOD_CTRL) && !(mods & MOD_PRIMARY)))) return contextMenu(s, mods);
   if (button != 0) return 0;
 
+  // The eyedropper (I, ⌃C): the colour there is the editor's to read (COLOR_PICK); back to Move. The Comment tool:
+  // nothing until multiplayer (round 8, inert).
+  if (tool_ == Tool::EYEDROPPER) {
+    events_.colorPicks.push_back(s);
+    setTool(Tool::MOVE);
+    return P_HANDLED;
+  }
+  if (tool_ == Tool::COMMENT) return P_HANDLED;
+
   // Dev Mode: status chips, annotation labels and dots, saved measurements, the Annotation and Measurement tools.
   if (uint32_t r = devPointerDown(s, mods)) return r;
 
@@ -738,10 +773,12 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     if (uint32_t r = vectorPointerDown(s, mods, clickCount_)) return r;
   }
 
-  if (tool_ == Tool::FRAME || tool_ == Tool::SECTION || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE || tool_ == Tool::POLYGON ||
-      tool_ == Tool::STAR || tool_ == Tool::LINE || tool_ == Tool::ARROW) {
+  if (tool_ == Tool::FRAME || tool_ == Tool::SECTION || tool_ == Tool::SLICE || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE ||
+      tool_ == Tool::POLYGON || tool_ == Tool::STAR || tool_ == Tool::LINE || tool_ == Tool::ARROW) {
+    lastDrawWorld_ = downWorld_;
     drawType_ = tool_ == Tool::FRAME       ? NodeType::FRAME
                 : tool_ == Tool::SECTION   ? NodeType::SECTION
+                : tool_ == Tool::SLICE     ? NodeType::SLICE
                 : tool_ == Tool::RECTANGLE ? NodeType::ROUNDED_RECTANGLE
                 : tool_ == Tool::ELLIPSE   ? NodeType::ELLIPSE
                 : tool_ == Tool::POLYGON   ? NodeType::REGULAR_POLYGON
@@ -791,14 +828,26 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     startGap(hx);
     return P_HANDLED | P_CAPTURE;
   }
+  if (h == Handle::Reorder) {
+    gesture_ = Gesture::Reorder;
+    startReorder(hx);
+    return P_HANDLED | P_CAPTURE;
+  }
+  if (h == Handle::RotationOrigin) {
+    gesture_ = Gesture::RotationOrigin;  // a view state, no transaction
+    return P_HANDLED | P_CAPTURE;
+  }
   // An auto-layout frame's padding or gap under the pointer (its bar shows): a drag changes it.
   if (!viewer_ && h == Handle::None && layoutBarHover_ >= 0 && static_cast<size_t>(layoutBarHover_) < layoutBars_.size() &&
       selection_.size() == 1 && selection_[0] == layoutBarsFrame_ && !(mods & (MOD_PRIMARY | MOD_SHIFT))) {
     const Overlay::LayoutBar& bar = layoutBars_[static_cast<size_t>(layoutBarHover_)];
     gesture_ = Gesture::LayoutBar;
+    layoutBarMoved_ = false;
     startLayoutBar(bar.gap ? 4 + bar.index : bar.side);
     return P_HANDLED | P_CAPTURE;
   }
+  // A ruler guide (rulers on): a press selects it, a drag moves it (⌥: a new one from it).
+  if (!viewer_ && h == Handle::None && selectingTool() && pressGuide(s, mods)) return P_HANDLED | P_CAPTURE;
   // A frame's title (or a section's pill): a press selects the frame (⇧ adds or removes it), a drag moves it,
   // a double-click renames it in place.
   if (Guid titled = titleAt(s); titled != kNoGuid) {
@@ -946,10 +995,21 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
     case Gesture::Move: dragMove(world, mods); break;
     case Gesture::Radius: dragRadius(world, mods); break;
     case Gesture::Gap: dragGap(world, mods); break;
-    case Gesture::LayoutBar: dragLayoutBar(world, mods); break;
+    case Gesture::Reorder: dragReorder(world, mods); break;
+    case Gesture::RotationOrigin: dragRotationOrigin(world, mods); break;
+    case Gesture::Guide: dragGuide(s, mods); break;
+    case Gesture::LayoutBar:
+      // A click on the bar edits its value in place (pointerUp); past the threshold it is a drag.
+      if (!layoutBarMoved_ && (s - downScreen_).length() < kDragThreshold) break;
+      layoutBarMoved_ = true;
+      dragLayoutBar(world, mods);
+      break;
     case Gesture::Resize: dragResize(world, mods); break;
     case Gesture::Rotate: dragRotate(world, mods); break;
     case Gesture::Draw:
+      // Space held while drawing moves the shape (Figma; unverified live): the press follows the pointer.
+      if (spaceHeld_ && drawn_ != kNoGuid) downWorld_ = downWorld_ + (world - lastDrawWorld_);
+      lastDrawWorld_ = world;
       if (drawn_ == kNoGuid && (s - downScreen_).length() < kDragThreshold) break;
       if (drawType_ == NodeType::TEXT) {
         marquee_ = Rect::fromPoints(downWorld_, world);  // the text box being dragged
@@ -1006,8 +1066,23 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Resize:
     case Gesture::Radius:
     case Gesture::Gap:
-    case Gesture::LayoutBar:
     case Gesture::Rotate: commit(); break;
+    case Gesture::LayoutBar:
+      if (layoutBarMoved_) {
+        commit();
+      } else {
+        rollback();
+        requestInlineEdit(layoutBar_);
+      }
+      break;
+    case Gesture::Reorder:
+      placeReorder(true);
+      commit();
+      break;
+    case Gesture::RotationOrigin: break;
+    case Gesture::Guide:
+      finishGuide(s);
+      break;
     case Gesture::Draw:
       if (drawType_ == NodeType::TEXT) {
         // A click: auto-width text at the point; a drag: a box of the dragged width.
@@ -1068,6 +1143,10 @@ void Editor::endGesture() {
   radiusCorner_ = -1;
   gapIndex_ = -1;
   layoutBar_ = -1;
+  reorderIndex_ = -1;
+  layoutBarMoved_ = false;
+  scaling_ = false;
+  scaleFrom_.clear();
   ignoreConstraints_ = false;
   needsRender_ = true;
 }
@@ -1095,8 +1174,15 @@ void Editor::cancelGesture() {
     case Gesture::Resize:
     case Gesture::Radius:
     case Gesture::Gap:
+    case Gesture::Reorder:
     case Gesture::LayoutBar:
     case Gesture::Rotate: rollback(); break;
+    case Gesture::Guide:
+      if (txn_.open) rollback();
+      guideMoved_ = guideNew_ = false;
+      guideDrag_ = guideFrom_ = {};
+      needsRender_ = true;
+      break;
     case Gesture::Draw:
       if (drawn_ != kNoGuid) rollback();
       changeSelection(baseSelection_);
@@ -1178,6 +1264,10 @@ void Editor::prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHas
   const Node* p = doc_.get(parent);
   if (p && p->props.isFrameLike()) container = doc_.worldBounds(parent);
   snapper_.reset(std::move(boxes), container);
+  // Ruler guides and the frame's layout grids (round 8).
+  std::vector<double> xs, ys;
+  snapLines(parent, xs, ys);
+  snapper_.setLines(std::move(xs), std::move(ys));
 }
 
 Guid Editor::dropTargetAt(Vec2 world, bool force) const {
@@ -1357,8 +1447,8 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
     }
     snap = snapper_.snapBox(box, kSnapReach / camera_.zoom, !lockX, !lockY);
   }
-  d.x = snap.snappedX ? d.x + snap.offset.x : std::round(moveBox_.x + d.x) - moveBox_.x;
-  d.y = snap.snappedY ? d.y + snap.offset.y : std::round(moveBox_.y + d.y) - moveBox_.y;
+  d.x = snap.snappedX ? d.x + snap.offset.x : px(moveBox_.x + d.x) - moveBox_.x;
+  d.y = snap.snappedY ? d.y + snap.offset.y : px(moveBox_.y + d.y) - moveBox_.y;
   if (lockX) d.x = 0;
   if (lockY) d.y = 0;
   guides_ = std::move(snap.guides);
@@ -1540,9 +1630,13 @@ void Editor::startResize(int hx, int hy) {
   // A group has no size of its own: resizing it resizes what is in it.
   GuidSet moving(ids.begin(), ids.end());
   Guid parent = ids.empty() ? page_ : doc_.parentOf(ids[0]);
-  if (ids.size() == 1 && doc_.get(ids[0])->props.fitsChildren()) ids = doc_.children(ids[0]);
+  // The Scale tool (K) scales the layers themselves, groups included, and everything in them (applyScale).
+  scaling_ = tool_ == Tool::SCALE;
+  if (scaling_) ids.erase(std::remove_if(ids.begin(), ids.end(), [](Guid id) { return id.isDerived(); }), ids.end());
+  if (!scaling_ && ids.size() == 1 && doc_.get(ids[0])->props.fitsChildren()) ids = doc_.children(ids[0]);
   targets_ = targetsOf(ids);
   for (const Target& t : targets_) moving.insert(t.id);
+  if (scaling_) startScale();
   prepareSnapping(parent, moving);
   changeCursor(cursor_, cursorAngle_);
 }
@@ -1560,8 +1654,9 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     locked &= n && n->props.proportionsConstrained;
   }
   bool shift = locked ? !(mods & MOD_CTRL) : (mods & MOD_SHIFT) != 0;
-  // ⌘: the frames' children stay where they are on the page (constraints ignored, Figma).
-  ignoreConstraints_ = (mods & MOD_PRIMARY) != 0;
+  if (scaling_) shift = true;  // the Scale tool keeps the proportions
+  // ⌘: the frames' children stay where they are on the page (constraints ignored, Figma). Scaling places them itself.
+  ignoreConstraints_ = scaling_ || (mods & MOD_PRIMARY) != 0;
   // Snap the dragged edge (boxes turned against the page don't snap); ⌃ turns snapping off.
   bool snapping = !(mods & MOD_CTRL) && axisAligned(box_.toWorld);
   SnapResult snap;
@@ -1600,10 +1695,11 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     place(handleX_, W, sx, x0, x1);
     place(handleY_, H, sy, y0, y1);
   }
-  // Pixel-grid snapping: whole px when the box is at least 1 px; never zero.
-  auto toPixels = [](double& lo, double& hi, double len) {
+  // Pixel-grid snapping (Snap to pixel grid): whole px when the box is at least 1 px; never zero.
+  const bool wholePx = (viewOptions_ & VIEW_SNAP_PIXELS) != 0;
+  auto toPixels = [wholePx](double& lo, double& hi, double len) {
     double sign = hi >= lo ? 1 : -1;
-    if (len >= 1) {
+    if (len >= 1 && wholePx) {
       lo = std::round(lo);
       hi = std::round(hi);
       if (std::fabs(hi - lo) < 1) hi = lo + sign;
@@ -1636,6 +1732,7 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
       c.props.transform = doc_.worldTransform(t.parent).inverse() * Mat2x3::translate(dc.x, dc.y) * t.world;
     }
     write(c);
+    if (scaling_) continue;  // applyScale places what is in it
     keepResizedSize(t.id, handleX_ != 0 || (shift && handleY_ != 0), handleY_ != 0 || (shift && handleX_ != 0));
     // ⌘: a frame's children keep their place on the page (and their size); layout leaves them (ignoreConstraints).
     const Node* tn = doc_.get(t.id);
@@ -1654,6 +1751,7 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
       }
     }
   }
+  if (scaling_) applyScale(handleX_ != 0 ? std::fabs((x1 - x0) / W) : std::fabs((y1 - y0) / H));
   guides_.clear();
   if (snapping && (snap.snappedX || snap.snappedY))
     guides_ = snapper_.guidesFor(transformedBounds(box_.toWorld * boxScale, W, H), snap.snappedX, snap.snappedY);
@@ -1693,6 +1791,8 @@ void Editor::keepResizedSize(Guid id, bool x, bool y) {
 void Editor::startRotate() {
   begin(TxnKind::GESTURE, "Rotate");
   box_ = selectionBox(doc_, selection_);
+  // About the ⌥R origin when it shows, else the selection's centre.
+  rotateCentre_ = rotationOriginShown() ? rotationOrigin() : box_.toWorld.apply({box_.size.x / 2, box_.size.y / 2});
   targets_ = targetsOf(topLevelSelection(doc_, selection_));
   // Layers inside an instance keep their place (Figma).
   targets_.erase(std::remove_if(targets_.begin(), targets_.end(), [](const Target& t) { return t.id.isDerived(); }), targets_.end());
@@ -1700,7 +1800,7 @@ void Editor::startRotate() {
 
 void Editor::dragRotate(Vec2 world, uint32_t mods) {
   if (targets_.empty()) return;
-  Vec2 centre = box_.toWorld.apply({box_.size.x / 2, box_.size.y / 2});
+  Vec2 centre = rotateCentre_;
   Vec2 a = downWorld_ - centre, b = world - centre;
   double delta = std::atan2(b.y, b.x) - std::atan2(a.y, a.x);
   if (mods & MOD_SHIFT) {
@@ -1747,23 +1847,25 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
     }
     r = (mods & MOD_ALT) ? Rect::fromPoints(start - d, start + d) : Rect::fromPoints(start, start + d);
   }
-  double x0 = std::round(r.x), y0 = std::round(r.y);
-  double x1 = std::max(x0 + 1, std::round(r.right())), y1 = std::max(y0 + 1, std::round(r.bottom()));
+  double x0 = px(r.x), y0 = px(r.y);
+  double x1 = std::max(x0 + 1, px(r.right())), y1 = std::max(y0 + 1, px(r.bottom()));
   Mat2x3 parentInv = doc_.worldTransform(drawParent_).inverse();
 
   NodeChange c;
   if (drawn_ == kNoGuid) {
     const char* label = drawType_ == NodeType::FRAME             ? "Create frame"
                         : drawType_ == NodeType::SECTION         ? "Create section"
+                        : drawType_ == NodeType::SLICE           ? "Create slice"
                         : drawType_ == NodeType::ELLIPSE         ? "Create ellipse"
                         : drawType_ == NodeType::REGULAR_POLYGON ? "Create polygon"
                         : drawType_ == NodeType::STAR            ? "Create star"
                                                                  : "Create rectangle";
     begin(TxnKind::GESTURE, label);
     Guid id = newGuid();
-    c = NodeChange::created(id, drawType_ == NodeType::SECTION ? sectionProps() : defaultProps(drawType_));
+    c = NodeChange::created(id, drawType_ == NodeType::SECTION ? sectionProps() : drawType_ == NodeType::SLICE ? sliceProps() : defaultProps(drawType_));
     c.props.name = nextName(drawType_ == NodeType::FRAME             ? "Frame"
                             : drawType_ == NodeType::SECTION         ? "Section"
+                            : drawType_ == NodeType::SLICE           ? "Slice"
                             : drawType_ == NodeType::ELLIPSE         ? "Ellipse"
                             : drawType_ == NodeType::REGULAR_POLYGON ? "Polygon"
                             : drawType_ == NodeType::STAR            ? "Star"
@@ -1790,14 +1892,14 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
 
 void Editor::dragLine(Vec2 world, uint32_t mods, bool click) {
   // A line from the press to the pointer (⇧: 45° steps); a click makes a 100 px line.
-  Vec2 a = {std::round(downWorld_.x), std::round(downWorld_.y)};
+  Vec2 a = {px(downWorld_.x), px(downWorld_.y)};
   Vec2 b = click ? a + Vec2{100, 0} : world;
   Vec2 d = b - a;
   double len = d.length(), angle = std::atan2(d.y, d.x);
   if (mods & MOD_SHIFT) angle = std::round(angle / (kPi / 4)) * (kPi / 4);
   if (!click) {
     b = a + Vec2{std::cos(angle) * len, std::sin(angle) * len};
-    b = {std::round(b.x), std::round(b.y)};
+    b = {px(b.x), px(b.y)};
     d = b - a;
     len = d.length();
     angle = std::atan2(d.y, d.x);
