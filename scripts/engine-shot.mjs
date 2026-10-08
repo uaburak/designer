@@ -9,6 +9,8 @@
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
 //   SHOT_ONLY=e8 npm run engine:shot    only the prototyping checks (noodles, the presentation view)
 //   npm run engine:shot -- --gfx webgpu  the same checks on the WebGPU backend (default --gfx webgl; SHOT_GFX too)
+//   SHOT_GPU=1 npm run engine:shot      WebGL on the real GPU (ANGLE Metal) instead of SwiftShader: the same GPU as
+//                                       WebGPU, to compare the two backends' screenshots pixel for pixel
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
 // (CHROMIUM=/path overrides). WebGL: software GL (SwiftShader) for determinism. WebGPU: the real GPU (Metal on
@@ -57,7 +59,7 @@ const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch({
   executablePath: chromiumPath(),
   args:
-    gfx === "webgpu"
+    gfx === "webgpu" || process.env.SHOT_GPU === "1"
       ? ["--enable-unsafe-webgpu", "--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"]
       : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
