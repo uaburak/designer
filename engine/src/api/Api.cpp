@@ -2640,7 +2640,7 @@ ENG_EXPORT void engine_set_edit_tracking(Handle h, uint32_t on) {
   if (e) e->editor.setEditTracking(on != 0);
 }
 
-// Focus view: only this design is drawn and picked; (0, 0) leaves it.
+// Focus view: only this design is drawn and picked; (0xffffffff, 0xffffffff) leaves it.
 ENG_EXPORT int32_t engine_set_focus(Handle h, uint32_t sessionID, uint32_t localID) {
   Call call;
   Engine* e = engineOf(h);
@@ -2648,7 +2648,7 @@ ENG_EXPORT int32_t engine_set_focus(Handle h, uint32_t sessionID, uint32_t local
   return e->editor.setFocus(Guid{sessionID, localID});
 }
 
-// A saved measurement selected on the canvas ((0, 0): none).
+// A saved measurement selected on the canvas ((0xffffffff, 0xffffffff): none).
 ENG_EXPORT int32_t engine_select_measurement(Handle h, uint32_t sessionID, uint32_t localID) {
   Call call;
   Engine* e = engineOf(h);
@@ -2657,7 +2657,7 @@ ENG_EXPORT int32_t engine_select_measurement(Handle h, uint32_t sessionID, uint3
 }
 
 // Dev Mode's state as JSON: {annotations, dots, focus, selectedMeasurement, statuses: [{ref, status}], measurements:
-// [{id, from, to, side, toSameSide, inner, outer, freeText, value, a, b}]} for the page ((0, 0): the current one).
+// [{id, from, to, side, toSameSide, inner, outer, freeText, value, a, b}]} for the page ((0xffffffff, 0xffffffff): the current one).
 ENG_EXPORT int32_t engine_dev_info(Handle h, uint32_t pageSessionID, uint32_t pageLocalID) {
   Call call;
   Engine* e = engineOf(h);

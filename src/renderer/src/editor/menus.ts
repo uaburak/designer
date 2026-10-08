@@ -127,6 +127,7 @@ export const MAIN_MENU: Spec[] = [
       "view.toggle-ui",
       "view.minimize-ui",
       "view.property-labels",
+      "view.annotations",
       "-",
       "view.zoom-in",
       "view.zoom-out",

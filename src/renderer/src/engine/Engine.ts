@@ -582,7 +582,7 @@ export class Engine {
 
   /** Focus view: only `node` (a design on the current page) is drawn and picked; null leaves it. */
   setFocus(node: Guid | null): number {
-    const [s, l] = node ? this.ids(node) : [0, 0];
+    const [s, l] = node ? this.ids(node) : [0xffffffff, 0xffffffff];
     const status = this.x.setFocus(this.h, s, l);
     this.schedule();
     return this.after(status);
@@ -590,13 +590,13 @@ export class Engine {
 
   /** Selects a saved measurement on the canvas (null: none). */
   selectMeasurement(id: Guid | null): number {
-    const [s, l] = id ? this.ids(id) : [0, 0];
+    const [s, l] = id ? this.ids(id) : [0xffffffff, 0xffffffff];
     return this.after(this.x.selectMeasurement(this.h, s, l));
   }
 
   /** Dev Mode's state for a page (default the current one): statuses, saved measurements, the canvas's clickable marks. */
   devInfo(page?: Guid): DevInfo {
-    const [s, l] = page ? this.ids(page) : [0, 0];
+    const [s, l] = page ? this.ids(page) : [0xffffffff, 0xffffffff];
     return this.json<DevInfo>(this.x.devInfo(this.h, s, l), { annotations: true, focus: null, selectedMeasurement: null, statuses: [], measurements: [], hits: { annotations: [], measurements: [], statuses: [] } });
   }
 

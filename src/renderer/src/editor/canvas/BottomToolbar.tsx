@@ -14,6 +14,7 @@ import { useEditor } from "../controller";
 import { runEditorCommand } from "../commands";
 import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
+import { setMode } from "../devmode/devMode";
 import type { VectorTool } from "../vectorEdit";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
@@ -36,9 +37,12 @@ export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
   text: "TEXT",
   "text-on-path": null,
   comment: "COMMENT",
-  annotation: null,
-  measurement: null,
+  annotation: "ANNOTATION",
+  measurement: "MEASUREMENT",
 };
+
+/** Dev Mode's tools (help.figma.com: ⇧T Annotate, ⇧M Measure, C Comment; Move and Hand to look around). */
+const DEV_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>(["move", "hand", "comment", "annotation", "measurement"]);
 
 /** The toolbar's tool for the engine's current one. */
 export function toolIdOf(engineTool: string): ToolId {
@@ -88,7 +92,8 @@ export function BottomToolbar() {
   const wanted = minimized ? 0 : (right - (48 + left)) / 2;
   const room = Math.max(0, (canvasWidth - TOOLBAR_WIDTH) / 2 - MARGIN);
   const offset = Math.max(-room, Math.min(room, wanted));
-  const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t)), [ed]);
+  const dev = useUI((s) => s.mode === "dev");
+  const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t))), [ed, dev]);
   const pick = (t: ToolId) => {
     if (t === "image") {
       setGroups((g) => ({ ...g, shape: "image" }));
@@ -96,7 +101,7 @@ export function BottomToolbar() {
       return;
     }
     const name = ENGINE_TOOL[t];
-    if (!name || !ed.tools.has(name)) return;
+    if (!name || !ed.tools.has(name) || (dev && !DEV_TOOLS.has(t))) return;
     ed.setTool(name);
     setGroups((g) => ({ ...g, [groupOf(t)]: t }));
     ed.focusCanvas();
@@ -111,11 +116,12 @@ export function BottomToolbar() {
       disabledTools={disabledTools}
       onTool={pick}
       onActions={() => runEditorCommand(ed, "tool.actions") || showToast({ message: "Actions come later" })}
-      mode="design"
+      mode={dev ? "dev" : "design"}
       onMode={(m) => {
-        if (m !== "design") showToast({ message: "Draw, Motion and Dev Mode come later" });
+        if (m === "dev" || m === "design") setMode(ed, m);
+        else showToast({ message: "Draw and Motion come later" });
       }}
-      disabledModes={["draw", "motion", "dev"]}
+      disabledModes={["draw", "motion"]}
     />
   );
 }

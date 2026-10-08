@@ -14,6 +14,7 @@ import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
 import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportFramesToPdf, hasTextSelected } from "./exporting";
 import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
+import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
 import { fields } from "./panels/design/shared";
 import type { Guid } from "@/engine/codec";
@@ -214,6 +215,11 @@ export const COMMANDS: EditorCommand[] = [
   tool("tool.pencil", "Pencil", "PENCIL", [k("KeyP", { shift: true })]),
   tool("tool.text", "Text", "TEXT", [k("KeyT")]),
   tool("tool.comment", "Comment", "COMMENT", [k("KeyC")]),
+  // Dev Mode's tools, in Design too (help.figma.com 20774752502935: "Annotation … Shift T", "Measurement … Shift M").
+  tool("tool.annotation", "Annotation", "ANNOTATION", [k("KeyT", { shift: true })]),
+  tool("tool.measurement", "Measurement", "MEASUREMENT", [k("KeyM", { shift: true })]),
+  // ⇧D: Design ⇄ Dev Mode (help.figma.com 15023124644247).
+  ui("view.dev-mode", "Dev Mode", [k("KeyD", { shift: true })], (ed) => setMode(ed, modeOf(ed) === "dev" ? "design" : "dev"), (ed) => modeOf(ed) === "dev"),
   tool("tool.hand", "Hand tool", "HAND", [k("KeyH")]),
   later("tool.actions", "Actions…", [k("KeyK", { mod: true })]),
 
@@ -276,6 +282,8 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.minimize-ui", "Minimize UI", [k("Backslash", { shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
   ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => ed.ui.set((s) => ({ rulers: !s.rulers })), (ed) => ed.ui.get().rulers),
   ui("view.property-labels", "Property labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
+  // View › Annotations (help.figma.com 20774752502935; ⇧Y per a user report, unverified).
+  ui("view.annotations", "Annotations", [k("KeyY", { shift: true })], (ed) => toggleAnnotations(ed), (ed) => annotationsShown(ed)),
   later("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })]),
   later("view.snap-pixel-grid", "Snap to pixel grid", [k("Quote", { mod: true, shift: true })]),
   later("view.layout-guides", "Layout guides", [k("KeyG", { ctrl: true })]),

@@ -1,7 +1,7 @@
 /** Dev Mode read-outs (devMode.ts) and units (units.ts): statuses, annotations, asset detection, List rows, units. */
 import { describe, expect, it } from "vitest";
 import type { NodeChange } from "@/engine/codec";
-import { annotationsOf, detectAssets, htmlText, listRows, statusOf, STATUS_LABEL, type AssetNode } from "./devMode";
+import { annotationsOf, detectAssets, editedAgo, htmlText, listRows, statusOf, STATUS_LABEL, type AssetNode } from "./devMode";
 import { composeInUnit, cssInUnit, DEFAULT_UNITS, lengthIn, swiftUIInUnit, UNITS } from "./units";
 
 describe("Dev Mode statuses and annotations", () => {
@@ -11,6 +11,19 @@ describe("Dev Mode statuses and annotations", () => {
     expect(statusOf({ sectionStatusInfo: { status: "NONE" } })).toBeNull();
     expect(statusOf({})).toBeNull();
     expect(STATUS_LABEL.READY_FOR_DEV).toBe("Ready for dev");
+  });
+
+  it("shows Changed when the design was edited after its status was set (editInfo, as Figma's files keep it)", () => {
+    const ready = { status: "BUILD", lastUpdateUnixTimestamp: 1785913481 };
+    expect(statusOf({ sectionStatusInfo: ready, editInfo: { lastEditedAt: 1785914035 } })).toBe("CHANGED");
+    expect(statusOf({ sectionStatusInfo: ready, editInfo: { lastEditedAt: 1785913000 } })).toBe("READY_FOR_DEV");
+    expect(statusOf({ sectionStatusInfo: { ...ready, status: "COMPLETED" }, editInfo: { lastEditedAt: 1785914035 } })).toBe("CHANGED");
+    expect(STATUS_LABEL.CHANGED).toBe("Changed");
+    const now = 1785914035 * 1000;
+    expect(editedAgo(1785914035 - 10, now)).toBe("Edited just now");
+    expect(editedAgo(1785914035 - 120, now)).toBe("Edited 2 minutes ago");
+    expect(editedAgo(1785914035 - 3600, now)).toBe("Edited 1 hour ago");
+    expect(editedAgo(undefined, now)).toBeNull();
   });
 
   it("shows an annotation's rich text as text and its pinned properties with the layer's values", () => {
