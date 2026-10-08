@@ -71,6 +71,7 @@ Next: Phase 5 of `docs/roadmap.md` — the Firebase adapter wiring (and a real d
 - MERGED 2026-10-08: `r7-render` is merged into main (checks rerun on main after the merge).
 - MERGED 2026-10-08: `r7-selection` is merged into main (checks rerun on main after the merge).
 - MERGED 2026-10-08: `r7-design-panel` is merged into main (checks rerun on main after the merge; Stroke settings keep r7-render's rule — Dash cap only for dashed closed paths, an open path's cap is the end-points row).
+- MERGED 2026-10-08: `r8-render` is merged into main (checks rerun on main after the merge).
 Next session: for each branch read its shutdown status, finish the open items against the live captures, run the full checks, then merge one at a time into main (rebuild the release wasm after each engine merge; command ids and schema field numbers are the usual collision points). The live-capture agent was also recording **behaviour** (Esc, Enter/Tab in fields, math in fields, frame-title clicks, move/resize modifiers, layers keys) into `live/behaviour/` — check what is there and finish the list in `live/README.md`.
 
 **Live behaviour (`docs/research/figma/live/behaviour/`) overrides the audits where they disagree — check each round-7 branch against it before merging:**

@@ -98,6 +98,11 @@ class RenderTree {
   Damage damage_{true, {}};
   std::function<bool(Guid, Rect&)> ink_;
   void damage(const Rect& r);
+  // PATTERN fills (docs/engine.md §6.5): each drawn node with one → the layers its patterns tile. A change to such a
+  // source, or anywhere in its subtree, on any page, damages the nodes that tile it (their pixels are its pixels).
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> patternSources_;
+  void notePatterns(Guid id, const Node* n);
+  void damagePatternUsers(const Document& doc);
 };
 
 }  // namespace eng
