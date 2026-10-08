@@ -23,6 +23,7 @@ import type { EditorController } from "./controller";
 import { engineCall, engineCommandEnabled, engineMethod, hasCommand, runEngineCommand, type CommandArgs } from "./engineCompat";
 import { frameAt, toPage } from "./placeImages";
 import { libraryOfMain, openLibraryFile } from "./libraries";
+import { positionBetween } from "./model/variables";
 import {
   assignedValue,
   bindingsOf,
@@ -44,6 +45,7 @@ import {
   parseDerivedId,
   parseVariantName,
   renameInVariantName,
+  sortedDefs,
   sameGuid,
   unbindAll,
   variantFor,
@@ -114,6 +116,8 @@ export interface EngineComponentProperty {
   preferredValues?: Guid[];
   variantOptions?: string[];
   boundLayers?: Guid[];
+  /** The variable an instance's variant (or a main's default) is bound to. */
+  boundVariable?: Guid | null;
 }
 
 export interface EngineComponentInfo {
@@ -483,6 +487,8 @@ export interface PropertyRowData {
   options?: string[];
   /** Variant: the current one */
   variantValue?: string;
+  /** The variable that picks the variant (an instance's "Assign variable") or binds the default (a main's) */
+  variable?: Guid | null;
 }
 
 export interface InstanceInfo {
@@ -506,8 +512,8 @@ export function instanceInfo(ed: EditorController, instance: CNode, nestedDepth 
       const variant = props.filter((p) => p.type === "VARIANT");
       const rest = props.filter((p) => p.type !== "VARIANT");
       return [
-        ...variant.map((p) => ({ def: defFromEngine(p), value: undefined, options: p.variantOptions ?? [], variantValue: typeof p.value === "string" ? p.value : undefined })),
-        ...rest.map((p) => ({ def: defFromEngine(p), value: toPropValue(p.type, p.value) })),
+        ...variant.map((p) => ({ def: defFromEngine(p), value: undefined, options: p.variantOptions ?? [], variantValue: typeof p.value === "string" ? p.value : undefined, variable: p.boundVariable ?? null })),
+        ...rest.map((p) => ({ def: defFromEngine(p), value: toPropValue(p.type, p.value), variable: p.boundVariable ?? null })),
       ];
     };
     const nested = info.exposedInstances.map((x) => {
@@ -601,6 +607,47 @@ export function setVariant(ed: EditorController, instance: CNode, property: stri
   if (!target || target.guid === main.guid) return false;
   swapInstance(ed, [instance.guid], target.guid, `Set ${property}`);
   return true;
+}
+
+/**
+ * "Assign variable" on an instance's variant property (R3-13, help "Modes for variables"): a string, number or boolean
+ * variable picks the variant in every mode (null: detach). On a main's boolean / text property: its default ("Apply
+ * variable" in the property's settings). One step.
+ */
+export function bindPropertyVariable(ed: EditorController, ref: Guid, property: string, variable: Guid | null): boolean {
+  const args = { refs: [ref], target: `componentProperties.${property}`, variable: variable ?? "" };
+  return runEngineCommand(ed.engine, "BIND_VARIABLE", args) === Status.OK;
+}
+
+/**
+ * Reorders a property in the Properties section (help "Create and use component properties": hover, drag by the
+ * handle): before `before` (null: last) within its own group — variant properties always stay above the others.
+ */
+export function reorderProperty(ed: EditorController, owner: CNode, def: ComponentPropDef, before: ComponentPropDef | null): void {
+  const all = sortedDefs(owner.componentPropDefs ?? []);
+  const isVariant = def.type === "VARIANT";
+  const group = all.filter((d) => (d.type === "VARIANT") === isVariant && guidStr(d.id) !== guidStr(def.id));
+  if (before && (before.type === "VARIANT") !== isVariant) return;
+  const at = before ? group.findIndex((d) => guidStr(d.id) === guidStr(before.id)) : group.length;
+  if (at < 0) return;
+  // Every property of the owner gets a position in order (old files may lack them), the moved one at its new place.
+  const order = [...group.slice(0, at), def, ...group.slice(at)];
+  const others = all.filter((d) => (d.type === "VARIANT") !== isVariant);
+  const sequence = isVariant ? [...order, ...others] : [...others, ...order];
+  let pos = "";
+  const positions = new Map<string, string>();
+  for (const d of sequence) {
+    pos = positionBetween(pos, null);
+    positions.set(guidStr(d.id), pos);
+  }
+  const defs = (owner.componentPropDefs ?? []).map((d) => ({ ...d, sortPosition: positions.get(guidStr(d.id)) ?? d.sortPosition }));
+  ed.setProps([owner.guid], asFields({ componentPropDefs: defs }), "Reorder properties");
+}
+
+/** A slot property's settings (help "Use slots": min / max layers, preferred instances only, empty, fill items). */
+export function updateSlotSettings(ed: EditorController, owner: CNode, def: ComponentPropDef, patch: NonNullable<ComponentPropDef["slotPropConfig"]>): void {
+  const defs = (owner.componentPropDefs ?? []).map((d) => (guidStr(d.id) === guidStr(def.id) ? { ...d, slotPropConfig: { ...(d.slotPropConfig ?? {}), ...patch } } : d));
+  ed.setProps([owner.guid], asFields({ componentPropDefs: defs }), "Edit slot property");
 }
 
 /** The instance's root fields a swap brings from the new main (unless the instance overrode them). */

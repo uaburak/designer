@@ -192,4 +192,26 @@
   .createButton:hover, .createButton[data-open] { background: var(--figma-color-bg-hover); }
   .createButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .emptyPane { display: flex; align-items: center; justify-content: center; grid-column: 1 / -1; }
+
+  /* Extended collections (Figma): overridden values in blue, "Reset change" on hover; the parent named in the toolbar */
+  .overridden, .overridden input { color: var(--figma-color-text-brand); }
+  .overridden .swatchButton { box-shadow: 0 0 0 1px var(--figma-color-border-brand-strong); border-radius: var(--ds-radius-small); }
+  .extendedFrom { flex: 0 0 auto; color: var(--figma-color-text-secondary); white-space: nowrap; }
+  .sideExtension { padding-left: calc(var(--ds-space-4) + var(--ds-space-3)); }
+  .muted { color: var(--figma-color-text-secondary); }
+  .typeFilter { flex: 0 0 auto; }
+
+  /* Reorder collections */
+  .reorderRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    cursor: grab;
+  }
+  .reorderRow:hover { background: var(--figma-color-bg-hover); }
+  .reorderOver { box-shadow: inset 0 2px 0 var(--figma-color-border-selected); }
+  .reorderName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 }

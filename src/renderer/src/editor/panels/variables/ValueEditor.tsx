@@ -13,7 +13,7 @@ import { useEditor } from "../../controller";
 import { useLocalAssets } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { aliasMakesCycle, formatLiteral, resolveVariable, valueIn, type Collection, type Literal, type Variable } from "../../model/variables";
-import { setVariableValue } from "../../variables";
+import { isOverridden, resetOverride, setVariableValue } from "../../variables";
 import { VariableGlyph, VariablePicker } from "./VariablePicker";
 import styles from "./LocalVariables.module.css";
 
@@ -31,7 +31,9 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [color, setColor] = useState<DOMRect | null>(null);
   const value = valueIn(variable, mode, collection);
-  const resolved = resolveVariable(variable.id, a.lookup, (c) => (c === collection.id ? mode : undefined));
+  const resolved = value.kind === "literal" ? value.value : resolveVariable(value.id, a.lookup);
+  // An extended collection: the values it overrides show in blue, with "Reset change" (Figma).
+  const overridden = !!collection.parent && isOverridden(collection, variable.id, mode);
   const set = (v: Literal, info?: { final: boolean; source?: string }) => setVariableValue(ed, variable.id, mode, { kind: "literal", value: v }, info);
   const exclude = useMemo(() => new Set(a.variables.filter((v) => v.type === variable.type && (v.id === variable.id || aliasMakesCycle(variable.id, v.id, a.lookup))).map((v) => v.id)), [a, variable]);
   const label = `${variable.name} in ${collection.modes.find((m) => m.id === mode)?.name ?? "mode"}`;
@@ -80,8 +82,17 @@ export function ValueEditor({ variable, mode, collection, className }: { variabl
   }
 
   return (
-    <div className={cx(styles.cell, styles.value, className)} data-value-cell={`${variable.name}|${collection.modes.find((m) => m.id === mode)?.name ?? ""}`}>
+    <div
+      className={cx(styles.cell, styles.value, overridden && styles.overridden, className)}
+      data-value-cell={`${variable.name}|${collection.modes.find((m) => m.id === mode)?.name ?? ""}`}
+      data-overridden={overridden ? "" : undefined}
+    >
       {body}
+      {overridden && (
+        <button type="button" className={styles.cellButton} aria-label="Reset change" {...tooltipProps("Reset change")} onClick={() => resetOverride(ed, collection.id, variable.id, mode)}>
+          <Icon name="24.reset.instance.small" />
+        </button>
+      )}
       {value.kind === "alias" ? (
         <button
           type="button"
