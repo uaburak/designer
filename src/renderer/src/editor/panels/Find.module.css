@@ -1,0 +1,104 @@
+@layer app {
+  /* Find and replace: replaces Pages and Layers under the file header until ✕ / Esc */
+  .find { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+  }
+  .grow { flex: 1 1 auto; }
+  .mode {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-half);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    outline: none;
+  }
+  .mode:hover, .mode[data-open] { background: var(--figma-color-bg-hover); }
+  .mode svg { color: var(--figma-color-icon-secondary); }
+  .iconMenu {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .iconMenu:hover, .iconMenu[data-open] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .iconMenu.on { color: var(--figma-color-icon-brand); }
+  .queryRow { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
+  .query { flex: 1 1 auto; min-width: 0; }
+  .chips { display: flex; flex: none; flex-wrap: wrap; gap: var(--ds-space-1); padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
+  .chip {
+    display: flex;
+    align-items: center;
+    height: var(--ds-space-5);
+    padding: 0 0 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .chip svg { width: var(--ds-space-5); height: var(--ds-space-5); color: var(--figma-color-icon-secondary); }
+  .replaceRow { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
+  .replaceButtons { display: flex; gap: var(--ds-space-2); }
+  .replaceButtons > * { flex: 1 1 0; }
+  .status {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .count { padding-right: var(--ds-space-1); color: var(--figma-color-text-secondary); white-space: nowrap; }
+  .results { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-1); }
+  .none { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+  .pageHeader {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 var(--ds-space-4);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* A result: the Layers row's look (32 pitch, 24 highlight inset 8) */
+  .row { display: flex; height: 100%; padding: var(--ds-space-1) var(--ds-size-row-inset); cursor: default; }
+  .box {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-width: 0;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+  }
+  .row:hover .box { background: var(--figma-color-bg-hover); }
+  .row[aria-selected="true"] .box { background: var(--figma-color-bg-selected); }
+  .row[data-current] .box { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .glyph { flex: none; color: var(--figma-color-icon-secondary); }
+  .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mark { border-radius: var(--ds-radius-small); background: var(--figma-color-bg-selected); color: inherit; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .top { flex: 0 1 auto; max-width: 40%; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+}

@@ -261,20 +261,21 @@ export const size = {
   control: 24,
   "control-large": 32,
   row: 32,
-  "layer-row": 24,
+  "layer-row": 32, // live: the Layers pitch (the highlight 24, inset 4)
   "section-header": 40,
   field: 88,
   "panel-pad-left": 16,
   "panel-pad-right": 8,
   "row-inset": 8,
-  "layer-indent": 16, // G
+  "layer-indent": 24, // live: a level moves the glyph 24
   panel: 240,
   "panel-min": 240,
   "panel-max": 480, // G
   "panel-header": 64,
   "right-header": 80,
-  rail: 48,
-  "rail-item": 32,
+  rail: 56, // live: the navigation bar (a 1px line after it)
+  "rail-item": 56, // live: a tab button, 56 × 56 (tile + label)
+  "rail-tile": 32,
   tabbar: 38,
   "tab-home": 40,
   "tab-min": 72, // G

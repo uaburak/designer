@@ -56,14 +56,15 @@
   }
   .fileRename { width: 100%; }
 
-  .pages { flex: none; }
+  /* Pages (live): rows from the header's foot, 8 under the last, the 8px resize handle on the line under them */
+  .pages { position: relative; flex: none; }
   .pageList { max-height: 40vh; overflow-y: auto; padding-bottom: var(--ds-space-2); }
-  .pageSearch { flex: 1 1 auto; min-width: 0; margin-right: var(--ds-space-1); }
   .pageDragging { opacity: 0.5; }
-  .noResults { padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-2); color: var(--figma-color-text-secondary); }
 
+  /* Layers (live): the first row 4 under the header (its text at 135 when the header starts at 81) */
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; border-bottom: 0; }
-  .layerList { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-2); outline: none; }
+  .layerList { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-1); outline: none; }
+  .placeholderTab { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .layersEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .assets { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
@@ -134,7 +135,7 @@
   .zoom svg { color: var(--figma-color-icon-secondary); }
   .rightBody { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 
-  /* ---- Minimized UI (⇧\): the panels as two floating cards ---- */
+  /* ---- Minimized UI (⇧⌘\): the panels as two floating cards ---- */
   .card {
     position: absolute;
     top: var(--ds-space-3);
@@ -149,6 +150,18 @@
     box-shadow: var(--ds-elevation-100);
   }
   .cardLeft { left: var(--ds-space-3); max-width: 280px; }
+  /* Minimized with a selection: the properties panel floats at the right until nothing is selected */
+  .rightFloating {
+    position: absolute;
+    top: var(--ds-space-3);
+    right: var(--ds-space-3);
+    bottom: var(--ds-space-3);
+    z-index: var(--ds-z-floating);
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--ds-radius-large);
+    box-shadow: var(--ds-elevation-100);
+  }
   .cardRight { right: var(--ds-space-3); }
   .cardName {
     min-width: 0;

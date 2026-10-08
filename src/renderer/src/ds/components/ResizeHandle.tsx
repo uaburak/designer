@@ -6,8 +6,8 @@ import type { ChangeInfo } from "../types";
 import styles from "./ResizeHandle.module.css";
 
 export interface ResizeHandleProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
-  /** Which edge of its (position: relative) panel */
-  side: "left" | "right";
+  /** Which edge of its (position: relative) panel; "bottom": a section's lower edge (the Pages list), dragged up and down */
+  side: "left" | "right" | "bottom";
   value: number;
   min?: number;
   max?: number;
@@ -25,7 +25,10 @@ export interface ResizeHandleProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  */
 export function ResizeHandle({ side, value, min = size["panel-min"], max = size["panel-max"], defaultValue = size.panel, onChange, className, ...rest }: ResizeHandleProps) {
   const drag = useRef<{ x: number; start: number; last: number } | null>(null);
-  const sign = side === "right" ? 1 : -1;
+  const sign = side === "left" ? -1 : 1;
+  const vertical = side === "bottom";
+  const cursor = vertical ? "row-resize" : "col-resize";
+  const at = (e: { clientX: number; clientY: number }) => (vertical ? e.clientY : e.clientX);
   const clamp = (v: number) => Math.round(Math.min(max, Math.max(min, v)));
   const end = (el: HTMLElement, id: number) => {
     const d = drag.current;
@@ -44,13 +47,13 @@ export function ResizeHandle({ side, value, min = size["panel-min"], max = size[
         if (e.button !== 0) return;
         e.preventDefault();
         capture(e.currentTarget, e.pointerId);
-        drag.current = { x: e.clientX, start: value, last: value };
-        document.documentElement.setAttribute("data-cursor", "col-resize");
+        drag.current = { x: at(e), start: value, last: value };
+        document.documentElement.setAttribute("data-cursor", cursor);
       }}
       onPointerMove={(e) => {
         const d = drag.current;
         if (!d) return;
-        const next = clamp(d.start + sign * (e.clientX - d.x));
+        const next = clamp(d.start + sign * (at(e) - d.x));
         if (next !== d.last) {
           d.last = next;
           onChange(next, { final: false, source: "drag" });

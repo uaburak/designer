@@ -40,6 +40,7 @@
   [data-theme-switching] *, [data-theme-switching] *::before, [data-theme-switching] *::after { transition: none !important; }
   html[data-cursor="ew-resize"], html[data-cursor="ew-resize"] * { cursor: ew-resize !important; }
   html[data-cursor="col-resize"], html[data-cursor="col-resize"] * { cursor: col-resize !important; }
+  html[data-cursor="row-resize"], html[data-cursor="row-resize"] * { cursor: row-resize !important; }
   @media (prefers-reduced-motion: reduce) {
     :root { --ds-duration-fast: 0ms; --ds-duration-medium: 0ms; }
   }
