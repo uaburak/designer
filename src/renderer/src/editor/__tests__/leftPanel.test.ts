@@ -149,8 +149,8 @@ describe("Pages and the keyboard", () => {
     class FakeElement {}
     g.Element = FakeElement;
     try {
-      expect(inOverlay(Object.assign(new FakeElement(), list))).toBe(false);
-      expect(inOverlay(Object.assign(new FakeElement(), menu))).toBe(true);
+      expect(inOverlay(Object.assign(new FakeElement(), list) as unknown as EventTarget)).toBe(false);
+      expect(inOverlay(Object.assign(new FakeElement(), menu) as unknown as EventTarget)).toBe(true);
     } finally {
       g.Element = saved;
     }
