@@ -7,7 +7,7 @@
  * override naming it).
  */
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { Button, Dialog, IconButton, Select } from "@/ds";
+import { Button, Dialog, RailItem, Select } from "@/ds";
 import { closestStyle, fonts, type FontFamily } from "@/engine/fonts";
 import { useEditor } from "../controller";
 import { missingFonts, useDocumentFonts, useFontFamilies, type DocumentFontUse } from "../fontList";
@@ -36,14 +36,18 @@ export function useMissingFonts(): DocumentFontUse[] {
   }, [list, used, version]);
 }
 
-/** The left panel's missing font icon (shown only while some font is missing) and its dialog. */
+/**
+ * The missing font alert, a notification at the bottom of the navigation bar (Figma 2026: "File notifications and
+ * warnings, such as library updates and missing font alerts, are now at the bottom of the navigation bar"); shown
+ * only while some font is missing; it opens the dialog.
+ */
 export function MissingFontsButton() {
   const missing = useMissingFonts();
   const [open, setOpen] = useState(false);
   if (!missing.length) return null;
   return (
     <>
-      <IconButton icon="24.warning" label="Missing fonts" data-missing-fonts={missing.length} onClick={() => setOpen(true)} />
+      <RailItem compact icon="24.missing-fonts" label="Missing fonts" active={open} data-missing-fonts={missing.length} onClick={() => setOpen(true)} />
       {open && <MissingFontsDialog missing={missing} onClose={() => setOpen(false)} />}
     </>
   );

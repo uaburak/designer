@@ -13,7 +13,7 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   /** The layer type's 16 glyph */
   icon: IconName;
   kind?: "default" | "component" | "instance";
-  /** Inside a component or an instance (or one itself): the selection highlights in the component purple */
+  /** Inside a component or an instance (or one itself): the hover cells in the component purple */
   tone?: "default" | "component";
   /** undefined: a leaf (no chevron) */
   expanded?: boolean;
@@ -32,12 +32,11 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   /** Drag-and-drop indicator */
   drop?: "before" | "after" | "inside";
   onToggleExpand?: (alt: boolean) => void;
-  onToggleLock?: () => void;
-  onToggleVisible?: () => void;
+  /** Pressed (not clicked): a drag from the cell goes on over the rows above or below it (Figma) */
+  onToggleLock?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onToggleVisible?: (e: React.PointerEvent<HTMLButtonElement>) => void;
   /** The new name, or null (cancelled); `exit` says how (Tab renames the next row in Figma) */
   onRename?: (name: string | null, exit: ExitReason) => void;
-  /** Enter on the focused row: the editor starts renaming it */
-  onRequestRename?: () => void;
   onPointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
   onDoubleClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
@@ -60,14 +59,37 @@ function RenameField({ value, onDone, className }: { value: string; onDone: (nam
   );
 }
 
+/** A lock / eye cell (Figma's labels): acts on press, so a drag from it goes on over other rows; never takes the focus. */
+function Cell({ kind, on, onPress }: { kind: "lock" | "visible"; on: boolean; onPress: (e: React.PointerEvent<HTMLButtonElement>) => void }) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      className={styles.cell}
+      data-cell={kind}
+      aria-label={kind === "lock" ? STRINGS.toggleLocking : STRINGS.toggleVisibility}
+      aria-pressed={on}
+      data-on={on || undefined}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        if (e.button === 0) onPress(e);
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <Icon name={kind === "lock" ? (on ? "16.lock.locked" : "16.lock.unlocked") : on ? "16.hidden" : "16.visible"} />
+    </button>
+  );
+}
+
 /**
- * A layer in the tree (contract §4.17): pitch 24; a 5px-cornered highlight
- * inset 8; inside it 4, depth × 16, the chevron (16), the type glyph (16) +
- * 4, the name, lock and eye (24 each, on hover — kept while on). Components
- * and instances in purple; hidden layers faded. Enter on a focused row
- * starts the rename (the editor drives `renaming`).
+ * A layer in the tree (contract §4.17, measured on Figma live): pitch 32; a 24 highlight (radius 5) inset 8 across
+ * and 4 down — a run of highlighted rows fills the pitch between them —; inside it 4, depth × 24, the chevron (16),
+ * the type glyph (16) + 8, the name, then lock and eye (24 each, flush right; on hover — kept while on). The glyph is
+ * secondary unless the row is selected or a top-level frame; components and instances in purple; hidden layers
+ * faded. Enter belongs to the list (select the children), not the row.
  */
-export function LayerRow({ id, depth, name, icon, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onRequestRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
+export function LayerRow({ id, depth, name, icon, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
   return (
     <div
       role="treeitem"
@@ -82,24 +104,17 @@ export function LayerRow({ id, depth, name, icon, kind = "default", tone = "defa
       data-drop={drop}
       data-tone={tone === "component" ? "component" : undefined}
       className={cx(styles.row, kind !== "default" && styles.component, hidden && styles.hiddenLayer, strong && styles.strong, className)}
-      style={{ ...style, ["--drop-indent" as string]: `${8 + 4 + depth * 16 + 16}px` }}
+      style={{ ...style, ["--depth" as string]: depth }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
-      onKeyDown={(e) => {
-        if (renaming) return;
-        if (e.key === "Enter" && onRequestRename) {
-          e.preventDefault();
-          onRequestRename();
-        }
-      }}
       {...rest}
     >
       <div className={styles.box}>
-        <span style={{ width: depth * 16, flex: "none" }} />
+        <span className={styles.indent} />
         {expanded === undefined ? (
           <span className={styles.leaf} />
         ) : (
-          <button type="button" tabIndex={-1} aria-label={expanded ? STRINGS.collapse : STRINGS.expand} aria-expanded={expanded} className={styles.chevron} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleExpand?.(e.altKey); }}>
+          <button type="button" tabIndex={-1} aria-label={expanded ? STRINGS.collapse : STRINGS.expand} aria-expanded={expanded} className={styles.chevron} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleExpand?.(e.altKey); }}>
             <Icon name="16.chevron.down" />
           </button>
         )}
@@ -111,16 +126,8 @@ export function LayerRow({ id, depth, name, icon, kind = "default", tone = "defa
         )}
         {!renaming && (onToggleLock || onToggleVisible) && (
           <span className={styles.tail}>
-            {onToggleLock && (
-              <button type="button" tabIndex={-1} className={styles.cell} aria-label={locked ? STRINGS.unlock : STRINGS.lock} aria-pressed={Boolean(locked)} data-on={locked || undefined} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleLock(); }}>
-                <Icon name={locked ? "16.lock.locked" : "16.lock.unlocked"} />
-              </button>
-            )}
-            {onToggleVisible && (
-              <button type="button" tabIndex={-1} className={styles.cell} aria-label={hidden ? STRINGS.show : STRINGS.hide} aria-pressed={Boolean(hidden)} data-on={hidden || undefined} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggleVisible(); }}>
-                <Icon name={hidden ? "16.hidden" : "16.visible"} />
-              </button>
-            )}
+            {onToggleLock ? <Cell kind="lock" on={Boolean(locked)} onPress={onToggleLock} /> : <span className={styles.cellSlot} />}
+            {onToggleVisible && <Cell kind="visible" on={Boolean(hidden)} onPress={onToggleVisible} />}
           </span>
         )}
       </div>
@@ -133,7 +140,7 @@ export interface PageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSe
   name: string;
   current: boolean;
   renaming?: boolean;
-  /** A name of dashes: drawn as a 1px line */
+  /** An empty page named with a leading dash: drawn as a 1px line, not a page to go to */
   divider?: boolean;
   onRename?: (name: string | null) => void;
   onSelect?: () => void;
@@ -141,7 +148,7 @@ export interface PageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSe
   hovered?: boolean;
 }
 
-/** A page (contract §4.18): a 24 highlight on a 32 pitch, the current one bg-secondary; double click renames. */
+/** A page (contract §4.18): a 24 highlight on a 32 pitch, the current one bg-secondary and its name 550; double click renames. */
 export function PageRow({ id, name, current, renaming, divider, onRename, onSelect, trailing, hovered, className, ...rest }: PageRowProps) {
   return (
     <div
@@ -150,9 +157,11 @@ export function PageRow({ id, name, current, renaming, divider, onRename, onSele
       data-id={id}
       aria-selected={current}
       data-hover={hovered || undefined}
+      data-divider={divider && !renaming ? "" : undefined}
       className={cx(styles.row, styles.page, className)}
-      onClick={onSelect}
+      onClick={divider ? undefined : onSelect}
       onKeyDown={(e) => {
+        if (divider || renaming) return;
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
           onSelect?.();
@@ -161,7 +170,7 @@ export function PageRow({ id, name, current, renaming, divider, onRename, onSele
       {...rest}
     >
       <div className={styles.box}>
-        {divider ? (
+        {divider && !renaming ? (
           <span className={styles.divider} aria-label={name} />
         ) : renaming ? (
           <RenameField className={styles.rename} value={name} onDone={(n) => onRename?.(n)} />

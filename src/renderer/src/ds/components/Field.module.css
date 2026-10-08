@@ -85,7 +85,7 @@
     width: var(--ds-size-control);
     height: 100%;
     color: var(--figma-color-text-secondary);
-    font-weight: var(--ds-weight-field-prefix);
+    font-weight: var(--ds-weight-body-medium-regular);
     user-select: none;
   }
   /* Figma's live panel: X / Y letters white, W / H at 70%, all 400; W / H with a mode ("Hug") 450 */

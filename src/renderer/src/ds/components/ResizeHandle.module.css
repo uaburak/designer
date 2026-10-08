@@ -10,4 +10,6 @@
   }
   .right { right: -4px; }
   .left { left: -4px; }
+  /* A section's lower edge: 8 high, centred on its line (the live Pages / Layers "Resize handle") */
+  .bottom { top: auto; right: 0; bottom: -4px; left: 0; width: auto; height: 8px; cursor: row-resize; }
 }

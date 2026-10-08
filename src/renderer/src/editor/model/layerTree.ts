@@ -38,13 +38,30 @@ export interface RowDetails {
   stackWrap?: string;
   /** BOOLEAN_OPERATION's operation (UNION, INTERSECT, SUBTRACT, XOR) */
   booleanOperation?: string;
+  /** "Use as mask" */
+  mask?: boolean;
+  /** A component's slot (FRAME isSlot) */
+  slot?: boolean;
+  /** A visible image or video fill: the Image / Video glyph (Figma's) for a rectangle */
+  media?: "IMAGE" | "VIDEO";
 }
 
 /** A row: its outline, and its details filled on first use (`LayerTree.details`). */
 export interface TreeNode extends OutlineNode, RowDetails {}
 
 /** What a details read asks the engine for (schema keys of `engine_read_nodes` `fields`). */
-export const DETAIL_FIELDS: readonly string[] = ["name", "visible", "locked", "resizeToFit", "stackMode", "stackWrap", "booleanOperation", "isStateGroup"];
+export const DETAIL_FIELDS: readonly string[] = ["name", "visible", "locked", "resizeToFit", "stackMode", "stackWrap", "booleanOperation", "isStateGroup", "mask", "isSlot", "fillPaints"];
+
+/** The glyph a fill list gives a row: its top visible image or video fill. */
+function mediaOf(fills: unknown): RowDetails["media"] {
+  if (!Array.isArray(fills)) return undefined;
+  for (let i = fills.length - 1; i >= 0; i--) {
+    const p = fills[i] as { type?: string; visible?: boolean };
+    if (p?.visible === false) continue;
+    if (p?.type === "IMAGE" || p?.type === "VIDEO") return p.type;
+  }
+  return undefined;
+}
 
 /** Reads the layer-tree rows of `ids` (guid, type, name, visible, locked, the optional flags) in one engine call. */
 export type RowReader = (ids: readonly Guid[]) => readonly NodeChange[];
@@ -54,11 +71,15 @@ const UNKNOWN: RowDetails = { name: "", visible: true, locked: false };
 /** A row's details from its engine row. */
 export function detailsOf(row: NodeChange | undefined): RowDetails {
   if (!row) return UNKNOWN;
-  const extra = row as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string };
+  const extra = row as NodeChange & { stackMode?: string; stackWrap?: string; booleanOperation?: string; mask?: boolean; isSlot?: boolean; fillPaints?: unknown };
   const out: RowDetails = { name: row.name ?? "", visible: row.visible !== false, locked: row.locked === true };
   if (extra.stackMode !== undefined) out.stackMode = extra.stackMode;
   if (extra.stackWrap !== undefined) out.stackWrap = extra.stackWrap;
   if (extra.booleanOperation !== undefined) out.booleanOperation = extra.booleanOperation;
+  if (extra.mask === true) out.mask = true;
+  if (extra.isSlot === true) out.slot = true;
+  const media = mediaOf(extra.fillPaints);
+  if (media) out.media = media;
   return out;
 }
 
@@ -195,6 +216,15 @@ class Row implements TreeNode {
   get booleanOperation(): string | undefined {
     return this.store.of(this.id).booleanOperation;
   }
+  get mask(): boolean | undefined {
+    return this.store.of(this.id).mask;
+  }
+  get slot(): boolean | undefined {
+    return this.store.of(this.id).slot;
+  }
+  get media(): RowDetails["media"] {
+    return this.store.of(this.id).media;
+  }
 }
 
 export interface LayerTree {
@@ -255,13 +285,29 @@ export interface RowData {
   expanded: boolean;
 }
 
-/** The rows the panel shows: top layer first; an expanded layer's children follow it, one level deeper. */
+/**
+ * Does the panel list this layer's children in flow order (the first child at the top)? A horizontal or vertical
+ * auto layout (wrapping or not) does — Figma's panel follows the flow there (live capture: AL_horizontal, AL_wrap);
+ * everything else (the page, frames, groups, a grid) lists the top layer first.
+ */
+export function flowOrdered(tree: LayerTree, id: Guid): boolean {
+  if (id === tree.page) return false;
+  const node = tree.nodes.get(id);
+  if (!node || (node.type !== "FRAME" && node.type !== "SYMBOL" && node.type !== "INSTANCE")) return false;
+  const mode = node.stackMode;
+  return mode === "HORIZONTAL" || mode === "VERTICAL";
+}
+
+/** The rows the panel shows: top layer first (flow order in an auto layout); an expanded layer's children follow it, one level deeper. */
 export function visibleRows(tree: LayerTree, expanded: ReadonlySet<Guid>): RowData[] {
   const rows: RowData[] = [];
   const walk = (id: Guid, depth: number) => {
     const node = tree.nodes.get(id);
     if (!node) return;
-    for (let i = node.children.length - 1; i >= 0; i--) {
+    const n = node.children.length;
+    const flow = n > 1 && flowOrdered(tree, id);
+    for (let k = 0; k < n; k++) {
+      const i = flow ? k : n - 1 - k;
       const child = tree.nodes.get(node.children[i]);
       if (!child) continue;
       const expandable = child.children.length > 0;
@@ -272,6 +318,13 @@ export function visibleRows(tree: LayerTree, expanded: ReadonlySet<Guid>): RowDa
   };
   walk(tree.page, 0);
   return rows;
+}
+
+/** `ids` in the order the panel lists them with everything open (top first; unknown ids last, as given). */
+export function inPanelOrder(tree: LayerTree, ids: readonly Guid[]): Guid[] {
+  const all = visibleRows(tree, { has: () => true } as unknown as ReadonlySet<Guid>);
+  const order = new Map(all.map((r, i) => [r.id, i]));
+  return [...ids].sort((a, b) => (order.get(a) ?? Number.MAX_SAFE_INTEGER) - (order.get(b) ?? Number.MAX_SAFE_INTEGER));
 }
 
 /** How far around a row the panel reads details: the rows above and below it that one window read covers. */
@@ -345,6 +398,16 @@ export function revealed(tree: LayerTree, ids: readonly Guid[], expanded: Readon
         next.add(a);
       }
   return next ?? expanded;
+}
+
+/**
+ * "Collapse layers" (⌥L): the expanded set with this page's layers closed but the selection's ancestors (Figma:
+ * "all expanded layers collapse except for your selection"); other pages' entries are kept.
+ */
+export function collapsedLayers(tree: LayerTree, selection: readonly Guid[], expanded: ReadonlySet<Guid>): ReadonlySet<Guid> {
+  const kept = new Set<Guid>();
+  for (const id of expanded) if (!tree.nodes.has(id)) kept.add(id);
+  return revealed(tree, selection, kept);
 }
 
 /** ⌥-click on a chevron: the layer and every descendant open (or all closed). */
@@ -424,15 +487,19 @@ export function dropTarget(tree: LayerTree, rows: readonly RowData[], rowIndex: 
   if (!node || node.derived) return null;
   if (moving.has(row.id) || ancestorsOf(tree, row.id).some((a) => moving.has(a))) return null;
   const position = dropZone(fraction, isContainer(node));
-  if (position === "inside") return { row: row.id, position, parent: row.id, index: without(node.children, moving).length };
-  if (position === "after" && row.expanded) return { row: row.id, position, parent: row.id, index: without(node.children, moving).length };
+  // The top of a layer's children as listed: the top of the paint order, or the flow's start in an auto layout.
+  const top = (id: Guid, kids: readonly Guid[]) => (flowOrdered(tree, id) ? 0 : without(kids, moving).length);
+  if (position === "inside") return { row: row.id, position, parent: row.id, index: top(row.id, node.children) };
+  if (position === "after" && row.expanded) return { row: row.id, position, parent: row.id, index: top(row.id, node.children) };
   const parentId = node.parent ?? tree.page;
   const parent = tree.nodes.get(parentId);
   if (!parent) return null;
   const siblings = without(parent.children, moving);
   const at = siblings.indexOf(row.id);
   if (at < 0) return null;
-  return { row: row.id, position, parent: parentId, index: position === "before" ? at + 1 : at };
+  const above = position === "before";
+  if (flowOrdered(tree, parentId)) return { row: row.id, position, parent: parentId, index: above ? at : at + 1 };
+  return { row: row.id, position, parent: parentId, index: above ? at + 1 : at };
 }
 
 /** The layers a drag moves: the selection when the pressed row is in it (outermost only, in panel order), else that row. */

@@ -27,6 +27,52 @@ Next step: re-run the panel comparison on `?editor&doc=capture` for every case, 
 
 `src/renderer/src/editor/` is the new file editor: Figma's UI3 chrome (rail, left panel with Pages and Layers, rulers, the engine canvas, the right Design panel, the bottom toolbar, menus) built from the design system (`src/renderer/src/ds/`) around the C++/Wasm engine (`src/renderer/src/engine/`). Contracts it follows: `docs/engine.md` §10 (binding), `docs/design-system.md` + `docs/design-system-usage.md` (look), `docs/schema.md` (field names), `docs/desktop.md` §13 (clipboard), `docs/research/figma/R7-editor.md` (behaviour), `docs/research/visual-diff.md` (measured metrics).
 
+## Status 2026-10-08 — Round 7, left panel (branch `r7-left-panel`, finished, ready to merge)
+
+Truth: the live capture `docs/research/figma/live/` (left/, menus/, behaviour/, README). Audit: `docs/research/audit-2026-10-08/layers.md` (items 1–28); where it disagrees with the live capture, live wins.
+
+| # | Item | State |
+|---|---|---|
+| 1 | Row pitch 32, 24 highlight inset 8/4, runs fill the pitch | done (live-verified: rows 32 apart) |
+| 2 | Glyph 28 / name 52 at depth 0, indent 24, chevron in 12–28 | done (verified: 28 / 52, depth 1 at 52) |
+| 3 | Navigation bar: Figma menu 12,8; File / Agents / Assets / Tools at 56/112/168/224 (56×56, labels 9px); Variables at 296; bottom notifications (missing fonts, library updates); View › Additional labels; Theme etc. in Figma menu › Preferences; Figma menu per live (Libraries without a shortcut — the live menu shows none; ⌥3 removed) | done (verified positions). Offline notification not built; "Minimize left navigation bar" listed disabled |
+| 4 | Find (⌘F / Pages' Find): field 156 at 16 with the search glyph (query at 40), Settings 180, Close 204, "N results · This page", Previous/Next 184/208, document-order results with parent line (34/52 rows), Settings (on while open) = Find/Replace + types with their glyphs and counts + Match case + Whole words; Replace / Replace all (keeps styled runs, one undo); Find next ⇧⌘F, previous ⇧⌘D (live Edit menu) | done; Replace row layout not captured live (ours: field + two buttons) |
+| 5 | Page row focus blocked shortcuts | done (verified: R after a page click) |
+| 6 | Collapse layers button (208) + ⌥L | done (verified) |
+| 7 | Component rows: blue selection, purple names/glyphs also inside components (live #d1a8ff) | done |
+| 8 | Glyphs secondary, primary when selected (and top-level frames, audit) | done; top-level icon rule unverified live |
+| 9 | Chevrons hover-only | NOT done on purpose: the live screenshot shows chevrons at rest — kept visible |
+| 10 | Image / video / mask / slot glyphs | done (needs fillPaints/mask/isSlot in details read) |
+| 11 | Current page 550, other names 400 (live) | done (new `body-medium-regular` 11/400 token for layer/page names) |
+| 12 | Pages resizable divider ("Resize handle", 8px) | done (drag sets `pagesHeight`, double-click resets) |
+| 13 | New page opens rename | done (verified) |
+| 14 | Drag across lock/eye | done (verified 3 rows, one undo) |
+| 15 | Enter / ⇧Enter after a row click | done: as on the canvas (live behaviour/layers.md #2 — a shape goes into vector edit, a frame selects its children, ⇧Enter the parent); the list no longer handles Enter itself, the shortcut layer forwards it to the engine |
+| 16 | ⌘R on several → "Rename N layers" | done per the live dialog (behaviour/img/bulk-rename-dialog-and-smart-selection.jpg): Preview column, Match (optional), Rename to (empty), Current name / Number ↑ / Number ↓, Start ascending from, Learn more, Cancel / Rename |
+| 17 | Minimize UI ⇧⌘\ ; with a selection the properties panel floats at right, hidden on deselect | done (full editor-shot green) |
+| 18 | Assets per live: header "Assets" + Libraries, "Search all libraries" + "Libraries and settings", "All libraries" cards, Back + path, pages 74 rows, 96 tiles | done (full editor-shot green; header / search / settings positions match rail-assets.txt) |
+| 19 | Auto layout (H/V/wrap) children in flow order, grid/frames top-first; drops follow | done (live: AL_horizontal/wrap item1 first, AL_grid item4 first) |
+| 20 | Divider = empty page named only with dashes / asterisks ("---"); "- name" and "– name" stay ordinary pages (live behaviour/pages.md #1); no click-through | done |
+| 21 | Duplicate page "Copy of …" | not done on purpose: live did not confirm the naming (behaviour/pages.md #2) |
+| 22 | "Go to page" removed from the page menu | done |
+| 23–24 | lock/eye at 184/208; no focus ring on rows | done (verified 184/208) |
+| 25 | Preferences › Highlight layers on hover | done |
+| 26 | Layers header collapsible | not done on purpose: live shows a plain "Layers" title with only Collapse layers (left/layers-row-*.txt) |
+| 27 | Drag auto-scroll near list edges | done (layers and lock/eye drags) |
+| 28 | Edit file menu (Rename, Duplicate, Move, versions, Color profile) | partial: Color profile listed disabled |
+
+Also: Agents and Tools tabs are placeholders with Figma's header (Tools: search, Source / Category, as live); non-File tabs replace the file header with a 48 tab header (live). Left panel is 240 + a 1px line (live 241).
+
+Also: menu shortcut glyphs as live (⇧′ / ⇧⌘′ for the quote key, ⌘– for Zoom out). Pages header keeps its collapse chevron (not visible in the static captures either way).
+
+**Verified (final, after merging main 41416d9)**: `npm run check` green (typecheck, lint, vitest 94 files / 786 tests); `npm run engine:test` 379 cases; `npm run engine:shot` 97 ok (WebGL2) and `engine-shot.mjs --gfx webgpu` 99 ok; full `editor-shot.mjs` 235 ok, no FAIL (its variables section now opens variables from the rail, `[data-rail-tab="variables"]`, so it survives r7-design-panel removing the right panel's Local variables row). Shots 170–175 compared with `live/img/left-*.jpg` and `left/*.txt`.
+
+**Known differences left**: menus keep the design system's 208 minimum width (live Find settings menu is 167); with the type glyphs in the Find settings menu, Find / Replace also sit in the icon column (live: 32, types at 60); Find's Replace row layout is ours (not captured live); "Color profile…" and the offline notification are not built.
+
+**Merge note**: `RightPanel.tsx` got a `floating` prop (small conflict risk with r7-design-panel). No engine or schema changes on this branch.
+
+---
+
 **Import rule (owner, 2026-10-06):** the editor imports only `src/renderer/src/ds/`, `src/renderer/src/engine/` and `src/shared/` (types). Nothing from the legacy folders (`figma/`, `cv/`, `home/`, `lib/`, `demo/`, `components/`, `context/`, `types/`, `tab/`), which are deleted in the next integration round. Theme: `ds/theme.ts` (`useThemeRoot`, `useTheme`), never `context/ThemeContext`.
 
 ---

@@ -27,7 +27,7 @@
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
 // own check skipped (gfx::samplesAttachment). The browser is closed after EDITOR_TIMEOUT seconds (default 180).
 /* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent */
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,7 +55,7 @@ function chromiumPath() {
 let server = null;
 let base = process.env.EDITOR_URL;
 if (!base) {
-  server = await createServer({ configFile: path.join(repo, "vite.web.config.ts"), mode: "demo", server: { port: Number(process.env.SHOT_PORT ?? 5312), strictPort: false }, logLevel: "error" });
+  server = await createServer({ configFile: path.join(repo, "vite.web.config.ts"), mode: "demo", server: { port: Number(process.env.SHOT_PORT ?? 5312), strictPort: false, fs: { allow: [repo, realpathSync(path.join(repo, "node_modules"))] } }, logLevel: "error" });
   await server.listen();
   base = server.resolvedUrls.local[0].replace(/\/$/, "");
 }
@@ -478,9 +478,20 @@ async function componentsSection(page, theme) {
   // Assets: list and grid; a click inserts an instance.
   await page.keyboard.press("Alt+Digit2");
   await settle(page);
-  check("⌥2 opens Assets with the file's components", (await page.locator("[data-asset]").count()) === 4, String(await page.locator("[data-asset]").count()));
-  await shot(page, `50-assets-list-${theme}`);
-  await page.getByRole("button", { name: "Show as grid" }).click();
+  const localCard = page.locator('[data-library-card="Created in this file"]');
+  check("⌥2 opens Assets: All libraries, the file's card with its count", (await localCard.count()) === 1 && (await localCard.innerText()).includes("4 components"), (await localCard.count()) ? await localCard.innerText() : "no card");
+  await shot(page, `50-assets-all-libraries-${theme}`);
+  await localCard.click();
+  await settle(page);
+  check("a library card opens its pages (Back, the path)", (await page.locator("[data-asset-page]").count()) >= 1 && (await page.getByRole("button", { name: "Back" }).count()) === 1);
+  await shot(page, `50b-assets-library-${theme}`);
+  const mainPage = await page.evaluate(() => window.__designerEditor.store.pages.find((p) => p.guid === "0:3")?.name);
+  await page.locator(`[data-asset-page="${mainPage}"]`).click();
+  await settle(page);
+  check("a page shows its components", (await page.locator('[data-asset="1:1"]').count()) === 1);
+  await shot(page, `50c-assets-page-list-${theme}`);
+  await page.getByRole("button", { name: "Libraries and settings" }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Grid" }).or(page.getByRole("menuitem", { name: "Grid" })).first().click();
   await settle(page);
   await shot(page, `51-assets-grid-${theme}`);
   const before = await page.evaluate(() => window.__designerEditor.engine.encodeDocument().nodeChanges.filter((n) => n.type === "INSTANCE").length);
@@ -514,11 +525,11 @@ async function variablesSection(page, theme) {
 
   // Nothing selected: Page (Apply variable mode), Local variables, the Styles list by kind and folder.
   await select();
-  check("nothing selected: Local variables and the Styles list (Text, Color, Effect, Layout guide)", (await panel.locator("[data-open-variables]").count()) === 1 && (await panel.locator("[data-style-item]").count()) === 9);
+  check("nothing selected: the Styles list (Text, Color, Effect, Layout guide)", (await panel.locator("[data-style-item]").count()) === 9);
   await shot(page, `53-styles-list-${theme}`);
 
   // The Local variables window: collections, groups, a column per mode, aliases.
-  await panel.locator("[data-open-variables]").click();
+  await page.locator('[data-rail-tab="variables"]').click(); // the rail (r7: the right panel has no Local variables row)
   await settle(page);
   check("Local variables opens with the collections and the first one's groups", (await win.locator("[data-collection]").count()) === 2 && (await win.locator("[data-group]").count()) >= 4);
   await win.locator('[data-collection="Theme"]').click();
@@ -645,7 +656,7 @@ async function variablesSection(page, theme) {
 
   // Round 5 — "Extend collection" (R3-32): the extended collection inherits Theme's variables and modes (no new ones);
   // a value edited there is an override, in blue, and "Reset change" brings back the parent's.
-  await panel.locator("[data-open-variables]").click();
+  await page.locator('[data-rail-tab="variables"]').click(); // the rail (r7: the right panel has no Local variables row)
   await settle(page);
   await win.locator('[data-collection="Theme"]').click({ button: "right" });
   await settle(page);
@@ -744,7 +755,10 @@ async function librariesSection(page, theme) {
   check("Esc closes the Libraries modal from a library's preview", (await page.locator("[data-libraries-dialog]").count()) === 0);
   if (await page.locator("[data-libraries-dialog]").count()) await dialog.getByRole("button", { name: "Close" }).click();
 
-  // ---- Assets: the libraries' sections with their thumbnails; a click inserts an instance of the Button.
+  // ---- Assets: the libraries' cards; a search lists Kit's Button with its thumbnail; a click inserts an instance.
+  await page.locator('[data-library-card="Kit"]').waitFor({ timeout: 10000 });
+  await shot(page, `75a-assets-library-cards-${theme}`);
+  await page.getByRole("searchbox", { name: "Search all libraries" }).fill("Button");
   await page.locator('[data-assets-section="Kit"] [data-asset-name="Button"]').waitFor({ timeout: 10000 });
   await settle(page);
   await shot(page, `75-assets-libraries-${theme}`);
@@ -1145,7 +1159,7 @@ async function fontsSection(page, theme) {
     ed.setProps(["1:22"], { fontName: { family: "Matter", style: "Medium", postscript: "" } }, "Font");
   });
   await page.waitForSelector("[data-missing-fonts]", { timeout: 4000 }).catch(() => {});
-  check("a missing font shows the left panel's missing font icon", (await page.locator("[data-missing-fonts]").count()) === 1);
+  check("a missing font shows the navigation bar's missing font alert", (await page.locator("[data-missing-fonts]").count()) === 1);
   check("and the missing font icon next to the family", (await panel.locator("[data-font-field] [data-missing-font]").count()) === 1);
   await shot(page, `134-missing-font-${theme}`);
   await page.locator("[data-missing-fonts]").click();
@@ -2059,7 +2073,204 @@ async function textSection(page, theme) {
   await settle(page);
 }
 
+/**
+ * Round 7: the left side against the live capture (docs/research/figma/live/left, menus): the navigation bar's
+ * geometry and tabs, Pages / Layers positions, row pitch and indent, hover cells, Collapse layers (⌥L), Enter selecting
+ * the children, the lock drag, a page row keeping the shortcuts, Add new page's rename, Find (⌘F) and its results,
+ * Rename layers (⌘R on several), Assets / Agents / Tools headers. Shots 170–179.
+ */
+async function leftPanelSection(page, theme) {
+  await open(page, "");
+  // Positions relative to the left panel, as the live dumps give them (x, y, w, h).
+  const geo = () =>
+    page.evaluate(() => {
+      const panel = document.querySelector('[data-panel="left"]').getBoundingClientRect();
+      const rel = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.left - panel.left), Math.round(r.top - panel.top), Math.round(r.width), Math.round(r.height)];
+      };
+      const abs = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+      };
+      const pages = document.querySelector('[aria-label="Pages"][data-ds="PanelSection"]');
+      const layers = document.querySelector('[aria-label="Layers"][data-ds="PanelSection"]');
+      const rows = [...document.querySelectorAll('[data-ds="LayerRow"]')];
+      const rowGeo = (row) => ({ id: row.dataset.id, row: rel(row), icon: rel(row.querySelector("span[class*=type]")), name: rel(row.querySelector("span[class*=name]")) });
+      return {
+        panelX: Math.round(panel.left),
+        rail: abs(document.querySelector('[data-ds="Rail"]')),
+        menu: abs(document.querySelector('[data-ds="RailItem"][aria-label="Main menu"] span')),
+        tabs: [...document.querySelectorAll("[data-rail-tab]")].map((b) => [b.dataset.railTab, ...abs(b)]),
+        pagesTop: rel(pages)?.[1],
+        pagesTitle: rel(pages?.querySelector("span[class*=title]")),
+        find: rel(pages?.querySelector('button[aria-label="Find"]')),
+        addPage: rel(pages?.querySelector('button[aria-label="Add new page"]')),
+        pageRow: rel(document.querySelector('[data-ds="PageRow"] span[class*=name]')),
+        handle: rel(document.querySelector("[data-pages-resize]")),
+        layersTitle: rel(layers?.querySelector("span[class*=title]")),
+        collapse: rel(document.querySelector("[data-collapse-layers]")),
+        rows: rows.slice(0, 12).map(rowGeo),
+      };
+    });
+  await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["1:1"]) }));
+  await settle(page);
+  const g = await geo();
+  check("the navigation bar is 56 + a line; the Figma menu tile at 12, 8", g.rail[2] === 57 && g.menu?.[0] === 12 && g.menu?.[1] === 8, JSON.stringify([g.rail, g.menu]));
+  const tabs = Object.fromEntries(g.tabs.map(([t, x, y, w, h]) => [t, [x, y, w, h]]));
+  check("File, Agents, Assets, Tools at y 56 / 112 / 168 / 224 (56 × 56); Variables at 296", tabs.file?.[1] === 56 && tabs.agents?.[1] === 112 && tabs.assets?.[1] === 168 && tabs.tools?.[1] === 224 && tabs.variables?.[1] === 296 && tabs.file?.[2] === 56, JSON.stringify(tabs));
+  check("the left panel starts at x 57", g.panelX === 57, String(g.panelX));
+  check("Pages: title at 16, Find at 180, Add new page at 208 (8 down)", g.pagesTitle?.[0] === 16 && g.find?.[0] === 180 && g.find?.[1] - g.pagesTop === 8 && g.addPage?.[0] === 208, JSON.stringify([g.pagesTitle, g.find, g.addPage, g.pagesTop]));
+  check("a page's name at x 16", g.pageRow?.[0] === 16, JSON.stringify(g.pageRow));
+  check("the Pages resize handle is 8 high across the panel", g.handle?.[3] === 8 && g.handle?.[2] >= 240, JSON.stringify(g.handle));
+  const [r0, r1, r2] = g.rows;
+  check("layer rows on a 32 pitch", r1 && r1.row[1] - r0.row[1] === 32 && r0.row[3] === 32, JSON.stringify(g.rows.slice(0, 3).map((r) => r.row)));
+  const desktop = g.rows.find((r) => r.id === "1:1");
+  const child = g.rows.find((r) => r.id === "1:9" || r.id === "1:7");
+  check("depth 0: glyph at 28, name at 52; depth 1: glyph at 52 (indent 24)", desktop?.icon?.[0] === 28 && desktop?.name?.[0] === 52 && child?.icon?.[0] === 52, JSON.stringify([desktop, child]));
+  check("Collapse layers shows while a layer is open, at 208", g.collapse?.[0] === 208, JSON.stringify(g.collapse));
+  void r2;
+  // Hover: lock and eye at 184 / 208.
+  await page.locator('[data-ds="LayerRow"][data-id="1:20"]').hover();
+  const cells = await page.evaluate(() => {
+    const panel = document.querySelector('[data-panel="left"]').getBoundingClientRect();
+    return [...document.querySelectorAll('[data-ds="LayerRow"][data-id="1:20"] [data-cell]')].map((c) => [c.getAttribute("aria-label"), Math.round(c.getBoundingClientRect().left - panel.left)]);
+  });
+  check("hover: Toggle layer locking at 184, Toggle layer visibility at 208", JSON.stringify(cells) === JSON.stringify([["Toggle layer locking", 184], ["Toggle layer visibility", 208]]), JSON.stringify(cells));
+  await shot(page, `170-left-panel-${theme}`);
+
+  // ⌥L collapses (the selection's branch stays open).
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Alt+KeyL");
+  await settle(page);
+  check("⌥L collapses the layers", (await page.evaluate(() => window.__designerEditor.ui.get().expanded.size)) === 0);
+
+  // Enter on the list selects the children.
+  await page.locator('[data-ds="LayerRow"][data-id="1:1"]').click();
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const kids = await selection(page);
+  check("Enter on a layer row selects its children (no rename)", kids.length === 6 && kids.includes("1:2") && (await page.locator('[data-ds="LayerRow"] input').count()) === 0, kids.join());
+
+  // The lock dragged across three rows locks them all, one undo step.
+  await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set() }));
+  await settle(page);
+  await page.locator('[data-ds="LayerRow"][data-id="1:20"]').hover();
+  const lock = page.locator('[data-ds="LayerRow"][data-id="1:20"] [data-cell="lock"]');
+  const lb = await lock.boundingBox();
+  await page.mouse.move(lb.x + lb.width / 2, lb.y + lb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(lb.x + lb.width / 2, lb.y - 32 * 2 + lb.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await settle(page);
+  const locked = await page.evaluate(() => ["1:20", "1:21", "1:22"].map((id) => window.__designerEditor.engine.readNode(id).locked === true));
+  check("a drag from the lock locks every row it crosses", locked.every(Boolean), JSON.stringify(locked));
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  const unlocked = await page.evaluate(() => ["1:20", "1:21", "1:22"].map((id) => window.__designerEditor.engine.readNode(id).locked === true));
+  check("…as one undo step", unlocked.every((v) => !v), JSON.stringify(unlocked));
+
+  // A page row clicked keeps the editor's shortcuts (R picks the Rectangle tool).
+  await page.locator('[data-ds="PageRow"]').first().click();
+  await page.keyboard.press("r");
+  check("with a page row focused, R still picks the Rectangle tool", (await page.evaluate(() => window.__designerEditor.store.tool)) === "RECTANGLE");
+  await page.keyboard.press("Escape");
+
+  // Add new page: the new row is in rename.
+  await page.getByRole("button", { name: "Add new page" }).click();
+  await settle(page);
+  check("Add new page opens the new page's rename", (await page.locator('[data-ds="PageRow"] input').count()) === 1);
+  await page.keyboard.type("Archive");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("…and the typed name sticks", (await page.locator('[data-ds="PageRow"]', { hasText: "Archive" }).count()) === 1);
+  await page.locator('[data-ds="PageRow"]').first().click();
+  await settle(page);
+
+  // ⌘F: Find replaces Pages and Layers; "Card" finds layers; Enter goes to the first; Esc goes back.
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Meta+KeyF");
+  await settle(page);
+  await page.keyboard.type("Card");
+  await settle(page);
+  const count = await page.locator("[data-find-count]").getAttribute("data-find-count").catch(() => null);
+  check("⌘F opens Find; typing lists the matches with a count", (await page.locator("[data-find]").count()) === 1 && count === "2" && (await page.locator('[data-ds="LayerRow"]').count()) === 0, String(count));
+  const fg = await page.evaluate(() => {
+    const panel = document.querySelector('[data-panel="left"]').getBoundingClientRect();
+    const r = (s) => {
+      const e = document.querySelector(s);
+      if (!e) return null;
+      const b = e.getBoundingClientRect();
+      return [Math.round(b.left - panel.left), Math.round(b.width)];
+    };
+    return { field: r("[data-find-query]"), settings: r('[data-find] button[aria-label="Settings"]'), close: r('[data-find] button[aria-label="Close"]'), next: r('[data-find] button[aria-label="Next result"]') };
+  });
+  check("Find: the field 156 at 16, Settings 180, Close 204, Next result 208", JSON.stringify(fg) === JSON.stringify({ field: [16, 156], settings: [180, 24], close: [204, 24], next: [208, 24] }), JSON.stringify(fg));
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("Enter in Find selects the first result", (await selection(page)).join() === "1:5", (await selection(page)).join());
+  await shot(page, `171-find-${theme}`);
+  await page.locator('[data-find] button[aria-label="Settings"]').click();
+  await settle(page);
+  await shot(page, `172-find-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.locator("[data-find-query] input").focus();
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("Esc closes Find (the layers come back)", (await page.locator("[data-find]").count()) === 0 && (await page.locator('[data-ds="LayerRow"]').count()) > 0);
+
+  // ⌘R on two layers: Rename layers.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:20", "1:21"]));
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("Meta+KeyR");
+  await settle(page);
+  check("⌘R on several layers opens Rename layers", (await page.locator("[data-rename-layers]").count()) === 1);
+  await page.locator("[data-rename-to] input").fill("Shape $n");
+  await settle(page);
+  await shot(page, `173-rename-layers-${theme}`);
+  await page.locator("[data-rename-apply]").click();
+  await settle(page);
+  const names = await page.evaluate(() => ["1:20", "1:21"].map((id) => window.__designerEditor.engine.readNode(id).name));
+  check("Rename layers numbers from the bottom row up", JSON.stringify(names) === JSON.stringify(["Shape 1", "Shape 2"]), JSON.stringify(names));
+
+  // The other tabs: their headers in place of the file's.
+  for (const [tab, title] of [["assets", "Assets"], ["tools", "Tools"], ["agents", "Agents"]]) {
+    await page.locator(`[data-rail-tab="${tab}"]`).click();
+    await settle(page);
+    check(`${title}: the tab is current and the panel has its header`, (await page.locator(`[data-rail-tab="${tab}"][aria-current="true"]`).count()) === 1 && (await page.locator(`[data-tab-header="${title}"]`).count()) === 1);
+    await shot(page, `174-tab-${tab}-${theme}`);
+  }
+  await page.locator('[data-rail-tab="variables"]').click();
+  await settle(page);
+  check("Variables opens the variables view", (await page.evaluate(() => window.__designerEditor.ui.get().variablesOpen)) === true);
+  await page.locator('[data-rail-tab="variables"]').click();
+  await page.locator('[data-rail-tab="file"]').click();
+  // The Figma menu opens under its tile (live: 12, 44) with Preferences and Libraries.
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await settle(page);
+  const top = await page.getByRole("menu").first().innerText();
+  check("the Figma menu: Back to files, Actions…, File … Vector, Plugins, Widgets, Preferences, Libraries, Help and account", ["Back to files", "Actions", "Plugins", "Widgets", "Preferences", "Libraries", "Help and account"].every((w) => top.includes(w)), top.replace(/\n/g, " | "));
+  await page.getByRole("menuitem", { name: "Preferences" }).hover();
+  await page.waitForTimeout(300);
+  await shot(page, `175-main-menu-preferences-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+}
+
 try {
+  if (only === "leftpanel" || !only) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await leftPanelSection(page, "dark");
+    await context.close();
+  }
   if (only === "grid" || !only) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
@@ -2218,12 +2429,18 @@ try {
     await page.keyboard.press("Escape");
 
     if (theme === "dark") {
-      // Minimize UI (⇧\), hide UI (⌘\), the shortcuts (⌃⇧?).
+      // Minimize UI (⇧⌘\, the live View menu), hide UI (⌘\), the shortcuts (⌃⇧?).
       await page.locator("#engine-canvas").focus();
-      await page.keyboard.press("Shift+Backslash");
+      const selected = await selection(page);
+      await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+      await page.keyboard.press("Meta+Shift+Backslash");
       await shot(page, `08-minimized-${theme}`);
-      check("⇧\\ minimizes the UI", await page.locator("[data-minimized]").count() === 2);
-      await page.keyboard.press("Shift+Backslash");
+      check("⇧⌘\\ minimizes the UI", (await page.locator("[data-minimized]").count()) === 2);
+      await page.evaluate((s) => window.__designerEditor.engine.setSelection(s), selected);
+      await settle(page);
+      check("minimized with a selection: the properties panel floats at the right", (await page.locator('[data-panel="right"][data-floating]').count()) === 1 && (await page.locator('[data-minimized="left"]').count()) === 1);
+      await shot(page, `08b-minimized-selection-${theme}`);
+      await page.keyboard.press("Meta+Shift+Backslash");
       await page.keyboard.press("Meta+Backslash");
       await shot(page, `09-hidden-${theme}`);
       check("⌘\\ hides the UI", (await page.locator('[data-ds="Rail"]').count()) === 0);

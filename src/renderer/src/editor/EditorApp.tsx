@@ -46,6 +46,7 @@ import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { VersionDialogs } from "./VersionDialogs";
 import { LocalVariables } from "./panels/variables/LocalVariables";
+import { RenameLayersDialog } from "./panels/RenameLayers";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
 import { PublishDialog } from "./panels/libraries/PublishDialog";
 import { ExportDialog } from "./ExportDialog";
@@ -390,6 +391,7 @@ function Overlays() {
       <StatusMenu />
       <CategoriesDialog />
       <CompareChanges />
+      <RenameLayersDialog />
     </>
   );
 }
