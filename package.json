@@ -14,6 +14,7 @@
     "build": "electron-vite build && npm run build:viewer",
     "build:viewer": "vite build --config vite.viewer.config.ts",
     "viewer": "vite --config vite.viewer.config.ts",
+    "viewer:check": "npm run build:viewer && vitest run --config vitest.viewer.config.ts",
     "start": "electron-vite preview",
     "dist": "npm run build && electron-builder --mac",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

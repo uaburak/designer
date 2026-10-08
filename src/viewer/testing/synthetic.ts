@@ -129,7 +129,7 @@ export async function syntheticPreview(): Promise<SyntheticPreview> {
     const variable = engine.runCommand("CREATE_VARIABLE", { collection, type: "COLOR", name: "Surface", value: rgb(0xffffff) as never }).created[0];
     engine.runCommand("BIND_VARIABLE", { refs: ["1:1"], target: "fillPaints[0].color", variable });
     engine.setSelection(["1:2"]);
-    engine.runCommand("CREATE_STYLE", { type: "TEXT", name: "Heading 1", apply: true });
+    engine.runCommand("CREATE_STYLE", { type: "TEXT", name: "Heading 1", from: "1:2", apply: true });
     engine.setSelection([]);
     // Every page derived, its fonts in, as the editor's Share does before it encodes.
     for (const p of engine.pages()) engine.layerTree(p.guid);

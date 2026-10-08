@@ -9,6 +9,7 @@ import { decodeMessage } from "@shared/schema/codec";
 import { Engine } from "@/engine/Engine";
 import { Status } from "@/engine/abi";
 import { syntheticPreview } from "./synthetic";
+import { ViewerDoc } from "../viewerDoc";
 
 const codecs = { deflateRaw: (d: Uint8Array) => new Uint8Array(deflateRawSync(d)), inflateRaw: (d: Uint8Array) => new Uint8Array(inflateRawSync(d)) };
 
@@ -46,6 +47,13 @@ describe("a preview of a synthetic file (engine, headless)", () => {
       const variables = viewer.boundVariables("1:1");
       expect(variables.map((b) => [b.target, viewer.variable(b.variable!)?.name])).toEqual([["fillPaints[0].color", "Surface"]]);
       expect(viewer.styles("TEXT").map((s) => s.name)).toEqual(["Heading 1"]);
+      // What the Inspect panel reads: the variable's collection and mode, the text style's name, the parent's layout.
+      const doc = new ViewerDoc(viewer);
+      expect(doc.inspect("1:1")?.variables["fillPaints[0].color"]).toMatchObject({ name: "Surface", collection: "Colors", mode: "Mode 1" });
+      expect(doc.inspect("1:2")?.styles?.text).toBe("Heading 1");
+      expect(doc.inspect("1:2")?.parentStackMode).toBe("VERTICAL");
+      expect(doc.pageBox("1:3")).toEqual({ x: 24, y: 54, width: 272, height: 120 });
+      expect(doc.tree("0:1").roots).toEqual(["1:30", "1:20", "1:10", "1:1"]);
     } finally {
       viewer.destroy();
     }

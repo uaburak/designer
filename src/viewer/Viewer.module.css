@@ -171,6 +171,8 @@
   .code { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: 0 var(--ds-space-4) var(--ds-space-2); user-select: text; }
   .codeGroup { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .codeTitle { color: var(--figma-color-text-secondary); }
+  /* Long declarations wrap in the panel instead of scrolling sideways */
+  .code :global([data-ds="CodeBlock"]) pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .typePreview { display: flex; flex-direction: column; padding: 0 var(--ds-space-4) var(--ds-space-1); }
   .typeStyle { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }

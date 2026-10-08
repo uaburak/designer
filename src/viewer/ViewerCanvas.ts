@@ -116,7 +116,13 @@ export function attachViewerCanvas(canvas: HTMLCanvasElement, engine: Engine, op
   );
   on<MouseEvent>(canvas, "contextmenu", (e) => e.preventDefault());
 
-  on<KeyboardEvent>(canvas, "keydown", (e) => {
+  // Keys anywhere in the viewer but its fields, menus and dialogs (Dev Mode's shortcuts work with a layer row focused).
+  const ownKeys = (e: KeyboardEvent) => {
+    const t = e.target as Element | null;
+    return !t?.closest?.('input,textarea,[contenteditable],[role="dialog"],[role="listbox"],[role="combobox"],[role="menu"]');
+  };
+  on<KeyboardEvent>(window, "keydown", (e) => {
+    if (!ownKeys(e)) return;
     const mods = modifiersOf(e);
     const primary = (mods & MOD_PRIMARY) !== 0;
     if (e.code === "Space" && !e.repeat) {
@@ -138,7 +144,7 @@ export function attachViewerCanvas(canvas: HTMLCanvasElement, engine: Engine, op
     } else handled = false;
     if (handled) e.preventDefault();
   });
-  on<KeyboardEvent>(canvas, "keyup", (e) => {
+  on<KeyboardEvent>(window, "keyup", (e) => {
     if (e.code === "Space") {
       space = false;
       setCursor(cursor);

@@ -36,7 +36,12 @@ export interface VariableUse extends BoundName {
   mode: string | null;
 }
 
-const assetGuid = (a: AssetId | undefined): Guid | null => (a?.guid ? `${a.guid.sessionID}:${a.guid.localID}` : null);
+/** A style reference's GUID ("s:l"; the engine's reads may write it as an object or as the string). */
+const assetGuid = (a: AssetId | undefined): Guid | null => {
+  const g = a?.guid as AssetId["guid"] | string | undefined;
+  if (!g) return null;
+  return typeof g === "string" ? g : `${g.sessionID}:${g.localID}`;
+};
 
 export class ViewerDoc {
   private readonly trees = new Map<Guid, PageTree>();
