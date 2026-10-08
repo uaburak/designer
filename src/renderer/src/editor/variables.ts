@@ -28,6 +28,7 @@ import {
   cleanName,
   detachedPaint,
   explicitModes,
+  fromData,
   guidStr,
   guidVal,
   isCollectionNode,
@@ -52,6 +53,7 @@ import {
   withValue,
   withVariableBinding,
   type Collection,
+  type GuidValue,
   type Literal,
   type ModeEntry,
   type Variable,
@@ -95,6 +97,8 @@ export const VARIABLE_COMMAND = {
   bind: "BIND_VARIABLE",
   detach: "DETACH_VARIABLE",
   setMode: "SET_VARIABLE_MODE",
+  extendCollection: "EXTEND_VARIABLE_COLLECTION",
+  resetOverride: "RESET_VARIABLE_OVERRIDE",
   createStyle: "CREATE_STYLE",
   deleteStyle: "DELETE_STYLE",
   applyStyle: "APPLY_STYLE",
@@ -255,8 +259,28 @@ export class VariableIndex {
       .filter((n) => isStyleNode(n) && !n.isSoftDeleted)
       .map(readStyle)
       .sort(byPosition);
-    const byId = new Map(variables.map((v) => [v.id, v]));
     const cById = new Map(collections.map((c) => [c.id, c]));
+    // Extended collections: linked to the collection they extend, their overrides (VARIABLE_OVERRIDE children) read.
+    const extensions = collections.filter((c) => c.parent);
+    for (const c of extensions) c.parentCollection = cById.get(c.parent!);
+    if (extensions.length) {
+      const read = engine.readNodes(extensions.map((c) => c.id), { childIds: true });
+      const ids = read.flatMap((n) => n.childIds ?? []);
+      for (const o of ids.length ? (engine.readNodes(ids) as unknown as VNode[]) : []) {
+        if (o.type !== "VARIABLE_OVERRIDE") continue;
+        const ext = cById.get(o.parentIndex?.guid ?? "");
+        const target = guidStr((o.overriddenVariableId as { guid?: GuidValue } | undefined)?.guid);
+        if (!ext || !target) continue;
+        const values = new Map<Guid, VarValue>();
+        for (const e of o.variableDataValues?.entries ?? []) {
+          const v = fromData(e.variableData);
+          if (v) values.set(guidStr(e.modeID), v);
+        }
+        ext.overrides.set(target, values);
+      }
+    }
+    // An extended collection's variables are its root's (inherited).
+    const byId = new Map(variables.map((v) => [v.id, v]));
     const sById = new Map(styles.map((s) => [s.id, s]));
     const own = <T extends { node: unknown }>(list: T[]) => list.filter((x) => !libraryOf(x));
     const copies = <T extends { node: unknown }>(list: T[]) => list.filter((x) => !!libraryOf(x));
@@ -606,8 +630,13 @@ export function setVariableValue(ed: EditorController, id: Guid, mode: Guid, val
       return false;
     }
   }
+  // A mode of an extended collection: its override, written by the engine (a drag's every value is a step then).
+  if (!a.lookup.collection(v.collection)?.modes.some((m) => m.id === mode)) {
+    if (info && !info.final) return true;
+    return engineDid(ed, VARIABLE_COMMAND.setValue, { variable: id, mode, value: engineValue(value) });
+  }
   // A drag's live values share one open step (written as fields; the engine re-resolves at its commit).
-  if (!info && engineDid(ed, VARIABLE_COMMAND.setValue, { variable: id, mode, value: engineValue(value) })) return true;
+  if (!info &&engineDid(ed, VARIABLE_COMMAND.setValue, { variable: id, mode, value: engineValue(value) })) return true;
   const write = () => {
     ed.engine.setProps([id], asFields({ variableDataValues: withValue(v, mode, value) }));
     refreshResolved(ed);
@@ -774,6 +803,66 @@ export function deleteGroup(ed: EditorController, collection: Guid, group: strin
   deleteVariables(ed, ids);
 }
 
+/** "Ungroup": the group's variables move up one level. */
+export function ungroupVariables(ed: EditorController, collection: Guid, group: string): boolean {
+  return engineDid(ed, VARIABLE_COMMAND.ungroup, { collection, group });
+}
+
+/** "Duplicate group": a copy of the group ("<name> copy") with copies of its variables. */
+export function duplicateGroup(ed: EditorController, collection: Guid, group: string): boolean {
+  return engineDid(ed, VARIABLE_COMMAND.duplicateGroup, { collection, group });
+}
+
+/** "Reorder collections": `collection` to `index` among the collections (0 = first). */
+export function moveCollection(ed: EditorController, collection: Guid, index: number): boolean {
+  return engineDid(ed, VARIABLE_COMMAND.moveCollection, { collection, index });
+}
+
+/** "Sort A to Z": the collections by name (one step per move, as Figma's popup applies each). */
+export function sortCollections(ed: EditorController): void {
+  const list = [...assets(ed).collections].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  ed.batch("Sort collections", () => list.forEach((c, i) => moveCollection(ed, c.id, i)));
+}
+
+/** "Edit variables" on a selection: scopes and Hide from publishing for every one (one step each). */
+export function updateVariables(ed: EditorController, ids: readonly Guid[], patch: { scopes?: string[]; hidden?: boolean }): void {
+  if (!ids.length) return;
+  if (patch.scopes !== undefined) engineDid(ed, VARIABLE_COMMAND.setScopes, { variables: [...ids], scopes: patch.scopes });
+  if (patch.hidden !== undefined) engineDid(ed, VARIABLE_COMMAND.setHidden, { variables: [...ids], hidden: patch.hidden });
+}
+
+/**
+ * "Paste" (variables copied with "Copy", R3-21): new variables in `collection` (in `group`) with the copies' names,
+ * types and values — a mode with the same name takes that mode's value, the others the default mode's. One step.
+ */
+export function pasteVariables(ed: EditorController, ids: readonly Guid[], collection: Guid, group = ""): Guid[] {
+  const a = assets(ed);
+  const target = a.lookup.collection(collection);
+  if (!target || target.parent) return [];
+  const made: Guid[] = [];
+  ed.batch("Paste variables", () => {
+    for (const id of ids) {
+      const v = a.lookup.variable(id);
+      const from = v ? a.lookup.collection(v.collection) : undefined;
+      if (!v || !from) continue;
+      const leaf = splitName(v.name).leaf;
+      const taken = new Set(assets(ed).variables.filter((x) => x.collection === collection).map((x) => x.name));
+      let name = group ? group + "/" + leaf : leaf;
+      for (let i = 2; taken.has(name); i++) name = (group ? group + "/" : "") + leaf + " " + i;
+      const created = engineRun(ed, VARIABLE_COMMAND.createVariable, { collection, type: v.type, name });
+      const nv = created.created[0];
+      if (!created.ok || !nv) continue;
+      for (const m of target.modes) {
+        const src = from.modes.find((x) => x.name === m.name)?.id ?? from.defaultMode;
+        const value = v.values.get(src) ?? v.values.get(from.defaultMode);
+        if (value) engineDid(ed, VARIABLE_COMMAND.setValue, { variable: nv, mode: m.id, value: engineValue(value) });
+      }
+      made.push(nv);
+    }
+  });
+  return made;
+}
+
 // ---- Binding ---------------------------------------------------------------------------------------------------------
 
 /** Binds a node field (VariableField) on every ref to `variable` (null: "Detach variable" — the value stays). */
@@ -839,6 +928,20 @@ export function bindPaint(ed: EditorController, refs: readonly Guid[], field: Pa
     if (v) refreshSubtrees(ed, refs);
   });
 }
+
+/** "Extend collection" (R3-32): a collection inheriting `collection`'s variables and modes; its values overridable. */
+export function extendCollection(ed: EditorController, collection: Guid): Guid | null {
+  const r = engineRun(ed, VARIABLE_COMMAND.extendCollection, { collection });
+  return r.ok ? (r.created[0] ?? null) : null;
+}
+
+/** "Reset change": an extended collection's value of `variable` back to its parent's (one mode; null: every mode). */
+export function resetOverride(ed: EditorController, collection: Guid, variable: Guid | readonly Guid[], mode: Guid | null): boolean {
+  return engineDid(ed, VARIABLE_COMMAND.resetOverride, { collection, variables: Array.isArray(variable) ? [...variable] : [variable as Guid], ...(mode ? { mode } : {}) });
+}
+
+/** Whether an extended collection overrides `variable` in `mode`. */
+export const isOverridden = (c: Collection, variable: Guid, mode: Guid): boolean => !!c.overrides.get(variable)?.has(mode);
 
 /** "Apply variable mode": collection `c` on every ref set to `mode` (null: Auto). */
 export function setExplicitMode(ed: EditorController, refs: readonly Guid[], c: Guid, mode: Guid | null): void {

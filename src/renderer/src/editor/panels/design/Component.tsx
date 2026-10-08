@@ -20,7 +20,7 @@
  * engine's commands, disabled until it has them.
  */
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Button, Icon, IconButton, MenuButton, PanelSection, Popover, Select, Switch, TextArea, TextInput, cx, type IconName, type MenuEntry } from "@/ds";
+import { Button, Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, Select, Switch, TextArea, TextInput, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { commandItem, resetSubmenu, runMenuItem } from "../../menus";
@@ -28,6 +28,7 @@ import { useTopics } from "../../hooks";
 import {
   addProperty,
   bindLayer,
+  bindPropertyVariable,
   boundProperty,
   canAddProperty,
   deleteProperty,
@@ -37,6 +38,7 @@ import {
   owningComponent,
   readC,
   renameVariantValue,
+  reorderProperty,
   setDescription,
   setExposed,
   setOf,
@@ -45,6 +47,7 @@ import {
   setVariantValueOf,
   swapInstance,
   updateProperty,
+  updateSlotSettings,
   valueFromLayer,
   variantsOf,
   type InstanceInfo,
@@ -71,8 +74,12 @@ import {
   type ComponentPropDef,
   type ComponentPropType,
   type ComponentPropValue,
+  type GuidValue,
 } from "../../model/components";
 import { ComponentPicker, useComponentAssets } from "./ComponentPicker";
+import { BoundPill } from "./Variables";
+import { VariablePicker } from "../variables/VariablePicker";
+import vstyles from "../variables/Variables.module.css";
 import type { PanelNode } from "./shared";
 import styles from "./Component.module.css";
 
@@ -195,18 +202,43 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
   const ed = useEditor();
   const { def } = row;
   const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [assign, setAssign] = useState<HTMLElement | null>(null);
   const instance = info.instance;
   let control: React.ReactNode;
   switch (def.type) {
     case "VARIANT":
+      // "Assign variable" (help "Modes for variables"): a string, number or boolean variable picks the variant in every
+      // mode; bound, the row shows the variable's pill (a click picks another, Detach on hover).
       control = (
-        <Select
-          label={def.name}
-          variant="outlined"
-          value={row.variantValue ?? ""}
-          options={(row.options ?? []).map((v) => ({ value: v, label: v }))}
-          onChange={(v) => setVariant(ed, readC(ed, instance.guid) ?? instance, def.name, v)}
-        />
+        <>
+          {row.variable ? (
+            <BoundPill id={row.variable} label={def.name} onOpen={(a) => setAssign(a)} onDetach={() => bindPropertyVariable(ed, instance.guid, def.name, null)} />
+          ) : (
+            <div className={vstyles.bindWrap} data-assign-variable={def.name}>
+              <Select
+                label={def.name}
+                variant="outlined"
+                value={row.variantValue ?? ""}
+                options={(row.options ?? []).map((v) => ({ value: v, label: v }))}
+                onChange={(v) => setVariant(ed, readC(ed, instance.guid) ?? instance, def.name, v)}
+              />
+              <button type="button" className={vstyles.applyButton} aria-label="Assign variable" aria-expanded={!!assign} {...tooltipProps("Assign variable")} onClick={(e) => setAssign(e.currentTarget)}>
+                <Icon name="24.variable.small" />
+              </button>
+            </div>
+          )}
+          {assign && (
+            <VariablePicker
+              anchor={assign}
+              title="Assign variable"
+              types={["STRING", "FLOAT", "BOOLEAN"]}
+              current={row.variable ?? null}
+              consumer={instance.guid.startsWith("I") ? null : instance.guid}
+              onPick={(v) => bindPropertyVariable(ed, instance.guid, def.name, v.id)}
+              onClose={() => setAssign(null)}
+            />
+          )}
+        </>
       );
       break;
     case "BOOL":
@@ -296,6 +328,9 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   const variants = isComponentSet(fresh) ? variantsOf(ed, fresh) : [];
   const variantProps = isComponentSet(fresh) ? variantProperties(fresh, variants) : [];
   const nestedInstances = nestedInstancesOf(ed, fresh);
+  const exposed = nestedInstances.filter((n) => n.propsAreBubbled === true);
+  const [dragging, setDragging] = useState<ComponentPropDef | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   const entries: MenuEntry[] = [
     ...ADD_TYPES.map((t) => ({ id: t, label: PROPERTY_TYPE_LABEL[t], icon: PROPERTY_ICON[t], disabled: !canAddProperty(ed, fresh, t) })),
     ...(nestedInstances.length
@@ -334,7 +369,32 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
       <div className={styles.defs} data-component-properties="">
         {defs.length === 0 && <div className={styles.empty}>Click + to create a property</div>}
         {defs.map((d) => (
-          <div key={guidStr(d.id)} className={styles.defRow}>
+          <div
+            key={guidStr(d.id)}
+            className={cx(styles.defRow, dragOver === guidStr(d.id) && styles.defDrop)}
+            data-property-row={d.name}
+            draggable
+            onDragStart={(e) => {
+              setDragging(d);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(e) => {
+              // Within its own group: variant properties always stay above the others (Figma).
+              if (!dragging || (dragging.type === "VARIANT") !== (d.type === "VARIANT")) return;
+              e.preventDefault();
+              setDragOver(guidStr(d.id));
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragging && guidStr(dragging.id) !== guidStr(d.id)) reorderProperty(ed, fresh, dragging, d);
+              setDragging(null);
+              setDragOver(null);
+            }}
+            onDragEnd={() => {
+              setDragging(null);
+              setDragOver(null);
+            }}
+          >
             <button type="button" className={styles.defButton} aria-label={`Edit property ${d.name}`} onClick={(e) => setEditing({ target: { mode: "edit", def: d }, anchor: e.currentTarget })}>
               <Icon name={PROPERTY_ICON[d.type]} className={styles.purpleIcon} />
               <span className={styles.defName}>{d.name}</span>
@@ -343,6 +403,20 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
             <IconButton icon="24.minus.small" label={`Delete property ${d.name}`} tone="secondary" disabled={d.type === "VARIANT" && defs.filter((x) => x.type === "VARIANT").length <= 1} onClick={() => deleteProperty(ed, fresh, d)} />
           </div>
         ))}
+        {exposed.length > 0 && (
+          // Exposed nested instances (help: "appear as a list in the right panel"; hover a name, − stops exposing it).
+          <div className={styles.exposedList} data-exposed-instances="">
+            {exposed.map((n) => (
+              <div key={n.guid} className={styles.defRow} data-exposed-instance={n.name ?? ""}>
+                <span className={styles.defButton}>
+                  <Icon name="16.instance" className={styles.purpleIcon} />
+                  <span className={styles.defName}>{n.name}</span>
+                </span>
+                <IconButton icon="24.minus.small" label={`Stop exposing ${n.name ?? ""}`} tone="secondary" onClick={() => setExposed(ed, n, false)} />
+              </div>
+            ))}
+          </div>
+        )}
         <Description owner={fresh} />
       </div>
       {editing && <PropertyEditor owner={fresh} target={editing.target} anchor={editing.anchor} onClose={() => setEditing(null)} />}
@@ -401,6 +475,11 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
   const initial = target.mode === "create" ? (target.bind ? valueFromLayer(target.bind.layer, type) : undefined) : def?.initialValue;
   const [value, setValue] = useState<ComponentPropValue | undefined>(initial ?? (type === "BOOL" ? { boolValue: true } : type === "TEXT" ? { textValue: { characters: "Text" } } : type === "VARIANT" ? { textValue: { characters: "Default" } } : undefined));
   const [picker, setPicker] = useState<{ kind: "value" | "preferred"; anchor: HTMLElement } | null>(null);
+  const [applying, setApplying] = useState<HTMLElement | null>(null);
+  const slot = (def?.slotPropConfig ?? {}) as NonNullable<ComponentPropDef["slotPropConfig"]>;
+  // The variable the default is bound to (the def's varValue, an alias).
+  const varValue = def?.varValue as { dataType?: string; value?: { alias?: { guid?: GuidValue } } } | undefined;
+  const boundDefault = varValue?.dataType === "ALIAS" && varValue.value?.alias?.guid ? guidStr(varValue.value.alias.guid) : null;
   const preferred = def?.preferredValues?.instanceSwapValues ?? [];
   const title = target.mode === "create" ? `Create ${PROPERTY_TYPE_LABEL[type].toLowerCase()} property` : `Edit ${PROPERTY_TYPE_LABEL[type].toLowerCase()} property`;
   const editValue = (v: ComponentPropValue) => {
@@ -423,7 +502,13 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
             if (def && v.trim() && v !== def.name) updateProperty(ed, owner, def, { name: v.trim() }, "Rename property");
           }}
         />
-        {type === "BOOL" && (
+        {type === "BOOL" && boundDefault && def && (
+          <>
+            <span className={styles.editorLabel}>Value</span>
+            <BoundPill id={boundDefault} label="Value" onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
+          </>
+        )}
+        {type === "BOOL" && !boundDefault && (
           <>
             <span className={styles.editorLabel}>Value</span>
             <Select
@@ -437,11 +522,35 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
             />
           </>
         )}
-        {type === "TEXT" && (
+        {type === "TEXT" && boundDefault && def && (
+          <>
+            <span className={styles.editorLabel}>Value</span>
+            <BoundPill id={boundDefault} label="Value" onOpen={setApplying} onDetach={() => bindPropertyVariable(ed, owner.guid, def.name, null)} />
+          </>
+        )}
+        {type === "TEXT" && !boundDefault && (
           <>
             <span className={styles.editorLabel}>Value</span>
             <TextInput label="Value" value={value?.textValue?.characters ?? ""} onCommit={(v) => editValue({ textValue: { characters: v } })} />
           </>
+        )}
+        {(type === "BOOL" || type === "TEXT") && def && !boundDefault && (
+          // "Apply variable" (help: a boolean variable for a boolean property's default, a string one for a text one).
+          <span className={cx(styles.editorWide, styles.editorFooterStart)}>
+            <Button variant="secondary" onClick={(e) => setApplying(e.currentTarget)} {...tooltipProps("Apply variable")}>
+              <Icon name="24.variable.small" />
+              Apply variable
+            </Button>
+          </span>
+        )}
+        {applying && def && (
+          <VariablePicker
+            anchor={applying}
+            types={[type === "BOOL" ? "BOOLEAN" : "STRING"]}
+            current={boundDefault}
+            onPick={(v) => bindPropertyVariable(ed, owner.guid, def.name, v.id)}
+            onClose={() => setApplying(null)}
+          />
         )}
         {type === "VARIANT" && !def && (
           <>
@@ -472,8 +581,8 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
         {type === "INSTANCE_SWAP" && def && (
           <>
             <span className={cx(styles.editorLabel, styles.editorWide, styles.editorHeader)}>
-              Preferred values
-              <IconButton icon="24.plus.small" label="Add preferred values" tone="secondary" onClick={(e) => setPicker({ kind: "preferred", anchor: e.currentTarget })} />
+              Preferred instances
+              <IconButton icon="24.plus.small" label="Add preferred instances" tone="secondary" onClick={(e) => setPicker({ kind: "preferred", anchor: e.currentTarget })} />
             </span>
             {preferred.length === 0 && <span className={cx(styles.muted, styles.editorWide)}>None</span>}
             {preferred.map((p) => {
@@ -484,7 +593,7 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
                   <span className={styles.headerText}>{a ? assetLabel(a.name) : "Missing component"}</span>
                   <IconButton
                     icon="24.minus.small"
-                    label="Remove preferred value"
+                    label="Remove preferred instance"
                     tone="secondary"
                     onClick={() => updateProperty(ed, owner, def, { preferredValues: { ...def.preferredValues, instanceSwapValues: preferred.filter((x) => x.key !== p.key) } }, "Edit preferred values")}
                   />
@@ -493,7 +602,25 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
             })}
           </>
         )}
-        {type === "SLOT" && <span className={cx(styles.muted, styles.editorWide)}>Apply it to a frame inside the component.</span>}
+        {type === "SLOT" && !def && <span className={cx(styles.muted, styles.editorWide)}>Apply it to a frame inside the component.</span>}
+        {type === "SLOT" && def && (
+          // The slot's settings (help "Use slots"): limits are guidance (a warning past them, never a block).
+          <>
+            <span className={styles.editorLabel}>Minimum layers</span>
+            <NumericInput label="Minimum layers" value={slot.minChildren ?? 0} min={0} max={999} onChange={(v, info) => info.final && updateSlotSettings(ed, owner, def, { minChildren: Math.round(v) })} />
+            <span className={styles.editorLabel}>Maximum layers</span>
+            <NumericInput label="Maximum layers" value={slot.maxChildren ?? 0} min={0} max={999} onChange={(v, info) => info.final && updateSlotSettings(ed, owner, def, { maxChildren: Math.round(v) })} />
+            <div className={styles.editorWide}>
+              <Checkbox label="Only allow preferred instances" checked={slot.allowPreferredValuesOnly === true} onChange={(on) => updateSlotSettings(ed, owner, def, { allowPreferredValuesOnly: on })} />
+            </div>
+            <div className={styles.editorWide}>
+              <Checkbox label="By default, display empty slots" checked={slot.displayByDefault === true} onChange={(on) => updateSlotSettings(ed, owner, def, { displayByDefault: on })} />
+            </div>
+            <div className={styles.editorWide}>
+              <Checkbox label="By default, fill items on slot's counter-axis" checked={slot.stretchChildOnInsert === true} onChange={(on) => updateSlotSettings(ed, owner, def, { stretchChildOnInsert: on })} />
+            </div>
+          </>
+        )}
         {target.mode === "create" && (
           <div className={cx(styles.editorWide, styles.editorFooter)}>
             <Button
@@ -511,7 +638,7 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
       {picker && (
         <ComponentPicker
           anchor={picker.anchor}
-          title={picker.kind === "value" ? "Value" : "Preferred values"}
+          title={picker.kind === "value" ? "Value" : "Preferred instances"}
           current={picker.kind === "value" && value?.guidValue ? guidStr(value.guidValue) : null}
           onPick={(a) => {
             if (picker.kind === "value") editValue({ guidValue: guidVal(a.target) });

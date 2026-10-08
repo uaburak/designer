@@ -161,7 +161,8 @@ bool styleTypeFromName(const std::string& s, StyleType& t) {
 
 // A binding target (docs/engine-build.md "Binding targets").
 struct BindTarget {
-  enum class Kind : uint8_t { FIELD, PAINT, EFFECT, GRID } kind = Kind::FIELD;
+  // PROPERTY: "componentProperties.<name>" — an instance's variant property, or a main's boolean / text default.
+  enum class Kind : uint8_t { FIELD, PAINT, EFFECT, GRID, PROPERTY } kind = Kind::FIELD;
   VariableField field = VariableField::MISSING;
   bool strokes = false;
   size_t index = 0;
@@ -186,6 +187,12 @@ bool parseTarget(std::string_view s, BindTarget& t) {
   t = BindTarget{};
   auto list = [&](std::string_view prefix) { return s.size() > prefix.size() && s.substr(0, prefix.size()) == prefix && s[prefix.size()] == '['; };
   size_t pos = 0;
+  constexpr std::string_view kProps = "componentProperties.";
+  if (s.size() > kProps.size() && s.substr(0, kProps.size()) == kProps) {
+    t.kind = BindTarget::Kind::PROPERTY;
+    t.member = std::string(s.substr(kProps.size()));
+    return true;
+  }
   if (list("fillPaints") || list("strokePaints")) {
     t.kind = BindTarget::Kind::PAINT;
     t.strokes = s[0] == 's';
@@ -222,8 +229,10 @@ bool parseTarget(std::string_view s, BindTarget& t) {
   }
 }
 
-// What a target takes (FONT_STYLE takes a STRING or a FLOAT).
+// What a target takes (FONT_STYLE takes a STRING or a FLOAT; a property: checked against its type when bound).
 bool accepts(const BindTarget& t, VariableResolvedType type) {
+  if (t.kind == BindTarget::Kind::PROPERTY)
+    return type == VariableResolvedType::STRING || type == VariableResolvedType::FLOAT || type == VariableResolvedType::BOOLEAN;
   if (t.kind == BindTarget::Kind::FIELD) {
     switch (t.field) {
       case VariableField::VISIBLE: return type == VariableResolvedType::BOOLEAN;
@@ -250,6 +259,8 @@ VariableData bindingData(const BindTarget& t, Guid variable, VariableResolvedTyp
     else d.args = {VariableData{}, VariableData::aliasOf(variable, type)};
     return d;
   }
+  // Visibility: IS_TRUTHY(alias), as Figma's files hold every boolean bound to visibility.
+  if (t.kind == BindTarget::Kind::FIELD && t.field == VariableField::VISIBLE) return VariableData::isTruthy(VariableData::aliasOf(variable, type));
   return VariableData::aliasOf(variable, type);
 }
 
@@ -530,6 +541,12 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         write(c);
       } else {
         write(NodeChange::removed(v));
+        // Extended collections' values for it go with it.
+        std::vector<Guid> gone;
+        for (auto& [ext, byVar] : overridesBySet_)
+          if (auto it = byVar.find(v); it != byVar.end()) gone.push_back(it->second);
+        for (Guid o : gone)
+          if (doc_.has(o)) write(NodeChange::removed(o));
       }
     }
   };
@@ -654,7 +671,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       p.type = NodeType::VARIABLE_SET;
       p.name = name;
       Guid mode = newGuid();
-      p.asset().variableSetModes = {{mode, "Mode 1", "!"}};
+      p.asset().variableSetModes = {{mode, "Mode 1", "!", {}, kNoGuid}};
       p.asset().sortPosition = keyAfter(collections());
       p.asset().key = newAssetKey();
       p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
@@ -680,6 +697,17 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       Guid g = argGuid(args, "collection");
       if (!collectionNode(g)) return E_INVALID;
       begin(TxnKind::USER, "Delete collection");
+      // Its extended collections (and theirs) go with it, their overrides with them.
+      {
+        std::vector<Guid> chain{g};
+        for (size_t i = 0; i < chain.size() && i < 256; i++)
+          for (Guid e : extensionsOf(chain[i])) chain.push_back(e);
+        for (size_t i = chain.size(); i-- > 1;) {
+          for (Guid o : std::vector<Guid>(doc_.children(chain[i]))) write(NodeChange::removed(o));
+          write(NodeChange::removed(chain[i]));
+        }
+        for (Guid o : std::vector<Guid>(doc_.children(g))) write(NodeChange::removed(o));
+      }
       deleteVariables(variablesOf(g, true));
       bool kept = !variablesOf(g, true).empty();
       if (kept) {
@@ -703,6 +731,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       return OK;
     }
     case CommandId::DUPLICATE_VARIABLE_COLLECTION: {
+      if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;
       Guid g = argGuid(args, "collection");
       const NodeProps* sp = collectionNode(g);
       if (!sp) return E_INVALID;
@@ -716,7 +745,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       for (const VariableSetMode& m : src.asset().variableSetModes) {
         Guid nm = newGuid();
         modeMap[m.id] = nm;
-        p.asset().variableSetModes.push_back({nm, m.name, m.sortPosition});
+        p.asset().variableSetModes.push_back({nm, m.name, m.sortPosition, {}, kNoGuid});
       }
       p.asset().description = src.asset().description;
       p.asset().isPublishable = src.asset().isPublishable;
@@ -737,6 +766,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
 
     // ---- Modes ----
     case CommandId::ADD_VARIABLE_MODE: {
+      if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // an extended collection inherits its modes
       Guid g = argGuid(args, "collection");
       const NodeProps* sp = collectionNode(g);
       if (!sp || sp->asset().variableSetModes.size() >= kMaxModes) return E_INVALID;
@@ -756,7 +786,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       begin(TxnKind::USER, "Add mode");
       Guid mode = newGuid();
       std::string k = fractional::keyBetween(modes.empty() ? std::string() : modes.back().sortPosition, std::nullopt, fractional::Bias::Low);
-      modes.push_back({mode, name, k});
+      modes.push_back({mode, name, k, {}, kNoGuid});
       if (k.empty() || k.size() > fractional::kMaxKeyLength) orderModes(modes, kNoGuid);
       writeModes(g, modes);
       // The new column starts with the default mode's values (Figma).
@@ -776,6 +806,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       return OK;
     }
     case CommandId::RENAME_VARIABLE_MODE: {
+      if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // an extended collection inherits its modes
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
       std::string name;
       if (!collectionNode(g) || !argString(args, "name", name)) return E_INVALID;
@@ -791,6 +822,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       return OK;
     }
     case CommandId::DELETE_VARIABLE_MODE: {
+      if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // an extended collection inherits its modes
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
       if (!collectionNode(g)) return E_INVALID;
       auto modes = collectionNode(g)->asset().variableSetModes;
@@ -811,6 +843,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       return OK;
     }
     case CommandId::MOVE_VARIABLE_MODE: {
+      if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // an extended collection inherits its modes
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
       double index = 0;
       if (!collectionNode(g) || !argNumber(args, "index", index)) return E_INVALID;
@@ -828,6 +861,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       return OK;
     }
     case CommandId::DUPLICATE_VARIABLE_MODE: {
+      if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // an extended collection inherits its modes
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
       if (!collectionNode(g) || collectionNode(g)->asset().variableSetModes.size() >= kMaxModes) return E_INVALID;
       auto modes = modesOf(g);
@@ -842,7 +876,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (name.size() > kMaxModeNameLength) name = name.substr(0, kMaxModeNameLength);
       begin(TxnKind::USER, "Duplicate mode");
       Guid copy = newGuid();
-      modes.insert(modes.begin() + static_cast<long>(at), VariableSetMode{copy, name, std::string()});
+      modes.insert(modes.begin() + static_cast<long>(at), VariableSetMode{copy, name, std::string(), {}, kNoGuid});
       orderModes(modes, copy);
       writeModes(g, modes);
       for (Guid v : variablesOf(g, true)) {
@@ -860,6 +894,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
 
     // ---- Variables ----
     case CommandId::CREATE_VARIABLE: {
+      if (extensionParent(argGuid(args, "collection")) != kNoGuid) return E_INVALID;  // inherited from its parent (Figma)
       Guid g = argGuid(args, "collection");
       std::string typeName, name, group;
       VariableResolvedType type = VariableResolvedType::COLOR;
@@ -967,6 +1002,35 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (const NodeProps* sp = collectionNode(g))
         for (auto& m : sp->asset().variableSetModes) known |= m.id == mode;
       VariableData data;
+      // A mode of an extended collection: the extension's override for this variable (Figma: overrides show in blue).
+      Guid ext = !known && g != kNoGuid ? collectionOfMode(g, mode) : kNoGuid;
+      if (ext != kNoGuid && ext != g) {
+        if (isLibraryCopy(ext) || !parseValue(*value, vp->asset().variableResolvedType, v, data)) return E_INVALID;
+        begin(TxnKind::USER, "Edit variable");
+        Guid o = overrideNode(ext, v);
+        if (o == kNoGuid) {
+          NodeProps op;
+          op.type = NodeType::VARIABLE_OVERRIDE;
+          op.name = vp->name;
+          op.asset().variableSetID = AssetId::of(ext);
+          op.asset().overriddenVariableId = AssetId::of(v);
+          op.asset().variableResolvedType = vp->asset().variableResolvedType;
+          op.asset().variableDataValues = {{mode, data}};
+          op.parentIndex = {ext, doc_.positionAtEnd(ext)};
+          write(NodeChange::created(newGuid(), op));
+        } else {
+          std::vector<VariableModeValue> values = doc_.get(o)->props.asset().variableDataValues;
+          auto it = std::find_if(values.begin(), values.end(), [&](const VariableModeValue& mv) { return mv.modeID == mode; });
+          if (it != values.end()) it->data = data;
+          else values.push_back({mode, data});
+          NodeChange c = NodeChange::changed(o);
+          c.mask = F_VARIABLE_DATA_VALUES;
+          c.props.asset().variableDataValues = values;
+          write(c);
+        }
+        commit();
+        return OK;
+      }
       if (!known || !parseValue(*value, vp->asset().variableResolvedType, v, data)) return E_INVALID;
       std::vector<VariableModeValue> values = vp->asset().variableDataValues;
       auto it = std::find_if(values.begin(), values.end(), [&](const VariableModeValue& mv) { return mv.modeID == mode; });
@@ -1192,6 +1256,75 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
             }
             break;
           }
+          case BindTarget::Kind::PROPERTY: {
+            if (p.type == NodeType::INSTANCE) {
+              // A variant property of an instance ("Assign variable", R3-13): one RESOLVE_VARIANT binding holding every
+              // bound property (Figma's files); string, number and boolean variables. Boolean and text properties of an
+              // instance take no variable (Figma: "boolean variables cannot be applied to boolean properties").
+              Guid main = mainOf(r);
+              Guid set = main != kNoGuid ? setOf(main) : kNoGuid;
+              const ComponentPropDef* def = set != kNoGuid ? findDef(set, t.member) : nullptr;
+              if (!def || def->type != ComponentPropType::VARIANT) continue;
+              std::vector<std::pair<std::string, Guid>> keys;
+              std::vector<VariableData> values;
+              for (const ParamBinding& b : p.parameterConsumptionMap)
+                if (b.field == VariableField::VARIANT_PROPERTIES && b.data.kind == VariableData::Kind::EXPRESSION && !b.data.args.empty() &&
+                    b.data.args[0].kind == VariableData::Kind::MAP) {
+                  const VariableData& m = b.data.args[0];
+                  for (size_t i = 0; i < m.args.size(); i++) {
+                    Guid k = i < m.mapGuidKeys.size() ? m.mapGuidKeys[i] : kNoGuid;
+                    std::string name = i < m.mapKeys.size() ? m.mapKeys[i] : std::string();
+                    if (k == def->id || (k == kNoGuid && name == def->name)) continue;
+                    keys.push_back({name, k});
+                    values.push_back(m.args[i]);
+                  }
+                }
+              if (var != kNoGuid) {
+                keys.push_back({def->name, def->id});
+                values.push_back(VariableData::aliasOf(var, type));
+              }
+              c.mask = F_PARAM_MAP;
+              c.props.parameterConsumptionMap = p.parameterConsumptionMap;
+              auto& map = c.props.parameterConsumptionMap;
+              map.erase(std::remove_if(map.begin(), map.end(), [](const ParamBinding& b) { return b.field == VariableField::VARIANT_PROPERTIES; }),
+                        map.end());
+              if (!keys.empty()) {
+                ParamBinding b;
+                b.field = VariableField::VARIANT_PROPERTIES;
+                b.data = VariableData::resolveVariant(keys, std::move(values));
+                map.push_back(std::move(b));
+              }
+              break;
+            }
+            // A main's (or a set's) boolean / text property: its default bound to a variable ("Apply variable" in the
+            // property's settings).
+            Guid owner = propOwner(r);
+            const ComponentPropDef* def = owner != kNoGuid ? findDef(owner, t.member) : nullptr;
+            if (!def) continue;
+            if (var != kNoGuid && !((def->type == ComponentPropType::BOOL && type == VariableResolvedType::BOOLEAN) ||
+                                    (def->type == ComponentPropType::TEXT && type == VariableResolvedType::STRING)))
+              continue;
+            Guid defId = def->id;
+            NodeChange d = NodeChange::changed(owner);
+            d.mask = F_COMPONENT_PROP_DEFS;
+            d.props.comp().componentPropDefs = doc_.get(owner)->props.comp().componentPropDefs;
+            for (ComponentPropDef& e : d.props.comp().componentPropDefs) {
+              if (e.id != defId) continue;
+              e.boundValue = var != kNoGuid ? VariableData::aliasOf(var, type) : VariableData{};
+              // The default shows the variable's value (its default modes) while it is bound.
+              Resolved rv;
+              if (var != kNoGuid && resolveVariable(var, kNoGuid, rv)) {
+                if (e.type == ComponentPropType::BOOL && rv.kind == Resolved::Kind::BOOL) e.initialValue.hasBool = true, e.initialValue.boolValue = rv.b;
+                if (e.type == ComponentPropType::TEXT && rv.kind == Resolved::Kind::STRING) {
+                  e.initialValue.hasText = true;
+                  e.initialValue.textValue = TextData{};
+                  e.initialValue.textValue.characters = rv.s;
+                }
+              }
+            }
+            write(d);
+            continue;
+          }
           case BindTarget::Kind::PAINT: {
             std::vector<Paint> paints = t.strokes ? p.strokePaints : p.fillPaints;
             if (t.index >= paints.size()) continue;
@@ -1241,15 +1374,93 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       commit();
       return OK;
     }
+    case CommandId::EXTEND_VARIABLE_COLLECTION: {
+      // "Extend collection" (R3-32): a collection inheriting this one's variables and modes, overriding values only.
+      Guid g = argGuid(args, "collection");
+      const NodeProps* sp = collectionNode(g);
+      if (!sp) return E_INVALID;
+      const NodeProps src = *sp;
+      std::string name;
+      if (argString(args, "name", name)) {
+        name = trim(name);
+        if (name.empty()) return E_INVALID;
+      } else {
+        name = uniqueName(src.name + " extended", [&](const std::string& n) {
+          for (Guid c : collections(true))
+            if (doc_.get(c)->props.name == n) return true;
+          return false;
+        });
+      }
+      begin(TxnKind::USER, "Extend collection");
+      Guid canvas = internalCanvas(true);
+      NodeProps p;
+      p.type = NodeType::VARIABLE_SET;
+      p.name = name;
+      for (const VariableSetMode& m : src.orderedModes()) {
+        VariableSetMode mine;
+        mine.id = newGuid();
+        mine.name = m.name;
+        mine.sortPosition = m.sortPosition;
+        mine.parentSet = AssetId::of(g);
+        mine.parentMode = m.id;
+        p.asset().variableSetModes.push_back(mine);
+      }
+      p.asset().key = newAssetKey();
+      p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
+      Guid ext = newGuid();
+      std::vector<Guid> order = collections();
+      write(NodeChange::created(ext, p));
+      created_ = {ext};
+      auto at = std::find(order.begin(), order.end(), g);
+      order.insert(at == order.end() ? order.end() : at + 1, ext);
+      writeOrder(order, {ext});
+      commit();
+      return OK;
+    }
+    case CommandId::RESET_VARIABLE_OVERRIDE: {
+      // "Reset change": an extended collection's value back to its parent's (one mode, or every mode).
+      Guid ext = argGuid(args, "collection");
+      std::vector<Guid> vars = argGuids(args, {"variables", "variable"});
+      if (extensionParent(ext) == kNoGuid || vars.empty() || isLibraryCopy(ext)) return E_INVALID;
+      Guid mode = arg(args, "mode") ? argGuid(args, "mode") : kNoGuid;
+      begin(TxnKind::USER, "Reset change");
+      for (Guid v : vars) {
+        Guid o = overrideNode(ext, v);
+        if (o == kNoGuid) continue;
+        std::vector<VariableModeValue> values = doc_.get(o)->props.asset().variableDataValues;
+        if (mode != kNoGuid)
+          values.erase(std::remove_if(values.begin(), values.end(), [&](const VariableModeValue& mv) { return mv.modeID == mode; }), values.end());
+        else
+          values.clear();
+        if (values.empty()) {
+          write(NodeChange::removed(o));
+        } else {
+          NodeChange c = NodeChange::changed(o);
+          c.mask = F_VARIABLE_DATA_VALUES;
+          c.props.asset().variableDataValues = values;
+          write(c);
+        }
+      }
+      commit();
+      return OK;
+    }
     case CommandId::SET_VARIABLE_MODE: {
       Guid g = argGuid(args, "collection");
+      // An extended collection's mode: the entry of its root collection, naming the extension (one mode value per
+      // collection, Figma).
+      Guid extension = kNoGuid;
+      if (extensionParent(g) != kNoGuid) {
+        extension = g;
+        g = rootCollection(g);
+      }
       const NodeProps* sp = collectionNode(g);
       if (!sp) return E_INVALID;
       Guid mode = kNoGuid;
       if (const json::Value* m = arg(args, "mode"); m && !m->isNull() && !(m->isString() && m->string.empty())) {
         mode = guidOf(*m);
         bool known = false;
-        for (auto& x : sp->asset().variableSetModes) known |= x.id == mode;
+        const NodeProps* owner = extension != kNoGuid ? collectionNode(extension) : sp;
+        for (auto& x : owner->asset().variableSetModes) known |= x.id == mode;
         if (!known) return E_INVALID;
       }
       std::vector<Guid> refs;
@@ -1267,7 +1478,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         list.erase(std::remove_if(list.begin(), list.end(),
                                   [&](const VariableModeEntry& e) { return e.set.guid == g || (!e.set.key.empty() && e.set.key == sp->asset().key); }),
                    list.end());
-        if (mode != kNoGuid) list.push_back({AssetId::of(g), mode});
+        if (mode != kNoGuid) list.push_back({AssetId::of(g), mode, extension != kNoGuid ? AssetId::of(extension) : AssetId{}});
         write(c);
       }
       commit();

@@ -170,6 +170,10 @@ export const CommandId = {
   DETACH_VARIABLE: 166,
   /** args { refs?, page?, collection, mode } (mode "" = Auto) */
   SET_VARIABLE_MODE: 167,
+  /** args { collection, name? } — "Extend collection": an extended collection of `collection` */
+  EXTEND_VARIABLE_COLLECTION: 168,
+  /** args { collection, variable | variables, mode? } — an extended collection's override removed ("Reset change") */
+  RESET_VARIABLE_OVERRIDE: 169,
   /** args { type: "FILL" | "TEXT" | "EFFECT" | "GRID", name?, from?, apply?, target?: "FILL" | "STROKE" }; created: [style] */
   CREATE_STYLE: 170,
   /** args { style } (its users keep the values, detached) */

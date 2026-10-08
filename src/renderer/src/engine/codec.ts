@@ -356,7 +356,8 @@ export interface NodeFields {
   ancestorPathBeforeDeletion?: GuidValue[];
   // ---- Variables, modes, styles (docs/schema.md §6; docs/engine-build.md "E6 variables") ----
   /** Explicit modes ("Apply variable mode"): no entry for a collection = Auto. Any node, pages included. */
-  variableModeBySetMap?: { entries: { variableSetID: AssetId; variableModeID: GuidValue }[] };
+  /** An extended collection's mode: `variableSetID` is its root collection, `variableSetExtensionID` the extension. */
+  variableModeBySetMap?: { entries: { variableSetID: AssetId; variableModeID: GuidValue; variableSetExtensionID?: AssetId }[] };
   /** Style references; the node's own fields hold the style's values. */
   styleIdForFill?: AssetId;
   styleIdForStrokeFill?: AssetId;
@@ -373,7 +374,10 @@ export interface NodeFields {
   /** Absent = true; false = "Hide when publishing". */
   isPublishable?: boolean;
   /** VARIABLE_SET: its modes (the default is the first by sortPosition). */
-  variableSetModes?: { id: GuidValue; name: string; sortPosition: string }[];
+  /** An extended collection's modes name the collection they extend and its mode. */
+  variableSetModes?: { id: GuidValue; name: string; sortPosition: string; parentVariableSetId?: AssetId; parentModeId?: GuidValue }[];
+  /** VARIABLE_OVERRIDE: the variable (of the root collection) whose values an extended collection overrides. */
+  overriddenVariableId?: AssetId;
   /** VARIABLE: its collection. */
   variableSetID?: AssetId;
   variableResolvedType?: VariableResolvedType;
@@ -448,7 +452,9 @@ export type ResolvedVariableValue = boolean | number | string | Color | Record<s
 /**
  * What a binding binds: a VariableField name for node fields ("WIDTH", "OPACITY", "STACK_SPACING", "FONT_SIZE"…) or a
  * list member: "fillPaints[i].color" | ".opacity" | ".stops[j].color", the same for strokePaints,
- * "effects[i].color" | ".radius" | ".spread" | ".x" | ".y", "layoutGrids[i].numSections" | ".offset" | ".sectionSize" | ".gutterSize".
+ * "effects[i].color" | ".radius" | ".spread" | ".x" | ".y", "layoutGrids[i].numSections" | ".offset" | ".sectionSize" | ".gutterSize",
+ * or "componentProperties.<name>": an instance's variant property (a STRING / FLOAT / BOOLEAN variable picks the
+ * variant, Figma's "Assign variable"), a main's boolean / text property default ("Apply variable").
  */
 export type BindingTarget = string;
 
@@ -456,8 +462,13 @@ export type BindingTarget = string;
 export interface VariableCollectionInfo {
   id: Guid;
   name: string;
-  modes: { modeId: Guid; name: string }[];
+  /** An extended collection's modes carry the parent's mode they inherit. */
+  modes: { modeId: Guid; name: string; parentModeId?: Guid }[];
   defaultModeId: Guid | null;
+  /** An extended collection (Figma's "Extend collection"): its variables are its root's, values overridable per mode. */
+  isExtension: boolean;
+  parentCollectionId: Guid | null;
+  rootCollectionId: Guid;
   variableIds: Guid[];
   hiddenFromPublishing: boolean;
   key: string;
@@ -473,7 +484,10 @@ export interface VariableInfo {
   name: string;
   collectionId: Guid | null;
   resolvedType: VariableResolvedType;
+  /** Its collection's modes and every extended collection's modes (the value there: an override, else inherited). */
   valuesByMode: Record<Guid, VariableValue | null>;
+  /** The extended collections' modes whose value this variable overrides (shown in blue, "Reset change"). */
+  overriddenModes: Guid[];
   resolvedValuesByMode: Record<Guid, ResolvedVariableValue | null>;
   scopes: VariableScope[];
   codeSyntax: Partial<Record<CodeSyntaxPlatform, string>>;
@@ -586,6 +600,8 @@ export interface ComponentProperty {
   preferredValues: Guid[];
   variantOptions: string[];
   boundLayers: Guid[];
+  /** The variable the value (an instance's variant) or the default (a main's boolean / text property) is bound to. */
+  boundVariable: Guid | null;
 }
 /** What a node is on the component side and what the panels show for it (engine.componentInfo). */
 export interface ComponentInfo {

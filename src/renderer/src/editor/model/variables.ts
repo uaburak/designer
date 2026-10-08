@@ -47,6 +47,9 @@ export interface VariableSetMode {
   id: GuidValue;
   name: string;
   sortPosition?: string;
+  /** An extended collection's mode: the collection it extends and that collection's mode. */
+  parentVariableSetId?: AliasRef;
+  parentModeId?: GuidValue;
 }
 
 export interface CodeSyntaxEntry {
@@ -79,11 +82,25 @@ export interface VNode {
 export interface Collection {
   id: Guid;
   name: string;
-  modes: { id: Guid; name: string; sortPosition: string }[];
+  /** An extended collection's modes name the parent mode they inherit (`parentMode`). */
+  modes: { id: Guid; name: string; sortPosition: string; parentMode?: Guid }[];
   defaultMode: Guid;
   sortPosition: string;
   hidden: boolean;
   node: VNode;
+  /** An extended collection (Figma's "Extend collection"): the collection it extends (null: not one). */
+  parent: Guid | null;
+  /** The extended collection's own values: variable → mode → value (VARIABLE_OVERRIDE nodes; filled by the index). */
+  overrides: Map<Guid, Map<Guid, VarValue>>;
+  /** The collection it extends, linked by the index (values not overridden come from it). */
+  parentCollection?: Collection;
+}
+
+/** The root of an extension chain (itself when not an extended collection). */
+export function rootOf(c: Collection): Collection {
+  let cur = c;
+  for (let i = 0; cur.parentCollection && i < 16; i++) cur = cur.parentCollection;
+  return cur;
 }
 
 /** A variable as the panels use it. */
@@ -115,9 +132,14 @@ export const byPosition = <T extends { sortPosition: string; name?: string }>(a:
   a.sortPosition < b.sortPosition ? -1 : a.sortPosition > b.sortPosition ? 1 : (a.name ?? "").localeCompare(b.name ?? "");
 
 export function readCollection(n: VNode): Collection {
-  const modes = (n.variableSetModes ?? []).map((m) => ({ id: guidStr(m.id), name: m.name, sortPosition: m.sortPosition ?? "" })).sort(byPosition);
+  const modes = (n.variableSetModes ?? [])
+    .map((m) => ({ id: guidStr(m.id), name: m.name, sortPosition: m.sortPosition ?? "", ...(m.parentModeId ? { parentMode: guidStr(m.parentModeId) } : {}) }))
+    .sort(byPosition);
   const name = n.name ?? "Collection";
+  const parentRef = (n.variableSetModes ?? []).find((m) => m.parentVariableSetId?.guid)?.parentVariableSetId;
   return {
+    parent: parentRef ? guidStr(parentRef.guid) : null,
+    overrides: new Map(),
     id: n.guid,
     name,
     modes,
@@ -184,8 +206,18 @@ export function readVariable(n: VNode): Variable {
   };
 }
 
-/** The variable's value in `mode`: its own entry, else the collection's default mode's, else the type's default. */
+/**
+ * The variable's value in `mode`: its own entry, else the collection's default mode's, else the type's default. In an
+ * extended collection (`c` one, `mode` its mode): its override, else the parent's value for the parent mode.
+ */
 export function valueIn(v: Variable, mode: Guid, c: Collection | undefined): VarValue {
+  for (let i = 0; c?.parent && c.parentCollection && i < 16; i++) {
+    const own = c.overrides.get(v.id)?.get(mode);
+    if (own) return own;
+    const m = c.modes.find((x) => x.id === mode);
+    mode = m?.parentMode ?? c.parentCollection.defaultMode;
+    c = c.parentCollection;
+  }
   return v.values.get(mode) ?? (c ? v.values.get(c.defaultMode) : undefined) ?? v.values.values().next().value ?? { kind: "literal", value: defaultLiteral(v.type) };
 }
 
@@ -268,12 +300,14 @@ export function lookupOf(collections: readonly Collection[], variables: readonly
 export interface ModeEntry {
   variableSetID: AliasRef;
   variableModeID: GuidValue;
+  /** An extended collection's mode: that collection (`variableSetID` is its root). */
+  variableSetExtensionID?: AliasRef;
 }
 
-/** A node's explicit modes: collection → mode (no entry = Auto). */
+/** A node's explicit modes: collection (an extended one by its own id) → mode (no entry = Auto). */
 export function explicitModes(n: { variableModeBySetMap?: { entries?: ModeEntry[] } } | null | undefined): Map<Guid, Guid> {
   const out = new Map<Guid, Guid>();
-  for (const e of n?.variableModeBySetMap?.entries ?? []) out.set(guidStr(e.variableSetID?.guid), guidStr(e.variableModeID));
+  for (const e of n?.variableModeBySetMap?.entries ?? []) out.set(guidStr(e.variableSetExtensionID?.guid ?? e.variableSetID?.guid), guidStr(e.variableModeID));
   return out;
 }
 

@@ -125,6 +125,7 @@ NodeType nodeTypeOf(uint32_t v) {
     case 25: return NodeType::SECTION;
     case 28: return NodeType::VARIABLE;
     case 31: return NodeType::VARIABLE_SET;
+    case 35: return NodeType::VARIABLE_OVERRIDE;
     default: return NodeType::NONE;
   }
 }
@@ -397,6 +398,41 @@ bool readAnyValue(kiwi::ByteBuffer& bb, VariableData& d) {
         }
         break;
       }
+      case 7: {  // VariableMap {values: [VariableMapValue {key, value, guidKey}]}
+        d.kind = K::MAP;
+        for (;;) {
+          uint32_t e = 0;
+          if (!bb.readVarUint(e)) return false;
+          if (!e) break;
+          if (e != 1) return false;
+          uint32_t n = 0;
+          if (!bb.readVarUint(n)) return false;
+          for (uint32_t i = 0; i < n; i++) {
+            std::string key;
+            Guid guidKey = kNoGuid;
+            VariableData value;
+            for (;;) {
+              uint32_t h = 0;
+              if (!bb.readVarUint(h)) return false;
+              if (!h) break;
+              if (h == 1) {
+                if (!getString(bb, key)) return false;
+              } else if (h == 2) {
+                if (!readVariableDataInto(bb, value)) return false;
+              } else if (h == 3) {
+                if (!getGuid(bb, guidKey)) return false;
+                guidKey = noneToAbsent(guidKey);
+              } else {
+                return false;
+              }
+            }
+            d.mapKeys.push_back(std::move(key));
+            d.mapGuidKeys.push_back(guidKey);
+            d.args.push_back(std::move(value));
+          }
+        }
+        break;
+      }
       case 9: {  // VariableFontStyle {asString, asFloat, asVariations}
         d.kind = K::FONT_STYLE;
         d.args.assign(3, VariableData{});
@@ -461,6 +497,19 @@ void putAnyValue(Out& o, const VariableData& d) {
       o.varuint(2);
       o.varuint(static_cast<uint32_t>(d.args.size()));
       for (const VariableData& a : d.args) putVariableData(o, a);
+      o.byte(0);
+      break;
+    case K::MAP:
+      o.varuint(7);
+      o.varuint(1);
+      o.varuint(static_cast<uint32_t>(d.args.size()));
+      for (size_t i = 0; i < d.args.size(); i++) {
+        if (i < d.mapKeys.size()) putString(o, 1, d.mapKeys[i]);
+        o.varuint(2);
+        putVariableData(o, d.args[i]);
+        if (i < d.mapGuidKeys.size() && d.mapGuidKeys[i] != kNoGuid) putGuidField(o, 3, d.mapGuidKeys[i]);
+        o.byte(0);
+      }
       o.byte(0);
       break;
     case K::FONT_STYLE:
@@ -1216,6 +1265,29 @@ void putPropValue(Out& o, const ComponentPropValue& v, BlobsOut* blobs) {
   o.byte(0);
 }
 
+// A varValue (ComponentPropDef 9, ComponentPropAssignment 3): a binding to a variable (an alias) is modelled; any other
+// value (Figma mirrors every property value there) stays kiwi bytes in `extra`.
+bool readVarValue(kiwi::ByteBuffer& bb, const Def& def, uint32_t f, VariableData& bound, std::string& extra) {
+  size_t start = bb.index();
+  kiwi::ByteBuffer peek(bb.data() + start, bb.size() - start);
+  VariableData d;
+  if (readVariableDataInto(peek, d) && d.kind == VariableData::Kind::ALIAS) return readVariableDataInto(bb, bound);
+  return keepUnknown(bb, def, f, extra);
+}
+
+// `extra` without its varValue when the value is bound (the binding is written instead).
+void putExtraAndBound(Out& o, const Def& def, uint32_t f, const VariableData& bound, const std::string& extra) {
+  if (!bound.present()) {
+    o.raw(extra);
+    return;
+  }
+  std::string rest = extra;
+  schema::eraseField(def, rest, f);
+  o.raw(rest);
+  o.varuint(f);
+  putVariableData(o, bound);
+}
+
 bool readPropDef(kiwi::ByteBuffer& bb, ComponentPropDef& d, KiwiBlobs* blobs) {
   for (;;) {
     uint32_t f = 0;
@@ -1273,6 +1345,9 @@ bool readPropDef(kiwi::ByteBuffer& bb, ComponentPropDef& d, KiwiBlobs* blobs) {
       case 11:
         if (!getString(bb, d.description)) return false;
         break;
+      case 9:
+        if (!readVarValue(bb, defs().propDef, f, d.boundValue, d.extra)) return false;
+        break;
       default:
         if (!keepUnknown(bb, defs().propDef, f, d.extra)) return false;
     }
@@ -1301,7 +1376,7 @@ void putPropDef(Out& o, const ComponentPropDef& d, BlobsOut* blobs) {
     o.byte(0);
   }
   if (!d.description.empty()) putString(o, 11, d.description);
-  o.raw(d.extra);
+  putExtraAndBound(o, defs().propDef, 9, d.boundValue, d.extra);
   o.byte(0);
 }
 
@@ -1317,6 +1392,9 @@ bool readPropAssignment(kiwi::ByteBuffer& bb, ComponentPropAssignment& a, KiwiBl
       case 2:
         if (!readPropValue(bb, a.value, blobs)) return false;
         break;
+      case 3:
+        if (!readVarValue(bb, defs().propAssignment, f, a.boundValue, a.extra)) return false;
+        break;
       default:
         if (!keepUnknown(bb, defs().propAssignment, f, a.extra)) return false;
     }
@@ -1327,7 +1405,7 @@ void putPropAssignment(Out& o, const ComponentPropAssignment& a, BlobsOut* blobs
   putGuidField(o, 1, a.defID);
   o.varuint(2);
   putPropValue(o, a.value, blobs);
-  o.raw(a.extra);
+  putExtraAndBound(o, defs().propAssignment, 3, a.boundValue, a.extra);
   o.byte(0);
 }
 
@@ -2048,6 +2126,8 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
                 Guid mode;
                 if (!getGuid(bb, mode)) return false;
                 me.mode = noneToAbsent(mode);
+              } else if (h == 3) {
+                if (!getAssetId(bb, me.extension)) return false;
               } else {
                 return false;
               }
@@ -2115,6 +2195,12 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
               if (!getString(bb, mode.name)) return false;
             } else if (g == 3) {
               if (!getString(bb, mode.sortPosition)) return false;
+            } else if (g == 4) {
+              if (!getAssetId(bb, mode.parentSet)) return false;
+            } else if (g == 5) {
+              Guid pm;
+              if (!getGuid(bb, pm)) return false;
+              mode.parentMode = noneToAbsent(pm);
             } else {
               return false;
             }
@@ -2127,6 +2213,10 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
       case 313:
         if (!getAssetId(bb, p.asset().variableSetID)) return false;
         m |= F_VARIABLE_SET_ID;
+        break;
+      case 464:
+        if (!getAssetId(bb, p.asset().overriddenVariableId)) return false;
+        m |= F_OVERRIDDEN_VARIABLE;
         break;
       case 314:
         if (getEnum(bb, p.asset().variableResolvedType)) m |= F_VARIABLE_RESOLVED_TYPE;
@@ -2533,6 +2623,7 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
     for (const VariableModeEntry& e : p.refs().variableModeBySetMap) {
       putAssetId(o, 1, e.set);
       if (e.mode != kNoGuid) putGuidField(o, 2, e.mode);  // an entry without a mode stays without one
+      if (e.extension.present()) putAssetId(o, 3, e.extension);
       o.byte(0);
     }
     o.byte(0);
@@ -2559,10 +2650,13 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
       putGuidField(o, 1, mode.id);
       putString(o, 2, mode.name);
       putString(o, 3, mode.sortPosition);
+      if (mode.parentSet.present()) putAssetId(o, 4, mode.parentSet);
+      if (mode.parentMode != kNoGuid) putGuidField(o, 5, mode.parentMode);
       o.byte(0);
     }
   }
   assetOrClear(F_VARIABLE_SET_ID, 313, p.asset().variableSetID);
+  assetOrClear(F_OVERRIDDEN_VARIABLE, 464, p.asset().overriddenVariableId);
   if (mask & F_VARIABLE_RESOLVED_TYPE) putEnum(o, 314, p.asset().variableResolvedType);
   if (mask & F_VARIABLE_DATA_VALUES) {
     o.varuint(315);
@@ -2933,6 +3027,11 @@ bool readVariableData(kiwi::ByteBuffer& bb, VariableData& out) {
 }
 
 // ---- Unmodelled fields ⇄ JSON ------------------------------------------------------------------------------
+
+std::string withoutField(const char* defName, std::string sequence, uint32_t id) {
+  if (const Def* d = table().def(defName)) schema::eraseField(*d, sequence, id);
+  return sequence;
+}
 
 std::string extraToJsonMembers(const char* defName, std::string_view sequence) {
   if (sequence.empty()) return std::string();

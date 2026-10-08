@@ -32,6 +32,9 @@ import {
   duplicateStyle,
   engineResolves,
   duplicateVariables,
+  extendCollection,
+  isOverridden,
+  resetOverride,
   groupVariables,
   modesAt,
   moveVariables,
@@ -45,7 +48,8 @@ import {
   updateStyle,
   updateVariable,
 } from "../variables";
-import { paintVariable, variableBindings } from "../model/variables";
+import { paintVariable, valueIn, variableBindings } from "../model/variables";
+import { bindPropertyVariable, instanceInfo, readC } from "../components";
 import { styleIdOf } from "../model/styles";
 import { colorToHex } from "../model/color";
 
@@ -267,5 +271,78 @@ describe.each(["engine", "fallback"] as const)("variables and styles on the engi
     expect(ed.ui.get().variablesOpen).toBe(true);
     const view = mainMenu(ed).find((e) => typeof e === "object" && "label" in e && e.label === "View") as { items: { id: string }[] };
     expect(view.items.some((i) => i.id === "view.local-variables")).toBe(true);
+  });
+});
+
+describe("variables round 5 on the engine (wasm, headless)", () => {
+  beforeAll(() => {
+    mode = "engine";
+  });
+
+  it("Extend collection: inherited variables and modes, an override in blue, Reset change, Apply variable mode", async () => {
+    const { ed } = await editor();
+    const theme = "7:2";
+    const ext = extendCollection(ed, theme)!;
+    expect(ext).toBeTruthy();
+    let a = ed.variables.get();
+    const c = a.lookup.collection(ext)!;
+    expect(c.parent).toBe(theme);
+    expect(c.parentCollection?.id).toBe(theme);
+    expect(c.modes.map((m) => m.name)).toEqual(["Light", "Dark"]);
+    const dark = c.modes[1].id;
+    // Not overridden: the parent's value; an edit in the extension's Dark overrides only it.
+    expect(isOverridden(c, "5:20", dark)).toBe(false);
+    expect(setVariableValue(ed, "5:20", dark, { kind: "literal", value: { r: 1, g: 0, b: 0, a: 1 } })).toBe(true);
+    a = ed.variables.get();
+    const after = a.lookup.collection(ext)!;
+    expect(isOverridden(after, "5:20", dark)).toBe(true);
+    expect(valueIn(a.lookup.variable("5:20")!, dark, after)).toEqual({ kind: "literal", value: { r: 1, g: 0, b: 0, a: 1 } });
+    expect(a.lookup.collection(theme)!.overrides.size).toBe(0);
+    // The dark card in the extension's Dark: the override reaches it.
+    setExplicitMode(ed, ["2:10"], ext, dark);
+    expect(modesAt(ed, "2:10").get(ext)).toMatchObject({ explicit: true, mode: dark });
+    expect(fillHex(ed, "2:10")).toBe("#ff0000");
+    // The engine's read: the variable lists the extension's modes and which it overrides.
+    const info = ed.engine.variable("5:20")!;
+    expect(info.overriddenModes).toEqual([dark]);
+    expect(ed.engine.variableCollections().find((x) => x.id === ext)).toMatchObject({ isExtension: true, parentCollectionId: theme, rootCollectionId: theme });
+    expect(resetOverride(ed, ext, "5:20", dark)).toBe(true);
+    expect(fillHex(ed, "2:10")).toBe("#1e1e1e");
+  });
+
+  it("Assign variable: a string variable picks an instance's variant per mode; a default bound to a boolean", async () => {
+    const { ed } = await editor(EMPTY_DOCUMENT);
+    // A set with Size = S | L and an instance of S inside a frame.
+    ed.engine.applyChanges(
+      {
+        type: "NODE_CHANGES",
+        nodeChanges: [
+          { guid: "9:1", phase: "CREATED", type: "FRAME", name: "Size", parentIndex: { guid: "0:1", position: "a" }, size: { x: 200, y: 100 }, isStateGroup: true,
+            componentPropDefs: [{ id: { sessionID: 9, localID: 9 }, name: "Size", type: "VARIANT", initialValue: { textValue: { characters: "S" } } }] },
+          { guid: "9:2", phase: "CREATED", type: "SYMBOL", name: "Size=S", parentIndex: { guid: "9:1", position: "a" }, size: { x: 20, y: 20 }, variantPropSpecs: [{ propDefId: { sessionID: 9, localID: 9 }, value: "S" }] },
+          { guid: "9:3", phase: "CREATED", type: "SYMBOL", name: "Size=L", parentIndex: { guid: "9:1", position: "b" }, size: { x: 40, y: 40 }, transform: { m00: 1, m01: 0, m02: 100, m10: 0, m11: 1, m12: 0 },
+            variantPropSpecs: [{ propDefId: { sessionID: 9, localID: 9 }, value: "L" }] },
+          { guid: "9:4", phase: "CREATED", type: "FRAME", name: "Screen", parentIndex: { guid: "0:1", position: "b" }, size: { x: 300, y: 300 } },
+          { guid: "9:5", phase: "CREATED", type: "INSTANCE", name: "Size", parentIndex: { guid: "9:4", position: "a" }, size: { x: 20, y: 20 }, symbolData: { symbolID: { sessionID: 9, localID: 2 } } },
+        ],
+      } as never,
+      "user"
+    );
+    const c = createCollection(ed)!;
+    const second = addMode(ed, c)!;
+    const v = createVariable(ed, c, "STRING")!;
+    const first = ed.variables.get().lookup.collection(c)!.defaultMode;
+    setVariableValue(ed, v, first, { kind: "literal", value: "S" });
+    setVariableValue(ed, v, second, { kind: "literal", value: "L" });
+    expect(bindPropertyVariable(ed, "9:5", "Size", v)).toBe(true);
+    const row = instanceInfo(ed, readC(ed, "9:5")!).rows[0];
+    expect(row.variable).toBe(v);
+    setExplicitMode(ed, ["9:4"], c, second);
+    expect((read(ed, "9:5").symbolData as { symbolID: unknown }).symbolID).toMatchObject({ sessionID: 9, localID: 3 });
+    expect((read(ed, "9:5").size as { x: number }).x).toBe(40);
+    setExplicitMode(ed, ["9:4"], c, null);
+    expect((read(ed, "9:5").symbolData as { symbolID: unknown }).symbolID).toMatchObject({ sessionID: 9, localID: 2 });
+    expect(bindPropertyVariable(ed, "9:5", "Size", null)).toBe(true);
+    expect(instanceInfo(ed, readC(ed, "9:5")!).rows[0].variable).toBeNull();
   });
 });

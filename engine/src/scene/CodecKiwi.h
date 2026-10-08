@@ -121,6 +121,8 @@ std::string extraValueToJson(const char* def, std::string_view entry);
 // A JSON member → the (varuint id, value) bytes of field `key` of `def`; empty when the schema doesn't know the key
 // or the value doesn't fit.
 std::string extraFromJson(const char* def, std::string_view key, const json::Value& value);
+// A raw field sequence of `def` without field `id`.
+std::string withoutField(const char* def, std::string sequence, uint32_t id);
 // The kiwi field id of `key` in `def` (0 when unknown).
 uint32_t fieldIdOf(const char* def, std::string_view key);
 // A ComponentPropAssignment's slot content as Figma's files give it — its varValue's slotContentIdValue (the raw

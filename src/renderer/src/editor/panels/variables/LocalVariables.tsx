@@ -13,6 +13,11 @@
  * (dropped next to a row of another group, it moves into that group),
  * ⌫ deletes, ⇧↵ duplicates, right click: Edit variable, Rename, Duplicate,
  * Delete, New group with selection. "+ Create variable" with the type menu.
+ * Round 5 (help "Create and manage variables", "Extend a variable collection"):
+ * Extend collection (the extension lists its root's variables with its own
+ * modes; edits override, in blue, "Reset change"), Reorder collections / Sort A
+ * to Z, Filter by type, Edit variables on a selection, Copy / Paste, Ungroup
+ * and Duplicate group.
  * Esc or × closes it; ⌘Z / ⇧⌘Z undo and redo inside it.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
@@ -21,7 +26,7 @@ import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
 import { useLocalAssets } from "../../hooks";
-import { formatLiteral, groupTree, inGroup, matchesQuery, resolveVariable, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
+import { formatLiteral, groupTree, inGroup, matchesQuery, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
 import {
   addMode,
   createCollection,
@@ -31,16 +36,22 @@ import {
   deleteMode,
   deleteVariables,
   duplicateCollection,
+  duplicateGroup,
   duplicateVariables,
+  extendCollection,
   groupVariables,
   moveMode,
   moveVariables,
+  pasteVariables,
   renameCollection,
   renameGroup,
   renameMode,
   renameVariable,
+  resetOverride,
   setDefaultMode,
+  ungroupVariables,
 } from "../../variables";
+import { EditVariablesPopover, ReorderCollectionsPopover } from "./CollectionTools";
 import { EditVariablePopover } from "./EditVariable";
 import { ValueEditor } from "./ValueEditor";
 import styles from "./LocalVariables.module.css";
@@ -48,6 +59,12 @@ import styles from "./LocalVariables.module.css";
 type Renaming = { kind: "variable" | "mode" | "collection" | "group"; id: string } | null;
 type Row = { kind: "group"; path: string; label: string } | { kind: "variable"; v: Variable };
 type Menu = { x: number; y: number; entries: MenuEntry[]; pick: (id: string) => void } | null;
+
+/** Variables copied with "Copy" (pasted into any collection, or another file's window: the editor process keeps them). */
+let copiedVariables: Guid[] = [];
+const copyVariables = (ids: Guid[]) => {
+  copiedVariables = ids;
+};
 
 export function LocalVariables() {
   const ed = useEditor();
@@ -61,16 +78,28 @@ export function LocalVariables() {
   const [edit, setEdit] = useState<{ id: Guid; anchor: HTMLElement } | null>(null);
   const [menu, setMenu] = useState<Menu>(null);
   const [drop, setDrop] = useState<{ id: Guid; side: "before" | "after" } | null>(null);
+  const [typeFilter, setTypeFilter] = useState<VarType | null>(null);
+  const [reorder, setReorder] = useState<HTMLElement | null>(null);
+  const [bulk, setBulk] = useState<{ ids: Guid[]; anchor: HTMLElement | DOMRect } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const collection = a.collections.find((c) => c.id === collectionId) ?? a.collections[0] ?? null;
+  // An extended collection: its root's variables, its own modes, values only (Figma: no new variables or modes).
+  const extended = !!collection?.parent;
+  const parent = collection?.parentCollection ?? null;
 
   useEffect(() => {
     root.current?.focus({ preventScroll: true });
   }, []);
 
-  const inCollection = useMemo(() => (collection ? a.variables.filter((v) => v.collection === collection.id) : []), [a, collection]);
+  const inCollection = useMemo(() => {
+    if (!collection) return [];
+    const owner = rootOf(collection).id;
+    return [...a.variables, ...a.library.variables].filter((v) => v.collection === owner);
+  }, [a, collection]);
   const tree = useMemo(() => groupTree(inCollection.map((v) => v.name)), [inCollection]);
-  const shown = inCollection.filter((v) => inGroup(v.name, group) && matchesQuery(v, query, collection ? formatLiteral(v.type, resolveVariable(v.id, a.lookup)) : ""));
+  const shown = inCollection.filter(
+    (v) => (!typeFilter || v.type === typeFilter) && inGroup(v.name, group) && matchesQuery(v, query, collection ? formatLiteral(v.type, resolveVariable(v.id, a.lookup)) : "")
+  );
   // A group's variables sit together (where the group first appears); the selected group's own ones first.
   const firstAt = new Map<string, number>();
   shown.forEach((v, i) => {
@@ -119,19 +148,39 @@ export function LocalVariables() {
     const ids = selected.has(v.id) ? chosen() : [v.id];
     if (!selected.has(v.id)) setSelected(new Set([v.id]));
     const many = ids.length > 1;
+    if (extended && collection) {
+      // An extended collection overrides values only: "Reset changes" brings back every value of the parent's.
+      const changed = ids.filter((i) => collection.overrides.has(i));
+      setMenu({
+        x,
+        y,
+        entries: [{ id: "copy", label: "Copy", shortcut: "⌘C" }, "-", { id: "reset", label: many ? "Reset changes" : "Reset change", disabled: !changed.length }],
+        pick: (id) => {
+          if (id === "copy") copyVariables(ids);
+          if (id === "reset") resetOverride(ed, collection.id, changed, null);
+        },
+      });
+      return;
+    }
     setMenu({
       x,
       y,
       entries: [
-        { id: "edit", label: "Edit variable", disabled: many },
+        { id: "edit", label: many ? "Edit variables" : "Edit variable" },
         { id: "rename", label: "Rename", disabled: many },
         { id: "duplicate", label: many ? "Duplicate variables" : "Duplicate", shortcut: "⇧↵" },
         { id: "group", label: "New group with selection" },
         "-",
+        { id: "copy", label: "Copy", shortcut: "⌘C" },
+        { id: "paste", label: "Paste", shortcut: "⌘V", disabled: !copiedVariables.length },
+        "-",
         { id: "delete", label: many ? `Delete ${ids.length} variables` : "Delete variable" },
       ],
       pick: (id) => {
-        if (id === "edit") setEdit({ id: v.id, anchor: target });
+        if (id === "edit" && many) setBulk({ ids, anchor: target });
+        else if (id === "edit") setEdit({ id: v.id, anchor: target });
+        if (id === "copy") copyVariables(ids);
+        if (id === "paste") paste();
         if (id === "rename") setRenaming({ kind: "variable", id: v.id });
         if (id === "duplicate") setSelected(new Set(duplicateVariables(ed, ids)));
         if (id === "group") {
@@ -146,20 +195,28 @@ export function LocalVariables() {
     });
   };
 
+  const paste = () => {
+    if (!collection || extended || !copiedVariables.length) return;
+    const made = pasteVariables(ed, copiedVariables, collection.id, group);
+    if (made.length) setSelected(new Set(made));
+  };
+
   const modeMenu = (c: Collection, modeId: Guid, x: number, y: number) => {
     const i = c.modes.findIndex((m) => m.id === modeId);
+    // An extended collection inherits its parent's modes: names, order and the default come from the parent.
+    const inherited = !!c.parent;
     setMenu({
       x,
       y,
       entries: [
-        { id: "rename", label: "Rename mode" },
-        { id: "duplicate", label: "Duplicate mode" },
-        { id: "default", label: "Set as default", disabled: i === 0 },
+        { id: "rename", label: "Rename mode", disabled: inherited },
+        { id: "duplicate", label: "Duplicate mode", disabled: inherited },
+        { id: "default", label: "Set as default", disabled: inherited || i === 0 },
         "-",
-        { id: "left", label: "Move left", disabled: i === 0 },
-        { id: "right", label: "Move right", disabled: i === c.modes.length - 1 },
+        { id: "left", label: "Move column left", disabled: inherited || i === 0 },
+        { id: "right", label: "Move column right", disabled: inherited || i === c.modes.length - 1 },
         "-",
-        { id: "delete", label: "Delete mode", disabled: c.modes.length < 2 },
+        { id: "delete", label: "Delete mode", disabled: inherited || c.modes.length < 2 },
       ],
       pick: (id) => {
         if (id === "rename") setRenaming({ kind: "mode", id: modeId });
@@ -176,13 +233,29 @@ export function LocalVariables() {
     setMenu({
       x,
       y,
-      entries: [{ id: "rename", label: "Rename" }, { id: "duplicate", label: "Duplicate collection" }, "-", { id: "delete", label: "Delete collection" }],
+      entries: [
+        { id: "rename", label: "Rename collection" },
+        { id: "duplicate", label: "Duplicate collection", disabled: !!c.parent },
+        { id: "extend", label: "Extend collection" },
+        { id: "reorder", label: "Reorder collections", disabled: a.collections.length < 2 },
+        "-",
+        { id: "delete", label: "Delete collection" },
+      ],
       pick: (id) => {
         if (id === "rename") setRenaming({ kind: "collection", id: c.id });
         if (id === "duplicate") {
           const copy = duplicateCollection(ed, c.id);
           if (copy) setCollectionId(copy);
         }
+        if (id === "extend") {
+          const ext = extendCollection(ed, c.id);
+          if (ext) {
+            setCollectionId(ext);
+            setGroup("");
+            setRenaming({ kind: "collection", id: ext });
+          }
+        }
+        if (id === "reorder") setReorder(root.current?.querySelector<HTMLElement>(`[data-collection="${CSS.escape(c.name)}"]`) ?? null);
         if (id === "delete") {
           deleteCollection(ed, c.id);
           setCollectionId(null);
@@ -195,10 +268,21 @@ export function LocalVariables() {
     setMenu({
       x,
       y,
-      entries: [{ id: "rename", label: "Rename group" }, "-", { id: "delete", label: "Delete group" }],
+      entries: [
+        { id: "rename", label: "Rename group", disabled: extended },
+        { id: "ungroup", label: "Ungroup", disabled: extended },
+        { id: "duplicate", label: "Duplicate group", disabled: extended },
+        "-",
+        { id: "delete", label: "Delete group", disabled: extended },
+      ],
       pick: (id) => {
         if (!collection) return;
         if (id === "rename") setRenaming({ kind: "group", id: g.path });
+        if (id === "ungroup") {
+          ungroupVariables(ed, collection.id, g.path);
+          setGroup("");
+        }
+        if (id === "duplicate") duplicateGroup(ed, collection.id, g.path);
         if (id === "delete") {
           deleteGroup(ed, collection.id, g.path);
           setGroup("");
@@ -208,7 +292,7 @@ export function LocalVariables() {
 
   // ---- Drag to reorder ----------------------------------------------------------------------------------------------
   const startDrag = (e: ReactPointerEvent, v: Variable) => {
-    if (e.button !== 0 || (e.target as Element).closest("input, textarea, button")) return;
+    if (extended || e.button !== 0 || (e.target as Element).closest("input, textarea, button")) return;
     const ids = selected.has(v.id) ? chosen() : [v.id];
     const start = { x: e.clientX, y: e.clientY };
     let dragging = false;
@@ -254,11 +338,17 @@ export function LocalVariables() {
       e.preventDefault();
       if (selected.size) setSelected(new Set());
       else close();
-    } else if ((e.key === "Backspace" || e.key === "Delete") && selected.size) {
+    } else if (mod && e.code === "KeyC" && selected.size) {
+      e.preventDefault();
+      copyVariables(chosen());
+    } else if (mod && e.code === "KeyV") {
+      e.preventDefault();
+      paste();
+    } else if (!extended && (e.key === "Backspace" || e.key === "Delete") && selected.size) {
       e.preventDefault();
       deleteVariables(ed, chosen());
       setSelected(new Set());
-    } else if (e.key === "Enter" && e.shiftKey && selected.size) {
+    } else if (!extended && e.key === "Enter" && e.shiftKey && selected.size) {
       e.preventDefault();
       setSelected(new Set(duplicateVariables(ed, chosen())));
     } else if (mod && e.code === "KeyA") {
@@ -312,6 +402,15 @@ export function LocalVariables() {
       <div className={styles.titleBar}>Local variables</div>
       <div className={styles.toolbar}>
         <span className={styles.collectionTitle}>{collection?.name ?? ""}</span>
+        {parent && <span className={styles.extendedFrom} data-extended-from={parent.name}>Extended from {parent.name}</span>}
+        <MenuButton
+          label="Filter by type"
+          className={styles.typeFilter}
+          entries={[{ id: "", label: "All types", checked: !typeFilter }, "-", ...VAR_TYPES.map((t) => ({ id: t, label: VAR_TYPE_LABEL[t], icon: VAR_TYPE_ICON[t], checked: typeFilter === t }))]}
+          onSelect={(t) => setTypeFilter((t || null) as VarType | null)}
+        >
+          <Icon name={typeFilter ? VAR_TYPE_ICON[typeFilter] : "24.adjust.small"} />
+        </MenuButton>
         <SearchField className={styles.search} value={query} onChange={setQuery} placeholder="Search" />
         <IconButton icon="24.close.small" label="Close" onClick={close} />
       </div>
@@ -338,8 +437,9 @@ export function LocalVariables() {
             key={c.id}
             role="button"
             tabIndex={0}
-            className={cx(styles.sideRow, collection?.id === c.id && styles.sideRowOn)}
+            className={cx(styles.sideRow, c.parent && styles.sideExtension, collection?.id === c.id && styles.sideRowOn)}
             data-collection={c.name}
+            data-extension={c.parent ? "" : undefined}
             onClick={() => {
               setCollectionId(c.id);
               setGroup("");
@@ -403,7 +503,7 @@ export function LocalVariables() {
                       role="columnheader"
                       data-mode={m.name}
                       data-default={i === 0 ? "" : undefined}
-                      onDoubleClick={() => setRenaming({ kind: "mode", id: m.id })}
+                      onDoubleClick={() => !extended && setRenaming({ kind: "mode", id: m.id })}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         modeMenu(collection, m.id, e.clientX, e.clientY);
@@ -425,6 +525,7 @@ export function LocalVariables() {
                     </div>
                   ))}
                   <div className={cx(styles.cell, styles.head, styles.addMode)} role="columnheader">
+                    {!extended && (
                     <IconButton
                       icon="24.plus.small"
                       label="New variable mode"
@@ -434,6 +535,7 @@ export function LocalVariables() {
                         if (id) setRenaming({ kind: "mode", id });
                       }}
                     />
+                    )}
                   </div>
                 </div>
 
@@ -463,7 +565,7 @@ export function LocalVariables() {
                         data-name-cell={r.v.name}
                         onPointerDown={(e) => startDrag(e, r.v)}
                         onClick={(e) => select(r.v.id, e)}
-                        onDoubleClick={() => setRenaming({ kind: "variable", id: r.v.id })}
+                        onDoubleClick={() => !extended && setRenaming({ kind: "variable", id: r.v.id })}
                       >
                         <span className={styles.glyph}>
                           <Icon name={VAR_TYPE_ICON[r.v.type]} />
@@ -481,7 +583,7 @@ export function LocalVariables() {
                           }}
                           onCancel={() => setRenaming(null)}
                         />
-                        <IconButton className={styles.rowEdit} icon="24.adjust.small" label="Edit variable" tone="secondary" aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />
+                        {!extended && <IconButton className={styles.rowEdit} icon="24.adjust.small" label="Edit variable" tone="secondary" aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
                       </div>
                       {collection.modes.map((m) => (
                         <ValueEditor key={m.id} variable={r.v} mode={m.id} collection={collection} />
@@ -492,18 +594,22 @@ export function LocalVariables() {
                 )}
               </div>
               {rows.length === 0 && query && <div className={styles.footer}>No results for “{query}”</div>}
+              {!extended && (
               <div className={styles.footer}>
                 <MenuButton label="Create variable" entries={createMenu} onSelect={(t) => create(t as VarType)} className={styles.createButton}>
                   <Icon name="24.plus.small" />
                   <span>Create variable</span>
                 </MenuButton>
               </div>
+              )}
             </div>
           </>
         )}
       </main>
 
       {edit && <EditVariablePopover id={edit.id} anchor={edit.anchor} onClose={() => setEdit(null)} />}
+      {bulk && <EditVariablesPopover ids={bulk.ids} anchor={bulk.anchor} onClose={() => setBulk(null)} />}
+      {reorder && <ReorderCollectionsPopover anchor={reorder} onClose={() => setReorder(null)} />}
       {menu && (
         <ContextMenu
           at={{ x: menu.x, y: menu.y }}

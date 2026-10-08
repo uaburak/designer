@@ -359,7 +359,9 @@ Everything not tagged `@nooverride`. Observed in Figma's SDS file overrides: `si
 | alias | `ALIAS` | `alias {guid}` (a VARIABLE in this file, local or library copy); `resolvedDataType` = the target's type |
 | composed color ("Control opacity at scale", 2026-09) | `EXPRESSION`, resolved `COLOR` | `expressionValue {COMPOSE_COLOR, [color (COLOR literal or alias), opacity (FLOAT literal or alias)]}`. Inferred from Figma's Aug-2026 schema (`ExpressionFunction.COMPOSE_COLOR = 20`); see Open questions. |
 | font style | `FONT_STYLE` | `fontStyleValue {asString (STRING alias) \| asFloat (FLOAT alias, weight) \| asVariations}`; used for the `FONT_STYLE` binding (observed in SDS) |
-| prototype expression | `EXPRESSION` | `expressionValue {function, arguments[]}`: `+ − × ÷`, comparisons, `AND OR NOT`, `STRINGIFY`, … |
+| prototype expression | `EXPRESSION` | `expressionValue {function, arguments[]}`: `+ − × ÷`, comparisons, `AND OR NOT`, `STRINGIFY`, `TERNARY`, `NEGATE`, … (the engine evaluates them in bindings too) |
+| a boolean bound to visibility | `EXPRESSION`, resolved `BOOLEAN` | `expressionValue {IS_TRUTHY, [alias]}` — how Figma's files hold **every** boolean bound to `VISIBLE` (125 of 125 in the owner's file; none as a bare alias); the engine writes the same and still reads a bare alias |
+| a variant bound to variables | `EXPRESSION`, resolved `SYMBOL_ID` | `expressionValue {RESOLVE_VARIANT, [{dataType MAP, resolvedDataType MAP, value: {mapValue: {values: [{key: property name, guidKey: the VARIANT ComponentPropDef id, value: alias to a STRING / FLOAT / BOOLEAN variable}]}}}]}` on the `VARIANT_PROPERTIES` entry (Figma's files, 21 in the owner's file, on the instance node and in override entries) |
 | component property reference | `PROP_REF` | `propRefValue {defId}` (§5.5) |
 | property values | `TEXT_DATA`, `SYMBOL_ID` | `textDataValue`, `symbolIdValue` (in `ComponentPropAssignment.varValue`, `ComponentPropDef.varValue`) |
 
@@ -367,13 +369,23 @@ Everything not tagged `@nooverride`. Observed in Figma's SDS file overrides: `si
 
 - Node fields: `parameterConsumptionMap.entries [{variableField, variableData}]`, one entry per `VariableField`. The 33 bindable fields and their `VariableField` are the `@bind` tags (`WIDTH:x`/`HEIGHT:y` on `size`, `MIN_*`/`MAX_*` on `minSize`/`maxSize`, `FONT_FAMILY:family`/`FONT_STYLE:style` on `fontName`, paddings, gaps, radii, stroke weights, `OPACITY`, `VISIBLE`, `TEXT_DATA`, typography, `HYPERLINK`, `OVERRIDDEN_SYMBOL_ID`).
 - Paint level: `Paint.colorVar` (alias or COMPOSE_COLOR), `Paint.opacityVar`, `Paint.stopsVar[]`. Effect level: `Effect.colorVar/radiusVar/spreadVar/xVar/yVar`. Layout guides: `LayoutGrid.*Var`. Text ranges: entries inside `styleOverrideTable` runs. Component property values: `ComponentPropAssignment.varValue`.
-- `VARIANT_PROPERTIES` and `SLOT_CONTENT_ID` are bound through component property assignments, not node fields.
+- `VARIANT_PROPERTIES` is a node-field entry of an INSTANCE (or an override entry of a nested one): RESOLVE_VARIANT above. Its resolved value is the instance's `symbolData.symbolID` (a nested one: the derived row's main) — the variant whose values for the bound properties equal the variables' values in the instance's modes (numbers as text, booleans as `true` / `false`, case-insensitive when nothing matches exactly), keeping the most of the other values; none matching keeps the current variant. A variant picked by hand detaches that property's entry.
+- `SLOT_CONTENT_ID` is bound through component property assignments. A component property **default** bound to a variable is `ComponentPropDef.varValue` = an alias (BOOL: a BOOLEAN variable, TEXT: a STRING one — Figma's "Apply variable" in the property's settings); an assignment's `varValue` alias likewise (resolved, not offered in the UI: Figma says boolean variables can't be applied to boolean properties of instances). Every other `varValue` (Figma mirrors each value there) is kept as it came.
+- `GRID_ROW_GAP` / `GRID_COLUMN_GAP` write `gridRowGap` / `gridColumnGap` (unmodelled fields the grid layout reads).
 
 ### 6.4 Explicit modes and resolution
 
 - `variableModeBySetMap.entries [{variableSetID {guid}, variableModeID}]` on any node, pages included. No entry for a collection = **Auto**.
 - The mode of collection C for node n is the nearest ancestor-or-self (page included, then the instance chain for derived nodes) with an entry for C, else C's default mode. An alias resolves with the consumer's mode **for each collection along the chain** (Figma's `resolveForConsumer`), depth ≤ 16; a cycle or a missing target is unresolved, and the field keeps its stored (last resolved) value.
 - The prototype action "Set variable mode" changes runtime state in the player only; it never writes the document.
+- **One mode value per collection** (Figma): a node's entry for an extended collection's mode is its **root** collection's entry with `variableSetExtensionID` = the extended collection and `variableModeID` = that collection's mode (§6.6).
+
+### 6.6 Extended collections (Figma's "Extend collection", R3-32/33)
+
+- An extended collection is a VARIABLE_SET whose `variableSetModes` each carry `parentVariableSetId` (the collection it extends) and `parentModeId` (that collection's mode it inherits; its own `id` is fresh). It has no variables of its own: it inherits its parent's (and so its root's) variables, names, scopes and order; its modes follow the parent's (a mode added to the parent appears in it, renames follow; a mode whose parent mode is gone stays, Figma's `removeMode` rule).
+- Its values: one **VARIABLE_OVERRIDE** node per overridden variable, a **child of the extended collection** (so it travels in the collection's library payload and versionHash): `overriddenVariableId` (the root collection's variable), `variableSetID` (the extended collection), `variableResolvedType`, `variableDataValues` (entries for the extended collection's modes it overrides only).
+- Resolution of variable V of root collection R for a node whose entry for R names extension E and mode m: E's override of V for m, else E's parent's for m's `parentModeId`, up the chain to V's own value (a missing parent mode: the default).
+- Inferred, not read from a Figma file (no sample has one): that Figma's VARIABLE_OVERRIDE uses these two fields (`backingVariableId` 378, `backingVariableSetId` 377, `rootVariableKey` 386, `inheritedVariableIds` 517 and `isCollectionExtendable` 385 also exist in Figma's schema and are not kept); that the override sits under its collection.
 
 ### 6.5 Styles
 
@@ -578,7 +590,7 @@ Dropped fields keep their numbers reserved (§1.2); dropped enum values are list
 | Plugins (plugin-free) | `pluginData`, `pluginRelaunchData`, `WidgetMetadata` |
 | Legacy duplicates of kept concepts | `variableConsumptionMap` (→ `parameterConsumptionMap`), `componentPropRefs` (→ `PROP_REF`), `inherit*StyleID` (→ `styleIdFor*`), `symbolDescription`/`styleDescription` (→ `description`), `sharedSymbolReference`/`sharedStyleReference`/`componentKey`/`sharedSymbolVersion` (→ §8.2), `stackJustify/stackAlign/stackWidth/stackHeight/stackPadding` (→ current `stack*`), `textTracking` (→ `letterSpacing`), `maskIsOutline` (→ `maskType`), `RECTANGLE`/`GROUP` writing, `rectangleCornerToolIndependent`, `containerSupportsFillStrokeAndCorners` |
 | Layout/derived version stamps | `textUserLayoutVersion`, `textExplicitLayoutVersion`, `textBidiVersion`, `fontVersion`, `layoutVersion`, `derivedSymbolDataLayoutVersion` (one `Message.derivedDataVersion` instead); text layout inside `TextData` (moved to `derivedTextData`, as Figma's newer files do) |
-| Not in v1 Design scope | PATTERN, NOISE, VIDEO, EMOJI paints; animated images; variable-width and brush strokes; TEXT_PATH; transform groups; extended collections (`VARIABLE_OVERRIDE`, `parentModeId`); Motion fields beyond the `@later` easing values; accessibility/HTML tags; `exportBackgroundDisabled`; `targetAspectRatio`; `stackChildMargin*`; image `altText` |
+| Not in v1 Design scope | PATTERN, NOISE, VIDEO, EMOJI paints; animated images; variable-width and brush strokes; TEXT_PATH; transform groups; Motion fields beyond the `@later` easing values; accessibility/HTML tags; `exportBackgroundDisabled`; `targetAspectRatio`; `stackChildMargin*`; image `altText` |
 
 ---
 

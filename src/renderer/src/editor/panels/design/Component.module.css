@@ -199,4 +199,10 @@
   .pickItemOn { background: var(--figma-color-bg-component-tertiary); }
   .pickCheck { display: inline-flex; flex: none; width: 16px; }
   .pickName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* Reordering properties: the row a drag would drop before; exposed nested instances under the properties */
+  .defRow[draggable] { cursor: grab; }
+  .defDrop { box-shadow: inset 0 2px 0 var(--figma-color-border-selected); }
+  .exposedList { margin-top: var(--ds-space-1); }
+  .editorFooterStart { display: flex; justify-content: flex-start; }
 }

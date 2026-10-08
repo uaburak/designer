@@ -101,6 +101,8 @@ struct ComponentProperty {
   std::vector<Guid> preferredValues;
   std::vector<std::string> variantOptions;
   std::vector<Guid> boundLayers;
+  // The variable the value (an instance's variant) or the default (a main's boolean / text property) is bound to.
+  Guid boundVariable = kNoGuid;
 };
 struct ComponentInfo {
   enum class Kind : uint8_t { NONE, COMPONENT, VARIANT, COMPONENT_SET, INSTANCE, NESTED_INSTANCE, INSTANCE_SUBLAYER, COMPONENT_SUBLAYER };
@@ -421,10 +423,22 @@ class Editor : private LayoutHost, public TextLayouts {
   bool resolveVariableInMode(Guid variable, Guid mode, Resolved& out) const;
   // The mode of collection `set` that a node (or page) uses: its explicit one, else an ancestor's, else the default.
   Guid resolvedMode(Guid node, Guid set) const;
+  // A node's own explicit mode for `set` (a collection or an extended one; kNoGuid: Auto, or another of the chain's).
+  Guid explicitModeOf(Guid node, Guid set) const;
+  // A variable's value in a mode of its collection or of an extended collection of it (`overridden`: the extension's own).
+  const VariableData* valueForMode(Guid variable, Guid mode, bool* overridden = nullptr) const;
   // Assets by reference: a GUID, or a library key (imported files).
   Guid findVariable(const AssetId& id) const;
   Guid findCollection(const AssetId& id) const;
   Guid findStyle(const AssetId& id) const;
+  // Extended collections: the collection one extends (kNoGuid: not one), the root of its chain (itself when not one),
+  // the VARIABLE_OVERRIDE holding its values for a variable (kNoGuid: none), the collections extending one.
+  Guid extensionParent(Guid set) const;
+  Guid rootCollection(Guid set) const;
+  Guid overrideNode(Guid extension, Guid variable) const;
+  std::vector<Guid> extensionsOf(Guid set) const;
+  // The collection (or extended collection) a mode id belongs to, among `set`'s chain and its extensions.
+  Guid collectionOfMode(Guid set, Guid mode) const;
   // Live collections in the panel's order; a collection's variables in order; styles of a type (NONE: all) in order.
   std::vector<Guid> collections(bool includeRemote = false) const;
   std::vector<Guid> variablesOf(Guid collection, bool includeDeleted = false) const;
@@ -540,9 +554,17 @@ class Editor : private LayoutHost, public TextLayouts {
   struct ModeContext {
     Guid consumer = kNoGuid;
     const NodeProps* self = nullptr;
-    Guid forcedSet = kNoGuid, forcedMode = kNoGuid;
+    Guid forcedSet = kNoGuid, forcedMode = kNoGuid;  // forcedSet: a collection, or an extended collection of it
+    // Rows being built (an instance's expansion): their props ahead of the document's (null: none).
+    std::function<const NodeProps*(Guid)> pending;
   };
-  Guid modeFor(const ModeContext& ctx, Guid set) const;
+  // The mode of collection `set` (a variable's own) for the context; an extended collection's mode sets `extension`.
+  Guid modeFor(const ModeContext& ctx, Guid set, Guid* extension = nullptr) const;
+  // A variable's value entry in `mode` (of its collection `set`, or of `extension`, an extended collection of it):
+  // the extension's override, else its parent's for the parent mode, up to the variable's own (default mode fallback).
+  const VariableModeValue* valueInMode(Guid variable, const NodeProps& vp, Guid set, Guid mode, Guid extension, BindingDeps* deps) const;
+  // A variant bound to variables (VARIANT_PROPERTIES = RESOLVE_VARIANT(MAP)): the variant of `main`'s set it picks.
+  Guid variantFor(Guid main, const VariableData& binding, const ModeContext& ctx, BindingDeps* deps) const;
   bool resolveData(const VariableData& d, const ModeContext& ctx, Resolved& out, BindingDeps* deps, int depth) const;
   bool resolveVar(Guid variable, const ModeContext& ctx, Resolved& out, BindingDeps* deps, int depth) const;
   // A node's styles copied in, then its variable bindings resolved into its fields (`p`: its props, changed in place).
@@ -557,6 +579,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // A user's edit of a bound value detaches it (Figma): the binding, a paint's colorVar, the style.
   void detachEdited(const NodeProps& before, NodeChange& c) const;
   void rebuildAssetKeys() const;
+  // Extended collections follow their parent's modes (names, order, new ones) — the collections whose modes changed.
+  void syncExtensions();
 
   // ---- Libraries (editor/Libraries.cpp) ----
   using GuidMap = std::unordered_map<Guid, Guid, GuidHash>;
@@ -763,8 +787,9 @@ class Editor : private LayoutHost, public TextLayouts {
   struct Expansion;
   void expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid parentRow, const std::vector<Guid>& prefix, Guid level,
                       const std::vector<Guid>& levelPath, const std::vector<ComponentPropAssignment>& assigns, int depth);
+  // `resolve`: resolves a property value bound to a variable in the level's modes (null: bound values aren't resolved).
   void applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, const std::vector<ComponentPropAssignment>& assigns,
-                     Guid* swap, Guid* slotContent) const;
+                     Guid* swap, Guid* slotContent, const std::function<bool(const VariableData&, Resolved&)>* resolve = nullptr) const;
   void applyDerivedDirect(const NodeChange& change);
   // The overrides in force for a derived nested instance, relative to it (usage site over its own), and its assignments.
   void composedOverrides(Guid nested, std::vector<SymbolOverride>& out, std::vector<ComponentPropAssignment>& assigns) const;
@@ -1175,6 +1200,12 @@ class Editor : private LayoutHost, public TextLayouts {
   GuidSet collectionIds_;                                     // collections seen (likewise)
   std::unordered_map<Guid, Guid, GuidHash> variableSets_;     // variables seen → their collection
   GuidSet instanceBindings_;                                  // instances with bound sublayers
+  GuidSet instanceVarDeps_;  // instances whose expansion read variables (bound variants, bound property values)
+  // Extended collections' overrides: extension → variable → its VARIABLE_OVERRIDE, and the reverse.
+  std::unordered_map<Guid, std::unordered_map<Guid, Guid, GuidHash>, GuidHash> overridesBySet_;
+  std::unordered_map<Guid, std::pair<Guid, Guid>, GuidHash> overrideIndex_;
+  void indexOverride(Guid node);
+  GuidSet extensionSyncDirty_;  // collections whose modes changed (their extended collections follow)
   // Slot content as Figma's files keep it (a FRAME with isSlotContent under the Internal Only Canvas, named by its
   // instance's SLOT assignment): its variables resolve where the slot shows it — the instance's slot row and up.
   std::unordered_map<Guid, Guid, GuidHash> slotHosts_;                    // content frame → its slot row

@@ -1713,6 +1713,9 @@ void writeProperties(json::Writer& w, const std::vector<ComponentProperty>& prop
     w.endArray();
     w.key("boundLayers");
     writeIds(w, p.boundLayers);
+    w.key("boundVariable");
+    if (p.boundVariable == kNoGuid) w.null();
+    else w.string(p.boundVariable.toString());
     w.endObject();
   }
   w.endArray();
@@ -1954,13 +1957,35 @@ void writeVariableInfo(json::Writer& w, const Editor& ed, Guid v) {
     }
     return fallback;
   };
+  // Extended collections of its collection: their modes too (an override, else the inherited value), and which of
+  // them they override ("overriddenModes").
+  std::vector<VariableSetMode> extModes;
+  if (set != kNoGuid) {
+    std::vector<Guid> queue{set};
+    for (size_t i = 0; i < queue.size() && i < 256; i++)
+      for (Guid x : ed.extensionsOf(queue[i])) {
+        queue.push_back(x);
+        for (auto& m : doc.get(x)->props.orderedModes()) extModes.push_back(m);
+      }
+  }
   w.key("valuesByMode").beginObject();
   for (auto& m : modes) {
     w.key(m.id.toString());
     if (const VariableData* d = valueFor(m.id)) writeVariableValue(w, *d, ed);
     else w.null();
   }
+  std::vector<Guid> overridden;
+  for (auto& m : extModes) {
+    bool own = false;
+    w.key(m.id.toString());
+    if (const VariableData* d = ed.valueForMode(v, m.id, &own)) writeVariableValue(w, *d, ed);
+    else w.null();
+    if (own) overridden.push_back(m.id);
+  }
   w.endObject();
+  w.key("overriddenModes");
+  writeIds(w, overridden);
+  modes.insert(modes.end(), extModes.begin(), extModes.end());
   w.key("resolvedValuesByMode").beginObject();
   for (auto& m : modes) {
     Editor::Resolved r;
@@ -1997,12 +2022,23 @@ ENG_EXPORT int32_t engine_variable_collections(Handle h, uint32_t flags) {
     const NodeProps& p = ed.document().get(c)->props;
     std::vector<VariableSetMode> modes = p.orderedModes();
     w.beginObject().key("id").string(c.toString()).key("name").string(p.name).key("modes").beginArray();
-    for (auto& m : modes) w.beginObject().key("modeId").string(m.id.toString()).key("name").string(m.name).endObject();
+    for (auto& m : modes) {
+      w.beginObject().key("modeId").string(m.id.toString()).key("name").string(m.name);
+      if (m.parentMode != kNoGuid) w.key("parentModeId").string(m.parentMode.toString());
+      w.endObject();
+    }
     w.endArray().key("defaultModeId");
     if (modes.empty()) w.null();
     else w.string(modes[0].id.toString());
+    // An extended collection (R3-33): its parent, its chain's root; its variables are the root's (inherited).
+    Guid parent = ed.extensionParent(c);
+    Guid root = ed.rootCollection(c);
+    w.key("isExtension").boolean(parent != kNoGuid).key("parentCollectionId");
+    if (parent == kNoGuid) w.null();
+    else w.string(parent.toString());
+    w.key("rootCollectionId").string(root.toString());
     w.key("variableIds");
-    writeIds(w, ed.variablesOf(c));
+    writeIds(w, ed.variablesOf(root));
     bool hidden = !p.asset().isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.'));
     w.key("hiddenFromPublishing").boolean(hidden).key("key").string(p.asset().key).key("description").string(p.asset().description);
     writeRemote(w, ed, c);
@@ -2023,7 +2059,7 @@ ENG_EXPORT int32_t engine_variables(Handle h, Ptr collPtr, uint32_t collLen, uin
     Guid c = parseRef(collPtr, collLen);
     const Node* n = ed.document().get(c);
     if (!n || n->props.type != NodeType::VARIABLE_SET) return E_NOT_FOUND;
-    vars = ed.variablesOf(c);
+    vars = ed.variablesOf(ed.rootCollection(c));  // an extended collection: its root's variables
   } else {
     for (Guid c : ed.collections((flags & 1) != 0))
       for (Guid v : ed.variablesOf(c)) vars.push_back(v);
@@ -2108,10 +2144,8 @@ ENG_EXPORT int32_t engine_variable_modes(Handle h, Ptr refPtr, uint32_t refLen) 
   json::Writer w;
   w.beginArray();
   for (Guid c : ed.collections(true)) {
-    const NodeProps& sp = ed.document().get(c)->props;
-    Guid explicitMode = n->props.explicitMode(c, sp.asset().key);
-    bool valid = false;
-    for (auto& m : sp.asset().variableSetModes) valid |= m.id == explicitMode;
+    Guid explicitMode = ed.explicitModeOf(id, c);
+    bool valid = explicitMode != kNoGuid;
     w.beginObject().key("collectionId").string(c.toString()).key("explicitModeId");
     if (!valid) w.null();
     else w.string(explicitMode.toString());

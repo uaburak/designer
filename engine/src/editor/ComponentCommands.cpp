@@ -363,6 +363,30 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       p.overridden = usage.count(d->id) != 0;
       p.boundLayers = bound[d->id];
     }
+    // The variable the value (an instance's variant) or the default (a main's property) is bound to.
+    auto variableOf = [&](const VariableData& v) {
+      if (v.kind != VariableData::Kind::ALIAS) return kNoGuid;
+      Guid g = findVariable(v.alias);
+      return g != kNoGuid ? g : v.alias.guid;
+    };
+    if (d->type == ComponentPropType::VARIANT && level != kNoGuid) {
+      if (const Node* ln = doc_.get(level))
+        for (const ParamBinding& b : ln->props.parameterConsumptionMap)
+          if (b.field == VariableField::VARIANT_PROPERTIES && b.data.kind == VariableData::Kind::EXPRESSION && !b.data.args.empty() &&
+              b.data.args[0].kind == VariableData::Kind::MAP) {
+            const VariableData& m = b.data.args[0];
+            for (size_t i = 0; i < m.args.size(); i++) {
+              Guid k = i < m.mapGuidKeys.size() ? m.mapGuidKeys[i] : kNoGuid;
+              if (k == d->id || (k == kNoGuid && i < m.mapKeys.size() && m.mapKeys[i] == d->name)) p.boundVariable = variableOf(m.args[i]);
+            }
+          }
+    } else if (d->type != ComponentPropType::VARIANT) {
+      const ComponentPropAssignment* a = nullptr;
+      for (const auto& x : assigns)
+        if (x.defID == d->id) a = &x;
+      if (a && a->boundValue.present()) p.boundVariable = variableOf(a->boundValue);
+      else if (!a || a->value.empty()) p.boundVariable = variableOf(d->boundValue);
+    }
     out.push_back(std::move(p));
   }
   return out;
@@ -1396,6 +1420,42 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
     if (best == kNoGuid) return E_NOT_FOUND;
     if (best == symbol) return OK;
     begin(TxnKind::USER, "Change variant");
+    // A variant picked by hand detaches the variable that chose this property (Figma: an edit of a bound value
+    // detaches it); the other bound properties stay.
+    for (const ParamBinding& b : n->props.parameterConsumptionMap) {
+      if (b.field != VariableField::VARIANT_PROPERTIES || b.data.kind != VariableData::Kind::EXPRESSION || b.data.args.empty() ||
+          b.data.args[0].kind != VariableData::Kind::MAP)
+        continue;
+      const VariableData& m = b.data.args[0];
+      std::vector<std::pair<std::string, Guid>> keys;
+      std::vector<VariableData> values;
+      bool had = false;
+      for (size_t i = 0; i < m.args.size(); i++) {
+        Guid k = i < m.mapGuidKeys.size() ? m.mapGuidKeys[i] : kNoGuid;
+        std::string name = i < m.mapKeys.size() ? m.mapKeys[i] : std::string();
+        if (k == d.id || (k == kNoGuid && name == d.name)) {
+          had = true;
+          continue;
+        }
+        keys.push_back({name, k});
+        values.push_back(m.args[i]);
+      }
+      if (!had) break;
+      NodeChange u = NodeChange::changed(ref);
+      u.mask = F_PARAM_MAP;
+      u.props.parameterConsumptionMap = n->props.parameterConsumptionMap;
+      auto& map = u.props.parameterConsumptionMap;
+      map.erase(std::remove_if(map.begin(), map.end(), [](const ParamBinding& x) { return x.field == VariableField::VARIANT_PROPERTIES; }), map.end());
+      if (!keys.empty()) {
+        ParamBinding nb;
+        nb.field = VariableField::VARIANT_PROPERTIES;
+        nb.data = VariableData::resolveVariant(keys, std::move(values));
+        map.push_back(std::move(nb));
+      }
+      write(u);
+      n = doc_.get(ref);
+      break;
+    }
     if (ref.isDerived()) {
       NodeChange c = NodeChange::changed(ref);
       c.mask = F_OVERRIDDEN_SYMBOL_ID;

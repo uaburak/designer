@@ -168,6 +168,38 @@ VariableData VariableData::composeColor(VariableData color, VariableData opacity
   return d;
 }
 
+VariableData VariableData::isTruthy(VariableData arg) {
+  VariableData d;
+  d.kind = Kind::EXPRESSION;
+  d.function = ExpressionFunction::IS_TRUTHY;
+  d.args = {std::move(arg)};
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::EXPRESSION;
+  d.resolvedDataType = VariableResolvedType::BOOLEAN;
+  return d;
+}
+
+VariableData VariableData::resolveVariant(const std::vector<std::pair<std::string, Guid>>& keys, std::vector<VariableData> values) {
+  VariableData map;
+  map.kind = Kind::MAP;
+  map.hasDataType = map.hasResolvedType = true;
+  map.dataType = VariableDataType::MAP;
+  map.resolvedDataType = VariableResolvedType::MAP;
+  for (auto& [name, def] : keys) {
+    map.mapKeys.push_back(name);
+    map.mapGuidKeys.push_back(def);
+  }
+  map.args = std::move(values);
+  VariableData d;
+  d.kind = Kind::EXPRESSION;
+  d.function = ExpressionFunction::RESOLVE_VARIANT;
+  d.args = {std::move(map)};
+  d.hasDataType = d.hasResolvedType = true;
+  d.dataType = VariableDataType::EXPRESSION;
+  d.resolvedDataType = VariableResolvedType::SYMBOL_ID;
+  return d;
+}
+
 bool NodeProps::hasBindings() const {
   if (refs().styleIdForFill.present() || refs().styleIdForStrokeFill.present() || refs().styleIdForText.present() || refs().styleIdForEffect.present() ||
       refs().styleIdForGrid.present())
@@ -185,6 +217,9 @@ bool NodeProps::hasBindings() const {
   for (auto& run : text().textData.styleOverrideTable)
     for (auto& p : run.fillPaints)
       if (p.hasVariables()) return true;
+  // An instance's property values bound to variables (resolved in its modes when it is derived).
+  for (auto& a : comp().componentPropAssignments)
+    if (a.boundValue.present()) return true;
   return false;
 }
 
@@ -356,7 +391,7 @@ bool TextStyle::operator==(const TextStyle& o) const {
   X(F_PUBLISHED_VERSION, asset, publishedVersion, 218)     \
   X(F_SOURCE_LIBRARY_KEY, asset, sourceLibraryKey, 395)    \
   X(F_PUBLISH_ID, asset, publishID, 215)                   \
-  X(F_LIBRARY_MOVE_INFO, asset, libraryMoveInfo, 256)      \
+  X(F_LIBRARY_MOVE_INFO, asset, libraryMoveInfo, 256)        X(F_OVERRIDDEN_VARIABLE, asset, overriddenVariableId, 464)\
   X(F_EXTRA, core, extra, 0)
 
 const char* nodeTypeName(NodeType t) {
@@ -377,6 +412,7 @@ const char* nodeTypeName(NodeType t) {
     case NodeType::SLICE: return "SLICE";
     case NodeType::VARIABLE: return "VARIABLE";
     case NodeType::VARIABLE_SET: return "VARIABLE_SET";
+    case NodeType::VARIABLE_OVERRIDE: return "VARIABLE_OVERRIDE";
     case NodeType::SYMBOL: return "SYMBOL";
     case NodeType::INSTANCE: return "INSTANCE";
     case NodeType::SECTION: return "SECTION";
@@ -389,7 +425,8 @@ NodeType nodeTypeFromName(std::string_view s) {
                                       NodeType::ELLIPSE, NodeType::RECTANGLE, NodeType::ROUNDED_RECTANGLE,
                                       NodeType::TEXT, NodeType::SYMBOL, NodeType::INSTANCE, NodeType::SECTION,
                                       NodeType::BOOLEAN_OPERATION, NodeType::VECTOR, NodeType::STAR, NodeType::LINE,
-                                      NodeType::REGULAR_POLYGON, NodeType::SLICE, NodeType::VARIABLE, NodeType::VARIABLE_SET};
+                                      NodeType::REGULAR_POLYGON, NodeType::SLICE, NodeType::VARIABLE, NodeType::VARIABLE_SET,
+                                      NodeType::VARIABLE_OVERRIDE};
   for (NodeType t : kAll)
     if (s == nodeTypeName(t)) return t;
   return NodeType::NONE;

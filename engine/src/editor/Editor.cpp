@@ -398,6 +398,7 @@ void Editor::relayoutAll() {
   std::vector<Guid> unusedDeleted;
   std::unordered_set<Guid, GuidHash> used;
   std::unordered_set<Guid, GuidHash> bound;
+  std::vector<Guid> overrides;
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
     if (n.props.type == NodeType::INSTANCE) {
@@ -411,7 +412,9 @@ void Editor::relayoutAll() {
     if (n.props.isStyle()) styleIds_.insert(n.guid);
     if (n.props.type == NodeType::VARIABLE_SET) collectionIds_.insert(n.guid);
     if (n.props.type == NodeType::VARIABLE) variableSets_[n.guid] = n.props.asset().variableSetID.guid;
+    if (n.props.type == NodeType::VARIABLE_OVERRIDE) overrides.push_back(n.guid);
   });
+  for (Guid o : overrides) indexOverride(o);
   // Bound values: the shown page's and the internal canvas's (styles, collections, mains, slot content) now; another
   // page's when it is first shown (derivePage), with its instances — Figma loads a page with its dependencies, and
   // resolving a page nobody looks at would derive its instances and ask for its fonts.
@@ -728,6 +731,10 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   collectionIds_.clear();
   variableSets_.clear();
   instanceBindings_.clear();
+  instanceVarDeps_.clear();
+  overridesBySet_.clear();
+  overrideIndex_.clear();
+  extensionSyncDirty_.clear();
   assetKeysDirty_ = true;
   navMain_ = returnTo_ = kNoGuid;
   if (text_.node != kNoGuid) events_.textEdit = true;
@@ -848,7 +855,7 @@ void Editor::invalidateStored(const NodeChange& c, NodeType typeBefore) {
   if (!c.guid.isDerived()) storedSymbols_.erase(c.guid);
   NodeType type = c.phase == Phase::REMOVED ? typeBefore : c.props.type;
   if (const Node* n = doc_.get(c.guid)) type = n->props.type;
-  bool global = type == NodeType::VARIABLE || type == NodeType::VARIABLE_SET || type == NodeType::SYMBOL ||
+  bool global = type == NodeType::VARIABLE || type == NodeType::VARIABLE_SET || type == NodeType::VARIABLE_OVERRIDE || type == NodeType::SYMBOL ||
                 typeBefore == NodeType::SYMBOL || (mask & (F_VARIABLE_MODES | F_STYLE_TYPE));
   if (!global)
     if (const Node* n = doc_.get(c.guid)) global = n->props.isStyle();

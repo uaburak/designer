@@ -348,7 +348,7 @@ NodeProps fullProps() {
   p.asset().description = "A description";
   p.asset().key = "0123456789abcdef0123456789abcdef01234567";
   p.asset().isPublishable = false;
-  p.asset().variableSetModes = {{{5, 2}, "Light", "!"}, {{5, 3}, "Dark", "\""}};
+  p.asset().variableSetModes = {{{5, 2}, "Light", "!", {}, kNoGuid}, {{5, 3}, "Dark", "\"", {}, kNoGuid}};
   p.asset().variableSetID = AssetId::of({5, 1});
   p.asset().variableResolvedType = VariableResolvedType::COLOR;
   VariableData expr;

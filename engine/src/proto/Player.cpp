@@ -1253,7 +1253,7 @@ void Player::setVariableMode(const Action& a) {
         e.mode = a.targetMode;
         found = true;
       }
-    if (!found) c.props.refs().variableModeBySetMap.push_back({set, a.targetMode});
+    if (!found) c.props.refs().variableModeBySetMap.push_back({set, a.targetMode, {}});
     changes.push_back(std::move(c));
   }
   ed_.applyChanges(changes, APPLY_REMOTE);

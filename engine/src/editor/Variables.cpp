@@ -14,10 +14,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include "base/DerivedIds.h"
+#include "base/FractionalIndex.h"
 #include "editor/Editor.h"
+#include "kiwi.h"
 #include "scene/CodecKiwi.h"
+#include "schema/SchemaTable.h"
 
 namespace eng {
 
@@ -42,7 +46,35 @@ std::string styleForWeight(double w, bool italic) {
   return s;
 }
 
+// A number as Figma prints it in a string context (variant values, concatenation): no trailing zeros.
+std::string numberText(double v) {
+  if (!std::isfinite(v)) return "0";
+  if (std::fabs(v - std::round(v)) < 1e-9 && std::fabs(v) < 1e15) return std::to_string(static_cast<long long>(std::llround(v)));
+  char buf[32];
+  std::snprintf(buf, sizeof buf, "%.6g", v);
+  return buf;
+}
+
 bool isItalicStyle(const std::string& style) { return style.find("Italic") != std::string::npos; }
+
+// Grid gaps (gridRowGap / gridColumnGap) are unmodelled fields (layout/GridLayout.cpp reads them from NodeProps::extra):
+// a bound one is written there, as the kiwi bytes of its field.
+constexpr uint32_t kGridRowGapId = 437, kGridColumnGapId = 438;
+void setExtraFloat(NodeProps& p, const char* key, uint32_t id, double v) {
+  schema::Out o;
+  o.varuint(id);
+  o.varfloat(static_cast<float>(v));
+  p.extra[key] = o.s;
+}
+double extraFloat(const NodeProps& p, const char* key, uint32_t id) {
+  auto it = p.extra.find(key);
+  if (it == p.extra.end() || it->second.empty()) return 0;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(it->second.data()), it->second.size());
+  uint32_t f = 0;
+  float v = 0;
+  if (!bb.readVarUint(f) || f != id || !bb.readVarFloat(v) || !std::isfinite(v)) return 0;
+  return v;
+}
 
 // The FLOAT a node field binding takes, written into `p`.
 void setFloatField(NodeProps& p, VariableField f, double v) {
@@ -84,7 +116,9 @@ void setFloatField(NodeProps& p, VariableField f, double v) {
       break;
     case VariableField::PARAGRAPH_SPACING: p.text().paragraphSpacing = nonNegative(v); break;
     case VariableField::PARAGRAPH_INDENT: p.text().paragraphIndent = nonNegative(v); break;
-    default: break;  // GRID_ROW_GAP / GRID_COLUMN_GAP / FONT_VARIATIONS: kept as data (not modelled yet)
+    case VariableField::GRID_ROW_GAP: setExtraFloat(p, "gridRowGap", kGridRowGapId, nonNegative(v)); break;
+    case VariableField::GRID_COLUMN_GAP: setExtraFloat(p, "gridColumnGap", kGridColumnGapId, nonNegative(v)); break;
+    default: break;  // FONT_VARIATIONS: kept as data (not modelled)
   }
 }
 
@@ -231,39 +265,237 @@ uint32_t Editor::styleUsage(Guid style) const {
   return count;
 }
 
-// ---- Resolution ---------------------------------------------------------------------------------
+// ---- Extended collections ------------------------------------------------------------------------
+//
+// Figma's extended collections (docs/research/figma/R3-variables.md R3-32/33): a VARIABLE_SET whose modes each name
+// the collection they extend and its mode (VariableSetMode.parentVariableSetId / parentModeId). It inherits the
+// parent's variables, names, scopes and order; only values are overridden — per variable, a VARIABLE_OVERRIDE node
+// (a child of the extended collection; overriddenVariableId = the root collection's variable) holding values for the
+// extension's modes. A layer uses one by its mode: the explicit-mode entry of the root collection naming the
+// extension (variableSetExtensionID) and one of its modes ("one mode value per collection", Figma).
 
-Guid Editor::modeFor(const ModeContext& ctx, Guid set) const {
-  const Node* sn = doc_.get(set);
-  if (!sn) return kNoGuid;
-  const NodeProps& sp = sn->props;
-  auto valid = [&](Guid mode) {
-    for (auto& m : sp.asset().variableSetModes)
+Guid Editor::extensionParent(Guid set) const {
+  const Node* n = doc_.get(set);
+  if (!n || n->props.type != NodeType::VARIABLE_SET) return kNoGuid;
+  for (const VariableSetMode& m : n->props.asset().variableSetModes)
+    if (m.parentSet.present()) {
+      Guid p = findCollection(m.parentSet);
+      if (p != kNoGuid && p != set) return p;
+    }
+  return kNoGuid;
+}
+
+Guid Editor::rootCollection(Guid set) const {
+  Guid cur = set;
+  for (int guard = 0; guard < 16; guard++) {
+    Guid up = extensionParent(cur);
+    if (up == kNoGuid) return cur;
+    cur = up;
+  }
+  return cur;
+}
+
+Guid Editor::overrideNode(Guid extension, Guid variable) const {
+  auto s = overridesBySet_.find(extension);
+  if (s == overridesBySet_.end()) return kNoGuid;
+  auto v = s->second.find(variable);
+  return v == s->second.end() || !doc_.has(v->second) ? kNoGuid : v->second;
+}
+
+std::vector<Guid> Editor::extensionsOf(Guid set) const {
+  std::vector<Guid> out;
+  for (Guid c : collectionIds_)
+    if (c != set && doc_.has(c) && extensionParent(c) == set) out.push_back(c);
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+Guid Editor::collectionOfMode(Guid set, Guid mode) const {
+  auto has = [&](Guid c) {
+    const Node* n = doc_.get(c);
+    if (!n) return false;
+    for (const VariableSetMode& m : n->props.asset().variableSetModes)
       if (m.id == mode) return true;
     return false;
   };
-  if (ctx.forcedSet == set && valid(ctx.forcedMode)) return ctx.forcedMode;
+  if (has(set)) return set;
+  // Extensions of the root, breadth first (a chain C → B → A).
+  std::vector<Guid> queue{rootCollection(set)};
+  for (size_t i = 0; i < queue.size() && i < 256; i++) {
+    if (has(queue[i])) return queue[i];
+    for (Guid e : extensionsOf(queue[i])) queue.push_back(e);
+  }
+  return kNoGuid;
+}
+
+void Editor::indexOverride(Guid node) {
+  if (auto old = overrideIndex_.find(node); old != overrideIndex_.end()) {
+    auto s = overridesBySet_.find(old->second.first);
+    if (s != overridesBySet_.end()) {
+      auto v = s->second.find(old->second.second);
+      if (v != s->second.end() && v->second == node) s->second.erase(v);
+      if (s->second.empty()) overridesBySet_.erase(s);
+    }
+    overrideIndex_.erase(old);
+  }
+  const Node* n = doc_.get(node);
+  if (!n || n->props.type != NodeType::VARIABLE_OVERRIDE) return;
+  Guid ext = findCollection(n->props.asset().variableSetID);
+  if (ext == kNoGuid) ext = n->props.asset().variableSetID.guid;
+  if (ext == kNoGuid) ext = n->props.parentIndex.guid;
+  Guid var = findVariable(n->props.asset().overriddenVariableId);
+  if (var == kNoGuid) var = n->props.asset().overriddenVariableId.guid;
+  if (ext == kNoGuid || var == kNoGuid) return;
+  overridesBySet_[ext][var] = node;
+  overrideIndex_[node] = {ext, var};
+}
+
+void Editor::syncExtensions() {
+  // An extended collection inherits its parent's modes: one per parent mode (its name and order), new ones added; a
+  // mode whose parent mode is gone stays (Figma: removable only then) after the others. Local extensions only (a
+  // library's come with its updates).
+  for (int pass = 0; pass < 8 && !extensionSyncDirty_.empty(); pass++) {
+    std::vector<Guid> parents(extensionSyncDirty_.begin(), extensionSyncDirty_.end());
+    extensionSyncDirty_.clear();
+    std::sort(parents.begin(), parents.end());
+    for (Guid parent : parents) {
+      const Node* pn = doc_.get(parent);
+      if (!pn || pn->props.type != NodeType::VARIABLE_SET) continue;
+      std::vector<VariableSetMode> parentModes = pn->props.orderedModes();
+      for (Guid ext : extensionsOf(parent)) {
+        if (isLibraryCopy(ext)) continue;
+        const NodeProps& ep = doc_.get(ext)->props;
+        std::vector<VariableSetMode> next;
+        AssetId parentRef = AssetId::of(parent);
+        for (const VariableSetMode& m : ep.asset().variableSetModes)
+          if (m.parentSet.present() && findCollection(m.parentSet) == parent) parentRef = m.parentSet;
+        for (const VariableSetMode& pm : parentModes) {
+          VariableSetMode mine;
+          bool found = false;
+          for (const VariableSetMode& m : ep.asset().variableSetModes)
+            if (m.parentMode == pm.id) mine = m, found = true;
+          if (!found) {
+            mine.id = newGuid();
+            mine.parentSet = parentRef;
+            mine.parentMode = pm.id;
+          }
+          mine.name = pm.name;
+          mine.sortPosition = pm.sortPosition;
+          next.push_back(std::move(mine));
+        }
+        std::string last = next.empty() ? std::string() : next.back().sortPosition;
+        for (const VariableSetMode& m : ep.orderedModes()) {
+          bool live = false;
+          for (const VariableSetMode& pm : parentModes) live |= pm.id == m.parentMode;
+          if (live) continue;
+          VariableSetMode orphan = m;
+          std::string k = fractional::keyBetween(last, std::nullopt, fractional::Bias::Low);
+          if (!k.empty()) orphan.sortPosition = last = k;
+          next.push_back(std::move(orphan));
+        }
+        if (next == ep.asset().variableSetModes) continue;
+        NodeChange c = NodeChange::changed(ext);
+        c.mask = F_VARIABLE_SET_MODES;
+        c.props.asset().variableSetModes = std::move(next);
+        bool prev = resolving_;
+        resolving_ = false;  // its own extensions follow in turn (noteBindings)
+        write(c);
+        resolving_ = prev;
+      }
+    }
+  }
+}
+
+// ---- Resolution ---------------------------------------------------------------------------------
+
+Guid Editor::modeFor(const ModeContext& ctx, Guid set, Guid* extension) const {
+  if (extension) *extension = kNoGuid;
+  const Node* sn = doc_.get(set);
+  if (!sn) return kNoGuid;
+  const NodeProps& sp = sn->props;
+  auto valid = [&](const NodeProps& c, Guid mode) {
+    for (auto& m : c.asset().variableSetModes)
+      if (m.id == mode) return true;
+    return false;
+  };
+  // An extended collection of `set` and one of its modes.
+  auto extensionMode = [&](Guid ext, Guid mode) {
+    if (ext == kNoGuid || ext == set || rootCollection(ext) != set) return false;
+    const Node* en = doc_.get(ext);
+    if (!en || !valid(en->props, mode)) return false;
+    if (extension) *extension = ext;
+    return true;
+  };
+  if (ctx.forcedSet != kNoGuid && ctx.forcedMode != kNoGuid) {
+    if (ctx.forcedSet == set && valid(sp, ctx.forcedMode)) return ctx.forcedMode;
+    if (extensionMode(ctx.forcedSet, ctx.forcedMode)) return ctx.forcedMode;
+  }
   // The nearest explicit mode for this collection: the node, then its ancestors (pages included; an instance's
   // sublayers go through the instance). A mode the collection no longer has counts as Auto.
   const NodeProps* p = ctx.self;
   Guid cur = ctx.consumer;
-  if (!p && cur != kNoGuid) {
-    const Node* n = doc_.get(cur);
-    p = n ? &n->props : nullptr;
-  }
+  auto lookup = [&](Guid g) -> const NodeProps* {
+    if (ctx.pending)
+      if (const NodeProps* q = ctx.pending(g)) return q;
+    const Node* n = doc_.get(g);
+    return n ? &n->props : nullptr;
+  };
+  if (!p && cur != kNoGuid) p = lookup(cur);
+  const std::string& key = sp.asset().key;
   for (int guard = 0; p && guard < 4096; guard++) {
-    Guid m = p->explicitMode(set, sp.asset().key);
-    if (m != kNoGuid && valid(m)) return m;
+    for (const VariableModeEntry& e : p->refs().variableModeBySetMap) {
+      if (!((e.set.guid != kNoGuid && e.set.guid == set) || (!key.empty() && e.set.key == key))) continue;
+      if (e.extension.present()) {
+        if (extensionMode(findCollection(e.extension), e.mode)) return e.mode;
+      } else if (e.mode != kNoGuid && valid(sp, e.mode)) {
+        return e.mode;
+      }
+      break;  // one mode value per collection: a stale one is Auto
+    }
     Guid up = p->parentIndex.guid;
     // Slot content (Figma's form, under the Internal Only Canvas): on through the slot that shows it.
     if (p->comp().isSlotContent)
       if (auto h = slotHosts_.find(cur); h != slotHosts_.end() && doc_.has(h->second)) up = h->second;
-    const Node* parent = doc_.get(up);
-    if (!parent || up == cur) break;
+    const NodeProps* parent = up != kNoGuid && up != cur ? lookup(up) : nullptr;
+    if (!parent) break;
     cur = up;
-    p = &parent->props;
+    p = parent;
   }
   return sp.defaultMode();
+}
+
+const VariableModeValue* Editor::valueInMode(Guid variable, const NodeProps& vp, Guid set, Guid mode, Guid extension,
+                                             BindingDeps* deps) const {
+  // Up the extension chain: each extension's override for its mode, else its parent's mode.
+  Guid ext = extension;
+  for (int guard = 0; ext != kNoGuid && ext != set && guard < 16; guard++) {
+    if (deps) deps->sets.push_back(ext);
+    if (Guid o = overrideNode(ext, variable); o != kNoGuid)
+      for (const VariableModeValue& v : doc_.get(o)->props.asset().variableDataValues)
+        if (v.modeID == mode) return &v;
+    const Node* en = doc_.get(ext);
+    Guid parentMode = kNoGuid, parent = kNoGuid;
+    if (en)
+      for (const VariableSetMode& m : en->props.asset().variableSetModes)
+        if (m.id == mode) parentMode = m.parentMode, parent = findCollection(m.parentSet);
+    if (parent == kNoGuid || parentMode == kNoGuid) {
+      mode = kNoGuid;  // its parent mode is gone: the default
+      break;
+    }
+    mode = parentMode;
+    ext = parent;
+  }
+  const VariableModeValue* value = nullptr;
+  for (auto& v : vp.asset().variableDataValues)
+    if (v.modeID == mode && mode != kNoGuid) value = &v;
+  if (!value && set != kNoGuid) {
+    // A missing entry falls back to the default mode's value (docs/schema.md §4.6).
+    Guid def = doc_.get(set)->props.defaultMode();
+    for (auto& v : vp.asset().variableDataValues)
+      if (v.modeID == def) value = &v;
+  }
+  if (!value && !vp.asset().variableDataValues.empty()) value = &vp.asset().variableDataValues.front();
+  return value;
 }
 
 bool Editor::resolveVar(Guid variable, const ModeContext& ctx, Resolved& out, BindingDeps* deps, int depth) const {
@@ -273,19 +505,9 @@ bool Editor::resolveVar(Guid variable, const ModeContext& ctx, Resolved& out, Bi
   const NodeProps& vp = vn->props;
   Guid set = findCollection(vp.asset().variableSetID);
   if (deps) deps->sets.push_back(set != kNoGuid ? set : vp.asset().variableSetID.guid);
-  const VariableModeValue* value = nullptr;
-  if (set != kNoGuid) {
-    Guid mode = modeFor(ctx, set);
-    for (auto& v : vp.asset().variableDataValues)
-      if (v.modeID == mode) value = &v;
-    if (!value) {
-      // A missing entry falls back to the default mode's value (docs/schema.md §4.6).
-      Guid def = doc_.get(set)->props.defaultMode();
-      for (auto& v : vp.asset().variableDataValues)
-        if (v.modeID == def) value = &v;
-    }
-  }
-  if (!value && !vp.asset().variableDataValues.empty()) value = &vp.asset().variableDataValues.front();
+  Guid mode = kNoGuid, extension = kNoGuid;
+  if (set != kNoGuid) mode = modeFor(ctx, set, &extension);
+  const VariableModeValue* value = valueInMode(variable, vp, set, mode, extension, deps);
   if (!value) return false;
   if (!resolveData(value->data, ctx, out, deps, depth + 1)) return false;
   // The value must be of the variable's type.
@@ -327,14 +549,95 @@ bool Editor::resolveData(const VariableData& d, const ModeContext& ctx, Resolved
       return resolveVar(v, ctx, out, deps, depth + 1);
     }
     case K::EXPRESSION: {
-      if (d.function != ExpressionFunction::COMPOSE_COLOR || d.args.size() < 2) return false;
-      // "Control opacity at scale": the colour (literal or alias) with the opacity (a percentage, literal or alias).
-      Resolved color, opacity;
-      if (!resolveData(d.args[0], ctx, color, deps, depth + 1) || color.kind != Resolved::Kind::COLOR) return false;
-      if (!resolveData(d.args[1], ctx, opacity, deps, depth + 1) || opacity.kind != Resolved::Kind::FLOAT) return false;
-      out = color;
-      out.c.a = static_cast<float>(clamp01(opacity.f / 100));
-      return true;
+      if (d.function == ExpressionFunction::COMPOSE_COLOR) {
+        if (d.args.size() < 2) return false;
+        // "Control opacity at scale": the colour (literal or alias) with the opacity (a percentage, literal or alias).
+        Resolved color, opacity;
+        if (!resolveData(d.args[0], ctx, color, deps, depth + 1) || color.kind != Resolved::Kind::COLOR) return false;
+        if (!resolveData(d.args[1], ctx, opacity, deps, depth + 1) || opacity.kind != Resolved::Kind::FLOAT) return false;
+        out = color;
+        out.c.a = static_cast<float>(clamp01(opacity.f / 100));
+        return true;
+      }
+      if (d.function == ExpressionFunction::RESOLVE_VARIANT) return false;  // a variant (variantFor), not a value
+      // Figma's expressions (R3-34; a boolean bound to visibility is IS_TRUTHY(alias) in Figma's files).
+      std::vector<Resolved> a(d.args.size());
+      for (size_t i = 0; i < d.args.size(); i++)
+        if (!resolveData(d.args[i], ctx, a[i], deps, depth + 1)) return false;
+      auto truthy = [](const Resolved& r) {
+        switch (r.kind) {
+          case Resolved::Kind::BOOL: return r.b;
+          case Resolved::Kind::FLOAT: return r.f != 0;
+          case Resolved::Kind::STRING: return !r.s.empty();
+          case Resolved::Kind::COLOR: return true;
+          default: return false;
+        }
+      };
+      auto text = [](const Resolved& r) {
+        if (r.kind == Resolved::Kind::STRING) return r.s;
+        if (r.kind == Resolved::Kind::BOOL) return std::string(r.b ? "true" : "false");
+        if (r.kind == Resolved::Kind::FLOAT) return numberText(r.f);
+        return std::string();
+      };
+      auto boolean = [&](bool v) {
+        out.kind = Resolved::Kind::BOOL;
+        out.b = v;
+        return true;
+      };
+      auto number = [&](double v) {
+        out.kind = Resolved::Kind::FLOAT;
+        out.f = v;
+        return std::isfinite(v);
+      };
+      auto floats = [&](size_t n) {
+        if (a.size() < n) return false;
+        for (size_t i = 0; i < n; i++)
+          if (a[i].kind != Resolved::Kind::FLOAT) return false;
+        return true;
+      };
+      auto same = [&]() {
+        if (a.size() < 2 || a[0].kind != a[1].kind) return false;
+        switch (a[0].kind) {
+          case Resolved::Kind::BOOL: return a[0].b == a[1].b;
+          case Resolved::Kind::FLOAT: return a[0].f == a[1].f;
+          case Resolved::Kind::STRING: return a[0].s == a[1].s;
+          case Resolved::Kind::COLOR: return a[0].c == a[1].c;
+          default: return false;
+        }
+      };
+      using F = ExpressionFunction;
+      switch (d.function) {
+        case F::IS_TRUTHY: return !a.empty() && boolean(truthy(a[0]));
+        case F::NOT: return !a.empty() && boolean(!truthy(a[0]));
+        case F::AND: return a.size() >= 2 && boolean(truthy(a[0]) && truthy(a[1]));
+        case F::OR: return a.size() >= 2 && boolean(truthy(a[0]) || truthy(a[1]));
+        case F::EQUALS: return a.size() >= 2 && boolean(same());
+        case F::NOT_EQUAL: return a.size() >= 2 && boolean(!same());
+        case F::LESS_THAN: return floats(2) && boolean(a[0].f < a[1].f);
+        case F::LESS_THAN_OR_EQUAL: return floats(2) && boolean(a[0].f <= a[1].f);
+        case F::GREATER_THAN: return floats(2) && boolean(a[0].f > a[1].f);
+        case F::GREATER_THAN_OR_EQUAL: return floats(2) && boolean(a[0].f >= a[1].f);
+        case F::ADDITION:
+          if (floats(2)) return number(a[0].f + a[1].f);
+          if (a.size() < 2) return false;
+          out.kind = Resolved::Kind::STRING;  // string concatenation
+          out.s = text(a[0]) + text(a[1]);
+          return true;
+        case F::SUBTRACTION: return floats(2) && number(a[0].f - a[1].f);
+        case F::MULTIPLY: return floats(2) && number(a[0].f * a[1].f);
+        case F::DIVIDE: return floats(2) && a[1].f != 0 && number(a[0].f / a[1].f);
+        case F::NEGATE: return floats(1) && number(-a[0].f);
+        case F::STRINGIFY:
+          if (a.empty()) return false;
+          out.kind = Resolved::Kind::STRING;
+          out.s = text(a[0]);
+          return true;
+        case F::TERNARY:
+          if (a.size() < 3) return false;
+          out = truthy(a[0]) ? a[1] : a[2];
+          return true;
+        default: return false;
+      }
     }
     case K::FONT_STYLE: {
       // A style name (STRING), else a weight (FLOAT) → the style name.
@@ -375,15 +678,137 @@ bool Editor::resolveVariableInMode(Guid variable, Guid mode, Resolved& out) cons
   const Node* vn = doc_.get(variable);
   if (!vn) return false;
   ModeContext ctx;
-  ctx.forcedSet = findCollection(vn->props.asset().variableSetID);
+  Guid set = findCollection(vn->props.asset().variableSetID);
+  // A mode of an extended collection of it: the extension's value there.
+  Guid owner = set != kNoGuid ? collectionOfMode(set, mode) : kNoGuid;
+  ctx.forcedSet = owner != kNoGuid ? owner : set;
   ctx.forcedMode = mode;
   return resolveVar(variable, ctx, out, nullptr, 0);
+}
+
+Guid Editor::variantFor(Guid main, const VariableData& binding, const ModeContext& ctx, BindingDeps* deps) const {
+  // RESOLVE_VARIANT(MAP {property name / def id → value}) (Figma's files; "Assign variable" on a variant property): the
+  // variant whose values for the bound properties are the variables' values in the consumer's modes — a string, a
+  // number as text, a boolean as true / false (Figma: "the variable's value must match the variant property's
+  // values"; compared case-insensitively when no variant matches exactly) — keeping the most of the other values.
+  if (binding.kind != VariableData::Kind::EXPRESSION || binding.function != ExpressionFunction::RESOLVE_VARIANT || binding.args.empty())
+    return kNoGuid;
+  const VariableData& map = binding.args[0];
+  if (map.kind != VariableData::Kind::MAP) return kNoGuid;
+  Guid set = setOf(main);
+  const Node* setNode = doc_.get(set);
+  if (!setNode) return kNoGuid;
+  const auto& defs = setNode->props.comp().componentPropDefs;
+  std::map<Guid, std::string> want;
+  for (size_t i = 0; i < map.args.size(); i++) {
+    Guid def = i < map.mapGuidKeys.size() ? map.mapGuidKeys[i] : kNoGuid;
+    bool known = false;
+    for (const ComponentPropDef& d : defs) known |= d.id == def && d.type == ComponentPropType::VARIANT;
+    if (!known && i < map.mapKeys.size())
+      for (const ComponentPropDef& d : defs)
+        if (d.type == ComponentPropType::VARIANT && d.name == map.mapKeys[i]) def = d.id, known = true;
+    if (!known) continue;
+    Resolved r;
+    if (!resolveData(map.args[i], ctx, r, deps, 0)) continue;
+    if (r.kind == Resolved::Kind::STRING) want[def] = r.s;
+    else if (r.kind == Resolved::Kind::FLOAT) want[def] = numberText(r.f);
+    else if (r.kind == Resolved::Kind::BOOL) want[def] = r.b ? "true" : "false";
+  }
+  if (want.empty()) return kNoGuid;
+  auto lower = [](std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+  };
+  std::map<Guid, std::string> now;
+  if (const Node* mn = doc_.get(main))
+    for (const VariantPropSpec& s : mn->props.comp().variantPropSpecs) now[s.propDefId] = s.value;
+  Guid best = kNoGuid;
+  int bestScore = -1;
+  for (int pass = 0; pass < 2 && best == kNoGuid; pass++) {
+    for (Guid v : doc_.children(set)) {
+      const Node* vn = doc_.get(v);
+      if (!vn || vn->props.type != NodeType::SYMBOL) continue;
+      std::map<Guid, std::string> vals;
+      for (const VariantPropSpec& s : vn->props.comp().variantPropSpecs) vals[s.propDefId] = s.value;
+      bool ok = true;
+      for (auto& [k, val] : want) ok &= pass == 0 ? vals[k] == val : lower(vals[k]) == lower(val);
+      if (!ok) continue;
+      int score = 0;
+      for (auto& [k, val] : now)
+        if (!want.count(k) && vals[k] == val) score++;
+      if (v == main) score++;  // ties keep the current one
+      if (score > bestScore) best = v, bestScore = score;
+    }
+  }
+  return best;
 }
 
 Guid Editor::resolvedMode(Guid node, Guid set) const {
   ModeContext ctx;
   ctx.consumer = node;
-  return modeFor(ctx, set);
+  // An extended collection: its mode when the node uses it, else its mode inheriting the root's resolved one.
+  Guid root = rootCollection(set);
+  Guid ext = kNoGuid;
+  Guid mode = modeFor(ctx, root, &ext);
+  if (ext == set) return mode;
+  if (root == set) {
+    // The extension's mode → its parent's, down to the root's.
+    for (Guid cur = ext; cur != kNoGuid && cur != root;) {
+      Guid next = kNoGuid, up = kNoGuid;
+      if (const Node* en = doc_.get(cur))
+        for (const VariableSetMode& m : en->props.asset().variableSetModes)
+          if (m.id == mode) next = m.parentMode, up = findCollection(m.parentSet);
+      if (next == kNoGuid) return doc_.get(root)->props.defaultMode();
+      mode = next;
+      cur = up;
+    }
+    return mode;
+  }
+  // The extension's mode whose parent chain leads to `mode` of the root.
+  std::vector<Guid> chain;
+  for (Guid cur = set; cur != kNoGuid && cur != root && chain.size() < 16; cur = extensionParent(cur)) chain.push_back(cur);
+  Guid want = mode;
+  for (size_t i = chain.size(); i-- > 0;) {
+    Guid next = kNoGuid;
+    if (const Node* en = doc_.get(chain[i]))
+      for (const VariableSetMode& m : en->props.asset().variableSetModes)
+        if (m.parentMode == want) next = m.id;
+    if (next == kNoGuid) return doc_.has(set) ? doc_.get(set)->props.defaultMode() : kNoGuid;
+    want = next;
+  }
+  return want;
+}
+
+Guid Editor::explicitModeOf(Guid node, Guid set) const {
+  const Node* n = doc_.get(node);
+  if (!n) return kNoGuid;
+  Guid root = rootCollection(set);
+  const Node* rn = doc_.get(root);
+  const std::string key = rn ? rn->props.asset().key : std::string();
+  for (const VariableModeEntry& e : n->props.refs().variableModeBySetMap) {
+    if (!((e.set.guid != kNoGuid && e.set.guid == root) || (!key.empty() && e.set.key == key))) continue;
+    Guid ext = e.extension.present() ? findCollection(e.extension) : kNoGuid;
+    if ((ext == kNoGuid ? root : ext) != set) return kNoGuid;
+    const Node* sn = doc_.get(set);
+    if (!sn) return kNoGuid;
+    for (const VariableSetMode& m : sn->props.asset().variableSetModes)
+      if (m.id == e.mode) return e.mode;
+    return kNoGuid;
+  }
+  return kNoGuid;
+}
+
+const VariableData* Editor::valueForMode(Guid variable, Guid mode, bool* overridden) const {
+  if (overridden) *overridden = false;
+  const Node* vn = doc_.get(variable);
+  if (!vn || vn->props.type != NodeType::VARIABLE) return nullptr;
+  Guid set = findCollection(vn->props.asset().variableSetID);
+  Guid owner = set != kNoGuid ? collectionOfMode(set, mode) : kNoGuid;
+  if (owner != kNoGuid && owner != set && overridden)
+    if (Guid o = overrideNode(owner, variable); o != kNoGuid)
+      for (const VariableModeValue& v : doc_.get(o)->props.asset().variableDataValues) *overridden |= v.modeID == mode;
+  const VariableModeValue* v = valueInMode(variable, vn->props, set, mode, owner != set ? owner : kNoGuid, nullptr);
+  return v ? &v->data : nullptr;
 }
 
 FieldMask Editor::boundFieldMask(const NodeProps& p) {
@@ -422,6 +847,8 @@ FieldMask Editor::boundFieldMask(const NodeProps& p) {
       case VariableField::PARAGRAPH_INDENT: m |= F_PARAGRAPH_INDENT; break;
       case VariableField::VISIBLE: m |= F_VISIBLE; break;
       case VariableField::TEXT_DATA: m |= F_TEXT_DATA; break;
+      case VariableField::GRID_ROW_GAP: case VariableField::GRID_COLUMN_GAP: m |= F_EXTRA; break;
+      case VariableField::VARIANT_PROPERTIES: m |= F_SYMBOL_DATA; break;
       default: break;
     }
   }
@@ -564,6 +991,19 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
     if (resolve(g.sectionSizeVar, r) && r.kind == Resolved::Kind::FLOAT) g.sectionSize = nonNegative(r.f);
     if (resolve(g.gutterSizeVar, r) && r.kind == Resolved::Kind::FLOAT) g.gutterSize = nonNegative(r.f);
   }
+  // 3. A variant bound to variables: the instance switches variant with the mode (R3-13). A real instance writes the
+  // variant it shows (its symbolID, as Figma's files hold it; its changes remapped as a variant switch does); a derived
+  // one chooses its own while its instance is derived (expandChildren).
+  if (p.type == NodeType::INSTANCE && !id.isDerived())
+    for (const ParamBinding& b : p.parameterConsumptionMap)
+      if (b.field == VariableField::VARIANT_PROPERTIES && b.isVariable()) {
+        Guid cur = p.comp().symbolData.symbolID;
+        Guid v = variantFor(cur, b.data, ctx, deps);
+        if (v != kNoGuid && v != cur) {
+          p.comp().symbolData.overrides = remapOverrides(p.comp().symbolData.overrides, cur, v, true);
+          p.comp().symbolData.symbolID = v;
+        }
+      }
 }
 
 // What resolveBindings writes, reset: a style's values in its user, every variable-bound field. The binding is the
@@ -597,6 +1037,9 @@ void Editor::clearBoundValues(NodeProps& p) {
       case VariableField::FONT_SIZE: p.text().fontSize = none.text().fontSize; break;
       case VariableField::LINE_HEIGHT: p.text().lineHeight = none.text().lineHeight; break;
       case VariableField::LETTER_SPACING: p.text().letterSpacing = none.text().letterSpacing; break;
+      case VariableField::GRID_ROW_GAP: p.extra.erase("gridRowGap"); break;
+      case VariableField::GRID_COLUMN_GAP: p.extra.erase("gridColumnGap"); break;
+      case VariableField::VARIANT_PROPERTIES: break;  // the variant is what the instance is (hashed by its main)
       default: setFloatField(p, b.field, 0); break;
     }
   }
@@ -723,6 +1166,21 @@ void Editor::noteBindings(const NodeChange& c, NodeType typeBefore) {
     if (n) collectionIds_.insert(c.guid);
     else collectionIds_.erase(c.guid);
     if (c.phase != Phase::CHANGED || (m & F_KEY)) assetKeysDirty_ = true;
+    // Its extended collections follow its modes (and theirs follow them).
+    if (n && (c.phase != Phase::CHANGED || (m & F_VARIABLE_SET_MODES))) extensionSyncDirty_.insert(c.guid);
+  } else if (type == NodeType::VARIABLE_OVERRIDE || overrideIndex_.count(c.guid)) {
+    // An extended collection's values for a variable: what resolved through that collection resolves again.
+    Guid before = overrideIndex_.count(c.guid) ? overrideIndex_[c.guid].first : kNoGuid;
+    Guid var = overrideIndex_.count(c.guid) ? overrideIndex_[c.guid].second : kNoGuid;
+    indexOverride(c.guid);
+    for (Guid ext : {before, overrideIndex_.count(c.guid) ? overrideIndex_[c.guid].first : kNoGuid}) {
+      if (ext == kNoGuid) continue;
+      if (auto it = setConsumers_.find(ext); it != setConsumers_.end())
+        for (Guid g : it->second) bindingsDirty_.insert(g);
+      events_.collections.push_back(ext);
+    }
+    if (overrideIndex_.count(c.guid)) var = overrideIndex_[c.guid].second;
+    if (var != kNoGuid) events_.variables.push_back(var);
   }
   bool style = n ? n->props.isStyle() : styleIds_.count(c.guid) != 0;
   if (style || styleIds_.count(c.guid)) {
@@ -749,6 +1207,7 @@ void Editor::noteBindings(const NodeChange& c, NodeType typeBefore) {
 }
 
 void Editor::flushBindings() {
+  if (!extensionSyncDirty_.empty()) syncExtensions();
   for (int pass = 0; pass < 8 && !bindingsDirty_.empty(); pass++) {
     std::vector<Guid> list(bindingsDirty_.begin(), bindingsDirty_.end());
     bindingsDirty_.clear();
@@ -766,6 +1225,8 @@ void Editor::flushBindings() {
         dropDeps(id);
         continue;
       }
+      // An instance whose derivation read variables (a bound variant inside it, a bound property value) is derived again.
+      if (n->props.type == NodeType::INSTANCE && instanceVarDeps_.count(id)) instanceDirty_.insert(id);
       NodeProps p = n->props;
       BindingDeps deps;
       resolveBindings(id, p, &deps);
@@ -827,6 +1288,10 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
         case VariableField::LETTER_SPACING: return (m & F_LETTER_SPACING) != 0;
         case VariableField::PARAGRAPH_SPACING: return (m & F_PARAGRAPH_SPACING) != 0;
         case VariableField::PARAGRAPH_INDENT: return (m & F_PARAGRAPH_INDENT) != 0;
+        case VariableField::GRID_ROW_GAP:
+          return (m & F_EXTRA) && now.extra.count("gridRowGap") && extraFloat(now, "gridRowGap", kGridRowGapId) != extraFloat(before, "gridRowGap", kGridRowGapId);
+        case VariableField::GRID_COLUMN_GAP:
+          return (m & F_EXTRA) && now.extra.count("gridColumnGap") && extraFloat(now, "gridColumnGap", kGridColumnGapId) != extraFloat(before, "gridColumnGap", kGridColumnGapId);
         default: return false;
       }
     };
@@ -924,8 +1389,29 @@ std::vector<Editor::BoundVariable> Editor::boundVariables(Guid node) const {
     }
     out.push_back(std::move(b));
   };
-  for (const ParamBinding& b : p.parameterConsumptionMap)
-    if (b.isVariable()) add(fieldTarget(b.field), b.data);
+  for (const ParamBinding& b : p.parameterConsumptionMap) {
+    if (!b.isVariable()) continue;
+    // A variant bound to variables: one target per property ("componentProperties.<name>").
+    if (b.field == VariableField::VARIANT_PROPERTIES && b.data.kind == VariableData::Kind::EXPRESSION && !b.data.args.empty() &&
+        b.data.args[0].kind == VariableData::Kind::MAP) {
+      const VariableData& map = b.data.args[0];
+      for (size_t i = 0; i < map.args.size(); i++) add("componentProperties." + (i < map.mapKeys.size() ? map.mapKeys[i] : std::string()), map.args[i]);
+      continue;
+    }
+    add(fieldTarget(b.field), b.data);
+  }
+  // Component properties bound to variables: a main's defaults, an instance's values.
+  for (const ComponentPropDef& d : p.comp().componentPropDefs)
+    if (d.boundValue.present()) add("componentProperties." + d.name, d.boundValue);
+  if (!p.comp().componentPropAssignments.empty()) {
+    Guid main = mainOf(node);
+    const std::vector<ComponentPropDef>* defs = main != kNoGuid ? defsOf(main) : nullptr;
+    for (const ComponentPropAssignment& a : p.comp().componentPropAssignments) {
+      if (!a.boundValue.present() || !defs) continue;
+      for (const ComponentPropDef& d : *defs)
+        if (d.id == a.defID) add("componentProperties." + d.name, a.boundValue);
+    }
+  }
   auto paints = [&](const char* list, const std::vector<Paint>& ps) {
     for (size_t i = 0; i < ps.size(); i++) {
       std::string base = std::string(list) + "[" + std::to_string(i) + "]";
