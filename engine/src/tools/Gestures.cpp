@@ -939,7 +939,16 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
   ContextMenu menu;
   menu.x = s.x;
   menu.y = s.y;
-  if (tool_ != Tool::MOVE) setTool(Tool::MOVE);
+  if (!selectingTool()) setTool(Tool::MOVE);
+  // On a ruler guide: it is selected, and the menu is the guide's ("Remove guide", help.figma.com).
+  if (RulerGuide g; guideAt(s, g)) {
+    selectedGuide_ = g;
+    if (!selection_.empty()) changeSelection({});
+    menu.guide = true;
+    events_.contextMenus.push_back(std::move(menu));
+    needsRender_ = true;
+    return P_HANDLED;
+  }
   auto path = hitPath(doc_, page_, world, pixel());
   Guid picked = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
   if (picked != kNoGuid && !selected(picked)) changeSelection({picked});

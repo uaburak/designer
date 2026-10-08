@@ -1,0 +1,53 @@
+/* Round 8's canvas pieces (canvas/CanvasTools.tsx): the in-place value field, the eyedropper's loupe, the nudge dialog. */
+@layer app {
+  .inline {
+    position: fixed;
+    z-index: var(--ds-z-popover);
+    display: flex;
+    align-items: center;
+    font: var(--ds-font-body-medium);
+  }
+
+  .loupe {
+    position: fixed;
+    z-index: var(--ds-z-popover);
+    width: 88px;
+    height: 88px;
+    border: 2px solid var(--figma-color-bg);
+    border-radius: var(--ds-radius-full);
+    box-shadow: var(--ds-elevation-200);
+    pointer-events: none;
+  }
+
+  .loupePixels {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: var(--ds-radius-full);
+    image-rendering: pixelated;
+  }
+
+  .loupeCell {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px solid var(--figma-color-bg);
+    outline: 1px solid var(--figma-color-border-strong);
+  }
+
+  .loupeHex {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    padding: 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg-inverse);
+    color: var(--figma-color-text-oninverse);
+    font: var(--ds-font-body-medium);
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+  .row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }
+  .rowLabel { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+}

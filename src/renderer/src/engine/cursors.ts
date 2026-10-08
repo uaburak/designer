@@ -2,16 +2,61 @@
 import type { CursorKind } from "./codec";
 
 const PLAIN: Partial<Record<CursorKind, string>> = {
-  DEFAULT: "default",
   HAND: "grab",
   GRABBING: "grabbing",
-  CROSSHAIR: "crosshair",
   IBEAM: "text",
-  MOVE_DUPLICATE: "copy",
-  ZOOM_IN: "zoom-in",
-  ZOOM_OUT: "zoom-out",
   NOT_ALLOWED: "not-allowed",
-  EYEDROPPER: "crosshair",
+};
+
+/** An SVG cursor (24 × 24): the shape drawn white under black, as Figma's cursors are, the hot spot, the system one behind. */
+function svgCursor(body: string, hotX: number, hotY: number, fallback: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">${body}</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotX} ${hotY}, ${fallback}`;
+}
+
+// Figma's own canvas cursors (round 8, audit selection #22), drawn after its look: the arrow with a white edge, a thin
+// crosshair, the magnifier with + / −, the eyedropper, the Scale tool's arrow with its corner mark, the comment pin.
+const ARROW = `M5.5 3.5 L5.5 18.5 L9.4 14.8 L12 20.6 L14.6 19.5 L12.1 13.8 L17.5 13.8 Z`;
+const ARROW_BODY = `<path d="${ARROW}" fill="#000" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/>`;
+const plus = (x: number, y: number) =>
+  `<path d="M${x - 3} ${y} H${x + 3} M${x} ${y - 3} V${y + 3}" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M${x - 3} ${y} H${x + 3} M${x} ${y - 3} V${y + 3}" stroke="#000" stroke-width="1.4" stroke-linecap="round"/>`;
+const magnifier = (sign: "+" | "-") =>
+  `<g fill="none" stroke-linecap="round"><circle cx="10" cy="10" r="6" stroke="#fff" stroke-width="4"/><path d="M14.5 14.5 L20 20" stroke="#fff" stroke-width="5"/>` +
+  `<circle cx="10" cy="10" r="6" stroke="#000" stroke-width="1.6"/><path d="M14.5 14.5 L20 20" stroke="#000" stroke-width="2.4"/>` +
+  `<path d="M7.5 10 H12.5${sign === "+" ? " M10 7.5 V12.5" : ""}" stroke="#000" stroke-width="1.4"/></g>`;
+const SVG_CURSORS: Partial<Record<CursorKind, string>> = {
+  DEFAULT: svgCursor(ARROW_BODY, 5, 3, "default"),
+  MOVE_DUPLICATE: svgCursor(ARROW_BODY + plus(18, 18), 5, 3, "copy"),
+  CROSSHAIR: svgCursor(
+    `<path d="M12 3 V21 M3 12 H21" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M12 3 V21 M3 12 H21" stroke="#000" stroke-width="1"/>`,
+    12,
+    12,
+    "crosshair"
+  ),
+  ZOOM_IN: svgCursor(magnifier("+"), 10, 10, "zoom-in"),
+  ZOOM_OUT: svgCursor(magnifier("-"), 10, 10, "zoom-out"),
+  EYEDROPPER: svgCursor(
+    `<g stroke-linejoin="round" stroke-linecap="round"><path d="M3.5 20.5 L5 16 L14 7 L17 10 L8 19 Z" fill="#fff" stroke="#fff" stroke-width="3"/>` +
+      `<path d="M16 3.8 a2.6 2.6 0 0 1 3.7 3.7 L17.5 9.7 L14.3 6.5 Z" fill="#000" stroke="#fff" stroke-width="1.6"/>` +
+      `<path d="M3.5 20.5 L5 16 L14 7 L17 10 L8 19 Z" fill="#fff" stroke="#000" stroke-width="1.3"/></g>`,
+    3,
+    21,
+    "crosshair"
+  ),
+  SCALE: svgCursor(
+    ARROW_BODY +
+      `<g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 22 H22 V14" stroke="#fff" stroke-width="3.5"/><path d="M16 16 L21 21" stroke="#fff" stroke-width="3.5"/>` +
+      `<path d="M14 22 H22 V14 M16 16 L21 21" stroke="#000" stroke-width="1.3"/></g>`,
+    5,
+    3,
+    "default"
+  ),
+  COMMENT: svgCursor(
+    `<path d="M3.5 20.5 V11 A7.5 7.5 0 1 1 11 18.5 H3.5 Z" fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/>`,
+    3,
+    21,
+    "crosshair"
+  ),
 };
 
 const penCache = new Map<string, string>();
@@ -86,5 +131,5 @@ export function cssCursor(kind: CursorKind, angleDeg: number): string {
   if (kind === "RESIZE") return resizeCursor(angleDeg);
   if (kind === "ROTATE") return rotateCursor(angleDeg);
   if (kind === "PEN" || kind === "PEN_ADD" || kind === "PEN_REMOVE" || kind === "PEN_CLOSE") return penCursor(kind);
-  return PLAIN[kind] ?? "default";
+  return SVG_CURSORS[kind] ?? PLAIN[kind] ?? "default";
 }

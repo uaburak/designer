@@ -9,7 +9,9 @@ import { ContextMenu } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
-import { canvasMenu, runMenuItem } from "../menus";
+import { canvasMenu, commandItem, runMenuItem } from "../menus";
+import { layerIcon } from "../panels/Layers";
+import { detailsOf, DETAIL_FIELDS, type TreeNode } from "../model/layerTree";
 
 /** The layers "Select layer ▸" offers: each hit's path, innermost first, without repeats. */
 export function layersUnder(hits: readonly (readonly Guid[])[]): Guid[] {
@@ -21,7 +23,7 @@ export function layersUnder(hits: readonly (readonly Guid[])[]): Guid[] {
 export function attachCanvasMenu(ed: EditorController, canvas: HTMLCanvasElement): () => void {
   return ed.engine.on("CONTEXT_MENU", (e) => {
     const r = canvas.getBoundingClientRect();
-    ed.ui.set({ contextMenu: { x: r.left + e.x, y: r.top + e.y, canvas: { x: e.x, y: e.y }, layers: layersUnder(e.hits) } });
+    ed.ui.set({ contextMenu: { x: r.left + e.x, y: r.top + e.y, canvas: { x: e.x, y: e.y }, layers: layersUnder(e.hits), guide: e.targetKind === "GUIDE" } });
   });
 }
 
@@ -54,14 +56,24 @@ export function CanvasMenu() {
   const ed = useEditor();
   const at = useUI((s) => s.contextMenu);
   if (!at) return null;
+  // "Select layer ▸" rows: each layer's type icon (as its Layers row shows it) and its padlock when locked.
   const layers = (at.layers ?? []).map((id) => {
-    const n = ed.store.readNode(id);
-    return { id, name: n?.name ?? "", locked: !!n?.locked };
+    const n = ed.engine.readNode(id, { fields: [...DETAIL_FIELDS] }) as (NonNullable<ReturnType<typeof ed.store.readNode>> & { isStateGroup?: boolean }) | null;
+    const row: TreeNode = {
+      id,
+      parent: null,
+      type: String(n?.type ?? "RECTANGLE"),
+      children: [],
+      group: n?.type === "GROUP" || (n?.type === "FRAME" && n.resizeToFit === true),
+      stateGroup: n?.isStateGroup === true,
+      ...detailsOf(n ?? undefined),
+    };
+    return { id, name: n?.name ?? "", locked: !!n?.locked, icon: layerIcon(row) };
   });
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y }}
-      entries={canvasMenu(ed, layers)}
+      entries={at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers)}
       label="Canvas"
       onSelect={(id) => void runMenuItem(ed, id)}
       onClose={() => {

@@ -4,7 +4,7 @@
  * (the rail's Figma button) with Figma's File / Edit / View / Object / Text /
  * Arrange submenus, and the canvas context menu.
  */
-import type { MenuEntry, MenuItem } from "@/ds";
+import type { IconName, MenuEntry, MenuItem } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
@@ -268,7 +268,35 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "Text",
-    items: ["text.bold", "text.italic", "text.underline", "text.strikethrough", "text.create-link", "-", "text.bulleted-list", "text.numbered-list", "-", "text.align-left", "text.align-center", "text.align-right"],
+    items: [
+      "text.bold",
+      "text.italic",
+      "text.underline",
+      "text.strikethrough",
+      "text.create-link",
+      "-",
+      "text.bulleted-list",
+      "text.numbered-list",
+      "-",
+      { label: "Alignment", items: ["text.align-left", "text.align-center", "text.align-right"] },
+      // Live: Text › Adjust ▸ (its items from help.figma.com's shortcuts; not captured).
+      {
+        label: "Adjust",
+        items: [
+          "text.font-size-up",
+          "text.font-size-down",
+          "-",
+          "text.font-weight-up",
+          "text.font-weight-down",
+          "-",
+          "text.line-height-up",
+          "text.line-height-down",
+          "-",
+          "text.letter-spacing-up",
+          "text.letter-spacing-down",
+        ],
+      },
+    ],
   },
   {
     label: "Arrange",
@@ -343,7 +371,7 @@ const emptySubmenu = (label: string) => (): MenuEntry => ({ id: `submenu:${label
  * items, Plugins, Widgets │ Show/Hide, Lock/Unlock │ Flip horizontal, Flip vertical; over empty canvas — Paste here
  * │ Show/Hide UI, Show/Hide comments │ Cursor chat, Actions…, Plugins, Widgets.
  */
-export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean }[]): MenuEntry[] {
+export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean; icon?: IconName }[]): MenuEntry[] {
   if (!ed.selection.length) {
     return [
       ...build(ed, ["edit.paste-here", "-"], "canvas."),
@@ -400,11 +428,20 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
   return build(ed, specs, "canvas.");
 }
 
-/** "Select layer ▸": every layer under the pointer (locked ones too, with their padlock). */
-function selectLayerSubmenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean }[]): MenuEntry {
+/**
+ * "Select layer ▸": every layer under the pointer, each with its Layers glyph (help.figma.com: type icons), locked ones
+ * too with their padlock after the name.
+ */
+function selectLayerSubmenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean; icon?: IconName }[]): MenuEntry {
   return {
     id: "submenu:select-layer",
     label: "Select layer",
-    items: layers.map((l) => ({ id: `select-layer:${l.id}`, label: l.locked ? `${l.name || l.id} 🔒` : l.name || l.id, checked: ed.selection.includes(l.id) })),
+    items: layers.map((l) => ({
+      id: `select-layer:${l.id}`,
+      label: l.name || l.id,
+      checked: ed.selection.includes(l.id),
+      ...(l.icon ? { icon: l.icon } : {}),
+      ...(l.locked ? { trailingIcon: "16.lock.locked" as IconName } : {}),
+    })),
   };
 }

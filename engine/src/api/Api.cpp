@@ -400,7 +400,7 @@ void writeEvents(json::Writer& w, Engine& e) {
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
     w.beginObject().key("type").string("CONTEXT_MENU");
-    w.key("targetKind").string(m.selection ? "SELECTION" : "CANVAS");
+    w.key("targetKind").string(m.guide ? "GUIDE" : m.selection ? "SELECTION" : "CANVAS");
     w.key("x").number(m.x).key("y").number(m.y).key("hits").beginArray();
     for (auto& path : m.hits) writeIds(w, path);
     w.endArray().endObject();

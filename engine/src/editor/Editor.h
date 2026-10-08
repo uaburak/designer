@@ -337,6 +337,7 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   // CONTEXT_MENU: a right-click (or ⌃-click on a Mac), after the selection settled.
   struct ContextMenu {
+    bool guide = false;  // round 8: on a ruler guide (the menu: Remove guide)
     bool selection = false;  // targetKind SELECTION (else CANVAS)
     double x = 0, y = 0;     // CSS px in the canvas
     std::vector<std::vector<Guid>> hits;  // each layer under the point, innermost first; topmost layer first

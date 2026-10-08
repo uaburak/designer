@@ -11,6 +11,8 @@ export type MenuItem = {
   /** A word after the label, greyed */
   hint?: string;
   icon?: IconName;
+  /** A glyph after the label (a locked layer's padlock in "Select layer ▸") */
+  trailingIcon?: IconName;
   /** The check column appears when any item defines it */
   checked?: boolean;
   disabled?: boolean;
