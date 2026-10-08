@@ -110,8 +110,11 @@ export interface ExportHtmlResult {
   images: number;
 }
 
-/** The previews: the `previews.*` service plus main's `exportHtml`. */
-export function previewService(host: PreviewHost): PreviewService & { exportHtml(fileKey: FileKey, input: { snapshot: Uint8Array; options?: Partial<PreviewOptions> }, path: string): Promise<ExportHtmlResult> } {
+/** The previews: the `previews.*` service plus main's `exportHtml` and the store's `sweepExpired`. */
+export function previewService(host: PreviewHost): PreviewService & {
+  exportHtml(fileKey: FileKey, input: { snapshot: Uint8Array; options?: Partial<PreviewOptions> }, path: string): Promise<ExportHtmlResult>;
+  sweepExpired(): Promise<string[]>;
+} {
   const file = join(host.root, PREVIEWS_FILE);
   const read = async () => (await readJsonOrNull<PreviewRecord[]>(file)) ?? [];
   const write = (records: PreviewRecord[]) => writeJsonAtomic(host.tmpDir, file, records);
@@ -173,6 +176,33 @@ export function previewService(host: PreviewHost): PreviewService & { exportHtml
         if (!record) throw new StoreError("not-found", "No such preview");
         await revokePreview(storage, previewId, record.blobRefs);
         await write(records.filter((r) => r.previewId !== previewId));
+      });
+    },
+
+    /**
+     * Expired previews (their `expiresAt` passed) are revoked and deleted from Storage, then forgotten — at the
+     * store's start while sync is on (docs/data.md §13: "swept by the store at its next start while sync is on").
+     * The viewer already refuses them; this takes them off Storage. Returns the swept ids.
+     */
+    async sweepExpired() {
+      const storage = host.storage();
+      if (!host.sync || !storage) return [];
+      return host.run(async () => {
+        const records = await read();
+        const now = host.now();
+        const expired = records.filter((r) => r.expiresAt !== null && r.expiresAt !== undefined && r.expiresAt <= now);
+        if (!expired.length) return [];
+        const swept: string[] = [];
+        for (const r of expired) {
+          try {
+            await revokePreview(storage, r.previewId, r.blobRefs);
+            swept.push(r.previewId);
+          } catch {
+            // offline: the next start tries again
+          }
+        }
+        await write(records.filter((r) => !swept.includes(r.previewId)));
+        return swept;
       });
     },
 

@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeCanvas } from "../../shared/fig/container";
 import { PREVIEW_DATA_PLACEHOLDER, readInlinePreview } from "../../shared/preview/html";
 import { buildPreviewPackage, keepPages, previewPagesOf } from "../../shared/preview/package";
@@ -11,6 +11,7 @@ import { nodeCodecs } from "../kiwi/codecs";
 import { openTestStore, tempDir, type TestStore } from "../testing/harness";
 import { MemoryStorage, type FirebaseDrivers, MemoryFirestore } from "../sync/drivers";
 import { startSync } from "../sync/replicator";
+import { previewsOf } from "../localStore";
 import { previewUrl, revokePreview, uploadPreview } from "./previews";
 
 const PAGE = { sessionID: 0, localID: 1 };
@@ -203,6 +204,25 @@ describe("previews in the store", () => {
     await t.api.previews.stop(first.previewId);
     expect(await t.api.previews.list()).toEqual([]);
     expect([...storage.objects.keys()].filter((k) => k.startsWith("previews/"))).toEqual([]);
+    await r!.stop();
+  });
+
+  it("sweeps expired previews off Storage when sync starts", async () => {
+    const { t, fileKey, snapshot } = await storeWith({ config: true });
+    const drivers: FirebaseDrivers = { firestore: new MemoryFirestore(), storage: new MemoryStorage(), signIn: async () => ({ uid: "owner" }) };
+    let r = await startSync(t.store, { enabled: true, uid: "owner", drivers, intervalMs: 60_000 });
+    const lasting = await t.api.previews.publish(fileKey, { snapshot, options: { pageIds: "all", inspect: true, export: true, expiresInDays: null } });
+    const other = await t.api.workspace.createFile({ name: "Other", folderId: null });
+    const brief = await t.api.previews.publish(other.fileKey, { snapshot, options: { pageIds: "all", inspect: true, export: true, expiresInDays: 7 } });
+    await r!.stop();
+    const storage = drivers.storage as MemoryStorage;
+    // Nothing to sweep yet.
+    expect(await previewsOf(t.store).sweepExpired()).toEqual([]);
+    t.clock.advance(8 * 86400000);
+    r = await startSync(t.store, { enabled: true, uid: "owner", drivers, intervalMs: 60_000 });
+    await vi.waitFor(async () => expect((await t.api.previews.list()).map((p) => p.previewId)).toEqual([lasting.previewId]));
+    expect([...storage.objects.keys()].some((k) => k.startsWith(`previews/${brief.previewId}/`))).toBe(false);
+    expect(storage.objects.has(`previews/${lasting.previewId}/manifest.json`)).toBe(true);
     await r!.stop();
   });
 });

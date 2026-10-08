@@ -545,8 +545,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
   return { workspace, files, blobs, libraries, previews, store };
 }
 
-/** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml`. */
-export function previewsOf(s: LocalStore): PreviewService & { exportHtml(fileKey: FileKey, input: { snapshot: Uint8Array; options?: Partial<PreviewOptions> }, path: string): Promise<ExportHtmlResult> } {
+/** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml` and the start's `sweepExpired`. */
+export function previewsOf(s: LocalStore): ReturnType<typeof previewService> {
   return previewService({
     root: s.dirs.root,
     tmpDir: s.dirs.tmp,
