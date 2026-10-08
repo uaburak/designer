@@ -9,7 +9,7 @@ import type { EditorController } from "./controller";
 import type { FindState } from "./uiStore";
 import { findLayers, remapStyleIds, replaceText, stepIndex, type FindNode, type FindResult } from "./model/find";
 
-export const EMPTY_FIND: FindState = { query: "", scope: "page", types: [], matchCase: false, wholeWords: false, other: false, replace: false, replaceWith: "", at: -1 };
+export const EMPTY_FIND: FindState = { query: "", scope: "page", types: [], matchCase: false, wholeWords: false, replace: false, replaceWith: "", at: -1 };
 
 /** Opens Find in the left panel (the File tab), keeping the last query; `replace` opens the Replace row too. */
 export function openFind(ed: EditorController, o: { replace?: boolean } = {}): void {
@@ -33,7 +33,10 @@ const FIELDS = ["name", "type", "parentIndex", "textData", "fillPaints", "resize
 
 const hasMedia = (fills: unknown) => Array.isArray(fills) && fills.some((p: { type?: string; visible?: boolean }) => p?.visible !== false && (p?.type === "IMAGE" || p?.type === "VIDEO"));
 
-/** One page's layers as Find reads them, top layer first (the Layers panel's order), each with its top-level layer's name. */
+/**
+ * One page's layers as Find lists them: document order (the bottom layer first, a layer's children in their order —
+ * the live results list AL_vertical before AL_horizontal, AL_grid_item1 before item4), each with its parent's name.
+ */
 export function readPageForFind(ed: EditorController, page: Guid): FindNode[] {
   const rows = ed.engine.readNodes([page], { subtree: true, fields: FIELDS as unknown as string[] });
   const byId = new Map<Guid, NodeChange>();
@@ -47,11 +50,11 @@ export function readPageForFind(ed: EditorController, page: Guid): FindNode[] {
     list.push(r.guid); // back to front, as the engine lists them
   }
   const out: FindNode[] = [];
-  const walk = (id: Guid, top: string | undefined) => {
+  const walk = (id: Guid, parent: string | undefined) => {
     const list = kids.get(id);
     if (!list) return;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const n = byId.get(list[i]);
+    for (const child of list) {
+      const n = byId.get(child);
       if (!n) continue;
       const x = n as NodeChange & { isStateGroup?: boolean; textData?: { characters?: string } };
       const type = n.type ?? "NONE";
@@ -64,9 +67,9 @@ export function readPageForFind(ed: EditorController, page: Guid): FindNode[] {
         group: type === "GROUP" || (type === "FRAME" && n.resizeToFit === true),
         stateGroup: x.isStateGroup === true,
         media: hasMedia(n.fillPaints),
-        top,
+        parent,
       });
-      walk(n.guid, top ?? n.name ?? "");
+      walk(n.guid, n.name ?? "");
     }
   };
   walk(page, undefined);
@@ -74,11 +77,15 @@ export function readPageForFind(ed: EditorController, page: Guid): FindNode[] {
 }
 
 /** The results for the panel's state: the current page's, or every page's in page order. */
-export function findResults(ed: EditorController, f: FindState): FindResult[] {
+export function findResults(ed: EditorController, f: FindState, nodes: readonly FindNode[] = findScope(ed, f.scope)): FindResult[] {
   if (!f.query) return [];
-  const pages = f.scope === "all" ? ed.store.pages.map((p) => p.guid) : [ed.store.page];
-  const nodes = pages.flatMap((p) => readPageForFind(ed, p));
-  return findLayers(nodes, f.query, { matchCase: f.matchCase, wholeWords: f.wholeWords, other: f.other, types: f.types });
+  return findLayers(nodes, f.query, { matchCase: f.matchCase, wholeWords: f.wholeWords, types: f.types });
+}
+
+/** The layers Find searches: the current page's, or every page's in page order. */
+export function findScope(ed: EditorController, scope: FindState["scope"]): FindNode[] {
+  const pages = scope === "all" ? ed.store.pages.map((p) => p.guid) : [ed.store.page];
+  return pages.flatMap((p) => readPageForFind(ed, p));
 }
 
 /** Shows a result: its page, it selected, the view on it. */

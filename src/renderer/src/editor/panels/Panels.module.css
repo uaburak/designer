@@ -16,7 +16,7 @@
     flex: none;
     align-items: center;
     gap: var(--ds-space-1);
-    height: var(--ds-size-panel-header);
+    height: calc(var(--ds-size-panel-header) + 1px); /* live: Pages starts at 65 */
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
     border-bottom: 1px solid var(--figma-color-border);
   }
@@ -65,6 +65,30 @@
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; border-bottom: 0; }
   .layerList { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-1); outline: none; }
   .placeholderTab { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  /* A tab's header (Assets, Tools, Agents; live): 48 and its line, the title 13 / 550 at 16, actions 12 from the edge */
+  .tabHeader {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: calc(var(--ds-space-12) + 1px);
+    padding: 0 var(--ds-space-3) 0 var(--ds-space-4);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .tabTitle {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-large-strong);
+    letter-spacing: var(--ds-tracking-body-large-strong);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tabActions { display: flex; flex: none; align-items: center; }
+  /* Tools (live): a search 12 under the header, Source and Category, then the suggestions */
+  .toolsSearch { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-3) 0 var(--ds-space-4); }
+  .toolsFilters { display: flex; gap: var(--ds-space-2); padding: var(--ds-space-4) var(--ds-space-3) 0 var(--ds-space-4); }
   .layersEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .assets { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }

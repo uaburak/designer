@@ -18,57 +18,49 @@ export interface FindNode {
   stateGroup?: boolean;
   /** A visible image or video fill */
   media?: boolean;
-  /** The top-level layer it sits in (its name: the result's context) */
-  top?: string;
+  /** Its parent's name (the result's second line); none on the page */
+  parent?: string;
 }
 
-/** The layer-type filters (Figma's "search filters for layer type"), in the menu's order. */
+/** The layer-type filters, as the live Settings menu lists them under "All" (docs/research/figma/live/left/find-filter-menu.txt). */
 export const FIND_FILTERS = [
   { id: "text", label: "Text" },
-  { id: "frame", label: "Frame" },
+  { id: "frame", label: "Frame / Group" },
   { id: "component", label: "Component" },
   { id: "instance", label: "Instance" },
-  { id: "group", label: "Group" },
-  { id: "section", label: "Section" },
   { id: "image", label: "Image" },
   { id: "shape", label: "Shape" },
-  { id: "vector", label: "Vector" },
+  { id: "other", label: "Other" },
 ] as const;
 
 export type FindFilter = (typeof FIND_FILTERS)[number]["id"];
 
-const SHAPES = new Set(["RECTANGLE", "ROUNDED_RECTANGLE", "ELLIPSE", "REGULAR_POLYGON", "STAR", "LINE"]);
+const SHAPES = new Set(["RECTANGLE", "ROUNDED_RECTANGLE", "ELLIPSE", "REGULAR_POLYGON", "STAR", "LINE", "VECTOR", "BOOLEAN_OPERATION"]);
 
-/** The filter a layer falls under; null: "Other" (slices, widgets, stickies…), found only with Settings › Other. */
-export function filterOf(n: Pick<FindNode, "type" | "group" | "stateGroup" | "media">): FindFilter | null {
+/** The filter a layer falls under: "other" for slices, widgets and the like (help: "use Other to search for everything else"). */
+export function filterOf(n: Pick<FindNode, "type" | "group" | "stateGroup" | "media">): FindFilter {
   switch (n.type) {
     case "TEXT":
       return "text";
     case "FRAME":
-      return n.stateGroup ? "component" : n.group ? "group" : "frame";
+      return n.stateGroup ? "component" : "frame";
     case "GROUP":
-      return "group";
+    case "SECTION":
+      return "frame";
     case "SYMBOL":
       return "component";
     case "INSTANCE":
       return "instance";
-    case "SECTION":
-      return "section";
-    case "VECTOR":
-    case "BOOLEAN_OPERATION":
-      return "vector";
     default:
       if (SHAPES.has(n.type)) return n.media ? "image" : "shape";
-      return null;
+      return "other";
   }
 }
 
 export interface FindOptions {
   matchCase?: boolean;
   wholeWords?: boolean;
-  /** Settings › Other */
-  other?: boolean;
-  /** Only these types (empty: all) */
+  /** Only these types (empty: All — every type but "other") */
   types?: readonly string[];
 }
 
@@ -100,7 +92,7 @@ export interface FindResult {
   id: string;
   page: string;
   type: string;
-  filter: FindFilter | null;
+  filter: FindFilter;
   name: string;
   /** What the row shows: the text that matched (a text layer's characters) or the name */
   label: string;
@@ -108,10 +100,21 @@ export interface FindResult {
   ranges: [number, number][];
   /** The match is in a text layer's characters (Replace can change it) */
   inText: boolean;
-  top?: string;
+  /** The parent's name (the result's second line), none for a top-level layer */
+  parent?: string;
 }
 
-/** The layers matching `query`, in the order given (pages, then the panel's order): text in characters first, else the name. */
+/** Every match before the type filter, counted per type (the Settings menu's counts; "all": what All finds). */
+export function countByType(nodes: readonly FindNode[], query: string, o: FindOptions = {}): Record<string, number> {
+  const out: Record<string, number> = { all: 0 };
+  for (const r of findLayers(nodes, query, { ...o, types: FIND_FILTERS.map((f) => f.id) })) {
+    out[r.filter] = (out[r.filter] ?? 0) + 1;
+    if (r.filter !== "other") out.all++;
+  }
+  return out;
+}
+
+/** The layers matching `query`, in the order given (pages, then document order): text in characters first, else the name. */
 export function findLayers(nodes: readonly FindNode[], query: string, o: FindOptions = {}): FindResult[] {
   const pattern = findPattern(query, o);
   if (!pattern) return [];
@@ -119,15 +122,14 @@ export function findLayers(nodes: readonly FindNode[], query: string, o: FindOpt
   const out: FindResult[] = [];
   for (const n of nodes) {
     const filter = filterOf(n);
-    if (filter === null && !o.other) continue;
-    if (types && (filter === null || !types.has(filter))) continue;
+    if (types ? !types.has(filter) : filter === "other") continue;
     const inText = n.type === "TEXT" && n.text !== undefined ? matchRanges(n.text, pattern) : [];
     if (inText.length) {
-      out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.text!, ranges: inText, inText: true, top: n.top });
+      out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.text!, ranges: inText, inText: true, parent: n.parent });
       continue;
     }
     const inName = matchRanges(n.name, pattern);
-    if (inName.length) out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.name, ranges: inName, inText: false, top: n.top });
+    if (inName.length) out.push({ id: n.id, page: n.page, type: n.type, filter, name: n.name, label: n.name, ranges: inName, inText: false, parent: n.parent });
   }
   return out;
 }

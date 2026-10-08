@@ -87,6 +87,9 @@
     --ds-font-body-medium-strong: 550 11px/16px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-medium-strong: 0.055px;
     --ds-weight-body-medium-strong: 550;
+    --ds-font-body-medium-regular: 400 11px/16px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-body-medium-regular: 0.055px;
+    --ds-weight-body-medium-regular: 400;
     --ds-font-body-ruler: 450 10px/12px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-ruler: 0.05px;
     --ds-weight-body-ruler: 450;

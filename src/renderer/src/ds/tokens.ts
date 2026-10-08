@@ -325,11 +325,13 @@ export const fontFamily = {
 
 export type TextStyle = { size: number; line: number; weight: number; tracking: string; mono?: boolean };
 
-/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. Only 450 / 550 (400 for mono). */
+/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. 450 / 550; 400 for mono and for the live capture's layer and page names. */
 export const text = {
   "body-small": { size: 9, line: 14, weight: 450, tracking: "0.045px" },
   "body-medium": { size: 11, line: 16, weight: 450, tracking: "0.055px" },
   "body-medium-strong": { size: 11, line: 16, weight: 550, tracking: "0.055px" },
+  /** Live capture: layer and page names, Find's results and counts are 11px / 400 */
+  "body-medium-regular": { size: 11, line: 16, weight: 400, tracking: "0.055px" },
   "body-ruler": { size: 10, line: 12, weight: 450, tracking: "0.05px" },
   menu: { size: 12, line: 16, weight: 450, tracking: "0px" },
   "body-large": { size: 13, line: 22, weight: 450, tracking: "-0.0325px" },

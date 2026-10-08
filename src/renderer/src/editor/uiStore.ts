@@ -17,12 +17,10 @@ export type Renaming = { kind: "layer" | "page" | "file"; id: Guid } | null;
 export interface FindState {
   query: string;
   scope: "page" | "all";
-  /** Layer type filters (FIND_FILTERS ids); empty: every type */
+  /** Layer type filters (FIND_FILTERS ids, "other" among them); empty: All */
   types: readonly string[];
   matchCase: boolean;
   wholeWords: boolean;
-  /** Settings › Other: widget and slice names too */
-  other: boolean;
   /** The Replace row is open */
   replace: boolean;
   replaceWith: string;
@@ -73,6 +71,8 @@ export interface UIState {
   returnToInstance: { instance: Guid; page: Guid; camera: Camera } | null;
   /** Assets: grid or list */
   assetsView: "grid" | "list";
+  /** Assets: the library drilled into ("local" or "lib:<key>") and its page; null: All libraries */
+  assetsAt?: { section: string; page?: string } | null;
   /** Assets: the closed page / frame groups */
   assetsClosed: ReadonlySet<string>;
   /** The Local variables window */

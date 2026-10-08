@@ -7,8 +7,8 @@
     height: var(--ds-size-layer-row);
     padding: 0 var(--ds-size-row-inset);
     color: var(--figma-color-text);
-    font: var(--ds-font-body-medium);
-    letter-spacing: var(--ds-tracking-body-medium);
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
     user-select: none;
     outline: none;
     cursor: default;
@@ -48,11 +48,11 @@
   .type { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: var(--ds-space-2); color: var(--figma-color-icon-secondary); }
   .row[aria-selected="true"] .type, .strong .type { color: var(--figma-color-icon); }
   .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .strong .name { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
-  .component .name { color: var(--figma-color-text-component); }
-  .component .type, .row.component[aria-selected="true"] .type { color: var(--figma-color-icon-component); }
+  /* Components, instances and every layer inside one: purple names and glyphs (live: #d1a8ff) */
+  .component .name, .row[data-tone="component"] .name { color: var(--figma-color-text-component); }
+  .component .type, .row[data-tone="component"] .type { color: var(--figma-color-icon-component); }
   .hiddenLayer .name, .hiddenLayer .type { color: var(--figma-color-text-tertiary); }
-  .hiddenLayer.component .name, .hiddenLayer.component .type { color: var(--figma-color-text-component); opacity: 0.5; }
+  .hiddenLayer.component .name, .hiddenLayer.component .type, .hiddenLayer[data-tone="component"] .name, .hiddenLayer[data-tone="component"] .type { color: var(--figma-color-text-component); opacity: 0.5; }
   .rename { flex: 1 1 auto; min-width: 0; margin-left: -5px; }
   /* Lock and eye, 24 each, flush with the highlight's right edge */
   .tail { display: flex; flex: none; align-items: center; }

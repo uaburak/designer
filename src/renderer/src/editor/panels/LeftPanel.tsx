@@ -4,7 +4,7 @@
  * Assets, and the Agents and Tools tabs (not built in this app: their headers and an empty state).
  */
 import { useState } from "react";
-import { EmptyState, Icon, IconButton, MenuButton, PanelSection, ResizeHandle, SearchField, TextInput, showToast } from "@/ds";
+import { Button, EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
 import { useUI } from "../hooks";
@@ -13,6 +13,7 @@ import { Pages } from "./Pages";
 import { Layers } from "./Layers";
 import { Assets } from "./Assets";
 import { FindPanel } from "./Find";
+import { TabHeader } from "./TabHeader";
 import styles from "./Panels.module.css";
 
 export function LeftPanel() {
@@ -22,7 +23,7 @@ export function LeftPanel() {
   const finding = useUI((s) => !!s.find);
   return (
     <aside className={styles.left} style={{ width }} aria-label="Layers panel" data-panel="left" data-tab={tab}>
-      <FileHeader />
+      {tab === "file" && <FileHeader />}
       {tab === "file" ? (
         finding ? (
           <FindPanel />
@@ -48,20 +49,25 @@ export function LeftPanel() {
 function AgentsPanel() {
   return (
     <div className={styles.placeholderTab} data-agents="">
-      <PanelSection title="Agents" pad="none" actions={<IconButton icon="24.plus.small" label="New chat" tone="secondary" disabled />} />
+      <TabHeader title="Agents" actions={<IconButton icon="24.plus.small" label="New chat" tone="secondary" disabled />} />
       <EmptyState icon="24.agents" title="No chats" body="The Figma agent isn’t part of this app." />
     </div>
   );
 }
 
-/** Tools (plugins, widgets, shaders, Weave tools): not part of this app — the tab's search and a word why. */
+/** Tools (plugins, widgets, shaders, Weave tools; live: search, Source and Category): not part of this app. */
 function ToolsPanel() {
   const [query, setQuery] = useState("");
   return (
     <div className={styles.placeholderTab} data-tools="">
-      <PanelSection title="Tools" pad="none" />
-      <div className={styles.assetsSearch}>
-        <SearchField value={query} onChange={setQuery} placeholder="Search tools" label="Search tools" />
+      <TabHeader title="Tools" actions={<Button variant="ghost" disabled>Create</Button>} />
+      <div className={styles.toolsSearch}>
+        <SearchField value={query} onChange={setQuery} placeholder="Search all tools" label="Search all tools" />
+        <IconButton icon="24.adjust.small" label="Filter by price and type" tone="secondary" disabled />
+      </div>
+      <div className={styles.toolsFilters}>
+        <Select label="Filter by source" variant="ghost" width="hug" value="source" options={[{ value: "source", label: "Source" }]} onChange={() => {}} disabled />
+        <Select label="Filter by category" variant="ghost" width="hug" value="category" options={[{ value: "category", label: "Category" }]} onChange={() => {}} disabled />
       </div>
       <EmptyState icon="24.tools" title="No tools" body="Plugins, widgets and shaders aren’t part of this app." />
     </div>

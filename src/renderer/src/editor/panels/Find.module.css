@@ -1,104 +1,83 @@
 @layer app {
-  /* Find and replace: replaces Pages and Layers under the file header until ✕ / Esc */
+  /* Find and replace (live: docs/research/figma/live/left/find-layers-search.txt) — replaces Pages and Layers */
   .find { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
-  .header {
+  /* The field 156 wide at 16, 12 down; Settings and Close at 180 / 204 */
+  .top { display: flex; flex: none; align-items: center; padding: var(--ds-space-3) var(--ds-space-3) 0 var(--ds-space-4); }
+  .field {
     display: flex;
-    flex: none;
+    flex: 1 1 auto;
     align-items: center;
-    height: var(--ds-size-section-header);
-    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
-  }
-  .grow { flex: 1 1 auto; }
-  .mode {
-    display: flex;
-    align-items: center;
-    gap: var(--ds-space-half);
+    min-width: 0;
     height: var(--ds-size-control);
-    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
-    border: 0;
-    border-radius: var(--ds-radius-medium);
-    background: transparent;
-    color: var(--figma-color-text);
-    font: var(--ds-font-body-medium-strong);
-    letter-spacing: var(--ds-tracking-body-medium-strong);
-    outline: none;
-  }
-  .mode:hover, .mode[data-open] { background: var(--figma-color-bg-hover); }
-  .mode svg { color: var(--figma-color-icon-secondary); }
-  .iconMenu {
-    display: flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: var(--ds-size-control);
-    height: var(--ds-size-control);
-    padding: 0;
-    border: 0;
-    border-radius: var(--ds-radius-medium);
-    background: transparent;
-    color: var(--figma-color-icon-secondary);
-    outline: none;
-  }
-  .iconMenu:hover, .iconMenu[data-open] { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
-  .iconMenu.on { color: var(--figma-color-icon-brand); }
-  .queryRow { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
-  .query { flex: 1 1 auto; min-width: 0; }
-  .chips { display: flex; flex: none; flex-wrap: wrap; gap: var(--ds-space-1); padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
-  .chip {
-    display: flex;
-    align-items: center;
-    height: var(--ds-space-5);
-    padding: 0 0 0 var(--ds-space-2);
-    border: 0;
+    margin-right: var(--ds-space-2);
+    border: 1px solid transparent;
     border-radius: var(--ds-radius-medium);
     background: var(--figma-color-bg-secondary);
-    color: var(--figma-color-text);
-    font: var(--ds-font-body-medium);
-    letter-spacing: var(--ds-tracking-body-medium);
   }
-  .chip svg { width: var(--ds-space-5); height: var(--ds-space-5); color: var(--figma-color-icon-secondary); }
-  .replaceRow { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }
+  .field:focus-within { border-color: var(--figma-color-border-selected); }
+  .fieldLabel { flex: none; width: var(--ds-space-6); color: var(--figma-color-text); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); text-align: center; }
+  .input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 var(--ds-space-2) 0 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
+    outline: none;
+  }
+  .input::placeholder { color: var(--figma-color-text-tertiary); }
+  .on { color: var(--figma-color-icon-brand); }
+  .replaceRow { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-3) 0 var(--ds-space-4); }
   .replaceButtons { display: flex; gap: var(--ds-space-2); }
   .replaceButtons > * { flex: 1 1 0; }
+  /* "20 results · This page" 20 under the field; Previous / Next result at 184 / 208 */
   .status {
     display: flex;
     flex: none;
     align-items: center;
-    height: var(--ds-size-control-large);
-    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
-    border-bottom: 1px solid var(--figma-color-border);
+    height: var(--ds-size-control);
+    margin-top: var(--ds-space-5);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-4);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
   }
-  .count { padding-right: var(--ds-space-1); color: var(--figma-color-text-secondary); white-space: nowrap; }
-  .results { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-1); }
+  .count { white-space: nowrap; }
+  .dot { padding: 0 var(--ds-space-half) 0 var(--ds-space-1); }
+  .grow { flex: 1 1 auto; }
+  .srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .results { flex: 1 1 auto; min-height: 0; margin-top: var(--ds-space-2); overflow-x: hidden; overflow-y: auto; }
   .none { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .pageHeader {
-    display: flex;
-    align-items: center;
-    height: 100%;
-    padding: 0 var(--ds-space-4);
+    padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-1);
+    overflow: hidden;
     color: var(--figma-color-text-secondary);
     font: var(--ds-font-body-medium-strong);
     letter-spacing: var(--ds-tracking-body-medium-strong);
-    white-space: nowrap;
-    overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  /* A result: the Layers row's look (32 pitch, 24 highlight inset 8) */
-  .row { display: flex; height: 100%; padding: var(--ds-space-1) var(--ds-size-row-inset); cursor: default; }
-  .box {
+  /* A result, full width (live): 34 high for a top-level layer, 52 with its parent's name under it; glyph at 17, name at 41 */
+  .row {
     display: flex;
-    flex: 1 1 auto;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--ds-space-2);
-    min-width: 0;
-    padding: 0 var(--ds-space-2) 0 var(--ds-space-2);
-    border-radius: var(--ds-radius-medium);
+    height: calc(var(--ds-size-control-large) + var(--ds-space-half));
+    padding: calc(var(--ds-space-2) + 1px) var(--ds-space-2) 0 calc(var(--ds-space-4) + 1px);
+    cursor: default;
   }
-  .row:hover .box { background: var(--figma-color-bg-hover); }
-  .row[aria-selected="true"] .box { background: var(--figma-color-bg-selected); }
-  .row[data-current] .box { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
-  .glyph { flex: none; color: var(--figma-color-icon-secondary); }
-  .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mark { border-radius: var(--ds-radius-small); background: var(--figma-color-bg-selected); color: inherit; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
-  .top { flex: 0 1 auto; max-width: 40%; min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+  .twoLine { height: calc(var(--ds-space-12) + var(--ds-space-1)); }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row[aria-selected="true"] { background: var(--figma-color-bg-selected); }
+  .glyph { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-icon-16); height: var(--ds-size-icon-16); color: var(--figma-color-icon-secondary); }
+  .row[aria-selected="true"] .glyph { color: var(--figma-color-icon); }
+  .text { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-half); min-width: 0; padding-top: 1px; }
+  .label, .parent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .label { font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+  /* The parent's name: 10 / 12, text-secondary (live) */
+  .parent { color: var(--figma-color-text-secondary); font: var(--ds-font-body-ruler); letter-spacing: var(--ds-tracking-body-ruler); }
+  .mark { background: transparent; color: inherit; font-weight: 550; }
 }
