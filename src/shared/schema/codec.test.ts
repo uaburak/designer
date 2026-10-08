@@ -82,7 +82,7 @@ describe("field registry (from the schema's tags)", () => {
 
   it("knows the blob fields and the binary schema", () => {
     expect(BLOB_FIELDS.map((b) => `${b.message}.${b.field}`).sort()).toEqual(["Glyph.commandsBlob", "Image.dataBlob", "Path.commandsBlob", "VectorData.vectorNetworkBlob"]);
-    expect(SCHEMA_BINARY.length).toBe(31064);  // + SlotContentId and slotContentIdValue (round 4), gridReflowEnabled (import fidelity), MAP / VariableMap / extended collections, BRUSH / VIDEO and the brush fields (round 5)
+    expect(SCHEMA_BINARY.length).toBe(31328);  // + SlotContentId and slotContentIdValue (round 4), gridReflowEnabled (import fidelity), MAP / VariableMap / extended collections, BRUSH / VIDEO and the brush fields (round 5), the video triggers / actions and MediaAction (round 6)
     expect(SCHEMA_SHA1).toMatch(/^[0-9a-f]{40}$/);
     expect(DOCUMENT_FORMAT_VERSION).toBe(1);
     expect(MODEL.def("NodeChange").fields.length).toBe(205);

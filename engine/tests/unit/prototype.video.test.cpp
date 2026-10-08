@@ -268,7 +268,9 @@ TEST_CASE("prototype.video: a frame of the video is drawn in place of the poster
   auto t2 = cache.texture(f.player.frameHash(VID));
   CHECK(t2.id == t1.id);
   f.player.stop();
+  // The live source is gone (find() would ask for it again: the registry is the module's, shared by every test).
   CHECK(ImageRegistry::get().find(f.player.frameHash(VID)) == nullptr);
+  ImageRegistry::get().takeRequests();
 }
 
 TEST_CASE("prototype.video: a noodle dropped on a video makes a video action; its connection is drawn") {
