@@ -245,7 +245,7 @@
   .guideBody { padding-top: 20px; padding-bottom: var(--ds-space-3); }
   .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */
-  .settingsHeading { padding-top: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); white-space: nowrap; }
+  .settingsHeading { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); line-height: var(--ds-size-control); white-space: nowrap; }
   /* One height for every tab (the popover is placed once, when it opens) */
   /* Live: 506 in all — the header 40, the preview 144, the tab's rows (from 188) in the rest */
   .typeSettingsBody { height: min(322px, calc(100vh - 284px)); overflow-y: auto; overscroll-behavior: contain; }
