@@ -17,7 +17,6 @@ import { ViewerDoc } from "./viewerDoc";
 import { LeftPanel } from "./LeftPanel";
 import { InspectPanel } from "./InspectPanel";
 import { Measurements } from "./Measurements";
-import { Annotations } from "./Annotations";
 import { PresentationView, type PresentationSource } from "@/present/PresentationView";
 import type { Guid } from "@/engine/codec";
 import { ViewerContext, type ViewerState } from "./context";
@@ -50,6 +49,9 @@ export function ViewerApp() {
       engine.setImageSource((sha1) => preview.image(sha1));
       // Read-only (Dev Mode): no resize handles, nothing a click or a key could change (engine viewer mode).
       engine.setViewerMode(true);
+      // Annotations as Dev Mode shows them: dots drawn by the engine, a click opens one's label (R9 "Round 6").
+      engine.setAnnotationView(true, true);
+      (window as unknown as { __designerViewer?: { engine: Engine } }).__designerViewer = { engine };
       const doc = new ViewerDoc(engine);
       offs.push(attachViewerCanvas(canvas, engine, { parentOf: (id) => doc.parentOf(id) }));
       engine.command("ZOOM_TO_FIT");
@@ -118,7 +120,6 @@ export function ViewerApp() {
         {state ? <LeftPanel /> : <div className={styles.left} />}
         <div className={styles.canvasArea}>
           <canvas ref={canvasRef} id="engine-canvas" className={styles.canvas} aria-label="Canvas" />
-          {state && <Annotations />}
           {state && <Measurements />}
           {!state && (
             <div className={styles.status} role="status">

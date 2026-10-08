@@ -48,7 +48,8 @@ void Renderer::drawStatusChip(const DevStatusMark& mark, double x, double baseli
        Pass::Shape);
   if (L && !L->lines.empty())
     drawGlyphs(*L, Mat2x3::translate(bx + (w - tw) / 2, std::round((by + (h - L->lines[0].height) / 2) * dpr) / dpr),
-               button ? style.title : Color{1, 1, 1, 1}, button ? std::max(0.6, style.titleAlpha) : 1);
+               button ? style.title : mark.kind == DevStatusMark::Kind::Changed ? Color{0, 0, 0, 0.9f} : Color{1, 1, 1, 1},
+               button ? std::max(0.6, style.titleAlpha) : 1);
   if (recordHits_) hits_.statuses.push_back({mark.frame, {bx, by, w, h}, mark.kind});
 }
 

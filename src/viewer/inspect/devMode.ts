@@ -14,15 +14,39 @@ import { cssColor, hexOf, num, typographyOf } from "./model";
 
 // ---- Statuses ----------------------------------------------------------------------------------------------------
 
-export type DevStatus = "READY_FOR_DEV" | "COMPLETED";
-export const STATUS_LABEL: Record<DevStatus, string> = { READY_FOR_DEV: "Ready for dev", COMPLETED: "Completed" };
+export type DevStatus = "READY_FOR_DEV" | "COMPLETED" | "CHANGED";
+export const STATUS_LABEL: Record<DevStatus, string> = { READY_FOR_DEV: "Ready for dev", COMPLETED: "Completed", CHANGED: "Changed" };
 
-/** The status a node carries (schema `SectionStatusInfo.status`: BUILD = "Ready for dev", COMPLETED), or null. */
-export function statusOf(node: { sectionStatusInfo?: { status?: string | number } } | null | undefined): DevStatus | null {
+export interface StatusNode {
+  sectionStatusInfo?: { status?: string | number; lastUpdateUnixTimestamp?: number };
+  editInfo?: { lastEditedAt?: number; createdAt?: number };
+}
+
+/**
+ * The status a node carries (schema `SectionStatusInfo.status`: BUILD = "Ready for dev", COMPLETED), or null; "Changed"
+ * (help.figma.com 26781702258583: set automatically when a Ready or Completed design is modified) when the design was
+ * edited after its status was set — `editInfo.lastEditedAt` later than `sectionStatusInfo.lastUpdateUnixTimestamp`, as
+ * Figma's files record it (R9 "Round 6").
+ */
+export function statusOf(node: StatusNode | null | undefined): DevStatus | null {
   const s = node?.sectionStatusInfo?.status;
-  if (s === "BUILD" || s === 1) return "READY_FOR_DEV";
-  if (s === "COMPLETED" || s === 2) return "COMPLETED";
-  return null;
+  const set = s === "BUILD" || s === 1 ? "READY_FOR_DEV" : s === "COMPLETED" || s === 2 ? "COMPLETED" : null;
+  if (!set) return null;
+  const edited = node?.editInfo?.lastEditedAt ?? 0;
+  const since = node?.sectionStatusInfo?.lastUpdateUnixTimestamp ?? 0;
+  return edited > since ? "CHANGED" : set;
+}
+
+/** "Edited 5 minutes ago" from a unix-seconds timestamp (Inspect's header; the left panel's designs). */
+export function editedAgo(unixSeconds: number | undefined | null, now = Date.now()): string | null {
+  if (!unixSeconds) return null;
+  const s = Math.max(0, Math.round(now / 1000 - unixSeconds));
+  if (s < 60) return "Edited just now";
+  const units: [number, string][] = [[60, "minute"], [3600, "hour"], [86400, "day"], [604800, "week"], [2629800, "month"], [31557600, "year"]];
+  let pick = units[0];
+  for (const u of units) if (s >= u[0]) pick = u;
+  const n = Math.floor(s / pick[0]);
+  return `Edited ${n} ${pick[1]}${n === 1 ? "" : "s"} ago`;
 }
 
 // ---- Annotations ---------------------------------------------------------------------------------------------------

@@ -255,6 +255,10 @@
     white-space: nowrap;
   }
   .devStatus[data-status="COMPLETED"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+  .devStatus[data-status="CHANGED"] { background: var(--figma-color-bg-warning); color: var(--figma-color-text-onwarning); }
+  button.devStatus { border: 0; cursor: default; }
+  .edited { padding: var(--ds-space-1) var(--ds-space-4) 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .compareRow { padding: var(--ds-space-2) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
   .codeActions { display: flex; align-items: center; gap: var(--ds-space-1); }
   .codeSettings {
     display: flex;
@@ -315,35 +319,7 @@
   .statusRow:hover { background: var(--figma-color-bg-hover); }
   .statusRow > span:first-of-type { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .statusLabel { color: var(--figma-color-text-success); white-space: nowrap; }
+  .statusLabel[data-status="CHANGED"] { color: var(--figma-color-text-warning); }
+  .statusLabel[data-status="COMPLETED"] { color: var(--figma-color-text-secondary); }
 
-  /* Annotations on the canvas: a green dot on the layer's top right, its note beside it */
-  .annotations { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-  .annotationPin {
-    position: absolute;
-    display: flex;
-    align-items: flex-start;
-    gap: var(--ds-space-1);
-    max-width: 240px;
-    pointer-events: auto;
-  }
-  .annotationDot {
-    flex: none;
-    width: var(--ds-space-3);
-    height: var(--ds-space-3);
-    margin-top: var(--ds-space-1);
-    padding: 0;
-    border: 2px solid var(--figma-color-bg);
-    border-radius: 50%;
-    background: var(--figma-color-bg-success);
-  }
-  .annotationCard {
-    padding: var(--ds-space-1) var(--ds-space-2);
-    border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg);
-    box-shadow: var(--ds-elevation-200);
-    color: var(--figma-color-text);
-    font: var(--ds-font-body-medium);
-    white-space: pre-wrap;
-  }
-  .annotationCard .annotationProp { font: var(--ds-font-body-small); }
 }

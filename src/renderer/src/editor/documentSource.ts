@@ -60,6 +60,8 @@ export interface DocumentSource {
   /** Version history (docs/data.md §6). Optional: absent, the File menu's version items are disabled. */
   listVersions?(): Promise<VersionInfo[]>;
   saveVersion?(input?: { title?: string; description?: string }): Promise<VersionInfo>;
+  /** A saved version as a document, read-only (Dev Mode's Compare changes loads it into an engine of its own). Optional. */
+  openVersion?(id: string): Promise<Message>;
   /** Non-destructive restore: `apply` gets the diff (and its kiwi bytes when the source has them) and applies it as one undoable edit labelled "Restore version". */
   restoreVersion?(id: string, apply: (diff: Message, bytes?: Uint8Array) => void | Promise<void>): Promise<VersionInfo>;
   /** The file's images by SHA-1 (the store's blobs). Optional: absent, images can't be placed or drawn. */

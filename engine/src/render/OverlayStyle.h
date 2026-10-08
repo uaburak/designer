@@ -42,7 +42,7 @@ struct OverlayStyle {
   double cardWidth = 240;
   double cardGap = 32;       // between the design's edge and its labels
   Color statusReady = Color::hex(0x14AE5C);
-  Color statusChanged = Color::hex(0xF08A24);
+  Color statusChanged = Color::hex(0xFFCD29);  // --figma-color-bg-warning
   Color statusCompleted = Color::hex(0x8C8C8C);
 
   static OverlayStyle of(Theme t) {

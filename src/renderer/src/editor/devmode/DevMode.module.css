@@ -1,0 +1,117 @@
+@layer app {
+  .grow { flex: 1 1 auto; min-width: 0; }
+  .hint { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+
+  /* The annotation menu */
+  .noteEditor { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
+  .noteRow { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .noteRow > :last-child { flex: 1 1 auto; }
+  .categoryDot { flex: none; width: var(--ds-space-3); height: var(--ds-space-3); border-radius: 50%; }
+  .pinned { display: flex; flex-direction: column; }
+  .pinnedRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-control); }
+  .pinnedLabel { flex: 1 1 auto; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .pinnedValue { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .noteActions { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .addProperty {
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+  }
+  .addProperty:hover, .addProperty[data-open] { background: var(--figma-color-bg-hover); }
+
+  /* Edit categories */
+  .categories { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) 0; }
+  .categoryRow { display: flex; align-items: center; gap: var(--ds-space-2); }
+
+  /* Changed → Done with changes */
+  .doneWithChanges { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); }
+
+  /* Focus view's bar, over the canvas's top */
+  .focusBar {
+    position: absolute;
+    z-index: var(--ds-z-panel);
+    top: var(--ds-space-3);
+    left: var(--ds-space-3);
+    right: var(--ds-space-3);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-2);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-200);
+    color: var(--figma-color-text);
+  }
+  .focusName { font: var(--ds-font-body-large-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .focusStatus {
+    flex: none;
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-success);
+    color: var(--figma-color-text-onsuccess);
+    font: var(--ds-font-body-medium-strong);
+    line-height: var(--ds-size-control);
+  }
+  .focusStatus[data-status="CHANGED"] { background: var(--figma-color-bg-warning); color: var(--figma-color-text-onwarning); }
+  .focusStatus[data-status="COMPLETED"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+
+  /* Compare changes */
+  .hiddenCanvas { position: fixed; left: -10000px; top: 0; width: 8px; height: 8px; }
+  .compare { display: grid; grid-template-columns: 220px 1fr 280px; gap: var(--ds-space-3); height: 60vh; min-height: 0; }
+  .compareNav, .compareDetail { display: flex; flex-direction: column; gap: var(--ds-space-2); min-height: 0; overflow: hidden; }
+  .compareHeading { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); padding: var(--ds-space-1) 0; }
+  .compareVersions { flex: 0 1 40%; min-height: 0; }
+  .compareLayers { flex: 1 1 auto; min-height: 0; }
+  .compareVersion, .compareLayer {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    text-align: left;
+  }
+  .compareVersion { flex-direction: column; align-items: flex-start; gap: 0; }
+  .compareVersion:hover, .compareLayer:hover { background: var(--figma-color-bg-hover); }
+  .compareVersion[aria-current], .compareLayer[aria-current] { background: var(--figma-color-bg-selected); }
+  .changeTag { flex: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); }
+  .changeTag[data-kind="Added"] { color: var(--figma-color-text-success); }
+  .changeTag[data-kind="Deleted"] { color: var(--figma-color-text-danger); }
+  .changeTag[data-kind="Edited"] { color: var(--figma-color-text-warning); }
+  .compareMain { display: flex; flex-direction: column; gap: var(--ds-space-2); min-width: 0; min-height: 0; }
+  .compareToolbar { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .overlaySlider { width: 120px; }
+  .compareLoading { display: grid; flex: 1 1 auto; place-items: center; }
+  .sideBySide { display: grid; flex: 1 1 auto; grid-template-columns: 1fr 1fr; gap: var(--ds-space-2); min-height: 0; }
+  .compareFigure {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-1);
+    min-height: 0;
+    margin: 0;
+    padding: var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-canvas-default);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+  }
+  .compareFigure img, .overlay img { min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; }
+  .overlay { position: relative; display: grid; flex: 1 1 auto; place-items: center; min-height: 0; background: var(--ds-color-canvas-default); border-radius: var(--ds-radius-medium); }
+  .overlay img { position: absolute; }
+  .compareLayerName { font: var(--ds-font-body-medium-strong); color: var(--figma-color-text); }
+  .propDiff { display: flex; flex-direction: column; gap: var(--ds-space-1); overflow: auto; }
+  .propRow { display: grid; grid-template-columns: 1fr; padding: var(--ds-space-1) 0; border-bottom: 1px solid var(--figma-color-border); font: var(--ds-font-body-medium); }
+  .propLabel { color: var(--figma-color-text-secondary); }
+  .propBefore { color: var(--figma-color-text-danger); text-decoration: line-through; overflow-wrap: anywhere; }
+  .propAfter { color: var(--figma-color-text-success); overflow-wrap: anywhere; }
+  .codeDiff { display: flex; flex-direction: column; gap: var(--ds-space-1); overflow: auto; }
+}

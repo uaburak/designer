@@ -1141,7 +1141,8 @@ ENG_EXPORT int32_t engine_set_props(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr
 ENG_EXPORT int32_t engine_txn_begin(Handle h, Ptr ptr, uint32_t len) {
   Call call;
   Engine* e = engineOf(h);
-  if (e && e->editor.viewerMode()) return E_READONLY;  // viewer mode: read-only
+  // Viewer mode: read-only (the editor's Dev Mode groups its own edits, which set_props still checks field by field).
+  if (e && e->editor.viewerMode() && !e->editor.devEdits()) return E_READONLY;
   return e ? e->editor.txnBegin(std::string(bytes(ptr, len))) : E_HANDLE;
 }
 
