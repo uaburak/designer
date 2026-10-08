@@ -23,6 +23,7 @@
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
+//   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -2027,6 +2028,198 @@ async function selectionSection(page, theme) {
   await shot(page, `177-pixel-grid-${theme}`);
 }
 
+/**
+ * Round 8 on `?editor&doc=empty` (dark): the selection / canvas audit's open items — smart selection's centre rings
+ * dragged to reorder, the ⌥R rotation origin, ruler guides dragged out of the rulers (selected, snapped to), the Scale
+ * tool (K), the Slice tool (S) and Show slices, the Comment tool's note, the eyedropper (I) with its loupe, an
+ * auto-layout padding edited in place, "Select layer ▸" with type icons, Nudge amount…, Snap to pixel grid, pixel
+ * preview (⌃P).
+ */
+async function selection8Section(page, theme) {
+  await open(page, "&doc=empty");
+  const fill = (hex) => [{ type: "SOLID", color: { r: ((hex >> 16) & 255) / 255, g: ((hex >> 8) & 255) / 255, b: (hex & 255) / 255, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }];
+  await page.evaluate((fills) => {
+    const e = window.__designerEditor.engine;
+    const at = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
+    const rect = (id, name, x, y, w, h, parent = "0:1", pos = "!", f = fills.grey, extra = {}) => ({ guid: id, phase: "CREATED", type: "ROUNDED_RECTANGLE", name, parentIndex: { guid: parent, position: pos }, size: { x: w, y: h }, transform: at(x, y), fillPaints: f, ...extra });
+    e.applyChanges({
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      nodeChanges: [
+        rect("6:1", "S1", 0, 0, 60, 60, "0:1", "!"),
+        rect("6:2", "S2", 80, 0, 60, 60, "0:1", '"'),
+        rect("6:3", "S3", 160, 0, 60, 60, "0:1", "#"),
+        { guid: "6:4", phase: "CREATED", type: "FRAME", name: "Card", parentIndex: { guid: "0:1", position: "$" }, size: { x: 160, y: 120 }, transform: at(0, 120), fillPaints: fills.white, cornerRadius: 8, rectangleTopLeftCornerRadius: 8, rectangleTopRightCornerRadius: 8, rectangleBottomLeftCornerRadius: 8, rectangleBottomRightCornerRadius: 8 },
+        rect("6:5", "Swatch", 16, 16, 60, 40, "6:4", "!", fills.blue, { strokePaints: fills.grey, strokeWeight: 2 }),
+        { guid: "6:6", phase: "CREATED", type: "FRAME", name: "Stack", parentIndex: { guid: "0:1", position: "%" }, size: { x: 232, y: 72 }, transform: at(320, 0), fillPaints: fills.white, stackMode: "HORIZONTAL", stackSpacing: 10, stackHorizontalPadding: 16, stackVerticalPadding: 16, stackPaddingRight: 16, stackPaddingBottom: 16, stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" },
+        rect("6:7", "A", 16, 16, 60, 40, "6:6", "!", fills.orange),
+        rect("6:8", "B", 86, 16, 60, 40, "6:6", '"', fills.orange),
+        rect("6:9", "C", 156, 16, 60, 40, "6:6", "#", fills.orange),
+        rect("6:10", "Under", 320, 140, 120, 80, "0:1", "&", fills.orange),
+        rect("6:11", "Over", 360, 160, 120, 80, "0:1", "'", fills.blue, { locked: true }),
+      ],
+    });
+    e.setCamera({ x: 160, y: 200, zoom: 1.5 });
+  }, { grey: fill(0xd9d9d9), blue: fill(0x0d99ff), white: fill(0xffffff), orange: fill(0xd97054) });
+  await settle(page);
+  const canvas = page.locator("#engine-canvas");
+  const world = (id) => page.evaluate((id) => {
+    const ed = window.__designerEditor;
+    const n = ed.engine.readNode(id);
+    return n ? { x: n.transform.m02, y: n.transform.m12, w: n.size.x, h: n.size.y } : null;
+  }, id);
+
+  // Smart selection: S1's centre ring dragged past S3 — the layers swap places, the gaps stay.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:1", "6:2", "6:3"]));
+  await page.mouse.move(...(await toScreen(page, 30, 30)));
+  await settle(page);
+  await shot(page, `180-reorder-ring-${theme}`);
+  await drag(page, await toScreen(page, 30, 30), await toScreen(page, 220, 30));
+  const order = [(await world("6:1")).x, (await world("6:2")).x, (await world("6:3")).x];
+  check("Smart selection: a centre ring dragged past the last layer reorders them (gaps kept)", order.join() === "160,0,80", order.join());
+
+  // ⌥R: the rotation origin at the selection's centre.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:4"]));
+  await canvas.focus();
+  await page.keyboard.press("Alt+r");
+  await settle(page);
+  check("⌥R shows the rotation origin", (await page.evaluate(() => window.__designerEditor.engine.commandState("SHOW_ROTATION_ORIGIN") & 2)) === 2);
+  await drag(page, await toScreen(page, 80, 180), await toScreen(page, 2, 122));
+  await shot(page, `181-rotation-origin-${theme}`);
+  await page.keyboard.press("Alt+r");
+
+  // Ruler guides: out of the top ruler onto the page (rulers on by default); a click selects it; ⌫ removes it.
+  const rulerTop = page.locator('[data-ruler="top"]');
+  const box = await rulerTop.boundingBox();
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  const guideY = await toScreen(page, 0, 300);
+  await drag(page, [box.x + 600, box.y + 10], [box.x + 600, guideY[1]], 10);
+  const guides = () => page.evaluate(() => window.__designerEditor.engine.readNode("0:1")?.guides ?? []);
+  const g1 = await guides();
+  check("A guide dragged out of the top ruler lands on the page", g1.length === 1 && g1[0].axis === "Y" && Math.abs(g1[0].offset - 300) <= 1, JSON.stringify(g1));
+  // And one from the left ruler with Card selected: the frame's own guide.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:4"]));
+  const rulerLeft = page.locator('[data-ruler="left"]');
+  const lbox = await rulerLeft.boundingBox();
+  const guideX = await toScreen(page, 80, 0);
+  await drag(page, [lbox.x + 10, lbox.y + 400], [guideX[0], lbox.y + 400], 10);
+  const cardGuides = await page.evaluate(() => window.__designerEditor.engine.readNode("6:4")?.guides ?? []);
+  check("With a frame selected, the left ruler's guide is the frame's", cardGuides.length === 1 && cardGuides[0].axis === "X" && Math.abs(cardGuides[0].offset - 80) <= 1, JSON.stringify(cardGuides));
+  const [gx, gy] = await toScreen(page, 260, 300);
+  await page.mouse.click(gx, gy);
+  await settle(page);
+  const guideSelected = (await page.evaluate(() => window.__designerEditor.engine.commandState("REMOVE_GUIDE") & 1)) === 1;
+  check("A click on a guide selects it (the layers let go)", guideSelected && (await selection(page)).length === 0);
+  await shot(page, `182-ruler-guides-${theme}`);
+  await canvas.focus();
+  if (guideSelected) await page.keyboard.press("Backspace");
+  check("⌫ removes the selected guide", (await guides()).length === 0, JSON.stringify(await guides()));
+
+  // The Scale tool (K): Card's corner dragged — the swatch's stroke scales with it.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:4"]));
+  await canvas.focus();
+  await page.keyboard.press("k");
+  check("K picks the Scale tool", (await page.evaluate(() => window.__designerEditor.store.tool)) === "SCALE");
+  await drag(page, await toScreen(page, 160, 240), await toScreen(page, 240, 300));
+  const swatch = await node(page, "6:5");
+  const card = await world("6:4");
+  check("The Scale tool scales the frame and its layers' strokes", card.w === 240 && card.h === 180 && swatch?.strokeWeight === 3, `${card.w}×${card.h}, stroke ${swatch?.strokeWeight}`);
+  await shot(page, `183-scale-tool-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Meta+z");
+
+  // The Slice tool (S): a slice, dashed (View › Show slices).
+  await canvas.focus();
+  await page.keyboard.press("s");
+  await drag(page, await toScreen(page, 180, 260), await toScreen(page, 280, 330));
+  const slice = (await selection(page)).length === 1 ? await node(page, (await selection(page))[0]) : null;
+  check("S draws a slice with an export setting", slice?.type === "SLICE" && (slice?.exportSettings?.length ?? 0) === 1, slice ? `${slice.type} ${slice.name}` : "none");
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  await settle(page);
+  await shot(page, `184-slice-${theme}`);
+
+  // C: the Comment tool says comments come with multiplayer; Esc back to Move.
+  await canvas.focus();
+  await page.keyboard.press("c");
+  await settle(page);
+  check("C picks the Comment tool, with its note", (await page.evaluate(() => window.__designerEditor.store.tool)) === "COMMENT" && (await page.getByText("Comments come with multiplayer").count()) > 0);
+  await page.keyboard.press("Escape");
+
+  // I: the eyedropper — the loupe follows the pointer; a click on the orange rectangle fills the selected S1 with it.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:1"]));
+  await canvas.focus();
+  await page.keyboard.press("i");
+  await page.mouse.move(...(await toScreen(page, 380, 170)));
+  await page.mouse.move(...(await toScreen(page, 330, 160)), { steps: 3 });
+  await settle(page);
+  await page.waitForTimeout(100);
+  check("I shows the eyedropper's loupe", (await page.locator("[data-loupe]").count()) === 1 && (await page.locator("[data-loupe]").isVisible()));
+  await shot(page, `185-eyedropper-${theme}`);
+  await page.mouse.click(...(await toScreen(page, 330, 160)));
+  await settle(page);
+  const s1 = await node(page, "6:1");
+  const c = s1?.fillPaints?.[0]?.color;
+  check("The eyedropper's click fills the selection with the colour there (the orange, not S1's grey)", !!c && c.g < 0.6 && c.r > c.b + 0.3, JSON.stringify(c));
+  check("…and the tool goes back to Move", (await page.evaluate(() => window.__designerEditor.store.tool)) === "MOVE");
+
+  // An auto-layout frame's left padding clicked: its value edited in place (24, Enter).
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:6"]));
+  await page.mouse.move(...(await toScreen(page, 328, 36)));
+  await settle(page);
+  await page.mouse.click(...(await toScreen(page, 328, 36)));
+  await settle(page);
+  const field = page.locator('[data-inline-value="PADDING_LEFT"] input');
+  check("A click on a padding bar edits its value in place", (await field.count()) === 1);
+  await shot(page, `186-padding-inline-${theme}`);
+  if (await field.count()) {
+    await field.fill("24");
+    await field.press("Enter");
+  }
+  check("…Enter keeps it", (await node(page, "6:6"))?.stackHorizontalPadding === 24, String((await node(page, "6:6"))?.stackHorizontalPadding));
+
+  // "Select layer ▸": the layers under the pointer, their type icons, the locked one's padlock.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  await page.mouse.click(...(await toScreen(page, 400, 200)), { button: "right" });
+  await settle(page);
+  await page.getByRole("menuitem", { name: "Select layer" }).hover();
+  await page.waitForTimeout(300);
+  const subItems = page.getByRole("menu").last().getByRole("menuitemcheckbox");
+  check("Select layer ▸ lists the layers under the pointer, locked ones too", (await subItems.count()) >= 2, String(await subItems.count()));
+  await shot(page, `187-select-layer-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+
+  // Preferences › Nudge amount…: 5 and 50; → moves 5.
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "Preferences" }).hover();
+  await page.waitForTimeout(300);
+  await page.getByRole("menuitem", { name: "Nudge amount…" }).click();
+  await settle(page);
+  const dialog = page.getByRole("dialog");
+  check("Preferences › Nudge amount… opens its dialog", (await dialog.count()) === 1);
+  await shot(page, `188-nudge-amount-${theme}`);
+  await dialog.getByLabel("Small nudge").fill("5");
+  await dialog.getByLabel("Big nudge").fill("50");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:2"]));
+  const before = (await world("6:2")).x;
+  await canvas.focus();
+  await page.keyboard.press("ArrowRight");
+  check("The arrows move by the Small nudge", (await world("6:2")).x === before + 5, `${before} → ${(await world("6:2")).x}`);
+
+  // ⇧⌘′ Snap to pixel grid off and on; ⌃P pixel preview at 800 % (live's toast).
+  await page.keyboard.press("Shift+Meta+Quote");
+  check("⇧⌘′ turns Snap to pixel grid off", (await page.evaluate(() => window.__designerEditor.ui.get().snapToPixelGrid)) === false);
+  await page.keyboard.press("Shift+Meta+Quote");
+  await page.evaluate(() => window.__designerEditor.engine.setCamera({ x: -200, y: -150, zoom: 8 }));
+  await page.keyboard.press("Control+p");
+  await settle(page);
+  check("⌃P turns pixel preview on (1x)", (await page.evaluate(() => window.__designerEditor.ui.get().pixelPreview)) === 1 && (await page.getByText("Pixel preview enabled (1x)").count()) > 0);
+  await shot(page, `189-pixel-preview-${theme}`);
+  await page.keyboard.press("Control+p");
+  check("⌃P again turns it off", !(await page.evaluate(() => window.__designerEditor.ui.get().pixelPreview)));
+}
+
 /** Round 6 on `?editor&doc=reference` (dark): annotations (⇧T, the menu, + Property, a category), a measurement (⇧M), Mark as ready for dev on the frame's label, Changed after an edit, Dev Mode (⇧D: Inspect, dots), Compare changes, Done with changes, focus view. */
 async function devmodeSection(page, theme) {
   await open(page, "&doc=reference");
@@ -2474,6 +2667,7 @@ try {
   }
   for (const [name, section] of [
     ["selection", selectionSection],
+    ["selection8", selection8Section],
     ["slots", slotsSection],
     ["variables6", variables6Section],
     ["devmode", devmodeSection],

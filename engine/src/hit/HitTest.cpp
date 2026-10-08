@@ -132,6 +132,8 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
         break;
       }
     }
+    // A locked top-level layer: the click goes through it to what is under it (round 8: locked layers take no clicks).
+    if (path.empty()) continue;
     if (!f(std::move(path))) return;
   }
 }

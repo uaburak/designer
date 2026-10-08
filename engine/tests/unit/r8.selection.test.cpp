@@ -499,3 +499,22 @@ TEST_CASE("r8 marquee: over part of a frame inside a section, that frame's child
   drag(e, {50, 530}, {220, 620});
   CHECK(e.selection() == std::vector<Guid>{A});
 }
+
+// ---- 20. Locked layers -----------------------------------------------------------------------------------------------
+
+TEST_CASE("r8 locked: a locked top-level layer takes no click — it reaches the layer under it; Select layer ▸ lists both") {
+  const Guid U{7, 1}, O{7, 2};
+  NodeChange under = make(U, NodeType::ROUNDED_RECTANGLE, kPage, "$", {600, 400, 120, 80}, "Under");
+  NodeChange over = make(O, NodeType::ROUNDED_RECTANGLE, kPage, "%", {640, 420, 120, 80}, "Over");
+  over.props.locked = true;
+  Editor e = makeEditor({under, over});
+  click(e, 760, 540);  // world (660, 440): both
+  CHECK(e.selection() == std::vector<Guid>{U});
+  e.setSelection({});
+  e.takeEvents();
+  e.pointer(PointerEvent::DOWN, 760, 540, 2, 2, 0);
+  auto ev = e.takeEvents();
+  REQUIRE(ev.contextMenus.size() == 1);
+  CHECK(ev.contextMenus[0].hits.size() == 2);
+  CHECK(e.selection() == std::vector<Guid>{U});
+}
