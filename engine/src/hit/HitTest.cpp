@@ -76,7 +76,7 @@ namespace {
 
 // Calls f(path) for each node hit at `world`, topmost first; stops when f returns false.
 template <typename F>
-void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f) {
+void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f, bool includeLocked = false) {
   // Candidates from the page's spatial index, topmost first; a candidate counts when
   // its own geometry is hit and no hidden ancestor hides it and no clipping ancestor
   // cuts it off.
@@ -123,7 +123,7 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f)
     bool topLevel = n->props.parentIndex.guid == page || (parent && parent->props.type == NodeType::SECTION);
     if (!hitsNode(doc, id, m.inverse().apply(world), slop, topLevel)) continue;
     std::vector<Guid> path = doc.pathFromPage(id);
-    for (size_t i = 0; i < path.size(); i++) {
+    for (size_t i = 0; i < path.size() && !includeLocked; i++) {
       const Node* pn = doc.get(path[i]);
       if (pn && pn->props.locked) {
         path.resize(i);
@@ -145,15 +145,18 @@ std::vector<Guid> hitPath(const Document& doc, Guid page, Vec2 world, double pix
   return out;
 }
 
-std::vector<std::vector<Guid>> hitPaths(const Document& doc, Guid page, Vec2 world, double pixel) {
+std::vector<std::vector<Guid>> hitPaths(const Document& doc, Guid page, Vec2 world, double pixel, bool includeLocked) {
   std::vector<std::vector<Guid>> out;
-  forEachHit(doc, page, world, pixel, [&](std::vector<Guid> path) {
-    if (path.empty()) return true;
-    for (const auto& seen : out)
-      if (seen.size() >= path.size() && std::equal(path.begin(), path.end(), seen.begin())) return true;
-    out.push_back(std::move(path));
-    return true;
-  });
+  forEachHit(
+      doc, page, world, pixel,
+      [&](std::vector<Guid> path) {
+        if (path.empty()) return true;
+        for (const auto& seen : out)
+          if (seen.size() >= path.size() && std::equal(path.begin(), path.end(), seen.begin())) return true;
+        out.push_back(std::move(path));
+        return true;
+      },
+      includeLocked);
   return out;
 }
 

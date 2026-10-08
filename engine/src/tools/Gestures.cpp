@@ -486,20 +486,27 @@ void Editor::updateMeasure(uint32_t mods) {
 }
 
 void Editor::updateAutoLayoutBands(Vec2 world) {
-  // A selected auto-layout frame shows its padding (the side under the pointer) or its gaps (all of them).
+  // A selected auto-layout frame under the pointer shows Figma's handles: a short blue bar in the middle of each
+  // padding and a pink one in each gap (live Figma, canvas-autolayout-selected-hover-*); the one under the pointer
+  // (its band: the padding side, or any gap) shows its value, and a drag on it changes it.
   std::vector<Rect> bands;
-  if (gesture_ == Gesture::None && tool_ == Tool::MOVE && !spaceHeld_ && selection_.size() == 1) {
+  std::vector<Overlay::LayoutBar> bars;
+  int hovered = -1;
+  bool dragging = gesture_ == Gesture::LayoutBar;
+  if ((gesture_ == Gesture::None || dragging) && tool_ == Tool::MOVE && !spaceHeld_ && selection_.size() == 1 && !viewer_) {
     Guid id = selection_[0];
     const Node* n = doc_.get(id);
     Mat2x3 W = doc_.worldTransform(id);
-    if (n && n->props.isAutoLayout() && axisAligned(W) && W.m00 > 0 && W.m11 > 0) {
+    if (n && n->props.isAutoLayout() && n->props.stack().stackMode != StackMode::GRID && axisAligned(W) && W.m00 > 0 && W.m11 > 0 &&
+        !n->props.locked && !id.isDerived()) {
       const NodeProps& p = n->props;
       Vec2 q = W.inverse().apply(world);
       double w = p.size.x, h = p.size.y;
-      if (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h) {
+      if (dragging || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) {
         int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
         double pad[4];
         Layout::padding(p, pad);
+        const double own[4] = {p.stack().stackPaddingLeft, p.stack().stackPaddingTop, p.stack().stackPaddingRight, p.stack().stackPaddingBottom};
         auto inside = [&](const Rect& r) { return r.w > 0 && r.h > 0 && r.contains(q); };
         bool onChild = false;
         std::vector<Rect> boxes;
@@ -508,6 +515,7 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
           boxes.push_back(layoutBox(cp.transform, cp.size));
           onChild |= boxes.back().contains(q);
         }
+        bool between = p.stack().stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN;
         std::vector<Rect> gaps;
         for (size_t i = 1; i < boxes.size() && p.stack().stackWrap != StackWrap::WRAP; i++) {
           const Rect& a = boxes[i - 1];
@@ -516,23 +524,107 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
           if (P == 1 && b.y > a.bottom()) gaps.push_back({pad[0], a.bottom(), w - pad[0] - pad[2], b.y - a.bottom()});
         }
         Rect sides[4] = {{0, 0, pad[0], h}, {0, 0, w, pad[1]}, {w - pad[2], 0, pad[2], h}, {0, h - pad[3], w, pad[3]}};
-        if (!onChild) {
-          bool inGap = false;
-          for (auto& g : gaps) inGap |= inside(g);
-          if (inGap) bands = gaps;
-          else
-            for (auto& side : sides)
-              if (inside(side)) {
-                bands.push_back(side);
-                break;
-              }
+        int band = -1;  // 0..3 a side, 4 + i a gap
+        if (dragging) band = layoutBar_;
+        else if (!onChild) {
+          for (size_t i = 0; i < gaps.size() && band < 0; i++)
+            if (inside(gaps[i])) band = 4 + static_cast<int>(i);
+          for (int k = 0; k < 4 && band < 0; k++)
+            if (inside(sides[k])) band = k;
         }
+        if (band >= 4) bands = gaps;
+        else if (band >= 0) bands.push_back(sides[band]);
         for (auto& b : bands) b = transformedBounds(W * Mat2x3::translate(b.x, b.y), b.w, b.h);
+        // The bars: each side with padding, each gap.
+        for (int k = 0; k < 4; k++) {
+          if (pad[k] <= 0) continue;
+          const Rect& r = sides[k];
+          Overlay::LayoutBar bar;
+          bar.side = k;
+          bar.vertical = k == 0 || k == 2;
+          // In the middle of the padding, at the middle of the content across (Figma: the frame's middle).
+          bar.at = W.apply({k == 0 ? r.w / 2 : k == 2 ? w - r.w / 2 : w / 2, k == 1 ? r.h / 2 : k == 3 ? h - r.h / 2 : h / 2});
+          bar.edge = W.apply({k == 0 ? 0 : k == 2 ? w : w / 2, k == 1 ? 0 : k == 3 ? h : h / 2});
+          bar.value = own[k];
+          bar.hovered = band == k;
+          if (bar.hovered) hovered = static_cast<int>(bars.size());
+          bars.push_back(bar);
+        }
+        for (size_t i = 0; i < gaps.size(); i++) {
+          const Rect& g = gaps[i];
+          Overlay::LayoutBar bar;
+          bar.gap = true;
+          bar.index = static_cast<int>(i);
+          bar.vertical = P == 0;
+          bar.at = W.apply({g.x + g.w / 2, g.y + g.h / 2});
+          bar.edge = bar.at;
+          bar.value = between ? (P == 0 ? g.w : g.h) : p.stack().stackSpacing;
+          bar.hovered = band == 4 + static_cast<int>(i);
+          if (bar.hovered) hovered = static_cast<int>(bars.size());
+          bars.push_back(bar);
+        }
       }
     }
   }
   if (!(bands.size() == bands_.size() && std::equal(bands.begin(), bands.end(), bands_.begin()))) needsRender_ = true;
+  if (bars.size() != layoutBars_.size() || hovered != layoutBarHover_) needsRender_ = true;
   bands_ = std::move(bands);
+  layoutBars_ = std::move(bars);
+  layoutBarHover_ = hovered;
+}
+
+void Editor::startLayoutBar(int band) {
+  const Node* n = doc_.get(selection_[0]);
+  if (!n) return;
+  begin(TxnKind::GESTURE, band >= 4 ? "Gap" : "Padding");
+  layoutBar_ = band;
+  layoutBarFrom_ = n->props.stack();
+}
+
+void Editor::dragLayoutBar(Vec2 world, uint32_t mods) {
+  // A padding follows the pointer across its side (⌥: the opposite side too, ⇧: all four — unverified); a gap's bar
+  // stays under the pointer (every gap changes alike), as the smart selection's.
+  if (layoutBar_ < 0 || selection_.size() != 1) return;
+  Guid id = selection_[0];
+  Mat2x3 inv = doc_.worldTransform(id).inverse();
+  Vec2 d = inv.applyLinear(world - downWorld_);
+  const auto& from = layoutBarFrom_;
+  NodeChange c = NodeChange::changed(id);
+  if (layoutBar_ >= 4) {
+    bool horizontal = from.stackMode == StackMode::HORIZONTAL;
+    double along = horizontal ? d.x : d.y;
+    double base = from.stackSpacing;
+    if (from.stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN) {
+      // An Auto gap dragged becomes a number (from the gap as laid out).
+      for (const auto& bar : layoutBars_)
+        if (bar.gap) {
+          base = bar.value;
+          break;
+        }
+      c.mask |= F_STACK_PRIMARY_ALIGN;
+      c.props.stack().stackPrimaryAlignItems = StackJustify::MIN;
+    }
+    c.mask |= F_STACK_SPACING;
+    c.props.stack().stackSpacing = std::max(0.0, std::round(base + along / ((layoutBar_ - 4) + 0.5)));
+  } else {
+    const double start[4] = {from.stackPaddingLeft, from.stackPaddingTop, from.stackPaddingRight, from.stackPaddingBottom};
+    const double sign[4] = {d.x, d.y, -d.x, -d.y};
+    double v = std::max(0.0, std::round(start[layoutBar_] + sign[layoutBar_]));
+    bool sides[4] = {false, false, false, false};
+    sides[layoutBar_] = true;
+    if (mods & MOD_ALT) sides[(layoutBar_ + 2) % 4] = true;
+    if (mods & MOD_SHIFT) sides[0] = sides[1] = sides[2] = sides[3] = true;
+    const FieldMask masks[4] = {F_STACK_PADDING_LEFT, F_STACK_PADDING_TOP, F_STACK_PADDING_RIGHT, F_STACK_PADDING_BOTTOM};
+    double* fields[4] = {&c.props.stack().stackPaddingLeft, &c.props.stack().stackPaddingTop, &c.props.stack().stackPaddingRight, &c.props.stack().stackPaddingBottom};
+    for (int k = 0; k < 4; k++) {
+      *fields[k] = sides[k] ? v : start[k];
+      c.mask |= masks[k];
+    }
+  }
+  write(c);
+  flushLayout();
+  updateAutoLayoutBands(world);
+  needsRender_ = true;
 }
 
 // ---- Pointer and wheel ------------------------------------------------------
@@ -691,6 +783,14 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     startGap(hx);
     return P_HANDLED | P_CAPTURE;
   }
+  // An auto-layout frame's padding or gap under the pointer (its bar shows): a drag changes it.
+  if (!viewer_ && h == Handle::None && layoutBarHover_ >= 0 && static_cast<size_t>(layoutBarHover_) < layoutBars_.size() &&
+      !(mods & (MOD_PRIMARY | MOD_SHIFT))) {
+    const Overlay::LayoutBar& bar = layoutBars_[static_cast<size_t>(layoutBarHover_)];
+    gesture_ = Gesture::LayoutBar;
+    startLayoutBar(bar.gap ? 4 + bar.index : bar.side);
+    return P_HANDLED | P_CAPTURE;
+  }
   // A frame's title (or a section's pill): a press selects the frame (⇧ adds or removes it), a drag moves it,
   // a double-click renames it in place.
   if (Guid titled = titleAt(s); titled != kNoGuid) {
@@ -786,7 +886,7 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
   auto path = hitPath(doc_, page_, world, pixel());
   Guid picked = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
   if (picked != kNoGuid && !selected(picked)) changeSelection({picked});
-  for (auto& p : hitPaths(doc_, page_, world, pixel())) {
+  for (auto& p : hitPaths(doc_, page_, world, pixel(), true)) {
     std::reverse(p.begin(), p.end());
     menu.hits.push_back(std::move(p));
   }
@@ -838,6 +938,7 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
     case Gesture::Move: dragMove(world, mods); break;
     case Gesture::Radius: dragRadius(world, mods); break;
     case Gesture::Gap: dragGap(world, mods); break;
+    case Gesture::LayoutBar: dragLayoutBar(world, mods); break;
     case Gesture::Resize: dragResize(world, mods); break;
     case Gesture::Rotate: dragRotate(world, mods); break;
     case Gesture::Draw:
@@ -893,6 +994,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Resize:
     case Gesture::Radius:
     case Gesture::Gap:
+    case Gesture::LayoutBar:
     case Gesture::Rotate: commit(); break;
     case Gesture::Draw:
       if (drawType_ == NodeType::TEXT) {
@@ -939,6 +1041,7 @@ void Editor::endGesture() {
   lineEnd_ = -1;
   radiusCorner_ = -1;
   gapIndex_ = -1;
+  layoutBar_ = -1;
   ignoreConstraints_ = false;
   needsRender_ = true;
 }
@@ -966,6 +1069,7 @@ void Editor::cancelGesture() {
     case Gesture::Resize:
     case Gesture::Radius:
     case Gesture::Gap:
+    case Gesture::LayoutBar:
     case Gesture::Rotate: rollback(); break;
     case Gesture::Draw:
       if (drawn_ != kNoGuid) rollback();

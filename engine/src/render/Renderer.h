@@ -214,6 +214,18 @@ struct Overlay {
     double value = 0;
   };
   std::vector<GapHandle> gapHandles;
+  // A selected auto-layout frame under the pointer: a bar in the middle of each padding (blue) and gap (pink); the
+  // hovered one shows its value next to `edge` (a padding: the frame's edge there, world).
+  struct LayoutBar {
+    Vec2 at, edge;
+    bool vertical = false;
+    bool gap = false;
+    bool hovered = false;
+    int side = -1;   // a padding: 0 left, 1 top, 2 right, 3 bottom
+    int index = -1;  // a gap: which
+    double value = 0;
+  };
+  std::vector<LayoutBar> layoutBars;
   std::vector<Vec2> centreDots;
   // View options: the pixel grid (View › Pixel grid, drawn from 300 % zoom) and outline mode (⇧⌘O: every layer as a
   // thin outline, no fills).

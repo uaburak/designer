@@ -240,11 +240,39 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     }
   }
 
-  // Auto-layout padding / gap bands under the pointer.
-  for (const Rect& band : overlay.bands) {
-    Rect r = transformedBounds(view * Mat2x3::translate(band.x, band.y), band.w, band.h);
-    ScreenBox b = screenBox(Mat2x3::translate(r.x, r.y), {r.w, r.h}, dpr);
-    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.autoLayoutBand, style.bandAlpha, blue, 0, 0, 0), Pass::Shape);
+  // Auto layout's padding and gap bars (UI3 draws no band fill): 12 px long, blue for padding, pink for gaps; the
+  // hovered one's value in a pill of its colour — a padding's outside the frame's edge, a gap's above its bar.
+  for (const Overlay::LayoutBar& bar : overlay.layoutBars) {
+    const Color& color = bar.gap ? style.spacing : blue;
+    Vec2 c = view.apply(bar.at);
+    const double len = 12, thick = 1.5;
+    Vec2 size = bar.vertical ? Vec2{thick, len} : Vec2{len, thick};
+    emit(makeShape(Mat2x3::translate(std::round((c.x - size.x / 2) * dpr) / dpr, std::round((c.y - size.y / 2) * dpr) / dpr), size, ShapeKind::Rect, kSquare, color, 1,
+                   color, 0, 0, 0),
+         Pass::Shape);
+    if (!bar.hovered) continue;
+    std::string text = formatNumber(bar.value);
+    const text::TextLayout* L = label(text, "Medium", style.labelSize);
+    double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+    double pw = std::max(std::round(tw + 2 * style.badgePadding), style.badgeHeight), ph = style.badgeHeight, rr = style.badgeRadius;
+    Vec2 e = view.apply(bar.edge);
+    double px, py;
+    if (bar.gap) {
+      px = bar.vertical ? c.x + 8 : c.x + len / 2 + 4;
+      py = bar.vertical ? c.y - len / 2 - 4 - ph : c.y - ph - 4;
+    } else if (bar.side == 0) {
+      px = e.x - 4 - pw, py = c.y - ph / 2;
+    } else if (bar.side == 2) {
+      px = e.x + 4, py = c.y - ph / 2;
+    } else if (bar.side == 1) {
+      px = c.x - pw / 2, py = e.y - 4 - ph;
+    } else {
+      px = c.x - pw / 2, py = e.y + 4;
+    }
+    px = std::round(px * dpr) / dpr, py = std::round(py * dpr) / dpr;
+    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Shape);
+    if (L && !L->lines.empty())
+      drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round((py + (ph - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
   }
 
   // A selected grid's tracks: a pill per column above the frame and per row left of it; the hovered one is solid and

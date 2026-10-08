@@ -39,6 +39,11 @@ std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, 
     }
     out.push_back(c);
   }
+  // A top-level frame taken whole: then only top-level layers (Figma doesn't mix levels in one marquee).
+  bool wholeFrame = false;
+  for (Guid id : out)
+    if (doc.parentOf(id) == page && doc.get(id)->props.isFrameLike() && !doc.children(id).empty()) wholeFrame = true;
+  if (wholeFrame) out.erase(std::remove_if(out.begin(), out.end(), [&](Guid id) { return doc.parentOf(id) != page; }), out.end());
   return out;
 }
 

@@ -795,7 +795,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string newAssetKey();
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
-                                 Measure, MeasureDrag, Radius, Gap };
+                                 Measure, MeasureDrag, Radius, Gap, LayoutBar };
 
   struct Target {
     Guid id;
@@ -1075,6 +1075,8 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   bool smartSelection(SmartSelection& out) const;
   void startGap(int gap);
+  void startLayoutBar(int band);
+  void dragLayoutBar(Vec2 world, uint32_t mods);
   // The pointer went into or out of the selection's box (true: draw again).
   bool selectionHoverChanged(Vec2 screen);
   void dragGap(Vec2 world, uint32_t mods);
@@ -1430,6 +1432,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool gridDrop_ = false;
   Guid gridDropCol_ = kNoGuid, gridDropRow_ = kNoGuid;
   std::vector<Rect> bands_;  // auto-layout padding / gap bands under the pointer (world)
+  std::vector<Overlay::LayoutBar> layoutBars_;  // the selected auto-layout frame's padding and gap bars
+  int layoutBarHover_ = -1;                     // the bar whose band is under the pointer
+  int layoutBar_ = -1;                          // dragging: a side (0..3) or 4 + a gap
+  StackFacet layoutBarFrom_;                    // the frame's auto layout when the drag started
 
   // Text.
   struct CachedText {

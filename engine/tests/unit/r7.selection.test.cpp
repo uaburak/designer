@@ -635,3 +635,61 @@ TEST_CASE("r7 view: the pixel grid and outline mode reach the overlay; hover out
   move(e, 550, 150);
   CHECK(e.overlay().hover == std::vector<Guid>{TOP});
 }
+
+// ---- 19. Marquee levels -------------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 marquee: a top-level frame taken whole keeps the marquee to top-level layers") {
+  const Guid F2{12, 1}, K{12, 2};
+  NodeChange f2 = make(F2, NodeType::FRAME, kPage, "$", {0, 400, 200, 200}, "Frame 4");
+  NodeChange k = make(K, NodeType::ROUNDED_RECTANGLE, F2, "!", {10, 10, 50, 50}, "Kid");
+  Editor e = makeEditor({f2, k});
+  // Over all of F2 (world 0..200, 400..600) and part of F (its R1 and R2): F2 whole, not them.
+  drag(e, {90, 710}, {320, 130});
+  CHECK(e.selection() == std::vector<Guid>{F2});
+  // Over part of F only: its children, as before.
+  drag(e, {90, 380}, {300, 120});
+  CHECK(e.selection() == std::vector<Guid>{R1, R2});
+}
+
+// ---- 17. Auto layout's padding and gap handles on the canvas ----------------------------------------------------------
+
+TEST_CASE("r7 auto layout: padding and gap bars under the pointer; dragging one changes it") {
+  const Guid AL{13, 1}, X{13, 2}, Y{13, 3};
+  NodeChange f = make(AL, NodeType::FRAME, kPage, "$", {600, 400, 150, 70}, "Auto");
+  f.props.stack().stackMode = StackMode::HORIZONTAL;
+  f.props.stack().stackPrimarySizing = StackSize::FIXED;
+  f.props.stack().stackSpacing = 30;
+  f.props.stack().stackPaddingLeft = f.props.stack().stackPaddingTop = f.props.stack().stackPaddingRight = f.props.stack().stackPaddingBottom = 10;
+  NodeChange x = make(X, NodeType::ROUNDED_RECTANGLE, AL, "!", {10, 10, 50, 50});
+  NodeChange y = make(Y, NodeType::ROUNDED_RECTANGLE, AL, "\"", {90, 10, 50, 50});
+  Editor e = makeEditor({f, x, y});
+  e.setSelection({AL});
+  move(e, 50, 50);
+  CHECK(e.overlay().layoutBars.empty());
+  // Over the gap (world 660..690 → screen 760..790): four padding bars and the gap's, the gap's hovered.
+  move(e, 775, 535);
+  Overlay o = e.overlay();
+  REQUIRE(o.layoutBars.size() == 5);
+  const Overlay::LayoutBar& gap = o.layoutBars[4];
+  CHECK(gap.gap);
+  CHECK(gap.hovered);
+  CHECK(gap.at == Vec2{675, 435});
+  CHECK(gap.value == 30);
+  CHECK(o.layoutBars[0].at == Vec2{605, 435});  // the left padding's middle
+  // Its bar follows the pointer: 10 units right → the gap 30 + 10 / 0.5 = 50.
+  drag(e, {775, 535}, {785, 535});
+  CHECK(props(e, AL).stack().stackSpacing == 50);
+  CHECK(e.undoStack().undoCount() == 1);
+  CHECK(e.selection() == std::vector<Guid>{AL});
+  // The left padding dragged 6 right: 16; ⌥ the right one too.
+  move(e, 705, 535);
+  REQUIRE(e.overlay().layoutBars[0].hovered);
+  drag(e, {705, 535}, {711, 535});
+  CHECK(props(e, AL).stack().stackPaddingLeft == 16);
+  CHECK(props(e, AL).stack().stackPaddingRight == 10);
+  e.command(CommandId::UNDO);
+  move(e, 705, 535);
+  drag(e, {705, 535}, {711, 535}, MOD_ALT);
+  CHECK(props(e, AL).stack().stackPaddingLeft == 16);
+  CHECK(props(e, AL).stack().stackPaddingRight == 16);
+}
