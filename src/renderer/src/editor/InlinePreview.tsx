@@ -69,10 +69,24 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
     // The window fits its frame (Figma's preview shows the whole frame; Fit width when chosen).
     engine.presentSetOptions({ scale: "FIT" });
   }, []);
-  const onState = useCallback((s: PresentState) => {
-    stateRef.current = s;
-    setState(s);
-  }, []);
+  // Respect aspect ratio: the window takes the frame's proportions (now, and whenever the frame shown changes).
+  const aspectRef = useRef(false);
+  const fitAspect = useCallback(() => {
+    const id = stateRef.current?.screen;
+    const n = id ? (ed.engine.readNode(id, { fields: ["size"] }) as { size?: { x: number; y: number } } | null) : null;
+    const size = n?.size;
+    if (!size || size.x <= 0) return;
+    setBox((b) => ({ ...b, h: Math.max(MIN_H, Math.round((b.w * size.y) / size.x) + HEADER) }));
+  }, [ed]);
+  const onState = useCallback(
+    (s: PresentState) => {
+      const moved = stateRef.current?.screen !== s.screen;
+      stateRef.current = s;
+      setState(s);
+      if (moved && aspectRef.current) fitAspect();
+    },
+    [fitAspect]
+  );
 
   useEffect(
     () => () => {
@@ -107,14 +121,6 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
     const n = s ? (ed.engine.readNode(s, { fields: ["size"] }) as { size?: { x: number; y: number } } | null) : null;
     return n?.size ?? null;
   };
-  // Respect aspect ratio: the window takes the frame's proportions.
-  useEffect(() => {
-    if (!aspect) return;
-    const size = frameSize();
-    if (!size || size.x <= 0) return;
-    setBox((b) => ({ ...b, h: Math.max(MIN_H, Math.round((b.w * size.y) / size.x) + HEADER) }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fit when the frame shown changes
-  }, [aspect, state?.screen]);
 
   const device = !!state?.device;
   const presentationDevice = state?.deviceType === "PRESENTATION";
@@ -135,7 +141,11 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
       if (device) engine.presentSetOptions({ responsive: !s?.responsive });
       else engine.presentSetOptions({ scale: s?.scale === "RESPONSIVE" ? "FIT" : "RESPONSIVE" });
     } else if (id === "follow") setFollow((f) => !f);
-    else if (id === "aspect") setAspect((a) => !a);
+    else if (id === "aspect") {
+      aspectRef.current = !aspect;
+      setAspect(!aspect);
+      if (!aspect) fitAspect();
+    }
     else if (id === "frame") engine.presentSetOptions({ deviceFrame: s?.deviceFrame === false });
     else if (id === "actual") {
       // The window grows (or shrinks) until the screen is drawn at 100%: by the scale it is drawn at now.

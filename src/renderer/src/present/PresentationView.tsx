@@ -119,7 +119,9 @@ declare global {
 export function PresentationView({ source, page, node, onClose, onReady, canvasId = "present-canvas", variant = "full", extraOptions, onExtraOption, onRestart, onOpenFull, onState }: PresentationViewProps) {
   const inline = variant === "inline";
   const onStateRef = useRef(onState);
-  onStateRef.current = onState;
+  useEffect(() => {
+    onStateRef.current = onState;
+  }, [onState]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const [state, setState] = useState<PresentState | null>(null);

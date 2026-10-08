@@ -94,7 +94,7 @@ describe("prototype model", () => {
     expect(deviceLabel({ type: "PRESET", presetIdentifier: "IPHONE_16", size: { x: 393, y: 852 } })).toBe("iPhone 16");
     // Models: the preset's colours in the identifier (the first one: the preset alone).
     expect(deviceLabel({ type: "PRESET", presetIdentifier: "IPHONE_16_PRO_DESERT_TITANIUM" })).toBe("iPhone 16 Pro");
-    expect(deviceOf("IPHONE_16_PRO_DESERT_TITANIUM")).toMatchObject({ preset: ["IPHONE_16_PRO"], model: "DESERT_TITANIUM" });
+    expect(deviceOf("IPHONE_16_PRO_DESERT_TITANIUM")).toMatchObject({ preset: ["IPHONE_16_PRO", "iPhone 16 Pro", 402, 874], model: "DESERT_TITANIUM" });
     expect(deviceOf("IPHONE_16_PRO")?.model).toBe("BLACK_TITANIUM");
     expect(deviceOf("IPHONE_16")?.preset[0]).toBe("IPHONE_16");
     expect(deviceOf("IPHONE_15_PRO_MAX_BLUE_TITANIUM")?.preset[0]).toBe("IPHONE_15_PRO_MAX");

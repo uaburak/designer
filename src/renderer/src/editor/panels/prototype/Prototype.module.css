@@ -131,4 +131,24 @@
     outline: none;
   }
   .keyRecorder:focus { border-color: var(--figma-color-border-selected); }
+  /* Expressions (Conditional's If): the field, its suggestions menu, the reason it is invalid */
+  .expression { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .iconMenu {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+  }
+  .iconMenu:hover, .iconMenu[data-open] { background: var(--figma-color-bg-hover); }
+  .expressionError {
+    padding: 0 var(--ds-space-2) var(--ds-space-1);
+    color: var(--figma-color-text-danger);
+    font: var(--ds-font-body-small);
+  }
 }
