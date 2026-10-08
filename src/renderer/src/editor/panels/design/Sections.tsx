@@ -1,13 +1,16 @@
 /**
- * The Design panel's geometry sections for a selection (UI3): Position
- * (alignment, X/Y, rotation with rotate / flip), Layout (auto layout,
- * W/H with Constrain proportions, Clip content) and Appearance (opacity,
- * corner radius, visibility, blend mode). Every edit is one undo step; a
- * scrub is one open transaction committed on release (ed.edit); a Mixed
- * field steps each layer by the delta (onStep).
+ * The Design panel's Position and Appearance sections (Figma UI3, as its live panel lays them out —
+ * docs/research/figma/live/design): Position — "Ignore auto layout" in the header for a layer in auto layout,
+ * Alignment (two button groups; "More actions" for several layers or a container), Position (X / Y; the
+ * "Constraints" popover for a layer in a frame), Rotation (with Rotate 90° right / Flip). Appearance — Hide and
+ * "Apply blend mode" in the header, the blend mode row while one is set, Opacity and Corner radius ("Individual
+ * corners", or "Corner smoothing" for polygons, stars and vectors), Count / Ratio. Layout is Layout.tsx.
+ *
+ * Every edit is one undo step; a scrub is one open transaction committed on release (ed.edit); a Mixed field
+ * steps each layer by the delta (onStep) and takes "Mixed+10" per layer (onExpression).
  */
 import { useState } from "react";
-import { AlignmentMatrix, BLEND_LABEL, BLEND_MODES, Checkbox, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, ToggleIconButton, type Alignment, type ChangeInfo, type Mixed } from "@/ds";
+import { BLEND_LABEL, BLEND_MODES, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, Select, SegmentedControl, ToggleIconButton, cx, type ChangeInfo, type Mixed, type NumericInputProps } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { BindButton } from "./Component";
 import { useEditor, type EditorController } from "../../controller";
@@ -16,34 +19,61 @@ import { groupChain } from "../../actions";
 import { ancestors } from "../../components";
 import { useTopics, useUI } from "../../hooks";
 import { hasConstraints, type ConstraintHost } from "../../model/constraints";
-import { isAutoLayout, isSpaceBetween, SPACE_BETWEEN } from "../../model/sizing";
-import { ConstraintsRow } from "./Constraints";
-import { GridRows, GridSpanRow } from "./Grid";
-import { gridDefaults, isGrid, type GridNode } from "../../model/grid";
+import { isAutoLayout } from "../../model/sizing";
+import { ConstraintsButton } from "./Constraints";
+import { isGrid } from "../../model/grid";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
-import { AutoLayoutSettingsButton, LimitRow, SizeField, useLimitAxes } from "./Sizing";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
 import { fields, hasCorners, isFrameNode, isGroupNode, typeOf, useKeeps, useParents, useSupports, type BlendModeName, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
+type Fields = Parameters<EditorController["engine"]["setProps"]>[1];
+
 /** Writes `fn(fresh node)` to every node as one undo step (a scrub: one open transaction). */
-function editEach(ed: EditorController, label: string, info: ChangeInfo, refs: readonly Guid[], fn: (n: PanelNode) => Parameters<EditorController["engine"]["setProps"]>[1] | null) {
+export function editEach(ed: EditorController, label: string, info: ChangeInfo, refs: readonly Guid[], fn: (n: PanelNode) => Fields | null) {
   ed.edit(label, info, () => {
     for (const n of ed.engine.readNodes(refs) as PanelNode[]) {
-      const f = fn(n);
+      const f = fn(ed.withRealType(n as never) as PanelNode);
       if (f) ed.engine.setProps([n.guid], f);
     }
   });
 }
 
-const stepInfo: ChangeInfo = { final: true, source: "step" };
+export const stepInfo: ChangeInfo = { final: true, source: "step" };
 
-function CommandButton({ id, icon }: { id: string; icon: Parameters<typeof IconButton>[0]["icon"] }) {
+/**
+ * A number field's handlers over several layers: a value for all, ↑ ↓ on Mixed adding the delta to each, "Mixed+10"
+ * applied to each, a scrub cancelled with Esc, Esc giving the keyboard back to the canvas.
+ */
+export function perLayer(
+  ed: EditorController,
+  label: string,
+  refs: readonly Guid[],
+  get: (n: PanelNode) => number,
+  set: (n: PanelNode, v: number) => Fields | null,
+  clamp: (v: number) => number = (v) => v
+): Pick<NumericInputProps, "onChange" | "onStep" | "onExpression" | "onCancel" | "onExit"> {
+  return {
+    onChange: (v, info) => editEach(ed, label, info, refs, (n) => set(n, v)),
+    onStep: (d) => editEach(ed, label, stepInfo, refs, (n) => set(n, clamp(get(n) + d))),
+    onExpression: (each, info) => editEach(ed, label, info, refs, (n) => set(n, clamp(each(get(n))))),
+    onCancel: () => ed.cancelEdit(),
+    onExit: exitToCanvas(ed),
+  };
+}
+
+/** A command as a segment of a button group (Figma's 29 × 24 align / rotate buttons on #383838). */
+function GroupButton({ id, icon }: { id: string; icon: Parameters<typeof IconButton>[0]["icon"] }) {
   const ed = useEditor();
   const c = command(id);
-  return <IconButton icon={icon} label={c.label} shortcut={shortcutOf(c)} disabled={!isEnabled(ed, c)} onClick={() => runEditorCommand(ed, id)} />;
+  return <IconButton icon={icon} label={c.label} shortcut={shortcutOf(c)} className={styles.groupButton} disabled={!isEnabled(ed, c)} onClick={() => runEditorCommand(ed, id)} />;
 }
+
+/** Esc in a panel field gives the keyboard back to the canvas (Figma; Enter keeps the field). */
+export const exitToCanvas = (ed: EditorController) => (reason: string) => {
+  if (reason === "escape") ed.focusCanvas();
+};
 
 // ---- Position ------------------------------------------------------------------------------
 
@@ -53,6 +83,46 @@ function constraintChain(ed: EditorController, n: PanelNode): ConstraintHost[] {
   chain.push({ type: "CANVAS", group: false, stackMode: undefined });
   return chain;
 }
+
+/** Several layers, or one container whose children can be spread: the Alignment row's "More actions". */
+function AlignmentMore({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const entries = ["arrange.distribute-horizontal", "arrange.distribute-vertical", "arrange.tidy-up"].map((id) => {
+    const c = command(id);
+    return { id, label: c.label, shortcut: shortcutOf(c), disabled: nodes.length > 1 ? !isEnabled(ed, c) : false };
+  });
+  return (
+    <MenuButton
+      label="More actions"
+      tooltip
+      entries={entries}
+      className={styles.iconMenu}
+      onSelect={(id) => {
+        if (nodes.length > 1) return void runEditorCommand(ed, id);
+        // One container: its children are what spreads; the selection comes back after.
+        const kids = (ed.engine.readNodes([nodes[0].guid], { childIds: true })[0]?.childIds ?? []) as Guid[];
+        if (kids.length < 2) return;
+        const before = ed.selection;
+        ed.engine.setSelection(kids);
+        runEditorCommand(ed, id);
+        ed.engine.setSelection(before);
+      }}
+    >
+      <Icon name="24.more" />
+    </MenuButton>
+  );
+}
+
+const GRID_H = [
+  { value: "MIN", icon: "24.layout-align-left", tooltip: "Align left" },
+  { value: "CENTER", icon: "24.layout-align-horizontal-center", tooltip: "Align horizontal centers" },
+  { value: "MAX", icon: "24.layout-align-right", tooltip: "Align right" },
+] as const;
+const GRID_V = [
+  { value: "MIN", icon: "24.layout-align-top", tooltip: "Align top" },
+  { value: "CENTER", icon: "24.layout-align-vertical-center", tooltip: "Align vertical centers" },
+  { value: "MAX", icon: "24.layout-align-bottom", tooltip: "Align bottom" },
+] as const;
 
 export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
@@ -64,236 +134,85 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
   const constraintsKept = useSupports("horizontalConstraint");
   // "Ignore auto layout": every layer sits in an auto-layout frame.
   const inAutoLayout = positioningKept && nodes.every((_, i) => isAutoLayout(parents[i]));
+  const inGrid = nodes.every((n, i) => isGrid(parents[i]) && n.stackPositioning !== "ABSOLUTE");
   const absolute = mixed(nodes.map((n) => n.stackPositioning === "ABSOLUTE"));
   const constraints = constraintsKept && nodes.every((n) => hasConstraints(constraintChain(ed, n), n.stackPositioning === "ABSOLUTE"));
+  const section = nodes.every((n) => typeOf(n) === "SECTION");
   const refs = nodes.map((n) => n.guid);
   const pos = nodes.map((n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n)));
   const x = mixedNumber(pos.map((p) => roundPanel(p.x)));
   const y = mixedNumber(pos.map((p) => roundPanel(p.y)));
   const rotation = mixedNumber(nodes.map((n) => roundPanel(rotationOf(n.transform ?? IDENTITY))));
-  const setAxis = (axis: "x" | "y", v: number, info: ChangeInfo) =>
-    editEach(ed, "Position", info, refs, (n) => ({ transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), axis === "x" ? v : null, axis === "y" ? v : null) }));
-  const stepAxis = (axis: "x" | "y", d: number) =>
-    editEach(ed, "Position", stepInfo, refs, (n) => {
-      const p = panelPosition(n.transform ?? IDENTITY, groupChain(ed, n));
-      return { transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), axis === "x" ? p.x + d : null, axis === "y" ? p.y + d : null) };
-    });
-  const setRotation = (deg: number, info: ChangeInfo) => editEach(ed, "Rotate", info, refs, (n) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null));
-  const stepRotation = (d: number) => editEach(ed, "Rotate", stepInfo, refs, (n) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, rotationOf(n.transform ?? IDENTITY) + d) } : null));
-  return (
-    <PanelSection title="Position">
-      <PropertyGrid labels={labels}>
-        <PropertyRow label="Alignment">
-          <div className={styles.buttons}>
-            <CommandButton id="arrange.align-left" icon="24.layout-align-left" />
-            <CommandButton id="arrange.align-horizontal-center" icon="24.layout-align-horizontal-center" />
-            <CommandButton id="arrange.align-right" icon="24.layout-align-right" />
-          </div>
-          <div className={styles.buttons}>
-            <CommandButton id="arrange.align-top" icon="24.layout-align-top" />
-            <CommandButton id="arrange.align-vertical-center" icon="24.layout-align-vertical-center" />
-            <CommandButton id="arrange.align-bottom" icon="24.layout-align-bottom" />
-          </div>
-        </PropertyRow>
-        <PropertyRow
-          label="Position"
-          action={
-            inAutoLayout ? (
-              <ToggleIconButton
-                icon="24.al.absolute-position"
-                label="Ignore auto layout"
-                pressed={absolute ?? false}
-                onPressedChange={(on) => ed.setProps(refs, fields({ stackPositioning: on ? "ABSOLUTE" : "AUTO" }), on ? "Ignore auto layout" : "Use auto layout")}
-              />
-            ) : undefined
-          }
-        >
-          <NumericInput label="X" prefix="X" value={fieldValue(x)} onChange={(v, info) => setAxis("x", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepAxis("x", d)} onExit={exitToCanvas(ed)} />
-          <NumericInput label="Y" prefix="Y" value={fieldValue(y)} onChange={(v, info) => setAxis("y", v, info)} onCancel={() => ed.cancelEdit()} onStep={(d) => stepAxis("y", d)} onExit={exitToCanvas(ed)} />
-        </PropertyRow>
-        {constraints && <ConstraintsRow nodes={nodes} />}
-        <PropertyRow label="Rotation">
-          <NumericInput label="Rotation" prefix="24.rotation" unit="°" value={fieldValue(rotation)} min={-360} max={360} onChange={(v, info) => setRotation(v, info)} onCancel={() => ed.cancelEdit()} onStep={stepRotation} onExit={exitToCanvas(ed)} />
-          <div className={styles.buttons}>
-            <CommandButton id="object.rotate-90-right" icon="24.rotate" />
-            <CommandButton id="object.flip-horizontal" icon="24.flip.horizontal.small" />
-            <CommandButton id="object.flip-vertical" icon="24.flip.vertical" />
-          </div>
-        </PropertyRow>
-      </PropertyGrid>
-    </PanelSection>
-  );
-}
-
-/** Enter / Esc in a panel field give the keyboard back to the canvas (Figma). */
-export const exitToCanvas = (ed: EditorController) => (reason: string) => {
-  if (reason === "enter" || reason === "escape") ed.focusCanvas();
-};
-
-// ---- Layout ----------------------------------------------------------------------------------
-
-type Direction = "v" | "h" | "w" | "g";
-
-const directionOf = (n: PanelNode): Direction | null => (n.stackMode === "VERTICAL" ? "v" : n.stackMode === "HORIZONTAL" ? (n.stackWrap === "WRAP" ? "w" : "h") : n.stackMode === "GRID" ? "g" : null);
-
-export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
-  const ed = useEditor();
-  const labels = useUI((s) => s.propertyLabels);
-  const autoLayoutKept = useSupports("stackMode");
-  const constrainKept = useSupports("proportionsConstrained");
-  const parents = useParents(nodes);
-  const limits = useLimitAxes(nodes);
-  const refs = nodes.map((n) => n.guid);
-  const frames = nodes.every(isFrameNode);
-  const directions = nodes.map(directionOf);
-  const auto = autoLayoutKept && frames && directions.every((d) => d !== null);
-  const constrained = mixed(nodes.map((n) => n.proportionsConstrained === true));
-
-  const addAutoLayout = () => {
-    if (runEditorCommand(ed, "object.add-auto-layout")) return;
-    if (autoLayoutKept && frames) ed.setProps(refs, fields({ stackMode: "VERTICAL", stackSpacing: 10, stackHorizontalPadding: 10, stackVerticalPadding: 10, stackPaddingRight: 10, stackPaddingBottom: 10 }), "Add auto layout");
-  };
-  const removeAutoLayout = () => {
-    if (runEditorCommand(ed, "object.remove-auto-layout")) return;
-    ed.setProps(refs, fields({ stackMode: "NONE" }), "Remove auto layout");
-  };
-  const addCommand = command("object.add-auto-layout");
-  const actions = frames ? (
-    auto ? (
-      <IconButton icon="24.minus.small" label="Remove auto layout" shortcut={shortcutOf(command("object.remove-auto-layout"))} tone="secondary" onClick={removeAutoLayout} />
-    ) : (
-      <IconButton icon="24.autolayout-add-vertical" label="Add auto layout" shortcut={shortcutOf(addCommand)} tone="secondary" disabled={!autoLayoutKept && !isEnabled(ed, addCommand)} onClick={addAutoLayout} />
-    )
-  ) : undefined;
-
-  return (
-    <PanelSection title={auto ? "Auto layout" : "Layout"} actions={actions}>
-      <PropertyGrid labels={labels}>
-        {auto && <DirectionRow nodes={nodes} />}
-        <PropertyRow
-          label="Dimensions"
-          action={constrainKept ? <ToggleIconButton icon="24.constrain-proportions" label="Constrain proportions" pressed={constrained ?? false} onPressedChange={(on) => ed.setProps(refs, fields({ proportionsConstrained: on }), "Constrain proportions")} /> : undefined}
-        >
-          <SizeField axis="x" nodes={nodes} parents={parents} onAddLimit={limits.open} />
-          <SizeField axis="y" nodes={nodes} parents={parents} onAddLimit={limits.open} />
-        </PropertyRow>
-        {limits.axes.map((axis) => (
-          <LimitRow key={axis} axis={axis} nodes={nodes} />
-        ))}
-        {auto && <AutoLayoutRows nodes={nodes} />}
-        {parents.length > 0 && parents.every((p) => isGrid(p)) && nodes.every((n) => n.stackPositioning !== "ABSOLUTE") && <GridSpanRow nodes={nodes} />}
-      </PropertyGrid>
-      {frames && (
-        <div className={styles.checkRow}>
-          <Checkbox label="Clip content" checked={mixed(nodes.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(refs, { frameMaskDisabled: !on }, "Clip content")} />
-        </div>
-      )}
-    </PanelSection>
-  );
-}
-
-/** The flow: Vertical / Horizontal / Wrap, and the advanced settings. */
-function DirectionRow({ nodes }: { nodes: PanelNode[] }) {
-  const ed = useEditor();
-  const refs = nodes.map((n) => n.guid);
-  const direction = mixed(nodes.map((n) => directionOf(n) ?? "v"));
-  return (
-    <PropertyRow span={2} label="Direction" action={<AutoLayoutSettingsButton nodes={nodes} />}>
-      <SegmentedControl
-        label="Direction"
-        fullWidth
-        value={direction ?? MIXED}
-        options={[
-          { value: "v", icon: "24.al.layout-vertical", tooltip: "Vertical layout" },
-          { value: "h", icon: "24.al.layout-horizontal", tooltip: "Horizontal layout" },
-          { value: "w", icon: "24.al.layout-wrap", tooltip: "Wrap" },
-          { value: "g", icon: "24.layout.grid", tooltip: "Grid" },
-        ]}
-        onChange={(v) => {
-          if (v !== "g") {
-            ed.setProps(refs, fields({ stackMode: v === "v" ? "VERTICAL" : "HORIZONTAL", stackWrap: v === "w" ? "WRAP" : "NO_WRAP" }), "Auto layout direction");
-            return;
-          }
-          // Grid: 2 × 2 Hug tracks with automatic positioning (Figma Design), unless the frame had tracks already.
-          editEach(ed, "Auto layout direction", { final: true, source: "pick" }, refs, (n) =>
-            fields({ ...(gridDefaults(n as unknown as GridNode, Number(String(n.guid).replace(/^I/, "").split(":")[0]) || 1) as object), stackWrap: "NO_WRAP" } as never),
-          );
-        }}
-      />
-    </PropertyRow>
-  );
-}
-
-function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
-  const ed = useEditor();
-  const refs = nodes.map((n) => n.guid);
-  const direction = mixed(nodes.map((n) => directionOf(n) ?? "v"));
-  const first = nodes[0];
-  const horizontal = direction !== "v";
-  const alignment: Alignment = {
-    primary: isSpaceBetween(first.stackPrimaryAlignItems) ? "SPACE_BETWEEN" : first.stackPrimaryAlignItems === "CENTER" || first.stackPrimaryAlignItems === "MAX" ? first.stackPrimaryAlignItems : "MIN",
-    counter: first.stackCounterAlignItems === "CENTER" || first.stackCounterAlignItems === "MAX" ? first.stackCounterAlignItems : "MIN",
-  };
-  const gap = mixedNumber(nodes.map((n) => n.stackSpacing ?? 0));
-  const autoGap = nodes.every((n) => isSpaceBetween(n.stackPrimaryAlignItems));
-  const padH = mixedNumber(nodes.map((n) => n.stackHorizontalPadding ?? 0));
-  const padV = mixedNumber(nodes.map((n) => n.stackVerticalPadding ?? 0));
-  const set = (label: string, info: ChangeInfo, f: (n: PanelNode) => ReturnType<typeof fields>) => editEach(ed, label, info, refs, f);
-  const paddingRow = (
-    <PropertyRow label="Padding">
-      <VariableField nodes={nodes} fields={["STACK_PADDING_LEFT", "STACK_PADDING_RIGHT"]} prefix="24.al.padding-horizontal">
-        <NumericInput
-          label="Horizontal padding"
-          prefix="24.al.padding-horizontal"
-          value={fieldValue(padH)}
-          min={0}
-          onChange={(v, info) => set("Padding", info, () => fields({ stackHorizontalPadding: v, stackPaddingRight: v }))}
-          onCancel={() => ed.cancelEdit()}
-          onExit={exitToCanvas(ed)}
-        />
-      </VariableField>
-      <VariableField nodes={nodes} fields={["STACK_PADDING_TOP", "STACK_PADDING_BOTTOM"]} prefix="24.al.padding-vertical">
-        <NumericInput
-          label="Vertical padding"
-          prefix="24.al.padding-vertical"
-          value={fieldValue(padV)}
-          min={0}
-          onChange={(v, info) => set("Padding", info, () => fields({ stackVerticalPadding: v, stackPaddingBottom: v }))}
-          onCancel={() => ed.cancelEdit()}
-          onExit={exitToCanvas(ed)}
-        />
-      </VariableField>
-    </PropertyRow>
-  );
-  if (direction === "g")
-    return (
-      <>
-        <GridRows nodes={nodes} />
-        {paddingRow}
-      </>
+  const axis = (a: "x" | "y") =>
+    perLayer(
+      ed,
+      "Position",
+      refs,
+      (n) => panelPosition(n.transform ?? IDENTITY, groupChain(ed, n))[a],
+      (n, v) => ({ transform: withPanelPosition(n.transform ?? IDENTITY, groupChain(ed, n), a === "x" ? v : null, a === "y" ? v : null) })
     );
+  const rotate = perLayer(
+    ed,
+    "Rotate",
+    refs,
+    (n) => rotationOf(n.transform ?? IDENTITY),
+    (n, deg) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null)
+  );
+  const container = nodes.length === 1 && (isGroupNode(nodes[0]) || typeOf(nodes[0]) === "BOOLEAN_OPERATION" || (typeOf(nodes[0]) === "FRAME" && !isAutoLayout(nodes[0])));
+  const gridH = mixed(nodes.map((n) => (n as { gridChildHorizontalAlign?: string }).gridChildHorizontalAlign ?? "MIN"));
+  const gridV = mixed(nodes.map((n) => (n as { gridChildVerticalAlign?: string }).gridChildVerticalAlign ?? "MIN"));
   return (
-    <>
-      <PropertyRow label="Alignment and gap">
-        <div className={styles.matrix}>
-          <AlignmentMatrix direction={horizontal ? "horizontal" : "vertical"} value={alignment} onChange={(a) => ed.setProps(refs, fields({ stackPrimaryAlignItems: a.primary === "SPACE_BETWEEN" ? SPACE_BETWEEN : a.primary, stackCounterAlignItems: a.counter }), "Alignment")} />
-        </div>
-        <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}>
-        <NumericInput
-          label="Gap between items"
-          prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}
-          value={fieldValue(gap)}
-          min={0}
-          valueLabel={autoGap ? "Auto" : undefined}
-          onChange={(v, info) => set("Gap", info, (n) => fields({ stackSpacing: v, ...(isSpaceBetween(n.stackPrimaryAlignItems) ? { stackPrimaryAlignItems: "MIN" } : {}) }))}
-          onCancel={() => ed.cancelEdit()}
-          onStep={(d) => set("Gap", stepInfo, (n) => fields({ stackSpacing: Math.max(0, (n.stackSpacing ?? 0) + d) }))}
-          onExit={exitToCanvas(ed)}
-        />
-        </VariableField>
-      </PropertyRow>
-      {paddingRow}
-    </>
+    <PanelSection
+      title="Position"
+      actions={
+        inAutoLayout ? (
+          <ToggleIconButton
+            icon="24.al.absolute-position"
+            label="Ignore auto layout"
+            tone="secondary"
+            pressed={absolute ?? false}
+            onPressedChange={(on) => ed.setProps(refs, fields({ stackPositioning: on ? "ABSOLUTE" : "AUTO" }), on ? "Ignore auto layout" : "Use auto layout")}
+          />
+        ) : undefined
+      }
+    >
+      <PropertyGrid labels={labels}>
+        {inGrid ? (
+          // A layer in a grid: where it sits in its cell (gridChildHorizontalAlign / gridChildVerticalAlign).
+          <PropertyRow label="Alignment">
+            <SegmentedControl label="Horizontal alignment in cell" fullWidth value={gridH ?? MIXED} options={GRID_H.map((o) => ({ ...o }))} onChange={(v) => ed.setProps(refs, fields({ gridChildHorizontalAlign: v } as never), "Alignment")} />
+            <SegmentedControl label="Vertical alignment in cell" fullWidth value={gridV ?? MIXED} options={GRID_V.map((o) => ({ ...o }))} onChange={(v) => ed.setProps(refs, fields({ gridChildVerticalAlign: v } as never), "Alignment")} />
+          </PropertyRow>
+        ) : (
+          <PropertyRow label="Alignment" action={nodes.length > 1 || container ? <AlignmentMore nodes={nodes} /> : undefined}>
+            <div className={styles.buttonGroup}>
+              <GroupButton id="arrange.align-left" icon="24.layout-align-left" />
+              <GroupButton id="arrange.align-horizontal-center" icon="24.layout-align-horizontal-center" />
+              <GroupButton id="arrange.align-right" icon="24.layout-align-right" />
+            </div>
+            <div className={styles.buttonGroup}>
+              <GroupButton id="arrange.align-top" icon="24.layout-align-top" />
+              <GroupButton id="arrange.align-vertical-center" icon="24.layout-align-vertical-center" />
+              <GroupButton id="arrange.align-bottom" icon="24.layout-align-bottom" />
+            </div>
+          </PropertyRow>
+        )}
+        <PropertyRow label="Position" action={constraints && !section ? <ConstraintsButton nodes={nodes} /> : undefined}>
+          <NumericInput label="X-position" prefix="X" value={fieldValue(x)} {...axis("x")} />
+          <NumericInput label="Y-position" prefix="Y" value={fieldValue(y)} {...axis("y")} />
+        </PropertyRow>
+        {!section && (
+          <PropertyRow label="Rotation">
+            <NumericInput label="Rotation" prefix="24.rotation" unit="°" value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
+            <div className={styles.buttonGroup}>
+              <GroupButton id="object.rotate-90-right" icon="24.rotate" />
+              <GroupButton id="object.flip-horizontal" icon="24.flip.horizontal.small" />
+              <GroupButton id="object.flip-vertical" icon="24.flip.vertical" />
+            </div>
+          </PropertyRow>
+        )}
+      </PropertyGrid>
+    </PanelSection>
   );
 }
 
@@ -315,39 +234,56 @@ const CORNER_FIELD = {
   rectangleBottomRightCornerRadius: "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS",
 } as const;
 
+/** Polygons, stars and vectors: one radius for every corner, and corner smoothing (Figma's live panel). */
+const SMOOTHED = new Set(["REGULAR_POLYGON", "STAR", "VECTOR"]);
+/** Texts, lines and ellipses: the radius field alone (no button). */
+const PLAIN_RADIUS = new Set(["TEXT", "LINE", "ELLIPSE"]);
+
+/** Figma's iOS corner smoothing preset (help 360050986854). */
+export const IOS_SMOOTHING = 60;
+
 export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
   const blendKept = useKeeps("blendMode");
   const refs = nodes.map((n) => n.guid);
   // Containers default to Pass through, leaves to Normal (docs/engine-build.md E4).
-  const blend = mixed(nodes.map((n) => n.blendMode ?? (isFrameNode(n) || isGroupNode(n) ? "PASS_THROUGH" : "NORMAL")));
+  const defaultBlend = (n: PanelNode) => (isFrameNode(n) || isGroupNode(n) ? "PASS_THROUGH" : "NORMAL");
+  const blend = mixed(nodes.map((n) => n.blendMode ?? defaultBlend(n)));
+  const blendSet = nodes.some((n) => (n.blendMode ?? defaultBlend(n)) !== defaultBlend(n));
   const blendEntries = [
     { id: "PASS_THROUGH", label: "Pass through", checked: blend === "PASS_THROUGH" },
     ...BLEND_MODES.map((m) => (m === "-" ? ("-" as const) : { id: m, label: BLEND_LABEL[m], checked: blend === m })),
   ];
-  const blendActive = blend !== "PASS_THROUGH" && blend !== "NORMAL";
-  const polygons = nodes.every((n) => typeOf(n) === "REGULAR_POLYGON" || typeOf(n) === "STAR");
-  const stars = nodes.every((n) => typeOf(n) === "STAR");
+  const blendOptions = [{ value: "PASS_THROUGH", label: "Pass through" }, ...BLEND_MODES.filter((m): m is Exclude<(typeof BLEND_MODES)[number], "-"> => m !== "-").map((m) => ({ value: m, label: BLEND_LABEL[m] }))];
+  const polygons = nodes.filter((n) => typeOf(n) === "REGULAR_POLYGON" || typeOf(n) === "STAR");
+  const stars = polygons.length > 0 && polygons.every((n) => typeOf(n) === "STAR");
   const countKept = useKeeps("count");
   const opacity = mixedNumber(nodes.map((n) => Math.round((n.opacity ?? 1) * 100)));
   const visible = mixed(nodes.map((n) => n.visible !== false));
-  const corners = nodes.every(hasCorners);
+  const rectCorners = nodes.some(hasCorners) || nodes.some((n) => isGroupNode(n) || typeOf(n) === "BOOLEAN_OPERATION");
+  const smoothOnly = nodes.every((n) => SMOOTHED.has(typeOf(n)));
+  const plainOnly = nodes.every((n) => PLAIN_RADIUS.has(typeOf(n)));
   const radius = mixedNumber(nodes.map((n) => n.cornerRadius ?? 0));
   const independentNow = nodes.some((n) => n.rectangleCornerRadiiIndependent === true);
   const [independentOpen, setIndependentOpen] = useState(false);
-  const independent = independentNow || independentOpen;
+  const independent = rectCorners && !smoothOnly && (independentNow || independentOpen);
   const corner = (f: CornerField): Mixed<number> | undefined => mixedNumber(nodes.map((n) => n[f] ?? n.cornerRadius ?? 0));
 
-  const setRadius = (v: number, info: ChangeInfo) =>
-    editEach(ed, "Corner radius", info, refs, () => ({
-      cornerRadius: v,
-      rectangleCornerRadiiIndependent: false,
-      rectangleTopLeftCornerRadius: v,
-      rectangleTopRightCornerRadius: v,
-      rectangleBottomRightCornerRadius: v,
-      rectangleBottomLeftCornerRadius: v,
-    }));
+  // Rectangles and frames keep four corners; other layers one radius.
+  const radiusFields = (n: PanelNode, v: number): Fields =>
+    hasCorners(n)
+      ? {
+          cornerRadius: v,
+          rectangleCornerRadiiIndependent: false,
+          rectangleTopLeftCornerRadius: v,
+          rectangleTopRightCornerRadius: v,
+          rectangleBottomRightCornerRadius: v,
+          rectangleBottomLeftCornerRadius: v,
+        }
+      : { cornerRadius: v };
+  const radiusHandlers = perLayer(ed, "Corner radius", refs, (n) => n.cornerRadius ?? 0, radiusFields, (v) => Math.max(0, v));
+  const opacityHandlers = perLayer(ed, "Opacity", refs, (n) => Math.round((n.opacity ?? 1) * 100), (_, v) => ({ opacity: Math.min(100, Math.max(0, v)) / 100 }), (v) => Math.min(100, Math.max(0, v)));
   const setCorner = (f: CornerField, v: number, info: ChangeInfo) =>
     editEach(ed, "Corner radius", info, refs, (n) => {
       const all = Object.fromEntries(CORNERS.map(([k]) => [k, n[k] ?? n.cornerRadius ?? 0])) as Record<CornerField, number>;
@@ -355,6 +291,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
       const same = CORNERS.every(([k]) => all[k] === all.rectangleTopLeftCornerRadius);
       return { ...all, rectangleCornerRadiiIndependent: !same, cornerRadius: same ? v : (n.cornerRadius ?? 0) };
     });
+  const blendLabel = (b: Mixed<string> | undefined) => (b === undefined || b === MIXED ? "Mixed" : b === "PASS_THROUGH" ? "Pass through" : BLEND_LABEL[b as keyof typeof BLEND_LABEL] ?? b);
 
   return (
     <PanelSection
@@ -370,97 +307,114 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             tone="secondary"
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
-          {blendKept ? (
-            <MenuButton label="Blend mode" entries={blendEntries} className={styles.iconMenu} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
-              <Icon name={blendActive ? "24.blendmode.active.small" : "24.blendmode.small"} />
-            </MenuButton>
-          ) : (
-            <IconButton icon="24.blendmode.small" label="Blend mode" tone="secondary" disabled />
-          )}
+          <MenuButton label="Apply blend mode" tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
+            <Icon name={blendSet ? "24.blendmode.active.small" : "24.blendmode.small"} />
+          </MenuButton>
         </>
       }
     >
       <PropertyGrid labels={labels}>
-        <PropertyRow label={corners ? "Opacity and corner radius" : "Opacity"} action={corners ? <ToggleIconButton icon="24.corners.independent" label="Individual corners" pressed={independent} onPressedChange={setIndependentOpen} /> : undefined}>
-          <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
-          <NumericInput
-            label="Opacity"
-            prefix="24.opacity"
-            unit="%"
-            precision={0}
-            min={0}
-            max={100}
-            value={fieldValue(opacity)}
-            onChange={(v, info) => editEach(ed, "Opacity", info, refs, () => ({ opacity: v / 100 }))}
-            onCancel={() => ed.cancelEdit()}
-            onStep={(d) => editEach(ed, "Opacity", stepInfo, refs, (n) => ({ opacity: Math.min(1, Math.max(0, (n.opacity ?? 1) + d / 100)) }))}
-            onExit={exitToCanvas(ed)}
-          />
-          </VariableField>
-          {corners ? (
-            <VariableField nodes={nodes} fields={["CORNER_RADIUS"]} prefix="24.corners" disabled={independentNow}>
-            <NumericInput
-              label="Corner radius"
-              prefix="24.corners"
-              min={0}
-              value={independentNow ? MIXED : fieldValue(radius)}
-              onChange={setRadius}
-              onCancel={() => ed.cancelEdit()}
-              onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => ({ cornerRadius: Math.max(0, (n.cornerRadius ?? 0) + d) }))}
-              onExit={exitToCanvas(ed)}
-            />
-            </VariableField>
-          ) : (
-            <span />
-          )}
-        </PropertyRow>
-        {polygons && countKept && (
-          <PropertyRow label={stars ? "Count and ratio" : "Count"}>
-            <NumericInput
-              label="Count"
-              prefix="24.polygon"
-              min={3}
-              max={60}
-              precision={0}
-              value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))}
-              onChange={(v, info) => editEach(ed, "Count", info, refs, () => fields({ count: Math.round(v) }))}
-              onCancel={() => ed.cancelEdit()}
-              onStep={(d) => editEach(ed, "Count", stepInfo, refs, (n) => fields({ count: Math.max(3, Math.min(60, (n.count ?? 3) + d)) }))}
-              onExit={exitToCanvas(ed)}
-            />
-            {stars ? (
-              <NumericInput
-                label="Ratio"
-                prefix="24.star.outline"
-                unit="%"
-                min={0}
-                max={100}
-                precision={0}
-                value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 100))))}
-                onChange={(v, info) => editEach(ed, "Ratio", info, refs, () => fields({ starInnerScale: v / 100 }))}
-                onCancel={() => ed.cancelEdit()}
-                onExit={exitToCanvas(ed)}
-              />
-            ) : (
-              <span />
-            )}
+        {blendSet && (
+          // A blend mode set: its row, its menu, and the minus that puts the default back.
+          <PropertyRow
+            label="Blend mode"
+            span={2}
+            action={<IconButton icon="24.minus.small" label="Remove blend mode" tone="secondary" onClick={() => editEach(ed, "Blend mode", stepInfo, refs, (n) => fields({ blendMode: defaultBlend(n) as BlendModeName }))} />}
+          >
+            <Select label="Blend mode" value={blend ?? MIXED} placeholder={blendLabel(blend)} options={blendOptions} onChange={(v) => ed.setProps(refs, fields({ blendMode: v as BlendModeName }), "Blend mode")} />
           </PropertyRow>
         )}
-        {corners && independent && (
+        <PropertyRow
+          labels={["Opacity", "Corner radius"]}
+          action={
+            plainOnly ? undefined : smoothOnly ? (
+              <CornerSmoothingButton nodes={nodes} />
+            ) : (
+              <ToggleIconButton icon="24.corners.independent" label="Individual corners" tone="secondary" pressed={independent} onPressedChange={setIndependentOpen} />
+            )
+          }
+        >
+          <VariableField nodes={nodes} fields={["OPACITY"]} prefix="24.opacity">
+            <NumericInput label="Opacity" prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
+          </VariableField>
+          <VariableField nodes={nodes} fields={["CORNER_RADIUS"]} prefix="24.corners" disabled={independentNow}>
+            <NumericInput label="Corner radius" prefix="24.corners" min={0} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
+          </VariableField>
+        </PropertyRow>
+        {independent && (
           <>
             {[CORNERS.slice(0, 2), CORNERS.slice(2)].map((pair, i) => (
-              <PropertyRow key={i} label={i === 0 ? "Top corners" : "Bottom corners"}>
+              <PropertyRow key={i} label={i === 0 ? "Top corners" : "Bottom corners"} action={i === 0 ? <CornerSmoothingButton nodes={nodes} /> : undefined}>
                 {pair.map(([f, icon, label]) => (
                   <VariableField key={f} nodes={nodes} fields={[CORNER_FIELD[f]]} prefix={icon}>
-                    <NumericInput label={label} prefix={icon} min={0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+                    <NumericInput label={label} prefix={icon} min={0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => ({ [f]: Math.max(0, (n[f] ?? n.cornerRadius ?? 0) + d) }))} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
                   </VariableField>
                 ))}
               </PropertyRow>
             ))}
           </>
         )}
+        {polygons.length > 0 && countKept && <CountRow nodes={polygons} stars={stars} />}
       </PropertyGrid>
       <ModeRows refs={refs} />
     </PanelSection>
+  );
+}
+
+/** Polygons: "Count"; stars: "Count" and "Ratio" (Figma's live panel; the ratio with one decimal: 38.2%). */
+function CountRow({ nodes, stars }: { nodes: PanelNode[]; stars: boolean }) {
+  const ed = useEditor();
+  const refs = nodes.map((n) => n.guid);
+  const count = perLayer(ed, "Count", refs, (n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3), (_, v) => fields({ count: Math.max(3, Math.min(60, Math.round(v))) }), (v) => Math.max(3, Math.min(60, v)));
+  const ratio = perLayer(ed, "Ratio", refs, (n) => (n.starInnerScale ?? 0.382) * 100, (_, v) => fields({ starInnerScale: Math.max(0, Math.min(100, v)) / 100 }), (v) => Math.max(0, Math.min(100, v)));
+  return (
+    <PropertyRow labels={stars ? ["Count", "Ratio"] : undefined} label={stars ? undefined : "Count"}>
+      <NumericInput label="Count" prefix="24.polygon" min={3} max={60} precision={0} value={fieldValue(mixedNumber(nodes.map((n) => n.count ?? (typeOf(n) === "STAR" ? 5 : 3))))} {...count} />
+      {stars ? <NumericInput label="Ratio" prefix="24.star.outline" unit="%" min={0} max={100} precision={1} value={fieldValue(mixedNumber(nodes.map((n) => Math.round((n.starInnerScale ?? 0.382) * 1000) / 10)))} {...ratio} /> : <span />}
+    </PropertyRow>
+  );
+}
+
+/**
+ * "Corner smoothing" (help 360050986854): 0–100%, Figma's iOS preset at 60%; a popover with the slider and the field.
+ * The engine draws smoothed rectangles and frames (cornerSmoothing); other layers keep the value.
+ */
+export function CornerSmoothingButton({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const refs = nodes.map((n) => n.guid);
+  const value = mixedNumber(nodes.map((n) => Math.round((n.cornerSmoothing ?? 0) * 100)));
+  const on = nodes.some((n) => (n.cornerSmoothing ?? 0) > 0);
+  const handlers = perLayer(ed, "Corner smoothing", refs, (n) => (n.cornerSmoothing ?? 0) * 100, (_, v) => ({ cornerSmoothing: Math.max(0, Math.min(100, v)) / 100 }), (v) => Math.max(0, Math.min(100, v)));
+  const slider = typeof value === "number" ? value : 0;
+  return (
+    <>
+      <ToggleIconButton icon="24.corner-smoothing" label="Corner smoothing" tone="secondary" pressed={on} aria-expanded={!!anchor} onPressedChange={() => undefined} onClick={(e) => (e.preventDefault(), setAnchor(anchor ? null : e.currentTarget))} />
+      {anchor && (
+        <Popover anchor={anchor} title="Corner smoothing" width={240} onClose={() => setAnchor(null)} label="Corner smoothing">
+          <div className={styles.smoothing} data-corner-smoothing="">
+            <div className={styles.smoothingTrack}>
+              <input
+                type="range"
+                aria-label="Corner smoothing"
+                className={styles.slider}
+                min={0}
+                max={100}
+                step={1}
+                value={slider}
+                style={{ ["--fill" as string]: `${slider}%` }}
+                onChange={(e) => handlers.onChange(Number(e.currentTarget.value), { final: false, source: "drag" })}
+                onPointerUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "drag" })}
+                onKeyUp={(e) => handlers.onChange(Number(e.currentTarget.value), { final: true, source: "step" })}
+              />
+              <button type="button" className={cx(styles.iosMark, slider === IOS_SMOOTHING && styles.iosOn)} style={{ left: `${IOS_SMOOTHING}%` }} aria-label="iOS corner smoothing (60%)" onClick={() => handlers.onChange(IOS_SMOOTHING, { final: true, source: "pick" })}>
+                iOS
+              </button>
+            </div>
+            <NumericInput label="Corner smoothing value" unit="%" precision={0} min={0} max={100} value={fieldValue(value)} {...handlers} />
+          </div>
+        </Popover>
+      )}
+    </>
   );
 }

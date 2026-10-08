@@ -25,6 +25,8 @@ import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 const SLOT_LABEL: Record<StyleSlot, string> = { fill: "Fill", stroke: "Stroke", text: "Text", effect: "Effect", grid: "Layout guide" };
+/** The section each slot's button sits in (Figma's names: "Fill, Apply styles and variables", "Effects, Apply styles"). */
+const SECTION_TITLE: Record<StyleSlot, string> = { fill: "Fill", stroke: "Stroke", text: "Typography", effect: "Effects", grid: "Layout guide" };
 
 /** The style every node uses in `slot`; null when none does, "mixed" when they differ. */
 export function sharedStyle(nodes: readonly PanelNode[], slot: StyleSlot): Guid | null | "mixed" {
@@ -49,7 +51,7 @@ export function StylesButton({ nodes, slot }: { nodes: readonly PanelNode[]; slo
   const current = sharedStyle(nodes, slot);
   return (
     <>
-      <IconButton icon="24.styles" label={label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => setOpen(open ? null : e.currentTarget)} />
+      <IconButton icon="24.styles" label={`${SECTION_TITLE[slot]}, ${label}`} tooltip={label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => setOpen(open ? null : e.currentTarget)} />
       {open && (
         <VariablePicker
           anchor={open}

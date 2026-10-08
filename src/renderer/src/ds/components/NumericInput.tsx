@@ -31,6 +31,8 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   /** Words the field takes besides numbers (a gap's "Auto", a line height's "Auto"): typed in any case */
   keywords?: readonly string[];
   onKeyword?: (word: string) => void;
+  /** Sees what was typed first; true when it took it (padding's CSS shorthand "8 16") */
+  onText?: (raw: string) => boolean;
   min?: number;
   max?: number;
   step?: number;
@@ -67,7 +69,7 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * px (⇧ ×10), faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4): `final:
  * false` each frame, one `final: true` on release, Esc cancels; a press without movement focuses the field.
  */
-export function NumericInput({ label, prefix, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, className, ...rest }: NumericInputProps) {
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -80,7 +82,10 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
   const input = useRef<HTMLInputElement>(null);
   const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; id: number; el: HTMLElement } | null>(null);
   const [focused, setFocused] = useState(false);
-  const shown = valueLabel !== undefined && !focused && !scrubbing ? valueLabel : mixed ? STRINGS.mixed : current === null ? "" : formatNumber(current, precision);
+  // Figma writes the unit in the field's text ("100%", "0°"); a bare field (the colour row's opacity) puts it after the number.
+  const unitInside = !!unit && !bare;
+  const shown = valueLabel !== undefined && !focused && !scrubbing ? valueLabel : mixed ? STRINGS.mixed : current === null ? "" : formatNumber(current, precision) + (unitInside ? unit : "");
+  const unitAfter = !!unit && !unitInside;
   const text = draft ?? shown;
 
   const finish = (raw?: string) => {
@@ -89,6 +94,7 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
     setDraft(null);
     if (raw === undefined) return;
     const word = keywords?.find((k) => k.toLowerCase() === raw.trim().toLowerCase());
+    if (!word && onText?.(raw)) return;
     if (word) {
       onKeyword?.(word);
       return;
@@ -215,7 +221,7 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
         placeholder={placeholder}
         spellCheck={false}
         // With a unit the number hugs it: as wide as its digits (plus its start padding — the box is border-box).
-        style={unit || modeLabel ? { width: `calc(${Math.max(1, (text || placeholder || "").length) + 0.2}ch + ${prefix === undefined ? 8 : 0}px)` } : undefined}
+        style={modeLabel ? { width: `calc(${Math.max(1, (text || placeholder || "").length) + 0.2}ch + ${prefix === undefined ? 8 : 0}px)` } : undefined}
         onPointerDown={(e) => {
           if (canScrub && e.altKey && e.button === 0 && document.activeElement !== e.currentTarget) {
             e.preventDefault();
@@ -283,9 +289,9 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
             e.currentTarget.blur();
           }
         }}
-        className={cx(styles.input, styles.tabular, (unit || modeLabel) && styles.hug, prefix === undefined && styles.padStart, mixed && draft === null && styles.mixedText)}
+        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && styles.padStart, mixed && draft === null && styles.mixedText)}
       />
-      {unit && (
+      {unitAfter && (
         <>
           {text !== "" && !(mixed && draft === null) && <span className={styles.unit}>{unit}</span>}
           <span
@@ -298,7 +304,7 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
           />
         </>
       )}
-      {modeLabel && !unit && (
+      {modeLabel && (
         <span
           className={styles.modeLabel}
           onPointerDown={(e) => {

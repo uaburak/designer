@@ -52,8 +52,8 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   size?: ControlSize;
   tone?: "default" | "secondary";
   tooltipPlacement?: Placement;
-  /** false: no tooltip (the label stays the accessible name) */
-  tooltip?: boolean;
+  /** false: no tooltip (the label stays the accessible name); a string: that tooltip (Figma: "Remove auto layout" says "Toggle auto layout") */
+  tooltip?: boolean | string;
 }
 
 /** A square icon button (contract §4.2): 24 in panels, 32 in the tab bar, rail, toolbar. */
@@ -64,7 +64,7 @@ export function IconButton({ icon, label, shortcut, size = "default", tone = "de
       data-ds="IconButton"
       aria-label={label}
       className={cx(styles.icon, size === "large" && styles.large, tone === "secondary" && styles.toneSecondary, className)}
-      {...(tooltip ? tooltipProps(label, shortcut, tooltipPlacement) : {})}
+      {...(tooltip ? tooltipProps(typeof tooltip === "string" ? tooltip : label, shortcut, tooltipPlacement) : {})}
       {...rest}
     >
       <Icon name={icon} />

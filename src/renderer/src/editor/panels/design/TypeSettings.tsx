@@ -16,7 +16,7 @@ import { Checkbox, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs,
 import { useEditor } from "../../controller";
 import { AXIS_LABELS, featureName, withAxis, type TextSummary } from "../../model/text";
 import { exitToCanvas } from "./Sections";
-import { SETTINGS_WIDTH } from "./Sizing";
+import { SETTINGS_WIDTH } from "./Layout";
 import { fields, type ExtraFields, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import type { FontInfo } from "@/engine/codec";

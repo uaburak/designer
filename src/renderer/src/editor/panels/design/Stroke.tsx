@@ -15,6 +15,7 @@ import type { NodeFields, StrokeAlign } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
+import { SETTINGS_WIDTH } from "./Layout";
 import { fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
@@ -73,7 +74,10 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
   return (
     <PropertyGrid labels={labels}>
       <PropertyRow
-        label="Position and weight"
+        // Figma's live panel: "Position" (76) and "Weight" (72), "Advanced stroke settings" at 180, Individual strokes at 208.
+        labels={["Position", "Weight"]}
+        columns="minmax(0, 76fr) minmax(0, 72fr)"
+        action2={<StrokeSettingsButton nodes={nodes} />}
         action={
           perSide ? (
             <MenuButton label="Individual strokes" entries={sideMenu} className={styles.iconMenu} onSelect={(id) => {
@@ -87,7 +91,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         }
       >
         <Select
-          label="Stroke position"
+          label="Stroke align"
           value={align ?? "INSIDE"}
           options={[
             { value: "INSIDE", label: "Inside" },
@@ -104,7 +108,23 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           value={side === "CUSTOM" ? MIXED : fieldValue(weight)}
           onChange={writeWeight}
           onCancel={() => ed.cancelEdit()}
-          onStep={(d) => ed.batch("Stroke weight", () => nodes.forEach((n) => ed.engine.setProps([n.guid], { strokeWeight: Math.max(0, (n.strokeWeight ?? 1) + d) })))}
+          // A single side's weight steps that side (as typing writes it: writeWeight), not strokeWeight alone.
+          onStep={(d) =>
+            ed.batch("Stroke weight", () =>
+              nodes.forEach((n) => {
+                const v = Math.max(0, (singleField ? (n[singleField] ?? 0) : (n.strokeWeight ?? 1)) + d);
+                ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
+              })
+            )
+          }
+          onExpression={(each, info) =>
+            ed.edit("Stroke weight", info, () =>
+              nodes.forEach((n) => {
+                const v = Math.max(0, each(singleField ? (n[singleField] ?? 0) : (n.strokeWeight ?? 1)));
+                ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
+              })
+            )
+          }
           onExit={exitToCanvas(ed)}
         />
         </VariableField>
@@ -170,7 +190,7 @@ export function StrokeSettingsButton({ nodes }: { nodes: PanelNode[] }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return (
     <>
-      <IconButton icon="24.adjust.small" label="Stroke settings" tone="secondary" disabled={!kept} aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
+      <IconButton icon="24.adjust.small" label="Advanced stroke settings" tone="secondary" disabled={!kept} aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
       {anchor && <StrokeSettings nodes={nodes} anchor={anchor} onClose={() => setAnchor(null)} />}
     </>
   );
@@ -189,7 +209,7 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
   const set = (label: string, f: NodeFields) => ed.setProps(refs, f, label);
   const setDash = (dash: number, gap: number, info: ChangeInfo) => ed.edit("Dash", info, () => void ed.engine.setProps(refs, fields({ dashPattern: [dash, gap] })));
   return (
-    <Popover anchor={anchor} title="Stroke settings" width={240} onClose={onClose} label="Stroke settings">
+    <Popover anchor={anchor} title="Stroke settings" width={SETTINGS_WIDTH} onClose={onClose} label="Stroke settings">
       <div className={styles.settings}>
         <span className={styles.settingsLabel}>Stroke style</span>
         <Select

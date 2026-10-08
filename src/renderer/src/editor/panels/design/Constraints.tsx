@@ -4,7 +4,8 @@
  * line to pin that side, ⇧-click for both — and the horizontal / vertical
  * dropdowns, writing `horizontalConstraint` / `verticalConstraint`.
  */
-import { MIXED, PropertyRow, Select, isMixed, type Mixed } from "@/ds";
+import { useState } from "react";
+import { IconButton, MIXED, Popover, PropertyRow, Select, isMixed, type Mixed } from "@/ds";
 import type { ConstraintType } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { mixed } from "../../model/mixed";
@@ -34,6 +35,39 @@ export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
         </div>
       </div>
     </PropertyRow>
+  );
+}
+
+/**
+ * Figma's live panel: the Position row's "Constraints" button (a layer in a frame) opens the widget and the two
+ * dropdowns in a popover.
+ */
+export function ConstraintsButton({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const refs = nodes.map((n) => n.guid);
+  const h = mixed(nodes.map((n) => normalizeConstraint(n.horizontalConstraint)));
+  const v = mixed(nodes.map((n) => normalizeConstraint(n.verticalConstraint)));
+  const set = (axis: ConstraintAxis, c: ConstraintType) => ed.setProps(refs, { [FIELD[axis]]: c }, "Constraints");
+  const click = (axis: ConstraintAxis, side: ConstraintSide, shift: boolean) => {
+    const now = axis === "horizontal" ? h : v;
+    set(axis, clickConstraint(isMixed(now) || now === undefined ? "MIN" : now, side, shift));
+  };
+  return (
+    <>
+      <IconButton icon="24.constraints" label="Constraints" tone="secondary" aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
+      {anchor && (
+        <Popover anchor={anchor} title="Constraints" width={240} onClose={() => setAnchor(null)} label="Constraints">
+          <div className={styles.constraintPopover}>
+            <ConstraintsWidget horizontal={h ?? "MIN"} vertical={v ?? "MIN"} onClick={click} />
+            <div className={styles.constraintSelects}>
+              <Select label="Horizontal constraint" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
+              <Select label="Vertical constraint" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
+            </div>
+          </div>
+        </Popover>
+      )}
+    </>
   );
 }
 

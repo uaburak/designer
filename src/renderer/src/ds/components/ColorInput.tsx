@@ -17,6 +17,8 @@ export interface ColorInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
   onColor: (hex: string, info: ChangeInfo) => void;
   /** Without it there is no opacity part */
   onOpacity?: (o: number, info: ChangeInfo) => void;
+  /** The swatch's accessible name (Figma: "Solid color hex: D9D9D9"); default "<label>: pick colour" */
+  swatchLabel?: string;
   /** The swatch clicked: open the ColorPicker there */
   onSwatchClick?: (anchor: DOMRect) => void;
   /** Replaces the swatch (a variable chip) */
@@ -34,7 +36,7 @@ export interface ColorInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
  * digits (3 or 6 typed, with or without #, or a CSS colour name; anything
  * else reverts), a line in the panel colour, the opacity with its %.
  */
-export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatchClick, swatch, valueLabel, disabled, className, ...rest }: ColorInputProps) {
+export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatchClick, swatchLabel, swatch, valueLabel, disabled, className, ...rest }: ColorInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);
   const mixedColor = isMixed(color);
@@ -49,7 +51,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
   return (
     <div data-ds="ColorInput" data-disabled={disabled || undefined} className={cx(styles.field, className)} {...rest}>
       {swatch ?? (
-        <button type="button" className={styles.swatchCell} aria-label={`${label}: pick colour`} disabled={disabled} onClick={(e) => onSwatchClick?.(e.currentTarget.getBoundingClientRect())}>
+        <button type="button" className={styles.swatchCell} aria-label={swatchLabel ?? `${label}: pick colour`} disabled={disabled} onClick={(e) => onSwatchClick?.(e.currentTarget.getBoundingClientRect())}>
           <Swatch color={mixedColor ? "#000000" : color} opacity={isMixed(opacity) ? 100 : opacity} mixed={mixedColor} />
         </button>
       )}

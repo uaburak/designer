@@ -28,7 +28,8 @@ import { pickImageFiles } from "../../canvas/ImagePlacer";
 import { startGradientEdit } from "../../vectorEdit";
 import { useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
-import { StrokeRows, StrokeSettingsButton } from "./Stroke";
+import { StrokeRows } from "./Stroke";
+import { Grip, moved, useReorder } from "./reorder";
 import { isFrameNode, type PanelNode } from "./shared";
 import { BoundPaintRow, paintScope } from "./Variables";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -64,17 +65,19 @@ function useImageUrls(ed: EditorController): void {
   useSyncExternalStore(ed.images.subscribe, ed.images.getVersion);
 }
 
-/** One paint row: swatch + hex (or the type's name) + opacity. */
+/** One paint row: swatch + hex (or the type's name) + opacity (Figma's names: "Solid color hex: D9D9D9", "Color"). */
 export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }: { paint: FullPaint; label: string; onColor: (hex: string, info: ChangeInfo) => void; onOpacity: (o: number, info: ChangeInfo) => void; onPick: (anchor: DOMRect) => void; className?: string }) {
   const ed = useEditor();
   useImageUrls(ed);
   const solid = paint.type === "SOLID";
   const url = ed.images.urlOf(paintImageHash(paint));
+  const hex = solid ? colorToHex(paint.color ?? { r: 0, g: 0, b: 0 }) : "";
   return (
     <ColorInput
       className={className}
       label={label}
-      color={solid ? colorToHex(paint.color ?? { r: 0, g: 0, b: 0 }) : paintSwatch(paint, url)}
+      swatchLabel={solid ? `Solid color hex: ${hex.slice(1).toUpperCase()}` : paintLabel(paint)}
+      color={solid ? hex : paintSwatch(paint, url)}
       valueLabel={solid ? undefined : paintLabel(paint)}
       opacity={toPercent(paint.opacity ?? 1)}
       onColor={onColor}
@@ -106,48 +109,56 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
   const slot = field === "fillPaints" ? "fill" : "stroke";
   const styled = sharedStyle(nodes, slot);
   const hasStyle = !!styled && styled !== "mixed";
+  // Rows show the top paint first: display index d is paint n − 1 − d.
+  const n = paints.length;
+  const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => ed.setProps(refs, { [field]: moved(paints, n - 1 - from, n - 1 - to) }, `Reorder ${word}s`));
   return (
     <PanelSection
       title={title}
       empty={empty}
       actions={
         <>
-          {!empty && <StylesButton nodes={nodes} slot={slot} />}
-          {stroked && <StrokeSettingsButton nodes={nodes} />}
-          {!hasStyle && <IconButton icon="24.plus.small" label={`Add ${word}`} tone="secondary" onClick={add} />}
+          <StylesButton nodes={nodes} slot={slot} />
+          {/* Figma's live panel: "Add stroke fill" once a stroke exists, "Add stroke" / "Add fill" otherwise */}
+          {!hasStyle && <IconButton icon="24.plus.small" label={field === "strokePaints" && !empty ? "Add stroke fill" : `Add ${word}`} tone="secondary" onClick={add} />}
         </>
       }
     >
       {hasStyle && <AppliedStyle nodes={nodes} slot={slot} />}
-      {!hasStyle && isMixed(shared) && <div className={styles.note}>Click + to replace mixed {word}s</div>}
-      {/* Top paint first: the list's last entry is drawn on top */}
-      {!hasStyle &&
-        paints
-        .map((p, i) => ({ p, i }))
-        .reverse()
-        .map(({ p, i }) => (
-          <div key={i} className={styles.paintRow} data-paint-row={p.type}>
-            {paintVariable(p) ? (
-              <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
-            ) : (
-              <PaintRow
-                className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
-                paint={p}
-                label={label}
-                onColor={(hex, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1) } : q)), `${label} colour`, info)}
-                onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
-                onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
-              />
-            )}
-            <IconButton
-              icon={p.visible === false ? "24.hidden.small" : "24.eye.small"}
-              label={p.visible === false ? `Show ${word}` : `Hide ${word}`}
-              tone="secondary"
-              onClick={() => ed.setProps(refs, { [field]: paints.map((q, j) => (j === i ? { ...q, visible: q.visible === false } : q)) }, p.visible === false ? `Show ${word}` : `Hide ${word}`)}
-            />
-            <IconButton icon="24.minus.small" label={`Remove ${word}`} tone="secondary" onClick={() => ed.setProps(refs, { [field]: paints.filter((_, j) => j !== i) }, `Remove ${word}`)} />
-          </div>
-        ))}
+      {!hasStyle && isMixed(shared) && <div className={styles.note}>Click + to replace mixed content</div>}
+      {!hasStyle && n > 0 && (
+        <div ref={reorderRef} className={styles.reorderList}>
+          {paints
+            .map((p, i) => ({ p, i }))
+            .reverse()
+            .map(({ p, i }, d) => (
+              <div key={i} className={cx(styles.paintRow, dragging === d && styles.rowDragging)} data-paint-row={p.type} data-reorder-row="">
+                {n > 1 && <Grip {...grip(d)} />}
+                {paintVariable(p) ? (
+                  <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
+                ) : (
+                  <PaintRow
+                    className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
+                    paint={p}
+                    label="Color"
+                    onColor={(hex, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1) } : q)), `${label} colour`, info)}
+                    onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
+                    onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
+                  />
+                )}
+                <IconButton
+                  icon={p.visible === false ? "24.hidden.small" : "24.eye.small"}
+                  label="Toggle visibility"
+                  data-paint-visibility={p.visible === false ? "hidden" : "visible"}
+                  tone="secondary"
+                  onClick={() => ed.setProps(refs, { [field]: paints.map((q, j) => (j === i ? { ...q, visible: q.visible === false } : q)) }, p.visible === false ? `Show ${word}` : `Hide ${word}`)}
+                />
+                <IconButton icon="24.minus.small" label="Remove" tone="secondary" onClick={() => ed.setProps(refs, { [field]: paints.filter((_, j) => j !== i) }, `Remove ${word}`)} />
+              </div>
+            ))}
+          {dropLine !== null && <div className={styles.dropLine} style={{ top: dropLine }} />}
+        </div>
+      )}
       {stroked && <StrokeRows nodes={nodes} labels={labels} />}
     </PanelSection>
   );
