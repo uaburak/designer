@@ -980,6 +980,7 @@ uint32_t Player::key(bool down, int keyCode, uint32_t mods) {
     if (handled) return 1;
   }
   if (mods & (MOD_META | MOD_CTRL | MOD_ALT)) return 0;
+  if (!shortcuts_) return 0;
   // The presentation's shortcuts (R8 §9).
   switch (keyCode) {
     case 82: restart(); return 1;             // R
@@ -2666,6 +2667,27 @@ std::string Player::stateJson() const {
   w.key("canPrevious").boolean(it != seq.end() && it != seq.begin());
   w.key("scale").string(scaleName(scale_));
   w.key("hints").boolean(hints_);
+  w.key("shortcuts").boolean(shortcuts_);
+  {
+    // Figma's recommended scales (help "Play your prototypes"): the first frame's width, every frame 16:9.
+    double first = 0;
+    bool wide = true;
+    int frames = 0;
+    std::vector<Guid> seq = active() ? sequence() : std::vector<Guid>{};
+    if (!seq.empty())
+      if (const NodeProps* fp = props(seq.front())) first = fp->size.x;
+    if (page_ != kNoGuid)
+      for (Guid c : doc().children(page_)) {
+        const NodeProps* cp = props(c);
+        if (!cp || !cp->visible || !cp->isFrameLike() || cp->type == NodeType::SECTION || cp->size.y <= 0) continue;
+        frames++;
+        wide &= std::fabs(cp->size.x / cp->size.y - 16.0 / 9.0) < 0.01;
+      }
+    auto own = responsiveSizes_.find(seq.empty() ? kNoGuid : seq.front());
+    if (own != responsiveSizes_.end()) first = own->second.x;
+    w.key("firstFrameWidth").number(first);
+    w.key("allWide").boolean(frames > 0 && wide);
+  }
   w.key("device").boolean(page_ != kNoGuid && props(page_) && !device(*props(page_)).none);
   {
     Device dev = page_ != kNoGuid && props(page_) ? device(*props(page_)) : Device{};

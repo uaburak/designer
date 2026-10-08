@@ -158,6 +158,18 @@
   /* The image paint's extras in the picker: Rotate 90°, then the adjustment sliders */
   .imageControls { display: flex; flex-direction: column; gap: var(--ds-space-1); }
   .imageRotate { display: flex; justify-content: flex-end; }
+  /* A video fill's preview: the video, then play / pause, the scrubber and the time */
+  .videoPreview { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .videoPreviewMedia {
+    display: block;
+    width: 100%;
+    max-height: var(--ds-size-panel);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-tertiary);
+    object-fit: contain;
+  }
+  .videoPreviewBar { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .videoPreviewTime { flex: none; color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
   .adjustment { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-control); }
   .adjustmentLabel { color: var(--figma-color-text-secondary); }
   .slider {

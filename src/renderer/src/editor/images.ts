@@ -115,10 +115,69 @@ export interface ImportedImage {
   thumbHash?: Uint8Array | null;
   /** Its low-res copy (Paint.imageThumbnail); null when it couldn't be made. */
   thumbnail?: ImageTier | null;
+  /** A video: the video file's hash (the rest describes its poster frame) and its length in seconds */
+  video?: string;
+  duration?: number;
 }
 
 const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
 export const isImageFile = (f: { type: string }) => IMAGE_TYPES.test(f.type);
+
+/**
+ * Videos Figma takes (help.figma.com 8878274530455): .mp4 and .mov (H.264), .webm (VP8), up to 300 MB. They are fills,
+ * stored as images are (the file's blobs, by SHA-1), with a poster frame.
+ */
+const VIDEO_TYPES = /^video\/(mp4|quicktime|webm)$/;
+export const isVideoFile = (f: { type: string; name?: string }) => VIDEO_TYPES.test(f.type) || (!f.type && /\.(mp4|mov|webm)$/i.test(f.name ?? ""));
+export const isMediaFile = (f: { type: string; name?: string }) => isImageFile(f) || isVideoFile(f);
+export const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
+export const VIDEO_ACCEPT = "video/mp4,video/quicktime,video/webm";
+
+/** A video's first frame (its poster: what the canvas draws) as a JPEG, with the video's size and length. */
+export async function videoPoster(file: Blob): Promise<{ blob: Blob; width: number; height: number; duration: number }> {
+  const url = URL.createObjectURL(file);
+  const v = document.createElement("video");
+  try {
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    await new Promise<void>((resolve, reject) => {
+      v.addEventListener("loadeddata", () => resolve(), { once: true });
+      v.addEventListener("error", () => reject(new Error("The video can't be read")), { once: true });
+      v.src = url;
+    });
+    if (v.currentTime > 0) {
+      await new Promise<void>((resolve) => {
+        v.addEventListener("seeked", () => resolve(), { once: true });
+        v.currentTime = 0;
+      });
+    }
+    const width = v.videoWidth;
+    const height = v.videoHeight;
+    if (!width || !height) throw new Error("The video has no picture");
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")?.drawImage(v, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (!blob) throw new Error("No poster frame");
+    return { blob, width, height, duration: Number.isFinite(v.duration) ? v.duration : 0 };
+  } finally {
+    v.removeAttribute("src");
+    v.load();
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** A video file into the store: its bytes (`video`), and its poster frame as an image (the rest of the result). */
+export async function importVideo(file: Blob & { name?: string }, store: ImageStore): Promise<ImportedImage> {
+  if (file.size > MAX_VIDEO_BYTES) throw new Error("Videos can be up to 300 MB");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const poster = await videoPoster(file);
+  const image = await importImage(Object.assign(poster.blob, { name: file.name }), store);
+  const video = await store.put(bytes, file.type || "video/mp4");
+  return { ...image, width: poster.width, height: poster.height, name: imageLayerName(file.name), video, duration: poster.duration };
+}
 
 /** Draws `bitmap` scaled to w × h on a fresh OffscreenCanvas (a high-quality resize when the browser offers one). */
 async function drawScaled(bitmap: ImageBitmap, width: number, height: number): Promise<OffscreenCanvas> {
@@ -468,16 +527,16 @@ export class ImageService {
 
   readonly getVersion = (): number => this.version;
 
-  /** Imports files (images only), in order; the ones that fail are skipped. */
+  /** Imports files (images and videos), in order; the ones that fail are skipped. */
   async import(files: readonly (Blob & { name?: string })[]): Promise<ImportedImage[]> {
     const store = this.store;
     if (!store) return [];
     const out: ImportedImage[] = [];
     const work = (async () => {
       for (const f of files) {
-        if (!isImageFile(f)) continue;
+        if (!isMediaFile(f)) continue;
         try {
-          const img = await importImage(f, store);
+          const img = isVideoFile(f) ? await importVideo(f, store) : await importImage(f, store);
           const bytes = await store.get(img.hash);
           if (bytes) this.remember(img.hash, bytes);
           if (img.thumbnail) this.tiers.set(img.hash, img.thumbnail.hash);

@@ -2669,6 +2669,7 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
       if (s->string == names[i]) e->player->setScale(static_cast<proto::ScaleMode>(i));
   }
   if (auto* hints = v.get("hints"); hints && hints->isBool()) e->player->setHints(hints->boolean);
+  if (auto* keys = v.get("shortcuts"); keys && keys->isBool()) e->player->setShortcuts(keys->boolean);
   // With a device: Responsive / Fixed size, Show device frame.
   if (auto* r = v.get("responsive"); r && r->isBool()) e->player->setResponsive(r->boolean);
   if (auto* f = v.get("deviceFrame"); f && f->isBool()) e->player->setDeviceFrame(f->boolean);

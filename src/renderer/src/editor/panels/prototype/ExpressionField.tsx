@@ -4,10 +4,11 @@
  * outlined in red") with the reason under it. The ⋯ menu inserts a suggested variable or operator ("the selection
  * panel to choose from suggested variables and operators").
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Icon, MenuButton, TextInput, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
-import { formatExpression, parseExpression } from "../../model/expressions";
+import { useEditor } from "../../controller";
+import { formatExpression, parseExpression, type ExpressionVariable } from "../../model/expressions";
 import type { VariableDataJson } from "../../model/prototype";
 import styles from "./Prototype.module.css";
 
@@ -21,11 +22,19 @@ export function ExpressionField({
 }: {
   label: string;
   data: VariableDataJson | undefined;
-  vars: readonly { id: Guid; name: string }[];
+  vars: readonly { id: Guid; name: string; collectionId?: Guid | null }[];
   onCommit: (d: VariableDataJson) => void;
 }) {
+  const ed = useEditor();
+  // Each variable with its collection's modes (`name:mode`).
+  const withModes = useMemo<ExpressionVariable[]>(() => {
+    const collections = ed.engine.destroyed ? [] : ed.engine.variableCollections();
+    const modes = new Map(collections.map((c) => [c.id, c.modes.map((m) => ({ id: m.modeId, name: m.name }))]));
+    return vars.map((v) => ({ ...v, modes: (v.collectionId && modes.get(v.collectionId)) || [] }));
+  }, [ed, vars]);
+  const modeNames = useMemo(() => new Map(withModes.flatMap((v) => (v.modes ?? []).map((m) => [m.id, m.name] as const))), [withModes]);
   const nameOf = (id: Guid) => vars.find((v) => v.id === id)?.name ?? null;
-  const stored = formatExpression(data, nameOf);
+  const stored = formatExpression(data, nameOf, (id) => modeNames.get(id) ?? null);
   const [draft, setDraft] = useState<{ text: string; error: string | null } | null>(null);
   const text = draft?.text ?? stored;
   const commit = (t: string) => {
@@ -33,7 +42,7 @@ export function ExpressionField({
       setDraft(null);
       return;
     }
-    const r = parseExpression(t, vars);
+    const r = parseExpression(t, withModes);
     if (!r.ok) {
       setDraft({ text: t, error: r.error });
       return;

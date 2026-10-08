@@ -145,6 +145,24 @@ export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
  */
 export type PresentScale = "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL" | "RESPONSIVE";
 
+/**
+ * A video the presentation shows (engine_present_media): what the page's <video> for it should do. `seek` is a jump
+ * the page hasn't made yet (seconds; made once per `seekSerial`).
+ */
+export interface PresentVideo {
+  id: Guid;
+  /** The video file's SHA-1 (the image store holds it) */
+  hash: string;
+  playing: boolean;
+  muted: boolean;
+  loop: boolean;
+  time: number;
+  duration: number;
+  ended: boolean;
+  seek: number | null;
+  seekSerial: number;
+}
+
 /** engine_present_state. */
 export interface PresentState {
   active: boolean;
@@ -163,6 +181,11 @@ export interface PresentState {
   canPrevious?: boolean;
   scale?: PresentScale;
   hints?: boolean;
+  /** "Enable Figma shortcuts": R, → Space N, ←, Z (on by default) */
+  shortcuts?: boolean;
+  /** The first frame's width (Figma's recommended scales) and whether every frame is 16:9 */
+  firstFrameWidth?: number;
+  allWide?: boolean;
   device?: boolean;
   /** The page's prototype device type */
   deviceType?: "NONE" | "PRESET" | "CUSTOM" | "PRESENTATION";
@@ -183,6 +206,8 @@ export interface PresentState {
 }
 
 let nextBitmapId = 1;
+/** A presentation's <video> elements and their ids in Module.engineBitmaps (one per element, reused per frame). */
+const videoBitmapIds = new WeakMap<HTMLVideoElement, number>();
 
 type Handler = (event: EngineEvent) => void;
 
@@ -617,10 +642,57 @@ export class Engine {
     return this.after(status);
   }
 
-  presentSetOptions(options: { scale?: PresentScale; hints?: boolean; responsive?: boolean; deviceFrame?: boolean }): void {
+  presentSetOptions(options: { scale?: PresentScale; hints?: boolean; shortcuts?: boolean; responsive?: boolean; deviceFrame?: boolean }): void {
     this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
     this.schedule();
     this.after(undefined);
+  }
+
+  /** The videos the presentation shows now and what each should do (playing, sound, loop, a pending seek). */
+  presentMedia(): PresentVideo[] {
+    this.x.presentMedia(this.h);
+    const parsed = JSON.parse(decodeText(this.x.result())) as { videos?: PresentVideo[] };
+    return this.after(parsed.videos ?? []);
+  }
+
+  /**
+   * A video's report: its time and length (seconds), whether it ended, the last seek it made, and — with `element` —
+   * a new frame to draw in place of the poster (uploaded from the <video> straight into a texture).
+   */
+  presentMediaFrame(
+    id: Guid,
+    report: { element?: HTMLVideoElement | null; time: number; duration: number; ended: boolean; seekSerial: number },
+  ): number {
+    const [s, l] = this.ids(id);
+    let bitmapId = 0;
+    let width = 0;
+    let height = 0;
+    const el = report.element;
+    if (el && el.videoWidth > 0 && el.videoHeight > 0) {
+      const module = this.x.module;
+      module.engineBitmaps ??= {};
+      let known = videoBitmapIds.get(el);
+      if (known === undefined) {
+        known = nextBitmapId++;
+        videoBitmapIds.set(el, known);
+      }
+      // The engine uploads from it while it draws (the frame shown at that moment).
+      (module.engineBitmaps as Record<number, unknown>)[known] = el;
+      bitmapId = known;
+      width = el.videoWidth;
+      height = el.videoHeight;
+    }
+    const status = this.x.presentMediaFrame(this.h, s, l, bitmapId, width, height, report.time, report.duration, report.ended ? 1 : 0, report.seekSerial);
+    return this.after(status);
+  }
+
+  /** A video element the presentation no longer plays: its slot in the module's bitmaps goes. */
+  forgetVideo(element: HTMLVideoElement): void {
+    const id = videoBitmapIds.get(element);
+    if (id === undefined) return;
+    videoBitmapIds.delete(element);
+    const bitmaps = this.x.module.engineBitmaps as Record<number, unknown> | undefined;
+    if (bitmaps) delete bitmaps[id];
   }
 
   /** The presentation's state, and what happened since the last read (CHANGED, OPEN_URL). */

@@ -8,6 +8,9 @@
  * - Precedence: parentheses, `* /`, `+ -`, comparisons, `and`, `or`; left to right.
  * - Strings in quotes (`"…"` or `'…'`); `true` / `false`; variables by name (the longest name that matches, so names
  *   with spaces and slashes work).
+ * - A variable's value in a mode named explicitly: `name:mode` (help.figma.com 15253268379799 — "variableName:modeName"),
+ *   stored as VAR_MODE_LOOKUP [ALIAS the variable, STRING the mode's id] (the argument encoding is ours; the engine
+ *   evaluates the same).
  */
 import type { Guid } from "@/engine/codec";
 import { guidJson, guidOf, type VariableDataJson } from "./prototype";
@@ -16,6 +19,8 @@ export interface ExpressionVariable {
   id: Guid;
   name: string;
   resolvedType?: string;
+  /** Its collection's modes (for `name:mode`) */
+  modes?: readonly { id: Guid; name: string }[];
 }
 
 export type ParseResult = { ok: true; data: VariableDataJson } | { ok: false; error: string; at: number };
@@ -24,7 +29,7 @@ type Token =
   | { kind: "num"; value: number; at: number }
   | { kind: "str"; value: string; at: number }
   | { kind: "bool"; value: boolean; at: number }
-  | { kind: "var"; id: Guid; at: number }
+  | { kind: "var"; id: Guid; at: number; mode?: Guid }
   | { kind: "op"; value: string; at: number }
   | { kind: "(" | ")"; at: number };
 
@@ -63,8 +68,16 @@ function tokenize(text: string, vars: readonly ExpressionVariable[]): Token[] | 
     // A variable: the longest name that matches here.
     const v = byLength.find((x) => x.name && text.startsWith(x.name, i) && (wordEnd(i + x.name.length) || !/[A-Za-z0-9_]/.test(x.name[x.name.length - 1])));
     if (v) {
-      out.push({ kind: "var", id: v.id, at: i });
       i += v.name.length;
+      // `name:mode`: the longest of its modes' names after the colon.
+      if (text[i] === ":" && v.modes?.length) {
+        const m = [...v.modes].sort((a, b) => b.name.length - a.name.length).find((x) => x.name && text.startsWith(x.name, i + 1));
+        if (!m) return { error: `“${v.name}” has no such mode`, at: i + 1 };
+        out.push({ kind: "var", id: v.id, at: i - v.name.length, mode: m.id });
+        i += 1 + m.name.length;
+        continue;
+      }
+      out.push({ kind: "var", id: v.id, at: i - v.name.length });
       continue;
     }
     const word = /^[A-Za-z_][A-Za-z0-9_]*/.exec(text.slice(i));
@@ -148,6 +161,11 @@ export function parseExpression(text: string, vars: readonly ExpressionVariable[
       case "bool":
         return { value: { boolValue: t.value }, dataType: "BOOLEAN" };
       case "var":
+        if (t.mode)
+          return expr("VAR_MODE_LOOKUP", [
+            { value: { alias: { guid: guidJson(t.id) } }, dataType: "ALIAS" },
+            { value: { textValue: t.mode }, dataType: "STRING" },
+          ]);
         return { value: { alias: { guid: guidJson(t.id) } }, dataType: "ALIAS" };
       case "(": {
         const inner = or();
@@ -206,8 +224,8 @@ const LEVEL: Record<string, number> = {
   DIVIDE: 5,
 };
 
-/** An expression's text (variables by name; "?" for one that's gone). */
-export function formatExpression(d: VariableDataJson | undefined, nameOf: (id: Guid) => string | null): string {
+/** An expression's text (variables by name; "?" for one that's gone; `name:mode` with `modeNameOf`). */
+export function formatExpression(d: VariableDataJson | undefined, nameOf: (id: Guid) => string | null, modeNameOf: (id: Guid) => string | null = () => null): string {
   const go = (x: VariableDataJson | undefined, parent: number): string => {
     if (!x) return "";
     const v = x.value ?? {};
@@ -224,6 +242,10 @@ export function formatExpression(d: VariableDataJson | undefined, nameOf: (id: G
     const fn = e.expressionFunction;
     if (fn === "NOT") return `!${go(args[0], 6)}`;
     if (fn === "NEGATE") return `-${go(args[0], 6)}`;
+    if (fn === "VAR_MODE_LOOKUP") {
+      const mode = args[1]?.value?.textValue;
+      return `${go(args[0], 6)}:${(mode && modeNameOf(mode)) ?? "?"}`;
+    }
     const level = LEVEL[fn];
     if (level === undefined) return fn.toLowerCase();
     // Left to right: the right operand of the same level needs parentheses (a − (b − c)).

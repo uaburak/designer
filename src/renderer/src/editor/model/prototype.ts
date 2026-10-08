@@ -13,8 +13,10 @@ export interface GuidJson {
 
 export type InteractionType =
   | "ON_CLICK" | "AFTER_TIMEOUT" | "MOUSE_IN" | "MOUSE_OUT" | "ON_HOVER" | "MOUSE_DOWN" | "MOUSE_UP" | "ON_PRESS" | "NONE" | "DRAG"
-  | "ON_KEY_DOWN" | "MOUSE_ENTER" | "MOUSE_LEAVE";
-export type ConnectionType = "NONE" | "INTERNAL_NODE" | "URL" | "BACK" | "CLOSE" | "SET_VARIABLE" | "CONDITIONAL" | "SET_VARIABLE_MODE";
+  | "ON_KEY_DOWN" | "ON_MEDIA_HIT" | "ON_MEDIA_END" | "MOUSE_ENTER" | "MOUSE_LEAVE";
+export type ConnectionType = "NONE" | "INTERNAL_NODE" | "URL" | "BACK" | "CLOSE" | "SET_VARIABLE" | "UPDATE_MEDIA_RUNTIME" | "CONDITIONAL" | "SET_VARIABLE_MODE";
+/** UPDATE_MEDIA_RUNTIME's action (schema MediaAction). */
+export type MediaAction = "PLAY" | "PAUSE" | "TOGGLE_PLAY_PAUSE" | "MUTE" | "UNMUTE" | "TOGGLE_MUTE_UNMUTE" | "SKIP_FORWARD" | "SKIP_BACKWARD" | "SKIP_TO";
 export type NavigationType = "NAVIGATE" | "OVERLAY" | "SWAP" | "SWAP_STATE" | "SCROLL_TO";
 export type TransitionType =
   | "INSTANT_TRANSITION" | "DISSOLVE" | "FADE" | "SMART_ANIMATE" | "MAGIC_MOVE" | "SCROLL_ANIMATE"
@@ -39,6 +41,14 @@ export interface PrototypeAction {
   transitionPreserveScroll?: boolean;
   transitionResetScrollPosition?: boolean;
   transitionResetInteractiveComponents?: boolean;
+  /** "Reset video state" */
+  transitionResetVideoPosition?: boolean;
+  /** UPDATE_MEDIA_RUNTIME: what it does to the video `transitionNodeID` */
+  mediaAction?: MediaAction;
+  /** SKIP_TO: seconds */
+  mediaSkipToTime?: number;
+  /** SKIP_FORWARD / SKIP_BACKWARD: seconds */
+  mediaSkipByAmount?: number;
   overlayRelativePosition?: { x: number; y: number };
   extraScrollOffset?: { x: number; y: number };
   targetVariable?: { id: VariableRef };
@@ -67,6 +77,8 @@ export interface PrototypeInteraction {
     /** After delay, seconds */
     transitionTimeout?: number;
     keyTrigger?: { keyCodes?: number[]; triggerDevice?: string };
+    /** ON_MEDIA_HIT: the video's time, seconds */
+    mediaHitTime?: number;
     [other: string]: unknown;
   };
   actions?: PrototypeAction[];
@@ -102,6 +114,18 @@ export interface PrototypeFields {
   overlayBackgroundAppearance?: { backgroundType?: "NONE" | "SOLID_COLOR"; backgroundColor?: Color };
   scrollDirection?: ScrollDirection;
   scrollBehavior?: ScrollBehavior;
+  /** Prototype › Video (absent: all off) */
+  videoPlayback?: VideoPlayback;
+}
+
+/** Prototype › Video (schema VideoPlayback): Autoplay, Loop, the sound (muted). */
+export interface VideoPlayback {
+  autoplay?: boolean;
+  mediaLoop?: boolean;
+  muted?: boolean;
+  showControls?: boolean;
+  startTimeMs?: number;
+  endTimeMs?: number;
 }
 
 // ── GUIDs ─────────────────────────────────────────────────────────────────────
@@ -137,16 +161,39 @@ export const TRIGGERS: { value: InteractionType; label: string }[] = [
   { value: "AFTER_TIMEOUT", label: "After delay" },
 ];
 
+/** The video triggers, offered on a video (help: "available for any connection that begins on a video"). */
+export const VIDEO_TRIGGERS: { value: InteractionType; label: string }[] = [
+  { value: "ON_MEDIA_HIT", label: "When video hits" },
+  { value: "ON_MEDIA_END", label: "When video ends" },
+];
+
 export function triggerLabel(t: InteractionType | undefined): string {
   if (t === "MOUSE_IN") return "Mouse enter";
   if (t === "MOUSE_OUT") return "Mouse leave";
-  return TRIGGERS.find((x) => x.value === (t ?? "ON_CLICK"))?.label ?? "On click";
+  return [...TRIGGERS, ...VIDEO_TRIGGERS].find((x) => x.value === (t ?? "ON_CLICK"))?.label ?? "On click";
+}
+
+/** A video time as Figma's fields show it: m:ss (seconds with a fraction when there is one). */
+export function formatMediaTime(seconds: number | undefined): string {
+  const t = Math.max(0, seconds ?? 0);
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  const ss = Number.isInteger(s) ? String(s).padStart(2, "0") : s.toFixed(1).padStart(4, "0");
+  return `${m}:${ss}`;
+}
+
+/** "1:05", "65", "65.5", "0:03.5" → seconds; null when it isn't a time. */
+export function parseMediaTime(text: string): number | null {
+  const t = text.trim();
+  const m = /^(?:(\d+):)?(\d+(?:\.\d+)?)$/.exec(t);
+  if (!m) return null;
+  return (m[1] ? Number(m[1]) * 60 : 0) + Number(m[2]);
 }
 
 /** The panel's actions (one per menu entry): a connectionType, with a navigationType for node actions. */
 export type ActionKind =
   | "NAVIGATE" | "CHANGE_TO" | "BACK" | "SCROLL_TO" | "URL" | "OVERLAY" | "SWAP" | "CLOSE" | "SET_VARIABLE" | "SET_VARIABLE_MODE"
-  | "CONDITIONAL" | "NONE";
+  | "CONDITIONAL" | "VIDEO_PLAY" | "VIDEO_SOUND" | "VIDEO_SET_TIME" | "VIDEO_JUMP" | "NONE";
 
 export const ACTIONS: ({ value: ActionKind; label: string } | "-")[] = [
   { value: "NAVIGATE", label: "Navigate to" },
@@ -163,6 +210,61 @@ export const ACTIONS: ({ value: ActionKind; label: string } | "-")[] = [
   { value: "SET_VARIABLE_MODE", label: "Set variable mode" },
   { value: "CONDITIONAL", label: "Conditional" },
 ];
+
+/**
+ * The video actions (help.figma.com 360040035874), offered "for any interaction that ends on a video": one entry each,
+ * the choice inside it (Play video / Pause video / Toggle play/pause, …) a second menu.
+ */
+export const VIDEO_ACTIONS: { value: ActionKind; label: string }[] = [
+  { value: "VIDEO_PLAY", label: "Play/pause video" },
+  { value: "VIDEO_SOUND", label: "Mute/unmute video" },
+  { value: "VIDEO_SET_TIME", label: "Set to specific time" },
+  { value: "VIDEO_JUMP", label: "Jump forward/backward in time" },
+];
+
+/** Each video action's choices, in Figma's words. */
+export const MEDIA_CHOICES: Partial<Record<ActionKind, { value: MediaAction; label: string }[]>> = {
+  VIDEO_PLAY: [
+    { value: "PLAY", label: "Play video" },
+    { value: "PAUSE", label: "Pause video" },
+    { value: "TOGGLE_PLAY_PAUSE", label: "Toggle play/pause" },
+  ],
+  VIDEO_SOUND: [
+    { value: "MUTE", label: "Mute video" },
+    { value: "UNMUTE", label: "Unmute video" },
+    { value: "TOGGLE_MUTE_UNMUTE", label: "Toggle mute/unmute" },
+  ],
+  VIDEO_JUMP: [
+    { value: "SKIP_FORWARD", label: "Jump forward" },
+    { value: "SKIP_BACKWARD", label: "Jump backward" },
+  ],
+};
+
+export function mediaKind(m: MediaAction | undefined): ActionKind {
+  switch (m ?? "PLAY") {
+    case "MUTE":
+    case "UNMUTE":
+    case "TOGGLE_MUTE_UNMUTE":
+      return "VIDEO_SOUND";
+    case "SKIP_TO":
+      return "VIDEO_SET_TIME";
+    case "SKIP_FORWARD":
+    case "SKIP_BACKWARD":
+      return "VIDEO_JUMP";
+    default:
+      return "VIDEO_PLAY";
+  }
+}
+
+export const isVideoAction = (k: ActionKind): boolean => k === "VIDEO_PLAY" || k === "VIDEO_SOUND" || k === "VIDEO_SET_TIME" || k === "VIDEO_JUMP";
+
+/** The label of a video action's choice ("Play video", "Jump forward 5s", "Set to 0:10"). */
+export function mediaChoiceLabel(a: PrototypeAction): string {
+  const k = mediaKind(a.mediaAction);
+  if (k === "VIDEO_SET_TIME") return `Set to ${formatMediaTime(a.mediaSkipToTime)}`;
+  const label = MEDIA_CHOICES[k]?.find((c) => c.value === (a.mediaAction ?? "PLAY"))?.label ?? "Play video";
+  return k === "VIDEO_JUMP" ? `${label} ${a.mediaSkipByAmount ?? 0}s` : label;
+}
 
 export function actionKind(a: PrototypeAction | undefined): ActionKind {
   if (!a) return "NONE";
@@ -182,13 +284,14 @@ export function actionKind(a: PrototypeAction | undefined): ActionKind {
     case "SET_VARIABLE": return "SET_VARIABLE";
     case "SET_VARIABLE_MODE": return "SET_VARIABLE_MODE";
     case "CONDITIONAL": return "CONDITIONAL";
+    case "UPDATE_MEDIA_RUNTIME": return mediaKind(a.mediaAction);
     default: return "NONE";
   }
 }
 
 export function actionLabel(k: ActionKind): string {
   if (k === "NONE") return "None";
-  for (const a of ACTIONS) if (a !== "-" && a.value === k) return a.label;
+  for (const a of [...ACTIONS, ...VIDEO_ACTIONS]) if (a !== "-" && a.value === k) return a.label;
   return "None";
 }
 
@@ -231,6 +334,18 @@ export function actionOfKind(k: ActionKind, prev: PrototypeAction = {}): Prototy
     case "SET_VARIABLE": return { connectionType: "SET_VARIABLE" };
     case "SET_VARIABLE_MODE": return { connectionType: "SET_VARIABLE_MODE" };
     case "CONDITIONAL": return { connectionType: "CONDITIONAL", conditionalActions: [{ actions: [] }, { actions: [] }] };
+    case "VIDEO_PLAY":
+    case "VIDEO_SOUND":
+    case "VIDEO_SET_TIME":
+    case "VIDEO_JUMP": {
+      // On the same video as before when there was one.
+      const video = prev.connectionType === "UPDATE_MEDIA_RUNTIME" && prev.transitionNodeID ? { transitionNodeID: prev.transitionNodeID } : {};
+      const first: Record<string, MediaAction> = { VIDEO_PLAY: "PLAY", VIDEO_SOUND: "MUTE", VIDEO_SET_TIME: "SKIP_TO", VIDEO_JUMP: "SKIP_FORWARD" };
+      const a: PrototypeAction = { connectionType: "UPDATE_MEDIA_RUNTIME", ...video, mediaAction: first[k] };
+      if (k === "VIDEO_SET_TIME") a.mediaSkipToTime = 0;
+      if (k === "VIDEO_JUMP") a.mediaSkipByAmount = 5;
+      return a;
+    }
     default: return { connectionType: "NONE" };
   }
 }
@@ -402,6 +517,8 @@ export function withTrigger(i: PrototypeInteraction, t: InteractionType): Protot
   if (t === "AFTER_TIMEOUT") event.transitionTimeout = i.event?.transitionTimeout ?? 0.8;
   else delete event.transitionTimeout;
   if (t !== "ON_KEY_DOWN") delete event.keyTrigger;
+  if (t === "ON_MEDIA_HIT") event.mediaHitTime = i.event?.mediaHitTime ?? 0;
+  else delete event.mediaHitTime;
   return { ...i, event };
 }
 
@@ -413,6 +530,7 @@ export function interactionSummary(i: PrototypeInteraction, nameOf: (id: Guid) =
     if (key) trigger = `Key ${key}`;
   }
   if (i.event?.interactionType === "AFTER_TIMEOUT") trigger = `After ${Math.round((i.event.transitionTimeout ?? 0.8) * 1000)}ms`;
+  if (i.event?.interactionType === "ON_MEDIA_HIT") trigger = `When video hits ${formatMediaTime(i.event.mediaHitTime)}`;
   const a = i.actions?.[0];
   const k = actionKind(a);
   let action = actionLabel(k);
@@ -422,6 +540,8 @@ export function interactionSummary(i: PrototypeInteraction, nameOf: (id: Guid) =
     if (k === "OVERLAY") action = dest ? `Open ${nameOf(dest) ?? "overlay"}` : "Open overlay";
   } else if (k === "URL") {
     action = a?.connectionURL || "Open link";
+  } else if (a && isVideoAction(k)) {
+    action = mediaChoiceLabel(a);
   }
   if ((i.actions?.length ?? 0) > 1) action += ` +${(i.actions?.length ?? 1) - 1}`;
   return { trigger, action };

@@ -296,6 +296,10 @@ export class EngineExports {
   presentSetOptions = (h: number, options: Uint8Array): number =>
     this.withBytes([options], (p) => this.fn("present_set_options")(h, p[0], p[1]));
   presentState = (h: number): number => this.fn("present_state")(h);
+  presentMedia = (h: number): number => this.fn("present_media")(h);
+  presentMediaFrame = (
+    h: number, sess: number, local: number, bitmapId: number, width: number, height: number, time: number, duration: number, flags: number, seekSerial: number,
+  ): number => this.fn("present_media_frame")(h, sess, local, bitmapId, width, height, time, duration, flags, seekSerial);
 
   // ---- Events and diagnostics ----
   hasEvents = (h: number): boolean => (this.fn("has_events")(h) >>> 0) !== 0;
@@ -325,5 +329,5 @@ export const USED_EXPORTS = [
   "image_add_bitmap", "image_add_rgba", "image_failed",
   "vector_edit", "vector_edit_end", "vector_edit_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
   "set_prototype_mode", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
-  "present_set_options", "present_state",
+  "present_set_options", "present_state", "present_media", "present_media_frame",
 ].map((name) => `engine_${name}`);

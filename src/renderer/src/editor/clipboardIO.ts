@@ -15,7 +15,7 @@ import type { EditorController } from "./controller";
 import { engineCall } from "./engineCompat";
 import { archiveMessage, encodeClipboard, encodeClipboardKiwi, messageAt, readClipboard, type ClipboardPayload } from "./model/clipboard";
 import { isEditable } from "./keyboard";
-import { isImageFile } from "./images";
+import { isMediaFile } from "./images";
 import { frameAt, placeImages } from "./placeImages";
 import { movedAmong } from "./libraries";
 import { showToast } from "@/ds";
@@ -116,7 +116,7 @@ export function attachClipboard(ed: EditorController): () => void {
     const message = readClipboard((type) => data.getData(type)) ?? (data.types.length === 0 && ed.lastCopy ? readClipboard((t) => ed.lastCopy?.[t]) : null);
     if (!message) {
       // An image on the clipboard (a screenshot, a copied file): placed like a paste (desktop.md §13 step 4).
-      const files = [...data.files].filter(isImageFile);
+      const files = [...data.files].filter(isMediaFile);
       if (!files.length) return; // SVG, text: later (desktop.md §13 steps 3, 5, 6)
       e.preventDefault();
       void ed.images.import(files).then((images) => {

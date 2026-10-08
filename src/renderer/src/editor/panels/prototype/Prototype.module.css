@@ -8,6 +8,14 @@
     padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
   }
   .grow { flex: 1 1 auto; min-width: 0; }
+  /* Video: Autoplay, then the Loop and Sound toggles in the action column */
+  .videoRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+  }
   .note {
     padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left);
     color: var(--figma-color-text-secondary);

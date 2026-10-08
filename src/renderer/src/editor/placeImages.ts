@@ -13,7 +13,7 @@
 import type { Guid, Message, NodeChange, Vector } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { hasCommand } from "./engineCompat";
-import { imagePaint } from "./model/paints";
+import { DEFAULT_VIDEO_PLAYBACK, mediaPaint } from "./model/paints";
 import type { ImportedImage } from "./images";
 
 /** The gap between images placed together (unverified against Figma). */
@@ -34,8 +34,10 @@ export function imageRectangles(images: readonly ImportedImage[], origin: Vector
       parentIndex: { guid: "4294967294:0", position: String.fromCharCode(33 + i) },
       size: { x: w, y: h },
       transform: { m00: 1, m01: 0, m02: Math.round(x), m10: 0, m11: 1, m12: Math.round(origin.y) },
-      // The paint carries the image's ThumbHash and low-res copy (progressive display) when the import made them.
-      fillPaints: [imagePaint(img.hash, img, img.name)],
+      // The paint carries the image's ThumbHash and low-res copy (progressive display) when the import made them; a
+      // video's is a VIDEO paint over its poster frame, and the layer gets Prototype › Video.
+      fillPaints: [mediaPaint(img)],
+      ...(img.video ? { videoPlayback: { ...DEFAULT_VIDEO_PLAYBACK } } : {}),
       strokeWeight: 1,
       strokeAlign: "INSIDE",
     });

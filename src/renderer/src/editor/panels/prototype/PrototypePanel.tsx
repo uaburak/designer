@@ -4,13 +4,16 @@
  *   (the page's flow starting points; a row selects its frame, ▶ presents it);
  * - a top-level frame: Flow starting point (+ / its name and description / −), Interactions, Scroll behavior
  *   (Overflow);
- * - any other layer: Interactions, Scroll behavior (Position; Overflow for frames).
+ * - any other layer: Interactions, Scroll behavior (Position; Overflow for frames);
+ * - a video (a layer with a video fill): Video (help.figma.com 8878274530455 "Video properties": "Check the box to
+ *   autoplay video", "Click the Loop icon to loop video", "Click the Sound icon to turn the video's default sound
+ *   setting on or off") — the schema's videoPlayback.
  * An interaction row ("On click · Details") opens Interaction details (InteractionDetails.tsx). Everything is stored in
  * the schema's prototype fields (prototypeInteractions, prototypeStartingPoint, prototypeDevice,
  * prototypeBackgroundColor, scrollDirection, scrollBehavior), so it round-trips with .fig files.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ColorInput, Icon, IconButton, MIXED, PanelSection, SegmentedControl, Select, TextInput, cx } from "@/ds";
+import { Checkbox, ColorInput, Icon, IconButton, MIXED, PanelSection, SegmentedControl, Select, TextInput, ToggleIconButton, cx } from "@/ds";
 import type { Color, Guid, NodeChange, NodeFields } from "@/engine/codec";
 import { useCurrentPage } from "@/engine/hooks";
 import { keyBetween } from "../../../../../shared/schema/fractionalIndex";
@@ -37,7 +40,7 @@ import {
 } from "../../model/prototype";
 import { useSelectedNodes, type PanelNode } from "../design/shared";
 import { present } from "../../present";
-import { InteractionDetails } from "./InteractionDetails";
+import { InteractionDetails, hasVideoFill } from "./InteractionDetails";
 import styles from "./Prototype.module.css";
 
 export type ProtoNode = PanelNode & PrototypeFields;
@@ -238,6 +241,7 @@ function Selected({
     <>
       {one && topLevel && isFrame(one) && <FlowSection frame={one} frames={frames} />}
       <InteractionsSection nodes={nodes} frames={frames} onOpen={onOpen} openIndex={openIndex} />
+      {nodes.every((n) => hasVideoFill(n as never)) && <VideoSection nodes={nodes} />}
       <ScrollSection nodes={nodes} topLevel={topLevel} isFrame={nodes.every(isFrame)} />
     </>
   );
@@ -360,6 +364,36 @@ function triggerIcon(i: PrototypeInteraction) {
     default:
       return "24.interaction.click.small" as const;
   }
+}
+
+/** Prototype › Video: what the video does when its frame is shown (Autoplay, Loop, the sound). */
+function VideoSection({ nodes }: { nodes: ProtoNode[] }) {
+  const ed = useEditor();
+  const all = (f: (n: ProtoNode) => boolean): boolean | typeof MIXED => {
+    const v = new Set(nodes.map(f));
+    return v.size === 1 ? nodes.map(f)[0] : MIXED;
+  };
+  const autoplay = all((n) => !!n.videoPlayback?.autoplay);
+  const loop = all((n) => !!n.videoPlayback?.mediaLoop);
+  const muted = all((n) => !!n.videoPlayback?.muted);
+  const set = (patch: Partial<NonNullable<ProtoNode["videoPlayback"]>>, label: string) =>
+    ed.batch(label, () => {
+      for (const n of nodes) ed.engine.setProps([n.guid], protoFields({ videoPlayback: { ...(n.videoPlayback ?? {}), ...patch } }));
+    });
+  return (
+    <PanelSection title="Video">
+      <div className={styles.videoRow} data-video-settings>
+        <Checkbox label="Autoplay" checked={autoplay} onChange={(c) => set({ autoplay: c }, "Video autoplay")} className={styles.grow} />
+        <ToggleIconButton icon="24.loop" label="Loop" pressed={loop} onPressedChange={(on) => set({ mediaLoop: on }, "Video loop")} />
+        <ToggleIconButton
+          icon={muted === true ? "24.sound.off" : "24.sound"}
+          label={muted === true ? "Sound off" : "Sound on"}
+          pressed={muted === MIXED ? MIXED : !muted}
+          onPressedChange={(on) => set({ muted: !on }, "Video sound")}
+        />
+      </div>
+    </PanelSection>
+  );
 }
 
 function ScrollSection({ nodes, topLevel, isFrame }: { nodes: ProtoNode[]; topLevel: boolean; isFrame: boolean }) {

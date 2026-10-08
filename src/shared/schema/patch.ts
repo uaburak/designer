@@ -354,10 +354,10 @@ export class NodeTable {
     return t;
   }
 
-  /** SHA-1 hex of every image referenced (`Image.hash`, paints and thumbnails at any depth): the file's blob refs. */
+  /** SHA-1 hex of every image and video referenced (`Image.hash` / `Video.hash`, paints and thumbnails at any depth): the file's blob refs. */
   imageHashes(): Set<string> {
     const out = new Set<string>();
-    const targets = new Set(["Image"]);
+    const targets = new Set(["Image", "Video"]);
     for (const n of this.nodes.values()) {
       walkValue(this.model, "NodeChange", n, targets, (_def, v) => {
         if (v.hash instanceof Uint8Array && v.hash.length) out.add(toHex(v.hash));
@@ -370,7 +370,7 @@ export class NodeTable {
 /** Every image hash (hex) a Message references. */
 export function messageImageHashes(message: Message, model: SchemaModel = MODEL): Set<string> {
   const out = new Set<string>();
-  const targets = new Set(["Image"]);
+  const targets = new Set(["Image", "Video"]);
   for (const n of message.nodeChanges ?? []) {
     walkValue(model, "NodeChange", n, targets, (_def, v) => {
       if (v.hash instanceof Uint8Array && v.hash.length) out.add(toHex(v.hash));

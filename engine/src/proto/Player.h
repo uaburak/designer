@@ -57,6 +57,9 @@ class Player {
   void cycleScale();
   void setHints(bool on) { hints_ = on; }
   bool hints() const { return hints_; }
+  // "Enable Figma shortcuts" (help "Play your prototypes"): off, only the prototype's own Key / Gamepad triggers take keys.
+  void setShortcuts(bool on) { shortcuts_ = on; }
+  bool shortcuts() const { return shortcuts_; }
   // With a device: Responsive (true) or Fixed size, and Show device frame.
   void setResponsive(bool on);
   bool responsive() const { return responsive_; }
@@ -374,6 +377,7 @@ class Player {
   void dropGhost(Guid ghost);
   void dropGhosts();
   bool hints_ = true;
+  bool shortcuts_ = true;
   double hintsAt_ = -1e9;  // hotspot hints flash (ms)
   bool hintsPending_ = false;
   View view_;

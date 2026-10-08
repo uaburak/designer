@@ -97,6 +97,10 @@ export const paintThumbHash = (p: FullPaint): Uint8Array | null => thumbHashByte
 /** The paint's low-res copy (`imageThumbnail.hash`, hex), or null. */
 export const paintThumbnailHash = (p: FullPaint): string | null => hashHex((p.imageThumbnail as { hash?: ImageHash } | undefined)?.hash);
 
+/** A VIDEO paint's video file (Paint.video.hash, the store's blob), as hex. */
+export const paintVideoHash = (p: FullPaint): string | null =>
+  p.type === "VIDEO" ? hashHex((p as { video?: { hash?: ImageHash } }).video?.hash) : null;
+
 /** An IMAGE paint with an image but without a ThumbHash or a low-res copy: a candidate for the write-back. */
 export const paintLacksProgressive = (p: FullPaint): boolean => isImageLike(p) && !!paintImageHash(p) && (!paintThumbHash(p) || !paintThumbnailHash(p));
 
@@ -128,6 +132,25 @@ export function imagePaint(hex: string, size: { width: number; height: number } 
   };
 }
 
+/**
+ * A new VIDEO paint (help.figma.com 8878274530455: "videos are a type of fill"): the video file (`video.hash`) and its
+ * poster frame as the paint's image (what the canvas, exports and thumbnails draw — Figma stores one too), Fill mode.
+ */
+export function videoPaint(videoHex: string, poster: { hash: string; width: number; height: number } & Partial<ProgressiveImage>, name?: string): FullPaint {
+  return { ...imagePaint(poster.hash, poster, name), type: "VIDEO", video: { hash: hashBytes(videoHex) } } as FullPaint;
+}
+
+/** The paint for an import: a video's VIDEO paint, else an IMAGE paint. */
+export function mediaPaint(img: { hash: string; width: number; height: number; name?: string; video?: string } & Partial<ProgressiveImage>): FullPaint {
+  return img.video ? videoPaint(img.video, img, img.name) : imagePaint(img.hash, img, img.name);
+}
+
+/**
+ * Prototype › Video for a placed video: autoplay, loop and sound on (unverified: Design+Code's Figma handbook; the
+ * help doesn't give Figma's defaults).
+ */
+export const DEFAULT_VIDEO_PLAYBACK = { autoplay: true, mediaLoop: true, muted: false } as const;
+
 // ---- The DS picker's paint ---------------------------------------------------------------------
 
 const toPickerScale = (m: SchemaScaleMode | undefined): PickerPaint["imageScaleMode"] => (m === "STRETCH" ? "CROP" : m ?? "FILL");
@@ -135,7 +158,8 @@ const toSchemaScale = (m: PickerPaint["imageScaleMode"]): SchemaScaleMode => (m 
 
 /** The picker's view of a paint (its other fields are the editor's to keep). */
 export function toPicker(p: FullPaint): PickerPaint {
-  const type = (["SOLID", "GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND", "IMAGE"].includes(p.type) ? p.type : "SOLID") as PaintType;
+  // A video fill is edited as its poster image (scale mode, adjustments); fromPicker keeps it a video.
+  const type = (p.type === "VIDEO" ? "IMAGE" : ["SOLID", "GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND", "IMAGE"].includes(p.type) ? p.type : "SOLID") as PaintType;
   const blendMode = p.blendMode && p.blendMode !== "PASS_THROUGH" ? p.blendMode : undefined;
   const base: PickerPaint = { type, opacity: p.opacity ?? 1, ...(blendMode ? { blendMode } : {}) };
   if (type === "SOLID") return { ...base, color: { ...(p.color ?? { r: 0, g: 0, b: 0, a: 1 }), a: 1 } };
@@ -148,7 +172,9 @@ export function toPicker(p: FullPaint): PickerPaint {
  * transform, an image's Fill mode) and drops what the old type had; a same-type edit keeps every other field.
  */
 export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
-  const out: FullPaint = { ...base, type: next.type, opacity: next.opacity ?? base.opacity ?? 1 };
+  const keepVideo = base.type === "VIDEO" && next.type === "IMAGE";
+  const out: FullPaint = { ...base, type: keepVideo ? "VIDEO" : next.type, opacity: next.opacity ?? base.opacity ?? 1 };
+  if (!keepVideo && base.type === "VIDEO") delete (out as { video?: unknown }).video;
   if (next.blendMode) out.blendMode = next.blendMode;
   if (next.type === "SOLID") {
     out.color = next.color ? { ...next.color, a: 1 } : (base.color ?? { r: 0, g: 0, b: 0, a: 1 });
@@ -159,7 +185,7 @@ export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
     out.imageScaleMode = toSchemaScale(next.imageScaleMode);
     delete out.stops;
     delete out.color;
-    if (base.type !== "IMAGE") out.transform = IDENTITY_MATRIX;
+    if (base.type !== "IMAGE" && !keepVideo) out.transform = IDENTITY_MATRIX;
   } else {
     out.stops = (next.stops ?? []).map((s) => ({ color: { ...s.color }, position: s.position }));
     delete out.color;
@@ -181,6 +207,7 @@ const TYPE_LABEL: Record<string, string> = {
   GRADIENT_ANGULAR: "Angular",
   GRADIENT_DIAMOND: "Diamond",
   IMAGE: "Image",
+  VIDEO: "Video",
 };
 
 /** The row's text: the hex for a solid, Figma's type name otherwise ("Linear", "Image"). */
@@ -190,7 +217,7 @@ export function paintLabel(p: FullPaint): string {
 
 /** The swatch's CSS background: the colour, the gradient, or the image (its object URL) covering the chit. */
 export function paintSwatch(p: FullPaint, imageUrl?: string | null): string {
-  if (p.type === "IMAGE") return imageUrl ? `center / cover no-repeat url("${imageUrl}")` : "var(--figma-color-bg-tertiary)";
+  if (isImageLike(p)) return imageUrl ? `center / cover no-repeat url("${imageUrl}")` : "var(--figma-color-bg-tertiary)";
   if (isGradientType(p.type)) return paintCss(toPicker(p));
   return colorToHex(p.color ?? { r: 0, g: 0, b: 0 });
 }

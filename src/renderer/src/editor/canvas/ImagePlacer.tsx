@@ -9,12 +9,13 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { showToast } from "@/ds";
 import type { Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
-import { isImageFile, type ImportedImage } from "../images";
-import { imagePaint } from "../model/paints";
+import { isMediaFile, VIDEO_ACCEPT, type ImportedImage } from "../images";
+import { DEFAULT_VIDEO_PLAYBACK, mediaPaint } from "../model/paints";
 import { placeImages } from "../placeImages";
 import styles from "./ImagePlacer.module.css";
 
-const ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
+// "Place image/video" (help: "Use the Place image/video tool to add videos in bulk").
+const ACCEPT = `image/png,image/jpeg,image/gif,image/webp,${VIDEO_ACCEPT}`;
 
 /** Opens the system's file picker for images (resolves with what was chosen; nothing when cancelled). */
 export function pickImageFiles(multiple = true): Promise<File[]> {
@@ -47,14 +48,14 @@ export async function chooseAndPlaceImages(ed: EditorController): Promise<void> 
   const files = await pickImageFiles();
   if (!files.length || ed.engine.destroyed) return;
   const images = await ed.images.import(files);
-  if (!images.length) return void showToast({ message: "Couldn't read that image" });
+  if (!images.length) return void showToast({ message: "Couldn't read that file" });
   const targets = fillable(ed);
   const fills = Math.min(targets.length, images.length);
   if (fills) {
     ed.batch("Place image", () => {
       for (let i = 0; i < fills; i++) {
         const img = images[i];
-        ed.engine.setProps([targets[i].guid], { fillPaints: [imagePaint(img.hash, img, img.name) as Paint] });
+        ed.engine.setProps([targets[i].guid], { fillPaints: [mediaPaint(img) as Paint], ...(img.video ? { videoPlayback: { ...DEFAULT_VIDEO_PLAYBACK } } : {}) });
       }
     });
   }
@@ -71,7 +72,7 @@ export function attachImageDrop(ed: EditorController, area: HTMLElement): () => 
     e.dataTransfer.dropEffect = "copy";
   };
   const drop = (e: DragEvent) => {
-    const files = [...(e.dataTransfer?.files ?? [])].filter(isImageFile);
+    const files = [...(e.dataTransfer?.files ?? [])].filter(isMediaFile);
     if (!files.length) return;
     e.preventDefault();
     const r = (ed.canvas ?? area).getBoundingClientRect();

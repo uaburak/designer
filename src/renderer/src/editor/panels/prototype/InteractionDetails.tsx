@@ -4,7 +4,10 @@
  * (Instant, Dissolve, Smart animate, Move in / out, Push, Slide in / out; the direction; Animate matching layers;
  * easing and duration, a custom bezier's or spring's numbers), State management, and for overlays the destination
  * frame's own overlay settings (Position, Close when clicking outside, Add background behind overlay). "Add action"
- * appends one; a Conditional holds If / Else actions of its own.
+ * appends one; a Conditional holds If / Else actions of its own. Videos (help.figma.com 8878274530455): on a video
+ * the triggers add "When video hits" (a time) and "When video ends"; in a frame with videos the actions add
+ * "Play/pause video", "Mute/unmute video", "Set to specific time" and "Jump forward/backward in time" (their video and
+ * choice), and a Navigate to a frame with a video has "Reset video state". Scroll to has its X / Y offset.
  */
 import { useMemo, useRef } from "react";
 import { Button, Checkbox, ColorInput, IconButton, NumericInput, Popover, SegmentedControl, Select, TextInput, type ChangeInfo } from "@/ds";
@@ -19,8 +22,14 @@ import {
   DIRECTIONS,
   EASINGS,
   OVERLAY_POSITIONS,
+  MEDIA_CHOICES,
   TRIGGERS,
+  VIDEO_ACTIONS,
+  VIDEO_TRIGGERS,
   actionKind,
+  formatMediaTime,
+  isVideoAction,
+  parseMediaTime,
   actionOfKind,
   animates,
   animationOf,
@@ -40,6 +49,7 @@ import {
   type Direction,
   type EasingType,
   type InteractionType,
+  type MediaAction,
   type OverlayPositionType,
   type PrototypeAction,
   type PrototypeInteraction,
@@ -47,6 +57,26 @@ import {
 import { ancestorsOf, protoFields, usePageFrames, type ProtoNode } from "./PrototypePanel";
 import { ExpressionField } from "./ExpressionField";
 import styles from "./Prototype.module.css";
+
+/** A layer with a visible VIDEO fill (a video, help: "videos are a type of fill"). */
+export const hasVideoFill = (n: { fillPaints?: { type?: string; visible?: boolean }[] } | null | undefined): boolean =>
+  !!n?.fillPaints?.some((p) => p.type === "VIDEO" && p.visible !== false);
+
+/** The video layers of the top-level frame `source` is in (the destinations of the video actions). */
+function videoLayersOf(ed: EditorController, source: Guid): { value: string; label: string }[] {
+  const chain = ancestorsOf(ed, source);
+  const top = chain.length ? chain[chain.length - 1].guid : source;
+  return ed.engine
+    .readNodes([top], { subtree: true, fields: ["name", "fillPaints"] })
+    .filter((x) => hasVideoFill(x as never))
+    .slice(0, 300)
+    .map((x) => ({ value: x.guid, label: x.name ?? "" }));
+}
+
+/** Whether a frame holds a video (Reset video state only shows then). */
+function frameHasVideo(ed: EditorController, frame: Guid): boolean {
+  return ed.engine.readNodes([frame], { subtree: true, fields: ["fillPaints"] }).some((x) => hasVideoFill(x as never));
+}
 
 const DIRECTION_ICON: Record<Direction, "24.arrow.left" | "24.arrow.right" | "16.arrow.up" | "16.arrow.down"> = {
   LEFT: "24.arrow.left",
@@ -78,7 +108,7 @@ export function InteractionDetails({ node, index, anchor, onClose }: { node: Gui
   return (
     <Popover anchor={anchor} title="Interaction details" onClose={onClose} width={280}>
       <div className={styles.details} data-interaction-details>
-        <TriggerRow interaction={interaction} onChange={write} />
+        <TriggerRow interaction={interaction} video={hasVideoFill(n as never)} onChange={write} />
         {actions.map((a, k) => (
           <ActionEditor
             key={k}
@@ -99,9 +129,10 @@ export function InteractionDetails({ node, index, anchor, onClose }: { node: Gui
   );
 }
 
-function TriggerRow({ interaction, onChange }: { interaction: PrototypeInteraction; onChange: (i: PrototypeInteraction, label?: string, info?: ChangeInfo) => void }) {
+function TriggerRow({ interaction, video, onChange }: { interaction: PrototypeInteraction; video: boolean; onChange: (i: PrototypeInteraction, label?: string, info?: ChangeInfo) => void }) {
   const t = interaction.event?.interactionType ?? "ON_CLICK";
   const recorder = useRef<HTMLButtonElement>(null);
+  const videoTrigger = t === "ON_MEDIA_HIT" || t === "ON_MEDIA_END";
   return (
     <>
       <div className={styles.row}>
@@ -109,10 +140,24 @@ function TriggerRow({ interaction, onChange }: { interaction: PrototypeInteracti
           label="Trigger"
           className={styles.grow}
           value={t === "MOUSE_IN" ? "MOUSE_ENTER" : t === "MOUSE_OUT" ? "MOUSE_LEAVE" : t}
-          options={TRIGGERS}
+          options={video || videoTrigger ? [...TRIGGERS, "-" as const, ...VIDEO_TRIGGERS] : TRIGGERS}
           onChange={(v) => onChange(withTrigger(interaction, v as InteractionType), "Edit trigger")}
         />
       </div>
+      {t === "ON_MEDIA_HIT" && (
+        <div className={styles.labelled}>
+          <span className={styles.label}>Time</span>
+          <TextInput
+            label="Time"
+            className={styles.grow}
+            value={formatMediaTime(interaction.event?.mediaHitTime)}
+            onCommit={(text) => {
+              const s = parseMediaTime(text);
+              if (s !== null) onChange({ ...interaction, event: { ...interaction.event, mediaHitTime: s } }, "Edit trigger");
+            }}
+          />
+        </div>
+      )}
       {t === "AFTER_TIMEOUT" && (
         <div className={styles.labelled}>
           <span className={styles.label}>Delay</span>
@@ -159,6 +204,7 @@ function useDestinations(source: Guid, kind: ActionKind): { value: string; label
   return useMemo(() => {
     if (kind === "NAVIGATE" || kind === "OVERLAY" || kind === "SWAP") return frames.filter((f) => !f.isStateGroup).map((f) => ({ value: f.guid, label: f.name }));
     if (kind === "CHANGE_TO") return variantsFor(ed, source);
+    if (isVideoAction(kind)) return videoLayersOf(ed, source);
     if (kind === "SCROLL_TO") {
       const chain = ancestorsOf(ed, source);
       const top = chain.length ? chain[chain.length - 1].guid : source;
@@ -215,10 +261,19 @@ function ActionEditor({
   onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void;
   onRemove?: () => void;
 }) {
+  const ed = useEditor();
   const kind = actionKind(action);
   const dests = useDestinations(source, kind);
   const dest = guidOf(action.transitionNodeID);
-  const actionOptions = [{ value: "NONE", label: "None" }, "-" as const, ...ACTIONS.filter((a) => depth === 0 || a === "-" || a.value !== "CONDITIONAL")];
+  // The video actions: "available for any interaction that ends on a video" — offered where the frame has one.
+  const videos = useMemo(() => (ed.engine.destroyed ? [] : videoLayersOf(ed, source)), [ed, source]);
+  const actionOptions = [
+    { value: "NONE", label: "None" },
+    "-" as const,
+    ...ACTIONS.filter((a) => depth === 0 || a === "-" || a.value !== "CONDITIONAL"),
+    ...(videos.length || isVideoAction(kind) ? ["-" as const, ...VIDEO_ACTIONS] : []),
+  ];
+  const destHasVideo = kind === "NAVIGATE" && !!dest && frameHasVideo(ed, dest);
   return (
     <div className={styles.actionBlock} data-action={kind}>
       <div className={styles.row}>
@@ -238,6 +293,82 @@ function ActionEditor({
               else next.transitionNodeID = guidJson(v);
               onChange(next, "Edit destination");
             }}
+          />
+        </div>
+      )}
+      {isVideoAction(kind) && (
+        <>
+          <div className={styles.row}>
+            <Select
+              label="Video"
+              className={styles.grow}
+              value={dest ?? "NONE"}
+              options={[{ value: "NONE", label: "Choose video" }, ...(dests.length ? ["-" as const] : []), ...dests]}
+              onChange={(v) => {
+                const next = { ...action };
+                if (v === "NONE") delete next.transitionNodeID;
+                else next.transitionNodeID = guidJson(v);
+                onChange(next, "Edit destination");
+              }}
+            />
+          </div>
+          {MEDIA_CHOICES[kind] && (
+            <div className={styles.row}>
+              <Select
+                label={kind === "VIDEO_JUMP" ? "Direction" : "Video action"}
+                className={styles.grow}
+                value={action.mediaAction ?? "PLAY"}
+                options={MEDIA_CHOICES[kind]!}
+                onChange={(v) => onChange({ ...action, mediaAction: v as MediaAction }, "Edit action")}
+              />
+              {kind === "VIDEO_JUMP" && (
+                <NumericInput
+                  label="Seconds"
+                  className={styles.duration}
+                  value={action.mediaSkipByAmount ?? 0}
+                  unit="s"
+                  min={0}
+                  precision={1}
+                  onChange={(v, info) => onChange({ ...action, mediaSkipByAmount: v }, "Edit action", info)}
+                />
+              )}
+            </div>
+          )}
+          {kind === "VIDEO_SET_TIME" && (
+            <div className={styles.labelled}>
+              <span className={styles.label}>Time</span>
+              <TextInput
+                label="Time"
+                className={styles.grow}
+                value={formatMediaTime(action.mediaSkipToTime)}
+                onCommit={(text) => {
+                  const s = parseMediaTime(text);
+                  if (s !== null) onChange({ ...action, mediaSkipToTime: s }, "Edit action");
+                }}
+              />
+            </div>
+          )}
+        </>
+      )}
+      {kind === "SCROLL_TO" && (
+        // Scroll to's offset (extraScrollOffset): how far past the destination's top-left the frame scrolls.
+        <div className={styles.labelled}>
+          <span className={styles.label}>Offset</span>
+          <NumericInput
+            label="X offset"
+            prefix="X"
+            className={styles.grow}
+            value={action.extraScrollOffset?.x ?? 0}
+            precision={0}
+            onChange={(v, info) => onChange({ ...action, extraScrollOffset: { x: v, y: action.extraScrollOffset?.y ?? 0 } }, "Edit offset", info)}
+          />
+          <NumericInput
+            label="Y offset"
+            prefix="Y"
+            className={styles.grow}
+            value={action.extraScrollOffset?.y ?? 0}
+            precision={0}
+            onChange={(v, info) => onChange({ ...action, extraScrollOffset: { x: action.extraScrollOffset?.x ?? 0, y: v } }, "Edit offset", info)}
           />
         </div>
       )}
@@ -269,6 +400,11 @@ function ActionEditor({
               onChange={(c) => onChange({ ...action, transitionResetInteractiveComponents: c }, "Edit interaction")}
             />
           </div>
+          {(destHasVideo || action.transitionResetVideoPosition) && (
+            <div className={styles.checkRow}>
+              <Checkbox label="Reset video state" checked={!!action.transitionResetVideoPosition} onChange={(c) => onChange({ ...action, transitionResetVideoPosition: c }, "Edit interaction")} />
+            </div>
+          )}
         </div>
       )}
     </div>

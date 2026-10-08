@@ -71,4 +71,27 @@ describe("prototype expressions", () => {
     }
     expect(formatExpression({ value: { alias: { guid: { sessionID: 9, localID: 9 } } }, dataType: "ALIAS" }, nameOf)).toBe("?");
   });
+
+  it("reads `name:mode` as the variable's value in that mode (VAR_MODE_LOOKUP) and writes it back", () => {
+    const withModes = [
+      { id: "1:1", name: "count", modes: [{ id: "5:1", name: "Light" }, { id: "5:2", name: "Dark mode" }] },
+      { id: "1:2", name: "is open" },
+    ];
+    const r = parseExpression("count:Dark mode + 1", withModes);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const plus = fnOf(r.data);
+    expect(plus.expressionFunction).toBe("ADDITION");
+    const lookup = fnOf(plus.expressionArguments[0]);
+    expect(lookup.expressionFunction).toBe("VAR_MODE_LOOKUP");
+    expect(lookup.expressionArguments).toEqual([
+      { value: { alias: { guid: { sessionID: 1, localID: 1 } } }, dataType: "ALIAS" },
+      { value: { textValue: "5:2" }, dataType: "STRING" },
+    ]);
+    const modeName = (id: string) => withModes[0].modes!.find((m) => m.id === id)?.name ?? null;
+    expect(formatExpression(r.data, nameOf, modeName)).toBe("count:Dark mode + 1");
+    const bad = parseExpression("count:Sepia", withModes);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toBe("“count” has no such mode");
+  });
 });

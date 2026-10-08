@@ -20,7 +20,9 @@ import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixedPaints } from "../../model/mixed";
-import { fromPicker, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, paintImageHash, paintLabel, paintSwatch, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
+import { fromPicker, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
+import { formatMediaTime } from "../../model/prototype";
+import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
 import { pickImageFiles } from "../../canvas/ImagePlacer";
 import { startGradientEdit } from "../../vectorEdit";
@@ -151,13 +153,88 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
   );
 }
 
-/** "Choose image…": a new image into the paint (its scale mode and adjustments kept). */
-async function chooseImageFor(ed: EditorController, apply: (p: Pick<FullPaint, "image" | "originalImageWidth" | "originalImageHeight">) => void): Promise<void> {
+/**
+ * "Choose image…": a new image into the paint (its scale mode and adjustments kept) — or a video (help: "Use the video
+ * importer from the fill color picker"), which makes it a VIDEO paint over the video's poster frame.
+ */
+async function chooseImageFor(ed: EditorController, apply: (p: Partial<FullPaint>, drop?: "video") => void): Promise<void> {
   const files = await pickImageFiles(false);
   if (!files.length || ed.engine.destroyed) return;
   const [img] = await ed.images.import(files);
   if (!img) return;
-  apply({ image: { hash: hashBytes(img.hash), name: img.name }, originalImageWidth: img.width, originalImageHeight: img.height });
+  const image = { image: { hash: hashBytes(img.hash), name: img.name }, originalImageWidth: img.width, originalImageHeight: img.height };
+  if (img.video) apply({ ...image, type: "VIDEO", video: { hash: hashBytes(img.video) } } as Partial<FullPaint>);
+  else apply({ ...image, type: "IMAGE" }, "video");
+}
+
+/**
+ * A video fill's preview in the picker (help: "From the Fill section, you can play and preview your video fill, jump
+ * to a specific timestamp, or scrub through the video"): play / pause, a scrubber and the time. Nothing it does is
+ * stored.
+ */
+function VideoPreview({ hash }: { hash: string }) {
+  const ed = useEditor();
+  const video = useRef<HTMLVideoElement>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  useEffect(() => {
+    let made: string | null = null;
+    let live = true;
+    void ed.images.bytes(hash).then((bytes) => {
+      if (!live || !bytes) return;
+      made = URL.createObjectURL(new Blob([bytes as BlobPart], { type: sniffVideoMime(bytes) || "video/mp4" }));
+      setUrl(made);
+    });
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [ed, hash]);
+  const toggle = () => {
+    const v = video.current;
+    if (!v) return;
+    if (v.paused) void v.play().catch(() => {});
+    else v.pause();
+  };
+  return (
+    <div className={styles.videoPreview} data-video-preview>
+      {url && (
+        <video
+          ref={video}
+          className={styles.videoPreviewMedia}
+          src={url}
+          muted
+          playsInline
+          preload="auto"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+          onLoadedMetadata={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)}
+        />
+      )}
+      <div className={styles.videoPreviewBar}>
+        <IconButton icon={playing ? "24.pause" : "24.play"} label={playing ? "Pause" : "Play"} onClick={toggle} disabled={!url} />
+        <input
+          type="range"
+          aria-label="Scrub video"
+          className={styles.slider}
+          min={0}
+          max={duration || 1}
+          step={0.01}
+          value={time}
+          style={{ ["--fill" as string]: `${duration ? (time / duration) * 100 : 0}%` }}
+          onChange={(e) => {
+            const t = Number(e.currentTarget.value);
+            setTime(t);
+            if (video.current) video.current.currentTime = t;
+          }}
+        />
+        <span className={styles.videoPreviewTime}>{`${formatMediaTime(Math.floor(time))} / ${formatMediaTime(Math.round(duration))}`}</span>
+      </div>
+    </div>
+  );
 }
 
 /** Under the image's scale mode: Rotate 90° and Figma's adjustment sliders (−100…100, 0 in the middle). */
@@ -311,8 +388,24 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
       stop={stop}
       onStopChange={setStop}
       imageUrl={ed.images.urlOf(paintImageHash(paint))}
-      onChooseImage={ed.images.store ? () => void chooseImageFor(ed, (img) => write({ ...paint, ...img }, { final: true, source: "pick" }, "Choose image")) : undefined}
-      imageControls={paint.type === "IMAGE" ? <ImageControls paint={paint} onChange={(next, info) => write(next, info, "Image adjustments")} /> : undefined}
+      onChooseImage={
+        ed.images.store
+          ? () =>
+              void chooseImageFor(ed, (img, drop) => {
+                const next = { ...paint, ...img } as FullPaint;
+                if (drop === "video") delete (next as { video?: unknown }).video;
+                write(next, { final: true, source: "pick" }, img.type === "VIDEO" ? "Choose video" : "Choose image");
+              })
+          : undefined
+      }
+      imageControls={
+        isImageLike(paint) ? (
+          <>
+            {paintVideoHash(paint) && <VideoPreview hash={paintVideoHash(paint)!} />}
+            <ImageControls paint={paint} onChange={(next, info) => write(next, info, "Image adjustments")} />
+          </>
+        ) : undefined
+      }
       onChange={(next: PickerPaint, info) => {
         let out = fromPicker(paint, next);
         // A new image fill without an image yet: Figma asks for one (the picker's "Choose image…").

@@ -56,6 +56,9 @@ export function createView(role: Role, windowId: string, tabId: string | null, q
       webviewTag: false,
       spellcheck: role !== "tabbar",
       backgroundThrottling: true,
+      // Prototypes' videos start by themselves, with sound when their Prototype › Video says so (a prototype tab opens
+      // without a click in its own page; Figma's desktop app plays them).
+      ...(role === "editor" ? { autoplayPolicy: "no-user-gesture-required" as const } : {}),
       v8CacheOptions: "bypassHeatCheck",
       // The theme before the first paint (boot.js reads it from the preload): preference and what it resolves to.
       additionalArguments: [`--designer-role=${role}`, `--designer-version=${app.getVersion()}`, `--designer-theme=${nativeTheme.themeSource}:${nativeTheme.shouldUseDarkColors ? "dark" : "light"}`],

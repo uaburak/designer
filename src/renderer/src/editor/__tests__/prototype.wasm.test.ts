@@ -14,6 +14,7 @@ import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { PROTOTYPE_DOCUMENT } from "../fixtures";
 import { liveInteractions, newInteraction, guidJson, type PrototypeFields } from "../model/prototype";
+import { paintVideoHash, videoPaint } from "../model/paints";
 import { protoFields } from "../panels/prototype/PrototypePanel";
 
 const wasm = fileURLToPath(new URL("../../engine/wasm/engine.wasm", import.meta.url));
@@ -158,6 +159,45 @@ describe("prototyping on the engine (wasm, headless)", () => {
     expect(s).toMatchObject({ deviceFrame: false, responsive: true });
     // Without its frame the screen can be drawn larger.
     expect(s.screenRect!.h).toBeGreaterThanOrEqual(framed.h);
+    engine.destroy();
+  });
+
+  it("plays a video: Prototype › Video, a video action, its report back, Enable Figma shortcuts", async () => {
+    const { ed, engine } = await editor();
+    // Next (2:4) becomes a video that toggles itself; Prototype › Video: autoplay, muted.
+    const poster = "ffeeddccbbaa99887766554433221100ffeeddcc";
+    const video = "00112233445566778899aabbccddeeff00112233";
+    const paint = videoPaint(video, { hash: poster, width: 327, height: 56 }, "Clip");
+    ed.setProps(
+      ["2:4"],
+      protoFields({
+        videoPlayback: { autoplay: true, mediaLoop: true, muted: true },
+        prototypeInteractions: [{ event: { interactionType: "ON_CLICK" }, actions: [{ connectionType: "UPDATE_MEDIA_RUNTIME", transitionNodeID: guidJson("2:4"), mediaAction: "TOGGLE_PLAY_PAUSE" }] }],
+      }),
+      "Video",
+    );
+    ed.setProps(["2:4"], { fillPaints: [paint as never] }, "Video");
+    const back = read(engine, "2:4")!;
+    expect(back.fillPaints?.[0]).toMatchObject({ type: "VIDEO" });
+    expect(paintVideoHash(back.fillPaints![0] as never)).toBe(video);
+    expect(back.videoPlayback).toMatchObject({ autoplay: true, mediaLoop: true, muted: true });
+    engine.setViewport(375, 812, 1, 375, 812);
+    expect(engine.presentStart({ page: "0:1", node: "2:1" })).toBe(Status.OK);
+    let media = engine.presentMedia();
+    expect(media).toEqual([expect.objectContaining({ id: "2:4", hash: video, playing: true, muted: true, loop: true, seek: null })]);
+    engine.presentPointer(PointerType.MOVE, 100, 740, 0, 0);
+    engine.presentPointer(PointerType.DOWN, 100, 740, 1, 0);
+    engine.presentPointer(PointerType.UP, 100, 740, 0, 0);
+    media = engine.presentMedia();
+    expect(media[0].playing).toBe(false);
+    expect(engine.presentMediaFrame("2:4", { time: 1.5, duration: 4, ended: false, seekSerial: 0 })).toBe(Status.OK);
+    expect(engine.presentMedia()[0]).toMatchObject({ time: 1.5, duration: 4 });
+    // Enable Figma shortcuts off: R no longer restarts (the prototype's own keys would still work).
+    engine.presentSetOptions({ shortcuts: false });
+    expect(engine.presentState().shortcuts).toBe(false);
+    expect(engine.presentKey("down", 82, 0)).toBe(false);
+    engine.presentSetOptions({ shortcuts: true });
+    expect(engine.presentKey("down", 82, 0)).toBe(true);
     engine.destroy();
   });
 

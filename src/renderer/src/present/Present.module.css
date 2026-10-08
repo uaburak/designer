@@ -52,7 +52,96 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .stage { position: relative; flex: 1 1 auto; min-height: 0; }
+  .body { display: flex; flex: 1 1 auto; min-height: 0; }
+  .stage { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
+  /* The <video> elements the browser plays (presentationVideos.ts): in the document, out of sight. */
+  .videos {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  /* Hide UI: the options in the corner bring it back. */
+  .corner {
+    position: absolute;
+    top: var(--ds-space-2);
+    right: var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-menu);
+  }
+
+  /* The flows sidebar (help: "show and hide the left sidebar, where you can select flows and view their descriptions") */
+  .sidebar {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    width: var(--ds-size-panel);
+    min-height: 0;
+    overflow-y: auto;
+    border-right: 1px solid var(--figma-color-border);
+    background: var(--figma-color-bg);
+  }
+  .sidebarHeader {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-space-4);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .sidebarEmpty {
+    margin: 0;
+    padding: 0 var(--ds-space-4);
+    color: var(--figma-color-text-secondary);
+  }
+  .flowList { margin: 0; padding: 0 var(--ds-space-2); list-style: none; }
+  .flowRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    width: 100%;
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-2) 0 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: left;
+    outline: none;
+  }
+  .flowRow svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .flowRow:hover { background: var(--figma-color-bg-hover); }
+  .flowRow[aria-current] { background: var(--figma-color-bg-selected); }
+  .flowRow[aria-current] svg { color: var(--figma-color-icon-brand); }
+  .flowRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .flowName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .flowDescription {
+    margin: 0;
+    padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-2) var(--ds-space-6);
+    color: var(--figma-color-text-secondary);
+    white-space: pre-wrap;
+  }
+
+  /* Keyboard shortcuts */
+  .keys { width: 100%; border-collapse: collapse; }
+  .keys td { height: var(--ds-size-control-large); padding: 0; }
+  .keyCaps { display: flex; justify-content: flex-end; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-control-large); }
+  .keyCaps kbd {
+    min-width: var(--ds-size-control);
+    padding: 0 var(--ds-space-1);
+    border-radius: var(--ds-radius-small);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: center;
+  }
+  .keysNote { margin: var(--ds-space-2) 0 0; color: var(--figma-color-text-secondary); }
   .canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
   .center {
     position: absolute;
