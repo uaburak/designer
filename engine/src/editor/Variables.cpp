@@ -750,7 +750,20 @@ Guid Editor::resolvedMode(Guid node, Guid set) const {
   Guid root = rootCollection(set);
   Guid ext = kNoGuid;
   Guid mode = modeFor(ctx, root, &ext);
-  if (root == set || ext == set) return mode;
+  if (ext == set) return mode;
+  if (root == set) {
+    // The extension's mode → its parent's, down to the root's.
+    for (Guid cur = ext; cur != kNoGuid && cur != root;) {
+      Guid next = kNoGuid, up = kNoGuid;
+      if (const Node* en = doc_.get(cur))
+        for (const VariableSetMode& m : en->props.asset().variableSetModes)
+          if (m.id == mode) next = m.parentMode, up = findCollection(m.parentSet);
+      if (next == kNoGuid) return doc_.get(root)->props.defaultMode();
+      mode = next;
+      cur = up;
+    }
+    return mode;
+  }
   // The extension's mode whose parent chain leads to `mode` of the root.
   std::vector<Guid> chain;
   for (Guid cur = set; cur != kNoGuid && cur != root && chain.size() < 16; cur = extensionParent(cur)) chain.push_back(cur);

@@ -131,6 +131,7 @@ else()
     tests/unit/scene.kiwi.test.cpp
     tests/unit/components.test.cpp
     tests/unit/variables.test.cpp
+    tests/unit/variables.extended.test.cpp
     tests/unit/libraries.test.cpp
     tests/unit/text.layout.test.cpp
     tests/unit/text.edit.test.cpp
