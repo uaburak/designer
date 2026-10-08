@@ -798,6 +798,36 @@ async function exportChecks(files) {
 // Prototyping (E8): the editor's fixture (src/renderer/src/editor/fixtures.ts PROTOTYPE_DOCUMENT) in prototype mode —
 // noodles and the flow label drawn by the engine —, then the presentation view on the same canvas: the flow's first
 // frame on the prototype background, a click navigating, an overlay over a dimmed screen, scrolling.
+// E9: the WebGPU device is lost mid-session (Figma's dynamic fallback): the session continues on WebGL2 in a fresh
+// canvas, which draws and takes input.
+async function fallbackChecks(files) {
+  const colours = () =>
+    page.evaluate(() => {
+      const c = document.getElementById("engine-canvas");
+      window.__designerEngine.renderNow(); // read in the same task: WebGL's canvas isn't preserved after it shows
+      const t = new OffscreenCanvas(c.width, c.height).getContext("2d");
+      t.drawImage(c, 0, 0);
+      const d = t.getImageData(0, 0, c.width, c.height).data;
+      const seen = new Set();
+      for (let i = 0; i < d.length; i += 4 * 61) seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+      return seen.size;
+    });
+  await engine(() => window.__designerEngine["x"].module.engineGpuDevice.destroy());
+  const moved = await page
+    .waitForFunction(() => window.__designerEngine.gfx === "webgl2", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  await settle();
+  const n = await colours();
+  const before = await engine(() => window.__designerEngine.getCamera());
+  await page.mouse.move(640, 400);
+  await page.mouse.wheel(0, 120);
+  await settle();
+  const after = await engine(() => window.__designerEngine.getCamera());
+  check("WebGPU device lost: the session continues on WebGL2", moved && n > 8, `${await engine(() => window.__designerEngine.gfx)}, ${n} colours on the new canvas`);
+  check("…and the new canvas takes input", after.y !== before.y || after.x !== before.x, `camera ${before.x.toFixed(0)},${before.y.toFixed(0)} → ${after.x.toFixed(0)},${after.y.toFixed(0)}`);
+  files.push(await shot("70-webgpu-fallback"));
+}
+
 async function e8Checks(files) {
   await engine(async (repo) => {
     const { PROTOTYPE_DOCUMENT } = await import(`/@fs${repo}/src/renderer/src/editor/fixtures.ts`);
@@ -1063,6 +1093,8 @@ try {
   await exportChecks(files);
   // E8.
   await e8Checks(files);
+  // E9.
+  if (gfx === "webgpu") await fallbackChecks(files);
 
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);
