@@ -14,4 +14,8 @@ namespace eng {
 // outermost unopened group (it is on the path above what was hit).
 Guid pick(const Document& doc, const std::vector<Guid>& path, const std::vector<Guid>& selection, bool deep);
 
+// Where the "top level" of a hit path is: past the sections it starts with (a section's children are top-level
+// layers, Figma), but never past its last node.
+size_t topLevelIndex(const Document& doc, const std::vector<Guid>& path);
+
 }  // namespace eng

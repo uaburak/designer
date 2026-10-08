@@ -93,6 +93,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommand(id, args);
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommand(id, args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
     // Inside an open transaction (a scrub in the variables table): applied live, one undo step at its commit.
@@ -191,6 +192,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommandState(id);
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommandState(id);
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
   if (derivedSelected && id != CommandId::UNDO && id != CommandId::REDO && id != CommandId::TOGGLE_VISIBLE && id != CommandId::TOGGLE_LOCK &&

@@ -1008,6 +1008,17 @@ class Editor : private LayoutHost, public TextLayouts {
   void selectAll();
   void selectInverse();
   Guid wrapSelection(const char* kind);  // "Group", "Frame", "Auto"
+  // Round 7 (editor/SelectionCommands.cpp).
+  Status selectionCommand(CommandId id, const CommandArgs& args);
+  uint32_t selectionCommandState(CommandId id) const;
+  void adoptIntoSection(Guid section);
+  Guid wrapInSection();
+  bool canRemoveKeepingContents(Guid id) const;
+  void removeKeepingContents();
+  std::vector<Guid> matchingLayers(const std::string& mode) const;
+  Status selectMatching(const std::string& mode);
+  void tidyUp();
+  Status zoomToSiblingFrame(int step);
   void ungroup();
   void duplicate();
   void flip(bool horizontal);

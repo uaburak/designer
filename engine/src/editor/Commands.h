@@ -130,6 +130,13 @@ enum class CommandId : uint32_t {
   MEASUREMENT_ADD = 220,                // args {from, to?, side, toSameSide?, inner?, outer?, freeText?, page?}; created: [id]
   MEASUREMENT_UPDATE = 221,             // args {id, freeText?, inner?, outer?, page?}
   MEASUREMENT_DELETE = 222,             // args {id, page?}
+  // Round 7 (branch r7-selection): selection and canvas commands (editor/SelectionCommands.cpp); 230-249.
+  WRAP_IN_SECTION = 230,                // "Wrap in new section" (⌘S in live Figma's context menu): canvas-level layers
+  REMOVE_KEEP_CONTENTS = 231,           // a section, frame or group removed, its layers kept where they are
+  SELECT_MATCHING = 232,                // args {mode?: "LAYERS" | "FILL" | "STROKE" | "EFFECT" | "TEXT" | "FONT" | "INSTANCE"}
+  TIDY_UP = 233,                        // ⌃⌥T
+  ZOOM_TO_NEXT_FRAME = 234,             // N
+  ZOOM_TO_PREVIOUS_FRAME = 235,         // ⇧N
 };
 
 // engine_command_state bits.

@@ -118,7 +118,9 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f)
     Mat2x3 m = doc.worldTransform(id);
     double unit = std::sqrt(std::fabs(m.determinant()));
     double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
-    bool topLevel = n->props.parentIndex.guid == page;
+    // Top-level: on the page, or in a section (a section's frames are hit in their whole box, like the page's).
+    const Node* parent = doc.get(n->props.parentIndex.guid);
+    bool topLevel = n->props.parentIndex.guid == page || (parent && parent->props.type == NodeType::SECTION);
     if (!hitsNode(doc, id, m.inverse().apply(world), slop, topLevel)) continue;
     std::vector<Guid> path = doc.pathFromPage(id);
     for (size_t i = 0; i < path.size(); i++) {

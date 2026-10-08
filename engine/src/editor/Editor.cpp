@@ -16,7 +16,7 @@ const char* toolName(Tool t) {
 }
 
 bool toolImplemented(Tool t) {
-  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
+  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::SECTION || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
          t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL ||
          t == Tool::ANNOTATION || t == Tool::MEASUREMENT;
 }

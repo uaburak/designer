@@ -48,6 +48,7 @@ add_library(eng_core STATIC
   src/tools/Gestures.cpp
   src/tools/GridGestures.cpp
   src/editor/SlotCommands.cpp
+  src/editor/SelectionCommands.cpp
   src/render/Renderer.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp

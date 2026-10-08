@@ -451,9 +451,10 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     if (uint32_t r = vectorPointerDown(s, mods, clickCount_)) return r;
   }
 
-  if (tool_ == Tool::FRAME || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE || tool_ == Tool::POLYGON || tool_ == Tool::STAR ||
-      tool_ == Tool::LINE || tool_ == Tool::ARROW) {
+  if (tool_ == Tool::FRAME || tool_ == Tool::SECTION || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE || tool_ == Tool::POLYGON ||
+      tool_ == Tool::STAR || tool_ == Tool::LINE || tool_ == Tool::ARROW) {
     drawType_ = tool_ == Tool::FRAME       ? NodeType::FRAME
+                : tool_ == Tool::SECTION   ? NodeType::SECTION
                 : tool_ == Tool::RECTANGLE ? NodeType::ROUNDED_RECTANGLE
                 : tool_ == Tool::ELLIPSE   ? NodeType::ELLIPSE
                 : tool_ == Tool::POLYGON   ? NodeType::REGULAR_POLYGON
@@ -465,6 +466,8 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     auto path = hitPath(doc_, page_, downWorld_, pixel());
     for (auto it = path.rbegin(); it != path.rend(); ++it)
       if (acceptsChildren(*it)) {
+        // A section goes on the canvas or into another section only (Figma).
+        if (drawType_ == NodeType::SECTION && doc_.get(*it)->props.type != NodeType::SECTION) continue;
         drawParent_ = *it;
         break;
       }
@@ -542,15 +545,16 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   pressNoop_ = false;
   marqueeScope_ = kNoGuid;
   pressedWasSelected_ = pressed_ != kNoGuid && selected(pressed_);
+  size_t topAt = path.empty() ? 0 : topLevelIndex(doc_, path);
   if (pressed_ == kNoGuid) {
     pressMarquee_ = true;
-  } else if (path.size() == 1 && doc_.get(path[0])->props.isFrameLike() &&
-             doc_.get(path[0])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
-             !doc_.children(path[0]).empty()) {
-    // A top-level frame's own background: a drag is a marquee among its children (⌘: a deep one), a click
-    // selects it.
+  } else if (path.size() == topAt + 1 && doc_.get(path[topAt])->props.isFrameLike() &&
+             doc_.get(path[topAt])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
+             !doc_.children(path[topAt]).empty()) {
+    // A top-level frame's (or a section's) own background: a drag is a marquee among its children (⌘: a deep
+    // one), a click selects it.
     pressMarquee_ = true;
-    marqueeScope_ = path[0];
+    marqueeScope_ = path[topAt];
   } else if (!pressedWasSelected_) {
     // Figma's press rule: a press on a layer inside a selected layer keeps the selection — a drag moves the
     // selection (⇧ then locks the axis), and the pressed layer is selected only by a click (finishClick). A press
@@ -701,6 +705,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
         return;
       }
       if (drawn_ == kNoGuid) dragDraw(world, mods, true);
+      if (drawType_ == NodeType::SECTION) adoptIntoSection(drawn_);
       if (excluded_.count(drawn_)) layoutDirty_.insert(doc_.parentOf(drawn_));
       excluded_.clear();
       commit();
@@ -1421,6 +1426,7 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
   NodeChange c;
   if (drawn_ == kNoGuid) {
     const char* label = drawType_ == NodeType::FRAME             ? "Create frame"
+                        : drawType_ == NodeType::SECTION         ? "Create section"
                         : drawType_ == NodeType::ELLIPSE         ? "Create ellipse"
                         : drawType_ == NodeType::REGULAR_POLYGON ? "Create polygon"
                         : drawType_ == NodeType::STAR            ? "Create star"
@@ -1429,6 +1435,7 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
     Guid id = newGuid();
     c = NodeChange::created(id, defaultProps(drawType_));
     c.props.name = nextName(drawType_ == NodeType::FRAME             ? "Frame"
+                            : drawType_ == NodeType::SECTION         ? "Section"
                             : drawType_ == NodeType::ELLIPSE         ? "Ellipse"
                             : drawType_ == NodeType::REGULAR_POLYGON ? "Polygon"
                             : drawType_ == NodeType::STAR            ? "Star"
