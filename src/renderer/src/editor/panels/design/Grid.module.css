@@ -1,0 +1,69 @@
+@layer app {
+  /* The grid picker (help: "the interactive selector"): a 12 × 12 board of cells; hovering previews columns × rows. */
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+  }
+  .pickerFields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--ds-space-2);
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 2px;
+    width: 100%;
+    aspect-ratio: 1;
+  }
+  .cell {
+    padding: 0;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 2px;
+    background: transparent;
+    outline: none;
+  }
+  .cell[data-on="true"] {
+    border-color: var(--figma-color-border-selected);
+    background: var(--figma-color-bg-selected);
+  }
+  .cell[data-preview="true"] {
+    border-color: var(--figma-color-border-brand-strong);
+    background: var(--figma-color-bg-brand-tertiary);
+  }
+  .pickerCaption {
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: center;
+  }
+  /* Number of rows (a number or "Auto") with the grid picker's button */
+  .rowsCell { display: flex; align-items: center; gap: 0; min-width: 0; }
+  .rowsCell > :first-child { flex: 1 1 auto; min-width: 0; }
+  .pickerButton {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon);
+    outline: none;
+  }
+  .pickerButton:hover, .pickerButton[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .pickerButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  /* A track row selected on the canvas (its pill) */
+  .trackSelected { border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-selected); }
+  .trackEditor {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--ds-space-2);
+    padding: var(--ds-space-2);
+  }
+}

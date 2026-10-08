@@ -65,6 +65,10 @@ export interface UIState {
   shareOpen: boolean;
   /** "Create link" (⇧⌘U): the link field, over this rect (viewport px: the caret or the layer) */
   linkEditor?: { x: number; y: number; width: number; height: number } | null;
+  /** Grid tracks selected on the canvas (the engine's GRID_TRACKS): the grid, the axis, the tracks' indices */
+  gridTracks?: { frame: Guid; axis: "COLUMNS" | "ROWS"; tracks: number[] } | null;
+  /** The track label editor on the canvas, over this rect (viewport px) */
+  gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
 }
 
 export class Store<T> {

@@ -25,6 +25,31 @@ export function attachCanvasMenu(ed: EditorController, canvas: HTMLCanvasElement
   });
 }
 
+/**
+ * Grid tracks selected on the canvas (the engine's GRID_TRACKS, round 6): kept in the UI state (the Auto layout
+ * section highlights them); a click on a pill's label (or Enter) opens the track label editor over it.
+ */
+export function attachGridTracks(ed: EditorController, canvas: HTMLCanvasElement): () => void {
+  const offSel = ed.engine.on("SELECTION_CHANGED", () => {
+    if (ed.ui.get().gridTracks || ed.ui.get().gridTrackEditor) ed.ui.set({ gridTracks: null, gridTrackEditor: null });
+  });
+  const off = ed.engine.on("GRID_TRACKS", (e) => {
+    if (!e.frame || !e.tracks.length) {
+      ed.ui.set({ gridTracks: null, gridTrackEditor: null });
+      return;
+    }
+    const r = canvas.getBoundingClientRect();
+    ed.ui.set({
+      gridTracks: { frame: e.frame, axis: e.axis, tracks: e.tracks },
+      ...(e.edit ? { gridTrackEditor: { x: r.left + e.x, y: r.top + e.y, width: Math.max(1, e.width), height: Math.max(1, e.height) } } : {}),
+    });
+  });
+  return () => {
+    off();
+    offSel();
+  };
+}
+
 export function CanvasMenu() {
   const ed = useEditor();
   const at = useUI((s) => s.contextMenu);

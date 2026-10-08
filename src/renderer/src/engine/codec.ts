@@ -865,7 +865,12 @@ export type EngineEvent =
   /** Styles changed, or how many layers use them. */
   | { type: "STYLES_CHANGED"; styles: Guid[] }
   /** Prototype mode: a "+" handle was dragged to a frame — the hotspots that got the new interaction, and its id. */
-  | { type: "PROTOTYPE_CONNECTED"; refs: Guid[]; interaction: Guid | null };
+  | { type: "PROTOTYPE_CONNECTED"; refs: Guid[]; interaction: Guid | null }
+  /**
+   * Grid tracks selected on the canvas (round 6): the grid, the axis, the selected tracks' indices (empty: none);
+   * `edit`: a pill's label was clicked (or Enter) — the label editor opens at (x, y, width, height), canvas CSS px.
+   */
+  | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number };
 
 export type EngineEventType = EngineEvent["type"];
 export type EventOf<T extends EngineEventType> = Extract<EngineEvent, { type: T }>;

@@ -192,6 +192,13 @@ export const CommandId = {
   UNGROUP_STYLES: 177,
   /** args { fonts: [{ from: { family, style }, to: { family, style } }] } (the Missing fonts dialog's "Replace fonts") */
   REPLACE_FONTS: 190,
+  // Round 6 (r6-components-grid): slots.
+  /** args { ref?: Guid | Guid[] } ("Convert to slot", ⇧⌘S): nested frames of a main become slots (a SLOT property each) */
+  CONVERT_TO_SLOT: 210,
+  /** The selection framed and the frame made a slot ("Wrap in new slot") */
+  WRAP_IN_NEW_SLOT: 211,
+  /** args { ref? }: a slot emptied — an instance's slot row (its content diverges) or a main's slot frame ("Delete contents") */
+  CLEAR_SLOT: 212,
 } as const;
 export type CommandName = keyof typeof CommandId;
 
