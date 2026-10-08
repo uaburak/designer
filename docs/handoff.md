@@ -69,6 +69,15 @@ Next: Phase 5 of `docs/roadmap.md` — the Firebase adapter wiring (and a real d
 - `r7-left-panel` — 32 px layer rows and geometry per live, 2026 nav rail (File/Agents/Assets/Tools/Variables), Find, collapse layers, bulk rename, page-row shortcut bug (audit `layers.md`).
 Next session: for each branch read its shutdown status, finish the open items against the live captures, run the full checks, then merge one at a time into main (rebuild the release wasm after each engine merge; command ids and schema field numbers are the usual collision points). The live-capture agent was also recording **behaviour** (Esc, Enter/Tab in fields, math in fields, frame-title clicks, move/resize modifiers, layers keys) into `live/behaviour/` — check what is there and finish the list in `live/README.md`.
 
+**Live behaviour (`docs/research/figma/live/behaviour/`) overrides the audits where they disagree — check each round-7 branch against it before merging:**
+- Esc clears the whole selection (audit selection #9 right); ⇧Enter and \ select the parent. Enter on a frame selects all its children (hidden/locked too); Enter on a shape opens vector edit. Tab/⇧Tab step through siblings in Layers order, wrap, and do NOT skip hidden/locked.
+- Clicking a top-level frame's empty background acts like empty canvas and dragging there draws a marquee (ours already does this — audit selection #1's "background drag" part is wrong; frame-title behaviour still to build). A marquee over part of a frame selects its children. A layer dropped onto a frame nests by cursor position even when bigger than the frame (audit selection #6's "don't nest into smaller frames" default is WRONG).
+- Number fields: Enter commits and returns to the canvas; first Esc reverts and keeps focus, second returns to the canvas; "+10" typed over a value sets 10 (NOT relative — audit design #1 partly wrong); "2^3" = 8; "Mixed+100" adds per layer; gap "Auto" = space between; "1,2,3,4" in horizontal padding sets left=1 right=2 only.
+- Opacity digits combine within ~450–500 ms ("0","5" → 5%; "0" → 100%). ] / [ = front / back; ⌘] / ⌘[ one step. ⌘D repeats the last move offset, same name. N / ⇧N next/previous frame. ⇧⌘O outlines, ⌃P pixel preview. Pixel grid from 300% zoom, menu shortcut ⇧' (audits' ⌘' and 400% are WRONG).
+- Layers: auto-layout children listed in flow order (first on top); ⌘R opens "Rename N layers"; chevrons always visible (layers audit #9 WRONG); ⌥-click chevron recursive; ⌥L collapses all; drag across eyes toggles. A page named exactly "---" is a divider.
+- Minimize UI: canvas full width with floating pills; selection brings a floating Design panel, hidden again on deselect.
+- Not captured (tool limits): paste placement / ⇧⌘R / ⇧⌘V, modifiers held during drags or hovers, ⌥⌘A, duplicate-page naming, smart-selection reorder.
+
 Main at the time of writing: round 6 merged (prototype/video, slots/grid/DTCG, annotations/Dev Mode/Compare changes) — 765 vitest, 379 native, engine:shot 97 (WebGL2) / 99 (WebGPU), editor-shot 204.
 
 ## Starting the next session
