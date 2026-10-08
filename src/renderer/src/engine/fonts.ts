@@ -131,6 +131,52 @@ export function styleWeight(style: string): { weight: number; italic: boolean } 
   return { weight: 400, italic };
 }
 
+/** A family as the font pickers list it: its styles in the font's order (by weight, each upright before its italic). */
+export interface FontFamily {
+  family: string;
+  styles: string[];
+  faces: FontFaceInfo[];
+}
+
+/** Groups faces into families (sorted by name, case-insensitive) with their styles ordered by weight, upright first. */
+export function groupFamilies(faces: readonly FontFaceInfo[]): FontFamily[] {
+  const byFamily = new Map<string, FontFaceInfo[]>();
+  for (const f of faces) {
+    const list = byFamily.get(f.family) ?? [];
+    list.push(f);
+    byFamily.set(f.family, list);
+  }
+  return [...byFamily.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .map(([family, list]) => {
+      const sorted = [...list].sort((a, b) => a.weight - b.weight || Number(a.italic) - Number(b.italic));
+      return { family, styles: [...new Set(sorted.map((f) => f.style))], faces: sorted };
+    });
+}
+
+/**
+ * The style to keep when the family changes to one with `styles`: the same name if it has it, else the nearest
+ * weight with the same slant (Figma keeps "Bold" on Bold, "Semi Bold" → "SemiBold"), else its first.
+ */
+export function closestStyle(styles: readonly string[], style: string): string {
+  if (!styles.length) return style;
+  const s = norm(style);
+  const same = styles.find((x) => norm(x) === s);
+  if (same) return same;
+  const want = styleWeight(style);
+  let best = styles[0];
+  let bestScore = Infinity;
+  for (const x of styles) {
+    const w = styleWeight(x);
+    const score = Math.abs(w.weight - want.weight) + (w.italic === want.italic ? 0 : 1000);
+    if (score < bestScore) {
+      bestScore = score;
+      best = x;
+    }
+  }
+  return best;
+}
+
 const encoder = new TextEncoder();
 
 /** The process's font service (one engine module per renderer process). */
@@ -141,6 +187,9 @@ class FontService {
   /** File (face id + collection index) → its engine face id. */
   private loaded = new Map<string, Promise<number>>();
   private readonly listeners = new Set<() => void>();
+  /** Told when the list of faces changes (`refresh`): the font pickers read it again. */
+  private readonly listListeners = new Set<() => void>();
+  private familyList: Promise<FontFamily[]> | null = null;
   private pending = 0;
   private idle: (() => void)[] = [];
   /** Names already answered or on their way (the engine asks once per module; attach() asks ahead of it). */
@@ -169,6 +218,7 @@ class FontService {
    */
   refresh(): void {
     this.faces = null;
+    this.familyList = null;
     this.loaded.clear();
     const names = [...this.asked];
     this.asked.clear();
@@ -176,6 +226,13 @@ class FontService {
       const [family, style] = key.split("\n");
       this.request(family, this.styles.get(key) ?? style);
     }
+    for (const l of this.listListeners) l();
+  }
+
+  /** Called when the list of faces changed (fonts installed or removed, a new source). */
+  onListChange(listener: () => void): () => void {
+    this.listListeners.add(listener);
+    return () => this.listListeners.delete(listener);
   }
 
   /** Every face known (bundled + desktop), for the font pickers. */
@@ -184,20 +241,10 @@ class FontService {
     return this.faces;
   }
 
-  /** The families with their styles, sorted (what a font picker shows). */
-  async families(): Promise<{ family: string; styles: string[] }[]> {
-    const byFamily = new Map<string, FontFaceInfo[]>();
-    for (const f of await this.list()) {
-      const list = byFamily.get(f.family) ?? [];
-      list.push(f);
-      byFamily.set(f.family, list);
-    }
-    return [...byFamily.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([family, faces]) => ({
-        family,
-        styles: [...new Set(faces.sort((a, b) => Number(a.italic) - Number(b.italic) || a.weight - b.weight).map((f) => f.style))],
-      }));
+  /** The families with their styles, sorted by name (what a font picker shows); computed once per list. */
+  families(): Promise<FontFamily[]> {
+    this.familyList ??= this.list().then(groupFamilies);
+    return this.familyList;
   }
 
   /** Called after a font is bound or missing: each live Engine drains its events and draws. */

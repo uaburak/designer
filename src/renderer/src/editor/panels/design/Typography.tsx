@@ -12,16 +12,17 @@
  * The engine keeps text fields with E3; until `supportsField` sees one, its
  * control shows disabled with Figma's defaults (Inter Regular 12, Auto, 0%).
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Icon, IconButton, MIXED, MenuButton, NumericInput, PanelSection, PropertyGrid, PropertyRow, SegmentedControl, Select, isMixed, type ChangeInfo, type MenuEntry } from "@/ds";
 import { useEditor } from "../../controller";
 import { BindButton } from "./Component";
 import { useUI } from "../../hooks";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { useTextSummary } from "./useTextSummary";
-import { fonts } from "@/engine/fonts";
+import { closestStyle, type FontFamily } from "@/engine/fonts";
 import { TypeSettings } from "./TypeSettings";
 import { exitToCanvas } from "./Sections";
+import { familyNames, familyStyles, useFontFamilies } from "../../fontList";
 import { fields, useSupports, type ExtraFields, type FontName, type NumberValue, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
@@ -38,12 +39,19 @@ export const TEXT_DEFAULTS = {
 /** Figma's font size menu. */
 export const FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 20, 24, 32, 36, 40, 48, 64, 96, 128];
 
-/** The styles offered until the fonts process lists a family's own (Inter's). */
+/** Inter's styles: offered before the font list has arrived (and for Inter in tests without a desktop). */
 export const FALLBACK_STYLES = ["Thin", "Extra Light", "Light", "Regular", "Medium", "Semi Bold", "Bold", "Extra Bold", "Black"];
 
-/** The families the picker lists (the fonts utility process fills this with E3; until then the file's own and Inter). */
-export function fontFamilies(nodes: readonly PanelNode[]): string[] {
-  return [...new Set(["Inter", ...nodes.map((n) => n.fontName?.family).filter((f): f is string => !!f)])].sort();
+/** The families the picker lists: every installed (and bundled) family, plus the selection's own when not installed. */
+export function fontFamilies(list: readonly FontFamily[] | null, nodes: readonly { fontName?: { family: string } }[]): string[] {
+  return familyNames(list, ["Inter", ...nodes.map((n) => n.fontName?.family).filter((f): f is string => !!f)]);
+}
+
+/** The styles the Font style menu lists for `family`: its own (variable fonts: their named instances), else the current one. */
+export function fontStyles(list: readonly FontFamily[] | null, family: string, style: string | undefined): string[] {
+  const styles = familyStyles(list, family, style);
+  if (!list && family.toLowerCase() === "inter") return [...new Set([...(style ? [style] : []), ...FALLBACK_STYLES])];
+  return styles;
 }
 
 /** Line height as the field shows it: "Auto" ({100, PERCENT}), px, or a percent (the UI's "140%" = {1.4, RAW}, docs/schema.md). */
@@ -53,24 +61,6 @@ export function lineHeightView(lh: NumberValue | undefined): { value: number | n
   if (v.units === "PIXELS") return { value: v.value };
   if (v.units === "RAW") return { value: Math.round(v.value * 10000) / 100, unit: "%" };
   return { value: v.value, unit: "%" };
-}
-
-
-/** A family's styles as the desktop's fonts list them (named instances of variable fonts included). */
-function useFamilyStyles(family: string | typeof MIXED): string[] {
-  const [list, setList] = useState<{ family: string; styles: string[] }[] | null>(null);
-  useEffect(() => {
-    let live = true;
-    void fonts
-      .families()
-      .then((f) => live && setList(f))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, []);
-  if (isMixed(family)) return [];
-  return list?.find((f) => f.family === family)?.styles ?? FALLBACK_STYLES;
 }
 
 export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
@@ -96,7 +86,6 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const font = mixed(nodes.map((n) => n.fontName ?? TEXT_DEFAULTS.fontName), sameData);
   const family = run<string>("fontFamily", () => (font === undefined ? TEXT_DEFAULTS.fontName.family : isMixed(font) ? MIXED : font.family)) ?? TEXT_DEFAULTS.fontName.family;
   const style = run<string>("fontStyle", () => (font === undefined ? TEXT_DEFAULTS.fontName.style : isMixed(font) ? MIXED : font.style)) ?? TEXT_DEFAULTS.fontName.style;
-  const familyStyles = useFamilyStyles(family);
   const size = run<number>("fontSize", () => mixedNumber(nodes.map((n) => n.fontSize ?? TEXT_DEFAULTS.fontSize)));
   const lh = run<NumberValue>("lineHeight", () => mixed(nodes.map((n) => n.lineHeight ?? TEXT_DEFAULTS.lineHeight), sameData));
   const lhView = lh === undefined || isMixed(lh) ? null : lineHeightView(lh);
@@ -105,7 +94,9 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
   const lsUnit = ls && !isMixed(ls) && ls.units === "PIXELS" ? undefined : "%";
   const align = mixed(nodes.map((n) => n.textAlignHorizontal ?? "LEFT"));
   const valign = mixed(nodes.map((n) => n.textAlignVertical ?? "TOP"));
-  const families = fontFamilies(nodes);
+  const fontList = useFontFamilies();
+  const families = fontFamilies(fontList, nodes);
+  const styleOptions = isMixed(family) ? (isMixed(style) ? [] : [style]) : fontStyles(fontList, family, isMixed(style) ? undefined : style);
   const sizeEntries: MenuEntry[] = [...FONT_SIZES.map((s) => ({ id: String(s), label: String(s), checked: size === s })), "-", { id: "apply-variable", label: "Apply variable…" }];
 
   return (
@@ -128,7 +119,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             value={family}
             disabled={!fontKept}
             options={families.map((f) => ({ value: f, label: f }))}
-            onChange={(f) => write("Font", { fontName: { family: f, style: isMixed(style) ? "Regular" : style, postscript: "" } })}
+            onChange={(f) => write("Font", { fontName: { family: f, style: closestStyle(fontStyles(fontList, f, undefined), isMixed(style) ? "Regular" : style), postscript: "" } })}
           />
         </PropertyRow>
         <PropertyRow label="Font style and size">
@@ -136,7 +127,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             label="Font style"
             value={style}
             disabled={!fontKept}
-            options={[...new Set([...(isMixed(style) ? [] : [style]), ...familyStyles])].map((s) => ({ value: s, label: s }))}
+            options={styleOptions.map((s) => ({ value: s, label: s }))}
             onChange={(s) => write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } })}
           />
           <span data-font-size="" style={{ display: "contents" }}>
