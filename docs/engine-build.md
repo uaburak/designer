@@ -15,7 +15,7 @@ Goal: finish the render audit (`docs/research/audit-2026-10-08/render.md`) items
 
 Fidelity (`fig-fidelity.mjs --samples`, mean ΔE / > 10 / > 25, before → after): sections 0.168 / 0.049 % / 0 → 0.168 / 0.049 % / 0; stacks_wrap 0.190 / 0.024 % / 0 → 0.191 / 0.005 % / 0; structure 0.106 / 0 / 0 (unchanged).
 
-Checks (branch head, before the final merge of main): `npm run check` green (814 vitest); `npm run engine:test` 414 / 414; `npm run engine:shot` 104 ok (WebGL2), `--gfx webgpu` 106 ok, no GPU validation errors; `editor-shot.mjs` full 266 ok, 0 failed. Release `engine.wasm` rebuilt and committed.
+Checks (branch head; `git merge main` at the end: already up to date at `e88f289`): `npm run check` green (814 vitest); `npm run engine:test` 414 / 414; `npm run engine:shot` 104 ok (WebGL2), `--gfx webgpu` 106 ok, no GPU validation errors; `editor-shot.mjs` full 266 ok, 0 failed. Release `engine.wasm` rebuilt and committed.
 
 Open: a live-canvas capture of thin strokes and tiny text at 25–50 % (does the canvas sample like the thumbnails?); structure.fig's shadow fits a slightly tighter, lower blur than σ = radius / 2 (one small sample, not changed); arrowhead sizes other than the line and triangle arrows checked at w = 1 only; dashes on open paths that turn; nearest-neighbour images at high zoom; shader effects.
 
