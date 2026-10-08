@@ -54,14 +54,22 @@ uint32_t Font::nextId_ = 1;
 
 Font::Font(std::shared_ptr<Face> face, int namedInstance, std::vector<std::pair<uint32_t, float>> variations)
     : id_(nextId_++), face_(std::move(face)), variations_(variations) {
-  font_ = hb_font_create(face_->hb());
-  hb_font_set_scale(font_, kHbScale, kHbScale);
-  if (namedInstance >= 0) hb_font_set_var_named_instance(font_, static_cast<unsigned>(namedInstance));
-  if (!variations.empty()) {
-    std::vector<hb_variation_t> v;
-    for (auto& [tag, value] : variations) v.push_back({tag, value});
-    hb_font_set_variations(font_, v.data(), static_cast<unsigned>(v.size()));
-  }
+  // Two HarfBuzz fonts on the face: outlines and metrics at kHbScale, shaping in font units (its own font, not a
+  // sub-font: a sub-font scales its parent's rounded positions and truncates them).
+  upem_ = static_cast<int>(hb_face_get_upem(face_->hb()));
+  auto make = [&](int scale) {
+    hb_font_t* f = hb_font_create(face_->hb());
+    hb_font_set_scale(f, scale, scale);
+    if (namedInstance >= 0) hb_font_set_var_named_instance(f, static_cast<unsigned>(namedInstance));
+    if (!variations.empty()) {
+      std::vector<hb_variation_t> v;
+      for (auto& [tag, value] : variations) v.push_back({tag, value});
+      hb_font_set_variations(f, v.data(), static_cast<unsigned>(v.size()));
+    }
+    return f;
+  };
+  font_ = make(kHbScale);
+  units_ = make(upem_);
   auto metric = [&](hb_ot_metrics_tag_t tag, double& out) {
     hb_position_t p = 0;
     if (hb_ot_metrics_get_position(font_, tag, &p)) out = static_cast<double>(p) / kHbScale;
@@ -90,6 +98,7 @@ Font::Font(std::shared_ptr<Face> face, int namedInstance, std::vector<std::pair<
 Font::Font() : id_(nextId_++) {}
 
 Font::~Font() {
+  if (units_) hb_font_destroy(units_);
   if (font_) hb_font_destroy(font_);
 }
 

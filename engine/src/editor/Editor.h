@@ -253,6 +253,8 @@ class Editor : private LayoutHost, public TextLayouts {
 
   // ---- Selection, writes, commands (panels, menus, the Layers panel) ----
   const std::vector<Guid>& selection() const { return selection_; }
+  // A grid frame's cells as laid out now (tracks, items' cells); empty for other nodes.
+  Layout::GridCells gridCellsOf(Guid frame) { return Layout(*this).gridCells(frame); }
   Status setSelection(const std::vector<Guid>& ids);
   // The generic setter: the fields of `props` (mask) written on each node.
   Status setProps(const std::vector<Guid>& ids, const NodeChange& props, uint32_t flags);
@@ -295,6 +297,15 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Guid> nodes;
     Guid interaction = kNoGuid;
   };
+  // The grid tracks selected on the canvas (GRID_TRACKS); `edit`: a label was clicked (or Enter) — TS opens its
+  // editor at `label` (screen, CSS px).
+  struct GridTracksEvent {
+    Guid frame = kNoGuid;
+    bool column = true;
+    std::vector<size_t> tracks;
+    bool edit = false;
+    Rect label;
+  };
   struct Events {
     std::vector<DocumentChanged> documents;        // DOCUMENT_CHANGED, one per committed transaction
     std::vector<ContextMenu> contextMenus;
@@ -307,11 +318,12 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Guid> structureParents;
     bool structureAll = false;
     std::vector<PrototypeConnected> prototypeConnected;  // PROTOTYPE_CONNECTED
+    std::vector<GridTracksEvent> gridTracks;             // GRID_TRACKS: the grid tracks selected on the canvas
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
-      return !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+      return !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -704,7 +716,7 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t variableCommandState(CommandId id) const;
   std::string newAssetKey();
 
-  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle };
+  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid };
 
   struct Target {
     Guid id;
@@ -840,6 +852,14 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Component commands (editor/ComponentCommands.cpp) ----
   Status componentCommand(CommandId id, const CommandArgs& args);
   uint32_t componentCommandState(CommandId id) const;
+  // Slots (editor/SlotCommands.cpp): Convert to slot, Wrap in new slot, Delete contents.
+  Status slotCommand(CommandId id, const CommandArgs& args);
+  uint32_t slotCommandState(CommandId id) const;
+  bool canBecomeSlot(Guid id) const;
+  bool canWrapInSlot() const;
+  Status convertToSlot(std::vector<Guid> ids);
+  Status wrapInNewSlot();
+  Status clearSlot(Guid ref);
   std::vector<Guid> refsArg(const CommandArgs& args, const char* key) const;
   Status createComponent(const std::string& mode);
   Guid makeComponentFrom(Guid node);
@@ -1081,8 +1101,46 @@ class Editor : private LayoutHost, public TextLayouts {
   void protoPointerUp(Vec2 s);
   void protoHover(Vec2 s);
   void protoOverlay(Overlay& o) const;
-  // A selected grid's tracks along its edges (Gestures.cpp), the one under the pointer labelled.
+  // ---- Grid auto layout on the canvas (tools/GridGestures.cpp) ----
+  // A selected grid's tracks along its edges, the hovered / selected ones labelled with their grabber, the drop line.
   void gridTrackOverlay(Overlay& o) const;
+  void gridSpanOverlay(Overlay& o) const;
+  struct GridHit {
+    enum class Kind : uint8_t { None, Track, Edge, Grabber } kind = Kind::None;
+    bool column = true;
+    size_t track = 0;
+  };
+  struct GridDrag {
+    enum class Kind : uint8_t { None, Select, Resize, Reorder, Span } kind = Kind::None;
+    Guid frame = kNoGuid, item = kNoGuid;
+    bool column = true, moved = false, edit = false;
+    size_t track = 0, dropAt = 0, start = 0, span = 1;
+    int edge = 0;  // span handles: 0 left, 1 top, 2 right, 3 bottom
+    double startSize = 0;
+  };
+  struct GridTrackSelection {
+    Guid frame = kNoGuid;
+    bool column = true;
+    std::vector<size_t> tracks;
+  };
+  Guid gridFrameSelected() const;
+  void gridTrackSpans(Guid frame, bool column, std::vector<std::pair<double, double>>& spans, double& across) const;
+  GridHit gridHitAt(Vec2 s) const;
+  bool gridSpanHandles(Guid& item, Vec2 out[4]) const;
+  int gridSpanHandleAt(Vec2 s) const;
+  void setGridTrackSelection(Guid frame, bool column, std::vector<size_t> tracks, bool edit);
+  void clearGridTrackSelection();
+  uint32_t gridPointerDown(Vec2 s, uint32_t mods);
+  void gridPointerMove(Vec2 s, uint32_t mods);
+  void gridPointerUp(Vec2 s, uint32_t mods);
+  void gridCancel();
+  bool gridCursor(Vec2 s);
+  uint32_t gridKey(KeyCode code, uint32_t mods);
+  Status deleteGridTracks();
+  std::vector<size_t> gridMovingTracks(Guid frame, bool column, std::vector<size_t> tracks);
+  void writeGridTracks(Guid frame, bool column, const std::vector<Layout::GridTrackDef>& tracks);
+  GridDrag gridDrag_;
+  GridTrackSelection gridSel_;
 
   // ---- Text editing (editor/TextEditing.cpp) ----
   struct TextSession {

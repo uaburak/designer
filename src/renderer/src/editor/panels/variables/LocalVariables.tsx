@@ -40,6 +40,7 @@ import {
   duplicateVariables,
   extendCollection,
   groupVariables,
+  moveGroup,
   moveMode,
   moveVariables,
   pasteVariables,
@@ -51,6 +52,7 @@ import {
   setDefaultMode,
   ungroupVariables,
 } from "../../variables";
+import { clipboardText, exportModes, importIntoMode, importModes, pasteClipboardVariables, readClipboardText } from "../../variablesIO";
 import { EditVariablesPopover, ReorderCollectionsPopover } from "./CollectionTools";
 import { EditVariablePopover } from "./EditVariable";
 import { ValueEditor } from "./ValueEditor";
@@ -60,15 +62,50 @@ type Renaming = { kind: "variable" | "mode" | "collection" | "group"; id: string
 type Row = { kind: "group"; path: string; label: string } | { kind: "variable"; v: Variable };
 type Menu = { x: number; y: number; entries: MenuEntry[]; pick: (id: string) => void } | null;
 
-/** Variables copied with "Copy" (pasted into any collection, or another file's window: the editor process keeps them). */
+/**
+ * Variables copied with "Copy": their ids (a paste in this file keeps aliases between them), and the system
+ * clipboard's text (variablesIO.ts) — another file's window pastes from there.
+ */
 let copiedVariables: Guid[] = [];
-const copyVariables = (ids: Guid[]) => {
+let copiedText = "";
+
+/** "Copy": the ids kept, and the variables put on the system clipboard as text. */
+function rememberCopy(ed: ReturnType<typeof useEditor>, ids: Guid[]) {
   copiedVariables = ids;
-};
+  copiedText = clipboardText(ed, ids);
+  void navigator.clipboard?.writeText?.(copiedText).catch(() => {});
+}
+
+/** Reads the system clipboard's text (the desktop's clipboard, else the browser's), "" when it can't. */
+async function clipboardRead(): Promise<string> {
+  try {
+    return (await navigator.clipboard?.readText?.()) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Opens the system's file picker for DTCG files. */
+function pickJsonFiles(multiple: boolean): Promise<{ name: string; text: string }[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.multiple = multiple;
+    input.onchange = async () => resolve(await Promise.all([...(input.files ?? [])].map(async (f) => ({ name: f.name, text: await f.text() }))));
+    input.click();
+  });
+}
 
 export function LocalVariables() {
   const ed = useEditor();
   const a = useLocalAssets();
+  const copyVariables = (ids: Guid[]) => rememberCopy(ed, ids);
+  // Minimize (a smaller, resizable modal) / Expand (the whole window again); Toggle sidebar.
+  const [minimized, setMinimized] = useState(false);
+  const [sidebar, setSidebar] = useState(true);
+  const [groupDrop, setGroupDrop] = useState<{ path: string; where: "before" | "after" | "into" } | null>(null);
+  const [dropping, setDropping] = useState(false);
   const [collectionId, setCollectionId] = useState<Guid | null>(null);
   const [group, setGroup] = useState("");
   const [query, setQuery] = useState("");
@@ -172,7 +209,7 @@ export function LocalVariables() {
         { id: "group", label: "New group with selection" },
         "-",
         { id: "copy", label: "Copy", shortcut: "⌘C" },
-        { id: "paste", label: "Paste", shortcut: "⌘V", disabled: !copiedVariables.length },
+        { id: "paste", label: "Paste", shortcut: "⌘V" },
         "-",
         { id: "delete", label: many ? `Delete ${ids.length} variables` : "Delete variable" },
       ],
@@ -180,7 +217,7 @@ export function LocalVariables() {
         if (id === "edit" && many) setBulk({ ids, anchor: target });
         else if (id === "edit") setEdit({ id: v.id, anchor: target });
         if (id === "copy") copyVariables(ids);
-        if (id === "paste") paste();
+        if (id === "paste") void paste();
         if (id === "rename") setRenaming({ kind: "variable", id: v.id });
         if (id === "duplicate") setSelected(new Set(duplicateVariables(ed, ids)));
         if (id === "group") {
@@ -195,9 +232,12 @@ export function LocalVariables() {
     });
   };
 
-  const paste = () => {
-    if (!collection || extended || !copiedVariables.length) return;
-    const made = pasteVariables(ed, copiedVariables, collection.id, group);
+  const paste = async () => {
+    if (!collection || extended) return;
+    // What this window copied (aliases between the copies kept), else another file's copy on the system clipboard.
+    const text = await clipboardRead();
+    const clip = text && text !== copiedText ? readClipboardText(text) : null;
+    const made = clip ? pasteClipboardVariables(ed, clip, collection.id, group) : copiedVariables.length ? pasteVariables(ed, copiedVariables, collection.id, group) : [];
     if (made.length) setSelected(new Set(made));
   };
 
@@ -216,9 +256,17 @@ export function LocalVariables() {
         { id: "left", label: "Move column left", disabled: inherited || i === 0 },
         { id: "right", label: "Move column right", disabled: inherited || i === c.modes.length - 1 },
         "-",
+        { id: "import", label: "Import mode" },
+        { id: "export", label: "Export mode" },
+        "-",
         { id: "delete", label: "Delete mode", disabled: inherited || c.modes.length < 2 },
       ],
       pick: (id) => {
+        if (id === "export") void exportModes(ed, c.id, [modeId]);
+        if (id === "import")
+          void pickJsonFiles(false).then((files) => {
+            if (files[0]) importIntoMode(ed, c.id, modeId, files[0]);
+          });
         if (id === "rename") setRenaming({ kind: "mode", id: modeId });
         if (id === "duplicate") addMode(ed, c.id, modeId);
         if (id === "default") setDefaultMode(ed, c.id, modeId);
@@ -239,9 +287,12 @@ export function LocalVariables() {
         { id: "extend", label: "Extend collection" },
         { id: "reorder", label: "Reorder collections", disabled: a.collections.length < 2 },
         "-",
+        { id: "export", label: "Export modes" },
+        "-",
         { id: "delete", label: "Delete collection" },
       ],
       pick: (id) => {
+        if (id === "export") void exportModes(ed, c.id);
         if (id === "rename") setRenaming({ kind: "collection", id: c.id });
         if (id === "duplicate") {
           const copy = duplicateCollection(ed, c.id);
@@ -325,6 +376,37 @@ export function LocalVariables() {
     window.addEventListener("pointerup", up);
   };
 
+  // ---- Drag groups in the sidebar: reorder (the top or bottom of a group row) or nest (its middle) ----------------
+  const startGroupDrag = (e: ReactPointerEvent, path: string) => {
+    if (extended || e.button !== 0 || !collection || (e.target as Element).closest("input")) return;
+    const start = { x: e.clientX, y: e.clientY };
+    let dragging = false;
+    let target: { path: string; where: "before" | "after" | "into" } | null = null;
+    const move = (ev: PointerEvent) => {
+      if (!dragging && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 4) return;
+      dragging = true;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-group]");
+      const over = el?.dataset.group;
+      if (!el || over === undefined || over === path || over.startsWith(`${path}/`)) target = null;
+      else if (over === "") target = { path: "", where: "into" };
+      else {
+        const r = el.getBoundingClientRect();
+        const t = (ev.clientY - r.top) / r.height;
+        target = { path: over, where: t < 0.25 ? "before" : t > 0.75 ? "after" : "into" };
+      }
+      setGroupDrop(target);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setGroupDrop(null);
+      if (!dragging || !target) return;
+      if (moveGroup(ed, collection.id, path, target.path, target.where)) setGroup("");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const onKeyDown = (e: ReactKeyboardEvent) => {
     const typing = (e.target as Element).closest("input, textarea, [contenteditable='true']");
     const mod = e.metaKey || e.ctrlKey;
@@ -343,7 +425,7 @@ export function LocalVariables() {
       copyVariables(chosen());
     } else if (mod && e.code === "KeyV") {
       e.preventDefault();
-      paste();
+      void paste();
     } else if (!extended && (e.key === "Backspace" || e.key === "Delete") && selected.size) {
       e.preventDefault();
       deleteVariables(ed, chosen());
@@ -369,6 +451,8 @@ export function LocalVariables() {
           className={cx(styles.sideRow, group === g.path && styles.sideRowOn)}
           style={{ ["--indent" as string]: `${depth * 16}px` }}
           data-group={g.path}
+          data-group-drop={groupDrop?.path === g.path ? groupDrop.where : undefined}
+          onPointerDown={(e) => startGroupDrag(e, g.path)}
           onClick={() => setGroup(g.path)}
           onDoubleClick={() => setRenaming({ kind: "group", id: g.path })}
           onContextMenu={(e) => {
@@ -398,8 +482,33 @@ export function LocalVariables() {
     ));
 
   return (
-    <div ref={root} className={styles.window} role="dialog" aria-label="Local variables" tabIndex={-1} data-local-variables="" onKeyDown={onKeyDown}>
-      <div className={styles.titleBar}>Local variables</div>
+    <div
+      ref={root}
+      className={cx(styles.window, minimized && styles.windowMinimized, !sidebar && styles.noSidebar, dropping && styles.dropping)}
+      role="dialog"
+      aria-label="Local variables"
+      tabIndex={-1}
+      data-local-variables=""
+      data-minimized={minimized || undefined}
+      onKeyDown={onKeyDown}
+      // DTCG files dropped on the view: one new mode per file (help "Modes for variables").
+      onDragOver={(e) => {
+        if (!collection || extended || ![...e.dataTransfer.types].includes("Files")) return;
+        e.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDropping(false);
+      }}
+      onDrop={(e) => {
+        setDropping(false);
+        if (!collection || extended || !e.dataTransfer.files.length) return;
+        e.preventDefault();
+        const files = [...e.dataTransfer.files].filter((f) => /\.json$/i.test(f.name));
+        void Promise.all(files.map(async (f) => ({ name: f.name, text: await f.text() }))).then((list) => list.length && importModes(ed, collection.id, list));
+      }}
+    >
+      {sidebar && <div className={styles.titleBar}>Local variables</div>}
       <div className={styles.toolbar}>
         <span className={styles.collectionTitle}>{collection?.name ?? ""}</span>
         {parent && <span className={styles.extendedFrom} data-extended-from={parent.name}>Extended from {parent.name}</span>}
@@ -412,9 +521,12 @@ export function LocalVariables() {
           <Icon name={typeFilter ? VAR_TYPE_ICON[typeFilter] : "24.adjust.small"} />
         </MenuButton>
         <SearchField className={styles.search} value={query} onChange={setQuery} placeholder="Search" />
+        <IconButton icon="24.sidebar.closed" label="Toggle sidebar" aria-pressed={sidebar} onClick={() => setSidebar(!sidebar)} />
+        {minimized ? <IconButton icon="24.expand" label="Expand" onClick={() => setMinimized(false)} /> : <IconButton icon="24.minimize" label="Minimize" onClick={() => setMinimized(true)} />}
         <IconButton icon="24.close.small" label="Close" onClick={close} />
       </div>
 
+      {sidebar && (
       <aside className={styles.sidebar} aria-label="Collections">
         <div className={styles.sideHeader}>
           <span>Collections</span>
@@ -476,6 +588,7 @@ export function LocalVariables() {
           </>
         )}
       </aside>
+      )}
 
       <main className={styles.main}>
         {!collection ? (

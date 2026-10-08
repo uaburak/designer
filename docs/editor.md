@@ -6,6 +6,29 @@
 
 ---
 
+## Status (2026-10-08, round 6 — slots, component panel, grid on the canvas, variables in and out)
+
+Branch `r6-components-grid`; engine side in docs/engine-build.md "Round 6"; research R4 §15, R9 "Round 6", R3 "Round 6".
+
+**Slots** (help "Create and use slots"):
+- **Convert to slot** (⇧⌘S; Object menu, canvas menu, the selection header's slot button for a nested frame of a main) and **Wrap in new slot** (canvas / Object menu for other layers inside a main) — `CONVERT_TO_SLOT` / `WRAP_IN_NEW_SLOT`.
+- An instance's slot row (`Component.tsx SlotControl`): **Limits** when the slot has guidelines (min / max layers, or preferred-only with preferred instances) — orange with a warning glyph when one is broken; a click lists each guideline with a check or a warning and the slot's layer count; otherwise the count. **Add instances** (+): the component picker titled "Add instances", filtered to **Preferred** first ("Preferred" / "All components") when the slot has preferred instances; the instance goes into the slot (its content diverges) and fills the counter axis when the slot says so. **More actions**: Reset slot, Delete contents (`CLEAR_SLOT`). Going over the maximum shows a toast (wording unverified).
+- Slot property settings complete: Name, **Description** (slots only), **Preferred instances** (as instance swap's), Minimum / Maximum layers (0 = not set), Only allow preferred instances (+ **View layers**: selects the preferred components), By default, display empty slots, By default, fill items on slot's counter-axis. Limits are guidance: nothing is refused (`model/components.ts slotViolations` = the API's `limitViolations`).
+
+**Component panel**: a variant property's **Values** reorder by dragging their handles (`stateGroupPropertyValueOrders`, one undo step "Reorder values"); a two-value variant property of True / False, Yes / No or On / Off shows as a **toggle** on instances (still "Assign variable"-able). Simplified instances: none (Figma removed them, 2026-03-23).
+
+**Grid on the canvas** (the engine's gestures, docs/engine-build.md "Round 6"): a click on a track's pill opens the **track label editor** (`Grid.tsx GridTrackEditor`, the engine's `GRID_TRACKS {edit}`): the size typed ("120", "2fr", "Hug", "Auto") or picked (Fixed / Fill container / Hug contents), for every selected track; ⌘ / ⇧ select several; ⌫ deletes them; edges resize, grabbers reorder, span handles span. The Auto layout section highlights the tracks selected on the canvas (and edits them together); **Number of rows** shows and takes **Auto** (`gridAutoTracks: ROWS`, a new grid's default; turning automatic positioning back on sets it; a number turns it off; math works); the **grid picker** button opens the 12 × 12 selector (hover previews columns × rows, a click sets them).
+
+**Variables** (`variablesIO.ts`, `model/dtcg.ts`):
+- **Export mode** (a mode's menu) / **Export modes** (a collection's menu): Figma's DTCG files, `<Mode>.tokens.json`, through main's Save dialog (several: a folder) or downloaded.
+- **Import mode** (a mode's menu): a DTCG file's tokens update the variables of the same name and type in that mode ("Imported n of m variables"). DTCG files **dropped on the view**: one new mode per file in the selected collection, tokens in every file with one type become variables (an empty collection's first file takes its default mode).
+- **Minimize** (a resizable modal over the canvas) / **Expand**, **Toggle sidebar** in the toolbar.
+- **Groups dragged in the sidebar**: the top / bottom quarter of a group row reorders next to it, the middle nests into it, "All variables" moves to the top level (`variables.ts moveGroup`, one undo step).
+- **Copy / Paste across files**: Copy also writes the variables to the system clipboard (a JSON text marked `designerVariables`: type, description, scopes, values by mode name; aliases among the copies kept by name, others resolved); Paste reads the clipboard first, so another file's window pastes them (modes matched by name, else the default mode's value).
+
+**Checks**: `__tests__/r6.wasm.test.ts` (6: Number of rows, multi-track sizing, slot limits / guidelines, variant toggles and value moves; on the wasm: a pill click's GRID_TRACKS and ⌫, Convert to slot / Wrap in new slot / Delete contents), `__tests__/dtcg.test.ts` (5: export shape, aliasData, import forms, round trip, alias targets). `editor-shot.mjs`: grid +4 (113 label editor, 114 picker), `EDITOR_ONLY=slots` (8; 140–141), `EDITOR_ONLY=variables6` (5; 142–143); full run 186 ok.
+
+**Not done / unverified**: the toast's and Limits' exact wording, Figma's default slot property name and the wrapper's sizing (Wrap in new slot), an empty slot's canvas placeholder and the "+" on the canvas over a slot (the panel's + is built), the grid picker's real size (12 × 12 assumed), "Export modes" as one zip (one file per mode here), unmatched tokens on Import mode (ignored here), `com.figma.isOverride` (not written).
 ## Status (2026-10-08, round 6 — video, the presentation view)
 
 Built on docs/engine-build.md "Round 6"; Figma's wording from help.figma.com (R8 §13).
@@ -39,7 +62,7 @@ Branch `r5-variables-components`; engine side in docs/engine-build.md "Round 5".
 - Variable menu: Edit variable — on a selection **Edit variables** (bulk Scope and Hide from publishing, Figma's multi-select edit), **Copy** / **Paste** (⌘C / ⌘V; pasted into any collection or group, values matched to modes by name, else the default mode's).
 - Group menu: Rename group, **Ungroup**, **Duplicate group**, Delete group.
 - Mode menu: "Move column left" / "Move column right" (Figma's wording).
-- Not done: Import mode / Export mode(s) (DTCG JSON files), Minimize / Expand / Toggle sidebar, group drag-reorder in the sidebar, copy / paste across files through the system clipboard (the editor process keeps the copied ids), "Create alias" / "Detach alias" in a cell's context menu (the cell's hover buttons do it).
+- Not done: (round 6 built Import / Export mode(s), Minimize / Expand / Toggle sidebar, group drag, cross-file paste) "Create alias" / "Detach alias" in a cell's context menu (the cell's hover buttons do it).
 
 **Component panel** (`panels/design/Component.tsx`, `components.ts`):
 - An instance's **variant property**: **Assign variable** on hover (string, number or boolean variables); bound, the variable's pill (click: pick another; Detach on hover). Nested exposed instances too.
@@ -48,7 +71,7 @@ Branch `r5-variables-components`; engine side in docs/engine-build.md "Round 5".
 - **Exposed nested instances** listed under the properties, − stops exposing one.
 - **Slot property settings**: Minimum layers, Maximum layers, Only allow preferred instances, By default, display empty slots, By default, fill items on slot's counter-axis (written to `slotPropConfig`; limits aren't enforced yet).
 - Wording: "Preferred instances" (was "Preferred values").
-- Not done: reordering a variant property's values, the slot "Limits" label / warnings and "Add instances" popup, Convert to slot / Wrap in new slot commands, property descriptions.
+- Not done: (all built in round 6 — variant value order, slot Limits / Add instances, Convert to slot / Wrap in new slot, slot descriptions; other property types have no description in Figma).
 
 **Checks**: `variables.wasm.test.ts` (extended collection end to end through the editor, Assign variable), `editor-shot.mjs` new checks (Extend collection, an override in blue and Reset change; Assign variable on a variant row picking the variant) — 123/123 for the full run, prototype 21/21.
 
@@ -59,7 +82,7 @@ Branch `r5-variables-components`; engine side in docs/engine-build.md "Round 5".
 - **Items.** A layer in a grid shows **Column span** / **Row span** in the Layout section.
 - **Canvas** (engine): a drag drops into the cell under the pointer; the selected grid's tracks show as pills along its top and left edges, the hovered one labelled.
 - Checks: `__tests__/grid.wasm.test.ts` (model + the engine laying out tracks, flow, spans, gaps), `editor-shot.mjs` `EDITOR_ONLY=grid` (runs in the default set too).
-- Not yet (Figma has them): editing a track from its pill's label, dragging track edges / the grabber, span handles on items, the visual grid picker, multi-track selection, Auto row count (`gridAutoTracks`).
+- Round 6 built them: editing a track from its pill's label, dragging track edges / the grabber, span handles on items, the visual grid picker, multi-track selection, Auto row count (`gridAutoTracks`).
 
 ## Status (2026-10-08, the text round — per-range styling, Type settings, links, lists)
 

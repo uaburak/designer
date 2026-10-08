@@ -5,7 +5,7 @@
  * Instance swap property's) come first, the current one is ticked.
  */
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { Icon, Popover, SearchField, cx } from "@/ds";
+import { Icon, Popover, SearchField, Select, cx } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { assetLabel, groupAssets, isPreferred, searchAssets, type ComponentAsset } from "../../model/components";
@@ -18,6 +18,8 @@ export interface ComponentPickerProps {
   current?: Guid | null;
   /** Component keys listed first, under "Preferred" */
   preferredKeys?: readonly string[];
+  /** A slot's "Add instances": with preferred components, the list starts filtered to them (Preferred / All) */
+  preferredFilter?: boolean;
   /** Components not offered (the instance's own ancestors, which would nest it in itself) */
   exclude?: ReadonlySet<Guid>;
   onPick: (asset: ComponentAsset) => void;
@@ -34,15 +36,17 @@ export function useComponentAssets(): ComponentAsset[] {
   }, [ed, version]);
 }
 
-export function ComponentPicker({ anchor, title = "Swap instance", current, preferredKeys, exclude, onPick, onClose }: ComponentPickerProps) {
+export function ComponentPicker({ anchor, title = "Swap instance", current, preferredKeys, preferredFilter, exclude, onPick, onClose }: ComponentPickerProps) {
   const ed = useEditor();
   const assets = useComponentAssets();
   const [query, setQuery] = useState("");
+  const filterable = !!preferredFilter && !!preferredKeys?.length;
+  const [onlyPreferred, setOnlyPreferred] = useState(filterable);
   const pages = ed.store.pages.map((p) => p.guid);
   const offered = assets.filter((a) => !exclude?.has(a.id) && !exclude?.has(a.target));
   const found = searchAssets(offered, query);
   const preferred = preferredKeys?.length ? found.filter((a) => preferredKeys.some((k) => isPreferred(a, k))) : [];
-  const groups = groupAssets(found, pages);
+  const groups = onlyPreferred && filterable ? [] : groupAssets(found, pages);
   const currentAsset = current ? ed.components.assetOf(current) : null;
   const item = (a: ComponentAsset) => {
     const on = currentAsset?.id === a.id;
@@ -70,6 +74,19 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
         <div className={styles.pickSearch}>
           <SearchField value={query} onChange={setQuery} placeholder="Search" autoFocus />
         </div>
+        {filterable && (
+          <div className={styles.pickFilter}>
+            <Select
+              label="Filter"
+              value={onlyPreferred ? "preferred" : "all"}
+              options={[
+                { value: "preferred", label: "Preferred" },
+                { value: "all", label: "All components" },
+              ]}
+              onChange={(v) => setOnlyPreferred(v === "preferred")}
+            />
+          </div>
+        )}
         <div className={styles.pickList} role="menu" aria-label="Components">
           {preferred.length > 0 && (
             <>
@@ -77,7 +94,7 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
               {preferred.map(item)}
             </>
           )}
-          {groups.length === 0 && <div className={styles.pickEmpty}>{query ? `No results for “${query}”` : "No components in this file"}</div>}
+          {groups.length === 0 && !(onlyPreferred && filterable && preferred.length) && <div className={styles.pickEmpty}>{query ? `No results for “${query}”` : "No components in this file"}</div>}
           {groups.map((g) => (
             <div key={g.page}>
               <div className={styles.pickHeader}>{g.pageName}</div>

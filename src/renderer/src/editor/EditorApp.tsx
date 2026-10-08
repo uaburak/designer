@@ -39,7 +39,8 @@ import { RightPanel } from "./panels/RightPanel";
 import { MinimizedPanels } from "./panels/Minimized";
 import { Rulers } from "./canvas/Rulers";
 import { BottomToolbar } from "./canvas/BottomToolbar";
-import { CanvasMenu, attachCanvasMenu } from "./canvas/CanvasMenu";
+import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasMenu";
+import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -225,6 +226,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachKeyboard(ed, canvas));
       cleanups.push(attachClipboard(ed));
       cleanups.push(attachCanvasMenu(ed, canvas));
+      cleanups.push(attachGridTracks(ed, canvas));
       cleanups.push(attachDesktop(ed));
       // The file's last page and camera when the source kept them, else the first view asked for.
       if (!restoreUiState(ed)) {
@@ -363,6 +365,7 @@ function Overlays() {
       <InlinePreview />
       <ShareDialog />
       <LinkEditor />
+      <GridTrackEditor />
     </>
   );
 }

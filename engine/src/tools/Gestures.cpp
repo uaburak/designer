@@ -103,6 +103,7 @@ void Editor::updateCursor(Vec2 s) {
     const Node* n = doc_.get(text_.node);
     if (n && Rect{0, 0, n->props.size.x, n->props.size.y}.contains(local)) return changeCursor(CursorKind::IBEAM);
   }
+  if (!viewer_ && gesture_ == Gesture::None && gridCursor(s)) return;
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::None) return changeCursor(CursorKind::DEFAULT);
@@ -336,6 +337,10 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     return P_HANDLED | P_CAPTURE;
   }
 
+  // A selected grid's track pills and a grid item's span handles (tools/GridGestures.cpp).
+  if (!viewer_ && tool_ == Tool::MOVE && !spaceHeld_)
+    if (uint32_t r = gridPointerDown(s, mods)) return r;
+
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::Resize) {
@@ -471,6 +476,7 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       break;
     case Gesture::Marquee: dragMarquee(world, mods); break;
     case Gesture::TextSelect: textDrag(s); break;
+    case Gesture::Grid: gridPointerMove(s, mods); break;
   }
 }
 
@@ -526,6 +532,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       break;
     case Gesture::Marquee: needsRender_ = true; break;
     case Gesture::TextSelect: break;
+    case Gesture::Grid: gridPointerUp(s, mods); break;
   }
   gesture_ = Gesture::None;
   endGesture();
@@ -577,6 +584,7 @@ void Editor::cancelGesture() {
       changeSelection(baseSelection_);
       needsRender_ = true;
       break;
+    case Gesture::Grid: gridCancel(); break;
     default: break;
   }
   gesture_ = Gesture::None;
@@ -933,35 +941,6 @@ void Editor::updateInsertion(Guid frame, Vec2 world) {
   Vec2 b = P == 0 ? Vec2{at, c1} : Vec2{c1, at};
   insertion_ = {W.apply(a), W.apply(b)};
   hasInsertion_ = true;
-}
-
-void Editor::gridTrackOverlay(Overlay& o) const {
-  const Node* n = doc_.get(selection_[0]);
-  if (!n || n->props.stack().stackMode != StackMode::GRID || !n->props.isAutoLayout()) return;
-  Layout L(*const_cast<Editor*>(this));
-  Layout::GridCells g = L.gridCells(selection_[0]);
-  Mat2x3 W = doc_.worldTransform(selection_[0]);
-  // The pointer near an edge (within the pills' band just outside it) hovers the track it is along.
-  Vec2 q = W.inverse().apply(camera_.toWorld(lastScreen_));
-  double band = 16 / std::max(1e-6, camera_.zoom);
-  for (size_t i = 0; i < g.colX.size(); i++) {
-    Overlay::GridTrack t;
-    t.a = W.apply({g.colX[i], 0});
-    t.b = W.apply({g.colX[i] + g.colW[i], 0});
-    t.column = true;
-    t.hovered = q.y <= 0 && q.y >= -band && q.x >= g.colX[i] && q.x <= g.colX[i] + g.colW[i];
-    t.label = g.colLabels[i];
-    o.gridTracks.push_back(std::move(t));
-  }
-  for (size_t i = 0; i < g.rowY.size(); i++) {
-    Overlay::GridTrack t;
-    t.a = W.apply({0, g.rowY[i]});
-    t.b = W.apply({0, g.rowY[i] + g.rowH[i]});
-    t.column = false;
-    t.hovered = q.x <= 0 && q.x >= -band && q.y >= g.rowY[i] && q.y <= g.rowY[i] + g.rowH[i];
-    t.label = g.rowLabels[i];
-    o.gridTracks.push_back(std::move(t));
-  }
 }
 
 void Editor::finishMove() {

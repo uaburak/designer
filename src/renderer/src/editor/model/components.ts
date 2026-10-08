@@ -510,3 +510,77 @@ export const preferredKey = (a: Pick<ComponentAsset, "id">): string => a.id;
 
 /** The name an asset shows: the last part of a slash name ("Buttons/Primary" → "Primary"). */
 export const assetLabel = (name: string): string => name.split("/").map((s) => s.trim()).filter(Boolean).pop() ?? name;
+
+// ---- Slots (round 6; help "Create and use slots", R4 §15) ---------------------------------------------------------
+
+export type SlotConfig = NonNullable<ComponentPropDef["slotPropConfig"]>;
+/** The plugin API's `limitViolations`: BELOW_MIN and ABOVE_MAX exclude each other. */
+export type SlotViolation = "BELOW_MIN" | "ABOVE_MAX" | "HAS_NON_PREFERRED";
+
+/** A limit counts when it is set (a stored 0 is "not set", as the API's null). */
+export const slotMin = (c: SlotConfig | undefined): number | null => (c?.minChildren && c.minChildren > 0 ? c.minChildren : null);
+export const slotMax = (c: SlotConfig | undefined): number | null => (c?.maxChildren && c.maxChildren > 0 ? c.maxChildren : null);
+
+/** Whether the slot has guidelines to show (the "Limits" label). */
+export const hasSlotLimits = (c: SlotConfig | undefined, preferredCount: number): boolean =>
+  slotMin(c) !== null || slotMax(c) !== null || (c?.allowPreferredValuesOnly === true && preferredCount > 0);
+
+/**
+ * What a slot breaks (guidance, never a block): fewer layers than its minimum, more than its maximum, a layer that
+ * isn't an instance of a preferred component while only preferred instances are allowed.
+ */
+export function slotViolations(c: SlotConfig | undefined, children: readonly { preferred: boolean }[], preferredCount: number): SlotViolation[] {
+  const out: SlotViolation[] = [];
+  const min = slotMin(c);
+  const max = slotMax(c);
+  if (min !== null && children.length < min) out.push("BELOW_MIN");
+  else if (max !== null && children.length > max) out.push("ABOVE_MAX");
+  if (c?.allowPreferredValuesOnly && preferredCount > 0 && children.some((k) => !k.preferred)) out.push("HAS_NON_PREFERRED");
+  return out;
+}
+
+/** The Limits details: each guideline with whether the slot meets it (a green check or an orange warning). */
+export function slotGuidelines(c: SlotConfig | undefined, children: readonly { preferred: boolean }[], preferredCount: number): { text: string; ok: boolean }[] {
+  const out: { text: string; ok: boolean }[] = [];
+  const min = slotMin(c);
+  const max = slotMax(c);
+  const v = slotViolations(c, children, preferredCount);
+  const layers = (n: number) => `${n} ${n === 1 ? "layer" : "layers"}`;
+  if (min !== null && max !== null) out.push({ text: `${min}–${layers(max)}`, ok: !v.includes("BELOW_MIN") && !v.includes("ABOVE_MAX") });
+  else if (min !== null) out.push({ text: `At least ${layers(min)}`, ok: !v.includes("BELOW_MIN") });
+  else if (max !== null) out.push({ text: `Up to ${layers(max)}`, ok: !v.includes("ABOVE_MAX") });
+  if (c?.allowPreferredValuesOnly && preferredCount > 0) out.push({ text: "Preferred instances only", ok: !v.includes("HAS_NON_PREFERRED") });
+  return out;
+}
+
+// ---- Variant properties (round 6) ----------------------------------------------------------------------------------
+
+const TOGGLE_PAIRS: [string, string][] = [
+  ["true", "false"],
+  ["yes", "no"],
+  ["on", "off"],
+];
+
+/**
+ * A two-value variant property shows as a toggle when its values are True / False, Yes / No or On / Off (Figma; any
+ * case): the value that means "on" and the one that means "off". Null otherwise.
+ */
+export function variantToggle(values: readonly string[]): { on: string; off: string } | null {
+  if (values.length !== 2) return null;
+  const lower = values.map((v) => v.trim().toLowerCase());
+  for (const [on, off] of TOGGLE_PAIRS) {
+    const i = lower.indexOf(on);
+    const j = lower.indexOf(off);
+    if (i >= 0 && j >= 0) return { on: values[i], off: values[j] };
+  }
+  return null;
+}
+
+/** A variant property's values with the one at `from` moved to before index `to` (the Values list's drag). */
+export function moveValue(values: readonly string[], from: number, to: number): string[] {
+  const out = [...values];
+  if (from < 0 || from >= out.length) return out;
+  const [v] = out.splice(from, 1);
+  out.splice(Math.max(0, Math.min(out.length, to > from ? to - 1 : to)), 0, v);
+  return out;
+}

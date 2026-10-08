@@ -23,14 +23,17 @@ inline int32_t addFontFile(const std::string& path) {
   return text::FontRegistry::get().addFace(bytes, read, 0);
 }
 
-// Inter's styles, as TS binds them (upright and italic files).
+// Figma's Inter (3.19, the variable font the app bundles for documents: one file, upright and italic instances).
+inline std::string interPath() { return std::string(ENG_FONTS_DIR) + "/Inter-3.19.ttf"; }
+
+// Inter's styles, as TS binds them (every style to the one file; the engine picks the named instance).
 inline void loadInter() {
   static bool loaded = false;
   if (loaded) return;
   loaded = true;
   auto& fonts = text::FontRegistry::get();
-  int32_t upright = addFontFile(std::string(ENG_FONTS_DIR) + "/InterVariable.ttf");
-  int32_t italic = addFontFile(std::string(ENG_FONTS_DIR) + "/InterVariable-Italic.ttf");
+  int32_t upright = addFontFile(interPath());
+  int32_t italic = upright;
   for (const char* s : {"Thin", "Extra Light", "Light", "Regular", "Medium", "Semi Bold", "Bold", "Extra Bold", "Black"}) {
     fonts.bind("Inter", s, upright);
     std::string it = std::string(s) == "Regular" ? "Italic" : std::string(s) + " Italic";

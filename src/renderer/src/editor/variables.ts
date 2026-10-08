@@ -797,6 +797,41 @@ export function renameGroup(ed: EditorController, collection: Guid, from: string
   });
 }
 
+/**
+ * A group dragged in the sidebar (help: "Click and drag groups … to reorder groups", and into other groups to nest
+ * them): `into` nests it in `target` ("" = the top level), `before` / `after` puts it next to the sibling group
+ * `target` (in its parent, its variables ordered there). One undo step; false when refused (into itself).
+ */
+export function moveGroup(ed: EditorController, collection: Guid, from: string, target: string, where: "into" | "before" | "after"): boolean {
+  const leaf = from.slice(from.lastIndexOf("/") + 1);
+  const parentOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+  const parent = where === "into" ? target : parentOf(target);
+  const to = parent ? `${parent}/${leaf}` : leaf;
+  if (target === from || target.startsWith(`${from}/`) || (where === "into" && to === from && parent === parentOf(from))) return where !== "into" && to === from ? reorderGroup() : false;
+  if (assets(ed).variables.some((v) => v.collection === collection && (v.name.startsWith(`${to}/`) || v.name === to)) && to !== from) {
+    showToast({ message: `A group named “${leaf}” already exists there`, kind: "error" });
+    return false;
+  }
+  ed.batch("Move group", () => {
+    if (to !== from) renameGroup(ed, collection, from, to);
+    reorderGroup(to);
+  });
+  return true;
+
+  // Its variables placed before / after the target group's (nothing to do for "into").
+  function reorderGroup(path = from): boolean {
+    if (where === "into") return true;
+    const vars = assets(ed).variables.filter((v) => v.collection === collection);
+    const mine = vars.filter((v) => v.name.startsWith(`${path}/`)).map((v) => v.id);
+    const rest = vars.filter((v) => !mine.includes(v.id));
+    const theirs = rest.map((v, i) => ({ v, i })).filter((x) => x.v.name.startsWith(`${target}/`));
+    if (!mine.length || !theirs.length) return false;
+    const at = where === "before" ? theirs[0].i : theirs[theirs.length - 1].i + 1;
+    moveVariables(ed, mine, rest[at]?.id ?? null);
+    return true;
+  }
+}
+
 /** "Delete group": its variables. */
 export function deleteGroup(ed: EditorController, collection: Guid, group: string): void {
   if (engineDid(ed, VARIABLE_COMMAND.deleteGroup, { collection, group })) return;

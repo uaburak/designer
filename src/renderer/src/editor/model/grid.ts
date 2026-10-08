@@ -11,6 +11,7 @@
  * Edits return whole field values (setProps replaces a field), so a track list is always written with its sizing.
  */
 import { compareKeys, keyAfter } from "@shared/schema/fractionalIndex";
+import { evaluate } from "@/ds/util/evaluate";
 
 export type GridAxis = "columns" | "rows";
 export type TrackType = "FIXED" | "FLEX" | "HUG";
@@ -38,6 +39,8 @@ export interface GridNode {
   gridColumnGap?: number;
   gridRowGap?: number;
   gridReflowEnabled?: boolean;
+  /** "ROWS": Number of rows is Auto — rows come and go with the items (Figma's default for a new grid) */
+  gridAutoTracks?: "NONE" | "ROWS";
   [other: string]: unknown;
 }
 
@@ -130,9 +133,35 @@ export function setTrackCount(n: GridNode, axis: GridAxis, count: number, sessio
 }
 
 /** A track's new sizing (FLEX on an axis whose frame hugs is Figma's "invalid": the caller turns the frame Fixed). */
-export function setTrackSizing(n: GridNode, axis: GridAxis, index: number, sizing: TrackSizing): Record<string, unknown> {
-  const tracks = tracksOf(n, axis).map((t, i) => (i === index ? { ...t, sizing: { ...sizing } } : t));
+export function setTrackSizing(n: GridNode, axis: GridAxis, index: number | readonly number[], sizing: TrackSizing): Record<string, unknown> {
+  const indices = typeof index === "number" ? [index] : index;
+  const tracks = tracksOf(n, axis).map((t, i) => (indices.includes(i) ? { ...t, sizing: { ...sizing } } : t));
   return trackFields(axis, tracks);
+}
+
+/** Number of rows is Auto (`gridAutoTracks: ROWS`): rows come and go with the items. */
+export const isAutoRows = (n: GridNode): boolean => n.gridAutoTracks === "ROWS";
+
+/** What the Number of rows field shows: "Auto", else the count. */
+export const rowCountLabel = (n: GridNode): string => (isAutoRows(n) ? "Auto" : String(tracksOf(n, "rows").length));
+
+/**
+ * What typing into Number of rows means: "Auto" / "A" → Auto rows; a number (math allowed: + - * /) → that many
+ * rows, Auto off. Null: not understood.
+ */
+export function parseRowCount(text: string): { auto: true } | { auto: false; count: number } | null {
+  const t = text.trim().toLowerCase();
+  if (t === "a" || t === "auto") return { auto: true };
+  const v = evaluate(t);
+  if (!Number.isFinite(v)) return null;
+  return { auto: false, count: Math.max(1, Math.min(1000, Math.round(v))) };
+}
+
+/** Labels of the tracks along `axis` as the canvas pills show them, joined when several differ ("Mixed"). */
+export function tracksLabel(n: GridNode, axis: GridAxis, indices: readonly number[]): string {
+  const tracks = tracksOf(n, axis);
+  const labels = [...new Set(indices.filter((i) => i >= 0 && i < tracks.length).map((i) => trackLabel(tracks[i].sizing)))];
+  return labels.length === 1 ? labels[0] : labels.length ? "Mixed" : "";
 }
 
 /** Moves the tracks at `from` (indices) to before index `to` (Figma's reorderColumns / reorderRows). */
@@ -153,7 +182,8 @@ export function gridDefaults(n: GridNode, sessionID: number, columns = 2, rows =
   // A frame that was a grid before keeps its tracks.
   const cols = tracksOf(n, "columns").length ? {} : setTrackCount(n, "columns", columns, sessionID).frame;
   const rowsFields = tracksOf(n, "rows").length ? {} : setTrackCount({ ...n, ...cols } as GridNode, "rows", rows, sessionID).frame;
-  return { stackMode: "GRID", gridReflowEnabled: true, gridColumnGap: n.gridColumnGap ?? 10, gridRowGap: n.gridRowGap ?? 10, ...cols, ...rowsFields };
+  // Number of rows starts as Auto (help: "By default, Number of rows is set to auto").
+  return { stackMode: "GRID", gridReflowEnabled: true, gridAutoTracks: n.gridAutoTracks ?? "ROWS", gridColumnGap: n.gridColumnGap ?? 10, gridRowGap: n.gridRowGap ?? 10, ...cols, ...rowsFields };
 }
 
 /** An item's span along `axis` (≥ 1). */

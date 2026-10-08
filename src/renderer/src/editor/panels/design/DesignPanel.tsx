@@ -162,6 +162,9 @@ function HeaderActions({ nodes }: { nodes: PanelNode[] }) {
   ];
   const anyBoolean = entries.some((e) => typeof e === "object" && "id" in e && !e.disabled);
   const mask = command("object.use-as-mask");
+  // A nested frame of a main: "Convert to slot" (help: the right sidebar's button, ⇧⌘S).
+  const toSlot = command("object.convert-to-slot");
+  const canSlot = isEnabled(ed, toSlot);
   const editable = nodes.length === 1 && EDITABLE.has(typeOf(nodes[0])) && ed.vector.available;
   return (
     <div className={styles.headerActions}>
@@ -174,6 +177,7 @@ function HeaderActions({ nodes }: { nodes: PanelNode[] }) {
         disabled={!isEnabled(ed, command("object.create-component"))}
         onClick={() => runEditorCommand(ed, "object.create-component")}
       />
+      {canSlot && <IconButton icon="24.slot" label={toSlot.label} shortcut={shortcutOf(toSlot)} tone="secondary" onClick={() => runEditorCommand(ed, toSlot.id)} />}
       {/* Pressed when every selected layer is a mask: read from the panel's nodes (the command's own check re-reads the selection from the engine on every render). */}
       <IconButton icon="24.mask" label={mask.label} shortcut={shortcutOf(mask)} tone="secondary" disabled={!isEnabled(ed, mask)} aria-pressed={nodes.some((n) => (n as { mask?: boolean }).mask === true)} onClick={() => runEditorCommand(ed, mask.id)} />
       {anyBoolean ? (

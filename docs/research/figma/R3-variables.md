@@ -202,3 +202,35 @@ Read during round 5 (help articles through Zendesk's public JSON; Figma's file e
 | R3-58 | Variables view (2026): "Reorder collections" (popup, drag or "Sort A to Z"); groups: "Ungroup", "Duplicate group", "Delete group", drag to nest; multi-select → "Edit variables" (scope, hide from publishing); Copy / Paste across collections and files; value context menu "Create alias", hover "Detach alias"; search by name, value or group; type filter. | [Create and manage variables and collections](https://help.figma.com/hc/en-us/articles/15145852043927) | help | high |
 | R3-59 | Timing / Easing variables drive Motion; prototype transitions' duration / easing can't be bound to variables (feature requests open: forum 52118 Mar 2026, 32147). | [forum 52118](https://forum.figma.com/suggest-a-feature-11/variables-for-animation-properties-52118), [Transition API](https://developers.figma.com/docs/plugins/api/Transition) | forum + dev docs | medium |
 | R3-60 | Figma's schema has `VARIABLE_OVERRIDE`, `VariableSetMode.parentVariableSetId / parentModeId`, `VariableModeBySetMapEntry.variableSetExtensionID`, NodeChange `backingVariableSetId`, `backingVariableId` (variable or override id), `overriddenVariableId`, `rootVariableKey`, `inheritedVariableIds`, `isCollectionExtendable` (13 of 24 collections in the owner's file `true`). Which of them Figma's VARIABLE_OVERRIDE uses is unverified (no file with an extension). | docs/research/figma/figma-schema.kiwi | schema | medium |
+
+## Round 6 — Import / Export of modes (DTCG), Minimize, group drag, copy / paste (checked 2026-10-08)
+Sources: help "Modes for variables" (15343816063383), "Create and manage variables and collections"
+(15145852043927), Schema 2025 recap (figma.com/blog/schema-2025-design-systems-recap), forum threads 47831, 48195,
+50999, 52729, 53229, 18992; real Figma exports on GitHub (lightsparkdev/js-sdk `packages/origin/tokens/figma/origin/
+{Light,Dark,Value}.tokens.json`, teya-engineering/lemonade-design-system `tokens/*.tokens.json`, cfpb/design-system,
+WTTJ/welcome-ui) — their key names and shapes, not their content.
+- **Menus**: a mode's header menu "Export mode" and "Import mode"; the collection's menu "Export modes". Import into a
+  new collection: drop one or more files on the Variables view — "A new mode will be created for each file you
+  import"; a token becomes a variable when it is in every file with one supported `$type`. Import mode into an existing
+  collection: "Any variables that match the token names and types will be updated." (unmatched tokens: unverified;
+  built: ignored.) Nested groups become slash names; two tokens with one name → the first wins.
+- **Export format** (one `<Mode name>.tokens.json` per mode, 2-space JSON): groups nested by "/" in variable order;
+  each token `{"$type", "$value", "$description"?, "$extensions": {"com.figma.variableId", "com.figma.scopes",
+  "com.figma.codeSyntax"?, "com.figma.aliasData"?, "com.figma.type"?}}`; the root's last key
+  `"$extensions": {"com.figma.modeName": "<mode>"}`. Types: COLOR → `"color"` with the DTCG 2025 object
+  `{"colorSpace": "srgb", "components": [r, g, b], "alpha": a, "hex": "#RRGGBB"}` (hex upper case, no alpha);
+  FLOAT → `"number"`; STRING → `"string"` + `com.figma.type: "string"`; BOOLEAN → `"number"` 1 / 0 +
+  `com.figma.type: "boolean"`. An alias in the same collection is `"{group.sub.name}"`; one to another collection or a
+  library is the resolved value + `com.figma.aliasData {targetVariableId, targetVariableName, targetVariableSetId,
+  targetVariableSetName}`. `com.figma.isOverride` (seen on some files; meaning unverified) isn't written here.
+  "Export modes" as one zip or several files: unverified (built: one file per mode, each downloaded).
+- **Import accepts**: `color` (sRGB / HSL), `dimension` in px (`{"value": 16, "unit": "px"}`), `duration` in s,
+  `fontFamily` (one name), `number` (Boolean with `com.figma.type: "boolean"`), `string`; aliases `"{a.b}"`, and
+  `com.figma.aliasData` (by id, then collection id, then names) when the target exists.
+- **Minimize / Expand**: the variables view is full-window by default; "Minimize" shrinks it into a resizable modal
+  ("Click and drag the corner or sides"); "Expand" fills the window again; "Toggle sidebar" shows / hides the
+  collections sidebar. No shortcuts.
+- **Groups**: "Click and drag groups in the sidebar … to reorder groups", and into other groups to nest them.
+- **Copy / paste**: "copy and paste variables to any collection, including collections in a different file" (right
+  click → Copy / Paste; ⇧Enter duplicates). Mode mapping and aliases on a cross-file paste: unverified (built: modes by
+  name, else the default mode; aliases to variables the target file lacks become their resolved values).

@@ -18,6 +18,8 @@
 //   EDITOR_ONLY=grid node …                                        (only the grid auto layout section: flow, counts, tracks, gaps, spans)
 //   EDITOR_ONLY=text node …                                        (only the text round: specimen, Mixed runs, Type settings, links, lists)
 //   EDITOR_ONLY=fonts node …                                       (only the fonts section: font picker, Google fonts, Missing fonts)
+//   EDITOR_ONLY=slots node …                                       (round 6: Convert to slot, an instance's slot, Limits, variant values)
+//   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -1589,6 +1591,113 @@ async function gridSection(page, theme) {
   await settle(page);
   check("Grid: Column span 2 on a layer in the grid", (await node(page, kids[0])).gridColumnSpan === 2);
   await shot(page, `112-grid-span-${theme}`);
+  // Number of rows: Auto (a new grid's rows), shown as text.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
+  await settle(page);
+  check("Grid: Number of rows reads Auto (a new grid)", (await panel.getByRole("textbox", { name: "Number of rows" }).inputValue()) === "Auto");
+  // A click on the first column's pill label opens the track label editor; 120 makes it Fixed 120.
+  const [px, py] = await toScreen(page, 30, -10);
+  await page.mouse.move(px, py);
+  await settle(page);
+  await page.mouse.click(px, py);
+  await settle(page);
+  const editor = page.locator("[data-grid-track-editor]");
+  check("Grid: a click on a column's pill opens its label editor", (await editor.count()) === 1);
+  await shot(page, `113-grid-track-editor-${theme}`);
+  if (await editor.count()) {
+    const field = editor.getByRole("textbox", { name: "Column size" });
+    await field.fill("120");
+    await field.press("Enter");
+    await settle(page);
+    n = await node(page, "1:1");
+    const s0 = n.gridColumnsSizing?.entries?.find((e) => e.id.localID === n.gridColumns.entries[0].id.localID)?.trackSize?.maxSizing;
+    check("Grid: the label editor makes the column Fixed 120", s0?.type === "FIXED" && s0?.value === 120, JSON.stringify(s0));
+  }
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // The grid picker: 4 × 2 from the board (rows no longer Auto).
+  await panel.getByRole("button", { name: "Grid picker" }).click();
+  await settle(page);
+  await page.locator('[data-grid-cell="4x2"]').hover();
+  await shot(page, `114-grid-picker-${theme}`);
+  await page.locator('[data-grid-cell="4x2"]').click();
+  await settle(page);
+  n = await node(page, "1:1");
+  check("Grid: the picker sets 4 columns × 2 rows", n.gridColumns?.entries?.length === 4 && n.gridRows?.entries?.length === 2 && n.gridAutoTracks !== "ROWS", JSON.stringify({ c: n.gridColumns?.entries?.length, r: n.gridRows?.entries?.length, auto: n.gridAutoTracks }));
+}
+
+/** Round 6 on the engine's sample (dark): Convert to slot from the panel, an instance's slot (Limits, Add instances, More actions). */
+async function slotsSection(page, theme) {
+  await open(page, "");
+  const panel = page.locator('[data-panel="right"]');
+  await page.evaluate(() => {
+    const e = window.__designerEditor.engine;
+    e.setSelection(["1:1"]);
+    e.runCommand("CREATE_COMPONENT");
+    e.setSelection(["1:7"]);
+  });
+  await settle(page);
+  const convert = panel.getByRole("button", { name: "Convert to slot" });
+  check("Slots: a frame inside a main shows Convert to slot", (await convert.count()) === 1);
+  if (await convert.count()) await convert.click();
+  await settle(page);
+  const defs = await page.evaluate(() => window.__designerEditor.engine.readNode("1:1").componentPropDefs ?? []);
+  check("Slots: Convert to slot adds a Slot property bound to the frame", defs.some((d) => d.name === "Slot" && d.type === "SLOT") && (await node(page, "1:7")).isSlot === true, JSON.stringify(defs.map((d) => d.name)));
+  // A limit of one layer (the slot holds two): its instance's Limits turn orange.
+  await page.evaluate(() => {
+    const e = window.__designerEditor.engine;
+    const n = e.readNode("1:1");
+    const defs = (n.componentPropDefs ?? []).map((d) => (d.type === "SLOT" ? { ...d, slotPropConfig: { maxChildren: 1, minChildren: 0 } } : d));
+    e.setProps(["1:1"], { componentPropDefs: defs });
+    e.runCommand("INSERT_INSTANCE", { main: "1:1", x: 1400, y: 300 });
+  });
+  await settle(page);
+  const slot = panel.locator("[data-slot-control]");
+  check("Slots: the instance's slot row has Limits, Add instances and More actions", (await slot.count()) === 1 && (await slot.getByRole("button", { name: "Add instances" }).count()) === 1 && (await slot.locator("[data-slot-limits]").count()) === 1);
+  check("Slots: two layers over a limit of one is ABOVE_MAX", ((await slot.getAttribute("data-slot-violations")) ?? "").includes("ABOVE_MAX"), (await slot.getAttribute("data-slot-violations")) ?? "");
+  await slot.locator("[data-slot-limits]").click();
+  await settle(page);
+  check("Slots: Limits lists its guidelines", (await page.locator("[data-slot-guidelines] [data-ok]").count()) >= 1);
+  await shot(page, `140-slot-limits-${theme}`);
+  await page.keyboard.press("Escape");
+  await slot.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Delete contents" }).click();
+  await settle(page);
+  check("Slots: Delete contents empties the instance's slot", (await panel.locator("[data-slot-control]").getAttribute("data-slot-count")) === "0");
+  await panel.locator("[data-slot-control]").getByRole("button", { name: "Add instances" }).click();
+  await settle(page);
+  check("Slots: Add instances lists the components", (await page.locator("[data-component-picker]").getByRole("menuitemradio").count()) >= 1);
+  await shot(page, `141-slot-add-instances-${theme}`);
+  await page.locator("[data-component-picker]").getByRole("menuitemradio").first().click();
+  await settle(page);
+  check("Slots: an added instance fills the slot", (await panel.locator("[data-slot-control]").getAttribute("data-slot-count").catch(() => null)) === "1" || (await selection(page)).length === 1);
+}
+
+/** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Toggle sidebar. */
+async function variables6Section(page, theme) {
+  await open(page, "&doc=variables");
+  await page.evaluate(() => window.__designerEditor.ui.set({ variablesOpen: true }));
+  await settle(page);
+  const win = page.locator("[data-local-variables]");
+  await win.locator("[data-mode]").first().click({ button: "right" });
+  await settle(page);
+  check("Variables: a mode's menu has Import mode and Export mode", (await page.getByRole("menuitem", { name: "Import mode" }).count()) === 1 && (await page.getByRole("menuitem", { name: "Export mode" }).count()) === 1);
+  await shot(page, `142-variables-mode-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await win.locator("[data-collection]").first().click({ button: "right" });
+  await settle(page);
+  check("Variables: a collection's menu has Export modes", (await page.getByRole("menuitem", { name: "Export modes" }).count()) === 1);
+  await page.keyboard.press("Escape");
+  await win.getByRole("button", { name: "Minimize" }).click();
+  await settle(page);
+  check("Variables: Minimize makes it a modal", (await win.getAttribute("data-minimized")) === "true");
+  await shot(page, `143-variables-minimized-${theme}`);
+  await win.getByRole("button", { name: "Toggle sidebar" }).click();
+  await settle(page);
+  check("Variables: Toggle sidebar hides the collections", (await win.getByRole("complementary", { name: "Collections" }).count()) === 0);
+  await win.getByRole("button", { name: "Expand" }).click();
+  await settle(page);
+  check("Variables: Expand fills the window again", (await win.getAttribute("data-minimized")) === null);
 }
 
 /** The text round on `?editor&doc=text` (dark): the specimen, Typography's Mixed, Type settings' tabs, a link on a range (⇧⌘U), a list (⇧⌘8). */
@@ -1679,6 +1788,20 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await gridSection(page, "dark");
+    await context.close();
+  }
+  for (const [name, section] of [
+    ["slots", slotsSection],
+    ["variables6", variables6Section],
+  ]) {
+    if (only !== name && only) continue;
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await section(page, "dark");
     await context.close();
   }
   if (only === "text" || !only) {

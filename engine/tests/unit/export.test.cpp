@@ -231,7 +231,7 @@ geom::Path shapeOf(const El& e) {
 struct Fonts {
   Fonts() {
     auto& fonts = text::FontRegistry::get();
-    int32_t upright = addFontFile(std::string(ENG_FONTS_DIR) + "/InterVariable.ttf");
+    int32_t upright = addFontFile(interPath());
     for (const char* style : {"Regular", "Semi Bold", "Bold"}) fonts.bind("Inter", style, upright);
     fonts.takeRequests();
   }

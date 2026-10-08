@@ -38,6 +38,7 @@ import {
   isComponent,
   isComponentSet,
   isInstance,
+  isPreferred,
   newPropertyDef,
   newPropertyName,
   nextDefId,
@@ -94,6 +95,11 @@ export const COMPONENT_COMMAND = {
   /** args { ref?, exposed } */
   expose: "SET_EXPOSED_INSTANCE",
   resetSlot: "RESET_SLOT",
+  /** args { ref?: Guid | Guid[] } (round 6) */
+  convertToSlot: "CONVERT_TO_SLOT",
+  wrapInSlot: "WRAP_IN_NEW_SLOT",
+  /** args { ref? }: "Delete contents" */
+  clearSlot: "CLEAR_SLOT",
 } as const;
 
 const asFields = (f: Record<string, unknown>): NodeFields => f as NodeFields;
@@ -483,6 +489,8 @@ function deriveChildren(read: (ids: Guid[]) => CNode[], node: CNode, depth: numb
 export interface PropertyRowData {
   def: ComponentPropDef;
   value: ComponentPropValue | undefined;
+  /** Slot: the instance's slot layer (a derived row) */
+  slotRef?: Guid | null;
   /** Variant: the values to pick from */
   options?: string[];
   /** Variant: the current one */
@@ -508,12 +516,19 @@ export function instanceInfo(ed: EditorController, instance: CNode, nestedDepth 
   if (info) {
     const main = info.main ? readC(ed, info.main.ref) : mainOf(ed, instance);
     const set = info.main?.set ? readC(ed, info.main.set) : setOf(ed, main);
+    // The main's own definitions carry what the engine's read leaves out (a slot's settings and description).
+    const ownDefs = (set ?? main)?.componentPropDefs ?? [];
+    const withOwn = (p: EngineComponentProperty): ComponentPropDef => {
+      const d = defFromEngine(p);
+      const own = ownDefs.find((x) => guidStr(x.id) === p.id);
+      return own ? { ...d, slotPropConfig: own.slotPropConfig as ComponentPropDef["slotPropConfig"], description: own.description as string | undefined, preferredValues: d.preferredValues ?? own.preferredValues } : d;
+    };
     const rows = (props: EngineComponentProperty[]): PropertyRowData[] => {
       const variant = props.filter((p) => p.type === "VARIANT");
       const rest = props.filter((p) => p.type !== "VARIANT");
       return [
         ...variant.map((p) => ({ def: defFromEngine(p), value: undefined, options: p.variantOptions ?? [], variantValue: typeof p.value === "string" ? p.value : undefined, variable: p.boundVariable ?? null })),
-        ...rest.map((p) => ({ def: defFromEngine(p), value: toPropValue(p.type, p.value), variable: p.boundVariable ?? null })),
+        ...rest.map((p) => ({ def: withOwn(p), value: toPropValue(p.type, p.value), variable: p.boundVariable ?? null, ...(p.type === "SLOT" ? { slotRef: p.boundLayers?.[0] ?? null } : {}) })),
       ];
     };
     const nested = info.exposedInstances.map((x) => {
@@ -1045,3 +1060,63 @@ export function valueFromLayer(layer: CNode, type: ComponentPropType): Component
 }
 
 export { isComponent, isComponentSet, isInstance };
+
+// ---- Slots on instances (round 6) ---------------------------------------------------------------------------------
+
+export interface SlotState {
+  ref: Guid;
+  children: { guid: Guid; preferred: boolean }[];
+  preferredCount: number;
+}
+
+/** An instance's slot as the panel reads it: its layers, each an instance of a preferred component or not. */
+export function slotState(ed: EditorController, row: PropertyRowData): SlotState | null {
+  if (row.def.type !== "SLOT" || !row.slotRef) return null;
+  const kids = (ed.engine.readNodes([row.slotRef], { childIds: true })[0]?.childIds ?? []) as Guid[];
+  const preferredKeys = row.def.preferredValues?.instanceSwapValues?.map((p) => p.key) ?? [];
+  const children = kids.map((guid) => {
+    const n = readC(ed, guid);
+    const main = n && isInstance(n) ? mainOf(ed, n) : null;
+    const a = main ? ed.components.assetOf(main.guid) : null;
+    return { guid, preferred: !!a && preferredKeys.some((k) => isPreferred(a, k)) };
+  });
+  return { ref: row.slotRef, children, preferredCount: preferredKeys.length };
+}
+
+/**
+ * "Add instances" into an instance's slot: an instance of `asset` added to the slot (its content diverges from the
+ * main's), filling the slot's counter axis when the slot says so ("By default, fill items on slot's counter-axis").
+ * One undo step.
+ */
+export function addInstanceToSlot(ed: EditorController, slotRef: Guid, asset: ComponentAsset, config?: ComponentPropDef["slotPropConfig"]): boolean {
+  let ok = false;
+  ed.batch("Add instance", () => {
+    ok = engineDid(ed, "INSERT_INSTANCE", { main: asset.target, parent: slotRef });
+    const added = ok ? ed.selection[0] : undefined;
+    if (added && config?.stretchChildOnInsert) {
+      const parent = readC(ed, added)?.parentIndex?.guid;
+      const p = parent ? (readC(ed, parent) as CNode & { stackMode?: string }) : null;
+      if (p?.stackMode === "HORIZONTAL" || p?.stackMode === "VERTICAL") ed.engine.setProps([added], asFields({ stackChildAlignSelf: "STRETCH" }));
+    }
+  });
+  return ok;
+}
+
+/** "Delete contents": the slot emptied (an instance's: its own content, empty). */
+export function clearSlot(ed: EditorController, slotRef: Guid): boolean {
+  return engineDid(ed, COMPONENT_COMMAND.clearSlot, { ref: slotRef });
+}
+
+/** "Reset slot": back to the main's content. */
+export function resetSlot(ed: EditorController, slotRef: Guid): boolean {
+  return engineDid(ed, COMPONENT_COMMAND.resetSlot, { ref: slotRef });
+}
+
+/** A variant property's values in a new order (the set's stateGroupPropertyValueOrders): one undo step. */
+export function reorderVariantValues(ed: EditorController, set: CNode, property: string, values: readonly string[]): void {
+  const orders = (set.stateGroupPropertyValueOrders ?? []).filter((o) => o.property !== property);
+  const at = (set.stateGroupPropertyValueOrders ?? []).findIndex((o) => o.property === property);
+  const next = [...orders];
+  next.splice(at >= 0 ? at : next.length, 0, { property, values: [...values] });
+  ed.setProps([set.guid], asFields({ stateGroupPropertyValueOrders: next }), "Reorder values");
+}

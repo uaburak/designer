@@ -182,17 +182,41 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Vec2 size = t.column ? Vec2{len, thick} : Vec2{thick, len};
     double r = thick / 2;
     emit(makeShape(Mat2x3::translate(std::round(x * dpr) / dpr, std::round(y * dpr) / dpr), size, ShapeKind::Rect, {r, r, r, r}, blue,
-                   t.hovered ? 1.0 : 0.45, blue, 0, 0, 0),
+                   t.hovered || t.selected ? 1.0 : 0.45, blue, 0, 0, 0),
          Pass::Shape);
-    if (!t.hovered || t.label.empty()) continue;
+    if (!(t.hovered || t.selected) || t.label.empty()) continue;
     const text::TextLayout* L = label(t.label, "Medium", style.labelSize);
     double tw = L ? L->size.x : 6.2 * static_cast<double>(t.label.size());
-    double bw = std::round(tw + 2 * style.badgePadding), bh = style.badgeHeight;
+    // The badge as wide as the editor's hit test takes it (tools/GridGestures.cpp gridBadgeWidth).
+    double bw = t.column ? std::round(6.2 * static_cast<double>(t.label.size()) + 2 * style.badgePadding + 2) : std::round(tw + 2 * style.badgePadding),
+           bh = style.badgeHeight;
+    bw = std::max(bw, std::round(tw + 2 * style.badgePadding));
     double cx = t.column ? x + len / 2 : x + thick / 2, cy = t.column ? y + thick / 2 : y + len / 2;
     double bx = std::round((cx - bw / 2) * dpr) / dpr, by = std::round((cy - bh / 2) * dpr) / dpr;
     double rr = style.badgeRadius;
     emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0), Pass::Shape);
     if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(bx + (bw - tw) / 2, std::round((by + (bh - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
+    if (t.selected) emit(makeShape(Mat2x3::translate(bx - 1, by - 1), {bw + 2, bh + 2}, ShapeKind::Rect, {rr + 1, rr + 1, rr + 1, rr + 1}, white, 0, white, 1, 1, 0), Pass::Shape);
+    if (t.grabber) {
+      // The grabber: two columns of three dots just before the label (columns: left of it; rows: above it).
+      const double gw = 10, gh = 14;
+      double gx = t.column ? bx - 2 - gw : cx - gw / 2, gy = t.column ? cy - gh / 2 : by - 2 - gh;
+      emit(makeShape(Mat2x3::translate(std::round(gx * dpr) / dpr, std::round(gy * dpr) / dpr), {gw, gh}, ShapeKind::Rect, {3, 3, 3, 3}, blue, 1, blue, 0, 0, 0),
+           Pass::Shape);
+      for (int k = 0; k < 6; k++) {
+        double dx = gx + 3 + (k % 2) * 3, dy = gy + 3 + (k / 2) * 3.5;
+        emit(makeShape(Mat2x3::translate(dx, dy), {1.5, 1.5}, ShapeKind::Ellipse, kSquare, white, 1, white, 0, 0, 0), Pass::Shape);
+      }
+    }
+  }
+  // Reordering tracks: the blue line where they land.
+  if (overlay.hasGridDrop) {
+    Vec2 a = view.apply(overlay.gridDrop.a), b = view.apply(overlay.gridDrop.b);
+    Rect r = Rect::fromPoints(a, b);
+    if (r.w < 2) r.x -= 1, r.w = 2;
+    if (r.h < 2) r.y -= 1, r.h = 2;
+    emit(makeShape(Mat2x3::translate(std::round(r.x * dpr) / dpr, std::round(r.y * dpr) / dpr), {r.w, r.h}, ShapeKind::Rect, kSquare, blue, 1, blue, 0, 0, 0),
+         Pass::Shape);
   }
 
   // Hover: the hovered layer's own outline (not when it is selected).
@@ -249,6 +273,14 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         drawGlyphs(*L, Mat2x3::translate(bx + (bw - tw) / 2, std::round(ty * dpr) / dpr), white, 1);
       }
     }
+  }
+  // A grid item's span handles: small white circles with a blue ring on its sides' midpoints.
+  for (const Vec2& w : overlay.gridSpanHandles) {
+    Vec2 c = view.apply(w);
+    const double d = 8;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare, white, 1,
+                   blueSel, 1, 1, 0),
+         Pass::Shape);
   }
 
   // A straight line between two world points, `width` CSS px across; axis-aligned ones land on device pixels.

@@ -121,7 +121,11 @@ enum class CommandId : uint32_t {
   GROUP_STYLES = 175,                   // args {styles, name}
   RENAME_STYLE_GROUP = 176,             // args {type, group, name}
   UNGROUP_STYLES = 177,                 // args {type, group}
-  REPLACE_FONTS = 190,                  // args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' "Replace fonts")
+  REPLACE_FONTS = 190,
+  // Round 6 (branch r6-components-grid; 210-219 kept clear of parallel rounds): slots.
+  CONVERT_TO_SLOT = 210,                // args {ref?: Guid | Guid[]} ("Convert to slot", ⌘⇧S): nested frames of a main
+  WRAP_IN_NEW_SLOT = 211,               // the selection framed, the frame made a slot ("Wrap in new slot")
+  CLEAR_SLOT = 212,                     // args {ref?}: a slot (an instance's slot row, or a main's slot frame) emptied ("Delete contents")                  // args {fonts: [{from: {family, style}, to: {family, style}}]} (Missing fonts' "Replace fonts")
 };
 
 // engine_command_state bits.

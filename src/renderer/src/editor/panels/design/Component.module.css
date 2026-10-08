@@ -205,4 +205,38 @@
   .defDrop { box-shadow: inset 0 2px 0 var(--figma-color-border-selected); }
   .exposedList { margin-top: var(--ds-space-1); }
   .editorFooterStart { display: flex; justify-content: flex-start; }
+  /* Round 6: an instance's slot property — Limits, Add instances, More actions */
+  .slotControl { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; }
+  .slotCount { flex: 1 1 auto; min-width: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .limits {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .limits:hover, .limits[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .limits:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .limitsWarning { color: var(--figma-color-text-warning); }
+  .limitsList { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .guideline { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .guidelineOk { color: var(--figma-color-icon-success); }
+  .guidelineWarning { color: var(--figma-color-icon-warning); }
+  /* The Values list of a variant property: a drag handle on hover */
+  .valueRow { display: flex; align-items: center; gap: var(--ds-space-1); border-radius: var(--ds-radius-medium); }
+  .valueRow > [data-ds="TextInput"] { flex: 1 1 auto; min-width: 0; }
+  .valueHandle { display: flex; flex: none; color: var(--figma-color-icon-tertiary); cursor: grab; opacity: 0; }
+  .valueRow:hover .valueHandle { opacity: 1; }
+  .valueDrop { box-shadow: inset 0 2px 0 var(--figma-color-border-selected); }
+  .pickFilter { padding: 0 var(--ds-space-2) var(--ds-space-2); }
 }

@@ -336,6 +336,10 @@ export const COMMANDS: EditorCommand[] = [
   },
   pending("object.restore-component", "Restore component", COMPONENT_COMMAND.restore),
   pending("object.reset-slot", "Reset slot", COMPONENT_COMMAND.resetSlot),
+  // Slots (help "Create and use slots"): a nested frame of a main becomes a slot; anything else is wrapped first.
+  pending("object.convert-to-slot", "Convert to slot", COMPONENT_COMMAND.convertToSlot, [k("KeyS", { mod: true, shift: true })]),
+  pending("object.wrap-in-new-slot", "Wrap in new slot", COMPONENT_COMMAND.wrapInSlot),
+  pending("object.delete-slot-contents", "Delete contents", COMPONENT_COMMAND.clearSlot),
   {
     id: "object.return-to-instance",
     label: "Return to instance",

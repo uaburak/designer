@@ -103,6 +103,15 @@ TEST_CASE("text: parity with Figma's stored glyph positions (DESIGNER_TEXT_PARIT
       if (std::fabs(L->lines[i].baseline - b.array[1].number) > 0.01) baselineOver001++;
     }
     double fw = t.get("layoutSize")->get("x")->number;
+    // DESIGNER_TEXT_PARITY_DUMP=<path>: one line per auto-width text — our widest line, Figma's widest stored
+    // baseline (x + width) and Figma's box width (for studying the rounding rule).
+    if (const char* dump = std::getenv("DESIGNER_TEXT_PARITY_DUMP"); dump && p.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT) {
+      static FILE* out = std::fopen(dump, "w");
+      double ours = 0, theirs = 0;
+      for (const LaidLine& l : L->lines) ours = std::max(ours, l.width);
+      for (const json::Value& b : t.get("baselines")->array) theirs = std::max(theirs, b.array[2].number);
+      if (out) std::fprintf(out, "%.6f\t%.8f\t%.4f\t%s\n", ours, theirs, fw, p.text().textData.characters.substr(0, 30).c_str());
+    }
     double dw = std::fabs(L->size.x - fw);
     if (p.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT) {
       sumWidth += dw;

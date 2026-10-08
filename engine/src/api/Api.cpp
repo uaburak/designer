@@ -350,6 +350,16 @@ void writeEvents(json::Writer& w, Engine& e) {
     else w.string(ed.returnToInstance().toString());
     w.endObject();
   }
+  for (auto& g : ev.gridTracks) {
+    w.beginObject().key("type").string("GRID_TRACKS").key("frame");
+    if (g.frame == kNoGuid) w.null();
+    else w.string(g.frame.toString());
+    w.key("axis").string(g.column ? "COLUMNS" : "ROWS").key("tracks").beginArray();
+    for (size_t t : g.tracks) w.number(static_cast<double>(t));
+    w.endArray().key("edit").boolean(g.edit);
+    w.key("x").number(g.label.x).key("y").number(g.label.y).key("width").number(g.label.w).key("height").number(g.label.h);
+    w.endObject();
+  }
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
     w.beginObject().key("type").string("CONTEXT_MENU");
