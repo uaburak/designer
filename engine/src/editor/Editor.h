@@ -1053,7 +1053,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Target> targetsOf(const std::vector<Guid>& ids) const;
   void prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHash>& moving);
   // Where a move would put its layers: the topmost frame under `world` (the page when none).
-  Guid dropTargetAt(Vec2 world) const;
+  Guid dropTargetAt(Vec2 world, bool force = false) const;
   // The frame or page a parent's layers belong to (through groups).
   Guid containerOf(Guid parent) const;
   void keepResizedSize(Guid id, bool x, bool y);

@@ -163,3 +163,36 @@ TEST_CASE("r7 lines: two endpoint handles; dragging one turns the line about the
   move(e, 760, 470);
   CHECK(e.cursor() == CursorKind::DEFAULT);
 }
+
+// ---- 6. Move modifiers --------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 move: a frame smaller than the layer doesn't take it; ⌘ nests it anyway; ⌃ turns snapping off") {
+  const Guid small{6, 1};
+  NodeChange f = make(small, NodeType::FRAME, kPage, "$", {700, 0, 60, 60}, "Small");
+  Editor e = makeEditor({f});
+  // TOP (100×100) over the 60×60 frame: stays on the page.
+  e.setSelection({TOP});
+  drag(e, {550, 150}, {830, 150});
+  CHECK(e.document().parentOf(TOP) == kPage);
+  e.command(CommandId::UNDO);
+  // ⌘: into it.
+  drag(e, {550, 150}, {830, 150}, MOD_PRIMARY);
+  CHECK(e.document().parentOf(TOP) == small);
+  e.command(CommandId::UNDO);
+  // R1 (50×50) fits: it goes in without ⌘.
+  e.setSelection({R1});
+  drag(e, {120, 120}, {830, 120});
+  CHECK(e.document().parentOf(R1) == small);
+  e.command(CommandId::UNDO);
+  // Snapping: R1's left edge 2 px from R2's (x 100) snaps without ⌃, not with it; ⌘ no longer turns it off.
+  drag(e, {120, 120}, {208, 120});
+  CHECK(props(e, R1).transform.m02 == 100);
+  e.command(CommandId::UNDO);
+  drag(e, {120, 120}, {208, 120}, MOD_PRIMARY);
+  CHECK(props(e, R1).transform.m02 == 100);
+  e.command(CommandId::UNDO);
+  down(e, 120, 120);  // ⌃ at the press would be a right-click (a Mac)
+  for (int i = 1; i <= 4; i++) move(e, 120 + 22 * i, 120, MOD_CTRL);
+  up(e, 208, 120, MOD_CTRL);
+  CHECK(props(e, R1).transform.m02 == 98);
+}

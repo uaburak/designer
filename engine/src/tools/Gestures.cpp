@@ -844,16 +844,21 @@ void Editor::prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHas
   snapper_.reset(std::move(boxes), container);
 }
 
-Guid Editor::dropTargetAt(Vec2 world) const {
+Guid Editor::dropTargetAt(Vec2 world, bool force) const {
   // The topmost frame under the pointer that isn't being moved (nor inside what is): its box, inside every
-  // frame that clips it. Instances and locked or hidden frames don't take layers.
-  GuidSet moving;
-  for (const Target& t : targets_) moving.insert(t.id);
+  // frame that clips it. Instances and locked or hidden frames don't take layers. Unless `force` (⌘), a frame
+  // smaller than the moving layers doesn't take them either (Figma), except the frame they are already in.
+  GuidSet moving, parents;
+  for (const Target& t : targets_) moving.insert(t.id), parents.insert(t.parent);
   Guid best = page_;
   doc_.query(page_, Rect{world.x, world.y, 0, 0}, [&](Guid id) {
     const Node* n = doc_.get(id);
     if (!n || !acceptsChildren(id)) return true;
     if (!doc_.visibleInTree(id)) return true;
+    if (!force && !parents.count(id) && n->props.type != NodeType::SECTION) {
+      Rect fb = doc_.worldBounds(id);
+      if (fb.w < moveBox_.w - 1e-6 || fb.h < moveBox_.h - 1e-6) return true;
+    }
     bool ok = true;
     for (Guid cur = id; ok && doc_.has(cur); cur = doc_.parentOf(cur)) {
       const Node* c = doc_.get(cur);
@@ -974,17 +979,19 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
     if (std::fabs(d.x) > std::fabs(d.y)) d.y = 0, lockY = true;
     else d.x = 0, lockX = true;
   }
-  const bool keepParent = (mods & MOD_PRIMARY) != 0;
-  const bool snapping = !(mods & (MOD_CTRL | MOD_PRIMARY));
+  // Figma's modifiers while moving: Space held keeps the layers out of frames (their parents stay); ⌘ nests them
+  // even into a frame smaller than they are; ⌃ turns snapping off.
+  const bool keepParent = spaceHeld_;
+  const bool forceNest = (mods & MOD_PRIMARY) != 0;
+  const bool snapping = !(mods & MOD_CTRL);
 
-  // Into the frame under the pointer, out of the one it left (⌘ keeps the parents).
-  Guid drop = keepParent ? kNoGuid : dropTargetAt(world);
+  // Into the frame under the pointer, out of the one it left.
+  Guid drop = keepParent ? kNoGuid : dropTargetAt(world, forceNest);
   for (const Target& t : targets_) {
     const Node* n = doc_.get(t.id);
     if (!n) continue;
     Guid now = n->props.parentIndex.guid;
-    Guid want = now;
-    if (!keepParent) want = drop == containerOf(t.parent) ? t.parent : drop;
+    Guid want = keepParent ? t.parent : drop == containerOf(t.parent) ? t.parent : drop;
     if (want == now) continue;
     NodeChange c = NodeChange::changed(t.id);
     c.mask = F_PARENT_INDEX;

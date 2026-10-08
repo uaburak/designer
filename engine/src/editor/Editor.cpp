@@ -1178,9 +1178,12 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
         needsRender_ = true;
         changeCursor(CursorKind::HAND);
       }
+      // Moving: Space keeps the layers out of frames (Figma) — the drag runs again without nesting.
+      if (gesture_ == Gesture::Move) redrag(mods_);
     } else if (type == KeyEvent::UP && spaceHeld_) {
       spaceHeld_ = false;
       if (gesture_ == Gesture::None) updateHover(lastScreen_, mods);
+      else if (gesture_ == Gesture::Move) redrag(mods_);
     }
     return K_HANDLED;
   }
