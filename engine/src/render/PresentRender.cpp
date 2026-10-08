@@ -80,14 +80,7 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
   round_ = RoundClip{};
   finishRecording(target, clearColor, false);
   device_.submit();
-  for (size_t k = 0; k < pool_.size();) {
-    if (frame_ - pool_[k].lastUsed > 30) {
-      device_.destroyTarget(pool_[k].target);
-      pool_.erase(pool_.begin() + static_cast<long>(k));
-    } else {
-      k++;
-    }
-  }
+  dropIdleTargets();
   images_.endFrame();
   return stats_;
 }

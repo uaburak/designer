@@ -229,6 +229,15 @@ class WebGPUDevice final : public Device {
   void draw(const DrawCall& call) override {
     if (!inPass_ || !call.instanceCount || call.pipeline == 0 || call.pipeline >= pipelines_.size()) return;
     if (!pass_ && !openPass(false)) return;
+    // WebGPU validates a pass's usage when the command buffer is finished: one draw sampling the pass's own target
+    // would make the whole frame's commands invalid (the render pass usage scope). Caught here, before submit.
+    if (!onCanvas()) {
+      TextureId attachment = targets_[pass_desc_.target].texture;
+      if (int slot = samplesAttachment(call, attachment); slot >= 0) {
+        reportSampledAttachment("WebGPU", pass_desc_.target, attachment, slot);
+        return;
+      }
+    }
     const PipelineDesc& p = pipelines_[call.pipeline];
     const bool instanced = p.shader == ShaderId::Shape;
     if (instanced && (call.instances.buffer >= buffers_.size() || !buffers_[call.instances.buffer].gpu)) return;
@@ -355,6 +364,10 @@ class WebGPUDevice final : public Device {
   // Inside a pass: the render pass ends, the copy is encoded, the next draw resumes the pass (load).
   void copyToTexture(TextureId texture, IRect rect) override {
     if (!inPass_ || !texture || texture >= textures_.size() || !textures_[texture].gpu || rect.w <= 0 || rect.h <= 0) return;
+    if (!onCanvas() && texture == targets_[pass_desc_.target].texture) {
+      reportSampledAttachment("WebGPU", pass_desc_.target, texture, -1);
+      return;
+    }
     Texture& dst = textures_[texture];
     int w = std::min<int>(rect.w, static_cast<int>(dst.width));
     int h = std::min<int>(rect.h, static_cast<int>(dst.height));

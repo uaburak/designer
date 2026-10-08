@@ -25,7 +25,7 @@ class NullDevice final : public Device {
   PipelineId createPipeline(const PipelineDesc& desc) override;
   bool beginPass(const PassDesc& pass) override;
   void draw(const DrawCall& call) override;
-  void endPass() override {}
+  void endPass() override { passTexture_ = 0; }
   // The frame's draws stay in `draws` until the next frame's first pass.
   void submit() override { submitted_ = true; }
   void destroyBuffer(BufferId buffer) override;
@@ -34,7 +34,13 @@ class NullDevice final : public Device {
   void destroyTarget(TargetId target) override;
   bool readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) override;
   TextureId targetTexture(TargetId target) override;
-  void copyToTexture(TextureId, IRect) override { copies++; }
+  void copyToTexture(TextureId texture, IRect) override {
+    copies++;
+    if (passTexture_ && texture == passTexture_) {
+      hazards++;
+      reportSampledAttachment("NullDevice", lastPass.target, texture, -1);
+    }
+  }
   // Textures keep their bytes (tests read them back).
   TextureId createTexture(const TextureDesc& desc) override;
   using Device::createTexture;
@@ -55,6 +61,8 @@ class NullDevice final : public Device {
   PassDesc lastPass;            // the last pass begun (the canvas pass comes last)
   int passes = 0;
   int copies = 0;
+  // Draws that sampled the texture of the pass they drew in (gfx::samplesAttachment: WebGPU drops such a frame).
+  int hazards = 0;
 
   // The instances of draw `i` as T (e.g. ShapeInstance).
   template <typename T>
@@ -77,6 +85,7 @@ class NullDevice final : public Device {
   std::vector<Target> targets_{{}};  // index = TargetId; 0 = the default framebuffer
   std::vector<Texture> textures_{{}};  // index = TextureId; 0 unused
   bool submitted_ = true;
+  TextureId passTexture_ = 0;  // the open pass's colour texture (0: the canvas, or no pass)
 
  public:
   size_t liveTargets() const {

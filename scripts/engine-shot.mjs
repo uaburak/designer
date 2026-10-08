@@ -8,6 +8,8 @@
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
 //   SHOT_ONLY=e8 npm run engine:shot    only the prototyping checks (noodles, the presentation view)
+//   Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
+//   own check skipped (gfx::samplesAttachment: a pass sampling its own target).
 //   npm run engine:shot -- --gfx webgpu  the same checks on the WebGPU backend (default --gfx webgl; SHOT_GFX too)
 //   SHOT_GPU=1 npm run engine:shot      WebGL on the real GPU (ANGLE Metal) instead of SwiftShader: the same GPU as
 //                                       WebGPU, to compare the two backends' screenshots pixel for pixel
@@ -16,7 +18,7 @@
 // (CHROMIUM=/path overrides). WebGL: software GL (SwiftShader) for determinism. WebGPU: the real GPU (Metal on
 // macOS; headless Chrome needs --enable-unsafe-webgpu, SwiftShader's WebGPU adapter is a fallback adapter the engine
 // refuses). The run stops after SHOT_TIMEOUT seconds (default 180).
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,7 +52,7 @@ const server = await createServer({
   root: path.join(repo, "src/renderer/src/engine/dev"),
   plugins: [react()],
   resolve: { alias: [{ find: /^@\//, replacement: path.join(repo, "src/renderer/src") + "/" }] },
-  server: { port: 0, fs: { allow: [repo] } },
+  server: { port: Number(process.env.SHOT_PORT ?? 5311), strictPort: false, fs: { allow: [repo, realpathSync(path.join(repo, "node_modules"))] } },
   logLevel: "error",
 });
 await server.listen();
@@ -899,6 +901,52 @@ async function e8Checks(files) {
   files.push(await shot("64-present-details"));
   await engine(() => window.__designerEngine.presentStop());
   await settle();
+  // Effects in the presentation: its layers are screen-sized (no culling there), so shadows and blurs fill the layer
+  // pool's budget and it evicts in the middle of a frame — where a blur once drew into the target it sampled
+  // (WebGPU dropped every such frame: "includes writable usage and another usage in the same synchronization
+  // scope"). The console gate below fails on any GPU validation error.
+  await engine(() => {
+    const fx = (type, radius, more = {}) => ({ type, radius, visible: true, color: { r: 0, g: 0, b: 0, a: 0.3 }, offset: { x: 0, y: 8 }, spread: 0, blendMode: "NORMAL", ...more });
+    const set = (guid, fields) => ({ guid, phase: "CHANGED", ...fields });
+    window.__designerEngine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [
+      set("2:2", { effects: [fx("DROP_SHADOW", 32), fx("FOREGROUND_BLUR", 3)], opacity: 0.95 }),
+      set("2:5", { effects: [fx("DROP_SHADOW", 40)] }),
+      set("2:30", { effects: [fx("DROP_SHADOW", 24), fx("FOREGROUND_BLUR", 24)] }),
+      set("2:31", { effects: [fx("INNER_SHADOW", 20), fx("BACKGROUND_BLUR", 30)], opacity: 0.9 }),
+      set("2:4", { effects: [fx("DROP_SHADOW", 48, { spread: 4 })], opacity: 0.9 }),
+      set("2:11", { effects: [fx("DROP_SHADOW", 40), fx("FOREGROUND_BLUR", 2)] }),
+      set("2:13", { effects: [fx("BACKGROUND_BLUR", 20), fx("DROP_SHADOW", 20)] }),
+    ] }, "user");
+    window.__designerEngine.presentStart({ page: "0:1" });
+  });
+  await page.waitForTimeout(150);
+  await settle();
+  const fxState = await engine(() => window.__designerEngine.presentState());
+  const fsp = (x, y) => [fxState.screenRect.x + (x * fxState.screenRect.w) / 375, fxState.screenRect.y + (y * fxState.screenRect.h) / 812];
+  {
+    const [bg, white] = await pixelsAt([[4, 400], fsp(200, 600)]);
+    check("presenting with shadows and blurs: Home drawn", fxState.screen === "2:1" && near(bg, [30, 30, 30, 255], 6) && near(white, [255, 255, 255, 255], 8), `${fxState.screen} ${bg} ${white}`);
+  }
+  files.push(await shot("66-present-effects"));
+  // Smart animate to Details with every layer's effects moving: frames drawn mid-transition too.
+  await page.mouse.click(...fsp(100, 740));
+  await page.waitForTimeout(200);
+  files.push(await shot("67-present-effects-transition"));
+  await page.waitForTimeout(700);
+  await settle();
+  {
+    const s = await engine(() => window.__designerEngine.presentState());
+    const [card] = await pixelsAt([fsp(200, 200)]);
+    check("presenting with shadows and blurs: Next → Details (Smart animate)", s.screen === "2:10" && card[2] > 200 && card[0] < 80, `${s.screen} ${card}`);
+  }
+  files.push(await shot("68-present-effects-details"));
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.presentStop();
+    // The fixture as it was, for the device check.
+    e.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: ["2:2", "2:5", "2:30", "2:31", "2:4", "2:11", "2:13"].map((guid) => ({ guid, phase: "CHANGED", effects: [], opacity: 1 })) }, "user");
+  });
+  await settle();
   // Round 5: a device with its frame — the Model's colour around the glass, the screen's corners rounded.
   const dev = await engine(() => {
     const e = window.__designerEngine;
@@ -920,6 +968,14 @@ async function e8Checks(files) {
   await settle();
 }
 
+// A GPU validation error (WebGPU: an invalid command buffer drops the whole frame), a feedback loop (WebGL), or a
+// draw the engine's own check caught (gfx::samplesAttachment) fails the run, whatever the screenshots look like.
+const gpuError = /WebGPU error|GPUDevice|GPUValidationError|Invalid CommandBuffer|is invalid due to a previous error|sampled the texture it renders into|feedback loop|GL_INVALID/i;
+const gpuGate = () => {
+  const bad = problems.filter((p) => gpuError.test(p));
+  check(`no GPU validation errors on the console (${gfx === "webgpu" ? "WebGPU" : "WebGL2"})`, bad.length === 0, bad.length ? `${bad.length}: ${bad[0].slice(0, 300)}` : "");
+};
+
 try {
   await page.goto(`${url}?gfx=${gfx === "webgpu" ? "webgpu" : "webgl"}`);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
@@ -933,6 +989,7 @@ try {
     else if (only === "export") await exportChecks(files);
     else if (only === "e8") await e8Checks(files);
     else await variablesChecks(files);
+    gpuGate();
     console.log(results.join("\n"));
     console.log(`\nscreenshots:\n${files.join("\n")}`);
     if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);
@@ -1112,6 +1169,8 @@ try {
   await exportChecks(files);
   // E8.
   await e8Checks(files);
+  // (Before E9: losing the device on purpose logs errors of its own.)
+  gpuGate();
   // E9.
   if (gfx === "webgpu") await fallbackChecks(files);
 
