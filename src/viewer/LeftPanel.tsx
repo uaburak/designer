@@ -116,13 +116,19 @@ function Layers() {
   const page = useCurrentPage(store);
   const selection = useSelection(store);
   const tree = useMemo(() => doc.tree(page), [doc, page]);
-  const [expanded, setExpanded] = useState<ReadonlySet<Guid>>(new Set());
-  // The selection's ancestors open, as Figma's Layers panel does when the canvas selects deep.
-  const shown = useMemo(() => {
-    const next = new Set(expanded);
-    for (const id of selection.refs) for (let p = doc.parentOf(id); p; p = doc.parentOf(p)) next.add(p);
+  // The selection's ancestors open when it changes, as Figma's Layers panel does when the canvas selects deep; a row
+  // closed afterwards stays closed.
+  const withAncestors = (base: ReadonlySet<Guid>, refs: readonly Guid[]) => {
+    const next = new Set(base);
+    for (const id of refs) for (let p = doc.parentOf(id); p; p = doc.parentOf(p)) next.add(p);
     return next;
-  }, [expanded, selection.refs, doc]);
+  };
+  const [shown, setShown] = useState<ReadonlySet<Guid>>(() => withAncestors(new Set(), selection.refs));
+  const [seen, setSeen] = useState(selection.refs);
+  if (seen !== selection.refs) {
+    setSeen(selection.refs);
+    setShown(withAncestors(shown, selection.refs));
+  }
   const rows = useMemo(() => visibleRows(tree, shown), [tree, shown]);
   const selected = new Set(selection.refs);
   return (
@@ -142,13 +148,9 @@ function Layers() {
               selected={selected.has(node.id)}
               hidden={!node.visible}
               onToggleExpand={() =>
-                setExpanded((s) => {
-                  const next = new Set(s);
-                  if (shown.has(node.id)) {
-                    next.delete(node.id);
-                    // closing a row the selection opened keeps it closed
-                    for (const id of selection.refs) if (id !== node.id && isUnder(doc, id, node.id)) engine.setSelection([node.id]);
-                  } else next.add(node.id);
+                setShown((v) => {
+                  const next = new Set(v);
+                  if (!next.delete(node.id)) next.add(node.id);
                   return next;
                 })
               }
@@ -164,9 +166,4 @@ function Layers() {
       </ScrollArea>
     </section>
   );
-}
-
-function isUnder(doc: { parentOf(id: Guid): Guid | null }, id: Guid, ancestor: Guid): boolean {
-  for (let p = doc.parentOf(id); p; p = doc.parentOf(p)) if (p === ancestor) return true;
-  return false;
 }
