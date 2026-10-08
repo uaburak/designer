@@ -155,6 +155,8 @@ class Renderer {
     if (!on) dropCache();
   }
   bool contentCache() const { return cacheEnabled_; }
+  // Exports (export/Export.h): the page's layers on transparent (no page colour) and text never greeked.
+  void setExporting(bool on) { exporting_ = on; }
   // When the next frame is wanted (a continuous zoom settling: draw the page sharp again), in nowMs() time; 0: none.
   double wantsFrameAt() const;
   // The clock the cache measures with (ms); tests set their own.
@@ -360,6 +362,7 @@ class Renderer {
   gfx::IRect region_;                 // the part being recorded (device px)
   // The content cache (renderCached).
   bool cacheEnabled_ = false;
+  bool exporting_ = false;
   struct ContentCache {
     gfx::TargetId target = 0, spare = 0;  // the pixels, and the other one (shifts ping-pong)
     int w = 0, h = 0;

@@ -67,6 +67,11 @@ add_library(eng_core STATIC
   src/geometry/Stroker.cpp
   src/geometry/Boolean.cpp
   src/geometry/NodeGeometry.cpp
+  src/export/Export.cpp
+  src/export/Scene.cpp
+  src/export/SvgWriter.cpp
+  src/export/PdfWriter.cpp
+  src/export/Deflate.cpp
 )
 target_include_directories(eng_core PUBLIC src)
 # kiwi.h (the runtime) and the generated binary schema: SYSTEM, so their warnings don't fail -Werror.
@@ -127,8 +132,11 @@ else()
     tests/unit/render.paths.test.cpp
     tests/unit/render.cache.test.cpp
     tests/unit/text.stored.test.cpp
+    tests/unit/export.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
+  # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).
+  target_link_libraries(engine_tests PRIVATE z)
   target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)
   # The engine builds without exceptions; doctest then ends the run on a failed REQUIRE.
   target_compile_definitions(engine_tests PRIVATE ENG_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
