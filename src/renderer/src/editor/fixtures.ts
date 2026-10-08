@@ -383,3 +383,51 @@ export const VARIABLES_DOCUMENT: Message = {
     ...card(10, "Card (Dark)", 320, true, '"'),
   ],
 };
+
+// ── Prototyping (E8) ─────────────────────────────────────────────────────────
+
+const click = (dest: string, navigationType: string, transitionType = "INSTANT_TRANSITION", duration = 0.3, easingType = "OUT_CUBIC") => [
+  {
+    id: g(9, Number(dest.split(":")[1]) + 1000),
+    event: { interactionType: "ON_CLICK" },
+    actions: [{ connectionType: "INTERNAL_NODE", navigationType, transitionNodeID: dest, transitionType, transitionDuration: duration, easingType }],
+  },
+];
+const onTap = (connectionType: string) => [{ event: { interactionType: "ON_CLICK" }, actions: [{ connectionType, transitionType: "INSTANT_TRANSITION", transitionDuration: 0.3, easingType: "OUT_CUBIC" }] }];
+
+/**
+ * A prototype (Phase 5 E8): "Home" (the flow "Onboarding" starts there) → "Details" by Smart animate (the Card grows),
+ * Back; a menu button opening "Menu" as an overlay from the bottom (closes when clicking outside, 40% black behind it,
+ * its × closes it); a horizontal carousel that scrolls; and a "Toggle" — an interactive component whose variants
+ * change to each other on click with Smart animate.
+ */
+export const PROTOTYPE_DOCUMENT: Message = {
+  type: "NODE_CHANGES",
+  sessionID: 0,
+  nodeChanges: [
+    { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+    page("0:1", "Prototype", 0, 0x1e1e1e),
+    internalCanvas(),
+    node({ guid: "2:1", type: "FRAME", name: "Home", parentIndex: { guid: "0:1", position: "!" }, size: { x: 375, y: 812 }, transform: at(0, 0), fillPaints: solidFill(0xffffff), prototypeStartingPoint: { name: "Onboarding", position: "!" } }),
+    node({ guid: "2:2", type: "FRAME", name: "Card", parentIndex: { guid: "2:1", position: "!" }, size: { x: 327, y: 160 }, transform: at(24, 120), fillPaints: solidFill(0x0d99ff), cornerRadius: 16 }),
+    node({ guid: "2:3", type: "ROUNDED_RECTANGLE", name: "Title", parentIndex: { guid: "2:2", position: "!" }, size: { x: 120, y: 24 }, transform: at(16, 16), fillPaints: solidFill(0xffffff), cornerRadius: 4 }),
+    node({ guid: "2:6", type: "FRAME", name: "Carousel", parentIndex: { guid: "2:1", position: '"' }, size: { x: 375, y: 180 }, transform: at(0, 320), fillPaints: [], scrollDirection: "HORIZONTAL" }),
+    node({ guid: "2:30", type: "ROUNDED_RECTANGLE", name: "Slide 1", parentIndex: { guid: "2:6", position: "!" }, size: { x: 240, y: 180 }, transform: at(24, 0), fillPaints: solidFill(0xffcd29), cornerRadius: 12 }),
+    node({ guid: "2:31", type: "ROUNDED_RECTANGLE", name: "Slide 2", parentIndex: { guid: "2:6", position: '"' }, size: { x: 240, y: 180 }, transform: at(280, 0), fillPaints: solidFill(0x14ae5c), cornerRadius: 12 }),
+    node({ guid: "2:32", type: "ROUNDED_RECTANGLE", name: "Slide 3", parentIndex: { guid: "2:6", position: "#" }, size: { x: 240, y: 180 }, transform: at(536, 0), fillPaints: solidFill(0x9747ff), cornerRadius: 12 }),
+    node({ guid: "2:4", type: "FRAME", name: "Next", parentIndex: { guid: "2:1", position: "#" }, size: { x: 327, y: 56 }, transform: at(24, 720), fillPaints: solidFill(0x000000), cornerRadius: 12, prototypeInteractions: click("2:10", "NAVIGATE", "SMART_ANIMATE", 0.5) }),
+    node({ guid: "2:5", type: "ELLIPSE", name: "Menu button", parentIndex: { guid: "2:1", position: "$" }, size: { x: 40, y: 40 }, transform: at(311, 40), fillPaints: solidFill(0xe6e6e6), prototypeInteractions: click("2:20", "OVERLAY", "MOVE_FROM_BOTTOM", 0.3) }),
+    node({ guid: "2:7", type: "INSTANCE", name: "Toggle", parentIndex: { guid: "2:1", position: "%" }, size: { x: 52, y: 32 }, transform: at(299, 640), symbolData: { symbolID: g(3, 2), symbolOverrides: [] } }),
+    node({ guid: "2:10", type: "FRAME", name: "Details", parentIndex: { guid: "0:1", position: '"' }, size: { x: 375, y: 812 }, transform: at(475, 0), fillPaints: solidFill(0xffffff) }),
+    node({ guid: "2:11", type: "FRAME", name: "Card", parentIndex: { guid: "2:10", position: "!" }, size: { x: 375, y: 360 }, transform: at(0, 0), fillPaints: solidFill(0x0d99ff), cornerRadius: 0 }),
+    node({ guid: "2:12", type: "ROUNDED_RECTANGLE", name: "Title", parentIndex: { guid: "2:11", position: "!" }, size: { x: 200, y: 32 }, transform: at(24, 280), fillPaints: solidFill(0xffffff), cornerRadius: 4 }),
+    node({ guid: "2:13", type: "FRAME", name: "Back", parentIndex: { guid: "2:10", position: '"' }, size: { x: 100, y: 40 }, transform: at(24, 384), fillPaints: solidFill(0x000000), cornerRadius: 8, prototypeInteractions: onTap("BACK") }),
+    node({ guid: "2:20", type: "FRAME", name: "Menu", parentIndex: { guid: "0:1", position: "#" }, size: { x: 375, y: 300 }, transform: at(950, 0), fillPaints: solidFill(0xffffff), cornerRadius: 16, overlayPositionType: "BOTTOM_CENTER", overlayBackgroundInteraction: "CLOSE_ON_CLICK_OUTSIDE", overlayBackgroundAppearance: { backgroundType: "SOLID_COLOR", backgroundColor: hex(0x000000, 0.4) } }),
+    node({ guid: "2:21", type: "ELLIPSE", name: "Close", parentIndex: { guid: "2:20", position: "!" }, size: { x: 32, y: 32 }, transform: at(327, 16), fillPaints: solidFill(0xe6e6e6), prototypeInteractions: onTap("CLOSE") }),
+    node({ guid: "3:1", type: "FRAME", name: "Toggle", isStateGroup: true, parentIndex: { guid: "0:1", position: "$" }, size: { x: 168, y: 64 }, transform: at(0, 900), fillPaints: [], strokePaints: [{ type: "SOLID", color: purple, opacity: 1, visible: true }], strokeWeight: 1, dashPattern: [10, 5], cornerRadius: 5 }),
+    node({ guid: "3:2", type: "SYMBOL", name: "State=Off", parentIndex: { guid: "3:1", position: "!" }, size: { x: 52, y: 32 }, transform: at(16, 16), fillPaints: solidFill(0xe6e6e6), cornerRadius: 16, prototypeInteractions: click("3:4", "SWAP_STATE", "SMART_ANIMATE", 0.3) }),
+    node({ guid: "3:3", type: "ELLIPSE", name: "Knob", parentIndex: { guid: "3:2", position: "!" }, size: { x: 24, y: 24 }, transform: at(4, 4), fillPaints: solidFill(0xffffff) }),
+    node({ guid: "3:4", type: "SYMBOL", name: "State=On", parentIndex: { guid: "3:1", position: '"' }, size: { x: 52, y: 32 }, transform: at(100, 16), fillPaints: solidFill(0x14ae5c), cornerRadius: 16, prototypeInteractions: click("3:2", "SWAP_STATE", "SMART_ANIMATE", 0.3) }),
+    node({ guid: "3:5", type: "ELLIPSE", name: "Knob", parentIndex: { guid: "3:4", position: "!" }, size: { x: 24, y: 24 }, transform: at(24, 4), fillPaints: solidFill(0xffffff) }),
+  ],
+};

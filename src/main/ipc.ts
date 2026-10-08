@@ -91,6 +91,13 @@ export function registerIpc() {
     if (!isFileKey(file?.fileKey)) throw new Error("nav:open-file: not a file key");
     return ctl.tabs.openFile({ fileKey: file.fileKey, title: str(file.title, 300) ?? undefined, background: file.background === true, pageId: str(file.pageId, 64) ?? undefined, nodeId: str(file.nodeId, 64) ?? undefined });
   });
+  onInvoke("nav:open-prototype", ({ ctl }, p) => {
+    if (!isFileKey(p?.fileKey)) throw new Error("nav:open-prototype: not a file key");
+    const guid = (v: unknown) => (typeof v === "string" && /^\d+:\d+$/.test(v) ? v : undefined);
+    const pageId = guid(p.pageId);
+    if (!pageId) throw new Error("nav:open-prototype: not a page");
+    return ctl.tabs.openPrototype({ fileKey: p.fileKey, pageId, startNodeId: guid(p.startNodeId), title: str(p.title, 300) ?? undefined });
+  });
   onInvoke("nav:new-file", ({ ctl }, p) => ctl.tabs.newFile({ folderId: folderOf(p?.folderId), name: str(p?.name, 300) ?? undefined }));
   onSend("nav:go-home", ({ ctl, info }, p) => {
     // "Back to files": Home shows the file it came from, unless told another.

@@ -76,6 +76,8 @@ const api: EditorApi = {
   },
   nav: {
     ...nav,
+    openPrototype: (fileKey, pageId, startNodeId, title) =>
+      invoke("nav:open-prototype", { fileKey: String(fileKey), pageId: String(pageId), startNodeId: startNodeId === undefined ? undefined : String(startNodeId), title: title === undefined ? undefined : String(title) }),
     goHome: (revealFileKey) => send("nav:go-home", revealFileKey === undefined ? {} : { revealFileKey: String(revealFileKey) }),
   },
   files,

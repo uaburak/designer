@@ -184,8 +184,13 @@ export class TabManager {
   private ensure(tab: Tab): Runtime {
     const there = this.runtime.get(tab.id);
     if (there) return there;
-    const adopted = this.spare.adopt({ tabId: tab.id, fileKey: tab.fileKey, mode: "edit" });
-    const view = adopted ?? this.addView("editor", tab.id, { editor: "", file: tab.fileKey, tab: tab.id }, tab.fileKey);
+    // A prototype tab: the presentation view (`?present&file=…`), a view of its own (never the spare editor).
+    const adopted = tab.kind === "prototype" ? null : this.spare.adopt({ tabId: tab.id, fileKey: tab.fileKey, mode: "edit" });
+    const query: Record<string, string> =
+      tab.kind === "prototype"
+        ? { present: "", file: tab.fileKey, tab: tab.id, ...(tab.pageId ? { page: tab.pageId } : {}), ...(tab.startNodeId ? { node: tab.startNodeId } : {}) }
+        : { editor: "", file: tab.fileKey, tab: tab.id };
+    const view = adopted ?? this.addView("editor", tab.id, query, tab.fileKey);
     const request = this.openRequest;
     this.openRequest = null;
     this.opens = [...this.opens.slice(-9), { at: request?.fileKey === tab.fileKey ? request.at : Date.now(), fileKey: tab.fileKey, tabId: tab.id, adopted: Boolean(adopted), webContentsId: view.webContents.id }];
@@ -389,7 +394,7 @@ export class TabManager {
    * in front. `requestedAt`: when the open was asked for (a new file's creation came first), for the timing record.
    */
   openFile(file: OpenWorkspaceFile, requestedAt = Date.now()): OpenFileResult {
-    const find = () => this.state.tabs.find((t) => t.fileKey === file.fileKey);
+    const find = () => this.state.tabs.find((t) => t.kind === "file" && t.fileKey === file.fileKey);
     const existing = Boolean(find());
     this.openRequest = { at: requestedAt, fileKey: file.fileKey };
     this.dispatch({ type: "open", fileKey: file.fileKey, title: file.title, background: file.background });
@@ -398,6 +403,16 @@ export class TabManager {
     // A name to show: the store's (Home usually hands it over), and a file that isn't there any more closes again.
     if (!existing && !file.title) void this.checkFile(file.fileKey);
     return { tabId: tab.id, existing };
+  }
+
+  /** Present: the file's presentation view in a tab — its tab in front if it has one (same file and start). */
+  openPrototype(p: { fileKey: string; pageId: string; startNodeId?: string; title?: string }): OpenFileResult {
+    const find = () => this.state.tabs.find((t) => t.kind === "prototype" && t.fileKey === p.fileKey && (t.startNodeId ?? "") === (p.startNodeId ?? ""));
+    const existing = Boolean(find());
+    const fileTitle = p.title ?? this.state.tabs.find((t) => t.kind === "file" && t.fileKey === p.fileKey)?.title;
+    this.dispatch({ type: "open", kind: "prototype", fileKey: p.fileKey, pageId: p.pageId, startNodeId: p.startNodeId, title: fileTitle });
+    const tab = find();
+    return { tabId: tab?.id ?? HOME, existing };
   }
 
   move(id: string, toIndex: number) {
@@ -497,7 +512,7 @@ export class TabManager {
 
   /** A file as a .fig (`file:save-local-copy`); its open tab flushes first so the copy has its last changes. */
   async saveLocalCopy(fileKey: string): Promise<{ path: string } | { cancelled: true }> {
-    const open = this.state.tabs.find((t) => t.fileKey === fileKey && this.runtime.has(t.id));
+    const open = this.state.tabs.find((t) => t.kind === "file" && t.fileKey === fileKey && this.runtime.has(t.id));
     if (open) await askFlush(this.runtime.get(open.id)!.view.webContents, "hide");
     try {
       return await saveLocalCopy(this.ctl.win, fileKey);

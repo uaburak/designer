@@ -3,19 +3,26 @@
  * Present ▸ ▾, Share), the Design / Prototype tabs with the zoom menu at the
  * right (a line at 80), then the tab's sections.
  */
-import { Avatar, Button, EmptyState, Icon, IconButton, MenuButton, ResizeHandle, Tabs, showToast, type MenuEntry } from "@/ds";
+import { Avatar, Button, Icon, IconButton, MenuButton, ResizeHandle, Tabs, showToast, type MenuEntry } from "@/ds";
 import { useCamera } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { runEditorCommand } from "../commands";
 import { useUI } from "../hooks";
 import { commandItem } from "../menus";
+import { useEffect } from "react";
 import { DesignPanel } from "./design/DesignPanel";
+import { PrototypePanel } from "./prototype/PrototypePanel";
+import { present } from "../present";
 import styles from "./Panels.module.css";
 
 export function RightPanel() {
   const ed = useEditor();
   const width = useUI((s) => s.rightWidth);
   const tab = useUI((s) => s.rightTab);
+  // The Prototype tab shows the connections on the canvas (prototype mode).
+  useEffect(() => {
+    if (!ed.engine.destroyed && typeof ed.engine.setPrototypeMode === "function") ed.engine.setPrototypeMode(tab === "prototype");
+  }, [ed, tab]);
   return (
     <aside className={styles.right} style={{ width }} aria-label="Properties panel" data-panel="right">
       <RightHeader />
@@ -33,7 +40,7 @@ export function RightPanel() {
         <ZoomMenu />
       </div>
       <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${tab}`} aria-labelledby={`editor-right-tab-${tab}`}>
-        {tab === "design" ? <DesignPanel /> : <EmptyState icon="24.prototyping" title="Prototype" body="Connections, flows and presentation settings come with prototyping." />}
+        {tab === "design" ? <DesignPanel /> : <PrototypePanel />}
       </div>
       <ResizeHandle side="left" value={width} onChange={(px) => ed.ui.set({ rightWidth: px })} />
     </aside>
@@ -43,11 +50,11 @@ export function RightPanel() {
 export function RightHeader({ compact }: { compact?: boolean }) {
   const ed = useEditor();
   const account: MenuEntry[] = [{ header: "Theme" }, commandItem(ed, "theme.light"), commandItem(ed, "theme.dark"), commandItem(ed, "theme.system"), "-", commandItem(ed, "help.shortcuts"), commandItem(ed, "file.back-to-files")];
-  const present: MenuEntry[] = [
-    { id: "present", label: "Present in new tab", disabled: true },
-    { id: "present-here", label: "Present in this tab", disabled: true },
+  const presentEntries: MenuEntry[] = [
+    commandItem(ed, "view.present"),
+    commandItem(ed, "view.present-here"),
     "-",
-    { id: "preview", label: "Preview", shortcut: "⇧Space", disabled: true },
+    commandItem(ed, "view.preview"),
   ];
   return (
     <div className={compact ? undefined : styles.rightHeader} style={compact ? { display: "contents" } : undefined}>
@@ -57,8 +64,8 @@ export function RightHeader({ compact }: { compact?: boolean }) {
       </MenuButton>
       <span className={styles.grow} />
       <span className={styles.present}>
-        <IconButton icon="24.play" label="Present" size="large" onClick={() => showToast({ message: "Presenting comes with prototyping" })} />
-        <MenuButton label="Present options" entries={present} onSelect={() => {}} className={`${styles.chip} ${styles.presentChevron}`}>
+        <IconButton icon="24.play" label="Present" shortcut="⌥⌘↩" size="large" onClick={() => present(ed)} />
+        <MenuButton label="Present options" entries={presentEntries} onSelect={(id) => runEditorCommand(ed, id)} className={`${styles.chip} ${styles.presentChevron}`}>
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>

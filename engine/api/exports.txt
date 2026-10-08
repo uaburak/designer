@@ -104,3 +104,12 @@ _engine_export_info
 _engine_export_image
 _engine_export_clear_images
 _engine_export_list
+_engine_set_prototype_mode
+_engine_present_start
+_engine_present_stop
+_engine_present_pointer
+_engine_present_wheel
+_engine_present_key
+_engine_present_command
+_engine_present_set_options
+_engine_present_state

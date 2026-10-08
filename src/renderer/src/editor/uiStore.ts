@@ -57,6 +57,8 @@ export interface UIState {
   publishOpen: boolean;
   /** File › Export… (⇧⌘E): the page's layers with export settings */
   exportDialog: boolean;
+  /** The presentation view over the editor ("Present in this tab"): the page and where it starts */
+  presenting: { page: Guid; node: Guid | null } | null;
 }
 
 export class Store<T> {

@@ -38,7 +38,7 @@ export default function TabBarApp() {
     () =>
       (snapshot?.tabs ?? [])
         .filter((t) => t.kind !== "home")
-        .map((t) => ({ id: t.id, kind: "design" as const, title: t.status === "crashed" ? `${t.title} — crashed` : t.status === "unresponsive" ? `${t.title} — not responding` : t.title })),
+        .map((t) => ({ id: t.id, kind: t.kind === "prototype" ? ("prototype" as const) : ("design" as const), title: t.status === "crashed" ? `${t.title} — crashed` : t.status === "unresponsive" ? `${t.title} — not responding` : t.title })),
     [snapshot]
   );
 

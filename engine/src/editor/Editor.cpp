@@ -681,6 +681,7 @@ Overlay Editor::overlay() const {
   }
   if (vector_.node != kNoGuid) vectorOverlay(o);
   if (paint_.node != kNoGuid) paintOverlay(o);
+  if (proto_.on) protoOverlay(o);
   if (gesture_ == Gesture::Pencil && pencilPoints_.size() > 1)
     for (size_t i = 1; i < pencilPoints_.size(); i++)
       o.curves.push_back({pencilPoints_[i - 1], pencilPoints_[i - 1], pencilPoints_[i], pencilPoints_[i], 1, true});

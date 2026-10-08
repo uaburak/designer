@@ -270,6 +270,21 @@ export class EngineExports {
   textSelection = (h: number): number => this.fn("text_selection")(h);
   textLayout = (h: number, sessionID: number, localID: number): number => this.fn("text_layout")(h, sessionID, localID);
 
+  // ---- Prototyping (E8) ----
+  setPrototypeMode = (h: number, on: boolean): void => void this.fn("set_prototype_mode")(h, on ? 1 : 0);
+  presentStart = (h: number, pageSess: number, pageLocal: number, nodeSess: number, nodeLocal: number): number =>
+    this.fn("present_start")(h, pageSess, pageLocal, nodeSess, nodeLocal);
+  presentStop = (h: number): void => void this.fn("present_stop")(h);
+  presentPointer = (h: number, type: number, x: number, y: number, buttons: number, mods: number): number =>
+    this.fn("present_pointer")(h, type, x, y, buttons, mods) >>> 0;
+  presentWheel = (h: number, x: number, y: number, dx: number, dy: number, deltaMode: number): number =>
+    this.fn("present_wheel")(h, x, y, dx, dy, deltaMode) >>> 0;
+  presentKey = (h: number, type: number, keyCode: number, mods: number): number => this.fn("present_key")(h, type, keyCode, mods) >>> 0;
+  presentCommand = (h: number, command: number): number => this.fn("present_command")(h, command);
+  presentSetOptions = (h: number, options: Uint8Array): number =>
+    this.withBytes([options], (p) => this.fn("present_set_options")(h, p[0], p[1]));
+  presentState = (h: number): number => this.fn("present_state")(h);
+
   // ---- Events and diagnostics ----
   hasEvents = (h: number): boolean => (this.fn("has_events")(h) >>> 0) !== 0;
   takeEvents = (h: number): number => this.fn("take_events")(h);
@@ -296,4 +311,6 @@ export const USED_EXPORTS = [
   "text_edit", "text_edit_end", "text_input", "text_composition", "text_composition_end", "text_selection", "text_layout",
   "image_add_bitmap", "image_add_rgba", "image_failed",
   "vector_edit", "vector_edit_end", "vector_edit_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
+  "set_prototype_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
+  "present_set_options", "present_state",
 ].map((name) => `engine_${name}`);

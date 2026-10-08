@@ -288,6 +288,11 @@ class Editor : private LayoutHost, public TextLayouts {
     double x = 0, y = 0;     // CSS px in the canvas
     std::vector<std::vector<Guid>> hits;  // each layer under the point, innermost first; topmost layer first
   };
+  // The last connection made by a drag (PROTOTYPE_CONNECTED): its hotspots and the interaction's id.
+  struct PrototypeConnected {
+    std::vector<Guid> nodes;
+    Guid interaction = kNoGuid;
+  };
   struct Events {
     std::vector<DocumentChanged> documents;        // DOCUMENT_CHANGED, one per committed transaction
     std::vector<ContextMenu> contextMenus;
@@ -299,11 +304,12 @@ class Editor : private LayoutHost, public TextLayouts {
     // a page switch, too many) — the event carries null and the Layers tree re-reads the page.
     std::vector<Guid> structureParents;
     bool structureAll = false;
+    std::vector<PrototypeConnected> prototypeConnected;  // PROTOTYPE_CONNECTED
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
-      return !documents.empty() || !contextMenus.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+      return !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -376,6 +382,12 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t paintIndex() const { return paint_.index; }
   int paintStop() const { return paint_.stop; }
   Status setPaintStop(int stop);
+
+  // ---- Prototype mode (editor/PrototypeEditing.cpp; the right panel's Prototype tab) ----
+  // The canvas shows connections, the "+" connection handle on selected layers and flow labels; dragging a handle to a
+  // frame adds an On click → Navigate to interaction (Figma's defaults), dragging a noodle's end retargets or removes it.
+  void setPrototypeMode(bool on);
+  bool prototypeMode() const { return proto_.on; }
 
   // ---- Components and instances (editor/Instances.cpp, editor/ComponentCommands.cpp) ----
   bool componentInfo(Guid id, ComponentInfo& out) const;  // cached per document version
@@ -637,7 +649,7 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t variableCommandState(CommandId id) const;
   std::string newAssetKey();
 
-  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint };
+  enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle };
 
   struct Target {
     Guid id;
@@ -975,6 +987,40 @@ class Editor : private LayoutHost, public TextLayouts {
   void writePaint(const Paint& p);
   void paintOverlay(Overlay& o) const;
   void paintChanged();
+
+  // ---- Prototype mode (editor/PrototypeEditing.cpp) ----
+  struct ProtoLink {
+    Guid source = kNoGuid;       // the hotspot
+    Guid interaction = kNoGuid;  // its interaction's id
+    size_t index = 0;            // which of the hotspot's interactions
+    std::vector<size_t> action;  // the action's path (conditional branches: action, branch, action…)
+    Guid dest = kNoGuid;
+  };
+  struct ProtoSession {
+    bool on = false;
+    enum class Drag : uint8_t { None, New, Retarget } drag = Drag::None;
+    std::vector<Guid> sources;  // New: the hotspots (the selection)
+    ProtoLink link;             // Retarget: the connection whose end moves
+    Vec2 point;                 // world: where the dragged end is
+    Guid target = kNoGuid;      // the frame it would connect to
+    bool handleHovered = false;
+    // The page's connections, cached per document version.
+    uint64_t version = ~0ull;
+    Guid page = kNoGuid;
+    std::vector<ProtoLink> links;
+  };
+  ProtoSession proto_;
+  const std::vector<ProtoLink>& protoLinks();
+  // The hotspots that show a "+" handle (the selection, top-level layers and layers inside frames) and where it is.
+  std::vector<Guid> protoHandleNodes() const;
+  bool protoHandleAt(Vec2 s, std::vector<Guid>* nodes = nullptr) const;
+  bool protoEndAt(Vec2 s, ProtoLink& out);
+  Guid protoTargetAt(Vec2 world, const std::vector<Guid>& sources) const;
+  uint32_t protoPointerDown(Vec2 s, uint32_t mods);
+  void protoPointerMove(Vec2 s);
+  void protoPointerUp(Vec2 s);
+  void protoHover(Vec2 s);
+  void protoOverlay(Overlay& o) const;
 
   // ---- Text editing (editor/TextEditing.cpp) ----
   struct TextSession {

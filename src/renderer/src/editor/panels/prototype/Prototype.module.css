@@ -1,0 +1,134 @@
+@layer app {
+  /* A field row: the field, then an action column (24, 4 apart) */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-height: var(--ds-size-row);
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
+  }
+  .grow { flex: 1 1 auto; min-width: 0; }
+  .note {
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left);
+    color: var(--figma-color-text-secondary);
+  }
+  .checkRow {
+    display: flex;
+    align-items: center;
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
+  }
+  /* "Position  [Scroll with parent ⌄]": a label column, then the field */
+  .labelled {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    min-height: var(--ds-size-row);
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
+  }
+  .label {
+    flex: none;
+    width: 64px;
+    color: var(--figma-color-text-secondary);
+  }
+
+  /* Flows: ▶ name, then ▶ Present */
+  .flowRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+  }
+  .flowName {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: left;
+    outline: none;
+  }
+  .flowName svg { flex: none; color: var(--figma-color-icon-brand); }
+  .flowName span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .flowName:hover { background: var(--figma-color-bg-hover); }
+  .flowName:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+
+  /* An interaction: its trigger's glyph, the trigger, what it does; − at the right */
+  .interaction {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
+  }
+  .interactionButton {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--ds-space-1);
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 0;
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: left;
+    outline: none;
+  }
+  .interactionButton svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .interactionButton:hover { border-color: var(--figma-color-border); }
+  .interactionOpen .interactionButton { border-color: var(--figma-color-border-selected); }
+  .interactionButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .trigger { flex: none; white-space: nowrap; }
+  .action {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--figma-color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  /* Interaction details */
+  .details { padding: var(--ds-space-1) 0 var(--ds-space-2); }
+  .actionBlock { border-top: 1px solid var(--figma-color-border); padding-top: var(--ds-space-1); margin-top: var(--ds-space-1); }
+  .group { padding-top: var(--ds-space-1); }
+  .groupTitle {
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  .duration { flex: none; width: 88px; }
+  .quad {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--ds-space-1);
+    padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-1) var(--ds-size-panel-pad-left);
+  }
+  .branch { margin-left: var(--ds-space-2); border-left: 1px solid var(--figma-color-border); }
+  .keyRecorder {
+    flex: 1 1 auto;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: left;
+    outline: none;
+  }
+  .keyRecorder:focus { border-color: var(--figma-color-border-selected); }
+}

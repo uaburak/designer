@@ -16,6 +16,8 @@ Figma parity round 4 (2026-10-08): snapshot fidelity (every field the engine rea
 
 E7 export (2026-10-08, branch `e7-export`, merged after import fidelity): the engine's exporters (PNG / JPEG offscreen, SVG and PDF writers, zlib), the Design panel's Export section, File › Export… (⇧⌘E), Export frames to PDF, Copy as PNG / SVG / code / text, `file:export-assets` through main. `docs/engine-build.md` "E7 export", `docs/editor.md` "E7 — export".
 
+E8 prototyping (2026-10-08, branch `e8-prototype`, merged after E7): the Prototype tab (Device, Background, Flows; Flow starting point, Interactions with Interaction details, Scroll behavior), connections drawn and dragged on the canvas by the engine, Present (a prototype tab in the desktop app, `?present&file=` in a browser, or over the editor) with the engine's player — triggers, actions, overlays, Back, transitions including Smart animate, scrolling, Figma's presentation keys. Status and what's left: top of `docs/engine-build.md` and `docs/editor.md`; research in `docs/research/figma/R8-prototyping.md`.
+
 Next: Phase 5 of `docs/roadmap.md` — export, developer previews, Firebase adapter wiring, `.fig` import polish — unless the owner's review of the app comes first.
 
 ## Starting the next session

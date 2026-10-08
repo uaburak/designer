@@ -34,6 +34,7 @@
 #include "render/ImageCache.h"
 #include "render/OverlayStyle.h"
 #include "render/RenderTree.h"
+#include "render/PresentScene.h"
 #include "scene/Document.h"
 #include "text/TextLayout.h"
 
@@ -57,6 +58,44 @@ struct OverlayLine {
   bool dashed = false;
   bool dark = false;  // drawn over a white halo (gradient lines)
 };
+
+// Prototype mode (the right panel's Prototype tab, editor/PrototypeEditing.cpp): connections ("noodles") from hotspots
+// to destinations, the "+" connection handles, flow starting point labels, the frame a dragged noodle connects to.
+struct PrototypeLink {
+  Rect source;            // world: the hotspot
+  Rect dest;              // world: the destination (when `toPoint` is false)
+  bool toPoint = false;   // dragged: the noodle ends at `point`
+  Vec2 point;             // world
+  bool highlighted = true;  // the selection's (others are drawn quieter)
+};
+struct PrototypeFlowLabel {
+  Guid frame = kNoGuid;
+  Rect bounds;            // world: the frame
+  std::string name;
+};
+struct PrototypeOverlay {
+  bool on = false;
+  std::vector<PrototypeLink> links;
+  std::vector<Rect> handles;       // world: hotspots showing the "+" connection handle on their right edge
+  bool handleHovered = false;      // the pointer is on a handle (it shows its plus)
+  std::vector<PrototypeFlowLabel> flows;
+  bool hasTarget = false;
+  Rect target;                     // world
+  // The width (CSS px) a frame's flow label takes before its title (known once the labels are drawn).
+  double labelWidth(Guid frame) const {
+    for (auto& [id, w] : labelWidths)
+      if (id == frame) return w;
+    return 0;
+  }
+  mutable std::vector<std::pair<Guid, double>> labelWidths;
+};
+// A noodle on screen (CSS px): a cubic from the hotspot's side facing the destination to the destination's facing
+// side (or to a point), and the direction its arrow points.
+struct NoodleCurve {
+  Vec2 a, c1, c2, b;
+  Vec2 dir;  // unit, at `b`
+};
+NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, Vec2 point);
 
 // What the editor wants drawn over the scene.
 struct Overlay {
@@ -93,6 +132,8 @@ struct Overlay {
   std::vector<OverlayCurve> curves;
   std::vector<OverlayLine> lines;
   std::vector<OverlayMark> marks;
+  // Prototype mode.
+  PrototypeOverlay prototype;
 };
 
 // Where the renderer gets TEXT nodes' layouts (the editor caches them).
@@ -149,6 +190,9 @@ class Renderer {
   // Draws `page` through `camera` into `target` (0 = the canvas), viewport.deviceWidth × deviceHeight.
   RenderStats render(const Document& doc, Guid page, const Camera& camera, const Viewport& viewport,
                      const Overlay& overlay, const OverlayStyle& style, gfx::TargetId target = 0, Guid only = kNoGuid);
+  // The presentation view (proto/Player): `scene`'s items over its background, `page`'s layers through its render
+  // tree; no culling (items' props may move layers away from their document place), no content cache.
+  RenderStats renderScene(const Document& doc, Guid page, const Viewport& viewport, const PresentScene& scene, gfx::TargetId target = 0);
   // The content cache (canvas frames only; off by default): see renderCached.
   void setContentCache(bool on) {
     cacheEnabled_ = on;
@@ -290,6 +334,18 @@ class Renderer {
   // Glyphs of `layout` placed by `m` (layout space → CSS px), all in `color`.
   void drawGlyphs(const text::TextLayout& layout, const Mat2x3& m, const Color& color, double alpha);
   void drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
+  // Prototype mode's connections, hotspots and flow labels (render/PrototypeOverlay.cpp).
+  void drawPrototypeOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
+  void drawPrototypeLabels(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
+  // Render-tree node `i`'s props: the scene item's override when it has one (renderScene), else the document's.
+  const NodeProps& propsAt(uint32_t i) const {
+    const RenderNode& rn = tree_->nodes()[i];
+    if (overrides_) {
+      auto it = overrides_->find(rn.id);
+      if (it != overrides_->end()) return it->second;
+    }
+    return rn.node->props;
+  }
   // A path in local space (`m` → CSS px) filled with `paint`; `clip` (optional) intersects / subtracts.
   void emitPath(const CurveEntry* entry, const Mat2x3& m, bool evenOdd, const Paint& paint, Vec2 nodeSize, double alpha,
                 const CurveEntry* clip = nullptr, bool clipSubtract = false, bool clipEvenOdd = false, Pass pass = Pass::Path);
@@ -418,6 +474,9 @@ class Renderer {
   uint8_t stencilDepth_ = 0;
   gfx::TextureId curveTexture_ = 0;
   RenderStats stats_;
+  // renderScene: the item's props overrides, and culling off (layers may be drawn away from their tree bounds).
+  const PropsOverrides* overrides_ = nullptr;
+  bool cull_ = true;
 };
 
 // A shape instance for a w×h shape placed by `m` (shape space → draw space): a solid fill and / or a solid

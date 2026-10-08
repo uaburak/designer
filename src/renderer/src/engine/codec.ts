@@ -847,7 +847,9 @@ export type EngineEvent =
   /** Collections or variables changed (any commit, undo, redo, remote change or load). */
   | { type: "VARIABLES_CHANGED"; collections: Guid[]; variables: Guid[] }
   /** Styles changed, or how many layers use them. */
-  | { type: "STYLES_CHANGED"; styles: Guid[] };
+  | { type: "STYLES_CHANGED"; styles: Guid[] }
+  /** Prototype mode: a "+" handle was dragged to a frame — the hotspots that got the new interaction, and its id. */
+  | { type: "PROTOTYPE_CONNECTED"; refs: Guid[]; interaction: Guid | null };
 
 export type EngineEventType = EngineEvent["type"];
 export type EventOf<T extends EngineEventType> = Extract<EngineEvent, { type: T }>;

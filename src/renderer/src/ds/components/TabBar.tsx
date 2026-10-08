@@ -5,7 +5,7 @@ import { STRINGS } from "../strings";
 import { dropIndex } from "../util/geometry";
 import styles from "./TabBar.module.css";
 
-export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" };
+export type TabBarTab = { id: string; title: string; dirty?: boolean; kind?: "design" | "prototype" };
 
 export interface TabBarProps {
   tabs: TabBarTab[];
@@ -172,7 +172,7 @@ export function Tab({ tab, active, onActivate, onClose, onContextMenu, onPointer
         if (e.key === "Enter" || e.key === " ") onActivate();
       }}
     >
-      <span className={styles.glyph}><Icon name="16.design" /></span>
+      <span className={styles.glyph}><Icon name={tab.kind === "prototype" ? "16.play" : "16.design"} /></span>
       <span className={styles.title}>{tab.title}</span>
       <span className={styles.slot}>
         {tab.dirty && <span className={styles.dot} aria-label={STRINGS.unsaved} />}

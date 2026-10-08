@@ -130,6 +130,35 @@ export type ApplyKind = "user" | "system" | "restore" | "remote" | "load";
 /** Where image bytes come from (the file's image store): the image file for a SHA-1 hash, or null. */
 export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
 
+/** The presentation view's scale options (Figma: Actual size, Fit width, Fit width and height, Fill screen). */
+export type PresentScale = "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL";
+
+/** engine_present_state. */
+export interface PresentState {
+  active: boolean;
+  page?: Guid | null;
+  /** The top-level frame shown */
+  screen?: Guid | null;
+  screenName?: string;
+  /** The flow being presented (its starting frame), null without one */
+  flow?: Guid | null;
+  flowName?: string;
+  flows?: { node: Guid; name: string; description: string }[];
+  overlays?: Guid[];
+  history?: number;
+  canBack?: boolean;
+  canNext?: boolean;
+  canPrevious?: boolean;
+  scale?: PresentScale;
+  hints?: boolean;
+  device?: boolean;
+  /** The pointer is over something that reacts to it (the hand cursor) */
+  hotspot?: boolean;
+  /** The device's screen on the canvas (CSS px) */
+  screenRect?: { x: number; y: number; w: number; h: number };
+  events: ({ type: "CHANGED" } | { type: "OPEN_URL"; url: string; newTab: boolean })[];
+}
+
 let nextBitmapId = 1;
 
 type Handler = (event: EngineEvent) => void;
@@ -438,6 +467,75 @@ export class Engine {
     if (!this.h) return;
     this.x.render(this.h);
     this.after(undefined);
+  }
+
+  // ---- Prototyping (E8: docs/engine-build.md "E8") --------------------------------
+
+  /** The Prototype tab: connections, "+" handles and flow labels on the canvas. */
+  setPrototypeMode(on: boolean): void {
+    this.after(this.x.setPrototypeMode(this.h, on));
+  }
+
+  /**
+   * The presentation view: from now on frames draw the prototype (its scene), and input goes through the present*
+   * calls. `page` (default: the current page) and `node` (a top-level frame or a layer in one; default: the first
+   * flow's start, else the first frame). Status.OK, or E_NOT_FOUND when the page has nothing to show.
+   */
+  presentStart(options: { page?: Guid; node?: Guid } = {}): number {
+    const [ps, pl] = options.page ? this.ids(options.page) : [0xffffffff, 0xffffffff];
+    const [ns, nl] = options.node ? this.ids(options.node) : [0xffffffff, 0xffffffff];
+    const status = this.x.presentStart(this.h, ps, pl, ns, nl);
+    this.schedule();
+    return this.after(status);
+  }
+
+  presentStop(): void {
+    this.x.presentStop(this.h);
+    this.schedule();
+    this.after(undefined);
+  }
+
+  /** type: PointerType (DOWN 0, MOVE 1, UP 2, CANCEL 3, ENTER 4, LEAVE 5); CSS px in the canvas. */
+  presentPointer(type: number, x: number, y: number, buttons: number, mods: number): boolean {
+    const handled = this.x.presentPointer(this.h, type, x, y, buttons, mods) !== 0;
+    this.schedule();
+    this.after(undefined);
+    return handled;
+  }
+
+  presentWheel(x: number, y: number, dx: number, dy: number, deltaMode: number): boolean {
+    const handled = this.x.presentWheel(this.h, x, y, dx, dy, deltaMode) !== 0;
+    this.schedule();
+    this.after(undefined);
+    return handled;
+  }
+
+  /** A key by its JS keyCode (Figma's Key / Gamepad codes); true when the prototype or a presentation shortcut took it. */
+  presentKey(type: "down" | "up", keyCode: number, mods: number): boolean {
+    const handled = this.x.presentKey(this.h, type === "down" ? 0 : 1, keyCode, mods) !== 0;
+    this.schedule();
+    this.after(undefined);
+    return handled;
+  }
+
+  /** Restart (R), next / previous frame (→ ←), Back, cycle the scale option (Z). */
+  presentCommand(command: "restart" | "next" | "previous" | "back" | "scale"): number {
+    const code = { restart: 0, next: 1, previous: 2, back: 3, scale: 4 }[command];
+    const status = this.x.presentCommand(this.h, code);
+    this.schedule();
+    return this.after(status);
+  }
+
+  presentSetOptions(options: { scale?: PresentScale; hints?: boolean }): void {
+    this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
+    this.schedule();
+    this.after(undefined);
+  }
+
+  /** The presentation's state, and what happened since the last read (CHANGED, OPEN_URL). */
+  presentState(): PresentState {
+    this.x.presentState(this.h);
+    return this.after(JSON.parse(decodeText(this.x.result())) as PresentState);
   }
 
   // ---- Document ---------------------------------------------------------------

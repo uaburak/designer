@@ -1402,7 +1402,7 @@ Each milestone ends with `npm run check` green and `npm run dev:demo` showing th
 - PNG/JPG/SVG/PDF export, Copy as PNG/SVG, thumbnails, `ENCODE_BAKE_TEXT`, VIEWER/INSPECT modes, hb-subset.
 - Accept: SVG/PDF goldens rendered by Chromium match the canvas within tolerance; a viewer snapshot renders without fonts installed.
 
-**After E7**: E8 prototype player in the engine (interactions, Smart animate); E9 WebGPU backend behind `gfx::Device` (naga WGSL, mid-session fallback to WebGL like Figma); dynamic page loading; progressive blur/noise/glass; render worker.
+**After E7**: E8 prototype player in the engine (interactions, Smart animate) — as built: docs/engine-build.md "E8 prototyping"; E9 WebGPU backend behind `gfx::Device` (naga WGSL, mid-session fallback to WebGL like Figma); dynamic page loading; progressive blur/noise/glass; render worker.
 
 ---
 

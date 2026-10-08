@@ -28,6 +28,7 @@
 #include "export/SvgWriter.h"
 #include "gfx/null/NullDevice.h"
 #include "hit/HitTest.h"
+#include "proto/Player.h"
 #include "render/ImageCache.h"
 #include "render/Renderer.h"
 #include "scene/CodecJson.h"
@@ -78,6 +79,9 @@ struct Engine {
   // Binary payloads a JSON result refers to by index (engine_attachment): the Messages of DOCUMENT_CHANGED events,
   // library payloads. Replaced by the next call that produces attachments.
   std::vector<std::string> attachments;
+  // The presentation view (engine_present_*): while it runs, frames are its scene and input goes to it.
+  std::unique_ptr<proto::Player> player;
+  bool presenting() const { return player && player->active(); }
 };
 
 // Module state. Trivially constructed (no work before main).
@@ -326,6 +330,14 @@ void writeEvents(json::Writer& w, Engine& e) {
   if (!ev.styles.empty()) {
     w.beginObject().key("type").string("STYLES_CHANGED").key("styles");
     writeIds(w, unique(ev.styles));
+    w.endObject();
+  }
+  for (auto& pc : ev.prototypeConnected) {
+    w.beginObject().key("type").string("PROTOTYPE_CONNECTED").key("refs");
+    writeIds(w, pc.nodes);
+    w.key("interaction");
+    if (pc.interaction == kNoGuid) w.null();
+    else w.string(pc.interaction.toString());
     w.endObject();
   }
   if (ev.navigation) {
@@ -598,6 +610,8 @@ ENG_EXPORT uint32_t engine_pointer(Handle h, uint32_t type, double x, double y, 
   Call call;
   Engine* e = engineOf(h);
   if (!e || type > 5) return 0;
+  // Presenting: the pointer plays the prototype (as engine_present_pointer).
+  if (e->presenting()) return e->player->pointer(static_cast<PointerEvent>(type), x, y, buttons, mods);
   return e->editor.pointer(static_cast<PointerEvent>(type), x, y, static_cast<int>(button), buttons, mods, static_cast<int>(clickCount));
 }
 
@@ -606,6 +620,10 @@ ENG_EXPORT uint32_t engine_wheel(Handle h, double x, double y, double dx, double
   Call call;
   Engine* e = engineOf(h);
   if (!e) return 0;
+  if (e->presenting()) {
+    double unit = deltaMode == 1 ? 16 : deltaMode == 2 ? std::max(1.0, e->editor.viewport().height) : 1;
+    return e->player->wheel(x, y, dx * unit, dy * unit);
+  }
   return e->editor.wheel(x, y, dx, dy, static_cast<DeltaMode>(deltaMode > 2 ? 0 : deltaMode), mods, flags);
 }
 
@@ -648,6 +666,7 @@ ENG_EXPORT uint32_t engine_tick(Handle h, double timeMs) {
   Engine* e = engineOf(h);
   if (!e) return 0;
   bool render = e->editor.tick(timeMs);
+  if (e->presenting()) render = e->player->tick(timeMs) || render;
   // A zoom that settled: the page is drawn sharp again (render/Renderer.h wantsFrameAt).
   double at = e->renderer->wantsFrameAt();
   if (at > 0 && e->renderer->nowMs() >= at) render = true;
@@ -659,6 +678,12 @@ ENG_EXPORT void engine_render(Handle h) {
   Engine* e = engineOf(h);
   if (!e) return;
   Editor& ed = e->editor;
+  if (e->presenting()) {
+    e->stats = e->renderer->renderScene(ed.document(), e->player->page(), ed.viewport(), e->player->scene());
+    e->player->rendered();
+    ed.rendered();
+    return;
+  }
   e->stats = e->renderer->render(ed.document(), ed.page(), ed.camera(), ed.viewport(), ed.overlay(), OverlayStyle::of(ed.theme()));
   ed.rendered();
 }
@@ -668,6 +693,7 @@ ENG_EXPORT int32_t engine_next_frame_delay(Handle h) {
   Engine* e = engineOf(h);
   if (!e) return -1;
   if (e->editor.needsFrame() || gFontsDirty) return 0;
+  if (e->presenting()) return e->player->nextFrameDelay();
   int32_t delay = e->editor.textEditing() ? 265 : -1;  // the caret blinks (530 ms phases)
   if (double at = e->renderer->wantsFrameAt(); at > 0) {
     int32_t settle = static_cast<int32_t>(std::max(1.0, std::ceil(at - e->renderer->nowMs())));
@@ -679,7 +705,7 @@ ENG_EXPORT int32_t engine_next_frame_delay(Handle h) {
 ENG_EXPORT uint32_t engine_needs_frame(Handle h) {
   Call call(false);  // a pending font relayout is a frame's work (engine_tick catches up)
   Engine* e = engineOf(h);
-  return e && (e->editor.needsFrame() || gFontsDirty) ? 1 : 0;
+  return e && (e->editor.needsFrame() || gFontsDirty || (e->presenting() && e->player->needsFrame())) ? 1 : 0;
 }
 
 ENG_EXPORT void engine_gl_context_lost(Handle h) {
@@ -943,7 +969,11 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
   if (const json::Value* fields = v.isArray() ? nullptr : v.get("fields"); fields && fields->isArray()) {
     mask = 0;
     for (auto& f : fields->array)
-      if (f.isString()) mask |= codec::fieldOfKey(f.string);
+      if (f.isString()) {
+        FieldMask m = codec::fieldOfKey(f.string);
+        // A key the engine doesn't model (prototypeStartingPoint, exportSettings…): the unmodelled fields it keeps.
+        mask |= m ? m : (codec::fieldIdOf("NodeChange", f.string) ? static_cast<FieldMask>(F_EXTRA) : 0);
+      }
   }
   std::vector<Guid> refs = readRefs(v);
   for (Guid id : refs) ed.derivePageOf(id, (flags & READ_SUBTREE) != 0);
@@ -2384,3 +2414,116 @@ ENG_EXPORT int32_t engine_library_usage(Handle h) {
 
 // ---- Export (E7) ----
 #include "export/ExportApi.inc"
+
+// ---- Prototyping (docs/engine-build.md "E8") ------------------------------------------------------------------
+
+// The editor's Prototype tab: connections, "+" handles and flow labels on the canvas (on = 1).
+ENG_EXPORT void engine_set_prototype_mode(Handle h, uint32_t on) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setPrototypeMode(on != 0);
+}
+
+// Starts the presentation view on page (pageSess, pageLocal) at node (nodeSess, nodeLocal) — a top-level frame or a
+// layer in one; (0xffffffff, 0xffffffff): the first flow's start, else the first frame.
+ENG_EXPORT int32_t engine_present_start(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, uint32_t nodeSessionID, uint32_t nodeLocalID) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (!e->player) e->player = std::make_unique<proto::Player>(e->editor);
+  Guid page{pageSessionID, pageLocalID};
+  if (page == kNoGuid) page = e->editor.page();
+  // No content cache: the presentation's frames are drawn whole.
+  e->renderer->setContentCache(false);
+  if (!e->player->start(page, Guid{nodeSessionID, nodeLocalID})) return E_NOT_FOUND;
+  return OK;
+}
+
+ENG_EXPORT void engine_present_stop(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->player) return;
+  e->player->stop();
+  e->renderer->setContentCache(!e->selector.empty());
+  e->editor.invalidateCanvas();
+}
+
+// type: PointerEvent (0 down, 1 move, 2 up, 3 cancel, 4 enter, 5 leave); CSS px in the canvas. 1: handled.
+ENG_EXPORT uint32_t engine_present_pointer(Handle h, uint32_t type, double x, double y, uint32_t buttons, uint32_t mods) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return 0;
+  return e->player->pointer(static_cast<PointerEvent>(type), x, y, buttons, mods);
+}
+
+ENG_EXPORT uint32_t engine_present_wheel(Handle h, double x, double y, double dx, double dy, uint32_t deltaMode) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return 0;
+  double unit = deltaMode == 1 ? 16 : deltaMode == 2 ? std::max(1.0, e->editor.viewport().height) : 1;
+  return e->player->wheel(x, y, dx * unit, dy * unit);
+}
+
+// type 0 down, 1 up; keyCode: the JS keyCode (Figma's keyTrigger codes). 1: handled.
+ENG_EXPORT uint32_t engine_present_key(Handle h, uint32_t type, uint32_t keyCode, uint32_t mods) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return 0;
+  return e->player->key(type == 0, static_cast<int>(keyCode), mods);
+}
+
+// 0 restart, 1 next frame, 2 previous frame, 3 back, 4 cycle the scale option. 0: done, E_INVALID: nothing to do.
+ENG_EXPORT int32_t engine_present_command(Handle h, uint32_t command) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return E_HANDLE;
+  proto::Player& p = *e->player;
+  switch (command) {
+    case 0: p.restart(); return OK;
+    case 1: return p.next() ? OK : E_INVALID;
+    case 2: return p.previous() ? OK : E_INVALID;
+    case 3: return p.back() ? OK : E_INVALID;
+    case 4: p.cycleScale(); return OK;
+    default: return E_INVALID;
+  }
+}
+
+// {"scale": "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL", "hints": bool}
+ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (!e->player) e->player = std::make_unique<proto::Player>(e->editor);
+  json::Value v;
+  if (!json::parse(bytes(ptr, len), v) || !v.isObject()) return E_DECODE;
+  if (auto* s = v.get("scale"); s && s->isString()) {
+    const char* names[] = {"ACTUAL", "FIT_WIDTH", "FIT", "FILL"};
+    for (int i = 0; i < 4; i++)
+      if (s->string == names[i]) e->player->setScale(static_cast<proto::ScaleMode>(i));
+  }
+  if (auto* hints = v.get("hints"); hints && hints->isBool()) e->player->setHints(hints->boolean);
+  e->editor.invalidateCanvas();
+  return OK;
+}
+
+// The presentation's state (stateJson) and the events since the last call: {…, "events": [{"type": "CHANGED"} |
+// {"type": "OPEN_URL", "url", "newTab"}]}.
+ENG_EXPORT int32_t engine_present_state(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (!e->player) return setResult("{\"active\":false,\"events\":[]}");
+  std::string state = e->player->stateJson();
+  json::Writer w;
+  w.beginArray();
+  for (auto& ev : e->player->takeEvents()) {
+    w.beginObject();
+    if (ev.kind == proto::Player::Event::Kind::OPEN_URL) w.key("type").string("OPEN_URL").key("url").string(ev.url).key("newTab").boolean(ev.newTab);
+    else w.key("type").string("CHANGED");
+    w.endObject();
+  }
+  w.endArray();
+  state.pop_back();  // the closing brace
+  state += ",\"events\":" + w.take() + "}";
+  return setResult(std::move(state));
+}
