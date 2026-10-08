@@ -10,7 +10,7 @@ export default defineConfig([
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["src/renderer/**/*.{ts,tsx}"],
+    files: ["src/renderer/**/*.{ts,tsx}", "src/viewer/**/*.{ts,tsx}"],
     languageOptions: { globals: globals.browser },
     plugins: { "react-hooks": reactHooks },
     rules: reactHooks.configs.recommended.rules,
