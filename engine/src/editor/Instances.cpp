@@ -141,6 +141,17 @@ struct Editor::Expansion {
   std::vector<std::pair<Guid, Guid>> slots;         // a slot row, its content frame
   std::vector<std::pair<Guid, Guid>> hosts;         // a content frame (Figma's form), the slot row it resolves in
   std::unordered_map<Guid, Vec2, GuidHash> sourceSizes;
+  std::unordered_map<Guid, size_t, GuidHash> rowIndex;  // a row's place in `rows` (modes of rows being built)
+  BindingDeps deps;                                      // variables the derivation itself read (variants, values)
+  bool readsVars = false;
+  void addRow(DerivedRow row) {
+    rowIndex[row.id] = rows.size();
+    rows.push_back(std::move(row));
+  }
+  const NodeProps* row(Guid id) const {
+    auto it = rowIndex.find(id);
+    return it == rowIndex.end() ? nullptr : &rows[it->second].props;
+  }
 };
 
 // ---- Lookups ------------------------------------------------------------------------
@@ -341,6 +352,7 @@ void Editor::removeDerived(Guid instance) {
     events_.components.push_back(instance);
   }
   instanceBindings_.erase(instance);
+  instanceVarDeps_.erase(instance);
   blueprint_.erase(instance);
   if (auto s = instanceSources_.find(instance); s != instanceSources_.end()) {
     for (Guid src : s->second) {
@@ -354,7 +366,7 @@ void Editor::removeDerived(Guid instance) {
 }
 
 void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, const std::vector<ComponentPropAssignment>& assigns,
-                           Guid* swap, Guid* slotContent) const {
+                           Guid* swap, Guid* slotContent, const std::function<bool(const VariableData&, Resolved&)>* resolve) const {
   if (source.parameterConsumptionMap.empty()) return;
   const std::vector<ComponentPropDef>* defs = defsOf(symbol);
   if (!defs) return;
@@ -365,7 +377,21 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
       if (d.id == b.propRef) def = &d;
     if (!def) continue;  // a stale binding (its property was deleted)
     const ComponentPropAssignment* a = findAssign(assigns, def->id);
-    const ComponentPropValue& v = a && !a->value.empty() ? a->value : def->initialValue;
+    ComponentPropValue v = a && !a->value.empty() ? a->value : def->initialValue;
+    // A value (or, without one, the default) bound to a variable: the variable's value in the level's modes.
+    const VariableData* bound = a && a->boundValue.present()                   ? &a->boundValue
+                                : (!a || a->value.empty()) && def->boundValue.present() ? &def->boundValue
+                                                                                         : nullptr;
+    Resolved r;
+    if (bound && resolve && (*resolve)(*bound, r)) {
+      if (def->type == ComponentPropType::BOOL && r.kind == Resolved::Kind::BOOL) v.hasBool = true, v.boolValue = r.b;
+      if (def->type == ComponentPropType::TEXT && r.kind == Resolved::Kind::STRING) {
+        TextData t;
+        t.characters = r.s;
+        v.hasText = true;
+        v.textValue = t;
+      }
+    }
     switch (b.field) {
       case VariableField::VISIBLE:
         if (v.hasBool) p.visible = v.boolValue;
@@ -388,6 +414,19 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
 
 void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid parentRow, const std::vector<Guid>& prefix, Guid level,
                             const std::vector<Guid>& levelPath, const std::vector<ComponentPropAssignment>& assigns, int depth) {
+  // Values bound to variables (a variant, a property's value or default) resolve in the modes where they show: the
+  // level (an instance, real or being built) and up.
+  auto contextAt = [&](Guid at, const NodeProps* self) {
+    ModeContext ctx;
+    ctx.consumer = at;
+    ctx.self = self ? self : ex.row(at);
+    ctx.pending = [&ex](Guid g) { return ex.row(g); };
+    return ctx;
+  };
+  std::function<bool(const VariableData&, Resolved&)> resolveAtLevel = [&](const VariableData& d, Resolved& r) {
+    ex.readsVars = true;
+    return resolveData(d, contextAt(level, nullptr), r, &ex.deps, 0);
+  };
   for (Guid x : std::vector<Guid>(doc_.children(sourceParent))) {
     if (x.isDerived()) continue;
     const Node* xn = doc_.get(x);
@@ -411,7 +450,7 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       if (const SymbolOverride* swap = ex.stack.highest(path, F_OVERRIDDEN_SYMBOL_ID)) main = swap->props.comp().overriddenSymbolID;
       Guid bound = kNoGuid;
       NodeProps scratch = xn->props;
-      applyBindings(xn->props, scratch, symbol, assigns, &bound, nullptr);
+      applyBindings(xn->props, scratch, symbol, assigns, &bound, nullptr, &resolveAtLevel);
       if (bound != kNoGuid) main = bound;
       const Node* mn = doc_.get(main);
       if (!mn || mn->props.type != NodeType::SYMBOL) {
@@ -424,9 +463,25 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       ex.sources.push_back(setOf(main));  // its set's properties and name
       bool swapped = main != xn->props.comp().symbolData.symbolID;
       if (!swapped) ex.stack.add(xn->props.comp().symbolData.overrides, path, mn ? mn->props.keyOf(main) : kNoGuid);
+      if (mn) {
+        // A variant bound to variables (its own binding, or a usage site's): the variant for this row's modes.
+        NodeProps probe = xn->props;
+        ex.stack.apply(path, probe);
+        probe.parentIndex = {parentRow, xn->props.parentIndex.position};
+        for (const ParamBinding& b : probe.parameterConsumptionMap) {
+          if (b.field != VariableField::VARIANT_PROPERTIES || !b.isVariable()) continue;
+          ex.readsVars = true;
+          Guid v = variantFor(main, b.data, contextAt(id, &probe), &ex.deps);
+          if (v != kNoGuid && v != main) {
+            main = v;
+            mn = doc_.get(main);
+            ex.sources.push_back(main);
+          }
+        }
+      }
       p = mn ? instanceRoot(xn->props, mn->props, main) : xn->props;
       ex.stack.apply(path, p);
-      applyBindings(xn->props, p, symbol, assigns, nullptr, nullptr);
+      applyBindings(xn->props, p, symbol, assigns, nullptr, nullptr, &resolveAtLevel);
       p.type = NodeType::INSTANCE;
       p.comp().symbolData = SymbolData{};
       p.comp().symbolData.symbolID = main;
@@ -437,7 +492,7 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       p.transform = xn->props.transform;
       info.symbol = main;
       if (mn) ex.sourceSizes[id] = mn->props.size;
-      ex.rows.push_back({id, p, x, level, path});
+      ex.addRow({id, p, x, level, path});
       ex.infos.push_back(info);
       bool cycle = std::find(ex.symbols.begin(), ex.symbols.end(), main) != ex.symbols.end();
       if (mn && !cycle && depth < 16) {
@@ -450,13 +505,23 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
     p = xn->props;
     ex.stack.apply(path, p);
     Guid slotContent = kNoGuid;
-    applyBindings(xn->props, p, symbol, assigns, nullptr, &slotContent);
+    applyBindings(xn->props, p, symbol, assigns, nullptr, &slotContent, &resolveAtLevel);
     p.parentIndex = {parentRow, xn->props.parentIndex.position};
     p.transform = xn->props.transform;
     if (p.isFrameLike()) ex.sourceSizes[id] = xn->props.size;
-    ex.rows.push_back({id, p, x, level, path});
+    ex.addRow({id, p, x, level, path});
     ex.infos.push_back(info);
     const Node* content = doc_.get(slotContent);
+    Guid levelSource = kNoGuid;  // the nested instance this level is (a real INSTANCE in a main)
+    if (level != ex.top)
+      if (auto li = ex.rowIndex.find(level); li != ex.rowIndex.end() && li->second < ex.infos.size()) levelSource = ex.infos[li->second].source;
+    if (content && content->props.comp().isSlotContent && levelSource != kNoGuid && content->props.parentIndex.guid == levelSource) {
+      // A nested instance's own slot content inside a main (a content frame under that nested instance, in the main):
+      // the slot shows it, as derived rows of this instance (its layers keep their keys under the slot's path).
+      ex.sources.push_back(slotContent);
+      expandChildren(ex, symbol, slotContent, id, prefix, level, levelPath, assigns, depth);
+      continue;
+    }
     if (content && content->props.comp().isSlotContent && content->props.parentIndex.guid != ex.top) {
       // Content not (yet) under this instance (Figma's form, under the Internal Only Canvas: a load moves it under its
       // instance, adoptSlotContent; a later edit may leave one there): the top-level instance's own assignment hosts it
@@ -599,6 +664,8 @@ void Editor::materialize(Guid R) {
 
   Expansion ex;
   ex.top = R;
+  BindingDeps rootDeps;
+  bool rootResolved = false;
   ex.sources.push_back(rn->props.comp().symbolData.symbolID);
   Guid main = symbolOf(rn->props);
   Vec2 mainSize;
@@ -612,9 +679,8 @@ void Editor::materialize(Guid R) {
     FieldMask rootMask = F_ALL & ~kNotInherited;
     // Its variables and styles in its own modes (the main's root holds the main's).
     if (root.hasBindings()) {
-      BindingDeps deps;
-      resolveBindings(R, root, &deps);
-      setDeps(R, std::move(deps));
+      resolveBindings(R, root, &rootDeps);
+      rootResolved = true;
       // Inside slot content whose slot isn't derived yet: its bound values stay as its file stored them, not its
       // main's (resolved where the main is).
       if (unhostedSlotContent(R, rn->props) != kNoGuid) copyFields(root, rn->props, boundFieldMask(root) & rootMask);
@@ -634,6 +700,19 @@ void Editor::materialize(Guid R) {
     expandChildren(ex, main, main, R, {}, R, {}, rn->props.comp().componentPropAssignments, 0);
   }
 
+  // What its resolution and its derivation read (variables of bound variants and property values): a change to them
+  // derives it again (flushBindings).
+  bool hadVarDeps = instanceVarDeps_.count(R) != 0;
+  if (ex.readsVars) {
+    instanceVarDeps_.insert(R);
+    rootDeps.vars.insert(rootDeps.vars.end(), ex.deps.vars.begin(), ex.deps.vars.end());
+    rootDeps.sets.insert(rootDeps.sets.end(), ex.deps.sets.begin(), ex.deps.sets.end());
+    rootDeps.styles.insert(rootDeps.styles.end(), ex.deps.styles.begin(), ex.deps.styles.end());
+  } else {
+    instanceVarDeps_.erase(R);
+  }
+  if (rootResolved || ex.readsVars) setDeps(R, std::move(rootDeps));
+  else if (hadVarDeps) dropDeps(R);
   // The rows into the document: what's gone first (children before parents), then each row, parents first.
   GuidSet want;
   for (const DerivedRow& row : ex.rows) want.insert(row.id);

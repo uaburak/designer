@@ -64,15 +64,25 @@ void visitProps(NodeProps& p, const Refs& r) {
   if (p.comp().symbolData.symbolID != kNoGuid) r.symbol(p.comp().symbolData.symbolID);
   if (p.comp().overriddenSymbolID != kNoGuid) r.symbol(p.comp().overriddenSymbolID);
   for (SymbolOverride& o : p.comp().symbolData.overrides) visitProps(o.props, r);
-  for (ComponentPropAssignment& a : p.comp().componentPropAssignments)
+  for (ComponentPropAssignment& a : p.comp().componentPropAssignments) {
     if (a.value.guidValue != kNoGuid) r.symbol(a.value.guidValue);
-  for (ComponentPropDef& d : p.comp().componentPropDefs)
+    visitData(a.boundValue, r);
+  }
+  for (ComponentPropDef& d : p.comp().componentPropDefs) {
     if (d.initialValue.guidValue != kNoGuid) r.symbol(d.initialValue.guidValue);
+    visitData(d.boundValue, r);
+  }
   for (AssetId* a : {&p.refs().styleIdForFill, &p.refs().styleIdForStrokeFill, &p.refs().styleIdForText, &p.refs().styleIdForEffect, &p.refs().styleIdForGrid})
     if (a->present()) r.asset(*a, Kind::STYLE);
-  for (VariableModeEntry& e : p.refs().variableModeBySetMap)
+  for (VariableModeEntry& e : p.refs().variableModeBySetMap) {
     if (e.set.present()) r.asset(e.set, Kind::VARIABLE_COLLECTION);
+    if (e.extension.present()) r.asset(e.extension, Kind::VARIABLE_COLLECTION);
+  }
   if (p.asset().variableSetID.present()) r.asset(p.asset().variableSetID, Kind::VARIABLE_COLLECTION);
+  // An extended collection: the collection it extends; its overrides: the variable they override.
+  for (VariableSetMode& m : p.asset().variableSetModes)
+    if (m.parentSet.present()) r.asset(m.parentSet, Kind::VARIABLE_COLLECTION);
+  if (p.asset().overriddenVariableId.present()) r.asset(p.asset().overriddenVariableId, Kind::VARIABLE);
   for (VariableModeValue& v : p.asset().variableDataValues) visitData(v.data, r);
   for (ParamBinding& b : p.parameterConsumptionMap) visitData(b.data, r);
   visitPaints(p.fillPaints, r);

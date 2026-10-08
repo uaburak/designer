@@ -110,7 +110,9 @@ enum class CommandId : uint32_t {
   DUPLICATE_VARIABLE_GROUP = 164,       // args {collection, group}
   BIND_VARIABLE = 165,                  // args {refs?, target, variable}
   DETACH_VARIABLE = 166,                // args {refs?, target}
-  SET_VARIABLE_MODE = 167,              // args {refs?, page?, collection, mode}
+  SET_VARIABLE_MODE = 167,              // args {refs?, page?, collection, mode} (collection: an extended one too)
+  EXTEND_VARIABLE_COLLECTION = 168,     // args {collection, name?} ("Extend collection")
+  RESET_VARIABLE_OVERRIDE = 169,        // args {collection, variable(s), mode?} (an extended collection: "Reset change")
   CREATE_STYLE = 170,                   // args {type, name?, from?, apply?, target?}
   DELETE_STYLE = 171,                   // args {style}
   APPLY_STYLE = 172,                    // args {refs?, style, target?}

@@ -48,6 +48,7 @@ enum class NodeType : uint8_t {
   SECTION = 25,
   VARIABLE = 28,
   VARIABLE_SET = 31,
+  VARIABLE_OVERRIDE = 35,  // an extended collection's values for one inherited variable
 };
 
 enum class StrokeAlign : uint8_t { CENTER = 0, INSIDE = 1, OUTSIDE = 2 };
@@ -204,11 +205,11 @@ struct ColorStop {
 // ---- Variables (docs/schema.md §6) ----
 
 enum class VariableDataType : uint8_t {
-  BOOLEAN = 0, FLOAT = 1, STRING = 2, ALIAS = 3, COLOR = 4, EXPRESSION = 5, SYMBOL_ID = 7, FONT_STYLE = 8, TEXT_DATA = 9,
+  BOOLEAN = 0, FLOAT = 1, STRING = 2, ALIAS = 3, COLOR = 4, EXPRESSION = 5, MAP = 6, SYMBOL_ID = 7, FONT_STYLE = 8, TEXT_DATA = 9,
   PROP_REF = 13, SLOT_CONTENT_ID = 18, EASING = 22, TIMING = 23
 };
 enum class VariableResolvedType : uint8_t {
-  BOOLEAN = 0, FLOAT = 1, STRING = 2, COLOR = 4, SYMBOL_ID = 6, FONT_STYLE = 7, TEXT_DATA = 8, SLOT_CONTENT_ID = 12, EASING = 15,
+  BOOLEAN = 0, FLOAT = 1, STRING = 2, COLOR = 4, MAP = 5, SYMBOL_ID = 6, FONT_STYLE = 7, TEXT_DATA = 8, SLOT_CONTENT_ID = 12, EASING = 15,
   TIMING = 16
 };
 enum class ExpressionFunction : uint8_t {
@@ -232,9 +233,9 @@ enum class StyleType : uint8_t { NONE = 0, FILL = 1, TEXT = 3, EFFECT = 4, GRID 
     static constexpr const char* names[] = {__VA_ARGS__};             \
     static constexpr size_t count = sizeof(names) / sizeof(names[0]); \
   };
-ENG_ENUM_NAMES(VariableDataType, "BOOLEAN", "FLOAT", "STRING", "ALIAS", "COLOR", "EXPRESSION", "", "SYMBOL_ID", "FONT_STYLE",
+ENG_ENUM_NAMES(VariableDataType, "BOOLEAN", "FLOAT", "STRING", "ALIAS", "COLOR", "EXPRESSION", "MAP", "SYMBOL_ID", "FONT_STYLE",
                "TEXT_DATA", "", "", "", "PROP_REF", "", "", "", "", "SLOT_CONTENT_ID", "", "", "", "EASING", "TIMING")
-ENG_ENUM_NAMES(VariableResolvedType, "BOOLEAN", "FLOAT", "STRING", "", "COLOR", "", "SYMBOL_ID", "FONT_STYLE", "TEXT_DATA", "", "",
+ENG_ENUM_NAMES(VariableResolvedType, "BOOLEAN", "FLOAT", "STRING", "", "COLOR", "MAP", "SYMBOL_ID", "FONT_STYLE", "TEXT_DATA", "", "",
                "", "SLOT_CONTENT_ID", "", "", "EASING", "TIMING")
 ENG_ENUM_NAMES(ExpressionFunction, "ADDITION", "SUBTRACTION", "RESOLVE_VARIANT", "MULTIPLY", "DIVIDE", "EQUALS", "NOT_EQUAL",
                "LESS_THAN", "LESS_THAN_OR_EQUAL", "GREATER_THAN", "GREATER_THAN_OR_EQUAL", "AND", "OR", "NOT", "STRINGIFY", "TERNARY",
@@ -264,7 +265,9 @@ struct AssetId {
 // schema VariableData: a value (literal, alias, expression, font style, property reference) with its types.
 struct VariableData {
   // Which VariableAnyValue member is set. OTHER: a VariableData the engine doesn't model (kept whole in `extra`).
-  enum class Kind : uint8_t { NONE, BOOL, TEXT, FLOAT, ALIAS, COLOR, EXPRESSION, FONT_STYLE, PROP_REF, SLOT_CONTENT, OTHER };
+  // MAP: mapValue (RESOLVE_VARIANT's argument): `args` are the values, `mapKeys` / `mapGuidKeys` their keys (a VARIANT
+  // property's name and its ComponentPropDef id).
+  enum class Kind : uint8_t { NONE, BOOL, TEXT, FLOAT, ALIAS, COLOR, EXPRESSION, FONT_STYLE, PROP_REF, SLOT_CONTENT, MAP, OTHER };
   Kind kind = Kind::NONE;
   bool hasDataType = false, hasResolvedType = false;
   VariableDataType dataType = VariableDataType::BOOLEAN;
@@ -279,6 +282,8 @@ struct VariableData {
   ExpressionFunction function = ExpressionFunction::ADDITION;
   // EXPRESSION: its arguments. FONT_STYLE: asString, asFloat, asVariations (an absent one has kind NONE).
   std::vector<VariableData> args;
+  std::vector<std::string> mapKeys;  // MAP: each value's key
+  std::vector<Guid> mapGuidKeys;     // MAP: each value's guidKey (kNoGuid: none)
   std::string valueExtra;  // other VariableAnyValue members (symbolIdValue, textDataValue, easingValue…), kiwi bytes
   std::string extra;       // other members, kiwi bytes; OTHER: the whole VariableData
   bool present() const { return kind != Kind::NONE || hasDataType || !extra.empty() || !valueExtra.empty(); }
@@ -287,7 +292,8 @@ struct VariableData {
            resolvedDataType == o.resolvedDataType && boolValue == o.boolValue && floatValue == o.floatValue &&
            textValue == o.textValue && colorValue == o.colorValue && alias == o.alias && propRef == o.propRef &&
            slotContent == o.slotContent &&
-           function == o.function && args == o.args && valueExtra == o.valueExtra && extra == o.extra;
+           function == o.function && args == o.args && mapKeys == o.mapKeys && mapGuidKeys == o.mapGuidKeys &&
+           valueExtra == o.valueExtra && extra == o.extra;
   }
   // Constructors for literal values and aliases (dataType / resolvedDataType set as Figma writes them).
   static VariableData boolean(bool v);
@@ -297,6 +303,10 @@ struct VariableData {
   static VariableData aliasOf(Guid variable, VariableResolvedType resolved);
   // "Control opacity at scale": a COLOR from a colour (literal or alias) and an opacity in % (literal or alias).
   static VariableData composeColor(VariableData color, VariableData opacity);
+  // A boolean bound to visibility, as Figma writes it: IS_TRUTHY(alias).
+  static VariableData isTruthy(VariableData arg);
+  // A variant bound to variables (VARIANT_PROPERTIES): RESOLVE_VARIANT(MAP {property name / def id → value}).
+  static VariableData resolveVariant(const std::vector<std::pair<std::string, Guid>>& keys, std::vector<VariableData> values);
 };
 
 // A value kept out of line while it is empty (docs/engine.md §2.2's facets, in small): the variable bindings of paints,
@@ -356,7 +366,11 @@ struct VariableSetMode {
   Guid id = kNoGuid;
   std::string name;
   std::string sortPosition;
-  bool operator==(const VariableSetMode& o) const { return id == o.id && name == o.name && sortPosition == o.sortPosition; }
+  AssetId parentSet;          // an extended collection's mode: the collection it extends (parentVariableSetId)
+  Guid parentMode = kNoGuid;  // ... and that collection's mode (parentModeId)
+  bool operator==(const VariableSetMode& o) const {
+    return id == o.id && name == o.name && sortPosition == o.sortPosition && parentSet == o.parentSet && parentMode == o.parentMode;
+  }
 };
 // A variable's value in one mode (schema VariableDataValuesEntry).
 struct VariableModeValue {
@@ -366,9 +380,10 @@ struct VariableModeValue {
 };
 // An explicit mode of a node ("Apply variable mode"; schema VariableModeBySetMapEntry).
 struct VariableModeEntry {
-  AssetId set;
+  AssetId set;        // the collection; an extended collection's mode: its root collection
   Guid mode = kNoGuid;
-  bool operator==(const VariableModeEntry& o) const { return set == o.set && mode == o.mode; }
+  AssetId extension;  // an extended collection's mode: that collection (variableSetExtensionID)
+  bool operator==(const VariableModeEntry& o) const { return set == o.set && mode == o.mode && extension == o.extension; }
 };
 struct CodeSyntaxEntry {
   CodeSyntaxPlatform platform = CodeSyntaxPlatform::WEB;
@@ -629,17 +644,22 @@ struct ComponentPropDef {
   std::vector<PreferredValue> preferredValues;  // preferredValues.instanceSwapValues
   std::string preferredExtra;                   // preferredValues' other members (stringValues), kiwi bytes
   std::string description;
+  VariableData boundValue;  // varValue when it binds the default to a variable (an alias); other varValues stay in extra
   std::string extra;  // varValue, slotPropConfig…, kiwi bytes
   bool operator==(const ComponentPropDef& o) const {
     return id == o.id && name == o.name && initialValue == o.initialValue && sortPosition == o.sortPosition && type == o.type &&
-           preferredValues == o.preferredValues && preferredExtra == o.preferredExtra && description == o.description && extra == o.extra;
+           preferredValues == o.preferredValues && preferredExtra == o.preferredExtra && description == o.description &&
+           boundValue == o.boundValue && extra == o.extra;
   }
 };
 struct ComponentPropAssignment {
   Guid defID = kNoGuid;
   ComponentPropValue value;
+  VariableData boundValue;  // varValue when it binds the value to a variable (an alias); other varValues stay in extra
   std::string extra;  // varValue, kiwi bytes
-  bool operator==(const ComponentPropAssignment& o) const { return defID == o.defID && value == o.value && extra == o.extra; }
+  bool operator==(const ComponentPropAssignment& o) const {
+    return defID == o.defID && value == o.value && boundValue == o.boundValue && extra == o.extra;
+  }
 };
 // One parameterConsumptionMap entry: a field bound to a component property (PROP_REF, `propRef`) or to a
 // variable (`data`: an alias, a composed colour, a font style).
@@ -823,7 +843,8 @@ enum Field : FieldMask {
   F_CORNER_BR = ENG_FIELD_BIT(112),  // rectangleBottomRightCornerRadius
   F_CORNER_BL = ENG_FIELD_BIT(113),  // rectangleBottomLeftCornerRadius
   F_CORNER_RADII = F_CORNER_TL | F_CORNER_TR | F_CORNER_BR | F_CORNER_BL,
-  F_ALL = ENG_FIELD_BIT(114) - 1,
+  F_OVERRIDDEN_VARIABLE = ENG_FIELD_BIT(114),  // overriddenVariableId: a VARIABLE_OVERRIDE's variable
+  F_ALL = ENG_FIELD_BIT(115) - 1,
 };
 
 inline constexpr FieldMask kComponentFields = F_OVERRIDE_KEY | F_SYMBOL_DATA | F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_DEFS |
@@ -836,7 +857,8 @@ inline constexpr FieldMask kStyleIdFields = F_STYLE_ID_FILL | F_STYLE_ID_STROKE 
 inline constexpr FieldMask kAssetFields = F_STYLE_TYPE | F_SORT_POSITION | F_DESCRIPTION | F_KEY | F_IS_PUBLISHABLE |
                                           F_VARIABLE_SET_MODES | F_VARIABLE_SET_ID | F_VARIABLE_RESOLVED_TYPE |
                                           F_VARIABLE_DATA_VALUES | F_VARIABLE_SCOPES | F_CODE_SYNTAX | F_VERSION |
-                                          F_PUBLISHED_VERSION | F_SOURCE_LIBRARY_KEY | F_PUBLISH_ID | F_LIBRARY_MOVE_INFO;
+                                          F_PUBLISHED_VERSION | F_SOURCE_LIBRARY_KEY | F_PUBLISH_ID | F_LIBRARY_MOVE_INFO |
+                                          F_OVERRIDDEN_VARIABLE;
 // An asset's identity in libraries: never copied into a duplicate (it gets a key of its own when asked).
 inline constexpr FieldMask kAssetIdentityFields =
     F_KEY | F_VERSION | F_PUBLISHED_VERSION | F_SOURCE_LIBRARY_KEY | F_PUBLISH_ID | F_LIBRARY_MOVE_INFO;
@@ -1023,6 +1045,7 @@ struct AssetFacet {
   std::vector<VariableModeValue> variableDataValues;   // VARIABLE: one value per mode
   std::optional<std::vector<VariableScope>> variableScopes;  // absent = [ALL_SCOPES]; empty = no picker
   std::vector<CodeSyntaxEntry> codeSyntax;
+  AssetId overriddenVariableId;                        // VARIABLE_OVERRIDE: the variable (of the root collection) it overrides
   std::string version;                    // a library copy: the versionHash it was copied at
   std::string publishedVersion;           // a local asset: its versionHash at its last publish
   std::string sourceLibraryKey;           // a library copy's root: its library's FileKey

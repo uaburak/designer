@@ -156,6 +156,21 @@ void writeVariableData(json::Writer& out, const VariableData& d) {
         writeGuidObject(v, d.propRef);
         v.endObject();
         break;
+      case K::MAP:
+        v.key("mapValue").beginObject().key("values").beginArray();
+        for (size_t i = 0; i < d.args.size(); i++) {
+          v.beginObject();
+          if (i < d.mapKeys.size()) v.key("key").string(d.mapKeys[i]);
+          v.key("value");
+          writeVariableData(v, d.args[i]);
+          if (i < d.mapGuidKeys.size() && d.mapGuidKeys[i] != kNoGuid) {
+            v.key("guidKey");
+            writeGuidObject(v, d.mapGuidKeys[i]);
+          }
+          v.endObject();
+        }
+        v.endArray().endObject();
+        break;
       case K::SLOT_CONTENT:
         v.key("slotContentIdValue").beginObject();
         if (d.slotContent != kNoGuid) {
@@ -245,6 +260,22 @@ VariableData readVariableData(const json::Value& v) {
       } else if (k == "propRefValue" && x.isObject()) {
         d.kind = K::PROP_REF;
         if (auto* id = x.get("defId")) readStructGuid(*id, d.propRef);
+      } else if (k == "mapValue" && x.isObject()) {
+        d.kind = K::MAP;
+        if (auto* values = x.get("values"); values && values->isArray())
+          for (auto& e : values->array) {
+            if (!e.isObject()) return other();
+            std::string key;
+            Guid guidKey = kNoGuid;
+            if (auto* kx = e.get("key"); kx && kx->isString()) key = kx->string;
+            if (auto* gx = e.get("guidKey")) readStructGuid(*gx, guidKey);
+            VariableData value;
+            if (auto* vx = e.get("value")) value = readVariableData(*vx);
+            if (value.kind == K::OTHER) return other();
+            d.mapKeys.push_back(std::move(key));
+            d.mapGuidKeys.push_back(guidKey);
+            d.args.push_back(std::move(value));
+          }
       } else if (k == "slotContentIdValue" && x.isObject()) {
         d.kind = K::SLOT_CONTENT;
         if (auto* id = x.get("guid")) readStructGuid(*id, d.slotContent);
@@ -539,8 +570,12 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
         one.key("preferredValues").raw(withExtra(pv, "ComponentPropPreferredValues", d.preferredExtra));
       }
       if (!d.description.empty()) one.key("description").string(d.description);
+      if (d.boundValue.present()) {
+        one.key("varValue");
+        writeVariableData(one, d.boundValue);
+      }
       one.endObject();
-      w.raw(withExtra(one, "ComponentPropDef", d.extra));
+      w.raw(withExtra(one, "ComponentPropDef", d.boundValue.present() ? withoutField("ComponentPropDef", d.extra, 9) : d.extra));
     }
     w.endArray();
   }
@@ -553,8 +588,12 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
       writeGuidObject(one, a.defID);
       one.key("value");
       writePropValue(one, a.value);
+      if (a.boundValue.present()) {
+        one.key("varValue");
+        writeVariableData(one, a.boundValue);
+      }
       one.endObject();
-      w.raw(withExtra(one, "ComponentPropAssignment", a.extra));
+      w.raw(withExtra(one, "ComponentPropAssignment", a.boundValue.present() ? withoutField("ComponentPropAssignment", a.extra, 3) : a.extra));
     }
     w.endArray();
   }
@@ -626,6 +665,10 @@ void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bo
       writeAssetId(w, e.set);
       w.key("variableModeID");
       writeGuidObject(w, e.mode);
+      if (e.extension.present()) {
+        w.key("variableSetExtensionID");
+        writeAssetId(w, e.extension);
+      }
       w.endObject();
     }
     w.endArray().endObject();
@@ -654,11 +697,21 @@ void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bo
     for (const VariableSetMode& m : p.asset().variableSetModes) {
       w.beginObject().key("id");
       writeGuidObject(w, m.id);
-      w.key("name").string(m.name).key("sortPosition").string(m.sortPosition).endObject();
+      w.key("name").string(m.name).key("sortPosition").string(m.sortPosition);
+      if (m.parentSet.present()) {
+        w.key("parentVariableSetId");
+        writeAssetId(w, m.parentSet);
+      }
+      if (m.parentMode != kNoGuid) {
+        w.key("parentModeId");
+        writeGuidObject(w, m.parentMode);
+      }
+      w.endObject();
     }
     w.endArray();
   }
   assetOrClear(F_VARIABLE_SET_ID, "variableSetID", p.asset().variableSetID);
+  assetOrClear(F_OVERRIDDEN_VARIABLE, "overriddenVariableId", p.asset().overriddenVariableId);
   if (mask & F_VARIABLE_RESOLVED_TYPE) writeEnum(w, "variableResolvedType", p.asset().variableResolvedType);
   if (mask & F_VARIABLE_DATA_VALUES) {
     w.key("variableDataValues").beginObject().key("entries").beginArray();
@@ -1148,7 +1201,7 @@ bool knownKey(std::string_view k) {
       "styleIdForFill", "styleIdForStrokeFill", "styleIdForText", "styleIdForEffect", "styleIdForGrid", "styleType",
       "sortPosition", "description", "key", "isPublishable", "variableSetModes", "variableSetID", "variableResolvedType",
       "variableDataValues", "variableScopes", "codeSyntax", "version", "publishedVersion", "sourceLibraryKey", "publishID",
-      "libraryMoveInfo",
+      "libraryMoveInfo", "overriddenVariableId",
       // Not kept: derived (recomputed) or panel-only.
       "derivedTextData", "derivedSymbolData", "childIds", "fillGeometry", "strokeGeometry", "blobs", "guidPath"};
   for (std::string_view known : kKnown)
@@ -1266,6 +1319,7 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
           if (y.isString()) enumFromName(y.string, d.type);
           else d.type = static_cast<ComponentPropType>(static_cast<int>(y.number));
         } else if (k == "description" && y.isString()) d.description = y.string;
+        else if (k == "varValue" && y.isObject() && readVariableData(y).kind == VariableData::Kind::ALIAS) d.boundValue = readVariableData(y);
         else if (k == "preferredValues" && y.isObject()) {
           for (auto& [pk, pv] : y.object) {
             if (pk == "instanceSwapValues" && pv.isArray()) {
@@ -1294,6 +1348,7 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
       for (auto& [k, y] : e.object) {
         if (k == "defID") readGuid(y, a.defID);
         else if (k == "value") a.value = readPropValue(y);
+        else if (k == "varValue" && y.isObject() && readVariableData(y).kind == VariableData::Kind::ALIAS) a.boundValue = readVariableData(y);
         else appendExtra(a.extra, "ComponentPropAssignment", k, y);
       }
       p.comp().componentPropAssignments.push_back(std::move(a));
@@ -1378,6 +1433,7 @@ void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
         VariableModeEntry me;
         if (auto* set = e.get("variableSetID")) me.set = readAssetId(*set);
         if (auto* mode = e.get("variableModeID")) readStructGuid(*mode, me.mode);
+        if (auto* ext = e.get("variableSetExtensionID")) me.extension = readAssetId(*ext);
         if (me.set.present()) p.refs().variableModeBySetMap.push_back(std::move(me));
       }
     m |= F_VARIABLE_MODES;
@@ -1404,11 +1460,14 @@ void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
       if (auto* id = e.get("id")) readStructGuid(*id, mode.id);
       if (auto* name = e.get("name"); name && name->isString()) mode.name = name->string;
       if (auto* pos = e.get("sortPosition"); pos && pos->isString()) mode.sortPosition = pos->string;
+      if (auto* ps = e.get("parentVariableSetId")) mode.parentSet = readAssetId(*ps);
+      if (auto* pm = e.get("parentModeId")) readStructGuid(*pm, mode.parentMode);
       p.asset().variableSetModes.push_back(std::move(mode));
     }
     m |= F_VARIABLE_SET_MODES;
   }
   asset("variableSetID", p.asset().variableSetID, F_VARIABLE_SET_ID);
+  asset("overriddenVariableId", p.asset().overriddenVariableId, F_OVERRIDDEN_VARIABLE);
   if (auto* x = v.get("variableResolvedType"); x && readEnumMember(*x, p.asset().variableResolvedType)) m |= F_VARIABLE_RESOLVED_TYPE;
   if (auto* x = v.get("variableDataValues"); x && x->isObject()) {
     if (auto* entries = x->get("entries"); entries && entries->isArray())
@@ -1871,7 +1930,7 @@ const FieldKey kFieldKeys[] = {
     {F_STYLE_ID_FILL, "styleIdForFill"}, {F_STYLE_ID_STROKE, "styleIdForStrokeFill"}, {F_STYLE_ID_TEXT, "styleIdForText"},
     {F_STYLE_ID_EFFECT, "styleIdForEffect"}, {F_STYLE_ID_GRID, "styleIdForGrid"}, {F_STYLE_TYPE, "styleType"},
     {F_SORT_POSITION, "sortPosition"}, {F_DESCRIPTION, "description"}, {F_KEY, "key"}, {F_IS_PUBLISHABLE, "isPublishable"},
-    {F_VARIABLE_SET_MODES, "variableSetModes"}, {F_VARIABLE_SET_ID, "variableSetID"},
+    {F_VARIABLE_SET_MODES, "variableSetModes"}, {F_VARIABLE_SET_ID, "variableSetID"}, {F_OVERRIDDEN_VARIABLE, "overriddenVariableId"},
     {F_VARIABLE_RESOLVED_TYPE, "variableResolvedType"}, {F_VARIABLE_DATA_VALUES, "variableDataValues"},
     {F_VARIABLE_SCOPES, "variableScopes"}, {F_CODE_SYNTAX, "codeSyntax"}, {F_VERSION, "version"},
     {F_PUBLISHED_VERSION, "publishedVersion"}, {F_SOURCE_LIBRARY_KEY, "sourceLibraryKey"}, {F_PUBLISH_ID, "publishID"},

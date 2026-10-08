@@ -75,10 +75,11 @@ enum NodeType {
   INSTANCE = 16;
   SECTION = 25;
   VARIABLE = 28;
-  VARIABLE_SET = 31;       // "Collection" in the UI
+  VARIABLE_SET = 31;       // "Collection" in the UI; also an extended collection (its modes name their parent's)
+  VARIABLE_OVERRIDE = 35;  // an extended collection's own values for one inherited variable (under the internal canvas)
   // Dropped: STICKY=17, SHAPE_WITH_TEXT=18, CONNECTOR=19, CODE_BLOCK=20, WIDGET=21, STAMP=22,
   // MEDIA=23, HIGHLIGHT=24, SECTION_OVERLAY=26, WASHI_TAPE=27, TABLE=29, TABLE_CELL=30, SLIDE=32,
-  // ASSISTED_LAYOUT=33, INTERACTIVE_SLIDE_ELEMENT=34, VARIABLE_OVERRIDE=35, MODULE=36,
+  // ASSISTED_LAYOUT=33, INTERACTIVE_SLIDE_ELEMENT=34, MODULE=36,
   // SLIDE_GRID=37, SLIDE_ROW=38, RESPONSIVE_SET=39, CODE_COMPONENT=40, TEXT_PATH=41,
   // CODE_INSTANCE=42, CODE_LIBRARY=43, CODE_FILE=44, CODE_LAYER=45, BRUSH=46, MANAGED_STRING=47,
   // TRANSFORM=48, CMS_RICH_TEXT=49, REPEATER=50, JSX=51, EMBEDDED_PROTOTYPE=52, REACT_FIBER=53,
@@ -1147,6 +1148,7 @@ enum VariableDataType {
   ALIAS = 3;
   COLOR = 4;
   EXPRESSION = 5;
+  MAP = 6;                 // mapValue: RESOLVE_VARIANT's argument (variant property -> value)
   SYMBOL_ID = 7;           // instance-swap property values
   FONT_STYLE = 8;          // fontStyleValue: font style bound by name (STRING) or weight (FLOAT)
   TEXT_DATA = 9;           // text property values
@@ -1154,7 +1156,7 @@ enum VariableDataType {
   SLOT_CONTENT_ID = 18;    // slotContentIdValue: a SLOT property's value (an instance's slot content FRAME)
   EASING = 22;             // @later Motion
   TIMING = 23;             // @later Motion (floatValue, seconds)
-  // Dropped: MAP=6, INVALID=10, NODE_FIELD_ALIAS=11, CMS_ALIAS=12,
+  // Dropped: INVALID=10, NODE_FIELD_ALIAS=11, CMS_ALIAS=12,
   // IMAGE=14, MANAGED_STRING_ALIAS=15, LINK=16, JS_RUNTIME_ALIAS=17, DATE=19,
   // KEYFRAME_*=20..21, VECTOR=24 .. TRANSITION_PARAMETER_DATA=35.
 }
@@ -1164,13 +1166,14 @@ enum VariableResolvedDataType {
   FLOAT = 1;
   STRING = 2;
   COLOR = 4;
+  MAP = 5;
   SYMBOL_ID = 6;
   FONT_STYLE = 7;
   TEXT_DATA = 8;
   SLOT_CONTENT_ID = 12;    // resolved type of a PROP_REF to a SLOT property
   EASING = 15;             // @later
   TIMING = 16;             // @later
-  // Dropped: MAP=5, IMAGE=9, LINK=10, JS_RUNTIME_ALIAS=11, KEYFRAME_*=13..14, VECTOR=17 .. TRANSITION_PARAMETER_DATA=28.
+  // Dropped: IMAGE=9, LINK=10, JS_RUNTIME_ALIAS=11, KEYFRAME_*=13..14, VECTOR=17 .. TRANSITION_PARAMETER_DATA=28.
 }
 
 enum ExpressionFunction {
@@ -1209,15 +1212,26 @@ message VariableAnyValue { // exactly one field is set, matching VariableData.da
   VariableID alias = 4;
   Color colorValue = 5;
   Expression expressionValue = 6;
+  VariableMap mapValue = 7;        // MAP
   SymbolId symbolIdValue = 8;
   VariableFontStyle fontStyleValue = 9;
   TextData textDataValue = 10;
   PropRefValue propRefValue = 13;
   SlotContentId slotContentIdValue = 18;  // SLOT_CONTENT_ID: the slot content an instance assigns to a SLOT property
   EasingData easingValue = 21;     // @later
-  // Reserved field numbers (9): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r7 = 7 [deprecated]; byte _r11 = 11 [deprecated]; byte _r12 = 12 [deprecated]; byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated];
+  // Reserved field numbers (8): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r11 = 11 [deprecated]; byte _r12 = 12 [deprecated]; byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated];
   byte _r17 = 17 [deprecated]; byte _r19 = 19 [deprecated]; byte _r20 = 20 [deprecated];
+}
+
+message VariableMap {              // MAP: a variant bound to variables (RESOLVE_VARIANT's one argument)
+  VariableMapValue[] values = 1;
+}
+
+message VariableMapValue {
+  string key = 1;                  // the VARIANT property's name
+  VariableData value = 2;          // its value: an alias to a STRING / FLOAT / BOOLEAN variable (or a literal)
+  GUID guidKey = 3;                // the VARIANT ComponentPropDef's id
 }
 
 message VariableFontStyle {        // font style bound to variables (FONT_STYLE)
@@ -1323,14 +1337,17 @@ message VariableModeBySetMap {     // explicit variable modes ("Apply variable m
 }
 
 message VariableModeBySetMapEntry {
-  VariableSetID variableSetID = 1;
+  VariableSetID variableSetID = 1;           // the collection (an extended collection's mode: its root collection)
   GUID variableModeID = 2;
+  VariableSetID variableSetExtensionID = 3;  // an extended collection's mode: that extended collection
 }
 
 message VariableSetMode {  // one column of a collection
   GUID id = 1;
   string name = 2;
   string sortPosition = 3; // fractional index; the first mode in this order is the default mode
+  VariableSetID parentVariableSetId = 4;  // an extended collection's mode: the collection it extends
+  GUID parentModeId = 5;                  // ... and that collection's mode it inherits
 }
 
 message VariableDataValues {
@@ -1823,6 +1840,7 @@ message NodeChange {
   VariableDataValues variableDataValues = 315;    // @nooverride one value per mode
   VariableScope[] variableScopes = 353;           // @nooverride absent = [ALL_SCOPES]; empty = shown in no picker
   CodeSyntaxMap codeSyntax = 358;                 // @nooverride
+  VariableID overriddenVariableId = 464;          // @nooverride VARIABLE_OVERRIDE: the (root) variable it overrides
 
   // --- document, pages, prototype settings ---
   Color backgroundColor = 50;                     // @nooverride CANVAS background
@@ -1841,7 +1859,7 @@ message NodeChange {
   Vector overlayRelativePosition = 199;           // @nooverride
   OverlayBackgroundInteraction overlayBackgroundInteraction = 200; // @nooverride
   OverlayBackgroundAppearance overlayBackgroundAppearance = 201;   // @nooverride
-  // Reserved field numbers (807): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // Reserved field numbers (806): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r27 = 27 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
@@ -1888,7 +1906,7 @@ message NodeChange {
   byte _r431 = 431 [deprecated]; byte _r432 = 432 [deprecated]; byte _r433 = 433 [deprecated]; byte _r434 = 434 [deprecated]; byte _r443 = 443 [deprecated]; byte _r444 = 444 [deprecated];
   byte _r446 = 446 [deprecated]; byte _r447 = 447 [deprecated]; byte _r448 = 448 [deprecated]; byte _r449 = 449 [deprecated]; byte _r450 = 450 [deprecated]; byte _r451 = 451 [deprecated];
   byte _r452 = 452 [deprecated]; byte _r454 = 454 [deprecated]; byte _r455 = 455 [deprecated]; byte _r456 = 456 [deprecated]; byte _r457 = 457 [deprecated]; byte _r458 = 458 [deprecated];
-  byte _r459 = 459 [deprecated]; byte _r460 = 460 [deprecated]; byte _r461 = 461 [deprecated]; byte _r462 = 462 [deprecated]; byte _r464 = 464 [deprecated]; byte _r465 = 465 [deprecated];
+  byte _r459 = 459 [deprecated]; byte _r460 = 460 [deprecated]; byte _r461 = 461 [deprecated]; byte _r462 = 462 [deprecated]; byte _r465 = 465 [deprecated];
   byte _r467 = 467 [deprecated]; byte _r468 = 468 [deprecated]; byte _r469 = 469 [deprecated]; byte _r470 = 470 [deprecated]; byte _r471 = 471 [deprecated]; byte _r472 = 472 [deprecated];
   byte _r473 = 473 [deprecated]; byte _r478 = 478 [deprecated]; byte _r479 = 479 [deprecated]; byte _r480 = 480 [deprecated]; byte _r481 = 481 [deprecated]; byte _r482 = 482 [deprecated];
   byte _r484 = 484 [deprecated]; byte _r485 = 485 [deprecated]; byte _r486 = 486 [deprecated]; byte _r487 = 487 [deprecated]; byte _r488 = 488 [deprecated]; byte _r489 = 489 [deprecated];

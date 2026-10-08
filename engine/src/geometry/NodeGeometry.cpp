@@ -216,6 +216,7 @@ const NodeGeometry* GeometryCache::get(const Document& doc, Guid id, int depth) 
     case NodeType::SLICE:
     case NodeType::VARIABLE:
     case NodeType::VARIABLE_SET:
+    case NodeType::VARIABLE_OVERRIDE:
     case NodeType::NONE: return nullptr;
     default: break;
   }
