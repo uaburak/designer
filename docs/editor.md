@@ -6,6 +6,15 @@
 
 ---
 
+## Status (2026-10-08, round 5 — grid auto layout)
+
+- **Flow.** The Auto layout section's direction control has **Grid** (after Vertical, Horizontal, Wrap). Choosing it on a frame without tracks writes Figma Design's defaults (`model/grid.ts gridDefaults`): 2 × 2 Hug tracks, automatic positioning on, gaps 10 (a frame that was a grid keeps its tracks).
+- **Grid rows** (`panels/design/Grid.tsx`): **Number of columns** / **Number of rows** (adding Hug tracks after the last, taking them from the end; items anchored to a removed track move to the last one), **Toggle automatic positioning** (`gridReflowEnabled`), **Gap between columns** / **Gap between rows** (bindable: `GRID_COLUMN_GAP` / `GRID_ROW_GAP` in `model/variables.ts`), Padding as before. One selected grid lists its tracks: each takes a typed size ("120", "2fr", "Hug", "A" / "Auto" = 1fr) or the dropdown (**Fixed** / **Fill container** / **Hug contents**); a Fill track on an axis the frame hugs turns that axis Fixed (Figma).
+- **Items.** A layer in a grid shows **Column span** / **Row span** in the Layout section.
+- **Canvas** (engine): a drag drops into the cell under the pointer; the selected grid's tracks show as pills along its top and left edges, the hovered one labelled.
+- Checks: `__tests__/grid.wasm.test.ts` (model + the engine laying out tracks, flow, spans, gaps), `editor-shot.mjs` `EDITOR_ONLY=grid` (runs in the default set too).
+- Not yet (Figma has them): editing a track from its pill's label, dragging track edges / the grabber, span handles on items, the visual grid picker, multi-track selection, Auto row count (`gridAutoTracks`).
+
 ## Status (2026-10-08, developer previews — Share)
 
 - **Opening it.** The right panel's **Share** button and File ▸ **Share preview…** (`file.share-preview`, in the menu bar too) open `ShareDialog.tsx` (`ui.shareOpen`).

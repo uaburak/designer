@@ -407,6 +407,11 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
 - **Absolute children** (`stackPositioning=ABSOLUTE`) are skipped by the flow and positioned by constraints (§4.4) against the frame.
 - **`stackReverseZIndex`** changes paint order only (render tree), never positions.
 - **Hidden children** (`visible=false`) take no space, as in Figma.
+- *As built (round 5, measured against Figma's own layout of a large file):* a child that stretches across the counter
+  axis of a parent hugging that axis counts for its content there (a table row is as tall as its tallest cell's
+  content); a Fill on the primary axis of a parent hugging it counts for its own size. A frame with nothing in its flow
+  keeps its size. A slot showing its instance's content frame is that frame's size (its own Hug). Absolute children's
+  own content is laid out; hidden children are left as stored. A group with a mask is the mask's size.
 
 ### 4.3 Grid (`GridLayout.cpp`): `stackMode GRID`
 - Tracks are `gridColumns`/`gridRows` (GUIDPositionMap, each track has a GUID and a fractional position) sized by `gridColumnsSizing`/`gridRowsSizing`: fixed px, flex (fr), or hug. The algorithm is CSS-grid-like:
@@ -419,6 +424,11 @@ Math is in `double`, stored as `float`. Positions are not rounded, as in Figma (
   - alignment `gridChildHorizontalAlign`/`gridChildVerticalAlign` (AUTO/MIN/CENTER/MAX), with AUTO = stretch for Fill items
 - Automatic placement (2026 "auto rows/positioning") is row-major into the first free cells.
 - *As built (2026-10-08):* `gridReflowEnabled` selects automatic placement (layer order, row-major, spans); without it items sit at their anchors (an item without valid ones flows on). Rows past the defined ones are HUG. A spanning item widens the HUG tracks it spans, evenly; in a frame that hugs an axis, its FLEX tracks hug too. The primary sizing (`stackPrimarySizing`) is the width, the counter the height. Fill width = `stackChildPrimaryGrow`, Fill height = `stackChildAlignSelf: STRETCH`; AUTO alignment = MIN. Checked against Figma's stored geometry of a large file: 96.6 % of grid items within 0.6 px (the rest is stale stored geometry).
+  Round 5: items that fill a row's height don't size a Hug row (a Hug row nothing sizes takes the free height; a grid
+  whose Hug rows nothing sizes keeps its height); items filling a column's width do size a Hug column. Editing
+  (docs/engine-build.md "Round 5"): a drag places an item in the cell under the pointer (automatic positioning:
+  reorder; manual: anchors, swapping with the cell's item); a selected grid shows its tracks as pills along its edges;
+  `GRID_ROW_GAP` / `GRID_COLUMN_GAP` bind to variables.
 
 ### 4.4 Constraints (`Constraints.cpp`)
 - Applies to children of non-auto-layout frames, and to absolute children of auto-layout frames.

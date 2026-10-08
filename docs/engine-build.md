@@ -1,4 +1,66 @@
-# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping)
+# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; round 5 layout + GRID)
+
+## Round 5 — the engine's layout as Figma's; GRID editing (2026-10-08, branch `r5-layout-grid`)
+
+**How it was measured.** Two loads of the same `.fig` in one page (fig-fidelity's `--inspect`, a scratch script; private
+files never in the repo): A = Figma's derived data trusted (Figma's layout), B = derived data dropped (the engine lays
+out everything itself), fonts settled before B is read; every node, real and derived (instance sublayers), compared at
+> 0.5 px; "origins" = size-different nodes none of whose children differ (bottom-up) and size-different nodes whose
+parent doesn't (top-down). Also the older check against Figma's own `derivedSymbolData` entries (no font wait).
+
+| Owner's 32k-layer file, own layout vs Figma's | before (main 9df628a) | after |
+|---|---|---|
+| real nodes off (of 32,065) | 3,933 | 2,659 |
+| instance sublayers off (of ~66,300) | 18,301 | 8,683 |
+| size origins | 12,264 | 4,974 |
+| vs Figma's derivedSymbolData entries: real / sublayers / entries whose path we lack | 3,009 / 21,856 / 4,349 | 1,788 / 18,386 / 3,922 |
+
+The samples (`structure`, `sections`, `stacks_wrap`) stay at 0 nodes off; their thumbnails' ΔE are unchanged.
+
+**Causes fixed** (each with a native test):
+- *A stretched child of a parent hugging that axis counts for its content* (`Layout::fillHugAxes`, `natural(…, hug)`):
+  a table row hugging its height sizes to its tallest cell's content even when the cells are fixed-height frames set to
+  Fill (STRETCH). A Fill on the *primary* axis of a parent hugging it counts for its own size (Figma, measured: forcing
+  both made it worse). `layout` tests "a stretched child…", "a Fill child on the primary axis…".
+- *A slot is as large as its content frame* (its size, its own Hug) — not the main's slot size.
+- *An auto-layout frame with nothing in its flow keeps its size* (Figma doesn't collapse an emptied Hug frame) — 1,100
+  of the file's frames.
+- *Absolute auto-layout children are laid out* (their own content); hidden ones are left as stored (Figma keeps a hidden
+  layer's geometry from when it was last shown; laying them out made the comparison worse).
+- *A group with a mask is the mask's size* (what is above a mask doesn't widen it).
+- *Grid rows*: items that fill a row's height don't size a Hug row; a Hug row nothing sizes takes the free height; a grid
+  whose Hug rows nothing sizes keeps its height. Items filling a column's width still size a Hug column (variant grids).
+- *Component property values in `varValue`* (Figma's newer files leave `value` empty): booleans, texts
+  (`textDataValue`) and instance swaps (`symbolIdValue`) now apply (`codec::assignmentVarProp`); before, every such
+  instance showed its defaults. 427 of Figma's derivedSymbolData paths now exist that didn't (swaps resolved).
+- *Exposed nested instances*: the instance above holds values for a nested instance's properties (same def ids); they
+  win over the nested one's own.
+- *A nested instance keeps its own size* (as it sits in its main, swapped or not) — not its main's.
+- *Figma's sparse derivedSymbolData*: the sublayers it doesn't name sit where the main's constraints put them in a
+  resized parent (a 24 px icon's vector in a 16 px instance), applied at open — this also fixes how such icons draw when a
+  `.fig` opens with Figma's data.
+- *GRID_ROW_GAP / GRID_COLUMN_GAP* bound to variables resolve (written into the grid's kiwi bytes); an edit of a grid's
+  fields (tracks, gaps, an item's anchors / span) re-lays it out.
+
+**What's left, explained** (top origins after the round): ~4,100 are TEXT widths — Figma's auto-width texts measure
+0.7–1.3 px wider than ours and land on whole pixels (105 vs 104.18, 52 vs 51.18, 84 vs 83.27, 45 vs 43.73) — text
+measurement, the text workstream's; everything that hugs them follows. ~630 are hidden
+table cells' slot content (Figma's stored geometry for hidden layers is stale). ~100 icon vectors in instances whose
+stored data is inconsistent, 14 frames whose Figma layout disagrees with their own fields (stale), and a handful of
+texts with `maxLines` 1 that Figma laid out on two lines.
+
+**GRID editing (engine).**
+- `Layout::gridCells(frame)` (track offsets / sizes / GUIDs / labels, items' cells) and `GridCells::cellAt`;
+  `Layout::gridAnchorBytes` / `gridSpanBytes` (an item's placement as kiwi bytes for `NodeProps::extra`).
+- Move gesture into a grid (`updateInsertion`): the cell under the pointer. With automatic positioning
+  (`gridReflowEnabled`) the layer joins the flow before the first item at or after that cell; without it, it takes the
+  cell (its `gridColumnAnchor` / `gridRowAnchor`), and the item that held the cell takes its old one (Figma swaps).
+  The insertion line marks the cell's leading edge. Test `move: grid — a drag places the item…`.
+- Overlay `gridTracks` (Renderer.h, additive): a selected grid's tracks as blue pills along its top (columns) and left
+  (rows) edges; the one under the pointer is solid and labelled ("1fr", "120", "Hug").
+- No new exports: the panel writes grid fields through `setProps` (they round-trip as the node's kiwi bytes).
+- Not yet: dragging a track edge (→ Fixed), reordering tracks by their grabber on canvas, span handles on an item's
+  edges, clicking a pill's label to edit it (the panel edits all of these), `gridAutoTracks`.
 
 ## E8 prototyping — API and status (2026-10-08)
 
