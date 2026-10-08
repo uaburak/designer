@@ -201,7 +201,7 @@ async function paintsSection(page, theme) {
 
   // Stroke: settings (dash 6 / gap 4), individual strokes.
   await select("2:40");
-  await panel.getByRole("button", { name: "Stroke settings" }).click();
+  await panel.getByRole("button", { name: "Advanced stroke settings" }).click();
   await settle(page);
   const ss = page.getByRole("dialog", { name: "Stroke settings" });
   check("stroke settings read the dash pattern", (await ss.getByRole("textbox", { name: "Dash" }).inputValue()) === "6" && (await ss.getByRole("textbox", { name: "Gap" }).inputValue()) === "4");
