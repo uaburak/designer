@@ -74,7 +74,8 @@ export function AlignmentMatrix({ direction, value, onChange, disabled, label = 
     const [v, h] = direction === "horizontal" ? [a.counter, a.primary] : [a.primary, a.counter];
     const vertical = v === "SPACE_BETWEEN" ? "spaced" : NAMES[v][0];
     const horizontal = h === "SPACE_BETWEEN" ? "spaced" : NAMES[h][1];
-    return vertical === "center" && horizontal === "center" ? "Align center" : `Align ${vertical} ${horizontal}`;
+    // Figma's live names: "Align top left" … the middle row "Align left", "Align center", "Align right".
+    return vertical === "center" ? `Align ${horizontal}` : `Align ${vertical} ${horizontal}`;
   };
   return (
     <div role="radiogroup" aria-label={label} data-ds="AlignmentMatrix" data-disabled={disabled || undefined} className={cx(styles.matrix, className)} onPointerLeave={() => setHover(null)} {...rest}>

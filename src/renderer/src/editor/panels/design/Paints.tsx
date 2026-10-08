@@ -10,31 +10,33 @@
  * Paint 1:1). While it shows a gradient on one layer, the engine's on-canvas
  * gradient handles are on (E5 `startPaintEdit`), the picker's stop and the
  * canvas's stop follow each other. An image paint gets Choose image…,
- * Rotate 90° and the adjustment sliders. A picker drag previews in one open
+ * Rotate 90º and the adjustment sliders. A picker drag previews in one open
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ColorInput, ColorPicker, IconButton, isMixed, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
+import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
 import { useTextSummary } from "./useTextSummary";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixedPaints } from "../../model/mixed";
-import { fromPicker, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
+import { fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
 import { formatMediaTime } from "../../model/prototype";
 import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
 import { pickImageFiles } from "../../canvas/ImagePlacer";
 import { startGradientEdit } from "../../vectorEdit";
-import { useUI } from "../../hooks";
+import { useLocalAssets, useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
-import { StrokeRows, StrokeSettingsButton } from "./Stroke";
+import { StrokeRows } from "./Stroke";
+import { Grip, moved, useReorder } from "./reorder";
 import { isFrameNode, type PanelNode } from "./shared";
 import { BoundPaintRow, paintScope } from "./Variables";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableList } from "../variables/VariablePicker";
 import { paintVariable } from "../../model/variables";
-import { applyStyle, bindPaint } from "../../variables";
+import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
+import { CreateStylePopover } from "../variables/EditStyle";
 import styles from "./Design.module.css";
 
 type PaintField = "fillPaints" | "strokePaints";
@@ -64,17 +66,19 @@ function useImageUrls(ed: EditorController): void {
   useSyncExternalStore(ed.images.subscribe, ed.images.getVersion);
 }
 
-/** One paint row: swatch + hex (or the type's name) + opacity. */
-export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }: { paint: FullPaint; label: string; onColor: (hex: string, info: ChangeInfo) => void; onOpacity: (o: number, info: ChangeInfo) => void; onPick: (anchor: DOMRect) => void; className?: string }) {
+/** One paint row: swatch + hex (or the type's name) + opacity (Figma's names: "Solid color hex: D9D9D9", "Color"). */
+export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }: { paint: FullPaint; label: string; onColor: (hex: string, info: ChangeInfo, opacity?: number) => void; onOpacity: (o: number, info: ChangeInfo) => void; onPick: (anchor: DOMRect) => void; className?: string }) {
   const ed = useEditor();
   useImageUrls(ed);
   const solid = paint.type === "SOLID";
   const url = ed.images.urlOf(paintImageHash(paint));
+  const hex = solid ? colorToHex(paint.color ?? { r: 0, g: 0, b: 0 }) : "";
   return (
     <ColorInput
       className={className}
       label={label}
-      color={solid ? colorToHex(paint.color ?? { r: 0, g: 0, b: 0 }) : paintSwatch(paint, url)}
+      swatchLabel={solid ? `Solid color hex: ${hex.slice(1).toUpperCase()}` : paintLabel(paint)}
+      color={solid ? hex : paintSwatch(paint, url)}
       valueLabel={solid ? undefined : paintLabel(paint)}
       opacity={toPercent(paint.opacity ?? 1)}
       onColor={onColor}
@@ -106,48 +110,56 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
   const slot = field === "fillPaints" ? "fill" : "stroke";
   const styled = sharedStyle(nodes, slot);
   const hasStyle = !!styled && styled !== "mixed";
+  // Rows show the top paint first: display index d is paint n − 1 − d.
+  const n = paints.length;
+  const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => ed.setProps(refs, { [field]: moved(paints, n - 1 - from, n - 1 - to) }, `Reorder ${word}s`));
   return (
     <PanelSection
       title={title}
       empty={empty}
       actions={
         <>
-          {!empty && <StylesButton nodes={nodes} slot={slot} />}
-          {stroked && <StrokeSettingsButton nodes={nodes} />}
-          {!hasStyle && <IconButton icon="24.plus.small" label={`Add ${word}`} tone="secondary" onClick={add} />}
+          <StylesButton nodes={nodes} slot={slot} mixed={isMixed(shared) && !styled} />
+          {/* Figma's live panel: "Add stroke fill" once a stroke exists, "Add stroke" / "Add fill" otherwise */}
+          {!hasStyle && <IconButton icon="24.plus.small" label={field === "strokePaints" && !empty ? "Add stroke fill" : `Add ${word}`} tone="secondary" onClick={add} />}
         </>
       }
     >
       {hasStyle && <AppliedStyle nodes={nodes} slot={slot} />}
-      {!hasStyle && isMixed(shared) && <div className={styles.note}>Click + to replace mixed {word}s</div>}
-      {/* Top paint first: the list's last entry is drawn on top */}
-      {!hasStyle &&
-        paints
-        .map((p, i) => ({ p, i }))
-        .reverse()
-        .map(({ p, i }) => (
-          <div key={i} className={styles.paintRow} data-paint-row={p.type}>
-            {paintVariable(p) ? (
-              <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
-            ) : (
-              <PaintRow
-                className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
-                paint={p}
-                label={label}
-                onColor={(hex, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1) } : q)), `${label} colour`, info)}
-                onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
-                onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
-              />
-            )}
-            <IconButton
-              icon={p.visible === false ? "24.hidden.small" : "24.eye.small"}
-              label={p.visible === false ? `Show ${word}` : `Hide ${word}`}
-              tone="secondary"
-              onClick={() => ed.setProps(refs, { [field]: paints.map((q, j) => (j === i ? { ...q, visible: q.visible === false } : q)) }, p.visible === false ? `Show ${word}` : `Hide ${word}`)}
-            />
-            <IconButton icon="24.minus.small" label={`Remove ${word}`} tone="secondary" onClick={() => ed.setProps(refs, { [field]: paints.filter((_, j) => j !== i) }, `Remove ${word}`)} />
-          </div>
-        ))}
+      {!hasStyle && isMixed(shared) && <div className={styles.note}>Click + to replace mixed content</div>}
+      {!hasStyle && n > 0 && (
+        <div ref={reorderRef} className={styles.reorderList}>
+          {paints
+            .map((p, i) => ({ p, i }))
+            .reverse()
+            .map(({ p, i }, d) => (
+              <div key={i} className={cx(styles.paintRow, dragging === d && styles.rowDragging)} data-paint-row={p.type} data-reorder-row="">
+                {n > 1 && <Grip {...grip(d)} />}
+                {paintVariable(p) ? (
+                  <BoundPaintRow nodes={nodes} field={field} index={i} paint={p} className={cx(styles.paintField, p.visible === false && styles.paintHidden)} />
+                ) : (
+                  <PaintRow
+                    className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
+                    paint={p}
+                    label="Color"
+                    onColor={(hex, info, o) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1), ...(o !== undefined ? { opacity: o / 100 } : {}) } : q)), `${label} colour`, info)}
+                    onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
+                    onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
+                  />
+                )}
+                <IconButton
+                  icon={p.visible === false ? "24.hidden.small" : "24.eye.small"}
+                  label="Toggle visibility"
+                  data-paint-visibility={p.visible === false ? "hidden" : "visible"}
+                  tone="secondary"
+                  onClick={() => ed.setProps(refs, { [field]: paints.map((q, j) => (j === i ? { ...q, visible: q.visible === false } : q)) }, p.visible === false ? `Show ${word}` : `Hide ${word}`)}
+                />
+                <IconButton icon="24.minus.small" label="Remove" tone="secondary" onClick={() => ed.setProps(refs, { [field]: paints.filter((_, j) => j !== i) }, `Remove ${word}`)} />
+              </div>
+            ))}
+          {dropLine !== null && <div className={styles.dropLine} style={{ top: dropLine }} />}
+        </div>
+      )}
       {stroked && <StrokeRows nodes={nodes} labels={labels} />}
     </PanelSection>
   );
@@ -237,12 +249,12 @@ function VideoPreview({ hash }: { hash: string }) {
   );
 }
 
-/** Under the image's scale mode: Rotate 90° and Figma's adjustment sliders (−100…100, 0 in the middle). */
+/** Under the image's scale mode: Rotate 90º and Figma's adjustment sliders (−100…100, 0 in the middle). */
 function ImageControls({ paint, onChange }: { paint: FullPaint; onChange: (next: FullPaint, info: ChangeInfo) => void }) {
   return (
     <div className={styles.imageControls}>
       <div className={styles.imageRotate}>
-        <IconButton icon="24.rotate" label="Rotate 90°" onClick={() => onChange(rotated90(paint), { final: true, source: "pick" })} />
+        <IconButton icon="24.rotate" label="Rotate 90º" onClick={() => onChange(rotated90(paint), { final: true, source: "pick" })} />
       </div>
       {IMAGE_ADJUSTMENTS.map(({ field, label }) => (
         <AdjustmentSlider key={field} label={label} value={Math.round((paint.paintFilter?.[field] ?? 0) * 100)} onChange={(v, info) => onChange(withAdjustment(paint, field, v), info)} />
@@ -323,6 +335,8 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   const paints = (shared === undefined || isMixed(shared) ? null : [...shared]) as FullPaint[] | null;
   const paint = paints?.[index];
   const [stop, setStop] = useGradientHandles(ed, refs, field, index, !!paint && isGradientType(paint.type));
+  const assets = useLocalAssets();
+  const [creatingStyle, setCreatingStyle] = useState(false);
 
   if (target.kind === "page") {
     const color = pageColor ?? hexToColor("#f5f5f5");
@@ -364,8 +378,31 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   const write = (next: FullPaint, info: ChangeInfo, label: string) => writePaints(ed, refs, field, paints.map((q, j) => (j === index ? next : q)), label, info);
   const label = field === "fillPaints" ? "Fill" : "Stroke";
   const slot = field === "fillPaints" ? "fill" : "stroke";
+  // The picker's "+" (Figma's live "New style or variable"): a style from this paint, or a colour variable bound to it.
+  const newVariable = () => {
+    if (paint.type !== "SOLID" || !paint.color) return;
+    const collection = assets.collections[0]?.id ?? createCollection(ed);
+    if (!collection) return;
+    const id = createVariable(ed, collection, "COLOR", "", { kind: "literal", value: { ...paint.color, a: paint.opacity ?? 1 } });
+    if (id) bindPaint(ed, refs, field, index, id);
+  };
+  const headerActions = (
+    <MenuButton
+      label="New style or variable"
+      className={styles.iconMenu}
+      entries={[
+        { id: "style", label: "Create style" },
+        { id: "variable", label: "Create variable", disabled: paint.type !== "SOLID" },
+      ]}
+      onSelect={(id) => (id === "style" ? setCreatingStyle(true) : newVariable())}
+    >
+      <Icon name="24.plus.small" />
+    </MenuButton>
+  );
+  if (creatingStyle) return <CreateStylePopover kind="FILL" slot={slot} from={refs[0] ?? null} applyTo={refs} anchor={target.anchor} onClose={() => { setCreatingStyle(false); onClose(); }} />;
   return (
     <ColorPicker
+      headerActions={headerActions}
       value={toPicker(paint)}
       initialTab={paintVariable(paint) ? "libraries" : "custom"}
       libraries={
@@ -406,16 +443,34 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           </>
         ) : undefined
       }
+      contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], pageColor) : null}
+      onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
         let out = fromPicker(paint, next);
         // A new image fill without an image yet: Figma asks for one (the picker's "Choose image…").
-        if (next.type === "IMAGE" && paint.type !== "IMAGE" && !out.image) out = { ...out, opacity: 1 };
+        if ((next.type === "IMAGE" || next.type === "VIDEO") && paint.type !== next.type && !out.image) out = { ...out, opacity: 1 };
         write(out, info, `${label} colour`);
       }}
       onCancel={() => ed.cancelEdit()}
       onClose={onClose}
     />
   );
+}
+
+/**
+ * What's behind a layer for "Check color contrast": the nearest parent's top visible solid fill, else the page's
+ * colour (white when it has none).
+ */
+function backgroundBehind(ed: EditorController, ref: Guid | undefined, pageColor: Color | null): Color {
+  let id = ref ? ed.engine.readNode(ref)?.parentIndex?.guid : undefined;
+  for (let i = 0; id && i < 64; i++) {
+    const n = ed.engine.readNode(id);
+    if (!n || n.type === "CANVAS" || n.type === "DOCUMENT") break;
+    const top = [...(n.fillPaints ?? [])].reverse().find((p) => p.visible !== false && p.type === "SOLID" && (p.opacity ?? 1) > 0);
+    if (top?.color) return { ...top.color, a: 1 };
+    id = n.parentIndex?.guid;
+  }
+  return pageColor ? { ...pageColor, a: 1 } : { r: 1, g: 1, b: 1, a: 1 };
 }
 
 /** A gradient row of Selection colors edited: every use takes the new stops (each keeps its own handles). */

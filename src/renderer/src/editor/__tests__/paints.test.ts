@@ -26,7 +26,7 @@ import { collectColors, regradient, showSelectionColors } from "../model/selecti
 import { hexToColor } from "../model/color";
 import { messageAt } from "../model/clipboard";
 import { EFFECT_TYPES, defaultEffect, defaultGuide, guideKind, guideLabel, hasEffectBlend, withBlurType, withEffectType } from "../panels/design/Effects";
-import { dashOf, miterAngle, miterLimitOf, strokeSideFields, strokeSideOf } from "../panels/design/Stroke";
+import { dashOf, miterAngle, miterLimitOf, parseDashes, strokeSideFields, strokeSideOf, strokeStyleOf } from "../panels/design/Stroke";
 import type { PanelNode } from "../panels/design/shared";
 import { fitImageSize, imageLayerName, memoryImageStore, sha1Hex } from "../images";
 import { imageRectangles, PLACE_GAP } from "../placeImages";
@@ -195,6 +195,13 @@ describe("Selection colors with gradients", () => {
     expect(gradientKey(linear)).not.toBe(gradientKey({ ...linear, type: "GRADIENT_RADIAL" }));
   });
 
+  it("lists colours from variables first, then from styles, then the rest", () => {
+    const plain = n("1:1", [{ type: "SOLID", color: red, opacity: 1 }]);
+    const styled = { ...n("1:2", [{ type: "SOLID", color: blue, opacity: 1 }]), styleIdForFill: { guid: { sessionID: 1, localID: 9 } } } as NodeChange;
+    const bound = n("1:3", [{ type: "SOLID", color: { r: 0, g: 1, b: 0, a: 1 }, opacity: 1, colorVar: { dataType: "ALIAS", value: { alias: { guid: { sessionID: 1, localID: 5 } } } } } as Paint]);
+    expect(collectColors([plain, styled, bound]).map((c) => c.uses[0].guid)).toEqual(["1:3", "1:2", "1:1"]);
+  });
+
   it("masks are left out; a gradient edit keeps each use's handles", () => {
     expect(collectColors([{ guid: "1:1", mask: true, fillPaints: [{ type: "SOLID", color: red }] } as NodeChange])).toHaveLength(0);
     const t = { m00: 2, m01: 0, m02: 0, m10: 0, m11: 2, m12: 0 };
@@ -259,6 +266,10 @@ describe("strokes", () => {
 
   it("dashes and Figma's miter angle (limit 4 = 28.96°)", () => {
     expect(dashOf(undefined)).toEqual({ dashed: false, dash: 2, gap: 2 });
+    // Figma's Style: Solid, Dashed (one dash and gap), Custom (a longer list, typed as "Dashes").
+    expect([strokeStyleOf([]), strokeStyleOf([6, 4]), strokeStyleOf([6]), strokeStyleOf([4, 2, 1, 2])]).toEqual(["SOLID", "DASHED", "DASHED", "CUSTOM"]);
+    expect(parseDashes("4, 2 1,2")).toEqual([4, 2, 1, 2]);
+    expect(parseDashes("4, -1")).toBeNull();
     expect(dashOf([6])).toEqual({ dashed: true, dash: 6, gap: 6 });
     expect(miterAngle(4)).toBeCloseTo(28.955, 2);
     expect(miterLimitOf(miterAngle(7))).toBeCloseTo(7, 6);

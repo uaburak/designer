@@ -82,7 +82,7 @@ function transformSelection(ed: EditorController, label: string, fn: (m: Matrix,
   });
 }
 
-/** Turns the selection by `degrees` (Figma's sense: positive = counter-clockwise, "Rotate 90° left"). */
+/** Turns the selection by `degrees` (Figma's sense: positive = counter-clockwise, "Rotate 90˚ left"). */
 export function rotateSelection(ed: EditorController, degrees: number): void {
   transformSelection(ed, "Rotate", (m, c) => rotateAbout(m, c, degrees));
 }

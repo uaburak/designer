@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dropIndex, initials, thumbGeometry, visibleRange } from "../util/geometry";
-import { hexDigits, normalizeHex, withOpacity } from "../util/color";
+import { hexDigits, normalizeHex, parseHexInput, withOpacity } from "../util/color";
 import { formatEdited } from "../util/time";
 
 describe("tab drag", () => {
@@ -44,6 +44,12 @@ describe("colour fields", () => {
     expect(normalizeHex("0C8CE9")).toBe("#0c8ce9");
     expect(normalizeHex("White")).toBe("#ffffff");
     expect(normalizeHex("12345")).toBeNull();
+    // 8-digit (and 4-digit) hex: the last pair is the alpha (help 360043042113).
+    expect(parseHexInput("#FF000080")).toEqual({ hex: "#ff0000", opacity: 50 });
+    expect(parseHexInput("0c8ce9ff")).toEqual({ hex: "#0c8ce9", opacity: 100 });
+    expect(parseHexInput("f008")).toEqual({ hex: "#ff0000", opacity: 53 });
+    expect(parseHexInput("abc")).toEqual({ hex: "#aabbcc" });
+    expect(parseHexInput("12345")).toBeNull();
     expect(normalizeHex("#ggg")).toBeNull();
   });
   it("write six upper-case digits and translucent CSS", () => {

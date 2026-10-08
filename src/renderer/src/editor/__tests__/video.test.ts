@@ -47,7 +47,7 @@ describe("video files and paints", () => {
     expect(sniffVideoMime(new Uint8Array(12))).toBe("");
   });
 
-  it("a VIDEO paint holds the video and its poster frame; the picker edits it as an image and keeps it a video", () => {
+  it("a VIDEO paint holds the video and its poster frame; the picker's Video tab edits it and keeps it a video", () => {
     const p = videoPaint(VIDEO, { hash: POSTER, width: 1920, height: 1080 }, "Clip");
     expect(p.type).toBe("VIDEO");
     expect(hashHex(p.image?.hash)).toBe(POSTER);
@@ -58,11 +58,16 @@ describe("video files and paints", () => {
     expect(mediaPaint({ hash: POSTER, width: 10, height: 10, video: VIDEO }).type).toBe("VIDEO");
     expect(mediaPaint({ hash: POSTER, width: 10, height: 10 }).type).toBe("IMAGE");
     const picked = toPicker(p);
-    expect(picked.type).toBe("IMAGE");
+    expect(picked.type).toBe("VIDEO");
     const fit = fromPicker(p, { ...picked, imageScaleMode: "FIT" });
     expect(fit.type).toBe("VIDEO");
     expect(fit.imageScaleMode).toBe("FIT");
     expect(paintVideoHash(fit)).toBe(VIDEO);
+    // The Image tab keeps the poster frame as the image, without the video.
+    const image = fromPicker(p, { ...picked, type: "IMAGE" });
+    expect(image.type).toBe("IMAGE");
+    expect(hashHex(image.image?.hash)).toBe(POSTER);
+    expect(paintVideoHash(image)).toBeNull();
     // Another type: no longer a video.
     const solid = fromPicker(p, { type: "SOLID", color: { r: 1, g: 0, b: 0, a: 1 }, opacity: 1 });
     expect(solid.type).toBe("SOLID");

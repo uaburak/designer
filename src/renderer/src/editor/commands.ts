@@ -341,7 +341,7 @@ export const COMMANDS: EditorCommand[] = [
   // Preferences › Highlight layers on hover (on by default).
   ui("prefs.highlight-on-hover", "Highlight layers on hover", undefined, (ed) => ed.ui.set((s) => ({ highlightOnHover: s.highlightOnHover === false })), (ed) => ed.ui.get().highlightOnHover !== false),
   ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => ed.ui.set((s) => ({ rulers: !s.rulers })), (ed) => ed.ui.get().rulers),
-  ui("view.property-labels", "Property labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
+  ui("view.property-labels", "Additional labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
   // View › Annotations (help.figma.com 20774752502935; ⇧Y per a user report, unverified).
   ui("view.annotations", "Annotations", [k("KeyY", { shift: true })], (ed) => toggleAnnotations(ed), (ed) => annotationsShown(ed)),
   // The live View menu: Pixel grid ⇧' (drawn from 300 % zoom), Layout guides ⇧G, Outlines ▸ (⇧⌘O), Pixel preview ⇧⌘P.

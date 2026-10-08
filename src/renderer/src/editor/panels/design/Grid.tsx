@@ -4,12 +4,12 @@
  * (bindable to variables), and each track's size (Fixed px, Fill container in fr, Hug contents); for an item in a grid,
  * "Column span" / "Row span". Edits go through the grid model (model/grid.ts) as whole field values, one undo step each.
  */
-import { useState } from "react";
-import { Icon, MIXED, NumericInput, Popover, PropertyRow, Select, TextInput, ToggleIconButton, tooltipProps, type ChangeInfo } from "@/ds";
+import { useState, type ReactNode } from "react";
+import { MIXED, NumericInput, Popover, PropertyRow, Select, TextInput, type ChangeInfo } from "@/ds";
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
-import { isAutoRows, parseRowCount, parseTrackInput, rowCountLabel, setTrackCount, setTrackSizing, spanOf, trackLabel, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
+import { isAutoRows, parseRowCount, parseTrackInput, rowCountLabel, setTrackCount, setTrackSizing, spanOf, tracksLabel, tracksOf, type GridAxis, type GridItemNode, type GridNode, type TrackType } from "../../model/grid";
 import { useUI } from "../../hooks";
 import styles from "./Grid.module.css";
 import { VariableField } from "./Variables";
@@ -72,17 +72,83 @@ function setCounts(ed: EditorController, refs: readonly Guid[], label: string, i
   });
 }
 
-/** The grid picker's counts, automatic positioning and the gaps. */
-export function GridRows({ nodes }: { nodes: PanelNode[] }) {
+/**
+ * Figma's live panel: "Grid" and "Gap" — the grid's dimensions as a button (88 × 56: its cells and "3 × 2") that
+ * opens the picker with Number of columns / Number of rows, and "Gap between columns" over "Gap between rows";
+ * the row's action is "Auto layout settings". (Each track's size is edited on the canvas, its pill.)
+ */
+export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; action?: ReactNode }) {
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const grids = nodes as (PanelNode & GridNode)[];
-  const cols = mixedNumber(grids.map((n) => tracksOf(n, "columns").length));
-  const rows = mixed(grids.map((n) => rowCountLabel(n)));
-  const reflow = mixed(grids.map((n) => n.gridReflowEnabled === true));
+  const first = grids[0];
+  const cols = first ? tracksOf(first, "columns").length : 1;
+  const rowsAuto = !!first && isAutoRows(first);
+  const rows = first ? Math.max(1, tracksOf(first, "rows").length) : 1;
   const colGap = mixedNumber(grids.map((n) => n.gridColumnGap ?? 0));
   const rowGap = mixedNumber(grids.map((n) => n.gridRowGap ?? 0));
   const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const shownCols = Math.min(cols, 6);
+  const shownRows = Math.min(rows, 4);
+  return (
+    <>
+      {/* Live: "Auto layout settings" level with the first gap field (208, 404), not centred on the 56 high row */}
+      <PropertyRow labels={["Grid", "Gap"]} action={action} className={styles.topRow}>
+        <button
+          type="button"
+          className={styles.dimensions}
+          aria-label={`Open grid dimensions picker. Current grid dimensions: ${cols} columns and ${rowsAuto ? "auto" : rows} rows`}
+          aria-expanded={!!picker}
+          data-grid-dimensions={`${cols}x${rows}`}
+          style={{ ["--cols" as string]: shownCols, ["--rows" as string]: shownRows }}
+          onClick={(e) => setPicker(picker ? null : e.currentTarget)}
+        >
+          {Array.from({ length: shownCols * shownRows }, (_, i) => (
+            <span key={i} className={styles.dimensionsCell} />
+          ))}
+          <span className={styles.dimensionsText}>
+            {cols}
+            <span className={styles.dimensionsTimes}>×</span>
+            {rowsAuto ? "Auto" : rows}
+          </span>
+        </button>
+        <div className={styles.gapStack}>
+          <VariableField nodes={nodes} fields={["GRID_COLUMN_GAP"]} prefix="24.al.spacing-horizontal">
+            <NumericInput
+              label="Gap between columns"
+              prefix="24.al.spacing-horizontal"
+              value={fieldValue(colGap)}
+              min={0}
+              onChange={(v, info) => editGrids(ed, "Gap", info, refs, () => ({ gridColumnGap: Math.max(0, v) }))}
+              onCancel={() => ed.cancelEdit()}
+              onStep={(d) => editGrids(ed, "Gap", FINAL, refs, (n) => ({ gridColumnGap: Math.max(0, (n.gridColumnGap ?? 0) + d) }))}
+              onExpression={(each, info) => editGrids(ed, "Gap", info, refs, (n) => ({ gridColumnGap: Math.max(0, each(n.gridColumnGap ?? 0)) }))}
+            />
+          </VariableField>
+          <VariableField nodes={nodes} fields={["GRID_ROW_GAP"]} prefix="24.al.spacing-vertical">
+            <NumericInput
+              label="Gap between rows"
+              prefix="24.al.spacing-vertical"
+              value={fieldValue(rowGap)}
+              min={0}
+              onChange={(v, info) => editGrids(ed, "Gap", info, refs, () => ({ gridRowGap: Math.max(0, v) }))}
+              onCancel={() => ed.cancelEdit()}
+              onStep={(d) => editGrids(ed, "Gap", FINAL, refs, (n) => ({ gridRowGap: Math.max(0, (n.gridRowGap ?? 0) + d) }))}
+              onExpression={(each, info) => editGrids(ed, "Gap", info, refs, (n) => ({ gridRowGap: Math.max(0, each(n.gridRowGap ?? 0)) }))}
+            />
+          </VariableField>
+        </div>
+      </PropertyRow>
+      {picker && <GridPicker anchor={picker} refs={refs} grids={grids} onClose={() => setPicker(null)} />}
+    </>
+  );
+}
+
+/** The picker's Number of columns and Number of rows (a number or "Auto"). */
+function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNode)[] }) {
+  const ed = useEditor();
+  const cols = mixedNumber(grids.map((n) => tracksOf(n, "columns").length));
+  const rows = mixed(grids.map((n) => rowCountLabel(n)));
   const setRows = (text: string) => {
     const r = parseRowCount(text);
     if (!r) return;
@@ -90,64 +156,19 @@ export function GridRows({ nodes }: { nodes: PanelNode[] }) {
     else setCounts(ed, refs, "Number of rows", FINAL, { rows: r.count });
   };
   return (
-    <>
-      <PropertyRow
-        label="Grid"
-        action={
-          <ToggleIconButton
-            icon="24.layout-tidy-up-grid"
-            label="Toggle automatic positioning"
-            pressed={reflow ?? false}
-            // Turning it back on sets Number of rows to Auto (help "Use the grid auto layout flow").
-            onPressedChange={(on) => ed.setProps(refs, asFields(on ? { gridReflowEnabled: true, gridAutoTracks: "ROWS" } : { gridReflowEnabled: false }), "Automatic positioning")}
-          />
-        }
-      >
-        <NumericInput
-          label="Number of columns"
-          prefix="24.grid-column"
-          value={fieldValue(cols)}
-          min={1}
-          max={1000}
-          precision={0}
-          onChange={(v, info) => setCounts(ed, refs, "Number of columns", info, { columns: v })}
-          onCancel={() => ed.cancelEdit()}
-        />
-        <div className={styles.rowsCell}>
-          <TextInput label="Number of rows" prefix="24.grid-row" value={rows === MIXED ? MIXED : (rows ?? "")} onCommit={setRows} />
-          <button type="button" className={styles.pickerButton} aria-label="Grid picker" aria-expanded={!!picker} {...tooltipProps("Grid picker")} onClick={(e) => setPicker(picker ? null : e.currentTarget)}>
-            <Icon name="24.layout.grid" />
-          </button>
-        </div>
-      </PropertyRow>
-      {picker && <GridPicker anchor={picker} refs={refs} grids={grids} onClose={() => setPicker(null)} />}
-      <PropertyRow label="Gap">
-        <VariableField nodes={nodes} fields={["GRID_COLUMN_GAP"]} prefix="24.al.spacing-horizontal">
-          <NumericInput
-            label="Gap between columns"
-            prefix="24.al.spacing-horizontal"
-            value={fieldValue(colGap)}
-            min={0}
-            onChange={(v, info) => editGrids(ed, "Gap", info, refs, () => ({ gridColumnGap: Math.max(0, v) }))}
-            onCancel={() => ed.cancelEdit()}
-            onStep={(d) => editGrids(ed, "Gap", FINAL, refs, (n) => ({ gridColumnGap: Math.max(0, (n.gridColumnGap ?? 0) + d) }))}
-          />
-        </VariableField>
-        <VariableField nodes={nodes} fields={["GRID_ROW_GAP"]} prefix="24.al.spacing-vertical">
-          <NumericInput
-            label="Gap between rows"
-            prefix="24.al.spacing-vertical"
-            value={fieldValue(rowGap)}
-            min={0}
-            onChange={(v, info) => editGrids(ed, "Gap", info, refs, () => ({ gridRowGap: Math.max(0, v) }))}
-            onCancel={() => ed.cancelEdit()}
-            onStep={(d) => editGrids(ed, "Gap", FINAL, refs, (n) => ({ gridRowGap: Math.max(0, (n.gridRowGap ?? 0) + d) }))}
-          />
-        </VariableField>
-      </PropertyRow>
-      {nodes.length === 1 && <TrackRows node={grids[0]} axis="columns" />}
-      {nodes.length === 1 && <TrackRows node={grids[0]} axis="rows" />}
-    </>
+    <div className={styles.pickerFields}>
+      <NumericInput
+        label="Number of columns"
+        prefix="24.grid-column"
+        value={fieldValue(cols)}
+        min={1}
+        max={1000}
+        precision={0}
+        onChange={(v, info) => setCounts(ed, refs, "Number of columns", info, { columns: v })}
+        onCancel={() => ed.cancelEdit()}
+      />
+      <TextInput label="Number of rows" prefix="24.grid-row" value={rows === MIXED ? MIXED : (rows ?? "")} onCommit={setRows} />
+    </div>
   );
 }
 
@@ -185,46 +206,13 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
   return (
     <Popover anchor={anchor} title="Grid" width={240} onClose={onClose} label="Grid picker">
       <div className={styles.picker} data-grid-picker="">
+        <CountFields refs={refs} grids={grids} />
         <div className={styles.board} onPointerLeave={() => setHover(null)}>
           {cells}
         </div>
         <div className={styles.pickerCaption}>{hover ? `${hover.c} × ${hover.r}` : `${cols} × ${first && isAutoRows(first) ? "Auto" : rows}`}</div>
       </div>
     </Popover>
-  );
-}
-
-/** One row per track: its size as Figma labels it ("1fr", "120", "Hug"), typed or picked from the dropdown. */
-function TrackRows({ node, axis }: { node: PanelNode & GridNode; axis: GridAxis }) {
-  const ed = useEditor();
-  const tracks = tracksOf(node, axis);
-  const name = axis === "columns" ? "Column" : "Row";
-  // Tracks selected on the canvas: highlighted here, edited together.
-  const sel = useUI((s) => s.gridTracks);
-  const selected = sel && sel.frame === node.guid && sel.axis === (axis === "columns" ? "COLUMNS" : "ROWS") ? sel.tracks : [];
-  const targets = (i: number) => (selected.includes(i) ? selected : [i]);
-  return (
-    <>
-      {tracks.map((t, i) => (
-        <PropertyRow key={`${t.id.sessionID}:${t.id.localID}`} label={`${name} ${i + 1}`} className={selected.includes(i) ? styles.trackSelected : undefined} data-track-selected={selected.includes(i) || undefined}>
-          <TextInput
-            label={`${name} ${i + 1} size`}
-            prefix={axis === "columns" ? "24.grid-column" : "24.grid-row"}
-            value={trackLabel(t.sizing)}
-            onCommit={(text) => {
-              const s = parseTrackInput(text);
-              if (s) writeTrackSizing(ed, node.guid, axis, targets(i), s);
-            }}
-          />
-          <Select
-            label={`${name} ${i + 1} resizing`}
-            value={t.sizing.type}
-            options={TRACK_TYPES}
-            onChange={(v) => writeTrackSizing(ed, node.guid, axis, targets(i), { type: v as TrackType, value: v === "FIXED" ? Math.round(t.sizing.type === "FIXED" ? t.sizing.value : 100) : 1 })}
-          />
-        </PropertyRow>
-      ))}
-    </>
   );
 }
 

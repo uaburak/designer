@@ -9,7 +9,7 @@
  * each mode set there shows as a row with its collection and the mode.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { FieldPrefix, Icon, IconButton, MenuButton, Select, Swatch, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import { FieldPrefix, Icon, MenuButton, Select, Swatch, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { GEOMETRY_GROUPS, useDocumentVersion, useLocalAssets } from "../../hooks";
@@ -166,7 +166,8 @@ export function ApplyModeButton({ refs }: { refs: readonly Guid[] }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the document (version) or the layer changed
   const modes = useMemo(() => (first ? modesAt(ed, first) : new Map<Guid, { mode: Guid; explicit: boolean; inherited: Guid }>()), [ed, first, version, a]);
   if (!refs.length) return null;
-  if (!collections.length) return <IconButton icon="24.variable.mode.small" label="Apply variable mode" tone="secondary" disabled />;
+  // No collection with modes: Figma's live panel shows no button at all.
+  if (!collections.length) return null;
   const entries: MenuEntry[] = collections.map((c) => {
     const m = modes.get(c.id);
     const inherited = c.modes.find((x) => x.id === m?.inherited)?.name ?? c.modes[0]?.name;

@@ -70,6 +70,7 @@ Next: Phase 5 of `docs/roadmap.md` — the Firebase adapter wiring (and a real d
 - MERGED 2026-10-08: `r7-left-panel` is merged into main (checks rerun on main after the merge).
 - MERGED 2026-10-08: `r7-render` is merged into main (checks rerun on main after the merge).
 - MERGED 2026-10-08: `r7-selection` is merged into main (checks rerun on main after the merge).
+- MERGED 2026-10-08: `r7-design-panel` is merged into main (checks rerun on main after the merge; Stroke settings keep r7-render's rule — Dash cap only for dashed closed paths, an open path's cap is the end-points row).
 Next session: for each branch read its shutdown status, finish the open items against the live captures, run the full checks, then merge one at a time into main (rebuild the release wasm after each engine merge; command ids and schema field numbers are the usual collision points). The live-capture agent was also recording **behaviour** (Esc, Enter/Tab in fields, math in fields, frame-title clicks, move/resize modifiers, layers keys) into `live/behaviour/` — check what is there and finish the list in `live/README.md`.
 
 **Live behaviour (`docs/research/figma/live/behaviour/`) overrides the audits where they disagree — check each round-7 branch against it before merging:**
@@ -79,7 +80,7 @@ Next session: for each branch read its shutdown status, finish the open items ag
 - Opacity digits combine within ~450–500 ms ("0","5" → 5%; "0" → 100%). ] / [ = front / back; ⌘] / ⌘[ one step. ⌘D repeats the last move offset, same name. N / ⇧N next/previous frame. ⇧⌘O outlines, ⌃P pixel preview. Pixel grid from 300% zoom, menu shortcut ⇧' (audits' ⌘' and 400% are WRONG).
 - Layers: auto-layout children listed in flow order (first on top); ⌘R opens "Rename N layers"; chevrons always visible (layers audit #9 WRONG); ⌥-click chevron recursive; ⌥L collapses all; drag across eyes toggles. A page named exactly "---" is a divider.
 - Minimize UI: canvas full width with floating pills; selection brings a floating Design panel, hidden again on deselect.
-- KNOWN CONFLICT on `r7-design-panel`: it made Enter keep focus in the field and Esc return to the canvas (written before the behaviour capture). Live Figma is the reverse: Enter commits and returns to the canvas; the first Esc reverts and keeps focus, the second leaves. Fix before merging. Its panel compare scripts are in `docs/research/figma/live/tools/` (run against `?editor&doc=capture`).
+- Resolved on `r7-design-panel`: fields now do what live Figma does — Enter commits and returns to the canvas; the first Esc reverts and keeps focus, the second leaves (docs/editor.md "Round 7, Design panel"). Its panel compare scripts are in `docs/research/figma/live/tools/` (run against `?editor&doc=capture`).
 - Not captured (tool limits): paste placement / ⇧⌘R / ⇧⌘V, modifiers held during drags or hovers, ⌥⌘A, duplicate-page naming, smart-selection reorder.
 
 Main at the time of writing: round 6 merged (prototype/video, slots/grid/DTCG, annotations/Dev Mode/Compare changes) — 765 vitest, 379 native, engine:shot 97 (WebGL2) / 99 (WebGPU), editor-shot 204.

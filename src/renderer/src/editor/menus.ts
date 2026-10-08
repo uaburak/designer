@@ -39,7 +39,7 @@ function build(ed: EditorController, specs: Spec[], prefix: string): MenuEntry[]
 }
 
 /** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields; "Move to page ▸ <page>" the page. */
-const RESET_PREFIX = "reset-changes:";
+export const RESET_PREFIX = "reset-changes:";
 const MOVE_TO_PAGE = "move-to-page:";
 
 /**

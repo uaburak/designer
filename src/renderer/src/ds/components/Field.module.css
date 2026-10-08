@@ -1,32 +1,36 @@
 /* The field box shared by TextInput, NumericInput, ColorInput, SearchField and Select's trigger (contract §4.4). */
 @layer ds {
-  /* A field fills its container's width (a grid cell, a row); give the container the size */
+  /*
+   * A field fills its container's width (a grid cell, a row); give the container the size. Its 1px ring is drawn
+   * inside (a shadow, not a border) so the prefix and the input keep Figma's places: X at 16, its number at 40.
+   */
   .field {
+    --field-ring: transparent;
     position: relative;
     display: flex;
     align-items: center;
     width: 100%;
     min-width: 0;
     height: var(--ds-size-control);
-    border: 1px solid transparent;
     border-radius: var(--ds-radius-medium);
     background: var(--figma-color-bg-secondary);
+    box-shadow: inset 0 0 0 1px var(--field-ring);
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
   }
   .large { height: var(--ds-size-control-large); }
-  .field:hover:not(:focus-within), .field[data-hover] { border-color: var(--figma-color-border); }
-  .field:focus-within, .field[data-focus-visible], .field[data-open] { border-color: var(--figma-color-border-selected); }
-  .outlined { background: transparent; border-color: var(--figma-color-border); }
-  .outlined:hover:not(:focus-within), .outlined[data-hover] { border-color: var(--figma-color-icon-tertiary); }
+  .field:hover:not(:focus-within), .field[data-hover] { --field-ring: var(--figma-color-border); }
+  .field:focus-within, .field[data-focus-visible], .field[data-open] { --field-ring: var(--figma-color-border-selected); }
+  .outlined { --field-ring: var(--figma-color-border); background: transparent; }
+  .outlined:hover:not(:focus-within), .outlined[data-hover] { --field-ring: var(--figma-color-icon-tertiary); }
   .ghost { background: transparent; }
-  .field[aria-invalid="true"], .field[aria-invalid="true"]:hover { border-color: var(--figma-color-border-danger-strong); }
+  .field[aria-invalid="true"], .field[aria-invalid="true"]:hover { --field-ring: var(--figma-color-border-danger-strong); }
   .field[data-disabled] { opacity: 0.4; }
-  .field[data-disabled]:hover { border-color: transparent; }
-  .outlined[data-disabled]:hover { border-color: var(--figma-color-border); }
+  .field[data-disabled]:hover { --field-ring: transparent; }
+  .outlined[data-disabled]:hover { --field-ring: var(--figma-color-border); }
   /* A field inside another (the colour row's opacity): no box of its own */
-  .field.bare, .field.bare:hover, .field.bare:focus-within { height: 100%; border-color: transparent; border-radius: 0; background: transparent; }
+  .field.bare, .field.bare:hover, .field.bare:focus-within { --field-ring: transparent; height: 100%; border-radius: 0; background: transparent; }
 
   .input {
     flex: 1 1 0;
@@ -51,6 +55,27 @@
   .hug { flex: none; }
   .upper { text-transform: uppercase; }
   .mixed::placeholder { color: var(--figma-color-text-secondary); }
+  /* "Mixed" as the field's text (so "Mixed+100" can be typed after it), in the secondary colour until edited */
+  .mixedText { color: var(--figma-color-text-secondary); }
+  /* ⌥ over a field: it scrubs */
+  .field[data-alt-scrub], .field[data-alt-scrub] .input { cursor: ew-resize; }
+  /* W / H's sizing mode after the number ("Hug", "Fill"), right-aligned before the menu */
+  .field:has(> .suffix) .modeLabel { padding-right: 0; }
+  .modeLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-right: var(--ds-space-1); text-align: right; white-space: nowrap; text-overflow: ellipsis; cursor: text; user-select: none; }
+  /* A scrub's speed when it isn't 1x (help: "a notification … shows the current speed") */
+  .scrubSpeed {
+    position: absolute;
+    top: calc(100% + var(--ds-space-1));
+    left: 0;
+    z-index: var(--ds-z-tooltip);
+    padding: 0 var(--ds-space-1-5);
+    border-radius: var(--ds-radius-medium);
+    background: var(--ds-color-menu-bg);
+    color: var(--ds-color-menu-text);
+    font: var(--ds-font-body-medium);
+    white-space: nowrap;
+    pointer-events: none;
+  }
 
   .prefix {
     display: flex;
@@ -60,8 +85,12 @@
     width: var(--ds-size-control);
     height: 100%;
     color: var(--figma-color-text-secondary);
+    font-weight: var(--ds-weight-body-medium-regular);
     user-select: none;
   }
+  /* Figma's live panel: X / Y letters white, W / H at 70%, all 400; W / H with a mode ("Hug") 450 */
+  .prefixPrimary { color: var(--figma-color-text); }
+  .prefixMode { font-weight: var(--ds-weight-body-medium); }
   .large .prefix { width: var(--ds-size-control-large); }
   .scrub { cursor: ew-resize; touch-action: none; }
   .field[data-disabled] .scrub { cursor: default; }
@@ -105,7 +134,10 @@
   .valueLabel { color: var(--figma-color-text); text-align: left; cursor: default; outline: none; }
   .valueLabel:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
   .swatchCell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
-  .opacity { display: flex; flex: none; align-items: center; width: 53px; height: 100%; border-left: 1px solid var(--figma-color-bg); }
+  /* The colour row's opacity (Figma's live panel: a line at 117, the number 38 wide from 118, "%" after it; 55 in all) */
+  .opacity { display: flex; flex: none; align-items: center; box-sizing: border-box; width: 55px; height: 100%; border-left: 1px solid var(--figma-color-bg); }
+  .opacity .unit { color: var(--figma-color-text-secondary); }
+  .opacityInput { flex: none; box-sizing: border-box; width: 38px; padding-left: var(--ds-space-2); }
 
   .clear {
     display: flex; flex: none; align-items: center; justify-content: center;

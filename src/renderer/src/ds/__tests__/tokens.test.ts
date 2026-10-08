@@ -150,7 +150,7 @@ describe("generated artefacts", () => {
 
   it("every var(--…) a DS stylesheet reads exists (or is set inline by its component)", () => {
     const defined = new Set([...Object.keys(staticVariables()), ...Object.keys(themeVariables("light"))]);
-    const inline = new Set(["--depth", "--ds-toolbar-offset", "--tone"]);
+    const inline = new Set(["--depth", "--ds-toolbar-offset", "--tone", "--field-ring", "--ds-row-columns"]);
     const files = (readdirSync(ds, { recursive: true }) as string[]).filter((f) => f.endsWith(".css") && f !== "tokens.css");
     expect(files.length).toBeGreaterThan(20);
     for (const f of files) {

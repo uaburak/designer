@@ -65,8 +65,10 @@ export interface UIState {
   renameLayers?: Guid[] | null;
   /** The shortcuts help (⌃⇧?) */
   shortcutsOpen: boolean;
-  /** Figma's "Property labels" (zoom menu) */
+  /** Figma's "Additional labels" (View menu, on by default since 2026; was "Property labels" in the zoom menu) */
   propertyLabels: boolean;
+  /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */
+  constraintsOpen?: boolean;
   /** Version history: "Save to version history" (⌥⌘S) or the list */
   versionDialog: "save" | "history" | null;
   /** The context menu over the canvas or a layer: where it opens (view px) and, on the canvas, the point it was opened at (canvas CSS px) */

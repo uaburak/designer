@@ -25,6 +25,8 @@ import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 const SLOT_LABEL: Record<StyleSlot, string> = { fill: "Fill", stroke: "Stroke", text: "Text", effect: "Effect", grid: "Layout guide" };
+/** The section each slot's button sits in (Figma's names: "Fill, Apply styles and variables", "Effects, Apply styles"). */
+const SECTION_TITLE: Record<StyleSlot, string> = { fill: "Fill", stroke: "Stroke", text: "Typography", effect: "Effects", grid: "Layout guide" };
 
 /** The style every node uses in `slot`; null when none does, "mixed" when they differ. */
 export function sharedStyle(nodes: readonly PanelNode[], slot: StyleSlot): Guid | null | "mixed" {
@@ -38,7 +40,7 @@ export function sharedStyle(nodes: readonly PanelNode[], slot: StyleSlot): Guid 
 }
 
 /** The section header's "Apply styles" (four dots): the style picker, with colour variables for Fill and Stroke. */
-export function StylesButton({ nodes, slot }: { nodes: readonly PanelNode[]; slot: StyleSlot }) {
+export function StylesButton({ nodes, slot, mixed }: { nodes: readonly PanelNode[]; slot: StyleSlot; /** Mixed paints: Figma names the button "Style" */ mixed?: boolean }) {
   const ed = useEditor();
   const [open, setOpen] = useState<HTMLElement | null>(null);
   const [create, setCreate] = useState<HTMLElement | DOMRect | null>(null);
@@ -49,7 +51,7 @@ export function StylesButton({ nodes, slot }: { nodes: readonly PanelNode[]; slo
   const current = sharedStyle(nodes, slot);
   return (
     <>
-      <IconButton icon="24.styles" label={label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => setOpen(open ? null : e.currentTarget)} />
+      <IconButton icon="24.styles" label={mixed ? "Style" : `${SECTION_TITLE[slot]}, ${label}`} tooltip={mixed ? "Style" : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => setOpen(open ? null : e.currentTarget)} />
       {open && (
         <VariablePicker
           anchor={open}
@@ -216,7 +218,6 @@ export function LocalStylesSection() {
   return (
     <PanelSection
       title="Styles"
-      empty={empty}
       actions={
         <span ref={plus} style={{ display: "contents" }}>
           <MenuButton label="Create style" entries={add} className={styles.iconMenu} onSelect={(k) => setCreate({ kind: k as StyleKind, anchor: (plus.current?.firstElementChild ?? document.body).getBoundingClientRect() })}>

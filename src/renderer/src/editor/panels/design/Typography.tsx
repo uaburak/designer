@@ -122,7 +122,8 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
       <PropertyGrid labels={labels}>
         {!hasStyle && (
           <>
-        <PropertyRow span={2} label="Font family">
+        {/* Figma's live panel: the font rows carry no labels (32 high, the field centred) */}
+        <PropertyRow span={2}>
           <FontField
             family={family}
             style={style}
@@ -133,7 +134,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onPick={(f) => ed.edit("Font", { final: true, source: "pick" }, () => void ed.engine.setProps(refs, fields({ fontName: { ...f, postscript: "" } })))}
           />
         </PropertyRow>
-        <PropertyRow label="Font style and size">
+        <PropertyRow>
           <Select
             label="Font style"
             value={style}
@@ -169,7 +170,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           </VariableField>
           </span>
         </PropertyRow>
-        <PropertyRow label="Line height and letter spacing">
+        <PropertyRow labels={["Line height", "Letter spacing"]}>
           <VariableField nodes={nodes} fields={["LINE_HEIGHT"]} prefix="24.text.line-height" disabled={!lhKept}>
           <NumericInput
             label="Line height"

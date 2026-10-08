@@ -22,6 +22,7 @@
 //   EDITOR_ONLY=slots node …                                       (round 6: Convert to slot, an instance's slot, Limits, variant values)
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
+//   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -151,15 +152,17 @@ async function paintsSection(page, theme) {
 
   // Gradients: the row names the type; the picker opens on it (the engine's handles, when it has them).
   await select("2:2");
-  check("a gradient fill reads Linear", (await panel.getByRole("button", { name: "Fill: Linear" }).count()) === 1);
+  check("a gradient fill reads Linear", (await panel.getByRole("button", { name: "Color: Linear" }).count()) === 1);
   await shot(page, `25-gradient-row-${theme}`);
-  await panel.getByRole("button", { name: "Fill: Linear" }).click();
+  await panel.getByRole("button", { name: "Color: Linear" }).click();
   await settle(page);
   const picker = page.getByRole("dialog", { name: "Color picker" });
   check("the picker opens on the gradient with its stops", (await picker.getByRole("slider", { name: "Stop 2" }).count()) === 1);
   if (capable.paintEdit) check("the gradient handles are on while the picker shows it", await page.evaluate(() => !!window.__designerEditor.engine.paintEdit));
   await shot(page, `26-gradient-picker-${theme}`);
-  await picker.getByRole("radio", { name: "Radial" }).click();
+  // Figma's live picker: the Gradient tab's own "Paint type" dropdown.
+  await picker.getByRole("combobox", { name: "Paint type" }).click();
+  await page.getByRole("option", { name: "Radial" }).click();
   await settle(page);
   check("the picker turns it Radial", (await node(page, "2:2")).fillPaints[0].type === "GRADIENT_RADIAL");
   await page.keyboard.press("Escape");
@@ -167,7 +170,9 @@ async function paintsSection(page, theme) {
 
   // Selection colors list a frame's gradients as rows.
   await select("2:1");
-  check("Selection colors list gradients (one row each)", (await panel.getByRole("button", { name: "Selection color: Diamond" }).count()) === 1);
+  const seeAll = panel.locator('section[aria-label="Selection colors"]').getByRole("button", { name: /^See all/ });
+  if (await seeAll.count()) await seeAll.click();
+  check("Selection colors list gradients (one row each)", (await panel.locator("section[aria-label=\"Selection colors\"]").getByRole("button", { name: "Color: Diamond" }).count()) === 1);
   await shot(page, `27-selection-colors-gradients-${theme}`);
 
   // Effects: the row, its settings (live Figma's popover); "+" opens the Shader effects (Beta) browser while its
@@ -254,7 +259,7 @@ async function paintsSection(page, theme) {
 
   // Stroke: settings (dash 6 / gap 4), individual strokes.
   await select("2:40");
-  await panel.getByRole("button", { name: "Stroke settings" }).click();
+  await panel.getByRole("button", { name: "Advanced stroke settings" }).click();
   await settle(page);
   const ss = page.getByRole("dialog", { name: "Stroke settings" });
   check("stroke settings read the dash pattern", (await ss.getByRole("textbox", { name: "Dash" }).inputValue()) === "6" && (await ss.getByRole("textbox", { name: "Gap" }).inputValue()) === "4");
@@ -270,14 +275,14 @@ async function paintsSection(page, theme) {
 
   // Booleans: the header's menu on two shapes; a boolean group's operation.
   await select("2:10", "2:11");
-  const booleans = panel.getByRole("button", { name: "Boolean groups" });
+  const booleans = panel.getByRole("button", { name: "Boolean operations" });
   const menuOn = await booleans.isEnabled();
   if (menuOn) {
     await booleans.click();
     await settle(page);
   }
   await shot(page, `33-boolean-menu-${theme}`);
-  const union = page.getByRole("menuitemcheckbox", { name: /Union selection/ });
+  const union = page.getByRole("menuitemcheckbox", { name: /^Union/ });
   const unionEnabled = menuOn && (await union.count()) === 1 && (await union.getAttribute("aria-disabled")) !== "true";
   if (unionEnabled) {
     await union.click();
@@ -310,18 +315,20 @@ async function paintsSection(page, theme) {
   check("the image's bytes are in the file's image store", await page.evaluate(async (h) => !!(await window.__designerEditor.source.images.get(h)), fill ? fill.image.hash.map((b) => b.toString(16).padStart(2, "0")).join("") : ""));
   await page.evaluate(() => window.__designerEditor.engine.command("ZOOM_TO_SELECTION"));
   await shot(page, `35-image-placed-${theme}`);
-  await panel.getByRole("button", { name: "Fill: Image" }).click();
+  await panel.getByRole("button", { name: "Color: Image" }).click();
   await settle(page);
-  check("the image picker: scale mode, Choose image, Rotate 90°, adjustments", (await page.getByRole("slider", { name: "Exposure" }).count()) === 1 && (await page.getByRole("button", { name: "Rotate 90°", exact: true }).count()) === 1);
+  check("the image picker: scale mode, Choose image, Rotate 90°, adjustments", (await page.getByRole("slider", { name: "Exposure" }).count()) === 1 && (await page.getByRole("button", { name: "Rotate 90º", exact: true }).count()) === 1);
   await shot(page, `36-image-picker-${theme}`);
-  await page.getByRole("button", { name: "Rotate 90°", exact: true }).click();
+  await page.getByRole("button", { name: "Rotate 90º", exact: true }).click();
   check("Rotate 90° turns the image", (await page.evaluate(() => window.__designerEditor.selectedNodes()[0].fillPaints[0].rotation)) === 90);
   await page.keyboard.press("Escape");
 
   // Vector edit mode: the toolbar switches; Done leaves.
   if (capable.vector) {
+    // A star's header (Figma's live panel) has no Edit object button: it is in More actions.
     await select("2:20");
-    await panel.getByRole("button", { name: "Edit object" }).click();
+    await panel.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Edit object" }).click();
     await settle(page);
     check("vector edit mode: the vector-edit toolbar with Done", (await page.locator("[data-vector-toolbar]").count()) === 1);
     await shot(page, `37-vector-edit-${theme}`);
@@ -389,19 +396,17 @@ async function componentsSection(page, theme) {
   const toggled = await page.evaluate(() => JSON.stringify(window.__designerEditor.engine.readNode("2:2").componentPropAssignments ?? []));
   check("a Boolean property's toggle writes the value", toggled.includes("false"), toggled);
 
-  // The instance menu (swap), the ⋯ menu with Reset ▸.
+  // The instance menu (swap), the ⋯ menu (Figma's live list: … Create component, Detach instance, Reset instance …).
   await panel.getByRole("button", { name: "Instance menu: Button" }).click();
   await settle(page);
   check("the instance menu lists the file's components by page and frame", (await page.locator("[data-component-picker]").getByRole("menuitemradio").count()) >= 4);
   await shot(page, `39-instance-menu-${theme}`);
   await page.keyboard.press("Escape");
   await panel.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Reset" }).hover();
-  await page.waitForTimeout(400);
-  const resetText = await page.getByRole("menu").last().innerText();
-  check("⋯ › Reset lists Reset all changes and the changed properties", resetText.includes("Reset all changes") && resetText.includes("Reset fill"), resetText.replace(/\n/g, " | "));
+  await settle(page);
+  const moreText = await page.getByRole("menu").last().innerText();
+  check("⋯ lists Create component, Detach instance, Reset instance (the live menu)", ["Create component", "Detach instance", "Reset instance"].every((t) => moreText.includes(t)), moreText.replace(/\n/g, " | "));
   await shot(page, `40-instance-more-${theme}`);
-  await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await select("2:2");
 
@@ -454,15 +459,13 @@ async function componentsSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.undo());
   await settle(page);
 
-  // Reset all changes (⋯) on the button.
+  // Reset instance (⋯) on the button: every change.
   await select("2:2");
   await panel.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Reset" }).hover();
-  await page.waitForTimeout(300);
-  await page.getByRole("menuitem", { name: "Reset all changes" }).click();
+  await page.getByRole("menuitem", { name: "Reset instance" }).click();
   await settle(page);
   const reset = await node(page, "2:2");
-  check("Reset all changes clears the overrides and the values", (reset.symbolData?.symbolOverrides ?? []).length === 0 && (reset.componentPropAssignments ?? []).length === 0, JSON.stringify({ o: reset.symbolData?.symbolOverrides, a: reset.componentPropAssignments }));
+  check("Reset instance clears the overrides and the values", (reset.symbolData?.symbolOverrides ?? []).length === 0 && (reset.componentPropAssignments ?? []).length === 0, JSON.stringify({ o: reset.symbolData?.symbolOverrides, a: reset.componentPropAssignments }));
   await page.keyboard.press("Meta+z");
   await settle(page);
 
@@ -1622,27 +1625,37 @@ async function gridSection(page, theme) {
   const panel = page.locator('[data-panel="right"]');
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await settle(page);
-  await panel.getByRole("button", { name: "Add auto layout" }).first().click();
-  await settle(page);
+  // Flow (Figma's live Layout section): Grid straight from a plain frame.
   await panel.getByRole("radio", { name: "Grid" }).click();
   await settle(page);
   let n = await node(page, "1:1");
   check("Grid: the flow makes a 2 × 2 grid with automatic positioning", n.stackMode === "GRID" && n.gridColumns?.entries?.length === 2 && n.gridRows?.entries?.length === 2 && n.gridReflowEnabled === true, JSON.stringify({ mode: n.stackMode, cols: n.gridColumns?.entries?.length, rows: n.gridRows?.entries?.length }));
-  const cols = panel.getByRole("textbox", { name: "Number of columns" });
+  // The counts live in the grid dimensions picker (the "Grid" row's button).
+  const dims = panel.getByRole("button", { name: /^Open grid dimensions picker/ });
+  check("Grid: the Grid row's button reads 2 columns and auto rows", ((await dims.getAttribute("aria-label")) ?? "").includes("2 columns and auto rows"), (await dims.getAttribute("aria-label")) ?? "");
+  await dims.click();
+  await settle(page);
+  const cols = page.locator("[data-grid-picker]").getByRole("textbox", { name: "Number of columns" });
   await cols.click();
   await cols.fill("3");
   await cols.press("Enter");
   await settle(page);
   n = await node(page, "1:1");
   check("Grid: Number of columns 3", n.gridColumns?.entries?.length === 3, `${n.gridColumns?.entries?.length}`);
-  const first = panel.getByRole("textbox", { name: "Column 1 size" });
-  await first.click();
-  await first.fill("2fr");
-  await first.press("Enter");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // Column 1 at 2fr (the panel has no track rows any more — Figma's live panel; the canvas's label editor and this
+  // model function write the same fields), the frame's width Fixed.
+  await page.evaluate(async () => {
+    const g = await import("/src/editor/model/grid.ts");
+    const e = window.__designerEditor.engine;
+    const f = e.readNode("1:1");
+    e.setProps(["1:1"], { ...g.setTrackSizing(f, "columns", 0, g.parseTrackInput("2fr")), stackPrimarySizing: "FIXED" });
+  });
   await settle(page);
   n = await node(page, "1:1");
   const sizing = n.gridColumnsSizing?.entries?.find((e) => e.id.localID === n.gridColumns.entries[0].id.localID)?.trackSize?.maxSizing;
-  check("Grid: typing 2fr makes column 1 Fill 2fr (the frame's width Fixed)", sizing?.type === "FLEX" && sizing?.value === 2 && n.stackPrimarySizing === "FIXED", JSON.stringify(sizing));
+  check("Grid: column 1 at 2fr is Fill 2fr (the frame's width Fixed)", sizing?.type === "FLEX" && sizing?.value === 2 && n.stackPrimarySizing === "FIXED", JSON.stringify(sizing));
   const gap = panel.getByRole("textbox", { name: "Gap between columns" });
   await gap.click();
   await gap.fill("24");
@@ -1672,10 +1685,10 @@ async function gridSection(page, theme) {
   await settle(page);
   check("Grid: Column span 2 on a layer in the grid", (await node(page, kids[0])).gridColumnSpan === 2);
   await shot(page, `112-grid-span-${theme}`);
-  // Number of rows: Auto (a new grid's rows), shown as text.
+  // Number of rows: Auto (a new grid's rows), on the Grid row's button.
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await settle(page);
-  check("Grid: Number of rows reads Auto (a new grid)", (await panel.getByRole("textbox", { name: "Number of rows" }).inputValue()) === "Auto");
+  check("Grid: Number of rows reads Auto (a new grid)", ((await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).getAttribute("aria-label")) ?? "").includes("auto rows"));
   // A click on the first column's pill label opens the track label editor; 120 makes it Fixed 120.
   const [px, py] = await toScreen(page, 30, -10);
   await page.mouse.move(px, py);
@@ -1697,7 +1710,7 @@ async function gridSection(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
   // The grid picker: 4 × 2 from the board (rows no longer Auto).
-  await panel.getByRole("button", { name: "Grid picker" }).click();
+  await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).click();
   await settle(page);
   await page.locator('[data-grid-cell="4x2"]').hover();
   await shot(page, `114-grid-picker-${theme}`);
@@ -1752,6 +1765,133 @@ async function slotsSection(page, theme) {
   await page.locator("[data-component-picker]").getByRole("menuitemradio").first().click();
   await settle(page);
   check("Slots: an added instance fills the slot", (await panel.locator("[data-slot-control]").getAttribute("data-slot-count").catch(() => null)) === "1" || (await selection(page)).length === 1);
+}
+
+/**
+ * Round 7, the Design panel on `?editor&doc=capture` (the layers of docs/research/figma/live/design): a shot of the
+ * panel per capture case (shots 170–192), then the number fields as live Figma behaves (live/behaviour/fields.md) —
+ * Enter commits and gives the keys back to the canvas, the first Esc reverts and stays, the second leaves, "+10"
+ * typed over a value is 10, "2^3" is 8, "Mixed+100" adds to each layer, Tab goes on to the next control — the gap's
+ * Auto, "1,2,3,4" in Horizontal padding, the inline Constraints row and the Frame ▾ presets.
+ */
+async function designSection(page, theme) {
+  await open(page, "&doc=capture");
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const cases = [
+    ["page-nothing-selected", []],
+    ["frame", ["7:1"]],
+    ["frame-child-constraints", ["7:2"]],
+    ["autolayout-vertical", ["7:10"]],
+    ["autolayout-horizontal", ["7:20"]],
+    ["autolayout-wrap", ["7:30"]],
+    ["autolayout-grid", ["7:40"]],
+    ["autolayout-parent-fixed", ["7:50"]],
+    ["autolayout-child", ["7:51"]],
+    ["rectangle", ["7:60"]],
+    ["ellipse", ["7:61"]],
+    ["polygon", ["7:62"]],
+    ["star", ["7:63"]],
+    ["line", ["7:64"]],
+    ["arrow", ["7:65"]],
+    ["vector", ["7:66"]],
+    ["boolean", ["7:70"]],
+    ["group", ["7:80"]],
+    ["text", ["7:90"]],
+    ["section", ["7:95"]],
+    ["image-fill", ["7:96"]],
+    ["multi-two-shapes", ["7:60", "7:61"]],
+  ];
+  for (const [i, [name, ids]] of cases.entries()) {
+    await select(ids);
+    await shot(page, `${170 + i}-design-${name}-${theme}`);
+  }
+  await select(["7:60"]);
+  const header = await panel.locator("[data-type-header]").boundingBox();
+  check("Design: the type header is 48 and its line (49)", Math.round(header?.height ?? 0) === 49, String(header?.height));
+  check("Design: Rotate 90˚ right (Figma's ˚), no Apply variable mode without collections, no Blend mode row by default", (await panel.getByRole("button", { name: "Rotate 90˚ right" }).count()) === 1 && (await panel.getByRole("button", { name: "Apply variable mode" }).count()) === 0 && (await panel.getByRole("combobox", { name: "Blend mode" }).count()) === 0);
+  const x = panel.getByRole("textbox", { name: "X-position" });
+  const focus = () => page.evaluate(() => (document.activeElement?.id === "engine-canvas" ? "canvas" : (document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "")));
+  const xOf = (id) => page.evaluate((id) => Math.round(window.__designerEditor.engine.readNode(id).transform.m02 * 100) / 100, id);
+  const x0 = await xOf("7:60");
+  await x.click();
+  await settle(page);
+  await x.fill(`${x0}+5`);
+  await x.press("Enter");
+  await settle(page);
+  check("Design: Enter commits (\"0+5\") and gives the keys back to the canvas", (await xOf("7:60")) === x0 + 5 && (await focus()) === "canvas", `${await xOf("7:60")} ${await focus()}`);
+  await x.click();
+  await settle(page);
+  await x.fill("777");
+  await x.press("Escape");
+  await settle(page);
+  const afterEsc = await x.inputValue();
+  check("Design: the first Esc reverts and keeps the field focused", afterEsc === String(x0 + 5) && (await focus()) === "X-position", `${afterEsc} ${await focus()}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("Design: the second Esc gives the keys back to the canvas, the selection kept", (await focus()) === "canvas" && (await selection(page)).join() === "7:60");
+  await x.click();
+  await settle(page);
+  await x.fill("+10");
+  await x.press("Enter");
+  await settle(page);
+  check('Design: "+10" typed over the value sets 10', (await xOf("7:60")) === 10, String(await xOf("7:60")));
+  await x.click();
+  await settle(page);
+  await x.fill("2^3");
+  await x.press("Enter");
+  await settle(page);
+  check('Design: "2^3" is 8', (await xOf("7:60")) === 8, String(await xOf("7:60")));
+  await x.click();
+  await settle(page);
+  await page.keyboard.press("Tab");
+  check("Design: Tab goes on to Y", (await focus()) === "Y-position", await focus());
+  await page.keyboard.press("Escape");
+  await select(["7:60", "7:61"]);
+  const before = [await xOf("7:60"), await xOf("7:61")];
+  await x.click();
+  await settle(page);
+  await page.keyboard.press("End");
+  await page.keyboard.type("+100");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const after = [await xOf("7:60"), await xOf("7:61")];
+  check('Design: "Mixed+100" adds 100 to each layer', after[0] === before[0] + 100 && after[1] === before[1] + 100, `${before} → ${after}`);
+  // Auto layout: the gap's Auto (space between, the gap kept) and "1,2,3,4" in Horizontal padding (left 1, right 2).
+  await select(["7:20"]);
+  const gap = panel.getByRole("textbox", { name: "Horizontal gap between objects" });
+  await gap.click();
+  await settle(page);
+  await gap.fill("Auto");
+  await gap.press("Enter");
+  await settle(page);
+  const al = await node(page, "7:20");
+  check('Design: gap "Auto" is space between, the gap kept', ["SPACE_BETWEEN", "SPACE_EVENLY"].includes(al.stackPrimaryAlignItems) && al.stackSpacing === 10 && (await gap.inputValue()) === "Auto", `${al.stackPrimaryAlignItems} ${al.stackSpacing}`);
+  const padH = panel.getByRole("textbox", { name: "Horizontal padding" });
+  await padH.click();
+  await settle(page);
+  await padH.fill("1,2,3,4");
+  await padH.press("Enter");
+  await settle(page);
+  const padded = await node(page, "7:20");
+  check('Design: "1,2,3,4" in Horizontal padding sets left 1 and right 2 only', padded.stackHorizontalPadding === 1 && padded.stackPaddingRight === 2 && padded.stackVerticalPadding === 16 && (padded.stackPaddingBottom ?? 16) === 16, JSON.stringify([padded.stackHorizontalPadding, padded.stackPaddingRight, padded.stackVerticalPadding, padded.stackPaddingBottom]));
+  // A layer in a frame: the Constraints toggle opens the inline row (dropdowns and the widget).
+  await select(["7:2"]);
+  await panel.getByRole("button", { name: "Constraints" }).click();
+  await settle(page);
+  check("Design: Constraints opens the inline row", (await panel.locator("[data-constraints-row]").count()) === 1 && (await panel.getByRole("combobox", { name: "Horizontal constraints" }).count()) === 1);
+  await shot(page, `193-design-constraints-row-${theme}`);
+  await panel.getByRole("button", { name: "Constraints" }).click();
+  // Frame ▾: Frame Layout Options, then the live presets under their headers.
+  await select(["7:1"]);
+  await panel.getByRole("button", { name: "Frame, Frame Dimension Presets" }).click();
+  await settle(page);
+  check("Design: Frame ▾ lists Section / Frame / Group and the presets (Phone Presets: iPhone 17 402×874)", (await page.getByText("Phone Presets").count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: /iPhone 17\b/ }).count()) + (await page.getByRole("menuitem", { name: /iPhone 17\b/ }).count()) >= 1);
+  await shot(page, `194-design-frame-presets-${theme}`);
+  await page.keyboard.press("Escape");
 }
 
 /** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Toggle sidebar. */
@@ -2070,7 +2210,7 @@ async function textSection(page, theme) {
   await select("4:3");
   const style = panel.getByRole("combobox", { name: "Font style" });
   check("Typography: a layer whose runs differ shows Mixed for the style", (await style.textContent())?.includes("Mixed") ?? false, await style.textContent());
-  check("Fill: a text whose runs' colours differ reads mixed", (await panel.getByText("Click + to replace mixed fills").count()) === 1);
+  check("Fill: a text whose runs' colours differ reads mixed", (await panel.getByText("Click + to replace mixed content").count()) === 1);
   await shot(page, `121-typography-mixed-${theme}`);
   await panel.getByRole("button", { name: "Type settings" }).click();
   await settle(page);
@@ -2337,6 +2477,7 @@ try {
     ["slots", slotsSection],
     ["variables6", variables6Section],
     ["devmode", devmodeSection],
+    ["design", designSection],
   ]) {
     if (only !== name && only) continue;
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
@@ -2510,32 +2651,35 @@ try {
       const selectLayer = (id) => page.evaluate((id) => window.__designerEditor.engine.setSelection([id]), id);
       await row("1:1").click();
       await settle(page);
-      const width = panel.getByRole("textbox", { name: "Width", exact: true });
-      const height = panel.getByRole("textbox", { name: "Height", exact: true });
-      check("an auto-layout frame reads Fixed width and Hug height", (await width.inputValue()) === "320" && (await height.inputValue()) === "Hug", `${await width.inputValue()} × ${await height.inputValue()}`);
+      // Figma's live panel: an axis that hugs or fills makes the row "Resizing" ("Horizontal resizing" / "Vertical
+      // resizing"), each field the number and its mode ("320", "200 … Hug").
+      const width = panel.getByRole("textbox", { name: "Horizontal resizing", exact: true });
+      const height = panel.getByRole("textbox", { name: "Vertical resizing", exact: true });
+      const mode = async (field) => ((await field.locator("xpath=..").innerText().catch(() => "")) ?? "").replace(/\s+/g, " ").trim();
+      check("an auto-layout frame reads Fixed width and Hug height", (await width.inputValue()) === "320" && (await mode(height)).endsWith("Hug"), `${await width.inputValue()} × ${await mode(height)}`);
       await shot(page, `16-types-auto-layout-${theme}`);
       await width.hover();
-      await panel.getByRole("button", { name: "Width sizing" }).click();
+      await panel.getByRole("button", { name: "Horizontal resizing sizing" }).click();
       const menuText = await page.getByRole("menu").innerText();
       check("the W menu: Fixed width, Hug contents, Add min/max width…", ["Fixed width", "Hug contents", "Add min width…", "Add max width…"].every((t) => menuText.includes(t)), menuText.replace(/\n/g, " | "));
       await shot(page, `17-width-menu-${theme}`);
       await page.getByRole("menuitemcheckbox", { name: "Hug contents" }).click();
       await settle(page);
       const hugged = await node(page, "1:1");
-      check("Hug contents writes the frame's sizing", hugged.stackPrimarySizing !== "FIXED" && (await width.inputValue()) === "Hug", `${hugged.stackPrimarySizing}, W ${await width.inputValue()}`);
+      check("Hug contents writes the frame's sizing", hugged.stackPrimarySizing !== "FIXED" && (await mode(width)).endsWith("Hug"), `${hugged.stackPrimarySizing}, W ${await mode(width)}`);
       await page.keyboard.press("Meta+z");
       await settle(page);
-      await panel.getByRole("button", { name: "Advanced layout settings" }).click();
+      await panel.getByRole("button", { name: "Auto layout settings" }).click();
       await settle(page);
       check("the auto-layout settings open", (await page.getByRole("dialog", { name: "Auto layout settings" }).count()) === 1);
       await shot(page, `18-auto-layout-settings-${theme}`);
       await page.keyboard.press("Escape");
       await selectLayer("1:3");
       await settle(page);
-      check("a Fill child reads Fill", (await width.inputValue()) === "Fill", await width.inputValue());
+      check("a Fill child reads Fill", (await mode(width)).endsWith("Fill"), await mode(width));
       check("Ignore auto layout shows for an auto-layout child", (await panel.getByRole("button", { name: "Ignore auto layout" }).count()) === 1);
       await width.hover();
-      await panel.getByRole("button", { name: "Width sizing" }).click();
+      await panel.getByRole("button", { name: "Horizontal resizing sizing" }).click();
       await page.getByRole("menuitem", { name: "Add min width…" }).click();
       await settle(page);
       const minned = await node(page, "1:3");
@@ -2543,13 +2687,17 @@ try {
       await shot(page, `19-fill-child-min-width-${theme}`);
       await selectLayer("1:11");
       await settle(page);
+      // Constraints: Position's toggle opens the inline row (Figma's live panel).
       const widget = panel.locator('[data-ds-editor="ConstraintsWidget"]');
+      if (!(await widget.count())) await panel.getByRole("button", { name: "Constraints" }).click();
+      await settle(page);
       check("Constraints show for a frame's child", (await widget.count()) === 1);
       await widget.getByRole("button", { name: "Bottom" }).click();
       await widget.getByRole("button", { name: "Top" }).click({ modifiers: ["Shift"] });
       const pinned = await node(page, "1:11");
       check("the widget writes constraints (⇧ for both)", pinned.verticalConstraint === "STRETCH", pinned.verticalConstraint);
       await shot(page, `20-constraints-${theme}`);
+      await panel.getByRole("button", { name: "Constraints" }).click();
       await row("1:10").click();
       await settle(page);
       check("Selection colors list a frame's colours", (await panel.getByText("Selection colors").count()) === 1);
@@ -2615,7 +2763,7 @@ try {
       await settle(page);
       check("double-click renames in Layers", (await node(page, rectId))?.name === "Card", (await node(page, rectId))?.name);
       // The Design panel writes: X through the field.
-      const x = page.getByRole("textbox", { name: "X", exact: true });
+      const x = page.getByRole("textbox", { name: "X-position", exact: true });
       if (await x.count()) {
         await x.click();
         await page.keyboard.type("60");

@@ -282,7 +282,9 @@ describe("Design panel, Phase 2 (wasm, headless)", () => {
     const { show, colors } = selectionColorsOf(engine, [frame]);
     expect(show).toBe(true);
     const keys = colors.map((c) => c.key);
-    expect(keys[0]).toBe("#ffffff/100");
+    // Figma's live order: the layers' colours first (first child first), the frame's own white after them.
+    expect(keys).toContain("#ffffff/100");
+    expect(keys[0]).not.toBe("#ffffff/100");
     expect(keys).toContain("#ffc700/100"); // Card 2's stroke and the Sun inside Clip
     const yellow = colors.find((c) => c.key === "#ffc700/100")!;
     expect(new Set(yellow.uses.map((u) => u.guid))).toEqual(new Set(["1:6", "1:8"]));

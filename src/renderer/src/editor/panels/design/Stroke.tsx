@@ -14,7 +14,7 @@
  */
 import { useState } from "react";
 import { VariableField } from "./Variables";
-import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, Select, Icon, IconButton, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
+import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
 import type { NodeFields, StrokeAlign, StrokeCap } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEngineCommand } from "../../engineCompat";
@@ -61,7 +61,8 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
   const sidesKept = useKeeps("borderStrokeWeightsIndependent");
   const refs = nodes.map((n) => n.guid);
   const align = mixed(nodes.map((n) => n.strokeAlign ?? "INSIDE"));
-  const perSide = sidesKept && nodes.every((n) => hasCorners(n));
+  // Rectangles and frames; a section has none (Figma's live panel).
+  const perSide = sidesKept && nodes.every((n) => hasCorners(n) && typeOf(n) !== "SECTION");
   const stored = mixed(nodes.map(strokeSideOf));
   // "Custom" picked shows the four sides even when only one has a weight (kept for this selection).
   const key = refs.join(",");
@@ -78,7 +79,10 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
   return (
     <PropertyGrid labels={labels}>
       <PropertyRow
-        label="Position and weight"
+        // Figma's live panel: "Position" (76) and "Weight" (72), "Advanced stroke settings" at 180, Individual strokes at 208.
+        labels={["Position", "Weight"]}
+        columns="minmax(0, 76fr) minmax(0, 72fr)"
+        action2={<StrokeSettingsButton nodes={nodes} />}
         action={
           perSide ? (
             <MenuButton label="Individual strokes" entries={sideMenu} className={styles.iconMenu} onSelect={(id) => {
@@ -92,7 +96,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         }
       >
         <Select
-          label="Stroke position"
+          label="Stroke align"
           value={align ?? "INSIDE"}
           options={[
             { value: "INSIDE", label: "Inside" },
@@ -109,7 +113,23 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
           value={side === "CUSTOM" ? MIXED : fieldValue(weight)}
           onChange={writeWeight}
           onCancel={() => ed.cancelEdit()}
-          onStep={(d) => ed.batch("Stroke weight", () => nodes.forEach((n) => ed.engine.setProps([n.guid], { strokeWeight: Math.max(0, (n.strokeWeight ?? 1) + d) })))}
+          // A single side's weight steps that side (as typing writes it: writeWeight), not strokeWeight alone.
+          onStep={(d) =>
+            ed.batch("Stroke weight", () =>
+              nodes.forEach((n) => {
+                const v = Math.max(0, (singleField ? (n[singleField] ?? 0) : (n.strokeWeight ?? 1)) + d);
+                ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
+              })
+            )
+          }
+          onExpression={(each, info) =>
+            ed.edit("Stroke weight", info, () =>
+              nodes.forEach((n) => {
+                const v = Math.max(0, each(singleField ? (n[singleField] ?? 0) : (n.strokeWeight ?? 1)));
+                ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
+              })
+            )
+          }
           onExit={exitToCanvas(ed)}
         />
         </VariableField>
@@ -216,51 +236,105 @@ export function StrokeSettingsButton({ nodes }: { nodes: PanelNode[] }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return (
     <>
-      <IconButton icon="24.adjust.small" label="Stroke settings" tone="secondary" disabled={!kept} aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
+      <IconButton icon="24.adjust.small" label="Advanced stroke settings" tone="secondary" disabled={!kept} aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)} />
       {anchor && <StrokeSettings nodes={nodes} anchor={anchor} onClose={() => setAnchor(null)} />}
     </>
   );
 }
 
+/** Figma's stroke styles: Solid, Dashed (one dash and gap), Custom (any longer dash list). */
+export function strokeStyleOf(pattern: readonly number[] | undefined): "SOLID" | "DASHED" | "CUSTOM" {
+  if (!pattern?.length) return "SOLID";
+  return pattern.length <= 2 ? "DASHED" : "CUSTOM";
+}
+
+/** "Dashes" typed for a Custom style: numbers apart by commas or spaces (dash, gap, dash, gap…); null when not. */
+export function parseDashes(raw: string): number[] | null {
+  const parts = raw.trim().split(/[\s,]+/).filter(Boolean).map(Number);
+  if (!parts.length || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  return parts.map((n) => Math.round(n * 100) / 100);
+}
+
+/**
+ * The stroke settings popover as Figma's live one (popovers/stroke-advanced-settings.txt, 240 wide): Stroke Type
+ * (Basic; Dynamic and Brush not built), Style (Solid / Dashed / Custom, 128), the dash fields, Join (Miter / Bevel /
+ * Round as segments, 128), Miter angle — and, for open paths or dashes, the cap.
+ */
 function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor: HTMLElement; onClose: () => void }) {
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const dashes = mixed(nodes.map((n) => n.dashPattern ?? []), sameData);
-  const d = dashOf(dashes === undefined || dashes === MIXED ? undefined : (dashes as number[]));
-  const style = mixed(nodes.map((n) => ((n.dashPattern ?? []).length ? "DASH" : "SOLID")));
+  const pattern = dashes === undefined || dashes === MIXED ? undefined : (dashes as number[]);
+  const d = dashOf(pattern);
+  const style = mixed(nodes.map((n) => strokeStyleOf(n.dashPattern)));
   const cap = mixed(nodes.map((n) => n.strokeCap ?? "NONE"));
   const join = mixed(nodes.map((n) => n.strokeJoin ?? "MITER"));
   const angle = mixedNumber(nodes.map((n) => Math.round(miterAngle(n.miterLimit ?? 4) * 100) / 100));
   const open = nodes.every(isOpenPath);
   const set = (label: string, f: NodeFields) => ed.setProps(refs, f, label);
   const setDash = (dash: number, gap: number, info: ChangeInfo) => ed.edit("Dash", info, () => void ed.engine.setProps(refs, fields({ dashPattern: [dash, gap] })));
+  const pickStyle = (v: string) => {
+    if (v === "SOLID") set("Stroke style", fields({ dashPattern: [] }));
+    else if (v === "DASHED") set("Stroke style", fields({ dashPattern: [d.dash, d.gap] }));
+    else set("Stroke style", fields({ dashPattern: pattern && pattern.length > 2 ? pattern : [d.dash, d.gap, d.dash, d.gap * 2] }));
+  };
   return (
     <Popover anchor={anchor} title="Stroke settings" width={240} onClose={onClose} label="Stroke settings">
-      <div className={styles.settings}>
-        <span className={styles.settingsLabel}>Stroke style</span>
+      <div className={`${styles.settings} ${styles.settingsEnd}`}>
+        <div className={styles.settingsWide}>
+          <SegmentedControl
+            label="Stroke Type"
+            fullWidth
+            value="BASIC"
+            options={[
+              { value: "BASIC", label: "Basic" },
+              { value: "DYNAMIC", label: "Dynamic", disabled: true },
+              { value: "BRUSH", label: "Brush", disabled: true },
+            ]}
+            onChange={() => undefined}
+          />
+        </div>
+        <span className={styles.settingsLabel}>Style</span>
         <Select
-          label="Stroke style"
+          label="Style"
+          width={128}
           value={style === MIXED || style === undefined ? "" : style}
           placeholder="Mixed"
           options={[
             { value: "SOLID", label: "Solid" },
-            { value: "DASH", label: "Dash" },
+            { value: "DASHED", label: "Dashed" },
+            { value: "CUSTOM", label: "Custom" },
           ]}
-          onChange={(v) => set("Stroke style", fields({ dashPattern: v === "DASH" ? [d.dash, d.gap] : [] }))}
+          onChange={pickStyle}
         />
-        {style === "DASH" && (
+        {style === "DASHED" && (
           <>
             <span className={styles.settingsLabel}>Dash</span>
-            <NumericInput label="Dash" min={0} value={d.dash} onChange={(v, info) => setDash(v, d.gap, info)} onCancel={() => ed.cancelEdit()} />
+            <NumericInput className={styles.settingsWideField} scrubHandle="previous" label="Dash" min={0} value={d.dash} onChange={(v, info) => setDash(v, d.gap, info)} onCancel={() => ed.cancelEdit()} />
             <span className={styles.settingsLabel}>Gap</span>
-            <NumericInput label="Gap" min={0} value={d.gap} onChange={(v, info) => setDash(d.dash, v, info)} onCancel={() => ed.cancelEdit()} />
+            <NumericInput className={styles.settingsWideField} scrubHandle="previous" label="Gap" min={0} value={d.gap} onChange={(v, info) => setDash(d.dash, v, info)} onCancel={() => ed.cancelEdit()} />
           </>
         )}
-        {!open && style === "DASH" && (
+        {style === "CUSTOM" && (
+          <>
+            <span className={styles.settingsLabel}>Dashes</span>
+            <TextInput
+              className={styles.settingsWideField}
+              label="Dashes"
+              value={(pattern ?? []).join(", ")}
+              onCommit={(raw) => {
+                const list = parseDashes(raw);
+                if (list) set("Dashes", fields({ dashPattern: list }));
+              }}
+            />
+          </>
+        )}
+        {!open && (style === "DASHED" || style === "CUSTOM") && (
           <>
             <span className={styles.settingsLabel}>Dash cap</span>
             <Select
               label="Dash cap"
+              width={128}
               value={cap === MIXED || cap === undefined ? "" : cap}
               placeholder="Mixed"
               options={CAPS.filter((c) => !c.open)}
@@ -269,10 +343,11 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
           </>
         )}
         <span className={styles.settingsLabel}>Join</span>
-        <Select
+        <SegmentedControl
           label="Join"
+          className={styles.settingsWideField}
+          fullWidth
           value={join === MIXED || join === undefined ? "" : join}
-          placeholder="Mixed"
           options={[
             { value: "MITER", label: "Miter" },
             { value: "BEVEL", label: "Bevel" },
@@ -284,7 +359,10 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
           <>
             <span className={styles.settingsLabel}>Miter angle</span>
             <NumericInput
+              className={styles.settingsWideField}
+              scrubHandle="previous"
               label="Miter angle"
+              prefix="24.radius.top.left"
               unit="°"
               min={1}
               max={180}

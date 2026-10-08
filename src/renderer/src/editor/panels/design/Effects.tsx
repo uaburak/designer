@@ -33,6 +33,7 @@ import { mixed, sameData } from "../../model/mixed";
 import { fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
+import { Grip, moved, useReorder } from "./reorder";
 
 // ---- Effects ---------------------------------------------------------------------------------------
 
@@ -144,13 +145,16 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const empty = !isMixedList && effects.length === 0;
   const styled = sharedStyle(nodes, "effect");
   const hasStyle = !!styled && styled !== "mixed";
+  // Rows show the top effect first: display index d is effect n − 1 − d (as Fill's rows).
+  const n = effects.length;
+  const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => writeEffects(ed, refs, moved(effects, n - 1 - from, n - 1 - to), "Reorder effects"));
   return (
     <PanelSection
       title="Effects"
       empty={empty}
       actions={
         <>
-          {!empty && <StylesButton nodes={nodes} slot="effect" />}
+          <StylesButton nodes={nodes} slot="effect" />
           {!hasStyle && (
             <div ref={addButton} className={styles.inlineAnchor}>
               <IconButton icon="24.plus.small" label="Add effect" tone="secondary" disabled={!kept} aria-expanded={!!shaders} onClick={add} />
@@ -161,14 +165,17 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
     >
       {hasStyle && <AppliedStyle nodes={nodes} slot="effect" />}
       {!hasStyle && isMixedList && <div className={styles.note}>Click + to replace mixed effects</div>}
-      {!hasStyle && effects
+      {!hasStyle && n > 0 && (
+        <div ref={reorderRef} className={styles.reorderList}>
+      {effects
         .map((e, i) => ({ e, i }))
         .reverse()
-        .map(({ e, i }) => {
+        .map(({ e, i }, d) => {
           const type = EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1];
           const set = (next: Effect, label: string, info?: ChangeInfo) => writeEffects(ed, refs, effects.map((x, j) => (j === i ? next : x)), label, info);
           return (
-            <div key={i} className={cx(styles.paintRow, e.visible === false && styles.rowHidden)} data-effect-row={e.type}>
+            <div key={i} className={cx(styles.paintRow, e.visible === false && styles.rowHidden, dragging === d && styles.rowDragging)} data-effect-row={e.type} data-reorder-row="">
+              {n > 1 && <Grip {...grip(d)} />}
               <div className={styles.effectField}>
                 <IconButton icon={type.icon} label="Effect settings" aria-expanded={open?.index === i} onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })} />
                 <span className={styles.effectLabel}>{type.label}</span>
@@ -178,6 +185,9 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
             </div>
           );
         })}
+          {dropLine !== null && <div className={styles.dropLine} style={{ top: dropLine }} />}
+        </div>
+      )}
       {open && effects[open.index] && (
         <EffectSettings
           effect={effects[open.index]}
@@ -292,9 +302,9 @@ export function EffectSettings({
         <span />
         <NumericInput label="Position Y" prefix="Y" value={offset.y} onChange={(y, info) => set({ offset: { x: offset.x, y } }, info)} onCancel={onCancel} />
         <span className={styles.settingsLabel}>Blur</span>
-        <NumericInput label="Blur radius" min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+        <NumericInput scrubHandle="previous" label="Blur radius" min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
         <span className={styles.settingsLabel}>Spread</span>
-        <NumericInput label="Spread" value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />
+        <NumericInput scrubHandle="previous" label="Spread" value={effect.spread ?? 0} onChange={(v, info) => set({ spread: v }, info)} onCancel={onCancel} />
         {colorRow("Color", "color", color)}
         {effect.type === "DROP_SHADOW" && !opaque && (
           <div className={styles.fxWide}>
@@ -329,7 +339,7 @@ export function EffectSettings({
         ) : (
           <>
             <span className={styles.settingsLabel}>Blur</span>
-            <NumericInput label="Blur radius" min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Blur radius" min={0} value={effect.radius ?? 0} onChange={(v, info) => set({ radius: v }, info)} onCancel={onCancel} />
           </>
         )}
       </>
@@ -557,7 +567,7 @@ export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
   const styled = sharedStyle(nodes, "grid");
   const hasStyle = !!styled && styled !== "mixed";
   return (
-    <PanelSection title="Layout guide" empty={empty} actions={<>{!empty && <StylesButton nodes={nodes} slot="grid" />}{!hasStyle && <IconButton icon="24.plus.small" label="Add layout guide" tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} />}</>}>
+    <PanelSection title="Layout guide" empty={empty} actions={<><StylesButton nodes={nodes} slot="grid" />{!hasStyle && <IconButton icon="24.plus.small" label="Add layout guide" tone="secondary" disabled={!kept} onClick={() => write(isMixedList ? [defaultGuide()] : [...grids, defaultGuide()], "Add layout guide")} />}</>}>
       {hasStyle && <AppliedStyle nodes={nodes} slot="grid" />}
       {!hasStyle && grids
         .map((g, i) => ({ g, i }))
@@ -599,38 +609,38 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         ];
   const stretch = (grid.type ?? "STRETCH") === "STRETCH";
   return (
-    <Popover anchor={anchor} title="Layout guide" width={240} onClose={onClose} label="Layout guide">
-      <div className={styles.settings} data-guide-settings="">
-        <div className={styles.settingsWide}>
-          <SegmentedControl
-            label="Layout guide type"
-            fullWidth
-            value={kind}
-            options={[
-              { value: "GRID", label: "Grid" },
-              { value: "COLUMNS", label: "Columns" },
-              { value: "ROWS", label: "Rows" },
-            ]}
-            onChange={(k) => onChange({ ...defaultGuide(k as GuideKind), color: grid.color ?? GUIDE_RED, visible: grid.visible ?? true }, pick)}
-          />
-        </div>
+    // Figma's live popover: the type dropdown in its header, then Count, Color, Type, Width, Margin / Offset, Gutter
+    // (Grid: Size, Color) — labels 64, fields 136.
+    <Popover
+      anchor={anchor}
+      width={240}
+      onClose={onClose}
+      label="Layout guide"
+      header={
+        <Select
+          label="Layout guide type"
+          variant="ghost"
+          width="hug"
+          value={kind}
+          options={[
+            { value: "GRID", label: "Grid" },
+            { value: "COLUMNS", label: "Columns" },
+            { value: "ROWS", label: "Rows" },
+          ]}
+          onChange={(k) => onChange({ ...defaultGuide(k as GuideKind), color: grid.color ?? GUIDE_RED, visible: grid.visible ?? true }, pick)}
+        />
+      }
+    >
+      <div className={`${styles.settings} ${styles.settingsGuide}`} data-guide-settings="">
         {kind === "GRID" ? (
           <>
             <span className={styles.settingsLabel}>Size</span>
-            <NumericInput label="Size" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Width" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
           </>
         ) : (
           <>
             <span className={styles.settingsLabel}>Count</span>
-            <NumericInput label="Count" min={1} precision={0} value={grid.numSections ?? 5} onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)} onCancel={onCancel} />
-            <span className={styles.settingsLabel}>Type</span>
-            <Select label="Type" value={grid.type ?? "STRETCH"} options={typeOptions} onChange={(v) => onChange({ ...grid, type: v as LayoutGrid["type"] }, pick)} />
-            <span className={styles.settingsLabel}>{kind === "ROWS" ? "Height" : "Width"}</span>
-            <NumericInput label={kind === "ROWS" ? "Height" : "Width"} min={1} value={stretch ? null : (grid.sectionSize ?? 10)} valueLabel={stretch ? "Auto" : undefined} disabled={stretch} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
-            <span className={styles.settingsLabel}>{stretch ? "Margin" : "Offset"}</span>
-            <NumericInput label={stretch ? "Margin" : "Offset"} min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
-            <span className={styles.settingsLabel}>Gutter</span>
-            <NumericInput label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Count" min={1} precision={0} value={grid.numSections ?? 5} onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)} onCancel={onCancel} />
           </>
         )}
         <span className={styles.settingsLabel}>Color</span>
@@ -638,9 +648,21 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
           label="Layout guide color"
           color={colorToHex(color)}
           opacity={toPercent(color.a ?? 0.1)}
-          onColor={(hex, info) => onChange({ ...grid, color: hexToColor(hex, color.a ?? 0.1) }, info)}
+          onColor={(hex, info, o) => onChange({ ...grid, color: hexToColor(hex, o !== undefined ? o / 100 : (color.a ?? 0.1)) }, info)}
           onOpacity={(o, info) => onChange({ ...grid, color: { ...color, a: o / 100 } }, info)}
         />
+        {kind !== "GRID" && (
+          <>
+            <span className={styles.settingsLabel}>Type</span>
+            <Select label="Type" value={grid.type ?? "STRETCH"} options={typeOptions} onChange={(v) => onChange({ ...grid, type: v as LayoutGrid["type"] }, pick)} />
+            <span className={styles.settingsLabel}>{kind === "ROWS" ? "Height" : "Width"}</span>
+            <NumericInput scrubHandle="previous" label={kind === "ROWS" ? "Height" : "Width"} min={1} value={stretch ? null : (grid.sectionSize ?? 10)} valueLabel={stretch ? "Auto" : undefined} disabled={stretch} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
+            <span className={styles.settingsLabel}>{stretch ? "Margin" : "Offset"}</span>
+            <NumericInput scrubHandle="previous" label="Offset" min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
+            <span className={styles.settingsLabel}>Gutter</span>
+            <NumericInput scrubHandle="previous" label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
+          </>
+        )}
       </div>
     </Popover>
   );

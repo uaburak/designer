@@ -328,12 +328,14 @@ export const fontFamily = {
 
 export type TextStyle = { size: number; line: number; weight: number; tracking: string; mono?: boolean };
 
-/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. 450 / 550; 400 for mono and for the live capture's layer and page names. */
+/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. 450 / 550; 400 for mono, for the live capture's layer and page names and field prefixes; 500 for the panel labels, as Figma draws them. */
 export const text = {
   "body-small": { size: 9, line: 14, weight: 450, tracking: "0.045px" },
+  /** The Design panel's field labels ("Position", "Corner radius"): 9px/500 at 70% — Figma's live panel (docs/research/figma/live). */
+  "panel-label": { size: 9, line: 11, weight: 500, tracking: "0.045px" },
   "body-medium": { size: 11, line: 16, weight: 450, tracking: "0.055px" },
   "body-medium-strong": { size: 11, line: 16, weight: 550, tracking: "0.055px" },
-  /** Live capture: layer and page names, Find's results and counts are 11px / 400 */
+  /** Live capture: layer and page names, Find's results and counts, a field's prefix letter (X, Y, W, H) are 11px / 400 */
   "body-medium-regular": { size: 11, line: 16, weight: 400, tracking: "0.055px" },
   "body-ruler": { size: 10, line: 12, weight: 450, tracking: "0.05px" },
   menu: { size: 12, line: 16, weight: 450, tracking: "0px" },

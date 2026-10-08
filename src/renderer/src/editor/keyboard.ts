@@ -54,6 +54,9 @@ export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement):
     if (e.defaultPrevented) return; // the engine (on the canvas) or a control used it
     if (e.target !== canvas) {
       if ((e.key === "Enter" || e.key === " ") && isControl(e.target)) return;
+      // Tab / ⇧Tab from a control in the Design panel go on through the panel in DOM order (live: X → Y → Rotation →
+      // Rotate 90˚ right → Flip horizontal …), not to the next layer.
+      if (e.key === "Tab" && isControl(e.target) && (e.target as Element).closest("[data-panel='right']")) return;
       if (ed.engineKey("down", e, modifiersOf(e))) {
         e.preventDefault();
         return;

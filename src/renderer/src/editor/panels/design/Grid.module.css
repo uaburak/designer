@@ -58,6 +58,37 @@
   }
   .pickerButton:hover, .pickerButton[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
   .pickerButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  /* The grid's dimensions (Figma's live panel: 88 × 56 on #383838, its cells #2c2c2c, "3 × 2" over them) */
+  .dimensions {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(var(--cols), 1fr);
+    grid-template-rows: repeat(var(--rows), 1fr);
+    gap: var(--ds-space-half);
+    height: 56px;
+    padding: var(--ds-space-half);
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    outline: none;
+  }
+  .dimensions:hover { border-color: var(--figma-color-border); }
+  .dimensions[aria-expanded="true"], .dimensions:focus-visible { border-color: var(--figma-color-border-selected); }
+  .dimensionsCell { border-radius: var(--ds-radius-small); background: var(--figma-color-bg); }
+  .dimensionsText {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ds-space-1);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    pointer-events: none;
+  }
+  .dimensionsTimes { color: var(--figma-color-text-secondary); }
+  .gapStack { display: flex; flex-direction: column; gap: var(--ds-space-2); }
   /* A track row selected on the canvas (its pill) */
   .trackSelected { border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-selected); }
   .trackEditor {
@@ -66,4 +97,5 @@
     gap: var(--ds-space-2);
     padding: var(--ds-space-2);
   }
+  .topRow { align-items: start; }
 }

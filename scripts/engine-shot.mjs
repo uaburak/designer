@@ -52,7 +52,8 @@ const server = await createServer({
   configFile: false,
   root: path.join(repo, "src/renderer/src/engine/dev"),
   plugins: [react()],
-  resolve: { alias: [{ find: /^@\//, replacement: path.join(repo, "src/renderer/src") + "/" }] },
+  // The editor's fixtures reach src/shared (the capture fixture's grid tracks): the same aliases as vite.shared.ts.
+  resolve: { alias: [{ find: /^@shared\//, replacement: path.join(repo, "src/shared") + "/" }, { find: /^@\//, replacement: path.join(repo, "src/renderer/src") + "/" }] },
   server: { port: Number(process.env.SHOT_PORT ?? 5311), strictPort: false, fs: { allow: [repo, realpathSync(path.join(repo, "node_modules"))] } },
   logLevel: "error",
 });

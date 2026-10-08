@@ -16,6 +16,18 @@ export function normalizeHex(raw: string): string | null {
   return null;
 }
 
+/**
+ * What the hex field takes (help 360043042113): a colour as `normalizeHex` reads it, or 8 digits ("#RRGGBBAA") / 4
+ * ("#RGBA") whose last pair is the alpha — returned as an opacity 0–100 (rounded); null otherwise.
+ */
+export function parseHexInput(raw: string): { hex: string; opacity?: number } | null {
+  const d = raw.trim().toLowerCase().replace(/^#/, "");
+  const long = /^[0-9a-f]{8}$/.test(d) ? d : /^[0-9a-f]{4}$/.test(d) ? d.split("").map((c) => c + c).join("") : null;
+  if (long) return { hex: `#${long.slice(0, 6)}`, opacity: Math.round((parseInt(long.slice(6), 16) / 255) * 100) };
+  const hex = normalizeHex(raw);
+  return hex ? { hex } : null;
+}
+
 /** A hex colour's 6 digits, upper case, without "#" (Figma's fill row). */
 export const hexDigits = (color: string) => color.replace("#", "").slice(0, 6).toUpperCase();
 
@@ -128,6 +140,22 @@ export function parseCssColor(raw: string): RGBA | null {
 export function mixRgba(a: RGBA, b: RGBA, t: number): RGBA {
   const k = clamp01(t);
   return { r: a.r + (b.r - a.r) * k, g: a.g + (b.g - a.g) * k, b: a.b + (b.b - a.b) * k, a: a.a + (b.a - a.a) * k };
+}
+
+/** WCAG relative luminance of an opaque colour. */
+export function luminance(c: RGBA): number {
+  const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+}
+
+/**
+ * WCAG contrast ratio (1–21) of `fg` over `bg` — `fg`'s alpha composited on the opaque background first, as the
+ * picker's "Check color contrast" reads a fill against what's behind it.
+ */
+export function contrastRatio(fg: RGBA, bg: RGBA): number {
+  const top = mixRgba({ ...bg, a: 1 }, { ...fg, a: 1 }, fg.a);
+  const [a, b] = [luminance(top), luminance({ ...bg, a: 1 })].sort((x, y) => y - x);
+  return (a + 0.05) / (b + 0.05);
 }
 
 /** Two colours equal at 8-bit precision. */

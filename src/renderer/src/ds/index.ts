@@ -11,14 +11,15 @@ export * from "./types";
 export { STRINGS } from "./strings";
 
 export { cx } from "./util/cx";
-export { evaluate, stripUnit, clampRound, commitTyped, formatNumber } from "./util/evaluate";
-export { scrubValue, stepValue, SCRUB_THRESHOLD } from "./util/scrub";
-export { normalizeHex, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
+export { evaluate, evaluateWith, parseExpression, usesMixed, stripUnit, clampRound, commitTyped, formatNumber, type Committed } from "./util/evaluate";
+export { scrubValue, scrubRate, stepValue, SCRUB_THRESHOLD, SCRUB_SPEEDS } from "./util/scrub";
+export { normalizeHex, parseHexInput, contrastRatio, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
 export * from "./util/paint";
 export { timeAgo, formatEdited } from "./util/time";
 export { keys, IS_MAC } from "./util/keys";
 export { typeahead, createTypeahead } from "./util/typeahead";
 export { selectAllOnClick } from "./util/selectAll";
+export { ReturnFocusProvider, useReturnFocus } from "./util/returnFocus";
 export { nextEnabled, rovingTarget } from "./util/rovingFocus";
 export { FOLDER_COLOR_IDS, FOLDER_COLOR_VARS, FOLDER_COLOR_LABEL, folderColor, type FolderColorId } from "./util/folderColor";
 export { clickSelection, moveSelection, inOrder, idsInRect, isToggleModifier, selectionModifiers, useSelection, type SelectionState, type SelectionModifiers } from "./util/selection";

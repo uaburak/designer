@@ -1,7 +1,10 @@
 @layer ds {
   .section { border-bottom: 1px solid var(--figma-color-border); }
-  .padDefault { padding-bottom: var(--ds-space-2); }
-  .padLarge { padding-bottom: var(--ds-space-3); }
+  /* Figma UI3: a section's last row ends 12 above its line (the live panel) */
+  .padDefault { padding-bottom: var(--ds-space-3); }
+  .padLarge { padding-bottom: var(--ds-space-4); }
+  /* An empty section (no fills / strokes / effects / exports) is its 40 header and the line: 41 (live dumps) */
+  .empty.padDefault, .empty.padLarge { padding-bottom: 0; }
   .header {
     display: flex;
     align-items: center;
@@ -21,7 +24,10 @@
     white-space: nowrap;
     user-select: none;
   }
-  .empty .title { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  /* The title's text sits 14 below the section's top, its buttons stay centred (live: Fill at 464, its buttons at 458) */
+  .header > .title, .toggle > .title { padding-top: var(--ds-space-half); }
+  /* No fills / strokes / effects: the title stays 550, at 70% (Figma's live panel) */
+  .empty .title { color: var(--figma-color-text-secondary); }
   .toggle {
     display: flex;
     flex: 1 1 auto;
@@ -40,5 +46,6 @@
   .toggle:focus-visible, .toggle[data-focus-visible] { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
   .chevron { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; color: var(--figma-color-icon-secondary); transition: transform var(--ds-duration-fast) var(--ds-ease-out); }
   .closed .chevron { transform: rotate(-90deg); }
-  .actions { display: flex; flex: none; align-items: center; gap: 0; }
+  /* Icon buttons 4 apart (Figma: Fill's "Apply styles and variables" at 180, "Add fill" at 208) */
+  .actions { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); }
 }

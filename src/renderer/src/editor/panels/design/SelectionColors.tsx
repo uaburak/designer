@@ -22,7 +22,7 @@ import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 /** What Selection colors reads of a layer (docs/engine-build.md "Performance round 2": a paints-only read). */
-const COLOR_FIELDS = ["fillPaints", "strokePaints", "visible", "mask"];
+const COLOR_FIELDS = ["fillPaints", "strokePaints", "visible", "mask", "styleIdForFill", "styleIdForStrokeFill"];
 
 /**
  * Does the engine build read a subtree with chosen fields in one call? abi.ts names READ_SUBTREE and the module in
@@ -33,7 +33,7 @@ const hasSubtreeRead = (engine: Engine): boolean => "READ_SUBTREE" in abi && eng
 
 /**
  * The visible layers inside `refs` (not the selected ones), each selected
- * layer's subtree top first; null past `max` layers. One engine read of the
+ * layer's subtree children first (first child first), a boolean's operands left out; null past `max` layers. One engine read of the
  * paints alone when the build has it (`readNodes` with `fields`, `subtree`,
  * `visibleOnly`: hidden subtrees left out by the engine), else read one level
  * at a time with every field.
@@ -59,15 +59,16 @@ export function readInside(engine: Engine, refs: readonly Guid[], max = SELECTIO
     }
   }
   const out: NodeChange[] = [];
+  // Figma's live order: a layer's children before it, the first child first (a frame's child's colour, then the
+  // frame's; a group's g_a, then g_b). A boolean's operands draw only through the boolean: not read.
   const walk = (id: Guid) => {
     const n = byId.get(id);
-    if (!n) return;
-    const children = n.childIds ?? [];
-    for (let i = children.length - 1; i >= 0; i--) {
-      const c = byId.get(children[i]);
+    if (!n || n.type === "BOOLEAN_OPERATION") return;
+    for (const child of n.childIds ?? []) {
+      const c = byId.get(child);
       if (!c || c.visible === false) continue;
-      out.push(c);
       walk(c.guid);
+      out.push(c);
     }
   };
   for (const r of refs) if (byId.get(r)?.visible !== false) walk(r);
@@ -82,7 +83,7 @@ export function selectionColorsOf(engine: Engine, nodes: readonly PanelNode[]): 
   );
   if (!inside) return { show: false, colors: [] };
   const selected = nodes.filter((n) => n.visible !== false) as NodeChange[];
-  return { show: showSelectionColors(selected, inside), colors: collectColors([...selected, ...inside]) };
+  return { show: showSelectionColors(selected, inside), colors: collectColors([...inside, ...selected]) };
 }
 
 /** The picker's "On this page": every solid colour on the current page, as CSS colours (rgba() when not opaque). */
@@ -124,18 +125,21 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
     <PanelSection title="Selection colors">
       {/* Keyed by place: a scrub changes the colour's identity and must not remount its field */}
       {shown.map((c, i) => (
-        <div key={i} className={styles.paintRow}>
+        <div key={i} className={`${styles.paintRow} ${styles.colorRow}`}>
           <ColorInput
             className={styles.paintField}
-            label="Selection color"
+            label="Color"
+            swatchLabel={c.gradient ? paintLabel(c.gradient) : `Solid color hex: ${colorToHex(c.color).slice(1).toUpperCase()}`}
             color={c.gradient ? paintSwatch(c.gradient) : colorToHex(c.color)}
             valueLabel={c.gradient ? paintLabel(c.gradient) : undefined}
             opacity={toPercent(c.opacity)}
-            onColor={(hex, info) => writeSelectionColor(ed, c.uses, { color: hexToColor(hex) }, info)}
+            onColor={(hex, info, o) => writeSelectionColor(ed, c.uses, { color: hexToColor(hex), ...(o !== undefined ? { opacity: o / 100 } : {}) }, info)}
             onOpacity={(o, info) => writeSelectionColor(ed, c.uses, { opacity: o / 100 }, info)}
             onSwatchClick={(anchor) => onPick({ kind: "colors", uses: c.uses, anchor })}
           />
-          <IconButton icon="24.select-matching.small" label="Select matching layers" tone="secondary" onClick={() => ed.engine.setSelection([...new Set(c.uses.map((u) => u.guid))])} />
+          {/* Figma's live panel: the field as wide as a fill's (156), the target button only on hover */}
+          <span className={styles.colorRowSlot} />
+          <IconButton className={styles.colorRowAction} icon="24.select-matching.small" label="Select matching layers" tone="secondary" onClick={() => ed.engine.setSelection([...new Set(c.uses.map((u) => u.guid))])} />
         </div>
       ))}
       {colors.length > SELECTION_COLORS_SHOWN && (

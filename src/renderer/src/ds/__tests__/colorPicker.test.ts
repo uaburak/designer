@@ -89,9 +89,11 @@ describe("ColorPicker", () => {
     expect([byte(paint.color!.r), byte(paint.color!.g), byte(paint.color!.b)]).toEqual([12, 140, 233]);
   });
 
-  it("switches the paint type: Solid → Linear gives Figma's default stops (the colour to transparent)", () => {
+  it("switches the paint type: Solid → Gradient (Linear) gives Figma's default stops (the colour to transparent)", () => {
     const { onChange } = setup();
-    click($('[role="radio"][aria-label="Linear"]'));
+    // Figma's live picker: Solid, Gradient, (Pattern), Image, Video — the gradient's type in its own dropdown.
+    expect($$('[role="radiogroup"][aria-label="Fill type"] [role="radio"]').map((r) => r.getAttribute("aria-label"))).toEqual(["Solid", "Gradient", "Image", "Video"]);
+    click($('[role="radio"][aria-label="Gradient"]'));
     const [paint, info] = onChange.calls[0];
     expect(info).toEqual({ final: true, source: "pick" });
     expect(paint.type).toBe("GRADIENT_LINEAR");

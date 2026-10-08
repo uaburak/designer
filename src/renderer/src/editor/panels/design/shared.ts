@@ -166,3 +166,27 @@ export function typeLabel(nodes: readonly PanelNode[]): string {
   const names = new Set(nodes.map(nodeTypeLabel));
   return names.size === 1 ? [...names][0] : "Mixed";
 }
+
+/**
+ * What Fill and Stroke edit (Figma's live panel: a group shows its layers' fills — "Click + to replace mixed content"
+ * when they differ — and a change goes to each of them): the selection with every group replaced by its layers,
+ * nested groups too; the selection itself when there's no group in it.
+ */
+export function usePaintTargets(nodes: readonly PanelNode[]): PanelNode[] {
+  const ed = useEditor();
+  const ids: Guid[] | null = nodes.some(isGroupNode) ? [] : null;
+  if (ids) {
+    const expand = (n: NodeChange) => {
+      if (!isGroupNode(n as PanelNode)) {
+        ids.push(n.guid);
+        return;
+      }
+      const children = (ed.engine.readNodes([n.guid], { childIds: true })[0]?.childIds ?? []) as Guid[];
+      for (const c of ed.engine.readNodes(children)) expand(ed.withRealType(c));
+    };
+    for (const n of nodes) expand(n as NodeChange);
+  }
+  const read = useNodes(ids ?? []);
+  if (!ids) return nodes as PanelNode[];
+  return read.filter((n): n is NodeChange => n !== null).map(ed.withRealType) as PanelNode[];
+}

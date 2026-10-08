@@ -23,9 +23,9 @@
   .hug.hug { flex: none; width: auto; }
   .hug .value { flex: none; }
   .hug .trigger { padding-right: var(--ds-space-1); }
-  .ghostField { border-color: transparent; background: transparent; }
-  .ghostField:hover, .ghostField[data-hover] { background: var(--figma-color-bg-hover); border-color: transparent; }
-  .ghostField:focus-within { border-color: transparent; }
-  .ghostField:has(.trigger:focus-visible) { border-color: var(--figma-color-border-selected); }
-  .ghostField[data-open] { background: var(--figma-color-bg-hover); border-color: transparent; }
+  .ghostField { --field-ring: transparent; background: transparent; }
+  .ghostField:hover, .ghostField[data-hover] { background: var(--figma-color-bg-hover); --field-ring: transparent; }
+  .ghostField:focus-within { --field-ring: transparent; }
+  .ghostField:has(.trigger:focus-visible) { --field-ring: var(--figma-color-border-selected); }
+  .ghostField[data-open] { background: var(--figma-color-bg-hover); --field-ring: transparent; }
 }

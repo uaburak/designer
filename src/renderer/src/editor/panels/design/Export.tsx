@@ -12,7 +12,7 @@
  * (schema ExportSettings) on the layer or page.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, Icon, IconButton, MenuButton, PanelSection, Popover, Select, TextInput } from "@/ds";
+import { Button, Checkbox, Icon, IconButton, MenuButton, PanelSection, Popover, Select, TextInput, cx } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { canExport, exportItems, renderExport, type ExportItem } from "../../exporting";
@@ -34,6 +34,7 @@ import {
   type ExportSettings,
 } from "../../model/exports";
 import { fields, useKeeps } from "./shared";
+import { Grip, moved, useReorder } from "./reorder";
 import styles from "./Design.module.css";
 import own from "./Export.module.css";
 
@@ -67,6 +68,8 @@ export function ExportSection({ targets, page }: { targets: ExportTarget[]; page
     .map((t) => ({ ref: page ? null : t.guid, name: t.name ?? "", settings: exportSettingsOf(t) }))
     .filter((i) => i.settings.length > 0);
   const label = targets.length === 1 ? `Export ${targets[0].name ?? ""}` : `Export ${targets.length} layers`;
+  // Rows in list order (the first setting on top); a grip drags one to another place (help 360040028114).
+  const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => writeSettings(ed, refs, moved(list, from, to), "Reorder export settings"));
   const run = async () => {
     setBusy(true);
     try {
@@ -78,11 +81,14 @@ export function ExportSection({ targets, page }: { targets: ExportTarget[]; page
   return (
     <PanelSection title="Export" empty={empty} actions={<IconButton icon="24.plus.small" label="Add export settings" tone="secondary" disabled={!kept} onClick={add} />}>
       {isMixed && <div className={styles.note}>Click + to replace mixed export settings</div>}
+      {list.length > 0 && (
+        <div ref={reorderRef} className={styles.reorderList}>
       {list.map((s, i) => {
         const format = formatOf(s);
         const vector = isVectorFormat(format);
         return (
-          <div key={i} className={styles.paintRow} data-export-row={i}>
+          <div key={i} className={cx(styles.paintRow, dragging === i && styles.rowDragging)} data-export-row={i} data-reorder-row="">
+            {list.length > 1 && <Grip {...grip(i)} />}
             <div className={own.fields}>
               <TextInput
                 className={own.scale}
@@ -128,6 +134,9 @@ export function ExportSection({ targets, page }: { targets: ExportTarget[]; page
           </div>
         );
       })}
+          {dropLine !== null && <div className={styles.dropLine} style={{ top: dropLine }} />}
+        </div>
+      )}
       {!empty && (
         <div className={own.actions}>
           <Button variant="secondary" fullWidth loading={busy} disabled={!exporting || !items.length} onClick={() => void run()} data-export-button="">
