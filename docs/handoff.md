@@ -58,6 +58,19 @@ Round 6 — annotations and Dev Mode (2026-10-08, branch `r6-annotations-devmode
 
 Next: Phase 5 of `docs/roadmap.md` — the Firebase adapter wiring (and a real deploy of previews), `.fig` import polish (docs/data-impl.md "Import fidelity" lists what's left) — unless the owner's review of the app comes first.
 
+## Status at shutdown 2026-10-08 17:30 — READ THIS FIRST
+
+**Owner's direction now:** the Design side must be identical to Figma (selection/canvas, rendering, Layers/left side, Design panel) before Dev Mode or anything else. Figma is the truth: `docs/research/figma/live/` holds exact DOM dumps of the real current Figma UI (positions, sizes, labels, fonts, colours) for every selection type, popover, menu, the left side and the toolbar; `live/figma-dump.js` is the capture helper (inject into figma.com via the built-in browser; the owner signs in; work only in the "Untitled" draft). Canvas screenshots in `live/img/` are local only (git-ignored). The audits of our side against Figma are in `docs/research/audit-2026-10-08/` (selection, render, design, layers).
+
+**Round 7 in progress — four unmerged local branches** (each in a worktree under `.claude/worktrees/`, NOT pushed, each with a "Status at shutdown 2026-10-08" section at the top of the doc it changes):
+- `r7-selection` — frame titles, ⌘-marquee, line endpoints, move/resize modifiers, sections, radius handles, Esc, paste to replace, select matching, overlay palette, then medium items (audit `selection.md`).
+- `r7-render` — AA clips, tiny text, corner smoothing budget, effect rules, Noise/Texture/Glass/Progressive blur, stroke end points, geometry comparator (audit `render.md`).
+- `r7-design-panel` — number-field math/scrub, auto layout padding/wrap gap/Auto spacing, group W/H, corner smoothing UI, paint picker, header actions, section panel (audit `design.md`).
+- `r7-left-panel` — 32 px layer rows and geometry per live, 2026 nav rail (File/Agents/Assets/Tools/Variables), Find, collapse layers, bulk rename, page-row shortcut bug (audit `layers.md`).
+Next session: for each branch read its shutdown status, finish the open items against the live captures, run the full checks, then merge one at a time into main (rebuild the release wasm after each engine merge; command ids and schema field numbers are the usual collision points). The live-capture agent was also recording **behaviour** (Esc, Enter/Tab in fields, math in fields, frame-title clicks, move/resize modifiers, layers keys) into `live/behaviour/` — check what is there and finish the list in `live/README.md`.
+
+Main at the time of writing: round 6 merged (prototype/video, slots/grid/DTCG, annotations/Dev Mode/Compare changes) — 765 vitest, 379 native, engine:shot 97 (WebGL2) / 99 (WebGPU), editor-shot 204.
+
 ## Starting the next session
 
 1. Get the code: `git clone https://github.com/uaburak/designer.git && cd designer && npm install` (Node 24; `.nvmrc`), or `git pull` in an existing clone.
