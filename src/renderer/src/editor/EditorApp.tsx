@@ -51,6 +51,7 @@ import { ExportDialog } from "./ExportDialog";
 import { PresentationView } from "@/present/PresentationView";
 import { editorPresentationSource } from "./present";
 import { ShareDialog } from "./ShareDialog";
+import { InlinePreview } from "./InlinePreview";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -358,6 +359,7 @@ function Overlays() {
       <PublishDialog />
       <ExportDialog />
       <Presenting />
+      <InlinePreview />
       <ShareDialog />
     </>
   );

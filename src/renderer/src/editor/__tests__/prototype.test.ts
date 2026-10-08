@@ -9,7 +9,11 @@ import {
   actionKind,
   actionOfKind,
   animationOf,
+  DEVICE_MODELS,
+  DEVICE_PRESETS,
   deviceLabel,
+  deviceOf,
+  presetIdentifierOf,
   easingLabel,
   guidJson,
   guidOf,
@@ -86,8 +90,20 @@ describe("prototype model", () => {
     expect(guidOf({ sessionID: 1, localID: 2 })).toBe("1:2");
     expect(guidOf("3:4")).toBe("3:4");
     expect(guidJson("5:6")).toEqual({ sessionID: 5, localID: 6 });
-    expect(deviceLabel(undefined)).toBe("None");
+    expect(deviceLabel(undefined)).toBe("No device");
     expect(deviceLabel({ type: "PRESET", presetIdentifier: "IPHONE_16", size: { x: 393, y: 852 } })).toBe("iPhone 16");
+    // Models: the preset's colours in the identifier (the first one: the preset alone).
+    expect(deviceLabel({ type: "PRESET", presetIdentifier: "IPHONE_16_PRO_DESERT_TITANIUM" })).toBe("iPhone 16 Pro");
+    expect(deviceOf("IPHONE_16_PRO_DESERT_TITANIUM")).toMatchObject({ preset: ["IPHONE_16_PRO"], model: "DESERT_TITANIUM" });
+    expect(deviceOf("IPHONE_16_PRO")?.model).toBe("BLACK_TITANIUM");
+    expect(deviceOf("IPHONE_16")?.preset[0]).toBe("IPHONE_16");
+    expect(deviceOf("IPHONE_15_PRO_MAX_BLUE_TITANIUM")?.preset[0]).toBe("IPHONE_15_PRO_MAX");
+    expect(DEVICE_MODELS.IPHONE_15_PRO_MAX).toHaveLength(4);
+    expect(deviceOf("NOKIA_3310")).toBeNull();
+    expect(presetIdentifierOf("IPHONE_16_PRO", "BLACK_TITANIUM")).toBe("IPHONE_16_PRO");
+    expect(presetIdentifierOf("IPHONE_16_PRO", "WHITE_TITANIUM")).toBe("IPHONE_16_PRO_WHITE_TITANIUM");
+    // Every preset has a model.
+    for (const g of DEVICE_PRESETS) for (const p of g.items) expect(DEVICE_MODELS[p[0]]?.length ?? 0).toBeGreaterThan(0);
     expect(nextFlowName([])).toBe("Flow 1");
     expect(nextFlowName(["Flow 1", "Flow 2"])).toBe("Flow 3");
     expect(nextFlowName(["Flow 2"])).toBe("Flow 3");

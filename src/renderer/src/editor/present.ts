@@ -51,6 +51,15 @@ export function present(ed: EditorController, opts: PresentOptions = {}): void {
   ed.ui.set({ presenting: { page, node: node ?? null } });
 }
 
+/** Opens or closes the inline preview (⇧Space; InlinePreview.tsx) at the selection's frame. */
+export function togglePreview(ed: EditorController): void {
+  if (ed.ui.get().preview) {
+    ed.ui.set({ preview: null });
+    return;
+  }
+  ed.ui.set({ preview: { page: ed.store.page, node: presentStart(ed) ?? null } });
+}
+
 /** This editor's document, and its changes as they commit, for a presentation over it. */
 export function editorPresentationSource(ed: EditorController): PresentationSource {
   return {

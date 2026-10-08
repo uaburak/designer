@@ -12,7 +12,7 @@ import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
 import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
 import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportFramesToPdf, hasTextSelected } from "./exporting";
-import { present } from "./present";
+import { present, togglePreview } from "./present";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 
 export interface KeyCombo {
@@ -419,7 +419,7 @@ export const COMMANDS: EditorCommand[] = [
   // Prototyping (R8 §9): Present opens the presentation view in a new tab; "in this tab" over the editor.
   ui("view.present", "Present", [k("Enter", { mod: true, alt: true })], (ed) => present(ed)),
   ui("view.present-here", "Present in this tab", undefined, (ed) => present(ed, { here: true })),
-  later("view.preview", "Preview", [k("Space", { shift: true })]),
+  ui("view.preview", "Preview", [k("Space", { shift: true })], (ed) => togglePreview(ed)),
   ui("view.prototype-tab", "Show prototype panel", undefined, (ed) =>
     ed.ui.set((s) => ({ rightTab: s.rightTab === "prototype" ? "design" : "prototype", uiHidden: false }))
   ),
