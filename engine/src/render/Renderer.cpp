@@ -120,16 +120,11 @@ bool Renderer::DrawState::operator==(const DrawState& o) const {
   return image == o.image && backdrop == o.backdrop && std::memcmp(filters, o.filters, sizeof filters) == 0;
 }
 
-Color Renderer::titleColor(const Color& page, double* alpha) {
+bool Renderer::darkCanvas(const Color& page) {
   // Figma reads the page's luminance: light text on a dark page, dark text on a light one.
   auto linear = [](float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); };
   double l = 0.2126 * linear(page.r) + 0.7152 * linear(page.g) + 0.0722 * linear(page.b);
-  if (l < 0.18) {
-    *alpha = 0.7;  // white at 70 % (Figma's secondary text on dark)
-    return Color{1, 1, 1, 1};
-  }
-  *alpha = 0.5;
-  return Color{0, 0, 0, 1};
+  return l < 0.18;
 }
 
 Renderer::Renderer(gfx::Device& device) : device_(device), curves_(device), images_(device) {}
@@ -1475,7 +1470,10 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   if (only != kNoGuid || exporting_) clear = Color{0, 0, 0, 0};  // a node's thumbnail, an export: transparent around it
   // Frame titles read on the page's colour.
   OverlayStyle adapted = style;
-  adapted.title = titleColor(clear, &adapted.titleAlpha);
+  adapted.darkCanvas = darkCanvas(clear);
+  const Color& title = adapted.darkCanvas ? style.titleOnDark : style.titleOnLight;
+  adapted.title = Color{title.r, title.g, title.b, 1};
+  adapted.titleAlpha = title.a;
   float clearColor[4] = {clear.r, clear.g, clear.b, 1};
   if (only != kNoGuid || exporting_) clearColor[0] = clearColor[1] = clearColor[2] = clearColor[3] = 0;
   const int W = viewport.deviceWidth(), H = viewport.deviceHeight();

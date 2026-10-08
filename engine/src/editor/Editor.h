@@ -254,6 +254,9 @@ class Editor : private LayoutHost, public TextLayouts {
   CursorKind cursor() const { return cursor_; }
   double cursorAngle() const { return cursorAngle_; }
   Guid hover() const { return hover_; }
+  // Frame titles and section pills on screen now (render/FrameTitles.h, measured as the overlay draws them); a press
+  // on one takes its frame (titleAt).
+  std::vector<FrameTitle> titles() const;
 
   // ---- Selection, writes, commands (panels, menus, the Layers panel) ----
   const std::vector<Guid>& selection() const { return selection_; }
@@ -323,6 +326,12 @@ class Editor : private LayoutHost, public TextLayouts {
     Rect rect;
     std::string text;
   };
+  // REQUEST_RENAME: a double-click on a frame's title or a section's pill — TS edits the name in place over `rect`
+  // (CSS px in the canvas).
+  struct RenameRequest {
+    Guid node = kNoGuid;
+    Rect rect;
+  };
   // DEV_STATUS: a click on a design's status chip ("menu") or on "Mark as ready for dev" ("mark").
   struct DevStatusClick {
     Guid frame = kNoGuid;
@@ -346,12 +355,13 @@ class Editor : private LayoutHost, public TextLayouts {
     bool structureAll = false;
     std::vector<PrototypeConnected> prototypeConnected;  // PROTOTYPE_CONNECTED
     std::vector<GridTracksEvent> gridTracks;             // GRID_TRACKS: the grid tracks selected on the canvas
+    std::vector<RenameRequest> renames;                  // REQUEST_RENAME: a double-click on a frame's title
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
       return !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !renames.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -1021,6 +1031,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
   enum class Handle : uint8_t { None, Resize, Rotate };
   Handle handleAt(Vec2 screen, int& hx, int& hy) const;
+  Guid titleAt(Vec2 screen) const;
+  // An overlay label's width in CSS px (Inter Regular at the title size; `section`: Medium at the pill's size).
+  double labelWidth(const std::string& text, bool section) const;
   void updateCursor(Vec2 screen);
   void updateHover(Vec2 screen, uint32_t mods);
   void updateMeasure(uint32_t mods);
@@ -1473,6 +1486,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // selects the pressed layer; a press-drag with nothing movable (instance sublayers, locked layers) is a no-op.
   bool pressInSelected_ = false;
   bool pressNoop_ = false;
+  // Overlay labels measured for hit-testing (labelWidth), by style and text; dropped when the fonts change.
+  mutable std::unordered_map<std::string, double> labelWidths_;
+  mutable uint64_t labelWidthsGeneration_ = ~0ull;
 };
 
 }  // namespace eng

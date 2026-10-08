@@ -871,6 +871,8 @@ export type EngineEvent =
    * `edit`: a pill's label was clicked (or Enter) — the label editor opens at (x, y, width, height), canvas CSS px.
    */
   | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number }
+  /** A frame's title (or a section's pill) was double-clicked: rename it in place over (x, y, width, height), canvas CSS px. */
+  | { type: "REQUEST_RENAME"; ref: Guid; x: number; y: number; width: number; height: number }
   /** Dev Mode: an annotation's label or dot was clicked (index ≥ 0), or the Annotation tool clicked a layer (index −1: a new note); the rect in canvas CSS px. */
   | { type: "ANNOTATION_OPEN"; ref: Guid; index: number; x: number; y: number; width: number; height: number }
   /** Dev Mode: a saved measurement was double-clicked (its custom text); the rect is its value's pill. */

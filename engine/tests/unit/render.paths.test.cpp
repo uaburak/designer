@@ -186,15 +186,20 @@ TEST_CASE("renderer: shadows, layers, blend modes and masks") {
 }
 
 TEST_CASE("renderer: frame titles read on the page's colour") {
-  double a = 0;
-  Color dark = Renderer::titleColor(Color::hex(0x1E1E1E), &a);
-  CHECK(dark.r == 1);
-  CHECK(a == doctest::Approx(0.7));
-  Color light = Renderer::titleColor(Color::hex(0xF5F5F5), &a);
-  CHECK(light.r == 0);
-  CHECK(a == doctest::Approx(0.5));
+  CHECK(Renderer::darkCanvas(Color::hex(0x1E1E1E)));
+  CHECK_FALSE(Renderer::darkCanvas(Color::hex(0xF5F5F5)));
   // A mid-dark page (#555) still gets the light label.
-  CHECK(Renderer::titleColor(Color::hex(0x555555), &a).r == 1);
+  CHECK(Renderer::darkCanvas(Color::hex(0x555555)));
+  // The colours: live Figma's white at 46 % on dark (#ffffff76 over #1e1e1e reads #868686), black at 50 % on light.
+  OverlayStyle s = OverlayStyle::of(Theme::Light);
+  CHECK(s.titleOnDark.r == 1);
+  CHECK(s.titleOnDark.a == doctest::Approx(0x76 / 255.0).epsilon(0.001));
+  CHECK(s.titleOnLight.r == 0);
+  CHECK(s.titleOnLight.a == doctest::Approx(0.5).epsilon(0.01));
+  CHECK(s.titleSelectedOnDark.r == doctest::Approx(0x7C / 255.0).epsilon(0.001));
+  CHECK(s.titleSelectedOnDark.b == doctest::Approx(0xF8 / 255.0).epsilon(0.001));
+  CHECK(s.titleComponentOnDark.r == doctest::Approx(0xD1 / 255.0).epsilon(0.001));
+  CHECK(s.titleComponentOnDark.g == doctest::Approx(0xA8 / 255.0).epsilon(0.001));
 }
 
 TEST_CASE("images: ThumbHash placeholders decode as the reference does (github.com/evanw/thumbhash)") {

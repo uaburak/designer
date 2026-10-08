@@ -51,6 +51,7 @@ add_library(eng_core STATIC
   src/render/Renderer.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp
+  src/render/FrameTitles.cpp
   src/gfx/null/NullDevice.cpp
   src/api/Api.cpp
   src/text/Unicode.cpp
@@ -163,6 +164,7 @@ else()
     tests/unit/prototype.test.cpp
     tests/unit/prototype.video.test.cpp
     tests/unit/devmode.test.cpp
+    tests/unit/r7.selection.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

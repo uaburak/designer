@@ -172,7 +172,7 @@ TEST_CASE("renderer: overlays — hover 2px, selection box, 4 handles, size badg
   CHECK(hover.geom[2] == 1);  // follows the ellipse
   CHECK(hover.geom[0] == 2);  // 2 px
   const DrawInstance& handle = all[all.size() - 6];
-  CHECK(handle.origin[2] == 8);
+  CHECK(handle.origin[2] == 7);  // live Figma: 7 px
   CHECK(handle.color[0] == 1);   // white
   CHECK(handle.paint0[3] == 1);  // the blue border
   const DrawInstance& badge = all[all.size() - 2];
@@ -231,7 +231,7 @@ TEST_CASE("renderer: guides, spacing, ⌥ measurement, insertion and bands are d
   const Color red = Color::hex(0xF24822);
   for (auto& s : shapes) {
     if (s.origin[2] == 1.f && s.origin[3] == 200.f && s.origin[0] == 100.f) guide = s.color[0] == doctest::Approx(red.r);
-    if (s.origin[2] == 10.f && s.origin[3] == 50.f) band = s.color[3] == doctest::Approx(0.15);
+    if (s.origin[2] == 10.f && s.origin[3] == 50.f) band = s.color[3] == doctest::Approx(0x40 / 255.0);
     if (s.origin[2] == 2.f && s.origin[3] == 50.f) insertion = true;
   }
   CHECK(guide);

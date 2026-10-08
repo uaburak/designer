@@ -75,6 +75,8 @@ export interface UIState {
   annotations?: boolean;
   /** The note editor: the layer, which note (−1: a new one), where (viewport px) */
   annotationEditor?: { ref: Guid; index: number; x: number; y: number; width: number; height: number } | null;
+  /** A frame's or section's name edited in place over its title on the canvas (viewport px: the title) */
+  titleRename?: { ref: Guid; name: string; x: number; y: number; width: number; height: number } | null;
   /** A saved measurement's custom text being edited (viewport px: its pill) */
   measurementEditor?: { id: Guid; text: string; x: number; y: number; width: number; height: number } | null;
   /** A design's status menu (viewport px: the chip) */

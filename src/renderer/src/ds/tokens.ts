@@ -405,6 +405,12 @@ export const CHROME_COLORS = [
   "slotStroke",
   "canvasDefault",
   "pixelGrid",
+  "frameTitleSelectedOnLight",
+  "frameTitleSelectedOnDark",
+  "frameTitleComponentOnLight",
+  "frameTitleComponentOnDark",
+  "radiusHandleFill",
+  "radiusHandleStroke",
 ] as const;
 
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
@@ -439,16 +445,30 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   slotStroke: ["#ff24bd", "#f316b0"],
   canvasDefault: ["#f5f5f5", "#1e1e1e"],
   pixelGrid: ["#0000001a", "#ffffff1a"],
+  // Titles of selected frames and of components follow Figma's text-selected / text-component on the page's
+  // background (live Figma 2026-10-08: #7cc4f8 and #d1a8ff over the dark canvas).
+  frameTitleSelectedOnLight: ["#007be5", "#007be5"],
+  frameTitleSelectedOnDark: ["#7cc4f8", "#7cc4f8"],
+  frameTitleComponentOnLight: ["#8638e5", "#8638e5"],
+  frameTitleComponentOnDark: ["#d1a8ff", "#d1a8ff"],
+  // The corner radius handles: white circles with a selection-coloured ring.
+  radiusHandleFill: ["#ffffff", "#ffffff"],
+  radiusHandleStroke: ["#0d99ff", "#0c8ce9"],
 };
 
 /** Chrome metrics in CSS px at any zoom (§1.4). */
 export const canvasChromeMetrics = {
   selectionStroke: 1,
-  hoverStroke: 1,
+  // Live Figma (2026-10-08 captures): a hovered layer's outline is twice the selection's line.
+  hoverStroke: 2,
   handle: 7,
   sizeBadge: { height: 16, padX: 4, radius: 2, gap: 6 },
   titleBaseline: 10,
   ruler: { thickness: 20, tick: 4, fontSize: 10 },
+  titleSize: 11,
+  sectionPill: { height: 20, padX: 6, fontSize: 11 },
+  // Live Figma: a 9 px ring whose centre sits 12 px in from each corner (radius 0).
+  radiusHandle: { size: 9, inset: 12 },
 } as const;
 
 /** What a document paints before anything else (boot.js, main's setBackgroundColor). */

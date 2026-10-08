@@ -55,6 +55,28 @@ std::string formatNumber(double v) {
 
 }  // namespace
 
+void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color) {
+  // Diamonds: squares turned 45°, `d` across their diagonal.
+  auto diamond = [&](Vec2 c, double d, bool filled) {
+    double side = d / std::sqrt(2.0);
+    const double k = std::sqrt(0.5);
+    // A side×side square turned 45° about its centre c: T(c)·R(45°)·T(−side/2, −side/2).
+    Mat2x3 at{k, -k, c.x, k, k, c.y - side * k};
+    emit(makeShape(at, {side, side}, ShapeKind::Rect, {0.5, 0.5, 0.5, 0.5}, color, filled ? color.a : 0, color, filled ? 0 : color.a, filled ? 0 : 1, 0),
+         Pass::Shape);
+  };
+  Vec2 c{box.x + box.w / 2, box.y + box.h / 2};
+  if (icon == TitleIcon::Instance) {
+    diamond(c, box.w - 1, false);
+  } else {
+    double q = box.w / 4;
+    diamond({c.x, c.y - q}, box.w / 2 - 0.5, true);
+    diamond({c.x, c.y + q}, box.w / 2 - 0.5, true);
+    diamond({c.x - q, c.y}, box.w / 2 - 0.5, true);
+    diamond({c.x + q, c.y}, box.w / 2 - 0.5, true);
+  }
+}
+
 void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const double dpr = viewport_.scaleX();  // snap to the canvas's real pixels
   if (recordHits_) hits_ = CanvasHits{};
@@ -142,29 +164,61 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     }
   }
 
-  // Top-level frames' names, above their top-left corner (selection colour when selected).
+  // Frames' names above their top-left corner (top-level frames and those directly in sections), sections' pills
+  // (render/FrameTitles.cpp: the same boxes the editor hit-tests).
   // Prototype mode: flow starting point labels (before the titles: a title moves right past its frame's label).
   if (overlay.prototype.on) drawPrototypeLabels(doc, camera, overlay, style);
   if (overlay.frameTitles && page != kNoGuid) {
-    for (Guid c : doc.children(page)) {
-      const Node* n = doc.get(c);
-      if (!n || !n->props.visible || !(n->props.isFrameLike()) || n->props.type == NodeType::SECTION) continue;
-      if (overlay.dev.focus != kNoGuid && overlay.dev.focus != c) continue;
-      Rect b = transformedBounds(view * doc.worldTransform(c), n->props.size.x, n->props.size.y);
-      if (!b.intersects({screen_.x - 200, screen_.y - 40, screen_.w + 400, screen_.h + 80}) || b.w < 12) continue;
-      bool isSelected = false;
-      for (Guid s : overlay.selection) isSelected |= s == c;
-      const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, b.w);
+    // The title colours follow the page's background (Figma: light text on a dark canvas), not the UI theme.
+    const bool darkPage = style.darkCanvas;
+    const Color& grey = darkPage ? style.titleOnDark : style.titleOnLight;
+    const Color& selectedText = darkPage ? style.titleSelectedOnDark : style.titleSelectedOnLight;
+    const Color& componentText = darkPage ? style.titleComponentOnDark : style.titleComponentOnLight;
+    auto measure = [&](const std::string& name, bool section) {
+      double size = section ? style.sectionTitleSize : style.titleSize;
+      const text::TextLayout* L = label(name, section ? "Medium" : "Regular", size);
+      return L ? L->size.x : 6.2 * static_cast<double>(name.size()) * size / 11;
+    };
+    auto has = [](const std::vector<Guid>& ids, Guid id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
+    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus)) {
+      const Node* n = doc.get(t.id);
+      if (!n) continue;
+      bool isSelected = has(overlay.selection, t.id), hovered = has(overlay.hover, t.id);
+      if (t.section) {
+        // The pill: the section's own colour a shade darker (the selection colour when selected or hovered), its
+        // name in Inter Medium.
+        Color fill = Color::hex(0xE6E6E6);
+        for (const Paint& p : n->props.fillPaints)
+          if (p.visible && p.type == PaintType::SOLID) fill = Color{p.color.r * 0.9f, p.color.g * 0.9f, p.color.b * 0.9f, 1};
+        bool darkFill = 0.2126 * fill.r + 0.7152 * fill.g + 0.0722 * fill.b < 0.5;
+        Color ink = darkFill ? Color{1, 1, 1, 1} : Color{0, 0, 0, 0.9f};
+        if (isSelected || hovered) fill = blue, ink = white;
+        const Rect& h = t.hit;
+        const double r = 2;
+        emit(makeShape(Mat2x3::translate(std::round(h.x * dpr) / dpr, std::round(h.y * dpr) / dpr), {h.w, h.h}, ShapeKind::Rect, {r, r, r, r}, fill,
+                       1, fill, 0, 0, 0),
+             Pass::Shape);
+        const text::TextLayout* L = label(n->props.name, "Medium", style.sectionTitleSize, t.text.w);
+        if (L && !L->lines.empty()) {
+          double ty = std::round((h.y + (h.h - L->lines[0].height) / 2) * dpr) / dpr;
+          drawGlyphs(*L, Mat2x3::translate(std::round(t.text.x * dpr) / dpr, ty), Color{ink.r, ink.g, ink.b, 1}, ink.a);
+        }
+        continue;
+      }
+      // Components' and instances' names in the component purple, after Figma's icon; a selected frame's in the
+      // selection's text colour; others grey.
+      Color ink = n->props.isComponentish() ? componentText : isSelected ? selectedText : grey;
+      if (t.icon != TitleIcon::None) drawTitleIcon(t.icon, t.iconBox, ink);
+      double x = std::round((t.text.x + overlay.prototype.labelWidth(t.id)) * dpr) / dpr;
+      double baseline = std::round(t.baseline * dpr) / dpr;
+      double room = t.frame.right() - x;
+      if (room < 1) continue;
+      const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, room);
       if (!L || L->lines.empty()) continue;
-      double x = std::round((b.x + overlay.prototype.labelWidth(c)) * dpr) / dpr;
-      double baseline = std::round((b.y - style.titleBaselineGap) * dpr) / dpr;
-      Mat2x3 m = Mat2x3::translate(x, baseline - L->lines[0].baseline);
-      // Components' and sets' names are in the component purple (Figma).
-      if (n->props.isComponentish()) drawGlyphs(*L, m, style.component, 1);
-      else drawGlyphs(*L, m, isSelected ? blue : style.title, isSelected ? 1 : style.titleAlpha);
+      drawGlyphs(*L, Mat2x3::translate(x, baseline - L->lines[0].baseline), Color{ink.r, ink.g, ink.b, 1}, ink.a);
       // Dev Mode: the design's status (or, hovered or selected, "Mark as ready for dev") after its name.
       for (const DevStatusMark& mark : overlay.dev.statuses)
-        if (mark.frame == c) drawStatusChip(mark, x + L->size.x + 6, baseline, style);
+        if (mark.frame == t.id) drawStatusChip(mark, x + L->size.x + 6, baseline, style);
     }
   }
 

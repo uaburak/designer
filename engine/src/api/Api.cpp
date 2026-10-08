@@ -385,6 +385,11 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("x").number(g.label.x).key("y").number(g.label.y).key("width").number(g.label.w).key("height").number(g.label.h);
     w.endObject();
   }
+  for (auto& r : ev.renames) {
+    w.beginObject().key("type").string("REQUEST_RENAME").key("ref").string(r.node.toString());
+    w.key("x").number(r.rect.x).key("y").number(r.rect.y).key("width").number(r.rect.w).key("height").number(r.rect.h);
+    w.endObject();
+  }
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
     w.beginObject().key("type").string("CONTEXT_MENU");

@@ -31,6 +31,7 @@
 #include "render/Camera.h"
 #include "render/CurveCache.h"
 #include "render/DrawInstance.h"
+#include "render/FrameTitles.h"
 #include "render/ImageCache.h"
 #include "render/OverlayStyle.h"
 #include "render/RenderTree.h"
@@ -317,8 +318,9 @@ class Renderer {
   size_t poolTargets() const { return pool_.size(); }
   uint64_t poolTargetBytes() const { return poolBytes(); }
 
-  // The frame-title colour for a page colour (Figma picks it by the page's luminance).
-  static Color titleColor(const Color& page, double* alpha);
+  // Whether a page colour is dark: frame titles then use their on-dark colours (Figma picks them by the page's
+  // luminance, not the UI theme).
+  static bool darkCanvas(const Color& page);
 
  private:
   enum class Pass : uint8_t {
@@ -424,6 +426,8 @@ class Renderer {
   // the measurement tool's edges and draft; a frame title's status chip (`x`: where it starts, `baseline`).
   void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   void drawStatusChip(const DevStatusMark& mark, double x, double baseline, const OverlayStyle& style);
+  // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
+  void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color);
   // Render-tree node `i`'s props: the scene item's override when it has one (renderScene), else the document's.
   const NodeProps& propsAt(uint32_t i) const {
     const RenderNode& rn = tree_->nodes()[i];

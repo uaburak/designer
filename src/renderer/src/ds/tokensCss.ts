@@ -85,8 +85,8 @@ ${rows(0)}
 inline constexpr float kChromeDark[size_t(ChromeColor::Count)][4] = {
 ${rows(1)}
 };
-struct ChromeMetrics { float selectionStroke, hoverStroke, handle, badgeHeight, badgePadX, badgeRadius, badgeGap, titleBaseline, rulerThickness, rulerTick, rulerFontSize; };
-inline constexpr ChromeMetrics kChromeMetrics{ ${[m.selectionStroke, m.hoverStroke, m.handle, m.sizeBadge.height, m.sizeBadge.padX, m.sizeBadge.radius, m.sizeBadge.gap, m.titleBaseline, m.ruler.thickness, m.ruler.tick, m.ruler.fontSize].join(", ")} };
+struct ChromeMetrics { float selectionStroke, hoverStroke, handle, badgeHeight, badgePadX, badgeRadius, badgeGap, titleBaseline, rulerThickness, rulerTick, rulerFontSize, titleSize, sectionPillHeight, sectionPillPadX, sectionPillFontSize, radiusHandle, radiusHandleInset; };
+inline constexpr ChromeMetrics kChromeMetrics{ ${[m.selectionStroke, m.hoverStroke, m.handle, m.sizeBadge.height, m.sizeBadge.padX, m.sizeBadge.radius, m.sizeBadge.gap, m.titleBaseline, m.ruler.thickness, m.ruler.tick, m.ruler.fontSize, m.titleSize, m.sectionPill.height, m.sectionPill.padX, m.sectionPill.fontSize, m.radiusHandle.size, m.radiusHandle.inset].join(", ")} };
 }
 `;
 }

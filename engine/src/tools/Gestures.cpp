@@ -12,6 +12,7 @@
 #include "hit/HitTest.h"
 #include "hit/Marquee.h"
 #include "hit/Picking.h"
+#include "text/Fonts.h"
 
 namespace eng {
 
@@ -47,6 +48,57 @@ double distanceToSegment(Vec2 p, Vec2 a, Vec2 b) {
 double degrees(Vec2 v) { return std::atan2(v.y, v.x) * 180 / kPi; }
 
 }  // namespace
+
+// ---- Frame titles -----------------------------------------------------------
+
+double Editor::labelWidth(const std::string& name, bool section) const {
+  text::FontRegistry& fonts = text::FontRegistry::get();
+  if (labelWidthsGeneration_ != fonts.generation() || labelWidths_.size() > 4096) {
+    labelWidths_.clear();
+    labelWidthsGeneration_ = fonts.generation();
+  }
+  const OverlayStyle style = OverlayStyle::of(theme_);
+  double size = section ? style.sectionTitleSize : style.titleSize;
+  std::string key = (section ? "M\n" : "R\n") + name;
+  if (auto it = labelWidths_.find(key); it != labelWidths_.end()) return it->second;
+  // As Renderer::label lays it out (Inter, auto width); a rough width until Inter has loaded.
+  double w = 6.2 * static_cast<double>(name.size()) * size / 11;
+  FontName font{"Inter", section ? "Medium" : "Regular", ""};
+  // Never requests the font (the overlay's labels do): only measured once it is in.
+  if (fonts.state(font) == text::FontRegistry::State::Ready && fonts.find(font, nullptr)) {
+    NodeProps p;
+    p.type = NodeType::TEXT;
+    p.text().textData.characters = name;
+    p.text().fontName = font;
+    p.text().fontSize = size;
+    p.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+    auto layout = text::layoutText(p, text::LayoutOptions{});
+    if (layout && !layout->pendingFont) w = layout->size.x;
+    else return w;  // not cached: measured again once the font is in
+  }
+  labelWidths_[key] = w;
+  return w;
+}
+
+std::vector<FrameTitle> Editor::titles() const {
+  if (page_ == kNoGuid) return {};
+  Rect screen{0, 0, viewport_.width, viewport_.height};
+  return frameTitles(doc_, page_, camera_.matrix(), screen, OverlayStyle::of(theme_),
+                     [&](const std::string& name, bool section) { return labelWidth(name, section); }, dev_.focus);
+}
+
+Guid Editor::titleAt(Vec2 s) const {
+  if (tool_ != Tool::MOVE || spaceHeld_) return kNoGuid;
+  std::vector<FrameTitle> list = titles();
+  // The topmost title first (later frames paint over earlier ones); locked frames' titles don't take a press.
+  for (auto it = list.rbegin(); it != list.rend(); ++it) {
+    if (!it->hit.contains(s)) continue;
+    const Node* n = doc_.get(it->id);
+    if (n && n->props.locked) continue;
+    return it->id;
+  }
+  return kNoGuid;
+}
 
 // ---- Handles, cursor, hover -------------------------------------------------
 
@@ -106,6 +158,7 @@ void Editor::updateCursor(Vec2 s) {
   if (!viewer_ && gesture_ == Gesture::None && gridCursor(s)) return;
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
+  if (h == Handle::Rotate && titleAt(s) != kNoGuid) h = Handle::None;  // a title takes the press, not the rotation zone
   if (h == Handle::None) return changeCursor(CursorKind::DEFAULT);
   // The angle of the handle's direction on screen (0 = pointing right).
   SelectionBox box = selectionBox(doc_, selection_);
@@ -119,10 +172,14 @@ void Editor::updateCursor(Vec2 s) {
 void Editor::updateHover(Vec2 s, uint32_t mods) {
   Guid next = kNoGuid;
   int hx, hy;
-  if ((tool_ == Tool::MOVE || tool_ == Tool::ANNOTATION) && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) == Handle::None) {
-    auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel());
-    focusFilter(path);
-    next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
+  if ((tool_ == Tool::MOVE || tool_ == Tool::ANNOTATION) && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) != Handle::Resize) {
+    // Over a frame's title: that frame (Figma outlines it).
+    next = titleAt(s);
+    if (next == kNoGuid && handleAt(s, hx, hy) == Handle::None) {
+      auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel());
+      focusFilter(path);
+      next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
+    }
   }
   devHover(s);
   if (next != hover_) {
@@ -351,6 +408,31 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (h == Handle::Resize) {
     startResize(hx, hy);
     gesture_ = Gesture::Resize;
+    return P_HANDLED | P_CAPTURE;
+  }
+  // A frame's title (or a section's pill): a press selects the frame (⇧ adds or removes it), a drag moves it,
+  // a double-click renames it in place.
+  if (Guid titled = titleAt(s); titled != kNoGuid) {
+    if (!viewer_ && clickCount_ >= 2 && !(mods & MOD_SHIFT)) {
+      changeSelection({titled});
+      for (const FrameTitle& t : titles())
+        if (t.id == titled) {
+          Rect r = t.section ? t.hit : Rect{t.text.x - 2, t.text.y - 2, std::max(t.frame.right() - t.text.x, 60.0) + 4, t.text.h + 4};
+          events_.renames.push_back({titled, r});
+        }
+      needsRender_ = true;
+      return P_HANDLED;
+    }
+    pressed_ = titled;
+    pressMarquee_ = pressInSelected_ = pressNoop_ = false;
+    marqueeScope_ = kNoGuid;
+    pressedWasSelected_ = selected(titled);
+    if (!pressedWasSelected_) {
+      std::vector<Guid> next = (mods & MOD_SHIFT) ? selection_ : std::vector<Guid>{};
+      next.push_back(titled);
+      changeSelection(std::move(next));
+    }
+    gesture_ = Gesture::Press;
     return P_HANDLED | P_CAPTURE;
   }
   if (h == Handle::Rotate) {
