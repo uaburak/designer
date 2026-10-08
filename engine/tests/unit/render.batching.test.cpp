@@ -271,3 +271,55 @@ TEST_CASE("renderer: GPU memory stays bounded while a zoom changes layers' sizes
   CHECK(r.poolTargetBytes() <= Renderer::kPoolBudgetBytes);
   CHECK(peak <= Renderer::kPoolBudgetBytes + cache + (64ull << 20));
 }
+
+TEST_CASE("renderer: no pass samples the texture it draws into, while the layer pool evicts mid-frame") {
+  // The presentation view's layers are screen-sized (a layer may be anywhere there: no culling), so a few shadows
+  // and blurs on a Retina screen fill the pool's budget, and acquiring a blur's next target evicts an idle one in
+  // the middle of the frame. The pool once erased it from a deque, which moves the targets after it: a blur still
+  // holding a pointer into the pool then drew into the very target it sampled — WebGPU rejects the frame ("includes
+  // writable usage and another usage in the same synchronization scope"), WebGL draws garbage.
+  Document d;
+  base(d);
+  std::string key;
+  for (uint32_t i = 1; i <= 5; i++) {
+    key = fractional::keyBetween(key, std::nullopt, fractional::Bias::Low);
+    NodeChange e = make({1, i}, NodeType::ELLIPSE, kPage, key, {i * 10.0, i * 10.0, 1400, 860});
+    Effect shadow;
+    shadow.type = EffectType::DROP_SHADOW;
+    shadow.radius = 40;
+    shadow.offset = {0, 8};
+    Effect blur;
+    blur.type = EffectType::FOREGROUND_BLUR;
+    blur.radius = 24.0 * i;
+    e.props.effects = {shadow, blur};
+    if (i % 2) {
+      Effect back;
+      back.type = EffectType::BACKGROUND_BLUR;
+      back.radius = 30;
+      e.props.effects.push_back(back);
+    }
+    e.props.opacity = 0.8;
+    d.apply(e);
+  }
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  const gfx::TargetId kSentinel = dev.createTarget(1, 1);  // ids made from here on are the pool's
+  uint64_t created = 0;
+  for (int frame = 0; frame < 24; frame++) {
+    // The blurs change every frame (an animation): their downsampled targets change size, the pool evicts.
+    for (uint32_t i = 1; i <= 5; i++) {
+      NodeChange c = NodeChange::changed({1, i});
+      c.mask = F_EFFECTS;
+      c.props.effects = d.get({1, i})->props.effects;
+      c.props.effects[1].radius = 8.0 + ((frame * 7 + i * 13) % 40) * 4;
+      d.apply(c);
+    }
+    r.render(d, kPage, Camera{}, {1440, 900, 2, 2880, 1800}, Overlay{}, kDark);
+    REQUIRE(dev.hazards == 0);
+    CHECK(r.poolTargetBytes() <= Renderer::kPoolBudgetBytes);
+  }
+  created = dev.createTarget(1, 1) - kSentinel - 1;
+  // The case this is about happened: the pool made more targets than it keeps (it evicted).
+  MESSAGE("pool: " << created << " targets made, " << r.poolTargets() << " kept");
+  CHECK(created > r.poolTargets() + 4);
+}

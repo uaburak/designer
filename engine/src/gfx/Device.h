@@ -13,7 +13,9 @@
 // uploaded by JavaScript). No MSAA: every edge is anti-aliased analytically.
 #pragma once
 
+#include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <span>
 
 namespace eng::gfx {
@@ -101,6 +103,30 @@ struct DrawCall {
   // node alpha, 2 backdrop. Blur: 0 source.
   TextureId textures[3] = {0, 0, 0};
 };
+
+// A render pass never samples the texture it renders into: WebGPU rejects the whole command buffer ("includes
+// writable usage and another usage in the same synchronization scope" — the frame is lost), WebGL calls it a
+// feedback loop (undefined). Something that needs the pixels it draws over copies them first (copyToTexture) or
+// draws into another target. The slot of `call`'s textures that is `attachment`, or −1.
+inline int samplesAttachment(const DrawCall& call, TextureId attachment) {
+  if (!attachment) return -1;
+  for (int i = 0; i < 3; i++)
+    if (call.textures[i] == attachment) return i;
+  return -1;
+}
+
+// A draw (or copy) the backend caught breaking that rule, before it reached the GPU: the backend skips it — the
+// rest of the frame still draws — and says so on the console (stderr: a console warning in the browser; the headless
+// checks fail on it). A debug build stops there.
+inline void reportSampledAttachment(const char* backend, TargetId target, TextureId texture, int slot) {
+  static int reported = 0;
+  if (reported < 20) {
+    reported++;
+    std::fprintf(stderr, "%s: a render pass sampled the texture it renders into (target %u, texture %u, slot %d): skipped\n", backend, target,
+                 texture, slot);
+  }
+  assert(!"a render pass samples its own attachment (gfx::samplesAttachment)");
+}
 
 struct Caps {
   uint32_t maxTextureSize = 4096;

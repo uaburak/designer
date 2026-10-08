@@ -32,6 +32,7 @@ bool NullDevice::beginPass(const PassDesc& pass) {
   }
   lastPass = pass;
   passes++;
+  passTexture_ = pass.target ? targets_[pass.target].texture : 0;
   if (pass.target)
     for (int i = 0; i < 4; i++) targets_[pass.target].clear[i] = pass.clear[i];
   return true;
@@ -63,6 +64,11 @@ bool NullDevice::readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba
 }
 
 void NullDevice::draw(const DrawCall& call) {
+  // The backends' rule, kept by every native test (a debug build stops on it).
+  if (int slot = samplesAttachment(call, passTexture_); slot >= 0) {
+    hazards++;
+    reportSampledAttachment("NullDevice", lastPass.target, passTexture_, slot);
+  }
   Recorded r{call, pipelines_.at(call.pipeline), {}};
   if (call.instances.buffer) {
     const auto& b = buffers_.at(call.instances.buffer);

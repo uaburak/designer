@@ -18,7 +18,11 @@
 //   EDITOR_ONLY=grid node …                                        (only the grid auto layout section: flow, counts, tracks, gaps, spans)
 //   EDITOR_ONLY=text node …                                        (only the text round: specimen, Mixed runs, Type settings, links, lists)
 //   EDITOR_ONLY=fonts node …                                       (only the fonts section: font picker, Google fonts, Missing fonts)
-/* global process, console, window, document, navigator, requestAnimationFrame, fetch */
+//   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
+//
+// Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
+// own check skipped (gfx::samplesAttachment). The browser is closed after EDITOR_TIMEOUT seconds (default 180).
+/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -47,20 +51,54 @@ function chromiumPath() {
 let server = null;
 let base = process.env.EDITOR_URL;
 if (!base) {
-  server = await createServer({ configFile: path.join(repo, "vite.web.config.ts"), mode: "demo", server: { port: 0, strictPort: false }, logLevel: "error" });
+  server = await createServer({ configFile: path.join(repo, "vite.web.config.ts"), mode: "demo", server: { port: Number(process.env.SHOT_PORT ?? 5312), strictPort: false }, logLevel: "error" });
   await server.listen();
   base = server.resolvedUrls.local[0].replace(/\/$/, "");
 }
 
-const browser = await chromium.launch({ executablePath: chromiumPath(), args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+const gfx = process.env.EDITOR_GFX === "webgpu" ? "webgpu" : "webgl";
+const browser = await chromium.launch({
+  executablePath: chromiumPath(),
+  args:
+    gfx === "webgpu"
+      ? ["--enable-unsafe-webgpu", "--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"]
+      : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
+});
+// The machine is someone's: a hung run doesn't keep a browser (and its GPU memory) around.
+const hardStop = setTimeout(async () => {
+  console.error(`editor-shot: stopped after ${process.env.EDITOR_TIMEOUT ?? 180} s`);
+  await browser.close().catch(() => {});
+  await server?.close().catch(() => {});
+  process.exit(2);
+}, Number(process.env.EDITOR_TIMEOUT ?? 180) * 1000);
+hardStop.unref();
+// GPU errors from any page of any context (the engine logs them as warnings: WebGPU's uncaptured errors, its own
+// gfx::samplesAttachment check).
+const gpuError = /WebGPU error|GPUDevice|GPUValidationError|Invalid CommandBuffer|is invalid due to a previous error|sampled the texture it renders into|feedback loop|GL_INVALID/i;
+const gpuProblems = [];
+const newContext = browser.newContext.bind(browser);
+browser.newContext = async (options) => {
+  const context = await newContext(options);
+  context.on("console", (m) => {
+    if (gpuError.test(m.text())) gpuProblems.push(m.text());
+  });
+  return context;
+};
+const gfxQuery = gfx === "webgpu" ? "&gfx=webgpu" : "";
 const results = [];
 const problems = [];
 const files = [];
 const check = (name, ok, detail = "") => results.push(`${ok ? "ok  " : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`);
 
+let openedOnWebGPU = false;
 async function open(page, query) {
-  await page.goto(`${base}/?editor${query}`);
+  await page.goto(`${base}/?editor${query}${gfxQuery}`);
   await page.waitForFunction(() => window.__designerEditor && !window.__designerEditor.engine.destroyed, null, { timeout: 20000 });
+  if (gfx === "webgpu" && !openedOnWebGPU) {
+    openedOnWebGPU = true;
+    const backend = await page.evaluate(() => window.__designerEditor.engine.gfx);
+    check("the canvas draws with WebGPU", backend === "webgpu", backend);
+  }
   await settle(page);
 }
 const settle = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -1265,6 +1303,7 @@ async function prototypeSection(page, theme) {
   let p = await preview();
   check("⇧Space opens the inline preview at the selected frame", (await page.locator("[data-inline-preview]").count()) === 1 && p.screen === "2:1", JSON.stringify(p));
   await shot(page, `105-inline-preview-${theme}`);
+  if (gfx === "webgpu") check("the inline preview's own engine draws with WebGPU too", (await page.evaluate(() => window.__designerPreview.gfx)) === "webgpu");
   const previewPoint = async (x, y) => {
     const s = await preview();
     const r = await page.locator("#preview-canvas").boundingBox();
@@ -1336,12 +1375,13 @@ async function prototypeSection(page, theme) {
     const mem = await s.getDevStore().ready;
     return (await mem.addFile({ name: "Prototype file", folderId: null, snapshot: encodeMessage(s.messageToKiwi(PROTOTYPE_DOCUMENT)) })).fileKey;
   }, repo);
-  await page.goto(`${base}/?present&file=${fileKey}`);
+  await page.goto(`${base}/?present&file=${fileKey}${gfxQuery}`);
   await page.waitForFunction(() => window.__designerPresent && window.__designerPresent.presentState().active, null, { timeout: 15000 });
   await page.waitForTimeout(300);
   s = await state();
   check("?present&file= plays the store's file (read-only) at its flow", s.screen === "2:1" && s.flowName === "Onboarding", JSON.stringify(s));
   await shot(page, `104-present-route-${theme}`);
+  if (gfx === "webgpu") check("?present&file= draws with WebGPU", (await page.evaluate(() => window.__designerPresent.gfx)) === "webgpu");
 }
 
 /** Grid auto layout on `?editor&doc=reference` (dark): the Grid flow, its counts, track sizes, gaps, spans, the track pills. */
@@ -1820,6 +1860,8 @@ try {
     }
     await context.close();
   }
+  check(`no GPU validation errors on the console (${gfx === "webgpu" ? "WebGPU" : "WebGL2"})`, gpuProblems.length === 0,
+    gpuProblems.length ? `${gpuProblems.length}: ${gpuProblems[0].slice(0, 300)}` : "");
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);
   if (problems.length) console.log(`\nconsole:\n${problems.join("\n")}`);
