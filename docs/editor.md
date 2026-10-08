@@ -6,6 +6,20 @@
 
 ---
 
+## Status at handoff (2026-10-08, Figma parity round 4 — fonts per page, typed facet reads, kiwi-only loads)
+
+The editor's side of the engine's round 4 (`docs/engine-build.md` "Figma parity round 4"); the round-3 section below still holds unless changed here. Both items under "Needed from the engine" in round 3 are done engine-side: the engine's snapshot keeps every reference the file holds (the owner's file's derived snapshot is adopted; its second open paints the chrome in 0.86 s from stored glyphs and instance layout), and frames bound to `Table/Padding` read what Figma stored (slot content resolved where its slot is).
+
+- **Fonts: the shown page's only** (`openFonts.ts`): the other pages' fonts are no longer prefetched on idle — as Figma loads a page and its read dependencies on demand, the engine asks for a page's fonts itself when the page is first shown (`requestFonts(plan, {prefetch: true})` keeps the prefetch for a caller that wants it). With the engine's stricter per-page loading, opening the owner's file asks for 6 fonts, all before `engine_load` (was 27, 21 of them after the load and most of them for other pages).
+- **Typed reads during gestures** (`src/renderer/src/engine/EngineStore.ts`, `Engine.readFacets`, `facets.generated.ts`): the node cache behind `useNodes` patches a node after geometry-only changes (NODES_CHANGED's GEOMETRY group: every frame of a drag or a resize) from one `engine_read_facets` read of the `geometry`, `shape` and `stroke` facets, instead of reading every field of the selection as JSON each frame; any other change reads the node in full, as before. The Design panel's X / Y / W / H, corners, constraints and auto-layout child fields come from those values while dragging.
+- **`Engine.load` sends kiwi**: the engine reads documents as kiwi only; a memory source's or a demo's Message (the engine's JSON shape) is encoded by the facade (`messageToKiwi` + the shared codec), so the `?editor` demos and the tests load the way the app does. `messageToKiwi` takes an image hash as hex too.
+
+Measured (`scripts/engine-bench.mjs`, owner's file): see engine-build.md's round-4 status (open, second open, `--editor` frames).
+
+Tests: `__tests__/openFonts.test.ts` (no prefetch unless asked); `src/renderer/src/engine/__tests__/engine.wasm.test.ts` "typed facet reads (round 4)" (every facet field equals `engine_read_nodes`' value; the store patches a drag's frames, reads in full after a rename).
+
+Needed from the engine (next): writes through typed setters (`engine_set_props` is JSON), the Layers rows as typed reads, and the facade's Message methods (apply / paste / library payloads) as kiwi so `CodecJson`'s Message paths can go.
+
 ## Status at handoff (2026-10-07, Figma parity round 3 — kiwi load, derived snapshots, two-pass Layers, progressive images, spare view, fonts by page)
 
 The round after the two performance rounds, built against the engine's "Figma parity round 3 — API" (top of `docs/engine-build.md`) with feature detection, so the editor runs on the committed wasm meanwhile and takes the new paths once the round-3 build lands (`src/renderer/src/editor/engineCompat.ts`: `engineWireFormat` = the facade's `loadKiwi` and the module's `set_wire_format` export; `engineDerivedDataVersion`; `encodeDocumentBytes`; `applyEngineBytes`; `changeBytesOf`). Rules that now hold:

@@ -366,7 +366,7 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
     const geom::FillRegion& region = g->fills[r];
     const std::vector<Paint>* paints = &fills;
     if (!whiteMask && region.styleID) {
-      const VectorStyle* st = p.vectorData.style(region.styleID);
+      const VectorStyle* st = p.shape().vectorData.style(region.styleID);
       if (st && (st->mask & VS_FILLS)) paints = &st->fillPaints;
     }
     if (!anyVisible(*paints)) continue;
@@ -379,9 +379,9 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
 
 void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha) {
   if (!(p.strokeWeight > 0) || !anyVisible(p.strokePaints)) return;
-  bool independent = p.borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
+  bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
   // A dashed frame stroke (a component set's) goes through the stroker like a dashed rectangle's.
-  bool dashedFrame = p.isFrameLike() && !p.dashPattern.empty();
+  bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
   bool sdf = !p.isPathShape() && !independent && !dashedFrame && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
@@ -405,7 +405,7 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   double tol = toleranceOf(level);
   if (independent) {
     // Per-side weights: the ring between the box and the box inset by each side's weight (aligned as asked).
-    const auto& bw = p.borderWeights;  // top, right, bottom, left
+    const auto& bw = p.stroke().borderWeights;  // top, right, bottom, left
     double k0 = p.strokeAlign == StrokeAlign::INSIDE ? 0 : p.strokeAlign == StrokeAlign::OUTSIDE ? 1 : 0.5;
     double t = bw[0], r = bw[1], b = bw[2], l = bw[3];
     Rect outerBox{-l * k0, -t * k0, p.size.x + (l + r) * k0, p.size.y + (t + b) * k0};
@@ -433,7 +433,7 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   style.join = p.strokeJoin;
   style.miterLimit = p.miterLimit;
   style.cap = p.strokeCap;
-  style.dashes = p.dashPattern;
+  style.dashes = p.stroke().dashPattern;
   style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
   Hash h;
   h.add(g->strokeKey).add(style.width).add(style.join).add(style.miterLimit).add(style.cap).add(level).add(0x57ull);
@@ -458,7 +458,7 @@ namespace {
 // Whether a node's shadows can be drawn analytically: a rectangle or frame without smoothing, with an
 // opaque solid fill hiding what is under it (and a frame clipping its children to it).
 bool analyticShadows(const NodeProps& p, bool hasChildren) {
-  if (!(p.isRectLike() || p.isFrameLike()) || p.cornerSmoothing > 0) return false;
+  if (!(p.isRectLike() || p.isFrameLike()) || p.stroke().cornerSmoothing > 0) return false;
   bool opaque = false;
   for (auto& f : p.fillPaints)
     opaque |= f.visible && f.type == PaintType::SOLID && f.opacity >= 1 && f.color.a >= 1 &&
@@ -593,7 +593,7 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
   // inside batches with everything else), when it combines with the one already in force.
   RoundClip next;
   bool rounded = false;
-  if (!square && p.cornerSmoothing <= 0 && nearlyAxisAligned(m)) {
+  if (!square && p.stroke().cornerSmoothing <= 0 && nearlyAxisAligned(m)) {
     Rect r = transformedBounds(m, p.size.x, p.size.y);
     next.on = true;
     next.rect[0] = static_cast<float>(r.x * sx), next.rect[1] = static_cast<float>(r.y * sy);
@@ -618,7 +618,7 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
   } else if (rounded) {
     scissorTo(transformedBounds(m, p.size.x, p.size.y));
     round_ = next;
-  } else if (p.cornerSmoothing > 0) {
+  } else if (p.stroke().cornerSmoothing > 0) {
     // Smoothed corners: the path into the stencil.
     clip.stencil = true;
     clip.path = true;
@@ -774,13 +774,13 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
   if (p.isFrameLike()) {
     bool clips = p.clipsContent();
     bool grids = false;
-    for (auto& g : p.layoutGrids) grids |= g.visible;
+    for (auto& g : p.rare().layoutGrids) grids |= g.visible;
     if (rn.hasChildren || grids) {
       if (clips) pushClip(doc, id, p, m);
       drawChildren(doc, i + 1, rn.end, m, alpha);
       if (grids) {
         // Layout guides over the frame's content (columns, rows, grid).
-        for (const LayoutGrid& g : p.layoutGrids) {
+        for (const LayoutGrid& g : p.rare().layoutGrids) {
           if (!g.visible) continue;
           bool x = g.axis == Axis::X;
           double len = x ? p.size.x : p.size.y, across = x ? p.size.y : p.size.x;
@@ -1439,8 +1439,8 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   tree_ = &tree;
   // The page's own colour, unless it is Figma's default (#F5F5F5), which follows the theme.
   Color clear = style.canvas;
-  if (const Node* pg = doc.get(page); pg && pg->props.backgroundEnabled) {
-    const Color& bg = pg->props.backgroundColor;
+  if (const Node* pg = doc.get(page); pg && pg->props.rare().backgroundEnabled) {
+    const Color& bg = pg->props.rare().backgroundColor;
     Color light = Color::hex(0xF5F5F5);
     bool figmaDefault = std::fabs(bg.r - light.r) < 0.003f && std::fabs(bg.g - light.g) < 0.003f && std::fabs(bg.b - light.b) < 0.003f;
     if (!figmaDefault) clear = bg;

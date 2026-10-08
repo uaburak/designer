@@ -1,9 +1,10 @@
 /**
- * Which fonts to ask for when a file opens, and when (docs/editor.md "Opening a file"): the shown page's fonts
- * before `engine_load` — so they bind while the document is still being handed over and the first frame's text is
- * shaped once —, the engine's first fallback family when the text holds a script Latin fonts lack, and the other
- * pages' fonts later, a family at a time on idle moments (Figma fetches fonts as pages are shown; the engine asks
- * for a page's fonts itself when the page is first derived, so this is a prefetch that makes the switch quiet).
+ * Which fonts to ask for when a file opens, and when (docs/editor.md "Opening a file"): the shown page's fonts — its
+ * own text and its read dependencies' (the mains its instances use) — before `engine_load`, so they bind while the
+ * document is still being handed over and the first frame's text is shaped once, and the engine's first fallback
+ * family when the text holds a script Latin fonts lack. Nothing for the other pages: as Figma loads a page and its
+ * dependencies on demand, the engine asks for a page's fonts itself (REQUEST_FONT) when the page is first shown.
+ * `later` (the other pages' fonts) is a prefetch a caller may still ask for (`requestFonts(plan, {prefetch: true})`).
  */
 import { FALLBACK_FAMILIES, fonts as fontService } from "@/engine/fonts";
 import type { DocumentFacts, FontRef } from "@/store/loadDocument";
@@ -11,7 +12,7 @@ import type { DocumentFacts, FontRef } from "@/store/loadDocument";
 export interface FontPlan {
   /** Requested before the load: the shown page's fonts (every font when the pages aren't known), plus the fallback family */
   first: FontRef[];
-  /** Requested later, on idle: the other pages' fonts, in page order */
+  /** The other pages' fonts, in page order: requested only on a prefetch (`requestFonts(…, {prefetch: true})`) */
   later: FontRef[];
 }
 
@@ -47,11 +48,14 @@ export function planFonts(facts: Pick<DocumentFacts, "fonts" | "fontsByPage" | "
   return { first, later };
 }
 
-/** Requests `plan.first` now; `plan.later` one family at a time on idle moments after `delayMs`. Returns a cancel. */
-export function requestFonts(plan: FontPlan, options: { delayMs?: number; request?: (f: FontRef) => void } = {}): () => void {
+/**
+ * Requests `plan.first` now; with `prefetch`, `plan.later` too, one family at a time on idle moments after `delayMs`.
+ * Returns a cancel.
+ */
+export function requestFonts(plan: FontPlan, options: { delayMs?: number; prefetch?: boolean; request?: (f: FontRef) => void } = {}): () => void {
   const request = options.request ?? ((f: FontRef) => fontService.request(f.family, f.style));
   for (const f of plan.first) request(f);
-  if (!plan.later.length) return () => {};
+  if (!options.prefetch || !plan.later.length) return () => {};
   let cancelled = false;
   let idle = 0;
   let timer = 0;

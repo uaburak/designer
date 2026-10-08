@@ -21,6 +21,7 @@
 
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng {
 
@@ -96,10 +97,12 @@ bool sameSize(Vec2 a, Vec2 b) { return std::fabs(a.x - b.x) < 1e-6 && std::fabs(
 // then each nested instance's own (docs/schema.md §5.3).
 struct Editor::OverrideStack {
   std::map<std::vector<Guid>, std::vector<const SymbolOverride*>> byPath;
-  void add(const std::vector<SymbolOverride>& list, const std::vector<Guid>& prefix) {
+  // `rootKey`: the main's own key — Figma's files also address the instance's root by it ([key] = the root).
+  void add(const std::vector<SymbolOverride>& list, const std::vector<Guid>& prefix, Guid rootKey) {
     for (const SymbolOverride& o : list) {
       std::vector<Guid> p = prefix;
-      p.insert(p.end(), o.path.begin(), o.path.end());
+      bool root = rootKey != kNoGuid && !o.path.empty() && o.path.front() == rootKey;
+      p.insert(p.end(), o.path.begin() + (root ? 1 : 0), o.path.end());
       byPath[p].push_back(&o);
     }
   }
@@ -123,7 +126,7 @@ struct Editor::OverrideStack {
     if (it == byPath.end()) return;
     for (auto e = it->second.rbegin(); e != it->second.rend(); ++e)
       if ((*e)->mask & F_COMPONENT_PROP_ASSIGNMENTS)
-        for (const auto& a : (*e)->props.componentPropAssignments) setAssign(base, a);
+        for (const auto& a : (*e)->props.comp().componentPropAssignments) setAssign(base, a);
   }
 };
 
@@ -135,14 +138,15 @@ struct Editor::Expansion {
   std::vector<Guid> sources;
   std::vector<Guid> symbols;                        // the mains being expanded (cycle guard)
   std::vector<std::pair<Guid, Guid>> slots;         // a slot row, its content frame
+  std::vector<std::pair<Guid, Guid>> hosts;         // a content frame (Figma's form), the slot row it resolves in
   std::unordered_map<Guid, Vec2, GuidHash> sourceSizes;
 };
 
 // ---- Lookups ------------------------------------------------------------------------
 
 Guid Editor::symbolOf(const NodeProps& instance) const {
-  const Node* m = doc_.get(instance.symbolData.symbolID);
-  return m && m->props.type == NodeType::SYMBOL ? instance.symbolData.symbolID : kNoGuid;
+  const Node* m = doc_.get(instance.comp().symbolData.symbolID);
+  return m && m->props.type == NodeType::SYMBOL ? instance.comp().symbolData.symbolID : kNoGuid;
 }
 
 Guid Editor::setOf(Guid symbol) const {
@@ -154,7 +158,7 @@ Guid Editor::setOf(Guid symbol) const {
 const std::vector<ComponentPropDef>* Editor::defsOf(Guid symbol) const {
   Guid set = setOf(symbol);
   const Node* n = doc_.get(set != kNoGuid ? set : symbol);
-  return n ? &n->props.componentPropDefs : nullptr;
+  return n ? &n->props.comp().componentPropDefs : nullptr;
 }
 
 NodeProps Editor::instanceRoot(const NodeProps& own, const NodeProps& main, Guid mainId) const {
@@ -185,7 +189,7 @@ bool Editor::acceptsChildren(Guid id) const {
     // A slot takes layers (its content diverges on the first one).
     auto info = derivedInfo_.find(id);
     const Node* src = info != derivedInfo_.end() ? doc_.get(info->second.source) : nullptr;
-    return src && src->props.isSlot;
+    return src && src->props.comp().isSlot;
   }
   if (!n) return false;
   if (n->props.type == NodeType::CANVAS) return true;
@@ -229,10 +233,10 @@ std::vector<ComponentPropAssignment> Editor::assignmentsOf(Guid level) const {
     auto it = derivedInfo_.find(level);
     if (it == derivedInfo_.end()) return {};
     const Node* n = doc_.get(level);
-    return n ? n->props.componentPropAssignments : std::vector<ComponentPropAssignment>{};
+    return n ? n->props.comp().componentPropAssignments : std::vector<ComponentPropAssignment>{};
   }
   const Node* n = doc_.get(level);
-  return n ? n->props.componentPropAssignments : std::vector<ComponentPropAssignment>{};
+  return n ? n->props.comp().componentPropAssignments : std::vector<ComponentPropAssignment>{};
 }
 
 // ---- Dirty tracking -----------------------------------------------------------------
@@ -257,10 +261,36 @@ void Editor::markInstanceDirty(const NodeChange& c) {
   if (n && (c.phase == Phase::CREATED || (m & F_PARENT_INDEX))) mark(n->props.parentIndex.guid);
 }
 
+Guid Editor::internalRootOf(Guid id) const {
+  Guid prev = kNoGuid;
+  for (int guard = 0; guard < 100000 && id != kNoGuid; guard++) {
+    const Node* n = doc_.get(id);
+    if (!n) return kNoGuid;
+    if (n->props.type == NodeType::CANVAS) return n->props.rare().internalOnly ? prev : kNoGuid;
+    prev = id;
+    id = n->props.parentIndex.guid;
+  }
+  return kNoGuid;
+}
+
+bool Editor::instanceWaits(Guid r) const {
+  if (r.isDerived() || derivedRows_.count(r)) return false;
+  Guid page = doc_.pageOf(r);
+  const Node* pn = page != kNoGuid ? doc_.get(page) : nullptr;
+  if (!pn) return false;
+  if (!pn->props.rare().internalOnly) return !derivedPages_.count(page);
+  Guid top = internalRootOf(r);
+  return top != kNoGuid && !derivedInternal_.count(top);
+}
+
 void Editor::flushInstances() {
   for (int pass = 0; pass < 16 && !instanceDirty_.empty(); pass++) {
-    std::vector<Guid> list(instanceDirty_.begin(), instanceDirty_.end());
+    std::vector<Guid> list;
+    list.reserve(instanceDirty_.size());
+    for (Guid r : instanceDirty_)
+      if (!instanceWaits(r)) list.push_back(r);  // one on a page not derived yet waits for its page (derivePage)
     instanceDirty_.clear();
+    if (list.empty()) break;
     std::sort(list.begin(), list.end());
     if (list.size() == 1 || deferredLayout_) {
       for (Guid r : list) materialize(r);
@@ -340,13 +370,15 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
         if (v.hasBool) p.visible = v.boolValue;
         break;
       case VariableField::TEXT_DATA:
-        if (v.hasText && p.type == NodeType::TEXT) applyTextValue(p.textData, v.textValue);
+        if (v.hasText && p.type == NodeType::TEXT) applyTextValue(p.text().textData, v.textValue);
         break;
       case VariableField::OVERRIDDEN_SYMBOL_ID:
         if (swap && v.guidValue != kNoGuid) *swap = v.guidValue;
         break;
       case VariableField::SLOT_CONTENT_ID:
+        // Ours: the property value's GUID. Figma's files: the assignment's varValue (slotContentIdValue).
         if (slotContent && v.guidValue != kNoGuid) *slotContent = v.guidValue;
+        else if (slotContent && a) *slotContent = codec::assignmentSlotContent(a->extra);
         break;
       default: break;
     }
@@ -358,7 +390,7 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
   for (Guid x : std::vector<Guid>(doc_.children(sourceParent))) {
     if (x.isDerived()) continue;
     const Node* xn = doc_.get(x);
-    if (!xn || xn->props.isSlotContent) continue;
+    if (!xn || xn->props.comp().isSlotContent) continue;
     ex.sources.push_back(x);
     Guid key = xn->props.keyOf(x);
     std::vector<Guid> path = prefix;
@@ -374,32 +406,32 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
     NodeProps p;
     if (xn->props.type == NodeType::INSTANCE) {
       // A nested instance: its main (swapped by the usage site or a property), its own overrides under the usage site's.
-      Guid main = xn->props.symbolData.symbolID;
-      if (const SymbolOverride* swap = ex.stack.highest(path, F_OVERRIDDEN_SYMBOL_ID)) main = swap->props.overriddenSymbolID;
+      Guid main = xn->props.comp().symbolData.symbolID;
+      if (const SymbolOverride* swap = ex.stack.highest(path, F_OVERRIDDEN_SYMBOL_ID)) main = swap->props.comp().overriddenSymbolID;
       Guid bound = kNoGuid;
       NodeProps scratch = xn->props;
       applyBindings(xn->props, scratch, symbol, assigns, &bound, nullptr);
       if (bound != kNoGuid) main = bound;
       const Node* mn = doc_.get(main);
       if (!mn || mn->props.type != NodeType::SYMBOL) {
-        if (main != xn->props.symbolData.symbolID) ex.sources.push_back(main);
-        main = xn->props.symbolData.symbolID;
+        if (main != xn->props.comp().symbolData.symbolID) ex.sources.push_back(main);
+        main = xn->props.comp().symbolData.symbolID;
         mn = doc_.get(main);
         if (mn && mn->props.type != NodeType::SYMBOL) mn = nullptr;
       }
       ex.sources.push_back(main);
       ex.sources.push_back(setOf(main));  // its set's properties and name
-      bool swapped = main != xn->props.symbolData.symbolID;
-      if (!swapped) ex.stack.add(xn->props.symbolData.overrides, path);
+      bool swapped = main != xn->props.comp().symbolData.symbolID;
+      if (!swapped) ex.stack.add(xn->props.comp().symbolData.overrides, path, mn ? mn->props.keyOf(main) : kNoGuid);
       p = mn ? instanceRoot(xn->props, mn->props, main) : xn->props;
       ex.stack.apply(path, p);
       applyBindings(xn->props, p, symbol, assigns, nullptr, nullptr);
       p.type = NodeType::INSTANCE;
-      p.symbolData = SymbolData{};
-      p.symbolData.symbolID = main;
-      std::vector<ComponentPropAssignment> nested = swapped ? std::vector<ComponentPropAssignment>{} : xn->props.componentPropAssignments;
+      p.comp().symbolData = SymbolData{};
+      p.comp().symbolData.symbolID = main;
+      std::vector<ComponentPropAssignment> nested = swapped ? std::vector<ComponentPropAssignment>{} : xn->props.comp().componentPropAssignments;
       ex.stack.assignments(path, nested);
-      p.componentPropAssignments = nested;
+      p.comp().componentPropAssignments = nested;
       p.parentIndex = {parentRow, xn->props.parentIndex.position};
       p.transform = xn->props.transform;
       info.symbol = main;
@@ -424,7 +456,11 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
     ex.rows.push_back({id, p, x, level, path});
     ex.infos.push_back(info);
     const Node* content = doc_.get(slotContent);
-    if (xn->props.isSlot && content && content->props.isSlotContent) {
+    if (content && content->props.comp().isSlotContent && content->props.parentIndex.guid != ex.top) {
+      // Figma's form (the content under the Internal Only Canvas): the top-level instance's own assignment hosts it
+      // here — its variables resolve in this slot's modes. What the slot shows is unchanged (the main's children).
+      if (level == ex.top) ex.hosts.push_back({slotContent, id});
+    } else if (xn->props.comp().isSlot && content && content->props.comp().isSlotContent) {
       ex.slots.push_back({id, slotContent});  // a diverged slot shows its content frame instead of the main's
       continue;
     }
@@ -458,23 +494,26 @@ void Editor::materialize(Guid R) {
 
   Expansion ex;
   ex.top = R;
-  ex.sources.push_back(rn->props.symbolData.symbolID);
+  ex.sources.push_back(rn->props.comp().symbolData.symbolID);
   Guid main = symbolOf(rn->props);
   Vec2 mainSize;
   if (main != kNoGuid) {
     const NodeProps& mp = doc_.get(main)->props;
     mainSize = mp.size;
-    ex.stack.add(rn->props.symbolData.overrides, {});
+    ex.stack.add(rn->props.comp().symbolData.overrides, {}, mp.keyOf(main));
     // The root: the main's root fields, the instance's own fields, its root override.
     NodeProps root = instanceRoot(rn->props, mp, main);
     ex.stack.apply({}, root);
+    FieldMask rootMask = F_ALL & ~kNotInherited;
     // Its variables and styles in its own modes (the main's root holds the main's).
     if (root.hasBindings()) {
       BindingDeps deps;
       resolveBindings(R, root, &deps);
       setDeps(R, std::move(deps));
+      // Inside slot content whose slot isn't derived yet: its bound values stay as its file stored them, not its
+      // main's (resolved where the main is).
+      if (unhostedSlotContent(R, rn->props) != kNoGuid) copyFields(root, rn->props, boundFieldMask(root) & rootMask);
     }
-    FieldMask rootMask = F_ALL & ~kNotInherited;
     NodeChange c = NodeChange::changed(R);
     c.mask = differingFields(rn->props, root, rootMask);
     if (c.mask) {
@@ -487,7 +526,7 @@ void Editor::materialize(Guid R) {
     rn = doc_.get(R);
     ex.sources.push_back(setOf(main));
     ex.symbols.push_back(main);
-    expandChildren(ex, main, main, R, {}, R, {}, rn->props.componentPropAssignments, 0);
+    expandChildren(ex, main, main, R, {}, R, {}, rn->props.comp().componentPropAssignments, 0);
   }
 
   // The rows into the document: what's gone first (children before parents), then each row, parents first.
@@ -541,6 +580,19 @@ void Editor::materialize(Guid R) {
     ids.push_back(row.id);
   }
   derivedRows_[R] = ids;
+  // Slot content it hosts (Figma's form) resolves again in its slot's modes.
+  {
+    std::vector<Guid>& hosted = slotContentsOf_[R];
+    for (Guid c : hosted)
+      if (auto h = slotHosts_.find(c); h != slotHosts_.end() && instanceOfDerived(h->second) == R) slotHosts_.erase(h);
+    hosted.clear();
+    for (auto& [content, row] : ex.hosts) {
+      slotHosts_[content] = row;
+      hosted.push_back(content);
+      markBindingsSubtree(content);
+    }
+    if (hosted.empty()) slotContentsOf_.erase(R);
+  }
   if (boundRows) instanceBindings_.insert(R);
   else instanceBindings_.erase(R);
   // A re-derivation: what was stored for its sublayers' texts no longer stands for them.
@@ -593,7 +645,7 @@ void Editor::materialize(Guid R) {
       if (!n || !parent) continue;
       const NodeProps& p = n->props;
       bool parentLays = parent->props.isAutoLayout();
-      bool root = p.type == NodeType::TEXT ? p.textAutoResize != TextAutoResize::NONE && !parentLays
+      bool root = p.type == NodeType::TEXT ? p.text().textAutoResize != TextAutoResize::NONE && !parentLays
                                            : (p.isAutoLayout() || p.fitsChildren()) && !parentLays && !parent->props.fitsChildren();
       if (root) L.settle(ex.rows[i].id);
     }
@@ -718,7 +770,7 @@ Guid Editor::slotContentFor(Guid row, bool create) {
   if (info == derivedInfo_.end()) return kNoGuid;
   const DerivedInfo d = info->second;
   const Node* src = doc_.get(d.source);
-  if (!src || !src->props.isSlot) return kNoGuid;
+  if (!src || !src->props.comp().isSlot) return kNoGuid;
   Guid def = kNoGuid;
   for (const ParamBinding& b : src->props.parameterConsumptionMap)
     if (b.field == VariableField::SLOT_CONTENT_ID) def = b.propRef;
@@ -731,9 +783,9 @@ Guid Editor::slotContentFor(Guid row, bool create) {
   NodeProps f = defaultProps(NodeType::FRAME);
   f.name = slot.name;
   f.fillPaints.clear();
-  f.isSlotContent = true;
+  f.comp().isSlotContent = true;
   f.frameMaskDisabled = slot.frameMaskDisabled;
-  f.stackMode = slot.stackMode;
+  f.stack().stackMode = slot.stack().stackMode;
   copyFields(f, slot, kStackContainerFields);
   f.size = slot.size;
   f.transform = doc_.worldTransform(d.instance).inverse() * doc_.worldTransform(row);
@@ -752,7 +804,7 @@ Guid Editor::slotContentFor(Guid row, bool create) {
       p.parentIndex.guid = ids[parent];
       p.overrideKey = kNoGuid;
       p.parameterConsumptionMap.clear();
-      if (p.type == NodeType::INSTANCE) composedOverrides(c, p.symbolData.overrides, p.componentPropAssignments);
+      if (p.type == NodeType::INSTANCE) composedOverrides(c, p.comp().symbolData.overrides, p.comp().componentPropAssignments);
       Guid id = newGuid();
       write(NodeChange::created(id, p));
       ids[c] = id;
@@ -772,8 +824,16 @@ Guid Editor::slotContentFor(Guid row, bool create) {
 void Editor::writeOverride(Guid instance, const std::vector<Guid>& path, FieldMask fields, const NodeProps& values) {
   const Node* rn = doc_.get(instance);
   if (!rn || rn->props.type != NodeType::INSTANCE || !fields) return;
-  SymbolData sd = rn->props.symbolData;
-  auto it = std::find_if(sd.overrides.begin(), sd.overrides.end(), [&](const SymbolOverride& o) { return o.path == path; });
+  SymbolData sd = rn->props.comp().symbolData;
+  // An entry Figma's file addressed through the main's own key ([key, …] = […]) is the same entry.
+  Guid main = symbolOf(rn->props);
+  const Node* mn = doc_.get(main);
+  Guid rootKey = mn ? mn->props.keyOf(main) : kNoGuid;
+  auto samePath = [&](const std::vector<Guid>& p) {
+    if (p == path) return true;
+    return rootKey != kNoGuid && !p.empty() && p.front() == rootKey && std::equal(p.begin() + 1, p.end(), path.begin(), path.end());
+  };
+  auto it = std::find_if(sd.overrides.begin(), sd.overrides.end(), [&](const SymbolOverride& o) { return samePath(o.path); });
   if (it == sd.overrides.end()) {
     sd.overrides.push_back({path, 0, {}});
     it = sd.overrides.end() - 1;
@@ -789,7 +849,7 @@ void Editor::writeOverride(Guid instance, const std::vector<Guid>& path, FieldMa
   it->mask |= fields;
   NodeChange c = NodeChange::changed(instance);
   c.mask = F_SYMBOL_DATA;
-  c.props.symbolData = sd;
+  c.props.comp().symbolData = sd;
   write(c);
 }
 
@@ -802,8 +862,8 @@ void Editor::writeAssignment(Guid level, Guid def, const ComponentPropValue& val
     if (!n) return;
     NodeChange c = NodeChange::changed(level);
     c.mask = F_COMPONENT_PROP_ASSIGNMENTS;
-    c.props.componentPropAssignments = n->props.componentPropAssignments;
-    setAssign(c.props.componentPropAssignments, a);
+    c.props.comp().componentPropAssignments = n->props.comp().componentPropAssignments;
+    setAssign(c.props.comp().componentPropAssignments, a);
     write(c);
     return;
   }
@@ -813,9 +873,9 @@ void Editor::writeAssignment(Guid level, Guid def, const ComponentPropValue& val
   const Node* rn = doc_.get(d.instance);
   if (!rn) return;
   NodeProps values;
-  for (const SymbolOverride& o : rn->props.symbolData.overrides)
-    if (o.path == d.path && (o.mask & F_COMPONENT_PROP_ASSIGNMENTS)) values.componentPropAssignments = o.props.componentPropAssignments;
-  setAssign(values.componentPropAssignments, a);
+  for (const SymbolOverride& o : rn->props.comp().symbolData.overrides)
+    if (o.path == d.path && (o.mask & F_COMPONENT_PROP_ASSIGNMENTS)) values.comp().componentPropAssignments = o.props.comp().componentPropAssignments;
+  setAssign(values.comp().componentPropAssignments, a);
   writeOverride(d.instance, d.path, F_COMPONENT_PROP_ASSIGNMENTS, values);
 }
 
@@ -861,10 +921,10 @@ void Editor::writeDerived(const NodeChange& change) {
       } else if (b.field == VariableField::TEXT_DATA && (mask & F_TEXT_DATA)) {
         bit = F_TEXT_DATA;
         v.hasText = true;
-        v.textValue = edit.props.textData;
+        v.textValue = edit.props.text().textData;
       } else if (b.field == VariableField::OVERRIDDEN_SYMBOL_ID && (mask & F_OVERRIDDEN_SYMBOL_ID)) {
         bit = F_OVERRIDDEN_SYMBOL_ID;
-        v.guidValue = edit.props.overriddenSymbolID;
+        v.guidValue = edit.props.comp().overriddenSymbolID;
       }
       if (!bit) continue;
       writeAssignment(d.level, b.propRef, v);
@@ -886,7 +946,7 @@ void Editor::composedOverrides(Guid nested, std::vector<SymbolOverride>& out, st
   if (info == derivedInfo_.end()) return;
   const DerivedInfo& d = info->second;
   const Node* nn = doc_.get(nested);
-  if (nn) assigns = nn->props.componentPropAssignments;
+  if (nn) assigns = nn->props.comp().componentPropAssignments;
   auto addRelative = [&](const std::vector<SymbolOverride>& list, const std::vector<Guid>& base, bool over) {
     // `base`: where `list`'s paths start, from the top-level instance.
     for (const SymbolOverride& o : list) {
@@ -909,15 +969,15 @@ void Editor::composedOverrides(Guid nested, std::vector<SymbolOverride>& out, st
   };
   // Highest priority first: the top-level instance, then each nested real instance down to this one.
   const Node* top = doc_.get(d.instance);
-  if (top) addRelative(top->props.symbolData.overrides, {}, false);
+  if (top) addRelative(top->props.comp().symbolData.overrides, {}, false);
   for (size_t len = 1; len <= d.path.size(); len++) {
     std::vector<Guid> prefix(d.path.begin(), d.path.begin() + static_cast<long>(len));
     Guid row = derived::intern(d.instance, prefix);
     auto ri = derivedInfo_.find(row);
     if (ri == derivedInfo_.end()) continue;
     const Node* src = doc_.get(ri->second.source);
-    if (!src || src->props.type != NodeType::INSTANCE || src->props.symbolData.symbolID != ri->second.symbol) continue;
-    addRelative(src->props.symbolData.overrides, prefix, false);
+    if (!src || src->props.type != NodeType::INSTANCE || src->props.comp().symbolData.symbolID != ri->second.symbol) continue;
+    addRelative(src->props.comp().symbolData.overrides, prefix, false);
   }
   // The root entry's fields are the nested instance's own now; overridden-symbol entries describe the swap itself.
   for (auto& o : out)

@@ -422,6 +422,19 @@ bool readAnyValue(kiwi::ByteBuffer& bb, VariableData& d) {
         }
         break;
       }
+      case 18: {  // SlotContentId {guid}
+        d.kind = K::SLOT_CONTENT;
+        for (;;) {
+          uint32_t e = 0;
+          if (!bb.readVarUint(e)) return false;
+          if (!e) break;
+          if (e != 1) return false;
+          Guid g;
+          if (!getGuid(bb, g)) return false;
+          d.slotContent = noneToAbsent(g);
+        }
+        break;
+      }
       default:
         if (!keepUnknown(bb, defs().anyValue, f, d.valueExtra)) return false;
     }
@@ -461,6 +474,11 @@ void putAnyValue(Out& o, const VariableData& d) {
     case K::PROP_REF:
       o.varuint(13);
       putGuidField(o, 1, d.propRef);
+      o.byte(0);
+      break;
+    case K::SLOT_CONTENT:
+      o.varuint(18);
+      if (d.slotContent != kNoGuid) putGuidField(o, 1, d.slotContent);
       o.byte(0);
       break;
     default: break;
@@ -1558,71 +1576,71 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
         m |= F_RESIZE_TO_FIT;
         break;
       case 50:
-        if (!getColor(bb, p.backgroundColor)) return false;
+        if (!getColor(bb, p.rare().backgroundColor)) return false;
         m |= F_BACKGROUND_COLOR;
         break;
       case 15:
-        if (!getBool(bb, p.backgroundEnabled)) return false;
+        if (!getBool(bb, p.rare().backgroundEnabled)) return false;
         m |= F_BACKGROUND_ENABLED;
         break;
       case 142:
-        if (!getBool(bb, p.internalOnly)) return false;
+        if (!getBool(bb, p.rare().internalOnly)) return false;
         m |= F_INTERNAL_ONLY;
         break;
       case 105:
-        if (getEnum(bb, p.stackMode)) m |= F_STACK_MODE;
+        if (getEnum(bb, p.stack().stackMode)) m |= F_STACK_MODE;
         break;
       case 107:
-        if (!getFloat(bb, p.stackSpacing)) return false;
+        if (!getFloat(bb, p.stack().stackSpacing)) return false;
         m |= F_STACK_SPACING;
         break;
       case 209:
-        if (!getFloat(bb, p.stackPaddingLeft)) return false;
+        if (!getFloat(bb, p.stack().stackPaddingLeft)) return false;
         m |= F_STACK_PADDING_LEFT;
         break;
       case 210:
-        if (!getFloat(bb, p.stackPaddingTop)) return false;
+        if (!getFloat(bb, p.stack().stackPaddingTop)) return false;
         m |= F_STACK_PADDING_TOP;
         break;
       case 233:
-        if (!getFloat(bb, p.stackPaddingRight)) return false;
+        if (!getFloat(bb, p.stack().stackPaddingRight)) return false;
         m |= F_STACK_PADDING_RIGHT;
         break;
       case 234:
-        if (!getFloat(bb, p.stackPaddingBottom)) return false;
+        if (!getFloat(bb, p.stack().stackPaddingBottom)) return false;
         m |= F_STACK_PADDING_BOTTOM;
         break;
       case 229:
-        if (getEnum(bb, p.stackPrimarySizing)) m |= F_STACK_PRIMARY_SIZING;
+        if (getEnum(bb, p.stack().stackPrimarySizing)) m |= F_STACK_PRIMARY_SIZING;
         break;
       case 221:
-        if (getEnum(bb, p.stackCounterSizing)) m |= F_STACK_COUNTER_SIZING;
+        if (getEnum(bb, p.stack().stackCounterSizing)) m |= F_STACK_COUNTER_SIZING;
         break;
       case 230:
-        if (getEnum(bb, p.stackPrimaryAlignItems)) m |= F_STACK_PRIMARY_ALIGN;
+        if (getEnum(bb, p.stack().stackPrimaryAlignItems)) m |= F_STACK_PRIMARY_ALIGN;
         break;
       case 231:
-        if (getEnum(bb, p.stackCounterAlignItems)) m |= F_STACK_COUNTER_ALIGN;
+        if (getEnum(bb, p.stack().stackCounterAlignItems)) m |= F_STACK_COUNTER_ALIGN;
         break;
       case 343:
-        if (getEnum(bb, p.stackCounterAlignContent)) m |= F_STACK_COUNTER_ALIGN_CONTENT;
+        if (getEnum(bb, p.stack().stackCounterAlignContent)) m |= F_STACK_COUNTER_ALIGN_CONTENT;
         break;
       case 323:
-        if (getEnum(bb, p.stackWrap)) m |= F_STACK_WRAP;
+        if (getEnum(bb, p.stack().stackWrap)) m |= F_STACK_WRAP;
         break;
       case 324: {
         double v = 0;
         if (!getFloat(bb, v)) return false;
-        p.stackCounterSpacing = v;
+        p.stack().stackCounterSpacing = v;
         m |= F_STACK_COUNTER_SPACING;
         break;
       }
       case 271:
-        if (!getBool(bb, p.stackReverseZIndex)) return false;
+        if (!getBool(bb, p.stack().stackReverseZIndex)) return false;
         m |= F_STACK_REVERSE_Z;
         break;
       case 294:
-        if (!getBool(bb, p.bordersTakeSpace)) return false;
+        if (!getBool(bb, p.stack().bordersTakeSpace)) return false;
         m |= F_BORDERS_TAKE_SPACE;
         break;
       case 232:
@@ -1636,8 +1654,9 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
         if (getEnum(bb, p.stackPositioning)) m |= F_STACK_POSITIONING;
         break;
       case 325:
-      case 326: {  // OptionalVector {value}
-        Vec2& target = f == 325 ? p.minSize : p.maxSize;
+      case 326: {  // OptionalVector {value}: no value = no limit (0 here)
+        Vec2& target = f == 325 ? p.rare().minSize : p.rare().maxSize;
+        target = Vec2{};
         for (;;) {
           uint32_t g = 0;
           if (!bb.readVarUint(g)) return false;
@@ -1658,58 +1677,58 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
         m |= F_PROPORTIONS_CONSTRAINED;
         break;
       case 42:
-        p.textData = TextData{};
-        if (!readTextData(bb, p.textData, blobs)) return false;
+        p.text().textData = TextData{};
+        if (!readTextData(bb, p.text().textData, blobs)) return false;
         m |= F_TEXT_DATA;
         break;
       case 41:
-        if (!getFontName(bb, p.fontName)) return false;
+        if (!getFontName(bb, p.text().fontName)) return false;
         m |= F_FONT_NAME;
         break;
       case 21:
-        if (!getFloat(bb, p.fontSize)) return false;
+        if (!getFloat(bb, p.text().fontSize)) return false;
         m |= F_FONT_SIZE;
         break;
       case 40:
-        if (!getNumber(bb, p.lineHeight)) return false;
+        if (!getNumber(bb, p.text().lineHeight)) return false;
         m |= F_LINE_HEIGHT;
         break;
       case 165:
-        if (!getNumber(bb, p.letterSpacing)) return false;
+        if (!getNumber(bb, p.text().letterSpacing)) return false;
         m |= F_LETTER_SPACING;
         break;
       case 23:
-        if (!getFloat(bb, p.paragraphSpacing)) return false;
+        if (!getFloat(bb, p.text().paragraphSpacing)) return false;
         m |= F_PARAGRAPH_SPACING;
         break;
       case 22:
-        if (!getFloat(bb, p.paragraphIndent)) return false;
+        if (!getFloat(bb, p.text().paragraphIndent)) return false;
         m |= F_PARAGRAPH_INDENT;
         break;
       case 32:
-        if (getEnum(bb, p.textAlignHorizontal)) m |= F_TEXT_ALIGN_H;
+        if (getEnum(bb, p.text().textAlignHorizontal)) m |= F_TEXT_ALIGN_H;
         break;
       case 33:
-        if (getEnum(bb, p.textAlignVertical)) m |= F_TEXT_ALIGN_V;
+        if (getEnum(bb, p.text().textAlignVertical)) m |= F_TEXT_ALIGN_V;
         break;
       case 46:
-        if (getEnum(bb, p.textAutoResize)) m |= F_TEXT_AUTO_RESIZE;
+        if (getEnum(bb, p.text().textAutoResize)) m |= F_TEXT_AUTO_RESIZE;
         break;
       case 280:
-        if (getEnum(bb, p.textTruncation)) m |= F_TEXT_TRUNCATION;
+        if (getEnum(bb, p.text().textTruncation)) m |= F_TEXT_TRUNCATION;
         break;
       case 351:
-        if (!bb.readVarInt(p.maxLines)) return false;
+        if (!bb.readVarInt(p.text().maxLines)) return false;
         m |= F_MAX_LINES;
         break;
       case 34:
-        if (getEnum(bb, p.textCase)) m |= F_TEXT_CASE;
+        if (getEnum(bb, p.text().textCase)) m |= F_TEXT_CASE;
         break;
       case 35:
-        if (getEnum(bb, p.textDecoration)) m |= F_TEXT_DECORATION;
+        if (getEnum(bb, p.text().textDecoration)) m |= F_TEXT_DECORATION;
         break;
       case 14:
-        if (!getBool(bb, p.autoRename)) return false;
+        if (!getBool(bb, p.text().autoRename)) return false;
         m |= F_AUTO_RENAME;
         break;
       case 9:
@@ -1735,37 +1754,37 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
       case 13: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.dashPattern.clear();
+        p.stroke().dashPattern.clear();
         for (uint32_t i = 0; i < n; i++) {
           double v = 0;
           if (!getFloat(bb, v)) return false;
-          p.dashPattern.push_back(v);
+          p.stroke().dashPattern.push_back(v);
         }
         m |= F_DASH_PATTERN;
         break;
       }
       case id::kBorderTop:
-        if (!getFloat(bb, p.borderWeights[0])) return false;
+        if (!getFloat(bb, p.stroke().borderWeights[0])) return false;
         m |= F_BORDER_WEIGHTS;
         break;
       case id::kBorderRight:
-        if (!getFloat(bb, p.borderWeights[1])) return false;
+        if (!getFloat(bb, p.stroke().borderWeights[1])) return false;
         m |= F_BORDER_WEIGHTS;
         break;
       case id::kBorderBottom:
-        if (!getFloat(bb, p.borderWeights[2])) return false;
+        if (!getFloat(bb, p.stroke().borderWeights[2])) return false;
         m |= F_BORDER_WEIGHTS;
         break;
       case id::kBorderLeft:
-        if (!getFloat(bb, p.borderWeights[3])) return false;
+        if (!getFloat(bb, p.stroke().borderWeights[3])) return false;
         m |= F_BORDER_WEIGHTS;
         break;
       case id::kBordersIndependent:
-        if (!getBool(bb, p.borderStrokeWeightsIndependent)) return false;
+        if (!getBool(bb, p.stroke().borderStrokeWeightsIndependent)) return false;
         m |= F_BORDER_WEIGHTS;
         break;
       case 160:
-        if (!getFloat(bb, p.cornerSmoothing)) return false;
+        if (!getFloat(bb, p.stroke().cornerSmoothing)) return false;
         m |= F_CORNER_SMOOTHING;
         break;
       case 43: {
@@ -1781,11 +1800,11 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
         break;
       }
       case 10:
-        if (!bb.readVarUint(p.count)) return false;
+        if (!bb.readVarUint(p.shape().count)) return false;
         m |= F_COUNT;
         break;
       case 24:
-        if (!getFloat(bb, p.starInnerScale)) return false;
+        if (!getFloat(bb, p.shape().starInnerScale)) return false;
         m |= F_STAR_INNER_SCALE;
         break;
       case 195: {
@@ -1793,31 +1812,31 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
           uint32_t g = 0;
           if (!bb.readVarUint(g)) return false;
           if (!g) break;
-          double* target = g == 1 ? &p.arcData.startingAngle : g == 2 ? &p.arcData.endingAngle : g == 3 ? &p.arcData.innerRadius : nullptr;
+          double* target = g == 1 ? &p.shape().arcData.startingAngle : g == 2 ? &p.shape().arcData.endingAngle : g == 3 ? &p.shape().arcData.innerRadius : nullptr;
           if (!target || !getFloat(bb, *target)) return false;
         }
         m |= F_ARC_DATA;
         break;
       }
       case 48:
-        p.vectorData = VectorData{};
-        if (!readVectorData(bb, p.vectorData, blobs)) return false;
+        p.shape().vectorData = VectorData{};
+        if (!readVectorData(bb, p.shape().vectorData, blobs)) return false;
         m |= F_VECTOR_DATA;
         break;
       case 44:
-        if (getEnum(bb, p.handleMirroring)) m |= F_HANDLE_MIRRORING;
+        if (getEnum(bb, p.shape().handleMirroring)) m |= F_HANDLE_MIRRORING;
         break;
       case 36:
-        if (getEnum(bb, p.booleanOperation)) m |= F_BOOLEAN_OPERATION;
+        if (getEnum(bb, p.shape().booleanOperation)) m |= F_BOOLEAN_OPERATION;
         break;
       case 47: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.layoutGrids.clear();
+        p.rare().layoutGrids.clear();
         for (uint32_t i = 0; i < n; i++) {
           LayoutGrid g;
           if (!readLayoutGrid(bb, g)) return false;
-          p.layoutGrids.push_back(std::move(g));
+          p.rare().layoutGrids.push_back(std::move(g));
         }
         m |= F_LAYOUT_GRIDS;
         break;
@@ -1871,25 +1890,25 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
           }
         }
         d.overrides = std::move(merged);
-        p.symbolData = std::move(d);
+        p.comp().symbolData = std::move(d);
         m |= F_SYMBOL_DATA;
         break;
       }
       case 143: {
         Guid g;
         if (!getGuid(bb, g)) return false;
-        p.overriddenSymbolID = noneToAbsent(g);
+        p.comp().overriddenSymbolID = noneToAbsent(g);
         m |= F_OVERRIDDEN_SYMBOL_ID;
         break;
       }
       case 266: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.componentPropDefs.clear();
+        p.comp().componentPropDefs.clear();
         for (uint32_t i = 0; i < n; i++) {
           ComponentPropDef d;
           if (!readPropDef(bb, d, blobs)) return false;
-          p.componentPropDefs.push_back(std::move(d));
+          p.comp().componentPropDefs.push_back(std::move(d));
         }
         m |= F_COMPONENT_PROP_DEFS;
         break;
@@ -1897,11 +1916,11 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
       case 268: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.componentPropAssignments.clear();
+        p.comp().componentPropAssignments.clear();
         for (uint32_t i = 0; i < n; i++) {
           ComponentPropAssignment a;
           if (!readPropAssignment(bb, a, blobs)) return false;
-          p.componentPropAssignments.push_back(std::move(a));
+          p.comp().componentPropAssignments.push_back(std::move(a));
         }
         m |= F_COMPONENT_PROP_ASSIGNMENTS;
         break;
@@ -1912,13 +1931,13 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
         m |= F_PARAM_MAP;
         break;
       case 225:
-        if (!getBool(bb, p.isStateGroup)) return false;
+        if (!getBool(bb, p.comp().isStateGroup)) return false;
         m |= F_IS_STATE_GROUP;
         break;
       case 483: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.variantPropSpecs.clear();
+        p.comp().variantPropSpecs.clear();
         for (uint32_t i = 0; i < n; i++) {
           VariantPropSpec spec;
           for (;;) {
@@ -1933,7 +1952,7 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
               return false;
             }
           }
-          p.variantPropSpecs.push_back(std::move(spec));
+          p.comp().variantPropSpecs.push_back(std::move(spec));
         }
         m |= F_VARIANT_PROP_SPECS;
         break;
@@ -1941,7 +1960,7 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
       case 238: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.stateGroupPropertyValueOrders.clear();
+        p.comp().stateGroupPropertyValueOrders.clear();
         for (uint32_t i = 0; i < n; i++) {
           StateGroupOrder o;
           for (;;) {
@@ -1962,51 +1981,51 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
               return false;
             }
           }
-          p.stateGroupPropertyValueOrders.push_back(std::move(o));
+          p.comp().stateGroupPropertyValueOrders.push_back(std::move(o));
         }
         m |= F_STATE_GROUP_ORDERS;
         break;
       }
       case 305:
-        if (!getBool(bb, p.propsAreBubbled)) return false;
+        if (!getBool(bb, p.comp().propsAreBubbled)) return false;
         m |= F_PROPS_ARE_BUBBLED;
         break;
       case 463:
-        if (!getBool(bb, p.isSlot)) return false;
+        if (!getBool(bb, p.comp().isSlot)) return false;
         m |= F_IS_SLOT;
         break;
       case 495:
-        if (!getBool(bb, p.isSlotContent)) return false;
+        if (!getBool(bb, p.comp().isSlotContent)) return false;
         m |= F_IS_SLOT_CONTENT;
         break;
       case 342: {  // SymbolId {guid, assetRef}
         AssetId a;
         if (!getAssetId(bb, a)) return false;
-        if (a.guid != kNoGuid) {
-          p.detachedSymbolId = a.guid;
+        if (a.present()) {
+          p.comp().detachedSymbolId = std::move(a);
           m |= F_DETACHED_SYMBOL_ID;
         }
         break;
       }
       case 330:
-        if (!getBool(bb, p.isSoftDeleted)) return false;
+        if (!getBool(bb, p.comp().isSoftDeleted)) return false;
         m |= F_IS_SOFT_DELETED;
         break;
       case 235: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.ancestorPathBeforeDeletion.clear();
+        p.comp().ancestorPathBeforeDeletion.clear();
         for (uint32_t i = 0; i < n; i++) {
           Guid g;
           if (!getGuid(bb, g)) return false;
-          p.ancestorPathBeforeDeletion.push_back(g);
+          p.comp().ancestorPathBeforeDeletion.push_back(g);
         }
         m |= F_ANCESTOR_PATH;
         break;
       }
       // Variables, modes, styles.
       case 316: {  // VariableModeBySetMap {entries: [{variableSetID, variableModeID}]}
-        p.variableModeBySetMap.clear();
+        p.refs().variableModeBySetMap.clear();
         for (;;) {
           uint32_t g = 0;
           if (!bb.readVarUint(g)) return false;
@@ -2030,55 +2049,55 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
                 return false;
               }
             }
-            if (me.set.present()) p.variableModeBySetMap.push_back(std::move(me));
+            if (me.set.present()) p.refs().variableModeBySetMap.push_back(std::move(me));
           }
         }
         m |= F_VARIABLE_MODES;
         break;
       }
       case 332:
-        if (!getAssetId(bb, p.styleIdForFill)) return false;
+        if (!getAssetId(bb, p.refs().styleIdForFill)) return false;
         m |= F_STYLE_ID_FILL;
         break;
       case 333:
-        if (!getAssetId(bb, p.styleIdForStrokeFill)) return false;
+        if (!getAssetId(bb, p.refs().styleIdForStrokeFill)) return false;
         m |= F_STYLE_ID_STROKE;
         break;
       case 334:
-        if (!getAssetId(bb, p.styleIdForText)) return false;
+        if (!getAssetId(bb, p.refs().styleIdForText)) return false;
         m |= F_STYLE_ID_TEXT;
         break;
       case 335:
-        if (!getAssetId(bb, p.styleIdForEffect)) return false;
+        if (!getAssetId(bb, p.refs().styleIdForEffect)) return false;
         m |= F_STYLE_ID_EFFECT;
         break;
       case 336:
-        if (!getAssetId(bb, p.styleIdForGrid)) return false;
+        if (!getAssetId(bb, p.refs().styleIdForGrid)) return false;
         m |= F_STYLE_ID_GRID;
         break;
       case 163:
-        if (getEnum(bb, p.styleType)) m |= F_STYLE_TYPE;
+        if (getEnum(bb, p.asset().styleType)) m |= F_STYLE_TYPE;
         break;
       case 320:
-        if (!getString(bb, p.sortPosition)) return false;
+        if (!getString(bb, p.asset().sortPosition)) return false;
         m |= F_SORT_POSITION;
         break;
       case 318:
-        if (!getString(bb, p.description)) return false;
+        if (!getString(bb, p.asset().description)) return false;
         m |= F_DESCRIPTION;
         break;
       case 319:
-        if (!getString(bb, p.key)) return false;
+        if (!getString(bb, p.asset().key)) return false;
         m |= F_KEY;
         break;
       case 174:
-        if (!getBool(bb, p.isPublishable)) return false;
+        if (!getBool(bb, p.asset().isPublishable)) return false;
         m |= F_IS_PUBLISHABLE;
         break;
       case 312: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
-        p.variableSetModes.clear();
+        p.asset().variableSetModes.clear();
         for (uint32_t i = 0; i < n; i++) {
           VariableSetMode mode;
           for (;;) {
@@ -2097,20 +2116,20 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
               return false;
             }
           }
-          p.variableSetModes.push_back(std::move(mode));
+          p.asset().variableSetModes.push_back(std::move(mode));
         }
         m |= F_VARIABLE_SET_MODES;
         break;
       }
       case 313:
-        if (!getAssetId(bb, p.variableSetID)) return false;
+        if (!getAssetId(bb, p.asset().variableSetID)) return false;
         m |= F_VARIABLE_SET_ID;
         break;
       case 314:
-        if (getEnum(bb, p.variableResolvedType)) m |= F_VARIABLE_RESOLVED_TYPE;
+        if (getEnum(bb, p.asset().variableResolvedType)) m |= F_VARIABLE_RESOLVED_TYPE;
         break;
       case 315: {  // VariableDataValues {entries: [{modeID, variableData}]}
-        p.variableDataValues.clear();
+        p.asset().variableDataValues.clear();
         for (;;) {
           uint32_t g = 0;
           if (!bb.readVarUint(g)) return false;
@@ -2134,7 +2153,7 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
                 return false;
               }
             }
-            p.variableDataValues.push_back(std::move(mv));
+            p.asset().variableDataValues.push_back(std::move(mv));
           }
         }
         m |= F_VARIABLE_DATA_VALUES;
@@ -2148,12 +2167,12 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
           VariableScope sc = VariableScope::ALL_SCOPES;
           if (getEnum(bb, sc)) scopes.push_back(sc);
         }
-        p.variableScopes = std::move(scopes);
+        p.asset().variableScopes = std::move(scopes);
         m |= F_VARIABLE_SCOPES;
         break;
       }
       case 358: {  // CodeSyntaxMap {entries: [{platform, value}]}
-        p.codeSyntax.clear();
+        p.asset().codeSyntax.clear();
         for (;;) {
           uint32_t g = 0;
           if (!bb.readVarUint(g)) return false;
@@ -2176,28 +2195,28 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
                 return false;
               }
             }
-            if (ok) p.codeSyntax.push_back(std::move(cs));
+            if (ok) p.asset().codeSyntax.push_back(std::move(cs));
           }
         }
         m |= F_CODE_SYNTAX;
         break;
       }
       case 171:
-        if (!getString(bb, p.version)) return false;
+        if (!getString(bb, p.asset().version)) return false;
         m |= F_VERSION;
         break;
       case 218:
-        if (!getString(bb, p.publishedVersion)) return false;
+        if (!getString(bb, p.asset().publishedVersion)) return false;
         m |= F_PUBLISHED_VERSION;
         break;
       case 395:
-        if (!getString(bb, p.sourceLibraryKey)) return false;
+        if (!getString(bb, p.asset().sourceLibraryKey)) return false;
         m |= F_SOURCE_LIBRARY_KEY;
         break;
       case 215: {
         Guid g;
         if (!getGuid(bb, g)) return false;
-        p.publishID = noneToAbsent(g);
+        p.asset().publishID = noneToAbsent(g);
         m |= F_PUBLISH_ID;
         break;
       }
@@ -2207,9 +2226,9 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
           if (!bb.readVarUint(g)) return false;
           if (!g) break;
           if (g == 1) {
-            if (!getString(bb, p.libraryMoveInfo.oldKey)) return false;
+            if (!getString(bb, p.asset().libraryMoveInfo.oldKey)) return false;
           } else if (g == 2) {
-            if (!getString(bb, p.libraryMoveInfo.pasteFileKey)) return false;
+            if (!getString(bb, p.asset().libraryMoveInfo.pasteFileKey)) return false;
           } else {
             return false;
           }
@@ -2232,15 +2251,17 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
   }
   // Corner radii: the uniform radius sets all four; the per-corner fields override it unless
   // rectangleCornerRadiiIndependent is explicitly false (as the JSON reader).
+  // Without the uniform radius only the corners given are set (an override of one corner keeps its main's others).
   if (hasUniform) {
     p.cornerRadii = {uniform, uniform, uniform, uniform};
     m |= F_CORNER_RADII;
   }
+  static constexpr Field kCornerBit[4] = {F_CORNER_TL, F_CORNER_TR, F_CORNER_BR, F_CORNER_BL};
   if (!cornersIndependentFalse)
     for (size_t i = 0; i < 4; i++)
       if (hasCorner[i]) {
         p.cornerRadii[i] = corner[i];
-        m |= F_CORNER_RADII;
+        m |= kCornerBit[i];
       }
   // clearedFields (updates only): modelled fields back to their defaults; unmodelled ones removed from `extra`.
   if (update && !cleared.empty()) {
@@ -2286,7 +2307,7 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
     o.varuint(12);
     putMatrix(o, p.transform);
   }
-  if (mask & F_CORNER_RADII) {
+  if ((mask & F_CORNER_RADII) == F_CORNER_RADII) {
     const CornerRadii& r = p.cornerRadii;
     bool independent = !(r[0] == r[1] && r[1] == r[2] && r[2] == r[3]);
     putFloat(o, id::kCornerRadius, r[0]);
@@ -2295,6 +2316,12 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
     putFloat(o, id::kCornerBL, r[3]);
     putFloat(o, id::kCornerBR, r[2]);
     putBool(o, id::kCornersIndependent, independent);
+  } else if (mask & F_CORNER_RADII) {
+    // Some corners only (an override): just those, as Figma writes them.
+    if (mask & F_CORNER_TL) putFloat(o, id::kCornerTL, p.cornerRadii[0]);
+    if (mask & F_CORNER_TR) putFloat(o, id::kCornerTR, p.cornerRadii[1]);
+    if (mask & F_CORNER_BL) putFloat(o, id::kCornerBL, p.cornerRadii[3]);
+    if (mask & F_CORNER_BR) putFloat(o, id::kCornerBR, p.cornerRadii[2]);
   }
   if (mask & F_STROKE_WEIGHT) putFloat(o, 26, p.strokeWeight);
   if (mask & F_STROKE_ALIGN) putEnum(o, 29, p.strokeAlign);
@@ -2304,75 +2331,74 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
   if (mask & F_RESIZE_TO_FIT) putBool(o, 117, p.resizeToFit);
   if (mask & F_BACKGROUND_COLOR) {
     o.varuint(50);
-    putColor(o, p.backgroundColor);
+    putColor(o, p.rare().backgroundColor);
   }
-  if (mask & F_BACKGROUND_ENABLED) putBool(o, 15, p.backgroundEnabled);
-  if (mask & F_INTERNAL_ONLY) putBool(o, 142, p.internalOnly);
+  if (mask & F_BACKGROUND_ENABLED) putBool(o, 15, p.rare().backgroundEnabled);
+  if (mask & F_INTERNAL_ONLY) putBool(o, 142, p.rare().internalOnly);
   // Auto layout.
-  if (mask & F_STACK_MODE) putEnum(o, 105, p.stackMode);
-  if (mask & F_STACK_SPACING) putFloat(o, 107, p.stackSpacing);
-  if (mask & F_STACK_PADDING_LEFT) putFloat(o, 209, p.stackPaddingLeft);
-  if (mask & F_STACK_PADDING_TOP) putFloat(o, 210, p.stackPaddingTop);
-  if (mask & F_STACK_PADDING_RIGHT) putFloat(o, 233, p.stackPaddingRight);
-  if (mask & F_STACK_PADDING_BOTTOM) putFloat(o, 234, p.stackPaddingBottom);
-  if (mask & F_STACK_PRIMARY_SIZING) putEnum(o, 229, p.stackPrimarySizing);
-  if (mask & F_STACK_COUNTER_SIZING) putEnum(o, 221, p.stackCounterSizing);
-  if (mask & F_STACK_PRIMARY_ALIGN) putEnum(o, 230, p.stackPrimaryAlignItems);
-  if (mask & F_STACK_COUNTER_ALIGN) putEnum(o, 231, p.stackCounterAlignItems);
-  if (mask & F_STACK_COUNTER_ALIGN_CONTENT) putEnum(o, 343, p.stackCounterAlignContent);
-  if (mask & F_STACK_WRAP) putEnum(o, 323, p.stackWrap);
+  if (mask & F_STACK_MODE) putEnum(o, 105, p.stack().stackMode);
+  if (mask & F_STACK_SPACING) putFloat(o, 107, p.stack().stackSpacing);
+  if (mask & F_STACK_PADDING_LEFT) putFloat(o, 209, p.stack().stackPaddingLeft);
+  if (mask & F_STACK_PADDING_TOP) putFloat(o, 210, p.stack().stackPaddingTop);
+  if (mask & F_STACK_PADDING_RIGHT) putFloat(o, 233, p.stack().stackPaddingRight);
+  if (mask & F_STACK_PADDING_BOTTOM) putFloat(o, 234, p.stack().stackPaddingBottom);
+  if (mask & F_STACK_PRIMARY_SIZING) putEnum(o, 229, p.stack().stackPrimarySizing);
+  if (mask & F_STACK_COUNTER_SIZING) putEnum(o, 221, p.stack().stackCounterSizing);
+  if (mask & F_STACK_PRIMARY_ALIGN) putEnum(o, 230, p.stack().stackPrimaryAlignItems);
+  if (mask & F_STACK_COUNTER_ALIGN) putEnum(o, 231, p.stack().stackCounterAlignItems);
+  if (mask & F_STACK_COUNTER_ALIGN_CONTENT) putEnum(o, 343, p.stack().stackCounterAlignContent);
+  if (mask & F_STACK_WRAP) putEnum(o, 323, p.stack().stackWrap);
   if (mask & F_STACK_COUNTER_SPACING) {
-    if (p.stackCounterSpacing) putFloat(o, 324, *p.stackCounterSpacing);
+    if (p.stack().stackCounterSpacing) putFloat(o, 324, *p.stack().stackCounterSpacing);
     else if (update) cleared.push_back(324);
   }
-  if (mask & F_STACK_REVERSE_Z) putBool(o, 271, p.stackReverseZIndex);
-  if (mask & F_BORDERS_TAKE_SPACE) putBool(o, 294, p.bordersTakeSpace);
+  if (mask & F_STACK_REVERSE_Z) putBool(o, 271, p.stack().stackReverseZIndex);
+  if (mask & F_BORDERS_TAKE_SPACE) putBool(o, 294, p.stack().bordersTakeSpace);
   if (mask & F_STACK_CHILD_GROW) putFloat(o, 232, p.stackChildPrimaryGrow);
   if (mask & F_STACK_CHILD_ALIGN_SELF) putEnum(o, 236, p.stackChildAlignSelf);
   if (mask & F_STACK_POSITIONING) putEnum(o, 269, p.stackPositioning);
-  if (mask & F_MIN_SIZE) {
-    o.varuint(325);
-    o.varuint(1);
-    putVector(o, p.minSize);
+  // OptionalVector: no limit (0, 0) is written as Figma does, with no value.
+  auto optionalVector = [&](uint32_t fid, Vec2 v) {
+    o.varuint(fid);
+    if (v.x != 0 || v.y != 0) {
+      o.varuint(1);
+      putVector(o, v);
+    }
     o.byte(0);
-  }
-  if (mask & F_MAX_SIZE) {
-    o.varuint(326);
-    o.varuint(1);
-    putVector(o, p.maxSize);
-    o.byte(0);
-  }
+  };
+  if (mask & F_MIN_SIZE) optionalVector(325, p.rare().minSize);
+  if (mask & F_MAX_SIZE) optionalVector(326, p.rare().maxSize);
   if (mask & F_H_CONSTRAINT) putEnum(o, 28, p.horizontalConstraint);
   if (mask & F_V_CONSTRAINT) putEnum(o, 37, p.verticalConstraint);
   if (mask & F_PROPORTIONS_CONSTRAINED) putBool(o, 151, p.proportionsConstrained);
   // Text.
   if (mask & F_TEXT_DATA) {
     o.varuint(42);
-    putTextData(o, p.textData, blobs);
+    putTextData(o, p.text().textData, blobs);
   }
   if (mask & F_FONT_NAME) {
     o.varuint(41);
-    putFontName(o, p.fontName);
+    putFontName(o, p.text().fontName);
   }
-  if (mask & F_FONT_SIZE) putFloat(o, 21, p.fontSize);
+  if (mask & F_FONT_SIZE) putFloat(o, 21, p.text().fontSize);
   if (mask & F_LINE_HEIGHT) {
     o.varuint(40);
-    putNumber(o, p.lineHeight);
+    putNumber(o, p.text().lineHeight);
   }
   if (mask & F_LETTER_SPACING) {
     o.varuint(165);
-    putNumber(o, p.letterSpacing);
+    putNumber(o, p.text().letterSpacing);
   }
-  if (mask & F_PARAGRAPH_SPACING) putFloat(o, 23, p.paragraphSpacing);
-  if (mask & F_PARAGRAPH_INDENT) putFloat(o, 22, p.paragraphIndent);
-  if (mask & F_TEXT_ALIGN_H) putEnum(o, 32, p.textAlignHorizontal);
-  if (mask & F_TEXT_ALIGN_V) putEnum(o, 33, p.textAlignVertical);
-  if (mask & F_TEXT_AUTO_RESIZE) putEnum(o, 46, p.textAutoResize);
-  if (mask & F_TEXT_TRUNCATION) putEnum(o, 280, p.textTruncation);
-  if (mask & F_MAX_LINES) putInt(o, 351, p.maxLines);
-  if (mask & F_TEXT_CASE) putEnum(o, 34, p.textCase);
-  if (mask & F_TEXT_DECORATION) putEnum(o, 35, p.textDecoration);
-  if (mask & F_AUTO_RENAME) putBool(o, 14, p.autoRename);
+  if (mask & F_PARAGRAPH_SPACING) putFloat(o, 23, p.text().paragraphSpacing);
+  if (mask & F_PARAGRAPH_INDENT) putFloat(o, 22, p.text().paragraphIndent);
+  if (mask & F_TEXT_ALIGN_H) putEnum(o, 32, p.text().textAlignHorizontal);
+  if (mask & F_TEXT_ALIGN_V) putEnum(o, 33, p.text().textAlignVertical);
+  if (mask & F_TEXT_AUTO_RESIZE) putEnum(o, 46, p.text().textAutoResize);
+  if (mask & F_TEXT_TRUNCATION) putEnum(o, 280, p.text().textTruncation);
+  if (mask & F_MAX_LINES) putInt(o, 351, p.text().maxLines);
+  if (mask & F_TEXT_CASE) putEnum(o, 34, p.text().textCase);
+  if (mask & F_TEXT_DECORATION) putEnum(o, 35, p.text().textDecoration);
+  if (mask & F_AUTO_RENAME) putBool(o, 14, p.text().autoRename);
   // Paint, stroke, effects, masks.
   if (mask & F_BLEND_MODE) putEnum(o, 9, p.blendMode);
   if (mask & F_MASK) putBool(o, 16, p.mask);
@@ -2382,45 +2408,45 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
   if (mask & F_MITER_LIMIT) putFloat(o, 25, p.miterLimit);
   if (mask & F_DASH_PATTERN) {
     o.varuint(13);
-    o.varuint(static_cast<uint32_t>(p.dashPattern.size()));
-    for (double d : p.dashPattern) o.varfloat(static_cast<float>(d));
+    o.varuint(static_cast<uint32_t>(p.stroke().dashPattern.size()));
+    for (double d : p.stroke().dashPattern) o.varfloat(static_cast<float>(d));
   }
   if (mask & F_BORDER_WEIGHTS) {
-    putFloat(o, id::kBorderTop, p.borderWeights[0]);
-    putFloat(o, id::kBorderBottom, p.borderWeights[2]);
-    putFloat(o, id::kBorderLeft, p.borderWeights[3]);
-    putFloat(o, id::kBorderRight, p.borderWeights[1]);
-    putBool(o, id::kBordersIndependent, p.borderStrokeWeightsIndependent);
+    putFloat(o, id::kBorderTop, p.stroke().borderWeights[0]);
+    putFloat(o, id::kBorderBottom, p.stroke().borderWeights[2]);
+    putFloat(o, id::kBorderLeft, p.stroke().borderWeights[3]);
+    putFloat(o, id::kBorderRight, p.stroke().borderWeights[1]);
+    putBool(o, id::kBordersIndependent, p.stroke().borderStrokeWeightsIndependent);
   }
-  if (mask & F_CORNER_SMOOTHING) putFloat(o, 160, p.cornerSmoothing);
+  if (mask & F_CORNER_SMOOTHING) putFloat(o, 160, p.stroke().cornerSmoothing);
   if (mask & F_EFFECTS) {
     o.varuint(43);
     o.varuint(static_cast<uint32_t>(p.effects.size()));
     for (const Effect& e : p.effects) putEffect(o, e);
   }
-  if (mask & F_COUNT) putUint(o, 10, p.count);
-  if (mask & F_STAR_INNER_SCALE) putFloat(o, 24, p.starInnerScale);
+  if (mask & F_COUNT) putUint(o, 10, p.shape().count);
+  if (mask & F_STAR_INNER_SCALE) putFloat(o, 24, p.shape().starInnerScale);
   if (mask & F_ARC_DATA) {
     o.varuint(195);
-    putFloat(o, 1, p.arcData.startingAngle);
-    putFloat(o, 2, p.arcData.endingAngle);
-    putFloat(o, 3, p.arcData.innerRadius);
+    putFloat(o, 1, p.shape().arcData.startingAngle);
+    putFloat(o, 2, p.shape().arcData.endingAngle);
+    putFloat(o, 3, p.shape().arcData.innerRadius);
     o.byte(0);
   }
   if (mask & F_VECTOR_DATA) {
-    if (p.vectorData.present) {
+    if (p.shape().vectorData.present) {
       o.varuint(48);
-      putVectorData(o, p.vectorData, blobs);
+      putVectorData(o, p.shape().vectorData, blobs);
     } else if (update) {
       cleared.push_back(48);
     }
   }
-  if (mask & F_HANDLE_MIRRORING) putEnum(o, 44, p.handleMirroring);
-  if (mask & F_BOOLEAN_OPERATION) putEnum(o, 36, p.booleanOperation);
+  if (mask & F_HANDLE_MIRRORING) putEnum(o, 44, p.shape().handleMirroring);
+  if (mask & F_BOOLEAN_OPERATION) putEnum(o, 36, p.shape().booleanOperation);
   if (mask & F_LAYOUT_GRIDS) {
     o.varuint(47);
-    o.varuint(static_cast<uint32_t>(p.layoutGrids.size()));
-    for (const LayoutGrid& g : p.layoutGrids) putLayoutGrid(o, g);
+    o.varuint(static_cast<uint32_t>(p.rare().layoutGrids.size()));
+    for (const LayoutGrid& g : p.rare().layoutGrids) putLayoutGrid(o, g);
   }
   // Components.
   auto guidOrClear = [&](FieldMask bit, uint32_t fid, Guid g) {
@@ -2430,40 +2456,40 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
   };
   guidOrClear(F_OVERRIDE_KEY, 213, p.overrideKey);
   if (mask & F_SYMBOL_DATA) {
-    if (p.symbolData.present()) {
+    if (p.comp().symbolData.present()) {
       o.varuint(113);
-      if (p.symbolData.symbolID != kNoGuid) putGuidField(o, 1, p.symbolData.symbolID);
+      if (p.comp().symbolData.symbolID != kNoGuid) putGuidField(o, 1, p.comp().symbolData.symbolID);
       o.varuint(2);
-      o.varuint(static_cast<uint32_t>(p.symbolData.overrides.size()));
-      for (const SymbolOverride& ov : p.symbolData.overrides) {
+      o.varuint(static_cast<uint32_t>(p.comp().symbolData.overrides.size()));
+      for (const SymbolOverride& ov : p.comp().symbolData.overrides) {
         putGuidPath(o, id::kGuidPath, ov.path);
         std::vector<uint32_t> none;
         putFields(o, ov.props, ov.mask & ~static_cast<FieldMask>(F_PARENT_INDEX | F_TYPE), false, blobs, none);
         o.byte(0);
       }
-      putFloat(o, 3, p.symbolData.uniformScaleFactor);
+      putFloat(o, 3, p.comp().symbolData.uniformScaleFactor);
       o.byte(0);
     } else if (update) {
       cleared.push_back(113);
     }
   }
-  guidOrClear(F_OVERRIDDEN_SYMBOL_ID, 143, p.overriddenSymbolID);
+  guidOrClear(F_OVERRIDDEN_SYMBOL_ID, 143, p.comp().overriddenSymbolID);
   if (mask & F_COMPONENT_PROP_DEFS) {
     o.varuint(266);
-    o.varuint(static_cast<uint32_t>(p.componentPropDefs.size()));
-    for (const ComponentPropDef& d : p.componentPropDefs) putPropDef(o, d, blobs);
+    o.varuint(static_cast<uint32_t>(p.comp().componentPropDefs.size()));
+    for (const ComponentPropDef& d : p.comp().componentPropDefs) putPropDef(o, d, blobs);
   }
   if (mask & F_COMPONENT_PROP_ASSIGNMENTS) {
     o.varuint(268);
-    o.varuint(static_cast<uint32_t>(p.componentPropAssignments.size()));
-    for (const ComponentPropAssignment& a : p.componentPropAssignments) putPropAssignment(o, a, blobs);
+    o.varuint(static_cast<uint32_t>(p.comp().componentPropAssignments.size()));
+    for (const ComponentPropAssignment& a : p.comp().componentPropAssignments) putPropAssignment(o, a, blobs);
   }
   if (mask & F_PARAM_MAP) putParamMap(o, 445, p.parameterConsumptionMap);
-  if (mask & F_IS_STATE_GROUP) putBool(o, 225, p.isStateGroup);
+  if (mask & F_IS_STATE_GROUP) putBool(o, 225, p.comp().isStateGroup);
   if (mask & F_VARIANT_PROP_SPECS) {
     o.varuint(483);
-    o.varuint(static_cast<uint32_t>(p.variantPropSpecs.size()));
-    for (const VariantPropSpec& v : p.variantPropSpecs) {
+    o.varuint(static_cast<uint32_t>(p.comp().variantPropSpecs.size()));
+    for (const VariantPropSpec& v : p.comp().variantPropSpecs) {
       putGuidField(o, 1, v.propDefId);
       putString(o, 2, v.value);
       o.byte(0);
@@ -2471,8 +2497,8 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
   }
   if (mask & F_STATE_GROUP_ORDERS) {
     o.varuint(238);
-    o.varuint(static_cast<uint32_t>(p.stateGroupPropertyValueOrders.size()));
-    for (const StateGroupOrder& so : p.stateGroupPropertyValueOrders) {
+    o.varuint(static_cast<uint32_t>(p.comp().stateGroupPropertyValueOrders.size()));
+    for (const StateGroupOrder& so : p.comp().stateGroupPropertyValueOrders) {
       putString(o, 1, so.property);
       o.varuint(2);
       o.varuint(static_cast<uint32_t>(so.values.size()));
@@ -2480,32 +2506,30 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
       o.byte(0);
     }
   }
-  if (mask & F_PROPS_ARE_BUBBLED) putBool(o, 305, p.propsAreBubbled);
-  if (mask & F_IS_SLOT) putBool(o, 463, p.isSlot);
-  if (mask & F_IS_SLOT_CONTENT) putBool(o, 495, p.isSlotContent);
+  if (mask & F_PROPS_ARE_BUBBLED) putBool(o, 305, p.comp().propsAreBubbled);
+  if (mask & F_IS_SLOT) putBool(o, 463, p.comp().isSlot);
+  if (mask & F_IS_SLOT_CONTENT) putBool(o, 495, p.comp().isSlotContent);
   if (mask & F_DETACHED_SYMBOL_ID) {
-    if (p.detachedSymbolId != kNoGuid) {
-      o.varuint(342);
-      putGuidField(o, 1, p.detachedSymbolId);
-      o.byte(0);
+    if (p.comp().detachedSymbolId.present()) {
+      putAssetId(o, 342, p.comp().detachedSymbolId);
     } else if (update) {
       cleared.push_back(342);
     }
   }
-  if (mask & F_IS_SOFT_DELETED) putBool(o, 330, p.isSoftDeleted);
+  if (mask & F_IS_SOFT_DELETED) putBool(o, 330, p.comp().isSoftDeleted);
   if (mask & F_ANCESTOR_PATH) {
     o.varuint(235);
-    o.varuint(static_cast<uint32_t>(p.ancestorPathBeforeDeletion.size()));
-    for (Guid g : p.ancestorPathBeforeDeletion) putGuid(o, g);
+    o.varuint(static_cast<uint32_t>(p.comp().ancestorPathBeforeDeletion.size()));
+    for (Guid g : p.comp().ancestorPathBeforeDeletion) putGuid(o, g);
   }
   // Variables, modes, styles.
   if (mask & F_VARIABLE_MODES) {
     o.varuint(316);
     o.varuint(1);
-    o.varuint(static_cast<uint32_t>(p.variableModeBySetMap.size()));
-    for (const VariableModeEntry& e : p.variableModeBySetMap) {
+    o.varuint(static_cast<uint32_t>(p.refs().variableModeBySetMap.size()));
+    for (const VariableModeEntry& e : p.refs().variableModeBySetMap) {
       putAssetId(o, 1, e.set);
-      putGuidField(o, 2, e.mode);
+      if (e.mode != kNoGuid) putGuidField(o, 2, e.mode);  // an entry without a mode stays without one
       o.byte(0);
     }
     o.byte(0);
@@ -2515,33 +2539,33 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
     if (a.present()) putAssetId(o, fid, a);
     else if (update) cleared.push_back(fid);
   };
-  assetOrClear(F_STYLE_ID_FILL, 332, p.styleIdForFill);
-  assetOrClear(F_STYLE_ID_STROKE, 333, p.styleIdForStrokeFill);
-  assetOrClear(F_STYLE_ID_TEXT, 334, p.styleIdForText);
-  assetOrClear(F_STYLE_ID_EFFECT, 335, p.styleIdForEffect);
-  assetOrClear(F_STYLE_ID_GRID, 336, p.styleIdForGrid);
-  if (mask & F_STYLE_TYPE) putEnum(o, 163, p.styleType);
-  if (mask & F_SORT_POSITION) putString(o, 320, p.sortPosition);
-  if (mask & F_DESCRIPTION) putString(o, 318, p.description);
-  if (mask & F_KEY) putString(o, 319, p.key);
-  if (mask & F_IS_PUBLISHABLE) putBool(o, 174, p.isPublishable);
+  assetOrClear(F_STYLE_ID_FILL, 332, p.refs().styleIdForFill);
+  assetOrClear(F_STYLE_ID_STROKE, 333, p.refs().styleIdForStrokeFill);
+  assetOrClear(F_STYLE_ID_TEXT, 334, p.refs().styleIdForText);
+  assetOrClear(F_STYLE_ID_EFFECT, 335, p.refs().styleIdForEffect);
+  assetOrClear(F_STYLE_ID_GRID, 336, p.refs().styleIdForGrid);
+  if (mask & F_STYLE_TYPE) putEnum(o, 163, p.asset().styleType);
+  if (mask & F_SORT_POSITION) putString(o, 320, p.asset().sortPosition);
+  if (mask & F_DESCRIPTION) putString(o, 318, p.asset().description);
+  if (mask & F_KEY) putString(o, 319, p.asset().key);
+  if (mask & F_IS_PUBLISHABLE) putBool(o, 174, p.asset().isPublishable);
   if (mask & F_VARIABLE_SET_MODES) {
     o.varuint(312);
-    o.varuint(static_cast<uint32_t>(p.variableSetModes.size()));
-    for (const VariableSetMode& mode : p.variableSetModes) {
+    o.varuint(static_cast<uint32_t>(p.asset().variableSetModes.size()));
+    for (const VariableSetMode& mode : p.asset().variableSetModes) {
       putGuidField(o, 1, mode.id);
       putString(o, 2, mode.name);
       putString(o, 3, mode.sortPosition);
       o.byte(0);
     }
   }
-  assetOrClear(F_VARIABLE_SET_ID, 313, p.variableSetID);
-  if (mask & F_VARIABLE_RESOLVED_TYPE) putEnum(o, 314, p.variableResolvedType);
+  assetOrClear(F_VARIABLE_SET_ID, 313, p.asset().variableSetID);
+  if (mask & F_VARIABLE_RESOLVED_TYPE) putEnum(o, 314, p.asset().variableResolvedType);
   if (mask & F_VARIABLE_DATA_VALUES) {
     o.varuint(315);
     o.varuint(1);
-    o.varuint(static_cast<uint32_t>(p.variableDataValues.size()));
-    for (const VariableModeValue& v : p.variableDataValues) {
+    o.varuint(static_cast<uint32_t>(p.asset().variableDataValues.size()));
+    for (const VariableModeValue& v : p.asset().variableDataValues) {
       putGuidField(o, 1, v.modeID);
       o.varuint(2);
       putVariableData(o, v.data);
@@ -2550,10 +2574,10 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
     o.byte(0);
   }
   if (mask & F_VARIABLE_SCOPES) {
-    if (p.variableScopes) {
+    if (p.asset().variableScopes) {
       o.varuint(353);
-      o.varuint(static_cast<uint32_t>(p.variableScopes->size()));
-      for (VariableScope sc : *p.variableScopes) o.varuint(static_cast<uint32_t>(sc));
+      o.varuint(static_cast<uint32_t>(p.asset().variableScopes->size()));
+      for (VariableScope sc : *p.asset().variableScopes) o.varuint(static_cast<uint32_t>(sc));
     } else if (update) {
       cleared.push_back(353);
     }
@@ -2561,8 +2585,8 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
   if (mask & F_CODE_SYNTAX) {
     o.varuint(358);
     o.varuint(1);
-    o.varuint(static_cast<uint32_t>(p.codeSyntax.size()));
-    for (const CodeSyntaxEntry& e : p.codeSyntax) {
+    o.varuint(static_cast<uint32_t>(p.asset().codeSyntax.size()));
+    for (const CodeSyntaxEntry& e : p.asset().codeSyntax) {
       putEnum(o, 1, e.platform);
       putString(o, 2, e.value);
       o.byte(0);
@@ -2575,15 +2599,15 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
     if (!s.empty()) putString(o, fid, s);
     else if (update) cleared.push_back(fid);
   };
-  stringOrClear(F_VERSION, 171, p.version);
-  stringOrClear(F_PUBLISHED_VERSION, 218, p.publishedVersion);
-  stringOrClear(F_SOURCE_LIBRARY_KEY, 395, p.sourceLibraryKey);
-  guidOrClear(F_PUBLISH_ID, 215, p.publishID);
+  stringOrClear(F_VERSION, 171, p.asset().version);
+  stringOrClear(F_PUBLISHED_VERSION, 218, p.asset().publishedVersion);
+  stringOrClear(F_SOURCE_LIBRARY_KEY, 395, p.asset().sourceLibraryKey);
+  guidOrClear(F_PUBLISH_ID, 215, p.asset().publishID);
   if (mask & F_LIBRARY_MOVE_INFO) {
-    if (p.libraryMoveInfo.present()) {
+    if (p.asset().libraryMoveInfo.present()) {
       o.varuint(256);
-      putString(o, 1, p.libraryMoveInfo.oldKey);
-      putString(o, 2, p.libraryMoveInfo.pasteFileKey);
+      putString(o, 1, p.asset().libraryMoveInfo.oldKey);
+      putString(o, 2, p.asset().libraryMoveInfo.pasteFileKey);
       o.byte(0);
     } else if (update) {
       cleared.push_back(256);
@@ -2947,6 +2971,23 @@ uint32_t fieldIdOf(const char* defName, std::string_view key) {
   const Def* d = table().def(defName);
   const FieldDef* f = d ? d->byName(key) : nullptr;
   return f ? f->value : 0;
+}
+
+Guid assignmentSlotContent(std::string_view extra) {
+  if (extra.empty()) return kNoGuid;
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(extra.data()), extra.size());
+  while (bb.index() < extra.size()) {
+    uint32_t f = 0;
+    if (!bb.readVarUint(f) || !f) return kNoGuid;
+    if (f == 3) {  // varValue
+      VariableData d;
+      if (!readVariableDataInto(bb, d)) return kNoGuid;
+      return d.kind == VariableData::Kind::SLOT_CONTENT ? d.slotContent : kNoGuid;
+    }
+    const FieldDef* fd = defs().propAssignment.byId(f);
+    if (!fd || !table().skipValue(bb, *fd)) return kNoGuid;
+  }
+  return kNoGuid;
 }
 
 bool extraBool(const std::map<std::string, std::string>& extra, const char* key, bool fallback) {

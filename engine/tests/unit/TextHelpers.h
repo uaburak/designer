@@ -41,8 +41,8 @@ inline void loadInter() {
 
 inline NodeProps textProps(const std::string& characters, double fontSize = 12) {
   NodeProps p = defaultProps(NodeType::TEXT);
-  p.textData.characters = characters;
-  p.fontSize = fontSize;
+  p.text().textData.characters = characters;
+  p.text().fontSize = fontSize;
   p.name = characters;
   return p;
 }

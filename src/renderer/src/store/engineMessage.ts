@@ -19,7 +19,13 @@ import type { Message, NodeChange } from "../../../shared/schema/codec";
 function toKiwiValue(m: SchemaModel, type: string, isArray: boolean, v: any): any {
   if (v === undefined || v === null) return undefined;
   if (isArray) {
-    if (type === "byte") return v instanceof Uint8Array ? v : Array.isArray(v) ? Uint8Array.from(v) : undefined;
+    if (type === "byte") {
+      if (v instanceof Uint8Array) return v;
+      if (Array.isArray(v)) return Uint8Array.from(v);
+      // The engine's JSON also takes an image hash as hex (40 hex digits).
+      if (typeof v === "string" && /^(?:[0-9a-fA-F]{2})+$/.test(v)) return Uint8Array.from(v.match(/../g)!.map((h) => parseInt(h, 16)));
+      return undefined;
+    }
     if (!Array.isArray(v)) return undefined;
     const out: any[] = [];
     for (const e of v) {

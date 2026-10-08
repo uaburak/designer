@@ -128,7 +128,7 @@ void Editor::fontsChanged() {
 
 std::u16string Editor::editedText() const {
   const Node* n = doc_.get(text_.node);
-  return n ? text::utf8To16(n->props.textData.characters) : std::u16string();
+  return n ? text::utf8To16(n->props.text().textData.characters) : std::u16string();
 }
 
 void Editor::textChanged() {
@@ -177,7 +177,7 @@ void Editor::endTextEdit() {
   events_.textEdit = true;
   needsRender_ = true;
   const Node* n = doc_.get(id);
-  if (n && n->props.textData.characters.empty()) {
+  if (n && n->props.text().textData.characters.empty()) {
     // Leaving an empty text deletes it (Figma); one the session made leaves no undo step at all.
     bool merge = step && undo_.undoCount() == step && !undo_.canRedo();
     begin(TxnKind::USER, "Delete");
@@ -198,7 +198,7 @@ void Editor::textReplace(uint32_t from, uint32_t to, std::u16string_view insert,
   const Node* n = doc_.get(text_.node);
   if (!n) return;
   const NodeProps& p = n->props;
-  TextData t = p.textData;
+  TextData t = p.text().textData;
   uint32_t len = text::length16(t);
   from = std::min(from, len);
   to = std::clamp(to, from, len);
@@ -207,8 +207,8 @@ void Editor::textReplace(uint32_t from, uint32_t to, std::u16string_view insert,
   text::replaceRange(t, from, to, insert, style);
   NodeChange c = NodeChange::changed(text_.node);
   c.mask = F_TEXT_DATA;
-  c.props.textData = t;
-  if (p.autoRename) {
+  c.props.text().textData = t;
+  if (p.text().autoRename) {
     c.mask |= F_NAME;
     c.props.name = text::layerNameFor(t.characters);
   }
@@ -295,12 +295,12 @@ void Editor::createTextAt(Vec2 world, double width) {
   NodeProps p = defaultProps(NodeType::TEXT);
   p.name = "Text";
   if (width > 0) {
-    p.textAutoResize = TextAutoResize::HEIGHT;
+    p.text().textAutoResize = TextAutoResize::HEIGHT;
     p.size = {width, 0};
   }
   // Its box starts where the click was, the first line's middle on the pointer.
   double lineHeight = 15;
-  if (text::Font* f = text::FontRegistry::get().find(p.fontName)) lineHeight = text::autoLineHeight(f, p.fontSize);
+  if (text::Font* f = text::FontRegistry::get().find(p.text().fontName)) lineHeight = text::autoLineHeight(f, p.text().fontSize);
   Vec2 at{std::round(world.x), std::round(width > 0 ? world.y : world.y - lineHeight / 2)};
   p.transform = doc_.worldTransform(parent).inverse() * Mat2x3::translate(at.x, at.y);
   p.parentIndex = {parent, placeAt(parent, doc_.children(parent).size(), kNoGuid)};
@@ -539,7 +539,7 @@ void Editor::textToggleStyle(KeyCode code, uint32_t /*mods*/) {
   if (code == KeyCode::KeyU || code == KeyCode::KeyX) {
     TextDecoration d = code == KeyCode::KeyU ? TextDecoration::UNDERLINE : TextDecoration::STRIKETHROUGH;
     c.mask = F_TEXT_DECORATION;
-    c.props.textDecoration = cur.textDecoration == d ? TextDecoration::NONE : d;
+    c.props.text().textDecoration = cur.textDecoration == d ? TextDecoration::NONE : d;
   } else {
     int weight = 400;
     bool italic = false;
@@ -557,7 +557,7 @@ void Editor::textToggleStyle(KeyCode code, uint32_t /*mods*/) {
     }
     if (italic) style = style.empty() ? "Italic" : style + " Italic";
     c.mask = F_FONT_NAME;
-    c.props.fontName = {cur.fontName.family, style, ""};
+    c.props.text().fontName = {cur.fontName.family, style, ""};
   }
   uint32_t a = text_.anchor, f = text_.focus;
   setProps({text_.node}, c, 0);
@@ -575,7 +575,7 @@ Status Editor::applyTextStyle(Guid id, const NodeChange& change) {
   FieldMask plain = mask & ~kRunNodeFields & ~static_cast<FieldMask>(F_TEXT_DATA);
   c.mask = differingFields(p, change.props, plain);
   copyFields(c.props, change.props, c.mask);
-  TextData t = (mask & F_TEXT_DATA) ? change.props.textData : p.textData;
+  TextData t = (mask & F_TEXT_DATA) ? change.props.text().textData : p.text().textData;
   uint32_t len = text::length16(t);
   uint32_t from = textSelStart(), to = textSelEnd();
   bool ranged = text_.node == id && from < to && !(from == 0 && to >= len);
@@ -587,9 +587,9 @@ Status Editor::applyTextStyle(Guid id, const NodeChange& change) {
     c.mask |= own;
     text::clearRunFields(t, run);
   }
-  if (!(t == p.textData)) {
+  if (!(t == p.text().textData)) {
     c.mask |= F_TEXT_DATA;
-    c.props.textData = t;
+    c.props.text().textData = t;
   }
   if (c.mask) write(c);
   return OK;

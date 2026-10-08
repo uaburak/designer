@@ -28,14 +28,14 @@ const Guid M{1, 1}, BG{1, 2}, LABEL{1, 3}, I{1, 10};
 
 NodeChange textNode(Guid id, Guid parent, const std::string& position, Rect r, const std::string& chars) {
   NodeChange c = make(id, NodeType::TEXT, parent, position, r, chars);
-  c.props.textData.characters = chars;
-  c.props.textAutoResize = TextAutoResize::NONE;
+  c.props.text().textData.characters = chars;
+  c.props.text().textAutoResize = TextAutoResize::NONE;
   return c;
 }
 
 NodeChange instanceOf(Guid id, Guid main, Guid parent, const std::string& position, Rect r) {
   NodeChange c = make(id, NodeType::INSTANCE, parent, position, r, "Button");
-  c.props.symbolData.symbolID = main;
+  c.props.comp().symbolData.symbolID = main;
   c.props.fillPaints.clear();
   return c;
 }
@@ -80,7 +80,7 @@ CommandArgs args(const std::string& jsonText) {
 }
 
 bool hasOverride(const Editor& e, Guid instance, const std::vector<Guid>& path, FieldMask bit) {
-  for (const SymbolOverride& o : props(e, instance).symbolData.overrides)
+  for (const SymbolOverride& o : props(e, instance).comp().symbolData.overrides)
     if (o.path == path && (o.mask & bit)) return true;
   return false;
 }
@@ -108,7 +108,7 @@ TEST_CASE("components: an instance materializes its main as derived rows, never 
   Guid bg = sub(I, {BG}), label = sub(I, {LABEL});
   REQUIRE(doc.children(I) == std::vector<Guid>{bg, label});
   CHECK(props(e, bg).type == NodeType::ROUNDED_RECTANGLE);
-  CHECK(props(e, label).textData.characters == "Label");
+  CHECK(props(e, label).text().textData.characters == "Label");
   CHECK(doc.worldBounds(label) == Rect{10, 110, 80, 20});
   // Never stored.
   for (const NodeChange& c : e.encodeDocument()) CHECK(!c.guid.isDerived());
@@ -150,7 +150,7 @@ TEST_CASE("components: structure is refused inside instances; position isn't ove
   Rect before = e.document().worldBounds(label);
   e.setProps({label}, change(F_TRANSFORM, [](NodeProps& p) { p.transform = Mat2x3::translate(50, 50); }), 0);
   CHECK(e.document().worldBounds(label) == before);
-  CHECK(props(e, I).symbolData.overrides.empty());
+  CHECK(props(e, I).comp().symbolData.overrides.empty());
   // A layer can't be created inside an instance.
   e.applyChanges({make({1, 20}, NodeType::ELLIPSE, I, "z", {0, 0, 5, 5})}, APPLY_USER);
   CHECK(!e.document().has({1, 20}));
@@ -193,7 +193,7 @@ TEST_CASE("components: nested instances, usage-site overrides over the nested in
   own.path = {SHAPE};
   own.mask = F_FILLS;
   own.props.fillPaints = {Paint::solid(Color::hex(0x0000FF))};
-  nested.props.symbolData.overrides.push_back(own);
+  nested.props.comp().symbolData.overrides.push_back(own);
   nodes.push_back(nested);
   Editor e = load(nodes);
   Guid row = sub(I, {NESTED}), shape = sub(I, {NESTED, SHAPE});
@@ -241,7 +241,7 @@ TEST_CASE("components: boolean and text properties; editing a bound field writes
   t.type = ComponentPropType::TEXT;
   t.initialValue.hasText = true;
   t.initialValue.textValue.characters = "Label";
-  m.props.componentPropDefs = {b, t};
+  m.props.comp().componentPropDefs = {b, t};
   NodeChange& label = nodes[5];
   REQUIRE(label.guid == LABEL);
   ParamBinding vis;
@@ -257,13 +257,13 @@ TEST_CASE("components: boolean and text properties; editing a bound field writes
   e.setSelection({I});
   REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Show label\",\"value\":false}")) == OK);
   CHECK(!props(e, row).visible);
-  REQUIRE(props(e, I).componentPropAssignments.size() == 1);
+  REQUIRE(props(e, I).comp().componentPropAssignments.size() == 1);
   REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Label#1:2147483646\",\"value\":\"Buy\"}")) == OK);
-  CHECK(props(e, row).textData.characters == "Buy");
+  CHECK(props(e, row).text().textData.characters == "Buy");
   // Editing the bound text in the instance changes the property value, not an override.
-  e.setProps({row}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Sell"; }), 0);
+  e.setProps({row}, change(F_TEXT_DATA, [](NodeProps& p) { p.text().textData.characters = "Sell"; }), 0);
   CHECK(!hasOverride(e, I, {LABEL}, F_TEXT_DATA));
-  CHECK(props(e, row).textData.characters == "Sell");
+  CHECK(props(e, row).text().textData.characters == "Sell");
   ComponentInfo info;
   REQUIRE(e.componentInfo(I, info));
   REQUIRE(info.properties.size() == 2);
@@ -275,9 +275,9 @@ TEST_CASE("components: boolean and text properties; editing a bound field writes
   REQUIRE(e.command(CommandId::EDIT_COMPONENT_PROPERTY, args("{\"prop\":\"Show label\",\"defaultValue\":false}")) == OK);
   e.setSelection({I});
   REQUIRE(e.command(CommandId::RESET_OVERRIDES) == OK);
-  CHECK(props(e, I).componentPropAssignments.empty());
+  CHECK(props(e, I).comp().componentPropAssignments.empty());
   CHECK(!props(e, row).visible);
-  CHECK(props(e, row).textData.characters == "Label");
+  CHECK(props(e, row).text().textData.characters == "Label");
 }
 
 TEST_CASE("components: create component, combine as variants, add variant, switch variants keeping overrides") {
@@ -300,7 +300,7 @@ TEST_CASE("components: create component, combine as variants, add variant, switc
   CHECK(props(e, A).type == NodeType::SYMBOL);
   CHECK(props(e, A).name == "Variant=Button, Property 2=Primary");
   CHECK(props(e, set).strokePaints[0].color == Color::hex(0x9747FF));
-  CHECK(props(e, set).dashPattern == std::vector<double>{10, 5});
+  CHECK(props(e, set).stroke().dashPattern == std::vector<double>{10, 5});
   CHECK(e.document().worldBounds(A) == Rect{0, 0, 100, 40});  // the variants stay put
   CHECK(e.undoStack().undoLabel() == "Create component set");
   // An instance of the primary variant, with a fill override that both variants started from the same value.
@@ -309,7 +309,7 @@ TEST_CASE("components: create component, combine as variants, add variant, switc
   e.setProps({sub(inst, {AR})}, change(F_FILLS, [](NodeProps& p) { p.fillPaints = {Paint::solid(Color::hex(0xFF00FF))}; }), 0);
   e.setSelection({inst});
   REQUIRE(e.command(CommandId::SET_COMPONENT_PROPERTY, args("{\"prop\":\"Property 2\",\"value\":\"Secondary\"}")) == OK);
-  CHECK(props(e, inst).symbolData.symbolID == B);
+  CHECK(props(e, inst).comp().symbolData.symbolID == B);
   // Kept by layer name ("Fill"), its fill override with it.
   Guid moved = sub(inst, {BR});
   REQUIRE(e.document().has(moved));
@@ -357,30 +357,30 @@ TEST_CASE("components: detach makes a frame with real layers; a nested instance 
   nodes.push_back(make(SHAPE, NodeType::ELLIPSE, ICON, "!", {0, 0, 16, 16}, "Shape"));
   nodes.push_back(instanceOf(NESTED, ICON, M, "#", {80, 12, 16, 16}));
   Editor e = load(nodes);
-  e.setProps({sub(I, {LABEL})}, change(F_TEXT_DATA, [](NodeProps& p) { p.textData.characters = "Go"; }), 0);
+  e.setProps({sub(I, {LABEL})}, change(F_TEXT_DATA, [](NodeProps& p) { p.text().textData.characters = "Go"; }), 0);
   e.setProps({sub(I, {NESTED, SHAPE})}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.5; }), 0);
   // Detaching the nested instance detaches the button first; the icon becomes a frame too.
   e.setSelection({sub(I, {NESTED})});
   REQUIRE(e.command(CommandId::DETACH_INSTANCE) == OK);
   CHECK(props(e, I).type == NodeType::FRAME);
-  CHECK(props(e, I).detachedSymbolId == M);
+  CHECK(props(e, I).comp().detachedSymbolId.guid == M);
   REQUIRE(e.selection().size() == 1);
   Guid icon = e.selection()[0];
   CHECK(!icon.isDerived());
   CHECK(props(e, icon).type == NodeType::FRAME);
-  CHECK(props(e, icon).detachedSymbolId == ICON);
+  CHECK(props(e, icon).comp().detachedSymbolId.guid == ICON);
   REQUIRE(e.document().children(icon).size() == 1);
   CHECK(props(e, e.document().children(icon)[0]).opacity == doctest::Approx(0.5));
   bool found = false;
   for (Guid k : e.document().children(I)) {
     CHECK(!k.isDerived());
-    if (props(e, k).type == NodeType::TEXT) found = props(e, k).textData.characters == "Go";
+    if (props(e, k).type == NodeType::TEXT) found = props(e, k).text().textData.characters == "Go";
   }
   CHECK(found);
   // One undo step brings the instance back.
   e.command(CommandId::UNDO);
   CHECK(props(e, I).type == NodeType::INSTANCE);
-  CHECK(props(e, sub(I, {LABEL})).textData.characters == "Go");
+  CHECK(props(e, sub(I, {LABEL})).text().textData.characters == "Go");
 }
 
 TEST_CASE("components: push changes to main, reset one property, go to main and back") {
@@ -398,7 +398,7 @@ TEST_CASE("components: push changes to main, reset one property, go to main and 
   REQUIRE(e.commandState(CommandId::PUSH_CHANGES_TO_MAIN) == CMD_ENABLED);
   REQUIRE(e.command(CommandId::PUSH_CHANGES_TO_MAIN) == OK);
   CHECK(props(e, BG).fillPaints[0].color == Color::hex(0x123456));
-  CHECK(props(e, I).symbolData.overrides.empty());
+  CHECK(props(e, I).comp().symbolData.overrides.empty());
   CHECK(props(e, bg).fillPaints[0].color == Color::hex(0x123456));
   REQUIRE(e.command(CommandId::GO_TO_MAIN_COMPONENT) == OK);
   CHECK(e.selection() == std::vector<Guid>{M});
@@ -418,7 +418,7 @@ TEST_CASE("components: copy/paste, ⌘D and ⌥-drag of a main make instances; d
   REQUIRE(e.paste(clip, true) == 1);
   Guid pasted = e.selection()[0];
   CHECK(props(e, pasted).type == NodeType::INSTANCE);
-  CHECK(props(e, pasted).symbolData.symbolID == M);
+  CHECK(props(e, pasted).comp().symbolData.symbolID == M);
   e.setSelection({M});
   e.command(CommandId::DUPLICATE);
   CHECK(props(e, e.selection()[0]).type == NodeType::INSTANCE);
@@ -435,7 +435,7 @@ TEST_CASE("components: copy/paste, ⌘D and ⌥-drag of a main make instances; d
   e.setSelection({M});
   e.command(CommandId::DELETE);
   REQUIRE(e.document().has(M));
-  CHECK(props(e, M).isSoftDeleted);
+  CHECK(props(e, M).comp().isSoftDeleted);
   CHECK(e.document().pageOf(M) == kInternal);
   CHECK(e.document().has(sub(I, {LABEL})));
   ComponentInfo info;
@@ -444,7 +444,7 @@ TEST_CASE("components: copy/paste, ⌘D and ⌥-drag of a main make instances; d
   e.setSelection({I});
   REQUIRE(e.commandState(CommandId::RESTORE_COMPONENT) == CMD_ENABLED);
   REQUIRE(e.command(CommandId::RESTORE_COMPONENT) == OK);
-  CHECK(!props(e, M).isSoftDeleted);
+  CHECK(!props(e, M).comp().isSoftDeleted);
   CHECK(e.document().parentOf(M) == kPage);
   CHECK(e.document().worldBounds(M) == Rect{0, 0, 100, 40});
 }
@@ -455,10 +455,10 @@ TEST_CASE("components: text editing inside an instance writes overrides") {
   REQUIRE(e.startTextEdit(label, true) == OK);
   e.textInput("Hi");
   e.endTextEdit();
-  CHECK(props(e, label).textData.characters == "Hi");
+  CHECK(props(e, label).text().textData.characters == "Hi");
   CHECK(hasOverride(e, I, {LABEL}, F_TEXT_DATA));
   CHECK(!hasOverride(e, I, {LABEL}, F_NAME));
-  CHECK(props(e, LABEL).textData.characters == "Label");
+  CHECK(props(e, LABEL).text().textData.characters == "Label");
 }
 
 TEST_CASE("components: picking takes an instance whole; inside once it is selected") {
@@ -510,34 +510,34 @@ TEST_CASE("components: structure.fig's instances match Figma's derivedSymbolData
         CHECK(std::fabs(p.transform.m12 - t->get("m12")->numberOr(0)) < 0.01);
         compared++;
       }
-      if (auto* td = d.get("textData")) CHECK(p.textData.characters == td->get("characters")->string);
+      if (auto* td = d.get("textData")) CHECK(p.text().textData.characters == td->get("characters")->string);
     }
   }
   CHECK(compared >= 8);
   // The overrides as Figma shows them: "XYZ" in Component 2, a red rectangle in Component 3.
-  CHECK(props(e, derived::intern({1, 38}, {{1, 42}})).textData.characters == "XYZ");
+  CHECK(props(e, derived::intern({1, 38}, {{1, 42}})).text().textData.characters == "XYZ");
   CHECK(props(e, derived::intern({1, 45}, {{1, 35}})).fillPaints[0].color == Color{1, 0, 0, 1});
   CHECK(props(e, {1, 45}).name == "Component 3");
   // And it round-trips: the instances encode with their overrides, no derived rows.
   for (const NodeChange& c : e.encodeDocument()) {
     CHECK(!c.guid.isDerived());
-    if (c.guid == Guid{1, 45}) CHECK(c.props.symbolData.overrides.size() == 2);
+    if (c.guid == Guid{1, 45}) CHECK(c.props.comp().symbolData.overrides.size() == 2);
   }
 }
 
 TEST_CASE("components: the codec round-trips component fields") {
   NodeChange c = NodeChange::created({1, 2}, defaultProps(NodeType::INSTANCE));
-  c.props.symbolData.symbolID = {1, 1};
+  c.props.comp().symbolData.symbolID = {1, 1};
   SymbolOverride o;
   o.path = {{1, 3}, {1, 4}};
   o.mask = F_FILLS | F_NAME;
   o.props.name = "x";
   o.props.fillPaints = {Paint::solid(Color::hex(0xFF0000))};
-  c.props.symbolData.overrides = {o};
+  c.props.comp().symbolData.overrides = {o};
   ComponentPropAssignment a;
   a.defID = {1, 99};
   a.value.hasBool = true;
-  c.props.componentPropAssignments = {a};
+  c.props.comp().componentPropAssignments = {a};
   ParamBinding b;
   b.field = VariableField::VISIBLE;
   b.propRef = {1, 98};
@@ -549,8 +549,8 @@ TEST_CASE("components: the codec round-trips component fields") {
   REQUIRE(json::parse(w.take(), v));
   NodeChange back;
   REQUIRE(codec::readChange(v, back));
-  CHECK(back.props.symbolData == c.props.symbolData);
-  CHECK(back.props.componentPropAssignments == c.props.componentPropAssignments);
+  CHECK(back.props.comp().symbolData == c.props.comp().symbolData);
+  CHECK(back.props.comp().componentPropAssignments == c.props.comp().componentPropAssignments);
   CHECK(back.props.parameterConsumptionMap == c.props.parameterConsumptionMap);
   CHECK(back.props.overrideKey == c.props.overrideKey);
   CHECK(back.props.extra.empty());
@@ -564,9 +564,9 @@ TEST_CASE("components: an edit inside an instance's slot diverges the whole slot
   d.id = SLOTDEF;
   d.name = "Content";
   d.type = ComponentPropType::SLOT;
-  m.props.componentPropDefs = {d};
+  m.props.comp().componentPropDefs = {d};
   NodeChange slot = make(SLOT, NodeType::FRAME, M, "$", {0, 0, 100, 40}, "Slot");
-  slot.props.isSlot = true;
+  slot.props.comp().isSlot = true;
   slot.props.fillPaints.clear();
   ParamBinding b;
   b.field = VariableField::SLOT_CONTENT_ID;
@@ -581,7 +581,7 @@ TEST_CASE("components: an edit inside an instance's slot diverges the whole slot
   e.applyChanges({make({1, 30}, NodeType::ROUNDED_RECTANGLE, row, "z", {50, 5, 10, 10}, "Mine")}, APPLY_USER);
   REQUIRE(e.document().has({1, 30}));
   Guid content = e.document().parentOf({1, 30});
-  CHECK(props(e, content).isSlotContent);
+  CHECK(props(e, content).comp().isSlotContent);
   CHECK(e.document().parentOf(content) == I);
   CHECK(e.document().children(content).size() == 2);
   CHECK(!e.document().has(sub(I, {SLOT, DEFAULT})));  // the slot shows the content now
@@ -695,7 +695,7 @@ TEST_CASE("components: pages derive on first show — instances on another page 
   REQUIRE(e.setCurrentPage(PAGE2) == OK);
   CHECK(e.pageDerived(PAGE2));
   CHECK(doc.children(I2) == std::vector<Guid>{sub(I2, {BG}), sub(I2, {LABEL})});
-  CHECK(props(e, sub(I2, {LABEL})).textData.characters == "Label");
+  CHECK(props(e, sub(I2, {LABEL})).text().textData.characters == "Label");
   auto ev = e.takeEvents();
   CHECK(ev.documents.empty());
   CHECK_FALSE(ev.components.empty());  // COMPONENTS_CHANGED: the panels learn the instance has its rows
@@ -706,10 +706,10 @@ TEST_CASE("components: pages derive on first show — instances on another page 
   e.setSelection({LABEL});
   NodeChange rename = NodeChange::changed(LABEL);
   rename.mask = F_TEXT_DATA;
-  rename.props.textData.characters = "Go";
+  rename.props.text().textData.characters = "Go";
   e.setProps({LABEL}, rename, 0);
-  CHECK(props(e, sub(I, {LABEL})).textData.characters == "Go");
-  CHECK(props(e, sub(I2, {LABEL})).textData.characters == "Go");  // derived once: it depends on the main like any
+  CHECK(props(e, sub(I, {LABEL})).text().textData.characters == "Go");
+  CHECK(props(e, sub(I2, {LABEL})).text().textData.characters == "Go");  // derived once: it depends on the main like any
   // Pages listed without a scan, pages() unchanged by derivation.
   CHECK(e.pages() == std::vector<Guid>{kPage, PAGE2});
 }
@@ -739,7 +739,7 @@ TEST_CASE("components: instance counts and preferred values by key come from ind
   const Guid ICON{1, 30}, BUTTON2{1, 31}, I2{1, 32};
   const std::string KEY = "0123456789abcdef0123456789abcdef01234567";
   NodeChange icon = make(ICON, NodeType::SYMBOL, kPage, "#", {300, 0, 20, 20}, "Icon");
-  icon.props.key = KEY;
+  icon.props.asset().key = KEY;
   nodes.push_back(icon);
   // A second main whose instance-swap property prefers the Icon by key (as a library copy's or a .fig's would).
   NodeChange button2 = make(BUTTON2, NodeType::SYMBOL, kPage, "$", {400, 0, 100, 40}, "Button 2");
@@ -748,7 +748,7 @@ TEST_CASE("components: instance counts and preferred values by key come from ind
   def.name = "Icon";
   def.type = ComponentPropType::INSTANCE_SWAP;
   def.preferredValues.push_back(PreferredValue{false, KEY});
-  button2.props.componentPropDefs.push_back(def);
+  button2.props.comp().componentPropDefs.push_back(def);
   nodes.push_back(button2);
   nodes.push_back(instanceOf(I2, M, kPage, "%", {0, 200, 100, 40}));
   Editor e = load(nodes);
@@ -770,7 +770,7 @@ TEST_CASE("components: instance counts and preferred values by key come from ind
   // An instance swapped to another main counts there.
   NodeChange swap = NodeChange::changed(I2);
   swap.mask = F_SYMBOL_DATA;
-  swap.props.symbolData.symbolID = ICON;
+  swap.props.comp().symbolData.symbolID = ICON;
   e.setProps({I2}, swap, 0);
   REQUIRE(e.componentInfo(M, info));
   CHECK(info.instanceCount == 1);
@@ -779,11 +779,11 @@ TEST_CASE("components: instance counts and preferred values by key come from ind
   // The Icon's key changed: the preferred value no longer resolves; changed back: it does; the Icon removed: not.
   NodeChange rekey = NodeChange::changed(ICON);
   rekey.mask = F_KEY;
-  rekey.props.key = "fedcba9876543210fedcba9876543210fedcba98";
+  rekey.props.asset().key = "fedcba9876543210fedcba9876543210fedcba98";
   REQUIRE(e.applyChanges({rekey}, APPLY_SYSTEM) == OK);
   REQUIRE(e.componentInfo(BUTTON2, info));
   CHECK(info.properties[0].preferredValues.empty());
-  rekey.props.key = KEY;
+  rekey.props.asset().key = KEY;
   REQUIRE(e.applyChanges({rekey}, APPLY_SYSTEM) == OK);
   REQUIRE(e.componentInfo(BUTTON2, info));
   CHECK(info.properties[0].preferredValues == std::vector<Guid>{ICON});

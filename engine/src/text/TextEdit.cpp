@@ -92,12 +92,12 @@ uint32_t runFieldsOf(FieldMask mask) {
 TextStyle runStyleOf(const NodeProps& p, uint32_t runMask) {
   TextStyle s;
   s.mask = runMask;
-  s.fontName = p.fontName;
-  s.fontSize = p.fontSize;
-  s.lineHeight = p.lineHeight;
-  s.letterSpacing = p.letterSpacing;
-  s.textCase = p.textCase;
-  s.textDecoration = p.textDecoration;
+  s.fontName = p.text().fontName;
+  s.fontSize = p.text().fontSize;
+  s.lineHeight = p.text().lineHeight;
+  s.letterSpacing = p.text().letterSpacing;
+  s.textCase = p.text().textCase;
+  s.textDecoration = p.text().textDecoration;
   s.fillPaints = p.fillPaints;
   return s;
 }
@@ -108,12 +108,12 @@ namespace {
 
 // Drops the fields of `s` that equal the node's own.
 void dropBaseFields(TextStyle& s, const NodeProps& p) {
-  if ((s.mask & R_FONT_NAME) && s.fontName == p.fontName) s.mask &= ~R_FONT_NAME;
-  if ((s.mask & R_FONT_SIZE) && s.fontSize == p.fontSize) s.mask &= ~R_FONT_SIZE;
-  if ((s.mask & R_LINE_HEIGHT) && s.lineHeight == p.lineHeight) s.mask &= ~R_LINE_HEIGHT;
-  if ((s.mask & R_LETTER_SPACING) && s.letterSpacing == p.letterSpacing) s.mask &= ~R_LETTER_SPACING;
-  if ((s.mask & R_TEXT_CASE) && s.textCase == p.textCase) s.mask &= ~R_TEXT_CASE;
-  if ((s.mask & R_TEXT_DECORATION) && s.textDecoration == p.textDecoration) s.mask &= ~R_TEXT_DECORATION;
+  if ((s.mask & R_FONT_NAME) && s.fontName == p.text().fontName) s.mask &= ~R_FONT_NAME;
+  if ((s.mask & R_FONT_SIZE) && s.fontSize == p.text().fontSize) s.mask &= ~R_FONT_SIZE;
+  if ((s.mask & R_LINE_HEIGHT) && s.lineHeight == p.text().lineHeight) s.mask &= ~R_LINE_HEIGHT;
+  if ((s.mask & R_LETTER_SPACING) && s.letterSpacing == p.text().letterSpacing) s.mask &= ~R_LETTER_SPACING;
+  if ((s.mask & R_TEXT_CASE) && s.textCase == p.text().textCase) s.mask &= ~R_TEXT_CASE;
+  if ((s.mask & R_TEXT_DECORATION) && s.textDecoration == p.text().textDecoration) s.mask &= ~R_TEXT_DECORATION;
   if ((s.mask & R_FILLS) && s.fillPaints == p.fillPaints) s.mask &= ~R_FILLS;
   resetUnset(s);
 }

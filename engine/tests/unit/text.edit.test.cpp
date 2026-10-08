@@ -32,8 +32,8 @@ Editor makeEditor(std::vector<NodeChange> extra = {}) {
 
 NodeChange textNode(Guid id, Guid parent, const std::string& chars, Rect r, TextAutoResize resize = TextAutoResize::WIDTH_AND_HEIGHT) {
   NodeChange c = make(id, NodeType::TEXT, parent, "#", r, chars);
-  c.props.textData.characters = chars;
-  c.props.textAutoResize = resize;
+  c.props.text().textData.characters = chars;
+  c.props.text().textAutoResize = resize;
   loadInter();
   if (resize == TextAutoResize::WIDTH_AND_HEIGHT) c.props.size = text::layoutText(c.props, {})->size;  // as a saved file has it
   return c;
@@ -66,17 +66,17 @@ TEST_CASE("text tool: a click makes auto-width Inter Regular 12 text, typing fil
   Guid t = onlySelected(e);
   const NodeProps& p = props(e, t);
   CHECK(p.type == NodeType::TEXT);
-  CHECK(p.fontName.family == "Inter");
-  CHECK(p.fontName.style == "Regular");
-  CHECK(p.fontSize == 12);
-  CHECK(p.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT);
+  CHECK(p.text().fontName.family == "Inter");
+  CHECK(p.text().fontName.style == "Regular");
+  CHECK(p.text().fontSize == 12);
+  CHECK(p.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT);
   CHECK(p.fillPaints.size() == 1);
   size_t steps = e.undoStack().undoCount();
   e.takeEvents();
 
   e.textInput("Hello");
   e.textInput(" world");
-  CHECK(props(e, t).textData.characters == "Hello world");
+  CHECK(props(e, t).text().textData.characters == "Hello world");
   CHECK(props(e, t).name == "Hello world");  // autoRename
   CHECK(props(e, t).size.y == 15);
   CHECK(props(e, t).size.x > 50);
@@ -91,7 +91,7 @@ TEST_CASE("text tool: a click makes auto-width Inter Regular 12 text, typing fil
   CHECK(e.command(CommandId::UNDO) == OK);
   CHECK_FALSE(e.document().has(t));  // the whole session (created + typed) is one step
   e.command(CommandId::REDO);
-  CHECK(props(e, t).textData.characters == "Hello world");
+  CHECK(props(e, t).text().textData.characters == "Hello world");
 }
 
 TEST_CASE("text tool: leaving an empty new text deletes it and leaves no undo step") {
@@ -116,7 +116,7 @@ TEST_CASE("text tool: a drag makes a box of that width (auto height) inside the 
   up(e, 420, 60);
   REQUIRE(e.textEditing());
   Guid t = onlySelected(e);
-  CHECK(props(e, t).textAutoResize == TextAutoResize::HEIGHT);
+  CHECK(props(e, t).text().textAutoResize == TextAutoResize::HEIGHT);
   CHECK(props(e, t).size.x == 100);
   CHECK(e.document().parentOf(t) == F);
   e.textInput("one two three four five six seven");
@@ -138,32 +138,32 @@ TEST_CASE("text editing: caret motion, word and line jumps, deleting") {
   CHECK(e.textSelStart() == 7);
   CHECK(e.textSelEnd() == 9);
   key(e, KeyCode::Backspace);
-  CHECK(props(e, T).textData.characters == "hello b world");
+  CHECK(props(e, T).text().textData.characters == "hello b world");
   key(e, KeyCode::ArrowLeft, MOD_PRIMARY);
   CHECK(e.textSelStart() == 0);
   key(e, KeyCode::ArrowRight, MOD_PRIMARY);
   CHECK(e.textSelStart() == 13);
   key(e, KeyCode::Backspace, MOD_ALT);
-  CHECK(props(e, T).textData.characters == "hello b ");
+  CHECK(props(e, T).text().textData.characters == "hello b ");
   key(e, KeyCode::KeyA, MOD_PRIMARY);
   CHECK(e.textSelStart() == 0);
   CHECK(e.textSelEnd() == 8);
   CHECK(e.textSelection() == "hello b ");
   e.textInput("new");
-  CHECK(props(e, T).textData.characters == "new");
+  CHECK(props(e, T).text().textData.characters == "new");
   key(e, KeyCode::Enter);
   e.textInput("line");
-  CHECK(props(e, T).textData.characters == "new\nline");
+  CHECK(props(e, T).text().textData.characters == "new\nline");
   key(e, KeyCode::ArrowUp);
   CHECK(e.textSelStart() == 3);  // straight up, at most the line's end
   key(e, KeyCode::ArrowDown, MOD_PRIMARY);
   CHECK(e.textSelStart() == 8);
   key(e, KeyCode::Delete);  // at the end: nothing
-  CHECK(props(e, T).textData.characters == "new\nline");
+  CHECK(props(e, T).text().textData.characters == "new\nline");
   // A whole editing session is one undo step back to where it began.
   key(e, KeyCode::Escape);
   e.command(CommandId::UNDO);
-  CHECK(props(e, T).textData.characters == "hello big world");
+  CHECK(props(e, T).text().textData.characters == "hello big world");
 }
 
 TEST_CASE("text editing: Enter on a selected text edits it with all selected; double-click selects a word") {
@@ -200,11 +200,11 @@ TEST_CASE("text editing: IME composition, then its commit") {
   Editor e = makeEditor({textNode(T, kPage, "ab", {10, 10, 0, 0})});
   e.startTextEdit(T, false);
   e.textComposition("k", 1, 1);
-  CHECK(props(e, T).textData.characters == "abk");
+  CHECK(props(e, T).text().textData.characters == "abk");
   e.textComposition("\xE3\x81\x8B", 1, 1);  // か
-  CHECK(props(e, T).textData.characters == "ab\xE3\x81\x8B");
+  CHECK(props(e, T).text().textData.characters == "ab\xE3\x81\x8B");
   e.textCompositionEnd("\xE6\xBC\xA2");  // 漢
-  CHECK(props(e, T).textData.characters == "ab\xE6\xBC\xA2");
+  CHECK(props(e, T).text().textData.characters == "ab\xE6\xBC\xA2");
   CHECK(e.textSelStart() == 3);
 }
 
@@ -214,37 +214,37 @@ TEST_CASE("text editing: a style on the selected range goes to styleOverrideTabl
   key(e, KeyCode::ArrowLeft, MOD_ALT | MOD_SHIFT);  // "world"
   NodeChange c = NodeChange::changed(T);
   c.mask = F_FONT_SIZE;
-  c.props.fontSize = 24;
+  c.props.text().fontSize = 24;
   REQUIRE(e.setProps({T}, c, 0) == OK);
-  const TextData& t = props(e, T).textData;
+  const TextData& t = props(e, T).text().textData;
   REQUIRE(t.styleOverrideTable.size() == 1);
   CHECK(t.styleOverrideTable[0].fontSize == 24);
   CHECK(t.characterStyleIDs.size() == 11);
   CHECK(t.characterStyleIDs[5] == 0);
   CHECK(t.characterStyleIDs[6] != 0);
-  CHECK(props(e, T).fontSize == 12);
+  CHECK(props(e, T).text().fontSize == 12);
   CHECK(props(e, T).size.y == 29);  // auto height follows the big run
   // Typing after it continues its style.
   key(e, KeyCode::ArrowRight);
   e.textInput("!");
-  CHECK(props(e, T).textData.characterStyleIDs.back() != 0);
+  CHECK(props(e, T).text().textData.characterStyleIDs.back() != 0);
   key(e, KeyCode::Escape);
   // The whole layer: the node's own size, the runs' sizes go.
-  c.props.fontSize = 16;
+  c.props.text().fontSize = 16;
   e.setProps({T}, c, 0);
-  CHECK(props(e, T).fontSize == 16);
-  CHECK(props(e, T).textData.styleOverrideTable.empty());
-  CHECK(props(e, T).textData.characterStyleIDs.empty());
+  CHECK(props(e, T).text().fontSize == 16);
+  CHECK(props(e, T).text().textData.styleOverrideTable.empty());
+  CHECK(props(e, T).text().textData.characterStyleIDs.empty());
   CHECK(props(e, T).size.y == 19);
   // ⌘U underlines the selection.
   e.startTextEdit(T, true);
   key(e, KeyCode::KeyU, MOD_PRIMARY);
-  CHECK(props(e, T).textDecoration == TextDecoration::UNDERLINE);
+  CHECK(props(e, T).text().textDecoration == TextDecoration::UNDERLINE);
 }
 
 TEST_CASE("text: auto width grows from its alignment's side; Fill in auto layout wraps it") {
   NodeChange centred = textNode(T, kPage, "Hi", {100, 10, 0, 0});
-  centred.props.textAlignHorizontal = TextAlignHorizontal::CENTER;
+  centred.props.text().textAlignHorizontal = TextAlignHorizontal::CENTER;
   Editor e = makeEditor({centred});
   e.startTextEdit(T, false);
   double before = props(e, T).size.x, x0 = props(e, T).transform.m02;
@@ -256,9 +256,9 @@ TEST_CASE("text: auto width grows from its alignment's side; Fill in auto layout
 
   // A vertical auto-layout frame with a text stretched across it: the text wraps at the frame's width.
   NodeChange frame = make({1, 10}, NodeType::FRAME, kPage, "%", {0, 300, 120, 100}, "Auto");
-  frame.props.stackMode = StackMode::VERTICAL;
-  frame.props.stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
-  frame.props.stackPaddingLeft = frame.props.stackPaddingRight = 10;
+  frame.props.stack().stackMode = StackMode::VERTICAL;
+  frame.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  frame.props.stack().stackPaddingLeft = frame.props.stack().stackPaddingRight = 10;
   NodeChange child = textNode({1, 11}, {1, 10}, "short", {10, 0, 30, 15}, TextAutoResize::HEIGHT);
   child.props.stackChildAlignSelf = StackCounterAlign::STRETCH;
   Editor a = makeEditor({frame, child});
@@ -319,26 +319,26 @@ TEST_CASE("nodes the engine doesn't model keep their type and fields through dup
 
 TEST_CASE("layout: a min/max limit alone relayouts; a stale auto-layout frame relayouts on load") {
   NodeChange frame = make({1, 30}, NodeType::FRAME, kPage, "'", {0, 0, 999, 999}, "Stale");
-  frame.props.stackMode = StackMode::HORIZONTAL;
-  frame.props.stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  frame.props.stack().stackMode = StackMode::HORIZONTAL;
+  frame.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
   NodeChange kid = make({1, 31}, NodeType::ROUNDED_RECTANGLE, {1, 30}, "!", {500, 500, 40, 20}, "Kid");
   Editor e = makeEditor({frame, kid});
   CHECK(props(e, {1, 30}).size.x == doctest::Approx(40));  // hugs, relaid on load
   CHECK(props(e, {1, 31}).transform.m02 == doctest::Approx(0));
   NodeChange c = NodeChange::changed({1, 30});
   c.mask = F_MAX_SIZE;
-  c.props.maxSize = {30, 0};
+  c.props.rare().maxSize = {30, 0};
   e.setProps({{1, 30}}, c, 0);
   CHECK(props(e, {1, 30}).size.x == doctest::Approx(30));
 }
 
 TEST_CASE("layout: Align text baseline lines up texts of different sizes in a horizontal flow") {
   NodeChange frame = make({1, 40}, NodeType::FRAME, kPage, "(", {0, 400, 10, 10}, "Row");
-  frame.props.stackMode = StackMode::HORIZONTAL;
-  frame.props.stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
-  frame.props.stackCounterAlignItems = StackAlign::BASELINE;
+  frame.props.stack().stackMode = StackMode::HORIZONTAL;
+  frame.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  frame.props.stack().stackCounterAlignItems = StackAlign::BASELINE;
   NodeChange big = textNode({1, 41}, {1, 40}, "Big", {0, 0, 0, 0});
-  big.props.fontSize = 32;
+  big.props.text().fontSize = 32;
   big.props.size = text::layoutText(big.props, {})->size;
   NodeChange small = textNode({1, 42}, {1, 40}, "small", {0, 0, 0, 0});
   small.props.parentIndex.position = "$";
@@ -354,11 +354,11 @@ TEST_CASE("text: a typed width makes auto width auto height; a typed height make
   c.mask = F_SIZE;
   c.props.size = {40, props(e, T).size.y};
   e.setProps({T}, c, 0);
-  CHECK(props(e, T).textAutoResize == TextAutoResize::HEIGHT);
+  CHECK(props(e, T).text().textAutoResize == TextAutoResize::HEIGHT);
   CHECK(props(e, T).size.x == 40);
   CHECK(props(e, T).size.y > 15);  // wrapped
   c.props.size = {40, 100};
   e.setProps({T}, c, 0);
-  CHECK(props(e, T).textAutoResize == TextAutoResize::NONE);
+  CHECK(props(e, T).text().textAutoResize == TextAutoResize::NONE);
   CHECK(props(e, T).size.y == 100);
 }

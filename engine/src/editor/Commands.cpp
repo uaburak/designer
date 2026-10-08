@@ -324,7 +324,7 @@ bool Editor::reorderInFlow(const std::vector<Guid>& top, double dx, double dy) {
     const Node* n = doc_.get(id);
     if (!n || doc_.parentOf(id) != parent || !n->props.inFlow()) return false;
   }
-  double along = pn->props.stackMode == StackMode::HORIZONTAL ? dx : dy;
+  double along = pn->props.stack().stackMode == StackMode::HORIZONTAL ? dx : dy;
   if (along == 0) return true;
   int dir = along > 0 ? 1 : -1;
   std::vector<Guid> flow = Layout(*this).flowChildren(parent);
@@ -630,7 +630,7 @@ Guid Editor::cloneTree(Guid src, Guid parent, const std::string& position, const
   bool keepHere = keepKeys_ || p.type == NodeType::SYMBOL || p.isComponentSet();
   if (keepHere) keepKeys(src, p);
   else p.overrideKey = kNoGuid;
-  p.isSoftDeleted = false;
+  p.comp().isSoftDeleted = false;
   write(NodeChange::created(id, p));
   for (Guid c : kids) {
     if (c.isDerived()) continue;  // an instance's sublayers are derived again for the copy
@@ -875,13 +875,13 @@ void Editor::inferAutoLayout(Guid frame, bool padFromContent) {
   c.mask = F_STACK_MODE | F_STACK_SPACING | F_STACK_PADDING_LEFT | F_STACK_PADDING_TOP | F_STACK_PADDING_RIGHT |
            F_STACK_PADDING_BOTTOM | F_STACK_PRIMARY_SIZING | F_STACK_COUNTER_SIZING | F_STACK_COUNTER_ALIGN;
   NodeProps& p = c.props;
-  p.stackCounterAlignItems = StackAlign::MIN;
+  p.stack().stackCounterAlignItems = StackAlign::MIN;
   if (kids.empty()) {
     // An empty frame keeps its size.
-    p.stackMode = StackMode::VERTICAL;
-    p.stackSpacing = 10;
-    p.stackPrimarySizing = StackSize::FIXED;
-    p.stackCounterSizing = StackSize::FIXED;
+    p.stack().stackMode = StackMode::VERTICAL;
+    p.stack().stackSpacing = 10;
+    p.stack().stackPrimarySizing = StackSize::FIXED;
+    p.stack().stackCounterSizing = StackSize::FIXED;
     write(c);
     return;
   }
@@ -907,8 +907,8 @@ void Editor::inferAutoLayout(Guid frame, bool padFromContent) {
   // The gap: the mean space between neighbours (never negative).
   double sum = 0;
   for (size_t i = 1; i < boxes.size(); i++) sum += lo(boxes[i].second, P) - (lo(boxes[i - 1].second, P) + len(boxes[i - 1].second, P));
-  p.stackMode = horizontal ? StackMode::HORIZONTAL : StackMode::VERTICAL;
-  p.stackSpacing = boxes.size() > 1 ? std::max(0.0, std::round(sum / static_cast<double>(boxes.size() - 1))) : 10;
+  p.stack().stackMode = horizontal ? StackMode::HORIZONTAL : StackMode::VERTICAL;
+  p.stack().stackSpacing = boxes.size() > 1 ? std::max(0.0, std::round(sum / static_cast<double>(boxes.size() - 1))) : 10;
   // The counter alignment they share (else top / left).
   int C = 1 - P;
   bool mins = true, mids = true, maxs = true;
@@ -918,16 +918,16 @@ void Editor::inferAutoLayout(Guid frame, bool padFromContent) {
     mids &= std::fabs(lo(b, C) + len(b, C) / 2 - (lo(f, C) + len(f, C) / 2)) < 0.5;
     maxs &= std::fabs(lo(b, C) + len(b, C) - (lo(f, C) + len(f, C))) < 0.5;
   }
-  if (!mins && mids) p.stackCounterAlignItems = StackAlign::CENTER;
-  else if (!mins && maxs) p.stackCounterAlignItems = StackAlign::MAX;
+  if (!mins && mids) p.stack().stackCounterAlignItems = StackAlign::CENTER;
+  else if (!mins && maxs) p.stack().stackCounterAlignItems = StackAlign::MAX;
   if (padFromContent) {
-    p.stackPaddingLeft = std::max(0.0, std::round(u.x));
-    p.stackPaddingTop = std::max(0.0, std::round(u.y));
-    p.stackPaddingRight = std::max(0.0, std::round(fp.size.x - u.right()));
-    p.stackPaddingBottom = std::max(0.0, std::round(fp.size.y - u.bottom()));
+    p.stack().stackPaddingLeft = std::max(0.0, std::round(u.x));
+    p.stack().stackPaddingTop = std::max(0.0, std::round(u.y));
+    p.stack().stackPaddingRight = std::max(0.0, std::round(fp.size.x - u.right()));
+    p.stack().stackPaddingBottom = std::max(0.0, std::round(fp.size.y - u.bottom()));
   }
-  p.stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;  // Hug both ways
-  p.stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  p.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;  // Hug both ways
+  p.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
   write(c);
   // The flow follows the order they sat in.
   auto keys = fractional::keysBetween("", std::nullopt, static_cast<int>(boxes.size()));
@@ -968,7 +968,7 @@ void Editor::removeAutoLayout() {
     // The children stay where the layout put them; the frame keeps its size.
     NodeChange c = NodeChange::changed(id);
     c.mask = F_STACK_MODE;
-    c.props.stackMode = StackMode::NONE;
+    c.props.stack().stackMode = StackMode::NONE;
     write(c);
   }
   commit();
@@ -986,8 +986,8 @@ Guid Editor::createPage() {
   NodeProps p;
   p.type = NodeType::CANVAS;
   p.name = nextName("Page");
-  p.backgroundColor = Color::hex(0xF5F5F5);
-  p.backgroundEnabled = true;
+  p.rare().backgroundColor = Color::hex(0xF5F5F5);
+  p.rare().backgroundEnabled = true;
   p.parentIndex = {docId, placeAt(docId, index, kNoGuid)};
   Guid id = newGuid();
   write(NodeChange::created(id, p));
@@ -998,7 +998,7 @@ Guid Editor::createPage() {
 
 Status Editor::deletePage(Guid page) {
   const Node* n = doc_.get(page);
-  if (!n || n->props.type != NodeType::CANVAS || n->props.internalOnly) return E_NOT_FOUND;
+  if (!n || n->props.type != NodeType::CANVAS || n->props.rare().internalOnly) return E_NOT_FOUND;
   auto all = pages();
   if (all.size() <= 1) return E_INVALID;  // a file keeps one page
   auto at = std::find(all.begin(), all.end(), page);
@@ -1025,7 +1025,7 @@ Status Editor::deletePage(Guid page) {
 
 Guid Editor::duplicatePage(Guid page) {
   const Node* n = doc_.get(page);
-  if (!n || n->props.type != NodeType::CANVAS || n->props.internalOnly) return kNoGuid;
+  if (!n || n->props.type != NodeType::CANVAS || n->props.rare().internalOnly) return kNoGuid;
   Guid docId = n->props.parentIndex.guid;
   const auto& kids = doc_.children(docId);
   size_t index = static_cast<size_t>(std::find(kids.begin(), kids.end(), page) - kids.begin()) + 1;
@@ -1089,7 +1089,7 @@ bool Editor::copySelection(Clipboard& out, bool cut) const {
       // A sublayer of an instance copies as a plain layer; a nested instance as an instance with its changes.
       c.props.overrideKey = kNoGuid;
       c.props.parameterConsumptionMap.clear();
-      if (c.props.type == NodeType::INSTANCE) composedOverrides(id, c.props.symbolData.overrides, c.props.componentPropAssignments);
+      if (c.props.type == NodeType::INSTANCE) composedOverrides(id, c.props.comp().symbolData.overrides, c.props.comp().componentPropAssignments);
     }
     out.nodes.push_back(std::move(c));
     if (doc_.get(id)->props.type == NodeType::INSTANCE) return;  // its sublayers are derived again where it lands
@@ -1125,18 +1125,18 @@ bool Editor::copySelection(Clipboard& out, bool cut) const {
   // whatever the clipboard carries of what it uses.
   HashMemo memo;
   for (NodeChange& c : out.nodes)
-    if (!c.guid.isDerived() && !c.props.key.empty() && doc_.has(c.guid) && assetKindOf(c.guid) != AssetKind::NONE &&
+    if (!c.guid.isDerived() && !c.props.asset().key.empty() && doc_.has(c.guid) && assetKindOf(c.guid) != AssetKind::NONE &&
         !isLibraryCopy(c.guid))
-      c.props.version = versionHashOf(c.guid, memo);
+      c.props.asset().version = versionHashOf(c.guid, memo);
   // Preferred instances that don't come along are named by key (as in a payload): another file can't know them by
   // GUID, and this one finds them by key.
   for (NodeChange& c : out.nodes)
-    for (ComponentPropDef& d : c.props.componentPropDefs)
+    for (ComponentPropDef& d : c.props.comp().componentPropDefs)
       for (PreferredValue& v : d.preferredValues) {
         bool ok = false;
         Guid g = Guid::parse(v.key, &ok);
         const Node* n = ok && !copied.count(g) ? doc_.get(g) : nullptr;
-        if (n && !n->props.key.empty()) v.key = n->props.key;
+        if (n && !n->props.asset().key.empty()) v.key = n->props.asset().key;
       }
   return true;
 }
@@ -1268,7 +1268,7 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     SourceNodes src;
     for (auto& [id, c] : all)
       if (!byId.count(id)) src.add(*c);
-    auto published = [](const NodeProps& p) { return !p.key.empty() && !p.publishedVersion.empty(); };
+    auto published = [](const NodeProps& p) { return !p.asset().key.empty() && !p.asset().publishedVersion.empty(); };
     // A published main pasted itself (not cut): an instance of its library copy.
     for (const NodeChange* r : roots)
       if (r->props.type == NodeType::SYMBOL && published(r->props) && !clip.isCut) {
@@ -1296,11 +1296,11 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     };
     view.mainKey = [&](Guid g) {
       auto it = all.find(g);
-      return it == all.end() ? std::string() : it->second->props.key;
+      return it == all.end() ? std::string() : it->second->props.asset().key;
     };
     view.assetKey = [&](const AssetId& a, AssetKind) {
       auto it = a.guid != kNoGuid ? all.find(a.guid) : all.end();
-      return it != all.end() && !it->second->props.key.empty() ? it->second->props.key : a.key;
+      return it != all.end() && !it->second->props.asset().key.empty() ? it->second->props.asset().key : a.key;
     };
     view.exists = [&](Guid g) { return all.count(g) != 0; };
     auto clipHash = [&](Guid root) { return hashAsset(root, view); };
@@ -1312,26 +1312,26 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       if (!asset) continue;
       ImportPlan plan;
       plan.src = r;
-      if (!rp.sourceLibraryKey.empty() && rp.sourceLibraryKey == fileKey_) {
+      if (!rp.asset().sourceLibraryKey.empty() && rp.asset().sourceLibraryKey == fileKey_) {
         // A copy of one of this file's own assets: the asset itself.
         plan.mode = ImportPlan::Mode::LOCAL;
-        plan.target = localAssetByKey(rp.key);
+        plan.target = localAssetByKey(rp.asset().key);
         if (plan.target == kNoGuid) plan.publishID = r;
-      } else if (!rp.sourceLibraryKey.empty() && !rp.key.empty()) {
-        plan.libraryKey = rp.sourceLibraryKey;
-        plan.key = rp.key;
-        plan.version = rp.version;
-        plan.publishID = rp.publishID != kNoGuid ? rp.publishID : r;
-        plan.target = copyRootByKey(plan.libraryKey, rp.key, rp.version);
+      } else if (!rp.asset().sourceLibraryKey.empty() && !rp.asset().key.empty()) {
+        plan.libraryKey = rp.asset().sourceLibraryKey;
+        plan.key = rp.asset().key;
+        plan.version = rp.asset().version;
+        plan.publishID = rp.asset().publishID != kNoGuid ? rp.asset().publishID : r;
+        plan.target = copyRootByKey(plan.libraryKey, rp.asset().key, rp.asset().version);
       } else if (published(rp)) {
         plan.libraryKey = clip.fileKey;
-        plan.key = rp.key;
+        plan.key = rp.asset().key;
         // The copy is made from the clipboard's content: its version is that content's hash — the published one when
         // the content is the published one, else never it (the next diff offers the published version as an update).
         // The source computed it (copySelection); a clipboard without it is hashed here.
-        plan.version = !rp.version.empty() ? rp.version : clipHash(r);
+        plan.version = !rp.asset().version.empty() ? rp.asset().version : clipHash(r);
         plan.publishID = r;
-        plan.target = copyRootByKey(plan.libraryKey, rp.key, plan.version);
+        plan.target = copyRootByKey(plan.libraryKey, rp.asset().key, plan.version);
       } else {
         // Unpublished: copied in as this file's own, once (a later paste finds it by its source: the newest, when one
         // lacking what a paste needs was copied in again).
@@ -1340,8 +1340,8 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
         plan.publishID = r;
         doc_.forEach([&](const Node& n) {
           const NodeProps& q = n.props;
-          if ((plan.target == kNoGuid || plan.target < n.guid) && !n.guid.isDerived() && q.publishID == r && q.type == rp.type &&
-              q.styleType == rp.styleType && q.name == rp.name && !q.isSoftDeleted && q.sourceLibraryKey.empty() && !isLibraryCopy(n.guid))
+          if ((plan.target == kNoGuid || plan.target < n.guid) && !n.guid.isDerived() && q.asset().publishID == r && q.type == rp.type &&
+              q.asset().styleType == rp.asset().styleType && q.name == rp.name && !q.comp().isSoftDeleted && q.asset().sourceLibraryKey.empty() && !isLibraryCopy(n.guid))
             plan.target = n.guid;
         });
       }
@@ -1366,7 +1366,7 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     NodeProps p = src.props;
     p.parentIndex = {parent, position};
     p.transform = transform;
-    p.isSoftDeleted = false;
+    p.comp().isSoftDeleted = false;
     const Node* live = crossFile ? nullptr : doc_.get(src.guid);
     bool root = parent == target;
     if (crossFile && asInstance.count(src.guid)) {
@@ -1376,22 +1376,22 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       return;
     }
     bool component = src.props.type == NodeType::SYMBOL || src.props.isComponentSet();
-    if (root && component && live && (live->props.type == NodeType::SYMBOL || live->props.isComponentSet()) && live->props.isSoftDeleted) {
+    if (root && component && live && (live->props.type == NodeType::SYMBOL || live->props.isComponentSet()) && live->props.comp().isSoftDeleted) {
       // A main cut in this file (kept for its instances): moved back, keeping its GUID, key and instances.
       NodeChange c = NodeChange::changed(src.guid);
       c.mask = F_PARENT_INDEX | F_TRANSFORM | F_IS_SOFT_DELETED | F_ANCESTOR_PATH;
       c.props.parentIndex = p.parentIndex;
       c.props.transform = transform;
-      c.props.isSoftDeleted = false;
+      c.props.comp().isSoftDeleted = false;
       write(c);
       pasted.push_back(src.guid);
       return;
     }
     // A main component of this file pastes as an instance of it (R4 §2, §8); a component set as a new set. So does a
     // cut main pasted a second time (the first paste is that main now: same key).
-    Guid sameKey = !crossFile && !live && component && !src.props.key.empty() ? localAssetByKey(src.props.key) : kNoGuid;
-    if (sameKey != kNoGuid && doc_.get(sameKey)->props.isSoftDeleted) sameKey = kNoGuid;
-    Guid mainHere = live && live->props.type == NodeType::SYMBOL && !live->props.isSoftDeleted ? src.guid : sameKey;
+    Guid sameKey = !crossFile && !live && component && !src.props.asset().key.empty() ? localAssetByKey(src.props.asset().key) : kNoGuid;
+    if (sameKey != kNoGuid && doc_.get(sameKey)->props.comp().isSoftDeleted) sameKey = kNoGuid;
+    Guid mainHere = live && live->props.type == NodeType::SYMBOL && !live->props.comp().isSoftDeleted ? src.guid : sameKey;
     if (root && src.props.type == NodeType::SYMBOL && mainHere != kNoGuid && doc_.get(mainHere)->props.type == NodeType::SYMBOL) {
       Guid inst = createInstance(mainHere, parent, position, transform);
       if (inst != kNoGuid) {
@@ -1406,17 +1406,17 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     // main cut from another file remembers its old key ("Move to this file", docs/data.md §9.5).
     bool keepIdentity = !crossFile && clip.isCut && component && !live && sameKey == kNoGuid;
     if (!keepIdentity) {
-      std::string oldKey = src.props.key;
-      bool published = !src.props.publishedVersion.empty() && !oldKey.empty();
-      LibraryMoveInfo moved = src.props.libraryMoveInfo;
+      std::string oldKey = src.props.asset().key;
+      bool published = !src.props.asset().publishedVersion.empty() && !oldKey.empty();
+      LibraryMoveInfo moved = src.props.asset().libraryMoveInfo;
       clearIdentity(p);
       if (crossFile && clip.isCut && component) {
-        if (published) p.libraryMoveInfo = {oldKey, clip.fileKey};
-        else if (moved.present()) p.libraryMoveInfo = moved;  // moved here before and not published since: still that move
+        if (published) p.asset().libraryMoveInfo = {oldKey, clip.fileKey};
+        else if (moved.present()) p.asset().libraryMoveInfo = moved;  // moved here before and not published since: still that move
       }
     } else {
-      p.publishedVersion = src.props.publishedVersion;
-      p.version.clear();  // the clipboard's note of its hash (copySelection), not a library copy's version
+      p.asset().publishedVersion = src.props.asset().publishedVersion;
+      p.asset().version.clear();  // the clipboard's note of its hash (copySelection), not a library copy's version
     }
     Guid id;
     if (crossFile) {
@@ -1442,7 +1442,7 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     std::vector<Guid> owners;
     doc_.forEach([&](const Node& n) {
       if (n.guid.isDerived() || isLibraryCopy(n.guid)) return;
-      for (const ComponentPropDef& def : n.props.componentPropDefs)
+      for (const ComponentPropDef& def : n.props.comp().componentPropDefs)
         for (const PreferredValue& v : def.preferredValues)
           if (renamed.count(v.key)) {
             owners.push_back(n.guid);
@@ -1453,8 +1453,8 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     for (Guid g : owners) {
       NodeChange c = NodeChange::changed(g);
       c.mask = F_COMPONENT_PROP_DEFS;
-      c.props.componentPropDefs = doc_.get(g)->props.componentPropDefs;
-      for (ComponentPropDef& def : c.props.componentPropDefs)
+      c.props.comp().componentPropDefs = doc_.get(g)->props.comp().componentPropDefs;
+      for (ComponentPropDef& def : c.props.comp().componentPropDefs)
         for (PreferredValue& v : def.preferredValues)
           if (auto it = renamed.find(v.key); it != renamed.end()) v.key = it->second;
       write(c);

@@ -133,15 +133,15 @@ const text::TextLayout* Renderer::label(const std::string& characters, const cha
   if (!fonts.find(name, &state)) return nullptr;
   NodeProps p;
   p.type = NodeType::TEXT;
-  p.textData.characters = characters;
-  p.fontName = name;
-  p.fontSize = size;
-  p.textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+  p.text().textData.characters = characters;
+  p.text().fontName = name;
+  p.text().fontSize = size;
+  p.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
   text::LayoutOptions o;
   if (width >= 0) {
-    p.textTruncation = TextTruncation::ENDING;
-    p.maxLines = 1;
-    p.textAutoResize = TextAutoResize::HEIGHT;
+    p.text().textTruncation = TextTruncation::ENDING;
+    p.text().maxLines = 1;
+    p.text().textAutoResize = TextAutoResize::HEIGHT;
     o.width = width;
   }
   auto layout = text::layoutText(p, o);

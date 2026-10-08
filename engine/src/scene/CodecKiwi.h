@@ -123,6 +123,9 @@ std::string extraValueToJson(const char* def, std::string_view entry);
 std::string extraFromJson(const char* def, std::string_view key, const json::Value& value);
 // The kiwi field id of `key` in `def` (0 when unknown).
 uint32_t fieldIdOf(const char* def, std::string_view key);
+// A ComponentPropAssignment's slot content as Figma's files give it — its varValue's slotContentIdValue (the raw
+// field sequence `extra`); kNoGuid when it has none.
+Guid assignmentSlotContent(std::string_view extra);
 // A bool field of a raw sequence (Libraries' isSymbolPublishable): `fallback` when absent.
 bool extraBool(const std::map<std::string, std::string>& extra, const char* key, bool fallback);
 

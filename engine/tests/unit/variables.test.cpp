@@ -13,6 +13,8 @@
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
+#include "text/Fonts.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -26,13 +28,13 @@ std::vector<NodeChange> doc() {
   nodes.push_back(make(F, NodeType::FRAME, kPage, "!", {0, 0, 400, 400}, "Frame"));
   nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, F, "!", {10, 10, 50, 50}, "Rect"));
   NodeChange t = make(T, NodeType::TEXT, F, "\"", {10, 100, 100, 20}, "Text");
-  t.props.textData.characters = "Hello";
-  t.props.textAutoResize = TextAutoResize::NONE;
+  t.props.text().textData.characters = "Hello";
+  t.props.text().textAutoResize = TextAutoResize::NONE;
   nodes.push_back(t);
   // An auto-layout row (hugging) with two 20 × 20 children.
   NodeChange al = make(AL, NodeType::FRAME, kPage, "\"", {500, 0, 40, 20}, "Row");
-  al.props.stackMode = StackMode::HORIZONTAL;
-  al.props.stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  al.props.stack().stackMode = StackMode::HORIZONTAL;
+  al.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
   nodes.push_back(al);
   nodes.push_back(make(A1, NodeType::ROUNDED_RECTANGLE, AL, "!", {0, 0, 20, 20}, "A"));
   nodes.push_back(make(A2, NodeType::ROUNDED_RECTANGLE, AL, "\"", {20, 0, 20, 20}, "B"));
@@ -150,32 +152,32 @@ TEST_CASE("variables: the wire encoding round-trips every variable, mode, bindin
   auto first = codec::readChanges(v);
   REQUIRE(first.size() == 5);
   const NodeProps& set = first[0].props;
-  CHECK(set.variableSetModes.size() == 2);
-  CHECK(set.variableSetModes[0].id == Guid{5, 2});
+  CHECK(set.asset().variableSetModes.size() == 2);
+  CHECK(set.asset().variableSetModes[0].id == Guid{5, 2});
   CHECK(set.defaultMode() == Guid{5, 2});
-  CHECK(!set.isPublishable);
-  CHECK(set.key == "abc");
+  CHECK(!set.asset().isPublishable);
+  CHECK(set.asset().key == "abc");
   CHECK(set.extra.empty());
   const NodeProps& var = first[1].props;
-  CHECK(var.variableSetID.guid == Guid{5, 1});
-  CHECK(var.variableResolvedType == VariableResolvedType::COLOR);
-  REQUIRE(var.variableDataValues.size() == 2);
-  CHECK(var.variableDataValues[0].data.kind == VariableData::Kind::COLOR);
-  const VariableData& composed = var.variableDataValues[1].data;
+  CHECK(var.asset().variableSetID.guid == Guid{5, 1});
+  CHECK(var.asset().variableResolvedType == VariableResolvedType::COLOR);
+  REQUIRE(var.asset().variableDataValues.size() == 2);
+  CHECK(var.asset().variableDataValues[0].data.kind == VariableData::Kind::COLOR);
+  const VariableData& composed = var.asset().variableDataValues[1].data;
   CHECK(composed.kind == VariableData::Kind::EXPRESSION);
   CHECK(composed.function == ExpressionFunction::COMPOSE_COLOR);
   REQUIRE(composed.args.size() == 2);
   CHECK(composed.args[0].alias.guid == Guid{5, 9});
   CHECK(composed.args[1].floatValue == 50);
-  REQUIRE(var.variableScopes.has_value());
-  CHECK(*var.variableScopes == std::vector<VariableScope>{VariableScope::ALL_FILLS, VariableScope::STROKE});
-  CHECK(var.codeSyntax.size() == 1);
+  REQUIRE(var.asset().variableScopes.has_value());
+  CHECK(*var.asset().variableScopes == std::vector<VariableScope>{VariableScope::ALL_FILLS, VariableScope::STROKE});
+  CHECK(var.asset().codeSyntax.size() == 1);
   CHECK(var.extra.empty());
   // An unknown value kind (Figma's IMAGE = 14, dropped from our schema, so a number) is kept whole; an explicitly
   // empty scope list stays empty.
-  CHECK(first[2].props.variableDataValues[0].data.kind == VariableData::Kind::OTHER);
-  CHECK(first[2].props.variableScopes->empty());
-  CHECK(first[2].props.variableSetID.key == "k1");
+  CHECK(first[2].props.asset().variableDataValues[0].data.kind == VariableData::Kind::OTHER);
+  CHECK(first[2].props.asset().variableScopes->empty());
+  CHECK(first[2].props.asset().variableSetID.key == "k1");
   const NodeProps& r = first[3].props;
   CHECK(r.fillPaints[0].colorVar->alias.guid == Guid{5, 4});
   CHECK(r.fillPaints[0].opacityVar->alias.key == "xyz");
@@ -183,18 +185,18 @@ TEST_CASE("variables: the wire encoding round-trips every variable, mode, bindin
   CHECK(!r.fillPaints[1].stopVars[0].present());
   CHECK(r.fillPaints[1].stopVars[1].alias.guid == Guid{5, 4});
   CHECK(r.effects[0].radiusVar.present());
-  CHECK(r.layoutGrids[0].gutterSizeVar.present());
+  CHECK(r.rare().layoutGrids[0].gutterSizeVar.present());
   REQUIRE(r.parameterConsumptionMap.size() == 3);
   CHECK(r.parameterConsumptionMap[0].isVariable());
   CHECK(r.parameterConsumptionMap[1].propRef == Guid{7, 7});
   CHECK(r.parameterConsumptionMap[2].data.kind == VariableData::Kind::FONT_STYLE);
-  CHECK(r.variableModeBySetMap.size() == 1);
-  CHECK(r.styleIdForFill.guid == Guid{6, 1});
-  CHECK(!r.styleIdForText.present());  // Figma's "none" sentinel
-  CHECK(r.styleIdForEffect.key == "e1");
+  CHECK(r.refs().variableModeBySetMap.size() == 1);
+  CHECK(r.refs().styleIdForFill.guid == Guid{6, 1});
+  CHECK(!r.refs().styleIdForText.present());  // Figma's "none" sentinel
+  CHECK(r.refs().styleIdForEffect.key == "e1");
   CHECK(r.hasBindings());
   CHECK(r.extra.empty());
-  CHECK(first[4].props.styleType == StyleType::FILL);
+  CHECK(first[4].props.asset().styleType == StyleType::FILL);
   // Out and back in: nothing lost.
   json::Writer w;
   codec::writeChanges(w, first);
@@ -221,9 +223,9 @@ TEST_CASE("variables: collections, modes and variables are nodes on the internal
   CHECK(sp.type == NodeType::VARIABLE_SET);
   CHECK(sp.name == "Theme");
   CHECK(e.document().parentOf(set) == kInternal);
-  REQUIRE(sp.variableSetModes.size() == 2);
+  REQUIRE(sp.asset().variableSetModes.size() == 2);
   CHECK(sp.defaultMode() == light);
-  CHECK(sp.key.size() == 40);
+  CHECK(sp.asset().key.size() == 40);
   CHECK(e.collections() == std::vector<Guid>{set});
   // Default names, groups, values.
   REQUIRE(run(e, CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + ",\"type\":\"COLOR\"}") == OK);
@@ -235,7 +237,7 @@ TEST_CASE("variables: collections, modes and variables are nodes on the internal
   CHECK(props(e, c1).name == "Color");
   CHECK(props(e, c2).name == "Color 2");
   CHECK(props(e, n1).name == "space/Number");
-  CHECK(props(e, c1).variableDataValues.size() == 2);  // one value per mode
+  CHECK(props(e, c1).asset().variableDataValues.size() == 2);  // one value per mode
   CHECK(e.variablesOf(set) == std::vector<Guid>{c1, c2, n1});
   Editor::Resolved r;
   REQUIRE(e.resolveVariable(c1, kNoGuid, r));
@@ -253,21 +255,21 @@ TEST_CASE("variables: collections, modes and variables are nodes on the internal
   CHECK(r.f == 8);
   // Scopes, code syntax, description, hidden.
   CHECK(run(e, CommandId::SET_VARIABLE_SCOPES, "{\"variables\":[" + q(n1) + "],\"scopes\":[\"GAP\",\"WIDTH_HEIGHT\"]}") == OK);
-  CHECK(*props(e, n1).variableScopes == std::vector<VariableScope>{VariableScope::GAP, VariableScope::WIDTH_HEIGHT});
+  CHECK(*props(e, n1).asset().variableScopes == std::vector<VariableScope>{VariableScope::GAP, VariableScope::WIDTH_HEIGHT});
   CHECK(run(e, CommandId::SET_VARIABLE_SCOPES, "{\"variables\":[" + q(c1) + "],\"scopes\":[\"ALL_FILLS\",\"FRAME_FILL\",\"STROKE_COLOR\"]}") == OK);
-  CHECK(*props(e, c1).variableScopes == std::vector<VariableScope>{VariableScope::ALL_FILLS, VariableScope::STROKE});
+  CHECK(*props(e, c1).asset().variableScopes == std::vector<VariableScope>{VariableScope::ALL_FILLS, VariableScope::STROKE});
   CHECK(run(e, CommandId::SET_VARIABLE_SCOPES, "{\"variables\":[" + q(c1) + "],\"scopes\":[\"GAP\",\"ALL_SCOPES\"]}") == OK);
-  CHECK(*props(e, c1).variableScopes == std::vector<VariableScope>{VariableScope::ALL_SCOPES});
+  CHECK(*props(e, c1).asset().variableScopes == std::vector<VariableScope>{VariableScope::ALL_SCOPES});
   CHECK(run(e, CommandId::SET_VARIABLE_CODE_SYNTAX, "{\"variable\":" + q(n1) + ",\"platform\":\"iOS\",\"value\":\"spaceSm\"}") == OK);
   CHECK(run(e, CommandId::SET_VARIABLE_CODE_SYNTAX, "{\"variable\":" + q(n1) + ",\"platform\":\"WEB\",\"value\":\"--space-sm\"}") == OK);
-  REQUIRE(props(e, n1).codeSyntax.size() == 2);
-  CHECK(props(e, n1).codeSyntax[0].platform == CodeSyntaxPlatform::WEB);
+  REQUIRE(props(e, n1).asset().codeSyntax.size() == 2);
+  CHECK(props(e, n1).asset().codeSyntax[0].platform == CodeSyntaxPlatform::WEB);
   CHECK(run(e, CommandId::SET_VARIABLE_CODE_SYNTAX, "{\"variable\":" + q(n1) + ",\"platform\":\"WEB\",\"value\":\"\"}") == OK);
-  CHECK(props(e, n1).codeSyntax.size() == 1);
+  CHECK(props(e, n1).asset().codeSyntax.size() == 1);
   CHECK(run(e, CommandId::SET_VARIABLE_DESCRIPTION, "{\"variable\":" + q(n1) + ",\"description\":\"Small gap\"}") == OK);
-  CHECK(props(e, n1).description == "Small gap");
+  CHECK(props(e, n1).asset().description == "Small gap");
   CHECK(run(e, CommandId::SET_VARIABLE_HIDDEN, "{\"variables\":[" + q(n1) + "],\"hidden\":true}") == OK);
-  CHECK(!props(e, n1).isPublishable);
+  CHECK(!props(e, n1).asset().isPublishable);
   // Events.
   auto ev = e.takeEvents();
   CHECK(!ev.variables.empty());
@@ -341,7 +343,7 @@ TEST_CASE("variables: aliases resolve in the consumer's mode of each collection;
   Guid prim = e.lastCreated()[0], pa = e.lastCreated()[1];
   REQUIRE(run(e, CommandId::ADD_VARIABLE_MODE, "{\"collection\":" + q(prim) + "}") == OK);
   Guid pb = e.lastCreated()[0];
-  CHECK(props(e, prim).variableSetModes[1].name == "Mode 2");
+  CHECK(props(e, prim).asset().variableSetModes[1].name == "Mode 2");
   Guid red = variable(e, prim, "COLOR", "red", R"({"r":1,"g":0,"b":0,"a":1})");
   Guid blue = variable(e, prim, "COLOR", "blue", R"({"r":0,"g":0,"b":1,"a":1})");
   setValue(e, blue, pb, R"({"r":0,"g":1,"b":0,"a":1})");  // "blue" is green in mode B
@@ -382,21 +384,27 @@ TEST_CASE("variables: composed colours (a colour alias with its own opacity, its
   Guid alpha = variable(e, set, "FLOAT", "alpha", "50");
   Guid overlay = variable(e, set, "COLOR", "overlay",
                           "{\"color\":{\"type\":\"VARIABLE_ALIAS\",\"id\":" + q(blue) + "},\"opacity\":{\"type\":\"VARIABLE_ALIAS\",\"id\":" + q(alpha) + "}}");
-  const VariableData& d = props(e, overlay).variableDataValues[0].data;
+  const VariableData& d = props(e, overlay).asset().variableDataValues[0].data;
   CHECK(d.kind == VariableData::Kind::EXPRESSION);
   CHECK(d.function == ExpressionFunction::COMPOSE_COLOR);
   bind(e, R, "fillPaints[0].color", overlay);
-  CHECK(fill(e, R) == Color{0, 0, 1, 0.5f});
+  // As Figma stores it: the colour opaque, its alpha the paint's opacity.
+  auto boundPaint = [&](Color rgb, float alpha) {
+    const Paint& pt = props(e, R).fillPaints.at(0);
+    CHECK(pt.color == rgb);
+    CHECK(pt.opacity == doctest::Approx(alpha));
+  };
+  boundPaint({0, 0, 1, 1}, 0.5f);
   setValue(e, alpha, light, "25");
-  CHECK(fill(e, R) == Color{0, 0, 1, 0.25f});
+  boundPaint({0, 0, 1, 1}, 0.25f);
   // A literal opacity on the alias.
   setValue(e, overlay, dark, "{\"color\":{\"type\":\"VARIABLE_ALIAS\",\"id\":" + q(blue) + "},\"opacity\":80}");
   setMode(e, F, set, dark);
-  CHECK(fill(e, R) == Color{0, 0, 1, 0.8f});
+  boundPaint({0, 0, 1, 1}, 0.8f);
   // Two literals are just a colour.
   setValue(e, overlay, dark, R"({"color":{"r":1,"g":0,"b":0,"a":1},"opacity":10})");
-  CHECK(props(e, overlay).variableDataValues[1].data.kind == VariableData::Kind::COLOR);
-  CHECK(fill(e, R) == Color{1, 0, 0, 0.1f});
+  CHECK(props(e, overlay).asset().variableDataValues[1].data.kind == VariableData::Kind::COLOR);
+  boundPaint({1, 0, 0, 1}, 0.1f);
   // The opacity of a paint bound to a number (a percentage).
   setMode(e, F, set, kNoGuid);
   bind(e, R, "fillPaints[0].opacity", alpha);
@@ -419,7 +427,7 @@ TEST_CASE("variables: every kind of node field binding (sizes, gaps, paddings, r
   setValue(e, gap, dark, "30");
   // Auto layout: gap and padding move the children (layout runs in the same commit).
   bind(e, AL, "STACK_SPACING", gap);
-  CHECK(props(e, AL).stackSpacing == 12);
+  CHECK(props(e, AL).stack().stackSpacing == 12);
   CHECK(props(e, A2).transform.m02 == 32);
   bind(e, AL, "STACK_PADDING_LEFT", pad);
   CHECK(props(e, A1).transform.m02 == 5);
@@ -429,7 +437,7 @@ TEST_CASE("variables: every kind of node field binding (sizes, gaps, paddings, r
   // A bound width fixes a hugging axis.
   bind(e, AL, "WIDTH", width);
   CHECK(props(e, AL).size.x == 300);
-  CHECK(props(e, AL).stackPrimarySizing == StackSize::FIXED);
+  CHECK(props(e, AL).stack().stackPrimarySizing == StackSize::FIXED);
   // Opacity takes a percentage.
   bind(e, R, "OPACITY", half);
   CHECK(props(e, R).opacity == 0.5);
@@ -444,16 +452,16 @@ TEST_CASE("variables: every kind of node field binding (sizes, gaps, paddings, r
   CHECK(props(e, R).strokeWeight == 8);
   // Text content and typography.
   bind(e, T, "TEXT_DATA", label);
-  CHECK(props(e, T).textData.characters == "Hi there");
+  CHECK(props(e, T).text().textData.characters == "Hi there");
   bind(e, T, "FONT_SIZE", size);
-  CHECK(props(e, T).fontSize == 24);
+  CHECK(props(e, T).text().fontSize == 24);
   bind(e, T, "FONT_FAMILY", family);
   bind(e, T, "FONT_STYLE", weight);
-  CHECK(props(e, T).fontName.style == "Bold");
+  CHECK(props(e, T).text().fontName.style == "Bold");
   CHECK(props(e, T).parameterConsumptionMap.back().data.kind == VariableData::Kind::FONT_STYLE);
   bind(e, T, "LINE_HEIGHT", gap);  // Auto line height becomes pixels
-  CHECK(props(e, T).lineHeight.units == NumberUnits::PIXELS);
-  CHECK(props(e, T).lineHeight.value == 12);
+  CHECK(props(e, T).text().lineHeight.units == NumberUnits::PIXELS);
+  CHECK(props(e, T).text().lineHeight.value == 12);
   // Wrong types are refused; a binding replaces the field's previous one.
   bind(e, R, "VISIBLE", gap, E_INVALID);
   bind(e, T, "TEXT_DATA", show, E_INVALID);
@@ -490,14 +498,14 @@ TEST_CASE("variables: effects and layout guides bind too") {
   g.numSections = 12;
   REQUIRE(e.setProps({F}, change(F_EFFECTS | F_LAYOUT_GRIDS, [&](NodeProps& p) {
     p.effects = {fx};
-    p.layoutGrids = {g};
+    p.rare().layoutGrids = {g};
   }), 0) == OK);
   bind(e, F, "effects[0].radius", blur);
   bind(e, F, "effects[0].color", shadow);
   bind(e, F, "layoutGrids[0].numSections", cols);
   CHECK(props(e, F).effects[0].radius == 6);
   CHECK(props(e, F).effects[0].color == Color{0, 0, 0, 0.5f});
-  CHECK(props(e, F).layoutGrids[0].numSections == 4);  // whole counts
+  CHECK(props(e, F).rare().layoutGrids[0].numSections == 4);  // whole counts
   bind(e, F, "effects[3].radius", blur);               // no such effect: nothing happens
   CHECK(run(e, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(F) + "],\"target\":\"effects[0].bogus\",\"variable\":" + q(blur) + "}") == E_INVALID);
   // Gradient stops.
@@ -559,7 +567,7 @@ TEST_CASE("variables: instances resolve their sublayers in their own modes; a va
   add.push_back(make(MR, NodeType::ROUNDED_RECTANGLE, M, "!", {0, 0, 50, 50}, "Fill"));
   add.push_back(make(DF, NodeType::FRAME, kPage, "%", {200, 600, 100, 100}, "Dark frame"));
   NodeChange inst = make(I, NodeType::INSTANCE, DF, "!", {10, 10, 50, 50}, "Card");
-  inst.props.symbolData.symbolID = M;
+  inst.props.comp().symbolData.symbolID = M;
   inst.props.fillPaints.clear();
   add.push_back(inst);
   REQUIRE(e.applyChanges(add, APPLY_USER) == OK);
@@ -577,7 +585,7 @@ TEST_CASE("variables: instances resolve their sublayers in their own modes; a va
   setMode(e, I, set, light);
   CHECK(fill(e, row) == kRed);
   bool overridden = false;
-  for (auto& o : props(e, I).symbolData.overrides) overridden |= o.path.empty() && (o.mask & F_VARIABLE_MODES);
+  for (auto& o : props(e, I).comp().symbolData.overrides) overridden |= o.path.empty() && (o.mask & F_VARIABLE_MODES);
   CHECK(overridden);
   e.command(CommandId::UNDO);
   CHECK(fill(e, row) == kGreen);
@@ -606,7 +614,7 @@ TEST_CASE("variables: modes — add copies the default's values, move sets the d
   Editor::Resolved r;
   REQUIRE(e.resolveVariableInMode(bg, third, r));
   CHECK(r.c == kRed);  // the default mode's value
-  CHECK(props(e, set).variableSetModes.back().name == "Mode 3");
+  CHECK(props(e, set).asset().variableSetModes.back().name == "Mode 3");
   // "Set as default": Dark first; Auto layers follow.
   CHECK(run(e, CommandId::MOVE_VARIABLE_MODE, "{\"collection\":" + q(set) + ",\"mode\":" + q(dark) + ",\"index\":0}") == OK);
   CHECK(props(e, set).defaultMode() == dark);
@@ -617,14 +625,14 @@ TEST_CASE("variables: modes — add copies the default's values, move sets the d
   REQUIRE(e.resolveVariableInMode(bg, copy, r));
   CHECK(r.c == kBlue);
   bool named = false;
-  for (auto& m : props(e, set).variableSetModes) named |= m.id == copy && m.name == "Dark copy";
+  for (auto& m : props(e, set).asset().variableSetModes) named |= m.id == copy && m.name == "Dark copy";
   CHECK(named);
   // A layer in the deleted mode falls back to the default.
   setMode(e, F, set, light);
   CHECK(fill(e, R) == kRed);
   CHECK(run(e, CommandId::DELETE_VARIABLE_MODE, "{\"collection\":" + q(set) + ",\"mode\":" + q(light) + "}") == OK);
   CHECK(fill(e, R) == kBlue);
-  for (auto& v : props(e, bg).variableDataValues) CHECK(v.modeID != light);
+  for (auto& v : props(e, bg).asset().variableDataValues) CHECK(v.modeID != light);
   // Names: ≤ 40 characters; the last mode can't go.
   CHECK(run(e, CommandId::RENAME_VARIABLE_MODE,
             "{\"collection\":" + q(set) + ",\"mode\":" + q(dark) + ",\"name\":\"" + std::string(41, 'x') + "\"}") == E_INVALID);
@@ -667,18 +675,18 @@ TEST_CASE("variables: groups, order, duplicates and deletes (soft while referenc
   bind(e, R, "fillPaints[0].color", a);
   CHECK(run(e, CommandId::DELETE_VARIABLES, "{\"variables\":[" + q(a) + "," + q(b) + "]}") == OK);
   CHECK(e.document().has(a));
-  CHECK(props(e, a).isSoftDeleted);
+  CHECK(props(e, a).comp().isSoftDeleted);
   CHECK(!e.document().has(b));
   CHECK(e.variablesOf(set) == std::vector<Guid>{a2, c});
   CHECK(fill(e, R) == kRed);
   e.command(CommandId::UNDO);
   CHECK(e.document().has(b));
-  CHECK(!props(e, a).isSoftDeleted);
+  CHECK(!props(e, a).comp().isSoftDeleted);
   // A variable another aliases is referenced too.
   setValue(e, c, light, "8");
   Guid alias = variable(e, set, "COLOR", "alias", "{\"type\":\"VARIABLE_ALIAS\",\"id\":" + q(b) + "}");
   CHECK(run(e, CommandId::DELETE_VARIABLES, "{\"variables\":[" + q(b) + "]}") == OK);
-  CHECK(props(e, b).isSoftDeleted);
+  CHECK(props(e, b).comp().isSoftDeleted);
   (void)alias;
 }
 
@@ -699,12 +707,12 @@ TEST_CASE("variables: collections — order, duplicate (aliases inside follow th
   CHECK(e.collections() == std::vector<Guid>{other, set, copy});
   auto vars = e.variablesOf(copy);
   REQUIRE(vars.size() == 2);
-  CHECK(props(e, vars[1]).variableDataValues[0].data.alias.guid == vars[0]);  // the copy's own base
-  CHECK(props(e, copy).variableSetModes[0].id != light);
+  CHECK(props(e, vars[1]).asset().variableDataValues[0].data.alias.guid == vars[0]);  // the copy's own base
+  CHECK(props(e, copy).asset().variableSetModes[0].id != light);
   // Delete with a used variable: soft.
   bind(e, R, "fillPaints[0].color", ref);
   CHECK(run(e, CommandId::DELETE_VARIABLE_COLLECTION, "{\"collection\":" + q(set) + "}") == OK);
-  CHECK(props(e, set).isSoftDeleted);
+  CHECK(props(e, set).comp().isSoftDeleted);
   CHECK(e.collections() == std::vector<Guid>{other, copy});
   CHECK(fill(e, R) == kRed);
   CHECK(run(e, CommandId::DELETE_VARIABLE_COLLECTION, "{\"collection\":" + q(other) + "}") == OK);
@@ -716,10 +724,10 @@ TEST_CASE("styles: create from a layer and apply; edits reach users; styles hold
   // A colour style from the rectangle's fill, applied to it.
   REQUIRE(run(e, CommandId::CREATE_STYLE, "{\"type\":\"FILL\",\"name\":\"Brand / Red\",\"from\":" + q(R) + ",\"apply\":true}") == OK);
   Guid s = e.lastCreated()[0];
-  CHECK(props(e, s).styleType == StyleType::FILL);
+  CHECK(props(e, s).asset().styleType == StyleType::FILL);
   CHECK(props(e, s).name == "Brand/Red");
   CHECK(e.document().parentOf(s) == kInternal);
-  CHECK(props(e, R).styleIdForFill.guid == s);
+  CHECK(props(e, R).refs().styleIdForFill.guid == s);
   CHECK(e.styleUsage(s) == 1);
   CHECK(run(e, CommandId::APPLY_STYLE, "{\"refs\":[" + q(R2) + "],\"style\":" + q(s) + "}") == OK);
   CHECK(e.styleUsage(s) == 2);
@@ -747,51 +755,51 @@ TEST_CASE("styles: create from a layer and apply; edits reach users; styles hold
   CHECK(e.styleUsage(s) == 2);
   // A changed fill detaches the style.
   REQUIRE(e.setProps({R2}, change(F_FILLS, [](NodeProps& p) { p.fillPaints = {Paint::solid(kRed)}; }), 0) == OK);
-  CHECK(!props(e, R2).styleIdForFill.present());
-  CHECK(props(e, R2).styleIdForStrokeFill.present());
+  CHECK(!props(e, R2).refs().styleIdForFill.present());
+  CHECK(props(e, R2).refs().styleIdForStrokeFill.present());
   // Detach keeps the values.
   CHECK(run(e, CommandId::DETACH_STYLE, "{\"refs\":[" + q(R2) + "],\"target\":\"STROKE\"}") == OK);
-  CHECK(!props(e, R2).styleIdForStrokeFill.present());
+  CHECK(!props(e, R2).refs().styleIdForStrokeFill.present());
   CHECK(props(e, R2).strokePaints.at(0).color == kGreen);
   // Deleting the style detaches its users.
   CHECK(run(e, CommandId::DELETE_STYLE, "{\"style\":" + q(s) + "}") == OK);
   CHECK(!e.document().has(s));
-  CHECK(!props(e, R).styleIdForFill.present());
+  CHECK(!props(e, R).refs().styleIdForFill.present());
   CHECK(fill(e, R) == kBlue);
   e.command(CommandId::UNDO);
   CHECK(e.document().has(s));
-  CHECK(props(e, R).styleIdForFill.guid == s);
+  CHECK(props(e, R).refs().styleIdForFill.guid == s);
 }
 
 TEST_CASE("styles: text, effect and layout guide styles; order and folders") {
   Editor e = load(doc());
   REQUIRE(e.setProps({T}, change(F_FONT_SIZE | F_LINE_HEIGHT, [](NodeProps& p) {
-    p.fontSize = 24;
-    p.lineHeight = {32, NumberUnits::PIXELS};
+    p.text().fontSize = 24;
+    p.text().lineHeight = {32, NumberUnits::PIXELS};
   }), 0) == OK);
   REQUIRE(run(e, CommandId::CREATE_STYLE, "{\"type\":\"TEXT\",\"name\":\"Heading\",\"from\":" + q(T) + "}") == OK);
   Guid ts = e.lastCreated()[0];
   CHECK(props(e, ts).type == NodeType::TEXT);
-  CHECK(props(e, ts).fontSize == 24);
-  CHECK(props(e, ts).textData.characters == "Ag");
+  CHECK(props(e, ts).text().fontSize == 24);
+  CHECK(props(e, ts).text().textData.characters == "Ag");
   // Applied to another text: its typography (not its colour).
   const Guid T2{3, 1};
   NodeChange t2 = make(T2, NodeType::TEXT, kPage, "$", {0, 700, 100, 20}, "Other");
-  t2.props.textData.characters = "Other";
+  t2.props.text().textData.characters = "Other";
   t2.props.fillPaints = {Paint::solid(kBlue)};
   REQUIRE(e.applyChanges({t2}, APPLY_USER) == OK);
   CHECK(run(e, CommandId::APPLY_STYLE, "{\"refs\":[" + q(T2) + "],\"style\":" + q(ts) + "}") == OK);
-  CHECK(props(e, T2).fontSize == 24);
-  CHECK(props(e, T2).lineHeight == Number{32, NumberUnits::PIXELS});
+  CHECK(props(e, T2).text().fontSize == 24);
+  CHECK(props(e, T2).text().lineHeight == Number{32, NumberUnits::PIXELS});
   CHECK(fill(e, T2) == kBlue);
   // A text style with a variable: users resolve it.
   auto [set, light, dark] = theme(e);
   Guid size = variable(e, set, "FLOAT", "size", "40");
   bind(e, ts, "FONT_SIZE", size);
-  CHECK(props(e, T2).fontSize == 40);
+  CHECK(props(e, T2).text().fontSize == 40);
   // Changing a user's font size detaches its text style.
-  REQUIRE(e.setProps({T2}, change(F_FONT_SIZE, [](NodeProps& p) { p.fontSize = 10; }), 0) == OK);
-  CHECK(!props(e, T2).styleIdForText.present());
+  REQUIRE(e.setProps({T2}, change(F_FONT_SIZE, [](NodeProps& p) { p.text().fontSize = 10; }), 0) == OK);
+  CHECK(!props(e, T2).refs().styleIdForText.present());
   // Effect and layout guide styles (Figma's defaults).
   REQUIRE(run(e, CommandId::CREATE_STYLE, R"({"type":"EFFECT"})") == OK);
   Guid es = e.lastCreated()[0];
@@ -802,9 +810,9 @@ TEST_CASE("styles: text, effect and layout guide styles; order and folders") {
   CHECK(run(e, CommandId::APPLY_STYLE, "{\"refs\":[" + q(F) + "],\"style\":" + q(es) + "}") == OK);
   CHECK(run(e, CommandId::APPLY_STYLE, "{\"refs\":[" + q(F) + "],\"style\":" + q(gs) + "}") == OK);
   CHECK(props(e, F).effects.size() == 1);
-  CHECK(props(e, F).layoutGrids.size() == 1);
+  CHECK(props(e, F).rare().layoutGrids.size() == 1);
   CHECK(run(e, CommandId::APPLY_STYLE, "{\"refs\":[" + q(F) + "],\"style\":" + q(ts) + "}") == OK);  // not a text: skipped
-  CHECK(!props(e, F).styleIdForText.present());
+  CHECK(!props(e, F).refs().styleIdForText.present());
   // Lists and order.
   CHECK(e.stylesOf(StyleType::NONE) == std::vector<Guid>{ts, es, gs});
   CHECK(e.stylesOf(StyleType::EFFECT) == std::vector<Guid>{es});
@@ -840,7 +848,7 @@ TEST_CASE("variables: undo restores the document exactly after any sequence of c
   CHECK(encoded(e) == original);
   while (e.canRedo()) e.command(CommandId::REDO);
   CHECK(fill(e, R) == kBlue);
-  CHECK(props(e, AL).stackSpacing == 10);
+  CHECK(props(e, AL).stack().stackSpacing == 10);
 }
 
 TEST_CASE("variables: encodeDocument round-trips; stale stored values are fixed when a file loads") {
@@ -901,7 +909,7 @@ TEST_CASE("variables: Figma's encoding — library collections, variables and st
   json::Value v;
   REQUIRE(json::parse(json, v));
   Editor e = load(codec::readMessage(v));
-  CHECK(props(e, Guid{1, 1}).stackSpacing == 16);  // the page is Dark
+  CHECK(props(e, Guid{1, 1}).stack().stackSpacing == 16);  // the page is Dark
   CHECK(props(e, Guid{1, 1}).effects.size() == 1);
   CHECK(props(e, Guid{1, 1}).effects[0].radius == 9);
   CHECK(e.styleUsage(Guid{3, 3}) == 1);
@@ -911,7 +919,7 @@ TEST_CASE("variables: Figma's encoding — library collections, variables and st
   CHECK(bound[0].variable == Guid{3, 2});
   // The page back to Light (Auto): the frame follows.
   CHECK(e.command(CommandId::SET_VARIABLE_MODE, args(R"({"page":"0:1","collection":"3:1","mode":""})")) == OK);
-  CHECK(props(e, Guid{1, 1}).stackSpacing == 4);
+  CHECK(props(e, Guid{1, 1}).stack().stackSpacing == 4);
 }
 
 TEST_CASE("variables: a mode switch on a page of many bound layers re-resolves them by dependency") {
@@ -1014,9 +1022,7 @@ TEST_CASE("variables: the C ABI — created ids, collections, variables, resolut
   Text opts{R"({"sessionID":3})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h);
-  json::Writer w;
-  codec::writeMessage(w, 0, doc());
-  Text d{w.take()};
+  Text d{codec::writeMessage(0, doc())};
   REQUIRE(engine_load(h, d.ptr(), d.len()) == OK);
   engine_take_events(h);
   REQUIRE(cmd(h, CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"Theme"})") == OK);
@@ -1109,9 +1115,9 @@ TEST_CASE("variables: an instance lays its sublayers out with values resolved in
   const Guid M{2, 1}, MT{2, 2}, DF{2, 4};
   std::vector<NodeChange> add;
   NodeChange m = make(M, NodeType::SYMBOL, kPage, "$", {0, 600, 200, 100}, "Card");
-  m.props.stackMode = StackMode::VERTICAL;
-  m.props.stackPrimarySizing = StackSize::FIXED;
-  m.props.stackPaddingLeft = m.props.stackPaddingTop = 16;
+  m.props.stack().stackMode = StackMode::VERTICAL;
+  m.props.stack().stackPrimarySizing = StackSize::FIXED;
+  m.props.stack().stackPaddingLeft = m.props.stack().stackPaddingTop = 16;
   add.push_back(m);
   add.push_back(make(MT, NodeType::ROUNDED_RECTANGLE, M, "!", {16, 16, 50, 20}, "Bar"));
   add.push_back(make(DF, NodeType::FRAME, kPage, "%", {300, 600, 400, 300}, "Dark frame"));
@@ -1122,7 +1128,7 @@ TEST_CASE("variables: an instance lays its sublayers out with values resolved in
   Guid bar = derived::intern(inst, {MT});
   CHECK(props(e, bar).transform.m02 == 16);
   setMode(e, DF, set, dark);
-  CHECK(props(e, inst).stackPaddingLeft == 32);
+  CHECK(props(e, inst).stack().stackPaddingLeft == 32);
   CHECK(props(e, bar).transform.m02 == 32);
   CHECK(props(e, MT).transform.m02 == 16);
 }
@@ -1150,9 +1156,9 @@ TEST_CASE("variables: a field set to null in an update clears it, modelled or no
   NodeChange c;
   REQUIRE(codec::readChange(v, c));
   CHECK((c.mask & F_STYLE_ID_FILL));
-  CHECK(!c.props.styleIdForFill.present());
+  CHECK(!c.props.refs().styleIdForFill.present());
   CHECK((c.mask & F_VARIABLE_SCOPES));
-  CHECK(!c.props.variableScopes.has_value());
+  CHECK(!c.props.asset().variableScopes.has_value());
   REQUIRE((c.mask & F_EXTRA));
   CHECK(c.props.extra.at("exportSettings").empty());  // removes the key when applied
   Editor e = load(doc());
@@ -1164,6 +1170,214 @@ TEST_CASE("variables: a field set to null in an update clears it, modelled or no
   CHECK(props(e, R).extra.count("exportSettings"));
   c.guid = R;
   REQUIRE(e.applyChanges({c}, APPLY_USER) == OK);
-  CHECK(!props(e, R).styleIdForFill.present());
+  CHECK(!props(e, R).refs().styleIdForFill.present());
   CHECK(!props(e, R).extra.count("exportSettings"));
+}
+
+// Figma's files keep an instance's slot content under the Internal Only Canvas (isSlotContent), named by the
+// instance's SLOT assignment (varValue.slotContentIdValue); the slot layer in the main is only bound to the property
+// (no isSlot). The content's variables resolve where the slot shows it: the instance's modes, the page's — what
+// Figma stored (a private test file: frames bound to "Table/Padding" stored 3 = the page's "md", read 0 = the
+// default mode's, before this).
+TEST_CASE("variables: slot content in Figma's form resolves in the modes of the slot that shows it") {
+  const char* json = R"([
+    {"guid":"0:0","phase":"CREATED","type":"DOCUMENT","name":"Document"},
+    {"guid":"0:1","phase":"CREATED","type":"CANVAS","name":"Page","parentIndex":{"guid":"0:0","position":"!"},
+     "variableModeBySetMap":{"entries":[{"variableSetID":{"guid":"5:1"},"variableModeID":"5:3"}]}},
+    {"guid":"0:3","phase":"CREATED","type":"CANVAS","name":"Other","parentIndex":{"guid":"0:0","position":"\""}},
+    {"guid":"0:2","phase":"CREATED","type":"CANVAS","name":"Internal Only Canvas","internalOnly":true,"parentIndex":{"guid":"0:0","position":"#"}},
+    {"guid":"5:1","phase":"CREATED","type":"VARIABLE_SET","name":"Sizing","parentIndex":{"guid":"0:2","position":"!"},
+     "variableSetModes":[{"id":"5:2","name":"none","sortPosition":"!"},{"id":"5:3","name":"md","sortPosition":"\""}]},
+    {"guid":"5:4","phase":"CREATED","type":"VARIABLE","name":"Table/Padding","parentIndex":{"guid":"0:2","position":"\""},
+     "variableSetID":{"guid":"5:1"},"variableResolvedType":"FLOAT",
+     "variableDataValues":{"entries":[
+       {"modeID":"5:2","variableData":{"value":{"floatValue":0},"dataType":"FLOAT","resolvedDataType":"FLOAT"}},
+       {"modeID":"5:3","variableData":{"value":{"floatValue":3},"dataType":"FLOAT","resolvedDataType":"FLOAT"}}]}},
+    {"guid":"2:1","phase":"CREATED","type":"SYMBOL","name":"Item","parentIndex":{"guid":"0:3","position":"!"},
+     "size":{"x":200,"y":100},"transform":{"m00":1,"m01":0,"m02":0,"m10":0,"m11":1,"m12":500},
+     "componentPropDefs":[{"id":"2:9","name":"buttons","type":"SLOT","initialValue":{},"sortPosition":"!"}]},
+    {"guid":"2:2","phase":"CREATED","type":"FRAME","name":"buttons","parentIndex":{"guid":"2:1","position":"!"},
+     "size":{"x":100,"y":40},
+     "parameterConsumptionMap":{"entries":[{"variableField":"SLOT_CONTENT_ID",
+       "variableData":{"value":{"propRefValue":{"defId":"2:9"}},"dataType":"PROP_REF","resolvedDataType":"SLOT_CONTENT_ID"}}]}},
+    {"guid":"3:1","phase":"CREATED","type":"INSTANCE","name":"Item","parentIndex":{"guid":"0:1","position":"!"},
+     "size":{"x":200,"y":100},"symbolData":{"symbolID":"2:1"},
+     "componentPropAssignments":[{"defID":"2:9","value":{},"varValue":{"value":{"slotContentIdValue":{"guid":"4:1"}},
+       "dataType":"SLOT_CONTENT_ID","resolvedDataType":"SLOT_CONTENT_ID"}}]},
+    {"guid":"3:2","phase":"CREATED","type":"INSTANCE","name":"Item","parentIndex":{"guid":"0:3","position":"\""},
+     "size":{"x":200,"y":100},"symbolData":{"symbolID":"2:1"},
+     "componentPropAssignments":[{"defID":"2:9","value":{},"varValue":{"value":{"slotContentIdValue":{"guid":"4:3"}},
+       "dataType":"SLOT_CONTENT_ID","resolvedDataType":"SLOT_CONTENT_ID"}}]},
+    {"guid":"4:1","phase":"CREATED","type":"FRAME","name":"buttons","isSlotContent":true,"parentIndex":{"guid":"0:2","position":"$"},
+     "size":{"x":100,"y":40}},
+    {"guid":"4:2","phase":"CREATED","type":"FRAME","name":"content","parentIndex":{"guid":"4:1","position":"!"},
+     "size":{"x":60,"y":20},"stackMode":"HORIZONTAL","stackHorizontalPadding":3,
+     "parameterConsumptionMap":{"entries":[{"variableField":"STACK_PADDING_LEFT",
+       "variableData":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"FLOAT"}}]}},
+    {"guid":"4:3","phase":"CREATED","type":"FRAME","name":"buttons","isSlotContent":true,"parentIndex":{"guid":"0:2","position":"%"},
+     "size":{"x":100,"y":40}},
+    {"guid":"4:4","phase":"CREATED","type":"FRAME","name":"content","parentIndex":{"guid":"4:3","position":"!"},
+     "size":{"x":60,"y":20},"stackMode":"HORIZONTAL","stackHorizontalPadding":7,
+     "parameterConsumptionMap":{"entries":[{"variableField":"STACK_PADDING_LEFT",
+       "variableData":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"FLOAT"}}]}}
+  ])";
+  json::Value v;
+  REQUIRE(json::parse(json, v));
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(codec::readChanges(v), Guid{0, 1});
+  e.takeEvents();
+  const Guid page{0, 1}, other{0, 3}, set{5, 1}, none{5, 2}, md{5, 3};
+  // Hosted by the instance on the shown page: the page's "md".
+  CHECK(props(e, {4, 2}).stack().stackPaddingLeft == 3);
+  CHECK(e.resolvedMode({4, 2}, set) == md);
+  // Its slot's instance is on a page not shown yet: the value Figma stored stays (it is not re-resolved where the
+  // content is parked, the internal canvas's default mode).
+  CHECK(props(e, {4, 4}).stack().stackPaddingLeft == 7);
+  // Shown: resolved where its slot is (that page has no explicit mode: the default).
+  REQUIRE(e.setCurrentPage(other) == OK);
+  CHECK(props(e, {4, 4}).stack().stackPaddingLeft == 0);
+  // The host's modes change: the content follows.
+  setMode(e, page, set, none);
+  CHECK(props(e, {4, 2}).stack().stackPaddingLeft == 0);
+  setMode(e, page, set, md);
+  CHECK(props(e, {4, 2}).stack().stackPaddingLeft == 3);
+  // And the assignment keeps Figma's slotContentIdValue through the engine's own snapshot.
+  std::string bytes = codec::writeMessage(1, e.encodeDocument());
+  codec::KiwiMessage back;
+  REQUIRE(codec::readMessage(bytes, back));
+  bool found = false;
+  for (const NodeChange& c : back.changes)
+    if (c.guid == Guid{3, 1}) found = codec::assignmentSlotContent(c.props.comp().componentPropAssignments.at(0).extra) == Guid{4, 1};
+  CHECK(found);
+}
+
+TEST_CASE("variables: soft-deleted variables, collections and styles stay at load; unused deleted mains go") {
+  const char* json = R"([
+    {"guid":"0:0","phase":"CREATED","type":"DOCUMENT","name":"Document"},
+    {"guid":"0:1","phase":"CREATED","type":"CANVAS","name":"Page","parentIndex":{"guid":"0:0","position":"!"},
+     "variableModeBySetMap":{"entries":[{"variableSetID":{"guid":"5:1"},"variableModeID":"5:3"}]}},
+    {"guid":"0:2","phase":"CREATED","type":"CANVAS","name":"Internal Only Canvas","internalOnly":true,"parentIndex":{"guid":"0:0","position":"\""}},
+    {"guid":"5:1","phase":"CREATED","type":"VARIABLE_SET","name":"1 - Color","isSoftDeleted":true,"parentIndex":{"guid":"0:2","position":"!"},
+     "variableSetModes":[{"id":"5:2","name":"White","sortPosition":"!"},{"id":"5:3","name":"Primary","sortPosition":"\""}]},
+    {"guid":"5:4","phase":"CREATED","type":"VARIABLE","name":"Select","parentIndex":{"guid":"0:2","position":"\""},
+     "variableSetID":{"guid":"5:1"},"variableResolvedType":"STRING",
+     "variableDataValues":{"entries":[
+       {"modeID":"5:2","variableData":{"value":{"textValue":"White"},"dataType":"STRING","resolvedDataType":"STRING"}},
+       {"modeID":"5:3","variableData":{"value":{"textValue":"Primary"},"dataType":"STRING","resolvedDataType":"STRING"}}]}},
+    {"guid":"5:5","phase":"CREATED","type":"VARIABLE","name":"old","isSoftDeleted":true,"parentIndex":{"guid":"0:2","position":"#"},
+     "variableSetID":{"guid":"5:1"},"variableResolvedType":"FLOAT"},
+    {"guid":"6:1","phase":"CREATED","type":"TEXT","name":"ds","styleType":"TEXT","isSoftDeleted":true,"parentIndex":{"guid":"0:2","position":"$"}},
+    {"guid":"7:1","phase":"CREATED","type":"SYMBOL","name":"Gone","isSoftDeleted":true,"parentIndex":{"guid":"0:2","position":"%"},"size":{"x":10,"y":10}},
+    {"guid":"7:2","phase":"CREATED","type":"SYMBOL","name":"Published","isSoftDeleted":true,"publishedVersion":"abc","parentIndex":{"guid":"0:2","position":"&"},"size":{"x":10,"y":10}},
+    {"guid":"1:1","phase":"CREATED","type":"TEXT","name":"Primary","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":50,"y":20},
+     "textData":{"characters":"Primary"},
+     "parameterConsumptionMap":{"entries":[{"variableField":"TEXT_DATA",
+       "variableData":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"STRING"}}]}}
+  ])";
+  json::Value v;
+  REQUIRE(json::parse(json, v));
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(codec::readChanges(v), Guid{0, 1});
+  e.takeEvents();
+  CHECK(e.document().has({5, 1}));
+  CHECK(e.document().has({5, 5}));
+  CHECK(e.document().has({6, 1}));
+  CHECK(!e.document().has({7, 1}));  // an unused deleted main (docs/schema.md §5.7)
+  CHECK(e.document().has({7, 2}));   // published: the next publish lists it as Removed
+  // The page's explicit mode of the deleted collection still picks the value (Figma stored "Primary").
+  CHECK(props(e, {1, 1}).text().textData.characters == "Primary");
+}
+
+// Figma's files may address an instance's root by its main's key (guidPath [key of the main]) as well as by [].
+TEST_CASE("variables: a root override addressed by the main's key applies (size, unbound fields)") {
+  const char* json = R"([
+    {"guid":"0:0","phase":"CREATED","type":"DOCUMENT","name":"Document"},
+    {"guid":"0:1","phase":"CREATED","type":"CANVAS","name":"Page","parentIndex":{"guid":"0:0","position":"!"}},
+    {"guid":"0:2","phase":"CREATED","type":"CANVAS","name":"Internal Only Canvas","internalOnly":true,"parentIndex":{"guid":"0:0","position":"\""}},
+    {"guid":"5:1","phase":"CREATED","type":"VARIABLE_SET","name":"Size","parentIndex":{"guid":"0:2","position":"!"},
+     "variableSetModes":[{"id":"5:2","name":"Mode 1","sortPosition":"!"}]},
+    {"guid":"5:4","phase":"CREATED","type":"VARIABLE","name":"avatar","parentIndex":{"guid":"0:2","position":"\""},
+     "variableSetID":{"guid":"5:1"},"variableResolvedType":"FLOAT",
+     "variableDataValues":{"entries":[{"modeID":"5:2","variableData":{"value":{"floatValue":40},"dataType":"FLOAT","resolvedDataType":"FLOAT"}}]}},
+    {"guid":"2:1","phase":"CREATED","type":"SYMBOL","name":"Avatar","overrideKey":"9:1","parentIndex":{"guid":"0:1","position":"!"},
+     "size":{"x":40,"y":40},
+     "parameterConsumptionMap":{"entries":[
+       {"variableField":"WIDTH","variableData":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"FLOAT"}},
+       {"variableField":"HEIGHT","variableData":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"FLOAT"}}]}},
+    {"guid":"3:1","phase":"CREATED","type":"INSTANCE","name":"Avatar","parentIndex":{"guid":"0:1","position":"\""},
+     "size":{"x":32,"y":32},"transform":{"m00":1,"m01":0,"m02":100,"m10":0,"m11":1,"m12":0},
+     "symbolData":{"symbolID":"2:1","symbolOverrides":[{"guidPath":{"guids":["9:1"]},"size":{"x":32,"y":32},
+       "parameterConsumptionMap":{"entries":[{"variableField":"WIDTH"},{"variableField":"HEIGHT"}]}}]}}
+  ])";
+  json::Value v;
+  REQUIRE(json::parse(json, v));
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(codec::readChanges(v), Guid{0, 1});
+  e.takeEvents();
+  CHECK(props(e, {2, 1}).size.x == 40);
+  CHECK(props(e, {3, 1}).size.x == 32);
+  CHECK(props(e, {3, 1}).size.y == 32);
+}
+
+// Figma's per-page loading: a page not shown resolves nothing, derives no instance and asks for no font at load —
+// even when its bound values are stale; all of it happens when the page is first shown.
+TEST_CASE("variables: bound values, instances and fonts of a page not shown wait for the page") {
+  const char* json = R"([
+    {"guid":"0:0","phase":"CREATED","type":"DOCUMENT","name":"Document"},
+    {"guid":"0:1","phase":"CREATED","type":"CANVAS","name":"Shown","parentIndex":{"guid":"0:0","position":"!"}},
+    {"guid":"0:3","phase":"CREATED","type":"CANVAS","name":"Other","parentIndex":{"guid":"0:0","position":"\""}},
+    {"guid":"0:2","phase":"CREATED","type":"CANVAS","name":"Internal Only Canvas","internalOnly":true,"parentIndex":{"guid":"0:0","position":"#"}},
+    {"guid":"5:1","phase":"CREATED","type":"VARIABLE_SET","name":"Text","parentIndex":{"guid":"0:2","position":"!"},
+     "variableSetModes":[{"id":"5:2","name":"Mode 1","sortPosition":"!"}]},
+    {"guid":"5:4","phase":"CREATED","type":"VARIABLE","name":"size","parentIndex":{"guid":"0:2","position":"\""},
+     "variableSetID":{"guid":"5:1"},"variableResolvedType":"FLOAT",
+     "variableDataValues":{"entries":[{"modeID":"5:2","variableData":{"value":{"floatValue":20},"dataType":"FLOAT","resolvedDataType":"FLOAT"}}]}},
+    {"guid":"2:1","phase":"CREATED","type":"SYMBOL","name":"Label","parentIndex":{"guid":"0:3","position":"!"},"size":{"x":100,"y":30}},
+    {"guid":"2:2","phase":"CREATED","type":"TEXT","name":"Text","parentIndex":{"guid":"2:1","position":"!"},"size":{"x":80,"y":20},
+     "textData":{"characters":"Hi"},"fontName":{"family":"Only On Other","style":"Bold"},"textAutoResize":"WIDTH_AND_HEIGHT"},
+    {"guid":"3:1","phase":"CREATED","type":"INSTANCE","name":"Label","parentIndex":{"guid":"0:3","position":"\""},
+     "size":{"x":100,"y":30},"symbolData":{"symbolID":"2:1"}},
+    {"guid":"1:1","phase":"CREATED","type":"TEXT","name":"Stale","parentIndex":{"guid":"0:3","position":"#"},"size":{"x":80,"y":20},
+     "textData":{"characters":"Hi"},"fontName":{"family":"Only On Other","style":"Bold"},"fontSize":12,"textAutoResize":"WIDTH_AND_HEIGHT",
+     "parameterConsumptionMap":{"entries":[{"variableField":"FONT_SIZE",
+       "variableData":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"FLOAT"}}]}},
+    {"guid":"1:2","phase":"CREATED","type":"FRAME","name":"Here","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":10,"y":10}},
+    {"guid":"6:1","phase":"CREATED","type":"FRAME","name":"Parked","parentIndex":{"guid":"0:2","position":"$"},"size":{"x":100,"y":30}},
+    {"guid":"6:2","phase":"CREATED","type":"INSTANCE","name":"Label","parentIndex":{"guid":"6:1","position":"!"},
+     "size":{"x":100,"y":30},"symbolData":{"symbolID":"2:1"}}
+  ])";
+  json::Value v;
+  REQUIRE(json::parse(json, v));
+  text::FontRegistry& fonts = text::FontRegistry::get();
+  fonts.takeRequests();
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(codec::readChanges(v), Guid{0, 1});
+  e.takeEvents();
+  auto asked = [&](const char* family) {
+    bool any = false;
+    for (const FontName& f : fonts.takeRequests()) any |= f.family == family;
+    return any;
+  };
+  CHECK(!asked("Only On Other"));
+  CHECK(props(e, {1, 1}).text().fontSize == 12);  // stale, as stored, until the page is shown
+  CHECK(!e.document().has(derived::intern({3, 1}, {{2, 2}})));
+  REQUIRE(e.setCurrentPage({0, 3}) == OK);
+  CHECK(props(e, {1, 1}).text().fontSize == 20);
+  CHECK(e.document().has(derived::intern({3, 1}, {{2, 2}})));
+  CHECK(asked("Only On Other"));
+  // The Internal Only Canvas is never derived whole: a read of a container there derives nothing, a read of an
+  // instance derives its container's instances.
+  CHECK(!e.document().has(derived::intern({6, 2}, {{2, 2}})));
+  e.derivePageOf({6, 1});
+  CHECK(!e.document().has(derived::intern({6, 2}, {{2, 2}})));
+  e.derivePageOf({6, 2});
+  CHECK(e.document().has(derived::intern({6, 2}, {{2, 2}})));
 }

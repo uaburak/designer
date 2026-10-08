@@ -142,7 +142,7 @@ const ComponentPropDef* Editor::findDef(Guid owner, const std::string& prop) con
   if (!n) return nullptr;
   bool ok = false;
   Guid id = Guid::parse(prop, &ok);
-  for (const ComponentPropDef& d : n->props.componentPropDefs) {
+  for (const ComponentPropDef& d : n->props.comp().componentPropDefs) {
     if (ok && d.id == id) return &d;
     if (d.name == prop || d.name + "#" + d.id.toString() == prop) return &d;
   }
@@ -166,7 +166,7 @@ uint32_t Editor::instanceCount(Guid symbol) const {
 Guid Editor::internalCanvas(bool create) {
   Guid found = kNoGuid;
   doc_.forEach([&](const Node& n) {
-    if (n.props.type == NodeType::CANVAS && n.props.internalOnly) found = n.guid;
+    if (n.props.type == NodeType::CANVAS && n.props.rare().internalOnly) found = n.guid;
   });
   if (found != kNoGuid || !create) return found;
   Guid docId = documentNode();
@@ -174,7 +174,7 @@ Guid Editor::internalCanvas(bool create) {
   NodeProps p;
   p.type = NodeType::CANVAS;
   p.name = "Internal Only Canvas";
-  p.internalOnly = true;
+  p.rare().internalOnly = true;
   p.parentIndex = {docId, doc_.positionAtEnd(docId)};
   Guid id = newGuid();
   write(NodeChange::created(id, p));
@@ -191,7 +191,7 @@ Guid Editor::createInstance(Guid symbol, Guid parent, const std::string& positio
   if (!mn || mn->props.type != NodeType::SYMBOL) return kNoGuid;
   NodeProps own;
   own.type = NodeType::INSTANCE;
-  own.symbolData.symbolID = symbol;
+  own.comp().symbolData.symbolID = symbol;
   own.parentIndex = {parent, position};
   own.transform = transform;
   own.horizontalConstraint = mn->props.horizontalConstraint;
@@ -205,7 +205,7 @@ Guid Editor::createInstance(Guid symbol, Guid parent, const std::string& positio
 void Editor::renameVariants(Guid set) {
   const Node* sn = doc_.get(set);
   if (!sn) return;
-  std::vector<ComponentPropDef> defs = sn->props.componentPropDefs;
+  std::vector<ComponentPropDef> defs = sn->props.comp().componentPropDefs;
   for (Guid v : std::vector<Guid>(doc_.children(set))) {
     const Node* vn = doc_.get(v);
     if (!vn || vn->props.type != NodeType::SYMBOL) continue;
@@ -213,7 +213,7 @@ void Editor::renameVariants(Guid set) {
     for (const ComponentPropDef& d : defs) {
       if (d.type != ComponentPropType::VARIANT) continue;
       std::string value;
-      for (const VariantPropSpec& s : vn->props.variantPropSpecs)
+      for (const VariantPropSpec& s : vn->props.comp().variantPropSpecs)
         if (s.propDefId == d.id) value = s.value;
       if (!name.empty()) name += ", ";
       name += d.name + "=" + value;
@@ -254,9 +254,9 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       for (auto& a : assigns) usage.insert(a.defID);
     } else if (auto info = derivedInfo_.find(level); info != derivedInfo_.end()) {
       if (const Node* top = doc_.get(info->second.instance))
-        for (const SymbolOverride& o : top->props.symbolData.overrides)
+        for (const SymbolOverride& o : top->props.comp().symbolData.overrides)
           if (o.path == info->second.path && (o.mask & F_COMPONENT_PROP_ASSIGNMENTS))
-            for (auto& a : o.props.componentPropAssignments) usage.insert(a.defID);
+            for (auto& a : o.props.comp().componentPropAssignments) usage.insert(a.defID);
     }
   }
   // The layers bound to each property: in the main, or (for an instance) as its derived ids.
@@ -302,8 +302,8 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
   // Preferred values that name mains by asset key (a library copy's, a .fig's) resolve within the main's own library:
   // its library's copies; for a local main, this file's own asset, else a copy (first by GUID).
   Guid copyRoot = libraryRootOf(symbol);
-  std::string library = copyRoot != kNoGuid ? doc_.get(copyRoot)->props.sourceLibraryKey : std::string();
-  auto isMain = [](const NodeProps& p) { return (p.type == NodeType::SYMBOL || p.isComponentSet()) && !p.isSoftDeleted; };
+  std::string library = copyRoot != kNoGuid ? doc_.get(copyRoot)->props.asset().sourceLibraryKey : std::string();
+  auto isMain = [](const NodeProps& p) { return (p.type == NodeType::SYMBOL || p.isComponentSet()) && !p.comp().isSoftDeleted; };
   auto mainByKey = [&](const std::string& key) {
     if (!library.empty()) return copyMainByKey(library, key);
     Guid local = localAssetByKey(key);
@@ -336,12 +336,12 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
     if (d->type == ComponentPropType::VARIANT) {
       // Values in the set's order, then as the variants have them.
       if (const Node* setNode = doc_.get(set)) {
-        for (const StateGroupOrder& o : setNode->props.stateGroupPropertyValueOrders)
+        for (const StateGroupOrder& o : setNode->props.comp().stateGroupPropertyValueOrders)
           if (o.property == d->name) p.variantOptions = o.values;
         for (Guid v : doc_.children(set)) {
           const Node* vn = doc_.get(v);
           if (!vn) continue;
-          for (const VariantPropSpec& s : vn->props.variantPropSpecs)
+          for (const VariantPropSpec& s : vn->props.comp().variantPropSpecs)
             if (s.propDefId == d->id && std::find(p.variantOptions.begin(), p.variantOptions.end(), s.value) == p.variantOptions.end())
               p.variantOptions.push_back(s.value);
         }
@@ -349,7 +349,7 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       auto specOf = [&](Guid v) {
         const Node* vn = doc_.get(v);
         if (vn)
-          for (const VariantPropSpec& s : vn->props.variantPropSpecs)
+          for (const VariantPropSpec& s : vn->props.comp().variantPropSpecs)
             if (s.propDefId == d->id) return s.value;
         return std::string();
       };
@@ -395,22 +395,22 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     out.mainName = mn->props.name;
     out.mainPage = doc_.pageOf(main);
     out.mainSet = setOf(main);
-    out.mainSoftDeleted = mn->props.isSoftDeleted || (out.mainSet != kNoGuid && doc_.get(out.mainSet)->props.isSoftDeleted);
+    out.mainSoftDeleted = mn->props.comp().isSoftDeleted || (out.mainSet != kNoGuid && doc_.get(out.mainSet)->props.comp().isSoftDeleted);
     out.mainDeleted = out.mainSoftDeleted;
     Guid copyRoot = libraryRootOf(main);
     if (copyRoot != kNoGuid) {
       const NodeProps& rp = doc_.get(copyRoot)->props;
       out.mainRemote = true;
-      out.mainLibraryKey = rp.sourceLibraryKey;
-      out.mainKey = mn->props.key.empty() ? rp.key : mn->props.key;
-      out.mainVersion = rp.version;
+      out.mainLibraryKey = rp.asset().sourceLibraryKey;
+      out.mainKey = mn->props.asset().key.empty() ? rp.asset().key : mn->props.asset().key;
+      out.mainVersion = rp.asset().version;
     }
     out.mainCopied = !out.mainRemote && isCopiedMain(main);
   };
   auto overridesOf = [&](Guid top, const std::vector<Guid>& under, bool exact) {
     const Node* tn = doc_.get(top);
     if (!tn) return;
-    for (const SymbolOverride& o : tn->props.symbolData.overrides) {
+    for (const SymbolOverride& o : tn->props.comp().symbolData.overrides) {
       bool match = exact ? o.path == under
                          : o.path.size() >= under.size() && std::equal(under.begin(), under.end(), o.path.begin());
       if (!match) continue;
@@ -430,7 +430,7 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
       if (ri == derivedInfo_.end() || ri->second.level != level) continue;
       const Node* rn = doc_.get(r);
       const Node* src = doc_.get(ri->second.source);
-      if (!rn || !src || rn->props.type != NodeType::INSTANCE || !src->props.propsAreBubbled) continue;
+      if (!rn || !src || rn->props.type != NodeType::INSTANCE || !src->props.comp().propsAreBubbled) continue;
       out.exposedInstances.push_back({r, rn->props.name, propertiesOf(r, ri->second.symbol)});
     }
   };
@@ -440,10 +440,10 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     const Node* vn = doc_.get(symbol);
     if (!sn || !vn) return;
     out.hasVariantProperties = true;
-    for (const ComponentPropDef& d : sn->props.componentPropDefs) {
+    for (const ComponentPropDef& d : sn->props.comp().componentPropDefs) {
       if (d.type != ComponentPropType::VARIANT) continue;
       std::string value;
-      for (const VariantPropSpec& s : vn->props.variantPropSpecs)
+      for (const VariantPropSpec& s : vn->props.comp().variantPropSpecs)
         if (s.propDefId == d.id) value = s.value;
       out.variantProperties.push_back({d.name, value});
     }
@@ -461,7 +461,7 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
       variantPropsOf(info->second.symbol);
       overridesOf(info->second.instance, info->second.path, false);
       const Node* src = doc_.get(info->second.source);
-      out.isExposed = src && src->props.propsAreBubbled;
+      out.isExposed = src && src->props.comp().propsAreBubbled;
       exposedOf(id);
       out.canDetach = true;
     } else {
@@ -485,8 +485,8 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     bool insideMain = false;
     for (Guid cur = doc_.parentOf(id); doc_.has(cur); cur = doc_.parentOf(cur)) insideMain |= doc_.get(cur)->props.type == NodeType::SYMBOL;
     out.canPush = main != kNoGuid && !out.mainSoftDeleted && !out.mainRemote && !out.mainCopied && !insideMain &&
-                  !p.symbolData.overrides.empty();
-    out.canReset = !p.symbolData.overrides.empty() || !p.componentPropAssignments.empty();
+                  !p.comp().symbolData.overrides.empty();
+    out.canReset = !p.comp().symbolData.overrides.empty() || !p.comp().componentPropAssignments.empty();
     out.canDetach = true;
     return true;
   }
@@ -503,7 +503,7 @@ bool Editor::computeComponentInfo(Guid id, ComponentInfo& out) const {
     Guid def = defaultVariantOf(doc_, id);
     if (def != kNoGuid) out.properties = propertiesOf(kNoGuid, def);
     out.instanceCount = instanceCount(id);
-    out.mainSoftDeleted = p.isSoftDeleted;
+    out.mainSoftDeleted = p.comp().isSoftDeleted;
     return true;
   }
   for (Guid cur = doc_.parentOf(id); doc_.has(cur); cur = doc_.parentOf(cur)) {
@@ -657,7 +657,7 @@ Guid Editor::makeComponentFrom(Guid node) {
   if (!n || node.isDerived()) return kNoGuid;
   const NodeProps& p = n->props;
   if (p.type == NodeType::SYMBOL) return node;
-  if (p.type == NodeType::FRAME && !p.resizeToFit && !p.isStateGroup) {
+  if (p.type == NodeType::FRAME && !p.resizeToFit && !p.comp().isStateGroup) {
     // A frame becomes the component itself (same GUID).
     NodeChange c = NodeChange::changed(node);
     c.mask = F_TYPE;
@@ -821,12 +821,12 @@ Status Editor::combineAsVariants(std::vector<Guid> symbols, Guid* setOut) {
     if (shared) common = trim(first[0]);
   }
   sp.name = !common.empty() ? common : symbols.size() == 1 ? doc_.get(symbols[0])->props.name : nextName("Component");
-  sp.isStateGroup = true;
+  sp.comp().isStateGroup = true;
   sp.fillPaints.clear();
   sp.strokePaints = {Paint::solid(kComponentPurple)};
   sp.strokeWeight = 1;
   sp.strokeAlign = StrokeAlign::INSIDE;
-  sp.dashPattern = {10, 5};
+  sp.stroke().dashPattern = {10, 5};
   sp.cornerRadii = {5, 5, 5, 5};
   sp.frameMaskDisabled = true;
   sp.transform = Mat2x3::translate(u.x - kSetPadding, u.y - kSetPadding);
@@ -835,7 +835,7 @@ Status Editor::combineAsVariants(std::vector<Guid> symbols, Guid* setOut) {
   // Definitions: the variant properties, then every property the components had of their own.
   std::vector<Guid> used;
   doc_.forEach([&](const Node& n) {
-    for (auto& d : n.props.componentPropDefs) used.push_back(d.id);
+    for (auto& d : n.props.comp().componentPropDefs) used.push_back(d.id);
   });
   auto newId = [&]() {
     uint32_t low = kDefIdTop;
@@ -853,16 +853,16 @@ Status Editor::combineAsVariants(std::vector<Guid> symbols, Guid* setOut) {
     d.type = ComponentPropType::VARIANT;
     d.initialValue = textValue(values[0][i]);
     d.sortPosition = fractional::keysBetween("", std::nullopt, static_cast<int>(props.size()))[i];
-    sp.componentPropDefs.push_back(d);
+    sp.comp().componentPropDefs.push_back(d);
     propIds.push_back(d.id);
     StateGroupOrder order;
     order.property = props[i];
     for (auto& row : values)
       if (std::find(order.values.begin(), order.values.end(), row[i]) == order.values.end()) order.values.push_back(row[i]);
-    sp.stateGroupPropertyValueOrders.push_back(order);
+    sp.comp().stateGroupPropertyValueOrders.push_back(order);
   }
   for (Guid s : symbols)
-    for (const ComponentPropDef& d : doc_.get(s)->props.componentPropDefs) sp.componentPropDefs.push_back(d);
+    for (const ComponentPropDef& d : doc_.get(s)->props.comp().componentPropDefs) sp.comp().componentPropDefs.push_back(d);
   Guid set = newGuid();
   write(NodeChange::created(set, sp));
   auto keys = fractional::keysBetween("", std::nullopt, static_cast<int>(symbols.size()));
@@ -870,7 +870,7 @@ Status Editor::combineAsVariants(std::vector<Guid> symbols, Guid* setOut) {
     reparent(symbols[i], set, keys[i]);
     NodeChange c = NodeChange::changed(symbols[i]);
     c.mask = F_VARIANT_PROP_SPECS | F_COMPONENT_PROP_DEFS | F_NAME;
-    for (size_t k = 0; k < props.size(); k++) c.props.variantPropSpecs.push_back({propIds[k], values[i][k]});
+    for (size_t k = 0; k < props.size(); k++) c.props.comp().variantPropSpecs.push_back({propIds[k], values[i][k]});
     std::string name;
     for (size_t k = 0; k < props.size(); k++) name += (k ? ", " : "") + props[k] + "=" + values[i][k];
     c.props.name = name;
@@ -935,12 +935,12 @@ Status Editor::addVariant() {
   const NodeProps setProps = doc_.get(set)->props;
   NodeChange c = NodeChange::changed(copy);
   c.mask = F_VARIANT_PROP_SPECS;
-  c.props.variantPropSpecs = bp.variantPropSpecs;
-  for (const ComponentPropDef& d : setProps.componentPropDefs) {
+  c.props.comp().variantPropSpecs = bp.comp().variantPropSpecs;
+  for (const ComponentPropDef& d : setProps.comp().componentPropDefs) {
     if (d.type != ComponentPropType::VARIANT) continue;
     std::vector<std::string> taken;
     for (Guid v : doc_.children(set))
-      for (const VariantPropSpec& s : doc_.get(v)->props.variantPropSpecs)
+      for (const VariantPropSpec& s : doc_.get(v)->props.comp().variantPropSpecs)
         if (s.propDefId == d.id) taken.push_back(s.value);
     std::string value;
     for (int n = 2;; n++) {
@@ -948,13 +948,13 @@ Status Editor::addVariant() {
       if (std::find(taken.begin(), taken.end(), value) == taken.end()) break;
     }
     bool found = false;
-    for (VariantPropSpec& s : c.props.variantPropSpecs)
+    for (VariantPropSpec& s : c.props.comp().variantPropSpecs)
       if (s.propDefId == d.id) s.value = value, found = true;
-    if (!found) c.props.variantPropSpecs.push_back({d.id, value});
+    if (!found) c.props.comp().variantPropSpecs.push_back({d.id, value});
     NodeChange order = NodeChange::changed(set);
     order.mask = F_STATE_GROUP_ORDERS;
-    order.props.stateGroupPropertyValueOrders = setProps.stateGroupPropertyValueOrders;
-    for (auto& o : order.props.stateGroupPropertyValueOrders)
+    order.props.comp().stateGroupPropertyValueOrders = setProps.comp().stateGroupPropertyValueOrders;
+    for (auto& o : order.props.comp().stateGroupPropertyValueOrders)
       if (o.property == d.name) o.values.push_back(value);
     write(order);
     break;
@@ -1004,11 +1004,11 @@ Guid Editor::detachOne(Guid R) {
   };
   collect(collect, R);
   NodeProps fp = rn->props;
-  Guid main = fp.symbolData.symbolID;
+  Guid main = fp.comp().symbolData.symbolID;
   fp.type = NodeType::FRAME;
-  fp.symbolData = SymbolData{};
-  fp.componentPropAssignments.clear();
-  fp.detachedSymbolId = main;
+  fp.comp().symbolData = SymbolData{};
+  fp.comp().componentPropAssignments.clear();
+  fp.comp().detachedSymbolId = AssetId::of(main);
   removeDerived(R);
   write(NodeChange::created(R, fp));
   std::unordered_map<Guid, Guid, GuidHash> ids{{R, R}};
@@ -1022,9 +1022,9 @@ Guid Editor::detachOne(Guid R) {
                                                    [](const ParamBinding& b) { return b.propRef != kNoGuid; }),
                                     p.parameterConsumptionMap.end());
     if (it.instance) {
-      p.symbolData.overrides = it.overrides;
-      p.componentPropAssignments = it.assigns;
-      p.overriddenSymbolID = kNoGuid;
+      p.comp().symbolData.overrides = it.overrides;
+      p.comp().componentPropAssignments = it.assigns;
+      p.comp().overriddenSymbolID = kNoGuid;
     }
     Guid id = newGuid();
     write(NodeChange::created(id, p));
@@ -1033,10 +1033,10 @@ Guid Editor::detachOne(Guid R) {
   // Slot content frames are plain frames now.
   for (Guid c : std::vector<Guid>(doc_.children(R))) {
     const Node* cn = doc_.get(c);
-    if (cn && !c.isDerived() && cn->props.isSlotContent) {
+    if (cn && !c.isDerived() && cn->props.comp().isSlotContent) {
       NodeChange ch = NodeChange::changed(c);
       ch.mask = F_IS_SLOT_CONTENT;
-      ch.props.isSlotContent = false;
+      ch.props.comp().isSlotContent = false;
       write(ch);
     }
   }
@@ -1114,7 +1114,7 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const std::vector<s
     if (ref.isDerived())
       if (auto info = derivedInfo_.find(ref); info != derivedInfo_.end()) under = info->second.path;
     bool exact = ref.isDerived() && doc_.get(ref) && doc_.get(ref)->props.type != NodeType::INSTANCE;
-    SymbolData sd = tn->props.symbolData;
+    SymbolData sd = tn->props.comp().symbolData;
     for (SymbolOverride& o : sd.overrides) {
       bool match = exact ? o.path == under : o.path.size() >= under.size() && std::equal(under.begin(), under.end(), o.path.begin());
       if (!match) continue;
@@ -1130,7 +1130,7 @@ Status Editor::resetOverrides(const std::vector<Guid>& refs, const std::vector<s
                        sd.overrides.end());
     NodeChange c = NodeChange::changed(top);
     c.mask = F_SYMBOL_DATA;
-    c.props.symbolData = sd;
+    c.props.comp().symbolData = sd;
     if (!ref.isDerived() && (all || assignments)) {
       c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;  // the instance's property values go back to the defaults too
     }
@@ -1154,7 +1154,7 @@ static Guid resolvePath(const Document& doc, Guid symbol, const std::vector<Guid
         if (stopAt) *stopAt = cur;
         return cur;
       }
-      cur = cn->props.symbolData.symbolID;
+      cur = cn->props.comp().symbolData.symbolID;
     }
     Guid next = kNoGuid;
     for (Guid c : doc.children(cur)) {
@@ -1172,7 +1172,7 @@ Status Editor::pushChangesToMain(Guid R) {
   if (!componentInfo(R, info) || !info.canPush || R.isDerived()) return E_INVALID;
   const Node* rn = doc_.get(R);
   Guid main = symbolOf(rn->props);
-  std::vector<SymbolOverride> overrides = rn->props.symbolData.overrides;
+  std::vector<SymbolOverride> overrides = rn->props.comp().symbolData.overrides;
   begin(TxnKind::USER, "Push changes to main component");
   for (const SymbolOverride& o : overrides) {
     std::vector<Guid> rest;
@@ -1196,17 +1196,17 @@ Status Editor::pushChangesToMain(Guid R) {
     if (tn && tn->props.type == NodeType::INSTANCE) {
       if (o.mask & F_OVERRIDDEN_SYMBOL_ID) {
         c.mask |= F_SYMBOL_DATA;
-        c.props.symbolData = tn->props.symbolData;
-        c.props.symbolData.symbolID = o.props.overriddenSymbolID;
+        c.props.comp().symbolData = tn->props.comp().symbolData;
+        c.props.comp().symbolData.symbolID = o.props.comp().overriddenSymbolID;
       }
       if (o.mask & F_COMPONENT_PROP_ASSIGNMENTS) {
         c.mask |= F_COMPONENT_PROP_ASSIGNMENTS;
-        c.props.componentPropAssignments = tn->props.componentPropAssignments;
-        for (auto& a : o.props.componentPropAssignments) {
+        c.props.comp().componentPropAssignments = tn->props.comp().componentPropAssignments;
+        for (auto& a : o.props.comp().componentPropAssignments) {
           bool set = false;
-          for (auto& b : c.props.componentPropAssignments)
+          for (auto& b : c.props.comp().componentPropAssignments)
             if (b.defID == a.defID) b = a, set = true;
-          if (!set) c.props.componentPropAssignments.push_back(a);
+          if (!set) c.props.comp().componentPropAssignments.push_back(a);
         }
       }
     }
@@ -1218,8 +1218,8 @@ Status Editor::pushChangesToMain(Guid R) {
   }
   NodeChange clear = NodeChange::changed(R);
   clear.mask = F_SYMBOL_DATA;
-  clear.props.symbolData = doc_.get(R)->props.symbolData;
-  clear.props.symbolData.overrides.clear();
+  clear.props.comp().symbolData = doc_.get(R)->props.comp().symbolData;
+  clear.props.comp().symbolData.overrides.clear();
   write(clear);
   commit();
   return OK;
@@ -1235,7 +1235,7 @@ Status Editor::goToMainComponent(Guid ref) {
   if (main == kNoGuid) return E_NOT_FOUND;
   const Node* mn = doc_.get(main);
   Guid set = setOf(main);
-  if (mn->props.isSoftDeleted || (set != kNoGuid && doc_.get(set)->props.isSoftDeleted)) return E_INVALID;  // Restore component first
+  if (mn->props.comp().isSoftDeleted || (set != kNoGuid && doc_.get(set)->props.comp().isSoftDeleted)) return E_INVALID;  // Restore component first
   // A library copy or a main copied from another file lives on the internal canvas: nothing to go to here.
   if (isLibraryCopy(main) || isCopiedMain(main)) return E_INVALID;
   setSelection({main});
@@ -1269,7 +1269,7 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
     Guid cur = symbol;
     for (Guid key : path) {
       const Node* cn = doc_.get(cur);
-      if (cn && cn->props.type == NodeType::INSTANCE && cur != symbol) cur = cn->props.symbolData.symbolID;
+      if (cn && cn->props.type == NodeType::INSTANCE && cur != symbol) cur = cn->props.comp().symbolData.symbolID;
       Guid next = kNoGuid;
       for (Guid c : doc_.children(cur))
         if (!c.isDerived() && doc_.get(c)->props.keyOf(c) == key) next = c;
@@ -1284,7 +1284,7 @@ std::vector<SymbolOverride> Editor::remapOverrides(const std::vector<SymbolOverr
     Guid cur = symbol;
     for (const std::string& name : names) {
       const Node* cn = doc_.get(cur);
-      if (cn && cn->props.type == NodeType::INSTANCE && cur != symbol) cur = cn->props.symbolData.symbolID;
+      if (cn && cn->props.type == NodeType::INSTANCE && cur != symbol) cur = cn->props.comp().symbolData.symbolID;
       Guid next = kNoGuid;
       for (Guid c : doc_.children(cur))
         if (!c.isDerived() && doc_.get(c)->props.name == name) {
@@ -1341,21 +1341,21 @@ Status Editor::swapInstance(const std::vector<Guid>& refs, Guid main) {
     if (ref.isDerived()) {
       NodeChange c = NodeChange::changed(ref);
       c.mask = F_OVERRIDDEN_SYMBOL_ID;
-      c.props.overriddenSymbolID = main;
+      c.props.comp().overriddenSymbolID = main;
       write(c);
     } else {
       Guid old = symbolOf(n->props);
       NodeChange c = NodeChange::changed(ref);
       c.mask = F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS;
-      c.props.symbolData = n->props.symbolData;
-      c.props.symbolData.symbolID = main;
-      c.props.symbolData.overrides = remapOverrides(n->props.symbolData.overrides, old, main, setOf(old) != kNoGuid && setOf(old) == setOf(main));
+      c.props.comp().symbolData = n->props.comp().symbolData;
+      c.props.comp().symbolData.symbolID = main;
+      c.props.comp().symbolData.overrides = remapOverrides(n->props.comp().symbolData.overrides, old, main, setOf(old) != kNoGuid && setOf(old) == setOf(main));
       const auto* defs = defsOf(main);
-      for (const auto& a : n->props.componentPropAssignments) {
+      for (const auto& a : n->props.comp().componentPropAssignments) {
         bool known = false;
         if (defs)
           for (const auto& d : *defs) known |= d.id == a.defID;
-        if (known) c.props.componentPropAssignments.push_back(a);
+        if (known) c.props.comp().componentPropAssignments.push_back(a);
       }
       write(c);
     }
@@ -1379,14 +1379,14 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
     Guid set = setOf(symbol);
     // The variant with this value that keeps the most of the others (an exact match first).
     std::map<Guid, std::string> now;
-    for (const VariantPropSpec& s : doc_.get(symbol)->props.variantPropSpecs) now[s.propDefId] = s.value;
+    for (const VariantPropSpec& s : doc_.get(symbol)->props.comp().variantPropSpecs) now[s.propDefId] = s.value;
     Guid best = kNoGuid;
     int bestScore = -1;
     for (Guid v : doc_.children(set)) {
       const Node* vn = doc_.get(v);
       if (!vn || vn->props.type != NodeType::SYMBOL) continue;
       std::map<Guid, std::string> vals;
-      for (const VariantPropSpec& s : vn->props.variantPropSpecs) vals[s.propDefId] = s.value;
+      for (const VariantPropSpec& s : vn->props.comp().variantPropSpecs) vals[s.propDefId] = s.value;
       if (vals[d.id] != value.string) continue;
       int score = 0;
       for (auto& [k, val] : now)
@@ -1399,14 +1399,14 @@ Status Editor::setComponentProperty(Guid ref, const std::string& prop, const jso
     if (ref.isDerived()) {
       NodeChange c = NodeChange::changed(ref);
       c.mask = F_OVERRIDDEN_SYMBOL_ID;
-      c.props.overriddenSymbolID = best;
+      c.props.comp().overriddenSymbolID = best;
       write(c);
     } else {
       NodeChange c = NodeChange::changed(ref);
       c.mask = F_SYMBOL_DATA;
-      c.props.symbolData = n->props.symbolData;
-      c.props.symbolData.symbolID = best;
-      c.props.symbolData.overrides = remapOverrides(n->props.symbolData.overrides, symbol, best, true);
+      c.props.comp().symbolData = n->props.comp().symbolData;
+      c.props.comp().symbolData.symbolID = best;
+      c.props.comp().symbolData.overrides = remapOverrides(n->props.comp().symbolData.overrides, symbol, best, true);
       write(c);
     }
     commit();
@@ -1474,10 +1474,10 @@ Status Editor::addComponentProperty(Guid ref, const CommandArgs& args) {
       return OK;
     }
   }
-  std::vector<ComponentPropDef> defs = on->props.componentPropDefs;
+  std::vector<ComponentPropDef> defs = on->props.comp().componentPropDefs;
   std::vector<Guid> used;
   doc_.forEach([&](const Node& n) {
-    for (auto& d : n.props.componentPropDefs) used.push_back(d.id);
+    for (auto& d : n.props.comp().componentPropDefs) used.push_back(d.id);
   });
   uint32_t low = kDefIdTop;
   for (Guid g : used)
@@ -1521,7 +1521,7 @@ Status Editor::addComponentProperty(Guid ref, const CommandArgs& args) {
   defs.push_back(d);
   NodeChange c = NodeChange::changed(owner);
   c.mask = F_COMPONENT_PROP_DEFS;
-  c.props.componentPropDefs = defs;
+  c.props.comp().componentPropDefs = defs;
   write(c);
   if (type == ComponentPropType::VARIANT) {
     // Every variant takes the default value.
@@ -1530,8 +1530,8 @@ Status Editor::addComponentProperty(Guid ref, const CommandArgs& args) {
       if (!vn || vn->props.type != NodeType::SYMBOL) continue;
       NodeChange s = NodeChange::changed(v);
       s.mask = F_VARIANT_PROP_SPECS;
-      s.props.variantPropSpecs = vn->props.variantPropSpecs;
-      s.props.variantPropSpecs.push_back({d.id, valueText(d.initialValue)});
+      s.props.comp().variantPropSpecs = vn->props.comp().variantPropSpecs;
+      s.props.comp().variantPropSpecs.push_back({d.id, valueText(d.initialValue)});
       write(s);
     }
     renameVariants(owner);
@@ -1550,7 +1550,7 @@ Status Editor::editComponentProperty(Guid ref, const CommandArgs& args) {
   const ComponentPropDef* found = owner != kNoGuid ? findDef(owner, argString(args, "prop")) : nullptr;
   if (!found) return E_NOT_FOUND;
   Guid defId = found->id;
-  std::vector<ComponentPropDef> defs = doc_.get(owner)->props.componentPropDefs;
+  std::vector<ComponentPropDef> defs = doc_.get(owner)->props.comp().componentPropDefs;
   auto it = std::find_if(defs.begin(), defs.end(), [&](const ComponentPropDef& d) { return d.id == defId; });
   begin(TxnKind::USER, "Edit property");
   std::string oldName = it->name;
@@ -1570,12 +1570,12 @@ Status Editor::editComponentProperty(Guid ref, const CommandArgs& args) {
   }
   NodeChange c = NodeChange::changed(owner);
   c.mask = F_COMPONENT_PROP_DEFS;
-  c.props.componentPropDefs = defs;
+  c.props.comp().componentPropDefs = defs;
   if (it->type == ComponentPropType::VARIANT) {
     std::string oldValue = argString(args, "oldValue"), newValue = argString(args, "newValue");
     c.mask |= F_STATE_GROUP_ORDERS;
-    c.props.stateGroupPropertyValueOrders = doc_.get(owner)->props.stateGroupPropertyValueOrders;
-    for (auto& o : c.props.stateGroupPropertyValueOrders) {
+    c.props.comp().stateGroupPropertyValueOrders = doc_.get(owner)->props.comp().stateGroupPropertyValueOrders;
+    for (auto& o : c.props.comp().stateGroupPropertyValueOrders) {
       if (o.property != oldName) continue;
       o.property = it->name;
       if (!oldValue.empty())
@@ -1589,8 +1589,8 @@ Status Editor::editComponentProperty(Guid ref, const CommandArgs& args) {
         if (!vn) continue;
         NodeChange s = NodeChange::changed(v);
         s.mask = F_VARIANT_PROP_SPECS;
-        s.props.variantPropSpecs = vn->props.variantPropSpecs;
-        for (auto& spec : s.props.variantPropSpecs)
+        s.props.comp().variantPropSpecs = vn->props.comp().variantPropSpecs;
+        for (auto& spec : s.props.comp().variantPropSpecs)
           if (spec.propDefId == defId && spec.value == oldValue) spec.value = newValue;
         write(s);
       }
@@ -1609,11 +1609,11 @@ Status Editor::deleteComponentProperty(Guid ref, const std::string& prop) {
   Guid defId = found->id;
   bool variant = found->type == ComponentPropType::VARIANT;
   begin(TxnKind::USER, "Delete property");
-  std::vector<ComponentPropDef> defs = doc_.get(owner)->props.componentPropDefs;
+  std::vector<ComponentPropDef> defs = doc_.get(owner)->props.comp().componentPropDefs;
   defs.erase(std::remove_if(defs.begin(), defs.end(), [&](const ComponentPropDef& d) { return d.id == defId; }), defs.end());
   NodeChange c = NodeChange::changed(owner);
   c.mask = F_COMPONENT_PROP_DEFS;
-  c.props.componentPropDefs = defs;
+  c.props.comp().componentPropDefs = defs;
   write(c);
   // Layers bound to it lose the binding.
   auto unbind = [&](auto&& self, Guid id) -> void {
@@ -1640,10 +1640,10 @@ Status Editor::deleteComponentProperty(Guid ref, const std::string& prop) {
       if (!vn) continue;
       NodeChange s = NodeChange::changed(v);
       s.mask = F_VARIANT_PROP_SPECS;
-      s.props.variantPropSpecs = vn->props.variantPropSpecs;
-      s.props.variantPropSpecs.erase(std::remove_if(s.props.variantPropSpecs.begin(), s.props.variantPropSpecs.end(),
+      s.props.comp().variantPropSpecs = vn->props.comp().variantPropSpecs;
+      s.props.comp().variantPropSpecs.erase(std::remove_if(s.props.comp().variantPropSpecs.begin(), s.props.comp().variantPropSpecs.end(),
                                                     [&](const VariantPropSpec& sp) { return sp.propDefId == defId; }),
-                                     s.props.variantPropSpecs.end());
+                                     s.props.comp().variantPropSpecs.end());
       write(s);
     }
     bool anyVariant = false;
@@ -1659,7 +1659,7 @@ Status Editor::deleteComponentProperty(Guid ref, const std::string& prop) {
         reparent(kids[i], parent, keys[i]);
         NodeChange s = NodeChange::changed(kids[i]);
         s.mask = F_VARIANT_PROP_SPECS | F_COMPONENT_PROP_DEFS;
-        s.props.componentPropDefs = defs;  // the set's other properties go back to each component
+        s.props.comp().componentPropDefs = defs;  // the set's other properties go back to each component
         write(s);
       }
       write(NodeChange::removed(owner));
@@ -1696,7 +1696,7 @@ Status Editor::bindComponentProperty(const std::vector<Guid>& ids, const std::st
     if (def) map.push_back(propBinding(f, def->id));
     if (f == VariableField::SLOT_CONTENT_ID) {
       c.mask |= F_IS_SLOT;
-      c.props.isSlot = def != nullptr;
+      c.props.comp().isSlot = def != nullptr;
     }
     write(c);
     any = true;
@@ -1745,25 +1745,25 @@ Status Editor::setVariantProperties(Guid variant, const CommandArgs& args) {
   const NodeProps& sp = doc_.get(set)->props;
   NodeChange c = NodeChange::changed(variant);
   c.mask = F_VARIANT_PROP_SPECS;
-  c.props.variantPropSpecs = doc_.get(variant)->props.variantPropSpecs;
+  c.props.comp().variantPropSpecs = doc_.get(variant)->props.comp().variantPropSpecs;
   NodeChange order = NodeChange::changed(set);
   order.mask = F_STATE_GROUP_ORDERS;
-  order.props.stateGroupPropertyValueOrders = sp.stateGroupPropertyValueOrders;
+  order.props.comp().stateGroupPropertyValueOrders = sp.comp().stateGroupPropertyValueOrders;
   for (auto& [prop, v] : values->object) {
     if (!v.isString()) continue;
     const ComponentPropDef* d = findDef(set, prop);
     if (!d || d->type != ComponentPropType::VARIANT) continue;
     bool found = false;
-    for (auto& spec : c.props.variantPropSpecs)
+    for (auto& spec : c.props.comp().variantPropSpecs)
       if (spec.propDefId == d->id) spec.value = v.string, found = true;
-    if (!found) c.props.variantPropSpecs.push_back({d->id, v.string});
+    if (!found) c.props.comp().variantPropSpecs.push_back({d->id, v.string});
     bool listed = false;
-    for (auto& o : order.props.stateGroupPropertyValueOrders)
+    for (auto& o : order.props.comp().stateGroupPropertyValueOrders)
       if (o.property == d->name) {
         listed = true;
         if (std::find(o.values.begin(), o.values.end(), v.string) == o.values.end()) o.values.push_back(v.string);
       }
-    if (!listed) order.props.stateGroupPropertyValueOrders.push_back({d->name, {v.string}});
+    if (!listed) order.props.comp().stateGroupPropertyValueOrders.push_back({d->name, {v.string}});
   }
   begin(TxnKind::USER, "Edit variant");
   write(c);
@@ -1777,7 +1777,7 @@ Status Editor::setVariantProperties(Guid variant, const CommandArgs& args) {
 
 bool Editor::softDeleteMain(Guid main) {
   const Node* n = doc_.get(main);
-  if (!n || main.isDerived() || !(n->props.type == NodeType::SYMBOL || n->props.isComponentSet()) || n->props.isSoftDeleted) return false;
+  if (!n || main.isDerived() || !(n->props.type == NodeType::SYMBOL || n->props.isComponentSet()) || n->props.comp().isSoftDeleted) return false;
   if (instanceCount(main) == 0) return false;
   Guid canvas = internalCanvas(true);
   if (canvas == kNoGuid) return false;
@@ -1790,8 +1790,8 @@ bool Editor::softDeleteMain(Guid main) {
   c.mask = F_PARENT_INDEX | F_TRANSFORM | F_IS_SOFT_DELETED | F_ANCESTOR_PATH;
   c.props.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
   c.props.transform = doc_.worldTransform(main);
-  c.props.isSoftDeleted = true;
-  c.props.ancestorPathBeforeDeletion = ancestors;
+  c.props.comp().isSoftDeleted = true;
+  c.props.comp().ancestorPathBeforeDeletion = ancestors;
   write(c);
   return true;
 }
@@ -1800,9 +1800,9 @@ Status Editor::restoreComponent(Guid ref) {
   Guid main = ref;
   const Node* n = doc_.get(ref);
   if (n && n->props.type == NodeType::INSTANCE) {
-    main = ref.isDerived() ? mainOf(ref) : n->props.symbolData.symbolID;
+    main = ref.isDerived() ? mainOf(ref) : n->props.comp().symbolData.symbolID;
     Guid set = setOf(main);
-    if (set != kNoGuid && doc_.get(set)->props.isSoftDeleted) main = set;
+    if (set != kNoGuid && doc_.get(set)->props.comp().isSoftDeleted) main = set;
   }
   const Node* mn = doc_.get(main);
   if (!mn) return E_INVALID;
@@ -1835,11 +1835,11 @@ Status Editor::restoreComponent(Guid ref) {
     commit();
     return OK;
   }
-  if (!mn->props.isSoftDeleted) return E_INVALID;
+  if (!mn->props.comp().isSoftDeleted) return E_INVALID;
   Guid parent = kNoGuid;
-  for (auto it = mn->props.ancestorPathBeforeDeletion.rbegin(); it != mn->props.ancestorPathBeforeDeletion.rend(); ++it) {
+  for (auto it = mn->props.comp().ancestorPathBeforeDeletion.rbegin(); it != mn->props.comp().ancestorPathBeforeDeletion.rend(); ++it) {
     const Node* a = doc_.get(*it);
-    if (a && !(a->props.type == NodeType::CANVAS && a->props.internalOnly) && doc_.pageOf(*it) != internalCanvas(false)) {
+    if (a && !(a->props.type == NodeType::CANVAS && a->props.rare().internalOnly) && doc_.pageOf(*it) != internalCanvas(false)) {
       parent = *it;
       break;
     }
@@ -1850,7 +1850,7 @@ Status Editor::restoreComponent(Guid ref) {
   c.mask = F_PARENT_INDEX | F_TRANSFORM | F_IS_SOFT_DELETED | F_ANCESTOR_PATH;
   c.props.parentIndex = {parent, doc_.positionAtEnd(parent)};
   c.props.transform = localFor(parent, mn->props.transform);
-  c.props.isSoftDeleted = false;
+  c.props.comp().isSoftDeleted = false;
   write(c);
   commit();
   return OK;
@@ -1862,7 +1862,7 @@ Status Editor::setExposedInstance(Guid ref, bool exposed) {
   begin(TxnKind::USER, exposed ? "Expose properties" : "Hide properties");
   NodeChange c = NodeChange::changed(ref);
   c.mask = F_PROPS_ARE_BUBBLED;
-  c.props.propsAreBubbled = exposed;
+  c.props.comp().propsAreBubbled = exposed;
   write(c);
   commit();
   return OK;
@@ -1873,7 +1873,7 @@ Status Editor::resetSlot(Guid ref) {
   Guid top = kNoGuid, level = kNoGuid, def = kNoGuid, content = kNoGuid;
   const Node* n = doc_.get(ref);
   if (!n) return E_INVALID;
-  if (!ref.isDerived() && n->props.isSlotContent) {
+  if (!ref.isDerived() && n->props.comp().isSlotContent) {
     content = ref;
     top = doc_.parentOf(ref);
   }
@@ -1881,7 +1881,7 @@ Status Editor::resetSlot(Guid ref) {
     auto info = derivedInfo_.find(row);
     if (info == derivedInfo_.end()) return;
     const Node* src = doc_.get(info->second.source);
-    if (!src || !src->props.isSlot) return;
+    if (!src || !src->props.comp().isSlot) return;
     for (const ParamBinding& b : src->props.parameterConsumptionMap)
       if (b.field == VariableField::SLOT_CONTENT_ID && b.propRef != kNoGuid) {
         def = b.propRef;
@@ -1912,8 +1912,8 @@ Status Editor::resetSlot(Guid ref) {
   if (!level.isDerived()) {
     NodeChange c = NodeChange::changed(level);
     c.mask = F_COMPONENT_PROP_ASSIGNMENTS;
-    c.props.componentPropAssignments = doc_.get(level)->props.componentPropAssignments;
-    auto& list = c.props.componentPropAssignments;
+    c.props.comp().componentPropAssignments = doc_.get(level)->props.comp().componentPropAssignments;
+    auto& list = c.props.comp().componentPropAssignments;
     list.erase(std::remove_if(list.begin(), list.end(), [&](const ComponentPropAssignment& a) { return a.defID == def; }), list.end());
     write(c);
   } else {

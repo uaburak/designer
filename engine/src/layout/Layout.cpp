@@ -17,7 +17,7 @@ bool axisAligned(const Mat2x3& m) { return std::fabs(m.m01) < 1e-9 && std::fabs(
 
 // min/max (0 = no limit on that axis), never below 0.
 double clampSize(double v, const NodeProps& p, int a) {
-  double mx = axis(p.maxSize, a), mn = axis(p.minSize, a);
+  double mx = axis(p.rare().maxSize, a), mn = axis(p.rare().minSize, a);
   if (mx > 0 && v > mx) v = mx;
   if (mn > 0 && v < mn) v = mn;
   return std::max(0.0, v);
@@ -67,11 +67,11 @@ bool sameSize(Vec2 a, Vec2 b) { return std::fabs(a.x - b.x) < kEps && std::fabs(
 Rect layoutBox(const Mat2x3& transform, Vec2 size) { return transformedBounds(transform, size.x, size.y); }
 
 void Layout::padding(const NodeProps& p, double out[4]) {
-  out[0] = p.stackPaddingLeft;
-  out[1] = p.stackPaddingTop;
-  out[2] = p.stackPaddingRight;
-  out[3] = p.stackPaddingBottom;
-  if (!p.bordersTakeSpace || p.strokeWeight <= 0) return;
+  out[0] = p.stack().stackPaddingLeft;
+  out[1] = p.stack().stackPaddingTop;
+  out[2] = p.stack().stackPaddingRight;
+  out[3] = p.stack().stackPaddingBottom;
+  if (!p.stack().bordersTakeSpace || p.strokeWeight <= 0) return;
   bool stroke = false;
   for (auto& s : p.strokePaints) stroke |= s.visible;
   if (!stroke) return;
@@ -102,7 +102,7 @@ Vec2 Layout::natural(Guid id, double width, double height) {
   if (width > 0) size.x = width;
   if (height > 0) size.y = height;
   if (p.isAutoLayout()) {
-    int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
+    int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
     bool hugP = p.hugsPrimary() && !(P == 0 ? width > 0 : height > 0);
     bool hugC = p.hugsCounter() && !(C == 0 ? width > 0 : height > 0);
     if (hugP || hugC) {
@@ -110,9 +110,9 @@ Vec2 Layout::natural(Guid id, double width, double height) {
       if (hugP) setAxis(size, P, axis(content, P));
       if (hugC) setAxis(size, C, axis(content, C));
     }
-  } else if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE) {
+  } else if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE) {
     // Auto width hugs its text (wrapping when a width is imposed: Fill); auto height wraps at its width.
-    double w = width > 0 ? width : (p.textAutoResize == TextAutoResize::HEIGHT ? p.size.x : -1);
+    double w = width > 0 ? width : (p.text().textAutoResize == TextAutoResize::HEIGHT ? p.size.x : -1);
     Vec2 measured;
     if (host_.measureText(id, w, measured)) size = {w >= 0 ? w : measured.x, measured.y};
   } else if (p.fitsChildren()) {
@@ -152,17 +152,17 @@ double Layout::baselineOf(Guid id, Vec2 size, int depth) {
 
 Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
   const NodeProps& p = doc_.get(frame)->props;
-  int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
+  int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   double pad[4];
   padding(p, pad);
   double padP = P == 0 ? pad[0] + pad[2] : pad[1] + pad[3];
   double padC = C == 0 ? pad[0] + pad[2] : pad[1] + pad[3];
-  double gap = p.stackSpacing, counterGap = p.stackCounterSpacing.value_or(p.stackSpacing);
-  bool wrap = p.stackWrap == StackWrap::WRAP && P == 0 && !p.hugsPrimary();
+  double gap = p.stack().stackSpacing, counterGap = p.stack().stackCounterSpacing.value_or(p.stack().stackSpacing);
+  bool wrap = p.stack().stackWrap == StackWrap::WRAP && P == 0 && !p.hugsPrimary();
   double main = 0, cross = 0;
   std::vector<Guid> kids = flowChildren(frame);
   if (!wrap) {
-    bool baseline = P == 0 && p.stackCounterAlignItems == StackAlign::BASELINE;
+    bool baseline = P == 0 && p.stack().stackCounterAlignItems == StackAlign::BASELINE;
     double above = 0, below = 0;
     for (size_t i = 0; i < kids.size(); i++) {
       const NodeProps& cp = doc_.get(kids[i])->props;
@@ -212,14 +212,14 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
 
 std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
   const NodeProps& p = doc_.get(frame)->props;
-  int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
+  int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   double pad[4];
   padding(p, pad);
   double padP0 = P == 0 ? pad[0] : pad[1], padP1 = P == 0 ? pad[2] : pad[3];
   double padC0 = C == 0 ? pad[0] : pad[1], padC1 = C == 0 ? pad[2] : pad[3];
   double innerP = axis(size, P) - padP0 - padP1, innerC = axis(size, C) - padC0 - padC1;
-  double gap = p.stackSpacing, counterGap = p.stackCounterSpacing.value_or(p.stackSpacing);
-  bool wrap = p.stackWrap == StackWrap::WRAP && P == 0 && !p.hugsPrimary();
+  double gap = p.stack().stackSpacing, counterGap = p.stack().stackCounterSpacing.value_or(p.stack().stackSpacing);
+  bool wrap = p.stack().stackWrap == StackWrap::WRAP && P == 0 && !p.hugsPrimary();
 
   struct Item {
     Guid id;
@@ -319,7 +319,7 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     double used = gaps;
     for (size_t i = b; i < e; i++) used += items[i].bp;
     double free = innerP - used, start = 0, g = gap;
-    switch (p.stackPrimaryAlignItems) {
+    switch (p.stack().stackPrimaryAlignItems) {
       case StackJustify::CENTER: start = free / 2; break;
       case StackJustify::MAX: start = free; break;
       case StackJustify::SPACE_BETWEEN:
@@ -357,17 +357,17 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
   if (wrap) {
     size_t L = lines.size();
     total += L > 1 ? counterGap * static_cast<double>(L - 1) : 0;
-    if (p.stackCounterAlignContent == StackCounterAlignContent::SPACE_BETWEEN && L > 1) {
+    if (p.stack().stackCounterAlignContent == StackCounterAlignContent::SPACE_BETWEEN && L > 1) {
       double sum = 0;
       for (double c : lineCross) sum += c;
       cg = std::max(0.0, (innerC - sum) / static_cast<double>(L - 1));
       start = 0;
     } else {
-      start = (innerC - total) * alignFactor(p.stackCounterAlignItems);
+      start = (innerC - total) * alignFactor(p.stack().stackCounterAlignItems);
     }
   }
   double lineTop = padC0 + start;
-  const bool baseline = P == 0 && p.stackCounterAlignItems == StackAlign::BASELINE;
+  const bool baseline = P == 0 && p.stack().stackCounterAlignItems == StackAlign::BASELINE;
   for (size_t l = 0; l < lines.size(); l++) {
     double room = wrap ? lineCross[l] : innerC;
     // Align text baseline: the line's items share their first baselines.
@@ -391,7 +391,7 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
         setAxis(it.size, C, it.bc);
         it.cpos = lineTop;
       } else {
-        it.cpos = lineTop + (room - it.bc) * selfFactor(cp.stackChildAlignSelf, p.stackCounterAlignItems);
+        it.cpos = lineTop + (room - it.bc) * selfFactor(cp.stackChildAlignSelf, p.stack().stackCounterAlignItems);
       }
     }
     lineTop += (wrap ? lineCross[l] + cg : 0);
@@ -426,8 +426,8 @@ void Layout::arrange(Guid id, Vec2 size, bool sizeFromParent) {
   const NodeProps& live = n->props;
   const bool autoLayout = live.isAutoLayout(), fits = live.fitsChildren(), frameLike = live.isFrameLike();
   const NodeType type = live.type;
-  const TextAutoResize autoResize = live.textAutoResize;
-  const TextAlignHorizontal alignH = live.textAlignHorizontal;
+  const TextAutoResize autoResize = live.text().textAutoResize;
+  const TextAlignHorizontal alignH = live.text().textAlignHorizontal;
   const Mat2x3 transform0 = live.transform;
   const Vec2 size0 = live.size;
   if (autoLayout) {

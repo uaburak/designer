@@ -11,6 +11,7 @@ namespace {
 
 ImageDataSink gImageDataSink = nullptr;
 
+constexpr Field kCornerBitsJson[4] = {F_CORNER_TL, F_CORNER_TR, F_CORNER_BR, F_CORNER_BL};
 const char* kCornerKeys[4] = {"rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius",
                               "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius"};
 
@@ -155,6 +156,14 @@ void writeVariableData(json::Writer& out, const VariableData& d) {
         writeGuidObject(v, d.propRef);
         v.endObject();
         break;
+      case K::SLOT_CONTENT:
+        v.key("slotContentIdValue").beginObject();
+        if (d.slotContent != kNoGuid) {
+          v.key("guid");
+          writeGuidObject(v, d.slotContent);
+        }
+        v.endObject();
+        break;
       default: break;
     }
     v.endObject();
@@ -236,6 +245,9 @@ VariableData readVariableData(const json::Value& v) {
       } else if (k == "propRefValue" && x.isObject()) {
         d.kind = K::PROP_REF;
         if (auto* id = x.get("defId")) readStructGuid(*id, d.propRef);
+      } else if (k == "slotContentIdValue" && x.isObject()) {
+        d.kind = K::SLOT_CONTENT;
+        if (auto* id = x.get("guid")) readStructGuid(*id, d.slotContent);
       } else {
         appendExtra(d.valueExtra, "VariableAnyValue", k, x);
       }
@@ -479,14 +491,14 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
   };
   guidOrClear(F_OVERRIDE_KEY, "overrideKey", p.overrideKey);
   if (mask & F_SYMBOL_DATA) {
-    if (p.symbolData.present()) {
+    if (p.comp().symbolData.present()) {
       w.key("symbolData").beginObject();
-      if (p.symbolData.symbolID != kNoGuid) {
+      if (p.comp().symbolData.symbolID != kNoGuid) {
         w.key("symbolID");
-        writeGuidObject(w, p.symbolData.symbolID);
+        writeGuidObject(w, p.comp().symbolData.symbolID);
       }
       w.key("symbolOverrides").beginArray();
-      for (const SymbolOverride& o : p.symbolData.overrides) {
+      for (const SymbolOverride& o : p.comp().symbolData.overrides) {
         w.beginObject();
         w.key("guidPath").beginObject().key("guids").beginArray();
         for (Guid g : o.path) writeGuidObject(w, g);
@@ -495,16 +507,16 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
         w.endObject();
       }
       w.endArray();
-      w.key("uniformScaleFactor").number(p.symbolData.uniformScaleFactor);
+      w.key("uniformScaleFactor").number(p.comp().symbolData.uniformScaleFactor);
       w.endObject();
     } else if (update) {
       cleared.push_back(kiwiFieldId(F_SYMBOL_DATA));
     }
   }
-  guidOrClear(F_OVERRIDDEN_SYMBOL_ID, "overriddenSymbolID", p.overriddenSymbolID);
+  guidOrClear(F_OVERRIDDEN_SYMBOL_ID, "overriddenSymbolID", p.comp().overriddenSymbolID);
   if (mask & F_COMPONENT_PROP_DEFS) {
     w.key("componentPropDefs").beginArray();
-    for (const ComponentPropDef& d : p.componentPropDefs) {
+    for (const ComponentPropDef& d : p.comp().componentPropDefs) {
       json::Writer one;
       one.beginObject();
       one.key("id");
@@ -534,7 +546,7 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
   }
   if (mask & F_COMPONENT_PROP_ASSIGNMENTS) {
     w.key("componentPropAssignments").beginArray();
-    for (const ComponentPropAssignment& a : p.componentPropAssignments) {
+    for (const ComponentPropAssignment& a : p.comp().componentPropAssignments) {
       json::Writer one;
       one.beginObject();
       one.key("defID");
@@ -568,10 +580,10 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
     }
     w.endArray().endObject();
   }
-  if (mask & F_IS_STATE_GROUP) w.key("isStateGroup").boolean(p.isStateGroup);
+  if (mask & F_IS_STATE_GROUP) w.key("isStateGroup").boolean(p.comp().isStateGroup);
   if (mask & F_VARIANT_PROP_SPECS) {
     w.key("variantPropSpecs").beginArray();
-    for (const VariantPropSpec& v : p.variantPropSpecs) {
+    for (const VariantPropSpec& v : p.comp().variantPropSpecs) {
       w.beginObject().key("propDefId");
       writeGuidObject(w, v.propDefId);
       w.key("value").string(v.value).endObject();
@@ -580,29 +592,28 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
   }
   if (mask & F_STATE_GROUP_ORDERS) {
     w.key("stateGroupPropertyValueOrders").beginArray();
-    for (const StateGroupOrder& o : p.stateGroupPropertyValueOrders) {
+    for (const StateGroupOrder& o : p.comp().stateGroupPropertyValueOrders) {
       w.beginObject().key("property").string(o.property).key("values").beginArray();
       for (auto& v : o.values) w.string(v);
       w.endArray().endObject();
     }
     w.endArray();
   }
-  if (mask & F_PROPS_ARE_BUBBLED) w.key("propsAreBubbled").boolean(p.propsAreBubbled);
-  if (mask & F_IS_SLOT) w.key("isSlot").boolean(p.isSlot);
-  if (mask & F_IS_SLOT_CONTENT) w.key("isSlotContent").boolean(p.isSlotContent);
+  if (mask & F_PROPS_ARE_BUBBLED) w.key("propsAreBubbled").boolean(p.comp().propsAreBubbled);
+  if (mask & F_IS_SLOT) w.key("isSlot").boolean(p.comp().isSlot);
+  if (mask & F_IS_SLOT_CONTENT) w.key("isSlotContent").boolean(p.comp().isSlotContent);
   if (mask & F_DETACHED_SYMBOL_ID) {
-    if (p.detachedSymbolId != kNoGuid) {
-      w.key("detachedSymbolId").beginObject().key("guid");
-      writeGuidObject(w, p.detachedSymbolId);
-      w.endObject();
+    if (p.comp().detachedSymbolId.present()) {
+      w.key("detachedSymbolId");
+      writeAssetId(w, p.comp().detachedSymbolId);
     } else if (update) {
       cleared.push_back(kiwiFieldId(F_DETACHED_SYMBOL_ID));
     }
   }
-  if (mask & F_IS_SOFT_DELETED) w.key("isSoftDeleted").boolean(p.isSoftDeleted);
+  if (mask & F_IS_SOFT_DELETED) w.key("isSoftDeleted").boolean(p.comp().isSoftDeleted);
   if (mask & F_ANCESTOR_PATH) {
     w.key("ancestorPathBeforeDeletion").beginArray();
-    for (Guid g : p.ancestorPathBeforeDeletion) writeGuidObject(w, g);
+    for (Guid g : p.comp().ancestorPathBeforeDeletion) writeGuidObject(w, g);
     w.endArray();
   }
 }
@@ -610,7 +621,7 @@ void writeComponentFields(json::Writer& w, const NodeProps& p, FieldMask mask, b
 void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool update, std::vector<uint32_t>& cleared) {
   if (mask & F_VARIABLE_MODES) {
     w.key("variableModeBySetMap").beginObject().key("entries").beginArray();
-    for (const VariableModeEntry& e : p.variableModeBySetMap) {
+    for (const VariableModeEntry& e : p.refs().variableModeBySetMap) {
       w.beginObject().key("variableSetID");
       writeAssetId(w, e.set);
       w.key("variableModeID");
@@ -628,30 +639,30 @@ void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bo
       cleared.push_back(kiwiFieldId(static_cast<Field>(bit)));
     }
   };
-  assetOrClear(F_STYLE_ID_FILL, "styleIdForFill", p.styleIdForFill);
-  assetOrClear(F_STYLE_ID_STROKE, "styleIdForStrokeFill", p.styleIdForStrokeFill);
-  assetOrClear(F_STYLE_ID_TEXT, "styleIdForText", p.styleIdForText);
-  assetOrClear(F_STYLE_ID_EFFECT, "styleIdForEffect", p.styleIdForEffect);
-  assetOrClear(F_STYLE_ID_GRID, "styleIdForGrid", p.styleIdForGrid);
-  if (mask & F_STYLE_TYPE) writeEnum(w, "styleType", p.styleType);
-  if (mask & F_SORT_POSITION) w.key("sortPosition").string(p.sortPosition);
-  if (mask & F_DESCRIPTION) w.key("description").string(p.description);
-  if (mask & F_KEY) w.key("key").string(p.key);
-  if (mask & F_IS_PUBLISHABLE) w.key("isPublishable").boolean(p.isPublishable);
+  assetOrClear(F_STYLE_ID_FILL, "styleIdForFill", p.refs().styleIdForFill);
+  assetOrClear(F_STYLE_ID_STROKE, "styleIdForStrokeFill", p.refs().styleIdForStrokeFill);
+  assetOrClear(F_STYLE_ID_TEXT, "styleIdForText", p.refs().styleIdForText);
+  assetOrClear(F_STYLE_ID_EFFECT, "styleIdForEffect", p.refs().styleIdForEffect);
+  assetOrClear(F_STYLE_ID_GRID, "styleIdForGrid", p.refs().styleIdForGrid);
+  if (mask & F_STYLE_TYPE) writeEnum(w, "styleType", p.asset().styleType);
+  if (mask & F_SORT_POSITION) w.key("sortPosition").string(p.asset().sortPosition);
+  if (mask & F_DESCRIPTION) w.key("description").string(p.asset().description);
+  if (mask & F_KEY) w.key("key").string(p.asset().key);
+  if (mask & F_IS_PUBLISHABLE) w.key("isPublishable").boolean(p.asset().isPublishable);
   if (mask & F_VARIABLE_SET_MODES) {
     w.key("variableSetModes").beginArray();
-    for (const VariableSetMode& m : p.variableSetModes) {
+    for (const VariableSetMode& m : p.asset().variableSetModes) {
       w.beginObject().key("id");
       writeGuidObject(w, m.id);
       w.key("name").string(m.name).key("sortPosition").string(m.sortPosition).endObject();
     }
     w.endArray();
   }
-  assetOrClear(F_VARIABLE_SET_ID, "variableSetID", p.variableSetID);
-  if (mask & F_VARIABLE_RESOLVED_TYPE) writeEnum(w, "variableResolvedType", p.variableResolvedType);
+  assetOrClear(F_VARIABLE_SET_ID, "variableSetID", p.asset().variableSetID);
+  if (mask & F_VARIABLE_RESOLVED_TYPE) writeEnum(w, "variableResolvedType", p.asset().variableResolvedType);
   if (mask & F_VARIABLE_DATA_VALUES) {
     w.key("variableDataValues").beginObject().key("entries").beginArray();
-    for (const VariableModeValue& v : p.variableDataValues) {
+    for (const VariableModeValue& v : p.asset().variableDataValues) {
       w.beginObject().key("modeID");
       writeGuidObject(w, v.modeID);
       w.key("variableData");
@@ -661,9 +672,9 @@ void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bo
     w.endArray().endObject();
   }
   if (mask & F_VARIABLE_SCOPES) {
-    if (p.variableScopes) {
+    if (p.asset().variableScopes) {
       w.key("variableScopes").beginArray();
-      for (VariableScope sc : *p.variableScopes) w.string(enumName(sc));
+      for (VariableScope sc : *p.asset().variableScopes) w.string(enumName(sc));
       w.endArray();
     } else if (update) {
       cleared.push_back(kiwiFieldId(F_VARIABLE_SCOPES));
@@ -671,7 +682,7 @@ void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bo
   }
   if (mask & F_CODE_SYNTAX) {
     w.key("codeSyntax").beginObject().key("entries").beginArray();
-    for (const CodeSyntaxEntry& e : p.codeSyntax) w.beginObject().key("platform").string(enumName(e.platform)).key("value").string(e.value).endObject();
+    for (const CodeSyntaxEntry& e : p.asset().codeSyntax) w.beginObject().key("platform").string(enumName(e.platform)).key("value").string(e.value).endObject();
     w.endArray().endObject();
   }
   // Libraries (docs/schema.md §8): absent strings / GUIDs are cleared on update.
@@ -680,21 +691,21 @@ void writeVariableFields(json::Writer& w, const NodeProps& p, FieldMask mask, bo
     if (!s.empty()) w.key(key).string(s);
     else if (update) cleared.push_back(kiwiFieldId(static_cast<Field>(bit)));
   };
-  stringOrClear(F_VERSION, "version", p.version);
-  stringOrClear(F_PUBLISHED_VERSION, "publishedVersion", p.publishedVersion);
-  stringOrClear(F_SOURCE_LIBRARY_KEY, "sourceLibraryKey", p.sourceLibraryKey);
+  stringOrClear(F_VERSION, "version", p.asset().version);
+  stringOrClear(F_PUBLISHED_VERSION, "publishedVersion", p.asset().publishedVersion);
+  stringOrClear(F_SOURCE_LIBRARY_KEY, "sourceLibraryKey", p.asset().sourceLibraryKey);
   if (mask & F_PUBLISH_ID) {
-    if (p.publishID != kNoGuid) {
+    if (p.asset().publishID != kNoGuid) {
       w.key("publishID");
-      writeGuidObject(w, p.publishID);
+      writeGuidObject(w, p.asset().publishID);
     } else if (update) {
       cleared.push_back(kiwiFieldId(F_PUBLISH_ID));
     }
   }
   if (mask & F_LIBRARY_MOVE_INFO) {
-    if (p.libraryMoveInfo.present()) {
-      w.key("libraryMoveInfo").beginObject().key("oldKey").string(p.libraryMoveInfo.oldKey);
-      w.key("pasteFileKey").string(p.libraryMoveInfo.pasteFileKey).endObject();
+    if (p.asset().libraryMoveInfo.present()) {
+      w.key("libraryMoveInfo").beginObject().key("oldKey").string(p.asset().libraryMoveInfo.oldKey);
+      w.key("pasteFileKey").string(p.asset().libraryMoveInfo.pasteFileKey).endObject();
     } else if (update) {
       cleared.push_back(kiwiFieldId(F_LIBRARY_MOVE_INFO));
     }
@@ -727,13 +738,16 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
     w.key("m10").number(m.m10).key("m11").number(m.m11).key("m12").number(m.m12);
     w.endObject();
   }
-  if (mask & F_CORNER_RADII) {
+  if ((mask & F_CORNER_RADII) == F_CORNER_RADII) {
     // Figma's encoding: the uniform cornerRadius, and the four corners when they differ.
     const CornerRadii& r = p.cornerRadii;
     bool independent = !(r[0] == r[1] && r[1] == r[2] && r[2] == r[3]);
     w.key("cornerRadius").number(r[0]);
     w.key("rectangleCornerRadiiIndependent").boolean(independent);
     for (int i = 0; i < 4; i++) w.key(kCornerKeys[i]).number(r[static_cast<size_t>(i)]);
+  } else if (mask & F_CORNER_RADII) {
+    for (size_t i = 0; i < 4; i++)
+      if (mask & kCornerBitsJson[i]) w.key(kCornerKeys[i]).number(p.cornerRadii[i]);
   }
   if (mask & F_STROKE_WEIGHT) w.key("strokeWeight").number(p.strokeWeight);
   if (mask & F_STROKE_ALIGN) writeEnum(w, "strokeAlign", p.strokeAlign);
@@ -749,40 +763,40 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
   if (mask & F_RESIZE_TO_FIT) w.key("resizeToFit").boolean(p.resizeToFit);
   if (mask & F_BACKGROUND_COLOR) {
     w.key("backgroundColor");
-    writeColor(w, p.backgroundColor);
+    writeColor(w, p.rare().backgroundColor);
   }
-  if (mask & F_BACKGROUND_ENABLED) w.key("backgroundEnabled").boolean(p.backgroundEnabled);
-  if (mask & F_INTERNAL_ONLY) w.key("internalOnly").boolean(p.internalOnly);
+  if (mask & F_BACKGROUND_ENABLED) w.key("backgroundEnabled").boolean(p.rare().backgroundEnabled);
+  if (mask & F_INTERNAL_ONLY) w.key("internalOnly").boolean(p.rare().internalOnly);
   // Auto layout.
-  if (mask & F_STACK_MODE) writeEnum(w, "stackMode", p.stackMode);
-  if (mask & F_STACK_SPACING) w.key("stackSpacing").number(p.stackSpacing);
-  if (mask & F_STACK_PADDING_LEFT) w.key("stackHorizontalPadding").number(p.stackPaddingLeft);
-  if (mask & F_STACK_PADDING_TOP) w.key("stackVerticalPadding").number(p.stackPaddingTop);
-  if (mask & F_STACK_PADDING_RIGHT) w.key("stackPaddingRight").number(p.stackPaddingRight);
-  if (mask & F_STACK_PADDING_BOTTOM) w.key("stackPaddingBottom").number(p.stackPaddingBottom);
-  if (mask & F_STACK_PRIMARY_SIZING) writeEnum(w, "stackPrimarySizing", p.stackPrimarySizing);
-  if (mask & F_STACK_COUNTER_SIZING) writeEnum(w, "stackCounterSizing", p.stackCounterSizing);
-  if (mask & F_STACK_PRIMARY_ALIGN) writeEnum(w, "stackPrimaryAlignItems", p.stackPrimaryAlignItems);
-  if (mask & F_STACK_COUNTER_ALIGN) writeEnum(w, "stackCounterAlignItems", p.stackCounterAlignItems);
-  if (mask & F_STACK_COUNTER_ALIGN_CONTENT) writeEnum(w, "stackCounterAlignContent", p.stackCounterAlignContent);
-  if (mask & F_STACK_WRAP) writeEnum(w, "stackWrap", p.stackWrap);
+  if (mask & F_STACK_MODE) writeEnum(w, "stackMode", p.stack().stackMode);
+  if (mask & F_STACK_SPACING) w.key("stackSpacing").number(p.stack().stackSpacing);
+  if (mask & F_STACK_PADDING_LEFT) w.key("stackHorizontalPadding").number(p.stack().stackPaddingLeft);
+  if (mask & F_STACK_PADDING_TOP) w.key("stackVerticalPadding").number(p.stack().stackPaddingTop);
+  if (mask & F_STACK_PADDING_RIGHT) w.key("stackPaddingRight").number(p.stack().stackPaddingRight);
+  if (mask & F_STACK_PADDING_BOTTOM) w.key("stackPaddingBottom").number(p.stack().stackPaddingBottom);
+  if (mask & F_STACK_PRIMARY_SIZING) writeEnum(w, "stackPrimarySizing", p.stack().stackPrimarySizing);
+  if (mask & F_STACK_COUNTER_SIZING) writeEnum(w, "stackCounterSizing", p.stack().stackCounterSizing);
+  if (mask & F_STACK_PRIMARY_ALIGN) writeEnum(w, "stackPrimaryAlignItems", p.stack().stackPrimaryAlignItems);
+  if (mask & F_STACK_COUNTER_ALIGN) writeEnum(w, "stackCounterAlignItems", p.stack().stackCounterAlignItems);
+  if (mask & F_STACK_COUNTER_ALIGN_CONTENT) writeEnum(w, "stackCounterAlignContent", p.stack().stackCounterAlignContent);
+  if (mask & F_STACK_WRAP) writeEnum(w, "stackWrap", p.stack().stackWrap);
   if (mask & F_STACK_COUNTER_SPACING) {
-    if (p.stackCounterSpacing) w.key("stackCounterSpacing").number(*p.stackCounterSpacing);
+    if (p.stack().stackCounterSpacing) w.key("stackCounterSpacing").number(*p.stack().stackCounterSpacing);
     else if (update) cleared.push_back(kiwiFieldId(F_STACK_COUNTER_SPACING));
   }
-  if (mask & F_STACK_REVERSE_Z) w.key("stackReverseZIndex").boolean(p.stackReverseZIndex);
-  if (mask & F_BORDERS_TAKE_SPACE) w.key("bordersTakeSpace").boolean(p.bordersTakeSpace);
+  if (mask & F_STACK_REVERSE_Z) w.key("stackReverseZIndex").boolean(p.stack().stackReverseZIndex);
+  if (mask & F_BORDERS_TAKE_SPACE) w.key("bordersTakeSpace").boolean(p.stack().bordersTakeSpace);
   if (mask & F_STACK_CHILD_GROW) w.key("stackChildPrimaryGrow").number(p.stackChildPrimaryGrow);
   if (mask & F_STACK_CHILD_ALIGN_SELF) writeEnum(w, "stackChildAlignSelf", p.stackChildAlignSelf);
   if (mask & F_STACK_POSITIONING) writeEnum(w, "stackPositioning", p.stackPositioning);
   if (mask & F_MIN_SIZE) {
     w.key("minSize").beginObject().key("value");
-    writeVector(w, p.minSize);
+    writeVector(w, p.rare().minSize);
     w.endObject();
   }
   if (mask & F_MAX_SIZE) {
     w.key("maxSize").beginObject().key("value");
-    writeVector(w, p.maxSize);
+    writeVector(w, p.rare().maxSize);
     w.endObject();
   }
   if (mask & F_H_CONSTRAINT) writeEnum(w, "horizontalConstraint", p.horizontalConstraint);
@@ -791,31 +805,31 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
   // Text.
   if (mask & F_TEXT_DATA) {
     w.key("textData");
-    writeTextData(w, p.textData);
+    writeTextData(w, p.text().textData);
   }
   if (mask & F_FONT_NAME) {
     w.key("fontName");
-    writeFontName(w, p.fontName);
+    writeFontName(w, p.text().fontName);
   }
-  if (mask & F_FONT_SIZE) w.key("fontSize").number(p.fontSize);
+  if (mask & F_FONT_SIZE) w.key("fontSize").number(p.text().fontSize);
   if (mask & F_LINE_HEIGHT) {
     w.key("lineHeight");
-    writeNumberValue(w, p.lineHeight);
+    writeNumberValue(w, p.text().lineHeight);
   }
   if (mask & F_LETTER_SPACING) {
     w.key("letterSpacing");
-    writeNumberValue(w, p.letterSpacing);
+    writeNumberValue(w, p.text().letterSpacing);
   }
-  if (mask & F_PARAGRAPH_SPACING) w.key("paragraphSpacing").number(p.paragraphSpacing);
-  if (mask & F_PARAGRAPH_INDENT) w.key("paragraphIndent").number(p.paragraphIndent);
-  if (mask & F_TEXT_ALIGN_H) writeEnum(w, "textAlignHorizontal", p.textAlignHorizontal);
-  if (mask & F_TEXT_ALIGN_V) writeEnum(w, "textAlignVertical", p.textAlignVertical);
-  if (mask & F_TEXT_AUTO_RESIZE) writeEnum(w, "textAutoResize", p.textAutoResize);
-  if (mask & F_TEXT_TRUNCATION) writeEnum(w, "textTruncation", p.textTruncation);
-  if (mask & F_MAX_LINES) w.key("maxLines").number(p.maxLines);
-  if (mask & F_TEXT_CASE) writeEnum(w, "textCase", p.textCase);
-  if (mask & F_TEXT_DECORATION) writeEnum(w, "textDecoration", p.textDecoration);
-  if (mask & F_AUTO_RENAME) w.key("autoRename").boolean(p.autoRename);
+  if (mask & F_PARAGRAPH_SPACING) w.key("paragraphSpacing").number(p.text().paragraphSpacing);
+  if (mask & F_PARAGRAPH_INDENT) w.key("paragraphIndent").number(p.text().paragraphIndent);
+  if (mask & F_TEXT_ALIGN_H) writeEnum(w, "textAlignHorizontal", p.text().textAlignHorizontal);
+  if (mask & F_TEXT_ALIGN_V) writeEnum(w, "textAlignVertical", p.text().textAlignVertical);
+  if (mask & F_TEXT_AUTO_RESIZE) writeEnum(w, "textAutoResize", p.text().textAutoResize);
+  if (mask & F_TEXT_TRUNCATION) writeEnum(w, "textTruncation", p.text().textTruncation);
+  if (mask & F_MAX_LINES) w.key("maxLines").number(p.text().maxLines);
+  if (mask & F_TEXT_CASE) writeEnum(w, "textCase", p.text().textCase);
+  if (mask & F_TEXT_DECORATION) writeEnum(w, "textDecoration", p.text().textDecoration);
+  if (mask & F_AUTO_RENAME) w.key("autoRename").boolean(p.text().autoRename);
   // Paint, stroke, effects, masks.
   if (mask & F_BLEND_MODE) writeEnum(w, "blendMode", p.blendMode);
   if (mask & F_MASK) w.key("mask").boolean(p.mask);
@@ -825,42 +839,42 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
   if (mask & F_MITER_LIMIT) w.key("miterLimit").number(p.miterLimit);
   if (mask & F_DASH_PATTERN) {
     w.key("dashPattern").beginArray();
-    for (double d : p.dashPattern) w.number(d);
+    for (double d : p.stroke().dashPattern) w.number(d);
     w.endArray();
   }
   if (mask & F_BORDER_WEIGHTS) {
-    w.key("borderTopWeight").number(p.borderWeights[0]);
-    w.key("borderRightWeight").number(p.borderWeights[1]);
-    w.key("borderBottomWeight").number(p.borderWeights[2]);
-    w.key("borderLeftWeight").number(p.borderWeights[3]);
-    w.key("borderStrokeWeightsIndependent").boolean(p.borderStrokeWeightsIndependent);
+    w.key("borderTopWeight").number(p.stroke().borderWeights[0]);
+    w.key("borderRightWeight").number(p.stroke().borderWeights[1]);
+    w.key("borderBottomWeight").number(p.stroke().borderWeights[2]);
+    w.key("borderLeftWeight").number(p.stroke().borderWeights[3]);
+    w.key("borderStrokeWeightsIndependent").boolean(p.stroke().borderStrokeWeightsIndependent);
   }
-  if (mask & F_CORNER_SMOOTHING) w.key("cornerSmoothing").number(p.cornerSmoothing);
+  if (mask & F_CORNER_SMOOTHING) w.key("cornerSmoothing").number(p.stroke().cornerSmoothing);
   if (mask & F_EFFECTS) {
     w.key("effects").beginArray();
     for (auto& e : p.effects) writeEffect(w, e);
     w.endArray();
   }
-  if (mask & F_COUNT) w.key("count").number(p.count);
-  if (mask & F_STAR_INNER_SCALE) w.key("starInnerScale").number(p.starInnerScale);
+  if (mask & F_COUNT) w.key("count").number(p.shape().count);
+  if (mask & F_STAR_INNER_SCALE) w.key("starInnerScale").number(p.shape().starInnerScale);
   if (mask & F_ARC_DATA) {
     w.key("arcData").beginObject();
-    w.key("startingAngle").number(p.arcData.startingAngle).key("endingAngle").number(p.arcData.endingAngle);
-    w.key("innerRadius").number(p.arcData.innerRadius).endObject();
+    w.key("startingAngle").number(p.shape().arcData.startingAngle).key("endingAngle").number(p.shape().arcData.endingAngle);
+    w.key("innerRadius").number(p.shape().arcData.innerRadius).endObject();
   }
   if (mask & F_VECTOR_DATA) {
-    if (p.vectorData.present) {
+    if (p.shape().vectorData.present) {
       w.key("vectorData");
-      writeVectorData(w, p.vectorData, blobs);
+      writeVectorData(w, p.shape().vectorData, blobs);
     } else if (update) {
       cleared.push_back(kiwiFieldId(F_VECTOR_DATA));
     }
   }
-  if (mask & F_HANDLE_MIRRORING) writeEnum(w, "handleMirroring", p.handleMirroring);
-  if (mask & F_BOOLEAN_OPERATION) writeEnum(w, "booleanOperation", p.booleanOperation);
+  if (mask & F_HANDLE_MIRRORING) writeEnum(w, "handleMirroring", p.shape().handleMirroring);
+  if (mask & F_BOOLEAN_OPERATION) writeEnum(w, "booleanOperation", p.shape().booleanOperation);
   if (mask & F_LAYOUT_GRIDS) {
     w.key("layoutGrids").beginArray();
-    for (auto& g : p.layoutGrids) {
+    for (auto& g : p.rare().layoutGrids) {
       json::Writer one;
       one.beginObject();
       one.key("type").string(enumName(g.type)).key("axis").string(enumName(g.axis)).key("visible").boolean(g.visible);
@@ -1235,10 +1249,10 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
         }
       }
     }
-    p.symbolData = std::move(d);
+    p.comp().symbolData = std::move(d);
     m |= F_SYMBOL_DATA;
   }
-  if (auto* x = v.get("overriddenSymbolID"); x && readGuid(*x, p.overriddenSymbolID)) m |= F_OVERRIDDEN_SYMBOL_ID;
+  if (auto* x = v.get("overriddenSymbolID"); x && readGuid(*x, p.comp().overriddenSymbolID)) m |= F_OVERRIDDEN_SYMBOL_ID;
   if (auto* x = v.get("componentPropDefs"); x && x->isArray()) {
     for (auto& e : x->array) {
       if (!e.isObject()) continue;
@@ -1269,7 +1283,7 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
           appendExtra(d.extra, "ComponentPropDef", k, y);
         }
       }
-      p.componentPropDefs.push_back(std::move(d));
+      p.comp().componentPropDefs.push_back(std::move(d));
     }
     m |= F_COMPONENT_PROP_DEFS;
   }
@@ -1282,7 +1296,7 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
         else if (k == "value") a.value = readPropValue(y);
         else appendExtra(a.extra, "ComponentPropAssignment", k, y);
       }
-      p.componentPropAssignments.push_back(std::move(a));
+      p.comp().componentPropAssignments.push_back(std::move(a));
     }
     m |= F_COMPONENT_PROP_ASSIGNMENTS;
   }
@@ -1321,13 +1335,13 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
       m |= F_PARAM_MAP;
     }
   }
-  readBool(v, "isStateGroup", p.isStateGroup, F_IS_STATE_GROUP, m);
+  readBool(v, "isStateGroup", p.comp().isStateGroup, F_IS_STATE_GROUP, m);
   if (auto* x = v.get("variantPropSpecs"); x && x->isArray()) {
     for (auto& e : x->array) {
       VariantPropSpec spec;
       if (auto* id = e.get("propDefId")) readGuid(*id, spec.propDefId);
       if (auto* val = e.get("value"); val && val->isString()) spec.value = val->string;
-      p.variantPropSpecs.push_back(spec);
+      p.comp().variantPropSpecs.push_back(spec);
     }
     m |= F_VARIANT_PROP_SPECS;
   }
@@ -1338,20 +1352,20 @@ void readComponentFields(const json::Value& v, NodeProps& p, FieldMask& m, const
       if (auto* vals = e.get("values"); vals && vals->isArray())
         for (auto& val : vals->array)
           if (val.isString()) o.values.push_back(val.string);
-      p.stateGroupPropertyValueOrders.push_back(o);
+      p.comp().stateGroupPropertyValueOrders.push_back(o);
     }
     m |= F_STATE_GROUP_ORDERS;
   }
-  readBool(v, "propsAreBubbled", p.propsAreBubbled, F_PROPS_ARE_BUBBLED, m);
-  readBool(v, "isSlot", p.isSlot, F_IS_SLOT, m);
-  readBool(v, "isSlotContent", p.isSlotContent, F_IS_SLOT_CONTENT, m);
+  readBool(v, "propsAreBubbled", p.comp().propsAreBubbled, F_PROPS_ARE_BUBBLED, m);
+  readBool(v, "isSlot", p.comp().isSlot, F_IS_SLOT, m);
+  readBool(v, "isSlotContent", p.comp().isSlotContent, F_IS_SLOT_CONTENT, m);
   if (auto* x = v.get("detachedSymbolId"); x && x->isObject())
-    if (auto* g = x->get("guid"); g && readGuid(*g, p.detachedSymbolId)) m |= F_DETACHED_SYMBOL_ID;
-  readBool(v, "isSoftDeleted", p.isSoftDeleted, F_IS_SOFT_DELETED, m);
+    if (AssetId a = readAssetId(*x); a.present()) p.comp().detachedSymbolId = std::move(a), m |= F_DETACHED_SYMBOL_ID;
+  readBool(v, "isSoftDeleted", p.comp().isSoftDeleted, F_IS_SOFT_DELETED, m);
   if (auto* x = v.get("ancestorPathBeforeDeletion"); x && x->isArray()) {
     for (auto& e : x->array) {
       Guid g;
-      if (readGuid(e, g)) p.ancestorPathBeforeDeletion.push_back(g);
+      if (readGuid(e, g)) p.comp().ancestorPathBeforeDeletion.push_back(g);
     }
     m |= F_ANCESTOR_PATH;
   }
@@ -1364,7 +1378,7 @@ void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
         VariableModeEntry me;
         if (auto* set = e.get("variableSetID")) me.set = readAssetId(*set);
         if (auto* mode = e.get("variableModeID")) readStructGuid(*mode, me.mode);
-        if (me.set.present()) p.variableModeBySetMap.push_back(std::move(me));
+        if (me.set.present()) p.refs().variableModeBySetMap.push_back(std::move(me));
       }
     m |= F_VARIABLE_MODES;
   }
@@ -1374,35 +1388,35 @@ void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
       m |= bit;
     }
   };
-  asset("styleIdForFill", p.styleIdForFill, F_STYLE_ID_FILL);
-  asset("styleIdForStrokeFill", p.styleIdForStrokeFill, F_STYLE_ID_STROKE);
-  asset("styleIdForText", p.styleIdForText, F_STYLE_ID_TEXT);
-  asset("styleIdForEffect", p.styleIdForEffect, F_STYLE_ID_EFFECT);
-  asset("styleIdForGrid", p.styleIdForGrid, F_STYLE_ID_GRID);
-  if (auto* x = v.get("styleType"); x && readEnumMember(*x, p.styleType)) m |= F_STYLE_TYPE;
-  if (auto* x = v.get("sortPosition"); x && x->isString()) p.sortPosition = x->string, m |= F_SORT_POSITION;
-  if (auto* x = v.get("description"); x && x->isString()) p.description = x->string, m |= F_DESCRIPTION;
-  if (auto* x = v.get("key"); x && x->isString()) p.key = x->string, m |= F_KEY;
-  readBool(v, "isPublishable", p.isPublishable, F_IS_PUBLISHABLE, m);
+  asset("styleIdForFill", p.refs().styleIdForFill, F_STYLE_ID_FILL);
+  asset("styleIdForStrokeFill", p.refs().styleIdForStrokeFill, F_STYLE_ID_STROKE);
+  asset("styleIdForText", p.refs().styleIdForText, F_STYLE_ID_TEXT);
+  asset("styleIdForEffect", p.refs().styleIdForEffect, F_STYLE_ID_EFFECT);
+  asset("styleIdForGrid", p.refs().styleIdForGrid, F_STYLE_ID_GRID);
+  if (auto* x = v.get("styleType"); x && readEnumMember(*x, p.asset().styleType)) m |= F_STYLE_TYPE;
+  if (auto* x = v.get("sortPosition"); x && x->isString()) p.asset().sortPosition = x->string, m |= F_SORT_POSITION;
+  if (auto* x = v.get("description"); x && x->isString()) p.asset().description = x->string, m |= F_DESCRIPTION;
+  if (auto* x = v.get("key"); x && x->isString()) p.asset().key = x->string, m |= F_KEY;
+  readBool(v, "isPublishable", p.asset().isPublishable, F_IS_PUBLISHABLE, m);
   if (auto* x = v.get("variableSetModes"); x && x->isArray()) {
     for (auto& e : x->array) {
       VariableSetMode mode;
       if (auto* id = e.get("id")) readStructGuid(*id, mode.id);
       if (auto* name = e.get("name"); name && name->isString()) mode.name = name->string;
       if (auto* pos = e.get("sortPosition"); pos && pos->isString()) mode.sortPosition = pos->string;
-      p.variableSetModes.push_back(std::move(mode));
+      p.asset().variableSetModes.push_back(std::move(mode));
     }
     m |= F_VARIABLE_SET_MODES;
   }
-  asset("variableSetID", p.variableSetID, F_VARIABLE_SET_ID);
-  if (auto* x = v.get("variableResolvedType"); x && readEnumMember(*x, p.variableResolvedType)) m |= F_VARIABLE_RESOLVED_TYPE;
+  asset("variableSetID", p.asset().variableSetID, F_VARIABLE_SET_ID);
+  if (auto* x = v.get("variableResolvedType"); x && readEnumMember(*x, p.asset().variableResolvedType)) m |= F_VARIABLE_RESOLVED_TYPE;
   if (auto* x = v.get("variableDataValues"); x && x->isObject()) {
     if (auto* entries = x->get("entries"); entries && entries->isArray())
       for (auto& e : entries->array) {
         VariableModeValue mv;
         if (auto* mode = e.get("modeID")) readStructGuid(*mode, mv.modeID);
         if (auto* data = e.get("variableData")) mv.data = readVariableData(*data);
-        p.variableDataValues.push_back(std::move(mv));
+        p.asset().variableDataValues.push_back(std::move(mv));
       }
     m |= F_VARIABLE_DATA_VALUES;
   }
@@ -1413,7 +1427,7 @@ void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
       if (e.isString() && e.string == "STROKE_COLOR") scopes.push_back(VariableScope::STROKE);  // the plugin API's name
       else if (readEnumMember(e, sc)) scopes.push_back(sc);
     }
-    p.variableScopes = std::move(scopes);
+    p.asset().variableScopes = std::move(scopes);
     m |= F_VARIABLE_SCOPES;
   }
   if (auto* x = v.get("codeSyntax"); x && x->isObject()) {
@@ -1422,17 +1436,17 @@ void readVariableFields(const json::Value& v, NodeProps& p, FieldMask& m) {
         CodeSyntaxEntry cs;
         if (auto* pl = e.get("platform"); !pl || !readEnumMember(*pl, cs.platform)) continue;
         if (auto* val = e.get("value"); val && val->isString()) cs.value = val->string;
-        p.codeSyntax.push_back(std::move(cs));
+        p.asset().codeSyntax.push_back(std::move(cs));
       }
     m |= F_CODE_SYNTAX;
   }
-  if (auto* x = v.get("version"); x && x->isString()) p.version = x->string, m |= F_VERSION;
-  if (auto* x = v.get("publishedVersion"); x && x->isString()) p.publishedVersion = x->string, m |= F_PUBLISHED_VERSION;
-  if (auto* x = v.get("sourceLibraryKey"); x && x->isString()) p.sourceLibraryKey = x->string, m |= F_SOURCE_LIBRARY_KEY;
-  if (auto* x = v.get("publishID"); x && readStructGuid(*x, p.publishID)) m |= F_PUBLISH_ID;
+  if (auto* x = v.get("version"); x && x->isString()) p.asset().version = x->string, m |= F_VERSION;
+  if (auto* x = v.get("publishedVersion"); x && x->isString()) p.asset().publishedVersion = x->string, m |= F_PUBLISHED_VERSION;
+  if (auto* x = v.get("sourceLibraryKey"); x && x->isString()) p.asset().sourceLibraryKey = x->string, m |= F_SOURCE_LIBRARY_KEY;
+  if (auto* x = v.get("publishID"); x && readStructGuid(*x, p.asset().publishID)) m |= F_PUBLISH_ID;
   if (auto* x = v.get("libraryMoveInfo"); x && x->isObject()) {
-    if (auto* k = x->get("oldKey"); k && k->isString()) p.libraryMoveInfo.oldKey = k->string;
-    if (auto* k = x->get("pasteFileKey"); k && k->isString()) p.libraryMoveInfo.pasteFileKey = k->string;
+    if (auto* k = x->get("oldKey"); k && k->isString()) p.asset().libraryMoveInfo.oldKey = k->string;
+    if (auto* k = x->get("pasteFileKey"); k && k->isString()) p.asset().libraryMoveInfo.pasteFileKey = k->string;
     m |= F_LIBRARY_MOVE_INFO;
   }
 }
@@ -1524,62 +1538,64 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
     for (int i = 0; i < 4; i++)
       if (auto* x = v.get(kCornerKeys[i]); x && x->isNumber()) {
         p.cornerRadii[static_cast<size_t>(i)] = x->number;
-        m |= F_CORNER_RADII;
+        m |= kCornerBitsJson[i];
       }
   readBool(v, "frameMaskDisabled", p.frameMaskDisabled, F_FRAME_MASK_DISABLED, m);
   readBool(v, "resizeToFit", p.resizeToFit, F_RESIZE_TO_FIT, m);
-  if (auto* x = v.get("backgroundColor"); x && x->isObject()) { p.backgroundColor = readColor(*x, Color{0, 0, 0, 0}); m |= F_BACKGROUND_COLOR; }
-  readBool(v, "backgroundEnabled", p.backgroundEnabled, F_BACKGROUND_ENABLED, m);
-  readBool(v, "internalOnly", p.internalOnly, F_INTERNAL_ONLY, m);
+  if (auto* x = v.get("backgroundColor"); x && x->isObject()) { p.rare().backgroundColor = readColor(*x, Color{0, 0, 0, 0}); m |= F_BACKGROUND_COLOR; }
+  readBool(v, "backgroundEnabled", p.rare().backgroundEnabled, F_BACKGROUND_ENABLED, m);
+  readBool(v, "internalOnly", p.rare().internalOnly, F_INTERNAL_ONLY, m);
   // Auto layout.
-  readEnum(v, "stackMode", p.stackMode, F_STACK_MODE, m);
-  readNumber(v, "stackSpacing", p.stackSpacing, F_STACK_SPACING, m);
-  readNumber(v, "stackHorizontalPadding", p.stackPaddingLeft, F_STACK_PADDING_LEFT, m);
-  readNumber(v, "stackVerticalPadding", p.stackPaddingTop, F_STACK_PADDING_TOP, m);
-  readNumber(v, "stackPaddingRight", p.stackPaddingRight, F_STACK_PADDING_RIGHT, m);
-  readNumber(v, "stackPaddingBottom", p.stackPaddingBottom, F_STACK_PADDING_BOTTOM, m);
-  readEnum(v, "stackPrimarySizing", p.stackPrimarySizing, F_STACK_PRIMARY_SIZING, m);
-  readEnum(v, "stackCounterSizing", p.stackCounterSizing, F_STACK_COUNTER_SIZING, m);
-  readEnum(v, "stackPrimaryAlignItems", p.stackPrimaryAlignItems, F_STACK_PRIMARY_ALIGN, m);
-  readEnum(v, "stackCounterAlignItems", p.stackCounterAlignItems, F_STACK_COUNTER_ALIGN, m);
-  readEnum(v, "stackCounterAlignContent", p.stackCounterAlignContent, F_STACK_COUNTER_ALIGN_CONTENT, m);
-  readEnum(v, "stackWrap", p.stackWrap, F_STACK_WRAP, m);
+  readEnum(v, "stackMode", p.stack().stackMode, F_STACK_MODE, m);
+  readNumber(v, "stackSpacing", p.stack().stackSpacing, F_STACK_SPACING, m);
+  readNumber(v, "stackHorizontalPadding", p.stack().stackPaddingLeft, F_STACK_PADDING_LEFT, m);
+  readNumber(v, "stackVerticalPadding", p.stack().stackPaddingTop, F_STACK_PADDING_TOP, m);
+  readNumber(v, "stackPaddingRight", p.stack().stackPaddingRight, F_STACK_PADDING_RIGHT, m);
+  readNumber(v, "stackPaddingBottom", p.stack().stackPaddingBottom, F_STACK_PADDING_BOTTOM, m);
+  readEnum(v, "stackPrimarySizing", p.stack().stackPrimarySizing, F_STACK_PRIMARY_SIZING, m);
+  readEnum(v, "stackCounterSizing", p.stack().stackCounterSizing, F_STACK_COUNTER_SIZING, m);
+  readEnum(v, "stackPrimaryAlignItems", p.stack().stackPrimaryAlignItems, F_STACK_PRIMARY_ALIGN, m);
+  readEnum(v, "stackCounterAlignItems", p.stack().stackCounterAlignItems, F_STACK_COUNTER_ALIGN, m);
+  readEnum(v, "stackCounterAlignContent", p.stack().stackCounterAlignContent, F_STACK_COUNTER_ALIGN_CONTENT, m);
+  readEnum(v, "stackWrap", p.stack().stackWrap, F_STACK_WRAP, m);
   if (auto* x = v.get("stackCounterSpacing"); x && x->isNumber()) {
-    p.stackCounterSpacing = x->number;
+    p.stack().stackCounterSpacing = x->number;
     m |= F_STACK_COUNTER_SPACING;
   }
-  readBool(v, "stackReverseZIndex", p.stackReverseZIndex, F_STACK_REVERSE_Z, m);
-  readBool(v, "bordersTakeSpace", p.bordersTakeSpace, F_BORDERS_TAKE_SPACE, m);
+  readBool(v, "stackReverseZIndex", p.stack().stackReverseZIndex, F_STACK_REVERSE_Z, m);
+  readBool(v, "bordersTakeSpace", p.stack().bordersTakeSpace, F_BORDERS_TAKE_SPACE, m);
   readNumber(v, "stackChildPrimaryGrow", p.stackChildPrimaryGrow, F_STACK_CHILD_GROW, m);
   readEnum(v, "stackChildAlignSelf", p.stackChildAlignSelf, F_STACK_CHILD_ALIGN_SELF, m);
   readEnum(v, "stackPositioning", p.stackPositioning, F_STACK_POSITIONING, m);
   if (auto* x = v.get("minSize"); x && x->isObject()) {
-    if (auto* value = x->get("value")) p.minSize = readVector(*value);
+    p.rare().minSize = Vec2{};  // no value = no limit
+    if (auto* value = x->get("value")) p.rare().minSize = readVector(*value);
     m |= F_MIN_SIZE;
   }
   if (auto* x = v.get("maxSize"); x && x->isObject()) {
-    if (auto* value = x->get("value")) p.maxSize = readVector(*value);
+    p.rare().maxSize = Vec2{};  // no value = no limit
+    if (auto* value = x->get("value")) p.rare().maxSize = readVector(*value);
     m |= F_MAX_SIZE;
   }
   readEnum(v, "horizontalConstraint", p.horizontalConstraint, F_H_CONSTRAINT, m);
   readEnum(v, "verticalConstraint", p.verticalConstraint, F_V_CONSTRAINT, m);
   readBool(v, "proportionsConstrained", p.proportionsConstrained, F_PROPORTIONS_CONSTRAINED, m);
   // Text.
-  if (auto* x = v.get("textData"); x && x->isObject()) { p.textData = readTextData(*x); m |= F_TEXT_DATA; }
-  if (auto* x = v.get("fontName"); x && readFontName(*x, p.fontName)) m |= F_FONT_NAME;
-  readNumber(v, "fontSize", p.fontSize, F_FONT_SIZE, m);
-  if (auto* x = v.get("lineHeight"); x && readNumberValue(*x, p.lineHeight)) m |= F_LINE_HEIGHT;
-  if (auto* x = v.get("letterSpacing"); x && readNumberValue(*x, p.letterSpacing)) m |= F_LETTER_SPACING;
-  readNumber(v, "paragraphSpacing", p.paragraphSpacing, F_PARAGRAPH_SPACING, m);
-  readNumber(v, "paragraphIndent", p.paragraphIndent, F_PARAGRAPH_INDENT, m);
-  readEnum(v, "textAlignHorizontal", p.textAlignHorizontal, F_TEXT_ALIGN_H, m);
-  readEnum(v, "textAlignVertical", p.textAlignVertical, F_TEXT_ALIGN_V, m);
-  readEnum(v, "textAutoResize", p.textAutoResize, F_TEXT_AUTO_RESIZE, m);
-  readEnum(v, "textTruncation", p.textTruncation, F_TEXT_TRUNCATION, m);
-  if (auto* x = v.get("maxLines"); x && x->isNumber()) { p.maxLines = static_cast<int32_t>(x->number); m |= F_MAX_LINES; }
-  readEnum(v, "textCase", p.textCase, F_TEXT_CASE, m);
-  readEnum(v, "textDecoration", p.textDecoration, F_TEXT_DECORATION, m);
-  readBool(v, "autoRename", p.autoRename, F_AUTO_RENAME, m);
+  if (auto* x = v.get("textData"); x && x->isObject()) { p.text().textData = readTextData(*x); m |= F_TEXT_DATA; }
+  if (auto* x = v.get("fontName"); x && readFontName(*x, p.text().fontName)) m |= F_FONT_NAME;
+  readNumber(v, "fontSize", p.text().fontSize, F_FONT_SIZE, m);
+  if (auto* x = v.get("lineHeight"); x && readNumberValue(*x, p.text().lineHeight)) m |= F_LINE_HEIGHT;
+  if (auto* x = v.get("letterSpacing"); x && readNumberValue(*x, p.text().letterSpacing)) m |= F_LETTER_SPACING;
+  readNumber(v, "paragraphSpacing", p.text().paragraphSpacing, F_PARAGRAPH_SPACING, m);
+  readNumber(v, "paragraphIndent", p.text().paragraphIndent, F_PARAGRAPH_INDENT, m);
+  readEnum(v, "textAlignHorizontal", p.text().textAlignHorizontal, F_TEXT_ALIGN_H, m);
+  readEnum(v, "textAlignVertical", p.text().textAlignVertical, F_TEXT_ALIGN_V, m);
+  readEnum(v, "textAutoResize", p.text().textAutoResize, F_TEXT_AUTO_RESIZE, m);
+  readEnum(v, "textTruncation", p.text().textTruncation, F_TEXT_TRUNCATION, m);
+  if (auto* x = v.get("maxLines"); x && x->isNumber()) { p.text().maxLines = static_cast<int32_t>(x->number); m |= F_MAX_LINES; }
+  readEnum(v, "textCase", p.text().textCase, F_TEXT_CASE, m);
+  readEnum(v, "textDecoration", p.text().textDecoration, F_TEXT_DECORATION, m);
+  readBool(v, "autoRename", p.text().autoRename, F_AUTO_RENAME, m);
   // Paint, stroke, effects, masks.
   readEnum(v, "blendMode", p.blendMode, F_BLEND_MODE, m);
   readBool(v, "mask", p.mask, F_MASK, m);
@@ -1588,32 +1604,32 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
   readEnum(v, "strokeJoin", p.strokeJoin, F_STROKE_JOIN, m);
   readNumber(v, "miterLimit", p.miterLimit, F_MITER_LIMIT, m);
   if (auto* x = v.get("dashPattern"); x && x->isArray()) {
-    for (auto& d : x->array) p.dashPattern.push_back(d.numberOr(0));
+    for (auto& d : x->array) p.stroke().dashPattern.push_back(d.numberOr(0));
     m |= F_DASH_PATTERN;
   }
   {
     const char* keys[4] = {"borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight"};
     for (size_t i = 0; i < 4; i++)
-      if (auto* x = v.get(keys[i]); x && x->isNumber()) p.borderWeights[i] = x->number, m |= F_BORDER_WEIGHTS;
-    readBool(v, "borderStrokeWeightsIndependent", p.borderStrokeWeightsIndependent, F_BORDER_WEIGHTS, m);
+      if (auto* x = v.get(keys[i]); x && x->isNumber()) p.stroke().borderWeights[i] = x->number, m |= F_BORDER_WEIGHTS;
+    readBool(v, "borderStrokeWeightsIndependent", p.stroke().borderStrokeWeightsIndependent, F_BORDER_WEIGHTS, m);
   }
-  readNumber(v, "cornerSmoothing", p.cornerSmoothing, F_CORNER_SMOOTHING, m);
+  readNumber(v, "cornerSmoothing", p.stroke().cornerSmoothing, F_CORNER_SMOOTHING, m);
   if (auto* x = v.get("effects"); x && x->isArray()) {
     for (auto& e : x->array)
       if (e.isObject()) p.effects.push_back(readEffect(e));
     m |= F_EFFECTS;
   }
-  if (auto* x = v.get("count"); x && x->isNumber()) p.count = static_cast<uint32_t>(std::max(0.0, x->number)), m |= F_COUNT;
-  readNumber(v, "starInnerScale", p.starInnerScale, F_STAR_INNER_SCALE, m);
+  if (auto* x = v.get("count"); x && x->isNumber()) p.shape().count = static_cast<uint32_t>(std::max(0.0, x->number)), m |= F_COUNT;
+  readNumber(v, "starInnerScale", p.shape().starInnerScale, F_STAR_INNER_SCALE, m);
   if (auto* x = v.get("arcData"); x && x->isObject()) {
-    if (auto* a = x->get("startingAngle")) p.arcData.startingAngle = a->numberOr(0);
-    if (auto* a = x->get("endingAngle")) p.arcData.endingAngle = a->numberOr(0);
-    if (auto* a = x->get("innerRadius")) p.arcData.innerRadius = a->numberOr(0);
+    if (auto* a = x->get("startingAngle")) p.shape().arcData.startingAngle = a->numberOr(0);
+    if (auto* a = x->get("endingAngle")) p.shape().arcData.endingAngle = a->numberOr(0);
+    if (auto* a = x->get("innerRadius")) p.shape().arcData.innerRadius = a->numberOr(0);
     m |= F_ARC_DATA;
   }
-  if (auto* x = v.get("vectorData"); x && x->isObject()) p.vectorData = readVectorData(*x, blobs), m |= F_VECTOR_DATA;
-  readEnum(v, "handleMirroring", p.handleMirroring, F_HANDLE_MIRRORING, m);
-  readEnum(v, "booleanOperation", p.booleanOperation, F_BOOLEAN_OPERATION, m);
+  if (auto* x = v.get("vectorData"); x && x->isObject()) p.shape().vectorData = readVectorData(*x, blobs), m |= F_VECTOR_DATA;
+  readEnum(v, "handleMirroring", p.shape().handleMirroring, F_HANDLE_MIRRORING, m);
+  readEnum(v, "booleanOperation", p.shape().booleanOperation, F_BOOLEAN_OPERATION, m);
   if (auto* x = v.get("layoutGrids"); x && x->isArray()) {
     for (auto& e : x->array) {
       if (!e.isObject()) continue;
@@ -1634,7 +1650,7 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
         else if (k == "gutterSizeVar" && y.isObject()) g.gutterSizeVar = readVariableData(y);
         else appendExtra(g.extra, "LayoutGrid", k, y);
       }
-      p.layoutGrids.push_back(g);
+      p.rare().layoutGrids.push_back(g);
     }
     m |= F_LAYOUT_GRIDS;
   }
@@ -1803,7 +1819,7 @@ void writeEffects(json::Writer& w, const std::vector<Effect>& effects) {
 
 void writeLayoutGrids(json::Writer& w, const std::vector<LayoutGrid>& grids) {
   NodeProps p;
-  p.layoutGrids = grids;
+  p.rare().layoutGrids = grids;
   json::Writer o;
   o.beginObject();
   writeFields(o, p, F_LAYOUT_GRIDS, false, nullptr);
@@ -1873,7 +1889,8 @@ FieldMask fieldOfKey(std::string_view key) {
   for (const FieldKey& k : kFieldKeys)
     if (key == k.key) return k.bit;
   for (int i = 0; i < 4; i++)
-    if (key == kCornerKeys[i] || key == "rectangleCornerRadiiIndependent") return F_CORNER_RADII;
+    if (key == kCornerKeys[i]) return kCornerBitsJson[i];
+  if (key == "rectangleCornerRadiiIndependent") return F_CORNER_RADII;
   if (key == "borderRightWeight" || key == "borderBottomWeight" || key == "borderLeftWeight" || key == "borderStrokeWeightsIndependent")
     return F_BORDER_WEIGHTS;
   return 0;

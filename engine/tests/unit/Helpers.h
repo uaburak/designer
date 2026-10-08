@@ -30,13 +30,13 @@ inline std::vector<NodeChange> baseChanges() {
   page.type = NodeType::CANVAS;
   page.name = "Page 1";
   page.parentIndex = {kDoc, "!"};
-  page.backgroundColor = Color::hex(0xF5F5F5);
-  page.backgroundEnabled = true;
+  page.rare().backgroundColor = Color::hex(0xF5F5F5);
+  page.rare().backgroundEnabled = true;
   NodeProps internal;
   internal.type = NodeType::CANVAS;
   internal.name = "Internal Only Canvas";
   internal.parentIndex = {kDoc, "~"};
-  internal.internalOnly = true;
+  internal.rare().internalOnly = true;
   internal.visible = false;
   return {NodeChange::created(kDoc, doc), NodeChange::created(kPage, page), NodeChange::created(kInternal, internal)};
 }

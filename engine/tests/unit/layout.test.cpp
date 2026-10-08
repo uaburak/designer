@@ -15,10 +15,10 @@ namespace {
 
 NodeChange autoLayout(Guid id, StackMode mode, Rect r, double spacing, double padding) {
   NodeChange f = make(id, NodeType::FRAME, kPage, "!", r, "Auto");
-  f.props.stackMode = mode;
-  f.props.stackSpacing = spacing;
-  f.props.stackPaddingLeft = f.props.stackPaddingTop = f.props.stackPaddingRight = f.props.stackPaddingBottom = padding;
-  f.props.stackPrimarySizing = StackSize::FIXED;
+  f.props.stack().stackMode = mode;
+  f.props.stack().stackSpacing = spacing;
+  f.props.stack().stackPaddingLeft = f.props.stack().stackPaddingTop = f.props.stack().stackPaddingRight = f.props.stack().stackPaddingBottom = padding;
+  f.props.stack().stackPrimarySizing = StackSize::FIXED;
   return f;
 }
 
@@ -45,7 +45,7 @@ Editor load(std::vector<NodeChange> nodes) {
 void touch(Editor& e, Guid frame, double spacing) {
   NodeChange c;
   c.mask = F_STACK_SPACING;
-  c.props.stackSpacing = spacing;
+  c.props.stack().stackSpacing = spacing;
   REQUIRE(e.setProps({frame}, c, 0) == OK);
 }
 
@@ -59,7 +59,7 @@ Vec2 at(const Editor& e, Guid id) {
 TEST_CASE("layout: horizontal wrap, as Figma lays out stacks_wrap.fig") {
   const Guid F{1, 2};
   NodeChange f = autoLayout(F, StackMode::HORIZONTAL, {0, 0, 280, 195}, 0, 20);
-  f.props.stackWrap = StackWrap::WRAP;  // stackCounterSpacing absent: the same as the gap
+  f.props.stack().stackWrap = StackWrap::WRAP;  // stackCounterSpacing absent: the same as the gap
   auto kids = squares(F, 8, 40);
   std::vector<NodeChange> nodes{f};
   nodes.insert(nodes.end(), kids.begin(), kids.end());
@@ -75,9 +75,9 @@ TEST_CASE("layout: horizontal wrap, as Figma lays out stacks_wrap.fig") {
   // Centre / centre with a counter gap of 8 (Figma: 32 / 53.5, then 76 / 101.5).
   NodeChange c;
   c.mask = F_STACK_PRIMARY_ALIGN | F_STACK_COUNTER_ALIGN | F_STACK_COUNTER_SPACING;
-  c.props.stackPrimaryAlignItems = StackJustify::CENTER;
-  c.props.stackCounterAlignItems = StackAlign::CENTER;
-  c.props.stackCounterSpacing = 8;
+  c.props.stack().stackPrimaryAlignItems = StackJustify::CENTER;
+  c.props.stack().stackCounterAlignItems = StackAlign::CENTER;
+  c.props.stack().stackCounterSpacing = 8;
   REQUIRE(e.setProps({F}, c, 0) == OK);
   CHECK(at(e, kids[0].guid).x == doctest::Approx(32));
   CHECK(at(e, kids[0].guid).y == doctest::Approx(53.5));
@@ -88,8 +88,8 @@ TEST_CASE("layout: horizontal wrap, as Figma lays out stacks_wrap.fig") {
 TEST_CASE("layout: vertical, centred, overflowing (stacks_wrap.fig 'Vertical middle center')") {
   const Guid F{2, 11};
   NodeChange f = autoLayout(F, StackMode::VERTICAL, {0, 0, 280, 195}, 0, 20);
-  f.props.stackPrimaryAlignItems = StackJustify::CENTER;
-  f.props.stackCounterAlignItems = StackAlign::CENTER;
+  f.props.stack().stackPrimaryAlignItems = StackJustify::CENTER;
+  f.props.stack().stackCounterAlignItems = StackAlign::CENTER;
   auto kids = squares(F, 8, 40);
   std::vector<NodeChange> nodes{f};
   nodes.insert(nodes.end(), kids.begin(), kids.end());
@@ -105,8 +105,8 @@ TEST_CASE("layout: vertical, centred, overflowing (stacks_wrap.fig 'Vertical mid
 TEST_CASE("layout: hug, fill and undo") {
   const Guid F{3, 1};
   NodeChange f = autoLayout(F, StackMode::HORIZONTAL, {0, 0, 10, 10}, 0, 10);
-  f.props.stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
-  f.props.stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  f.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  f.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
   auto kids = squares(F, 3, 20);
   std::vector<NodeChange> nodes{f};
   nodes.insert(nodes.end(), kids.begin(), kids.end());
@@ -117,7 +117,7 @@ TEST_CASE("layout: hug, fill and undo") {
   // Fixed width 200: the middle child fills what's left.
   NodeChange fixed;
   fixed.mask = F_STACK_PRIMARY_SIZING | F_SIZE;
-  fixed.props.stackPrimarySizing = StackSize::FIXED;
+  fixed.props.stack().stackPrimarySizing = StackSize::FIXED;
   fixed.props.size = {200, 40};
   REQUIRE(e.setProps({F}, fixed, 0) == OK);
   NodeChange grow;

@@ -159,9 +159,9 @@ TEST_CASE("move: auto layout — reorder by drag with the insertion indicator; d
   auto nodes = baseChanges();
   const Guid AL{1, 20};
   NodeChange f = make(AL, NodeType::FRAME, kPage, "!", {0, 0, 0, 0}, "Auto");
-  f.props.stackMode = StackMode::HORIZONTAL;
-  f.props.stackPaddingLeft = f.props.stackPaddingTop = f.props.stackPaddingRight = f.props.stackPaddingBottom = 10;
-  f.props.stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  f.props.stack().stackMode = StackMode::HORIZONTAL;
+  f.props.stack().stackPaddingLeft = f.props.stack().stackPaddingTop = f.props.stack().stackPaddingRight = f.props.stack().stackPaddingBottom = 10;
+  f.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
   nodes.push_back(f);
   Guid kids[3] = {{1, 21}, {1, 22}, {1, 23}};
   std::string key;
@@ -173,7 +173,7 @@ TEST_CASE("move: auto layout — reorder by drag with the insertion indicator; d
   // Lay it out once (as a panel edit would).
   NodeChange touch;
   touch.mask = F_STACK_SPACING;
-  touch.props.stackSpacing = 10;
+  touch.props.stack().stackSpacing = 10;
   e.setProps({AL}, touch, 0);
   REQUIRE(world(e, AL) == Rect{0, 0, 190, 70});
 
@@ -282,8 +282,8 @@ TEST_CASE("resize: an auto-layout child's Fill becomes Fixed, a Hug frame become
   auto nodes = baseChanges();
   const Guid AL{1, 40}, C{1, 41};
   NodeChange f = make(AL, NodeType::FRAME, kPage, "!", {0, 0, 300, 100}, "Auto");
-  f.props.stackMode = StackMode::HORIZONTAL;
-  f.props.stackPrimarySizing = StackSize::FIXED;
+  f.props.stack().stackMode = StackMode::HORIZONTAL;
+  f.props.stack().stackPrimarySizing = StackSize::FIXED;
   nodes.push_back(f);
   NodeChange c = make(C, NodeType::ROUNDED_RECTANGLE, AL, "!", {0, 0, 300, 100});
   c.props.stackChildPrimaryGrow = 1;
@@ -301,11 +301,11 @@ TEST_CASE("resize: an auto-layout child's Fill becomes Fixed, a Hug frame become
   e.setSelection({AL});
   NodeChange hug;
   hug.mask = F_STACK_PRIMARY_SIZING;
-  hug.props.stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  hug.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
   e.setProps({AL}, hug, 0);
   CHECK(world(e, AL).w == 200);
   drag(e, {200, 50}, {260, 50});
-  CHECK(props(e, AL).stackPrimarySizing == StackSize::FIXED);
+  CHECK(props(e, AL).stack().stackPrimarySizing == StackSize::FIXED);
   CHECK(world(e, AL).w == 260);
 }
 
@@ -334,9 +334,9 @@ TEST_CASE("auto layout: padding and gap bands under the pointer") {
   auto nodes = baseChanges();
   const Guid AL{1, 50}, X{1, 51}, Y{1, 52};
   NodeChange f = make(AL, NodeType::FRAME, kPage, "!", {0, 0, 150, 70}, "Auto");
-  f.props.stackMode = StackMode::HORIZONTAL;
-  f.props.stackSpacing = 30;
-  f.props.stackPaddingLeft = f.props.stackPaddingTop = f.props.stackPaddingRight = f.props.stackPaddingBottom = 10;
+  f.props.stack().stackMode = StackMode::HORIZONTAL;
+  f.props.stack().stackSpacing = 30;
+  f.props.stack().stackPaddingLeft = f.props.stack().stackPaddingTop = f.props.stack().stackPaddingRight = f.props.stack().stackPaddingBottom = 10;
   nodes.push_back(f);
   nodes.push_back(make(X, NodeType::ROUNDED_RECTANGLE, AL, "!", {10, 10, 50, 50}));
   nodes.push_back(make(Y, NodeType::ROUNDED_RECTANGLE, AL, "\"", {90, 10, 50, 50}));
@@ -356,7 +356,7 @@ TEST_CASE("arrows reorder auto-layout children along the flow") {
   auto nodes = baseChanges();
   const Guid AL{1, 60};
   NodeChange f = make(AL, NodeType::FRAME, kPage, "!", {0, 0, 200, 70}, "Auto");
-  f.props.stackMode = StackMode::HORIZONTAL;
+  f.props.stack().stackMode = StackMode::HORIZONTAL;
   nodes.push_back(f);
   Guid k[3] = {{1, 61}, {1, 62}, {1, 63}};
   nodes.push_back(make(k[0], NodeType::ROUNDED_RECTANGLE, AL, "!", {0, 0, 50, 50}));

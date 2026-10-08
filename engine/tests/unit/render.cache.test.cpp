@@ -263,7 +263,7 @@ TEST_CASE("renderer: off-screen subtrees are culled whole, sub-pixel ones skippe
     nodes.push_back(make({2, i}, NodeType::ROUNDED_RECTANGLE, {1, i}, "!", {10, 10, 20, 20}));
   }
   NodeChange t = make({3, 1}, NodeType::TEXT, kPage, "~", {0, 200, 200, 20});
-  t.props.textData.characters = "Some words to greek";
+  t.props.text().textData.characters = "Some words to greek";
   nodes.push_back(t);
   Editor e;
   e.setViewport(800, 600, 2, 1600, 1200);

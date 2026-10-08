@@ -70,7 +70,7 @@ void Editor::indexChange(const NodeChange& c) {
   FieldMask m = c.phase == Phase::CHANGED ? c.mask : F_ALL;
   if (m & F_KEY) {
     auto old = keyOf_.find(c.guid);
-    const std::string* now = n && !n->props.key.empty() ? &n->props.key : nullptr;
+    const std::string* now = n && !n->props.asset().key.empty() ? &n->props.asset().key : nullptr;
     if (old != keyOf_.end() && (!now || old->second != *now)) {
       auto bucket = keyIndex_.find(old->second);
       if (bucket != keyIndex_.end()) {
@@ -88,7 +88,7 @@ void Editor::indexChange(const NodeChange& c) {
   }
   if (m & (F_SYMBOL_DATA | F_TYPE)) {
     auto old = instanceMain_.find(c.guid);
-    Guid now = n && n->props.type == NodeType::INSTANCE ? n->props.symbolData.symbolID : kNoGuid;
+    Guid now = n && n->props.type == NodeType::INSTANCE ? n->props.comp().symbolData.symbolID : kNoGuid;
     if (old != instanceMain_.end() && old->second != now) {
       auto count = instanceCounts_.find(old->second);
       if (count != instanceCounts_.end() && --count->second == 0) instanceCounts_.erase(count);
@@ -115,13 +115,13 @@ void Editor::rebuildIndexes() {
   infoCache_.clear();
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
-    if (!n.props.key.empty()) {
-      keyIndex_[n.props.key].push_back(n.guid);
-      keyOf_[n.guid] = n.props.key;
+    if (!n.props.asset().key.empty()) {
+      keyIndex_[n.props.asset().key].push_back(n.guid);
+      keyOf_[n.guid] = n.props.asset().key;
     }
-    if (n.props.type == NodeType::INSTANCE && n.props.symbolData.symbolID != kNoGuid) {
-      instanceCounts_[n.props.symbolData.symbolID]++;
-      instanceMain_[n.guid] = n.props.symbolData.symbolID;
+    if (n.props.type == NodeType::INSTANCE && n.props.comp().symbolData.symbolID != kNoGuid) {
+      instanceCounts_[n.props.comp().symbolData.symbolID]++;
+      instanceMain_[n.guid] = n.props.comp().symbolData.symbolID;
     }
     if (n.props.type == NodeType::DOCUMENT) docNode_ = n.guid;
   });
@@ -135,7 +135,7 @@ const std::vector<Guid>* Editor::nodesWithKey(const std::string& key) const {
 }
 
 void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
-  if (c.phase != Phase::REMOVED && (c.phase == Phase::CREATED || (c.mask & F_SOURCE_LIBRARY_KEY)) && !c.props.sourceLibraryKey.empty())
+  if (c.phase != Phase::REMOVED && (c.phase == Phase::CREATED || (c.mask & F_SOURCE_LIBRARY_KEY)) && !c.props.asset().sourceLibraryKey.empty())
     hasLibraryCopies_ = true;
   if (!applyingStored_ && (!storedText_.empty() || !storedSymbols_.empty())) invalidateStored(c, typeBefore);
   indexChange(c);
@@ -211,8 +211,8 @@ void Editor::write(const NodeChange& change) {
     // them is written, removed or added to — except a copy's root made local (its sourceLibraryKey cleared: Restore
     // component of a removed library component).
     if (isLibraryCopy(change.guid)) {
-      bool makeLocal = change.phase == Phase::CHANGED && (change.mask & F_SOURCE_LIBRARY_KEY) && change.props.sourceLibraryKey.empty() &&
-                       existing && !existing->props.sourceLibraryKey.empty();
+      bool makeLocal = change.phase == Phase::CHANGED && (change.mask & F_SOURCE_LIBRARY_KEY) && change.props.asset().sourceLibraryKey.empty() &&
+                       existing && !existing->props.asset().sourceLibraryKey.empty();
       if (!makeLocal) return;
     }
     if (change.phase != Phase::REMOVED && (change.phase == Phase::CREATED || (change.mask & F_PARENT_INDEX)) &&
@@ -221,7 +221,7 @@ void Editor::write(const NodeChange& change) {
   }
   if (userEdit) {
     // Layers can't be added to or moved into an instance (slot content frames aside).
-    if (change.phase == Phase::CREATED && isStructuralTarget(change.props.parentIndex.guid) && !change.props.isSlotContent) return;
+    if (change.phase == Phase::CREATED && isStructuralTarget(change.props.parentIndex.guid) && !change.props.comp().isSlotContent) return;
     if (change.phase == Phase::CHANGED && (change.mask & F_PARENT_INDEX) && isStructuralTarget(change.props.parentIndex.guid) &&
         !(existing && existing->props.parentIndex.guid == change.props.parentIndex.guid)) {
       own().mask &= ~static_cast<FieldMask>(F_PARENT_INDEX | F_TRANSFORM);
@@ -293,7 +293,7 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   if (c.phase == Phase::CREATED) {
     markParent(p.parentIndex.guid);
     if (p.isAutoLayout() || p.fitsChildren()) layoutDirty_.insert(c.guid);
-    if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE) layoutDirty_.insert(c.guid);
+    if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE) layoutDirty_.insert(c.guid);
     if (p.fitsChildren()) groupsTouched_.insert(c.guid);
     return;
   }
@@ -307,7 +307,7 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   if (m & (F_STACK_MODE | F_RESIZE_TO_FIT)) layoutDirty_.insert(c.guid);
   if (p.isFrameLike() && (m & F_SIZE)) layoutDirty_.insert(c.guid);  // its children's constraints
   if (m & (F_MIN_SIZE | F_MAX_SIZE)) layoutDirty_.insert(c.guid);   // its own size may break a new limit
-  if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE && (m & (kTextLayoutFields | F_SIZE | F_TYPE)))
+  if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE && (m & (kTextLayoutFields | F_SIZE | F_TYPE)))
     layoutDirty_.insert(c.guid);  // auto width / auto height: its size follows its text
 }
 
@@ -397,23 +397,52 @@ void Editor::relayoutAll() {
   std::vector<Guid> dirty;  // kept empty: pages lay out when first shown (derivePage)
   std::vector<Guid> unusedDeleted;
   std::unordered_set<Guid, GuidHash> used;
+  std::unordered_set<Guid, GuidHash> bound;
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived()) return;
     if (n.props.type == NodeType::INSTANCE) {
-      used.insert(n.props.symbolData.symbolID);
-      for (const SymbolOverride& o : n.props.symbolData.overrides)
-        if (o.mask & F_OVERRIDDEN_SYMBOL_ID) used.insert(o.props.overriddenSymbolID);
+      used.insert(n.props.comp().symbolData.symbolID);
+      for (const SymbolOverride& o : n.props.comp().symbolData.overrides)
+        if (o.mask & F_OVERRIDDEN_SYMBOL_ID) used.insert(o.props.comp().overriddenSymbolID);
     }
-    for (const ComponentPropAssignment& a : n.props.componentPropAssignments) used.insert(a.value.guidValue);
+    for (const ComponentPropAssignment& a : n.props.comp().componentPropAssignments) used.insert(a.value.guidValue);
     // Bound values as the variables and styles say they are now (stored copies can be stale).
-    if (n.props.hasBindings()) bindingsDirty_.insert(n.guid);
+    if (n.props.hasBindings()) bound.insert(n.guid);
     if (n.props.isStyle()) styleIds_.insert(n.guid);
     if (n.props.type == NodeType::VARIABLE_SET) collectionIds_.insert(n.guid);
-    if (n.props.type == NodeType::VARIABLE) variableSets_[n.guid] = n.props.variableSetID.guid;
+    if (n.props.type == NodeType::VARIABLE) variableSets_[n.guid] = n.props.asset().variableSetID.guid;
   });
-  // Deleted mains kept for their instances go once nothing uses them (docs/schema.md §5.7).
+  // Bound values: the shown page's and the internal canvas's (styles, collections, mains, slot content) now; another
+  // page's when it is first shown (derivePage), with its instances — Figma loads a page with its dependencies, and
+  // resolving a page nobody looks at would derive its instances and ask for its fonts.
+  if (!bound.empty() && doc_.has(docNode_)) {
+    for (Guid canvas : doc_.children(docNode_)) {
+      const Node* cn = doc_.get(canvas);
+      if (!cn) continue;
+      bool now = canvas == page_ || cn->props.type != NodeType::CANVAS || cn->props.rare().internalOnly;
+      std::vector<Guid>* later = now ? nullptr : &pageBindings_[canvas];
+      std::vector<Guid> stack{canvas};
+      while (!stack.empty()) {
+        Guid id = stack.back();
+        stack.pop_back();
+        if (auto it = bound.find(id); it != bound.end()) {
+          if (later) later->push_back(id);
+          else bindingsDirty_.insert(id);
+          bound.erase(it);
+        }
+        for (Guid c : doc_.children(id))
+          if (!c.isDerived()) stack.push_back(c);
+      }
+    }
+  }
+  for (Guid g : bound) bindingsDirty_.insert(g);  // under no page
+  // Deleted mains kept for their instances go once nothing uses them (docs/schema.md §5.7). Only components: a
+  // soft-deleted variable, collection or style stays (Figma's deletedButReferenced: aliases, bindings and explicit
+  // modes still name it), and so does a deleted main that was published (the next publish lists it as Removed).
   doc_.forEach([&](const Node& n) {
-    if (n.props.isSoftDeleted && !used.count(n.guid)) {
+    const NodeProps& p = n.props;
+    if (p.comp().isSoftDeleted && (p.type == NodeType::SYMBOL || p.isComponentSet()) && p.asset().publishedVersion.empty() &&
+        !used.count(n.guid)) {
       bool anyUsed = false;
       for (Guid c : doc_.children(n.guid)) anyUsed |= used.count(c) != 0;
       if (!anyUsed) unusedDeleted.push_back(n.guid);
@@ -440,9 +469,37 @@ void Editor::relayoutAll() {
   commit();
 }
 
+void Editor::derivePageOf(Guid id, bool subtree) {
+  Guid real = id.isDerived() ? instanceOfDerived(id) : id;
+  if (Guid top = internalRootOf(real); top != kNoGuid) {
+    const Node* n = doc_.get(real);
+    if (id.isDerived() || subtree || (n && n->props.type == NodeType::INSTANCE)) deriveInternal(top);
+  } else {
+    derivePage(doc_.pageOf(real));
+  }
+}
+
+void Editor::deriveInternal(Guid top) {
+  if (derivedInternal_.count(top) || txn_.open || !doc_.has(top)) return;
+  derivedInternal_.insert(top);
+  std::vector<Guid> stack{top};
+  while (!stack.empty()) {
+    Guid id = stack.back();
+    stack.pop_back();
+    const Node* n = doc_.get(id);
+    if (!n) continue;
+    if (n->props.type == NodeType::INSTANCE && !derivedRows_.count(id)) instanceDirty_.insert(id);
+    for (Guid c : doc_.children(id))
+      if (!c.isDerived()) stack.push_back(c);
+  }
+  if (instanceDirty_.empty()) return;
+  begin(TxnKind::LOAD, "Page");
+  commit();
+}
+
 void Editor::derivePage(Guid page) {
   const Node* pn = doc_.get(page);
-  if (!pn || pn->props.type != NodeType::CANVAS || derivedPages_.count(page)) return;
+  if (!pn || pn->props.type != NodeType::CANVAS || pn->props.rare().internalOnly || derivedPages_.count(page)) return;
   // Not inside an open step (a gesture, a panel scrub): its writes would join that undo step. The next call derives.
   if (txn_.open) return;
   derivedPages_.insert(page);
@@ -463,7 +520,12 @@ void Editor::derivePage(Guid page) {
       stack.push_back(c);
     }
   }
-  if (dirty.empty() && instanceDirty_.empty()) return;
+  // Its bound values, not resolved at load (relayoutAll).
+  if (auto pb = pageBindings_.find(page); pb != pageBindings_.end()) {
+    for (Guid g : pb->second) bindingsDirty_.insert(g);
+    pageBindings_.erase(pb);
+  }
+  if (dirty.empty() && instanceDirty_.empty() && bindingsDirty_.empty()) return;
   std::sort(dirty.begin(), dirty.end());
   // Page loading (docs/engine.md §9.2, kind LOAD): derived data, nothing emitted, not an undo step — a read that
   // derives a page is still a read. Stale stored geometry of the page is corrected in memory and reaches the file
@@ -670,6 +732,8 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   text_ = TextSession{};
   hasLibraryCopies_ = false;
   derivedPages_.clear();
+  derivedInternal_.clear();
+  pageBindings_.clear();
   keyIndex_.clear();
   keyOf_.clear();
   instanceCounts_.clear();
@@ -681,7 +745,7 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
     if (c.guid.isDerived()) continue;
     c.phase = Phase::CREATED;
     c.mask = F_ALL;
-    if (!c.props.sourceLibraryKey.empty()) hasLibraryCopies_ = true;
+    if (!c.props.asset().sourceLibraryKey.empty()) hasLibraryCopies_ = true;
     doc_.adopt(std::move(c));
     c.props = NodeProps{};  // what was moved out of, freed now (the peak stays one copy of the document)
   }
@@ -785,7 +849,7 @@ void Editor::invalidateStored(const NodeChange& c, NodeType typeBefore) {
   if (!global)
     if (const Node* n = doc_.get(c.guid)) global = n->props.isStyle();
   for (Guid a = doc_.parentOf(c.guid); !global && a != kNoGuid; a = doc_.parentOf(a))
-    if (const Node* an = doc_.get(a)) global = an->props.type == NodeType::SYMBOL || (an->props.type == NodeType::FRAME && an->props.isStateGroup);
+    if (const Node* an = doc_.get(a)) global = an->props.type == NodeType::SYMBOL || (an->props.type == NodeType::FRAME && an->props.comp().isStateGroup);
   if (global) storedSymbols_.clear();
 }
 
@@ -864,14 +928,14 @@ std::vector<Guid> Editor::pages() const {
   if (!doc_.has(docNode_)) return out;
   for (Guid c : doc_.children(docNode_)) {
     const Node* p = doc_.get(c);
-    if (p && p->props.type == NodeType::CANVAS && !p->props.internalOnly) out.push_back(c);
+    if (p && p->props.type == NodeType::CANVAS && !p->props.rare().internalOnly) out.push_back(c);
   }
   return out;
 }
 
 Status Editor::setCurrentPage(Guid page) {
   const Node* n = doc_.get(page);
-  if (!n || n->props.type != NodeType::CANVAS || n->props.internalOnly) return E_NOT_FOUND;
+  if (!n || n->props.type != NodeType::CANVAS || n->props.rare().internalOnly) return E_NOT_FOUND;
   if (page == page_) return OK;
   cancelGesture();
   endTextEdit();
@@ -1003,12 +1067,12 @@ Status Editor::setProps(const std::vector<Guid>& ids, const NodeChange& props, u
     c.mask = differingFields(before, props.props, mask);  // equal values are no-ops
     copyFields(c.props, props.props, c.mask);
     if (before.type == NodeType::TEXT && (c.mask & F_SIZE) && !(mask & F_TEXT_AUTO_RESIZE) &&
-        before.textAutoResize != TextAutoResize::NONE) {
+        before.text().textAutoResize != TextAutoResize::NONE) {
       // A size typed for an auto-resizing text: a width makes it auto height, a height a fixed box (Figma).
       bool h = c.props.size.y != before.size.y, w = c.props.size.x != before.size.x;
-      if (h) c.props.textAutoResize = TextAutoResize::NONE;
-      else if (w && before.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT) c.props.textAutoResize = TextAutoResize::HEIGHT;
-      if (h || (w && before.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT)) c.mask |= F_TEXT_AUTO_RESIZE;
+      if (h) c.props.text().textAutoResize = TextAutoResize::NONE;
+      else if (w && before.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT) c.props.text().textAutoResize = TextAutoResize::HEIGHT;
+      if (h || (w && before.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT)) c.mask |= F_TEXT_AUTO_RESIZE;
     }
     if (c.mask) write(c);
   }

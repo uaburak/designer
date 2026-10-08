@@ -14,8 +14,8 @@ TEST_CASE("render: a text node draws one glyph instance per visible glyph, curve
   loadInter();
   auto nodes = baseChanges();
   NodeChange t = make({1, 1}, NodeType::TEXT, kPage, "!", {10, 10, 60, 15}, "Hi");
-  t.props.textData.characters = "Hi you";
-  t.props.textDecoration = TextDecoration::UNDERLINE;
+  t.props.text().textData.characters = "Hi you";
+  t.props.text().textDecoration = TextDecoration::UNDERLINE;
   nodes.push_back(t);
   Editor e;
   e.setViewport(400, 300, 1, 400, 300);

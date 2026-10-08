@@ -64,6 +64,15 @@ struct Payload {
 
 std::string result() { return std::string(reinterpret_cast<const char*>(engine_result_ptr()), engine_result_len()); }
 
+// engine_load takes kiwi only: a JSON Message (the tests' readable form) encoded with the engine's kiwi codec.
+std::string kiwiOf(const char* jsonMessage) {
+  eng::json::Value v;
+  REQUIRE(eng::json::parse(jsonMessage, v));
+  uint32_t session = 0;
+  if (auto* s = v.get("sessionID"); s && s->isNumber()) session = static_cast<uint32_t>(s->number);
+  return eng::codec::writeMessage(session, eng::codec::readMessage(v));
+}
+
 eng::json::Value resultJson() {
   eng::json::Value v;
   REQUIRE(eng::json::parse(result(), v));
@@ -88,7 +97,7 @@ TEST_CASE("api: the headless engine end to end") {
   Payload opts{R"({"sessionID":7,"theme":"DARK"})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   engine_set_viewport(h, 800, 600, 2, 1600, 1200);
   auto* flag = reinterpret_cast<const uint32_t*>(engine_events_flag_ptr());
@@ -189,7 +198,7 @@ TEST_CASE("api: editor support — page args, moveNodes, encodeSelection, paste"
   Payload opts{R"({"sessionID":7})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   engine_set_viewport(h, 800, 600, 1, 800, 600);
 
@@ -254,7 +263,7 @@ TEST_CASE("api: a page thumbnail fits its content, offscreen, without touching t
   Payload opts{R"({"sessionID":1,"theme":"DARK"})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   // Content: Frame 1, 200×200 at the origin → 64×64.
   REQUIRE(engine_render_thumbnail(h, 0xffffffffu, 0xffffffffu, 64, 0) == 0);
@@ -288,7 +297,7 @@ TEST_CASE("api: the Layers tree of a page in one read") {
   Payload opts{R"({"sessionID":7})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   REQUIRE(engine_layer_tree(h, 0, 1) == 0);
   auto v = resultJson();
@@ -310,7 +319,7 @@ TEST_CASE("api: the Layers rows changed since a version — a delta of rows and 
   Payload opts{R"({"sessionID":7})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   REQUIRE(engine_layer_tree(h, 0, 1) == 0);
   auto tree = resultJson();
@@ -376,7 +385,7 @@ TEST_CASE("api: read_nodes with a field list and a subtree — one read of the p
   Payload opts{R"({"sessionID":7})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   // A hidden child with a child of its own, to be left out.
   Payload hidden{R"({"type":"NODE_CHANGES","sessionID":7,"nodeChanges":[
@@ -419,7 +428,7 @@ TEST_CASE("api: STRUCTURE_CHANGED names the parents whose child lists changed") 
   Payload opts{R"({"sessionID":7})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   REQUIRE(engine_take_events(h) == 0);
   auto v = resultJson();
@@ -450,7 +459,7 @@ TEST_CASE("api: fonts arriving in a burst are laid out once, at the next call th
   Payload opts{R"({"sessionID":7})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h != 0);
-  Payload doc{kDoc};
+  Payload doc{kiwiOf(kDoc)};
   REQUIRE(engine_load(h, doc.ptr(), doc.len()) == 0);
   engine_tick(h, 0);
   engine_render(h);
@@ -577,5 +586,8 @@ TEST_CASE("api: kiwi at the boundary — load_at, events with payloads, encode, 
   CHECK(engine_set_wire_format(h, 7) == -3);
   Payload broken{std::string("\x05\x01\x02", 3)};
   CHECK(engine_load(h, broken.ptr(), broken.len()) == -2);
+  // A document is kiwi only: the interim JSON is refused (TS encodes a JSON-shaped Message with the shared codec).
+  Payload json{R"({"type":"NODE_CHANGES","sessionID":0,"nodeChanges":[{"guid":"0:0","phase":"CREATED","type":"DOCUMENT"}]})"};
+  CHECK(engine_load(h, json.ptr(), json.len()) == -2);
   engine_destroy(h);
 }

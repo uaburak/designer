@@ -205,7 +205,7 @@ struct ColorStop {
 
 enum class VariableDataType : uint8_t {
   BOOLEAN = 0, FLOAT = 1, STRING = 2, ALIAS = 3, COLOR = 4, EXPRESSION = 5, SYMBOL_ID = 7, FONT_STYLE = 8, TEXT_DATA = 9,
-  PROP_REF = 13, EASING = 22, TIMING = 23
+  PROP_REF = 13, SLOT_CONTENT_ID = 18, EASING = 22, TIMING = 23
 };
 enum class VariableResolvedType : uint8_t {
   BOOLEAN = 0, FLOAT = 1, STRING = 2, COLOR = 4, SYMBOL_ID = 6, FONT_STYLE = 7, TEXT_DATA = 8, SLOT_CONTENT_ID = 12, EASING = 15,
@@ -233,7 +233,7 @@ enum class StyleType : uint8_t { NONE = 0, FILL = 1, TEXT = 3, EFFECT = 4, GRID 
     static constexpr size_t count = sizeof(names) / sizeof(names[0]); \
   };
 ENG_ENUM_NAMES(VariableDataType, "BOOLEAN", "FLOAT", "STRING", "ALIAS", "COLOR", "EXPRESSION", "", "SYMBOL_ID", "FONT_STYLE",
-               "TEXT_DATA", "", "", "", "PROP_REF", "", "", "", "", "", "", "", "", "EASING", "TIMING")
+               "TEXT_DATA", "", "", "", "PROP_REF", "", "", "", "", "SLOT_CONTENT_ID", "", "", "", "EASING", "TIMING")
 ENG_ENUM_NAMES(VariableResolvedType, "BOOLEAN", "FLOAT", "STRING", "", "COLOR", "", "SYMBOL_ID", "FONT_STYLE", "TEXT_DATA", "", "",
                "", "SLOT_CONTENT_ID", "", "", "EASING", "TIMING")
 ENG_ENUM_NAMES(ExpressionFunction, "ADDITION", "SUBTRACTION", "RESOLVE_VARIANT", "MULTIPLY", "DIVIDE", "EQUALS", "NOT_EQUAL",
@@ -264,7 +264,7 @@ struct AssetId {
 // schema VariableData: a value (literal, alias, expression, font style, property reference) with its types.
 struct VariableData {
   // Which VariableAnyValue member is set. OTHER: a VariableData the engine doesn't model (kept whole in `extra`).
-  enum class Kind : uint8_t { NONE, BOOL, TEXT, FLOAT, ALIAS, COLOR, EXPRESSION, FONT_STYLE, PROP_REF, OTHER };
+  enum class Kind : uint8_t { NONE, BOOL, TEXT, FLOAT, ALIAS, COLOR, EXPRESSION, FONT_STYLE, PROP_REF, SLOT_CONTENT, OTHER };
   Kind kind = Kind::NONE;
   bool hasDataType = false, hasResolvedType = false;
   VariableDataType dataType = VariableDataType::BOOLEAN;
@@ -275,6 +275,7 @@ struct VariableData {
   Color colorValue;
   AssetId alias;
   Guid propRef = kNoGuid;
+  Guid slotContent = kNoGuid;  // SLOT_CONTENT: slotContentIdValue.guid (the slot content FRAME)
   ExpressionFunction function = ExpressionFunction::ADDITION;
   // EXPRESSION: its arguments. FONT_STYLE: asString, asFloat, asVariations (an absent one has kind NONE).
   std::vector<VariableData> args;
@@ -285,6 +286,7 @@ struct VariableData {
     return kind == o.kind && hasDataType == o.hasDataType && hasResolvedType == o.hasResolvedType && dataType == o.dataType &&
            resolvedDataType == o.resolvedDataType && boolValue == o.boolValue && floatValue == o.floatValue &&
            textValue == o.textValue && colorValue == o.colorValue && alias == o.alias && propRef == o.propRef &&
+           slotContent == o.slotContent &&
            function == o.function && args == o.args && valueExtra == o.valueExtra && extra == o.extra;
   }
   // Constructors for literal values and aliases (dataType / resolvedDataType set as Figma writes them).
@@ -704,7 +706,10 @@ enum Field : FieldMask {
   F_STROKES = ENG_FIELD_BIT(8),
   F_STROKE_WEIGHT = ENG_FIELD_BIT(9),
   F_STROKE_ALIGN = ENG_FIELD_BIT(10),
-  F_CORNER_RADII = ENG_FIELD_BIT(11),
+  // Corner radii: one bit per corner (an override may set one corner and leave the others to its main), all four
+  // together as F_CORNER_RADII (cornerRadius + rectangleCornerRadiiIndependent travel with them).
+  F_CORNER_TL = ENG_FIELD_BIT(11),  // rectangleTopLeftCornerRadius
+
   F_FRAME_MASK_DISABLED = ENG_FIELD_BIT(12),
   F_PARENT_INDEX = ENG_FIELD_BIT(13),
   F_RESIZE_TO_FIT = ENG_FIELD_BIT(14),
@@ -814,7 +819,11 @@ enum Field : FieldMask {
   F_SOURCE_LIBRARY_KEY = ENG_FIELD_BIT(108),  // sourceLibraryKey: a library copy's library (FileKey)
   F_PUBLISH_ID = ENG_FIELD_BIT(109),          // publishID: a library copy's GUID in its library
   F_LIBRARY_MOVE_INFO = ENG_FIELD_BIT(110),   // libraryMoveInfo
-  F_ALL = ENG_FIELD_BIT(111) - 1,
+  F_CORNER_TR = ENG_FIELD_BIT(111),  // rectangleTopRightCornerRadius
+  F_CORNER_BR = ENG_FIELD_BIT(112),  // rectangleBottomRightCornerRadius
+  F_CORNER_BL = ENG_FIELD_BIT(113),  // rectangleBottomLeftCornerRadius
+  F_CORNER_RADII = F_CORNER_TL | F_CORNER_TR | F_CORNER_BR | F_CORNER_BL,
+  F_ALL = ENG_FIELD_BIT(114) - 1,
 };
 
 inline constexpr FieldMask kComponentFields = F_OVERRIDE_KEY | F_SYMBOL_DATA | F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_DEFS |
@@ -877,85 +886,48 @@ uint32_t fieldGroups(FieldMask fieldMask);
 // rectangleTopLeftCornerRadius … rectangleBottomLeftCornerRadius).
 using CornerRadii = std::array<double, 4>;
 
-// Every field's default is what its absence means in schema/document.kiwi
-// (docs/schema.md §3.4): kiwi zero values, except visible = true, opacity = 1,
-// transform = identity, stackPrimarySizing = Hug, stackChildAlignSelf = AUTO.
-// Tools write Figma's per-tool defaults explicitly (defaultProps).
-struct NodeProps {
-  // Out of line (Node.cpp): a NodeProps is large, and inlining its members' construction and destruction at every
-  // NodeChange made the Wasm grow by hundreds of KB.
-  NodeProps();
-  NodeProps(const NodeProps&);
-  NodeProps(NodeProps&&) noexcept;
-  NodeProps& operator=(const NodeProps&);
-  NodeProps& operator=(NodeProps&&) noexcept;
-  ~NodeProps();
+// NodeProps by facets (Figma's scene graph keeps a node's properties in facets; docs/engine.md §2.2): a hot core
+// every node has, and groups of fields a node only has when it uses them — text, auto layout, shapes, stroke extras,
+// components and instances, style and mode references, asset bookkeeping, and rare page / guide / limit fields.
+// A facet is allocated when written and dropped again when it holds only defaults (NodeProps::compact, which the
+// document runs on every node it stores), so a frame without auto layout or a rectangle carries none of them.
+//
+// Access: `p.text().fontSize`. On a const NodeProps a facet that isn't there reads as its defaults (no allocation);
+// on a mutable one the accessor allocates it (writes; a mere read through a mutable reference allocates too, and
+// the document's compaction frees what holds only defaults).
+template <typename T>
+class Facet {
+ public:
+  Facet() = default;
+  Facet(const Facet& o) : p_(o.p_ ? std::make_unique<T>(*o.p_) : nullptr) {}
+  Facet(Facet&&) noexcept = default;
+  Facet& operator=(const Facet& o) {
+    if (this != &o) p_ = o.p_ ? std::make_unique<T>(*o.p_) : nullptr;
+    return *this;
+  }
+  Facet& operator=(Facet&&) noexcept = default;
+  const T& get() const { return p_ ? *p_ : defaults(); }
+  T& edit() {
+    if (!p_) p_ = std::make_unique<T>();
+    return *p_;
+  }
+  bool has() const { return p_ != nullptr; }
+  // Frees it when it holds only defaults.
+  void compact() {
+    if (p_ && *p_ == defaults()) p_.reset();
+  }
+  void reset() { p_.reset(); }
+  static const T& defaults() {
+    static const T kDefaults{};
+    return kDefaults;
+  }
 
-  NodeType type = NodeType::NONE;
-  std::string name;
-  bool visible = true;
-  bool locked = false;
-  double opacity = 1;
-  Mat2x3 transform;  // node space → parent space
-  Vec2 size;
-  std::vector<Paint> fillPaints;
-  std::vector<Paint> strokePaints;
-  double strokeWeight = 0;
-  StrokeAlign strokeAlign = StrokeAlign::CENTER;
-  CornerRadii cornerRadii{0, 0, 0, 0};
-  bool frameMaskDisabled = false;  // a frame clips its content unless this is set
-  bool resizeToFit = false;        // a FRAME that is a group
-  Color backgroundColor{0, 0, 0, 0};  // CANVAS: the page colour
-  bool backgroundEnabled = false;     // CANVAS
-  bool internalOnly = false;          // CANVAS: the hidden Internal Only Canvas
-  ParentIndex parentIndex;
+ private:
+  std::unique_ptr<T> p_;
+};
 
-  // Paint, stroke, effects, masks.
-  BlendMode blendMode = BlendMode::PASS_THROUGH;
-  bool mask = false;  // "Use as mask": masks the siblings above it
-  MaskType maskType = MaskType::ALPHA;
-  StrokeCap strokeCap = StrokeCap::NONE;
-  StrokeJoin strokeJoin = StrokeJoin::MITER;
-  double miterLimit = 4;
-  std::vector<double> dashPattern;
-  // Per-side stroke weights (rect-like frames and rectangles), top, right, bottom, left.
-  std::array<double, 4> borderWeights{0, 0, 0, 0};
-  bool borderStrokeWeightsIndependent = false;
-  double cornerSmoothing = 0;
-  std::vector<Effect> effects;
-  // Shapes and vectors.
-  uint32_t count = 0;            // REGULAR_POLYGON / STAR points
-  double starInnerScale = 0;     // STAR "Ratio"
-  ArcData arcData;               // ELLIPSE
-  VectorData vectorData;         // VECTOR (and LINE arrows)
-  VectorMirror handleMirroring = VectorMirror::NONE;
-  BooleanOperation booleanOperation = BooleanOperation::UNION;
-  std::vector<LayoutGrid> layoutGrids;  // frames
-
-  // Auto layout, as a container.
-  StackMode stackMode = StackMode::NONE;
-  double stackSpacing = 0;
-  double stackPaddingLeft = 0, stackPaddingTop = 0, stackPaddingRight = 0, stackPaddingBottom = 0;
-  StackSize stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;  // absent = Hug (Figma's files)
-  StackSize stackCounterSizing = StackSize::FIXED;
-  StackJustify stackPrimaryAlignItems = StackJustify::MIN;
-  StackAlign stackCounterAlignItems = StackAlign::MIN;
-  StackCounterAlignContent stackCounterAlignContent = StackCounterAlignContent::AUTO;
-  StackWrap stackWrap = StackWrap::NO_WRAP;
-  // Absent = the same as stackSpacing (what Figma's own layout does: stacks_wrap.fig).
-  std::optional<double> stackCounterSpacing;
-  bool stackReverseZIndex = false;
-  bool bordersTakeSpace = false;
-  // Auto layout, as a child.
-  double stackChildPrimaryGrow = 0;
-  StackCounterAlign stackChildAlignSelf = StackCounterAlign::AUTO;
-  StackPositioning stackPositioning = StackPositioning::AUTO;
-  Vec2 minSize, maxSize;  // an axis value of 0 = no limit
-  // Constraints.
-  ConstraintType horizontalConstraint = ConstraintType::MIN;
-  ConstraintType verticalConstraint = ConstraintType::MIN;
-  bool proportionsConstrained = false;
-  // Text (TEXT nodes; absent = the schema's @default: Inter Regular 12, Auto line height, 0% letter spacing).
+// Text (TEXT nodes; absent = the schema's @default: Inter Regular 12, Auto line height, 0% letter spacing).
+struct TextFacet {
   TextData textData;
   FontName fontName{"Inter", "Regular", ""};
   double fontSize = 12;
@@ -971,25 +943,75 @@ struct NodeProps {
   TextCase textCase = TextCase::ORIGINAL;
   TextDecoration textDecoration = TextDecoration::NONE;
   bool autoRename = false;
-  // Components and instances (docs/schema.md §5).
-  Guid overrideKey = kNoGuid;          // a node inside a component: its stable key (absent = its own GUID)
+  bool operator==(const TextFacet&) const = default;
+};
+
+// Auto layout, as a container.
+struct StackFacet {
+  StackMode stackMode = StackMode::NONE;
+  double stackSpacing = 0;
+  double stackPaddingLeft = 0, stackPaddingTop = 0, stackPaddingRight = 0, stackPaddingBottom = 0;
+  StackSize stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;  // absent = Hug (Figma's files)
+  StackSize stackCounterSizing = StackSize::FIXED;
+  StackJustify stackPrimaryAlignItems = StackJustify::MIN;
+  StackAlign stackCounterAlignItems = StackAlign::MIN;
+  StackCounterAlignContent stackCounterAlignContent = StackCounterAlignContent::AUTO;
+  StackWrap stackWrap = StackWrap::NO_WRAP;
+  // Absent = the same as stackSpacing (what Figma's own layout does: stacks_wrap.fig).
+  std::optional<double> stackCounterSpacing;
+  bool stackReverseZIndex = false;
+  bool bordersTakeSpace = false;
+  bool operator==(const StackFacet&) const = default;
+};
+
+// Shapes and vectors.
+struct ShapeFacet {
+  uint32_t count = 0;            // REGULAR_POLYGON / STAR points
+  double starInnerScale = 0;     // STAR "Ratio"
+  ArcData arcData;               // ELLIPSE
+  VectorData vectorData;         // VECTOR (and LINE arrows)
+  VectorMirror handleMirroring = VectorMirror::NONE;
+  BooleanOperation booleanOperation = BooleanOperation::UNION;
+  bool operator==(const ShapeFacet&) const = default;
+};
+
+// Strokes beyond the common ones: dashes, per-side weights, smoothed corners.
+struct StrokeFacet {
+  std::vector<double> dashPattern;
+  // Per-side stroke weights (rect-like frames and rectangles), top, right, bottom, left.
+  std::array<double, 4> borderWeights{0, 0, 0, 0};
+  bool borderStrokeWeightsIndependent = false;
+  double cornerSmoothing = 0;
+  bool operator==(const StrokeFacet&) const = default;
+};
+
+// Components and instances (docs/schema.md §5).
+struct ComponentFacet {
   SymbolData symbolData;               // INSTANCE: its main and its overrides
   Guid overriddenSymbolID = kNoGuid;   // override entries: a nested instance swapped to another main
   std::vector<ComponentPropDef> componentPropDefs;           // a SYMBOL, or a component set (all its properties)
   std::vector<ComponentPropAssignment> componentPropAssignments;  // an instance's property values
-  std::vector<ParamBinding> parameterConsumptionMap;         // fields bound to properties (and variables)
   bool isStateGroup = false;           // FRAME: a component set
   std::vector<VariantPropSpec> variantPropSpecs;             // a variant: its value for each VARIANT property
   std::vector<StateGroupOrder> stateGroupPropertyValueOrders;
   bool propsAreBubbled = false;        // a nested instance exposed to its component's instances
   bool isSlot = false;                 // FRAME inside a component: a slot
   bool isSlotContent = false;          // FRAME under an instance: its slot content
-  Guid detachedSymbolId = kNoGuid;     // a frame detached from this main
+  AssetId detachedSymbolId;            // a frame detached from this main (a library main by key: assetRef)
   bool isSoftDeleted = false;          // a deleted main / variable kept for what uses it (on the internal canvas)
   std::vector<Guid> ancestorPathBeforeDeletion;
-  // Variables, modes and styles (docs/schema.md §6).
+  bool operator==(const ComponentFacet&) const = default;
+};
+
+// What a layer refers to: explicit modes and styles (docs/schema.md §6).
+struct RefsFacet {
   std::vector<VariableModeEntry> variableModeBySetMap;  // explicit modes; no entry for a collection = Auto
   AssetId styleIdForFill, styleIdForStrokeFill, styleIdForText, styleIdForEffect, styleIdForGrid;
+  bool operator==(const RefsFacet&) const = default;
+};
+
+// Assets (styles, collections, variables, components' bookkeeping) and libraries (docs/schema.md §6, §8).
+struct AssetFacet {
   StyleType styleType = StyleType::NONE;  // a style node (under the internal canvas)
   std::string sortPosition;               // styles, collections, variables: their order in the panels
   std::string description;
@@ -1001,12 +1023,95 @@ struct NodeProps {
   std::vector<VariableModeValue> variableDataValues;   // VARIABLE: one value per mode
   std::optional<std::vector<VariableScope>> variableScopes;  // absent = [ALL_SCOPES]; empty = no picker
   std::vector<CodeSyntaxEntry> codeSyntax;
-  // Libraries (docs/schema.md §8).
   std::string version;                    // a library copy: the versionHash it was copied at
   std::string publishedVersion;           // a local asset: its versionHash at its last publish
   std::string sourceLibraryKey;           // a library copy's root: its library's FileKey
   Guid publishID = kNoGuid;               // a library copy (its SYMBOLs and sets too): the asset's GUID in its library
   LibraryMoveInfo libraryMoveInfo;        // a published main pasted from another file
+  bool operator==(const AssetFacet&) const = default;
+};
+
+// Rarely set: a page's colour and kind, layout guides, size limits.
+struct RareFacet {
+  Color backgroundColor{0, 0, 0, 0};  // CANVAS: the page colour
+  bool backgroundEnabled = false;     // CANVAS
+  bool internalOnly = false;          // CANVAS: the hidden Internal Only Canvas
+  std::vector<LayoutGrid> layoutGrids;  // frames
+  Vec2 minSize, maxSize;  // an axis value of 0 = no limit
+  bool operator==(const RareFacet&) const = default;
+};
+
+// Every field's default is what its absence means in schema/document.kiwi
+// (docs/schema.md §3.4): kiwi zero values, except visible = true, opacity = 1,
+// transform = identity, stackPrimarySizing = Hug, stackChildAlignSelf = AUTO.
+// Tools write Figma's per-tool defaults explicitly (defaultProps).
+struct NodeProps {
+  // Out of line (Node.cpp): a NodeProps is large, and inlining its members' construction and destruction at every
+  // NodeChange made the Wasm grow by hundreds of KB.
+  NodeProps();
+  NodeProps(const NodeProps&);
+  NodeProps(NodeProps&&) noexcept;
+  NodeProps& operator=(const NodeProps&);
+  NodeProps& operator=(NodeProps&&) noexcept;
+  ~NodeProps();
+
+  // ---- The core: every node ----
+  NodeType type = NodeType::NONE;
+  std::string name;
+  bool visible = true;
+  bool locked = false;
+  bool frameMaskDisabled = false;  // a frame clips its content unless this is set
+  bool resizeToFit = false;        // a FRAME that is a group
+  double opacity = 1;
+  Mat2x3 transform;  // node space → parent space
+  Vec2 size;
+  std::vector<Paint> fillPaints;
+  std::vector<Paint> strokePaints;
+  double strokeWeight = 0;
+  StrokeAlign strokeAlign = StrokeAlign::CENTER;
+  BlendMode blendMode = BlendMode::PASS_THROUGH;
+  bool mask = false;  // "Use as mask": masks the siblings above it
+  MaskType maskType = MaskType::ALPHA;
+  StrokeCap strokeCap = StrokeCap::NONE;
+  StrokeJoin strokeJoin = StrokeJoin::MITER;
+  // Auto layout, as a child; constraints.
+  StackCounterAlign stackChildAlignSelf = StackCounterAlign::AUTO;
+  StackPositioning stackPositioning = StackPositioning::AUTO;
+  ConstraintType horizontalConstraint = ConstraintType::MIN;
+  ConstraintType verticalConstraint = ConstraintType::MIN;
+  bool proportionsConstrained = false;
+  double stackChildPrimaryGrow = 0;
+  double miterLimit = 4;
+  CornerRadii cornerRadii{0, 0, 0, 0};
+  std::vector<Effect> effects;
+  ParentIndex parentIndex;
+  Guid overrideKey = kNoGuid;          // a node inside a component: its stable key (absent = its own GUID)
+  std::vector<ParamBinding> parameterConsumptionMap;         // fields bound to properties (and variables)
+
+  // ---- Facets (allocated when used) ----
+  const TextFacet& text() const { return text_.get(); }
+  TextFacet& text() { return text_.edit(); }
+  const StackFacet& stack() const { return stack_.get(); }
+  StackFacet& stack() { return stack_.edit(); }
+  const ShapeFacet& shape() const { return shape_.get(); }
+  ShapeFacet& shape() { return shape_.edit(); }
+  const StrokeFacet& stroke() const { return stroke_.get(); }
+  StrokeFacet& stroke() { return stroke_.edit(); }
+  const ComponentFacet& comp() const { return comp_.get(); }
+  ComponentFacet& comp() { return comp_.edit(); }
+  const RefsFacet& refs() const { return refs_.get(); }
+  RefsFacet& refs() { return refs_.edit(); }
+  const AssetFacet& asset() const { return asset_.get(); }
+  AssetFacet& asset() { return asset_.edit(); }
+  const RareFacet& rare() const { return rare_.get(); }
+  RareFacet& rare() { return rare_.edit(); }
+  // Which facets are allocated (bit i: text, stack, shape, stroke, comp, refs, asset, rare).
+  uint32_t facets() const;
+  // Frees the facets that hold only defaults (what the document does with every node it stores).
+  void compact();
+  // The heap bytes the facets take (for engine_stats nodeBytes).
+  size_t facetBytes() const;
+
   // The fields the engine doesn't model (exportSettings, guides, prototype…): schema
   // name → the field's kiwi bytes (varuint id, value). A CHANGED change's `extra`
   // merges into the node's (an empty value removes that field); CREATED replaces it.
@@ -1029,23 +1134,23 @@ struct NodeProps {
   bool isRectLike() const { return type == NodeType::ROUNDED_RECTANGLE || type == NodeType::RECTANGLE; }
   bool clipsContent() const { return isFrameLike() && !frameMaskDisabled; }
   bool isAutoLayout() const {
-    return isFrameLike() && (stackMode == StackMode::HORIZONTAL || stackMode == StackMode::VERTICAL);
+    return isFrameLike() && (stack().stackMode == StackMode::HORIZONTAL || stack().stackMode == StackMode::VERTICAL);
   }
-  bool hugsPrimary() const { return stackPrimarySizing != StackSize::FIXED; }
-  bool hugsCounter() const { return stackCounterSizing != StackSize::FIXED; }
+  bool hugsPrimary() const { return stack().stackPrimarySizing != StackSize::FIXED; }
+  bool hugsCounter() const { return stack().stackCounterSizing != StackSize::FIXED; }
   // Whether this node is laid out by its auto-layout parent (absolute ones aren't).
   bool inFlow() const { return visible && stackPositioning != StackPositioning::ABSOLUTE; }
-  bool isComponentSet() const { return type == NodeType::FRAME && isStateGroup; }
+  bool isComponentSet() const { return type == NodeType::FRAME && comp().isStateGroup; }
   // A component, a component set or an instance: drawn selected / hovered in the component purple.
   bool isComponentish() const { return type == NodeType::SYMBOL || type == NodeType::INSTANCE || isComponentSet(); }
   // The stable key of a node inside a component (docs/schema.md §5.1).
   Guid keyOf(Guid guid) const { return overrideKey != kNoGuid ? overrideKey : guid; }
-  bool isStyle() const { return styleType != StyleType::NONE; }
+  bool isStyle() const { return asset().styleType != StyleType::NONE; }
   // Whether anything on the node is bound to a variable or a style (what the resolver looks at).
   bool hasBindings() const;
   // The explicit mode for a collection (kNoGuid: Auto).
   Guid explicitMode(Guid set, const std::string& setKey = {}) const {
-    for (auto& e : variableModeBySetMap)
+    for (auto& e : refs().variableModeBySetMap)
       if ((set != kNoGuid && e.set.guid == set) || (!setKey.empty() && e.set.key == setKey)) return e.mode;
     return kNoGuid;
   }
@@ -1053,6 +1158,18 @@ struct NodeProps {
   Guid defaultMode() const;
   // VARIABLE_SET: its modes in order (the default first).
   std::vector<VariableSetMode> orderedModes() const;
+
+ private:
+  Facet<TextFacet> text_;
+  Facet<StackFacet> stack_;
+  Facet<ShapeFacet> shape_;
+  Facet<StrokeFacet> stroke_;
+  Facet<ComponentFacet> comp_;
+  Facet<RefsFacet> refs_;
+  Facet<AssetFacet> asset_;
+  Facet<RareFacet> rare_;
+  friend void copyFields(NodeProps& to, const NodeProps& from, FieldMask mask);
+  friend FieldMask differingFields(const NodeProps& a, const NodeProps& b, FieldMask mask);
 };
 
 // One symbolOverrides entry: the overridden fields (`mask`) of the sublayer at `path` (empty = the root).

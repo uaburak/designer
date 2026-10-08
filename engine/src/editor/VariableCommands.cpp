@@ -328,7 +328,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
   };
   auto collectionOfVar = [&](Guid v) {
     const NodeProps* p = variableNode(v);
-    return p ? findCollection(p->variableSetID) : kNoGuid;
+    return p ? findCollection(p->asset().variableSetID) : kNoGuid;
   };
   // The live variables of a collection by name (excluding `except`).
   auto nameTaken = [&](Guid collection, const std::string& name, const std::unordered_set<Guid, GuidHash>& except) {
@@ -345,14 +345,14 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
   auto keyAfter = [&](const std::vector<Guid>& ordered) {
     std::string last;
     for (Guid g : ordered)
-      if (doc_.get(g)->props.sortPosition > last) last = doc_.get(g)->props.sortPosition;
+      if (doc_.get(g)->props.asset().sortPosition > last) last = doc_.get(g)->props.asset().sortPosition;
     std::string k = fractional::keyBetween(last, std::nullopt, fractional::Bias::Low);
     return k.empty() ? std::string("!") : k;
   };
   // Writes sortPositions so that `order` is the order; only `moved` change when their neighbours allow it.
   auto writeOrder = [&](const std::vector<Guid>& order, const std::unordered_set<Guid, GuidHash>& moved) {
     std::vector<std::string> keys(order.size());
-    for (size_t i = 0; i < order.size(); i++) keys[i] = doc_.get(order[i])->props.sortPosition;
+    for (size_t i = 0; i < order.size(); i++) keys[i] = doc_.get(order[i])->props.asset().sortPosition;
     bool ok = true;
     for (size_t i = 0; i < order.size() && ok;) {
       if (!moved.count(order[i])) {
@@ -381,10 +381,10 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     }
     if (!ok) keys = fractional::rebalancedKeys(static_cast<int>(order.size()));
     for (size_t i = 0; i < order.size(); i++) {
-      if (doc_.get(order[i])->props.sortPosition == keys[i]) continue;
+      if (doc_.get(order[i])->props.asset().sortPosition == keys[i]) continue;
       NodeChange c = NodeChange::changed(order[i]);
       c.mask = F_SORT_POSITION;
-      c.props.sortPosition = keys[i];
+      c.props.asset().sortPosition = keys[i];
       write(c);
     }
   };
@@ -404,7 +404,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     writeOrder(rest, moving);
   };
   auto variableAliases = [&](const NodeProps& vp, Guid target) {
-    for (auto& v : vp.variableDataValues) {
+    for (auto& v : vp.asset().variableDataValues) {
       std::vector<const AssetId*> as;
       aliasesOf(v.data, as);
       for (const AssetId* a : as)
@@ -423,7 +423,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (!seen.insert(v).second) continue;
       const NodeProps* vp = variableNode(v);
       if (!vp) continue;
-      for (auto& val : vp->variableDataValues) {
+      for (auto& val : vp->asset().variableDataValues) {
         std::vector<const AssetId*> as;
         aliasesOf(val.data, as);
         for (const AssetId* a : as) {
@@ -440,7 +440,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       const json::Value* idv = a.get("id");
       Guid target = idv ? guidOf(*idv) : kNoGuid;
       const NodeProps* tp = variableNode(target);
-      if (!tp || tp->variableResolvedType != want) return false;
+      if (!tp || tp->asset().variableResolvedType != want) return false;
       if (self != kNoGuid && (target == self || reaches(target, self))) return false;  // no cycles, no self-alias
       d = VariableData::aliasOf(target, want);
       return true;
@@ -526,7 +526,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (referenced(v, deleting)) {
         NodeChange c = NodeChange::changed(v);
         c.mask = F_IS_SOFT_DELETED;
-        c.props.isSoftDeleted = true;
+        c.props.comp().isSoftDeleted = true;
         write(c);
       } else {
         write(NodeChange::removed(v));
@@ -538,11 +538,11 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     NodeProps p;
     p.type = NodeType::VARIABLE;
     p.name = name;
-    p.variableSetID = AssetId::of(collection);
-    p.variableResolvedType = type;
-    p.variableDataValues = values;
-    p.sortPosition = sortPosition;
-    p.key = newAssetKey();
+    p.asset().variableSetID = AssetId::of(collection);
+    p.asset().variableResolvedType = type;
+    p.asset().variableDataValues = values;
+    p.asset().sortPosition = sortPosition;
+    p.asset().key = newAssetKey();
     Guid canvas = internalCanvas(true);
     p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
     Guid g = newGuid();
@@ -558,17 +558,17 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     std::vector<Guid> made;
     for (Guid v : vars) {
       const NodeProps src = *variableNode(v);
-      std::vector<VariableModeValue> values = src.variableDataValues;
+      std::vector<VariableModeValue> values = src.asset().variableDataValues;
       if (modeMap)
         for (auto& mv : values)
           if (auto it = modeMap->find(mv.modeID); it != modeMap->end()) mv.modeID = it->second;
-      Guid g = newVariable(collection, rename(src.name), src.variableResolvedType, values, std::string());
+      Guid g = newVariable(collection, rename(src.name), src.asset().variableResolvedType, values, std::string());
       NodeChange c = NodeChange::changed(g);
       c.mask = F_VARIABLE_SCOPES | F_CODE_SYNTAX | F_DESCRIPTION | F_IS_PUBLISHABLE;
-      c.props.variableScopes = src.variableScopes;
-      c.props.codeSyntax = src.codeSyntax;
-      c.props.description = src.description;
-      c.props.isPublishable = src.isPublishable;
+      c.props.asset().variableScopes = src.asset().variableScopes;
+      c.props.asset().codeSyntax = src.asset().codeSyntax;
+      c.props.asset().description = src.asset().description;
+      c.props.asset().isPublishable = src.asset().isPublishable;
       write(c);
       copies[v] = g;
       made.push_back(g);
@@ -582,11 +582,11 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
           if (auto it = copies.find(findVariable(d.alias)); it != copies.end()) d.alias = AssetId::of(it->second), changed = true;
         for (auto& a : d.args) remap(a);
       };
-      for (auto& mv : p.variableDataValues) remap(mv.data);
+      for (auto& mv : p.asset().variableDataValues) remap(mv.data);
       if (changed) {
         NodeChange c = NodeChange::changed(g);
         c.mask = F_VARIABLE_DATA_VALUES;
-        c.props.variableDataValues = p.variableDataValues;
+        c.props.asset().variableDataValues = p.asset().variableDataValues;
         write(c);
       }
     }
@@ -629,7 +629,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
   auto writeModes = [&](Guid collection, const std::vector<VariableSetMode>& modes) {
     NodeChange c = NodeChange::changed(collection);
     c.mask = F_VARIABLE_SET_MODES;
-    c.props.variableSetModes = modes;
+    c.props.asset().variableSetModes = modes;
     write(c);
   };
   auto refsOrSelection = [&]() { return refsArg(args, arg(args, "refs") ? "refs" : "ref"); };
@@ -654,9 +654,9 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       p.type = NodeType::VARIABLE_SET;
       p.name = name;
       Guid mode = newGuid();
-      p.variableSetModes = {{mode, "Mode 1", "!"}};
-      p.sortPosition = keyAfter(collections());
-      p.key = newAssetKey();
+      p.asset().variableSetModes = {{mode, "Mode 1", "!"}};
+      p.asset().sortPosition = keyAfter(collections());
+      p.asset().key = newAssetKey();
       p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
       Guid g = newGuid();
       write(NodeChange::created(g, p));
@@ -685,7 +685,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (kept) {
         NodeChange c = NodeChange::changed(g);
         c.mask = F_IS_SOFT_DELETED;
-        c.props.isSoftDeleted = true;
+        c.props.comp().isSoftDeleted = true;
         write(c);
       } else {
         write(NodeChange::removed(g));
@@ -713,14 +713,14 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       p.type = NodeType::VARIABLE_SET;
       p.name = src.name + " copy";
       std::unordered_map<Guid, Guid, GuidHash> modeMap;
-      for (const VariableSetMode& m : src.variableSetModes) {
+      for (const VariableSetMode& m : src.asset().variableSetModes) {
         Guid nm = newGuid();
         modeMap[m.id] = nm;
-        p.variableSetModes.push_back({nm, m.name, m.sortPosition});
+        p.asset().variableSetModes.push_back({nm, m.name, m.sortPosition});
       }
-      p.description = src.description;
-      p.isPublishable = src.isPublishable;
-      p.key = newAssetKey();
+      p.asset().description = src.asset().description;
+      p.asset().isPublishable = src.asset().isPublishable;
+      p.asset().key = newAssetKey();
       p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
       Guid copy = newGuid();
       // Right after the source.
@@ -739,7 +739,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     case CommandId::ADD_VARIABLE_MODE: {
       Guid g = argGuid(args, "collection");
       const NodeProps* sp = collectionNode(g);
-      if (!sp || sp->variableSetModes.size() >= kMaxModes) return E_INVALID;
+      if (!sp || sp->asset().variableSetModes.size() >= kMaxModes) return E_INVALID;
       auto modes = modesOf(g);
       std::string name;
       if (argString(args, "name", name)) {
@@ -764,11 +764,11 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         const NodeProps& vp = doc_.get(v)->props;
         NodeChange c = NodeChange::changed(v);
         c.mask = F_VARIABLE_DATA_VALUES;
-        c.props.variableDataValues = vp.variableDataValues;
-        VariableData value = defaultValue(vp.variableResolvedType);
-        for (auto& mv : vp.variableDataValues)
+        c.props.asset().variableDataValues = vp.asset().variableDataValues;
+        VariableData value = defaultValue(vp.asset().variableResolvedType);
+        for (auto& mv : vp.asset().variableDataValues)
           if (mv.modeID == def) value = mv.data;
-        c.props.variableDataValues.push_back({mode, value});
+        c.props.asset().variableDataValues.push_back({mode, value});
         write(c);
       }
       created_ = {mode};
@@ -781,7 +781,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (!collectionNode(g) || !argString(args, "name", name)) return E_INVALID;
       name = trim(name);
       if (name.empty() || name.size() > kMaxModeNameLength) return E_INVALID;
-      auto modes = collectionNode(g)->variableSetModes;
+      auto modes = collectionNode(g)->asset().variableSetModes;
       auto it = std::find_if(modes.begin(), modes.end(), [&](const VariableSetMode& m) { return m.id == mode; });
       if (it == modes.end()) return E_INVALID;
       it->name = name;
@@ -793,7 +793,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     case CommandId::DELETE_VARIABLE_MODE: {
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
       if (!collectionNode(g)) return E_INVALID;
-      auto modes = collectionNode(g)->variableSetModes;
+      auto modes = collectionNode(g)->asset().variableSetModes;
       auto it = std::find_if(modes.begin(), modes.end(), [&](const VariableSetMode& m) { return m.id == mode; });
       if (it == modes.end() || modes.size() < 2) return E_INVALID;
       modes.erase(it);
@@ -802,8 +802,8 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       for (Guid v : variablesOf(g, true)) {
         NodeChange c = NodeChange::changed(v);
         c.mask = F_VARIABLE_DATA_VALUES;
-        c.props.variableDataValues = doc_.get(v)->props.variableDataValues;
-        auto& vals = c.props.variableDataValues;
+        c.props.asset().variableDataValues = doc_.get(v)->props.asset().variableDataValues;
+        auto& vals = c.props.asset().variableDataValues;
         vals.erase(std::remove_if(vals.begin(), vals.end(), [&](const VariableModeValue& mv) { return mv.modeID == mode; }), vals.end());
         write(c);
       }
@@ -829,7 +829,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
     }
     case CommandId::DUPLICATE_VARIABLE_MODE: {
       Guid g = argGuid(args, "collection"), mode = argGuid(args, "mode");
-      if (!collectionNode(g) || collectionNode(g)->variableSetModes.size() >= kMaxModes) return E_INVALID;
+      if (!collectionNode(g) || collectionNode(g)->asset().variableSetModes.size() >= kMaxModes) return E_INVALID;
       auto modes = modesOf(g);
       auto it = std::find_if(modes.begin(), modes.end(), [&](const VariableSetMode& m) { return m.id == mode; });
       if (it == modes.end()) return E_INVALID;
@@ -848,9 +848,9 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       for (Guid v : variablesOf(g, true)) {
         NodeChange c = NodeChange::changed(v);
         c.mask = F_VARIABLE_DATA_VALUES;
-        c.props.variableDataValues = doc_.get(v)->props.variableDataValues;
-        for (auto& mv : doc_.get(v)->props.variableDataValues)
-          if (mv.modeID == mode) c.props.variableDataValues.push_back({copy, mv.data});
+        c.props.asset().variableDataValues = doc_.get(v)->props.asset().variableDataValues;
+        for (auto& mv : doc_.get(v)->props.asset().variableDataValues)
+          if (mv.modeID == mode) c.props.asset().variableDataValues.push_back({copy, mv.data});
         write(c);
       }
       created_ = {copy};
@@ -878,7 +878,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       VariableData value = defaultValue(type);
       if (const json::Value* v = arg(args, "value"); v && !parseValue(*v, type, kNoGuid, value)) return E_INVALID;
       std::vector<VariableModeValue> values;
-      for (auto& m : sp->variableSetModes) values.push_back({m.id, value});
+      for (auto& m : sp->asset().variableSetModes) values.push_back({m.id, value});
       begin(TxnKind::USER, "Create variable");
       newVariable(g, name, type, values, keyAfter(variablesOf(g, true)));
       commit();
@@ -961,21 +961,21 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       const NodeProps* vp = variableNode(v);
       const json::Value* value = arg(args, "value");
       if (!vp || !value) return E_INVALID;
-      Guid g = findCollection(vp->variableSetID);
+      Guid g = findCollection(vp->asset().variableSetID);
       Guid mode = arg(args, "mode") ? argGuid(args, "mode") : (collectionNode(g) ? collectionNode(g)->defaultMode() : kNoGuid);
       bool known = false;
       if (const NodeProps* sp = collectionNode(g))
-        for (auto& m : sp->variableSetModes) known |= m.id == mode;
+        for (auto& m : sp->asset().variableSetModes) known |= m.id == mode;
       VariableData data;
-      if (!known || !parseValue(*value, vp->variableResolvedType, v, data)) return E_INVALID;
-      std::vector<VariableModeValue> values = vp->variableDataValues;
+      if (!known || !parseValue(*value, vp->asset().variableResolvedType, v, data)) return E_INVALID;
+      std::vector<VariableModeValue> values = vp->asset().variableDataValues;
       auto it = std::find_if(values.begin(), values.end(), [&](const VariableModeValue& mv) { return mv.modeID == mode; });
       if (it != values.end()) it->data = data;
       else values.push_back({mode, data});
       begin(TxnKind::USER, "Edit variable");
       NodeChange c = NodeChange::changed(v);
       c.mask = F_VARIABLE_DATA_VALUES;
-      c.props.variableDataValues = values;
+      c.props.asset().variableDataValues = values;
       write(c);
       commit();
       return OK;
@@ -1003,7 +1003,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       for (Guid v : vars) {
         NodeChange c = NodeChange::changed(v);
         c.mask = F_VARIABLE_SCOPES;
-        c.props.variableScopes = scopes;
+        c.props.asset().variableScopes = scopes;
         write(c);
       }
       commit();
@@ -1016,14 +1016,14 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (!variableNode(v) || !argString(args, "platform", platform) || !enumFromName(platform, pl)) return E_INVALID;
       argString(args, "value", value);
       value = trim(value);
-      std::vector<CodeSyntaxEntry> list = variableNode(v)->codeSyntax;
+      std::vector<CodeSyntaxEntry> list = variableNode(v)->asset().codeSyntax;
       list.erase(std::remove_if(list.begin(), list.end(), [&](const CodeSyntaxEntry& e) { return e.platform == pl; }), list.end());
       if (!value.empty()) list.push_back({pl, value});
       std::sort(list.begin(), list.end(), [](const CodeSyntaxEntry& a, const CodeSyntaxEntry& b) { return a.platform < b.platform; });
       begin(TxnKind::USER, "Edit code syntax");
       NodeChange c = NodeChange::changed(v);
       c.mask = F_CODE_SYNTAX;
-      c.props.codeSyntax = list;
+      c.props.asset().codeSyntax = list;
       write(c);
       commit();
       return OK;
@@ -1035,7 +1035,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       begin(TxnKind::USER, "Edit description");
       NodeChange c = NodeChange::changed(v);
       c.mask = F_DESCRIPTION;
-      c.props.description = description;
+      c.props.asset().description = description;
       write(c);
       commit();
       return OK;
@@ -1050,7 +1050,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       for (Guid v : vars) {
         NodeChange c = NodeChange::changed(v);
         c.mask = F_IS_PUBLISHABLE;
-        c.props.isPublishable = !hidden->boolean;
+        c.props.asset().isPublishable = !hidden->boolean;
         write(c);
       }
       commit();
@@ -1161,8 +1161,8 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         if (v && !v->isNull() && !(v->isString() && v->string.empty())) {
           var = guidOf(*v);
           const NodeProps* vp = variableNode(var);
-          if (!vp || vp->isSoftDeleted || !accepts(t, vp->variableResolvedType)) return E_INVALID;
-          type = vp->variableResolvedType;
+          if (!vp || vp->comp().isSoftDeleted || !accepts(t, vp->asset().variableResolvedType)) return E_INVALID;
+          type = vp->asset().variableResolvedType;
         }
       }
       std::vector<Guid> refs = refsOrSelection();
@@ -1188,7 +1188,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
               b.data = data;
               map.push_back(b);
               // A typography binding on a styled text detaches the style (the layer now deviates from it).
-              if (isTypographyField(t.field) && p.styleIdForText.present()) c.mask |= F_STYLE_ID_TEXT;
+              if (isTypographyField(t.field) && p.refs().styleIdForText.present()) c.mask |= F_STYLE_ID_TEXT;
             }
             break;
           }
@@ -1222,14 +1222,14 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
             break;
           }
           case BindTarget::Kind::GRID: {
-            std::vector<LayoutGrid> grids = p.layoutGrids;
+            std::vector<LayoutGrid> grids = p.rare().layoutGrids;
             if (t.index >= grids.size()) continue;
             LayoutGrid& g = grids[t.index];
             (t.member == "numSections" ? g.numSectionsVar : t.member == "offset" ? g.offsetVar
                                                          : t.member == "sectionSize" ? g.sectionSizeVar
                                                                                      : g.gutterSizeVar) = data;
             c.mask = F_LAYOUT_GRIDS;
-            c.props.layoutGrids = grids;
+            c.props.rare().layoutGrids = grids;
             break;
           }
         }
@@ -1249,7 +1249,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       if (const json::Value* m = arg(args, "mode"); m && !m->isNull() && !(m->isString() && m->string.empty())) {
         mode = guidOf(*m);
         bool known = false;
-        for (auto& x : sp->variableSetModes) known |= x.id == mode;
+        for (auto& x : sp->asset().variableSetModes) known |= x.id == mode;
         if (!known) return E_INVALID;
       }
       std::vector<Guid> refs;
@@ -1262,10 +1262,10 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         const NodeProps& p = doc_.get(r)->props;
         NodeChange c = NodeChange::changed(r);
         c.mask = F_VARIABLE_MODES;
-        c.props.variableModeBySetMap = p.variableModeBySetMap;
-        auto& list = c.props.variableModeBySetMap;
+        c.props.refs().variableModeBySetMap = p.refs().variableModeBySetMap;
+        auto& list = c.props.refs().variableModeBySetMap;
         list.erase(std::remove_if(list.begin(), list.end(),
-                                  [&](const VariableModeEntry& e) { return e.set.guid == g || (!e.set.key.empty() && e.set.key == sp->key); }),
+                                  [&](const VariableModeEntry& e) { return e.set.guid == g || (!e.set.key.empty() && e.set.key == sp->asset().key); }),
                    list.end());
         if (mode != kNoGuid) list.push_back({AssetId::of(g), mode});
         write(c);
@@ -1294,15 +1294,15 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       p.strokeWeight = 0;
       p.size = {100, 100};
       p.name = name;
-      p.styleType = type;
-      p.autoRename = false;
+      p.asset().styleType = type;
+      p.text().autoRename = false;
       switch (type) {
         case StyleType::FILL:
           p.fillPaints = fp ? (strokes ? fp->strokePaints : fp->fillPaints) : std::vector<Paint>{Paint::solid(Color{1, 1, 1, 1})};
           break;
         case StyleType::TEXT:
-          p.textData.characters = "Ag";
-          p.textAutoResize = TextAutoResize::NONE;
+          p.text().textData.characters = "Ag";
+          p.text().textAutoResize = TextAutoResize::NONE;
           p.fillPaints = {Paint::solid(Color{0, 0, 0, 1})};
           if (fp) {
             copyFields(p, *fp, kTextStyleFieldsMask);
@@ -1324,14 +1324,14 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
           break;
         case StyleType::GRID:
           if (fp) {
-            p.layoutGrids = fp->layoutGrids;
+            p.rare().layoutGrids = fp->rare().layoutGrids;
           } else {
             LayoutGrid g;  // Figma's default layout guide: a 10 px grid, red 10 %
             g.type = LayoutGridType::STRETCH;
             g.pattern = LayoutGridPattern::GRID;
             g.sectionSize = 10;
             g.color = Color{1, 0, 0, 0.1f};
-            p.layoutGrids = {g};
+            p.rare().layoutGrids = {g};
           }
           break;
         default: break;
@@ -1340,8 +1340,8 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       bool applyIt = fp && apply && apply->isBool() && apply->boolean;
       begin(TxnKind::USER, "Create style");
       Guid canvas = internalCanvas(true);
-      p.sortPosition = keyAfter(stylesOf(StyleType::NONE));
-      p.key = newAssetKey();
+      p.asset().sortPosition = keyAfter(stylesOf(StyleType::NONE));
+      p.asset().key = newAssetKey();
       p.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
       Guid g = newGuid();
       write(NodeChange::created(g, p));
@@ -1354,11 +1354,11 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
                                                     : F_STYLE_ID_GRID;
         c.mask = bit;
         AssetId ref = AssetId::of(g);
-        if (bit == F_STYLE_ID_FILL) c.props.styleIdForFill = ref;
-        else if (bit == F_STYLE_ID_STROKE) c.props.styleIdForStrokeFill = ref;
-        else if (bit == F_STYLE_ID_TEXT) c.props.styleIdForText = ref;
-        else if (bit == F_STYLE_ID_EFFECT) c.props.styleIdForEffect = ref;
-        else c.props.styleIdForGrid = ref;
+        if (bit == F_STYLE_ID_FILL) c.props.refs().styleIdForFill = ref;
+        else if (bit == F_STYLE_ID_STROKE) c.props.refs().styleIdForStrokeFill = ref;
+        else if (bit == F_STYLE_ID_TEXT) c.props.refs().styleIdForText = ref;
+        else if (bit == F_STYLE_ID_EFFECT) c.props.refs().styleIdForEffect = ref;
+        else c.props.refs().styleIdForGrid = ref;
         write(c);
       }
       commit();
@@ -1380,21 +1380,21 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       for (Guid u : users) {
         const NodeProps& p = doc_.get(u)->props;
         NodeChange c = NodeChange::changed(u);
-        if (ours(p.styleIdForFill)) c.mask |= F_STYLE_ID_FILL;
-        if (ours(p.styleIdForStrokeFill)) c.mask |= F_STYLE_ID_STROKE;
-        if (ours(p.styleIdForText)) c.mask |= F_STYLE_ID_TEXT;
-        if (ours(p.styleIdForEffect)) c.mask |= F_STYLE_ID_EFFECT;
-        if (ours(p.styleIdForGrid)) c.mask |= F_STYLE_ID_GRID;
+        if (ours(p.refs().styleIdForFill)) c.mask |= F_STYLE_ID_FILL;
+        if (ours(p.refs().styleIdForStrokeFill)) c.mask |= F_STYLE_ID_STROKE;
+        if (ours(p.refs().styleIdForText)) c.mask |= F_STYLE_ID_TEXT;
+        if (ours(p.refs().styleIdForEffect)) c.mask |= F_STYLE_ID_EFFECT;
+        if (ours(p.refs().styleIdForGrid)) c.mask |= F_STYLE_ID_GRID;
         if (p.type == NodeType::INSTANCE) {
-          SymbolData sd = p.symbolData;
+          SymbolData sd = p.comp().symbolData;
           bool changed = false;
           for (SymbolOverride& o : sd.overrides) {
-            for (auto [bit, ref] : {std::pair{F_STYLE_ID_FILL, &o.props.styleIdForFill}, std::pair{F_STYLE_ID_STROKE, &o.props.styleIdForStrokeFill},
-                                    std::pair{F_STYLE_ID_TEXT, &o.props.styleIdForText}, std::pair{F_STYLE_ID_EFFECT, &o.props.styleIdForEffect},
-                                    std::pair{F_STYLE_ID_GRID, &o.props.styleIdForGrid}})
+            for (auto [bit, ref] : {std::pair{F_STYLE_ID_FILL, &o.props.refs().styleIdForFill}, std::pair{F_STYLE_ID_STROKE, &o.props.refs().styleIdForStrokeFill},
+                                    std::pair{F_STYLE_ID_TEXT, &o.props.refs().styleIdForText}, std::pair{F_STYLE_ID_EFFECT, &o.props.refs().styleIdForEffect},
+                                    std::pair{F_STYLE_ID_GRID, &o.props.refs().styleIdForGrid}})
               if ((o.mask & bit) && ours(*ref)) *ref = AssetId{}, changed = true;
           }
-          if (changed) c.mask |= F_SYMBOL_DATA, c.props.symbolData = sd;
+          if (changed) c.mask |= F_SYMBOL_DATA, c.props.comp().symbolData = sd;
         }
         if (!c.mask) continue;
         bool prev = resolving_;
@@ -1416,7 +1416,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         style = argGuid(args, "style");
         const NodeProps* sp = styleOf(style);
         if (!sp) return E_INVALID;
-        type = sp->styleType;
+        type = sp->asset().styleType;
         if (targetName.empty()) targetName = type == StyleType::FILL ? "FILL" : enumName(type);
         if (type == StyleType::FILL ? (targetName != "FILL" && targetName != "STROKE") : targetName != enumName(type)) return E_INVALID;
       } else if (targetName != "FILL" && targetName != "STROKE" && targetName != "TEXT" && targetName != "EFFECT" && targetName != "GRID") {
@@ -1436,16 +1436,16 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         NodeChange c = NodeChange::changed(r);
         c.mask = bit;
         AssetId ref = style != kNoGuid ? AssetId::of(style) : AssetId{};
-        if (bit == F_STYLE_ID_FILL) c.props.styleIdForFill = ref;
-        else if (bit == F_STYLE_ID_STROKE) c.props.styleIdForStrokeFill = ref;
-        else if (bit == F_STYLE_ID_TEXT) c.props.styleIdForText = ref;
-        else if (bit == F_STYLE_ID_EFFECT) c.props.styleIdForEffect = ref;
-        else c.props.styleIdForGrid = ref;
+        if (bit == F_STYLE_ID_FILL) c.props.refs().styleIdForFill = ref;
+        else if (bit == F_STYLE_ID_STROKE) c.props.refs().styleIdForStrokeFill = ref;
+        else if (bit == F_STYLE_ID_TEXT) c.props.refs().styleIdForText = ref;
+        else if (bit == F_STYLE_ID_EFFECT) c.props.refs().styleIdForEffect = ref;
+        else c.props.refs().styleIdForGrid = ref;
         if (bit == F_STYLE_ID_TEXT && style != kNoGuid) {
           // The whole layer takes the style: its runs' typography goes (their colours stay).
-          TextData t = p.textData;
+          TextData t = p.text().textData;
           text::clearRunFields(t, kTextStyleRunFields);
-          if (!(t == p.textData)) c.mask |= F_TEXT_DATA, c.props.textData = t;
+          if (!(t == p.text().textData)) c.mask |= F_TEXT_DATA, c.props.text().textData = t;
         }
         write(c);
       }
@@ -1457,7 +1457,7 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
       double index = 0;
       if (!styleOf(s) || !argNumber(args, "index", index)) return E_INVALID;
       begin(TxnKind::USER, "Move style");
-      reorder(stylesOf(styleOf(s)->styleType), {s}, index);
+      reorder(stylesOf(styleOf(s)->asset().styleType), {s}, index);
       commit();
       return OK;
     }

@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { CMD_ENABLED, MOD_ALT, MOD_SHIFT, POINTER_CAPTURE, PointerType, Status } from "../abi";
 import type { EngineEvent, EventOf, Message, NodeChange } from "../codec";
 import { Engine } from "../Engine";
+import { EngineStore } from "../EngineStore";
 import { BUNDLED_FACES, fonts } from "../fonts";
 import { loadEngine } from "../loadEngine";
 import { SAMPLE_DOCUMENT } from "../sampleDocument";
@@ -1174,5 +1175,55 @@ describe("engine (wasm, headless): derived data, the Layers outline, change byte
     expect(decodeKiwi(events[0].bytes!).nodeChanges![0]).toMatchObject({ guid: g(1, 21), name: "Renamed" });
     a.destroy();
     b.destroy();
+  });
+});
+
+describe("engine (wasm, headless): typed facet reads (round 4)", () => {
+  it("readFacets gives engine_read_nodes' values for every facet field, with no JSON", async () => {
+    const engine = await engineWithSample();
+    const ids = SAMPLE_DOCUMENT.nodeChanges.map((n) => n.guid as string);
+    const facets = ["geometry", "shape", "stack", "stroke", "text"] as const;
+    const typed = engine.readFacets([...ids, "77:77"], facets);
+    expect(typed[ids.length]).toBeNull();  // not there
+    let compared = 0;
+    ids.forEach((id, i) => {
+      const t = typed[i]!;
+      const full = engine.readNode(id) as unknown as Record<string, unknown>;
+      expect(t).not.toBeNull();
+      for (const [key, value] of Object.entries(t)) {
+        if (!(key in full)) continue;
+        expect([id, key, value]).toEqual([id, key, full[key]]);
+        compared++;
+      }
+      // An absent optional is left out, as the JSON read leaves it out.
+      if (!("stackCounterSpacing" in full)) expect("stackCounterSpacing" in t).toBe(false);
+    });
+    expect(compared).toBeGreaterThan(ids.length * 20);
+    engine.destroy();
+  });
+
+  it("the panels' store patches a gesture's geometry-only frames from typed facets, and reads in full otherwise", async () => {
+    const engine = await engineWithSample();
+    const id = SAMPLE_DOCUMENT.nodeChanges.find((n) => n.type === "FRAME")!.guid as string;
+    const store = new EngineStore(engine);
+    const before = store.readNode(id)!;
+    expect(store.reads).toEqual({ patched: 0, full: 1 });
+    engine.txnBegin("Move");
+    const t = before.transform!;
+    engine.setProps([id], { transform: { ...t, m02: t.m02 + 37 } });
+    const live = store.readNode(id)!;
+    expect(store.reads).toEqual({ patched: 1, full: 1 });
+    expect(live).not.toBe(before);
+    expect(live.transform).toEqual(engine.readNode(id)!.transform);
+    expect(live.transform!.m02).toBe(t.m02 + 37);
+    expect(live.name).toBe(before.name);
+    expect(live.fillPaints).toEqual(before.fillPaints);
+    engine.txnCommit();
+    // The commit (DOCUMENT_CHANGED) and a name change are read in full.
+    engine.setProps([id], { name: "Renamed" });
+    expect(store.readNode(id)!.name).toBe("Renamed");
+    expect(store.reads.full).toBe(2);
+    store.dispose();
+    engine.destroy();
   });
 });

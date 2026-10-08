@@ -39,6 +39,7 @@ _engine_gl_context_restored
 _engine_get_selection
 _engine_set_selection
 _engine_read_nodes
+_engine_read_facets
 _engine_layer_tree
 _engine_layer_changes
 _engine_layer_outline

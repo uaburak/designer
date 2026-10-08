@@ -7,6 +7,12 @@
  */
 import type { Camera, Guid, NodeChange, PageInfo, Selection, UndoState } from "./codec";
 import type { Engine } from "./Engine";
+import type { FacetName } from "./facets.generated";
+
+/** NODES_CHANGED's GEOMETRY group (engine.md §10.4): what a gesture's frames change. */
+const GEOMETRY_GROUP = 1;
+/** What a geometry-only change can touch, read typed (engine_read_facets) instead of the whole node as JSON. */
+const GEOMETRY_FACETS: readonly FacetName[] = ["geometry", "shape", "stroke"];
 
 export type Topic = "selection" | "tool" | "undo" | "camera" | "hover" | "pages" | "page" | "structure";
 
@@ -27,7 +33,11 @@ export class EngineStore {
   private readonly listeners = new Map<Topic, Set<() => void>>();
   private readonly nodeListeners = new Map<Guid, Set<() => void>>();
   private readonly versions = new Map<Guid, number>();
-  private readonly nodes = new Map<Guid, { version: number; node: NodeChange | null }>();
+  /** Per node, the version of its last change that wasn't geometry only (a full read is needed past it). */
+  private readonly fullVersions = new Map<Guid, number>();
+  private readonly nodes = new Map<Guid, { version: number; full: number; node: NodeChange | null }>();
+  /** Reads answered by patching geometry (typed facets) / by a full JSON read (tests, the bench). */
+  readonly reads = { patched: 0, full: 0 };
   private readonly unsubscribe: () => void;
 
   constructor(engine: Engine) {
@@ -62,7 +72,8 @@ export class EngineStore {
           this.structure++;
           return this.emit("structure");
         case "NODES_CHANGED":
-          for (const ref of event.refs) this.touch(ref);
+          // A gesture's frames (geometry only) are patched in from typed facet reads; anything else is read again.
+          event.refs.forEach((ref, i) => this.touch(ref, ((event.fieldGroupMask[i] ?? 0xff) & ~GEOMETRY_GROUP) === 0));
           return;
         case "DOCUMENT_CHANGED":
           // Either wire: a kiwi-wire message carries GUID objects (docs/engine-build.md "Figma parity round 3").
@@ -101,18 +112,36 @@ export class EngineStore {
     return () => set.delete(listener);
   }
 
-  /** The node's fields, re-read from the engine only after a change touched it (stable identity otherwise). */
+  /**
+   * The node's fields, re-read from the engine only after a change touched it (stable identity otherwise). After
+   * geometry-only changes (a drag's or a resize's frames) the cached node is patched from the typed geometry facets
+   * (engine_read_facets: no JSON, a few dozen numbers) instead of reading every field again.
+   */
   readNode(ref: Guid): NodeChange | null {
     const version = this.versions.get(ref) ?? 0;
+    const full = this.fullVersions.get(ref) ?? 0;
     const cached = this.nodes.get(ref);
     if (cached && cached.version === version) return cached.node;
-    const node = this.engine.destroyed ? null : this.engine.readNode(ref);
-    this.nodes.set(ref, { version, node });
+    if (this.engine.destroyed) {
+      this.nodes.set(ref, { version, full, node: null });
+      return null;
+    }
+    let node: NodeChange | null;
+    if (cached?.node && cached.full === full) {
+      const patch = this.engine.readFacets([ref], GEOMETRY_FACETS)[0];
+      node = patch ? ({ ...cached.node, ...patch } as NodeChange) : null;
+      this.reads.patched++;
+    } else {
+      node = this.engine.readNode(ref);
+      this.reads.full++;
+    }
+    this.nodes.set(ref, { version, full, node });
     return node;
   }
 
-  private touch(ref: Guid): void {
+  private touch(ref: Guid, geometryOnly = false): void {
     this.versions.set(ref, (this.versions.get(ref) ?? 0) + 1);
+    if (!geometryOnly) this.fullVersions.set(ref, (this.fullVersions.get(ref) ?? 0) + 1);
     this.nodeListeners.get(ref)?.forEach((l) => l());
   }
 

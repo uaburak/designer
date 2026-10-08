@@ -172,7 +172,7 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
       Vec2 q = W.inverse().apply(world);
       double w = p.size.x, h = p.size.y;
       if (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h) {
-        int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1;
+        int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
         double pad[4];
         Layout::padding(p, pad);
         auto inside = [&](const Rect& r) { return r.w > 0 && r.h > 0 && r.contains(q); };
@@ -184,7 +184,7 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
           onChild |= boxes.back().contains(q);
         }
         std::vector<Rect> gaps;
-        for (size_t i = 1; i < boxes.size() && p.stackWrap != StackWrap::WRAP; i++) {
+        for (size_t i = 1; i < boxes.size() && p.stack().stackWrap != StackWrap::WRAP; i++) {
           const Rect& a = boxes[i - 1];
           const Rect& b = boxes[i];
           if (P == 0 && b.x > a.right()) gaps.push_back({a.right(), pad[1], b.x - a.right(), h - pad[1] - pad[3]});
@@ -834,7 +834,7 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
 void Editor::updateInsertion(Guid frame, Vec2 world) {
   // Where the dragged layers will join the flow: before the first child whose middle is past the pointer.
   const NodeProps& fp = doc_.get(frame)->props;
-  int P = fp.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
+  int P = fp.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   std::vector<Guid> flow;
   for (Guid c : Layout(*this).flowChildren(frame))
     if (!placedByGesture(c)) flow.push_back(c);
@@ -846,7 +846,7 @@ void Editor::updateInsertion(Guid frame, Vec2 world) {
   for (Guid c : flow) boxes.push_back(layoutBox(doc_.get(c)->props.transform, doc_.get(c)->props.size));
   double qp = P == 0 ? q.x : q.y, qc = C == 0 ? q.x : q.y;
   size_t i = 0;
-  if (fp.stackWrap == StackWrap::WRAP && P == 0) {
+  if (fp.stack().stackWrap == StackWrap::WRAP && P == 0) {
     // Wrapped rows: the first child past the pointer on its row (or any later row).
     for (; i < boxes.size(); i++) {
       const Rect& b = boxes[i];
@@ -865,7 +865,7 @@ void Editor::updateInsertion(Guid frame, Vec2 world) {
   else if (i == 0) at = lo(boxes[0], P);
   else if (i == boxes.size()) at = hi(boxes.back(), P);
   else at = (hi(boxes[i - 1], P) + lo(boxes[i], P)) / 2;
-  if (fp.stackWrap == StackWrap::WRAP && P == 0 && !boxes.empty()) {
+  if (fp.stack().stackWrap == StackWrap::WRAP && P == 0 && !boxes.empty()) {
     // The row's own height.
     const Rect& row = boxes[std::min(i, boxes.size() - 1)];
     const Rect& prev = i > 0 ? boxes[i - 1] : row;
@@ -1030,23 +1030,23 @@ void Editor::keepResizedSize(Guid id, bool x, bool y) {
   const Node* parent = doc_.get(p.parentIndex.guid);
   NodeChange c = NodeChange::changed(id);
   if (parent && parent->props.isAutoLayout() && p.inFlow()) {
-    bool horizontal = parent->props.stackMode == StackMode::HORIZONTAL;
+    bool horizontal = parent->props.stack().stackMode == StackMode::HORIZONTAL;
     bool primary = horizontal ? x : y, counter = horizontal ? y : x;
     if (primary && p.stackChildPrimaryGrow > 0) c.mask |= F_STACK_CHILD_GROW, c.props.stackChildPrimaryGrow = 0;
     if (counter && p.stackChildAlignSelf == StackCounterAlign::STRETCH)
       c.mask |= F_STACK_CHILD_ALIGN_SELF, c.props.stackChildAlignSelf = StackCounterAlign::AUTO;
   }
   if (p.isAutoLayout()) {
-    bool horizontal = p.stackMode == StackMode::HORIZONTAL;
+    bool horizontal = p.stack().stackMode == StackMode::HORIZONTAL;
     bool primary = horizontal ? x : y, counter = horizontal ? y : x;
-    if (primary && p.hugsPrimary()) c.mask |= F_STACK_PRIMARY_SIZING, c.props.stackPrimarySizing = StackSize::FIXED;
-    if (counter && p.hugsCounter()) c.mask |= F_STACK_COUNTER_SIZING, c.props.stackCounterSizing = StackSize::FIXED;
+    if (primary && p.hugsPrimary()) c.mask |= F_STACK_PRIMARY_SIZING, c.props.stack().stackPrimarySizing = StackSize::FIXED;
+    if (counter && p.hugsCounter()) c.mask |= F_STACK_COUNTER_SIZING, c.props.stack().stackCounterSizing = StackSize::FIXED;
   }
   // A text resized by hand: a new width makes auto width auto height, a new height makes it a fixed box (Figma).
-  if (p.type == NodeType::TEXT && p.textAutoResize != TextAutoResize::NONE) {
-    if (y) c.mask |= F_TEXT_AUTO_RESIZE, c.props.textAutoResize = TextAutoResize::NONE;
-    else if (x && p.textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT)
-      c.mask |= F_TEXT_AUTO_RESIZE, c.props.textAutoResize = TextAutoResize::HEIGHT;
+  if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE) {
+    if (y) c.mask |= F_TEXT_AUTO_RESIZE, c.props.text().textAutoResize = TextAutoResize::NONE;
+    else if (x && p.text().textAutoResize == TextAutoResize::WIDTH_AND_HEIGHT)
+      c.mask |= F_TEXT_AUTO_RESIZE, c.props.text().textAutoResize = TextAutoResize::HEIGHT;
   }
   if (c.mask) write(c);
 }
@@ -1179,7 +1179,7 @@ void Editor::dragLine(Vec2 world, uint32_t mods, bool click) {
   }
   c.props.transform = parentInv * Mat2x3::translate(a.x, a.y) * Mat2x3::rotate(angle);
   c.props.size = {len, 0};
-  if (drawArrow_) c.props.vectorData = lineNetwork(len, StrokeCap::NONE, StrokeCap::ARROW_LINES);
+  if (drawArrow_) c.props.shape().vectorData = lineNetwork(len, StrokeCap::NONE, StrokeCap::ARROW_LINES);
   write(c);
   changeSelection({drawn_});
   guides_.clear();

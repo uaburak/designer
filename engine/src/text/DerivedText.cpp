@@ -246,22 +246,22 @@ std::unique_ptr<TextLayout> layoutFromStored(const std::shared_ptr<const StoredT
   TextLayout& L = *out;
   const StoredText& s = *stored;
   L.stored = stored;
-  L.text = utf8To16(p.textData.characters);
+  L.text = utf8To16(p.text().textData.characters);
   const uint32_t n = static_cast<uint32_t>(L.text.size());
   // Styles as layoutText resolves them (their fills are what draws; the font is the stored outlines').
   Font* font = storedGlyphFont();
   ResolvedStyle base;
-  base.fontName = p.fontName;
+  base.fontName = p.text().fontName;
   base.font = font;
-  base.fontSize = p.fontSize;
-  base.lineHeight = p.lineHeight;
-  base.letterSpacing = p.letterSpacing;
-  base.textCase = p.textCase;
-  base.textDecoration = p.textDecoration;
+  base.fontSize = p.text().fontSize;
+  base.lineHeight = p.text().lineHeight;
+  base.letterSpacing = p.text().letterSpacing;
+  base.textCase = p.text().textCase;
+  base.textDecoration = p.text().textDecoration;
   base.fills = &p.fillPaints;
   L.styles.push_back(base);
   std::unordered_map<uint32_t, uint16_t> byId{{0, 0}};
-  for (const TextStyle& o : p.textData.styleOverrideTable) {
+  for (const TextStyle& o : p.text().textData.styleOverrideTable) {
     if (o.styleID == 0 || byId.count(o.styleID) || L.styles.size() >= 0xFFFF) continue;
     ResolvedStyle st = base;
     st.styleID = o.styleID;
@@ -280,7 +280,7 @@ std::unique_ptr<TextLayout> layoutFromStored(const std::shared_ptr<const StoredT
     return it == byId.end() ? 0 : it->second;
   };
   L.styleOf.assign(n, 0);
-  const auto& ids = p.textData.characterStyleIDs;
+  const auto& ids = p.text().textData.characterStyleIDs;
   for (uint32_t i = 0; i < n && i < ids.size(); i++)
     if (ids[i]) L.styleOf[i] = styleIndex(ids[i]);
   bool anyInk = false;

@@ -147,6 +147,9 @@ export class EngineExports {
   layerOutline = (h: number, sessionID: number, localID: number): number => this.fn("layer_outline")(h, sessionID, localID);
   readNodes = (h: number, refs: Uint8Array, flags: number): number =>
     this.withBytes([refs], (p) => this.fn("read_nodes")(h, p[0], p[1], flags));
+  /** `ids`: (sessionID, localID) u32 pairs; `mask`: facets (1 << id, facets.generated.ts). Result: f64 records. */
+  readFacets = (h: number, ids: Uint32Array, mask: number): number =>
+    this.withBytes([new Uint8Array(ids.buffer, ids.byteOffset, ids.byteLength)], (p) => this.fn("read_facets")(h, p[0], ids.length / 2, mask));
   hitTest = (h: number, x: number, y: number, flags: number): number => this.fn("hit_test")(h, x, y, flags);
 
   // ---- Writes and commands ----

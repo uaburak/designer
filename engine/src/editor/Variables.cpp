@@ -49,10 +49,10 @@ void setFloatField(NodeProps& p, VariableField f, double v) {
   switch (f) {
     case VariableField::WIDTH: p.size.x = nonNegative(v); break;
     case VariableField::HEIGHT: p.size.y = nonNegative(v); break;
-    case VariableField::MIN_WIDTH: p.minSize.x = nonNegative(v); break;
-    case VariableField::MAX_WIDTH: p.maxSize.x = nonNegative(v); break;
-    case VariableField::MIN_HEIGHT: p.minSize.y = nonNegative(v); break;
-    case VariableField::MAX_HEIGHT: p.maxSize.y = nonNegative(v); break;
+    case VariableField::MIN_WIDTH: p.rare().minSize.x = nonNegative(v); break;
+    case VariableField::MAX_WIDTH: p.rare().maxSize.x = nonNegative(v); break;
+    case VariableField::MIN_HEIGHT: p.rare().minSize.y = nonNegative(v); break;
+    case VariableField::MAX_HEIGHT: p.rare().maxSize.y = nonNegative(v); break;
     case VariableField::OPACITY: p.opacity = clamp01(v / 100); break;  // a number bound to opacity is a percentage (R3-49)
     case VariableField::CORNER_RADIUS: p.cornerRadii = {nonNegative(v), nonNegative(v), nonNegative(v), nonNegative(v)}; break;
     case VariableField::RECTANGLE_TOP_LEFT_CORNER_RADIUS: p.cornerRadii[0] = nonNegative(v); break;
@@ -60,30 +60,30 @@ void setFloatField(NodeProps& p, VariableField f, double v) {
     case VariableField::RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS: p.cornerRadii[2] = nonNegative(v); break;
     case VariableField::RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS: p.cornerRadii[3] = nonNegative(v); break;
     case VariableField::STROKE_WEIGHT: p.strokeWeight = nonNegative(v); break;
-    case VariableField::BORDER_TOP_WEIGHT: p.borderWeights[0] = nonNegative(v); break;
-    case VariableField::BORDER_RIGHT_WEIGHT: p.borderWeights[1] = nonNegative(v); break;
-    case VariableField::BORDER_BOTTOM_WEIGHT: p.borderWeights[2] = nonNegative(v); break;
-    case VariableField::BORDER_LEFT_WEIGHT: p.borderWeights[3] = nonNegative(v); break;
-    case VariableField::STACK_SPACING: p.stackSpacing = std::isfinite(v) ? v : 0; break;
-    case VariableField::STACK_COUNTER_SPACING: p.stackCounterSpacing = std::isfinite(v) ? v : 0; break;
-    case VariableField::STACK_PADDING_LEFT: p.stackPaddingLeft = nonNegative(v); break;
-    case VariableField::STACK_PADDING_TOP: p.stackPaddingTop = nonNegative(v); break;
-    case VariableField::STACK_PADDING_RIGHT: p.stackPaddingRight = nonNegative(v); break;
-    case VariableField::STACK_PADDING_BOTTOM: p.stackPaddingBottom = nonNegative(v); break;
+    case VariableField::BORDER_TOP_WEIGHT: p.stroke().borderWeights[0] = nonNegative(v); break;
+    case VariableField::BORDER_RIGHT_WEIGHT: p.stroke().borderWeights[1] = nonNegative(v); break;
+    case VariableField::BORDER_BOTTOM_WEIGHT: p.stroke().borderWeights[2] = nonNegative(v); break;
+    case VariableField::BORDER_LEFT_WEIGHT: p.stroke().borderWeights[3] = nonNegative(v); break;
+    case VariableField::STACK_SPACING: p.stack().stackSpacing = std::isfinite(v) ? v : 0; break;
+    case VariableField::STACK_COUNTER_SPACING: p.stack().stackCounterSpacing = std::isfinite(v) ? v : 0; break;
+    case VariableField::STACK_PADDING_LEFT: p.stack().stackPaddingLeft = nonNegative(v); break;
+    case VariableField::STACK_PADDING_TOP: p.stack().stackPaddingTop = nonNegative(v); break;
+    case VariableField::STACK_PADDING_RIGHT: p.stack().stackPaddingRight = nonNegative(v); break;
+    case VariableField::STACK_PADDING_BOTTOM: p.stack().stackPaddingBottom = nonNegative(v); break;
     case VariableField::FONT_SIZE:
-      if (std::isfinite(v) && v >= 1) p.fontSize = v;
+      if (std::isfinite(v) && v >= 1) p.text().fontSize = v;
       break;
     case VariableField::LINE_HEIGHT:
       // The node's units: RAW is the UI's percentage; Auto becomes pixels.
       if (!std::isfinite(v)) break;
-      if (p.lineHeight.units == NumberUnits::RAW) p.lineHeight.value = v / 100;
-      else p.lineHeight = {v, NumberUnits::PIXELS};
+      if (p.text().lineHeight.units == NumberUnits::RAW) p.text().lineHeight.value = v / 100;
+      else p.text().lineHeight = {v, NumberUnits::PIXELS};
       break;
     case VariableField::LETTER_SPACING:
-      if (std::isfinite(v)) p.letterSpacing.value = v;
+      if (std::isfinite(v)) p.text().letterSpacing.value = v;
       break;
-    case VariableField::PARAGRAPH_SPACING: p.paragraphSpacing = nonNegative(v); break;
-    case VariableField::PARAGRAPH_INDENT: p.paragraphIndent = nonNegative(v); break;
+    case VariableField::PARAGRAPH_SPACING: p.text().paragraphSpacing = nonNegative(v); break;
+    case VariableField::PARAGRAPH_INDENT: p.text().paragraphIndent = nonNegative(v); break;
     default: break;  // GRID_ROW_GAP / GRID_COLUMN_GAP / FONT_VARIATIONS: kept as data (not modelled yet)
   }
 }
@@ -107,12 +107,12 @@ constexpr FieldMask kTextStyleNodeFields = F_FONT_NAME | F_FONT_SIZE | F_LINE_HE
 void Editor::rebuildAssetKeys() const {
   assetKeys_.clear();
   doc_.forEach([&](const Node& n) {
-    if (n.guid.isDerived() || n.props.key.empty()) return;
+    if (n.guid.isDerived() || n.props.asset().key.empty()) return;
     const NodeProps& p = n.props;
     if (p.type != NodeType::VARIABLE && p.type != NodeType::VARIABLE_SET && !p.isStyle()) return;
-    auto it = assetKeys_.find(p.key);
+    auto it = assetKeys_.find(p.asset().key);
     // Prefer a live asset over a deleted one with the same key.
-    if (it == assetKeys_.end() || (doc_.get(it->second)->props.isSoftDeleted && !p.isSoftDeleted)) assetKeys_[p.key] = n.guid;
+    if (it == assetKeys_.end() || (doc_.get(it->second)->props.comp().isSoftDeleted && !p.comp().isSoftDeleted)) assetKeys_[p.asset().key] = n.guid;
   });
   assetKeysDirty_ = false;
 }
@@ -155,7 +155,7 @@ const NodeProps* Editor::styleNode(const AssetId& id, StyleType type) const {
   const Node* n = g != kNoGuid ? doc_.get(g) : nullptr;
   if (!n) return nullptr;
   // A FILL style is any paint style; the others must match.
-  if (n->props.styleType != type) return nullptr;
+  if (n->props.asset().styleType != type) return nullptr;
   return &n->props;
 }
 
@@ -165,7 +165,7 @@ __attribute__((noinline)) void sortAssets(const Document& doc, std::vector<Guid>
   std::sort(ids.begin(), ids.end(), [&](Guid ga, Guid gb) {
     const NodeProps& a = doc.get(ga)->props;
     const NodeProps& b = doc.get(gb)->props;
-    if (a.sortPosition != b.sortPosition) return a.sortPosition < b.sortPosition;
+    if (a.asset().sortPosition != b.asset().sortPosition) return a.asset().sortPosition < b.asset().sortPosition;
     if (a.parentIndex.position != b.parentIndex.position) return a.parentIndex.position < b.parentIndex.position;
     return ga < gb;
   });
@@ -178,7 +178,7 @@ std::vector<Guid> Editor::collections(bool includeRemote) const {
   std::vector<Guid> out;
   for (Guid g : collectionIds_) {
     const Node* n = doc_.get(g);
-    if (n && n->props.type == NodeType::VARIABLE_SET && !n->props.isSoftDeleted && !g.isDerived() && (includeRemote || !isLibraryCopy(g)))
+    if (n && n->props.type == NodeType::VARIABLE_SET && !n->props.comp().isSoftDeleted && !g.isDerived() && (includeRemote || !isLibraryCopy(g)))
       out.push_back(g);
   }
   sortAssets(doc_, out);
@@ -190,9 +190,9 @@ std::vector<Guid> Editor::variablesOf(Guid collection, bool includeDeleted) cons
   const Node* set = doc_.get(collection);
   for (const auto& [g, s0] : variableSets_) {
     const Node* n = doc_.get(g);
-    if (!n || n->props.type != NodeType::VARIABLE || g.isDerived() || (n->props.isSoftDeleted && !includeDeleted)) continue;
-    const AssetId& s = n->props.variableSetID;
-    bool mine = collection == kNoGuid || s.guid == collection || (set && !s.key.empty() && s.key == set->props.key);
+    if (!n || n->props.type != NodeType::VARIABLE || g.isDerived() || (n->props.comp().isSoftDeleted && !includeDeleted)) continue;
+    const AssetId& s = n->props.asset().variableSetID;
+    bool mine = collection == kNoGuid || s.guid == collection || (set && !s.key.empty() && s.key == set->props.asset().key);
     if (mine) out.push_back(g);
   }
   sortAssets(doc_, out);
@@ -205,9 +205,9 @@ std::vector<Guid> Editor::stylesOf(StyleType type, bool includeRemote) const {
     const Node* np = doc_.get(g);
     if (!np) continue;
     const Node& n = *np;
-    if (!n.props.isStyle() || n.guid.isDerived() || n.props.isSoftDeleted) continue;
+    if (!n.props.isStyle() || n.guid.isDerived() || n.props.comp().isSoftDeleted) continue;
     if (!includeRemote && isLibraryCopy(n.guid)) continue;
-    if (type == StyleType::NONE || n.props.styleType == type) out.push_back(n.guid);
+    if (type == StyleType::NONE || n.props.asset().styleType == type) out.push_back(n.guid);
   }
   sortAssets(doc_, out);
   return out;
@@ -222,8 +222,8 @@ uint32_t Editor::styleUsage(Guid style) const {
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived() || n.props.isStyle() || isLibraryCopy(n.guid)) return;
     const NodeProps& p = n.props;
-    for (const AssetId* id : {&p.styleIdForFill, &p.styleIdForStrokeFill, &p.styleIdForText, &p.styleIdForEffect, &p.styleIdForGrid})
-      if (id->present() && (id->guid == style || (!id->key.empty() && id->key == s->props.key))) {
+    for (const AssetId* id : {&p.refs().styleIdForFill, &p.refs().styleIdForStrokeFill, &p.refs().styleIdForText, &p.refs().styleIdForEffect, &p.refs().styleIdForGrid})
+      if (id->present() && (id->guid == style || (!id->key.empty() && id->key == s->props.asset().key))) {
         count++;
         break;
       }
@@ -238,7 +238,7 @@ Guid Editor::modeFor(const ModeContext& ctx, Guid set) const {
   if (!sn) return kNoGuid;
   const NodeProps& sp = sn->props;
   auto valid = [&](Guid mode) {
-    for (auto& m : sp.variableSetModes)
+    for (auto& m : sp.asset().variableSetModes)
       if (m.id == mode) return true;
     return false;
   };
@@ -252,11 +252,15 @@ Guid Editor::modeFor(const ModeContext& ctx, Guid set) const {
     p = n ? &n->props : nullptr;
   }
   for (int guard = 0; p && guard < 4096; guard++) {
-    Guid m = p->explicitMode(set, sp.key);
+    Guid m = p->explicitMode(set, sp.asset().key);
     if (m != kNoGuid && valid(m)) return m;
-    const Node* parent = doc_.get(p->parentIndex.guid);
-    if (!parent || p->parentIndex.guid == cur) break;
-    cur = p->parentIndex.guid;
+    Guid up = p->parentIndex.guid;
+    // Slot content (Figma's form, under the Internal Only Canvas): on through the slot that shows it.
+    if (p->comp().isSlotContent)
+      if (auto h = slotHosts_.find(cur); h != slotHosts_.end() && doc_.has(h->second)) up = h->second;
+    const Node* parent = doc_.get(up);
+    if (!parent || up == cur) break;
+    cur = up;
     p = &parent->props;
   }
   return sp.defaultMode();
@@ -267,25 +271,25 @@ bool Editor::resolveVar(Guid variable, const ModeContext& ctx, Resolved& out, Bi
   const Node* vn = doc_.get(variable);
   if (!vn || vn->props.type != NodeType::VARIABLE) return false;
   const NodeProps& vp = vn->props;
-  Guid set = findCollection(vp.variableSetID);
-  if (deps) deps->sets.push_back(set != kNoGuid ? set : vp.variableSetID.guid);
+  Guid set = findCollection(vp.asset().variableSetID);
+  if (deps) deps->sets.push_back(set != kNoGuid ? set : vp.asset().variableSetID.guid);
   const VariableModeValue* value = nullptr;
   if (set != kNoGuid) {
     Guid mode = modeFor(ctx, set);
-    for (auto& v : vp.variableDataValues)
+    for (auto& v : vp.asset().variableDataValues)
       if (v.modeID == mode) value = &v;
     if (!value) {
       // A missing entry falls back to the default mode's value (docs/schema.md §4.6).
       Guid def = doc_.get(set)->props.defaultMode();
-      for (auto& v : vp.variableDataValues)
+      for (auto& v : vp.asset().variableDataValues)
         if (v.modeID == def) value = &v;
     }
   }
-  if (!value && !vp.variableDataValues.empty()) value = &vp.variableDataValues.front();
+  if (!value && !vp.asset().variableDataValues.empty()) value = &vp.asset().variableDataValues.front();
   if (!value) return false;
   if (!resolveData(value->data, ctx, out, deps, depth + 1)) return false;
   // The value must be of the variable's type.
-  switch (vp.variableResolvedType) {
+  switch (vp.asset().variableResolvedType) {
     case VariableResolvedType::BOOLEAN: return out.kind == Resolved::Kind::BOOL;
     case VariableResolvedType::FLOAT:
     case VariableResolvedType::TIMING: return out.kind == Resolved::Kind::FLOAT;
@@ -371,7 +375,7 @@ bool Editor::resolveVariableInMode(Guid variable, Guid mode, Resolved& out) cons
   const Node* vn = doc_.get(variable);
   if (!vn) return false;
   ModeContext ctx;
-  ctx.forcedSet = findCollection(vn->props.variableSetID);
+  ctx.forcedSet = findCollection(vn->props.asset().variableSetID);
   ctx.forcedMode = mode;
   return resolveVar(variable, ctx, out, nullptr, 0);
 }
@@ -382,7 +386,83 @@ Guid Editor::resolvedMode(Guid node, Guid set) const {
   return modeFor(ctx, set);
 }
 
+FieldMask Editor::boundFieldMask(const NodeProps& p) {
+  FieldMask m = 0;
+  if (p.refs().styleIdForFill.present()) m |= F_FILLS;
+  if (p.refs().styleIdForStrokeFill.present()) m |= F_STROKES;
+  if (p.refs().styleIdForEffect.present()) m |= F_EFFECTS;
+  if (p.refs().styleIdForGrid.present()) m |= F_LAYOUT_GRIDS;
+  if (p.refs().styleIdForText.present() && p.type == NodeType::TEXT) m |= kTextStyleNodeFields;
+  for (const ParamBinding& b : p.parameterConsumptionMap) {
+    if (!b.isVariable()) continue;
+    switch (b.field) {
+      case VariableField::WIDTH: case VariableField::HEIGHT: m |= F_SIZE; break;
+      case VariableField::MIN_WIDTH: case VariableField::MIN_HEIGHT: m |= F_MIN_SIZE; break;
+      case VariableField::MAX_WIDTH: case VariableField::MAX_HEIGHT: m |= F_MAX_SIZE; break;
+      case VariableField::OPACITY: m |= F_OPACITY; break;
+      case VariableField::CORNER_RADIUS: m |= F_CORNER_RADII; break;
+      case VariableField::RECTANGLE_TOP_LEFT_CORNER_RADIUS: m |= F_CORNER_TL; break;
+      case VariableField::RECTANGLE_TOP_RIGHT_CORNER_RADIUS: m |= F_CORNER_TR; break;
+      case VariableField::RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS: m |= F_CORNER_BR; break;
+      case VariableField::RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS: m |= F_CORNER_BL; break;
+      case VariableField::STROKE_WEIGHT: m |= F_STROKE_WEIGHT; break;
+      case VariableField::BORDER_TOP_WEIGHT: case VariableField::BORDER_RIGHT_WEIGHT: case VariableField::BORDER_BOTTOM_WEIGHT:
+      case VariableField::BORDER_LEFT_WEIGHT: m |= F_BORDER_WEIGHTS; break;
+      case VariableField::STACK_SPACING: m |= F_STACK_SPACING; break;
+      case VariableField::STACK_COUNTER_SPACING: m |= F_STACK_COUNTER_SPACING; break;
+      case VariableField::STACK_PADDING_LEFT: m |= F_STACK_PADDING_LEFT; break;
+      case VariableField::STACK_PADDING_TOP: m |= F_STACK_PADDING_TOP; break;
+      case VariableField::STACK_PADDING_RIGHT: m |= F_STACK_PADDING_RIGHT; break;
+      case VariableField::STACK_PADDING_BOTTOM: m |= F_STACK_PADDING_BOTTOM; break;
+      case VariableField::FONT_FAMILY: case VariableField::FONT_STYLE: m |= F_FONT_NAME; break;
+      case VariableField::FONT_SIZE: m |= F_FONT_SIZE; break;
+      case VariableField::LINE_HEIGHT: m |= F_LINE_HEIGHT; break;
+      case VariableField::LETTER_SPACING: m |= F_LETTER_SPACING; break;
+      case VariableField::PARAGRAPH_SPACING: m |= F_PARAGRAPH_SPACING; break;
+      case VariableField::PARAGRAPH_INDENT: m |= F_PARAGRAPH_INDENT; break;
+      case VariableField::VISIBLE: m |= F_VISIBLE; break;
+      case VariableField::TEXT_DATA: m |= F_TEXT_DATA; break;
+      default: break;
+    }
+  }
+  auto paints = [](const std::vector<Paint>& list) {
+    for (const Paint& pt : list)
+      if (pt.hasVariables()) return true;
+    return false;
+  };
+  if (paints(p.fillPaints)) m |= F_FILLS;
+  if (paints(p.strokePaints)) m |= F_STROKES;
+  for (const TextStyle& run : p.text().textData.styleOverrideTable)
+    if (paints(run.fillPaints)) m |= F_TEXT_DATA;
+  for (const Effect& e : p.effects)
+    if (e.hasVariables()) m |= F_EFFECTS;
+  for (const LayoutGrid& g : p.rare().layoutGrids)
+    if (g.hasVariables()) m |= F_LAYOUT_GRIDS;
+  return m;
+}
+
+Guid Editor::unhostedSlotContent(Guid id, const NodeProps& p) const {
+  const NodeProps* q = &p;
+  Guid cur = id;
+  for (int guard = 0; q && guard < 4096; guard++) {
+    if (q->type == NodeType::CANVAS || q->type == NodeType::DOCUMENT) return kNoGuid;
+    if (q->comp().isSlotContent) {
+      const Node* parent = doc_.get(q->parentIndex.guid);
+      if (parent && parent->props.type == NodeType::INSTANCE) return kNoGuid;  // ours: the instance's own child
+      auto h = slotHosts_.find(cur);
+      return h != slotHosts_.end() && doc_.has(h->second) ? kNoGuid : cur;
+    }
+    cur = q->parentIndex.guid;
+    const Node* n = doc_.get(cur);
+    q = n ? &n->props : nullptr;
+  }
+  return kNoGuid;
+}
+
 void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
+  // Slot content whose slot isn't derived yet keeps the values its file stored (Figma resolved them there): the
+  // content is resolved again when its instance is derived.
+  if (unhostedSlotContent(id, p) != kNoGuid) return;
   // 1. Styles: their values (with their own bindings) replace the consumer's.
   auto useStyle = [&](const AssetId& ref, StyleType type) -> const NodeProps* {
     if (!ref.present()) return nullptr;
@@ -390,11 +470,11 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
     if (deps) deps->styles.push_back(g != kNoGuid ? g : ref.guid);
     return styleNode(ref, type);
   };
-  if (const NodeProps* s = useStyle(p.styleIdForFill, StyleType::FILL)) p.fillPaints = s->fillPaints;
-  if (const NodeProps* s = useStyle(p.styleIdForStrokeFill, StyleType::FILL)) p.strokePaints = s->fillPaints;
-  if (const NodeProps* s = useStyle(p.styleIdForEffect, StyleType::EFFECT)) p.effects = s->effects;
-  if (const NodeProps* s = useStyle(p.styleIdForGrid, StyleType::GRID)) p.layoutGrids = s->layoutGrids;
-  if (const NodeProps* s = useStyle(p.styleIdForText, StyleType::TEXT); s && p.type == NodeType::TEXT) {
+  if (const NodeProps* s = useStyle(p.refs().styleIdForFill, StyleType::FILL)) p.fillPaints = s->fillPaints;
+  if (const NodeProps* s = useStyle(p.refs().styleIdForStrokeFill, StyleType::FILL)) p.strokePaints = s->fillPaints;
+  if (const NodeProps* s = useStyle(p.refs().styleIdForEffect, StyleType::EFFECT)) p.effects = s->effects;
+  if (const NodeProps* s = useStyle(p.refs().styleIdForGrid, StyleType::GRID)) p.rare().layoutGrids = s->rare().layoutGrids;
+  if (const NodeProps* s = useStyle(p.refs().styleIdForText, StyleType::TEXT); s && p.type == NodeType::TEXT) {
     copyFields(p, *s, kTextStyleNodeFields);
     // The style's typography bindings become the layer's (they stay when the style is detached, as in Figma).
     auto& map = p.parameterConsumptionMap;
@@ -425,25 +505,25 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
         if (v.kind == Resolved::Kind::BOOL) p.visible = v.b;
         break;
       case VariableField::TEXT_DATA:
-        if (v.kind == Resolved::Kind::STRING && p.type == NodeType::TEXT && p.textData.characters != v.s) {
-          p.textData.characters = v.s;
-          p.textData.characterStyleIDs.clear();  // one style: the layer's own
-          p.textData.lines.clear();
+        if (v.kind == Resolved::Kind::STRING && p.type == NodeType::TEXT && p.text().textData.characters != v.s) {
+          p.text().textData.characters = v.s;
+          p.text().textData.characterStyleIDs.clear();  // one style: the layer's own
+          p.text().textData.lines.clear();
         }
         break;
       case VariableField::FONT_FAMILY:
-        if (v.kind == Resolved::Kind::STRING && !v.s.empty() && p.fontName.family != v.s) {
-          p.fontName.family = v.s;
-          p.fontName.postscript.clear();
+        if (v.kind == Resolved::Kind::STRING && !v.s.empty() && p.text().fontName.family != v.s) {
+          p.text().fontName.family = v.s;
+          p.text().fontName.postscript.clear();
         }
         break;
       case VariableField::FONT_STYLE: {
         std::string style = v.kind == Resolved::Kind::STRING ? v.s
-                            : v.kind == Resolved::Kind::FLOAT ? styleForWeight(v.f, isItalicStyle(p.fontName.style))
+                            : v.kind == Resolved::Kind::FLOAT ? styleForWeight(v.f, isItalicStyle(p.text().fontName.style))
                                                              : std::string();
-        if (!style.empty() && p.fontName.style != style) {
-          p.fontName.style = style;
-          p.fontName.postscript.clear();
+        if (!style.empty() && p.text().fontName.style != style) {
+          p.text().fontName.style = style;
+          p.text().fontName.postscript.clear();
         }
         break;
       }
@@ -455,7 +535,13 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
   // Paints, effects, layout guides.
   auto paints = [&](std::vector<Paint>& list) {
     for (Paint& pt : list) {
-      if (resolve(pt.colorVar, r) && r.kind == Resolved::Kind::COLOR) pt.color = r.c;
+      // A colour variable's alpha is the paint's opacity, the colour itself opaque — as Figma's files store it (all
+      // 11,007 bound solid paints of a private test file: color.a = 1, opacity = the variable's alpha).
+      if (resolve(pt.colorVar, r) && r.kind == Resolved::Kind::COLOR) {
+        pt.color = r.c;
+        pt.opacity = static_cast<float>(clamp01(r.c.a));
+        pt.color.a = 1;
+      }
       if (resolve(pt.opacityVar, r) && r.kind == Resolved::Kind::FLOAT) pt.opacity = static_cast<float>(clamp01(r.f / 100));
       for (size_t i = 0; i < pt.stopVars.size() && i < pt.stops.size(); i++)
         if (resolve(pt.stopVars[i], r) && r.kind == Resolved::Kind::COLOR) pt.stops[i].color = r.c;
@@ -463,7 +549,7 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
   };
   paints(p.fillPaints);
   paints(p.strokePaints);
-  for (TextStyle& run : p.textData.styleOverrideTable) paints(run.fillPaints);
+  for (TextStyle& run : p.text().textData.styleOverrideTable) paints(run.fillPaints);
   for (Effect& e : p.effects) {
     if (resolve(e.colorVar, r) && r.kind == Resolved::Kind::COLOR) e.color = r.c;
     if (resolve(e.radiusVar, r) && r.kind == Resolved::Kind::FLOAT) e.radius = nonNegative(r.f);
@@ -471,7 +557,7 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
     if (resolve(e.xVar, r) && r.kind == Resolved::Kind::FLOAT) e.offset.x = r.f;
     if (resolve(e.yVar, r) && r.kind == Resolved::Kind::FLOAT) e.offset.y = r.f;
   }
-  for (LayoutGrid& g : p.layoutGrids) {
+  for (LayoutGrid& g : p.rare().layoutGrids) {
     if (resolve(g.numSectionsVar, r) && r.kind == Resolved::Kind::FLOAT)
       g.numSections = static_cast<int32_t>(std::max(0.0, std::round(r.f)));  // counts are whole (R3-49)
     if (resolve(g.offsetVar, r) && r.kind == Resolved::Kind::FLOAT) g.offset = r.f;
@@ -484,11 +570,11 @@ void Editor::resolveBindings(Guid id, NodeProps& p, BindingDeps* deps) const {
 // content; the value depends on where the node sits (its modes) and on the variable / style (their own content).
 void Editor::clearBoundValues(NodeProps& p) {
   const NodeProps none;
-  if (p.styleIdForFill.present()) p.fillPaints.clear();
-  if (p.styleIdForStrokeFill.present()) p.strokePaints.clear();
-  if (p.styleIdForEffect.present()) p.effects.clear();
-  if (p.styleIdForGrid.present()) p.layoutGrids.clear();
-  if (p.styleIdForText.present() && p.type == NodeType::TEXT) {
+  if (p.refs().styleIdForFill.present()) p.fillPaints.clear();
+  if (p.refs().styleIdForStrokeFill.present()) p.strokePaints.clear();
+  if (p.refs().styleIdForEffect.present()) p.effects.clear();
+  if (p.refs().styleIdForGrid.present()) p.rare().layoutGrids.clear();
+  if (p.refs().styleIdForText.present() && p.type == NodeType::TEXT) {
     copyFields(p, none, kTextStyleNodeFields);
     // The style's typography bindings, copied into the layer, are the style's.
     auto& map = p.parameterConsumptionMap;
@@ -501,22 +587,22 @@ void Editor::clearBoundValues(NodeProps& p) {
       case VariableField::VISIBLE: p.visible = none.visible; break;
       case VariableField::TEXT_DATA:
         if (p.type == NodeType::TEXT) {
-          p.textData.characters.clear();
-          p.textData.characterStyleIDs.clear();
-          p.textData.lines.clear();
+          p.text().textData.characters.clear();
+          p.text().textData.characterStyleIDs.clear();
+          p.text().textData.lines.clear();
         }
         break;
-      case VariableField::FONT_FAMILY: p.fontName.family.clear(), p.fontName.postscript.clear(); break;
-      case VariableField::FONT_STYLE: p.fontName.style.clear(), p.fontName.postscript.clear(); break;
-      case VariableField::FONT_SIZE: p.fontSize = none.fontSize; break;
-      case VariableField::LINE_HEIGHT: p.lineHeight = none.lineHeight; break;
-      case VariableField::LETTER_SPACING: p.letterSpacing = none.letterSpacing; break;
+      case VariableField::FONT_FAMILY: p.text().fontName.family.clear(), p.text().fontName.postscript.clear(); break;
+      case VariableField::FONT_STYLE: p.text().fontName.style.clear(), p.text().fontName.postscript.clear(); break;
+      case VariableField::FONT_SIZE: p.text().fontSize = none.text().fontSize; break;
+      case VariableField::LINE_HEIGHT: p.text().lineHeight = none.text().lineHeight; break;
+      case VariableField::LETTER_SPACING: p.text().letterSpacing = none.text().letterSpacing; break;
       default: setFloatField(p, b.field, 0); break;
     }
   }
   auto paints = [](std::vector<Paint>& list) {
     for (Paint& pt : list) {
-      if (pt.colorVar.present()) pt.color = Color{};
+      if (pt.colorVar.present()) pt.color = Color{}, pt.opacity = 1;
       if (pt.opacityVar.present()) pt.opacity = 1;
       for (size_t i = 0; i < pt.stopVars.size() && i < pt.stops.size(); i++)
         if (pt.stopVars[i].present()) pt.stops[i].color = Color{};
@@ -524,7 +610,7 @@ void Editor::clearBoundValues(NodeProps& p) {
   };
   paints(p.fillPaints);
   paints(p.strokePaints);
-  for (TextStyle& run : p.textData.styleOverrideTable) paints(run.fillPaints);
+  for (TextStyle& run : p.text().textData.styleOverrideTable) paints(run.fillPaints);
   for (Effect& e : p.effects) {
     if (e.colorVar.present()) e.color = Color{};
     if (e.radiusVar.present()) e.radius = 0;
@@ -532,7 +618,7 @@ void Editor::clearBoundValues(NodeProps& p) {
     if (e.xVar.present()) e.offset.x = 0;
     if (e.yVar.present()) e.offset.y = 0;
   }
-  for (LayoutGrid& g : p.layoutGrids) {
+  for (LayoutGrid& g : p.rare().layoutGrids) {
     if (g.numSectionsVar.present()) g.numSections = 0;
     if (g.offsetVar.present()) g.offset = 0;
     if (g.sectionSizeVar.present()) g.sectionSize = 0;
@@ -596,6 +682,8 @@ void Editor::markBindingsSubtree(Guid id) {
     if (n->props.type == NodeType::INSTANCE) {
       // Its sublayers resolve while it is materialized: again, when one of them is bound.
       if (instanceBindings_.count(g)) instanceDirty_.insert(g);
+      if (auto s = slotContentsOf_.find(g); s != slotContentsOf_.end())
+        for (Guid c : s->second) stack.push_back(c);  // slot content it hosts (Figma's form)
       for (Guid c : doc_.children(g))
         if (!c.isDerived()) stack.push_back(c);  // slot content
       continue;
@@ -622,7 +710,7 @@ void Editor::noteBindings(const NodeChange& c, NodeType typeBefore) {
     events_.variables.push_back(c.guid);
     if (auto it = variableSets_.find(c.guid); it != variableSets_.end()) events_.collections.push_back(it->second);
     if (n) {
-      Guid set = findCollection(n->props.variableSetID);
+      Guid set = findCollection(n->props.asset().variableSetID);
       events_.collections.push_back(set);
       variableSets_[c.guid] = set;
     } else {
@@ -707,10 +795,10 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
       switch (f) {
         case VariableField::WIDTH: return (m & F_SIZE) && now.size.x != before.size.x;
         case VariableField::HEIGHT: return (m & F_SIZE) && now.size.y != before.size.y;
-        case VariableField::MIN_WIDTH: return (m & F_MIN_SIZE) && now.minSize.x != before.minSize.x;
-        case VariableField::MAX_WIDTH: return (m & F_MAX_SIZE) && now.maxSize.x != before.maxSize.x;
-        case VariableField::MIN_HEIGHT: return (m & F_MIN_SIZE) && now.minSize.y != before.minSize.y;
-        case VariableField::MAX_HEIGHT: return (m & F_MAX_SIZE) && now.maxSize.y != before.maxSize.y;
+        case VariableField::MIN_WIDTH: return (m & F_MIN_SIZE) && now.rare().minSize.x != before.rare().minSize.x;
+        case VariableField::MAX_WIDTH: return (m & F_MAX_SIZE) && now.rare().maxSize.x != before.rare().maxSize.x;
+        case VariableField::MIN_HEIGHT: return (m & F_MIN_SIZE) && now.rare().minSize.y != before.rare().minSize.y;
+        case VariableField::MAX_HEIGHT: return (m & F_MAX_SIZE) && now.rare().maxSize.y != before.rare().maxSize.y;
         case VariableField::OPACITY: return (m & F_OPACITY) != 0;
         case VariableField::VISIBLE: return (m & F_VISIBLE) != 0;
         case VariableField::CORNER_RADIUS: return (m & F_CORNER_RADII) != 0;
@@ -721,19 +809,19 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
         case VariableField::RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS:
           return (m & F_CORNER_RADII) && now.cornerRadii[3] != before.cornerRadii[3];
         case VariableField::STROKE_WEIGHT: return (m & F_STROKE_WEIGHT) != 0;
-        case VariableField::BORDER_TOP_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.borderWeights[0] != before.borderWeights[0];
-        case VariableField::BORDER_RIGHT_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.borderWeights[1] != before.borderWeights[1];
-        case VariableField::BORDER_BOTTOM_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.borderWeights[2] != before.borderWeights[2];
-        case VariableField::BORDER_LEFT_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.borderWeights[3] != before.borderWeights[3];
+        case VariableField::BORDER_TOP_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.stroke().borderWeights[0] != before.stroke().borderWeights[0];
+        case VariableField::BORDER_RIGHT_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.stroke().borderWeights[1] != before.stroke().borderWeights[1];
+        case VariableField::BORDER_BOTTOM_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.stroke().borderWeights[2] != before.stroke().borderWeights[2];
+        case VariableField::BORDER_LEFT_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.stroke().borderWeights[3] != before.stroke().borderWeights[3];
         case VariableField::STACK_SPACING: return (m & F_STACK_SPACING) != 0;
         case VariableField::STACK_COUNTER_SPACING: return (m & F_STACK_COUNTER_SPACING) != 0;
         case VariableField::STACK_PADDING_LEFT: return (m & F_STACK_PADDING_LEFT) != 0;
         case VariableField::STACK_PADDING_TOP: return (m & F_STACK_PADDING_TOP) != 0;
         case VariableField::STACK_PADDING_RIGHT: return (m & F_STACK_PADDING_RIGHT) != 0;
         case VariableField::STACK_PADDING_BOTTOM: return (m & F_STACK_PADDING_BOTTOM) != 0;
-        case VariableField::TEXT_DATA: return (m & F_TEXT_DATA) && now.textData.characters != before.textData.characters;
-        case VariableField::FONT_FAMILY: return (m & F_FONT_NAME) && now.fontName.family != before.fontName.family;
-        case VariableField::FONT_STYLE: return (m & F_FONT_NAME) && now.fontName.style != before.fontName.style;
+        case VariableField::TEXT_DATA: return (m & F_TEXT_DATA) && now.text().textData.characters != before.text().textData.characters;
+        case VariableField::FONT_FAMILY: return (m & F_FONT_NAME) && now.text().fontName.family != before.text().fontName.family;
+        case VariableField::FONT_STYLE: return (m & F_FONT_NAME) && now.text().fontName.style != before.text().fontName.style;
         case VariableField::FONT_SIZE: return (m & F_FONT_SIZE) != 0;
         case VariableField::LINE_HEIGHT: return (m & F_LINE_HEIGHT) != 0;
         case VariableField::LETTER_SPACING: return (m & F_LETTER_SPACING) != 0;
@@ -777,9 +865,9 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
       if (e.yVar.present() && e.yVar == o.yVar && e.offset.y != o.offset.y) e.yVar = VarBox();
     }
   if (m & F_LAYOUT_GRIDS)
-    for (size_t i = 0; i < c.props.layoutGrids.size() && i < before.layoutGrids.size(); i++) {
-      LayoutGrid& g = c.props.layoutGrids[i];
-      const LayoutGrid& o = before.layoutGrids[i];
+    for (size_t i = 0; i < c.props.rare().layoutGrids.size() && i < before.rare().layoutGrids.size(); i++) {
+      LayoutGrid& g = c.props.rare().layoutGrids[i];
+      const LayoutGrid& o = before.rare().layoutGrids[i];
       if (g.numSectionsVar.present() && g.numSectionsVar == o.numSectionsVar && g.numSections != o.numSections) g.numSectionsVar = VarBox();
       if (g.offsetVar.present() && g.offsetVar == o.offsetVar && g.offset != o.offset) g.offsetVar = VarBox();
       if (g.sectionSizeVar.present() && g.sectionSizeVar == o.sectionSizeVar && g.sectionSize != o.sectionSize) g.sectionSizeVar = VarBox();
@@ -792,11 +880,11 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
       c.mask |= styleBit;
     }
   };
-  detach(F_FILLS, F_STYLE_ID_FILL, c.props.styleIdForFill, before.styleIdForFill);
-  detach(F_STROKES, F_STYLE_ID_STROKE, c.props.styleIdForStrokeFill, before.styleIdForStrokeFill);
-  detach(F_EFFECTS, F_STYLE_ID_EFFECT, c.props.styleIdForEffect, before.styleIdForEffect);
-  detach(F_LAYOUT_GRIDS, F_STYLE_ID_GRID, c.props.styleIdForGrid, before.styleIdForGrid);
-  if (before.type == NodeType::TEXT) detach(kTextStyleNodeFields, F_STYLE_ID_TEXT, c.props.styleIdForText, before.styleIdForText);
+  detach(F_FILLS, F_STYLE_ID_FILL, c.props.refs().styleIdForFill, before.refs().styleIdForFill);
+  detach(F_STROKES, F_STYLE_ID_STROKE, c.props.refs().styleIdForStrokeFill, before.refs().styleIdForStrokeFill);
+  detach(F_EFFECTS, F_STYLE_ID_EFFECT, c.props.refs().styleIdForEffect, before.refs().styleIdForEffect);
+  detach(F_LAYOUT_GRIDS, F_STYLE_ID_GRID, c.props.refs().styleIdForGrid, before.refs().styleIdForGrid);
+  if (before.type == NodeType::TEXT) detach(kTextStyleNodeFields, F_STYLE_ID_TEXT, c.props.refs().styleIdForText, before.refs().styleIdForText);
 }
 
 // ---- Reads ----------------------------------------------------------------------------------------
@@ -832,7 +920,7 @@ std::vector<Editor::BoundVariable> Editor::boundVariables(Guid node) const {
     b.ok = resolveData(d, ctx, b.resolved, nullptr, 0);
     if (b.ok && b.target == "FONT_STYLE" && b.resolved.kind == Resolved::Kind::FLOAT) {
       b.resolved.kind = Resolved::Kind::STRING;
-      b.resolved.s = styleForWeight(b.resolved.f, isItalicStyle(p.fontName.style));
+      b.resolved.s = styleForWeight(b.resolved.f, isItalicStyle(p.text().fontName.style));
     }
     out.push_back(std::move(b));
   };
@@ -857,9 +945,9 @@ std::vector<Editor::BoundVariable> Editor::boundVariables(Guid node) const {
     add(base + ".x", e.xVar);
     add(base + ".y", e.yVar);
   }
-  for (size_t i = 0; i < p.layoutGrids.size(); i++) {
+  for (size_t i = 0; i < p.rare().layoutGrids.size(); i++) {
     std::string base = "layoutGrids[" + std::to_string(i) + "]";
-    const LayoutGrid& g = p.layoutGrids[i];
+    const LayoutGrid& g = p.rare().layoutGrids[i];
     add(base + ".numSections", g.numSectionsVar);
     add(base + ".offset", g.offsetVar);
     add(base + ".sectionSize", g.sectionSizeVar);

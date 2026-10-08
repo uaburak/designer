@@ -35,7 +35,8 @@ import {
   type CommandName,
   type ToolName,
 } from "./abi";
-import { decodeMessage as decodeKiwiMessage } from "../../../shared/schema/codec";
+import { decodeMessage as decodeKiwiMessage, encodeMessage as encodeKiwiMessage } from "../../../shared/schema/codec";
+import { messageToKiwi } from "../store/engineMessage";
 import {
   decodeCamera,
   decodeEvents,
@@ -89,6 +90,7 @@ import {
   type VectorEditTool,
 } from "./codec";
 import type { EngineExports } from "./EngineExports";
+import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets.generated";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { loadEngine } from "./loadEngine";
@@ -431,7 +433,10 @@ export class Engine {
 
   /** Replaces the document (a snapshot Message). Resets undo and the selection. */
   load(message: Message): number {
-    return this.after(this.x.load(this.h, encodeMessage(message)));
+    // The engine reads documents as kiwi only (docs/engine-build.md "Figma parity round 4"): a Message in the engine's
+    // JSON shape (memory sources, demos, tests) is encoded here, with the shared codec, the store's way.
+    const page = (message as { currentPage?: unknown }).currentPage;
+    return this.loadKiwi(encodeKiwiMessage(messageToKiwi(message)), typeof page === "string" ? { page } : {});
   }
 
   /** The task's name for load(). */
@@ -549,6 +554,53 @@ export class Engine {
     const payload = options.fields ? encodeText(JSON.stringify({ refs, fields: options.fields })) : encodeRefs(refs);
     this.x.readNodes(this.h, payload, flags);
     return this.after(decodeMessage(this.x.result()).nodeChanges);
+  }
+
+  /**
+   * Typed per-facet reads (engine_read_facets; the generated bindings of facets.generated.ts, Figma's
+   * *FacetTsApiGenerated): each ref's fields of `facets` in engine_read_nodes' shapes (enum names, {x, y},
+   * {m00 … m12}), or null for a ref that isn't there — no JSON. For hot reads (a gesture's frames) of nodes a panel
+   * already shows.
+   */
+  readFacets(refs: readonly Guid[], facets: readonly FacetName[]): (Record<string, unknown> | null)[] {
+    if (!refs.length || !facets.length) return refs.map(() => null);
+    const ids = new Uint32Array(refs.length * 2);
+    refs.forEach((ref, i) => {
+      const [s, l] = this.ids(ref);
+      ids[2 * i] = s;
+      ids[2 * i + 1] = l;
+    });
+    let mask = 0;
+    let per = 1;
+    const order = [...facets].sort((a, b) => FACET_IDS[a] - FACET_IDS[b]);
+    for (const f of order) {
+      if (mask & (1 << FACET_IDS[f])) continue;
+      mask |= 1 << FACET_IDS[f];
+      per += FACET_SLOTS[f];
+    }
+    if (this.x.readFacets(this.h, ids, mask) !== Status.OK) return this.after(refs.map(() => null));
+    const bytes = this.x.result();
+    const a = new Float64Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 8);
+    const out: (Record<string, unknown> | null)[] = [];
+    const seen = new Set<FacetName>();
+    for (let i = 0; i < refs.length; i++) {
+      const o = i * per;
+      if (a[o] !== 1) {
+        out.push(null);
+        continue;
+      }
+      const into: Record<string, unknown> = {};
+      let at = o + 1;
+      seen.clear();
+      for (const f of order) {
+        if (seen.has(f)) continue;
+        seen.add(f);
+        FACET_DECODERS[f](a, at, into);
+        at += FACET_SLOTS[f];
+      }
+      out.push(into);
+    }
+    return this.after(out);
   }
 
   readNode(ref: Guid, options: { childIds?: boolean; fields?: readonly string[] } = {}): NodeChange | null {

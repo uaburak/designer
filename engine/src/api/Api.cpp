@@ -29,6 +29,7 @@
 #include "render/Renderer.h"
 #include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
+#include "schema/facet_readers.h"
 #include "text/DerivedText.h"
 #include "text/Fonts.h"
 #include "text/TextLayout.h"
@@ -445,20 +446,18 @@ ENG_EXPORT int32_t engine_load_at(Handle h, Ptr ptr, uint32_t len, uint32_t page
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
   codec::KiwiMessage m;
-  json::Value v;
   DerivedCollector derived;
   std::string_view in = bytes(ptr, len);
-  if (codec::looksKiwi(in)) {
-    if (!codec::readMessage(in, m, &derived)) {
-      setError("the payload is not a valid kiwi Message");
-      return E_DECODE;
-    }
-  } else if (!readAnyMessage(ptr, len, m, &v)) {
+  // Documents come as kiwi only (the store's snapshot bytes; TS encodes anything else with the shared codec).
+  if (!codec::looksKiwi(in)) {
+    setError("engine_load takes a kiwi Message (schema/document.kiwi), not JSON");
+    return E_DECODE;
+  }
+  if (!codec::readMessage(in, m, &derived)) {
+    setError("the payload is not a valid kiwi Message");
     return E_DECODE;
   }
   Guid page{pageSessionID, pageLocalID};
-  if (page == kNoGuid && v.isObject())
-    if (auto* p = v.get("currentPage"); p && p->isString()) page = Guid::parse(p->string);
   // Derived data is trusted only when this engine wrote it (docs/schema.md §1.3: a reader ignores another stamp's).
   if (m.derivedDataVersion == Editor::kDerivedDataVersion) {
     Editor::StoredDerived stored = derived.take(m.blobs);
@@ -730,10 +729,10 @@ void writeLayerRow(json::Writer& w, const Document& doc, Guid id, const NodeProp
   if (p.parentIndex.guid != kNoGuid) w.key("parentIndex").beginObject().key("guid").string(p.parentIndex.guid.toString()).endObject();
   w.key("type").string(nodeTypeName(p.type)).key("name").string(p.name).key("visible").boolean(p.visible).key("locked").boolean(p.locked);
   if (p.resizeToFit) w.key("resizeToFit").boolean(true);
-  if (p.stackMode != StackMode::NONE) w.key("stackMode").string(enumName(p.stackMode));
-  if (p.stackWrap != StackWrap::NO_WRAP) w.key("stackWrap").string(enumName(p.stackWrap));
-  if (p.type == NodeType::BOOLEAN_OPERATION) w.key("booleanOperation").string(enumName(p.booleanOperation));
-  if (p.isStateGroup) w.key("isStateGroup").boolean(true);
+  if (p.stack().stackMode != StackMode::NONE) w.key("stackMode").string(enumName(p.stack().stackMode));
+  if (p.stack().stackWrap != StackWrap::NO_WRAP) w.key("stackWrap").string(enumName(p.stack().stackWrap));
+  if (p.type == NodeType::BOOLEAN_OPERATION) w.key("booleanOperation").string(enumName(p.shape().booleanOperation));
+  if (p.comp().isStateGroup) w.key("isStateGroup").boolean(true);
   w.key("childIds");
   writeIds(w, doc.children(id));
   w.endObject();
@@ -804,7 +803,7 @@ ENG_EXPORT int32_t engine_layer_outline(Handle h, uint32_t pageSessionID, uint32
     int64_t index = static_cast<int64_t>(ids.size());
     ids.push_back(id);
     parents.push_back(parent);
-    uint32_t flags = (id.isDerived() ? 1u : 0u) | (n->props.isStateGroup ? 2u : 0u) | (n->props.resizeToFit ? 4u : 0u);
+    uint32_t flags = (id.isDerived() ? 1u : 0u) | (n->props.comp().isStateGroup ? 2u : 0u) | (n->props.resizeToFit ? 4u : 0u);
     kinds.push_back(static_cast<uint32_t>(n->props.type) | flags << 8);
     const std::vector<Guid>& kids = doc.children(id);
     for (size_t i = kids.size(); i-- > 0;) stack.push_back({kids[i], index});
@@ -895,6 +894,35 @@ ENG_EXPORT int32_t engine_layer_changes(Handle h, uint32_t pageSessionID, uint32
   return setResult(w.take());
 }
 
+// The typed per-facet getter (Figma's generated facet bindings; facet_readers.h from fieldmeta.ts): `count` nodes as
+// (sessionID, localID) u32 pairs at `idsPtr` (a derived ref: 0xfffffffe and its engine_ref_id), the facets in `mask`
+// (bit 1 << facet id). Result: f64s — per node a presence slot (1 / 0), then each requested facet's record in id
+// order (NaN for a node that isn't there). No JSON; nothing is derived (a read of what a panel already shows).
+ENG_EXPORT int32_t engine_read_facets(Handle h, Ptr idsPtr, uint32_t count, uint32_t mask) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  uint32_t per = 1;
+  for (uint32_t f = 0; f < facets::kCount; f++)
+    if (mask & (1u << f)) per += facets::kSlots[f];
+  std::string out(static_cast<size_t>(count) * per * sizeof(double), '\0');
+  auto* o = reinterpret_cast<double*>(out.data());
+  const auto* ids = reinterpret_cast<const uint32_t*>(idsPtr);
+  const Document& doc = e->editor.document();
+  for (uint32_t i = 0; i < count; i++, o += per) {
+    const Node* n = doc.get(Guid{ids[2 * i], ids[2 * i + 1]});
+    o[0] = n ? 1 : 0;
+    double* at = o + 1;
+    for (uint32_t f = 0; f < facets::kCount; f++) {
+      if (!(mask & (1u << f))) continue;
+      if (n) facets::write(f, n->props, at);
+      else std::fill(at, at + facets::kSlots[f], std::nan(""));
+      at += facets::kSlots[f];
+    }
+  }
+  return setResult(std::move(out));
+}
+
 // The generic getter: a Message with one NodeChange per ref that exists — every field, or only the schema keys in
 // the payload's "fields" (`{"refs": […], "fields": ["fillPaints", …]}`; unknown keys ignored; guid and type always);
 // flags: ReadFlags. Derives the pages of the refs first (an instance's sublayers are nodes).
@@ -913,7 +941,7 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
       if (f.isString()) mask |= codec::fieldOfKey(f.string);
   }
   std::vector<Guid> refs = readRefs(v);
-  for (Guid id : refs) ed.derivePageOf(id);
+  for (Guid id : refs) ed.derivePageOf(id, (flags & READ_SUBTREE) != 0);
   json::Writer w;
   codec::BlobsOut blobs;
   w.beginObject().key("type").string("NODE_CHANGES").key("sessionID").number(ed.sessionID());
@@ -1710,7 +1738,7 @@ void writeRemote(json::Writer& w, const Editor& ed, Guid id) {
   Guid root = ed.libraryRootOf(id);
   w.key("remote").boolean(root != kNoGuid).key("libraryKey");
   if (root == kNoGuid) w.null();
-  else w.string(ed.document().get(root)->props.sourceLibraryKey);
+  else w.string(ed.document().get(root)->props.asset().sourceLibraryKey);
 }
 
 void writeColorValue(json::Writer& w, const Color& c) {
@@ -1777,17 +1805,17 @@ void writeVariableValue(json::Writer& w, const VariableData& d, const Editor& ed
 void writeVariableInfo(json::Writer& w, const Editor& ed, Guid v) {
   const Document& doc = ed.document();
   const NodeProps& p = doc.get(v)->props;
-  Guid set = ed.findCollection(p.variableSetID);
+  Guid set = ed.findCollection(p.asset().variableSetID);
   const Node* sn = doc.get(set);
   w.beginObject().key("id").string(v.toString()).key("name").string(p.name).key("collectionId");
   if (set == kNoGuid) w.null();
   else w.string(set.toString());
-  w.key("resolvedType").string(enumName(p.variableResolvedType));
+  w.key("resolvedType").string(enumName(p.asset().variableResolvedType));
   std::vector<VariableSetMode> modes = sn ? sn->props.orderedModes() : std::vector<VariableSetMode>{};
   Guid def = sn ? sn->props.defaultMode() : kNoGuid;
   auto valueFor = [&](Guid mode) -> const VariableData* {
     const VariableData* fallback = nullptr;
-    for (auto& mv : p.variableDataValues) {
+    for (auto& mv : p.asset().variableDataValues) {
       if (mv.modeID == mode) return &mv.data;
       if (mv.modeID == def) fallback = &mv.data;
     }
@@ -1809,15 +1837,15 @@ void writeVariableInfo(json::Writer& w, const Editor& ed, Guid v) {
   }
   w.endObject();
   w.key("scopes").beginArray();
-  if (!p.variableScopes) w.string("ALL_SCOPES");
+  if (!p.asset().variableScopes) w.string("ALL_SCOPES");
   else
-    for (VariableScope sc : *p.variableScopes) w.string(enumName(sc));
+    for (VariableScope sc : *p.asset().variableScopes) w.string(enumName(sc));
   w.endArray();
   w.key("codeSyntax").beginObject();
-  for (auto& cs : p.codeSyntax) w.key(enumName(cs.platform)).string(cs.value);
+  for (auto& cs : p.asset().codeSyntax) w.key(enumName(cs.platform)).string(cs.value);
   w.endObject();
-  w.key("description").string(p.description).key("hiddenFromPublishing").boolean(!p.isPublishable);
-  w.key("key").string(p.key).key("deletedButReferenced").boolean(p.isSoftDeleted);
+  w.key("description").string(p.asset().description).key("hiddenFromPublishing").boolean(!p.asset().isPublishable);
+  w.key("key").string(p.asset().key).key("deletedButReferenced").boolean(p.comp().isSoftDeleted);
   writeRemote(w, ed, v);
   w.endObject();
 }
@@ -1842,8 +1870,8 @@ ENG_EXPORT int32_t engine_variable_collections(Handle h, uint32_t flags) {
     else w.string(modes[0].id.toString());
     w.key("variableIds");
     writeIds(w, ed.variablesOf(c));
-    bool hidden = !p.isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.'));
-    w.key("hiddenFromPublishing").boolean(hidden).key("key").string(p.key).key("description").string(p.description);
+    bool hidden = !p.asset().isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.'));
+    w.key("hiddenFromPublishing").boolean(hidden).key("key").string(p.asset().key).key("description").string(p.asset().description);
     writeRemote(w, ed, c);
     w.endObject();
   }
@@ -1948,9 +1976,9 @@ ENG_EXPORT int32_t engine_variable_modes(Handle h, Ptr refPtr, uint32_t refLen) 
   w.beginArray();
   for (Guid c : ed.collections(true)) {
     const NodeProps& sp = ed.document().get(c)->props;
-    Guid explicitMode = n->props.explicitMode(c, sp.key);
+    Guid explicitMode = n->props.explicitMode(c, sp.asset().key);
     bool valid = false;
-    for (auto& m : sp.variableSetModes) valid |= m.id == explicitMode;
+    for (auto& m : sp.asset().variableSetModes) valid |= m.id == explicitMode;
     w.beginObject().key("collectionId").string(c.toString()).key("explicitModeId");
     if (!valid) w.null();
     else w.string(explicitMode.toString());
@@ -1974,12 +2002,12 @@ ENG_EXPORT int32_t engine_styles(Handle h, uint32_t type, uint32_t flags) {
   w.beginArray();
   for (Guid s : ed.stylesOf(static_cast<StyleType>(type), (flags & 1) != 0)) {
     const NodeProps& p = ed.document().get(s)->props;
-    w.beginObject().key("id").string(s.toString()).key("name").string(p.name).key("styleType").string(enumName(p.styleType));
-    w.key("description").string(p.description).key("key").string(p.key);
-    w.key("hiddenFromPublishing").boolean(!p.isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.')));
+    w.beginObject().key("id").string(s.toString()).key("name").string(p.name).key("styleType").string(enumName(p.asset().styleType));
+    w.key("description").string(p.asset().description).key("key").string(p.asset().key);
+    w.key("hiddenFromPublishing").boolean(!p.asset().isPublishable || (!p.name.empty() && (p.name[0] == '_' || p.name[0] == '.')));
     w.key("usageCount").number(ed.styleUsage(s));
     writeRemote(w, ed, s);
-    switch (p.styleType) {
+    switch (p.asset().styleType) {
       case StyleType::FILL:
         w.key("fillPaints");
         codec::writePaints(w, p.fillPaints);
@@ -1990,16 +2018,16 @@ ENG_EXPORT int32_t engine_styles(Handle h, uint32_t type, uint32_t flags) {
         break;
       case StyleType::GRID:
         w.key("layoutGrids");
-        codec::writeLayoutGrids(w, p.layoutGrids);
+        codec::writeLayoutGrids(w, p.rare().layoutGrids);
         break;
       case StyleType::TEXT:
         w.key("text").beginObject().key("fontName").beginObject();
-        w.key("family").string(p.fontName.family).key("style").string(p.fontName.style).key("postscript").string(p.fontName.postscript);
-        w.endObject().key("fontSize").number(p.fontSize);
-        w.key("lineHeight").beginObject().key("value").number(p.lineHeight.value).key("units").string(enumName(p.lineHeight.units)).endObject();
-        w.key("letterSpacing").beginObject().key("value").number(p.letterSpacing.value).key("units").string(enumName(p.letterSpacing.units)).endObject();
-        w.key("paragraphSpacing").number(p.paragraphSpacing).key("paragraphIndent").number(p.paragraphIndent);
-        w.key("textCase").string(enumName(p.textCase)).key("textDecoration").string(enumName(p.textDecoration));
+        w.key("family").string(p.text().fontName.family).key("style").string(p.text().fontName.style).key("postscript").string(p.text().fontName.postscript);
+        w.endObject().key("fontSize").number(p.text().fontSize);
+        w.key("lineHeight").beginObject().key("value").number(p.text().lineHeight.value).key("units").string(enumName(p.text().lineHeight.units)).endObject();
+        w.key("letterSpacing").beginObject().key("value").number(p.text().letterSpacing.value).key("units").string(enumName(p.text().letterSpacing.units)).endObject();
+        w.key("paragraphSpacing").number(p.text().paragraphSpacing).key("paragraphIndent").number(p.text().paragraphIndent);
+        w.key("textCase").string(enumName(p.text().textCase)).key("textDecoration").string(enumName(p.text().textDecoration));
         w.endObject();
         break;
       default: break;

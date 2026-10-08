@@ -38,9 +38,9 @@ TEST_CASE("vector networks decode and re-encode byte for byte (structure.fig)") 
   for (auto& n : nodes) {
     if (n.props.type != NodeType::VECTOR) continue;
     vectors++;
-    REQUIRE(n.props.vectorData.present);
-    REQUIRE(n.props.vectorData.network);
-    const auto& bytes = *n.props.vectorData.network;
+    REQUIRE(n.props.shape().vectorData.present);
+    REQUIRE(n.props.shape().vectorData.network);
+    const auto& bytes = *n.props.shape().vectorData.network;
     VectorNetwork net;
     REQUIRE(VectorNetwork::decode(bytes.data(), bytes.size(), net));
     CHECK(!net.vertices.empty());
@@ -61,8 +61,8 @@ TEST_CASE("a network's fill is Figma's own fillGeometry (the Sketch logo in stru
     NodeChange n;
     REQUIRE(codec::readChange(raw, n, &blobs));
     VectorNetwork net;
-    REQUIRE(VectorNetwork::decode(n.props.vectorData.network->data(), n.props.vectorData.network->size(), net));
-    auto fills = networkFills(net, n.props.vectorData, n.props.size);
+    REQUIRE(VectorNetwork::decode(n.props.shape().vectorData.network->data(), n.props.shape().vectorData.network->size(), net));
+    auto fills = networkFills(net, n.props.shape().vectorData, n.props.size);
     REQUIRE(fills.size() == 1);
     Bytes figma = blobs.get(raw.get("fillGeometry")->array[0].get("commandsBlob"));
     Path theirs = Path::fromCommands(figma->data(), figma->size());

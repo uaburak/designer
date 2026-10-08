@@ -196,7 +196,10 @@ class Editor : private LayoutHost, public TextLayouts {
   // first show — setCurrentPage, a Layers read, a thumbnail, a read of one of its nodes). One SYSTEM change; a no-op
   // for a page already derived. `derivePageOf(id)`: the page holding `id`.
   void derivePage(Guid page);
-  void derivePageOf(Guid id) { derivePage(doc_.pageOf(id.isDerived() ? instanceOfDerived(id) : id)); }
+  // On the Internal Only Canvas only what needs it is derived: a read of an instance or of one of its sublayers, or a
+  // read of a whole subtree (`subtree`); a style, a variable or a main read for its own fields derives nothing.
+  void derivePageOf(Guid id, bool subtree = false);
+  void deriveInternal(Guid top);
   bool pageDerived(Guid page) const { return derivedPages_.count(page) != 0; }
   const Document& document() const override { return doc_; }
   Guid page() const { return page_; }
@@ -1109,6 +1112,15 @@ class Editor : private LayoutHost, public TextLayouts {
   GuidSet collectionIds_;                                     // collections seen (likewise)
   std::unordered_map<Guid, Guid, GuidHash> variableSets_;     // variables seen → their collection
   GuidSet instanceBindings_;                                  // instances with bound sublayers
+  // Slot content as Figma's files keep it (a FRAME with isSlotContent under the Internal Only Canvas, named by its
+  // instance's SLOT assignment): its variables resolve where the slot shows it — the instance's slot row and up.
+  std::unordered_map<Guid, Guid, GuidHash> slotHosts_;                    // content frame → its slot row
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> slotContentsOf_;  // instance → the content frames it hosts
+  // The content frame a node is inside (Figma's form) when its slot row isn't derived yet (kNoGuid: hosted, or not
+  // slot content): its bound values stay as stored until it is.
+  Guid unhostedSlotContent(Guid id, const NodeProps& p) const;
+  // The fields resolveBindings writes for `p` (its styles' and its variables' targets).
+  static FieldMask boundFieldMask(const NodeProps& p);
   mutable std::unordered_map<std::string, Guid> assetKeys_;   // key → asset (imported library references)
   mutable bool assetKeysDirty_ = true;
   bool resolving_ = false;                                    // the resolver's own writes
@@ -1128,6 +1140,14 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_map<Guid, uint32_t, GuidHash> instanceCounts_;  // a main (symbolID) → real instances showing it
   std::unordered_map<Guid, Guid, GuidHash> instanceMain_;        // a real instance → the symbolID it is counted under
   Guid docNode_ = kNoGuid;                                       // the DOCUMENT node
+  // Bound nodes of pages not derived yet: resolved when the page is first shown (derivePage), not at load.
+  std::unordered_map<Guid, std::vector<Guid>, GuidHash> pageBindings_;
+  // The Internal Only Canvas is never derived as a page (it holds dependencies: styles, variables, mains, slot
+  // content): what is read there derives the instances under that node's top-level container only (deriveInternal).
+  GuidSet derivedInternal_;
+  Guid internalRootOf(Guid id) const;  // the child of the Internal Only Canvas holding `id` (kNoGuid: not there)
+  // An instance not derived yet whose page (or internal container) isn't either: it waits for it.
+  bool instanceWaits(Guid r) const;
   // componentInfo's answers, each good for one document version (a panel asks five times per render).
   struct CachedInfo {
     uint64_t version = 0;

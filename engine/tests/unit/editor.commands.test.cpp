@@ -176,12 +176,12 @@ TEST_CASE("commands: add auto layout to a frame infers direction, gap, padding; 
   e.setSelection({G});
   e.command(CommandId::ADD_AUTO_LAYOUT);
   const NodeProps& p = props(e, G);
-  CHECK(p.stackMode == StackMode::VERTICAL);
-  CHECK(p.stackSpacing == 10);
-  CHECK(p.stackPaddingLeft == 20);
-  CHECK(p.stackPaddingTop == 20);
-  CHECK(p.stackPaddingRight == 80);
-  CHECK(p.stackPaddingBottom == 170);
+  CHECK(p.stack().stackMode == StackMode::VERTICAL);
+  CHECK(p.stack().stackSpacing == 10);
+  CHECK(p.stack().stackPaddingLeft == 20);
+  CHECK(p.stack().stackPaddingTop == 20);
+  CHECK(p.stack().stackPaddingRight == 80);
+  CHECK(p.stack().stackPaddingBottom == 170);
   // The flow follows where they sat: A, B, C top to bottom.
   CHECK(e.document().children(G) == std::vector<Guid>{A, B, C});
   CHECK(world(e, A).y == 20);
@@ -190,7 +190,7 @@ TEST_CASE("commands: add auto layout to a frame infers direction, gap, padding; 
   CHECK(p.size == Vec2{200, 300});
   CHECK(e.commandState(CommandId::REMOVE_AUTO_LAYOUT) == CMD_ENABLED);
   e.command(CommandId::REMOVE_AUTO_LAYOUT);
-  CHECK(props(e, G).stackMode == StackMode::NONE);
+  CHECK(props(e, G).stack().stackMode == StackMode::NONE);
   CHECK(world(e, C).y == 100);
   CHECK(e.commandState(CommandId::REMOVE_AUTO_LAYOUT) == 0);
 }
@@ -202,10 +202,10 @@ TEST_CASE("commands: add auto layout wraps several layers in a hugging auto-layo
   Guid w = e.selection()[0];
   const NodeProps& p = props(e, w);
   CHECK(p.isAutoLayout());
-  CHECK(p.stackMode == StackMode::HORIZONTAL);
+  CHECK(p.stack().stackMode == StackMode::HORIZONTAL);
   CHECK(p.fillPaints.empty());
   // Gaps 40 and 50: 45.
-  CHECK(p.stackSpacing == 45);
+  CHECK(p.stack().stackSpacing == 45);
   CHECK(p.hugsPrimary());
   CHECK(p.hugsCounter());
   CHECK(p.size == Vec2{50 + 45 + 50 + 45 + 30, 50});

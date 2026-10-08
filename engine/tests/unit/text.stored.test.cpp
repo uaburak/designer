@@ -87,7 +87,14 @@ Handle open(const std::string& payload, Guid page) {
   Text opts{R"({"sessionID":5,"wire":"kiwi"})"};
   Handle h = engine_create(nullptr, opts.ptr(), opts.len());
   REQUIRE(h);
-  Text doc{payload};
+  // engine_load takes kiwi only: a JSON payload (the tests' readable form) is encoded first.
+  std::string bytes = payload;
+  if (!codec::looksKiwi(bytes)) {
+    json::Value v;
+    REQUIRE(json::parse(payload, v));
+    bytes = codec::writeMessage(0, codec::readMessage(v));
+  }
+  Text doc{bytes};
   REQUIRE(engine_load_at(h, doc.ptr(), doc.len(), page.sessionID, page.localID) == 0);
   engine_take_events(h);
   return h;

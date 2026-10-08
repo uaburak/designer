@@ -81,17 +81,17 @@ uint64_t GeometryCache::inputKey(const Document& doc, Guid id, const NodeProps& 
   h.pod(p.type);
   h.d(p.size.x), h.d(p.size.y);
   for (double r : p.cornerRadii) h.d(r);
-  h.d(p.cornerSmoothing);
-  h.d(p.arcData.startingAngle), h.d(p.arcData.endingAngle), h.d(p.arcData.innerRadius);
-  h.pod(p.count);
-  h.d(p.starInnerScale);
+  h.d(p.stroke().cornerSmoothing);
+  h.d(p.shape().arcData.startingAngle), h.d(p.shape().arcData.endingAngle), h.d(p.shape().arcData.innerRadius);
+  h.pod(p.shape().count);
+  h.d(p.shape().starInnerScale);
   h.pod(p.strokeCap);
   h.pod(p.resizeToFit);
-  if (p.vectorData.present) {
-    const void* bytes = p.vectorData.network.get();
+  if (p.shape().vectorData.present) {
+    const void* bytes = p.shape().vectorData.network.get();
     h.pod(bytes);
-    h.d(p.vectorData.normalizedSize.x), h.d(p.vectorData.normalizedSize.y);
-    for (auto& st : p.vectorData.styleOverrideTable) h.pod(st.styleID), h.pod(st.strokeCap), h.pod(st.mask), h.d(st.cornerRadius);
+    h.d(p.shape().vectorData.normalizedSize.x), h.d(p.shape().vectorData.normalizedSize.y);
+    for (auto& st : p.shape().vectorData.styleOverrideTable) h.pod(st.styleID), h.pod(st.strokeCap), h.pod(st.mask), h.d(st.cornerRadius);
   }
   if (p.type == NodeType::TEXT && text_) {
     const text::TextLayout* L = text_(id);
@@ -102,7 +102,7 @@ uint64_t GeometryCache::inputKey(const Document& doc, Guid id, const NodeProps& 
     }
   }
   if (p.isBoolean() || p.isGroupLike()) {
-    h.pod(p.booleanOperation);
+    h.pod(p.shape().booleanOperation);
     if (depth < kMaxDepth)
       for (Guid c : doc.children(id)) {
         const Node* n = doc.get(c);
@@ -130,31 +130,31 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
     case NodeType::INSTANCE:
     case NodeType::SECTION:
       if (p.isGroupLike()) break;
-      closedShape(rectPath(p.size, p.cornerRadii, p.cornerSmoothing));
+      closedShape(rectPath(p.size, p.cornerRadii, p.stroke().cornerSmoothing));
       break;
-    case NodeType::ELLIPSE: closedShape(ellipsePath(p.size, p.arcData)); break;
-    case NodeType::REGULAR_POLYGON: closedShape(polygonPath(p.size, p.count ? p.count : 3, p.cornerRadii[0])); break;
-    case NodeType::STAR: closedShape(starPath(p.size, p.count ? p.count : 5, p.starInnerScale, p.cornerRadii[0])); break;
+    case NodeType::ELLIPSE: closedShape(ellipsePath(p.size, p.shape().arcData)); break;
+    case NodeType::REGULAR_POLYGON: closedShape(polygonPath(p.size, p.shape().count ? p.shape().count : 3, p.cornerRadii[0])); break;
+    case NodeType::STAR: closedShape(starPath(p.size, p.shape().count ? p.shape().count : 5, p.shape().starInnerScale, p.cornerRadii[0])); break;
     case NodeType::LINE:
     case NodeType::VECTOR: {
-      const VectorNetwork* net = network(p.vectorData);
+      const VectorNetwork* net = network(p.shape().vectorData);
       if (net && !net->empty()) {
         bool rounded = p.cornerRadii[0] > 0;
-        for (auto& st : p.vectorData.styleOverrideTable) rounded |= (st.mask & VS_CORNER_RADIUS) && st.cornerRadius > 0;
+        for (auto& st : p.shape().vectorData.styleOverrideTable) rounded |= (st.mask & VS_CORNER_RADIUS) && st.cornerRadius > 0;
         if (rounded) {
           // Rounded corners are cut in the node's space (the network is scaled there first).
           VectorNetwork scaled = *net;
-          double sx = p.vectorData.normalizedSize.x != 0 ? p.size.x / p.vectorData.normalizedSize.x : 1;
-          double sy = p.vectorData.normalizedSize.y != 0 ? p.size.y / p.vectorData.normalizedSize.y : 1;
+          double sx = p.shape().vectorData.normalizedSize.x != 0 ? p.size.x / p.shape().vectorData.normalizedSize.x : 1;
+          double sy = p.shape().vectorData.normalizedSize.y != 0 ? p.size.y / p.shape().vectorData.normalizedSize.y : 1;
           scaled.scale(sx, sy);
-          VectorData unit = p.vectorData;
+          VectorData unit = p.shape().vectorData;
           unit.normalizedSize = p.size;
           VectorNetwork r = withRoundedCorners(scaled, unit, p.cornerRadii[0]);
           out.fills = networkFills(r, unit, p.size);
           out.stroke = networkStroke(r, unit, p.size, p.strokeCap);
         } else {
-          out.fills = networkFills(*net, p.vectorData, p.size);
-          out.stroke = networkStroke(*net, p.vectorData, p.size, p.strokeCap);
+          out.fills = networkFills(*net, p.shape().vectorData, p.size);
+          out.stroke = networkStroke(*net, p.shape().vectorData, p.size, p.strokeCap);
         }
       } else if (p.type == NodeType::LINE) {
         out.stroke.path = linePath(p.size);
@@ -189,7 +189,7 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
         collect(c, Mat2x3{}, o.path, depth);
         if (!o.path.empty()) ops.push_back(std::move(o));
       }
-      if (!ops.empty()) closedShape(booleanOp(ops, p.booleanOperation, 0.01));
+      if (!ops.empty()) closedShape(booleanOp(ops, p.shape().booleanOperation, 0.01));
       break;
     }
     default: break;
@@ -222,10 +222,10 @@ const NodeGeometry* GeometryCache::get(const Document& doc, Guid id, int depth) 
   if (p.isGroupLike()) return nullptr;
   uint64_t key = inputKey(doc, id, p, depth);
   Entry& e = entries_[id];
-  if (!e.valid || e.input != key || e.network != p.vectorData.network) {
+  if (!e.valid || e.input != key || e.network != p.shape().vectorData.network) {
     build(doc, id, p, e.geometry, depth);
     e.input = key;
-    e.network = p.vectorData.network;
+    e.network = p.shape().vectorData.network;
     e.valid = true;
     e.geometry.fillKey = key;
     e.geometry.strokeKey = key * 31 + 7;

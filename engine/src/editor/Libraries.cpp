@@ -61,24 +61,24 @@ void visitPaints(std::vector<Paint>& paints, const Refs& r) {
 }
 
 void visitProps(NodeProps& p, const Refs& r) {
-  if (p.symbolData.symbolID != kNoGuid) r.symbol(p.symbolData.symbolID);
-  if (p.overriddenSymbolID != kNoGuid) r.symbol(p.overriddenSymbolID);
-  for (SymbolOverride& o : p.symbolData.overrides) visitProps(o.props, r);
-  for (ComponentPropAssignment& a : p.componentPropAssignments)
+  if (p.comp().symbolData.symbolID != kNoGuid) r.symbol(p.comp().symbolData.symbolID);
+  if (p.comp().overriddenSymbolID != kNoGuid) r.symbol(p.comp().overriddenSymbolID);
+  for (SymbolOverride& o : p.comp().symbolData.overrides) visitProps(o.props, r);
+  for (ComponentPropAssignment& a : p.comp().componentPropAssignments)
     if (a.value.guidValue != kNoGuid) r.symbol(a.value.guidValue);
-  for (ComponentPropDef& d : p.componentPropDefs)
+  for (ComponentPropDef& d : p.comp().componentPropDefs)
     if (d.initialValue.guidValue != kNoGuid) r.symbol(d.initialValue.guidValue);
-  for (AssetId* a : {&p.styleIdForFill, &p.styleIdForStrokeFill, &p.styleIdForText, &p.styleIdForEffect, &p.styleIdForGrid})
+  for (AssetId* a : {&p.refs().styleIdForFill, &p.refs().styleIdForStrokeFill, &p.refs().styleIdForText, &p.refs().styleIdForEffect, &p.refs().styleIdForGrid})
     if (a->present()) r.asset(*a, Kind::STYLE);
-  for (VariableModeEntry& e : p.variableModeBySetMap)
+  for (VariableModeEntry& e : p.refs().variableModeBySetMap)
     if (e.set.present()) r.asset(e.set, Kind::VARIABLE_COLLECTION);
-  if (p.variableSetID.present()) r.asset(p.variableSetID, Kind::VARIABLE_COLLECTION);
-  for (VariableModeValue& v : p.variableDataValues) visitData(v.data, r);
+  if (p.asset().variableSetID.present()) r.asset(p.asset().variableSetID, Kind::VARIABLE_COLLECTION);
+  for (VariableModeValue& v : p.asset().variableDataValues) visitData(v.data, r);
   for (ParamBinding& b : p.parameterConsumptionMap) visitData(b.data, r);
   visitPaints(p.fillPaints, r);
   visitPaints(p.strokePaints, r);
-  for (TextStyle& t : p.textData.styleOverrideTable) visitPaints(t.fillPaints, r);
-  for (VectorStyle& v : p.vectorData.styleOverrideTable) visitPaints(v.fillPaints, r);
+  for (TextStyle& t : p.text().textData.styleOverrideTable) visitPaints(t.fillPaints, r);
+  for (VectorStyle& v : p.shape().vectorData.styleOverrideTable) visitPaints(v.fillPaints, r);
   for (Effect& e : p.effects) {
     visitData(e.colorVar, r);
     visitData(e.radiusVar, r);
@@ -86,7 +86,7 @@ void visitProps(NodeProps& p, const Refs& r) {
     visitData(e.xVar, r);
     visitData(e.yVar, r);
   }
-  for (LayoutGrid& g : p.layoutGrids) {
+  for (LayoutGrid& g : p.rare().layoutGrids) {
     visitData(g.numSectionsVar, r);
     visitData(g.offsetVar, r);
     visitData(g.sectionSizeVar, r);
@@ -102,9 +102,9 @@ void collectImages(const std::vector<Paint>& paints, std::set<std::string>& out)
 void collectImages(const NodeProps& p, std::set<std::string>& out) {
   collectImages(p.fillPaints, out);
   collectImages(p.strokePaints, out);
-  for (const TextStyle& t : p.textData.styleOverrideTable) collectImages(t.fillPaints, out);
-  for (const VectorStyle& v : p.vectorData.styleOverrideTable) collectImages(v.fillPaints, out);
-  for (const SymbolOverride& o : p.symbolData.overrides) collectImages(o.props, out);
+  for (const TextStyle& t : p.text().textData.styleOverrideTable) collectImages(t.fillPaints, out);
+  for (const VectorStyle& v : p.shape().vectorData.styleOverrideTable) collectImages(v.fillPaints, out);
+  for (const SymbolOverride& o : p.comp().symbolData.overrides) collectImages(o.props, out);
 }
 
 bool isComponentNode(const NodeProps& p) { return p.type == NodeType::SYMBOL || p.isComponentSet(); }
@@ -114,7 +114,7 @@ bool isComponentNode(const NodeProps& p) { return p.type == NodeType::SYMBOL || 
 Guid pickCopy(const Document& doc, const std::vector<Guid>& copies, const std::string& version) {
   if (!version.empty())
     for (Guid g : copies)
-      if (doc.get(g)->props.version == version) return g;
+      if (doc.get(g)->props.asset().version == version) return g;
   return copies.empty() ? kNoGuid : copies[0];
 }
 
@@ -143,18 +143,18 @@ KeyIndex indexKeys(const Editor& ed) {
   KeyIndex ix;
   const Document& doc = ed.document();
   doc.forEach([&](const Node& n) {
-    if (n.guid.isDerived() || n.props.key.empty() || ed.assetKindOf(n.guid) == Kind::NONE) return;
-    if (!n.props.sourceLibraryKey.empty()) {
-      ix.copies[KeyIndex::id(n.props.sourceLibraryKey, n.props.key)].push_back(n.guid);
-      ix.anyLibrary[n.props.key].push_back(n.guid);
+    if (n.guid.isDerived() || n.props.asset().key.empty() || ed.assetKindOf(n.guid) == Kind::NONE) return;
+    if (!n.props.asset().sourceLibraryKey.empty()) {
+      ix.copies[KeyIndex::id(n.props.asset().sourceLibraryKey, n.props.asset().key)].push_back(n.guid);
+      ix.anyLibrary[n.props.asset().key].push_back(n.guid);
       return;
     }
     if (ed.isLibraryCopy(n.guid)) return;
-    auto [it, fresh] = ix.locals.emplace(n.props.key, n.guid);
+    auto [it, fresh] = ix.locals.emplace(n.props.asset().key, n.guid);
     if (fresh) return;
     // A live asset over a deleted one; else the first by GUID (deterministic).
     const NodeProps& was = doc.get(it->second)->props;
-    if (was.isSoftDeleted != n.props.isSoftDeleted ? was.isSoftDeleted : n.guid < it->second) it->second = n.guid;
+    if (was.comp().isSoftDeleted != n.props.comp().isSoftDeleted ? was.comp().isSoftDeleted : n.guid < it->second) it->second = n.guid;
   });
   for (auto* m : {&ix.copies, &ix.anyLibrary})
     for (auto& [k, list] : *m) std::sort(list.begin(), list.end());
@@ -186,12 +186,12 @@ const char* Editor::assetKindName(AssetKind k) {
 }
 
 void Editor::clearIdentity(NodeProps& p) {
-  p.key.clear();
-  p.version.clear();
-  p.publishedVersion.clear();
-  p.sourceLibraryKey.clear();
-  p.publishID = kNoGuid;
-  p.libraryMoveInfo = {};
+  p.asset().key.clear();
+  p.asset().version.clear();
+  p.asset().publishedVersion.clear();
+  p.asset().sourceLibraryKey.clear();
+  p.asset().publishID = kNoGuid;
+  p.asset().libraryMoveInfo = {};
 }
 
 // ---- Lookups ------------------------------------------------------------------------------------
@@ -213,7 +213,7 @@ Guid Editor::libraryRootOf(Guid id) const {
   for (Guid cur = id; ; ) {
     const Node* n = doc_.get(cur);
     if (!n || n->props.type == NodeType::CANVAS || n->props.type == NodeType::DOCUMENT) return kNoGuid;
-    if (!n->props.sourceLibraryKey.empty()) return cur;
+    if (!n->props.asset().sourceLibraryKey.empty()) return cur;
     cur = n->props.parentIndex.guid;
   }
 }
@@ -223,9 +223,9 @@ bool Editor::isCopiedMain(Guid id) const {
   if (!n || id.isDerived() || !(n->props.type == NodeType::SYMBOL || n->props.isComponentSet())) return false;
   Guid page = doc_.pageOf(id);
   const Node* pn = doc_.get(page);
-  if (!pn || !pn->props.internalOnly) return false;
+  if (!pn || !pn->props.rare().internalOnly) return false;
   Guid set = setOf(id);
-  bool deleted = n->props.isSoftDeleted || (set != kNoGuid && doc_.get(set)->props.isSoftDeleted);
+  bool deleted = n->props.comp().isSoftDeleted || (set != kNoGuid && doc_.get(set)->props.comp().isSoftDeleted);
   return !deleted && !isLibraryCopy(id);
 }
 
@@ -238,7 +238,7 @@ Guid Editor::copyRootByKey(const std::string& libraryKey, const std::string& key
   std::vector<Guid> found;
   for (Guid g : *bucket) {
     const Node* n = doc_.get(g);
-    if (n && n->props.sourceLibraryKey == libraryKey && assetKindOf(g) != AssetKind::NONE) found.push_back(g);
+    if (n && n->props.asset().sourceLibraryKey == libraryKey && assetKindOf(g) != AssetKind::NONE) found.push_back(g);
   }
   std::sort(found.begin(), found.end());
   return pickCopy(doc_, found, version);
@@ -253,8 +253,8 @@ Guid Editor::localAssetByKey(const std::string& key) const {
     const Node* n = doc_.get(g);
     if (!n || assetKindOf(g) == AssetKind::NONE || isLibraryCopy(g)) continue;
     // A live asset over a deleted one with the same key; of equals, the smallest GUID.
-    bool better = found == kNoGuid || (doc_.get(found)->props.isSoftDeleted && !n->props.isSoftDeleted) ||
-                  (doc_.get(found)->props.isSoftDeleted == n->props.isSoftDeleted && g < found);
+    bool better = found == kNoGuid || (doc_.get(found)->props.comp().isSoftDeleted && !n->props.comp().isSoftDeleted) ||
+                  (doc_.get(found)->props.comp().isSoftDeleted == n->props.comp().isSoftDeleted && g < found);
     if (better) found = g;
   }
   return found;
@@ -269,7 +269,7 @@ Guid Editor::copyMainByKey(const std::string& libraryKey, const std::string& key
     const Node* n = doc_.get(g);
     if (!n || !isComponentNode(n->props) || (found != kNoGuid && found < g)) continue;
     Guid root = libraryRootOf(g);
-    if (root != kNoGuid && doc_.get(root)->props.sourceLibraryKey == libraryKey) found = g;
+    if (root != kNoGuid && doc_.get(root)->props.asset().sourceLibraryKey == libraryKey) found = g;
   }
   return found;
 }
@@ -278,10 +278,10 @@ Guid Editor::copyByPublishID(const std::string& libraryKey, Guid publishID) cons
   if (publishID == kNoGuid || !hasLibraryCopies_) return kNoGuid;
   Guid found = kNoGuid;
   doc_.forEach([&](const Node& n) {
-    if (n.guid.isDerived() || n.props.publishID != publishID || (found != kNoGuid && found < n.guid)) return;
+    if (n.guid.isDerived() || n.props.asset().publishID != publishID || (found != kNoGuid && found < n.guid)) return;
     if (!(n.props.type == NodeType::SYMBOL || n.props.isComponentSet())) return;
     Guid root = libraryRootOf(n.guid);
-    if (root != kNoGuid && (libraryKey.empty() || doc_.get(root)->props.sourceLibraryKey == libraryKey)) found = n.guid;
+    if (root != kNoGuid && (libraryKey.empty() || doc_.get(root)->props.asset().sourceLibraryKey == libraryKey)) found = n.guid;
   });
   return found;
 }
@@ -332,7 +332,7 @@ std::vector<Guid> Editor::dependencyRoots(const std::vector<Guid>& roots, const 
     // A variable needs its collection.
     if (k == Kind::VARIABLE) {
       const NodeProps& vp = doc_.get(g)->props;
-      add(needRoot(findCollection(vp.variableSetID)));
+      add(needRoot(findCollection(vp.asset().variableSetID)));
     }
   };
   if (extra)
@@ -357,17 +357,17 @@ bool Editor::assetHidden(Guid id) const {
   const NodeProps& p = n->props;
   switch (assetKindOf(id)) {
     case AssetKind::COMPONENT: {
-      if (!codec::extraBool(p.extra, "isSymbolPublishable", true) || !p.isPublishable || hiddenName(p.name)) return true;
+      if (!codec::extraBool(p.extra, "isSymbolPublishable", true) || !p.asset().isPublishable || hiddenName(p.name)) return true;
       Guid set = setOf(id);
       if (set != kNoGuid && assetHidden(set)) return true;
       return isCopiedMain(id);  // shipped only as a dependency
     }
-    case AssetKind::COMPONENT_SET: return !p.isPublishable || hiddenName(p.name) || isCopiedMain(id);
-    case AssetKind::STYLE: return !p.isPublishable || hiddenName(p.name);
-    case AssetKind::VARIABLE_COLLECTION: return !p.isPublishable || hiddenName(p.name);
+    case AssetKind::COMPONENT_SET: return !p.asset().isPublishable || hiddenName(p.name) || isCopiedMain(id);
+    case AssetKind::STYLE: return !p.asset().isPublishable || hiddenName(p.name);
+    case AssetKind::VARIABLE_COLLECTION: return !p.asset().isPublishable || hiddenName(p.name);
     case AssetKind::VARIABLE: {
-      if (!p.isPublishable) return true;
-      Guid set = findCollection(p.variableSetID);
+      if (!p.asset().isPublishable) return true;
+      Guid set = findCollection(p.asset().variableSetID);
       return set != kNoGuid && assetHidden(set);
     }
     default: return true;
@@ -377,26 +377,26 @@ bool Editor::assetHidden(Guid id) const {
 void Editor::fillAssetInfo(Guid id, AssetInfo& info) const {
   const NodeProps& p = doc_.get(id)->props;
   info.id = id;
-  info.key = p.key;
+  info.key = p.asset().key;
   info.kind = assetKindOf(id);
   info.name = p.name;
-  info.description = p.description;
-  info.styleType = p.styleType;
-  info.softDeleted = p.isSoftDeleted;
-  info.publishedVersion = p.publishedVersion;
-  info.libraryKey = p.sourceLibraryKey;
-  info.version = p.version;
-  info.publishID = p.publishID;
+  info.description = p.asset().description;
+  info.styleType = p.asset().styleType;
+  info.softDeleted = p.comp().isSoftDeleted;
+  info.publishedVersion = p.asset().publishedVersion;
+  info.libraryKey = p.asset().sourceLibraryKey;
+  info.version = p.asset().version;
+  info.publishID = p.asset().publishID;
   if (info.kind == AssetKind::VARIABLE) {
     info.hasResolvedType = true;
-    info.resolvedType = p.variableResolvedType;
-    info.owner = findCollection(p.variableSetID);
+    info.resolvedType = p.asset().variableResolvedType;
+    info.owner = findCollection(p.asset().variableSetID);
   }
   if (info.kind == AssetKind::COMPONENT) {
     info.owner = setOf(id);
-    if (info.owner != kNoGuid && doc_.get(info.owner)->props.isSoftDeleted) info.softDeleted = true;
+    if (info.owner != kNoGuid && doc_.get(info.owner)->props.comp().isSoftDeleted) info.softDeleted = true;
   }
-  if (info.owner != kNoGuid) info.ownerKey = doc_.get(info.owner)->props.key;
+  if (info.owner != kNoGuid) info.ownerKey = doc_.get(info.owner)->props.asset().key;
 }
 
 // ---- Keys -----------------------------------------------------------------------------------------
@@ -411,21 +411,21 @@ std::vector<std::pair<Guid, std::string>> Editor::ensureAssetKeys(const std::vec
   }
   std::vector<Guid> missing;
   for (Guid id : ids)
-    if (assetKindOf(id) != AssetKind::NONE && !isLibraryCopy(id) && doc_.get(id)->props.key.empty()) missing.push_back(id);
+    if (assetKindOf(id) != AssetKind::NONE && !isLibraryCopy(id) && doc_.get(id)->props.asset().key.empty()) missing.push_back(id);
   if (!missing.empty() && !txn_.open && !busy()) {
     // An ordinary journaled edit of the file, not an undo step (docs/data.md §9.1).
     begin(TxnKind::SYSTEM, "Asset keys");
     for (Guid id : missing) {
       NodeChange c = NodeChange::changed(id);
       c.mask = F_KEY;
-      c.props.key = newAssetKey();
+      c.props.asset().key = newAssetKey();
       write(c);
     }
     commit();
   }
   std::vector<std::pair<Guid, std::string>> out;
   for (Guid id : ids)
-    if (assetKindOf(id) != AssetKind::NONE && !isLibraryCopy(id)) out.push_back({id, doc_.get(id)->props.key});
+    if (assetKindOf(id) != AssetKind::NONE && !isLibraryCopy(id)) out.push_back({id, doc_.get(id)->props.asset().key});
   return out;
 }
 
@@ -477,11 +477,11 @@ std::string Editor::hashAsset(Guid root, const HashView& v) const {
     clearBoundValues(q);
     clearIdentity(q);
     q.overrideKey = kNoGuid;
-    q.isPublishable = true;
+    q.asset().isPublishable = true;
     q.extra.erase("isSymbolPublishable");
-    q.sortPosition.clear();
-    q.isSoftDeleted = false;
-    q.ancestorPathBeforeDeletion.clear();
+    q.asset().sortPosition.clear();
+    q.comp().isSoftDeleted = false;
+    q.comp().ancestorPathBeforeDeletion.clear();
     if (i == 0) {
       q.parentIndex = {};
       q.transform.m02 = q.transform.m12 = 0;
@@ -491,9 +491,9 @@ std::string Editor::hashAsset(Guid root, const HashView& v) const {
       q.parentIndex = {parent, std::string()};
     }
     visitProps(q, refs);
-    if (q.detachedSymbolId != kNoGuid) symbol(q.detachedSymbolId);
+    if (q.comp().detachedSymbolId.guid != kNoGuid) symbol(q.comp().detachedSymbolId.guid);
     // Preferred instances name mains by GUID (local) or by key (a copy's, a .fig's, a clipboard's): hashed alike.
-    for (ComponentPropDef& d : q.componentPropDefs)
+    for (ComponentPropDef& d : q.comp().componentPropDefs)
       for (PreferredValue& pv : d.preferredValues) {
         bool ok = false;
         Guid m = Guid::parse(pv.key, &ok);
@@ -524,7 +524,7 @@ std::vector<Guid> Editor::hiddenDependencies(Guid id) const {
     // Hidden (Hide when publishing, a "_" / "." name, a copied-in main) or deleted but kept: shipped only as a
     // dependency, never listed, so a change to it has to show in what uses it.
     const NodeProps& p = doc_.get(r)->props;
-    if (assetHidden(r) || p.isSoftDeleted) out.push_back(r);
+    if (assetHidden(r) || p.comp().isSoftDeleted) out.push_back(r);
   };
   Refs refs;
   refs.symbol = [&](Guid& g) {
@@ -556,11 +556,11 @@ std::string Editor::versionHashOf(Guid id, HashMemo& memo) const {
   };
   v.mainKey = [&](Guid g) {
     const Node* n = doc_.get(g);
-    return n ? n->props.key : std::string();
+    return n ? n->props.asset().key : std::string();
   };
   v.assetKey = [&](const AssetId& a, Kind k) {
     Guid t = k == Kind::STYLE ? findStyle(a) : k == Kind::VARIABLE ? findVariable(a) : findCollection(a);
-    return t != kNoGuid && !doc_.get(t)->props.key.empty() ? doc_.get(t)->props.key : a.key;
+    return t != kNoGuid && !doc_.get(t)->props.asset().key.empty() ? doc_.get(t)->props.asset().key : a.key;
   };
   v.exists = [&](Guid g) { return !g.isDerived() && doc_.has(g); };
   std::string own = hashAsset(id, v);
@@ -607,7 +607,7 @@ std::vector<Editor::AssetInfo> Editor::localAssets() const {
       std::vector<std::string> keys;
       for (Guid d : dependencyRoots({root})) {
         if (isLibraryCopy(d)) continue;  // another library's asset: travels in the payload, not in this manifest
-        if (!doc_.get(d)->props.key.empty()) keys.push_back(doc_.get(d)->props.key);
+        if (!doc_.get(d)->props.asset().key.empty()) keys.push_back(doc_.get(d)->props.asset().key);
         // A variable's collection is its own asset; a set's variants come with it.
       }
       it = depsByRoot.emplace(root, std::move(keys)).first;
@@ -615,7 +615,7 @@ std::vector<Editor::AssetInfo> Editor::localAssets() const {
     info.dependencies = it->second;
     Guid page = doc_.pageOf(id);
     const Node* pn = doc_.get(page);
-    if (pn && !pn->props.internalOnly) {
+    if (pn && !pn->props.rare().internalOnly) {
       info.pageId = page;
       info.pageName = pn->props.name;
       std::vector<Guid> path = doc_.pathFromPage(id);
@@ -672,31 +672,31 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
     NodeProps q = doc_.get(g)->props;
     bool copy = isLibraryCopy(g);
     if (!copy) {
-      q.publishID = kNoGuid;
-      q.publishedVersion.clear();
-      q.libraryMoveInfo = {};
-      q.sourceLibraryKey.clear();
-      q.version = assetKindOf(g) != AssetKind::NONE ? hashOf(g) : std::string();
+      q.asset().publishID = kNoGuid;
+      q.asset().publishedVersion.clear();
+      q.asset().libraryMoveInfo = {};
+      q.asset().sourceLibraryKey.clear();
+      q.asset().version = assetKindOf(g) != AssetKind::NONE ? hashOf(g) : std::string();
     }
-    q.isSoftDeleted = false;
-    q.ancestorPathBeforeDeletion.clear();
+    q.comp().isSoftDeleted = false;
+    q.comp().ancestorPathBeforeDeletion.clear();
     Refs refs;
     refs.symbol = [](Guid&) {};
     refs.asset = [&](AssetId& a, Kind k) {
       Guid t = k == Kind::STYLE ? findStyle(a) : k == Kind::VARIABLE ? findVariable(a) : findCollection(a);
       if (t != kNoGuid) {
         a.guid = t;
-        a.key = doc_.get(t)->props.key;
+        a.key = doc_.get(t)->props.asset().key;
         a.version.clear();
       }
     };
     visitProps(q, refs);
     // Preferred instances name local mains by GUID; in a payload, by key.
-    for (ComponentPropDef& d : q.componentPropDefs)
+    for (ComponentPropDef& d : q.comp().componentPropDefs)
       for (PreferredValue& v : d.preferredValues) {
         bool ok = false;
         Guid m = Guid::parse(v.key, &ok);
-        if (ok && doc_.has(m) && !doc_.get(m)->props.key.empty()) v.key = doc_.get(m)->props.key;
+        if (ok && doc_.has(m) && !doc_.get(m)->props.asset().key.empty()) v.key = doc_.get(m)->props.asset().key;
       }
     return NodeChange::created(g, q);
   };
@@ -716,7 +716,7 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
     Guid root = payloadRoot(id);
     std::vector<Guid> closure = dependencyRoots({root});
     for (Guid d : closure)
-      if (!isLibraryCopy(d) && !doc_.get(d)->props.key.empty()) e.info.dependencies.push_back(doc_.get(d)->props.key);
+      if (!isLibraryCopy(d) && !doc_.get(d)->props.asset().key.empty()) e.info.dependencies.push_back(doc_.get(d)->props.asset().key);
     auto it = payloads.find(root);
     if (it == payloads.end()) {
       Payload pl;
@@ -735,7 +735,7 @@ void Editor::encodeAssets(const std::vector<std::string>& keys, std::vector<Enco
     e.images = it->second.images;
     Guid page = doc_.pageOf(id);
     const Node* pn = doc_.get(page);
-    if (pn && !pn->props.internalOnly) {
+    if (pn && !pn->props.rare().internalOnly) {
       e.info.pageId = page;
       e.info.pageName = pn->props.name;
       std::vector<Guid> path = doc_.pathFromPage(id);
@@ -756,12 +756,12 @@ Status Editor::markPublished(const std::vector<PublishedEntry>& entries) {
     const NodeProps& p = doc_.get(id)->props;
     NodeChange c = NodeChange::changed(id);
     c.mask = F_PUBLISHED_VERSION;
-    c.props.publishedVersion = e.versionHash;  // "": the version removed it (no longer published)
+    c.props.asset().publishedVersion = e.versionHash;  // "": the version removed it (no longer published)
     // A moved main, published here: the move is done (docs/data.md §9.5).
     AssetKind k = assetKindOf(id);
-    if (!e.versionHash.empty() && (k == AssetKind::COMPONENT || k == AssetKind::COMPONENT_SET) && p.libraryMoveInfo.present()) {
+    if (!e.versionHash.empty() && (k == AssetKind::COMPONENT || k == AssetKind::COMPONENT_SET) && p.asset().libraryMoveInfo.present()) {
       c.mask |= F_LIBRARY_MOVE_INFO;
-      c.props.libraryMoveInfo = {};
+      c.props.asset().libraryMoveInfo = {};
     }
     changes.push_back(std::move(c));
   }
@@ -871,7 +871,7 @@ void Editor::matchTree(const std::vector<MatchNode>& nodes, Guid target, bool by
     std::unordered_map<Guid, Guid, GuidHash> byPub;
     for (Guid g : have) {
       const NodeProps& p = doc_.get(g)->props;
-      if (g != target && isComponentNode(p) && p.publishID != kNoGuid) byPub.emplace(p.publishID, g);
+      if (g != target && isComponentNode(p) && p.asset().publishID != kNoGuid) byPub.emplace(p.asset().publishID, g);
     }
     GuidSet pubs;
     for (size_t i = 1; i < nodes.size(); i++) {
@@ -883,7 +883,7 @@ void Editor::matchTree(const std::vector<MatchNode>& nodes, Guid target, bool by
     }
     for (Guid g : have) {
       const NodeProps& p = doc_.get(g)->props;
-      if (g != target && isComponentNode(p) && p.publishID != kNoGuid && !pubs.count(p.publishID)) orphans.insert(g);
+      if (g != target && isComponentNode(p) && p.asset().publishID != kNoGuid && !pubs.count(p.asset().publishID)) orphans.insert(g);
     }
   }
   // Keys that occur once in the existing tree: a layer moved to another parent is still found.
@@ -963,13 +963,13 @@ size_t Editor::remapRefs(NodeProps& p, const GuidMap* own, const GuidMap& map, c
     }
   };
   visitProps(p, refs);
-  if (p.detachedSymbolId != kNoGuid) {
+  if (p.comp().detachedSymbolId.guid != kNoGuid) {
     Guid g;
-    p.detachedSymbolId = mapped(p.detachedSymbolId, g) ? g : kNoGuid;  // only a note of where it came from
+    p.comp().detachedSymbolId.guid = mapped(p.comp().detachedSymbolId.guid, g) ? g : kNoGuid;  // only a note of where it came from
   }
   // Preferred instances by GUID: the main that came along; one that didn't is the other file's and goes (never a
   // node here that happens to share the GUID). By key: kept (resolved within the main's library when read).
-  for (ComponentPropDef& d : p.componentPropDefs) {
+  for (ComponentPropDef& d : p.comp().componentPropDefs) {
     std::vector<PreferredValue> kept;
     for (PreferredValue& v : d.preferredValues) {
       bool ok = false;
@@ -996,7 +996,7 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
   // components carry the library's GUIDs (publishID), kept; else the source's own GUIDs are the library's.
   auto sourceIsCopy = [&](size_t i) {
     auto it = src.byId.find(plans[i].src);
-    return it != src.byId.end() && !it->second->props.sourceLibraryKey.empty();
+    return it != src.byId.end() && !it->second->props.asset().sourceLibraryKey.empty();
   };
   auto fresh = [&](size_t i) {
     own[i].clear();
@@ -1016,7 +1016,7 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
     bool keepPub = sourceIsCopy(i);
     std::vector<MatchNode> nodes;
     for (const NodeChange* c : trees[i])
-      nodes.push_back({c->guid, c->props.parentIndex.guid, &c->props, keepPub && c->props.publishID != kNoGuid ? c->props.publishID : c->guid});
+      nodes.push_back({c->guid, c->props.parentIndex.guid, &c->props, keepPub && c->props.asset().publishID != kNoGuid ? c->props.asset().publishID : c->guid});
     matchTree(nodes, plan.target, plan.mode == ImportPlan::Mode::COPY, own[i]);
     if (plan.replace)
       for (const NodeChange* c : trees[i])
@@ -1075,7 +1075,7 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
     GuidSet done;
     bool copy = plan.mode == ImportPlan::Mode::COPY;
     bool keepPub = sourceIsCopy(i);
-    std::string oldLibrary = plan.target != kNoGuid ? doc_.get(plan.target)->props.sourceLibraryKey : std::string();
+    std::string oldLibrary = plan.target != kNoGuid ? doc_.get(plan.target)->props.asset().sourceLibraryKey : std::string();
     for (const NodeChange* c : trees[i]) {
       Guid id = own[i][c->guid];
       NodeProps q = c->props;
@@ -1085,28 +1085,28 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
       bool assetNode = component || q.isStyle() || q.type == NodeType::VARIABLE || q.type == NodeType::VARIABLE_SET;
       // Every node keeps the library node's key (instances' overrides find their layers by it).
       if (component || !assetNode) q.overrideKey = c->props.keyOf(c->guid);
-      q.isSoftDeleted = false;
-      q.ancestorPathBeforeDeletion.clear();
-      q.publishedVersion.clear();
-      q.libraryMoveInfo = {};
+      q.comp().isSoftDeleted = false;
+      q.comp().ancestorPathBeforeDeletion.clear();
+      q.asset().publishedVersion.clear();
+      q.asset().libraryMoveInfo = {};
       if (copy) {
-        q.sourceLibraryKey = root ? plan.libraryKey : std::string();
+        q.asset().sourceLibraryKey = root ? plan.libraryKey : std::string();
         if (root) {
-          q.key = plan.key;
-          q.version = plan.version;
-          q.publishID = plan.publishID;
+          q.asset().key = plan.key;
+          q.asset().version = plan.version;
+          q.asset().publishID = plan.publishID;
         } else if (component) {
           // The library's GUID: the source's own, or (a source that is a copy) the one it carries.
-          if (!keepPub || q.publishID == kNoGuid) q.publishID = c->guid;
+          if (!keepPub || q.asset().publishID == kNoGuid) q.asset().publishID = c->guid;
         } else {
-          q.publishID = kNoGuid;
-          if (!assetNode) q.key.clear(), q.version.clear();
+          q.asset().publishID = kNoGuid;
+          if (!assetNode) q.asset().key.clear(), q.asset().version.clear();
         }
       } else {
         // Copied in as this file's own: a key of its own (styles and variables have one from birth; mains on request).
         clearIdentity(q);
-        if (assetNode && !component) q.key = newAssetKey();
-        if (root) q.publishID = plan.publishID;  // the source, so a later paste finds it again
+        if (assetNode && !component) q.asset().key = newAssetKey();
+        if (root) q.asset().publishID = plan.publishID;  // the source, so a later paste finds it again
       }
       if (root) {
         if (plan.target != kNoGuid) q.parentIndex = doc_.get(plan.target)->props.parentIndex;
@@ -1172,7 +1172,7 @@ void Editor::writeImports(const SourceNodes& src, std::vector<ImportPlan>& plans
       c.mask = F_PARENT_INDEX | F_TRANSFORM | F_SOURCE_LIBRARY_KEY;
       c.props.parentIndex = {canvas, doc_.positionAtEnd(canvas)};
       c.props.transform = doc_.worldTransform(g);
-      c.props.sourceLibraryKey = leftoverMains.at(g);
+      c.props.asset().sourceLibraryKey = leftoverMains.at(g);
       write(c);
     }
   }
@@ -1229,8 +1229,8 @@ void Editor::relinkCopies(const std::vector<std::pair<Guid, Guid>>& copyToLocal)
       if (it != relink.end()) a.guid = it->second, a.key.clear(), a.version.clear(), changed = true;
     };
     visitProps(p, refs);
-    if (auto it = relink.find(p.detachedSymbolId); p.detachedSymbolId != kNoGuid && it != relink.end())
-      p.detachedSymbolId = it->second, changed = true;
+    if (auto it = relink.find(p.comp().detachedSymbolId.guid); p.comp().detachedSymbolId.guid != kNoGuid && it != relink.end())
+      p.comp().detachedSymbolId.guid = it->second, changed = true;
     if (!changed) continue;
     NodeChange c = NodeChange::changed(id);
     c.mask = kRefFields;
@@ -1261,11 +1261,11 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
   auto inCopies = [&](Guid g) { return !opts.hasCopies || listed(opts.copies, g); };
   // asNew: the assets asked for (`keys`; default the first message's own asset) get new copies.
   std::string firstKey;
-  if (!src.own.empty() && src.byId.count(src.own[0])) firstKey = src.byId.at(src.own[0])->props.key;
+  if (!src.own.empty() && src.byId.count(src.own[0])) firstKey = src.byId.at(src.own[0])->props.asset().key;
   auto asNew = [&](const std::string& key) { return opts.asNew && !opts.update && (opts.hasKeys ? listed(opts.keys, key) : key == firstKey); };
   KeyIndex ix = indexKeys(*this);
   std::set<std::string> rootKeys;
-  for (Guid r : src.roots) rootKeys.insert(src.byId.at(r)->props.key);
+  for (Guid r : src.roots) rootKeys.insert(src.byId.at(r)->props.asset().key);
   // Copies a redirect re-points (Move to this file): replaced by the new asset's payload, not their own.
   GuidSet redirectedCopies;
   if (opts.update)
@@ -1278,13 +1278,13 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
     const NodeProps& rp = src.byId.at(r)->props;
     bool asset = rp.type == NodeType::SYMBOL || rp.isComponentSet() || rp.isStyle() || rp.type == NodeType::VARIABLE ||
                  rp.type == NodeType::VARIABLE_SET;
-    if (!asset || rp.key.empty()) continue;
+    if (!asset || rp.asset().key.empty()) continue;
     ImportPlan plan;
     plan.src = r;
-    plan.key = rp.key;
-    plan.libraryKey = rp.sourceLibraryKey.empty() ? opts.libraryKey : rp.sourceLibraryKey;
-    plan.publishID = !rp.sourceLibraryKey.empty() && rp.publishID != kNoGuid ? rp.publishID : r;
-    plan.version = rp.version;
+    plan.key = rp.asset().key;
+    plan.libraryKey = rp.asset().sourceLibraryKey.empty() ? opts.libraryKey : rp.asset().sourceLibraryKey;
+    plan.publishID = !rp.asset().sourceLibraryKey.empty() && rp.asset().publishID != kNoGuid ? rp.asset().publishID : r;
+    plan.version = rp.asset().version;
     if (!fileKey_.empty() && plan.libraryKey == fileKey_) {
       // One of this file's own assets (a library that uses this one): the local asset itself.
       Guid local = ix.local(plan.key);
@@ -1323,7 +1323,7 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
       p.target = g;
       p.redirected = redirected;
       const NodeProps& tp = doc_.get(g)->props;
-      p.replace = redirected || tp.version != plan.version || tp.sourceLibraryKey != plan.libraryKey;
+      p.replace = redirected || tp.asset().version != plan.version || tp.asset().sourceLibraryKey != plan.libraryKey;
       plans.push_back(p);
     }
   }
@@ -1364,11 +1364,11 @@ Status Editor::importLibrary(const std::vector<std::vector<NodeChange>>& message
       AssetKind k = assetKindOf(g);
       if (k == AssetKind::NONE) continue;
       ImportedAsset a;
-      a.key = q.key;
+      a.key = q.asset().key;
       a.id = g;
       a.kind = k;
       a.libraryKey = p.mode == ImportPlan::Mode::LOCAL ? fileKey_ : p.libraryKey;
-      a.version = q.version;
+      a.version = q.asset().version;
       a.created = p.target == kNoGuid;
       a.updated = p.replace;
       out.push_back(std::move(a));
@@ -1384,7 +1384,7 @@ std::vector<Editor::AssetInfo> Editor::libraryUsage() const {
   if (!hasLibraryCopies_) return out;
   std::vector<Guid> roots;
   doc_.forEach([&](const Node& n) {
-    if (!n.guid.isDerived() && !n.props.sourceLibraryKey.empty() && assetKindOf(n.guid) != AssetKind::NONE) roots.push_back(n.guid);
+    if (!n.guid.isDerived() && !n.props.asset().sourceLibraryKey.empty() && assetKindOf(n.guid) != AssetKind::NONE) roots.push_back(n.guid);
   });
   std::sort(roots.begin(), roots.end());
   // Users: layers outside library copies (copies use each other as dependencies, not as uses).
@@ -1401,7 +1401,7 @@ std::vector<Editor::AssetInfo> Editor::libraryUsage() const {
   doc_.forEach([&](const Node& n) {
     if (n.guid.isDerived() || isLibraryCopy(n.guid)) return;
     NodeProps p = n.props;
-    if (p.type != NodeType::INSTANCE) p.symbolData.symbolID = kNoGuid;
+    if (p.type != NodeType::INSTANCE) p.comp().symbolData.symbolID = kNoGuid;
     visitProps(p, refs);
   });
   // A collection is used through its variables.
@@ -1409,7 +1409,7 @@ std::vector<Editor::AssetInfo> Editor::libraryUsage() const {
   doc_.forEach([&](const Node& n) {
     if (n.props.type != NodeType::VARIABLE || n.guid.isDerived()) return;
     auto it = uses.find(n.guid);
-    if (it != uses.end()) byCollection[findCollection(n.props.variableSetID)] += it->second;
+    if (it != uses.end()) byCollection[findCollection(n.props.asset().variableSetID)] += it->second;
   });
   for (Guid r : roots) {
     AssetInfo info;

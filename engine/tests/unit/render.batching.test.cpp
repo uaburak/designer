@@ -49,7 +49,7 @@ TEST_CASE("renderer: the page colour, or the theme's for Figma's default") {
   CHECK(dev.lastPass.clear[0] == doctest::Approx(0x1e / 255.0));
   NodeChange c = NodeChange::changed(kPage);
   c.mask = F_BACKGROUND_COLOR;
-  c.props.backgroundColor = Color::hex(0x336699);
+  c.props.rare().backgroundColor = Color::hex(0x336699);
   d.apply(c);
   r.render(d, kPage, Camera{}, {100, 100, 1}, Overlay{}, kDark);
   CHECK(dev.lastPass.clear[0] == doctest::Approx(0x33 / 255.0));

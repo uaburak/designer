@@ -82,7 +82,7 @@ describe("field registry (from the schema's tags)", () => {
 
   it("knows the blob fields and the binary schema", () => {
     expect(BLOB_FIELDS.map((b) => `${b.message}.${b.field}`).sort()).toEqual(["Glyph.commandsBlob", "Image.dataBlob", "Path.commandsBlob", "VectorData.vectorNetworkBlob"]);
-    expect(SCHEMA_BINARY.length).toBe(30222);
+    expect(SCHEMA_BINARY.length).toBe(30280);  // + SlotContentId and slotContentIdValue (round 4)
     expect(SCHEMA_SHA1).toMatch(/^[0-9a-f]{40}$/);
     expect(DOCUMENT_FORMAT_VERSION).toBe(1);
     expect(MODEL.def("NodeChange").fields.length).toBe(194);

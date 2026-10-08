@@ -44,7 +44,7 @@ TEST_CASE("text: Inter loads, its metrics are Figma's font line height") {
 TEST_CASE("text: \"ABC\" in Inter Regular 12 lands where Figma puts it (structure.fig)") {
   loadInter();
   NodeProps p = textProps("ABC");
-  p.textAutoResize = TextAutoResize::NONE;
+  p.text().textAutoResize = TextAutoResize::NONE;
   p.size = {42, 21};
   auto L = lay(p);
   REQUIRE(L->glyphs.size() == 3);
@@ -66,17 +66,17 @@ TEST_CASE("text: Auto line height is the font's, rounded (Figma: 15 / 17 / 19 / 
     CHECK(L->size.y == want);
   }
   NodeProps px = textProps("Hg", 16);
-  px.lineHeight = {24, NumberUnits::PIXELS};
+  px.text().lineHeight = {24, NumberUnits::PIXELS};
   CHECK(lay(px)->size.y == 24);
   NodeProps raw = textProps("Hg", 20);
-  raw.lineHeight = {1.5, NumberUnits::RAW};  // the UI's 150%
+  raw.text().lineHeight = {1.5, NumberUnits::RAW};  // the UI's 150%
   CHECK(lay(raw)->size.y == doctest::Approx(30));
 }
 
 TEST_CASE("text: auto width is the widest line; paragraphs and paragraph spacing") {
   loadInter();
   NodeProps p = textProps("Hello\nWorld wide web");
-  p.paragraphSpacing = 10;
+  p.text().paragraphSpacing = 10;
   auto L = lay(p);
   REQUIRE(L->lines.size() == 2);
   CHECK(L->size.x == doctest::Approx(lineWidthOf(*L, 1)));
@@ -92,7 +92,7 @@ TEST_CASE("text: auto width is the widest line; paragraphs and paragraph spacing
 TEST_CASE("text: line breaking at word boundaries, long words at characters, trailing spaces hang") {
   loadInter();
   NodeProps p = textProps("The quick brown fox jumps over the lazy dog");
-  p.textAutoResize = TextAutoResize::HEIGHT;
+  p.text().textAutoResize = TextAutoResize::HEIGHT;
   p.size = {80, 0};
   auto L = lay(p);
   CHECK(L->lines.size() >= 3);
@@ -103,7 +103,7 @@ TEST_CASE("text: line breaking at word boundaries, long words at characters, tra
     CHECK(L->text[L->lines[i + 1].start] != u' ');
   }
   NodeProps longWord = textProps("Supercalifragilisticexpialidocious");
-  longWord.textAutoResize = TextAutoResize::HEIGHT;
+  longWord.text().textAutoResize = TextAutoResize::HEIGHT;
   longWord.size = {60, 0};
   auto W = lay(longWord);
   CHECK(W->lines.size() >= 3);
@@ -117,22 +117,22 @@ TEST_CASE("text: line breaking at word boundaries, long words at characters, tra
 TEST_CASE("text: horizontal alignment in a fixed width, vertical alignment in a fixed box") {
   loadInter();
   NodeProps p = textProps("Hi");
-  p.textAutoResize = TextAutoResize::NONE;
+  p.text().textAutoResize = TextAutoResize::NONE;
   p.size = {100, 60};
   double w = lay(p)->lines[0].width;
-  p.textAlignHorizontal = TextAlignHorizontal::CENTER;
+  p.text().textAlignHorizontal = TextAlignHorizontal::CENTER;
   CHECK(lay(p)->lines[0].x == doctest::Approx((100 - w) / 2));
-  p.textAlignHorizontal = TextAlignHorizontal::RIGHT;
+  p.text().textAlignHorizontal = TextAlignHorizontal::RIGHT;
   CHECK(lay(p)->lines[0].x == doctest::Approx(100 - w));
-  p.textAlignVertical = TextAlignVertical::BOTTOM;
+  p.text().textAlignVertical = TextAlignVertical::BOTTOM;
   CHECK(lay(p)->lines[0].top == doctest::Approx(60 - 15));
-  p.textAlignVertical = TextAlignVertical::CENTER;
+  p.text().textAlignVertical = TextAlignVertical::CENTER;
   CHECK(lay(p)->lines[0].top == doctest::Approx((60 - 15) / 2.0));
   // Justified: every line but a paragraph's last fills the width.
   NodeProps j = textProps("aaa bbb ccc ddd eee fff ggg hhh");
-  j.textAutoResize = TextAutoResize::HEIGHT;
+  j.text().textAutoResize = TextAutoResize::HEIGHT;
   j.size = {90, 0};
-  j.textAlignHorizontal = TextAlignHorizontal::JUSTIFIED;
+  j.text().textAlignHorizontal = TextAlignHorizontal::JUSTIFIED;
   auto J = lay(j);
   REQUIRE(J->lines.size() >= 2);
   CHECK(J->lines[0].width == doctest::Approx(90));
@@ -143,19 +143,19 @@ TEST_CASE("text: letter spacing widens every gap but not after the line's last c
   loadInter();
   NodeProps p = textProps("ABCD");
   double w0 = lay(p)->size.x;
-  p.letterSpacing = {10, NumberUnits::PERCENT};  // 1.2 px at 12
+  p.text().letterSpacing = {10, NumberUnits::PERCENT};  // 1.2 px at 12
   CHECK(lay(p)->size.x == doctest::Approx(w0 + 3 * 1.2).epsilon(1e-6));
-  p.letterSpacing = {2, NumberUnits::PIXELS};
+  p.text().letterSpacing = {2, NumberUnits::PIXELS};
   CHECK(lay(p)->size.x == doctest::Approx(w0 + 3 * 2).epsilon(1e-6));
 }
 
 TEST_CASE("text: truncation with an ellipsis (maxLines, and a fixed box's height)") {
   loadInter();
   NodeProps p = textProps("one two three four five six seven eight nine ten");
-  p.textAutoResize = TextAutoResize::HEIGHT;
+  p.text().textAutoResize = TextAutoResize::HEIGHT;
   p.size = {70, 0};
-  p.textTruncation = TextTruncation::ENDING;
-  p.maxLines = 2;
+  p.text().textTruncation = TextTruncation::ENDING;
+  p.text().maxLines = 2;
   auto L = lay(p);
   REQUIRE(L->lines.size() == 2);
   CHECK(L->truncated);
@@ -164,8 +164,8 @@ TEST_CASE("text: truncation with an ellipsis (maxLines, and a fixed box's height
   CHECK(L->glyphs.back().glyph == inter->glyphFor(0x2026));
   CHECK(L->lines[1].width <= 70 + 1e-3);
   NodeProps box = p;
-  box.maxLines = 0;
-  box.textAutoResize = TextAutoResize::NONE;
+  box.text().maxLines = 0;
+  box.text().textAutoResize = TextAutoResize::NONE;
   box.size = {70, 46};  // three lines of 15
   auto B = lay(box);
   CHECK(B->lines.size() == 3);
@@ -178,17 +178,17 @@ TEST_CASE("text: case mapping (Unicode default, not locale-sensitive) and decora
   CHECK(applyCase(u"İSTANBUL", TextCase::LOWER) == u"istanbul");
   CHECK(applyCase(u"hello big world", TextCase::TITLE) == u"Hello Big World");
   NodeProps p = textProps("abc");
-  p.textCase = TextCase::UPPER;
+  p.text().textCase = TextCase::UPPER;
   auto L = lay(p);
   Font* inter = FontRegistry::get().find({"Inter", "Regular", ""});
   CHECK(L->glyphs[0].glyph == inter->glyphFor('A'));
   CHECK(L->text == u"abc");  // the characters stay as typed
-  p.textDecoration = TextDecoration::UNDERLINE;
+  p.text().textDecoration = TextDecoration::UNDERLINE;
   auto U = lay(p);
   REQUIRE(U->decorations.size() == 1);
   CHECK(U->decorations[0].rect.y > U->lines[0].baseline);
   CHECK(U->decorations[0].rect.w == doctest::Approx(U->lines[0].width));
-  p.textDecoration = TextDecoration::STRIKETHROUGH;
+  p.text().textDecoration = TextDecoration::STRIKETHROUGH;
   auto S = lay(p);
   REQUIRE(S->decorations.size() == 1);
   CHECK(S->decorations[0].rect.y < S->lines[0].baseline);
@@ -202,8 +202,8 @@ TEST_CASE("text: run styles from styleOverrideTable (per UTF-16 unit)") {
   big.mask = R_FONT_SIZE | R_FONT_NAME;
   big.fontSize = 24;
   big.fontName = {"Inter", "Bold", ""};
-  p.textData.styleOverrideTable = {big};
-  p.textData.characterStyleIDs = {0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
+  p.text().textData.styleOverrideTable = {big};
+  p.text().textData.characterStyleIDs = {0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1};
   auto L = lay(p);
   CHECK(L->glyphs[0].size == 12);
   CHECK(L->glyphs.back().size == 24);
@@ -215,7 +215,7 @@ TEST_CASE("text: a font nobody has is requested, then missing: drawn with Inter,
   loadInter();
   auto& fonts = FontRegistry::get();
   NodeProps p = textProps("Hey");
-  p.fontName = {"No Such Font", "Regular", ""};
+  p.text().fontName = {"No Such Font", "Regular", ""};
   auto L = lay(p);
   CHECK(L->pendingFont);
   bool requested = false;
@@ -319,7 +319,7 @@ TEST_CASE("text: structure.fig's text node, decoded from Figma's file, lays out 
     NodeChange c;
     REQUIRE(codec::readChange(raw, c));
     CHECK(c.props.type == NodeType::TEXT);
-    CHECK(c.props.textData.characters == "ABC");
+    CHECK(c.props.text().textData.characters == "ABC");
     // Figma's own result, kept in its file's textData (ours keeps it in derivedTextData).
     const json::Value& figma = *raw.get("textData");
     auto L = layoutText(c.props, optionsFor(c.props));

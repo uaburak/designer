@@ -65,7 +65,7 @@ Status Editor::booleanSelection(BooleanOperation op) {
     for (Guid t : top) {
       NodeChange c = NodeChange::changed(t);
       c.mask = F_BOOLEAN_OPERATION | F_NAME;
-      c.props.booleanOperation = op;
+      c.props.shape().booleanOperation = op;
       c.props.name = booleanName(op);
       write(c);
     }
@@ -97,7 +97,7 @@ Status Editor::booleanSelection(BooleanOperation op) {
   const NodeProps& sp = doc_.get(styleFrom)->props;
   NodeProps p = defaultProps(NodeType::BOOLEAN_OPERATION);
   p.name = booleanName(op);
-  p.booleanOperation = op;
+  p.shape().booleanOperation = op;
   p.fillPaints = sp.fillPaints;
   p.strokePaints = sp.strokePaints;
   p.strokeWeight = sp.strokeWeight;
@@ -185,7 +185,7 @@ Status Editor::outlineStroke() {
     style.join = p.strokeJoin;
     style.miterLimit = p.miterLimit;
     style.cap = p.strokeCap;
-    style.dashes = p.dashPattern;
+    style.dashes = p.stroke().dashPattern;
     style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
     const double tol = 0.02;
     geom::Path outline = geom::strokePath(g->stroke.path, style, tol);

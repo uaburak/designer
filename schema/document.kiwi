@@ -1151,10 +1151,11 @@ enum VariableDataType {
   FONT_STYLE = 8;          // fontStyleValue: font style bound by name (STRING) or weight (FLOAT)
   TEXT_DATA = 9;           // text property values
   PROP_REF = 13;           // propRefValue: the field is bound to a component property
+  SLOT_CONTENT_ID = 18;    // slotContentIdValue: a SLOT property's value (an instance's slot content FRAME)
   EASING = 22;             // @later Motion
   TIMING = 23;             // @later Motion (floatValue, seconds)
   // Dropped: MAP=6, INVALID=10, NODE_FIELD_ALIAS=11, CMS_ALIAS=12,
-  // IMAGE=14, MANAGED_STRING_ALIAS=15, LINK=16, JS_RUNTIME_ALIAS=17, SLOT_CONTENT_ID=18, DATE=19,
+  // IMAGE=14, MANAGED_STRING_ALIAS=15, LINK=16, JS_RUNTIME_ALIAS=17, DATE=19,
   // KEYFRAME_*=20..21, VECTOR=24 .. TRANSITION_PARAMETER_DATA=35.
 }
 
@@ -1212,10 +1213,11 @@ message VariableAnyValue { // exactly one field is set, matching VariableData.da
   VariableFontStyle fontStyleValue = 9;
   TextData textDataValue = 10;
   PropRefValue propRefValue = 13;
+  SlotContentId slotContentIdValue = 18;  // SLOT_CONTENT_ID: the slot content an instance assigns to a SLOT property
   EasingData easingValue = 21;     // @later
-  // Reserved field numbers (10): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // Reserved field numbers (9): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r7 = 7 [deprecated]; byte _r11 = 11 [deprecated]; byte _r12 = 12 [deprecated]; byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated];
-  byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r19 = 19 [deprecated]; byte _r20 = 20 [deprecated];
+  byte _r17 = 17 [deprecated]; byte _r19 = 19 [deprecated]; byte _r20 = 20 [deprecated];
 }
 
 message VariableFontStyle {        // font style bound to variables (FONT_STYLE)
@@ -1226,6 +1228,10 @@ message VariableFontStyle {        // font style bound to variables (FONT_STYLE)
 
 message PropRefValue {             // PROP_REF: reference to a ComponentPropDef of the enclosing component
   GUID defId = 1;
+}
+
+message SlotContentId {            // SLOT_CONTENT_ID: the FRAME (isSlotContent, under the Internal Only Canvas) a slot shows
+  GUID guid = 1;
 }
 
 message VariableData {

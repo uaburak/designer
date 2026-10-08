@@ -84,7 +84,7 @@ int golden(const char* name) {
         t.m02 = t.m12 = 0;
         set(host.doc, c, t, host.doc.get(c)->props.size);
       }
-      bool horizontal = p.stackMode == StackMode::HORIZONTAL;
+      bool horizontal = p.stack().stackMode == StackMode::HORIZONTAL;
       Vec2 s = p.size;
       if (p.hugsPrimary()) (horizontal ? s.x : s.y) = 1;
       if (p.hugsCounter()) (horizontal ? s.y : s.x) = 1;

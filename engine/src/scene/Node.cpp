@@ -61,9 +61,9 @@ bool NodeProps::isPathShape() const {
     case NodeType::LINE:
     case NodeType::REGULAR_POLYGON:
     case NodeType::BOOLEAN_OPERATION: return true;
-    case NodeType::ELLIPSE: return !arcData.isFull() || !dashPattern.empty();
+    case NodeType::ELLIPSE: return !shape().arcData.isFull() || !stroke().dashPattern.empty();
     case NodeType::RECTANGLE:
-    case NodeType::ROUNDED_RECTANGLE: return cornerSmoothing > 0 || !dashPattern.empty();
+    case NodeType::ROUNDED_RECTANGLE: return stroke().cornerSmoothing > 0 || !stroke().dashPattern.empty();
     default: return false;
   }
 }
@@ -76,6 +76,28 @@ ENG_OUTLINE NodeProps::NodeProps(NodeProps&&) noexcept = default;
 ENG_OUTLINE NodeProps& NodeProps::operator=(const NodeProps&) = default;
 ENG_OUTLINE NodeProps& NodeProps::operator=(NodeProps&&) noexcept = default;
 ENG_OUTLINE NodeProps::~NodeProps() = default;
+
+uint32_t NodeProps::facets() const {
+  return (text_.has() ? 1u : 0u) | (stack_.has() ? 2u : 0u) | (shape_.has() ? 4u : 0u) | (stroke_.has() ? 8u : 0u) |
+         (comp_.has() ? 16u : 0u) | (refs_.has() ? 32u : 0u) | (asset_.has() ? 64u : 0u) | (rare_.has() ? 128u : 0u);
+}
+
+void NodeProps::compact() {
+  text_.compact();
+  stack_.compact();
+  shape_.compact();
+  stroke_.compact();
+  comp_.compact();
+  refs_.compact();
+  asset_.compact();
+  rare_.compact();
+}
+
+size_t NodeProps::facetBytes() const {
+  return (text_.has() ? sizeof(TextFacet) : 0) + (stack_.has() ? sizeof(StackFacet) : 0) + (shape_.has() ? sizeof(ShapeFacet) : 0) +
+         (stroke_.has() ? sizeof(StrokeFacet) : 0) + (comp_.has() ? sizeof(ComponentFacet) : 0) + (refs_.has() ? sizeof(RefsFacet) : 0) +
+         (asset_.has() ? sizeof(AssetFacet) : 0) + (rare_.has() ? sizeof(RareFacet) : 0);
+}
 
 ENG_OUTLINE Paint::Paint() = default;
 ENG_OUTLINE Paint::Paint(const Paint&) = default;
@@ -147,8 +169,8 @@ VariableData VariableData::composeColor(VariableData color, VariableData opacity
 }
 
 bool NodeProps::hasBindings() const {
-  if (styleIdForFill.present() || styleIdForStrokeFill.present() || styleIdForText.present() || styleIdForEffect.present() ||
-      styleIdForGrid.present())
+  if (refs().styleIdForFill.present() || refs().styleIdForStrokeFill.present() || refs().styleIdForText.present() || refs().styleIdForEffect.present() ||
+      refs().styleIdForGrid.present())
     return true;
   for (auto& b : parameterConsumptionMap)
     if (b.isVariable()) return true;
@@ -158,9 +180,9 @@ bool NodeProps::hasBindings() const {
     if (p.hasVariables()) return true;
   for (auto& e : effects)
     if (e.hasVariables()) return true;
-  for (auto& g : layoutGrids)
+  for (auto& g : rare().layoutGrids)
     if (g.hasVariables()) return true;
-  for (auto& run : textData.styleOverrideTable)
+  for (auto& run : text().textData.styleOverrideTable)
     for (auto& p : run.fillPaints)
       if (p.hasVariables()) return true;
   return false;
@@ -168,13 +190,13 @@ bool NodeProps::hasBindings() const {
 
 Guid NodeProps::defaultMode() const {
   const VariableSetMode* best = nullptr;
-  for (auto& m : variableSetModes)
+  for (auto& m : asset().variableSetModes)
     if (!best || m.sortPosition < best->sortPosition) best = &m;
   return best ? best->id : kNoGuid;
 }
 
 std::vector<VariableSetMode> NodeProps::orderedModes() const {
-  std::vector<VariableSetMode> modes = variableSetModes;
+  std::vector<VariableSetMode> modes = asset().variableSetModes;
   std::stable_sort(modes.begin(), modes.end(), [](const VariableSetMode& a, const VariableSetMode& b) { return a.sortPosition < b.sortPosition; });
   return modes;
 }
@@ -224,119 +246,118 @@ bool TextStyle::operator==(const TextStyle& o) const {
 }
 
 // Every field: its bit, its member, its kiwi field id (schema/document.kiwi NodeChange).
-#define ENG_NODE_FIELDS(X)                                   \
-  X(F_TYPE, type, 4)                                         \
-  X(F_NAME, name, 5)                                         \
-  X(F_VISIBLE, visible, 6)                                   \
-  X(F_LOCKED, locked, 7)                                     \
-  X(F_OPACITY, opacity, 8)                                   \
-  X(F_TRANSFORM, transform, 12)                              \
-  X(F_SIZE, size, 11)                                        \
-  X(F_FILLS, fillPaints, 38)                                 \
-  X(F_STROKES, strokePaints, 39)                             \
-  X(F_STROKE_WEIGHT, strokeWeight, 26)                       \
-  X(F_STROKE_ALIGN, strokeAlign, 29)                         \
-  X(F_CORNER_RADII, cornerRadii, 20)                         \
-  X(F_FRAME_MASK_DISABLED, frameMaskDisabled, 115)           \
-  X(F_PARENT_INDEX, parentIndex, 3)                          \
-  X(F_RESIZE_TO_FIT, resizeToFit, 117)                       \
-  X(F_BACKGROUND_COLOR, backgroundColor, 50)                 \
-  X(F_BACKGROUND_ENABLED, backgroundEnabled, 15)             \
-  X(F_INTERNAL_ONLY, internalOnly, 142)                      \
-  X(F_STACK_MODE, stackMode, 105)                            \
-  X(F_STACK_SPACING, stackSpacing, 107)                      \
-  X(F_STACK_PADDING_LEFT, stackPaddingLeft, 209)             \
-  X(F_STACK_PADDING_TOP, stackPaddingTop, 210)               \
-  X(F_STACK_PADDING_RIGHT, stackPaddingRight, 233)           \
-  X(F_STACK_PADDING_BOTTOM, stackPaddingBottom, 234)         \
-  X(F_STACK_PRIMARY_SIZING, stackPrimarySizing, 229)         \
-  X(F_STACK_COUNTER_SIZING, stackCounterSizing, 221)         \
-  X(F_STACK_PRIMARY_ALIGN, stackPrimaryAlignItems, 230)      \
-  X(F_STACK_COUNTER_ALIGN, stackCounterAlignItems, 231)      \
-  X(F_STACK_COUNTER_ALIGN_CONTENT, stackCounterAlignContent, 343) \
-  X(F_STACK_WRAP, stackWrap, 323)                            \
-  X(F_STACK_COUNTER_SPACING, stackCounterSpacing, 324)       \
-  X(F_STACK_REVERSE_Z, stackReverseZIndex, 271)              \
-  X(F_BORDERS_TAKE_SPACE, bordersTakeSpace, 294)             \
-  X(F_STACK_CHILD_GROW, stackChildPrimaryGrow, 232)          \
-  X(F_STACK_CHILD_ALIGN_SELF, stackChildAlignSelf, 236)      \
-  X(F_STACK_POSITIONING, stackPositioning, 269)              \
-  X(F_MIN_SIZE, minSize, 325)                                \
-  X(F_MAX_SIZE, maxSize, 326)                                \
-  X(F_H_CONSTRAINT, horizontalConstraint, 28)                \
-  X(F_V_CONSTRAINT, verticalConstraint, 37)                  \
-  X(F_PROPORTIONS_CONSTRAINED, proportionsConstrained, 151) \
-  X(F_TEXT_DATA, textData, 42)                               \
-  X(F_FONT_NAME, fontName, 41)                               \
-  X(F_FONT_SIZE, fontSize, 21)                               \
-  X(F_LINE_HEIGHT, lineHeight, 40)                           \
-  X(F_LETTER_SPACING, letterSpacing, 165)                    \
-  X(F_PARAGRAPH_SPACING, paragraphSpacing, 23)               \
-  X(F_PARAGRAPH_INDENT, paragraphIndent, 22)                 \
-  X(F_TEXT_ALIGN_H, textAlignHorizontal, 32)                 \
-  X(F_TEXT_ALIGN_V, textAlignVertical, 33)                   \
-  X(F_TEXT_AUTO_RESIZE, textAutoResize, 46)                  \
-  X(F_TEXT_TRUNCATION, textTruncation, 280)                  \
-  X(F_MAX_LINES, maxLines, 351)                              \
-  X(F_TEXT_CASE, textCase, 34)                               \
-  X(F_TEXT_DECORATION, textDecoration, 35)                   \
-  X(F_AUTO_RENAME, autoRename, 14)                          \
-  X(F_BLEND_MODE, blendMode, 9)                              \
-  X(F_MASK, mask, 16)                                        \
-  X(F_MASK_TYPE, maskType, 317)                              \
-  X(F_STROKE_CAP, strokeCap, 30)                             \
-  X(F_STROKE_JOIN, strokeJoin, 31)                           \
-  X(F_MITER_LIMIT, miterLimit, 25)                           \
-  X(F_DASH_PATTERN, dashPattern, 13)                         \
-  X(F_BORDER_WEIGHTS, borderWeights, 295)                    \
-  X(F_BORDER_WEIGHTS, borderStrokeWeightsIndependent, 299)   \
-  X(F_CORNER_SMOOTHING, cornerSmoothing, 160)                \
-  X(F_EFFECTS, effects, 43)                                  \
-  X(F_COUNT, count, 10)                                      \
-  X(F_STAR_INNER_SCALE, starInnerScale, 24)                  \
-  X(F_ARC_DATA, arcData, 195)                                \
-  X(F_VECTOR_DATA, vectorData, 48)                           \
-  X(F_HANDLE_MIRRORING, handleMirroring, 44)                 \
-  X(F_BOOLEAN_OPERATION, booleanOperation, 36)               \
-  X(F_LAYOUT_GRIDS, layoutGrids, 47)                         \
-  X(F_OVERRIDE_KEY, overrideKey, 213)                        \
-  X(F_SYMBOL_DATA, symbolData, 113)                          \
-  X(F_OVERRIDDEN_SYMBOL_ID, overriddenSymbolID, 143)         \
-  X(F_COMPONENT_PROP_DEFS, componentPropDefs, 266)           \
-  X(F_COMPONENT_PROP_ASSIGNMENTS, componentPropAssignments, 268) \
-  X(F_PARAM_MAP, parameterConsumptionMap, 445)               \
-  X(F_IS_STATE_GROUP, isStateGroup, 225)                     \
-  X(F_VARIANT_PROP_SPECS, variantPropSpecs, 483)             \
-  X(F_STATE_GROUP_ORDERS, stateGroupPropertyValueOrders, 238) \
-  X(F_PROPS_ARE_BUBBLED, propsAreBubbled, 305)               \
-  X(F_IS_SLOT, isSlot, 463)                                  \
-  X(F_IS_SLOT_CONTENT, isSlotContent, 495)                   \
-  X(F_DETACHED_SYMBOL_ID, detachedSymbolId, 342)             \
-  X(F_IS_SOFT_DELETED, isSoftDeleted, 330)                   \
-  X(F_ANCESTOR_PATH, ancestorPathBeforeDeletion, 235)        \
-  X(F_VARIABLE_MODES, variableModeBySetMap, 316)             \
-  X(F_STYLE_ID_FILL, styleIdForFill, 332)                    \
-  X(F_STYLE_ID_STROKE, styleIdForStrokeFill, 333)            \
-  X(F_STYLE_ID_TEXT, styleIdForText, 334)                    \
-  X(F_STYLE_ID_EFFECT, styleIdForEffect, 335)                \
-  X(F_STYLE_ID_GRID, styleIdForGrid, 336)                    \
-  X(F_STYLE_TYPE, styleType, 163)                            \
-  X(F_SORT_POSITION, sortPosition, 320)                      \
-  X(F_DESCRIPTION, description, 318)                         \
-  X(F_KEY, key, 319)                                         \
-  X(F_IS_PUBLISHABLE, isPublishable, 174)                    \
-  X(F_VARIABLE_SET_MODES, variableSetModes, 312)             \
-  X(F_VARIABLE_SET_ID, variableSetID, 313)                   \
-  X(F_VARIABLE_RESOLVED_TYPE, variableResolvedType, 314)     \
-  X(F_VARIABLE_DATA_VALUES, variableDataValues, 315)         \
-  X(F_VARIABLE_SCOPES, variableScopes, 353)                  \
-  X(F_CODE_SYNTAX, codeSyntax, 358)                          \
-  X(F_VERSION, version, 171)                                 \
-  X(F_PUBLISHED_VERSION, publishedVersion, 218)              \
-  X(F_SOURCE_LIBRARY_KEY, sourceLibraryKey, 395)             \
-  X(F_PUBLISH_ID, publishID, 215)                            \
-  X(F_LIBRARY_MOVE_INFO, libraryMoveInfo, 256)               \
-  X(F_EXTRA, extra, 0)
+#define ENG_NODE_FIELDS(X)                                 \
+  X(F_TYPE, core, type, 4)                                 \
+  X(F_NAME, core, name, 5)                                 \
+  X(F_VISIBLE, core, visible, 6)                           \
+  X(F_LOCKED, core, locked, 7)                             \
+  X(F_OPACITY, core, opacity, 8)                           \
+  X(F_TRANSFORM, core, transform, 12)                      \
+  X(F_SIZE, core, size, 11)                                \
+  X(F_FILLS, core, fillPaints, 38)                         \
+  X(F_STROKES, core, strokePaints, 39)                     \
+  X(F_STROKE_WEIGHT, core, strokeWeight, 26)               \
+  X(F_STROKE_ALIGN, core, strokeAlign, 29)                 \
+  X(F_FRAME_MASK_DISABLED, core, frameMaskDisabled, 115)   \
+  X(F_PARENT_INDEX, core, parentIndex, 3)                  \
+  X(F_RESIZE_TO_FIT, core, resizeToFit, 117)               \
+  X(F_BACKGROUND_COLOR, rare, backgroundColor, 50)         \
+  X(F_BACKGROUND_ENABLED, rare, backgroundEnabled, 15)     \
+  X(F_INTERNAL_ONLY, rare, internalOnly, 142)              \
+  X(F_STACK_MODE, stack, stackMode, 105)                   \
+  X(F_STACK_SPACING, stack, stackSpacing, 107)             \
+  X(F_STACK_PADDING_LEFT, stack, stackPaddingLeft, 209)    \
+  X(F_STACK_PADDING_TOP, stack, stackPaddingTop, 210)      \
+  X(F_STACK_PADDING_RIGHT, stack, stackPaddingRight, 233)  \
+  X(F_STACK_PADDING_BOTTOM, stack, stackPaddingBottom, 234)\
+  X(F_STACK_PRIMARY_SIZING, stack, stackPrimarySizing, 229)\
+  X(F_STACK_COUNTER_SIZING, stack, stackCounterSizing, 221)\
+  X(F_STACK_PRIMARY_ALIGN, stack, stackPrimaryAlignItems, 230)\
+  X(F_STACK_COUNTER_ALIGN, stack, stackCounterAlignItems, 231)\
+  X(F_STACK_COUNTER_ALIGN_CONTENT, stack, stackCounterAlignContent, 343)\
+  X(F_STACK_WRAP, stack, stackWrap, 323)                   \
+  X(F_STACK_COUNTER_SPACING, stack, stackCounterSpacing, 324)\
+  X(F_STACK_REVERSE_Z, stack, stackReverseZIndex, 271)     \
+  X(F_BORDERS_TAKE_SPACE, stack, bordersTakeSpace, 294)    \
+  X(F_STACK_CHILD_GROW, core, stackChildPrimaryGrow, 232)  \
+  X(F_STACK_CHILD_ALIGN_SELF, core, stackChildAlignSelf, 236)\
+  X(F_STACK_POSITIONING, core, stackPositioning, 269)      \
+  X(F_MIN_SIZE, rare, minSize, 325)                        \
+  X(F_MAX_SIZE, rare, maxSize, 326)                        \
+  X(F_H_CONSTRAINT, core, horizontalConstraint, 28)        \
+  X(F_V_CONSTRAINT, core, verticalConstraint, 37)          \
+  X(F_PROPORTIONS_CONSTRAINED, core, proportionsConstrained, 151)\
+  X(F_TEXT_DATA, text, textData, 42)                       \
+  X(F_FONT_NAME, text, fontName, 41)                       \
+  X(F_FONT_SIZE, text, fontSize, 21)                       \
+  X(F_LINE_HEIGHT, text, lineHeight, 40)                   \
+  X(F_LETTER_SPACING, text, letterSpacing, 165)            \
+  X(F_PARAGRAPH_SPACING, text, paragraphSpacing, 23)       \
+  X(F_PARAGRAPH_INDENT, text, paragraphIndent, 22)         \
+  X(F_TEXT_ALIGN_H, text, textAlignHorizontal, 32)         \
+  X(F_TEXT_ALIGN_V, text, textAlignVertical, 33)           \
+  X(F_TEXT_AUTO_RESIZE, text, textAutoResize, 46)          \
+  X(F_TEXT_TRUNCATION, text, textTruncation, 280)          \
+  X(F_MAX_LINES, text, maxLines, 351)                      \
+  X(F_TEXT_CASE, text, textCase, 34)                       \
+  X(F_TEXT_DECORATION, text, textDecoration, 35)           \
+  X(F_AUTO_RENAME, text, autoRename, 14)                   \
+  X(F_BLEND_MODE, core, blendMode, 9)                      \
+  X(F_MASK, core, mask, 16)                                \
+  X(F_MASK_TYPE, core, maskType, 317)                      \
+  X(F_STROKE_CAP, core, strokeCap, 30)                     \
+  X(F_STROKE_JOIN, core, strokeJoin, 31)                   \
+  X(F_MITER_LIMIT, core, miterLimit, 25)                   \
+  X(F_DASH_PATTERN, stroke, dashPattern, 13)               \
+  X(F_BORDER_WEIGHTS, stroke, borderWeights, 295)          \
+  X(F_BORDER_WEIGHTS, stroke, borderStrokeWeightsIndependent, 299)\
+  X(F_CORNER_SMOOTHING, stroke, cornerSmoothing, 160)      \
+  X(F_EFFECTS, core, effects, 43)                          \
+  X(F_COUNT, shape, count, 10)                             \
+  X(F_STAR_INNER_SCALE, shape, starInnerScale, 24)         \
+  X(F_ARC_DATA, shape, arcData, 195)                       \
+  X(F_VECTOR_DATA, shape, vectorData, 48)                  \
+  X(F_HANDLE_MIRRORING, shape, handleMirroring, 44)        \
+  X(F_BOOLEAN_OPERATION, shape, booleanOperation, 36)      \
+  X(F_LAYOUT_GRIDS, rare, layoutGrids, 47)                 \
+  X(F_OVERRIDE_KEY, core, overrideKey, 213)                \
+  X(F_SYMBOL_DATA, comp, symbolData, 113)                  \
+  X(F_OVERRIDDEN_SYMBOL_ID, comp, overriddenSymbolID, 143) \
+  X(F_COMPONENT_PROP_DEFS, comp, componentPropDefs, 266)   \
+  X(F_COMPONENT_PROP_ASSIGNMENTS, comp, componentPropAssignments, 268)\
+  X(F_PARAM_MAP, core, parameterConsumptionMap, 445)       \
+  X(F_IS_STATE_GROUP, comp, isStateGroup, 225)             \
+  X(F_VARIANT_PROP_SPECS, comp, variantPropSpecs, 483)     \
+  X(F_STATE_GROUP_ORDERS, comp, stateGroupPropertyValueOrders, 238)\
+  X(F_PROPS_ARE_BUBBLED, comp, propsAreBubbled, 305)       \
+  X(F_IS_SLOT, comp, isSlot, 463)                          \
+  X(F_IS_SLOT_CONTENT, comp, isSlotContent, 495)           \
+  X(F_DETACHED_SYMBOL_ID, comp, detachedSymbolId, 342)     \
+  X(F_IS_SOFT_DELETED, comp, isSoftDeleted, 330)           \
+  X(F_ANCESTOR_PATH, comp, ancestorPathBeforeDeletion, 235)\
+  X(F_VARIABLE_MODES, refs, variableModeBySetMap, 316)     \
+  X(F_STYLE_ID_FILL, refs, styleIdForFill, 332)            \
+  X(F_STYLE_ID_STROKE, refs, styleIdForStrokeFill, 333)    \
+  X(F_STYLE_ID_TEXT, refs, styleIdForText, 334)            \
+  X(F_STYLE_ID_EFFECT, refs, styleIdForEffect, 335)        \
+  X(F_STYLE_ID_GRID, refs, styleIdForGrid, 336)            \
+  X(F_STYLE_TYPE, asset, styleType, 163)                   \
+  X(F_SORT_POSITION, asset, sortPosition, 320)             \
+  X(F_DESCRIPTION, asset, description, 318)                \
+  X(F_KEY, asset, key, 319)                                \
+  X(F_IS_PUBLISHABLE, asset, isPublishable, 174)           \
+  X(F_VARIABLE_SET_MODES, asset, variableSetModes, 312)    \
+  X(F_VARIABLE_SET_ID, asset, variableSetID, 313)          \
+  X(F_VARIABLE_RESOLVED_TYPE, asset, variableResolvedType, 314)\
+  X(F_VARIABLE_DATA_VALUES, asset, variableDataValues, 315)\
+  X(F_VARIABLE_SCOPES, asset, variableScopes, 353)         \
+  X(F_CODE_SYNTAX, asset, codeSyntax, 358)                 \
+  X(F_VERSION, asset, version, 171)                        \
+  X(F_PUBLISHED_VERSION, asset, publishedVersion, 218)     \
+  X(F_SOURCE_LIBRARY_KEY, asset, sourceLibraryKey, 395)    \
+  X(F_PUBLISH_ID, asset, publishID, 215)                   \
+  X(F_LIBRARY_MOVE_INFO, asset, libraryMoveInfo, 256)      \
+  X(F_EXTRA, core, extra, 0)
 
 const char* nodeTypeName(NodeType t) {
   switch (t) {
@@ -374,25 +395,62 @@ NodeType nodeTypeFromName(std::string_view s) {
   return NodeType::NONE;
 }
 
+// The corner bits in cornerRadii's order (top-left, top-right, bottom-right, bottom-left).
+static constexpr Field kCornerBits[4] = {F_CORNER_TL, F_CORNER_TR, F_CORNER_BR, F_CORNER_BL};
+
+// A core field is a member; a facet's field is copied only when either side has the facet (both absent: equal).
 void copyFields(NodeProps& to, const NodeProps& from, FieldMask mask) {
-#define ENG_COPY(bit, member, id) \
+#define ENG_COPY(bit, facet, member, id) ENG_COPY_##facet(bit, facet, member)
+#define ENG_COPY_core(bit, facet, member) \
   if (mask & bit) to.member = from.member;
+#define ENG_COPY_F(bit, f, member) \
+  if ((mask & bit) && (from.f##_.has() || to.f##_.has())) to.f##_.edit().member = from.f##_.get().member;
+#define ENG_COPY_text ENG_COPY_F
+#define ENG_COPY_stack ENG_COPY_F
+#define ENG_COPY_shape ENG_COPY_F
+#define ENG_COPY_stroke ENG_COPY_F
+#define ENG_COPY_comp ENG_COPY_F
+#define ENG_COPY_refs ENG_COPY_F
+#define ENG_COPY_asset ENG_COPY_F
+#define ENG_COPY_rare ENG_COPY_F
   ENG_NODE_FIELDS(ENG_COPY)
 #undef ENG_COPY
+  if (mask & F_CORNER_RADII)
+    for (size_t i = 0; i < 4; i++)
+      if (mask & kCornerBits[i]) to.cornerRadii[i] = from.cornerRadii[i];
 }
 
 FieldMask differingFields(const NodeProps& a, const NodeProps& b, FieldMask mask) {
   FieldMask d = 0;
-#define ENG_DIFF(bit, member, id) \
+#define ENG_DIFF(bit, facet, member, id) ENG_DIFF_##facet(bit, facet, member)
+#define ENG_DIFF_core(bit, facet, member) \
   if ((mask & bit) && !(a.member == b.member)) d |= bit;
+#define ENG_DIFF_F(bit, f, member) \
+  if ((mask & bit) && (a.f##_.has() || b.f##_.has()) && !(a.f##_.get().member == b.f##_.get().member)) d |= bit;
+#define ENG_DIFF_text ENG_DIFF_F
+#define ENG_DIFF_stack ENG_DIFF_F
+#define ENG_DIFF_shape ENG_DIFF_F
+#define ENG_DIFF_stroke ENG_DIFF_F
+#define ENG_DIFF_comp ENG_DIFF_F
+#define ENG_DIFF_refs ENG_DIFF_F
+#define ENG_DIFF_asset ENG_DIFF_F
+#define ENG_DIFF_rare ENG_DIFF_F
   ENG_NODE_FIELDS(ENG_DIFF)
 #undef ENG_DIFF
+  if (mask & F_CORNER_RADII)
+    for (size_t i = 0; i < 4; i++)
+      if ((mask & kCornerBits[i]) && a.cornerRadii[i] != b.cornerRadii[i]) d |= kCornerBits[i];
   return d;
 }
 
 uint32_t kiwiFieldId(Field f) {
   if (f == F_TYPE || f == F_PARENT_INDEX || f == F_EXTRA) return 0;
-#define ENG_ID(bit, member, id) \
+  if (f == F_CORNER_RADII) return 20;
+  if (f == F_CORNER_TL) return 145;
+  if (f == F_CORNER_TR) return 146;
+  if (f == F_CORNER_BL) return 147;
+  if (f == F_CORNER_BR) return 148;
+#define ENG_ID(bit, facet, member, id) \
   if (f == bit) return id;
   ENG_NODE_FIELDS(ENG_ID)
 #undef ENG_ID
@@ -400,12 +458,16 @@ uint32_t kiwiFieldId(Field f) {
 }
 
 FieldMask fieldsOfKiwiId(uint32_t id) {
-  // The four rectangle*CornerRadius fields and rectangleCornerRadiiIndependent travel with cornerRadius.
-  if (id >= 145 && id <= 149) return F_CORNER_RADII;
+  // cornerRadius and rectangleCornerRadiiIndependent stand for all four corners; each rectangle*CornerRadius for its own.
+  if (id == 20 || id == 149) return F_CORNER_RADII;
+  if (id == 145) return F_CORNER_TL;
+  if (id == 146) return F_CORNER_TR;
+  if (id == 147) return F_CORNER_BL;
+  if (id == 148) return F_CORNER_BR;
   // borderTop/Bottom/Left/RightWeight and borderStrokeWeightsIndependent travel together.
   if (id >= 295 && id <= 299) return F_BORDER_WEIGHTS;
   if (id == 0) return 0;
-#define ENG_BIT(bit, member, kid) \
+#define ENG_BIT(bit, facet, member, kid) \
   if (id == kid) return bit;
   ENG_NODE_FIELDS(ENG_BIT)
 #undef ENG_BIT
@@ -449,12 +511,12 @@ NodeProps defaultProps(NodeType type) {
       break;
     case NodeType::REGULAR_POLYGON:
       p.fillPaints = {Paint::solid(Color::hex(0xD9D9D9))};
-      p.count = 3;
+      p.shape().count = 3;
       break;
     case NodeType::STAR:
       p.fillPaints = {Paint::solid(Color::hex(0xD9D9D9))};
-      p.count = 5;
-      p.starInnerScale = 0.382;
+      p.shape().count = 5;
+      p.shape().starInnerScale = 0.382;
       break;
     case NodeType::LINE:
     case NodeType::VECTOR:
@@ -466,8 +528,8 @@ NodeProps defaultProps(NodeType type) {
       // Figma's new text: Inter Regular 12, Auto line height, 0% letter spacing, black, an outside stroke weight of 1.
       p.fillPaints = {Paint::solid(Color::hex(0x000000))};
       p.strokeAlign = StrokeAlign::OUTSIDE;
-      p.textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
-      p.autoRename = true;
+      p.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+      p.text().autoRename = true;
       break;
     default: break;
   }

@@ -195,7 +195,7 @@ bool Document::paintsBefore(Guid a, Guid b) const {
   if (i == cb.size()) return false;  // b is an ancestor of a
   if (i == 0) return ca[0] < cb[0];  // different roots (orphans): any stable order
   const Node* parent = get(ca[i - 1]);
-  bool reversed = parent && parent->props.stackReverseZIndex && parent->props.isAutoLayout();
+  bool reversed = parent && parent->props.stack().stackReverseZIndex && parent->props.isAutoLayout();
   uint32_t ia = siblingIndex(ca[i]), ib = siblingIndex(cb[i]);
   return reversed ? ia > ib : ia < ib;
 }
@@ -333,10 +333,11 @@ uint64_t Document::approxBytes() const {
   };
   for (const auto& [id, n] : nodes_) {
     const NodeProps& p = n.props;
-    total += sizeof(Node) + 2 * sizeof(void*) + p.name.capacity() + paints(p.fillPaints) + paints(p.strokePaints) +
-             p.effects.capacity() * sizeof(Effect) + p.layoutGrids.capacity() * sizeof(LayoutGrid) + p.textData.characters.capacity() +
-             p.textData.characterStyleIDs.capacity() * 4 + p.textData.styleOverrideTable.capacity() * sizeof(TextStyle) +
-             p.symbolData.overrides.capacity() * sizeof(SymbolOverride) + p.parameterConsumptionMap.capacity() * sizeof(ParamBinding);
+    total += sizeof(Node) + 2 * sizeof(void*) + p.facetBytes() + p.name.capacity() + paints(p.fillPaints) + paints(p.strokePaints) +
+             p.effects.capacity() * sizeof(Effect) + p.rare().layoutGrids.capacity() * sizeof(LayoutGrid) +
+             p.text().textData.characters.capacity() + p.text().textData.characterStyleIDs.capacity() * 4 +
+             p.text().textData.styleOverrideTable.capacity() * sizeof(TextStyle) +
+             p.comp().symbolData.overrides.capacity() * sizeof(SymbolOverride) + p.parameterConsumptionMap.capacity() * sizeof(ParamBinding);
     for (const auto& [k, v] : p.extra) total += k.capacity() + v.capacity() + 48;
   }
   return total;
@@ -347,7 +348,8 @@ bool Document::adopt(NodeChange&& change) {
       change.props.parentIndex.guid == change.guid)
     return apply(change);
   Guid id = change.guid, parent = change.props.parentIndex.guid;
-  nodes_.emplace(id, Node{id, std::move(change.props)});
+  auto [at, fresh] = nodes_.emplace(id, Node{id, std::move(change.props)});
+  at->second.props.compact();  // facets that hold only defaults take no memory
   record(id, true, {}, kNoGuid, F_ALL);
   link(id, parent);
   invalidate(id);
@@ -367,11 +369,12 @@ bool Document::apply(const NodeChange& change, NodeChange* inverse) {
         record(change.guid, true, boundsBefore(change.guid), it->second.props.parentIndex.guid, F_ALL);
         unlink(change.guid, it->second.props.parentIndex.guid);
         it->second.props = change.props;
+        it->second.props.compact();
         link(change.guid, parent);
         invalidate(change.guid);
         return true;
       }
-      nodes_.emplace(change.guid, Node{change.guid, change.props});
+      nodes_.emplace(change.guid, Node{change.guid, change.props}).first->second.props.compact();
       record(change.guid, true, {}, kNoGuid, F_ALL);
       link(change.guid, parent);
       invalidate(change.guid);  // its subtree too: parked children may be waiting for it
@@ -410,6 +413,7 @@ bool Document::apply(const NodeChange& change, NodeChange* inverse) {
         copyFields(inverse->props, props, plain);
       }
       copyFields(props, change.props, plain);
+      props.compact();
       if (change.mask & F_EXTRA) {
         // Unmodelled fields merge: each key of the change is set (an empty value removes it).
         for (auto& [key, value] : change.props.extra) {

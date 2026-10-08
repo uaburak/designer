@@ -273,7 +273,7 @@ function pageMain() {
   };
   window.__bench = { ready: false };
   (async () => {
-    const [{ Engine }, { fonts, BUNDLED_FACES }, { mergedDocument }, codec, abi] = await Promise.all([
+    const [{ Engine }, { fonts, BUNDLED_FACES }, { mergedDocument }, _codec, abi] = await Promise.all([
       import("@/engine/Engine.ts"),
       import("@/engine/fonts.ts"),
       import("@/store/documentSource.ts"),
@@ -798,10 +798,10 @@ function pageMain() {
         t = performance.now();
         const message = mergedDocument({ snapshot, journal: [], sessionID: 1 });
         out.decodeMs = performance.now() - t;
-        t = performance.now();
-        const bytes = codec.encodeMessage(message);
-        out.encodeMs = performance.now() - t;
-        out.jsonBytes = bytes.length;
+        // The engine reads documents as kiwi only: the store's snapshot bytes go in as they are (the app's path).
+        const bytes = snapshot;
+        out.encodeMs = 0;
+        out.kiwiBytes = bytes.length;
         const heap0 = heap();
         t = performance.now();
         x.load(h, bytes);
@@ -1841,8 +1841,8 @@ console.log(`  measured page: "${report.page?.name}" (${report.page?.layers} sto
 console.log(`\nLoad`);
 if (report.importMs !== undefined) console.log(`  .fig import (store, Node)     ${f1(report.importMs)} ms   (${mb(report.figBytes)} → ${mb(report.snapshotBytes)} snapshot)`);
 console.log(`  decode snapshot (renderer)    ${f1(L.decodeMs)} ms`);
-console.log(`  encode engine JSON            ${f1(L.encodeMs)} ms   (${mb(L.jsonBytes)})`);
-console.log(`  engine_load (parse+derive)    ${f1(L.engineLoadMs)} ms`);
+if (L.jsonBytes) console.log(`  encode engine JSON            ${f1(L.encodeMs)} ms   (${mb(L.jsonBytes)})`);
+console.log(`  engine_load (parse+derive)    ${f1(L.engineLoadMs)} ms${L.kiwiBytes ? `   (the store's kiwi bytes, ${mb(L.kiwiBytes)})` : ""}`);
 console.log(`  events after load             ${f1(L.eventsMs)} ms`);
 console.log(`  first frame (fit)             ${f1(report.first.firstFrameMs)} ms CPU, ${f1(report.first.firstFrameSyncedMs)} ms to GPU done`);
 console.log(`  fonts arrive                  ${f1(report.first.fontsMs)} ms; frame after ${f1(report.first.afterFontsFrameMs)} ms`);

@@ -80,7 +80,7 @@ TEST_CASE("renderer: vectors, stars and dashed strokes are paths; gradients and 
   Document d;
   base(d);
   NodeChange star = make({1, 1}, NodeType::STAR, kPage, "!", {10, 10, 100, 100});
-  star.props.starInnerScale = 0.4;
+  star.props.shape().starInnerScale = 0.4;
   Paint g;
   g.type = PaintType::GRADIENT_RADIAL;
   g.stops = {{Color::hex(0xFF0000), 0}, {Color::hex(0x0000FF), 1}};
@@ -88,7 +88,7 @@ TEST_CASE("renderer: vectors, stars and dashed strokes are paths; gradients and 
   d.apply(star);
   NodeChange dashed = make({1, 2}, NodeType::ROUNDED_RECTANGLE, kPage, "\"", {200, 10, 100, 100});
   dashed.props.strokePaints = {Paint::solid(Color::hex(0))};
-  dashed.props.dashPattern = {4, 4};
+  dashed.props.stroke().dashPattern = {4, 4};
   d.apply(dashed);
   NodeChange img = make({1, 3}, NodeType::ROUNDED_RECTANGLE, kPage, "#", {400, 10, 100, 100});
   Paint ip;

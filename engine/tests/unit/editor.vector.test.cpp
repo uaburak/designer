@@ -19,7 +19,7 @@ Editor makeEditor() {
   auto nodes = baseChanges();
   nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, kPage, "!", {100, 100, 100, 100}, "Rectangle 1"));
   NodeChange star = make(S, NodeType::STAR, kPage, "\"", {400, 100, 100, 100}, "Star 1");
-  star.props.starInnerScale = 0.4;
+  star.props.shape().starInnerScale = 0.4;
   nodes.push_back(star);
   Editor e;
   e.setViewport(800, 600, 1, 800, 600);
@@ -45,8 +45,8 @@ const NodeProps& props(const Editor& e, Guid id) { return e.document().get(id)->
 geom::VectorNetwork networkOf(const Editor& e, Guid id) {
   const NodeProps& p = props(e, id);
   geom::VectorNetwork n;
-  REQUIRE(p.vectorData.network);
-  REQUIRE(geom::VectorNetwork::decode(p.vectorData.network->data(), p.vectorData.network->size(), n));
+  REQUIRE(p.shape().vectorData.network);
+  REQUIRE(geom::VectorNetwork::decode(p.shape().vectorData.network->data(), p.shape().vectorData.network->size(), n));
   return n;
 }
 
@@ -90,12 +90,12 @@ TEST_CASE("shape tools: line, arrow, polygon, star") {
   e.setTool(Tool::POLYGON);
   click(e, 600, 400);
   CHECK(props(e, e.selection()[0]).type == NodeType::REGULAR_POLYGON);
-  CHECK(props(e, e.selection()[0]).count == 3);
+  CHECK(props(e, e.selection()[0]).shape().count == 3);
   CHECK(props(e, e.selection()[0]).size == Vec2{100, 100});
   e.setTool(Tool::STAR);
   click(e, 600, 520);
-  CHECK(props(e, e.selection()[0]).count == 5);
-  CHECK(props(e, e.selection()[0]).starInnerScale == doctest::Approx(0.382));
+  CHECK(props(e, e.selection()[0]).shape().count == 5);
+  CHECK(props(e, e.selection()[0]).shape().starInnerScale == doctest::Approx(0.382));
   CHECK(props(e, e.selection()[0]).name == "Star 2");
 }
 
@@ -236,7 +236,7 @@ TEST_CASE("booleans, Flatten, Outline stroke, Use as mask, Place image") {
   Guid b = e.selection()[0];
   const NodeProps& bp = props(e, b);
   CHECK(bp.type == NodeType::BOOLEAN_OPERATION);
-  CHECK(bp.booleanOperation == BooleanOperation::SUBTRACT);
+  CHECK(bp.shape().booleanOperation == BooleanOperation::SUBTRACT);
   CHECK(bp.name == "Subtract");
   CHECK(bp.fillPaints[0].color == Color::hex(0xD9D9D9));  // the bottom layer's look
   CHECK(e.document().children(b).size() == 2);
@@ -255,7 +255,7 @@ TEST_CASE("booleans, Flatten, Outline stroke, Use as mask, Place image") {
   // Switching the operation of a selected boolean.
   e.setSelection({b});
   REQUIRE(e.command(CommandId::BOOLEAN_UNION) == OK);
-  CHECK(props(e, b).booleanOperation == BooleanOperation::UNION);
+  CHECK(props(e, b).shape().booleanOperation == BooleanOperation::UNION);
   // Flatten: the same GUID, now a VECTOR, its operands gone.
   REQUIRE(e.command(CommandId::FLATTEN) == OK);
   CHECK(props(e, b).type == NodeType::VECTOR);

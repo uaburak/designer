@@ -222,11 +222,11 @@ bool Editor::networkOf(Guid id, VectorNetwork& out, bool& convert) const {
   const NodeProps& p = node->props;
   convert = false;
   out = VectorNetwork{};
-  if (p.type == NodeType::VECTOR || (p.type == NodeType::LINE && p.vectorData.network)) {
-    if (p.vectorData.network && !p.vectorData.network->empty())
-      VectorNetwork::decode(p.vectorData.network->data(), p.vectorData.network->size(), out);
-    double sx = p.vectorData.normalizedSize.x != 0 ? p.size.x / p.vectorData.normalizedSize.x : 1;
-    double sy = p.vectorData.normalizedSize.y != 0 ? p.size.y / p.vectorData.normalizedSize.y : 1;
+  if (p.type == NodeType::VECTOR || (p.type == NodeType::LINE && p.shape().vectorData.network)) {
+    if (p.shape().vectorData.network && !p.shape().vectorData.network->empty())
+      VectorNetwork::decode(p.shape().vectorData.network->data(), p.shape().vectorData.network->size(), out);
+    double sx = p.shape().vectorData.normalizedSize.x != 0 ? p.size.x / p.shape().vectorData.normalizedSize.x : 1;
+    double sy = p.shape().vectorData.normalizedSize.y != 0 ? p.size.y / p.shape().vectorData.normalizedSize.y : 1;
     if (sx != 1 || sy != 1) out.scale(sx, sy);
     return true;
   }
@@ -260,16 +260,16 @@ VectorNetwork Editor::writeVector(Guid id, VectorNetwork net, const Mat2x3& loca
   VectorData d;
   d.present = true;
   d.normalizedSize = c.props.size;
-  d.styleOverrideTable = pruned(net, styles ? *styles : p.vectorData.styleOverrideTable);
+  d.styleOverrideTable = pruned(net, styles ? *styles : p.shape().vectorData.styleOverrideTable);
   d.network = std::make_shared<std::vector<uint8_t>>(net.encode());
-  c.props.vectorData = d;
+  c.props.shape().vectorData = d;
   if (id == vector_.node && vector_.pendingType && p.type != NodeType::VECTOR) {
     // A shape's first edit: it becomes a VECTOR (same GUID), its outline now the network.
     c.mask |= F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_ARC_DATA;
     c.props.type = NodeType::VECTOR;
     c.props.cornerRadii = {0, 0, 0, 0};
-    c.props.cornerSmoothing = 0;
-    c.props.arcData = {};
+    c.props.stroke().cornerSmoothing = 0;
+    c.props.shape().arcData = {};
     vector_.pendingType = false;
   }
   write(c);
@@ -452,7 +452,7 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
     VectorData d;
     d.present = true;
     d.network = std::make_shared<std::vector<uint8_t>>(net.encode());
-    c.props.vectorData = d;
+    c.props.shape().vectorData = d;
     write(c);
     startVectorEdit(id);
     setVectorTool(VectorTool::PEN);
@@ -730,8 +730,8 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
   auto mirror = [&](uint32_t vertex, uint32_t seg, Vec2 tangent) {
     if (mods & MOD_ALT) return;  // ⌥ breaks the mirroring
     const NodeProps& p = doc_.get(vector_.node)->props;
-    VectorMirror m = p.handleMirroring;
-    if (const VectorStyle* st = p.vectorData.style(net.vertices[vertex].styleID); st && (st->mask & VS_MIRRORING)) m = st->handleMirroring;
+    VectorMirror m = p.shape().handleMirroring;
+    if (const VectorStyle* st = p.shape().vectorData.style(net.vertices[vertex].styleID); st && (st->mask & VS_MIRRORING)) m = st->handleMirroring;
     auto segs = incident(net, vertex);
     if (segs.size() != 2) return;
     uint32_t other = segs[0] == seg ? segs[1] : segs[0];
@@ -950,9 +950,9 @@ int Editor::vectorMirroring(VectorMirror& out) const {
   if (!n || vector_.selVerts.empty()) return 0;
   int state = 0;
   for (uint32_t v : vector_.selVerts) {
-    VectorMirror m = n->props.handleMirroring;
+    VectorMirror m = n->props.shape().handleMirroring;
     if (v < vector_.net.vertices.size())
-      if (const VectorStyle* st = n->props.vectorData.style(vector_.net.vertices[v].styleID); st && (st->mask & VS_MIRRORING)) m = st->handleMirroring;
+      if (const VectorStyle* st = n->props.shape().vectorData.style(vector_.net.vertices[v].styleID); st && (st->mask & VS_MIRRORING)) m = st->handleMirroring;
     if (state == 0) out = m, state = 1;
     else if (m != out) return 2;
   }
@@ -965,8 +965,8 @@ std::vector<Editor::VectorPoint> Editor::vectorPoints() const {
   if (!n) return out;
   for (uint32_t v : vector_.selVerts) {
     if (v >= vector_.net.vertices.size()) continue;
-    VectorPoint p{v, n->props.transform.apply(vector_.net.vertices[v].p), n->props.cornerRadii[0], n->props.handleMirroring};
-    if (const VectorStyle* st = n->props.vectorData.style(vector_.net.vertices[v].styleID)) {
+    VectorPoint p{v, n->props.transform.apply(vector_.net.vertices[v].p), n->props.cornerRadii[0], n->props.shape().handleMirroring};
+    if (const VectorStyle* st = n->props.shape().vectorData.style(vector_.net.vertices[v].styleID)) {
       if (st->mask & VS_CORNER_RADIUS) p.cornerRadius = st->cornerRadius;
       if (st->mask & VS_MIRRORING) p.mirroring = st->handleMirroring;
     }
@@ -979,7 +979,7 @@ Status Editor::setVectorMirroring(VectorMirror m) {
   if (vector_.node == kNoGuid || vector_.selVerts.empty() || busy()) return E_INVALID;
   const Node* n = doc_.get(vector_.node);
   VectorNetwork net = vector_.net;
-  std::vector<VectorStyle> table = n->props.vectorData.styleOverrideTable;
+  std::vector<VectorStyle> table = n->props.shape().vectorData.styleOverrideTable;
   for (uint32_t v : vector_.selVerts) {
     restyleVertex(net, table, v, [&](VectorStyle& st) {
       st.mask |= VS_MIRRORING;
@@ -1007,7 +1007,7 @@ Status Editor::setVectorPoints(const double* x, const double* y, const double* c
   const Node* n = doc_.get(vector_.node);
   const NodeProps& p = n->props;
   VectorNetwork net = vector_.net;
-  std::vector<VectorStyle> table = p.vectorData.styleOverrideTable;
+  std::vector<VectorStyle> table = p.shape().vectorData.styleOverrideTable;
   if (x || y) {
     double minX = 1e300, minY = 1e300;
     for (uint32_t v : vector_.selVerts) {
@@ -1041,7 +1041,7 @@ bool Editor::endCaps(Guid id, StrokeCap& start, StrokeCap& end) const {
   bool convert = false;
   if (!networkOf(id, net, convert)) return false;
   auto capOf = [&](uint32_t v) {
-    if (const VectorStyle* st = p.vectorData.style(net.vertices[v].styleID); st && (st->mask & VS_STROKE_CAP)) return st->strokeCap;
+    if (const VectorStyle* st = p.shape().vectorData.style(net.vertices[v].styleID); st && (st->mask & VS_STROKE_CAP)) return st->strokeCap;
     return p.strokeCap;
   };
   for (const geom::VNChain& c : net.chains())
@@ -1063,7 +1063,7 @@ Status Editor::setEndCaps(const std::vector<Guid>& ids, const StrokeCap* start, 
     VectorNetwork net;
     bool convert = false;
     if (!networkOf(id, net, convert)) continue;
-    std::vector<VectorStyle> table = p.vectorData.styleOverrideTable;
+    std::vector<VectorStyle> table = p.shape().vectorData.styleOverrideTable;
     for (const geom::VNChain& c : net.chains()) {
       if (c.closed) continue;
       if (start) restyleVertex(net, table, c.firstVertex, [&](VectorStyle& st) { st.mask |= VS_STROKE_CAP, st.strokeCap = *start; });

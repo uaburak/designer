@@ -351,7 +351,7 @@ export interface NodeFields {
   propsAreBubbled?: boolean;
   isSlot?: boolean;
   isSlotContent?: boolean;
-  detachedSymbolId?: { guid: GuidValue };
+  detachedSymbolId?: AssetId;
   isSoftDeleted?: boolean;
   ancestorPathBeforeDeletion?: GuidValue[];
   // ---- Variables, modes, styles (docs/schema.md §6; docs/engine-build.md "E6 variables") ----

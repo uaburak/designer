@@ -184,7 +184,7 @@ double lineHeightPx(const ResolvedStyle& s) {
 
 LayoutOptions optionsFor(const NodeProps& p, double widthOverride) {
   LayoutOptions o;
-  switch (p.textAutoResize) {
+  switch (p.text().textAutoResize) {
     case TextAutoResize::WIDTH_AND_HEIGHT: break;
     case TextAutoResize::HEIGHT: o.width = p.size.x; break;
     case TextAutoResize::NONE:
@@ -201,21 +201,21 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
   auto out = std::make_unique<TextLayout>();
   TextLayout& L = *out;
   FontRegistry& fonts = FontRegistry::get();
-  L.text = utf8To16(p.textData.characters);
+  L.text = utf8To16(p.text().textData.characters);
   const uint32_t n = static_cast<uint32_t>(L.text.size());
 
   // Styles: 0 = the node's own; one per override entry.
   ResolvedStyle base;
-  base.fontName = p.fontName;
-  base.fontSize = p.fontSize;
-  base.lineHeight = p.lineHeight;
-  base.letterSpacing = p.letterSpacing;
-  base.textCase = p.textCase;
-  base.textDecoration = p.textDecoration;
+  base.fontName = p.text().fontName;
+  base.fontSize = p.text().fontSize;
+  base.lineHeight = p.text().lineHeight;
+  base.letterSpacing = p.text().letterSpacing;
+  base.textCase = p.text().textCase;
+  base.textDecoration = p.text().textDecoration;
   base.fills = &p.fillPaints;
   L.styles.push_back(base);
   std::unordered_map<uint32_t, uint16_t> byId;
-  for (const TextStyle& o : p.textData.styleOverrideTable) {
+  for (const TextStyle& o : p.text().textData.styleOverrideTable) {
     if (o.styleID == 0 || byId.count(o.styleID) || L.styles.size() >= 0xFFFF) continue;
     ResolvedStyle s = base;
     s.styleID = o.styleID;
@@ -242,7 +242,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     if (s.fontSize <= 0) s.fontSize = 1;
   }
   L.styleOf.assign(n, 0);
-  const auto& ids = p.textData.characterStyleIDs;
+  const auto& ids = p.text().textData.characterStyleIDs;
   for (uint32_t i = 0; i < n && i < ids.size(); i++)
     if (ids[i]) {
       auto it = byId.find(ids[i]);
@@ -316,7 +316,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     long lastBreak = -1;
     for (size_t k = 0; k < pc.size(); k++) {
       const Cluster& c = pc[k];
-      double limit = maxWidth - (firstLine ? p.paragraphIndent : 0);
+      double limit = maxWidth - (firstLine ? p.text().paragraphIndent : 0);
       if (wrap && k > i0 && !c.space && x + c.width - c.spacing > limit + 1e-4) {
         size_t cut = lastBreak >= static_cast<long>(i0) ? static_cast<size_t>(lastBreak) + 1 : k;
         emit(i0, cut, firstLine, false);
@@ -344,9 +344,9 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
 
   // Truncation (ENDING): by maxLines, or by the box's height for fixed boxes.
   size_t keep = drafts.size();
-  if (p.textTruncation == TextTruncation::ENDING) {
-    if (p.maxLines > 0) keep = std::min(keep, static_cast<size_t>(p.maxLines));
-    if (opt.height >= 0 && p.textAutoResize == TextAutoResize::NONE) {
+  if (p.text().textTruncation == TextTruncation::ENDING) {
+    if (p.text().maxLines > 0) keep = std::min(keep, static_cast<size_t>(p.text().maxLines));
+    if (opt.height >= 0 && p.text().textAutoResize == TextAutoResize::NONE) {
       double y = 0;
       size_t fit = 0;
       for (size_t i = 0; i < keep; i++) {
@@ -354,7 +354,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
         double lh = 0;
         if (d.clusters.empty()) lh = lineHeightPx(L.styles[d.emptyStyle]);
         for (auto& c : d.clusters) lh = std::max(lh, lineHeightPx(L.styles[c.style]));
-        if (i > 0 && drafts[i - 1].paragraphEnd) y += p.paragraphSpacing;
+        if (i > 0 && drafts[i - 1].paragraphEnd) y += p.text().paragraphSpacing;
         if (y + lh > opt.height + 1e-3 && i > 0) break;
         y += lh;
         fit = i + 1;
@@ -368,7 +368,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     uint16_t st = d.clusters.empty() ? d.emptyStyle : d.clusters.back().style;
     Glyph dots{};
     if (ellipsis(L.styles[st], dots)) {
-      double limit = wrap ? maxWidth - (d.paragraphStart ? p.paragraphIndent : 0) : 1e300;
+      double limit = wrap ? maxWidth - (d.paragraphStart ? p.text().paragraphIndent : 0) : 1e300;
       auto width = [&]() {
         double w = 0;
         for (auto& c : d.clusters) w += c.width;
@@ -421,22 +421,22 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     double w = 0;
     for (size_t k = 0; k < contentEnd; k++) w += d.clusters[k].width;
     if (contentEnd > 0) w -= d.clusters[contentEnd - 1].spacing;
-    if (li > 0 && drafts[li - 1].paragraphEnd) y += p.paragraphSpacing;
+    if (li > 0 && drafts[li - 1].paragraphEnd) y += p.text().paragraphSpacing;
     line.top = y;
     line.height = lh;
     line.ascent = asc;
     line.descent = desc;
     line.baseline = y + (lh - (asc + desc)) / 2 + asc;
     line.width = w;
-    double indent = d.paragraphStart ? p.paragraphIndent : 0;
+    double indent = d.paragraphStart ? p.text().paragraphIndent : 0;
     widest = std::max(widest, w + indent);
     y += lh;
     L.lines.push_back(line);
   }
   L.size = {widest, y};
   L.boxWidth = wrap ? maxWidth : widest;
-  if (opt.height >= 0 && p.textAutoResize == TextAutoResize::NONE) {
-    double f = p.textAlignVertical == TextAlignVertical::CENTER ? 0.5 : p.textAlignVertical == TextAlignVertical::BOTTOM ? 1 : 0;
+  if (opt.height >= 0 && p.text().textAutoResize == TextAutoResize::NONE) {
+    double f = p.text().textAlignVertical == TextAlignVertical::CENTER ? 0.5 : p.text().textAlignVertical == TextAlignVertical::BOTTOM ? 1 : 0;
     L.offsetY = (opt.height - L.size.y) * f;
   }
 
@@ -447,10 +447,10 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     LaidLine& line = L.lines[li];
     line.top += L.offsetY;
     line.baseline += L.offsetY;
-    double indent = d.paragraphStart ? p.paragraphIndent : 0;
+    double indent = d.paragraphStart ? p.text().paragraphIndent : 0;
     double free = L.boxWidth - indent - line.width;
     double x0 = indent, extraPerSpace = 0;
-    switch (p.textAlignHorizontal) {
+    switch (p.text().textAlignHorizontal) {
       case TextAlignHorizontal::CENTER: x0 += free / 2; break;
       case TextAlignHorizontal::RIGHT: x0 += free; break;
       case TextAlignHorizontal::JUSTIFIED: {
@@ -465,7 +465,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
       }
       default: break;
     }
-    if (p.textAlignHorizontal == TextAlignHorizontal::JUSTIFIED && extraPerSpace > 0) line.width = L.boxWidth - indent;
+    if (p.text().textAlignHorizontal == TextAlignHorizontal::JUSTIFIED && extraPerSpace > 0) line.width = L.boxWidth - indent;
     line.x = x0;
     line.firstGlyph = static_cast<uint32_t>(L.glyphs.size());
     double pen = x0;
