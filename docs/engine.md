@@ -474,7 +474,7 @@ Real Figma files carry Figma's own layout results. The golden layout tests (§11
   - ellipse, with `arcData {startingAngle, endingAngle, innerRadius}` for pies and donuts;
   - `REGULAR_POLYGON` (`count`), `STAR` (`count`, `starInnerScale`), with corner radius on the vertices;
   - `LINE` (length = `size.x`), with arrow caps from `strokeCap`.
-- **Corner smoothing** (`CornerSmoothing.cpp`): when `cornerSmoothing > 0`, each corner is built from Figma's squircle construction (arc plus two cubic transitions, with the extent `p = (1+ξ)·r` clamped to half the side). The result is a path. Smoothed rects never use the SDF fast path.
+- **Corner smoothing** (`CornerSmoothing.cpp`): when `cornerSmoothing > 0`, each corner is built from Figma's squircle construction (arc plus two cubic transitions, with the extent `p = (1+ξ)·r` clamped to half the side). The result is a path. Smoothed rects never use the SDF fast path. *Round 7:* the extent's budget is per edge, as figma-squircle's `distributeAndNormalize` (`geom::cornerBudgets`): a corner next to a square one may use the whole edge, so it keeps its smoothing.
 - **Vector networks** (`VectorNetwork.cpp`):
   - Parses and writes Figma's `vectorNetworkBlob` byte for byte (layout as in fig2sketch's `vector_network.py`, verified on the sample blobs): vertices, segments with tangents, regions with loops, winding rule and `styleID`.
   - Fill path = the regions' loops. Stroke = all segments.
@@ -617,6 +617,10 @@ Why this technique:
 - **SDF fast path**: rect, rrect and ellipse with a solid, undashed stroke (including per-side weights on rects).
 - **Otherwise**: the outline from `Stroker` is drawn as a path. INSIDE/OUTSIDE use the stencil: draw the fill into stencil bit 7, then cover the 2×-weight stroke where bit 7 is set (INSIDE) or not set (OUTSIDE). Winding counts use bits 0–6. This is Figma's look: an inside stroke never goes past the shape.
 
+*As built (round 7, 2026-10-08):*
+- **Dashes on rectangles and frames are Figma's fitted dashes** (`StrokeStyle::fitDashes`, found by the geometry comparator, §11.1): each straight side of the outline gets the pattern scaled to fit it a whole number of times (k = round(side / period)), half a dash at each end; curved corners are drawn whole and join the half dashes around them (a sharp corner: the two half dashes meet in a join). A contour with no straight side gets the pattern fitted to its whole length. Other shapes (vectors, polygons, stars, ellipses) dash continuously from each contour's start. Figma's stored `strokeGeometry` of an aligned stroke is the outline at twice the weight, centred (a dashed one holds its dashes at the weight and at twice it); sections.fig's strokes match ours to 0.007 px.
+- **End points** per open path end (`SET_END_CAPS`, the network's end vertices' styles): the line arrow is measured on live Figma (arms 3w + 1.5 long along their centre lines, 45° off the line); the triangle, reversed triangle, circle and diamond sizes are unverified.
+
 ### 6.5 Paints (`render/Paints`)
 Paints are evaluated in the shape's local unit square through `Paint.transform` (Figma's gradient/image matrix).
 
@@ -628,6 +632,8 @@ Paints are evaluated in the shape's local unit square through `Paint.transform` 
   - DIAMOND: `2·(|x−0.5|+|y−0.5|)`
 - Stops are baked into a 256-texel RGBA8 row of a ramp atlas (256×512). Interpolation happens in premultiplied sRGB (CSS behaviour; calibrated in §14 Q2), with ±0.5/255 ordered dither in the shader against banding.
 - **Images**: `imageScaleMode` FILL (cover), FIT (contain), STRETCH (crop, through `Paint.transform`) and TILE (`scale`, repeat). Also `rotation`, and `filterColorAdjust` (exposure, contrast, saturation, temperature, tint, highlights, shadows) as shader math.
+- **NOISE** (round 7): grains of `noiseSize` node px in the Draw shader (PaintKind 9; a hash per cell), `density` of them showing — Mono: the paint's colour at a random strength, Duo: the colour or nothing, Multi: random colours.
+- **PATTERN** (round 7): the `sourceNodeId` layer drawn once per tile into a layer (its own page's render tree when it is elsewhere; culling off, at most 4096 tiles on screen, two levels of patterns), composited through a layer of the node's fill shape (alpha mask). The tile is the source's box × `scale`, `patternSpacing` (a share of the tile) apart, anchored at the "Alignment" point (`horizontalAlignment` / `verticalAlignment`), hexagonal tile types shifting every other row (or column) by half a step. Not invalidated when only the source changes (the content cache and tiles keep the old tiles until the node is drawn again).
 - Per-paint `blendMode` uses the layer rules (§6.7) when it isn't NORMAL.
 - Paints stack in order: fills first, then strokes. A node with several paints draws several instances in the same batch.
 
@@ -638,7 +644,7 @@ Paints are evaluated in the shape's local unit square through `Paint.transform` 
 - **Unknown hash**: emit `REQUEST_IMAGE {hash, maxDevicePx}`. While it loads, draw a 32×32 texture decoded from `Paint.thumbHash` (decoder in `render/ThumbHash.cpp`, ~120 lines) when present, otherwise a flat `#e6e6e6`.
 - **Upload path**: TS fetches the bytes, decodes them with `createImageBitmap` (premultiply, colour space "srgb"), stores the bitmap in `Module.engineBitmaps` and calls `engine_image_add_bitmap(hash, bitmapId, w, h)`. The engine creates a texture and its JS library does `texImage2D(ImageBitmap)` directly. No pixels are copied through Wasm memory.
 - The headless/Node path is `engine_image_add_rgba_take`.
-- **Mipmaps** (`generateMipmap`) and trilinear plus anisotropic filtering.
+- **Mipmaps** (`generateMipmap`) and trilinear plus anisotropic filtering. *Round 7:* sampled one level finer than the footprint (the gradients halved: LOD bias −1) — Figma's zoomed-out images are about three times as sharp as plain trilinear (audit 2026-10-08 #8). Nearest-neighbour at high zoom: unverified, not done.
 - **GPU budget**: 512 MB, LRU. An evicted image whose node becomes visible again emits `REQUEST_IMAGE` again.
 - Images larger than 4096 px are downscaled by TS at import (Figma's cap).
 
@@ -671,7 +677,12 @@ A leaf with opacity just multiplies alpha, with no layer.
 **Blur.** Separable Gaussian with the linear-sampling trick. **σ = radius / 2** (CSS mapping, calibrated in §14 Q2). The kernel half-width is 3σ. For σ > 4 device px, first downsample by 2^k until σ' ≤ 4 (k ≤ 5), blur, then upsample bilinearly.
 - **Layer blur** (`FOREGROUND_BLUR`): blur the node's layer.
 - **Background blur** (`BACKGROUND_BLUR`): copy the backdrop under the node's bounds plus 3σ, blur it, draw it clipped to the node's shape, then draw the node.
-- Progressive blur (`blurOpType`, `startOffset/endOffset`, `startRadius`), NOISE, GRAIN, GLASS and REPEAT are after E7.
+- *As built (round 7, 2026-10-08):* Figma's rules (help 360041488473): the first layer blur and the first background blur only, up to eight drop and eight inner shadows, strokes above inner shadows, spread only on rectangles / ellipses / clipping frames with a visible fill, shadow blend modes, drop shadows hidden by the layer's geometry ("Show behind transparent areas" off), background blur only through a visible fill. Blurs and analytic shadows are **dithered** (±½ of an 8-bit step of their alpha).
+- **Progressive blur** (`blurOpType PROGRESSIVE`; σ from `startRadius` / 2 at `startOffset` to `radius` / 2 at `endOffset`, offsets in the node's box): the layer (or the backdrop) is blurred at levels from the larger σ halved down to the smaller (at most 8); each pixel takes the two levels around its σ, mixed — one composite (mode 5) or one draw of the shape (PaintKind 7) per interval, each pixel drawn by the interval its σ falls in. Uniform slots 16–19: canvas device px → the node's box, start / end, (σ at the start, at the end, the interval's two σ).
+- **Noise** (`NOISE`): grains over what the node draws, within its alpha (composite mode 6: `noiseSize` cells in node px, `density`, Mono / Duo `secondaryColor` / Multi `opacity`, `seed`), in the effect's blend mode.
+- **Texture** (`GRAIN`): what the node draws, read through a random shift per `noiseSize` cell of up to `radius` (composite mode 7), within the original shape with `clipToShape`; a layer of its own under the layer blur.
+- **Glass** (`GLASS`): the backdrop copied and frosted by `radius` ("Frost"), painted into the shape (PaintKind 8) bent toward the edge within `bevelSize` ("Depth") by `refractionIntensity`, split by colour (`chromaticAberration`), lit along the edges facing `specularAngle` at `specularIntensity`, `refractionRadius` ("Splay") softening the light; then the node's content over it. Rectangles, ellipses and frames only (the shape's SDF gives the edge distance and normal); other shapes get the frosted backdrop without the edge. Depth and Splay's fields are guesses (save a .fig with distinct values to settle them); the look is not calibrated against Figma.
+- REPEAT and SYMMETRY (Figma Draw's modifiers) and Figma's shader effects are not drawn.
 
 **Masks.** A child with `mask=true` masks its following siblings up to the end of the parent (R7 P0).
 - `maskType VECTOR` / `maskIsOutline`: the mask's geometry becomes a clip (below). No layer.
@@ -684,6 +695,8 @@ A leaf with opacity just multiplies alpha, with no layer.
 - Anything else (rounded, rotated, nested) renders the clip stack's coverage into an R8 **clip-mask** target with the SDF/path pipelines (AA edges). Shaders multiply by `uClipMask` when the instance's clip flag is set.
 - Nested clips intersect while the mask is built.
 
+*As built (round 7, 2026-10-08):* the clip rectangle travels at its exact fractional device px and covers the pixels its edges cross by box-filter coverage (no whole-pixel widening, no hard discard). A turned, smoothed or second rounded clipping frame is a **clip shape** (uniform slots 12–15: canvas device px → the shape's space; a rounded-box SDF or the smoothed outline's curve coverage), multiplied in Draw and Composite; the stencil is left only for a clip shape nested in another. WebGL2 and WebGPU alike.
+
 ### 6.8 Rendering modes and LOD
 - **Direct mode (E0–E4)**: each frame, cull with the spatial index against the viewport, then draw the visible render nodes into an MSAA target the size of the viewport, resolve, and present.
 - **Tile mode (E5 onward, the default)**: §6.9. Both modes share `Renderer::drawRegion(Encoder&, deviceRect)`.
@@ -691,6 +704,8 @@ A leaf with opacity just multiplies alpha, with no layer.
   - Skip nodes whose device bounds are < 0.5 px.
   - Containers smaller than 2 px draw as one rect in the average of their fills (only in tiles at zoom < 0.25).
   - Text whose em is < 3 device px draws as greeked bars: line boxes at 35% of the text colour. It draws glyphs from 3 px up.
+
+*As built (round 7, 2026-10-08):* glyphs are drawn down to a 1 device px em; under that, a bar per line holding the line's glyph ink (the outlines' area by Green's theorem) at full colour × coverage; subtrees are culled under a quarter of a device px (both axes), where Figma's zoomed-out renders still darken the pixel. Not calibrated against Figma's tiny text (no sample has any).
 
 *As built (2026-10-07):* culling is hierarchical over the render tree (§6.2): a subtree whose visual bounds miss the part being drawn (+2 CSS px) goes with one test, and so does one whose visual bounds are under half a device pixel on both axes; the spatial index stays for hit-testing, marquee and snapping (a paint-order walk with subtree bounds is cheaper than a query plus sorting by paint order). Greeked text: one bar per line, from the line's start over its width, 0.7 × ascent high on the baseline, in the first visible solid fill (grey for other paints) at 35 %. Not built: tiny containers as one rect.
 
@@ -1265,6 +1280,8 @@ Initial set (E1–E3; later milestones add theirs):
 | `derive.materializer.test.cpp` | instance sublayers equal the fixture's `derivedSymbolData` sizes and transforms; override precedence; stable NodeIds across main edits |
 | `derive.variables.test.cpp` | mode inheritance, alias chains across collections, cycles |
 | `render.batching.test.cpp` | NullDevice: 10k rects = 1 draw; paint switches; clip-mask usage |
+| `render.effects.test.cpp` | round 7: progressive layer / background blur intervals and slots, noise, texture, glass, NOISE and PATTERN paints (NullDevice; pixels in `engine-shot` on both backends) |
+| `geometry.figma_golden.test.cpp` | round 7, the **geometry comparator**: every node's `fillGeometry` / `strokeGeometry` in the samples' full fixtures against ours (fill regions; the stroke in Figma's stored form), sampled row by row with the fill rules, scored as the mean distance between the outlines (disagreeing area ÷ Figma's outline length); `ENG_FIG_GEOMETRY=file.full.json` (or `node engine/tools/fig-geometry.mjs file.fig [--debug guid]`) runs it on any file and lists the worst nodes. TEXT is skipped (fonts). Samples: fills exact, strokes ≤ 0.007 px |
 
 ### 11.2 Wasm integration tests (vitest, `wasm-node` build)
 `src/renderer/src/engine/__tests__/*.test.ts` drive a headless engine (`mode=HEADLESS`) through the real generated wrapper. They cover:
