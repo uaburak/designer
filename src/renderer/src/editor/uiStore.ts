@@ -9,8 +9,24 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { Camera, Guid } from "@/engine/codec";
 import type { ImportedImage } from "./images";
 
-export type RailTab = "file" | "assets";
+/** The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead) */
+export type RailTab = "file" | "agents" | "assets" | "tools";
 export type Renaming = { kind: "layer" | "page" | "file"; id: Guid } | null;
+
+/** Find and replace (⌘F, the Pages header's Find): the query, where, which layer types, and the Replace row */
+export interface FindState {
+  query: string;
+  scope: "page" | "all";
+  /** Layer type filters (FIND_FILTERS ids, "other" among them); empty: All */
+  types: readonly string[];
+  matchCase: boolean;
+  wholeWords: boolean;
+  /** The Replace row is open */
+  replace: boolean;
+  replaceWith: string;
+  /** The result moved to with ↑ ↓ (its index), −1 before any */
+  at: number;
+}
 
 export interface UIState {
   fileName: string;
@@ -31,6 +47,16 @@ export interface UIState {
   anchor: Guid | null;
   /** The Pages search, null while closed */
   pageSearch: string | null;
+  /** Find and replace in the left panel (⌘F), null while closed */
+  find?: FindState | null;
+  /** The Pages list's height as dragged on the divider under it (px; null: fit its pages up to the default cap) */
+  pagesHeight?: number | null;
+  /** View › Additional labels: the navigation bar's tab names under the icons (default on) */
+  railLabels?: boolean;
+  /** Preferences › Highlight layers on hover (default on) */
+  highlightOnHover?: boolean;
+  /** "Rename layers" (⌘R on several layers): the layers, in the panel's order */
+  renameLayers?: Guid[] | null;
   /** The shortcuts help (⌃⇧?) */
   shortcutsOpen: boolean;
   /** Figma's "Property labels" (zoom menu) */
@@ -45,6 +71,8 @@ export interface UIState {
   returnToInstance: { instance: Guid; page: Guid; camera: Camera } | null;
   /** Assets: grid or list */
   assetsView: "grid" | "list";
+  /** Assets: the library drilled into ("local" or "lib:<key>") and its page; null: All libraries */
+  assetsAt?: { section: string; page?: string } | null;
   /** Assets: the closed page / frame groups */
   assetsClosed: ReadonlySet<string>;
   /** The Local variables window */

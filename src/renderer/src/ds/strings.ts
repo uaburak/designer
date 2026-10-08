@@ -15,6 +15,9 @@ export const STRINGS = {
   show: "Show",
   hide: "Hide",
   rename: "Rename",
+  /** The Layers row's hover cells (Figma's labels, live capture) */
+  toggleLocking: "Toggle layer locking",
+  toggleVisibility: "Toggle layer visibility",
   dismiss: "Dismiss",
   loading: "Loading",
   unsaved: "Unsaved changes",

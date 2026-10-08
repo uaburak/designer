@@ -15,7 +15,8 @@ import { PrototypePanel } from "./prototype/PrototypePanel";
 import { present } from "../present";
 import styles from "./Panels.module.css";
 
-export function RightPanel() {
+/** `floating`: Minimize UI with a selection — the panel over the canvas, a card at the right (help "Navigate the left sidebar"). */
+export function RightPanel({ floating }: { floating?: boolean } = {}) {
   const ed = useEditor();
   const width = useUI((s) => s.rightWidth);
   const tab = useUI((s) => s.rightTab);
@@ -24,7 +25,7 @@ export function RightPanel() {
     if (!ed.engine.destroyed && typeof ed.engine.setPrototypeMode === "function") ed.engine.setPrototypeMode(tab === "prototype");
   }, [ed, tab]);
   return (
-    <aside className={styles.right} style={{ width }} aria-label="Properties panel" data-panel="right">
+    <aside className={floating ? `${styles.right} ${styles.rightFloating}` : styles.right} style={{ width }} aria-label="Properties panel" data-panel="right" data-floating={floating || undefined}>
       <RightHeader />
       <div className={styles.rightTabs}>
         <Tabs
@@ -42,7 +43,7 @@ export function RightPanel() {
       <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${tab}`} aria-labelledby={`editor-right-tab-${tab}`}>
         {tab === "design" ? <DesignPanel /> : <PrototypePanel />}
       </div>
-      <ResizeHandle side="left" value={width} onChange={(px) => ed.ui.set({ rightWidth: px })} />
+      {!floating && <ResizeHandle side="left" value={width} onChange={(px) => ed.ui.set({ rightWidth: px })} />}
     </aside>
   );
 }
