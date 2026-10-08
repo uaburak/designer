@@ -464,10 +464,11 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   pressedWasSelected_ = pressed_ != kNoGuid && selected(pressed_);
   if (pressed_ == kNoGuid) {
     pressMarquee_ = true;
-  } else if (!deep && path.size() == 1 && doc_.get(path[0])->props.isFrameLike() &&
+  } else if (path.size() == 1 && doc_.get(path[0])->props.isFrameLike() &&
              doc_.get(path[0])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
              !doc_.children(path[0]).empty()) {
-    // A top-level frame's own background: a drag is a marquee among its children, a click selects it.
+    // A top-level frame's own background: a drag is a marquee among its children (⌘: a deep one), a click
+    // selects it.
     pressMarquee_ = true;
     marqueeScope_ = path[0];
   } else if (!pressedWasSelected_) {
@@ -1378,7 +1379,9 @@ void Editor::dragLine(Vec2 world, uint32_t mods, bool click) {
 void Editor::dragMarquee(Vec2 world, uint32_t mods) {
   marquee_ = Rect::fromPoints(downWorld_, world);
   needsRender_ = true;
-  std::vector<Guid> hits = marqueeHits(doc_, page_, marquee_, marqueeScope_);
+  // ⌘ (held at the press or now): the nested layers under the rect, at any depth (Figma's deep marquee).
+  bool deep = ((mods | downMods_) & MOD_PRIMARY) != 0;
+  std::vector<Guid> hits = deep ? marqueeDeepHits(doc_, page_, marquee_) : marqueeHits(doc_, page_, marquee_, marqueeScope_);
   std::vector<Guid> next;
   if ((mods | downMods_) & MOD_SHIFT) next = baseSelection_;
   for (Guid h : hits)

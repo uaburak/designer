@@ -108,3 +108,24 @@ TEST_CASE("r7 titles: frames inside sections have titles; nested frames and grou
   click(e, 104, 508);
   CHECK(e.selection() == std::vector<Guid>{S});
 }
+
+// ---- 2. ⌘-marquee -------------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 marquee: ⌘ selects the nested layers the rect touches, at any depth") {
+  const Guid inner{2, 1}, deep{2, 2}, hidden{2, 3};
+  NodeChange f2 = make(inner, NodeType::FRAME, F, "#", {10, 100, 150, 150}, "Inner");
+  NodeChange r3 = make(deep, NodeType::ROUNDED_RECTANGLE, inner, "!", {10, 10, 30, 30}, "Deep");
+  NodeChange r4 = make(hidden, NodeType::ROUNDED_RECTANGLE, inner, "\"", {50, 10, 30, 30}, "Hidden");
+  r4.props.visible = false;
+  Editor e = makeEditor({f2, r3, r4});
+  // From empty canvas over everything: without ⌘ the frame's touched children (F is only partly covered)…
+  drag(e, {90, 1000}, {300, 120});
+  CHECK(e.selection() == std::vector<Guid>{R1, R2, inner});
+  // …with ⌘ the innermost layers: the nested rectangle instead of its frame; the hidden one is skipped.
+  drag(e, {90, 1000}, {300, 120}, MOD_PRIMARY);
+  CHECK(e.selection() == std::vector<Guid>{R1, R2, deep});
+  // ⌘ from a top-level frame's background: a deep marquee too (not a press on the frame).
+  e.setSelection({});
+  drag(e, {390, 390}, {115, 115}, MOD_PRIMARY);
+  CHECK(e.selection() == std::vector<Guid>{R1, R2, deep});
+}
