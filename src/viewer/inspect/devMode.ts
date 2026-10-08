@@ -11,6 +11,7 @@
 import type { NodeChange, Paint } from "@/engine/codec";
 import type { CssDecl } from "./css";
 import { cssColor, hexOf, num, typographyOf } from "./model";
+import { markdownPlain } from "@/editor/devmode/annotations";
 
 // ---- Statuses ----------------------------------------------------------------------------------------------------
 
@@ -95,10 +96,10 @@ export function annotationProperty(type: string, n: NodeChange): { label: string
     case "MAX_HEIGHT": return { label: "Max height", value: px(e.maxHeight as number | undefined) };
     case "FILL": return { label: "Fill", value: firstSolid(n.fillPaints) ?? "—" };
     case "STROKE": return { label: "Stroke", value: firstSolid(n.strokePaints) ?? "—" };
-    case "STROKE_WIDTH": return { label: "Stroke width", value: px(n.strokeWeight) };
+    case "STROKE_WIDTH": return { label: "Stroke weight", value: px(n.strokeWeight) };
     case "CORNER_RADIUS": return { label: "Corner radius", value: px(n.cornerRadius) };
     case "OPACITY": return { label: "Opacity", value: `${num((n.opacity ?? 1) * 100)}%` };
-    case "EFFECT": return { label: "Effect", value: (n.effects ?? []).filter((x) => x.visible !== false).map((x) => x.type.toLowerCase().replace(/_/g, " ")).join(", ") || "—" };
+    case "EFFECT": return { label: "Effects", value: (n.effects ?? []).filter((x) => x.visible !== false).map((x) => x.type.toLowerCase().replace(/_/g, " ")).join(", ") || "—" };
     case "TEXT_STYLE": return { label: "Text style", value: t ? `${t.family} ${t.style} ${num(t.size)}` : "—" };
     case "TEXT_ALIGN_HORIZONTAL": return { label: "Text align", value: t ? t.align.toLowerCase() : "—" };
     case "FONT_FAMILY": return { label: "Font family", value: t?.family ?? "—" };
@@ -111,15 +112,16 @@ export function annotationProperty(type: string, n: NodeChange): { label: string
     case "STACK_PADDING": return { label: "Padding", value: n.stackMode && n.stackMode !== "NONE" ? `${num(n.stackVerticalPadding ?? 0)} ${num(n.stackPaddingRight ?? n.stackHorizontalPadding ?? 0)} ${num(n.stackPaddingBottom ?? n.stackVerticalPadding ?? 0)} ${num(n.stackHorizontalPadding ?? 0)}` : "—" };
     case "STACK_MODE": return { label: "Layout", value: n.stackMode === "HORIZONTAL" ? "Horizontal" : n.stackMode === "VERTICAL" ? "Vertical" : n.stackMode === "GRID" ? "Grid" : "—" };
     case "STACK_ALIGNMENT": return { label: "Alignment", value: [n.stackPrimaryAlignItems, n.stackCounterAlignItems].filter(Boolean).join(" / ").toLowerCase() || "—" };
-    case "COMPONENT": return { label: "Component", value: n.name ?? "—" };
+    case "COMPONENT": return { label: "Main component", value: n.name ?? "—" };
     default: return { label: type.charAt(0) + type.slice(1).toLowerCase().replace(/_/g, " "), value: "—" };
   }
 }
 
 /** A layer's annotations, ready to show. */
-export function annotationsOf(n: NodeChange & { annotations?: { label?: string; properties?: { type?: string | number }[] }[] }): AnnotationView[] {
+export function annotationsOf(n: NodeChange & { annotations?: { label?: string; labelV2?: string; properties?: { type?: string | number }[] }[] }): AnnotationView[] {
   return (n.annotations ?? []).map((a) => ({
-    text: htmlText(a.label ?? ""),
+    // The markdown (labelV2, round 6) as text, else the label (older files: HTML).
+    text: a.labelV2 ? markdownPlain(a.labelV2) : htmlText(a.label ?? ""),
     properties: (a.properties ?? []).filter((p) => typeof p.type === "string").map((p) => annotationProperty(p.type as string, n)),
   }));
 }
