@@ -19,6 +19,7 @@ export { timeAgo, formatEdited } from "./util/time";
 export { keys, IS_MAC } from "./util/keys";
 export { typeahead, createTypeahead } from "./util/typeahead";
 export { selectAllOnClick } from "./util/selectAll";
+export { ReturnFocusProvider, useReturnFocus } from "./util/returnFocus";
 export { nextEnabled, rovingTarget } from "./util/rovingFocus";
 export { FOLDER_COLOR_IDS, FOLDER_COLOR_VARS, FOLDER_COLOR_LABEL, folderColor, type FolderColorId } from "./util/folderColor";
 export { clickSelection, moveSelection, inOrder, idsInRect, isToggleModifier, selectionModifiers, useSelection, type SelectionState, type SelectionModifiers } from "./util/selection";

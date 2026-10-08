@@ -11,8 +11,8 @@
  * first view (zoom to fit, or a given camera).
  */
 import "@/ds/global.css";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { currentTheme, HelpButton, Spinner, ToastHost, TooltipManager, useThemeRoot, type ThemeName } from "@/ds";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { currentTheme, HelpButton, ReturnFocusProvider, Spinner, ToastHost, TooltipManager, useThemeRoot, type ThemeName } from "@/ds";
 import { Status } from "@/engine/abi";
 import { CanvasController } from "@/engine/CanvasController";
 import { Engine } from "@/engine/Engine";
@@ -88,6 +88,8 @@ const fontsSettledWithin = (ms: number) => Promise.race([fonts.settled(), new Pr
 export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" }: EditorAppProps) {
   const theme = useThemeRoot();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // A field left with Enter or a second Esc gives the keys back to the canvas (Figma; live/behaviour/fields.md).
+  const focusCanvas = useCallback(() => canvasRef.current?.focus({ preventScroll: true }), []);
   const [state, setState] = useState<{ source: DocumentSource; ed: EditorController | null; error: string | null } | null>(null);
   const viewRef = useRef(initialView);
   const ed = state?.source === source ? state.ed : null;
@@ -292,6 +294,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
   // around it are placeholders until the engine is up, then the chrome.
   return (
     <EditorContext.Provider value={ed}>
+      <ReturnFocusProvider value={focusCanvas}>
       <div className={styles.editor} data-editor="">
         {ed ? <LeftSide /> : <LeftPlaceholder />}
         <div className={styles.canvasArea} data-canvas-area="">
@@ -309,6 +312,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       </div>
       <TooltipManager />
       <ToastHost />
+      </ReturnFocusProvider>
     </EditorContext.Provider>
   );
 }

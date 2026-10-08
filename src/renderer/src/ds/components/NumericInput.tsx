@@ -4,6 +4,7 @@ import { cx } from "../util/cx";
 import { commitTyped, formatNumber } from "../util/evaluate";
 import { scrubRate, scrubValue, stepValue, SCRUB_THRESHOLD } from "../util/scrub";
 import { exitKey, selectAllOnClick } from "../util/selectAll";
+import { useReturnFocus } from "../util/returnFocus";
 import { isMixed, type ChangeInfo, type ExitReason, type Mixed } from "../types";
 import type { IconName } from "../icons/Icon";
 import { STRINGS } from "../strings";
@@ -64,8 +65,9 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
 /**
  * Figma's numeric field (contract §4.5; help.figma.com 360039956914): a number or arithmetic (+ − × ÷ ^ and
  * parentheses; "Mixed+100" on a Mixed field applies to each layer), a typed unit ignored, clamped and rounded.
- * Enter commits and keeps the field focused with its text selected; Tab or leaving commits; Esc puts the value
- * back and leaves. ↑ ↓ step (⇧ big step). Dragging the prefix — or the field while ⌥ is held — scrubs: 1 unit a
+ * Enter commits and gives focus back (to the canvas: `ReturnFocusProvider`); Tab or leaving commits; Esc puts the
+ * typed text back and keeps the field focused with its text selected, a second Esc leaves like Enter
+ * (live/behaviour/fields.md). ↑ ↓ step (⇧ big step). Dragging the prefix — or the field while ⌥ is held — scrubs: 1 unit a
  * px (⇧ ×10), faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4): `final:
  * false` each frame, one `final: true` on release, Esc cancels; a press without movement focuses the field.
  */
@@ -82,6 +84,7 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
   const input = useRef<HTMLInputElement>(null);
   const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; id: number; el: HTMLElement } | null>(null);
   const [focused, setFocused] = useState(false);
+  const returnFocus = useReturnFocus();
   // Figma writes the unit in the field's text ("100%", "0°"); a bare field (the colour row's opacity) puts it after the number.
   const unitInside = !!unit && !bare;
   const shown = valueLabel !== undefined && !focused && !scrubbing ? valueLabel : mixed ? STRINGS.mixed : current === null ? "" : formatNumber(current, precision) + (unitInside ? unit : "");
@@ -273,20 +276,23 @@ export function NumericInput({ label, prefix, value, onChange, onCancel, onClear
           }
           const r = exitKey(e);
           if (!r) return;
-          if (r === "enter") {
-            // Commit and stay: the new value selected, ready to type over (Figma).
-            e.preventDefault();
-            finish(e.currentTarget.value);
-            const el = e.currentTarget;
-            requestAnimationFrame(() => el.select());
-            return;
-          }
-          exitBy.current = r;
-          if (r === "escape") {
+          if (r === "escape" && typing.current) {
+            // First Esc: the typed text goes, the field keeps focus with the value selected.
             e.preventDefault();
             typing.current = false;
             setDraft(null);
+            const el = e.currentTarget;
+            requestAnimationFrame(() => {
+              if (document.activeElement === el) el.select();
+            });
+            return;
+          }
+          exitBy.current = r;
+          if (r === "enter" || r === "escape") {
+            // Enter commits (on blur); a second Esc leaves as it is. Either way the keys go back to the canvas.
+            e.preventDefault();
             e.currentTarget.blur();
+            returnFocus?.();
           }
         }}
         className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && styles.padStart, mixed && draft === null && styles.mixedText)}

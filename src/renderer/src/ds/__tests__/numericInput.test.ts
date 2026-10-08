@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { NumericInput, type NumericInputProps } from "../components/NumericInput";
 import { MIXED, type ChangeInfo } from "../types";
+import { ReturnFocusProvider } from "../util/returnFocus";
+import { createElement } from "react";
 import { $, focus, key, mount, pointer, spy, type, type Mounted } from "./dom";
 
 let m: Mounted | null = null;
@@ -34,6 +36,7 @@ describe("NumericInput", () => {
     type(input, "100+20%");
     key(input, "Enter");
     expect(onChange.calls).toEqual([[120, { final: true, source: "type" }]]);
+    focus(input);
     type(input, "abc");
     key(input, "Enter");
     expect(onChange.calls).toHaveLength(1);
@@ -110,6 +113,7 @@ describe("NumericInput", () => {
     focus(input);
     type(input, "mixed*2");
     key(input, "Enter");
+    focus(input);
     type(input, "2^3");
     key(input, "Enter");
     expect(onChange.calls.map((c) => c[0])).toEqual([20, 8]);
@@ -125,17 +129,38 @@ describe("NumericInput", () => {
     expect(onChange.calls).toHaveLength(0);
   });
 
-  it("Enter commits and keeps the field focused; Esc leaves it", () => {
+  it("Enter commits and leaves; the first Esc reverts and stays, the second leaves (live Figma)", () => {
     const exits: string[] = [];
     const { onChange, input } = setup({ onExit: (r) => exits.push(r) });
     focus(input);
     type(input, "42");
     key(input, "Enter");
     expect(onChange.calls).toEqual([[42, { final: true, source: "type" }]]);
+    expect(document.activeElement).not.toBe(input);
+    expect(exits).toEqual(["enter"]);
+    focus(input);
+    type(input, "777");
+    key(input, "Escape");
     expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("10");
+    expect(exits).toEqual(["enter"]);
     key(input, "Escape");
     expect(document.activeElement).not.toBe(input);
-    expect(exits).toEqual(["escape"]);
+    expect(exits).toEqual(["enter", "escape"]);
+    expect(onChange.calls).toHaveLength(1);
+  });
+
+  it("gives focus back through ReturnFocusProvider after Enter", () => {
+    let returned = 0;
+    const onChange = spy<[number, ChangeInfo]>();
+    const Wrapped = (p: NumericInputProps) => createElement(ReturnFocusProvider, { value: () => returned++ }, createElement(NumericInput, p));
+    m = mount(Wrapped, { label: "X", prefix: "X", value: 5, onChange } as NumericInputProps);
+    const input = $("input", m.host) as HTMLInputElement;
+    focus(input);
+    type(input, "+10");
+    key(input, "Enter");
+    expect(onChange.calls).toEqual([[10, { final: true, source: "type" }]]);
+    expect(returned).toBe(1);
   });
 
   it("scrubs faster toward the top and slower toward the bottom (2x, 1x, 1/2, 1/4)", () => {

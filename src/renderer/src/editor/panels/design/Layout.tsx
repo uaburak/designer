@@ -21,7 +21,7 @@ import { useUI } from "../../hooks";
 import { isAutoLayout, isSpaceBetween, SPACE_BETWEEN } from "../../model/sizing";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { gridDefaults, isGrid, type GridNode } from "../../model/grid";
-import { paddingFields, paddingOf, parsePaddingShorthand, type Padding } from "../../model/padding";
+import { paddingFields, paddingFromText, paddingOf, type Padding } from "../../model/padding";
 import { spacingAxes, spacingOf } from "../../model/spacing";
 import { GridDimensionsRow, GridSpanRow } from "./Grid";
 import { VariableField } from "./Variables";
@@ -320,7 +320,7 @@ const SIDES = [
 
 /**
  * Padding: horizontal and vertical (each Mixed when its two sides differ), or — "Individual padding" — the four
- * sides; ⌘-click on "Individual padding" for one field over all four (uniform). Any of them takes CSS shorthand.
+ * sides; ⌘-click on "Individual padding" for one field over all four (uniform). Several numbers typed: model/padding.ts.
  */
 function PaddingRows({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
@@ -329,8 +329,8 @@ function PaddingRows({ nodes }: { nodes: PanelNode[] }) {
   const [mode, setMode] = useState<"default" | "individual" | "uniform">("default");
   const differ = pads.some((p) => p.left !== p.right || p.top !== p.bottom);
   const shown = mode === "default" && differ ? "individual" : mode;
-  const shorthand = (raw: string) => {
-    const p = parsePaddingShorthand(raw);
+  const shorthand = (sides: (keyof Padding)[]) => (raw: string) => {
+    const p = paddingFromText(raw, sides);
     if (!p) return false;
     ed.setProps(refs, fields(paddingFields(p)), "Padding");
     return true;
@@ -362,7 +362,7 @@ function PaddingRows({ nodes }: { nodes: PanelNode[] }) {
   );
   const field = (label: string, prefix: (typeof SIDES)[number][1] | "24.al.padding-horizontal" | "24.al.padding-vertical", value: ReturnType<typeof sideValue>, sides: (keyof Padding)[], bind: Parameters<typeof VariableField>[0]["fields"]) => (
     <VariableField nodes={nodes} fields={bind} prefix={prefix}>
-      <NumericInput label={label} prefix={prefix} value={value} min={0} onText={shorthand} {...handlers("Padding", sides)} />
+      <NumericInput label={label} prefix={prefix} value={value} min={0} onText={shorthand(sides)} {...handlers("Padding", sides)} />
     </VariableField>
   );
   if (shown === "uniform")
