@@ -5,6 +5,7 @@
 // (system writes in the current transaction, through the host).
 #pragma once
 
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -87,6 +88,26 @@ class Layout {
 
   // Padding (left, top, right, bottom) of an auto-layout frame, strokes included when they take space.
   static void padding(const NodeProps& p, double out[4]);
+
+  // A grid frame's cells as laid out now (frame space): track offsets and sizes, track GUIDs (kNoGuid for rows past
+  // the defined ones), automatic placement, and where each flow item sits. Gestures and overlays use it.
+  struct GridCells {
+    std::vector<double> colX, colW, rowY, rowH;
+    std::vector<Guid> colIds, rowIds;
+    bool reflow = false;
+    struct Item {
+      Guid id;
+      size_t col = 0, row = 0, colSpan = 1, rowSpan = 1;
+    };
+    std::vector<Item> items;
+    // The cell (col, row) a point falls in, the nearest one when it is outside or in a gap; false without tracks.
+    bool cellAt(Vec2 p, size_t& col, size_t& row) const;
+  };
+  GridCells gridCells(Guid frame);
+  // A grid item's placement fields as kiwi bytes for NodeProps::extra: gridColumnAnchor / gridRowAnchor (a track's
+  // GUID), gridColumnSpan / gridRowSpan.
+  static std::string gridAnchorBytes(bool column, Guid track);
+  static std::string gridSpanBytes(bool column, uint32_t span);
 
  private:
   // Grid auto layout (GridLayout.cpp): tracks sized and items placed for a size (hugW / hugH: that axis hugs).

@@ -849,6 +849,38 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
 void Editor::updateInsertion(Guid frame, Vec2 world) {
   // Where the dragged layers will join the flow: before the first child whose middle is past the pointer.
   const NodeProps& fp = doc_.get(frame)->props;
+  gridDrop_ = false;
+  if (fp.stack().stackMode == StackMode::GRID) {
+    // A grid: the cell under the pointer. With automatic placement the layers join the flow before the first item
+    // at or after that cell (row by row); without it they take that cell. The line marks the cell's leading edge.
+    Layout L(*this);
+    Layout::GridCells g = L.gridCells(frame);
+    Mat2x3 W = doc_.worldTransform(frame);
+    Vec2 q = W.inverse().apply(world);
+    size_t col = 0, row = 0;
+    if (!g.cellAt(q, col, row)) {
+      hasInsertion_ = false;
+      return;
+    }
+    GuidSet moving;
+    for (const Target& t : targets_) moving.insert(t.id);
+    size_t i = 0, k = 0;
+    for (const auto& it : g.items) {
+      if (moving.count(it.id) || placedByGesture(it.id)) continue;
+      if (it.row * g.colX.size() + it.col >= row * g.colX.size() + col) break;
+      i = ++k;
+    }
+    insertIndex_ = i;
+    if (!g.reflow && col < g.colIds.size() && row < g.rowIds.size() && g.colIds[col] != kNoGuid && g.rowIds[row] != kNoGuid) {
+      gridDrop_ = true;
+      gridDropCol_ = g.colIds[col];
+      gridDropRow_ = g.rowIds[row];
+    }
+    Vec2 a{g.colX[col], g.rowY[row]}, b{g.colX[col], g.rowY[row] + std::max(1.0, g.rowH[row])};
+    insertion_ = {W.apply(a), W.apply(b)};
+    hasInsertion_ = true;
+    return;
+  }
   int P = fp.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   std::vector<Guid> flow;
   for (Guid c : Layout(*this).flowChildren(frame))
@@ -923,7 +955,36 @@ void Editor::finishMove() {
       c.props.parentIndex = {dropParent_, keys[i]};
       write(c);
     }
+    // A grid without automatic placement: the first layer takes the cell it was dropped on (Figma's grid).
+    if (gridDrop_ && !ids.empty()) {
+      const std::string colBytes = Layout::gridAnchorBytes(true, gridDropCol_), rowBytes = Layout::gridAnchorBytes(false, gridDropRow_);
+      const auto before = doc_.get(ids[0])->props.extra;
+      auto field = [](const std::map<std::string, std::string>& extra, const char* key) {
+        auto it = extra.find(key);
+        return it == extra.end() ? std::string() : it->second;
+      };
+      // The item that held the cell takes the dragged one's old cell (two items swap, as Figma's do).
+      for (Guid o : others) {
+        const auto& oe = doc_.get(o)->props.extra;
+        if (field(oe, "gridColumnAnchor") != colBytes || field(oe, "gridRowAnchor") != rowBytes) continue;
+        if (field(before, "gridColumnAnchor").empty() || field(before, "gridRowAnchor").empty()) break;
+        NodeChange s = NodeChange::changed(o);
+        s.mask = F_EXTRA;
+        s.props.extra = oe;
+        s.props.extra["gridColumnAnchor"] = field(before, "gridColumnAnchor");
+        s.props.extra["gridRowAnchor"] = field(before, "gridRowAnchor");
+        write(s);
+        break;
+      }
+      NodeChange c = NodeChange::changed(ids[0]);
+      c.mask = F_EXTRA;
+      c.props.extra = before;
+      c.props.extra["gridColumnAnchor"] = colBytes;
+      c.props.extra["gridRowAnchor"] = rowBytes;
+      write(c);
+    }
   }
+  gridDrop_ = false;
   // Back into the flow: their auto-layout parents lay out again.
   for (const Target& t : targets_) {
     const Node* p = doc_.get(doc_.parentOf(t.id));

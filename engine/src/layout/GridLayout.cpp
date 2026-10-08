@@ -423,4 +423,58 @@ std::vector<Layout::Placement> Layout::gridPlace(Guid frame, Vec2 size) {
   return out;
 }
 
+Layout::GridCells Layout::gridCells(Guid frame) {
+  GridCells out;
+  const Node* n = doc_.get(frame);
+  if (!n || n->props.stack().stackMode != StackMode::GRID) return out;
+  memo_.clear();
+  Grid g = grid(frame, n->props.size, false, false);
+  memo_.clear();
+  out.reflow = g.spec.reflow;
+  for (size_t i = 0; i < g.colW.size(); i++) {
+    out.colX.push_back(g.padL + g.offset(g.colW, i, g.spec.colGap));
+    out.colW.push_back(g.colW[i]);
+    out.colIds.push_back(i < g.spec.cols.size() ? g.spec.cols[i].id : kNoGuid);
+  }
+  for (size_t i = 0; i < g.rowH.size(); i++) {
+    out.rowY.push_back(g.padT + g.offset(g.rowH, i, g.spec.rowGap));
+    out.rowH.push_back(g.rowH[i]);
+    out.rowIds.push_back(i < g.spec.rows.size() ? g.spec.rows[i].id : kNoGuid);
+  }
+  for (const Grid::Item& it : g.items) out.items.push_back({it.id, it.col, it.row, it.cs, it.rs});
+  return out;
+}
+
+bool Layout::GridCells::cellAt(Vec2 p, size_t& col, size_t& row) const {
+  if (colX.empty() || rowY.empty()) return false;
+  // The track whose middle of [start, next start) holds the point: a gap belongs to the nearer track.
+  auto pick = [](const std::vector<double>& at, const std::vector<double>& size, double v) {
+    size_t best = 0;
+    double bestD = 1e300;
+    for (size_t i = 0; i < at.size(); i++) {
+      double d = v < at[i] ? at[i] - v : v > at[i] + size[i] ? v - (at[i] + size[i]) : 0;
+      if (d < bestD) bestD = d, best = i;
+    }
+    return best;
+  };
+  col = pick(colX, colW, p.x);
+  row = pick(rowY, rowH, p.y);
+  return true;
+}
+
+std::string Layout::gridAnchorBytes(bool column, Guid track) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(column ? kGridColumnAnchor : kGridRowAnchor);
+  bb.writeVarUint(track.sessionID);
+  bb.writeVarUint(track.localID);
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
+std::string Layout::gridSpanBytes(bool column, uint32_t span) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(column ? kGridColumnSpan : kGridRowSpan);
+  bb.writeVarUint(std::max<uint32_t>(1, span));
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
 }  // namespace eng

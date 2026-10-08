@@ -1125,6 +1125,9 @@ class Editor : private LayoutHost, public TextLayouts {
   bool hasInsertion_ = false;
   GuideLine insertion_;
   size_t insertIndex_ = 0;
+  // Dropping into a grid without automatic placement: the cell the dragged layer takes (its anchors).
+  bool gridDrop_ = false;
+  Guid gridDropCol_ = kNoGuid, gridDropRow_ = kNoGuid;
   std::vector<Rect> bands_;  // auto-layout padding / gap bands under the pointer (world)
 
   // Text.
