@@ -1,4 +1,35 @@
-# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping)
+# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU)
+
+## E9 WebGPU — build, switches, status (2026-10-08)
+
+Figma's renderer moved to WebGPU behind the same graphics interface, WebGL kept as the fallback (docs/research/figma/R10-webgpu.md); ours now does the same (docs/engine.md §6.1 "As built (E9)"). Branch `r5-webgpu`.
+
+**Build.** `npm run engine:build` as before. The wasm links emdawnwebgpu through `engine/cmake/emdawnwebgpu_engine.py` (Emscripten's remote port; on first use it downloads Dawn's pinned `emdawnwebgpu_pkg` from github.com/google/dawn/releases into `~/emsdk/upstream/emscripten/cache/ports/emdawnwebgpu`, SHA-512 checked) and `engine/src/gfx/wgpu/library_engine_wgpu.js` (`--js-library`). The wrapper exists because that Dawn release still reads `USE_WEBGPU`, which Emscripten 6 removed: the port file reads it with a default, `engine/cmake/emdawnwebgpu_settings.js` defines it for the JS library. Wasm 3377 → 3440 KB, glue 44 → 89 KB.
+
+**Files.** `engine/src/gfx/wgpu/` (WGPUDevice, the WGSL shaders, the JS helpers), `engine/src/gfx/Backend.{h,cpp}` (the choice), `src/renderer/src/engine/gfx.ts` (adapter, blocklist, fallback count, `?gfx=`), `Engine.gfx` / `Engine.gfxFallback` / `Engine.onCanvasChange`, `CanvasController` following the canvas.
+
+**ABI** (additive, version unchanged): `engine_create` options take `"gfx":"webgpu"|"webgl2"`; `engine_gfx_switch(h, selector, backend)` (0 WebGL2, 1 WebGPU) moves an engine to another canvas/backend and returns the one in use (−1 none); `engine_stats` has `gfx`.
+
+**Switches.** `?gfx=webgl` / `?gfx=webgpu` on any page that makes an engine (the app's views, `?engine`, the bench and shot pages); `EngineOptions.gfx`. Default: WebGPU where available and not blocklisted.
+
+**Tests.**
+- `npm run engine:shot` (WebGL2 on SwiftShader, as before) and `npm run engine:shot -- --gfx webgpu` (the real GPU; Chrome flags `--enable-unsafe-webgpu --enable-gpu --use-angle=metal`): the same checks pass on both, and the WebGPU run adds the device-loss check (the GPUDevice destroyed → the session continues on WebGL2 in a new canvas that draws and takes input). `SHOT_GPU=1` runs the WebGL pass on ANGLE-Metal, the same GPU as WebGPU, to compare screenshots: 99.988 % of pixels identical (the rest ≤ 11/255 but a few edge pixels), PNG exports byte-identical. The shot run stops itself after `SHOT_TIMEOUT` s (180).
+- `node scripts/engine-bench.mjs --synthetic 20000 --gfx webgl|webgpu` (M3, 1440×900 @2x):
+
+| scenario | WebGL2 frame med / p95 | CPU med / p95 | WebGPU frame med / p95 | CPU med / p95 |
+|---|---|---|---|---|
+| first frame (fit) | — | 21.3 | — | 15.3 |
+| rest (fit, redraw) | 16.7 / 16.7 | 0.3 / 0.3 | 16.7 / 16.8 | 0.3 / 0.4 |
+| slow pan | 16.7 / 16.8 | 0.3 / 0.5 | 16.7 / 16.7 | 0.4 / 0.5 |
+| fast pan | 16.7 / 16.7 | 0.5 / 1.6 | 16.7 / 16.8 | 0.5 / 1.3 |
+| wheel zoom fit → 8× → fit | 16.7 / 16.7 | 0.5 / 7.0 | 16.7 / 16.8 | 0.5 / 4.3 |
+| 100 % densest frame, pan | 16.7 / 16.8 | 0.2 / 0.9 | 16.7 / 16.7 | 0.2 / 0.3 |
+| drag the layer under the centre | 16.7 / 16.7 | 0.2 / 0.3 | 16.7 / 16.7 | 0.2 / 0.3 |
+
+  Chrome's GPU process peaked at 887 MB (WebGL) and 745 MB (WebGPU); the engine's own estimate is 248 MB on both. WebGPU's GPU-time and "synced" columns are empty (no synchronous readback, no timestamp queries requested).
+- Electron 44 (Chrome 152) exposes WebGPU on this Mac without flags in secure contexts (the app's `app://` scheme is registered secure); `node scripts/drive.mjs launch new-file "eval window.__designerEditor?.engine?.gfx"` prints `"webgpu"`.
+
+**Not done.** WGSL generated from the GLSL by naga in tools/shadergen (Figma's pipeline; both shader files are hand-kept today); asynchronous readback (thumbnails and exports would become async calls); timestamp queries in the bench; compute-shader blur, MSAA and RenderBundles (Figma's next steps); a fallback mid-frame swaps on the next task, so one frame may be lost.
 
 ## E8 prototyping — API and status (2026-10-08)
 
