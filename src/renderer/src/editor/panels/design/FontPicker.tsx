@@ -118,7 +118,8 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
   const shown = useMemo(() => filterFamilies(list ?? [], filter, query, inFile), [list, filter, query, inFile]);
   const currentIndex = family ? shown.findIndex((f) => f.family.toLowerCase() === family.toLowerCase()) : -1;
   const [active, setActive] = useState(currentIndex);
-  const [scrollTo, setScrollTo] = useState(currentIndex >= 0 ? Math.max(0, currentIndex - 5) : 0);
+  // The current family opens about mid-list (the list brings an index into view at its bottom edge).
+  const [scrollTo, setScrollTo] = useState(currentIndex >= 0 ? Math.min(shown.length - 1, currentIndex + 6) : 0);
   const [stylesOf, setStylesOf] = useState<{ family: FontFamily; anchor: HTMLElement } | null>(null);
   const previewTimer = useRef(0);
   const previewed = useRef<string | null>(null);
