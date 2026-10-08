@@ -169,22 +169,76 @@ async function paintsSection(page, theme) {
   check("Selection colors list gradients (one row each)", (await panel.getByRole("button", { name: "Selection color: Diamond" }).count()) === 1);
   await shot(page, `27-selection-colors-gradients-${theme}`);
 
-  // Effects: the row, its settings; "+" adds Figma's drop shadow.
+  // Effects: the row, its settings (live Figma's popover); "+" opens the Shader effects (Beta) browser while its
+  // onboarding card is up, then adds Figma's drop shadow.
   await select("2:10");
-  check("an effect row reads Drop shadow", (await panel.locator('[data-effect-row="DROP_SHADOW"]').count()) === 1);
+  check("an effect row reads Drop shadow", (await panel.locator('[data-effect-row="DROP_SHADOW"]').count()) === 1 && (await panel.locator('[data-effect-row="DROP_SHADOW"]').getByText("Drop shadow").count()) === 1);
   await panel.getByRole("button", { name: "Effect settings" }).click();
   await settle(page);
   const fx = page.getByRole("dialog", { name: "Drop shadow" });
-  check("the effect settings: X, Y, Blur, Spread, colour, behind", (await fx.getByRole("textbox", { name: "Blur" }).count()) === 1 && (await fx.getByRole("textbox", { name: "Spread" }).count()) === 1 && (await fx.getByText("Show behind transparent areas").count()) === 1);
+  check("the effect settings: type, blend mode, X, Y, Blur, Spread, colour", (await fx.getByRole("combobox", { name: "Effect settings" }).count()) === 1 && (await fx.getByRole("button", { name: "Blend mode" }).count()) === 1 &&
+    (await fx.getByRole("textbox", { name: "Position Y" }).count()) === 1 && (await fx.getByRole("textbox", { name: "Blur radius" }).count()) === 1 && (await fx.getByRole("textbox", { name: "Spread" }).count()) === 1);
   await shot(page, `28-effect-settings-${theme}`);
   await page.keyboard.press("Escape");
   await select("2:11");
   await panel.getByRole("button", { name: "Add effect" }).click();
   await settle(page);
+  const browser = page.getByRole("dialog", { name: "Shader effects" });
+  if ((await browser.count()) === 1) {
+    check("the first + opens Shader effects (Beta): search, the card, Figma's presets", (await browser.getByText("Beta").count()) === 1 && (await browser.locator("[data-shader-onboarding]").count()) === 1 && (await browser.locator("[data-shader-preset]").count()) === 25);
+    await shot(page, `29-shader-effects-${theme}`);
+    await browser.getByRole("button", { name: "Got it" }).click();
+    await settle(page);
+    await panel.getByRole("button", { name: "Add effect" }).click();
+    await settle(page);
+  }
   const added = (await node(page, "2:11")).effects ?? [];
   const last = added[added.length - 1];
   check("+ adds a drop shadow 0 4 4 0 #000 25%", added.length === 2 && last.type === "DROP_SHADOW" && last.offset.y === 4 && last.radius === 4 && Math.abs(last.color.a - 0.25) < 0.01, JSON.stringify(last));
-  await panel.getByRole("button", { name: "Blend mode" }).click();
+  // The new types through the header's type menu: Layer blur → Progressive (Start, End), Noise, Texture, Glass.
+  const fxOf = async (name) => {
+    await panel.getByRole("button", { name: "Effect settings" }).first().click();
+    await settle(page);
+    return page.getByRole("dialog", { name });
+  };
+  const retype = async (dialog, label) => {
+    await dialog.getByRole("combobox", { name: "Effect settings" }).click();
+    await page.getByRole("option", { name: label }).click();
+    await settle(page);
+  };
+  {
+    let d = await fxOf("Drop shadow");
+    await retype(d, "Layer blur");
+    d = page.getByRole("dialog", { name: "Layer blur" });
+    await d.getByRole("radio", { name: "Progressive" }).click();
+    await settle(page);
+    const blur = (await node(page, "2:11")).effects.at(-1);
+    check("Layer blur → Progressive: Start 0, End 4, stored as blurOpType", blur.type === "FOREGROUND_BLUR" && blur.blurOpType === "PROGRESSIVE" && blur.startRadius === 0 && blur.radius === 4 &&
+      (await d.getByRole("textbox", { name: "Start" }).count()) === 1 && (await d.getByRole("textbox", { name: "End" }).count()) === 1, JSON.stringify(blur));
+    await shot(page, `29a-effect-progressive-${theme}`);
+    await retype(d, "Noise");
+    d = page.getByRole("dialog", { name: "Noise" });
+    check("Noise: Mono / Duo / Multi, size, density, colour, blend mode", (await d.getByRole("radio", { name: "Duo" }).count()) === 1 && (await d.getByRole("textbox", { name: "Noise size X" }).count()) === 1 &&
+      (await d.getByRole("textbox", { name: "Density" }).count()) === 1 && (await d.getByRole("button", { name: "Blend mode" }).count()) === 1);
+    await shot(page, `29b-effect-noise-${theme}`);
+    await retype(d, "Texture");
+    d = page.getByRole("dialog", { name: "Texture" });
+    check("Texture: size, radius, Clip to shape", (await d.getByRole("textbox", { name: "Size Y" }).count()) === 1 && (await d.getByRole("textbox", { name: "Radius" }).count()) === 1 && (await d.getByText("Clip to shape").count()) === 1);
+    await retype(d, "Glass");
+    d = page.getByRole("dialog", { name: "Glass" });
+    const glass = (await node(page, "2:11")).effects.at(-1);
+    check("Glass: light dial, Angle −45°, Intensity, Refraction … Splay", glass.type === "GLASS" && glass.specularAngle === -45 && (await d.getByRole("slider", { name: "Light" }).count()) === 1 &&
+      (await d.getByRole("slider", { name: "Splay" }).count()) === 1 && (await d.getByRole("textbox", { name: "Dispersion" }).count()) === 1, JSON.stringify(glass));
+    await shot(page, `29c-effect-glass-${theme}`);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Meta+z");
+    await page.keyboard.press("Meta+z");
+    await page.keyboard.press("Meta+z");
+    await page.keyboard.press("Meta+z");
+    await page.keyboard.press("Meta+z");
+    await settle(page);
+  }
+  await panel.getByRole("button", { name: "Blend mode" }).first().click();
   await settle(page);
   await shot(page, `29-blend-mode-${theme}`);
   await page.keyboard.press("Escape");
