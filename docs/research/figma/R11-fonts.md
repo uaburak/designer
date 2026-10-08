@@ -48,7 +48,7 @@ here against files (the owner's private `.fig` was read locally only — nothing
   (46 > 0.1 px)**; baselines and line counts equal in both. The rest is 56 texts: "Contrast: 4.3:1 ✕" (✕ comes from
   a fallback face the harness doesn't load) and centred auto-width labels like "Black/10" shifted by exactly 1 px
   (advances equal to 1e-4; our ⌈width⌉ lands one pixel over Figma's — Figma quantizes positions to 1/256 px and the
-  sum stays ≤ 51, ours is 51.0034): text-layout work, not the font.
+  sum stays ≤ 51, ours is 51.0034): text-layout work, not the font. **Closed in round 6**: Figma shapes at 1024 units per em, rounding each glyph's advance and its kerning apart from font units (docs/engine-build.md "Round 6"); with it every auto-width box of the file equals Figma's and Inter's mean |Δx| is 0.0022 px.
 
 ## 3. The Google Fonts catalog without an API key
 
