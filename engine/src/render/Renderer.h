@@ -200,6 +200,25 @@ struct Overlay {
   std::vector<Vec2> gridSpanHandles;
   // A selected line's two endpoint handles (world), drawn instead of the box's corner handles.
   std::vector<Vec2> lineEnds;
+  // A selected rectangle under the pointer: its corner radius handles (world; top-left, top-right, bottom-right,
+  // bottom-left), the one under the pointer (−1: none).
+  std::vector<Vec2> radiusHandles;
+  int radiusHovered = -1;
+  // Equally spaced selected layers (smart selection): the pink gap handles (world, the middle of each gap, `vertical`:
+  // a gap between rows) and the centre dots of the layers.
+  struct GapHandle {
+    Vec2 at;
+    double length = 0;  // world, across the gap's axis
+    bool vertical = false;
+    bool hovered = false;
+    double value = 0;
+  };
+  std::vector<GapHandle> gapHandles;
+  std::vector<Vec2> centreDots;
+  // View options: the pixel grid (View › Pixel grid, drawn from 300 % zoom) and outline mode (⇧⌘O: every layer as a
+  // thin outline, no fills).
+  bool pixelGrid = true;
+  bool outlines = false;
   // Top-level frames' names above them.
   bool frameTitles = true;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
@@ -418,6 +437,11 @@ class Renderer {
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
   void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e);
   void drawText(const Document& doc, const NodeProps& p, Guid id, const Mat2x3& m, double alpha);
+  // Outline mode (View › Outlines, ⇧⌘O): a node as a thin outline (text: its glyphs in the outline colour), then its
+  // children; no fills, strokes, effects or masks.
+  void drawOutlined(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m);
+  // A polyline in CSS px, `width` across: a thin rectangle per segment.
+  void strokePolyline(const std::vector<Vec2>& pts, bool closed, double width, const Color& color, double alpha);
   // Glyphs of `layout` placed by `m` (layout space → CSS px), all in `color`.
   void drawGlyphs(const text::TextLayout& layout, const Mat2x3& m, const Color& color, double alpha);
   void drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
@@ -575,6 +599,8 @@ class Renderer {
   // renderScene: the item's props overrides, and culling off (layers may be drawn away from their tree bounds).
   const PropsOverrides* overrides_ = nullptr;
   bool cull_ = true;
+  bool outlines_ = false;  // this frame draws the page in outline mode
+  Color outlineInk_;       // its colour (light on a dark page, dark on a light one)
 };
 
 // A shape instance for a w×h shape placed by `m` (shape space → draw space): a solid fill and / or a solid

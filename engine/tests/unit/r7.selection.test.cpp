@@ -175,21 +175,21 @@ TEST_CASE("r7 move: ⌘ nests too; ⌃ turns snapping off") {
   drag(e, {550, 150}, {830, 150}, MOD_PRIMARY);
   CHECK(e.document().parentOf(TOP) == small);
   e.command(CommandId::UNDO);
-  // R1 (50×50) fits: it goes in without ⌘.
+  // R1 too (pressed in its middle: its corner radius handles sit 12 px in from its corners).
   e.setSelection({R1});
-  drag(e, {120, 120}, {830, 120});
+  drag(e, {135, 135}, {845, 135});
   CHECK(e.document().parentOf(R1) == small);
   e.command(CommandId::UNDO);
   // Snapping: R1's left edge 2 px from R2's (x 100) snaps without ⌃, not with it; ⌘ no longer turns it off.
-  drag(e, {120, 120}, {208, 120});
+  drag(e, {135, 135}, {223, 135});
   CHECK(props(e, R1).transform.m02 == 100);
   e.command(CommandId::UNDO);
-  drag(e, {120, 120}, {208, 120}, MOD_PRIMARY);
+  drag(e, {135, 135}, {223, 135}, MOD_PRIMARY);
   CHECK(props(e, R1).transform.m02 == 100);
   e.command(CommandId::UNDO);
-  down(e, 120, 120);  // ⌃ at the press would be a right-click (a Mac)
-  for (int i = 1; i <= 4; i++) move(e, 120 + 22 * i, 120, MOD_CTRL);
-  up(e, 208, 120, MOD_CTRL);
+  down(e, 135, 135);  // ⌃ at the press would be a right-click (a Mac)
+  for (int i = 1; i <= 4; i++) move(e, 135 + 22 * i, 135, MOD_CTRL);
+  up(e, 223, 135, MOD_CTRL);
   CHECK(props(e, R1).transform.m02 == 98);
 }
 
@@ -549,4 +549,89 @@ TEST_CASE("r7 paste: ⇧⌘V over the selection (in place, above it, not into it
   CHECK(e.document().children(F).size() == 2);
   CHECK(e.document().worldBounds(e.selection()[0]) == Rect{10, 10, 100, 100});
   CHECK(e.document().worldBounds(e.selection()[1]) == Rect{100, 10, 100, 100});
+}
+
+// ---- 4. Corner radius handles ---------------------------------------------------------------------------------------
+
+TEST_CASE("r7 radius: a selected rectangle under the pointer shows four handles; a drag sets the radius, ⌥ one corner") {
+  Editor e = makeEditor();
+  e.setSelection({TOP});  // world 400,0 100×100 → screen 500..600, 100..200
+  move(e, 800, 600);      // the pointer elsewhere: none
+  CHECK(e.overlay().radiusHandles.empty());
+  move(e, 550, 150);
+  Overlay o = e.overlay();
+  REQUIRE(o.radiusHandles.size() == 4);
+  CHECK(o.radiusHandles[0] == Vec2{412, 12});  // 12 px in from the top-left (radius 0)
+  CHECK(o.radiusHandles[2] == Vec2{488, 88});
+  // The top-left handle dragged 10 px along its diagonal: radius 10 on every corner, one undo step.
+  drag(e, {512, 112}, {522, 122});
+  CHECK(props(e, TOP).cornerRadii == CornerRadii{10, 10, 10, 10});
+  CHECK(e.undoStack().undoCount() == 1);
+  CHECK(props(e, TOP).transform == Mat2x3::translate(400, 0));  // not moved
+  // The handle now sits on the radius (still 12 px in: the radius is smaller).
+  move(e, 550, 150);
+  CHECK(e.overlay().radiusHandles[0] == Vec2{412, 12});
+  // ⌥: the bottom-right corner only, up to half the shorter side.
+  drag(e, {588, 188}, {500, 100}, MOD_ALT);
+  CHECK(props(e, TOP).cornerRadii == CornerRadii{10, 10, 50, 10});
+  e.command(CommandId::UNDO);
+  CHECK(props(e, TOP).cornerRadii == CornerRadii{10, 10, 10, 10});
+  // A small rectangle on screen: no handles (R1 is 50×50 at 100 %: 50 px; zoomed out to 50 %: 25 px).
+  e.setCamera({100, 100, 0.5});
+  e.setSelection({R1});
+  move(e, 117, 117);
+  CHECK(e.overlay().radiusHandles.empty());
+}
+
+// ---- 13. Smart selection --------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 smart selection: equally spaced layers get dots and gap handles; dragging one gap sets them all") {
+  const Guid A{11, 1}, B{11, 2}, C{11, 3};
+  // Live Figma's case: three 60-wide layers 20 apart at x 500 / 580 / 660.
+  NodeChange a = make(A, NodeType::ROUNDED_RECTANGLE, kPage, "$", {500, 400, 60, 60}, "S1");
+  NodeChange b = make(B, NodeType::ROUNDED_RECTANGLE, kPage, "%", {580, 400, 60, 60}, "S2");
+  NodeChange c = make(C, NodeType::ROUNDED_RECTANGLE, kPage, "&", {660, 400, 60, 60}, "S3");
+  Editor e = makeEditor({a, b, c});
+  e.setSelection({C, A, B});
+  move(e, 50, 50);  // away
+  Overlay o = e.overlay();
+  CHECK(o.centreDots.size() == 3);
+  CHECK(o.gapHandles.empty());
+  // Over the selection: a handle in each gap (its middle: x 570 and 650 → screen 670, 750).
+  move(e, 700, 530);
+  o = e.overlay();
+  REQUIRE(o.gapHandles.size() == 2);
+  CHECK(o.gapHandles[0].at == Vec2{570, 430});
+  CHECK(o.gapHandles[0].value == 20);
+  // Dragging the first gap's handle 11 units right: the handle follows the pointer, every gap 42; S1 stays.
+  drag(e, {670, 530}, {681, 530});
+  CHECK(props(e, A).transform.m02 == 500);
+  CHECK(props(e, B).transform.m02 == 602);
+  CHECK(props(e, C).transform.m02 == 704);
+  CHECK(e.undoStack().undoCount() == 1);
+  CHECK(e.selection().size() == 3);
+  // Unequal gaps: no smart selection.
+  e.command(CommandId::UNDO);
+  e.setSelection({A, C});
+  CHECK(e.overlay().centreDots.size() == 2);  // two layers: one gap, equal to itself
+  NodeChange off = NodeChange::changed(C);
+  off.mask = F_TRANSFORM;
+  off.props.transform = Mat2x3::translate(700, 400);
+  e.applyChanges({off}, APPLY_REMOTE);
+  e.setSelection({A, B, C});
+  CHECK(e.overlay().centreDots.empty());
+}
+
+// ---- View options -------------------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 view: the pixel grid and outline mode reach the overlay; hover outlines a selected layer too") {
+  Editor e = makeEditor();
+  CHECK(e.overlay().pixelGrid);
+  CHECK(!e.overlay().outlines);
+  e.setViewOptions(Editor::VIEW_OUTLINES);
+  CHECK(!e.overlay().pixelGrid);
+  CHECK(e.overlay().outlines);
+  e.setSelection({TOP});
+  move(e, 550, 150);
+  CHECK(e.overlay().hover == std::vector<Guid>{TOP});
 }

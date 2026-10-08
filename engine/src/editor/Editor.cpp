@@ -683,7 +683,34 @@ Overlay Editor::overlay() const {
     Guid line;
     Vec2 a, b;
     if (selectedLine(line, a, b)) o.lineEnds = {a, b};
+    Vec2 rh[4];
+    if (radiusHandles(line, rh)) {
+      o.radiusHandles.assign(rh, rh + 4);
+      o.radiusHovered = gesture_ == Gesture::Radius ? radiusCorner_ : radiusHover_;
+    }
   }
+  // Smart selection: a dot on each equally spaced layer; the gap handles while the pointer is over the selection.
+  SmartSelection smart;
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::Gap) && !viewer_ && smartSelection(smart)) {
+    for (Guid id : smart.order) {
+      Rect b = doc_.worldBounds(id);
+      o.centreDots.push_back({b.x + b.w / 2, b.y + b.h / 2});
+    }
+    if (pointerInSelection_ || gesture_ == Gesture::Gap)
+      for (size_t i = 1; i < smart.order.size(); i++) {
+        Rect a = doc_.worldBounds(smart.order[i - 1]), b = doc_.worldBounds(smart.order[i]);
+        Overlay::GapHandle g;
+        g.vertical = smart.axis == 1;
+        g.at = smart.axis == 0 ? Vec2{(a.right() + b.x) / 2, (std::max(a.y, b.y) + std::min(a.bottom(), b.bottom())) / 2}
+                               : Vec2{(std::max(a.x, b.x) + std::min(a.right(), b.right())) / 2, (a.bottom() + b.y) / 2};
+        g.length = smart.axis == 0 ? std::min(a.h, b.h) : std::min(a.w, b.w);
+        g.hovered = gesture_ == Gesture::Gap ? static_cast<int>(i - 1) == gapIndex_ : static_cast<int>(i - 1) == gapHover_;
+        g.value = smart.spacing;
+        o.gapHandles.push_back(g);
+      }
+  }
+  o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
+  o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
   if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid) && selection_.size() == 1 && text_.node == kNoGuid) {
@@ -1291,6 +1318,12 @@ void Editor::setViewerMode(bool on) {
     setTool(Tool::MOVE);
   }
   viewer_ = on;
+  needsRender_ = true;
+}
+
+void Editor::setViewOptions(uint32_t options) {
+  if (options == viewOptions_) return;
+  viewOptions_ = options;
   needsRender_ = true;
 }
 

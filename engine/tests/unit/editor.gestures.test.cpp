@@ -84,7 +84,8 @@ TEST_CASE("editor: drag-move is one undo step; ⇧ locks the axis") {
   e.command(CommandId::REDO);
   CHECK(props(e, R1).transform.m02 == 40);
   e.command(CommandId::UNDO);
-  drag(e, {20, 20}, {60, 25}, MOD_SHIFT);
+  // (Pressed in its middle: a selected rectangle's corner radius handles sit 12 px in from its corners.)
+  drag(e, {35, 35}, {75, 40}, MOD_SHIFT);
   CHECK(props(e, R1).transform == Mat2x3::translate(50, 10));
 }
 

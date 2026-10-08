@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstring>
 
+#include "geometry/Path.h"
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
 
@@ -722,7 +723,7 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
   const std::vector<RenderNode>& nodes = tree_->nodes();
   for (uint32_t i = first; i < end; i = nodes[i].end) {
     const NodeProps& p = propsAt(i);
-    if (p.mask) {
+    if (p.mask && !outlines_) {
       // A mask: it masks the layers above it in this parent (and is not drawn itself).
       Mat2x3 mm = m * p.transform;
       gfx::IRect r = deviceRect(screenBounds(i), 2);
@@ -882,6 +883,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     return;
   }
   Mat2x3 m = parentCss * p.transform;
+  if (outlines_) return drawOutlined(doc, i, p, m);
 
   bool analytic = analyticShadows(p, rn.hasChildren);
   std::vector<const Effect*> drops, inners, backgrounds;
@@ -958,6 +960,54 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
       composite(S, C, 4, static_cast<float>(a), BlendMode::NORMAL, e->color, deviceOffset(e->offset), false, r);
     }
   }
+}
+
+void Renderer::strokePolyline(const std::vector<Vec2>& pts, bool closed, double width, const Color& color, double alpha) {
+  size_t n = pts.size();
+  if (n < 2) return;
+  size_t segs = closed ? n : n - 1;
+  for (size_t k = 0; k < segs; k++) {
+    Vec2 a = pts[k], b = pts[(k + 1) % n];
+    Vec2 d = b - a;
+    double len = d.length();
+    if (len < 1e-9) continue;
+    Vec2 u{d.x / len, d.y / len}, nn{-u.y, u.x};
+    Mat2x3 sm{u.x, nn.x, a.x - nn.x * width / 2, u.y, nn.y, a.y - nn.y * width / 2};
+    emit(makeShape(sm, {len, width}, ShapeKind::Rect, kSquare, color, alpha, color, 0, 0, 0), Pass::Shape);
+  }
+}
+
+void Renderer::drawOutlined(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m) {
+  const RenderNode& rn = tree_->nodes()[i];
+  const Color ink{outlineInk_.r, outlineInk_.g, outlineInk_.b, 1};
+  const double alpha = outlineInk_.a;
+  if (p.type == NodeType::TEXT) {
+    if (const text::TextLayout* L = texts_ ? texts_->textLayout(rn.id) : nullptr) drawGlyphs(*L, m, ink, alpha);
+    return;
+  }
+  if (!p.isGroupLike()) {
+    if (p.isFrameLike() || p.isRectLike() || p.type == NodeType::ELLIPSE) {
+      // The box (or ellipse) with unit-length axes so its line is one CSS px.
+      double l0 = std::hypot(m.m00, m.m10), l1 = std::hypot(m.m01, m.m11);
+      if (l0 > 0 && l1 > 0) {
+        Mat2x3 um{m.m00 / l0, m.m01 / l1, m.m02, m.m10 / l0, m.m11 / l1, m.m12};
+        CornerRadii r = kSquare;
+        if (p.type != NodeType::ELLIPSE)
+          for (size_t k = 0; k < 4; k++) r[k] = p.cornerRadii[k] * l0;
+        emit(makeShape(um, {p.size.x * l0, p.size.y * l1}, p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect, r, ink, 0, ink, alpha, 1, 0),
+             Pass::Shape);
+      }
+    } else if (const NodeGeometry* g = doc.geometry(rn.id)) {
+      auto outline = [&](const geom::Path& path) {
+        for (const geom::Polyline& pl : geom::flatten(path.transformed(m), 0.25)) strokePolyline(pl.points, pl.closed, 1, ink, alpha);
+      };
+      if (!g->fills.empty())
+        for (auto& f : g->fills) outline(f.path);
+      else if (!g->stroke.path.empty())
+        outline(g->stroke.path);
+    }
+  }
+  if (rn.hasChildren) drawChildren(doc, i + 1, rn.end, m, 1);
 }
 
 // ---- Execution ---------------------------------------------------------------------------------
@@ -1468,6 +1518,14 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
     if (!figmaDefault) clear = bg;
   }
   if (only != kNoGuid || exporting_) clear = Color{0, 0, 0, 0};  // a node's thumbnail, an export: transparent around it
+  // Outline mode: the page's pixels are drawn another way — the cache starts over when it turns on or off.
+  bool outlines = overlay.outlines && only == kNoGuid && !exporting_;
+  if (outlines != outlines_) {
+    outlines_ = outlines;
+    dropCache();
+    dropTiles();
+  }
+  outlineInk_ = darkCanvas(clear) ? Color{1, 1, 1, 0.55f} : Color{0, 0, 0, 0.6f};
   // Frame titles read on the page's colour.
   OverlayStyle adapted = style;
   adapted.darkCanvas = darkCanvas(clear);

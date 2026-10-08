@@ -24,6 +24,8 @@ constexpr double kEdgeReach = 4;      // CSS px around an edge
 constexpr double kRotateReach = 16;   // CSS px outside a corner: rotation
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kSnapReach = 6;      // CSS px: snapping threshold (docs/engine.md §8.5)
+constexpr double kRadiusMinBox = 64;  // CSS px: no corner radius handles on a smaller rectangle (unverified)
+constexpr double kGapReach = 6;       // CSS px around a smart selection's gap handle
 
 using GuidSet = std::unordered_set<Guid, GuidHash>;
 
@@ -120,6 +122,32 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
         return Handle::LineEnd;
       }
     return Handle::None;
+  }
+  // A rectangle's corner radius handles (shown while the pointer is over it).
+  Guid rid;
+  Vec2 rh[4];
+  if (radiusHandles(rid, rh))
+    for (int i = 0; i < 4; i++)
+      if ((s - camera_.toScreen(rh[i])).length() <= OverlayStyle::of(theme_).radiusHandleSize / 2 + 2) {
+        hx = i, hy = 0;
+        return Handle::Radius;
+      }
+  // A smart selection's gap handles.
+  SmartSelection smart;
+  if (gesture_ == Gesture::None && smartSelection(smart)) {
+    for (size_t i = 1; i < smart.order.size(); i++) {
+      Rect a = doc_.worldBounds(smart.order[i - 1]), b = doc_.worldBounds(smart.order[i]);
+      Vec2 mid = smart.axis == 0 ? Vec2{(a.right() + b.x) / 2, (std::max(a.y, b.y) + std::min(a.bottom(), b.bottom())) / 2}
+                                 : Vec2{(std::max(a.x, b.x) + std::min(a.right(), b.right())) / 2, (a.bottom() + b.y) / 2};
+      Vec2 sm = camera_.toScreen(mid);
+      double gapPx = smart.spacing * camera_.zoom;
+      bool near = smart.axis == 0 ? std::fabs(s.x - sm.x) <= std::max(kGapReach, gapPx / 2) && std::fabs(s.y - sm.y) <= 10
+                                  : std::fabs(s.y - sm.y) <= std::max(kGapReach, gapPx / 2) && std::fabs(s.x - sm.x) <= 10;
+      if (near) {
+        hx = static_cast<int>(i - 1), hy = smart.axis;
+        return Handle::Gap;
+      }
+    }
   }
   Mat2x3 m = camera_.matrix() * box.toWorld;
   double w = box.size.x, h = box.size.y;
@@ -220,6 +248,154 @@ void Editor::dragLineEnd(Vec2 world, uint32_t mods) {
   needsRender_ = true;
 }
 
+// ---- Corner radius handles ---------------------------------------------------
+
+bool Editor::radiusHandles(Guid& id, Vec2 out[4]) const {
+  // Live Figma: a selected rectangle shows four rings inset from its corners while the pointer is over it; each sits
+  // on its corner's radius (at least `radiusHandleInset` CSS px in).
+  if (viewer_ || tool_ != Tool::MOVE || spaceHeld_ || selection_.size() != 1 || text_.node != kNoGuid || vector_.node != kNoGuid ||
+      paint_.node != kNoGuid || proto_.on)
+    return false;
+  if (gesture_ != Gesture::None && gesture_ != Gesture::Radius) return false;
+  id = selection_[0];
+  const Node* n = doc_.get(id);
+  if (!n || n->props.locked || id.isDerived() || !n->props.isRectLike()) return false;
+  const NodeProps& p = n->props;
+  double w = p.size.x, h = p.size.y;
+  if (w <= 0 || h <= 0) return false;
+  Mat2x3 W = doc_.worldTransform(id), S = camera_.matrix() * W;
+  double ux = S.applyLinear({1, 0}).length(), uy = S.applyLinear({0, 1}).length();
+  if (w * ux < kRadiusMinBox || h * uy < kRadiusMinBox) return false;
+  if (gesture_ == Gesture::None) {
+    Vec2 q = S.inverse().apply(lastScreen_);
+    if (q.x < 0 || q.y < 0 || q.x > w || q.y > h) return false;
+  }
+  const double inset = OverlayStyle::of(theme_).radiusHandleInset;
+  double half = std::min(w, h) / 2;
+  const double cx[4] = {0, w, w, 0}, cy[4] = {0, 0, h, h}, dx[4] = {1, -1, -1, 1}, dy[4] = {1, 1, -1, -1};
+  for (int k = 0; k < 4; k++) {
+    double r = std::min(p.cornerRadii[static_cast<size_t>(k)], half);
+    double ix = std::min(std::max(r, inset / ux), half), iy = std::min(std::max(r, inset / uy), half);
+    out[k] = W.apply({cx[k] + dx[k] * ix, cy[k] + dy[k] * iy});
+  }
+  return true;
+}
+
+void Editor::startRadius(int corner) {
+  begin(TxnKind::GESTURE, "Corner radius");
+  targets_ = targetsOf({selection_[0]});
+  radiusCorner_ = corner;
+}
+
+void Editor::dragRadius(Vec2 world, uint32_t mods) {
+  // Along the corner's diagonal, from where the press was: all four corners (⌥: this one only), whole numbers, up to
+  // half the shorter side.
+  if (targets_.empty() || radiusCorner_ < 0) return;
+  const Target& t = targets_[0];
+  const Node* n = doc_.get(t.id);
+  if (!n) return;
+  Mat2x3 inv = t.world.inverse();
+  Vec2 q = inv.apply(world), q0 = inv.apply(downWorld_);
+  int k = radiusCorner_;
+  double sx = k == 0 || k == 3 ? 1 : -1, sy = k == 0 || k == 1 ? 1 : -1;
+  double delta = ((q.x - q0.x) * sx + (q.y - q0.y) * sy) / 2;
+  CornerRadii before = originalRadii_;
+  double r = std::clamp(std::round(before[static_cast<size_t>(k)] + delta), 0.0, std::floor(std::min(t.size.x, t.size.y) / 2));
+  NodeChange c = NodeChange::changed(t.id);
+  c.mask = F_CORNER_RADII;
+  c.props.cornerRadii = before;
+  if (mods & MOD_ALT) c.props.cornerRadii[static_cast<size_t>(k)] = r;
+  else c.props.cornerRadii = {r, r, r, r};
+  write(c);
+  needsRender_ = true;
+}
+
+// ---- Smart selection ------------------------------------------------------------
+
+bool Editor::smartSelection(SmartSelection& out) const {
+  // Figma's smart selection: layers of one parent (not an auto-layout flow) in a row or a column with equal gaps.
+  if (viewer_ || tool_ != Tool::MOVE || selection_.size() < 2 || selection_.size() > 500 || text_.node != kNoGuid || vector_.node != kNoGuid)
+    return false;
+  Guid parent = doc_.parentOf(selection_[0]);
+  const Node* pn = doc_.get(parent);
+  if (pn && pn->props.isAutoLayout()) return false;
+  std::vector<std::pair<Guid, Rect>> items;
+  for (Guid id : selection_) {
+    const Node* n = doc_.get(id);
+    if (!n || id.isDerived() || n->props.locked || doc_.parentOf(id) != parent) return false;
+    items.push_back({id, doc_.worldBounds(id)});
+  }
+  for (int axis = 0; axis < 2; axis++) {
+    auto lo = [&](const Rect& r) { return axis == 0 ? r.x : r.y; };
+    auto hi = [&](const Rect& r) { return axis == 0 ? r.right() : r.bottom(); };
+    std::sort(items.begin(), items.end(), [&](auto& a, auto& b) { return lo(a.second) < lo(b.second); });
+    bool ok = true;
+    double gap = 0;
+    for (size_t i = 1; ok && i < items.size(); i++) {
+      double g = lo(items[i].second) - hi(items[i - 1].second);
+      if (g < -1e-6) ok = false;
+      else if (i == 1) gap = g;
+      else if (std::fabs(g - gap) > 0.5) ok = false;
+    }
+    if (!ok) continue;
+    out.order.clear();
+    for (auto& it : items) out.order.push_back(it.first);
+    out.axis = axis;
+    out.spacing = gap;
+    return true;
+  }
+  return false;
+}
+
+bool Editor::selectionHoverChanged(Vec2 s) {
+  bool in = false;
+  if (!selection_.empty()) {
+    SelectionBox box = selectionBox(doc_, selection_);
+    if (box.valid) {
+      Vec2 q = (camera_.matrix() * box.toWorld).inverse().apply(s);
+      in = q.x >= 0 && q.y >= 0 && q.x <= box.size.x && q.y <= box.size.y;
+    }
+  }
+  bool changed = in != pointerInSelection_;
+  pointerInSelection_ = in;
+  return changed;
+}
+
+void Editor::startGap(int gap) {
+  begin(TxnKind::GESTURE, "Spacing");
+  smartSelection(gapDrag_);
+  targets_ = targetsOf(gapDrag_.order);
+  gapIndex_ = gap;
+}
+
+void Editor::dragGap(Vec2 world, uint32_t mods) {
+  // The handle stays under the pointer: every gap changes alike, the first layer stays (live Figma: 20 → 42 for a
+  // 10.8-unit drag of the first gap's handle).
+  if (targets_.empty() || gapIndex_ < 0) return;
+  int axis = gapDrag_.axis;
+  double d = axis == 0 ? world.x - downWorld_.x : world.y - downWorld_.y;
+  double spacing = std::max(0.0, std::round(gapDrag_.spacing + d / (gapIndex_ + 0.5)));
+  (void)mods;
+  double at = 0;
+  for (size_t i = 0; i < targets_.size(); i++) {
+    const Target& t = targets_[i];
+    Rect b = transformedBounds(t.world, t.size.x, t.size.y);
+    if (i == 0) {
+      at = (axis == 0 ? b.right() : b.bottom()) + spacing;
+      continue;
+    }
+    double shift = at - (axis == 0 ? b.x : b.y);
+    Mat2x3 moved = Mat2x3::translate(axis == 0 ? shift : 0, axis == 1 ? shift : 0) * t.world;
+    NodeChange c = NodeChange::changed(t.id);
+    c.mask = F_TRANSFORM;
+    c.props.transform = tidy(doc_.worldTransform(t.parent).inverse() * moved);
+    write(c);
+    at += (axis == 0 ? b.w : b.h) + spacing;
+  }
+  flushLayout();
+  needsRender_ = true;
+}
+
 void Editor::updateCursor(Vec2 s) {
   if (spaceHeld_ || tool_ == Tool::HAND) return changeCursor(CursorKind::HAND);
   if (tool_ == Tool::TEXT || gesture_ == Gesture::TextSelect) return changeCursor(CursorKind::IBEAM);
@@ -234,7 +410,8 @@ void Editor::updateCursor(Vec2 s) {
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::Rotate && titleAt(s) != kNoGuid) h = Handle::None;  // a title takes the press, not the rotation zone
-  if (h == Handle::None || h == Handle::LineEnd) return changeCursor(CursorKind::DEFAULT);
+  if (h == Handle::None || h == Handle::LineEnd || h == Handle::Radius) return changeCursor(CursorKind::DEFAULT);
+  if (h == Handle::Gap) return changeCursor(CursorKind::RESIZE, hy == 0 ? 0 : 90);
   // The angle of the handle's direction on screen (0 = pointing right).
   SelectionBox box = selectionBox(doc_, selection_);
   Mat2x3 m = camera_.matrix() * box.toWorld;
@@ -257,6 +434,16 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
     }
   }
   devHover(s);
+  {
+    int hx2 = -1, hy2 = 0;
+    Handle h2 = (tool_ == Tool::MOVE && !spaceHeld_ && page_ != kNoGuid) ? handleAt(s, hx2, hy2) : Handle::None;
+    int rh = h2 == Handle::Radius ? hx2 : -1, gh = h2 == Handle::Gap ? hx2 : -1;
+    if (rh != radiusHover_ || gh != gapHover_) needsRender_ = true;
+    radiusHover_ = rh;
+    gapHover_ = gh;
+    // The radius handles and gap handles come and go with the pointer over the selection.
+    if (selectionHoverChanged(s)) needsRender_ = true;
+  }
   if (next != hover_) {
     hover_ = next;
     events_.hover = true;
@@ -493,6 +680,17 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     gesture_ = Gesture::Resize;
     return P_HANDLED | P_CAPTURE;
   }
+  if (h == Handle::Radius) {
+    if (const Node* rn = doc_.get(selection_[0])) originalRadii_ = rn->props.cornerRadii;
+    gesture_ = Gesture::Radius;
+    startRadius(hx);
+    return P_HANDLED | P_CAPTURE;
+  }
+  if (h == Handle::Gap) {
+    gesture_ = Gesture::Gap;
+    startGap(hx);
+    return P_HANDLED | P_CAPTURE;
+  }
   // A frame's title (or a section's pill): a press selects the frame (⇧ adds or removes it), a drag moves it,
   // a double-click renames it in place.
   if (Guid titled = titleAt(s); titled != kNoGuid) {
@@ -638,6 +836,8 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       }
       break;
     case Gesture::Move: dragMove(world, mods); break;
+    case Gesture::Radius: dragRadius(world, mods); break;
+    case Gesture::Gap: dragGap(world, mods); break;
     case Gesture::Resize: dragResize(world, mods); break;
     case Gesture::Rotate: dragRotate(world, mods); break;
     case Gesture::Draw:
@@ -691,6 +891,8 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Press: finishClick(mods); break;
     case Gesture::Move: finishMove(); break;
     case Gesture::Resize:
+    case Gesture::Radius:
+    case Gesture::Gap:
     case Gesture::Rotate: commit(); break;
     case Gesture::Draw:
       if (drawType_ == NodeType::TEXT) {
@@ -735,6 +937,8 @@ void Editor::endGesture() {
   dropParent_ = kNoGuid;
   snapParent_ = kNoGuid;
   lineEnd_ = -1;
+  radiusCorner_ = -1;
+  gapIndex_ = -1;
   ignoreConstraints_ = false;
   needsRender_ = true;
 }
@@ -760,6 +964,8 @@ void Editor::cancelGesture() {
       break;
     case Gesture::Move:
     case Gesture::Resize:
+    case Gesture::Radius:
+    case Gesture::Gap:
     case Gesture::Rotate: rollback(); break;
     case Gesture::Draw:
       if (drawn_ != kNoGuid) rollback();

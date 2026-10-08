@@ -243,6 +243,11 @@ class Editor : private LayoutHost, public TextLayouts {
   void modifiers(uint32_t mods);
   void blur();
 
+  // ---- View options (View › Pixel grid, Outlines) ----
+  enum ViewOption : uint32_t { VIEW_PIXEL_GRID = 1, VIEW_OUTLINES = 2 };
+  void setViewOptions(uint32_t options);
+  uint32_t viewOptions() const { return viewOptions_; }
+
   // ---- Tools, hover, frames ----
   Status setTool(Tool t);
   Tool tool() const { return tool_; }
@@ -790,7 +795,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string newAssetKey();
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
-                                 Measure, MeasureDrag };
+                                 Measure, MeasureDrag, Radius, Gap };
 
   struct Target {
     Guid id;
@@ -1048,13 +1053,31 @@ class Editor : private LayoutHost, public TextLayouts {
 
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
   // LineEnd: a line's start (hx 0) or end (hx 1) handle.
-  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd };
+  // Radius: a rectangle's corner radius handle (hx: the corner, 0 top-left … 3 bottom-left); Gap: a smart
+  // selection's gap handle (hx: the gap, hy: 1 between rows).
+  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd, Radius, Gap };
   Handle handleAt(Vec2 screen, int& hx, int& hy) const;
   // A single selected line — a LINE, or a vector with no width or no height — and its ends (world): Figma gives it
   // two endpoint handles instead of a box.
   bool selectedLine(Guid& id, Vec2& a, Vec2& b) const;
   void startLineEnd(int end);
   void dragLineEnd(Vec2 world, uint32_t mods);
+  // The corner radius handles of the one selected rectangle while the pointer is over it (world; false: none shown).
+  bool radiusHandles(Guid& id, Vec2 out[4]) const;
+  void startRadius(int corner);
+  void dragRadius(Vec2 world, uint32_t mods);
+  // Smart selection (Figma): three or more selected layers of one parent, equally spaced in a row or a column — their
+  // order along the axis, the axis (0 x, 1 y) and the spacing. False when the selection isn't that.
+  struct SmartSelection {
+    std::vector<Guid> order;
+    int axis = 0;
+    double spacing = 0;
+  };
+  bool smartSelection(SmartSelection& out) const;
+  void startGap(int gap);
+  // The pointer went into or out of the selection's box (true: draw again).
+  bool selectionHoverChanged(Vec2 screen);
+  void dragGap(Vec2 world, uint32_t mods);
   Guid titleAt(Vec2 screen) const;
   // An overlay label's width in CSS px (Inter Regular at the title size; `section`: Medium at the pill's size).
   double labelWidth(const std::string& text, bool section) const;
@@ -1332,6 +1355,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> layersHover_;
   bool spaceHeld_ = false;
   bool needsRender_ = true;
+  uint32_t viewOptions_ = VIEW_PIXEL_GRID;
   uint32_t mods_ = 0;
   Events events_;
   std::unordered_map<Guid, size_t, GuidHash> nodeEventIndex_;
@@ -1380,6 +1404,13 @@ class Editor : private LayoutHost, public TextLayouts {
   SelectionBox box_;
   int handleX_ = 0, handleY_ = 0;
   int lineEnd_ = -1;             // dragging a line's start (0) or end (1) handle; -1: a box resize
+  int radiusCorner_ = -1;        // dragging a corner radius handle
+  int radiusHover_ = -1;         // the radius handle under the pointer
+  int gapHover_ = -1;            // the smart selection's gap handle under the pointer
+  SmartSelection gapDrag_;       // dragging a gap handle: the selection as it started
+  int gapIndex_ = -1;
+  CornerRadii originalRadii_{0, 0, 0, 0};  // the dragged rectangle's radii at the press
+  bool pointerInSelection_ = false;        // the pointer is over the selection's box (radius and gap handles show)
   NodeType drawType_ = NodeType::NONE;
   bool drawArrow_ = false;
   Guid drawParent_ = kNoGuid;
