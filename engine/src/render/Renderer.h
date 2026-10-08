@@ -333,10 +333,18 @@ class Renderer {
     float rect[4] = {0, 0, 0, 0};   // x0 y0 x1 y1
     float radii[4] = {0, 0, 0, 0};  // tl tr br bl
   };
+  // A clip shape (a turned, smoothed or second rounded clipping frame), anti-aliased in the shaders by its coverage
+  // (gfx/gl/Shaders.h kClipFunctions, uniform slots 12–15): canvas device px → the shape's own space, and the shape.
+  struct ShapeClip {
+    float rows[2][4] = {};  // (a b c kind), (d e f first curve texel); kind 1 rounded box, 2 path, 3 path (ODD)
+    float size[4] = {};     // the box's width, height
+    float radii[4] = {};    // tl tr br bl, in its own space
+  };
   // A draw's extra state (batches only merge when it is equal).
   struct DrawState {
     gfx::TextureId image = 0;   // the image paint's texture, or the blurred backdrop
     int backdrop = -1;          // the backdrop blur whose texture paints (PaintKind::Backdrop)
+    int clip = -1;              // the clip shape in force (shapeClips_), −1: none
     float filters[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     bool operator==(const DrawState& o) const;
   };
@@ -361,6 +369,8 @@ class Renderer {
     // Blit (the content cache onto the canvas): the texture, where its top-left lands (device px), texels per
     // device px, its height in texels.
     RoundClip round;  // Composite: the rounded clip it lands in
+    float clipRect[4] = {0, 0, -1, -1};  // Composite: the clip rectangle it lands in (canvas device px; x1 < x0: none)
+    int shapeClip = -1;                  // Composite: the clip shape it lands in
     gfx::TextureId blitTexture = 0;
     Vec2 blitOrigin;
     double blitScale = 1;
@@ -386,6 +396,8 @@ class Renderer {
     DrawInstance shape;
     bool path;
     RoundClip round;  // the rounded clip before this one
+    float clipRect[4] = {0, 0, 0, 0};  // the clip rectangle before this one
+    int shapeClip = -1;                // the clip shape before this one
   };
   struct PoolTarget {
     gfx::TargetId target = 0;
@@ -488,6 +500,8 @@ class Renderer {
   uint64_t poolBytes() const;
   void dropIdleTargets();  // after a frame: pooled targets unused for 30 frames
   void rows(float out[2][4], double sx, double sy, int ox, int oy, int w, int h) const;
+  // Uniform slots 12–15 of a draw or composite: the clip shape `index` (−1: none).
+  void setShapeClip(gfx::DrawCall& call, int index) const;
 
   gfx::Device& device_;
   gfx::PipelineId pipelines_[static_cast<int>(Pass::Count)] = {};
@@ -561,8 +575,11 @@ class Renderer {
   int current_ = 0;  // the layer being recorded
   std::vector<Clip> clips_;
   bool scissorEnabled_ = false;
-  gfx::IRect scissor_;
+  gfx::IRect scissor_;     // whole device px: every pixel the clips touch (hard bounds: GPU scissors, culling)
+  float clipRect_[4] = {0, 0, 0, 0};  // the same clip, exact (fractional device px): anti-aliased in the shaders
   RoundClip round_;
+  std::vector<ShapeClip> shapeClips_;  // this frame's
+  int shapeClip_ = -1;                 // the clip shape in force
   uint8_t stencilDepth_ = 0;
   gfx::TextureId curveTexture_ = 0;
   RenderStats stats_;

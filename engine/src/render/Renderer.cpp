@@ -117,7 +117,7 @@ DrawInstance makeShape(const Mat2x3& m, Vec2 size, ShapeKind kind, const CornerR
 }
 
 bool Renderer::DrawState::operator==(const DrawState& o) const {
-  return image == o.image && backdrop == o.backdrop && std::memcmp(filters, o.filters, sizeof filters) == 0;
+  return image == o.image && backdrop == o.backdrop && clip == o.clip && std::memcmp(filters, o.filters, sizeof filters) == 0;
 }
 
 Color Renderer::titleColor(const Color& page, double* alpha) {
@@ -177,7 +177,9 @@ void Renderer::ensurePipelines() {
 
 void Renderer::emit(const DrawInstance& s, Pass pass) { emit(s, pass, DrawState{}); }
 
-void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state) {
+void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state0) {
+  DrawState state = state0;
+  state.clip = shapeClip_;  // the clip shape in force (uniforms: batches split where it changes)
   // Shapes, paths and glyphs are one program: their passes are one.
   if (pass == Pass::Path) pass = Pass::Shape;
   else if (pass == Pass::PathClipped) pass = Pass::ShapeClipped;
@@ -193,7 +195,7 @@ void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state) {
     const Cmd& d = cmds.back();
     // Instances that sample no image (state.image 0: solids, gradients, glyphs) join a batch that binds one, and
     // the other way round: only two different images (or backdrops) split a run.
-    bool states = d.state == state || (d.state.backdrop == state.backdrop && (state.image == 0 || d.state.image == 0) &&
+    bool states = d.state == state || (d.state.backdrop == state.backdrop && d.state.clip == state.clip && (state.image == 0 || d.state.image == 0) &&
                                        (state.image == 0 ? true : std::memcmp(d.state.filters, DrawState{}.filters, sizeof d.state.filters) == 0));
     merge = d.kind == Cmd::Kind::Draw && d.pass == pass && d.stencilRef == ref && d.first + d.count == instances_.size() && states;
   }
@@ -217,11 +219,9 @@ void Renderer::emit(const DrawInstance& s, Pass pass, const DrawState& state) {
     for (int i = 0; i < 4; i++) q.round[i] = round_.rect[i], q.radii[i] = round_.radii[i];
   }
   if (scissorEnabled_) {
+    // The clip rectangle at its exact place: the shaders cover the pixels its edges cross by how much they're in.
     DrawInstance& q = instances_.back();
-    q.clip[0] = static_cast<float>(scissor_.x);
-    q.clip[1] = static_cast<float>(scissor_.y);
-    q.clip[2] = static_cast<float>(scissor_.x + scissor_.w);
-    q.clip[3] = static_cast<float>(scissor_.y + scissor_.h);
+    for (int i = 0; i < 4; i++) q.clip[i] = clipRect_[i];
   }
   stats_.shapes++;
   if (s.geom[2] == static_cast<float>(ShapeKind::Path)) stats_.paths++;
@@ -588,8 +588,15 @@ bool clearOfCorners(const float outer[4], const float radii[4], const float inne
 void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m) {
   bool square = p.cornerRadii[0] <= 0 && p.cornerRadii[1] <= 0 && p.cornerRadii[2] <= 0 && p.cornerRadii[3] <= 0;
   Clip clip{false, scissorEnabled_, scissor_, {}, false, round_};
+  for (int i = 0; i < 4; i++) clip.clipRect[i] = clipRect_[i];
+  clip.shapeClip = shapeClip_;
   double sx = viewport_.scaleX(), sy = viewport_.scaleY();
-  // Every pixel the frame touches into the scissor (its children's anti-aliased edges are not cut off).
+  // Clips are anti-aliased at their exact place (Figma clips at the frame's edge, not at whole pixels): the scissor
+  // keeps every pixel the clip touches (hard bounds: culling, GPU scissors), the clip rectangle / rounded clip / clip
+  // shape cover the pixels on its edge by how much of them is inside.
+  Rect box = transformedBounds(m, p.size.x, p.size.y);
+  float dev[4] = {static_cast<float>(box.x * sx), static_cast<float>(box.y * sy), static_cast<float>(box.right() * sx),
+                  static_cast<float>(box.bottom() * sy)};
   auto scissorTo = [&](const Rect& r) {
     int x0 = static_cast<int>(std::floor(r.x * sx)), y0 = static_cast<int>(std::floor(r.y * sy));
     int x1 = static_cast<int>(std::ceil(r.right() * sx)), y1 = static_cast<int>(std::ceil(r.bottom() * sy));
@@ -598,40 +605,121 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
       y0 = std::max(y0, scissor_.y);
       x1 = std::min(x1, scissor_.x + scissor_.w);
       y1 = std::min(y1, scissor_.y + scissor_.h);
+    } else {
+      // No clip rectangle yet: none (whatever is drawn is inside it).
+      clipRect_[0] = clipRect_[1] = -1e9f;
+      clipRect_[2] = clipRect_[3] = 1e9f;
     }
     scissorEnabled_ = true;
     scissor_ = {x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0)};
   };
+  // The clip rectangle ∩ `r` (device px).
+  auto clipRectTo = [&](const float r[4]) {
+    clipRect_[0] = std::max(clipRect_[0], r[0]);
+    clipRect_[1] = std::max(clipRect_[1], r[1]);
+    clipRect_[2] = std::min(clipRect_[2], r[2]);
+    clipRect_[3] = std::min(clipRect_[3], r[3]);
+  };
+  // Whether `r` lies inside the clip rectangle in force (then the shape cutting it also does what the rectangle does,
+  // and the rectangle steps aside: two coverages of one edge would multiply).
+  auto insideClipRect = [&](const float r[4]) {
+    return !scissorEnabled_ || (r[0] >= clipRect_[0] - 1e-3f && r[1] >= clipRect_[1] - 1e-3f && r[2] <= clipRect_[2] + 1e-3f &&
+                                r[3] <= clipRect_[3] + 1e-3f);
+  };
+  auto clearClipRect = [&]() {
+    // The scissor still bounds what is drawn (whole pixels around the shape).
+    clipRect_[0] = clipRect_[1] = -1e9f;
+    clipRect_[2] = clipRect_[3] = 1e9f;
+  };
+  if (square && nearlyAxisAligned(m)) {
+    // Axis-aligned and square: the clip rectangle, intersected with the one in force.
+    scissorTo(box);
+    clipRectTo(dev);
+    clips_.push_back(clip);
+    return;
+  }
   // Axis-aligned and rounded: an anti-aliased rounded clip in the shaders (no stencil passes, so whatever is
   // inside batches with everything else), when it combines with the one already in force.
   RoundClip next;
   bool rounded = false;
+  bool outerRounded = false;  // the rounded clip in force stays, this one is inside it
   if (!square && p.stroke().cornerSmoothing <= 0 && nearlyAxisAligned(m)) {
-    Rect r = transformedBounds(m, p.size.x, p.size.y);
     next.on = true;
-    next.rect[0] = static_cast<float>(r.x * sx), next.rect[1] = static_cast<float>(r.y * sy);
-    next.rect[2] = static_cast<float>(r.right() * sx), next.rect[3] = static_cast<float>(r.bottom() * sy);
+    for (int i = 0; i < 4; i++) next.rect[i] = dev[i];
     CornerRadii cr = geom::clampRadii(p.size, p.cornerRadii);
     double k = std::min(std::fabs(m.m00) * sx, std::fabs(m.m11) * sy);
     for (size_t i = 0; i < 4; i++) next.radii[i] = static_cast<float>(cr[i] * k);
     rounded = true;
     if (round_.on) {
       if (clearOfCorners(round_.rect, round_.radii, next.rect)) {
-        // inside the one in force: this one is the clip
+        // Inside the one in force (clear of its corners): this one is the clip; the outer one's straight edges, where
+        // this one reaches past them, go into the clip rectangle.
+        float outer[4] = {round_.rect[0], round_.rect[1], round_.rect[2], round_.rect[3]};
+        bool past = next.rect[0] < outer[0] || next.rect[1] < outer[1] || next.rect[2] > outer[2] || next.rect[3] > outer[3];
+        if (past) {
+          scissorTo(box);
+          clipRectTo(outer);
+        }
+        outerRounded = !past;
       } else if (clearOfCorners(next.rect, next.radii, round_.rect)) {
         next = round_;  // the one in force is inside this one
+        outerRounded = true;
       } else {
-        rounded = false;  // two sets of corners: the stencil
+        rounded = false;  // two sets of corners: the clip shape (below)
       }
     }
   }
-  if (square && nearlyAxisAligned(m)) {
-    // Axis-aligned and square: a scissor rect, intersected with the current one.
-    scissorTo(transformedBounds(m, p.size.x, p.size.y));
-  } else if (rounded) {
-    scissorTo(transformedBounds(m, p.size.x, p.size.y));
+  if (rounded) {
+    bool inside = insideClipRect(next.rect);
+    scissorTo(box);
+    if (inside && !outerRounded) clearClipRect();
+    else if (!inside) clipRectTo(dev);
     round_ = next;
-  } else if (p.stroke().cornerSmoothing > 0) {
+    clips_.push_back(clip);
+    return;
+  }
+  // Turned, smoothed, or a second set of corners: the clip shape, anti-aliased by its coverage in the shaders — a
+  // rounded box, or the smoothed outline's path. A clip shape already in force: the stencil (whole pixels).
+  ShapeClip sc;
+  bool shape = false;
+  Mat2x3 toDevice = Mat2x3{sx, 0, 0, 0, sy, 0} * m;
+  if (std::fabs(toDevice.determinant()) > 1e-12 && shapeClip_ < 0) {
+    Mat2x3 inv = toDevice.inverse();
+    sc.rows[0][0] = static_cast<float>(inv.m00), sc.rows[0][1] = static_cast<float>(inv.m01), sc.rows[0][2] = static_cast<float>(inv.m02);
+    sc.rows[1][0] = static_cast<float>(inv.m10), sc.rows[1][1] = static_cast<float>(inv.m11), sc.rows[1][2] = static_cast<float>(inv.m12);
+    if (p.stroke().cornerSmoothing > 0) {
+      const NodeGeometry* g = doc.geometry(id);
+      int level = levelOf(levelScale(m));
+      if (g && !g->fills.empty()) {
+        uint64_t key = Hash().add(g->fillKey).add(size_t{0}).add(level).add(0xF111ull).h;
+        double tol = toleranceOf(level);
+        const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) { geom::toQuads(g->fills[0].path, tol, out); });
+        if (entry) {
+          sc.rows[0][3] = g->fills[0].windingRule == WindingRule::ODD ? 3.f : 2.f;
+          sc.rows[1][3] = static_cast<float>(entry->start);
+          shape = true;
+        }
+      }
+    } else {
+      CornerRadii cr = geom::clampRadii(p.size, p.cornerRadii);
+      sc.rows[0][3] = 1;
+      sc.size[0] = static_cast<float>(p.size.x);
+      sc.size[1] = static_cast<float>(p.size.y);
+      for (size_t i = 0; i < 4; i++) sc.radii[i] = static_cast<float>(cr[i]);
+      shape = true;
+    }
+  }
+  if (shape) {
+    bool inside = insideClipRect(dev);
+    scissorTo(box);
+    if (inside) clearClipRect();
+    shapeClips_.push_back(sc);
+    shapeClip_ = static_cast<int>(shapeClips_.size() - 1);
+    clips_.push_back(clip);
+    return;
+  }
+  scissorTo(box);
+  if (p.stroke().cornerSmoothing > 0) {
     // Smoothed corners: the path into the stencil.
     clip.stencil = true;
     clip.path = true;
@@ -673,6 +761,8 @@ void Renderer::popClip() {
   scissorEnabled_ = clip.scissorEnabled;
   scissor_ = clip.scissor;
   round_ = clip.round;
+  for (int i = 0; i < 4; i++) clipRect_[i] = clip.clipRect[i];
+  shapeClip_ = clip.shapeClip;
 }
 
 gfx::IRect Renderer::deviceRect(const Rect& css, double margin) const {
@@ -704,9 +794,13 @@ int Renderer::beginLayer(gfx::IRect rect) {
   layers_.push_back(std::move(L));
   current_ = static_cast<int>(layers_.size() - 1);
   // A layer starts unclipped (its parent's clip applies when it is composited).
-  clips_.push_back({false, scissorEnabled_, scissor_, {}, false, round_});
+  Clip saved0{false, scissorEnabled_, scissor_, {}, false, round_};
+  for (int i = 0; i < 4; i++) saved0.clipRect[i] = clipRect_[i];
+  saved0.shapeClip = shapeClip_;
+  clips_.push_back(saved0);
   scissorEnabled_ = false;
   round_ = RoundClip{};
+  shapeClip_ = -1;
   stencilDepth_ = 0;
   return saved;
 }
@@ -717,6 +811,8 @@ void Renderer::endLayer(int saved) {
   scissorEnabled_ = c.scissorEnabled;
   scissor_ = c.scissor;
   round_ = c.round;
+  for (int i = 0; i < 4; i++) clipRect_[i] = c.clipRect[i];
+  shapeClip_ = c.shapeClip;
   // The parent's stencil depth: count the stencil clips still open below.
   stencilDepth_ = 0;
   for (auto& k : clips_) stencilDepth_ += k.stencil ? 1 : 0;
@@ -754,6 +850,9 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
       c.scissorEnabled = scissorEnabled_;
       c.scissor = scissor_;
       c.round = round_;
+      if (scissorEnabled_)
+        for (int k = 0; k < 4; k++) c.clipRect[k] = clipRect_[k];
+      c.shapeClip = shapeClip_;
       c.layer = C;
       c.aux = M;
       c.mode = p.maskType == MaskType::LUMINANCE ? 2 : 1;
@@ -842,6 +941,9 @@ void Renderer::compositeLayer(int src, int aux, int mode, float opacity, BlendMo
   c.scissorEnabled = scissorEnabled_;
   c.scissor = scissor_;
   c.round = round_;
+  if (scissorEnabled_)
+    for (int k = 0; k < 4; k++) c.clipRect[k] = clipRect_[k];
+  c.shapeClip = shapeClip_;
   c.layer = src;
   c.aux = aux;
   c.mode = mode;
@@ -988,6 +1090,17 @@ uint64_t targetBytes(int w, int h) { return static_cast<uint64_t>(w) * static_ca
 
 }  // namespace
 
+void Renderer::setShapeClip(gfx::DrawCall& call, int index) const {
+  if (index < 0 || index >= static_cast<int>(shapeClips_.size())) return;  // slot 12.w = 0: none
+  const ShapeClip& sc = shapeClips_[static_cast<size_t>(index)];
+  for (int i = 0; i < 4; i++) {
+    call.uniforms[12][i] = sc.rows[0][i];
+    call.uniforms[13][i] = sc.rows[1][i];
+    call.uniforms[14][i] = sc.size[i];
+    call.uniforms[15][i] = sc.radii[i];
+  }
+}
+
 Renderer::PoolTarget* Renderer::acquire(int w, int h) {
   int bw = poolSize(w), bh = poolSize(h);
   for (auto& t : pool_)
@@ -1079,6 +1192,7 @@ void Renderer::blurLayer(Layer& L) {
   auto blurPass = [&](PoolTarget* src, PoolTarget* dst, int vw, int vh, float dx, float dy, float sigma, int mode, float radius) {
     if (!pass(dst, vw, vh)) return;
     gfx::DrawCall call;
+    call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
     call.pipeline = pipelines_[static_cast<int>(Pass::Blur)];
     call.instanceCount = 1;
     call.uniforms[2][0] = dx, call.uniforms[2][1] = dy, call.uniforms[2][2] = sigma, call.uniforms[2][3] = static_cast<float>(mode);
@@ -1107,6 +1221,7 @@ void Renderer::blurLayer(Layer& L) {
     PoolTarget* down = acquire(nw, nh);
     if (!down || !pass(down, nw, nh)) break;
     gfx::DrawCall call;
+    call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
     call.pipeline = pipelines_[static_cast<int>(Pass::CompositeReplace)];
     call.instanceCount = 1;
     float r[2][4];
@@ -1170,6 +1285,7 @@ void Renderer::runLayer(int index) {
     for (int i = 0; i < 4; i++) pd.clear[i] = 0;
     if (device_.beginPass(pd) && src.texture) {
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(Pass::CompositeReplace)];
       call.instanceCount = 1;
       float r[2][4];
@@ -1210,6 +1326,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
   for (const Cmd& c : L.cmds) {
     if (c.kind == Cmd::Kind::Draw) {
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(c.pass)];
       call.instances = {buffer_, static_cast<uint32_t>(c.first * sizeof(DrawInstance)), static_cast<uint32_t>(c.count * sizeof(DrawInstance))};
       call.instanceCount = c.count;
@@ -1219,6 +1336,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       call.uniforms[5][0] = static_cast<float>(ox);
       call.uniforms[5][1] = static_cast<float>(oy);
       call.uniforms[5][2] = static_cast<float>(H);
+      setShapeClip(call, c.state.clip);
       call.textures[0] = curveTexture_ ? curveTexture_ : white;
       call.textures[1] = ramp_ ? ramp_ : white;
       call.textures[2] = c.state.image ? c.state.image : white;
@@ -1237,6 +1355,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       gfx::IRect quad = intersect(c.rect, L.rect);
       if (quad.w <= 0 || quad.h <= 0) continue;
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(c.pass)];
       call.instanceCount = 1;
       compositeUniforms(call, devRows, quad);
@@ -1270,6 +1389,9 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       call.uniforms[8][1] = static_cast<float>(c.offset.y);
       if (c.round.on)
         for (int i = 0; i < 4; i++) call.uniforms[9][i] = c.round.rect[i], call.uniforms[10][i] = c.round.radii[i];
+      for (int i = 0; i < 4; i++) call.uniforms[11][i] = c.clipRect[i];
+      setShapeClip(call, c.shapeClip);
+      if (curveTexture_) call.textures[3] = curveTexture_;
       localScissor(call, c);
       device_.draw(call);
       stats_.drawCalls++;
@@ -1278,6 +1400,7 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       gfx::IRect quad = intersect(c.rect, L.rect);
       if (quad.w <= 0 || quad.h <= 0 || !c.blitTexture) continue;
       gfx::DrawCall call;
+      call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
       call.pipeline = pipelines_[static_cast<int>(Pass::Composite)];
       call.instanceCount = 1;
       compositeUniforms(call, devRows, quad);
@@ -1358,11 +1481,16 @@ void Renderer::beginRecording(gfx::IRect region, bool clipToRegion) {
   // A part of the frame: everything drawn into it is clipped to it (frames' clips intersect with it).
   scissorEnabled_ = clipToRegion;
   scissor_ = region;
+  clipRect_[0] = static_cast<float>(region.x), clipRect_[1] = static_cast<float>(region.y);
+  clipRect_[2] = static_cast<float>(region.x + region.w), clipRect_[3] = static_cast<float>(region.y + region.h);
   round_ = RoundClip{};
+  shapeClips_.clear();
+  shapeClip_ = -1;
 }
 
 void Renderer::finishRecording(gfx::TargetId target, const float clear[4], bool keep) {
   scissorEnabled_ = false;
+  shapeClip_ = -1;
   stencilDepth_ = 0;
   clips_.clear();
   current_ = 0;
@@ -1899,6 +2027,7 @@ void Renderer::blitCache(gfx::TargetId from, gfx::TargetId to, int dx, int dy, d
   for (int i = 0; i < 4; i++) pd.clear[i] = 0;
   if (!device_.beginPass(pd)) return;
   gfx::DrawCall call;
+  call.textures[3] = white_;  // Composite: the curves (a clip path), else unused
   call.pipeline = pipelines_[static_cast<int>(Pass::CompositeReplace)];
   call.instanceCount = 1;
   float r[2][4];

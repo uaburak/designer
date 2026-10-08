@@ -1,7 +1,7 @@
 // The built-in shaders, GLSL ES 3.00 (WebGL2). Interim: written by hand until
 // tools/shadergen exists (docs/engine.md §6.10).
 //
-// Every shader takes `uniform vec4 u_v[12]` (gfx::DrawCall::uniforms): slots 0
+// Every shader takes `uniform vec4 u_v[16]` (gfx::DrawCall::uniforms): slots 0
 // and 1 are the rows mapping draw space to clip space; the rest are per shader,
 // listed with it. Textures are u_t0, u_t1, u_t2 (DrawCall::textures).
 #pragma once
@@ -71,6 +71,105 @@ vec4 paintAt(vec2 local, int kind) {
 }
 )";
 
+
+// ---- Curves and clips: shared by Draw and Composite ------------------------------
+// The path coverage (Draw's paths; a clip path in both), read from CURVES (Draw: u_t0, Composite: u_t3).
+inline constexpr const char* kCurveFunctions = R"(
+vec4 texel(int i) { return texelFetch(CURVES, ivec2(i & 2047, i >> 11), 0); }
+
+void crossX(vec2 p0, vec2 p1, vec2 p2, float ppe, inout float cov, inout float wgt) {
+  uint code = (0x2E74u >> (((p0.y > 0.0) ? 2u : 0u) + ((p1.y > 0.0) ? 4u : 0u) + ((p2.y > 0.0) ? 8u : 0u))) & 3u;
+  if (code == 0u) return;
+  float ay = p0.y - 2.0 * p1.y + p2.y, by = p0.y - p1.y;
+  float ax = p0.x - 2.0 * p1.x + p2.x, bx = p0.x - p1.x;
+  float t1, t2;
+  if (abs(ay) < 1e-5 * max(abs(by), 1e-30) || abs(ay) < 1e-12) {
+    t1 = p0.y / (2.0 * by);
+    t2 = t1;
+  } else {
+    float d = sqrt(max(by * by - ay * p0.y, 0.0));
+    t1 = (by - d) / ay;
+    t2 = (by + d) / ay;
+  }
+  float x1 = (ax * t1 - 2.0 * bx) * t1 + p0.x;
+  float x2 = (ax * t2 - 2.0 * bx) * t2 + p0.x;
+  if ((code & 1u) != 0u) {
+    cov += clamp(x1 * ppe + 0.5, 0.0, 1.0);
+    wgt = max(wgt, clamp(1.0 - abs(x1 * ppe) * 2.0, 0.0, 1.0));
+  }
+  if (code > 1u) {
+    cov -= clamp(x2 * ppe + 0.5, 0.0, 1.0);
+    wgt = max(wgt, clamp(1.0 - abs(x2 * ppe) * 2.0, 0.0, 1.0));
+  }
+}
+
+float fold(float w, bool evenOdd) { return evenOdd ? 1.0 - abs(mod(w, 2.0) - 1.0) : min(abs(w), 1.0); }
+
+float coverage(int start, vec2 p, vec2 ppe, bool evenOdd) {
+  vec4 h = texel(start);
+  vec4 b = texel(start + 1);
+  int nH = int(h.x), nV = int(h.y);
+  vec2 size = max(b.zw - b.xy, vec2(1e-20));
+  int bh = clamp(int(floor((p.y - b.y) / size.y * float(nH))), 0, nH - 1);
+  int bv = clamp(int(floor((p.x - b.x) / size.x * float(nV))), 0, nV - 1);
+  vec4 dh = texel(start + 2 + bh);
+  vec4 dv = texel(start + 2 + nH + bv);
+  float hc = 0.0, hw = 0.0, vc = 0.0, vw = 0.0;
+  int first = int(dh.x), count = int(dh.y);
+  for (int k = 0; k < count; k++) {
+    int ci = int(texel(first + (k >> 2))[k & 3]);
+    vec4 a = texel(ci), c = texel(ci + 1);
+    if ((c.z - p.x) * ppe.x < -0.5) break;
+    crossX(a.xy - p, a.zw - p, c.xy - p, ppe.x, hc, hw);
+  }
+  first = int(dv.x);
+  count = int(dv.y);
+  for (int k = 0; k < count; k++) {
+    int ci = int(texel(first + (k >> 2))[k & 3]);
+    vec4 a = texel(ci), c = texel(ci + 1);
+    if ((c.w - p.y) * ppe.y < -0.5) break;
+    crossX((a.xy - p).yx, (a.zw - p).yx, (c.xy - p).yx, ppe.y, vc, vw);
+  }
+  float ch = fold(hc, evenOdd), cv = fold(vc, evenOdd);
+  return clamp(max((ch * hw + cv * vw) / max(hw + vw, 1.0 / 65536.0), min(ch, cv)), 0.0, 1.0);
+}
+
+)";
+
+// A clip, anti-aliased, at canvas device px `dp` (pixel centres): what a clipping frame lets through.
+// - The clip rectangle (x0 y0 x1 y1, canvas device px, fractional): the pixel's area inside it (a box filter), so a
+//   frame's square edge clips at its exact place, partly covering the pixels it crosses.
+// - The clip shape (slots 12–15; slot 12.w = 0: none): a turned or smoothed frame's, or a second rounded one —
+//   slot 12 = (a, b, c, kind), 13 = (d, e, f, first curve texel): canvas device px → the shape's own space
+//   (x = a·dp.x + b·dp.y + c, y = d·dp.x + e·dp.y + f); kind 1 = a rounded box (14 = size, 15 = radii tl tr br bl),
+//   2 = a path (NONZERO), 3 = a path (ODD). Its coverage multiplies.
+inline constexpr const char* kClipFunctions = R"(
+float clipRectCoverage(vec2 dp, vec4 r) {
+  vec2 lo = max(dp - 0.5, r.xy), hi = min(dp + 0.5, r.zw);
+  vec2 c = clamp(hi - lo, 0.0, 1.0);
+  return c.x * c.y;
+}
+float sdClipBox(vec2 p, vec2 b, vec4 r) {
+  float rr = p.x > 0.0 ? (p.y > 0.0 ? r.z : r.y) : (p.y > 0.0 ? r.w : r.x);
+  rr = clamp(rr, 0.0, min(b.x, b.y));
+  vec2 q = abs(p) - b + rr;
+  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - rr;
+}
+float shapeClip(vec2 dp) {
+  vec4 A = u_v[12];
+  if (A.w < 0.5) return 1.0;
+  vec4 B = u_v[13];
+  vec2 l = vec2(dot(A.xyz, vec3(dp, 1.0)), dot(B.xyz, vec3(dp, 1.0)));
+  if (A.w < 1.5) {
+    float px = max(0.5 * (length(vec2(A.x, B.x)) + length(vec2(A.y, B.y))), 1e-6);
+    vec2 h = u_v[14].xy * 0.5;
+    return clamp(0.5 - sdClipBox(l - h, h, u_v[15]) / px, 0.0, 1.0);
+  }
+  vec2 ppe = 1.0 / max(vec2(length(A.xy), length(B.xy)), vec2(1e-12));
+  return coverage(int(B.w + 0.5), l, ppe, A.w > 2.5);
+}
+)";
+
 // ---- Draw: shapes, paths and glyphs in one program ------------------------------
 // One instanced quad per shape, path or glyph (6 vertices from gl_VertexID; render/DrawInstance.h), so a run of
 // them batches into one draw whatever they are (an uber shader branching per instance, docs/engine.md §6.10):
@@ -100,7 +199,7 @@ layout(location = 6) in vec4 a_paint1;
 layout(location = 7) in vec4 a_clip;
 layout(location = 8) in vec4 a_round;
 layout(location = 9) in vec4 a_radii;
-uniform vec4 u_v[12];
+uniform vec4 u_v[16];
 out vec2 v_local;
 flat out vec4 v_origin;
 flat out vec4 v_box;
@@ -156,10 +255,11 @@ flat in vec4 v_paint1;
 flat in vec4 v_clip;
 flat in vec4 v_round;
 flat in vec4 v_radii;
-uniform vec4 u_v[12];
+uniform vec4 u_v[16];
 uniform int u_stencilPass;
 uniform sampler2D u_t0;
 out vec4 o_color;
+#define CURVES u_t0
 )";
 
 inline constexpr const char* kDrawFragmentBody = R"(
@@ -257,65 +357,6 @@ void shapeMain() {
   o_color = c;
 }
 
-vec4 texel(int i) { return texelFetch(u_t0, ivec2(i & 2047, i >> 11), 0); }
-
-void crossX(vec2 p0, vec2 p1, vec2 p2, float ppe, inout float cov, inout float wgt) {
-  uint code = (0x2E74u >> (((p0.y > 0.0) ? 2u : 0u) + ((p1.y > 0.0) ? 4u : 0u) + ((p2.y > 0.0) ? 8u : 0u))) & 3u;
-  if (code == 0u) return;
-  float ay = p0.y - 2.0 * p1.y + p2.y, by = p0.y - p1.y;
-  float ax = p0.x - 2.0 * p1.x + p2.x, bx = p0.x - p1.x;
-  float t1, t2;
-  if (abs(ay) < 1e-5 * max(abs(by), 1e-30) || abs(ay) < 1e-12) {
-    t1 = p0.y / (2.0 * by);
-    t2 = t1;
-  } else {
-    float d = sqrt(max(by * by - ay * p0.y, 0.0));
-    t1 = (by - d) / ay;
-    t2 = (by + d) / ay;
-  }
-  float x1 = (ax * t1 - 2.0 * bx) * t1 + p0.x;
-  float x2 = (ax * t2 - 2.0 * bx) * t2 + p0.x;
-  if ((code & 1u) != 0u) {
-    cov += clamp(x1 * ppe + 0.5, 0.0, 1.0);
-    wgt = max(wgt, clamp(1.0 - abs(x1 * ppe) * 2.0, 0.0, 1.0));
-  }
-  if (code > 1u) {
-    cov -= clamp(x2 * ppe + 0.5, 0.0, 1.0);
-    wgt = max(wgt, clamp(1.0 - abs(x2 * ppe) * 2.0, 0.0, 1.0));
-  }
-}
-
-float fold(float w, bool evenOdd) { return evenOdd ? 1.0 - abs(mod(w, 2.0) - 1.0) : min(abs(w), 1.0); }
-
-float coverage(int start, vec2 p, vec2 ppe, bool evenOdd) {
-  vec4 h = texel(start);
-  vec4 b = texel(start + 1);
-  int nH = int(h.x), nV = int(h.y);
-  vec2 size = max(b.zw - b.xy, vec2(1e-20));
-  int bh = clamp(int(floor((p.y - b.y) / size.y * float(nH))), 0, nH - 1);
-  int bv = clamp(int(floor((p.x - b.x) / size.x * float(nV))), 0, nV - 1);
-  vec4 dh = texel(start + 2 + bh);
-  vec4 dv = texel(start + 2 + nH + bv);
-  float hc = 0.0, hw = 0.0, vc = 0.0, vw = 0.0;
-  int first = int(dh.x), count = int(dh.y);
-  for (int k = 0; k < count; k++) {
-    int ci = int(texel(first + (k >> 2))[k & 3]);
-    vec4 a = texel(ci), c = texel(ci + 1);
-    if ((c.z - p.x) * ppe.x < -0.5) break;
-    crossX(a.xy - p, a.zw - p, c.xy - p, ppe.x, hc, hw);
-  }
-  first = int(dv.x);
-  count = int(dv.y);
-  for (int k = 0; k < count; k++) {
-    int ci = int(texel(first + (k >> 2))[k & 3]);
-    vec4 a = texel(ci), c = texel(ci + 1);
-    if ((c.w - p.y) * ppe.y < -0.5) break;
-    crossX((a.xy - p).yx, (a.zw - p).yx, (c.xy - p).yx, ppe.y, vc, vw);
-  }
-  float ch = fold(hc, evenOdd), cv = fold(vc, evenOdd);
-  return clamp(max((ch * hw + cv * vw) / max(hw + vw, 1.0 / 65536.0), min(ch, cv)), 0.0, 1.0);
-}
-
 void pathMain() {
   vec2 dx = dFdx(v_local), dy = dFdy(v_local);
   vec2 ppe = 1.0 / max(vec2(length(vec2(dx.x, dy.x)), length(vec2(dx.y, dy.y))), vec2(1e-12));
@@ -345,8 +386,9 @@ float roundClip(vec2 dp) {
 
 void main() {
   vec2 dp = vec2(gl_FragCoord.x, u_v[5].z - gl_FragCoord.y) + u_v[5].xy;
-  if (dp.x < v_clip.x || dp.y < v_clip.y || dp.x >= v_clip.z || dp.y >= v_clip.w) discard;
-  float clipCoverage = roundClip(dp);
+  float clipCoverage = clipRectCoverage(dp, v_clip);
+  if (clipCoverage <= 0.0) discard;
+  clipCoverage *= roundClip(dp) * shapeClip(dp);
   if (clipCoverage <= 0.0 || (u_stencilPass == 1 && clipCoverage < 0.5)) discard;
   if (int(v_geom.z + 0.5) == 4) pathMain();
   else shapeMain();
@@ -362,7 +404,7 @@ void main() {
 // the blurred alpha behind, knocked out by the node's alpha), 4 inner shadow (colour × the node's alpha × (1 −
 // the blurred alpha)). Blend modes other than NORMAL read the backdrop and write the result (Blend::Replace).
 inline constexpr const char* kCompositeVertex = R"(#version 300 es
-uniform vec4 u_v[12];
+uniform vec4 u_v[16];
 out vec2 v_dev;
 void main() {
   int id = gl_VertexID;
@@ -373,14 +415,21 @@ void main() {
 }
 )";
 
-inline constexpr const char* kCompositeFragment = R"(#version 300 es
+inline constexpr const char* kCompositeFragmentHead = R"(#version 300 es
 precision highp float;
+precision highp int;
+precision highp sampler2D;
 in vec2 v_dev;
-uniform vec4 u_v[12];
+uniform vec4 u_v[16];
 uniform sampler2D u_t0;
 uniform sampler2D u_t1;
 uniform sampler2D u_t2;
+uniform sampler2D u_t3;
 out vec4 o_color;
+#define CURVES u_t3
+)";
+
+inline constexpr const char* kCompositeFragmentBody = R"(
 
 vec4 at(sampler2D t, vec4 map, vec2 d) {
   vec2 sz = vec2(textureSize(t, 0));
@@ -432,7 +481,8 @@ vec3 blendColor(int m, vec3 b, vec3 s) {
   return s;
 }
 
-// The rounded clip the layer lands in (slots 9: x0 y0 x1 y1, 10: radii; canvas device px; x1 < x0: none).
+// The rounded clip the layer lands in (slots 9: x0 y0 x1 y1, 10: radii; canvas device px; x1 < x0: none); slot 11:
+// the clip rectangle (x1 ≤ x0: none), 12–15: the clip shape (kClipFunctions).
 float sdBox4(vec2 p, vec2 b, vec4 r) {
   float rr = p.x > 0.0 ? (p.y > 0.0 ? r.z : r.y) : (p.y > 0.0 ? r.w : r.x);
   rr = clamp(rr, 0.0, min(b.x, b.y));
@@ -451,7 +501,9 @@ void main() {
   int mode = int(params.z + 0.5);
   int blend = int(params.y + 0.5);
   vec4 c;
-  float cov = roundClip(v_dev);
+  float cov = u_v[11].z > u_v[11].x ? clipRectCoverage(v_dev, u_v[11]) : 1.0;
+  if (cov <= 0.0) discard;
+  cov *= roundClip(v_dev) * shapeClip(v_dev);
   if (cov <= 0.0) discard;
   if (mode == 3) {
     float a = at(u_t0, u_v[3], v_dev - u_v[8].xy).a;
@@ -499,7 +551,7 @@ void main() {
 
 inline constexpr const char* kBlurFragment = R"(#version 300 es
 precision highp float;
-uniform vec4 u_v[12];
+uniform vec4 u_v[16];
 uniform sampler2D u_t0;
 out vec4 o_color;
 void main() {

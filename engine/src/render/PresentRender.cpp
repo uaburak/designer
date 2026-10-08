@@ -51,6 +51,10 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
       int x1 = static_cast<int>(std::ceil(item.clipCss.right() * sx)), y1 = static_cast<int>(std::ceil(item.clipCss.bottom() * sy));
       scissorEnabled_ = true;
       scissor_ = {x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0)};
+      // The screen's edge, exact (anti-aliased); a rounded screen's own clip does it when it has corners.
+      clipRect_[0] = static_cast<float>(item.clipCss.x * sx), clipRect_[1] = static_cast<float>(item.clipCss.y * sy);
+      clipRect_[2] = static_cast<float>(item.clipCss.right() * sx), clipRect_[3] = static_cast<float>(item.clipCss.bottom() * sy);
+      if (item.clipRadius > 0) clipRect_[0] = clipRect_[1] = -1e9f, clipRect_[2] = clipRect_[3] = 1e9f;
       if (item.clipRadius > 0) {
         // A device's screen: its rounded corners (the same anti-aliased rounded clip as a frame's).
         round_.on = true;

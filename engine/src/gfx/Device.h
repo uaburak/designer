@@ -88,7 +88,7 @@ struct PassDesc {
 
 // Inline uniforms: vec4 slots. Slots 0–1 map draw space to clip space (rows m00 m01 m02 / m10 m11 m12);
 // the others mean what each shader says (gfx/gl/Shaders.h).
-inline constexpr int kUniformSlots = 12;
+inline constexpr int kUniformSlots = 16;
 
 struct DrawCall {
   PipelineId pipeline = 0;
@@ -99,9 +99,10 @@ struct DrawCall {
   bool scissorEnabled = false;
   IRect scissor;
   uint8_t stencilRef = 0;
-  // Shape: 0 curves (paths), 1 gradient ramps, 2 image or backdrop. Composite: 0 source, 1 mask /
-  // node alpha, 2 backdrop. Blur: 0 source.
-  TextureId textures[3] = {0, 0, 0};
+  // Shape: 0 curves (paths and clip paths), 1 gradient ramps, 2 image or backdrop, 3 unused. Composite: 0 source,
+  // 1 mask / node alpha, 2 backdrop, 3 curves (a clip path). Blur: 0 source.
+  static constexpr int kTextures = 4;
+  TextureId textures[kTextures] = {0, 0, 0, 0};
 };
 
 // A render pass never samples the texture it renders into: WebGPU rejects the whole command buffer ("includes
@@ -110,7 +111,7 @@ struct DrawCall {
 // draws into another target. The slot of `call`'s textures that is `attachment`, or −1.
 inline int samplesAttachment(const DrawCall& call, TextureId attachment) {
   if (!attachment) return -1;
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < DrawCall::kTextures; i++)
     if (call.textures[i] == attachment) return i;
   return -1;
 }

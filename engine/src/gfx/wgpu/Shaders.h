@@ -2,7 +2,7 @@
 // draw the same pixels. Interim: translated by hand until tools/shadergen generates both from one source (Figma
 // keeps GLSL as the source and generates WGSL with naga, docs/research/figma/R10-webgpu.md).
 //
-// Uniforms: `u.v[0..11]` are gfx::DrawCall::uniforms (the GLSL `u_v[12]`); the device appends `u.v[12]` = (y sign,
+// Uniforms: `u.v[0..15]` are gfx::DrawCall::uniforms (the GLSL `u_v[16]`); the device appends `u.v[16]` = (y sign,
 // the framebuffer's height in px, stencil pass, 0). WebGPU's framebuffer y runs down where GL's runs up: offscreen
 // targets are drawn with clip y negated (y sign −1), so a target's rows sit in memory as GL leaves them (bottom row
 // first) and every texture read, copy and scissor means the same thing on both backends; the canvas is drawn
@@ -15,21 +15,125 @@ namespace eng::gfx::wgsl {
 inline constexpr const char* kCommon = R"(
 diagnostic(off, derivative_uniformity);
 
-struct Uniforms { v: array<vec4f, 13> };
+struct Uniforms { v: array<vec4f, 17> };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
 // GL's gl_FragCoord.xy (origin bottom left of the framebuffer) from WebGPU's position (origin top left).
 fn glFragCoord(p: vec4f) -> vec2f {
-  return vec2f(p.x, select(u.v[12].y - p.y, p.y, u.v[12].x < 0.0));
+  return vec2f(p.x, select(u.v[16].y - p.y, p.y, u.v[16].x < 0.0));
 }
 // GL's clip position from the draw's: y negated on offscreen targets (see the header).
 fn clipOut(x: f32, y: f32) -> vec4f {
-  return vec4f(x, y * u.v[12].x, 0.0, 1.0);
+  return vec4f(x, y * u.v[16].x, 0.0, 1.0);
 }
 fn quadCorner(id: u32) -> vec2f {
   return vec2f(select(0.0, 1.0, id == 1u || id == 2u || id == 4u), select(0.0, 1.0, id == 2u || id == 4u || id == 5u));
 }
 fn glMod(x: f32, y: f32) -> f32 { return x - y * floor(x / y); }
+)";
+
+
+// ---- Curves and clips, shared by Draw and Composite (gl/Shaders.h kCurveFunctions, kClipFunctions); CURVES is
+// replaced by the program's curve texture (Draw: t0, Composite: t3) ----
+inline constexpr const char* kCurveFunctions = R"(
+fn texel(i: i32) -> vec4f { return textureLoad(CURVES, vec2i(i & 2047, i >> 11u), 0); }
+
+fn crossX(p0: vec2f, p1: vec2f, p2: vec2f, ppe: f32, cov: ptr<function, f32>, wgt: ptr<function, f32>) {
+  let code = (0x2E74u >> (select(0u, 2u, p0.y > 0.0) + select(0u, 4u, p1.y > 0.0) + select(0u, 8u, p2.y > 0.0))) & 3u;
+  if (code == 0u) { return; }
+  let ay = p0.y - 2.0 * p1.y + p2.y;
+  let by = p0.y - p1.y;
+  let ax = p0.x - 2.0 * p1.x + p2.x;
+  let bx = p0.x - p1.x;
+  var t1v: f32;
+  var t2v: f32;
+  if (abs(ay) < 1e-5 * max(abs(by), 1e-30) || abs(ay) < 1e-12) {
+    t1v = p0.y / (2.0 * by);
+    t2v = t1v;
+  } else {
+    let d = sqrt(max(by * by - ay * p0.y, 0.0));
+    t1v = (by - d) / ay;
+    t2v = (by + d) / ay;
+  }
+  let x1 = (ax * t1v - 2.0 * bx) * t1v + p0.x;
+  let x2 = (ax * t2v - 2.0 * bx) * t2v + p0.x;
+  if ((code & 1u) != 0u) {
+    *cov += clamp(x1 * ppe + 0.5, 0.0, 1.0);
+    *wgt = max(*wgt, clamp(1.0 - abs(x1 * ppe) * 2.0, 0.0, 1.0));
+  }
+  if (code > 1u) {
+    *cov -= clamp(x2 * ppe + 0.5, 0.0, 1.0);
+    *wgt = max(*wgt, clamp(1.0 - abs(x2 * ppe) * 2.0, 0.0, 1.0));
+  }
+}
+
+fn fold(w: f32, evenOdd: bool) -> f32 { return select(min(abs(w), 1.0), 1.0 - abs(glMod(w, 2.0) - 1.0), evenOdd); }
+
+fn coverage(start: i32, p: vec2f, ppe: vec2f, evenOdd: bool) -> f32 {
+  let h = texel(start);
+  let b = texel(start + 1);
+  let nH = i32(h.x);
+  let nV = i32(h.y);
+  let size = max(b.zw - b.xy, vec2f(1e-20));
+  let bh = clamp(i32(floor((p.y - b.y) / size.y * f32(nH))), 0, nH - 1);
+  let bv = clamp(i32(floor((p.x - b.x) / size.x * f32(nV))), 0, nV - 1);
+  let dh = texel(start + 2 + bh);
+  let dv = texel(start + 2 + nH + bv);
+  var hc = 0.0;
+  var hw = 0.0;
+  var vc = 0.0;
+  var vw = 0.0;
+  var first = i32(dh.x);
+  var count = i32(dh.y);
+  for (var k = 0; k < count; k++) {
+    let ci = i32(texel(first + (k >> 2u))[k & 3]);
+    let a = texel(ci);
+    let c = texel(ci + 1);
+    if ((c.z - p.x) * ppe.x < -0.5) { break; }
+    crossX(a.xy - p, a.zw - p, c.xy - p, ppe.x, &hc, &hw);
+  }
+  first = i32(dv.x);
+  count = i32(dv.y);
+  for (var k = 0; k < count; k++) {
+    let ci = i32(texel(first + (k >> 2u))[k & 3]);
+    let a = texel(ci);
+    let c = texel(ci + 1);
+    if ((c.w - p.y) * ppe.y < -0.5) { break; }
+    crossX((a.xy - p).yx, (a.zw - p).yx, (c.xy - p).yx, ppe.y, &vc, &vw);
+  }
+  let ch = fold(hc, evenOdd);
+  let cv = fold(vc, evenOdd);
+  return clamp(max((ch * hw + cv * vw) / max(hw + vw, 1.0 / 65536.0), min(ch, cv)), 0.0, 1.0);
+}
+
+)";
+
+inline constexpr const char* kClipFunctions = R"(
+fn clipRectCoverage(dp: vec2f, r: vec4f) -> f32 {
+  let lo = max(dp - 0.5, r.xy);
+  let hi = min(dp + 0.5, r.zw);
+  let c = clamp(hi - lo, vec2f(0.0), vec2f(1.0));
+  return c.x * c.y;
+}
+fn sdClipBox(p: vec2f, b: vec2f, r: vec4f) -> f32 {
+  var rr = select(select(r.x, r.w, p.y > 0.0), select(r.y, r.z, p.y > 0.0), p.x > 0.0);
+  rr = clamp(rr, 0.0, min(b.x, b.y));
+  let q = abs(p) - b + rr;
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2f(0.0))) - rr;
+}
+fn shapeClip(dp: vec2f) -> f32 {
+  let A = u.v[12];
+  if (A.w < 0.5) { return 1.0; }
+  let B = u.v[13];
+  let l = vec2f(dot(A.xyz, vec3f(dp, 1.0)), dot(B.xyz, vec3f(dp, 1.0)));
+  if (A.w < 1.5) {
+    let px = max(0.5 * (length(vec2f(A.x, B.x)) + length(vec2f(A.y, B.y))), 1e-6);
+    let h = u.v[14].xy * 0.5;
+    return clamp(0.5 - sdClipBox(l - h, h, u.v[15]) / px, 0.0, 1.0);
+  }
+  let ppe = 1.0 / max(vec2f(length(A.xy), length(B.xy)), vec2f(1e-12));
+  return coverage(i32(B.w + 0.5), l, ppe, A.w > 2.5);
+}
 )";
 
 // ---- Draw: shapes, paths and glyphs in one program (gl/Shaders.h kDrawVertex, kPaintFunctions, kDrawFragment*) ----
@@ -113,7 +217,7 @@ var<private> v_radii: vec4f;
 var<private> fragCoord: vec2f;
 var<private> o_color: vec4f;
 
-fn stencilPass() -> bool { return u.v[12].z > 0.5; }
+fn stencilPass() -> bool { return u.v[16].z > 0.5; }
 
 // ---- The paint (kPaintFunctions) ----
 fn rampAt(t: f32, row: f32) -> vec4f {
@@ -273,76 +377,6 @@ fn shapeMain() -> bool {
 }
 
 // ---- Paths: coverage from quadratic curves ----
-fn texel(i: i32) -> vec4f { return textureLoad(t0, vec2i(i & 2047, i >> 11u), 0); }
-
-fn crossX(p0: vec2f, p1: vec2f, p2: vec2f, ppe: f32, cov: ptr<function, f32>, wgt: ptr<function, f32>) {
-  let code = (0x2E74u >> (select(0u, 2u, p0.y > 0.0) + select(0u, 4u, p1.y > 0.0) + select(0u, 8u, p2.y > 0.0))) & 3u;
-  if (code == 0u) { return; }
-  let ay = p0.y - 2.0 * p1.y + p2.y;
-  let by = p0.y - p1.y;
-  let ax = p0.x - 2.0 * p1.x + p2.x;
-  let bx = p0.x - p1.x;
-  var t1v: f32;
-  var t2v: f32;
-  if (abs(ay) < 1e-5 * max(abs(by), 1e-30) || abs(ay) < 1e-12) {
-    t1v = p0.y / (2.0 * by);
-    t2v = t1v;
-  } else {
-    let d = sqrt(max(by * by - ay * p0.y, 0.0));
-    t1v = (by - d) / ay;
-    t2v = (by + d) / ay;
-  }
-  let x1 = (ax * t1v - 2.0 * bx) * t1v + p0.x;
-  let x2 = (ax * t2v - 2.0 * bx) * t2v + p0.x;
-  if ((code & 1u) != 0u) {
-    *cov += clamp(x1 * ppe + 0.5, 0.0, 1.0);
-    *wgt = max(*wgt, clamp(1.0 - abs(x1 * ppe) * 2.0, 0.0, 1.0));
-  }
-  if (code > 1u) {
-    *cov -= clamp(x2 * ppe + 0.5, 0.0, 1.0);
-    *wgt = max(*wgt, clamp(1.0 - abs(x2 * ppe) * 2.0, 0.0, 1.0));
-  }
-}
-
-fn fold(w: f32, evenOdd: bool) -> f32 { return select(min(abs(w), 1.0), 1.0 - abs(glMod(w, 2.0) - 1.0), evenOdd); }
-
-fn coverage(start: i32, p: vec2f, ppe: vec2f, evenOdd: bool) -> f32 {
-  let h = texel(start);
-  let b = texel(start + 1);
-  let nH = i32(h.x);
-  let nV = i32(h.y);
-  let size = max(b.zw - b.xy, vec2f(1e-20));
-  let bh = clamp(i32(floor((p.y - b.y) / size.y * f32(nH))), 0, nH - 1);
-  let bv = clamp(i32(floor((p.x - b.x) / size.x * f32(nV))), 0, nV - 1);
-  let dh = texel(start + 2 + bh);
-  let dv = texel(start + 2 + nH + bv);
-  var hc = 0.0;
-  var hw = 0.0;
-  var vc = 0.0;
-  var vw = 0.0;
-  var first = i32(dh.x);
-  var count = i32(dh.y);
-  for (var k = 0; k < count; k++) {
-    let ci = i32(texel(first + (k >> 2u))[k & 3]);
-    let a = texel(ci);
-    let c = texel(ci + 1);
-    if ((c.z - p.x) * ppe.x < -0.5) { break; }
-    crossX(a.xy - p, a.zw - p, c.xy - p, ppe.x, &hc, &hw);
-  }
-  first = i32(dv.x);
-  count = i32(dv.y);
-  for (var k = 0; k < count; k++) {
-    let ci = i32(texel(first + (k >> 2u))[k & 3]);
-    let a = texel(ci);
-    let c = texel(ci + 1);
-    if ((c.w - p.y) * ppe.y < -0.5) { break; }
-    crossX((a.xy - p).yx, (a.zw - p).yx, (c.xy - p).yx, ppe.y, &vc, &vw);
-  }
-  let ch = fold(hc, evenOdd);
-  let cv = fold(vc, evenOdd);
-  return clamp(max((ch * hw + cv * vw) / max(hw + vw, 1.0 / 65536.0), min(ch, cv)), 0.0, 1.0);
-}
-
 fn pathMain() -> bool {
   let dx = dpdx(v_local);
   let dy = dpdy(v_local);
@@ -384,8 +418,9 @@ fn roundClip(dp: vec2f) -> f32 {
   v_radii = vin.radii;
   fragCoord = glFragCoord(vin.pos);
   let dp = vec2f(fragCoord.x, u.v[5].z - fragCoord.y) + u.v[5].xy;
-  if (dp.x < v_clip.x || dp.y < v_clip.y || dp.x >= v_clip.z || dp.y >= v_clip.w) { discard; }
-  let clipCoverage = roundClip(dp);
+  var clipCoverage = clipRectCoverage(dp, v_clip);
+  if (clipCoverage <= 0.0) { discard; }
+  clipCoverage *= roundClip(dp) * shapeClip(dp);
   if (clipCoverage <= 0.0 || (stencilPass() && clipCoverage < 0.5)) { discard; }
   var kept: bool;
   if (i32(v_geom.z + 0.5) == 4) { kept = pathMain(); }
@@ -403,6 +438,7 @@ inline constexpr const char* kComposite = R"(
 @group(1) @binding(3) var s1: sampler;
 @group(1) @binding(4) var t2: texture_2d<f32>;
 @group(1) @binding(5) var s2: sampler;
+@group(1) @binding(6) var t3: texture_2d<f32>;
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -510,7 +546,9 @@ fn roundClip(d: vec2f) -> f32 {
   let mode = i32(params.z + 0.5);
   let blend = i32(params.y + 0.5);
   var c: vec4f;
-  let cov = roundClip(v_dev);
+  var cov = select(1.0, clipRectCoverage(v_dev, u.v[11]), u.v[11].z > u.v[11].x);
+  if (cov <= 0.0) { discard; }
+  cov *= roundClip(v_dev) * shapeClip(v_dev);
   if (cov <= 0.0) { discard; }
   if (mode == 3) {
     var a = at0(u.v[3], v_dev - u.v[8].xy).a;

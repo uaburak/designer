@@ -35,8 +35,10 @@ WGPUStringView sv(const char* s) { return WGPUStringView{s, WGPU_STRLEN}; }
 enum Layout : int { kLayoutDraw = 0, kLayoutComposite = 1, kLayoutBlur = 2, kLayoutUtility = 3, kLayouts = 4 };
 
 // Per draw: the 12 vec4 slots of DrawCall::uniforms + the device's (y sign, framebuffer height, stencil pass, 0).
-constexpr uint32_t kUniformBytes = 13 * 16;
-constexpr uint32_t kUniformStride = 256;            // minUniformBufferOffsetAlignment (WebGPU's default limit)
+// The draw's uniform slots plus the device's own (y sign, framebuffer height, stencil pass).
+constexpr int kDeviceSlots = kUniformSlots + 1;
+constexpr uint32_t kUniformBytes = kDeviceSlots * 16;
+constexpr uint32_t kUniformStride = 512;            // a multiple of minUniformBufferOffsetAlignment (256) ≥ kUniformBytes
 constexpr uint32_t kChunkBytes = 64 * 1024;         // 256 draws per uniform buffer
 constexpr uint32_t kInstanceStride = 10 * 4 * 4;    // vec4s per instance (render/DrawInstance.h)
 
@@ -263,12 +265,12 @@ class WebGPUDevice final : public Device {
     }
     // Uniforms: one 256-byte slot per distinct set, written with the frame's other uniforms at submit (Figma's
     // encodeDraw / submit: one upload, draws at offsets into it).
-    float u[13][4];
+    float u[kDeviceSlots][4];
     std::memcpy(u, call.uniforms, sizeof call.uniforms);
-    u[12][0] = onCanvas() ? 1.0f : -1.0f;
-    u[12][1] = static_cast<float>(attachH_);
-    u[12][2] = p.colorMask == ColorMask::None ? 1.0f : 0.0f;
-    u[12][3] = 0;
+    u[kUniformSlots][0] = onCanvas() ? 1.0f : -1.0f;
+    u[kUniformSlots][1] = static_cast<float>(attachH_);
+    u[kUniformSlots][2] = p.colorMask == ColorMask::None ? 1.0f : 0.0f;
+    u[kUniformSlots][3] = 0;
     bindUniforms(u);
     bindTextures(static_cast<int>(p.shader), call.textures);
     if (instanced) {
@@ -392,7 +394,7 @@ class WebGPUDevice final : public Device {
     }
     // The canvas stores its rows top first: a draw turns them as GL's copy from the canvas leaves them.
     if (!acquireCanvas()) return;
-    float u[13][4] = {};
+    float u[kDeviceSlots][4] = {};
     u[0][0] = static_cast<float>(rect.x);
     u[0][1] = static_cast<float>(canvasH_ - 1 - glY);
     uint32_t offset = 0;
@@ -479,7 +481,7 @@ class WebGPUDevice final : public Device {
       WGPURenderPassEncoder enc = wgpuCommandEncoderBeginRenderPass(encoder_, &rp);
       wgpuRenderPassEncoderSetPipeline(enc, utilityPipelines_[0]);
       uint32_t offset = 0;
-      float u[13][4] = {};
+      float u[kDeviceSlots][4] = {};
       Chunk& chunk = uniformSlot(u, offset);
       wgpuRenderPassEncoderSetBindGroup(enc, 0, chunk.group, 1, &offset);
       wgpuRenderPassEncoderSetBindGroup(enc, 1, group, 0, nullptr);
@@ -544,9 +546,9 @@ class WebGPUDevice final : public Device {
   };
   struct GroupKey {
     int layout;
-    uint64_t serials[3];
+    uint64_t serials[DrawCall::kTextures];
     bool operator==(const GroupKey& o) const {
-      return layout == o.layout && serials[0] == o.serials[0] && serials[1] == o.serials[1] && serials[2] == o.serials[2];
+      return layout == o.layout && std::equal(std::begin(serials), std::end(serials), std::begin(o.serials));
     }
   };
   struct GroupKeyHash {
@@ -627,7 +629,7 @@ class WebGPUDevice final : public Device {
     // Bind groups naming it go with it.
     for (auto it = bindGroups_.begin(); it != bindGroups_.end();) {
       const GroupKey& k = it->first;
-      if (k.serials[0] == t.serial || k.serials[1] == t.serial || k.serials[2] == t.serial) {
+      if (std::find(std::begin(k.serials), std::end(k.serials), t.serial) != std::end(k.serials)) {
         if (st_.textures == it->second) st_.textures = nullptr;
         wgpuBindGroupRelease(it->second);
         it = bindGroups_.erase(it);
@@ -791,7 +793,7 @@ class WebGPUDevice final : public Device {
   }
 
   // A uniform slot holding `u` (the last one again when nothing changed).
-  Chunk& uniformSlot(const float (&u)[13][4], uint32_t& offset) {
+  Chunk& uniformSlot(const float (&u)[kDeviceSlots][4], uint32_t& offset) {
     if (lastUniformValid_ && std::memcmp(lastUniform_, u, kUniformBytes) == 0) {
       offset = lastOffset_;
       return chunks_[lastChunk_];
@@ -827,7 +829,7 @@ class WebGPUDevice final : public Device {
     return c;
   }
 
-  void bindUniforms(const float (&u)[13][4]) {
+  void bindUniforms(const float (&u)[kDeviceSlots][4]) {
     uint32_t offset = 0;
     Chunk& c = uniformSlot(u, offset);
     if (st_.uniforms == c.group && st_.uniformOffset == offset) return;
@@ -837,10 +839,10 @@ class WebGPUDevice final : public Device {
   }
 
   // The draw's textures as bind group 1 (cached by the textures' serials: Figma's bind group reuse).
-  void bindTextures(int layout, const TextureId (&ids)[3]) {
-    const Texture* tex[3];
-    GroupKey key{layout, {0, 0, 0}};
-    for (int i = 0; i < 3; i++) {
+  void bindTextures(int layout, const TextureId (&ids)[DrawCall::kTextures]) {
+    const Texture* tex[DrawCall::kTextures];
+    GroupKey key{layout, {0, 0, 0, 0}};
+    for (int i = 0; i < DrawCall::kTextures; i++) {
       TextureId id = ids[i];
       tex[i] = id && id < textures_.size() && textures_[id].gpu ? &textures_[id] : &dummy_;
       key.serials[i] = tex[i]->serial;
@@ -850,7 +852,7 @@ class WebGPUDevice final : public Device {
     if (it != bindGroups_.end()) {
       group = it->second;
     } else {
-      WGPUBindGroupEntry e[6];
+      WGPUBindGroupEntry e[8];
       size_t n = 0;
       auto texture = [&](uint32_t binding, const Texture* t) {
         e[n] = WGPU_BIND_GROUP_ENTRY_INIT;
@@ -875,6 +877,7 @@ class WebGPUDevice final : public Device {
           texture(i * 2, tex[i]);
           sampler(i * 2 + 1, tex[i]);
         }
+        texture(6, tex[3]);  // the curves (a clip path), read with textureLoad
       } else {
         texture(0, tex[0]);
         sampler(1, tex[0]);
@@ -917,8 +920,14 @@ class WebGPUDevice final : public Device {
 
   bool buildShaders() {
     using namespace wgsl;
-    modules_[0] = module(std::string(kCommon) + kDraw, "draw");
-    modules_[1] = module(std::string(kCommon) + kComposite, "composite");
+    // The curve and clip functions read the program's curve texture: Draw's t0, Composite's t3.
+    auto curves = [](const char* texture) {
+      std::string code = std::string(kCurveFunctions) + kClipFunctions;
+      for (size_t at = code.find("CURVES"); at != std::string::npos; at = code.find("CURVES", at)) code.replace(at, 6, texture);
+      return code;
+    };
+    modules_[0] = module(std::string(kCommon) + kDraw + curves("t0"), "draw");
+    modules_[1] = module(std::string(kCommon) + kComposite + curves("t3"), "composite");
     modules_[2] = module(std::string(kCommon) + kBlur, "blur");
     modules_[3] = module(std::string(kCommon) + kUtility, "utility");
     for (WGPUShaderModule m : modules_)
@@ -936,7 +945,7 @@ class WebGPUDevice final : public Device {
     uniformLayout_ = wgpuDeviceCreateBindGroupLayout(device_, &ud);
     // Group 1: textures and samplers.
     auto layout = [&](std::initializer_list<int> kinds) {  // 0 filterable texture, 1 unfilterable texture, 2 sampler
-      WGPUBindGroupLayoutEntry e[6];
+      WGPUBindGroupLayoutEntry e[8];
       size_t n = 0;
       for (int kind : kinds) {
         e[n] = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -956,7 +965,7 @@ class WebGPUDevice final : public Device {
       return wgpuDeviceCreateBindGroupLayout(device_, &d);
     };
     textureLayouts_[kLayoutDraw] = layout({1, 0, 2, 0, 2});
-    textureLayouts_[kLayoutComposite] = layout({0, 2, 0, 2, 0, 2});
+    textureLayouts_[kLayoutComposite] = layout({0, 2, 0, 2, 0, 2, 1});
     textureLayouts_[kLayoutBlur] = layout({0, 2});
     textureLayouts_[kLayoutUtility] = layout({0, 2});
     for (int i = 0; i < kLayouts; i++) {
@@ -1131,7 +1140,7 @@ class WebGPUDevice final : public Device {
 
   std::vector<Chunk> chunks_;
   size_t chunk_ = 0;
-  float lastUniform_[13][4] = {};
+  float lastUniform_[kDeviceSlots][4] = {};
   size_t lastChunk_ = 0;
   uint32_t lastOffset_ = 0;
   bool lastUniformValid_ = false;
