@@ -25,7 +25,7 @@ import type {
   WorkspaceEvent,
   WorkspaceRepository,
 } from "../shared/store/repositories";
-import { isFileKey, type FileKey, type FileMeta, type FolderId, type PreviewRecord, type VersionRecord } from "../shared/store/types";
+import { isFileKey, type FileKey, type FileMeta, type FolderId, type PreviewOptions, type PreviewRecord, type VersionRecord } from "../shared/store/types";
 import { inlineCompactor, type Compactor } from "./compactor";
 import { writeLocalCopy } from "./export/fig";
 import { prepareFigImport } from "./import/fig";
@@ -39,6 +39,9 @@ import { SchemaRegistry, currentMessage, readSnapshotFile } from "./local/snapsh
 import { versionDateLabel } from "./local/versions";
 import { LocalWorkspace, newMeta, workspaceDirs, type Log, type WorkspaceDirs } from "./local/workspace";
 import { loadSyncConfig, type SyncConfig } from "./sync/config";
+import type { StorageDriver } from "./sync/drivers";
+import { previewService, type ExportHtmlResult } from "./preview/previews";
+import { SerialQueue } from "./local/queue";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -55,6 +58,8 @@ export interface LocalStoreOptions {
   gcDelayMs?: number | null;
   /** DESIGNER_SEED=demo: .fig files imported into a "Samples" folder when the workspace has no files */
   seedFigs?: string[];
+  /** The preview viewer's built page (out/viewer/index.html), for "Export preview as HTML…" (docs/data.md §13) */
+  viewerTemplate?: string | null;
 }
 
 const defaultLog: Log = (level, message, detail) => {
@@ -104,6 +109,12 @@ export class LocalStore {
   private closed = false;
   /** Set while Firebase sync runs (sync/replicator.ts `startSync`) */
   replicator: { stop(): Promise<void> } | null = null;
+  /** Firebase Storage while sync runs (`startSync`): where previews are published (docs/data.md §13) */
+  previewStorage: StorageDriver | null = null;
+  /** The viewer's built page, for previews exported as HTML */
+  viewerTemplate: string | null = null;
+  /** Serializes previews.json */
+  readonly previewQueue = new SerialQueue();
 
   private constructor(
     readonly dirs: WorkspaceDirs,
@@ -161,6 +172,7 @@ export class LocalStore {
       ws.sizeOf = (k) => files.cachedSize(k);
       const sync = opts.userDataDir ? await loadSyncConfig(opts.userDataDir, log) : null;
       const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, sync, compactor, timers, hlc);
+      store.viewerTemplate = opts.viewerTemplate ?? null;
       // Background start-up work: sizes for the file list, version thinning, the first GC.
       void Promise.all([...ws.files.keys()].map((k) => files.sizeOf(k).catch(() => 0))).catch(() => {});
       void files.thinAll([...ws.files.keys()]).catch((e) => log("warn", "version thinning failed", e));
@@ -516,18 +528,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     diff: (lib, have) => s.libraries.diff(lib, have ?? []),
     watch: (listener) => s.libraryEvents.on(listener),
   };
-  const previews: PreviewService = {
-    list: async (fileKey) => {
-      const all = (await readJsonOrNull<PreviewRecord[]>(join(s.dirs.root, "previews.json"))) ?? [];
-      return fileKey ? all.filter((p) => p.fileKey === fileKey) : all;
-    },
-    publish: async () => {
-      throw new StoreError("offline", "Sharing previews needs Firebase sync, which isn't set up");
-    },
-    stop: async () => {
-      throw new StoreError("offline", "Sharing previews needs Firebase sync, which isn't set up");
-    },
-  };
+  const previews = previewsOf(s);
   const store: StoreAdmin = {
     shutdown: () => s.shutdown(),
     flushAll: () => s.flushAll(),
@@ -542,6 +543,21 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     collectGarbage: () => s.collectGarbage(),
   };
   return { workspace, files, blobs, libraries, previews, store };
+}
+
+/** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml`. */
+export function previewsOf(s: LocalStore): PreviewService & { exportHtml(fileKey: FileKey, input: { snapshot: Uint8Array; options?: Partial<PreviewOptions> }, path: string): Promise<ExportHtmlResult> } {
+  return previewService({
+    root: s.dirs.root,
+    tmpDir: s.dirs.tmp,
+    now: () => s.clock.now(),
+    fileName: (fileKey) => s.ws.getMeta(fileKey).name,
+    readBlob: (sha1) => s.blobs.get(sha1),
+    sync: s.sync,
+    storage: () => s.previewStorage,
+    viewerTemplate: s.viewerTemplate,
+    run: (fn) => s.previewQueue.run(fn),
+  });
 }
 
 /** In-process subscription: the backlog after `fromSeq`, then live changes, never a seq twice. */

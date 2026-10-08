@@ -53,7 +53,7 @@ export async function writeLocalCopy(input: {
 }
 
 /** Writes through the workspace's tmp/ when it is on the same volume as `path`, else next to `path`. */
-async function writeFileAtomically(tmpDir: string, path: string, data: Uint8Array): Promise<void> {
+export async function writeFileAtomically(tmpDir: string, path: string, data: Uint8Array): Promise<void> {
   const name = `.${randomBytes(6).toString("hex")}.tmp`;
   for (const dir of [tmpDir, dirname(path)]) {
     const tmp = join(dir, name);

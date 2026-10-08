@@ -392,6 +392,7 @@ export class StoreClient implements StoreApi {
     list: (fileKey) => this.call("previews.list", [fileKey]),
     publish: (fileKey, input) => this.call("previews.publish", [fileKey, input]),
     stop: (previewId) => this.call("previews.stop", [previewId]),
+    exportHtml: (fileKey, input, path) => this.call("previews.exportHtml", [fileKey, input, path]),
   };
 
   readonly store: StoreAdmin = {

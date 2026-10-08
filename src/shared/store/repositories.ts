@@ -173,12 +173,18 @@ export interface LibraryRegistry {
   watch(listener: (e: LibraryEvent) => void): Unsubscribe;
 }
 
-/** Not one of the four repositories: a store service that exists only once Firebase is configured (§13). */
+/**
+ * Not one of the four repositories: developer previews (§13). `snapshot` is the editor's derived kiwi Message
+ * (`encodeDocumentKiwi({derived: true})`); the store finds its pages, frames and images itself. `publish` / `stop` need
+ * Firebase (configured and sync on; else `offline`); `exportHtml` writes one self-contained HTML file and is main-only
+ * (main's Save dialog picks the path).
+ */
 export interface PreviewService {
   list(fileKey?: FileKey): Promise<PreviewRecord[]>;
-  /** Create or update in place */
-  publish(fileKey: FileKey, input: { snapshot: Uint8Array; blobRefs: string[]; options: PreviewOptions }): Promise<PreviewRecord>;
+  /** Create or update in place (the file keeps its previewId and link) */
+  publish(fileKey: FileKey, input: { snapshot: Uint8Array; options: PreviewOptions; blobRefs?: string[] }): Promise<PreviewRecord>;
   stop(previewId: string): Promise<void>;
+  exportHtml(fileKey: FileKey, input: { snapshot: Uint8Array; options?: Partial<PreviewOptions> }, path: string): Promise<{ path: string; bytes: number; images: number }>;
 }
 
 /** `store.*`: process-level calls, main only. */

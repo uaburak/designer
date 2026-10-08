@@ -93,12 +93,12 @@ export const STORE_METHODS = {
   ],
   blobs: ["put", "has", "get"],
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],
-  previews: ["list", "publish", "stop"],
+  previews: ["list", "publish", "stop", "exportHtml"],
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */
-const MAIN_ONLY = new Set<string>(["files.importLocalCopy", "files.exportLocalCopy"]);
+const MAIN_ONLY = new Set<string>(["files.importLocalCopy", "files.exportLocalCopy", "previews.exportHtml"]);
 
 export function isKnownMethod(m: string): m is StoreMethod {
   const dot = m.indexOf(".");

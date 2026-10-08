@@ -98,6 +98,7 @@ export class Replicator {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.store.replicator === this) this.store.previewStorage = null;
     for (const off of this.offs.splice(0)) off();
     if (this.timer) this.timers.clearTimeout(this.timer);
     this.timer = null;
@@ -356,6 +357,8 @@ export async function startSync(store: LocalStore, opts: StartSyncOptions): Prom
   const r = new Replicator({ store, adapter, intervalMs: opts.intervalMs });
   await store.replicator?.stop();
   store.replicator = r;
+  // Developer previews publish to the same project's Storage while sync runs (docs/data.md §13).
+  store.previewStorage = drivers.storage;
   r.start();
   return r;
 }

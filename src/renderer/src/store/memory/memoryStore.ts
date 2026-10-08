@@ -795,6 +795,9 @@ export class MemoryStore {
       stop: async () => {
         throw new StoreError("offline", "Sharing previews needs Firebase sync, which isn't set up");
       },
+      exportHtml: async () => {
+        throw new StoreError("forbidden", "Exporting a preview needs the desktop app");
+      },
     };
     const store: StoreAdmin = {
       shutdown: async () => this.dispose(),
