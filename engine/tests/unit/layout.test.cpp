@@ -7,6 +7,8 @@
 #include "Helpers.h"
 #include "base/FractionalIndex.h"
 #include "hit/SpatialIndex.h"
+#include "base/Json.h"
+#include "scene/CodecJson.h"
 
 using namespace eng;
 using namespace eng::test;
@@ -111,6 +113,84 @@ TEST_CASE("layout: Figma's space between is SPACE_EVENLY in its files; a lone ch
   c.props.stackPrimaryAlignItems = StackJustify::SPACE_EVENLY_CSS;
   REQUIRE(e.setProps({F}, c, 0) == OK);
   CHECK(at(e, a.guid).y == doctest::Approx(16 + 52.0 / 3));
+}
+
+namespace {
+
+const Guid F_GRID_FRAME{8, 1};
+
+// A GRID frame as Figma writes it (its grid fields are kept as the node's kiwi bytes), from the JSON wire.
+NodeChange gridNode(const std::string& json) {
+  json::Value v;
+  REQUIRE(json::parse(json, v));
+  NodeChange c;
+  REQUIRE(codec::readChange(v, c));
+  c.phase = Phase::CREATED;
+  c.mask = F_ALL;
+  return c;
+}
+
+std::string track(int id, const char* pos) { return R"({"id":{"sessionID":9,"localID":)" + std::to_string(id) + R"(},"position":")" + pos + R"("})"; }
+std::string sizing(int id, const char* type, double v) {
+  std::string f = std::string(R"({"type":")") + type + R"(","value":)" + std::to_string(v) + "}";
+  return R"({"id":{"sessionID":9,"localID":)" + std::to_string(id) + R"(},"trackSize":{"minSizing":)" + f + R"(,"maxSizing":)" + f + "}}";
+}
+
+}  // namespace
+
+TEST_CASE("layout: grid — tracks (fixed, hug, flex), gaps, reflow placement with spans, fill and alignment") {
+  // 3 columns (FLEX 1, FLEX 2, FIXED 60) in 400 wide, padding 10, gaps 8 / 6; rows hug; height hugs. Reflow: the
+  // items flow by layer order; the second spans two columns.
+  std::string cols = "[" + track(1, "!") + "," + track(2, "#") + "," + track(3, "$") + "]";
+  std::string colSizing = "[" + sizing(1, "FLEX", 1) + "," + sizing(2, "FLEX", 2) + "," + sizing(3, "FIXED", 60) + "]";
+  std::string rows = "[" + track(11, "!") + "]";
+  NodeChange f = gridNode(R"({"guid":"8:1","type":"FRAME","name":"Grid","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":400,"y":10},)"
+                          R"("stackMode":"GRID","stackPrimarySizing":"FIXED","stackCounterSizing":"RESIZE_TO_FIT_WITH_IMPLICIT_SIZE",)"
+                          R"("stackHorizontalPadding":10,"stackVerticalPadding":10,"stackPaddingRight":10,"stackPaddingBottom":10,)"
+                          R"("gridColumnGap":8,"gridRowGap":6,"gridReflowEnabled":true,"gridColumns":{"entries":)" + cols +
+                          R"(},"gridColumnsSizing":{"entries":)" + colSizing + R"(},"gridRows":{"entries":)" + rows + "}}");
+  REQUIRE(f.props.stackMode == StackMode::GRID);
+  REQUIRE(f.props.extra.count("gridColumns"));
+  auto child = [](int id, const char* pos, double w, double h, const std::string& more = "") {
+    return gridNode(R"({"guid":"8:)" + std::to_string(id) + R"(","type":"ROUNDED_RECTANGLE","parentIndex":{"guid":"8:1","position":")" + pos +
+                    R"("},"size":{"x":)" + std::to_string(w) + R"(,"y":)" + std::to_string(h) + "}" + more + "}");
+  };
+  NodeChange a = child(2, "!", 30, 20);                                                          // (0,0)
+  NodeChange b = child(3, "#", 50, 40, R"(,"gridColumnSpan":2,"stackChildPrimaryGrow":1)");    // (1..2, 0), fill width
+  NodeChange c = child(4, "$", 20, 10, R"(,"gridChildHorizontalAlign":"CENTER","gridChildVerticalAlign":"MAX")");  // (0,1)
+  NodeChange d = child(5, "%", 10, 10, R"(,"stackChildAlignSelf":"STRETCH")");                  // (1,1), fill height
+  Editor e = load({f, a, b, c, d});
+  touch(e, F_GRID_FRAME, 0);
+  // Inner width 380 - gaps 16 - fixed 60 = 304: flex 101.33 / 202.67.
+  const double c0 = 304.0 / 3, c1 = 608.0 / 3;
+  CHECK(at(e, a.guid).x == doctest::Approx(10));
+  CHECK(at(e, a.guid).y == doctest::Approx(10));
+  CHECK(at(e, b.guid).x == doctest::Approx(10 + c0 + 8));
+  CHECK(e.document().get(b.guid)->props.size.x == doctest::Approx(c1 + 8 + 60));
+  // Row 0 is 40 tall (b), row 1 is 10 (c and d): c centred in column 0, at the row's bottom.
+  CHECK(at(e, c.guid).x == doctest::Approx(10 + (c0 - 20) / 2));
+  CHECK(at(e, c.guid).y == doctest::Approx(10 + 40 + 6));
+  CHECK(at(e, d.guid).x == doctest::Approx(10 + c0 + 8));
+  CHECK(e.document().get(d.guid)->props.size.y == doctest::Approx(10));
+  // The frame hugs its rows: 10 + 40 + 6 + 10 + 10.
+  CHECK(e.document().get(F_GRID_FRAME)->props.size.y == doctest::Approx(76));
+}
+
+TEST_CASE("layout: grid without reflow places items at their anchors") {
+  std::string cols = "[" + track(1, "!") + "," + track(2, "#") + "]";
+  std::string colSizing = "[" + sizing(1, "FIXED", 50) + "," + sizing(2, "FIXED", 50) + "]";
+  std::string rows = "[" + track(11, "!") + "," + track(12, "#") + "]";
+  std::string rowSizing = "[" + sizing(11, "FIXED", 30) + "," + sizing(12, "FIXED", 30) + "]";
+  NodeChange f = gridNode(R"({"guid":"8:1","type":"FRAME","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":100,"y":60},)"
+                          R"("stackMode":"GRID","stackPrimarySizing":"FIXED","stackCounterSizing":"FIXED","gridColumns":{"entries":)" + cols +
+                          R"(},"gridColumnsSizing":{"entries":)" + colSizing + R"(},"gridRows":{"entries":)" + rows + R"(},"gridRowsSizing":{"entries":)" +
+                          rowSizing + "}}");
+  NodeChange a = gridNode(R"({"guid":"8:2","type":"ROUNDED_RECTANGLE","parentIndex":{"guid":"8:1","position":"!"},"size":{"x":10,"y":10},)"
+                          R"("gridColumnAnchor":{"sessionID":9,"localID":2},"gridRowAnchor":{"sessionID":9,"localID":12}})");
+  Editor e = load({f, a});
+  touch(e, F_GRID_FRAME, 0);
+  CHECK(at(e, a.guid).x == doctest::Approx(50));
+  CHECK(at(e, a.guid).y == doctest::Approx(30));
 }
 
 TEST_CASE("layout: vertical, centred, overflowing (stacks_wrap.fig 'Vertical middle center')") {

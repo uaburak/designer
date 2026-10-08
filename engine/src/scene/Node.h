@@ -1029,7 +1029,7 @@ struct NodeProps {
   bool isRectLike() const { return type == NodeType::ROUNDED_RECTANGLE || type == NodeType::RECTANGLE; }
   bool clipsContent() const { return isFrameLike() && !frameMaskDisabled; }
   bool isAutoLayout() const {
-    return isFrameLike() && (stackMode == StackMode::HORIZONTAL || stackMode == StackMode::VERTICAL);
+    return isFrameLike() && stackMode != StackMode::NONE;  // HORIZONTAL, VERTICAL, GRID
   }
   bool hugsPrimary() const { return stackPrimarySizing != StackSize::FIXED; }
   bool hugsCounter() const { return stackCounterSizing != StackSize::FIXED; }

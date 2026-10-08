@@ -33,6 +33,7 @@ add_library(eng_core STATIC
   src/hit/Picking.cpp
   src/hit/Marquee.cpp
   src/layout/Layout.cpp
+  src/layout/GridLayout.cpp
   src/editor/Selection.cpp
   src/editor/Snapping.cpp
   src/editor/Undo.cpp

@@ -103,7 +103,8 @@ Vec2 Layout::natural(Guid id, double width, double height) {
   if (width > 0) size.x = width;
   if (height > 0) size.y = height;
   if (p.isAutoLayout()) {
-    int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
+    // A grid's primary axis is its width (as a horizontal flow's).
+    int P = p.stackMode == StackMode::VERTICAL ? 1 : 0, C = 1 - P;
     bool hugP = p.hugsPrimary() && !(P == 0 ? width > 0 : height > 0);
     bool hugC = p.hugsCounter() && !(C == 0 ? width > 0 : height > 0);
     if (hugP || hugC) {
@@ -153,6 +154,7 @@ double Layout::baselineOf(Guid id, Vec2 size, int depth) {
 
 Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
   const NodeProps& p = doc_.get(frame)->props;
+  if (p.stackMode == StackMode::GRID) return gridContentSize(frame, frameSize, p.hugsPrimary(), p.hugsCounter());
   int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   double pad[4];
   padding(p, pad);
@@ -213,6 +215,7 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
 
 std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
   const NodeProps& p = doc_.get(frame)->props;
+  if (p.stackMode == StackMode::GRID) return gridPlace(frame, size);
   int P = p.stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   double pad[4];
   padding(p, pad);

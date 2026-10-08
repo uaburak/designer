@@ -1728,6 +1728,7 @@ message NodeChange {
   float gridRowGap = 437;                         // @bind(GRID_ROW_GAP)
   float gridColumnGap = 438;                      // @bind(GRID_COLUMN_GAP)
   GridAutoTracks gridAutoTracks = 555;
+  bool gridReflowEnabled = 556;                   // auto placement: items flow row by row in layer order (anchors unused)
   GUID gridRowAnchor = 439;                       // @own @nooverride child: start row track id
   GUID gridColumnAnchor = 440;                    // @own @nooverride child: start column track id
   uint gridRowSpan = 441;                         // @own @nooverride
@@ -1895,7 +1896,7 @@ message NodeChange {
   byte _r533 = 533 [deprecated]; byte _r534 = 534 [deprecated]; byte _r535 = 535 [deprecated]; byte _r536 = 536 [deprecated]; byte _r537 = 537 [deprecated]; byte _r538 = 538 [deprecated];
   byte _r539 = 539 [deprecated]; byte _r540 = 540 [deprecated]; byte _r541 = 541 [deprecated]; byte _r542 = 542 [deprecated]; byte _r543 = 543 [deprecated]; byte _r544 = 544 [deprecated];
   byte _r545 = 545 [deprecated]; byte _r546 = 546 [deprecated]; byte _r547 = 547 [deprecated]; byte _r548 = 548 [deprecated]; byte _r549 = 549 [deprecated]; byte _r550 = 550 [deprecated];
-  byte _r551 = 551 [deprecated]; byte _r552 = 552 [deprecated]; byte _r553 = 553 [deprecated]; byte _r554 = 554 [deprecated]; byte _r556 = 556 [deprecated]; byte _r557 = 557 [deprecated];
+  byte _r551 = 551 [deprecated]; byte _r552 = 552 [deprecated]; byte _r553 = 553 [deprecated]; byte _r554 = 554 [deprecated]; byte _r557 = 557 [deprecated];
   byte _r558 = 558 [deprecated]; byte _r559 = 559 [deprecated]; byte _r560 = 560 [deprecated]; byte _r561 = 561 [deprecated]; byte _r562 = 562 [deprecated]; byte _r563 = 563 [deprecated];
   byte _r564 = 564 [deprecated]; byte _r565 = 565 [deprecated]; byte _r566 = 566 [deprecated]; byte _r567 = 567 [deprecated]; byte _r568 = 568 [deprecated]; byte _r569 = 569 [deprecated];
   byte _r570 = 570 [deprecated]; byte _r571 = 571 [deprecated]; byte _r572 = 572 [deprecated]; byte _r573 = 573 [deprecated]; byte _r574 = 574 [deprecated]; byte _r575 = 575 [deprecated];

@@ -77,6 +77,12 @@ class Layout {
   static void padding(const NodeProps& p, double out[4]);
 
  private:
+  // Grid auto layout (GridLayout.cpp): tracks sized and items placed for a size (hugW / hugH: that axis hugs).
+  struct Grid;
+  Grid grid(Guid frame, Vec2 size, bool hugW, bool hugH);
+  Vec2 gridContentSize(Guid frame, Vec2 frameSize, bool hugW, bool hugH);
+  std::vector<Placement> gridPlace(Guid frame, Vec2 size);
+
   void arrange(Guid id, Vec2 size, bool sizeFromParent);
   void arrangeAutoLayout(Guid id, Vec2 size);
   void applyConstraints(Guid frame, bool flowChildrenToo);
