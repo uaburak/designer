@@ -730,6 +730,7 @@ void Editor::endGesture() {
   dropParent_ = kNoGuid;
   snapParent_ = kNoGuid;
   lineEnd_ = -1;
+  ignoreConstraints_ = false;
   needsRender_ = true;
 }
 
@@ -1217,9 +1218,19 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
   if (lineEnd_ >= 0) return dragLineEnd(world, mods);
   const double W = box_.size.x, H = box_.size.y;
   if (!(W > 0) || !(H > 0)) return;
-  bool alt = (mods & MOD_ALT) != 0, shift = (mods & MOD_SHIFT) != 0;
-  // Snap the dragged edge (boxes turned against the page don't snap).
-  bool snapping = !(mods & (MOD_CTRL | MOD_PRIMARY)) && axisAligned(box_.toWorld);
+  bool alt = (mods & MOD_ALT) != 0;
+  // The ratio is kept with ⇧, or always for layers with Lock aspect ratio on — then ⌃ lets it go (Figma).
+  std::vector<Guid> resized = topLevelSelection(doc_, selection_);
+  bool locked = !resized.empty();
+  for (Guid id : resized) {
+    const Node* n = doc_.get(id);
+    locked &= n && n->props.proportionsConstrained;
+  }
+  bool shift = locked ? !(mods & MOD_CTRL) : (mods & MOD_SHIFT) != 0;
+  // ⌘: the frames' children stay where they are on the page (constraints ignored, Figma).
+  ignoreConstraints_ = (mods & MOD_PRIMARY) != 0;
+  // Snap the dragged edge (boxes turned against the page don't snap); ⌃ turns snapping off.
+  bool snapping = !(mods & MOD_CTRL) && axisAligned(box_.toWorld);
   SnapResult snap;
   if (snapping) {
     snap = snapper_.snapPoint(world, kSnapReach / camera_.zoom, handleX_ != 0, handleY_ != 0);
@@ -1293,6 +1304,22 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     }
     write(c);
     keepResizedSize(t.id, handleX_ != 0 || (shift && handleY_ != 0), handleY_ != 0 || (shift && handleX_ != 0));
+    // ⌘: a frame's children keep their place on the page (and their size); layout leaves them (ignoreConstraints).
+    const Node* tn = doc_.get(t.id);
+    if (tn && tn->props.isFrameLike() && !tn->props.isAutoLayout()) {
+      Mat2x3 nowWorld = doc_.worldTransform(t.id);
+      for (Guid ch : doc_.children(t.id)) {
+        if (ch.isDerived()) continue;
+        Mat2x3 t0;
+        Vec2 s0;
+        base(ch, t0, s0);
+        NodeChange cc = NodeChange::changed(ch);
+        cc.mask = F_TRANSFORM | F_SIZE;
+        cc.props.transform = tidy(nowWorld.inverse() * t.world * t0);
+        cc.props.size = s0;
+        if (ignoreConstraints_) write(cc);
+      }
+    }
   }
   guides_.clear();
   if (snapping && (snap.snappedX || snap.snappedY))

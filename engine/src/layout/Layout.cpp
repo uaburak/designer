@@ -528,6 +528,8 @@ void Layout::applyConstraints(Guid frame, bool flowChildrenToo) {
   const Vec2 newSize = fp.size;
   const bool frameAutoLayout = fp.isAutoLayout();
   bool ignore = host_.ignoreConstraints(frame);
+  // ⌘-resize (Figma: constraints ignored): the gesture keeps the children where they are on the page.
+  if (ignore && !frameAutoLayout) return;
   for (Guid c : std::vector<Guid>(doc_.children(frame))) {
     const Node* cn = doc_.get(c);
     if (!cn) continue;

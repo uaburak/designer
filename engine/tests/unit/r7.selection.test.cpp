@@ -196,3 +196,46 @@ TEST_CASE("r7 move: a frame smaller than the layer doesn't take it; ⌘ nests it
   up(e, 208, 120, MOD_CTRL);
   CHECK(props(e, R1).transform.m02 == 98);
 }
+
+// ---- 5 / 7. Resize modifiers --------------------------------------------------------------------------------------
+
+TEST_CASE("r7 resize: Lock aspect ratio keeps the ratio on the canvas, ⌃ lets it go; ⇧ otherwise") {
+  Editor e = makeEditor();
+  NodeChange lock = NodeChange::changed(R1);
+  lock.mask = F_PROPORTIONS_CONSTRAINED;
+  lock.props.proportionsConstrained = true;
+  e.applyChanges({lock}, APPLY_REMOTE);
+  e.setSelection({R1});  // 10,10 50×50 → screen 110..160
+  drag(e, {160, 160}, {210, 170});
+  CHECK(props(e, R1).size == Vec2{100, 100});
+  e.command(CommandId::UNDO);
+  down(e, 160, 160);
+  for (int i = 1; i <= 4; i++) move(e, 160 + 12.5 * i, 160 + 2.5 * i, MOD_CTRL);
+  up(e, 210, 170, MOD_CTRL);
+  CHECK(props(e, R1).size == Vec2{100, 60});
+  e.command(CommandId::UNDO);
+  // Unlocked R2: free, ⇧ keeps the ratio.
+  e.setSelection({R2});  // 100,10 50×50 → screen 200..250
+  drag(e, {250, 160}, {300, 170});
+  CHECK(props(e, R2).size == Vec2{100, 60});
+  e.command(CommandId::UNDO);
+  drag(e, {250, 160}, {300, 170}, MOD_SHIFT);
+  CHECK(props(e, R2).size == Vec2{100, 100});
+}
+
+TEST_CASE("r7 resize: ⌘ ignores constraints — the frame's children stay where they are on the page") {
+  Editor e = makeEditor();
+  e.setSelection({F});
+  // The left edge (screen x 100) to 150: the frame now starts at x 50.
+  drag(e, {100, 250}, {150, 250});
+  CHECK(props(e, F).transform.m02 == 50);
+  CHECK(e.document().worldBounds(R1).x == 60);  // left constraint: it moved with the edge
+  e.command(CommandId::UNDO);
+  drag(e, {100, 250}, {150, 250}, MOD_PRIMARY);
+  CHECK(props(e, F).transform.m02 == 50);
+  CHECK(props(e, F).size.x == 250);
+  CHECK(e.document().worldBounds(R1).x == 10);  // stayed
+  CHECK(e.document().worldBounds(R2).x == 100);
+  e.command(CommandId::UNDO);
+  CHECK(props(e, R1).transform == Mat2x3::translate(10, 10));
+}
