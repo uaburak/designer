@@ -93,7 +93,7 @@ export const STORE_METHODS = {
   ],
   blobs: ["put", "has", "get"],
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],
-  previews: ["list", "publish", "stop", "exportHtml"],
+  previews: ["status", "list", "publish", "stop", "exportHtml"],
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
 } as const satisfies Record<Repository, readonly string[]>;
 

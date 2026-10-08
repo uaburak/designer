@@ -10,6 +10,7 @@
  * `designer:store-port-wanted`, for a client made after the port arrived).
  */
 import type {
+  ExportPreviewRequest,
   FlushReason,
   FontIndex,
   HomeState,
@@ -85,6 +86,8 @@ export interface FilesApi {
   import(folderId: string | null, paths?: string[]): Promise<ImportResult>;
   /** The file as a .fig, where the Save dialog says */
   saveLocalCopy(fileKey: string): Promise<{ path: string } | { cancelled: true }>;
+  /** A developer preview as one HTML file, where the Save dialog says (editors; docs/data.md §13) */
+  exportPreview(request: ExportPreviewRequest): Promise<{ path: string; bytes: number } | { cancelled: true }>;
   /** The path of a File dropped on the page (webUtils.getPathForFile), for import */
   pathFor(file: File): string;
   /** The workspace folder in Finder */

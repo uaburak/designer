@@ -122,6 +122,12 @@ export function previewService(host: PreviewHost): PreviewService & { exportHtml
     return { sync: host.sync, storage };
   };
   return {
+    async status() {
+      if (!host.sync) return { publish: false, reason: "Sharing previews needs Firebase sync, which isn't set up" };
+      if (!host.storage()) return { publish: false, reason: "Turn on sync to publish previews" };
+      return { publish: true, reason: null };
+    },
+
     async list(fileKey) {
       const all = await read();
       return fileKey ? all.filter((p) => p.fileKey === fileKey) : all;

@@ -389,6 +389,7 @@ export class StoreClient implements StoreApi {
   };
 
   readonly previews: PreviewService = {
+    status: () => this.call("previews.status", []),
     list: (fileKey) => this.call("previews.list", [fileKey]),
     publish: (fileKey, input) => this.call("previews.publish", [fileKey, input]),
     stop: (previewId) => this.call("previews.stop", [previewId]),

@@ -103,6 +103,12 @@ export function registerIpc() {
     if (!isFileKey(p?.fileKey)) throw new Error("file:save-local-copy: not a file key");
     return ctl.tabs.saveLocalCopy(p.fileKey);
   });
+  onInvoke("file:export-preview", ({ ctl }, p) => {
+    if (!isFileKey(p?.fileKey)) throw new Error("file:export-preview: not a file key");
+    if (!(p.snapshot instanceof Uint8Array) || p.snapshot.length === 0 || p.snapshot.length > 1 << 30) throw new Error("file:export-preview: not a snapshot");
+    const pageIds = Array.isArray(p.options?.pageIds) ? p.options.pageIds.map((x) => str(x, 64)).filter((x): x is string => x !== null).slice(0, 1000) : "all";
+    return ctl.tabs.exportPreview(p.fileKey, p.snapshot, { pageIds, inspect: p.options?.inspect !== false, export: p.options?.export !== false });
+  });
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));
 
   // ── A file tab ──

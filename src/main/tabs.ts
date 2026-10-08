@@ -5,7 +5,7 @@ import { HOME, neighbourTab, tabAtShortcut, tabsReducer, type Tab, type TabRepor
 import { isStoreError } from "../shared/store/protocol";
 import type { WorkspaceEvent } from "../shared/store/repositories";
 import { askCrashed, askFlushFailed, askFlushTimeout, askUnresponsive, tellFileError } from "./dialogs";
-import { importFiles, saveLocalCopy } from "./files";
+import { exportPreview, importFiles, saveLocalCopy } from "./files";
 import { onWorkspaceEvent, readyStore, storeClient, workspaceDir } from "./storeHost";
 import { SpareEditor } from "./spare";
 import { setThemePreference } from "./theme";
@@ -493,6 +493,11 @@ export class TabManager {
       void tellFileError(this.ctl.win, result.failed.length === 1 ? "The file couldn’t be imported." : `${result.failed.length} files couldn’t be imported.`, names);
     }
     return result;
+  }
+
+  /** A developer preview as an HTML file (`file:export-preview`); the editor made the snapshot itself. */
+  exportPreview(fileKey: string, snapshot: Uint8Array, options: { pageIds: string[] | "all"; inspect: boolean; export: boolean }): Promise<{ path: string; bytes: number } | { cancelled: true }> {
+    return exportPreview(this.ctl.win, fileKey, snapshot, options);
   }
 
   /** A file as a .fig (`file:save-local-copy`); its open tab flushes first so the copy has its last changes. */

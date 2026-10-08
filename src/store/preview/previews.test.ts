@@ -107,7 +107,7 @@ describe("Firebase Storage publishing, on the in-memory fake", () => {
     const storage = new MemoryStorage();
     const put = storage.put.bind(storage);
     const meta = new Map<string, Record<string, string> | undefined>();
-    storage.put = async (path, bytes, m) => {
+    storage.put = async (path: string, bytes: Uint8Array, m?: { custom?: Record<string, string> }) => {
       order.push(path);
       meta.set(path, m?.custom);
       return put(path, bytes);
@@ -177,6 +177,7 @@ describe("previews in the store", () => {
 
   it("refuses to publish until Firebase is configured and sync is on; then publishes, updates in place and stops", async () => {
     const plain = await storeWith();
+    expect(await plain.t.api.previews.status()).toEqual({ publish: false, reason: "Sharing previews needs Firebase sync, which isn't set up" });
     await expect(plain.t.api.previews.publish(plain.fileKey, { snapshot: plain.snapshot, options: { pageIds: "all", inspect: true, export: true, expiresInDays: null } })).rejects.toMatchObject({ code: "offline" });
 
     const { t, fileKey, snapshot, sha1 } = await storeWith({ config: true });
@@ -184,6 +185,7 @@ describe("previews in the store", () => {
     await expect(t.api.previews.publish(fileKey, { snapshot, options })).rejects.toBeInstanceOf(StoreError);
     const drivers: FirebaseDrivers = { firestore: new MemoryFirestore(), storage: new MemoryStorage(), signIn: async () => ({ uid: "owner" }) };
     const r = await startSync(t.store, { enabled: true, uid: "owner", drivers, intervalMs: 60_000 });
+    expect(await t.api.previews.status()).toEqual({ publish: true, reason: null });
     const first = await t.api.previews.publish(fileKey, { snapshot, options });
     expect(first.url).toBe(`https://proj.web.app/p/${first.previewId}`);
     expect(first.blobRefs).toEqual([sha1]);

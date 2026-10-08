@@ -40,6 +40,23 @@ export async function importFiles(win: BaseWindow | null, folderId: string | nul
   return result;
 }
 
+/** A developer preview as one HTML file where the Save dialog says (docs/data.md §13); the store writes it. */
+export async function exportPreview(
+  win: BaseWindow | null,
+  fileKey: string,
+  snapshot: Uint8Array,
+  options: { pageIds: string[] | "all"; inspect: boolean; export: boolean },
+): Promise<{ path: string; bytes: number } | { cancelled: true }> {
+  const store = await readyStore();
+  const file = await store.workspace.getFile(fileKey);
+  const safe = (file.name || "Untitled").replace(/[/\\:]/g, "-");
+  const dialogOptions = { title: "Export preview as HTML", defaultPath: `${safe}.html`, filters: [{ name: "Web page", extensions: ["html"] }] };
+  const picked = win && !win.isDestroyed() ? await dialog.showSaveDialog(win, dialogOptions) : await dialog.showSaveDialog(dialogOptions);
+  if (picked.canceled || !picked.filePath) return { cancelled: true };
+  const r = await store.previews.exportHtml(fileKey, { snapshot, options: { ...options, expiresInDays: null } }, picked.filePath);
+  return { path: r.path, bytes: r.bytes };
+}
+
 /** The file as a .fig where the Save dialog says. */
 export async function saveLocalCopy(win: BaseWindow | null, fileKey: string): Promise<{ path: string } | { cancelled: true }> {
   const store = await readyStore();

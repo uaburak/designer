@@ -180,6 +180,8 @@ export interface LibraryRegistry {
  * (main's Save dialog picks the path).
  */
 export interface PreviewService {
+  /** Whether links can be published now: Firebase configured and sync on (else `reason`, in the Share dialog's words) */
+  status(): Promise<{ publish: boolean; reason: string | null }>;
   list(fileKey?: FileKey): Promise<PreviewRecord[]>;
   /** Create or update in place (the file keeps its previewId and link) */
   publish(fileKey: FileKey, input: { snapshot: Uint8Array; options: PreviewOptions; blobRefs?: string[] }): Promise<PreviewRecord>;
