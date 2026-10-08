@@ -874,6 +874,37 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
     if (c.mask) applyDerivedDirect(c);
     if (s.text) storedText_[rows[i]] = s.text;
   }
+  if (storedSparse_) {
+    // Figma's data names only the sublayers its layout moved off the main's geometry; the others sit where the main's
+    // constraints put them in a parent of another size (a 24 px icon's vector in a 16 px instance of it).
+    std::vector<Guid> resized;
+    auto check = [&](Guid r) {
+      const Node* n = doc_.get(r);
+      if (!n) return;
+      Blueprint& b = blueprint_[r];
+      b.transform = n->props.transform;
+      b.size = n->props.size;
+      b.geometry = true;
+      if (b.frame && n->props.isFrameLike() && !n->props.isAutoLayout() && !sameSize(n->props.size, b.sourceSize)) resized.push_back(r);
+    };
+    check(R);
+    for (Guid r : rows) check(r);
+    if (!resized.empty()) {
+      bool prevInLayout = inLayout_;
+      inLayout_ = true;
+      Layout L(*this);
+      for (Guid r : resized) L.constrainChildren(r);
+      inLayout_ = prevInLayout;
+      for (size_t i = 0; i < rows.size(); i++) {
+        if (!byRow[i]) continue;
+        const StoredRow& s = *byRow[i];
+        NodeChange c = NodeChange::changed(rows[i]);
+        if (s.hasSize) c.mask |= F_SIZE, c.props.size = s.size;
+        if (s.hasTransform) c.mask |= F_TRANSFORM, c.props.transform = s.transform;
+        if (c.mask) applyDerivedDirect(c);
+      }
+    }
+  }
   applyingStored_ = prev;
   // The blueprint is the stored result at the instance's current size: a later layout of these sublayers finds them
   // unresized (no constraints applied twice); resizing the instance derives it again, as any resize does.
