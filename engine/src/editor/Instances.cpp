@@ -365,7 +365,13 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
       if (d.id == b.propRef) def = &d;
     if (!def) continue;  // a stale binding (its property was deleted)
     const ComponentPropAssignment* a = findAssign(assigns, def->id);
-    const ComponentPropValue& v = a && !a->value.empty() ? a->value : def->initialValue;
+    ComponentPropValue fromVar;
+    if (a && a->value.empty()) {
+      // Figma's files may give the value in varValue only (`value` empty): a boolean there is the property's value.
+      VariableData d;
+      if (codec::assignmentVarValue(a->extra, d) && d.kind == VariableData::Kind::BOOL) fromVar.hasBool = true, fromVar.boolValue = d.boolValue;
+    }
+    const ComponentPropValue& v = !fromVar.empty() ? fromVar : a && !a->value.empty() ? a->value : def->initialValue;
     switch (b.field) {
       case VariableField::VISIBLE:
         if (v.hasBool) p.visible = v.boolValue;

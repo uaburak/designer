@@ -2976,21 +2976,23 @@ uint32_t fieldIdOf(const char* defName, std::string_view key) {
   return f ? f->value : 0;
 }
 
-Guid assignmentSlotContent(std::string_view extra) {
-  if (extra.empty()) return kNoGuid;
+bool assignmentVarValue(std::string_view extra, VariableData& out) {
+  if (extra.empty()) return false;
   kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(extra.data()), extra.size());
   while (bb.index() < extra.size()) {
     uint32_t f = 0;
-    if (!bb.readVarUint(f) || !f) return kNoGuid;
-    if (f == 3) {  // varValue
-      VariableData d;
-      if (!readVariableDataInto(bb, d)) return kNoGuid;
-      return d.kind == VariableData::Kind::SLOT_CONTENT ? d.slotContent : kNoGuid;
-    }
+    if (!bb.readVarUint(f) || !f) return false;
+    if (f == 3) return readVariableDataInto(bb, out);  // varValue
     const FieldDef* fd = defs().propAssignment.byId(f);
-    if (!fd || !table().skipValue(bb, *fd)) return kNoGuid;
+    if (!fd || !table().skipValue(bb, *fd)) return false;
   }
-  return kNoGuid;
+  return false;
+}
+
+Guid assignmentSlotContent(std::string_view extra) {
+  VariableData d;
+  if (!assignmentVarValue(extra, d)) return kNoGuid;
+  return d.kind == VariableData::Kind::SLOT_CONTENT ? d.slotContent : kNoGuid;
 }
 
 bool extraBool(const std::map<std::string, std::string>& extra, const char* key, bool fallback) {

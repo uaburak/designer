@@ -15,6 +15,7 @@
 #include "editor/Editor.h"
 #include "hit/HitTest.h"
 #include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng {
 
@@ -358,8 +359,12 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
       p.defaultValue = textValue(p.defaultVariant);
       p.value = textValue(level != kNoGuid ? p.variantValue : p.defaultVariant);
     } else {
-      for (const auto& a : assigns)
-        if (a.defID == d->id && !a.value.empty()) p.value = a.value;
+      for (const auto& a : assigns) {
+        if (a.defID != d->id) continue;
+        VariableData var;
+        if (!a.value.empty()) p.value = a.value;
+        else if (codec::assignmentVarValue(a.extra, var) && var.kind == VariableData::Kind::BOOL) p.value.hasBool = true, p.value.boolValue = var.boolValue;
+      }
       p.overridden = usage.count(d->id) != 0;
       p.boundLayers = bound[d->id];
     }
