@@ -55,6 +55,8 @@ export interface UIState {
   librariesDialog: { tab: "libraries" | "updates"; library?: string | null; update?: string | null } | null;
   /** The Publish library modal */
   publishOpen: boolean;
+  /** The presentation view over the editor ("Present in this tab"): the page and where it starts */
+  presenting: { page: Guid; node: Guid | null } | null;
 }
 
 export class Store<T> {

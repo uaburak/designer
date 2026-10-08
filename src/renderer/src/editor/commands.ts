@@ -11,6 +11,7 @@ import { rotateSelection, zoomTo } from "./actions";
 import { copyFromMenu, pasteFromMenu } from "./clipboardIO";
 import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
+import { present } from "./present";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 
 export interface KeyCombo {
@@ -409,6 +410,13 @@ export const COMMANDS: EditorCommand[] = [
   theme("theme.dark", "Dark", "dark"),
   theme("theme.system", "Use system setting", "system"),
   ui("help.shortcuts", "Keyboard shortcuts", [k("Slash", { ctrl: true, shift: true })], (ed) => ed.ui.set((s) => ({ shortcutsOpen: !s.shortcutsOpen }))),
+  // Prototyping (R8 §9): Present opens the presentation view in a new tab; "in this tab" over the editor.
+  ui("view.present", "Present", [k("Enter", { mod: true, alt: true })], (ed) => present(ed)),
+  ui("view.present-here", "Present in this tab", undefined, (ed) => present(ed, { here: true })),
+  later("view.preview", "Preview", [k("Space", { shift: true })]),
+  ui("view.prototype-tab", "Show prototype panel", undefined, (ed) =>
+    ed.ui.set((s) => ({ rightTab: s.rightTab === "prototype" ? "design" : "prototype", uiHidden: false }))
+  ),
 ];
 
 /** The desktop app's navigation (absent in a browser). */

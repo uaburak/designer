@@ -1,0 +1,78 @@
+@layer app {
+  /* The whole window (or the editor's, presenting in its tab): bars above and below the prototype */
+  .root {
+    position: fixed;
+    inset: 0;
+    z-index: var(--ds-z-dialog);
+    display: flex;
+    flex-direction: column;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .top, .bottom {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-space-2);
+    background: var(--figma-color-bg);
+  }
+  .top { border-bottom: 1px solid var(--figma-color-border); }
+  .bottom { border-top: 1px solid var(--figma-color-border); }
+  .grow { flex: 1 1 auto; }
+  .flowButton, .chip {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    outline: none;
+  }
+  .chip { padding: 0 var(--ds-space-1); }
+  .flowButton:hover, .flowButton[data-open], .chip:hover, .chip[data-open] { background: var(--figma-color-bg-hover); }
+  .flowButton:focus-visible, .chip:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .flowButton svg, .chip svg { color: var(--figma-color-icon-secondary); }
+  .title { display: flex; gap: var(--ds-space-2); min-width: 0; }
+  .file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .flow {
+    color: var(--figma-color-text-secondary);
+    white-space: nowrap;
+  }
+  .screen {
+    overflow: hidden;
+    color: var(--figma-color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stage { position: relative; flex: 1 1 auto; min-height: 0; }
+  .canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+  .center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--figma-color-text-secondary);
+    pointer-events: none;
+  }
+  .restart {
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: inherit;
+    outline: none;
+  }
+  .restart:hover { background: var(--figma-color-bg-hover); }
+  .restart:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+}

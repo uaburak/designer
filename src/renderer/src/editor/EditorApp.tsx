@@ -11,7 +11,7 @@
  * first view (zoom to fit, or a given camera).
  */
 import "@/ds/global.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { currentTheme, HelpButton, Spinner, ToastHost, TooltipManager, useThemeRoot, type ThemeName } from "@/ds";
 import { Status } from "@/engine/abi";
 import { CanvasController } from "@/engine/CanvasController";
@@ -47,6 +47,8 @@ import { VersionDialogs } from "./VersionDialogs";
 import { LocalVariables } from "./panels/variables/LocalVariables";
 import { LibrariesDialog } from "./panels/libraries/LibrariesDialog";
 import { PublishDialog } from "./panels/libraries/PublishDialog";
+import { PresentationView } from "@/present/PresentationView";
+import { editorPresentationSource } from "./present";
 import styles from "./EditorApp.module.css";
 
 export interface EditorAppProps {
@@ -352,7 +354,27 @@ function Overlays() {
       <VersionDialogs />
       <LibrariesDialog />
       <PublishDialog />
+      <Presenting />
     </>
+  );
+}
+
+/** "Present in this tab": the presentation view over the editor, on the editor's document and its live changes. */
+function Presenting() {
+  const ed = useEditor();
+  const presenting = useUI((s) => s.presenting);
+  const source = useMemo(() => (presenting ? editorPresentationSource(ed) : null), [ed, presenting]);
+  if (!presenting || !source) return null;
+  return (
+    <PresentationView
+      source={source}
+      page={presenting.page}
+      node={presenting.node}
+      onClose={() => {
+        ed.ui.set({ presenting: null });
+        ed.focusCanvas();
+      }}
+    />
   );
 }
 
