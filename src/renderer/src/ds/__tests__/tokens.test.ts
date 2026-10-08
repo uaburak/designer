@@ -93,12 +93,14 @@ describe("themes", () => {
 });
 
 describe("the canvas chrome palette (engine ABI)", () => {
-  it("keeps its 29 colours in their frozen order", () => {
+  it("keeps its 35 colours in their frozen order (append only)", () => {
     expect(CHROME_COLORS).toEqual([
       "selection", "handleFill", "handleStroke", "hover", "component", "sizeBadgeFill", "sizeBadgeText", "frameTitleOnLight", "frameTitleOnDark",
       "measure", "measureText", "snapGuide", "spacingGuide", "layoutGapFill", "layoutGapStroke", "marqueeFill", "marqueeStroke", "rulerBg",
       "rulerTick", "rulerText", "rulerSelectionBand", "rulerSelectionText", "textCaret", "textSelection", "prototypeNoodle", "slotFill",
       "slotStroke", "canvasDefault", "pixelGrid",
+      // Round 7 (live Figma): titles of selected frames and of components, the corner radius handles.
+      "frameTitleSelectedOnLight", "frameTitleSelectedOnDark", "frameTitleComponentOnLight", "frameTitleComponentOnDark", "radiusHandleFill", "radiusHandleStroke",
     ]);
   });
 
@@ -142,7 +144,7 @@ describe("generated artefacts", () => {
     expect(boot).toContain('tabbar: ["#e6e6e6","#3b3b3b"]');
     expect(boot).toContain('localStorage.getItem("designer-theme")');
     const header = renderChromeHeader();
-    expect(header).toContain("PixelGrid = 28, Count");
+    expect(header).toContain("RadiusHandleStroke = 34, Count");
     expect(header.match(/\/\/ selection/g)).toHaveLength(2);
   });
 
