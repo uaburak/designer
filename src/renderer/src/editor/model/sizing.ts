@@ -121,3 +121,10 @@ export const withoutLimits = (n: SizingNode, axis: Axis): NodeFields => ({ ...wi
 
 /** The value a new limit starts at (Figma: the current size). */
 export const newLimit = (n: SizingNode, axis: Axis): number => Math.max(1, Math.round(n.size?.[axis] ?? 1));
+
+/**
+ * Auto layout's "Space between" as Figma's files write it: SPACE_EVENLY (the plugin API's SPACE_BETWEEN; kiwi's
+ * SPACE_BETWEEN, which some files carry, lays out the same). CSS space-evenly is SPACE_EVENLY_CSS.
+ */
+export const SPACE_BETWEEN = "SPACE_EVENLY" as const;
+export const isSpaceBetween = (v: string | undefined): boolean => v === "SPACE_EVENLY" || v === "SPACE_BETWEEN";

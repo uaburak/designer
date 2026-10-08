@@ -1,6 +1,7 @@
 #include "scene/CodecKiwi.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "schema/SchemaTable.h"
@@ -1631,7 +1632,9 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
       case 324: {
         double v = 0;
         if (!getFloat(bb, v)) return false;
-        p.stack().stackCounterSpacing = v;
+        // Figma writes NaN for a wrap's row gap that follows the column gap (its "Auto"): the same as absent.
+        if (std::isfinite(v)) p.stack().stackCounterSpacing = v;
+        else p.stack().stackCounterSpacing.reset();
         m |= F_STACK_COUNTER_SPACING;
         break;
       }

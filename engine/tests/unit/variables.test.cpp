@@ -1253,6 +1253,65 @@ TEST_CASE("variables: slot content in Figma's form resolves in the modes of the 
   CHECK(found);
 }
 
+TEST_CASE("variables: Figma-form slot content is drawn in its slot and resolved in the slot's own modes") {
+  // As a .fig imported before the import adopted it: the content on the Internal Only Canvas, the slot frame marked by
+  // its SLOT_CONTENT_ID binding alone, the instance's assignment by varValue.slotContentIdValue. The slot frame sets
+  // its own mode ("none") under a page in "md".
+  const char* json = R"([
+    {"guid":"0:0","phase":"CREATED","type":"DOCUMENT","name":"Document"},
+    {"guid":"0:1","phase":"CREATED","type":"CANVAS","name":"Page","parentIndex":{"guid":"0:0","position":"!"},
+     "variableModeBySetMap":{"entries":[{"variableSetID":{"guid":"5:1"},"variableModeID":"5:3"}]}},
+    {"guid":"0:2","phase":"CREATED","type":"CANVAS","name":"Internal Only Canvas","internalOnly":true,"parentIndex":{"guid":"0:0","position":"#"}},
+    {"guid":"5:1","phase":"CREATED","type":"VARIABLE_SET","name":"Sizing","parentIndex":{"guid":"0:2","position":"!"},
+     "variableSetModes":[{"id":"5:2","name":"none","sortPosition":"!"},{"id":"5:3","name":"md","sortPosition":"\""}]},
+    {"guid":"5:4","phase":"CREATED","type":"VARIABLE","name":"Table/Padding","parentIndex":{"guid":"0:2","position":"\""},
+     "variableSetID":{"guid":"5:1"},"variableResolvedType":"FLOAT",
+     "variableDataValues":{"entries":[
+       {"modeID":"5:2","variableData":{"value":{"floatValue":1},"dataType":"FLOAT","resolvedDataType":"FLOAT"}},
+       {"modeID":"5:3","variableData":{"value":{"floatValue":3},"dataType":"FLOAT","resolvedDataType":"FLOAT"}}]}},
+    {"guid":"2:1","phase":"CREATED","type":"SYMBOL","name":"Item","parentIndex":{"guid":"0:1","position":"!"},
+     "size":{"x":200,"y":100},"transform":{"m00":1,"m01":0,"m02":0,"m10":0,"m11":1,"m12":500},
+     "componentPropDefs":[{"id":"2:9","name":"buttons","type":"SLOT","initialValue":{},"sortPosition":"!"}]},
+    {"guid":"2:2","phase":"CREATED","type":"FRAME","name":"buttons","parentIndex":{"guid":"2:1","position":"!"},
+     "size":{"x":100,"y":40},"transform":{"m00":1,"m01":0,"m02":30,"m10":0,"m11":1,"m12":20},
+     "variableModeBySetMap":{"entries":[{"variableSetID":{"guid":"5:1"},"variableModeID":"5:2"}]},
+     "parameterConsumptionMap":{"entries":[{"variableField":"SLOT_CONTENT_ID",
+       "variableData":{"value":{"propRefValue":{"defId":"2:9"}},"dataType":"PROP_REF","resolvedDataType":"SLOT_CONTENT_ID"}}]}},
+    {"guid":"2:3","phase":"CREATED","type":"ROUNDED_RECTANGLE","name":"default","parentIndex":{"guid":"2:2","position":"!"},
+     "size":{"x":10,"y":10}},
+    {"guid":"3:1","phase":"CREATED","type":"INSTANCE","name":"Item","parentIndex":{"guid":"0:1","position":"\""},
+     "size":{"x":200,"y":100},"symbolData":{"symbolID":"2:1"},
+     "componentPropAssignments":[{"defID":"2:9","value":{},"varValue":{"value":{"slotContentIdValue":{"guid":"4:1"}},
+       "dataType":"SLOT_CONTENT_ID","resolvedDataType":"SLOT_CONTENT_ID"}}]},
+    {"guid":"4:1","phase":"CREATED","type":"FRAME","name":"buttons","isSlotContent":true,"parentIndex":{"guid":"0:2","position":"$"},
+     "size":{"x":100,"y":40}},
+    {"guid":"4:2","phase":"CREATED","type":"FRAME","name":"content","parentIndex":{"guid":"4:1","position":"!"},
+     "size":{"x":60,"y":20},"stackMode":"HORIZONTAL","stackHorizontalPadding":3,
+     "parameterConsumptionMap":{"entries":[{"variableField":"STACK_PADDING_LEFT",
+       "variableData":{"value":{"alias":{"guid":"5:4"}},"dataType":"ALIAS","resolvedDataType":"FLOAT"}}]}}
+  ])";
+  json::Value v;
+  REQUIRE(json::parse(json, v));
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(codec::readChanges(v), Guid{0, 1});
+  e.takeEvents();
+  const Guid inst{3, 1}, content{4, 1}, set{5, 1}, none{5, 2};
+  // Drawn in its slot: a layer of the instance, over the slot row; the slot shows it instead of the main's children.
+  REQUIRE(e.document().has(content));
+  CHECK(e.document().get(content)->props.parentIndex.guid == inst);
+  const Guid slotRow = derived::intern(inst, {Guid{2, 2}});
+  REQUIRE(e.document().has(slotRow));
+  CHECK(e.document().worldBounds(content) == e.document().worldBounds(slotRow));
+  CHECK(!e.document().has(derived::intern(inst, {Guid{2, 3}})));
+  // Resolved in the slot's modes (the slot's own "none"), not the page's "md".
+  CHECK(e.resolvedMode({4, 2}, set) == none);
+  CHECK(props(e, {4, 2}).stack().stackPaddingLeft == 1);
+  // The assignment keeps Figma's slotContentIdValue.
+  CHECK(codec::assignmentSlotContent(props(e, inst).comp().componentPropAssignments.at(0).extra) == content);
+}
+
 TEST_CASE("variables: soft-deleted variables, collections and styles stay at load; unused deleted mains go") {
   const char* json = R"([
     {"guid":"0:0","phase":"CREATED","type":"DOCUMENT","name":"Document"},

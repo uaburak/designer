@@ -13,7 +13,7 @@ export function prepareFigImport(bytes: Uint8Array, opts: { name: string; sessio
   return prepareShared(bytes, opts, nodeCodecs, {
     sha1: sha1Hex,
     decode: (schema, message) => {
-      const d = decodeWithSchema(schema, message);
+      const d = decodeWithSchema(schema, message, { keepDerived: true });
       return { message: d.message, report: d.report };
     },
   });

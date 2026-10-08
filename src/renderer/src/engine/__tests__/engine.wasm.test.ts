@@ -118,6 +118,16 @@ describe("engine (wasm, headless)", () => {
     engine.destroy();
   });
 
+  it("takes the document's colour profile at load (a Display P3 file draws in P3)", async () => {
+    const engine = await engineWithSample();
+    expect(engine.colorProfile).toBe("SRGB");
+    const p3: Message = { ...SAMPLE_DOCUMENT, nodeChanges: SAMPLE_DOCUMENT.nodeChanges!.map((n) => (n.type === "DOCUMENT" ? { ...n, documentColorProfile: "DISPLAY_P3" } : n)) };
+    expect(engine.load(p3)).toBe(Status.OK);
+    expect(engine.colorProfile).toBe("DISPLAY_P3");
+    expect(engine.load(SAMPLE_DOCUMENT)).toBe(Status.OK);
+    expect(engine.colorProfile).toBe("SRGB");
+  });
+
   it("refuses a bad payload without breaking", async () => {
     const engine = await engineWithSample();
     expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "1:5", phase: "REMOVED" }] }, "remote")).toBe(0);
@@ -1146,10 +1156,10 @@ describe("engine (wasm, headless): derived data, the Layers outline, change byte
   it("a derived snapshot loads its instances' layout as stored; the outline read; DOCUMENT_CHANGED bytes on the JSON wire", async () => {
     const a = await Engine.create(null, { sessionID: 9 });
     a.load(doc);
-    expect(a.derivedDataVersion()).toBe(1);
+    expect(a.derivedDataVersion()).toBe(3);
     const stored = a.encodeDocumentKiwi({ derived: true });
     const decoded = decodeKiwi(stored);
-    expect((decoded as { derivedDataVersion?: number }).derivedDataVersion).toBe(1);
+    expect((decoded as { derivedDataVersion?: number }).derivedDataVersion).toBe(3);
     const instance = decoded.nodeChanges!.find((n) => n.guid!.localID === 21)!;
     expect(instance.derivedSymbolData?.map((e) => e.guidPath?.guids?.map((k) => k.localID))).toEqual([[2], [3]]);
 

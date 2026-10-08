@@ -696,6 +696,7 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   storedLayouts_.clear();
   derivedUsed_ = derivedStale_ = 0;
   trustLayout_ = derived != nullptr;
+  storedSparse_ = derived && derived->sparse;
   if (derived) {
     storedText_ = std::move(derived->texts);
     storedSymbols_ = std::move(derived->symbols);
@@ -740,6 +741,8 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   instanceMain_.clear();
   infoCache_.clear();
   docNode_ = kNoGuid;
+  normalizeOverridePaths(nodes);
+  adoptSlotContent(nodes);
   doc_.reserve(nodes.size());
   for (NodeChange& c : nodes) {
     if (c.guid.isDerived()) continue;

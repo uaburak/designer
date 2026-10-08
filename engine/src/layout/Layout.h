@@ -37,6 +37,9 @@ class LayoutHost {
   virtual bool measureText(Guid id, double width, Vec2& size) { return false; }
   // A TEXT node's first baseline (from its top) at `size`; < 0 when it has none.
   virtual double firstBaseline(Guid id, Vec2 size) { return -1; }
+  // A diverged slot inside an instance (a derived slot frame): the content frame it shows, else kNoGuid. A slot
+  // that hugs, hugs its content (Figma).
+  virtual Guid slotContentOf(Guid id) { return kNoGuid; }
 };
 
 class Layout {
@@ -77,6 +80,12 @@ class Layout {
   static void padding(const NodeProps& p, double out[4]);
 
  private:
+  // Grid auto layout (GridLayout.cpp): tracks sized and items placed for a size (hugW / hugH: that axis hugs).
+  struct Grid;
+  Grid grid(Guid frame, Vec2 size, bool hugW, bool hugH);
+  Vec2 gridContentSize(Guid frame, Vec2 frameSize, bool hugW, bool hugH);
+  std::vector<Placement> gridPlace(Guid frame, Vec2 size);
+
   void arrange(Guid id, Vec2 size, bool sizeFromParent);
   void arrangeAutoLayout(Guid id, Vec2 size);
   void applyConstraints(Guid frame, bool flowChildrenToo);

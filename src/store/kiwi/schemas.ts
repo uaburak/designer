@@ -5,7 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import { compileSchema, decodeBinarySchema } from "kiwi-schema";
-import { convertFigMessage, type ImportReport } from "../../shared/fig/convert";
+import { convertFigMessage, type ConvertOptions, type ImportReport } from "../../shared/fig/convert";
 import { codec, SCHEMA_BINARY, SCHEMA_SHA1, type Message } from "../../shared/schema/document.generated";
 import { SchemaModel } from "../../shared/schema/model";
 import { bytesEqual } from "../../shared/schema/visit";
@@ -44,12 +44,12 @@ export interface DecodedAny {
   report: ImportReport | null;
 }
 
-/** Decodes a Message written with `schemaBytes` into the current schema. */
-export function decodeWithSchema(schemaBytes: Uint8Array, messageBytes: Uint8Array): DecodedAny {
+/** Decodes a Message written with `schemaBytes` into the current schema (`opts.keepDerived`: a .fig import). */
+export function decodeWithSchema(schemaBytes: Uint8Array, messageBytes: Uint8Array, opts: ConvertOptions = {}): DecodedAny {
   if (isCurrentSchema(schemaBytes)) return { message: codec.decodeMessage(messageBytes), converted: false, report: null };
   const c = compiledSchema(schemaBytes);
   const theirs = c.codec.decodeMessage(messageBytes);
-  const { message, report } = convertFigMessage(theirs, c.model);
+  const { message, report } = convertFigMessage(theirs, c.model, undefined, opts);
   return { message, converted: true, report };
 }
 

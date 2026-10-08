@@ -97,6 +97,8 @@ import { loadEngine } from "./loadEngine";
 
 /** The encoding of the engine's structured outputs (docs/engine-build.md "Figma parity round 3"). */
 export type WireFormat = "json" | "kiwi";
+/** DOCUMENT.documentColorProfile as the canvas uses it. */
+export type ColorProfile = "SRGB" | "DISPLAY_P3";
 
 export interface EngineOptions {
   /** The session new nodes are created in (allocated by storage, docs/data.md §1). */
@@ -139,7 +141,9 @@ export class Engine {
       throw new Error(`engine: ${decodeText(exports.result()) || "could not start"}`);
     }
     fonts.attach(exports);
-    return new Engine(exports, handle, canvas === null, wire);
+    const engine = new Engine(exports, handle, canvas === null, wire);
+    engine.canvas = canvas;
+    return engine;
   }
 
   private readonly x: EngineExports;
@@ -164,6 +168,8 @@ export class Engine {
   private readonly imageLoads = new Map<string, Promise<number>>();
   private readonly unsubscribeFonts: () => void;
   private wireFormat: WireFormat;
+  private canvas: HTMLCanvasElement | null = null;
+  private profile: ColorProfile = "SRGB";
 
   private constructor(exports: EngineExports, handle: number, headless: boolean, wire: WireFormat) {
     this.x = exports;
@@ -308,7 +314,7 @@ export class Engine {
    */
   loadKiwi(bytes: Uint8Array, options: { page?: Guid } = {}): number {
     const [s, l] = options.page ? this.ids(options.page) : [0xffffffff, 0xffffffff];
-    return this.after(this.x.loadAt(this.h, bytes, s, l));
+    return this.loaded(this.after(this.x.loadAt(this.h, bytes, s, l)));
   }
 
   /**
@@ -437,6 +443,32 @@ export class Engine {
     // JSON shape (memory sources, demos, tests) is encoded here, with the shared codec, the store's way.
     const page = (message as { currentPage?: unknown }).currentPage;
     return this.loadKiwi(encodeKiwiMessage(messageToKiwi(message)), typeof page === "string" ? { page } : {});
+  }
+
+  /**
+   * The document's colour profile (DOCUMENT.documentColorProfile, docs/engine.md §6 "Colour"): its colours are
+   * Display P3 values in a DISPLAY_P3 file, sRGB otherwise (absent / LEGACY / SRGB).
+   */
+  get colorProfile(): ColorProfile {
+    return this.profile;
+  }
+
+  /** After a load: the canvas takes the document's colour space (Figma draws a Display P3 file in P3). */
+  private loaded(status: number): number {
+    if (status !== Status.OK) return status;
+    const doc = this.readNode("0:0") as { documentColorProfile?: string } | null;
+    this.profile = doc?.documentColorProfile === "DISPLAY_P3" ? "DISPLAY_P3" : "SRGB";
+    const gl = this.canvas?.getContext("webgl2") as (WebGL2RenderingContext & { drawingBufferColorSpace?: string; unpackColorSpace?: string }) | null | undefined;
+    if (gl) {
+      const space = this.profile === "DISPLAY_P3" ? "display-p3" : "srgb";
+      // Images (sRGB or tagged) are converted into the canvas's space as they upload.
+      if ("unpackColorSpace" in gl && gl.unpackColorSpace !== space) gl.unpackColorSpace = space;
+      if ("drawingBufferColorSpace" in gl && gl.drawingBufferColorSpace !== space) {
+        gl.drawingBufferColorSpace = space;
+        this.schedule();
+      }
+    }
+    return status;
   }
 
   /** The task's name for load(). */
@@ -734,6 +766,18 @@ export class Engine {
   }
 
   /**
+   * A region of a page (world x, y, w, h) drawn into width × height device px with the page colour behind it and no
+   * overlays: what a .fig's own thumbnail shows (meta.json render_coordinates at thumbnail_size). `page` defaults to
+   * the current one. Null when the page is missing, the region empty or the target too large.
+   */
+  renderRegionPixels(options: { page?: Guid; x: number; y: number; w: number; h: number; width: number; height: number }): Pixels | null {
+    const [s, l] = options.page ? options.page.split(":").map(Number) : [0xffffffff, 0xffffffff];
+    const { x, y, w, h, width, height } = options;
+    const status = this.x.renderRegion(this.h, s >>> 0, l >>> 0, x, y, w, h, Math.max(1, Math.round(width)), Math.max(1, Math.round(height)), 0);
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
+  }
+
+  /**
    * One node's thumbnail as pixels (its subtree alone, transparent around it), fitted into maxSize × maxSize device
    * px — the Assets grid. Null when it is missing, empty, or the GPU can't make the target.
    */
@@ -900,7 +944,8 @@ export class Engine {
   async renderThumbnail(options: { page?: Guid; maxSize: number; type?: string }): Promise<Blob | null> {
     const image = this.renderThumbnailPixels(options);
     if (!image) return null;
-    const data = new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height);
+    // The pixels are in the document's space; an sRGB canvas converts them as they are put (an export is sRGB).
+    const data = new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height, { colorSpace: this.profile === "DISPLAY_P3" ? "display-p3" : "srgb" });
     const type = options.type ?? "image/png";
     if (typeof OffscreenCanvas !== "undefined") {
       const canvas = new OffscreenCanvas(image.width, image.height);

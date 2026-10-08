@@ -158,7 +158,7 @@ TEST_CASE("derived data: a snapshot with derivedSymbolData / derivedTextData loa
   codec::KiwiMessage m;
   REQUIRE(codec::readMessage(stored, m));
   CHECK(m.derivedDataVersion == engine_derived_data_version());
-  CHECK(engine_derived_data_version() == 1);
+  CHECK(engine_derived_data_version() == 3);
 
   // Loaded from it: every instance takes its stored sublayers (no layout pass), the geometry is the same, node for
   // node, the sublayers included; another page's instance too, on its first show.

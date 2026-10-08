@@ -12,7 +12,7 @@ import { useEditor, type EditorController } from "../../controller";
 import { supportsField } from "../../engineCompat";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { roundPanel } from "../../model/geometry";
-import { canFill, canHug, canLimit, hasLimits, isAutoLayout, limitOf, newLimit, sizingChanges, sizingOf, withLimit, withoutLimits, type Axis, type Limit, type Sizing } from "../../model/sizing";
+import { canFill, canHug, canLimit, hasLimits, isAutoLayout, isSpaceBetween, limitOf, newLimit, sizingChanges, sizingOf, SPACE_BETWEEN, withLimit, withoutLimits, type Axis, type Limit, type Sizing } from "../../model/sizing";
 import { exitToCanvas } from "./Sections";
 import { VariableField } from "./Variables";
 import { fields, isGroupNode, type PanelNode } from "./shared";
@@ -193,7 +193,7 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const al = nodes.filter((n) => isAutoLayout(n));
-  const spacing = mixed(al.map((n) => (n.stackPrimaryAlignItems === "SPACE_BETWEEN" ? "SPACE_BETWEEN" : "PACKED")));
+  const spacing = mixed(al.map((n) => (isSpaceBetween(n.stackPrimaryAlignItems) ? "SPACE_BETWEEN" : "PACKED")));
   const strokes = mixed(al.map((n) => (n.bordersTakeSpace ? "INCLUDED" : "EXCLUDED")));
   const stacking = mixed(al.map((n) => (n.stackReverseZIndex ? "FIRST" : "LAST")));
   const horizontal = al.every((n) => n.stackMode === "HORIZONTAL");
@@ -209,7 +209,7 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
             { value: "PACKED", label: "Packed" },
             { value: "SPACE_BETWEEN", label: "Space between" },
           ]}
-          onChange={(v) => ed.batch("Spacing mode", () => al.forEach((n) => ed.engine.setProps([n.guid], fields({ stackPrimaryAlignItems: v === "SPACE_BETWEEN" ? "SPACE_BETWEEN" : n.stackPrimaryAlignItems === "SPACE_BETWEEN" ? "MIN" : n.stackPrimaryAlignItems }))))}
+          onChange={(v) => ed.batch("Spacing mode", () => al.forEach((n) => ed.engine.setProps([n.guid], fields({ stackPrimaryAlignItems: v === "SPACE_BETWEEN" ? SPACE_BETWEEN : isSpaceBetween(n.stackPrimaryAlignItems) ? "MIN" : n.stackPrimaryAlignItems }))))}
         />
         <span className={styles.settingsLabel}>Strokes</span>
         <Select

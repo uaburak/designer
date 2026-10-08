@@ -1,6 +1,7 @@
 // The generated kiwi codecs compile and work (docs/schema.md §2.2): a Message
 // through the tree codec and back, the visitor codec re-encoding it byte for
 // byte, and the engine's field ids agreeing with the generated registry.
+#include <cmath>
 #include <cstring>
 #include <string_view>
 
@@ -718,4 +719,29 @@ TEST_CASE("kiwi codec: a slot assignment's slotContentIdValue (Figma's form) is 
   VariableData r;
   REQUIRE(codec::readVariableData(in, r));
   CHECK(r == d);
+}
+
+TEST_CASE("kiwi codec: Figma's NaN row gap (a wrap's gap that follows the column gap) reads as absent") {
+  // Figma's own files (stacks_wrap.fig's "Horizontal wrap top left") carry stackCounterSpacing = NaN.
+  kiwi::MemoryPool pool;
+  ::schema::Message m;
+  m.set_type(::schema::MessageType::NODE_CHANGES);
+  ::schema::NodeChange& n = m.set_nodeChanges(pool, 1)[0];
+  ::schema::GUID guid;
+  guid.set_sessionID(1);
+  guid.set_localID(2);
+  n.set_guid(&guid);
+  n.set_phase(::schema::NodePhase::CREATED);
+  n.set_type(::schema::NodeType::FRAME);
+  n.set_stackMode(::schema::StackMode::HORIZONTAL);
+  n.set_stackWrap(::schema::StackWrap::WRAP);
+  n.set_stackSpacing(4);
+  n.set_stackCounterSpacing(std::nanf(""));
+  kiwi::ByteBuffer out;
+  REQUIRE(m.encode(out));
+  codec::KiwiMessage back;
+  REQUIRE(codec::readMessage(std::string_view(reinterpret_cast<const char*>(out.data()), out.size()), back));
+  REQUIRE(back.changes.size() == 1);
+  CHECK(!back.changes[0].props.stack().stackCounterSpacing.has_value());
+  CHECK(back.changes[0].props.stack().stackSpacing == 4);
 }

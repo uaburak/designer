@@ -18,6 +18,7 @@
 #include <cmath>
 #include <map>
 #include <unordered_set>
+#include <utility>
 
 #include "base/DerivedIds.h"
 #include "editor/Editor.h"
@@ -457,14 +458,118 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
     ex.infos.push_back(info);
     const Node* content = doc_.get(slotContent);
     if (content && content->props.comp().isSlotContent && content->props.parentIndex.guid != ex.top) {
-      // Figma's form (the content under the Internal Only Canvas): the top-level instance's own assignment hosts it
+      // Content not (yet) under this instance (Figma's form, under the Internal Only Canvas: a load moves it under its
+      // instance, adoptSlotContent; a later edit may leave one there): the top-level instance's own assignment hosts it
       // here — its variables resolve in this slot's modes. What the slot shows is unchanged (the main's children).
       if (level == ex.top) ex.hosts.push_back({slotContent, id});
-    } else if (xn->props.comp().isSlot && content && content->props.comp().isSlotContent) {
-      ex.slots.push_back({id, slotContent});  // a diverged slot shows its content frame instead of the main's
+    } else if (content && content->props.comp().isSlotContent) {
+      // A diverged slot (ours: isSlot; Figma's: a slot frame is marked by its SLOT_CONTENT_ID binding alone) shows its
+      // content frame instead of the main's, and the content resolves its variables in this slot's modes.
+      ex.slots.push_back({id, slotContent});
+      ex.hosts.push_back({slotContent, id});
       continue;
     }
-    expandChildren(ex, symbol, x, id, path, level, levelPath, assigns, depth);
+    // A guidPath crosses nested instances only (docs/schema.md §5.1, Figma's overrides and derivedSymbolData): a
+    // frame's children keep the frame's prefix, not the frame's own key.
+    expandChildren(ex, symbol, x, id, prefix, level, levelPath, assigns, depth);
+  }
+}
+
+void adoptSlotContent(std::vector<NodeChange>& nodes) {
+  // Figma keeps an instance's slot content (a FRAME, isSlotContent) under the Internal Only Canvas, named by the
+  // instance's SLOT assignment (varValue.slotContentIdValue) or by an override entry's (a nested instance's slot: the
+  // top-level instance holds it). Ours is a layer of the instance it fills, which the materializer draws over its slot
+  // (src/shared/fig/convert.ts adoptSlotContent does the same at import; this converts what was imported before).
+  bool any = false;
+  for (const NodeChange& c : nodes) any |= std::as_const(c.props).comp().isSlotContent;
+  if (!any) return;
+  std::unordered_map<Guid, size_t, GuidHash> index;
+  index.reserve(nodes.size());
+  for (size_t i = 0; i < nodes.size(); i++) index.emplace(nodes[i].guid, i);
+  std::unordered_map<Guid, Guid, GuidHash> owner;  // content frame → its instance
+  auto claim = [&](const std::vector<ComponentPropAssignment>& assigns, Guid instance) {
+    for (const ComponentPropAssignment& a : assigns) {
+      Guid g = a.value.guidValue != kNoGuid ? a.value.guidValue : codec::assignmentSlotContent(a.extra);
+      auto it = g != kNoGuid ? index.find(g) : index.end();
+      if (it == index.end() || owner.count(g)) continue;
+      const NodeProps& cp = nodes[it->second].props;
+      if (!std::as_const(cp).comp().isSlotContent) continue;
+      auto parent = index.find(cp.parentIndex.guid);
+      if (parent == index.end() || nodes[parent->second].props.type != NodeType::CANVAS) continue;  // already placed
+      owner.emplace(g, instance);
+    }
+  };
+  for (const NodeChange& c : nodes) {
+    if (c.props.type != NodeType::INSTANCE || c.phase == Phase::REMOVED) continue;
+    const ComponentFacet& comp = std::as_const(c.props).comp();
+    claim(comp.componentPropAssignments, c.guid);
+    for (const SymbolOverride& o : comp.symbolData.overrides) claim(std::as_const(o.props).comp().componentPropAssignments, c.guid);
+  }
+  if (owner.empty()) return;
+  // After the instance's other children: its largest position with "~" appended sorts after every one of them.
+  std::unordered_map<Guid, std::string, GuidHash> last;
+  for (const NodeChange& c : nodes) {
+    const ParentIndex& pi = c.props.parentIndex;
+    if (pi.guid == kNoGuid) continue;
+    auto [it, fresh] = last.emplace(pi.guid, pi.position);
+    if (!fresh && pi.position > it->second) it->second = pi.position;
+  }
+  for (auto& [content, instance] : owner) {
+    std::string& at = last[instance];
+    at += "~";
+    nodes[index[content]].props.parentIndex = {instance, at};
+  }
+}
+
+void normalizeOverridePaths(std::vector<NodeChange>& nodes) {
+  // Files this engine wrote before 2026-10-08 named every frame on the way down (tree paths). An element that isn't
+  // the path's last and isn't an instance can only be such a frame: it goes. Figma's paths have none.
+  // Only an override path of 3+ elements can hold such a frame (the last element is the layer itself).
+  bool any = false;
+  for (const NodeChange& c : nodes) {
+    if (c.props.type != NodeType::INSTANCE) continue;
+    for (const SymbolOverride& o : std::as_const(c.props).comp().symbolData.overrides) any |= o.path.size() >= 2;
+    if (any) break;
+  }
+  if (!any) return;
+  std::unordered_map<Guid, bool, GuidHash> isInstance;  // by GUID and by overrideKey
+  isInstance.reserve(nodes.size());
+  for (const NodeChange& c : nodes) {
+    bool inst = c.props.type == NodeType::INSTANCE;
+    isInstance.emplace(c.guid, inst);
+    if (c.props.overrideKey != kNoGuid) isInstance.emplace(c.props.overrideKey, inst);
+  }
+  for (NodeChange& c : nodes) {
+    if (c.props.type != NodeType::INSTANCE || std::as_const(c.props).comp().symbolData.overrides.empty()) continue;
+    auto& list = c.props.comp().symbolData.overrides;
+    bool changed = false;
+    for (SymbolOverride& o : list) {
+      if (o.path.size() < 2) continue;
+      std::vector<Guid> p;
+      p.reserve(o.path.size());
+      for (size_t i = 0; i < o.path.size(); i++) {
+        auto it = isInstance.find(o.path[i]);
+        if (i + 1 < o.path.size() && it != isInstance.end() && !it->second) continue;
+        p.push_back(o.path[i]);
+      }
+      if (p.size() != o.path.size()) {
+        o.path = std::move(p);
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    // Two entries may now name one sublayer: merged (the later one's fields win).
+    std::vector<SymbolOverride> merged;
+    for (SymbolOverride& o : list) {
+      auto same = std::find_if(merged.begin(), merged.end(), [&](const SymbolOverride& m) { return m.path == o.path; });
+      if (same == merged.end()) {
+        merged.push_back(std::move(o));
+      } else {
+        copyFields(same->props, o.props, o.mask);
+        same->mask |= o.mask;
+      }
+    }
+    list = std::move(merged);
   }
 }
 
@@ -722,17 +827,22 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
   if (it == storedSymbols_.end()) return false;
   std::vector<StoredRow> stored = std::move(it->second);
   storedSymbols_.erase(it);  // used once: a later derivation lays out as usual
-  bool match = stored.size() == rows.size();
+  // This engine's own data lists every sublayer. Figma's (an imported .fig) lists only those whose geometry isn't the
+  // main's, plus entries for slot content this engine draws as real layers: the sublayers it names take its geometry,
+  // the others keep what they took from the main.
+  bool match = storedSparse_ || stored.size() == rows.size();
   std::vector<const StoredRow*> byRow(rows.size(), nullptr);
   if (match) {
     std::map<std::vector<Guid>, const StoredRow*> byPath;
     for (const StoredRow& s : stored) byPath.emplace(s.path, &s);
+    size_t found = 0;
     for (size_t i = 0; i < rows.size() && match; i++) {
       auto info = derivedInfo_.find(rows[i]);
-      auto found = info == derivedInfo_.end() ? byPath.end() : byPath.find(info->second.path);
-      if (found == byPath.end()) match = false;
-      else byRow[i] = found->second;
+      auto at = info == derivedInfo_.end() ? byPath.end() : byPath.find(info->second.path);
+      if (at != byPath.end()) byRow[i] = at->second, found++;
+      else if (!storedSparse_) match = false;
     }
+    match = match && (storedSparse_ ? found > 0 || stored.empty() : found == byPath.size());
   }
   if (!match) {
     derivedStale_++;
@@ -741,6 +851,7 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
   bool prev = applyingStored_;
   applyingStored_ = true;
   for (size_t i = 0; i < rows.size(); i++) {
+    if (!byRow[i]) continue;
     const StoredRow& s = *byRow[i];
     NodeChange c = NodeChange::changed(rows[i]);
     if (s.hasSize) c.mask |= F_SIZE, c.props.size = s.size;
@@ -765,18 +876,32 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
   return true;
 }
 
+Guid Editor::slotContentOf(Guid id) {
+  if (!id.isDerived()) return kNoGuid;
+  const Node* n = doc_.get(id);
+  if (!n) return kNoGuid;
+  Guid c = slotContentFor(id, false);
+  const Node* cn = doc_.get(c);
+  return cn && cn->props.comp().isSlotContent ? c : kNoGuid;
+}
+
 Guid Editor::slotContentFor(Guid row, bool create) {
   auto info = derivedInfo_.find(row);
   if (info == derivedInfo_.end()) return kNoGuid;
   const DerivedInfo d = info->second;
   const Node* src = doc_.get(d.source);
-  if (!src || !src->props.comp().isSlot) return kNoGuid;
+  if (!src) return kNoGuid;
+  // A slot: ours carries isSlot, Figma's is marked by its SLOT_CONTENT_ID binding alone.
   Guid def = kNoGuid;
   for (const ParamBinding& b : src->props.parameterConsumptionMap)
     if (b.field == VariableField::SLOT_CONTENT_ID) def = b.propRef;
   if (def == kNoGuid) return kNoGuid;
-  for (const ComponentPropAssignment& a : assignmentsOf(d.level))
-    if (a.defID == def && doc_.has(a.value.guidValue)) return a.value.guidValue;
+  for (const ComponentPropAssignment& a : assignmentsOf(d.level)) {
+    if (a.defID != def) continue;
+    // Ours: the value's GUID; Figma's: varValue.slotContentIdValue.
+    Guid g = a.value.guidValue != kNoGuid ? a.value.guidValue : codec::assignmentSlotContent(a.extra);
+    if (doc_.has(g)) return g;
+  }
   if (!create) return kNoGuid;
   // The content frame: where the slot is, holding copies of what it shows now.
   const NodeProps slot = doc_.get(row)->props;

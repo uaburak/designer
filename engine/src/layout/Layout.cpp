@@ -82,9 +82,13 @@ void Layout::padding(const NodeProps& p, double out[4]) {
 
 std::vector<Guid> Layout::flowChildren(Guid frame) const {
   std::vector<Guid> out;
+  // An instance's slot content frame sits where its slot is (the materializer places it), never in the flow (its own
+  // layers, marked the same, are in the content frame's flow).
+  const Node* fn = doc_.get(frame);
+  const bool inInstance = fn && fn->props.type == NodeType::INSTANCE;
   for (Guid c : doc_.children(frame)) {
     const Node* n = doc_.get(c);
-    if (n && n->props.inFlow() && !host_.excludedFromFlow(c)) out.push_back(c);
+    if (n && n->props.inFlow() && !(inInstance && n->props.comp().isSlotContent) && !host_.excludedFromFlow(c)) out.push_back(c);
   }
   return out;
 }
@@ -102,11 +106,14 @@ Vec2 Layout::natural(Guid id, double width, double height) {
   if (width > 0) size.x = width;
   if (height > 0) size.y = height;
   if (p.isAutoLayout()) {
-    int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
+    // A grid's primary axis is its width (as a horizontal flow's).
+    int P = p.stack().stackMode == StackMode::VERTICAL ? 1 : 0, C = 1 - P;
     bool hugP = p.hugsPrimary() && !(P == 0 ? width > 0 : height > 0);
     bool hugC = p.hugsCounter() && !(C == 0 ? width > 0 : height > 0);
     if (hugP || hugC) {
-      Vec2 content = contentSize(id, size);
+      Guid shown = host_.slotContentOf(id);
+      if (shown != kNoGuid && !doc_.get(shown)->props.isAutoLayout()) shown = kNoGuid;
+      Vec2 content = shown != kNoGuid ? contentSize(shown, size) : contentSize(id, size);
       if (hugP) setAxis(size, P, axis(content, P));
       if (hugC) setAxis(size, C, axis(content, C));
     }
@@ -152,6 +159,7 @@ double Layout::baselineOf(Guid id, Vec2 size, int depth) {
 
 Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
   const NodeProps& p = doc_.get(frame)->props;
+  if (p.stack().stackMode == StackMode::GRID) return gridContentSize(frame, frameSize, p.hugsPrimary(), p.hugsCounter());
   int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   double pad[4];
   padding(p, pad);
@@ -212,6 +220,7 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize) {
 
 std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
   const NodeProps& p = doc_.get(frame)->props;
+  if (p.stack().stackMode == StackMode::GRID) return gridPlace(frame, size);
   int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   double pad[4];
   padding(p, pad);
@@ -322,10 +331,13 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     switch (p.stack().stackPrimaryAlignItems) {
       case StackJustify::CENTER: start = free / 2; break;
       case StackJustify::MAX: start = free; break;
+      // Figma's "Space between" is SPACE_EVENLY in its files (its plugin API's SPACE_BETWEEN; the kiwi SPACE_BETWEEN
+      // lays out the same); a lone child is centred. CSS space-evenly is SPACE_EVENLY_CSS.
       case StackJustify::SPACE_BETWEEN:
-        if (k > 1 && !p.hugsPrimary()) g = std::max(0.0, (innerP - (used - gaps)) / static_cast<double>(k - 1));
-        break;
       case StackJustify::SPACE_EVENLY:
+        if (k > 1 && !p.hugsPrimary()) g = std::max(0.0, (innerP - (used - gaps)) / static_cast<double>(k - 1));
+        else if (k == 1) start = free / 2;
+        break;
       case StackJustify::SPACE_EVENLY_CSS:
         if (!p.hugsPrimary()) {
           g = std::max(0.0, (innerP - (used - gaps)) / static_cast<double>(k + 1));
@@ -493,6 +505,7 @@ void Layout::applyConstraints(Guid frame, bool flowChildrenToo) {
     if (!cn) continue;
     const NodeProps& cp = cn->props;
     if (host_.excludedFromFlow(c)) continue;  // being dragged: the gesture places it
+    if (cp.comp().isSlotContent && fp.type == NodeType::INSTANCE) continue;  // placed over its slot by the materializer
     if (!flowChildrenToo && frameAutoLayout && cp.inFlow()) continue;
     Mat2x3 t0;
     Vec2 s0;

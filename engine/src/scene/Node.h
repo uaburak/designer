@@ -1134,7 +1134,7 @@ struct NodeProps {
   bool isRectLike() const { return type == NodeType::ROUNDED_RECTANGLE || type == NodeType::RECTANGLE; }
   bool clipsContent() const { return isFrameLike() && !frameMaskDisabled; }
   bool isAutoLayout() const {
-    return isFrameLike() && (stack().stackMode == StackMode::HORIZONTAL || stack().stackMode == StackMode::VERTICAL);
+    return isFrameLike() && stack().stackMode != StackMode::NONE;  // HORIZONTAL, VERTICAL, GRID
   }
   bool hugsPrimary() const { return stack().stackPrimarySizing != StackSize::FIXED; }
   bool hugsCounter() const { return stack().stackCounterSizing != StackSize::FIXED; }

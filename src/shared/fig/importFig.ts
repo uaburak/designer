@@ -17,7 +17,7 @@ import { interpretSchema } from "../schema/dynamic";
 import { bytesEqual, fromHex, mapValue, toHex } from "../schema/visit";
 import type { FigCodecs } from "./compression";
 import { decodeCanvas, FigFormatError, type DecodedCanvas } from "./container";
-import { convertFigMessage, type ImportReport } from "./convert";
+import { convertFigMessage, type ConvertOptions, type ImportReport } from "./convert";
 import { readFigFile, type FigFile } from "./figFile";
 
 /** A `.fig` is refused past this size (`too-large`). */
@@ -47,12 +47,15 @@ export interface FigImportDeps {
   decode?(schema: Uint8Array, message: Uint8Array): { message: Message; report: ImportReport | null };
 }
 
-/** Decodes with any schema without `new Function` (CSP-safe) and converts to ours. */
-export function decodeAnySchema(schema: Uint8Array, message: Uint8Array): { message: Message; report: ImportReport | null } {
+/**
+ * Decodes with any schema without `new Function` (CSP-safe) and converts to ours. `opts.keepDerived`: a .fig import
+ * keeps Figma's text layout and instance geometry (convert.ts FIGMA_DERIVED_DATA_VERSION).
+ */
+export function decodeAnySchema(schema: Uint8Array, message: Uint8Array, opts: ConvertOptions = {}): { message: Message; report: ImportReport | null } {
   if (schema.length === SCHEMA_BINARY.length && bytesEqual(schema, SCHEMA_BINARY)) return { message: codec.decodeMessage(message), report: null };
   const parsed = decodeBinarySchema(schema);
   const theirs = interpretSchema(parsed).decode("Message", message);
-  return convertFigMessage(theirs, new SchemaModel(parsed));
+  return convertFigMessage(theirs, new SchemaModel(parsed), MODEL, opts);
 }
 
 /** Remaps every GUID value with sessionID ≥ 2^20 (consistently, everywhere it appears) to `sessionID`. */
@@ -131,7 +134,7 @@ export function readFigContainer(bytes: Uint8Array, codecs: FigCodecs): { file: 
 export function prepareFromContainer(c: { file: FigFile; canvas: DecodedCanvas }, opts: { name: string; sessionID: number }, deps: FigImportDeps): PreparedImport {
   let decoded;
   try {
-    decoded = (deps.decode ?? decodeAnySchema)(c.canvas.schema, c.canvas.message);
+    decoded = (deps.decode ?? ((s, m) => decodeAnySchema(s, m, { keepDerived: true })))(c.canvas.schema, c.canvas.message);
   } catch (e) {
     throw new StoreError("corrupt", `This file couldn't be read: ${(e as Error).message}`);
   }

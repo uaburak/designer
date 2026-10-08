@@ -1,4 +1,4 @@
-# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4)
+# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity)
 
 ## Figma parity round 4 — API (published first; stable)
 
@@ -9,6 +9,21 @@ What changed at the boundary in round 4 (status: "Status (2026-10-08): Figma par
 - **Schema** (`schema/document.kiwi`, additive, no format bump): `VariableAnyValue.slotContentIdValue = 18` (`SlotContentId {guid}`) and `VariableDataType.SLOT_CONTENT_ID = 18`, Figma's names and numbers — a `.fig`'s slot assignments (`ComponentPropAssignment.varValue`) now survive import. `NodeChange.detachedSymbolId` round-trips in both forms (`{guid}` and `{assetRef}`).
 - **Per-page loading, stricter** (Figma's dynamic page loading): `engine_load` resolves the bound values of the shown page and of the Internal Only Canvas only; another page's are resolved — and its instances derived — when it is first shown or read (as round 2's instances). The Internal Only Canvas is never derived whole: a read of an instance there (or of one of its sublayers, or a `READ_SUBTREE` read) derives the instances of that node's top-level container; reading a style, a variable or a main for its own fields derives nothing. Consequence for callers: a page never shown asks for no fonts at all (round 3 still asked for fonts of other pages' texts whose bindings resolved at load).
 - **No other API change.** `engine_stats.nodeBytes` now counts the facets (round 4 item 4).
+
+## Import fidelity (2026-10-08, branch fig-import-fidelity; merged after round 4)
+
+Figma's own `.fig` files against Figma's own rendering (`scripts/fig-fidelity.mjs`, docs/data-impl.md "Import fidelity": numbers, method, what's left). Engine changes:
+
+- **`engine_render_region(h, pageSessionID, pageLocalID, x, y, w, h, width, height, flags)`** (f64 region, u32 size): a page's world region drawn offscreen into width × height device px, the page colour behind, no overlays or frame titles; result as `engine_render_thumbnail`'s. TS: `engine.renderRegionPixels({page?, x, y, w, h, width, height})`. E_INVALID past the largest texture.
+- **Override paths are Figma's** (docs/schema.md §5.1): a `guidPath` crosses nested instances only. The materializer named every frame on the way down (`[frame, frame, text]`), so a Figma override of a layer inside a frame of a component never applied (5,161 of 9,229 non-root overrides in the owner's file). `DerivedInfo.path`, override entries written by edits, `derivedSymbolData` paths all follow; files this engine wrote before are normalized at load (`normalizeOverridePaths`: an element that isn't the last and isn't an instance goes; entries that then name one sublayer merge). **`kDerivedDataVersion` 3** after the merge with round 4 (the branch's 2 and round 4's 1 both re-derive; 1's paths were tree paths, and both still meet the load-time conversions below).
+- **Figma's derived data** (`kFigmaDerivedDataVersion` = 0x46494701, written by the import): read like the engine's own; its `derivedSymbolData` is sparse (only sublayers whose geometry isn't the main's, plus slot-content entries), so with that stamp the named sublayers take it and the others keep the main's (`StoredDerived::sparse`); the engine's own data must still name every sublayer.
+- **NaN `stackCounterSpacing`** (Figma's "same as the column gap" for wraps) reads as absent — every child of such a frame was at NaN (stacks_wrap.fig's first frame drew empty).
+- **Space between**: Figma writes it as `SPACE_EVENLY` (the plugin API's SPACE_BETWEEN); kiwi `SPACE_BETWEEN` lays out the same; a lone child is centred; CSS space-evenly is `SPACE_EVENLY_CSS`. The panel reads both and writes `SPACE_EVENLY`.
+- **GRID** (`layout/GridLayout.cpp`, docs/engine.md §4.3): `isAutoLayout()` includes GRID; tracks FIXED / HUG / FLEX (FLEX hugs in a hugging frame), gaps, reflow placement (`gridReflowEnabled`, layer order, spans) or anchors, Fill width / height in the cell, `gridChildHorizontalAlign` / `VerticalAlign`, hug sizes. Grid fields are read from `NodeProps::extra` (no new NodeProps members). Not yet: gestures (drag reorder and insertion treat a grid as a vertical list), GRID_ROW_GAP / GRID_COLUMN_GAP bindings (the gaps are in `extra`, not written by the resolver), track editing.
+- **Slot content**: a content frame (`isSlotContent`, a child of its instance) stays out of the instance's flow and constraints (its own layers stay in its flow); the materializer places it over the slot; a slot that hugs hugs the content it shows (`LayoutHost::slotContentOf`).
+- **Slots, merged with round 4's design** (one design for both): the import moves a content frame under its instance and also keeps Figma's `varValue.slotContentIdValue` next to our `guidValue`; a load moves Figma-form content that is still under the Internal Only Canvas (files imported before) under its instance (`adoptSlotContent`, next to `normalizeOverridePaths`; the engine's next snapshot persists it). A slot is a frame bound to `SLOT_CONTENT_ID` (`isSlot` or not), its assignment read from `guidValue` or `slotContentIdValue`. The materializer draws the content over its slot **and** hosts it there (`slotHosts_`), so its variables resolve in the slot's modes (the slot row and up), as round 4 resolved the Figma form. Content an instance doesn't own (a later edit left it on the internal canvas) is still hosted only, as in round 4. Test: `variables` "Figma-form slot content is drawn in its slot and resolved in the slot's own modes".
+- **Display P3**: `Engine.load*` sets the canvas's `drawingBufferColorSpace` / `unpackColorSpace` to `display-p3` for a DISPLAY_P3 document (`engine.colorProfile`); `renderThumbnail` converts to sRGB.
+- Tests: `scene.kiwi` (NaN gap), `components` (Figma paths and tree-path normalization, sparse Figma data, slot content in an auto-layout instance), `layout` (space between, grid tracks / reflow / spans / fill / alignment, anchors); `engine.wasm.test.ts` (colour profile).
 
 ## Figma parity round 3 — API (published first; stable)
 
@@ -51,7 +66,7 @@ Built in the order asked, each measured on the owner's file (`scripts/engine-ben
 
 Tests: `npm run engine:test` 277 cases (new: kiwi fidelity — assetRef `detachedSymbolId`, mode-less entries, `{}` limits, one-corner overrides, `slotContentIdValue` kept and readable; slot content resolved in its slot's modes, unhosted content keeping stored values, the host's mode change followed; soft-deleted variables / collections / styles kept, an unused deleted main removed, a published one kept; a root override addressed by the main's key; a page not shown resolves nothing, derives no instance and asks for no font until shown, the internal canvas derived per container on an instance read; bound paints' alpha as opacity; `engine_load` refuses JSON). `npm run check` 71 files / 633 tests (new: `openFonts.test.ts`; `engine.wasm.test.ts` "typed facet reads (round 4)": every facet field equals `engine_read_nodes`' value, the store patches a drag's frames and reads in full otherwise). `npm run engine:shot` 52/52, `editor-shot.mjs` 110/110. Release wasm 2949 KB (was 2858). Flaky, not new: `render.cache` "a frame with nothing new composites" failed once under a loaded machine and passed on the rerun.
 
-Figma-parity gaps left: Figma's slot content is now resolved in its slot's context but not *drawn* there (an instance shows its main's default slot children; our own slots still keep their content under the instance); `rectangleCornerRadiiIndependent` is derived from the values, not stored (a file with equal corners in independent mode shows them uniform); text widths of some faces differ from Figma's by ≈ 0.2 px (2146 sizes on the owner's file); extended collections; facets are heap records per node, not engine.md §2.2's per-facet pools and SoA core columns; writes (`set_props`) and the Layers rows are still JSON; the facade's Message methods (apply / paste / library payloads) still cross as JSON.
+Figma-parity gaps left: ~~Figma's slot content not *drawn* in its slot~~ (done when `fig-import-fidelity` was merged: drawn there and resolved in its modes, "Import fidelity" above); `rectangleCornerRadiiIndependent` is derived from the values, not stored (a file with equal corners in independent mode shows them uniform); text widths of some faces differ from Figma's by ≈ 0.2 px (2146 sizes on the owner's file); extended collections; facets are heap records per node, not engine.md §2.2's per-facet pools and SoA core columns; writes (`set_props`) and the Layers rows are still JSON; the facade's Message methods (apply / paste / library payloads) still cross as JSON.
 
 ## Status (2026-10-08): Figma parity round 3
 
@@ -278,7 +293,7 @@ Screenshots: `50-variables-modes` (a Light and a Dark frame holding the same bou
 
 ### Not done / next
 - Libraries (published keys, library copies, updates; next round). Copy/paste between files doesn't carry the variables / styles a selection references yet (schema.md §4.1).
-- Variable-driven variants (`VARIANT_PROPERTIES` / RESOLVE_VARIANT), `GRID_ROW_GAP` / `GRID_COLUMN_GAP` (grid layout isn't modelled), `HYPERLINK`, `FONT_VARIATIONS`, per-run text bindings and per-range text styles are kept as data, not applied. Timing / Easing values are data (`@later`). Extended collections are not modelled.
+- Variable-driven variants (`VARIANT_PROPERTIES` / RESOLVE_VARIANT), `GRID_ROW_GAP` / `GRID_COLUMN_GAP` (grid layout is in since 2026-10-08, its gaps aren't bindable yet), `HYPERLINK`, `FONT_VARIATIONS`, per-run text bindings and per-range text styles are kept as data, not applied. Timing / Easing values are data (`@later`). Extended collections are not modelled.
 - Figma's `variableConsumptionMap` (the legacy twin it still writes) is kept as an unknown field, not read.
 - Soft-deleted variables nobody uses any more are not collected on load (components' are).
 
@@ -520,7 +535,7 @@ The committed **release** wasm in `src/renderer/src/engine/wasm/` matches the so
 
 ### Not started
 
-- **GRID layout** (§4.3) and BASELINE alignment (which needs text).
+- ~~GRID layout~~ (done 2026-10-08, "Import fidelity" above) and BASELINE alignment (done with E3).
 - **Kiwi at the TS↔C++ boundary.** `scene/CodecJson` and `codec.ts` still speak JSON, and the Wasm doesn't link `eng_schema` yet.
 - **Smaller canvas gaps:**
   - double-click into layers;
@@ -785,7 +800,7 @@ The ABI does not change.
 
 ## Next
 
-- **E2 remainder:** GRID (§4.3).
+- **E2 remainder:** GRID (§4.3) — done 2026-10-08 ("Import fidelity").
 - **E3:** text — HarfBuzz, line breaking, glyphs (path renderer, MaskAtlas), editing with IME. This also unlocks the size-badge text, frame titles and measurement labels.
 - **Alongside:**
   - the generated kiwi codec at the boundary (schemagen's C++ compiles and is tested natively), and apigen;

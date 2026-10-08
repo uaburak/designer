@@ -13,7 +13,8 @@
  *    libraryGUIDToSubscribingGUID → overrideKey mapping is not done: no sample has a library copy);
  *    symbol/styleDescription → description; inherit*StyleID → styleIdFor* {guid}; assetRef → the local copy's guid;
  *    the GUID sentinel 4294967295:4294967295 → absent; GROUP → FRAME + resizeToFit; RECTANGLE → ROUNDED_RECTANGLE;
- *    derived data dropped.
+ *    derived data dropped, except, for a .fig import (`keepDerived`), Figma's text layout and instance sublayer
+ *    geometry (FIGMA_DERIVED_DATA_VERSION).
  */
 import type { Message, NodeChange } from "../schema/document.generated";
 import { guidKey, NONE_ID } from "../schema/guid";
@@ -210,8 +211,51 @@ function figmaPaintFixups(p: any, report: ImportReport): any {
   return { ...p, thumbHash: bytes };
 }
 
+/**
+ * The stamp (`Message.derivedDataVersion`) of derived data an import kept from Figma's own file: Figma's text layout
+ * (`derivedTextData`: glyph outlines, baselines, the box) and instance sublayer geometry (`derivedSymbolData`: guidPath,
+ * size, transform, a text sublayer's `derivedTextData`), in the shape the engine writes its own. The engine reads it
+ * as its own (docs/engine.md "derived data stored"): a text whose font is missing on this machine draws Figma's
+ * outlines (Figma: collaborators without a font still see it, they can't edit it), and instances and auto layout
+ * open as Figma laid them out. Not this engine's stamp, so the editor stores its own derived data after the open.
+ * Engine side: `Editor::kFigmaDerivedDataVersion`.
+ */
+export const FIGMA_DERIVED_DATA_VERSION = 0x46494701;
+
+/** The @derived fields a .fig import keeps (fillGeometry / strokeGeometry are the engine's to compute). */
+const KEPT_DERIVED = new Set(["derivedTextData", "derivedSymbolData"]);
+/** What a kept derivedSymbolData entry keeps. */
+const SYMBOL_ENTRY_FIELDS = ["guidPath", "size", "transform", "derivedTextData"];
+/** Figma's older files keep the text layout inside TextData under these names (DerivedTextData's own). */
+const TEXT_LAYOUT_FIELDS = ["layoutSize", "baselines", "glyphs", "decorations", "fontMetaData", "hyperlinkBoxes", "truncationStartIndex", "truncatedHeight", "logicalIndexToCharacterOffsetMap", "derivedLines"];
+
+/** A node's (or a derivedSymbolData entry's) derived text layout, from Figma's newer or older place; entries trimmed. */
+function keepFigmaDerived(m: any, report: ImportReport): void {
+  const td = m.textData;
+  if (m.derivedTextData === undefined && td && Array.isArray(td.glyphs)) {
+    const d: any = {};
+    for (const f of TEXT_LAYOUT_FIELDS) if (td[f] !== undefined) d[f] = td[f];
+    m.derivedTextData = d;
+    inc(report.mappings, "TextData layout → derivedTextData");
+  }
+  if (m.derivedTextData !== undefined && !Array.isArray(m.derivedTextData.glyphs)) delete m.derivedTextData;
+  if (Array.isArray(m.derivedSymbolData)) {
+    // Figma's list starts with the instance itself, path [symbolID] (as its root overrides do); ours leaves it out.
+    const sym = m.symbolData?.symbolID;
+    const isRoot = (e: any) => {
+      const g = e?.guidPath?.guids;
+      return !!sym && Array.isArray(g) && g.length === 1 && g[0].sessionID === sym.sessionID && g[0].localID === sym.localID;
+    };
+    m.derivedSymbolData = m.derivedSymbolData.filter((e: any) => !isRoot(e)).map((e: any) => {
+      const out: any = {};
+      for (const f of SYMBOL_ENTRY_FIELDS) if (e?.[f] !== undefined) out[f] = e[f];
+      return out;
+    });
+  }
+}
+
 /** The pre-projection pass over every NodeChange (nodes, overrides, text runs): Figma's names → ours. */
-function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, any>): any {
+function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, any>, opts: ConvertOptions = {}): any {
   const m: any = { ...n };
   if (m.type === "GROUP") {
     m.type = "FRAME";
@@ -227,6 +271,24 @@ function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, 
       inc(report.mappings, "variableConsumptionMap → parameterConsumptionMap");
     }
     delete m.variableConsumptionMap;
+  }
+  // Slots (Figma 2026): the slot frame in a main is marked only by its SLOT_CONTENT_ID binding (ours: `isSlot` too);
+  // an instance's content is a SLOT_CONTENT_ID variable value (ours: the assignment's `guidValue`).
+  if (m.isSlot === undefined) {
+    const viaRef = Array.isArray(m.componentPropRefs) && m.componentPropRefs.some((r: any) => !r?.isDeleted && r?.componentPropNodeField === "SLOT_CONTENT_ID");
+    const viaMap = Array.isArray(m.parameterConsumptionMap?.entries) && m.parameterConsumptionMap.entries.some((e: any) => e?.variableField === "SLOT_CONTENT_ID");
+    if (viaRef || viaMap) {
+      m.isSlot = true;
+      inc(report.mappings, "SLOT_CONTENT_ID binding → isSlot");
+    }
+  }
+  if (Array.isArray(m.componentPropAssignments) && m.componentPropAssignments.some((a: any) => a?.varValue?.value?.slotContentIdValue)) {
+    m.componentPropAssignments = m.componentPropAssignments.map((a: any) => {
+      const g = a?.varValue?.value?.slotContentIdValue?.guid;
+      if (!g || isSentinel(g) || a.value?.guidValue) return a;
+      inc(report.mappings, "slotContentIdValue → guidValue");
+      return { ...a, value: { ...(a.value ?? {}), guidValue: g } };
+    });
   }
   if (Array.isArray(m.componentPropRefs)) {
     const entries: any[] = [...(m.parameterConsumptionMap?.entries ?? [])];
@@ -294,8 +356,9 @@ function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, 
     }
     delete m[from];
   }
+  if (opts.keepDerived) keepFigmaDerived(m, report);
   for (const f of DERIVED_FIELDS) {
-    if (m[f] !== undefined) {
+    if (m[f] !== undefined && !(opts.keepDerived && KEPT_DERIVED.has(f))) {
       delete m[f];
       report.droppedDerived++;
     }
@@ -329,16 +392,67 @@ function figmaNodeFixups(n: any, report: ImportReport, variantDefs: Map<string, 
   return m;
 }
 
+/**
+ * Figma keeps an instance's slot content frame (`isSlotContent`) on the internal canvas, referenced by the instance's
+ * SLOT assignment; ours is a real child of the instance it fills (docs/engine-build.md "E6": the materializer keeps it
+ * over the slot). Each content frame referenced from an instance (its own assignments, or an override entry's: the
+ * top-level instance holds it) moves there, after the instance's other children.
+ */
+function adoptSlotContent(nodes: NodeChange[], report: ImportReport): NodeChange[] {
+  const byId = new Map(nodes.filter((n) => n.guid).map((n) => [guidKey(n.guid!), n]));
+  const owner = new Map<string, string>();
+  const claim = (assigns: readonly any[] | undefined, instance: string) => {
+    for (const a of assigns ?? []) {
+      const g = a?.value?.guidValue;
+      const c = g ? byId.get(guidKey(g)) : undefined;
+      if (!c?.isSlotContent || owner.has(guidKey(g))) continue;
+      const parent = c.parentIndex ? byId.get(guidKey(c.parentIndex.guid)) : undefined;
+      if (parent?.type !== "CANVAS") continue; // already under its instance
+      owner.set(guidKey(g), instance);
+    }
+  };
+  for (const n of nodes) {
+    if (n.type !== "INSTANCE" || !n.guid) continue;
+    claim(n.componentPropAssignments, guidKey(n.guid));
+    for (const o of n.symbolData?.symbolOverrides ?? []) claim(o.componentPropAssignments, guidKey(n.guid));
+  }
+  if (!owner.size) return nodes;
+  // After the owner's last child: its largest position with a character appended sorts after every one of them.
+  const last = new Map<string, string>();
+  for (const n of nodes) {
+    const p = n.parentIndex;
+    if (!p) continue;
+    const k = guidKey(p.guid);
+    if (!last.has(k) || p.position > last.get(k)!) last.set(k, p.position);
+  }
+  return nodes.map((n) => {
+    const to = n.guid ? owner.get(guidKey(n.guid)) : undefined;
+    if (!to) return n;
+    const position = `${last.get(to) ?? ""}~`;
+    last.set(to, position);
+    inc(report.mappings, "slot content → under its instance");
+    return { ...n, parentIndex: { guid: byId.get(to)!.guid!, position } };
+  });
+}
+
 export interface ConvertResult {
   message: Message;
   report: ImportReport;
+}
+
+export interface ConvertOptions {
+  /**
+   * Keep Figma's derived text layout and instance sublayer geometry, stamped FIGMA_DERIVED_DATA_VERSION (a .fig import;
+   * a paste or an old snapshot of ours drops them).
+   */
+  keepDerived?: boolean;
 }
 
 /**
  * Converts a Message decoded with Figma's schema (`theirs`) to ours: the fixups, the projection by name, then the
  * reference fixups (variant defs, assetRef, sentinels) and the removal of subtrees whose root was dropped.
  */
-export function convertFigMessage(message: any, theirs: SchemaModel, ours: SchemaModel = MODEL): ConvertResult {
+export function convertFigMessage(message: any, theirs: SchemaModel, ours: SchemaModel = MODEL, opts: ConvertOptions = {}): ConvertResult {
   const report = newImportReport();
   const variantDefs = new Map<string, any>();
   const nodeTargets = new Set(["NodeChange"]);
@@ -346,7 +460,7 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
   const fixed = {
     ...message,
     nodeChanges: (message.nodeChanges ?? []).map((n: any) => {
-      const node = mapValue(theirs, "NodeChange", n, nodeTargets, (_def, v) => figmaNodeFixups(v, report, variantDefs));
+      const node = mapValue(theirs, "NodeChange", n, nodeTargets, (_def, v) => figmaNodeFixups(v, report, variantDefs, opts));
       return theirs.defs.get("Paint")?.byName.has("thumbHashBase64") ? mapValue(theirs, "NodeChange", node, paintTargets, (_def, p) => figmaPaintFixups(p, report)) : node;
     }),
   };
@@ -393,6 +507,8 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
     }),
   );
 
+  nodes = adoptSlotContent(nodes, report);
+
   // Drop nodes whose parent is gone (the subtree of a dropped node), repeatedly.
   const keys = new Set(nodes.filter((n) => n.guid).map((n) => guidKey(n.guid!)));
   for (;;) {
@@ -408,5 +524,6 @@ export function convertFigMessage(message: any, theirs: SchemaModel, ours: Schem
     if (nodes.length === before) break;
   }
   report.nodesOut = nodes.length;
-  return { message: { ...projected, nodeChanges: nodes }, report };
+  const kept = opts.keepDerived && nodes.some((n) => n.derivedTextData !== undefined || n.derivedSymbolData !== undefined);
+  return { message: { ...projected, nodeChanges: nodes, ...(kept ? { derivedDataVersion: FIGMA_DERIVED_DATA_VERSION } : {}) }, report };
 }

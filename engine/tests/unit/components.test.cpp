@@ -224,6 +224,83 @@ TEST_CASE("components: nested instances, usage-site overrides over the nested in
   CHECK(info.main == OTHER);
 }
 
+TEST_CASE("components: override paths cross nested instances only (Figma's); older tree paths are normalized at load") {
+  // Card (4:1) > Body frame (4:2) > Title text (4:3) and an Icon instance (4:4) of Icon (5:1) > Shape (5:2).
+  auto nodes = baseChanges();
+  const Guid CARD{4, 1}, BODY{4, 2}, TITLE{4, 3}, ICON_I{4, 4}, ICON{5, 1}, SHAPE{5, 2}, CARD_I{4, 10}, OLD_I{4, 11};
+  nodes.push_back(make(ICON, NodeType::SYMBOL, kPage, "#", {300, 0, 16, 16}, "Icon"));
+  nodes.push_back(make(SHAPE, NodeType::ELLIPSE, ICON, "!", {0, 0, 16, 16}, "Shape"));
+  nodes.push_back(make(CARD, NodeType::SYMBOL, kPage, "!", {0, 0, 200, 100}, "Card"));
+  nodes.push_back(make(BODY, NodeType::FRAME, CARD, "!", {10, 10, 180, 80}, "Body"));
+  nodes.push_back(textNode(TITLE, BODY, "!", {0, 0, 100, 20}, "Title"));
+  nodes.push_back(instanceOf(ICON_I, ICON, BODY, "\"", {150, 0, 16, 16}));
+  auto overrides = [&](std::vector<Guid> title, std::vector<Guid> shape) {
+    SymbolOverride t;
+    t.path = std::move(title);
+    t.mask = F_TEXT_DATA;
+    t.props.text().textData.characters = "Hello";
+    SymbolOverride s;
+    s.path = std::move(shape);
+    s.mask = F_FILLS;
+    s.props.fillPaints = {Paint::solid(Color::hex(0x00FF00))};
+    return std::vector<SymbolOverride>{t, s};
+  };
+  // Figma's form: [Title], [Icon instance, Shape] — the Body frame isn't named.
+  NodeChange figma = instanceOf(CARD_I, CARD, kPage, "$", {0, 200, 200, 100});
+  figma.props.comp().symbolData.overrides = overrides({TITLE}, {ICON_I, SHAPE});
+  nodes.push_back(figma);
+  // The tree form this engine wrote before: [Body, Title], [Body, Icon instance, Shape].
+  NodeChange old = instanceOf(OLD_I, CARD, kPage, "%", {0, 400, 200, 100});
+  old.props.comp().symbolData.overrides = overrides({BODY, TITLE}, {BODY, ICON_I, SHAPE});
+  nodes.push_back(old);
+  Editor e = load(nodes);
+  for (Guid inst : {CARD_I, OLD_I}) {
+    CAPTURE(inst.localID);
+    CHECK(props(e, sub(inst, {BODY, TITLE})).text().textData.characters == "Hello");
+    CHECK(props(e, sub(inst, {BODY, ICON_I, SHAPE})).fillPaints[0].color == Color::hex(0x00FF00));
+    CHECK(hasOverride(e, inst, {TITLE}, F_TEXT_DATA));
+    CHECK(hasOverride(e, inst, {ICON_I, SHAPE}, F_FILLS));
+  }
+  // An edit inside the frame writes Figma's path.
+  e.setProps({sub(CARD_I, {BODY, TITLE})}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.5; }), 0);
+  CHECK(hasOverride(e, CARD_I, {TITLE}, F_OPACITY));
+  CHECK(!hasOverride(e, CARD_I, {BODY, TITLE}, F_OPACITY));
+}
+
+TEST_CASE("components: Figma's derivedSymbolData (an imported .fig) is sparse: named sublayers take it, the rest the main's") {
+  // Button main (1:1) with a background (1:2) and a label (1:3); its instance 1:10 at the main's size. Figma's data
+  // names only the label (moved by a layout the main doesn't have) and a slot-content path this engine draws as real
+  // layers.
+  Editor::StoredDerived stored;
+  stored.sparse = true;
+  Editor::StoredRow label;
+  label.path = {LABEL};
+  label.hasTransform = true;
+  label.transform = Mat2x3::translate(30, 12);
+  Editor::StoredRow extra;
+  extra.path = {Guid{9, 9}};
+  extra.hasSize = true;
+  extra.size = {5, 5};
+  stored.symbols[I] = {label, extra};
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(buttonDoc(), kNoGuid, &stored);
+  CHECK(e.derivedUsed() == 1);
+  CHECK(e.derivedStale() == 0);
+  CHECK(props(e, sub(I, {LABEL})).transform.m02 == doctest::Approx(30));
+  CHECK(props(e, sub(I, {LABEL})).transform.m12 == doctest::Approx(12));
+  CHECK(props(e, sub(I, {BG})).size.x == doctest::Approx(100));  // not named: the main's
+  // This engine's own data (not sparse) must name every sublayer, else the instance is laid out as usual.
+  Editor::StoredDerived own;
+  own.symbols[I] = {label};
+  Editor e2;
+  e2.loadDocument(buttonDoc(), kNoGuid, &own);
+  CHECK(e2.derivedUsed() == 0);
+  CHECK(e2.derivedStale() == 1);
+  CHECK(props(e2, sub(I, {LABEL})).transform.m02 == doctest::Approx(10));
+}
+
 TEST_CASE("components: boolean and text properties; editing a bound field writes the property value") {
   auto nodes = buttonDoc();
   const Guid SHOW{1, 0x7fffffff}, TXT{1, 0x7ffffffe};
@@ -594,6 +671,72 @@ TEST_CASE("components: an edit inside an instance's slot diverges the whole slot
   CHECK(!e.document().has(content));
   CHECK(e.document().has(sub(I, {SLOT, DEFAULT})));
   CHECK(props(e, sub(I, {SLOT, DEFAULT})).opacity == doctest::Approx(0.3));
+}
+
+TEST_CASE("components: a slot's content frame in an auto-layout instance sits over its slot, outside the flow") {
+  // Figma's structure, as an import adopts it: a horizontal auto-layout main (icon 16 + slot filling the rest), an
+  // instance whose slot content frame is a real child of the instance (a .fig keeps it on the internal canvas).
+  auto nodes = baseChanges();
+  const Guid MAIN{7, 1}, ICON{7, 2}, SLOT{7, 3}, DEF{7, 0x7ffffffd}, INST{7, 10}, CONTENT{7, 20}, INNER{7, 21};
+  NodeChange m = make(MAIN, NodeType::SYMBOL, kPage, "!", {0, 0, 200, 40}, "Row");
+  m.props.stack().stackMode = StackMode::HORIZONTAL;
+  m.props.stack().stackSpacing = 8;
+  m.props.stack().stackPrimarySizing = StackSize::FIXED;
+  ComponentPropDef d;
+  d.id = DEF;
+  d.name = "Content";
+  d.type = ComponentPropType::SLOT;
+  m.props.comp().componentPropDefs = {d};
+  nodes.push_back(m);
+  nodes.push_back(make(ICON, NodeType::ROUNDED_RECTANGLE, MAIN, "!", {0, 0, 16, 16}, "Icon"));
+  NodeChange slot = make(SLOT, NodeType::FRAME, MAIN, "\"", {24, 0, 176, 40}, "Slot");
+  slot.props.comp().isSlot = true;
+  slot.props.stackChildPrimaryGrow = 1;
+  ParamBinding b;
+  b.field = VariableField::SLOT_CONTENT_ID;
+  b.propRef = DEF;
+  slot.props.parameterConsumptionMap = {b};
+  nodes.push_back(slot);
+  NodeChange inst = instanceOf(INST, MAIN, kPage, "\"", {0, 100, 200, 40});
+  inst.props.stack().stackMode = StackMode::HORIZONTAL;
+  inst.props.stack().stackSpacing = 8;
+  inst.props.stack().stackPrimarySizing = StackSize::FIXED;
+  ComponentPropAssignment a;
+  a.defID = DEF;
+  a.value.guidValue = CONTENT;
+  inst.props.comp().componentPropAssignments = {a};
+  nodes.push_back(inst);
+  NodeChange content = make(CONTENT, NodeType::FRAME, INST, "~", {0, 0, 176, 40}, "Slot");
+  content.props.comp().isSlotContent = true;
+  nodes.push_back(content);
+  NodeChange inner = make(INNER, NodeType::ROUNDED_RECTANGLE, CONTENT, "!", {0, 0, 50, 20}, "Mine");
+  inner.props.comp().isSlotContent = true;
+  nodes.push_back(inner);
+  Editor e = load(nodes);
+  // The icon keeps its place in the flow, the slot fills the rest, the content frame covers the slot.
+  CHECK(e.document().worldBounds(sub(INST, {ICON})) == Rect{0, 100, 16, 16});
+  CHECK(e.document().worldBounds(sub(INST, {SLOT})) == Rect{24, 100, 176, 40});
+  CHECK(e.document().worldBounds(CONTENT) == Rect{24, 100, 176, 40});
+  CHECK(e.document().worldBounds(INNER) == Rect{24, 100, 50, 20});
+
+  // A slot that hugs its height hugs the content it shows (a vertical slot and content, a 60 tall layer in it).
+  NodeChange vs = slot;
+  vs.props.stack().stackMode = StackMode::VERTICAL;
+  vs.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange vc = content;
+  vc.props.stack().stackMode = StackMode::VERTICAL;
+  vc.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  NodeChange tall = make(INNER, NodeType::ROUNDED_RECTANGLE, CONTENT, "!", {0, 0, 50, 60}, "Mine");
+  tall.props.comp().isSlotContent = true;
+  auto nodes2 = nodes;
+  for (NodeChange& n : nodes2) {
+    if (n.guid == SLOT) n = vs;
+    if (n.guid == CONTENT) n = vc;
+    if (n.guid == INNER) n = tall;
+  }
+  Editor e2 = load(nodes2);
+  CHECK(e2.document().worldBounds(sub(INST, {SLOT})).h == doctest::Approx(60));
+  CHECK(e2.document().worldBounds(CONTENT).h == doctest::Approx(60));
 }
 
 TEST_CASE("components: Add variant on a lone component makes a set; the variants keep their place") {

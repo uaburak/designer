@@ -54,6 +54,7 @@ _engine_move_nodes
 _engine_encode_selection
 _engine_paste
 _engine_render_thumbnail
+_engine_render_region
 _engine_has_events
 _engine_take_events
 _engine_stats

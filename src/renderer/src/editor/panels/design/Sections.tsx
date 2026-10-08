@@ -16,7 +16,7 @@ import { groupChain } from "../../actions";
 import { ancestors } from "../../components";
 import { useTopics, useUI } from "../../hooks";
 import { hasConstraints, type ConstraintHost } from "../../model/constraints";
-import { isAutoLayout } from "../../model/sizing";
+import { isAutoLayout, isSpaceBetween, SPACE_BETWEEN } from "../../model/sizing";
 import { ConstraintsRow } from "./Constraints";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { AutoLayoutSettingsButton, LimitRow, SizeField, useLimitAxes } from "./Sizing";
@@ -218,11 +218,11 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
   const first = nodes[0];
   const horizontal = direction !== "v";
   const alignment: Alignment = {
-    primary: first.stackPrimaryAlignItems === "CENTER" || first.stackPrimaryAlignItems === "MAX" || first.stackPrimaryAlignItems === "SPACE_BETWEEN" ? first.stackPrimaryAlignItems : "MIN",
+    primary: isSpaceBetween(first.stackPrimaryAlignItems) ? "SPACE_BETWEEN" : first.stackPrimaryAlignItems === "CENTER" || first.stackPrimaryAlignItems === "MAX" ? first.stackPrimaryAlignItems : "MIN",
     counter: first.stackCounterAlignItems === "CENTER" || first.stackCounterAlignItems === "MAX" ? first.stackCounterAlignItems : "MIN",
   };
   const gap = mixedNumber(nodes.map((n) => n.stackSpacing ?? 0));
-  const autoGap = nodes.every((n) => n.stackPrimaryAlignItems === "SPACE_BETWEEN");
+  const autoGap = nodes.every((n) => isSpaceBetween(n.stackPrimaryAlignItems));
   const padH = mixedNumber(nodes.map((n) => n.stackHorizontalPadding ?? 0));
   const padV = mixedNumber(nodes.map((n) => n.stackVerticalPadding ?? 0));
   const set = (label: string, info: ChangeInfo, f: (n: PanelNode) => ReturnType<typeof fields>) => editEach(ed, label, info, refs, f);
@@ -230,7 +230,7 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
     <>
       <PropertyRow label="Alignment and gap">
         <div className={styles.matrix}>
-          <AlignmentMatrix direction={horizontal ? "horizontal" : "vertical"} value={alignment} onChange={(a) => ed.setProps(refs, fields({ stackPrimaryAlignItems: a.primary, stackCounterAlignItems: a.counter }), "Alignment")} />
+          <AlignmentMatrix direction={horizontal ? "horizontal" : "vertical"} value={alignment} onChange={(a) => ed.setProps(refs, fields({ stackPrimaryAlignItems: a.primary === "SPACE_BETWEEN" ? SPACE_BETWEEN : a.primary, stackCounterAlignItems: a.counter }), "Alignment")} />
         </div>
         <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}>
         <NumericInput
@@ -239,7 +239,7 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           value={fieldValue(gap)}
           min={0}
           valueLabel={autoGap ? "Auto" : undefined}
-          onChange={(v, info) => set("Gap", info, (n) => fields({ stackSpacing: v, ...(n.stackPrimaryAlignItems === "SPACE_BETWEEN" ? { stackPrimaryAlignItems: "MIN" } : {}) }))}
+          onChange={(v, info) => set("Gap", info, (n) => fields({ stackSpacing: v, ...(isSpaceBetween(n.stackPrimaryAlignItems) ? { stackPrimaryAlignItems: "MIN" } : {}) }))}
           onCancel={() => ed.cancelEdit()}
           onStep={(d) => set("Gap", stepInfo, (n) => fields({ stackSpacing: Math.max(0, (n.stackSpacing ?? 0) + d) }))}
           onExit={exitToCanvas(ed)}
