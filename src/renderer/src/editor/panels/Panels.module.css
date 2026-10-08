@@ -60,6 +60,8 @@
   .pages { position: relative; flex: none; }
   .pageList { max-height: 40vh; overflow-y: auto; padding-bottom: var(--ds-space-2); }
   .pageDragging { opacity: 0.5; }
+  /* Find at 180, Add new page at 208 (live): 4 between them */
+  .pageActions { display: flex; gap: var(--ds-space-1); }
 
   /* Layers (live): the first row 4 under the header (its text at 135 when the header starts at 81) */
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; border-bottom: 0; }

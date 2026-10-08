@@ -111,10 +111,10 @@ export function Pages() {
       onOpenChange={(o) => setOpen(o)}
       pad="none"
       actions={
-        <>
+        <span className={styles.pageActions}>
           <IconButton icon="24.search.small" label={find.label} shortcut={shortcutOf(find)} tone="secondary" data-open-find="" onClick={() => openFind(ed)} />
           <IconButton icon="24.plus.small" label="Add new page" tone="secondary" onClick={() => createPage(ed)} />
-        </>
+        </span>
       }
     >
       <div ref={list} className={styles.pageList} style={height !== null ? { height: `calc(${shown}px + var(--ds-space-2))`, maxHeight: "none" } : undefined} role="listbox" aria-label="Pages" data-keys="panel">

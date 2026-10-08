@@ -22,7 +22,7 @@ export function LeftPanel() {
   const tab = useUI((s) => s.railTab);
   const finding = useUI((s) => !!s.find);
   return (
-    <aside className={styles.left} style={{ width }} aria-label="Layers panel" data-panel="left" data-tab={tab}>
+    <aside className={styles.left} style={{ width: width + 1 /* live: 240 and the 1px line */ }} aria-label="Layers panel" data-panel="left" data-tab={tab}>
       {tab === "file" && <FileHeader />}
       {tab === "file" ? (
         finding ? (
