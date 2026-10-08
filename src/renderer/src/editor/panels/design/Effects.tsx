@@ -17,7 +17,7 @@
  * margin or offset, gutter; the colour. Stored as `layoutGrids`.
  */
 import { useState } from "react";
-import { Checkbox, ColorInput, IconButton, NumericInput, PanelSection, Popover, SegmentedControl, Select, cx, type ChangeInfo, type IconName } from "@/ds";
+import { Checkbox, ColorInput, IconButton, NumericInput, PanelSection, Popover, Select, cx, type ChangeInfo, type IconName } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
@@ -238,38 +238,38 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         ];
   const stretch = (grid.type ?? "STRETCH") === "STRETCH";
   return (
-    <Popover anchor={anchor} title="Layout guide" width={240} onClose={onClose} label="Layout guide">
-      <div className={styles.settings} data-guide-settings="">
-        <div className={styles.settingsWide}>
-          <SegmentedControl
-            label="Layout guide type"
-            fullWidth
-            value={kind}
-            options={[
-              { value: "GRID", label: "Grid" },
-              { value: "COLUMNS", label: "Columns" },
-              { value: "ROWS", label: "Rows" },
-            ]}
-            onChange={(k) => onChange({ ...defaultGuide(k as GuideKind), color: grid.color ?? GUIDE_RED, visible: grid.visible ?? true }, pick)}
-          />
-        </div>
+    // Figma's live popover: the type dropdown in its header, then Count, Color, Type, Width, Margin / Offset, Gutter
+    // (Grid: Size, Color) — labels 64, fields 136.
+    <Popover
+      anchor={anchor}
+      width={240}
+      onClose={onClose}
+      label="Layout guide"
+      header={
+        <Select
+          label="Layout guide type"
+          variant="ghost"
+          width="hug"
+          value={kind}
+          options={[
+            { value: "GRID", label: "Grid" },
+            { value: "COLUMNS", label: "Columns" },
+            { value: "ROWS", label: "Rows" },
+          ]}
+          onChange={(k) => onChange({ ...defaultGuide(k as GuideKind), color: grid.color ?? GUIDE_RED, visible: grid.visible ?? true }, pick)}
+        />
+      }
+    >
+      <div className={`${styles.settings} ${styles.settingsGuide}`} data-guide-settings="">
         {kind === "GRID" ? (
           <>
             <span className={styles.settingsLabel}>Size</span>
-            <NumericInput scrubHandle="previous" label="Size" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Width" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
           </>
         ) : (
           <>
             <span className={styles.settingsLabel}>Count</span>
             <NumericInput scrubHandle="previous" label="Count" min={1} precision={0} value={grid.numSections ?? 5} onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)} onCancel={onCancel} />
-            <span className={styles.settingsLabel}>Type</span>
-            <Select label="Type" value={grid.type ?? "STRETCH"} options={typeOptions} onChange={(v) => onChange({ ...grid, type: v as LayoutGrid["type"] }, pick)} />
-            <span className={styles.settingsLabel}>{kind === "ROWS" ? "Height" : "Width"}</span>
-            <NumericInput scrubHandle="previous" label={kind === "ROWS" ? "Height" : "Width"} min={1} value={stretch ? null : (grid.sectionSize ?? 10)} valueLabel={stretch ? "Auto" : undefined} disabled={stretch} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
-            <span className={styles.settingsLabel}>{stretch ? "Margin" : "Offset"}</span>
-            <NumericInput scrubHandle="previous" label={stretch ? "Margin" : "Offset"} min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
-            <span className={styles.settingsLabel}>Gutter</span>
-            <NumericInput scrubHandle="previous" label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
           </>
         )}
         <span className={styles.settingsLabel}>Color</span>
@@ -277,9 +277,21 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
           label="Layout guide color"
           color={colorToHex(color)}
           opacity={toPercent(color.a ?? 0.1)}
-          onColor={(hex, info) => onChange({ ...grid, color: hexToColor(hex, color.a ?? 0.1) }, info)}
+          onColor={(hex, info, o) => onChange({ ...grid, color: hexToColor(hex, o !== undefined ? o / 100 : (color.a ?? 0.1)) }, info)}
           onOpacity={(o, info) => onChange({ ...grid, color: { ...color, a: o / 100 } }, info)}
         />
+        {kind !== "GRID" && (
+          <>
+            <span className={styles.settingsLabel}>Type</span>
+            <Select label="Type" value={grid.type ?? "STRETCH"} options={typeOptions} onChange={(v) => onChange({ ...grid, type: v as LayoutGrid["type"] }, pick)} />
+            <span className={styles.settingsLabel}>{kind === "ROWS" ? "Height" : "Width"}</span>
+            <NumericInput scrubHandle="previous" label={kind === "ROWS" ? "Height" : "Width"} min={1} value={stretch ? null : (grid.sectionSize ?? 10)} valueLabel={stretch ? "Auto" : undefined} disabled={stretch} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
+            <span className={styles.settingsLabel}>{stretch ? "Margin" : "Offset"}</span>
+            <NumericInput scrubHandle="previous" label="Offset" min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
+            <span className={styles.settingsLabel}>Gutter</span>
+            <NumericInput scrubHandle="previous" label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
+          </>
+        )}
       </div>
     </Popover>
   );

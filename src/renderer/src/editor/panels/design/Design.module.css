@@ -196,6 +196,8 @@
   .settingsInline { display: flex; align-items: center; }
   .settingsField { width: 72px; }
   .settingsWideField { width: 128px; }
+  /* Layout guide settings (live): labels 64, fields 136 */
+  .settingsGuide { grid-template-columns: 64px 136px; justify-content: space-between; }
   .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */
   .settingsHeading { padding-top: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); white-space: nowrap; }
