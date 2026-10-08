@@ -6,6 +6,17 @@
 
 ---
 
+## Status (2026-10-08, developer previews — Share)
+
+- **Opening it.** The right panel's **Share** button and File ▸ **Share preview…** (`file.share-preview`, in the menu bar too) open `ShareDialog.tsx` (`ui.shareOpen`).
+- **The dialog.** It is titled "Share “‹file›”" and has Pages (All pages / Only “‹page›”), Inspect, Allow exporting assets and Link expires.
+  - **Publish preview** copies the link once published. Afterwards the dialog shows the link with **Copy link**, **Update preview** and **Stop sharing**.
+  - **Export as HTML…** appears in the desktop app only.
+  - While Firebase is off, a banner gives the store's reason.
+- **The snapshot.** `previews.ts previewSnapshot` derives each included page (`layerTree`), waits for the fonts and calls `encodeDocumentKiwi({derived: true})`.
+- **Where it goes.** `DocumentSource.previews` (the store's `previews.*` for this file) publishes it. `designer.files.exportPreview` (main's Save dialog) exports it.
+- The viewer and the package are in `docs/data.md` §13.1.
+
 ## Status at handoff (2026-10-07, Figma parity round 3 — kiwi load, derived snapshots, two-pass Layers, progressive images, spare view, fonts by page)
 
 The round after the two performance rounds, built against the engine's "Figma parity round 3 — API" (top of `docs/engine-build.md`) with feature detection, so the editor runs on the committed wasm meanwhile and takes the new paths once the round-3 build lands (`src/renderer/src/editor/engineCompat.ts`: `engineWireFormat` = the facade's `loadKiwi` and the module's `set_wire_format` export; `engineDerivedDataVersion`; `encodeDocumentBytes`; `applyEngineBytes`; `changeBytesOf`). Rules that now hold:

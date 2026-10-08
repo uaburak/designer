@@ -1,7 +1,7 @@
 /**
  * Dev Mode's Inspect, as plain data (no engine, no React): what a layer's properties are in the words and units
  * the Inspect panel and its code snippets use (help.figma.com "Guide to inspecting", "Use code snippets in Dev Mode";
- * docs/research/figma/dev-mode.md). The viewer reads the node from the engine and hands it here with the names of the
+ * docs/research/figma/R8-dev-mode.md). The viewer reads the node from the engine and hands it here with the names of the
  * variables and styles it uses.
  */
 import type { Color, Effect, NodeChange, Paint } from "@/engine/codec";

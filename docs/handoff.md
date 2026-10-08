@@ -10,7 +10,15 @@ Performance (same day, two rounds, after the owner opened a 32k-layer file): ren
 
 Figma parity round 3 (2026-10-08): kiwi at the TS↔C++ boundary (the engine reads and writes kiwi Messages; the store's snapshot bytes load as they are), derived data persisted in snapshots (derivedSymbolData, derivedTextData, derivedDataVersion 1; the store adopts an engine snapshot only through `snapshotCheck`), tiles for continuous zoom on slow pages, boxed variable bindings, thumbHash placeholders and ≤512 px image tiers, the Layers panel two-pass (`layerOutline` + visible rows), the spare editor view adopted from Home and the tab bar (click → first frame ~135 ms), fonts of the shown page first, Figma's fig-kiwi clipboard archive. On the 32k-layer file: chrome painted 2.4 s → 1.5 s (≈1.0 s from a derived snapshot), heap 590 → 238–343 MB. Open: the engine drops `detachedSymbolId {assetRef}` from snapshots (so the store refuses that file's derived snapshot), pages not shown still request fonts at load, a possible variable-mode resolution issue (`Table/Padding`), NodeProps facets, texture-array tiles as the default path, the engine's JSON read/write API.
 
-Next: Phase 5 of `docs/roadmap.md` — export, developer previews, Firebase adapter wiring, `.fig` import polish — unless the owner's review of the app comes first.
+Developer previews (2026-10-08, branch `dev-previews`; `docs/data.md` §13.1 is the as-built record).
+- **Share** (right panel, or File ▸ Share preview…) opens Figma's share dialog for a developer preview. The editor derives every included page with its fonts and hands `encodeDocumentKiwi({derived: true})` to the store, which packages it with the file's images.
+- **Export as HTML…**: main's Save dialog and `previews.exportHtml` write one self-contained page — the viewer, `engine.wasm`, the document and the images — that opens from `file://`.
+- **Publish preview**: Firebase Storage `previews/<id>/…` through the sync seam's `StorageDriver`. It is off until the owner's config exists and sync is on, and is tested only on `MemoryStorage`.
+- **The viewer** (`src/viewer`, `npm run build:viewer` → `out/viewer/index.html`, also the Hosting site under `firebase/`) runs the same engine read-only in Dev Mode's layout: Pages, Layers, measurements on hover, and Inspect with the box model, CSS / SwiftUI / Compose, variables with collection and mode, text styles, effects and PNG/JPG export. Texts in faces it doesn't ship draw from the stored glyph outlines.
+- Checks: `npm run check` (73 files, 650 tests) and `npm run viewer:check` (headless Chromium: the exported file renders and inspects; the HTTP layout loads, and an expired preview is refused).
+- Open: Present, SVG/PDF and Assets export, the Code/List toggle and units, a real Firebase deploy, an engine VIEWER mode (no resize handles on the selection).
+
+Next: Phase 5 of `docs/roadmap.md` — export, Firebase adapter wiring, `.fig` import polish — unless the owner's review of the app comes first.
 
 ## Starting the next session
 

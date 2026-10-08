@@ -1,6 +1,6 @@
 /**
  * Dev Mode's iOS (SwiftUI) and Android (Jetpack Compose) snippets for one layer, in the shape Figma prints them
- * (docs/research/figma/dev-mode.md: a container stub with "// Child views…", then modifiers; Figma's own output is
+ * (docs/research/figma/R8-dev-mode.md: a container stub with "// Child views…", then modifiers; Figma's own output is
  * the reference, its exact modifier order unverified). Units are Figma's px as points / dp, text sizes as sp.
  */
 import type { Color } from "@/engine/codec";

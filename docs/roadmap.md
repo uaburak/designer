@@ -38,7 +38,7 @@ Done in the integration round (`desktop-impl.md` Status): the store's utility pr
 ## Phase 5 — Out of the file
 
 - **E7**: export (PNG/JPG/SVG/PDF), copy as PNG/SVG, thumbnails.
-- Developer previews: read-only snapshot + web viewer (same Wasm renderer) with Dev-Mode-like Inspect; Firebase Hosting/Storage once the owner's new Firebase config is in place, a self-contained HTML file before that.
+- Developer previews: read-only snapshot + web viewer (same Wasm renderer) with Dev-Mode-like Inspect; Firebase Hosting/Storage once the owner's new Firebase config is in place, a self-contained HTML file before that. **Built (2026-10-08, branch `dev-previews`; `data.md` §13.1)**: Share dialog, store packaging, HTML export through main's Save dialog, the `src/viewer` single-page build, Firebase Storage publishing behind the sync seam (tested on the in-memory fake; untried on a real project).
 - The Firebase adapter (`data.md` §12): sync with per-property last-writer-wins.
 - `.fig` import (Figma's own files) and the one-shot converter for the old site projects (`data.md` §11.3).
 - **E8** prototyping and presentation view; **E9** WebGPU backend.
