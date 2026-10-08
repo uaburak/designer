@@ -1,5 +1,33 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode)
 
+## Round 7 — selection (2026-10-08, branch `r7-selection`, WIP)
+
+### Status at shutdown 2026-10-08
+Audit: the selection/canvas audit (items 1–31, file:line refs; copy kept in the session scratchpad, items restated here). Live Figma captures: `docs/research/figma/live/img` (UI3, 2026-10-08).
+
+**Last verified:** native suite (ASan/UBSan, `ASAN_OPTIONS=detect_container_overflow=0`, as `npm run engine:test` sets) 387/387 passing at commit fe6851e; `npx tsc --noEmit -p tsconfig.web.json` clean at bd727c1. **Not run:** `npm run check` (lint, vitest), `engine:shot` (WebGL2 / WebGPU), `editor-shot`; **the release wasm is NOT rebuilt** — the app still runs the old engine, so none of this is visible in the app yet and the new `REQUEST_RENAME` event never fires there.
+
+| # | Item | State | Test |
+|---|---|---|---|
+| 1 | Frame titles hit-test: press selects (⇧ toggles), drag moves, double-click → `REQUEST_RENAME` (TS `canvas/TitleRename.tsx` edits in place), hover outlines; titles for frames inside sections; shared geometry `render/FrameTitles.{h,cpp}` | done (engine + TS) | `r7.selection.test.cpp` "r7 titles: …" ×3 |
+| 2 | ⌘-marquee: nested layers at any depth (`marqueeDeepHits`) | done | "r7 marquee: …" |
+| 3 | Line endpoint handles (LINE and flat vectors): drag about the other end, ⇧ 45°, snapping, no box handles | done | "r7 lines: …" |
+| 6 | Move modifiers: Space held = no nesting (parents restored), ⌘ = force nesting, frames smaller than the layer don't take it, ⌃ alone = no snapping | done | "r7 move: …"; `editor.move.test.cpp` ⌘ case rewritten for Space |
+| 5 | Lock aspect ratio honoured on the canvas, ⌃ overrides; ⇧ when unlocked | done | "r7 resize: Lock aspect ratio…" |
+| 7 | ⌘-resize ignores constraints (children keep their page place; `Layout::applyConstraints` returns early), ⌃ = no snapping | done | "r7 resize: ⌘ ignores constraints…" |
+| 8 | Sections: ⇧S tool (`toolImplemented`), Figma defaults (white, black 10 % inside stroke, radius 2, no clip — from samples/sections.fig.json), drawing around layers adopts them, picking/hit-test treat a section's children as top-level, section title pill drawn + hit, `WRAP_IN_SECTION` (230, 80 px padding unverified), `REMOVE_KEEP_CONTENTS` (231) | engine done, **untested**; TS menu/shortcut entries not added (live context menu shows "Wrap in new section ⌘S") | none yet — next: tests for pick in sections, draw-around, wrap, remove |
+| 12 | Overlay styling: `OverlayStyle` now built from the generated `ChromePalette.generated.h` (ds/tokens.ts canvasChrome); calibrated from live captures: handle 7 px, hover 2 px (token fixed from 1), radius handle 9 px ring 12 px in, titles by page luminance with Figma's text tokens (#ffffff76 / #00000080 grey, selected #7cc4f8 / #007be5, component #d1a8ff / #8638e5) | partial: tokens + titles + handles done; **not done**: hover outline also on selected layers (live shows it), equal-spacing marks pink (`style.spacing` exists, Overlay.cpp still uses `measure`), size badge "Hug"/"Fill" suffixes (live: "232 Hug × 72 Hug"), pixel grid drawing, auto-layout child's parent dashed outline | `render.paths` / `render.batching` tests updated |
+| 23 | Component / instance title icons (`drawTitleIcon`: four diamonds / diamond outline) in text-component purple | done, not visually checked | — |
+| 10 | Select matching layers / Select all with same fill, stroke, effect, text, font, instance: `SELECT_MATCHING` (232, args `{mode}`) | engine written, **untested**; TS `commands.ts` still `later()` | — |
+| 13 | Tidy up `TIDY_UP` (233) | engine written (grid of rows/columns, mean gap), **untested**; smart-selection pink handles not started | — |
+| 15 | N / ⇧N `ZOOM_TO_NEXT/PREVIOUS_FRAME` (234/235) | engine written, **untested**; TS keys not bound. Live View menu: N / ⇧N, Pixel grid **⇧'** (ours already ⇧'; the audit's ⌘' is wrong), Layout guides ⇧G, Pixel preview ⇧⌘P (not ⌃P), Zoom to 100% ⌘0 | — |
+| 27 | Remove frame/group/section keeping contents (`REMOVE_KEEP_CONTENTS`) | engine written, untested, no key bound | — |
+| 4, 9, 11, 14, 16, 17, 18, 19, 20, 21, 22, 24–26, 28–31 | corner radius handles, Esc (deselect vs parent), paste to replace / paste over, tools K S C I Z, pixel grid / guides, auto-layout handles, paste placement, marquee levels, Select layer ▸ locked, context menu order, cursors, LOW items | not started | — |
+
+**Known unverified:** section pill geometry and colours (inside top-left, 20 px, the section fill 10 % darker; no live capture of a section yet); title hit box (text line ± 2 px); wrap-in-section padding; ⌘ "force nesting" past auto-layout safeguards.
+
+**Next step:** (1) add native tests for item 8 and the 230–235 commands, fix what they find; (2) wire TS: `commands.ts` entries (Wrap in new section ⌘S, Select matching layers ⌥⌘A, Tidy up ⌃⌥T, Zoom to next/previous frame N/⇧N), abi.ts ids 230–235, context menu order from `live/img/menu-context-*.jpg`; (3) finish item 12 (hover on selected, pink spacing, Hug/Fill badge); (4) continue the audit order 4, 9, 11, then 13–23; (5) `npm run engine:build` and commit the release wasm, `npm run check`, `engine:test`, `engine:shot` (both backends), `editor-shot full`; update engine.md §6.11/§8 (titles, modifiers, sections, hover 2 px, handle 7 px) and editor.md.
+
 ## Round 6 — Dev Mode: annotations, measurements, statuses, focus view (2026-10-08, branch `r6-annotations-devmode`)
 
 Research: docs/research/figma/R9-dev-mode.md "Round 6". Additive ABI (version unchanged).
