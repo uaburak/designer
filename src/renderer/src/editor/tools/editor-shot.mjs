@@ -1559,27 +1559,37 @@ async function gridSection(page, theme) {
   const panel = page.locator('[data-panel="right"]');
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await settle(page);
-  await panel.getByRole("button", { name: "Add auto layout" }).first().click();
-  await settle(page);
+  // Flow (Figma's live Layout section): Grid straight from a plain frame.
   await panel.getByRole("radio", { name: "Grid" }).click();
   await settle(page);
   let n = await node(page, "1:1");
   check("Grid: the flow makes a 2 × 2 grid with automatic positioning", n.stackMode === "GRID" && n.gridColumns?.entries?.length === 2 && n.gridRows?.entries?.length === 2 && n.gridReflowEnabled === true, JSON.stringify({ mode: n.stackMode, cols: n.gridColumns?.entries?.length, rows: n.gridRows?.entries?.length }));
-  const cols = panel.getByRole("textbox", { name: "Number of columns" });
+  // The counts live in the grid dimensions picker (the "Grid" row's button).
+  const dims = panel.getByRole("button", { name: /^Open grid dimensions picker/ });
+  check("Grid: the Grid row's button reads 2 columns and auto rows", ((await dims.getAttribute("aria-label")) ?? "").includes("2 columns and auto rows"), (await dims.getAttribute("aria-label")) ?? "");
+  await dims.click();
+  await settle(page);
+  const cols = page.locator("[data-grid-picker]").getByRole("textbox", { name: "Number of columns" });
   await cols.click();
   await cols.fill("3");
   await cols.press("Enter");
   await settle(page);
   n = await node(page, "1:1");
   check("Grid: Number of columns 3", n.gridColumns?.entries?.length === 3, `${n.gridColumns?.entries?.length}`);
-  const first = panel.getByRole("textbox", { name: "Column 1 size" });
-  await first.click();
-  await first.fill("2fr");
-  await first.press("Enter");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // Column 1 at 2fr (the panel has no track rows any more — Figma's live panel; the canvas's label editor and this
+  // model function write the same fields), the frame's width Fixed.
+  await page.evaluate(async () => {
+    const g = await import("/src/editor/model/grid.ts");
+    const e = window.__designerEditor.engine;
+    const f = e.readNode("1:1");
+    e.setProps(["1:1"], { ...g.setTrackSizing(f, "columns", 0, g.parseTrackInput("2fr")), stackPrimarySizing: "FIXED" });
+  });
   await settle(page);
   n = await node(page, "1:1");
   const sizing = n.gridColumnsSizing?.entries?.find((e) => e.id.localID === n.gridColumns.entries[0].id.localID)?.trackSize?.maxSizing;
-  check("Grid: typing 2fr makes column 1 Fill 2fr (the frame's width Fixed)", sizing?.type === "FLEX" && sizing?.value === 2 && n.stackPrimarySizing === "FIXED", JSON.stringify(sizing));
+  check("Grid: column 1 at 2fr is Fill 2fr (the frame's width Fixed)", sizing?.type === "FLEX" && sizing?.value === 2 && n.stackPrimarySizing === "FIXED", JSON.stringify(sizing));
   const gap = panel.getByRole("textbox", { name: "Gap between columns" });
   await gap.click();
   await gap.fill("24");
@@ -1609,10 +1619,10 @@ async function gridSection(page, theme) {
   await settle(page);
   check("Grid: Column span 2 on a layer in the grid", (await node(page, kids[0])).gridColumnSpan === 2);
   await shot(page, `112-grid-span-${theme}`);
-  // Number of rows: Auto (a new grid's rows), shown as text.
+  // Number of rows: Auto (a new grid's rows), on the Grid row's button.
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await settle(page);
-  check("Grid: Number of rows reads Auto (a new grid)", (await panel.getByRole("textbox", { name: "Number of rows" }).inputValue()) === "Auto");
+  check("Grid: Number of rows reads Auto (a new grid)", ((await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).getAttribute("aria-label")) ?? "").includes("auto rows"));
   // A click on the first column's pill label opens the track label editor; 120 makes it Fixed 120.
   const [px, py] = await toScreen(page, 30, -10);
   await page.mouse.move(px, py);
@@ -1634,7 +1644,7 @@ async function gridSection(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
   // The grid picker: 4 × 2 from the board (rows no longer Auto).
-  await panel.getByRole("button", { name: "Grid picker" }).click();
+  await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).click();
   await settle(page);
   await page.locator('[data-grid-cell="4x2"]').hover();
   await shot(page, `114-grid-picker-${theme}`);
