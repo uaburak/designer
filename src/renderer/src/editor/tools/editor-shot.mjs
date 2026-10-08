@@ -21,6 +21,7 @@
 //   EDITOR_ONLY=fonts node …                                       (only the fonts section: font picker, Google fonts, Missing fonts)
 //   EDITOR_ONLY=slots node …                                       (round 6: Convert to slot, an instance's slot, Limits, variant values)
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
+//   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -1676,6 +1677,124 @@ async function slotsSection(page, theme) {
   check("Slots: an added instance fills the slot", (await panel.locator("[data-slot-control]").getAttribute("data-slot-count").catch(() => null)) === "1" || (await selection(page)).length === 1);
 }
 
+/**
+ * Round 7, the Design panel on `?editor&doc=capture` (the layers of docs/research/figma/live/design): a shot of the
+ * panel per capture case (shots 170–192), then the number fields as live Figma behaves (live/behaviour/fields.md) —
+ * Enter commits and gives the keys back to the canvas, the first Esc reverts and stays, the second leaves, "+10"
+ * typed over a value is 10, "2^3" is 8, "Mixed+100" adds to each layer, Tab goes on to the next control — the gap's
+ * Auto, "1,2,3,4" in Horizontal padding, the inline Constraints row and the Frame ▾ presets.
+ */
+async function designSection(page, theme) {
+  await open(page, "&doc=capture");
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const cases = [
+    ["page-nothing-selected", []],
+    ["frame", ["7:1"]],
+    ["frame-child-constraints", ["7:2"]],
+    ["autolayout-vertical", ["7:10"]],
+    ["autolayout-horizontal", ["7:20"]],
+    ["autolayout-wrap", ["7:30"]],
+    ["autolayout-grid", ["7:40"]],
+    ["autolayout-parent-fixed", ["7:50"]],
+    ["autolayout-child", ["7:51"]],
+    ["rectangle", ["7:60"]],
+    ["ellipse", ["7:61"]],
+    ["polygon", ["7:62"]],
+    ["star", ["7:63"]],
+    ["line", ["7:64"]],
+    ["arrow", ["7:65"]],
+    ["vector", ["7:66"]],
+    ["boolean", ["7:70"]],
+    ["group", ["7:80"]],
+    ["text", ["7:90"]],
+    ["section", ["7:95"]],
+    ["image-fill", ["7:96"]],
+    ["multi-two-shapes", ["7:60", "7:61"]],
+  ];
+  for (const [i, [name, ids]] of cases.entries()) {
+    await select(ids);
+    await shot(page, `${170 + i}-design-${name}-${theme}`);
+  }
+  await select(["7:60"]);
+  const header = await panel.locator("[data-type-header]").boundingBox();
+  check("Design: the type header is 48 and its line (49)", Math.round(header?.height ?? 0) === 49, String(header?.height));
+  check("Design: Rotate 90˚ right (Figma's ˚), no Apply variable mode without collections, no Blend mode row by default", (await panel.getByRole("button", { name: "Rotate 90˚ right" }).count()) === 1 && (await panel.getByRole("button", { name: "Apply variable mode" }).count()) === 0 && (await panel.getByRole("combobox", { name: "Blend mode" }).count()) === 0);
+  const x = panel.getByRole("textbox", { name: "X-position" });
+  const focus = () => page.evaluate(() => (document.activeElement?.id === "engine-canvas" ? "canvas" : (document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "")));
+  const xOf = (id) => page.evaluate((id) => Math.round(window.__designerEditor.engine.readNode(id).transform.m02 * 100) / 100, id);
+  const x0 = await xOf("7:60");
+  await x.click();
+  await page.keyboard.type(`${x0}+5`);
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("Design: Enter commits (\"0+5\") and gives the keys back to the canvas", (await xOf("7:60")) === x0 + 5 && (await focus()) === "canvas", `${await xOf("7:60")} ${await focus()}`);
+  await x.click();
+  await page.keyboard.type("777");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  const afterEsc = await x.inputValue();
+  check("Design: the first Esc reverts and keeps the field focused", afterEsc === String(x0 + 5) && (await focus()) === "X-position", `${afterEsc} ${await focus()}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("Design: the second Esc gives the keys back to the canvas, the selection kept", (await focus()) === "canvas" && (await selection(page)).join() === "7:60");
+  await x.click();
+  await page.keyboard.type("+10");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check('Design: "+10" typed over the value sets 10', (await xOf("7:60")) === 10, String(await xOf("7:60")));
+  await x.click();
+  await page.keyboard.type("2^3");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check('Design: "2^3" is 8', (await xOf("7:60")) === 8, String(await xOf("7:60")));
+  await x.click();
+  await page.keyboard.press("Tab");
+  check("Design: Tab goes on to Y", (await focus()) === "Y-position", await focus());
+  await page.keyboard.press("Escape");
+  await select(["7:60", "7:61"]);
+  const before = [await xOf("7:60"), await xOf("7:61")];
+  await x.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type("+100");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const after = [await xOf("7:60"), await xOf("7:61")];
+  check('Design: "Mixed+100" adds 100 to each layer', after[0] === before[0] + 100 && after[1] === before[1] + 100, `${before} → ${after}`);
+  // Auto layout: the gap's Auto (space between, the gap kept) and "1,2,3,4" in Horizontal padding (left 1, right 2).
+  await select(["7:20"]);
+  const gap = panel.getByRole("textbox", { name: "Horizontal gap between objects" });
+  await gap.click();
+  await page.keyboard.type("Auto");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const al = await node(page, "7:20");
+  check('Design: gap "Auto" is space between, the gap kept', ["SPACE_BETWEEN", "SPACE_EVENLY"].includes(al.stackPrimaryAlignItems) && al.stackSpacing === 10 && (await gap.inputValue()) === "Auto", `${al.stackPrimaryAlignItems} ${al.stackSpacing}`);
+  await panel.getByRole("textbox", { name: "Horizontal padding" }).click();
+  await page.keyboard.type("1,2,3,4");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const padded = await node(page, "7:20");
+  check('Design: "1,2,3,4" in Horizontal padding sets left 1 and right 2 only', padded.stackHorizontalPadding === 1 && padded.stackPaddingRight === 2 && padded.stackVerticalPadding === 16 && (padded.stackPaddingBottom ?? 16) === 16, JSON.stringify([padded.stackHorizontalPadding, padded.stackPaddingRight, padded.stackVerticalPadding, padded.stackPaddingBottom]));
+  // A layer in a frame: the Constraints toggle opens the inline row (dropdowns and the widget).
+  await select(["7:2"]);
+  await panel.getByRole("button", { name: "Constraints" }).click();
+  await settle(page);
+  check("Design: Constraints opens the inline row", (await panel.locator("[data-constraints-row]").count()) === 1 && (await panel.getByRole("combobox", { name: "Horizontal constraints" }).count()) === 1);
+  await shot(page, `193-design-constraints-row-${theme}`);
+  await panel.getByRole("button", { name: "Constraints" }).click();
+  // Frame ▾: Frame Layout Options, then the live presets under their headers.
+  await select(["7:1"]);
+  await panel.getByRole("button", { name: "Frame, Frame Dimension Presets" }).click();
+  await settle(page);
+  check("Design: Frame ▾ lists Section / Frame / Group and the presets (Phone Presets: iPhone 17 402×874)", (await page.getByText("Phone Presets").count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: /iPhone 17\b/ }).count()) + (await page.getByRole("menuitem", { name: /iPhone 17\b/ }).count()) >= 1);
+  await shot(page, `194-design-frame-presets-${theme}`);
+  await page.keyboard.press("Escape");
+}
+
 /** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Toggle sidebar. */
 async function variables6Section(page, theme) {
   await open(page, "&doc=variables");
@@ -1955,6 +2074,7 @@ try {
     ["slots", slotsSection],
     ["variables6", variables6Section],
     ["devmode", devmodeSection],
+    ["design", designSection],
   ]) {
     if (only !== name && only) continue;
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
