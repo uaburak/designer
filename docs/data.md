@@ -1075,7 +1075,7 @@ The same page is the Firebase Hosting site, so the export is just this page with
   - A drag pans, and so do Space-drag and the middle button.
   - A double-click selects one level deeper.
   - Keys: ⇧1 zoom to fit, ⇧2 zoom to selection, ⌘± zoom, ⇧0 / ⌘0 100 %, Esc selects the parent.
-- **Layout**, Dev Mode's ([R8](research/figma/R8-dev-mode.md)):
+- **Layout**, Dev Mode's ([R9](research/figma/R9-dev-mode.md)):
   - **Left**: the file name with "Developer preview", Pages, and the Layers tree (read-only; the selection's ancestors open).
   - **Canvas** with hover **measurements**: red lines and values between the selection and the hovered layer, with no ⌥ needed, from `inspect/measure.ts`.
   - **Inspect**, nothing selected: the page, Code with the language (CSS / iOS (SwiftUI) / Android (Compose), remembered), the page's Frames, and Variables with "Open variables table" (collections, one column per mode, a click copies).
@@ -1111,7 +1111,7 @@ To deploy, once the owner has a project:
 - Swept expiry of published previews at store start.
 - The viewer's engine mode `VIEWER` / `INSPECT`: the engine is the normal one, and the TS side keeps it read-only, so it still draws Design-mode selection handles.
 - Publishing has not been tried against a real Firebase project, since there is no config yet. The desktop export path (editor → `file:export-preview` → the store) is checked by types and the store tests, not by driving the built app: the Save dialog is native. Reading `out/viewer/index.html` from inside `app.asar` in a packaged build is untried.
-- The exact SwiftUI / Compose output and the redline colours are unverified against Figma (R8).
+- The exact SwiftUI / Compose output and the redline colours are unverified against Figma (R9).
 
 ---
 

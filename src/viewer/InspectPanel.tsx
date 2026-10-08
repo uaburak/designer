@@ -1,6 +1,6 @@
 /**
  * Dev Mode's Inspect panel (help.figma.com "Guide to Dev Mode" A–J, "Guide to inspecting", "Use code snippets in
- * Dev Mode"; docs/research/figma/R8-dev-mode.md), read-only:
+ * Dev Mode"; docs/research/figma/R9-dev-mode.md), read-only:
  *
  * - nothing selected: the page, the code language (CSS, iOS, Android), the file's variables ("Open variables table");
  * - a layer: its name and type; the component it comes from; the box model (size, position in its parent, padding);

@@ -1,4 +1,4 @@
-# R8 — Dev Mode (Inspect), for the developer preview viewer
+# R9 — Dev Mode (Inspect), for the developer preview viewer
 
 Research for `docs/data.md` §13 (2026-10-08, help.figma.com and Figma's forum). What is verified is marked with its source. **[unverified]** marks points no public page settles; they need a screenshot session in real Figma.
 
