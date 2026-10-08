@@ -294,6 +294,9 @@ export const size = {
   "dialog-small": 320, // G
   "dialog-medium": 480, // G
   "dialog-large": 640, // G
+  "rename-preview": 128, // live: Rename layers' Preview column (fields 160 in)
+  "rename-list": 240, // Rename layers' Preview list before it scrolls
+  "field-narrow": 40, // live: Rename layers' "Start ascending from" field
   "home-topbar": 48,
   "home-sidebar": 240, // G
   "home-nav": 28,

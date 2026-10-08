@@ -1022,9 +1022,11 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
 
 ### 4.17 LayerRow
 
-- **Anatomy** (pitch 24, M):
-  - `| 8 inset | highlight box (radius 5) |`, and inside the highlight:
-  - `4 pad, depth × 16 indent, chevron cell 16 (empty for leaves), type icon 16 (16-set) + 4 gap, name (flex, ellipsis), [lock 24][eye 24], 4 pad |`, then the 8 inset.
+- **Anatomy** (live capture `docs/research/figma/live/left/layers-row-*.txt`; pitch `--ds-size-layer-row` 32):
+  - `| 8 inset | highlight box 24 high, 4 above and below (radius 5) |`, and inside the highlight:
+  - `4 pad, depth × 24 indent (--ds-size-layer-indent), chevron cell 16 (empty for leaves; always drawn, live), type glyph 16 + 8 gap, name (flex, ellipsis), [lock 24][eye 24] flush right |`, then the 8 inset.
+  - At depth 0 the glyph is at 28 and the name at 52 from the panel edge; each level adds 24 (live: 28 / 52, then 52 / 76). Lock at 184, eye at 208.
+  - A run of highlighted rows (selection, selected ancestors) fills the pitch: one block, top corners on the first row, bottom corners on the last.
 - **Props**:
   ```ts
   {
@@ -1049,8 +1051,8 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
     onDoubleClick(e);
   }
   ```
-- **Text**: `body-medium` (`body-medium-strong` when `strong`), text primary.
-  - component/instance: name `--figma-color-text-component`, icon `--figma-color-icon-component`;
+- **Text**: `body-medium-regular` (11 / 400, live), text primary. The glyph is `--figma-color-icon-secondary`, primary on a selected row.
+  - component/instance and every layer inside one: name `--figma-color-text-component`, icon `--figma-color-icon-component` (live #d1a8ff); a selected component row keeps the blue selection;
   - hidden: text and icon `--figma-color-text-tertiary` (component colours at 0.5 opacity).
 - **States**:
 
@@ -1065,9 +1067,9 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
 | drop indicators (drag) | before/after: 2px line in border-selected spanning the name column; inside: 1px border-selected ring on the highlight |
 
   **Contiguous selected rows** merge into one block: only the first row gets top corners and only the last gets bottom corners (`data-run="start|middle|end|single"`, computed by the list).
-- **Keyboard** (row level): Enter on a focused name starts rename. In rename: Enter commits; Esc cancels; Tab commits and renames the next row (Figma); Shift+Tab the previous. Panel-level navigation and selection belong to the editor (R7).
-- **Virtualisation**: the fixed 24 pitch is mandatory, because the Layers panel uses `ds/components/VirtualList.tsx` (fixed row height, overscan 8).
-- **Tags**: M (24, inset 8, radius 5, #394360), K (tree behaviour), G (indent 16 from the brief, inner paddings).
+- **Keyboard** (row level): a double-click on the name starts rename (live: not on empty row space). In rename: Enter commits; Esc cancels; Tab commits and renames the next row (Figma); Shift+Tab the previous. Enter / ⇧Enter after a row click act as on the canvas (live: the row takes no key focus of its own). Panel-level navigation and selection belong to the editor (R7).
+- **Virtualisation**: the fixed 32 pitch is mandatory, because the Layers panel uses `ds/components/VirtualList.tsx` (fixed row height, overscan 8).
+- **Tags**: M (live: pitch 32, highlight 24 inset 8 / 4, radius 5, #394360 / children #32394d, indent 24, 11 / 400), K (tree behaviour).
 
 ### 4.18 PageRow
 
@@ -1178,13 +1180,17 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
 
 ### 4.25 Rail (left navigation, editor document)
 
-- **Rail**: 48 wide, bg `--figma-color-bg`, 1px right border.
-  - Top: the main-menu button 32×32 with `24.figma`-style glyph (the app mark; no chevron, M), which opens the main Menu.
-  - Then RailItems at a 40 pitch (32 tile + 8), x-centred.
-  - Groups are separated by 16×1 `--ds-color-rail-separator` lines with 8 above and below.
-- **RailItem**: `{ icon: IconName; label: string; shortcut?: string; active: boolean; onClick }`. Tile 32×32, radius 5. Active: bg `--figma-color-bg-selected` (M #394360), icon `--figma-color-icon`. Hover: bg `--figma-color-bg-hover`. Tooltip to the right.
+Figma 2026's navigation bar (live capture `docs/research/figma/live/left/rail-*.txt`).
+
+- **Rail**: `--ds-size-rail` 56 wide + a 1px `--figma-color-border` line (the left panel then starts at 57), bg `--figma-color-bg`.
+  - Top: the Figma menu, a 32×32 tile at 12, 8 (the app mark, no chevron), which opens the main Menu (Back to files, Actions… ⌘K, File … Vector, Plugins, Widgets, Preferences, Libraries, Help and account).
+  - Then the tabs **File, Agents, Assets, Tools** at y 56 / 112 / 168 / 224, a separator (a 24 line, 16 of room), **Variables** at 296; each tab is 56×56: the 32 tile at 12, 4 and its label (9px / 450) under it.
+  - At the bottom: the file's notifications (missing fonts, library updates).
+  - View › Additional labels off: no labels, a tab is its tile and 8 around it.
+- **RailItem**: `{ icon: IconName; label: string; shortcut?: string; active: boolean; onClick }`. Tile 32×32, radius 5. Active (`aria-current`): bg `--figma-color-bg-selected` (live #394360), icon `--figma-color-icon-brand`. Hover: bg `--figma-color-bg-hover`. Tooltip to the right.
+- **Behaviour**: File shows Pages and Layers; Agents, Assets and Tools replace them with a 48 tab header (title 13 / 550 at 16) and their own content; Variables toggles the full-window variables view. ⌥1 Layers, ⌥2 Assets (live View › Panels).
 - **Keyboard**: buttons; ↑/↓ roving focus inside the rail.
-- **Tags**: M.
+- **Tags**: M (live positions and sizes).
 
 ### 4.26 SidebarItem (Home)
 

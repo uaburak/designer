@@ -51,6 +51,9 @@
     --ds-size-dialog-small: 320px;
     --ds-size-dialog-medium: 480px;
     --ds-size-dialog-large: 640px;
+    --ds-size-rename-preview: 128px;
+    --ds-size-rename-list: 240px;
+    --ds-size-field-narrow: 40px;
     --ds-size-home-topbar: 48px;
     --ds-size-home-sidebar: 240px;
     --ds-size-home-nav: 28px;
