@@ -13,6 +13,7 @@
 //   EDITOR_ONLY=components node …                                  (only the E6 section: components, instances, Assets)
 //   EDITOR_ONLY=variables node …                                   (only the variables / modes / styles section)
 //   EDITOR_ONLY=libraries node …                                   (only the libraries section: publish, enable, insert, update)
+//   EDITOR_ONLY=export node …                                      (only the export section: Export panel, dialog, Copy as PNG)
 /* global process, console, window, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -813,7 +814,90 @@ async function librariesSection(page, theme) {
   await shot(page, `89-updated-all-${theme}`);
 }
 
+
+// E7: the Export section (rows, settings, preview, the button), the Export dialog (⇧⌘E), Copy as PNG.
+async function exportSection(page, theme) {
+  await open(page, "&doc=reference");
+  const panel = page.locator('[data-panel="right"]');
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
+  await settle(page);
+  const section = panel.locator('[aria-label="Export"]').first();
+  await section.scrollIntoViewIfNeeded().catch(() => {});
+  const add = panel.getByRole("button", { name: "Add export settings" });
+  for (let i = 0; i < 3; i++) await add.click();
+  await settle(page);
+  const settings = await page.evaluate(() => (window.__designerEditor.engine.readNode("1:1").exportSettings ?? []).map((s) => `${s.constraint.value}x${s.suffix}`));
+  check("Export: '+' adds 1x, 2x @2x, 3x @3x", settings.join() === "1x,2x@2x,3x@3x", settings.join());
+  check("Export: three rows and 'Export Frame 1'", (await panel.locator("[data-export-row]").count()) === 3 && (await panel.locator("[data-export-button]").textContent()) === "Export Frame 1");
+  // The third as SVG (its scale field goes 1x and off).
+  await panel.locator('[data-export-row="2"]').getByRole("combobox", { name: "File format" }).click().catch(() => {});
+  await page.getByRole("option", { name: "SVG" }).click().catch(() => {});
+  await settle(page);
+  const third = await page.evaluate(() => window.__designerEditor.engine.readNode("1:1").exportSettings[2]);
+  check("Export: the format menu makes it SVG (1x, suffix kept)", third?.imageType === "SVG" && third.suffix === "@3x", JSON.stringify(third));
+  await section.scrollIntoViewIfNeeded().catch(() => {});
+  await shot(page, `90-export-section-${theme}`);
+  // The "…" settings: Suffix and the format's options.
+  await panel.locator('[data-export-row="2"]').getByRole("button", { name: "Export settings", exact: true }).click();
+  await settle(page);
+  const pop = page.locator("[data-export-settings]");
+  check("Export settings: SVG's options", (await pop.getByText("Outline text").count()) === 1 && (await pop.getByText("Simplify stroke").count()) === 1 && (await pop.getByText('Include "id" attribute').count()) === 1);
+  await shot(page, `91-export-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // Preview.
+  await panel.getByRole("button", { name: "Preview" }).click();
+  await page.waitForFunction(() => document.querySelector("[data-export-preview] img")?.complete && document.querySelector("[data-export-preview] img").naturalWidth > 0, null, { timeout: 10000 }).catch(() => {});
+  const previewW = await page.evaluate(() => document.querySelector("[data-export-preview] img")?.naturalWidth ?? 0);
+  check("Export: the preview shows the 1x PNG", previewW === 437, `${previewW} px wide`);
+  await section.scrollIntoViewIfNeeded().catch(() => {});
+  await shot(page, `92-export-preview-${theme}`);
+  // The button: three files — in a browser, one ZIP download.
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 20000 }).catch(() => null), panel.locator("[data-export-button]").click()]);
+  if (download) {
+    const file = path.join(outDir, `93-export-${theme}.zip`);
+    await download.saveAs(file);
+    const { readFileSync } = await import("node:fs");
+    const zip = readFileSync(file);
+    const names = [];
+    for (let at = 0; at + 4 <= zip.length; at++) if (zip.readUInt32LE(at) === 0x02014b50) names.push(zip.subarray(at + 46, at + 46 + zip.readUInt16LE(at + 28)).toString());
+    check("Export Frame 1: the three files", names.join() === "Frame 1.png,Frame 1@2x.png,Frame 1@3x.svg", `${download.suggestedFilename()}: ${names.join(", ")}`);
+  } else check("Export Frame 1: the three files", false, "no download");
+  // ⇧⌘E: the dialog lists the frame.
+  await page.evaluate(() => window.__designerEditor.focusCanvas());
+  await page.keyboard.press("Meta+Shift+e");
+  await settle(page);
+  const rows = await page.locator("[data-export-dialog-row]").count();
+  check("⇧⌘E: the Export dialog lists the page's layers with export settings", rows === 1, `${rows} rows`);
+  await page.waitForTimeout(200);
+  await shot(page, `94-export-dialog-${theme}`);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  // Copy as PNG (⇧⌘C): an image/png on the clipboard.
+  await page.evaluate(() => window.__designerEditor.focusCanvas());
+  await page.keyboard.press("Meta+Shift+c");
+  await page.waitForTimeout(800);
+  const types = await page.evaluate(async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      return items.flatMap((i) => i.types);
+    } catch (e) {
+      return [`error: ${e.message}`];
+    }
+  });
+  check("Copy as PNG puts a PNG on the clipboard", types.includes("image/png"), types.join(", "));
+}
+
 try {
+  if (only === "export" || !only) {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark", acceptDownloads: true, permissions: ["clipboard-read", "clipboard-write"] });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await exportSection(page, "dark");
+    await context.close();
+  }
   if (only === "libraries") {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();

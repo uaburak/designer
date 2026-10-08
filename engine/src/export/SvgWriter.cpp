@@ -308,10 +308,16 @@ class Writer {
         std::string pid = "pattern" + n + suffix_;
         std::string iid = imageId(paint.image, *data);
         bool tile = paint.imageScaleMode == ImageScaleMode::TILE;
-        // One tile of the uv square (TILE); otherwise a tile so large the image shows once.
-        std::string cell = tile ? "1" : "1000";
-        defs_ += "<pattern id=\"" + pid + "\" patternUnits=\"userSpaceOnUse\" width=\"" + cell + "\" height=\"" + cell + "\" patternTransform=\"" +
-                 matrixText(B) + "\">\n<use xlink:href=\"#" + iid + "\"/>\n</pattern>\n";
+        // The pattern's cell: the image's uv square (TILE); otherwise the layer's box in uv space with the image in it,
+        // so the image shows once (Fit leaves the rest empty) and the cell stays the layer's size when rasterized.
+        Rect cell{0, 0, 1, 1};
+        if (!tile) {
+          cell = cell.united(transformedBounds(I, size.x, size.y));
+          cell = {cell.x - 0.01, cell.y - 0.01, cell.w + 0.02, cell.h + 0.02};
+        }
+        std::string at = tile ? "" : " x=\"" + num(cell.x, 6) + "\" y=\"" + num(cell.y, 6) + "\"";
+        defs_ += "<pattern id=\"" + pid + "\" patternUnits=\"userSpaceOnUse\"" + at + " width=\"" + num(cell.w, 6) + "\" height=\"" + num(cell.h, 6) +
+                 "\" patternTransform=\"" + matrixText(B) + "\">\n<use xlink:href=\"#" + iid + "\"/>\n</pattern>\n";
         out = std::string(" ") + prop + "=\"url(#" + pid + ")\"";
       }
     } else {
