@@ -138,6 +138,11 @@ export class EngineExports {
   needsFrame = (h: number): boolean => (this.fn("needs_frame")(h) >>> 0) !== 0;
   glContextLost = (h: number): void => void this.fn("gl_context_lost")(h);
   glContextRestored = (h: number): void => void this.fn("gl_context_restored")(h);
+  /** The canvas `selector` names draws with `backend` (0 WebGL2, 1 WebGPU) from now on; returns the one in use (−1 none). */
+  gfxSwitch(h: number, selector: string, backend: number): number {
+    const cstr = new TextEncoder().encode(`${selector}\0`);
+    return this.withBytes([cstr], (p) => this.fn("gfx_switch")(h, p[0], backend));
+  }
 
   // ---- Selection and reads ----
   getSelection = (h: number): number => this.fn("get_selection")(h);
@@ -297,7 +302,7 @@ export const USED_EXPORTS = [
   "create", "destroy", "load", "load_at", "apply_changes", "encode_document", "set_wire_format", "wire_format", "attachment", "derived_data_version",
   "set_current_page", "pages",
   "set_viewport", "set_camera", "get_camera", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
-  "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored",
+  "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",

@@ -36,6 +36,7 @@ _engine_next_frame_delay
 _engine_needs_frame
 _engine_gl_context_lost
 _engine_gl_context_restored
+_engine_gfx_switch
 _engine_get_selection
 _engine_set_selection
 _engine_read_nodes

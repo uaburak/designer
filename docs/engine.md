@@ -86,7 +86,8 @@ engine/
     gfx/        Device.h GfxTypes.h ShaderLibrary.{h,cpp}
                 gl/GLDevice.{h,cpp}          WebGL2 backend (wasm only)
                 null/NullDevice.{h,cpp}      records calls; used by native tests
-                webgpu/                      later (E9), empty except README
+                wgpu/WGPUDevice.{h,cpp} Shaders.h library_engine_wgpu.js   WebGPU backend (wasm only, E9)
+                Backend.{h,cpp}              WebGPU or WebGL2 for a canvas
     hit/        SpatialIndex.{h,cpp} (dynamic AABB tree) HitTest.{h,cpp} Picking.{h,cpp} Marquee.{h,cpp}
     editor/     Editor.{h,cpp} Selection.{h,cpp} Undo.{h,cpp} Clipboard.{h,cpp} Commands.{h,cpp} commands/*.cpp
                 Snapping.{h,cpp} Guides.{h,cpp} Measure.{h,cpp} Export.{h,cpp}
@@ -528,7 +529,7 @@ class Device {
 - **Per-primitive data**: instanced vertex attributes.
 - **Shaders** are GLSL written in a restricted common subset with macros (`UBO(name, binding)`, `TEX(name, binding)`). `tools/shadergen` expands them to:
   - `#version 300 es` (WebGL2, now);
-  - later `#version 450` → naga → WGSL (WebGPU, E9).
+  - later `#version 450` → naga → WGSL (WebGPU, E9; as built the WGSL is hand-translated, see "As built (E9)" below).
   - Output: `${build}/generated/Shaders.generated.cpp`.
 - **Program compile** uses `KHR_parallel_shader_compile`: all programs are compiled at `engine_create`, and a pipeline isn't used before its `COMPLETION_STATUS`, so the first frame doesn't jank.
 - **Context**: `emscripten_webgl_create_context("#engine-canvas")` with:
@@ -538,6 +539,15 @@ class Device {
   - extensions enabled explicitly: `EXT_color_buffer_float`, `OES_texture_float_linear`, `EXT_texture_filter_anisotropic`, `KHR_parallel_shader_compile`
 - **Startup readback test**: draw a known pattern to a texture and read it back, the same practice as Figma (R1 §b). On a mismatch, emit `NOTIFY{GPU_UNRELIABLE}` and continue.
 - **Context loss**: TS forwards `webglcontextlost`/`webglcontextrestored` to `engine_gl_context_lost/restored`. Every GPU resource is a cache that can be rebuilt from the scene.
+
+**As built (E9, 2026-10-08): two backends behind the interface, chosen as Figma does** (research/figma/R10-webgpu.md). The interface as built is the interim subset in `gfx/Device.h` (above is the target), plus `backend()` ("webgpu" | "webgl2" | "none", in `engine_stats().gfx`).
+- **Choice** (`src/renderer/src/engine/gfx.ts`, before `engine_create`, since WebGPU's adapter/device requests are promises): WebGPU when `navigator.gpu` gives a high-performance adapter that isn't a fallback (software) adapter, isn't in compatibility mode, isn't on the blocklist (empty today, Figma-shaped: vendor / architecture / description) and this machine hasn't fallen back twice (`localStorage designer.gfx.webgpuFallbacks`: Figma blocklists by fallback rate); else WebGL2. The GPUDevice goes to the module (`Module.engineGpuDevice`, one per renderer process) and `engine_create` gets `"gfx":"webgpu"`; `gfx::createCanvasDevice` (gfx/Backend.cpp) makes the WebGPU device or, failing that, WebGL2. Debug switch: `?gfx=webgl` / `?gfx=webgpu` (the latter skips the blocklist and clears the count), or `EngineOptions.gfx`.
+- **WebGPU device** (`gfx/wgpu/WGPUDevice.cpp`, emdawnwebgpu's `webgpu.h`; `engine/cmake/emdawnwebgpu_engine.py` is Emscripten's own remote port with one fix for Emscripten 6): the same targets (RGBA8 colour + a stencil8 attachment), pool, budgets and memory estimate as WebGL2 (the estimate counts 4 bytes a pixel for a target's stencil on both, so budgets behave the same). Uniforms are Figma's encodeDraw/submit: a 256-byte slot per distinct uniform set in a CPU staging buffer, all written with one `queue.writeBuffer` per 64 KB before the frame's command buffer, bound with dynamic offsets. Bind groups (textures + samplers) are cached by texture identity. Pipelines are compiled at `createPipeline` for both colour formats (targets RGBA8, the canvas's preferred BGRA8). Queue writes (`write`, `writeTexture`, bitmaps) first submit what is recorded, so they land in GL's order; resources a recorded command may use are destroyed after the submit. `copyToTexture` ends the render pass, copies, and the next draw resumes it (load); from the canvas it is a draw that turns the rows. Mip levels: a 2×2 box per level (render passes), as `glGenerateMipmap`.
+- **Coordinates**: offscreen targets are drawn with clip y negated so their rows sit in memory as GL leaves them (bottom first): every texture read, copy, scissor and readback means the same on both backends; the canvas is drawn unflipped. The device appends a 13th uniform slot (y sign, framebuffer height, stencil pass) from which the WGSL rebuilds `gl_FragCoord`.
+- **Shaders**: `gfx/wgpu/Shaders.h`, a line-for-line WGSL translation of `gfx/gl/Shaders.h` (Draw, Composite, Blur) + the device's own (mip level, canvas copy). `diagnostic(off, derivative_uniformity)` keeps GLSL's derivatives in branches. tools/shadergen + naga (Figma: GLSL source → naga → WGSL) would replace both files.
+- **Readback** is synchronous for its callers: the texture is copied into a WebGPU OffscreenCanvas read through a 2D canvas (`library_engine_wgpu.js`). Figma made theirs asynchronous; ours would need asynchronous thumbnail / export calls.
+- **Device loss and self test** (Figma's dynamic fallback): after start the device draws one composite (opacity 0.5 into a 4×4 target) and checks it with `mapAsync`, without waiting. A mismatch, or the device lost, calls `Module.onEngineGfxFailure` → `Engine.gfxFallback`: the canvas is replaced by a copy (a canvas keeps its first context type; the original stays hidden for React), `engine_gfx_switch(h, selector, 0)` rebuilds device and renderer on WebGL2, `CanvasController` moves its listeners (`Engine.onCanvasChange`), and the machine's fallback count goes up. WebGL2 keeps its context-loss path.
+- **Parity and cost** (M3): engine:shot passes identically on both (`--gfx webgpu`; plus a device-loss check); same-GPU screenshots are 99.988 % identical, exports byte-identical; `engine-bench --synthetic 20000` holds 16.7 ms frames on both with equal or lower render CPU on WebGPU (R10 §7). Electron 44 exposes WebGPU (Metal) without flags; headless Chrome needs `--enable-unsafe-webgpu --enable-gpu --use-angle=metal`.
 
 ### 6.2 Render tree (`render/RenderTree`)
 The render tree is separate from the scene graph (Figma's `render-tree/`). It is a flat array of `RenderNode`s in paint order with subtree ranges. Each holds:
@@ -1329,8 +1339,8 @@ Synthetic 25k (37k in the engine): a redraw at fit 98 ms CPU + 59 ms GPU (40k dr
 | **doctest** | 2.4.x | MIT | native tests only | single header |
 | **Clipper2** (E4, replaces the planned paper.js port) | 2.0.1 | Boost Software License 1.0 | polygon clipping under curve-preserving booleans | `third_party/clipper2`, `clipper.engine.cpp` only, `USINGZ` |
 | Inter | 4.x | OFL-1.1 (font asset) | UI font, default document font | `src/renderer/public/fonts/` |
-| emdawnwebgpu (E9) | Emscripten port | BSD-3 | WebGPU backend | `--use-port=emdawnwebgpu` |
-| naga-cli (E9, build-time only) | — | MIT/Apache-2.0 | GLSL → WGSL in shadergen | `cargo install naga-cli` |
+| emdawnwebgpu (E9) | Dawn v20260423.175430 (Emscripten 6.0.11's pin) | BSD-3 | WebGPU backend (`webgpu.h`) | `--use-port=engine/cmake/emdawnwebgpu_engine.py` (Emscripten's remote port + a fix) |
+| naga-cli (E9, build-time only; not yet) | — | MIT/Apache-2.0 | GLSL → WGSL in shadergen | `cargo install naga-cli` |
 
 **Explicitly not used**:
 - Skia, CanvasKit, Skia PathOps (the owner's decision);
@@ -1402,7 +1412,7 @@ Each milestone ends with `npm run check` green and `npm run dev:demo` showing th
 - PNG/JPG/SVG/PDF export, Copy as PNG/SVG, thumbnails, `ENCODE_BAKE_TEXT`, VIEWER/INSPECT modes, hb-subset.
 - Accept: SVG/PDF goldens rendered by Chromium match the canvas within tolerance; a viewer snapshot renders without fonts installed.
 
-**After E7**: E8 prototype player in the engine (interactions, Smart animate) — as built: docs/engine-build.md "E8 prototyping"; E9 WebGPU backend behind `gfx::Device` (naga WGSL, mid-session fallback to WebGL like Figma); dynamic page loading; progressive blur/noise/glass; render worker.
+**After E7**: E8 prototype player in the engine (interactions, Smart animate) — as built: docs/engine-build.md "E8 prototyping"; E9 WebGPU backend behind `gfx::Device` (mid-session fallback to WebGL like Figma) — as built: §6.1 "As built (E9)", docs/engine-build.md "E9 WebGPU"; WGSL from naga still to do; dynamic page loading; progressive blur/noise/glass; render worker.
 
 ---
 

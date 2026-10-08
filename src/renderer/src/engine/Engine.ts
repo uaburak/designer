@@ -98,6 +98,7 @@ import { FACET_DECODERS, FACET_IDS, FACET_SLOTS, type FacetName } from "./facets
 import type { ExportSettings } from "../../../shared/schema/document.generated";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
+import { prepareGfx, recordWebGPUFallback, type GfxBackend, type GfxPreference } from "./gfx";
 import { loadEngine } from "./loadEngine";
 
 /** The encoding of the engine's structured outputs (docs/engine-build.md "Figma parity round 3"). */
@@ -116,6 +117,11 @@ export interface EngineOptions {
    * (`loadKiwi`, `applyChangesKiwi`, `pasteKiwi`, the library payloads) take either encoding whatever the setting.
    */
   wire?: WireFormat;
+  /**
+   * The canvas's GPU backend (gfx.ts): "auto" (the default) is Figma's rule — WebGPU when available and not
+   * blocklisted, else WebGL2; the page's ?gfx=webgl|webgpu overrides "auto".
+   */
+  gfx?: GfxPreference;
 }
 
 /**
@@ -169,7 +175,8 @@ export class Engine {
     const exports = await loadEngine();
     if (canvas && !canvas.id) canvas.id = "engine-canvas";
     const wire = options.wire ?? "json";
-    const handle = exports.create(canvas ? `#${canvas.id}` : null, encodeOptions({ sessionID: options.sessionID ?? 1, theme: options.theme ?? "DARK", wire }));
+    const gfx = canvas ? await prepareGfx(exports.module, options.gfx) : "webgl2";
+    const handle = exports.create(canvas ? `#${canvas.id}` : null, encodeOptions({ sessionID: options.sessionID ?? 1, theme: options.theme ?? "DARK", wire, gfx }));
     if (!handle) {
       exports.lastError();
       throw new Error(`engine: ${decodeText(exports.result()) || "could not start"}`);
@@ -177,7 +184,62 @@ export class Engine {
     fonts.attach(exports);
     const engine = new Engine(exports, handle, canvas === null, wire);
     engine.canvas = canvas;
+    if (canvas) {
+      engine.gfxBackend = (engine.stats() as Record<string, unknown>).gfx === "webgpu" ? "webgpu" : "webgl2";
+      Engine.drawing.add(engine);
+      exports.module.onEngineGfxFailure ??= (selector, reason) => {
+        for (const e of Engine.drawing) if (e.canvas && `#${e.canvas.id}` === selector) e.gfxFallback(reason);
+      };
+    }
     return engine;
+  }
+
+  /** Engines drawing into a canvas (a WebGPU failure names its canvas). */
+  private static readonly drawing = new Set<Engine>();
+  private gfxBackend: GfxBackend = "webgl2";
+  /** A canvas the engine put in place of the one it was given (gfxFallback); removed with the engine. */
+  private ownCanvas: HTMLCanvasElement | null = null;
+  private readonly canvasListeners = new Set<(canvas: HTMLCanvasElement) => void>();
+
+  /** The canvas's GPU backend. */
+  get gfx(): GfxBackend {
+    return this.gfxBackend;
+  }
+
+  /** The canvas the engine draws into (another one after a WebGPU fallback: onCanvasChange). */
+  get canvasElement(): HTMLCanvasElement | null {
+    return this.canvas;
+  }
+
+  /** Called when the engine moves to another canvas element; returns the unsubscribe. */
+  onCanvasChange(listener: (canvas: HTMLCanvasElement) => void): () => void {
+    this.canvasListeners.add(listener);
+    return () => this.canvasListeners.delete(listener);
+  }
+
+  /**
+   * Figma's dynamic fallback: the WebGPU device was lost or failed its self test, so the session continues on
+   * WebGL2. A canvas keeps the context type it first got, so a copy of it takes its place (the original stays,
+   * hidden, for whoever rendered it); every GPU resource is a cache the engine rebuilds.
+   */
+  gfxFallback(reason: string): void {
+    const old = this.canvas;
+    if (!this.h || !old || this.gfxBackend !== "webgpu") return;
+    console.warn(`[engine] WebGPU failed (${reason}): continuing on WebGL2`);
+    recordWebGPUFallback();
+    const fresh = old.cloneNode(false) as HTMLCanvasElement;
+    const focused = document.activeElement === old;
+    old.removeAttribute("id");
+    old.style.display = "none";
+    old.after(fresh);
+    this.ownCanvas?.remove();
+    this.ownCanvas = fresh;
+    this.canvas = fresh;
+    const backend = this.x.gfxSwitch(this.h, `#${fresh.id}`, 0);
+    this.gfxBackend = backend === 1 ? "webgpu" : "webgl2";
+    for (const listener of [...this.canvasListeners]) listener(fresh);
+    if (focused) fresh.focus({ preventScroll: true });
+    this.schedule();
   }
 
   private readonly x: EngineExports;
@@ -223,6 +285,10 @@ export class Engine {
     if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
     clearTimeout(this.frameTimer);
     this.unsubscribeFonts();
+    Engine.drawing.delete(this);
+    this.ownCanvas?.remove();
+    this.ownCanvas = null;
+    this.canvasListeners.clear();
     this.x.destroy(this.h);
     this.h = 0;
     this.handlers.clear();
@@ -561,6 +627,15 @@ export class Engine {
     if (status !== Status.OK) return status;
     const doc = this.readNode("0:0") as { documentColorProfile?: string } | null;
     this.profile = doc?.documentColorProfile === "DISPLAY_P3" ? "DISPLAY_P3" : "SRGB";
+    if (this.gfxBackend === "webgpu") {
+      // The WebGPU device reads it when it next draws the canvas and uploads images (library_engine_wgpu.js).
+      const space = this.profile === "DISPLAY_P3" ? "display-p3" : "srgb";
+      if (this.x.module.engineColorSpace !== space) {
+        this.x.module.engineColorSpace = space;
+        this.schedule();
+      }
+      return status;
+    }
     const gl = this.canvas?.getContext("webgl2") as (WebGL2RenderingContext & { drawingBufferColorSpace?: string; unpackColorSpace?: string }) | null | undefined;
     if (gl) {
       const space = this.profile === "DISPLAY_P3" ? "display-p3" : "srgb";

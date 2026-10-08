@@ -103,6 +103,8 @@ class WebGL2Device final : public Device {
     return true;
   }
 
+  const char* backend() const override { return "webgl2"; }
+
   MemoryStats memory() const override {
     MemoryStats m;
     for (size_t i = 1; i < textures_.size(); i++) {

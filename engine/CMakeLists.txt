@@ -99,8 +99,11 @@ if(EMSCRIPTEN)
   else()
     target_compile_options(eng_core PRIVATE -O1 -g)
   endif()
-  add_library(eng_gfx_gl STATIC src/gfx/gl/GLDevice.cpp)
+  # The GPU backends (docs/engine.md §6.1): WebGPU (emdawnwebgpu's webgpu.h, Emscripten's port of Dawn's
+  # bindings) and WebGL2, and the choice between them.
+  add_library(eng_gfx_gl STATIC src/gfx/gl/GLDevice.cpp src/gfx/wgpu/WGPUDevice.cpp src/gfx/Backend.cpp)
   target_link_libraries(eng_gfx_gl PUBLIC eng_core)
+  target_compile_options(eng_gfx_gl PRIVATE "--use-port=${CMAKE_CURRENT_SOURCE_DIR}/cmake/emdawnwebgpu_engine.py")
   eng_compile_flags(eng_gfx_gl)
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(eng_gfx_gl PRIVATE -O3 -flto -DNDEBUG)

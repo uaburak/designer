@@ -8,9 +8,14 @@
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
 //   SHOT_ONLY=e8 npm run engine:shot    only the prototyping checks (noodles, the presentation view)
+//   npm run engine:shot -- --gfx webgpu  the same checks on the WebGPU backend (default --gfx webgl; SHOT_GFX too)
+//   SHOT_GPU=1 npm run engine:shot      WebGL on the real GPU (ANGLE Metal) instead of SwiftShader: the same GPU as
+//                                       WebGPU, to compare the two backends' screenshots pixel for pixel
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
-// (CHROMIUM=/path overrides). Software GL (SwiftShader) for determinism.
+// (CHROMIUM=/path overrides). WebGL: software GL (SwiftShader) for determinism. WebGPU: the real GPU (Metal on
+// macOS; headless Chrome needs --enable-unsafe-webgpu, SwiftShader's WebGPU adapter is a fallback adapter the engine
+// refuses). The run stops after SHOT_TIMEOUT seconds (default 180).
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -20,7 +25,10 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outDir = path.resolve(process.argv[2] ?? path.join(tmpdir(), "engine-shots"));
+const args = process.argv.slice(2);
+const gfxAt = args.indexOf("--gfx");
+const gfx = (gfxAt >= 0 ? args.splice(gfxAt, 2)[1] : process.env.SHOT_GFX) === "webgpu" ? "webgpu" : "webgl";
+const outDir = path.resolve(args[0] ?? path.join(tmpdir(), gfx === "webgpu" ? "engine-shots-webgpu" : "engine-shots"));
 mkdirSync(outDir, { recursive: true });
 
 function chromiumPath() {
@@ -50,8 +58,18 @@ const url = server.resolvedUrls.local[0];
 
 const browser = await chromium.launch({
   executablePath: chromiumPath(),
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
+  args:
+    gfx === "webgpu" || process.env.SHOT_GPU === "1"
+      ? ["--enable-unsafe-webgpu", "--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"]
+      : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
+// The machine is someone's: a hung run doesn't keep a browser (and its GPU memory) around.
+const hardStop = setTimeout(async () => {
+  console.error(`engine-shot: stopped after ${process.env.SHOT_TIMEOUT ?? 180} s`);
+  await browser.close().catch(() => {});
+  process.exit(2);
+}, Number(process.env.SHOT_TIMEOUT ?? 180) * 1000);
+hardStop.unref();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
 const problems = [];
 page.on("console", (m) => {
@@ -780,6 +798,36 @@ async function exportChecks(files) {
 // Prototyping (E8): the editor's fixture (src/renderer/src/editor/fixtures.ts PROTOTYPE_DOCUMENT) in prototype mode —
 // noodles and the flow label drawn by the engine —, then the presentation view on the same canvas: the flow's first
 // frame on the prototype background, a click navigating, an overlay over a dimmed screen, scrolling.
+// E9: the WebGPU device is lost mid-session (Figma's dynamic fallback): the session continues on WebGL2 in a fresh
+// canvas, which draws and takes input.
+async function fallbackChecks(files) {
+  const colours = () =>
+    page.evaluate(() => {
+      const c = document.getElementById("engine-canvas");
+      window.__designerEngine.renderNow(); // read in the same task: WebGL's canvas isn't preserved after it shows
+      const t = new OffscreenCanvas(c.width, c.height).getContext("2d");
+      t.drawImage(c, 0, 0);
+      const d = t.getImageData(0, 0, c.width, c.height).data;
+      const seen = new Set();
+      for (let i = 0; i < d.length; i += 4 * 61) seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+      return seen.size;
+    });
+  await engine(() => window.__designerEngine["x"].module.engineGpuDevice.destroy());
+  const moved = await page
+    .waitForFunction(() => window.__designerEngine.gfx === "webgl2", null, { timeout: 5000 })
+    .then(() => true, () => false);
+  await settle();
+  const n = await colours();
+  const before = await engine(() => window.__designerEngine.getCamera());
+  await page.mouse.move(640, 400);
+  await page.mouse.wheel(0, 120);
+  await settle();
+  const after = await engine(() => window.__designerEngine.getCamera());
+  check("WebGPU device lost: the session continues on WebGL2", moved && n > 8, `${await engine(() => window.__designerEngine.gfx)}, ${n} colours on the new canvas`);
+  check("…and the new canvas takes input", after.y !== before.y || after.x !== before.x, `camera ${before.x.toFixed(0)},${before.y.toFixed(0)} → ${after.x.toFixed(0)},${after.y.toFixed(0)}`);
+  files.push(await shot("70-webgpu-fallback"));
+}
+
 async function e8Checks(files) {
   await engine(async (repo) => {
     const { PROTOTYPE_DOCUMENT } = await import(`/@fs${repo}/src/renderer/src/editor/fixtures.ts`);
@@ -854,9 +902,11 @@ async function e8Checks(files) {
 }
 
 try {
-  await page.goto(url);
+  await page.goto(`${url}?gfx=${gfx === "webgpu" ? "webgpu" : "webgl"}`);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
   await settle();
+  const backend = await engine(() => window.__designerEngine.gfx);
+  check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
   if (only === "e4" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
@@ -1043,6 +1093,8 @@ try {
   await exportChecks(files);
   // E8.
   await e8Checks(files);
+  // E9.
+  if (gfx === "webgpu") await fallbackChecks(files);
 
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);

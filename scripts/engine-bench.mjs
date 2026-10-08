@@ -23,6 +23,8 @@
 //   --snapshot-out <f>  --open: save the engine's own snapshot (derived data included) once the editor writes it (~15 s)
 //   --snapshot-in <f>   --open from that snapshot instead of the import's, as the next open of the file would
 //   --headed            a visible window instead of headless (the GPU is used either way on macOS)
+//   --gfx webgl|webgpu  the canvas's GPU backend (default: the app's choice, WebGPU where available); WebGPU has no
+//                       synchronous readback, so its "synced" and timer-query GPU columns stay empty
 //   --timeout <s>       stop the run after this long (default 180)
 //   --gpu-limit <MB>    stop when Chrome's GPU process uses more than this (default 3072), or the engine's own GPU
 //                       memory (engine_stats gpuBytes) more than half of it
@@ -78,6 +80,7 @@ const [cssW, cssH] = (opt("--size", "1440x900") ?? "").split("x").map(Number);
 const dpr = Number(opt("--dpr", "2"));
 const only = (opt("--only", "") ?? "").split(",").filter(Boolean);
 const headed = flag("--headed");
+const gfxOpt = opt("--gfx");
 const timeoutSec = Number(opt("--timeout", "180"));
 const gpuLimitMB = Number(opt("--gpu-limit", "3072"));
 const openMode = flag("--open");  // the file-open path: the real EditorApp mounted on the snapshot
@@ -339,10 +342,17 @@ function pageMain() {
         );
       },
     };
-    const gl = canvas.getContext("webgl2");
-    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
-    const timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
-    const gpuInfo = { renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), vendor: dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : "", timerQuery: !!timer };
+    // WebGL: timer queries and a readback for "synced"; WebGPU: neither (its readback is asynchronous).
+    const gl = engine.gfx === "webgl2" ? canvas.getContext("webgl2") : null;
+    const dbg = gl?.getExtension("WEBGL_debug_renderer_info");
+    const timer = gl?.getExtension("EXT_disjoint_timer_query_webgl2");
+    let gpuInfo;
+    if (gl) {
+      gpuInfo = { backend: "webgl2", renderer: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), vendor: dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : "", timerQuery: !!timer };
+    } else {
+      const info = x.module.engineGpuDevice?.adapterInfo ?? {};
+      gpuInfo = { backend: "webgpu", renderer: `WebGPU ${info.vendor ?? ""} ${info.architecture ?? ""}`.trim(), vendor: info.vendor ?? "", timerQuery: false };
+    }
 
     // Every render, timed: CPU (the call), GPU (a timer query around it), and when it ran.
     const renders = [];
@@ -353,6 +363,7 @@ function pageMain() {
     const origTick = x.tick;
     const pixel = new Uint8Array(4);
     const sync = () => {
+      if (!gl) return;
       const prev = gl.getParameter(gl.FRAMEBUFFER_BINDING);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
@@ -376,7 +387,7 @@ function pageMain() {
       const t1 = performance.now();
       if (q) gl.endQuery(timer.TIME_ELAPSED_EXT);
       let synced = NaN;
-      if (recording && syncEach) {
+      if (recording && syncEach && gl) {
         sync();
         synced = performance.now() - t0;
       }
@@ -1698,7 +1709,7 @@ if (editor) {
   });
   await page.addScriptTag({ type: "module", url: "/__bench/page.js" });
 } else {
-  await page.goto(`${base}__bench/index.html?w=${cssW}&h=${cssH}`);
+  await page.goto(`${base}__bench/index.html?w=${cssW}&h=${cssH}${gfxOpt ? `&gfx=${gfxOpt}` : ""}`);
 }
 await page.waitForFunction(() => window.__bench && (window.__bench.ready || window.__bench.error), null, { timeout: 120000 });
 const bootError = await page.evaluate(() => window.__bench.error);
@@ -1833,7 +1844,7 @@ if (openMode) {
   if (jsonOut) writeFileSync(jsonOut, JSON.stringify(report, null, 1));
   process.exit(0);
 }
-console.log(`\nengine-bench — ${report.file}  (${report.gpu.renderer}; timer query ${report.gpu.timerQuery ? "yes" : "no"})`);
+console.log(`\nengine-bench — ${report.file}  (${report.gpu.backend ?? "webgl2"}: ${report.gpu.renderer}; timer query ${report.gpu.timerQuery ? "yes" : "no"})`);
 console.log(`viewport ${cssW}×${cssH} CSS @${dpr}x · wasm ${report.wasm}`);
 console.log(`\nDocument: ${L.storedNodes} stored nodes, ${report.first.engineNodes} in the engine (instance sublayers included); ${report.images} images (${mb(report.imageBytes)}), ${L.imageRefs} referenced; ${L.pages.length} pages`);
 console.log(`  by type: ${Object.entries(L.types).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", ")}`);
