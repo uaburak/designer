@@ -16,9 +16,11 @@ function(eng_wasm_target target)
     -sSTRICT=1
     --no-entry
     -lGL -lhtml5
+    "--use-port=${CMAKE_CURRENT_SOURCE_DIR}/cmake/emdawnwebgpu_engine.py"
+    "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/wgpu/library_engine_wgpu.js"
   )
   set_target_properties(${target} PROPERTIES OUTPUT_NAME engine SUFFIX ".mjs"
-    LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/api/exports.txt")
+    LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/api/exports.txt;${CMAKE_CURRENT_SOURCE_DIR}/src/gfx/wgpu/library_engine_wgpu.js")
   if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${target} PRIVATE -O1 -g)
     target_link_options(${target} PRIVATE -O1 -gsource-map -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2 -sGL_ASSERTIONS=1)

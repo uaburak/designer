@@ -1,8 +1,9 @@
 // The graphics interface between the renderer and a GPU backend
 // (docs/engine.md §6.1): resources by id and explicit-argument draws, no
 // global bound state above the backend — the move Figma made before WebGPU.
-// WebGL2 implements it today (gfx/gl), the native tests use a recording device
-// (gfx/null), a WebGPU backend comes later (E9).
+// WebGPU (gfx/wgpu) and WebGL2 (gfx/gl) implement it — WebGPU where the browser
+// has it and it isn't blocklisted, WebGL2 otherwise (gfx/Backend.h, Figma's
+// rule) — and the native tests use a recording device (gfx/null).
 //
 // Interim subset of §6.1: buffers, pipelines over the built-in shaders,
 // passes on the default framebuffer or on offscreen targets (an RGBA8 colour
@@ -115,6 +116,8 @@ struct MemoryStats {
 class Device {
  public:
   virtual ~Device() = default;
+  // "webgpu", "webgl2", or "none" (the recording device).
+  virtual const char* backend() const { return "none"; }
   virtual Caps caps() const = 0;
   // Live resources and their size (budgets are checked against it: tests, engine_stats).
   virtual MemoryStats memory() const = 0;

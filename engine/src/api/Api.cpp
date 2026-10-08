@@ -42,7 +42,7 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 
-#include "gfx/gl/GLDevice.h"
+#include "gfx/Backend.h"
 #define ENG_EXPORT extern "C" EMSCRIPTEN_KEEPALIVE
 #else
 #define ENG_EXPORT extern "C" __attribute__((visibility("default")))
@@ -72,6 +72,7 @@ enum EncodeFlags : uint32_t { ENCODE_DERIVED = 1 };
 struct Engine {
   std::string selector;  // empty: headless
   std::unique_ptr<gfx::Device> device;
+  bool webgpu = false;  // the canvas's backend: WebGPU (else WebGL2), gfx/Backend.h
   std::unique_ptr<Renderer> renderer;
   Editor editor;
   RenderStats stats;
@@ -375,14 +376,20 @@ ENG_EXPORT int32_t engine_last_error() { return setResult(gError ? *gError : std
 // ---- Lifecycle and document --------------------------------------------------
 
 // `selector` names the canvas ("#engine-canvas"); 0 = headless (no GPU).
-// `opts`: {"sessionID":1,"theme":"DARK"|"LIGHT","devicePixelRatio":2}. Returns 0 on failure.
+// `opts`: {"sessionID":1,"theme":"DARK"|"LIGHT","devicePixelRatio":2,"gfx":"webgpu"|"webgl2"}. Returns 0 on failure.
+// "gfx": the backend TypeScript chose (src/renderer/src/engine/gfx.ts); WebGPU needs Module.engineGpuDevice.
 ENG_EXPORT Handle engine_create(const char* selector, Ptr optsPtr, uint32_t optsLen) {
   Call call;
   auto e = std::make_unique<Engine>();
+  json::Value opts;
+  bool hasOpts = optsLen && json::parse(bytes(optsPtr, optsLen), opts);
   if (selector && *selector) {
     e->selector = selector;
 #ifdef __EMSCRIPTEN__
-    e->device = gfx::createWebGL2Device(selector);
+    const json::Value* gfxOpt = hasOpts ? opts.get("gfx") : nullptr;
+    bool webgpu = gfxOpt && gfxOpt->isString() && gfxOpt->string == "webgpu";
+    e->device = gfx::createCanvasDevice(selector, webgpu ? gfx::Backend::WebGPU : gfx::Backend::WebGL2);
+    e->webgpu = e->device && std::string_view(e->device->backend()) == "webgpu";
 #endif
     if (!e->device) {
       setError("WebGL2 is not available");
@@ -395,8 +402,7 @@ ENG_EXPORT Handle engine_create(const char* selector, Ptr optsPtr, uint32_t opts
   e->renderer->setTextLayouts(&e->editor);
   // A canvas keeps its page's pixels between frames (the content cache, docs/engine.md §6.9).
   e->renderer->setContentCache(!e->selector.empty());
-  json::Value opts;
-  if (optsLen && json::parse(bytes(optsPtr, optsLen), opts)) {
+  if (hasOpts) {
     if (auto* s = opts.get("sessionID"); s && s->isNumber()) e->editor.setSessionID(static_cast<uint32_t>(s->number));
     if (auto* t = opts.get("theme"); t && t->isString()) e->editor.setTheme(t->string == "LIGHT" ? Theme::Light : Theme::Dark);
     if (auto* d = opts.get("devicePixelRatio"); d && d->isNumber()) e->editor.setViewport(0, 0, d->number, 0, 0);
@@ -720,13 +726,48 @@ ENG_EXPORT void engine_gl_context_restored(Handle h) {
 #ifdef __EMSCRIPTEN__
   // Every GPU resource is a cache: a new device and renderer rebuild them.
   e->renderer.reset();
-  e->device = gfx::createWebGL2Device(e->selector.c_str());
+  e->device.reset();
+  e->device = gfx::createCanvasDevice(e->selector.c_str(), e->webgpu ? gfx::Backend::WebGPU : gfx::Backend::WebGL2);
   if (!e->device) e->device = std::make_unique<gfx::NullDevice>();
   e->renderer = std::make_unique<Renderer>(*e->device);
   e->renderer->setTextLayouts(&e->editor);
   e->renderer->setContentCache(true);
   e->editor.setViewport(e->editor.viewport().width, e->editor.viewport().height, e->editor.viewport().dpr,
                         e->editor.viewport().pixelWidth, e->editor.viewport().pixelHeight);
+#endif
+}
+
+// The canvas's backend changes (Figma's dynamic fallback: a WebGPU device lost or failing its self test moves the
+// session to WebGL2). `selector` names the canvas to draw into from now on — a fresh one, as a canvas keeps the
+// context type it was first given. `backend`: 0 WebGL2, 1 WebGPU. Returns the backend in use (−1: none, the
+// engine draws nothing until a restore).
+ENG_EXPORT int32_t engine_gfx_switch(Handle h, const char* selector, int32_t backend) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || e->selector.empty()) return -1;
+#ifdef __EMSCRIPTEN__
+  if (selector && *selector) e->selector = selector;
+  const Viewport& v = e->editor.viewport();
+  if (v.pixelWidth > 0 && v.pixelHeight > 0) emscripten_set_canvas_element_size(e->selector.c_str(), v.pixelWidth, v.pixelHeight);
+  e->renderer.reset();
+  e->device.reset();
+  e->device = gfx::createCanvasDevice(e->selector.c_str(), backend == 1 ? gfx::Backend::WebGPU : gfx::Backend::WebGL2);
+  int32_t got = -1;
+  if (e->device) {
+    e->webgpu = std::string_view(e->device->backend()) == "webgpu";
+    got = e->webgpu ? 1 : 0;
+  } else {
+    e->device = std::make_unique<gfx::NullDevice>();
+  }
+  e->renderer = std::make_unique<Renderer>(*e->device);
+  e->renderer->setTextLayouts(&e->editor);
+  e->renderer->setContentCache(true);
+  e->editor.setViewport(v.width, v.height, v.dpr, v.pixelWidth, v.pixelHeight);
+  return got;
+#else
+  (void)selector;
+  (void)backend;
+  return -1;
 #endif
 }
 
@@ -1373,6 +1414,7 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
   // What the engine holds on the GPU (estimated): budgets are checked against it (scripts/engine-bench.mjs).
   gfx::MemoryStats gm = e->device->memory();
   w.key("gpuBytes").number(static_cast<double>(gm.bytes)).key("gpuTextures").number(gm.textures).key("gpuTargets").number(gm.targets);
+  w.key("gfx").string(e->device->backend());
   w.key("gpuBuffers").number(gm.buffers).key("layerPoolBytes").number(static_cast<double>(e->renderer->poolTargetBytes()));
   w.key("curveTexels").number(e->renderer->curveCache().texelCount());
   w.key("derivedUsed").number(e->editor.derivedUsed()).key("derivedStale").number(e->editor.derivedStale());
