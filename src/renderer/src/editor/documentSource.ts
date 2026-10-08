@@ -206,12 +206,33 @@ export interface MemoryDocumentSource extends DocumentSource {
 }
 
 /** A DocumentSource held in memory: the snapshot it was given plus every change since. */
-export function memoryDocumentSource(document: Message, options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore } = {}): MemoryDocumentSource {
+export function memoryDocumentSource(
+  document: Message,
+  options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore; versions?: boolean } = {}
+): MemoryDocumentSource {
   const nodes = new Map<Guid, NodeChange>(document.nodeChanges.map((n) => [n.guid, { ...n, phase: "CREATED" as const }]));
   const changes: Message[] = [];
   let fileName = options.fileName ?? "Untitled";
   const snapshot = (): Message => ({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: orderParentsFirst([...nodes.values()]) });
+  // `versions`: version history in memory (the browser's demo files: Dev Mode's Compare changes reads it).
+  const saved: { info: VersionInfo; message: Message }[] = [];
+  const history = options.versions
+    ? {
+        listVersions: async () => saved.map((v) => ({ ...v.info })),
+        saveVersion: async (input: { title?: string; description?: string } = {}) => {
+          const info: VersionInfo = { id: `v${saved.length + 1}`, kind: "named", title: input.title ?? null, description: input.description ?? null, createdAt: Date.now() };
+          saved.push({ info, message: structuredClone(snapshot()) });
+          return { ...info };
+        },
+        openVersion: async (id: string) => {
+          const v = saved.find((x) => x.info.id === id);
+          if (!v) throw new Error("This version doesn't exist");
+          return structuredClone(v.message);
+        },
+      }
+    : {};
   return {
+    ...history,
     get fileName() {
       return fileName;
     },

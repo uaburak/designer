@@ -34,7 +34,7 @@
   .focusBar {
     position: absolute;
     z-index: var(--ds-z-panel);
-    top: var(--ds-space-3);
+    top: var(--ds-space-8);
     left: var(--ds-space-3);
     right: var(--ds-space-3);
     display: flex;
@@ -62,7 +62,24 @@
 
   /* Compare changes */
   .hiddenCanvas { position: fixed; left: -10000px; top: 0; width: 8px; height: 8px; }
-  .compare { display: grid; grid-template-columns: 220px 1fr 280px; gap: var(--ds-space-3); height: 60vh; min-height: 0; }
+  .compareScrim { position: fixed; inset: 0; z-index: var(--ds-z-scrim); display: flex; padding: var(--ds-space-8); background: var(--ds-color-scrim); }
+  .compareWindow {
+    position: relative;
+    z-index: var(--ds-z-dialog);
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-500);
+    color: var(--figma-color-text);
+  }
+  .compareHeader { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
+  .compareTitle { font: var(--ds-font-body-large-strong); }
+  .compareTrap { display: flex; flex: 1 1 auto; min-width: 0; outline: none; }
+  .compare { display: grid; flex: 1 1 auto; grid-template-columns: 240px minmax(0, 1fr) 300px; gap: var(--ds-space-3); min-height: 0; padding: var(--ds-space-3); }
   .compareNav, .compareDetail { display: flex; flex-direction: column; gap: var(--ds-space-2); min-height: 0; overflow: hidden; }
   .compareHeading { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); padding: var(--ds-space-1) 0; }
   .compareVersions { flex: 0 1 40%; min-height: 0; }

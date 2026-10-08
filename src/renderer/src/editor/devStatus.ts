@@ -62,4 +62,10 @@ export function setDevStatusOf(ed: EditorController, ids: readonly Guid[], statu
     : null;
   const label = opts.label ?? (status === "BUILD" ? "Mark as ready for dev" : status === "COMPLETED" ? "Mark as completed" : "Remove status");
   ed.setProps(ids, { sectionStatusInfo: info } as unknown as NodeFields, label);
+  // A design marked ready is compared with the file as it was then (Compare changes): a version saved now
+  // (unverified: whether Figma saves one, or keeps its own snapshot).
+  if (status === "BUILD" && ed.source.saveVersion) {
+    const names = ids.map((id) => ed.engine.readNode(id, { fields: ["name"] })?.name ?? "").filter(Boolean);
+    void ed.source.saveVersion({ title: `${names.length === 1 ? `“${names[0]}”` : `${names.length} designs`} marked ready for dev` }).catch(() => {});
+  }
 }

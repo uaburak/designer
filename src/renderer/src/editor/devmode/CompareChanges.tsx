@@ -8,7 +8,7 @@
  * by the engine's exporter and read through the same engine API.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, CodeBlock, Dialog, EmptyState, ScrollArea, SegmentedControl, Spinner } from "@/ds";
+import { CodeBlock, EmptyState, FocusTrap, IconButton, Portal, ScrollArea, SegmentedControl, Spinner } from "@/ds";
 import { Engine } from "@/engine/Engine";
 import type { Guid, Message, NodeChange } from "@/engine/codec";
 import { cssText } from "../../../../viewer/inspect/css";
@@ -145,7 +145,27 @@ function Compare({ root }: { root: Guid }) {
   const v = versions?.find((x) => x.id === version) ?? null;
 
   return (
-    <Dialog title={`Compare changes: ${name}`} size="large" open onClose={close} footer={<Button variant="secondary" onClick={close}>Close</Button>}>
+    <Portal>
+      <div className={styles.compareScrim} onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <FocusTrap className={styles.compareTrap}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Compare changes"
+        className={styles.compareWindow}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            close();
+          }
+        }}
+      >
+      <header className={styles.compareHeader}>
+        <span className={styles.compareTitle}>Compare changes</span>
+        <span className={styles.hint}>{name}</span>
+        <span className={styles.grow} />
+        <IconButton icon="24.close.small" label="Close" onClick={close} />
+      </header>
       <canvas ref={canvas} id="compare-canvas" className={styles.hiddenCanvas} aria-hidden />
       <div className={styles.compare} data-compare="">
         <nav className={styles.compareNav}>
@@ -265,7 +285,10 @@ function Compare({ root }: { root: Guid }) {
           )}
         </aside>
       </div>
-    </Dialog>
+      </div>
+      </FocusTrap>
+      </div>
+    </Portal>
   );
 }
 
