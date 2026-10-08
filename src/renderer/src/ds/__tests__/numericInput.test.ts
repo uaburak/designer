@@ -150,6 +150,25 @@ describe("NumericInput", () => {
     expect(onChange.calls).toHaveLength(1);
   });
 
+  it("a label before the field scrubs it (scrubHandle: previous), a press without movement focuses it", () => {
+    const onChange = spy<[number, ChangeInfo]>();
+    const Row = (p: NumericInputProps) => createElement("div", null, createElement("span", { id: "blur-label" }, "Blur"), createElement(NumericInput, p));
+    m = mount(Row, { label: "Blur", value: 4, onChange, scrubHandle: "previous" } as NumericInputProps);
+    const label = $("#blur-label", m.host);
+    const input = $("input", m.host) as HTMLInputElement;
+    expect(label.hasAttribute("data-ds-scrub-handle")).toBe(true);
+    pointer(label, "pointerdown", { clientX: 100 });
+    pointer(label, "pointermove", { clientX: 110 });
+    pointer(label, "pointerup", { clientX: 110 });
+    expect(onChange.calls).toEqual([
+      [14, { final: false, source: "scrub" }],
+      [14, { final: true, source: "scrub" }],
+    ]);
+    pointer(label, "pointerdown", { clientX: 100 });
+    pointer(label, "pointerup", { clientX: 100 });
+    expect(document.activeElement).toBe(input);
+  });
+
   it("gives focus back through ReturnFocusProvider after Enter", () => {
     let returned = 0;
     const onChange = spy<[number, ChangeInfo]>();

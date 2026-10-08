@@ -156,7 +156,7 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
             onChange={(v) => write("Underline style", { textDecorationStyle: v as ExtraFields["textDecorationStyle"] })}
           />
           <span className={styles.settingsLabel}>Thickness</span>
-          <NumericInput
+          <NumericInput scrubHandle="previous"
             label="Underline thickness"
             value={px(thickness)}
             placeholder="Auto"
@@ -166,7 +166,7 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
             onCancel={() => ed.cancelEdit()}
           />
           <span className={styles.settingsLabel}>Offset</span>
-          <NumericInput
+          <NumericInput scrubHandle="previous"
             label="Underline offset"
             value={px(offset)}
             placeholder="Auto"
@@ -215,13 +215,13 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
         onChange={(v) => list(v as "NONE" | "ORDERED" | "UNORDERED")}
       />
       <span className={styles.settingsLabel}>Paragraph spacing</span>
-      <NumericInput label="Paragraph spacing" value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+      <NumericInput scrubHandle="previous" label="Paragraph spacing" value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
       <span className={styles.settingsLabel}>List spacing</span>
-      <NumericInput label="List spacing" value={listSpacing} min={0} onChange={(v, info) => write("List spacing", { listSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+      <NumericInput scrubHandle="previous" label="List spacing" value={listSpacing} min={0} onChange={(v, info) => write("List spacing", { listSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
       <span className={styles.settingsLabel}>Truncate text</span>
       <Checkbox label="Truncate text" hideLabel checked={truncate === true} onChange={(on) => write("Truncate text", { textTruncation: on ? "ENDING" : "DISABLED" })} />
       <span className={styles.settingsLabel}>Max lines</span>
-      <NumericInput
+      <NumericInput scrubHandle="previous"
         label="Max lines"
         value={maxLines === 0 ? null : maxLines}
         placeholder="—"
@@ -295,7 +295,7 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
   return (
     <div className={styles.settings}>
       <span className={styles.settingsLabel}>Paragraph indent</span>
-      <NumericInput label="Paragraph indent" value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
+      <NumericInput scrubHandle="previous" label="Paragraph indent" value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
       {check("Hanging quotes", hanging === true, true, (v) => write("Hanging quotes", { hangingPunctuation: v }))}
       {check("Hanging lists", hangingList === true, true, (v) => write("Hanging lists", { hangingList: v }))}
       {check("Case-sensitive forms", toggled("case", false), has("case"), (v) => toggle("case", v, false, "Case-sensitive forms"))}

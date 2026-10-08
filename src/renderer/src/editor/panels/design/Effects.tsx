@@ -124,11 +124,11 @@ export function EffectSettings({ effect, anchor, onChange, onCancel, onClose }: 
           </>
         )}
         <span className={styles.settingsLabel}>Blur</span>
-        <NumericInput label="Blur" min={0} value={effect.radius ?? 0} onChange={(v, info) => onChange({ ...effect, radius: v }, info)} onCancel={onCancel} />
+        <NumericInput scrubHandle="previous" label="Blur" min={0} value={effect.radius ?? 0} onChange={(v, info) => onChange({ ...effect, radius: v }, info)} onCancel={onCancel} />
         {isShadow(effect) && (
           <>
             <span className={styles.settingsLabel}>Spread</span>
-            <NumericInput label="Spread" value={effect.spread ?? 0} onChange={(v, info) => onChange({ ...effect, spread: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Spread" value={effect.spread ?? 0} onChange={(v, info) => onChange({ ...effect, spread: v }, info)} onCancel={onCancel} />
             <span className={styles.settingsLabel}>Color</span>
             <ColorInput
               label="Shadow color"
@@ -246,20 +246,20 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         {kind === "GRID" ? (
           <>
             <span className={styles.settingsLabel}>Size</span>
-            <NumericInput label="Size" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Size" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
           </>
         ) : (
           <>
             <span className={styles.settingsLabel}>Count</span>
-            <NumericInput label="Count" min={1} precision={0} value={grid.numSections ?? 5} onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Count" min={1} precision={0} value={grid.numSections ?? 5} onChange={(v, info) => onChange({ ...grid, numSections: Math.round(v) }, info)} onCancel={onCancel} />
             <span className={styles.settingsLabel}>Type</span>
             <Select label="Type" value={grid.type ?? "STRETCH"} options={typeOptions} onChange={(v) => onChange({ ...grid, type: v as LayoutGrid["type"] }, pick)} />
             <span className={styles.settingsLabel}>{kind === "ROWS" ? "Height" : "Width"}</span>
-            <NumericInput label={kind === "ROWS" ? "Height" : "Width"} min={1} value={stretch ? null : (grid.sectionSize ?? 10)} valueLabel={stretch ? "Auto" : undefined} disabled={stretch} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label={kind === "ROWS" ? "Height" : "Width"} min={1} value={stretch ? null : (grid.sectionSize ?? 10)} valueLabel={stretch ? "Auto" : undefined} disabled={stretch} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
             <span className={styles.settingsLabel}>{stretch ? "Margin" : "Offset"}</span>
-            <NumericInput label={stretch ? "Margin" : "Offset"} min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label={stretch ? "Margin" : "Offset"} min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
             <span className={styles.settingsLabel}>Gutter</span>
-            <NumericInput label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
+            <NumericInput scrubHandle="previous" label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
           </>
         )}
         <span className={styles.settingsLabel}>Color</span>

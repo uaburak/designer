@@ -226,9 +226,9 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
         {style === "DASH" && (
           <>
             <span className={styles.settingsLabel}>Dash</span>
-            <NumericInput label="Dash" min={0} value={d.dash} onChange={(v, info) => setDash(v, d.gap, info)} onCancel={() => ed.cancelEdit()} />
+            <NumericInput scrubHandle="previous" label="Dash" min={0} value={d.dash} onChange={(v, info) => setDash(v, d.gap, info)} onCancel={() => ed.cancelEdit()} />
             <span className={styles.settingsLabel}>Gap</span>
-            <NumericInput label="Gap" min={0} value={d.gap} onChange={(v, info) => setDash(d.dash, v, info)} onCancel={() => ed.cancelEdit()} />
+            <NumericInput scrubHandle="previous" label="Gap" min={0} value={d.gap} onChange={(v, info) => setDash(d.dash, v, info)} onCancel={() => ed.cancelEdit()} />
           </>
         )}
         <span className={styles.settingsLabel}>{open ? "Cap" : "Dash cap"}</span>
@@ -254,7 +254,7 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
         {join === "MITER" && (
           <>
             <span className={styles.settingsLabel}>Miter angle</span>
-            <NumericInput
+            <NumericInput scrubHandle="previous"
               label="Miter angle"
               unit="°"
               min={1}

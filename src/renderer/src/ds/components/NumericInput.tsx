@@ -11,6 +11,9 @@ import { STRINGS } from "../strings";
 import { FieldPrefix } from "./TextInput";
 import styles from "./Field.module.css";
 
+/** What a scrub reads of a pointer event (React's or the DOM's: a label elsewhere listens natively). */
+type ScrubPointer = { clientX: number; clientY: number; pointerId: number; shiftKey: boolean };
+
 export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "prefix"> {
   label: string;
   /** A letter (W, H, X, Y) or a glyph; dragging it scrubs */
@@ -46,6 +49,11 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   unit?: string;
   /** Scrub by dragging the prefix, or the field with ⌥ held (default true) */
   scrub?: boolean;
+  /**
+   * A label elsewhere that scrubs this field as its prefix would (Figma: a settings popover's "Blur", "Spread",
+   * "Gap" scrub): its id, or "previous" — the element just before the field (a settings grid's label cell)
+   */
+  scrubHandle?: string;
   placeholder?: string;
   suffix?: ReactNode;
   disabled?: boolean;
@@ -73,7 +81,7 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * px (⇧ ×10), faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4): `final:
  * false` each frame, one `final: true` on release, Esc cancels; a press without movement focuses the field.
  */
-export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, className, ...rest }: NumericInputProps) {
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -84,6 +92,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const typing = useRef(false);
   const exitBy = useRef<ExitReason>("blur");
   const input = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; start: number; last: number; moved: boolean; rate: number; id: number; el: HTMLElement } | null>(null);
   const [focused, setFocused] = useState(false);
   const returnFocus = useReturnFocus();
@@ -110,11 +119,12 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
     else if (r) onExpression?.(r.each, { final: true, source: "type" });
   };
 
-  const startScrub = (e: ReactPointerEvent<HTMLElement>) => {
-    capture(e.currentTarget, e.pointerId);
-    drag.current = { x: e.clientX, y: e.clientY, start: base, last: base, moved: false, rate: 1, id: e.pointerId, el: e.currentTarget };
+  const startScrub = (e: ReactPointerEvent<HTMLElement>) => startScrubOn(e.currentTarget, e);
+  const startScrubOn = (el: HTMLElement, e: ScrubPointer) => {
+    capture(el, e.pointerId);
+    drag.current = { x: e.clientX, y: e.clientY, start: base, last: base, moved: false, rate: 1, id: e.pointerId, el };
   };
-  const moveScrub = (e: ReactPointerEvent<HTMLElement>) => {
+  const moveScrub = (e: ScrubPointer) => {
     const d = drag.current;
     if (!d) return;
     const dx = e.clientX - d.x;
@@ -171,6 +181,33 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   });
 
   const canScrub = scrub && !disabled && !mixed;
+  // A label elsewhere scrubs too: native listeners on it, calling this render's handlers.
+  const handle = useRef({ startScrubOn, moveScrub, endScrub, canScrub });
+  handle.current = { startScrubOn, moveScrub, endScrub, canScrub };
+  useEffect(() => {
+    const el = scrubHandle === "previous" ? (root.current?.previousElementSibling as HTMLElement | null) : scrubHandle ? document.getElementById(scrubHandle) : null;
+    if (!el) return;
+    el.setAttribute("data-ds-scrub-handle", "");
+    const down = (e: PointerEvent) => {
+      if (!handle.current.canScrub || e.button !== 0) return;
+      e.preventDefault();
+      handle.current.startScrubOn(el, e);
+    };
+    const move = (e: PointerEvent) => handle.current.moveScrub(e);
+    const up = () => handle.current.endScrub(false);
+    const cancel = () => handle.current.endScrub(true);
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", cancel);
+    return () => {
+      el.removeAttribute("data-ds-scrub-handle");
+      el.removeEventListener("pointerdown", down);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", cancel);
+    };
+  }, [scrubHandle]);
   // ⌥ over the field: the scrub cursor, and a drag on the number scrubs instead of selecting text.
   useEffect(() => {
     if (!canScrub || focused) return;
@@ -195,6 +232,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
 
   return (
     <div
+      ref={root}
       data-ds="NumericInput"
       data-disabled={disabled || undefined}
       data-scrubbing={scrubbing || undefined}
