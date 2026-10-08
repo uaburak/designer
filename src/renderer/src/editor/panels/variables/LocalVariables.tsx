@@ -57,6 +57,9 @@ type Menu = { x: number; y: number; entries: MenuEntry[]; pick: (id: string) => 
 
 /** Variables copied with "Copy" (pasted into any collection, or another file's window: the editor process keeps them). */
 let copiedVariables: Guid[] = [];
+const copyVariables = (ids: Guid[]) => {
+  copiedVariables = ids;
+};
 
 export function LocalVariables() {
   const ed = useEditor();
@@ -148,7 +151,7 @@ export function LocalVariables() {
         y,
         entries: [{ id: "copy", label: "Copy", shortcut: "⌘C" }, "-", { id: "reset", label: many ? "Reset changes" : "Reset change", disabled: !changed.length }],
         pick: (id) => {
-          if (id === "copy") copiedVariables = ids;
+          if (id === "copy") copyVariables(ids);
           if (id === "reset") resetOverride(ed, collection.id, changed, null);
         },
       });
@@ -171,7 +174,7 @@ export function LocalVariables() {
       pick: (id) => {
         if (id === "edit" && many) setBulk({ ids, anchor: target });
         else if (id === "edit") setEdit({ id: v.id, anchor: target });
-        if (id === "copy") copiedVariables = ids;
+        if (id === "copy") copyVariables(ids);
         if (id === "paste") paste();
         if (id === "rename") setRenaming({ kind: "variable", id: v.id });
         if (id === "duplicate") setSelected(new Set(duplicateVariables(ed, ids)));
@@ -332,7 +335,7 @@ export function LocalVariables() {
       else close();
     } else if (mod && e.code === "KeyC" && selected.size) {
       e.preventDefault();
-      copiedVariables = chosen();
+      copyVariables(chosen());
     } else if (mod && e.code === "KeyV") {
       e.preventDefault();
       paste();
