@@ -143,16 +143,17 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // 400 %: live Figma), under the other overlays.
   if (overlay.pixelGrid && camera.zoom >= 3 && std::fabs(view.m01) < 1e-9 && std::fabs(view.m10) < 1e-9) {
     double alpha = camera.zoom >= 4 ? 1.0 : 0.5;
-    const Color& gc = style.pixelGrid;
+    const Color gc{style.pixelGrid.r, style.pixelGrid.g, style.pixelGrid.b, 1};
+    alpha *= style.pixelGrid.a;
     double px = 1 / dpr;
     Vec2 a = view.inverse().apply({screen_.x, screen_.y}), b = view.inverse().apply({screen_.right(), screen_.bottom()});
     for (double x = std::ceil(a.x); x <= b.x; x += 1) {
       double sx = std::round(view.apply({x, 0}).x * dpr) / dpr;
-      emit(makeShape(Mat2x3::translate(sx, screen_.y), {px, screen_.h}, ShapeKind::Rect, kSquare, gc, gc.a * alpha, gc, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(sx, screen_.y), {px, screen_.h}, ShapeKind::Rect, kSquare, gc, alpha, gc, 0, 0, 0), Pass::Shape);
     }
     for (double y = std::ceil(a.y); y <= b.y; y += 1) {
       double sy = std::round(view.apply({0, y}).y * dpr) / dpr;
-      emit(makeShape(Mat2x3::translate(screen_.x, sy), {screen_.w, px}, ShapeKind::Rect, kSquare, gc, gc.a * alpha, gc, 0, 0, 0), Pass::Shape);
+      emit(makeShape(Mat2x3::translate(screen_.x, sy), {screen_.w, px}, ShapeKind::Rect, kSquare, gc, alpha, gc, 0, 0, 0), Pass::Shape);
     }
   }
 

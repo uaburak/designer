@@ -679,7 +679,8 @@ Overlay Editor::overlay() const {
     o.measureGuides = measureGuides_;
     o.bands = bands_;
   }
-  if (gesture_ == Gesture::None || gesture_ == Gesture::LayoutBar) o.layoutBars = layoutBars_;
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::LayoutBar) && selection_.size() == 1 && selection_[0] == layoutBarsFrame_)
+    o.layoutBars = layoutBars_;
   if (o.handles) {
     Guid line;
     Vec2 a, b;

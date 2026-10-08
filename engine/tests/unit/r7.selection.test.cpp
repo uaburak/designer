@@ -692,6 +692,14 @@ TEST_CASE("r7 auto layout: padding and gap bars under the pointer; dragging one 
   drag(e, {705, 535}, {711, 535}, MOD_ALT);
   CHECK(props(e, AL).stack().stackPaddingLeft == 16);
   CHECK(props(e, AL).stack().stackPaddingRight == 16);
+  // Another selection (from the Layers panel, the pointer still): no bars, and a press there doesn't drag them.
+  move(e, 775, 535);
+  REQUIRE(!e.overlay().layoutBars.empty());
+  e.setSelection({X});
+  CHECK(e.overlay().layoutBars.empty());
+  double spacing = props(e, AL).stack().stackSpacing;
+  drag(e, {775, 535}, {785, 535});
+  CHECK(props(e, AL).stack().stackSpacing == spacing);
 }
 
 // ---- 14. Z: the zoom tool while held ------------------------------------------------------------------------------------

@@ -1435,6 +1435,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Rect> bands_;  // auto-layout padding / gap bands under the pointer (world)
   std::vector<Overlay::LayoutBar> layoutBars_;  // the selected auto-layout frame's padding and gap bars
   int layoutBarHover_ = -1;                     // the bar whose band is under the pointer
+  Guid layoutBarsFrame_ = kNoGuid;              // the frame they are the bars of
   int layoutBar_ = -1;                          // dragging: a side (0..3) or 4 + a gap
   StackFacet layoutBarFrom_;                    // the frame's auto layout when the drag started
 

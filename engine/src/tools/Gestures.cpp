@@ -572,6 +572,7 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
   bands_ = std::move(bands);
   layoutBars_ = std::move(bars);
   layoutBarHover_ = hovered;
+  layoutBarsFrame_ = layoutBars_.empty() ? kNoGuid : selection_[0];
 }
 
 void Editor::startLayoutBar(int band) {
@@ -792,7 +793,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   }
   // An auto-layout frame's padding or gap under the pointer (its bar shows): a drag changes it.
   if (!viewer_ && h == Handle::None && layoutBarHover_ >= 0 && static_cast<size_t>(layoutBarHover_) < layoutBars_.size() &&
-      !(mods & (MOD_PRIMARY | MOD_SHIFT))) {
+      selection_.size() == 1 && selection_[0] == layoutBarsFrame_ && !(mods & (MOD_PRIMARY | MOD_SHIFT))) {
     const Overlay::LayoutBar& bar = layoutBars_[static_cast<size_t>(layoutBarHover_)];
     gesture_ = Gesture::LayoutBar;
     startLayoutBar(bar.gap ? 4 + bar.index : bar.side);
