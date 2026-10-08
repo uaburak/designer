@@ -682,6 +682,18 @@ export class Engine {
   }
 
   /**
+   * A region of a page (world x, y, w, h) drawn into width × height device px with the page colour behind it and no
+   * overlays: what a .fig's own thumbnail shows (meta.json render_coordinates at thumbnail_size). `page` defaults to
+   * the current one. Null when the page is missing, the region empty or the target too large.
+   */
+  renderRegionPixels(options: { page?: Guid; x: number; y: number; w: number; h: number; width: number; height: number }): Pixels | null {
+    const [s, l] = options.page ? options.page.split(":").map(Number) : [0xffffffff, 0xffffffff];
+    const { x, y, w, h, width, height } = options;
+    const status = this.x.renderRegion(this.h, s >>> 0, l >>> 0, x, y, w, h, Math.max(1, Math.round(width)), Math.max(1, Math.round(height)), 0);
+    return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
+  }
+
+  /**
    * One node's thumbnail as pixels (its subtree alone, transparent around it), fitted into maxSize × maxSize device
    * px — the Assets grid. Null when it is missing, empty, or the GPU can't make the target.
    */

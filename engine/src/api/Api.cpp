@@ -1161,6 +1161,62 @@ ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags)
   return static_cast<int32_t>(e->editor.paste(clip, (flags & PASTE_IN_PLACE) != 0));
 }
 
+namespace {
+
+// Draws `page` through `camera` into an offscreen width × height target and sets the result: u32 width, u32 height
+// (little endian), then straight RGBA8, rows top to bottom. `only`: one node's subtree (transparent around it).
+int32_t renderOffscreen(Engine* e, Guid page, const Camera& camera, int width, int height, const Overlay& overlay, Guid only = kNoGuid) {
+  Editor& ed = e->editor;
+  Viewport viewport{static_cast<double>(width), static_cast<double>(height), 1, width, height};
+  gfx::TargetId target = e->device->createTarget(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (!target) return E_UNSUPPORTED;
+  e->renderer->render(ed.document(), page, camera, viewport, overlay, OverlayStyle::of(ed.theme()), target, only);
+  std::string out(8 + static_cast<size_t>(width) * height * 4, '\0');
+  for (int i = 0; i < 4; i++) {
+    out[static_cast<size_t>(i)] = static_cast<char>((static_cast<uint32_t>(width) >> (8 * i)) & 0xff);
+    out[static_cast<size_t>(4 + i)] = static_cast<char>((static_cast<uint32_t>(height) >> (8 * i)) & 0xff);
+  }
+  auto* px = reinterpret_cast<uint8_t*>(out.data() + 8);
+  bool read = e->device->readPixels(target, {0, 0, width, height}, {px, out.size() - 8});
+  e->device->destroyTarget(target);
+  if (!read) return E_UNSUPPORTED;
+  // Premultiplied → straight (the page colour is opaque, so this only matters at transparent edges).
+  for (size_t i = 0; i + 3 < out.size() - 8; i += 4) {
+    uint8_t a = px[i + 3];
+    if (a == 0 || a == 255) continue;
+    for (int c = 0; c < 3; c++) px[i + c] = static_cast<uint8_t>(std::min(255, (px[i + c] * 255 + a / 2) / a));
+  }
+  return setResult(std::move(out));
+}
+
+}  // namespace
+
+// A region of a page, world (x, y, w, h), drawn into width × height device px, the page colour behind it, no
+// overlays or frame titles: what Figma's file thumbnail shows (meta.json's render_coordinates drawn at its
+// thumbnail_size), for scripts/fig-fidelity.mjs. One zoom, width / w (the two aspects differ only by rounding).
+// Same result layout as engine_render_thumbnail. E_NOT_FOUND: no such page or an empty region; E_INVALID: larger
+// than the device's largest texture.
+ENG_EXPORT int32_t engine_render_region(Handle h, uint32_t pageSessionID, uint32_t pageLocalID, double x, double y, double w, double hgt, uint32_t width, uint32_t height, uint32_t /*flags*/) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor& ed = e->editor;
+  Guid page{pageSessionID, pageLocalID};
+  if (page == kNoGuid) page = ed.page();
+  const Node* pn = ed.document().get(page);
+  if (!pn || pn->props.type != NodeType::CANVAS || !(w > 0) || !(hgt > 0) || width == 0 || height == 0) return E_NOT_FOUND;
+  uint32_t limit = static_cast<uint32_t>(e->device->caps().maxTextureSize);
+  if (width > limit || height > limit) return E_INVALID;
+  ed.derivePage(page);  // its instances' sublayers draw
+  double zoom = width / w;
+  Camera camera{-x * zoom, -y * zoom, zoom};
+  Overlay none;
+  none.handles = false;
+  none.sizeBadge = false;
+  none.frameTitles = false;
+  return renderOffscreen(e, page, camera, static_cast<int>(width), static_cast<int>(height), none);
+}
+
 // A thumbnail of a page: its content (the union of its visible layers' render
 // bounds) fitted into maxSize × maxSize device px — the content's own aspect, not
 // the canvas's — drawn without overlays into an offscreen target and read back.

@@ -165,6 +165,8 @@ export class EngineExports {
     this.withBytes([message], (p) => this.fn("paste")(h, p[0], p[1], flags));
   renderThumbnail = (h: number, pageSessionID: number, pageLocalID: number, maxSize: number, flags: number): number =>
     this.fn("render_thumbnail")(h, pageSessionID, pageLocalID, maxSize, flags);
+  renderRegion = (h: number, pageSessionID: number, pageLocalID: number, x: number, y: number, w: number, hgt: number, width: number, height: number, flags: number): number =>
+    this.fn("render_region")(h, pageSessionID, pageLocalID, x, y, w, hgt, width, height, flags);
   renderNodeThumbnail = (h: number, ref: Uint8Array, maxSize: number, flags: number): number =>
     this.withBytes([ref], (p) => this.fn("render_node_thumbnail")(h, p[0], p[1], maxSize, flags));
 
@@ -266,7 +268,7 @@ export const USED_EXPORTS = [
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
-  "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_node_thumbnail", "ref_id", "component_info",
+  "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",
   "styles", "style_usage",
   "set_file_key", "ensure_asset_keys", "local_assets", "encode_assets", "mark_published", "import_library_assets",
