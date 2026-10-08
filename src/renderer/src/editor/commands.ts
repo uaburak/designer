@@ -197,6 +197,39 @@ function goToPage(ed: EditorController, step: 1 | -1) {
   if (next) ed.engine.setCurrentPage(next.guid);
 }
 
+/** Edit ▸ Select all with ▸ …: every layer on the page with the selection's property (SELECT_MATCHING's modes). */
+const selectAllWith = (id: string, label: string, mode: string): EditorCommand => ({
+  id,
+  label,
+  run: (ed) => void runEngineCommand(ed.engine, "SELECT_MATCHING", { mode }),
+  enabled: (ed) => engineEnabled(ed, "SELECT_MATCHING"),
+});
+
+/** View › Pixel grid's state (on unless turned off). */
+const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
+
+/** View › Pixel grid / Outlines: the UI's state and the engine's (engine_set_view_options). */
+export function setViewOption(ed: EditorController, patch: { pixelGrid?: boolean; outlines?: boolean }): void {
+  ed.ui.set(patch);
+  ed.engine.setViewOptions({ pixelGrid: pixelGridOn(ed), outlines: !!ed.ui.get().outlines });
+  if (patch.outlines !== undefined) showToast({ message: patch.outlines ? "Outlines visible" : "Outlines hidden" });
+}
+
+/** Object ▸ Remove fill (⌥/) / Remove stroke (⇧/): the selected layers' paints of that kind gone. */
+function removePaints(ed: EditorController, field: "fillPaints" | "strokePaints", label: string): void {
+  const refs = ed.selection;
+  if (refs.length) ed.setProps(refs, fields({ [field]: [] }), label);
+}
+
+/** Object ▸ Swap fill and stroke (⇧X): each selected layer's fills become its strokes and its strokes its fills. */
+function swapFillAndStroke(ed: EditorController): void {
+  const nodes = ed.selectedNodes();
+  if (!nodes.length) return;
+  ed.batch("Swap fill and stroke", () => {
+    for (const n of nodes) ed.setProps([n.guid], fields({ fillPaints: n.strokePaints ?? [], strokePaints: n.fillPaints ?? [] }), "Swap fill and stroke");
+  });
+}
+
 export const COMMANDS: EditorCommand[] = [
   // ---- Tools ----
   tool("tool.move", "Move", "MOVE", [k("KeyV")]),
@@ -242,14 +275,15 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.cut", label: "Cut", keys: [k("KeyX", { mod: true })], native: true, run: (ed) => copyFromMenu(ed, true), enabled: hasSelection },
   { id: "edit.paste", label: "Paste", keys: [k("KeyV", { mod: true })], native: true, run: (ed) => pasteFromMenu(ed, null) },
   {
+    // ⇧⌘V: where it was copied from, just above the selection (not into it).
     id: "edit.paste-over-selection",
     label: "Paste over selection",
     keys: [k("KeyV", { mod: true, shift: true })],
     native: true,
     prepare: (ed) => {
-      ed.pendingPaste = { mode: "inPlace" };
+      ed.pendingPaste = { mode: "over" };
     },
-    run: (ed) => pasteFromMenu(ed, { mode: "inPlace" }),
+    run: (ed) => pasteFromMenu(ed, { mode: "over" }),
   },
   {
     id: "edit.paste-here",
@@ -262,7 +296,8 @@ export const COMMANDS: EditorCommand[] = [
       pasteFromMenu(ed, { mode: "point", x: (at.x - cam.x) / cam.zoom, y: (at.y - cam.y) / cam.zoom });
     },
   },
-  later("edit.paste-to-replace", "Paste to replace", [k("KeyR", { mod: true, shift: true })]),
+  // ⇧⌘R: a copy in each selected layer's place (its parent, order, x / y, constraints); the layer goes.
+  { id: "edit.paste-to-replace", label: "Paste to replace", keys: [k("KeyR", { mod: true, shift: true })], run: (ed) => pasteFromMenu(ed, { mode: "replace" }), enabled: hasSelection },
   { id: "edit.copy-as-png", label: "Copy as PNG", keys: [k("KeyC", { mod: true, shift: true })], run: (ed) => void copyAsPng(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
   { id: "edit.copy-as-svg", label: "Copy as SVG", run: (ed) => void copyAsSvg(ed), enabled: (ed) => hasSelection(ed) && canExport(ed) },
   { id: "edit.copy-as-code", label: "Copy as code", run: (ed) => void copyAsCode(ed), enabled: hasSelection },
@@ -271,23 +306,46 @@ export const COMMANDS: EditorCommand[] = [
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
   later("edit.copy-properties", "Copy properties", [k("KeyC", { mod: true, alt: true })]),
   later("edit.paste-properties", "Paste properties", [k("KeyV", { mod: true, alt: true })]),
-  later("edit.find", "Find and replace…", [k("KeyF", { mod: true })]),
+  later("edit.find", "Find", [k("KeyF", { mod: true })]),
+  later("edit.find-next", "Find next", [k("KeyF", { mod: true, shift: true })]),
+  later("edit.find-previous", "Find previous", [k("KeyD", { mod: true, shift: true })]),
+  later("edit.find-and-replace", "Find and replace…"),
+  later("edit.set-default-properties", "Set default properties"),
+  later("edit.pick-color", "Pick color", [k("KeyC", { ctrl: true })]),
   engine("edit.select-all", "Select all", "SELECT_ALL", [k("KeyA", { mod: true })]),
-  later("edit.select-matching", "Select matching layers", [k("KeyA", { mod: true, alt: true })]),
-  engine("edit.select-none", "Select none", "SELECT_NONE"),
+  engine("edit.select-matching", "Select matching layers", "SELECT_MATCHING", [k("KeyA", { mod: true, alt: true })]),
+  // Esc is the engine's (it clears the selection, live Figma); the menu shows it.
+  engine("edit.select-none", "Select none", "SELECT_NONE", [k("Escape")]),
   engine("edit.select-inverse", "Select inverse", "SELECT_INVERSE", [k("KeyA", { mod: true, shift: true })]),
+  // Edit ▸ Select all with ▸ (SELECT_MATCHING's modes).
+  selectAllWith("edit.select-same-fill", "Same fill", "FILL"),
+  selectAllWith("edit.select-same-stroke", "Same stroke", "STROKE"),
+  selectAllWith("edit.select-same-effect", "Same effect", "EFFECT"),
+  selectAllWith("edit.select-same-text", "Same text properties", "TEXT"),
+  selectAllWith("edit.select-same-font", "Same font", "FONT"),
+  selectAllWith("edit.select-same-instance", "Same instance", "INSTANCE"),
 
   // ---- View ----
-  ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden }))),
-  ui("view.minimize-ui", "Minimize UI", [k("Backslash", { shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
+  ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
+  ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
   ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => ed.ui.set((s) => ({ rulers: !s.rulers })), (ed) => ed.ui.get().rulers),
   ui("view.property-labels", "Property labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
   // View › Annotations (help.figma.com 20774752502935; ⇧Y per a user report, unverified).
   ui("view.annotations", "Annotations", [k("KeyY", { shift: true })], (ed) => toggleAnnotations(ed), (ed) => annotationsShown(ed)),
-  later("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })]),
+  // The live View menu: Pixel grid ⇧' (drawn from 300 % zoom), Layout guides ⇧G, Outlines ▸ (⇧⌘O), Pixel preview ⇧⌘P.
+  ui("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })], (ed) => setViewOption(ed, { pixelGrid: !pixelGridOn(ed) }), (ed) => pixelGridOn(ed)),
   later("view.snap-pixel-grid", "Snap to pixel grid", [k("Quote", { mod: true, shift: true })]),
-  later("view.layout-guides", "Layout guides", [k("KeyG", { ctrl: true })]),
-  later("view.outlines", "Outlines", [k("KeyY", { mod: true })]),
+  later("view.layout-guides", "Layout guides", [k("KeyG", { shift: true })]),
+  later("view.show-slices", "Show slices"),
+  later("view.comments", "Comments", [k("KeyC", { shift: true })]),
+  ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),
+  later("view.pixel-preview", "Pixel preview", [k("KeyP", { mod: true, shift: true }), k("KeyP", { ctrl: true })]),
+  later("view.mask-outlines", "Mask outlines"),
+  later("view.frame-outlines", "Frame outlines"),
+  later("view.memory-usage", "Memory usage"),
+  later("view.minimize-left-navigation", "Minimize left navigation bar"),
+  later("view.multiplayer-cursors", "Multiplayer cursors", [k("Backslash", { mod: true, alt: true })]),
+  later("view.switch-to-draw", "Switch to Draw"),
   engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
   engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
   engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { shift: true }), k("Digit0", { mod: true })]),
@@ -297,6 +355,11 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.zoom-200", "Zoom to 200%", undefined, (ed) => zoomTo(ed, 2)),
   { id: "view.previous-page", label: "Previous page", keys: [k("PageUp")], run: (ed) => goToPage(ed, -1) },
   { id: "view.next-page", label: "Next page", keys: [k("PageDown")], run: (ed) => goToPage(ed, 1) },
+  // N / ⇧N: the view to the next / previous frame; the selection stays (live Figma).
+  engine("view.zoom-previous-frame", "Zoom to previous frame", "ZOOM_TO_PREVIOUS_FRAME", [k("KeyN", { shift: true })]),
+  engine("view.zoom-next-frame", "Zoom to next frame", "ZOOM_TO_NEXT_FRAME", [k("KeyN")]),
+  later("view.find-previous-frame", "Find previous frame", [k("Home")]),
+  later("view.find-next-frame", "Find next frame", [k("End")]),
 
   // ---- Panels ----
   ui("view.layers", "Layers", [k("Digit1", { alt: true })], (ed) => ed.ui.set({ railTab: "file", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "file"),
@@ -305,8 +368,29 @@ export const COMMANDS: EditorCommand[] = [
 
   // ---- Object ----
   engine("object.group", "Group selection", "GROUP", [k("KeyG", { mod: true })]),
-  engine("object.ungroup", "Ungroup selection", "UNGROUP", [k("KeyG", { mod: true, shift: true })]),
+  // ⌘⌫ (live Figma): a group ungrouped; a frame or section removed, its layers kept where they are.
+  {
+    id: "object.ungroup",
+    label: "Ungroup selection",
+    keys: [k("Backspace", { mod: true }), k("KeyG", { mod: true, shift: true })],
+    run: (ed) => {
+      if (engineEnabled(ed, "UNGROUP")) ed.engine.command("UNGROUP");
+      else ed.engine.command("REMOVE_KEEP_CONTENTS");
+    },
+    enabled: (ed) => engineEnabled(ed, "UNGROUP") || engineEnabled(ed, "REMOVE_KEEP_CONTENTS"),
+  },
   engine("object.frame-selection", "Frame selection", "FRAME_SELECTION", [k("KeyG", { mod: true, alt: true })]),
+  engine("object.wrap-in-section", "Wrap in new section", "WRAP_IN_SECTION", [k("KeyS", { mod: true })]),
+  later("object.convert-to-section", "Convert to section"),
+  later("object.convert-to-frame", "Convert to frame"),
+  later("object.set-as-thumbnail", "Set as thumbnail"),
+  later("object.restore-default-thumbnail", "Restore default thumbnail"),
+  later("object.more-layout-options", "More layout options"),
+  later("object.hide-other-layers", "Hide other layers"),
+  later("object.remove-interactions", "Remove interactions"),
+  { id: "object.remove-fill", label: "Remove fill", keys: [k("Slash", { alt: true })], run: (ed) => removePaints(ed, "fillPaints", "Remove fill"), enabled: hasSelection },
+  { id: "object.remove-stroke", label: "Remove stroke", keys: [k("Slash", { shift: true })], run: (ed) => removePaints(ed, "strokePaints", "Remove stroke"), enabled: hasSelection },
+  { id: "object.swap-fill-stroke", label: "Swap fill and stroke", keys: [k("KeyX", { shift: true })], run: (ed) => swapFillAndStroke(ed), enabled: hasSelection },
   engine("object.add-auto-layout", "Add auto layout", "ADD_AUTO_LAYOUT", [k("KeyA", { shift: true })]),
   engine("object.remove-auto-layout", "Remove auto layout", "REMOVE_AUTO_LAYOUT", [k("KeyA", { shift: true, alt: true })]),
   // Components (E6: the structural ones are the engine's; R4-components.md for the wording and keys)
@@ -357,15 +441,16 @@ export const COMMANDS: EditorCommand[] = [
   pending("object.use-as-mask", "Use as mask", "USE_AS_MASK", [k("KeyM", { mod: true, ctrl: true })], {
     checked: (ed) => ed.selectedNodes().some((n) => (n as { mask?: boolean }).mask === true),
   }),
-  engine("object.bring-to-front", "Bring to front", "BRING_TO_FRONT", [k("BracketRight", { mod: true, alt: true })]),
+  // Live Figma: ] / [ to the front / back (⌥⌘] / ⌥⌘[ too), ⌘] / ⌘[ one step.
+  engine("object.bring-to-front", "Bring to front", "BRING_TO_FRONT", [k("BracketRight"), k("BracketRight", { mod: true, alt: true })]),
   engine("object.bring-forward", "Bring forward", "BRING_FORWARD", [k("BracketRight", { mod: true })]),
   engine("object.send-backward", "Send backward", "SEND_BACKWARD", [k("BracketLeft", { mod: true })]),
-  engine("object.send-to-back", "Send to back", "SEND_TO_BACK", [k("BracketLeft", { mod: true, alt: true })]),
+  engine("object.send-to-back", "Send to back", "SEND_TO_BACK", [k("BracketLeft"), k("BracketLeft", { mod: true, alt: true })]),
   engine("object.flip-horizontal", "Flip horizontal", "FLIP_HORIZONTAL", [k("KeyH", { shift: true })]),
   engine("object.flip-vertical", "Flip vertical", "FLIP_VERTICAL", [k("KeyV", { shift: true })]),
-  { id: "object.rotate-180", label: "Rotate 180°", run: (ed) => rotateSelection(ed, 180), enabled: hasSelection },
-  { id: "object.rotate-90-left", label: "Rotate 90° left", run: (ed) => rotateSelection(ed, 90), enabled: hasSelection },
-  { id: "object.rotate-90-right", label: "Rotate 90° right", run: (ed) => rotateSelection(ed, -90), enabled: hasSelection },
+  { id: "object.rotate-180", label: "Rotate 180˚", run: (ed) => rotateSelection(ed, 180), enabled: hasSelection },
+  { id: "object.rotate-90-left", label: "Rotate 90˚ left", run: (ed) => rotateSelection(ed, 90), enabled: hasSelection },
+  { id: "object.rotate-90-right", label: "Rotate 90˚ right", run: (ed) => rotateSelection(ed, -90), enabled: hasSelection },
   engine("object.toggle-visible", "Show/Hide selection", "TOGGLE_VISIBLE", [k("KeyH", { mod: true, shift: true })]),
   engine("object.toggle-lock", "Lock/Unlock selection", "TOGGLE_LOCK", [k("KeyL", { mod: true, shift: true })]),
   {
@@ -388,10 +473,19 @@ export const COMMANDS: EditorCommand[] = [
   engine("arrange.align-bottom", "Align bottom", "ALIGN_BOTTOM", [k("KeyS", { alt: true })]),
   engine("arrange.distribute-horizontal", "Distribute horizontal spacing", "DISTRIBUTE_HORIZONTAL", [k("KeyH", { alt: true, ctrl: true })]),
   engine("arrange.distribute-vertical", "Distribute vertical spacing", "DISTRIBUTE_VERTICAL", [k("KeyV", { alt: true, ctrl: true })]),
-  later("arrange.tidy-up", "Tidy up", [k("KeyT", { alt: true, ctrl: true })]),
+  engine("arrange.tidy-up", "Tidy up", "TIDY_UP", [k("KeyT", { alt: true, ctrl: true })]),
+  later("arrange.round-to-pixel", "Round to pixel"),
+  later("arrange.pack-horizontal", "Pack horizontal"),
+  later("arrange.pack-vertical", "Pack vertical"),
+  later("arrange.distribute-left", "Distribute left"),
+  later("arrange.distribute-horizontal-centers", "Distribute horizontal centers"),
+  later("arrange.distribute-right", "Distribute right"),
+  later("arrange.distribute-top", "Distribute top"),
+  later("arrange.distribute-vertical-centers", "Distribute vertical centers"),
+  later("arrange.distribute-bottom", "Distribute bottom"),
 
   // ---- Vector, booleans (E4) ----
-  pending("vector.flatten", "Flatten", "FLATTEN", [k("KeyE", { mod: true })]),
+  pending("vector.flatten", "Flatten", "FLATTEN", [k("KeyF", { alt: true, shift: true }), k("KeyE", { mod: true })]),
   pending("vector.outline-stroke", "Outline stroke", "OUTLINE_STROKE", [k("KeyO", { mod: true, alt: true })]),
   pending("vector.union", "Union selection", "BOOLEAN_UNION", [k("KeyU", { alt: true, shift: true })]),
   pending("vector.subtract", "Subtract selection", "BOOLEAN_SUBTRACT", [k("KeyS", { alt: true, shift: true })]),
@@ -485,6 +579,10 @@ export const COMMANDS: EditorCommand[] = [
   theme("theme.light", "Light", "light"),
   theme("theme.dark", "Dark", "dark"),
   theme("theme.system", "Use system setting", "system"),
+  later("canvas.send-to-make", "Send to Figma Make"),
+  later("canvas.find-similar", "Find similar designs"),
+  later("canvas.add-motion", "Add motion"),
+  later("canvas.cursor-chat", "Cursor chat", [k("Slash")]),
   ui("help.shortcuts", "Keyboard shortcuts", [k("Slash", { ctrl: true, shift: true })], (ed) => ed.ui.set((s) => ({ shortcutsOpen: !s.shortcutsOpen }))),
   // Prototyping (R8 §9): Present opens the presentation view in a new tab; "in this tab" over the editor.
   ui("view.present", "Present", [k("Enter", { mod: true, alt: true })], (ed) => present(ed)),

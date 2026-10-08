@@ -54,7 +54,10 @@ export function CanvasMenu() {
   const ed = useEditor();
   const at = useUI((s) => s.contextMenu);
   if (!at) return null;
-  const layers = (at.layers ?? []).map((id) => ({ id, name: ed.store.readNode(id)?.name ?? "" }));
+  const layers = (at.layers ?? []).map((id) => {
+    const n = ed.store.readNode(id);
+    return { id, name: n?.name ?? "", locked: !!n?.locked };
+  });
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y }}
