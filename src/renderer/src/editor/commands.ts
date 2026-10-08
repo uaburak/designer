@@ -13,6 +13,7 @@ import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
 import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportFramesToPdf, hasTextSelected } from "./exporting";
 import { present, togglePreview } from "./present";
+import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 
 export interface KeyCombo {
@@ -420,6 +421,34 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.present", "Present", [k("Enter", { mod: true, alt: true })], (ed) => present(ed)),
   ui("view.present-here", "Present in this tab", undefined, (ed) => present(ed, { here: true })),
   ui("view.preview", "Preview", [k("Space", { shift: true })], (ed) => togglePreview(ed)),
+  // Dev Mode statuses (devStatus.ts).
+  {
+    id: "object.mark-ready-for-dev",
+    label: "Mark as ready for dev",
+    run: (ed) => setDevStatus(ed, "BUILD"),
+    enabled: (ed) => {
+      const t = statusTargets(ed);
+      return t.length > 0 && statusOfTargets(ed, t) !== "BUILD";
+    },
+  },
+  {
+    id: "object.mark-completed",
+    label: "Mark as completed",
+    run: (ed) => setDevStatus(ed, "COMPLETED"),
+    enabled: (ed) => {
+      const t = statusTargets(ed);
+      return t.length > 0 && statusOfTargets(ed, t) === "BUILD";
+    },
+  },
+  {
+    id: "object.remove-dev-status",
+    label: "Remove status",
+    run: (ed) => setDevStatus(ed, null),
+    enabled: (ed) => {
+      const t = statusTargets(ed);
+      return t.length > 0 && statusOfTargets(ed, t) !== null;
+    },
+  },
   ui("view.prototype-tab", "Show prototype panel", undefined, (ed) =>
     ed.ui.set((s) => ({ rightTab: s.rightTab === "prototype" ? "design" : "prototype", uiHidden: false }))
   ),

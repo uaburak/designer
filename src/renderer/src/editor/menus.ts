@@ -10,6 +10,7 @@ import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, isEnabled, runEditorCommand, shortcutOf } from "./commands";
 import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
 import { isComponent, isComponentSet, isInstance } from "./model/components";
+import { statusOfTargets, statusTargets } from "./devStatus";
 
 /** A command as a menu item: its label and first shortcut, disabled when it can't run now, checked when it toggles. */
 export function commandItem(ed: EditorController, id: string, label?: string): MenuItem {
@@ -246,6 +247,12 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     ],
     "canvas."
   );
+  // Dev Mode statuses on designs (frames, sections, components): "Mark as ready for dev", then the status menu's items.
+  const targets = statusTargets(ed);
+  if (targets.length) {
+    const status = statusOfTargets(ed, targets);
+    entries.push("-", ...build(ed, status === "BUILD" ? ["object.mark-completed", "object.remove-dev-status"] : status ? ["object.mark-ready-for-dev", "object.remove-dev-status"] : ["object.mark-ready-for-dev"], "canvas."));
+  }
   if (layers.length > 1) {
     entries.push("-", { id: "submenu:select-layer", label: "Select layer", items: layers.map((l) => ({ id: `select-layer:${l.id}`, label: l.name || l.id, checked: ed.selection.includes(l.id) })) });
   }
