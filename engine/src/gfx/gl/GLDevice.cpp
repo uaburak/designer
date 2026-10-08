@@ -182,6 +182,7 @@ class WebGL2Device final : public Device {
     }
     glBindFramebuffer(GL_FRAMEBUFFER, fb);
     bound_ = fb;
+    boundTarget_ = pass.target;
     height_ = pass.viewport.h;
     glViewport(pass.viewport.x, pass.viewport.y, pass.viewport.w, pass.viewport.h);
     glDisable(GL_SCISSOR_TEST);
@@ -212,6 +213,14 @@ class WebGL2Device final : public Device {
 
   void draw(const DrawCall& call) override {
     if (!call.instanceCount || call.pipeline == 0) return;
+    // A feedback loop (undefined in WebGL, an invalid frame on WebGPU): the same check on both backends.
+    if (boundTarget_ && boundTarget_ < targets_.size()) {
+      TextureId attachment = targets_[boundTarget_].texture;
+      if (int slot = samplesAttachment(call, attachment); slot >= 0) {
+        reportSampledAttachment("WebGL2", boundTarget_, attachment, slot);
+        return;
+      }
+    }
     const PipelineDesc& p = pipelines_.at(call.pipeline);
     int index = static_cast<int>(p.shader);
     const Program& prog = programs_[index];
@@ -322,6 +331,7 @@ class WebGL2Device final : public Device {
     glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     bound_ = 0;
+    boundTarget_ = 0;
     forget();
   }
 
@@ -558,6 +568,7 @@ class WebGL2Device final : public Device {
   std::vector<Target> targets_{Target{}};          // index = TargetId; 0 = the canvas
   int height_ = 0;
   GLuint bound_ = 0;  // the framebuffer of the pass going on (0: none, or the canvas)
+  TargetId boundTarget_ = 0;  // its target (0: none, or the canvas)
 };
 
 }  // namespace

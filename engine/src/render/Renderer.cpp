@@ -1000,12 +1000,12 @@ Renderer::PoolTarget* Renderer::acquire(int w, int h) {
   // frames — during a zoom every frame's are new — must not pile up on the GPU).
   uint64_t need = targetBytes(bw, bh);
   while (poolBytes() + need > kPoolBudgetBytes) {
-    size_t victim = pool_.size();
-    for (size_t i = 0; i < pool_.size(); i++)
-      if (!pool_[i].busy && (victim == pool_.size() || pool_[i].lastUsed < pool_[victim].lastUsed)) victim = i;
-    if (victim == pool_.size()) break;  // everything is in use this frame
-    device_.destroyTarget(pool_[victim].target);
-    pool_.erase(pool_.begin() + static_cast<long>(victim));
+    auto victim = pool_.end();
+    for (auto it = pool_.begin(); it != pool_.end(); ++it)
+      if (!it->busy && (victim == pool_.end() || it->lastUsed < victim->lastUsed)) victim = it;
+    if (victim == pool_.end()) break;  // everything is in use this frame
+    device_.destroyTarget(victim->target);
+    pool_.erase(victim);  // the other targets stay where they are: callers hold pointers to them
   }
   gfx::TargetId id = device_.createTarget(static_cast<uint32_t>(bw), static_cast<uint32_t>(bh));
   if (!id) return nullptr;
@@ -1018,6 +1018,17 @@ Renderer::PoolTarget* Renderer::acquire(int w, int h) {
   t.lastUsed = frame_;
   pool_.push_back(t);
   return &pool_.back();
+}
+
+void Renderer::dropIdleTargets() {
+  for (auto it = pool_.begin(); it != pool_.end();) {
+    if (frame_ - it->lastUsed > 30) {
+      device_.destroyTarget(it->target);
+      it = pool_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 uint64_t Renderer::poolBytes() const {
@@ -1489,14 +1500,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   }
   device_.submit();
   // Pooled targets unused for a while are freed.
-  for (size_t i = 0; i < pool_.size();) {
-    if (frame_ - pool_[i].lastUsed > 30) {
-      device_.destroyTarget(pool_[i].target);
-      pool_.erase(pool_.begin() + static_cast<long>(i));
-    } else {
-      i++;
-    }
-  }
+  dropIdleTargets();
   images_.endFrame();
   RenderStats s = stats_;
   return s;

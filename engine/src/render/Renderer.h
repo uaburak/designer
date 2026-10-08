@@ -19,7 +19,7 @@
 //   paints it into the node's shape.
 #pragma once
 
-#include <deque>
+#include <list>
 #include <functional>
 #include <memory>
 #include <string>
@@ -408,6 +408,7 @@ class Renderer {
   PoolTarget* acquire(int w, int h);
   void release(gfx::TargetId target);
   uint64_t poolBytes() const;
+  void dropIdleTargets();  // after a frame: pooled targets unused for 30 frames
   void rows(float out[2][4], double sx, double sy, int ox, int oy, int w, int h) const;
 
   gfx::Device& device_;
@@ -464,7 +465,9 @@ class Renderer {
   int rampRowsUploaded_ = 0, rampCapacity_ = 0;
   gfx::TextureId ramp_ = 0;
   gfx::TextureId white_ = 0;  // 1×1, bound to unused texture units
-  std::deque<PoolTarget> pool_;  // stable addresses: acquire() hands out pointers
+  // A list: acquire() hands out pointers that stay good while it evicts other targets in the middle of a frame (a
+  // deque's erase moves the elements after the one erased: a blur then drew into the target it sampled).
+  std::list<PoolTarget> pool_;
   std::vector<gfx::TextureId> scratch_;  // backdrop copies of this frame
   uint64_t frame_ = 0;
 
