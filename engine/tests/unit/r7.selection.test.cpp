@@ -129,3 +129,37 @@ TEST_CASE("r7 marquee: ⌘ selects the nested layers the rect touches, at any de
   drag(e, {390, 390}, {115, 115}, MOD_PRIMARY);
   CHECK(e.selection() == std::vector<Guid>{R1, R2, deep});
 }
+
+// ---- 3. Line endpoint handles -------------------------------------------------------------------------------------
+
+TEST_CASE("r7 lines: two endpoint handles; dragging one turns the line about the other; ⇧ 45°") {
+  const Guid L{3, 1};
+  NodeChange line = make(L, NodeType::LINE, kPage, "$", {500, 300, 100, 0}, "Line 1");
+  Editor e = makeEditor({line});
+  e.setSelection({L});
+  Overlay o = e.overlay();
+  REQUIRE(o.lineEnds.size() == 2);
+  CHECK(o.lineEnds[1] == Vec2{600, 300});
+  // The end (screen 700,400) dragged down 100: the line now runs from (500,300) to (600,400).
+  drag(e, {700, 400}, {700, 500});
+  const NodeProps& p = props(e, L);
+  CHECK(p.size.x == doctest::Approx(std::sqrt(2.0) * 100));
+  CHECK(p.size.y == 0);
+  CHECK(p.transform.m02 == 500);
+  CHECK(p.transform.m12 == 300);
+  Vec2 end = p.transform.apply({p.size.x, 0});
+  CHECK(end.x == doctest::Approx(600));
+  CHECK(end.y == doctest::Approx(400));
+  CHECK(e.undoStack().undoCount() == 1);
+  e.command(CommandId::UNDO);
+  // The start dragged with ⇧: 45° steps about the end (600,300).
+  drag(e, {600, 400}, {640, 390}, MOD_SHIFT);
+  Vec2 start = props(e, L).transform.apply({0, 0});
+  Vec2 stillEnd = props(e, L).transform.apply({props(e, L).size.x, 0});
+  CHECK(stillEnd.x == doctest::Approx(600));
+  CHECK(stillEnd.y == doctest::Approx(300));
+  CHECK(start.y == doctest::Approx(300).epsilon(0.01));  // snapped to the horizontal
+  // No corner handles, no rotation zone around a line.
+  move(e, 760, 470);
+  CHECK(e.cursor() == CursorKind::DEFAULT);
+}

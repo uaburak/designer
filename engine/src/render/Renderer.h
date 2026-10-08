@@ -198,6 +198,8 @@ struct Overlay {
   bool hasGridDrop = false;
   GuideLine gridDrop;
   std::vector<Vec2> gridSpanHandles;
+  // A selected line's two endpoint handles (world), drawn instead of the box's corner handles.
+  std::vector<Vec2> lineEnds;
   // Top-level frames' names above them.
   bool frameTitles = true;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached

@@ -1029,8 +1029,14 @@ class Editor : private LayoutHost, public TextLayouts {
   void fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const;
 
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
-  enum class Handle : uint8_t { None, Resize, Rotate };
+  // LineEnd: a line's start (hx 0) or end (hx 1) handle.
+  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd };
   Handle handleAt(Vec2 screen, int& hx, int& hy) const;
+  // A single selected line — a LINE, or a vector with no width or no height — and its ends (world): Figma gives it
+  // two endpoint handles instead of a box.
+  bool selectedLine(Guid& id, Vec2& a, Vec2& b) const;
+  void startLineEnd(int end);
+  void dragLineEnd(Vec2 world, uint32_t mods);
   Guid titleAt(Vec2 screen) const;
   // An overlay label's width in CSS px (Inter Regular at the title size; `section`: Medium at the pill's size).
   double labelWidth(const std::string& text, bool section) const;
@@ -1350,6 +1356,7 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid snapParent_ = kNoGuid;    // whose children the snapper holds
   SelectionBox box_;
   int handleX_ = 0, handleY_ = 0;
+  int lineEnd_ = -1;             // dragging a line's start (0) or end (1) handle; -1: a box resize
   NodeType drawType_ = NodeType::NONE;
   bool drawArrow_ = false;
   Guid drawParent_ = kNoGuid;

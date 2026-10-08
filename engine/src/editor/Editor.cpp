@@ -679,6 +679,11 @@ Overlay Editor::overlay() const {
     o.measureGuides = measureGuides_;
     o.bands = bands_;
   }
+  if (o.handles) {
+    Guid line;
+    Vec2 a, b;
+    if (selectedLine(line, a, b)) o.lineEnds = {a, b};
+  }
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
   if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid) && selection_.size() == 1 && text_.node == kNoGuid) {

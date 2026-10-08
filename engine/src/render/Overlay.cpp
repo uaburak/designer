@@ -300,16 +300,22 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     emit(makeShape(sb.m, sb.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
 
     bool roomy = sb.size.x >= style.handlesMinBox && sb.size.y >= style.handlesMinBox;
-    if (overlay.handles && roomy) {
-      const double hs = style.handleSize;
+    const double hs = style.handleSize;
+    if (overlay.handles && roomy && overlay.lineEnds.empty()) {
       Vec2 corners[4] = {{0, 0}, {sb.size.x, 0}, {sb.size.x, sb.size.y}, {0, sb.size.y}};
       for (auto& c : corners) {
         Mat2x3 hm = sb.m;
         Vec2 o = sb.m.apply(c) - sb.m.applyLinear({hs / 2, hs / 2});
         hm.m02 = std::round(o.x * dpr) / dpr;
         hm.m12 = std::round(o.y * dpr) / dpr;
-        emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, white, 1, blue, 1, 1, 0), Pass::Shape);
+        emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, style.handleFill, 1, blue, 1, 1, 0), Pass::Shape);
       }
+    }
+    // A line: a handle on each end instead.
+    for (Vec2 w : overlay.lineEnds) {
+      Vec2 c = view.apply(w);
+      Mat2x3 hm = Mat2x3::translate(std::round((c.x - hs / 2) * dpr) / dpr, std::round((c.y - hs / 2) * dpr) / dpr);
+      emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, style.handleFill, 1, blue, 1, 1, 0), Pass::Shape);
     }
 
     if (overlay.sizeBadge) {

@@ -110,6 +110,17 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
     const Node* n = doc_.get(id);
     if (n && n->props.locked) return Handle::None;
   }
+  // A line: its two ends, nothing else.
+  Guid line = kNoGuid;
+  Vec2 ends[2];
+  if (selectedLine(line, ends[0], ends[1])) {
+    for (int i = 0; i < 2; i++)
+      if ((s - camera_.toScreen(ends[i])).length() <= kCornerReach) {
+        hx = i, hy = 0;
+        return Handle::LineEnd;
+      }
+    return Handle::None;
+  }
   Mat2x3 m = camera_.matrix() * box.toWorld;
   double w = box.size.x, h = box.size.y;
   Vec2 c[4] = {m.apply({0, 0}), m.apply({w, 0}), m.apply({w, h}), m.apply({0, h})};
@@ -145,6 +156,70 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
   return Handle::None;
 }
 
+bool Editor::selectedLine(Guid& id, Vec2& a, Vec2& b) const {
+  if (selection_.size() != 1) return false;
+  const Node* n = doc_.get(selection_[0]);
+  if (!n || n->props.locked || selection_[0].isDerived()) return false;
+  const NodeProps& p = n->props;
+  bool flatX = p.size.x == 0, flatY = p.size.y == 0;
+  if (!(p.type == NodeType::LINE || (p.type == NodeType::VECTOR && (flatX != flatY)))) return false;
+  if (p.type == NodeType::LINE && !flatY) return false;
+  // Along its own x (a LINE, a flat vector), or its own y (a vector with no width).
+  Mat2x3 w = doc_.worldTransform(selection_[0]);
+  id = selection_[0];
+  a = w.apply({0, 0});
+  b = flatX ? w.apply({0, p.size.y}) : w.apply({p.size.x, 0});
+  return true;
+}
+
+void Editor::startLineEnd(int end) {
+  begin(TxnKind::GESTURE, "Resize");
+  lineEnd_ = end;
+  Guid id;
+  Vec2 a, b;
+  selectedLine(id, a, b);
+  targets_ = targetsOf({id});
+  GuidSet moving{id};
+  prepareSnapping(doc_.parentOf(id), moving);
+}
+
+void Editor::dragLineEnd(Vec2 world, uint32_t mods) {
+  if (targets_.empty()) return;
+  const Target& t = targets_[0];
+  const Node* n = doc_.get(t.id);
+  if (!n) return;
+  bool flatX = n->props.type == NodeType::VECTOR && t.size.x == 0;
+  // The other end stays; this one follows the pointer (snapped to the other layers; ⇧: 45° steps; ⌃: no snapping).
+  Vec2 a = t.world.apply({0, 0}), b = flatX ? t.world.apply({0, t.size.y}) : t.world.apply({t.size.x, 0});
+  Vec2 fixed = lineEnd_ == 0 ? b : a;
+  SnapResult snap;
+  guides_.clear();
+  if (!(mods & (MOD_CTRL | MOD_SHIFT))) {
+    snap = snapper_.snapPoint(world, kSnapReach / camera_.zoom, true, true);
+    world = world + snap.offset;
+  }
+  Vec2 d = world - fixed;
+  if (mods & MOD_SHIFT) {
+    double len = d.length(), angle = std::round(std::atan2(d.y, d.x) / (kPi / 4)) * (kPi / 4);
+    d = {std::cos(angle) * len, std::sin(angle) * len};
+  }
+  Vec2 moved = fixed + d;
+  moved = {std::round(moved.x), std::round(moved.y)};
+  Vec2 start = lineEnd_ == 0 ? moved : fixed, end = lineEnd_ == 0 ? fixed : moved;
+  Vec2 v = end - start;
+  double len = std::max(v.length(), 0.01);
+  // The line's own axis turned to the new direction (a vector with no width runs along its y).
+  double angle = std::atan2(v.y, v.x) - (flatX ? kPi / 2 : 0);
+  NodeChange c = NodeChange::changed(t.id);
+  c.mask = F_TRANSFORM | F_SIZE;
+  c.props.transform = tidy(doc_.worldTransform(t.parent).inverse() * Mat2x3::translate(start.x, start.y) * Mat2x3::rotate(angle));
+  c.props.size = flatX ? Vec2{0, len} : Vec2{len, 0};
+  write(c);
+  if (snap.snappedX || snap.snappedY) guides_ = snapper_.guidesFor({moved.x, moved.y, 0, 0}, snap.snappedX, snap.snappedY);
+  flushLayout();
+  needsRender_ = true;
+}
+
 void Editor::updateCursor(Vec2 s) {
   if (spaceHeld_ || tool_ == Tool::HAND) return changeCursor(CursorKind::HAND);
   if (tool_ == Tool::TEXT || gesture_ == Gesture::TextSelect) return changeCursor(CursorKind::IBEAM);
@@ -159,7 +234,7 @@ void Editor::updateCursor(Vec2 s) {
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::Rotate && titleAt(s) != kNoGuid) h = Handle::None;  // a title takes the press, not the rotation zone
-  if (h == Handle::None) return changeCursor(CursorKind::DEFAULT);
+  if (h == Handle::None || h == Handle::LineEnd) return changeCursor(CursorKind::DEFAULT);
   // The angle of the handle's direction on screen (0 = pointing right).
   SelectionBox box = selectionBox(doc_, selection_);
   Mat2x3 m = camera_.matrix() * box.toWorld;
@@ -410,6 +485,11 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     gesture_ = Gesture::Resize;
     return P_HANDLED | P_CAPTURE;
   }
+  if (h == Handle::LineEnd) {
+    startLineEnd(hx);
+    gesture_ = Gesture::Resize;
+    return P_HANDLED | P_CAPTURE;
+  }
   // A frame's title (or a section's pill): a press selects the frame (⇧ adds or removes it), a drag moves it,
   // a double-click renames it in place.
   if (Guid titled = titleAt(s); titled != kNoGuid) {
@@ -649,6 +729,7 @@ void Editor::endGesture() {
   hasInsertion_ = false;
   dropParent_ = kNoGuid;
   snapParent_ = kNoGuid;
+  lineEnd_ = -1;
   needsRender_ = true;
 }
 
@@ -1110,6 +1191,7 @@ void Editor::finishMove() {
 
 void Editor::startResize(int hx, int hy) {
   begin(TxnKind::GESTURE, "Resize");
+  lineEnd_ = -1;
   handleX_ = hx;
   handleY_ = hy;
   box_ = selectionBox(doc_, selection_);
@@ -1125,6 +1207,7 @@ void Editor::startResize(int hx, int hy) {
 }
 
 void Editor::dragResize(Vec2 world, uint32_t mods) {
+  if (lineEnd_ >= 0) return dragLineEnd(world, mods);
   const double W = box_.size.x, H = box_.size.y;
   if (!(W > 0) || !(H > 0)) return;
   bool alt = (mods & MOD_ALT) != 0, shift = (mods & MOD_SHIFT) != 0;
