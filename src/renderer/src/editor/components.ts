@@ -94,6 +94,11 @@ export const COMPONENT_COMMAND = {
   /** args { ref?, exposed } */
   expose: "SET_EXPOSED_INSTANCE",
   resetSlot: "RESET_SLOT",
+  /** args { ref?: Guid | Guid[] } (round 6) */
+  convertToSlot: "CONVERT_TO_SLOT",
+  wrapInSlot: "WRAP_IN_NEW_SLOT",
+  /** args { ref? }: "Delete contents" */
+  clearSlot: "CLEAR_SLOT",
 } as const;
 
 const asFields = (f: Record<string, unknown>): NodeFields => f as NodeFields;

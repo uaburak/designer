@@ -7,7 +7,7 @@
 import type { MenuEntry, MenuItem } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
-import { COMMAND_BY_ID, isEnabled, runEditorCommand, shortcutOf } from "./commands";
+import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
 import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
 import { isComponent, isComponentSet, isInstance } from "./model/components";
 import { statusOfTargets, statusTargets } from "./devStatus";
@@ -74,6 +74,9 @@ function componentEntries(ed: EditorController): Spec[] {
   else if (nodes.length === 1 && (isComponentSet(nodes[0]) || isComponent(nodes[0]))) out.push("object.add-variant");
   if (!nodes.every((n) => isComponent(n) || isComponentSet(n))) out.push("object.create-component", ...(nodes.length > 1 ? ["object.create-multiple-components"] : []));
   if (nodes.some((n) => n.isSoftDeleted)) out.push("object.restore-component");
+  // Inside a main: a nested frame converts to a slot, other layers are wrapped in a new one (help "Create and use slots").
+  if (isEnabled(ed, command("object.convert-to-slot"))) out.push("object.convert-to-slot");
+  else if (isEnabled(ed, command("object.wrap-in-new-slot"))) out.push("object.wrap-in-new-slot");
   return out;
 }
 
@@ -155,6 +158,8 @@ export const MAIN_MENU: Spec[] = [
       resetSubmenu,
       "object.detach-instance",
       { label: "Main component", items: ["object.go-to-main-component", "object.push-changes", "object.restore-component"] },
+      "object.convert-to-slot",
+      "object.wrap-in-new-slot",
       "-",
       "object.use-as-mask",
       "-",
