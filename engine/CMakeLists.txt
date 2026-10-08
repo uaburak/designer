@@ -153,6 +153,7 @@ else()
     tests/unit/text.render.test.cpp
     tests/unit/geometry.path.test.cpp
     tests/unit/geometry.boolean.test.cpp
+    tests/unit/geometry.figma_golden.test.cpp
     tests/unit/editor.vector.test.cpp
     tests/unit/render.paths.test.cpp
     tests/unit/render.effects.test.cpp

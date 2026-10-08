@@ -69,6 +69,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   s.join = p.strokeJoin;
   s.miterLimit = p.miterLimit;
   s.dashes = p.stroke().dashPattern;
+  s.fitDashes = p.isRectLike() || p.isFrameLike();
   s.size = p.size;
   bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
@@ -122,6 +123,7 @@ geom::Path strokeOutline(const Stroke& s, double tolerance) {
   style.miterLimit = s.miterLimit;
   style.cap = s.cap;
   style.dashes = s.dashes;
+  style.fitDashes = s.fitDashes;
   style.caps = s.caps.empty() ? nullptr : &s.caps;
   return geom::strokePath(s.center, style, tolerance);
 }

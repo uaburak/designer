@@ -186,6 +186,7 @@ Status Editor::outlineStroke() {
     style.miterLimit = p.miterLimit;
     style.cap = p.strokeCap;
     style.dashes = p.stroke().dashPattern;
+    style.fitDashes = p.isRectLike() || p.isFrameLike();
     style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
     const double tol = 0.02;
     geom::Path outline = geom::strokePath(g->stroke.path, style, tol);

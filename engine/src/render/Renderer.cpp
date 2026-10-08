@@ -563,9 +563,10 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   style.miterLimit = p.miterLimit;
   style.cap = p.strokeCap;
   style.dashes = p.stroke().dashPattern;
+  style.fitDashes = p.isRectLike() || p.isFrameLike();
   style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
   Hash h;
-  h.add(g->strokeKey).add(style.width).add(style.join).add(style.miterLimit).add(style.cap).add(level).add(0x57ull);
+  h.add(g->strokeKey).add(style.width).add(style.join).add(style.miterLimit).add(style.cap).add(style.fitDashes).add(level).add(0x57ull);
   for (double d : style.dashes) h.add(d);
   const CurveEntry* entry =
       curves_.path(h.h, [&](std::vector<float>& out) { geom::toQuads(geom::strokePath(g->stroke.path, style, tol), tol, out); });

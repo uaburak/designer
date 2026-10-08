@@ -24,6 +24,10 @@ struct StrokeStyle {
   std::vector<double> dashes;       // dash, gap, dash, gap… (empty: solid)
   // Per contour of the centre line: its start and end caps (overrides `cap`).
   const std::vector<std::pair<StrokeCap, StrokeCap>>* caps = nullptr;
+  // Figma's dashes on rectangles and frames (sections.fig's strokeGeometry): each straight side of a closed contour
+  // gets the pattern scaled to fit it a whole number of times, half a dash at each end; curved corners are drawn
+  // whole, joining the half dashes around them (a contour without a straight side: the pattern fitted to it all).
+  bool fitDashes = false;
 };
 
 // The outline of `center` stroked with `style`; `tolerance` = how far flattened curves may stray (local units).
