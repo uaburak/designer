@@ -92,7 +92,8 @@ export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; actio
   const shownRows = Math.min(rows, 4);
   return (
     <>
-      <PropertyRow labels={["Grid", "Gap"]} action={action}>
+      {/* Live: "Auto layout settings" level with the first gap field (208, 404), not centred on the 56 high row */}
+      <PropertyRow labels={["Grid", "Gap"]} action={action} className={styles.topRow}>
         <button
           type="button"
           className={styles.dimensions}
