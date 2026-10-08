@@ -14,10 +14,10 @@ import type { ExportSettings } from "../../../../shared/schema/document.generate
 export type { ExportSettings };
 export type ExportFormat = "PNG" | "JPEG" | "SVG" | "PDF";
 
-/** The format menu (Figma writes JPEG as "JPG"). */
+/** The format menu (live popovers/export-format-menu.txt: PNG, JPEG, SVG, PDF). */
 export const EXPORT_FORMATS: { value: ExportFormat; label: string }[] = [
   { value: "PNG", label: "PNG" },
-  { value: "JPEG", label: "JPG" },
+  { value: "JPEG", label: "JPEG" },
   { value: "SVG", label: "SVG" },
   { value: "PDF", label: "PDF" },
 ];

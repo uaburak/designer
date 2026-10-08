@@ -39,6 +39,9 @@ import styles from "./Design.module.css";
 import own from "./Export.module.css";
 
 /** A layer (or the page) the section exports. */
+/** Live's name for the scale field and its group. */
+export const SCALE_LABEL = "Export constraints for content scale or width/height dimensions";
+
 export interface ExportTarget {
   guid: Guid;
   name?: string;
@@ -89,48 +92,51 @@ export function ExportSection({ targets, page }: { targets: ExportTarget[]; page
         return (
           <div key={i} className={cx(styles.paintRow, dragging === i && styles.rowDragging)} data-export-row={i} data-reorder-row="">
             {list.length > 1 && <Grip {...grip(i)} />}
+            {/* Live (design/rectangle-with-export.txt): the scale (49 + its 24 list, 1 apart: "Export constraints for content
+                scale or width/height dimensions" / "Select an option"), "Export file type" (74, outlined), "Advanced export
+                settings" and "Remove". */}
             <div className={own.fields}>
-              <TextInput
-                className={own.scale}
-                label="Scale"
-                value={scaleLabel(s)}
-                disabled={vector}
-                onCommit={(v) => {
-                  const c = parseScale(v);
-                  if (c) set(i, { ...s, constraint: c }, "Export scale");
-                }}
-                suffix={
-                  vector ? undefined : (
-                    <MenuButton
-                      label="Scale presets"
-                      entries={SCALE_PRESETS.map((p) => ({ id: p, label: p, checked: p === scaleLabel(s) }))}
-                      onSelect={(p) => {
-                        const c = parseScale(p);
-                        if (c) set(i, { ...s, constraint: c }, "Export scale");
-                      }}
-                      className={styles.sizeMenu}
-                    >
-                      <Icon name="16.chevron.down" />
-                    </MenuButton>
-                  )
-                }
-              />
+              <div role="group" aria-label={SCALE_LABEL} className={own.scaleGroup}>
+                <TextInput
+                  className={own.scale}
+                  label={SCALE_LABEL}
+                  value={scaleLabel(s)}
+                  disabled={vector}
+                  onCommit={(v) => {
+                    const c = parseScale(v);
+                    if (c) set(i, { ...s, constraint: c }, "Export scale");
+                  }}
+                />
+                <MenuButton
+                  label="Select an option"
+                  disabled={vector}
+                  entries={SCALE_PRESETS.map((p) => ({ id: p, label: p, checked: p === scaleLabel(s) }))}
+                  onSelect={(p) => {
+                    const c = parseScale(p);
+                    if (c) set(i, { ...s, constraint: c }, "Export scale");
+                  }}
+                  className={own.scaleMenu}
+                >
+                  <Icon name="16.chevron.down" />
+                </MenuButton>
+              </div>
               <Select
                 className={own.format}
-                label="File format"
+                variant="outlined"
+                label="Export file type"
                 value={format}
                 options={EXPORT_FORMATS.map((f) => ({ value: f.value, label: f.label }))}
                 onChange={(v) => set(i, withFormat(s, v as ExportFormat), "Export format")}
               />
             </div>
             <IconButton
-              icon="24.more"
-              label="Export settings"
+              icon="24.adjust.small"
+              label="Advanced export settings"
               tone="secondary"
               aria-expanded={open?.index === i}
               onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })}
             />
-            <IconButton icon="24.minus.small" label="Remove export settings" tone="secondary" onClick={() => writeSettings(ed, refs, list.filter((_, j) => j !== i), "Remove export settings")} />
+            <IconButton icon="24.minus.small" label="Remove" tone="secondary" onClick={() => writeSettings(ed, refs, list.filter((_, j) => j !== i), "Remove export settings")} />
           </div>
         );
       })}
@@ -166,7 +172,7 @@ export function ExportSettingsPopover({ setting, anchor, onChange, onClose }: { 
   const raster = format === "PNG" || format === "JPEG";
   const quality = QUALITY_LEVELS.reduce((best, q) => (Math.abs(q.quality - qualityOf(setting)) < Math.abs(best.quality - qualityOf(setting)) ? q : best));
   const check = (label: string, value: boolean, next: (v: boolean) => ExportSettings) => (
-    <div className={styles.settingsWide}>
+    <div className={styles.settingsWide} data-export-check="">
       <Checkbox label={label} checked={value} onChange={(v) => onChange(next(v))} />
     </div>
   );

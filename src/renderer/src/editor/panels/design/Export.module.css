@@ -1,30 +1,52 @@
 @layer app {
-  /* An export row's fields: the scale (with its presets' chevron) and the format, in one field */
+  /*
+   * An export row's fields (live design/rectangle-with-export.txt): the scale group (74: the field 49, 1 apart, its
+   * list's 24 button) and the file type (74, outlined on the panel's colour), 8 apart.
+   */
   .fields {
     display: flex;
     flex: 1 1 auto;
-    gap: var(--ds-space-1);
+    gap: var(--ds-space-2);
     min-width: 0;
     margin-right: var(--ds-space-1);
   }
-  .scale { flex: 1 1 0; min-width: 0; padding-right: 0; }
-  .format { flex: 1 1 0; min-width: 0; }
+  .scaleGroup { display: flex; flex: 1 1 0; gap: 1px; min-width: 0; }
+  .scale { flex: 1 1 0; min-width: 0; border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium); }
+  .scaleMenu {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0;
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-icon-secondary);
+  }
+  .scaleMenu:hover:not(:disabled) { color: var(--figma-color-icon); }
+  .scaleMenu:disabled { opacity: 0.4; }
+  .scaleMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+  .format { flex: 1 1 0; min-width: 0; background: var(--figma-color-bg); }
+  .format > button { padding-left: 9px; }
 
-  /* "Export Frame 1" under the rows */
-  .actions { padding: var(--ds-space-1) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); }
+  /* "Export Rect" under the rows (live: 16 in on both sides — its label centred at 120 —, 5 under the last row, 4 above Preview) */
+  .actions { padding: calc(var(--ds-space-1) + 1px) var(--ds-size-panel-pad-left) var(--ds-space-1); }
 
   /* "▸ Preview" */
   .disclosure {
     display: flex;
     align-items: center;
-    gap: var(--ds-space-1);
     width: 100%;
     min-height: var(--ds-size-row);
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
     border: 0;
     background: transparent;
-    color: var(--figma-color-text);
-    font: var(--ds-font-body-medium);
+    /* Live: "Preview" 11px / 550 at 70%, its text at 24 (the chevron 8 – 24) */
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
     text-align: left;
     outline: none;
   }
@@ -44,5 +66,7 @@
   }
   .preview img { display: block; max-width: 100%; max-height: 240px; object-fit: contain; }
   /* The settings popover (live): labels 108, fields 100 at 124, rows from 52 */
-  .exportSettings { grid-template-columns: 108px 100px; column-gap: 0; padding-top: var(--ds-space-3); }
+  /* …the checkbox 4 further left (its box at 12, the label at 36) and 12 under it: 184 high for PNG (live 240 × 184) */
+  .exportSettings { grid-template-columns: 108px 100px; column-gap: 0; padding-top: var(--ds-space-3); padding-bottom: var(--ds-space-3); }
+  .exportSettings > [data-export-check] { margin-left: calc(-1 * var(--ds-space-1)); }
 }
