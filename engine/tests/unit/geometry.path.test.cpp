@@ -219,6 +219,12 @@ TEST_CASE("stroker: caps, joins, dashes") {
   Rect arrow = strokePath(line, s, 0.05).bounds();
   CHECK(arrow.h > 6);
   CHECK(strokeReach(s, true) > 5);
+  // Figma's line arrow at 1 px (live capture, docs/research/figma/live/img/canvas-arrow-line-selected.png): arms
+  // about 4.5 long, 45° off the line — ±3.5 across with the stroke, reaching about 3.3 back from the tip.
+  s.cap = StrokeCap::ARROW_LINES;
+  s.width = 1;
+  Rect lineArrow = strokePath(line, s, 0.05).bounds();
+  CHECK(lineArrow.h == doctest::Approx(7.1).epsilon(0.08));
 }
 
 TEST_CASE("corner radius on a vector network rounds its sharp corners") {

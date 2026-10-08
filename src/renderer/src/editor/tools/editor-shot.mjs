@@ -338,6 +338,17 @@ async function paintsSection(page, theme) {
     await drag(page, [area.x + 60, area.y + 60], [area.x + 260, area.y + 60]);
     const line = await page.evaluate(() => window.__designerEditor.selectedNodes()[0]?.type);
     check("L + drag draws a line", line === "LINE", line);
+    // Its Stroke section: Start point and End point (live design/line.txt); End point → Triangle arrow, per end.
+    await settle(page);
+    const ends = panel.locator("[data-end-points]");
+    check("a line's Stroke shows Start point and End point (None)", (await ends.getByRole("button", { name: "Start point" }).count()) === 1 && (await ends.getByRole("button", { name: "End point" }).count()) === 1);
+    await ends.getByRole("button", { name: "End point" }).click();
+    await settle(page);
+    await shot(page, `38-end-points-${theme}`);
+    await page.getByRole("menuitemcheckbox", { name: "Triangle arrow" }).click();
+    await settle(page);
+    const caps = await page.evaluate(() => { const e = window.__designerEditor.engine; return e.endCaps(e.getSelection().refs[0]); });
+    check("End point → Triangle arrow, the start stays None", caps?.start === "NONE" && caps?.end === "ARROW_EQUILATERAL", JSON.stringify(caps));
   }
 }
 

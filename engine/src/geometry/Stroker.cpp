@@ -157,8 +157,11 @@ void trim(Line& l, double len, bool atEnd) {
   }
 }
 
-// Arrowhead sizes (unverified against Figma: chosen to look like its defaults at 1–4 px).
-double lineArrowLength(double w) { return 2.5 * w + 4; }
+// Arrowhead sizes. The line arrow is measured on live Figma (docs/research/figma/live/img/canvas-arrow-line-selected.png,
+// a 1 px line at 287 %): arms about 4.5 long along their centre lines, 45° off the line. The others are unverified
+// (chosen to look like Figma's at 1–4 px).
+double lineArrowLength(double w) { return 3 * w + 1.5; }
+constexpr double kLineArrowAngle = 45;  // degrees off the line
 double triangleSide(double w) { return 3 * w + 4; }
 double circleRadius(double w) { return 1.5 * w + 1.5; }
 double diamondHalf(double w) { return 1.5 * w + 2.5; }
@@ -175,7 +178,7 @@ void cap(Path& out, Vec2 p, Vec2 d, StrokeCap c, const StrokeStyle& s, double to
     case StrokeCap::ROUND: disc(out, p, hw); break;
     case StrokeCap::ARROW_LINES: {
       double L = lineArrowLength(s.width);
-      double a = 40 * kPi / 180;
+      double a = kLineArrowAngle * kPi / 180;
       Vec2 back = d * -1;
       Line arms{{p + rotate(back, a) * L, p, p + rotate(back, -a) * L}, {true, true, true}, false};
       StrokeStyle st = s;

@@ -2,17 +2,22 @@
  * The Stroke section's own rows (UI3): position and weight, "Individual
  * strokes" for frames and rectangles (All / Top / Bottom / Left / Right /
  * Custom: the four side weights), and the "Stroke settings" popover — stroke
- * style (Solid / Dash) with dash and gap, cap (with the arrow ends for open
- * paths: lines and vectors), join and miter angle. Fields (docs/engine-build.md
- * E4): strokeAlign, strokeWeight, borderStrokeWeightsIndependent,
- * border{Top,Right,Bottom,Left}Weight, dashPattern, strokeCap, strokeJoin,
- * miterLimit.
+ * style (Solid / Dash) with dash and gap, the dash cap (closed paths), join and
+ * miter angle. Open paths (lines, open vectors) get Figma's "Start point" and
+ * "End point" row under position and weight (live design/line.txt, arrow.txt):
+ * each end's cap or arrowhead — None, Round, Square, Line arrow, Triangle arrow,
+ * Reversed triangle, Circle arrow, Diamond arrow — written per end by the
+ * engine's SET_END_CAPS (the network's end vertices' styles). Fields
+ * (docs/engine-build.md E4): strokeAlign, strokeWeight,
+ * borderStrokeWeightsIndependent, border{Top,Right,Bottom,Left}Weight,
+ * dashPattern, strokeCap, strokeJoin, miterLimit.
  */
 import { useState } from "react";
 import { VariableField } from "./Variables";
-import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, Select, Icon, IconButton, type ChangeInfo, type MenuEntry } from "@/ds";
-import type { NodeFields, StrokeAlign } from "@/engine/codec";
+import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, Select, Icon, IconButton, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
+import type { NodeFields, StrokeAlign, StrokeCap } from "@/engine/codec";
 import { useEditor } from "../../controller";
+import { runEngineCommand } from "../../engineCompat";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
 import { fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
@@ -109,6 +114,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         />
         </VariableField>
       </PropertyRow>
+      <EndPointsRow nodes={nodes} />
       {perSide && side === "CUSTOM" && (
         <>
           {[
@@ -135,6 +141,46 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         </>
       )}
     </PropertyGrid>
+  );
+}
+
+// ---- End points ---------------------------------------------------------------------------------
+
+/** Figma's end points: the caps, then the arrowheads, each with its glyph (drawn for the end; the start mirrors it). */
+export const END_POINTS: { value: StrokeCap; label: string; icon: IconName }[] = [
+  { value: "NONE", label: "None", icon: "24.endpoint.none" },
+  { value: "ROUND", label: "Round", icon: "24.endpoint.round" },
+  { value: "SQUARE", label: "Square", icon: "24.endpoint.square" },
+  { value: "ARROW_LINES", label: "Line arrow", icon: "24.endpoint.line-arrow" },
+  { value: "ARROW_EQUILATERAL", label: "Triangle arrow", icon: "24.endpoint.triangle-arrow" },
+  { value: "TRIANGLE_FILLED", label: "Reversed triangle", icon: "24.endpoint.reversed-triangle" },
+  { value: "CIRCLE_FILLED", label: "Circle arrow", icon: "24.endpoint.circle-arrow" },
+  { value: "DIAMOND_FILLED", label: "Diamond arrow", icon: "24.endpoint.diamond-arrow" },
+];
+
+/** Start point / End point (open paths only): a glyph button each, opening the list of end points. */
+function EndPointsRow({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const ends = nodes.every(isOpenPath) ? nodes.map((n) => ed.engine.endCaps(n.guid)) : [];
+  if (!ends.length || ends.some((e) => !e)) return null;
+  const start = mixed(ends.map((e) => e!.start));
+  const end = mixed(ends.map((e) => e!.end));
+  const entries = (value: StrokeCap | typeof MIXED | undefined): MenuEntry[] => [
+    ...END_POINTS.slice(0, 3).map((p) => ({ id: p.value, label: p.label, icon: p.icon, checked: value === p.value })),
+    "-",
+    ...END_POINTS.slice(3).map((p) => ({ id: p.value, label: p.label, icon: p.icon, checked: value === p.value })),
+  ];
+  const glyph = (value: StrokeCap | typeof MIXED | undefined) => END_POINTS.find((p) => p.value === value)?.icon ?? "24.endpoint.none";
+  const write = (which: "start" | "end", v: string) => runEngineCommand(ed.engine, "SET_END_CAPS", { [which]: v });
+  return (
+    <PropertyRow label="Start point and end point" data-end-points="">
+      <MenuButton label="Start point" entries={entries(start)} className={styles.endPoint} onSelect={(id) => write("start", id)}>
+        <span className={styles.endPointStart} data-value={start === MIXED ? "MIXED" : start}><Icon name={glyph(start)} /></span>
+      </MenuButton>
+      <MenuButton label="End point" entries={entries(end)} className={styles.endPoint} onSelect={(id) => write("end", id)}>
+        <span data-value={end === MIXED ? "MIXED" : end}><Icon name={glyph(end)} /></span>
+      </MenuButton>
+    </PropertyRow>
   );
 }
 
@@ -210,14 +256,18 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
             <NumericInput label="Gap" min={0} value={d.gap} onChange={(v, info) => setDash(d.dash, v, info)} onCancel={() => ed.cancelEdit()} />
           </>
         )}
-        <span className={styles.settingsLabel}>{open ? "Cap" : "Dash cap"}</span>
-        <Select
-          label={open ? "Cap" : "Dash cap"}
-          value={cap === MIXED || cap === undefined ? "" : cap}
-          placeholder="Mixed"
-          options={CAPS.filter((c) => open || !c.open)}
-          onChange={(v) => set("Stroke cap", fields({ strokeCap: v as PanelNode["strokeCap"] }))}
-        />
+        {!open && style === "DASH" && (
+          <>
+            <span className={styles.settingsLabel}>Dash cap</span>
+            <Select
+              label="Dash cap"
+              value={cap === MIXED || cap === undefined ? "" : cap}
+              placeholder="Mixed"
+              options={CAPS.filter((c) => !c.open)}
+              onChange={(v) => set("Stroke cap", fields({ strokeCap: v as PanelNode["strokeCap"] }))}
+            />
+          </>
+        )}
         <span className={styles.settingsLabel}>Join</span>
         <Select
           label="Join"
