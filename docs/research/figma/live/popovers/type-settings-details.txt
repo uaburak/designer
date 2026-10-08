@@ -1,0 +1,313 @@
+# Type settings popover, "Details" tab [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,378 240x506
+0,0 240x506 div bg=#2c2c2c r=13px
+7,21 70x13 "Type settings" 11px/400 #ffffff
+8,8 51x24 button bg=#2c2c2c r=5px
+16,14 35x13 "Basics" 11px/550 #ffffffb2
+16,14 34x13 "Basics" 11px/450 #ffffffb2
+63,8 53x24 tab SELECTED bg=#383838
+71,14 37x13 "Details" 11px/550 #ffffff
+71,14 37x13 "Details" 11px/550 #ffffff
+120,8 60x24 button bg=#2c2c2c r=5px
+128,14 44x13 "Variable" 11px/550 #ffffffb2
+128,14 43x13 "Variable" 11px/450 #ffffffb2
+0,40 240x144 div bg=#2c2c2c
+16,56 208x120 div bg=#383838 r=5px
+32,106 60x20 "Preview" 16px/400 #ffffff66
+16,194 62x13 "Indentation" 11px/550 #ffffff
+16,226 110x13 "Hanging punctuation" 11px/450 #ffffff66
+175,213 110x13 "Hanging punctuation" 11px/450 #ffffff
+176,220 48x24 div bg=#383838 r=5px
+176,220 24x24 input =OFF [Disabled]
+176,220 24x24 span bg=#2c2c2c r=5px
+175,237 46x13 "Disabled" 11px/450 #ffffff
+200,220 24x24 input =ON [Enabled]
+199,237 43x13 "Enabled" 11px/450 #ffffff
+16,258 68x13 "Hanging lists" 11px/450 #ffffff66
+175,245 68x13 "Hanging lists" 11px/450 #ffffff
+176,252 48x24 div bg=#383838 r=5px
+176,252 24x24 input =OFF [Disabled]
+176,252 24x24 span bg=#2c2c2c r=5px
+175,269 46x13 "Disabled" 11px/450 #ffffff
+200,252 24x24 input =ON [Enabled]
+199,269 43x13 "Enabled" 11px/450 #ffffff
+15,290 91x13 "Paragraph indent" 11px/450 #ffffffb2
+153,284 72x24 div bg=#2c2c2c r=5px
+153,284 72x24 label [Paragraph indent] bg=#383838 r=5px
+161,284 63x24 input =0 [Paragraph indent] r=2px
+16,343 61x13 "Letter case" 11px/550 #ffffff
+16,375 27x13 "Case" 11px/450 #ffffffb2
+103,362 27x13 "Case" 11px/450 #ffffff
+104,369 120x24 div bg=#383838 r=5px
+104,369 24x24 input =ORIGINAL [As typed]
+104,369 24x24 span bg=#2c2c2c r=5px
+103,386 47x13 "As typed" 11px/450 #ffffff
+128,369 24x24 input =UPPER [Uppercase]
+127,386 57x13 "Uppercase" 11px/450 #ffffff
+152,369 24x24 input =LOWER [Lowercase]
+151,386 57x13 "Lowercase" 11px/450 #ffffff
+176,369 24x24 input =TITLE [Title case]
+175,386 51x13 "Title case" 11px/450 #ffffff
+200,369 24x24 input =SMALL_CAPS [Font doesn't support small caps] DISABLED
+199,386 169x13 "Font doesn't support small caps" 11px/450 #ffffff
+16,405 144x16 label [Not applicable for selected text] r=2px
+16,407 112x13 "Case-sensitive forms" 11px/450 #ffffff66
+175,394 112x13 "Case-sensitive forms" 11px/450 #ffffff
+176,401 48x24 div bg=#383838 r=5px
+176,401 24x24 input =OFF [Disabled]
+176,401 24x24 span bg=#2c2c2c r=5px
+175,418 46x13 "Disabled" 11px/450 #ffffff
+200,401 24x24 input =ON [Enabled]
+199,418 43x13 "Enabled" 11px/450 #ffffff
+16,439 81x13 "Capital spacing" 11px/450 #ffffffb2
+175,426 81x13 "Capital spacing" 11px/450 #ffffff
+176,433 48x24 div bg=#383838 r=5px
+176,433 24x24 input =OFF [Disabled]
+176,433 24x24 span bg=#2c2c2c r=5px
+175,450 46x13 "Disabled" 11px/450 #ffffff
+200,433 24x24 input =ON [Enabled]
+199,450 43x13 "Enabled" 11px/450 #ffffff
+16,492 49x13 "Numbers" 11px/550 #ffffff
+16,522 64x16 label [Not applicable for selected text] r=2px
+16,524 27x13 "Style" 11px/450 #ffffff66
+151,511 27x13 "Style" 11px/450 #ffffff
+152,518 72x24 div bg=#383838 r=5px
+152,518 24x24 input =ORIGINAL [Font default]
+152,518 24x24 span bg=#2c2c2c r=5px
+151,535 63x13 "Font default" 11px/450 #ffffff
+176,518 24x24 input =UPPER_PROPORTIONAL [Proportional uppercase/lining]
+175,535 156x13 "Proportional uppercase/lining" 11px/450 #ffffff
+200,518 24x24 input =UPPER_MONOSPACE [Monospace uppercase/lining]
+199,535 152x13 "Monospace uppercase/lining" 11px/450 #ffffff
+16,556 42x13 "Position" 11px/450 #ffffffb2
+151,543 42x13 "Position" 11px/450 #ffffff
+152,550 72x24 div bg=#383838 r=5px
+152,550 24x24 input =SUB [Subscript]
+151,567 51x13 "Subscript" 11px/450 #ffffff
+176,550 24x24 input =NORMAL [Normal]
+176,550 24x24 span bg=#2c2c2c r=5px
+175,567 38x13 "Normal" 11px/450 #ffffff
+200,550 24x24 input =SUPER [Superscript]
+199,567 61x13 "Superscript" 11px/450 #ffffff
+16,588 49x13 "Fractions" 11px/450 #ffffffb2
+175,575 49x13 "Fractions" 11px/450 #ffffff
+176,582 48x24 div bg=#383838 r=5px
+176,582 24x24 input =OFF [Disabled]
+176,582 24x24 span bg=#2c2c2c r=5px
+175,599 46x13 "Disabled" 11px/450 #ffffff
+200,582 24x24 input =ON [Enabled]
+199,599 43x13 "Enabled" 11px/450 #ffffff
+16,618 144x16 label [Not applicable for selected text] r=2px
+16,620 68x13 "Slashed zero" 11px/450 #ffffff66
+175,607 68x13 "Slashed zero" 11px/450 #ffffff
+176,614 48x24 div bg=#383838 r=5px
+176,614 24x24 input =OFF [Disabled]
+176,614 24x24 span bg=#2c2c2c r=5px
+175,631 46x13 "Disabled" 11px/450 #ffffff
+200,614 24x24 input =ON [Enabled]
+199,631 43x13 "Enabled" 11px/450 #ffffff
+16,673 64x13 "Letterforms" 11px/550 #ffffff
+16,703 144x16 label [Not applicable for selected text] r=2px
+16,705 73x13 "Rare ligatures" 11px/450 #ffffff66
+175,692 73x13 "Rare ligatures" 11px/450 #ffffff
+176,699 48x24 div bg=#383838 r=5px
+176,699 24x24 input =OFF [Disabled]
+176,699 24x24 span bg=#2c2c2c r=5px
+175,716 46x13 "Disabled" 11px/450 #ffffff
+200,699 24x24 input =ON [Enabled]
+199,716 43x13 "Enabled" 11px/450 #ffffff
+16,737 113x13 "Contextual alternates" 11px/450 #ffffffb2
+175,724 113x13 "Contextual alternates" 11px/450 #ffffff
+176,731 48x24 div bg=#383838 r=5px
+176,731 24x24 input =OFF [Disabled]
+175,748 46x13 "Disabled" 11px/450 #ffffff
+200,731 24x24 input =ON [Enabled]
+200,731 24x24 span bg=#2c2c2c r=5px
+199,748 43x13 "Enabled" 11px/450 #ffffff
+16,769 44x13 "Ordinals" 11px/450 #ffffffb2
+175,756 44x13 "Ordinals" 11px/450 #ffffff
+176,763 48x24 div bg=#383838 r=5px
+176,763 24x24 input =OFF [Disabled]
+176,763 24x24 span bg=#2c2c2c r=5px
+175,780 46x13 "Disabled" 11px/450 #ffffff
+200,763 24x24 input =ON [Enabled]
+199,780 43x13 "Enabled" 11px/450 #ffffff
+16,822 69x13 "Stylistic sets" 11px/550 #ffffff
+16,854 98x13 "Stylistic alternates" 11px/450 #ffffffb2
+175,841 98x13 "Stylistic alternates" 11px/450 #ffffff
+176,848 48x24 div bg=#383838 r=5px
+176,848 24x24 input =OFF [Disabled]
+176,848 24x24 span bg=#2c2c2c r=5px
+175,865 46x13 "Disabled" 11px/450 #ffffff
+200,848 24x24 input =ON [Enabled]
+199,865 43x13 "Enabled" 11px/450 #ffffff
+16,884 144x16 label [Not applicable for selected text] r=2px
+16,886 60x13 "Open digits" 11px/450 #ffffff66
+175,873 60x13 "Open digits" 11px/450 #ffffff
+176,880 48x24 div bg=#383838 r=5px
+176,880 24x24 input =OFF [Disabled]
+176,880 24x24 span bg=#2c2c2c r=5px
+175,897 46x13 "Disabled" 11px/450 #ffffff
+200,880 24x24 input =ON [Enabled]
+199,897 43x13 "Enabled" 11px/450 #ffffff
+16,918 82x13 "Disambiguation" 11px/450 #ffffffb2
+175,905 82x13 "Disambiguation" 11px/450 #ffffff
+176,912 48x24 div bg=#383838 r=5px
+176,912 24x24 input =OFF [Disabled]
+176,912 24x24 span bg=#2c2c2c r=5px
+175,929 46x13 "Disabled" 11px/450 #ffffff
+200,912 24x24 input =ON [Enabled]
+199,929 43x13 "Enabled" 11px/450 #ffffff
+16,940 144x32 label [Not applicable for selected text] r=2px
+16,942 100x29 "r curves into round neighbors" 11px/450 #ffffff66
+175,937 155x13 "r curves into round neighbors" 11px/450 #ffffff
+176,944 48x24 div bg=#383838 r=5px
+176,944 24x24 input =OFF [Disabled]
+176,944 24x24 span bg=#2c2c2c r=5px
+175,961 46x13 "Disabled" 11px/450 #ffffff
+200,944 24x24 input =ON [Enabled]
+199,961 43x13 "Enabled" 11px/450 #ffffff
+16,982 125x29 "Disambiguation without slashed zero" 11px/450 #ffffffb2
+175,977 195x13 "Disambiguation without slashed zero" 11px/450 #ffffff
+176,984 48x24 div bg=#383838 r=5px
+176,984 24x24 input =OFF [Disabled]
+176,984 24x24 span bg=#2c2c2c r=5px
+175,1001 46x13 "Disabled" 11px/450 #ffffff
+200,984 24x24 input =ON [Enabled]
+199,1001 43x13 "Enabled" 11px/450 #ffffff
+16,1051 100x13 "Character variants" 11px/550 #ffffff
+16,1081 144x16 label [Not applicable for selected text] r=2px
+16,1083 71x13 "Alternate one" 11px/450 #ffffff66
+175,1070 71x13 "Alternate one" 11px/450 #ffffff
+176,1077 48x24 div bg=#383838 r=5px
+176,1077 24x24 input =OFF [Disabled]
+176,1077 24x24 span bg=#2c2c2c r=5px
+175,1094 46x13 "Disabled" 11px/450 #ffffff
+200,1077 24x24 input =ON [Enabled]
+199,1094 43x13 "Enabled" 11px/450 #ffffff
+16,1113 144x16 label [Not applicable for selected text] r=2px
+16,1115 53x13 "Open four" 11px/450 #ffffff66
+175,1102 53x13 "Open four" 11px/450 #ffffff
+176,1109 48x24 div bg=#383838 r=5px
+176,1109 24x24 input =OFF [Disabled]
+176,1109 24x24 span bg=#2c2c2c r=5px
+175,1126 46x13 "Disabled" 11px/450 #ffffff
+200,1109 24x24 input =ON [Enabled]
+199,1126 43x13 "Enabled" 11px/450 #ffffff
+16,1145 144x16 label [Not applicable for selected text] r=2px
+16,1147 46x13 "Open six" 11px/450 #ffffff66
+175,1134 46x13 "Open six" 11px/450 #ffffff
+176,1141 48x24 div bg=#383838 r=5px
+176,1141 24x24 input =OFF [Disabled]
+176,1141 24x24 span bg=#2c2c2c r=5px
+175,1158 46x13 "Disabled" 11px/450 #ffffff
+200,1141 24x24 input =ON [Enabled]
+199,1158 43x13 "Enabled" 11px/450 #ffffff
+16,1177 144x16 label [Not applicable for selected text] r=2px
+16,1179 54x13 "Open nine" 11px/450 #ffffff66
+175,1166 54x13 "Open nine" 11px/450 #ffffff
+176,1173 48x24 div bg=#383838 r=5px
+176,1173 24x24 input =OFF [Disabled]
+176,1173 24x24 span bg=#2c2c2c r=5px
+175,1190 46x13 "Disabled" 11px/450 #ffffff
+200,1173 24x24 input =ON [Enabled]
+199,1190 43x13 "Enabled" 11px/450 #ffffff
+16,1211 116x13 "Lower-case L with tail" 11px/450 #ffffffb2
+175,1198 116x13 "Lower-case L with tail" 11px/450 #ffffff
+176,1205 48x24 div bg=#383838 r=5px
+176,1205 24x24 input =OFF [Disabled]
+176,1205 24x24 span bg=#2c2c2c r=5px
+175,1222 46x13 "Disabled" 11px/450 #ffffff
+200,1205 24x24 input =ON [Enabled]
+199,1222 43x13 "Enabled" 11px/450 #ffffff
+16,1241 144x16 label [Not applicable for selected text] r=2px
+16,1243 88x13 "r with curved tail" 11px/450 #ffffff66
+175,1230 88x13 "r with curved tail" 11px/450 #ffffff
+176,1237 48x24 div bg=#383838 r=5px
+176,1237 24x24 input =OFF [Disabled]
+176,1237 24x24 span bg=#2c2c2c r=5px
+175,1254 46x13 "Disabled" 11px/450 #ffffff
+200,1237 24x24 input =ON [Enabled]
+199,1254 43x13 "Enabled" 11px/450 #ffffff
+16,1273 144x16 label [Not applicable for selected text] r=2px
+16,1275 141x13 "Alternate German double s" 11px/450 #ffffff66
+175,1262 141x13 "Alternate German double s" 11px/450 #ffffff
+176,1269 48x24 div bg=#383838 r=5px
+176,1269 24x24 input =OFF [Disabled]
+176,1269 24x24 span bg=#2c2c2c r=5px
+175,1286 46x13 "Disabled" 11px/450 #ffffff
+200,1269 24x24 input =ON [Enabled]
+199,1286 43x13 "Enabled" 11px/450 #ffffff
+16,1305 144x16 label [Not applicable for selected text] r=2px
+16,1307 120x13 "Upper-case i with serif" 11px/450 #ffffff66
+175,1294 120x13 "Upper-case i with serif" 11px/450 #ffffff
+176,1301 48x24 div bg=#383838 r=5px
+176,1301 24x24 input =OFF [Disabled]
+176,1301 24x24 span bg=#2c2c2c r=5px
+175,1318 46x13 "Disabled" 11px/450 #ffffff
+200,1301 24x24 input =ON [Enabled]
+199,1318 43x13 "Enabled" 11px/450 #ffffff
+16,1337 144x16 label [Not applicable for selected text] r=2px
+16,1339 73x13 "Flat-top three" 11px/450 #ffffff66
+175,1326 73x13 "Flat-top three" 11px/450 #ffffff
+176,1333 48x24 div bg=#383838 r=5px
+176,1333 24x24 input =OFF [Disabled]
+176,1333 24x24 span bg=#2c2c2c r=5px
+175,1350 46x13 "Disabled" 11px/450 #ffffff
+200,1333 24x24 input =ON [Enabled]
+199,1350 43x13 "Enabled" 11px/450 #ffffff
+16,1369 144x16 label [Not applicable for selected text] r=2px
+16,1371 105x13 "Captital G with spur" 11px/450 #ffffff66
+175,1358 105x13 "Captital G with spur" 11px/450 #ffffff
+176,1365 48x24 div bg=#383838 r=5px
+176,1365 24x24 input =OFF [Disabled]
+176,1365 24x24 span bg=#2c2c2c r=5px
+175,1382 46x13 "Disabled" 11px/450 #ffffff
+200,1365 24x24 input =ON [Enabled]
+199,1382 43x13 "Enabled" 11px/450 #ffffff
+16,1403 80x13 "Single-storey a" 11px/450 #ffffffb2
+175,1390 80x13 "Single-storey a" 11px/450 #ffffff
+176,1397 48x24 div bg=#383838 r=5px
+176,1397 24x24 input =OFF [Disabled]
+176,1397 24x24 span bg=#2c2c2c r=5px
+175,1414 46x13 "Disabled" 11px/450 #ffffff
+200,1397 24x24 input =ON [Enabled]
+199,1414 43x13 "Enabled" 11px/450 #ffffff
+16,1456 101x13 "Horizontal spacing" 11px/550 #ffffff
+16,1488 69x13 "Kerning pairs" 11px/450 #ffffffb2
+175,1475 69x13 "Kerning pairs" 11px/450 #ffffff
+176,1482 48x24 div bg=#383838 r=5px
+176,1482 24x24 input =OFF [Disabled]
+175,1499 46x13 "Disabled" 11px/450 #ffffff
+200,1482 24x24 input =ON [Enabled]
+200,1482 24x24 span bg=#2c2c2c r=5px
+199,1499 43x13 "Enabled" 11px/450 #ffffff
+16,1541 75x13 "More features" 11px/550 #ffffff
+16,1571 144x16 label [Not applicable for selected text] r=2px
+16,1573 119x13 "Fraction denominators" 11px/450 #ffffff66
+175,1560 119x13 "Fraction denominators" 11px/450 #ffffff
+176,1567 48x24 div bg=#383838 r=5px
+176,1567 24x24 input =OFF [Disabled]
+176,1567 24x24 span bg=#2c2c2c r=5px
+175,1584 46x13 "Disabled" 11px/450 #ffffff
+200,1567 24x24 input =ON [Enabled]
+199,1584 43x13 "Enabled" 11px/450 #ffffff
+16,1605 107x13 "Fraction numerators" 11px/450 #ffffffb2
+175,1592 107x13 "Fraction numerators" 11px/450 #ffffff
+176,1599 48x24 div bg=#383838 r=5px
+176,1599 24x24 input =OFF [Disabled]
+176,1599 24x24 span bg=#2c2c2c r=5px
+175,1616 46x13 "Disabled" 11px/450 #ffffff
+200,1599 24x24 input =ON [Enabled]
+199,1616 43x13 "Enabled" 11px/450 #ffffff
+16,1637 95x13 "Scientific inferiors" 11px/450 #ffffffb2
+175,1624 95x13 "Scientific inferiors" 11px/450 #ffffff
+176,1631 48x24 div bg=#383838 r=5px
+176,1631 24x24 input =OFF [Disabled]
+176,1631 24x24 span bg=#2c2c2c r=5px
+175,1648 46x13 "Disabled" 11px/450 #ffffff
+200,1631 24x24 input =ON [Enabled]
+199,1648 43x13 "Enabled" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

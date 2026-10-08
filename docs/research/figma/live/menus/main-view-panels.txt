@@ -1,0 +1,96 @@
+# Main menu > View > Panels (hover) [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@12,44 194x444
+16,14 65x13 "Back to files" 11px/450 #ffffff
+40,55 49x13 "Actions…" 11px/450 #ffffff
+160,55 18x13 "⌘K" 11px/450 #ffffffb2
+16,96 18x13 "File" 11px/450 #ffffff
+16,120 20x13 "Edit" 11px/450 #ffffff
+0,138 194x24 menuitem EXPANDED
+8,138 178x24 span bg=#383838 r=5px
+16,144 26x13 "View" 11px/450 #ffffff
+16,168 35x13 "Object" 11px/450 #ffffff
+16,192 23x13 "Text" 11px/450 #ffffff
+16,216 42x13 "Arrange" 11px/450 #ffffff
+16,240 35x13 "Vector" 11px/450 #ffffff
+16,281 38x13 "Plugins" 11px/450 #ffffff
+16,305 43x13 "Widgets" 11px/450 #ffffff
+16,329 64x13 "Preferences" 11px/450 #ffffff
+16,353 46x13 "Libraries" 11px/450 #ffffff
+16,394 110x13 "Open in desktop app" 11px/450 #ffffff
+16,418 93x13 "Help and account" 11px/450 #ffffff
+---
+@210,105 201x787
+0,0 201x32 menuitemcheckbox CHECKED
+32,14 49x13 "Pixel grid" 11px/450 #ffffff
+171,14 14x13 "⇧′" 11px/450 #ffffffb2
+0,32 201x24 menuitemcheckbox CHECKED
+32,38 74x13 "Layout guides" 11px/450 #ffffff
+166,38 20x13 "⇧G" 11px/450 #ffffffb2
+32,62 33x13 "Rulers" 11px/450 #ffffff
+167,62 19x13 "⇧R" 11px/450 #ffffffb2
+0,80 201x24 menuitemcheckbox CHECKED
+32,86 62x13 "Show slices" 11px/450 #ffffff
+0,104 201x24 menuitemcheckbox CHECKED
+32,110 57x13 "Comments" 11px/450 #ffffff
+166,110 20x13 "⇧C" 11px/450 #ffffffb2
+0,128 201x24 menuitemcheckbox CHECKED
+32,134 64x13 "Annotations" 11px/450 #ffffff
+167,134 19x13 "⇧Y" 11px/450 #ffffffb2
+32,158 44x13 "Outlines" 11px/450 #ffffff
+32,182 70x13 "Pixel preview" 11px/450 #ffffff
+156,182 30x13 "⇧⌘P" 11px/450 #ffffffb2
+32,206 73x13 "Mask outlines" 11px/450 #ffffff
+32,230 78x13 "Frame outlines" 11px/450 #ffffff
+32,254 78x13 "Memory usage" 11px/450 #ffffff
+0,289 201x24 menuitemcheckbox CHECKED
+32,295 87x13 "Additional labels" 11px/450 #ffffff
+32,319 145x13 "Minimize left navigation bar" 11px/450 #ffffff
+32,343 61x13 "Minimize UI" 11px/450 #ffffff
+159,343 27x13 "⇧⌘\" 11px/450 #ffffffb2
+0,361 201x24 menuitemcheckbox CHECKED
+32,367 72x13 "Show/Hide UI" 11px/450 #ffffff
+170,367 15x13 "⌘\" 11px/450 #ffffffb2
+0,385 201x24 menuitemcheckbox CHECKED
+32,391 101x13 "Multiplayer cursors" 11px/450 #ffffff
+159,391 26x13 "⌥⌘\" 11px/450 #ffffffb2
+32,415 80x13 "Switch to Draw" 11px/450 #ffffff
+32,439 106x13 "Switch to Dev Mode" 11px/450 #ffffff
+166,439 19x13 "⇧D" 11px/450 #ffffffb2
+0,457 201x24 menuitem EXPANDED
+8,457 185x24 span bg=#0c8ce9 r=5px
+32,463 35x13 "Panels" 11px/450 #ffffff
+32,504 42x13 "Zoom in" 11px/450 #ffffff
+167,504 18x13 "⌘+" 11px/450 #ffffffb2
+32,528 50x13 "Zoom out" 11px/450 #ffffff
+169,528 17x13 "⌘–" 11px/450 #ffffffb2
+32,552 75x13 "Zoom to 100%" 11px/450 #ffffff
+167,552 18x13 "⌘0" 11px/450 #ffffffb2
+32,576 58x13 "Zoom to fit" 11px/450 #ffffff
+167,576 19x13 "⇧1" 11px/450 #ffffffb2
+32,600 95x13 "Zoom to selection" 11px/450 #ffffff
+167,600 19x13 "⇧2" 11px/450 #ffffffb2
+32,641 75x13 "Previous page" 11px/450 #ffffff
+163,641 22x13 "🌐↑" 11px/450 #ffffffb2
+32,665 54x13 "Next page" 11px/450 #ffffff
+163,665 22x13 "🌐↓" 11px/450 #ffffffb2
+32,689 126x13 "Zoom to previous frame" 11px/450 #ffffff
+166,689 20x13 "⇧N" 11px/450 #ffffffb2
+32,713 104x13 "Zoom to next frame" 11px/450 #ffffff
+177,713 8x13 "N" 11px/450 #ffffffb2
+32,737 105x13 "Find previous frame" 11px/450 #ffffff
+154,737 31x13 "Home" 11px/450 #ffffffb2
+32,761 83x13 "Find next frame" 11px/450 #ffffff
+165,761 20x13 "End" 11px/450 #ffffffb2
+---
+@416,554 174x136
+16,14 95x13 "Open layers panel" 11px/450 #ffffff
+139,14 19x13 "⌥1" 11px/450 #ffffffb2
+16,38 46x13 "Libraries" 11px/450 #ffffff
+139,38 19x13 "⌥2" 11px/450 #ffffffb2
+16,62 99x13 "Open design panel" 11px/450 #ffffff
+139,62 19x13 "⌥8" 11px/450 #ffffffb2
+16,86 115x13 "Open prototype panel" 11px/450 #ffffff
+139,86 19x13 "⌥9" 11px/450 #ffffffb2
+16,110 86x13 "Toggle variables" 11px/450 #ffffff

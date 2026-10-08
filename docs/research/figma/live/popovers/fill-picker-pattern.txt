@@ -1,0 +1,79 @@
+# Rect fill picker (Custom tab): paint type tab "PATTERN" clicked [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@959,347 240x522
+0,0 240x522 div bg=#2c2c2c r=13px
+7,21 63x13 "Color picker" 11px/400 #ffffff
+8,8 58x24 tab SELECTED bg=#383838
+16,14 42x13 "Custom" 11px/550 #ffffff
+16,14 42x13 "Custom" 11px/550 #ffffff
+70,8 62x24 button bg=#2c2c2c r=5px
+78,14 46x13 "Libraries" 11px/550 #ffffffb2
+78,14 46x13 "Libraries" 11px/450 #ffffffb2
+180,8 24x24 button [New style or variable] r=5px
+8,48 24x24 input =SOLID [Solid]
+7,73 26x13 "Solid" 11px/450 #ffffff
+36,48 24x24 input =GRADIENT_LINEAR [Gradient]
+35,73 46x13 "Gradient" 11px/450 #ffffff
+64,48 24x24 div bg=#383838 r=5px
+64,48 24x24 input =PATTERN [Pattern]
+63,73 39x13 "Pattern" 11px/450 #ffffff
+92,48 24x24 input =IMAGE [Image]
+91,73 32x13 "Image" 11px/450 #ffffff
+120,48 24x24 input =VIDEO [Video]
+119,73 30x13 "Video" 11px/450 #ffffff
+148,48 24x24 input =CUSTOM [shader_beta_special_tooltip]
+147,73 38x13 "Shader" 11px/450 #ffffff
+208,48 24x24 button [Blend mode] r=5px
+17,90 206x206 div bg=#00000080
+61,181 117x24 div bg=#2c2c2c r=5px
+89,187 81x13 "Select source…" 11px/450 #ffffff
+16,324 46x13 "Tile type" 11px/450 #ffffffb2
+87,311 46x13 "Tile type" 11px/450 #ffffff
+88,318 136x24 div bg=#383838 r=5px
+88,318 68x24 input =RECTANGULAR [Rectangular]
+88,318 68x24 span bg=#2c2c2c r=5px
+87,335 63x13 "Rectangular" 11px/450 #ffffff
+156,318 68x24 input =HEXAGONAL [Hexagonal]
+155,335 56x13 "Hexagonal" 11px/450 #ffffff
+16,356 29x13 "Scale" 11px/450 #ffffffb2
+88,350 136x24 label [Scale] bg=#383838 r=5px
+112,350 111x24 input =100% r=2px
+16,388 43x13 "Spacing" 11px/450 #ffffffb2
+88,382 136x24 label [Spacing] bg=#383838 r=5px
+96,388 7x13 "X" 11px/450 #ffffffb2
+112,382 111x24 input =0% r=2px
+88,414 136x24 label [Spacing] bg=#383838 r=5px
+96,420 7x13 "Y" 11px/450 #ffffffb2
+112,414 111x24 input = [0%] r=2px
+16,452 53x13 "Alignment" 11px/450 #ffffffb2
+88,446 136x65 fieldset bg=#383838 r=5px
+88,447 68x13 "Anchor point" 11px/450 #ffffff
+89,447 21x21 input =0 [Align top left]
+95,452 10x10 div bg=#7cc4f8 r=2px
+88,447 67x13 "Align top left" 11px/450 #ffffff
+145,447 21x21 input =1 [Align top center]
+155,456 2x2 div bg=#ffffff66 r=1px
+144,447 84x13 "Align top center" 11px/450 #ffffff
+202,447 21x21 input =2 [Align top right]
+212,456 2x2 div bg=#ffffff66 r=1px
+201,447 75x13 "Align top right" 11px/450 #ffffff
+89,468 21x21 input =3 [Align left]
+99,477 2x2 div bg=#ffffff66 r=1px
+88,468 47x13 "Align left" 11px/450 #ffffff
+145,468 21x21 input =4 [Align center]
+155,477 2x2 div bg=#ffffff66 r=1px
+144,468 64x13 "Align center" 11px/450 #ffffff
+202,468 21x21 input =5 [Align right]
+212,477 2x2 div bg=#ffffff66 r=1px
+201,468 54x13 "Align right" 11px/450 #ffffff
+89,489 21x21 input =6 [Align bottom left]
+99,498 2x2 div bg=#ffffff66 r=1px
+88,489 88x13 "Align bottom left" 11px/450 #ffffff
+145,489 21x21 input =7 [Align bottom center]
+155,498 2x2 div bg=#ffffff66 r=1px
+144,489 105x13 "Align bottom center" 11px/450 #ffffff
+202,489 21x21 input =8 [Align bottom right]
+212,498 2x2 div bg=#ffffff66 r=1px
+201,489 95x13 "Align bottom right" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

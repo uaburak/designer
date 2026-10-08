@@ -1,0 +1,52 @@
+# Effect settings popover with type Noise [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@959,660 240x224
+0,0 240x224 div bg=#2c2c2c r=13px
+8,8 78x24 button [Effect settings]
+32,14 30x13 "Noise" 11px/400 #ffffff
+8,-1000 105x24 option [Inner shadow] r=5px SELECTED
+34,-994 71x13 "Inner shadow" 11px/400 #ffffff
+8,-1000 103x24 option [Drop shadow] r=5px SELECTED
+34,-994 69x13 "Drop shadow" 11px/400 #ffffff
+8,-1000 86x24 option [Layer blur] r=5px SELECTED
+34,-994 52x13 "Layer blur" 11px/400 #ffffff
+8,-1000 120x24 option [Background blur] r=5px SELECTED
+34,-994 86x13 "Background blur" 11px/400 #ffffff
+8,-1000 64x24 option [Noise] r=5px SELECTED
+34,-994 30x13 "Noise" 11px/400 #ffffff
+8,-1000 73x24 option [Texture] r=5px SELECTED
+34,-994 39x13 "Texture" 11px/400 #ffffff
+8,-1000 63x24 option [Glass] r=5px SELECTED
+34,-994 29x13 "Glass" 11px/400 #ffffff
+184,8 24x24 button [Blend mode] r=5px
+15,45 57x13 "Noise type" 11px/450 #ffffff
+16,52 208x24 div bg=#383838 r=5px
+16,52 69x24 input =MONOTONE
+16,52 69x24 label bg=#2c2c2c r=5px
+36,58 30x13 "Mono" 11px/450 #ffffff
+85,52 69x24 input =DUOTONE
+109,58 21x13 "Duo" 11px/450 #ffffffb2
+155,52 69x24 input =MULTITONE
+176,58 26x13 "Multi" 11px/450 #ffffffb2
+16,94 54x13 "Noise size" 11px/450 #ffffffb2
+88,88 136x24 div bg=#2c2c2c r=5px
+88,88 136x24 label [Noise size X] bg=#383838 r=5px
+97,94 7x13 "X" 11px/450 #ffffffb2
+113,88 110x24 input =0.5 [Noise size X] r=2px
+88,120 136x24 div bg=#2c2c2c r=5px
+88,120 136x24 label [Noise size Y] bg=#383838 r=5px
+97,126 7x13 "Y" 11px/450 #ffffffb2
+113,120 110x24 input =0.5 [Noise size Y] r=2px
+16,158 40x13 "Density" 11px/450 #ffffffb2
+88,152 136x24 div bg=#2c2c2c r=5px
+88,152 136x24 label [Density] bg=#383838 r=5px
+113,152 110x24 input =100% [Density] r=2px
+16,190 28x13 "Color" 11px/450 #ffffffb2
+88,184 136x24 div bg=#383838 r=5px
+93,189 14x14 button [Solid color hex: 000000] bg=#000000 r=2px
+111,197 28x13 "Color" 11px/450 #ffffff
+112,184 58x24 input =000000 [Color] r=5px
+171,184 37x24 input =25 r=0px 2px 2px 0px
+208,190 9x13 "%" 11px/450 #ffffffb2
+208,8 24x24 button [Close] r=5px

@@ -1,0 +1,37 @@
+# Type settings popover, "Variable" tab (Inter is a variable font) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,378 240x506
+0,0 240x506 div bg=#2c2c2c r=13px
+7,21 70x13 "Type settings" 11px/400 #ffffff
+8,8 51x24 button bg=#2c2c2c r=5px
+16,14 35x13 "Basics" 11px/550 #ffffffb2
+16,14 34x13 "Basics" 11px/450 #ffffffb2
+63,8 53x24 button bg=#2c2c2c r=5px
+71,14 37x13 "Details" 11px/550 #ffffffb2
+71,14 36x13 "Details" 11px/450 #ffffffb2
+120,8 60x24 tab SELECTED bg=#383838
+128,14 44x13 "Variable" 11px/550 #ffffff
+128,14 44x13 "Variable" 11px/550 #ffffff
+0,40 240x144 div bg=#2c2c2c
+16,56 208x120 div bg=#383838 r=5px
+32,106 60x20 "Preview" 16px/400 #ffffff66
+16,194 27x13 "Slant" 11px/450 #ffffffb2
+143,188 81x24 label [Slant] bg=#383838 r=5px
+151,188 72x24 input =0 r=2px
+218,227 4x4 div bg=#ffffff r=9999px
+212,221 16x16 div bg=#ffffff r=9999px
+16,259 37x13 "Weight" 11px/450 #ffffffb2
+143,253 81x24 label [Weight] bg=#383838 r=5px
+151,253 72x24 input =400 r=2px
+18,292 4x4 div bg=#ffffff66 r=9999px
+43,292 4x4 div bg=#ffffff66 r=9999px
+68,292 4x4 div bg=#ffffff66 r=9999px
+93,292 4x4 div bg=#ffffff r=9999px
+118,292 4x4 div bg=#ffffff66 r=9999px
+143,292 4x4 div bg=#ffffff66 r=9999px
+168,292 4x4 div bg=#ffffff66 r=9999px
+193,292 4x4 div bg=#ffffff66 r=9999px
+218,292 4x4 div bg=#ffffff66 r=9999px
+87,286 16x16 div bg=#ffffff r=9999px
+208,8 24x24 button [Close] r=5px

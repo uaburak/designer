@@ -1,0 +1,34 @@
+# Bottom toolbar (Design mode, nothing selected) — whole toolbar element [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@456,840 529x48
+8,8 49x32 group [Move]
+8,8 32x32 button [Move] bg=#0c8ce9 r=5px PRESSED
+41,8 16x32 button [Move tools] r=5px
+65,8 49x32 group [Frame]
+65,8 32x32 button [Frame] r=5px
+98,8 16x32 button [Region tools] r=5px
+122,8 49x32 group [Rectangle]
+122,8 32x32 button [Rectangle] r=5px
+155,8 16x32 button [Shape tools] r=5px
+179,8 49x32 group [Pen]
+179,8 32x32 button [Pen] r=5px
+212,8 16x32 button [Creation tools] r=5px
+236,8 49x32 group [Text]
+236,8 32x32 button [Text] r=5px
+269,8 16x32 button [Type tools] r=5px
+293,8 49x32 group [Comment]
+293,8 32x32 button [Comment] r=5px
+326,8 16x32 button [Comment tools] r=5px
+350,8 32x32 button [Actions] r=5px
+390,0 1x48 div bg=#444444
+399,8 122x32 fieldset bg=#444444 r=5px
+400,11 74x13 "Toolbelt Mode" 11px/400 #ffffff
+431,10 28x28 div bg=#2c2c2c r=3px
+401,10 28x28 input =illustration [Draw]
+415,25 27x13 "Draw" 11px/400 #ffffff
+432,11 26x26 input =design [Design]
+445,25 36x13 "Design" 11px/400 #ffffff
+461,10 28x28 input =metronome [motion_beta_special_tooltip]
+475,25 36x13 "Motion" 11px/400 #ffffff
+491,10 28x28 input =handoff [Dev Mode]
+505,25 53x13 "Dev Mode" 11px/400 #ffffff

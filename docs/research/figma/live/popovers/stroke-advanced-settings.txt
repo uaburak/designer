@@ -1,0 +1,38 @@
+# Rect with a stroke: click "Advanced stroke settings" (sliders icon) in the Stroke section [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,660 240x224
+0,0 240x224 div bg=#2c2c2c r=13px
+16,14 80x13 "Stroke settings" 11px/550 #ffffff
+15,45 63x13 "Stroke Type" 11px/450 #ffffff
+16,52 208x24 div bg=#383838 r=5px
+16,52 69x24 input =Basic [Basic]
+16,52 69x24 label bg=#2c2c2c r=5px
+36,58 28x13 "Basic" 11px/450 #ffffff
+85,52 69x24 input =Dynamic [Dynamic]
+97,58 46x13 "Dynamic" 11px/450 #ffffffb2
+155,52 69x24 input =Brush [Brush]
+174,58 30x13 "Brush" 11px/450 #ffffffb2
+16,94 27x13 "Style" 11px/450 #ffffffb2
+95,89 27x13 "Style" 11px/450 #ffffff
+96,88 128x24 button bg=#2c2c2c r=5px
+129,93 26x13 "Solid" 11px/450 #ffffff
+16,126 68x13 "Width profile" 11px/450 #ffffffb2
+95,121 68x13 "Width profile" 11px/450 #ffffff
+96,120 96x24 button bg=#2c2c2c r=5px
+105,130 62x4 img [Uniform]
+200,120 24x24 button [Flip width points] r=5px DISABLED
+16,158 22x13 "Join" 11px/450 #ffffffb2
+95,145 22x13 "Join" 11px/450 #ffffff
+96,152 128x24 div bg=#383838 r=5px
+96,152 43x24 input =MITER [Miter]
+96,152 43x24 span bg=#2c2c2c r=5px
+95,169 27x13 "Miter" 11px/450 #ffffff
+139,152 43x24 input =BEVEL [Bevel]
+138,169 29x13 "Bevel" 11px/450 #ffffff
+181,152 43x24 input =ROUND [Round]
+180,169 34x13 "Round" 11px/450 #ffffff
+16,190 59x13 "Miter angle" 11px/450 #ffffffb2
+96,184 128x24 label [Miter angle] bg=#383838 r=5px
+113,184 110x24 input =28.96° r=2px
+208,8 24x24 button [Close] r=5px

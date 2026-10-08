@@ -1,0 +1,13 @@
+# Rect with a stroke: click "Individual strokes" (border-sides icon) in the Stroke section [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1315,539 117x159
+-1,1 91x13 "Individual strokes" 11px/400 #ffffff
+0,0 117x24 menuitemradio CHECKED
+8,0 101x24 span bg=#0c8ce9 r=5px
+60,6 13x13 "All" 11px/450 #ffffff
+60,30 20x13 "Top" 11px/450 #ffffff
+60,54 38x13 "Bottom" 11px/450 #ffffff
+60,78 21x13 "Left" 11px/450 #ffffff
+60,102 27x13 "Right" 11px/450 #ffffff
+60,141 41x13 "Custom" 11px/450 #ffffff

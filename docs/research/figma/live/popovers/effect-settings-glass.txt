@@ -1,0 +1,61 @@
+# Effect settings popover with type Glass [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@959,571 240x313
+0,0 240x313 div bg=#2c2c2c r=13px
+8,8 76x24 button [Effect settings]
+32,14 28x13 "Glass" 11px/400 #ffffff
+8,-1000 105x24 option [Inner shadow] r=5px SELECTED
+34,-994 71x13 "Inner shadow" 11px/400 #ffffff
+8,-1000 103x24 option [Drop shadow] r=5px SELECTED
+34,-994 69x13 "Drop shadow" 11px/400 #ffffff
+8,-1000 86x24 option [Layer blur] r=5px SELECTED
+34,-994 52x13 "Layer blur" 11px/400 #ffffff
+8,-1000 120x24 option [Background blur] r=5px SELECTED
+34,-994 86x13 "Background blur" 11px/400 #ffffff
+8,-1000 64x24 option [Noise] r=5px SELECTED
+34,-994 30x13 "Noise" 11px/400 #ffffff
+8,-1000 73x24 option [Texture] r=5px SELECTED
+34,-994 39x13 "Texture" 11px/400 #ffffff
+8,-1000 63x24 option [Glass] r=5px SELECTED
+34,-994 29x13 "Glass" 11px/400 #ffffff
+16,62 27x13 "Light" 11px/450 #ffffffb2
+87,56 27x13 "Light" 11px/450 #ffffff
+88,56 56x56 div bg=#383838 r=8px
+152,57 72x24 div bg=#2c2c2c r=5px
+152,57 72x24 label [Angle] bg=#383838 r=5px
+159,62 64x15 input =-45° [Angle] r=2px
+152,88 72x24 div bg=#2c2c2c r=5px
+152,88 72x24 label [Intensity] bg=#383838 r=5px
+160,88 63x24 input =80% [Intensity] r=2px
+16,151 54x13 "Refraction" 11px/450 #ffffffb2
+168,145 56x24 label [Refraction] bg=#383838 r=0px 5px 5px 0px
+175,149 48x15 input =80 [Refraction] r=2px
+87,145 80x24 div bg=#383838 r=5px 0px 0px 5px
+79,135 96x44 slider [Refraction]
+137,151 12x12 div bg=#ffffff r=9999px
+16,183 32x13 "Depth" 11px/450 #ffffffb2
+168,177 56x24 label [Depth] bg=#383838 r=0px 5px 5px 0px
+175,181 48x15 input =20 [Depth] r=2px
+87,177 80x24 div bg=#383838 r=5px 0px 0px 5px
+79,167 96x44 slider [Depth]
+105,183 12x12 div bg=#ffffff r=9999px
+16,215 56x13 "Dispersion" 11px/450 #ffffffb2
+168,209 56x24 label [Dispersion] bg=#383838 r=0px 5px 5px 0px
+175,213 48x15 input =50 [Dispersion] r=2px
+87,209 80x24 div bg=#383838 r=5px 0px 0px 5px
+79,199 96x44 slider [Dispersion]
+121,215 12x12 div bg=#ffffff r=9999px
+16,247 27x13 "Frost" 11px/450 #ffffffb2
+168,241 56x24 label [Frost] bg=#383838 r=0px 5px 5px 0px
+175,245 48x15 input =4 [Frost] r=2px
+87,241 80x24 div bg=#383838 r=5px 0px 0px 5px
+79,231 96x44 slider [Frost]
+97,247 12x12 div bg=#ffffff r=9999px
+16,279 29x13 "Splay" 11px/450 #ffffffb2
+168,273 56x24 label [Splay] bg=#383838 r=0px 5px 5px 0px
+175,277 48x15 input =0 [Splay] r=2px
+87,273 80x24 div bg=#383838 r=5px 0px 0px 5px
+79,263 96x44 slider [Splay]
+95,279 12x12 div bg=#ffffff r=9999px
+208,8 24x24 button [Close] r=5px

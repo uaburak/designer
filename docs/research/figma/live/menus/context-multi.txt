@@ -1,0 +1,66 @@
+# Right-click on a multi-selection (Rect + Ellipse + Polygon) on canvas [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@493,155 200x677
+16,14 27x13 "Copy" 11px/400 #ffffff
+162,13 13x15 "⌘" 12px/400 #ffffffb2
+175,13 9x15 "C" 12px/400 #ffffffb2
+16,38 56x13 "Paste here" 11px/400 #ffffff
+16,62 84x13 "Paste to replace" 11px/400 #ffffff
+150,61 13x15 "⇧" 12px/400 #ffffffb2
+163,61 13x15 "⌘" 12px/400 #ffffffb2
+176,61 8x15 "R" 12px/400 #ffffffb2
+16,86 75x13 "Copy/Paste as" 11px/400 #ffffff
+16,110 106x13 "Send to Figma Make" 11px/400 #ffffff
+16,134 60x13 "Add motion" 11px/400 #ffffff
+16,175 71x13 "Move to page" 11px/400 #ffffff
+16,199 69x13 "Bring to front" 11px/400 #ffffff
+180,198 4x15 "]" 12px/400 #ffffffb2
+16,223 69x13 "Send to back" 11px/400 #ffffff
+180,222 4x15 "[" 12px/400 #ffffffb2
+16,264 82x13 "Group selection" 11px/400 #ffffff
+162,263 13x15 "⌘" 12px/400 #ffffffb2
+175,263 9x15 "G" 12px/400 #ffffffb2
+16,288 83x13 "Frame selection" 11px/400 #ffffff
+149,287 13x15 "⌥" 12px/400 #ffffffb2
+162,287 13x15 "⌘" 12px/400 #ffffffb2
+175,287 9x15 "G" 12px/400 #ffffffb2
+16,312 105x13 "Wrap in new section" 11px/400 #ffffff
+163,311 13x15 "⌘" 12px/400 #ffffffb2
+176,311 8x15 "S" 12px/400 #ffffffb2
+16,336 36x13 "Flatten" 11px/400 #ffffff
+150,335 13x15 "⌥" 12px/400 #ffffffb2
+164,335 13x15 "⇧" 12px/400 #ffffffb2
+177,335 7x15 "F" 12px/400 #ffffffb2
+16,360 72x13 "Outline stroke" 11px/400 #ffffff
+149,359 13x15 "⌥" 12px/400 #ffffffb2
+162,359 13x15 "⌘" 12px/400 #ffffffb2
+175,359 9x15 "O" 12px/400 #ffffffb2
+16,384 66x13 "Use as mask" 11px/400 #ffffff
+150,383 11x15 "⌃" 12px/400 #ffffffb2
+160,383 13x15 "⌘" 12px/400 #ffffffb2
+173,383 11x15 "M" 12px/400 #ffffffb2
+16,425 82x13 "Add auto layout" 11px/400 #ffffff
+163,424 13x15 "⇧" 12px/400 #ffffffb2
+176,424 8x15 "A" 12px/400 #ffffffb2
+16,449 103x13 "More layout options" 11px/400 #ffffff
+16,473 97x13 "Create component" 11px/400 #ffffff
+150,472 13x15 "⌥" 12px/400 #ffffffb2
+163,472 13x15 "⌘" 12px/400 #ffffffb2
+176,472 8x15 "K" 12px/400 #ffffffb2
+16,497 37x13 "Plugins" 11px/400 #ffffff
+16,521 43x13 "Widgets" 11px/400 #ffffff
+16,562 57x13 "Show/Hide" 11px/400 #ffffff
+149,561 13x15 "⇧" 12px/400 #ffffffb2
+162,561 13x15 "⌘" 12px/400 #ffffffb2
+175,561 9x15 "H" 12px/400 #ffffffb2
+16,586 65x13 "Lock/Unlock" 11px/400 #ffffff
+151,585 13x15 "⇧" 12px/400 #ffffffb2
+164,585 13x15 "⌘" 12px/400 #ffffffb2
+177,585 7x15 "L" 12px/400 #ffffffb2
+16,627 73x13 "Flip horizontal" 11px/400 #ffffff
+162,626 13x15 "⇧" 12px/400 #ffffffb2
+175,626 9x15 "H" 12px/400 #ffffffb2
+16,651 60x13 "Flip vertical" 11px/400 #ffffff
+163,650 13x15 "⇧" 12px/400 #ffffffb2
+176,650 8x15 "V" 12px/400 #ffffffb2
