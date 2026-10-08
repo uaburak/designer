@@ -280,6 +280,10 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (text_.node != kNoGuid)
     if (uint32_t r = textPointerDown(s, mods, clickCount_)) return r;
 
+  // Prototype mode: a press on a "+" connection handle or a noodle's end drags a connection.
+  if (proto_.on)
+    if (uint32_t r = protoPointerDown(s, mods)) return r;
+
   if (tool_ == Tool::TEXT) {
     // On a text layer: edit it there. Elsewhere: a click makes auto-width text, a drag a box of that width.
     auto path = hitPath(doc_, page_, downWorld_, pixel());
@@ -418,7 +422,9 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
     case Gesture::None:
       updateHover(s, mods);
       if (vector_.node != kNoGuid || tool_ == Tool::PEN) vectorPointerMove(s, mods);
+      if (proto_.on) protoHover(s);
       break;
+    case Gesture::Noodle: protoPointerMove(s); break;
     case Gesture::Vector: vectorPointerMove(s, mods); break;
     case Gesture::Paint: paintPointerMove(s, mods); break;
     case Gesture::Pencil:
@@ -476,6 +482,10 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       return;
     case Gesture::Paint:
       paintPointerUp();
+      gesture_ = Gesture::None;
+      return;
+    case Gesture::Noodle:
+      protoPointerUp(s);
       gesture_ = Gesture::None;
       return;
     case Gesture::Pencil:
@@ -542,6 +552,11 @@ void Editor::cancelGesture() {
       reloadVector();
       break;
     case Gesture::Pencil: pencilPoints_.clear(); break;
+    case Gesture::Noodle:
+      proto_.drag = ProtoSession::Drag::None;
+      proto_.target = kNoGuid;
+      needsRender_ = true;
+      break;
     case Gesture::Paint:
       if (txn_.open) rollback();
       paint_.drag = PaintSession::Drag::None;

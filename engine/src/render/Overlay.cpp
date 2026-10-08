@@ -142,6 +142,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   }
 
   // Top-level frames' names, above their top-left corner (selection colour when selected).
+  // Prototype mode: flow starting point labels (before the titles: a title moves right past its frame's label).
+  if (overlay.prototype.on) drawPrototypeLabels(doc, camera, overlay, style);
   if (overlay.frameTitles && page != kNoGuid) {
     for (Guid c : doc.children(page)) {
       const Node* n = doc.get(c);
@@ -152,7 +154,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       for (Guid s : overlay.selection) isSelected |= s == c;
       const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, b.w);
       if (!L || L->lines.empty()) continue;
-      double x = std::round(b.x * dpr) / dpr;
+      double x = std::round((b.x + overlay.prototype.labelWidth(c)) * dpr) / dpr;
       double baseline = std::round((b.y - style.titleBaselineGap) * dpr) / dpr;
       Mat2x3 m = Mat2x3::translate(x, baseline - L->lines[0].baseline);
       // Components' and sets' names are in the component purple (Figma).
@@ -372,6 +374,9 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     ScreenBox b = screenBox(Mat2x3::translate(r.x, r.y), {r.w, r.h}, dpr);
     emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, style.marqueeFill, blue, 1, 1, 0), Pass::Shape);
   }
+
+  // Prototype mode: connections and their handles, over everything else.
+  if (overlay.prototype.on) drawPrototypeOverlay(doc, page, camera, overlay, style);
 }
 
 }  // namespace eng

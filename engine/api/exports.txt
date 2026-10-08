@@ -97,3 +97,12 @@ _engine_mark_published
 _engine_import_library_assets
 _engine_apply_library_update
 _engine_library_usage
+_engine_set_prototype_mode
+_engine_present_start
+_engine_present_stop
+_engine_present_pointer
+_engine_present_wheel
+_engine_present_key
+_engine_present_command
+_engine_present_set_options
+_engine_present_state

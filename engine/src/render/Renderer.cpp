@@ -677,6 +677,8 @@ gfx::IRect Renderer::deviceRect(const Rect& css, double margin) const {
 }
 
 Rect Renderer::screenBounds(uint32_t i) const {
+  // renderScene: a layer may be anywhere (scrolled, animated): the whole screen.
+  if (!cull_) return screen_;
   // The view is a scale and a translation: the world box maps to the screen box exactly.
   const Rect& w = tree_->nodes()[i].visual;
   return {w.x * view_.m00 + view_.m02, w.y * view_.m11 + view_.m12, w.w * view_.m00, w.h * view_.m11};
@@ -711,7 +713,7 @@ void Renderer::endLayer(int saved) {
 void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha) {
   const std::vector<RenderNode>& nodes = tree_->nodes();
   for (uint32_t i = first; i < end; i = nodes[i].end) {
-    const NodeProps& p = nodes[i].node->props;
+    const NodeProps& p = propsAt(i);
     if (p.mask) {
       // A mask: it masks the layers above it in this parent (and is not drawn itself).
       Mat2x3 mm = m * p.transform;
@@ -856,18 +858,18 @@ void Renderer::blendedPaint(const Paint& paint, const Mat2x3& m, Vec2 size, doub
 void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss, double alpha) {
   const RenderNode& rn = tree_->nodes()[i];
   Guid id = rn.id;
-  const NodeProps& p = rn.node->props;
+  const NodeProps& p = propsAt(i);
   if (p.opacity <= 0 || alpha <= 0) return;
   stats_.nodes++;
   // Culling (docs/engine.md §6.8): the whole subtree goes when what it can cover is off screen…
   Rect vb = screenBounds(i);
   Rect padded{vb.x - 2, vb.y - 2, vb.w + 4, vb.h + 4};
-  if (!padded.intersects(screen_)) {
+  if (cull_ && !padded.intersects(screen_)) {
     stats_.culled++;
     return;
   }
   // …or smaller than half a device pixel (LOD).
-  if (std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < 0.5) {
+  if (cull_ && std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < 0.5) {
     stats_.tiny++;
     return;
   }

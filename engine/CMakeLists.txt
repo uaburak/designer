@@ -67,6 +67,11 @@ add_library(eng_core STATIC
   src/geometry/Stroker.cpp
   src/geometry/Boolean.cpp
   src/geometry/NodeGeometry.cpp
+  src/proto/Prototype.cpp
+  src/proto/Player.cpp
+  src/editor/PrototypeEditing.cpp
+  src/render/PrototypeOverlay.cpp
+  src/render/PresentRender.cpp
 )
 target_include_directories(eng_core PUBLIC src)
 # kiwi.h (the runtime) and the generated binary schema: SYSTEM, so their warnings don't fail -Werror.
@@ -127,6 +132,7 @@ else()
     tests/unit/render.paths.test.cpp
     tests/unit/render.cache.test.cpp
     tests/unit/text.stored.test.cpp
+    tests/unit/prototype.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   target_include_directories(engine_tests PRIVATE third_party/doctest tests/unit)
