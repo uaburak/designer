@@ -55,7 +55,8 @@ export class EditorController {
   /** This file as a library and the libraries it uses (docs/data.md §9) */
   readonly libraries: LibraryIndex;
   /** The next paste: where it goes (⇧⌘V sets "inPlace" before the DOM paste event) */
-  pendingPaste: { mode: "inPlace" } | { mode: "point"; x: number; y: number } | null = null;
+  /** How the next paste places what it pastes: in place, at a point ("Paste here"), over the selection (⇧⌘V), or replacing it (⇧⌘R). */
+  pendingPaste: { mode: "inPlace" } | { mode: "over" } | { mode: "replace" } | { mode: "point"; x: number; y: number } | null = null;
   /** The last copy's formats (a paste with no system clipboard access falls back to them) */
   lastCopy: Record<string, string> | null = null;
   /** "Back to files" (EditorApp's `onBackToFiles`); null: the desktop's Home, else a note */

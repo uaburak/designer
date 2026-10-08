@@ -39,6 +39,41 @@ std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, 
     }
     out.push_back(c);
   }
+  // A top-level frame taken whole: then only top-level layers (Figma doesn't mix levels in one marquee).
+  bool wholeFrame = false;
+  for (Guid id : out)
+    if (doc.parentOf(id) == page && doc.get(id)->props.isFrameLike() && !doc.children(id).empty()) wholeFrame = true;
+  if (wholeFrame) out.erase(std::remove_if(out.begin(), out.end(), [&](Guid id) { return doc.parentOf(id) != page; }), out.end());
+  return out;
+}
+
+std::vector<Guid> marqueeDeepHits(const Document& doc, Guid page, const Rect& rect) {
+  std::vector<Guid> out;
+  doc.query(page, rect, [&](Guid id) {
+    const Node* n = doc.get(id);
+    if (!n || id.isDerived() || doc.pageOf(id) != page) return true;
+    bool leaf = n->props.type == NodeType::INSTANCE || doc.children(id).empty();
+    if (!leaf || n->props.type == NodeType::CANVAS) return true;
+    Rect b = doc.worldBounds(id);
+    if (!rect.intersects(b)) return true;
+    // Up to the page: nothing hidden, locked or an instance (its sublayers are its own); clipping frames cut it.
+    for (Guid cur = id; cur != kNoGuid && cur != page; cur = doc.parentOf(cur)) {
+      const Node* c = doc.get(cur);
+      if (!c || !c->props.visible || c->props.locked) return true;
+      if (cur != id && c->props.type == NodeType::INSTANCE) return true;
+      if (cur != id && c->props.clipsContent()) {
+        Rect clip = doc.worldBounds(cur);
+        double x0 = std::max(b.x, clip.x), y0 = std::max(b.y, clip.y), x1 = std::min(b.right(), clip.right()), y1 = std::min(b.bottom(), clip.bottom());
+        if (x1 < x0 || y1 < y0) return true;
+        b = {x0, y0, x1 - x0, y1 - y0};
+        if (!rect.intersects(b)) return true;
+      }
+    }
+    out.push_back(id);
+    return true;
+  });
+  std::sort(out.begin(), out.end(), [&](Guid a, Guid b) { return doc.paintsBefore(a, b); });
+  out.erase(std::unique(out.begin(), out.end()), out.end());
   return out;
 }
 

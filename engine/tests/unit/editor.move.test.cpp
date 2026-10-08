@@ -83,10 +83,15 @@ TEST_CASE("move: dropping on a frame reparents, keeping the place on the page; o
   CHECK(world(e, A) == Rect{35, 35, 50, 50});
 }
 
-TEST_CASE("move: ⌘ keeps the parent; the layer itself is never a drop target") {
+TEST_CASE("move: Space held keeps the parent (Figma: no nesting); the layer itself is never a drop target") {
   Editor e = load(baseScene());
   e.setSelection({A});
-  drag(e, {45, 45}, {645, 45}, MOD_PRIMARY | MOD_META);
+  down(e, 45, 45);
+  steps(e, {45, 45}, {300, 45});
+  e.key(KeyEvent::DOWN, KeyCode::Space, 0, 0, false);
+  steps(e, {300, 45}, {645, 45});
+  up(e, 645, 45);
+  e.key(KeyEvent::UP, KeyCode::Space, 0, 0, false);
   CHECK(e.document().parentOf(A) == F);
   CHECK(world(e, A).x == 620);
   // A frame dragged over itself stays on the page.

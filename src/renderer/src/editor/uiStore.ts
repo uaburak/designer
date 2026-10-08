@@ -40,6 +40,12 @@ export interface UIState {
   uiMinimized: boolean;
   /** ⇧R */
   rulers: boolean;
+  /** View › Pixel grid (⇧'): drawn from 300 % zoom; default on */
+  pixelGrid?: boolean;
+  /** View › Outlines › Show outlines (⇧⌘O) */
+  outlines?: boolean;
+  /** View › Layout guides (⇧G); default on */
+  layoutGuides?: boolean;
   renaming: Renaming;
   /** Layers shown open, every page's */
   expanded: ReadonlySet<Guid>;
@@ -103,6 +109,8 @@ export interface UIState {
   annotations?: boolean;
   /** The note editor: the layer, which note (−1: a new one), where (viewport px) */
   annotationEditor?: { ref: Guid; index: number; x: number; y: number; width: number; height: number } | null;
+  /** A frame's or section's name edited in place over its title on the canvas (viewport px: the title) */
+  titleRename?: { ref: Guid; name: string; x: number; y: number; width: number; height: number } | null;
   /** A saved measurement's custom text being edited (viewport px: its pill) */
   measurementEditor?: { id: Guid; text: string; x: number; y: number; width: number; height: number } | null;
   /** A design's status menu (viewport px: the chip) */

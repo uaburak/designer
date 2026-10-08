@@ -93,6 +93,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommand(id, args);
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommand(id, args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
     // Inside an open transaction (a scrub in the variables table): applied live, one undo step at its commit.
@@ -191,6 +192,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES) return componentCommandState(id);
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
+  if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::ZOOM_TO_PREVIOUS_FRAME) return selectionCommandState(id);
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
   if (derivedSelected && id != CommandId::UNDO && id != CommandId::REDO && id != CommandId::TOGGLE_VISIBLE && id != CommandId::TOGGLE_LOCK &&
@@ -320,6 +322,8 @@ void Editor::deleteSelection() {
 
 void Editor::nudge(double dx, double dy, bool repeat) {
   auto top = topLevelSelection(doc_, selection_);
+  // Layers inside an instance stay where their main puts them (as a drag leaves them, audit selection #24).
+  top.erase(std::remove_if(top.begin(), top.end(), [](Guid id) { return id.isDerived(); }), top.end());
   if (top.empty()) return;
   if (reorderInFlow(top, dx, dy)) return;
   bool merge = repeat && lastNudged_ == selection_ && undo_.canUndo() && undo_.undoLabel() == "Nudge";
@@ -753,6 +757,23 @@ void Editor::duplicate() {
     u = i ? u.united(b) : b;
   }
   double dx = 0;
+  // ⌘D again on the copies the last ⌘D made, moved since: each new copy goes that offset further (live Figma,
+  // 2026-10-08: ⌘D, ⇧↓ ×3, ⌘D, ⌘D → y 30, 60, 90).
+  Vec2 repeat;
+  bool repeating = !duplicatedFrom_.empty();
+  for (size_t i = 0; repeating && i < top.size(); i++) {
+    auto it = duplicatedFrom_.find(top[i]);
+    const Node* copy = doc_.get(top[i]);
+    const Node* src = it == duplicatedFrom_.end() ? nullptr : doc_.get(it->second);
+    if (!copy || !src || src->props.parentIndex.guid != copy->props.parentIndex.guid) {
+      repeating = false;
+      break;
+    }
+    Vec2 off{copy->props.transform.m02 - src->props.transform.m02, copy->props.transform.m12 - src->props.transform.m12};
+    if (i == 0) repeat = off;
+    else if (std::fabs(off.x - repeat.x) > 1e-6 || std::fabs(off.y - repeat.y) > 1e-6) repeating = false;
+  }
+  if (repeating) frames = false;
   if (frames) {
     const double gap = kDuplicateGap;
     GuidSet mine(top.begin(), top.end());
@@ -778,11 +799,15 @@ void Editor::duplicate() {
     std::string key = placeAt(parent, index, kNoGuid);
     Mat2x3 t = n->props.transform;
     t.m02 += dx;
+    if (repeating) t.m02 += repeat.x, t.m12 += repeat.y;
     // ⌘D on a main component makes an instance of it (R4 §2); a variant in its set, a new variant.
     if (n->props.type == NodeType::SYMBOL && setOf(id) == kNoGuid) copies.push_back(createInstance(id, parent, key, t));
     else copies.push_back(cloneSubtree(id, parent, key, t));
     if (n->props.type == NodeType::SYMBOL && setOf(id) != kNoGuid) renameVariants(parent);
   }
+  duplicatedFrom_.clear();
+  for (size_t i = 0; i < copies.size() && i < top.size(); i++)
+    if (copies[i] != kNoGuid) duplicatedFrom_[copies[i]] = top[i];
   changeSelection(std::move(copies));
   commit();
 }
@@ -1165,8 +1190,11 @@ bool Editor::copySelection(Clipboard& out, bool cut) const {
   return true;
 }
 
-uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
+uint32_t Editor::paste(const Clipboard& clip, bool inPlace) { return pasteWith(clip, inPlace ? PASTE_IN_PLACE : 0); }
+
+uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
   if (busy() || txn_.open || page_ == kNoGuid) return 0;
+  const bool inPlace = (flags & PASTE_IN_PLACE) != 0;
   // The selection: the regions' nodes and what is below them. Anything else came along as what they reference.
   std::unordered_map<Guid, const NodeChange*, GuidHash> all;
   for (const NodeChange& c : clip.nodes)
@@ -1246,8 +1274,42 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       index = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
     }
   }
+  // Where each copy goes: one place, or (Paste to replace) one per replaced layer.
+  struct Spot {
+    Guid parent;
+    size_t index;
+    Vec2 d;
+    Guid replaced;
+  };
+  std::vector<Spot> spots;
+  if ((flags & PASTE_REPLACE) && !sel.empty()) {
+    // ⇧⌘R "Paste to replace": each selected layer gives way to a copy at its place — its parent, its order, its x / y
+    // (the copy's top-left at its top-left) and its constraints.
+    for (Guid s : sel) {
+      const Node* n = doc_.get(s);
+      Guid parent = doc_.parentOf(s);
+      if (!n || s.isDerived() || n->props.locked || sourceRoots.count(s) || isLibraryCopy(s) || isStructuralTarget(parent)) continue;
+      const auto& siblings = doc_.children(parent);
+      size_t at = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
+      Rect rb = doc_.worldBounds(s);
+      spots.push_back({parent, at, {std::round(rb.x - u.x), std::round(rb.y - u.y)}, s});
+    }
+    if (spots.empty()) return 0;
+  } else if ((flags & PASTE_OVER) && !sel.empty()) {
+    // ⇧⌘V "Paste over selection": where it was copied from (in place), just above the selection — not into it.
+    Guid s = sel.back();
+    Guid parent = doc_.parentOf(s);
+    while (isStructuralTarget(parent) && doc_.has(parent)) {
+      s = parent.isDerived() ? instanceOfDerived(parent) : parent;
+      parent = doc_.parentOf(s);
+    }
+    const auto& siblings = doc_.children(parent);
+    size_t at = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), s) - siblings.begin()) + 1;
+    spots.push_back({parent, at, {}, kNoGuid});
+  }
   Vec2 d;
-  if (!inPlace) {
+  if (!spots.empty()) {
+  } else if (!inPlace) {
     auto centreIn = [&](const Rect& r) {
       return Vec2{std::round(r.x + r.w / 2 - u.w / 2) - u.x, std::round(r.y + r.h / 2 - u.h / 2) - u.y};
     };
@@ -1259,7 +1321,10 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
         Vec2 o = offsetOf(sourceParent);
         Vec2 rel{u.x - o.x, u.y - o.y};
         Rect placed{fb.x + rel.x, fb.y + rel.y, u.w, u.h};
-        d = fb.containsRect(placed) ? Vec2{placed.x - u.x, placed.y - u.y} : centreIn(fb);
+        // Each axis on its own (audit selection #18): where it sat when that fits the frame, else centred.
+        Vec2 centred = centreIn(fb);
+        bool fitsX = placed.x >= fb.x && placed.right() <= fb.right(), fitsY = placed.y >= fb.y && placed.bottom() <= fb.bottom();
+        d = {fitsX ? placed.x - u.x : centred.x, fitsY ? placed.y - u.y : centred.y};
       }
     } else if (target == page_ && sel.empty()) {
       // Where it was when that is in view; else in the middle of the view.
@@ -1278,8 +1343,10 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
   };
   for (const NodeChange* r : roots)
     if (r->props.type == NodeType::SYMBOL || r->props.isComponentSet()) markWhole(markWhole, r->guid);
-  begin(TxnKind::USER, "Paste");
-  auto keys = placeManyAt(target, index, roots.size(), {});
+  if (spots.empty()) spots.push_back({target, index, d, kNoGuid});
+  const NodeProps* replacedProps = nullptr;
+  size_t spotIndex = 0;
+  begin(TxnKind::USER, (flags & PASTE_REPLACE) ? "Paste to replace" : "Paste");
   std::vector<Guid> pasted;
   std::vector<std::pair<Guid, Guid>> movedMains;  // a main cut in this file: its GUID → the pasted one
   unresolved_ = 0;
@@ -1442,10 +1509,14 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
       p.asset().publishedVersion = src.props.asset().publishedVersion;
       p.asset().version.clear();  // the clipboard's note of its hash (copySelection), not a library copy's version
     }
+    if (root && replacedProps) {
+      p.horizontalConstraint = replacedProps->horizontalConstraint;
+      p.verticalConstraint = replacedProps->verticalConstraint;
+    }
     Guid id;
     if (crossFile) {
       unresolved_ += remapRefs(p, nullptr, map, clip.fileKey);
-      id = map.count(src.guid) ? map[src.guid] : newGuid();
+      id = spotIndex == 0 && map.count(src.guid) ? map[src.guid] : newGuid();
     } else {
       id = newGuid();
     }
@@ -1456,8 +1527,28 @@ uint32_t Editor::paste(const Clipboard& clip, bool inPlace) {
     if (it == kids.end()) return;
     for (const NodeChange* c : it->second) self(self, *c, id, c->props.parentIndex.position, c->props.transform);
   };
-  for (size_t i = 0; i < roots.size(); i++)
-    create(create, *roots[i], target, keys[i], localFor(target, Mat2x3::translate(d.x, d.y) * worlds[i]));
+  for (spotIndex = 0; spotIndex < spots.size(); spotIndex++) {
+    const Spot& spot = spots[spotIndex];
+    target = spot.parent;
+    const Node* rn = spot.replaced != kNoGuid ? doc_.get(spot.replaced) : nullptr;
+    replacedProps = rn ? &rn->props : nullptr;
+    auto keys = placeManyAt(target, spot.index, roots.size(), {});
+    for (size_t i = 0; i < roots.size(); i++)
+      create(create, *roots[i], target, keys[i], localFor(target, Mat2x3::translate(spot.d.x, spot.d.y) * worlds[i]));
+  }
+  replacedProps = nullptr;
+  // The replaced layers go (after their copies took their places).
+  for (const Spot& spot : spots) {
+    if (spot.replaced == kNoGuid || !doc_.has(spot.replaced)) continue;
+    std::vector<Guid> order;
+    auto collect = [&](auto&& self, Guid id) -> void {
+      for (Guid c : std::vector<Guid>(doc_.children(id))) self(self, c);
+      order.push_back(id);
+    };
+    collect(collect, spot.replaced);
+    for (Guid id : order)
+      if (!id.isDerived()) write(NodeChange::removed(id));
+  }
   // A main cut and pasted in its own file is the same main under a new GUID: preferred instances that named it (by
   // GUID) name it again.
   if (!movedMains.empty()) {

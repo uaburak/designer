@@ -21,6 +21,7 @@
 //   EDITOR_ONLY=fonts node …                                       (only the fonts section: font picker, Google fonts, Missing fonts)
 //   EDITOR_ONLY=slots node …                                       (round 6: Convert to slot, an instance's slot, Limits, variant values)
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
+//   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -1780,6 +1781,112 @@ async function variables6Section(page, theme) {
   check("Variables: Expand fills the window again", (await win.getAttribute("data-minimized")) === null);
 }
 
+/**
+ * Round 7 on `?editor&doc=empty` (dark): live Figma's selection and canvas — sections (⌘S, the pill), the canvas menu's
+ * items, Paste to replace in the menu, Esc / \, N, the opacity digits, ] / [, corner radius handles, smart selection's
+ * gap handles, auto layout's bars and its Hug badge, the dashed auto-layout parent, ⇧⌘O outlines, the pixel grid.
+ */
+async function selectionSection(page, theme) {
+  await open(page, "&doc=empty");
+  const fill = (hex) => [{ type: "SOLID", color: { r: ((hex >> 16) & 255) / 255, g: ((hex >> 8) & 255) / 255, b: (hex & 255) / 255, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }];
+  await page.evaluate((fills) => {
+    const e = window.__designerEditor.engine;
+    const at = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
+    const rect = (id, name, x, y, w, h, parent = "0:1", pos = "!", f = fills.grey) => ({ guid: id, phase: "CREATED", type: "ROUNDED_RECTANGLE", name, parentIndex: { guid: parent, position: pos }, size: { x: w, y: h }, transform: at(x, y), fillPaints: f });
+    e.applyChanges({
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      nodeChanges: [
+        rect("5:1", "S1", 0, 0, 60, 60, "0:1", "!"),
+        rect("5:2", "S2", 80, 0, 60, 60, "0:1", '"'),
+        rect("5:3", "S3", 160, 0, 60, 60, "0:1", "#"),
+        rect("5:4", "Big", 0, 120, 240, 160, "0:1", "$", fills.blue),
+        { guid: "5:5", phase: "CREATED", type: "FRAME", name: "AL_horizontal", parentIndex: { guid: "0:1", position: "%" }, size: { x: 232, y: 72 }, transform: at(320, 0), fillPaints: fills.white, stackMode: "HORIZONTAL", stackSpacing: 10, stackHorizontalPadding: 16, stackVerticalPadding: 16, stackPaddingRight: 16, stackPaddingBottom: 16, stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" },
+        rect("5:6", "A", 16, 16, 60, 40, "5:5", "!", fills.orange),
+        rect("5:7", "B", 86, 16, 60, 40, "5:5", '"', fills.orange),
+        rect("5:8", "C", 156, 16, 60, 40, "5:5", "#", fills.orange),
+      ],
+    });
+    e.setCamera({ x: 120, y: 160, zoom: 1.5 });
+  }, { grey: fill(0xd9d9d9), blue: fill(0x0d99ff), white: fill(0xffffff), orange: fill(0xd97054) });
+  await settle(page);
+  const opacity = async (id) => (await node(page, id))?.opacity ?? 1;
+
+  // Smart selection: three equally spaced layers — dots, and gap handles under the pointer.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["5:1", "5:2", "5:3"]));
+  await page.mouse.move(...(await toScreen(page, 110, 30)));
+  await settle(page);
+  await shot(page, `170-smart-selection-${theme}`);
+  // Opacity digits: "5" → 50 %, then "0","5" quickly → 5 %.
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("5");
+  check("Opacity keys: 5 sets 50 %", Math.abs((await opacity("5:1")) - 0.5) < 1e-6, String(await opacity("5:1")));
+  await page.waitForTimeout(600);  // past the two-digit window
+  await page.keyboard.press("0");
+  await page.keyboard.press("5");
+  check("Opacity keys: 0 then 5 quickly sets 5 %", Math.abs((await opacity("5:2")) - 0.05) < 1e-6, String(await opacity("5:2")));
+  await page.keyboard.press("0");
+  await page.waitForTimeout(600);
+  // ⌘S: Wrap in new section; its pill above it.
+  await page.keyboard.press("Meta+s");
+  await settle(page);
+  const sel = await selection(page);
+  const section = sel.length === 1 ? await node(page, sel[0]) : null;
+  check("⌘S wraps the selection in a new section", section?.type === "SECTION", section ? `${section.name}` : JSON.stringify(sel));
+  await shot(page, `171-section-${theme}`);
+  // Esc clears the selection (live Figma).
+  await page.keyboard.press("Escape");
+  check("Esc clears the selection", (await selection(page)).length === 0);
+  // The canvas menu over a layer: live Figma's items (Paste to replace, Move to page…, no Cut, no Delete).
+  await page.mouse.click(...(await toScreen(page, 120, 200)), { button: "right" });
+  await settle(page);
+  const menu = page.getByRole("menu");
+  const labels = (await menu.getByRole("menuitem").allTextContents()).map((t) => t.replace(/[⌘⇧⌥⌃⌫\][]|[A-Z]$/g, "").trim());
+  check("Canvas menu: Paste to replace, Move to page, Bring to front, Show/Hide; no Cut or Delete", ["Paste to replace", "Move to page", "Bring to front", "Show/Hide", "Flip horizontal"].every((l) => labels.some((t) => t.startsWith(l))) && !labels.some((t) => t === "Cut" || t === "Delete"), labels.slice(0, 8).join(", "));
+  await shot(page, `172-canvas-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  // ] / [: to the front and back.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["5:4"]));
+  await page.locator("#engine-canvas").focus();
+  const order = () => page.evaluate(() => window.__designerEditor.engine.readNode("0:1", { childIds: true }).childIds);
+  await page.keyboard.press("BracketLeft");
+  check("[ sends to the back", (await order())[0] === "5:4", (await order()).join());
+  await page.keyboard.press("BracketRight");
+  const top = await order();
+  check("] brings to the front", top[top.length - 1] === "5:4", top.join());
+  // Corner radius handles: the selected rectangle under the pointer.
+  await page.mouse.move(...(await toScreen(page, 120, 200)));
+  await settle(page);
+  await shot(page, `173-radius-handles-${theme}`);
+  const [hx, hy] = await toScreen(page, 0 + 12 / 1.5, 120 + 12 / 1.5);
+  await drag(page, [hx, hy], [hx + 15, hy + 15]);
+  const big = await node(page, "5:4");
+  check("A radius handle dragged sets the corners", (big?.rectangleTopLeftCornerRadius ?? big?.cornerRadius ?? 0) > 5, JSON.stringify({ r: big?.cornerRadius, tl: big?.rectangleTopLeftCornerRadius }));
+  // An auto-layout frame: its bars under the pointer and "Hug" in its badge; a child: the parent dashed.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["5:5"]));
+  await page.mouse.move(...(await toScreen(page, 401, 36)));
+  await settle(page);
+  await shot(page, `174-auto-layout-bars-${theme}`);
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["5:7"]));
+  await settle(page);
+  await shot(page, `175-auto-layout-child-${theme}`);
+  // N: the view to the next frame; the selection stays.
+  const cam = await page.evaluate(() => window.__designerEditor.engine.getCamera());
+  await page.locator("#engine-canvas").focus();
+  await page.keyboard.press("n");
+  const cam2 = await page.evaluate(() => window.__designerEditor.engine.getCamera());
+  check("N zooms to the next frame, the selection stays", (cam2.zoom !== cam.zoom || cam2.x !== cam.x) && (await selection(page)).join() === "5:7", `${cam.zoom.toFixed(2)} → ${cam2.zoom.toFixed(2)}`);
+  // ⇧⌘O: outline mode; the pixel grid at 800 %.
+  await page.keyboard.press("Shift+Meta+o");
+  await settle(page);
+  check("⇧⌘O turns outline mode on", (await page.evaluate(() => window.__designerEditor.ui.get().outlines)) === true);
+  await shot(page, `176-outlines-${theme}`);
+  await page.keyboard.press("Shift+Meta+o");
+  await page.evaluate(() => window.__designerEditor.engine.setCamera({ x: -200, y: -200, zoom: 8 }));
+  await settle(page);
+  await shot(page, `177-pixel-grid-${theme}`);
+}
+
 /** Round 6 on `?editor&doc=reference` (dark): annotations (⇧T, the menu, + Property, a category), a measurement (⇧M), Mark as ready for dev on the frame's label, Changed after an edit, Dev Mode (⇧D: Inspect, dots), Compare changes, Done with changes, focus view. */
 async function devmodeSection(page, theme) {
   await open(page, "&doc=reference");
@@ -2226,6 +2333,7 @@ try {
     await context.close();
   }
   for (const [name, section] of [
+    ["selection", selectionSection],
     ["slots", slotsSection],
     ["variables6", variables6Section],
     ["devmode", devmodeSection],
@@ -2357,6 +2465,7 @@ try {
     // 4. The sample document (several kinds of layers), a rectangle selected; then the menus.
     await open(page, "");
     await page.mouse.click(...(await toScreen(page, 100, 150)));
+    const picked = await selection(page);
     await shot(page, `04-sample-rectangle-${theme}`);
     await page.mouse.click(...(await toScreen(page, 100, 150)), { button: "right" });
     await shot(page, `05-context-menu-${theme}`);
@@ -2374,7 +2483,8 @@ try {
     if (theme === "dark") {
       // Minimize UI (⇧⌘\, the live View menu), hide UI (⌘\), the shortcuts (⌃⇧?).
       await page.locator("#engine-canvas").focus();
-      const selected = await selection(page);
+      // (The menus' Escapes may have reached the canvas: Esc clears the selection there, live Figma.)
+      const selected = (await selection(page)).length ? await selection(page) : picked;
       await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
       await page.keyboard.press("Meta+Shift+Backslash");
       await shot(page, `08-minimized-${theme}`);
@@ -2486,10 +2596,11 @@ try {
       const layers = await page.locator('[data-ds="LayerRow"]').count();
       check("Layers shows the frame and the rectangle", layers === 2, `${layers} rows`);
       await shot(page, `12-drawn-rectangle-${theme}`);
-      await page.keyboard.press("Escape");
+      // Live Figma: \ (and ⇧Enter) selects the parent; Esc clears the selection.
+      await page.keyboard.press("Backslash");
       const up = await selection(page);
       await page.keyboard.press("Escape");
-      check("Esc selects the parent, then nothing", up.join() === frameId && (await selection(page)).length === 0, `${up.join()} → ${(await selection(page)).join() || "nothing"}`);
+      check("\\ selects the parent, Esc clears the selection", up.join() === frameId && (await selection(page)).length === 0, `${up.join()} → ${(await selection(page)).join() || "nothing"}`);
       await page.keyboard.press("Meta+z");
       await settle(page);
       check("⌘Z undoes the rectangle", (await node(page, rectId)) === null);

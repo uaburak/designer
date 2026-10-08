@@ -5,7 +5,7 @@
  * by hand until apigen generates them from engine/api/*.def.ts.
  */
 
-/** The Tool enum (§8.4). The engine implements all but SCALE, SECTION, SLICE, IMAGE and COMMENT. */
+/** The Tool enum (§8.4). The engine implements all but SCALE, SLICE, IMAGE and COMMENT. */
 export const TOOLS = [
   "MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
   "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
@@ -208,6 +208,19 @@ export const CommandId = {
   MEASUREMENT_UPDATE: 221,
   /** args { id, page? } */
   MEASUREMENT_DELETE: 222,
+  // Round 7 (r7-selection): selection and canvas commands (engine/src/editor/SelectionCommands.cpp); 230-249.
+  /** "Wrap in new section" (⌘S): the canvas-level selection in a new section around it; created: the section selected. */
+  WRAP_IN_SECTION: 230,
+  /** A section, frame or group removed, its layers kept where they are (selected) — ⌘⌫ on a frame or section. */
+  REMOVE_KEEP_CONTENTS: 231,
+  /** args { mode?: "LAYERS" | "FILL" | "STROKE" | "EFFECT" | "TEXT" | "FONT" | "INSTANCE" }: "Select matching layers" (⌥⌘A), "Select all with same …". */
+  SELECT_MATCHING: 232,
+  /** "Tidy up" (⌃⌥T): the selection into an even grid of its rows and columns. */
+  TIDY_UP: 233,
+  /** N: the view to the next frame (the selection stays). */
+  ZOOM_TO_NEXT_FRAME: 234,
+  /** ⇧N: the view to the previous frame. */
+  ZOOM_TO_PREVIOUS_FRAME: 235,
 } as const;
 export type CommandName = keyof typeof CommandId;
 
@@ -245,6 +258,14 @@ export const READ_SUBTREE = 2;
 export const READ_VISIBLE_ONLY = 4;
 /** engine_paste flags. */
 export const PASTE_IN_PLACE = 1;
+/** ⇧⌘V "Paste over selection": just above the selection (with PASTE_IN_PLACE: where it was copied from). */
+export const PASTE_OVER = 2;
+/** ⇧⌘R "Paste to replace": a copy at each selected layer's place, which goes. */
+export const PASTE_REPLACE = 4;
+/** engine_set_view_options bits: View › Pixel grid, outline mode (⇧⌘O), View › Layout guides (⇧G). */
+export const VIEW_PIXEL_GRID = 1;
+export const VIEW_OUTLINES = 2;
+export const VIEW_LAYOUT_GUIDES = 4;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
 /** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */

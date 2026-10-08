@@ -24,6 +24,8 @@ import {
   INCLUDE_REMOTE,
   KeyType,
   PASTE_IN_PLACE,
+  PASTE_OVER,
+  PASTE_REPLACE,
   READ_SUBTREE,
   READ_VISIBLE_ONLY,
   Status,
@@ -31,6 +33,9 @@ import {
   TICK_NEEDS_RENDER,
   TOOLS,
   VECTOR_EDIT_TOOLS,
+  VIEW_LAYOUT_GUIDES,
+  VIEW_OUTLINES,
+  VIEW_PIXEL_GRID,
   WIRE_JSON,
   WIRE_KIWI,
   type CommandName,
@@ -211,6 +216,15 @@ let nextBitmapId = 1;
 const videoBitmapIds = new WeakMap<HTMLVideoElement, number>();
 
 type Handler = (event: EngineEvent) => void;
+
+/** How a paste places what it pastes (engine_paste flags). */
+export interface PasteOptions {
+  inPlace?: boolean;
+  over?: boolean;
+  replace?: boolean;
+}
+
+const pasteFlags = (o: PasteOptions): number => (o.inPlace ? PASTE_IN_PLACE : 0) | (o.over ? PASTE_OVER : 0) | (o.replace ? PASTE_REPLACE : 0);
 
 export class Engine {
   /** The engine drawing into `canvas` (which gets the id "engine-canvas" if it has none); `null` = headless. */
@@ -499,8 +513,8 @@ export class Engine {
   }
 
   /** Pastes a clipboard Message given as bytes (either encoding); see `paste`. */
-  pasteKiwi(bytes: Uint8Array, options: { inPlace?: boolean } = {}): number {
-    return this.after(this.x.paste(this.h, bytes, options.inPlace ? PASTE_IN_PLACE : 0));
+  pasteKiwi(bytes: Uint8Array, options: PasteOptions = {}): number {
+    return this.after(this.x.paste(this.h, bytes, pasteFlags(options)));
   }
 
   /** `encodeAssets` with each payload as kiwi Message bytes (`bytes`; sessionID 0, as a library payload is). */
@@ -594,6 +608,12 @@ export class Engine {
   }
 
   // ---- Dev Mode (round 6: docs/engine-build.md "Round 6") -------------------------
+
+  /** View › Pixel grid (drawn from 300 % zoom), outline mode (⇧⌘O: every layer as a thin outline), Layout guides (⇧G). */
+  setViewOptions(options: { pixelGrid: boolean; outlines: boolean; layoutGuides?: boolean }): void {
+    const flags = (options.pixelGrid ? VIEW_PIXEL_GRID : 0) | (options.outlines ? VIEW_OUTLINES : 0) | (options.layoutGuides !== false ? VIEW_LAYOUT_GUIDES : 0);
+    this.after(this.x.setViewOptions(this.h, flags));
+  }
 
   /** View › Annotations: labels (or, `dots`, Dev Mode's dots), and saved measurements; off: none of them. */
   setAnnotationView(show: boolean, dots = false): void {
@@ -1054,11 +1074,13 @@ export class Engine {
 
   /**
    * Pastes a clipboard Message with fresh ids: into the selected frame, beside the selected layer, or on the
-   * page (where it was when that is in view, else in the middle of the view); `inPlace` (⇧⌘V) keeps the page
-   * position. Selects what was pasted; returns how many top-level layers that was (negative: a Status).
+   * page (where it was when that is in view, else in the middle of the view); `inPlace` keeps the page position;
+   * `over` (⇧⌘V "Paste over selection", with `inPlace`): just above the selection, not into it; `replace` (⇧⌘R
+   * "Paste to replace"): a copy at each selected layer's place, which goes. Selects what was pasted; returns how
+   * many top-level layers that was (negative: a Status).
    */
-  paste(message: Message, options: { inPlace?: boolean } = {}): number {
-    return this.after(this.x.paste(this.h, encodeMessage(message), options.inPlace ? PASTE_IN_PLACE : 0));
+  paste(message: Message, options: PasteOptions = {}): number {
+    return this.after(this.x.paste(this.h, encodeMessage(message), pasteFlags(options)));
   }
 
   /**

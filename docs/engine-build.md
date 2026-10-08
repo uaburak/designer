@@ -24,6 +24,48 @@ Checks at the end (after merging main at `5e4f81a`): `npm run check` green (type
 
 Open: item 9 (needs a live capture), tiny-text and newer-effect calibration against Figma pixels, Glass's Depth / Splay field mapping, arrowhead sizes other than the line arrow, pattern paints don't invalidate when only their source changes, shader effects (Figma's "Shader") not drawn.
 
+## Round 7 — selection (2026-10-08, branch `r7-selection`)
+
+### Status (final, 2026-10-08)
+Audit: `docs/research/audit-2026-10-08/selection.md` (items 1–31). Truth: live Figma, `docs/research/figma/live/` (menus/, behaviour/, img/ — the local screenshots); where the audit disagreed, live Figma won (marked "live" below). Merged with main (r7-left-panel) at the end.
+
+**Checks (all at the branch head):** `npm run check` — types, lint, 790 vitest (95 files); `npm run engine:test` — 404 native cases (ASan/UBSan); `npm run engine:shot` 97 ok (WebGL2) and `--gfx webgpu` 99 ok; `editor-shot.mjs` full — 245 ok (the new `EDITOR_ONLY=selection` section: shots 170–177). Release wasm rebuilt and committed (3966 KB). The worktree's `node_modules` is a symlink, so editor-shot's Vite logs a 403 for the Inter webfont (an environment artefact, not a check).
+
+| # | Item | State | Tests |
+|---|---|---|---|
+| 1 | Frame titles: press selects (⇧ toggles), drag moves, double-click → `REQUEST_RENAME` (`canvas/TitleRename.tsx`); frames in sections titled; **a click on a top-level frame's (or section's) empty background selects nothing** (live: like empty canvas; a drag there is a marquee among its layers) | done | `r7.selection.test.cpp` "r7 titles" ×3, "r7 sections: … background"; `editor.gestures` updated |
+| 2 | ⌘-marquee: nested layers at any depth | done | "r7 marquee: ⌘ …" |
+| 3 | Line endpoint handles | done | "r7 lines" |
+| 4 | **Corner radius handles**: a selected rectangle under the pointer (≥ 64 px on screen, unverified) shows four 9 px rings on its radii, ≥ 12 px in; a drag along the diagonal sets every corner, ⌥ one, whole px ≤ half the shorter side; one undo step | done | "r7 radius" |
+| 5 / 7 | Lock aspect ratio on the canvas (⌃ overrides), ⇧ otherwise; ⌘-resize ignores constraints; ⌃ no snapping | done | "r7 resize" ×2 |
+| 6 | Move: **drop by the cursor whatever the sizes** (live: the "smaller frame doesn't take it" rule reverted); Space keeps parents; ⌘ nests; ⌃ no snapping | done | "r7 move" ×2 |
+| 8 | **Sections**: ⇧S, the theme's defaults (live dark UI: #444444, white 10 % inside stroke; light: white, black 10 %; radius 2, no clip), drawing around layers adopts them, canvas-level picking, the **pill above the section** (22 px, 5 px off, the section's fill colour, not blue when selected — live `canvas-section-selected`), `WRAP_IN_SECTION` (230, 80 px around, unverified), `REMOVE_KEEP_CONTENTS` (231) | done | "r7 sections" ×3 |
+| 9 | **Esc clears the selection** (after cancelling a gesture / resetting the tool); \ and ⇧Enter select the parent; Enter selects every child (hidden, locked too); Tab / ⇧Tab wrap, hidden and locked included (live) | done | "r7 keys" |
+| 10 | `SELECT_MATCHING` (232): ⌥⌘A "Select matching layers" (type, size, paints; within the top-level frame or section) and Edit ▸ Select all with ▸ Same fill / stroke / effect / text properties / font / instance (labels unverified) | done | "r7 select matching" |
+| 11 | **Paste over selection** ⇧⌘V (`PASTE_OVER`: in place, just above the selection, not into it) and **Paste to replace** ⇧⌘R (`PASTE_REPLACE`: a copy at each selected layer's place, order, x/y and constraints; one step) | done (paste itself unverifiable live) | "r7 paste" |
+| 12 | Overlay: hover outline on selected layers too; equal-spacing marks pink; size badge "232 Hug × 72 Hug"; **pixel grid** from 300 % (half alpha) / 400 % (View › Pixel grid ⇧', on); dashed auto-layout parent (1.5 / 1.5 px); title colours by page luminance; 7 px handles | done | "r7 view" ×3, render tests; editor-shot 174, 175, 177 |
+| 13 | **Smart selection**: equally spaced layers (one parent, a row or column) get pink centre rings and, under the pointer, a pink bar per gap (value on hover); dragging one changes every gap (the bar stays under the pointer — live 20 → 42); `TIDY_UP` (233, ⌃⌥T). Reordering by the dots: not done (not captured) | done but reorder | "r7 smart selection", "r7 tidy up" |
+| 14 | Tools: **Z held = zoom tool** (click ×2 about the point, ⌥ out, drag to an area); Section ⇧S. **Not done**: Scale (K), Slice (S), Comment (C), the eyedropper (I / ⌃C) | partial | "r7 zoom tool" |
+| 15 | Keys (live): opacity digits with a ~475 ms two-digit buffer (`opacityKeys.ts`); ] / [ front / back (⌥⌘] / ⌥⌘[ too), ⌘] / ⌘[ one step; N / ⇧N (234 / 235: Layers order from the bottom, wrapping, **the selection stays**); ⌘D repeats the last offset; ⇧⌘O outline mode (`engine_set_view_options` bit 2: 1 px outlines, text as glyphs, no fills / effects / masks; toast); ⌘S wrap in section; ⌘⌫ ungroup / remove frame keeping contents; ⌥⇧F flatten. **Pixel preview (⇧⌘P / ⌃P) is listed, disabled — not built** | done but pixel preview | "r7 zoom to next / previous frame", "r7 duplicate", vitest `r7.selection.test.ts` |
+| 16 | Pixel grid (above); View › Layout guides ⇧G (`engine_set_view_options` bit 4). **Not done**: snap to pixel grid ⇧⌘', ruler guides, snapping to guides and layout grids | partial | "r7 view: … Layout guides" |
+| 17 | **Auto layout on the canvas**: blue padding bars and pink gap bars (12 px) while a selected auto-layout frame is under the pointer, the hovered band's value in a pill; dragging a padding band changes it (⌥ the opposite side, ⇧ all four — unverified), a gap band every gap (an Auto gap becomes a number); no band fill (UI3) | done | "r7 auto layout" |
+| 18 | Paste into a frame keeps x / y per axis where it fits, else centres that axis. Zooming out for content larger than the view: not done | partial | — |
+| 19 | Marquee: a top-level frame covered whole keeps the marquee to top-level layers | done | "r7 marquee: a top-level frame taken whole …" |
+| 20 | Select layer ▸ lists locked layers (hits through locked ancestors), the menu marks them 🔒 (no type icons yet) | done | — |
+| 21 | **Canvas context menu item for item as live** (`menus.ts`, `menus/context-*.txt`), incl. Paste to replace ⇧⌘R, Wrap in new section ⌘S (several canvas-level layers), Move to page ▸ (works), Convert to section / Set as thumbnail / More layout options / Plugins / Widgets / Send to Figma Make / Find similar designs / Add motion listed disabled; no Cut, Delete or status items. Main menu Edit / View / Object / Arrange in live order (the native menu bar too) | done | vitest `r7.selection.test.ts`, wasm menu tests, editor-shot 172 |
+| 22 | Resize cursor: Figma's double arrow at the handle's exact angle (SVG, whole degrees, system cursor behind). Figma's own arrow / crosshair cursors: not done | partial | `abi.test.ts` |
+| 23 | Component / instance title icons | done (seen in engine-shot 13) | — |
+| 24 | Nudge leaves instance sublayers alone. Nudge amounts as preferences: not done | partial | — |
+| 25, 26, 28, 30, 31 | Space while drawing / resizing, angle readout, snapping to nested layers, the 24 px handle rule, text size / weight shortcuts | not done (unverified in Figma) | — |
+| 27 | ⌘⌫ removes a frame / group / section keeping its layers | done | "r7 sections: … Remove …" |
+| 29 | Tab / ⇧Tab don't skip hidden / locked | done (already so; tested) | "r7 keys" |
+
+**API (additive; ABI version unchanged):** commands 230–235 (`abi.ts`, `Commands.h`); `engine_paste` flags `PASTE_OVER = 2`, `PASTE_REPLACE = 4` (`Engine.paste / pasteKiwi({over, replace})`); `engine_set_view_options(h, bits)` — 1 pixel grid (default on), 2 outline mode, 4 layout guides (default on) — `Engine.setViewOptions`; event `REQUEST_RENAME`; chrome tokens `sectionPill.{height 22, gap 5}` (ChromePalette regenerated; palette 35 colours, append only).
+
+**Known unverified:** wrap-in-section padding; the radius handles' minimum size; ⌥ / ⇧ on padding drags; "Select all with" item labels; outline mode's colours; N's order (Layers order vs reading order — both fit the capture); whether Figma's ⇧⌘V ("Paste over selection") aligns to the selection or keeps the copied position (kept: in place, above it).
+
+**Next:** pixel preview (render at 1× and scale up nearest); Scale / Slice / Comment / eyedropper tools; smart selection reorder by the dots; ruler guides and snapping to them; type icons in Select layer ▸; capture paste and modifier-held behaviour in live Figma (the capture tool couldn't).
+
 ## Round 6 — Dev Mode: annotations, measurements, statuses, focus view (2026-10-08, branch `r6-annotations-devmode`)
 
 Research: docs/research/figma/R9-dev-mode.md "Round 6". Additive ABI (version unchanged).

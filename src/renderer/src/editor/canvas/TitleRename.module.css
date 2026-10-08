@@ -1,0 +1,12 @@
+/* The in-place field over a frame's title (canvas/TitleRename.tsx). */
+.root {
+  position: fixed;
+  z-index: var(--ds-z-popover);
+  display: flex;
+  align-items: center;
+  font: var(--ds-font-body-medium);
+}
+
+.edit {
+  width: 100%;
+}

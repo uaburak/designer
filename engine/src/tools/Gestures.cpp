@@ -12,6 +12,7 @@
 #include "hit/HitTest.h"
 #include "hit/Marquee.h"
 #include "hit/Picking.h"
+#include "text/Fonts.h"
 
 namespace eng {
 
@@ -23,6 +24,8 @@ constexpr double kEdgeReach = 4;      // CSS px around an edge
 constexpr double kRotateReach = 16;   // CSS px outside a corner: rotation
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kSnapReach = 6;      // CSS px: snapping threshold (docs/engine.md §8.5)
+constexpr double kRadiusMinBox = 64;  // CSS px: no corner radius handles on a smaller rectangle (unverified)
+constexpr double kGapReach = 6;       // CSS px around a smart selection's gap handle
 
 using GuidSet = std::unordered_set<Guid, GuidHash>;
 
@@ -48,6 +51,57 @@ double degrees(Vec2 v) { return std::atan2(v.y, v.x) * 180 / kPi; }
 
 }  // namespace
 
+// ---- Frame titles -----------------------------------------------------------
+
+double Editor::labelWidth(const std::string& name, bool section) const {
+  text::FontRegistry& fonts = text::FontRegistry::get();
+  if (labelWidthsGeneration_ != fonts.generation() || labelWidths_.size() > 4096) {
+    labelWidths_.clear();
+    labelWidthsGeneration_ = fonts.generation();
+  }
+  const OverlayStyle style = OverlayStyle::of(theme_);
+  double size = section ? style.sectionTitleSize : style.titleSize;
+  std::string key = (section ? "M\n" : "R\n") + name;
+  if (auto it = labelWidths_.find(key); it != labelWidths_.end()) return it->second;
+  // As Renderer::label lays it out (Inter, auto width); a rough width until Inter has loaded.
+  double w = 6.2 * static_cast<double>(name.size()) * size / 11;
+  FontName font{"Inter", section ? "Medium" : "Regular", ""};
+  // Never requests the font (the overlay's labels do): only measured once it is in.
+  if (fonts.state(font) == text::FontRegistry::State::Ready && fonts.find(font, nullptr)) {
+    NodeProps p;
+    p.type = NodeType::TEXT;
+    p.text().textData.characters = name;
+    p.text().fontName = font;
+    p.text().fontSize = size;
+    p.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+    auto layout = text::layoutText(p, text::LayoutOptions{});
+    if (layout && !layout->pendingFont) w = layout->size.x;
+    else return w;  // not cached: measured again once the font is in
+  }
+  labelWidths_[key] = w;
+  return w;
+}
+
+std::vector<FrameTitle> Editor::titles() const {
+  if (page_ == kNoGuid) return {};
+  Rect screen{0, 0, viewport_.width, viewport_.height};
+  return frameTitles(doc_, page_, camera_.matrix(), screen, OverlayStyle::of(theme_),
+                     [&](const std::string& name, bool section) { return labelWidth(name, section); }, dev_.focus);
+}
+
+Guid Editor::titleAt(Vec2 s) const {
+  if (tool_ != Tool::MOVE || spaceHeld_) return kNoGuid;
+  std::vector<FrameTitle> list = titles();
+  // The topmost title first (later frames paint over earlier ones); locked frames' titles don't take a press.
+  for (auto it = list.rbegin(); it != list.rend(); ++it) {
+    if (!it->hit.contains(s)) continue;
+    const Node* n = doc_.get(it->id);
+    if (n && n->props.locked) continue;
+    return it->id;
+  }
+  return kNoGuid;
+}
+
 // ---- Handles, cursor, hover -------------------------------------------------
 
 Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
@@ -57,6 +111,43 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
   for (Guid id : selection_) {
     const Node* n = doc_.get(id);
     if (n && n->props.locked) return Handle::None;
+  }
+  // A line: its two ends, nothing else.
+  Guid line = kNoGuid;
+  Vec2 ends[2];
+  if (selectedLine(line, ends[0], ends[1])) {
+    for (int i = 0; i < 2; i++)
+      if ((s - camera_.toScreen(ends[i])).length() <= kCornerReach) {
+        hx = i, hy = 0;
+        return Handle::LineEnd;
+      }
+    return Handle::None;
+  }
+  // A rectangle's corner radius handles (shown while the pointer is over it).
+  Guid rid;
+  Vec2 rh[4];
+  if (radiusHandles(rid, rh))
+    for (int i = 0; i < 4; i++)
+      if ((s - camera_.toScreen(rh[i])).length() <= OverlayStyle::of(theme_).radiusHandleSize / 2 + 2) {
+        hx = i, hy = 0;
+        return Handle::Radius;
+      }
+  // A smart selection's gap handles.
+  SmartSelection smart;
+  if (gesture_ == Gesture::None && smartSelection(smart)) {
+    for (size_t i = 1; i < smart.order.size(); i++) {
+      Rect a = doc_.worldBounds(smart.order[i - 1]), b = doc_.worldBounds(smart.order[i]);
+      Vec2 mid = smart.axis == 0 ? Vec2{(a.right() + b.x) / 2, (std::max(a.y, b.y) + std::min(a.bottom(), b.bottom())) / 2}
+                                 : Vec2{(std::max(a.x, b.x) + std::min(a.right(), b.right())) / 2, (a.bottom() + b.y) / 2};
+      Vec2 sm = camera_.toScreen(mid);
+      double gapPx = smart.spacing * camera_.zoom;
+      bool near = smart.axis == 0 ? std::fabs(s.x - sm.x) <= std::max(kGapReach, gapPx / 2) && std::fabs(s.y - sm.y) <= 10
+                                  : std::fabs(s.y - sm.y) <= std::max(kGapReach, gapPx / 2) && std::fabs(s.x - sm.x) <= 10;
+      if (near) {
+        hx = static_cast<int>(i - 1), hy = smart.axis;
+        return Handle::Gap;
+      }
+    }
   }
   Mat2x3 m = camera_.matrix() * box.toWorld;
   double w = box.size.x, h = box.size.y;
@@ -93,8 +184,221 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
   return Handle::None;
 }
 
+bool Editor::selectedLine(Guid& id, Vec2& a, Vec2& b) const {
+  if (selection_.size() != 1) return false;
+  const Node* n = doc_.get(selection_[0]);
+  if (!n || n->props.locked || selection_[0].isDerived()) return false;
+  const NodeProps& p = n->props;
+  bool flatX = p.size.x == 0, flatY = p.size.y == 0;
+  if (!(p.type == NodeType::LINE || (p.type == NodeType::VECTOR && (flatX != flatY)))) return false;
+  if (p.type == NodeType::LINE && !flatY) return false;
+  // Along its own x (a LINE, a flat vector), or its own y (a vector with no width).
+  Mat2x3 w = doc_.worldTransform(selection_[0]);
+  id = selection_[0];
+  a = w.apply({0, 0});
+  b = flatX ? w.apply({0, p.size.y}) : w.apply({p.size.x, 0});
+  return true;
+}
+
+void Editor::startLineEnd(int end) {
+  begin(TxnKind::GESTURE, "Resize");
+  lineEnd_ = end;
+  Guid id;
+  Vec2 a, b;
+  selectedLine(id, a, b);
+  targets_ = targetsOf({id});
+  GuidSet moving{id};
+  prepareSnapping(doc_.parentOf(id), moving);
+}
+
+void Editor::dragLineEnd(Vec2 world, uint32_t mods) {
+  if (targets_.empty()) return;
+  const Target& t = targets_[0];
+  const Node* n = doc_.get(t.id);
+  if (!n) return;
+  bool flatX = n->props.type == NodeType::VECTOR && t.size.x == 0;
+  // The other end stays; this one follows the pointer (snapped to the other layers; ⇧: 45° steps; ⌃: no snapping).
+  Vec2 a = t.world.apply({0, 0}), b = flatX ? t.world.apply({0, t.size.y}) : t.world.apply({t.size.x, 0});
+  Vec2 fixed = lineEnd_ == 0 ? b : a;
+  SnapResult snap;
+  guides_.clear();
+  if (!(mods & (MOD_CTRL | MOD_SHIFT))) {
+    snap = snapper_.snapPoint(world, kSnapReach / camera_.zoom, true, true);
+    world = world + snap.offset;
+  }
+  Vec2 d = world - fixed;
+  if (mods & MOD_SHIFT) {
+    double len = d.length(), angle = std::round(std::atan2(d.y, d.x) / (kPi / 4)) * (kPi / 4);
+    d = {std::cos(angle) * len, std::sin(angle) * len};
+  }
+  Vec2 moved = fixed + d;
+  moved = {std::round(moved.x), std::round(moved.y)};
+  Vec2 start = lineEnd_ == 0 ? moved : fixed, end = lineEnd_ == 0 ? fixed : moved;
+  Vec2 v = end - start;
+  double len = std::max(v.length(), 0.01);
+  // The line's own axis turned to the new direction (a vector with no width runs along its y).
+  double angle = std::atan2(v.y, v.x) - (flatX ? kPi / 2 : 0);
+  NodeChange c = NodeChange::changed(t.id);
+  c.mask = F_TRANSFORM | F_SIZE;
+  c.props.transform = tidy(doc_.worldTransform(t.parent).inverse() * Mat2x3::translate(start.x, start.y) * Mat2x3::rotate(angle));
+  c.props.size = flatX ? Vec2{0, len} : Vec2{len, 0};
+  write(c);
+  if (snap.snappedX || snap.snappedY) guides_ = snapper_.guidesFor({moved.x, moved.y, 0, 0}, snap.snappedX, snap.snappedY);
+  flushLayout();
+  needsRender_ = true;
+}
+
+// ---- Corner radius handles ---------------------------------------------------
+
+bool Editor::radiusHandles(Guid& id, Vec2 out[4]) const {
+  // Live Figma: a selected rectangle shows four rings inset from its corners while the pointer is over it; each sits
+  // on its corner's radius (at least `radiusHandleInset` CSS px in).
+  if (viewer_ || tool_ != Tool::MOVE || spaceHeld_ || selection_.size() != 1 || text_.node != kNoGuid || vector_.node != kNoGuid ||
+      paint_.node != kNoGuid || proto_.on)
+    return false;
+  if (gesture_ != Gesture::None && gesture_ != Gesture::Radius) return false;
+  id = selection_[0];
+  const Node* n = doc_.get(id);
+  if (!n || n->props.locked || id.isDerived() || !n->props.isRectLike()) return false;
+  const NodeProps& p = n->props;
+  double w = p.size.x, h = p.size.y;
+  if (w <= 0 || h <= 0) return false;
+  Mat2x3 W = doc_.worldTransform(id), S = camera_.matrix() * W;
+  double ux = S.applyLinear({1, 0}).length(), uy = S.applyLinear({0, 1}).length();
+  if (w * ux < kRadiusMinBox || h * uy < kRadiusMinBox) return false;
+  if (gesture_ == Gesture::None) {
+    Vec2 q = S.inverse().apply(lastScreen_);
+    if (q.x < 0 || q.y < 0 || q.x > w || q.y > h) return false;
+  }
+  const double inset = OverlayStyle::of(theme_).radiusHandleInset;
+  double half = std::min(w, h) / 2;
+  const double cx[4] = {0, w, w, 0}, cy[4] = {0, 0, h, h}, dx[4] = {1, -1, -1, 1}, dy[4] = {1, 1, -1, -1};
+  for (int k = 0; k < 4; k++) {
+    double r = std::min(p.cornerRadii[static_cast<size_t>(k)], half);
+    double ix = std::min(std::max(r, inset / ux), half), iy = std::min(std::max(r, inset / uy), half);
+    out[k] = W.apply({cx[k] + dx[k] * ix, cy[k] + dy[k] * iy});
+  }
+  return true;
+}
+
+void Editor::startRadius(int corner) {
+  begin(TxnKind::GESTURE, "Corner radius");
+  targets_ = targetsOf({selection_[0]});
+  radiusCorner_ = corner;
+}
+
+void Editor::dragRadius(Vec2 world, uint32_t mods) {
+  // Along the corner's diagonal, from where the press was: all four corners (⌥: this one only), whole numbers, up to
+  // half the shorter side.
+  if (targets_.empty() || radiusCorner_ < 0) return;
+  const Target& t = targets_[0];
+  const Node* n = doc_.get(t.id);
+  if (!n) return;
+  Mat2x3 inv = t.world.inverse();
+  Vec2 q = inv.apply(world), q0 = inv.apply(downWorld_);
+  int k = radiusCorner_;
+  double sx = k == 0 || k == 3 ? 1 : -1, sy = k == 0 || k == 1 ? 1 : -1;
+  double delta = ((q.x - q0.x) * sx + (q.y - q0.y) * sy) / 2;
+  CornerRadii before = originalRadii_;
+  double r = std::clamp(std::round(before[static_cast<size_t>(k)] + delta), 0.0, std::floor(std::min(t.size.x, t.size.y) / 2));
+  NodeChange c = NodeChange::changed(t.id);
+  c.mask = F_CORNER_RADII;
+  c.props.cornerRadii = before;
+  if (mods & MOD_ALT) c.props.cornerRadii[static_cast<size_t>(k)] = r;
+  else c.props.cornerRadii = {r, r, r, r};
+  write(c);
+  needsRender_ = true;
+}
+
+// ---- Smart selection ------------------------------------------------------------
+
+bool Editor::smartSelection(SmartSelection& out) const {
+  // Figma's smart selection: layers of one parent (not an auto-layout flow) in a row or a column with equal gaps.
+  if (viewer_ || tool_ != Tool::MOVE || selection_.size() < 2 || selection_.size() > 500 || text_.node != kNoGuid || vector_.node != kNoGuid)
+    return false;
+  Guid parent = doc_.parentOf(selection_[0]);
+  const Node* pn = doc_.get(parent);
+  if (pn && pn->props.isAutoLayout()) return false;
+  std::vector<std::pair<Guid, Rect>> items;
+  for (Guid id : selection_) {
+    const Node* n = doc_.get(id);
+    if (!n || id.isDerived() || n->props.locked || doc_.parentOf(id) != parent) return false;
+    items.push_back({id, doc_.worldBounds(id)});
+  }
+  for (int axis = 0; axis < 2; axis++) {
+    auto lo = [&](const Rect& r) { return axis == 0 ? r.x : r.y; };
+    auto hi = [&](const Rect& r) { return axis == 0 ? r.right() : r.bottom(); };
+    std::sort(items.begin(), items.end(), [&](auto& a, auto& b) { return lo(a.second) < lo(b.second); });
+    bool ok = true;
+    double gap = 0;
+    for (size_t i = 1; ok && i < items.size(); i++) {
+      double g = lo(items[i].second) - hi(items[i - 1].second);
+      if (g < -1e-6) ok = false;
+      else if (i == 1) gap = g;
+      else if (std::fabs(g - gap) > 0.5) ok = false;
+    }
+    if (!ok) continue;
+    out.order.clear();
+    for (auto& it : items) out.order.push_back(it.first);
+    out.axis = axis;
+    out.spacing = gap;
+    return true;
+  }
+  return false;
+}
+
+bool Editor::selectionHoverChanged(Vec2 s) {
+  bool in = false;
+  if (!selection_.empty()) {
+    SelectionBox box = selectionBox(doc_, selection_);
+    if (box.valid) {
+      Vec2 q = (camera_.matrix() * box.toWorld).inverse().apply(s);
+      in = q.x >= 0 && q.y >= 0 && q.x <= box.size.x && q.y <= box.size.y;
+    }
+  }
+  bool changed = in != pointerInSelection_;
+  pointerInSelection_ = in;
+  return changed;
+}
+
+void Editor::startGap(int gap) {
+  begin(TxnKind::GESTURE, "Spacing");
+  smartSelection(gapDrag_);
+  targets_ = targetsOf(gapDrag_.order);
+  gapIndex_ = gap;
+}
+
+void Editor::dragGap(Vec2 world, uint32_t mods) {
+  // The handle stays under the pointer: every gap changes alike, the first layer stays (live Figma: 20 → 42 for a
+  // 10.8-unit drag of the first gap's handle).
+  if (targets_.empty() || gapIndex_ < 0) return;
+  int axis = gapDrag_.axis;
+  double d = axis == 0 ? world.x - downWorld_.x : world.y - downWorld_.y;
+  double spacing = std::max(0.0, std::round(gapDrag_.spacing + d / (gapIndex_ + 0.5)));
+  (void)mods;
+  double at = 0;
+  for (size_t i = 0; i < targets_.size(); i++) {
+    const Target& t = targets_[i];
+    Rect b = transformedBounds(t.world, t.size.x, t.size.y);
+    if (i == 0) {
+      at = (axis == 0 ? b.right() : b.bottom()) + spacing;
+      continue;
+    }
+    double shift = at - (axis == 0 ? b.x : b.y);
+    Mat2x3 moved = Mat2x3::translate(axis == 0 ? shift : 0, axis == 1 ? shift : 0) * t.world;
+    NodeChange c = NodeChange::changed(t.id);
+    c.mask = F_TRANSFORM;
+    c.props.transform = tidy(doc_.worldTransform(t.parent).inverse() * moved);
+    write(c);
+    at += (axis == 0 ? b.w : b.h) + spacing;
+  }
+  flushLayout();
+  needsRender_ = true;
+}
+
 void Editor::updateCursor(Vec2 s) {
   if (spaceHeld_ || tool_ == Tool::HAND) return changeCursor(CursorKind::HAND);
+  if (zoomHeld_) return changeCursor((mods_ & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
   if (tool_ == Tool::TEXT || gesture_ == Gesture::TextSelect) return changeCursor(CursorKind::IBEAM);
   if (tool_ != Tool::MOVE) return changeCursor(CursorKind::CROSSHAIR);
   if (text_.node != kNoGuid) {
@@ -106,7 +410,9 @@ void Editor::updateCursor(Vec2 s) {
   if (!viewer_ && gesture_ == Gesture::None && gridCursor(s)) return;
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
-  if (h == Handle::None) return changeCursor(CursorKind::DEFAULT);
+  if (h == Handle::Rotate && titleAt(s) != kNoGuid) h = Handle::None;  // a title takes the press, not the rotation zone
+  if (h == Handle::None || h == Handle::LineEnd || h == Handle::Radius) return changeCursor(CursorKind::DEFAULT);
+  if (h == Handle::Gap) return changeCursor(CursorKind::RESIZE, hy == 0 ? 0 : 90);
   // The angle of the handle's direction on screen (0 = pointing right).
   SelectionBox box = selectionBox(doc_, selection_);
   Mat2x3 m = camera_.matrix() * box.toWorld;
@@ -119,12 +425,26 @@ void Editor::updateCursor(Vec2 s) {
 void Editor::updateHover(Vec2 s, uint32_t mods) {
   Guid next = kNoGuid;
   int hx, hy;
-  if ((tool_ == Tool::MOVE || tool_ == Tool::ANNOTATION) && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) == Handle::None) {
-    auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel());
-    focusFilter(path);
-    next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
+  if ((tool_ == Tool::MOVE || tool_ == Tool::ANNOTATION) && !spaceHeld_ && page_ != kNoGuid && handleAt(s, hx, hy) != Handle::Resize) {
+    // Over a frame's title: that frame (Figma outlines it).
+    next = titleAt(s);
+    if (next == kNoGuid && handleAt(s, hx, hy) == Handle::None) {
+      auto path = hitPath(doc_, page_, camera_.toWorld(s), pixel());
+      focusFilter(path);
+      next = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
+    }
   }
   devHover(s);
+  {
+    int hx2 = -1, hy2 = 0;
+    Handle h2 = (tool_ == Tool::MOVE && !spaceHeld_ && page_ != kNoGuid) ? handleAt(s, hx2, hy2) : Handle::None;
+    int rh = h2 == Handle::Radius ? hx2 : -1, gh = h2 == Handle::Gap ? hx2 : -1;
+    if (rh != radiusHover_ || gh != gapHover_) needsRender_ = true;
+    radiusHover_ = rh;
+    gapHover_ = gh;
+    // The radius handles and gap handles come and go with the pointer over the selection.
+    if (selectionHoverChanged(s)) needsRender_ = true;
+  }
   if (next != hover_) {
     hover_ = next;
     events_.hover = true;
@@ -167,20 +487,27 @@ void Editor::updateMeasure(uint32_t mods) {
 }
 
 void Editor::updateAutoLayoutBands(Vec2 world) {
-  // A selected auto-layout frame shows its padding (the side under the pointer) or its gaps (all of them).
+  // A selected auto-layout frame under the pointer shows Figma's handles: a short blue bar in the middle of each
+  // padding and a pink one in each gap (live Figma, canvas-autolayout-selected-hover-*); the one under the pointer
+  // (its band: the padding side, or any gap) shows its value, and a drag on it changes it.
   std::vector<Rect> bands;
-  if (gesture_ == Gesture::None && tool_ == Tool::MOVE && !spaceHeld_ && selection_.size() == 1) {
+  std::vector<Overlay::LayoutBar> bars;
+  int hovered = -1;
+  bool dragging = gesture_ == Gesture::LayoutBar;
+  if ((gesture_ == Gesture::None || dragging) && tool_ == Tool::MOVE && !spaceHeld_ && selection_.size() == 1 && !viewer_) {
     Guid id = selection_[0];
     const Node* n = doc_.get(id);
     Mat2x3 W = doc_.worldTransform(id);
-    if (n && n->props.isAutoLayout() && axisAligned(W) && W.m00 > 0 && W.m11 > 0) {
+    if (n && n->props.isAutoLayout() && n->props.stack().stackMode != StackMode::GRID && axisAligned(W) && W.m00 > 0 && W.m11 > 0 &&
+        !n->props.locked && !id.isDerived()) {
       const NodeProps& p = n->props;
       Vec2 q = W.inverse().apply(world);
       double w = p.size.x, h = p.size.y;
-      if (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h) {
+      if (dragging || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) {
         int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
         double pad[4];
         Layout::padding(p, pad);
+        const double own[4] = {p.stack().stackPaddingLeft, p.stack().stackPaddingTop, p.stack().stackPaddingRight, p.stack().stackPaddingBottom};
         auto inside = [&](const Rect& r) { return r.w > 0 && r.h > 0 && r.contains(q); };
         bool onChild = false;
         std::vector<Rect> boxes;
@@ -189,6 +516,7 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
           boxes.push_back(layoutBox(cp.transform, cp.size));
           onChild |= boxes.back().contains(q);
         }
+        bool between = p.stack().stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN;
         std::vector<Rect> gaps;
         for (size_t i = 1; i < boxes.size() && p.stack().stackWrap != StackWrap::WRAP; i++) {
           const Rect& a = boxes[i - 1];
@@ -197,23 +525,108 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
           if (P == 1 && b.y > a.bottom()) gaps.push_back({pad[0], a.bottom(), w - pad[0] - pad[2], b.y - a.bottom()});
         }
         Rect sides[4] = {{0, 0, pad[0], h}, {0, 0, w, pad[1]}, {w - pad[2], 0, pad[2], h}, {0, h - pad[3], w, pad[3]}};
-        if (!onChild) {
-          bool inGap = false;
-          for (auto& g : gaps) inGap |= inside(g);
-          if (inGap) bands = gaps;
-          else
-            for (auto& side : sides)
-              if (inside(side)) {
-                bands.push_back(side);
-                break;
-              }
+        int band = -1;  // 0..3 a side, 4 + i a gap
+        if (dragging) band = layoutBar_;
+        else if (!onChild) {
+          for (size_t i = 0; i < gaps.size() && band < 0; i++)
+            if (inside(gaps[i])) band = 4 + static_cast<int>(i);
+          for (int k = 0; k < 4 && band < 0; k++)
+            if (inside(sides[k])) band = k;
         }
+        if (band >= 4) bands = gaps;
+        else if (band >= 0) bands.push_back(sides[band]);
         for (auto& b : bands) b = transformedBounds(W * Mat2x3::translate(b.x, b.y), b.w, b.h);
+        // The bars: each side with padding, each gap.
+        for (int k = 0; k < 4; k++) {
+          if (pad[k] <= 0) continue;
+          const Rect& r = sides[k];
+          Overlay::LayoutBar bar;
+          bar.side = k;
+          bar.vertical = k == 0 || k == 2;
+          // In the middle of the padding, at the middle of the content across (Figma: the frame's middle).
+          bar.at = W.apply({k == 0 ? r.w / 2 : k == 2 ? w - r.w / 2 : w / 2, k == 1 ? r.h / 2 : k == 3 ? h - r.h / 2 : h / 2});
+          bar.edge = W.apply({k == 0 ? 0 : k == 2 ? w : w / 2, k == 1 ? 0 : k == 3 ? h : h / 2});
+          bar.value = own[k];
+          bar.hovered = band == k;
+          if (bar.hovered) hovered = static_cast<int>(bars.size());
+          bars.push_back(bar);
+        }
+        for (size_t i = 0; i < gaps.size(); i++) {
+          const Rect& g = gaps[i];
+          Overlay::LayoutBar bar;
+          bar.gap = true;
+          bar.index = static_cast<int>(i);
+          bar.vertical = P == 0;
+          bar.at = W.apply({g.x + g.w / 2, g.y + g.h / 2});
+          bar.edge = bar.at;
+          bar.value = between ? (P == 0 ? g.w : g.h) : p.stack().stackSpacing;
+          bar.hovered = band == 4 + static_cast<int>(i);
+          if (bar.hovered) hovered = static_cast<int>(bars.size());
+          bars.push_back(bar);
+        }
       }
     }
   }
   if (!(bands.size() == bands_.size() && std::equal(bands.begin(), bands.end(), bands_.begin()))) needsRender_ = true;
+  if (bars.size() != layoutBars_.size() || hovered != layoutBarHover_) needsRender_ = true;
   bands_ = std::move(bands);
+  layoutBars_ = std::move(bars);
+  layoutBarHover_ = hovered;
+  layoutBarsFrame_ = layoutBars_.empty() ? kNoGuid : selection_[0];
+}
+
+void Editor::startLayoutBar(int band) {
+  const Node* n = doc_.get(selection_[0]);
+  if (!n) return;
+  begin(TxnKind::GESTURE, band >= 4 ? "Gap" : "Padding");
+  layoutBar_ = band;
+  layoutBarFrom_ = n->props.stack();
+}
+
+void Editor::dragLayoutBar(Vec2 world, uint32_t mods) {
+  // A padding follows the pointer across its side (⌥: the opposite side too, ⇧: all four — unverified); a gap's bar
+  // stays under the pointer (every gap changes alike), as the smart selection's.
+  if (layoutBar_ < 0 || selection_.size() != 1) return;
+  Guid id = selection_[0];
+  Mat2x3 inv = doc_.worldTransform(id).inverse();
+  Vec2 d = inv.applyLinear(world - downWorld_);
+  const auto& from = layoutBarFrom_;
+  NodeChange c = NodeChange::changed(id);
+  if (layoutBar_ >= 4) {
+    bool horizontal = from.stackMode == StackMode::HORIZONTAL;
+    double along = horizontal ? d.x : d.y;
+    double base = from.stackSpacing;
+    if (from.stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN) {
+      // An Auto gap dragged becomes a number (from the gap as laid out).
+      for (const auto& bar : layoutBars_)
+        if (bar.gap) {
+          base = bar.value;
+          break;
+        }
+      c.mask |= F_STACK_PRIMARY_ALIGN;
+      c.props.stack().stackPrimaryAlignItems = StackJustify::MIN;
+    }
+    c.mask |= F_STACK_SPACING;
+    c.props.stack().stackSpacing = std::max(0.0, std::round(base + along / ((layoutBar_ - 4) + 0.5)));
+  } else {
+    const double start[4] = {from.stackPaddingLeft, from.stackPaddingTop, from.stackPaddingRight, from.stackPaddingBottom};
+    const double sign[4] = {d.x, d.y, -d.x, -d.y};
+    double v = std::max(0.0, std::round(start[layoutBar_] + sign[layoutBar_]));
+    bool sides[4] = {false, false, false, false};
+    sides[layoutBar_] = true;
+    if (mods & MOD_ALT) sides[(layoutBar_ + 2) % 4] = true;
+    if (mods & MOD_SHIFT) sides[0] = sides[1] = sides[2] = sides[3] = true;
+    const FieldMask masks[4] = {F_STACK_PADDING_LEFT, F_STACK_PADDING_TOP, F_STACK_PADDING_RIGHT, F_STACK_PADDING_BOTTOM};
+    double* fields[4] = {&c.props.stack().stackPaddingLeft, &c.props.stack().stackPaddingTop, &c.props.stack().stackPaddingRight, &c.props.stack().stackPaddingBottom};
+    for (int k = 0; k < 4; k++) {
+      *fields[k] = sides[k] ? v : start[k];
+      c.mask |= masks[k];
+    }
+  }
+  write(c);
+  flushLayout();
+  updateAutoLayoutBands(world);
+  needsRender_ = true;
 }
 
 // ---- Pointer and wheel ------------------------------------------------------
@@ -278,6 +691,12 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     changeCursor(CursorKind::GRABBING);
     return P_HANDLED | P_CAPTURE;
   }
+  // Z held: a click zooms in about the point (⌥ out), a drag zooms to the area (Figma's zoom tool).
+  if (button == 0 && zoomHeld_) {
+    gesture_ = Gesture::ZoomArea;
+    marquee_ = Rect{downWorld_.x, downWorld_.y, 0, 0};
+    return P_HANDLED | P_CAPTURE;
+  }
   // Viewer mode: no context menu, nothing but selecting (and panning, above).
   if (viewer_ && button != 0) return 0;
   // A right-click, or ⌃-click where ⌃ isn't the command key (a Mac).
@@ -319,9 +738,10 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     if (uint32_t r = vectorPointerDown(s, mods, clickCount_)) return r;
   }
 
-  if (tool_ == Tool::FRAME || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE || tool_ == Tool::POLYGON || tool_ == Tool::STAR ||
-      tool_ == Tool::LINE || tool_ == Tool::ARROW) {
+  if (tool_ == Tool::FRAME || tool_ == Tool::SECTION || tool_ == Tool::RECTANGLE || tool_ == Tool::ELLIPSE || tool_ == Tool::POLYGON ||
+      tool_ == Tool::STAR || tool_ == Tool::LINE || tool_ == Tool::ARROW) {
     drawType_ = tool_ == Tool::FRAME       ? NodeType::FRAME
+                : tool_ == Tool::SECTION   ? NodeType::SECTION
                 : tool_ == Tool::RECTANGLE ? NodeType::ROUNDED_RECTANGLE
                 : tool_ == Tool::ELLIPSE   ? NodeType::ELLIPSE
                 : tool_ == Tool::POLYGON   ? NodeType::REGULAR_POLYGON
@@ -333,6 +753,8 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     auto path = hitPath(doc_, page_, downWorld_, pixel());
     for (auto it = path.rbegin(); it != path.rend(); ++it)
       if (acceptsChildren(*it)) {
+        // A section goes on the canvas or into another section only (Figma).
+        if (drawType_ == NodeType::SECTION && doc_.get(*it)->props.type != NodeType::SECTION) continue;
         drawParent_ = *it;
         break;
       }
@@ -351,6 +773,55 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (h == Handle::Resize) {
     startResize(hx, hy);
     gesture_ = Gesture::Resize;
+    return P_HANDLED | P_CAPTURE;
+  }
+  if (h == Handle::LineEnd) {
+    startLineEnd(hx);
+    gesture_ = Gesture::Resize;
+    return P_HANDLED | P_CAPTURE;
+  }
+  if (h == Handle::Radius) {
+    if (const Node* rn = doc_.get(selection_[0])) originalRadii_ = rn->props.cornerRadii;
+    gesture_ = Gesture::Radius;
+    startRadius(hx);
+    return P_HANDLED | P_CAPTURE;
+  }
+  if (h == Handle::Gap) {
+    gesture_ = Gesture::Gap;
+    startGap(hx);
+    return P_HANDLED | P_CAPTURE;
+  }
+  // An auto-layout frame's padding or gap under the pointer (its bar shows): a drag changes it.
+  if (!viewer_ && h == Handle::None && layoutBarHover_ >= 0 && static_cast<size_t>(layoutBarHover_) < layoutBars_.size() &&
+      selection_.size() == 1 && selection_[0] == layoutBarsFrame_ && !(mods & (MOD_PRIMARY | MOD_SHIFT))) {
+    const Overlay::LayoutBar& bar = layoutBars_[static_cast<size_t>(layoutBarHover_)];
+    gesture_ = Gesture::LayoutBar;
+    startLayoutBar(bar.gap ? 4 + bar.index : bar.side);
+    return P_HANDLED | P_CAPTURE;
+  }
+  // A frame's title (or a section's pill): a press selects the frame (⇧ adds or removes it), a drag moves it,
+  // a double-click renames it in place.
+  if (Guid titled = titleAt(s); titled != kNoGuid) {
+    if (!viewer_ && clickCount_ >= 2 && !(mods & MOD_SHIFT)) {
+      changeSelection({titled});
+      for (const FrameTitle& t : titles())
+        if (t.id == titled) {
+          Rect r = t.section ? t.hit : Rect{t.text.x - 2, t.text.y - 2, std::max(t.frame.right() - t.text.x, 60.0) + 4, t.text.h + 4};
+          events_.renames.push_back({titled, r});
+        }
+      needsRender_ = true;
+      return P_HANDLED;
+    }
+    pressed_ = titled;
+    pressMarquee_ = pressInSelected_ = pressNoop_ = false;
+    marqueeScope_ = kNoGuid;
+    pressedWasSelected_ = selected(titled);
+    if (!pressedWasSelected_) {
+      std::vector<Guid> next = (mods & MOD_SHIFT) ? selection_ : std::vector<Guid>{};
+      next.push_back(titled);
+      changeSelection(std::move(next));
+    }
+    gesture_ = Gesture::Press;
     return P_HANDLED | P_CAPTURE;
   }
   if (h == Handle::Rotate) {
@@ -380,14 +851,16 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   pressNoop_ = false;
   marqueeScope_ = kNoGuid;
   pressedWasSelected_ = pressed_ != kNoGuid && selected(pressed_);
+  size_t topAt = path.empty() ? 0 : topLevelIndex(doc_, path);
   if (pressed_ == kNoGuid) {
     pressMarquee_ = true;
-  } else if (!deep && path.size() == 1 && doc_.get(path[0])->props.isFrameLike() &&
-             doc_.get(path[0])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
-             !doc_.children(path[0]).empty()) {
-    // A top-level frame's own background: a drag is a marquee among its children, a click selects it.
+  } else if (path.size() == topAt + 1 && doc_.get(path[topAt])->props.isFrameLike() &&
+             doc_.get(path[topAt])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
+             !doc_.children(path[topAt]).empty()) {
+    // A top-level frame's (or a section's) own background: a drag is a marquee among its children (⌘: a deep
+    // one), a click selects nothing (live Figma: like empty canvas).
     pressMarquee_ = true;
-    marqueeScope_ = path[0];
+    marqueeScope_ = path[topAt];
   } else if (!pressedWasSelected_) {
     // Figma's press rule: a press on a layer inside a selected layer keeps the selection — a drag moves the
     // selection (⇧ then locks the axis), and the pressed layer is selected only by a click (finishClick). A press
@@ -421,7 +894,7 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
   auto path = hitPath(doc_, page_, world, pixel());
   Guid picked = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
   if (picked != kNoGuid && !selected(picked)) changeSelection({picked});
-  for (auto& p : hitPaths(doc_, page_, world, pixel())) {
+  for (auto& p : hitPaths(doc_, page_, world, pixel(), true)) {
     std::reverse(p.begin(), p.end());
     menu.hits.push_back(std::move(p));
   }
@@ -471,6 +944,9 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       }
       break;
     case Gesture::Move: dragMove(world, mods); break;
+    case Gesture::Radius: dragRadius(world, mods); break;
+    case Gesture::Gap: dragGap(world, mods); break;
+    case Gesture::LayoutBar: dragLayoutBar(world, mods); break;
     case Gesture::Resize: dragResize(world, mods); break;
     case Gesture::Rotate: dragRotate(world, mods); break;
     case Gesture::Draw:
@@ -483,6 +959,10 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       dragDraw(world, mods, false);
       break;
     case Gesture::Marquee: dragMarquee(world, mods); break;
+    case Gesture::ZoomArea:
+      marquee_ = Rect::fromPoints(downWorld_, world);
+      needsRender_ = true;
+      break;
     case Gesture::TextSelect: textDrag(s); break;
     case Gesture::Grid: gridPointerMove(s, mods); break;
   }
@@ -524,6 +1004,9 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Press: finishClick(mods); break;
     case Gesture::Move: finishMove(); break;
     case Gesture::Resize:
+    case Gesture::Radius:
+    case Gesture::Gap:
+    case Gesture::LayoutBar:
     case Gesture::Rotate: commit(); break;
     case Gesture::Draw:
       if (drawType_ == NodeType::TEXT) {
@@ -538,6 +1021,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
         return;
       }
       if (drawn_ == kNoGuid) dragDraw(world, mods, true);
+      if (drawType_ == NodeType::SECTION) adoptIntoSection(drawn_);
       if (excluded_.count(drawn_)) layoutDirty_.insert(doc_.parentOf(drawn_));
       excluded_.clear();
       commit();
@@ -546,6 +1030,20 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       setTool(Tool::MOVE);  // after a draw, back to Move (Figma)
       break;
     case Gesture::Marquee: needsRender_ = true; break;
+    case Gesture::ZoomArea: {
+      zooming_ = false;
+      Rect r = Rect::fromPoints(downWorld_, world);
+      if ((s - downScreen_).length() >= kDragThreshold && r.w > 0 && r.h > 0)
+        changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, false)));
+      else
+        changeCamera(snapped(camera_.zoomedAround(camera_.zoom * ((mods & MOD_ALT) ? 0.5 : 2), s)));
+      needsRender_ = true;
+      gesture_ = Gesture::None;
+      endGesture();
+      changeCursor(zoomHeld_ ? ((mods & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN) : CursorKind::DEFAULT);
+      if (!zoomHeld_) updateHover(s, mods);
+      return;
+    }
     case Gesture::TextSelect: break;
     case Gesture::Grid: gridPointerUp(s, mods); break;
   }
@@ -566,6 +1064,11 @@ void Editor::endGesture() {
   hasInsertion_ = false;
   dropParent_ = kNoGuid;
   snapParent_ = kNoGuid;
+  lineEnd_ = -1;
+  radiusCorner_ = -1;
+  gapIndex_ = -1;
+  layoutBar_ = -1;
+  ignoreConstraints_ = false;
   needsRender_ = true;
 }
 
@@ -590,6 +1093,9 @@ void Editor::cancelGesture() {
       break;
     case Gesture::Move:
     case Gesture::Resize:
+    case Gesture::Radius:
+    case Gesture::Gap:
+    case Gesture::LayoutBar:
     case Gesture::Rotate: rollback(); break;
     case Gesture::Draw:
       if (drawn_ != kNoGuid) rollback();
@@ -627,15 +1133,9 @@ void Editor::finishClick(uint32_t mods) {
     return;
   }
   if (pressMarquee_) {
-    if (marqueeScope_ != kNoGuid) {
-      std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
-      auto it = std::find(next.begin(), next.end(), marqueeScope_);
-      if (it != next.end()) next.erase(it);
-      else next.push_back(marqueeScope_);
-      changeSelection(std::move(next));
-    } else if (!shift) {
-      changeSelection({});
-    }
+    // Empty canvas, or the empty background of a top-level frame (or section) with layers in it: live Figma
+    // (2026-10-08) treats both alike — a click selects nothing (⇧ keeps the selection).
+    if (!shift) changeSelection({});
     return;
   }
   if (pressed_ == kNoGuid || !pressedWasSelected_) return;
@@ -680,9 +1180,12 @@ void Editor::prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHas
   snapper_.reset(std::move(boxes), container);
 }
 
-Guid Editor::dropTargetAt(Vec2 world) const {
+Guid Editor::dropTargetAt(Vec2 world, bool force) const {
   // The topmost frame under the pointer that isn't being moved (nor inside what is): its box, inside every
-  // frame that clips it. Instances and locked or hidden frames don't take layers.
+  // frame that clips it. Instances and locked or hidden frames don't take layers. The pointer decides, not the
+  // sizes: live Figma (2026-10-08) nests a 500×350 layer dropped on a 150×150 frame. (`force`, ⌘: kept for the
+  // safeguards Figma's ⌘ overrides; none here yet.)
+  (void)force;
   GuidSet moving;
   for (const Target& t : targets_) moving.insert(t.id);
   Guid best = page_;
@@ -810,17 +1313,19 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
     if (std::fabs(d.x) > std::fabs(d.y)) d.y = 0, lockY = true;
     else d.x = 0, lockX = true;
   }
-  const bool keepParent = (mods & MOD_PRIMARY) != 0;
-  const bool snapping = !(mods & (MOD_CTRL | MOD_PRIMARY));
+  // Figma's modifiers while moving: Space held keeps the layers out of frames (their parents stay); ⌘ nests them
+  // even into a frame smaller than they are; ⌃ turns snapping off.
+  const bool keepParent = spaceHeld_;
+  const bool forceNest = (mods & MOD_PRIMARY) != 0;
+  const bool snapping = !(mods & MOD_CTRL);
 
-  // Into the frame under the pointer, out of the one it left (⌘ keeps the parents).
-  Guid drop = keepParent ? kNoGuid : dropTargetAt(world);
+  // Into the frame under the pointer, out of the one it left.
+  Guid drop = keepParent ? kNoGuid : dropTargetAt(world, forceNest);
   for (const Target& t : targets_) {
     const Node* n = doc_.get(t.id);
     if (!n) continue;
     Guid now = n->props.parentIndex.guid;
-    Guid want = now;
-    if (!keepParent) want = drop == containerOf(t.parent) ? t.parent : drop;
+    Guid want = keepParent ? t.parent : drop == containerOf(t.parent) ? t.parent : drop;
     if (want == now) continue;
     NodeChange c = NodeChange::changed(t.id);
     c.mask = F_PARENT_INDEX;
@@ -1027,6 +1532,7 @@ void Editor::finishMove() {
 
 void Editor::startResize(int hx, int hy) {
   begin(TxnKind::GESTURE, "Resize");
+  lineEnd_ = -1;
   handleX_ = hx;
   handleY_ = hy;
   box_ = selectionBox(doc_, selection_);
@@ -1042,11 +1548,22 @@ void Editor::startResize(int hx, int hy) {
 }
 
 void Editor::dragResize(Vec2 world, uint32_t mods) {
+  if (lineEnd_ >= 0) return dragLineEnd(world, mods);
   const double W = box_.size.x, H = box_.size.y;
   if (!(W > 0) || !(H > 0)) return;
-  bool alt = (mods & MOD_ALT) != 0, shift = (mods & MOD_SHIFT) != 0;
-  // Snap the dragged edge (boxes turned against the page don't snap).
-  bool snapping = !(mods & (MOD_CTRL | MOD_PRIMARY)) && axisAligned(box_.toWorld);
+  bool alt = (mods & MOD_ALT) != 0;
+  // The ratio is kept with ⇧, or always for layers with Lock aspect ratio on — then ⌃ lets it go (Figma).
+  std::vector<Guid> resized = topLevelSelection(doc_, selection_);
+  bool locked = !resized.empty();
+  for (Guid id : resized) {
+    const Node* n = doc_.get(id);
+    locked &= n && n->props.proportionsConstrained;
+  }
+  bool shift = locked ? !(mods & MOD_CTRL) : (mods & MOD_SHIFT) != 0;
+  // ⌘: the frames' children stay where they are on the page (constraints ignored, Figma).
+  ignoreConstraints_ = (mods & MOD_PRIMARY) != 0;
+  // Snap the dragged edge (boxes turned against the page don't snap); ⌃ turns snapping off.
+  bool snapping = !(mods & MOD_CTRL) && axisAligned(box_.toWorld);
   SnapResult snap;
   if (snapping) {
     snap = snapper_.snapPoint(world, kSnapReach / camera_.zoom, handleX_ != 0, handleY_ != 0);
@@ -1120,6 +1637,22 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     }
     write(c);
     keepResizedSize(t.id, handleX_ != 0 || (shift && handleY_ != 0), handleY_ != 0 || (shift && handleX_ != 0));
+    // ⌘: a frame's children keep their place on the page (and their size); layout leaves them (ignoreConstraints).
+    const Node* tn = doc_.get(t.id);
+    if (tn && tn->props.isFrameLike() && !tn->props.isAutoLayout()) {
+      Mat2x3 nowWorld = doc_.worldTransform(t.id);
+      for (Guid ch : doc_.children(t.id)) {
+        if (ch.isDerived()) continue;
+        Mat2x3 t0;
+        Vec2 s0;
+        base(ch, t0, s0);
+        NodeChange cc = NodeChange::changed(ch);
+        cc.mask = F_TRANSFORM | F_SIZE;
+        cc.props.transform = tidy(nowWorld.inverse() * t.world * t0);
+        cc.props.size = s0;
+        if (ignoreConstraints_) write(cc);
+      }
+    }
   }
   guides_.clear();
   if (snapping && (snap.snappedX || snap.snappedY))
@@ -1221,14 +1754,16 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
   NodeChange c;
   if (drawn_ == kNoGuid) {
     const char* label = drawType_ == NodeType::FRAME             ? "Create frame"
+                        : drawType_ == NodeType::SECTION         ? "Create section"
                         : drawType_ == NodeType::ELLIPSE         ? "Create ellipse"
                         : drawType_ == NodeType::REGULAR_POLYGON ? "Create polygon"
                         : drawType_ == NodeType::STAR            ? "Create star"
                                                                  : "Create rectangle";
     begin(TxnKind::GESTURE, label);
     Guid id = newGuid();
-    c = NodeChange::created(id, defaultProps(drawType_));
+    c = NodeChange::created(id, drawType_ == NodeType::SECTION ? sectionProps() : defaultProps(drawType_));
     c.props.name = nextName(drawType_ == NodeType::FRAME             ? "Frame"
+                            : drawType_ == NodeType::SECTION         ? "Section"
                             : drawType_ == NodeType::ELLIPSE         ? "Ellipse"
                             : drawType_ == NodeType::REGULAR_POLYGON ? "Polygon"
                             : drawType_ == NodeType::STAR            ? "Star"
@@ -1296,7 +1831,9 @@ void Editor::dragLine(Vec2 world, uint32_t mods, bool click) {
 void Editor::dragMarquee(Vec2 world, uint32_t mods) {
   marquee_ = Rect::fromPoints(downWorld_, world);
   needsRender_ = true;
-  std::vector<Guid> hits = marqueeHits(doc_, page_, marquee_, marqueeScope_);
+  // ⌘ (held at the press or now): the nested layers under the rect, at any depth (Figma's deep marquee).
+  bool deep = ((mods | downMods_) & MOD_PRIMARY) != 0;
+  std::vector<Guid> hits = deep ? marqueeDeepHits(doc_, page_, marquee_) : marqueeHits(doc_, page_, marquee_, marqueeScope_);
   std::vector<Guid> next;
   if ((mods | downMods_) & MOD_SHIFT) next = baseSelection_;
   for (Guid h : hits)

@@ -31,6 +31,7 @@
 #include "render/Camera.h"
 #include "render/CurveCache.h"
 #include "render/DrawInstance.h"
+#include "render/FrameTitles.h"
 #include "render/ImageCache.h"
 #include "render/OverlayStyle.h"
 #include "render/RenderTree.h"
@@ -197,6 +198,40 @@ struct Overlay {
   bool hasGridDrop = false;
   GuideLine gridDrop;
   std::vector<Vec2> gridSpanHandles;
+  // A selected line's two endpoint handles (world), drawn instead of the box's corner handles.
+  std::vector<Vec2> lineEnds;
+  // A selected rectangle under the pointer: its corner radius handles (world; top-left, top-right, bottom-right,
+  // bottom-left), the one under the pointer (−1: none).
+  std::vector<Vec2> radiusHandles;
+  int radiusHovered = -1;
+  // Equally spaced selected layers (smart selection): the pink gap handles (world, the middle of each gap, `vertical`:
+  // a gap between rows) and the centre dots of the layers.
+  struct GapHandle {
+    Vec2 at;
+    double length = 0;  // world, across the gap's axis
+    bool vertical = false;
+    bool hovered = false;
+    double value = 0;
+  };
+  std::vector<GapHandle> gapHandles;
+  // A selected auto-layout frame under the pointer: a bar in the middle of each padding (blue) and gap (pink); the
+  // hovered one shows its value next to `edge` (a padding: the frame's edge there, world).
+  struct LayoutBar {
+    Vec2 at, edge;
+    bool vertical = false;
+    bool gap = false;
+    bool hovered = false;
+    int side = -1;   // a padding: 0 left, 1 top, 2 right, 3 bottom
+    int index = -1;  // a gap: which
+    double value = 0;
+  };
+  std::vector<LayoutBar> layoutBars;
+  std::vector<Vec2> centreDots;
+  // View options: the pixel grid (View › Pixel grid, drawn from 300 % zoom) and outline mode (⇧⌘O: every layer as a
+  // thin outline, no fills).
+  bool pixelGrid = true;
+  bool outlines = false;
+  bool layoutGuides = true;  // View › Layout guides (⇧G): frames' layout grids drawn
   // Top-level frames' names above them.
   bool frameTitles = true;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
@@ -317,8 +352,9 @@ class Renderer {
   size_t poolTargets() const { return pool_.size(); }
   uint64_t poolTargetBytes() const { return poolBytes(); }
 
-  // The frame-title colour for a page colour (Figma picks it by the page's luminance).
-  static Color titleColor(const Color& page, double* alpha);
+  // Whether a page colour is dark: frame titles then use their on-dark colours (Figma picks them by the page's
+  // luminance, not the UI theme).
+  static bool darkCanvas(const Color& page);
 
  private:
   enum class Pass : uint8_t {
@@ -452,6 +488,11 @@ class Renderer {
   static constexpr double kGlyphMinEmPx = 1;
   // A glyph's outline area in em² (cached): the ink of greeked lines.
   double glyphArea(text::Font* font, uint32_t glyph);
+  // Outline mode (View › Outlines, ⇧⌘O): a node as a thin outline (text: its glyphs in the outline colour), then its
+  // children; no fills, strokes, effects or masks.
+  void drawOutlined(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m);
+  // A polyline in CSS px, `width` across: a thin rectangle per segment.
+  void strokePolyline(const std::vector<Vec2>& pts, bool closed, double width, const Color& color, double alpha);
   // Glyphs of `layout` placed by `m` (layout space → CSS px), all in `color`.
   void drawGlyphs(const text::TextLayout& layout, const Mat2x3& m, const Color& color, double alpha);
   void drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
@@ -462,6 +503,8 @@ class Renderer {
   // the measurement tool's edges and draft; a frame title's status chip (`x`: where it starts, `baseline`).
   void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   void drawStatusChip(const DevStatusMark& mark, double x, double baseline, const OverlayStyle& style);
+  // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
+  void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color);
   // Render-tree node `i`'s props: the scene item's override when it has one (renderScene), else the document's.
   const NodeProps& propsAt(uint32_t i) const {
     const RenderNode& rn = tree_->nodes()[i];
@@ -613,6 +656,9 @@ class Renderer {
   // renderScene: the item's props overrides, and culling off (layers may be drawn away from their tree bounds).
   const PropsOverrides* overrides_ = nullptr;
   bool cull_ = true;
+  bool outlines_ = false;  // this frame draws the page in outline mode
+  bool layoutGuides_ = true;  // frames' layout grids drawn (View › Layout guides)
+  Color outlineInk_;       // its colour (light on a dark page, dark on a light one)
 };
 
 // A shape instance for a w×h shape placed by `m` (shape space → draw space): a solid fill and / or a solid

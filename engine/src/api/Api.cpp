@@ -385,6 +385,11 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("x").number(g.label.x).key("y").number(g.label.y).key("width").number(g.label.w).key("height").number(g.label.h);
     w.endObject();
   }
+  for (auto& r : ev.renames) {
+    w.beginObject().key("type").string("REQUEST_RENAME").key("ref").string(r.node.toString());
+    w.key("x").number(r.rect.x).key("y").number(r.rect.y).key("width").number(r.rect.w).key("height").number(r.rect.h);
+    w.endObject();
+  }
   // Last: by then the selection the right-click made has been reported.
   for (auto& m : ev.contextMenus) {
     w.beginObject().key("type").string("CONTEXT_MENU");
@@ -1320,7 +1325,7 @@ ENG_EXPORT int32_t engine_paste(Handle h, Ptr ptr, uint32_t len, uint32_t flags)
       clip.regions.push_back(std::move(region));
     }
   }
-  return static_cast<int32_t>(e->editor.paste(clip, (flags & PASTE_IN_PLACE) != 0));
+  return static_cast<int32_t>(e->editor.pasteWith(clip, flags & (PASTE_IN_PLACE | PASTE_OVER | PASTE_REPLACE)));
 }
 
 namespace {
@@ -2632,6 +2637,13 @@ ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
   if (!e) return;
   e->editor.setViewerMode((flags & 1) != 0);
   e->editor.setDevEdits((flags & 1) != 0 && (flags & 2) != 0);
+}
+
+// View options (round 7): 1 the pixel grid (View › Pixel grid, ⇧'), 2 outline mode (⇧⌘O), 4 layout guides (⇧G).
+ENG_EXPORT void engine_set_view_options(Handle h, uint32_t options) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (e) e->editor.setViewOptions(options & (Editor::VIEW_PIXEL_GRID | Editor::VIEW_OUTLINES | Editor::VIEW_LAYOUT_GUIDES));
 }
 
 // ---- Dev Mode (editor/DevMode.cpp) ---------------------------------------------------------------------------------

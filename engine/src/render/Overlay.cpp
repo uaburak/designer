@@ -1,6 +1,7 @@
 // The editor's canvas overlays, drawn after the scene in CSS px with 1-px lines
 // snapped to device pixels (docs/engine.md §6.11).
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -54,6 +55,28 @@ std::string formatNumber(double v) {
 }
 
 }  // namespace
+
+void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color) {
+  // Diamonds: squares turned 45°, `d` across their diagonal.
+  auto diamond = [&](Vec2 c, double d, bool filled) {
+    double side = d / std::sqrt(2.0);
+    const double k = std::sqrt(0.5);
+    // A side×side square turned 45° about its centre c: T(c)·R(45°)·T(−side/2, −side/2).
+    Mat2x3 at{k, -k, c.x, k, k, c.y - side * k};
+    emit(makeShape(at, {side, side}, ShapeKind::Rect, {0.5, 0.5, 0.5, 0.5}, color, filled ? color.a : 0, color, filled ? 0 : color.a, filled ? 0 : 1, 0),
+         Pass::Shape);
+  };
+  Vec2 c{box.x + box.w / 2, box.y + box.h / 2};
+  if (icon == TitleIcon::Instance) {
+    diamond(c, box.w - 1, false);
+  } else {
+    double q = box.w / 4;
+    diamond({c.x, c.y - q}, box.w / 2 - 0.5, true);
+    diamond({c.x, c.y + q}, box.w / 2 - 0.5, true);
+    diamond({c.x - q, c.y}, box.w / 2 - 0.5, true);
+    diamond({c.x + q, c.y}, box.w / 2 - 0.5, true);
+  }
+}
 
 void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const double dpr = viewport_.scaleX();  // snap to the canvas's real pixels
@@ -116,6 +139,24 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     outline(m, {lb.w, lb.h}, kind, rounded ? n->props.cornerRadii : kSquare, weight, colorOf(id));
   };
 
+  // The pixel grid (View › Pixel grid): a line on every whole canvas unit from 300 % zoom (faint at 300 %, full from
+  // 400 %: live Figma), under the other overlays.
+  if (overlay.pixelGrid && camera.zoom >= 3 && std::fabs(view.m01) < 1e-9 && std::fabs(view.m10) < 1e-9) {
+    double alpha = camera.zoom >= 4 ? 1.0 : 0.5;
+    const Color gc{style.pixelGrid.r, style.pixelGrid.g, style.pixelGrid.b, 1};
+    alpha *= style.pixelGrid.a;
+    double px = 1 / dpr;
+    Vec2 a = view.inverse().apply({screen_.x, screen_.y}), b = view.inverse().apply({screen_.right(), screen_.bottom()});
+    for (double x = std::ceil(a.x); x <= b.x; x += 1) {
+      double sx = std::round(view.apply({x, 0}).x * dpr) / dpr;
+      emit(makeShape(Mat2x3::translate(sx, screen_.y), {px, screen_.h}, ShapeKind::Rect, kSquare, gc, alpha, gc, 0, 0, 0), Pass::Shape);
+    }
+    for (double y = std::ceil(a.y); y <= b.y; y += 1) {
+      double sy = std::round(view.apply({0, y}).y * dpr) / dpr;
+      emit(makeShape(Mat2x3::translate(screen_.x, sy), {screen_.w, px}, ShapeKind::Rect, kSquare, gc, alpha, gc, 0, 0, 0), Pass::Shape);
+    }
+  }
+
   // Text being edited: the selection highlight and the caret.
   if (overlay.textNode != kNoGuid && doc.has(overlay.textNode)) {
     Mat2x3 m = view * doc.worldTransform(overlay.textNode);
@@ -142,37 +183,97 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     }
   }
 
-  // Top-level frames' names, above their top-left corner (selection colour when selected).
+  // Frames' names above their top-left corner (top-level frames and those directly in sections), sections' pills
+  // (render/FrameTitles.cpp: the same boxes the editor hit-tests).
   // Prototype mode: flow starting point labels (before the titles: a title moves right past its frame's label).
   if (overlay.prototype.on) drawPrototypeLabels(doc, camera, overlay, style);
   if (overlay.frameTitles && page != kNoGuid) {
-    for (Guid c : doc.children(page)) {
-      const Node* n = doc.get(c);
-      if (!n || !n->props.visible || !(n->props.isFrameLike()) || n->props.type == NodeType::SECTION) continue;
-      if (overlay.dev.focus != kNoGuid && overlay.dev.focus != c) continue;
-      Rect b = transformedBounds(view * doc.worldTransform(c), n->props.size.x, n->props.size.y);
-      if (!b.intersects({screen_.x - 200, screen_.y - 40, screen_.w + 400, screen_.h + 80}) || b.w < 12) continue;
-      bool isSelected = false;
-      for (Guid s : overlay.selection) isSelected |= s == c;
-      const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, b.w);
+    // The title colours follow the page's background (Figma: light text on a dark canvas), not the UI theme.
+    const bool darkPage = style.darkCanvas;
+    const Color& grey = darkPage ? style.titleOnDark : style.titleOnLight;
+    const Color& selectedText = darkPage ? style.titleSelectedOnDark : style.titleSelectedOnLight;
+    const Color& componentText = darkPage ? style.titleComponentOnDark : style.titleComponentOnLight;
+    auto measure = [&](const std::string& name, bool section) {
+      double size = section ? style.sectionTitleSize : style.titleSize;
+      const text::TextLayout* L = label(name, section ? "Medium" : "Regular", size);
+      return L ? L->size.x : 6.2 * static_cast<double>(name.size()) * size / 11;
+    };
+    auto has = [](const std::vector<Guid>& ids, Guid id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
+    for (const FrameTitle& t : frameTitles(doc, page, view, screen_, style, measure, overlay.dev.focus)) {
+      const Node* n = doc.get(t.id);
+      if (!n) continue;
+      bool isSelected = has(overlay.selection, t.id), hovered = has(overlay.hover, t.id);
+      if (t.section) {
+        // The pill: the section's own fill colour, selected or not (live Figma), its name in Inter Medium.
+        (void)isSelected;
+        (void)hovered;
+        Color fill = Color::hex(0xE6E6E6);
+        for (const Paint& p : n->props.fillPaints)
+          if (p.visible && p.type == PaintType::SOLID) fill = Color{p.color.r, p.color.g, p.color.b, 1};
+        bool darkFill = 0.2126 * fill.r + 0.7152 * fill.g + 0.0722 * fill.b < 0.5;
+        Color ink = darkFill ? Color{1, 1, 1, 1} : Color{0, 0, 0, 0.9f};
+        const Rect& h = t.hit;
+        const double r = 2;
+        emit(makeShape(Mat2x3::translate(std::round(h.x * dpr) / dpr, std::round(h.y * dpr) / dpr), {h.w, h.h}, ShapeKind::Rect, {r, r, r, r}, fill,
+                       1, fill, 0, 0, 0),
+             Pass::Shape);
+        const text::TextLayout* L = label(n->props.name, "Medium", style.sectionTitleSize, t.text.w);
+        if (L && !L->lines.empty()) {
+          double ty = std::round((h.y + (h.h - L->lines[0].height) / 2) * dpr) / dpr;
+          drawGlyphs(*L, Mat2x3::translate(std::round(t.text.x * dpr) / dpr, ty), Color{ink.r, ink.g, ink.b, 1}, ink.a);
+        }
+        continue;
+      }
+      // Components' and instances' names in the component purple, after Figma's icon; a selected frame's in the
+      // selection's text colour; others grey.
+      Color ink = n->props.isComponentish() ? componentText : isSelected ? selectedText : grey;
+      if (t.icon != TitleIcon::None) drawTitleIcon(t.icon, t.iconBox, ink);
+      double x = std::round((t.text.x + overlay.prototype.labelWidth(t.id)) * dpr) / dpr;
+      double baseline = std::round(t.baseline * dpr) / dpr;
+      double room = t.frame.right() - x;
+      if (room < 1) continue;
+      const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, room);
       if (!L || L->lines.empty()) continue;
-      double x = std::round((b.x + overlay.prototype.labelWidth(c)) * dpr) / dpr;
-      double baseline = std::round((b.y - style.titleBaselineGap) * dpr) / dpr;
-      Mat2x3 m = Mat2x3::translate(x, baseline - L->lines[0].baseline);
-      // Components' and sets' names are in the component purple (Figma).
-      if (n->props.isComponentish()) drawGlyphs(*L, m, style.component, 1);
-      else drawGlyphs(*L, m, isSelected ? blue : style.title, isSelected ? 1 : style.titleAlpha);
+      drawGlyphs(*L, Mat2x3::translate(x, baseline - L->lines[0].baseline), Color{ink.r, ink.g, ink.b, 1}, ink.a);
       // Dev Mode: the design's status (or, hovered or selected, "Mark as ready for dev") after its name.
       for (const DevStatusMark& mark : overlay.dev.statuses)
-        if (mark.frame == c) drawStatusChip(mark, x + L->size.x + 6, baseline, style);
+        if (mark.frame == t.id) drawStatusChip(mark, x + L->size.x + 6, baseline, style);
     }
   }
 
-  // Auto-layout padding / gap bands under the pointer.
-  for (const Rect& band : overlay.bands) {
-    Rect r = transformedBounds(view * Mat2x3::translate(band.x, band.y), band.w, band.h);
-    ScreenBox b = screenBox(Mat2x3::translate(r.x, r.y), {r.w, r.h}, dpr);
-    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.autoLayoutBand, style.bandAlpha, blue, 0, 0, 0), Pass::Shape);
+  // Auto layout's padding and gap bars (UI3 draws no band fill): 12 px long, blue for padding, pink for gaps; the
+  // hovered one's value in a pill of its colour — a padding's outside the frame's edge, a gap's above its bar.
+  for (const Overlay::LayoutBar& bar : overlay.layoutBars) {
+    const Color& color = bar.gap ? style.spacing : blue;
+    Vec2 c = view.apply(bar.at);
+    const double len = 12, thick = 1.5;
+    Vec2 size = bar.vertical ? Vec2{thick, len} : Vec2{len, thick};
+    emit(makeShape(Mat2x3::translate(std::round((c.x - size.x / 2) * dpr) / dpr, std::round((c.y - size.y / 2) * dpr) / dpr), size, ShapeKind::Rect, kSquare, color, 1,
+                   color, 0, 0, 0),
+         Pass::Shape);
+    if (!bar.hovered) continue;
+    std::string text = formatNumber(bar.value);
+    const text::TextLayout* L = label(text, "Medium", style.labelSize);
+    double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+    double pw = std::max(std::round(tw + 2 * style.badgePadding), style.badgeHeight), ph = style.badgeHeight, rr = style.badgeRadius;
+    Vec2 e = view.apply(bar.edge);
+    double px, py;
+    if (bar.gap) {
+      px = bar.vertical ? c.x + 8 : c.x + len / 2 + 4;
+      py = bar.vertical ? c.y - len / 2 - 4 - ph : c.y - ph - 4;
+    } else if (bar.side == 0) {
+      px = e.x - 4 - pw, py = c.y - ph / 2;
+    } else if (bar.side == 2) {
+      px = e.x + 4, py = c.y - ph / 2;
+    } else if (bar.side == 1) {
+      px = c.x - pw / 2, py = e.y - 4 - ph;
+    } else {
+      px = c.x - pw / 2, py = e.y + 4;
+    }
+    px = std::round(px * dpr) / dpr, py = std::round(py * dpr) / dpr;
+    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Shape);
+    if (L && !L->lines.empty())
+      drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round((py + (ph - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
   }
 
   // A selected grid's tracks: a pill per column above the frame and per row left of it; the hovered one is solid and
@@ -224,11 +325,36 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
          Pass::Shape);
   }
 
-  // Hover: the hovered layer's own outline (not when it is selected).
-  for (Guid h : overlay.hover) {
-    bool selected = false;
-    for (Guid s : overlay.selection) selected |= s == h;
-    if (!selected && doc.has(h)) nodeOutline(h, style.hoverWidth, true);
+  // Hover: the hovered layer's own outline — selected layers too (live Figma).
+  for (Guid h : overlay.hover)
+    if (doc.has(h)) nodeOutline(h, style.hoverWidth, true);
+
+  // A layer in an auto-layout flow selected: its parent's box dashed (live Figma).
+  {
+    std::vector<Guid> parents;
+    for (Guid s : overlay.selection) {
+      const Node* n = doc.get(s);
+      if (!n || !n->props.inFlow()) continue;
+      Guid pid = n->props.parentIndex.guid;
+      const Node* pn = doc.get(pid);
+      if (!pn || !pn->props.isAutoLayout() || std::find(parents.begin(), parents.end(), pid) != parents.end()) continue;
+      bool selectedToo = false;
+      for (Guid t : overlay.selection) selectedToo |= t == pid;
+      if (!selectedToo) parents.push_back(pid);
+    }
+    for (Guid pid : parents) {
+      ScreenBox b = screenBox(view * doc.worldTransform(pid), doc.get(pid)->props.size, dpr);
+      Vec2 c[4] = {b.m.apply({0, 0}), b.m.apply({b.size.x, 0}), b.m.apply({b.size.x, b.size.y}), b.m.apply({0, b.size.y})};
+      // 1.5 px dashes, 1.5 px gaps (calibrated on canvas-autolayout-child-selected).
+      for (int k = 0; k < 4; k++) {
+        Vec2 a = c[k], e = c[(k + 1) % 4];
+        double len = (e - a).length();
+        for (double t = 0; t < len; t += 3) {
+          Vec2 p0 = a + (e - a) * (t / len), p1 = a + (e - a) * (std::min(len, t + 1.5) / len);
+          polyline({p0, p1}, false, 1, colorOf(pid), 1);
+        }
+      }
+    }
   }
 
   // Selection: each layer's box, the selection's box, its handles and size badge.
@@ -246,16 +372,30 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     emit(makeShape(sb.m, sb.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
 
     bool roomy = sb.size.x >= style.handlesMinBox && sb.size.y >= style.handlesMinBox;
-    if (overlay.handles && roomy) {
-      const double hs = style.handleSize;
+    const double hs = style.handleSize;
+    if (overlay.handles && roomy && overlay.lineEnds.empty()) {
       Vec2 corners[4] = {{0, 0}, {sb.size.x, 0}, {sb.size.x, sb.size.y}, {0, sb.size.y}};
       for (auto& c : corners) {
         Mat2x3 hm = sb.m;
         Vec2 o = sb.m.apply(c) - sb.m.applyLinear({hs / 2, hs / 2});
         hm.m02 = std::round(o.x * dpr) / dpr;
         hm.m12 = std::round(o.y * dpr) / dpr;
-        emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, white, 1, blue, 1, 1, 0), Pass::Shape);
+        emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, style.handleFill, 1, blue, 1, 1, 0), Pass::Shape);
       }
+    }
+    // Corner radius handles: white rings with the selection's colour, inset from the corners.
+    for (size_t k = 0; k < overlay.radiusHandles.size(); k++) {
+      Vec2 c = view.apply(overlay.radiusHandles[k]);
+      double d = style.radiusHandleSize + (static_cast<int>(k) == overlay.radiusHovered ? 1 : 0);
+      emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
+                     style.radiusHandleFill, 1, blue, 1, 1, 0),
+           Pass::Shape);
+    }
+    // A line: a handle on each end instead.
+    for (Vec2 w : overlay.lineEnds) {
+      Vec2 c = view.apply(w);
+      Mat2x3 hm = Mat2x3::translate(std::round((c.x - hs / 2) * dpr) / dpr, std::round((c.y - hs / 2) * dpr) / dpr);
+      emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, style.handleFill, 1, blue, 1, 1, 0), Pass::Shape);
     }
 
     if (overlay.sizeBadge) {
@@ -263,7 +403,25 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       Rect r = transformedBounds(toScreen, box.size.x, box.size.y);
       Mat2x3 w = box.toWorld;
       Vec2 worldSize{box.size.x * std::hypot(w.m00, w.m10), box.size.y * std::hypot(w.m01, w.m11)};
-      std::string text = formatNumber(worldSize.x) + " \u00D7 " + formatNumber(worldSize.y);
+      // One auto-layout frame or flow child: "Hug" / "Fill" after each axis that has it (live Figma: "232 Hug × 72 Hug").
+      std::string sx, sy;
+      if (overlay.selection.size() == 1)
+        if (const Node* n = doc.get(overlay.selection[0])) {
+          const NodeProps& p = n->props;
+          const Node* parent = doc.get(p.parentIndex.guid);
+          for (int axis = 0; axis < 2; axis++) {
+            std::string& out = axis == 0 ? sx : sy;
+            if (parent && parent->props.isAutoLayout() && p.inFlow() && parent->props.stack().stackMode != StackMode::GRID) {
+              bool along = (parent->props.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
+              if (along ? p.stackChildPrimaryGrow > 0 : p.stackChildAlignSelf == StackCounterAlign::STRETCH) out = " Fill";
+            }
+            if (out.empty() && p.isAutoLayout() && p.stack().stackMode != StackMode::GRID) {
+              bool primary = (p.stack().stackMode == StackMode::VERTICAL) == (axis == 1);
+              if (primary ? p.hugsPrimary() : p.hugsCounter()) out = " Hug";
+            }
+          }
+        }
+      std::string text = formatNumber(worldSize.x) + sx + " \u00D7 " + formatNumber(worldSize.y) + sy;
       const text::TextLayout* L = label(text, "Medium", style.labelSize);
       double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
       double bw = std::round(tw + 2 * style.badgePadding), bh = style.badgeHeight;
@@ -349,7 +507,35 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // Smart guides and equal spacing while moving, resizing or drawing.
   for (const GuideLine& g : overlay.guides) line(g.a, g.b, 1, style.measure);
-  for (const SpacingMark& m : overlay.spacings) distance(m, style.measure);
+  // Equal spacing while moving: pink (Figma's spacing guide), as the gaps of an auto layout.
+  for (const SpacingMark& m : overlay.spacings) distance(m, style.spacing);
+
+  // Smart selection: a pink dot in the middle of each equally spaced layer and a pink handle in each gap; the hovered
+  // gap shows its value.
+  for (const Vec2& w : overlay.centreDots) {
+    Vec2 c = view.apply(w);
+    const double d = 7;
+    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare, white, 0,
+                   style.spacing, 1, 1.5, 0),
+         Pass::Shape);
+  }
+  for (const Overlay::GapHandle& g : overlay.gapHandles) {
+    Vec2 c = view.apply(g.at);
+    double len = std::min(12.0, std::max(6.0, g.length * camera.zoom * 0.25)), thick = 2;
+    Vec2 size = g.vertical ? Vec2{len, thick} : Vec2{thick, len};
+    emit(makeShape(Mat2x3::translate(std::round((c.x - size.x / 2) * dpr) / dpr, std::round((c.y - size.y / 2) * dpr) / dpr), size, ShapeKind::Rect, {1, 1, 1, 1},
+                   style.spacing, 1, style.spacing, 0, 0, 0),
+         Pass::Shape);
+    if (!g.hovered) continue;
+    std::string text = formatNumber(g.value);
+    const text::TextLayout* L = label(text, "Medium", style.labelSize);
+    double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+    double pw = std::round(tw + 2 * style.badgePadding), ph = style.pillHeight, rr = style.pillRadius;
+    double px = std::round((c.x + 6) * dpr) / dpr, py = std::round((c.y - len / 2 - ph - 2) * dpr) / dpr;
+    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, style.spacing, 1, style.spacing, 0, 0, 0), Pass::Shape);
+    if (L && !L->lines.empty())
+      drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round((py + (ph - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
+  }
 
   // ⌥ measurement: the measured layer outlined in red, its distances, and dashed extensions.
   if (overlay.measureTarget != kNoGuid && doc.has(overlay.measureTarget)) {

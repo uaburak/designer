@@ -543,6 +543,17 @@ NodeProps defaultProps(NodeType type) {
     case NodeType::FRAME:
       p.fillPaints = {Paint::solid(Color::hex(0xFFFFFF))};
       break;
+    case NodeType::SECTION: {
+      // Figma's new section (docs/research/figma/samples/sections.fig.json): white, a black 10 % inside stroke,
+      // radius 2, not clipping.
+      p.fillPaints = {Paint::solid(Color::hex(0xFFFFFF))};
+      Paint stroke = Paint::solid(Color::hex(0x000000));
+      stroke.opacity = 0.1f;
+      p.strokePaints = {stroke};
+      p.cornerRadii = {2, 2, 2, 2};
+      p.frameMaskDisabled = true;
+      break;
+    }
     case NodeType::RECTANGLE:
     case NodeType::ROUNDED_RECTANGLE:
     case NodeType::ELLIPSE:

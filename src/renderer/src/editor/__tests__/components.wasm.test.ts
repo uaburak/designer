@@ -187,10 +187,13 @@ describe("components on the engine (wasm, headless)", () => {
   it("menus and commands: the canvas menu's component items; structural ones follow the engine", async () => {
     const { ed } = await editor();
     ed.engine.setSelection(["2:2"]);
-    expect(labels(canvasMenu(ed, []))).toEqual(expect.arrayContaining(["Go to main component", "Push changes to main component", "Reset", "Detach instance"]));
+    // Live Figma's instance items: Create component, Reset instance, Detach instance, Go to main component.
+    expect(labels(canvasMenu(ed, []))).toEqual(expect.arrayContaining(["Create component", "Reset instance", "Detach instance", "Go to main component"]));
     ed.engine.setCurrentPage("0:3");
     ed.engine.setSelection(["1:20", "1:21"]);
-    expect(labels(canvasMenu(ed, []))).toContain("Combine as variants");
+    // Mains: their actions under "Main component ▸" (live Figma).
+    const main = items(canvasMenu(ed, [])).find((i) => i.label === "Main component");
+    expect(labels(main?.items ?? [])).toContain("Combine as variants");
     for (const [id, name] of [
       ["object.create-component", COMPONENT_COMMAND.create],
       ["object.detach-instance", COMPONENT_COMMAND.detach],

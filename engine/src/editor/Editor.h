@@ -63,7 +63,9 @@ enum class DeltaMode : uint8_t { PIXEL = 0, LINE = 1, PAGE = 2 };
 // none of the user-edit rules (no read-only refusal, no detaching, no instance root overrides).
 enum ApplyFlags : uint32_t { APPLY_USER = 1, APPLY_REMOTE = 2, APPLY_LOAD = 4, APPLY_SYSTEM = 8, APPLY_EXACT = 16 };
 enum SetPropsFlags : uint32_t { NO_UNDO_MERGE = 1 };
-enum PasteFlags : uint32_t { PASTE_IN_PLACE = 1 };
+// PASTE_OVER (⇧⌘V "Paste over selection"): in place, just above the selection (not into it); PASTE_REPLACE (⇧⌘R
+// "Paste to replace"): a copy at each selected layer's place, which goes.
+enum PasteFlags : uint32_t { PASTE_IN_PLACE = 1, PASTE_OVER = 2, PASTE_REPLACE = 4 };
 
 // docs/engine.md §9.2.
 enum class TxnKind : uint8_t { USER, GESTURE, UNDO, REDO, SYSTEM, REMOTE, LOAD };
@@ -241,6 +243,11 @@ class Editor : private LayoutHost, public TextLayouts {
   void modifiers(uint32_t mods);
   void blur();
 
+  // ---- View options (View › Pixel grid, Outlines) ----
+  enum ViewOption : uint32_t { VIEW_PIXEL_GRID = 1, VIEW_OUTLINES = 2, VIEW_LAYOUT_GUIDES = 4 };
+  void setViewOptions(uint32_t options);
+  uint32_t viewOptions() const { return viewOptions_; }
+
   // ---- Tools, hover, frames ----
   Status setTool(Tool t);
   Tool tool() const { return tool_; }
@@ -254,6 +261,9 @@ class Editor : private LayoutHost, public TextLayouts {
   CursorKind cursor() const { return cursor_; }
   double cursorAngle() const { return cursorAngle_; }
   Guid hover() const { return hover_; }
+  // Frame titles and section pills on screen now (render/FrameTitles.h, measured as the overlay draws them); a press
+  // on one takes its frame (titleAt).
+  std::vector<FrameTitle> titles() const;
 
   // ---- Selection, writes, commands (panels, menus, the Layers panel) ----
   const std::vector<Guid>& selection() const { return selection_; }
@@ -280,6 +290,7 @@ class Editor : private LayoutHost, public TextLayouts {
   // `inPlace` (⇧⌘V): exactly where it was. Selects what was pasted; returns how
   // many top-level layers that was.
   uint32_t paste(const Clipboard& clip, bool inPlace);
+  uint32_t pasteWith(const Clipboard& clip, uint32_t flags);  // PasteFlags
   bool canUndo() const { return undo_.canUndo(); }
   bool canRedo() const { return undo_.canRedo(); }
   const UndoStack& undoStack() const { return undo_; }
@@ -323,6 +334,12 @@ class Editor : private LayoutHost, public TextLayouts {
     Rect rect;
     std::string text;
   };
+  // REQUEST_RENAME: a double-click on a frame's title or a section's pill — TS edits the name in place over `rect`
+  // (CSS px in the canvas).
+  struct RenameRequest {
+    Guid node = kNoGuid;
+    Rect rect;
+  };
   // DEV_STATUS: a click on a design's status chip ("menu") or on "Mark as ready for dev" ("mark").
   struct DevStatusClick {
     Guid frame = kNoGuid;
@@ -346,12 +363,13 @@ class Editor : private LayoutHost, public TextLayouts {
     bool structureAll = false;
     std::vector<PrototypeConnected> prototypeConnected;  // PROTOTYPE_CONNECTED
     std::vector<GridTracksEvent> gridTracks;             // GRID_TRACKS: the grid tracks selected on the canvas
+    std::vector<RenameRequest> renames;                  // REQUEST_RENAME: a double-click on a frame's title
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
       return !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !renames.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -777,7 +795,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string newAssetKey();
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
-                                 Measure, MeasureDrag };
+                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea };
 
   struct Target {
     Guid id;
@@ -998,6 +1016,21 @@ class Editor : private LayoutHost, public TextLayouts {
   void selectAll();
   void selectInverse();
   Guid wrapSelection(const char* kind);  // "Group", "Frame", "Auto"
+  // Round 7 (editor/SelectionCommands.cpp).
+  Status selectionCommand(CommandId id, const CommandArgs& args);
+  uint32_t selectionCommandState(CommandId id) const;
+  void adoptIntoSection(Guid section);
+  Guid wrapInSection();
+  bool canRemoveKeepingContents(Guid id) const;
+  void removeKeepingContents();
+  std::vector<Guid> matchingLayers(const std::string& mode) const;
+  Status selectMatching(const std::string& mode);
+  void tidyUp();
+  Status zoomToSiblingFrame(int step);
+  std::vector<Guid> navigableFrames() const;
+  // A new section as Figma makes one in the current UI theme (live 2026-10-08: dark — #444444, a white 10 % inside
+  // stroke; light — white, a black 10 % stroke; radius 2, not clipping).
+  NodeProps sectionProps() const;
   void ungroup();
   void duplicate();
   void flip(bool horizontal);
@@ -1019,8 +1052,37 @@ class Editor : private LayoutHost, public TextLayouts {
   void fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const;
 
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
-  enum class Handle : uint8_t { None, Resize, Rotate };
+  // LineEnd: a line's start (hx 0) or end (hx 1) handle.
+  // Radius: a rectangle's corner radius handle (hx: the corner, 0 top-left … 3 bottom-left); Gap: a smart
+  // selection's gap handle (hx: the gap, hy: 1 between rows).
+  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd, Radius, Gap };
   Handle handleAt(Vec2 screen, int& hx, int& hy) const;
+  // A single selected line — a LINE, or a vector with no width or no height — and its ends (world): Figma gives it
+  // two endpoint handles instead of a box.
+  bool selectedLine(Guid& id, Vec2& a, Vec2& b) const;
+  void startLineEnd(int end);
+  void dragLineEnd(Vec2 world, uint32_t mods);
+  // The corner radius handles of the one selected rectangle while the pointer is over it (world; false: none shown).
+  bool radiusHandles(Guid& id, Vec2 out[4]) const;
+  void startRadius(int corner);
+  void dragRadius(Vec2 world, uint32_t mods);
+  // Smart selection (Figma): three or more selected layers of one parent, equally spaced in a row or a column — their
+  // order along the axis, the axis (0 x, 1 y) and the spacing. False when the selection isn't that.
+  struct SmartSelection {
+    std::vector<Guid> order;
+    int axis = 0;
+    double spacing = 0;
+  };
+  bool smartSelection(SmartSelection& out) const;
+  void startGap(int gap);
+  void startLayoutBar(int band);
+  void dragLayoutBar(Vec2 world, uint32_t mods);
+  // The pointer went into or out of the selection's box (true: draw again).
+  bool selectionHoverChanged(Vec2 screen);
+  void dragGap(Vec2 world, uint32_t mods);
+  Guid titleAt(Vec2 screen) const;
+  // An overlay label's width in CSS px (Inter Regular at the title size; `section`: Medium at the pill's size).
+  double labelWidth(const std::string& text, bool section) const;
   void updateCursor(Vec2 screen);
   void updateHover(Vec2 screen, uint32_t mods);
   void updateMeasure(uint32_t mods);
@@ -1034,7 +1096,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Target> targetsOf(const std::vector<Guid>& ids) const;
   void prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHash>& moving);
   // Where a move would put its layers: the topmost frame under `world` (the page when none).
-  Guid dropTargetAt(Vec2 world) const;
+  Guid dropTargetAt(Vec2 world, bool force = false) const;
   // The frame or page a parent's layers belong to (through groups).
   Guid containerOf(Guid parent) const;
   void keepResizedSize(Guid id, bool x, bool y);
@@ -1295,6 +1357,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> layersHover_;
   bool spaceHeld_ = false;
   bool needsRender_ = true;
+  uint32_t viewOptions_ = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES;
+  bool zoomHeld_ = false;  // Z held: the zoom tool (a click zooms in, ⌥ out, a drag to the area)
   uint32_t mods_ = 0;
   Events events_;
   std::unordered_map<Guid, size_t, GuidHash> nodeEventIndex_;
@@ -1308,6 +1372,11 @@ class Editor : private LayoutHost, public TextLayouts {
     ChangeSet changes;
   } txn_;
   std::vector<Guid> lastNudged_;
+  // ⌘D: each copy the last duplicate made → its original (the next ⌘D repeats the offset the copy was moved by).
+  std::unordered_map<Guid, Guid, GuidHash> duplicatedFrom_;
+  // N / ⇧N: the frame the view last went to, and the selection then.
+  Guid zoomFrame_ = kNoGuid;
+  std::vector<Guid> zoomSelection_;
 
   // Layout.
   std::unordered_set<Guid, GuidHash> layoutDirty_;
@@ -1337,6 +1406,14 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid snapParent_ = kNoGuid;    // whose children the snapper holds
   SelectionBox box_;
   int handleX_ = 0, handleY_ = 0;
+  int lineEnd_ = -1;             // dragging a line's start (0) or end (1) handle; -1: a box resize
+  int radiusCorner_ = -1;        // dragging a corner radius handle
+  int radiusHover_ = -1;         // the radius handle under the pointer
+  int gapHover_ = -1;            // the smart selection's gap handle under the pointer
+  SmartSelection gapDrag_;       // dragging a gap handle: the selection as it started
+  int gapIndex_ = -1;
+  CornerRadii originalRadii_{0, 0, 0, 0};  // the dragged rectangle's radii at the press
+  bool pointerInSelection_ = false;        // the pointer is over the selection's box (radius and gap handles show)
   NodeType drawType_ = NodeType::NONE;
   bool drawArrow_ = false;
   Guid drawParent_ = kNoGuid;
@@ -1356,6 +1433,11 @@ class Editor : private LayoutHost, public TextLayouts {
   bool gridDrop_ = false;
   Guid gridDropCol_ = kNoGuid, gridDropRow_ = kNoGuid;
   std::vector<Rect> bands_;  // auto-layout padding / gap bands under the pointer (world)
+  std::vector<Overlay::LayoutBar> layoutBars_;  // the selected auto-layout frame's padding and gap bars
+  int layoutBarHover_ = -1;                     // the bar whose band is under the pointer
+  Guid layoutBarsFrame_ = kNoGuid;              // the frame they are the bars of
+  int layoutBar_ = -1;                          // dragging: a side (0..3) or 4 + a gap
+  StackFacet layoutBarFrom_;                    // the frame's auto layout when the drag started
 
   // Text.
   struct CachedText {
@@ -1473,6 +1555,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // selects the pressed layer; a press-drag with nothing movable (instance sublayers, locked layers) is a no-op.
   bool pressInSelected_ = false;
   bool pressNoop_ = false;
+  // Overlay labels measured for hit-testing (labelWidth), by style and text; dropped when the fonts change.
+  mutable std::unordered_map<std::string, double> labelWidths_;
+  mutable uint64_t labelWidthsGeneration_ = ~0ull;
 };
 
 }  // namespace eng

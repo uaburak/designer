@@ -10,7 +10,9 @@ import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
 import { instanceChanges, resetChanges, selectedInstance, selectionNodes } from "./components";
 import { isComponent, isComponentSet, isInstance } from "./model/components";
-import { statusOfTargets, statusTargets } from "./devStatus";
+
+/** A frame-like layer: a frame, component, set, instance or section (not a group). */
+const isFrameLike = (n: { type?: string; resizeToFit?: boolean }) => ["FRAME", "SYMBOL", "INSTANCE", "SECTION"].includes(String(n.type)) && !n.resizeToFit;
 
 /** A command as a menu item: its label and first shortcut, disabled when it can't run now, checked when it toggles. */
 export function commandItem(ed: EditorController, id: string, label?: string): MenuItem {
@@ -36,8 +38,9 @@ function build(ed: EditorController, specs: Spec[], prefix: string): MenuEntry[]
   });
 }
 
-/** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields. */
+/** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields; "Move to page ▸ <page>" the page. */
 const RESET_PREFIX = "reset-changes:";
+const MOVE_TO_PAGE = "move-to-page:";
 
 /**
  * "Reset ▸" for the selected instance (R4 §3): Reset all changes, then one item per changed property group (only
@@ -64,18 +67,37 @@ export function runMenuItem(ed: EditorController, id: string): boolean {
     ed.engine.setSelection([id.slice("select-layer:".length)]);
     return true;
   }
+  if (id.startsWith(MOVE_TO_PAGE)) {
+    // "Move to page ▸": the selection to the end of that page, where it is; this page stays in view.
+    const page = id.slice(MOVE_TO_PAGE.length);
+    const children = (ed.engine.readNode(page, { childIds: true }) as { childIds?: Guid[] } | null)?.childIds ?? [];
+    const count = ed.engine.moveNodes(ed.selection, page, children.length);
+    if (count > 0) ed.engine.setSelection([]);
+    return count > 0;
+  }
   return runEditorCommand(ed, id);
 }
 
 /** The component items a selection gets in the canvas menu (Figma's): instance actions, or create / combine / add variant. */
 function componentEntries(ed: EditorController): Spec[] {
   const nodes = selectionNodes(ed);
-  if (nodes.some(isInstance)) return ["object.go-to-main-component", "object.push-changes", resetSubmenu, "object.detach-instance"];
+  // An instance (live Figma): Create component, Reset instance, Detach instance, Go to main component.
+  if (nodes.some(isInstance))
+    return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: "Reset instance" } : null; }, "object.detach-instance", "object.go-to-main-component"];
   const out: Spec[] = [];
-  if (nodes.length > 1 && nodes.every(isComponent)) out.push("object.combine-as-variants");
-  else if (nodes.length === 1 && (isComponentSet(nodes[0]) || isComponent(nodes[0]))) out.push("object.add-variant");
-  if (!nodes.every((n) => isComponent(n) || isComponentSet(n))) out.push("object.create-component", ...(nodes.length > 1 ? ["object.create-multiple-components"] : []));
-  if (nodes.some((n) => n.isSoftDeleted)) out.push("object.restore-component");
+  const mains = nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n));
+  if (!mains) out.push("object.create-component", ...(nodes.length > 1 ? ["object.create-multiple-components"] : []));
+  // A main component (live Figma): its actions under "Main component ▸".
+  else
+    out.push({
+      label: "Main component",
+      items: [
+        ...(nodes.length > 1 && nodes.every(isComponent) ? ["object.combine-as-variants"] : []),
+        ...(nodes.length === 1 ? ["object.add-variant"] : []),
+        "object.restore-component",
+      ],
+    });
+  if (!mains && nodes.some((n) => n.isSoftDeleted)) out.push("object.restore-component");
   // Inside a main: a nested frame converts to a slot, other layers are wrapped in a new one (help "Create and use slots").
   if (isEnabled(ed, command("object.convert-to-slot"))) out.push("object.convert-to-slot");
   else if (isEnabled(ed, command("object.wrap-in-new-slot"))) out.push("object.wrap-in-new-slot");
@@ -129,13 +151,20 @@ export const MAIN_MENU: Spec[] = [
       "edit.find-previous",
       "edit.find-replace",
       "-",
+      "edit.set-default-properties",
       "edit.copy-properties",
       "edit.paste-properties",
+      "-",
+      "edit.pick-color",
       "-",
       "edit.select-all",
       "edit.select-matching",
       "edit.select-none",
       "edit.select-inverse",
+      {
+        label: "Select all with",
+        items: ["edit.select-same-fill", "edit.select-same-stroke", "edit.select-same-effect", "edit.select-same-text", "edit.select-same-font", "edit.select-same-instance"],
+      },
     ],
   },
   {
@@ -144,14 +173,22 @@ export const MAIN_MENU: Spec[] = [
       "view.pixel-grid",
       "view.layout-guides",
       "view.rulers",
+      "view.show-slices",
+      "view.comments",
       "view.annotations",
-      "view.outlines",
+      { label: "Outlines", items: ["view.outlines"] },
+      "view.pixel-preview",
+      "view.mask-outlines",
+      "view.frame-outlines",
+      "view.memory-usage",
       "view.property-labels",
       "-",
       "view.additional-labels",
       "view.minimize-left-nav",
       "view.minimize-ui",
       "view.toggle-ui",
+      "view.multiplayer-cursors",
+      "view.switch-to-draw",
       "view.dev-mode",
       {
         label: "Panels",
@@ -172,29 +209,35 @@ export const MAIN_MENU: Spec[] = [
       "-",
       "view.previous-page",
       "view.next-page",
+      "view.zoom-previous-frame",
+      "view.zoom-next-frame",
+      "view.find-previous-frame",
+      "view.find-next-frame",
     ],
   },
   {
     label: "Object",
     items: [
+      "object.frame-selection",
       "object.group",
       "object.ungroup",
-      "object.frame-selection",
       "-",
-      "object.add-auto-layout",
-      "object.remove-auto-layout",
+      "object.wrap-in-section",
+      "object.convert-to-section",
+      "object.convert-to-frame",
       "-",
-      "object.create-component",
-      "object.create-multiple-components",
-      "object.combine-as-variants",
-      "object.add-variant",
-      resetSubmenu,
-      "object.detach-instance",
-      { label: "Main component", items: ["object.go-to-main-component", "object.push-changes", "object.restore-component"] },
-      "object.convert-to-slot",
-      "object.wrap-in-new-slot",
+      "object.restore-default-thumbnail",
       "-",
       "object.use-as-mask",
+      "-",
+      "object.add-auto-layout",
+      "object.more-layout-options",
+      "-",
+      "object.create-component",
+      { label: "Slots", items: ["object.convert-to-slot", "object.wrap-in-new-slot", "object.delete-slot-contents"] },
+      resetSubmenu,
+      "object.detach-instance",
+      { label: "Main component", items: ["object.go-to-main-component", "object.push-changes", "object.restore-component", "-", "object.create-multiple-components", "object.combine-as-variants", "object.add-variant"] },
       "-",
       "object.bring-to-front",
       "object.bring-forward",
@@ -207,10 +250,20 @@ export const MAIN_MENU: Spec[] = [
       "object.rotate-90-left",
       "object.rotate-90-right",
       "-",
+      "vector.flatten",
+      "vector.outline-stroke",
+      { label: "Boolean groups", items: ["vector.union", "vector.subtract", "vector.intersect", "vector.exclude"] },
+      "-",
       "object.toggle-visible",
       "object.toggle-lock",
+      "object.hide-other-layers",
       "view.collapse-layers",
       "object.rename",
+      "-",
+      "object.remove-fill",
+      "object.remove-stroke",
+      "object.swap-fill-stroke",
+      "object.remove-interactions",
     ],
   },
   {
@@ -220,17 +273,29 @@ export const MAIN_MENU: Spec[] = [
   {
     label: "Arrange",
     items: [
+      "arrange.round-to-pixel",
+      "-",
       "arrange.align-left",
       "arrange.align-horizontal-center",
       "arrange.align-right",
-      "-",
       "arrange.align-top",
       "arrange.align-vertical-center",
       "arrange.align-bottom",
       "-",
+      "arrange.tidy-up",
+      "-",
+      "arrange.pack-horizontal",
+      "arrange.pack-vertical",
+      "-",
       "arrange.distribute-horizontal",
       "arrange.distribute-vertical",
-      "arrange.tidy-up",
+      "-",
+      "arrange.distribute-left",
+      "arrange.distribute-horizontal-centers",
+      "arrange.distribute-right",
+      "arrange.distribute-top",
+      "arrange.distribute-vertical-centers",
+      "arrange.distribute-bottom",
     ],
   },
   {
@@ -260,54 +325,86 @@ export function mainMenu(ed: EditorController): MenuEntry[] {
   return build(ed, MAIN_MENU, "main.");
 }
 
-/** The canvas's menu (Figma's): over a selection, or over empty canvas. */
-export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string }[]): MenuEntry[] {
+/** The page items of "Move to page ▸": every other page. */
+function moveToPage(ed: EditorController): MenuEntry | null {
+  const pages = ed.store.pages.filter((p) => p.guid !== ed.store.page);
+  const items: MenuEntry[] = pages.map((p) => ({ id: `${MOVE_TO_PAGE}${p.guid}`, label: p.name }));
+  return { id: "submenu:move-to-page", label: "Move to page", items, disabled: !items.length };
+}
+
+/** Plugins ▸ / Widgets ▸ (none yet). */
+const emptySubmenu = (label: string) => (): MenuEntry => ({ id: `submenu:${label.toLowerCase()}`, label, items: [], disabled: true });
+
+/**
+ * The canvas's menu, item for item as live Figma's (docs/research/figma/live/menus/context-*.txt): over a selection
+ * — Copy, Paste here, Paste to replace, Copy/Paste as, Send to Figma Make, Find similar designs, Add motion │ Select
+ * layer, Move to page, Bring to front, Send to back │ Convert to section, Group, Frame, Wrap in new section,
+ * Ungroup, Flatten, Outline stroke, Set as thumbnail, Use as mask │ auto layout, More layout options, the component
+ * items, Plugins, Widgets │ Show/Hide, Lock/Unlock │ Flip horizontal, Flip vertical; over empty canvas — Paste here
+ * │ Show/Hide UI, Show/Hide comments │ Cursor chat, Actions…, Plugins, Widgets.
+ */
+export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean }[]): MenuEntry[] {
   if (!ed.selection.length) {
-    return build(ed, ["edit.paste-here", "-", "view.toggle-ui", "view.rulers", "-", "edit.select-all"], "canvas.");
+    return [
+      ...build(ed, ["edit.paste-here", "-"], "canvas."),
+      commandItem(ed, "view.toggle-ui"),
+      commandItem(ed, "view.comments", "Show/Hide comments"),
+      "-",
+      ...build(ed, ["canvas.cursor-chat", "tool.actions", emptySubmenu("Plugins"), emptySubmenu("Widgets")], "canvas."),
+    ];
   }
-  const entries = build(
-    ed,
-    [
-      "edit.copy",
-      "edit.paste-here",
-      "edit.paste-over-selection",
-      { label: "Copy/Paste as", items: ["edit.copy-as-png", "edit.copy-as-svg", "edit.copy-as-code", "edit.copy-as-text", "-", "edit.copy-properties", "edit.paste-properties"] },
-      "-",
-      "object.bring-to-front",
-      "object.bring-forward",
-      "object.send-backward",
-      "object.send-to-back",
-      "-",
-      "object.group",
-      "object.frame-selection",
-      "object.ungroup",
-      "-",
-      "vector.flatten",
-      "vector.outline-stroke",
-      "object.use-as-mask",
-      "-",
-      "object.toggle-visible",
-      "object.toggle-lock",
-      "-",
-      "object.flip-horizontal",
-      "object.flip-vertical",
-      "-",
-      "object.add-auto-layout",
-      ...componentEntries(ed),
-      "-",
-      "edit.duplicate",
-      "edit.delete",
-    ],
-    "canvas."
-  );
-  // Dev Mode statuses on designs (frames, sections, components): "Mark as ready for dev", then the status menu's items.
-  const targets = statusTargets(ed);
-  if (targets.length) {
-    const status = statusOfTargets(ed, targets);
-    entries.push("-", ...build(ed, status === "BUILD" ? ["object.mark-completed", "object.remove-dev-status"] : status ? ["object.mark-ready-for-dev", "object.remove-dev-status"] : ["object.mark-ready-for-dev"], "canvas."));
-  }
-  if (layers.length > 1) {
-    entries.push("-", { id: "submenu:select-layer", label: "Select layer", items: layers.map((l) => ({ id: `select-layer:${l.id}`, label: l.name || l.id, checked: ed.selection.includes(l.id) })) });
-  }
-  return entries;
+  const nodes = selectionNodes(ed);
+  const single = nodes.length === 1 ? nodes[0] : null;
+  const multi = nodes.length > 1;
+  const page = ed.store.page;
+  const topFrame = !!single && isFrameLike(single) && single.parentIndex?.guid === page;
+  const allComponents = nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n));
+  const autoLayout = nodes.some((n) => (n as { stackMode?: string }).stackMode && (n as { stackMode?: string }).stackMode !== "NONE");
+  const instance = nodes.some(isInstance);
+  const specs: Spec[] = [
+    "edit.copy",
+    "edit.paste-here",
+    "edit.paste-to-replace",
+    { label: "Copy/Paste as", items: ["edit.copy-as-text", "edit.copy-as-code", "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
+    "canvas.send-to-make",
+    ...(multi ? [] : ["canvas.find-similar"]),
+    ...(allComponents ? [] : ["canvas.add-motion"]),
+    "-",
+    ...(layers.length > 1 ? [() => selectLayerSubmenu(ed, layers)] : []),
+    moveToPage,
+    (e) => commandItem(e, "object.bring-to-front"),
+    (e) => commandItem(e, "object.send-to-back"),
+    "-",
+    ...(topFrame ? ["object.convert-to-section"] : []),
+    "object.group",
+    "object.frame-selection",
+    ...(multi && isEnabled(ed, command("object.wrap-in-section")) ? ["object.wrap-in-section"] : []),
+    ...(isEnabled(ed, command("object.ungroup")) ? [(e: EditorController) => commandItem(e, "object.ungroup", "Ungroup")] : []),
+    "vector.flatten",
+    "vector.outline-stroke",
+    ...(topFrame ? ["object.set-as-thumbnail"] : []),
+    "object.use-as-mask",
+    "-",
+    autoLayout ? "object.remove-auto-layout" : "object.add-auto-layout",
+    ...((topFrame || multi || (single && isFrameLike(single))) && !instance ? ["object.more-layout-options"] : []),
+    ...componentEntries(ed),
+    emptySubmenu("Plugins"),
+    emptySubmenu("Widgets"),
+    "-",
+    (e) => commandItem(e, "object.toggle-visible", "Show/Hide"),
+    (e) => commandItem(e, "object.toggle-lock", "Lock/Unlock"),
+    "-",
+    "object.flip-horizontal",
+    "object.flip-vertical",
+  ];
+  return build(ed, specs, "canvas.");
+}
+
+/** "Select layer ▸": every layer under the pointer (locked ones too, with their padlock). */
+function selectLayerSubmenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean }[]): MenuEntry {
+  return {
+    id: "submenu:select-layer",
+    label: "Select layer",
+    items: layers.map((l) => ({ id: `select-layer:${l.id}`, label: l.locked ? `${l.name || l.id} 🔒` : l.name || l.id, checked: ed.selection.includes(l.id) })),
+  };
 }

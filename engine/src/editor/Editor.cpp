@@ -16,7 +16,7 @@ const char* toolName(Tool t) {
 }
 
 bool toolImplemented(Tool t) {
-  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
+  return t == Tool::MOVE || t == Tool::HAND || t == Tool::FRAME || t == Tool::SECTION || t == Tool::RECTANGLE || t == Tool::ELLIPSE || t == Tool::TEXT ||
          t == Tool::LINE || t == Tool::ARROW || t == Tool::POLYGON || t == Tool::STAR || t == Tool::PEN || t == Tool::PENCIL ||
          t == Tool::ANNOTATION || t == Tool::MEASUREMENT;
 }
@@ -668,7 +668,7 @@ Overlay Editor::overlay() const {
   o.selection = selection_;
   o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate;
   o.sizeBadge = true;
-  o.hasMarquee = gesture_ == Gesture::Marquee ||
+  o.hasMarquee = gesture_ == Gesture::Marquee || (gesture_ == Gesture::ZoomArea && (lastScreen_ - downScreen_).length() >= 3) ||
                  (gesture_ == Gesture::Draw && drawType_ == NodeType::TEXT && (lastScreen_ - downScreen_).length() >= 3);
   o.marquee = marquee_;
   o.guides = guides_;
@@ -679,6 +679,41 @@ Overlay Editor::overlay() const {
     o.measureGuides = measureGuides_;
     o.bands = bands_;
   }
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::LayoutBar) && selection_.size() == 1 && selection_[0] == layoutBarsFrame_)
+    o.layoutBars = layoutBars_;
+  if (o.handles) {
+    Guid line;
+    Vec2 a, b;
+    if (selectedLine(line, a, b)) o.lineEnds = {a, b};
+    Vec2 rh[4];
+    if (radiusHandles(line, rh)) {
+      o.radiusHandles.assign(rh, rh + 4);
+      o.radiusHovered = gesture_ == Gesture::Radius ? radiusCorner_ : radiusHover_;
+    }
+  }
+  // Smart selection: a dot on each equally spaced layer; the gap handles while the pointer is over the selection.
+  SmartSelection smart;
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::Gap) && !viewer_ && smartSelection(smart)) {
+    for (Guid id : smart.order) {
+      Rect b = doc_.worldBounds(id);
+      o.centreDots.push_back({b.x + b.w / 2, b.y + b.h / 2});
+    }
+    if (pointerInSelection_ || gesture_ == Gesture::Gap)
+      for (size_t i = 1; i < smart.order.size(); i++) {
+        Rect a = doc_.worldBounds(smart.order[i - 1]), b = doc_.worldBounds(smart.order[i]);
+        Overlay::GapHandle g;
+        g.vertical = smart.axis == 1;
+        g.at = smart.axis == 0 ? Vec2{(a.right() + b.x) / 2, (std::max(a.y, b.y) + std::min(a.bottom(), b.bottom())) / 2}
+                               : Vec2{(std::max(a.x, b.x) + std::min(a.right(), b.right())) / 2, (a.bottom() + b.y) / 2};
+        g.length = smart.axis == 0 ? std::min(a.h, b.h) : std::min(a.w, b.w);
+        g.hovered = gesture_ == Gesture::Gap ? static_cast<int>(i - 1) == gapIndex_ : static_cast<int>(i - 1) == gapHover_;
+        g.value = smart.spacing;
+        o.gapHandles.push_back(g);
+      }
+  }
+  o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
+  o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
+  o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
   if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid) && selection_.size() == 1 && text_.node == kNoGuid) {
@@ -1173,14 +1208,30 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
         needsRender_ = true;
         changeCursor(CursorKind::HAND);
       }
+      // Moving: Space keeps the layers out of frames (Figma) — the drag runs again without nesting.
+      if (gesture_ == Gesture::Move) redrag(mods_);
     } else if (type == KeyEvent::UP && spaceHeld_) {
       spaceHeld_ = false;
       if (gesture_ == Gesture::None) updateHover(lastScreen_, mods);
+      else if (gesture_ == Gesture::Move) redrag(mods_);
+    }
+    return K_HANDLED;
+  }
+  // Z held (no modifiers): the zoom tool until it is let go (Figma).
+  if (code == KeyCode::KeyZ && !(mods & (MOD_PRIMARY | MOD_CTRL | MOD_META | MOD_SHIFT)) && !viewer_) {
+    mods_ = mods;
+    if (type == KeyEvent::DOWN && !zoomHeld_ && gesture_ == Gesture::None) {
+      zoomHeld_ = true;
+      changeCursor((mods & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
+    } else if (type == KeyEvent::UP && zoomHeld_) {
+      zoomHeld_ = false;
+      if (gesture_ == Gesture::None) updateCursor(lastScreen_);
     }
     return K_HANDLED;
   }
   if (isModifierKey(code)) {
     modifiers(mods);
+    if (zoomHeld_ && gesture_ == Gesture::None) changeCursor((mods & MOD_ALT) ? CursorKind::ZOOM_OUT : CursorKind::ZOOM_IN);
     return 0;  // modifier keys are TS's too
   }
   mods_ = mods;
@@ -1215,13 +1266,7 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
   if (code == KeyCode::Escape) {
     if (gesture_ != Gesture::None) cancelGesture();
     else if (tool_ != Tool::MOVE) setTool(Tool::MOVE);
-    else if (!selection_.empty()) {
-      // The parent, else nothing.
-      Guid parent = doc_.parentOf(selection_[0]);
-      const Node* p = doc_.get(parent);
-      if (p && p->props.type != NodeType::CANVAS) changeSelection({parent});
-      else changeSelection({});
-    }
+    else if (!selection_.empty()) changeSelection({});  // live Figma: Esc clears the selection (⇧Enter / \ go up)
     return K_HANDLED;
   }
   if (busy() || primary || (mods & MOD_ALT)) return 0;
@@ -1247,6 +1292,11 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
       if (selection_.empty()) return 0;
       selectRelative(shift ? 3 : 2);
       return K_HANDLED;
+    case KeyCode::Backslash:
+      // \ selects the parent, as ⇧Enter (live Figma).
+      if (selection_.empty() || shift) return 0;
+      selectRelative(1);
+      return K_HANDLED;
     default: return 0;
   }
 }
@@ -1266,6 +1316,7 @@ void Editor::modifiers(uint32_t mods) {
 void Editor::blur() {
   cancelGesture();
   spaceHeld_ = false;
+  zoomHeld_ = false;
   mods_ = 0;
   measureTarget_ = kNoGuid;
   measures_.clear();
@@ -1284,6 +1335,12 @@ void Editor::setViewerMode(bool on) {
     setTool(Tool::MOVE);
   }
   viewer_ = on;
+  needsRender_ = true;
+}
+
+void Editor::setViewOptions(uint32_t options) {
+  if (options == viewOptions_) return;
+  viewOptions_ = options;
   needsRender_ = true;
 }
 

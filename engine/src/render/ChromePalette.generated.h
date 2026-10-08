@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 namespace ds {
-enum class ChromeColor : uint8_t { Selection = 0, HandleFill = 1, HandleStroke = 2, Hover = 3, Component = 4, SizeBadgeFill = 5, SizeBadgeText = 6, FrameTitleOnLight = 7, FrameTitleOnDark = 8, Measure = 9, MeasureText = 10, SnapGuide = 11, SpacingGuide = 12, LayoutGapFill = 13, LayoutGapStroke = 14, MarqueeFill = 15, MarqueeStroke = 16, RulerBg = 17, RulerTick = 18, RulerText = 19, RulerSelectionBand = 20, RulerSelectionText = 21, TextCaret = 22, TextSelection = 23, PrototypeNoodle = 24, SlotFill = 25, SlotStroke = 26, CanvasDefault = 27, PixelGrid = 28, Count };
+enum class ChromeColor : uint8_t { Selection = 0, HandleFill = 1, HandleStroke = 2, Hover = 3, Component = 4, SizeBadgeFill = 5, SizeBadgeText = 6, FrameTitleOnLight = 7, FrameTitleOnDark = 8, Measure = 9, MeasureText = 10, SnapGuide = 11, SpacingGuide = 12, LayoutGapFill = 13, LayoutGapStroke = 14, MarqueeFill = 15, MarqueeStroke = 16, RulerBg = 17, RulerTick = 18, RulerText = 19, RulerSelectionBand = 20, RulerSelectionText = 21, TextCaret = 22, TextSelection = 23, PrototypeNoodle = 24, SlotFill = 25, SlotStroke = 26, CanvasDefault = 27, PixelGrid = 28, FrameTitleSelectedOnLight = 29, FrameTitleSelectedOnDark = 30, FrameTitleComponentOnLight = 31, FrameTitleComponentOnDark = 32, RadiusHandleFill = 33, RadiusHandleStroke = 34, Count };
 inline constexpr float kChromeLight[size_t(ChromeColor::Count)][4] = {
   {0.05098f, 0.6f, 1.0f, 1.0f}, // selection
   {1.0f, 1.0f, 1.0f, 1.0f}, // handleFill
@@ -34,6 +34,12 @@ inline constexpr float kChromeLight[size_t(ChromeColor::Count)][4] = {
   {1.0f, 0.141176f, 0.741176f, 1.0f}, // slotStroke
   {0.960784f, 0.960784f, 0.960784f, 1.0f}, // canvasDefault
   {0.0f, 0.0f, 0.0f, 0.101961f}, // pixelGrid
+  {0.0f, 0.482353f, 0.898039f, 1.0f}, // frameTitleSelectedOnLight
+  {0.486275f, 0.768627f, 0.972549f, 1.0f}, // frameTitleSelectedOnDark
+  {0.52549f, 0.219608f, 0.898039f, 1.0f}, // frameTitleComponentOnLight
+  {0.819608f, 0.658824f, 1.0f, 1.0f}, // frameTitleComponentOnDark
+  {1.0f, 1.0f, 1.0f, 1.0f}, // radiusHandleFill
+  {0.05098f, 0.6f, 1.0f, 1.0f}, // radiusHandleStroke
 };
 inline constexpr float kChromeDark[size_t(ChromeColor::Count)][4] = {
   {0.047059f, 0.54902f, 0.913725f, 1.0f}, // selection
@@ -65,7 +71,13 @@ inline constexpr float kChromeDark[size_t(ChromeColor::Count)][4] = {
   {0.952941f, 0.086275f, 0.690196f, 1.0f}, // slotStroke
   {0.117647f, 0.117647f, 0.117647f, 1.0f}, // canvasDefault
   {1.0f, 1.0f, 1.0f, 0.101961f}, // pixelGrid
+  {0.0f, 0.482353f, 0.898039f, 1.0f}, // frameTitleSelectedOnLight
+  {0.486275f, 0.768627f, 0.972549f, 1.0f}, // frameTitleSelectedOnDark
+  {0.52549f, 0.219608f, 0.898039f, 1.0f}, // frameTitleComponentOnLight
+  {0.819608f, 0.658824f, 1.0f, 1.0f}, // frameTitleComponentOnDark
+  {1.0f, 1.0f, 1.0f, 1.0f}, // radiusHandleFill
+  {0.047059f, 0.54902f, 0.913725f, 1.0f}, // radiusHandleStroke
 };
-struct ChromeMetrics { float selectionStroke, hoverStroke, handle, badgeHeight, badgePadX, badgeRadius, badgeGap, titleBaseline, rulerThickness, rulerTick, rulerFontSize; };
-inline constexpr ChromeMetrics kChromeMetrics{ 1, 1, 7, 16, 4, 2, 6, 10, 20, 4, 10 };
+struct ChromeMetrics { float selectionStroke, hoverStroke, handle, badgeHeight, badgePadX, badgeRadius, badgeGap, titleBaseline, rulerThickness, rulerTick, rulerFontSize, titleSize, sectionPillHeight, sectionPillPadX, sectionPillFontSize, sectionPillGap, radiusHandle, radiusHandleInset; };
+inline constexpr ChromeMetrics kChromeMetrics{ 1, 2, 7, 16, 4, 2, 6, 10, 20, 4, 10, 11, 22, 6, 11, 5, 9, 12 };
 }

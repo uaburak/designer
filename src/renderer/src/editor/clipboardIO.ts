@@ -8,6 +8,7 @@
  * Clipboard API's HTML, then the last copy made in this tab.
  */
 import type { Message } from "@/engine/codec";
+import type { PasteOptions } from "@/engine/Engine";
 import { messageToEngine } from "@/store/engineMessage";
 import { decodeAnySchema } from "../../../shared/fig/importFig";
 import { decodeMessage } from "../../../shared/schema/codec";
@@ -55,11 +56,11 @@ async function pastePayload(ed: EditorController, payload: ClipboardPayload, mod
   if (payload.kind === "json") return pasteMessage(ed, payload.message, mode);
   const bytes = await archiveMessage(payload.archive, { inflate: typeof DecompressionStream === "function" ? inflateRaw : undefined, convert: (schema, message) => decodeAnySchema(schema, message).message });
   if (!bytes || ed.engine.destroyed) return;
-  const pasteKiwi = engineCall<(b: Uint8Array, o: { inPlace?: boolean }) => number>(ed.engine, "pasteKiwi", "set_wire_format");
+  const pasteKiwi = engineCall<(b: Uint8Array, o: PasteOptions) => number>(ed.engine, "pasteKiwi", "set_wire_format");
   if (!pasteKiwi || mode?.mode === "point") return pasteMessage(ed, messageToEngine(decodeMessage(bytes)), mode);
   const fileKey = ed.source.libraries?.fileKey ?? null;
   const from = decodeMessage(bytes).pasteFileKey;
-  pasteKiwi(bytes, { inPlace: mode?.mode === "inPlace" });
+  pasteKiwi(bytes, pasteOptions(mode));
   ed.focusCanvas();
   movedToast(ed, fileKey && from && from !== fileKey ? movedAmong(ed, ed.selection) : 0);
 }
@@ -90,8 +91,15 @@ function pasteInto(ed: EditorController, message: Message, mode: EditorControlle
     const frame = frameAt(ed, mode.x * cam.zoom + cam.x, mode.y * cam.zoom + cam.y);
     ed.engine.setSelection(frame ? [frame] : []);
     ed.engine.paste(messageAt(message, { x: mode.x, y: mode.y }), { inPlace: true });
-  } else ed.engine.paste(message, { inPlace: mode?.mode === "inPlace" });
+  } else ed.engine.paste(message, pasteOptions(mode));
   ed.focusCanvas();
+}
+
+/** A paste mode as the engine's options: ⇧⌘V in place just above the selection; ⇧⌘R in each selected layer's place. */
+export function pasteOptions(mode: EditorController["pendingPaste"]): PasteOptions {
+  if (mode?.mode === "over") return { inPlace: true, over: true };
+  if (mode?.mode === "replace") return { replace: true };
+  return { inPlace: mode?.mode === "inPlace" };
 }
 
 /** Listens to the document's clipboard events while the editor is mounted. */
