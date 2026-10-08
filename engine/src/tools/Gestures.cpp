@@ -127,6 +127,9 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
     events_.hover = true;
     needsRender_ = true;
   }
+  // A selected grid's track pills label the one under the pointer.
+  if (selection_.size() == 1)
+    if (const Node* sn = doc_.get(selection_[0]); sn && sn->props.stack().stackMode == StackMode::GRID) needsRender_ = true;
   updateMeasure(mods);
   updateAutoLayoutBands(camera_.toWorld(s));
   updateCursor(s);
@@ -928,6 +931,35 @@ void Editor::updateInsertion(Guid frame, Vec2 world) {
   Vec2 b = P == 0 ? Vec2{at, c1} : Vec2{c1, at};
   insertion_ = {W.apply(a), W.apply(b)};
   hasInsertion_ = true;
+}
+
+void Editor::gridTrackOverlay(Overlay& o) const {
+  const Node* n = doc_.get(selection_[0]);
+  if (!n || n->props.stack().stackMode != StackMode::GRID || !n->props.isAutoLayout()) return;
+  Layout L(*const_cast<Editor*>(this));
+  Layout::GridCells g = L.gridCells(selection_[0]);
+  Mat2x3 W = doc_.worldTransform(selection_[0]);
+  // The pointer near an edge (within the pills' band just outside it) hovers the track it is along.
+  Vec2 q = W.inverse().apply(camera_.toWorld(lastScreen_));
+  double band = 16 / std::max(1e-6, camera_.zoom);
+  for (size_t i = 0; i < g.colX.size(); i++) {
+    Overlay::GridTrack t;
+    t.a = W.apply({g.colX[i], 0});
+    t.b = W.apply({g.colX[i] + g.colW[i], 0});
+    t.column = true;
+    t.hovered = q.y <= 0 && q.y >= -band && q.x >= g.colX[i] && q.x <= g.colX[i] + g.colW[i];
+    t.label = g.colLabels[i];
+    o.gridTracks.push_back(std::move(t));
+  }
+  for (size_t i = 0; i < g.rowY.size(); i++) {
+    Overlay::GridTrack t;
+    t.a = W.apply({0, g.rowY[i]});
+    t.b = W.apply({0, g.rowY[i] + g.rowH[i]});
+    t.column = false;
+    t.hovered = q.x <= 0 && q.x >= -band && q.y >= g.rowY[i] && q.y <= g.rowY[i] + g.rowH[i];
+    t.label = g.rowLabels[i];
+    o.gridTracks.push_back(std::move(t));
+  }
 }
 
 void Editor::finishMove() {

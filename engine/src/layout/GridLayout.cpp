@@ -431,15 +431,25 @@ Layout::GridCells Layout::gridCells(Guid frame) {
   Grid g = grid(frame, n->props.size, false, false);
   memo_.clear();
   out.reflow = g.spec.reflow;
+  auto label = [](const Track* t) -> std::string {
+    if (!t || t->sizing == Sizing::HUG) return "Hug";
+    double v = std::round(t->value * 100) / 100;
+    std::string s = std::to_string(v);
+    s.erase(s.find_last_not_of('0') + 1);
+    if (!s.empty() && s.back() == '.') s.pop_back();
+    return t->sizing == Sizing::FLEX ? s + "fr" : s;
+  };
   for (size_t i = 0; i < g.colW.size(); i++) {
     out.colX.push_back(g.padL + g.offset(g.colW, i, g.spec.colGap));
     out.colW.push_back(g.colW[i]);
     out.colIds.push_back(i < g.spec.cols.size() ? g.spec.cols[i].id : kNoGuid);
+    out.colLabels.push_back(label(i < g.spec.cols.size() ? &g.spec.cols[i] : nullptr));
   }
   for (size_t i = 0; i < g.rowH.size(); i++) {
     out.rowY.push_back(g.padT + g.offset(g.rowH, i, g.spec.rowGap));
     out.rowH.push_back(g.rowH[i]);
     out.rowIds.push_back(i < g.spec.rows.size() ? g.spec.rows[i].id : kNoGuid);
+    out.rowLabels.push_back(label(i < g.spec.rows.size() ? &g.spec.rows[i] : nullptr));
   }
   for (const Grid::Item& it : g.items) out.items.push_back({it.id, it.col, it.row, it.cs, it.rs});
   return out;

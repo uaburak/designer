@@ -94,6 +94,7 @@ class Layout {
   struct GridCells {
     std::vector<double> colX, colW, rowY, rowH;
     std::vector<Guid> colIds, rowIds;
+    std::vector<std::string> colLabels, rowLabels;  // Figma's: "1fr", "120", "Hug"
     bool reflow = false;
     struct Item {
       Guid id;

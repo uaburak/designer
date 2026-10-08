@@ -668,6 +668,7 @@ Overlay Editor::overlay() const {
   }
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
+  if (gesture_ == Gesture::None && selection_.size() == 1 && text_.node == kNoGuid) gridTrackOverlay(o);
   if (text_.node != kNoGuid) {
     // Editing text: the text's own box stays outlined (no handles, no badge), plus the selection and caret.
     o.textNode = text_.node;

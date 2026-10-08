@@ -170,6 +170,31 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.autoLayoutBand, style.bandAlpha, blue, 0, 0, 0), Pass::Shape);
   }
 
+  // A selected grid's tracks: a pill per column above the frame and per row left of it; the hovered one is solid and
+  // shows its size in a badge (Figma: "the blue pill" with its label).
+  for (const Overlay::GridTrack& t : overlay.gridTracks) {
+    Vec2 a = view.apply(t.a), b = view.apply(t.b);
+    if (t.column ? std::fabs(a.y - b.y) > 0.5 : std::fabs(a.x - b.x) > 0.5) continue;  // turned frames: none
+    const double inset = 3, thick = 4, gap = 8;
+    double len = (t.column ? b.x - a.x : b.y - a.y) - 2 * inset;
+    if (len < 2) len = 2;
+    double x = t.column ? a.x + inset : a.x - gap - thick, y = t.column ? a.y - gap - thick : a.y + inset;
+    Vec2 size = t.column ? Vec2{len, thick} : Vec2{thick, len};
+    double r = thick / 2;
+    emit(makeShape(Mat2x3::translate(std::round(x * dpr) / dpr, std::round(y * dpr) / dpr), size, ShapeKind::Rect, {r, r, r, r}, blue,
+                   t.hovered ? 1.0 : 0.45, blue, 0, 0, 0),
+         Pass::Shape);
+    if (!t.hovered || t.label.empty()) continue;
+    const text::TextLayout* L = label(t.label, "Medium", style.labelSize);
+    double tw = L ? L->size.x : 6.2 * static_cast<double>(t.label.size());
+    double bw = std::round(tw + 2 * style.badgePadding), bh = style.badgeHeight;
+    double cx = t.column ? x + len / 2 : x + thick / 2, cy = t.column ? y + thick / 2 : y + len / 2;
+    double bx = std::round((cx - bw / 2) * dpr) / dpr, by = std::round((cy - bh / 2) * dpr) / dpr;
+    double rr = style.badgeRadius;
+    emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0), Pass::Shape);
+    if (L && !L->lines.empty()) drawGlyphs(*L, Mat2x3::translate(bx + (bw - tw) / 2, std::round((by + (bh - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
+  }
+
   // Hover: the hovered layer's own outline (not when it is selected).
   for (Guid h : overlay.hover) {
     bool selected = false;

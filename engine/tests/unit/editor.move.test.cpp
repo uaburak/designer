@@ -498,5 +498,16 @@ TEST_CASE("move: grid — a drag places the item in the cell under the pointer")
     CHECK(world(e, I0).y == 0);
     CHECK(world(e, I1).x == 50);
     CHECK(world(e, I1).y == 50);  // took I0's cell
+    // The selected grid shows its tracks along its edges; the one under the pointer is labelled.
+    e.setSelection({GRID});
+    move(e, 75, -6);
+    Overlay o = e.overlay();
+    REQUIRE(o.gridTracks.size() == 4);
+    CHECK(o.gridTracks[0].column);
+    CHECK(o.gridTracks[1].a.x == 50);
+    CHECK(o.gridTracks[1].label == "50");
+    CHECK(o.gridTracks[1].hovered);
+    CHECK(!o.gridTracks[0].hovered);
+    CHECK(!o.gridTracks[2].column);
   }
 }

@@ -118,6 +118,15 @@ struct Overlay {
   bool hasInsertion = false;
   GuideLine insertion;
   std::vector<Rect> bands;
+  // Grid auto layout: a selected grid's tracks as Figma's blue pills along its top (columns) and left (rows) edges,
+  // world space at the frame's edge; the hovered one shows its size ("1fr", "120", "Hug").
+  struct GridTrack {
+    Vec2 a, b;           // world: the track's extent along the edge
+    bool column = true;  // along the top edge (else the left)
+    bool hovered = false;
+    std::string label;
+  };
+  std::vector<GridTrack> gridTracks;
   // Top-level frames' names above them.
   bool frameTitles = true;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
