@@ -53,7 +53,7 @@ How the sessions worked, worth keeping: parallel agents with **disjoint folder o
 
 ## Owner's decisions (binding)
 
-- A 1:1 clone of the Figma desktop app for personal use (UI3, Figma's file model and wording). No multiplayer. Never sold or published; design previews will be shared with developer friends later.
+- A 1:1 clone of the Figma desktop app for personal use (UI3, Figma's file model and wording). Multiplayer later (2026-10-08): finish everything else first, but keep the architecture ready for it (`docs/roadmap.md` Phase 6). Never sold or published; design previews will be shared with developer friends later.
 - Engine as Figma's: C++ → Emscripten → WebAssembly, **our own renderer** on WebGL2 (no Skia/CanvasKit, no DOM for design objects), React+TS panels, Electron with one WebContentsView per tab.
 - Local-first storage, plus an optional Firebase adapter for a **new** Firebase project (config comes from the owner later; nothing in the repo).
 - All legacy site-admin code is deleted (done in the integration round). The site's Firebase data is left untouched. No import of the old projects.

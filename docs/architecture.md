@@ -1,6 +1,6 @@
 # Architecture
 
-DesignerV2 is a 1:1 clone of the Figma desktop app for one person's use: Figma's UI3, Figma's file model, Figma's engine design — without multiplayer. This page is the map; the contracts below decide the details, and the research they rest on (with sources) is in `docs/research/`.
+DesignerV2 is a 1:1 clone of the Figma desktop app for one person's use: Figma's UI3, Figma's file model, Figma's engine design — multiplayer comes last, and the architecture stays ready for it (`roadmap.md` Phase 6). This page is the map; the contracts below decide the details, and the research they rest on (with sources) is in `docs/research/`.
 
 | Contract | What it decides |
 |---|---|

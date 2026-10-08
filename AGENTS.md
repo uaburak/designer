@@ -2,7 +2,7 @@
 
 **Work in progress — read [`docs/handoff.md`](docs/handoff.md) first**: where each workstream stopped, what to verify, and what to do next.
 
-A 1:1 clone of the Figma desktop app for one person's own use — Figma's UI3 look and wording, Figma's semantics (Home with Drafts, folders, Recents, Starred, Trash; files with pages; every file owning its local variables, styles and components; libraries published from any file and enabled in others, updates reviewed and accepted). The one thing Figma has that this doesn't: multiplayer.
+A 1:1 clone of the Figma desktop app for one person's own use — Figma's UI3 look and wording, Figma's semantics (Home with Drafts, folders, Recents, Starred, Trash; files with pages; every file owning its local variables, styles and components; libraries published from any file and enabled in others, updates reviewed and accepted). Multiplayer comes last (owner's decision, 2026-10-08): not built yet, but nothing may block it — keep the architecture ready as `docs/roadmap.md` "Phase 6 — Multiplayer" lists.
 
 How it is built is in the contracts, which decide over anything else: `docs/architecture.md` (overview), `schema/document.kiwi` + `docs/schema.md` (the document), `docs/engine.md` (the engine and its bindings), `docs/desktop.md` (processes, IPC), `docs/data.md` (storage, libraries, Firebase), `docs/design-system.md` (the chrome's look). The research they rest on is in `docs/research/`. Rules that hold everywhere:
 

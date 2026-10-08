@@ -43,6 +43,18 @@ Done in the integration round (`desktop-impl.md` Status): the store's utility pr
 - `.fig` import (Figma's own files) and the one-shot converter for the old site projects (`data.md` §11.3). *Fidelity round 2026-10-08 (branch `fig-import-fidelity`):* `scripts/fig-fidelity.mjs` against Figma's own thumbnails and stored geometry; Figma's override paths, derived data kept, slots, GRID, space between, NaN gaps, Display P3 — `data-impl.md` "Import fidelity" has the numbers and what's left.
 - **E8** prototyping and presentation view — built 2026-10-08 (branch `e8-prototype`; docs/engine-build.md "E8 prototyping", docs/editor.md); **E9** WebGPU backend.
 
+## Phase 6 — Multiplayer (last; owner's decision 2026-10-08)
+
+Built only after everything else, Figma's way (R1/R2 research; Figma's "How Figma's multiplayer technology works"): one authoritative server process per file, clients send kiwi `NODE_CHANGES` with only the touched fields, the server orders them and resolves conflicts **per property, last writer (as the server receives it) wins**; clients apply their own changes optimistically and roll a property back if the server's value differs; undo/redo per user, only one's own changes; presence (cursors, selections, names, avatars, follow / spotlight) on a separate ephemeral channel; sharing and permissions (view / edit) with accounts.
+
+**Readiness rules that hold now** (nothing may break them):
+- Every document change is a kiwi `NODE_CHANGES` Message carrying only the touched fields, with the session that made it (`sessionID`) — files, journal, undo, clipboard, library payloads and the engine stream all use it (already true).
+- Node identity is `GUID {sessionID, localID}`, so two sessions never mint the same id; fractional `parentIndex.position` strings for ordering (no index-based moves).
+- The engine applies remote changes without disturbing local undo (`APPLY_REMOTE`), and undo batches record only the local session's changes.
+- Per-property values only — no whole-node replace in a change (REMOVED + CREATED is a real delete/create, never an edit).
+- The store's write path stays behind repositories so a server-backed adapter can take the place of the local one (as the Firebase adapter does); per-property LWW is already the Firebase replicator's rule.
+- Derived data never travels in change messages (`@derived` only in snapshots).
+
 ## Legacy removed (2026-10-06)
 
 As the owner decided, the whole site admin was deleted in the Phase 2 integration round, with no import of the old projects: the DOM editor, the CV, site publishing and the preview tab, the old Home, `lib/` (the site's Firebase) and `demo/`, the sign-in, the site's components and the iframe shell for browsers, and the dependencies only they used (Tailwind, gsap, prismjs, dompurify, tailwind-merge). The site's Firebase data is left untouched (burakkoc.net keeps working with its own web admin). The Firebase SDK stays, as a dependency, for the optional Firebase adapter (`data.md` §12). A converter for the old projects (`data.md` §11.3) is not planned unless the owner asks.
