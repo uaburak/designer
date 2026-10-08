@@ -2400,6 +2400,7 @@ try {
     // 4. The sample document (several kinds of layers), a rectangle selected; then the menus.
     await open(page, "");
     await page.mouse.click(...(await toScreen(page, 100, 150)));
+    const picked = await selection(page);
     await shot(page, `04-sample-rectangle-${theme}`);
     await page.mouse.click(...(await toScreen(page, 100, 150)), { button: "right" });
     await shot(page, `05-context-menu-${theme}`);
@@ -2417,7 +2418,8 @@ try {
     if (theme === "dark") {
       // Minimize UI (⇧⌘\, the live View menu), hide UI (⌘\), the shortcuts (⌃⇧?).
       await page.locator("#engine-canvas").focus();
-      const selected = await selection(page);
+      // (The menus' Escapes may have reached the canvas: Esc clears the selection there, live Figma.)
+      const selected = (await selection(page)).length ? await selection(page) : picked;
       await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
       await page.keyboard.press("Meta+Shift+Backslash");
       await shot(page, `08-minimized-${theme}`);
