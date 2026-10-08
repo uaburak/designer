@@ -15,7 +15,8 @@
     background: var(--figma-color-bg-secondary);
   }
   .field:focus-within { border-color: var(--figma-color-border-selected); }
-  .fieldLabel { flex: none; width: var(--ds-space-6); color: var(--figma-color-text); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); text-align: center; }
+  /* The search glyph in the field's first 24 (live: the query starts at 40 = 16 + 24) */
+  .fieldIcon { flex: none; color: var(--figma-color-icon-secondary); }
   .input {
     flex: 1 1 auto;
     min-width: 0;

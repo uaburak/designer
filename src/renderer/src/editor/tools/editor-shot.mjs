@@ -522,11 +522,11 @@ async function variablesSection(page, theme) {
 
   // Nothing selected: Page (Apply variable mode), Local variables, the Styles list by kind and folder.
   await select();
-  check("nothing selected: Local variables and the Styles list (Text, Color, Effect, Layout guide)", (await panel.locator("[data-open-variables]").count()) === 1 && (await panel.locator("[data-style-item]").count()) === 9);
+  check("nothing selected: the Styles list (Text, Color, Effect, Layout guide)", (await panel.locator("[data-style-item]").count()) === 9);
   await shot(page, `53-styles-list-${theme}`);
 
   // The Local variables window: collections, groups, a column per mode, aliases.
-  await panel.locator("[data-open-variables]").click();
+  await page.locator('[data-rail-tab="variables"]').click(); // the rail (r7: the right panel has no Local variables row)
   await settle(page);
   check("Local variables opens with the collections and the first one's groups", (await win.locator("[data-collection]").count()) === 2 && (await win.locator("[data-group]").count()) >= 4);
   await win.locator('[data-collection="Theme"]').click();
@@ -653,7 +653,7 @@ async function variablesSection(page, theme) {
 
   // Round 5 — "Extend collection" (R3-32): the extended collection inherits Theme's variables and modes (no new ones);
   // a value edited there is an override, in blue, and "Reset change" brings back the parent's.
-  await panel.locator("[data-open-variables]").click();
+  await page.locator('[data-rail-tab="variables"]').click(); // the rail (r7: the right panel has no Local variables row)
   await settle(page);
   await win.locator('[data-collection="Theme"]').click({ button: "right" });
   await settle(page);

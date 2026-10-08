@@ -9,13 +9,13 @@
  * range, ⌘ adds); Replace changes the selected text results, Replace all every one; ✕ or Esc goes back.
  */
 import { useMemo, useRef, useState } from "react";
-import { Button, ContextMenu, Icon, IconButton, Select, TextInput, cx, showToast, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, Select, TextInput, cx, showToast, type IconName, type MenuEntry } from "@/ds";
 import { useSelection } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { command, shortcutOf } from "../commands";
 import { closeFind, findResults, findScope, replaceInLayers, showResult, stepFind, EMPTY_FIND } from "../find";
 import { useDocumentVersion, usePages, useUI } from "../hooks";
-import { FIND_FILTERS, countByType, type FindResult } from "../model/find";
+import { FIND_FILTERS, countByType, type FindFilter, type FindResult } from "../model/find";
 import { layerIcon } from "./Layers";
 import type { FindState } from "../uiStore";
 import type { TreeNode } from "../model/layerTree";
@@ -39,6 +39,17 @@ function Marked({ r }: { r: FindResult }) {
   parts.push(r.label.slice(at));
   return <span className={styles.label}>{parts}</span>;
 }
+
+/** The type rows' glyphs (live: an icon column before each type, docs/research/figma/live/img/left-find-results-and-filter-menu.jpg). */
+const FILTER_ICONS: Record<FindFilter, IconName> = {
+  text: "24.text",
+  frame: "24.frame",
+  component: "24.component.small",
+  instance: "24.instance.small",
+  image: "24.image",
+  shape: "24.shapes",
+  other: "24.more",
+};
 
 export function FindPanel() {
   const ed = useEditor();
@@ -82,8 +93,8 @@ export function FindPanel() {
     { id: "mode:find", label: "Find", checked: !f.replace },
     { id: "mode:replace", label: "Replace", checked: f.replace },
     "-",
-    { id: "type:all", label: "All", checked: f.types.length === 0, hint: count("all") },
-    ...FIND_FILTERS.map((t) => ({ id: `type:${t.id}`, label: t.label, checked: f.types.includes(t.id), hint: count(t.id) })),
+    { id: "type:all", label: "All", icon: "24.select-matching.small", checked: f.types.length === 0, hint: count("all") },
+    ...FIND_FILTERS.map((t) => ({ id: `type:${t.id}`, label: t.label, icon: FILTER_ICONS[t.id], checked: f.types.includes(t.id), hint: count(t.id) })),
     "-",
     { id: "matchCase", label: "Match case", checked: f.matchCase },
     { id: "wholeWords", label: "Whole words", checked: f.wholeWords },
@@ -110,7 +121,7 @@ export function FindPanel() {
     <section className={styles.find} aria-label="Find" data-find="">
       <div className={styles.top}>
         <label className={styles.field} data-find-query="">
-          <span className={styles.fieldLabel}>{f.replace ? "Replace" : "Find"}</span>
+          <Icon name="24.search.small" className={styles.fieldIcon} />
           <input
             className={styles.input}
             aria-label="Find…"
@@ -137,6 +148,7 @@ export function FindPanel() {
             label="Settings"
             tone="secondary"
             aria-expanded={!!menu}
+            aria-pressed={!!menu}
             className={cx(f.types.length > 0 && styles.on)}
             onClick={(e) => {
               if (menu) return setMenu(null);

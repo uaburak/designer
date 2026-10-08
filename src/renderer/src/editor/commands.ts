@@ -52,9 +52,9 @@ const KEY_LABEL: Record<string, string> = {
   BracketRight: "]",
   Backslash: "\\",
   Equal: "+",
-  Minus: "-",
+  Minus: "–", // live: Zoom out ⌘–
   Slash: "/",
-  Quote: "'",
+  Quote: "′", // live menus: ⇧′, ⇧⌘′
   Comma: ",",
   Period: ".",
   Backspace: "backspace",
