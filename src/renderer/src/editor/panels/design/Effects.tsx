@@ -25,6 +25,7 @@ import { mixed, sameData } from "../../model/mixed";
 import { fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
+import { Grip, moved, useReorder } from "./reorder";
 
 // ---- Effects ---------------------------------------------------------------------------------------
 
@@ -73,18 +74,24 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const empty = !isMixedList && effects.length === 0;
   const styled = sharedStyle(nodes, "effect");
   const hasStyle = !!styled && styled !== "mixed";
+  // Rows show the top effect first: display index d is effect n − 1 − d (as Fill's rows).
+  const n = effects.length;
+  const { container: reorderRef, grip, dragging, line: dropLine } = useReorder((from, to) => writeEffects(ed, refs, moved(effects, n - 1 - from, n - 1 - to), "Reorder effects"));
   return (
     <PanelSection title="Effects" empty={empty} actions={<><StylesButton nodes={nodes} slot="effect" />{!hasStyle && <IconButton icon="24.plus.small" label="Add effect" tone="secondary" disabled={!kept} onClick={add} />}</>}>
       {hasStyle && <AppliedStyle nodes={nodes} slot="effect" />}
       {!hasStyle && isMixedList && <div className={styles.note}>Click + to replace mixed effects</div>}
-      {!hasStyle && effects
+      {!hasStyle && n > 0 && (
+        <div ref={reorderRef} className={styles.reorderList}>
+      {effects
         .map((e, i) => ({ e, i }))
         .reverse()
-        .map(({ e, i }) => {
+        .map(({ e, i }, d) => {
           const type = EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[0];
           const set = (next: Effect, label: string, info?: ChangeInfo) => writeEffects(ed, refs, effects.map((x, j) => (j === i ? next : x)), label, info);
           return (
-            <div key={i} className={cx(styles.paintRow, e.visible === false && styles.rowHidden)} data-effect-row={e.type}>
+            <div key={i} className={cx(styles.paintRow, e.visible === false && styles.rowHidden, dragging === d && styles.rowDragging)} data-effect-row={e.type} data-reorder-row="">
+              {n > 1 && <Grip {...grip(d)} />}
               <div className={styles.effectField}>
                 <IconButton icon={type.icon} label="Effect settings" aria-expanded={open?.index === i} onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })} />
                 <Select label="Effect type" variant="ghost" value={e.type} options={EFFECT_TYPES.map((t) => ({ value: t.value, label: t.label }))} onChange={(v) => set(withEffectType(e, v as Effect["type"]), "Effect type")} />
@@ -94,6 +101,9 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
             </div>
           );
         })}
+          {dropLine !== null && <div className={styles.dropLine} style={{ top: dropLine }} />}
+        </div>
+      )}
       {open && effects[open.index] && (
         <EffectSettings
           effect={effects[open.index]}
