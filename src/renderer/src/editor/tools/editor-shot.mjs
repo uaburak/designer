@@ -14,7 +14,7 @@
 //   EDITOR_ONLY=variables node …                                   (only the variables / modes / styles section)
 //   EDITOR_ONLY=libraries node …                                   (only the libraries section: publish, enable, insert, update)
 //   EDITOR_ONLY=export node …                                      (only the export section: Export panel, dialog, Copy as PNG)
-//   EDITOR_ONLY=prototype node …                                   (only the E8 section: Prototype tab, noodles, presentation view)
+//   EDITOR_ONLY=prototype node …                                   (only the E8 section: Prototype tab, noodles, presentation view, inline preview)
 /* global process, console, window, document, navigator, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -1021,6 +1021,80 @@ async function prototypeSection(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
   check("Esc leaves the presentation", (await page.locator("[data-presentation]").count()) === 0);
+
+  // Round 5 — the inline preview (⇧Space): a floating window over the canvas playing the selected frame; it follows
+  // the canvas selection and edits.
+  await select("2:1");
+  await page.evaluate(() => window.__designerEditor.focusCanvas());
+  await page.keyboard.press("Shift+Space");
+  await page.waitForFunction(() => window.__designerPreview && window.__designerPreview.presentState().active, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  const preview = () => page.evaluate(() => window.__designerPreview.presentState());
+  let p = await preview();
+  check("⇧Space opens the inline preview at the selected frame", (await page.locator("[data-inline-preview]").count()) === 1 && p.screen === "2:1", JSON.stringify(p));
+  await shot(page, `105-inline-preview-${theme}`);
+  const previewPoint = async (x, y) => {
+    const s = await preview();
+    const r = await page.locator("#preview-canvas").boundingBox();
+    const k = s.screenRect.w / 375;
+    return [r.x + s.screenRect.x + x * k, r.y + s.screenRect.y + y * k];
+  };
+  const [px, py] = await previewPoint(100, 740);
+  await page.mouse.click(px, py);
+  await page.waitForTimeout(2300);
+  check("a click in the preview plays the prototype (Next → Details)", (await preview()).screen === "2:10", JSON.stringify(await preview()));
+  await select("2:20");
+  await page.waitForTimeout(200);
+  check("selecting another frame on the canvas jumps the preview to it", (await preview()).screen === "2:20", JSON.stringify(await preview()));
+  await page.locator("[data-inline-preview]").getByRole("button", { name: "Preview options" }).click();
+  check("the preview's menu: Responsive, Follow prototype, Resize window to 100%, Respect aspect ratio", (await page.getByRole("menuitemcheckbox", { name: "Follow prototype" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Respect aspect ratio" }).count()) === 1 && (await page.getByText("Resize window to 100%").count()) === 1);
+  await shot(page, `106-inline-preview-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.locator("[data-inline-preview]").getByRole("button", { name: "Close preview" }).click();
+  await settle(page);
+  check("× closes the inline preview", (await page.locator("[data-inline-preview]").count()) === 0);
+
+  // A device with a frame and a Model: the Prototype tab's Model, the presentation's bezel.
+  await select();
+  await page.evaluate(() => window.__designerEditor.setProps(["0:1"], { prototypeDevice: { type: "PRESET", presetIdentifier: "IPHONE_16_PRO_DESERT_TITANIUM", size: { x: 402, y: 874 }, rotation: "NONE" } }, "Prototype device"));
+  await settle(page);
+  check("Device: the preset's Model (Desert Titanium)", (await panel.getByRole("combobox", { name: "Model" }).count()) === 1 && (await panel.getByRole("combobox", { name: "Model" }).textContent()).includes("Desert Titanium"));
+  await shot(page, `107-device-model-${theme}`);
+  await page.evaluate(() => window.__designerEditor.ui.set({ presenting: { page: "0:1", node: null } }));
+  await page.waitForFunction(() => window.__designerPresent && window.__designerPresent.presentState().active, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  s = await state();
+  check("presenting on a device draws its frame (Fit device on screen)", s.hasDeviceFrame === true && s.deviceFrame === true && s.scale === "FIT", JSON.stringify(s));
+  await shot(page, `108-present-device-frame-${theme}`);
+  await page.locator("[data-presentation]").getByRole("button", { name: "Options" }).click();
+  check("the options with a device: Responsive / Fixed size, Show device frame", (await page.getByRole("menuitemcheckbox", { name: "Fixed size" }).count()) === 1 && (await page.getByRole("menuitemcheckbox", { name: "Show device frame" }).count()) === 1);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  await page.evaluate(() => window.__designerEditor.setProps(["0:1"], { prototypeDevice: null }, "Prototype device"));
+
+  // Conditional: Figma's If expression, typed; an invalid one is outlined in red.
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const list = ed.engine.readNode("2:4").prototypeInteractions;
+    const lit = (v) => ({ value: { floatValue: v }, dataType: "FLOAT" });
+    const cond = { value: { expressionValue: { expressionFunction: "EQUALS", expressionArguments: [{ value: { expressionValue: { expressionFunction: "ADDITION", expressionArguments: [lit(1), lit(1)] } }, dataType: "EXPRESSION" }, lit(2)] } }, dataType: "EXPRESSION" };
+    list[0].actions = [{ connectionType: "CONDITIONAL", conditionalActions: [{ condition: cond, actions: [{ ...list[0].actions[0], connectionType: "INTERNAL_NODE" }] }, { actions: [] }] }];
+    ed.setProps(["2:4"], { prototypeInteractions: list }, "Edit interaction");
+  });
+  await select("2:4");
+  await panel.locator("[data-interaction]").first().getByRole("button").first().click();
+  await settle(page);
+  const expr = page.getByRole("dialog", { name: "Interaction details" }).locator("[data-expression] input");
+  check("the If field shows the stored expression as text", (await expr.inputValue()) === "1 + 1 == 2", await expr.inputValue());
+  await expr.click();
+  await expr.fill("1 + ");
+  await expr.press("Enter");
+  await settle(page);
+  check("an unfinished expression is refused, outlined in red with its reason", (await page.getByRole("dialog", { name: "Interaction details" }).getByRole("alert").textContent()) === "The expression isn't finished");
+  await shot(page, `109-conditional-expression-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
 
   // The prototype tab's own route on a store file (Figma's Present opens a new tab): read-only, from the store.
   const fileKey = await page.evaluate(async (repo) => {

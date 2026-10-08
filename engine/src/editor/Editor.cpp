@@ -1131,6 +1131,8 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     mods_ = mods;
     return type == KeyEvent::DOWN ? textKey(code, mods) : 0u;
   }
+  // ⇧Space is Preview (the inline preview, TS), not the hand.
+  if (code == KeyCode::Space && shift && !spaceHeld_) return 0;
   if (code == KeyCode::Space) {
     mods_ = mods;
     if (type == KeyEvent::DOWN && !spaceHeld_ && !primary) {
