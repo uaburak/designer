@@ -117,6 +117,16 @@ describe("engine (wasm, headless)", () => {
     engine.destroy();
   });
 
+  it("takes the document's colour profile at load (a Display P3 file draws in P3)", async () => {
+    const engine = await engineWithSample();
+    expect(engine.colorProfile).toBe("SRGB");
+    const p3: Message = { ...SAMPLE_DOCUMENT, nodeChanges: SAMPLE_DOCUMENT.nodeChanges!.map((n) => (n.type === "DOCUMENT" ? { ...n, documentColorProfile: "DISPLAY_P3" } : n)) };
+    expect(engine.load(p3)).toBe(Status.OK);
+    expect(engine.colorProfile).toBe("DISPLAY_P3");
+    expect(engine.load(SAMPLE_DOCUMENT)).toBe(Status.OK);
+    expect(engine.colorProfile).toBe("SRGB");
+  });
+
   it("refuses a bad payload without breaking", async () => {
     const engine = await engineWithSample();
     expect(engine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "1:5", phase: "REMOVED" }] }, "remote")).toBe(0);

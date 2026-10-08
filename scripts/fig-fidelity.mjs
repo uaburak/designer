@@ -143,7 +143,9 @@ function pageMain() {
     const pngOf = async (c) => b64(new Uint8Array(await (await c.convertToBlob({ type: "image/png" })).arrayBuffer()));
     const toCanvas = (px) => {
       const c = new OffscreenCanvas(px.width, px.height);
-      c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px.pixels.slice().buffer), px.width, px.height), 0, 0);
+      // The engine draws in the document's colour space; Figma's thumbnail is sRGB (a P3 file's colours converted).
+      const colorSpace = engine.colorProfile === "DISPLAY_P3" ? "display-p3" : "srgb";
+      c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(px.pixels.slice().buffer), px.width, px.height, { colorSpace }), 0, 0);
       return c;
     };
     // sRGB → Lab (D65).

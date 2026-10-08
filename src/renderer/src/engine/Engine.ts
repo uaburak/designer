@@ -95,6 +95,8 @@ import { loadEngine } from "./loadEngine";
 
 /** The encoding of the engine's structured outputs (docs/engine-build.md "Figma parity round 3"). */
 export type WireFormat = "json" | "kiwi";
+/** DOCUMENT.documentColorProfile as the canvas uses it. */
+export type ColorProfile = "SRGB" | "DISPLAY_P3";
 
 export interface EngineOptions {
   /** The session new nodes are created in (allocated by storage, docs/data.md §1). */
@@ -137,7 +139,9 @@ export class Engine {
       throw new Error(`engine: ${decodeText(exports.result()) || "could not start"}`);
     }
     fonts.attach(exports);
-    return new Engine(exports, handle, canvas === null, wire);
+    const engine = new Engine(exports, handle, canvas === null, wire);
+    engine.canvas = canvas;
+    return engine;
   }
 
   private readonly x: EngineExports;
@@ -162,6 +166,8 @@ export class Engine {
   private readonly imageLoads = new Map<string, Promise<number>>();
   private readonly unsubscribeFonts: () => void;
   private wireFormat: WireFormat;
+  private canvas: HTMLCanvasElement | null = null;
+  private profile: ColorProfile = "SRGB";
 
   private constructor(exports: EngineExports, handle: number, headless: boolean, wire: WireFormat) {
     this.x = exports;
@@ -306,7 +312,7 @@ export class Engine {
    */
   loadKiwi(bytes: Uint8Array, options: { page?: Guid } = {}): number {
     const [s, l] = options.page ? this.ids(options.page) : [0xffffffff, 0xffffffff];
-    return this.after(this.x.loadAt(this.h, bytes, s, l));
+    return this.loaded(this.after(this.x.loadAt(this.h, bytes, s, l)));
   }
 
   /**
@@ -431,7 +437,33 @@ export class Engine {
 
   /** Replaces the document (a snapshot Message). Resets undo and the selection. */
   load(message: Message): number {
-    return this.after(this.x.load(this.h, encodeMessage(message)));
+    return this.loaded(this.after(this.x.load(this.h, encodeMessage(message))));
+  }
+
+  /**
+   * The document's colour profile (DOCUMENT.documentColorProfile, docs/engine.md §6 "Colour"): its colours are
+   * Display P3 values in a DISPLAY_P3 file, sRGB otherwise (absent / LEGACY / SRGB).
+   */
+  get colorProfile(): ColorProfile {
+    return this.profile;
+  }
+
+  /** After a load: the canvas takes the document's colour space (Figma draws a Display P3 file in P3). */
+  private loaded(status: number): number {
+    if (status !== Status.OK) return status;
+    const doc = this.readNode("0:0") as { documentColorProfile?: string } | null;
+    this.profile = doc?.documentColorProfile === "DISPLAY_P3" ? "DISPLAY_P3" : "SRGB";
+    const gl = this.canvas?.getContext("webgl2") as (WebGL2RenderingContext & { drawingBufferColorSpace?: string; unpackColorSpace?: string }) | null | undefined;
+    if (gl) {
+      const space = this.profile === "DISPLAY_P3" ? "display-p3" : "srgb";
+      // Images (sRGB or tagged) are converted into the canvas's space as they upload.
+      if ("unpackColorSpace" in gl && gl.unpackColorSpace !== space) gl.unpackColorSpace = space;
+      if ("drawingBufferColorSpace" in gl && gl.drawingBufferColorSpace !== space) {
+        gl.drawingBufferColorSpace = space;
+        this.schedule();
+      }
+    }
+    return status;
   }
 
   /** The task's name for load(). */
@@ -860,7 +892,8 @@ export class Engine {
   async renderThumbnail(options: { page?: Guid; maxSize: number; type?: string }): Promise<Blob | null> {
     const image = this.renderThumbnailPixels(options);
     if (!image) return null;
-    const data = new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height);
+    // The pixels are in the document's space; an sRGB canvas converts them as they are put (an export is sRGB).
+    const data = new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height, { colorSpace: this.profile === "DISPLAY_P3" ? "display-p3" : "srgb" });
     const type = options.type ?? "image/png";
     if (typeof OffscreenCanvas !== "undefined") {
       const canvas = new OffscreenCanvas(image.width, image.height);
