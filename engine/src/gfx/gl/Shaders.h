@@ -101,7 +101,9 @@ vec4 paintAt(vec2 local, int kind) {
   if (kind == 5) {
     bool repeat = v_paint0.w > 0.5;
     if (!repeat && (g.x < 0.0 || g.y < 0.0 || g.x > 1.0 || g.y > 1.0)) return vec4(0.0);
-    c = textureGrad(u_t2, repeat ? fract(g) : g, dFdx(g), dFdy(g));
+    // Mip level one finer than the footprint (LOD bias −1): Figma's zoomed-out images are about three times as
+    // sharp as plain trilinear filtering (audit 2026-10-08 #8, high-frequency energy 1.42 vs 0.48).
+    c = textureGrad(u_t2, repeat ? fract(g) : g, dFdx(g) * 0.5, dFdy(g) * 0.5);
     if (any(notEqual(u_v[2], vec4(0.0))) || any(notEqual(u_v[3], vec4(0.0)))) {
       vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
       c = vec4(adjust(rgb) * c.a, c.a);
@@ -339,6 +341,13 @@ vec2 g_normal = vec2(0.0);
 )";
 
 inline constexpr const char* kDrawFragmentBody = R"(
+// Ordered dither of a premultiplied colour by ±½ of an 8-bit step of its alpha (its hue kept): soft shadows and blurs
+// don't band (Figma dithers its blurs and shadows).
+vec4 dither(vec4 c) {
+  float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  return c.a > 0.0 ? c * (max(c.a + (n - 0.5) / 255.0, 0.0) / c.a) : c;
+}
+
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
   float rr = p.x > 0.0 ? (p.y > 0.0 ? r.z : r.y) : (p.y > 0.0 ? r.w : r.x);
   rr = clamp(rr, 0.0, min(b.x, b.y));
@@ -395,7 +404,7 @@ void shapeMain() {
   if (kind == 2) {
     float a = boxShadow(vec2(0.0), v_size, v_box, v_local, v_geom.x, px);
     if (a <= 0.0) discard;
-    o_color = v_color * a;
+    o_color = dither(v_color * a);
     return;
   }
   float d = kind == 1 ? sdEllipse(p, halfSize) : sdRoundedBox(p, halfSize, v_box);
@@ -684,7 +693,10 @@ void main() {
       sum += texture(u_t0, uv + dir * float(i)) * w;
       total += w;
     }
-    o_color = sum / total;
+    vec4 c = sum / total;
+    // Dithered (±½ of an 8-bit step of its alpha) against banding in the falloff.
+    float d = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    o_color = c.a > 0.0 ? c * (max(c.a + (d - 0.5) / 255.0, 0.0) / c.a) : c;
     return;
   }
   int r = min(int(ceil(u_v[3].x)), 64);

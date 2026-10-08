@@ -298,6 +298,11 @@ fn noiseCell(cell: vec2f, seed: u32, density: f32, kind: i32, color: vec4f, seco
   return color * unitOf(h);
 }
 
+fn dither(c: vec4f) -> vec4f {
+  let n = fract(52.9829189 * fract(dot(fragCoord, vec2f(0.06711056, 0.00583715))));
+  return select(c, c * (max(c.a + (n - 0.5) / 255.0, 0.0) / max(c.a, 1e-9)), c.a > 0.0);
+}
+
 fn paintAt(local: vec2f, kind: i32) -> vec4f {
   if (kind == 0) { return v_color; }
   if (kind == 7) {
@@ -325,7 +330,7 @@ fn paintAt(local: vec2f, kind: i32) -> vec4f {
   if (kind == 5) {
     let repeat = v_paint0.w > 0.5;
     if (!repeat && (g.x < 0.0 || g.y < 0.0 || g.x > 1.0 || g.y > 1.0)) { return vec4f(0.0); }
-    c = textureSampleGrad(t2, s2, select(g, fract(g), repeat), gx, gy);
+    c = textureSampleGrad(t2, s2, select(g, fract(g), repeat), gx * 0.5, gy * 0.5);  // LOD bias −1 (gl/Shaders.h)
     if (any(u.v[2] != vec4f(0.0)) || any(u.v[3] != vec4f(0.0))) {
       let rgb = select(vec3f(0.0), c.rgb / c.a, c.a > 0.0);
       c = vec4f(adjust(rgb) * c.a, c.a);
@@ -404,7 +409,7 @@ fn shapeMain() -> bool {
   if (kind == 2) {
     let a = boxShadow(vec2f(0.0), v_size, v_box, v_local, v_geom.x, px);
     if (a <= 0.0) { return false; }
-    o_color = v_color * a;
+    o_color = dither(v_color * a);
     return true;
   }
   let d = select(sdRoundedBox(p, halfSize, v_box), sdEllipse(p, halfSize), kind == 1);
@@ -708,7 +713,9 @@ inline constexpr const char* kBlur = R"(
       sum += textureSampleLevel(t0, s0, uv + dir * f32(i), 0.0) * w;
       total += w;
     }
-    return sum / total;
+    let c = sum / total;
+    let d = fract(52.9829189 * fract(dot(glFragCoord(pos), vec2f(0.06711056, 0.00583715))));
+    return select(c, c * (max(c.a + (d - 0.5) / 255.0, 0.0) / max(c.a, 1e-9)), c.a > 0.0);
   }
   let r = min(i32(ceil(u.v[3].x)), 64);
   var m = select(1.0, 0.0, mode == 1);
