@@ -19,18 +19,20 @@
  * Everything writes one undo step (components.ts); structural actions are the
  * engine's commands, disabled until it has them.
  */
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Button, Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, Select, Switch, TextArea, TextInput, cx, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Button, Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, Select, Switch, TextArea, TextInput, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { commandItem, resetSubmenu, runMenuItem } from "../../menus";
 import { useTopics } from "../../hooks";
 import {
+  addInstanceToSlot,
   addProperty,
   bindLayer,
   bindPropertyVariable,
   boundProperty,
   canAddProperty,
+  clearSlot,
   deleteProperty,
   instanceInfo,
   mainOf,
@@ -39,12 +41,15 @@ import {
   readC,
   renameVariantValue,
   reorderProperty,
+  reorderVariantValues,
+  resetSlot,
   setDescription,
   setExposed,
   setOf,
   setPropertyValue,
   setVariant,
   setVariantValueOf,
+  slotState,
   swapInstance,
   updateProperty,
   updateSlotSettings,
@@ -52,6 +57,7 @@ import {
   variantsOf,
   type InstanceInfo,
   type PropertyRowData,
+  type SlotState,
 } from "../../components";
 import {
   PROPERTY_TYPE_LABEL,
@@ -59,14 +65,20 @@ import {
   canBind,
   guidStr,
   guidVal,
+  hasSlotLimits,
   isComponent,
   isPreferred,
   preferredKey,
   isComponentSet,
   isInstance,
+  moveValue,
   parseDerivedId,
+  slotGuidelines,
+  slotMax,
+  slotViolations,
   sortedDefs,
   variantProperties,
+  variantToggle,
   variantValues,
   type BindableField,
   type CNode,
@@ -88,7 +100,7 @@ export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
   BOOL: "16.visible",
   TEXT: "16.text",
   INSTANCE_SWAP: "16.instance",
-  SLOT: "16.frame",
+  SLOT: "16.slot",
 };
 
 /** The "+" menu's order (Figma's). */
@@ -204,6 +216,7 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [assign, setAssign] = useState<HTMLElement | null>(null);
   const instance = info.instance;
+  const toggle = def.type === "VARIANT" ? variantToggle(row.options ?? []) : null;
   let control: React.ReactNode;
   switch (def.type) {
     case "VARIANT":
@@ -213,6 +226,14 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
         <>
           {row.variable ? (
             <BoundPill id={row.variable} label={def.name} onOpen={(a) => setAssign(a)} onDetach={() => bindPropertyVariable(ed, instance.guid, def.name, null)} />
+          ) : toggle ? (
+            // True / False, Yes / No, On / Off: a toggle (Figma), still bindable to a variable.
+            <div className={vstyles.bindWrap} data-assign-variable={def.name} data-variant-toggle={def.name}>
+              <Switch label={def.name} checked={row.variantValue === toggle.on} onChange={(on) => setVariant(ed, readC(ed, instance.guid) ?? instance, def.name, on ? toggle.on : toggle.off)} />
+              <button type="button" className={vstyles.applyButton} aria-label="Assign variable" aria-expanded={!!assign} {...tooltipProps("Assign variable")} onClick={(e) => setAssign(e.currentTarget)}>
+                <Icon name="24.variable.small" />
+              </button>
+            </div>
           ) : (
             <div className={vstyles.bindWrap} data-assign-variable={def.name}>
               <Select
@@ -278,7 +299,7 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
       break;
     }
     default:
-      control = <span className={styles.muted}>Slot</span>;
+      control = <SlotControl row={row} />;
   }
   return (
     <div className={styles.propRow} data-property={def.name}>
@@ -286,6 +307,71 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
         {def.name}
       </span>
       <div className={styles.propControl}>{control}</div>
+    </div>
+  );
+}
+
+/**
+ * An instance's slot property (help "Create and use slots"): the Limits label when the slot has guidelines (orange
+ * when one is broken; a click lists them with a check or a warning), "Add instances" (+: the components, preferred
+ * first), and More actions — Reset slot, Delete contents. Going over the maximum shows a toast (limits guide, never
+ * block).
+ */
+function SlotControl({ row }: { row: PropertyRowData }) {
+  const ed = useEditor();
+  const version = useDocVersion();
+  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [limits, setLimits] = useState<HTMLElement | null>(null);
+  const state: SlotState | null = useMemo(() => {
+    void version;
+    return slotState(ed, row);
+  }, [ed, row, version]);
+  const config = row.def.slotPropConfig;
+  const violations = state ? slotViolations(config, state.children, state.preferredCount) : [];
+  const over = violations.includes("ABOVE_MAX");
+  const wasOver = useRef(over);
+  useEffect(() => {
+    // The warning at the bottom of the screen when the slot goes over its limit.
+    if (over && !wasOver.current) showToast({ message: `“${row.def.name}” has more than ${slotMax(config)} ${slotMax(config) === 1 ? "layer" : "layers"}` });
+    wasOver.current = over;
+  }, [over, row.def.name, config]);
+  if (!state) return <span className={styles.muted}>Slot</span>;
+  const preferredKeys = row.def.preferredValues?.instanceSwapValues?.map((p) => p.key);
+  const showLimits = hasSlotLimits(config, state.preferredCount);
+  const more: MenuEntry[] = [
+    { id: "reset", label: "Reset slot" },
+    { id: "clear", label: "Delete contents", disabled: state.children.length === 0 },
+  ];
+  return (
+    <div className={styles.slotControl} data-slot-control={row.def.name} data-slot-count={state.children.length} data-slot-violations={violations.join(" ") || undefined}>
+      {showLimits ? (
+        <button type="button" className={cx(styles.limits, violations.length > 0 && styles.limitsWarning)} aria-expanded={!!limits} data-slot-limits="" onClick={(e) => setLimits(limits ? null : e.currentTarget)}>
+          {violations.length > 0 && <Icon name="16.warning" />}
+          Limits
+        </button>
+      ) : (
+        <span className={styles.slotCount}>{state.children.length === 1 ? "1 layer" : `${state.children.length} layers`}</span>
+      )}
+      <IconButton icon="24.plus.small" label="Add instances" tone="secondary" aria-expanded={!!picker} onClick={(e) => setPicker(picker ? null : e.currentTarget)} />
+      <MenuButton label="More actions" entries={more} className={styles.iconMenu} onSelect={(id) => (id === "reset" ? resetSlot(ed, state.ref) : clearSlot(ed, state.ref))}>
+        <Icon name="24.more" />
+      </MenuButton>
+      {picker && (
+        <ComponentPicker anchor={picker} title="Add instances" preferredKeys={preferredKeys} preferredFilter onPick={(a) => addInstanceToSlot(ed, state.ref, a, config)} onClose={() => setPicker(null)} />
+      )}
+      {limits && (
+        <Popover anchor={limits} title="Limits" width={240} onClose={() => setLimits(null)} label="Limits">
+          <div className={styles.limitsList} data-slot-guidelines="">
+            {slotGuidelines(config, state.children, state.preferredCount).map((g) => (
+              <div key={g.text} className={styles.guideline} data-ok={g.ok}>
+                <Icon name={g.ok ? "16.check" : "16.warning"} className={g.ok ? styles.guidelineOk : styles.guidelineWarning} />
+                <span>{g.text}</span>
+              </div>
+            ))}
+            <div className={styles.muted}>{state.children.length === 1 ? "1 layer in this slot" : `${state.children.length} layers in this slot`}</div>
+          </div>
+        </Popover>
+      )}
     </div>
   );
 }
@@ -476,6 +562,8 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
   const [value, setValue] = useState<ComponentPropValue | undefined>(initial ?? (type === "BOOL" ? { boolValue: true } : type === "TEXT" ? { textValue: { characters: "Text" } } : type === "VARIANT" ? { textValue: { characters: "Default" } } : undefined));
   const [picker, setPicker] = useState<{ kind: "value" | "preferred"; anchor: HTMLElement } | null>(null);
   const [applying, setApplying] = useState<HTMLElement | null>(null);
+  const [valueDrag, setValueDrag] = useState<number | null>(null);
+  const [valueDrop, setValueDrop] = useState<number | null>(null);
   const slot = (def?.slotPropConfig ?? {}) as NonNullable<ComponentPropDef["slotPropConfig"]>;
   // The variable the default is bound to (the def's varValue, an alias).
   const varValue = def?.varValue as { dataType?: string; value?: { alias?: { guid?: GuidValue } } } | undefined;
@@ -561,8 +649,39 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
         {type === "VARIANT" && variants && (
           <>
             <span className={cx(styles.editorLabel, styles.editorWide)}>Values</span>
-            {variants.values.map((v) => (
-              <div key={v} className={styles.editorWide}>
+            {variants.values.map((v, i) => (
+              // Hover a value to reveal its handle; drag to reorder (help "Create and use variants").
+              <div
+                key={v}
+                className={cx(styles.editorWide, styles.valueRow, valueDrop === i && styles.valueDrop)}
+                data-variant-value={v}
+                onDragOver={(e) => {
+                  if (valueDrag === null) return;
+                  e.preventDefault();
+                  setValueDrop(i);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (valueDrag !== null && valueDrag !== i) reorderVariantValues(ed, owner, variants.name, moveValue(variants.values, valueDrag, i));
+                  setValueDrag(null);
+                  setValueDrop(null);
+                }}
+              >
+                <span
+                  className={styles.valueHandle}
+                  draggable
+                  aria-label={`Reorder ${v}`}
+                  onDragStart={(e) => {
+                    setValueDrag(i);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragEnd={() => {
+                    setValueDrag(null);
+                    setValueDrop(null);
+                  }}
+                >
+                  <Icon name="16.drag" />
+                </span>
                 <TextInput label={`Value ${v}`} value={v} onCommit={(next) => next.trim() && next !== v && renameVariantValue(ed, owner, variants.name, v, next.trim())} />
               </div>
             ))}
@@ -578,7 +697,7 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
             </button>
           </>
         )}
-        {type === "INSTANCE_SWAP" && def && (
+        {(type === "INSTANCE_SWAP" || type === "SLOT") && def && (
           <>
             <span className={cx(styles.editorLabel, styles.editorWide, styles.editorHeader)}>
               Preferred instances
@@ -604,8 +723,11 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
         )}
         {type === "SLOT" && !def && <span className={cx(styles.muted, styles.editorWide)}>Apply it to a frame inside the component.</span>}
         {type === "SLOT" && def && (
-          // The slot's settings (help "Use slots"): limits are guidance (a warning past them, never a block).
+          // The slot's settings (help "Use slots"): limits are guidance (a warning past them, never a block); 0 = not set.
           <>
+            <div className={styles.editorWide}>
+              <TextArea label="Description" value={def.description ?? ""} placeholder="Add a description" minRows={1} maxRows={4} onCommit={(v) => updateProperty(ed, owner, def, { description: v }, "Edit description")} />
+            </div>
             <span className={styles.editorLabel}>Minimum layers</span>
             <NumericInput label="Minimum layers" value={slot.minChildren ?? 0} min={0} max={999} onChange={(v, info) => info.final && updateSlotSettings(ed, owner, def, { minChildren: Math.round(v) })} />
             <span className={styles.editorLabel}>Maximum layers</span>
@@ -613,6 +735,20 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
             <div className={styles.editorWide}>
               <Checkbox label="Only allow preferred instances" checked={slot.allowPreferredValuesOnly === true} onChange={(on) => updateSlotSettings(ed, owner, def, { allowPreferredValuesOnly: on })} />
             </div>
+            {slot.allowPreferredValuesOnly === true && preferred.length > 0 && (
+              <div className={styles.editorWide}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    // "View layers": the preferred components, selected on the canvas.
+                    const ids = preferred.map((p) => assets.find((x) => isPreferred(x, p.key))?.id).filter((x): x is string => !!x);
+                    if (ids.length) ed.engine.setSelection(ids);
+                  }}
+                >
+                  View layers
+                </Button>
+              </div>
+            )}
             <div className={styles.editorWide}>
               <Checkbox label="By default, display empty slots" checked={slot.displayByDefault === true} onChange={(on) => updateSlotSettings(ed, owner, def, { displayByDefault: on })} />
             </div>
