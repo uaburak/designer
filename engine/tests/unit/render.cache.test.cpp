@@ -278,12 +278,16 @@ TEST_CASE("renderer: off-screen subtrees are culled whole, sub-pixel ones skippe
   CHECK(s.culled >= 49);
   CHECK(s.nodes < 60);  // of 101: the culled frames' children were never visited
   CHECK(s.greeked == 0);
-  // 1 %: frames under half a device pixel (100 × 0.01 × 2 = 2 px: drawn; their 20 px children: 0.4 px, skipped),
-  // the text's 12 px em is 0.24 device px: bars.
-  s = r.render(e.document(), kPage, Camera{0, 0, 0.01}, kView, none, kDark);
+  // 0.5 %: layers under a quarter of a device pixel are skipped (100 × 0.005 × 2 = 1 px: drawn; their 20 px
+  // children: 0.2 px, skipped), the text's 12 px em is 0.12 device px: a bar holding the line's ink.
+  s = r.render(e.document(), kPage, Camera{0, 0, 0.005}, kView, none, kDark);
   CHECK(s.tiny >= 1);
   CHECK(s.greeked == 1);
   CHECK(s.glyphs == 0);
+  // 6 %: a 1.44 device px em is still glyphs (Figma draws small text as glyphs).
+  s = r.render(e.document(), kPage, Camera{0, 0, 0.06}, kView, none, kDark);
+  CHECK(s.greeked == 0);
+  CHECK(s.glyphs > 10);
 }
 
 TEST_CASE("content cache: a frame with nothing new composites; an edit draws its damage only") {

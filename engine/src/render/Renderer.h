@@ -426,6 +426,10 @@ class Renderer {
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
   void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e);
   void drawText(const Document& doc, const NodeProps& p, Guid id, const Mat2x3& m, double alpha);
+  // The smallest em (device px) drawn as glyphs; smaller text is a bar per line holding the line's ink.
+  static constexpr double kGlyphMinEmPx = 1;
+  // A glyph's outline area in em² (cached): the ink of greeked lines.
+  double glyphArea(text::Font* font, uint32_t glyph);
   // Glyphs of `layout` placed by `m` (layout space → CSS px), all in `color`.
   void drawGlyphs(const text::TextLayout& layout, const Mat2x3& m, const Color& color, double alpha);
   void drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
@@ -511,6 +515,7 @@ class Renderer {
   ImageCache images_;
   TextLayouts* texts_ = nullptr;
   std::unordered_map<std::string, std::unique_ptr<text::TextLayout>> labels_;
+  std::unordered_map<uint64_t, double> glyphAreas_;
   // The pages' render trees (the current page's, and those thumbnails were drawn from), kept in step with the
   // document (render/RenderTree.h).
   std::unordered_map<Guid, RenderTree, GuidHash> trees_;

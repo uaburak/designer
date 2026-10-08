@@ -983,8 +983,9 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     stats_.culled++;
     return;
   }
-  // …or smaller than half a device pixel (LOD).
-  if (cull_ && std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < 0.5) {
+  // …or smaller than a quarter of a device pixel (LOD: what is larger still darkens the pixel it falls on, as in
+  // Figma's renders of zoomed-out pages).
+  if (cull_ && std::max(vb.w * viewport_.scaleX(), vb.h * viewport_.scaleY()) < 0.25) {
     stats_.tiny++;
     return;
   }
