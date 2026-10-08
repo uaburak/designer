@@ -6,7 +6,9 @@
 
 #include <cstdint>
 #include <string>
+#include <map>
 #include <string_view>
+#include <vector>
 
 #include "scene/Node.h"
 
@@ -31,6 +33,33 @@ void clearRunFields(TextData& t, uint32_t runMask);
 uint32_t runFieldsOf(FieldMask mask);
 // The run style holding `node`'s values of `runMask`.
 TextStyle runStyleOf(const NodeProps& node, uint32_t runMask);
+
+// Run fields the engine keeps as data (NodeProps::extra form: schema name → varuint id + value; an empty value
+// removes the field): set on [from, to) through styleOverrideTable, like applyRunStyle. A value equal to the node's
+// own removes the field from the run.
+void applyRunExtras(TextData& t, uint32_t from, uint32_t to, const std::map<std::string, std::string>& fields, const NodeProps& node);
+// Drops these fields from every run (a whole-layer edit).
+void clearRunExtras(TextData& t, const std::vector<std::string>& keys);
+// Whether a NodeChange field (schema name) can be a run's: links, variable axes, OpenType switches, decoration details.
+bool isRunExtraKey(std::string_view key);
+// Whether a change's kept-as-data fields (NodeProps::extra) include one text layout reads (run keys, leadingTrim,
+// listSpacing, hangingList, hangingPunctuation, textWrapStyle).
+bool changesTextLayout(const std::map<std::string, std::string>& extra);
+
+// A run's fields kept as data, read as a NodeChange's (its styleIdForText, parameterConsumptionMap…).
+NodeProps runProps(const TextStyle& run);
+// Whether a run holds a text style or variable bindings (styleIdForText / parameterConsumptionMap in its extra).
+bool runHasBindings(const TextStyle& run);
+// One field of `props` (`field`: its Field bit, `key`: its schema name) as an extra entry (varuint id + value) for
+// applyRunExtras; empty when the field is at its default.
+std::string extraEntry(const NodeProps& props, FieldMask field, const char* key);
+
+// Paragraph (TextData.lines) edits: the paragraphs [first, last] of the text.
+void paragraphsOf(const TextData& t, uint32_t from, uint32_t to, size_t& first, size_t& last);
+// Sets the list type of paragraphs [first, last] (PLAIN removes it; a list starts at level 1 at least).
+void setListType(TextData& t, size_t first, size_t last, uint8_t lineType);
+// Indents paragraphs [first, last] by `delta` levels (0–5; a list item stays at 1 or more).
+void indentParagraphs(TextData& t, size_t first, size_t last, int delta);
 
 // What autoRename names a text layer: its characters on one line.
 std::string layerNameFor(const std::string& characters);

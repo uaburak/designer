@@ -61,6 +61,8 @@ export interface UIState {
   presenting: { page: Guid; node: Guid | null } | null;
   /** Share › developer preview (docs/data.md §13) */
   shareOpen: boolean;
+  /** "Create link" (⇧⌘U): the link field, over this rect (viewport px: the caret or the layer) */
+  linkEditor?: { x: number; y: number; width: number; height: number } | null;
 }
 
 export class Store<T> {

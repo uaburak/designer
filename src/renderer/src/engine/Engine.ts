@@ -49,6 +49,9 @@ import {
   decodeStats,
   decodeText,
   decodeTextLayout,
+  decodeTextRangeStyle,
+  type FontInfo,
+  type TextRangeStyle,
   encodeArgs,
   encodeFields,
   encodeMessage,
@@ -1145,6 +1148,36 @@ export class Engine {
     const [s, l] = this.ids(ref);
     const status = this.x.textLayout(this.h, s, l);
     return this.after(status === Status.OK ? decodeTextLayout(this.x.result()) : null);
+  }
+
+  /**
+   * A text's style over a range, as the Typography section shows it (values, and the fields that are "Mixed").
+   * Without `range`: the selection while the text is being edited (a caret: the style typing takes), else the whole
+   * text. Null for other nodes.
+   */
+  textRangeStyle(ref: Guid, range?: { from: number; to: number }): TextRangeStyle | null {
+    const [s, l] = this.ids(ref);
+    const status = this.x.textRangeStyle(this.h, s, l, range?.from ?? 0, range?.to ?? 0xffffffff, range ? 0 : 1);
+    return this.after(status === Status.OK ? decodeTextRangeStyle(this.x.result()) : null);
+  }
+
+  /**
+   * Paragraph edits on the edited selection's paragraphs (or all of a text that isn't being edited): a list
+   * (Figma's toggle: the same type again removes it) or the indentation by `levels`.
+   */
+  setTextList(ref: Guid, type: "NONE" | "ORDERED" | "UNORDERED"): number {
+    const [s, l] = this.ids(ref);
+    return this.after(this.x.textParagraphs(this.h, s, l, 0, type === "ORDERED" ? 1 : type === "UNORDERED" ? 2 : 0));
+  }
+  indentText(ref: Guid, levels: number): number {
+    const [s, l] = this.ids(ref);
+    return this.after(this.x.textParagraphs(this.h, s, l, 1, levels));
+  }
+
+  /** A font's variable axes and OpenType features; null while it loads (it is requested) or when it is missing. */
+  fontInfo(family: string, style: string): FontInfo | null {
+    const status = this.x.fontInfo(encodeText(family), encodeText(style));
+    return status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as FontInfo) : null;
   }
 
   // ---- Vector edit mode (docs/engine-build.md "E4 + E5 API") ---------------------------------

@@ -82,11 +82,18 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
       stats_.glyphs++;
     }
     for (const text::Decoration& d : L->decorations) {
-      const auto* fills = L->styles[d.style].fills;
+      // The underline's own colour (textDecorationFillPaints) when it has one, else the text's.
+      const text::TextFeatures& tf = L->styles[d.style].features;
+      const auto* fills = tf.hasDecorationFills ? &tf.decorationFills : L->styles[d.style].fills;
       if (!fills || f >= fills->size()) continue;
       const Paint& paint = (*fills)[f];
+      if (!paint.visible) continue;
       Mat2x3 dm = m * Mat2x3::translate(d.rect.x, d.rect.y);
-      DrawInstance q = makeShape(dm, {d.rect.w, d.rect.h}, ShapeKind::Rect, kSquare, Color{}, 1, Color{}, 0, 0, 0);
+      if (d.angle != 0) {
+        double c = std::cos(d.angle), s = std::sin(d.angle);
+        dm = dm * Mat2x3{c, -s, 0, s, c, 0};
+      }
+      DrawInstance q = makeShape(dm, {d.rect.w, d.rect.h}, d.round ? ShapeKind::Ellipse : ShapeKind::Rect, kSquare, Color{}, 1, Color{}, 0, 0, 0);
       DrawState state;
       if (!setPaint(q, state, paint, Mat2x3::translate(d.rect.x, d.rect.y), p.size, alpha)) continue;
       emit(q, Pass::Shape, state);

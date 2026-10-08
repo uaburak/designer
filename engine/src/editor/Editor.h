@@ -340,6 +340,20 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t textSelEnd() const { return std::max(text_.anchor, text_.focus); }
   // The caret on screen (CSS px in the canvas): x, y, height.
   Rect caretRectCss() const;
+  // The style of a text range as the Typography section shows it (JSON: {from, to, values: {field: value},
+  // mixed: [fields]}): typed run fields, the run fields kept as data (links, axes, OpenType switches…), the
+  // paragraphs' list type and indentation. `useSelection`: the edited selection when `id` is being edited (a caret:
+  // the style typing takes), else the whole text; otherwise [from, to).
+  std::string textRangeStyle(Guid id, uint32_t from, uint32_t to, bool useSelection);
+  // Paragraph edits on the edited selection's paragraphs (or every paragraph when `id` isn't being edited):
+  // op 0 = list type (value: 0 none, 1 numbered, 2 bulleted; the same type again removes it), op 1 = indent by
+  // `value` levels. One undo step (merged into an edit session).
+  Status textParagraphs(Guid id, int op, int value);
+  // The part of `id`'s text the panel edits: the edited selection when it is part of the text (Figma's per-range
+  // styling), else false (the whole layer).
+  bool textRange(Guid id, uint32_t& from, uint32_t& to) const;
+  // "- ", "* ", "1. " or "1) " typed at a paragraph's start: it becomes a list item.
+  void textAutoformatList();
 
   // ---- Vector edit mode (editor/VectorEditing.cpp) ----
   enum class VectorTool : uint8_t { MOVE, PEN, BEND, LASSO, PAINT_BUCKET };

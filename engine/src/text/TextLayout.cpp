@@ -14,8 +14,15 @@ namespace {
 
 // Metrics used while a style has no font at all yet (not even Inter).
 constexpr double kStandInAscent = 0.96875, kStandInDescent = 0.2412, kStandInLineHeight = 1.2099;
+// Lists: each indentation level indents by this many ems; a marker sits this far before its item's text.
+constexpr double kListIndentEm = 1.5, kMarkerGapEm = 0.5;
+// How far a line may overrun its width and still fit: Figma's pen positions are quantized to 1/256 px and come out a
+// few thousandths of a pixel off exact sums (a line Figma fits at 63.996 px in a 64 px box).
+constexpr double kFitSlack = 0.01;
 
 double letterSpacingPx(const ResolvedStyle& s) {
+  // RAW letter spacing (legacy files: {1, RAW}, {0.5, RAW}) adds nothing in Figma's stored layouts.
+  if (s.letterSpacing.units == NumberUnits::RAW) return 0;
   return s.letterSpacing.units == NumberUnits::PIXELS ? s.letterSpacing.value : s.letterSpacing.value / 100.0 * s.fontSize;
 }
 
@@ -52,9 +59,27 @@ bool joinsPrevious(uint32_t cp) {
          (cp >= 0xFE00 && cp <= 0xFE0F) || (cp >= 0xE0100 && cp <= 0xE01EF);
 }
 
+// Each style's OpenType features as HarfBuzz takes them.
+using FeatureSets = std::vector<std::vector<hb_feature_t>>;
+
+FeatureSets featureSets(const TextLayout& L) {
+  FeatureSets out;
+  out.reserve(L.styles.size());
+  for (const ResolvedStyle& s : L.styles) {
+    std::vector<hb_feature_t> v;
+    for (auto& [tag, on] : s.features.shapingFeatures(s.textCase)) v.push_back({tag, on ? 1u : 0u, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END});
+    out.push_back(std::move(v));
+  }
+  return out;
+}
+
+void shapeWith(hb_font_t* font, hb_buffer_t* buf, const std::vector<hb_feature_t>& features) {
+  hb_shape(font, buf, features.empty() ? nullptr : features.data(), static_cast<unsigned>(features.size()));
+}
+
 // Shapes [from, to) of `display` (a paragraph is [pStart, pEnd), the context) into glyphs and clusters.
-void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEnd, const TextLayout& L, std::vector<Glyph>& glyphs,
-                    std::vector<Cluster>& clusters) {
+void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEnd, const TextLayout& L, const FeatureSets& feats,
+                    std::vector<Glyph>& glyphs, std::vector<Cluster>& clusters) {
   glyphs.clear();
   clusters.clear();
   if (pEnd <= pStart) return;
@@ -82,13 +107,14 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
       if (Font* fb = fonts.fallbackFor(cp)) font = fb;
     }
     if (common && !runs.empty()) script = runs.back().script;
+    auto vague = [](hb_script_t s) { return s == HB_SCRIPT_COMMON || s == HB_SCRIPT_INHERITED || s == HB_SCRIPT_UNKNOWN; };
     if (!runs.empty() && runs.back().style == style && runs.back().font == font &&
-        (runs.back().script == script || common)) {
+        (runs.back().script == script || common || vague(runs.back().script))) {
+      // A run of common characters ("/", digits' punctuation) takes the script that follows it: one run, so the pair
+      // kerns ("/s" kerns in fonts that kern it, as Figma lays it out).
+      if (vague(runs.back().script)) runs.back().script = script;
       runs.back().end = i + static_cast<uint32_t>(n);
     } else {
-      if (!runs.empty() && common == false && runs.back().style == style && runs.back().font == font) {
-        // A new script: earlier common characters stay where they were.
-      }
       runs.push_back({i, i + static_cast<uint32_t>(n), style, font, script});
     }
     i += static_cast<uint32_t>(n);
@@ -116,7 +142,7 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
       hb_buffer_set_direction(buf, HB_DIRECTION_LTR);  // bidi comes with E3.2
       hb_buffer_set_language(buf, hb_language_get_default());
       hb_buffer_set_cluster_level(buf, HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS);
-      hb_shape(run.font->hb(), buf, nullptr, 0);
+      shapeWith(run.font->hb(), buf, feats[run.style]);
       unsigned count = 0;
       hb_glyph_info_t* info = hb_buffer_get_glyph_infos(buf, &count);
       hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(buf, &count);
@@ -145,27 +171,82 @@ void shapeParagraph(const std::u16string& display, uint32_t pStart, uint32_t pEn
   hb_buffer_destroy(buf);
 }
 
-// Shapes "…" in a style's font: its glyph and advance.
-bool ellipsis(const ResolvedStyle& st, Glyph& out) {
-  if (!st.font) return false;
+// Shapes a short string ("…", a list marker) in a style's font: its glyphs (offsets from their pen) and total advance.
+double shapeString(const std::u16string& s, const ResolvedStyle& st, uint16_t style, const std::vector<hb_feature_t>& feats,
+                   std::vector<Glyph>& out) {
+  out.clear();
+  if (!st.font || s.empty()) return 0;
   hb_buffer_t* buf = hb_buffer_create();
-  const uint16_t dots[1] = {0x2026};
-  hb_buffer_add_utf16(buf, dots, 1, 0, 1);
+  hb_buffer_add_utf16(buf, reinterpret_cast<const uint16_t*>(s.data()), static_cast<int>(s.size()), 0, static_cast<int>(s.size()));
   hb_buffer_guess_segment_properties(buf);
-  hb_shape(st.font->hb(), buf, nullptr, 0);
+  shapeWith(st.font->hb(), buf, feats);
   unsigned count = 0;
   hb_glyph_info_t* info = hb_buffer_get_glyph_infos(buf, &count);
   hb_glyph_position_t* pos = hb_buffer_get_glyph_positions(buf, &count);
-  bool ok = count > 0;
-  if (ok) {
-    double scale = st.fontSize / kHbScale;
-    out = {st.font, info[0].codepoint, 0, 0, pos[0].x_advance * scale, 0, 0};
+  double scale = st.fontSize / kHbScale, pen = 0;
+  for (unsigned g = 0; g < count; g++) {
+    out.push_back({st.font, info[g].codepoint, pos[g].x_offset * scale, -pos[g].y_offset * scale, pos[g].x_advance * scale, 0, style});
+    pen += pos[g].x_advance * scale;
   }
   hb_buffer_destroy(buf);
-  return ok;
+  return pen;
+}
+
+// Where a paragraph's lines break: [from, to) cluster ranges.
+struct Span {
+  size_t from, to;
+};
+
+// Greedy line filling at the break opportunities (a word wider than the line breaks at clusters; U+2028 always
+// breaks). `limit(first)`: the width available to the paragraph's first / other lines.
+template <typename Limit>
+std::vector<Span> fillLines(const std::vector<Cluster>& pc, uint32_t pEnd, bool wrap, Limit limit) {
+  std::vector<Span> out;
+  size_t i0 = 0;
+  double x = 0;
+  long lastBreak = -1;
+  for (size_t k = 0; k < pc.size(); k++) {
+    const Cluster& c = pc[k];
+    double lim = limit(out.empty());
+    if (wrap && k > i0 && !c.space && x + c.width - c.spacing > lim + kFitSlack) {
+      size_t cut = lastBreak >= static_cast<long>(i0) ? static_cast<size_t>(lastBreak) + 1 : k;
+      out.push_back({i0, cut});
+      i0 = cut;
+      x = 0;
+      for (size_t j = i0; j < k; j++) x += pc[j].width;
+      lastBreak = -1;
+    }
+    x += c.width;
+    if (c.breakAfter == BREAK_ALLOW) lastBreak = static_cast<long>(k);
+    if (c.breakAfter == BREAK_MUST && c.end < pEnd) {
+      // U+2028: a line break inside the paragraph.
+      out.push_back({i0, k + 1});
+      i0 = k + 1;
+      x = 0;
+      lastBreak = -1;
+    }
+  }
+  out.push_back({i0, pc.size()});
+  return out;
+}
+
+// The number of words (runs of non-space clusters) in [from, to).
+size_t wordsIn(const std::vector<Cluster>& pc, Span s) {
+  size_t words = 0;
+  bool in = false;
+  for (size_t k = s.from; k < s.to; k++) {
+    if (!pc[k].space && !in) words++;
+    in = !pc[k].space;
+  }
+  return words;
 }
 
 }  // namespace
+
+const std::vector<Paint>* decorationFills(const TextLayout& L, const Decoration& d) {
+  const ResolvedStyle& s = L.styles[d.style];
+  return s.features.hasDecorationFills ? &s.features.decorationFills : s.fills;
+}
 
 double autoLineHeight(const Font* font, double fontSize) {
   return std::round((font ? font->lineHeightEm() : kStandInLineHeight) * fontSize);
@@ -174,11 +255,14 @@ double autoLineHeight(const Font* font, double fontSize) {
 double lineHeightPx(const ResolvedStyle& s) {
   switch (s.lineHeight.units) {
     case NumberUnits::PIXELS: return s.lineHeight.value;
-    case NumberUnits::RAW: return s.lineHeight.value * s.fontSize;
+    // A multiple of the font size is rounded to whole pixels (Figma's stored layouts): 1.3 × 15 = 19.4999… → 19,
+    // 1.5 × 13 = 19.5 → 20, 1.4286 × 12 → 17 (every RAW line height a large private file's derivedTextData holds).
+    // (The value is the file's float: 1.3 is 1.29999995.)
+    case NumberUnits::RAW: return std::round(s.lineHeight.value * s.fontSize);
     case NumberUnits::PERCENT:
     default:
       if (std::fabs(s.lineHeight.value - 100) < 1e-6) return autoLineHeight(s.font, s.fontSize);
-      return s.lineHeight.value / 100.0 * (s.font ? s.font->lineHeightEm() : kStandInLineHeight) * s.fontSize;
+      return std::round(s.lineHeight.value / 100.0 * (s.font ? s.font->lineHeightEm() : kStandInLineHeight) * s.fontSize);
   }
 }
 
@@ -197,14 +281,8 @@ LayoutOptions optionsFor(const NodeProps& p, double widthOverride) {
   return o;
 }
 
-std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& opt) {
-  auto out = std::make_unique<TextLayout>();
-  TextLayout& L = *out;
+void resolveStyles(const NodeProps& p, std::vector<ResolvedStyle>& styles, std::unordered_map<uint32_t, uint16_t>& byId) {
   FontRegistry& fonts = FontRegistry::get();
-  L.text = utf8To16(p.text().textData.characters);
-  const uint32_t n = static_cast<uint32_t>(L.text.size());
-
-  // Styles: 0 = the node's own; one per override entry.
   ResolvedStyle base;
   base.fontName = p.text().fontName;
   base.fontSize = p.text().fontSize;
@@ -213,10 +291,11 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
   base.textCase = p.text().textCase;
   base.textDecoration = p.text().textDecoration;
   base.fills = &p.fillPaints;
-  L.styles.push_back(base);
-  std::unordered_map<uint32_t, uint16_t> byId;
+  base.features = nodeFeatures(p.extra);
+  styles.push_back(base);
+  byId[0] = 0;
   for (const TextStyle& o : p.text().textData.styleOverrideTable) {
-    if (o.styleID == 0 || byId.count(o.styleID) || L.styles.size() >= 0xFFFF) continue;
+    if (o.styleID == 0 || byId.count(o.styleID) || styles.size() >= 0xFFFF) continue;
     ResolvedStyle s = base;
     s.styleID = o.styleID;
     if (o.mask & R_FONT_NAME) s.fontName = o.fontName;
@@ -226,21 +305,37 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     if (o.mask & R_TEXT_CASE) s.textCase = o.textCase;
     if (o.mask & R_TEXT_DECORATION) s.textDecoration = o.textDecoration;
     if (o.mask & R_FILLS) s.fills = &o.fillPaints;
-    byId[o.styleID] = static_cast<uint16_t>(L.styles.size());
-    L.styles.push_back(s);
+    if (!o.extra.empty()) s.features = runFeatures(base.features, o.extra);
+    byId[o.styleID] = static_cast<uint16_t>(styles.size());
+    styles.push_back(std::move(s));
   }
-  for (ResolvedStyle& s : L.styles) {
+  for (ResolvedStyle& s : styles) {
     FontRegistry::State state;
     s.font = fonts.find(s.fontName, &state);
     if (!s.font) {
       s.missing = state == FontRegistry::State::Missing;
       s.pending = !s.missing;
       s.font = fonts.defaultFont();
-      L.missingFont |= s.missing;
-      L.pendingFont |= s.pending;
+    } else if (!s.features.variations.empty()) {
+      s.font = s.font->withVariations(s.features.variations);
     }
     if (s.fontSize <= 0) s.fontSize = 1;
   }
+}
+
+std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& opt) {
+  auto out = std::make_unique<TextLayout>();
+  TextLayout& L = *out;
+  L.text = utf8To16(p.text().textData.characters);
+  const uint32_t n = static_cast<uint32_t>(L.text.size());
+
+  std::unordered_map<uint32_t, uint16_t> byId;
+  resolveStyles(p, L.styles, byId);
+  for (const ResolvedStyle& s : L.styles) {
+    L.missingFont |= s.missing;
+    L.pendingFont |= s.pending;
+  }
+  const TextFeatures& nodeF = L.styles[0].features;
   L.styleOf.assign(n, 0);
   const auto& ids = p.text().textData.characterStyleIDs;
   for (uint32_t i = 0; i < n && i < ids.size(); i++)
@@ -248,14 +343,15 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
       auto it = byId.find(ids[i]);
       if (it != byId.end()) L.styleOf[i] = it->second;
     }
+  const FeatureSets feats = featureSets(L);
 
-  // textCase, run by run.
+  // textCase, run by run (small caps are a feature, shaped).
   std::u16string display = L.text;
   for (uint32_t i = 0; i < n;) {
     uint32_t j = i;
     while (j < n && L.styleOf[j] == L.styleOf[i]) j++;
     TextCase tc = L.styles[L.styleOf[i]].textCase;
-    if (tc != TextCase::ORIGINAL) {
+    if (tc == TextCase::UPPER || tc == TextCase::LOWER || tc == TextCase::TITLE) {
       std::u16string mapped = applyCase(std::u16string_view(L.text).substr(i, j - i), tc);
       std::copy(mapped.begin(), mapped.end(), display.begin() + i);
     }
@@ -271,14 +367,27 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
   const double maxWidth = wrap ? opt.width : 0;
   L.caretXs.assign(n + 1, 0);
 
+  // Paragraphs' list data (TextData.lines, one per paragraph).
+  const auto& lineData = p.text().textData.lines;
+  auto paragraphInfo = [&](size_t index) { return index < lineData.size() ? readLine(lineData[index]) : LineInfo{}; };
+
   struct LineDraft {
     std::vector<Cluster> clusters;
     std::vector<Glyph> glyphs;
     uint32_t start, end;
     bool paragraphStart, paragraphEnd, hardEnd;
     uint16_t emptyStyle;
+    size_t paragraph;
+    double startX;  // where its content starts (indents)
+    double alignWidth = -1;  // a truncated line: the width alignment places (its content before "…")
   };
   std::vector<LineDraft> drafts;
+  struct Para {
+    LineInfo info;
+    double contentX = 0;  // a list item's text (every line)
+    bool list = false;
+  };
+  std::vector<Para> paras;
 
   std::vector<Glyph> pg;
   std::vector<Cluster> pc;
@@ -287,21 +396,60 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     uint32_t pEnd = pStart;
     while (pEnd < n && L.text[pEnd] != u'\n') pEnd++;
     bool last = pEnd >= n;
-    shapeParagraph(display, pStart, pEnd, L, pg, pc);
+    shapeParagraph(display, pStart, pEnd, L, feats, pg, pc);
     for (Cluster& c : pc) c.breakAfter = c.end > 0 && c.end - 1 < n ? breaks[c.end - 1] : BREAK_NO;
     uint16_t emptyStyle = pStart < n ? L.styleOf[pStart] : (pStart > 0 ? L.styleOf[pStart - 1] : 0);
 
-    // Greedy line filling.
-    auto emit = [&](size_t from, size_t to, bool paragraphStart, bool paragraphEnd) {
+    Para para;
+    para.info = paragraphInfo(paras.size());
+    para.list = para.info.type != LineType::PLAIN;
+    int level = std::max(para.info.indentationLevel, para.list ? 1 : 0);
+    double unit = std::round(L.styles[emptyStyle].fontSize * kListIndentEm);
+    if (level > 0) para.contentX = (level - ((para.list && nodeF.hangingList) ? 1 : 0)) * unit;
+    double firstIndent = para.contentX + (para.list ? 0 : p.text().paragraphIndent);
+    auto limit = [&](bool first) { return maxWidth - (first ? firstIndent : para.contentX); };
+    std::vector<Span> spans = fillLines(pc, pEnd, wrap, limit);
+    // Wrap style: Balance evens the lines out (the narrowest width that keeps their number); Pretty avoids a
+    // single word on the last line.
+    if (wrap && spans.size() > 1 && nodeF.wrapStyle != WrapStyle::AUTO) {
+      size_t count = spans.size();
+      if (nodeF.wrapStyle == WrapStyle::BALANCE) {
+        double lo = 0, hi = maxWidth;
+        for (int it = 0; it < 18; it++) {
+          double mid = (lo + hi) / 2;
+          auto narrower = [&](bool first) { return mid - (first ? firstIndent : para.contentX); };
+          if (fillLines(pc, pEnd, wrap, narrower).size() == count) hi = mid;
+          else lo = mid;
+        }
+        auto best = [&](bool first) { return hi - (first ? firstIndent : para.contentX); };
+        spans = fillLines(pc, pEnd, wrap, best);
+      } else if (wordsIn(pc, spans.back()) < 2) {
+        for (int k = 1; k <= 25; k++) {
+          double w = maxWidth * (1 - 0.02 * k);
+          auto narrower = [&](bool first) { return w - (first ? firstIndent : para.contentX); };
+          std::vector<Span> s = fillLines(pc, pEnd, wrap, narrower);
+          if (s.size() != count) break;
+          if (wordsIn(pc, s.back()) >= 2) {
+            spans = std::move(s);
+            break;
+          }
+        }
+      }
+    }
+    for (size_t si = 0; si < spans.size(); si++) {
+      size_t from = spans[si].from, to = spans[si].to;
+      bool paragraphStart = si == 0, paragraphEnd = si + 1 == spans.size();
       LineDraft d;
       d.paragraphStart = paragraphStart;
       d.paragraphEnd = paragraphEnd;
       d.hardEnd = paragraphEnd && !last;
+      d.paragraph = paras.size();
       d.start = from < to ? pc[from].start : (from < pc.size() ? pc[from].start : pEnd);
       d.end = to > from ? pc[to - 1].end : d.start;
       if (paragraphEnd) d.end = last ? pEnd : pEnd + 1;  // the "\n" belongs to the line it ends
       if (from == to && paragraphStart) d.start = pStart;
       d.emptyStyle = from < to ? pc[from].style : emptyStyle;
+      d.startX = paragraphStart ? firstIndent : para.contentX;
       for (size_t k = from; k < to; k++) {
         Cluster c = pc[k];
         c.firstGlyph = static_cast<uint32_t>(d.glyphs.size());
@@ -309,41 +457,39 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
         d.clusters.push_back(c);
       }
       drafts.push_back(std::move(d));
-    };
-    size_t i0 = 0;
-    bool firstLine = true;
-    double x = 0;
-    long lastBreak = -1;
-    for (size_t k = 0; k < pc.size(); k++) {
-      const Cluster& c = pc[k];
-      double limit = maxWidth - (firstLine ? p.text().paragraphIndent : 0);
-      if (wrap && k > i0 && !c.space && x + c.width - c.spacing > limit + 1e-4) {
-        size_t cut = lastBreak >= static_cast<long>(i0) ? static_cast<size_t>(lastBreak) + 1 : k;
-        emit(i0, cut, firstLine, false);
-        firstLine = false;
-        i0 = cut;
-        x = 0;
-        for (size_t j = i0; j < k; j++) x += pc[j].width;
-        lastBreak = -1;
-      }
-      x += c.width;
-      if (c.breakAfter == BREAK_ALLOW) lastBreak = static_cast<long>(k);
-      if (c.breakAfter == BREAK_MUST && c.end < pEnd) {
-        // U+2028: a line break inside the paragraph.
-        emit(i0, k + 1, firstLine, false);
-        firstLine = false;
-        i0 = k + 1;
-        x = 0;
-        lastBreak = -1;
-      }
     }
-    emit(i0, pc.size(), firstLine, true);
+    paras.push_back(para);
     if (last) break;
     pStart = pEnd + 1;
   }
 
+  // Lists: each item's marker (counters per level; a list restarts after a non-list paragraph or at
+  // isFirstLineOfList; listStartOffset shifts its first number).
+  std::vector<std::u16string> markers(paras.size());
+  {
+    std::vector<int32_t> counters(8, 0);
+    for (size_t i = 0; i < paras.size(); i++) {
+      const Para& pa = paras[i];
+      if (!pa.list) {
+        std::fill(counters.begin(), counters.end(), 0);
+        continue;
+      }
+      size_t lvl = static_cast<size_t>(std::clamp(pa.info.indentationLevel, 1, 7));
+      if (pa.info.isFirstLineOfList) std::fill(counters.begin(), counters.end(), 0);
+      for (size_t k = lvl + 1; k < counters.size(); k++) counters[k] = 0;
+      if (counters[lvl] == 0) counters[lvl] = pa.info.listStartOffset;
+      counters[lvl]++;
+      markers[i] = listMarker(pa.info.type, static_cast<int32_t>(lvl), counters[lvl]);
+    }
+  }
+
   // Truncation (ENDING): by maxLines, or by the box's height for fixed boxes.
   size_t keep = drafts.size();
+  auto spacingBefore = [&](size_t li) {
+    if (li == 0 || !drafts[li - 1].paragraphEnd) return 0.0;
+    bool lists = paras[drafts[li - 1].paragraph].list && paras[drafts[li].paragraph].list;
+    return lists ? nodeF.listSpacing : p.text().paragraphSpacing;
+  };
   if (p.text().textTruncation == TextTruncation::ENDING) {
     if (p.text().maxLines > 0) keep = std::min(keep, static_cast<size_t>(p.text().maxLines));
     if (opt.height >= 0 && p.text().textAutoResize == TextAutoResize::NONE) {
@@ -354,7 +500,7 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
         double lh = 0;
         if (d.clusters.empty()) lh = lineHeightPx(L.styles[d.emptyStyle]);
         for (auto& c : d.clusters) lh = std::max(lh, lineHeightPx(L.styles[c.style]));
-        if (i > 0 && drafts[i - 1].paragraphEnd) y += p.text().paragraphSpacing;
+        y += spacingBefore(i);
         if (y + lh > opt.height + 1e-3 && i > 0) break;
         y += lh;
         fit = i + 1;
@@ -365,31 +511,59 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
   if (keep < drafts.size()) {
     L.truncated = true;
     LineDraft& d = drafts[keep - 1];
+    // The last visible line takes the rest of its paragraph and is cut at a character, not a word, where "…" fits
+    // (Figma: "Hello World" too wide for one line → "Hello Wo…", not "Hello…").
+    for (size_t k = keep; k < drafts.size() && !drafts[k - 1].paragraphEnd; k++)
+      for (Cluster c : drafts[k].clusters) {
+        uint32_t g0 = c.firstGlyph;
+        c.firstGlyph = static_cast<uint32_t>(d.glyphs.size());
+        for (uint32_t g = 0; g < c.glyphCount; g++) d.glyphs.push_back(drafts[k].glyphs[g0 + g]);
+        d.clusters.push_back(c);
+      }
     uint16_t st = d.clusters.empty() ? d.emptyStyle : d.clusters.back().style;
-    Glyph dots{};
-    if (ellipsis(L.styles[st], dots)) {
-      double limit = wrap ? maxWidth - (d.paragraphStart ? p.text().paragraphIndent : 0) : 1e300;
-      auto width = [&]() {
-        double w = 0;
-        for (auto& c : d.clusters) w += c.width;
-        return w;
-      };
-      while (!d.clusters.empty() && (width() + dots.advance > limit + 1e-4 || d.clusters.back().space)) {
+    std::vector<Glyph> dotsGlyphs;
+    double dotsWidth = shapeString(u"…", L.styles[st], st, feats[st], dotsGlyphs);
+    if (!dotsGlyphs.empty()) {
+      double limit = wrap ? maxWidth - d.startX : 1e300;
+      // The line as it breaks at characters (trailing spaces hang): what alignment places, before "…" replaces its
+      // end (Figma keeps the glyphs where that line put them: centred as "Hello " broke, then "Hel…").
+      {
+        double cw = 0, content = 0;
+        size_t fit = 0;
+        for (size_t k = 0; k < d.clusters.size(); k++) {
+          const Cluster& c = d.clusters[k];
+          if (!c.space && k > 0 && cw + c.width - c.spacing > limit + kFitSlack) break;
+          cw += c.width;
+          if (!c.space) content = cw - c.spacing;
+          fit = k + 1;
+        }
+        if (fit < d.clusters.size()) {
+          d.glyphs.resize(d.clusters[fit].firstGlyph);
+          d.clusters.resize(fit);
+        }
+        d.alignWidth = content;
+      }
+      double w = 0;
+      for (auto& c : d.clusters) w += c.width;
+      while (!d.clusters.empty() && (w + dotsWidth > limit + kFitSlack || d.clusters.back().space)) {
+        w -= d.clusters.back().width;
         d.glyphs.resize(d.clusters.back().firstGlyph);
         d.clusters.pop_back();
       }
       uint32_t at = d.clusters.empty() ? d.start : d.clusters.back().end;
       L.truncationStart = at;
-      dots.cluster = at;
-      dots.style = st;
       Cluster c;
       c.start = at;
       c.end = at;
       c.firstGlyph = static_cast<uint32_t>(d.glyphs.size());
-      c.glyphCount = 1;
-      c.width = dots.advance;
+      c.glyphCount = static_cast<uint32_t>(dotsGlyphs.size());
+      c.width = dotsWidth;
       c.style = st;
-      d.glyphs.push_back(dots);
+      for (Glyph g : dotsGlyphs) {
+        g.cluster = at;
+        g.style = st;
+        d.glyphs.push_back(g);
+      }
       d.clusters.push_back(c);
     }
     d.end = drafts.back().end;  // the hidden text belongs to the last visible line (for the caret)
@@ -421,18 +595,35 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     double w = 0;
     for (size_t k = 0; k < contentEnd; k++) w += d.clusters[k].width;
     if (contentEnd > 0) w -= d.clusters[contentEnd - 1].spacing;
-    if (li > 0 && drafts[li - 1].paragraphEnd) y += p.text().paragraphSpacing;
+    y += spacingBefore(li);
     line.top = y;
     line.height = lh;
     line.ascent = asc;
     line.descent = desc;
     line.baseline = y + (lh - (asc + desc)) / 2 + asc;
     line.width = w;
-    double indent = d.paragraphStart ? p.text().paragraphIndent : 0;
-    widest = std::max(widest, w + indent);
+    widest = std::max(widest, w + d.startX);
     y += lh;
     L.lines.push_back(line);
   }
+  // Vertical trim (leadingTrim CAP_HEIGHT): the box runs from the first line's cap height to the last line's baseline.
+  if (nodeF.leadingTrim == LeadingTrim::CAP_HEIGHT && !L.lines.empty()) {
+    const LineDraft& d0 = drafts.front();
+    double cap = 0;
+    auto capOf = [&](uint16_t s) { cap = std::max(cap, (L.styles[s].font ? L.styles[s].font->capHeight : 0.7) * L.styles[s].fontSize); };
+    if (d0.clusters.empty()) capOf(d0.emptyStyle);
+    for (auto& c : d0.clusters) capOf(c.style);
+    double top = L.lines.front().baseline - cap;
+    for (LaidLine& l : L.lines) {
+      l.top -= top;
+      l.baseline -= top;
+    }
+    y = L.lines.back().baseline;
+  }
+  // Auto width: Figma's box is the widest line rounded up to whole pixels (layoutSize.x of every auto-width text in a
+  // large private file is ⌈its widest baseline⌉); alignment uses that box. The slack: Figma's 1/256 px positions put
+  // a width we measure a few thousandths under a whole pixel just over it (→ the next pixel).
+  if (!wrap) widest = std::ceil(widest + kFitSlack);
   L.size = {widest, y};
   L.boxWidth = wrap ? maxWidth : widest;
   if (opt.height >= 0 && p.text().textAutoResize == TextAutoResize::NONE) {
@@ -440,15 +631,25 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     L.offsetY = (opt.height - L.size.y) * f;
   }
 
-  // Horizontal placement, glyphs, carets, decorations.
+  // Horizontal placement, glyphs, carets, markers, decorations, links.
   bool anyInk = false;
+  auto addInk = [&](const LaidGlyph& g) {
+    if (!g.font || !g.glyph) return;
+    const GlyphOutline& o = g.font->outline(g.glyph);
+    if (o.empty()) return;
+    Rect r{g.x + o.bounds[0] * g.size, g.y + o.bounds[1] * g.size, (o.bounds[2] - o.bounds[0]) * g.size, (o.bounds[3] - o.bounds[1]) * g.size};
+    L.inkBounds = anyInk ? L.inkBounds.united(r) : r;
+    anyInk = true;
+  };
+  uint32_t linkId = 0;
+  const HyperlinkData* prevLink = nullptr;
   for (size_t li = 0; li < drafts.size(); li++) {
     LineDraft& d = drafts[li];
     LaidLine& line = L.lines[li];
     line.top += L.offsetY;
     line.baseline += L.offsetY;
-    double indent = d.paragraphStart ? p.text().paragraphIndent : 0;
-    double free = L.boxWidth - indent - line.width;
+    double indent = d.startX;
+    double free = L.boxWidth - indent - (d.alignWidth >= 0 ? d.alignWidth : line.width);
     double x0 = indent, extraPerSpace = 0;
     switch (p.text().textAlignHorizontal) {
       case TextAlignHorizontal::CENTER: x0 += free / 2; break;
@@ -468,6 +669,29 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     if (p.text().textAlignHorizontal == TextAlignHorizontal::JUSTIFIED && extraPerSpace > 0) line.width = L.boxWidth - indent;
     line.x = x0;
     line.firstGlyph = static_cast<uint32_t>(L.glyphs.size());
+    // A list item's marker, before its first line.
+    if (d.paragraphStart && !markers[d.paragraph].empty()) {
+      uint16_t ms = d.clusters.empty() ? d.emptyStyle : d.clusters.front().style;
+      std::vector<Glyph> mg;
+      double mw = shapeString(markers[d.paragraph], L.styles[ms], ms, feats[ms], mg);
+      double gap = std::round(L.styles[ms].fontSize * kMarkerGapEm);
+      double mx = x0 - gap - mw;
+      for (const Glyph& g : mg) {
+        LaidGlyph out;
+        out.font = g.font;
+        out.glyph = g.glyph;
+        out.x = static_cast<float>(mx + g.dx);
+        mx += g.advance;
+        out.y = static_cast<float>(line.baseline + g.dy);
+        out.size = static_cast<float>(L.styles[ms].fontSize);
+        out.advance = static_cast<float>(g.advance);
+        out.cluster = line.start;
+        out.style = ms;
+        out.marker = true;
+        addInk(out);
+        L.glyphs.push_back(out);
+      }
+    }
     double pen = x0;
     for (size_t k = 0; k < d.clusters.size(); k++) {
       Cluster& c = d.clusters[k];
@@ -484,23 +708,14 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
         out.cluster = gl.cluster;
         out.style = gl.style;
         pen += gl.advance;
-        if (out.font && out.glyph) {
-          const GlyphOutline& o = out.font->outline(out.glyph);
-          if (!o.empty()) {
-            Rect r{out.x + o.bounds[0] * out.size, out.y + o.bounds[1] * out.size, (o.bounds[2] - o.bounds[0]) * out.size,
-                   (o.bounds[3] - o.bounds[1]) * out.size};
-            L.inkBounds = anyInk ? L.inkBounds.united(r) : r;
-            anyInk = true;
-          }
-        }
+        addInk(out);
         L.glyphs.push_back(out);
       }
       pen += c.spacing;
       if (c.space) pen += extraPerSpace;
       // Carets inside the cluster (ligatures split evenly).
       uint32_t span = c.end > c.start ? c.end - c.start : 0;
-      for (uint32_t u = 0; u < span && c.start + u <= n; u++)
-        L.caretXs[c.start + u] = startX + (pen - startX) * u / static_cast<double>(span);
+      for (uint32_t u = 0; u < span && c.start + u <= n; u++) L.caretXs[c.start + u] = startX + (pen - startX) * u / static_cast<double>(span);
     }
     line.glyphCount = static_cast<uint32_t>(L.glyphs.size()) - line.firstGlyph;
     line.caretEnd = pen;
@@ -510,29 +725,65 @@ std::unique_ptr<TextLayout> layoutText(const NodeProps& p, const LayoutOptions& 
     for (uint32_t u = tail; u < line.end && u <= n; u++) L.caretXs[u] = line.caretEnd;
     if (li + 1 == drafts.size()) L.caretXs[n] = line.caretEnd;
 
-    // Underline / strikethrough, per run of a decorated style (trailing spaces left out).
     size_t contentEnd = d.clusters.size();
     while (contentEnd > 0 && d.clusters[contentEnd - 1].space) contentEnd--;
+    auto clusterX = [&](size_t k) { return d.clusters[k].start == d.clusters[k].end ? line.caretEnd - d.clusters[k].width : L.caretXs[d.clusters[k].start]; };
+    // Underline / strikethrough, per run of a decorated style (trailing spaces left out).
     for (size_t k = 0; k < contentEnd;) {
       uint16_t st = d.clusters[k].style;
       size_t j = k;
       while (j < contentEnd && d.clusters[j].style == st) j++;
       const ResolvedStyle& s = L.styles[st];
       if (s.textDecoration != TextDecoration::NONE) {
-        double from = L.caretXs[d.clusters[k].start], to = j < d.clusters.size() ? L.caretXs[d.clusters[j].start] : line.caretEnd;
+        double from = clusterX(k), to = j < d.clusters.size() ? clusterX(j) : line.caretEnd;
         if (j == contentEnd) to -= d.clusters[j - 1].spacing;
-        if (d.clusters[k].start == d.clusters[k].end) from = line.caretEnd - d.clusters[k].width;  // the ellipsis
         double size = s.fontSize;
         Font* f = s.font;
-        double top, h;
-        if (s.textDecoration == TextDecoration::UNDERLINE) {
-          top = line.baseline + (f ? f->underlineOffset : 0.1) * size;
-          h = (f ? f->underlineThickness : 0.06) * size;
+        const TextFeatures& tf = s.features;
+        bool under = s.textDecoration == TextDecoration::UNDERLINE;
+        double h = under ? (f ? f->underlineThickness : 0.06) * size : (f ? f->strikeoutThickness : 0.06) * size;
+        if (tf.hasDecorationThickness && tf.decorationThickness.units != NumberUnits::RAW)
+          h = tf.decorationThickness.units == NumberUnits::PIXELS ? tf.decorationThickness.value : tf.decorationThickness.value / 100 * size;
+        double top = under ? line.baseline + (f ? f->underlineOffset : 0.1) * size : line.baseline - (f ? f->strikeoutOffset : 0.3) * size;
+        if (under && tf.hasUnderlineOffset && tf.underlineOffset.units != NumberUnits::RAW)
+          top = line.baseline + (tf.underlineOffset.units == NumberUnits::PIXELS ? tf.underlineOffset.value : tf.underlineOffset.value / 100 * size);
+        h = std::max(h, 0.0);
+        double len = std::max(0.0, to - from);
+        if (tf.decorationStyle == DecorationStyle::DOTTED && h > 0) {
+          // Round dots one thickness wide, a thickness apart.
+          for (double x = from; x + h <= from + len + 1e-6; x += 2 * h) L.decorations.push_back({Rect{x, top, h, h}, st, 0, true});
+        } else if (tf.decorationStyle == DecorationStyle::WAVY && h > 0) {
+          // A sine wave (amplitude 1.5 thickness, wavelength 6 thicknesses, at least 4 px) as short turned segments.
+          double wave = std::max(4.0, 6 * h), amp = 1.5 * h, mid = top + h / 2 + amp / 2;
+          int steps = std::max(1, static_cast<int>(std::ceil(len / (wave / 8))));
+          double dx = len / steps;
+          for (int i = 0; i < steps; i++) {
+            double x1 = from + i * dx, x2 = x1 + dx;
+            double y1 = mid - amp * std::sin(2 * M_PI * (x1 - from) / wave), y2 = mid - amp * std::sin(2 * M_PI * (x2 - from) / wave);
+            double seg = std::hypot(x2 - x1, y2 - y1), angle = std::atan2(y2 - y1, x2 - x1);
+            // The segment's centre line runs from (x1, y1): offset by half the thickness across it.
+            double ox = std::sin(angle) * h / 2, oy = -std::cos(angle) * h / 2;
+            L.decorations.push_back({Rect{x1 + ox, y1 + oy, seg + h * 0.25, h}, st, angle, false});
+          }
         } else {
-          top = line.baseline - (f ? f->strikeoutOffset : 0.3) * size;
-          h = (f ? f->strikeoutThickness : 0.06) * size;
+          L.decorations.push_back({Rect{from, top, len, h}, st});
         }
-        L.decorations.push_back({Rect{from, top, std::max(0.0, to - from), h}, st});
+      }
+      k = j;
+    }
+    // Links: one box per run of a link on this line (Figma's hyperlinkBoxes: the glyphs' extent, ascent to descent).
+    for (size_t k = 0; k < contentEnd;) {
+      const HyperlinkData& link = L.styles[d.clusters[k].style].features.hyperlink;
+      size_t j = k + 1;
+      while (j < contentEnd && L.styles[d.clusters[j].style].features.hyperlink == link) j++;
+      if (!link.empty()) {
+        if (!prevLink || !(*prevLink == link) || L.links.empty() || L.links.back().end != d.clusters[k].start) linkId++;
+        double from = clusterX(k), to = j < d.clusters.size() ? clusterX(j) : line.caretEnd;
+        if (j == contentEnd) to -= d.clusters[j - 1].spacing;
+        const ResolvedStyle& s = L.styles[d.clusters[k].style];
+        double asc = ascentPx(s), desc = descentPx(s);
+        L.links.push_back({Rect{from, line.baseline - asc, std::max(0.0, to - from), asc + desc}, link, d.clusters[k].start, d.clusters[j - 1].end, linkId});
+        prevLink = &L.styles[d.clusters[k].style].features.hyperlink;
       }
       k = j;
     }

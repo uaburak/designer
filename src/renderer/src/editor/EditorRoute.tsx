@@ -25,7 +25,7 @@ import { memoryDocumentSource, type DocumentSource } from "./documentSource";
 import { EditorApp } from "./EditorApp";
 import type { EditorController } from "./controller";
 import type { ImageStore } from "./images";
-import { COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, PROTOTYPE_DOCUMENT, REFERENCE_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
+import { COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, PROTOTYPE_DOCUMENT, REFERENCE_DOCUMENT, TEXT_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
 import styles from "./EditorApp.module.css";
 
 /**
@@ -62,6 +62,7 @@ function memorySource(doc: string | null): DocumentSource {
   if (doc === "components") return memoryDocumentSource(COMPONENTS_DOCUMENT, { fileName: "Components", location: "Drafts" });
   if (doc === "variables") return memoryDocumentSource(VARIABLES_DOCUMENT, { fileName: "Variables and styles", location: "Drafts" });
   if (doc === "prototype") return memoryDocumentSource(PROTOTYPE_DOCUMENT, { fileName: "Prototype", location: "Drafts" });
+  if (doc === "text") return memoryDocumentSource(TEXT_DOCUMENT, { fileName: "Text", location: "Drafts" });
   return memoryDocumentSource(SAMPLE_DOCUMENT, { fileName: "Sample file", location: "Drafts" });
 }
 

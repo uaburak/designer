@@ -938,6 +938,8 @@ export interface TextLayoutInfo {
   baselines: { position: Vector; width: number; lineY: number; lineHeight: number; lineAscent: number; firstCharacter: number; endCharacter: number }[];
   glyphs: { position: Vector; fontSize: number; firstCharacter: number; advance: number; glyphID: number; styleID?: number }[];
   decorations: { rects: { x: number; y: number; w: number; h: number }[]; styleID: number }[];
+  /** One box per link run per line (Figma's hyperlinkBoxes): what a click in presentation follows. */
+  hyperlinkBoxes?: { bounds: { x: number; y: number; w: number; h: number }; url?: string; guid?: Guid; hyperlinkID: number; openInNewTab: boolean; firstCharacter: number; endCharacter: number }[];
   truncationStartIndex: number;
   truncatedHeight: number;
   /** The caret's x before each UTF-16 unit (and after the last). */
@@ -948,6 +950,37 @@ export interface TextLayoutInfo {
   pendingFont: boolean;
 }
 export const decodeTextLayout = (bytes: Uint8Array): TextLayoutInfo => decode<TextLayoutInfo>(bytes);
+
+/**
+ * engine_text_range_style: a text range's style as the Typography section shows it — each field's value (the
+ * schema's names and shapes; the first run's where they differ) and the fields whose runs differ ("Mixed").
+ * `axisValues`: the font's variable axes at the range's values; `lineType` / `indentationLevel`: its paragraphs'.
+ */
+export interface TextRangeStyle {
+  from: number;
+  to: number;
+  values: Record<string, unknown> & {
+    fontName?: { family: string; style: string; postscript: string };
+    fontSize?: number;
+    lineHeight?: { value: number; units: string };
+    letterSpacing?: { value: number; units: string };
+    textCase?: string;
+    textDecoration?: string;
+    hyperlink?: { url?: string; guid?: unknown; openInNewTab?: boolean } | null;
+    fontVariations?: { axisTag: number; axisName?: string; value: number }[] | null;
+    axisValues?: { tag: string; value: number }[];
+    lineType?: "PLAIN" | "ORDERED_LIST" | "UNORDERED_LIST";
+    indentationLevel?: number;
+  };
+  mixed: string[];
+}
+export const decodeTextRangeStyle = (bytes: Uint8Array): TextRangeStyle => decode<TextRangeStyle>(bytes);
+
+/** engine_font_info: a font's variable axes (fvar) and OpenType features (GSUB / GPOS), for Type settings. */
+export interface FontInfo {
+  axes: { tag: string; name: string; min: number; default: number; max: number; value: number; hidden: boolean }[];
+  features: { tag: string; name?: string }[];
+}
 
 /** engine_export's result (docs/engine-build.md "E7 export"). */
 export type ExportOutput =

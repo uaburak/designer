@@ -53,7 +53,7 @@ class Face {
 uint32_t Font::nextId_ = 1;
 
 Font::Font(std::shared_ptr<Face> face, int namedInstance, std::vector<std::pair<uint32_t, float>> variations)
-    : id_(nextId_++), face_(std::move(face)) {
+    : id_(nextId_++), face_(std::move(face)), variations_(variations) {
   font_ = hb_font_create(face_->hb());
   hb_font_set_scale(font_, kHbScale, kHbScale);
   if (namedInstance >= 0) hb_font_set_var_named_instance(font_, static_cast<unsigned>(namedInstance));
@@ -101,6 +101,92 @@ const std::array<uint8_t, 20>& Font::digest() const {
 uint32_t Font::glyphFor(uint32_t cp) const {
   hb_codepoint_t g = 0;
   return font_ && hb_font_get_nominal_glyph(font_, cp, &g) ? g : 0;
+}
+
+Font* Font::withVariations(const std::vector<std::pair<uint32_t, float>>& variations) {
+  if (!face_ || variations.empty() || !hb_ot_var_has_data(face_->hb())) return this;
+  // The instance's own coordinates, then the given ones (axes the font doesn't have are dropped).
+  std::vector<std::pair<uint32_t, float>> merged;
+  for (const AxisInfo& a : axes()) merged.push_back({a.tag, a.value});
+  bool changed = false;
+  for (auto& [tag, value] : variations)
+    for (auto& m : merged)
+      if (m.first == tag && m.second != value) {
+        m.second = value;
+        changed = true;
+      }
+  if (!changed) return this;
+  std::string key;
+  for (auto& [tag, value] : merged) key += std::to_string(tag) + "=" + std::to_string(value) + ";";
+  std::unique_ptr<Font>& v = variants_[key];
+  if (!v) v = std::make_unique<Font>(face_, -1, merged);
+  return v.get();
+}
+
+std::vector<AxisInfo> Font::axes() const {
+  std::vector<AxisInfo> out;
+  if (!face_) return out;
+  hb_face_t* hf = face_->hb();
+  unsigned count = hb_ot_var_get_axis_count(hf);
+  if (!count) return out;
+  std::vector<hb_ot_var_axis_info_t> infos(count);
+  unsigned n = count;
+  hb_ot_var_get_axis_infos(hf, 0, &n, infos.data());
+  unsigned coordsLen = 0;
+  const float* coords = hb_font_get_var_coords_design(font_, &coordsLen);
+  for (unsigned i = 0; i < n; i++) {
+    AxisInfo a;
+    a.tag = infos[i].tag;
+    a.min = infos[i].min_value;
+    a.def = infos[i].default_value;
+    a.max = infos[i].max_value;
+    a.value = coords && i < coordsLen ? coords[i] : a.def;
+    a.hidden = (infos[i].flags & HB_OT_VAR_AXIS_FLAG_HIDDEN) != 0;
+    char buf[128];
+    unsigned len = sizeof buf;
+    if (hb_ot_name_get_utf8(hf, infos[i].name_id, HB_LANGUAGE_INVALID, &len, buf) > 0)
+      a.name.assign(buf, std::min<size_t>(len, sizeof buf - 1));
+    out.push_back(std::move(a));
+  }
+  return out;
+}
+
+std::vector<FeatureInfo> Font::features() const {
+  std::vector<FeatureInfo> out;
+  if (!face_) return out;
+  hb_face_t* hf = face_->hb();
+  for (hb_tag_t table : {HB_OT_TAG_GSUB, HB_OT_TAG_GPOS}) {
+    unsigned total = hb_ot_layout_table_get_feature_tags(hf, table, 0, nullptr, nullptr);
+    std::vector<hb_tag_t> tags(total);
+    unsigned n = total;
+    hb_ot_layout_table_get_feature_tags(hf, table, 0, &n, tags.data());
+    for (unsigned i = 0; i < n; i++) {
+      bool seen = false;
+      for (const FeatureInfo& f : out) seen |= f.tag == tags[i];
+      if (seen) continue;
+      FeatureInfo f;
+      f.tag = tags[i];
+      // Stylistic sets and character variants name themselves (the UI shows "Alternate digits", "Open four"…).
+      unsigned index = 0;
+      if (table == HB_OT_TAG_GSUB && hb_ot_layout_language_find_feature(hf, table, 0, HB_OT_LAYOUT_DEFAULT_LANGUAGE_INDEX, tags[i], &index)) {
+        hb_ot_name_id_t label = HB_OT_NAME_ID_INVALID;
+        if (hb_ot_layout_feature_get_name_ids(hf, table, index, &label, nullptr, nullptr, nullptr, nullptr) &&
+            label != HB_OT_NAME_ID_INVALID) {
+          char buf[128];
+          unsigned len = sizeof buf;
+          if (hb_ot_name_get_utf8(hf, label, HB_LANGUAGE_INVALID, &len, buf) > 0) f.name.assign(buf, std::min<size_t>(len, sizeof buf - 1));
+        }
+      }
+      out.push_back(std::move(f));
+    }
+  }
+  return out;
+}
+
+bool Font::hasFeature(uint32_t tag) const {
+  for (const FeatureInfo& f : features())
+    if (f.tag == tag) return true;
+  return false;
 }
 
 double Font::advance(uint32_t glyph) const {

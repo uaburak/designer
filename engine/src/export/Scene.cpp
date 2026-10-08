@@ -193,9 +193,10 @@ std::vector<GlyphFill> glyphFills(const text::TextLayout& L) {
       slot(&(*fills)[f]).append(glyphPath(g));
     }
     for (const text::Decoration& d : L.decorations) {
-      const auto* fills = L.styles[d.style].fills;
+      const auto* fills = text::decorationFills(L, d);
       if (!fills || f >= fills->size() || !drawable((*fills)[f])) continue;
-      slot(&(*fills)[f]).append(geom::rectPath({d.rect.w, d.rect.h}, kSquare).transformed(Mat2x3::translate(d.rect.x, d.rect.y)));
+      geom::Path shape = d.round ? geom::ellipsePath({d.rect.w, d.rect.h}, ArcData{}) : geom::rectPath({d.rect.w, d.rect.h}, kSquare);
+      slot(&(*fills)[f]).append(shape.transformed(text::decorationTransform(d)));
     }
     for (auto& g : layer)
       if (!g.path.empty()) out.push_back(std::move(g));

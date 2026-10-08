@@ -431,3 +431,77 @@ export const PROTOTYPE_DOCUMENT: Message = {
     node({ guid: "3:5", type: "ELLIPSE", name: "Knob", parentIndex: { guid: "3:4", position: "!" }, size: { x: 24, y: 24 }, transform: at(24, 4), fillPaints: solidFill(0xffffff) }),
   ],
 };
+
+const specimenText = (guid: string, parent: string, pos: string, x: number, y: number, characters: string, more: Record<string, unknown> = {}) =>
+  node({
+    guid,
+    type: "TEXT",
+    name: characters.split("\n")[0].slice(0, 40),
+    parentIndex: { guid: parent, position: pos },
+    size: { x: 360, y: 20 },
+    transform: at(x, y),
+    fillPaints: solidFill(0x1e1e1e),
+    textData: { characters },
+    fontName: { family: "Inter", style: "Regular", postscript: "" },
+    fontSize: 16,
+    textAutoResize: "HEIGHT",
+    autoRename: true,
+    ...more,
+  });
+const line = (lineType: "PLAIN" | "ORDERED_LIST" | "UNORDERED_LIST", indentationLevel = lineType === "PLAIN" ? 0 : 1) => ({ lineType, indentationLevel });
+const runs = (n: number, spans: [from: number, to: number, id: number][]) => {
+  const ids = new Array<number>(n).fill(0);
+  for (const [from, to, id] of spans) for (let i = from; i < to; i++) ids[i] = id;
+  return ids;
+};
+
+/** `&doc=text`: the text round's cases — runs, a link, lists, decorations, variable axes, OpenType features, truncation, vertical trim, wrap balance. */
+export const TEXT_DOCUMENT: Message = {
+  type: "NODE_CHANGES",
+  sessionID: 0,
+  nodeChanges: [
+    { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
+    page("0:1", "Text", 0, 0xf5f5f5),
+    internalCanvas(),
+    node({ guid: "4:1", type: "FRAME", name: "Type specimen", parentIndex: { guid: "0:1", position: "!" }, size: { x: 440, y: 680 }, transform: at(0, 0), fillPaints: solidFill(0xffffff) }),
+    specimenText("4:2", "4:1", "!", 40, 32, "Typography", { fontName: { family: "Inter", style: "Bold", postscript: "" }, fontSize: 32, textAutoResize: "WIDTH_AND_HEIGHT", size: { x: 190, y: 39 } }),
+    specimenText("4:3", "4:1", '"', 40, 88, "Read the help center for text properties, then style a range.", {
+      size: { x: 360, y: 38 },
+      textData: {
+        characters: "Read the help center for text properties, then style a range.",
+        characterStyleIDs: runs(62, [
+          [9, 20, 1],
+          [55, 62, 2],
+        ]),
+        styleOverrideTable: [
+          { styleID: 1, textDecoration: "UNDERLINE", hyperlink: { url: "https://help.figma.com" }, fillPaints: solidFill(0x0d99ff) },
+          { styleID: 2, fontName: { family: "Inter", style: "Bold", postscript: "" } },
+        ],
+      },
+    }),
+    specimenText("4:4", "4:1", "#", 40, 150, "Bulleted lists\nKeep their bullets\nAt every level", {
+      size: { x: 360, y: 60 },
+      textData: { characters: "Bulleted lists\nKeep their bullets\nAt every level", lines: [line("UNORDERED_LIST"), line("UNORDERED_LIST"), line("UNORDERED_LIST", 2)] },
+    }),
+    specimenText("4:5", "4:1", "$", 40, 230, "Numbered lists\nCount per level\nWith letters\nAnd back", {
+      size: { x: 360, y: 80 },
+      listSpacing: 4,
+      textData: { characters: "Numbered lists\nCount per level\nWith letters\nAnd back", lines: [line("ORDERED_LIST"), line("ORDERED_LIST"), line("ORDERED_LIST", 2), line("ORDERED_LIST")] },
+    }),
+    specimenText("4:6", "4:1", "%", 40, 340, "Dotted and wavy underlines", {
+      textData: {
+        characters: "Dotted and wavy underlines",
+        characterStyleIDs: runs(26, [[11, 15, 1]]),
+        styleOverrideTable: [{ styleID: 1, textDecoration: "UNDERLINE", textDecorationStyle: "WAVY", textDecorationFillPaints: solidFill(0xf24822) }],
+      },
+      textDecoration: "UNDERLINE",
+      textDecorationStyle: "DOTTED",
+    }),
+    specimenText("4:7", "4:1", "&", 40, 384, "Variable weight 850", { fontVariations: [{ axisTag: 2003265652, axisName: "Weight", value: 850 }], fontSize: 20 }),
+    specimenText("4:8", "4:1", "'", 40, 424, "0123 1/2 tabular, slashed zero", { fontVariantNumericSpacing: "TABULAR", fontVariantSlashedZero: true, toggledOnOTFeatures: ["SS01"] }),
+    specimenText("4:9", "4:1", "(", 40, 464, "A long line that does not fit in its box is truncated with an ellipsis", { textTruncation: "ENDING", maxLines: 1, size: { x: 240, y: 20 } }),
+    node({ guid: "4:10", type: "ROUNDED_RECTANGLE", name: "Trim box", parentIndex: { guid: "4:1", position: ")" }, size: { x: 360, y: 24 }, transform: at(40, 520), fillPaints: solidFill(0xe5f4ff) }),
+    specimenText("4:11", "4:1", "*", 40, 520, "Cap height to baseline", { leadingTrim: "CAP_HEIGHT", fontSize: 32, textAutoResize: "WIDTH_AND_HEIGHT", size: { x: 350, y: 24 } }),
+    specimenText("4:12", "4:1", "+", 40, 580, "Balanced wrapping keeps the lines of a short paragraph about the same width.", { textWrapStyle: "BALANCE", size: { x: 360, y: 40 } }),
+  ],
+};

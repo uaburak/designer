@@ -10,11 +10,13 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "math/Math.h"
 #include "scene/Node.h"
 #include "text/Fonts.h"
+#include "text/TextFeatures.h"
 
 namespace eng::text {
 
@@ -33,6 +35,8 @@ struct ResolvedStyle {
   TextCase textCase = TextCase::ORIGINAL;
   TextDecoration textDecoration = TextDecoration::NONE;
   const std::vector<Paint>* fills = nullptr;  // the node's fills unless the override has its own
+  // Fields kept as data on the node or the run (variable axes, OpenType features, link, decoration details).
+  TextFeatures features;
 };
 
 struct LaidGlyph {
@@ -43,6 +47,7 @@ struct LaidGlyph {
   float advance = 0;      // px, letter spacing included
   uint32_t cluster = 0;   // the first UTF-16 unit of its cluster
   uint16_t style = 0;     // index into TextLayout::styles
+  bool marker = false;    // a list's bullet or number (not a character of the text)
 };
 
 struct LaidLine {
@@ -58,8 +63,21 @@ struct LaidLine {
 };
 
 struct Decoration {
-  Rect rect;  // node space
+  Rect rect;  // node space (before `angle`, which turns it about its top-left corner)
   uint16_t style = 0;
+  double angle = 0;    // radians: a wavy underline's segments
+  bool round = false;  // a dotted underline's dots
+};
+
+// Where a decoration's rect sits (node space): its corner, turned by its angle.
+inline Mat2x3 decorationTransform(const Decoration& d) { return Mat2x3::translate(d.rect.x, d.rect.y) * Mat2x3::rotate(d.angle); }
+
+// A hyperlink's box on one line (derivedTextData.hyperlinkBoxes): what a click in presentation follows.
+struct LinkBox {
+  Rect rect;  // node space
+  HyperlinkData link;
+  uint32_t start = 0, end = 0;  // UTF-16
+  uint32_t id = 0;              // 1-based, one per link run (hyperlinkID)
 };
 
 struct TextLayout {
@@ -69,6 +87,7 @@ struct TextLayout {
   std::vector<LaidGlyph> glyphs;
   std::vector<LaidLine> lines;  // at least one (an empty text has one empty line)
   std::vector<Decoration> decorations;
+  std::vector<LinkBox> links;
   Vec2 size;            // the content's size (Auto width: the widest line; height: the lines and paragraph spacing)
   double boxWidth = 0;  // the width alignment used
   double offsetY = 0;   // textAlignVertical's shift in a fixed box (already in the line and glyph positions)
@@ -99,6 +118,13 @@ struct LayoutOptions {
   // The box height (fixed boxes: vertical alignment and truncation by height); < 0: none.
   double height = -1;
 };
+
+// The run styles of a TEXT node: 0 = the node's own, one per styleOverrideTable entry (`byId`: styleID → index).
+// Fonts are looked up (and requested) as layoutText does.
+void resolveStyles(const NodeProps& p, std::vector<ResolvedStyle>& styles, std::unordered_map<uint32_t, uint16_t>& byId);
+
+// The paints a decoration draws with: the underline's own (textDecorationFillPaints) or its run's fills.
+const std::vector<Paint>* decorationFills(const TextLayout& L, const Decoration& d);
 
 // Lays out a TEXT node's text. Fonts that aren't loaded yet are requested
 // (FontRegistry) and stood in for by Inter until they arrive.

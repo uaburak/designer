@@ -322,6 +322,39 @@ describe("engine (wasm, headless): text (E3)", () => {
     engine.destroy();
   });
 
+  it("text round: a range's style (mixed runs), links on part of a text, lists, font axes and features", async () => {
+    const engine = await textEngine();
+    expect(engine.startTextEdit("1:500", { selectAll: false })).toBe(Status.OK);
+    // Select "BC" (the caret is at the end) and link it.
+    engine.key("down", "ArrowLeft", "ArrowLeft", MOD_SHIFT);
+    engine.key("down", "ArrowLeft", "ArrowLeft", MOD_SHIFT);
+    expect(engine.setProps(["1:500"], { hyperlink: { url: "https://www.figma.com" }, textDecoration: "UNDERLINE" } as never)).toBe(Status.OK);
+    const sel = engine.textRangeStyle("1:500")!;
+    expect(sel.from).toBe(1);
+    expect(sel.to).toBe(3);
+    expect(sel.mixed).not.toContain("hyperlink");
+    expect(sel.values.hyperlink?.url).toBe("https://www.figma.com");
+    expect(sel.values.fontFamily).toBe("Inter");
+    const whole = engine.textRangeStyle("1:500", { from: 0, to: 3 })!;
+    expect(whole.mixed).toEqual(expect.arrayContaining(["hyperlink", "textDecoration"]));
+    expect(whole.mixed).not.toContain("fontSize");
+    const layout = engine.textLayout("1:500")!;
+    expect(layout.hyperlinkBoxes?.length).toBe(1);
+    expect(layout.hyperlinkBoxes?.[0].url).toBe("https://www.figma.com");
+    expect(layout.hyperlinkBoxes?.[0].firstCharacter).toBe(1);
+    // A bulleted list (⇧⌘8 does the same while editing); the summary reads it.
+    engine.endTextEdit();
+    expect(engine.setTextList("1:500", "UNORDERED")).toBe(Status.OK);
+    expect(engine.textRangeStyle("1:500")!.values.lineType).toBe("UNORDERED_LIST");
+    expect(engine.indentText("1:500", 1)).toBe(Status.OK);
+    expect(engine.textRangeStyle("1:500")!.values.indentationLevel).toBe(2);
+    // Inter is a variable font: its axes and OpenType features.
+    const info = engine.fontInfo("Inter", "Regular")!;
+    expect(info.axes.find((a) => a.tag === "wght")).toMatchObject({ min: 100, max: 900, value: 400 });
+    expect(info.features.map((f) => f.tag)).toEqual(expect.arrayContaining(["kern", "calt", "tnum", "ss01", "cv01"]));
+    engine.destroy();
+  });
+
   it("the Text tool: click, type, Esc — one undo step, TEXT_EDIT events, the fields in codec.ts", async () => {
     const engine = await textEngine();
     const edits: EventOf<"TEXT_EDIT">[] = [];

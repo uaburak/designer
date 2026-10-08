@@ -519,8 +519,8 @@ void Player::hover(const Chain& c) {
       held_.push_back(std::move(held));
     }
   }
-  // The pointer is a hand over anything that reacts to a click.
-  bool hand = false;
+  // The pointer is a hand over anything that reacts to a click, and over links.
+  bool hand = linkAt(c, hoverCss_) != nullptr;
   for (auto& h : c.hits) {
     if (!hasIx(h.id)) continue;
     for (auto& i : ix(h.id))
@@ -533,10 +533,38 @@ void Player::hover(const Chain& c) {
   }
 }
 
+const text::LinkBox* Player::linkAt(const Chain& c, Vec2 css) const {
+  for (const Hit& h : c.hits) {
+    const NodeProps* p = props(h.id);
+    if (!p || p->type != NodeType::TEXT) continue;
+    const text::TextLayout* L = ed_.textLayout(h.id);
+    if (!L || L->links.empty()) continue;
+    Vec2 local = h.toCss.inverse().apply(css);
+    for (const text::LinkBox& b : L->links)
+      if (b.rect.contains(local)) return &b;
+  }
+  return nullptr;
+}
+
+void Player::follow(const text::LinkBox& link) {
+  if (!link.link.url.empty()) {
+    Event e;
+    e.kind = Event::Kind::OPEN_URL;
+    e.url = link.link.url;
+    e.newTab = true;
+    events_.push_back(std::move(e));
+    return;
+  }
+  // A node of this file: its top-level frame (a page: nothing to show here).
+  Guid dest = topLevelOf(link.link.guid);
+  if (dest != kNoGuid && frameExists(dest) && dest != base_) navigate(dest, Action{}, true);
+}
+
 uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*buttons*/, uint32_t /*mods*/) {
   if (!active()) return 0;
   layout();
   Vec2 css{x, y};
+  hoverCss_ = css;
   switch (type) {
     case PointerEvent::MOVE: {
       Chain c = hitTest(css);
@@ -592,6 +620,12 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
             break;
           }
         }
+        if (!clicked)
+          if (const text::LinkBox* link = linkAt(c, css)) {
+            text::LinkBox l = *link;
+            follow(l);
+            clicked = true;
+          }
         if (!clicked) {
           // Outside the top overlay: "Close when clicking outside".
           if (!overlays_.empty() && overlays_.back().settings.closeOnClickOutside &&

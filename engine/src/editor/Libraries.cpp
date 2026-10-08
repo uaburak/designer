@@ -96,7 +96,7 @@ void visitProps(NodeProps& p, const Refs& r) {
 
 void collectImages(const std::vector<Paint>& paints, std::set<std::string>& out) {
   for (const Paint& p : paints)
-    if (p.type == PaintType::IMAGE && p.image.present) out.insert(p.image.hex());
+    if (isImageLike(p.type) && p.image.present) out.insert(p.image.hex());
 }
 
 void collectImages(const NodeProps& p, std::set<std::string>& out) {

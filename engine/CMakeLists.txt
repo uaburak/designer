@@ -55,6 +55,7 @@ add_library(eng_core STATIC
   src/text/TextLayout.cpp
   src/text/DerivedText.cpp
   src/text/TextEdit.cpp
+  src/text/TextFeatures.cpp
   src/editor/TextEditing.cpp
   src/editor/VectorEditing.cpp
   src/editor/VectorCommands.cpp
@@ -67,6 +68,7 @@ add_library(eng_core STATIC
   src/geometry/Shapes.cpp
   src/geometry/Stroker.cpp
   src/geometry/Boolean.cpp
+  src/geometry/Brush.cpp
   src/geometry/NodeGeometry.cpp
   src/export/Export.cpp
   src/export/Scene.cpp
@@ -141,6 +143,9 @@ else()
     tests/unit/render.paths.test.cpp
     tests/unit/render.cache.test.cpp
     tests/unit/text.stored.test.cpp
+    tests/unit/text.parity.test.cpp
+    tests/unit/text.features.test.cpp
+    tests/unit/render.brush.test.cpp
     tests/unit/export.test.cpp
     tests/unit/prototype.test.cpp
   )

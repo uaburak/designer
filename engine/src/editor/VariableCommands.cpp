@@ -1175,6 +1175,48 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         const NodeProps& p = doc_.get(r)->props;
         NodeChange c = NodeChange::changed(r);
         VariableData data = var != kNoGuid ? bindingData(t, var, type) : VariableData{};
+        uint32_t rf = 0, rt = 0;
+        bool ranged = p.type == NodeType::TEXT && textRange(r, rf, rt);
+        if (ranged && t.kind == BindTarget::Kind::FIELD && isTypographyField(t.field)) {
+          // Part of a text: the selected runs take the binding (their parameterConsumptionMap).
+          TextData td = p.text().textData;
+          const TextStyle* at = nullptr;
+          uint32_t sid = rf < td.characterStyleIDs.size() ? td.characterStyleIDs[rf] : 0;
+          for (const TextStyle& e : td.styleOverrideTable)
+            if (e.styleID == sid) at = &e;
+          NodeProps rp = at ? text::runProps(*at) : NodeProps{};
+          auto& map = rp.parameterConsumptionMap;
+          map.erase(std::remove_if(map.begin(), map.end(), [&](const ParamBinding& b) { return b.field == t.field; }), map.end());
+          if (var != kNoGuid) {
+            ParamBinding b;
+            b.field = t.field;
+            b.data = data;
+            map.push_back(b);
+          }
+          text::applyRunExtras(td, rf, rt, {{"parameterConsumptionMap", text::extraEntry(rp, F_PARAM_MAP, "parameterConsumptionMap")}}, p);
+          c.mask = F_TEXT_DATA;
+          c.props.text().textData = td;
+          write(c);
+          continue;
+        }
+        if (ranged && t.kind == BindTarget::Kind::PAINT && !t.strokes && t.stop < 0) {
+          // Part of a text: the selected runs' fills (those at the selection's start, with the variable).
+          TextData td = p.text().textData;
+          uint32_t sid = rf < td.characterStyleIDs.size() ? td.characterStyleIDs[rf] : 0;
+          std::vector<Paint> paints = p.fillPaints;
+          for (const TextStyle& e : td.styleOverrideTable)
+            if (e.styleID == sid && (e.mask & R_FILLS)) paints = e.fillPaints;
+          if (t.index >= paints.size()) continue;
+          (t.member == "color" ? paints[t.index].colorVar : paints[t.index].opacityVar) = data;
+          TextStyle fields;
+          fields.mask = R_FILLS;
+          fields.fillPaints = paints;
+          text::applyRunStyle(td, rf, rt, fields, p);
+          c.mask = F_TEXT_DATA;
+          c.props.text().textData = td;
+          write(c);
+          continue;
+        }
         switch (t.kind) {
           case BindTarget::Kind::FIELD: {
             c.mask = F_PARAM_MAP;
@@ -1434,6 +1476,18 @@ Status Editor::variableCommand(CommandId id, const CommandArgs& args) {
         const NodeProps& p = doc_.get(r)->props;
         if (bit == F_STYLE_ID_TEXT && p.type != NodeType::TEXT) continue;
         NodeChange c = NodeChange::changed(r);
+        uint32_t rf = 0, rt = 0;
+        if (bit == F_STYLE_ID_TEXT && textRange(r, rf, rt)) {
+          // Part of a text: the selected runs take the style (their styleIdForText); a detach keeps their values.
+          TextData td = p.text().textData;
+          NodeProps sp;
+          if (style != kNoGuid) sp.refs().styleIdForText = AssetId::of(style);
+          text::applyRunExtras(td, rf, rt, {{"styleIdForText", style != kNoGuid ? text::extraEntry(sp, F_STYLE_ID_TEXT, "styleIdForText") : std::string()}}, p);
+          c.mask = F_TEXT_DATA;
+          c.props.text().textData = td;
+          write(c);
+          continue;
+        }
         c.mask = bit;
         AssetId ref = style != kNoGuid ? AssetId::of(style) : AssetId{};
         if (bit == F_STYLE_ID_FILL) c.props.refs().styleIdForFill = ref;

@@ -3,6 +3,11 @@
 #include <algorithm>
 #include <map>
 
+#include "base/Json.h"
+#include "scene/CodecJson.h"
+#include "scene/CodecKiwi.h"
+#include "schema/SchemaTable.h"
+#include "text/TextFeatures.h"
 #include "text/Unicode.h"
 
 namespace eng::text {
@@ -221,6 +226,178 @@ void clearRunFields(TextData& t, uint32_t runMask) {
   }
   trimIds(t);
   dropUnused(t);
+}
+
+bool isRunExtraKey(std::string_view key) {
+  static const char* const kKeys[] = {"fontVariations", "detachOpticalSizeFromFontSize", "toggledOnOTFeatures", "toggledOffOTFeatures",
+                                      "fontVariantCommonLigatures", "fontVariantContextualLigatures",
+                                      "fontVariantDiscretionaryLigatures", "fontVariantHistoricalLigatures", "fontVariantOrdinal",
+                                      "fontVariantSlashedZero", "fontVariantNumericFigure", "fontVariantNumericSpacing",
+                                      "fontVariantNumericFraction", "fontVariantCaps", "fontVariantPosition", "hyperlink",
+                                      "textDecorationStyle", "textDecorationSkipInk", "textUnderlineOffset", "textDecorationThickness",
+                                      "textDecorationFillPaints", "styleIdForText", "parameterConsumptionMap", "isOverrideOverTextStyle",
+                                      "semanticWeight", "semanticItalic"};
+  for (const char* k : kKeys)
+    if (key == k) return true;
+  return false;
+}
+
+bool changesTextLayout(const std::map<std::string, std::string>& extra) {
+  for (auto& [k, v] : extra)
+    if (isRunExtraKey(k) || k == "leadingTrim" || k == "listSpacing" || k == "hangingList" || k == "hangingPunctuation" ||
+        k == "textWrapStyle")
+      return true;
+  return false;
+}
+
+namespace {
+
+// "varuint id + value" → (id, value bytes).
+bool splitEntry(std::string_view entry, uint32_t& id, std::string_view& value) {
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(entry.data()), entry.size());
+  if (!bb.readVarUint(id)) return false;
+  value = entry.substr(bb.index());
+  return true;
+}
+
+}  // namespace
+
+void applyRunExtras(TextData& t, uint32_t from, uint32_t to, const std::map<std::string, std::string>& fields, const NodeProps& p) {
+  uint32_t n = length16(t);
+  from = std::min(from, n);
+  to = std::clamp(to, from, n);
+  if (from == to || fields.empty()) return;
+  const schema::Def* def = schema::SchemaTable::get().def("NodeChange");
+  if (!def) return;
+  auto& ids = t.characterStyleIDs;
+  if (ids.size() < n) ids.resize(n, 0);
+  std::map<uint32_t, uint32_t> remap;
+  for (uint32_t i = from; i < to; i++) {
+    uint32_t old = ids[i];
+    auto it = remap.find(old);
+    if (it == remap.end()) {
+      TextStyle s;
+      if (const TextStyle* e = entryOf(t, old)) s = *e;
+      for (auto& [key, entry] : fields) {
+        const schema::FieldDef* fd = def->byName(key);
+        if (!fd) continue;
+        schema::eraseField(*def, s.extra, fd->value);
+        if (entry.empty()) continue;
+        auto own = p.extra.find(key);
+        if (own != p.extra.end() && own->second == entry) continue;
+        uint32_t id = 0;
+        std::string_view value;
+        if (splitEntry(entry, id, value) && id == fd->value) schema::insertField(*def, s.extra, id, value);
+      }
+      s.styleID = 0;
+      it = remap.emplace(old, idFor(t, s, p)).first;
+    }
+    ids[i] = it->second;
+  }
+  trimIds(t);
+  dropUnused(t);
+}
+
+void clearRunExtras(TextData& t, const std::vector<std::string>& keys) {
+  if (keys.empty() || t.styleOverrideTable.empty()) return;
+  const schema::Def* def = schema::SchemaTable::get().def("NodeChange");
+  if (!def) return;
+  std::map<uint32_t, uint32_t> remap;
+  std::vector<TextStyle> kept;
+  for (TextStyle s : t.styleOverrideTable) {
+    for (const std::string& k : keys)
+      if (const schema::FieldDef* fd = def->byName(k)) schema::eraseField(*def, s.extra, fd->value);
+    if (s.mask == 0 && s.extra.empty()) {
+      remap[s.styleID] = 0;
+      continue;
+    }
+    bool merged = false;
+    for (const TextStyle& k : kept)
+      if (sameRun(k, s)) {
+        remap[s.styleID] = k.styleID;
+        merged = true;
+        break;
+      }
+    if (!merged) kept.push_back(s);
+  }
+  t.styleOverrideTable = std::move(kept);
+  for (uint32_t& id : t.characterStyleIDs) {
+    auto it = remap.find(id);
+    if (it != remap.end()) id = it->second;
+  }
+  trimIds(t);
+  dropUnused(t);
+}
+
+NodeProps runProps(const TextStyle& run) {
+  NodeChange c;
+  if (run.extra.empty()) return c.props;
+  json::Value v;
+  if (!json::parse("{\"guid\":\"0:0\"," + codec::extraToJsonMembers("NodeChange", run.extra) + "}", v)) return c.props;
+  codec::readChange(v, c);
+  return c.props;
+}
+
+bool runHasBindings(const TextStyle& run) {
+  if (run.extra.empty()) return false;
+  const schema::Def* def = schema::SchemaTable::get().def("NodeChange");
+  if (!def) return false;
+  static const uint32_t kStyle = codec::fieldIdOf("NodeChange", "styleIdForText");
+  static const uint32_t kParams = codec::fieldIdOf("NodeChange", "parameterConsumptionMap");
+  return !schema::fieldBytes(*def, run.extra, kStyle).empty() || !schema::fieldBytes(*def, run.extra, kParams).empty();
+}
+
+std::string extraEntry(const NodeProps& props, FieldMask field, const char* key) {
+  json::Writer w;
+  codec::writeNode(w, Node{Guid{0, 0}, props}, field, nullptr);
+  json::Value v;
+  if (!json::parse(w.str(), v)) return {};
+  const json::Value* x = v.get(key);
+  if (!x || x->isNull()) return {};
+  return codec::extraFromJson("NodeChange", key, *x);
+}
+
+void paragraphsOf(const TextData& t, uint32_t from, uint32_t to, size_t& first, size_t& last) {
+  std::u16string s = utf8To16(t.characters);
+  uint32_t n = static_cast<uint32_t>(s.size());
+  from = std::min(from, n);
+  to = std::clamp(to, from, n);
+  first = static_cast<size_t>(std::count(s.begin(), s.begin() + from, u'\n'));
+  // A selection ending right after a "\n" doesn't take the next paragraph.
+  uint32_t end = to > from && s[to - 1] == u'\n' ? to - 1 : to;
+  last = static_cast<size_t>(std::count(s.begin(), s.begin() + std::max(end, from), u'\n'));
+}
+
+namespace {
+
+void ensureLines(TextData& t) {
+  size_t total = static_cast<size_t>(std::count(t.characters.begin(), t.characters.end(), '\n')) + 1;
+  if (t.lines.size() < total) t.lines.resize(total, t.lines.empty() ? std::string() : t.lines.back());
+  if (t.lines.size() > total) t.lines.resize(total);
+}
+
+}  // namespace
+
+void setListType(TextData& t, size_t first, size_t last, uint8_t lineType) {
+  ensureLines(t);
+  for (size_t i = first; i <= last && i < t.lines.size(); i++) {
+    LineInfo info = readLine(t.lines[i]);
+    info.type = static_cast<LineType>(std::min<uint8_t>(lineType, 2));
+    if (info.type != LineType::PLAIN) info.indentationLevel = std::max(1, info.indentationLevel);
+    else info.indentationLevel = 0;
+    info.isFirstLineOfList = false;
+    writeLine(t.lines[i], info);
+  }
+}
+
+void indentParagraphs(TextData& t, size_t first, size_t last, int delta) {
+  ensureLines(t);
+  for (size_t i = first; i <= last && i < t.lines.size(); i++) {
+    LineInfo info = readLine(t.lines[i]);
+    int lo = info.type == LineType::PLAIN ? 0 : 1;
+    info.indentationLevel = std::clamp(info.indentationLevel + delta, lo, 5);
+    writeLine(t.lines[i], info);
+  }
 }
 
 std::string layerNameFor(const std::string& characters) {

@@ -76,11 +76,12 @@ enum NodeType {
   SECTION = 25;
   VARIABLE = 28;
   VARIABLE_SET = 31;       // "Collection" in the UI
+  BRUSH = 46;              // Figma Draw: a brush's artwork (vectorData, fill), kept on the internal canvas 0:2
   // Dropped: STICKY=17, SHAPE_WITH_TEXT=18, CONNECTOR=19, CODE_BLOCK=20, WIDGET=21, STAMP=22,
   // MEDIA=23, HIGHLIGHT=24, SECTION_OVERLAY=26, WASHI_TAPE=27, TABLE=29, TABLE_CELL=30, SLIDE=32,
   // ASSISTED_LAYOUT=33, INTERACTIVE_SLIDE_ELEMENT=34, VARIABLE_OVERRIDE=35, MODULE=36,
   // SLIDE_GRID=37, SLIDE_ROW=38, RESPONSIVE_SET=39, CODE_COMPONENT=40, TEXT_PATH=41,
-  // CODE_INSTANCE=42, CODE_LIBRARY=43, CODE_FILE=44, CODE_LAYER=45, BRUSH=46, MANAGED_STRING=47,
+  // CODE_INSTANCE=42, CODE_LIBRARY=43, CODE_FILE=44, CODE_LAYER=45, MANAGED_STRING=47,
   // TRANSFORM=48, CMS_RICH_TEXT=49, REPEATER=50, JSX=51, EMBEDDED_PROTOTYPE=52, REACT_FIBER=53,
   // RESPONSIVE_NODE_SET=54, WEBPAGE=55, KEYFRAME=56, KEYFRAME_TRACK=57, ANIMATION_PRESET_INSTANCE=58.
 }
@@ -271,7 +272,8 @@ enum PaintType {
   GRADIENT_ANGULAR = 3;
   GRADIENT_DIAMOND = 4;
   IMAGE = 5;
-  // Dropped: EMOJI=6, VIDEO=7, PATTERN=8, NOISE=9.
+  VIDEO = 7;               // a video fill (drawn from its poster frame, `image`, in the editor)
+  // Dropped: EMOJI=6, PATTERN=8, NOISE=9.
 }
 
 enum ImageScaleMode {
@@ -311,6 +313,11 @@ message PaintFilterMessage {   // image adjustments
   float brightness = 10;
 }
 
+message Video {
+  byte[] hash = 1;         // SHA-1 of the video file (stored like images)
+  string s3Url = 2;
+}
+
 message Paint {
   PaintType type = 1;
   Color color = 2;                       // SOLID; fallback when colorVar cannot be resolved
@@ -331,8 +338,9 @@ message Paint {
   ColorStopVar[] stopsVar = 23;          // bindings of gradient stop colors
   byte[] thumbHash = 25;                 // ThumbHash of the image for progressive display
   VariableData opacityVar = 38;          // binding of `opacity` to a FLOAT variable
-  // Reserved field numbers (19): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r22 = 22 [deprecated];
+  Video video = 18;                      // VIDEO: the video file
+  // Reserved field numbers (18): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r26 = 26 [deprecated]; byte _r27 = 27 [deprecated]; byte _r28 = 28 [deprecated]; byte _r29 = 29 [deprecated]; byte _r30 = 30 [deprecated];
   byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated]; byte _r34 = 34 [deprecated]; byte _r35 = 35 [deprecated]; byte _r36 = 36 [deprecated];
   byte _r37 = 37 [deprecated];
@@ -1624,6 +1632,51 @@ message AnnotationMeasurement {    // Dev Mode measurement between two layers
 // NodeChange: one node (or a patch to one node, or an override, or a text run)
 // ----------------------------------------------------------------------------
 
+// Figma Draw brushes (a BRUSH node's artwork drawn along a path stroked with it).
+enum BrushType {
+  STRETCH = 0;             // "Stretch brush": the artwork elongated along the stroke
+  SCATTER = 1;             // "Scatter brush": the artwork repeated along the stroke
+}
+
+enum BrushOrientation {
+  FORWARD = 0;
+  REVERSE = 1;             // Direction "Backward"
+}
+
+message ScatterStrokeSettings {
+  float gap = 1;
+  float wiggle = 2;
+  float angularJitter = 3;
+  float rotation = 4;
+  float sizeJitter = 5;
+}
+
+message StretchStrokeSettings {
+  BrushOrientation orientation = 1;
+}
+
+message DynamicStrokeSettings {
+  float frequency = 1;
+  float wiggle = 2;
+  float smoothen = 3;
+}
+
+message VariableWidthPoint {
+  float position = 1;
+  float ascent = 2;
+  float descent = 3;
+  int segmentId = 4;
+}
+
+message VideoPlayback {    // Prototype › Video
+  bool autoplay = 1;
+  bool mediaLoop = 2;
+  bool muted = 3;
+  bool showControls = 4;
+  uint startTimeMs = 5;
+  uint endTimeMs = 6;
+}
+
 message NodeChange {
   // --- identity and tree ---
   GUID guid = 1;                                  // @nooverride
@@ -1788,6 +1841,17 @@ message NodeChange {
   Hyperlink hyperlink = 223;                      // @bind(HYPERLINK) on a node or a text run
   bool isOverrideOverTextStyle = 376;             // text run: this run deviates from styleIdForText
 
+  // --- brushes (Figma Draw) ---
+  BrushType brushType = 452;                      // BRUSH: stretch or scatter
+  GUID strokeBrushGuid = 446;                     // a path stroked with a brush: the BRUSH node
+  uint64 strokeSeed = 482;                        // the brush's jitter seed
+  VariableWidthPoint[] variableWidthPoints = 447;
+  DynamicStrokeSettings dynamicStrokeSettings = 448;
+  ScatterStrokeSettings scatterStrokeSettings = 449;
+  StretchStrokeSettings stretchStrokeSettings = 450;
+  Matrix[] scatterBrushTransforms = 488;          // the scatter stamps' transforms as Figma placed them
+  VideoPlayback videoPlayback = 300;              // Prototype › Video (autoplay, loop, sound)
+
   // --- components and instances ---
   ComponentPropDef[] componentPropDefs = 266;     // @nooverride on a SYMBOL or a state group
   bool isStateGroup = 225;                        // @nooverride FRAME is a component set
@@ -1841,7 +1905,7 @@ message NodeChange {
   Vector overlayRelativePosition = 199;           // @nooverride
   OverlayBackgroundInteraction overlayBackgroundInteraction = 200; // @nooverride
   OverlayBackgroundAppearance overlayBackgroundAppearance = 201;   // @nooverride
-  // Reserved field numbers (807): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  // Reserved field numbers (798): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated]; byte _r27 = 27 [deprecated]; byte _r53 = 53 [deprecated]; byte _r54 = 54 [deprecated]; byte _r55 = 55 [deprecated];
   byte _r56 = 56 [deprecated]; byte _r57 = 57 [deprecated]; byte _r58 = 58 [deprecated]; byte _r59 = 59 [deprecated]; byte _r60 = 60 [deprecated]; byte _r61 = 61 [deprecated];
   byte _r62 = 62 [deprecated]; byte _r63 = 63 [deprecated]; byte _r64 = 64 [deprecated]; byte _r65 = 65 [deprecated]; byte _r66 = 66 [deprecated]; byte _r67 = 67 [deprecated];
@@ -1870,7 +1934,7 @@ message NodeChange {
   byte _r272 = 272 [deprecated]; byte _r273 = 273 [deprecated]; byte _r274 = 274 [deprecated]; byte _r275 = 275 [deprecated]; byte _r276 = 276 [deprecated]; byte _r277 = 277 [deprecated];
   byte _r278 = 278 [deprecated]; byte _r279 = 279 [deprecated]; byte _r281 = 281 [deprecated]; byte _r282 = 282 [deprecated]; byte _r284 = 284 [deprecated]; byte _r285 = 285 [deprecated];
   byte _r286 = 286 [deprecated]; byte _r287 = 287 [deprecated]; byte _r288 = 288 [deprecated]; byte _r289 = 289 [deprecated]; byte _r290 = 290 [deprecated]; byte _r291 = 291 [deprecated];
-  byte _r292 = 292 [deprecated]; byte _r293 = 293 [deprecated]; byte _r300 = 300 [deprecated]; byte _r301 = 301 [deprecated]; byte _r302 = 302 [deprecated]; byte _r303 = 303 [deprecated];
+  byte _r292 = 292 [deprecated]; byte _r293 = 293 [deprecated]; byte _r301 = 301 [deprecated]; byte _r302 = 302 [deprecated]; byte _r303 = 303 [deprecated];
   byte _r304 = 304 [deprecated]; byte _r306 = 306 [deprecated]; byte _r307 = 307 [deprecated]; byte _r308 = 308 [deprecated]; byte _r309 = 309 [deprecated]; byte _r310 = 310 [deprecated];
   byte _r311 = 311 [deprecated]; byte _r321 = 321 [deprecated]; byte _r327 = 327 [deprecated]; byte _r328 = 328 [deprecated]; byte _r329 = 329 [deprecated]; byte _r331 = 331 [deprecated];
   byte _r338 = 338 [deprecated]; byte _r340 = 340 [deprecated]; byte _r341 = 341 [deprecated]; byte _r344 = 344 [deprecated]; byte _r345 = 345 [deprecated]; byte _r346 = 346 [deprecated];
@@ -1886,12 +1950,12 @@ message NodeChange {
   byte _r419 = 419 [deprecated]; byte _r420 = 420 [deprecated]; byte _r421 = 421 [deprecated]; byte _r422 = 422 [deprecated]; byte _r423 = 423 [deprecated]; byte _r424 = 424 [deprecated];
   byte _r425 = 425 [deprecated]; byte _r426 = 426 [deprecated]; byte _r427 = 427 [deprecated]; byte _r428 = 428 [deprecated]; byte _r429 = 429 [deprecated]; byte _r430 = 430 [deprecated];
   byte _r431 = 431 [deprecated]; byte _r432 = 432 [deprecated]; byte _r433 = 433 [deprecated]; byte _r434 = 434 [deprecated]; byte _r443 = 443 [deprecated]; byte _r444 = 444 [deprecated];
-  byte _r446 = 446 [deprecated]; byte _r447 = 447 [deprecated]; byte _r448 = 448 [deprecated]; byte _r449 = 449 [deprecated]; byte _r450 = 450 [deprecated]; byte _r451 = 451 [deprecated];
-  byte _r452 = 452 [deprecated]; byte _r454 = 454 [deprecated]; byte _r455 = 455 [deprecated]; byte _r456 = 456 [deprecated]; byte _r457 = 457 [deprecated]; byte _r458 = 458 [deprecated];
+  byte _r451 = 451 [deprecated];
+  byte _r454 = 454 [deprecated]; byte _r455 = 455 [deprecated]; byte _r456 = 456 [deprecated]; byte _r457 = 457 [deprecated]; byte _r458 = 458 [deprecated];
   byte _r459 = 459 [deprecated]; byte _r460 = 460 [deprecated]; byte _r461 = 461 [deprecated]; byte _r462 = 462 [deprecated]; byte _r464 = 464 [deprecated]; byte _r465 = 465 [deprecated];
   byte _r467 = 467 [deprecated]; byte _r468 = 468 [deprecated]; byte _r469 = 469 [deprecated]; byte _r470 = 470 [deprecated]; byte _r471 = 471 [deprecated]; byte _r472 = 472 [deprecated];
-  byte _r473 = 473 [deprecated]; byte _r478 = 478 [deprecated]; byte _r479 = 479 [deprecated]; byte _r480 = 480 [deprecated]; byte _r481 = 481 [deprecated]; byte _r482 = 482 [deprecated];
-  byte _r484 = 484 [deprecated]; byte _r485 = 485 [deprecated]; byte _r486 = 486 [deprecated]; byte _r487 = 487 [deprecated]; byte _r488 = 488 [deprecated]; byte _r489 = 489 [deprecated];
+  byte _r473 = 473 [deprecated]; byte _r478 = 478 [deprecated]; byte _r479 = 479 [deprecated]; byte _r480 = 480 [deprecated]; byte _r481 = 481 [deprecated];
+  byte _r484 = 484 [deprecated]; byte _r485 = 485 [deprecated]; byte _r486 = 486 [deprecated]; byte _r487 = 487 [deprecated]; byte _r489 = 489 [deprecated];
   byte _r490 = 490 [deprecated]; byte _r491 = 491 [deprecated]; byte _r492 = 492 [deprecated]; byte _r493 = 493 [deprecated]; byte _r494 = 494 [deprecated]; byte _r496 = 496 [deprecated];
   byte _r497 = 497 [deprecated]; byte _r498 = 498 [deprecated]; byte _r499 = 499 [deprecated]; byte _r500 = 500 [deprecated]; byte _r501 = 501 [deprecated]; byte _r502 = 502 [deprecated];
   byte _r503 = 503 [deprecated]; byte _r504 = 504 [deprecated]; byte _r505 = 505 [deprecated]; byte _r506 = 506 [deprecated]; byte _r507 = 507 [deprecated]; byte _r508 = 508 [deprecated];

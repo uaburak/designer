@@ -15,6 +15,7 @@
 //   EDITOR_ONLY=libraries node …                                   (only the libraries section: publish, enable, insert, update)
 //   EDITOR_ONLY=export node …                                      (only the export section: Export panel, dialog, Copy as PNG)
 //   EDITOR_ONLY=prototype node …                                   (only the E8 section: Prototype tab, noodles, presentation view)
+//   EDITOR_ONLY=text node …                                        (only the text round: specimen, Mixed runs, Type settings, links, lists)
 /* global process, console, window, document, navigator, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -1038,7 +1039,95 @@ async function prototypeSection(page, theme) {
   await shot(page, `104-present-route-${theme}`);
 }
 
+/** The text round on `?editor&doc=text` (dark): the specimen, Typography's Mixed, Type settings' tabs, a link on a range (⇧⌘U), a list (⇧⌘8). */
+async function textSection(page, theme) {
+  await open(page, "&doc=text");
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (...ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  await page.evaluate(() => window.__designerEditor.engine.command("ZOOM_TO_FIT"));
+  await page.evaluate(() => window.__designerEditor.engine.pump());
+  await settle(page);
+  await shot(page, `110-text-specimen-${theme}`);
+  const layouts = await page.evaluate(() => {
+    const e = window.__designerEditor.engine;
+    const l = (id) => e.textLayout(id);
+    return { link: l("4:3")?.hyperlinkBoxes ?? [], list: l("4:4")?.glyphs.length ?? 0, truncated: l("4:9")?.truncationStartIndex ?? -1, trim: l("4:11")?.layoutSize.y ?? 0 };
+  });
+  check("a run's link has a box (hyperlinkBoxes)", layouts.link.length === 1 && layouts.link[0].url === "https://help.figma.com", JSON.stringify(layouts.link));
+  check("a truncated line is cut where … fits", layouts.truncated > 10, String(layouts.truncated));
+  check("vertical trim: the box is cap height to baseline (< the line height)", layouts.trim > 0 && layouts.trim < 32, String(layouts.trim));
+
+  // Mixed runs: the paragraph with a link and a bold range.
+  await select("4:3");
+  const style = panel.getByRole("combobox", { name: "Font style" });
+  check("Typography: a layer whose runs differ shows Mixed for the style", (await style.textContent())?.includes("Mixed") ?? false, await style.textContent());
+  check("Fill: a text whose runs' colours differ reads mixed", (await panel.getByText("Click + to replace mixed fills").count()) === 1);
+  await shot(page, `111-typography-mixed-${theme}`);
+  await panel.getByRole("button", { name: "Type settings" }).click();
+  await settle(page);
+  const settings = page.getByRole("dialog", { name: "Type settings" });
+  check("Type settings: Basics with List style and Wrap style", (await settings.getByRole("tab", { name: "Basics" }).count()) === 1 && (await settings.getByText("List style").count()) === 1 && (await settings.getByText("Wrap style").count()) === 1);
+  await shot(page, `112-type-settings-basics-${theme}`);
+  await settings.getByRole("tab", { name: "Details" }).click();
+  await settle(page);
+  check("Type settings: Details lists the font's stylistic sets", (await settings.getByText("Stylistic sets").count()) === 1 && (await settings.getByText("Kerning").count()) === 1);
+  await shot(page, `113-type-settings-details-${theme}`);
+  const variable = settings.getByRole("tab", { name: "Variable" });
+  check("Type settings: a Variable tab for Inter (a variable font)", (await variable.count()) === 1);
+  if (await variable.count()) {
+    await variable.click();
+    await settle(page);
+    check("Variable: a Weight slider", (await settings.getByRole("slider", { name: "Weight" }).count()) === 1);
+    const weight = settings.getByRole("textbox", { name: "Weight value" });
+    const weightShown = (await weight.inputValue()) || (await weight.getAttribute("placeholder"));
+    const opsz = await settings.getByRole("textbox", { name: "Optical size value" }).inputValue();
+    check("Variable: Weight Mixed (Regular and Bold runs), Optical size 14", weightShown === "Mixed" && opsz === "14", `${weightShown} / ${opsz}`);
+    await shot(page, `114-type-settings-variable-${theme}`);
+  }
+  await page.keyboard.press("Escape");
+
+  // Edit the heading: select its last 5 characters, ⇧⌘U, a URL, Enter.
+  await page.evaluate(() => window.__designerEditor.engine.startTextEdit("4:2", { selectAll: false }));
+  await settle(page);
+  for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowLeft");
+  await page.keyboard.press("Shift+Meta+KeyU");
+  await settle(page);
+  const field = page.getByRole("textbox", { name: "Link" });
+  check("⇧⌘U opens the link field", (await field.count()) === 1);
+  await shot(page, `115-create-link-${theme}`);
+  if (await field.count()) {
+    await field.fill("figma.com");
+    await field.press("Enter");
+    await settle(page);
+  }
+  const linked = await page.evaluate(() => window.__designerEditor.engine.textRangeStyle("4:2", { from: 5, to: 10 }));
+  check("the selected characters are linked and underlined", linked?.values.hyperlink?.url === "https://figma.com" && linked.values.textDecoration === "UNDERLINE", JSON.stringify(linked?.values.hyperlink));
+  const whole = await page.evaluate(() => window.__designerEditor.engine.textRangeStyle("4:2", { from: 0, to: 10 }));
+  check("…only them (the rest isn't)", whole?.mixed.includes("hyperlink") ?? false);
+  // ⇧⌘8 while editing: a bulleted list.
+  await page.keyboard.press("Shift+Meta+Digit8");
+  await settle(page);
+  const listed = await page.evaluate(() => window.__designerEditor.engine.textRangeStyle("4:2"));
+  check("⇧⌘8 makes the paragraph a bulleted list", listed?.values.lineType === "UNORDERED_LIST", listed?.values.lineType);
+  await shot(page, `116-text-link-and-list-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+}
+
 try {
+  if (only === "text" || !only) {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await textSection(page, "dark");
+    await context.close();
+  }
   if (only === "prototype") {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();

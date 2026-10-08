@@ -814,8 +814,8 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 - **Break opportunities**: UAX #14 via libunibreak. Greedy fill, as Figma and browsers do. A word that doesn't fit is broken at grapheme boundaries (libunibreak grapheme breaks). No hyphenation. `textWrapStyle` balance/pretty is after E7.
 - **Line height**: `lineHeight` `Number{value, units}`: RAW 100% means "Auto" = the font's `fontLineHeight` at the size; PIXELS; PERCENT of the font size.
 - **Baseline placement** uses CSS half-leading: `baseline = lineTop + (lineHeight − (ascent + descent))/2 + ascent`. The line's ascent/descent is the max over its runs.
-- `leadingTrim CAP_HEIGHT` trims the first and last lines to cap height and baseline.
-- `paragraphSpacing`, `paragraphIndent`; lists (`textListData`) in E3.2.
+- `leadingTrim CAP_HEIGHT` trims the first and last lines to cap height and baseline (built in the text round, with `textWrapStyle` Balance / Pretty, hyperlink boxes and the underline's style / thickness / offset / colour).
+- `paragraphSpacing`, `paragraphIndent`; lists (`TextData.lines`: bullets and counters per level, indents, list spacing, hanging lists — as built in the text round, docs/engine-build.md). *As built:* RAW line heights round to whole pixels and auto-width boxes are ⌈the widest line⌉ (Figma's stored layouts); a truncated last line breaks at characters.
 - **Alignment**: `textAlignHorizontal` LEFT/CENTER/RIGHT/JUSTIFIED. Justified stretches inter-word space on every line except the last line of a paragraph.
 - `textAlignVertical` applies only to fixed boxes.
 - **Truncation**: `textTruncation=ENDING` with `maxLines`, or the box height for fixed boxes. The last visible line is cut so "…" (U+2026, shaped in the last run's font) fits.

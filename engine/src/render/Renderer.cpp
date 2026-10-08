@@ -1,5 +1,7 @@
 #include "render/Renderer.h"
 
+#include "geometry/Brush.h"
+
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -275,7 +277,7 @@ bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, c
            : paint.type == PaintType::GRADIENT_RADIAL  ? PaintKind::Radial
            : paint.type == PaintType::GRADIENT_ANGULAR ? PaintKind::Angular
                                                        : PaintKind::Diamond;
-  } else if (paint.type == PaintType::IMAGE) {
+  } else if (isImageLike(paint.type)) {
     bool failed = false, placeholder = false;
     // How large the image is drawn (device px): the node's box through this draw's transform. The registry asks for
     // a larger copy when a tier is drawn bigger than it is (docs/engine-build.md "Figma parity round 3" §5).
@@ -426,6 +428,17 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   }
   const NodeGeometry* g = doc.geometry(id);
   if (!g || g->stroke.path.empty()) return;
+  if (!p.extra.empty() && strokeBrushOf(p) != kNoGuid) {
+    // A brush stroke (Figma Draw): the brush's artwork along the path, filled with the stroke paints.
+    geom::Path brushed;
+    uint64_t key = 0;
+    if (brushStroke(doc, p, *g, tol, brushed, &key)) {
+      const CurveEntry* entry = curves_.path(Hash().add(key).add(p.strokeWeight).add(level).add(0xB205ull).h,
+                                             [&](std::vector<float>& out) { geom::toQuads(brushed, tol, out); });
+      for (const Paint& s : p.strokePaints) emitPath(entry, m, false, s, p.size, alpha);
+      return;
+    }
+  }
   bool closedArea = !g->fills.empty() && !g->hasOpenEnds;
   bool aligned = closedArea && p.strokeAlign != StrokeAlign::CENTER;
   geom::StrokeStyle style;

@@ -175,7 +175,7 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "Text",
-    items: ["text.bold", "text.italic", "text.underline", "text.strikethrough", "-", "text.align-left", "text.align-center", "text.align-right"],
+    items: ["text.bold", "text.italic", "text.underline", "text.strikethrough", "text.create-link", "-", "text.bulleted-list", "text.numbered-list", "-", "text.align-left", "text.align-center", "text.align-right"],
   },
   {
     label: "Arrange",

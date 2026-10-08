@@ -22,7 +22,7 @@ export const FACET_FIELDS: Readonly<Record<FacetName, readonly string[]>> = {
 
 const BlendMode = ["PASS_THROUGH","NORMAL","DARKEN","MULTIPLY","LINEAR_BURN","COLOR_BURN","LIGHTEN","SCREEN","LINEAR_DODGE","COLOR_DODGE","OVERLAY","SOFT_LIGHT","HARD_LIGHT","DIFFERENCE","EXCLUSION","HUE","SATURATION","COLOR","LUMINOSITY"] as const;
 const ConstraintType = ["MIN","CENTER","MAX","STRETCH","SCALE","FIXED_MIN","FIXED_MAX"] as const;
-const NodeType = ["NONE","DOCUMENT","CANVAS","GROUP","FRAME","BOOLEAN_OPERATION","VECTOR","STAR","LINE","ELLIPSE","RECTANGLE","REGULAR_POLYGON","ROUNDED_RECTANGLE","TEXT","SLICE","SYMBOL","INSTANCE","","","","","","","","","SECTION","","","VARIABLE","","","VARIABLE_SET"] as const;
+const NodeType = ["NONE","DOCUMENT","CANVAS","GROUP","FRAME","BOOLEAN_OPERATION","VECTOR","STAR","LINE","ELLIPSE","RECTANGLE","REGULAR_POLYGON","ROUNDED_RECTANGLE","TEXT","SLICE","SYMBOL","INSTANCE","","","","","","","","","SECTION","","","VARIABLE","","","VARIABLE_SET","","","","","","","","","","","","","","","BRUSH"] as const;
 const NumberUnits = ["RAW","PIXELS","PERCENT"] as const;
 const StackAlign = ["MIN","CENTER","MAX","BASELINE"] as const;
 const StackCounterAlign = ["MIN","CENTER","MAX","STRETCH","AUTO","BASELINE"] as const;

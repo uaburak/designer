@@ -13,6 +13,9 @@ import { engineCommandEnabled, runEngineCommand } from "./engineCompat";
 import { chooseAndPlaceImages } from "./canvas/ImagePlacer";
 import { canExport, copyAsCode, copyAsPng, copyAsSvg, copyAsText, exportFramesToPdf, hasTextSelected } from "./exporting";
 import { present } from "./present";
+import { textSummary, toggledBold, toggledItalic } from "./model/text";
+import { fields } from "./panels/design/shared";
+import type { Guid } from "@/engine/codec";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 
 export interface KeyCombo {
@@ -147,6 +150,43 @@ const placeImage = (id: string, label: string, keys?: KeyCombo[]): EditorCommand
 
 /** Not built yet: shown, disabled (Figma's menus list them). */
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
+
+/** The text layers a Text command acts on: the edited one, else the selected texts. */
+export function textRefs(ed: EditorController): Guid[] {
+  const editing = ed.engine.textEdit?.ref;
+  if (editing) return [editing];
+  return ed.selectedNodes().filter((n) => n.type === "TEXT").map((n) => n.guid);
+}
+
+const textCommand = (id: string, label: string, keys: KeyCombo[], run: (ed: EditorController, refs: Guid[]) => void): EditorCommand => ({
+  id,
+  label,
+  keys,
+  run: (ed) => {
+    const refs = textRefs(ed);
+    if (refs.length) run(ed, refs);
+  },
+  enabled: (ed) => textRefs(ed).length > 0,
+});
+
+function toggleDecoration(ed: EditorController, refs: Guid[], d: "UNDERLINE" | "STRIKETHROUGH") {
+  const s = textSummary(ed.engine, refs);
+  const on = !s?.mixed.has("textDecoration") && s?.values.textDecoration === d;
+  ed.setProps(refs, fields({ textDecoration: on ? "NONE" : d }), d === "UNDERLINE" ? "Underline" : "Strikethrough");
+}
+
+/** ⇧⌘U "Create link": the link field above the selected characters (or the layer). */
+export function openLinkEditor(ed: EditorController) {
+  const edit = ed.engine.textEdit;
+  const canvas = ed.canvas?.getBoundingClientRect();
+  if (edit && canvas) {
+    const r = edit.caretRectCss;
+    ed.ui.set({ linkEditor: { x: canvas.left + r.x, y: canvas.top + r.y, width: Math.max(1, r.width), height: r.height } });
+    return;
+  }
+  // A whole layer: the field over the canvas's upper middle.
+  if (canvas) ed.ui.set({ linkEditor: { x: canvas.left + canvas.width / 2, y: canvas.top + canvas.height / 3, width: 1, height: 1 } });
+}
 
 function goToPage(ed: EditorController, step: 1 | -1) {
   const pages = ed.store.pages;
@@ -345,14 +385,31 @@ export const COMMANDS: EditorCommand[] = [
   pending("vector.intersect", "Intersect selection", "BOOLEAN_INTERSECT", [k("KeyI", { alt: true, shift: true })]),
   pending("vector.exclude", "Exclude selection", "BOOLEAN_EXCLUDE", [k("KeyE", { alt: true, shift: true })]),
 
-  // ---- Text (E3) ----
-  later("text.bold", "Bold", [k("KeyB", { mod: true })]),
-  later("text.italic", "Italic", [k("KeyI", { mod: true })]),
-  later("text.underline", "Underline", [k("KeyU", { mod: true })]),
-  later("text.strikethrough", "Strikethrough", [k("KeyX", { mod: true, shift: true })]),
-  later("text.align-left", "Text align left", [k("KeyL", { mod: true, alt: true })]),
-  later("text.align-center", "Text align center", [k("KeyT", { mod: true, alt: true })]),
-  later("text.align-right", "Text align right", [k("KeyR", { mod: true, alt: true })]),
+  // ---- Text (E3; the text round: links and lists) ----
+  // While a text is edited the engine takes ⌘B ⌘I ⌘U ⇧⌘X ⇧⌘7 ⇧⌘8 itself (on the selected characters); these run
+  // on the selected text layers, and from the menu.
+  textCommand("text.bold", "Bold", [k("KeyB", { mod: true })], (ed, refs) => {
+    const s = textSummary(ed.engine, refs);
+    const font = s?.values.fontName as { family: string; style: string } | undefined;
+    if (font) ed.setProps(refs, fields({ fontName: { family: font.family, style: toggledBold(font.style), postscript: "" } }), "Bold");
+  }),
+  textCommand("text.italic", "Italic", [k("KeyI", { mod: true })], (ed, refs) => {
+    const s = textSummary(ed.engine, refs);
+    const font = s?.values.fontName as { family: string; style: string } | undefined;
+    if (font) ed.setProps(refs, fields({ fontName: { family: font.family, style: toggledItalic(font.style), postscript: "" } }), "Italic");
+  }),
+  textCommand("text.underline", "Underline", [k("KeyU", { mod: true })], (ed, refs) => toggleDecoration(ed, refs, "UNDERLINE")),
+  textCommand("text.strikethrough", "Strikethrough", [k("KeyX", { mod: true, shift: true })], (ed, refs) => toggleDecoration(ed, refs, "STRIKETHROUGH")),
+  textCommand("text.create-link", "Create link", [k("KeyU", { mod: true, shift: true })], (ed) => openLinkEditor(ed)),
+  textCommand("text.bulleted-list", "Bulleted list", [k("Digit8", { mod: true, shift: true })], (ed, refs) =>
+    ed.batch("Bulleted list", () => refs.forEach((r) => ed.engine.setTextList(r, "UNORDERED")))
+  ),
+  textCommand("text.numbered-list", "Numbered list", [k("Digit7", { mod: true, shift: true })], (ed, refs) =>
+    ed.batch("Numbered list", () => refs.forEach((r) => ed.engine.setTextList(r, "ORDERED")))
+  ),
+  textCommand("text.align-left", "Text align left", [k("KeyL", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "LEFT" }), "Text alignment")),
+  textCommand("text.align-center", "Text align center", [k("KeyT", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "CENTER" }), "Text alignment")),
+  textCommand("text.align-right", "Text align right", [k("KeyR", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "RIGHT" }), "Text alignment")),
 
   // ---- File, help ----
   {

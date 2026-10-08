@@ -32,7 +32,10 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     }
     bool zoom = id == CommandId::ZOOM_IN || id == CommandId::ZOOM_OUT || id == CommandId::ZOOM_TO_100 ||
                 id == CommandId::ZOOM_TO_FIT || id == CommandId::ZOOM_TO_SELECTION;
-    if (!zoom) endTextEdit();
+    // Styles and variables apply to the selected text (Figma's per-range styling): the session stays.
+    bool ranged = id == CommandId::BIND_VARIABLE || id == CommandId::DETACH_VARIABLE || id == CommandId::APPLY_STYLE ||
+                  id == CommandId::DETACH_STYLE;
+    if (!zoom && !ranged) endTextEdit();
   }
   created_.clear();
   if (hasLibraryCopies_ && id != CommandId::RESTORE_COMPONENT &&

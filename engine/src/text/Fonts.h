@@ -39,6 +39,19 @@ struct GlyphOutline {
 
 class Face;
 
+// A variable font axis (fvar), for the Variable tab: its tag, name, range and this instance's value.
+struct AxisInfo {
+  uint32_t tag = 0;
+  std::string name;
+  float min = 0, def = 0, max = 0, value = 0;
+  bool hidden = false;
+};
+// An OpenType feature of the font (GSUB / GPOS), with its UI name for stylistic sets and character variants.
+struct FeatureInfo {
+  uint32_t tag = 0;
+  std::string name;
+};
+
 // A face at one instance (a named instance of a variable font, or the static
 // face as it is): what text is shaped and drawn with.
 class Font {
@@ -69,12 +82,24 @@ class Font {
   // The SHA-1 of the font file the face came from (derivedTextData's FontMetaData.fontDigest); zeros without a face.
   const std::array<uint8_t, 20>& digest() const;
 
+  // This font with axis values set on top of its own (fontVariations): itself when they change nothing, else a
+  // variant it keeps (the same face, its own id, outlines and metrics).
+  Font* withVariations(const std::vector<std::pair<uint32_t, float>>& variations);
+  // The axes of a variable font (empty for a static one), each with the value this font uses.
+  std::vector<AxisInfo> axes() const;
+  // The OpenType features the font has (GSUB and GPOS, each tag once).
+  std::vector<FeatureInfo> features() const;
+  bool hasFeature(uint32_t tag) const;
+  const std::vector<std::pair<uint32_t, float>>& variations() const { return variations_; }
+
  private:
   static uint32_t nextId_;
   uint32_t id_;
   std::shared_ptr<Face> face_;
   hb_font_t* font_ = nullptr;
+  std::vector<std::pair<uint32_t, float>> variations_;
   std::unordered_map<uint32_t, GlyphOutline> outlines_;
+  std::unordered_map<std::string, std::unique_ptr<Font>> variants_;
 };
 
 class FontRegistry {
