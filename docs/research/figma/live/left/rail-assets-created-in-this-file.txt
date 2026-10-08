@@ -1,0 +1,172 @@
+# Assets → click the "Created in this file" library card: list of local components [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@0,0 1440x900
+820,430 61x13 "Hello Figma⁨⁩" 11px/400 #ffffff
+0,-200 1x16 input = [Figma Design, 1 item selected] bg=#3b3b3b
+0,2 1108x13 "Screenreader support for the board is currently disabled. To enable it via Accessibility settings, press ⌘K, type Accessibility Settings, and press Enter. To see available keyboard shortcuts, enter ⌃⇧Question mark ." 11px/400 #ffffff
+0,0 57x900 toolbar [Navigation Bar] bg=#2c2c2c
+12,8 32x32 button [Main menu] r=5px
+0,56 56x56 button [File]
+20,96 15x11 "File" 9px/450 #ffffff
+0,112 56x56 button [Agents]
+13,152 31x11 "Agents" 9px/450 #ffffff
+0,168 56x56 button [Assets] EXPANDED
+12,172 32x32 div bg=#394360 r=5px
+13,208 29x11 "Assets" 9px/450 #ffffff
+0,224 56x56 button [Tools]
+16,264 23x11 "Tools" 9px/450 #ffffff
+0,296 56x56 button [Variables]
+8,336 40x11 "Variables" 9px/450 #ffffff
+57,0 241x900 div bg=#2c2c2c
+57,0 240x49 div bg=#2c2c2c
+73,16 43x16 "Assets" 13px/550 #ffffff
+261,12 24x24 button [Libraries] r=5px
+73,61 180x24 div bg=#383838 r=5px
+97,65 156x16 input = [Search in this library]
+261,61 24x24 button [Libraries and settings] r=5px
+65,93 24x24 button [Back] r=5px
+97,99 95x13 "Created in this file" 11px/400 #ffffff
+-166,130 206x115 div bg=#ffffff1a r=5px
+-166,255 96x13 "Created in this file" 11px/450 #ffffff
+-166,271 76x13 "6 components" 11px/450 #ffffffb2
+-111,312 97x13 "Add more libraries" 11px/450 #ffffff
+65,121 224x74 button [Capture] bg=#2c2c2c r=5px
+73,129 58x58 div [Button] bg=#383838 r=5px
+139,152 42x13 "Capture" 11px/450 #ffffff
+65,195 224x74 button [Page 1] bg=#2c2c2c r=5px
+73,203 58x58 div [Rectangle 1] bg=#383838 r=5px
+139,226 35x13 "Page 1" 11px/450 #ffffff
+295,0 8x900 slider [Resize handle]
+1199,0 241x900 div bg=#2c2c2c
+1212,12 50x24 button [Multiplayer tools] r=50px
+1210,10 28x28 div [view_user_profile]
+1232,10 28x28 div bg=#383838 r=9999px
+1324,8 49x32 group [Prototype view]
+1324,8 32x32 button [Present] r=5px 0px 0px 5px
+1357,8 16x32 button [Prototype view] r=0px 5px 5px 0px
+1377,8 55x32 button bg=#0c8ce9 r=5px
+1389,18 31x13 "Share" 11px/450 #ffffff
+1208,48 53x24 tab SELECTED bg=#383838
+1216,54 37x13 "Design" 11px/550 #ffffff
+1216,54 37x13 "Design" 11px/550 #ffffff
+1265,48 69x24 button bg=#2c2c2c r=5px
+1273,54 53x13 "Prototype" 11px/550 #ffffffb2
+1273,54 52x13 "Prototype" 11px/450 #ffffffb2
+1370,48 62x24 button [300%, zoom and view options] bg=#2c2c2c r=5px
+1382,54 30x13 "300%" 11px/400 #ffffff
+1200,81 240x776 div bg=#2c2c2c
+1216,97 62x16 "Rectangle" 13px/550 #ffffff
+1324,93 24x24 button [Select matching layers] r=5px
+1352,93 24x24 button [Create component] r=5px
+1380,93 24x24 input =unchecked [mask-selection]
+1392,106 67x13 "Use as mask" 11px/450 #ffffff
+1408,93 24x24 button [More actions] r=5px
+1216,144 44x13 "Position" 11px/550 #ffffff
+1408,138 24x24 input =unchecked [Ignore auto layout]
+1420,151 95x13 "Ignore auto layout" 11px/450 #ffffff
+1216,174 46x11 "Alignment" 9px/500 #ffffffb2
+1216,190 29x24 div bg=#394360 r=5px 0px 0px 5px
+1216,190 29x24 input =align-left [align-left]
+1230,191 46x13 "Align left" 11px/400 #ffffff
+1246,190 29x24 div bg=#383838
+1246,190 29x24 input =align-horizontal-center [align-horizontal-center]
+1260,191 123x13 "Align horizontal centers" 11px/400 #ffffff
+1275,190 29x24 div bg=#383838 r=0px 5px 5px 0px
+1275,190 29x24 input =align-right [align-right]
+1289,191 53x13 "Align right" 11px/400 #ffffff
+1312,190 29x24 div bg=#394360 r=5px 0px 0px 5px
+1312,190 29x24 input =align-top [align-top]
+1326,191 46x13 "Align top" 11px/400 #ffffff
+1342,190 29x24 div bg=#383838
+1342,190 29x24 input =align-vertical-center [align-vertical-center]
+1356,191 110x13 "Align vertical centers" 11px/400 #ffffff
+1371,190 29x24 div bg=#383838 r=0px 5px 5px 0px
+1371,190 29x24 input =align-bottom [align-bottom]
+1385,191 66x13 "Align bottom" 11px/400 #ffffff
+1216,222 37x11 "Position" 9px/500 #ffffffb2
+1216,238 88x24 div [X-position] bg=#2c2c2c r=5px
+1224,244 7x13 "X" 11px/400 #ffffff
+1240,238 64x24 input =12 [X-position] r=5px DISABLED
+1312,238 88x24 div [Y-position] bg=#2c2c2c r=5px
+1320,244 7x13 "Y" 11px/400 #ffffff
+1336,238 64x24 input =104 [Y-position] r=5px DISABLED
+1216,270 38x11 "Rotation" 9px/500 #ffffffb2
+1216,286 88x24 div [Rotation] bg=#383838 r=5px
+1240,286 64x24 input =0° [Rotation] r=5px
+1312,286 29x24 button [Rotate 90˚ right] bg=#383838 r=5px 0px 0px 5px
+1342,286 29x24 button [Flip horizontal] bg=#383838
+1371,286 29x24 button [Flip vertical] bg=#383838 r=0px 5px 5px 0px
+1216,341 36x13 "Layout" 11px/550 #ffffff
+1216,371 53x11 "Dimensions" 9px/500 #ffffffb2
+1216,387 88x24 div bg=#383838 r=5px
+1223,393 11x13 "W" 11px/450 #ffffffb2
+1240,393 86x13 "Fixed width (60)" 11px/450 #ffffff
+1216,387 88x24 label [Width] r=5px
+1239,387 48x24 input =60 [Width] r=2px
+0,2 14x13 "60" 11px/400 #ffffff
+1216,-617 144x24 option [Fixed width (60)] r=5px SELECTED
+1266,-611 86x13 "Fixed width (60)" 11px/400 #ffffff
+1216,-617 125x24 option [Fill container] r=5px SELECTED
+1266,-611 67x13 "Fill container" 11px/400 #ffffff
+1216,-617 58x24 option SELECTED
+1216,-617 143x24 option [Add min width…] r=5px SELECTED
+1266,-611 85x13 "Add min width…" 11px/400 #ffffff
+1216,-617 146x24 option [Add max width…] r=5px SELECTED
+1266,-611 88x13 "Add max width…" 11px/400 #ffffff
+1312,387 88x24 div bg=#383838 r=5px
+1320,393 8x13 "H" 11px/450 #ffffffb2
+1336,393 90x13 "Fixed height (40)" 11px/450 #ffffff
+1312,387 88x24 label [Height] r=5px
+1335,387 48x24 input =40 [Height] r=2px
+0,2 14x13 "40" 11px/400 #ffffff
+1312,-919 148x24 option [Fixed height (40)] r=5px SELECTED
+1362,-913 90x13 "Fixed height (40)" 11px/400 #ffffff
+1312,-919 125x24 option [Fill container] r=5px SELECTED
+1362,-913 67x13 "Fill container" 11px/400 #ffffff
+1312,-919 58x24 option SELECTED
+1312,-919 146x24 option [Add min height…] r=5px SELECTED
+1362,-913 88x13 "Add min height…" 11px/400 #ffffff
+1312,-919 150x24 option [Add max height…] r=5px SELECTED
+1362,-913 92x13 "Add max height…" 11px/400 #ffffff
+1408,387 24x24 input =unchecked [Lock aspect ratio]
+1420,400 91x13 "Lock aspect ratio" 11px/450 #ffffff
+1216,421 59x11 "Column span" 9px/500 #ffffffb2
+1216,437 88x24 div [Column span] bg=#383838 r=5px
+1240,437 64x24 input =1 [Column span] r=5px
+1312,421 44x11 "Row span" 9px/500 #ffffffb2
+1312,437 88x24 div [Row span] bg=#383838 r=5px
+1336,437 64x24 input =1 [Row span] r=5px
+1216,492 65x13 "Appearance" 11px/550 #ffffff
+1379,486 24x24 input =unchecked [Hide]
+1391,499 24x13 "Hide" 11px/450 #ffffff
+1408,486 24x24 button [Apply blend mode] r=5px
+1216,524 35x11 "Opacity" 9px/500 #ffffffb2
+1216,540 88x24 div bg=#2c2c2c r=5px
+1216,540 88x24 label bg=#383838 r=5px
+1241,540 62x24 input =100% r=2px
+1312,524 62x11 "Corner radius" 9px/500 #ffffffb2
+1312,540 88x24 div bg=#2c2c2c r=5px
+1312,540 88x24 label bg=#383838 r=5px
+1336,540 63x24 input =0 r=2px
+1408,540 24x24 button [Individual corners] r=5px
+1216,595 15x13 "Fill" 11px/550 #ffffff
+1380,589 24x24 button [Fill, Apply styles and variables] r=5px
+1408,589 24x24 button [Add fill] r=5px
+1216,625 156x24 div bg=#383838 r=5px
+1221,630 14x14 button [Solid color hex: 66CC80] bg=#66cc80 r=2px
+1239,638 28x13 "Color" 11px/450 #ffffff
+1240,625 77x24 input =66CC80 [Color] r=5px
+1318,625 38x24 input =100 r=0px 2px 2px 0px
+1356,631 9x13 "%" 11px/450 #ffffffb2
+1380,625 24x24 input =checked [Toggle visibility]
+1392,638 82x13 "Toggle visibility" 11px/450 #ffffff
+1408,625 24x24 button [Remove] r=5px
+1216,680 35x13 "Stroke" 11px/550 #ffffffb2
+1380,674 24x24 button [Stroke, Apply styles and variables] r=5px
+1408,674 24x24 button [Add stroke] r=5px
+1216,721 38x13 "Effects" 11px/550 #ffffffb2
+1380,715 24x24 button [Effects, Apply styles] r=5px
+1408,715 24x24 button [Add effect] r=5px
+1216,762 36x13 "Export" 11px/550 #ffffffb2
+1408,756 24x24 button [Add export settings] r=5px
+1193,0 8x900 slider [Resize handle]

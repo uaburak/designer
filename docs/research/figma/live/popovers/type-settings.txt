@@ -1,0 +1,91 @@
+# Text selected: click "Type settings" (sliders icon) in the Typography section [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,378 240x506
+0,0 240x506 div bg=#2c2c2c r=13px
+7,21 70x13 "Type settings" 11px/400 #ffffff
+8,8 51x24 tab SELECTED bg=#383838
+16,14 35x13 "Basics" 11px/550 #ffffff
+16,14 35x13 "Basics" 11px/550 #ffffff
+63,8 53x24 button bg=#2c2c2c r=5px
+71,14 37x13 "Details" 11px/550 #ffffffb2
+71,14 36x13 "Details" 11px/450 #ffffffb2
+120,8 60x24 button bg=#2c2c2c r=5px
+128,14 44x13 "Variable" 11px/550 #ffffffb2
+128,14 43x13 "Variable" 11px/450 #ffffffb2
+0,40 240x144 div bg=#2c2c2c
+16,56 208x120 div bg=#383838 r=5px
+32,106 60x20 "Preview" 16px/400 #ffffff66
+16,194 53x13 "Alignment" 11px/450 #ffffffb2
+127,181 53x13 "Alignment" 11px/450 #ffffff
+128,188 96x24 div bg=#383838 r=5px
+128,188 24x24 input =LEFT [Text align left]
+128,188 24x24 span bg=#2c2c2c r=5px
+127,205 71x13 "Text align left" 11px/450 #ffffff
+152,188 24x24 input =CENTER [Text align center]
+151,205 88x13 "Text align center" 11px/450 #ffffff
+176,188 24x24 input =RIGHT [Text align right]
+175,205 78x13 "Text align right" 11px/450 #ffffff
+200,188 24x24 input =JUSTIFIED [Text align justified]
+199,205 96x13 "Text align justified" 11px/450 #ffffff
+16,226 58x13 "Decoration" 11px/450 #ffffffb2
+127,213 58x13 "Decoration" 11px/450 #ffffff
+128,220 72x24 div bg=#383838 r=5px
+128,220 24x24 input =NONE [None]
+128,220 24x24 span bg=#2c2c2c r=5px
+127,237 28x13 "None" 11px/450 #ffffff
+152,220 24x24 input =UNDERLINE [Underline]
+151,237 51x13 "Underline" 11px/450 #ffffff
+176,220 24x24 input =STRIKETHROUGH [Strikethrough]
+175,237 72x13 "Strikethrough" 11px/450 #ffffff
+200,220 24x24 button [Underline details] r=5px
+208,220 16x24 span bg=#383838 r=5px
+16,258 27x13 "Case" 11px/450 #ffffffb2
+103,245 27x13 "Case" 11px/450 #ffffff
+104,252 120x24 div bg=#383838 r=5px
+104,252 24x24 input =ORIGINAL [As typed]
+104,252 24x24 span bg=#2c2c2c r=5px
+103,269 47x13 "As typed" 11px/450 #ffffff
+128,252 24x24 input =UPPER [Uppercase]
+127,269 57x13 "Uppercase" 11px/450 #ffffff
+152,252 24x24 input =LOWER [Lowercase]
+151,269 57x13 "Lowercase" 11px/450 #ffffff
+176,252 24x24 input =TITLE [Title case]
+175,269 51x13 "Title case" 11px/450 #ffffff
+200,252 24x24 input =SMALL_CAPS [Font doesn't support small caps] DISABLED
+199,269 169x13 "Font doesn't support small caps" 11px/450 #ffffff
+16,311 64x13 "Vertical trim" 11px/450 #ffffffb2
+175,298 64x13 "Vertical trim" 11px/450 #ffffff
+176,305 48x24 div bg=#383838 r=5px
+176,305 24x24 input =NONE [Standard]
+176,305 24x24 span bg=#2c2c2c r=5px
+175,322 48x13 "Standard" 11px/450 #ffffff
+200,305 24x24 input =CAP_HEIGHT [Cap height to baseline]
+199,322 118x13 "Cap height to baseline" 11px/450 #ffffff
+16,343 47x13 "List style" 11px/450 #ffffffb2
+151,330 47x13 "List style" 11px/450 #ffffff
+152,337 72x24 div bg=#383838 r=5px
+152,337 24x24 input =PLAIN [No list]
+152,337 24x24 span bg=#2c2c2c r=5px
+151,354 33x13 "No list" 11px/450 #ffffff
+176,337 24x24 input =UNORDERED_LIST [Bulleted list]
+175,354 62x13 "Bulleted list" 11px/450 #ffffff
+200,337 24x24 input =ORDERED_LIST [Numbered list]
+199,354 74x13 "Numbered list" 11px/450 #ffffff
+15,375 99x13 "Paragraph spacing" 11px/450 #ffffffb2
+153,369 72x24 div bg=#2c2c2c r=5px
+153,369 72x24 label [Paragraph spacing] bg=#383838 r=5px
+161,369 63x24 input =0 [Paragraph spacing] r=2px
+16,407 71x13 "Truncate text" 11px/450 #ffffffb2
+175,394 71x13 "Truncate text" 11px/450 #ffffff
+176,401 48x24 div bg=#383838 r=5px
+176,401 24x24 input =DISABLED [No truncation]
+176,401 24x24 span bg=#2c2c2c r=5px
+175,418 72x13 "No truncation" 11px/450 #ffffff
+200,401 24x24 input =ENDING [Truncation enabled]
+199,418 102x13 "Truncation enabled" 11px/450 #ffffff
+16,439 56x13 "Wrap style" 11px/450 #ffffffb2
+127,434 56x13 "Wrap style" 11px/450 #ffffff
+128,433 96x24 button bg=#2c2c2c r=5px
+137,438 25x13 "Auto" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

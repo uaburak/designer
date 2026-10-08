@@ -1,0 +1,20 @@
+# F_frame with a Grid layout guide: click "Layout guide settings" (grid icon) on the guide row [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,756 240x128
+0,0 240x128 div bg=#2c2c2c r=13px
+15,13 96x13 "Layout guide type" 11px/550 #ffffff
+16,12 56x24 button bg=#2c2c2c r=5px
+25,17 22x13 "Grid" 11px/450 #ffffff
+16,66 22x13 "Size" 11px/450 #ffffffb2
+88,60 136x24 div bg=#2c2c2c r=5px
+88,60 136x24 label [Width] bg=#383838 r=5px
+103,60 98x24 input =10 [Width] r=2px
+201,61 20x22 button [Apply variable]
+16,98 28x13 "Color" 11px/450 #ffffffb2
+88,92 136x24 div bg=#383838 r=5px
+93,97 14x14 button [Solid color hex: FF0000] bg=#ff0000 r=2px
+112,92 57x24 input =FF0000 r=0px 2px 2px 0px
+170,92 38x24 input =10 r=2px
+208,98 9x13 "%" 11px/450 #ffffffb2
+208,8 24x24 button [Close] r=5px

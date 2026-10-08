@@ -1,0 +1,20 @@
+# Rect selected: click the styles/variables icon (4 dots) in the Fill section header [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,531 240x203
+0,0 240x203 div bg=#2c2c2c r=13px
+7,21 63x13 "Color picker" 11px/400 #ffffff
+8,8 58x24 button bg=#2c2c2c r=5px
+16,14 42x13 "Custom" 11px/550 #ffffffb2
+16,14 41x13 "Custom" 11px/450 #ffffffb2
+70,8 62x24 tab SELECTED bg=#383838
+78,14 46x13 "Libraries" 11px/550 #ffffff
+78,14 46x13 "Libraries" 11px/550 #ffffff
+180,8 24x24 button [New style or variable] r=5px
+40,48 200x24 input = [Search] r=2px
+7,90 62x13 "Variable set" 11px/450 #ffffff
+8,90 92x24 button bg=#2c2c2c r=5px
+17,95 58x13 "All libraries" 11px/450 #ffffff
+204,90 24x24 button [Show as grid] r=5px
+70,157 100x13 "No colors available" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

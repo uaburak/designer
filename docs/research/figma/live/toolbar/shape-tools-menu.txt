@@ -1,0 +1,19 @@
+# Bottom toolbar: click the chevron next to the Rectangle/shape tool (Shape tools) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@611,668 196x168
+-1,1 61x13 "Shape tools" 11px/400 #ffffff
+0,0 196x24 menuitemradio CHECKED
+8,0 180x24 span bg=#0c8ce9 r=5px
+60,6 53x13 "Rectangle" 11px/450 #ffffff
+173,6 7x13 "R" 11px/450 #ffffffcc
+60,30 22x13 "Line" 11px/450 #ffffff
+174,30 6x13 "L" 11px/450 #ffffffb2
+60,54 31x13 "Arrow" 11px/450 #ffffff
+162,54 18x13 "⇧L" 11px/450 #ffffffb2
+60,78 34x13 "Ellipse" 11px/450 #ffffff
+172,78 8x13 "O" 11px/450 #ffffffb2
+60,102 42x13 "Polygon" 11px/450 #ffffff
+60,126 22x13 "Star" 11px/450 #ffffff
+60,150 74x13 "Image/video…" 11px/450 #ffffff
+150,150 30x13 "⇧⌘K" 11px/450 #ffffffb2

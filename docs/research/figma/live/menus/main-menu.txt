@@ -1,0 +1,20 @@
+# Main menu: click the Figma logo (top-left) in the file view [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@12,44 194x444
+16,14 65x13 "Back to files" 11px/450 #ffffff
+40,55 49x13 "Actions…" 11px/450 #ffffff
+160,55 18x13 "⌘K" 11px/450 #ffffffb2
+16,96 18x13 "File" 11px/450 #ffffff
+16,120 20x13 "Edit" 11px/450 #ffffff
+16,144 26x13 "View" 11px/450 #ffffff
+16,168 35x13 "Object" 11px/450 #ffffff
+16,192 23x13 "Text" 11px/450 #ffffff
+16,216 42x13 "Arrange" 11px/450 #ffffff
+16,240 35x13 "Vector" 11px/450 #ffffff
+16,281 38x13 "Plugins" 11px/450 #ffffff
+16,305 43x13 "Widgets" 11px/450 #ffffff
+16,329 64x13 "Preferences" 11px/450 #ffffff
+16,353 46x13 "Libraries" 11px/450 #ffffff
+16,394 110x13 "Open in desktop app" 11px/450 #ffffff
+16,418 93x13 "Help and account" 11px/450 #ffffff

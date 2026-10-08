@@ -1,0 +1,25 @@
+# Text selected: click the font style dropdown (Regular) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1208,575 167x313
+32,14 23x13 "Thin" 11px/450 #ffffff
+32,38 57x13 "Extra Light" 11px/450 #ffffff
+32,62 27x13 "Light" 11px/450 #ffffff
+0,80 167x24 option SELECTED
+32,86 40x13 "Regular" 11px/450 #ffffff
+32,110 42x13 "Medium" 11px/450 #ffffff
+32,134 53x13 "Semi Bold" 11px/450 #ffffff
+32,158 24x13 "Bold" 11px/450 #ffffff
+32,182 54x13 "Extra Bold" 11px/450 #ffffff
+32,206 29x13 "Black" 11px/450 #ffffff
+32,245 51x13 "Thin Italic" 11px/450 #ffffff
+32,269 85x13 "Extra Light Italic" 11px/450 #ffffff
+32,293 55x13 "Light Italic" 11px/450 #ffffff
+32,317 25x13 "Italic" 11px/450 #ffffff
+32,341 70x13 "Medium Italic" 11px/450 #ffffff
+32,365 81x13 "Semi Bold Italic" 11px/450 #ffffff
+32,389 52x13 "Bold Italic" 11px/450 #ffffff
+32,413 82x13 "Extra Bold Italic" 11px/450 #ffffff
+32,437 57x13 "Black Italic" 11px/450 #ffffff
+32,476 103x13 "Variable font axes…" 11px/450 #ffffff
+0,289 167x24 div bg=#1e1e1e r=0px 0px 13px 13px

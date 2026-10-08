@@ -1,0 +1,121 @@
+# Variables full view with a collection "Tokens" (modes Light/Dark; color, number, string, boolean variables created via API) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@0,0 1440x900
+820,430 61x13 "Hello Figma⁨⁩" 11px/400 #ffffff
+0,-200 1x16 input = [Figma Design, 1 item selected] bg=#3b3b3b
+0,2 1108x13 "Screenreader support for the board is currently disabled. To enable it via Accessibility settings, press ⌘K, type Accessibility Settings, and press Enter. To see available keyboard shortcuts, enter ⌃⇧Question mark ." 11px/400 #ffffff
+0,0 57x900 toolbar [Navigation Bar] bg=#2c2c2c
+12,8 32x32 button [Main menu] r=5px
+0,56 56x56 button [File]
+20,96 15x11 "File" 9px/450 #ffffff
+0,112 56x56 button [Agents]
+13,152 31x11 "Agents" 9px/450 #ffffff
+0,168 56x56 button [Assets]
+13,208 29x11 "Assets" 9px/450 #ffffff
+0,224 56x56 button [Tools]
+16,264 23x11 "Tools" 9px/450 #ffffff
+0,296 56x56 button [Variables] EXPANDED
+12,300 32x32 div bg=#394360 r=5px
+8,336 40x11 "Variables" 9px/450 #ffffff
+57,0 241x900 div bg=#2c2c2c
+57,0 240x49 div bg=#2c2c2c
+73,16 50x16 "Untitled" 13px/550 #ffffff
+257,8 32x32 button [Hide panel] r=5px
+57,49 240x81 region [Variable collections]
+72,63 60x13 "Collections" 11px/600 #ffffff
+239,57 24x24 button [Collections options] r=5px
+265,57 24x24 button [Create collection] r=5px
+72,97 200x16 div [Tokens]
+72,99 38x13 "Tokens" 11px/600 #ffffff
+274,98 57x13 "4 variables" 11px/400 #ffffffb2
+275,99 7x13 "4" 11px/400 #ffffffb2
+73,144 39x13 "Groups" 11px/550 #ffffff
+267,138 24x24 button [Collapse groups] r=5px
+65,174 224x24 div bg=#394360 r=5px
+73,178 14x16 div [All]
+73,180 14x13 "All" 11px/600 #ffffff
+273,179 57x13 "4 variables" 11px/400 #ffffffb2
+274,180 7x13 "4" 11px/400 #ffffffb2
+81,210 26x16 div [color]
+81,212 26x13 "color" 11px/400 #ffffff
+275,211 49x13 "1 variable" 11px/400 #ffffffb2
+276,212 5x13 "1" 11px/400 #ffffffb2
+81,242 31x16 div [space]
+81,244 31x13 "space" 11px/400 #ffffff
+275,243 49x13 "1 variable" 11px/400 #ffffffb2
+276,244 5x13 "1" 11px/400 #ffffffb2
+295,0 8x900 slider [Resize handle]
+314,11 813x26 h2 [Tokens]
+-9671,-9994 5x16 "›" 13px/450 #ffffff66
+-9657,-9994 44x16 "Tokens" 13px/450 #ffffff
+318,16 44x16 "Tokens" 13px/450 #ffffff
+1127,12 200x24 group [Search and filter]
+1127,12 175x24 div bg=#383838 r=5px 0px 0px 5px
+1151,12 151x24 input = [Search]
+1303,12 24x24 div bg=#383838 r=0px 5px 5px 0px
+1303,12 24x24 button [Filter] r=0px 5px 5px 0px
+1339,12 24x24 input =unchecked [Minimize]
+1351,25 47x13 "Minimize" 11px/450 #ffffff
+1377,8 55x32 button bg=#0c8ce9 r=5px
+1389,18 31x13 "Share" 11px/450 #ffffff
+298,49 200x40 th bg=#2c2c2c
+314,63 31x13 "Name" 11px/600 #ffffff
+499,49 280x40 th bg=#2c2c2c
+515,61 27x16 div [Light]
+515,63 27x13 "Light" 11px/600 #ffffff
+780,49 280x40 th bg=#2c2c2c
+796,61 25x16 div [Dark]
+796,63 25x13 "Dark" 11px/600 #ffffff
+1061,49 339x40 td bg=#2c2c2c
+1401,49 40x40 td bg=#2c2c2c
+1409,57 24x24 button [New variable mode] r=5px
+298,90 200x40 th bg=#2c2c2c
+342,102 140x16 div [label]
+342,104 25x13 "label" 11px/400 #ffffff
+499,90 280x40 td bg=#2c2c2c
+511,98 261x24 input =Hi r=2px
+780,90 280x40 td bg=#2c2c2c
+792,98 261x24 input =Hi r=2px
+1061,90 339x40 td bg=#2c2c2c
+1401,90 40x40 td bg=#2c2c2c
+1409,98 24x24 button [Edit variable] r=5px
+298,131 200x40 th bg=#2c2c2c
+342,143 140x16 div [isOn]
+342,145 23x13 "isOn" 11px/400 #ffffff
+499,131 280x40 td bg=#2c2c2c
+514,143 32x16 input =checked
+554,145 24x13 "True" 11px/450 #ffffff
+780,131 280x40 td bg=#2c2c2c
+795,143 32x16 input =unchecked
+835,145 28x13 "False" 11px/450 #ffffff
+1061,131 339x40 td bg=#2c2c2c
+1401,131 40x40 td bg=#2c2c2c
+1409,139 24x24 button [Edit variable] r=5px
+314,202 27x13 "color" 11px/600 #ffffff
+298,229 200x40 th bg=#2c2c2c
+342,241 140x16 div [bg]
+342,243 14x13 "bg" 11px/400 #ffffff
+499,229 280x40 td bg=#2c2c2c
+516,241 16x16 button [Solid color hex: FFFFFF] bg=#ffffff r=20%
+534,250 221x13 "Autofill available. Type to see suggestions." 11px/400 #ffffff
+535,237 140x24 input =FFFFFF r=5px
+780,229 280x40 td bg=#2c2c2c
+797,241 16x16 button [Solid color hex: 1A1A1A] bg=#1a1a1a r=20%
+815,250 221x13 "Autofill available. Type to see suggestions." 11px/400 #ffffff
+816,237 140x24 input =1A1A1A r=5px
+1061,229 339x40 td bg=#2c2c2c
+1401,229 40x40 td bg=#2c2c2c
+1409,237 24x24 button [Edit variable] r=5px
+314,300 32x13 "space" 11px/600 #ffffff
+298,327 200x40 th bg=#2c2c2c
+342,339 140x16 div [md]
+342,341 16x13 "md" 11px/400 #ffffff
+499,327 280x40 td bg=#2c2c2c
+519,340 126x15 input =16 r=2px
+780,327 280x40 td bg=#2c2c2c
+800,340 126x15 input =16 r=2px
+1061,327 339x40 td bg=#2c2c2c
+1401,327 40x40 td bg=#2c2c2c
+1409,335 24x24 button [Edit variable] r=5px
+306,868 121x24 button [Create variable button] bg=#2c2c2c r=5px
+340,874 79x13 "Create variable" 11px/400 #ffffff

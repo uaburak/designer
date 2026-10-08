@@ -1,0 +1,37 @@
+# Effect settings popover, Layer blur, "Progressive" segment selected [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@959,660 240x156
+0,0 240x156 div bg=#2c2c2c r=13px
+8,8 100x24 button [Effect settings]
+32,14 52x13 "Layer blur" 11px/400 #ffffff
+8,-1000 105x24 option [Inner shadow] r=5px SELECTED
+34,-994 71x13 "Inner shadow" 11px/400 #ffffff
+8,-1000 103x24 option [Drop shadow] r=5px SELECTED
+34,-994 69x13 "Drop shadow" 11px/400 #ffffff
+8,-1000 86x24 option [Layer blur] r=5px SELECTED
+34,-994 52x13 "Layer blur" 11px/400 #ffffff
+8,-1000 120x24 option [Background blur] r=5px SELECTED
+34,-994 86x13 "Background blur" 11px/400 #ffffff
+8,-1000 64x24 option [Noise] r=5px SELECTED
+34,-994 30x13 "Noise" 11px/400 #ffffff
+8,-1000 73x24 option [Texture] r=5px SELECTED
+34,-994 39x13 "Texture" 11px/400 #ffffff
+8,-1000 63x24 option [Glass] r=5px SELECTED
+34,-994 29x13 "Glass" 11px/400 #ffffff
+15,45 26x13 "Type" 11px/450 #ffffff
+16,52 208x24 div bg=#383838 r=5px
+16,52 104x24 input =NORMAL
+47,58 42x13 "Uniform" 11px/450 #ffffffb2
+120,52 104x24 input =PROGRESSIVE
+120,52 104x24 label bg=#2c2c2c r=5px
+141,58 62x13 "Progressive" 11px/450 #ffffff
+16,90 26x13 "Start" 11px/450 #ffffffb2
+88,84 136x24 div bg=#2c2c2c r=5px
+88,84 136x24 label [Start] bg=#383838 r=5px
+113,84 110x24 input =0 [Start] r=2px
+16,122 20x13 "End" 11px/450 #ffffffb2
+88,116 136x24 div bg=#2c2c2c r=5px
+88,116 136x24 label [End] bg=#383838 r=5px
+113,116 110x24 input =4 [End] r=2px
+208,8 24x24 button [Close] r=5px

@@ -1,0 +1,69 @@
+# Main menu > Arrange (hover) [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@12,44 194x444
+16,14 65x13 "Back to files" 11px/450 #ffffff
+40,55 49x13 "Actions…" 11px/450 #ffffff
+160,55 18x13 "⌘K" 11px/450 #ffffffb2
+16,96 18x13 "File" 11px/450 #ffffff
+16,120 20x13 "Edit" 11px/450 #ffffff
+16,144 26x13 "View" 11px/450 #ffffff
+16,168 35x13 "Object" 11px/450 #ffffff
+16,192 23x13 "Text" 11px/450 #ffffff
+0,210 194x24 menuitem EXPANDED
+8,210 178x24 span bg=#0c8ce9 r=5px
+16,216 42x13 "Arrange" 11px/450 #ffffff
+16,240 35x13 "Vector" 11px/450 #ffffff
+16,281 38x13 "Plugins" 11px/450 #ffffff
+16,305 43x13 "Widgets" 11px/450 #ffffff
+16,329 64x13 "Preferences" 11px/450 #ffffff
+16,353 46x13 "Libraries" 11px/450 #ffffff
+16,394 110x13 "Open in desktop app" 11px/450 #ffffff
+16,418 93x13 "Help and account" 11px/450 #ffffff
+---
+@210,246 220x533
+0,0 220x32 menuitem DISABLED
+16,14 75x13 "Round to pixel" 11px/450 #ffffff66
+0,49 220x24 menuitem DISABLED
+16,55 47x13 "Align left" 11px/450 #ffffff66
+185,55 19x13 "⌥A" 11px/450 #ffffff66
+0,73 220x24 menuitem DISABLED
+16,79 125x13 "Align horizontal centers" 11px/450 #ffffff66
+184,79 20x13 "⌥H" 11px/450 #ffffff66
+0,97 220x24 menuitem DISABLED
+16,103 54x13 "Align right" 11px/450 #ffffff66
+184,103 19x13 "⌥D" 11px/450 #ffffff66
+0,121 220x24 menuitem DISABLED
+16,127 47x13 "Align top" 11px/450 #ffffff66
+182,127 22x13 "⌥W" 11px/450 #ffffff66
+0,145 220x24 menuitem DISABLED
+16,151 112x13 "Align vertical centers" 11px/450 #ffffff66
+185,151 19x13 "⌥V" 11px/450 #ffffff66
+0,169 220x24 menuitem DISABLED
+16,175 68x13 "Align bottom" 11px/450 #ffffff66
+185,175 18x13 "⌥S" 11px/450 #ffffff66
+0,210 220x24 menuitem DISABLED
+16,216 39x13 "Tidy up" 11px/450 #ffffff66
+176,216 27x13 "⌃⌥T" 11px/450 #ffffff66
+0,251 220x24 menuitem DISABLED
+16,257 81x13 "Pack horizontal" 11px/450 #ffffff66
+0,275 220x24 menuitem DISABLED
+16,281 68x13 "Pack vertical" 11px/450 #ffffff66
+0,316 220x24 menuitem DISABLED
+16,322 151x13 "Distribute horizontal spacing" 11px/450 #ffffff66
+175,322 28x13 "⌃⌥H" 11px/450 #ffffff66
+0,340 220x24 menuitem DISABLED
+16,346 138x13 "Distribute vertical spacing" 11px/450 #ffffff66
+176,346 28x13 "⌃⌥V" 11px/450 #ffffff66
+0,381 220x24 menuitem DISABLED
+16,387 72x13 "Distribute left" 11px/450 #ffffff66
+0,405 220x24 menuitem DISABLED
+16,411 150x13 "Distribute horizontal centers" 11px/450 #ffffff66
+0,429 220x24 menuitem DISABLED
+16,435 79x13 "Distribute right" 11px/450 #ffffff66
+0,453 220x24 menuitem DISABLED
+16,459 72x13 "Distribute top" 11px/450 #ffffff66
+0,477 220x24 menuitem DISABLED
+16,483 137x13 "Distribute vertical centers" 11px/450 #ffffff66
+0,501 220x32 menuitem DISABLED
+16,507 93x13 "Distribute bottom" 11px/450 #ffffff66
