@@ -7,6 +7,7 @@ import type { Engine } from "@/engine/Engine";
 import type { AssetId, Guid, NodeChange } from "@/engine/codec";
 import type { BoundName, InspectInput } from "./inspect/model";
 import { boundsOf, IDENTITY, multiply, type Affine, type Box } from "./inspect/measure";
+import { annotationsOf, statusOf, type AnnotationView, type AssetNode, type DevStatus } from "./inspect/devMode";
 
 export interface LayerNode {
   id: Guid;
@@ -49,6 +50,8 @@ export class ViewerDoc {
   private readonly geometry = new Map<Guid, { transform: Affine; size: { x: number; y: number }; parent: Guid | null; type: string } | null>();
   private styleNames: Map<Guid, string> | null = null;
   private collections: Map<Guid, { name: string; modes: Map<Guid, string> }> | null = null;
+  private readonly statusCache = new Map<Guid, { id: Guid; name: string; status: DevStatus }[]>();
+  private readonly annotationCache = new Map<Guid, { id: Guid; notes: AnnotationView[] }[]>();
 
   constructor(readonly engine: Engine) {}
 
@@ -181,6 +184,63 @@ export class ViewerDoc {
       out[b.target] = { name: v.name, codeSyntax: v.codeSyntax, collection: c?.name ?? null, mode: modeId ? (c?.modes.get(modeId) ?? null) : null };
     }
     return out;
+  }
+
+  /**
+   * The page's designs with a Dev Mode status ("Ready for dev", "Completed"): its top-level frames and sections and
+   * the frames and sections inside sections, in the Layers panel's order.
+   */
+  statuses(page: Guid): { id: Guid; name: string; status: DevStatus }[] {
+    const cached = this.statusCache.get(page);
+    if (cached) return cached;
+    const tree = this.tree(page);
+    const ids: Guid[] = [];
+    const walk = (list: readonly Guid[]) => {
+      for (const id of list) {
+        const n = tree.nodes.get(id);
+        if (!n || (n.type !== "FRAME" && n.type !== "SECTION" && n.type !== "SYMBOL")) continue;
+        ids.push(id);
+        if (n.type === "SECTION") walk(n.children);
+      }
+    };
+    walk(tree.roots);
+    const out: { id: Guid; name: string; status: DevStatus }[] = [];
+    if (ids.length) {
+      const rows = this.engine.readNodes(ids, { fields: ["sectionStatusInfo"] }) as (NodeChange & { sectionStatusInfo?: { status?: string } })[];
+      rows.forEach((r, i) => {
+        const status = statusOf(r);
+        if (status) out.push({ id: ids[i], name: tree.nodes.get(ids[i])?.name ?? "", status });
+      });
+    }
+    this.statusCache.set(page, out);
+    return out;
+  }
+
+  /** The layers of a page that carry annotations, with them. */
+  annotations(page: Guid): { id: Guid; notes: AnnotationView[] }[] {
+    const cached = this.annotationCache.get(page);
+    if (cached) return cached;
+    const ids = [...this.tree(page).nodes.keys()];
+    const out: { id: Guid; notes: AnnotationView[] }[] = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const batch = ids.slice(i, i + 500);
+      const rows = this.engine.readNodes(batch, { fields: ["annotations"] }) as (NodeChange & { annotations?: unknown[] })[];
+      rows.forEach((r, k) => {
+        if (!r?.annotations?.length) return;
+        const full = this.engine.readNode(batch[k]);
+        if (full) out.push({ id: batch[k], notes: annotationsOf({ ...full, annotations: r.annotations } as never) });
+      });
+    }
+    this.annotationCache.set(page, out);
+    return out;
+  }
+
+  /** What the asset finder reads of a layer (inspect/devMode.ts detectAssets). */
+  assetNode(id: Guid): AssetNode | null {
+    const n = this.engine.readNode(id, { fields: ["name", "type", "visible", "size", "fillPaints", "resizeToFit"], childIds: true }) as (NodeChange & { childIds?: Guid[] }) | null;
+    if (!n) return null;
+    const type = n.type === "FRAME" && (n as { resizeToFit?: boolean }).resizeToFit ? "GROUP" : (n.type ?? "FRAME");
+    return { id, name: n.name ?? "", type, visible: n.visible !== false, size: n.size ?? { x: 0, y: 0 }, fillPaints: n.fillPaints, children: n.childIds ?? [] };
   }
 
   /** Everything the snippets need for one layer. */

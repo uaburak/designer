@@ -11,7 +11,7 @@
  * Every value is copied with a click.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, CodeBlock, Dialog, EmptyState, Icon, PanelSection, ScrollArea, Select, Swatch, showToast } from "@/ds";
+import { Button, CodeBlock, Dialog, EmptyState, Icon, IconButton, PanelSection, ScrollArea, SegmentedControl, Swatch, showToast } from "@/ds";
 import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Effect, Guid, NodeChange, Paint } from "@/engine/codec";
 import { cssLines, cssSnippet } from "./inspect/css";
@@ -20,14 +20,11 @@ import { compose, swiftUI } from "./inspect/native";
 import { useViewer } from "./context";
 import { layerIcon } from "./LeftPanel";
 import type { VariableUse } from "./viewerDoc";
+import { AnnotationsSection, AssetsSection, CodeSettings, ExportSection } from "./DevSections";
+import { listRows, STATUS_LABEL } from "./inspect/devMode";
+import { composeInUnit, cssInUnit, storedUnits, storeUnits, swiftUIInUnit, type Language, type UnitSettings } from "./inspect/units";
 import styles from "./Viewer.module.css";
 
-type Language = "css" | "swiftui" | "compose";
-const LANGUAGES: { value: Language; label: string }[] = [
-  { value: "css", label: "CSS" },
-  { value: "swiftui", label: "iOS (SwiftUI)" },
-  { value: "compose", label: "Android (Compose)" },
-];
 const LANGUAGE_KEY = "designer-viewer-language";
 
 function storedLanguage(): Language {
@@ -58,10 +55,23 @@ function Value({ label, value, copyText, lead, sub }: { label?: string; value: R
   );
 }
 
-export function InspectPanel() {
+/** The code settings every section reads: the language and its units. */
+interface CodeChoice {
+  language: Language;
+  units: UnitSettings;
+  onLanguage: (l: Language) => void;
+  onUnits: (u: UnitSettings) => void;
+}
+
+export function InspectPanel({ onPresent }: { onPresent?: () => void }) {
   const { store, preview } = useViewer();
   const selection = useSelection(store);
   const [language, setLanguage] = useState<Language>(storedLanguage);
+  const [units, setUnits] = useState<UnitSettings>(storedUnits);
+  const onUnits = (u: UnitSettings) => {
+    setUnits(u);
+    storeUnits(u);
+  };
   const choose = (l: Language) => {
     setLanguage(l);
     try {
@@ -77,29 +87,31 @@ export function InspectPanel() {
         <span className={styles.rightTab} aria-current="page">
           Inspect
         </span>
+        <span className={styles.grow} />
+        {onPresent && <IconButton icon="24.play" label="Present" shortcut="⌥⌘↩" onClick={onPresent} />}
       </div>
       <ScrollArea className={styles.rightBody}>
         {!inspect ? (
           <EmptyState icon="24.info" title="Inspect is off" body="The person who shared this preview turned off Inspect." />
         ) : selection.refs.length === 0 ? (
-          <NothingSelected language={language} onLanguage={choose} />
+          <NothingSelected code={{ language, units, onLanguage: choose, onUnits }} />
         ) : selection.refs.length > 1 ? (
           <div className={styles.multi}>{selection.refs.length} layers selected</div>
         ) : (
-          <LayerInspect key={selection.refs[0]} id={selection.refs[0]} language={language} onLanguage={choose} />
+          <LayerInspect key={selection.refs[0]} id={selection.refs[0]} code={{ language, units, onLanguage: choose, onUnits }} />
         )}
       </ScrollArea>
     </aside>
   );
 }
 
-function LanguageSelect({ language, onLanguage }: { language: Language; onLanguage: (l: Language) => void }) {
-  return <Select label="Language" value={language} options={LANGUAGES} onChange={(v) => onLanguage(v as Language)} variant="ghost" width="hug" />;
+function LanguageSelect({ code }: { code: CodeChoice }) {
+  return <CodeSettings language={code.language} units={code.units} onLanguage={code.onLanguage} onUnits={code.onUnits} />;
 }
 
 // ---- Nothing selected ------------------------------------------------------------------------------------------
 
-function NothingSelected({ language, onLanguage }: { language: Language; onLanguage: (l: Language) => void }) {
+function NothingSelected({ code }: { code: CodeChoice }) {
   const { engine, store, preview } = useViewer();
   const page = useCurrentPage(store);
   const pageInfo = preview.manifest.pages.find((p) => p.id === page);
@@ -121,7 +133,7 @@ function NothingSelected({ language, onLanguage }: { language: Language; onLangu
           <span className={styles.layerType}>Page</span>
         </div>
       </div>
-      <PanelSection title="Code" actions={<LanguageSelect language={language} onLanguage={onLanguage} />}>
+      <PanelSection title="Code" actions={<LanguageSelect code={code} />}>
         <div className={styles.hint}>Select a layer to see its code.</div>
       </PanelSection>
       {pageInfo && pageInfo.frames.length > 0 && (
@@ -214,9 +226,12 @@ function VariablesTable({ onClose }: { onClose: () => void }) {
 
 // ---- One layer --------------------------------------------------------------------------------------------------
 
-function LayerInspect({ id, language, onLanguage }: { id: Guid; language: Language; onLanguage: (l: Language) => void }) {
+function LayerInspect({ id, code }: { id: Guid; code: CodeChoice }) {
   const { engine, doc, preview } = useViewer();
   const input = useMemo(() => doc.inspect(id), [doc, id]);
+  const page = engine.getSelection().pageId;
+  const status = useMemo(() => doc.statuses(page).find((s) => s.id === id)?.status ?? null, [doc, page, id]);
+  const notes = useMemo(() => doc.annotations(page).find((a) => a.id === id)?.notes ?? [], [doc, page, id]);
   if (!input) return <EmptyState icon="24.info" title="This layer can't be inspected" />;
   const n = input.node;
   const tree = doc.tree(engine.getSelection().pageId);
@@ -229,13 +244,20 @@ function LayerInspect({ id, language, onLanguage }: { id: Guid; language: Langua
           <span className={styles.layerName}>{n.name || typeLabel(n)}</span>
           <span className={styles.layerType}>{typeLabel(n)}</span>
         </div>
+        {status && (
+          <span className={styles.devStatus} data-status={status}>
+            {STATUS_LABEL[status]}
+          </span>
+        )}
       </div>
+      <AnnotationsSection notes={notes} />
       <ComponentSection id={id} />
       <LayoutSection node={n} sizing={sizingOf(input)} parentBox={doc.parentOf(id) ? doc.pageBox(doc.parentOf(id)!) : null} box={doc.pageBox(id)} />
-      <CodeSection input={input} language={language} onLanguage={onLanguage} />
+      <CodeSection input={input} code={code} />
       <ColorsSection node={n} variables={input.variables} styles={input.styles ?? {}} />
       {n.type === "TEXT" && <TypographySection node={n} styleName={input.styles?.text} variables={input.variables} />}
       <EffectsSection effects={visibleEffects(n.effects)} styleName={input.styles?.effect} />
+      {preview.manifest.options.export && <AssetsSection id={id} />}
       {preview.manifest.options.export && <ExportSection id={id} node={n} />}
     </>
   );
@@ -317,27 +339,86 @@ function LayoutSection({ node, sizing, box, parentBox }: { node: NodeChange; siz
   );
 }
 
-function CodeSection({ input, language, onLanguage }: { input: NonNullable<ReturnType<ReturnType<typeof useViewer>["doc"]["inspect"]>>; language: Language; onLanguage: (l: Language) => void }) {
+/** "Code" / "List": the snippets, or the properties they set with their values ("Code (default)"). */
+const VIEW_KEY = "designer-viewer-code-view";
+function storedView(): "code" | "list" {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "code";
+  } catch {
+    return "code";
+  }
+}
+
+function CodeSection({ input, code }: { input: NonNullable<ReturnType<ReturnType<typeof useViewer>["doc"]["inspect"]>>; code: CodeChoice }) {
+  const { language, units } = code;
+  const [view, setView] = useState<"code" | "list">(storedView);
+  const choose = (v: "code" | "list") => {
+    setView(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // this visit only
+    }
+  };
   const blocks = useMemo(() => {
-    if (language === "swiftui") return [{ title: "SwiftUI", code: swiftUI(input) }];
-    if (language === "compose") return [{ title: "Compose", code: compose(input) }];
+    if (language === "swiftui") return [{ title: "SwiftUI", code: swiftUIInUnit(swiftUI(input), units) }];
+    if (language === "compose") return [{ title: "Compose", code: composeInUnit(compose(input), units) }];
     const s = cssSnippet(input);
     return [
-      { title: "Layout", code: cssLines(s.layout) },
-      { title: "Style", code: cssLines(s.style) },
-      { title: "Typography", code: s.typography.length ? cssLines(s.typography, s.textStyle) : "" },
+      { title: "Layout", code: cssInUnit(cssLines(s.layout), units) },
+      { title: "Style", code: cssInUnit(cssLines(s.style), units) },
+      { title: "Typography", code: s.typography.length ? cssInUnit(cssLines(s.typography, s.textStyle), units) : "" },
     ].filter((b) => b.code);
-  }, [input, language]);
+  }, [input, language, units]);
+  const rows = useMemo(() => {
+    if (view !== "list") return [];
+    const s = cssSnippet(input);
+    const conv = (v: string) => cssInUnit(v, units);
+    return [
+      { title: "Layout", rows: listRows(s.layout) },
+      { title: "Style", rows: listRows(s.style) },
+      { title: "Typography", rows: listRows(s.typography) },
+    ]
+      .filter((g) => g.rows.length)
+      .map((g) => ({ ...g, rows: g.rows.map((r) => ({ ...r, value: conv(r.value) })) }));
+  }, [input, view, units]);
+  const toggle = (
+    <span className={styles.codeActions}>
+      <SegmentedControl
+        label="Code or list"
+        value={view}
+        options={[
+          { value: "code", label: "Code" },
+          { value: "list", label: "List" },
+        ]}
+        onChange={(v) => choose(v as "code" | "list")}
+      />
+      <LanguageSelect code={code} />
+    </span>
+  );
   return (
-    <PanelSection title="Code" actions={<LanguageSelect language={language} onLanguage={onLanguage} />}>
-      <div className={styles.code} data-language={language}>
-        {blocks.map((b) => (
-          <div key={b.title} className={styles.codeGroup}>
-            {blocks.length > 1 && <div className={styles.codeTitle}>{b.title}</div>}
-            <CodeBlock code={b.code} label="Copy" />
-          </div>
-        ))}
-      </div>
+    <PanelSection title="Code" actions={toggle}>
+      {view === "code" ? (
+        <div className={styles.code} data-language={language}>
+          {blocks.map((b) => (
+            <div key={b.title} className={styles.codeGroup}>
+              {blocks.length > 1 && <div className={styles.codeTitle}>{b.title}</div>}
+              <CodeBlock code={b.code} label="Copy" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={styles.list} data-list-view="">
+          {rows.map((g) => (
+            <div key={g.title}>
+              <div className={styles.codeTitle}>{g.title}</div>
+              {g.rows.map((r, i) => (
+                <Value key={`${r.label}${i}`} label={r.label} value={r.value} copyText={r.value} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </PanelSection>
   );
 }
@@ -423,60 +504,6 @@ function EffectsSection({ effects, styleName }: { effects: Effect[]; styleName?:
           : `${num(e.radius ?? 0)}px`;
         return <Value key={i} label={EFFECT_NAMES[e.type] ?? e.type} value={text} copyText={text} />;
       })}
-    </PanelSection>
-  );
-}
-
-const SCALES = ["0.5", "0.75", "1", "1.5", "2", "3", "4"];
-
-function ExportSection({ id, node }: { id: Guid; node: NodeChange }) {
-  const { engine } = useViewer();
-  const [scale, setScale] = useState("2");
-  const [format, setFormat] = useState<"PNG" | "JPG">("PNG");
-  const [busy, setBusy] = useState(false);
-  const name = node.name || typeLabel(node);
-  const run = async () => {
-    setBusy(true);
-    try {
-      const size = node.size ?? { x: 1, y: 1 };
-      const px = engine.renderNodeThumbnailPixels({ node: id, maxSize: Math.max(1, Math.ceil(Math.max(size.x, size.y) * Number(scale))) });
-      if (!px) throw new Error("nothing to export");
-      const canvas = document.createElement("canvas");
-      canvas.width = px.width;
-      canvas.height = px.height;
-      const ctx = canvas.getContext("2d")!;
-      const image = new ImageData(new Uint8ClampedArray(px.pixels), px.width, px.height);
-      if (format === "JPG") {
-        const tmp = document.createElement("canvas");
-        tmp.width = px.width;
-        tmp.height = px.height;
-        tmp.getContext("2d")!.putImageData(image, 0, 0);
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, px.width, px.height);
-        ctx.drawImage(tmp, 0, 0);
-      } else ctx.putImageData(image, 0, 0);
-      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, format === "PNG" ? "image/png" : "image/jpeg", 0.92));
-      if (!blob) throw new Error("the image couldn't be encoded");
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${name.replace(/[/\\:]/g, "-")}${scale === "1" ? "" : `@${scale}x`}.${format.toLowerCase()}`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-    } catch (e) {
-      showToast({ message: `Couldn't export: ${e instanceof Error ? e.message : String(e)}` });
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <PanelSection title="Export">
-      <div className={styles.exportRow}>
-        <Select label="Scale" value={scale} options={SCALES.map((s) => ({ value: s, label: `${s}x` }))} onChange={setScale} width={72} />
-        <Select label="Format" value={format} options={[{ value: "PNG", label: "PNG" }, { value: "JPG", label: "JPG" }]} onChange={(v) => setFormat(v as "PNG" | "JPG")} width={80} />
-      </div>
-      <Button variant="secondary" fullWidth loading={busy} onClick={() => void run()}>
-        Export {name}
-      </Button>
     </PanelSection>
   );
 }

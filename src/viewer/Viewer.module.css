@@ -240,4 +240,110 @@
     dominant-baseline: central;
     text-anchor: middle;
   }
+
+  /* ---- Round 5: Dev Mode statuses, code settings, List view, annotations, assets ---- */
+  .grow { flex: 1 1 auto; }
+  .devStatus {
+    flex: none;
+    margin-left: auto;
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-success);
+    color: var(--figma-color-text-onsuccess);
+    font: var(--ds-font-body-medium-strong);
+    line-height: var(--ds-size-control);
+    white-space: nowrap;
+  }
+  .devStatus[data-status="COMPLETED"] { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+  .codeActions { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .codeSettings {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    white-space: nowrap;
+  }
+  .codeSettings:hover, .codeSettings[data-open] { background: var(--figma-color-bg-hover); }
+  .codeSettings svg { color: var(--figma-color-icon-secondary); }
+  .codeUnit { color: var(--figma-color-text-secondary); }
+  .unitScale { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-2) 0; }
+  .list { padding: 0 var(--ds-space-2) var(--ds-space-2); }
+  .annotation {
+    margin: 0 var(--ds-space-4) var(--ds-space-2);
+    padding: var(--ds-space-2);
+    border-left: 2px solid var(--figma-color-bg-success);
+    background: var(--figma-color-bg-secondary);
+    border-radius: var(--ds-radius-medium);
+  }
+  .annotationText { white-space: pre-wrap; }
+  .annotationProp { display: flex; justify-content: space-between; gap: var(--ds-space-2); color: var(--figma-color-text-secondary); }
+  .assetRow { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); padding: 0 var(--ds-space-2) 0 var(--ds-space-4); }
+  .assetThumb {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control-large);
+    height: var(--ds-size-control-large);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-icon-secondary);
+  }
+  .assetThumb img { max-width: 100%; max-height: 100%; }
+  .assetName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The left panel's statuses: the page's designs ready for development */
+  .statusRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    width: 100%;
+    min-height: var(--ds-size-row);
+    padding: 0 var(--ds-space-4);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: left;
+  }
+  .statusRow:hover { background: var(--figma-color-bg-hover); }
+  .statusRow > span:first-of-type { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .statusLabel { color: var(--figma-color-text-success); white-space: nowrap; }
+
+  /* Annotations on the canvas: a green dot on the layer's top right, its note beside it */
+  .annotations { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  .annotationPin {
+    position: absolute;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ds-space-1);
+    max-width: 240px;
+    pointer-events: auto;
+  }
+  .annotationDot {
+    flex: none;
+    width: var(--ds-space-3);
+    height: var(--ds-space-3);
+    margin-top: var(--ds-space-1);
+    padding: 0;
+    border: 2px solid var(--figma-color-bg);
+    border-radius: 50%;
+    background: var(--figma-color-bg-success);
+  }
+  .annotationCard {
+    padding: var(--ds-space-1) var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-200);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    white-space: pre-wrap;
+  }
+  .annotationCard .annotationProp { font: var(--ds-font-body-small); }
 }
