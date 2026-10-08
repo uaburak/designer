@@ -230,4 +230,26 @@
   .reorderRow:hover { background: var(--figma-color-bg-hover); }
   .reorderOver { box-shadow: inset 0 2px 0 var(--figma-color-border-selected); }
   .reorderName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* Round 6: Minimize — a smaller modal over the canvas, resizable by its edges; Expand fills the window again */
+  .windowMinimized {
+    inset: auto var(--ds-space-4) calc(var(--ds-size-toolbar) + var(--ds-space-6)) auto;
+    width: min(880px, calc(100% - var(--ds-size-rail) - 2 * var(--ds-space-4)));
+    height: min(420px, calc(100% - 2 * var(--ds-space-6)));
+    min-width: 480px;
+    min-height: 240px;
+    overflow: hidden;
+    resize: both;
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-large);
+    box-shadow: var(--ds-elevation-500);
+  }
+  /* Toggle sidebar: the table takes the whole width */
+  .noSidebar { grid-template-columns: minmax(0, 1fr); }
+  .noSidebar > .toolbar { grid-column: 1; }
+  /* Files dragged over the view */
+  .dropping { box-shadow: inset 0 0 0 2px var(--figma-color-border-selected-strong); }
+  /* A group dragged in the sidebar */
+  .sideRow[data-group-drop="into"] { background: var(--figma-color-bg-selected); }
+  .sideRow[data-group-drop="before"] { box-shadow: inset 0 2px 0 var(--figma-color-border-selected-strong); }
+  .sideRow[data-group-drop="after"] { box-shadow: inset 0 -2px 0 var(--figma-color-border-selected-strong); }
 }
