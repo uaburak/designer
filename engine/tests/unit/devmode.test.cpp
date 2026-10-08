@@ -35,13 +35,25 @@ std::vector<NodeChange> designs() {
   return nodes;
 }
 
+// Inter for the labels, and the module-wide font registry reset afterwards (like export.test.cpp): loadInter() loads
+// once per run, and export.test.cpp (after this file) resets the registry.
+struct Fonts {
+  Fonts() {
+    auto& fonts = text::FontRegistry::get();
+    int32_t upright = addFontFile(std::string(ENG_FONTS_DIR) + "/InterVariable.ttf");
+    for (const char* style : {"Regular", "Medium", "Semi Bold", "Bold"}) fonts.bind("Inter", style, upright);
+    fonts.takeRequests();
+  }
+  ~Fonts() { text::FontRegistry::get().reset(); }
+};
+
 struct Fixture {
+  Fonts fonts;
   Editor ed;
   gfx::NullDevice device;
   Renderer r{device};
   double now = 1000;
   explicit Fixture(std::vector<NodeChange> nodes) {
-    loadInter();
     ed.setViewport(1200, 800, 1, 1200, 800);
     ed.loadDocument(nodes, kNoGuid);
     Camera cam;

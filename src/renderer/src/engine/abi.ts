@@ -9,6 +9,8 @@
 export const TOOLS = [
   "MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
   "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
+  // Dev Mode's tools (⇧T, ⇧M; engine/src/editor/DevMode.cpp)
+  "ANNOTATION", "MEASUREMENT",
 ] as const;
 export type ToolName = (typeof TOOLS)[number];
 export const toolId = (tool: ToolName): number => TOOLS.indexOf(tool);
@@ -192,6 +194,12 @@ export const CommandId = {
   UNGROUP_STYLES: 177,
   /** args { fonts: [{ from: { family, style }, to: { family, style } }] } (the Missing fonts dialog's "Replace fonts") */
   REPLACE_FONTS: 190,
+  /** args { from, to?, side: "TOP" | "BOTTOM" | "LEFT" | "RIGHT", toSameSide?, inner?, outer?, freeText?, page? }; created: [id] */
+  MEASUREMENT_ADD: 210,
+  /** args { id, freeText?, inner?, outer?, page? } */
+  MEASUREMENT_UPDATE: 211,
+  /** args { id, page? } */
+  MEASUREMENT_DELETE: 212,
 } as const;
 export type CommandName = keyof typeof CommandId;
 

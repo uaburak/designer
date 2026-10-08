@@ -65,6 +65,7 @@ import {
   type CommandArgValue,
   type CommandResult,
   type ComponentInfo,
+  type DevInfo,
   type CursorKind,
   type EncodedAsset,
   type EngineEvent,
@@ -563,8 +564,40 @@ export class Engine {
    * Viewer mode (developer previews, Dev Mode): read-only — no resize handles, clicks select and drags move nothing,
    * no context menu or text / vector editing; edits (setProps, user changes, editing commands) return E_READONLY.
    */
-  setViewerMode(on: boolean): void {
-    this.after(this.x.setViewerMode(this.h, on));
+  setViewerMode(on: boolean, options: { devEdits?: boolean } = {}): void {
+    this.after(this.x.setViewerMode(this.h, on ? (options.devEdits ? 3 : 1) : 0));
+  }
+
+  // ---- Dev Mode (round 6: docs/engine-build.md "Round 6") -------------------------
+
+  /** View › Annotations: labels (or, `dots`, Dev Mode's dots), and saved measurements; off: none of them. */
+  setAnnotationView(show: boolean, dots = false): void {
+    this.after(this.x.setAnnotationView(this.h, show, dots));
+  }
+
+  /** editInfo {lastEditedAt, createdAt} stamped on every user edit and its ancestors (Dev Mode's "Changed"). */
+  setEditTracking(on: boolean): void {
+    this.after(this.x.setEditTracking(this.h, on));
+  }
+
+  /** Focus view: only `node` (a design on the current page) is drawn and picked; null leaves it. */
+  setFocus(node: Guid | null): number {
+    const [s, l] = node ? this.ids(node) : [0, 0];
+    const status = this.x.setFocus(this.h, s, l);
+    this.schedule();
+    return this.after(status);
+  }
+
+  /** Selects a saved measurement on the canvas (null: none). */
+  selectMeasurement(id: Guid | null): number {
+    const [s, l] = id ? this.ids(id) : [0, 0];
+    return this.after(this.x.selectMeasurement(this.h, s, l));
+  }
+
+  /** Dev Mode's state for a page (default the current one): statuses, saved measurements, the canvas's clickable marks. */
+  devInfo(page?: Guid): DevInfo {
+    const [s, l] = page ? this.ids(page) : [0, 0];
+    return this.json<DevInfo>(this.x.devInfo(this.h, s, l), { annotations: true, focus: null, selectedMeasurement: null, statuses: [], measurements: [], hits: { annotations: [], measurements: [], statuses: [] } });
   }
 
   /**
