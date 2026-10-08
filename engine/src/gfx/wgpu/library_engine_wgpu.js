@@ -4,7 +4,7 @@
 //
 // - The GPUDevice is requested by TypeScript before the engine starts (WebGPU's adapter and device requests are
 //   promises; the engine's calls are synchronous): Module.engineGpuDevice. engine_wgpu_import_device hands it to
-//   webgpu.h and watches it: a lost device (not one destroyed on purpose) or a failed self test calls
+//   webgpu.h and watches it: a lost device or a failed self test calls
 //   Module.onEngineGfxFailure(selector, reason) — TypeScript then moves the canvas to WebGL2 (Figma's dynamic
 //   fallback).
 // - ImageBitmaps (Module.engineBitmaps) go to textures with copyExternalImageToTexture.
@@ -38,7 +38,9 @@ addToLibrary({
       var entry = engineWgpu.devices[id];
       if (!entry || !entry.alive) return;
       HEAP32[lostFlag >> 2] = 1;
-      if (info.reason !== 'destroyed') engineWgpu.fail(selector, `device lost (${info.reason}): ${info.message}`);
+      // Lost while the engine still draws with it (the engine forgets it before destroying anything): even
+      // 'destroyed' then means someone else ended it.
+      engineWgpu.fail(selector, `device lost (${info.reason}): ${info.message}`);
     });
     if (!device.engineErrorHandler) {
       device.engineErrorHandler = true;
