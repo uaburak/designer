@@ -6,6 +6,20 @@
 
 ---
 
+## Status (2026-10-08, round 5 — prototype gaps, the inline preview)
+
+Built on docs/engine-build.md "Round 5"; Figma's wording checked against help.figma.com (docs/research/figma/R8-prototyping.md §12).
+
+- **Inline preview** (`InlinePreview.tsx`; ⇧Space, "Preview" in the Present menu; `ui.preview`): a floating window over the canvas, hanging from its top-right, with `PresentationView`'s `inline` variant (its own engine, canvas `#preview-canvas`, the editor's document and committed changes). Bar: ← → (back / previous, forward), Restart (R; from the last frame selected on the canvas), the overflow menu — Fit width (No device / Presentation), Responsive, Follow prototype (the canvas selection and position follow), Resize window/device to 100%, Respect aspect ratio (No device), Show device frame —, open in presentation view, ×. Selecting a frame on the canvas jumps the preview there. Its left and bottom edges and their corner resize it (⇧ keeps the ratio). Keys go to it only while it has the focus.
+- **Presentation options** (`presentOptions` / `applyPresentOption`): without a device Actual size (100%), Responsive, Fit width, Fit width and height, Fill screen; with one Responsive / Fixed size, Fit device on screen, Zoom device to fill screen, Show device at 100%, Show device frame. The cursor grabs while an On drag scrubs.
+- **Device**: "No device" (the help's name), the presets (iPhone 15 family and 16 Plus added) and **Model** (the preset's colours, `DEVICE_MODELS`, stored in `presetIdentifier` as `<DEVICE>_<MODEL>`).
+- **Conditional** (`ExpressionField.tsx`, `model/expressions.ts`): "If" holds a typed expression — Figma's operators (`+ - * /`, `== != < > <= >=`, `and`, `or`, `!` / `not`, parentheses) and precedence, variables by name, strings in quotes, `true` / `false` — committed with Enter, refused in red with its reason; the ⋯ menu inserts a variable or an operator. Then its actions; "Else" (may stay empty); else-if blocks a file holds show as "Else if". Stored as the schema's EXPRESSION / ALIAS / literal VariableData.
+- **Curve** is the easing dropdown's label (help: "Set the Curve to Ease out").
+- **Dev Mode statuses** (`devStatus.ts`): the canvas menu on top-level frames, sections and components (and frames in sections) offers "Mark as ready for dev", then "Mark as completed" / "Remove status" — `sectionStatusInfo`, one undo step each. Figma puts the button on the canvas label (not drawn here).
+- Hygiene: store notifications deferred out of render (`deferred.ts`: the "setState in render" warning from ApplyModeButton / InstanceHeader), no favicon request.
+- Tests: `expressions.test.ts`, `prototype.test.ts` (devices, models), `prototype.wasm.test.ts` (+ device frame options, viewer mode through the facade), `devStatus.wasm.test.ts`. `EDITOR_ONLY=prototype editor-shot.mjs`: 31 checks, shots 90–109 (+ the inline preview and its menu, the Model, a device frame presentation and its options, the Conditional's expression refused).
+- Not done: video actions and triggers (the schema drops video), Figma's inline device frames dragged by the bezel, the flows sidebar of the presentation view (a menu here), Scroll to's offset fields, annotation and measurement tools in Design, the "Variant interactions" section.
+
 ## Status (2026-10-08, developer previews — Share)
 
 - **Opening it.** The right panel's **Share** button and File ▸ **Share preview…** (`file.share-preview`, in the menu bar too) open `ShareDialog.tsx` (`ui.shareOpen`).
