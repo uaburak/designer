@@ -276,14 +276,18 @@ void trim(Line& l, double len, bool atEnd) {
   }
 }
 
-// Arrowhead sizes. The line arrow is measured on live Figma (docs/research/figma/live/img/canvas-arrow-line-selected.png,
-// a 1 px line at 287 %): arms about 4.5 long along their centre lines, 45° off the line. The others are unverified
-// (chosen to look like Figma's at 1–4 px).
-double lineArrowLength(double w) { return 3 * w + 1.5; }
+// Arrowhead sizes, from Figma's own SVG exports of lines with end points (round 8; docs/engine.md §6.4): every
+// size is a multiple of the stroke weight w, and every head sits on the end point.
+//   Line arrow: two arms 4.5w long (centre lines) at 45°, round caps and a round join at the tip (w = 1, 2).
+//   Triangle arrow: equilateral, 5w long, its tip on the end point; the line stops w/2 inside its base (w = 1, 2).
+//   Reversed triangle: 10w/√3 wide at the end point, narrowing to w over 5w back along the line (w = 1).
+//   Circle arrow: radius 8w/3 (w = 1). Diamond arrow: a square on its corner, 5w/√3 from centre to corner (w = 1).
+double lineArrowLength(double w) { return 4.5 * w; }
 constexpr double kLineArrowAngle = 45;  // degrees off the line
-double triangleSide(double w) { return 3 * w + 4; }
-double circleRadius(double w) { return 1.5 * w + 1.5; }
-double diamondHalf(double w) { return 1.5 * w + 2.5; }
+double triangleLength(double w) { return 5 * w; }
+double triangleHalfBase(double w) { return 5 * w / std::sqrt(3.0); }
+double circleRadius(double w) { return 8 * w / 3; }
+double diamondHalf(double w) { return 5 * w / std::sqrt(3.0); }
 
 void strokeLine(Path& out, Line line, const StrokeStyle& s, StrokeCap startCap, StrokeCap endCap, double tol);
 
@@ -301,23 +305,20 @@ void cap(Path& out, Vec2 p, Vec2 d, StrokeCap c, const StrokeStyle& s, double to
       Vec2 back = d * -1;
       Line arms{{p + rotate(back, a) * L, p, p + rotate(back, -a) * L}, {true, true, true}, false};
       StrokeStyle st = s;
-      st.join = StrokeJoin::MITER;
-      st.miterLimit = 8;
+      st.join = StrokeJoin::ROUND;
       st.dashes.clear();
-      strokeLine(out, arms, st, StrokeCap::NONE, StrokeCap::NONE, tol);
+      strokeLine(out, arms, st, StrokeCap::ROUND, StrokeCap::ROUND, tol);
       break;
     }
     case StrokeCap::ARROW_EQUILATERAL: {
-      double side = triangleSide(s.width), h = side * std::sqrt(3.0) / 2;
-      Vec2 tip = p + d * (hw * 0.5), base = tip - d * h, m = perp(d) * (side / 2);
-      polygon(out, {tip, base + m, base - m});
+      Vec2 base = p - d * triangleLength(s.width), m = perp(d) * triangleHalfBase(s.width);
+      polygon(out, {p, base + m, base - m});
       break;
     }
     case StrokeCap::TRIANGLE_FILLED: {
-      // Figma's "Reversed triangle": the base at the end, the point back along the line.
-      double side = triangleSide(s.width), h = side * std::sqrt(3.0) / 2;
-      Vec2 m = perp(d) * (side / 2), base = p + d * (hw * 0.5);
-      polygon(out, {base + m, base - m, base - d * h});
+      // Figma's "Reversed triangle": its base on the end point, narrowing back along the line to the line's width.
+      Vec2 m = perp(d) * triangleHalfBase(s.width), back = p - d * triangleLength(s.width);
+      polygon(out, {p + m, p - m, back - n, back + n});
       break;
     }
     case StrokeCap::CIRCLE_FILLED: disc(out, p, circleRadius(s.width)); break;
@@ -330,8 +331,9 @@ void cap(Path& out, Vec2 p, Vec2 d, StrokeCap c, const StrokeStyle& s, double to
   }
 }
 
+// How far the line stops short of an end point under its head (as Figma's exports draw it: w/2 inside the triangle).
 double capTrim(StrokeCap c, double w) {
-  return c == StrokeCap::ARROW_EQUILATERAL ? triangleSide(w) * std::sqrt(3.0) / 4 : 0;
+  return c == StrokeCap::ARROW_EQUILATERAL || c == StrokeCap::TRIANGLE_FILLED ? triangleLength(w) - w / 2 : 0;
 }
 
 void join(Path& out, Vec2 p, Vec2 d0, Vec2 d1, StrokeJoin j, double miterLimit, double hw) {
@@ -432,9 +434,9 @@ double strokeReach(const StrokeStyle& s, bool hasOpenEnds) {
     auto capReach = [&](StrokeCap c) {
       switch (c) {
         case StrokeCap::SQUARE: return hw * std::sqrt(2.0);
-        case StrokeCap::ARROW_LINES: return lineArrowLength(s.width) + hw * 4;
+        case StrokeCap::ARROW_LINES: return lineArrowLength(s.width) + hw;
         case StrokeCap::ARROW_EQUILATERAL:
-        case StrokeCap::TRIANGLE_FILLED: return triangleSide(s.width) + hw;
+        case StrokeCap::TRIANGLE_FILLED: return std::hypot(triangleLength(s.width), triangleHalfBase(s.width));
         case StrokeCap::CIRCLE_FILLED: return circleRadius(s.width);
         case StrokeCap::DIAMOND_FILLED: return diamondHalf(s.width);
         default: return hw;
