@@ -51,3 +51,30 @@ track count, a "Grid settings" popover.
 - Items that fill a row's height (`stackChildAlignSelf: STRETCH`) don't size a Hug row; a Hug row nothing sizes takes
   the free height, and a frame whose Hug rows nothing sizes keeps its height. Items that fill a column's width still
   size a Hug column (component sets' variant grids).
+
+## Round 6 — on-canvas editing (re-checked 2026-10-08)
+Sources: H = help "Use the grid auto layout flow" (help.figma.com/hc/en-us/articles/31289469907863); F1 = forum Config
+2025 grid thread (staff replies); F2 = forum "Grid update: hug and fractional units" (2025-12-03); F3 = forum "Do more
+with grid" (2026-05-22, GA); Plugin API `GridTrackSize`, `gridAutoTracks`, `gridRowCount`, `gridItemsPositioning`,
+`reorderRows` / `reorderColumns`, Updates 120 and 127.
+- **Pills**: with the grid selected, hover its top / left side "until the blue pill appears"; the pill's label shows
+  the size or resizing property. "Select the label", then type a value or "Use the dropdowns to select a resizing
+  option" (Fixed / Fill container / Hug contents); "Auto" / "A" = Fill 1fr. Enter on a selected track edits its size
+  (forum). Exact dropdown wording, Esc: unverified.
+- **Resize**: "manually resize tracks by clicking and dragging their edges" → that track turns Fixed on its axis.
+  Which edge, snapping, minimum: undocumented (built: the trailing edge between two tracks, whole px, ≥ 1 px).
+- **Reorder** (GA 2026-05-22): "Click and hold the grabber icon next to the label" and drag; a blue line marks the
+  drop; objects spanning into the track move with it (API: spanned tracks join the move).
+- **Several tracks**: ⌘ / Ctrl adds a track, ⇧ selects a range; then one value for all, on canvas or in the panel's
+  track list. Delete / Backspace on a selected label deletes the track(s) and their contents; items spanning it shrink.
+  No documented "+" or insert-before / after (a Feb 2026 forum post says inserting mid-grid isn't possible).
+- **Span handles**: the item must be Fill container; "small circles on the sides, top, and bottom" — resize to a
+  cell edge (snaps; that axis becomes Fill). Two items spanning the same number of cells swap when their "pink
+  circles" are dragged.
+- **Grid picker**: clicking the rows × columns control opens "Number of columns", "Number of rows" and "the
+  interactive selector" (hover a cell to preview, click to set). Its size is undocumented (a user: "a max of 12
+  columns"; built 12 × 12, unverified).
+- **Auto rows**: "By default, Number of rows is set to auto"; empty rows go, rows come with content
+  (`gridAutoTracks: 'ROWS'`; setting a row count in that mode throws in the API). Turning automatic positioning back on
+  sets it to Auto.
+- Keys: arrows reorder items, ⌘D duplicates, ⌘ / ⇧ click selects tracks, ⌫ deletes the selected tracks.

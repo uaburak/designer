@@ -267,3 +267,35 @@ Internal model (third-party reverse engineering, consistent with the above):
 - REST API support for SLOT (not documented as of 2026-10-06).
 - Semantics of schema fields `overrideStash`, `propsAreBubbled`, `overrideLevel`, `isUnflattened`.
 - Precise UI3 instance-section layout (needs a screenshot pass of the real app).
+
+## 15. Round 6 check (2026-10-08): slots UI and the component / instance panels
+Sources: help "Create and use slots" (38231200344599), "Slots fundamentals" (39745565646871), "Explore component
+properties" (5579474826519), "Create and use variants" (360056440594), "Apply changes to instances" (360039150733),
+"Swap instances" (360039150413), "Edit instances with component properties" (8883757553943), "Hide when publishing"
+(360039238193); Plugin API `SlotNode`, `SlotSettings`, `ComponentPropertyDefinitions`, update 2026-06-10; forum.
+- **Convert to slot**: a nested frame of a main — canvas menu, ⌘⇧S, or the right panel's button; not the top-level
+  layer, not shapes, not grid frames (API throws). **Wrap in new slot** (canvas menu) for texts, groups, instances and
+  multi-selections: "create a new slot and place your selection into it" (built as Figma's wrap in frame: a frame
+  around the selection's bounds, then converted). Default property name: unverified (built: "Slot", then "Slot 2"…).
+  A Slot property can also be created first (Create property → Slot) and bound later.
+- **Slot property settings** in order: name, **description** (slots only — no other property type has one), Minimum
+  layers / Maximum layers (either or both; null = unset; min ≤ max), Select preferred instances, Only allow preferred
+  instances (with "View layers"), By default, display empty slots, By default, fill items on slot's counter-axis
+  (`stretchChildOnInsert`: inserted items Fill the counter axis).
+- **Limits** are guidance ("designed to guide your team, not restrict them"): `limitViolations` BELOW_MIN /
+  ABOVE_MAX (exclusive) / HAS_NON_PREFERRED. Selecting the slot or its instance shows a **Limits** label in the right
+  panel; its details list each guideline with a green check or an orange warning; going over a limit shows a toast at
+  the bottom and the label turns orange (toast text unverified).
+- **On an instance**: content by drawing, duplicating, dragging, or **Add instances** — a "+" over the slot on the
+  canvas and on hover of the slot property's row; the popup lists components and libraries, filtered to **Preferred**
+  first when the slot has preferred instances. More actions: **Reset slot**, **Delete contents**. A slot accepts fill,
+  stroke, opacity, effects, name, export overrides; not position, flow or constraints. Pink hover box; an empty slot
+  stays pink with "display empty slots".
+- **Variant values**: the property's edit popover has **Values** — edit in place; "Hover over a value to reveal
+  handles. Click and drag." (manual order = `variantOptions` order). Default variant = the top-left one.
+- **Variant toggle**: a two-value variant property shows as a toggle when its values are True/False, Yes/No or On/Off
+  (forum; staff 2024) — only True/False takes boolean variables.
+- **Simplified instances** were removed (deprecated 2026-03-23): every property shows; no "Simplify instance".
+- Create component property modal: Name, Value (Boolean true/false, Text string, Instance swap picker), Apply
+  variable, Preferred instances (Instance swap, Slot), "Create property". "Expose properties from" → Nested instances.
+- Hide when publishing: an Assets panel menu item (and "." / "_" prefixes), not a panel control.
