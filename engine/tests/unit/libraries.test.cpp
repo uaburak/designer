@@ -2608,3 +2608,45 @@ TEST_CASE("libraries: the C ABI with kiwi payloads — encode_assets attachments
   engine_destroy(lib);
   engine_destroy(con);
 }
+
+TEST_CASE("libraries (r5): an extended collection publishes with its parent and overrides; consumers use and extend it") {
+  Editor lib = load(libDoc(), kLibKey);
+  Lib l = makeAssets(lib);
+  REQUIRE(run(lib, CommandId::EXTEND_VARIABLE_COLLECTION, "{\"collection\":" + q(l.set) + ",\"name\":\"Brand B\"}") == OK);
+  Guid ext = lib.lastCreated()[0];
+  Guid extDark = props(lib, ext).orderedModes()[1].id;
+  REQUIRE(run(lib, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(l.brand) + ",\"mode\":" + q(extDark) + R"(,"value":{"r":0,"g":1,"b":0,"a":1}})") == OK);
+  lib.ensureAssetKeys({});
+  std::string extKey = keyOf(lib, ext), brandKey = keyOf(lib, l.brand);
+  std::vector<Editor::EncodedAsset> v1;
+  auto m1 = publish(lib, {extKey, brandKey}, &v1);
+  Editor c = load(consumerDoc(), kConsumerKey);
+  std::vector<Editor::ImportedAsset> out;
+  REQUIRE(c.importLibrary(m1, opts(kLibKey), out) == OK);
+  Guid extCopy = copyOf(c, extKey), brandCopy = copyOf(c, brandKey);
+  REQUIRE(extCopy != kNoGuid);
+  REQUIRE(brandCopy != kNoGuid);
+  CHECK(c.extensionParent(extCopy) != kNoGuid);
+  CHECK(c.overrideNode(extCopy, brandCopy) != kNoGuid);
+  CHECK(c.unresolvedReferences() == 0);
+  // The consumer binds its rectangle to the library's Brand and puts the screen in Brand B's Dark: the override.
+  REQUIRE(run(c, CommandId::BIND_VARIABLE, "{\"refs\":[" + q(RECT) + "],\"target\":\"fillPaints[0].color\",\"variable\":" + q(brandCopy) + "}") == OK);
+  Guid copyDark = props(c, extCopy).orderedModes()[1].id;
+  REQUIRE(run(c, CommandId::SET_VARIABLE_MODE, "{\"refs\":[" + q(SCREEN) + "],\"collection\":" + q(extCopy) + ",\"mode\":" + q(copyDark) + "}") == OK);
+  CHECK(fillOf(c, RECT) == Color{0, 1, 0, 1});
+  // A library copy is read-only: no override is written into it.
+  CHECK(run(c, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(brandCopy) + ",\"mode\":" + q(copyDark) + R"(,"value":{"r":1,"g":1,"b":0,"a":1}})") != OK);
+  // The library changes its override: the update reaches the consumer.
+  REQUIRE(run(lib, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(l.brand) + ",\"mode\":" + q(extDark) + R"(,"value":{"r":1,"g":0,"b":1,"a":1}})") == OK);
+  auto m2 = publish(lib, {extKey, brandKey});
+  REQUIRE(c.importLibrary(m2, opts(kLibKey, true), out) == OK);
+  CHECK(fillOf(c, RECT) == Color{1, 0, 1, 1});
+  // The consumer extends the library's collection locally (Figma: local extensions of subscribed collections).
+  Guid themeCopy = c.extensionParent(extCopy);
+  REQUIRE(run(c, CommandId::EXTEND_VARIABLE_COLLECTION, "{\"collection\":" + q(themeCopy) + ",\"name\":\"Mine\"}") == OK);
+  Guid mine = c.lastCreated()[0];
+  Guid mineLight = props(c, mine).orderedModes()[0].id;
+  REQUIRE(run(c, CommandId::SET_VARIABLE_VALUE, "{\"variable\":" + q(brandCopy) + ",\"mode\":" + q(mineLight) + R"(,"value":{"r":0,"g":0,"b":0,"a":1}})") == OK);
+  REQUIRE(run(c, CommandId::SET_VARIABLE_MODE, "{\"refs\":[" + q(SCREEN) + "],\"collection\":" + q(mine) + ",\"mode\":" + q(mineLight) + "}") == OK);
+  CHECK(fillOf(c, RECT) == Color{0, 0, 0, 1});
+}

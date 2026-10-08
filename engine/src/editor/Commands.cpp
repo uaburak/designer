@@ -41,6 +41,23 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     // Library copies are read-only: commands may use them (bind, apply, insert, swap) but never change them.
     bool consumer = id == CommandId::BIND_VARIABLE || id == CommandId::DETACH_VARIABLE || id == CommandId::SET_VARIABLE_MODE ||
                     id == CommandId::APPLY_STYLE || id == CommandId::DETACH_STYLE || id == CommandId::CREATE_STYLE;
+    // A local extended collection of a library's collection (Figma: local extensions of subscribed collections) is
+    // made from, and overrides values of, read-only copies: its own writes are checked by the command.
+    auto argGuid = [&](const char* k) {
+      const json::Value* v = args.raw.isObject() ? args.raw.get(k) : nullptr;
+      bool ok = false;
+      Guid g = v && v->isString() ? Guid::parse(v->string, &ok) : Guid{};
+      return ok ? g : kNoGuid;
+    };
+    if (id == CommandId::EXTEND_VARIABLE_COLLECTION) consumer = true;
+    if (id == CommandId::RESET_VARIABLE_OVERRIDE) consumer = !isLibraryCopy(argGuid("collection"));
+    if (id == CommandId::SET_VARIABLE_VALUE && argGuid("mode") != kNoGuid) {
+      Guid v = argGuid("variable");
+      const Node* vn = doc_.get(v);
+      Guid set = vn ? findCollection(vn->props.asset().variableSetID) : kNoGuid;
+      Guid owner = set != kNoGuid ? collectionOfMode(set, argGuid("mode")) : kNoGuid;
+      if (owner != kNoGuid && owner != set && !isLibraryCopy(owner)) consumer = true;
+    }
     bool component = id >= CommandId::CREATE_COMPONENT && id <= CommandId::SET_VARIANT_PROPERTIES;
     std::vector<const char*> keys = {"ref", "refs", "parent", "page"};
     if (!consumer && !component) {
