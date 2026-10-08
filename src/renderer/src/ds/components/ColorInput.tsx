@@ -1,6 +1,6 @@
 import { useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../util/cx";
-import { hexDigits, normalizeHex } from "../util/color";
+import { hexDigits, parseHexInput } from "../util/color";
 import { selectAllOnClick } from "../util/selectAll";
 import { useReturnFocus } from "../util/returnFocus";
 import { isMixed, type ChangeInfo, type Mixed } from "../types";
@@ -15,7 +15,8 @@ export interface ColorInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
   color: Mixed<string>;
   /** 0–100 */
   opacity: Mixed<number>;
-  onColor: (hex: string, info: ChangeInfo) => void;
+  /** `opacity` (0–100): typed as 8-digit hex ("#RRGGBBAA") */
+  onColor: (hex: string, info: ChangeInfo, opacity?: number) => void;
   /** Without it there is no opacity part */
   onOpacity?: (o: number, info: ChangeInfo) => void;
   /** The swatch's accessible name (Figma: "Solid color hex: D9D9D9"); default "<label>: pick colour" */
@@ -47,8 +48,11 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, onSwatch
     cancelled.current = false;
     setDraft(null);
     if (!typed) return;
-    const hex = normalizeHex(raw);
-    if (hex && (mixedColor || hex !== color.toLowerCase())) onColor(hex, { final: true, source: "type" });
+    const parsed = parseHexInput(raw);
+    if (!parsed) return;
+    // "#RRGGBBAA": the colour and, when there's an opacity part, its opacity (8-digit hex, help 360043042113).
+    const newOpacity = parsed.opacity !== undefined && (isMixed(opacity) || parsed.opacity !== opacity) ? parsed.opacity : undefined;
+    if (mixedColor || parsed.hex !== color.toLowerCase() || newOpacity !== undefined) onColor(parsed.hex, { final: true, source: "type" }, newOpacity);
   };
   return (
     <div data-ds="ColorInput" data-disabled={disabled || undefined} className={cx(styles.field, className)} {...rest}>

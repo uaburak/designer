@@ -66,7 +66,7 @@ function useImageUrls(ed: EditorController): void {
 }
 
 /** One paint row: swatch + hex (or the type's name) + opacity (Figma's names: "Solid color hex: D9D9D9", "Color"). */
-export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }: { paint: FullPaint; label: string; onColor: (hex: string, info: ChangeInfo) => void; onOpacity: (o: number, info: ChangeInfo) => void; onPick: (anchor: DOMRect) => void; className?: string }) {
+export function PaintRow({ paint, label, onColor, onOpacity, onPick, className }: { paint: FullPaint; label: string; onColor: (hex: string, info: ChangeInfo, opacity?: number) => void; onOpacity: (o: number, info: ChangeInfo) => void; onPick: (anchor: DOMRect) => void; className?: string }) {
   const ed = useEditor();
   useImageUrls(ed);
   const solid = paint.type === "SOLID";
@@ -141,7 +141,7 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
                     className={cx(styles.paintField, p.visible === false && styles.paintHidden)}
                     paint={p}
                     label="Color"
-                    onColor={(hex, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1) } : q)), `${label} colour`, info)}
+                    onColor={(hex, info, o) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, color: hexToColor(hex, 1), ...(o !== undefined ? { opacity: o / 100 } : {}) } : q)), `${label} colour`, info)}
                     onOpacity={(o, info) => writePaints(ed, refs, field, paints.map((q, j) => (j === i ? { ...q, opacity: o / 100 } : q)), `${label} opacity`, info)}
                     onPick={(anchor) => onPick({ kind: "paint", field, index: i, anchor })}
                   />

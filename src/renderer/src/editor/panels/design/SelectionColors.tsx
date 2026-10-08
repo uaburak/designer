@@ -133,7 +133,7 @@ export function SelectionColorsSection({ nodes, onPick }: { nodes: PanelNode[]; 
             color={c.gradient ? paintSwatch(c.gradient) : colorToHex(c.color)}
             valueLabel={c.gradient ? paintLabel(c.gradient) : undefined}
             opacity={toPercent(c.opacity)}
-            onColor={(hex, info) => writeSelectionColor(ed, c.uses, { color: hexToColor(hex) }, info)}
+            onColor={(hex, info, o) => writeSelectionColor(ed, c.uses, { color: hexToColor(hex), ...(o !== undefined ? { opacity: o / 100 } : {}) }, info)}
             onOpacity={(o, info) => writeSelectionColor(ed, c.uses, { opacity: o / 100 }, info)}
             onSwatchClick={(anchor) => onPick({ kind: "colors", uses: c.uses, anchor })}
           />

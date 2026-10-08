@@ -16,6 +16,18 @@ export function normalizeHex(raw: string): string | null {
   return null;
 }
 
+/**
+ * What the hex field takes (help 360043042113): a colour as `normalizeHex` reads it, or 8 digits ("#RRGGBBAA") / 4
+ * ("#RGBA") whose last pair is the alpha — returned as an opacity 0–100 (rounded); null otherwise.
+ */
+export function parseHexInput(raw: string): { hex: string; opacity?: number } | null {
+  const d = raw.trim().toLowerCase().replace(/^#/, "");
+  const long = /^[0-9a-f]{8}$/.test(d) ? d : /^[0-9a-f]{4}$/.test(d) ? d.split("").map((c) => c + c).join("") : null;
+  if (long) return { hex: `#${long.slice(0, 6)}`, opacity: Math.round((parseInt(long.slice(6), 16) / 255) * 100) };
+  const hex = normalizeHex(raw);
+  return hex ? { hex } : null;
+}
+
 /** A hex colour's 6 digits, upper case, without "#" (Figma's fill row). */
 export const hexDigits = (color: string) => color.replace("#", "").slice(0, 6).toUpperCase();
 
