@@ -3,6 +3,8 @@
 // — it must render (the frame, the image, both texts: the italic one from its stored outlines), select layers, show
 // Dev Mode's Inspect (CSS with the variable's name, the text style), measure on hover and switch pages.
 // Screenshots go to $TMPDIR/designer-viewer-check. One browser, closed in finally, under 180 s.
+// VIEWER_GFX=webgpu: the canvases on WebGPU (the real GPU, Metal) instead of WebGL2 on SwiftShader. Either way a GPU
+// validation error, a feedback loop or a draw the engine's own check skipped (gfx::samplesAttachment) fails it.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
@@ -49,6 +51,13 @@ async function busyness(page: Page, png: Buffer): Promise<number> {
   }, png.toString("base64"));
 }
 
+const gfx = process.env.VIEWER_GFX === "webgpu" ? "webgpu" : "webgl";
+const launchArgs =
+  gfx === "webgpu"
+    ? ["--enable-unsafe-webgpu", "--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"]
+    : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"];
+const gpuError = /WebGPU error|GPUDevice|GPUValidationError|Invalid CommandBuffer|is invalid due to a previous error|sampled the texture it renders into|feedback loop|GL_INVALID/i;
+
 describe("the exported preview HTML (headless Chromium)", () => {
   it("opens from file://, renders, selects and inspects", async () => {
     if (!existsSync(template)) throw new Error("out/viewer/index.html is missing: npm run build:viewer");
@@ -61,16 +70,16 @@ describe("the exported preview HTML (headless Chromium)", () => {
     const file = join(outDir, "Synthetic.html");
     writeFileSync(file, inlinePreviewHtml(readFileSync(template, "utf8"), pkg));
 
-    const browser = await chromium.launch({ executablePath: chromiumPath(), args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+    const browser = await chromium.launch({ executablePath: chromiumPath(), args: launchArgs });
     const problems: string[] = [];
     try {
       const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
       page.setDefaultTimeout(15_000);
       page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
       page.on("console", (m) => {
-        if (m.type() === "error") problems.push(`console: ${m.text()}`);
+        if (m.type() === "error" || gpuError.test(m.text())) problems.push(`console: ${m.text()}`);
       });
-      await page.goto(pathToFileURL(file).href);
+      await page.goto(`${pathToFileURL(file).href}${gfx === "webgpu" ? "?gfx=webgpu" : ""}`);
       await page.waitForSelector("[data-viewer][data-ready]", { timeout: 30_000 });
       await page.waitForTimeout(800);
       expect(await page.title()).toBe("Synthetic – Developer preview");
@@ -184,6 +193,7 @@ describe("the exported preview HTML (headless Chromium)", () => {
       await page.getByRole("button", { name: "Present" }).click();
       await page.waitForSelector("[data-presentation] canvas");
       await page.waitForTimeout(600);
+      expect(await page.evaluate(() => (window as unknown as { __designerPresent?: { gfx: string } }).__designerPresent?.gfx)).toBe(gfx === "webgpu" ? "webgpu" : "webgl2");
       const stage = (await page.locator("[data-presentation] canvas").boundingBox())!;
       expect(await busyness(page, await page.screenshot({ clip: stage }))).toBeGreaterThan(0.02);
       await page.screenshot({ path: join(outDir, "05c-present.png") });
@@ -227,7 +237,7 @@ describe("the exported preview HTML (headless Chromium)", () => {
       res.writeHead(200, { "Content-Type": path.endsWith(".html") ? "text/html" : path.endsWith(".json") ? "application/json" : "application/octet-stream" }).end(body);
     });
     await new Promise<void>((r) => server.listen(5234, "127.0.0.1", r));
-    const browser = await chromium.launch({ executablePath: chromiumPath(), args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+    const browser = await chromium.launch({ executablePath: chromiumPath(), args: launchArgs });
     try {
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
       page.setDefaultTimeout(15_000);

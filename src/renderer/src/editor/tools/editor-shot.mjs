@@ -1303,6 +1303,7 @@ async function prototypeSection(page, theme) {
   let p = await preview();
   check("⇧Space opens the inline preview at the selected frame", (await page.locator("[data-inline-preview]").count()) === 1 && p.screen === "2:1", JSON.stringify(p));
   await shot(page, `105-inline-preview-${theme}`);
+  if (gfx === "webgpu") check("the inline preview's own engine draws with WebGPU too", (await page.evaluate(() => window.__designerPreview.gfx)) === "webgpu");
   const previewPoint = async (x, y) => {
     const s = await preview();
     const r = await page.locator("#preview-canvas").boundingBox();
@@ -1380,6 +1381,7 @@ async function prototypeSection(page, theme) {
   s = await state();
   check("?present&file= plays the store's file (read-only) at its flow", s.screen === "2:1" && s.flowName === "Onboarding", JSON.stringify(s));
   await shot(page, `104-present-route-${theme}`);
+  if (gfx === "webgpu") check("?present&file= draws with WebGPU", (await page.evaluate(() => window.__designerPresent.gfx)) === "webgpu");
 }
 
 /** Grid auto layout on `?editor&doc=reference` (dark): the Grid flow, its counts, track sizes, gaps, spans, the track pills. */
