@@ -13,7 +13,7 @@ export { STRINGS } from "./strings";
 export { cx } from "./util/cx";
 export { evaluate, evaluateWith, parseExpression, usesMixed, stripUnit, clampRound, commitTyped, formatNumber, type Committed } from "./util/evaluate";
 export { scrubValue, scrubRate, stepValue, SCRUB_THRESHOLD, SCRUB_SPEEDS } from "./util/scrub";
-export { normalizeHex, parseHexInput, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
+export { normalizeHex, parseHexInput, contrastRatio, hexDigits, withOpacity, rgbToHsv, hsvToRgb, rgbToHsl, hslToRgb, rgbToHex, hexToRgba, rgbaToCss, parseCssColor, mixRgba, sameRgba, type RGBA, type HSV, type HSL } from "./util/color";
 export * from "./util/paint";
 export { timeAgo, formatEdited } from "./util/time";
 export { keys, IS_MAC } from "./util/keys";

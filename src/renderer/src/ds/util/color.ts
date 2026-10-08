@@ -142,5 +142,21 @@ export function mixRgba(a: RGBA, b: RGBA, t: number): RGBA {
   return { r: a.r + (b.r - a.r) * k, g: a.g + (b.g - a.g) * k, b: a.b + (b.b - a.b) * k, a: a.a + (b.a - a.a) * k };
 }
 
+/** WCAG relative luminance of an opaque colour. */
+export function luminance(c: RGBA): number {
+  const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+}
+
+/**
+ * WCAG contrast ratio (1–21) of `fg` over `bg` — `fg`'s alpha composited on the opaque background first, as the
+ * picker's "Check color contrast" reads a fill against what's behind it.
+ */
+export function contrastRatio(fg: RGBA, bg: RGBA): number {
+  const top = mixRgba({ ...bg, a: 1 }, { ...fg, a: 1 }, fg.a);
+  const [a, b] = [luminance(top), luminance({ ...bg, a: 1 })].sort((x, y) => y - x);
+  return (a + 0.05) / (b + 0.05);
+}
+
 /** Two colours equal at 8-bit precision. */
 export const sameRgba = (x: RGBA, y: RGBA) => byte(x.r) === byte(y.r) && byte(x.g) === byte(y.g) && byte(x.b) === byte(y.b) && Math.round(x.a * 100) === Math.round(y.a * 100);

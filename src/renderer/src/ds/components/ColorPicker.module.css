@@ -55,6 +55,11 @@
 
   /* Gradient: the stop bar */
   .gradientRow { display: flex; align-items: center; gap: var(--ds-space-1); }
+  /* "Check color contrast": the ratio against what's behind the layer, AA / AAA lit when they pass */
+  .contrastRow { display: flex; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-control); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .contrastValue { flex: 1 1 auto; color: var(--figma-color-text); font-variant-numeric: tabular-nums; }
+  .contrastBadge { padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-small); color: var(--figma-color-text-tertiary); }
+  .contrastBadge[data-pass] { background: var(--figma-color-bg-success); color: var(--figma-color-text-onsuccess); }
   .gradientTypeRow { display: flex; align-items: center; justify-content: space-between; }
   .gradientActions { display: flex; gap: var(--ds-space-1); }
   .bar {

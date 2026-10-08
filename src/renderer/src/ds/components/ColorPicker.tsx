@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
-import { hexDigits, hexToRgba, hslToRgb, hsvToRgb, parseCssColor, rgbToHex, rgbToHsl, rgbToHsv, rgbaToCss, sameRgba, type HSV, type RGBA } from "../util/color";
+import { contrastRatio, hexDigits, hexToRgba, hslToRgb, hsvToRgb, parseCssColor, rgbToHex, rgbToHsl, rgbToHsv, rgbaToCss, sameRgba, type HSV, type RGBA } from "../util/color";
 import {
   addStop,
   BLEND_LABEL,
@@ -31,7 +31,7 @@ import { SegmentedControl } from "./SegmentedControl";
 import { Select } from "./Select";
 import { NumericInput } from "./NumericInput";
 import { ColorInput } from "./ColorInput";
-import { Button, IconButton } from "./Button";
+import { Button, IconButton, ToggleIconButton } from "./Button";
 import { MenuButton, type MenuEntry } from "./Menu";
 import { Swatch } from "./Swatch";
 import { EmptyState } from "./Misc";
@@ -172,6 +172,8 @@ export interface ColorPickerProps<P extends PickerPaint> {
   /** IMAGE: what to preview, and the "Choose image…" action */
   imageUrl?: string | null;
   onChooseImage?: () => void;
+  /** "Check color contrast": what's behind the layer (a solid colour); the button shows only with it */
+  contrastBackground?: RGBA | null;
   /** A gradient's "Rotate gradient" (its handles turn 90° about the middle — the editor owns the paint's transform) */
   onRotateGradient?: () => void;
   /** IMAGE: more controls under the scale mode (the editor's rotate and adjustment sliders) */
@@ -198,8 +200,9 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, imageControls, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
+  const [contrast, setContrast] = useState(false);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
   const model = colorModel ?? ownModel;
   const [ownStop, setOwnStop] = useState(0);
@@ -436,6 +439,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
               <MenuButton label="Blend mode" className={buttons.icon} entries={blendEntries} onSelect={(id) => onChange({ ...value, blendMode: id as P["blendMode"] }, { final: true, source: "pick" })}>
                 <Icon name={(value.blendMode ?? "NORMAL") === "NORMAL" ? "24.blendmode.small" : "24.blendmode.active.small"} />
               </MenuButton>
+              {/* Figma's live picker: "Check color contrast" at 208, the blend mode before it (Solid) */}
+              {contrastBackground && value.type === "SOLID" && <ToggleIconButton icon="24.contrast" label="Check color contrast" pressed={contrast} onPressedChange={setContrast} />}
             </div>
 
             {gradient && (
@@ -557,6 +562,19 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                   <Select label="Color model" value={model} options={MODELS} width={64} onChange={(m) => { setOwnModel(m as ColorModel); onColorModelChange?.(m as ColorModel); }} />
                   <div className={cx(field.field, styles.joined)}>{modelFields}</div>
                 </div>
+                {contrast && contrastBackground && value.type === "SOLID" && (() => {
+                  // WCAG 2: AA 4.5 (3 for large text), AAA 7 (4.5 for large text).
+                  const ratio = contrastRatio(target, contrastBackground);
+                  const shown = Math.floor(ratio * 100) / 100;
+                  return (
+                    <div className={styles.contrastRow} role="status" aria-label="Contrast">
+                      <span>Contrast</span>
+                      <span className={styles.contrastValue}>{shown}:1</span>
+                      <span className={styles.contrastBadge} data-pass={ratio >= 4.5 || undefined}>AA</span>
+                      <span className={styles.contrastBadge} data-pass={ratio >= 7 || undefined}>AAA</span>
+                    </div>
+                  );
+                })()}
               </>
             )}
 

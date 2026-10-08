@@ -14,7 +14,7 @@
  * transaction and commits on release.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ColorInput, ColorPicker, IconButton, isMixed, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
+import { ColorInput, ColorPicker, Icon, IconButton, isMixed, MenuButton, MIXED, PanelSection, cx, type ChangeInfo, type ColorModel, type PickerPaint } from "@/ds";
 import { useTextSummary } from "./useTextSummary";
 import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
@@ -26,7 +26,7 @@ import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
 import { pickImageFiles } from "../../canvas/ImagePlacer";
 import { startGradientEdit } from "../../vectorEdit";
-import { useUI } from "../../hooks";
+import { useLocalAssets, useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
 import { StrokeRows } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
@@ -35,7 +35,8 @@ import { BoundPaintRow, paintScope } from "./Variables";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { VariableList } from "../variables/VariablePicker";
 import { paintVariable } from "../../model/variables";
-import { applyStyle, bindPaint } from "../../variables";
+import { applyStyle, bindPaint, createCollection, createVariable } from "../../variables";
+import { CreateStylePopover } from "../variables/EditStyle";
 import styles from "./Design.module.css";
 
 type PaintField = "fillPaints" | "strokePaints";
@@ -334,6 +335,8 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   const paints = (shared === undefined || isMixed(shared) ? null : [...shared]) as FullPaint[] | null;
   const paint = paints?.[index];
   const [stop, setStop] = useGradientHandles(ed, refs, field, index, !!paint && isGradientType(paint.type));
+  const assets = useLocalAssets();
+  const [creatingStyle, setCreatingStyle] = useState(false);
 
   if (target.kind === "page") {
     const color = pageColor ?? hexToColor("#f5f5f5");
@@ -375,8 +378,31 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
   const write = (next: FullPaint, info: ChangeInfo, label: string) => writePaints(ed, refs, field, paints.map((q, j) => (j === index ? next : q)), label, info);
   const label = field === "fillPaints" ? "Fill" : "Stroke";
   const slot = field === "fillPaints" ? "fill" : "stroke";
+  // The picker's "+" (Figma's live "New style or variable"): a style from this paint, or a colour variable bound to it.
+  const newVariable = () => {
+    if (paint.type !== "SOLID" || !paint.color) return;
+    const collection = assets.collections[0]?.id ?? createCollection(ed);
+    if (!collection) return;
+    const id = createVariable(ed, collection, "COLOR", "", { kind: "literal", value: { ...paint.color, a: paint.opacity ?? 1 } });
+    if (id) bindPaint(ed, refs, field, index, id);
+  };
+  const headerActions = (
+    <MenuButton
+      label="New style or variable"
+      className={styles.iconMenu}
+      entries={[
+        { id: "style", label: "Create style" },
+        { id: "variable", label: "Create variable", disabled: paint.type !== "SOLID" },
+      ]}
+      onSelect={(id) => (id === "style" ? setCreatingStyle(true) : newVariable())}
+    >
+      <Icon name="24.plus.small" />
+    </MenuButton>
+  );
+  if (creatingStyle) return <CreateStylePopover kind="FILL" slot={slot} from={refs[0] ?? null} applyTo={refs} anchor={target.anchor} onClose={() => { setCreatingStyle(false); onClose(); }} />;
   return (
     <ColorPicker
+      headerActions={headerActions}
       value={toPicker(paint)}
       initialTab={paintVariable(paint) ? "libraries" : "custom"}
       libraries={
@@ -417,6 +443,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           </>
         ) : undefined
       }
+      contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], pageColor) : null}
       onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
         let out = fromPicker(paint, next);
@@ -428,6 +455,22 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
       onClose={onClose}
     />
   );
+}
+
+/**
+ * What's behind a layer for "Check color contrast": the nearest parent's top visible solid fill, else the page's
+ * colour (white when it has none).
+ */
+function backgroundBehind(ed: EditorController, ref: Guid | undefined, pageColor: Color | null): Color {
+  let id = ref ? ed.engine.readNode(ref)?.parentIndex?.guid : undefined;
+  for (let i = 0; id && i < 64; i++) {
+    const n = ed.engine.readNode(id);
+    if (!n || n.type === "CANVAS" || n.type === "DOCUMENT") break;
+    const top = [...(n.fillPaints ?? [])].reverse().find((p) => p.visible !== false && p.type === "SOLID" && (p.opacity ?? 1) > 0);
+    if (top?.color) return { ...top.color, a: 1 };
+    id = n.parentIndex?.guid;
+  }
+  return pageColor ? { ...pageColor, a: 1 } : { r: 1, g: 1, b: 1, a: 1 };
 }
 
 /** A gradient row of Selection colors edited: every use takes the new stops (each keeps its own handles). */
