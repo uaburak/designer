@@ -22,7 +22,7 @@ import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 /** What Selection colors reads of a layer (docs/engine-build.md "Performance round 2": a paints-only read). */
-const COLOR_FIELDS = ["fillPaints", "strokePaints", "visible", "mask"];
+const COLOR_FIELDS = ["fillPaints", "strokePaints", "visible", "mask", "styleIdForFill", "styleIdForStrokeFill"];
 
 /**
  * Does the engine build read a subtree with chosen fields in one call? abi.ts names READ_SUBTREE and the module in

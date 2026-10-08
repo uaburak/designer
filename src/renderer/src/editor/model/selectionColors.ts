@@ -42,9 +42,13 @@ export const SELECTION_COLORS_MAX_NODES = 5000;
 
 export const colorKey = (color: Pick<Color, "r" | "g" | "b">, opacity: number) => `${colorToHex(color)}/${Math.round(opacity * 100)}`;
 
-/** The distinct colours of `nodes` (in the order given: the selection, then each layer's subtree top first). */
+/**
+ * The distinct colours of `nodes` (in the order given: each layer's children before it, the first child first), those
+ * from colour variables first, then those from styles.
+ */
 export function collectColors(nodes: readonly NodeChange[]): SelectionColor[] {
   const out = new Map<string, SelectionColor>();
+  const byGuid = new Map(nodes.map((n) => [n.guid, n]));
   for (const n of nodes) {
     for (const field of ["fillPaints", "strokePaints"] as const) {
       if ((n as { mask?: boolean }).mask) continue;
@@ -68,7 +72,19 @@ export function collectColors(nodes: readonly NodeChange[]): SelectionColor[] {
       });
     }
   }
-  return [...out.values()];
+  // Figma lists colours from variables first, then from styles, then the rest (each group in reading order).
+  const rank = (c: SelectionColor) => {
+    let best = 2;
+    for (const u of c.uses) {
+      const n = byGuid.get(u.guid);
+      const p = n?.[u.field]?.[u.index] as { colorVar?: { dataType?: string } } | undefined;
+      if (p?.colorVar?.dataType === "ALIAS") return 0;
+      const style = (n as { styleIdForFill?: unknown; styleIdForStrokeFill?: unknown } | undefined)?.[u.field === "fillPaints" ? "styleIdForFill" : "styleIdForStrokeFill"];
+      if (style) best = 1;
+    }
+    return best;
+  };
+  return [...out.values()].map((c, i) => ({ c, i, r: rank(c) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.c);
 }
 
 /**

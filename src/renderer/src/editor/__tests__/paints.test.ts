@@ -195,6 +195,13 @@ describe("Selection colors with gradients", () => {
     expect(gradientKey(linear)).not.toBe(gradientKey({ ...linear, type: "GRADIENT_RADIAL" }));
   });
 
+  it("lists colours from variables first, then from styles, then the rest", () => {
+    const plain = n("1:1", [{ type: "SOLID", color: red, opacity: 1 }]);
+    const styled = { ...n("1:2", [{ type: "SOLID", color: blue, opacity: 1 }]), styleIdForFill: { guid: { sessionID: 1, localID: 9 } } } as NodeChange;
+    const bound = n("1:3", [{ type: "SOLID", color: { r: 0, g: 1, b: 0, a: 1 }, opacity: 1, colorVar: { dataType: "ALIAS", value: { alias: { guid: { sessionID: 1, localID: 5 } } } } } as Paint]);
+    expect(collectColors([plain, styled, bound]).map((c) => c.uses[0].guid)).toEqual(["1:3", "1:2", "1:1"]);
+  });
+
   it("masks are left out; a gradient edit keeps each use's handles", () => {
     expect(collectColors([{ guid: "1:1", mask: true, fillPaints: [{ type: "SOLID", color: red }] } as NodeChange])).toHaveLength(0);
     const t = { m00: 2, m01: 0, m02: 0, m10: 0, m11: 2, m12: 0 };
