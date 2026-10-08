@@ -428,7 +428,55 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       ex.slots.push_back({id, slotContent});  // a diverged slot shows its content frame instead of the main's
       continue;
     }
-    expandChildren(ex, symbol, x, id, path, level, levelPath, assigns, depth);
+    // A guidPath crosses nested instances only (docs/schema.md §5.1, Figma's overrides and derivedSymbolData): a
+    // frame's children keep the frame's prefix, not the frame's own key.
+    expandChildren(ex, symbol, x, id, prefix, level, levelPath, assigns, depth);
+  }
+}
+
+void normalizeOverridePaths(std::vector<NodeChange>& nodes) {
+  // Files this engine wrote before 2026-10-08 named every frame on the way down (tree paths). An element that isn't
+  // the path's last and isn't an instance can only be such a frame: it goes. Figma's paths have none.
+  std::unordered_map<Guid, bool, GuidHash> isInstance;  // by GUID and by overrideKey
+  bool any = false;
+  for (const NodeChange& c : nodes) {
+    bool inst = c.props.type == NodeType::INSTANCE;
+    isInstance.emplace(c.guid, inst);
+    if (c.props.overrideKey != kNoGuid) isInstance.emplace(c.props.overrideKey, inst);
+    any |= inst && !c.props.symbolData.overrides.empty();
+  }
+  if (!any) return;
+  for (NodeChange& c : nodes) {
+    auto& list = c.props.symbolData.overrides;
+    if (c.props.type != NodeType::INSTANCE || list.empty()) continue;
+    bool changed = false;
+    for (SymbolOverride& o : list) {
+      if (o.path.size() < 2) continue;
+      std::vector<Guid> p;
+      p.reserve(o.path.size());
+      for (size_t i = 0; i < o.path.size(); i++) {
+        auto it = isInstance.find(o.path[i]);
+        if (i + 1 < o.path.size() && it != isInstance.end() && !it->second) continue;
+        p.push_back(o.path[i]);
+      }
+      if (p.size() != o.path.size()) {
+        o.path = std::move(p);
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    // Two entries may now name one sublayer: merged (the later one's fields win).
+    std::vector<SymbolOverride> merged;
+    for (SymbolOverride& o : list) {
+      auto same = std::find_if(merged.begin(), merged.end(), [&](const SymbolOverride& m) { return m.path == o.path; });
+      if (same == merged.end()) {
+        merged.push_back(std::move(o));
+      } else {
+        copyFields(same->props, o.props, o.mask);
+        same->mask |= o.mask;
+      }
+    }
+    list = std::move(merged);
   }
 }
 
@@ -670,17 +718,22 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
   if (it == storedSymbols_.end()) return false;
   std::vector<StoredRow> stored = std::move(it->second);
   storedSymbols_.erase(it);  // used once: a later derivation lays out as usual
-  bool match = stored.size() == rows.size();
+  // This engine's own data lists every sublayer. Figma's (an imported .fig) lists only those whose geometry isn't the
+  // main's, plus entries for slot content this engine draws as real layers: the sublayers it names take its geometry,
+  // the others keep what they took from the main.
+  bool match = storedSparse_ || stored.size() == rows.size();
   std::vector<const StoredRow*> byRow(rows.size(), nullptr);
   if (match) {
     std::map<std::vector<Guid>, const StoredRow*> byPath;
     for (const StoredRow& s : stored) byPath.emplace(s.path, &s);
+    size_t found = 0;
     for (size_t i = 0; i < rows.size() && match; i++) {
       auto info = derivedInfo_.find(rows[i]);
-      auto found = info == derivedInfo_.end() ? byPath.end() : byPath.find(info->second.path);
-      if (found == byPath.end()) match = false;
-      else byRow[i] = found->second;
+      auto at = info == derivedInfo_.end() ? byPath.end() : byPath.find(info->second.path);
+      if (at != byPath.end()) byRow[i] = at->second, found++;
+      else if (!storedSparse_) match = false;
     }
+    match = match && (storedSparse_ ? found > 0 || stored.empty() : found == byPath.size());
   }
   if (!match) {
     derivedStale_++;
@@ -689,6 +742,7 @@ bool Editor::applyStoredRows(Guid R, const std::vector<Guid>& rows) {
   bool prev = applyingStored_;
   applyingStored_ = true;
   for (size_t i = 0; i < rows.size(); i++) {
+    if (!byRow[i]) continue;
     const StoredRow& s = *byRow[i];
     NodeChange c = NodeChange::changed(rows[i]);
     if (s.hasSize) c.mask |= F_SIZE, c.props.size = s.size;

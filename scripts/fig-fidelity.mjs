@@ -13,7 +13,7 @@
 // <name>.ours.png, <name>.figma.png, <name>.diff.png (ΔE as a heat map over a dimmed copy of Figma's) and
 // <name>.triplet.png (ours | Figma's | diff, 2× nearest) into --out (default $TMPDIR/fig-fidelity). --details adds
 // the worst 8×8 cells (thumbnail px) to the report, to find what differs.
-// --inspect "<js>" runs code in the page after the render (`engine` in scope, an async function body) and prints
+// --inspect "<js>" (or @file.js) runs code in the page after the render (`engine` in scope, an async function body) and prints
 // its JSON: to look at what the engine made of a node.
 //
 // The page: the one holding DOCUMENT.thumbnailInfo's node ("Set as thumbnail"), else the first page.
@@ -49,8 +49,15 @@ const ss = Math.max(1, Math.min(4, Number(opt("--ss", "2"))));
 const jsonOut = opt("--json");
 const timeoutSec = Number(opt("--timeout", "180"));
 const details = flag("--details");
-const inspect = opt("--inspect");
+const inspectArg = opt("--inspect");
+const inspect = inspectArg?.startsWith("@") ? readFileSync(inspectArg.slice(1), "utf8") : inspectArg;
 const samples = flag("--samples");
+// --ignore-derived: the snapshot without its derivedDataVersion stamp, so the engine lays everything out itself
+// (what the import did before it kept Figma's derived data): to measure our layout against Figma's.
+const ignoreDerived = flag("--ignore-derived");
+// --view <page>,<x>,<y>,<w>,<h>,<width>: draw that region of that page (a GUID or an index among the pages) at that
+// pixel width instead, ours only (<name>.view.png): to look at areas the thumbnail doesn't show.
+const viewArg = opt("--view");
 const files = [...argv];
 if (samples) {
   const dir = path.join(repo, "docs/research/figma/samples");
@@ -178,6 +185,7 @@ function pageMain() {
       // Loads the snapshot, shows the page, waits for fonts and images, draws the region; compares with Figma's.
       async run({ id, page, region, thumbW, thumbH, ss, bg, figmaPng, details, inspect }) {
         const out = { problems: [] };
+        window.__lastId = id;
         const snapshot = new Uint8Array(await (await fetch(`/__fid/doc.bin?id=${id}`)).arrayBuffer());
         engine.setImageSource(async (hash) => {
           const r = await fetch(`/__fid/image?id=${id}&hash=${hash}`);
@@ -206,6 +214,10 @@ function pageMain() {
         }
         // Ours, scaled down to the thumbnail (area-ish: the browser's high-quality resampling).
         const big = toCanvas(px);
+        if (!figmaPng) {
+          out.images = { view: await pngOf(big) };
+          return out;
+        }
         const W = thumbW, H = thumbH;
         const bgCss = `rgb(${Math.round(bg.r * 255)},${Math.round(bg.g * 255)},${Math.round(bg.b * 255)})`;
         const ours = new OffscreenCanvas(W, H);
@@ -275,7 +287,10 @@ function pageMain() {
           for (let cy = 0; cy < H; cy += 8)
             for (let cx = 0; cx < W; cx += 8) {
               let s = 0, n = 0;
-              for (let y = cy; y < Math.min(H, cy + 8); y++) for (let x = cx; x < Math.min(W, cx + 8); x++) (s += dE[y * W + x]), n++;
+              for (let y = cy; y < Math.min(H, cy + 8); y++) for (let x = cx; x < Math.min(W, cx + 8); x++) {
+                  s += dE[y * W + x];
+                  n++;
+                }
               cells.push({ x: cx, y: cy, meanDE: s / n, world: { x: region.x + (cx / W) * region.width, y: region.y + (cy / H) * region.height } });
             }
           out.worst = cells.sort((p, q) => q.meanDE - p.meanDE).slice(0, 12);
@@ -393,7 +408,7 @@ try {
   var systemFonts = () => (fontIndexPromise ??= fontsModule.fontIndex());
   void systemFonts();
   const { prepareFigImport } = await server.ssrLoadModule(path.join(repo, "src/store/import/fig.ts"));
-  const { decodeMessage } = await server.ssrLoadModule(path.join(repo, "src/shared/schema/codec.ts"));
+  const { decodeMessage, encodeMessage } = await server.ssrLoadModule(path.join(repo, "src/shared/schema/codec.ts"));
   const { readFigFile } = await server.ssrLoadModule(path.join(repo, "src/shared/fig/figFile.ts"));
   const { nodeCodecs } = await server.ssrLoadModule(path.join(repo, "src/store/kiwi/codecs.ts"));
 
@@ -422,7 +437,7 @@ try {
     const bytes = new Uint8Array(readFileSync(file));
     const fig = readFigFile(bytes, nodeCodecs);
     const meta = fig.meta?.client_meta;
-    if (!fig.thumbnail || !meta?.thumbnail_size || !meta?.render_coordinates) {
+    if (!viewArg && (!fig.thumbnail || !meta?.thumbnail_size || !meta?.render_coordinates)) {
       results.push({ name, skipped: "no thumbnail or render_coordinates" });
       continue;
     }
@@ -446,18 +461,25 @@ try {
       pages.sort((p, q) => (p.parentIndex.position < q.parentIndex.position ? -1 : p.parentIndex.position > q.parentIndex.position ? 1 : 0));
       pageGuid = pages[0] ? key(pages[0].guid) : null;
     }
+    let view = null;
+    if (viewArg) {
+      const [pg, x, y, w, h, width] = viewArg.split(",");
+      const pages = msg.nodeChanges.filter((n) => n.type === "CANVAS" && n.parentIndex && key(n.parentIndex.guid) === "0:0").sort((p, q) => (p.parentIndex.position < q.parentIndex.position ? -1 : 1));
+      pageGuid = /^\d+$/.test(pg) ? key(pages[Number(pg)].guid) : pg;
+      view = { region: { x: +x, y: +y, width: +w, height: +h }, thumbW: Math.round(+width), thumbH: Math.round((+width * +h) / +w) };
+    }
     const id = String(i);
-    docs.set(id, { message: prepared.message, images: prepared.images });
+    docs.set(id, { message: ignoreDerived ? encodeMessage({ ...msg, derivedDataVersion: 0 }) : prepared.message, images: prepared.images });
     const t0 = performance.now();
     const r = await page.evaluate((a) => window.__fid.run(a), {
       id,
       page: pageGuid,
-      region: meta.render_coordinates,
-      thumbW: meta.thumbnail_size.width,
-      thumbH: meta.thumbnail_size.height,
-      ss,
-      bg: meta.background_color ?? { r: 1, g: 1, b: 1, a: 1 },
-      figmaPng: Buffer.from(fig.thumbnail).toString("base64"),
+      region: view?.region ?? meta.render_coordinates,
+      thumbW: view?.thumbW ?? meta.thumbnail_size.width,
+      thumbH: view?.thumbH ?? meta.thumbnail_size.height,
+      ss: view ? 1 : ss,
+      bg: meta?.background_color ?? { r: 1, g: 1, b: 1, a: 1 },
+      figmaPng: view ? null : Buffer.from(fig.thumbnail).toString("base64"),
       details,
       inspect,
     });
@@ -466,8 +488,8 @@ try {
       name,
       page: pageGuid,
       thumbnailNode: thumbNode ? key(thumbNode) : null,
-      size: meta.thumbnail_size,
-      region: meta.render_coordinates,
+      size: view ? { width: view.thumbW, height: view.thumbH } : meta.thumbnail_size,
+      region: view?.region ?? meta.render_coordinates,
       meanDE: r.meanDE,
       bad: r.bad,
       veryBad: r.veryBad,
@@ -480,7 +502,9 @@ try {
     results.push(entry);
     const pct = (x) => `${(x * 100).toFixed(2)}%`;
     console.log(
-      r.meanDE === undefined
+      view
+        ? `${name}: view of ${pageGuid} written${entry.problems.length ? ` [${entry.problems.join("; ")}]` : ""}`
+        : r.meanDE === undefined
         ? `${name}: failed — ${entry.problems.join("; ")}`
         : `${name.padEnd(28)} ΔE mean ${r.meanDE.toFixed(2).padStart(6)}   >10 ${pct(r.bad).padStart(7)}   >25 ${pct(r.veryBad).padStart(7)}   (${entry.size.width}×${entry.size.height}, ${entry.ms} ms)${entry.problems.length ? `  [${entry.problems.slice(0, 3).join("; ")}]` : ""}`
     );

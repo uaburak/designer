@@ -322,10 +322,13 @@ std::vector<Layout::Placement> Layout::place(Guid frame, Vec2 size) {
     switch (p.stackPrimaryAlignItems) {
       case StackJustify::CENTER: start = free / 2; break;
       case StackJustify::MAX: start = free; break;
+      // Figma's "Space between" is SPACE_EVENLY in its files (its plugin API's SPACE_BETWEEN; the kiwi SPACE_BETWEEN
+      // lays out the same); a lone child is centred. CSS space-evenly is SPACE_EVENLY_CSS.
       case StackJustify::SPACE_BETWEEN:
-        if (k > 1 && !p.hugsPrimary()) g = std::max(0.0, (innerP - (used - gaps)) / static_cast<double>(k - 1));
-        break;
       case StackJustify::SPACE_EVENLY:
+        if (k > 1 && !p.hugsPrimary()) g = std::max(0.0, (innerP - (used - gaps)) / static_cast<double>(k - 1));
+        else if (k == 1) start = free / 2;
+        break;
       case StackJustify::SPACE_EVENLY_CSS:
         if (!p.hugsPrimary()) {
           g = std::max(0.0, (innerP - (used - gaps)) / static_cast<double>(k + 1));

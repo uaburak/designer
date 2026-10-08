@@ -1145,10 +1145,10 @@ describe("engine (wasm, headless): derived data, the Layers outline, change byte
   it("a derived snapshot loads its instances' layout as stored; the outline read; DOCUMENT_CHANGED bytes on the JSON wire", async () => {
     const a = await Engine.create(null, { sessionID: 9 });
     a.load(doc);
-    expect(a.derivedDataVersion()).toBe(1);
+    expect(a.derivedDataVersion()).toBe(2);
     const stored = a.encodeDocumentKiwi({ derived: true });
     const decoded = decodeKiwi(stored);
-    expect((decoded as { derivedDataVersion?: number }).derivedDataVersion).toBe(1);
+    expect((decoded as { derivedDataVersion?: number }).derivedDataVersion).toBe(2);
     const instance = decoded.nodeChanges!.find((n) => n.guid!.localID === 21)!;
     expect(instance.derivedSymbolData?.map((e) => e.guidPath?.guids?.map((k) => k.localID))).toEqual([[2], [3]]);
 

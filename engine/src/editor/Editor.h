@@ -147,6 +147,10 @@ struct Clipboard {
   bool isCut = false;
 };
 
+// Instances' override paths in Figma's form (they cross nested instances only, docs/schema.md §5.1): the tree paths
+// this engine wrote before 2026-10-08 lose their intermediate frames, entries that then name one sublayer merge.
+void normalizeOverridePaths(std::vector<NodeChange>& nodes);
+
 class Editor : private LayoutHost, public TextLayouts {
  public:
   Editor();
@@ -155,7 +159,12 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- Derived data stored in the file (docs/engine-build.md "Figma parity round 3" §2; Figma's derivedSymbolData
   // 125 and derivedTextData 359). The stamp the engine writes into Message.derivedDataVersion and trusts at load: bump it
   // whenever layout or text layout would give a different result.
-  static constexpr uint32_t kDerivedDataVersion = 1;
+  // 2: derivedSymbolData paths cross nested instances only (Figma's); 1 named every frame on the way.
+  static constexpr uint32_t kDerivedDataVersion = 2;
+  // Figma's own derived data, kept by a .fig import (src/shared/fig/convert.ts FIGMA_DERIVED_DATA_VERSION): the same
+  // fields in the same shape, Figma's layout result. Read as this engine's own (a missing font's text draws Figma's
+  // outlines, instances and auto layout open as Figma laid them out); never written.
+  static constexpr uint32_t kFigmaDerivedDataVersion = 0x46494701;
   // One stored instance sublayer: where it is (its guidPath from the instance) and what layout gave it.
   struct StoredRow {
     std::vector<Guid> path;
@@ -167,6 +176,7 @@ class Editor : private LayoutHost, public TextLayouts {
   struct StoredDerived {
     std::unordered_map<Guid, std::shared_ptr<const text::StoredText>, GuidHash> texts;  // real TEXT nodes
     std::unordered_map<Guid, std::vector<StoredRow>, GuidHash> symbols;                 // per real INSTANCE
+    bool sparse = false;  // Figma's derivedSymbolData: only the sublayers whose geometry isn't the main's
   };
   // Instances / texts whose stored data was used at their derivation, and those whose stored data didn't match.
   uint32_t derivedUsed() const { return derivedUsed_; }
@@ -1147,6 +1157,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_map<Guid, StoredLayout, GuidHash> storedLayouts_;  // drawn from storedText_ (fonts pending / missing)
   bool trustLayout_ = false;     // the snapshot's geometry is this engine's own: pages derive without re-verifying it
   bool applyingStored_ = false;  // writes of stored geometry (not edits)
+  bool storedSparse_ = false;    // storedSymbols_ came from Figma (StoredDerived::sparse)
   uint32_t derivedUsed_ = 0, derivedStale_ = 0;
 
   // The press (Gestures.cpp pointerDown): inside a selected layer — the selection stays, a drag moves it, a click

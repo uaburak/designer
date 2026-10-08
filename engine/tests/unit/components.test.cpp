@@ -224,6 +224,83 @@ TEST_CASE("components: nested instances, usage-site overrides over the nested in
   CHECK(info.main == OTHER);
 }
 
+TEST_CASE("components: override paths cross nested instances only (Figma's); older tree paths are normalized at load") {
+  // Card (4:1) > Body frame (4:2) > Title text (4:3) and an Icon instance (4:4) of Icon (5:1) > Shape (5:2).
+  auto nodes = baseChanges();
+  const Guid CARD{4, 1}, BODY{4, 2}, TITLE{4, 3}, ICON_I{4, 4}, ICON{5, 1}, SHAPE{5, 2}, CARD_I{4, 10}, OLD_I{4, 11};
+  nodes.push_back(make(ICON, NodeType::SYMBOL, kPage, "#", {300, 0, 16, 16}, "Icon"));
+  nodes.push_back(make(SHAPE, NodeType::ELLIPSE, ICON, "!", {0, 0, 16, 16}, "Shape"));
+  nodes.push_back(make(CARD, NodeType::SYMBOL, kPage, "!", {0, 0, 200, 100}, "Card"));
+  nodes.push_back(make(BODY, NodeType::FRAME, CARD, "!", {10, 10, 180, 80}, "Body"));
+  nodes.push_back(textNode(TITLE, BODY, "!", {0, 0, 100, 20}, "Title"));
+  nodes.push_back(instanceOf(ICON_I, ICON, BODY, "\"", {150, 0, 16, 16}));
+  auto overrides = [&](std::vector<Guid> title, std::vector<Guid> shape) {
+    SymbolOverride t;
+    t.path = std::move(title);
+    t.mask = F_TEXT_DATA;
+    t.props.textData.characters = "Hello";
+    SymbolOverride s;
+    s.path = std::move(shape);
+    s.mask = F_FILLS;
+    s.props.fillPaints = {Paint::solid(Color::hex(0x00FF00))};
+    return std::vector<SymbolOverride>{t, s};
+  };
+  // Figma's form: [Title], [Icon instance, Shape] — the Body frame isn't named.
+  NodeChange figma = instanceOf(CARD_I, CARD, kPage, "$", {0, 200, 200, 100});
+  figma.props.symbolData.overrides = overrides({TITLE}, {ICON_I, SHAPE});
+  nodes.push_back(figma);
+  // The tree form this engine wrote before: [Body, Title], [Body, Icon instance, Shape].
+  NodeChange old = instanceOf(OLD_I, CARD, kPage, "%", {0, 400, 200, 100});
+  old.props.symbolData.overrides = overrides({BODY, TITLE}, {BODY, ICON_I, SHAPE});
+  nodes.push_back(old);
+  Editor e = load(nodes);
+  for (Guid inst : {CARD_I, OLD_I}) {
+    CAPTURE(inst.localID);
+    CHECK(props(e, sub(inst, {BODY, TITLE})).textData.characters == "Hello");
+    CHECK(props(e, sub(inst, {BODY, ICON_I, SHAPE})).fillPaints[0].color == Color::hex(0x00FF00));
+    CHECK(hasOverride(e, inst, {TITLE}, F_TEXT_DATA));
+    CHECK(hasOverride(e, inst, {ICON_I, SHAPE}, F_FILLS));
+  }
+  // An edit inside the frame writes Figma's path.
+  e.setProps({sub(CARD_I, {BODY, TITLE})}, change(F_OPACITY, [](NodeProps& p) { p.opacity = 0.5; }), 0);
+  CHECK(hasOverride(e, CARD_I, {TITLE}, F_OPACITY));
+  CHECK(!hasOverride(e, CARD_I, {BODY, TITLE}, F_OPACITY));
+}
+
+TEST_CASE("components: Figma's derivedSymbolData (an imported .fig) is sparse: named sublayers take it, the rest the main's") {
+  // Button main (1:1) with a background (1:2) and a label (1:3); its instance 1:10 at the main's size. Figma's data
+  // names only the label (moved by a layout the main doesn't have) and a slot-content path this engine draws as real
+  // layers.
+  Editor::StoredDerived stored;
+  stored.sparse = true;
+  Editor::StoredRow label;
+  label.path = {LABEL};
+  label.hasTransform = true;
+  label.transform = Mat2x3::translate(30, 12);
+  Editor::StoredRow extra;
+  extra.path = {Guid{9, 9}};
+  extra.hasSize = true;
+  extra.size = {5, 5};
+  stored.symbols[I] = {label, extra};
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(buttonDoc(), kNoGuid, &stored);
+  CHECK(e.derivedUsed() == 1);
+  CHECK(e.derivedStale() == 0);
+  CHECK(props(e, sub(I, {LABEL})).transform.m02 == doctest::Approx(30));
+  CHECK(props(e, sub(I, {LABEL})).transform.m12 == doctest::Approx(12));
+  CHECK(props(e, sub(I, {BG})).size.x == doctest::Approx(100));  // not named: the main's
+  // This engine's own data (not sparse) must name every sublayer, else the instance is laid out as usual.
+  Editor::StoredDerived own;
+  own.symbols[I] = {label};
+  Editor e2;
+  e2.loadDocument(buttonDoc(), kNoGuid, &own);
+  CHECK(e2.derivedUsed() == 0);
+  CHECK(e2.derivedStale() == 1);
+  CHECK(props(e2, sub(I, {LABEL})).transform.m02 == doctest::Approx(10));
+}
+
 TEST_CASE("components: boolean and text properties; editing a bound field writes the property value") {
   auto nodes = buttonDoc();
   const Guid SHOW{1, 0x7fffffff}, TXT{1, 0x7ffffffe};

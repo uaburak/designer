@@ -459,9 +459,11 @@ ENG_EXPORT int32_t engine_load_at(Handle h, Ptr ptr, uint32_t len, uint32_t page
   Guid page{pageSessionID, pageLocalID};
   if (page == kNoGuid && v.isObject())
     if (auto* p = v.get("currentPage"); p && p->isString()) page = Guid::parse(p->string);
-  // Derived data is trusted only when this engine wrote it (docs/schema.md §1.3: a reader ignores another stamp's).
-  if (m.derivedDataVersion == Editor::kDerivedDataVersion) {
+  // Derived data is trusted only when this engine wrote it (docs/schema.md §1.3: a reader ignores another stamp's), or
+  // when it is Figma's own, kept by a .fig import (Figma's layout is the one to match).
+  if (m.derivedDataVersion == Editor::kDerivedDataVersion || m.derivedDataVersion == Editor::kFigmaDerivedDataVersion) {
     Editor::StoredDerived stored = derived.take(m.blobs);
+    stored.sparse = m.derivedDataVersion == Editor::kFigmaDerivedDataVersion;
     e->editor.loadDocument(std::move(m.changes), page, &stored);
   } else {
     e->editor.loadDocument(std::move(m.changes), page);

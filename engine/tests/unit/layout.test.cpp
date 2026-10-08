@@ -85,6 +85,34 @@ TEST_CASE("layout: horizontal wrap, as Figma lays out stacks_wrap.fig") {
   CHECK(at(e, kids[5].guid).y == doctest::Approx(101.5));
 }
 
+TEST_CASE("layout: Figma's space between is SPACE_EVENLY in its files; a lone child is centred; CSS evenly is SPACE_EVENLY_CSS") {
+  // Figma's own numbers (a vertical 150 tall frame, padding 16: children 17 and 49 tall at 16 and 85; a lone 286 tall
+  // child in an 804 tall frame, padding 24, at 259).
+  const Guid F{3, 1}, G{3, 2};
+  NodeChange f = autoLayout(F, StackMode::VERTICAL, {0, 0, 130, 150}, 0, 16);
+  f.props.stackPrimaryAlignItems = StackJustify::SPACE_EVENLY;
+  NodeChange a = make({3, 11}, NodeType::ROUNDED_RECTANGLE, F, "!", {0, 0, 98, 17});
+  NodeChange b = make({3, 12}, NodeType::ROUNDED_RECTANGLE, F, "\"", {0, 0, 98, 49});
+  NodeChange g = autoLayout(G, StackMode::VERTICAL, {200, 0, 300, 804}, 0, 24);
+  g.props.stackPrimaryAlignItems = StackJustify::SPACE_EVENLY;
+  NodeChange lone = make({3, 21}, NodeType::ROUNDED_RECTANGLE, G, "!", {0, 0, 100, 286});
+  Editor e = load({f, a, b, g, lone});
+  touch(e, F, 0);
+  touch(e, G, 0);
+  CHECK(at(e, a.guid).y == doctest::Approx(16));
+  CHECK(at(e, b.guid).y == doctest::Approx(85));
+  CHECK(at(e, lone.guid).y == doctest::Approx(259));
+  // The kiwi SPACE_BETWEEN lays out the same; SPACE_EVENLY_CSS spaces evenly: (150 - 32 - 66) / 3 = 17.33.
+  NodeChange c;
+  c.mask = F_STACK_PRIMARY_ALIGN;
+  c.props.stackPrimaryAlignItems = StackJustify::SPACE_BETWEEN;
+  REQUIRE(e.setProps({F}, c, 0) == OK);
+  CHECK(at(e, b.guid).y == doctest::Approx(85));
+  c.props.stackPrimaryAlignItems = StackJustify::SPACE_EVENLY_CSS;
+  REQUIRE(e.setProps({F}, c, 0) == OK);
+  CHECK(at(e, a.guid).y == doctest::Approx(16 + 52.0 / 3));
+}
+
 TEST_CASE("layout: vertical, centred, overflowing (stacks_wrap.fig 'Vertical middle center')") {
   const Guid F{2, 11};
   NodeChange f = autoLayout(F, StackMode::VERTICAL, {0, 0, 280, 195}, 0, 20);
