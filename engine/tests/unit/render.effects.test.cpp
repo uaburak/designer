@@ -276,3 +276,67 @@ TEST_CASE("renderer: NOISE paints are noise cells; PATTERN paints tile their sou
       for (auto& q : dev.instancesOf<DrawInstance>(i)) ellipses += q.geom[2] == static_cast<float>(ShapeKind::Ellipse);
   CHECK(ellipses == 10 * 10 + 1);
 }
+
+TEST_CASE("render tree: a change to a pattern's source, or inside it, on any page, damages the layers that tile it") {
+  Document d;
+  base(d);
+  const Guid kOther{0, 7};
+  NodeProps other;
+  other.type = NodeType::CANVAS;
+  other.name = "Page 2";
+  other.parentIndex = {kDoc, "\""};
+  d.apply(NodeChange::created(kOther, other));
+  // The source: a frame with an ellipse in it, on page 2; the user: a rectangle on page 1 tiling it.
+  NodeChange frame = make({1, 2}, NodeType::FRAME, kOther, "!", {300, 10, 10, 10});
+  d.apply(frame);
+  NodeChange dot = make({1, 3}, NodeType::ELLIPSE, {1, 2}, "!", {0, 0, 10, 10});
+  dot.props.fillPaints = {Paint::solid(Color::hex(0xFF0000))};
+  d.apply(dot);
+  NodeChange user = card({1, 1}, {10, 10, 100, 100});
+  Paint pattern;
+  pattern.type = PaintType::PATTERN;
+  pattern.extra = paintExtra({{"sourceNodeId", "{\"sessionID\":1,\"localID\":2}"}});
+  user.props.fillPaints = {pattern};
+  d.apply(user);
+  NodeChange plain = card({1, 4}, {500, 500, 20, 20});
+  d.apply(plain);
+  RenderTree t;
+  t.sync(d, kPage);
+  (void)t.takeDamage();
+  auto damagedUser = [&](const RenderTree::Damage& dmg) {
+    for (const Rect& r : dmg.rects)
+      if (r.x <= 10 && r.y <= 10 && r.right() >= 110 && r.bottom() >= 110) return true;
+    return dmg.all;
+  };
+  // The ellipse inside the source changes colour: the user is damaged (the source is on another page).
+  NodeChange c = NodeChange::changed({1, 3});
+  c.mask = F_FILLS;
+  c.props.fillPaints = {Paint::solid(Color::hex(0x00FF00))};
+  d.apply(c);
+  t.sync(d, kPage);
+  CHECK(damagedUser(t.takeDamage()));
+  // A change elsewhere doesn't touch it.
+  NodeChange p = NodeChange::changed({1, 4});
+  p.mask = F_FILLS;
+  p.props.fillPaints = {Paint::solid(Color::hex(0x000000))};
+  d.apply(p);
+  t.sync(d, kPage);
+  CHECK_FALSE(damagedUser(t.takeDamage()));
+  // The ellipse taken out of the source: damaged too.
+  d.apply(NodeChange::removed({1, 3}));
+  t.sync(d, kPage);
+  CHECK(damagedUser(t.takeDamage()));
+  // No longer a pattern: the source's changes don't reach it any more.
+  NodeChange u = NodeChange::changed({1, 1});
+  u.mask = F_FILLS;
+  u.props.fillPaints = {Paint::solid(Color::hex(0x3366FF))};
+  d.apply(u);
+  t.sync(d, kPage);
+  (void)t.takeDamage();
+  NodeChange f = NodeChange::changed({1, 2});
+  f.mask = F_FILLS;
+  f.props.fillPaints = {Paint::solid(Color::hex(0x00FF00))};
+  d.apply(f);
+  t.sync(d, kPage);
+  CHECK_FALSE(damagedUser(t.takeDamage()));
+}

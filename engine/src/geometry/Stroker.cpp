@@ -164,12 +164,41 @@ Line arcPiece(const std::vector<Vec2>& pts, const std::vector<bool>& corner, con
   return out;
 }
 
-// Figma's fitted dashes of a closed contour (StrokeStyle::fitDashes).
+// Figma's fitted dashes of a closed contour (StrokeStyle::fitDashes), or of a straight open line (always).
 std::vector<Line> fittedDash(const Line& line, const std::vector<double>& pattern) {
   double period = 0;
   for (double d : pattern) period += std::max(0.0, d);
   size_t n = line.pts.size();
-  if (pattern.empty() || period <= 0 || !line.closed || n < 2) return {line};
+  if (pattern.empty() || period <= 0 || n < 2) return {line};
+  if (!line.closed) {
+    // A straight open line (Figma's exports of dashed lines): the pattern fitted to its length the same way, half a
+    // dash at each end. Other open paths dash continuously from their start (unverified).
+    Vec2 d0 = unit(line.pts[1] - line.pts[0]);
+    for (size_t i = 1; i + 1 < n; i++) {
+      Vec2 d = unit(line.pts[i + 1] - line.pts[i]);
+      if (std::fabs(cross(d0, d)) > 1e-9 || dot(d0, d) <= 0) return dash(line, pattern);
+    }
+    std::vector<double> cum{0};
+    for (size_t i = 1; i < n; i++) cum.push_back(cum.back() + (line.pts[i] - line.pts[i - 1]).length());
+    double len = cum.back();
+    if (!(len > 0)) return {line};
+    double k = std::max(1.0, std::round(len / period)), scale = len / (k * period);
+    double t = -std::max(0.0, pattern[0]) * scale / 2;
+    std::vector<Line> out;
+    for (size_t j = 0; t < len - 1e-9; j = (j + 1) % pattern.size()) {
+      double d = std::max(0.0, pattern[j]) * scale;
+      if (j % 2 == 0) {
+        double a = std::max(t, 0.0), b = std::min(t + d, len);
+        if (b > a) {
+          out.push_back(arcPiece(line.pts, line.corner, cum, a, b));
+          if (a <= 0) out.back().pts.front() = line.pts.front();  // exactly: the ends keep their caps
+          if (b >= len) out.back().pts.back() = line.pts.back();
+        }
+      }
+      t += d;
+    }
+    return out;
+  }
   // Edges i → i + 1 (cyclic) that are a straight segment of the path (no flattening points inside), and the points
   // where the outline really turns or a curve starts: a side is the straight run between two of them.
   auto straight = [&](size_t i) { return line.corner[i] && line.corner[(i + 1) % n]; };
@@ -276,14 +305,18 @@ void trim(Line& l, double len, bool atEnd) {
   }
 }
 
-// Arrowhead sizes. The line arrow is measured on live Figma (docs/research/figma/live/img/canvas-arrow-line-selected.png,
-// a 1 px line at 287 %): arms about 4.5 long along their centre lines, 45° off the line. The others are unverified
-// (chosen to look like Figma's at 1–4 px).
-double lineArrowLength(double w) { return 3 * w + 1.5; }
+// Arrowhead sizes, from Figma's own SVG exports of lines with end points (round 8; docs/engine.md §6.4): every
+// size is a multiple of the stroke weight w, and every head sits on the end point.
+//   Line arrow: two arms 4.5w long (centre lines) at 45°, round caps and a round join at the tip (w = 1, 2).
+//   Triangle arrow: equilateral, 5w long, its tip on the end point; the line stops w/2 inside its base (w = 1, 2).
+//   Reversed triangle: 10w/√3 wide at the end point, narrowing to w over 5w back along the line (w = 1).
+//   Circle arrow: radius 8w/3 (w = 1). Diamond arrow: a square on its corner, 5w/√3 from centre to corner (w = 1).
+double lineArrowLength(double w) { return 4.5 * w; }
 constexpr double kLineArrowAngle = 45;  // degrees off the line
-double triangleSide(double w) { return 3 * w + 4; }
-double circleRadius(double w) { return 1.5 * w + 1.5; }
-double diamondHalf(double w) { return 1.5 * w + 2.5; }
+double triangleLength(double w) { return 5 * w; }
+double triangleHalfBase(double w) { return 5 * w / std::sqrt(3.0); }
+double circleRadius(double w) { return 8 * w / 3; }
+double diamondHalf(double w) { return 5 * w / std::sqrt(3.0); }
 
 void strokeLine(Path& out, Line line, const StrokeStyle& s, StrokeCap startCap, StrokeCap endCap, double tol);
 
@@ -301,23 +334,20 @@ void cap(Path& out, Vec2 p, Vec2 d, StrokeCap c, const StrokeStyle& s, double to
       Vec2 back = d * -1;
       Line arms{{p + rotate(back, a) * L, p, p + rotate(back, -a) * L}, {true, true, true}, false};
       StrokeStyle st = s;
-      st.join = StrokeJoin::MITER;
-      st.miterLimit = 8;
+      st.join = StrokeJoin::ROUND;
       st.dashes.clear();
-      strokeLine(out, arms, st, StrokeCap::NONE, StrokeCap::NONE, tol);
+      strokeLine(out, arms, st, StrokeCap::ROUND, StrokeCap::ROUND, tol);
       break;
     }
     case StrokeCap::ARROW_EQUILATERAL: {
-      double side = triangleSide(s.width), h = side * std::sqrt(3.0) / 2;
-      Vec2 tip = p + d * (hw * 0.5), base = tip - d * h, m = perp(d) * (side / 2);
-      polygon(out, {tip, base + m, base - m});
+      Vec2 base = p - d * triangleLength(s.width), m = perp(d) * triangleHalfBase(s.width);
+      polygon(out, {p, base + m, base - m});
       break;
     }
     case StrokeCap::TRIANGLE_FILLED: {
-      // Figma's "Reversed triangle": the base at the end, the point back along the line.
-      double side = triangleSide(s.width), h = side * std::sqrt(3.0) / 2;
-      Vec2 m = perp(d) * (side / 2), base = p + d * (hw * 0.5);
-      polygon(out, {base + m, base - m, base - d * h});
+      // Figma's "Reversed triangle": its base on the end point, narrowing back along the line to the line's width.
+      Vec2 m = perp(d) * triangleHalfBase(s.width), back = p - d * triangleLength(s.width);
+      polygon(out, {p + m, p - m, back - n, back + n});
       break;
     }
     case StrokeCap::CIRCLE_FILLED: disc(out, p, circleRadius(s.width)); break;
@@ -330,8 +360,9 @@ void cap(Path& out, Vec2 p, Vec2 d, StrokeCap c, const StrokeStyle& s, double to
   }
 }
 
+// How far the line stops short of an end point under its head (as Figma's exports draw it: w/2 inside the triangle).
 double capTrim(StrokeCap c, double w) {
-  return c == StrokeCap::ARROW_EQUILATERAL ? triangleSide(w) * std::sqrt(3.0) / 4 : 0;
+  return c == StrokeCap::ARROW_EQUILATERAL || c == StrokeCap::TRIANGLE_FILLED ? triangleLength(w) - w / 2 : 0;
 }
 
 void join(Path& out, Vec2 p, Vec2 d0, Vec2 d1, StrokeJoin j, double miterLimit, double hw) {
@@ -414,7 +445,7 @@ Path strokePath(const Path& center, const StrokeStyle& style, double tolerance) 
     auto plain = [&](StrokeCap c) {
       return c == StrokeCap::ROUND || c == StrokeCap::SQUARE ? c : (style.cap == StrokeCap::ROUND || style.cap == StrokeCap::SQUARE ? style.cap : StrokeCap::NONE);
     };
-    std::vector<Line> dashes = style.fitDashes && lines[i].closed ? fittedDash(lines[i], style.dashes) : dash(lines[i], style.dashes);
+    std::vector<Line> dashes = style.fitDashes || !lines[i].closed ? fittedDash(lines[i], style.dashes) : dash(lines[i], style.dashes);
     for (size_t k = 0; k < dashes.size(); k++) {
       bool first = !lines[i].closed && k == 0 && dashes[k].pts.front() == lines[i].pts.front();
       bool lastOne = !lines[i].closed && k + 1 == dashes.size() && dashes[k].pts.back() == lines[i].pts.back();
@@ -432,9 +463,9 @@ double strokeReach(const StrokeStyle& s, bool hasOpenEnds) {
     auto capReach = [&](StrokeCap c) {
       switch (c) {
         case StrokeCap::SQUARE: return hw * std::sqrt(2.0);
-        case StrokeCap::ARROW_LINES: return lineArrowLength(s.width) + hw * 4;
+        case StrokeCap::ARROW_LINES: return lineArrowLength(s.width) + hw;
         case StrokeCap::ARROW_EQUILATERAL:
-        case StrokeCap::TRIANGLE_FILLED: return triangleSide(s.width) + hw;
+        case StrokeCap::TRIANGLE_FILLED: return std::hypot(triangleLength(s.width), triangleHalfBase(s.width));
         case StrokeCap::CIRCLE_FILLED: return circleRadius(s.width);
         case StrokeCap::DIAMOND_FILLED: return diamondHalf(s.width);
         default: return hw;

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "scene/Extras.h"
+
 namespace eng {
 
 namespace {
@@ -19,6 +21,7 @@ void RenderTree::add(const Document& doc, Guid id, uint32_t parent, int depth) {
   r.parent = parent;
   nodes_.push_back(r);
   index_[id] = i;
+  notePatterns(id, n);
   const std::vector<Guid>& kids = doc.children(id);
   nodes_[i].hasChildren = !kids.empty();
   for (Guid c : kids) add(doc, c, i, depth + 1);
@@ -34,6 +37,7 @@ void RenderTree::addTo(std::vector<RenderNode>& out, const Document& doc, Guid i
   r.node = n;
   r.parent = parent;
   out.push_back(r);
+  notePatterns(id, n);
   size_t at = out.size() - 1;
   const std::vector<Guid>& kids = doc.children(id);
   out[at].hasChildren = !kids.empty();
@@ -90,6 +94,7 @@ void RenderTree::build(const Document& doc) {
   rebuilds_++;
   nodes_.clear();
   index_.clear();
+  patternSources_.clear();
   version_ = doc.version();
   if (page_ != kNoGuid)
     for (Guid c : doc.children(page_)) add(doc, c, kNoParent, 0);
@@ -153,6 +158,50 @@ void RenderTree::attach(const Document& doc, Guid id, std::unordered_set<Guid, G
     placed.insert(nodes_[j].id);
   }
   damage(nodes_[pos].visual);
+}
+
+void RenderTree::notePatterns(Guid id, const Node* n) {
+  auto it = patternSources_.find(id);
+  if (it != patternSources_.end()) it->second.clear();
+  if (!n) {
+    if (it != patternSources_.end()) patternSources_.erase(it);
+    return;
+  }
+  for (const Paint& f : n->props.fillPaints) {
+    if (f.type != PaintType::PATTERN) continue;
+    Guid src = paintExtras(f).sourceNodeId;
+    if (src == kNoGuid) continue;
+    std::vector<Guid>& v = patternSources_[id];
+    if (std::find(v.begin(), v.end(), src) == v.end()) v.push_back(src);
+  }
+  if (auto e = patternSources_.find(id); e != patternSources_.end() && e->second.empty()) patternSources_.erase(e);
+}
+
+void RenderTree::damagePatternUsers(const Document& doc) {
+  if (patternSources_.empty()) return;
+  // Whether `id` or one of its ancestors is a source some user here tiles.
+  std::unordered_set<Guid, GuidHash> sources;
+  for (auto& [user, srcs] : patternSources_)
+    for (Guid s : srcs) sources.insert(s);
+  std::unordered_set<Guid, GuidHash> hit;
+  auto climb = [&](Guid id) {
+    for (int d = 0; id != kNoGuid && d < 512; d++, id = doc.parentOf(id))
+      if (sources.count(id)) hit.insert(id);
+  };
+  for (const Document::ChangeRecord& c : changes_) {
+    climb(c.id);
+    if (c.parentBefore != kNoGuid) climb(c.parentBefore);  // taken out of (or moved within) a source
+  }
+  if (hit.empty()) return;
+  for (auto& [user, srcs] : patternSources_) {
+    auto it = index_.find(user);
+    if (it == index_.end()) continue;
+    for (Guid s : srcs)
+      if (hit.count(s)) {
+        damage(nodes_[it->second].visual);
+        break;
+      }
+  }
 }
 
 void RenderTree::damage(const Rect& r) {
@@ -226,6 +275,7 @@ bool RenderTree::sync(const Document& doc, Guid page) {
     if (it == index_.end()) continue;
     uint32_t i = it->second;
     if (marks_[i] == 2) continue;
+    notePatterns(c.id, nodes_[i].node);
     damage(nodes_[i].visual);
     any = true;
     for (uint32_t j = i; j < nodes_[i].end; j++) marks_[j] = std::max<uint8_t>(marks_[j], 1);
@@ -239,6 +289,7 @@ bool RenderTree::sync(const Document& doc, Guid page) {
     for (size_t j = 0; j < nodes_.size(); j++)
       if (marks_[j] == 2) damage(nodes_[j].visual);
   }
+  damagePatternUsers(doc);
   version_ = doc.version();
   return false;
 }
