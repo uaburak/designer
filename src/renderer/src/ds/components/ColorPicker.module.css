@@ -55,6 +55,8 @@
 
   /* Gradient: the stop bar */
   .gradientRow { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .gradientTypeRow { display: flex; align-items: center; justify-content: space-between; }
+  .gradientActions { display: flex; gap: var(--ds-space-1); }
   .bar {
     position: relative;
     flex: 1 1 auto;

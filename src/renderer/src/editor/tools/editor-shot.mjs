@@ -150,15 +150,17 @@ async function paintsSection(page, theme) {
 
   // Gradients: the row names the type; the picker opens on it (the engine's handles, when it has them).
   await select("2:2");
-  check("a gradient fill reads Linear", (await panel.getByRole("button", { name: "Fill: Linear" }).count()) === 1);
+  check("a gradient fill reads Linear", (await panel.getByRole("button", { name: "Color: Linear" }).count()) === 1);
   await shot(page, `25-gradient-row-${theme}`);
-  await panel.getByRole("button", { name: "Fill: Linear" }).click();
+  await panel.getByRole("button", { name: "Color: Linear" }).click();
   await settle(page);
   const picker = page.getByRole("dialog", { name: "Color picker" });
   check("the picker opens on the gradient with its stops", (await picker.getByRole("slider", { name: "Stop 2" }).count()) === 1);
   if (capable.paintEdit) check("the gradient handles are on while the picker shows it", await page.evaluate(() => !!window.__designerEditor.engine.paintEdit));
   await shot(page, `26-gradient-picker-${theme}`);
-  await picker.getByRole("radio", { name: "Radial" }).click();
+  // Figma's live picker: the Gradient tab's own "Paint type" dropdown.
+  await picker.getByRole("combobox", { name: "Paint type" }).click();
+  await page.getByRole("option", { name: "Radial" }).click();
   await settle(page);
   check("the picker turns it Radial", (await node(page, "2:2")).fillPaints[0].type === "GRADIENT_RADIAL");
   await page.keyboard.press("Escape");
@@ -255,7 +257,7 @@ async function paintsSection(page, theme) {
   check("the image's bytes are in the file's image store", await page.evaluate(async (h) => !!(await window.__designerEditor.source.images.get(h)), fill ? fill.image.hash.map((b) => b.toString(16).padStart(2, "0")).join("") : ""));
   await page.evaluate(() => window.__designerEditor.engine.command("ZOOM_TO_SELECTION"));
   await shot(page, `35-image-placed-${theme}`);
-  await panel.getByRole("button", { name: "Fill: Image" }).click();
+  await panel.getByRole("button", { name: "Color: Image" }).click();
   await settle(page);
   check("the image picker: scale mode, Choose image, Rotate 90°, adjustments", (await page.getByRole("slider", { name: "Exposure" }).count()) === 1 && (await page.getByRole("button", { name: "Rotate 90º", exact: true }).count()) === 1);
   await shot(page, `36-image-picker-${theme}`);
@@ -1884,7 +1886,7 @@ async function textSection(page, theme) {
   await select("4:3");
   const style = panel.getByRole("combobox", { name: "Font style" });
   check("Typography: a layer whose runs differ shows Mixed for the style", (await style.textContent())?.includes("Mixed") ?? false, await style.textContent());
-  check("Fill: a text whose runs' colours differ reads mixed", (await panel.getByText("Click + to replace mixed fills").count()) === 1);
+  check("Fill: a text whose runs' colours differ reads mixed", (await panel.getByText("Click + to replace mixed content").count()) === 1);
   await shot(page, `121-typography-mixed-${theme}`);
   await panel.getByRole("button", { name: "Type settings" }).click();
   await settle(page);

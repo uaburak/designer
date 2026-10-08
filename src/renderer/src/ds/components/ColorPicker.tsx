@@ -10,7 +10,11 @@ import {
   isGradient,
   moveStop,
   paintCss,
-  PAINT_TYPES,
+  GRADIENT_TYPES,
+  PAINT_TABS,
+  isMedia,
+  paintTab,
+  type PaintTab,
   removeStop,
   sortStops,
   targetColor,
@@ -168,6 +172,8 @@ export interface ColorPickerProps<P extends PickerPaint> {
   /** IMAGE: what to preview, and the "Choose image…" action */
   imageUrl?: string | null;
   onChooseImage?: () => void;
+  /** A gradient's "Rotate gradient" (its handles turn 90° about the middle — the editor owns the paint's transform) */
+  onRotateGradient?: () => void;
   /** IMAGE: more controls under the scale mode (the editor's rotate and adjustment sliders) */
   imageControls?: ReactNode;
   /** The colour model (the editor remembers it per user); uncontrolled without it */
@@ -192,7 +198,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, imageControls, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, imageControls, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
   const model = colorModel ?? ownModel;
@@ -314,7 +320,16 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     }, INSET);
   };
 
-  const typeOptions = PAINT_TYPES.filter((t) => !paintTypes || paintTypes.includes(t.value)).map((t) => ({ value: t.value, icon: t.icon as IconName, tooltip: t.label }));
+  // The tabs with at least one type offered; Gradient keeps the gradient's own type (or Linear for a new one).
+  const offered = (t: PaintType) => !paintTypes || paintTypes.includes(t);
+  const gradientTypes = GRADIENT_TYPES.filter((g) => offered(g.value));
+  const typeOptions = PAINT_TABS.filter((t) => (t.value === "GRADIENT" ? gradientTypes.length > 0 : offered(t.value))).map((t) => ({ value: t.value, icon: t.icon as IconName, tooltip: t.label }));
+  const pickTab = (tab: PaintTab) => {
+    const type: PaintType = tab === "GRADIENT" ? (isGradient(value.type) ? value.type : (gradientTypes[0]?.value ?? "GRADIENT_LINEAR")) : tab;
+    if (type === value.type) return;
+    setLocalHsv(null);
+    onChange(convertPaint(value, type), { final: true, source: "pick" });
+  };
   const blendEntries: MenuEntry[] = BLEND_MODES.map((m) => (m === "-" ? "-" : { id: m, label: BLEND_LABEL[m], checked: (value.blendMode ?? "NORMAL") === m }));
   const opacityPart = (
     <span className={cx(styles.part, styles.partOpacity)}>
@@ -417,12 +432,22 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         ) : (
           <>
             <div className={styles.typeRow}>
-              <SegmentedControl label="Paint type" value={value.type} options={typeOptions} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
+              <SegmentedControl label="Fill type" value={paintTab(value.type)} options={typeOptions} onChange={(t) => pickTab(t as PaintTab)} />
               <MenuButton label="Blend mode" className={buttons.icon} entries={blendEntries} onSelect={(id) => onChange({ ...value, blendMode: id as P["blendMode"] }, { final: true, source: "pick" })}>
                 <Icon name={(value.blendMode ?? "NORMAL") === "NORMAL" ? "24.blendmode.small" : "24.blendmode.active.small"} />
               </MenuButton>
             </div>
 
+            {gradient && (
+              // Figma's live picker: the gradient's "Paint type" (96 wide), Flip gradient at 180, Rotate gradient at 208.
+              <div className={styles.gradientTypeRow}>
+                <Select label="Paint type" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
+                <span className={styles.gradientActions}>
+                  <IconButton icon="24.flip.horizontal.small" label="Flip gradient" onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
+                  {onRotateGradient && <IconButton icon="24.rotate" label="Rotate gradient" onClick={onRotateGradient} />}
+                </span>
+              </div>
+            )}
             {gradient && (
               <div className={styles.gradientRow}>
                 <div ref={bar} className={styles.bar} onPointerDown={pressBar} data-ds="GradientBar">
@@ -457,11 +482,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                     />
                   ))}
                 </div>
-                <IconButton icon="24.flip.horizontal.small" label="Flip gradient" onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
               </div>
             )}
 
-            {value.type === "IMAGE" ? (
+            {isMedia(value.type) ? (
               <>
                 <div
                   className={styles.image}
@@ -473,7 +497,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 </div>
                 <div className={styles.imageRow}>
                   <Select label="Image scale mode" value={value.imageScaleMode ?? "FILL"} options={SCALE_MODES} onChange={(m) => onChange({ ...value, imageScaleMode: m as ImageScaleMode }, { final: true, source: "pick" })} />
-                  <Button variant="secondary" disabled={!onChooseImage} onClick={onChooseImage}>Choose image…</Button>
+                  <Button variant="secondary" disabled={!onChooseImage} onClick={onChooseImage}>{value.type === "VIDEO" ? "Choose video…" : "Choose image…"}</Button>
                 </div>
                 {imageControls}
                 <div style={{ width: 88 }}>
@@ -576,7 +600,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
               </div>
             )}
 
-            {value.type !== "IMAGE" && (
+            {!isMedia(value.type) && (
               <div className={styles.section}>
                 <span className={styles.sectionTitle}>On this page</span>
                 {documentColors.length ? (

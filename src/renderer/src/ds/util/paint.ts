@@ -6,8 +6,8 @@ import { mixRgba, rgbaToCss, type RGBA } from "./color";
  * blendMode, imageScaleMode), so the editor maps it 1:1. Fields it does not
  * know (transform, image hash, variable bindings…) pass through untouched.
  */
-export type PaintType = "SOLID" | "GRADIENT_LINEAR" | "GRADIENT_RADIAL" | "GRADIENT_ANGULAR" | "GRADIENT_DIAMOND" | "IMAGE";
-export type GradientType = Exclude<PaintType, "SOLID" | "IMAGE">;
+export type PaintType = "SOLID" | "GRADIENT_LINEAR" | "GRADIENT_RADIAL" | "GRADIENT_ANGULAR" | "GRADIENT_DIAMOND" | "IMAGE" | "VIDEO";
+export type GradientType = Exclude<PaintType, "SOLID" | "IMAGE" | "VIDEO">;
 export type BlendMode =
   | "NORMAL" | "DARKEN" | "MULTIPLY" | "LINEAR_BURN" | "COLOR_BURN" | "LIGHTEN" | "SCREEN" | "LINEAR_DODGE" | "COLOR_DODGE"
   | "OVERLAY" | "SOFT_LIGHT" | "HARD_LIGHT" | "DIFFERENCE" | "EXCLUSION" | "HUE" | "SATURATION" | "COLOR" | "LUMINOSITY";
@@ -35,7 +35,29 @@ export const PAINT_TYPES: { value: PaintType; label: string; icon: string }[] = 
   { value: "GRADIENT_ANGULAR", label: "Angular", icon: "24.gradient.angular.small" },
   { value: "GRADIENT_DIAMOND", label: "Diamond", icon: "24.gradient.diamond.small" },
   { value: "IMAGE", label: "Image", icon: "24.fill.image.small" },
+  { value: "VIDEO", label: "Video", icon: "24.video" },
 ];
+
+/**
+ * The picker's paint tabs (Figma's live picker: Solid, Gradient, Pattern, Image, Video, Shader — Pattern and Shader
+ * have no paint in the schema yet): one "Gradient" for the four gradient types, picked from its "Paint type" dropdown.
+ */
+export type PaintTab = "SOLID" | "GRADIENT" | "IMAGE" | "VIDEO";
+export const PAINT_TABS: { value: PaintTab; label: string; icon: string }[] = [
+  { value: "SOLID", label: "Solid", icon: "24.fill.solid.small" },
+  { value: "GRADIENT", label: "Gradient", icon: "24.gradient.linear.small" },
+  { value: "IMAGE", label: "Image", icon: "24.fill.image.small" },
+  { value: "VIDEO", label: "Video", icon: "24.video" },
+];
+export const GRADIENT_TYPES: { value: GradientType; label: string }[] = [
+  { value: "GRADIENT_LINEAR", label: "Linear" },
+  { value: "GRADIENT_RADIAL", label: "Radial" },
+  { value: "GRADIENT_ANGULAR", label: "Angular" },
+  { value: "GRADIENT_DIAMOND", label: "Diamond" },
+];
+export const paintTab = (t: PaintType): PaintTab => (isGradient(t) ? "GRADIENT" : (t as PaintTab));
+/** An image or a video (its poster frame): previewed and scaled the same way. */
+export const isMedia = (t: PaintType) => t === "IMAGE" || t === "VIDEO";
 
 /** Figma's blend-mode menu, in its groups ("-" between them). */
 export const BLEND_MODES: (BlendMode | "-")[] = [
@@ -48,7 +70,9 @@ export const BLEND_LABEL: Record<BlendMode, string> = {
   HARD_LIGHT: "Hard light", DIFFERENCE: "Difference", EXCLUSION: "Exclusion", HUE: "Hue", SATURATION: "Saturation", COLOR: "Color", LUMINOSITY: "Luminosity",
 };
 
-export const isGradient = (t: PaintType): t is GradientType => t.startsWith("GRADIENT_");
+export function isGradient(t: PaintType): t is GradientType {
+  return t.startsWith("GRADIENT_");
+}
 
 const BLACK: RGBA = { r: 0, g: 0, b: 0, a: 1 };
 
@@ -121,7 +145,7 @@ export const flipStops = (stops: ColorStop[]) => stops.map((s) => ({ ...s, posit
 /** CSS for a paint's preview (swatches, the stop bar): a colour, or a left-to-right gradient of its stops. */
 export function paintCss(paint: PickerPaint, direction: "preview" | "bar" = "preview"): string {
   if (!isGradient(paint.type)) {
-    if (paint.type === "IMAGE") return "transparent";
+    if (paint.type === "IMAGE" || paint.type === "VIDEO") return "transparent";
     return rgbaToCss(targetColor(paint, 0));
   }
   const list = sortStops(paint.stops ?? []).map((s) => `${rgbaToCss(s.color)} ${Math.round(s.position * 1000) / 10}%`).join(", ");

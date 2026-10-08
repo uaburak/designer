@@ -20,7 +20,7 @@ import type { Color, Guid, Paint } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixedPaints } from "../../model/mixed";
-import { fromPicker, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
+import { fromPicker, gradientRotated90, hashBytes, IMAGE_ADJUSTMENTS, isGradientType, isImageLike, paintImageHash, paintLabel, paintSwatch, paintVideoHash, rotated90, toPicker, withAdjustment, type FullPaint } from "../../model/paints";
 import { formatMediaTime } from "../../model/prototype";
 import { sniffVideoMime } from "@/present/presentationVideos";
 import { regradient, type PaintUse } from "../../model/selectionColors";
@@ -417,10 +417,11 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           </>
         ) : undefined
       }
+      onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
         let out = fromPicker(paint, next);
         // A new image fill without an image yet: Figma asks for one (the picker's "Choose image…").
-        if (next.type === "IMAGE" && paint.type !== "IMAGE" && !out.image) out = { ...out, opacity: 1 };
+        if ((next.type === "IMAGE" || next.type === "VIDEO") && paint.type !== next.type && !out.image) out = { ...out, opacity: 1 };
         write(out, info, `${label} colour`);
       }}
       onCancel={() => ed.cancelEdit()}
