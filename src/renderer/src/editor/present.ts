@@ -17,10 +17,10 @@ export interface PresentOptions {
 
 type DesktopNav = { openPrototype?: (fileKey: string, pageId: string, startNodeId?: string, title?: string) => Promise<unknown> };
 
-/** The selection's top-level frame (the first selected layer's), or undefined. */
-export function presentStart(ed: EditorController): Guid | undefined {
+/** The selection's top-level frame (the first selected layer's, or `from`'s), or undefined. */
+export function presentStart(ed: EditorController, from?: Guid): Guid | undefined {
   const page = ed.store.page;
-  let cur: Guid | undefined = ed.selection[0];
+  let cur: Guid | undefined = from ?? ed.selection[0];
   for (let guard = 0; cur && guard < 256; guard++) {
     const n = ed.engine.readNode(cur, { fields: ["parentIndex"] });
     const parent = n?.parentIndex?.guid;

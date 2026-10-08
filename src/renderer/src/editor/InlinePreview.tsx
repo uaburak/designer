@@ -97,8 +97,9 @@ function PreviewWindow({ page, node }: { page: Guid; node: Guid | null }) {
 
   // A frame selected on the canvas: the preview jumps to it.
   useEffect(() => {
-    const jump = () => {
-      const frame = presentStart(ed);
+    const jump = (e: { refs: readonly Guid[] }) => {
+      // The event's own refs: the store's selection may not have heard of it yet.
+      const frame = e.refs[0] ? presentStart(ed, e.refs[0]) : undefined;
       const engine = engineRef.current;
       if (!frame || !engine || engine.destroyed) return;
       lastFrame.current = frame;

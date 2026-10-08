@@ -10,6 +10,7 @@ import { Engine } from "@/engine/Engine";
 import { Status } from "@/engine/abi";
 import { syntheticPreview } from "./synthetic";
 import { ViewerDoc } from "../viewerDoc";
+import { detectAssets } from "../inspect/devMode";
 
 const codecs = { deflateRaw: (d: Uint8Array) => new Uint8Array(deflateRawSync(d)), inflateRaw: (d: Uint8Array) => new Uint8Array(inflateRawSync(d)) };
 
@@ -54,6 +55,14 @@ describe("a preview of a synthetic file (engine, headless)", () => {
       expect(doc.inspect("1:2")?.parentStackMode).toBe("VERTICAL");
       expect(doc.pageBox("1:3")).toEqual({ x: 24, y: 54, width: 272, height: 120 });
       expect(doc.tree("0:1").roots).toEqual(["1:30", "1:20", "1:10", "1:1"]);
+      // Dev Mode: the card's status, the title's annotation, the icon in "Other" — through the snapshot.
+      expect(doc.statuses("0:1")).toEqual([{ id: "1:1", name: "Card", status: "READY_FOR_DEV" }]);
+      expect(doc.annotations("0:1")).toEqual([{ id: "1:2", notes: [{ text: "Use the brand font", properties: [{ label: "Font size", value: "24px" }] }] }]);
+      expect(detectAssets("1:10", (id) => doc.assetNode(id))).toEqual([{ id: "1:11", name: "Icon/Star", kind: "icon" }]);
+      expect(detectAssets("1:1", (id) => doc.assetNode(id))).toEqual([{ id: "1:3", name: "Photo", kind: "image", imageHash: image.sha1 }]);
+      // The viewer's engine is read-only.
+      viewer.setViewerMode(true);
+      expect(viewer.setProps(["1:1"], { name: "Edited" })).toBe(Status.E_READONLY);
     } finally {
       viewer.destroy();
     }
