@@ -162,6 +162,36 @@ TEST_CASE("grid on canvas: a click on a track's pill selects it and asks to edit
   CHECK(ev.tracks == std::vector<size_t>{1});
 }
 
+TEST_CASE("grid panel (round 8): SELECT_GRID_TRACKS selects a selected grid's tracks as a pill click does; [] clears") {
+  Editor e = load(gridScene(false));
+  e.setSelection({GRID});
+  e.takeEvents();
+  CHECK(e.commandState(CommandId::SELECT_GRID_TRACKS) == CMD_ENABLED);
+  auto args = [](const char* text) {
+    CommandArgs a;
+    json::parse(text, a.raw);
+    return a;
+  };
+  CHECK(e.command(CommandId::SELECT_GRID_TRACKS, args(R"({"axis":"ROWS","tracks":[1]})")) == OK);
+  Editor::GridTracksEvent ev;
+  REQUIRE(lastGridEvent(e, ev));
+  CHECK(ev.frame == GRID);
+  CHECK(!ev.column);
+  CHECK(ev.tracks == std::vector<size_t>{1});
+  CHECK(!ev.edit);
+  // Out-of-range indices are dropped; another frame's id is refused.
+  CHECK(e.command(CommandId::SELECT_GRID_TRACKS, args(R"({"axis":"COLUMNS","tracks":[0,7]})")) == OK);
+  REQUIRE(lastGridEvent(e, ev));
+  CHECK(ev.column);
+  CHECK(ev.tracks == std::vector<size_t>{0});
+  CHECK(e.command(CommandId::SELECT_GRID_TRACKS, args(R"({"frame":"99:99","tracks":[0]})")) == E_INVALID);
+  CHECK(e.command(CommandId::SELECT_GRID_TRACKS, args(R"({"tracks":[]})")) == OK);
+  REQUIRE(lastGridEvent(e, ev));
+  CHECK(ev.tracks.empty());
+  e.setSelection({});
+  CHECK(e.commandState(CommandId::SELECT_GRID_TRACKS) == 0);
+}
+
 TEST_CASE("grid on canvas: dragging a track's edge resizes it (Fixed), one undo step") {
   Editor e = load(gridScene(false));
   e.setSelection({GRID});

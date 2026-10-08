@@ -98,4 +98,21 @@
     padding: var(--ds-space-2);
   }
   .topRow { align-items: start; }
+
+  /* The Grid panel (live grid/row-track-selected-panel.txt, 240): "Grid" 13/550 at 16,16 with × at 208,12; Columns and
+     Rows — a 40 header (+ at 208), then a track per 32 from 1 below it: its number 16 × 16 at 16, the sizing 76 at 40,
+     the value 76 at 124 (the field 52 and its list), − at 208; the selected rows on #394360. */
+  .gridPanel { display: flex; flex-direction: column; padding-bottom: var(--ds-space-3); }
+  .gpTitle { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); font: var(--ds-font-body-large-strong); font-size: 13px; line-height: 16px; }
+  .gpSection { display: flex; flex-direction: column; margin-bottom: 13px; }
+  .gpHeader { display: flex; align-items: center; justify-content: space-between; height: 40px; margin-bottom: 1px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .gpRow { display: grid; grid-template-columns: 16px 76px 76px 24px; column-gap: var(--ds-space-2); align-items: center; height: 32px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); }
+  .gpRowOn { background: var(--figma-color-bg-selected); }
+  .gpIndex { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 0; background: transparent; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium-strong); outline: none; }
+  .gpRowOn .gpIndex, .gpIndex:hover { color: var(--figma-color-text); }
+  .gpIndex:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-small); }
+  .gpValue { position: relative; display: flex; align-items: center; height: var(--ds-size-control); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
+  .gpValue > :first-child { flex: none; width: 52px; background: transparent; }
+  .gpValueMenu { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: 100%; padding: 0; border: 0; background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
+  .gpValueMenu:hover, .gpValueMenu[data-open] { color: var(--figma-color-icon); }
 }

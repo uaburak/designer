@@ -733,3 +733,19 @@ TEST_CASE("r7 view: View › Layout guides reaches the overlay (on by default)")
   e.setViewOptions(Editor::VIEW_PIXEL_GRID);
   CHECK(!e.overlay().layoutGuides);
 }
+
+TEST_CASE("align (round 8): ⇧-click's toParent aligns each layer within its own parent frame") {
+  // R1 in F; TOP on the page (stays put); a second frame G with SR inside.
+  Editor e = makeEditor({make(G, NodeType::FRAME, kPage, "#", {600, 0, 200, 100}, "Frame 4"), make(SR, NodeType::ROUNDED_RECTANGLE, G, "!", {40, 30, 20, 20}, "Rectangle 9")});
+  e.setSelection({R1, SR, TOP});
+  CommandArgs a;
+  json::parse(R"({"toParent":true})", a.raw);
+  REQUIRE(e.command(CommandId::ALIGN_RIGHT, a) == OK);
+  CHECK(e.document().worldBounds(R1).right() == doctest::Approx(300));
+  CHECK(e.document().worldBounds(SR).right() == doctest::Approx(800));
+  CHECK(e.document().worldBounds(TOP).x == doctest::Approx(400));
+  // Without it, several layers align to their selection's bounds (right edge 800).
+  e.setSelection({R1, TOP});
+  REQUIRE(e.command(CommandId::ALIGN_LEFT) == OK);
+  CHECK(e.document().worldBounds(TOP).x == doctest::Approx(250));
+}

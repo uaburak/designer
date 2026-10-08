@@ -1034,7 +1034,7 @@ class Editor : private LayoutHost, public TextLayouts {
   void ungroup();
   void duplicate();
   void flip(bool horizontal);
-  void align(CommandId how);
+  void align(CommandId how, bool toParent = false);
   void distribute(bool horizontal);
   void addAutoLayout();
   void removeAutoLayout();
@@ -1299,6 +1299,7 @@ class Editor : private LayoutHost, public TextLayouts {
   int gridSpanHandleAt(Vec2 s) const;
   void setGridTrackSelection(Guid frame, bool column, std::vector<size_t> tracks, bool edit);
   void clearGridTrackSelection();
+  Status selectGridTracksCommand(const CommandArgs& args);
   uint32_t gridPointerDown(Vec2 s, uint32_t mods);
   void gridPointerMove(Vec2 s, uint32_t mods);
   void gridPointerUp(Vec2 s, uint32_t mods);

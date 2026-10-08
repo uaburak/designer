@@ -221,6 +221,9 @@ export const CommandId = {
   ZOOM_TO_NEXT_FRAME: 234,
   /** ⇧N: the view to the previous frame. */
   ZOOM_TO_PREVIOUS_FRAME: 235,
+  // Round 8 (r8-design-panel): the Grid panel (engine/src/tools/GridGestures.cpp); 260-269.
+  /** args { frame, axis: "COLUMNS" | "ROWS", tracks: number[] }: the selected grid's tracks, as a pill click ([] clears). */
+  SELECT_GRID_TRACKS: 260,
 } as const;
 export type CommandName = keyof typeof CommandId;
 

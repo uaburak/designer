@@ -13,6 +13,7 @@ import { useState } from "react";
 import { BLEND_LABEL, BLEND_MODES, Icon, IconButton, MenuButton, MIXED, NumericInput, PanelSection, Popover, PropertyGrid, PropertyRow, Select, SegmentedControl, ToggleIconButton, cx, type ChangeInfo, type Mixed, type NumericInputProps } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { BindButton } from "./Component";
+import type { CommandName } from "@/engine/abi";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { groupChain } from "../../actions";
@@ -64,10 +65,30 @@ export function perLayer(
 }
 
 /** A command as a segment of a button group (Figma's 29 × 24 align / rotate buttons on #383838). */
+/** The alignment buttons' engine commands: ⇧-click aligns each layer to its own parent (help "Align layers"; unverified live). */
+const ALIGN_COMMANDS: Record<string, CommandName> = {
+  "arrange.align-left": "ALIGN_LEFT",
+  "arrange.align-horizontal-center": "ALIGN_HORIZONTAL_CENTER",
+  "arrange.align-right": "ALIGN_RIGHT",
+  "arrange.align-top": "ALIGN_TOP",
+  "arrange.align-vertical-center": "ALIGN_VERTICAL_CENTER",
+  "arrange.align-bottom": "ALIGN_BOTTOM",
+};
+
 function GroupButton({ id, icon }: { id: string; icon: Parameters<typeof IconButton>[0]["icon"] }) {
   const ed = useEditor();
   const c = command(id);
-  return <IconButton icon={icon} label={c.label} shortcut={shortcutOf(c)} className={styles.groupButton} disabled={!isEnabled(ed, c)} onClick={() => runEditorCommand(ed, id)} />;
+  const engineCommand = ALIGN_COMMANDS[id];
+  return (
+    <IconButton
+      icon={icon}
+      label={c.label}
+      shortcut={shortcutOf(c)}
+      className={styles.groupButton}
+      disabled={!isEnabled(ed, c)}
+      onClick={(e) => (e.shiftKey && engineCommand ? ed.engine.command(engineCommand, { toParent: true }) : runEditorCommand(ed, id))}
+    />
+  );
 }
 
 /** Esc in a panel field gives the keyboard back to the canvas (Figma; Enter keeps the field). */

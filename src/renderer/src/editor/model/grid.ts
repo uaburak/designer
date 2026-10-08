@@ -188,3 +188,18 @@ export function gridDefaults(n: GridNode, sessionID: number, columns = 2, rows =
 
 /** An item's span along `axis` (≥ 1). */
 export const spanOf = (n: GridItemNode, axis: GridAxis): number => Math.max(1, Math.round((axis === "columns" ? n.gridColumnSpan : n.gridRowSpan) ?? 1));
+
+/**
+ * The Grid panel's "Remove column / row n of m": that track goes (never the last one); items anchored to it move to the
+ * track before it (the first: the one after), as Figma keeps objects in the nearest cells.
+ */
+export function removeTrackAt(n: GridNode, axis: GridAxis, index: number, items: readonly { guid: string; node: GridItemNode }[] = []): { frame: Record<string, unknown>; items: { guid: string; fields: Record<string, unknown> }[] } | null {
+  const tracks = tracksOf(n, axis);
+  if (tracks.length <= 1 || index < 0 || index >= tracks.length) return null;
+  const gone = tracks[index];
+  const out = tracks.filter((_, i) => i !== index);
+  const to = out[Math.max(0, index - 1)].id;
+  const anchorKey = axis === "columns" ? "gridColumnAnchor" : "gridRowAnchor";
+  const moved = items.filter((it) => sameGuid(gone.id, it.node[anchorKey] as GuidValue | undefined)).map((it) => ({ guid: it.guid, fields: { [anchorKey]: to } }));
+  return { frame: trackFields(axis, out), items: moved };
+}

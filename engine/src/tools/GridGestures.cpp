@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <set>
+#include <string>
 
 #include "base/FractionalIndex.h"
 #include "editor/Editor.h"
@@ -160,6 +162,32 @@ void Editor::setGridTrackSelection(Guid frame, bool column, std::vector<size_t> 
 
 void Editor::clearGridTrackSelection() {
   if (gridSel_.frame != kNoGuid || !gridSel_.tracks.empty()) setGridTrackSelection(kNoGuid, true, {}, false);
+}
+
+// The Grid panel's rows (round 8): the selected grid's tracks along an axis, as a pill click selects them ([] clears).
+Status Editor::selectGridTracksCommand(const CommandArgs& args) {
+  const json::Value& raw = args.raw;
+  Guid frame = gridFrameSelected();
+  if (frame == kNoGuid || !raw.isObject()) return E_INVALID;
+  if (const json::Value* f = raw.get("frame"); f && f->isString()) {
+    size_t colon = f->string.find(':');
+    if (colon == std::string::npos) return E_INVALID;
+    Guid want{static_cast<uint32_t>(std::strtoul(f->string.substr(0, colon).c_str(), nullptr, 10)),
+              static_cast<uint32_t>(std::strtoul(f->string.substr(colon + 1).c_str(), nullptr, 10))};
+    if (want != frame) return E_INVALID;
+  }
+  const json::Value* axis = raw.get("axis");
+  bool column = !(axis && axis->isString() && axis->string == "ROWS");
+  std::vector<std::pair<double, double>> spans;
+  double across = 0;
+  gridTrackSpans(frame, column, spans, across);
+  std::vector<size_t> tracks;
+  if (const json::Value* t = raw.get("tracks"); t && t->isArray())
+    for (const auto& v : t->array)
+      if (v.isNumber() && v.number >= 0 && static_cast<size_t>(v.number) < spans.size()) tracks.push_back(static_cast<size_t>(v.number));
+  if (tracks.empty()) clearGridTrackSelection();
+  else setGridTrackSelection(frame, column, std::move(tracks), false);
+  return OK;
 }
 
 uint32_t Editor::gridPointerDown(Vec2 s, uint32_t mods) {

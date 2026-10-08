@@ -44,7 +44,7 @@ type PaintField = "fillPaints" | "strokePaints";
 
 /** What the open picker edits. */
 export type PickerTarget =
-  | { kind: "paint"; field: PaintField; index: number; anchor: DOMRect }
+  | { kind: "paint"; field: PaintField; index: number; anchor: DOMRect; /** "Apply styles and variables" opens it on Libraries (live) */ tab?: "libraries" }
   | { kind: "page"; page: Guid; anchor: DOMRect }
   /** A Selection colors row: every paint that used the colour (or gradient) when the picker opened */
   | { kind: "colors"; uses: PaintUse[]; anchor: DOMRect };
@@ -120,7 +120,13 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
       empty={empty}
       actions={
         <>
-          <StylesButton nodes={nodes} slot={slot} mixed={isMixed(shared) && !styled} />
+          <StylesButton
+            nodes={nodes}
+            slot={slot}
+            mixed={isMixed(shared) && !styled}
+            // Live (popovers/fill-styles-variables.txt): the colour picker on its Libraries tab, for the top paint.
+            onOpenPicker={paints.length && !hasStyle ? (anchor) => onPick({ kind: "paint", field, index: paints.length - 1, anchor, tab: "libraries" }) : undefined}
+          />
           {/* Figma's live panel: "Add stroke fill" once a stroke exists, "Add stroke" / "Add fill" otherwise */}
           {!hasStyle && <IconButton icon="24.plus.small" label={field === "strokePaints" && !empty ? "Add stroke fill" : `Add ${word}`} tone="secondary" onClick={add} />}
         </>
@@ -407,7 +413,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
     <ColorPicker
       headerActions={headerActions}
       value={toPicker(paint)}
-      initialTab={paintVariable(paint) ? "libraries" : "custom"}
+      initialTab={(target.kind === "paint" && target.tab) || (paintVariable(paint) ? "libraries" : "custom")}
       libraries={
         <VariableList
           types={["COLOR"]}
@@ -418,6 +424,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           onPick={(v) => bindPaint(ed, refs, field, index, v.id)}
           onPickStyle={(st) => applyStyle(ed, refs, slot, st.id)}
           label="Libraries"
+          colorTab
           onDone={onClose}
         />
       }
