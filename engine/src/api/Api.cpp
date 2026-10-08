@@ -606,6 +606,8 @@ ENG_EXPORT uint32_t engine_pointer(Handle h, uint32_t type, double x, double y, 
   Call call;
   Engine* e = engineOf(h);
   if (!e || type > 5) return 0;
+  // Presenting: the pointer plays the prototype (as engine_present_pointer).
+  if (e->presenting()) return e->player->pointer(static_cast<PointerEvent>(type), x, y, buttons, mods);
   return e->editor.pointer(static_cast<PointerEvent>(type), x, y, static_cast<int>(button), buttons, mods, static_cast<int>(clickCount));
 }
 
@@ -614,6 +616,10 @@ ENG_EXPORT uint32_t engine_wheel(Handle h, double x, double y, double dx, double
   Call call;
   Engine* e = engineOf(h);
   if (!e) return 0;
+  if (e->presenting()) {
+    double unit = deltaMode == 1 ? 16 : deltaMode == 2 ? std::max(1.0, e->editor.viewport().height) : 1;
+    return e->player->wheel(x, y, dx * unit, dy * unit);
+  }
   return e->editor.wheel(x, y, dx, dy, static_cast<DeltaMode>(deltaMode > 2 ? 0 : deltaMode), mods, flags);
 }
 
@@ -695,7 +701,7 @@ ENG_EXPORT int32_t engine_next_frame_delay(Handle h) {
 ENG_EXPORT uint32_t engine_needs_frame(Handle h) {
   Call call(false);  // a pending font relayout is a frame's work (engine_tick catches up)
   Engine* e = engineOf(h);
-  return e && (e->editor.needsFrame() || gFontsDirty) ? 1 : 0;
+  return e && (e->editor.needsFrame() || gFontsDirty || (e->presenting() && e->player->needsFrame())) ? 1 : 0;
 }
 
 ENG_EXPORT void engine_gl_context_lost(Handle h) {

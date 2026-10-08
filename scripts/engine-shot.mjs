@@ -6,6 +6,7 @@
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
+//   SHOT_ONLY=e8 npm run engine:shot    only the prototyping checks (noodles, the presentation view)
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
 // (CHROMIUM=/path overrides). Software GL (SwiftShader) for determinism.
@@ -547,14 +548,91 @@ async function variablesChecks(files) {
   check("undo restores the Light frame", near(lf, [255, 255, 255, 255], 6), `${lf}`);
 }
 
+// Prototyping (E8): the editor's fixture (src/renderer/src/editor/fixtures.ts PROTOTYPE_DOCUMENT) in prototype mode —
+// noodles and the flow label drawn by the engine —, then the presentation view on the same canvas: the flow's first
+// frame on the prototype background, a click navigating, an overlay over a dimmed screen, scrolling.
+async function e8Checks(files) {
+  await engine(async (repo) => {
+    const { PROTOTYPE_DOCUMENT } = await import(`/@fs${repo}/src/renderer/src/editor/fixtures.ts`);
+    const e = window.__designerEngine;
+    e.load(PROTOTYPE_DOCUMENT);
+    e.setCamera({ x: 40, y: 60, zoom: 0.8 });
+    e.setPrototypeMode(true);
+    e.setSelection([]);
+  }, repo);
+  await settle();
+  {
+    // Next (24, 720, 327 × 56 in Home) → Details (475, 0): the noodle leaves Next's right edge at y 748.
+    const mid = await toScreen(400, 748);
+    const label = await toScreen(2.5, -20);  // the label's left padding
+    const [pm, pl] = await pixelsAt([mid, label]);
+    check("prototype mode: a noodle from Next to Details (blue)", pm && pm[2] > 180 && pm[0] < 120, `${pm}`);
+    check("prototype mode: the flow's label above Home (blue)", pl && pl[2] > 180 && pl[0] < 120, `${pl}`);
+  }
+  await engine(() => window.__designerEngine.setSelection(["2:4"]));
+  await settle();
+  files.push(await shot("60-prototype-noodles"));
+  // The presentation view: the flow's first frame, fitted, on #1E1E1E.
+  const state = await engine(() => {
+    const e = window.__designerEngine;
+    e.setPrototypeMode(false);
+    e.presentStart({ page: "0:1" });
+    return e.presentState();
+  });
+  await page.waitForTimeout(100);
+  await settle();
+  const sp = (x, y) => [state.screenRect.x + (x * state.screenRect.w) / 375, state.screenRect.y + (y * state.screenRect.h) / 812];
+  {
+    const [bg, white, card] = await pixelsAt([[4, 400], sp(200, 600), sp(100, 200)]);
+    check("presenting: Home on the prototype background", state.screen === "2:1" && near(bg, [30, 30, 30, 255], 6) && near(white, [255, 255, 255, 255], 6) && near(card, [13, 153, 255, 255], 12),
+      `${state.screen} ${bg} ${white} ${card}`);
+  }
+  files.push(await shot("61-present-home"));
+  // The carousel scrolls; Slide 2 moves left under the pointer.
+  await page.mouse.move(...sp(200, 400));
+  await page.mouse.wheel(250, 0);
+  await page.waitForTimeout(50);
+  await settle();
+  {
+    const [p] = await pixelsAt([sp(160, 410)]);
+    check("presenting: the carousel scrolls sideways (Slide 2 under x 160)", near(p, [20, 174, 92, 255], 20), `${p}`);
+  }
+  files.push(await shot("62-present-scrolled"));
+  // The menu button opens Menu from the bottom over a 40 % dim.
+  await page.mouse.click(...sp(331, 60));
+  await page.waitForTimeout(700);
+  await settle();
+  {
+    const s = await engine(() => window.__designerEngine.presentState());
+    const [dim, menu] = await pixelsAt([sp(200, 200), sp(100, 700)]);
+    check("presenting: Open overlay — Menu at the bottom over the dimmed screen", JSON.stringify(s.overlays) === '["2:20"]' && near(dim, [8, 92, 153, 255], 12) && near(menu, [255, 255, 255, 255], 6),
+      `${JSON.stringify(s.overlays)} ${dim} ${menu}`);
+  }
+  files.push(await shot("63-present-overlay"));
+  // Outside it: closed. Next → Details (Smart animate), then there.
+  await page.mouse.click(...sp(200, 200));
+  await page.mouse.click(...sp(100, 740));
+  await page.waitForTimeout(900);
+  await settle();
+  {
+    const s = await engine(() => window.__designerEngine.presentState());
+    const [card] = await pixelsAt([sp(200, 320)]);
+    check("presenting: Next → Details, its card grown (Smart animate's end)", s.screen === "2:10" && near(card, [13, 153, 255, 255], 12), `${s.screen} ${card}`);
+  }
+  files.push(await shot("64-present-details"));
+  await engine(() => window.__designerEngine.presentStop());
+  await settle();
+}
+
 try {
   await page.goto(url);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
   await settle();
-  if (only === "e4" || only === "e6" || only === "vars") {
+  if (only === "e4" || only === "e6" || only === "vars" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "e6") await e6Checks(files);
+    else if (only === "e8") await e8Checks(files);
     else await variablesChecks(files);
     console.log(results.join("\n"));
     console.log(`\nscreenshots:\n${files.join("\n")}`);
@@ -731,6 +809,8 @@ try {
   // E6.
   await e6Checks(files);
   await variablesChecks(files);
+  // E8.
+  await e8Checks(files);
 
   console.log(results.join("\n"));
   console.log(`\nscreenshots:\n${files.join("\n")}`);
