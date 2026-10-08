@@ -12,11 +12,10 @@
  */
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { fonts } from "@/engine/fonts";
-import { Checkbox, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, type ChangeInfo } from "@/ds";
+import { Checkbox, IconButton, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, type ChangeInfo } from "@/ds";
 import { useEditor } from "../../controller";
 import { AXIS_LABELS, featureName, withAxis, type TextSummary } from "../../model/text";
 import { exitToCanvas } from "./Sections";
-import { SETTINGS_WIDTH } from "./Layout";
 import { fields, type ExtraFields, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import type { FontInfo } from "@/engine/codec";
@@ -52,12 +51,12 @@ export function TypeSettings({ nodes, summary, anchor, onClose }: { nodes: Panel
     <Popover
       anchor={anchor}
       label="Type settings"
-      width={SETTINGS_WIDTH}
+      width={240}
       onClose={onClose}
       header={<Tabs label="Type settings" value={shown} tabs={tabs} onChange={(v) => setTab(v as Tab)} />}
     >
       <div className={styles.typeSettingsBody}>
-        {shown === "basics" && <Basics nodes={nodes} summary={summary} />}
+        {shown === "basics" && <Basics nodes={nodes} summary={summary} info={info} />}
         {shown === "details" && <Details nodes={nodes} summary={summary} info={info} />}
         {shown === "variable" && <Variable nodes={nodes} summary={summary} axes={axes} />}
       </div>
@@ -88,8 +87,9 @@ function nodeValue<T>(nodes: PanelNode[], read: (n: PanelNode) => T): T | typeof
 
 const field = <T,>(v: T | typeof MIXED, mixedAs: T): T => (v === MIXED ? mixedAs : v);
 
-function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary | null }) {
+function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSummary | null; info: FontInfo | null }) {
   const ed = useEditor();
+  const [underlineOpen, setUnderlineOpen] = useState(false);
   const write = useWrite(nodes);
   const refs = nodes.map((n) => n.guid);
   const align = nodeValue(nodes, (n) => n.textAlignHorizontal ?? "LEFT");
@@ -115,34 +115,39 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
         ed.engine.setTextList(r, t);
       })
     );
+  // Figma's live Basics tab (popovers/type-settings.txt): each control right-aligned at its own width — Alignment
+  // (4 × 24), Decoration (3, the underline's details after it), Case (5), Vertical trim (2), List style (3),
+  // Paragraph spacing (72), Truncate text (2), Wrap style (96).
+  const smallCaps = !info || info.features.some((f) => f.tag === "smcp");
   return (
-    <div className={styles.settings}>
+    <div className={`${styles.settings} ${styles.settingsEnd}`}>
       <span className={styles.settingsLabel}>Alignment</span>
       <SegmentedControl
-        label="Text align horizontal"
-        fullWidth
+        label="Alignment"
         value={field(align, "")}
         options={[
-          { value: "LEFT", icon: "24.text.align-left", tooltip: "Align left" },
-          { value: "CENTER", icon: "24.text.align-center", tooltip: "Align center" },
-          { value: "RIGHT", icon: "24.text.align-right", tooltip: "Align right" },
-          { value: "JUSTIFIED", icon: "24.text.align-justified", tooltip: "Justify" },
+          { value: "LEFT", icon: "24.text.align-left", tooltip: "Text align left" },
+          { value: "CENTER", icon: "24.text.align-center", tooltip: "Text align center" },
+          { value: "RIGHT", icon: "24.text.align-right", tooltip: "Text align right" },
+          { value: "JUSTIFIED", icon: "24.text.align-justified", tooltip: "Text align justified" },
         ]}
         onChange={(v) => write("Text alignment", { textAlignHorizontal: v as ExtraFields["textAlignHorizontal"] })}
       />
       <span className={styles.settingsLabel}>Decoration</span>
-      <SegmentedControl
-        label="Decoration"
-        fullWidth
-        value={field(decoration, "")}
-        options={[
-          { value: "NONE", label: "—", tooltip: "None" },
-          { value: "UNDERLINE", icon: "24.text.underline", tooltip: "Underline" },
-          { value: "STRIKETHROUGH", icon: "24.text.strikethrough", tooltip: "Strikethrough" },
-        ]}
-        onChange={(v) => write("Text decoration", { textDecoration: v as ExtraFields["textDecoration"] })}
-      />
-      {decoration === "UNDERLINE" && (
+      <div className={styles.settingsInline}>
+        <SegmentedControl
+          label="Decoration"
+          value={field(decoration, "")}
+          options={[
+            { value: "NONE", label: "—", tooltip: "None" },
+            { value: "UNDERLINE", icon: "24.text.underline", tooltip: "Underline" },
+            { value: "STRIKETHROUGH", icon: "24.text.strikethrough", tooltip: "Strikethrough" },
+          ]}
+          onChange={(v) => write("Text decoration", { textDecoration: v as ExtraFields["textDecoration"] })}
+        />
+        <IconButton icon="16.chevron.down" label="Underline details" tone="secondary" disabled={decoration !== "UNDERLINE"} aria-expanded={underlineOpen} onClick={() => setUnderlineOpen(!underlineOpen)} />
+      </div>
+      {decoration === "UNDERLINE" && underlineOpen && (
         <>
           <span className={styles.settingsLabel}>Style</span>
           <Select
@@ -156,7 +161,8 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
             onChange={(v) => write("Underline style", { textDecorationStyle: v as ExtraFields["textDecorationStyle"] })}
           />
           <span className={styles.settingsLabel}>Thickness</span>
-          <NumericInput scrubHandle="previous"
+          <NumericInput
+            scrubHandle="previous"
             label="Underline thickness"
             value={px(thickness)}
             placeholder="Auto"
@@ -166,7 +172,8 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
             onCancel={() => ed.cancelEdit()}
           />
           <span className={styles.settingsLabel}>Offset</span>
-          <NumericInput scrubHandle="previous"
+          <NumericInput
+            scrubHandle="previous"
             label="Underline offset"
             value={px(offset)}
             placeholder="Auto"
@@ -178,34 +185,32 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
           <Checkbox label="Skip ink" hideLabel checked={skipInk === MIXED ? false : !!skipInk} onChange={(on) => write("Skip ink", { textDecorationSkipInk: on })} />
         </>
       )}
-      <span className={styles.settingsLabel}>Letter case</span>
-      <Select
-        label="Letter case"
-        value={field(textCase, MIXED as unknown as string)}
+      <span className={styles.settingsLabel}>Case</span>
+      <SegmentedControl
+        label="Case"
+        value={field(textCase, "")}
         options={[
-          { value: "ORIGINAL", label: "As typed" },
-          { value: "UPPER", label: "Uppercase" },
-          { value: "LOWER", label: "Lowercase" },
-          { value: "TITLE", label: "Capitalize" },
-          { value: "SMALL_CAPS", label: "Small caps" },
-          { value: "SMALL_CAPS_FORCED", label: "Forced small caps" },
+          { value: "ORIGINAL", label: "—", tooltip: "As typed" },
+          { value: "UPPER", label: "AG", tooltip: "Uppercase" },
+          { value: "LOWER", label: "ag", tooltip: "Lowercase" },
+          { value: "TITLE", label: "Ag", tooltip: "Title case" },
+          { value: "SMALL_CAPS", label: "ᴀɢ", tooltip: smallCaps ? "Small caps" : "Font doesn't support small caps", disabled: !smallCaps },
         ]}
         onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
       />
       <span className={styles.settingsLabel}>Vertical trim</span>
-      <Select
+      <SegmentedControl
         label="Vertical trim"
-        value={field(trim, MIXED as unknown as string)}
+        value={field(trim, "")}
         options={[
-          { value: "NONE", label: "Standard" },
-          { value: "CAP_HEIGHT", label: "Cap height to baseline" },
+          { value: "NONE", icon: "24.text.trim-standard", tooltip: "Standard" },
+          { value: "CAP_HEIGHT", icon: "24.text.trim-cap", tooltip: "Cap height to baseline" },
         ]}
         onChange={(v) => write("Vertical trim", { leadingTrim: v as ExtraFields["leadingTrim"] })}
       />
       <span className={styles.settingsLabel}>List style</span>
       <SegmentedControl
         label="List style"
-        fullWidth
         value={lineType === MIXED ? "" : lineType === "ORDERED_LIST" ? "ORDERED" : lineType === "UNORDERED_LIST" ? "UNORDERED" : "NONE"}
         options={[
           { value: "NONE", label: "—", tooltip: "No list" },
@@ -215,26 +220,44 @@ function Basics({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary |
         onChange={(v) => list(v as "NONE" | "ORDERED" | "UNORDERED")}
       />
       <span className={styles.settingsLabel}>Paragraph spacing</span>
-      <NumericInput scrubHandle="previous" label="Paragraph spacing" value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
-      <span className={styles.settingsLabel}>List spacing</span>
-      <NumericInput scrubHandle="previous" label="List spacing" value={listSpacing} min={0} onChange={(v, info) => write("List spacing", { listSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+      <NumericInput className={styles.settingsField} scrubHandle="previous" label="Paragraph spacing" value={paragraph} min={0} onChange={(v, info) => write("Paragraph spacing", { paragraphSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+      {lineType !== "PLAIN" && (
+        <>
+          <span className={styles.settingsLabel}>List spacing</span>
+          <NumericInput className={styles.settingsField} scrubHandle="previous" label="List spacing" value={listSpacing} min={0} onChange={(v, info) => write("List spacing", { listSpacing: v }, info)} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+        </>
+      )}
       <span className={styles.settingsLabel}>Truncate text</span>
-      <Checkbox label="Truncate text" hideLabel checked={truncate === true} onChange={(on) => write("Truncate text", { textTruncation: on ? "ENDING" : "DISABLED" })} />
-      <span className={styles.settingsLabel}>Max lines</span>
-      <NumericInput scrubHandle="previous"
-        label="Max lines"
-        value={maxLines === 0 ? null : maxLines}
-        placeholder="—"
-        min={1}
-        precision={0}
-        disabled={truncate !== true}
-        onChange={(v, info) => write("Max lines", { maxLines: v }, info)}
-        onClear={() => write("Max lines", { maxLines: 0 })}
-        onCancel={() => ed.cancelEdit()}
+      <SegmentedControl
+        label="Truncate text"
+        value={truncate === MIXED ? "" : truncate ? "ENDING" : "DISABLED"}
+        options={[
+          { value: "DISABLED", icon: "24.text.truncate-off", tooltip: "No truncation" },
+          { value: "ENDING", icon: "24.text.truncate-on", tooltip: "Truncation enabled" },
+        ]}
+        onChange={(v) => write("Truncate text", { textTruncation: v as "ENDING" | "DISABLED" })}
       />
+      {truncate === true && (
+        <>
+          <span className={styles.settingsLabel}>Max lines</span>
+          <NumericInput
+            className={styles.settingsField}
+            scrubHandle="previous"
+            label="Max lines"
+            value={maxLines === 0 ? null : maxLines}
+            placeholder="—"
+            min={1}
+            precision={0}
+            onChange={(v, info) => write("Max lines", { maxLines: v }, info)}
+            onClear={() => write("Max lines", { maxLines: 0 })}
+            onCancel={() => ed.cancelEdit()}
+          />
+        </>
+      )}
       <span className={styles.settingsLabel}>Wrap style</span>
       <Select
         label="Wrap style"
+        width={96}
         value={field(wrap, MIXED as unknown as string)}
         options={[
           { value: "AUTO", label: "Auto" },
@@ -293,9 +316,9 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
     </>
   );
   return (
-    <div className={styles.settings}>
+    <div className={`${styles.settings} ${styles.settingsEnd}`}>
       <span className={styles.settingsLabel}>Paragraph indent</span>
-      <NumericInput scrubHandle="previous" label="Paragraph indent" value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
+      <NumericInput className={styles.settingsField} scrubHandle="previous" label="Paragraph indent" value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
       {check("Hanging quotes", hanging === true, true, (v) => write("Hanging quotes", { hangingPunctuation: v }))}
       {check("Hanging lists", hangingList === true, true, (v) => write("Hanging lists", { hangingList: v }))}
       {check("Case-sensitive forms", toggled("case", false), has("case"), (v) => toggle("case", v, false, "Case-sensitive forms"))}

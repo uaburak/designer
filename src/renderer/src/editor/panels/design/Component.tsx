@@ -22,7 +22,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Button, Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, Select, Switch, TextArea, TextInput, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
-import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
+import { command, isEnabled, runEditorCommand } from "../../commands";
 import { commandItem, RESET_PREFIX, runMenuItem } from "../../menus";
 import { statusOfTargets, statusTargets } from "../../devStatus";
 import { useTopics } from "../../hooks";

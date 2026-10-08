@@ -190,6 +190,11 @@
     padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-4);
   }
   .settings > :nth-child(even) { justify-self: stretch; display: flex; }
+  /* Type settings' Basics (live): the controls right-aligned at their own widths */
+  .settingsEnd { grid-template-columns: minmax(0, 1fr) auto; }
+  .settings.settingsEnd > :nth-child(even) { justify-self: end; }
+  .settingsInline { display: flex; align-items: center; }
+  .settingsField { width: 72px; }
   .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */
   .settingsHeading { padding-top: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); white-space: nowrap; }
