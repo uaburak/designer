@@ -1051,6 +1051,7 @@ class Editor : private LayoutHost, public TextLayouts {
     size_t index = 0;            // which of the hotspot's interactions
     std::vector<size_t> action;  // the action's path (conditional branches: action, branch, action…)
     Guid dest = kNoGuid;
+    bool media = false;          // a video action (UPDATE_MEDIA_RUNTIME): its end goes onto videos
   };
   struct ProtoSession {
     bool on = false;
@@ -1072,7 +1073,9 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> protoHandleNodes() const;
   bool protoHandleAt(Vec2 s, std::vector<Guid>* nodes = nullptr) const;
   bool protoEndAt(Vec2 s, ProtoLink& out);
-  Guid protoTargetAt(Vec2 world, const std::vector<Guid>& sources) const;
+  // Where a noodle lands: a video layer (`videos`: help "Use videos in prototypes" — "Create a connection from your
+  // starting object to the video"), else a top-level frame.
+  Guid protoTargetAt(Vec2 world, const std::vector<Guid>& sources, bool videos = false, bool frames = true) const;
   uint32_t protoPointerDown(Vec2 s, uint32_t mods);
   void protoPointerMove(Vec2 s);
   void protoPointerUp(Vec2 s);

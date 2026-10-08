@@ -270,3 +270,33 @@ TEST_CASE("prototype.video: a frame of the video is drawn in place of the poster
   f.player.stop();
   CHECK(ImageRegistry::get().find(f.player.frameHash(VID)) == nullptr);
 }
+
+TEST_CASE("prototype.video: a noodle dropped on a video makes a video action; its connection is drawn") {
+  Editor ed;
+  ed.setSessionID(1);
+  ed.setViewport(1600, 1000, 1, 1600, 1000);
+  auto nodes = videoScreens();
+  for (auto& n : nodes)
+    if (n.guid == TOGGLE) n.props.extra.erase("prototypeInteractions");
+  ed.loadDocument(nodes, kNoGuid);
+  Camera cam;
+  cam.zoom = 1;
+  ed.setCamera(cam);
+  ed.setPrototypeMode(true);
+  size_t links = ed.overlay().prototype.links.size();
+  ed.setSelection({TOGGLE});
+  // Toggle's handle: its right edge's middle (120, 320); the clip is at (0, 0, 375, 200) in A.
+  CHECK(ed.pointer(PointerEvent::DOWN, 120, 320, 0, 1, 0) != 0);
+  ed.pointer(PointerEvent::MOVE, 200, 200, 0, 1, 0);
+  ed.pointer(PointerEvent::MOVE, 200, 100, 0, 1, 0);
+  ed.pointer(PointerEvent::UP, 200, 100, 0, 0, 0);
+  auto list = proto::interactions(ed.document().get(TOGGLE)->props);
+  REQUIRE(list.size() == 1);
+  REQUIRE(list[0].actions.size() == 1);
+  CHECK(list[0].actions[0].connection == proto::Connection::UPDATE_MEDIA_RUNTIME);
+  CHECK(list[0].actions[0].media == proto::MediaAction::PLAY);
+  CHECK(list[0].actions[0].dest == VID);
+  ed.setSelection({});
+  // Every video action's connection is drawn (Skip → Clip, Next → B, and now Toggle → Clip).
+  CHECK(ed.overlay().prototype.links.size() == links + 1);
+}

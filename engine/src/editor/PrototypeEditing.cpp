@@ -96,7 +96,9 @@ const std::vector<Editor::ProtoLink>& Editor::protoLinks() {
             path.push_back(k);
             const proto::Action& a = acts[k];
             if (a.connection == proto::Connection::INTERNAL_NODE && a.dest != kNoGuid && doc_.has(a.dest))
-              proto_.links.push_back({id, list[i].id, i, path, a.dest});
+              proto_.links.push_back({id, list[i].id, i, path, a.dest, false});
+            if (a.connection == proto::Connection::UPDATE_MEDIA_RUNTIME && a.dest != kNoGuid && doc_.has(a.dest))
+              proto_.links.push_back({id, list[i].id, i, path, a.dest, true});
             for (size_t b = 0; b < a.branches.size(); b++) {
               std::vector<size_t> sub = path;
               sub.push_back(b);
@@ -154,12 +156,28 @@ bool Editor::protoEndAt(Vec2 s, ProtoLink& out) {
   return false;
 }
 
-Guid Editor::protoTargetAt(Vec2 world, const std::vector<Guid>& sources) const {
+Guid Editor::protoTargetAt(Vec2 world, const std::vector<Guid>& sources, bool videos, bool frames) const {
   const auto& kids = doc_.children(page_);
   for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
     const Node* n = doc_.get(*it);
     if (!n || !n->props.visible || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) continue;
     if (!doc_.worldBounds(*it).contains(world)) continue;
+    if (videos) {
+      // The topmost video layer under the point, inside this frame.
+      Guid found = kNoGuid;
+      std::function<void(Guid)> walk = [&](Guid id) {
+        const Node* x = doc_.get(id);
+        if (!x || !x->props.visible || found != kNoGuid) return;
+        const auto& ch = doc_.children(id);
+        for (auto c = ch.rbegin(); c != ch.rend() && found == kNoGuid; ++c) walk(*c);
+        if (found == kNoGuid && proto::videoFill(x->props) >= 0 && doc_.worldBounds(id).contains(world)) found = id;
+      };
+      walk(*it);
+      bool self = false;
+      for (Guid s : sources) self |= s == found;
+      if (found != kNoGuid && !self) return found;
+    }
+    if (!frames) return kNoGuid;
     for (Guid s : sources)
       if (s == *it) return kNoGuid;  // not onto itself
     return *it;
@@ -190,8 +208,9 @@ uint32_t Editor::protoPointerDown(Vec2 s, uint32_t /*mods*/) {
 
 void Editor::protoPointerMove(Vec2 s) {
   proto_.point = camera_.toWorld(s);
+  bool media = proto_.drag == ProtoSession::Drag::Retarget && proto_.link.media;
   if ((s - downScreen_).length() >= kNoodleDrag || proto_.drag == ProtoSession::Drag::New)
-    proto_.target = protoTargetAt(proto_.point, proto_.sources);
+    proto_.target = protoTargetAt(proto_.point, proto_.sources, proto_.drag == ProtoSession::Drag::New || media, !media);
   needsRender_ = true;
 }
 
@@ -208,7 +227,8 @@ void Editor::protoHover(Vec2 s) {
 
 void Editor::protoPointerUp(Vec2 s) {
   proto_.point = camera_.toWorld(s);
-  Guid target = protoTargetAt(proto_.point, proto_.sources);
+  bool media = proto_.drag == ProtoSession::Drag::Retarget && proto_.link.media;
+  Guid target = protoTargetAt(proto_.point, proto_.sources, proto_.drag == ProtoSession::Drag::New || media, !media);
   bool moved = (s - downScreen_).length() >= kNoodleDrag;
   ProtoSession::Drag drag = proto_.drag;
   proto_.drag = ProtoSession::Drag::None;
@@ -266,7 +286,14 @@ void Editor::protoPointerUp(Vec2 s) {
     if (!n || isLibraryCopy(src)) continue;
     json::Value list = interactionsJson(n->props);
     Guid id = newGuid();
-    list.array.push_back(proto::toJson(proto::newConnection(id, target)));
+    proto::Interaction ix = proto::newConnection(id, target);
+    if (const Node* tn = doc_.get(target); tn && proto::videoFill(tn->props) >= 0 && doc_.parentOf(target) != page_) {
+      // Onto a video: On click → Play/pause video › Play video (unverified: the action Figma picks first).
+      proto::Action& a = ix.actions[0];
+      a.connection = proto::Connection::UPDATE_MEDIA_RUNTIME;
+      a.media = proto::MediaAction::PLAY;
+    }
+    list.array.push_back(proto::toJson(ix));
     NodeChange c = NodeChange::changed(src);
     c.mask = F_EXTRA;
     c.props.extra["prototypeInteractions"] = proto::encodeField("prototypeInteractions", list);
@@ -379,6 +406,9 @@ void Editor::protoOverlay(Overlay& o) const {
         for (const proto::Action& a : i.actions) {
           std::vector<std::pair<proto::Navigation, Guid>> dests;
           proto::destinations(a, dests);
+          std::vector<Guid> videos;
+          proto::mediaTargets(a, videos);
+          for (Guid v : videos) dests.emplace_back(proto::Navigation::NAVIGATE, v);
           for (auto& [nav, d] : dests) {
             if (d == kNoGuid || !doc_.has(d)) continue;
             PrototypeLink pl;
