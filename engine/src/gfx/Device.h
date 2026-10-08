@@ -182,6 +182,8 @@ class Device {
   // Writes `rect` of the texture (rows top to bottom, tightly packed; RGBA32F or RGBA8 per its format).
   virtual void writeTexture(TextureId texture, IRect rect, std::span<const uint8_t> data) = 0;
   virtual void generateMipmaps(TextureId texture) = 0;
+  // An RGBA8 texture's filtering changed (bilinear or nearest) — the pixel preview's scaled-up page (round 8).
+  virtual void setTextureFiltering(TextureId /*texture*/, bool /*linear*/) {}
   // Uploads the JavaScript ImageBitmap `bitmapId` (Module.engineBitmaps) into an RGBA8 texture of its size.
   // False when there is no such bitmap (or no JavaScript: the native tests).
   virtual bool uploadBitmap(TextureId texture, uint32_t bitmapId) = 0;

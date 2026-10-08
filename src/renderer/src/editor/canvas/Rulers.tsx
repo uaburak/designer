@@ -6,7 +6,9 @@
  * selection's span is a band with its edges labelled in blue, and the labels
  * near those edges fade (docs/research/visual-diff.md, model/rulers.ts).
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { PointerType, Status } from "@/engine/abi";
+import { modifiersOf } from "@/engine/CanvasController";
 import { canvasChrome, canvasChromeMetrics, text, useTheme, type ThemeName } from "@/ds";
 import { useEditor, type EditorController } from "../controller";
 import { useUI } from "../hooks";
@@ -175,6 +177,40 @@ function drawLeft(ctx: CanvasRenderingContext2D, length: number, axis: RulerAxis
   ctx.fillRect(T - 1, 0, 1, length);
 }
 
+/**
+ * A press on a ruler drags a guide out of it (round 8; help.figma.com "Add guides to the canvas or frames"): the top
+ * ruler's guides are horizontal, the left one's vertical. The engine owns the guide (engine_start_guide); the pointer's
+ * moves and release go to it in canvas px; let go over a ruler, it goes.
+ */
+export function guideDrag(ed: EditorController, axis: "X" | "Y", e: ReactPointerEvent<HTMLCanvasElement>): void {
+  const canvas = ed.canvas;
+  if (!canvas || e.button !== 0) return;
+  const at = (ev: { clientX: number; clientY: number }) => {
+    const r = canvas.getBoundingClientRect();
+    return [ev.clientX - r.left, ev.clientY - r.top] as const;
+  };
+  const [x, y] = at(e);
+  if (ed.engine.startGuide(axis, x, y, T) !== Status.OK) return;
+  e.preventDefault();
+  const el = e.currentTarget;
+  el.setPointerCapture(e.pointerId);
+  const send = (type: number, ev: PointerEvent) => {
+    const [px, py] = at(ev);
+    ed.engine.pointer(type, px, py, 0, ev.buttons, modifiersOf(ev), ev.pressure, 1, 0, ev.timeStamp);
+  };
+  const onMove = (ev: PointerEvent) => send(PointerType.MOVE, ev);
+  const done = (ev: PointerEvent) => {
+    send(ev.type === "pointercancel" ? PointerType.CANCEL : PointerType.UP, ev);
+    el.removeEventListener("pointermove", onMove);
+    el.removeEventListener("pointerup", done);
+    el.removeEventListener("pointercancel", done);
+    ed.focusCanvas();
+  };
+  el.addEventListener("pointermove", onMove);
+  el.addEventListener("pointerup", done);
+  el.addEventListener("pointercancel", done);
+}
+
 export function Rulers() {
   const ed = useEditor();
   const on = useUI((s) => s.rulers);
@@ -193,6 +229,14 @@ export function Rulers() {
       });
     };
     const offs = [ed.store.subscribe("camera", schedule), ed.store.subscribe("selection", schedule), ed.store.subscribe("page", schedule), ed.engine.on("NODES_CHANGED", schedule)];
+    // The rulers take presses (guides), so a wheel over them goes on to the canvas.
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      ed.canvas?.dispatchEvent(new WheelEvent("wheel", e));
+    };
+    t.addEventListener("wheel", wheel, { passive: false });
+    l.addEventListener("wheel", wheel, { passive: false });
+    offs.push(() => t.removeEventListener("wheel", wheel), () => l.removeEventListener("wheel", wheel));
     const ro = new ResizeObserver(schedule);
     if (t.parentElement) ro.observe(t.parentElement);
     schedule();
@@ -205,8 +249,8 @@ export function Rulers() {
   if (!on) return null;
   return (
     <>
-      <canvas ref={top} className={styles.rulerTop} aria-hidden />
-      <canvas ref={left} className={styles.rulerLeft} aria-hidden />
+      <canvas ref={top} className={styles.rulerTop} aria-hidden data-ruler="top" onPointerDown={(e) => guideDrag(ed, "Y", e)} />
+      <canvas ref={left} className={styles.rulerLeft} aria-hidden data-ruler="left" onPointerDown={(e) => guideDrag(ed, "X", e)} />
       <div className={styles.rulerCorner} aria-hidden />
     </>
   );

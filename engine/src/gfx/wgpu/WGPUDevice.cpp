@@ -461,6 +461,25 @@ class WebGPUDevice final : public Device {
     writeRaw(t, rect, data.data(), data.size());
   }
 
+  void setTextureFiltering(TextureId id, bool linear) override {
+    if (!id || id >= textures_.size() || !textures_[id].gpu || textures_[id].format != TextureFormat::RGBA8) return;
+    Texture& t = textures_[id];
+    int sampler = samplerIndex(linear, t.mipmaps, false);
+    if (sampler == t.sampler) return;
+    // Bind groups are cached by the textures' serials: a new serial, new groups.
+    for (auto it = bindGroups_.begin(); it != bindGroups_.end();) {
+      if (std::find(std::begin(it->first.serials), std::end(it->first.serials), t.serial) != std::end(it->first.serials)) {
+        if (st_.textures == it->second) st_.textures = nullptr;
+        wgpuBindGroupRelease(it->second);
+        it = bindGroups_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    t.sampler = sampler;
+    t.serial = nextSerial_++;
+  }
+
   void generateMipmaps(TextureId id) override {
     if (!id || id >= textures_.size() || !textures_[id].gpu) return;
     Texture& t = textures_[id];

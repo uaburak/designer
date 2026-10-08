@@ -287,6 +287,9 @@ export class EngineExports {
 
   // ---- View options (round 7) ----
   setViewOptions = (h: number, options: number): void => void this.fn("set_view_options")(h, options);
+  // ---- Round 8: nudge amounts, ruler guides ----
+  setNudge = (h: number, small: number, big: number): void => void this.fn("set_nudge")(h, small, big);
+  startGuide = (h: number, axis: number, x: number, y: number, rulerSize: number): number => this.fn("start_guide")(h, axis, x, y, rulerSize);
 
   // ---- Dev Mode (round 6) ----
   setAnnotationView = (h: number, show: boolean, dots: boolean): void => void this.fn("set_annotation_view")(h, show ? 1 : 0, dots ? 1 : 0);
@@ -340,5 +343,5 @@ export const USED_EXPORTS = [
   "vector_edit", "vector_edit_end", "vector_edit_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
   "set_prototype_mode", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
   "present_set_options", "present_state", "present_media", "present_media_frame",
-  "set_view_options", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
+  "set_view_options", "set_nudge", "start_guide", "set_annotation_view", "set_edit_tracking", "set_focus", "select_measurement", "dev_info",
 ].map((name) => `engine_${name}`);

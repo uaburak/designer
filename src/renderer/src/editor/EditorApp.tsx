@@ -41,6 +41,8 @@ import { Rulers } from "./canvas/Rulers";
 import { BottomToolbar } from "./canvas/BottomToolbar";
 import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasMenu";
 import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
+import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
+import { attachCanvasTools } from "./canvasTools";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
 import { ReturnToInstance } from "./canvas/ReturnToInstance";
@@ -237,6 +239,7 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       cleanups.push(attachCanvasMenu(ed, canvas));
       cleanups.push(attachGridTracks(ed, canvas));
       cleanups.push(attachTitleRename(ed, canvas));
+      cleanups.push(attachCanvasTools(ed, canvas));
       cleanups.push(attachDesktop(ed));
       // Dev Mode: every edit stamps editInfo (a design marked ready shows "Changed"); the engine's Dev Mode events.
       engine.setEditTracking(true);
@@ -391,6 +394,9 @@ function Overlays() {
       <AnnotationEditor />
       <MeasurementText />
       <TitleRename />
+      <InlineValueEdit />
+      <EyedropperLoupe />
+      <NudgeDialog />
       <StatusMenu />
       <CategoriesDialog />
       <CompareChanges />

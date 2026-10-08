@@ -47,8 +47,8 @@ describe("round 7: live Figma's keys and menus", () => {
     expect(comboText(COMMAND_BY_ID.get("view.pixel-grid")!.keys![0])).toContain("′");  // live: "⇧′"
   });
 
-  it("paste modes: ⇧⌘V in place above the selection, ⇧⌘R replacing it", () => {
-    expect(pasteOptions({ mode: "over" })).toEqual({ inPlace: true, over: true });
+  it("paste modes: ⇧⌘V above the selection at its position (round 8), ⇧⌘R replacing it", () => {
+    expect(pasteOptions({ mode: "over" })).toEqual({ over: true });
     expect(pasteOptions({ mode: "replace" })).toEqual({ replace: true });
     expect(pasteOptions({ mode: "inPlace" })).toEqual({ inPlace: true });
     expect(pasteOptions(null)).toEqual({ inPlace: false });

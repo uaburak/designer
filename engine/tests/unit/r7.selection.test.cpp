@@ -312,8 +312,9 @@ TEST_CASE("r7 sections: what is in a section picks as on the page; its backgroun
   // The section's background: nothing either; a drag there is a marquee among its layers.
   click(e, 600, 1100);
   CHECK(e.selection().empty());
-  drag(e, {500, 1150}, {200, 700});
-  CHECK(e.selection() == std::vector<Guid>{SF});
+  // (Round 8: from below the section, partly over the card in it — the card is top-level, so its touched child.)
+  drag(e, {500, 1150}, {170, 620});
+  CHECK(e.selection() == std::vector<Guid>{SR});
   CHECK(props(e, S).transform == Mat2x3::translate(0, 400));
   // A top-level frame's background (F has children): a click selects nothing (live Figma).
   e.setSelection({TOP});

@@ -53,6 +53,8 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
   const Node* n = doc.get(id);
   if (!n) return false;
   const NodeProps& p = n->props;
+  // A slice is hit on its edge only (it paints nothing; the layers under it stay clickable — unverified live).
+  if (p.type == NodeType::SLICE) return std::fabs(shapeDistance(p, local)) <= slop;
   if (!p.isPathShape()) return hitsOwnShape(p, local, slop, topLevel);
   const NodeGeometry* g = doc.geometry(id);
   if (!g) return false;
@@ -130,6 +132,8 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
         break;
       }
     }
+    // A locked top-level layer: the click goes through it to what is under it (round 8: locked layers take no clicks).
+    if (path.empty()) continue;
     if (!f(std::move(path))) return;
   }
 }

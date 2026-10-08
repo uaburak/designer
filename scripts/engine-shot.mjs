@@ -5,6 +5,7 @@
 //   npm run engine:shot -- [outDir]     (default: $TMPDIR/engine-shots)
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass)
+//   SHOT_ONLY=r8 npm run engine:shot    only round 8's canvas views (ruler guides, slices, pixel preview)
 //   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
@@ -460,6 +461,56 @@ async function r7Checks(files) {
   // PATTERN fill: the 20 px dot tiled 40 px apart (spacing 100 %): red at a tile's middle, white between.
   const [tile, gap] = await pixelsAt([await screenOf(scene.pattern, 50, 50), await screenOf(scene.pattern, 70, 70)]);
   check("PATTERN fill: the source tiled", tile && gap && tile[0] > 200 && tile[1] < 60 && gap[1] > 200, `${tile} / ${gap}`);
+}
+
+// Round 8: ruler guides dragged out of a ruler (drawn over the page), a slice (View › Show slices: dashed), pixel
+// preview (⌃P: the page at 1x scaled up without smoothing — a pixel the edge crosses is one colour throughout).
+async function r8Checks(files) {
+  await engine(() => {
+    const e = window.__designerEngine;
+    const solid = (r, g, b) => [{ type: "SOLID", color: { r, g, b, a: 1 }, opacity: 1, visible: true }];
+    const T = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
+    e.applyChanges({
+      type: "NODE_CHANGES",
+      sessionID: 0,
+      nodeChanges: [
+        { guid: "52:1", phase: "CREATED", type: "FRAME", name: "Round 8", parentIndex: { guid: "0:1", position: "~~~~" }, size: { x: 400, y: 200 }, transform: T(0, 2800), fillPaints: solid(1, 1, 1) },
+        { guid: "52:2", phase: "CREATED", type: "ELLIPSE", name: "Dot", parentIndex: { guid: "52:1", position: "!" }, size: { x: 21, y: 21 }, transform: T(20, 20), fillPaints: solid(0.05, 0.3, 0.9) },
+        { guid: "52:3", phase: "CREATED", type: "SLICE", name: "Slice", parentIndex: { guid: "52:1", position: '"' }, size: { x: 80, y: 60 }, transform: T(100, 20), fillPaints: [] },
+      ],
+    }, "user");
+    e.setSelection([]);
+    e.setViewOptions({ pixelGrid: false, outlines: false, rulers: true });
+    e.setCamera({ x: 40, y: 40 - 2800, zoom: 1 });
+    // A guide out of the top ruler, let go 120 px below the frame's top.
+    e.startGuide("Y", 300, 10, 20);
+    e.pointer(1, 300, 100, 0, 1, 0);
+    e.pointer(1, 300, 160, 0, 1, 0);
+    e.pointer(2, 300, 160, 0, 0, 0);
+  });
+  await page.mouse.move(2, 2);
+  await settle();
+  files.push(await shot("38-round8-guides-slices"));
+  const guides = await engine(() => window.__designerEngine.readNode("0:1")?.guides ?? []);
+  check("a guide dragged out of the top ruler lands on the page", guides.length === 1 && guides[0].offset === 2920, JSON.stringify(guides));
+  const [onGuide, offGuide] = await pixelsAt([[600, 160], [600, 170]]);
+  check("the guide is drawn across the page (Figma's red), past the frame too", onGuide && offGuide && onGuide[0] > 200 && onGuide[1] < 140 && offGuide[0] < 120, `${onGuide} / ${offGuide}`);
+  const dashes = await pixelsAt([...Array(16).keys()].map((k) => [142 + k * 2, 60]));
+  const grey = dashes.filter((p) => p[0] < 200).length;
+  check("a slice is outlined dashed (View › Show slices)", grey >= 3 && grey <= 13, `${grey} of 16 grey`);
+  // Pixel preview at 800 %: the world pixel the dot's edge crosses (x 23, row 2822) is one colour at 1x preview.
+  await engine(() => window.__designerEngine.setCamera({ x: 40 - 20 * 8, y: 40 - 2820 * 8, zoom: 8 }));
+  await settle();
+  const pair = async () => pixelsAt([await toScreen(23.2, 2822.5), await toScreen(23.8, 2822.5)]);
+  const [a0, b0] = await pair();
+  await engine(() => window.__designerEngine.setViewOptions({ pixelGrid: false, outlines: false, rulers: true, pixelPreview: 1 }));
+  await settle();
+  const [a1, b1] = await pair();
+  files.push(await shot("39-round8-pixel-preview"));
+  const diff = (p, q) => Math.max(...[0, 1, 2].map((i) => Math.abs(p[i] - q[i])));
+  check("pixel preview: a pixel the edge crosses is one colour (at 800 % the canvas alone shows the edge in it)", diff(a0, b0) > 40 && diff(a1, b1) <= 3, `off ${a0}/${b0}, on ${a1}/${b1}`);
+  await engine(() => window.__designerEngine.setViewOptions({ pixelGrid: true, outlines: false }));
+  await settle();
 }
 
 // E6: components and instances — Figma's own instances (structure.fig), then a set, an instance and their purple.
@@ -1064,10 +1115,11 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "r7" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "r8" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "r7") await r7Checks(files);
+    else if (only === "r8") await r8Checks(files);
     else if (only === "e6") await e6Checks(files);
     else if (only === "export") await exportChecks(files);
     else if (only === "e8") await e8Checks(files);
@@ -1246,6 +1298,7 @@ try {
   // E4 / E5.
   await e4Checks(files);
   await r7Checks(files);
+  await r8Checks(files);
   // E6.
   await e6Checks(files);
   await variablesChecks(files);

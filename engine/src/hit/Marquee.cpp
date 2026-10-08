@@ -26,19 +26,24 @@ std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, 
   });
   std::vector<Guid> ordered(tops.begin(), tops.end());
   std::sort(ordered.begin(), ordered.end(), [&](Guid a, Guid b) { return doc.siblingIndex(a) < doc.siblingIndex(b); });
-  for (Guid c : ordered) {
-    if (!usable(c)) continue;
+  // Only partly covered, a frame gives its touched children instead of itself (live Figma); a section is canvas, so a
+  // frame in it partly covered gives its children too (round 8).
+  auto take = [&](auto&& self, Guid c) -> void {
+    if (!usable(c)) return;
     Rect b = doc.worldBounds(c);
-    if (!rect.intersects(b)) continue;
+    if (!rect.intersects(b)) return;
     const Node* n = doc.get(c);
     if (n->props.isFrameLike() && !rect.containsRect(b) && !doc.children(c).empty()) {
-      // Only partly covered: the frame's touched children instead of the frame.
-      for (Guid gc : doc.children(c))
-        if (usable(gc) && rect.intersects(doc.worldBounds(gc))) out.push_back(gc);
-      continue;
+      bool section = n->props.type == NodeType::SECTION;
+      for (Guid gc : doc.children(c)) {
+        if (section) self(self, gc);
+        else if (usable(gc) && rect.intersects(doc.worldBounds(gc))) out.push_back(gc);
+      }
+      return;
     }
     out.push_back(c);
-  }
+  };
+  for (Guid c : ordered) take(take, c);
   // A top-level frame taken whole: then only top-level layers (Figma doesn't mix levels in one marquee).
   bool wholeFrame = false;
   for (Guid id : out)

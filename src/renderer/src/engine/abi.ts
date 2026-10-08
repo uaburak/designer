@@ -5,12 +5,14 @@
  * by hand until apigen generates them from engine/api/*.def.ts.
  */
 
-/** The Tool enum (§8.4). The engine implements all but SCALE, SLICE, IMAGE and COMMENT. */
+/** The Tool enum (§8.4). The engine implements all but IMAGE (the editor's: a file picker, then clicks). */
 export const TOOLS = [
   "MOVE", "SCALE", "HAND", "FRAME", "SECTION", "SLICE", "RECTANGLE", "LINE", "ARROW",
   "ELLIPSE", "POLYGON", "STAR", "IMAGE", "PEN", "PENCIL", "TEXT", "COMMENT",
   // Dev Mode's tools (⇧T, ⇧M; engine/src/editor/DevMode.cpp)
   "ANNOTATION", "MEASUREMENT",
+  // Round 8: the eyedropper (I, ⌃C "Pick color"): a click emits COLOR_PICK, then back to Move.
+  "EYEDROPPER",
 ] as const;
 export type ToolName = (typeof TOOLS)[number];
 export const toolId = (tool: ToolName): number => TOOLS.indexOf(tool);
@@ -221,6 +223,11 @@ export const CommandId = {
   ZOOM_TO_NEXT_FRAME: 234,
   /** ⇧N: the view to the previous frame. */
   ZOOM_TO_PREVIOUS_FRAME: 235,
+  // Round 8 (r8-selection): canvas tools (engine/src/tools/CanvasTools.cpp).
+  /** ⌥R: the selection's rotation origin shown (drag it; the rotation handles turn about it); toggles (CMD_CHECKED). */
+  SHOW_ROTATION_ORIGIN: 236,
+  /** The selected ruler guide removed ("Remove guide"; ⌫ on a selected guide does it in the engine). */
+  REMOVE_GUIDE: 237,
   // Round 8 (r8-design-panel): the Grid panel (engine/src/tools/GridGestures.cpp); 260-269.
   /** args { frame, axis: "COLUMNS" | "ROWS", tracks: number[] }: the selected grid's tracks, as a pill click ([] clears). */
   SELECT_GRID_TRACKS: 260,
@@ -269,6 +276,12 @@ export const PASTE_REPLACE = 4;
 export const VIEW_PIXEL_GRID = 1;
 export const VIEW_OUTLINES = 2;
 export const VIEW_LAYOUT_GUIDES = 4;
+/** Round 8: rulers (⇧R: ruler guides shown, dragged, snapped to), Snap to pixel grid (⇧⌘′), Show slices, Pixel preview 1x / 2x (⌃P). */
+export const VIEW_RULERS = 8;
+export const VIEW_SNAP_PIXELS = 16;
+export const VIEW_SLICES = 32;
+export const VIEW_PIXEL_PREVIEW = 64;
+export const VIEW_PIXEL_PREVIEW_2X = 128;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
 /** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */

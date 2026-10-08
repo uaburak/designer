@@ -46,6 +46,25 @@ export interface UIState {
   outlines?: boolean;
   /** View › Layout guides (⇧G); default on */
   layoutGuides?: boolean;
+  /** Preferences › Snap to pixel grid (⇧⌘′); default on (round 8) */
+  snapToPixelGrid?: boolean;
+  /** View › Show slices; default on (round 8) */
+  showSlices?: boolean;
+  /** View › Pixel preview (⌃P, ⇧⌘P): 0 off, 1 at 1x, 2 at 2x (round 8) */
+  pixelPreview?: 0 | 1 | 2;
+  /** Preferences › Nudge amount… (round 8): the steps, and whether its dialog is open */
+  nudge?: { small: number; big: number };
+  nudgeDialog?: boolean;
+  /** An auto-layout bar's value edited in place (round 8, REQUEST_INLINE_EDIT; viewport px) */
+  inlineValueEdit?: {
+    ref: Guid;
+    field: "PADDING_LEFT" | "PADDING_TOP" | "PADDING_RIGHT" | "PADDING_BOTTOM" | "GAP";
+    value: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
   renaming: Renaming;
   /** Layers shown open, every page's */
   expanded: ReadonlySet<Guid>;
@@ -72,7 +91,7 @@ export interface UIState {
   /** Version history: "Save to version history" (⌥⌘S) or the list */
   versionDialog: "save" | "history" | null;
   /** The context menu over the canvas or a layer: where it opens (view px) and, on the canvas, the point it was opened at (canvas CSS px) */
-  contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[] } | null;
+  contextMenu: { x: number; y: number; canvas: { x: number; y: number } | null; layers?: Guid[]; guide?: boolean } | null;
   /** Images chosen with the Image tool, waiting for a click each (the first is next) */
   placingImages: readonly ImportedImage[] | null;
   /** After "Go to main component": where "Return to instance" goes back to */

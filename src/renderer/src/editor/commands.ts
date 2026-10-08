@@ -21,6 +21,7 @@ import type { Guid } from "@/engine/codec";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
+import { adjustText, syncViewOptions, type TextAdjust } from "./canvasTools";
 
 export interface KeyCombo {
   /** KeyboardEvent.code */
@@ -210,13 +211,24 @@ const selectAllWith = (id: string, label: string, mode: string): EditorCommand =
 /** View › Pixel grid's state (on unless turned off). */
 const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
 
-/** View › Pixel grid / Outlines / Layout guides: the UI's state and the engine's (engine_set_view_options). */
-export function setViewOption(ed: EditorController, patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean }): void {
+/**
+ * View › Pixel grid / Outlines / Layout guides / Rulers / Show slices / Pixel preview, Preferences › Snap to pixel grid:
+ * the UI's state and the engine's (engine_set_view_options; canvasTools.ts sends every change).
+ */
+export function setViewOption(
+  ed: EditorController,
+  patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean; rulers?: boolean; snapToPixelGrid?: boolean; showSlices?: boolean; pixelPreview?: 0 | 1 | 2 }
+): void {
   ed.ui.set(patch);
-  const ui = ed.ui.get();
-  ed.engine.setViewOptions({ pixelGrid: pixelGridOn(ed), outlines: !!ui.outlines, layoutGuides: ui.layoutGuides !== false });
+  syncViewOptions(ed);
   if (patch.outlines !== undefined) showToast({ message: patch.outlines ? "Outlines visible" : "Outlines hidden" });
+  // Live Figma's toasts (behaviour/keys.md: ⌃P).
+  if (patch.pixelPreview !== undefined) showToast({ message: patch.pixelPreview ? `Pixel preview enabled (${patch.pixelPreview}x)` : "Pixel preview disabled" });
 }
+
+/** Text › Adjust: one of the size / weight / spacing steps on the selected text layers. */
+const adjust = (id: string, label: string, keys: KeyCombo[], what: TextAdjust, dir: 1 | -1): EditorCommand =>
+  textCommand(id, label, keys, (ed, refs) => adjustText(ed, refs, what, dir));
 
 /** Object ▸ Remove fill (⌥/) / Remove stroke (⇧/): the selected layers' paints of that kind gone. */
 function removePaints(ed: EditorController, field: "fillPaints" | "strokePaints", label: string): void {
@@ -250,9 +262,10 @@ export const COMMANDS: EditorCommand[] = [
   tool("tool.pen", "Pen", "PEN", [k("KeyP")]),
   tool("tool.pencil", "Pencil", "PENCIL", [k("KeyP", { shift: true })]),
   tool("tool.text", "Text", "TEXT", [k("KeyT")]),
+  // Comment: inert until multiplayer (the engine takes no clicks; a toast says so).
   tool("tool.comment", "Comment", "COMMENT", [k("KeyC")]),
-  // Dev Mode's tools, in Design too (help.figma.com 20774752502935: "Annotation … Shift T", "Measurement … Shift M").
-  tool("tool.annotation", "Annotation", "ANNOTATION", [k("KeyT", { shift: true })]),
+  // Dev Mode's tools, in Design too (live toolbar: "Annotation Y", "Measurement ⇧M"; help.figma.com also ⇧T).
+  tool("tool.annotation", "Annotation", "ANNOTATION", [k("KeyY"), k("KeyT", { shift: true })]),
   tool("tool.measurement", "Measurement", "MEASUREMENT", [k("KeyM", { shift: true })]),
   // ⇧D: Design ⇄ Dev Mode (help.figma.com 15023124644247).
   ui("view.dev-mode", "Dev Mode", [k("KeyD", { shift: true })], (ed) => setMode(ed, modeOf(ed) === "dev" ? "design" : "dev"), (ed) => modeOf(ed) === "dev"),
@@ -315,7 +328,8 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.find-previous", label: "Find previous", keys: [k("KeyD", { mod: true, shift: true })], run: (ed) => stepFind(ed, -1), enabled: (ed) => !!ed.ui.get().find?.query },
   ui("edit.find-replace", "Find and replace…", undefined, (ed) => openFind(ed, { replace: true })),
   later("edit.set-default-properties", "Set default properties"),
-  later("edit.pick-color", "Pick color", [k("KeyC", { ctrl: true })]),
+  // The eyedropper (live Edit menu "Pick color ⌃C"; I): a click on the canvas sets the selection's fill to that colour.
+  tool("edit.pick-color", "Pick color", "EYEDROPPER", [k("KeyC", { ctrl: true }), k("KeyI")]),
   engine("edit.select-all", "Select all", "SELECT_ALL", [k("KeyA", { mod: true })]),
   engine("edit.select-matching", "Select matching layers", "SELECT_MATCHING", [k("KeyA", { mod: true, alt: true })]),
   // Esc is the engine's (it clears the selection, live Figma); the menu shows it.
@@ -340,18 +354,20 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.collapse-layers", "Collapse layers", [k("KeyL", { alt: true })], (ed) => ed.ui.set((s) => ({ expanded: collapsedLayers(ed.getTree(), ed.selection, s.expanded) }))),
   // Preferences › Highlight layers on hover (on by default).
   ui("prefs.highlight-on-hover", "Highlight layers on hover", undefined, (ed) => ed.ui.set((s) => ({ highlightOnHover: s.highlightOnHover === false })), (ed) => ed.ui.get().highlightOnHover !== false),
-  ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => ed.ui.set((s) => ({ rulers: !s.rulers })), (ed) => ed.ui.get().rulers),
+  ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => setViewOption(ed, { rulers: !ed.ui.get().rulers }), (ed) => ed.ui.get().rulers),
   ui("view.property-labels", "Additional labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
   // View › Annotations (help.figma.com 20774752502935; ⇧Y per a user report, unverified).
   ui("view.annotations", "Annotations", [k("KeyY", { shift: true })], (ed) => toggleAnnotations(ed), (ed) => annotationsShown(ed)),
   // The live View menu: Pixel grid ⇧' (drawn from 300 % zoom), Layout guides ⇧G, Outlines ▸ (⇧⌘O), Pixel preview ⇧⌘P.
   ui("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })], (ed) => setViewOption(ed, { pixelGrid: !pixelGridOn(ed) }), (ed) => pixelGridOn(ed)),
-  later("view.snap-pixel-grid", "Snap to pixel grid", [k("Quote", { mod: true, shift: true })]),
+  // Preferences › Snap to pixel grid (live: ⇧⌘′, on by default): gestures land on whole px.
+  ui("view.snap-pixel-grid", "Snap to pixel grid", [k("Quote", { mod: true, shift: true })], (ed) => setViewOption(ed, { snapToPixelGrid: ed.ui.get().snapToPixelGrid === false }), (ed) => ed.ui.get().snapToPixelGrid !== false),
   ui("view.layout-guides", "Layout guides", [k("KeyG", { shift: true })], (ed) => setViewOption(ed, { layoutGuides: ed.ui.get().layoutGuides === false }), (ed) => ed.ui.get().layoutGuides !== false),
-  later("view.show-slices", "Show slices"),
+  ui("view.show-slices", "Show slices", undefined, (ed) => setViewOption(ed, { showSlices: ed.ui.get().showSlices === false }), (ed) => ed.ui.get().showSlices !== false),
   later("view.comments", "Comments", [k("KeyC", { shift: true })]),
   ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),
-  later("view.pixel-preview", "Pixel preview", [k("KeyP", { mod: true, shift: true }), k("KeyP", { ctrl: true })]),
+  // Live: View › Pixel preview ⇧⌘P; ⌃P toggles it ("Pixel preview enabled (1x)" / "Pixel preview disabled").
+  ui("view.pixel-preview", "Pixel preview", [k("KeyP", { mod: true, shift: true }), k("KeyP", { ctrl: true })], (ed) => setViewOption(ed, { pixelPreview: ed.ui.get().pixelPreview ? 0 : 1 }), (ed) => !!ed.ui.get().pixelPreview),
   later("view.mask-outlines", "Mask outlines"),
   later("view.frame-outlines", "Frame outlines"),
   later("view.memory-usage", "Memory usage"),
@@ -493,6 +509,9 @@ export const COMMANDS: EditorCommand[] = [
   engine("arrange.distribute-horizontal", "Distribute horizontal spacing", "DISTRIBUTE_HORIZONTAL", [k("KeyH", { alt: true, ctrl: true })]),
   engine("arrange.distribute-vertical", "Distribute vertical spacing", "DISTRIBUTE_VERTICAL", [k("KeyV", { alt: true, ctrl: true })]),
   engine("arrange.tidy-up", "Tidy up", "TIDY_UP", [k("KeyT", { alt: true, ctrl: true })]),
+  // ⌥R (a forum report; not in the live menus): the rotation origin shown, dragged; rotation turns about it.
+  engine("object.rotation-origin", "Show rotation origin", "SHOW_ROTATION_ORIGIN", [k("KeyR", { alt: true })], { checked: (ed) => (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & 2) !== 0 }),
+  engine("canvas.remove-guide", "Remove guide", "REMOVE_GUIDE"),
   later("arrange.round-to-pixel", "Round to pixel"),
   later("arrange.pack-horizontal", "Pack horizontal"),
   later("arrange.pack-vertical", "Pack vertical"),
@@ -534,6 +553,15 @@ export const COMMANDS: EditorCommand[] = [
     ed.batch("Numbered list", () => refs.forEach((r) => ed.engine.setTextList(r, "ORDERED")))
   ),
   textCommand("text.align-left", "Text align left", [k("KeyL", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "LEFT" }), "Text alignment")),
+  // Text › Adjust (help.figma.com shortcuts; the steps unverified).
+  adjust("text.font-size-up", "Increase font size", [k("Period", { mod: true, shift: true })], "size", 1),
+  adjust("text.font-size-down", "Decrease font size", [k("Comma", { mod: true, shift: true })], "size", -1),
+  adjust("text.font-weight-up", "Increase font weight", [k("Period", { mod: true, alt: true })], "weight", 1),
+  adjust("text.font-weight-down", "Decrease font weight", [k("Comma", { mod: true, alt: true })], "weight", -1),
+  adjust("text.line-height-up", "Increase line height", [k("Period", { alt: true, shift: true })], "lineHeight", 1),
+  adjust("text.line-height-down", "Decrease line height", [k("Comma", { alt: true, shift: true })], "lineHeight", -1),
+  adjust("text.letter-spacing-up", "Increase letter spacing", [k("Period", { alt: true })], "letterSpacing", 1),
+  adjust("text.letter-spacing-down", "Decrease letter spacing", [k("Comma", { alt: true })], "letterSpacing", -1),
   textCommand("text.align-center", "Text align center", [k("KeyT", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "CENTER" }), "Text alignment")),
   textCommand("text.align-right", "Text align right", [k("KeyR", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "RIGHT" }), "Text alignment")),
 
@@ -560,7 +588,7 @@ export const COMMANDS: EditorCommand[] = [
   later("plugins.manage", "Manage plugins…"),
   later("widgets.manage", "Manage widgets…"),
   later("prefs.color-profile", "Color profile…"),
-  later("prefs.nudge-amount", "Nudge amount…"),
+  ui("prefs.nudge-amount", "Nudge amount…", undefined, (ed) => ed.ui.set({ nudgeDialog: true, uiHidden: false })),
   {
     id: "file.save-version",
     label: "Save to version history…",

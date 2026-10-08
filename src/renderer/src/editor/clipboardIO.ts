@@ -97,7 +97,8 @@ function pasteInto(ed: EditorController, message: Message, mode: EditorControlle
 
 /** A paste mode as the engine's options: ⇧⌘V in place just above the selection; ⇧⌘R in each selected layer's place. */
 export function pasteOptions(mode: EditorController["pendingPaste"]): PasteOptions {
-  if (mode?.mode === "over") return { inPlace: true, over: true };
+  // ⇧⌘V: on top of the selection at its position (help.figma.com "Copy and paste objects"; round 8).
+  if (mode?.mode === "over") return { over: true };
   if (mode?.mode === "replace") return { replace: true };
   return { inPlace: mode?.mode === "inPlace" };
 }

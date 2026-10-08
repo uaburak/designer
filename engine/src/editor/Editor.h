@@ -41,9 +41,12 @@ enum class Tool : uint8_t {
   MOVE, SCALE, HAND, FRAME, SECTION, SLICE, RECTANGLE, LINE, ARROW, ELLIPSE,
   POLYGON, STAR, IMAGE, PEN, PENCIL, TEXT, COMMENT,
   ANNOTATION, MEASUREMENT,
+  EYEDROPPER,
   Count
 };
-// ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp.
+// ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp. Round 8 (tools/CanvasTools.cpp): SCALE (K)
+// selects and moves as MOVE, its handles scale the layers with their properties; SLICE (S) draws slices; COMMENT (C) is
+// inert until multiplayer; EYEDROPPER (I, ⌃C "Pick color"): a click emits COLOR_PICK and the tool goes back to Move.
 const char* toolName(Tool t);
 bool toolImplemented(Tool t);
 
@@ -74,7 +77,8 @@ const char* txnKindName(TxnKind k);
 // docs/engine.md §10.4 CursorKind.
 enum class CursorKind : uint8_t {
   DEFAULT, HAND, GRABBING, CROSSHAIR, PEN, PEN_ADD, PEN_REMOVE, PEN_CLOSE, IBEAM,
-  RESIZE, ROTATE, MOVE_DUPLICATE, ZOOM_IN, ZOOM_OUT, EYEDROPPER, NOT_ALLOWED
+  RESIZE, ROTATE, MOVE_DUPLICATE, ZOOM_IN, ZOOM_OUT, EYEDROPPER, NOT_ALLOWED,
+  COMMENT, SCALE  // round 8: the Comment tool's pin, the Scale tool's arrow
 };
 const char* cursorName(CursorKind k);
 
@@ -244,9 +248,39 @@ class Editor : private LayoutHost, public TextLayouts {
   void blur();
 
   // ---- View options (View › Pixel grid, Outlines) ----
-  enum ViewOption : uint32_t { VIEW_PIXEL_GRID = 1, VIEW_OUTLINES = 2, VIEW_LAYOUT_GUIDES = 4 };
+  // Round 8: VIEW_RULERS (⇧R: ruler guides shown, dragged and snapped to), VIEW_SNAP_PIXELS (Preferences › Snap to pixel
+  // grid, ⇧⌘′: gestures land on whole px), VIEW_SLICES (View › Show slices), VIEW_PIXEL_PREVIEW / _2X (⌃P: the page drawn
+  // at 1x / 2x and scaled up without smoothing).
+  enum ViewOption : uint32_t {
+    VIEW_PIXEL_GRID = 1, VIEW_OUTLINES = 2, VIEW_LAYOUT_GUIDES = 4, VIEW_RULERS = 8, VIEW_SNAP_PIXELS = 16, VIEW_SLICES = 32,
+    VIEW_PIXEL_PREVIEW = 64, VIEW_PIXEL_PREVIEW_2X = 128
+  };
+  static constexpr uint32_t kViewOptionsAll = 255;
+  static constexpr uint32_t kViewOptionsDefault = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES | VIEW_SNAP_PIXELS | VIEW_SLICES;
   void setViewOptions(uint32_t options);
   uint32_t viewOptions() const { return viewOptions_; }
+  // Preferences › Nudge amount… (Small nudge, Big nudge: the arrows and ⇧ arrows), CSS-free page units.
+  void setNudge(double small, double big);
+  double nudgeSmall() const { return nudgeSmall_; }
+  double nudgeBig() const { return nudgeBig_; }
+
+  // ---- Ruler guides (round 8, tools/CanvasTools.cpp; Figma's `guides` on pages and frames) ----
+  // axis 0 (X): a vertical guide at x = offset; 1 (Y): a horizontal one at y = offset — in the owner's space (a page's
+  // or a top-level frame's).
+  struct RulerGuide {
+    Guid owner = kNoGuid;
+    int axis = 0;
+    double offset = 0;
+    Guid id = kNoGuid;
+    bool operator==(const RulerGuide& o) const { return owner == o.owner && axis == o.axis && offset == o.offset && id == o.id; }
+  };
+  std::vector<RulerGuide> guidesOf(Guid owner) const;
+  // The rulers' press: a new guide dragged out of a ruler (axis 0: the left ruler's vertical guide, 1: the top
+  // ruler's horizontal one) from `screen` (canvas CSS px); `rulerSize`: the rulers' thickness (a guide let go over a
+  // ruler goes). The pointer events that follow drive it.
+  Status startGuideDrag(int axis, Vec2 screen, double rulerSize);
+  bool hasSelectedGuide() const { return selectedGuide_.owner != kNoGuid; }
+  const RulerGuide& selectedGuide() const { return selectedGuide_; }
 
   // ---- Tools, hover, frames ----
   Status setTool(Tool t);
@@ -303,6 +337,7 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   // CONTEXT_MENU: a right-click (or ⌃-click on a Mac), after the selection settled.
   struct ContextMenu {
+    bool guide = false;  // round 8: on a ruler guide (the menu: Remove guide)
     bool selection = false;  // targetKind SELECTION (else CANVAS)
     double x = 0, y = 0;     // CSS px in the canvas
     std::vector<std::vector<Guid>> hits;  // each layer under the point, innermost first; topmost layer first
@@ -346,7 +381,17 @@ class Editor : private LayoutHost, public TextLayouts {
     std::string action;
     Rect rect;
   };
+  // REQUEST_INLINE_EDIT (round 8): a click on a selected auto-layout frame's padding or gap bar — TS edits the value in
+  // place over `rect` (canvas CSS px); field: PADDING_LEFT / _TOP / _RIGHT / _BOTTOM, GAP.
+  struct InlineEdit {
+    Guid node = kNoGuid;
+    std::string field;
+    double value = 0;
+    Rect rect;
+  };
   struct Events {
+    std::vector<Vec2> colorPicks;             // COLOR_PICK (round 8): the eyedropper clicked there (canvas CSS px)
+    std::vector<InlineEdit> inlineEdits;      // REQUEST_INLINE_EDIT
     std::vector<AnnotationOpen> annotationOpens;
     std::vector<MeasurementEdit> measurementEdits;
     std::vector<DevStatusClick> statusClicks;
@@ -368,7 +413,7 @@ class Editor : private LayoutHost, public TextLayouts {
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
-      return !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
+      return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
              !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !renames.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
@@ -795,7 +840,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string newAssetKey();
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
-                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea };
+                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide };
 
   struct Target {
     Guid id;
@@ -1031,6 +1076,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // A new section as Figma makes one in the current UI theme (live 2026-10-08: dark — #444444, a white 10 % inside
   // stroke; light — white, a black 10 % stroke; radius 2, not clipping).
   NodeProps sectionProps() const;
+  // A new slice (round 8, the Slice tool): no paints, one export setting (PNG 1x) as Figma gives it (unverified).
+  NodeProps sliceProps() const;
   void ungroup();
   void duplicate();
   void flip(bool horizontal);
@@ -1055,7 +1102,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // LineEnd: a line's start (hx 0) or end (hx 1) handle.
   // Radius: a rectangle's corner radius handle (hx: the corner, 0 top-left … 3 bottom-left); Gap: a smart
   // selection's gap handle (hx: the gap, hy: 1 between rows).
-  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd, Radius, Gap };
+  // Reorder: a smart selection's centre ring (hx: its index in the order); RotationOrigin: the ⌥R origin.
+  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd, Radius, Gap, Reorder, RotationOrigin };
   Handle handleAt(Vec2 screen, int& hx, int& hy) const;
   // A single selected line — a LINE, or a vector with no width or no height — and its ends (world): Figma gives it
   // two endpoint handles instead of a box.
@@ -1080,6 +1128,41 @@ class Editor : private LayoutHost, public TextLayouts {
   // The pointer went into or out of the selection's box (true: draw again).
   bool selectionHoverChanged(Vec2 screen);
   void dragGap(Vec2 world, uint32_t mods);
+  // ---- Round 8 (tools/CanvasTools.cpp) ----
+  // The tools that select and move (Move, and Scale whose handles scale).
+  bool selectingTool() const { return tool_ == Tool::MOVE || tool_ == Tool::SCALE; }
+  // Smart selection reorder: the centre ring dragged — that layer follows the pointer, the others take the places in
+  // the order its centre gives; let go, it takes its place.
+  void startReorder(int index);
+  void dragReorder(Vec2 world, uint32_t mods);
+  void placeReorder(bool final);
+  // ⌥R: the rotation origin (world), the selection's centre until it is dragged; reset when the selection changes.
+  bool rotationOriginShown() const;
+  Vec2 rotationOrigin() const;
+  void dragRotationOrigin(Vec2 world, uint32_t mods);
+  // The Scale tool (K): the handles scale the layers and what they hold — sizes, positions, radii, strokes, effects,
+  // text sizes, auto layout's padding and gaps, layout grids, limits.
+  void startScale();
+  void applyScale(double s);
+  // Ruler guides.
+  bool rulersOn() const { return (viewOptions_ & VIEW_RULERS) != 0; }
+  bool guideAt(Vec2 screen, RulerGuide& out) const;
+  void writeGuides(Guid owner, const std::vector<RulerGuide>& guides);
+  bool pressGuide(Vec2 screen, uint32_t mods);
+  void dragGuide(Vec2 screen, uint32_t mods);
+  void finishGuide(Vec2 screen);
+  void guideOverlay(Overlay& o) const;
+  // Lines a moving box or a dragged edge snaps to besides the layers: the guides in force there (rulers on) and the
+  // layout grids of the frame it is in (layout guides on), world.
+  void snapLines(Guid parent, std::vector<double>& xs, std::vector<double>& ys) const;
+  // Whole px when Snap to pixel grid is on.
+  double px(double v) const { return (viewOptions_ & VIEW_SNAP_PIXELS) ? std::round(v) : v; }
+  // A click on an auto-layout bar: its value edited in place (REQUEST_INLINE_EDIT).
+  void requestInlineEdit(int bar);
+  // Rotating: the first layer's rotation as the badge shows it ("45°", the Design panel's sign).
+  std::string rotateBadgeText() const;
+  // Paste: the view follows what was pasted when it isn't all in view (panned; zoomed out when it is larger).
+  void revealPasted(const Rect& world);
   Guid titleAt(Vec2 screen) const;
   // An overlay label's width in CSS px (Inter Regular at the title size; `section`: Medium at the pill's size).
   double labelWidth(const std::string& text, bool section) const;
@@ -1358,7 +1441,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::vector<Guid> layersHover_;
   bool spaceHeld_ = false;
   bool needsRender_ = true;
-  uint32_t viewOptions_ = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES;
+  uint32_t viewOptions_ = kViewOptionsDefault;
   bool zoomHeld_ = false;  // Z held: the zoom tool (a click zooms in, ⌥ out, a drag to the area)
   uint32_t mods_ = 0;
   Events events_;
@@ -1556,6 +1639,30 @@ class Editor : private LayoutHost, public TextLayouts {
   // selects the pressed layer; a press-drag with nothing movable (instance sublayers, locked layers) is a no-op.
   bool pressInSelected_ = false;
   bool pressNoop_ = false;
+
+  // Round 8 (tools/CanvasTools.cpp).
+  double nudgeSmall_ = 1, nudgeBig_ = 10;
+  int reorderHover_ = -1;          // the smart selection's centre ring under the pointer
+  SmartSelection reorderFrom_;     // dragging a centre ring: the selection as it started
+  int reorderIndex_ = -1;          // the dragged layer's index in reorderFrom_.order
+  std::vector<Guid> reorderOrder_;  // the order now
+  bool rotationOriginOn_ = false;   // ⌥R
+  bool rotationOriginSet_ = false;  // dragged away from the centre
+  Vec2 rotationOrigin_;
+  std::vector<Guid> rotationOriginFor_;  // the selection it belongs to
+  RulerGuide selectedGuide_;       // a clicked guide (owner kNoGuid: none)
+  RulerGuide hoverGuide_;          // the guide under the pointer
+  RulerGuide guideDrag_;           // the guide being dragged, as it is now
+  RulerGuide guideFrom_;           // …as it was (owner kNoGuid: a new one)
+  bool guideNew_ = false;
+  double guideRuler_ = 20;         // the rulers' thickness (CSS px): a guide let go over one goes
+  bool guideMoved_ = false;
+  bool scaling_ = false;           // the Scale tool's handles
+  std::unordered_map<Guid, NodeProps, GuidHash> scaleFrom_;  // the scaled layers and their descendants at the press
+  Vec2 lastDrawWorld_;             // drawing: where the pointer was (Space held moves the shape)
+  Vec2 rotateCentre_;              // rotating: about this (world)
+  std::unordered_set<Guid, GuidHash> slices_;  // the document's slices (View › Show slices)
+  bool layoutBarMoved_ = false;    // an auto-layout bar pressed: dragged (else a click edits its value)
   // Overlay labels measured for hit-testing (labelWidth), by style and text; dropped when the fonts change.
   mutable std::unordered_map<std::string, double> labelWidths_;
   mutable uint64_t labelWidthsGeneration_ = ~0ull;

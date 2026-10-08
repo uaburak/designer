@@ -790,7 +790,9 @@ export interface UndoState {
 
 export type CursorKind =
   | "DEFAULT" | "HAND" | "GRABBING" | "CROSSHAIR" | "PEN" | "PEN_ADD" | "PEN_REMOVE" | "PEN_CLOSE" | "IBEAM"
-  | "RESIZE" | "ROTATE" | "MOVE_DUPLICATE" | "ZOOM_IN" | "ZOOM_OUT" | "EYEDROPPER" | "NOT_ALLOWED";
+  | "RESIZE" | "ROTATE" | "MOVE_DUPLICATE" | "ZOOM_IN" | "ZOOM_OUT" | "EYEDROPPER" | "NOT_ALLOWED"
+  // Round 8: the Comment tool's pin, the Scale tool's arrow.
+  | "COMMENT" | "SCALE";
 
 /**
  * Engine → JS events (docs/engine.md §10.4), drained after every call.
@@ -822,7 +824,7 @@ export type EngineEvent =
    * already in the selection). `hits`: every layer under the point, topmost first, each as its path innermost
    * first (the layer, then its parents up to the page's child) — "Select layer ▸". Comes after SELECTION_CHANGED.
    */
-  | { type: "CONTEXT_MENU"; targetKind: "CANVAS" | "SELECTION"; x: number; y: number; hits: Guid[][] }
+  | { type: "CONTEXT_MENU"; targetKind: "CANVAS" | "SELECTION" | "GUIDE"; x: number; y: number; hits: Guid[][] }
   /** A FontName a document uses that nobody has answered yet (once per name, module-wide). Engine.ts answers it. */
   | { type: "REQUEST_FONT"; family: string; style: string }
   /**
@@ -873,6 +875,19 @@ export type EngineEvent =
   | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number }
   /** A frame's title (or a section's pill) was double-clicked: rename it in place over (x, y, width, height), canvas CSS px. */
   | { type: "REQUEST_RENAME"; ref: Guid; x: number; y: number; width: number; height: number }
+  /** Round 8: the eyedropper clicked at (x, y), canvas CSS px — the editor reads the colour there (Engine.renderRegionPixels). */
+  | { type: "COLOR_PICK"; x: number; y: number }
+  /** Round 8: a selected auto-layout frame's padding or gap bar was clicked — its value edited in place over the rect (canvas CSS px). */
+  | {
+      type: "REQUEST_INLINE_EDIT";
+      ref: Guid;
+      field: "PADDING_LEFT" | "PADDING_TOP" | "PADDING_RIGHT" | "PADDING_BOTTOM" | "GAP";
+      value: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
   /** Dev Mode: an annotation's label or dot was clicked (index ≥ 0), or the Annotation tool clicked a layer (index −1: a new note); the rect in canvas CSS px. */
   | { type: "ANNOTATION_OPEN"; ref: Guid; index: number; x: number; y: number; width: number; height: number }
   /** Dev Mode: a saved measurement was double-clicked (its custom text); the rect is its value's pill. */

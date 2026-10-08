@@ -36,6 +36,11 @@ import {
   VIEW_LAYOUT_GUIDES,
   VIEW_OUTLINES,
   VIEW_PIXEL_GRID,
+  VIEW_PIXEL_PREVIEW,
+  VIEW_PIXEL_PREVIEW_2X,
+  VIEW_RULERS,
+  VIEW_SLICES,
+  VIEW_SNAP_PIXELS,
   WIRE_JSON,
   WIRE_KIWI,
   type CommandName,
@@ -609,10 +614,43 @@ export class Engine {
 
   // ---- Dev Mode (round 6: docs/engine-build.md "Round 6") -------------------------
 
-  /** View › Pixel grid (drawn from 300 % zoom), outline mode (⇧⌘O: every layer as a thin outline), Layout guides (⇧G). */
-  setViewOptions(options: { pixelGrid: boolean; outlines: boolean; layoutGuides?: boolean }): void {
-    const flags = (options.pixelGrid ? VIEW_PIXEL_GRID : 0) | (options.outlines ? VIEW_OUTLINES : 0) | (options.layoutGuides !== false ? VIEW_LAYOUT_GUIDES : 0);
+  /**
+   * View › Pixel grid (drawn from 300 % zoom), outline mode (⇧⌘O: every layer as a thin outline), Layout guides (⇧G);
+   * round 8: rulers (⇧R: ruler guides shown, dragged and snapped to), Snap to pixel grid (⇧⌘′, default on), Show
+   * slices (default on), Pixel preview (⌃P: 1x or 2x; 0 off).
+   */
+  setViewOptions(options: {
+    pixelGrid: boolean;
+    outlines: boolean;
+    layoutGuides?: boolean;
+    rulers?: boolean;
+    snapToPixelGrid?: boolean;
+    showSlices?: boolean;
+    pixelPreview?: 0 | 1 | 2;
+  }): void {
+    const flags =
+      (options.pixelGrid ? VIEW_PIXEL_GRID : 0) |
+      (options.outlines ? VIEW_OUTLINES : 0) |
+      (options.layoutGuides !== false ? VIEW_LAYOUT_GUIDES : 0) |
+      (options.rulers ? VIEW_RULERS : 0) |
+      (options.snapToPixelGrid !== false ? VIEW_SNAP_PIXELS : 0) |
+      (options.showSlices !== false ? VIEW_SLICES : 0) |
+      (options.pixelPreview === 2 ? VIEW_PIXEL_PREVIEW_2X : options.pixelPreview === 1 ? VIEW_PIXEL_PREVIEW : 0);
     this.after(this.x.setViewOptions(this.h, flags));
+  }
+
+  /** Preferences › Nudge amount… (round 8): the arrows' step and the ⇧ arrows' (page units, > 0). */
+  setNudge(small: number, big: number): void {
+    this.after(this.x.setNudge(this.h, small, big));
+  }
+
+  /**
+   * A ruler guide dragged out of a ruler (round 8): `axis` "X" for the left ruler's vertical guide, "Y" for the top
+   * ruler's horizontal one; (x, y) the press, canvas CSS px; `rulerSize` the rulers' thickness (let go over a ruler,
+   * the guide goes). The pointer events that follow (`pointer`, canvas CSS px) drive it. Status.OK when it started.
+   */
+  startGuide(axis: "X" | "Y", x: number, y: number, rulerSize: number): number {
+    return this.after(this.x.startGuide(this.h, axis === "Y" ? 1 : 0, x, y, rulerSize));
   }
 
   /** View › Annotations: labels (or, `dots`, Dev Mode's dots), and saved measurements; off: none of them. */

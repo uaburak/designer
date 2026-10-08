@@ -202,6 +202,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               {hasChecks && <span className={styles.check}>{entry.checked && <Icon name="16.check" />}</span>}
               {hasIcons && <span className={styles.icon}>{entry.icon && <MenuIcon name={entry.icon} />}</span>}
               <span className={styles.label}>{entry.label}</span>
+              {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{entry.hint}</span>}
               {entry.shortcut && <span className={styles.shortcut}>{entry.shortcut}</span>}
               {entry.items && <Icon name="16.chevron.right" className={styles.chevron} />}

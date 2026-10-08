@@ -128,7 +128,7 @@ TEST_CASE("editor: draw a rectangle with Figma's defaults, then back to Move") {
   CHECK(e.document().parentOf(id) == kPage);
   e.command(CommandId::UNDO);
   CHECK_FALSE(e.document().has(id));
-  CHECK(e.setTool(Tool::COMMENT) == E_UNSUPPORTED);
+  CHECK(e.setTool(Tool::IMAGE) == E_UNSUPPORTED);  // the editor's (a file picker, then clicks)
 }
 
 TEST_CASE("editor: draw with ⇧ (square) and ⌥ (from the centre)") {

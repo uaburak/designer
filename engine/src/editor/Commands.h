@@ -137,6 +137,9 @@ enum class CommandId : uint32_t {
   TIDY_UP = 233,                        // ⌃⌥T
   ZOOM_TO_NEXT_FRAME = 234,             // N
   ZOOM_TO_PREVIOUS_FRAME = 235,         // ⇧N
+  // Round 8 (branch r8-selection): canvas tools and views (tools/CanvasTools.cpp).
+  SHOW_ROTATION_ORIGIN = 236,           // ⌥R: the selection's rotation origin shown (drag it; rotation turns about it); toggles
+  REMOVE_GUIDE = 237,                   // the selected ruler guide removed ("Remove guide")
   // Round 8 (branch r8-design-panel): the Grid panel (tools/GridGestures.cpp); 260-269.
   SELECT_GRID_TRACKS = 260,             // args {frame, axis: "COLUMNS" | "ROWS", tracks: number[]} — the selected grid's tracks ([] clears)
 };
