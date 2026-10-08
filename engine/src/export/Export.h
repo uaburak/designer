@@ -50,6 +50,8 @@ const char* extensionOf(Format f);
 struct Target {
   Guid page = kNoGuid;
   Guid node = kNoGuid;  // the exported layer; kNoGuid: the page's canvas
+  // Several layers in one image (Copy as PNG / SVG of a selection): in paint order, `node` the first; empty otherwise.
+  std::vector<Guid> nodes;
   // Contents only: `node`'s subtree. Otherwise (`region`): every layer of `scope`'s subtree (the page, or a slice's
   // frame) as it shows within `bounds`.
   bool region = false;
@@ -62,6 +64,8 @@ struct Target {
 
 // The target of exporting `node` (kNoGuid: the canvas of `page`) with `s`; false when nothing would show.
 bool resolveTarget(const Document& doc, TextLayouts* texts, Guid page, Guid node, const Settings& s, Target& out);
+// Several layers of one page as one image (their bounds united, drawn in paint order); false when none shows.
+bool resolveTargets(const Document& doc, TextLayouts* texts, const std::vector<Guid>& nodes, const Settings& s, Target& out);
 
 // What a layer and its subtree can cover (world): fills, strokes, effects, the children a frame doesn't clip, text
 // ink, masks clipping what they mask. `any` (optional): whether anything shows at all.

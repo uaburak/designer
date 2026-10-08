@@ -87,6 +87,9 @@ if(EMSCRIPTEN)
   target_compile_options(eng_core PRIVATE -msimd128)
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(eng_core PRIVATE -O3 -flto -DNDEBUG)
+    # The exporters run once per export, not per frame: built for size.
+    set_source_files_properties(src/export/Export.cpp src/export/Scene.cpp src/export/SvgWriter.cpp src/export/PdfWriter.cpp
+      PROPERTIES COMPILE_OPTIONS "-Os")
   else()
     target_compile_options(eng_core PRIVATE -O1 -g)
   endif()

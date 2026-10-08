@@ -1,5 +1,6 @@
 #include "export/Export.h"
 
+#include <algorithm>
 #include <cmath>
 #include <unordered_set>
 
@@ -264,6 +265,34 @@ bool resolveTarget(const Document& doc, TextLayouts* texts, Guid page, Guid node
   return out.bounds.w > 0 && out.bounds.h > 0;
 }
 
+bool resolveTargets(const Document& doc, TextLayouts* texts, const std::vector<Guid>& nodes, const Settings& s, Target& out) {
+  if (nodes.size() == 1) return resolveTarget(doc, texts, kNoGuid, nodes[0], s, out);
+  std::vector<Guid> order;
+  bool any = false;
+  Target merged;
+  for (Guid id : nodes) {
+    Target t;
+    if (!resolveTarget(doc, texts, kNoGuid, id, s, t)) continue;
+    if (any && t.page != merged.page) continue;  // one page's layers
+    merged.bounds = any ? merged.bounds.united(t.bounds) : t.bounds;
+    if (!any) merged.page = t.page;
+    any = true;
+    order.push_back(id);
+  }
+  if (!any) return false;
+  std::stable_sort(order.begin(), order.end(), [&](Guid a, Guid b) { return doc.paintsBefore(a, b); });
+  out = Target{};
+  out.page = merged.page;
+  out.node = order.front();
+  out.bounds = merged.bounds;
+  if (order.size() > 1) out.nodes = order;
+  if (!s.contentsOnly) {
+    out.region = true;
+    out.scope = out.page;
+  }
+  return true;
+}
+
 Raster rasterOf(const Rect& b, const Settings& s) {
   Raster r;
   double scale = s.value;
@@ -286,7 +315,8 @@ Raster rasterOf(const Rect& b, const Settings& s) {
 
 void forEachDrawnImpl(const Document& doc, const Target& t, const std::function<void(Guid, const Node&)>& f) {
   if (!t.region) {
-    walk(doc, t.node, f, 0);
+    if (t.nodes.empty()) walk(doc, t.node, f, 0);
+    for (Guid id : t.nodes) walk(doc, id, f, 0);
     return;
   }
   for (Guid c : doc.children(t.scope)) {

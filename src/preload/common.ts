@@ -137,6 +137,10 @@ export const nav: NavApi = {
 export const files: FilesApi = {
   import: (folderId, paths) => invoke("file:import", { folderId: folderId === null || folderId === undefined ? null : String(folderId), paths: Array.isArray(paths) ? paths.map(String) : undefined }),
   saveLocalCopy: (fileKey) => invoke("file:save-local-copy", { fileKey: String(fileKey) }),
+  exportAssets: (list) =>
+    invoke("file:export-assets", {
+      files: (Array.isArray(list) ? list : []).map((f) => ({ name: String(f?.name ?? ""), bytes: f?.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(0) })),
+    }),
   pathFor: (file) => webUtils.getPathForFile(file),
   revealDataFolder: () => send("file:reveal-data-folder"),
 };

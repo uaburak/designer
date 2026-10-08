@@ -99,6 +99,17 @@ int32_t exportJob(Engine* e, Ptr refsPtr, uint32_t refsLen, Ptr settingsPtr, uin
     job.targets.push_back(t);
     return OK;
   }
+  if (ids.size() > 1 && job.settings.format != exporter::Format::PDF) {
+    // Several layers in one image or SVG (Copy as PNG / SVG of a selection).
+    for (Guid id : ids) ed.derivePageOf(id);
+    exporter::Target t;
+    if (!exporter::resolveTargets(doc, &ed, ids, job.settings, t)) {
+      setError("nothing to export");
+      return E_NOT_FOUND;
+    }
+    job.targets.push_back(t);
+    return OK;
+  }
   for (Guid id : ids) {
     ed.derivePageOf(id);
     exporter::Target t;
@@ -144,16 +155,33 @@ ENG_EXPORT int32_t engine_export(Handle h, Ptr refsPtr, uint32_t refsLen, Ptr se
     };
     return setResult(exporter::writePdf(doc, &ed, job.targets, job.settings, raster));
   }
-  if (job.targets.size() != 1) {
-    setError("PNG, JPG and SVG export one layer at a time");
-    return E_INVALID;
-  }
   const exporter::Target& t = job.targets[0];
   if (f == Format::SVG) return setResult(exporter::writeSvg(doc, &ed, t, job.settings));
   exporter::Raster r = exporter::rasterOf(t.bounds, job.settings);
-  Guid only = !t.region ? t.node : (t.scope != t.page ? t.scope : kNoGuid);
   std::string rgba;
-  if (!renderExport(e, t.page, only, r, rgba)) return E_UNSUPPORTED;
+  if (!t.region && !t.nodes.empty()) {
+    // A selection: each layer drawn on its own, then over the ones below it.
+    for (Guid id : t.nodes) {
+      std::string one;
+      if (!renderExport(e, t.page, id, r, one)) return E_UNSUPPORTED;
+      if (rgba.empty()) {
+        rgba = std::move(one);
+        continue;
+      }
+      auto* dst = reinterpret_cast<uint8_t*>(rgba.data());
+      const auto* src = reinterpret_cast<const uint8_t*>(one.data());
+      for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
+        double sa = src[i + 3] / 255.0, da = dst[i + 3] / 255.0;
+        double oa = sa + da * (1 - sa);
+        if (oa <= 0) continue;
+        for (int c = 0; c < 3; c++) dst[i + c] = static_cast<uint8_t>(std::lround((src[i + c] * sa + dst[i + c] * da * (1 - sa)) / oa));
+        dst[i + 3] = static_cast<uint8_t>(std::lround(oa * 255));
+      }
+    }
+  } else {
+    Guid only = !t.region ? t.node : (t.scope != t.page ? t.scope : kNoGuid);
+    if (!renderExport(e, t.page, only, r, rgba)) return E_UNSUPPORTED;
+  }
   if (t.background) flatten(rgba, t.backgroundColor);
   if (f == Format::JPEG) flatten(rgba, Color{1, 1, 1, 1});
   std::string out(8, '\0');

@@ -232,6 +232,8 @@ export const WIRE_JSON = 0;
 export const WIRE_KIWI = 1;
 /** engine_variable_collections / engine_variables / engine_styles flags: library copies too. */
 export const INCLUDE_REMOTE = 1;
+/** engine_export flags: draw even while fonts or images it needs are still loading. */
+export const EXPORT_ALLOW_PENDING = 1;
 /** engine_text_edit flags. */
 export const TEXT_EDIT_SELECT_ALL = 1;
 /** engine_vector_edit_tool values. */

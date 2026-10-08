@@ -55,6 +55,8 @@ export interface UIState {
   librariesDialog: { tab: "libraries" | "updates"; library?: string | null; update?: string | null } | null;
   /** The Publish library modal */
   publishOpen: boolean;
+  /** File › Export… (⇧⌘E): the page's layers with export settings */
+  exportDialog: boolean;
 }
 
 export class Store<T> {

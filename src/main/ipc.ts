@@ -1,6 +1,7 @@
 import { app, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
+import { exportAssets } from "./files";
 import { fontIndex, readFont } from "./fonts";
 import { isAppUrl } from "./protocol";
 import { workspaceDir } from "./storeHost";
@@ -102,6 +103,19 @@ export function registerIpc() {
   onInvoke("file:save-local-copy", ({ ctl }, p) => {
     if (!isFileKey(p?.fileKey)) throw new Error("file:save-local-copy: not a file key");
     return ctl.tabs.saveLocalCopy(p.fileKey);
+  });
+  onInvoke("file:export-assets", ({ ctl }, p) => {
+    const list = Array.isArray(p?.files) ? p.files : null;
+    if (!list || !list.length || list.length > 5000) throw new Error("file:export-assets: no files");
+    let total = 0;
+    const files = list.map((f) => {
+      const name = str(f?.name, 2000);
+      if (!name || !(f.bytes instanceof Uint8Array)) throw new Error("file:export-assets: not a file");
+      total += f.bytes.length;
+      return { name, bytes: f.bytes };
+    });
+    if (total > 4 * 1024 * 1024 * 1024) throw new Error("file:export-assets: too large");
+    return exportAssets(ctl.win, files);
   });
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));
 

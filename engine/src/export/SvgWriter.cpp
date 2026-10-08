@@ -150,7 +150,8 @@ class Writer {
                      "\"/>\n");
     }
     if (!t_.region) {
-      append(body, nodeEls(t_.node));
+      if (t_.nodes.empty()) append(body, nodeEls(t_.node));
+      for (Guid id : t_.nodes) append(body, nodeEls(id));
     } else if (t_.scope != t_.page) {
       append(body, nodeEls(t_.scope));
     } else {

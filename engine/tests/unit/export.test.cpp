@@ -722,7 +722,11 @@ TEST_CASE("export: the C ABI — PNG / JPEG pixels, SVG, PDF, info, images, the 
   std::string two = R"(["1:1","1:2"])";
   REQUIRE(call(two, R"({"imageType":"PDF"})", 1) == 0);
   CHECK(resultBytes().find("/Count 2") != std::string::npos);
-  CHECK(call(two, R"({"imageType":"PNG"})", 1) == -3);  // one layer at a time
+  // PNG / SVG of two layers: one image of both (Copy as PNG / SVG of a selection).
+  REQUIRE(call(two, R"({"imageType":"PNG"})", 1) == 0);
+  CHECK(u32(resultBytes(), 0) == 200);
+  REQUIRE(call(two, svgSettings, 1) == 0);
+  CHECK(parseXml(resultBytes(), root));
   CHECK(call(R"(["9:9"])", R"({"imageType":"PNG"})", 1) == -5);
   // The export list: the layers with export settings, their settings as JSON.
   REQUIRE(engine_export_list(h, 0xffffffffu, 0xffffffffu) == 0);

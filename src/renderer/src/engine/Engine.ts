@@ -19,6 +19,7 @@ import {
   CommandId,
   ENCODE_DERIVED,
   ENCODE_SELECTION_CUT,
+  EXPORT_ALLOW_PENDING,
   INCLUDE_CHILD_IDS,
   INCLUDE_REMOTE,
   KeyType,
@@ -65,6 +66,9 @@ import {
   type EngineEvent,
   type EngineEventType,
   type EventOf,
+  type ExportInfo,
+  type ExportListEntry,
+  type ExportOutput,
   type Guid,
   type LayerChanges,
   type LibraryAssetUsage,
@@ -89,6 +93,7 @@ import {
   type VectorEditTool,
 } from "./codec";
 import type { EngineExports } from "./EngineExports";
+import type { ExportSettings } from "../../../shared/schema/document.generated";
 import { fonts } from "./fonts";
 import { keyCodeOf } from "./keyCodes";
 import { loadEngine } from "./loadEngine";
@@ -688,6 +693,49 @@ export class Engine {
   renderNodeThumbnailPixels(options: { node: Guid; maxSize: number }): Pixels | null {
     const status = this.x.renderNodeThumbnail(this.h, encodeText(options.node), Math.max(1, Math.round(options.maxSize)), 0);
     return this.after(status === Status.OK ? decodePixels(this.x.result()) : null);
+  }
+
+  // ---- Export (docs/engine-build.md "E7 export") ----------------------------------------------
+
+  /**
+   * One export, drawn by the engine: `refs` one layer (PNG, JPEG, SVG) or, for PDF, every layer as a page of one
+   * file; [] = the current page's canvas. PNG / JPEG come back as straight RGBA pixels (JPEG already on white) for
+   * the caller to encode; SVG / PDF as the file. "busy": fonts or images it draws are still loading (they were
+   * requested; try again when they arrive, or pass `allowPending` to draw what there is).
+   */
+  exportNodes(refs: readonly Guid[], settings: ExportSettings, options: { allowPending?: boolean } = {}): ExportOutput {
+    const format = settings.imageType ?? "PNG";
+    const status = this.x.exportNodes(this.h, encodeRefs(refs), encodeText(JSON.stringify(settings)), options.allowPending ? EXPORT_ALLOW_PENDING : 0);
+    if (status === Status.E_BUSY) return this.after({ status: "busy" });
+    if (status !== Status.OK) {
+      this.x.lastError();
+      return this.after({ status: "error", code: status, message: decodeText(this.x.result()) });
+    }
+    const bytes = this.x.result();
+    if (format === "PNG" || format === "JPEG") return this.after({ status: "ok", format, pixels: decodePixels(bytes) });
+    return this.after({ status: "ok", format, bytes });
+  }
+
+  /** What an export would make (its size per layer, the images an SVG / PDF needs handed in, whether it can draw now). */
+  exportInfo(refs: readonly Guid[], settings: ExportSettings): ExportInfo | null {
+    return this.json(this.x.exportInfo(this.h, encodeRefs(refs), encodeText(JSON.stringify(settings))), null);
+  }
+
+  /** An image for SVG / PDF exports: the file itself (`kind` "file"), a JPEG of its colour or raw RGB (PDF), with alpha. */
+  exportImage(hash: string, image: { kind: "file" | "jpeg" | "rgb"; width: number; height: number; data: Uint8Array; alpha?: Uint8Array | null }): boolean {
+    const kind = image.kind === "file" ? 0 : image.kind === "jpeg" ? 1 : 2;
+    return this.after(this.x.exportImage(this.h, hash, kind, image.width, image.height, image.data, image.alpha ?? new Uint8Array(0)) === Status.OK);
+  }
+
+  /** Drops the images handed in for exports. */
+  clearExportImages(): void {
+    this.x.exportClearImages();
+  }
+
+  /** The layers of a page with export settings, in layer order (the Export dialog). `page` defaults to the current one. */
+  exportList(page?: Guid): ExportListEntry[] {
+    const [s, l] = page ? page.split(":").map(Number) : [0xffffffff, 0xffffffff];
+    return this.json(this.x.exportList(this.h, s >>> 0, l >>> 0), [] as ExportListEntry[]);
   }
 
   // ---- Components (docs/engine-build.md "E6") -------------------------------------------------
