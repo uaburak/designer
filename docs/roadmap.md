@@ -41,7 +41,7 @@ Done in the integration round (`desktop-impl.md` Status): the store's utility pr
 - Developer previews: read-only snapshot + web viewer (same Wasm renderer) with Dev-Mode-like Inspect; Firebase Hosting/Storage once the owner's new Firebase config is in place, a self-contained HTML file before that.
 - The Firebase adapter (`data.md` §12): sync with per-property last-writer-wins.
 - `.fig` import (Figma's own files) and the one-shot converter for the old site projects (`data.md` §11.3).
-- **E8** prototyping and presentation view; **E9** WebGPU backend.
+- **E8** prototyping and presentation view — built 2026-10-08 (branch `e8-prototype`; docs/engine-build.md "E8 prototyping", docs/editor.md); **E9** WebGPU backend.
 
 ## Legacy removed (2026-10-06)
 
