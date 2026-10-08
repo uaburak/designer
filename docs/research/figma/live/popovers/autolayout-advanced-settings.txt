@@ -1,0 +1,31 @@
+# AL_horizontal selected: click "Auto layout settings" (… / sliders) next to the gap field [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,481 240x345
+0,0 240x345 div bg=#2c2c2c r=13px
+16,14 107x13 "Auto layout settings" 11px/550 #ffffff
+0,40 240x120 div bg=#383838
+89,90 61x20 "Preview" 16px/500 #ffffff66
+16,179 68x13 "Inside stroke" 11px/450 #ffffffb2
+112,173 112x24 button bg=#2c2c2c r=5px
+121,178 45x13 "Included" 11px/450 #ffffff
+16,211 87x13 "Canvas stacking" 11px/450 #ffffffb2
+112,205 112x24 button bg=#2c2c2c r=5px
+121,210 59x13 "Last on top" 11px/450 #ffffff
+16,243 97x13 "Align text baseline" 11px/450 #ffffffb2
+175,230 97x13 "Align text baseline" 11px/450 #ffffff
+176,237 48x24 div bg=#383838 r=5px
+176,237 24x24 input =OFF [Disabled]
+176,237 24x24 span bg=#2c2c2c r=5px
+175,254 46x13 "Disabled" 11px/450 #ffffff
+200,237 24x24 input =ON [Enabled]
+199,254 43x13 "Enabled" 11px/450 #ffffff
+0,265 240x32 div [Only applicable for Auto gap]
+16,275 69x13 "Auto spacing" 11px/450 #ffffff66
+112,269 112x24 combobox DISABLED bg=#2c2c2c
+121,274 46x13 "Between" 11px/450 #ffffff66
+16,307 36x13 "Layout" 11px/450 #ffffffb2
+92,305 16x16 button [More info]
+112,301 112x24 button bg=#2c2c2c r=5px
+121,306 46x13 "Updated" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

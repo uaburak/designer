@@ -1,0 +1,15 @@
+# Left panel right after clicking "Add new page" (+) in Pages: new page row in inline-rename state [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@57,65 240x835
+16,14 33x13 "Pages" 11px/550 #ffffff
+180,8 24x24 button [Find] r=5px
+208,8 24x24 button [Add new page] r=5px
+8,44 224x24 button bg=#2c2c2c r=5px
+16,50 35x13 "Page 1" 11px/400 #ffffff
+8,76 224x24 button bg=#383838 r=5px
+16,82 42x13 "Capture" 11px/400 #ffffff
+8,108 224x24 div bg=#383838 r=5px
+8,108 224x24 input =Page 3 [Page name] bg=#2c2c2c r=5px
+0,142 240x8 slider [Resize handle]
+0,145 240x690 div bg=#2c2c2c
+16,159 35x13 "Layers" 11px/550 #ffffff

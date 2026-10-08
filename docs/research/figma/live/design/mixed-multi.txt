@@ -1,0 +1,378 @@
+# Design panel, selection = Rect + Ellipse + Text + F_frame (mixed) [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+RIGHT
+0,0 240x1232 div bg=#2c2c2c
+16,16 65x16 "4 selected" 13px/550 #ffffff
+107,12 24x24 button [Select matching layers] r=5px
+135,12 24x24 input =unchecked [mask-selection]
+147,25 67x13 "Use as mask" 11px/450 #ffffff
+163,12 41x24 group [Boolean operations]
+163,12 24x24 button [Union] r=5px 0px 0px 5px
+188,12 16x24 button [Boolean operations] r=0px 5px 5px 0px
+208,12 24x24 button [More actions] r=5px
+16,63 44x13 "Position" 11px/550 #ffffff
+16,93 46x11 "Alignment" 9px/500 #ffffffb2
+16,109 29x24 button [Align left] bg=#383838 r=5px 0px 0px 5px
+46,109 29x24 button [Align horizontal centers] bg=#383838
+75,109 29x24 button [Align right] bg=#383838 r=0px 5px 5px 0px
+112,109 29x24 button [Align top] bg=#383838 r=5px 0px 0px 5px
+142,109 29x24 button [Align vertical centers] bg=#383838
+171,109 29x24 button [Align bottom] bg=#383838 r=0px 5px 5px 0px
+208,109 24x24 button [More actions] r=5px
+16,141 37x11 "Position" 9px/500 #ffffffb2
+16,157 88x24 div [X-position] bg=#383838 r=5px
+24,163 7x13 "X" 11px/400 #ffffff
+40,157 64x24 input =Mixed [X-position] r=5px
+112,157 88x24 div [Y-position] bg=#383838 r=5px
+120,163 7x13 "Y" 11px/400 #ffffff
+136,157 64x24 input =Mixed [Y-position] r=5px
+16,189 38x11 "Rotation" 9px/500 #ffffffb2
+16,205 88x24 div [Rotation] bg=#383838 r=5px
+40,205 64x24 input =0° [Rotation] r=5px
+112,205 29x24 button [Rotate 90˚ right] bg=#383838 r=5px 0px 0px 5px
+142,205 29x24 button [Flip horizontal] bg=#383838
+171,205 29x24 button [Flip vertical] bg=#383838 r=0px 5px 5px 0px
+16,260 36x13 "Layout" 11px/550 #ffffff
+180,254 24x24 button [Resize to fit] r=5px
+208,254 24x24 input =unchecked [Use auto layout]
+220,267 97x13 "Toggle auto layout" 11px/450 #ffffff
+16,290 38x11 "Resizing" 9px/500 #ffffffb2
+15,299 43x13 "Resizing" 11px/400 #ffffff
+16,306 184x24 div bg=#383838 r=5px
+16,306 61x24 input =WIDTH_AND_HEIGHT [Auto width]
+16,306 61x24 span bg=#2c2c2c r=5px
+15,323 56x13 "Auto width" 11px/400 #ffffff
+77,306 61x24 input =HEIGHT [Auto height]
+76,323 60x13 "Auto height" 11px/400 #ffffff
+139,306 61x24 input =NONE [Fixed size]
+138,323 52x13 "Fixed size" 11px/400 #ffffff
+16,338 53x11 "Dimensions" 9px/500 #ffffffb2
+16,354 88x24 div bg=#2c2c2c r=5px
+16,354 88x24 label [Width] bg=#383838 r=5px DISABLED
+23,360 10x13 "W" 11px/400 #ffffffb2
+40,354 63x24 input =Mixed [Width] r=2px DISABLED
+112,354 88x24 div bg=#2c2c2c r=5px
+112,354 88x24 label [Height] bg=#383838 r=5px DISABLED
+120,360 8x13 "H" 11px/400 #ffffffb2
+136,354 63x24 input =Mixed [Height] r=2px DISABLED
+208,354 24x24 input =unchecked [Lock aspect ratio]
+220,367 91x13 "Lock aspect ratio" 11px/450 #ffffff
+16,386 37x11 "Spacing" 9px/500 #ffffffb2
+16,402 88x24 label [Horizontal spacing] bg=#383838 r=5px
+40,402 63x24 input =Mixed r=2px
+112,402 88x24 label [Vertical spacing] bg=#383838 r=5px
+136,402 63x24 input =Mixed r=2px
+16,438 16x16 input =checked
+16,438 16x16 span bg=#383838 r=2px
+40,440 64x13 "Clip content" 11px/450 #ffffff
+16,489 65x13 "Appearance" 11px/550 #ffffff
+179,483 24x24 input =unchecked [Hide]
+191,496 24x13 "Hide" 11px/450 #ffffff
+208,483 24x24 button [Apply blend mode] r=5px
+16,521 35x11 "Opacity" 9px/500 #ffffffb2
+16,537 88x24 div bg=#2c2c2c r=5px
+16,537 88x24 label bg=#383838 r=5px
+41,537 62x24 input =100% r=2px
+112,521 62x11 "Corner radius" 9px/500 #ffffffb2
+112,537 88x24 div bg=#2c2c2c r=5px
+112,537 88x24 label bg=#383838 r=5px
+136,537 63x24 input =0 r=2px
+208,537 24x24 button [Individual corners] r=5px
+16,592 64x13 "Typography" 11px/550 #ffffff
+208,586 24x24 button [Typography, Apply styles] r=5px
+16,618 184x32 combobox [Font family]
+16,622 184x24 div bg=#2c2c2c r=5px
+24,628 24x13 "Inter" 11px/450 #ffffff
+15,655 51x13 "Font style" 11px/400 #ffffff
+16,654 88x24 button bg=#2c2c2c r=5px
+25,659 40x13 "Regular" 11px/450 #ffffff
+112,650 88x32 listbox [Font size: 24 px]
+112,654 88x24 div bg=#383838 r=5px
+119,660 14x13 "24" 11px/450 #ffffff
+112,654 88x24 label [Font size] r=5px
+113,654 86x24 input =24 [Font size: 24 px] r=2px
+16,688 51x11 "Line height" 9px/500 #ffffffb2
+16,704 88x24 div bg=#2c2c2c r=5px
+16,704 88x24 label bg=#383838 r=5px
+40,704 61x24 input =Auto [Line height] r=2px
+112,688 66x11 "Letter spacing" 9px/500 #ffffffb2
+112,704 88x24 div bg=#2c2c2c r=5px
+112,704 88x24 label bg=#383838 r=5px
+136,704 61x24 input =0% [Letter spacing] r=2px
+16,736 46x11 "Alignment" 9px/500 #ffffffb2
+15,745 53x13 "Horizontal" 11px/400 #ffffff
+16,752 88x24 div bg=#383838 r=5px
+16,752 29x24 input =LEFT [Align left]
+16,752 29x24 span bg=#2c2c2c r=5px
+15,769 46x13 "Align left" 11px/400 #ffffff
+45,752 29x24 input =CENTER [Align center]
+44,769 62x13 "Align center" 11px/400 #ffffff
+75,752 29x24 input =RIGHT [Align right]
+74,769 53x13 "Align right" 11px/400 #ffffff
+111,745 39x13 "Vertical" 11px/400 #ffffff
+112,752 88x24 div bg=#383838 r=5px
+112,752 29x24 input =TOP [Align top]
+112,752 29x24 span bg=#2c2c2c r=5px
+111,769 46x13 "Align top" 11px/400 #ffffff
+141,752 29x24 input =CENTER [Align middle]
+140,769 64x13 "Align middle" 11px/400 #ffffff
+171,752 29x24 input =BOTTOM [Align bottom]
+170,769 66x13 "Align bottom" 11px/400 #ffffff
+208,752 24x24 button [Type settings] r=5px
+16,807 15x13 "Fill" 11px/550 #ffffff
+180,801 24x24 button [Style] r=5px
+208,801 24x24 button [Add fill] r=5px
+16,843 171x13 "Click + to replace mixed content" 11px/450 #ffffff66
+16,892 35x13 "Stroke" 11px/550 #ffffffb2
+180,886 24x24 button [Stroke, Apply styles and variables] r=5px
+208,886 24x24 button [Add stroke] r=5px
+16,933 38x13 "Effects" 11px/550 #ffffffb2
+180,927 24x24 button [Effects, Apply styles] r=5px
+208,927 24x24 button [Add effect] r=5px
+0,960 240x40 button bg=#2c2c2c
+16,974 87x13 "Selection colors" 11px/550 #ffffff
+16,1004 156x24 div bg=#383838 r=5px
+21,1009 14x14 button [Solid color hex: D9D9D9] bg=#d9d9d9 r=2px
+39,1017 28x13 "Color" 11px/450 #ffffff
+39,1017 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+40,1004 77x24 input =D9D9D9 [Color] r=5px
+118,1004 38x24 input =100 r=0px 2px 2px 0px
+156,1010 9x13 "%" 11px/450 #ffffffb2
+16,1036 156x24 div bg=#383838 r=5px
+21,1041 14x14 button [Solid color hex: 000000] bg=#000000 r=2px
+39,1049 28x13 "Color" 11px/450 #ffffff
+39,1049 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+40,1036 77x24 input =000000 [Color] r=5px
+118,1036 38x24 input =100 r=0px 2px 2px 0px
+156,1042 9x13 "%" 11px/450 #ffffffb2
+16,1068 156x24 div bg=#383838 r=5px
+21,1073 14x14 button [Solid color hex: 3380FF] bg=#3380ff r=2px
+39,1081 28x13 "Color" 11px/450 #ffffff
+39,1081 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+40,1068 77x24 input =3380FF [Color] r=5px
+118,1068 38x24 input =100 r=0px 2px 2px 0px
+156,1074 9x13 "%" 11px/450 #ffffffb2
+16,1100 156x24 div bg=#383838 r=5px
+21,1105 14x14 button [Solid color hex: FFFFFF] bg=#ffffff r=2px
+39,1113 28x13 "Color" 11px/450 #ffffff
+39,1113 225x13 "Autofill available. Type to see suggestions." 11px/450 #ffffff
+40,1100 77x24 input =FFFFFF [Color] r=5px
+118,1100 38x24 input =100 r=0px 2px 2px 0px
+156,1106 9x13 "%" 11px/450 #ffffffb2
+16,1155 36x13 "Export" 11px/550 #ffffffb2
+208,1149 24x24 button [Add export settings] r=5px
+LEFT
+16,14 33x13 "Pages" 11px/550 #ffffff
+180,8 24x24 button [Find] r=5px
+208,8 24x24 button [Add new page] r=5px
+8,44 224x24 button bg=#2c2c2c r=5px
+16,50 35x13 "Page 1" 11px/400 #ffffff
+8,76 224x24 button bg=#383838 r=5px
+16,82 43x13 "Capture" 11px/550 #ffffff
+8,108 224x24 button bg=#2c2c2c r=5px
+16,114 36x13 "Page 3" 11px/400 #ffffff
+0,142 240x8 slider [Resize handle]
+0,145 240x690 div bg=#2c2c2c
+16,159 35x13 "Layers" 11px/550 #ffffff
+208,153 24x24 button [Collapse layers] r=5px
+0,29 263x32 row EXPANDED
+28,37 16x16 div bg=#2c2c2c
+28,37 16x16 img [Auto layout]
+52,39 53x13 "AL_parent" 11px/400 #ffffff
+8,33 247x24 div bg=#2c2c2c r=5px
+52,72 16x10 div bg=#2c2c2c
+52,72 16x10 img [Rectangle]
+76,71 43x13 "AL_child" 11px/400 #ffffff
+8,65 247x24 div bg=#2c2c2c r=5px
+52,104 16x10 div bg=#2c2c2c
+52,104 16x10 img [Rectangle]
+76,103 50x13 "AL_child2" 11px/400 #ffffff
+8,97 247x24 div bg=#2c2c2c r=5px
+28,133 16x16 div bg=#2c2c2c
+28,133 16x16 img [Image]
+52,135 32x13 "Image" 11px/400 #ffffff
+8,129 247x24 div bg=#2c2c2c r=5px
+0,157 263x32 row EXPANDED
+28,165 16x16 div bg=#2c2c2c
+28,165 16x16 img [Instance]
+52,167 72x13 "Card instance" 11px/400 #d1a8ff
+8,161 247x24 div bg=#2c2c2c r=5px
+0,189 263x32 row EXPANDED
+52,197 16x16 div bg=#2c2c2c
+52,197 16x16 img [Instance]
+76,199 75x13 "Nested button" 11px/400 #d1a8ff
+8,193 247x24 div bg=#2c2c2c r=5px
+76,229 16x16 div bg=#2c2c2c
+76,229 16x16 img [Instance]
+100,231 47x13 "Icon/Star" 11px/400 #d1a8ff
+8,225 247x24 div bg=#2c2c2c r=5px
+76,261 16x16 div bg=#2c2c2c
+76,261 16x16 img [Text]
+100,263 28x13 "Label" 11px/400 #d1a8ff
+8,257 247x24 div bg=#2c2c2c r=5px
+0,285 263x32 row EXPANDED
+28,293 16x16 div bg=#2c2c2c
+28,293 16x16 img [Component]
+52,295 25x13 "Card" 11px/400 #d1a8ff
+8,289 247x24 div bg=#2c2c2c r=5px
+52,325 16x16 div bg=#2c2c2c
+52,325 16x16 img [Instance]
+76,327 75x13 "Nested button" 11px/400 #d1a8ff
+8,321 247x24 div bg=#2c2c2c r=5px
+28,357 16x16 div bg=#2c2c2c
+28,357 16x16 img [Instance]
+52,359 71x13 "Chip instance" 11px/400 #d1a8ff
+8,353 247x24 div bg=#2c2c2c r=5px
+0,381 263x32 row EXPANDED
+28,389 16x16 div bg=#2c2c2c
+28,389 16x16 img [Instance]
+52,391 82x13 "Button instance" 11px/400 #d1a8ff
+8,385 247x24 div bg=#2c2c2c r=5px
+52,421 16x16 div bg=#2c2c2c
+52,421 16x16 img [Instance]
+76,423 47x13 "Icon/Star" 11px/400 #d1a8ff
+8,417 247x24 div bg=#2c2c2c r=5px
+52,453 16x16 div bg=#2c2c2c
+52,453 16x16 img [Text]
+76,455 28x13 "Label" 11px/400 #d1a8ff
+8,449 247x24 div bg=#2c2c2c r=5px
+0,477 263x32 row EXPANDED
+28,485 16x16 div bg=#2c2c2c
+28,485 16x16 img [Component]
+52,487 24x13 "Chip" 11px/400 #d1a8ff
+8,481 247x24 div bg=#2c2c2c r=5px
+52,517 16x16 div bg=#2c2c2c
+52,517 16x16 img [Variant]
+76,519 37x13 "Default" 11px/400 #d1a8ff
+8,513 247x24 div bg=#2c2c2c r=5px
+52,549 16x16 div bg=#2c2c2c
+52,549 16x16 img [Variant]
+76,551 31x13 "Hover" 11px/400 #d1a8ff
+8,545 247x24 div bg=#2c2c2c r=5px
+52,581 16x16 div bg=#2c2c2c
+52,581 16x16 img [Variant]
+76,583 42x13 "Pressed" 11px/400 #d1a8ff
+8,577 247x24 div bg=#2c2c2c r=5px
+0,605 263x32 row EXPANDED
+28,613 16x16 div bg=#2c2c2c
+28,613 16x16 img [Component]
+52,615 34x13 "Button" 11px/400 #d1a8ff
+8,609 247x24 div bg=#2c2c2c r=5px
+52,645 16x16 div bg=#2c2c2c
+52,645 16x16 img [Instance]
+76,647 47x13 "Icon/Star" 11px/400 #d1a8ff
+8,641 247x24 div bg=#2c2c2c r=5px
+52,677 16x16 div bg=#2c2c2c
+52,677 16x16 img [Text]
+76,679 28x13 "Label" 11px/400 #d1a8ff
+8,673 247x24 div bg=#2c2c2c r=5px
+28,709 16x16 div bg=#2c2c2c
+28,709 16x16 img [Component]
+52,711 55x13 "Icon/Heart" 11px/400 #d1a8ff
+8,705 247x24 div bg=#2c2c2c r=5px
+28,741 16x16 div bg=#2c2c2c
+28,741 16x16 img [Component]
+52,743 47x13 "Icon/Star" 11px/400 #d1a8ff
+8,737 247x24 div bg=#2c2c2c r=5px
+28,773 16x16 div bg=#2c2c2c
+28,773 16x16 img [Section]
+52,775 39x13 "Section" 11px/400 #ffffff
+8,769 247x24 div bg=#2c2c2c r=5px
+0,797 263x32 row SELECTED
+28,805 16x16 div bg=#394360
+28,805 16x16 img [Text]
+52,807 22x13 "Text" 11px/400 #ffffff
+8,801 247x24 div bg=#32394d r=5px
+8,801 247x24 div bg=#394360 r=5px
+0,829 263x32 row EXPANDED
+28,837 16x16 div bg=#2c2c2c
+28,837 16x16 img [Group]
+52,839 32x13 "Group" 11px/400 #ffffff
+8,833 247x24 div bg=#2c2c2c r=5px
+52,872 16x10 div bg=#2c2c2c
+52,872 16x10 img [Rectangle]
+76,871 19x13 "g_b" 11px/400 #ffffff
+8,865 247x24 div bg=#2c2c2c r=5px
+52,904 16x10 div bg=#2c2c2c
+52,904 16x10 img [Rectangle]
+76,903 18x13 "g_a" 11px/400 #ffffff
+8,897 247x24 div bg=#2c2c2c r=5px
+0,925 263x32 row EXPANDED
+28,936 16x10 div bg=#2c2c2c
+28,936 16x10 img [Union]
+52,935 42x13 "Boolean" 11px/400 #ffffff
+8,929 247x24 div bg=#2c2c2c r=5px
+52,968 16x10 div bg=#2c2c2c
+52,968 16x10 img [Ellipse]
+76,967 13x13 "b2" 11px/400 #ffffff
+8,961 247x24 div bg=#2c2c2c r=5px
+52,1000 16x10 div bg=#2c2c2c
+52,1000 16x10 img [Rectangle]
+76,999 12x13 "b1" 11px/400 #ffffff
+8,993 247x24 div bg=#2c2c2c r=5px
+28,1032 16x10 div bg=#2c2c2c
+28,1032 16x10 img [Vector]
+52,1031 34x13 "Vector" 11px/400 #ffffff
+8,1025 247x24 div bg=#2c2c2c r=5px
+28,1064 16x10 div bg=#2c2c2c
+28,1064 16x10 img [Line]
+52,1063 31x13 "Arrow" 11px/400 #ffffff
+8,1057 247x24 div bg=#2c2c2c r=5px
+28,1096 16x10 div bg=#2c2c2c
+28,1096 16x10 img [Line]
+52,1095 22x13 "Line" 11px/400 #ffffff
+8,1089 247x24 div bg=#2c2c2c r=5px
+28,1128 16x10 div bg=#2c2c2c
+28,1128 16x10 img [Star]
+52,1127 21x13 "Star" 11px/400 #ffffff
+8,1121 247x24 div bg=#2c2c2c r=5px
+28,1160 16x10 div bg=#2c2c2c
+28,1160 16x10 img [Polygon]
+52,1159 42x13 "Polygon" 11px/400 #ffffff
+8,1153 247x24 div bg=#2c2c2c r=5px
+0,1181 263x32 row SELECTED
+28,1192 16x10 div bg=#394360
+28,1192 16x10 img [Ellipse]
+52,1191 33x13 "Ellipse" 11px/400 #ffffff
+8,1185 247x28 div bg=#32394d r=5px 5px 0px 0px
+8,1185 247x28 div bg=#394360 r=5px 5px 0px 0px
+0,1213 263x32 row SELECTED
+28,1224 16x10 div bg=#394360
+28,1224 16x10 img [Rectangle]
+52,1223 24x13 "Rect" 11px/400 #ffffff
+8,1213 247x28 div bg=#32394d r=0px 0px 5px 5px
+8,1213 247x28 div bg=#394360 r=0px 0px 5px 5px
+0,1245 263x32 row EXPANDED
+28,1253 16x16 div bg=#2c2c2c
+28,1253 16x16 img [Auto layout]
+52,1255 39x13 "AL_grid" 11px/400 #ffffff
+8,1249 247x24 div bg=#2c2c2c r=5px
+52,1288 16x10 div bg=#2c2c2c
+52,1288 16x10 img [Rectangle]
+76,1287 74x13 "AL_grid_item4" 11px/400 #ffffff
+8,1281 247x24 div bg=#2c2c2c r=5px
+52,1320 16x10 div bg=#2c2c2c
+52,1320 16x10 img [Rectangle]
+76,1319 74x13 "AL_grid_item3" 11px/400 #ffffff
+8,1313 247x24 div bg=#2c2c2c r=5px
+52,1352 16x10 div bg=#2c2c2c
+52,1352 16x10 img [Rectangle]
+76,1351 74x13 "AL_grid_item2" 11px/400 #ffffff
+8,1345 247x24 div bg=#2c2c2c r=5px
+52,1384 16x10 div bg=#2c2c2c
+52,1384 16x10 img [Rectangle]
+76,1383 72x13 "AL_grid_item1" 11px/400 #ffffff
+8,1377 247x24 div bg=#2c2c2c r=5px
+0,1405 263x32 row EXPANDED
+28,1413 16x16 div bg=#2c2c2c
+28,1413 16x16 img [Auto layout]
+52,1415 45x13 "AL_wrap" 11px/400 #ffffff
+8,1409 247x24 div bg=#2c2c2c r=5px
+52,1448 16x10 div bg=#2c2c2c
+52,1448 16x10 img [Rectangle]
+76,1447 77x13 "AL_wrap_item1" 11px/400 #ffffff
+8,1441 247x24 div bg=#2c2c2c r=5px
+52,1480 16x10 div bg=#2c2c2c
+52,1480 16x10 img [Rectangle]
+76,1479 79x13 "AL_wrap_item2" 11px/400 #ffffff
+8,1473 247x24 div bg=#2c2c2c r=5px

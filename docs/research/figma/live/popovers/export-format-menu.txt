@@ -1,0 +1,9 @@
+# Rect with an export row: open the format dropdown (PNG) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1290,764 92x112
+0,8 92x24 option SELECTED
+32,14 24x13 "PNG" 11px/450 #ffffff
+32,38 28x13 "JPEG" 11px/450 #ffffff
+32,62 23x13 "SVG" 11px/450 #ffffff
+32,86 22x13 "PDF" 11px/450 #ffffff

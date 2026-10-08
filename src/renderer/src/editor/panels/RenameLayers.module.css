@@ -1,0 +1,15 @@
+@layer app {
+  /* Live: the Preview column at the left (16 in), the fields 160 in, 480 wide */
+  .body { display: grid; grid-template-columns: var(--ds-size-rename-preview) minmax(0, 1fr); gap: var(--ds-space-4); min-height: 0; }
+  .preview { display: flex; flex-direction: column; gap: var(--ds-space-2); min-width: 0; }
+  .previewTitle { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .previewList { display: flex; flex-direction: column; gap: var(--ds-space-2); max-height: var(--ds-size-rename-list); overflow-y: auto; }
+  .previewRow { min-width: 0; overflow: hidden; color: var(--figma-color-text); text-overflow: ellipsis; white-space: nowrap; }
+  .fields { display: flex; flex-direction: column; gap: var(--ds-space-2); min-width: 0; }
+  .tokens { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); }
+  .start { display: flex; align-items: center; gap: var(--ds-space-2); margin-top: var(--ds-space-4); color: var(--figma-color-text); }
+  .startField { width: var(--ds-size-field-narrow); }
+  .footer { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-2); }
+  .learn { margin-right: auto; color: var(--figma-color-text-brand); text-decoration: none; }
+  .learn:hover { text-decoration: underline; }
+}

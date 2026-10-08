@@ -1,22 +1,27 @@
 /**
- * The Layers panel (Figma's rules, docs/research/figma/R7-editor.md): the
- * current page's layers, top first, rows 24 high (VirtualList + DS LayerRow).
- * Click selects (⇧ a range from the anchor, ⌘ toggles), hovering a row
- * outlines the layer on the canvas, double-click (or ⌘R, or Enter) renames
- * — Tab goes on to the next row —, the lock and eye toggle, a chevron opens
- * (⌥ opens every level), a drag reorders and reparents (Engine.moveNodes),
- * and a canvas selection opens its ancestors and scrolls into view.
+ * The Layers panel (Figma's rules, docs/research/figma/R7-editor.md; geometry from the live capture,
+ * docs/research/figma/live): the current page's layers, top first (an auto layout's in flow order), rows on a 32
+ * pitch (VirtualList + DS LayerRow). Click selects (⇧ a range from the anchor, ⌘ toggles), hovering a row outlines
+ * the layer on the canvas (Preferences › Highlight layers on hover), double-click or ⌘R renames — Tab goes on to
+ * the next row —, Enter / ⇧Enter after a row click act as on the canvas (live: the row keeps no key focus of its
+ * own; the shortcut layer forwards them to the engine — children, vector or text edit, parent), the lock and eye
+ * toggle on press and a drag
+ * from one goes on over the rows it crosses, a chevron opens (⌥ opens every level), "Collapse layers" (⌥L) closes
+ * all but the selection's branch, a drag reorders and reparents (Engine.moveNodes; the list scrolls near its
+ * edges), and a canvas selection opens its ancestors and scrolls into view.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LayerRow, PanelSection, VirtualList, showToast, type IconName } from "@/ds";
+import { IconButton, LayerRow, PanelSection, VirtualList, showToast, type IconName } from "@/ds";
 import { useHover, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { writeOn } from "../components";
+import { command, shortcutOf } from "../commands";
 import { parseDerivedId } from "../model/components";
 import { useLayerTree, useUI } from "../hooks";
 import {
   ancestorsOf,
+  collapsedLayers,
   detailsWindow,
   draggedLayers,
   dropTarget,
@@ -27,19 +32,25 @@ import {
   visibleRows,
   withSubtree,
   type DropTarget,
-  type OutlineNode,
+  type LayerTree,
   type TreeNode,
 } from "../model/layerTree";
 import styles from "./Panels.module.css";
 
-const ROW = 24;
+/** The live capture's pitch (rows 32 apart, a 24 highlight). */
+const ROW = 32;
+/** How near the list's top or bottom edge a drag scrolls it, and how far per frame. */
+const EDGE = 24;
+const EDGE_STEP = 8;
 
-/** The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction, groups. */
+/** The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction, groups, masks, slots, images. */
 export function layerIcon(node: TreeNode): IconName {
+  if (node.mask) return "16.mask";
   if (node.group) return "16.group";
   if (node.stateGroup) return "16.component.set";
   switch (node.type) {
     case "FRAME":
+      if (node.slot) return "16.slot";
       if (node.stackMode === "HORIZONTAL") return node.stackWrap === "WRAP" ? "16.autolayout.wrap" : "16.autolayout.horizontal";
       if (node.stackMode === "VERTICAL") return "16.autolayout.vertical";
       if (node.stackMode === "GRID") return "16.autolayout.grid";
@@ -73,13 +84,19 @@ export function layerIcon(node: TreeNode): IconName {
       return "16.component";
     case "INSTANCE":
       return "16.instance";
+    case "RECTANGLE":
+    case "ROUNDED_RECTANGLE":
+      // A rectangle filled with an image or a video reads as one (Figma's Image / Animated GIF or video glyphs).
+      if (node.media === "VIDEO") return "16.play";
+      if (node.media === "IMAGE") return "16.image";
+      return "16.rectangle";
     default:
       return "16.rectangle";
   }
 }
 
 /** In the component purple: a component, a set or an instance — the outline knows (no details read for the rows between). */
-const isComponentish = (n: OutlineNode | undefined) => !!n && (n.type === "SYMBOL" || n.type === "INSTANCE" || n.stateGroup === true);
+const isComponentish = (n: { type: string; stateGroup?: boolean } | undefined) => !!n && (n.type === "SYMBOL" || n.type === "INSTANCE" || n.stateGroup === true);
 
 /** Refs the engine can select: an instance's derived layer it doesn't know yet (before E6) selects the instance. */
 export function selectable(ed: EditorController, refs: readonly Guid[]): Guid[] {
@@ -92,15 +109,25 @@ export function selectable(ed: EditorController, refs: readonly Guid[]): Guid[] 
   return out;
 }
 
+/** "Collapse layers" (⌥L, the Layers header): every expanded layer closes but the selection's ancestors (Figma). */
+export function collapseLayers(ed: EditorController, tree: LayerTree = ed.getTree()): void {
+  ed.ui.set((s) => ({ expanded: collapsedLayers(tree, ed.selection, s.expanded) }));
+}
+
+/** A lock / eye drag: the value the first row got, the rows done, the open undo step. */
+type CellDrag = { kind: "lock" | "visible"; value: boolean; done: Set<Guid> };
+
 export function Layers() {
   const ed = useEditor();
   const tree = useLayerTree();
   const expanded = useUI((s) => s.expanded);
   const renaming = useUI((s) => (s.renaming?.kind === "layer" ? s.renaming.id : null));
+  const highlight = useUI((s) => s.highlightOnHover !== false);
   const selection = useSelection(ed.store).refs;
   const hover = useHover(ed.store);
   const [drop, setDrop] = useState<DropTarget | null>(null);
   const press = useRef<{ id: Guid; x: number; y: number; dragging: Guid[] | null; deferred: boolean } | null>(null);
+  const cellDrag = useRef<CellDrag | null>(null);
 
   const rows = useMemo(() => visibleRows(tree, expanded), [tree, expanded]);
   const selected = useMemo(() => new Set(selection), [selection]);
@@ -110,7 +137,7 @@ export function Layers() {
     return out;
   }, [rows, selected, tree]);
   const runs = useMemo(() => selectionRuns(rows, (id) => selected.has(id) || insideSelected.has(id)), [rows, selected, insideSelected]);
-  // Rows in a component, a set or an instance (or one itself) highlight in the component purple (Figma).
+  // Rows in a component, a set or an instance (or one itself): their lock and eye in the component purple (Figma).
   const componentRows = useMemo(() => {
     const out = new Set<Guid>();
     for (const r of rows) {
@@ -119,6 +146,7 @@ export function Layers() {
     }
     return out;
   }, [rows, tree]);
+  const anyExpanded = rows.some((r) => r.expanded);
 
   // A selection made on the canvas opens its ancestors (Figma reveals it) and scrolls to it.
   useEffect(() => {
@@ -129,6 +157,17 @@ export function Layers() {
   const firstSelected = rows.findIndex((r) => selected.has(r.id));
 
   const select = (refs: Guid[]) => ed.engine.setSelection(selectable(ed, refs));
+
+  /** The list's scrolling element (the VirtualList's viewport). */
+  const viewport = () => document.querySelector<HTMLElement>('[data-layer-list] [data-ds="VirtualList"]')?.parentElement ?? null;
+  /** Near the list's top or bottom edge a drag scrolls it (one step per pointer move). */
+  const autoScroll = (y: number) => {
+    const v = viewport();
+    if (!v) return;
+    const r = v.getBoundingClientRect();
+    if (y < r.top + EDGE) v.scrollTop -= EDGE_STEP;
+    else if (y > r.bottom - EDGE) v.scrollTop += EDGE_STEP;
+  };
 
   const onPointerDown = (e: React.PointerEvent, id: Guid) => {
     if (e.button !== 0 || renaming === id) return;
@@ -151,6 +190,7 @@ export function Layers() {
         if (tree.nodes.get(p.id)?.derived) return; // an instance's layers stay where the main has them
         p.dragging = draggedLayers(tree, rows, ed.selection, p.id);
       }
+      autoScroll(ev.clientY);
       setDrop(targetAt(ev.clientX, ev.clientY, p.dragging));
     };
     const up = (ev: PointerEvent) => {
@@ -191,6 +231,52 @@ export function Layers() {
     return index < 0 ? null : dropTarget(tree, rows, index, (y - r.top) / r.height, new Set(moving));
   };
 
+  /** One row's lock or eye set to `value` (inside the drag's open undo step). */
+  const setCell = (kind: "lock" | "visible", id: Guid, value: boolean) => {
+    const node = tree.nodes.get(id);
+    if (!node) return;
+    if (kind === "lock") {
+      if (node.derived || node.locked === value) return;
+      ed.engine.setProps([id], { locked: value });
+    } else {
+      const visible = !value;
+      if (node.visible === visible) return;
+      if (node.derived) writeOn(ed, id, { visible });
+      else ed.engine.setProps([id], { visible });
+    }
+  };
+
+  /**
+   * The lock or the eye pressed: that row toggles, and while the button is held every row the pointer crosses gets
+   * the same value (Figma: "click on the lock or eye and drag across the layers") — one undo step.
+   */
+  const startCellDrag = (kind: "lock" | "visible", id: Guid) => {
+    const node = tree.nodes.get(id);
+    if (!node) return;
+    const value = kind === "lock" ? !node.locked : node.visible; // the new "on" value (locked / hidden)
+    const label = kind === "lock" ? (value ? "Lock" : "Unlock") : value ? "Hide" : "Show";
+    ed.engine.txnBegin(label);
+    const drag: CellDrag = { kind, value, done: new Set([id]) };
+    cellDrag.current = drag;
+    setCell(kind, id, value);
+    const move = (ev: PointerEvent) => {
+      autoScroll(ev.clientY);
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-ds="LayerRow"]');
+      const at = el?.dataset.id;
+      if (!at || drag.done.has(at)) return;
+      drag.done.add(at);
+      setCell(kind, at, value);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      cellDrag.current = null;
+      ed.engine.txnCommit();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const rename = (id: Guid, name: string | null, exit: string) => {
     if (name && name !== tree.nodes.get(id)?.name) {
       if (tree.nodes.get(id)?.derived) ed.batch("Rename", () => writeOn(ed, id, { name }));
@@ -212,8 +298,14 @@ export function Layers() {
       return { expanded: next };
     });
 
+  const collapse = command("view.collapse-layers");
   return (
-    <PanelSection className={styles.layers} title="Layers" pad="none">
+    <PanelSection
+      className={styles.layers}
+      title="Layers"
+      pad="none"
+      actions={anyExpanded ? <IconButton icon="24.collapse-layers.small" label={collapse.label} shortcut={shortcutOf(collapse)} tone="secondary" data-collapse-layers="" onClick={() => collapseLayers(ed, tree)} /> : undefined}
+    >
       <div
         className={styles.layerList}
         role="tree"
@@ -256,7 +348,7 @@ export function Layers() {
                 tabIndex={selected.has(row.id) ? 0 : -1}
                 onPointerDown={(e) => onPointerDown(e, row.id)}
                 onPointerEnter={() => {
-                  if (!press.current) ed.engine.setHover(selectable(ed, [row.id]));
+                  if (!press.current && !cellDrag.current && highlight) ed.engine.setHover(selectable(ed, [row.id]));
                 }}
                 onDoubleClick={() => ed.ui.set({ renaming: { kind: "layer", id: row.id } })}
                 onContextMenu={(e) => {
@@ -265,11 +357,8 @@ export function Layers() {
                   ed.ui.set({ contextMenu: { x: e.clientX, y: e.clientY, canvas: null } });
                 }}
                 onToggleExpand={(alt) => toggleExpand(row.id, alt)}
-                onToggleLock={node.derived ? undefined : () => ed.setProps([row.id], { locked: !node.locked }, node.locked ? "Unlock" : "Lock")}
-                onToggleVisible={() =>
-                  node.derived ? ed.batch(node.visible ? "Hide" : "Show", () => writeOn(ed, row.id, { visible: !node.visible })) : ed.setProps([row.id], { visible: !node.visible }, node.visible ? "Hide" : "Show")
-                }
-                onRequestRename={() => ed.ui.set({ renaming: { kind: "layer", id: row.id } })}
+                onToggleLock={node.derived ? undefined : () => startCellDrag("lock", row.id)}
+                onToggleVisible={() => startCellDrag("visible", row.id)}
                 onRename={(name, exit) => rename(row.id, name, exit)}
               />
             );

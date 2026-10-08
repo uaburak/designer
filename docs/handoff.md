@@ -58,6 +58,30 @@ Round 6 — annotations and Dev Mode (2026-10-08, branch `r6-annotations-devmode
 
 Next: Phase 5 of `docs/roadmap.md` — the Firebase adapter wiring (and a real deploy of previews), `.fig` import polish (docs/data-impl.md "Import fidelity" lists what's left) — unless the owner's review of the app comes first.
 
+## Status at shutdown 2026-10-08 17:30 — READ THIS FIRST
+
+**Owner's direction now:** the Design side must be identical to Figma (selection/canvas, rendering, Layers/left side, Design panel) before Dev Mode or anything else. Figma is the truth: `docs/research/figma/live/` holds exact DOM dumps of the real current Figma UI (positions, sizes, labels, fonts, colours) for every selection type, popover, menu, the left side and the toolbar; `live/figma-dump.js` is the capture helper (inject into figma.com via the built-in browser; the owner signs in; work only in the "Untitled" draft). Canvas screenshots in `live/img/` are local only (git-ignored). The audits of our side against Figma are in `docs/research/audit-2026-10-08/` (selection, render, design, layers).
+
+**Round 7 in progress — four unmerged local branches** (each in a worktree under `.claude/worktrees/`, NOT pushed, each with a "Status at shutdown 2026-10-08" section at the top of the doc it changes):
+- `r7-selection` — frame titles, ⌘-marquee, line endpoints, move/resize modifiers, sections, radius handles, Esc, paste to replace, select matching, overlay palette, then medium items (audit `selection.md`).
+- `r7-render` — AA clips, tiny text, corner smoothing budget, effect rules, Noise/Texture/Glass/Progressive blur, stroke end points, geometry comparator (audit `render.md`).
+- `r7-design-panel` — number-field math/scrub, auto layout padding/wrap gap/Auto spacing, group W/H, corner smoothing UI, paint picker, header actions, section panel (audit `design.md`).
+- `r7-left-panel` — 32 px layer rows and geometry per live, 2026 nav rail (File/Agents/Assets/Tools/Variables), Find, collapse layers, bulk rename, page-row shortcut bug (audit `layers.md`).
+- MERGED 2026-10-08: `r7-left-panel` is merged into main (checks rerun on main after the merge).
+Next session: for each branch read its shutdown status, finish the open items against the live captures, run the full checks, then merge one at a time into main (rebuild the release wasm after each engine merge; command ids and schema field numbers are the usual collision points). The live-capture agent was also recording **behaviour** (Esc, Enter/Tab in fields, math in fields, frame-title clicks, move/resize modifiers, layers keys) into `live/behaviour/` — check what is there and finish the list in `live/README.md`.
+
+**Live behaviour (`docs/research/figma/live/behaviour/`) overrides the audits where they disagree — check each round-7 branch against it before merging:**
+- Esc clears the whole selection (audit selection #9 right); ⇧Enter and \ select the parent. Enter on a frame selects all its children (hidden/locked too); Enter on a shape opens vector edit. Tab/⇧Tab step through siblings in Layers order, wrap, and do NOT skip hidden/locked.
+- Clicking a top-level frame's empty background acts like empty canvas and dragging there draws a marquee (ours already does this — audit selection #1's "background drag" part is wrong; frame-title behaviour still to build). A marquee over part of a frame selects its children. A layer dropped onto a frame nests by cursor position even when bigger than the frame (audit selection #6's "don't nest into smaller frames" default is WRONG).
+- Number fields: Enter commits and returns to the canvas; first Esc reverts and keeps focus, second returns to the canvas; "+10" typed over a value sets 10 (NOT relative — audit design #1 partly wrong); "2^3" = 8; "Mixed+100" adds per layer; gap "Auto" = space between; "1,2,3,4" in horizontal padding sets left=1 right=2 only.
+- Opacity digits combine within ~450–500 ms ("0","5" → 5%; "0" → 100%). ] / [ = front / back; ⌘] / ⌘[ one step. ⌘D repeats the last move offset, same name. N / ⇧N next/previous frame. ⇧⌘O outlines, ⌃P pixel preview. Pixel grid from 300% zoom, menu shortcut ⇧' (audits' ⌘' and 400% are WRONG).
+- Layers: auto-layout children listed in flow order (first on top); ⌘R opens "Rename N layers"; chevrons always visible (layers audit #9 WRONG); ⌥-click chevron recursive; ⌥L collapses all; drag across eyes toggles. A page named exactly "---" is a divider.
+- Minimize UI: canvas full width with floating pills; selection brings a floating Design panel, hidden again on deselect.
+- KNOWN CONFLICT on `r7-design-panel`: it made Enter keep focus in the field and Esc return to the canvas (written before the behaviour capture). Live Figma is the reverse: Enter commits and returns to the canvas; the first Esc reverts and keeps focus, the second leaves. Fix before merging. Its panel compare scripts are in `docs/research/figma/live/tools/` (run against `?editor&doc=capture`).
+- Not captured (tool limits): paste placement / ⇧⌘R / ⇧⌘V, modifiers held during drags or hovers, ⌥⌘A, duplicate-page naming, smart-selection reorder.
+
+Main at the time of writing: round 6 merged (prototype/video, slots/grid/DTCG, annotations/Dev Mode/Compare changes) — 765 vitest, 379 native, engine:shot 97 (WebGL2) / 99 (WebGPU), editor-shot 204.
+
 ## Starting the next session
 
 1. Get the code: `git clone https://github.com/uaburak/designer.git && cd designer && npm install` (Node 24; `.nvmrc`), or `git pull` in an existing clone.

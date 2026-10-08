@@ -1,0 +1,91 @@
+# Left panel after clicking the search icon ("Find") in the Pages header and typing "AL_" — whole left panel becomes search results [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@57,65 240x835
+16,12 156x24 div bg=#383838 r=5px
+15,13 22x13 "Find" 11px/400 #ffffff
+40,12 132x24 textarea [Find…] bg=#383838 r=5px
+180,12 24x24 button [Settings] r=5px
+204,12 24x24 button [Close] r=5px
+16,62 51x13 "20 results" 11px/400 #ffffff
+15,69 154x13 "AL_grid_item4, result 17 of 20" 11px/400 #ffffff
+71,62 3x13 "·" 11px/400 #ffffff
+74,56 77x24 button [Search scope set to This page]
+79,62 51x13 "This page" 11px/400 #ffffff
+184,56 24x24 button [Previous result] r=5px
+208,56 24x24 button [Next result] r=5px
+0,-115 240x950 listbox [Search results]
+0,-115 240x34 button bg=#2c2c2c
+17,-106 16x16 img [Auto layout]
+41,-104 56x13 "AL_vertical" 11px/400 #ffffff
+0,-81 240x52 button bg=#2c2c2c
+20,-69 10x10 img [Rectangle]
+41,-70 89x13 "AL_vertical_item1" 11px/400 #ffffff
+41,-52 51x12 "AL_vertical" 10px/400 #ffffffb2
+0,-29 240x52 button bg=#2c2c2c
+20,-17 10x10 img [Rectangle]
+41,-18 91x13 "AL_vertical_item2" 11px/400 #ffffff
+41,0 51x12 "AL_vertical" 10px/400 #ffffffb2
+0,23 240x52 button bg=#2c2c2c
+20,35 10x10 img [Rectangle]
+41,34 91x13 "AL_vertical_item3" 11px/400 #ffffff
+41,52 51x12 "AL_vertical" 10px/400 #ffffffb2
+0,75 240x34 button bg=#2c2c2c
+17,84 16x16 img [Auto layout]
+41,86 70x13 "AL_horizontal" 11px/400 #ffffff
+0,109 240x52 button bg=#2c2c2c
+20,121 10x10 img [Rectangle]
+41,120 103x13 "AL_horizontal_item1" 11px/400 #ffffff
+41,138 64x12 "AL_horizontal" 10px/400 #ffffffb2
+0,161 240x52 button bg=#2c2c2c
+20,173 10x10 img [Rectangle]
+41,172 105x13 "AL_horizontal_item2" 11px/400 #ffffff
+41,190 64x12 "AL_horizontal" 10px/400 #ffffffb2
+0,213 240x52 button bg=#2c2c2c
+20,225 10x10 img [Rectangle]
+41,224 105x13 "AL_horizontal_item3" 11px/400 #ffffff
+41,242 64x12 "AL_horizontal" 10px/400 #ffffffb2
+0,265 240x34 button bg=#2c2c2c
+17,274 16x16 img [Auto layout]
+41,276 45x13 "AL_wrap" 11px/400 #ffffff
+0,299 240x52 button bg=#2c2c2c
+20,311 10x10 img [Rectangle]
+41,310 77x13 "AL_wrap_item1" 11px/400 #ffffff
+41,328 40x12 "AL_wrap" 10px/400 #ffffffb2
+0,351 240x52 button bg=#2c2c2c
+20,363 10x10 img [Rectangle]
+41,362 79x13 "AL_wrap_item3" 11px/400 #ffffff
+41,380 40x12 "AL_wrap" 10px/400 #ffffffb2
+0,403 240x52 button bg=#2c2c2c
+20,415 10x10 img [Rectangle]
+41,414 79x13 "AL_wrap_item2" 11px/400 #ffffff
+41,432 40x12 "AL_wrap" 10px/400 #ffffffb2
+0,455 240x34 button bg=#2c2c2c
+17,464 16x16 img [Auto layout]
+41,466 39x13 "AL_grid" 11px/400 #ffffff
+0,489 240x52 button bg=#2c2c2c
+20,501 10x10 img [Rectangle]
+41,500 72x13 "AL_grid_item1" 11px/400 #ffffff
+41,518 35x12 "AL_grid" 10px/400 #ffffffb2
+0,541 240x52 button bg=#2c2c2c
+20,553 10x10 img [Rectangle]
+41,552 74x13 "AL_grid_item2" 11px/400 #ffffff
+41,570 35x12 "AL_grid" 10px/400 #ffffffb2
+0,593 240x52 button bg=#2c2c2c
+20,605 10x10 img [Rectangle]
+41,604 74x13 "AL_grid_item3" 11px/400 #ffffff
+41,622 35x12 "AL_grid" 10px/400 #ffffffb2
+0,645 240x52 option SELECTED bg=#394360
+20,657 10x10 img [Rectangle]
+41,656 74x13 "AL_grid_item4" 11px/400 #ffffff
+41,674 35x12 "AL_grid" 10px/400 #ffffffb2
+0,697 240x34 button bg=#2c2c2c
+17,706 16x16 img [Auto layout]
+41,708 53x13 "AL_parent" 11px/400 #ffffff
+0,731 240x52 button bg=#2c2c2c
+20,743 10x10 img [Rectangle]
+41,742 43x13 "AL_child" 11px/400 #ffffff
+41,760 48x12 "AL_parent" 10px/400 #ffffffb2
+0,783 240x52 button bg=#2c2c2c
+20,795 10x10 img [Rectangle]
+41,794 50x13 "AL_child2" 11px/400 #ffffff
+41,812 48x12 "AL_parent" 10px/400 #ffffffb2

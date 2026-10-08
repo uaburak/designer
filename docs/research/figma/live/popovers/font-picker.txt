@@ -1,0 +1,83 @@
+# Text selected: click the font family dropdown (Inter) → font picker [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,415 240x469
+0,0 240x469 div bg=#2c2c2c r=13px
+16,14 30x13 "Fonts" 11px/550 #ffffff
+8,40 224x24 div bg=#383838 r=5px
+32,40 176x24 input =Inter [Search fonts] r=5px EXPANDED
+208,40 24x24 button [Clear search]
+0,73 240x40 div bg=#2c2c2c
+7,82 43x13 "Font set" 11px/450 #ffffff
+8,81 224x24 button bg=#2c2c2c r=5px
+17,86 43x13 "All fonts" 11px/450 #ffffff
+-1,41 99x13 "1,816 results found" 11px/450 #ffffff
+0,-185 240x28 option [Imbue]
+12,-183 32x13 "Imbue" 11px/450 #ffffff
+0,-157 240x28 option [Imperial Script]
+12,-155 75x13 "Imperial Script" 11px/450 #ffffff
+0,-129 240x28 option [Imprima]
+12,-127 42x13 "Imprima" 11px/450 #ffffff
+0,-101 240x28 option [Inclusive Sans]
+12,-99 74x13 "Inclusive Sans" 11px/450 #ffffff
+0,-73 240x28 option [Inconsolata]
+12,-71 60x13 "Inconsolata" 11px/450 #ffffff
+0,-45 240x28 option [Inder]
+12,-43 27x13 "Inder" 11px/450 #ffffff
+0,-17 240x28 option [Indie Flower]
+12,-15 63x13 "Indie Flower" 11px/450 #ffffff
+0,11 240x28 option [Ingrid Darling]
+12,13 70x13 "Ingrid Darling" 11px/450 #ffffff
+0,39 240x28 option [Inika]
+12,41 24x13 "Inika" 11px/450 #ffffff
+0,67 240x28 option [Inknut Antiqua]
+12,69 76x13 "Inknut Antiqua" 11px/450 #ffffff
+0,95 240x28 option [Inria Sans]
+12,97 51x13 "Inria Sans" 11px/450 #ffffff
+0,123 240x28 option [Inria Serif]
+12,125 50x13 "Inria Serif" 11px/450 #ffffff
+0,151 240x28 option [Inspiration]
+12,153 55x13 "Inspiration" 11px/450 #ffffff
+0,179 240x28 option [Instrument Sans]
+12,181 85x13 "Instrument Sans" 11px/450 #ffffff
+0,207 240x28 option [Instrument Serif]
+12,209 84x13 "Instrument Serif" 11px/450 #ffffff
+0,235 240x28 option [Intel One Mono]
+12,237 79x13 "Intel One Mono" 11px/450 #ffffff
+0,263 240x28 option [Inter] bg=#383838 SELECTED
+12,265 24x13 "Inter" 11px/450 #ffffff
+0,291 240x28 option [Iosevka Charon]
+12,293 81x13 "Iosevka Charon" 11px/450 #ffffff
+0,319 240x28 option [Iosevka Charon Mono]
+12,321 114x13 "Iosevka Charon Mono" 11px/450 #ffffff
+0,347 240x28 option [Irish Grover]
+12,349 60x13 "Irish Grover" 11px/450 #ffffff
+0,375 240x28 option [Island Moments]
+12,377 83x13 "Island Moments" 11px/450 #ffffff
+0,403 240x28 option [Istok Web]
+12,405 52x13 "Istok Web" 11px/450 #ffffff
+0,431 240x28 option [Italiana]
+12,433 38x13 "Italiana" 11px/450 #ffffff
+0,459 240x28 option [Italianno]
+12,461 44x13 "Italianno" 11px/450 #ffffff
+0,487 240x28 option [Itim]
+12,489 19x13 "Itim" 11px/450 #ffffff
+0,515 240x28 option [Jacquard 12]
+12,517 64x13 "Jacquard 12" 11px/450 #ffffff
+0,543 240x28 option [Jacquard 24]
+12,545 65x13 "Jacquard 24" 11px/450 #ffffff
+0,571 240x28 option [Jacquarda Bastarda 9]
+12,573 115x13 "Jacquarda Bastarda 9" 11px/450 #ffffff
+0,599 240x28 option [Jacques Francois]
+12,601 92x13 "Jacques Francois" 11px/450 #ffffff
+0,627 240x28 option [Jacques Francois Shadow]
+12,629 137x13 "Jacques Francois Shadow" 11px/450 #ffffff
+0,655 240x28 option [Jaini]
+12,657 24x13 "Jaini" 11px/450 #ffffff
+0,683 240x28 option [Jaini Purva]
+12,685 57x13 "Jaini Purva" 11px/450 #ffffff
+0,711 240x28 option [Jaldi]
+12,713 24x13 "Jaldi" 11px/450 #ffffff
+0,739 240x28 option [Jaro]
+12,741 23x13 "Jaro" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

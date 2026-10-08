@@ -1,0 +1,16 @@
+# AL_grid selected: click "Auto layout settings" (sliders) next to Gap → grid settings popover (track sizes) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@960,485 240x249
+0,0 240x249 div bg=#2c2c2c r=13px
+16,14 107x13 "Auto layout settings" 11px/550 #ffffff
+0,40 240x120 div bg=#383838
+89,90 61x20 "Preview" 16px/500 #ffffff66
+16,179 68x13 "Inside stroke" 11px/450 #ffffffb2
+112,173 112x24 button bg=#2c2c2c r=5px
+121,178 45x13 "Included" 11px/450 #ffffff
+16,211 36x13 "Layout" 11px/450 #ffffffb2
+92,209 16x16 button [More info]
+112,205 112x24 button bg=#2c2c2c r=5px
+121,210 46x13 "Updated" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

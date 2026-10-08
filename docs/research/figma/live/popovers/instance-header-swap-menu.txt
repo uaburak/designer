@@ -1,0 +1,21 @@
+# Button instance selected: click the component name dropdown at the top of the Design panel ("Button ▾") [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1160,117 240x441
+0,0 240x441 div bg=#2c2c2c r=13px
+16,14 78x13 "Swap instance" 11px/550 #ffffff
+8,48 224x24 div bg=#383838 r=5px
+35,52 197x16 input = [Search in this library]
+7,85 77x13 "Swap instance" 11px/450 #ffffff
+8,84 130x24 button bg=#2c2c2c r=5px
+17,89 96x13 "Created in this file" 11px/450 #ffffff
+208,84 24x24 button [Settings] r=5px
+32,123 42x13 "Capture" 11px/450 #ffffff
+16,149 40x40 div bg=#383838 r=5px
+64,163 35x13 "Button" 11px/450 #ffffff
+16,197 40x40 div bg=#383838 r=5px
+64,211 25x13 "Card" 11px/450 #ffffff
+16,245 40x40 div bg=#383838 r=5px
+64,259 24x13 "Chip" 11px/450 #ffffff
+44,315 22x13 "Icon" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

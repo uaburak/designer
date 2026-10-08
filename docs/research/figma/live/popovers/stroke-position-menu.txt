@@ -1,0 +1,8 @@
+# Rect with a stroke: open the stroke position dropdown (Inside) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1208,678 105x88
+32,14 36x13 "Center" 11px/450 #ffffff
+0,32 105x24 option SELECTED
+32,38 32x13 "Inside" 11px/450 #ffffff
+32,62 41x13 "Outside" 11px/450 #ffffff
