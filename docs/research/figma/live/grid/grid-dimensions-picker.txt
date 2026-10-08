@@ -1,0 +1,301 @@
+# AL_grid selected: click the grid preview (3 × 2) under "Grid" in Auto layout → grid dimensions picker [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1204,427 210x204
+8,8 85x24 div [Number of columns] bg=#383838 r=5px
+32,8 61x24 input =3 [Number of columns] r=5px
+101,14 7x13 "×" 11px/400 #ffffffb2
+117,8 85x24 div [Number of rows] bg=#383838 r=5px
+117,8 61x24 div bg=#383838 r=5px
+141,8 37x24 input =2 [Number of rows] r=5px 0px 0px 5px
+178,8 24x24 button [Number of rows]
+7,41 84x13 "Grid dimensions" 11px/400 #ffffff
+8,40 16x16 input =1x1 [1 × 1]
+8,40 14x14 div bg=#4a5878 r=3px
+7,57 24x13 "1 × 1" 11px/400 #ffffff
+24,40 16x16 input =2x1 [2 × 1]
+24,40 14x14 div bg=#4a5878 r=3px
+23,57 25x13 "2 × 1" 11px/400 #ffffff
+40,40 16x16 input =3x1 [3 × 1]
+40,40 14x14 div bg=#4a5878 r=3px
+39,57 26x13 "3 × 1" 11px/400 #ffffff
+56,40 16x16 input =4x1 [4 × 1]
+56,40 14x14 div bg=#394360 r=3px
+55,57 26x13 "4 × 1" 11px/400 #ffffff
+73,40 16x16 input =5x1 [5 × 1]
+73,40 14x14 div bg=#383838 r=3px
+72,57 25x13 "5 × 1" 11px/400 #ffffff
+89,40 16x16 input =6x1 [6 × 1]
+89,40 14x14 div bg=#383838 r=3px
+88,57 25x13 "6 × 1" 11px/400 #ffffff
+105,40 16x16 input =7x1 [7 × 1]
+105,40 14x14 div bg=#383838 r=3px
+104,57 25x13 "7 × 1" 11px/400 #ffffff
+121,40 16x16 input =8x1 [8 × 1]
+121,40 14x14 div bg=#383838 r=3px
+120,57 25x13 "8 × 1" 11px/400 #ffffff
+137,40 16x16 input =9x1 [9 × 1]
+137,40 14x14 div bg=#383838 r=3px
+136,57 25x13 "9 × 1" 11px/400 #ffffff
+153,40 16x16 input =10x1 [10 × 1]
+153,40 14x14 div bg=#383838 r=3px
+152,57 31x13 "10 × 1" 11px/400 #ffffff
+170,40 16x16 input =11x1 [11 × 1]
+170,40 14x14 div bg=#383838 r=3px
+169,57 29x13 "11 × 1" 11px/400 #ffffff
+186,40 16x16 input =12x1 [12 × 1]
+186,40 14x14 div bg=#383838 r=3px
+185,57 30x13 "12 × 1" 11px/400 #ffffff
+8,56 16x16 input =1x2 [1 × 2]
+8,56 14x14 div bg=#4a5878 r=3px
+7,73 25x13 "1 × 2" 11px/400 #ffffff
+24,56 16x16 input =2x2 [2 × 2]
+24,56 14x14 div bg=#4a5878 r=3px
+23,73 27x13 "2 × 2" 11px/400 #ffffff
+40,56 16x16 input =3x2 [3 × 2]
+40,56 14x14 div bg=#4a5878 r=3px
+39,73 27x13 "3 × 2" 11px/400 #ffffff
+56,56 16x16 input =4x2 [4 × 2]
+56,56 14x14 div bg=#394360 r=3px
+55,73 27x13 "4 × 2" 11px/400 #ffffff
+73,56 16x16 input =5x2 [5 × 2]
+73,56 14x14 div bg=#383838 r=3px
+72,73 27x13 "5 × 2" 11px/400 #ffffff
+89,56 16x16 input =6x2 [6 × 2]
+89,56 14x14 div bg=#383838 r=3px
+88,73 27x13 "6 × 2" 11px/400 #ffffff
+105,56 16x16 input =7x2 [7 × 2]
+105,56 14x14 div bg=#383838 r=3px
+104,73 26x13 "7 × 2" 11px/400 #ffffff
+121,56 16x16 input =8x2 [8 × 2]
+121,56 14x14 div bg=#383838 r=3px
+120,73 27x13 "8 × 2" 11px/400 #ffffff
+137,56 16x16 input =9x2 [9 × 2]
+137,56 14x14 div bg=#383838 r=3px
+136,73 27x13 "9 × 2" 11px/400 #ffffff
+153,56 16x16 input =10x2 [10 × 2]
+153,56 14x14 div bg=#383838 r=3px
+152,73 32x13 "10 × 2" 11px/400 #ffffff
+170,56 16x16 input =11x2 [11 × 2]
+170,56 14x14 div bg=#383838 r=3px
+169,73 30x13 "11 × 2" 11px/400 #ffffff
+186,56 16x16 input =12x2 [12 × 2]
+186,56 14x14 div bg=#383838 r=3px
+185,73 32x13 "12 × 2" 11px/400 #ffffff
+8,72 16x16 input =1x3 [1 × 3]
+8,72 14x14 div bg=#394360 r=3px
+7,89 26x13 "1 × 3" 11px/400 #ffffff
+24,72 16x16 input =2x3 [2 × 3]
+24,72 14x14 div bg=#394360 r=3px
+23,89 27x13 "2 × 3" 11px/400 #ffffff
+40,72 16x16 input =3x3 [3 × 3]
+40,72 14x14 div bg=#394360 r=3px
+39,89 27x13 "3 × 3" 11px/400 #ffffff
+56,72 16x16 input =4x3 [4 × 3]
+56,72 14x14 div bg=#394360 r=3px
+55,89 28x13 "4 × 3" 11px/400 #ffffff
+73,72 16x16 input =5x3 [5 × 3]
+73,72 14x14 div bg=#383838 r=3px
+72,89 27x13 "5 × 3" 11px/400 #ffffff
+89,72 16x16 input =6x3 [6 × 3]
+89,72 14x14 div bg=#383838 r=3px
+88,89 27x13 "6 × 3" 11px/400 #ffffff
+105,72 16x16 input =7x3 [7 × 3]
+105,72 14x14 div bg=#383838 r=3px
+104,89 27x13 "7 × 3" 11px/400 #ffffff
+121,72 16x16 input =8x3 [8 × 3]
+121,72 14x14 div bg=#383838 r=3px
+120,89 27x13 "8 × 3" 11px/400 #ffffff
+137,72 16x16 input =9x3 [9 × 3]
+137,72 14x14 div bg=#383838 r=3px
+136,89 27x13 "9 × 3" 11px/400 #ffffff
+153,72 16x16 input =10x3 [10 × 3]
+153,72 14x14 div bg=#383838 r=3px
+152,89 32x13 "10 × 3" 11px/400 #ffffff
+170,72 16x16 input =11x3 [11 × 3]
+170,72 14x14 div bg=#383838 r=3px
+169,89 31x13 "11 × 3" 11px/400 #ffffff
+186,72 16x16 input =12x3 [12 × 3]
+186,72 14x14 div bg=#383838 r=3px
+185,89 32x13 "12 × 3" 11px/400 #ffffff
+8,88 16x16 input =1x4 [1 × 4]
+8,88 14x14 div bg=#383838 r=3px
+7,105 26x13 "1 × 4" 11px/400 #ffffff
+24,88 16x16 input =2x4 [2 × 4]
+24,88 14x14 div bg=#383838 r=3px
+23,105 27x13 "2 × 4" 11px/400 #ffffff
+40,88 16x16 input =3x4 [3 × 4]
+40,88 14x14 div bg=#383838 r=3px
+39,105 28x13 "3 × 4" 11px/400 #ffffff
+56,88 16x16 input =4x4 [4 × 4]
+56,88 14x14 div bg=#383838 r=3px
+55,105 28x13 "4 × 4" 11px/400 #ffffff
+73,88 16x16 input =5x4 [5 × 4]
+73,88 14x14 div bg=#383838 r=3px
+72,105 27x13 "5 × 4" 11px/400 #ffffff
+89,88 16x16 input =6x4 [6 × 4]
+89,88 14x14 div bg=#383838 r=3px
+88,105 27x13 "6 × 4" 11px/400 #ffffff
+105,88 16x16 input =7x4 [7 × 4]
+105,88 14x14 div bg=#383838 r=3px
+104,105 27x13 "7 × 4" 11px/400 #ffffff
+121,88 16x16 input =8x4 [8 × 4]
+121,88 14x14 div bg=#383838 r=3px
+120,105 27x13 "8 × 4" 11px/400 #ffffff
+137,88 16x16 input =9x4 [9 × 4]
+137,88 14x14 div bg=#383838 r=3px
+136,105 27x13 "9 × 4" 11px/400 #ffffff
+153,88 16x16 input =10x4 [10 × 4]
+153,88 14x14 div bg=#383838 r=3px
+152,105 32x13 "10 × 4" 11px/400 #ffffff
+170,88 16x16 input =11x4 [11 × 4]
+170,88 14x14 div bg=#383838 r=3px
+169,105 31x13 "11 × 4" 11px/400 #ffffff
+186,88 16x16 input =12x4 [12 × 4]
+186,88 14x14 div bg=#383838 r=3px
+185,105 32x13 "12 × 4" 11px/400 #ffffff
+8,104 16x16 input =1x5 [1 × 5]
+8,104 14x14 div bg=#383838 r=3px
+7,121 25x13 "1 × 5" 11px/400 #ffffff
+24,104 16x16 input =2x5 [2 × 5]
+24,104 14x14 div bg=#383838 r=3px
+23,121 27x13 "2 × 5" 11px/400 #ffffff
+40,104 16x16 input =3x5 [3 × 5]
+40,104 14x14 div bg=#383838 r=3px
+39,121 27x13 "3 × 5" 11px/400 #ffffff
+56,104 16x16 input =4x5 [4 × 5]
+56,104 14x14 div bg=#383838 r=3px
+55,121 27x13 "4 × 5" 11px/400 #ffffff
+73,104 16x16 input =5x5 [5 × 5]
+73,104 14x14 div bg=#383838 r=3px
+72,121 27x13 "5 × 5" 11px/400 #ffffff
+89,104 16x16 input =6x5 [6 × 5]
+89,104 14x14 div bg=#383838 r=3px
+88,121 27x13 "6 × 5" 11px/400 #ffffff
+105,104 16x16 input =7x5 [7 × 5]
+105,104 14x14 div bg=#383838 r=3px
+104,121 26x13 "7 × 5" 11px/400 #ffffff
+121,104 16x16 input =8x5 [8 × 5]
+121,104 14x14 div bg=#383838 r=3px
+120,121 27x13 "8 × 5" 11px/400 #ffffff
+137,104 16x16 input =9x5 [9 × 5]
+137,104 14x14 div bg=#383838 r=3px
+136,121 27x13 "9 × 5" 11px/400 #ffffff
+153,104 16x16 input =10x5 [10 × 5]
+153,104 14x14 div bg=#383838 r=3px
+152,121 32x13 "10 × 5" 11px/400 #ffffff
+170,104 16x16 input =11x5 [11 × 5]
+170,104 14x14 div bg=#383838 r=3px
+169,121 30x13 "11 × 5" 11px/400 #ffffff
+186,104 16x16 input =12x5 [12 × 5]
+186,104 14x14 div bg=#383838 r=3px
+185,121 32x13 "12 × 5" 11px/400 #ffffff
+8,120 16x16 input =1x6 [1 × 6]
+8,120 14x14 div bg=#383838 r=3px
+7,137 25x13 "1 × 6" 11px/400 #ffffff
+24,120 16x16 input =2x6 [2 × 6]
+24,120 14x14 div bg=#383838 r=3px
+23,137 27x13 "2 × 6" 11px/400 #ffffff
+40,120 16x16 input =3x6 [3 × 6]
+40,120 14x14 div bg=#383838 r=3px
+39,137 27x13 "3 × 6" 11px/400 #ffffff
+56,120 16x16 input =4x6 [4 × 6]
+56,120 14x14 div bg=#383838 r=3px
+55,137 27x13 "4 × 6" 11px/400 #ffffff
+73,120 16x16 input =5x6 [5 × 6]
+73,120 14x14 div bg=#383838 r=3px
+72,137 27x13 "5 × 6" 11px/400 #ffffff
+89,120 16x16 input =6x6 [6 × 6]
+89,120 14x14 div bg=#383838 r=3px
+88,137 27x13 "6 × 6" 11px/400 #ffffff
+105,120 16x16 input =7x6 [7 × 6]
+105,120 14x14 div bg=#383838 r=3px
+104,137 27x13 "7 × 6" 11px/400 #ffffff
+121,120 16x16 input =8x6 [8 × 6]
+121,120 14x14 div bg=#383838 r=3px
+120,137 27x13 "8 × 6" 11px/400 #ffffff
+137,120 16x16 input =9x6 [9 × 6]
+137,120 14x14 div bg=#383838 r=3px
+136,137 27x13 "9 × 6" 11px/400 #ffffff
+153,120 16x16 input =10x6 [10 × 6]
+153,120 14x14 div bg=#383838 r=3px
+152,137 32x13 "10 × 6" 11px/400 #ffffff
+170,120 16x16 input =11x6 [11 × 6]
+170,120 14x14 div bg=#383838 r=3px
+169,137 31x13 "11 × 6" 11px/400 #ffffff
+186,120 16x16 input =12x6 [12 × 6]
+186,120 14x14 div bg=#383838 r=3px
+185,137 32x13 "12 × 6" 11px/400 #ffffff
+8,136 16x16 input =1x7 [1 × 7]
+8,136 14x14 div bg=#383838 r=3px
+7,153 25x13 "1 × 7" 11px/400 #ffffff
+24,136 16x16 input =2x7 [2 × 7]
+24,136 14x14 div bg=#383838 r=3px
+23,153 26x13 "2 × 7" 11px/400 #ffffff
+40,136 16x16 input =3x7 [3 × 7]
+40,136 14x14 div bg=#383838 r=3px
+39,153 27x13 "3 × 7" 11px/400 #ffffff
+56,136 16x16 input =4x7 [4 × 7]
+56,136 14x14 div bg=#383838 r=3px
+55,153 27x13 "4 × 7" 11px/400 #ffffff
+73,136 16x16 input =5x7 [5 × 7]
+73,136 14x14 div bg=#383838 r=3px
+72,153 26x13 "5 × 7" 11px/400 #ffffff
+89,136 16x16 input =6x7 [6 × 7]
+89,136 14x14 div bg=#383838 r=3px
+88,153 27x13 "6 × 7" 11px/400 #ffffff
+105,136 16x16 input =7x7 [7 × 7]
+105,136 14x14 div bg=#383838 r=3px
+104,153 26x13 "7 × 7" 11px/400 #ffffff
+121,136 16x16 input =8x7 [8 × 7]
+121,136 14x14 div bg=#383838 r=3px
+120,153 27x13 "8 × 7" 11px/400 #ffffff
+137,136 16x16 input =9x7 [9 × 7]
+137,136 14x14 div bg=#383838 r=3px
+136,153 27x13 "9 × 7" 11px/400 #ffffff
+153,136 16x16 input =10x7 [10 × 7]
+153,136 14x14 div bg=#383838 r=3px
+152,153 32x13 "10 × 7" 11px/400 #ffffff
+170,136 16x16 input =11x7 [11 × 7]
+170,136 14x14 div bg=#383838 r=3px
+169,153 30x13 "11 × 7" 11px/400 #ffffff
+186,136 16x16 input =12x7 [12 × 7]
+186,136 14x14 div bg=#383838 r=3px
+185,153 31x13 "12 × 7" 11px/400 #ffffff
+8,152 16x14 input =1x8 [1 × 8]
+8,152 14x14 div bg=#383838 r=3px
+7,167 25x13 "1 × 8" 11px/400 #ffffff
+24,152 16x14 input =2x8 [2 × 8]
+24,152 14x14 div bg=#383838 r=3px
+23,167 27x13 "2 × 8" 11px/400 #ffffff
+40,152 16x14 input =3x8 [3 × 8]
+40,152 14x14 div bg=#383838 r=3px
+39,167 27x13 "3 × 8" 11px/400 #ffffff
+56,152 16x14 input =4x8 [4 × 8]
+56,152 14x14 div bg=#383838 r=3px
+55,167 27x13 "4 × 8" 11px/400 #ffffff
+73,152 16x14 input =5x8 [5 × 8]
+73,152 14x14 div bg=#383838 r=3px
+72,167 27x13 "5 × 8" 11px/400 #ffffff
+89,152 16x14 input =6x8 [6 × 8]
+89,152 14x14 div bg=#383838 r=3px
+88,167 27x13 "6 × 8" 11px/400 #ffffff
+105,152 16x14 input =7x8 [7 × 8]
+105,152 14x14 div bg=#383838 r=3px
+104,167 27x13 "7 × 8" 11px/400 #ffffff
+121,152 16x14 input =8x8 [8 × 8]
+121,152 14x14 div bg=#383838 r=3px
+120,167 27x13 "8 × 8" 11px/400 #ffffff
+137,152 16x14 input =9x8 [9 × 8]
+137,152 14x14 div bg=#383838 r=3px
+136,167 27x13 "9 × 8" 11px/400 #ffffff
+153,152 16x14 input =10x8 [10 × 8]
+153,152 14x14 div bg=#383838 r=3px
+152,167 32x13 "10 × 8" 11px/400 #ffffff
+170,152 16x14 input =11x8 [11 × 8]
+170,152 14x14 div bg=#383838 r=3px
+169,167 30x13 "11 × 8" 11px/400 #ffffff
+186,152 16x14 input =12x8 [12 × 8]
+186,152 14x14 div bg=#383838 r=3px
+185,167 32x13 "12 × 8" 11px/400 #ffffff
+56,180 98x13 "Open grid settings" 11px/450 #ffffff

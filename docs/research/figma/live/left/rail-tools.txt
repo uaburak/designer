@@ -1,0 +1,443 @@
+# Left rail → "Tools" clicked: Tools panel content [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@0,0 1440x900
+820,430 61x13 "Hello Figma⁨⁩" 11px/400 #ffffff
+0,-200 1x16 input = [Figma Design, 1 item selected] bg=#3b3b3b
+0,2 1108x13 "Screenreader support for the board is currently disabled. To enable it via Accessibility settings, press ⌘K, type Accessibility Settings, and press Enter. To see available keyboard shortcuts, enter ⌃⇧Question mark ." 11px/400 #ffffff
+0,0 57x900 toolbar [Navigation Bar] bg=#2c2c2c
+12,8 32x32 button [Main menu] r=5px
+0,56 56x56 button [File]
+20,96 15x11 "File" 9px/450 #ffffff
+0,112 56x56 button [Agents]
+13,152 31x11 "Agents" 9px/450 #ffffff
+0,168 56x56 button [Assets]
+13,208 29x11 "Assets" 9px/450 #ffffff
+0,224 56x56 button [Tools] EXPANDED
+12,228 32x32 div bg=#394360 r=5px
+16,264 23x11 "Tools" 9px/450 #ffffff
+0,296 56x56 button [Variables]
+8,336 40x11 "Variables" 9px/450 #ffffff
+57,0 241x900 div bg=#2c2c2c
+57,0 240x49 div bg=#2c2c2c
+73,16 33x16 "Tools" 13px/550 #ffffff
+230,18 35x13 "Create" 11px/450 #ffffff
+73,61 180x24 div bg=#383838 r=5px
+97,61 156x24 input = [Search all tools] r=5px
+261,61 24x24 button [Filter by price and type] r=5px
+73,101 79x24 div [Filter by source] bg=#2c2c2c r=5px
+97,107 37x13 "Source" 11px/450 #ffffff
+160,101 91x24 div [Filter by category] bg=#2c2c2c r=5px
+184,107 49x13 "Category" 11px/450 #ffffff
+73,142 208x224 section [What’s new in tools] bg=#2c2c2c r=13px
+74,143 206x90 div bg=#444444
+86,247 161x13 "More AI image tools to explore" 11px/500 #ffffff
+86,271 172x45 "Try new Weave tools built by the Figma community, or build your own." 11px/450 #ffffffb2
+147,335 60x13 "Learn more" 11px/450 #ffffff
+223,329 45x24 button bg=#0c8ce9 r=5px
+231,335 29x13 "Got it" 11px/450 #ffffff
+73,384 57x13 "Suggested" 11px/450 #ffffffb2
+65,402 224x56 div bg=#2c2c2c r=5px
+121,414 102x13 "ASCII art generator" 11px/450 #ffffff
+121,432 16x16 svg [Plugin]
+141,434 1x12 div bg=#444444 r=1px
+146,434 49x13 "By Figma" 11px/450 #ffffffb2
+64,459 24x13 "Beta" 11px/400 #ffffff
+64,475 155x13 "Figma Community and 1 other" 11px/400 #ffffff
+64,491 455x13 "Transform images into editable ASCII art layers. Adjust character sets and output width." 11px/400 #ffffff
+64,507 32x13 "Plugin" 11px/400 #ffffff
+64,521 16x16 img [Generative]
+65,458 224x56 div bg=#2c2c2c r=5px
+73,466 40x40 img bg=#383838 r=5px
+121,470 91x13 "Glowing particles" 11px/450 #ffffff
+121,488 16x16 svg [Shader effect]
+141,490 1x12 div bg=#444444 r=1px
+146,490 49x13 "By Figma" 11px/450 #ffffffb2
+64,515 24x13 "Beta" 11px/400 #ffffff
+64,531 155x13 "Figma Community and 1 other" 11px/400 #ffffff
+64,547 294x13 "Generate and animate glowing particles for your designs" 11px/400 #ffffff
+64,563 71x13 "Shader effect" 11px/400 #ffffff
+64,577 16x16 img [Generative]
+257,474 24x24 button [More actions for Glowing particles] r=5px
+65,514 224x56 div bg=#2c2c2c r=5px
+121,526 109x13 "Motion Frame Scaler" 11px/450 #ffffff
+121,544 16x16 svg [Plugin]
+141,546 1x12 div bg=#444444 r=1px
+164,546 20x13 "825" 11px/450 #ffffffb2
+145,553 53x13 "825 users" 11px/450 #ffffff
+64,571 24x13 "Beta" 11px/400 #ffffff
+64,587 84x13 "Takashi Mukoda" 11px/400 #ffffff
+64,603 327x13 "Resize frames without breaking Figma Motion and your design." 11px/400 #ffffff
+64,619 32x13 "Plugin" 11px/400 #ffffff
+64,633 16x16 img [Generative]
+65,570 224x56 div bg=#2c2c2c r=5px
+73,578 40x40 img bg=#383838 r=5px
+121,582 37x13 "Nebula" 11px/450 #ffffff
+121,600 16x16 svg [Shader fill]
+141,602 1x12 div bg=#444444 r=1px
+146,602 49x13 "By Figma" 11px/450 #ffffffb2
+64,627 24x13 "Beta" 11px/400 #ffffff
+64,643 101x13 "Ellie Lin and 1 other" 11px/400 #ffffff
+64,659 573x13 "Create deep-space backgrounds with customizable colors, density, brightness, and other atmospheric details." 11px/400 #ffffff
+64,675 52x13 "Shader fill" 11px/400 #ffffff
+64,689 16x16 img [Generative]
+257,586 24x24 button [More actions for Nebula] r=5px
+65,626 224x56 div bg=#2c2c2c r=5px
+121,638 37x13 "Glyphs" 11px/450 #ffffff
+121,656 16x16 svg [Plugin]
+141,658 1x12 div bg=#444444 r=1px
+146,658 49x13 "By Figma" 11px/450 #ffffffb2
+64,683 24x13 "Beta" 11px/400 #ffffff
+64,699 155x13 "Figma Community and 1 other" 11px/400 #ffffff
+64,715 482x13 "Quickly search for, copy, and insert emoji, symbols, and special characters into your designs." 11px/400 #ffffff
+64,731 32x13 "Plugin" 11px/400 #ffffff
+64,745 16x16 img [Generative]
+65,682 224x56 div bg=#2c2c2c r=5px
+121,694 115x13 "Monochrome pixel art" 11px/450 #ffffff
+121,712 16x16 svg [Weave]
+141,714 1x12 div bg=#444444 r=1px
+146,714 49x13 "By Figma" 11px/450 #ffffffb2
+64,739 94x13 "Figma Community" 11px/400 #ffffff
+64,755 238x13 "Render an image in a monochrome pixel style." 11px/400 #ffffff
+64,771 57x13 "Weave tool" 11px/400 #ffffff
+84,787 50x13 "AI credits" 11px/450 #ffffffb2
+257,698 24x24 button [More actions for Monochrome pixel art] r=5px
+65,738 224x56 div bg=#2c2c2c r=5px
+73,746 40x40 img bg=#383838 r=5px
+121,750 61x13 "CRT screen" 11px/450 #ffffff
+121,768 16x16 svg [Shader effect]
+141,770 1x12 div bg=#444444 r=1px
+146,770 49x13 "By Figma" 11px/450 #ffffffb2
+64,795 24x13 "Beta" 11px/400 #ffffff
+64,811 94x13 "Figma Community" 11px/400 #ffffff
+64,827 87x13 "Retro CRT effect" 11px/400 #ffffff
+64,843 71x13 "Shader effect" 11px/400 #ffffff
+64,857 16x16 img [Generative]
+257,754 24x24 button [More actions for CRT screen] r=5px
+65,794 224x56 div bg=#2c2c2c r=5px
+121,806 56x13 "Melt brush" 11px/450 #ffffff
+121,824 16x16 svg [Plugin]
+141,826 1x12 div bg=#444444 r=1px
+164,826 18x13 "1.1k" 11px/450 #ffffffb2
+145,833 50x13 "1.1k users" 11px/450 #ffffff
+64,851 24x13 "Beta" 11px/400 #ffffff
+64,867 57x13 "leobenzoni" 11px/400 #ffffff
+64,883 230x13 "Create Dark Grain Graphics and Background" 11px/400 #ffffff
+64,899 32x13 "Plugin" 11px/400 #ffffff
+64,913 16x16 img [Generative]
+65,850 224x56 div bg=#2c2c2c r=5px
+121,862 76x13 "Pie chart 🥧 🍩" 11px/450 #ffffff
+121,880 16x16 svg [Widget]
+141,882 1x12 div bg=#444444 r=1px
+164,882 27x13 "300k" 11px/450 #ffffffb2
+145,889 59x13 "300k users" 11px/450 #ffffff
+64,907 70x13 "Michael Musil" 11px/400 #ffffff
+64,923 331x13 "Easily Create Pie Charts with Either Illustrative or Accurate Data" 11px/400 #ffffff
+64,939 37x13 "Widget" 11px/400 #ffffff
+65,906 224x56 div bg=#2c2c2c r=5px
+73,914 40x40 img bg=#383838 r=5px
+121,918 50x13 "Rad Soup" 11px/450 #ffffff
+121,936 16x16 svg [Shader fill]
+141,938 1x12 div bg=#444444 r=1px
+164,938 18x13 "1.1k" 11px/450 #ffffffb2
+145,945 50x13 "1.1k users" 11px/450 #ffffff
+64,963 24x13 "Beta" 11px/400 #ffffff
+64,979 30x13 "Nolan" 11px/400 #ffffff
+64,995 143x13 "Soft shapes, always stirring" 11px/400 #ffffff
+64,1011 52x13 "Shader fill" 11px/400 #ffffff
+64,1025 16x16 img [Generative]
+257,922 24x24 button [More actions for Rad Soup] r=5px
+65,962 224x56 div bg=#2c2c2c r=5px
+121,974 102x13 "Liquid Glass Export" 11px/450 #ffffff
+121,992 16x16 svg [Plugin]
+141,994 1x12 div bg=#444444 r=1px
+164,994 11x13 "1k" 11px/450 #ffffffb2
+145,1001 43x13 "1k users" 11px/450 #ffffff
+64,1019 72x13 "Aryan Kholghi" 11px/400 #ffffff
+64,1035 420x13 "Turn Figma Glass effects into React Liquid Glass components with one command" 11px/400 #ffffff
+64,1051 32x13 "Plugin" 11px/400 #ffffff
+65,1018 224x56 div bg=#2c2c2c r=5px
+73,1026 40x40 img bg=#383838 r=5px
+121,1030 33x13 "AI Orb" 11px/450 #ffffff
+121,1048 16x16 svg [Shader fill]
+141,1050 1x12 div bg=#444444 r=1px
+164,1050 21x13 "1.9k" 11px/450 #ffffffb2
+145,1057 53x13 "1.9k users" 11px/450 #ffffff
+64,1075 24x13 "Beta" 11px/400 #ffffff
+64,1091 51x13 "Miyamoto" 11px/400 #ffffff
+64,1107 95x13 "Fluid AI Agent Orb" 11px/400 #ffffff
+64,1123 52x13 "Shader fill" 11px/400 #ffffff
+64,1137 16x16 img [Generative]
+257,1034 24x24 button [More actions for AI Orb] r=5px
+65,1074 224x56 div bg=#2c2c2c r=5px
+73,1082 40x40 img bg=#383838 r=5px
+121,1086 79x13 "Lens distortion" 11px/450 #ffffff
+121,1104 16x16 svg [Shader effect]
+141,1106 1x12 div bg=#444444 r=1px
+146,1106 49x13 "By Figma" 11px/450 #ffffffb2
+64,1131 24x13 "Beta" 11px/400 #ffffff
+64,1147 155x13 "Figma Community and 1 other" 11px/400 #ffffff
+64,1163 465x13 "Create a realistic lens distortion and chromatic aberration with an adjustable center point." 11px/400 #ffffff
+64,1179 71x13 "Shader effect" 11px/400 #ffffff
+64,1193 16x16 img [Generative]
+257,1090 24x24 button [More actions for Lens distortion] r=5px
+65,1130 224x56 div bg=#2c2c2c r=5px
+73,1138 40x40 img bg=#383838 r=5px
+121,1142 96x13 "Particle Flow Field" 11px/450 #ffffff
+121,1160 16x16 svg [Shader fill]
+141,1162 1x12 div bg=#444444 r=1px
+164,1162 23x13 "2.2k" 11px/450 #ffffffb2
+145,1169 55x13 "2.2k users" 11px/450 #ffffff
+64,1187 24x13 "Beta" 11px/400 #ffffff
+64,1203 51x13 "Miyamoto" 11px/400 #ffffff
+64,1219 236x13 "Colorful particles scattered along streamlines" 11px/400 #ffffff
+64,1235 52x13 "Shader fill" 11px/400 #ffffff
+64,1249 16x16 img [Generative]
+257,1146 24x24 button [More actions for Particle Flow Field] r=5px
+65,1186 224x56 div bg=#2c2c2c r=5px
+121,1198 74x13 "Time machine" 11px/450 #ffffff
+121,1216 16x16 svg [Weave]
+141,1218 1x12 div bg=#444444 r=1px
+146,1218 49x13 "By Figma" 11px/450 #ffffffb2
+64,1243 94x13 "Figma Community" 11px/400 #ffffff
+64,1259 256x13 "Choose an image and a decade to reimagine it in." 11px/400 #ffffff
+64,1275 57x13 "Weave tool" 11px/400 #ffffff
+84,1291 50x13 "AI credits" 11px/450 #ffffffb2
+257,1202 24x24 button [More actions for Time machine] r=5px
+65,1242 224x56 div bg=#2c2c2c r=5px
+121,1254 124x13 "Illustrator Ready Export" 11px/450 #ffffff
+121,1272 16x16 svg [Plugin]
+141,1274 1x12 div bg=#444444 r=1px
+164,1274 19x13 "158" 11px/450 #ffffffb2
+145,1281 51x13 "158 users" 11px/450 #ffffff
+64,1299 61x13 "catchstudio" 11px/400 #ffffff
+64,1315 434x13 "Figma to Illustrator, PDF, InDesign & Photoshop — images intact, print-ready CMYK." 11px/400 #ffffff
+64,1331 32x13 "Plugin" 11px/400 #ffffff
+65,1298 224x56 div bg=#2c2c2c r=5px
+121,1310 88x13 "Timeline Planner" 11px/450 #ffffff
+121,1328 16x16 svg [Widget]
+141,1330 1x12 div bg=#444444 r=1px
+164,1330 21x13 "264" 11px/450 #ffffffb2
+145,1337 53x13 "264 users" 11px/450 #ffffff
+64,1355 64x13 "Sagnik Saha" 11px/400 #ffffff
+64,1371 517x13 "Plan project timelines directly on the canvas — rows, dates, and ownership, live in Figma or FigJam." 11px/400 #ffffff
+64,1387 37x13 "Widget" 11px/400 #ffffff
+65,1354 224x56 div bg=#2c2c2c r=5px
+121,1366 65x13 "Sticker pack" 11px/450 #ffffff
+121,1384 16x16 svg [Weave]
+141,1386 1x12 div bg=#444444 r=1px
+146,1386 49x13 "By Figma" 11px/450 #ffffffb2
+64,1411 94x13 "Figma Community" 11px/400 #ffffff
+64,1427 371x13 "Turn an image into a 4-sticker set, choosing the sticker style and finish." 11px/400 #ffffff
+64,1443 57x13 "Weave tool" 11px/400 #ffffff
+84,1459 50x13 "AI credits" 11px/450 #ffffffb2
+257,1370 24x24 button [More actions for Sticker pack] r=5px
+65,1410 224x56 div bg=#2c2c2c r=5px
+121,1422 74x13 "Product shoot" 11px/450 #ffffff
+121,1440 16x16 svg [Weave]
+141,1442 1x12 div bg=#444444 r=1px
+146,1442 49x13 "By Figma" 11px/450 #ffffffb2
+64,1467 94x13 "Figma Community" 11px/400 #ffffff
+64,1483 304x13 "Generate a polished product image within a chosen scene." 11px/400 #ffffff
+64,1499 57x13 "Weave tool" 11px/400 #ffffff
+84,1515 50x13 "AI credits" 11px/450 #ffffffb2
+257,1426 24x24 button [More actions for Product shoot] r=5px
+65,1466 224x56 div bg=#2c2c2c r=5px
+73,1474 40x40 img bg=#383838 r=5px
+121,1478 93x13 "Pattern refraction" 11px/450 #ffffff
+121,1496 16x16 svg [Shader effect]
+141,1498 1x12 div bg=#444444 r=1px
+146,1498 49x13 "By Figma" 11px/450 #ffffffb2
+64,1523 24x13 "Beta" 11px/400 #ffffff
+64,1539 94x13 "Figma Community" 11px/400 #ffffff
+64,1555 461x13 "Simulate refracting light to create distortions like waves, zigzags, and lenticular patterns." 11px/400 #ffffff
+64,1571 71x13 "Shader effect" 11px/400 #ffffff
+64,1585 16x16 img [Generative]
+257,1482 24x24 button [More actions for Pattern refraction] r=5px
+65,1522 224x56 div bg=#2c2c2c r=5px
+121,1534 292x13 "3D Device Mockups & Animations — FreeMockup.video" 11px/450 #ffffff
+121,1552 16x16 svg [Plugin]
+141,1554 1x12 div bg=#444444 r=1px
+164,1554 17x13 "118" 11px/450 #ffffffb2
+145,1561 49x13 "118 users" 11px/450 #ffffff
+64,1579 73x13 "BuildWithDeni" 11px/400 #ffffff
+64,1595 350x13 "Turn Figma screens into animated 3D mockups and product videos." 11px/400 #ffffff
+64,1611 32x13 "Plugin" 11px/400 #ffffff
+65,1578 224x56 div bg=#2c2c2c r=5px
+73,1586 40x40 img bg=#383838 r=5px
+121,1590 45x13 "Halftone" 11px/450 #ffffff
+121,1608 16x16 svg [Shader effect]
+141,1610 1x12 div bg=#444444 r=1px
+146,1610 49x13 "By Figma" 11px/450 #ffffffb2
+64,1635 24x13 "Beta" 11px/400 #ffffff
+64,1651 114x13 "Felix Faire and 1 other" 11px/400 #ffffff
+64,1667 598x13 "Simulate vintage print and comic-book halftones with controls for color separation, softness, scale, and placement." 11px/400 #ffffff
+64,1683 71x13 "Shader effect" 11px/400 #ffffff
+64,1697 16x16 img [Generative]
+257,1594 24x24 button [More actions for Halftone] r=5px
+65,1634 224x56 div bg=#2c2c2c r=5px
+121,1646 108x13 "Image collage layout" 11px/450 #ffffff
+121,1664 16x16 svg [Plugin]
+141,1666 1x12 div bg=#444444 r=1px
+164,1666 11x13 "1k" 11px/450 #ffffffb2
+145,1673 43x13 "1k users" 11px/450 #ffffff
+64,1691 24x13 "Beta" 11px/400 #ffffff
+64,1707 37x13 "Yan Liu" 11px/400 #ffffff
+64,1723 271x13 "Turn scattered images into polished editorial collage" 11px/400 #ffffff
+64,1739 32x13 "Plugin" 11px/400 #ffffff
+64,1753 16x16 img [Generative]
+65,1690 224x56 div bg=#2c2c2c r=5px
+73,1698 40x40 img bg=#383838 r=5px
+121,1702 105x13 "Concentric patterns" 11px/450 #ffffff
+121,1720 16x16 svg [Shader fill]
+141,1722 1x12 div bg=#444444 r=1px
+146,1722 49x13 "By Figma" 11px/450 #ffffffb2
+64,1747 24x13 "Beta" 11px/400 #ffffff
+64,1763 155x13 "Figma Community and 1 other" 11px/400 #ffffff
+64,1779 504x13 "Generate bold concentric patterns with customizable shapes, spacing, scale, rotation, and falloff." 11px/400 #ffffff
+64,1795 52x13 "Shader fill" 11px/400 #ffffff
+64,1809 16x16 img [Generative]
+257,1706 24x24 button [More actions for Concentric patterns] r=5px
+65,1746 224x56 div bg=#2c2c2c r=5px
+121,1758 83x13 "Image to vector" 11px/450 #ffffff
+121,1776 16x16 svg [Weave]
+141,1778 1x12 div bg=#444444 r=1px
+146,1778 49x13 "By Figma" 11px/450 #ffffffb2
+64,1803 94x13 "Figma Community" 11px/400 #ffffff
+64,1819 212x13 "Convert a photo into a vector illustration." 11px/400 #ffffff
+64,1835 57x13 "Weave tool" 11px/400 #ffffff
+84,1851 50x13 "AI credits" 11px/450 #ffffffb2
+257,1762 24x24 button [More actions for Image to vector] r=5px
+295,0 8x900 slider [Resize handle]
+1199,0 241x900 div bg=#2c2c2c
+1212,12 50x24 button [Multiplayer tools] r=50px
+1210,10 28x28 div [view_user_profile]
+1232,10 28x28 div bg=#383838 r=9999px
+1324,8 49x32 group [Prototype view]
+1324,8 32x32 button [Present] r=5px 0px 0px 5px
+1357,8 16x32 button [Prototype view] r=0px 5px 5px 0px
+1377,8 55x32 button bg=#0c8ce9 r=5px
+1389,18 31x13 "Share" 11px/450 #ffffff
+1208,48 53x24 tab SELECTED bg=#383838
+1216,54 37x13 "Design" 11px/550 #ffffff
+1216,54 37x13 "Design" 11px/550 #ffffff
+1265,48 69x24 button bg=#2c2c2c r=5px
+1273,54 53x13 "Prototype" 11px/550 #ffffffb2
+1273,54 52x13 "Prototype" 11px/450 #ffffffb2
+1370,48 62x24 button [300%, zoom and view options] bg=#2c2c2c r=5px
+1382,54 30x13 "300%" 11px/400 #ffffff
+1200,81 240x776 div bg=#2c2c2c
+1216,97 62x16 "Rectangle" 13px/550 #ffffff
+1324,93 24x24 button [Select matching layers] r=5px
+1352,93 24x24 button [Create component] r=5px
+1380,93 24x24 input =unchecked [mask-selection]
+1392,106 67x13 "Use as mask" 11px/450 #ffffff
+1408,93 24x24 button [More actions] r=5px
+1216,144 44x13 "Position" 11px/550 #ffffff
+1408,138 24x24 input =unchecked [Ignore auto layout]
+1420,151 95x13 "Ignore auto layout" 11px/450 #ffffff
+1216,174 46x11 "Alignment" 9px/500 #ffffffb2
+1216,190 29x24 div bg=#394360 r=5px 0px 0px 5px
+1216,190 29x24 input =align-left [align-left]
+1230,191 46x13 "Align left" 11px/400 #ffffff
+1246,190 29x24 div bg=#383838
+1246,190 29x24 input =align-horizontal-center [align-horizontal-center]
+1260,191 123x13 "Align horizontal centers" 11px/400 #ffffff
+1275,190 29x24 div bg=#383838 r=0px 5px 5px 0px
+1275,190 29x24 input =align-right [align-right]
+1289,191 53x13 "Align right" 11px/400 #ffffff
+1312,190 29x24 div bg=#394360 r=5px 0px 0px 5px
+1312,190 29x24 input =align-top [align-top]
+1326,191 46x13 "Align top" 11px/400 #ffffff
+1342,190 29x24 div bg=#383838
+1342,190 29x24 input =align-vertical-center [align-vertical-center]
+1356,191 110x13 "Align vertical centers" 11px/400 #ffffff
+1371,190 29x24 div bg=#383838 r=0px 5px 5px 0px
+1371,190 29x24 input =align-bottom [align-bottom]
+1385,191 66x13 "Align bottom" 11px/400 #ffffff
+1216,222 37x11 "Position" 9px/500 #ffffffb2
+1216,238 88x24 div [X-position] bg=#2c2c2c r=5px
+1224,244 7x13 "X" 11px/400 #ffffff
+1240,238 64x24 input =12 [X-position] r=5px DISABLED
+1312,238 88x24 div [Y-position] bg=#2c2c2c r=5px
+1320,244 7x13 "Y" 11px/400 #ffffff
+1336,238 64x24 input =104 [Y-position] r=5px DISABLED
+1216,270 38x11 "Rotation" 9px/500 #ffffffb2
+1216,286 88x24 div [Rotation] bg=#383838 r=5px
+1240,286 64x24 input =0° [Rotation] r=5px
+1312,286 29x24 button [Rotate 90˚ right] bg=#383838 r=5px 0px 0px 5px
+1342,286 29x24 button [Flip horizontal] bg=#383838
+1371,286 29x24 button [Flip vertical] bg=#383838 r=0px 5px 5px 0px
+1216,341 36x13 "Layout" 11px/550 #ffffff
+1216,371 53x11 "Dimensions" 9px/500 #ffffffb2
+1216,387 88x24 div bg=#383838 r=5px
+1223,393 11x13 "W" 11px/450 #ffffffb2
+1240,393 86x13 "Fixed width (60)" 11px/450 #ffffff
+1216,387 88x24 label [Width] r=5px
+1239,387 48x24 input =60 [Width] r=2px
+0,2 14x13 "60" 11px/400 #ffffff
+1216,-617 144x24 option [Fixed width (60)] r=5px SELECTED
+1266,-611 86x13 "Fixed width (60)" 11px/400 #ffffff
+1216,-617 125x24 option [Fill container] r=5px SELECTED
+1266,-611 67x13 "Fill container" 11px/400 #ffffff
+1216,-617 58x24 option SELECTED
+1216,-617 143x24 option [Add min width…] r=5px SELECTED
+1266,-611 85x13 "Add min width…" 11px/400 #ffffff
+1216,-617 146x24 option [Add max width…] r=5px SELECTED
+1266,-611 88x13 "Add max width…" 11px/400 #ffffff
+1312,387 88x24 div bg=#383838 r=5px
+1320,393 8x13 "H" 11px/450 #ffffffb2
+1336,393 90x13 "Fixed height (40)" 11px/450 #ffffff
+1312,387 88x24 label [Height] r=5px
+1335,387 48x24 input =40 [Height] r=2px
+0,2 14x13 "40" 11px/400 #ffffff
+1312,-919 148x24 option [Fixed height (40)] r=5px SELECTED
+1362,-913 90x13 "Fixed height (40)" 11px/400 #ffffff
+1312,-919 125x24 option [Fill container] r=5px SELECTED
+1362,-913 67x13 "Fill container" 11px/400 #ffffff
+1312,-919 58x24 option SELECTED
+1312,-919 146x24 option [Add min height…] r=5px SELECTED
+1362,-913 88x13 "Add min height…" 11px/400 #ffffff
+1312,-919 150x24 option [Add max height…] r=5px SELECTED
+1362,-913 92x13 "Add max height…" 11px/400 #ffffff
+1408,387 24x24 input =unchecked [Lock aspect ratio]
+1420,400 91x13 "Lock aspect ratio" 11px/450 #ffffff
+1216,421 59x11 "Column span" 9px/500 #ffffffb2
+1216,437 88x24 div [Column span] bg=#383838 r=5px
+1240,437 64x24 input =1 [Column span] r=5px
+1312,421 44x11 "Row span" 9px/500 #ffffffb2
+1312,437 88x24 div [Row span] bg=#383838 r=5px
+1336,437 64x24 input =1 [Row span] r=5px
+1216,492 65x13 "Appearance" 11px/550 #ffffff
+1379,486 24x24 input =unchecked [Hide]
+1391,499 24x13 "Hide" 11px/450 #ffffff
+1408,486 24x24 button [Apply blend mode] r=5px
+1216,524 35x11 "Opacity" 9px/500 #ffffffb2
+1216,540 88x24 div bg=#2c2c2c r=5px
+1216,540 88x24 label bg=#383838 r=5px
+1241,540 62x24 input =100% r=2px
+1312,524 62x11 "Corner radius" 9px/500 #ffffffb2
+1312,540 88x24 div bg=#2c2c2c r=5px
+1312,540 88x24 label bg=#383838 r=5px
+1336,540 63x24 input =0 r=2px
+1408,540 24x24 button [Individual corners] r=5px
+1216,595 15x13 "Fill" 11px/550 #ffffff
+1380,589 24x24 button [Fill, Apply styles and variables] r=5px
+1408,589 24x24 button [Add fill] r=5px
+1216,625 156x24 div bg=#383838 r=5px
+1221,630 14x14 button [Solid color hex: 66CC80] bg=#66cc80 r=2px
+1239,638 28x13 "Color" 11px/450 #ffffff
+1240,625 77x24 input =66CC80 [Color] r=5px
+1318,625 38x24 input =100 r=0px 2px 2px 0px
+1356,631 9x13 "%" 11px/450 #ffffffb2
+1380,625 24x24 input =checked [Toggle visibility]
+1392,638 82x13 "Toggle visibility" 11px/450 #ffffff
+1408,625 24x24 button [Remove] r=5px
+1216,680 35x13 "Stroke" 11px/550 #ffffffb2
+1380,674 24x24 button [Stroke, Apply styles and variables] r=5px
+1408,674 24x24 button [Add stroke] r=5px
+1216,721 38x13 "Effects" 11px/550 #ffffffb2
+1380,715 24x24 button [Effects, Apply styles] r=5px
+1408,715 24x24 button [Add effect] r=5px
+1216,762 36x13 "Export" 11px/550 #ffffffb2
+1408,756 24x24 button [Add export settings] r=5px
+1193,0 8x900 slider [Resize handle]

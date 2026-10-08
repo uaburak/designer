@@ -1,0 +1,61 @@
+# Right panel after clicking a grid row track pill on canvas: the Design panel is replaced by a "Grid" track panel (Columns / Rows lists with sizing type + value dropdowns) [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@1200,81 240x776
+16,16 26x16 "Grid" 13px/550 #ffffff
+208,12 24x24 button [Close] r=5px
+16,62 47x13 "Columns" 11px/550 #ffffff
+208,56 24x24 button [Add column] r=5px
+16,97 16x16 button [Grid column 1 of 3, not selected]
+21,99 5x13 "1" 11px/550 #ffffff66
+-1,106 62x13 "Track sizing" 11px/400 #ffffff
+40,93 76x24 button bg=#2c2c2c r=5px
+49,98 15x13 "Fill" 11px/450 #ffffff
+-1,106 72x13 "Column width" 11px/400 #ffffff
+124,93 76x24 div bg=#383838 r=5px
+124,93 52x24 div bg=#383838 r=5px
+124,93 52x24 input =1fr r=5px 0px 0px 5px
+208,93 24x24 button [Remove column 1 of 3] r=5px
+16,129 16x16 button [Grid column 2 of 3, not selected]
+21,131 7x13 "2" 11px/550 #ffffff66
+-1,138 62x13 "Track sizing" 11px/400 #ffffff
+40,125 76x24 button bg=#2c2c2c r=5px
+49,130 15x13 "Fill" 11px/450 #ffffff
+-1,138 72x13 "Column width" 11px/400 #ffffff
+124,125 76x24 div bg=#383838 r=5px
+124,125 52x24 div bg=#383838 r=5px
+124,125 52x24 input =1fr r=5px 0px 0px 5px
+208,125 24x24 button [Remove column 2 of 3] r=5px
+16,161 16x16 button [Grid column 3 of 3, not selected]
+20,163 7x13 "3" 11px/550 #ffffff66
+-1,170 62x13 "Track sizing" 11px/400 #ffffff
+40,157 76x24 button bg=#2c2c2c r=5px
+49,162 15x13 "Fill" 11px/450 #ffffff
+-1,170 72x13 "Column width" 11px/400 #ffffff
+124,157 76x24 div bg=#383838 r=5px
+124,157 52x24 div bg=#383838 r=5px
+124,157 52x24 input =1fr r=5px 0px 0px 5px
+208,157 24x24 button [Remove column 3 of 3] r=5px
+16,212 29x13 "Rows" 11px/550 #ffffff
+208,206 24x24 button [Add row] r=5px
+16,247 16x16 button [Grid row 1 of 2, not selected]
+21,249 5x13 "1" 11px/550 #ffffff66
+-1,256 62x13 "Track sizing" 11px/400 #ffffff
+40,243 76x24 button bg=#2c2c2c r=5px
+49,248 15x13 "Fill" 11px/450 #ffffff
+-1,256 58x13 "Row height" 11px/400 #ffffff
+124,243 76x24 div bg=#383838 r=5px
+124,243 52x24 div bg=#383838 r=5px
+124,243 52x24 input =1fr r=5px 0px 0px 5px
+208,243 24x24 button [Remove row 1 of 2] r=5px
+0,271 240x32 row SELECTED bg=#394360
+16,279 16x16 button [Grid row 2 of 2, selected]
+21,281 7x13 "2" 11px/550 #ffffff
+-1,288 62x13 "Track sizing" 11px/400 #ffffff
+40,275 76x24 button bg=#2c2c2c r=5px
+49,280 15x13 "Fill" 11px/450 #ffffff
+-1,288 58x13 "Row height" 11px/400 #ffffff
+124,275 76x24 div bg=#383838 r=5px
+124,275 52x24 div bg=#383838 r=5px
+124,275 52x24 input =1fr r=5px 0px 0px 5px
+208,275 24x24 div bg=#394360
+208,275 24x24 button [Remove row 2 of 2] r=5px

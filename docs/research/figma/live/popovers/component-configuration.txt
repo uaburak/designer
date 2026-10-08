@@ -1,0 +1,31 @@
+# Main component Button: click "Component configuration" in the panel header [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@880,81 320x317
+0,0 320x317 div bg=#2c2c2c r=13px
+16,14 137x13 "Component configuration" 11px/550 #ffffff
+16,58 61x13 "Description" 11px/500 #ffffff
+16,80 288x155 div bg=#383838 r=5px
+23,90 145x13 "How to use this component" 11px/450 #ffffffb2
+17,193 286x41 div bg=#2c2c2c r=0px 0px 5px 5px
+21,202 24x24 input =unchecked [Bold   ⌘B]
+33,215 45x13 "Bold   ⌘B" 11px/450 #ffffff
+53,202 24x24 input =unchecked [Italic   ⌘I]
+64,215 42x13 "Italic   ⌘I" 11px/450 #ffffff
+85,202 24x24 input =unchecked [Strikethrough   ⌘⇧X]
+96,215 105x13 "Strikethrough   ⌘⇧X" 11px/450 #ffffff
+116,202 24x24 input =unchecked [Header 1]
+128,215 47x13 "Header 1" 11px/450 #ffffff
+148,202 24x24 input =unchecked [Bulleted list]
+160,215 62x13 "Bulleted list" 11px/450 #ffffff
+180,202 24x24 input =unchecked [Ordered list]
+191,215 62x13 "Ordered list" 11px/450 #ffffff
+212,202 24x24 input =unchecked [Link   ⌘⇧U]
+223,215 55x13 "Link   ⌘⇧U" 11px/450 #ffffff
+243,202 24x24 input =unchecked [Code   ⌘⇧C]
+255,215 62x13 "Code   ⌘⇧C" 11px/450 #ffffff
+275,202 24x24 input =unchecked [Code block   ⌘⇧⌥C]
+287,215 105x13 "Code block   ⌘⇧⌥C" 11px/450 #ffffff
+16,253 22x13 "Link" 11px/500 #ffffff
+16,276 288x24 input = [Link to documentation] bg=#383838 r=5px
+288,8 24x24 button [Close] r=5px

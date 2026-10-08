@@ -1,0 +1,68 @@
+# Right-click on the "Rect" row in the Layers panel [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@185,155 200x677
+16,14 27x13 "Copy" 11px/400 #ffffff
+162,13 13x15 "⌘" 12px/400 #ffffffb2
+175,13 9x15 "C" 12px/400 #ffffffb2
+16,38 84x13 "Paste to replace" 11px/400 #ffffff
+150,37 13x15 "⇧" 12px/400 #ffffffb2
+163,37 13x15 "⌘" 12px/400 #ffffffb2
+176,37 8x15 "R" 12px/400 #ffffffb2
+16,62 75x13 "Copy/Paste as" 11px/400 #ffffff
+16,86 106x13 "Send to Figma Make" 11px/400 #ffffff
+16,110 102x13 "Find similar designs" 11px/400 #ffffff
+16,134 60x13 "Add motion" 11px/400 #ffffff
+16,175 71x13 "Move to page" 11px/400 #ffffff
+16,199 69x13 "Bring to front" 11px/400 #ffffff
+180,198 4x15 "]" 12px/400 #ffffffb2
+16,223 69x13 "Send to back" 11px/400 #ffffff
+180,222 4x15 "[" 12px/400 #ffffffb2
+16,264 82x13 "Group selection" 11px/400 #ffffff
+162,263 13x15 "⌘" 12px/400 #ffffffb2
+175,263 9x15 "G" 12px/400 #ffffffb2
+16,288 83x13 "Frame selection" 11px/400 #ffffff
+149,287 13x15 "⌥" 12px/400 #ffffffb2
+162,287 13x15 "⌘" 12px/400 #ffffffb2
+175,287 9x15 "G" 12px/400 #ffffffb2
+16,312 42x13 "Rename" 11px/400 #ffffff
+163,311 13x15 "⌘" 12px/400 #ffffffb2
+176,311 8x15 "R" 12px/400 #ffffffb2
+16,336 76x13 "Rename layers" 11px/400 #ffffff
+164,333 20x18 a [AI, Learn more] r=5px
+169,336 10x13 "AI" 11px/400 #ffffffb2
+16,360 36x13 "Flatten" 11px/400 #ffffff
+150,359 13x15 "⌥" 12px/400 #ffffffb2
+164,359 13x15 "⇧" 12px/400 #ffffffb2
+177,359 7x15 "F" 12px/400 #ffffffb2
+16,384 72x13 "Outline stroke" 11px/400 #ffffff
+149,383 13x15 "⌥" 12px/400 #ffffffb2
+162,383 13x15 "⌘" 12px/400 #ffffffb2
+175,383 9x15 "O" 12px/400 #ffffffb2
+16,408 66x13 "Use as mask" 11px/400 #ffffff
+150,407 11x15 "⌃" 12px/400 #ffffffb2
+160,407 13x15 "⌘" 12px/400 #ffffffb2
+173,407 11x15 "M" 12px/400 #ffffffb2
+16,449 82x13 "Add auto layout" 11px/400 #ffffff
+163,448 13x15 "⇧" 12px/400 #ffffffb2
+176,448 8x15 "A" 12px/400 #ffffffb2
+16,473 97x13 "Create component" 11px/400 #ffffff
+150,472 13x15 "⌥" 12px/400 #ffffffb2
+163,472 13x15 "⌘" 12px/400 #ffffffb2
+176,472 8x15 "K" 12px/400 #ffffffb2
+16,497 37x13 "Plugins" 11px/400 #ffffff
+16,521 43x13 "Widgets" 11px/400 #ffffff
+16,562 57x13 "Show/Hide" 11px/400 #ffffff
+149,561 13x15 "⇧" 12px/400 #ffffffb2
+162,561 13x15 "⌘" 12px/400 #ffffffb2
+175,561 9x15 "H" 12px/400 #ffffffb2
+16,586 65x13 "Lock/Unlock" 11px/400 #ffffff
+151,585 13x15 "⇧" 12px/400 #ffffffb2
+164,585 13x15 "⌘" 12px/400 #ffffffb2
+177,585 7x15 "L" 12px/400 #ffffffb2
+16,627 73x13 "Flip horizontal" 11px/400 #ffffff
+162,626 13x15 "⇧" 12px/400 #ffffffb2
+175,626 9x15 "H" 12px/400 #ffffffb2
+16,651 60x13 "Flip vertical" 11px/400 #ffffff
+163,650 13x15 "⇧" 12px/400 #ffffffb2
+176,650 8x15 "V" 12px/400 #ffffffb2

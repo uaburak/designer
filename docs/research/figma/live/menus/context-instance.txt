@@ -1,0 +1,74 @@
+# Right-click on an instance (Button instance) on canvas [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@436,83 203x749
+16,14 27x13 "Copy" 11px/400 #ffffff
+165,13 13x15 "⌘" 12px/400 #ffffffb2
+178,13 9x15 "C" 12px/400 #ffffffb2
+16,38 56x13 "Paste here" 11px/400 #ffffff
+16,62 84x13 "Paste to replace" 11px/400 #ffffff
+153,61 13x15 "⇧" 12px/400 #ffffffb2
+166,61 13x15 "⌘" 12px/400 #ffffffb2
+179,61 8x15 "R" 12px/400 #ffffffb2
+16,86 75x13 "Copy/Paste as" 11px/400 #ffffff
+16,110 106x13 "Send to Figma Make" 11px/400 #ffffff
+16,134 102x13 "Find similar designs" 11px/400 #ffffff
+16,158 60x13 "Add motion" 11px/400 #ffffff
+16,199 61x13 "Select layer" 11px/400 #ffffff
+16,223 71x13 "Move to page" 11px/400 #ffffff
+16,247 69x13 "Bring to front" 11px/400 #ffffff
+182,246 4x15 "]" 12px/400 #ffffffb2
+16,271 69x13 "Send to back" 11px/400 #ffffff
+182,270 4x15 "[" 12px/400 #ffffffb2
+16,312 82x13 "Group selection" 11px/400 #ffffff
+165,311 13x15 "⌘" 12px/400 #ffffffb2
+178,311 9x15 "G" 12px/400 #ffffffb2
+16,336 83x13 "Frame selection" 11px/400 #ffffff
+152,335 13x15 "⌥" 12px/400 #ffffffb2
+165,335 13x15 "⌘" 12px/400 #ffffffb2
+178,335 9x15 "G" 12px/400 #ffffffb2
+16,360 36x13 "Flatten" 11px/400 #ffffff
+153,359 13x15 "⌥" 12px/400 #ffffffb2
+166,359 13x15 "⇧" 12px/400 #ffffffb2
+180,359 7x15 "F" 12px/400 #ffffffb2
+16,384 72x13 "Outline stroke" 11px/400 #ffffff
+151,383 13x15 "⌥" 12px/400 #ffffffb2
+165,383 13x15 "⌘" 12px/400 #ffffffb2
+178,383 9x15 "O" 12px/400 #ffffffb2
+16,408 66x13 "Use as mask" 11px/400 #ffffff
+153,407 11x15 "⌃" 12px/400 #ffffffb2
+163,407 13x15 "⌘" 12px/400 #ffffffb2
+176,407 11x15 "M" 12px/400 #ffffffb2
+16,449 82x13 "Add auto layout" 11px/400 #ffffff
+165,448 13x15 "⇧" 12px/400 #ffffffb2
+179,448 8x15 "A" 12px/400 #ffffffb2
+16,473 97x13 "Create component" 11px/400 #ffffff
+153,472 13x15 "⌥" 12px/400 #ffffffb2
+166,472 13x15 "⌘" 12px/400 #ffffffb2
+179,472 8x15 "K" 12px/400 #ffffffb2
+16,497 77x13 "Reset instance" 11px/400 #ffffff
+16,521 84x13 "Detach instance" 11px/400 #ffffff
+153,520 13x15 "⌥" 12px/400 #ffffffb2
+166,520 13x15 "⌘" 12px/400 #ffffffb2
+179,520 8x15 "B" 12px/400 #ffffffb2
+16,545 118x13 "Go to main component" 11px/400 #ffffff
+142,544 11x15 "⌃" 12px/400 #ffffffb2
+153,544 13x15 "⌥" 12px/400 #ffffffb2
+166,544 13x15 "⌘" 12px/400 #ffffffb2
+179,544 8x15 "K" 12px/400 #ffffffb2
+16,569 37x13 "Plugins" 11px/400 #ffffff
+16,593 43x13 "Widgets" 11px/400 #ffffff
+16,634 57x13 "Show/Hide" 11px/400 #ffffff
+152,633 13x15 "⇧" 12px/400 #ffffffb2
+165,633 13x15 "⌘" 12px/400 #ffffffb2
+178,633 9x15 "H" 12px/400 #ffffffb2
+16,658 65x13 "Lock/Unlock" 11px/400 #ffffff
+154,657 13x15 "⇧" 12px/400 #ffffffb2
+167,657 13x15 "⌘" 12px/400 #ffffffb2
+180,657 7x15 "L" 12px/400 #ffffffb2
+16,699 73x13 "Flip horizontal" 11px/400 #ffffff
+165,698 13x15 "⇧" 12px/400 #ffffffb2
+178,698 9x15 "H" 12px/400 #ffffffb2
+16,723 60x13 "Flip vertical" 11px/400 #ffffff
+165,722 13x15 "⇧" 12px/400 #ffffffb2
+179,722 8x15 "V" 12px/400 #ffffffb2

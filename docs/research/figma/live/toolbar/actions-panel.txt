@@ -1,0 +1,35 @@
+# Bottom toolbar: click "Actions" → Actions panel (search, All/Assets/Plugins & widgets tabs, recents, AI actions) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+@456,478 529x354
+44,8 431x32 input = [Search] bg=#383838
+491,12 24x24 button [Visual search (AI beta)] r=5px
+-1,3 193x16 "Results will update as you type." 13px/400 #ffffff
+-1,27 118x16 "11 results available." 13px/400 #ffffff
+8,48 30x24 tab SELECTED bg=#2c2c2c
+8,48 30x24 label bg=#383838 r=5px
+16,54 14x13 "All" 11px/550 #ffffff
+46,48 52x24 button bg=#2c2c2c
+46,48 52x24 label bg=#2c2c2c r=5px
+54,54 36x13 "Assets" 11px/450 #ffffffb2
+105,48 109x24 button bg=#2c2c2c
+105,48 109x24 label bg=#2c2c2c r=5px
+113,54 93x13 "Plugins & widgets" 11px/450 #ffffffb2
+16,86 43x13 "Recents" 11px/450 #ffffffb2
+44,112 84x16 "Translate to..." 13px/400 #ffffff
+493,112 20x16 a [AI, Learn more] r=5px
+498,114 10x13 "AI" 11px/400 #ffffffb2
+44,144 184x16 "Lorem Ipsum — by ‹div›RIOTS" 13px/400 #ffffff
+469,144 25x16 div bg=#444444 r=5px
+473,146 17x13 "tab" 11px/500 #ffffff66
+44,176 83x16 "Rewrite this..." 13px/400 #ffffff
+16,214 72x13 "Image editing" 11px/450 #ffffffb2
+44,240 93x16 "Make an image" 13px/400 #ffffff
+44,272 126x16 "Remove background" 13px/400 #ffffff
+44,304 100x16 "Boost resolution" 13px/400 #ffffff
+44,336 142x16 "Edit image with prompt" 13px/400 #ffffff
+16,374 65x13 "Design tools" 11px/450 #ffffffb2
+44,400 90x16 "Rename layers" 13px/400 #ffffff
+44,432 100x16 "Replace content" 13px/400 #ffffff
+44,464 101x16 "Add interactions" 13px/400 #ffffff
+16,502 96x13 "Riffing and writing" 11px/450 #ffffffb2
+44,528 49x16 "Shorten" 13px/400 #ffffff

@@ -1,0 +1,37 @@
+# Text selected: hover the font size field and click its chevron [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1312,455 96x437
+8,8 80x24 option [10 px] r=5px
+34,14 12x13 "10" 11px/400 #ffffff
+8,32 80x24 option [11 px] r=5px
+34,38 10x13 "11" 11px/400 #ffffff
+8,56 80x24 option [12 px] r=5px
+34,62 12x13 "12" 11px/400 #ffffff
+8,80 80x24 option [13 px] r=5px
+34,86 12x13 "13" 11px/400 #ffffff
+8,104 80x24 option [14 px] r=5px
+34,110 12x13 "14" 11px/400 #ffffff
+8,128 80x24 option [15 px] r=5px
+34,134 12x13 "15" 11px/400 #ffffff
+8,152 80x24 option [16 px] r=5px
+34,158 12x13 "16" 11px/400 #ffffff
+8,176 80x24 option [20 px] r=5px
+34,182 14x13 "20" 11px/400 #ffffff
+8,200 80x24 option [24 px] bg=#0c8ce9 r=5px SELECTED
+34,206 14x13 "24" 11px/400 #ffffff
+8,224 80x24 option [32 px] r=5px
+34,230 14x13 "32" 11px/400 #ffffff
+8,248 80x24 option [36 px] r=5px
+34,254 14x13 "36" 11px/400 #ffffff
+8,272 80x24 option [40 px] r=5px
+34,278 14x13 "40" 11px/400 #ffffff
+8,296 80x24 option [48 px] r=5px
+34,302 14x13 "48" 11px/400 #ffffff
+8,320 80x24 option [64 px] r=5px
+34,326 14x13 "64" 11px/400 #ffffff
+8,344 80x24 option [96 px] r=5px
+34,350 14x13 "96" 11px/400 #ffffff
+8,368 80x24 option [128 px] r=5px
+34,374 19x13 "128" 11px/400 #ffffff
+8,417 80x20 div bg=#1e1e1e

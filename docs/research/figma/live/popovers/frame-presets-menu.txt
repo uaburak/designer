@@ -1,0 +1,297 @@
+# AL_horizontal selected: click the "Frame ▾" dropdown at the top of the Design panel [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1208,125 222x1887
+-1,1 114x13 "Frame Layout Options" 11px/400 #ffffff
+8,0 206x24 span bg=#0c8ce9 r=5px
+32,6 40x13 "Section" 11px/450 #ffffff
+0,24 222x24 menuitemradio CHECKED
+32,30 33x13 "Frame" 11px/450 #ffffff
+32,54 32x13 "Group" 11px/450 #ffffff
+-1,88 75x13 "Phone Presets" 11px/400 #ffffff
+32,93 51x13 "iPhone 17" 11px/450 #ffffff
+156,93 21x13 "402" 11px/450 #ffffff
+177,93 9x13 "×" 11px/450 #ffffff
+186,93 20x13 "874" 11px/450 #ffffff
+32,117 97x13 "iPhone 16 & 17 Pro" 11px/450 #ffffff
+156,117 21x13 "402" 11px/450 #ffffff
+177,117 9x13 "×" 11px/450 #ffffff
+186,117 20x13 "874" 11px/450 #ffffff
+32,141 51x13 "iPhone 16" 11px/450 #ffffff
+155,141 21x13 "393" 11px/450 #ffffff
+176,141 9x13 "×" 11px/450 #ffffff
+186,141 20x13 "852" 11px/450 #ffffff
+32,165 122x13 "iPhone 16 & 17 Pro Max" 11px/450 #ffffff
+154,165 21x13 "440" 11px/450 #ffffff
+176,165 9x13 "×" 11px/450 #ffffff
+185,165 21x13 "956" 11px/450 #ffffff
+32,189 77x13 "iPhone 16 Plus" 11px/450 #ffffff
+154,189 21x13 "430" 11px/450 #ffffff
+176,189 9x13 "×" 11px/450 #ffffff
+185,189 21x13 "932" 11px/450 #ffffff
+32,213 54x13 "iPhone Air" 11px/450 #ffffff
+157,213 21x13 "420" 11px/450 #ffffff
+178,213 9x13 "×" 11px/450 #ffffff
+187,213 19x13 "912" 11px/450 #ffffff
+32,237 123x13 "iPhone 14 & 15 Pro Max" 11px/450 #ffffff
+154,237 21x13 "430" 11px/450 #ffffff
+176,237 9x13 "×" 11px/450 #ffffff
+185,237 21x13 "932" 11px/450 #ffffff
+32,261 98x13 "iPhone 14 & 15 Pro" 11px/450 #ffffff
+155,261 21x13 "393" 11px/450 #ffffff
+176,261 9x13 "×" 11px/450 #ffffff
+186,261 20x13 "852" 11px/450 #ffffff
+32,285 77x13 "iPhone 13 & 14" 11px/450 #ffffff
+154,285 21x13 "390" 11px/450 #ffffff
+175,285 9x13 "×" 11px/450 #ffffff
+185,285 21x13 "844" 11px/450 #ffffff
+8,303 206x24 span bg=#0c8ce9 r=5px
+32,309 77x13 "iPhone 14 Plus" 11px/450 #ffffff
+155,309 21x13 "428" 11px/450 #ffffff
+176,309 9x13 "×" 11px/450 #ffffff
+185,309 21x13 "926" 11px/450 #ffffff
+32,333 92x13 "Android Compact" 11px/450 #ffffff
+159,333 19x13 "412" 11px/450 #ffffff
+178,333 9x13 "×" 11px/450 #ffffff
+187,333 19x13 "917" 11px/450 #ffffff
+32,357 87x13 "Android Medium" 11px/450 #ffffff
+155,357 20x13 "700" 11px/450 #ffffff
+175,357 9x13 "×" 11px/450 #ffffff
+185,357 21x13 "840" 11px/450 #ffffff
+-1,391 74x13 "Tablet Presets" 11px/400 #ffffff
+32,396 67x13 "iPad mini 8.3" 11px/450 #ffffff
+152,396 20x13 "744" 11px/450 #ffffff
+172,396 9x13 "×" 11px/450 #ffffff
+181,396 25x13 "1133" 11px/450 #ffffff
+32,420 72x13 "Surface Pro 8" 11px/450 #ffffff
+149,420 27x13 "1440" 11px/450 #ffffff
+176,420 9x13 "×" 11px/450 #ffffff
+185,420 21x13 "960" 11px/450 #ffffff
+32,444 62x13 "iPad Pro 11"" 11px/450 #ffffff
+151,444 21x13 "834" 11px/450 #ffffff
+172,444 9x13 "×" 11px/450 #ffffff
+181,444 25x13 "1194" 11px/450 #ffffff
+32,468 73x13 "iPad Pro 12.9"" 11px/450 #ffffff
+144,468 26x13 "1024" 11px/450 #ffffff
+170,468 9x13 "×" 11px/450 #ffffff
+180,468 26x13 "1366" 11px/450 #ffffff
+32,492 97x13 "Android Expanded" 11px/450 #ffffff
+150,492 26x13 "1280" 11px/450 #ffffff
+176,492 9x13 "×" 11px/450 #ffffff
+185,492 21x13 "800" 11px/450 #ffffff
+-1,526 85x13 "Desktop Presets" 11px/400 #ffffff
+32,531 67x13 "MacBook Air" 11px/450 #ffffff
+150,531 26x13 "1280" 11px/450 #ffffff
+176,531 9x13 "×" 11px/450 #ffffff
+185,531 21x13 "832" 11px/450 #ffffff
+32,555 90x13 "MacBook Pro 14"" 11px/450 #ffffff
+152,555 24x13 "1512" 11px/450 #ffffff
+176,555 9x13 "×" 11px/450 #ffffff
+185,555 21x13 "982" 11px/450 #ffffff
+32,579 90x13 "MacBook Pro 16"" 11px/450 #ffffff
+149,579 25x13 "1728" 11px/450 #ffffff
+175,579 9x13 "×" 11px/450 #ffffff
+184,579 22x13 "1117" 11px/450 #ffffff
+32,603 44x13 "Desktop" 11px/450 #ffffff
+144,603 27x13 "1440" 11px/450 #ffffff
+171,603 9x13 "×" 11px/450 #ffffff
+180,603 26x13 "1024" 11px/450 #ffffff
+32,627 60x13 "Wireframes" 11px/450 #ffffff
+144,627 27x13 "1440" 11px/450 #ffffff
+171,627 9x13 "×" 11px/450 #ffffff
+180,627 26x13 "1024" 11px/450 #ffffff
+32,651 15x13 "TV" 11px/450 #ffffff
+150,651 26x13 "1280" 11px/450 #ffffff
+176,651 9x13 "×" 11px/450 #ffffff
+186,651 20x13 "720" 11px/450 #ffffff
+-1,685 108x13 "Presentation Presets" 11px/400 #ffffff
+32,690 51x13 "Slide 16:9" 11px/450 #ffffff
+144,690 26x13 "1920" 11px/450 #ffffff
+170,690 9x13 "×" 11px/450 #ffffff
+180,690 26x13 "1080" 11px/450 #ffffff
+32,714 46x13 "Slide 4:3" 11px/450 #ffffff
+150,714 26x13 "1024" 11px/450 #ffffff
+176,714 9x13 "×" 11px/450 #ffffff
+186,714 20x13 "768" 11px/450 #ffffff
+-1,748 75x13 "Watch Presets" 11px/400 #ffffff
+32,753 154x13 "Apple Watch Series 10 42mm" 11px/450 #ffffff
+157,753 19x13 "187" 11px/450 #ffffff
+176,753 9x13 "×" 11px/450 #ffffff
+185,753 21x13 "223" 11px/450 #ffffff
+32,777 155x13 "Apple Watch Series 10 46mm" 11px/450 #ffffff
+155,777 21x13 "208" 11px/450 #ffffff
+176,777 9x13 "×" 11px/450 #ffffff
+185,777 21x13 "248" 11px/450 #ffffff
+32,801 102x13 "Apple Watch 41mm" 11px/450 #ffffff
+159,801 18x13 "176" 11px/450 #ffffff
+178,801 9x13 "×" 11px/450 #ffffff
+187,801 19x13 "215" 11px/450 #ffffff
+32,825 103x13 "Apple Watch 45mm" 11px/450 #ffffff
+157,825 19x13 "198" 11px/450 #ffffff
+176,825 9x13 "×" 11px/450 #ffffff
+185,825 21x13 "242" 11px/450 #ffffff
+32,849 104x13 "Apple Watch 44mm" 11px/450 #ffffff
+157,849 19x13 "184" 11px/450 #ffffff
+176,849 9x13 "×" 11px/450 #ffffff
+185,849 21x13 "224" 11px/450 #ffffff
+32,873 103x13 "Apple Watch 40mm" 11px/450 #ffffff
+159,873 19x13 "162" 11px/450 #ffffff
+178,873 9x13 "×" 11px/450 #ffffff
+188,873 18x13 "197" 11px/450 #ffffff
+-1,907 73x13 "Paper Presets" 11px/400 #ffffff
+32,912 15x13 "A4" 11px/450 #ffffff
+155,912 21x13 "595" 11px/450 #ffffff
+176,912 9x13 "×" 11px/450 #ffffff
+185,912 21x13 "842" 11px/450 #ffffff
+32,936 14x13 "A5" 11px/450 #ffffff
+155,936 21x13 "420" 11px/450 #ffffff
+176,936 9x13 "×" 11px/450 #ffffff
+185,936 21x13 "595" 11px/450 #ffffff
+32,960 15x13 "A6" 11px/450 #ffffff
+156,960 20x13 "297" 11px/450 #ffffff
+176,960 9x13 "×" 11px/450 #ffffff
+185,960 21x13 "420" 11px/450 #ffffff
+32,984 32x13 "Letter" 11px/450 #ffffff
+158,984 19x13 "612" 11px/450 #ffffff
+177,984 9x13 "×" 11px/450 #ffffff
+186,984 20x13 "792" 11px/450 #ffffff
+32,1008 39x13 "Tabloid" 11px/450 #ffffff
+151,1008 20x13 "792" 11px/450 #ffffff
+171,1008 9x13 "×" 11px/450 #ffffff
+180,1008 26x13 "1224" 11px/450 #ffffff
+-1,1042 108x13 "Social Media Presets" 11px/400 #ffffff
+32,1047 64x13 "Twitter post" 11px/450 #ffffff
+150,1047 26x13 "1200" 11px/450 #ffffff
+177,1047 9x13 "×" 11px/450 #ffffff
+186,1047 20x13 "675" 11px/450 #ffffff
+32,1071 77x13 "Twitter header" 11px/450 #ffffff
+150,1071 26x13 "1500" 11px/450 #ffffff
+176,1071 9x13 "×" 11px/450 #ffffff
+185,1071 21x13 "500" 11px/450 #ffffff
+32,1095 78x13 "Facebook post" 11px/450 #ffffff
+149,1095 26x13 "1200" 11px/450 #ffffff
+175,1095 9x13 "×" 11px/450 #ffffff
+185,1095 21x13 "630" 11px/450 #ffffff
+32,1119 84x13 "Facebook cover" 11px/450 #ffffff
+157,1119 21x13 "820" 11px/450 #ffffff
+178,1119 9x13 "×" 11px/450 #ffffff
+187,1119 19x13 "312" 11px/450 #ffffff
+32,1143 79x13 "Instagram post" 11px/450 #ffffff
+144,1143 26x13 "1080" 11px/450 #ffffff
+170,1143 9x13 "×" 11px/450 #ffffff
+180,1143 26x13 "1350" 11px/450 #ffffff
+32,1167 83x13 "Instagram story" 11px/450 #ffffff
+144,1167 26x13 "1080" 11px/450 #ffffff
+171,1167 9x13 "×" 11px/450 #ffffff
+180,1167 26x13 "1920" 11px/450 #ffffff
+32,1191 71x13 "Dribbble shot" 11px/450 #ffffff
+154,1191 21x13 "400" 11px/450 #ffffff
+175,1191 9x13 "×" 11px/450 #ffffff
+185,1191 21x13 "300" 11px/450 #ffffff
+32,1215 90x13 "Dribbble shot HD" 11px/450 #ffffff
+155,1215 21x13 "800" 11px/450 #ffffff
+176,1215 9x13 "×" 11px/450 #ffffff
+185,1215 21x13 "600" 11px/450 #ffffff
+32,1239 77x13 "LinkedIn cover" 11px/450 #ffffff
+149,1239 26x13 "1584" 11px/450 #ffffff
+176,1239 9x13 "×" 11px/450 #ffffff
+185,1239 21x13 "396" 11px/450 #ffffff
+-1,1273 74x13 "Figma Presets" 11px/400 #ffffff
+32,1278 58x13 "Plugin icon" 11px/450 #ffffff
+159,1278 19x13 "128" 11px/450 #ffffff
+178,1278 9x13 "×" 11px/450 #ffffff
+187,1278 19x13 "128" 11px/450 #ffffff
+32,1302 74x13 "Profile banner" 11px/450 #ffffff
+150,1302 26x13 "1680" 11px/450 #ffffff
+176,1302 9x13 "×" 11px/450 #ffffff
+185,1302 21x13 "240" 11px/450 #ffffff
+32,1326 91x13 "Plugin / file cover" 11px/450 #ffffff
+144,1326 26x13 "1920" 11px/450 #ffffff
+170,1326 9x13 "×" 11px/450 #ffffff
+180,1326 26x13 "1080" 11px/450 #ffffff
+-1,1360 88x13 "Archived Presets" 11px/400 #ffffff
+32,1365 76x13 "iPhone 13 mini" 11px/450 #ffffff
+158,1365 20x13 "375" 11px/450 #ffffff
+178,1365 9x13 "×" 11px/450 #ffffff
+187,1365 19x13 "812" 11px/450 #ffffff
+32,1389 53x13 "iPhone SE" 11px/450 #ffffff
+155,1389 21x13 "320" 11px/450 #ffffff
+176,1389 9x13 "×" 11px/450 #ffffff
+185,1389 21x13 "568" 11px/450 #ffffff
+32,1413 98x13 "iPhone 13 Pro Max" 11px/450 #ffffff
+155,1413 21x13 "428" 11px/450 #ffffff
+176,1413 9x13 "×" 11px/450 #ffffff
+185,1413 21x13 "926" 11px/450 #ffffff
+32,1437 95x13 "iPhone 13 / 13 Pro" 11px/450 #ffffff
+154,1437 21x13 "390" 11px/450 #ffffff
+175,1437 9x13 "×" 11px/450 #ffffff
+185,1437 21x13 "844" 11px/450 #ffffff
+32,1461 96x13 "iPhone 11 Pro Max" 11px/450 #ffffff
+156,1461 19x13 "414" 11px/450 #ffffff
+176,1461 9x13 "×" 11px/450 #ffffff
+185,1461 21x13 "896" 11px/450 #ffffff
+32,1485 88x13 "iPhone 11 Pro / X" 11px/450 #ffffff
+158,1485 20x13 "375" 11px/450 #ffffff
+178,1485 9x13 "×" 11px/450 #ffffff
+187,1485 19x13 "812" 11px/450 #ffffff
+32,1509 71x13 "iPhone 8 Plus" 11px/450 #ffffff
+157,1509 19x13 "414" 11px/450 #ffffff
+176,1509 9x13 "×" 11px/450 #ffffff
+186,1509 20x13 "736" 11px/450 #ffffff
+32,1533 46x13 "iPhone 8" 11px/450 #ffffff
+156,1533 20x13 "375" 11px/450 #ffffff
+176,1533 9x13 "×" 11px/450 #ffffff
+186,1533 20x13 "667" 11px/450 #ffffff
+32,1557 73x13 "Android Small" 11px/450 #ffffff
+154,1557 21x13 "360" 11px/450 #ffffff
+175,1557 9x13 "×" 11px/450 #ffffff
+185,1557 21x13 "640" 11px/450 #ffffff
+32,1581 74x13 "Android Large" 11px/450 #ffffff
+154,1581 21x13 "360" 11px/450 #ffffff
+176,1581 9x13 "×" 11px/450 #ffffff
+185,1581 21x13 "800" 11px/450 #ffffff
+32,1605 75x13 "Google Pixel 2" 11px/450 #ffffff
+161,1605 18x13 "411" 11px/450 #ffffff
+178,1605 9x13 "×" 11px/450 #ffffff
+188,1605 19x13 "731" 11px/450 #ffffff
+32,1629 92x13 "Google Pixel 2 XL" 11px/450 #ffffff
+158,1629 18x13 "411" 11px/450 #ffffff
+176,1629 9x13 "×" 11px/450 #ffffff
+185,1629 21x13 "823" 11px/450 #ffffff
+32,1653 58x13 "iPad mini 5" 11px/450 #ffffff
+150,1653 20x13 "768" 11px/450 #ffffff
+171,1653 9x13 "×" 11px/450 #ffffff
+180,1653 26x13 "1024" 11px/450 #ffffff
+32,1677 72x13 "Surface Pro 4" 11px/450 #ffffff
+151,1677 26x13 "1368" 11px/450 #ffffff
+178,1677 9x13 "×" 11px/450 #ffffff
+187,1677 19x13 "912" 11px/450 #ffffff
+32,1701 49x13 "MacBook" 11px/450 #ffffff
+152,1701 24x13 "1152" 11px/450 #ffffff
+176,1701 9x13 "×" 11px/450 #ffffff
+186,1701 20x13 "700" 11px/450 #ffffff
+32,1725 70x13 "MacBook Pro" 11px/450 #ffffff
+149,1725 27x13 "1440" 11px/450 #ffffff
+176,1725 9x13 "×" 11px/450 #ffffff
+185,1725 21x13 "900" 11px/450 #ffffff
+32,1749 71x13 "Surface Book" 11px/450 #ffffff
+144,1749 26x13 "1500" 11px/450 #ffffff
+170,1749 9x13 "×" 11px/450 #ffffff
+180,1749 26x13 "1000" 11px/450 #ffffff
+32,1773 103x13 "Apple Watch 42mm" 11px/450 #ffffff
+159,1773 19x13 "156" 11px/450 #ffffff
+178,1773 9x13 "×" 11px/450 #ffffff
+187,1773 19x13 "195" 11px/450 #ffffff
+32,1797 103x13 "Apple Watch 38mm" 11px/450 #ffffff
+159,1797 19x13 "136" 11px/450 #ffffff
+178,1797 9x13 "×" 11px/450 #ffffff
+188,1797 18x13 "170" 11px/450 #ffffff
+32,1821 25x13 "iMac" 11px/450 #ffffff
+150,1821 26x13 "1280" 11px/450 #ffffff
+176,1821 9x13 "×" 11px/450 #ffffff
+186,1821 20x13 "720" 11px/450 #ffffff
+32,1845 83x13 "Macintosh 128k" 11px/450 #ffffff
+157,1845 19x13 "512" 11px/450 #ffffff
+176,1845 9x13 "×" 11px/450 #ffffff
+185,1845 21x13 "342" 11px/450 #ffffff
+0,739 222x24 div bg=#2c2c2c r=0px 0px 13px 13px
