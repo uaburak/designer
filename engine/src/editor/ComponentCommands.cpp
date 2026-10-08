@@ -361,9 +361,8 @@ std::vector<ComponentProperty> Editor::propertiesOf(Guid level, Guid symbol) con
     } else {
       for (const auto& a : assigns) {
         if (a.defID != d->id) continue;
-        VariableData var;
         if (!a.value.empty()) p.value = a.value;
-        else if (codec::assignmentVarValue(a.extra, var) && var.kind == VariableData::Kind::BOOL) p.value.hasBool = true, p.value.boolValue = var.boolValue;
+        else codec::assignmentVarProp(a.extra, p.value);  // Figma's files: the value in varValue only
       }
       p.overridden = usage.count(d->id) != 0;
       p.boundLayers = bound[d->id];

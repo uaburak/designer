@@ -2989,6 +2989,40 @@ bool assignmentVarValue(std::string_view extra, VariableData& out) {
   return false;
 }
 
+bool assignmentVarProp(std::string_view extra, ComponentPropValue& out) {
+  VariableData d;
+  if (!assignmentVarValue(extra, d)) return false;
+  if (d.kind == VariableData::Kind::BOOL) {
+    out.hasBool = true;
+    out.boolValue = d.boolValue;
+    return true;
+  }
+  if (d.valueExtra.empty()) return false;
+  // The members the engine keeps as bytes: symbolIdValue (8, SymbolId {1 guid}), textDataValue (10, TextData).
+  kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(d.valueExtra.data()), d.valueExtra.size());
+  uint32_t f = 0;
+  if (!bb.readVarUint(f)) return false;
+  if (f == 10) {
+    TextData t;
+    if (!readTextData(bb, t, nullptr)) return false;
+    out.hasText = true;
+    out.textValue = std::move(t);
+    return true;
+  }
+  if (f == 8) {
+    for (;;) {
+      uint32_t e = 0;
+      if (!bb.readVarUint(e) || !e) break;
+      if (e != 1) return false;
+      Guid g;
+      if (!getGuid(bb, g)) return false;
+      out.guidValue = noneToAbsent(g);
+    }
+    return out.guidValue != kNoGuid;
+  }
+  return false;
+}
+
 Guid assignmentSlotContent(std::string_view extra) {
   VariableData d;
   if (!assignmentVarValue(extra, d)) return kNoGuid;

@@ -366,11 +366,8 @@ void Editor::applyBindings(const NodeProps& source, NodeProps& p, Guid symbol, c
     if (!def) continue;  // a stale binding (its property was deleted)
     const ComponentPropAssignment* a = findAssign(assigns, def->id);
     ComponentPropValue fromVar;
-    if (a && a->value.empty()) {
-      // Figma's files may give the value in varValue only (`value` empty): a boolean there is the property's value.
-      VariableData d;
-      if (codec::assignmentVarValue(a->extra, d) && d.kind == VariableData::Kind::BOOL) fromVar.hasBool = true, fromVar.boolValue = d.boolValue;
-    }
+    // Figma's files may give the value in varValue only (`value` empty): a boolean, a text or a component there.
+    if (a && a->value.empty()) codec::assignmentVarProp(a->extra, fromVar);
     const ComponentPropValue& v = !fromVar.empty() ? fromVar : a && !a->value.empty() ? a->value : def->initialValue;
     switch (b.field) {
       case VariableField::VISIBLE:
@@ -431,6 +428,9 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       bool swapped = main != xn->props.comp().symbolData.symbolID;
       if (!swapped) ex.stack.add(xn->props.comp().symbolData.overrides, path, mn ? mn->props.keyOf(main) : kNoGuid);
       p = mn ? instanceRoot(xn->props, mn->props, main) : xn->props;
+      // Its size is its own, as it sits in its main (Figma's derivedSymbolData leaves out a nested instance whose size
+      // is that one); a swap takes the new main's.
+      if (!swapped) p.size = xn->props.size;
       ex.stack.apply(path, p);
       applyBindings(xn->props, p, symbol, assigns, nullptr, nullptr);
       p.type = NodeType::INSTANCE;
