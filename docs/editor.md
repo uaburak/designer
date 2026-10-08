@@ -6,6 +6,19 @@
 
 ---
 
+## Status (2026-10-08, round 7 — selection and the canvas as live Figma)
+
+Branch `r7-selection`. Truth: `docs/research/figma/live/` (menus/, behaviour/, img/); engine side: docs/engine-build.md "Round 7 — selection".
+
+- **Menus as live Figma's** (`menus.ts`): the main menu (Back to files │ Actions… │ File … Vector │ Preferences, Libraries │ Help and account); **Edit** — Undo, Redo │ Copy as ▸, Paste over selection ⇧⌘V, Paste to replace ⇧⌘R, Duplicate, Delete │ Find, Find next, Find previous, Find and replace… │ Set default properties, Copy / Paste properties │ Pick color │ Select all, Select matching layers ⌥⌘A, Select none ⎋, Select inverse, **Select all with ▸** (Same fill / stroke / effect / text properties / font / instance — labels unverified); **View** — Pixel grid ⇧', Layout guides ⇧G, Rulers, Show slices, Comments, Annotations, Outlines ▸ (Show outlines ⇧⌘O), Pixel preview ⇧⌘P, … │ Minimize UI ⇧⌘\, Show/Hide UI ⌘\, …, Panels ▸ │ zooms │ Previous / Next page, Zoom to previous / next frame ⇧N / N, Find previous / next frame; **Object** — Frame selection, Group, Ungroup ⌘⌫, Wrap in new section ⌘S, … Bring to front ], Bring forward ⌘], Send backward ⌘[, Send to back [, … Flatten ⌥⇧F, Outline stroke, Boolean groups ▸, … Remove fill ⌥/, Remove stroke ⇧/, Swap fill and stroke ⇧X; **Arrange** — Round to pixel │ the six aligns │ Tidy up ⌃⌥T │ Pack │ Distribute spacing │ Distribute edges. Items not built yet are listed disabled (Figma's menus list them). The native menu bar (`src/shared/commands.ts`) follows the same keys and order.
+- **The canvas menu** item for item as `menus/context-*.txt`: Copy, Paste here, Paste to replace, Copy/Paste as ▸, Send to Figma Make, Find similar designs, Add motion │ Select layer ▸ (locked layers too, with a padlock), **Move to page ▸** (the other pages; the layers keep their place), Bring to front, Send to back │ Convert to section (a top-level frame), Group, Frame, Wrap in new section (several canvas-level layers), Ungroup, Flatten, Outline stroke, Set as thumbnail, Use as mask │ Add / Remove auto layout, More layout options, the component items (an instance: Create component, Reset instance ▸, Detach instance, Go to main component; a main: Main component ▸), Plugins ▸, Widgets ▸ │ Show/Hide, Lock/Unlock │ Flip horizontal, Flip vertical. No Cut, no Delete, no status items (as live). Empty canvas: Paste here │ Show/Hide UI, Show/Hide comments │ Cursor chat, Actions…, Plugins, Widgets.
+- **Keys** (live `behaviour/keys.md`): opacity digits (`opacityKeys.ts`: "5" 50 %, "0" 100 %, two digits within ~475 ms combine — "0","5" 5 %); ] / [ front / back (⌥⌘] / ⌥⌘[ too), ⌘] / ⌘[ one step; N / ⇧N; ⇧⌘O outlines (toast); ⇧' pixel grid; ⇧G layout guides; Esc clears the selection and \ selects the parent (the engine's).
+- **Paste** (`clipboardIO.ts`): `pendingPaste` modes `over` (⇧⌘V: in place, above the selection) and `replace` (⇧⌘R), the engine's `PASTE_OVER` / `PASTE_REPLACE`.
+- **Frame and section titles**: a double-click emits `REQUEST_RENAME`; `canvas/TitleRename.tsx` edits the name in place over the title (Enter / blur commit, Esc cancels).
+- **Cursors**: the resize cursor is Figma's double arrow drawn at the handle's exact angle (`cursors.ts`), the system cursor behind it.
+- Checks: `__tests__/r7.selection.test.ts` (opacity digits, the live keys, paste modes, the menus' order and that every item is a command); the wasm tests' menu expectations follow the live menus.
+- Not done: Pixel preview (listed, disabled), Find, Copy / Paste properties, Pick color, Convert to section / frame, thumbnails, More layout options, Plugins / Widgets, Scale (K), Slice (S), Comment (C), the eyedropper (I), snap to pixel grid, ruler guides.
+
 ## Status (2026-10-08, round 6 — Dev Mode: annotations, measurements, statuses, Compare changes, focus view)
 
 Branch `r6-annotations-devmode`. Research: R9-dev-mode.md "Round 6"; engine: docs/engine-build.md "Round 6". Code: `editor/devmode/`.
@@ -562,7 +575,7 @@ export interface LibraryAccess {
 
 ## Keyboard
 
-`CanvasController` gets `shortcuts: []`; `keyboard.ts` is the only table. Order: field / menu / dialog → engine (`engine.key`, which handles Space, Esc, arrows, Enter, ⇧Enter, Tab, ⇧Tab) → `commands.ts`. ⌘C ⌘X ⌘V ⇧⌘V are not prevented, so the browser (and the app menu's Edit roles) fire DOM clipboard events; ⇧⌘V sets `pendingPaste = {mode: "inPlace"}` first.
+`CanvasController` gets `shortcuts: []`; `keyboard.ts` is the only table. Order: field / menu / dialog → engine (`engine.key`, which handles Space, Z held, Esc, \, arrows, Enter, ⇧Enter, Tab, ⇧Tab) → the opacity digits (0–9 with a selection) → `commands.ts`. ⌘C ⌘X ⌘V ⇧⌘V are not prevented, so the browser (and the app menu's Edit roles) fire DOM clipboard events; ⇧⌘V sets `pendingPaste = {mode: "over"}` first. ⇧⌘R (Paste to replace) reads the clipboard itself (`pasteFromMenu`).
 
 ## Measured layout (references `images/1–4.webp`, 1 CSS px = 1.3228 image px)
 
