@@ -55,8 +55,15 @@ class Layout {
 
   // The size `id` takes on its own (Hug computed, Fixed as is, clamped by
   // min/max); `width` / `height` > 0 fix that axis first (a Fill width decides
-  // a wrapping frame's height).
-  Vec2 natural(Guid id, double width = -1, double height = -1);
+  // a wrapping frame's height). `hug` (kHugWidth | kHugHeight): that axis hugs
+  // its content whatever its own sizing says (a Fill child measured by a parent
+  // that hugs that axis, fillHugAxes).
+  static constexpr int kHugWidth = 1, kHugHeight = 2;
+  Vec2 natural(Guid id, double width = -1, double height = -1, int hug = 0);
+  // Figma: a child that fills an axis its auto-layout parent hugs counts for its
+  // content on that axis (a table row hugging cells that fill its height is as
+  // tall as its tallest cell's content); kHugWidth / kHugHeight, 0 when none.
+  static int fillHugAxes(const NodeProps& parent, const NodeProps& child);
 
   // Where an auto-layout frame's children go, without writing anything:
   // their sizes and the positions of their layout boxes, in the frame's space.
@@ -84,13 +91,14 @@ class Layout {
   struct Grid;
   Grid grid(Guid frame, Vec2 size, bool hugW, bool hugH);
   Vec2 gridContentSize(Guid frame, Vec2 frameSize, bool hugW, bool hugH);
+  // An auto-layout frame's content size; `hug` as natural's (the axes it hugs, its own sizing or forced).
+  Vec2 contentSize(Guid frame, Vec2 frameSize, int hug);
   std::vector<Placement> gridPlace(Guid frame, Vec2 size);
 
   void arrange(Guid id, Vec2 size, bool sizeFromParent);
   void arrangeAutoLayout(Guid id, Vec2 size);
   void applyConstraints(Guid frame, bool flowChildrenToo);
   void fitGroup(Guid id);
-  Vec2 contentSize(Guid frame, Vec2 frameSize);
   // Where a child's first baseline is, from the top of its layout box (BASELINE alignment): a text's
   // first line, an auto-layout frame's first child's, else the box's bottom.
   double baselineOf(Guid id, Vec2 size, int depth = 0);
@@ -100,11 +108,12 @@ class Layout {
   struct MemoKey {
     Guid id;
     double w, h;
-    bool operator==(const MemoKey& o) const { return id == o.id && w == o.w && h == o.h; }
+    int hug;
+    bool operator==(const MemoKey& o) const { return id == o.id && w == o.w && h == o.h && hug == o.hug; }
   };
   struct MemoHash {
     size_t operator()(const MemoKey& k) const noexcept {
-      return GuidHash()(k.id) ^ (std::hash<double>()(k.w) * 31) ^ (std::hash<double>()(k.h) * 131);
+      return GuidHash()(k.id) ^ (std::hash<double>()(k.w) * 31) ^ (std::hash<double>()(k.h) * 131) ^ (static_cast<size_t>(k.hug) * 7919);
     }
   };
   std::unordered_map<MemoKey, Vec2, MemoHash> memo_;
