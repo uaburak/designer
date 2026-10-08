@@ -150,7 +150,7 @@
   .stopPosition { flex: none; width: 48px; }
   .stopColor { flex: none; width: 128px; }
   /* Live: the stop's swatch is 16 × 16 (5 in), the hex right after it, the opacity 48 */
-  .stopColor [data-ds="ColorInput"] > button:first-child { width: 16px; height: 16px; margin: 0 0 0 5px; border-radius: 20%; }
+  .stopColor [data-ds="ColorInput"] > button:first-child { width: 16px; height: 16px; margin: 0 4px 0 5px; border-radius: 20%; }
   .stopColor [data-ds="ColorInput"] > span:last-child { width: 48px; }
 
   /* Image / video */

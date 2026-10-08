@@ -42,6 +42,8 @@
   /* Context menus (canvas, layers, pages): live 11px / 400, at least 200 wide */
   .context { min-width: 200px; }
   .context .item { font-weight: 400; }
+  /* A list over its field (live: font size, gap, W / H sizing): 11px / 400 options */
+  .overList .item { font-weight: 400; }
   .item[aria-disabled="true"] { color: var(--ds-color-menu-text-disabled); }
   /* Live capture: a check column of 16 after the item's 8 — the label at 32 (16 without checks) */
   .check { display: flex; flex: none; width: 16px; margin-right: calc(var(--ds-space-2) * -1); }

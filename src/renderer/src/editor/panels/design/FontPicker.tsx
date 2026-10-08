@@ -14,7 +14,8 @@ import { FONT_FILTERS, filterFamilies, hasStyle, type FontFilter } from "../../f
 import { useFontPreview } from "../../fontPreview";
 import styles from "./FontPicker.module.css";
 
-const ROW = 32;
+/** Live (popovers/font-picker.txt): rows 28 high, the name 12 in. */
+const ROW = 28;
 /** How long a hover rests on a family before the canvas previews it (a sweep across the list previews nothing). */
 const PREVIEW_DELAY_MS = 120;
 
@@ -107,7 +108,10 @@ export interface FontPickerProps {
 }
 
 export function FontPicker({ anchor, family, style, list, fileFamilies, onPreview, onPick, onClose }: FontPickerProps) {
-  const [query, setQuery] = useState("");
+  // Live: the search opens with the current family in it (selected; typing replaces it) and every font listed.
+  const [typed, setTyped] = useState<string | null>(null);
+  const query = typed ?? "";
+  const setQuery = (q: string) => setTyped(q);
   const [filter, setFilterState] = useState<FontFilter>(sessionFilter);
   const setFilter = (f: FontFilter) => {
     sessionFilter = f;
@@ -177,13 +181,13 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
   };
 
   return (
-    <Popover anchor={anchor} label="Fonts" width={240} onClose={onClose}>
+    <Popover anchor={anchor} title="Fonts" draggable={false} width={240} onClose={onClose}>
       <div className={styles.picker} data-font-picker="" onKeyDown={onKey} onMouseLeave={() => preview(null, 0)}>
         <div className={styles.search}>
-          <SearchField value={query} onChange={setQuery} placeholder="Search fonts" label="Search fonts" autoFocus onExit={(r) => r === "escape" && onClose()} />
+          <SearchField value={typed ?? family ?? ""} onChange={setQuery} placeholder="Search fonts" label="Search fonts" autoFocus selectOnFocus onExit={(r) => r === "escape" && onClose()} />
         </div>
         <div className={styles.filter}>
-          <Select label="Font filter" variant="ghost" width="hug" value={filter} options={FONT_FILTERS.map((f) => ({ value: f.value, label: f.label }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
+          <Select label="Font filter" variant="ghost" value={filter} options={FONT_FILTERS.map((f) => ({ value: f.value, label: f.label }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
         </div>
         <div className={styles.list} role="listbox" aria-label="Fonts">
           {list === null ? (
@@ -251,7 +255,6 @@ function FontRow({ family, current, active, stylesOpen, onHover, onPick, onStyle
       onMouseDown={(e) => e.preventDefault()}
       onClick={onPick}
     >
-      <span className={styles.check}>{current && <Icon name="16.check" />}</span>
       {face === undefined ? (
         <span className={styles.skeleton} aria-label={family.family} />
       ) : (

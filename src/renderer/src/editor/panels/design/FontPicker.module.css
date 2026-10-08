@@ -1,5 +1,6 @@
 @layer app {
-  /* ---- The Font family field: a dropdown field whose value is the family (Figma UI3's Typography) ---- */
+  /* ---- The Font family field: a dropdown field whose value is the family (Figma UI3's Typography; live design/text.txt:
+     no fill at rest — the panel's #2c2c2c —, the family 8 in; a line on hover) ---- */
   .field {
     position: relative;
     display: flex;
@@ -8,9 +9,9 @@
     min-width: 0;
     height: var(--ds-size-control);
     padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
-    border: 1px solid transparent;
+    border: 0;
     border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-secondary);
+    background: transparent;
     color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
@@ -18,10 +19,10 @@
     outline: none;
     cursor: default;
   }
-  .field:hover { border-color: var(--figma-color-border); }
-  .field:focus-visible, .field[aria-expanded="true"] { border-color: var(--figma-color-border-selected); }
+  .field:hover { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
+  .field:focus-visible, .field[aria-expanded="true"] { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   .field:disabled { opacity: 0.4; }
-  .field:disabled:hover { border-color: transparent; }
+  .field:disabled:hover { box-shadow: none; }
   .fieldValue { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .fieldMixed { color: var(--figma-color-text-secondary); }
   .fieldChevron { display: flex; flex: none; color: var(--figma-color-icon-secondary); }
@@ -29,10 +30,13 @@
   .missingIcon { display: flex; flex: none; margin-right: var(--ds-space-1); color: var(--figma-color-icon-warning); }
 
   /* ---- The picker: search, the filter, the families in their own faces ---- */
-  .picker { display: flex; flex-direction: column; height: 440px; }
-  .search { padding: 0 var(--ds-space-2) var(--ds-space-2); }
-  .filter { display: flex; padding: 0 var(--ds-space-2) var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
-  .list { flex: 1 1 auto; min-height: 0; padding: var(--ds-space-1) 0; }
+  /* Live (popovers/font-picker.txt, 240 × 469): "Fonts" 40, the search at 8,40, the font set row 73–113 (its select 224
+     wide at 8,81), the families from 113, 28 each, the name 12 in, the current one on #383838 */
+  .picker { display: flex; flex-direction: column; height: 429px; }
+  .search { flex: none; padding: 0 var(--ds-space-2); }
+  .filter { display: flex; flex: none; align-items: center; height: 40px; margin-top: 9px; padding: 0 var(--ds-space-2); border-bottom: 1px solid var(--figma-color-border); }
+  .filter > * { flex: 1 1 auto; }
+  .list { flex: 1 1 auto; min-height: 0; }
   .empty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .row {
     display: flex;
@@ -40,18 +44,18 @@
     gap: var(--ds-space-1);
     width: 100%;
     height: 100%;
-    padding: 0 var(--ds-space-1) 0 var(--ds-space-2);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-3);
     border: 0;
     background: transparent;
     color: var(--figma-color-text);
-    font: var(--ds-font-body-large);
+    font: var(--ds-font-body-medium);
     text-align: left;
     outline: none;
     cursor: default;
   }
   .row[data-active] { background: var(--figma-color-bg-hover); }
-  .check { display: flex; flex: none; width: 16px; color: var(--figma-color-icon); }
-  .name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; line-height: 20px; }
+  .row[aria-selected="true"] { background: var(--figma-color-bg-secondary); }
+  .name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 16px; }
   /* A face still loading: a bar where its name will be */
   .skeleton {
     flex: 0 1 auto;

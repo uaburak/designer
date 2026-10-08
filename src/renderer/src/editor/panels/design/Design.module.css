@@ -170,6 +170,46 @@
   .sizeField .sizeMenu { width: 9px; overflow: visible; }
   .sizeMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
   .sizeMenu:hover, .sizeMenu[data-open] { color: var(--figma-color-icon); }
+  /* A field whose list opens from a chevron shown on hover (live: the gap) */
+  .hoverMenuField { position: relative; }
+  .hoverMenu {
+    position: absolute;
+    top: 0;
+    right: var(--ds-size-control);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-space-4);
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    opacity: 0;
+    outline: none;
+  }
+  .hoverMenuField:hover .hoverMenu, .hoverMenu:focus-visible, .hoverMenu[data-open] { opacity: 1; }
+  .hoverMenu:hover, .hoverMenu[data-open] { color: var(--figma-color-icon); }
+  /* Font size (live design/text.txt): one 88 field, the number across it; the list's chevron shows on hover */
+  .fontSizeField { position: relative; }
+  .fontSizeMenu {
+    position: absolute;
+    top: 0;
+    right: var(--ds-size-control);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-space-4);
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    opacity: 0;
+    outline: none;
+  }
+  .fontSizeField:hover .fontSizeMenu, .fontSizeMenu:focus-visible, .fontSizeMenu[data-open] { opacity: 1; }
+  .fontSizeMenu:hover, .fontSizeMenu[data-open] { color: var(--figma-color-icon); }
 
   /* Constraints: the widget (56 × 56), then the two dropdowns stacked in the rest of the row */
   .constraintSelects { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-2); min-width: 0; }
@@ -202,7 +242,24 @@
   /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */
   .settingsHeading { padding-top: var(--ds-space-2); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); white-space: nowrap; }
   /* One height for every tab (the popover is placed once, when it opens) */
-  .typeSettingsBody { height: min(420px, calc(100vh - 140px)); overflow-y: auto; overscroll-behavior: contain; }
+  /* Live: 506 in all — the header 40, the preview 144, the tab's rows (from 188) in the rest */
+  .typeSettingsBody { height: min(322px, calc(100vh - 284px)); overflow-y: auto; overscroll-behavior: contain; }
+  .typeSettingsBody > .settings { padding-top: var(--ds-space-1); }
+  .typePreview { flex: none; height: 144px; padding: var(--ds-space-4) var(--ds-space-4) 0; box-sizing: border-box; }
+  .typePreviewBox { display: flex; align-items: center; height: 120px; padding: 0 var(--ds-space-4); overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text-tertiary); font-size: 16px; line-height: 20px; white-space: nowrap; }
+  /* Type settings' segments are 24 × 24 each (live), text glyphs too */
+  /* Two of these (the grid's label / control parity kept): 5 + 8 + 0 + 8 = 21 more */
+  /* Auto layout settings (live): a 120 preview across, rows from 173 — labels 16, dropdowns 112 wide at 112 */
+  .alPreview { display: flex; flex: none; align-items: center; justify-content: center; height: 120px; background: var(--figma-color-bg-secondary); color: var(--figma-color-text-tertiary); font-size: 16px; font-weight: 500; line-height: 20px; }
+  .alSettings { grid-template-columns: 96px 112px; column-gap: 0; justify-content: space-between; padding-top: 13px; padding-bottom: 20px; }
+  .alSettings > :nth-child(even) { justify-self: stretch; }
+  .alEnd { justify-content: flex-end; }
+  .settingsLabelDisabled { color: var(--figma-color-text-tertiary); }
+  .alLayoutLabel { display: flex; align-items: center; justify-content: space-between; overflow: visible; }
+  .alInfo { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 4px; padding: 0; border: 0; background: transparent; color: var(--figma-color-icon-secondary); overflow: hidden; }
+  .settingsGroupGap { grid-column: 1 / -1; height: 5px; }
+  .settingsGroupGap + .settingsGroupGap { height: 0; }
+  .typeSeg > button { width: var(--ds-size-control); min-width: var(--ds-size-control); padding: 0; }
   .axisRow { display: flex; gap: var(--ds-space-2); align-items: center; min-width: 0; }
   .axisRow > :last-child { flex: 0 0 64px; }
   .axisSlider { flex: 1 1 auto; min-width: 0; accent-color: var(--figma-color-bg-brand); }

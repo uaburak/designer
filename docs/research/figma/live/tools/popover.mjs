@@ -40,7 +40,7 @@ export const CASES = {
   "autolayout-advanced-settings": [al, ["click", "Auto layout settings"]],
   "width-sizing-menu": [al, ["click", "Horizontal resizing sizing"]],
   "height-sizing-menu": [al, ["click", "Vertical resizing sizing"]],
-  "gap-menu": [al, ["click", "Gap sizing"]],
+  "gap-menu": [al, ["hover", "Horizontal gap between objects"], ["click", "Gap sizing"]],
   "autolayout-child-width-menu": [["select", ["7:51"]], ["click", "Width sizing"]],
   "frame-presets-menu": [al, ["click", "Frame, Frame Dimension Presets"]],
   "stroke-advanced-settings": [...stroke, ["click", "Advanced stroke settings"]],

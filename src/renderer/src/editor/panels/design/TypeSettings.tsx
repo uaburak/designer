@@ -13,6 +13,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { fonts } from "@/engine/fonts";
 import { Checkbox, IconButton, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, type ChangeInfo } from "@/ds";
+import type { CSSProperties } from "react";
+import { styleWeight } from "../../fontList";
 import { useEditor } from "../../controller";
 import { AXIS_LABELS, featureName, withAxis, type TextSummary } from "../../model/text";
 import { exitToCanvas } from "./Sections";
@@ -55,12 +57,39 @@ export function TypeSettings({ nodes, summary, anchor, onClose }: { nodes: Panel
       onClose={onClose}
       header={<Tabs label="Type settings" value={shown} tabs={tabs} onChange={(v) => setTab(v as Tab)} />}
     >
+      <TypePreview nodes={nodes} summary={summary} />
       <div className={styles.typeSettingsBody}>
         {shown === "basics" && <Basics nodes={nodes} summary={summary} info={info} />}
         {shown === "details" && <Details nodes={nodes} summary={summary} info={info} />}
         {shown === "variable" && <Variable nodes={nodes} summary={summary} axes={axes} />}
       </div>
     </Popover>
+  );
+}
+
+/**
+ * Live (popovers/type-settings*.txt): every tab opens on a 208 × 120 preview — "Preview" at 16px in the text's font,
+ * with its case and decoration (what Figma draws in it beyond the word is not captured).
+ */
+function TypePreview({ nodes, summary }: { nodes: PanelNode[]; summary: TextSummary | null }) {
+  const family = valueOf<string>(summary, "fontFamily", nodes[0]?.fontName?.family ?? "Inter");
+  const style = valueOf<string>(summary, "fontStyle", nodes[0]?.fontName?.style ?? "Regular");
+  const decoration = valueOf<string>(summary, "textDecoration", "NONE");
+  const textCase = valueOf<string>(summary, "textCase", "ORIGINAL");
+  const css: CSSProperties = {
+    fontFamily: family === MIXED ? undefined : `"${family}", var(--ds-font-family)`,
+    fontWeight: style === MIXED ? undefined : styleWeight(style),
+    fontStyle: style !== MIXED && /italic|oblique/i.test(style) ? "italic" : undefined,
+    textDecoration: decoration === "UNDERLINE" ? "underline" : decoration === "STRIKETHROUGH" ? "line-through" : undefined,
+    textTransform: textCase === "UPPER" ? "uppercase" : textCase === "LOWER" ? "lowercase" : textCase === "TITLE" ? "capitalize" : undefined,
+    fontVariantCaps: textCase === "SMALL_CAPS" ? "small-caps" : undefined,
+  };
+  return (
+    <div className={styles.typePreview} aria-hidden="true" data-type-preview="">
+      <div className={styles.typePreviewBox}>
+        <span style={css}>Preview</span>
+      </div>
+    </div>
   );
 }
 
@@ -123,6 +152,7 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
     <div className={`${styles.settings} ${styles.settingsEnd}`}>
       <span className={styles.settingsLabel}>Alignment</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Alignment"
         value={field(align, "")}
         options={[
@@ -136,10 +166,11 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       <span className={styles.settingsLabel}>Decoration</span>
       <div className={styles.settingsInline}>
         <SegmentedControl
+          className={styles.typeSeg}
           label="Decoration"
           value={field(decoration, "")}
           options={[
-            { value: "NONE", label: "—", tooltip: "None" },
+            { value: "NONE", icon: "24.minus.small", tooltip: "None" },
             { value: "UNDERLINE", icon: "24.text.underline", tooltip: "Underline" },
             { value: "STRIKETHROUGH", icon: "24.text.strikethrough", tooltip: "Strikethrough" },
           ]}
@@ -187,10 +218,11 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       )}
       <span className={styles.settingsLabel}>Case</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Case"
         value={field(textCase, "")}
         options={[
-          { value: "ORIGINAL", label: "—", tooltip: "As typed" },
+          { value: "ORIGINAL", icon: "24.minus.small", tooltip: "As typed" },
           { value: "UPPER", label: "AG", tooltip: "Uppercase" },
           { value: "LOWER", label: "ag", tooltip: "Lowercase" },
           { value: "TITLE", label: "Ag", tooltip: "Title case" },
@@ -198,8 +230,12 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
         ]}
         onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
       />
+      {/* Live: 21 more after Case (the trim / list / spacing group starts at 305, not 284) */}
+      <span className={styles.settingsGroupGap} />
+      <span className={styles.settingsGroupGap} />
       <span className={styles.settingsLabel}>Vertical trim</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Vertical trim"
         value={field(trim, "")}
         options={[
@@ -210,10 +246,11 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       />
       <span className={styles.settingsLabel}>List style</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="List style"
         value={lineType === MIXED ? "" : lineType === "ORDERED_LIST" ? "ORDERED" : lineType === "UNORDERED_LIST" ? "UNORDERED" : "NONE"}
         options={[
-          { value: "NONE", label: "—", tooltip: "No list" },
+          { value: "NONE", icon: "24.minus.small", tooltip: "No list" },
           { value: "UNORDERED", icon: "24.list-view", tooltip: "Bulleted list" },
           { value: "ORDERED", icon: "24.text.list-numbered", tooltip: "Numbered list" },
         ]}
@@ -229,6 +266,7 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
       )}
       <span className={styles.settingsLabel}>Truncate text</span>
       <SegmentedControl
+        className={styles.typeSeg}
         label="Truncate text"
         value={truncate === MIXED ? "" : truncate ? "ENDING" : "DISABLED"}
         options={[

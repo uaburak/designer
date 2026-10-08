@@ -429,6 +429,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const tab0 = paintTab(value.type);
   const showContrast = !!contrastBackground && value.type === "SOLID";
   const pickerBox = useRef<HTMLDivElement>(null);
+  // A stop's swatch opens a Solid picker for that stop beside this one (unverified: the live capture has no stop picker).
+  const [stopPicker, setStopPicker] = useState<number | null>(null);
 
   // ── the paint type tabs (live: six 24 × 24 radios 4 apart, the current one on #383838) ──
   const typeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -636,7 +638,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 swatchLabel={`Solid color hex: ${hexDigits(rgbToHex(s.color)).toUpperCase()}`}
                 color={rgbToHex(s.color)}
                 opacity={pct(s.color.a)}
-                onSwatchClick={() => selectStop(s.i)}
+                onSwatchClick={() => {
+                  selectStop(s.i);
+                  setStopPicker(stopPicker === s.i ? null : s.i);
+                }}
                 onColor={(hex, info, o) => { const c = hexToRgba(hex); if (c) setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...c, a: o !== undefined ? o / 100 : x.color.a } } : x)) as NonNullable<P["stops"]>, info); }}
                 onOpacity={(o, info) => setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...x.color, a: o / 100 } } : x)) as NonNullable<P["stops"]>, info)}
               />
@@ -753,6 +758,23 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
               </span>
             </div>
             {gradientBody}
+            {gradient && stopPicker !== null && value.stops?.[stopPicker] && (
+              <ColorPicker
+                value={{ type: "SOLID", color: { ...value.stops[stopPicker].color, a: 1 }, opacity: value.stops[stopPicker].color.a }}
+                paintTypes={["SOLID"]}
+                documentColors={documentColors}
+                anchor={pickerBox.current?.closest<HTMLElement>('[data-ds="Popover"]') ?? null}
+                placement="left"
+                colorModel={model}
+                onColorModelChange={(m) => { setOwnModel(m); onColorModelChange?.(m); }}
+                onChange={(next, info) => {
+                  const c = next.color ?? value.stops![stopPicker].color;
+                  setStops((value.stops ?? []).map((x, k) => (k === stopPicker ? { ...x, color: { r: c.r, g: c.g, b: c.b, a: next.opacity ?? 1 } } : x)) as NonNullable<P["stops"]>, info);
+                }}
+                onCancel={onCancel}
+                onClose={() => setStopPicker(null)}
+              />
+            )}
             {mediaBody}
             {patternBody}
             {value.type === "SOLID" && (

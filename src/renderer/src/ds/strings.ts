@@ -2,7 +2,8 @@
 export const STRINGS = {
   mixed: "Mixed",
   search: "Search",
-  clear: "Clear",
+  /** Live capture (popovers/font-picker.txt): a search field's × */
+  clear: "Clear search",
   close: "Close",
   noResults: "No results",
   untitled: "Untitled",
