@@ -84,7 +84,17 @@ void setFloatField(NodeProps& p, VariableField f, double v) {
       break;
     case VariableField::PARAGRAPH_SPACING: p.text().paragraphSpacing = nonNegative(v); break;
     case VariableField::PARAGRAPH_INDENT: p.text().paragraphIndent = nonNegative(v); break;
-    default: break;  // GRID_ROW_GAP / GRID_COLUMN_GAP / FONT_VARIATIONS: kept as data (not modelled yet)
+    case VariableField::GRID_ROW_GAP:
+    case VariableField::GRID_COLUMN_GAP: {
+      // A grid's gaps are kept as the node's kiwi bytes (layout/GridLayout.cpp): gridRowGap 437, gridColumnGap 438.
+      kiwi::ByteBuffer bb;
+      bb.writeVarUint(f == VariableField::GRID_ROW_GAP ? 437 : 438);
+      bb.writeVarFloat(static_cast<float>(nonNegative(v)));
+      p.extra[f == VariableField::GRID_ROW_GAP ? "gridRowGap" : "gridColumnGap"] =
+          std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+      break;
+    }
+    default: break;  // FONT_VARIATIONS: kept as data (not modelled yet)
   }
 }
 
@@ -409,6 +419,7 @@ FieldMask Editor::boundFieldMask(const NodeProps& p) {
       case VariableField::BORDER_TOP_WEIGHT: case VariableField::BORDER_RIGHT_WEIGHT: case VariableField::BORDER_BOTTOM_WEIGHT:
       case VariableField::BORDER_LEFT_WEIGHT: m |= F_BORDER_WEIGHTS; break;
       case VariableField::STACK_SPACING: m |= F_STACK_SPACING; break;
+      case VariableField::GRID_ROW_GAP: case VariableField::GRID_COLUMN_GAP: m |= F_EXTRA; break;
       case VariableField::STACK_COUNTER_SPACING: m |= F_STACK_COUNTER_SPACING; break;
       case VariableField::STACK_PADDING_LEFT: m |= F_STACK_PADDING_LEFT; break;
       case VariableField::STACK_PADDING_TOP: m |= F_STACK_PADDING_TOP; break;
@@ -814,6 +825,9 @@ void Editor::detachEdited(const NodeProps& before, NodeChange& c) const {
         case VariableField::BORDER_BOTTOM_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.stroke().borderWeights[2] != before.stroke().borderWeights[2];
         case VariableField::BORDER_LEFT_WEIGHT: return (m & F_BORDER_WEIGHTS) && now.stroke().borderWeights[3] != before.stroke().borderWeights[3];
         case VariableField::STACK_SPACING: return (m & F_STACK_SPACING) != 0;
+        case VariableField::GRID_ROW_GAP: return (m & F_EXTRA) && now.extra.count("gridRowGap") && (!before.extra.count("gridRowGap") || now.extra.at("gridRowGap") != before.extra.at("gridRowGap"));
+        case VariableField::GRID_COLUMN_GAP:
+          return (m & F_EXTRA) && now.extra.count("gridColumnGap") && (!before.extra.count("gridColumnGap") || now.extra.at("gridColumnGap") != before.extra.at("gridColumnGap"));
         case VariableField::STACK_COUNTER_SPACING: return (m & F_STACK_COUNTER_SPACING) != 0;
         case VariableField::STACK_PADDING_LEFT: return (m & F_STACK_PADDING_LEFT) != 0;
         case VariableField::STACK_PADDING_TOP: return (m & F_STACK_PADDING_TOP) != 0;

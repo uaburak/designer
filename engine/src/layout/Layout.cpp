@@ -9,8 +9,6 @@ namespace eng {
 namespace {
 
 constexpr double kEps = 1e-4;
-constexpr bool kNoForce = false;
-constexpr bool kGrowToo = false;
 
 double axis(Vec2 v, int a) { return a == 0 ? v.x : v.y; }
 void setAxis(Vec2& v, int a, double value) { (a == 0 ? v.x : v.y) = value; }
@@ -100,7 +98,7 @@ std::vector<Guid> Layout::flowChildren(Guid frame) const {
 int Layout::fillHugAxes(const NodeProps& parent, const NodeProps& child) {
   if (!parent.isAutoLayout() || !child.inFlow()) return 0;
   const int P = parent.stack().stackMode == StackMode::VERTICAL ? 1 : 0;  // a grid's primary axis is its width
-  int out = 0; if (kNoForce) return 0;
+  int out = 0;
   if (child.stackChildAlignSelf == StackCounterAlign::STRETCH && parent.hugsCounter()) out |= P == 0 ? kHugHeight : kHugWidth;
   return out;
 }
@@ -177,10 +175,9 @@ Vec2 Layout::contentSize(Guid frame, Vec2 frameSize, int hug) {
   if (p.stack().stackMode == StackMode::GRID) return gridContentSize(frame, frameSize, (hug & kHugWidth) != 0, (hug & kHugHeight) != 0);
   int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1, C = 1 - P;
   const int bitP = P == 0 ? kHugWidth : kHugHeight, bitC = P == 0 ? kHugHeight : kHugWidth;
-  // A child that fills an axis this frame hugs is measured by its content on that axis (fillHugAxes).
+  // A child that stretches across the counter axis this frame hugs counts for its content there (fillHugAxes).
   auto measure = [&](Guid c, const NodeProps& cp) {
-    int f = 0; if (kNoForce) return natural(c);
-    if (kGrowToo && cp.stackChildPrimaryGrow > 0 && (hug & bitP)) f |= bitP;
+    int f = 0;
     if (cp.stackChildAlignSelf == StackCounterAlign::STRETCH && (hug & bitC)) f |= bitC;
     return natural(c, -1, -1, f);
   };
@@ -507,7 +504,7 @@ void Layout::arrangeAutoLayout(Guid id, Vec2 size) {
     const Node* cn = doc_.get(pl.id);
     if (!cn || host_.placedByGesture(pl.id)) continue;
     const NodeProps& cp = cn->props;
-    // The parent decides its size: Fill, or a Fill measured by its content where the parent hugs (fillHugAxes).
+    // The parent decides its size: Fill, or Stretch measured by its content where the parent hugs (fillHugAxes).
     bool decided = cp.stackChildPrimaryGrow > 0 || cp.stackChildAlignSelf == StackCounterAlign::STRETCH;
     // The child's own layout first (its children, its group fitting)…
     if (cp.isAutoLayout() || cp.fitsChildren() || cp.isFrameLike()) arrange(pl.id, pl.size, decided || !cp.isAutoLayout());

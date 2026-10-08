@@ -60,9 +60,11 @@ class Layout {
   // that hugs that axis, fillHugAxes).
   static constexpr int kHugWidth = 1, kHugHeight = 2;
   Vec2 natural(Guid id, double width = -1, double height = -1, int hug = 0);
-  // Figma: a child that fills an axis its auto-layout parent hugs counts for its
-  // content on that axis (a table row hugging cells that fill its height is as
-  // tall as its tallest cell's content); kHugWidth / kHugHeight, 0 when none.
+  // Figma: a child that fills the counter axis (STRETCH) of a horizontal /
+  // vertical parent hugging that axis counts for its content there (a table row
+  // hugging cells that fill its height is as tall as its tallest cell's
+  // content). A Fill on the primary axis of a parent hugging it counts for its
+  // own size. kHugWidth / kHugHeight, 0 when none.
   static int fillHugAxes(const NodeProps& parent, const NodeProps& child);
 
   // Where an auto-layout frame's children go, without writing anything:

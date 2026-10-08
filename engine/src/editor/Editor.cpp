@@ -305,6 +305,11 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
   if (m & (F_SIZE | F_TRANSFORM | F_VISIBLE | kStackChildFields)) markParent(p.parentIndex.guid);
   if (p.isAutoLayout() && (m & (kStackContainerFields | F_SIZE | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN))) layoutDirty_.insert(c.guid);
   if (m & (F_STACK_MODE | F_RESIZE_TO_FIT)) layoutDirty_.insert(c.guid);
+  if (m & F_EXTRA) {
+    // Grid fields are kept as unmodelled bytes (GridLayout.cpp): a grid's tracks and gaps, an item's place and span.
+    if (p.stack().stackMode == StackMode::GRID && p.isAutoLayout()) layoutDirty_.insert(c.guid);
+    if (const Node* parent = doc_.get(p.parentIndex.guid); parent && parent->props.stack().stackMode == StackMode::GRID) markParent(p.parentIndex.guid);
+  }
   if (p.isFrameLike() && (m & F_SIZE)) layoutDirty_.insert(c.guid);  // its children's constraints
   if (m & (F_MIN_SIZE | F_MAX_SIZE)) layoutDirty_.insert(c.guid);   // its own size may break a new limit
   if (p.type == NodeType::TEXT && p.text().textAutoResize != TextAutoResize::NONE && (m & (kTextLayoutFields | F_SIZE | F_TYPE)))
