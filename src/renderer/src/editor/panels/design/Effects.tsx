@@ -25,7 +25,7 @@
  * margin or offset, gutter; the colour. Stored as `layoutGrids`.
  */
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, cx, type ChangeInfo, type IconName } from "@/ds";
+import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, cx, type ChangeInfo, type IconName, type PopoverPlacement } from "@/ds";
 import type { BlendMode, Color, Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
@@ -467,6 +467,9 @@ function LightDial({ angle, onChange }: { angle: number; onChange: (a: number, i
   );
 }
 
+/** Figma's shader fill presets ("By Figma", live popovers/fill-picker-custom.txt), in the browser's order. */
+export const SHADER_FILL_PRESETS = ["Moving gradient", "Mesh gradient", "Nebula", "Water caustic", "Fractal noise", "Clouds", "Moire", "Glowing wave", "Concentric patterns", "Pattern grid"];
+
 /** Figma's shader presets ("By Figma"), in the browser's order. */
 export const SHADER_PRESETS = [
   "Shape-based particles", "Pattern refraction", "Halftone", "Chromatic metal", "Lens distortion", "Dither", "Gradient map", "Warp", "Pixelate", "Bokeh blur",
@@ -479,18 +482,35 @@ export const SHADER_PRESETS = [
  * "Created by you" (Create new, AI) and Figma's presets. Shaders aren't drawn by this engine: the presets and the
  * agent are shown, not applied.
  */
-export function ShaderEffects({ anchor, onboarding, onGotIt, onClose }: { anchor: HTMLElement; onboarding: boolean; onGotIt: () => void; onClose: () => void }) {
+export function ShaderEffects({
+  anchor,
+  onboarding,
+  onGotIt,
+  onClose,
+  title = "Shader effects",
+  list = SHADER_PRESETS,
+  placement,
+}: {
+  anchor: HTMLElement;
+  onboarding: boolean;
+  onGotIt?: () => void;
+  onClose: () => void;
+  /** "Shader fills" for the fill picker's Shader tab (live popovers/fill-picker-custom.txt) */
+  title?: string;
+  list?: readonly string[];
+  placement?: PopoverPlacement;
+}) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
-  const presets = SHADER_PRESETS.filter((p) => !q || p.toLowerCase().includes(q));
+  const presets = list.filter((p) => !q || p.toLowerCase().includes(q));
   const header = (
     <div className={styles.shaderTitle}>
-      <span className={styles.shaderName}>Shader effects</span>
+      <span className={styles.shaderName}>{title}</span>
       <span className={styles.shaderBeta}>Beta</span>
     </div>
   );
   return (
-    <Popover anchor={anchor} header={header} headerActions={<IconButton icon="24.shader.small" label="Create with agents" disabled />} width={240} onClose={onClose} label="Shader effects">
+    <Popover anchor={anchor} placement={placement} header={header} headerActions={<IconButton icon="24.shader.small" label="Create with agents" disabled />} width={240} onClose={onClose} label={title}>
       <div className={styles.shaderBody} data-shader-effects="">
         <div className={styles.shaderSearch}>
           <SearchField label="Search" value={query} onChange={setQuery} />

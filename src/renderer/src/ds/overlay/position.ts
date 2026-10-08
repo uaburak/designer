@@ -46,7 +46,8 @@ export function placeMenu(x: number, y: number, box: Size, view: Size, flipX?: n
 export function placeOverTrigger(trigger: Rect, itemTop: number | null, itemHeight: number, box: Size, view: Size): { x: number; y: number } {
   const h = trigger.bottom - trigger.top;
   const yWanted = itemTop === null ? trigger.bottom + 4 : trigger.top - itemTop + (h - itemHeight) / 2;
-  const xWanted = trigger.left - (itemTop === null ? 0 : 8 + 12);
+  // Live capture (constraint / stroke position / colour format lists): the item's box over the field's — the list 8 to the left.
+  const xWanted = trigger.left - (itemTop === null ? 0 : 8);
   return {
     x: Math.round(Math.max(EDGE, Math.min(xWanted, view.width - EDGE - box.width))),
     y: Math.round(Math.max(EDGE, Math.min(yWanted, view.height - EDGE - box.height))),

@@ -215,11 +215,15 @@ export const appColor = {
   "rail-separator": ["#e6e6e6", "#404040"], // G / M
   "menu-bg": ["#1e1e1e", "#1e1e1e"], // K / F — menus, tooltips, toasts: dark in both themes
   "menu-text": ["#ffffff", "#ffffff"], // K
-  "menu-text-secondary": ["#ffffff73", "#ffffff73"], // K (.45)
-  "menu-text-disabled": ["#ffffff59", "#ffffff59"], // K (.35)
-  "menu-highlight": ["#0d99ff", "#0d99ff"], // K
+  "menu-text-secondary": ["#ffffffb2", "#ffffffb2"], // live capture (menus/*.txt: shortcuts .7)
+  "menu-text-disabled": ["#ffffff66", "#ffffff66"], // live capture (.4)
+  "menu-highlight": ["#0c8ce9", "#0c8ce9"], // live capture (menus/*.txt, popovers/*-menu.txt)
   "menu-text-on-highlight-secondary": ["#ffffffcc", "#ffffffcc"], // K
   "menu-separator": ["#383838", "#383838"], // F
+  /** Live capture (popovers/fill-picker-image / -pattern / -video): an empty preview, the shade over a preview */
+  "picker-preview-empty": ["#bababa99", "#bababa99"],
+  "picker-preview-shade": ["#00000080", "#00000080"],
+  "picker-stop-shadow": ["#00000026", "#00000026"],
   "scrim": ["#00000066", "#00000066"], // K
   "border-translucent": ["#0000001a", "#ffffff1a"], // K / F
   "border-translucent-strong": ["#00000033", "#ffffff33"], // F
@@ -288,7 +292,7 @@ export const size = {
   ruler: 20,
   popover: 240, // K
   "menu-item": 24, // K
-  "menu-min": 208, // K
+  "menu-min": 0, // live capture: menus are as wide as their items (context menus 200: ContextMenu minWidth)
   "menu-max": 320, // K
   "menu-pad": 8, // K
   "dialog-small": 320, // G
@@ -338,7 +342,8 @@ export const text = {
   /** Live capture: layer and page names, Find's results and counts, a field's prefix letter (X, Y, W, H) are 11px / 400 */
   "body-medium-regular": { size: 11, line: 16, weight: 400, tracking: "0.055px" },
   "body-ruler": { size: 10, line: 12, weight: 450, tracking: "0.05px" },
-  menu: { size: 12, line: 16, weight: 450, tracking: "0px" },
+  /** Live capture: every menu and dropdown list is 11px / 450 (menus/*.txt, popovers/*-menu.txt) */
+  menu: { size: 11, line: 16, weight: 450, tracking: "0.055px" },
   "body-large": { size: 13, line: 22, weight: 450, tracking: "-0.0325px" },
   "body-large-strong": { size: 13, line: 22, weight: 550, tracking: "-0.0325px" },
   "heading-medium": { size: 15, line: 25, weight: 550, tracking: "-0.13px" },

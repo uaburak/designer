@@ -1,5 +1,9 @@
 @layer ds {
-  .list { display: flex; align-items: center; gap: 0; }
+  /* Live capture (the picker's Custom / Libraries, Type settings' Basics / Details / Variable): tabs 4 apart */
+  .list { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .labelBox { display: inline-grid; }
+  .labelBox > * { grid-area: 1 / 1; }
+  .labelBold { visibility: hidden; font-weight: 550; }
   .tab {
     display: inline-flex;
     align-items: center;

@@ -98,9 +98,10 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         <Select
           label="Stroke align"
           value={align ?? "INSIDE"}
+          // Live order (popovers/stroke-position-menu.txt): Center, Inside, Outside.
           options={[
-            { value: "INSIDE", label: "Inside" },
             { value: "CENTER", label: "Center" },
+            { value: "INSIDE", label: "Inside" },
             { value: "OUTSIDE", label: "Outside" },
           ]}
           onChange={(v) => ed.setProps(refs, { strokeAlign: v as StrokeAlign }, "Stroke position")}

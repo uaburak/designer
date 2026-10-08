@@ -6,8 +6,12 @@ import { mixRgba, rgbaToCss, type RGBA } from "./color";
  * blendMode, imageScaleMode), so the editor maps it 1:1. Fields it does not
  * know (transform, image hash, variable bindings…) pass through untouched.
  */
-export type PaintType = "SOLID" | "GRADIENT_LINEAR" | "GRADIENT_RADIAL" | "GRADIENT_ANGULAR" | "GRADIENT_DIAMOND" | "IMAGE" | "VIDEO";
-export type GradientType = Exclude<PaintType, "SOLID" | "IMAGE" | "VIDEO">;
+export type PaintType = "SOLID" | "GRADIENT_LINEAR" | "GRADIENT_RADIAL" | "GRADIENT_ANGULAR" | "GRADIENT_DIAMOND" | "PATTERN" | "IMAGE" | "VIDEO";
+export type GradientType = Exclude<PaintType, "SOLID" | "PATTERN" | "IMAGE" | "VIDEO">;
+/** PATTERN: how the tiles sit (schema PatternTileType) */
+export type PatternTileType = "RECTANGULAR" | "HORIZONTAL_HEXAGONAL" | "VERTICAL_HEXAGONAL";
+/** PATTERN: the anchor point on one axis (schema PatternAlignment) */
+export type PatternAlignment = "START" | "CENTER" | "END";
 export type BlendMode =
   | "NORMAL" | "DARKEN" | "MULTIPLY" | "LINEAR_BURN" | "COLOR_BURN" | "LIGHTEN" | "SCREEN" | "LINEAR_DODGE" | "COLOR_DODGE"
   | "OVERLAY" | "SOFT_LIGHT" | "HARD_LIGHT" | "DIFFERENCE" | "EXCLUSION" | "HUE" | "SATURATION" | "COLOR" | "LUMINOSITY";
@@ -26,6 +30,12 @@ export interface PickerPaint {
   blendMode?: BlendMode;
   /** IMAGE */
   imageScaleMode?: ImageScaleMode;
+  /** PATTERN (Figma's Paint fields): "Tile type", "Scale" (1 = 100 %), "Spacing" (a share of the tile), "Alignment" */
+  patternTileType?: PatternTileType;
+  scale?: number;
+  patternSpacing?: { x: number; y: number };
+  horizontalAlignment?: PatternAlignment;
+  verticalAlignment?: PatternAlignment;
 }
 
 export const PAINT_TYPES: { value: PaintType; label: string; icon: string }[] = [
@@ -34,18 +44,21 @@ export const PAINT_TYPES: { value: PaintType; label: string; icon: string }[] = 
   { value: "GRADIENT_RADIAL", label: "Radial", icon: "24.gradient.radial.small" },
   { value: "GRADIENT_ANGULAR", label: "Angular", icon: "24.gradient.angular.small" },
   { value: "GRADIENT_DIAMOND", label: "Diamond", icon: "24.gradient.diamond.small" },
+  { value: "PATTERN", label: "Pattern", icon: "24.fill.pattern.small" },
   { value: "IMAGE", label: "Image", icon: "24.fill.image.small" },
   { value: "VIDEO", label: "Video", icon: "24.video" },
 ];
 
 /**
- * The picker's paint tabs (Figma's live picker: Solid, Gradient, Pattern, Image, Video, Shader — Pattern and Shader
- * have no paint in the schema yet): one "Gradient" for the four gradient types, picked from its "Paint type" dropdown.
+ * The picker's paint tabs (Figma's live picker, popovers/fill-picker-*.txt: Solid, Gradient, Pattern, Image, Video, then
+ * Shader — a browser of shader fills, not a paint here): one "Gradient" for the four gradient types, picked from its
+ * "Paint type" dropdown.
  */
-export type PaintTab = "SOLID" | "GRADIENT" | "IMAGE" | "VIDEO";
+export type PaintTab = "SOLID" | "GRADIENT" | "PATTERN" | "IMAGE" | "VIDEO";
 export const PAINT_TABS: { value: PaintTab; label: string; icon: string }[] = [
   { value: "SOLID", label: "Solid", icon: "24.fill.solid.small" },
   { value: "GRADIENT", label: "Gradient", icon: "24.gradient.linear.small" },
+  { value: "PATTERN", label: "Pattern", icon: "24.fill.pattern.small" },
   { value: "IMAGE", label: "Image", icon: "24.fill.image.small" },
   { value: "VIDEO", label: "Video", icon: "24.video" },
 ];
@@ -127,6 +140,8 @@ export function convertPaint<P extends PickerPaint>(paint: P, type: PaintType): 
     const first = sortStops(paint.stops ?? [])[0]?.color ?? paint.color ?? BLACK;
     return { ...paint, type, color: { r: first.r, g: first.g, b: first.b, a: 1 }, opacity: isGradient(paint.type) ? first.a : paint.opacity ?? 1 };
   }
+  if (type === "PATTERN")
+    return { ...paint, type, scale: 1, patternSpacing: { x: 0, y: 0 }, patternTileType: "RECTANGULAR", horizontalAlignment: "START", verticalAlignment: "START" };
   return { ...paint, type, imageScaleMode: paint.imageScaleMode ?? "FILL" };
 }
 
@@ -145,7 +160,7 @@ export const flipStops = (stops: ColorStop[]) => stops.map((s) => ({ ...s, posit
 /** CSS for a paint's preview (swatches, the stop bar): a colour, or a left-to-right gradient of its stops. */
 export function paintCss(paint: PickerPaint, direction: "preview" | "bar" = "preview"): string {
   if (!isGradient(paint.type)) {
-    if (paint.type === "IMAGE" || paint.type === "VIDEO") return "transparent";
+    if (paint.type === "IMAGE" || paint.type === "VIDEO" || paint.type === "PATTERN") return "transparent";
     return rgbaToCss(targetColor(paint, 0));
   }
   const list = sortStops(paint.stops ?? []).map((s) => `${rgbaToCss(s.color)} ${Math.round(s.position * 1000) / 10}%`).join(", ");

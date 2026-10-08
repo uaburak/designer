@@ -7,10 +7,14 @@ import { useFocusScope } from "../overlay/FocusTrap";
 import { EDGE, place } from "../overlay/position";
 import { size } from "../tokens";
 import { STRINGS } from "../strings";
+
+/** Live capture: popovers keep 16 from the window's bottom (they all end at 884 of 900). */
+const BOTTOM = 16;
 import { IconButton } from "./Button";
 import styles from "./Popover.module.css";
 
-export type PopoverPlacement = "left-of-panel" | "bottom-start" | "bottom" | "top" | "right";
+/** `left`: flush against the anchor's left side, level with its top (live: the Shader fills browser beside the picker) */
+export type PopoverPlacement = "left-of-panel" | "left" | "bottom-start" | "bottom" | "top" | "right";
 
 export interface PopoverProps {
   anchor: DOMRect | HTMLElement | null;
@@ -51,11 +55,17 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
     let x: number;
     let y: number;
     if (placement === "left-of-panel") {
-      // The right panel's left edge: the anchor's panel (closest [data-panel]) or the anchor itself.
-      const panelEl = anchor instanceof HTMLElement ? anchor.closest<HTMLElement>("[data-panel]") : null;
-      const left = panelEl ? panelEl.getBoundingClientRect().left : r.left;
-      x = Math.max(EDGE, left - el.offsetWidth - 8);
-      y = Math.max(EDGE, Math.min(r.top, view.height - EDGE - el.offsetHeight));
+      // Live capture (popovers/*.txt, 1440 wide): flush with the panel's content (x 960 = 1200 − 240), level with the
+      // anchor row, at most 16 from the window's bottom (every tall popover ends at 884).
+      // (A rect anchor — a fill row's swatch — finds its panel by the point.)
+      const at = anchor instanceof HTMLElement ? anchor : document.elementFromPoint?.(r.left + 1, r.top + 1);
+      const panelEl = at instanceof HTMLElement ? at.closest<HTMLElement>("[data-panel]") : null;
+      const left = panelEl ? panelEl.getBoundingClientRect().left + panelEl.clientLeft : r.left - 8;
+      x = Math.max(EDGE, left - el.offsetWidth);
+      y = Math.max(EDGE, Math.min(r.top, view.height - BOTTOM - el.offsetHeight));
+    } else if (placement === "left") {
+      x = Math.max(EDGE, r.left - el.offsetWidth);
+      y = Math.max(EDGE, Math.min(r.top, view.height - BOTTOM - el.offsetHeight));
     } else {
       const side = placement === "bottom-start" ? "bottom" : placement;
       const p = place(r, { width: el.offsetWidth, height: el.offsetHeight }, view, side, placement === "bottom-start" ? "start" : "center", 8);
@@ -66,6 +76,20 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
     el.style.top = `${y}px`;
     el.style.visibility = "visible";
   }, [anchor, placement, isStatic]);
+  // Live Figma: content that grows (another paint type, a tab) moves the popover up to stay on screen; shrinking
+  // content leaves it where it is.
+  useLayoutEffect(() => {
+    const el = panel.current;
+    if (isStatic || !el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (dragged.current || el.style.visibility !== "visible") return;
+      const top = el.offsetTop;
+      const over = top + el.offsetHeight - (window.innerHeight - BOTTOM);
+      if (over > 0) el.style.top = `${Math.max(EDGE, top - over)}px`;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isStatic]);
 
   const canDrag = (draggable ?? Boolean(title || header)) && !isStatic;
   const box = (

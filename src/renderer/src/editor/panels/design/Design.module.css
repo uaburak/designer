@@ -255,23 +255,15 @@
   .pair > * { flex: 1 1 0; min-width: 0; }
 
   /* The image paint's extras in the picker: Rotate 90°, then the adjustment sliders */
-  .imageControls { display: flex; flex-direction: column; gap: var(--ds-space-1); }
-  .imageRotate { display: flex; justify-content: flex-end; }
-  /* A video fill's preview: the video, then play / pause, the scrubber and the time */
-  .videoPreview { display: flex; flex-direction: column; gap: var(--ds-space-1); }
-  .videoPreviewMedia {
-    display: block;
-    width: 100%;
-    max-height: var(--ds-size-panel);
-    border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-tertiary);
-    object-fit: contain;
-  }
-  .videoPreviewBar { display: flex; align-items: center; gap: var(--ds-space-1); }
-  .videoPreviewTime { flex: none; color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
-  .adjustment { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-control); }
+  /* Image adjustments (live popovers/fill-picker-image.txt): from 349 every 32 — the name at 16, a slider 104 → 224 with
+     its 16 thumb (0 in the middle, at 164, where a 4 dot marks it) */
+  .imageControls { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: var(--ds-space-3) var(--ds-space-4) var(--ds-space-3); }
+  .adjustment { position: relative; display: grid; grid-template-columns: 88px 120px; align-items: center; height: var(--ds-size-control); }
+  .adjustment::after { content: ""; position: absolute; left: 146px; top: 10px; width: 4px; height: 4px; border-radius: var(--ds-radius-full); background: var(--figma-color-icon); pointer-events: none; }
   .adjustmentLabel { color: var(--figma-color-text-secondary); }
   .slider {
+    position: relative;
+    z-index: 1;
     width: 100%;
     height: var(--ds-space-4);
     margin: 0;
@@ -285,12 +277,12 @@
     background: var(--figma-color-bg-tertiary);
   }
   .slider::-webkit-slider-thumb {
-    width: var(--ds-space-3);
-    height: var(--ds-space-3);
-    margin-top: calc((var(--ds-space-1) - var(--ds-space-3)) / 2);
-    border: 2px solid var(--figma-color-bg);
+    width: var(--ds-space-4);
+    height: var(--ds-space-4);
+    margin-top: calc((var(--ds-space-1) - var(--ds-space-4)) / 2);
+    border: 0;
     border-radius: var(--ds-radius-full);
-    background: var(--figma-color-icon);
+    background: var(--ds-color-picker-thumb);
     box-shadow: var(--ds-elevation-100);
     appearance: none;
   }

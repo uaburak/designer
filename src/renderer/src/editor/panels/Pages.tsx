@@ -157,7 +157,7 @@ export function Pages() {
           onChange={(px, info) => ed.ui.set({ pagesHeight: info.final && px === Math.min(natural, Math.round(window.innerHeight * DEFAULT_CAP)) ? null : px })}
         />
       )}
-      {menu && <ContextMenu at={menu.at} entries={menuEntries} label="Page" onSelect={(id) => onMenu(id, menu.page)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu.at} entries={menuEntries} label="Page" context onSelect={(id) => onMenu(id, menu.page)} onClose={() => setMenu(null)} />}
     </PanelSection>
   );
 }

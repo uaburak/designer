@@ -39,9 +39,13 @@ interface PanelProps {
   onBack?: () => void;
   onClose: () => void;
   label?: string;
+  /** A context menu (canvas, layers, pages): live Figma's 11px / 400 items, at least 200 wide */
+  context?: boolean;
+  /** A dropdown under its trigger (MenuButton): a long one stays there and scrolls (live Figma) rather than moving up */
+  keepTop?: boolean;
 }
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const subId = useId();
   const list = tidy(entries);
@@ -58,13 +62,17 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     if (!el) return;
     if (!isStatic) {
       const { width, height } = el.getBoundingClientRect();
-      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height }, { width: window.innerWidth, height: window.innerHeight }, flipX);
+      const room = window.innerHeight - 8 - y;
+      // Live Figma: a dropdown longer than the room below its trigger stays under it (and scrolls).
+      const keep = keepTop && !above && height > room && room >= 160;
+      if (keep) el.style.maxHeight = `${room}px`;
+      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX);
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, above, autoFocus, isStatic]);
+  }, [x, y, flipX, above, autoFocus, isStatic, keepTop]);
 
   useEffect(() => () => window.clearTimeout(intent.current), []);
   useEffect(() => {
@@ -127,7 +135,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         data-theme="dark"
         data-theme-forced=""
         data-static={isStatic || undefined}
-        className={cx(styles.panel, isStatic && styles.static)}
+        className={cx(styles.panel, isStatic && styles.static, context && styles.context)}
         style={isStatic ? undefined : { left: x, top: y, visibility: "hidden" }}
         onPointerMove={(e) => {
           pointer.current = { x: e.clientX, y: e.clientY };
@@ -191,6 +199,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
             y={sub.y}
             flipX={sub.flipX}
             autoFocus={sub.focus}
+            context={context}
             onPick={onPick}
             onClose={onClose}
             onBack={() => {
@@ -241,10 +250,14 @@ export interface ContextMenuProps {
   /** Presses here do not close it (the button that toggles it) */
   ignore?: React.RefObject<HTMLElement | null>;
   label?: string;
+  /** A context menu (canvas, layers, pages): live Figma's 11px / 400 items, at least 200 wide */
+  context?: boolean;
+  /** A dropdown under its trigger: stays there when long (see MenuPanel) */
+  keepTop?: boolean;
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -273,6 +286,8 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       isStatic={isStatic}
       highlighted={highlighted}
       label={label}
+      context={context}
+      keepTop={keepTop}
       onPick={(id) => {
         onSelect(id);
         onClose();
@@ -340,7 +355,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

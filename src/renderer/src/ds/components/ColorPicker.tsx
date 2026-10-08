@@ -21,8 +21,11 @@ import {
   withTargetColor,
   type ImageScaleMode,
   type PaintType,
+  type PatternAlignment,
   type PickerPaint,
 } from "../util/paint";
+import { rovingTarget } from "../util/rovingFocus";
+import { tooltipProps } from "../overlay/TooltipManager";
 import type { ChangeInfo } from "../types";
 import { Icon, type IconName } from "../icons/Icon";
 import { Popover, type PopoverPlacement } from "./Popover";
@@ -33,7 +36,6 @@ import { NumericInput } from "./NumericInput";
 import { ColorInput } from "./ColorInput";
 import { Button, IconButton, ToggleIconButton } from "./Button";
 import { MenuButton, type MenuEntry } from "./Menu";
-import { Swatch } from "./Swatch";
 import { EmptyState } from "./Misc";
 import { selectAllOnClick } from "../util/selectAll";
 import field from "./Field.module.css";
@@ -61,8 +63,8 @@ const HUE_TRACK = "linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff,
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const byte = (n: number) => Math.round(clamp01(n) * 255);
 const pct = (n: number) => Math.round(clamp01(n) * 100);
-/** Half a slider thumb / gradient stop (12px wide): their centres travel from 6px to width − 6px, so they never hang off the track. */
-const INSET = 6;
+/** A slider's thumb centre travels 12 in from each end (live: the 16 thumb inside the track 4 in from the 180 slider). */
+const INSET = 12;
 /** A pointer's x as a fraction of a track inset by `inset` px on each side. */
 const fractionX = (clientX: number, r: DOMRect, inset: number) => {
   const w = r.width - 2 * inset;
@@ -186,6 +188,12 @@ export interface ColorPickerProps<P extends PickerPaint> {
   onStopChange?: (index: number) => void;
   /** Header icon buttons left of × (Figma's "+" for a new style or variable) */
   headerActions?: ReactNode;
+  /** IMAGE / VIDEO: the scale mode row's button at its right (Figma's "Rotate 90º") */
+  imageAction?: ReactNode;
+  /** PATTERN: the layer it tiles (its name and a preview) and "Select source…" (the next layer clicked) */
+  pattern?: { source: string | null; previewUrl?: string | null; selecting?: boolean; onSelectSource: () => void };
+  /** The Shader tab (Figma's "Shader fills (Beta)" browser beside the picker); without it the tab is left out */
+  onShaders?: (picker: HTMLElement) => void;
   /** Drawn in place (the Gallery) */
   static?: boolean;
 }
@@ -200,7 +208,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [contrast, setContrast] = useState(false);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
@@ -294,12 +302,13 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     const el = bar.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const { stops, index } = addStop(value.stops ?? [], fractionX(e.clientX, r, INSET));
+    // The bar's ends are the stops' 0 % and 100 % (live: the chips centred on 16 and 224).
+    const { stops, index } = addStop(value.stops ?? [], fractionX(e.clientX, r, 0));
     begin();
     selectStop(index);
     const start = { ...gesture.current!.start, stops };
     preview(start);
-    trackPointer(e, el, (fx) => preview({ ...start, stops: moveStop(stops, index, fx) }), end, INSET);
+    trackPointer(e, el, (fx) => preview({ ...start, stops: moveStop(stops, index, fx) }), end, 0);
   };
   const pressStop = (e: React.PointerEvent<HTMLButtonElement>, i: number) => {
     if (e.button !== 0) return;
@@ -320,7 +329,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     }, (cancelled) => {
       if (!cancelled && gesture.current && (gesture.current.last.stops?.length ?? 0) < stops.length) selectStop(0);
       end(cancelled);
-    }, INSET);
+    }, 0);
   };
 
   // The tabs with at least one type offered; Gradient keeps the gradient's own type (or Linear for a new one).
@@ -385,7 +394,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
           <>
             <span className={styles.part}>
               <CommitText
-                label="Hex"
+                label="Color"
                 upper
                 value={hexDigits(rgbToHex(target))}
                 onCommit={(raw) => {
@@ -417,6 +426,298 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const sorted = gradient ? (value.stops ?? []).map((s, i) => ({ ...s, i })).sort((a, b) => a.position - b.position) : [];
   const svBackground = `linear-gradient(to top, #000000, transparent), linear-gradient(to right, #ffffff, ${rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 }))})`;
   const opaque = rgbToHex(hsvToRgb(hsv));
+  const tab0 = paintTab(value.type);
+  const showContrast = !!contrastBackground && value.type === "SOLID";
+  const pickerBox = useRef<HTMLDivElement>(null);
+
+  // ── the paint type tabs (live: six 24 × 24 radios 4 apart, the current one on #383838) ──
+  const typeRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const typeTabs = typeOptions.map((t, i) => (
+    <button
+      key={t.value}
+      ref={(el) => {
+        typeRefs.current[i] = el;
+      }}
+      type="button"
+      role="radio"
+      aria-checked={t.value === tab0}
+      aria-label={t.tooltip}
+      tabIndex={t.value === tab0 ? 0 : -1}
+      className={styles.typeTab}
+      onClick={() => pickTab(t.value as PaintTab)}
+      onKeyDown={(e) => {
+        const next = rovingTarget(e.key, typeOptions.length, () => true, i, "horizontal");
+        if (next === null || next < 0) return;
+        e.preventDefault();
+        typeRefs.current[next]?.focus();
+        pickTab(typeOptions[next].value as PaintTab);
+      }}
+      {...tooltipProps(t.tooltip)}
+    >
+      <Icon name={t.icon} />
+    </button>
+  ));
+
+  const square = (
+    <div
+      className={styles.sv}
+      role="slider"
+      aria-label="Color picker reticle"
+      aria-valuetext={`Saturation ${Math.round(hsv.s * 100)}%, brightness ${Math.round(hsv.v * 100)}%`}
+      aria-valuenow={Math.round(hsv.s * 100)}
+      tabIndex={0}
+      data-autofocus=""
+      style={{ background: svBackground }}
+      onPointerDown={(e) => dragColor(e, (fx, fy) => ({ hsv: { h: hsv.h, s: fx, v: 1 - fy }, a: target.a }))}
+      onKeyDown={(e) => keyStep(e, (dx, dy) => { const next = { h: hsv.h, s: clamp01(hsv.s + dx), v: clamp01(hsv.v + dy) }; setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next); })}
+    >
+      <span className={styles.thumb} style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: opaque }} />
+    </div>
+  );
+  const sliders = (
+    <div className={styles.sliders}>
+      <IconButton icon="24.eyedropper.small" label="Sample color" disabled={!eyedropper} onClick={() => void pickFromScreen()} />
+      <div className={styles.sliderStack}>
+        <div
+          className={styles.slider}
+          role="slider"
+          aria-label="Hue"
+          aria-valuemin={0}
+          aria-valuemax={360}
+          aria-valuenow={Math.round(hsv.h)}
+          tabIndex={0}
+          onPointerDown={(e) => dragColor(e, (fx) => ({ hsv: { ...hsv, h: fx * 360 }, a: target.a }), INSET)}
+          onKeyDown={(e) => keyStep(e, (dx, dy) => { const next = { ...hsv, h: Math.min(360, Math.max(0, hsv.h + (dx + dy) * 360)) }; setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next); })}
+        >
+          <span className={styles.track} style={{ background: HUE_TRACK }} />
+          <span className={styles.thumb} style={{ left: insetLeft(hsv.h / 360), background: rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 })) }} />
+        </div>
+        <div
+          className={styles.slider}
+          role="slider"
+          aria-label="Opacity"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={pct(target.a)}
+          tabIndex={0}
+          onPointerDown={(e) => dragColor(e, (fx) => ({ hsv, a: fx }), INSET)}
+          onKeyDown={(e) => keyStep(e, (dx, dy) => setColor({ ...target, a: clamp01(target.a + dx + dy) }, { final: true, source: "step" }, hsv))}
+        >
+          <span className={cx(styles.track, styles.checker)}>
+            <span className={styles.barFill} style={{ background: `linear-gradient(to right, transparent, ${opaque})` }} />
+          </span>
+          <span className={styles.thumb} style={{ left: insetLeft(target.a), background: rgbaToCss(target) }} />
+        </div>
+      </div>
+    </div>
+  );
+  const modelRow = (
+    <div className={styles.modelRow}>
+      <Select label="Color format" variant="ghost" value={model} options={MODELS} width={55} onChange={(m) => { setOwnModel(m as ColorModel); onColorModelChange?.(m as ColorModel); }} />
+      <div className={cx(field.field, styles.joined)}>{modelFields}</div>
+    </div>
+  );
+  const contrastRow =
+    contrast && showContrast
+      ? (() => {
+          // WCAG 2: AA 4.5 (3 for large text), AAA 7 (4.5 for large text).
+          const ratio = contrastRatio(target, contrastBackground!);
+          const shown = Math.floor(ratio * 100) / 100;
+          return (
+            <div className={styles.contrastRow} role="status" aria-label="Contrast">
+              <span>Contrast</span>
+              <span className={styles.contrastValue}>{shown}:1</span>
+              <span className={styles.contrastBadge} data-pass={ratio >= 4.5 || undefined}>AA</span>
+              <span className={styles.contrastBadge} data-pass={ratio >= 7 || undefined}>AAA</span>
+            </div>
+          );
+        })()
+      : null;
+  const swatchSection = (
+    <div className={styles.swatchSection}>
+      <Select label="Color swatch set selector" variant="ghost" value="page" options={[{ value: "page", label: "On this page" }]} width={208} onChange={() => {}} />
+      {documentColors.length ? (
+        <div className={styles.swatches}>
+          {documentColors.map((c) => {
+            const rgba = parseCssColor(c);
+            const hex = rgba ? hexDigits(rgbToHex(rgba)).toUpperCase() : c;
+            return (
+              <button
+                key={c}
+                type="button"
+                aria-label={`Solid color hex: ${hex}`}
+                className={styles.swatchButton}
+                {...tooltipProps(hex)}
+                onClick={() => { if (rgba) setColor(rgba, { final: true, source: "pick" }); }}
+              >
+                <span className={styles.swatchChip} style={{ background: rgba ? rgbaToCss(rgba) : c }} />
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <span className={styles.empty}>No colors on this page yet</span>
+      )}
+    </div>
+  );
+
+  // ── gradient: the stops on their bar, then the Stops list ──
+  const gradientBody = gradient && (
+    <>
+      <div className={styles.gradientTypeRow}>
+        <Select label="Paint type" variant="ghost" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
+        <span className={styles.gradientActions}>
+          <IconButton icon="24.flip.horizontal.small" label="Flip gradient" onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
+          {onRotateGradient && <IconButton icon="24.rotate" label="Rotate gradient" onClick={onRotateGradient} />}
+        </span>
+      </div>
+      <div className={styles.gradientRow}>
+        <div ref={bar} className={styles.bar} onPointerDown={pressBar} data-ds="GradientBar">
+          <span className={styles.barFill} style={{ background: paintCss(value, "bar") }} />
+          {(value.stops ?? []).map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              role="slider"
+              aria-label={`Stop ${i + 1}`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pct(s.position)}
+              aria-selected={i === stop}
+              data-removing={removing === i || undefined}
+              className={styles.stop}
+              style={{ left: `${clamp01(s.position) * 100}%` }}
+              onPointerDown={(e) => pressStop(e, i)}
+              onFocus={() => i !== stop && selectStop(i)}
+              onKeyDown={(e) => {
+                if (e.key === "Delete" || e.key === "Backspace") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (stopCount > 2) {
+                    setStops(removeStop(value.stops ?? [], i) as NonNullable<P["stops"]>, { final: true, source: "type" });
+                    selectStop(0);
+                  }
+                  return;
+                }
+                keyStep(e, (dx) => setStops(moveStop(value.stops ?? [], i, s.position + dx) as NonNullable<P["stops"]>, { final: true, source: "step" }));
+              }}
+            >
+              <span className={styles.stopChip} style={{ background: rgbaToCss({ ...s.color, a: 1 }) }} />
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className={styles.stopsSection}>
+        <div className={styles.stopsHeader}>
+          <span>Stops</span>
+          <IconButton
+            icon="24.plus.small"
+            label="Add gradient stop"
+            tone="secondary"
+            onClick={() => {
+              const s = sortStops(value.stops ?? []);
+              const at = s.findIndex((x) => x.position >= (value.stops?.[stop]?.position ?? 0));
+              const a = s[Math.max(0, at)]?.position ?? 0;
+              const b = s[Math.min(s.length - 1, Math.max(0, at) + 1)]?.position ?? 1;
+              const { stops, index } = addStop(value.stops ?? [], a === b ? Math.min(1, a + 0.1) : (a + b) / 2);
+              setStops(stops as NonNullable<P["stops"]>, { final: true, source: "pick" });
+              selectStop(index);
+            }}
+          />
+        </div>
+        {sorted.map((s) => (
+          <div key={s.i} className={styles.stopRow} aria-selected={s.i === stop} onPointerDown={() => s.i !== stop && selectStop(s.i)}>
+            <span className={styles.stopPosition}>
+              <NumericInput label="Gradient stop position" value={pct(s.position)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => setStops(moveStop(value.stops ?? [], s.i, v / 100) as NonNullable<P["stops"]>, info)} />
+            </span>
+            <span className={styles.stopColor}>
+              <ColorInput
+                label="Gradient Stop Color"
+                swatchLabel={`Solid color hex: ${hexDigits(rgbToHex(s.color)).toUpperCase()}`}
+                color={rgbToHex(s.color)}
+                opacity={pct(s.color.a)}
+                onSwatchClick={() => selectStop(s.i)}
+                onColor={(hex, info, o) => { const c = hexToRgba(hex); if (c) setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...c, a: o !== undefined ? o / 100 : x.color.a } } : x)) as NonNullable<P["stops"]>, info); }}
+                onOpacity={(o, info) => setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...x.color, a: o / 100 } } : x)) as NonNullable<P["stops"]>, info)}
+              />
+            </span>
+            <IconButton icon="24.minus.small" label="Delete gradient stop" tone="secondary" disabled={stopCount <= 2} onClick={() => { setStops(removeStop(value.stops ?? [], s.i) as NonNullable<P["stops"]>, { final: true, source: "pick" }); selectStop(0); }} />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+
+  // ── image / video: scale mode and its action, the preview with "Upload from computer", the editor's controls ──
+  const mediaBody = isMedia(value.type) && (
+    <>
+      <div className={styles.mediaRow}>
+        <Select label="Image scale mode" variant="ghost" width={96} value={value.imageScaleMode ?? "FILL"} options={SCALE_MODES} onChange={(m) => onChange({ ...value, imageScaleMode: m as ImageScaleMode }, { final: true, source: "pick" })} />
+        {imageAction}
+      </div>
+      <div
+        className={cx(styles.image, value.type === "VIDEO" && !imageControls && styles.media)}
+        role="img"
+        aria-label={imageUrl ? "Image preview" : "No image"}
+        data-empty={!imageUrl || undefined}
+        style={imageUrl ? { backgroundImage: `url("${imageUrl}")`, backgroundSize: value.imageScaleMode === "FIT" ? "contain" : value.imageScaleMode === "TILE" ? "auto" : "cover", backgroundRepeat: value.imageScaleMode === "TILE" ? "repeat" : "no-repeat" } : undefined}
+      >
+        <div className={styles.imageOverlay}>
+          <Button variant="primary" className={value.type === "VIDEO" ? styles.uploadVideo : styles.upload} disabled={!onChooseImage} onClick={onChooseImage}>Upload from computer</Button>
+          {value.type === "IMAGE" && (
+            <Button variant="secondary" className={styles.upload} disabled tooltip="Current selection has a fill">Make an image</Button>
+          )}
+        </div>
+      </div>
+      {imageControls}
+    </>
+  );
+
+  // ── pattern: the source's preview and "Select source…", Tile type, Scale, Spacing X / Y, Alignment ──
+  const anchorCells: [PatternAlignment, PatternAlignment, string][] = [
+    ["START", "START", "Align top left"], ["CENTER", "START", "Align top center"], ["END", "START", "Align top right"],
+    ["START", "CENTER", "Align left"], ["CENTER", "CENTER", "Align center"], ["END", "CENTER", "Align right"],
+    ["START", "END", "Align bottom left"], ["CENTER", "END", "Align bottom center"], ["END", "END", "Align bottom right"],
+  ];
+  const spacing = value.patternSpacing ?? { x: 0, y: 0 };
+  const patternBody = value.type === "PATTERN" && (
+    <>
+      <div className={styles.patternPreview} role="img" aria-label={pattern?.source ? `Pattern source: ${pattern.source}` : "No pattern source"} style={pattern?.previewUrl ? { backgroundImage: `url("${pattern.previewUrl}")` } : undefined}>
+        <div className={styles.patternShade}>
+          <Button variant="secondary" className={styles.selectSource} aria-pressed={pattern?.selecting || undefined} disabled={!pattern} onClick={pattern?.onSelectSource}>
+            {pattern?.selecting ? "Click a layer…" : pattern?.source ? pattern.source : "Select source…"}
+          </Button>
+        </div>
+      </div>
+      <div className={styles.patternGrid}>
+        <span className={styles.patternLabel}>Tile type</span>
+        <SegmentedControl
+          label="Tile type"
+          fullWidth
+          value={value.patternTileType === "RECTANGULAR" || !value.patternTileType ? "RECTANGULAR" : "HEXAGONAL"}
+          options={[{ value: "RECTANGULAR", icon: "24.tile.rectangular", tooltip: "Rectangular" }, { value: "HEXAGONAL", icon: "24.tile.hexagonal", tooltip: "Hexagonal" }]}
+          onChange={(t) => onChange({ ...value, patternTileType: t === "RECTANGULAR" ? "RECTANGULAR" : "HORIZONTAL_HEXAGONAL" }, { final: true, source: "pick" })}
+        />
+        <span className={styles.patternLabel}>Scale</span>
+        <NumericInput scrubHandle="previous" label="Scale" prefix="24.scale" value={Math.round((value.scale ?? 1) * 100)} min={1} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, scale: v / 100 }, info)} />
+        <span className={styles.patternLabel}>Spacing</span>
+        <NumericInput scrubHandle="previous" label="Spacing X" prefix="X" value={Math.round(spacing.x * 100)} min={-100} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, patternSpacing: { x: v / 100, y: spacing.y } }, info)} />
+        <span />
+        <NumericInput label="Spacing Y" prefix="Y" value={Math.round(spacing.y * 100)} min={-100} max={10000} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, patternSpacing: { x: spacing.x, y: v / 100 } }, info)} />
+        <span className={cx(styles.patternLabel, styles.patternLabelTop)}>Alignment</span>
+        <div role="radiogroup" aria-label="Anchor point" className={styles.anchor}>
+          {anchorCells.map(([h, v, name]) => {
+            const on = (value.horizontalAlignment ?? "START") === h && (value.verticalAlignment ?? "START") === v;
+            return (
+              <button key={name} type="button" role="radio" aria-checked={on} aria-label={name} className={styles.anchorCell} onClick={() => onChange({ ...value, horizontalAlignment: h, verticalAlignment: v }, { final: true, source: "pick" })}>
+                <span className={on ? styles.anchorOn : styles.anchorDot} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <Popover
@@ -427,219 +728,41 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       width={240}
       label="Color picker"
       header={<Tabs label="Color source" value={tab} onChange={(t) => setTab(t as "custom" | "libraries")} tabs={[{ value: "custom", label: "Custom" }, { value: "libraries", label: "Libraries" }]} />}
-      headerActions={headerActions}
+      headerActions={headerActions && <span className={styles.headerActions}>{headerActions}</span>}
     >
-      <div data-ds="ColorPicker" className={styles.body}>
+      <div ref={pickerBox} data-ds="ColorPicker" className={styles.body}>
         {tab === "libraries" ? (
           <div className={styles.libraries}>{libraries ?? <EmptyState icon="24.library" title="No libraries" body="Colors and styles from your libraries show here." />}</div>
         ) : (
           <>
             <div className={styles.typeRow}>
-              <SegmentedControl label="Fill type" value={paintTab(value.type)} options={typeOptions} onChange={(t) => pickTab(t as PaintTab)} />
-              <MenuButton label="Blend mode" className={buttons.icon} entries={blendEntries} onSelect={(id) => onChange({ ...value, blendMode: id as P["blendMode"] }, { final: true, source: "pick" })}>
-                <Icon name={(value.blendMode ?? "NORMAL") === "NORMAL" ? "24.blendmode.small" : "24.blendmode.active.small"} />
-              </MenuButton>
-              {/* Figma's live picker: "Check color contrast" at 208, the blend mode before it (Solid) */}
-              {contrastBackground && value.type === "SOLID" && <ToggleIconButton icon="24.contrast" label="Check color contrast" pressed={contrast} onPressedChange={setContrast} />}
-            </div>
-
-            {gradient && (
-              // Figma's live picker: the gradient's "Paint type" (96 wide), Flip gradient at 180, Rotate gradient at 208.
-              <div className={styles.gradientTypeRow}>
-                <Select label="Paint type" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
-                <span className={styles.gradientActions}>
-                  <IconButton icon="24.flip.horizontal.small" label="Flip gradient" onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
-                  {onRotateGradient && <IconButton icon="24.rotate" label="Rotate gradient" onClick={onRotateGradient} />}
-                </span>
-              </div>
-            )}
-            {gradient && (
-              <div className={styles.gradientRow}>
-                <div ref={bar} className={styles.bar} onPointerDown={pressBar} data-ds="GradientBar">
-                  <span className={styles.barFill} style={{ background: paintCss(value, "bar") }} />
-                  {(value.stops ?? []).map((s, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      role="slider"
-                      aria-label={`Stop ${i + 1}`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={pct(s.position)}
-                      aria-selected={i === stop}
-                      data-removing={removing === i || undefined}
-                      className={styles.stop}
-                      style={{ left: insetLeft(s.position), background: rgbaToCss({ ...s.color, a: 1 }) }}
-                      onPointerDown={(e) => pressStop(e, i)}
-                      onFocus={() => i !== stop && selectStop(i)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Delete" || e.key === "Backspace") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (stopCount > 2) {
-                            setStops(removeStop(value.stops ?? [], i) as NonNullable<P["stops"]>, { final: true, source: "type" });
-                            selectStop(0);
-                          }
-                          return;
-                        }
-                        keyStep(e, (dx) => setStops(moveStop(value.stops ?? [], i, s.position + dx) as NonNullable<P["stops"]>, { final: true, source: "step" }));
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {isMedia(value.type) ? (
-              <>
-                <div
-                  className={styles.image}
-                  role="img"
-                  aria-label={imageUrl ? "Image preview" : "No image"}
-                  style={imageUrl ? { backgroundImage: `url("${imageUrl}")`, backgroundSize: value.imageScaleMode === "FIT" ? "contain" : value.imageScaleMode === "TILE" ? "auto" : "cover", backgroundRepeat: value.imageScaleMode === "TILE" ? "repeat" : "no-repeat" } : undefined}
-                >
-                  {!imageUrl && <Icon name="24.image" />}
-                </div>
-                <div className={styles.imageRow}>
-                  <Select label="Image scale mode" value={value.imageScaleMode ?? "FILL"} options={SCALE_MODES} onChange={(m) => onChange({ ...value, imageScaleMode: m as ImageScaleMode }, { final: true, source: "pick" })} />
-                  <Button variant="secondary" disabled={!onChooseImage} onClick={onChooseImage}>{value.type === "VIDEO" ? "Choose video…" : "Choose image…"}</Button>
-                </div>
-                {imageControls}
-                <div style={{ width: 88 }}>
-                  <NumericInput label="Opacity" prefix="24.opacity" value={pct(value.opacity ?? 1)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => onChange({ ...value, opacity: v / 100 }, info)} />
-                </div>
-              </>
-            ) : (
-              <>
-                <div
-                  className={styles.sv}
-                  role="slider"
-                  aria-label="Saturation and brightness"
-                  aria-valuetext={`Saturation ${Math.round(hsv.s * 100)}%, brightness ${Math.round(hsv.v * 100)}%`}
-                  aria-valuenow={Math.round(hsv.s * 100)}
-                  tabIndex={0}
-                  data-autofocus=""
-                  style={{ background: svBackground }}
-                  onPointerDown={(e) => dragColor(e, (fx, fy) => ({ hsv: { h: hsv.h, s: fx, v: 1 - fy }, a: target.a }))}
-                  onKeyDown={(e) => keyStep(e, (dx, dy) => { const next = { h: hsv.h, s: clamp01(hsv.s + dx), v: clamp01(hsv.v + dy) }; setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next); })}
-                >
-                  <span className={styles.thumb} style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: opaque }} />
-                </div>
-                <div className={styles.sliders}>
-                  <IconButton icon="24.eyedropper.small" label="Pick color from screen" disabled={!eyedropper} onClick={() => void pickFromScreen()} />
-                  <div className={styles.sliderStack}>
-                    <div
-                      className={styles.slider}
-                      role="slider"
-                      aria-label="Hue"
-                      aria-valuemin={0}
-                      aria-valuemax={360}
-                      aria-valuenow={Math.round(hsv.h)}
-                      tabIndex={0}
-                      style={{ background: HUE_TRACK }}
-                      onPointerDown={(e) => dragColor(e, (fx) => ({ hsv: { ...hsv, h: fx * 360 }, a: target.a }), INSET)}
-                      onKeyDown={(e) => keyStep(e, (dx, dy) => { const next = { ...hsv, h: Math.min(360, Math.max(0, hsv.h + (dx + dy) * 360)) }; setColor({ ...hsvToRgb(next), a: target.a }, { final: true, source: "step" }, next); })}
-                    >
-                      <span className={styles.thumb} style={{ left: insetLeft(hsv.h / 360), background: rgbToHex(hsvToRgb({ h: hsv.h, s: 1, v: 1 })) }} />
-                    </div>
-                    <div
-                      className={cx(styles.slider, styles.checker)}
-                      role="slider"
-                      aria-label="Opacity"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={pct(target.a)}
-                      tabIndex={0}
-                      onPointerDown={(e) => dragColor(e, (fx) => ({ hsv, a: fx }), INSET)}
-                      onKeyDown={(e) => keyStep(e, (dx, dy) => setColor({ ...target, a: clamp01(target.a + dx + dy) }, { final: true, source: "step" }, hsv))}
-                    >
-                      <span className={styles.barFill} style={{ background: `linear-gradient(to right, transparent, ${opaque})` }} />
-                      <span className={styles.thumb} style={{ left: insetLeft(target.a), background: rgbaToCss(target) }} />
-                    </div>
-                  </div>
-                </div>
-                <div className={styles.modelRow}>
-                  <Select label="Color model" value={model} options={MODELS} width={64} onChange={(m) => { setOwnModel(m as ColorModel); onColorModelChange?.(m as ColorModel); }} />
-                  <div className={cx(field.field, styles.joined)}>{modelFields}</div>
-                </div>
-                {contrast && contrastBackground && value.type === "SOLID" && (() => {
-                  // WCAG 2: AA 4.5 (3 for large text), AAA 7 (4.5 for large text).
-                  const ratio = contrastRatio(target, contrastBackground);
-                  const shown = Math.floor(ratio * 100) / 100;
-                  return (
-                    <div className={styles.contrastRow} role="status" aria-label="Contrast">
-                      <span>Contrast</span>
-                      <span className={styles.contrastValue}>{shown}:1</span>
-                      <span className={styles.contrastBadge} data-pass={ratio >= 4.5 || undefined}>AA</span>
-                      <span className={styles.contrastBadge} data-pass={ratio >= 7 || undefined}>AAA</span>
-                    </div>
-                  );
-                })()}
-              </>
-            )}
-
-            {gradient && (
-              <div className={styles.section}>
-                <div className={styles.stopsHeader}>
-                  <span>Stops</span>
-                  <IconButton
-                    icon="24.plus.small"
-                    label="Add stop"
-                    tone="secondary"
-                    onClick={() => {
-                      const s = sortStops(value.stops ?? []);
-                      const at = s.findIndex((x) => x.position >= (value.stops?.[stop]?.position ?? 0));
-                      const a = s[Math.max(0, at)]?.position ?? 0;
-                      const b = s[Math.min(s.length - 1, Math.max(0, at) + 1)]?.position ?? 1;
-                      const { stops, index } = addStop(value.stops ?? [], a === b ? Math.min(1, a + 0.1) : (a + b) / 2);
-                      setStops(stops as NonNullable<P["stops"]>, { final: true, source: "pick" });
-                      selectStop(index);
-                    }}
-                  />
-                </div>
-                {sorted.map((s) => (
-                  <div key={s.i} className={styles.stopRow} aria-selected={s.i === stop} onPointerDown={() => s.i !== stop && selectStop(s.i)}>
-                    <span className={styles.stopPosition}>
-                      <NumericInput label={`Stop ${s.i + 1} position`} value={pct(s.position)} min={0} max={100} precision={0} unit="%" onChange={(v, info) => setStops(moveStop(value.stops ?? [], s.i, v / 100) as NonNullable<P["stops"]>, info)} />
-                    </span>
-                    <span className={styles.stopColor}>
-                      <ColorInput
-                        label={`Stop ${s.i + 1} color`}
-                        color={rgbToHex(s.color)}
-                        opacity={pct(s.color.a)}
-                        onSwatchClick={() => selectStop(s.i)}
-                        onColor={(hex, info) => { const c = hexToRgba(hex); if (c) setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...c, a: x.color.a } } : x)) as NonNullable<P["stops"]>, info); }}
-                        onOpacity={(o, info) => setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...x.color, a: o / 100 } } : x)) as NonNullable<P["stops"]>, info)}
-                      />
-                    </span>
-                    <IconButton icon="24.minus.small" label="Remove stop" tone="secondary" disabled={stopCount <= 2} onClick={() => { setStops(removeStop(value.stops ?? [], s.i) as NonNullable<P["stops"]>, { final: true, source: "pick" }); selectStop(0); }} />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {!isMedia(value.type) && (
-              <div className={styles.section}>
-                <span className={styles.sectionTitle}>On this page</span>
-                {documentColors.length ? (
-                  <div className={styles.swatches}>
-                    {documentColors.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        aria-label={c}
-                        className={styles.swatchButton}
-                        data-tooltip={c.startsWith("#") ? c.slice(1).toUpperCase() : c}
-                        onClick={() => { const rgba = parseCssColor(c); if (rgba) setColor(rgba, { final: true, source: "pick" }); }}
-                      >
-                        <Swatch color={c.startsWith("#") ? c : rgbToHex(parseCssColor(c) ?? { r: 0, g: 0, b: 0, a: 1 })} opacity={pct(parseCssColor(c)?.a ?? 1)} shape="round" />
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <span className={styles.empty}>No colors on this page yet</span>
+              <div role="radiogroup" aria-label="Fill type" className={styles.typeTabs}>
+                {typeTabs}
+                {onShaders && (
+                  <button type="button" aria-label="Shader" className={styles.typeTab} {...tooltipProps("Shader (Beta)")} onClick={(e) => onShaders(e.currentTarget.closest<HTMLElement>('[data-ds="Popover"]') ?? e.currentTarget)}>
+                    <Icon name="24.shader.small" />
+                  </button>
                 )}
               </div>
+              <span className={styles.typeActions}>
+                <MenuButton label="Blend mode" className={buttons.icon} entries={blendEntries} onSelect={(id) => onChange({ ...value, blendMode: id as P["blendMode"] }, { final: true, source: "pick" })}>
+                  <Icon name={(value.blendMode ?? "NORMAL") === "NORMAL" ? "24.blendmode.small" : "24.blendmode.active.small"} />
+                </MenuButton>
+                {/* Figma's live picker: "Check color contrast" at 208, the blend mode before it (Solid) */}
+                {showContrast && <ToggleIconButton icon="24.contrast" label="Check color contrast" pressed={contrast} onPressedChange={setContrast} />}
+              </span>
+            </div>
+            {gradientBody}
+            {mediaBody}
+            {patternBody}
+            {value.type === "SOLID" && (
+              <>
+                {square}
+                {sliders}
+                {modelRow}
+                {contrastRow}
+                {swatchSection}
+              </>
             )}
           </>
         )}

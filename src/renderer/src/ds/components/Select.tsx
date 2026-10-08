@@ -103,7 +103,8 @@ function Listbox({ id, anchor, options, value, isStatic, onPick, onClose }: { id
     const a = anchor.current;
     if (!el || !a || isStatic) return;
     const r = a.parentElement?.getBoundingClientRect() ?? a.getBoundingClientRect();
-    el.style.minWidth = `${Math.round(r.width + 28)}px`;
+    // Live capture: the list is as wide as its labels (+ 64), never narrower than the field's box.
+    el.style.minWidth = `${Math.round(r.width + 16)}px`;
     const item = selected >= 0 ? el.querySelector<HTMLElement>(`[data-index="${selected}"]`) : null;
     const p = placeOverTrigger(r, item ? item.offsetTop : null, item ? item.offsetHeight : 0, { width: el.offsetWidth, height: el.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
     el.style.left = `${p.x}px`;
@@ -161,7 +162,7 @@ function Listbox({ id, anchor, options, value, isStatic, onPick, onClose }: { id
             aria-disabled={o.disabled || undefined}
             data-index={i}
             data-highlighted={(active === i && !o.disabled) || undefined}
-            className={menu.item}
+            className={cx(menu.item, menu.listItem)}
             onPointerEnter={() => !o.disabled && setActive(i)}
             onClick={() => !o.disabled && onPick(o.value)}
           >

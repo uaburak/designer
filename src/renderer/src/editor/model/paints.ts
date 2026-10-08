@@ -158,12 +158,23 @@ const toSchemaScale = (m: PickerPaint["imageScaleMode"]): SchemaScaleMode => (m 
 
 /** The picker's view of a paint (its other fields are the editor's to keep). */
 export function toPicker(p: FullPaint): PickerPaint {
-  const type = (["SOLID", "GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND", "IMAGE", "VIDEO"].includes(p.type) ? p.type : "SOLID") as PickerPaint["type"];
+  const type = (["SOLID", "GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND", "PATTERN", "IMAGE", "VIDEO"].includes(p.type) ? p.type : "SOLID") as PickerPaint["type"];
   const blendMode = p.blendMode && p.blendMode !== "PASS_THROUGH" ? p.blendMode : undefined;
   const base: PickerPaint = { type, opacity: p.opacity ?? 1, ...(blendMode ? { blendMode } : {}) };
   if (type === "SOLID") return { ...base, color: { ...(p.color ?? { r: 0, g: 0, b: 0, a: 1 }), a: 1 } };
   // A video fill is shown and scaled as its poster image (scale mode, adjustments).
   if (type === "IMAGE" || type === "VIDEO") return { ...base, imageScaleMode: toPickerScale(p.imageScaleMode) };
+  if (type === "PATTERN") {
+    const q = p as FullPaint & Partial<Pick<PickerPaint, "patternTileType" | "patternSpacing" | "horizontalAlignment" | "verticalAlignment">>;
+    return {
+      ...base,
+      scale: p.scale ?? 1,
+      patternSpacing: q.patternSpacing ?? (typeof p.spacing === "number" ? { x: p.spacing, y: p.spacing } : { x: 0, y: 0 }),
+      patternTileType: q.patternTileType ?? "RECTANGULAR",
+      horizontalAlignment: q.horizontalAlignment ?? "START",
+      verticalAlignment: q.verticalAlignment ?? "START",
+    };
+  }
   return { ...base, stops: (p.stops ?? []).map((s) => ({ color: { ...s.color }, position: s.position })) };
 }
 
@@ -176,12 +187,29 @@ export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
   const media = (t: string) => t === "IMAGE" || t === "VIDEO";
   const out: FullPaint = { ...base, type: next.type, opacity: next.opacity ?? base.opacity ?? 1 };
   if (base.type === "VIDEO" && next.type !== "VIDEO") delete (out as { video?: unknown }).video;
+  if (base.type === "PATTERN" && next.type !== "PATTERN") {
+    dropPattern(out);
+    delete out.scale;
+  }
   if (next.blendMode) out.blendMode = next.blendMode;
   if (next.type === "SOLID") {
     out.color = next.color ? { ...next.color, a: 1 } : (base.color ?? { r: 0, g: 0, b: 0, a: 1 });
     delete out.stops;
     if (base.type !== "SOLID") delete out.transform;
     dropImage(out);
+  } else if (next.type === "PATTERN") {
+    // Figma's PATTERN fields (schema Paint 26–30, 37); the source (sourceNodeId) is kept, picked with "Select source…".
+    delete out.stops;
+    delete out.color;
+    dropImage(out);
+    out.scale = next.scale ?? 1;
+    Object.assign(out, {
+      patternSpacing: next.patternSpacing ?? { x: 0, y: 0 },
+      patternTileType: next.patternTileType ?? "RECTANGULAR",
+      horizontalAlignment: next.horizontalAlignment ?? "START",
+      verticalAlignment: next.verticalAlignment ?? "START",
+    });
+    if (base.type !== "PATTERN") out.transform = IDENTITY_MATRIX;
   } else if (media(next.type)) {
     out.imageScaleMode = toSchemaScale(next.imageScaleMode);
     delete out.stops;
@@ -196,6 +224,11 @@ export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
   return out;
 }
 
+/** Leaving PATTERN: its fields go (Figma's Paint 26–30, 37). */
+function dropPattern(p: FullPaint) {
+  for (const k of ["sourceNodeId", "spacing", "patternSpacing", "patternTileType", "horizontalAlignment", "verticalAlignment"]) delete (p as Record<string, unknown>)[k];
+}
+
 function dropImage(p: FullPaint) {
   for (const k of ["image", "imageThumbnail", "thumbHash", "imageScaleMode", "rotation", "scale", "paintFilter", "originalImageWidth", "originalImageHeight"] as const) delete p[k];
 }
@@ -207,6 +240,7 @@ const TYPE_LABEL: Record<string, string> = {
   GRADIENT_RADIAL: "Radial",
   GRADIENT_ANGULAR: "Angular",
   GRADIENT_DIAMOND: "Diamond",
+  PATTERN: "Pattern",
   IMAGE: "Image",
   VIDEO: "Video",
 };
@@ -220,6 +254,7 @@ export function paintLabel(p: FullPaint): string {
 export function paintSwatch(p: FullPaint, imageUrl?: string | null): string {
   if (isImageLike(p)) return imageUrl ? `center / cover no-repeat url("${imageUrl}")` : "var(--figma-color-bg-tertiary)";
   if (isGradientType(p.type)) return paintCss(toPicker(p));
+  if (p.type === "PATTERN") return "var(--figma-color-bg-tertiary)";
   return colorToHex(p.color ?? { r: 0, g: 0, b: 0 });
 }
 
