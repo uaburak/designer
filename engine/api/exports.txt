@@ -119,3 +119,5 @@ _engine_present_key
 _engine_present_command
 _engine_present_set_options
 _engine_present_state
+_engine_present_media
+_engine_present_media_frame

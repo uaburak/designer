@@ -20,7 +20,17 @@ EM_JS(int, eng_upload_bitmap, (unsigned texture, unsigned bitmapId), {
   var bitmap = bitmaps && bitmaps[bitmapId];
   if (!bitmap || !GLctx || !GL.textures[texture]) return 0;
   GLctx.bindTexture(GLctx.TEXTURE_2D, GL.textures[texture]);
-  GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, bitmap);
+  // A <video> (a presentation's playing video) is uploaded as it is, so premultiplied here; an ImageBitmap was
+  // decoded premultiplied (the pixel-store flags don't apply to it).
+  var video = typeof HTMLVideoElement !== "undefined" && bitmap instanceof HTMLVideoElement;
+  if (video) GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  try {
+    GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, bitmap);
+  } catch (e) {
+    if (video) GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    return 0;
+  }
+  if (video) GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   return 1;
 });
 

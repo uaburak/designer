@@ -7,7 +7,8 @@
 //   webgpu.h and watches it: a lost device or a failed self test calls
 //   Module.onEngineGfxFailure(selector, reason) — TypeScript then moves the canvas to WebGL2 (Figma's dynamic
 //   fallback).
-// - ImageBitmaps (Module.engineBitmaps) go to textures with copyExternalImageToTexture.
+// - ImageBitmaps (Module.engineBitmaps) go to textures with copyExternalImageToTexture (a presentation's <video>
+//   elements too: a playing video's frames).
 // - Readback is synchronous for the engine's callers (thumbnails, exports): the texture is copied into a WebGPU
 //   OffscreenCanvas whose image a 2D canvas reads (the browser waits for the GPU there, as glReadPixels does).
 addToLibrary({
@@ -73,7 +74,7 @@ addToLibrary({
     try {
       device.queue.copyExternalImageToTexture({ source: bitmap }, {
         texture, premultipliedAlpha: true, colorSpace: Module['engineColorSpace'] === 'display-p3' ? 'display-p3' : 'srgb',
-      }, [Math.min(bitmap.width, texture.width), Math.min(bitmap.height, texture.height)]);
+      }, [Math.min(bitmap.videoWidth || bitmap.width, texture.width), Math.min(bitmap.videoHeight || bitmap.height, texture.height)]);
     } catch (e) {
       console.warn(`[engine] WebGPU: image upload failed: ${e}`);
       return 0;

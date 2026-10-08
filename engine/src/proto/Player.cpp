@@ -7,6 +7,7 @@
 
 #include "base/FractionalIndex.h"
 #include "proto/Devices.h"
+#include "render/ImageCache.h"
 #include "scene/CodecJson.h"
 
 namespace eng::proto {
@@ -150,7 +151,10 @@ const char* scaleName(ScaleMode m) {
   return "FIT";
 }
 
-Player::Player(Editor& editor) : ed_(editor) {}
+Player::Player(Editor& editor) : ed_(editor) {
+  static uint32_t players = 0;
+  playerSerial_ = ++players;
+}
 
 const NodeProps* Player::props(Guid id) const {
   const Node* n = doc().get(id);
@@ -260,6 +264,7 @@ bool Player::start(Guid page, Guid start) {
   hoverChain_ = Chain{};
   downChain_ = Chain{};
   down_ = false;
+  clearMedia();
   armTimers(base_);
   layout();
   changed();
@@ -275,10 +280,12 @@ void Player::stop() {
   timers_.clear();
   scene_ = PresentScene{};
   store_.clear();
+  clearMedia();
 }
 
 void Player::changed() {
   dirty_ = true;
+  mediaDirty_ = true;
   historyIds_.clear();
   for (auto& h : history_) historyIds_.push_back(h.base);
   events_.push_back(Event{});
@@ -959,6 +966,8 @@ void Player::run(Guid source, const std::vector<Action>& actions, const Hit* hot
 }
 
 void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* held) {
+  // "Reset video state": the videos the step shows start again as they were set on the canvas.
+  if (a.resetVideo && a.connection == Connection::INTERNAL_NODE) videoReset_ = true;
   switch (a.connection) {
     case Connection::INTERNAL_NODE: {
       if (a.dest == kNoGuid || !doc().has(a.dest)) return;
@@ -999,6 +1008,7 @@ void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* h
     }
     case Connection::SET_VARIABLE: setVariable(a, source); return;
     case Connection::SET_VARIABLE_MODE: setVariableMode(a); return;
+    case Connection::UPDATE_MEDIA_RUNTIME: mediaAction(a); return;
     case Connection::CONDITIONAL: {
       for (const Branch& b : a.branches) {
         if (b.hasCondition) {
@@ -1281,6 +1291,7 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   }
   dropTimers(instance);
   armTimers(instance);
+  mediaDirty_ = true;
   dirty_ = true;
 }
 
@@ -1470,6 +1481,7 @@ void Player::startAnim(Anim&& a) {
 
 void Player::finishAnim() {
   anim_.active = false;
+  mediaDirty_ = true;
   if (anim_.done) {
     auto d = std::move(anim_.done);
     anim_.done = nullptr;
@@ -2194,6 +2206,7 @@ const PresentScene& Player::scene() {
   store_.clear();
   if (!active()) return scene_;
   layout();
+  if (mediaDirty_) syncMedia();
   const NodeProps* pg = props(page_);
   scene_.background = pg ? background(*pg) : Color::hex(0x1E1E1E);
   // The device frame behind the screen.
@@ -2274,6 +2287,7 @@ const PresentScene& Player::scene() {
         it.clipRadius = view_.radius;
     }
   for (const PresentItem& r : view_.over) scene_.items.push_back(r);
+  applyMediaFrames();
   return scene_;
 }
 
@@ -2283,6 +2297,242 @@ const NodeProps* Player::drawnProps(Guid id) const {
     if (f != it->end()) return &f->second;
   }
   return nullptr;
+}
+
+// ---- Video -----------------------------------------------------------------------------------------------
+
+std::string Player::mediaKey(Guid node) const {
+  // Matching objects (help.figma.com 14397859494295): "the same layer name and the same set of parents across
+  // top-level frames"; top-level frames match by identical names, or the same text before a "/" ("Checkout / 1"
+  // matches "Checkout / 2").
+  Guid top = topLevelOf(node);
+  const NodeProps* tp = props(top);
+  if (!tp) return std::string();
+  std::string name = tp->name;
+  if (size_t slash = name.rfind('/'); slash != std::string::npos) {
+    name = name.substr(0, slash);
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+  }
+  return name + '\x01' + matchKey(doc(), top, node);
+}
+
+Player::Media Player::freshMedia(Guid node) const {
+  Media m;
+  m.node = node;
+  if (const NodeProps* p = props(node)) {
+    int k = videoFill(*p);
+    if (k >= 0) m.video = paintVideoHash(p->fillPaints[static_cast<size_t>(k)]);
+    m.settings = videoSettings(*p);
+  }
+  m.playing = m.settings.autoplay;
+  m.muted = m.settings.muted;
+  m.key = mediaKey(node);
+  return m;
+}
+
+Player::Media* Player::mediaEntry(Guid node) {
+  auto it = media_.find(node);
+  if (it != media_.end()) return &it->second;
+  const NodeProps* p = props(node);
+  if (!p || videoFill(*p) < 0) return nullptr;
+  return &media_.emplace(node, freshMedia(node)).first->second;
+}
+
+const Player::Media* Player::media(Guid node) const {
+  auto it = media_.find(node);
+  return it == media_.end() ? nullptr : &it->second;
+}
+
+ImageHash Player::frameHash(Guid node) const {
+  // Not a SHA-1 of anything: "VID", the player, the layer — a live source no file holds.
+  ImageHash h;
+  h.present = true;
+  h.bytes = {0x56, 0x49, 0x44, 0x00};
+  auto put = [&](size_t at, uint32_t v) {
+    for (int i = 0; i < 4; i++) h.bytes[at + static_cast<size_t>(i)] = static_cast<uint8_t>(v >> (24 - 8 * i));
+  };
+  put(4, playerSerial_);
+  put(8, node.sessionID);
+  put(12, node.localID);
+  return h;
+}
+
+void Player::clearMedia() {
+  for (auto& [id, m] : media_)
+    if (m.frame) ImageRegistry::get().forget(frameHash(id));
+  media_.clear();
+  mediaDirty_ = true;
+  videoReset_ = false;
+}
+
+void Player::syncMedia() {
+  mediaDirty_ = false;
+  bool reset = videoReset_;
+  videoReset_ = false;
+  // The videos in the frames shown: the screen, its overlays, and both sides of a transition.
+  std::vector<Guid> roots{base_};
+  for (auto& o : overlays_) roots.push_back(o.frame);
+  if (anim_.active) {
+    roots.push_back(anim_.x.frame);
+    roots.push_back(anim_.y.frame);
+  }
+  std::vector<Guid> shown;
+  std::unordered_set<Guid, GuidHash> seen;
+  std::function<void(Guid)> walk = [&](Guid id) {
+    const NodeProps* p = props(id);
+    if (!p || !p->visible || ghosts_.count(id)) return;
+    if (videoFill(*p) >= 0 && seen.insert(id).second) shown.push_back(id);
+    for (Guid c : doc().children(id)) walk(c);
+  };
+  for (Guid r : roots)
+    if (r != kNoGuid) walk(r);
+  std::vector<Guid> before;
+  for (auto& [id, m] : media_)
+    if (m.shown) before.push_back(id);
+  for (auto& [id, m] : media_) m.shown = seen.count(id) != 0;
+  for (Guid id : shown) {
+    bool wasShown = std::find(before.begin(), before.end(), id) != before.end();
+    auto it = media_.find(id);
+    if (wasShown && it != media_.end()) continue;
+    if (it != media_.end() && !reset) continue;  // state memorisation: as it was left
+    Media m = freshMedia(id);
+    if (it != media_.end()) {
+      // Reset video state: from the beginning, as set on the canvas.
+      m.frame = it->second.frame;
+      m.seekSerial = it->second.seekSerial + 1;
+      m.ackSerial = it->second.ackSerial;
+      m.seekTo = 0;
+    } else if (!reset && !m.key.empty()) {
+      // State sharing: a matching video that was on screen hands its state over.
+      for (Guid b : before) {
+        auto o = media_.find(b);
+        if (o == media_.end() || b == id || o->second.key != m.key || !(o->second.video == m.video)) continue;
+        m.playing = o->second.playing;
+        m.muted = o->second.muted;
+        m.time = o->second.time;
+        m.duration = o->second.duration;
+        m.ended = o->second.ended;
+        m.seekTo = o->second.time;
+        m.seekSerial = 1;
+        break;
+      }
+    }
+    m.shown = true;
+    media_[id] = std::move(m);
+  }
+}
+
+void Player::mediaAction(const Action& a) {
+  if (mediaDirty_) syncMedia();
+  Media* m = mediaEntry(a.dest);
+  if (!m) return;
+  auto seek = [&](double t) {
+    // help "Prototype actions": past the end jumps to the end; a looping video begins again from the beginning.
+    if (m->duration > 0 && t >= m->duration) t = m->settings.loop ? 0 : m->duration;
+    t = std::max(0.0, t);
+    m->seekTo = t;
+    m->seekSerial++;
+    m->time = t;
+    m->ended = m->duration > 0 && t >= m->duration && !m->settings.loop;
+    if (m->ended) m->playing = false;
+  };
+  bool wasEnded = m->ended;
+  switch (a.media) {
+    case MediaAction::PLAY: m->playing = true; break;
+    case MediaAction::PAUSE: m->playing = false; break;
+    case MediaAction::TOGGLE_PLAY_PAUSE: m->playing = !m->playing; break;
+    case MediaAction::MUTE: m->muted = true; break;
+    case MediaAction::UNMUTE: m->muted = false; break;
+    case MediaAction::TOGGLE_MUTE_UNMUTE: m->muted = !m->muted; break;
+    case MediaAction::SKIP_FORWARD: seek(m->time + a.mediaSkipBy); break;
+    case MediaAction::SKIP_BACKWARD: seek(m->time - a.mediaSkipBy); break;
+    case MediaAction::SKIP_TO: seek(a.mediaSkipTo); break;
+  }
+  // Played again after its end: from the beginning (a browser's video does the same).
+  if (m->playing && m->ended && wasEnded) {
+    seek(0);
+    m->ended = false;
+  }
+  dirty_ = true;
+  events_.push_back(Event{});
+}
+
+std::string Player::mediaJson() {
+  if (active() && mediaDirty_) syncMedia();
+  json::Writer w;
+  w.beginObject().key("videos").beginArray();
+  std::vector<const Media*> list;
+  for (auto& [id, m] : media_)
+    if (m.shown) list.push_back(&m);
+  std::sort(list.begin(), list.end(), [](const Media* a, const Media* b) {
+    return a->node.sessionID != b->node.sessionID ? a->node.sessionID < b->node.sessionID : a->node.localID < b->node.localID;
+  });
+  for (const Media* m : list) {
+    w.beginObject().key("id").string(m->node.toString()).key("hash").string(m->video.present ? m->video.hex() : std::string());
+    w.key("playing").boolean(m->playing).key("muted").boolean(m->muted).key("loop").boolean(m->settings.loop);
+    w.key("time").number(m->time).key("duration").number(m->duration).key("ended").boolean(m->ended);
+    w.key("seek");
+    if (m->seekTo >= 0 && m->ackSerial < m->seekSerial) w.number(m->seekTo);
+    else w.null();
+    w.key("seekSerial").number(m->seekSerial);
+    w.endObject();
+  }
+  w.endArray().endObject();
+  return w.take();
+}
+
+void Player::mediaFrame(Guid node, uint32_t bitmapId, uint32_t width, uint32_t height, double time, double duration, bool ended,
+                        uint32_t seekSerial, Bytes rgba) {
+  if (mediaDirty_) syncMedia();
+  auto it = media_.find(node);
+  if (it == media_.end()) return;
+  Media& m = it->second;
+  if ((bitmapId || rgba) && width && height) {
+    ImageRegistry::get().addLiveFrame(frameHash(node), bitmapId, width, height, std::move(rgba));
+    m.frame = true;
+    dirty_ = true;
+  }
+  if (seekSerial > m.ackSerial) m.ackSerial = std::min(seekSerial, m.seekSerial);
+  if (m.ackSerial < m.seekSerial) return;  // a seek on its way: the old time means nothing
+  if (duration > 0) m.duration = duration;
+  double prev = m.time;
+  bool wasEnded = m.ended;
+  m.time = time;
+  m.ended = ended;
+  if (ended && !m.settings.loop) m.playing = false;
+  // "When video hits" (a time beyond the video's length: when it ends) and "When video ends" (a looping video: each
+  // time it begins again — unverified).
+  bool wrapped = m.settings.loop && m.playing && time + 0.25 < prev;
+  bool justEnded = (ended && !wasEnded) || wrapped;
+  if (!justEnded && !m.playing) return;
+  if (!hasIx(node)) return;
+  std::vector<size_t> due;
+  auto list = ix(node);
+  for (size_t i = 0; i < list.size(); i++) {
+    if (list[i].trigger == Trigger::ON_MEDIA_END && justEnded) due.push_back(i);
+    if (list[i].trigger != Trigger::ON_MEDIA_HIT) continue;
+    double h = list[i].mediaHitTime;
+    bool beyond = m.duration > 0 && h >= m.duration;
+    bool hit = beyond ? justEnded : wrapped ? (prev < h || h <= time) : (prev < h && h <= time);
+    if (hit) due.push_back(i);
+  }
+  for (size_t i : due) run(node, list[i].actions, nullptr, nullptr);
+  if (!due.empty()) changed();
+}
+
+void Player::applyMediaFrames() {
+  // A video with a frame: its VIDEO fills draw that frame (the live source) instead of the poster, in every item.
+  std::vector<std::pair<Guid, ImageHash>> live;
+  for (auto& [id, m] : media_)
+    if (m.shown && m.frame && doc().has(id)) live.emplace_back(id, frameHash(id));
+  if (live.empty()) return;
+  for (PropsOverrides& map : store_)
+    for (auto& [id, hash] : live) {
+      auto it = map.find(id);
+      if (it == map.end()) it = map.emplace(id, *props(id)).first;
+      for (Paint& p : it->second.fillPaints)
+        if (p.type == PaintType::VIDEO && p.visible) p.image = hash;
+    }
 }
 
 // ---- State ---------------------------------------------------------------------------------------------

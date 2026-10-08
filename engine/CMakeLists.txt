@@ -155,6 +155,7 @@ else()
     tests/unit/render.brush.test.cpp
     tests/unit/export.test.cpp
     tests/unit/prototype.test.cpp
+    tests/unit/prototype.video.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

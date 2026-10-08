@@ -108,6 +108,35 @@ class Player {
     return out;
   }
 
+  // ---- Video (help.figma.com 8878274530455 "Use videos in prototypes", 14397859494295 "State management") ----------
+  // The browser plays the videos (the page's <video> elements); the player decides what each one does — autoplay,
+  // loop and sound from Prototype › Video, the video actions, state memorised per layer, shared between matching
+  // layers, reset by "Reset video state" — and hears back each video's time and frames (the triggers "When video
+  // hits" / "When video ends"; the frames drawn in place of the poster).
+  struct Media {
+    Guid node = kNoGuid;
+    ImageHash video;         // the file (Paint.video.hash)
+    VideoSettings settings;
+    std::string key;         // matching across frames (state sharing): the top-level frame's name (before " /") + the layer's place
+    bool playing = false, muted = false;
+    double time = 0;         // seconds: the page's last report, or a seek's target
+    double duration = 0;     // seconds; 0 until known
+    bool ended = false;
+    double seekTo = -1;      // a seek the page hasn't made yet (seconds), with its serial
+    uint32_t seekSerial = 0, ackSerial = 0;
+    bool shown = false;      // in a frame shown now
+    bool frame = false;      // a frame of it arrived (drawn in place of the poster)
+  };
+  // {"videos": [{id, hash, playing, muted, loop, seek, seekSerial}]}: the videos shown now and what they should do.
+  std::string mediaJson();
+  // The page's report for a video: its current time, length and whether it ended (`seekSerial`: the last seek it made),
+  // and a new frame — Module.engineBitmaps[bitmapId] is its <video> (0: no frame; `rgba`: pixels, tests).
+  void mediaFrame(Guid node, uint32_t bitmapId, uint32_t width, uint32_t height, double time, double duration, bool ended,
+                  uint32_t seekSerial, Bytes rgba = {});
+  const Media* media(Guid node) const;
+  // The image hash a video's frames are registered under (ImageRegistry, a live source).
+  ImageHash frameHash(Guid node) const;
+
   // Smart animate (tests): the layers of `from` and `to` that match (by name and place in the hierarchy).
   static std::string matchKey(const Document& doc, Guid root, Guid id);
   std::vector<std::pair<Guid, Guid>> matches(Guid from, Guid to) const;
@@ -239,6 +268,13 @@ class Player {
   void scrollTo(Guid dest, const Action& a);
   void setVariable(const Action& a, Guid source);
   void setVariableMode(const Action& a);
+  void mediaAction(const Action& a);
+  Media* mediaEntry(Guid node);
+  Media freshMedia(Guid node) const;
+  std::string mediaKey(Guid node) const;
+  void syncMedia();
+  void applyMediaFrames();
+  void clearMedia();
   bool evaluate(const json::Value& data, Guid source, Editor::Resolved& out) const;
   void remember(Guid id, FieldMask mask);
   void startAnim(Anim&& a);
@@ -331,6 +367,10 @@ class Player {
   PresentScene scene_;
   std::deque<PropsOverrides> store_;
   std::vector<Event> events_;
+  std::unordered_map<Guid, Media, GuidHash> media_;
+  bool mediaDirty_ = true;   // the frames shown changed: syncMedia
+  bool videoReset_ = false;  // the step that changed them had "Reset video state"
+  uint32_t playerSerial_ = 0;  // this player's part of its videos' frame hashes
   // What the player wrote into the document, as it was before (Restart puts it back).
   std::unordered_map<Guid, NodeChange, GuidHash> originals_;
 };

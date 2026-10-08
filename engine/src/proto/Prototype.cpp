@@ -56,6 +56,7 @@ const char* const kEasings[] = {"IN_CUBIC", "OUT_CUBIC", "INOUT_CUBIC", "LINEAR"
                                 "CUSTOM_CUBIC", "SPRING", "GENTLE_SPRING", "CUSTOM_SPRING", "SPRING_PRESET_ONE", "SPRING_PRESET_TWO",
                                 "SPRING_PRESET_THREE", "HOLD", "EASE_IN"};
 const char* const kOverlayPositions[] = {"CENTER", "TOP_LEFT", "TOP_CENTER", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_CENTER", "BOTTOM_RIGHT", "MANUAL"};
+const char* const kMediaActions[] = {"PLAY", "PAUSE", "TOGGLE_PLAY_PAUSE", "MUTE", "UNMUTE", "TOGGLE_MUTE_UNMUTE", "SKIP_FORWARD", "SKIP_BACKWARD", "SKIP_TO"};
 const char* const kOverflows[] = {"NONE", "HORIZONTAL", "VERTICAL", "BOTH"};
 const char* const kScrollBehaviors[] = {"SCROLLS", "FIXED_WHEN_CHILD_OF_SCROLLING_FRAME", "STICKY_SCROLLS"};
 
@@ -81,6 +82,10 @@ Action readAction(const json::Value& v) {
   a.preserveScroll = flag(v.get("transitionPreserveScroll"));
   a.resetScroll = flag(v.get("transitionResetScrollPosition"));
   a.resetComponents = flag(v.get("transitionResetInteractiveComponents"));
+  a.resetVideo = flag(v.get("transitionResetVideoPosition"));
+  a.media = enumOf(v.get("mediaAction"), kMediaActions, MediaAction::PLAY);
+  a.mediaSkipTo = num(v.get("mediaSkipToTime"), 0);
+  a.mediaSkipBy = num(v.get("mediaSkipByAmount"), 0);
   a.url = str(v.get("connectionURL"));
   a.newTab = flag(v.get("openUrlInNewTab"));
   if (const json::Value* o = v.get("overlayRelativePosition"); o && o->isObject()) {
@@ -152,6 +157,12 @@ json::Value actionJson(const Action& a) {
     put("navigationType", stringValue(navigationName(a.navigation)));
     if (a.dest != kNoGuid) put("transitionNodeID", guidValue(a.dest));
   }
+  if (a.connection == Connection::UPDATE_MEDIA_RUNTIME) {
+    if (a.dest != kNoGuid) put("transitionNodeID", guidValue(a.dest));
+    put("mediaAction", stringValue(mediaActionName(a.media)));
+    if (a.media == MediaAction::SKIP_TO) put("mediaSkipToTime", numberValue(a.mediaSkipTo));
+    if (a.media == MediaAction::SKIP_FORWARD || a.media == MediaAction::SKIP_BACKWARD) put("mediaSkipByAmount", numberValue(a.mediaSkipBy));
+  }
   put("transitionType", stringValue(transitionName(a.transition)));
   put("transitionDuration", numberValue(a.duration));
   put("easingType", stringValue(easingName(a.easing)));
@@ -165,6 +176,7 @@ json::Value actionJson(const Action& a) {
   if (a.preserveScroll) put("transitionPreserveScroll", boolValue(true));
   if (a.resetScroll) put("transitionResetScrollPosition", boolValue(true));
   if (a.resetComponents) put("transitionResetInteractiveComponents", boolValue(true));
+  if (a.resetVideo) put("transitionResetVideoPosition", boolValue(true));
   if (a.connection == Connection::URL) {
     put("connectionURL", stringValue(a.url));
     if (a.newTab) put("openUrlInNewTab", boolValue(true));
@@ -300,6 +312,10 @@ const char* transitionName(Transition t) {
   size_t i = static_cast<size_t>(t);
   return i < std::size(kTransitions) ? kTransitions[i] : "INSTANT_TRANSITION";
 }
+const char* mediaActionName(MediaAction m) {
+  size_t i = static_cast<size_t>(m);
+  return i < std::size(kMediaActions) ? kMediaActions[i] : "PLAY";
+}
 const char* easingName(Easing e) {
   size_t i = static_cast<size_t>(e);
   return i < std::size(kEasings) ? kEasings[i] : "OUT_CUBIC";
@@ -321,6 +337,7 @@ std::vector<Interaction> interactions(const NodeProps& p) {
     if (const json::Value* e = x.get("event"); e && e->isObject()) {
       i.trigger = enumOf(e->get("interactionType"), kTriggers, Trigger::ON_CLICK);
       i.timeout = num(e->get("transitionTimeout"), 0.8);
+      i.mediaHitTime = num(e->get("mediaHitTime"), 0);
       if (const json::Value* k = e->get("keyTrigger"); k && k->isObject())
         if (const json::Value* codes = k->get("keyCodes"); codes && codes->isArray())
           for (auto& c : codes->array) i.keyCodes.push_back(static_cast<int>(c.numberOr(0)));
@@ -392,6 +409,22 @@ Color background(const NodeProps& page) {
           static_cast<float>(num(v.get("a"), 1))};
 }
 
+VideoSettings videoSettings(const NodeProps& p) {
+  VideoSettings s;
+  json::Value v;
+  if (!extraJson(p, "videoPlayback", v) || !v.isObject()) return s;
+  s.autoplay = flag(v.get("autoplay"));
+  s.loop = flag(v.get("mediaLoop"));
+  s.muted = flag(v.get("muted"));
+  return s;
+}
+
+int videoFill(const NodeProps& p) {
+  for (size_t i = 0; i < p.fillPaints.size(); i++)
+    if (p.fillPaints[i].type == PaintType::VIDEO && p.fillPaints[i].visible) return static_cast<int>(i);
+  return -1;
+}
+
 std::vector<Flow> flows(const Document& doc, Guid page) {
   std::vector<Flow> out;
   for (Guid c : doc.children(page)) {
@@ -412,6 +445,7 @@ json::Value toJson(const Interaction& i) {
   json::Value e = object();
   e.object.emplace_back("interactionType", stringValue(triggerName(i.trigger)));
   if (i.trigger == Trigger::AFTER_TIMEOUT) e.object.emplace_back("transitionTimeout", numberValue(i.timeout));
+  if (i.trigger == Trigger::ON_MEDIA_HIT) e.object.emplace_back("mediaHitTime", numberValue(i.mediaHitTime));
   if (i.trigger == Trigger::ON_KEY_DOWN) {
     json::Value k = object();
     json::Value codes;
@@ -484,6 +518,12 @@ void destinations(const Action& a, std::vector<std::pair<Navigation, Guid>>& out
   if (a.connection == Connection::INTERNAL_NODE && a.dest != kNoGuid) out.emplace_back(a.navigation, a.dest);
   for (const Branch& b : a.branches)
     for (const Action& x : b.actions) destinations(x, out);
+}
+
+void mediaTargets(const Action& a, std::vector<Guid>& out) {
+  if (a.connection == Connection::UPDATE_MEDIA_RUNTIME && a.dest != kNoGuid) out.push_back(a.dest);
+  for (const Branch& b : a.branches)
+    for (const Action& x : b.actions) mediaTargets(x, out);
 }
 
 }  // namespace eng::proto

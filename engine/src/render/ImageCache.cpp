@@ -138,6 +138,34 @@ ImageHints imageHints(const Paint& paint) {
   return h;
 }
 
+ImageHash paintVideoHash(const Paint& paint) {
+  ImageHash h;
+  if (paint.type != PaintType::VIDEO || paint.extra.empty()) return h;
+  static const schema::Def* def = schema::SchemaTable::get().def("Paint");
+  static const schema::Def* video = schema::SchemaTable::get().def("Video");
+  if (!def || !video) return h;
+  schema::SchemaTable::get().forEachField(*def, paint.extra, [&](const schema::FieldDef& f, std::string_view v) {
+    if (f.value != 18) return;  // video: Video {hash = 1, s3Url = 2}
+    kiwi::ByteBuffer bb(reinterpret_cast<const uint8_t*>(v.data()), v.size());
+    for (;;) {
+      uint32_t g = 0;
+      if (!bb.readVarUint(g) || !g) return;
+      if (g == 1) {
+        uint32_t n = 0;
+        if (!bb.readVarUint(n) || bb.index() + n > v.size()) return;
+        if (n == 20) {
+          std::copy_n(reinterpret_cast<const uint8_t*>(v.data()) + bb.index(), 20, h.bytes.begin());
+          h.present = true;
+        }
+        return;
+      }
+      const schema::FieldDef* fd = video->byId(g);
+      if (!fd || !schema::SchemaTable::get().skipValue(bb, *fd)) return;
+    }
+  });
+  return h;
+}
+
 ImageRegistry& ImageRegistry::get() {
   static ImageRegistry* registry = new ImageRegistry();
   return *registry;
@@ -193,6 +221,20 @@ void ImageRegistry::addRgba(const ImageHash& hash, uint32_t width, uint32_t heig
   generation_++;
 }
 
+void ImageRegistry::addLiveFrame(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height, Bytes rgba) {
+  Source& s = sources_[hash];
+  if (!s.live || s.width != width || s.height != height) {
+    s = Source{};
+    s.live = true;
+    s.width = width;
+    s.height = height;
+  }
+  s.bitmapId = bitmapId;
+  s.rgba = std::move(rgba);
+  s.serial++;
+  // No generation bump: the presentation that plays the video asks for its own frames.
+}
+
 void ImageRegistry::fail(const ImageHash& hash) {
   Source s;
   s.failed = true;
@@ -231,6 +273,20 @@ ImageCache::Texture ImageCache::texture(const ImageHash& hash, bool* failed, dou
   if (!hash.present) return {};
   const ImageRegistry::Source* src = ImageRegistry::get().find(hash, devicePx, hints);
   auto it = textures_.find(hash);
+  if (it != textures_.end() && src && src->live && src->width == it->second.texture.width && src->height == it->second.texture.height) {
+    // A video's new frame, into the same texture.
+    if (it->second.serial != src->serial) {
+      bool ok = false;
+      if (src->bitmapId) ok = device_.uploadBitmap(it->second.texture.id, src->bitmapId);
+      else if (src->rgba && src->rgba->size() >= static_cast<size_t>(src->width) * src->height * 4) {
+        device_.writeTexture(it->second.texture.id, {0, 0, static_cast<int>(src->width), static_cast<int>(src->height)}, {src->rgba->data(), src->rgba->size()});
+        ok = true;
+      }
+      if (ok) it->second.serial = src->serial;
+    }
+    it->second.lastFrame = frame_;
+    return it->second.texture;
+  }
   if (it != textures_.end()) {
     // A larger copy arrived since: uploaded again.
     if (src && !src->failed && (src->width != it->second.texture.width || src->height != it->second.texture.height)) {
@@ -274,7 +330,7 @@ ImageCache::Texture ImageCache::texture(const ImageHash& hash, bool* failed, dou
   d.format = gfx::TextureFormat::RGBA8;
   d.width = src->width;
   d.height = src->height;
-  d.mipmaps = true;
+  d.mipmaps = !src->live;  // a video's frames change every few ms: bilinear only
   gfx::TextureId id = device_.createTexture(d);
   if (!id) return {};
   bool ok = false;
@@ -287,10 +343,11 @@ ImageCache::Texture ImageCache::texture(const ImageHash& hash, bool* failed, dou
     device_.destroyTexture(id);
     return {};
   }
-  device_.generateMipmaps(id);
+  if (!src->live) device_.generateMipmaps(id);
   Entry e;
   e.texture = {id, src->width, src->height};
-  e.bytes = static_cast<uint64_t>(src->width) * src->height * 4 * 4 / 3;
+  e.serial = src->serial;
+  e.bytes = static_cast<uint64_t>(src->width) * src->height * 4 * (src->live ? 3 : 4) / 3;
   e.lastFrame = frame_;
   bytes_ += e.bytes;
   textures_[hash] = e;

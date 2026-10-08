@@ -916,9 +916,11 @@ enum InteractionType {
   NONE = 8;
   DRAG = 9;
   ON_KEY_DOWN = 10;        // "Key/Gamepad"
+  ON_MEDIA_HIT = 12;        // "When video hits" (PrototypeEvent.mediaHitTime)
+  ON_MEDIA_END = 13;        // "When video ends"
   MOUSE_ENTER = 14;
   MOUSE_LEAVE = 15;
-  // Dropped: ON_VOICE=11, ON_MEDIA_HIT=12, ON_MEDIA_END=13.
+  // Dropped: ON_VOICE=11.
 }
 
 enum ConnectionType {
@@ -928,9 +930,23 @@ enum ConnectionType {
   BACK = 3;
   CLOSE = 4;               // "Close overlay"
   SET_VARIABLE = 5;
+  UPDATE_MEDIA_RUNTIME = 6; // the video actions (PrototypeAction.mediaAction on the video `transitionNodeID`)
   CONDITIONAL = 7;
   SET_VARIABLE_MODE = 8;
-  // Dropped: UPDATE_MEDIA_RUNTIME=6, OBJECT_ANIMATION=9.
+  // Dropped: OBJECT_ANIMATION=9.
+}
+
+enum MediaAction {         // UPDATE_MEDIA_RUNTIME
+  PLAY = 0;                // "Play video"
+  PAUSE = 1;               // "Pause video"
+  TOGGLE_PLAY_PAUSE = 2;   // "Toggle play/pause"
+  MUTE = 3;                // "Mute video"
+  UNMUTE = 4;              // "Unmute video"
+  TOGGLE_MUTE_UNMUTE = 5;  // "Toggle mute/unmute"
+  SKIP_FORWARD = 6;        // "Jump forward" (mediaSkipByAmount seconds)
+  SKIP_BACKWARD = 7;       // "Jump backward"
+  SKIP_TO = 8;             // "Set to specific time" (mediaSkipToTime seconds)
+  // Dropped: SET_PLAYBACK_RATE=9.
 }
 
 enum NavigationType {
@@ -1072,6 +1088,7 @@ message PrototypeEvent {   // the trigger
   float interactionDuration = 3;
   KeyTrigger keyTrigger = 4;
   float transitionTimeout = 6;     // "After delay" seconds
+  float mediaHitTime = 7;          // ON_MEDIA_HIT: the video's time, seconds
   // Reserved field numbers (1): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r5 = 5 [deprecated];
 }
@@ -1107,9 +1124,12 @@ message PrototypeAction {
   bool transitionResetInteractiveComponents = 26;
   VariableSetID targetVariableSetID = 27;        // SET_VARIABLE_MODE collection
   GUID targetVariableModeID = 28;                // SET_VARIABLE_MODE mode
-  // Reserved field numbers (7): Figma fields not kept, or reserved for future Figma fields. Never reuse.
-  byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r21 = 21 [deprecated]; byte _r22 = 22 [deprecated];
-  byte _r23 = 23 [deprecated];
+  MediaAction mediaAction = 16;                  // UPDATE_MEDIA_RUNTIME
+  bool transitionResetVideoPosition = 17;        // "Reset video state"
+  float mediaSkipToTime = 21;                    // SKIP_TO: seconds
+  float mediaSkipByAmount = 22;                  // SKIP_FORWARD / SKIP_BACKWARD: seconds
+  // Reserved field numbers (3): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r23 = 23 [deprecated];
 }
 
 message PrototypeInteraction {

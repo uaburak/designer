@@ -17,9 +17,16 @@ namespace eng::proto {
 
 enum class Trigger : uint8_t {
   ON_CLICK = 0, AFTER_TIMEOUT = 1, MOUSE_IN = 2, MOUSE_OUT = 3, ON_HOVER = 4, MOUSE_DOWN = 5, MOUSE_UP = 6,
-  ON_PRESS = 7, NONE = 8, DRAG = 9, ON_KEY_DOWN = 10, MOUSE_ENTER = 14, MOUSE_LEAVE = 15
+  ON_PRESS = 7, NONE = 8, DRAG = 9, ON_KEY_DOWN = 10, ON_MEDIA_HIT = 12, ON_MEDIA_END = 13, MOUSE_ENTER = 14, MOUSE_LEAVE = 15
 };
-enum class Connection : uint8_t { NONE = 0, INTERNAL_NODE = 1, URL = 2, BACK = 3, CLOSE = 4, SET_VARIABLE = 5, CONDITIONAL = 7, SET_VARIABLE_MODE = 8 };
+enum class Connection : uint8_t {
+  NONE = 0, INTERNAL_NODE = 1, URL = 2, BACK = 3, CLOSE = 4, SET_VARIABLE = 5, UPDATE_MEDIA_RUNTIME = 6, CONDITIONAL = 7, SET_VARIABLE_MODE = 8
+};
+// UPDATE_MEDIA_RUNTIME's action (help.figma.com 360040035874: Play/pause video, Mute/unmute video, Set to specific time,
+// Jump forward/backward in time).
+enum class MediaAction : uint8_t {
+  PLAY = 0, PAUSE = 1, TOGGLE_PLAY_PAUSE = 2, MUTE = 3, UNMUTE = 4, TOGGLE_MUTE_UNMUTE = 5, SKIP_FORWARD = 6, SKIP_BACKWARD = 7, SKIP_TO = 8
+};
 enum class Navigation : uint8_t { NAVIGATE = 0, OVERLAY = 1, SWAP = 2, SWAP_STATE = 3, SCROLL_TO = 4 };
 enum class Transition : uint8_t {
   INSTANT = 0, DISSOLVE = 1, FADE = 2,
@@ -44,6 +51,7 @@ const char* connectionName(Connection c);
 const char* navigationName(Navigation n);
 const char* transitionName(Transition t);
 const char* easingName(Easing e);
+const char* mediaActionName(MediaAction m);
 
 struct Action;
 struct Branch {
@@ -64,6 +72,10 @@ struct Action {
   bool preserveScroll = false;
   bool resetScroll = false;
   bool resetComponents = false;
+  bool resetVideo = false;  // "Reset video state" (transitionResetVideoPosition)
+  MediaAction media = MediaAction::PLAY;  // UPDATE_MEDIA_RUNTIME (on the video `dest`)
+  double mediaSkipTo = 0;   // SKIP_TO, seconds
+  double mediaSkipBy = 0;   // SKIP_FORWARD / SKIP_BACKWARD, seconds
   std::string url;
   bool newTab = false;
   bool hasOverlayOffset = false;
@@ -81,6 +93,7 @@ struct Interaction {
   Trigger trigger = Trigger::ON_CLICK;
   double timeout = 0.8;  // AFTER_TIMEOUT, seconds (the event's transitionTimeout)
   std::vector<int> keyCodes;  // ON_KEY_DOWN
+  double mediaHitTime = 0;    // ON_MEDIA_HIT: the video's time, seconds
   std::vector<Action> actions;
 };
 
@@ -99,6 +112,14 @@ struct Device {
   bool rotated = false;  // CCW_90: landscape
 };
 
+// Prototype › Video (NodeChange.videoPlayback): what a video does when its frame is shown. Absent: the schema's
+// defaults (all off — Figma writes the message when a video is placed).
+struct VideoSettings {
+  bool autoplay = false;
+  bool loop = false;
+  bool muted = false;
+};
+
 struct Flow {
   Guid node = kNoGuid;
   std::string name, description, position;
@@ -113,6 +134,9 @@ OverlaySettings overlaySettings(const NodeProps& p);
 bool flowStart(const NodeProps& p, Flow& out);  // the node's prototypeStartingPoint
 Device device(const NodeProps& page);
 Color background(const NodeProps& page);  // prototypeBackgroundColor (absent: Figma's #1E1E1E)
+VideoSettings videoSettings(const NodeProps& p);
+// The layer's first visible VIDEO fill (its index in fillPaints), −1 when it has none.
+int videoFill(const NodeProps& p);
 // The page's flows in their order (prototypeStartingPoint.position), top-level frames only.
 std::vector<Flow> flows(const Document& doc, Guid page);
 
@@ -134,5 +158,7 @@ double durationOf(const Action& a);
 
 // Every destination of an action and its conditional branches (navigate / overlay / swap / change to / scroll to).
 void destinations(const Action& a, std::vector<std::pair<Navigation, Guid>>& out);
+// The videos the action and its branches act on (UPDATE_MEDIA_RUNTIME's `dest`).
+void mediaTargets(const Action& a, std::vector<Guid>& out);
 
 }  // namespace eng::proto

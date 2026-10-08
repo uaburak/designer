@@ -41,6 +41,8 @@ struct ImageHints {
   uint32_t originalWidth = 0, originalHeight = 0;
 };
 ImageHints imageHints(const Paint& paint);
+// A VIDEO paint's video file (Paint.video.hash, kept in Paint.extra); absent for other paints.
+ImageHash paintVideoHash(const Paint& paint);
 
 class ImageRegistry {
  public:
@@ -55,6 +57,10 @@ class ImageRegistry {
     Bytes rgba;             // or premultiplied RGBA8 pixels
     uint32_t width = 0, height = 0;
     bool failed = false;
+    // A live source (a playing video, Module.engineBitmaps[bitmapId] is its <video>): `serial` moves with each new
+    // frame and the texture is written again from the same source (no mipmaps).
+    bool live = false;
+    uint32_t serial = 0;
   };
 
   static ImageRegistry& get();
@@ -63,6 +69,9 @@ class ImageRegistry {
   const Source* find(const ImageHash& hash, double devicePx = 0, const ImageHints* hints = nullptr);
   void addBitmap(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height);
   void addRgba(const ImageHash& hash, uint32_t width, uint32_t height, Bytes premultiplied);
+  // A live source's new frame (a video playing in a presentation): registered on first use, then `serial` bumped.
+  // `rgba` (tests, Node) instead of a bitmap when given. No REQUEST_IMAGE is ever made for these hashes.
+  void addLiveFrame(const ImageHash& hash, uint32_t bitmapId, uint32_t width, uint32_t height, Bytes rgba = {});
   void fail(const ImageHash& hash);
   // Asks for an image again (its texture was evicted and its source dropped).
   void forget(const ImageHash& hash);
@@ -106,6 +115,7 @@ class ImageCache {
     Texture texture;
     uint64_t bytes = 0;
     uint64_t lastFrame = 0;
+    uint32_t serial = 0;  // a live source's frame uploaded
   };
   gfx::Device& device_;
   std::unordered_map<ImageHash, Entry, ImageHashKey> textures_;

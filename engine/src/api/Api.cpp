@@ -2676,6 +2676,29 @@ ENG_EXPORT int32_t engine_present_set_options(Handle h, Ptr ptr, uint32_t len) {
   return OK;
 }
 
+// The videos the presentation shows and what each should do (Player::mediaJson): {"videos": [{id, hash, playing,
+// muted, loop, time, duration, ended, seek, seekSerial}]}. The page plays them (a <video> per id) and reports back with
+// engine_present_media_frame.
+ENG_EXPORT int32_t engine_present_media(Handle h) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (!e->player) return setResult("{\"videos\":[]}");
+  return setResult(e->player->mediaJson());
+}
+
+// A video's report: its time and length (seconds), flags 1 = ended, the last seek it made (`seekSerial`), and a new
+// frame — Module.engineBitmaps[bitmapId] is its <video> (0: no new frame), width × height its size. The frame is drawn
+// in place of the poster; the time fires "When video hits" / "When video ends".
+ENG_EXPORT int32_t engine_present_media_frame(Handle h, uint32_t sessionID, uint32_t localID, uint32_t bitmapId, uint32_t width, uint32_t height,
+                                              double time, double duration, uint32_t flags, uint32_t seekSerial) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e || !e->presenting()) return E_HANDLE;
+  e->player->mediaFrame(Guid{sessionID, localID}, bitmapId, width, height, time, duration, (flags & 1) != 0, seekSerial);
+  return OK;
+}
+
 // The presentation's state (stateJson) and the events since the last call: {…, "events": [{"type": "CHANGED"} |
 // {"type": "OPEN_URL", "url", "newTab"}]}.
 ENG_EXPORT int32_t engine_present_state(Handle h) {
