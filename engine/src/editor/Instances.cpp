@@ -438,6 +438,15 @@ void Editor::expandChildren(Expansion& ex, Guid symbol, Guid sourceParent, Guid 
       p.comp().symbolData.symbolID = main;
       std::vector<ComponentPropAssignment> nested = swapped ? std::vector<ComponentPropAssignment>{} : xn->props.comp().componentPropAssignments;
       ex.stack.assignments(path, nested);
+      // Exposed nested instances (Figma's "Expose properties from nested instances"): the instance above holds values
+      // for this one's properties; they win over its own.
+      if (const std::vector<ComponentPropDef>* defs = mn ? defsOf(main) : nullptr)
+        for (const ComponentPropAssignment& a : assigns) {
+          if (std::none_of(defs->begin(), defs->end(), [&](const ComponentPropDef& d) { return d.id == a.defID; })) continue;
+          auto at = std::find_if(nested.begin(), nested.end(), [&](const ComponentPropAssignment& b) { return b.defID == a.defID; });
+          if (at != nested.end()) *at = a;
+          else nested.push_back(a);
+        }
       p.comp().componentPropAssignments = nested;
       p.parentIndex = {parentRow, xn->props.parentIndex.position};
       p.transform = xn->props.transform;
