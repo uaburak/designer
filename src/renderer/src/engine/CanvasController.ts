@@ -1,9 +1,10 @@
 /**
  * Wires a <canvas> to an Engine: pointer events (with capture), the wheel
  * (pinch arrives as ctrlKey + wheel), keys (the engine first, then the
- * shortcut table), focus, the canvas's size in CSS and device pixels, cursors
- * and WebGL context loss. Every event goes straight to the engine — no React
- * state on the way, so input latency is one call.
+ * shortcut table), focus, the canvas's size in CSS and device pixels, cursors,
+ * WebGL context loss and the move to a new canvas after a WebGPU failure.
+ * Every event goes straight to the engine — no React state on the way, so
+ * input latency is one call.
  *
  * Text editing (docs/engine.md §7.6): while the engine edits a text
  * (TEXT_EDIT active) a hidden <textarea> sits at the caret and has the focus,
@@ -49,7 +50,7 @@ export interface CanvasControllerOptions {
 }
 
 export class CanvasController {
-  private readonly canvas: HTMLCanvasElement;
+  private canvas: HTMLCanvasElement;
   private readonly engine: Engine;
   private readonly shortcuts: readonly Shortcut[];
   private readonly cleanups: (() => void)[] = [];
@@ -80,6 +81,14 @@ export class CanvasController {
     this.listen(c, "contextmenu", (e: Event) => e.preventDefault());
     this.listen(c, "webglcontextlost", this.onContextLost);
     this.listen(c, "webglcontextrestored", this.onContextRestored);
+    // A WebGPU failure moves the engine to a fresh canvas (Engine.gfxFallback): input follows it.
+    this.cleanups.push(
+      this.engine.onCanvasChange((fresh) => {
+        this.detach();
+        this.canvas = fresh;
+        this.attach();
+      })
+    );
     this.listen(window, "blur", this.onBlur);
     this.cleanups.push(this.engine.onCursor((kind, angle) => (c.style.cursor = cssCursor(kind, angle))));
     this.cleanups.push(this.engine.on("TEXT_EDIT", (e) => this.onTextEdit(e.active, e.caretRectCss)));

@@ -19,6 +19,12 @@ export interface EngineWasm {
   HEAPF64: Float64Array;
   /** ImageBitmaps the engine uploads from JavaScript (engine_image_add_bitmap), by id. Set by Engine.ts. */
   engineBitmaps?: Record<number, ImageBitmap>;
+  /** The GPUDevice a WebGPU canvas engine draws with (engine/src/gfx/wgpu; requested by gfx.ts before engine_create). */
+  engineGpuDevice?: unknown;
+  /** The canvas's colour space under WebGPU ("srgb" | "display-p3"), as Engine.ts sets the WebGL canvas's. */
+  engineColorSpace?: string;
+  /** A WebGPU device failed (lost, or its self test): the engine drawing into `selector` moves to WebGL2. */
+  onEngineGfxFailure?: (selector: string, reason: string) => void;
   _malloc(size: number): number;
   _free(ptr: number): void;
   [exported: `_engine_${string}`]: (...args: number[]) => number;

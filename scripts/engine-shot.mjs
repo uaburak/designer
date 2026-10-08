@@ -8,9 +8,12 @@
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
 //   SHOT_ONLY=e8 npm run engine:shot    only the prototyping checks (noodles, the presentation view)
+//   npm run engine:shot -- --gfx webgpu  the same checks on the WebGPU backend (default --gfx webgl; SHOT_GFX too)
 //
 // Chromium: Google Chrome if installed, else Playwright's cached Chromium
-// (CHROMIUM=/path overrides). Software GL (SwiftShader) for determinism.
+// (CHROMIUM=/path overrides). WebGL: software GL (SwiftShader) for determinism. WebGPU: the real GPU (Metal on
+// macOS; headless Chrome needs --enable-unsafe-webgpu, SwiftShader's WebGPU adapter is a fallback adapter the engine
+// refuses). The run stops after SHOT_TIMEOUT seconds (default 180).
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -20,7 +23,10 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outDir = path.resolve(process.argv[2] ?? path.join(tmpdir(), "engine-shots"));
+const args = process.argv.slice(2);
+const gfxAt = args.indexOf("--gfx");
+const gfx = (gfxAt >= 0 ? args.splice(gfxAt, 2)[1] : process.env.SHOT_GFX) === "webgpu" ? "webgpu" : "webgl";
+const outDir = path.resolve(args[0] ?? path.join(tmpdir(), gfx === "webgpu" ? "engine-shots-webgpu" : "engine-shots"));
 mkdirSync(outDir, { recursive: true });
 
 function chromiumPath() {
@@ -50,8 +56,18 @@ const url = server.resolvedUrls.local[0];
 
 const browser = await chromium.launch({
   executablePath: chromiumPath(),
-  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
+  args:
+    gfx === "webgpu"
+      ? ["--enable-unsafe-webgpu", "--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"]
+      : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
+// The machine is someone's: a hung run doesn't keep a browser (and its GPU memory) around.
+const hardStop = setTimeout(async () => {
+  console.error(`engine-shot: stopped after ${process.env.SHOT_TIMEOUT ?? 180} s`);
+  await browser.close().catch(() => {});
+  process.exit(2);
+}, Number(process.env.SHOT_TIMEOUT ?? 180) * 1000);
+hardStop.unref();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
 const problems = [];
 page.on("console", (m) => {
@@ -854,9 +870,11 @@ async function e8Checks(files) {
 }
 
 try {
-  await page.goto(url);
+  await page.goto(`${url}?gfx=${gfx === "webgpu" ? "webgpu" : "webgl"}`);
   await page.waitForFunction(() => window.__designerEngine && !window.__designerEngine.destroyed, null, { timeout: 15000 });
   await settle();
+  const backend = await engine(() => window.__designerEngine.gfx);
+  check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
   if (only === "e4" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
