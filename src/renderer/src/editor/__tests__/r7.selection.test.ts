@@ -44,7 +44,7 @@ describe("round 7: live Figma's keys and menus", () => {
     expect(pressed("arrange.tidy-up", key("KeyT", { ctrlKey: true, altKey: true }))).toBe(true);
     expect(pressed("vector.flatten", key("KeyF", { altKey: true, shiftKey: true }))).toBe(true);
     expect(pressed("view.minimize-ui", key("Backslash", { metaKey: true, shiftKey: true }))).toBe(true);
-    expect(comboText(COMMAND_BY_ID.get("view.pixel-grid")!.keys![0])).toContain("'");
+    expect(comboText(COMMAND_BY_ID.get("view.pixel-grid")!.keys![0])).toContain("′");  // live: "⇧′"
   });
 
   it("paste modes: ⇧⌘V in place above the selection, ⇧⌘R replacing it", () => {

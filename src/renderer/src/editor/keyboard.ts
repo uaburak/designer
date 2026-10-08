@@ -22,8 +22,15 @@ export function isEditable(target: EventTarget | null): boolean {
   return !!target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']");
 }
 
-/** Overlays (menus, popovers, dialogs) handle their own keys. */
-const inOverlay = (target: EventTarget | null) => target instanceof Element && !!target.closest("#ds-overlays, [role='dialog'], [role='menu'], [role='listbox']");
+/**
+ * Overlays (menus, popovers, dialogs) handle their own keys. A panel's own list (the Pages list, Find's results:
+ * `data-keys="panel"`) is no overlay: the editor's shortcuts work with a page row focused (Figma).
+ */
+export const inOverlay = (target: EventTarget | null) => {
+  if (!(target instanceof Element)) return false;
+  const at = target.closest("#ds-overlays, [role='dialog'], [role='menu'], [role='listbox']");
+  return !!at && !(at.getAttribute("role") === "listbox" && at.getAttribute("data-keys") === "panel");
+};
 
 /** A focused control whose Enter / Space are its own (a button, a tab, a segment). */
 const isControl = (target: EventTarget | null) =>

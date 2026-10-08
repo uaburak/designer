@@ -261,20 +261,21 @@ export const size = {
   control: 24,
   "control-large": 32,
   row: 32,
-  "layer-row": 24,
+  "layer-row": 32, // live: the Layers pitch (the highlight 24, inset 4)
   "section-header": 40,
   field: 88,
   "panel-pad-left": 16,
   "panel-pad-right": 8,
   "row-inset": 8,
-  "layer-indent": 16, // G
+  "layer-indent": 24, // live: a level moves the glyph 24
   panel: 240,
   "panel-min": 240,
   "panel-max": 480, // G
   "panel-header": 64,
   "right-header": 80,
-  rail: 48,
-  "rail-item": 32,
+  rail: 56, // live: the navigation bar (a 1px line after it)
+  "rail-item": 56, // live: a tab button, 56 × 56 (tile + label)
+  "rail-tile": 32,
   tabbar: 38,
   "tab-home": 40,
   "tab-min": 72, // G
@@ -293,6 +294,9 @@ export const size = {
   "dialog-small": 320, // G
   "dialog-medium": 480, // G
   "dialog-large": 640, // G
+  "rename-preview": 128, // live: Rename layers' Preview column (fields 160 in)
+  "rename-list": 240, // Rename layers' Preview list before it scrolls
+  "field-narrow": 40, // live: Rename layers' "Start ascending from" field
   "home-topbar": 48,
   "home-sidebar": 240, // G
   "home-nav": 28,
@@ -324,11 +328,13 @@ export const fontFamily = {
 
 export type TextStyle = { size: number; line: number; weight: number; tracking: string; mono?: boolean };
 
-/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. Only 450 / 550 (400 for mono). */
+/** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. 450 / 550; 400 for mono and for the live capture's layer and page names. */
 export const text = {
   "body-small": { size: 9, line: 14, weight: 450, tracking: "0.045px" },
   "body-medium": { size: 11, line: 16, weight: 450, tracking: "0.055px" },
   "body-medium-strong": { size: 11, line: 16, weight: 550, tracking: "0.055px" },
+  /** Live capture: layer and page names, Find's results and counts are 11px / 400 */
+  "body-medium-regular": { size: 11, line: 16, weight: 400, tracking: "0.055px" },
   "body-ruler": { size: 10, line: 12, weight: 450, tracking: "0.05px" },
   menu: { size: 12, line: 16, weight: 450, tracking: "0px" },
   "body-large": { size: 13, line: 22, weight: 450, tracking: "-0.0325px" },

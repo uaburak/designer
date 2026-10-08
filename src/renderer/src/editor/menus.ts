@@ -21,7 +21,8 @@ export function commandItem(ed: EditorController, id: string, label?: string): M
   return { id, label: label ?? c.label, shortcut: shortcutOf(c), disabled: !isEnabled(ed, c), checked: c.checked ? c.checked(ed) : undefined };
 }
 
-type Spec = string | "-" | { label: string; items: Spec[] } | ((ed: EditorController) => MenuEntry | null);
+/** A command, a line, a submenu, a command under another label (`{ id, label }`), or an item built when the menu opens. */
+type Spec = string | "-" | { label: string; items: Spec[] } | { id: string; label: string } | ((ed: EditorController) => MenuEntry | null);
 
 function build(ed: EditorController, specs: Spec[], prefix: string): MenuEntry[] {
   return specs.flatMap((s, i): MenuEntry[] => {
@@ -31,6 +32,7 @@ function build(ed: EditorController, specs: Spec[], prefix: string): MenuEntry[]
       const e = s(ed);
       return e ? [e] : [];
     }
+    if ("id" in s) return [commandItem(ed, s.id, s.label)];
     const items = build(ed, s.items, `${prefix}${i}.`);
     return [{ id: `submenu:${prefix}${i}`, label: s.label, items, disabled: !items.some((e) => typeof e === "object" && "id" in e && !e.disabled) }];
   });
@@ -102,7 +104,11 @@ function componentEntries(ed: EditorController): Spec[] {
   return out;
 }
 
-/** Figma's menus, in Figma's order (the UI3 main menu as live Figma has it: docs/research/figma/live/menus/main-*.txt). */
+/**
+ * Figma's menus, in Figma's order: the Figma menu as the live app shows it (docs/research/figma/live/menus:
+ * main-menu, main-file, main-edit, main-view, main-view-panels, main-preferences, main-help) — items not built yet
+ * are listed disabled.
+ */
 export const MAIN_MENU: Spec[] = [
   "file.back-to-files",
   "-",
@@ -110,7 +116,23 @@ export const MAIN_MENU: Spec[] = [
   "-",
   {
     label: "File",
-    items: ["file.new", "-", "file.place-image", "-", "file.rename", "file.duplicate", "file.move", "-", "file.save-version", "file.version-history", "-", "file.libraries", "file.publish-library", "-", "file.export", "file.export-frames-to-pdf", "-", "file.share-preview"],
+    items: [
+      { id: "file.new", label: "New Design" },
+      "-",
+      { id: "file.place-image", label: "Place image/video…" },
+      "-",
+      "file.duplicate",
+      "file.save-local-copy",
+      "file.save-version",
+      "file.version-history",
+      "-",
+      "file.export",
+      "file.export-frames-to-pdf",
+      "-",
+      "file.create-branch",
+      "-",
+      "file.share-preview",
+    ],
   },
   {
     label: "Edit",
@@ -118,7 +140,7 @@ export const MAIN_MENU: Spec[] = [
       "edit.undo",
       "edit.redo",
       "-",
-      { label: "Copy as", items: ["edit.copy-as-text", "edit.copy-as-code", "edit.copy-as-svg", "edit.copy-as-png"] },
+      { label: "Copy as", items: ["edit.copy-as-png", "edit.copy-as-svg", "edit.copy-as-code", "edit.copy-as-text"] },
       "edit.paste-over-selection",
       "edit.paste-to-replace",
       "edit.duplicate",
@@ -127,7 +149,7 @@ export const MAIN_MENU: Spec[] = [
       "edit.find",
       "edit.find-next",
       "edit.find-previous",
-      "edit.find-and-replace",
+      "edit.find-replace",
       "-",
       "edit.set-default-properties",
       "edit.copy-properties",
@@ -159,15 +181,25 @@ export const MAIN_MENU: Spec[] = [
       "view.mask-outlines",
       "view.frame-outlines",
       "view.memory-usage",
-      "-",
       "view.property-labels",
-      "view.minimize-left-navigation",
+      "-",
+      "view.additional-labels",
+      "view.minimize-left-nav",
       "view.minimize-ui",
       "view.toggle-ui",
       "view.multiplayer-cursors",
       "view.switch-to-draw",
       "view.dev-mode",
-      { label: "Panels", items: ["view.layers", "view.assets", "view.local-variables"] },
+      {
+        label: "Panels",
+        items: [
+          { id: "view.layers", label: "Open layers panel" },
+          { id: "view.assets", label: "Libraries" },
+          "view.design-panel",
+          "view.prototype-panel",
+          { id: "view.local-variables", label: "Toggle variables" },
+        ],
+      },
       "-",
       "view.zoom-in",
       "view.zoom-out",
@@ -225,6 +257,7 @@ export const MAIN_MENU: Spec[] = [
       "object.toggle-visible",
       "object.toggle-lock",
       "object.hide-other-layers",
+      "view.collapse-layers",
       "object.rename",
       "-",
       "object.remove-fill",
@@ -270,8 +303,20 @@ export const MAIN_MENU: Spec[] = [
     items: ["vector.union", "vector.subtract", "vector.intersect", "vector.exclude", "-", "vector.flatten", "vector.outline-stroke"],
   },
   "-",
-  { label: "Preferences", items: ["theme.light", "theme.dark", "theme.system"] },
-  "file.libraries",
+  { label: "Plugins", items: ["plugins.run-last", "plugins.manage"] },
+  { label: "Widgets", items: ["widgets.manage"] },
+  {
+    label: "Preferences",
+    items: [
+      "view.snap-pixel-grid",
+      "prefs.highlight-on-hover",
+      "-",
+      { label: "Theme", items: ["theme.light", "theme.dark", "theme.system"] },
+      "prefs.color-profile",
+      "prefs.nudge-amount",
+    ],
+  },
+  { id: "file.libraries", label: "Libraries" },
   "-",
   { label: "Help and account", items: ["help.shortcuts"] },
 ];

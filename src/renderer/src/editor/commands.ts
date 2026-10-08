@@ -19,6 +19,8 @@ import { textSummary, toggledBold, toggledItalic } from "./model/text";
 import { fields } from "./panels/design/shared";
 import type { Guid } from "@/engine/codec";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
+import { collapsedLayers } from "./model/layerTree";
+import { openFind, stepFind } from "./find";
 
 export interface KeyCombo {
   /** KeyboardEvent.code */
@@ -50,9 +52,9 @@ const KEY_LABEL: Record<string, string> = {
   BracketRight: "]",
   Backslash: "\\",
   Equal: "+",
-  Minus: "-",
+  Minus: "–", // live: Zoom out ⌘–
   Slash: "/",
-  Quote: "'",
+  Quote: "′", // live menus: ⇧′, ⇧⌘′
   Comma: ",",
   Period: ".",
   Backspace: "backspace",
@@ -307,10 +309,11 @@ export const COMMANDS: EditorCommand[] = [
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
   later("edit.copy-properties", "Copy properties", [k("KeyC", { mod: true, alt: true })]),
   later("edit.paste-properties", "Paste properties", [k("KeyV", { mod: true, alt: true })]),
-  later("edit.find", "Find", [k("KeyF", { mod: true })]),
-  later("edit.find-next", "Find next", [k("KeyF", { mod: true, shift: true })]),
-  later("edit.find-previous", "Find previous", [k("KeyD", { mod: true, shift: true })]),
-  later("edit.find-and-replace", "Find and replace…"),
+  // Find and replace (the left panel's Find; Edit menu wording and keys from the live capture).
+  ui("edit.find", "Find", [k("KeyF", { mod: true })], (ed) => openFind(ed)),
+  { id: "edit.find-next", label: "Find next", keys: [k("KeyF", { mod: true, shift: true })], run: (ed) => stepFind(ed, 1), enabled: (ed) => !!ed.ui.get().find?.query },
+  { id: "edit.find-previous", label: "Find previous", keys: [k("KeyD", { mod: true, shift: true })], run: (ed) => stepFind(ed, -1), enabled: (ed) => !!ed.ui.get().find?.query },
+  ui("edit.find-replace", "Find and replace…", undefined, (ed) => openFind(ed, { replace: true })),
   later("edit.set-default-properties", "Set default properties"),
   later("edit.pick-color", "Pick color", [k("KeyC", { ctrl: true })]),
   engine("edit.select-all", "Select all", "SELECT_ALL", [k("KeyA", { mod: true })]),
@@ -328,7 +331,15 @@ export const COMMANDS: EditorCommand[] = [
 
   // ---- View ----
   ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
+  // ⇧⌘\ (the live View menu; help "Navigate the left sidebar": collapses the navigation bar and both sidebars).
   ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
+  // View › Additional labels: the navigation bar's tab names (on by default).
+  ui("view.additional-labels", "Additional labels", undefined, (ed) => ed.ui.set((s) => ({ railLabels: s.railLabels === false })), (ed) => ed.ui.get().railLabels !== false),
+  later("view.minimize-left-nav", "Minimize left navigation bar"),
+  // Object › Collapse layers (⌥L): every expanded layer closes but the selection's branch.
+  ui("view.collapse-layers", "Collapse layers", [k("KeyL", { alt: true })], (ed) => ed.ui.set((s) => ({ expanded: collapsedLayers(ed.getTree(), ed.selection, s.expanded) }))),
+  // Preferences › Highlight layers on hover (on by default).
+  ui("prefs.highlight-on-hover", "Highlight layers on hover", undefined, (ed) => ed.ui.set((s) => ({ highlightOnHover: s.highlightOnHover === false })), (ed) => ed.ui.get().highlightOnHover !== false),
   ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => ed.ui.set((s) => ({ rulers: !s.rulers })), (ed) => ed.ui.get().rulers),
   ui("view.property-labels", "Property labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
   // View › Annotations (help.figma.com 20774752502935; ⇧Y per a user report, unverified).
@@ -344,7 +355,6 @@ export const COMMANDS: EditorCommand[] = [
   later("view.mask-outlines", "Mask outlines"),
   later("view.frame-outlines", "Frame outlines"),
   later("view.memory-usage", "Memory usage"),
-  later("view.minimize-left-navigation", "Minimize left navigation bar"),
   later("view.multiplayer-cursors", "Multiplayer cursors", [k("Backslash", { mod: true, alt: true })]),
   later("view.switch-to-draw", "Switch to Draw"),
   engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
@@ -365,7 +375,12 @@ export const COMMANDS: EditorCommand[] = [
   // ---- Panels ----
   ui("view.layers", "Layers", [k("Digit1", { alt: true })], (ed) => ed.ui.set({ railTab: "file", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "file"),
   ui("view.assets", "Assets", [k("Digit2", { alt: true })], (ed) => ed.ui.set({ railTab: "assets", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "assets"),
-  ui("view.local-variables", "Local variables", undefined, (ed) => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen, uiHidden: false })), (ed) => ed.ui.get().variablesOpen),
+  // The navigation bar's Variables (Figma 2026: the variables view moved there from the right sidebar).
+  ui("view.local-variables", "Variables", undefined, (ed) => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen, uiHidden: false })), (ed) => ed.ui.get().variablesOpen),
+  ui("view.agents", "Agents", undefined, (ed) => ed.ui.set({ railTab: "agents", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "agents"),
+  ui("view.tools", "Tools", undefined, (ed) => ed.ui.set({ railTab: "tools", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "tools"),
+  ui("view.design-panel", "Open design panel", [k("Digit8", { alt: true })], (ed) => ed.ui.set({ rightTab: "design", uiHidden: false, uiMinimized: false })),
+  ui("view.prototype-panel", "Open prototype panel", [k("Digit9", { alt: true })], (ed) => ed.ui.set({ rightTab: "prototype", uiHidden: false, uiMinimized: false })),
 
   // ---- Object ----
   engine("object.group", "Group selection", "GROUP", [k("KeyG", { mod: true })]),
@@ -459,8 +474,11 @@ export const COMMANDS: EditorCommand[] = [
     label: "Rename",
     keys: [k("KeyR", { mod: true })],
     run: (ed) => {
-      const first = ed.selection[0];
-      if (first) ed.ui.set({ railTab: "file", renaming: { kind: "layer", id: first }, uiHidden: false, uiMinimized: false });
+      const refs = ed.selection;
+      // Several layers: Figma's "Rename layers" dialog (rename to, match / replace, current name and numbers).
+      if (refs.length > 1) return ed.ui.set({ renameLayers: [...refs], renaming: null });
+      const first = refs[0];
+      if (first) ed.ui.set({ railTab: "file", find: null, renaming: { kind: "layer", id: first }, uiHidden: false, uiMinimized: false });
     },
     enabled: hasSelection,
   },
@@ -534,6 +552,15 @@ export const COMMANDS: EditorCommand[] = [
   },
   later("file.duplicate", "Duplicate"),
   later("file.move", "Move to project…"),
+  later("file.save-local-copy", "Save local copy…"),
+  later("file.create-branch", "Create branch…"),
+  later("file.color-profile", "Color profile…"),
+  // The Figma menu's Plugins, Widgets and Preferences items not built (shown as Figma lists them, disabled).
+  later("plugins.run-last", "Run last plugin", [k("KeyP", { mod: true, alt: true })]),
+  later("plugins.manage", "Manage plugins…"),
+  later("widgets.manage", "Manage widgets…"),
+  later("prefs.color-profile", "Color profile…"),
+  later("prefs.nudge-amount", "Nudge amount…"),
   {
     id: "file.save-version",
     label: "Save to version history…",

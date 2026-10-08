@@ -264,15 +264,14 @@ describe.each(["engine", "fallback"] as const)("variables and styles on the engi
     expect(ed.variables.get().style(text)?.node.fontSize).toBe(12);
   });
 
-  it("the menus open Local variables", async () => {
+  it("the navigation bar's Variables and View › Panels › Toggle variables open the variables", async () => {
     const { ed } = await editor();
-    expect(command("view.local-variables").label).toBe("Local variables");
+    expect(command("view.local-variables").label).toBe("Variables");
     runEditorCommand(ed, "view.local-variables");
     expect(ed.ui.get().variablesOpen).toBe(true);
-    // View ▸ Panels ▸ Local variables (live Figma's View menu).
-    const view = mainMenu(ed).find((e) => typeof e === "object" && "label" in e && e.label === "View") as { items: { id: string; label?: string; items?: { id: string }[] }[] };
+    const view = mainMenu(ed).find((e) => typeof e === "object" && "label" in e && e.label === "View") as { items: { id: string; label: string; items?: { id: string; label: string }[] }[] };
     const panels = view.items.find((i) => i.label === "Panels");
-    expect(panels?.items?.some((i) => i.id === "view.local-variables")).toBe(true);
+    expect(panels?.items?.find((i) => i.id === "view.local-variables")?.label).toBe("Toggle variables");
   });
 });
 
