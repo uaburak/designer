@@ -114,3 +114,32 @@ describe("restoreTabs", () => {
     expect(restoreTabs(null)).toEqual(emptyTabs());
   });
 });
+
+describe("prototype tabs (Present, R8 §9)", () => {
+  it("one per file and starting frame, beside the file's own tab; closed and reopened with their place; kept between launches", () => {
+    let s = tabsReducer(emptyTabs(), { type: "open", fileKey: "F1", title: "App", id: "t1" });
+    s = tabsReducer(s, { type: "open", kind: "prototype", fileKey: "F1", title: "App", pageId: "0:1", startNodeId: "2:1", id: "p1" });
+    expect(s.tabs.map((t) => [t.id, t.kind])).toEqual([["t1", "file"], ["p1", "prototype"]]);
+    expect(s.tabs[1]).toMatchObject({ pageId: "0:1", startNodeId: "2:1" });
+    expect(s.active).toBe("p1");
+    // The file again: its own tab, not the prototype's.
+    s = tabsReducer(s, { type: "open", fileKey: "F1" });
+    expect(s.active).toBe("t1");
+    // The same prototype again: the same tab; another start: another tab.
+    s = tabsReducer(s, { type: "open", kind: "prototype", fileKey: "F1", pageId: "0:1", startNodeId: "2:1" });
+    expect(s.active).toBe("p1");
+    s = tabsReducer(s, { type: "open", kind: "prototype", fileKey: "F1", pageId: "0:1", startNodeId: "2:10", id: "p2" });
+    expect(s.tabs).toHaveLength(3);
+    // Kept and restored.
+    const kept = restoreTabs(JSON.parse(JSON.stringify(persistable(s))));
+    expect(kept.tabs.map((t) => [t.kind, t.startNodeId ?? null])).toEqual([["file", null], ["prototype", "2:1"], ["prototype", "2:10"]]);
+    // Closed, then ⇧⌘T brings it back as a prototype tab.
+    s = tabsReducer(s, { type: "close", ids: ["p1"] });
+    expect(s.closed[0]).toMatchObject({ kind: "prototype", fileKey: "F1", startNodeId: "2:1" });
+    s = tabsReducer(s, { type: "reopen", id: "p3" });
+    expect(s.tabs.find((t) => t.id === "p3")).toMatchObject({ kind: "prototype", startNodeId: "2:1", pageId: "0:1" });
+    // A file trashed: its prototype tabs go too.
+    s = tabsReducer(s, { type: "drop-file", fileKey: "F1" });
+    expect(s.tabs).toEqual([]);
+  });
+});

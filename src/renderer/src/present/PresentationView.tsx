@@ -256,6 +256,8 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
       <div className={styles.stage}>
         <canvas
           ref={canvasRef}
+          // Its own id: the engine finds its canvas by selector, and the editor's is "engine-canvas".
+          id="present-canvas"
           className={styles.canvas}
           tabIndex={0}
           aria-label="Prototype"

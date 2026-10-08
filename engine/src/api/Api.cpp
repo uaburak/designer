@@ -930,7 +930,11 @@ ENG_EXPORT int32_t engine_read_nodes(Handle h, Ptr ptr, uint32_t len, uint32_t f
   if (const json::Value* fields = v.isArray() ? nullptr : v.get("fields"); fields && fields->isArray()) {
     mask = 0;
     for (auto& f : fields->array)
-      if (f.isString()) mask |= codec::fieldOfKey(f.string);
+      if (f.isString()) {
+        FieldMask m = codec::fieldOfKey(f.string);
+        // A key the engine doesn't model (prototypeStartingPoint, exportSettings…): the unmodelled fields it keeps.
+        mask |= m ? m : (codec::fieldIdOf("NodeChange", f.string) ? static_cast<FieldMask>(F_EXTRA) : 0);
+      }
   }
   std::vector<Guid> refs = readRefs(v);
   for (Guid id : refs) ed.derivePageOf(id);

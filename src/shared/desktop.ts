@@ -77,6 +77,8 @@ export interface NavApi {
   openFile(file: OpenWorkspaceFile): Promise<OpenFileResult>;
   /** A new design file (Drafts when folderId is null), created by main through the store and opened. */
   newFile(folderId?: string | null, name?: string): Promise<NewFileResult>;
+  /** Present (R8 §9): the file's presentation view in a new tab (one per file and starting frame; editors only). */
+  openPrototype?(fileKey: string, pageId: string, startNodeId?: string, title?: string): Promise<OpenFileResult>;
 }
 
 /** Native file dialogs and paths (docs/desktop.md §10.2 "Files and native dialogs"). */

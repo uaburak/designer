@@ -13,6 +13,7 @@
 //   EDITOR_ONLY=components node …                                  (only the E6 section: components, instances, Assets)
 //   EDITOR_ONLY=variables node …                                   (only the variables / modes / styles section)
 //   EDITOR_ONLY=libraries node …                                   (only the libraries section: publish, enable, insert, update)
+//   EDITOR_ONLY=prototype node …                                   (only the E8 section: Prototype tab, noodles, presentation view)
 /* global process, console, window, requestAnimationFrame */
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -813,7 +814,167 @@ async function librariesSection(page, theme) {
   await shot(page, `89-updated-all-${theme}`);
 }
 
+/** E8 on `?editor&doc=prototype` (dark): the Prototype tab, interaction details, noodles and a noodle drag, flows, and the presentation view (in this tab, and the `?present` route on a store file). */
+async function prototypeSection(page, theme) {
+  await open(page, "&doc=prototype");
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (...ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const interactions = async (id) => ((await node(page, id)).prototypeInteractions ?? []).filter((i) => !i.isDeleted);
+  await page.evaluate(() => window.__designerEditor.engine.command("ZOOM_TO_FIT"));
+  await panel.getByRole("tab", { name: "Prototype" }).click();
+  await settle(page);
+  // Nothing selected: Device, Background, Flows.
+  check("Prototype tab, nothing selected: Device, Background, Flows", (await panel.getByRole("region", { name: "Device" }).count()) === 1 && (await panel.getByRole("region", { name: "Background" }).count()) === 1 && (await panel.getByRole("region", { name: "Flows" }).count()) === 1);
+  check("Flows lists the page's flow", (await panel.locator("[data-flow]").getByText("Onboarding").count()) === 1);
+  await shot(page, `90-prototype-tab-${theme}`);
+
+  // A hotspot: its interaction row; the details.
+  await select("2:4");
+  const row = panel.locator("[data-interaction]").first();
+  check("an interaction row reads On click · Details", (await row.getByText("On click").count()) === 1 && (await row.getByText("Details").count()) === 1);
+  check("Scroll behavior: Position for a layer in a frame", (await panel.getByRole("region", { name: "Scroll behavior" }).getByText("Position").count()) === 1);
+  await shot(page, `91-prototype-hotspot-${theme}`);
+  await row.getByRole("button").first().click();
+  await settle(page);
+  const details = page.getByRole("dialog", { name: "Interaction details" });
+  check("Interaction details: the trigger, the action, its destination, Smart animate", (await details.count()) === 1 && (await details.getByText("Smart animate").count()) >= 1 && (await details.getByText("Navigate to").count()) >= 1);
+  await shot(page, `92-interaction-details-${theme}`);
+  // Animation → Move in: MOVE_FROM_RIGHT (Figma's ← default), then undo.
+  await details.getByRole("combobox", { name: "Animation" }).click();
+  await page.getByRole("option", { name: "Move in" }).click();
+  await settle(page);
+  check("Move in ← is stored as MOVE_FROM_RIGHT", (await interactions("2:4"))[0].actions[0].transitionType === "MOVE_FROM_RIGHT", JSON.stringify((await interactions("2:4"))[0].actions[0]));
+  await shot(page, `93-interaction-move-in-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.focusCanvas());
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  check("undo puts Smart animate back", (await interactions("2:4"))[0].actions[0].transitionType === "SMART_ANIMATE");
+
+  // The canvas: noodles, the flow label, a "+" handle; a drag from it to a frame connects them.
+  await select("2:5");
+  await shot(page, `94-noodles-${theme}`);
+  const from = await toScreen(page, 351, 60);
+  const to = await toScreen(page, 475 + 187, 500);
+  await drag(page, from, to, 12);
+  await settle(page);
+  const after = await interactions("2:5");
+  check("dragging the + handle to Details adds On click → Navigate to Details", after.length === 2 && after[1].actions[0].navigationType === "NAVIGATE" && after[1].actions[0].transitionNodeID?.localID === 10, JSON.stringify(after[1] ?? null));
+  check("the new connection's details open", (await page.getByRole("dialog", { name: "Interaction details" }).count()) === 1);
+  await shot(page, `95-noodle-connected-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.focusCanvas());
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  check("one undo takes the new connection back", (await interactions("2:5")).length === 1);
+
+  // A top-level frame: Flow starting point "+".
+  await select("2:10");
+  await panel.getByRole("button", { name: "Add starting point" }).click();
+  await settle(page);
+  check("+ adds a flow starting point named Flow 2", (await node(page, "2:10")).prototypeStartingPoint?.name === "Flow 2", JSON.stringify((await node(page, "2:10")).prototypeStartingPoint ?? null));
+  await shot(page, `96-flow-starting-point-${theme}`);
+  await page.keyboard.press("Meta+z");
+
+  // Present in this tab: the player over the editor. Next's Smart animate made slow and linear (2 s) for the shot.
+  await select();
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const list = ed.engine.readNode("2:4").prototypeInteractions;
+    list[0].actions[0] = { ...list[0].actions[0], transitionDuration: 2, easingType: "LINEAR" };
+    ed.setProps(["2:4"], { prototypeInteractions: list }, "Edit interaction");
+  });
+  await page.evaluate(() => window.__designerEditor.ui.set({ presenting: { page: "0:1", node: null } }));
+  await page.waitForFunction(() => window.__designerPresent && window.__designerPresent.presentState().active, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  const state = () => page.evaluate(() => window.__designerPresent.presentState());
+  const screenPoint = async (x, y) => {
+    const s = await state();
+    const r = await page.locator("[data-presentation] canvas").boundingBox();
+    const k = s.screenRect.w / 375;
+    return [r.x + s.screenRect.x + x * k, r.y + s.screenRect.y + y * k];
+  };
+  let s = await state();
+  check("presenting starts at the flow's frame (Home, Onboarding)", s.screen === "2:1" && s.flowName === "Onboarding", JSON.stringify(s));
+  await shot(page, `97-present-home-${theme}`);
+  // The carousel scrolls sideways.
+  const [cx, cy] = await screenPoint(200, 400);
+  await page.mouse.move(cx, cy);
+  await page.mouse.wheel(300, 0);
+  await page.waitForTimeout(100);
+  await shot(page, `98-present-scrolled-${theme}`);
+  // Next → Details with Smart animate: half way, then there.
+  const [nx, ny] = await screenPoint(100, 740);
+  await page.mouse.click(nx, ny);
+  await page.waitForTimeout(900);
+  check("Smart animate is under way (the screen is Details, the transition runs)", await page.evaluate(() => window.__designerPresent.presentState().screen === "2:10"));
+  await shot(page, `99-present-smart-animate-${theme}`);
+  await page.waitForTimeout(1600);
+  s = await state();
+  check("a click on Next navigates to Details", s.screen === "2:10" && s.canBack === true, JSON.stringify(s));
+  await shot(page, `100-present-details-${theme}`);
+  // Back, then the menu overlay (bottom, dimmed).
+  const [bx, by] = await screenPoint(60, 400);
+  await page.mouse.click(bx, by);
+  await page.waitForTimeout(100);
+  check("Back returns to Home (the reverse of the Smart animate)", (await state()).screen === "2:1", JSON.stringify(await state()));
+  const [mx, my] = await screenPoint(331, 60);
+  await page.mouse.click(mx, my);
+  await page.waitForTimeout(600);
+  s = await state();
+  check("Back returns; the menu button opens Menu as an overlay", s.screen === "2:1" && JSON.stringify(s.overlays) === '["2:20"]', JSON.stringify(s));
+  await shot(page, `101-present-overlay-${theme}`);
+  // A click where nothing reacts: hotspot hints.
+  const [ox, oy] = await screenPoint(100, 150);
+  await page.mouse.click(ox, oy);
+  check("a click outside the overlay closes it", (await state()).overlays.length === 0);
+  await page.mouse.click(ox, oy);
+  await page.waitForTimeout(120);
+  await shot(page, `102-present-hotspot-hints-${theme}`);
+  // The toggle (an interactive component): Change to, Smart animate.
+  const [tx, ty] = await screenPoint(320, 655);
+  await page.mouse.click(tx, ty);
+  await page.waitForTimeout(500);
+  check("the toggle changes to On", await page.evaluate(() => window.__designerEditor.engine.readNode("2:7") !== null && window.__designerPresent.readNode("2:7").symbolData.symbolID.localID === 4));
+  await shot(page, `103-present-toggle-${theme}`);
+  // R restarts, Esc leaves.
+  await page.keyboard.press("r");
+  s = await state();
+  check("R restarts at the flow's start", s.screen === "2:1" && s.history === 0);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("Esc leaves the presentation", (await page.locator("[data-presentation]").count()) === 0);
+
+  // The prototype tab's own route on a store file (Figma's Present opens a new tab): read-only, from the store.
+  const fileKey = await page.evaluate(async (repo) => {
+    const s = await import("/src/store/index.ts");
+    const { encodeMessage } = await import(`/@fs${repo}/src/shared/schema/codec.ts`);
+    const { PROTOTYPE_DOCUMENT } = await import("/src/editor/fixtures.ts");
+    const mem = await s.getDevStore().ready;
+    return (await mem.addFile({ name: "Prototype file", folderId: null, snapshot: encodeMessage(s.messageToKiwi(PROTOTYPE_DOCUMENT)) })).fileKey;
+  }, repo);
+  await page.goto(`${base}/?present&file=${fileKey}`);
+  await page.waitForFunction(() => window.__designerPresent && window.__designerPresent.presentState().active, null, { timeout: 15000 });
+  await page.waitForTimeout(300);
+  s = await state();
+  check("?present&file= plays the store's file (read-only) at its flow", s.screen === "2:1" && s.flowName === "Onboarding", JSON.stringify(s));
+  await shot(page, `104-present-route-${theme}`);
+}
+
 try {
+  if (only === "prototype") {
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await prototypeSection(page, "dark");
+    await context.close();
+  }
   if (only === "libraries") {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();

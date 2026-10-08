@@ -111,6 +111,17 @@ export interface OpenWorkspaceFile {
   nodeId?: string;
 }
 
+/** A file's presentation view in a tab of its own (`nav:open-prototype`, Present). */
+export interface OpenPrototype {
+  fileKey: string;
+  /** The page presented */
+  pageId: string;
+  /** The frame it starts at (none: the page's first flow) */
+  startNodeId?: string;
+  /** The file's name, for the tab */
+  title?: string;
+}
+
 /** `nav:open-file`'s answer: the tab, and whether the file already had one (it was brought in front instead). */
 export interface OpenFileResult {
   tabId: string;
@@ -174,6 +185,7 @@ export interface IpcInvoke {
   "desktop:init": { args: []; result: InitInfo };
   "tabs:get": { args: []; result: TabsSnapshot };
   "nav:open-file": { args: [OpenWorkspaceFile]; result: OpenFileResult };
+  "nav:open-prototype": { args: [OpenPrototype]; result: OpenFileResult };
   "nav:new-file": { args: [NewFileRequest]; result: NewFileResult };
   /** .fig files into a folder (null: Drafts): the given paths, or the ones picked in the system's Open dialog */
   "file:import": { args: [{ folderId: string | null; paths?: string[] }]; result: ImportResult };
@@ -230,6 +242,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "desktop:init": ["tabbar", "home", "editor"],
   "tabs:get": ["tabbar", "home"],
   "nav:open-file": ["home", "editor"],
+  "nav:open-prototype": ["editor"],
   "nav:new-file": ["tabbar", "home", "editor"],
   "file:import": ["home", "editor"],
   "file:save-local-copy": ["home", "editor"],

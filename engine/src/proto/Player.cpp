@@ -1664,6 +1664,21 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     Side xs = *x, ys = *y;
     Vec2 pos{lerp(x->pos.x, y->pos.x, p), lerp(x->pos.y, y->pos.y, p)};
     xs.pos = ys.pos = pos;
+    // In three passes, so what fades out stays visible: the destination frame's own (interpolated) background, the
+    // source's unmatched layers over it, then the destination's layers.
+    PropsOverrides bg = dst;
+    for (Guid c : doc().children(y->frame)) {
+      auto it = bg.find(c);
+      NodeProps q = it != bg.end() ? it->second : *props(c);
+      q.visible = false;
+      bg[c] = std::move(q);
+    }
+    if (auto it = dst.find(y->frame); it != dst.end()) {
+      it->second.fillPaints.clear();
+      it->second.strokePaints.clear();
+      it->second.effects.clear();
+    }
+    addFrame(ys, {}, 1, std::move(bg));
     addFrame(xs, {}, 1, std::move(src));
     addFrame(ys, {}, 1, std::move(dst));
     return;

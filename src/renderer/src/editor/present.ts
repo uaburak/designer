@@ -15,7 +15,7 @@ export interface PresentOptions {
   here?: boolean;
 }
 
-type DesktopNav = { openPrototype?: (fileKey: string, pageId: string, startNodeId?: string) => Promise<unknown> };
+type DesktopNav = { openPrototype?: (fileKey: string, pageId: string, startNodeId?: string, title?: string) => Promise<unknown> };
 
 /** The selection's top-level frame (the first selected layer's), or undefined. */
 export function presentStart(ed: EditorController): Guid | undefined {
@@ -38,7 +38,7 @@ export function present(ed: EditorController, opts: PresentOptions = {}): void {
   if (!opts.here && fileKey) {
     const nav = (window as unknown as { designer?: { nav?: DesktopNav } }).designer?.nav;
     if (nav?.openPrototype) {
-      void ed.source.flush().then(() => nav.openPrototype!(fileKey, page, node));
+      void ed.source.flush().then(() => nav.openPrototype!(fileKey, page, node, ed.ui.get().fileName || ed.source.fileName));
       return;
     }
     if (!(window as unknown as { designer?: unknown }).designer) {

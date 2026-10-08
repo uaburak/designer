@@ -23,6 +23,8 @@ export function storePresentationSource(fileKey: string): PresentationSource {
       headSeq = opened.headSeq;
       source.fileName = opened.meta.name;
       document.title = opened.meta.name;
+      // A prototype tab of the desktop app: its title, and that it is up.
+      (window as unknown as { designer?: { tab?: { report?: (r: { title?: string; status?: string }) => void } } }).designer?.tab?.report?.({ title: opened.meta.name, status: "ready" });
       return { bytes: opened.snapshot, frames: opened.journal.map((f) => f.message) };
     },
     subscribe(apply) {
@@ -45,7 +47,7 @@ export default function PresentRoute() {
   const source = useMemo(() => (fileKey ? storePresentationSource(fileKey) : null), [fileKey]);
   return (
     <>
-      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} /> : <p style={{ padding: 16 }}>No file to present.</p>}
+      {source ? <PresentationView source={source} page={params.get("page")} node={params.get("node")} /> : <p>No file to present.</p>}
       <TooltipManager />
       <ToastHost />
     </>
