@@ -139,8 +139,11 @@ export type ApplyKind = "user" | "system" | "restore" | "remote" | "load";
 /** Where image bytes come from (the file's image store): the image file for a SHA-1 hash, or null. */
 export type ImageSource = (hash: string) => Promise<Uint8Array | null>;
 
-/** The presentation view's scale options (Figma: Actual size, Fit width, Fit width and height, Fill screen). */
-export type PresentScale = "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL";
+/**
+ * The presentation view's scale options (Figma: Actual size, Responsive, Fit width, Fit width and height, Fill screen;
+ * with a device: Show device at 100% (ACTUAL), Fit device on screen (FIT), Zoom device to fill screen (FILL)).
+ */
+export type PresentScale = "ACTUAL" | "FIT_WIDTH" | "FIT" | "FILL" | "RESPONSIVE";
 
 /** engine_present_state. */
 export interface PresentState {
@@ -161,6 +164,17 @@ export interface PresentState {
   scale?: PresentScale;
   hints?: boolean;
   device?: boolean;
+  /** The page's prototype device type */
+  deviceType?: "NONE" | "PRESET" | "CUSTOM" | "PRESENTATION";
+  devicePreset?: string;
+  /** A preset whose device frame the player draws */
+  hasDeviceFrame?: boolean;
+  /** Show device frame (on by default) */
+  deviceFrame?: boolean;
+  /** With a device: Responsive (else Fixed size) */
+  responsive?: boolean;
+  /** An On drag transition follows the pointer */
+  scrubbing?: boolean;
   /** The pointer is over something that reacts to it (the hand cursor) */
   hotspot?: boolean;
   /** The device's screen on the canvas (CSS px) */
@@ -546,6 +560,14 @@ export class Engine {
   }
 
   /**
+   * Viewer mode (developer previews, Dev Mode): read-only — no resize handles, clicks select and drags move nothing,
+   * no context menu or text / vector editing; edits (setProps, user changes, editing commands) return E_READONLY.
+   */
+  setViewerMode(on: boolean): void {
+    this.after(this.x.setViewerMode(this.h, on));
+  }
+
+  /**
    * The presentation view: from now on frames draw the prototype (its scene), and input goes through the present*
    * calls. `page` (default: the current page) and `node` (a top-level frame or a layer in one; default: the first
    * flow's start, else the first frame). Status.OK, or E_NOT_FOUND when the page has nothing to show.
@@ -595,7 +617,7 @@ export class Engine {
     return this.after(status);
   }
 
-  presentSetOptions(options: { scale?: PresentScale; hints?: boolean }): void {
+  presentSetOptions(options: { scale?: PresentScale; hints?: boolean; responsive?: boolean; deviceFrame?: boolean }): void {
     this.x.presentSetOptions(this.h, encodeText(JSON.stringify(options)));
     this.schedule();
     this.after(undefined);

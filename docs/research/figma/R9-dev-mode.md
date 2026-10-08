@@ -1,4 +1,4 @@
-# R8 — Dev Mode (Inspect), for the developer preview viewer
+# R9 — Dev Mode (Inspect), for the developer preview viewer
 
 Research for `docs/data.md` §13 (2026-10-08, help.figma.com and Figma's forum). What is verified is marked with its source. **[unverified]** marks points no public page settles; they need a screenshot session in real Figma.
 
@@ -53,3 +53,14 @@ Research for `docs/data.md` §13 (2026-10-08, help.figma.com and Figma's forum).
 
 - The "Export" section adds settings with "+". Each has a scale (0.5x–4x, 512w, 512h) and a format (PNG, JPG, SVG, PDF), followed by "Export ‹layer›".
 - "Assets" lists detected icons and images, each with "Source image file" or "Layer export".
+
+## Round 5 check (2026-10-08, help.figma.com article text)
+
+Articles: 15023124644247 Guide to Dev Mode (DMG), 15023202277399 code snippets (SNIP), 26781702258583 statuses (STAT), 20774752502935 annotations (ANN), 15023193382935 Compare changes (CMP), 22012921621015 Guide to inspecting (INSP).
+
+- **Code / List** (DMG): "Use the toggle in the layer properties section to swap between Code (default) and List." List "displays a list of properties that are set for the layer and the corresponding values… You can click on the values to copy them".
+- **Languages and units** (SNIP, DMG): "CSS (Web)", "SwiftUI or UIKit (iOS)", "Compose or XML (Android)". Units sit "under Settings in the dropdown menu" at its bottom: CSS "px" / "rem" ("1rem = 16px by default"), iOS "px" ("Canvas pixels") / "pt" ("Resolution-independent points"), Android "px" ("Physical screen pixels") / "dp" / "sp". "Set unit scale…" (from Inspect settings) opens a "Unit scale" modal: the root font size for rem, the scale factor for points / dp / sp. Which values Figma converts inside native snippets is unverified.
+- **Assets** (DMG, INSP): "Dev Mode can automatically detect icons and present them as downloadable assets… in the Inspect tab above the export settings" (View › "Automatically detect icons"); images download as "Source image file" ("the original image… when it was first imported") or "Layer export" ("at its current layer size"); formats PNG, JPEG, SVG, PDF. The detection heuristic isn't published.
+- **Statuses** (STAT): "Ready for dev" and "Completed" (Organization / Enterprise), plus an automatic "Changed"; set from Design or Dev Mode on a section, frame or component ("next to the label, click Mark as ready for dev"; components: above their top-right corner); the status menu has "Remove status", "Mark as completed", "Done with changes". Schema: `sectionStatusInfo.status` BUILD / COMPLETED.
+- **Annotations** (ANN): Design's toolbar "Annotation" (⇧T) and "Measurement" (⇧M); a note with "+ Property"; categories "Development", "Interaction", "Accessibility", "Content" ("Edit categories…"); "In Dev Mode, annotations appear on the canvas as a green dot"; View › "Annotations" hides them.
+- **Compare changes** (CMP): on a top-level frame or component in Inspect; a modal with version history, Layers (Edited / Added / Deleted), Side by side, Overlay, Compare code, Compare properties.

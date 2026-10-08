@@ -21,6 +21,7 @@ import type { Color, Guid, Message, NodeChange, NodeFields, Paint } from "@/engi
 import type { EditorController } from "./controller";
 import { engineMethod, hasCommand, runEngineCommand, type CommandArgs, changesOf } from "./engineCompat";
 import { sameData } from "./model/mixed";
+import { deferredListener } from "./deferred";
 import {
   aliasMakesCycle,
   boundPaint,
@@ -186,9 +187,11 @@ export class VariableIndex {
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly ed: EditorController) {
+    // Listeners hear of it in a microtask (deferred.ts): an engine read during a render can deliver it.
+    const notify = deferredListener(() => this.listeners.forEach((l) => l()));
     const bump = () => {
       this.version++;
-      this.listeners.forEach((l) => l());
+      notify();
     };
     this.offs.push(
       ed.engine.on("DOCUMENT_CHANGED", (e) => {

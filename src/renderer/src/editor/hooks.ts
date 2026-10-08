@@ -9,6 +9,7 @@ import type { LayerTree } from "./model/layerTree";
 import type { LocalAssets } from "./variables";
 import type { LibraryState } from "./libraries";
 import { useStoreSlice, type UIState } from "./uiStore";
+import { deferredListener } from "./deferred";
 
 interface Source<T> {
   subscribe: (listener: () => void) => () => void;
@@ -122,9 +123,10 @@ export function useDocumentVersion(liveGroups = 0xff): number {
     let version = 0;
     return {
       subscribe: (listener) => {
+        const notify = deferredListener(listener);
         const bump = () => {
           version++;
-          listener();
+          notify();
         };
         const offs = [
           engine.on("NODES_CHANGED", (e) => {

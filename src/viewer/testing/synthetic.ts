@@ -94,11 +94,15 @@ export async function syntheticPreview(): Promise<SyntheticPreview> {
         stackPrimarySizing: "RESIZE_TO_FIT", stackCounterSizing: "FIXED", cornerRadius: 8,
         fillPaints: [solid(0xffffff)], strokePaints: [solid(0xd9d9d9)], strokeWeight: 1, strokeAlign: "INSIDE",
         effects: [{ type: "DROP_SHADOW", color: rgb(0x000000, 0.25), offset: { x: 0, y: 4 }, radius: 4, spread: 0, visible: true, blendMode: "NORMAL" }],
+        // Dev Mode: marked "Ready for dev".
+        ...({ sectionStatusInfo: { status: "BUILD", lastUpdateUnixTimestamp: 1_760_000_000 } } as object),
       },
       {
         guid: "1:2", phase: "CREATED", type: "TEXT", name: "Title", parentIndex: { guid: "1:1", position: "!" }, size: { x: 10, y: 10 }, transform: at(24, 16),
         textData: { characters: "Hello preview" }, textAutoResize: "WIDTH_AND_HEIGHT", fontName: { family: "Inter", style: "Bold", postscript: "" }, fontSize: 24,
         lineHeight: { value: 30, units: "PIXELS" }, fillPaints: [solid(0x231f20)],
+        // An annotation with a note and a pinned property.
+        ...({ annotations: [{ label: "<p>Use the <b>brand</b> font</p>", properties: [{ type: "FONT_SIZE" }] }] } as object),
       },
       {
         guid: "1:3", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Photo", parentIndex: { guid: "1:1", position: "\"" }, size: { x: 272, y: 120 }, transform: at(24, 54),
@@ -110,6 +114,8 @@ export async function syntheticPreview(): Promise<SyntheticPreview> {
         fillPaints: [solid(0x757575)],
       },
       { guid: "1:10", phase: "CREATED", type: "FRAME", name: "Other", parentIndex: { guid: "0:1", position: "\"" }, size: { x: 200, y: 200 }, transform: at(400, 0), fillPaints: [solid(0x0d99ff)] },
+      // An icon in it (Dev Mode's Assets detect it).
+      { guid: "1:11", phase: "CREATED", type: "STAR", name: "Icon/Star", parentIndex: { guid: "1:10", position: "!" }, size: { x: 24, y: 24 }, transform: at(16, 16), fillPaints: [solid(0xffffff)], ...({ count: 5, starInnerScale: 0.382 } as object) },
       {
         guid: "1:20", phase: "CREATED", type: "SYMBOL", name: "Badge", parentIndex: { guid: "0:1", position: "#" }, size: { x: 10, y: 10 }, transform: at(0, 400),
         stackMode: "HORIZONTAL", stackSpacing: 4, stackHorizontalPadding: 12, stackVerticalPadding: 4, stackPaddingRight: 12, stackPaddingBottom: 4, stackCounterSizing: "RESIZE_TO_FIT",

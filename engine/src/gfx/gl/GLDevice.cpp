@@ -204,6 +204,10 @@ class WebGL2Device final : public Device {
   // framebuffers) calls forget().
   void forget() {
     state_ = State{};
+    // Several engines share the module (the canvas, a presentation, the inline preview), each with its context: a
+    // buffer, texture or target call outside a pass must reach this device's (another engine may have drawn since, or
+    // a destroyed one left no context current).
+    if (context_ && emscripten_webgl_get_current_context() != context_) emscripten_webgl_make_context_current(context_);
   }
 
   void draw(const DrawCall& call) override {

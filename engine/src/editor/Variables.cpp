@@ -597,7 +597,20 @@ bool Editor::resolveData(const VariableData& d, const ModeContext& ctx, Resolved
         return true;
       };
       auto same = [&]() {
-        if (a.size() < 2 || a[0].kind != a[1].kind) return false;
+        if (a.size() < 2) return false;
+        if (a[0].kind != a[1].kind) {
+          // A string against a number or boolean: their text (the prototype's `count == "3"`); a boolean against a
+          // number: as 1 / 0.
+          if (a[0].kind == Resolved::Kind::STRING || a[1].kind == Resolved::Kind::STRING) return text(a[0]) == text(a[1]);
+          auto num = [](const Resolved& r, double& v) {
+            if (r.kind == Resolved::Kind::FLOAT) v = r.f;
+            else if (r.kind == Resolved::Kind::BOOL) v = r.b ? 1 : 0;
+            else return false;
+            return true;
+          };
+          double x, y;
+          return num(a[0], x) && num(a[1], y) && x == y;
+        }
         switch (a[0].kind) {
           case Resolved::Kind::BOOL: return a[0].b == a[1].b;
           case Resolved::Kind::FLOAT: return a[0].f == a[1].f;
@@ -610,22 +623,45 @@ bool Editor::resolveData(const VariableData& d, const ModeContext& ctx, Resolved
       switch (d.function) {
         case F::IS_TRUTHY: return !a.empty() && boolean(truthy(a[0]));
         case F::NOT: return !a.empty() && boolean(!truthy(a[0]));
-        case F::AND: return a.size() >= 2 && boolean(truthy(a[0]) && truthy(a[1]));
-        case F::OR: return a.size() >= 2 && boolean(truthy(a[0]) || truthy(a[1]));
+        // AND / OR / ADDITION / MULTIPLY take any number of arguments (Figma stores `a and b and c` as one call).
+        case F::AND: {
+          if (a.size() < 2) return false;
+          bool v = true;
+          for (const Resolved& x : a) v = v && truthy(x);
+          return boolean(v);
+        }
+        case F::OR: {
+          if (a.size() < 2) return false;
+          bool v = false;
+          for (const Resolved& x : a) v = v || truthy(x);
+          return boolean(v);
+        }
         case F::EQUALS: return a.size() >= 2 && boolean(same());
         case F::NOT_EQUAL: return a.size() >= 2 && boolean(!same());
         case F::LESS_THAN: return floats(2) && boolean(a[0].f < a[1].f);
         case F::LESS_THAN_OR_EQUAL: return floats(2) && boolean(a[0].f <= a[1].f);
         case F::GREATER_THAN: return floats(2) && boolean(a[0].f > a[1].f);
         case F::GREATER_THAN_OR_EQUAL: return floats(2) && boolean(a[0].f >= a[1].f);
-        case F::ADDITION:
-          if (floats(2)) return number(a[0].f + a[1].f);
+        case F::ADDITION: {
           if (a.size() < 2) return false;
-          out.kind = Resolved::Kind::STRING;  // string concatenation
-          out.s = text(a[0]) + text(a[1]);
+          if (floats(a.size())) {
+            double sum = 0;
+            for (const Resolved& x : a) sum += x.f;
+            return number(sum);
+          }
+          std::string joined;  // string concatenation
+          for (const Resolved& x : a) joined += text(x);
+          out.kind = Resolved::Kind::STRING;
+          out.s = std::move(joined);
           return true;
+        }
         case F::SUBTRACTION: return floats(2) && number(a[0].f - a[1].f);
-        case F::MULTIPLY: return floats(2) && number(a[0].f * a[1].f);
+        case F::MULTIPLY: {
+          if (a.size() < 2 || !floats(a.size())) return false;
+          double product = 1;
+          for (const Resolved& x : a) product *= x.f;
+          return number(product);
+        }
         case F::DIVIDE: return floats(2) && a[1].f != 0 && number(a[0].f / a[1].f);
         case F::NEGATE: return floats(1) && number(-a[0].f);
         case F::STRINGIFY:
@@ -673,6 +709,12 @@ bool Editor::resolveVariable(Guid variable, Guid consumer, Resolved& out) const 
   ModeContext ctx;
   ctx.consumer = consumer;
   return resolveVar(variable, ctx, out, nullptr, 0);
+}
+
+bool Editor::resolveValue(const VariableData& d, Guid consumer, Resolved& out) const {
+  ModeContext ctx;
+  ctx.consumer = consumer;
+  return resolveData(d, ctx, out, nullptr, 0);
 }
 
 bool Editor::resolveVariableInMode(Guid variable, Guid mode, Resolved& out) const {

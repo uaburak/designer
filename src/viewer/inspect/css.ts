@@ -1,5 +1,5 @@
 /**
- * Dev Mode's CSS snippet for one layer (help.figma.com "Use code snippets in Dev Mode"; docs/research/figma/R8-dev-mode.md):
+ * Dev Mode's CSS snippet for one layer (help.figma.com "Use code snippets in Dev Mode"; docs/research/figma/R9-dev-mode.md):
  * properties in Figma's order — the flex container (display, size, padding, direction, alignment, gap), the flex item
  * (flex, align-self, flex-shrink), corners, border, opacity, background, shadows and blurs — then the typography of a
  * text (color, font-family, font-size, font-style, font-weight, line-height with its percentage as a comment,

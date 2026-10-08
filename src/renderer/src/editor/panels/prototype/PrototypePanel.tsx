@@ -18,8 +18,11 @@ import { useEditor, type EditorController } from "../../controller";
 import { useDocumentVersion, useNodes, GEOMETRY_GROUPS } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import {
+  DEVICE_MODELS,
   DEVICE_PRESETS,
   OVERFLOWS,
+  deviceOf,
+  presetIdentifierOf,
   SCROLL_POSITIONS,
   devicePreset,
   interactionSummary,
@@ -128,8 +131,9 @@ function NothingSelected() {
   const device = pageNode?.prototypeDevice;
   const preset = device?.type === "PRESET" ? devicePreset(device.presetIdentifier) : null;
   const deviceValue = !device || !device.type || device.type === "NONE" ? "NONE" : device.type === "PRESET" && preset ? preset[0] : device.type === "PRESENTATION" ? "PRESENTATION" : "CUSTOM";
+  // "No device" (help.figma.com 360040318013: "set to No device or Presentation").
   const options = [
-    { value: "NONE", label: "None" },
+    { value: "NONE", label: "No device" },
     "-" as const,
     ...DEVICE_PRESETS.flatMap((g, i) => [...(i ? ["-" as const] : []), ...g.items.map(([id, label, w, h]) => ({ value: id, label, hint: `${w}×${h}` }))]),
     "-" as const,
@@ -142,6 +146,13 @@ function NothingSelected() {
     const p = devicePreset(v);
     if (!p) return;
     ed.setProps([page], protoFields({ prototypeDevice: { type: "PRESET", presetIdentifier: p[0], size: { x: p[2], y: p[3] }, rotation: device?.rotation ?? "NONE" } }), "Prototype device");
+  };
+  // Model: the preset's colours (help: "Depending on the device you selected, you can specify a certain model").
+  const current = device?.type === "PRESET" ? deviceOf(device.presetIdentifier) : null;
+  const models = current ? (DEVICE_MODELS[current.preset[0]] ?? []) : [];
+  const setModel = (m: string) => {
+    if (!current || !device) return;
+    ed.setProps([page], protoFields({ prototypeDevice: { ...device, presetIdentifier: presetIdentifierOf(current.preset[0], m) } }), "Prototype device");
   };
   const background = pageNode?.prototypeBackgroundColor ?? DEFAULT_PROTOTYPE_BACKGROUND;
   const frames = usePageFrames(page);
@@ -164,6 +175,11 @@ function NothingSelected() {
               ]}
               onChange={(v) => ed.setProps([page], protoFields({ prototypeDevice: { ...device, rotation: v === "LANDSCAPE" ? "CCW_90" : "NONE" } }), "Prototype device")}
             />
+          </div>
+        )}
+        {current && models.length > 1 && (
+          <div className={styles.row}>
+            <Select label="Model" value={current.model} options={models.map(([value, label]) => ({ value, label }))} onChange={setModel} className={styles.grow} />
           </div>
         )}
       </PanelSection>

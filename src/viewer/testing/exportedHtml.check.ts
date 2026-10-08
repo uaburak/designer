@@ -94,6 +94,9 @@ describe("the exported preview HTML (headless Chromium)", () => {
       expect(text).toContain("background: var(--Surface, #FFF);");
       expect(text).toContain("Surface");
       expect(text).toContain("Export Card");
+      // Dev Mode status: the badge in Inspect, the row in the left panel's "Ready for development".
+      expect(text).toContain("Ready for dev");
+      expect(await page.locator("[data-status-row]").innerText()).toContain("Card");
       await page.screenshot({ path: join(outDir, "02-card-inspect.png") });
 
       // Zoomed to the card: still a busy picture (the photo's bands, the texts).
@@ -110,12 +113,27 @@ describe("the exported preview HTML (headless Chromium)", () => {
       expect(title).toContain("font-weight: 700;");
       expect(title).toContain("line-height: 30px; /* 125% */");
 
+      // The annotation on the title: its note and pinned property.
+      expect(title).toContain("Use the brand font");
+      expect(title).toContain("Font size");
+      // Units: CSS in rem (Settings in the language menu).
+      const settings = page.getByRole("button", { name: "Code settings" });
+      await settings.click();
+      await page.getByRole("menuitemcheckbox", { name: "rem" }).click();
+      await expect.poll(() => inspect.innerText()).toContain("font-size: 1.5rem;");
+      // The List view: the properties with their values.
+      await inspect.getByRole("radio", { name: "List" }).click();
+      await expect.poll(() => page.locator("[data-list-view]").innerText()).toContain("Font size");
+      await page.screenshot({ path: join(outDir, "03-title-list.png") });
+      await inspect.getByRole("radio", { name: "Code" }).click();
+      await settings.click();
+      await page.getByRole("menuitemcheckbox", { name: "px" }).click();
       // SwiftUI and Compose.
-      await page.locator('[data-panel="inspect"] [data-ds="Select"]').first().click();
-      await page.getByRole("option", { name: "iOS (SwiftUI)" }).click();
+      await settings.click();
+      await page.getByRole("menuitemcheckbox", { name: "iOS (SwiftUI)" }).click();
       await expect.poll(() => inspect.innerText()).toContain('Text("Hello preview")');
-      await page.locator('[data-panel="inspect"] [data-ds="Select"]').first().click();
-      await page.getByRole("option", { name: "Android (Compose)" }).click();
+      await settings.click();
+      await page.getByRole("menuitemcheckbox", { name: "Android (Compose)" }).click();
       await expect.poll(() => inspect.innerText()).toContain("fontWeight = FontWeight(700)");
       await page.screenshot({ path: join(outDir, "03-title-compose.png") });
 
@@ -147,6 +165,30 @@ describe("the exported preview HTML (headless Chromium)", () => {
       }
       expect(measured).not.toBe("");
       await page.screenshot({ path: join(outDir, "05-measure.png") });
+
+      // Annotations on the canvas: a dot and the note.
+      expect(await page.locator("[data-annotations]").getAttribute("data-annotations")).toBe("1");
+      // "Other": its icon among the Assets; Export as SVG by the engine's writer.
+      await page.keyboard.press("Escape");
+      await page.locator('[data-ds="LayerRow"][data-id="1:10"]').click();
+      await expect.poll(() => page.locator('[data-asset="icon"]').count()).toBe(1);
+      await page.locator('[data-export-row="0"]').getByRole("combobox", { name: "Format" }).click();
+      await page.getByRole("option", { name: "SVG" }).click();
+      const [download] = await Promise.all([page.waitForEvent("download"), page.locator("[data-export-button]").click()]);
+      expect(download.suggestedFilename()).toBe("Other.svg");
+      const svgPath = join(outDir, "Other.svg");
+      await download.saveAs(svgPath);
+      expect(readFileSync(svgPath, "utf8")).toMatch(/^<svg width="200" height="200"/);
+      await page.screenshot({ path: join(outDir, "05b-assets-export.png") });
+      // Present: the prototype player in the preview (Esc leaves).
+      await page.getByRole("button", { name: "Present" }).click();
+      await page.waitForSelector("[data-presentation] canvas");
+      await page.waitForTimeout(600);
+      const stage = (await page.locator("[data-presentation] canvas").boundingBox())!;
+      expect(await busyness(page, await page.screenshot({ clip: stage }))).toBeGreaterThan(0.02);
+      await page.screenshot({ path: join(outDir, "05c-present.png") });
+      await page.keyboard.press("Escape");
+      await expect.poll(() => page.locator("[data-presentation]").count()).toBe(0);
 
       // The second page.
       await page.getByRole("option", { name: "Second page" }).click();

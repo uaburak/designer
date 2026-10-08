@@ -3,7 +3,7 @@
  * preview's derived snapshot (text drawn from its stored glyph outlines, no fonts needed), in Dev Mode's layout —
  * pages and layers on the left, the canvas, Inspect on the right (help.figma.com "Guide to Dev Mode").
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { currentTheme, EmptyState, Spinner, ToastHost, TooltipManager, useThemeRoot } from "@/ds";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
@@ -17,6 +17,9 @@ import { ViewerDoc } from "./viewerDoc";
 import { LeftPanel } from "./LeftPanel";
 import { InspectPanel } from "./InspectPanel";
 import { Measurements } from "./Measurements";
+import { Annotations } from "./Annotations";
+import { PresentationView, type PresentationSource } from "@/present/PresentationView";
+import type { Guid } from "@/engine/codec";
 import { ViewerContext, type ViewerState } from "./context";
 import styles from "./Viewer.module.css";
 
@@ -45,6 +48,8 @@ export function ViewerApp() {
       const status = engine.loadKiwi(preview.message, firstPage ? { page: firstPage } : {});
       if (status !== Status.OK) throw new PreviewError("This preview can't be opened", `Its document could not be read (${status}).`);
       engine.setImageSource((sha1) => preview.image(sha1));
+      // Read-only (Dev Mode): no resize handles, nothing a click or a key could change (engine viewer mode).
+      engine.setViewerMode(true);
       const doc = new ViewerDoc(engine);
       offs.push(attachViewerCanvas(canvas, engine, { parentOf: (id) => doc.parentOf(id) }));
       engine.command("ZOOM_TO_FIT");
@@ -79,12 +84,41 @@ export function ViewerApp() {
     if (state) document.title = `${state.preview.manifest.fileName || "Untitled"} – Developer preview`;
   }, [state]);
 
+  // Present (the prototype player, ⌥⌘↩): from the selection's top-level frame, else the page's first flow.
+  const [presenting, setPresenting] = useState<{ page: Guid; node: Guid | null } | null>(null);
+  const present = useCallback(() => {
+    if (!state) return;
+    const sel = state.engine.getSelection();
+    let node: Guid | null = sel.refs[0] ?? null;
+    for (let guard = 0; node && guard < 256; guard++) {
+      const parent = state.doc.parentOf(node);
+      if (!parent) break;
+      node = parent;
+    }
+    setPresenting({ page: sel.pageId, node });
+  }, [state]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && e.altKey && (e.metaKey || e.ctrlKey) && state && !presenting) {
+        e.preventDefault();
+        present();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state, presenting, present]);
+  const presentSource = useMemo<PresentationSource | null>(
+    () => (state ? { fileName: state.preview.manifest.fileName || "Untitled", load: async () => ({ bytes: state.preview.message }), images: (h) => state.preview.image(h) } : null),
+    [state]
+  );
+
   return (
     <ViewerContext.Provider value={state}>
       <div className={styles.viewer} data-viewer="" data-ready={state ? "" : undefined}>
         {state ? <LeftPanel /> : <div className={styles.left} />}
         <div className={styles.canvasArea}>
           <canvas ref={canvasRef} id="engine-canvas" className={styles.canvas} aria-label="Canvas" />
+          {state && <Annotations />}
           {state && <Measurements />}
           {!state && (
             <div className={styles.status} role="status">
@@ -92,8 +126,19 @@ export function ViewerApp() {
             </div>
           )}
         </div>
-        {state ? <InspectPanel /> : <div className={styles.right} />}
+        {state ? <InspectPanel onPresent={present} /> : <div className={styles.right} />}
       </div>
+      {presenting && presentSource && (
+        <PresentationView
+          source={presentSource}
+          page={presenting.page}
+          node={presenting.node}
+          onClose={() => {
+            setPresenting(null);
+            canvasRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       <TooltipManager />
       <ToastHost />
     </ViewerContext.Provider>

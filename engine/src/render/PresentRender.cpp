@@ -51,6 +51,15 @@ RenderStats Renderer::renderScene(const Document& doc, Guid page, const Viewport
       int x1 = static_cast<int>(std::ceil(item.clipCss.right() * sx)), y1 = static_cast<int>(std::ceil(item.clipCss.bottom() * sy));
       scissorEnabled_ = true;
       scissor_ = {x0, y0, std::max(0, x1 - x0), std::max(0, y1 - y0)};
+      if (item.clipRadius > 0) {
+        // A device's screen: its rounded corners (the same anti-aliased rounded clip as a frame's).
+        round_.on = true;
+        round_.rect[0] = static_cast<float>(item.clipCss.x * sx);
+        round_.rect[1] = static_cast<float>(item.clipCss.y * sy);
+        round_.rect[2] = static_cast<float>(item.clipCss.right() * sx);
+        round_.rect[3] = static_cast<float>(item.clipCss.bottom() * sy);
+        for (float& r : round_.radii) r = static_cast<float>(item.clipRadius * sx);
+      }
     }
     if (item.kind == PresentItem::Kind::Rect) {
       CornerRadii r{item.radius, item.radius, item.radius, item.radius};

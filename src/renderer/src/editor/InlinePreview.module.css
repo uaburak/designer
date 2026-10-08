@@ -1,0 +1,16 @@
+@layer app {
+  /* The inline preview: a floating window over the canvas, hanging from its top-right corner */
+  .window {
+    position: fixed;
+    z-index: calc(var(--ds-z-dialog) - 1);
+    overflow: hidden;
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-500-modal-window);
+  }
+  /* Resize targets on its free edges */
+  .edgeLeft, .edgeBottom, .corner { position: absolute; z-index: 1; }
+  .edgeLeft { top: 0; bottom: 0; left: 0; width: var(--ds-space-1); cursor: ew-resize; }
+  .edgeBottom { right: 0; bottom: 0; left: 0; height: var(--ds-space-1); cursor: ns-resize; }
+  .corner { bottom: 0; left: 0; width: var(--ds-space-3); height: var(--ds-space-3); cursor: nesw-resize; }
+}

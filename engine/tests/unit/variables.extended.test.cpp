@@ -183,8 +183,22 @@ TEST_CASE("variables r5: expressions — negation, comparison, arithmetic, strin
   CHECK(props(e, INST).visible);  // B: n = 10 ≠ 4
   setMode(e, FR, set, a);
   CHECK(!props(e, INST).visible);
-  (void)concat;
-  (void)r;
+  // resolveValue (the one evaluator, the prototype's too), in INST's mode (A: n = 4).
+  REQUIRE(e.resolveValue(concat, INST, r));
+  CHECK(r.kind == Editor::Resolved::Kind::STRING);
+  CHECK(r.s == "n=4");
+  // n-ary calls, as Figma stores `a and b and c`; a string against a number compares their text.
+  VariableData yes = VariableData::boolean(true);
+  REQUIRE(e.resolveValue(expr(ExpressionFunction::AND, {yes, yes, expr(ExpressionFunction::EQUALS, {alias(), lit(4)}, VariableResolvedType::BOOLEAN)},
+                              VariableResolvedType::BOOLEAN),
+                         INST, r));
+  CHECK(r.b);
+  REQUIRE(e.resolveValue(expr(ExpressionFunction::AND, {yes, yes, VariableData::boolean(false)}, VariableResolvedType::BOOLEAN), INST, r));
+  CHECK(!r.b);
+  REQUIRE(e.resolveValue(expr(ExpressionFunction::ADDITION, {alias(), lit(1), lit(2)}, VariableResolvedType::FLOAT), INST, r));
+  CHECK(r.f == doctest::Approx(7));
+  REQUIRE(e.resolveValue(expr(ExpressionFunction::EQUALS, {alias(), VariableData::string("4")}, VariableResolvedType::BOOLEAN), INST, r));
+  CHECK(r.b);
 }
 
 TEST_CASE("variables r5: a variant property assigned a string variable switches variant with the mode") {

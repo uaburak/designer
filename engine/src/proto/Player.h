@@ -23,9 +23,12 @@
 
 namespace eng::proto {
 
-// Figma's scale options (without a device: Actual size (100%), Fit width, Fit width and height, Fill screen; with a
-// device: Show device at 100%, —, Fit device on screen, Zoom device to fill screen). Z cycles them.
-enum class ScaleMode : uint8_t { ACTUAL = 0, FIT_WIDTH = 1, FIT = 2, FILL = 3 };
+// Figma's scale options (help.figma.com 360040318013 "Play your prototypes"). Without a device: Actual size (100%),
+// Responsive (the frame resized to the window and laid out again by its constraints and auto layout), Fit width,
+// Fit width and height, Fill screen. With a device: Show device at 100%, Fit device on screen, Zoom device to fill
+// screen (Fit width and Responsive read as Fit device on screen there), and apart from them Responsive / Fixed size
+// (the frame resized to the device's screen, or shown at 100% in it) and Show device frame. Z cycles them.
+enum class ScaleMode : uint8_t { ACTUAL = 0, FIT_WIDTH = 1, FIT = 2, FILL = 3, RESPONSIVE = 4 };
 const char* scaleName(ScaleMode m);
 
 class Player {
@@ -54,6 +57,13 @@ class Player {
   void cycleScale();
   void setHints(bool on) { hints_ = on; }
   bool hints() const { return hints_; }
+  // With a device: Responsive (true) or Fixed size, and Show device frame.
+  void setResponsive(bool on);
+  bool responsive() const { return responsive_; }
+  void setDeviceFrame(bool on);
+  bool deviceFrame() const { return deviceFrame_; }
+  // Whether the page's device has a frame to draw (a preset we know).
+  bool hasDeviceFrame() const;
 
   // Advances transitions, scroll animations and timers to `nowMs`; true when a frame should be drawn.
   bool tick(double nowMs);
@@ -113,6 +123,8 @@ class Player {
     std::vector<Paint> fills, strokes;
     double strokeWeight = 0;
     CornerRadii radii{0, 0, 0, 0};
+    std::vector<Effect> effects;
+    std::string text;  // a TEXT layer's characters and font (Smart animate dissolves a text whose content changed)
   };
   struct Snapshot {
     std::unordered_map<std::string, SnapNode> byKey;
@@ -136,10 +148,16 @@ class Player {
     double start = 0, duration = 0;
     bool started = false;  // its clock starts at the first tick after it was made
     std::function<void()> done;
+    // On drag: the pointer sets the progress (`scrubP`) while it drags; released, the animation runs from there to
+    // `p1` (1: completes, 0: goes back) — progress p0 + (p1 − p0) × ease(t).
+    bool scrubbing = false;
+    double scrubP = 0;
+    double p0 = 0, p1 = 1;
   };
   // An interactive component changing state (Change to) with Smart animate / Dissolve.
   struct InstanceAnim {
     Guid instance = kNoGuid;
+    Guid ghost = kNoGuid;  // the old state, kept (hidden from layout) while its unmatched layers fade out
     Snapshot from;
     Action action;
     double start = 0, duration = 0;
@@ -179,6 +197,17 @@ class Player {
     double s = 1;  // CSS px per unit
     Rect css;      // the screen on the canvas
     Mat2x3 toCss;  // screen units → CSS px
+    bool framed = false;     // a device frame is drawn around the screen
+    double radius = 0;       // the screen's corner radius (CSS px)
+    std::vector<PresentItem> under, over;  // the device frame's shapes (CSS px): behind the screen, over it
+  };
+  // On drag (R8 §12, help "Prototype triggers": "Drag allows you to move back and forward through the transition"):
+  // the transition the drag started follows the pointer along its axis.
+  struct Scrub {
+    bool active = false;
+    Vec2 axis;           // the drag direction that advances (unit, CSS px)
+    double extent = 1;   // CSS px for the whole transition
+    Vec2 from;           // where the drag started
   };
 
   const Document& doc() const { return ed_.document(); }
@@ -210,8 +239,7 @@ class Player {
   void scrollTo(Guid dest, const Action& a);
   void setVariable(const Action& a, Guid source);
   void setVariableMode(const Action& a);
-  bool evaluate(const json::Value& data, Guid source, Editor::Resolved& out, int depth = 0) const;
-  bool evalData(const VariableData& d, Guid source, Editor::Resolved& out, int depth) const;
+  bool evaluate(const json::Value& data, Guid source, Editor::Resolved& out) const;
   void remember(Guid id, FieldMask mask);
   void startAnim(Anim&& a);
   void finishAnim();
@@ -233,9 +261,26 @@ class Player {
   void smartSource(Guid id, const std::unordered_set<std::string>& keys, double p, PropsOverrides& out, const std::string& key,
                    bool root, bool parentUnmatched) const;
   void scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec2 topScroll) const;
-  void addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides);
+  // `fixedAlpha`: the top-level frame's Fixed children's alpha (< 0: `alpha`; 0: left out — drawn by the caller).
+  void addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides, double fixedAlpha = -1);
   void addSlot(const Side* x, const Side* y, const Anim* a);
+  // Move / Push / Slide with "Animate matching layers": the screens move, matching layers smart-animate in place.
+  void addMatching(const Side& x, const Side& y, const Anim& a, double p, Vec2 offX, Vec2 offY);
+  // Fixed children of a top-level frame drawn on their own (unscrolled), each with the alpha `alphaOf` gives (0: none).
+  void addFixed(const Side& s, Vec2 offset, const std::function<double(Guid, const std::string&)>& alphaOf);
+  // The keys of `from`'s layers that `to`'s layers match and can animate (Smart animate falls back to Dissolve for a
+  // layer whose shadows or text content changed: help.figma.com 360039818874).
+  std::unordered_set<std::string> matchedKeys(const Snapshot& from, Guid to, bool rootTransform) const;
+  bool animatable(const SnapNode& s, const NodeProps& p) const;
   double progress(const Anim& a) const;
+  // Responsive: the frames shown resized to the window (or the device's screen); `restoreResponsive` puts them back.
+  bool responsiveOn() const;
+  void fitResponsive();
+  void restoreResponsive();
+  // Drag scrubbing.
+  void beginScrub(Vec2 at);
+  void endScrub();
+  void silentBack();
 
   Editor& ed_;
   Guid page_ = kNoGuid, base_ = kNoGuid, flow_ = kNoGuid;
@@ -265,6 +310,20 @@ class Player {
   double now_ = 0;
   bool dirty_ = true;
   ScaleMode scale_ = ScaleMode::FIT;
+  bool scaleChosen_ = false;  // the viewer picked a scale (else Figma's default for the file, chosen at start)
+  bool responsive_ = false;   // with a device: Responsive (else Fixed size)
+  bool deviceFrame_ = true;   // Show device frame
+  bool fitting_ = false;
+  std::unordered_map<Guid, Vec2, GuidHash> responsiveSizes_;  // frames resized for Responsive: their own size
+  Scrub scrub_;
+  uint64_t animSerial_ = 0;  // bumped by every startAnim (a drag knows whether its trigger started one)
+  bool noAnim_ = false;      // silentBack: Back without its animation
+  // Change to's old states while they fade out (swapInstance), never hit; removed when their animation ends.
+  static constexpr uint32_t kGhostSession = 0xFFFFFFF0u;
+  uint32_t nextGhost_ = 1;
+  std::unordered_set<Guid, GuidHash> ghosts_;
+  void dropGhost(Guid ghost);
+  void dropGhosts();
   bool hints_ = true;
   double hintsAt_ = -1e9;  // hotspot hints flash (ms)
   bool hintsPending_ = false;

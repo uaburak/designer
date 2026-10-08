@@ -282,6 +282,7 @@ export class EngineExports {
 
   // ---- Prototyping (E8) ----
   setPrototypeMode = (h: number, on: boolean): void => void this.fn("set_prototype_mode")(h, on ? 1 : 0);
+  setViewerMode = (h: number, on: boolean): void => void this.fn("set_viewer_mode")(h, on ? 1 : 0);
   presentStart = (h: number, pageSess: number, pageLocal: number, nodeSess: number, nodeLocal: number): number =>
     this.fn("present_start")(h, pageSess, pageLocal, nodeSess, nodeLocal);
   presentStop = (h: number): void => void this.fn("present_stop")(h);
@@ -322,6 +323,6 @@ export const USED_EXPORTS = [
   "text_range_style", "text_paragraphs", "font_info",
   "image_add_bitmap", "image_add_rgba", "image_failed",
   "vector_edit", "vector_edit_end", "vector_edit_tool", "end_caps", "paint_edit", "paint_edit_end", "paint_edit_stop",
-  "set_prototype_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
+  "set_prototype_mode", "set_viewer_mode", "present_start", "present_stop", "present_pointer", "present_wheel", "present_key", "present_command",
   "present_set_options", "present_state",
 ].map((name) => `engine_${name}`);

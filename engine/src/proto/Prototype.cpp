@@ -373,6 +373,7 @@ Device device(const NodeProps& page) {
   if (!extraJson(page, "prototypeDevice", v) || !v.isObject()) return d;
   const json::Value* t = v.get("type");
   std::string type = t && t->isString() ? t->string : (t && t->isNumber() ? (t->number == 1 ? "PRESET" : t->number == 2 ? "CUSTOM" : t->number == 3 ? "PRESENTATION" : "NONE") : "NONE");
+  d.type = type == "PRESET" ? Device::Type::PRESET : type == "CUSTOM" ? Device::Type::CUSTOM : type == "PRESENTATION" ? Device::Type::PRESENTATION : Device::Type::NONE;
   if (type == "PRESET" || type == "CUSTOM") {
     if (const json::Value* s = v.get("size"); s && s->isObject()) d.size = {num(s->get("x"), 0), num(s->get("y"), 0)};
     d.none = !(d.size.x > 0 && d.size.y > 0);

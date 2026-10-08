@@ -17,10 +17,10 @@ export interface PresentOptions {
 
 type DesktopNav = { openPrototype?: (fileKey: string, pageId: string, startNodeId?: string, title?: string) => Promise<unknown> };
 
-/** The selection's top-level frame (the first selected layer's), or undefined. */
-export function presentStart(ed: EditorController): Guid | undefined {
+/** The selection's top-level frame (the first selected layer's, or `from`'s), or undefined. */
+export function presentStart(ed: EditorController, from?: Guid): Guid | undefined {
   const page = ed.store.page;
-  let cur: Guid | undefined = ed.selection[0];
+  let cur: Guid | undefined = from ?? ed.selection[0];
   for (let guard = 0; cur && guard < 256; guard++) {
     const n = ed.engine.readNode(cur, { fields: ["parentIndex"] });
     const parent = n?.parentIndex?.guid;
@@ -49,6 +49,15 @@ export function present(ed: EditorController, opts: PresentOptions = {}): void {
     }
   }
   ed.ui.set({ presenting: { page, node: node ?? null } });
+}
+
+/** Opens or closes the inline preview (⇧Space; InlinePreview.tsx) at the selection's frame. */
+export function togglePreview(ed: EditorController): void {
+  if (ed.ui.get().preview) {
+    ed.ui.set({ preview: null });
+    return;
+  }
+  ed.ui.set({ preview: { page: ed.store.page, node: presentStart(ed) ?? null } });
 }
 
 /** This editor's document, and its changes as they commit, for a presentation over it. */

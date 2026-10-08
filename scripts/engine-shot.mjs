@@ -899,6 +899,25 @@ async function e8Checks(files) {
   files.push(await shot("64-present-details"));
   await engine(() => window.__designerEngine.presentStop());
   await settle();
+  // Round 5: a device with its frame — the Model's colour around the glass, the screen's corners rounded.
+  const dev = await engine(() => {
+    const e = window.__designerEngine;
+    e.setProps(["0:1"], { prototypeDevice: { type: "PRESET", presetIdentifier: "IPHONE_16_PRO_DESERT_TITANIUM", size: { x: 402, y: 874 }, rotation: "NONE" } });
+    e.presentStart({ page: "0:1" });
+    return e.presentState();
+  });
+  await page.waitForTimeout(100);
+  await settle();
+  {
+    const r = dev.screenRect;
+    const k = r.w / 402;
+    const [glass, body, corner, inside] = await pixelsAt([[r.x - 4 * k, r.y + r.h / 2], [r.x - 16 * k, r.y + r.h / 2], [r.x + 12 * k, r.y + 12 * k], [r.x + 100 * k, r.y + 200 * k]]);
+    check("presenting on a device: the glass, the Model's body (Desert Titanium), rounded screen corners", dev.hasDeviceFrame && near(glass, [5, 5, 6, 255], 12) && near(body, [196, 169, 142, 255], 16) && near(corner, [5, 5, 6, 255], 12) && near(inside, [13, 153, 255, 255], 16),
+      `${glass} ${body} ${corner} ${inside}`);
+  }
+  files.push(await shot("65-present-device-frame"));
+  await engine(() => window.__designerEngine.presentStop());
+  await settle();
 }
 
 try {

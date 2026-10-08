@@ -18,14 +18,13 @@ import type {
   LibraryEvent,
   LibraryRegistry,
   OpenedFile,
-  PreviewService,
   StoreAdmin,
   StoreApi,
   Unsubscribe,
   WorkspaceEvent,
   WorkspaceRepository,
 } from "../shared/store/repositories";
-import { isFileKey, type FileKey, type FileMeta, type FolderId, type PreviewOptions, type PreviewRecord, type VersionRecord } from "../shared/store/types";
+import { isFileKey, type FileKey, type FileMeta, type FolderId, type PreviewRecord, type VersionRecord } from "../shared/store/types";
 import { inlineCompactor, type Compactor } from "./compactor";
 import { writeLocalCopy } from "./export/fig";
 import { prepareFigImport } from "./import/fig";
@@ -40,7 +39,7 @@ import { versionDateLabel } from "./local/versions";
 import { LocalWorkspace, newMeta, workspaceDirs, type Log, type WorkspaceDirs } from "./local/workspace";
 import { loadSyncConfig, type SyncConfig } from "./sync/config";
 import type { StorageDriver } from "./sync/drivers";
-import { previewService, type ExportHtmlResult } from "./preview/previews";
+import { previewService } from "./preview/previews";
 import { SerialQueue } from "./local/queue";
 
 export interface LocalStoreOptions {
@@ -545,8 +544,8 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
   return { workspace, files, blobs, libraries, previews, store };
 }
 
-/** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml`. */
-export function previewsOf(s: LocalStore): PreviewService & { exportHtml(fileKey: FileKey, input: { snapshot: Uint8Array; options?: Partial<PreviewOptions> }, path: string): Promise<ExportHtmlResult> } {
+/** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml` and the start's `sweepExpired`. */
+export function previewsOf(s: LocalStore): ReturnType<typeof previewService> {
   return previewService({
     root: s.dirs.root,
     tmpDir: s.dirs.tmp,

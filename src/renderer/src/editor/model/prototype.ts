@@ -429,14 +429,21 @@ export function interactionSummary(i: PrototypeInteraction, nameOf: (id: Guid) =
 
 // ── Device ───────────────────────────────────────────────────────────────────
 
-/** Figma's device presets for prototypes (a subset: the common ones), [id, label, width, height] in portrait. */
+/**
+ * Figma's device presets for prototypes (a subset: the common ones), [id, label, width, height] in portrait. The
+ * engine draws each one's device frame (engine/src/proto/Devices.cpp — the same ids and models).
+ */
 export const DEVICE_PRESETS: { header: string; items: [string, string, number, number][] }[] = [
   {
     header: "Phone",
     items: [
       ["IPHONE_16", "iPhone 16", 393, 852],
+      ["IPHONE_16_PLUS", "iPhone 16 Plus", 430, 932],
       ["IPHONE_16_PRO", "iPhone 16 Pro", 402, 874],
       ["IPHONE_16_PRO_MAX", "iPhone 16 Pro Max", 440, 956],
+      ["IPHONE_15", "iPhone 15", 393, 852],
+      ["IPHONE_15_PRO", "iPhone 15 Pro", 393, 852],
+      ["IPHONE_15_PRO_MAX", "iPhone 15 Pro Max", 430, 932],
       ["IPHONE_SE", "iPhone SE", 375, 667],
       ["ANDROID_COMPACT", "Android Compact", 412, 917],
       ["ANDROID_MEDIUM", "Android Medium", 700, 840],
@@ -465,13 +472,66 @@ export const DEVICE_PRESETS: { header: string; items: [string, string, number, n
   { header: "Watch", items: [["APPLE_WATCH", "Apple Watch Series 10 46mm", 208, 248]] },
 ];
 
+/** Each preset's models (its colours; help: "the iPhone 15 Pro Max comes in four different colors"), the first the default. */
+const IPHONE_16_MODELS = [["BLACK", "Black"], ["WHITE", "White"], ["PINK", "Pink"], ["TEAL", "Teal"], ["ULTRAMARINE", "Ultramarine"]] as const;
+const IPHONE_16_PRO_MODELS = [["BLACK_TITANIUM", "Black Titanium"], ["WHITE_TITANIUM", "White Titanium"], ["NATURAL_TITANIUM", "Natural Titanium"], ["DESERT_TITANIUM", "Desert Titanium"]] as const;
+const IPHONE_15_MODELS = [["BLACK", "Black"], ["BLUE", "Blue"], ["GREEN", "Green"], ["YELLOW", "Yellow"], ["PINK", "Pink"]] as const;
+const IPHONE_15_PRO_MODELS = [["BLACK_TITANIUM", "Black Titanium"], ["WHITE_TITANIUM", "White Titanium"], ["BLUE_TITANIUM", "Blue Titanium"], ["NATURAL_TITANIUM", "Natural Titanium"]] as const;
+const IPAD_PRO_MODELS = [["SPACE_BLACK", "Space Black"], ["SILVER", "Silver"]] as const;
+export const DEVICE_MODELS: Record<string, readonly (readonly [string, string])[]> = {
+  IPHONE_16: IPHONE_16_MODELS,
+  IPHONE_16_PLUS: IPHONE_16_MODELS,
+  IPHONE_16_PRO: IPHONE_16_PRO_MODELS,
+  IPHONE_16_PRO_MAX: IPHONE_16_PRO_MODELS,
+  IPHONE_15: IPHONE_15_MODELS,
+  IPHONE_15_PRO: IPHONE_15_PRO_MODELS,
+  IPHONE_15_PRO_MAX: IPHONE_15_PRO_MODELS,
+  IPHONE_SE: [["MIDNIGHT", "Midnight"], ["STARLIGHT", "Starlight"], ["PRODUCT_RED", "(PRODUCT)RED"]],
+  ANDROID_COMPACT: [["BLACK", "Black"]],
+  ANDROID_MEDIUM: [["BLACK", "Black"]],
+  GOOGLE_PIXEL_8: [["OBSIDIAN", "Obsidian"], ["HAZEL", "Hazel"], ["ROSE", "Rose"], ["MINT", "Mint"]],
+  SAMSUNG_GALAXY_S24: [["ONYX_BLACK", "Onyx Black"], ["MARBLE_GREY", "Marble Grey"], ["COBALT_VIOLET", "Cobalt Violet"], ["AMBER_YELLOW", "Amber Yellow"]],
+  IPAD_MINI: [["SPACE_GRAY", "Space Gray"], ["BLUE", "Blue"], ["PURPLE", "Purple"], ["STARLIGHT", "Starlight"]],
+  IPAD_PRO_11: IPAD_PRO_MODELS,
+  IPAD_PRO_13: IPAD_PRO_MODELS,
+  SURFACE_PRO_8: [["PLATINUM", "Platinum"], ["GRAPHITE", "Graphite"]],
+  MACBOOK_AIR: [["MIDNIGHT", "Midnight"], ["STARLIGHT", "Starlight"], ["SPACE_GRAY", "Space Gray"], ["SILVER", "Silver"]],
+  MACBOOK_PRO_14: [["SPACE_BLACK", "Space Black"], ["SILVER", "Silver"]],
+  MACBOOK_PRO_16: [["SPACE_BLACK", "Space Black"], ["SILVER", "Silver"]],
+  DESKTOP: [["BLACK", "Black"]],
+  APPLE_WATCH: [["JET_BLACK", "Jet Black"], ["ROSE_GOLD", "Rose Gold"], ["SILVER", "Silver"]],
+};
+
+/**
+ * A presetIdentifier's preset and model: `<DEVICE>` or `<DEVICE>_<MODEL>` (ours — Figma's identifiers aren't
+ * published), the longest preset id that starts it; no model: the preset's first.
+ */
+export function deviceOf(presetIdentifier: string | undefined): { preset: [string, string, number, number]; model: string } | null {
+  if (!presetIdentifier) return null;
+  let best: [string, string, number, number] | null = null;
+  for (const g of DEVICE_PRESETS)
+    for (const p of g.items)
+      if ((presetIdentifier === p[0] || presetIdentifier.startsWith(`${p[0]}_`)) && (!best || p[0].length > best[0].length)) {
+        const rest = presetIdentifier.slice(p[0].length + 1);
+        if (!rest || DEVICE_MODELS[p[0]]?.some(([m]) => m === rest)) best = p;
+      }
+  if (!best) return null;
+  const rest = presetIdentifier.slice(best[0].length + 1);
+  return { preset: best, model: rest || DEVICE_MODELS[best[0]]?.[0]?.[0] || "" };
+}
+
+/** The presetIdentifier of a preset in a model (the first model: the preset's id alone). */
+export function presetIdentifierOf(preset: string, model: string): string {
+  const first = DEVICE_MODELS[preset]?.[0]?.[0];
+  return !model || model === first ? preset : `${preset}_${model}`;
+}
+
 export function devicePreset(id: string | undefined): [string, string, number, number] | null {
-  for (const g of DEVICE_PRESETS) for (const p of g.items) if (p[0] === id) return p;
-  return null;
+  return deviceOf(id)?.preset ?? null;
 }
 
 export function deviceLabel(d: PrototypeDevice | undefined): string {
-  if (!d || d.type === "NONE" || !d.type) return "None";
+  if (!d || d.type === "NONE" || !d.type) return "No device";
   if (d.type === "PRESENTATION") return "Presentation";
   const p = devicePreset(d.presetIdentifier);
   if (p) return p[1];

@@ -1075,11 +1075,11 @@ The same page is the Firebase Hosting site, so the export is just this page with
   - A drag pans, and so do Space-drag and the middle button.
   - A double-click selects one level deeper.
   - Keys: ⇧1 zoom to fit, ⇧2 zoom to selection, ⌘± zoom, ⇧0 / ⌘0 100 %, Esc selects the parent.
-- **Layout**, Dev Mode's ([R8](research/figma/R8-dev-mode.md)):
+- **Layout**, Dev Mode's ([R9](research/figma/R9-dev-mode.md)):
   - **Left**: the file name with "Developer preview", Pages, and the Layers tree (read-only; the selection's ancestors open).
   - **Canvas** with hover **measurements**: red lines and values between the selection and the hovered layer, with no ⌥ needed, from `inspect/measure.ts`.
   - **Inspect**, nothing selected: the page, Code with the language (CSS / iOS (SwiftUI) / Android (Compose), remembered), the page's Frames, and Variables with "Open variables table" (collections, one column per mode, a click copies).
-  - **Inspect**, one layer: its name and type; Component or Instance (main component, variant and properties); Layout (box model with padding, size, left and top in the parent, Hug / Fill, rotation, radius, opacity, auto layout and gap); Code (CSS grouped Layout / Style / Typography, each with Copy, or a SwiftUI or Compose snippet); Colors (fill and stroke with hex, the variable's name with its collection and mode, or the style's name); Typography (text style, font, weight, size, line height with %, letter spacing, content); Effects; Export (0.5x–4x, PNG / JPG, rendered by the engine's node thumbnail, when allowed). Every value copies on click.
+  - **Inspect**, one layer: its name and type; Component or Instance (main component, variant and properties); Layout (box model with padding, size, left and top in the parent, Hug / Fill, rotation, radius, opacity, auto layout and gap); Code (CSS grouped Layout / Style / Typography, each with Copy, or a SwiftUI or Compose snippet); Colors (fill and stroke with hex, the variable's name with its collection and mode, or the style's name); Typography (text style, font, weight, size, line height with %, letter spacing, content); Effects; Annotations, Assets and Export (when allowed; see "Round 5" below). Every value copies on click.
 - **Snippets** (`inspect/css.ts`, `inspect/native.ts`, `inspect/model.ts`, pure and tested) follow Figma's output as far as it is documented: `var(--Name, fallback)`, a variable's Web code syntax honoured, `#FFF` shortening, the `line-height … /* 125% */` comment, the text style as a comment, blur halved for CSS, `url(<path-to-image>) lightgray 50% / cover no-repeat`.
 
 **Firebase project files** (`firebase/`):
@@ -1103,15 +1103,21 @@ To deploy, once the owner has a project:
   - it serves a package's files over HTTP (the Storage layout) with only one page and Inspect off, and checks that an expired preview is refused.
   Screenshots go to `$TMPDIR/designer-viewer-check/`.
 
+**Round 5 (2026-10-08, branch `r5-prototype-viewer`; R9-dev-mode.md):**
+- **Read-only engine**: the viewer turns on the engine's viewer mode (`setViewerMode`, docs/engine-build.md "Round 5"): no resize handles, nothing a click, a drag or a key could change; edits through the API return `E_READONLY`.
+- **Present**: ▶ in the Inspect header (⌥⌘↩) plays the preview's prototype in the presentation view (`PresentationView`, on an engine of its own loading the preview's Message and images) — device frames, scale options, Esc back.
+- **Export** (`DevSections.tsx`): the layer's export settings (else 1x PNG), "+" for more, each a scale (0.5x–4x) and a format (PNG, JPG, SVG, PDF) — drawn by the E7 exporters (`editor/exportCore.ts`, shared with the editor; the vector writers get the preview's images) — "Export ‹layer›" downloads one file or a ZIP.
+- **Assets**: the icons (small layers made only of vector shapes) and images inside the selected layer, with a thumbnail; icons as SVG / PNG / JPG / PDF, images as "Source image file" (the original from the preview) or "Layer export".
+- **Code / List** toggle (remembered) and the **units** in the language menu's Settings: CSS px / rem, iOS pt / px, Android dp / sp / px, and "Set unit scale…" (root font size; scale factor) — `inspect/units.ts`.
+- **Statuses**: designs marked "Ready for dev" / "Completed" (`sectionStatusInfo`, set in the editor's canvas menu) are listed under "Ready for development" in the left panel and badged in Inspect.
+- **Annotations** stored in the file (`annotations`: the note's HTML as text, the pinned properties with the layer's values) show on the canvas as a green dot with the note, and in Inspect.
+- **Expired previews** are revoked and deleted from Storage when sync starts (`previews.sweepExpired`, from `startSync`).
+- Checks: `inspect/devMode.test.ts` (statuses, annotations, asset detection, List rows, units), `preview.wasm.test.ts` (the status, annotation and icon through the snapshot; viewer mode), `previews.test.ts` (the sweep), `npm run viewer:check` (status, annotation, rem, List, Compose, the icon in Assets, an SVG export downloaded and read, Present).
+
 **Not done:**
-- Present (the prototype player).
-- SVG and PDF export, and "Assets" (detected icons and images).
-- The Code / List toggle and the unit settings (rem, pt, dp).
-- Annotations, "Ready for dev" statuses, Compare changes.
-- Swept expiry of published previews at store start.
-- The viewer's engine mode `VIEWER` / `INSPECT`: the engine is the normal one, and the TS side keeps it read-only, so it still draws Design-mode selection handles.
+- Compare changes; annotation and measurement tools in Design (the viewer shows what a .fig brings); Figma's "Automatically detect icons" switch and its exact heuristic (ours: ≤ 128 px, vectors only); the exact unit conversion of native snippets.
 - Publishing has not been tried against a real Firebase project, since there is no config yet. The desktop export path (editor → `file:export-preview` → the store) is checked by types and the store tests, not by driving the built app: the Save dialog is native. Reading `out/viewer/index.html` from inside `app.asar` in a packaged build is untried.
-- The exact SwiftUI / Compose output and the redline colours are unverified against Figma (R8).
+- The exact SwiftUI / Compose output and the redline colours are unverified against Figma (R9).
 
 ---
 

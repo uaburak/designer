@@ -8,6 +8,11 @@
  *
  * The document comes from a PresentationSource: the store's file opened read-only in a tab of its own (PresentRoute),
  * or the editor's engine when presenting in its own tab; its live changes keep the prototype current.
+ *
+ * Options (help.figma.com 360040318013): without a device Actual size (100%), Responsive, Fit width, Fit width and
+ * height, Fill screen; with one Responsive / Fixed size, Fit device on screen, Zoom device to fill screen, Show device
+ * at 100%, Show device frame. The `inline` variant is the editor's inline preview (InlinePreview.tsx): its own bar of
+ * ← →, Restart, the overflow menu, open in presentation view and ×.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon, IconButton, MenuButton, Spinner, type MenuEntry } from "@/ds";
@@ -28,6 +33,18 @@ export interface PresentationSource {
 
 export interface PresentationViewProps {
   source: PresentationSource;
+  /** The canvas's id (the engine finds its canvas by selector; two presentations at once need two) */
+  canvasId?: string;
+  /** "inline": the editor's inline preview — its own bar, no footer, never full screen */
+  variant?: "full" | "inline";
+  /** Inline: extra overflow menu entries and their handler (Follow prototype, Resize window to 100%, …) */
+  extraOptions?: MenuEntry[];
+  onExtraOption?: (id: string) => void;
+  /** Inline: Restart (default: the engine's, from the flow's start) and "Open in presentation view" */
+  onRestart?: () => void;
+  onOpenFull?: () => void;
+  /** Every state read (the inline preview follows it) */
+  onState?: (state: PresentState) => void;
   /** The page; default: the document's first page */
   page?: Guid | null;
   /** Where to start: a frame (or a layer in one); default: the first flow's start */
@@ -38,12 +55,46 @@ export interface PresentationViewProps {
   onReady?: (engine: Engine) => void;
 }
 
-const SCALES: { value: PresentScale; label: string; device: string }[] = [
-  { value: "ACTUAL", label: "Actual size (100%)", device: "Show device at 100%" },
-  { value: "FIT_WIDTH", label: "Fit width", device: "Fit width" },
-  { value: "FIT", label: "Fit width and height", device: "Fit device on screen" },
-  { value: "FILL", label: "Fill screen", device: "Zoom device to fill screen" },
+/** The scale options in Figma's menu order, without a device and with one. */
+const SCALES: { value: PresentScale; label: string }[] = [
+  { value: "ACTUAL", label: "Actual size (100%)" },
+  { value: "RESPONSIVE", label: "Responsive" },
+  { value: "FIT_WIDTH", label: "Fit width" },
+  { value: "FIT", label: "Fit width and height" },
+  { value: "FILL", label: "Fill screen" },
 ];
+const DEVICE_SCALES: { value: PresentScale; label: string }[] = [
+  { value: "FIT", label: "Fit device on screen" },
+  { value: "FILL", label: "Zoom device to fill screen" },
+  { value: "ACTUAL", label: "Show device at 100%" },
+];
+
+/** The options menu's entries for a state (the full view's; the inline preview has its own). */
+export function presentOptions(state: PresentState | null): MenuEntry[] {
+  const device = !!state?.device;
+  const scale = state?.scale;
+  return [
+    { id: "hints", label: "Show hints on click", checked: state?.hints !== false },
+    "-",
+    ...(device
+      ? [
+          { id: "responsive:on", label: "Responsive", checked: !!state?.responsive },
+          { id: "responsive:off", label: "Fixed size", checked: !state?.responsive },
+          "-" as const,
+          ...DEVICE_SCALES.map((s) => ({ id: `scale:${s.value}`, label: s.label, checked: scale === s.value || (s.value === "FIT" && (scale === "FIT_WIDTH" || scale === "RESPONSIVE")) })),
+          ...(state?.hasDeviceFrame ? ["-" as const, { id: "frame", label: "Show device frame", checked: state.deviceFrame !== false }] : []),
+        ]
+      : SCALES.map((s) => ({ id: `scale:${s.value}`, label: s.label, checked: scale === s.value }))),
+  ];
+}
+
+/** Applies an options menu entry (presentOptions' ids) to the engine. */
+export function applyPresentOption(engine: Engine, state: PresentState | null, id: string): void {
+  if (id === "hints") engine.presentSetOptions({ hints: state?.hints === false });
+  else if (id === "frame") engine.presentSetOptions({ deviceFrame: state?.deviceFrame === false });
+  else if (id.startsWith("responsive:")) engine.presentSetOptions({ responsive: id === "responsive:on" });
+  else if (id.startsWith("scale:")) engine.presentSetOptions({ scale: id.slice(6) as PresentScale });
+}
 
 const POINTER = { down: 0, move: 1, up: 2, cancel: 3, enter: 4, leave: 5 } as const;
 const POINTER_TYPE: Record<string, number> = {
@@ -65,7 +116,12 @@ declare global {
   }
 }
 
-export function PresentationView({ source, page, node, onClose, onReady }: PresentationViewProps) {
+export function PresentationView({ source, page, node, onClose, onReady, canvasId = "present-canvas", variant = "full", extraOptions, onExtraOption, onRestart, onOpenFull, onState }: PresentationViewProps) {
+  const inline = variant === "inline";
+  const onStateRef = useRef(onState);
+  useEffect(() => {
+    onStateRef.current = onState;
+  }, [onState]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const [state, setState] = useState<PresentState | null>(null);
@@ -83,6 +139,7 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
     if (key !== lastState.current) {
       lastState.current = key;
       setState(s);
+      onStateRef.current?.(s);
     }
   }, []);
 
@@ -125,7 +182,7 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
       const timer = window.setInterval(readState, 150);
       cleanups.push(() => window.clearInterval(timer));
       readState();
-      canvas.focus({ preventScroll: true });
+      if (!inline) canvas.focus({ preventScroll: true });
       onReady?.(engine);
     })().catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
     return () => {
@@ -150,12 +207,19 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
         engine.presentKey("up", e.keyCode, modsOf(e));
         return;
       }
+      // The inline preview's R: from the last frame selected on the canvas.
+      if (inline && onRestart && e.code === "KeyR" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        onRestart();
+        readState();
+        return;
+      }
       if (engine.presentKey("down", e.keyCode, modsOf(e))) {
         e.preventDefault();
         readState();
         return;
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || inline) return;
       if (e.key === "Escape" && onClose) {
         e.preventDefault();
         if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
@@ -166,13 +230,16 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
         else void document.documentElement.requestFullscreen?.().catch(() => {});
       }
     };
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("keyup", onKey, true);
+    // The inline preview takes keys only while it has the focus (the editor keeps its own).
+    const target: HTMLElement | Window | null = inline ? canvasRef.current : window;
+    if (!target) return;
+    target.addEventListener("keydown", onKey as EventListener, true);
+    target.addEventListener("keyup", onKey as EventListener, true);
     return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("keyup", onKey, true);
+      target.removeEventListener("keydown", onKey as EventListener, true);
+      target.removeEventListener("keyup", onKey as EventListener, true);
     };
-  }, [onClose, readState]);
+  }, [onClose, readState, inline, onRestart]);
 
   const at = (e: { clientX: number; clientY: number }): [number, number] => {
     const r = canvasRef.current!.getBoundingClientRect();
@@ -213,19 +280,22 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
   const flowMenu: MenuEntry[] = flows.length
     ? flows.map((f) => ({ id: f.node, label: f.name || "Flow", checked: state?.flow === f.node }))
     : [{ id: "none", label: "No flows on this page", disabled: true }];
-  const device = !!state?.device;
-  const options: MenuEntry[] = [
-    { id: "hints", label: "Show hints on click", checked: state?.hints !== false },
-    "-",
-    ...SCALES.map((s) => ({ id: `scale:${s.value}`, label: device ? s.device : s.label, checked: state?.scale === s.value, shortcut: s.value === state?.scale ? "Z" : undefined })),
-  ];
+  const options: MenuEntry[] = inline ? (extraOptions ?? []) : presentOptions(state);
   const onOption = (id: string) => {
     const engine = engineRef.current;
     if (!engine) return;
-    if (id === "hints") engine.presentSetOptions({ hints: state?.hints === false });
-    else if (id.startsWith("scale:")) engine.presentSetOptions({ scale: id.slice(6) as PresentScale });
+    if (inline) onExtraOption?.(id);
+    else applyPresentOption(engine, state, id);
     readState();
     canvasRef.current?.focus({ preventScroll: true });
+  };
+  const restart = () => {
+    if (onRestart) {
+      onRestart();
+      readState();
+    } else {
+      command("restart");
+    }
   };
   const startFlow = (id: string) => {
     const engine = engineRef.current;
@@ -233,6 +303,49 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
     engine.presentStart({ node: id });
     readState();
   };
+
+  const canvas = (
+    <canvas
+      ref={canvasRef}
+      // Its own id: the engine finds its canvas by selector, and the editor's is "engine-canvas".
+      id={canvasId}
+      className={styles.canvas}
+      tabIndex={0}
+      aria-label="Prototype"
+      style={{ cursor: state?.scrubbing ? "grabbing" : state?.hotspot ? "pointer" : "default" }}
+      onPointerDown={onPointer}
+      onPointerMove={onPointer}
+      onPointerUp={onPointer}
+      onPointerCancel={onPointer}
+      onPointerLeave={onPointer}
+      onContextMenu={(e) => e.preventDefault()}
+    />
+  );
+  if (inline)
+    return (
+      <div className={styles.inline} data-presentation="inline">
+        <header className={styles.inlineBar}>
+          <IconButton icon="24.arrow.left" label="Back" disabled={!state?.canBack && !state?.canPrevious} onClick={() => command(state?.canBack ? "back" : "previous")} />
+          <IconButton icon="24.arrow.right" label="Forward" disabled={!state?.canNext} onClick={() => command("next")} />
+          <IconButton icon="24.rotate" label="Restart" shortcut="R" onClick={restart} />
+          <span className={styles.inlineTitle}>{state?.screenName ?? ""}</span>
+          <MenuButton label="Preview options" entries={options} onSelect={onOption} className={styles.chip}>
+            <Icon name="24.more" />
+          </MenuButton>
+          {onOpenFull && <IconButton icon="24.new.tab" label="Open in presentation view" onClick={onOpenFull} />}
+          {onClose && <IconButton icon="24.close.small" label="Close preview" onClick={onClose} />}
+        </header>
+        <div className={styles.stage}>
+          {canvas}
+          {!state && !error && (
+            <div className={styles.center}>
+              <Spinner />
+            </div>
+          )}
+          {error && <div className={styles.center}>{error}</div>}
+        </div>
+      </div>
+    );
 
   return (
     <div className={styles.root} data-presentation>
@@ -254,21 +367,7 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
         {onClose && <IconButton icon="24.close.small" label="Close presentation" onClick={onClose} />}
       </header>
       <div className={styles.stage}>
-        <canvas
-          ref={canvasRef}
-          // Its own id: the engine finds its canvas by selector, and the editor's is "engine-canvas".
-          id="present-canvas"
-          className={styles.canvas}
-          tabIndex={0}
-          aria-label="Prototype"
-          style={{ cursor: state?.hotspot ? "pointer" : "default" }}
-          onPointerDown={onPointer}
-          onPointerMove={onPointer}
-          onPointerUp={onPointer}
-          onPointerCancel={onPointer}
-          onPointerLeave={onPointer}
-          onContextMenu={(e) => e.preventDefault()}
-        />
+        {canvas}
         {!state && !error && (
           <div className={styles.center}>
             <Spinner />
@@ -281,7 +380,7 @@ export function PresentationView({ source, page, node, onClose, onReady }: Prese
         <IconButton icon="24.arrow.left" label="Previous frame" shortcut="←" disabled={!state?.canPrevious} onClick={() => command("previous")} />
         <IconButton icon="24.arrow.right" label="Next frame" shortcut="→" disabled={!state?.canNext} onClick={() => command("next")} />
         <span className={styles.grow} />
-        <button type="button" className={styles.restart} onClick={() => command("restart")}>
+        <button type="button" className={styles.restart} onClick={restart}>
           Restart
         </button>
       </footer>

@@ -21,7 +21,7 @@ import type { FileKey, FileMeta, Folder, Hlc, Prefs, Workspace } from "../../sha
 import { join } from "node:path";
 import type { Timers } from "../local/fileStore";
 import { formatHlc } from "../local/ids";
-import type { LocalStore } from "../localStore";
+import { previewsOf, type LocalStore } from "../localStore";
 import { FileClocks } from "./clocks";
 import { loadFirebaseDrivers, type FirebaseDrivers } from "./drivers";
 import { FirestoreAdapter } from "./firestoreAdapter";
@@ -359,6 +359,11 @@ export async function startSync(store: LocalStore, opts: StartSyncOptions): Prom
   store.replicator = r;
   // Developer previews publish to the same project's Storage while sync runs (docs/data.md §13).
   store.previewStorage = drivers.storage;
+  // Expired developer previews leave Storage now (the viewer refuses them already).
+  void previewsOf(store)
+    .sweepExpired()
+    .then((ids) => ids.length && store.log("info", `swept ${ids.length} expired preview(s)`))
+    .catch((e: unknown) => store.log("warn", `couldn't sweep expired previews: ${(e as Error).message}`));
   r.start();
   return r;
 }

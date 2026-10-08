@@ -104,7 +104,7 @@ void Editor::updateCursor(Vec2 s) {
     if (n && Rect{0, 0, n->props.size.x, n->props.size.y}.contains(local)) return changeCursor(CursorKind::IBEAM);
   }
   int hx = 0, hy = 0;
-  Handle h = handleAt(s, hx, hy);
+  Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::None) return changeCursor(CursorKind::DEFAULT);
   // The angle of the handle's direction on screen (0 = pointing right).
   SelectionBox box = selectionBox(doc_, selection_);
@@ -275,8 +275,10 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     changeCursor(CursorKind::GRABBING);
     return P_HANDLED | P_CAPTURE;
   }
+  // Viewer mode: no context menu, nothing but selecting (and panning, above).
+  if (viewer_ && button != 0) return 0;
   // A right-click, or ⌃-click where ⌃ isn't the command key (a Mac).
-  if (button == 2 || (button == 0 && (mods & MOD_CTRL) && !(mods & MOD_PRIMARY))) return contextMenu(s, mods);
+  if (!viewer_ && (button == 2 || (button == 0 && (mods & MOD_CTRL) && !(mods & MOD_PRIMARY)))) return contextMenu(s, mods);
   if (button != 0) return 0;
 
   // Editing text: a press in it moves the caret or selects; elsewhere it ends the editing first.
@@ -335,7 +337,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   }
 
   int hx = 0, hy = 0;
-  Handle h = handleAt(s, hx, hy);
+  Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::Resize) {
     startResize(hx, hy);
     gesture_ = Gesture::Resize;
@@ -349,14 +351,14 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
 
   bool deep = (mods & MOD_PRIMARY) != 0, shift = (mods & MOD_SHIFT) != 0;
   auto path = hitPath(doc_, page_, downWorld_, pixel());
-  if (clickCount_ >= 2 && !shift && !path.empty()) {
+  if (!viewer_ && clickCount_ >= 2 && !shift && !path.empty()) {
     // Double-click on a text layer: edit it, the word under the pointer selected.
     const Node* hit = doc_.get(path.back());
     if (hit && hit->props.type == NodeType::TEXT && !hit->props.locked && (selected(path.back()) || pick(doc_, path, selection_, deep) == path.back())) {
       if (startTextEdit(path.back(), false) == OK) return textPointerDown(s, mods, 2);
     }
   }
-  if (clickCount_ >= 2 && !shift && !path.empty()) {
+  if (!viewer_ && clickCount_ >= 2 && !shift && !path.empty()) {
     // Double-click on a selected vector or shape: vector edit mode.
     Guid hit = pick(doc_, path, selection_, deep);
     if (hit != kNoGuid && selected(hit) && startVectorEdit(hit) == OK) return P_HANDLED;
@@ -445,14 +447,14 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       if (pressMarquee_) {
         gesture_ = Gesture::Marquee;
         dragMarquee(world, mods);
-      } else if (startMove(mods)) {
+      } else if (!viewer_ && startMove(mods)) {
         gesture_ = Gesture::Move;
         dragMove(world, mods);
       } else {
         // Nothing movable under the press (instance sublayers stay where their main puts them; locked layers):
         // no gesture, no transaction — the press ends as nothing when the button comes up.
         pressNoop_ = true;
-        changeCursor(CursorKind::NOT_ALLOWED);
+        if (!viewer_) changeCursor(CursorKind::NOT_ALLOWED);
       }
       break;
     case Gesture::Move: dragMove(world, mods); break;

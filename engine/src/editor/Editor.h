@@ -404,6 +404,11 @@ class Editor : private LayoutHost, public TextLayouts {
   // frame adds an On click → Navigate to interaction (Figma's defaults), dragging a noodle's end retargets or removes it.
   void setPrototypeMode(bool on);
   bool prototypeMode() const { return proto_.on; }
+  // Viewer mode (developer previews, Dev Mode): read-only — the selection without resize / rotate handles, clicks
+  // select and drags never move anything, no context menu, no text / vector / paint editing, only the Move and Hand
+  // tools; edits through the API are refused (E_READONLY, Api.cpp).
+  void setViewerMode(bool on);
+  bool viewerMode() const { return viewer_; }
 
   // ---- Components and instances (editor/Instances.cpp, editor/ComponentCommands.cpp) ----
   bool componentInfo(Guid id, ComponentInfo& out) const;  // cached per document version
@@ -435,6 +440,9 @@ class Editor : private LayoutHost, public TextLayouts {
   bool resolveVariable(Guid variable, Guid consumer, Resolved& out) const;
   // `variable`'s value in `mode` of its own collection (aliases into other collections: their default modes).
   bool resolveVariableInMode(Guid variable, Guid mode, Resolved& out) const;
+  // A VariableData's value for `consumer` (a literal, an alias, or one of Figma's expressions): the one evaluator —
+  // bindings, and the prototype's Conditional and Set variable (proto/Player).
+  bool resolveValue(const VariableData& d, Guid consumer, Resolved& out) const;
   // The mode of collection `set` that a node (or page) uses: its explicit one, else an ancestor's, else the default.
   Guid resolvedMode(Guid node, Guid set) const;
   // A node's own explicit mode for `set` (a collection or an extended one; kNoGuid: Auto, or another of the chain's).
@@ -1049,6 +1057,7 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<ProtoLink> links;
   };
   ProtoSession proto_;
+  bool viewer_ = false;
   const std::vector<ProtoLink>& protoLinks();
   // The hotspots that show a "+" handle (the selection, top-level layers and layers inside frames) and where it is.
   std::vector<Guid> protoHandleNodes() const;

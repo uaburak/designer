@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <optional>
 
+#include "base/FractionalIndex.h"
+#include "proto/Devices.h"
 #include "scene/CodecJson.h"
 
 namespace eng::proto {
@@ -87,6 +90,44 @@ bool isSlideIn(Transition t) { return t >= Transition::SLIDE_FROM_LEFT && t <= T
 bool isSlideOut(Transition t) { return t >= Transition::SLIDE_OUT_TO_LEFT && t <= Transition::SLIDE_OUT_TO_BOTTOM; }
 bool isSmart(const Action& a) { return a.transition == Transition::SMART_ANIMATE || a.transition == Transition::MAGIC_MOVE; }
 
+// A TEXT layer's content and font: Smart animate dissolves a text whose content changed (and animates one that only
+// moved, resized or changed colour).
+std::string textSignature(const NodeProps& p) {
+  if (p.type != NodeType::TEXT) return std::string();
+  const TextFacet& t = p.text();
+  char size[32];
+  std::snprintf(size, sizeof size, "%g", t.fontSize);
+  return t.textData.characters + "\x01" + t.fontName.family + "\x01" + t.fontName.style + "\x01" + size;
+}
+
+// The visible shadows of a layer (help.figma.com 360039818874: "Figma does not support smart animate for layers with
+// drop shadow and inner shadow effects" — a layer whose shadows differ dissolves instead).
+std::vector<Effect> shadowsOf(const std::vector<Effect>& list) {
+  std::vector<Effect> out;
+  for (const Effect& e : list)
+    if (e.visible && e.isShadow()) out.push_back(e);
+  return out;
+}
+
+// Layer and background blurs (and texture / noise) animate: their radius and colour, when both sides have the
+// same effects in the same order; otherwise the destination's.
+std::vector<Effect> lerpEffects(const std::vector<Effect>& a, const std::vector<Effect>& b, double t) {
+  if (a.size() != b.size()) return t < 0.5 ? a : b;
+  std::vector<Effect> out = b;
+  for (size_t i = 0; i < a.size(); i++) {
+    if (a[i].type != b[i].type) return t < 0.5 ? a : b;
+    out[i].radius = lerp(a[i].radius, b[i].radius, t);
+    out[i].spread = lerp(a[i].spread, b[i].spread, t);
+    out[i].offset = {lerp(a[i].offset.x, b[i].offset.x, t), lerp(a[i].offset.y, b[i].offset.y, t)};
+    out[i].color = lerpColor(a[i].color, b[i].color, t);
+    if (a[i].visible != b[i].visible) {
+      out[i].visible = true;
+      out[i].radius = a[i].visible ? lerp(a[i].radius, 0, t) : lerp(0, b[i].radius, t);
+    }
+  }
+  return out;
+}
+
 // JS keyCodes of the modifiers (how Figma's keyTrigger lists them).
 constexpr int kShift = 16, kCtrl = 17, kAlt = 18, kMeta = 91;
 
@@ -104,6 +145,7 @@ const char* scaleName(ScaleMode m) {
     case ScaleMode::FIT_WIDTH: return "FIT_WIDTH";
     case ScaleMode::FIT: return "FIT";
     case ScaleMode::FILL: return "FILL";
+    case ScaleMode::RESPONSIVE: return "RESPONSIVE";
   }
   return "FIT";
 }
@@ -145,6 +187,17 @@ Guid Player::topLevelOf(Guid id) const {
   return kNoGuid;
 }
 
+void Player::dropGhost(Guid ghost) {
+  if (ghost == kNoGuid || !ghosts_.erase(ghost) || !doc().has(ghost)) return;
+  ed_.applyChanges({NodeChange::removed(ghost)}, APPLY_REMOTE);
+  dirty_ = true;
+}
+
+void Player::dropGhosts() {
+  std::vector<Guid> all(ghosts_.begin(), ghosts_.end());
+  for (Guid g : all) dropGhost(g);
+}
+
 bool Player::frameExists(Guid id) const {
   const NodeProps* p = props(id);
   return p && p->visible && (p->isFrameLike() || p->isGroupLike());
@@ -169,6 +222,25 @@ bool Player::start(Guid page, Guid start) {
     if (!seq.empty()) frame = seq[0];
   }
   if (frame == kNoGuid || !frameExists(frame)) return false;
+  restoreResponsive();
+  if (!scaleChosen_) {
+    // Figma's default scale (help "Play your prototypes", "Recommended"): Fill screen when the device is Presentation
+    // or every frame is 16:9; Fit width and height for a custom device; Fit device on screen with a preset
+    // (unverified); otherwise Actual size (100%).
+    Device dev = device(*pg);
+    bool wide = true;
+    int frames = 0;
+    for (Guid c : doc().children(page)) {
+      const NodeProps* cp = props(c);
+      if (!cp || !cp->visible || !cp->isFrameLike() || cp->type == NodeType::SECTION || cp->size.y <= 0) continue;
+      frames++;
+      wide &= std::fabs(cp->size.x / cp->size.y - 16.0 / 9.0) < 0.01;
+    }
+    scale_ = dev.type == Device::Type::PRESENTATION || (frames > 0 && wide) ? ScaleMode::FILL
+             : dev.type == Device::Type::CUSTOM || dev.type == Device::Type::PRESET ? ScaleMode::FIT
+                                                                                     : ScaleMode::ACTUAL;
+  }
+  scrub_ = Scrub{};
   // The flow the frame starts (or the first flow that reaches it).
   Flow f;
   if (const NodeProps* fp = props(frame); fp && flowStart(*fp, f)) flow_ = frame;
@@ -179,6 +251,7 @@ bool Player::start(Guid page, Guid start) {
   historyIds_.clear();
   scroll_.clear();
   anim_ = Anim{};
+  dropGhosts();
   instanceAnims_.clear();
   scrollAnims_.clear();
   timers_.clear();
@@ -194,6 +267,9 @@ bool Player::start(Guid page, Guid start) {
 }
 
 void Player::stop() {
+  restoreResponsive();
+  dropGhosts();
+  instanceAnims_.clear();
   base_ = kNoGuid;
   overlays_.clear();
   timers_.clear();
@@ -274,49 +350,180 @@ bool Player::previous() {
 
 void Player::setScale(ScaleMode m) {
   scale_ = m;
+  scaleChosen_ = true;
   dirty_ = true;
   if (active()) layout();
   events_.push_back(Event{});
 }
 
-void Player::cycleScale() { setScale(static_cast<ScaleMode>((static_cast<int>(scale_) + 1) % 4)); }
+void Player::cycleScale() {
+  // The options in the menu's order: Actual size, Responsive, Fit width, Fit width and height, Fill screen; with a
+  // device: Fit device on screen, Zoom device to fill screen, Show device at 100%.
+  bool dev = page_ != kNoGuid && props(page_) && !device(*props(page_)).none;
+  static const ScaleMode plain[] = {ScaleMode::ACTUAL, ScaleMode::RESPONSIVE, ScaleMode::FIT_WIDTH, ScaleMode::FIT, ScaleMode::FILL};
+  static const ScaleMode withDevice[] = {ScaleMode::FIT, ScaleMode::FILL, ScaleMode::ACTUAL};
+  const ScaleMode* list = dev ? withDevice : plain;
+  size_t n = dev ? 3 : 5, at = 0;
+  for (size_t i = 0; i < n; i++)
+    if (list[i] == scale_) at = i;
+  setScale(list[(at + 1) % n]);
+}
+
+void Player::setResponsive(bool on) {
+  responsive_ = on;
+  dirty_ = true;
+  if (active()) layout();
+  events_.push_back(Event{});
+}
+
+void Player::setDeviceFrame(bool on) {
+  deviceFrame_ = on;
+  dirty_ = true;
+  if (active()) layout();
+  events_.push_back(Event{});
+}
+
+bool Player::hasDeviceFrame() const {
+  if (page_ == kNoGuid || !props(page_)) return false;
+  Device dev = device(*props(page_));
+  const DeviceSpec* spec = nullptr;
+  const DeviceModel* model = nullptr;
+  return dev.type == Device::Type::PRESET && !dev.none && findDevice(dev.preset, spec, model);
+}
 
 // ---- Geometry --------------------------------------------------------------------------------------------
 
 void Player::layout() {
   const Viewport& vp = ed_.viewport();
   double W = std::max(1.0, vp.width), H = std::max(1.0, vp.height);
+  Device dev = device(*props(page_));
+  // Responsive: the frame takes the window's (or the device screen's) size first.
+  if (!fitting_) {
+    if (responsiveOn()) fitResponsive();
+    else if (!responsiveSizes_.empty()) restoreResponsive();
+  }
   const NodeProps* fp = props(base_);
   Vec2 frame = fp ? fp->size : Vec2{W, H};
-  Device dev = device(*props(page_));
   View v;
   if (!dev.none) {
     v.screen = dev.size;
-    double fitS = std::min(W / v.screen.x, H / v.screen.y);
+    // The device frame around the screen (Show device frame, a preset we draw).
+    DeviceFrame df;
+    const DeviceSpec* spec = nullptr;
+    const DeviceModel* model = nullptr;
+    v.framed = deviceFrame_ && dev.type == Device::Type::PRESET && findDevice(dev.preset, spec, model);
+    if (v.framed) df = proto::deviceFrame(*spec, *model, v.screen, dev.rotated);
+    // The device on the window, with a margin when it is fitted (Figma leaves room around it).
+    double margin = v.framed ? 32 : 0;
+    double tw = v.screen.x + df.left + df.right, th = v.screen.y + df.top + df.bottom;
+    double aw = std::max(1.0, W - 2 * margin), ah = std::max(1.0, H - 2 * margin);
     switch (scale_) {
       case ScaleMode::ACTUAL: v.s = 1; break;
-      case ScaleMode::FIT_WIDTH: v.s = W / v.screen.x; break;
-      case ScaleMode::FIT: v.s = fitS; break;
-      case ScaleMode::FILL: v.s = std::max(W / v.screen.x, H / v.screen.y); break;
+      case ScaleMode::FILL: v.s = std::max(W / tw, H / th); break;
+      default: v.s = std::min(1.0, std::min(aw / tw, ah / th)); break;  // Fit device on screen: it shrinks, never grows
     }
-  } else {
-    double fw = std::max(1.0, frame.x), fh = std::max(1.0, frame.y);
-    switch (scale_) {
-      case ScaleMode::ACTUAL: v.s = 1; break;
-      case ScaleMode::FIT_WIDTH: v.s = W / fw; break;
-      case ScaleMode::FIT: v.s = std::min(W / fw, H / fh); break;
-      case ScaleMode::FILL: v.s = std::max(W / fw, H / fh); break;
-    }
-    // The screen is the frame, cut to what the window shows (a taller frame scrolls).
-    v.screen = {std::min(fw, W / v.s), std::min(fh, H / v.s)};
+    double ox = std::round((W - tw * v.s) / 2 + df.left * v.s), oy = std::round((H - th * v.s) / 2 + df.top * v.s);
+    v.css = {ox, oy, v.screen.x * v.s, v.screen.y * v.s};
+    v.toCss = Mat2x3::translate(ox, oy) * Mat2x3::scale(v.s);
+    v.radius = v.framed ? df.screenRadius * v.s : 0;
+    if (v.framed)
+      for (const DeviceShape& sh : df.shapes) {
+        PresentItem r;
+        r.kind = PresentItem::Kind::Rect;
+        r.rect = {ox + sh.rect.x * v.s, oy + sh.rect.y * v.s, sh.rect.w * v.s, sh.rect.h * v.s};
+        r.color = sh.color;
+        r.alpha = sh.color.a;
+        r.color.a = 1;
+        r.radius = sh.radius * v.s;
+        r.border = sh.border;
+        r.borderColor = sh.borderColor;
+        (sh.over ? v.over : v.under).push_back(r);
+      }
+    view_ = std::move(v);
+    return;
   }
+  double fw = std::max(1.0, frame.x), fh = std::max(1.0, frame.y);
+  switch (scale_) {
+    case ScaleMode::ACTUAL:
+    case ScaleMode::RESPONSIVE: v.s = 1; break;
+    case ScaleMode::FIT_WIDTH: v.s = W / fw; break;
+    case ScaleMode::FIT: v.s = std::min(1.0, std::min(W / fw, H / fh)); break;  // "It will not scale up the prototype"
+    case ScaleMode::FILL: v.s = std::max(W / fw, H / fh); break;
+  }
+  // The screen is the frame, cut to what the window shows (a taller frame scrolls).
+  v.screen = {std::min(fw, W / v.s), std::min(fh, H / v.s)};
   double cw = v.screen.x * v.s, ch = v.screen.y * v.s;
   double ox = std::round((W - cw) / 2), oy = std::round((H - ch) / 2);
   if (ch > H) oy = 0;
   if (cw > W) ox = 0;
   v.css = {ox, oy, cw, ch};
   v.toCss = Mat2x3::translate(ox, oy) * Mat2x3::scale(v.s);
-  view_ = v;
+  view_ = std::move(v);
+}
+
+// ---- Responsive -----------------------------------------------------------------------------------------
+
+bool Player::responsiveOn() const {
+  if (page_ == kNoGuid || !props(page_)) return false;
+  Device dev = device(*props(page_));
+  return dev.none ? scale_ == ScaleMode::RESPONSIVE : responsive_;
+}
+
+void Player::fitResponsive() {
+  // "The contents of the prototype will resize and re-layout as the prototype viewer resizes according to the
+  // constraints and auto layout properties applied to the design": the frames shown take the window's width (the
+  // device screen's) and its height when they are no taller (a taller one keeps its height and scrolls); their
+  // children follow by their constraints and auto layout (the editor's layout runs on a user write — the player's
+  // engine is its own, its undo never used; the sizes go back when Responsive is turned off or the presentation
+  // stops).
+  const Viewport& vp = ed_.viewport();
+  Device dev = device(*props(page_));
+  Vec2 target = dev.none ? Vec2{std::max(1.0, vp.width), std::max(1.0, vp.height)} : dev.size;
+  std::vector<Guid> frames{base_};
+  if (anim_.active) {
+    frames.push_back(anim_.x.frame);
+    frames.push_back(anim_.y.frame);
+  }
+  std::vector<NodeChange> changes;
+  for (Guid f : frames) {
+    const NodeProps* p = props(f);
+    if (!p || (anim_.active && anim_.x.overlay && f == anim_.x.frame)) continue;
+    bool isOverlay = false;
+    for (auto& o : overlays_) isOverlay |= o.frame == f;
+    if (isOverlay) continue;
+    auto it = responsiveSizes_.find(f);
+    Vec2 own = it != responsiveSizes_.end() ? it->second : p->size;
+    Vec2 want{std::round(target.x), own.y <= target.y ? std::round(target.y) : own.y};
+    if (std::fabs(p->size.x - want.x) < 0.5 && std::fabs(p->size.y - want.y) < 0.5) continue;
+    if (it == responsiveSizes_.end()) responsiveSizes_.emplace(f, own);
+    NodeChange c = NodeChange::changed(f);
+    c.mask = F_SIZE;
+    c.props.size = want;
+    c.guid = f;
+    changes.push_back(std::move(c));
+  }
+  if (changes.empty()) return;
+  fitting_ = true;
+  for (const NodeChange& c : changes) ed_.setProps({c.guid}, c, 0);
+  fitting_ = false;
+  dirty_ = true;
+}
+
+void Player::restoreResponsive() {
+  if (responsiveSizes_.empty()) return;
+  std::vector<NodeChange> changes;
+  for (auto& [f, size] : responsiveSizes_) {
+    if (!doc().has(f)) continue;
+    NodeChange c = NodeChange::changed(f);
+    c.mask = F_SIZE;
+    c.props.size = size;
+    changes.push_back(std::move(c));
+  }
+  responsiveSizes_.clear();
+  fitting_ = true;
+  for (const NodeChange& c : changes) ed_.setProps({c.guid}, c, 0);
+  fitting_ = false;
+  dirty_ = true;
 }
 
 Vec2 Player::topScrollRange(Guid frame) const {
@@ -404,7 +611,7 @@ Vec2 Player::overlayPos(Guid frame, const OverlaySettings& s, const Action* a, c
 
 bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit>& out, bool root) const {
   const NodeProps* p = props(id);
-  if (!p || !p->visible) return false;
+  if (!p || !p->visible || ghosts_.count(id)) return false;
   // Scrolling: the same offsets the scene draws with.
   Mat2x3 m = root ? parentCss : parentCss * p->transform;
   Vec2 local = m.inverse().apply(css);
@@ -414,15 +621,20 @@ bool Player::hitWalk(Guid id, const Mat2x3& parentCss, Vec2 css, std::vector<Hit
   Mat2x3 childBase = m;
   Vec2 sc = scrollsNested(id) && !root ? scrollOf(id) : Vec2{};
   const auto& kids = doc().children(id);
-  for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
-    const NodeProps* cp = props(*it);
-    Mat2x3 cb = childBase;
-    if (cp && (sc.x != 0 || sc.y != 0) && scrollBehavior(*cp) != ScrollBehavior::FIXED) cb = childBase * Mat2x3::translate(-sc.x, -sc.y);
-    if (hitWalk(*it, cb, css, out, false)) {
-      out.push_back({id, m, p->size});
-      return true;
+  // A nested scrolling frame's Fixed children are drawn above its other children: hit first.
+  bool nestedScroll = !root && scrollsNested(id);
+  for (int pass = nestedScroll ? 0 : 1; pass < 2; pass++)
+    for (auto it = kids.rbegin(); it != kids.rend(); ++it) {
+      const NodeProps* cp = props(*it);
+      bool fixed = cp && scrollBehavior(*cp) == ScrollBehavior::FIXED;
+      if (nestedScroll && (pass == 0) != fixed) continue;
+      Mat2x3 cb = childBase;
+      if (cp && (sc.x != 0 || sc.y != 0) && !fixed) cb = childBase * Mat2x3::translate(-sc.x, -sc.y);
+      if (hitWalk(*it, cb, css, out, false)) {
+        out.push_back({id, m, p->size});
+        return true;
+      }
     }
-  }
   if (!inside) return false;
   out.push_back({id, m, p->size});
   return true;
@@ -569,10 +781,21 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::MOVE: {
       Chain c = hitTest(css);
       hover(c);
+      if (scrub_.active) {
+        // On drag: the transition follows the pointer along its axis.
+        double p = std::clamp(((css.x - scrub_.from.x) * scrub_.axis.x + (css.y - scrub_.from.y) * scrub_.axis.y) / scrub_.extent, 0.0, 1.0);
+        if (anim_.active && anim_.scrubbing && p != anim_.scrubP) {
+          anim_.scrubP = p;
+          dirty_ = true;
+        }
+        return 1;
+      }
       if (down_ && !dragFired_ && (css - downCss_).length() >= kDragThreshold) {
         dragFired_ = true;
+        uint64_t before = animSerial_;
         for (auto& h : downChain_.hits)
           if (doc().has(h.id) && fire(h.id, Trigger::DRAG, &h)) break;
+        if (animSerial_ != before && anim_.active) beginScrub(css);
       }
       return 1;
     }
@@ -602,6 +825,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::UP: {
       if (!down_) return 0;
       down_ = false;
+      if (scrub_.active) endScrub();
       Held p = std::move(pressed_);
       pressed_ = Held{};
       for (auto it = p.revert.rbegin(); it != p.revert.rend(); ++it) (*it)();
@@ -649,6 +873,7 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
     case PointerEvent::LEAVE: hover(Chain{}); return 1;
     case PointerEvent::CANCEL:
       down_ = false;
+      if (scrub_.active) endScrub();
       return 1;
     default: return 0;
   }
@@ -778,7 +1003,7 @@ void Player::runAction(Guid source, const Action& a, const Hit* hotspot, Held* h
       for (const Branch& b : a.branches) {
         if (b.hasCondition) {
           Editor::Resolved r;
-          if (!evaluate(b.condition, source, r, 0)) continue;
+          if (!evaluate(b.condition, source, r)) continue;
           bool truthy = r.kind == Editor::Resolved::Kind::BOOL ? r.b
                         : r.kind == Editor::Resolved::Kind::FLOAT ? r.f != 0
                         : r.kind == Editor::Resolved::Kind::STRING ? !r.s.empty() && r.s != "false"
@@ -823,7 +1048,7 @@ void Player::navigate(Guid dest, const Action& a, bool record) {
     an.y = y;
     an.action = a;
     an.smart = isSmart(a);
-    if (an.smart) an.fromSnap = snapshot(x.frame, false);
+    if (an.smart || a.smartAnimate) an.fromSnap = snapshot(x.frame, false);
     startAnim(std::move(an));
   }
   armTimers(base_);
@@ -875,7 +1100,7 @@ bool Player::back() {
     an.action = h.via;
     an.reverse = true;
     an.smart = isSmart(h.via);
-    if (an.smart) an.fromSnap = snapshot(y.frame, false);
+    if (an.smart || h.via.smartAnimate) an.fromSnap = snapshot(y.frame, false);
     startAnim(std::move(an));
   }
   armTimers(base_);
@@ -1008,6 +1233,27 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   Snapshot from;
   if (animate) from = snapshot(instance, true);
   Guid real = instance.isDerived() ? ed_.instanceOfDerived(instance) : instance;
+  // The old state stays on screen while it animates: a copy of the instance as it is (absolute, so auto layout
+  // doesn't make room for it; never hit), drawn with only its unmatched layers, fading out (Dissolve: all of them).
+  Guid ghost = kNoGuid;
+  if (animate && !instance.isDerived())
+    if (const NodeProps* ip = props(instance)) {
+      Guid parent = doc().parentOf(instance);
+      const auto& sib = doc().children(parent);
+      auto at = std::find(sib.begin(), sib.end(), instance);
+      std::optional<std::string> next;
+      if (at != sib.end() && at + 1 != sib.end())
+        if (const NodeProps* np = props(*(at + 1))) next = np->parentIndex.position;
+      ghost = Guid{kGhostSession, nextGhost_++};
+      NodeChange c = NodeChange::created(ghost, *ip);
+      c.props.parentIndex = {parent, fractional::keyBetween(ip->parentIndex.position, next ? std::optional<std::string_view>(*next) : std::nullopt)};
+      c.props.stackPositioning = StackPositioning::ABSOLUTE;
+      c.props.name = "\x01";  // not a name any layer matches (Smart animate matches by name)
+      c.props.extra.erase("prototypeInteractions");
+      ed_.applyChanges({c}, APPLY_REMOTE);
+      if (!doc().has(ghost)) ghost = kNoGuid;
+      else ghosts_.insert(ghost);
+    }
   remember(real, F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS);
   CommandArgs args;
   json::Value raw = parseJson("{}");
@@ -1021,10 +1267,13 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
   args.raw = raw;
   ed_.command(CommandId::SWAP_INSTANCE, args);
   if (animate && doc().has(instance)) {
+    for (auto& x : instanceAnims_)
+      if (x.instance == instance) dropGhost(x.ghost);
     instanceAnims_.erase(std::remove_if(instanceAnims_.begin(), instanceAnims_.end(), [&](const InstanceAnim& x) { return x.instance == instance; }),
                          instanceAnims_.end());
     InstanceAnim ia;
     ia.instance = instance;
+    ia.ghost = ghost;
     ia.from = std::move(from);
     ia.action = a;
     ia.duration = durationOf(a) * 1000;
@@ -1110,110 +1359,10 @@ void Player::scrollTo(Guid dest, const Action& a) {
   dirty_ = true;
 }
 
-bool Player::evalData(const VariableData& d, Guid source, Editor::Resolved& out, int depth) const {
-  using K = VariableData::Kind;
-  using R = Editor::Resolved::Kind;
-  if (depth > 16) return false;
-  switch (d.kind) {
-    case K::BOOL: out = {}; out.kind = R::BOOL; out.b = d.boolValue; return true;
-    case K::FLOAT: out = {}; out.kind = R::FLOAT; out.f = d.floatValue; return true;
-    case K::TEXT: out = {}; out.kind = R::STRING; out.s = d.textValue; return true;
-    case K::COLOR: out = {}; out.kind = R::COLOR; out.c = d.colorValue; return true;
-    case K::ALIAS: {
-      Guid v = ed_.findVariable(d.alias);
-      return v != kNoGuid && ed_.resolveVariable(v, source, out);
-    }
-    case K::EXPRESSION: {
-      std::vector<Editor::Resolved> args;
-      for (const VariableData& x : d.args) {
-        Editor::Resolved r;
-        if (!evalData(x, source, r, depth + 1)) return false;
-        args.push_back(r);
-      }
-      auto num = [](const Editor::Resolved& r) { return r.kind == R::FLOAT ? r.f : r.kind == R::BOOL ? (r.b ? 1.0 : 0.0) : std::atof(r.s.c_str()); };
-      auto truthy = [&](const Editor::Resolved& r) {
-        return r.kind == R::BOOL ? r.b : r.kind == R::FLOAT ? r.f != 0 : r.kind == R::STRING ? !r.s.empty() : r.kind == R::COLOR;
-      };
-      auto str = [&](const Editor::Resolved& r) {
-        if (r.kind == R::STRING) return r.s;
-        if (r.kind == R::BOOL) return std::string(r.b ? "true" : "false");
-        char buf[64];
-        std::snprintf(buf, sizeof buf, "%g", r.f);
-        return std::string(buf);
-      };
-      auto equal = [&](const Editor::Resolved& a, const Editor::Resolved& b) {
-        if (a.kind == R::STRING || b.kind == R::STRING) return str(a) == str(b);
-        if (a.kind == R::COLOR && b.kind == R::COLOR) return a.c == b.c;
-        return num(a) == num(b);
-      };
-      out = {};
-      size_t n = args.size();
-      auto boolean = [&](bool v) {
-        out.kind = R::BOOL;
-        out.b = v;
-        return true;
-      };
-      auto number = [&](double v) {
-        out.kind = R::FLOAT;
-        out.f = v;
-        return true;
-      };
-      switch (d.function) {
-        case ExpressionFunction::ADDITION:
-          if (n >= 1 && (args[0].kind == R::STRING || (n >= 2 && args[1].kind == R::STRING))) {
-            out.kind = R::STRING;
-            for (auto& a : args) out.s += str(a);
-            return true;
-          }
-          {
-            double s = 0;
-            for (auto& a : args) s += num(a);
-            return number(s);
-          }
-        case ExpressionFunction::SUBTRACTION: return n >= 2 && number(num(args[0]) - num(args[1]));
-        case ExpressionFunction::MULTIPLY: {
-          double s = 1;
-          for (auto& a : args) s *= num(a);
-          return n > 0 && number(s);
-        }
-        case ExpressionFunction::DIVIDE: return n >= 2 && num(args[1]) != 0 && number(num(args[0]) / num(args[1]));
-        case ExpressionFunction::EQUALS: return n >= 2 && boolean(equal(args[0], args[1]));
-        case ExpressionFunction::NOT_EQUAL: return n >= 2 && boolean(!equal(args[0], args[1]));
-        case ExpressionFunction::LESS_THAN: return n >= 2 && boolean(num(args[0]) < num(args[1]));
-        case ExpressionFunction::LESS_THAN_OR_EQUAL: return n >= 2 && boolean(num(args[0]) <= num(args[1]));
-        case ExpressionFunction::GREATER_THAN: return n >= 2 && boolean(num(args[0]) > num(args[1]));
-        case ExpressionFunction::GREATER_THAN_OR_EQUAL: return n >= 2 && boolean(num(args[0]) >= num(args[1]));
-        case ExpressionFunction::AND: {
-          bool v = n > 0;
-          for (auto& a : args) v = v && truthy(a);
-          return boolean(v);
-        }
-        case ExpressionFunction::OR: {
-          bool v = false;
-          for (auto& a : args) v = v || truthy(a);
-          return boolean(v);
-        }
-        case ExpressionFunction::NOT: return n >= 1 && boolean(!truthy(args[0]));
-        case ExpressionFunction::NEGATE: return n >= 1 && number(-num(args[0]));
-        case ExpressionFunction::IS_TRUTHY: return n >= 1 && boolean(truthy(args[0]));
-        case ExpressionFunction::STRINGIFY:
-          out.kind = R::STRING;
-          out.s = n >= 1 ? str(args[0]) : std::string();
-          return true;
-        case ExpressionFunction::TERNARY:
-          if (n < 3) return false;
-          out = truthy(args[0]) ? args[1] : args[2];
-          return true;
-        default: return false;
-      }
-    }
-    default: return false;
-  }
-}
-
-bool Player::evaluate(const json::Value& data, Guid source, Editor::Resolved& out, int depth) const {
+// The editor's evaluator (Editor::resolveValue): the same values as bindings, the variables' modes the hotspot's.
+bool Player::evaluate(const json::Value& data, Guid source, Editor::Resolved& out) const {
   VariableData d = codec::readVariable(data);
-  return evalData(d, source, out, depth);
+  return ed_.resolveValue(d, source, out);
 }
 
 void Player::setVariable(const Action& a, Guid source) {
@@ -1245,11 +1394,22 @@ void Player::setVariable(const Action& a, Guid source) {
   }
   value.hasDataType = true;
   remember(var, F_VARIABLE_DATA_VALUES);
-  // The value for every mode (Figma sets the variable for the prototype's session).
+  // The value of the mode the hotspot resolves the variable in (help.figma.com 15253268379799: "Any variables
+  // contained within a layer that has a set mode will only update the value of that specific mode definition"):
+  // the source's explicit mode, an ancestor's, the page's, else the collection's default. A collection we can't find:
+  // every mode.
   NodeChange c = NodeChange::changed(var);
   c.mask = F_VARIABLE_DATA_VALUES;
   c.props.asset().variableDataValues = vp->asset().variableDataValues;
-  for (auto& mv : c.props.asset().variableDataValues) mv.data = value;
+  Guid coll = ed_.findCollection(vp->asset().variableSetID);
+  Guid mode = coll != kNoGuid ? ed_.resolvedMode(source != kNoGuid && doc().has(source) ? source : page_, coll) : kNoGuid;
+  bool found = false;
+  for (auto& mv : c.props.asset().variableDataValues)
+    if (mode == kNoGuid || mv.modeID == mode) {
+      mv.data = value;
+      found = true;
+    }
+  if (!found && mode != kNoGuid) c.props.asset().variableDataValues.push_back({mode, value});
   ed_.applyChanges({c}, APPLY_REMOTE);
   dirty_ = true;
 }
@@ -1298,6 +1458,8 @@ void Player::setVariableMode(const Action& a) {
 
 void Player::startAnim(Anim&& a) {
   if (anim_.active) finishAnim();
+  if (noAnim_) return;
+  animSerial_++;
   a.active = true;
   a.duration = durationOf(a.action) * 1000;
   a.start = now_;
@@ -1316,7 +1478,7 @@ void Player::finishAnim() {
   dirty_ = true;
 }
 
-bool Player::animating() const { return anim_.active || !instanceAnims_.empty() || !scrollAnims_.empty() || hintsPending_ || now_ - hintsAt_ < kHintsMs; }
+bool Player::animating() const { return (anim_.active && !anim_.scrubbing) || !instanceAnims_.empty() || !scrollAnims_.empty() || hintsPending_ || now_ - hintsAt_ < kHintsMs; }
 
 void Player::armTimers(Guid root) {
   std::function<void(Guid)> walk = [&](Guid id) {
@@ -1339,15 +1501,69 @@ void Player::dropTimers(Guid root) {
 }
 
 double Player::progress(const Anim& a) const {
-  double t = a.duration > 0 ? std::clamp((now_ - a.start) / a.duration, 0.0, 1.0) : 1;
-  double e = ease(a.action, t);
-  return a.reverse ? 1 - e : e;
+  double v;
+  if (a.scrubbing) {
+    v = a.scrubP;
+  } else {
+    double t = a.duration > 0 ? std::clamp((now_ - a.start) / a.duration, 0.0, 1.0) : 1;
+    v = a.p0 + (a.p1 - a.p0) * ease(a.action, t);
+  }
+  return a.reverse ? 1 - v : v;
+}
+
+// ---- On drag ---------------------------------------------------------------------------------------------
+
+void Player::beginScrub(Vec2 at) {
+  Transition t = anim_.action.transition;
+  Vec2 dir = directionOf(t);
+  Vec2 axis;
+  if (dir.x != 0 || dir.y != 0) {
+    // The incoming screen comes from `dir` (dragging the other way pulls it in); an outgoing one leaves towards it.
+    bool out = isMoveOut(t) || isSlideOut(t);
+    axis = out ? dir : Vec2{-dir.x, -dir.y};
+  } else {
+    // Dissolve, Smart animate: the way the drag started, on its main axis.
+    Vec2 d = at - downCss_;
+    axis = std::fabs(d.x) >= std::fabs(d.y) ? Vec2{d.x >= 0 ? 1.0 : -1.0, 0} : Vec2{0, d.y >= 0 ? 1.0 : -1.0};
+  }
+  scrub_.active = true;
+  scrub_.axis = axis;
+  scrub_.from = downCss_;
+  scrub_.extent = std::max(1.0, (axis.x != 0 ? view_.screen.x : view_.screen.y) * view_.s);
+  anim_.scrubbing = true;
+  anim_.scrubP = std::clamp(((at.x - downCss_.x) * axis.x + (at.y - downCss_.y) * axis.y) / scrub_.extent, 0.0, 1.0);
+  dirty_ = true;
+}
+
+void Player::endScrub() {
+  scrub_ = Scrub{};
+  if (!anim_.active || !anim_.scrubbing) return;
+  // Released: on to the end past half way, else back to where it started (and the step undone).
+  double p = anim_.scrubP, full = anim_.duration;
+  anim_.scrubbing = false;
+  anim_.p0 = p;
+  anim_.started = false;
+  if (p >= 0.5) {
+    anim_.p1 = 1;
+    anim_.duration = full * (1 - p);
+  } else {
+    anim_.p1 = 0;
+    anim_.duration = full * p;
+    anim_.done = [this] { silentBack(); };
+  }
+  dirty_ = true;
+}
+
+void Player::silentBack() {
+  noAnim_ = true;
+  back();
+  noAnim_ = false;
 }
 
 bool Player::tick(double nowMs) {
   now_ = nowMs;
   bool draw = dirty_;
-  if (anim_.active) {
+  if (anim_.active && !anim_.scrubbing) {
     if (!anim_.started) {
       anim_.start = now_;
       anim_.started = true;
@@ -1362,8 +1578,13 @@ bool Player::tick(double nowMs) {
       ia.started = true;
     }
     draw = true;
-    if (now_ - ia.start >= ia.duration || !doc().has(ia.instance)) instanceAnims_.erase(instanceAnims_.begin() + static_cast<long>(i));
-    else i++;
+    if (now_ - ia.start >= ia.duration || !doc().has(ia.instance)) {
+      Guid g = ia.ghost;
+      instanceAnims_.erase(instanceAnims_.begin() + static_cast<long>(i));
+      dropGhost(g);
+    } else {
+      i++;
+    }
   }
   for (size_t i = 0; i < scrollAnims_.size();) {
     auto& s = scrollAnims_[i];
@@ -1445,6 +1666,8 @@ void Player::snapWalk(Snapshot& s, Guid id, const Mat2x3& parentRel, const std::
   n.strokes = p->strokePaints;
   n.strokeWeight = p->strokeWeight;
   n.radii = p->cornerRadii;
+  n.effects = p->effects;
+  n.text = textSignature(*p);
   s.byKey.emplace(key, std::move(n));
   std::unordered_map<std::string, int> seen;
   for (Guid c : doc().children(id)) {
@@ -1459,6 +1682,22 @@ Player::Snapshot Player::snapshot(Guid root, bool rootTransform) const {
   Snapshot s;
   snapWalk(s, root, Mat2x3{}, std::string(), true, rootTransform);
   return s;
+}
+
+bool Player::animatable(const SnapNode& s, const NodeProps& p) const {
+  if (s.text != textSignature(p)) return false;
+  return shadowsOf(s.effects) == shadowsOf(p.effects);
+}
+
+std::unordered_set<std::string> Player::matchedKeys(const Snapshot& from, Guid to, bool rootTransform) const {
+  std::unordered_set<std::string> keys;
+  Snapshot b = snapshot(to, rootTransform);
+  for (auto& [k, n] : b.byKey) {
+    auto it = from.byKey.find(k);
+    const NodeProps* p = props(n.id);
+    if (it != from.byKey.end() && p && animatable(it->second, *p)) keys.insert(k);
+  }
+  return keys;
 }
 
 std::vector<std::pair<Guid, Guid>> Player::matches(Guid from, Guid to) const {
@@ -1481,7 +1720,7 @@ void Player::smartDest(Guid id, const Snapshot& from, double p, bool rootTransfo
   Mat2x3 interpRel;
   bool unmatched = false;
   auto it = from.byKey.find(key);
-  if (it != from.byKey.end()) {
+  if (it != from.byKey.end() && (root || animatable(it->second, *np))) {
     const SnapNode& s = it->second;
     interpRel = lerpMatrix(s.rel, destRel, p);
     NodeProps q = *np;
@@ -1493,6 +1732,7 @@ void Player::smartDest(Guid id, const Snapshot& from, double p, bool rootTransfo
     q.strokePaints = lerpPaints(s.strokes, np->strokePaints, p);
     q.strokeWeight = lerp(s.strokeWeight, np->strokeWeight, p);
     for (size_t k = 0; k < 4; k++) q.cornerRadii[k] = lerp(s.radii[k], np->cornerRadii[k], p);
+    q.effects = lerpEffects(s.effects, np->effects, p);
     if (!(root && !rootTransform)) q.transform = parentInterp.inverse() * interpRel;
     out[id] = std::move(q);
   } else {
@@ -1591,7 +1831,7 @@ void Player::scrollOverrides(Guid frame, PropsOverrides& out, bool topLevel, Vec
   walk(frame, true);
 }
 
-void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides) {
+void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&& overrides, double fixedAlpha) {
   const NodeProps* p = props(s.frame);
   if (!p) return;
   scrollOverrides(s.frame, overrides, !s.overlay, s.scroll);
@@ -1602,11 +1842,28 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
     if (!ia.started) t = 0;
     double e = ease(ia.action, t);
     PropsOverrides tmp;
-    smartDest(ia.instance, ia.from, e, true, tmp, Mat2x3{}, Mat2x3{}, std::string(), true, false);
+    if (isSmart(ia.action)) {
+      smartDest(ia.instance, ia.from, e, true, tmp, Mat2x3{}, Mat2x3{}, std::string(), true, false);
+      // The old state's unmatched layers fade out over it (help: layers that don't match dissolve).
+      if (ia.ghost != kNoGuid && doc().has(ia.ghost)) smartSource(ia.ghost, matchedKeys(ia.from, ia.instance, true), e, tmp, std::string(), true, false);
+    } else {
+      // Dissolve: the new state fades in over the old one.
+      if (const NodeProps* ip = props(ia.instance)) {
+        NodeProps q = *ip;
+        q.opacity *= e;
+        tmp[ia.instance] = std::move(q);
+      }
+      if (ia.ghost != kNoGuid)
+        if (const NodeProps* gp = props(ia.ghost)) {
+          NodeProps q = *gp;
+          q.opacity *= 1 - e;
+          tmp[ia.ghost] = std::move(q);
+        }
+    }
     for (auto& [id, q] : tmp) {
       // Keep a scroll shift already given to the instance itself.
       auto it = overrides.find(id);
-      if (it != overrides.end() && id == ia.instance) q.transform = it->second.transform * props(id)->transform.inverse() * q.transform;
+      if (it != overrides.end() && (id == ia.instance || id == ia.ghost)) q.transform = it->second.transform * props(id)->transform.inverse() * q.transform;
       overrides[id] = std::move(q);
     }
   }
@@ -1637,12 +1894,63 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
   item.overrides = stored;
   item.clip = true;
   item.clipCss = view_.css;
+  // Fixed layers of nested scrolling frames: above the frame's other layers (Figma moves Fixed layers above the rest
+  // of their frame, help "Prototype scroll and overflow behavior"), unscrolled, within their frame.
+  struct NestedFixed {
+    Guid node;
+    Mat2x3 parentCss;
+    Rect clip;
+  };
+  std::vector<NestedFixed> nested;
+  std::function<void(Guid, const Mat2x3&, bool)> findNested = [&](Guid id, const Mat2x3& css, bool root) {
+    auto it = stored->find(id);
+    const NodeProps* p = it != stored->end() ? &it->second : props(id);
+    if (!p || !p->visible) return;
+    Mat2x3 m = root ? css * p->transform : css * p->transform;
+    if (!root && scrollsNested(id)) {
+      Rect r = transformedBounds(m, p->size.x, p->size.y);
+      double x0 = std::max(r.x, view_.css.x), y0 = std::max(r.y, view_.css.y);
+      double x1 = std::min(r.right(), view_.css.right()), y1 = std::min(r.bottom(), view_.css.bottom());
+      for (Guid c : doc().children(id)) {
+        const NodeProps* cp = props(c);
+        if (!cp || !cp->visible || scrollBehavior(*cp) != ScrollBehavior::FIXED) continue;
+        nested.push_back({c, m, {x0, y0, std::max(0.0, x1 - x0), std::max(0.0, y1 - y0)}});
+      }
+    }
+    for (Guid c : doc().children(id)) findNested(c, m, false);
+  };
+  findNested(s.frame, item.parentCss, true);
+  for (auto& n : nested) {
+    auto it = stored->find(n.node);
+    NodeProps q = it != stored->end() ? it->second : *props(n.node);
+    q.visible = false;
+    (*stored)[n.node] = std::move(q);
+  }
   scene_.items.push_back(item);
-  if (!fixed.empty()) {
+  if (!nested.empty()) {
+    PropsOverrides own;
+    for (auto& n : nested) {
+      NodeProps q = *props(n.node);
+      q.opacity *= alpha;
+      own[n.node] = std::move(q);
+    }
+    store_.push_back(std::move(own));
+    for (auto& n : nested) {
+      PresentItem f;
+      f.node = n.node;
+      f.parentCss = n.parentCss;
+      f.overrides = &store_.back();
+      f.clip = true;
+      f.clipCss = n.clip;
+      scene_.items.push_back(f);
+    }
+  }
+  double fa = fixedAlpha < 0 ? alpha : fixedAlpha;
+  if (!fixed.empty() && fa > 0) {
     PropsOverrides fixedOverrides;
     for (Guid c : fixed) {
       NodeProps q = *props(c);
-      q.opacity *= alpha;
+      q.opacity *= fa;
       fixedOverrides[c] = std::move(q);
     }
     store_.push_back(std::move(fixedOverrides));
@@ -1688,10 +1996,7 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
   // Overlay backgrounds fade with their overlay.
   if (a->smart && hasX && hasY) {
     PropsOverrides src, dst;
-    std::unordered_set<std::string> keys;
-    Snapshot to = snapshot(y->frame, false);
-    for (auto& [k, n] : to.byKey)
-      if (a->fromSnap.byKey.count(k)) keys.insert(k);
+    std::unordered_set<std::string> keys = matchedKeys(a->fromSnap, y->frame, false);
     smartSource(x->frame, keys, p, src, std::string(), true, false);
     smartDest(y->frame, a->fromSnap, p, false, dst, Mat2x3{}, Mat2x3{}, std::string(), true, false);
     background(*y, 1);
@@ -1715,6 +2020,17 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
     addFrame(ys, {}, 1, std::move(bg));
     addFrame(xs, {}, 1, std::move(src));
     addFrame(ys, {}, 1, std::move(dst));
+    return;
+  }
+  // Move / Push / Slide with "Animate matching layers".
+  if (!a->smart && a->action.smartAnimate && hasX && hasY && !x->overlay && !y->overlay && (dir.x != 0 || dir.y != 0)) {
+    Vec2 offX, offY;
+    if (isMoveIn(t)) offY = {d.x * (1 - p), d.y * (1 - p)};
+    else if (isMoveOut(t)) offX = {d.x * p, d.y * p};
+    else if (isPush(t)) offX = {-d.x * p, -d.y * p}, offY = {d.x * (1 - p), d.y * (1 - p)};
+    else if (isSlideIn(t)) offX = {-d.x * p * kSlideOffset, -d.y * p * kSlideOffset}, offY = {d.x * (1 - p), d.y * (1 - p)};
+    else if (isSlideOut(t)) offY = {-d.x * (1 - p) * kSlideOffset, -d.y * (1 - p) * kSlideOffset}, offX = {d.x * p, d.y * p};
+    addMatching(*x, *y, *a, p, offX, offY);
     return;
   }
   auto drawX = [&](Vec2 off, double alpha) {
@@ -1754,6 +2070,125 @@ void Player::addSlot(const Side* x, const Side* y, const Anim* a) {
   }
 }
 
+void Player::addFixed(const Side& s, Vec2 offset, const std::function<double(Guid, const std::string&)>& alphaOf) {
+  if (s.overlay || !props(s.frame)) return;
+  PropsOverrides own;
+  std::vector<Guid> drawn;
+  std::unordered_map<std::string, int> seen;
+  for (Guid c : doc().children(s.frame)) {
+    const NodeProps* cp = props(c);
+    if (!cp) continue;
+    std::string key = "/" + cp->name + "#" + std::to_string(seen[cp->name]++);
+    if (!cp->visible || scrollBehavior(*cp) != ScrollBehavior::FIXED) continue;
+    double alpha = alphaOf(c, key);
+    if (alpha <= 0) continue;
+    NodeProps q = *cp;
+    q.opacity *= alpha;
+    own[c] = std::move(q);
+    drawn.push_back(c);
+  }
+  if (drawn.empty()) return;
+  store_.push_back(std::move(own));
+  Mat2x3 unscrolled = Mat2x3::translate(offset.x * view_.s, offset.y * view_.s) * view_.toCss;
+  for (Guid c : drawn) {
+    PresentItem f;
+    f.node = c;
+    f.parentCss = unscrolled;
+    f.overrides = &store_.back();
+    f.clip = true;
+    f.clipCss = view_.css;
+    scene_.items.push_back(f);
+  }
+}
+
+void Player::addMatching(const Side& x, const Side& y, const Anim& a, double p, Vec2 offX, Vec2 offY) {
+  // help.figma.com 360039818874: "Layers that don't match: Figma will use the main transition you select. Layers that
+  // do match: Figma will Smart animate any differences … Fixed layers that do match: Figma won't apply any
+  // transition. Fixed layers that don't match: Figma will apply a dissolve transition" — and the frames' fills move
+  // with the main transition ("Figma also doesn't include a frame's fill as part of the animation").
+  std::unordered_set<std::string> keys = matchedKeys(a.fromSnap, y.frame, false);
+  keys.erase(std::string());
+  // A screen moving with the transition: its matching layers hidden (their match draws them), the unmatched layers
+  // inside a matching one fading (`inner`: the source fades them out; the destination leaves them to the match).
+  auto moving = [&](Guid root, double inner) {
+    PropsOverrides out;
+    std::function<void(Guid, const std::string&, bool, bool)> walk = [&](Guid id, const std::string& key, bool isRoot, bool underMatch) {
+      const NodeProps* np = props(id);
+      if (!np) return;
+      bool matched = !isRoot && keys.count(key) != 0;
+      if (matched) {
+        NodeProps q = *np;
+        q.fillPaints.clear();
+        q.strokePaints.clear();
+        q.effects.clear();
+        q.strokeWeight = 0;
+        if (doc().children(id).empty() || np->type == NodeType::TEXT || np->isBoolean()) q.opacity = 0;
+        out[id] = std::move(q);
+      } else if (underMatch) {
+        NodeProps q = *np;
+        q.opacity *= inner;
+        out[id] = std::move(q);
+        return;  // its subtree goes with it
+      }
+      std::unordered_map<std::string, int> seen;
+      for (Guid c : doc().children(id)) {
+        const NodeProps* cp = props(c);
+        if (!cp) continue;
+        walk(c, key + "/" + cp->name + "#" + std::to_string(seen[cp->name]++), false, matched);
+      }
+    };
+    walk(root, std::string(), true, false);
+    return out;
+  };
+  bool xOnTop = isMoveOut(a.action.transition) || isSlideOut(a.action.transition);
+  auto drawX = [&] { addFrame(x, offX, 1, moving(x.frame, 1 - p), 0); };
+  auto drawY = [&] { addFrame(y, offY, 1, moving(y.frame, 0), 0); };
+  if (xOnTop) {
+    drawY();
+    drawX();
+  } else {
+    drawX();
+    drawY();
+  }
+  // The matching layers, smart-animated in place over both screens (the destination's unmatched layers hidden here:
+  // the moving screen draws them).
+  PropsOverrides dst;
+  smartDest(y.frame, a.fromSnap, p, false, dst, Mat2x3{}, Mat2x3{}, std::string(), true, false);
+  std::function<void(Guid, const std::string&, bool)> hide = [&](Guid id, const std::string& key, bool isRoot) {
+    const NodeProps* np = props(id);
+    if (!np) return;
+    if (isRoot) {
+      auto it = dst.find(id);
+      NodeProps q = it != dst.end() ? it->second : *np;
+      q.fillPaints.clear();
+      q.strokePaints.clear();
+      q.effects.clear();
+      q.strokeWeight = 0;
+      dst[id] = std::move(q);
+    } else if (!keys.count(key)) {
+      auto it = dst.find(id);
+      NodeProps q = it != dst.end() ? it->second : *np;
+      q.visible = false;
+      dst[id] = std::move(q);
+      return;
+    } else {
+      return;  // a match: drawn with its (fading-in) unmatched children
+    }
+    std::unordered_map<std::string, int> seen;
+    for (Guid c : doc().children(id)) {
+      const NodeProps* cp = props(c);
+      if (!cp) continue;
+      hide(c, key + "/" + cp->name + "#" + std::to_string(seen[cp->name]++), false);
+    }
+  };
+  hide(y.frame, std::string(), true);
+  Side ys = y;
+  addFrame(ys, {}, 1, std::move(dst), 0);
+  // Fixed layers: a match shows as it ends (no transition), the others dissolve.
+  addFixed(x, {}, [&](Guid, const std::string& key) { return keys.count(key) ? 0.0 : 1 - p; });
+  addFixed(y, {}, [&](Guid, const std::string& key) { return keys.count(key) ? 1.0 : p; });
+}
+
 const PresentScene& Player::scene() {
   scene_.items.clear();
   store_.clear();
@@ -1761,6 +2196,9 @@ const PresentScene& Player::scene() {
   layout();
   const NodeProps* pg = props(page_);
   scene_.background = pg ? background(*pg) : Color::hex(0x1E1E1E);
+  // The device frame behind the screen.
+  for (const PresentItem& r : view_.under) scene_.items.push_back(r);
+  size_t firstScreenItem = scene_.items.size();
   // The screen's own colour behind the frames (white, as Figma's device screen).
   const Anim* a = anim_.active ? &anim_ : nullptr;
   // The base screen.
@@ -1828,6 +2266,14 @@ const PresentScene& Player::scene() {
       walk(root, m, true);
     }
   }
+  // The screen's rounded corners, and the device's camera over it.
+  if (view_.radius > 0)
+    for (size_t i = firstScreenItem; i < scene_.items.size(); i++) {
+      PresentItem& it = scene_.items[i];
+      if (it.clip && it.clipCss.x == view_.css.x && it.clipCss.y == view_.css.y && it.clipCss.w == view_.css.w && it.clipCss.h == view_.css.h)
+        it.clipRadius = view_.radius;
+    }
+  for (const PresentItem& r : view_.over) scene_.items.push_back(r);
   return scene_;
 }
 
@@ -1884,6 +2330,16 @@ std::string Player::stateJson() const {
   w.key("scale").string(scaleName(scale_));
   w.key("hints").boolean(hints_);
   w.key("device").boolean(page_ != kNoGuid && props(page_) && !device(*props(page_)).none);
+  {
+    Device dev = page_ != kNoGuid && props(page_) ? device(*props(page_)) : Device{};
+    static const char* types[] = {"NONE", "PRESET", "CUSTOM", "PRESENTATION"};
+    w.key("deviceType").string(types[static_cast<int>(dev.type)]);
+    w.key("devicePreset").string(dev.preset);
+  }
+  w.key("hasDeviceFrame").boolean(hasDeviceFrame());
+  w.key("deviceFrame").boolean(deviceFrame_);
+  w.key("responsive").boolean(responsive_);
+  w.key("scrubbing").boolean(anim_.active && anim_.scrubbing);
   w.key("hotspot").boolean(hotspot_);
   w.key("screenRect").beginObject().key("x").number(view_.css.x).key("y").number(view_.css.y).key("w").number(view_.css.w)
       .key("h").number(view_.css.h).endObject();

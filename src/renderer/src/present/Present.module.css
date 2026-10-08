@@ -74,5 +74,35 @@
     outline: none;
   }
   .restart:hover { background: var(--figma-color-bg-hover); }
+
+  /* The inline preview (the editor's floating window): one bar above the prototype */
+  .inline {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .inlineBar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-half);
+    height: var(--ds-size-section-header);
+    padding: 0 var(--ds-space-1);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .inlineTitle {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0 var(--ds-space-1);
+    color: var(--figma-color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .restart:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 }

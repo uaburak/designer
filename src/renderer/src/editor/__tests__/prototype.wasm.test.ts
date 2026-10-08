@@ -117,9 +117,11 @@ describe("prototyping on the engine (wasm, headless)", () => {
     // Its Back button (24, 384, 100 × 40).
     click(60, 400);
     expect(engine.presentState().screen).toBe("2:1");
-    // Z cycles the scale; R restarts.
+    // No device: Actual size (100%) first (Figma's default); Z goes on to Responsive; R restarts.
+    expect(engine.presentState().scale).toBe("ACTUAL");
     engine.presentCommand("scale");
-    expect(engine.presentState().scale).toBe("FILL");
+    expect(engine.presentState().scale).toBe("RESPONSIVE");
+    engine.presentSetOptions({ scale: "FIT" });
     click(100, 740);
     expect(engine.presentKey("down", 82, 0)).toBe(true);
     expect(engine.presentState()).toMatchObject({ screen: "2:1", history: 0 });
@@ -140,6 +142,36 @@ describe("prototyping on the engine (wasm, headless)", () => {
     expect(main()).toEqual({ sessionID: 3, localID: 4 });
     engine.presentCommand("restart");
     expect(main()).toEqual({ sessionID: 3, localID: 2 });
+    engine.destroy();
+  });
+
+  it("presents in a device frame (Model, Show device frame, Responsive / Fixed size) through the facade", async () => {
+    const { ed, engine } = await editor();
+    ed.setProps(["0:1"], protoFields({ prototypeDevice: { type: "PRESET", presetIdentifier: "IPHONE_16_PRO_DESERT_TITANIUM", size: { x: 402, y: 874 }, rotation: "NONE" } }), "Prototype device");
+    engine.setViewport(1200, 1000, 1, 1200, 1000);
+    expect(engine.presentStart({ page: "0:1" })).toBe(Status.OK);
+    let s = engine.presentState();
+    expect(s).toMatchObject({ device: true, deviceType: "PRESET", devicePreset: "IPHONE_16_PRO_DESERT_TITANIUM", hasDeviceFrame: true, deviceFrame: true, responsive: false, scale: "FIT" });
+    const framed = s.screenRect!;
+    engine.presentSetOptions({ deviceFrame: false, responsive: true });
+    s = engine.presentState();
+    expect(s).toMatchObject({ deviceFrame: false, responsive: true });
+    // Without its frame the screen can be drawn larger.
+    expect(s.screenRect!.h).toBeGreaterThanOrEqual(framed.h);
+    engine.destroy();
+  });
+
+  it("viewer mode: reads and selection work, edits are refused", async () => {
+    const { engine } = await editor();
+    engine.setViewerMode(true);
+    expect(engine.setProps(["2:4"], { name: "Renamed" })).toBe(Status.E_READONLY);
+    expect(engine.command("DELETE")).toBe(Status.E_READONLY);
+    expect(engine.command("ZOOM_TO_FIT")).toBe(Status.OK);
+    engine.setSelection(["2:4"]);
+    expect(engine.getSelection().refs).toEqual(["2:4"]);
+    expect(engine.readNode("2:4")?.name).not.toBe("Renamed");
+    engine.setViewerMode(false);
+    expect(engine.setProps(["2:4"], { name: "Renamed" })).toBe(Status.OK);
     engine.destroy();
   });
 });

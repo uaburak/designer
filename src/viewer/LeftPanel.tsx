@@ -9,6 +9,7 @@ import { useCurrentPage, useSelection } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useViewer } from "./context";
 import type { LayerNode, PageTree } from "./viewerDoc";
+import { STATUS_LABEL } from "./inspect/devMode";
 import styles from "./Viewer.module.css";
 
 export function layerIcon(n: LayerNode): IconName {
@@ -58,6 +59,7 @@ export function LeftPanel() {
         <span className={styles.fileSub}>Developer preview</span>
       </div>
       <Pages />
+      <Statuses />
       <Layers />
     </aside>
   );
@@ -88,6 +90,38 @@ function Pages() {
           ))}
         </div>
       )}
+    </PanelSection>
+  );
+}
+
+/**
+ * "Ready for development" (help.figma.com 15023124644247 / 26781702258583): the page's designs marked "Ready for dev"
+ * or "Completed"; a row selects and zooms to its design.
+ */
+function Statuses() {
+  const { engine, store, doc } = useViewer();
+  const page = useCurrentPage(store);
+  const list = useMemo(() => doc.statuses(page), [doc, page]);
+  const [open, setOpen] = useState(true);
+  if (!list.length) return null;
+  return (
+    <PanelSection title="Ready for development" collapsible open={open} onOpenChange={setOpen} pad="none" className={styles.pages}>
+      {open &&
+        list.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className={styles.statusRow}
+            data-status-row={s.status}
+            onClick={() => {
+              engine.setSelection([s.id]);
+              engine.command("ZOOM_TO_SELECTION");
+            }}
+          >
+            <span>{s.name}</span>
+            <span className={styles.statusLabel}>{STATUS_LABEL[s.status]}</span>
+          </button>
+        ))}
     </PanelSection>
   );
 }

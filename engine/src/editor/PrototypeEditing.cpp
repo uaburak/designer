@@ -360,6 +360,41 @@ void Editor::protoOverlay(Overlay& o) const {
     }
     po.links.push_back(pl);
   }
+  // A selected instance's inherited connections (its main component's, and those of the layers inside it): help
+  // "View prototype connections" — "Figma won't display the inherited connections on the canvas by default. Select
+  // the instance to view its inherited connections."
+  if (selection_.size() <= 64) {
+    std::unordered_set<Guid, GuidHash> drawn;
+    std::function<void(Guid, bool)> inherited = [&](Guid id, bool root) {
+      const Node* n = doc_.get(id);
+      if (!n || !n->props.visible || !drawn.insert(id).second) return;
+      std::vector<proto::Interaction> list;
+      // Its own (a real instance's own are among the page's connections already), else its main's.
+      if (proto::hasInteractions(n->props)) {
+        if (!root || id.isDerived()) list = proto::interactions(n->props);
+      } else if (n->props.type == NodeType::INSTANCE) {
+        if (const Node* m = doc_.get(mainOf(id)); m && proto::hasInteractions(m->props)) list = proto::interactions(m->props);
+      }
+      for (const proto::Interaction& i : list)
+        for (const proto::Action& a : i.actions) {
+          std::vector<std::pair<proto::Navigation, Guid>> dests;
+          proto::destinations(a, dests);
+          for (auto& [nav, d] : dests) {
+            if (d == kNoGuid || !doc_.has(d)) continue;
+            PrototypeLink pl;
+            pl.source = doc_.worldBounds(id);
+            pl.dest = doc_.worldBounds(d);
+            pl.highlighted = true;
+            po.links.push_back(pl);
+          }
+        }
+      for (Guid c : doc_.children(id)) inherited(c, false);
+    };
+    for (Guid g : selection_) {
+      const Node* n = doc_.get(g);
+      if (n && n->props.type == NodeType::INSTANCE) inherited(g, true);
+    }
+  }
   if (proto_.drag == ProtoSession::Drag::New)
     for (Guid src : proto_.sources) {
       PrototypeLink pl;

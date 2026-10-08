@@ -45,6 +45,7 @@ import {
   type PrototypeInteraction,
 } from "../../model/prototype";
 import { ancestorsOf, protoFields, usePageFrames, type ProtoNode } from "./PrototypePanel";
+import { ExpressionField } from "./ExpressionField";
 import styles from "./Prototype.module.css";
 
 const DIRECTION_ICON: Record<Direction, "24.arrow.left" | "24.arrow.right" | "16.arrow.up" | "16.arrow.down"> = {
@@ -318,7 +319,7 @@ function AnimationEditor({ action, kind, onChange }: { action: PrototypeAction; 
         <>
           <div className={styles.row}>
             <Select
-              label="Easing"
+              label="Curve"
               className={styles.grow}
               value={easing === "SPRING" ? "GENTLE_SPRING" : easing === "EASE_IN" ? "IN_CUBIC" : easing}
               options={EASINGS}
@@ -528,13 +529,18 @@ function SetVariableMode({ action, onChange }: { action: PrototypeAction; onChan
   );
 }
 
-/** Conditional: If a boolean variable is true, these actions; Else, those (R8 §3). */
+/**
+ * Conditional (help.figma.com 15253220891799): "In the If field, write a boolean expression" — typed, or built from
+ * the suggested variables and operators, committed with Enter, outlined in red while invalid (model/expressions.ts) —
+ * then its actions; "Complete the Else condition … Alternatively, leave the Else action blank." Branches with a
+ * condition after the first (else-if blocks a file may hold) show as "Else if".
+ */
 function Conditional({ source, action, depth, onChange }: { source: Guid; action: PrototypeAction; depth: number; onChange: (a: PrototypeAction, label?: string, info?: ChangeInfo) => void }) {
   const ed = useEditor();
-  const vars = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variables().filter((v) => v.resolvedType === "BOOLEAN")), [ed]);
-  const branches = action.conditionalActions?.length ? action.conditionalActions : [{ actions: [] }, { actions: [] }];
-  const cond = branches[0].condition;
-  const alias = guidOf(cond?.value?.alias?.guid ?? null);
+  const vars = useMemo(() => (ed.engine.destroyed ? [] : ed.engine.variables()), [ed]);
+  const stored = action.conditionalActions?.length ? action.conditionalActions : [{ actions: [] }, { actions: [] }];
+  // The Else block is always there (it may stay empty).
+  const branches = stored[stored.length - 1].condition || stored.length === 1 ? [...stored, { actions: [] }] : stored;
   const setBranch = (b: number, next: { actions?: PrototypeAction[]; condition?: PrototypeAction["targetVariableData"] }) => {
     const list = [...branches];
     list[b] = next;
@@ -542,19 +548,16 @@ function Conditional({ source, action, depth, onChange }: { source: Guid; action
   };
   return (
     <div className={styles.group}>
-      <div className={styles.labelled}>
-        <span className={styles.label}>If</span>
-        <Select
-          label="Condition"
-          className={styles.grow}
-          value={alias ?? "NONE"}
-          options={[{ value: "NONE", label: "Choose variable" }, ...(vars.length ? ["-" as const] : []), ...vars.map((v) => ({ value: v.id, label: v.name }))]}
-          onChange={(id) => setBranch(0, { ...branches[0], condition: { value: { alias: variableRef(id) }, dataType: "ALIAS" } })}
-        />
-      </div>
       {branches.map((b, k) => (
         <div key={k} className={styles.branch}>
-          <div className={styles.groupTitle}>{k === 0 ? "Then" : "Else"}</div>
+          {k < branches.length - 1 ? (
+            <div className={styles.labelled}>
+              <span className={styles.label}>{k === 0 ? "If" : "Else if"}</span>
+              <ExpressionField label="Condition" data={b.condition} vars={vars} onCommit={(data) => setBranch(k, { ...b, condition: data })} />
+            </div>
+          ) : (
+            <div className={styles.groupTitle}>Else</div>
+          )}
           {(b.actions ?? []).map((a, j) => (
             <ActionEditor
               key={j}
