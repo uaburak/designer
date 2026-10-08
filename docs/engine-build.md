@@ -1,4 +1,23 @@
-# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode)
+# Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode; round 7 and 8 render)
+
+## Round 8 — render: finished 2026-10-08 (branch `r8-render`)
+
+Goal: finish the render audit (`docs/research/audit-2026-10-08/render.md`) items round 7 left open, against Figma's own pixels and geometry. No live canvas capture was taken (the built-in browser is off limits for this round); the truths used are the samples' thumbnails and stored geometry and Figma's own SVG exports. Details and numbers: docs/engine.md §6.4–6.8.
+
+- **Figma's thumbnail model, measured** (new, the key to items 2, 9, 10): one scale (width ratio), each pixel the average of 2 × 2 point samples at (¼, ¾) with no anti-aliasing of their own, dithered to 8 bits — stacks_wrap's rectangles reproduce to 99.1 % of pixels (other sampling patterns 95.8–96.4 %). `scripts/fig-fidelity.mjs` now draws at that one scale and averages ss × ss blocks (was the browser's resampler over a stretched region); `FID_PORT` sets its port.
+- **2 Tiny text** — calibrated: structure.fig's 4.6 px-em "ABC" has ours 2065 / Figma's 2037 ink (+1.4 %); Figma's darker darkest pixel is its quarter-step coverage. No change (no sample has smaller text).
+- **8 Images zoomed out** — measured: LOD bias −1 is the closest of 0 / −0.5 / −1 / −1.5 on structure.fig's banner (mean luminance difference 0.630 / 0.499 / **0.453** / 0.494). Kept. Nearest-neighbour at high zoom: unverified, not done.
+- **9 Hairlines** — explained: the 50 %-right-edge-only border in sections.fig's thumbnail is exactly what 2 × 2 point sampling makes of a 0.116 px band (only the right edge's band holds a sample position). The thumbnail's sampling, not a canvas rule; ours keeps exact coverage. The geometry comparator over all three samples: fills exact, strokes ≤ 0.007 px, 0 nodes over 0.05 px (the samples hold no caps, arrows or smoothing — those were checked against exports, below).
+- **10 Dithering** — Figma dithers (shadow rows at x.25 split 75 / 25 between neighbouring levels); ours already does (round 7).
+- **12 Missing-font fallback** — verified in code and documented (§7.1): nearest Inter weight and slant; Figma's derived glyphs when the file has them. Which face Figma shows without stored glyphs: unverified.
+- **Arrowheads and dashed lines from Figma's own SVG exports** (`3440b46`, `950295a`): line arrow 4.5w arms with round caps and join; triangle 5w equilateral on the end point (line stops w/2 inside it); reversed triangle 10w/√3 wide narrowing to w over 5w; circle radius 8w/3; diamond 5w/√3; dashed straight lines fitted (half dashes at both ends). `geometry.path.test.cpp` "stroke end points" checks nine exports (outline mismatch ≤ 5·10⁻⁵).
+- **Pattern fills redraw when their source changes** (`94b4c14`): the render tree damages layers that tile a changed source (any page, anything inside it); native test.
+
+Fidelity (`fig-fidelity.mjs --samples`, mean ΔE / > 10 / > 25, before → after): sections 0.168 / 0.049 % / 0 → 0.168 / 0.049 % / 0; stacks_wrap 0.190 / 0.024 % / 0 → 0.191 / 0.005 % / 0; structure 0.106 / 0 / 0 (unchanged).
+
+Checks (branch head, before the final merge of main): `npm run check` green (814 vitest); `npm run engine:test` 414 / 414; `npm run engine:shot` 104 ok (WebGL2), `--gfx webgpu` 106 ok, no GPU validation errors; `editor-shot.mjs` full 266 ok, 0 failed. Release `engine.wasm` rebuilt and committed.
+
+Open: a live-canvas capture of thin strokes and tiny text at 25–50 % (does the canvas sample like the thumbnails?); structure.fig's shadow fits a slightly tighter, lower blur than σ = radius / 2 (one small sample, not changed); arrowhead sizes other than the line and triangle arrows checked at w = 1 only; dashes on open paths that turn; nearest-neighbour images at high zoom; shader effects.
 
 ## Round 7 — render: finished 2026-10-08 (branch `r7-render`, main merged in)
 
