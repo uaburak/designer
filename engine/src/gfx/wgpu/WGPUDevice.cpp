@@ -85,10 +85,9 @@ class WebGPUDevice final : public Device {
     if (uniformLayout_) wgpuBindGroupLayoutRelease(uniformLayout_);
     for (WGPUShaderModule m : modules_)
       if (m) wgpuShaderModuleRelease(m);
-    if (surface_) {
-      wgpuSurfaceUnconfigure(surface_);
-      wgpuSurfaceRelease(surface_);
-    }
+    // Not unconfigured: the canvas's one WebGPU context may already draw for another engine on the same canvas
+    // (React's StrictMode mounts twice); the next device configures it again anyway.
+    if (surface_) wgpuSurfaceRelease(surface_);
     if (instance_) wgpuInstanceRelease(instance_);
     wgpuQueueRelease(queue_);
     wgpuDeviceRelease(device_);
@@ -729,6 +728,7 @@ class WebGPUDevice final : public Device {
     ca.clearValue = {pass_desc_.clear[0], pass_desc_.clear[1], pass_desc_.clear[2], pass_desc_.clear[3]};
     WGPURenderPassDepthStencilAttachment ds = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
     ds.view = stencil;
+    ds.depthClearValue = 0.0f;  // no depth aspect; the bindings' default (NaN) fails the browser's check
     ds.stencilLoadOp = clear ? WGPULoadOp_Clear : WGPULoadOp_Load;
     ds.stencilStoreOp = WGPUStoreOp_Store;
     ds.stencilClearValue = pass_desc_.clearStencil;
@@ -1028,6 +1028,8 @@ class WebGPUDevice final : public Device {
                                                            : WGPUStencilOperation_Keep;
     WGPUDepthStencilState ds = WGPU_DEPTH_STENCIL_STATE_INIT;
     ds.format = WGPUTextureFormat_Stencil8;
+    ds.depthWriteEnabled = WGPUOptionalBool_False;  // no depth aspect (the bindings' default reads as true)
+    ds.depthCompare = WGPUCompareFunction_Always;
     ds.stencilFront = face;
     ds.stencilBack = face;
     ds.stencilReadMask = 0xff;
