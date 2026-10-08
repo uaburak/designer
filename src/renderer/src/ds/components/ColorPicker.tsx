@@ -688,7 +688,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const spacing = value.patternSpacing ?? { x: 0, y: 0 };
   const patternBody = value.type === "PATTERN" && (
     <>
-      <div className={styles.patternPreview} role="img" aria-label={pattern?.source ? `Pattern source: ${pattern.source}` : "No pattern source"} style={pattern?.previewUrl ? { backgroundImage: `url("${pattern.previewUrl}")` } : undefined}>
+      <div className={styles.patternPreview} data-empty={!pattern?.previewUrl || undefined} role="img" aria-label={pattern?.source ? `Pattern source: ${pattern.source}` : "No pattern source"} style={pattern?.previewUrl ? { backgroundImage: `url("${pattern.previewUrl}")` } : undefined}>
         <div className={styles.patternShade}>
           <Button variant="secondary" className={styles.selectSource} aria-pressed={pattern?.selecting || undefined} disabled={!pattern} onClick={pattern?.onSelectSource}>
             {pattern?.selecting ? "Click a layer…" : pattern?.source ? pattern.source : "Select source…"}

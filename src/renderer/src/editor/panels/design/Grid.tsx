@@ -319,7 +319,11 @@ export function GridPanel({ frame }: { frame: Guid }) {
       ed.engine.setProps([frame], asFields({ ...r.frame, ...(axis === "rows" ? { gridAutoTracks: "NONE" } : {}) }));
       for (const it of r.items) ed.engine.setProps([it.guid], asFields(it.fields));
     });
-    select(axis, []);
+    // The selected tracks stay selected (after the removed one, one index down); none left: the Design panel again.
+    if (sel && sel.frame === frame && (sel.axis === "COLUMNS") === (axis === "columns")) {
+      const next = sel.tracks.filter((x) => x !== index).map((x) => (x > index ? x - 1 : x));
+      select(axis, next);
+    }
   };
   const section = (axis: GridAxis) => {
     const tracks = tracksOf(node, axis);

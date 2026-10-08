@@ -187,6 +187,9 @@
     background: var(--figma-color-bg-secondary) center / contain no-repeat;
   }
   .patternShade { position: absolute; inset: 1px; display: flex; align-items: center; justify-content: center; background: var(--ds-color-picker-preview-shade); }
+  /* With a source the preview shows it; the shade and "Select source…" come back on hover */
+  .patternPreview:not([data-empty]) .patternShade { opacity: 0; transition: opacity 0.1s; }
+  .patternPreview:not([data-empty]):hover .patternShade, .patternPreview:not([data-empty]) .patternShade:focus-within { opacity: 1; }
   .selectSource { min-width: 117px; max-width: 176px; }
   .patternGrid { display: grid; grid-template-columns: 72px 136px; align-items: center; column-gap: 0; row-gap: var(--ds-space-2); margin: 21px var(--ds-space-4) 11px; }
   .patternLabel { color: var(--figma-color-text-secondary); }

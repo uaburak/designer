@@ -278,7 +278,8 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
           />
         </div>
         <div className={styles.gapStack}>
-          <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}>
+          {/* Live: the gap field's hover chevron at its right edge (its list) — the hover Apply variable left out there */}
+          <VariableField nodes={nodes} fields={["STACK_SPACING"]} prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"} button={false}>
             <NumericInput
               label={gapLabel("objects")}
               prefix={horizontal ? "24.al.spacing-horizontal" : "24.al.spacing-vertical"}

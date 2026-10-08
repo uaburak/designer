@@ -5,7 +5,7 @@
  * `&doc=types` the Design panel's Phase 2 cases.
  */
 import type { Color, Message, NodeChange } from "@/engine/codec";
-import { setTrackCount, type GridNode } from "./model/grid";
+import { setTrackCount, setTrackSizing, type GridNode } from "./model/grid";
 
 const hex = (rgb: number, a = 1): Color => ({ r: ((rgb >> 16) & 255) / 255, g: ((rgb >> 8) & 255) / 255, b: (rgb & 255) / 255, a });
 
@@ -509,12 +509,15 @@ export const TEXT_DOCUMENT: Message = {
 
 // ---- `&doc=capture`: the live capture's page "Capture" (docs/research/figma/live/design) -----------------------
 
-/** A grid frame's tracks as Figma writes them (model/grid.ts), for the capture's AL_grid. */
+/** A grid frame's tracks as Figma writes them (model/grid.ts), for the capture's AL_grid: Fill 1fr each (live grid/). */
 function gridTracks(columns: number, rows: number, session: number): Record<string, unknown> {
   const base = { stackMode: "GRID" } as GridNode;
   const cols = setTrackCount(base, "columns", columns, session).frame;
-  const rowsFields = setTrackCount({ ...base, ...cols } as GridNode, "rows", rows, session).frame;
-  return { ...cols, ...rowsFields };
+  const both = { ...base, ...cols, ...setTrackCount({ ...base, ...cols } as GridNode, "rows", rows, session).frame } as GridNode;
+  const fill = { type: "FLEX" as const, value: 1 };
+  const filledCols = setTrackSizing(both, "columns", [...Array(columns).keys()], fill);
+  const filledRows = setTrackSizing({ ...both, ...filledCols } as GridNode, "rows", [...Array(rows).keys()], fill);
+  return { ...cols, ...filledCols, ...filledRows, gridRows: both.gridRows };
 }
 
 const al = (guid: string, name: string, pos: string, x: number, y: number, more: Record<string, unknown>) =>

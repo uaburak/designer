@@ -175,7 +175,7 @@
   .hoverMenu {
     position: absolute;
     top: 0;
-    right: var(--ds-size-control);
+    right: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -186,16 +186,17 @@
     background: transparent;
     color: var(--figma-color-icon-secondary);
     opacity: 0;
+    pointer-events: none;
     outline: none;
   }
-  .hoverMenuField:hover .hoverMenu, .hoverMenu:focus-visible, .hoverMenu[data-open] { opacity: 1; }
+  .hoverMenuField:hover .hoverMenu, .hoverMenu:focus-visible, .hoverMenu[data-open] { opacity: 1; pointer-events: auto; }
   .hoverMenu:hover, .hoverMenu[data-open] { color: var(--figma-color-icon); }
   /* Font size (live design/text.txt): one 88 field, the number across it; the list's chevron shows on hover */
   .fontSizeField { position: relative; }
   .fontSizeMenu {
     position: absolute;
     top: 0;
-    right: var(--ds-size-control);
+    right: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -206,9 +207,10 @@
     background: transparent;
     color: var(--figma-color-icon-secondary);
     opacity: 0;
+    pointer-events: none;
     outline: none;
   }
-  .fontSizeField:hover .fontSizeMenu, .fontSizeMenu:focus-visible, .fontSizeMenu[data-open] { opacity: 1; }
+  .fontSizeField:hover .fontSizeMenu, .fontSizeMenu:focus-visible, .fontSizeMenu[data-open] { opacity: 1; pointer-events: auto; }
   .fontSizeMenu:hover, .fontSizeMenu[data-open] { color: var(--figma-color-icon); }
 
   /* Constraints: the widget (56 × 56), then the two dropdowns stacked in the rest of the row */

@@ -155,8 +155,9 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
             onChange={(s) => (s === VARIABLE_AXES ? setDetails(document.querySelector<HTMLElement>('[aria-label="Type settings"]')) : write("Font style", { fontName: { family: isMixed(family) ? "Inter" : family, style: s, postscript: "" } }))}
           />
           <span data-font-size="" style={{ display: "contents" }}>
-          {/* help "Apply variables to typography": hover the font size field for Apply variable (its list's chevron beside it) */}
-          <VariableField nodes={nodes} fields={["FONT_SIZE"]} prefix="24.text.font-size" open={sizePicker} onOpenChange={setSizePicker}>
+          {/* Live (design/text.txt): one 88 field, its list's chevron on hover — no hover Apply variable (unverified where Figma
+              offers the font size's variable: not in the captured panel) */}
+          <VariableField nodes={nodes} fields={["FONT_SIZE"]} prefix="24.text.font-size" button={false} open={sizePicker} onOpenChange={setSizePicker}>
           <NumericInput
             label="Font size"
             className={styles.fontSizeField}
