@@ -6,6 +6,7 @@
  * `{type: "ready"}` and serves main's port. Every view port arrives later as `{type: "port", role}`. The same bundle
  * started as a worker thread with `workerData.designerStoreRole === "compactor"` is the compaction worker.
  */
+import { dirname, join } from "node:path";
 import { isMainThread, parentPort as workerParentPort, workerData } from "node:worker_threads";
 import { portTransport, type PortRole } from "../shared/store/protocol";
 import { COMPACTOR_ROLE, runCompactorWorker, workerCompactor } from "./compactor";
@@ -22,6 +23,8 @@ export interface StoreInitMessage {
   deviceOrdinal?: number;
   teamName?: string;
   seedFigs?: string[];
+  /** The preview viewer's built page; default: out/viewer/index.html next to this bundle's out/main */
+  viewerTemplate?: string;
 }
 
 export type StoreParentMessage = StoreInitMessage | { type: "port"; role: PortRole };
@@ -56,6 +59,7 @@ function runStoreProcess(parent: ParentPortLike): void {
       teamName: msg.teamName,
       generation: msg.generation,
       seedFigs: msg.seedFigs,
+      viewerTemplate: msg.viewerTemplate ?? join(dirname(msg.entry), "..", "viewer", "index.html"),
       compactor: workerCompactor(msg.entry),
     }).then(
       (store) => {

@@ -128,6 +128,7 @@ export class EditorController {
       publishOpen: false,
       exportDialog: false,
       presenting: null,
+      shareOpen: false,
       ...ui,
     });
     this.tools = probeTools(engine);

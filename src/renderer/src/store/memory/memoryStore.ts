@@ -59,6 +59,9 @@ function base62(n: number): string {
   return out;
 }
 
+/** Previews cannot be published without Firebase (docs/data.md §13); a browser has no desktop to export them either. */
+const NOT_SET_UP = "Sharing previews needs Firebase sync, which isn't set up";
+
 export const newFileKey = () => base62(22);
 export const newFolderId = () => base62(16);
 const newVersionId = () => base62(16);
@@ -788,12 +791,16 @@ export class MemoryStore {
     };
     const libraries: LibraryRegistry = this.libraries.registry();
     const previews: PreviewService = {
+      status: async () => ({ publish: false, reason: NOT_SET_UP }),
       list: async () => [],
       publish: async () => {
-        throw new StoreError("offline", "Sharing previews needs Firebase sync, which isn't set up");
+        throw new StoreError("offline", NOT_SET_UP);
       },
       stop: async () => {
         throw new StoreError("offline", "Sharing previews needs Firebase sync, which isn't set up");
+      },
+      exportHtml: async () => {
+        throw new StoreError("forbidden", "Exporting a preview needs the desktop app");
       },
     };
     const store: StoreAdmin = {

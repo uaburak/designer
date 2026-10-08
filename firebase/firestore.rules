@@ -1,0 +1,8 @@
+// docs/data.md §12.6 — replace OWNER_UID with the owner's Firebase uid before `firebase deploy --only firestore`.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function isOwner() { return request.auth != null && request.auth.uid == 'OWNER_UID'; }
+    match /{path=**} { allow read, write: if isOwner(); }
+  }
+}

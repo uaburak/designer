@@ -59,6 +59,8 @@ export interface UIState {
   exportDialog: boolean;
   /** The presentation view over the editor ("Present in this tab"): the page and where it starts */
   presenting: { page: Guid; node: Guid | null } | null;
+  /** Share › developer preview (docs/data.md §13) */
+  shareOpen: boolean;
 }
 
 export class Store<T> {

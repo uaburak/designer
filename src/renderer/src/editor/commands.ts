@@ -396,6 +396,11 @@ export const COMMANDS: EditorCommand[] = [
   },
   { id: "file.export", label: "Export…", keys: [k("KeyE", { mod: true, shift: true })], run: (ed) => ed.ui.set({ exportDialog: true, uiHidden: false }), enabled: canExport },
   { id: "file.export-frames-to-pdf", label: "Export frames to PDF…", run: (ed) => void exportFramesToPdf(ed), enabled: canExport },
+  {
+    id: "file.share-preview",
+    label: "Share preview…",
+    run: (ed) => ed.ui.set({ shareOpen: true, uiHidden: false }),
+  },
   placeImage("file.place-image", "Place image…", [k("KeyK", { mod: true, shift: true })]),
   {
     id: "file.back-to-files",

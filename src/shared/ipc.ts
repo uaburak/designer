@@ -187,6 +187,13 @@ export interface ExportAsset {
   bytes: Uint8Array;
 }
 
+/** `file:export-preview`'s request (the options as the Share dialog chose them). */
+export interface ExportPreviewRequest {
+  fileKey: string;
+  snapshot: Uint8Array;
+  options: { pageIds: string[] | "all"; inspect: boolean; export: boolean };
+}
+
 export interface IpcInvoke {
   "desktop:init": { args: []; result: InitInfo };
   "tabs:get": { args: []; result: TabsSnapshot };
@@ -203,6 +210,11 @@ export interface IpcInvoke {
    * becomes "name 2.png" (shared/exportFiles.ts)
    */
   "file:export-assets": { args: [{ files: ExportAsset[] }]; result: { paths: string[] } | { cancelled: true } };
+  /**
+   * A developer preview as one self-contained HTML file where the system's Save dialog says (docs/data.md §13):
+   * `snapshot` is the editor's derived kiwi Message; the store adds the images and the viewer and writes the file
+   */
+  "file:export-preview": { args: [ExportPreviewRequest]; result: { path: string; bytes: number } | { cancelled: true } };
   /** The theme preference set: main keeps it, tells every view (`theme:changed`) and answers what it resolves to */
   "theme:set": { args: [ThemePreference]; result: ThemeState };
   /** A native menu at a point of the view (`at` in the view's CSS pixels): the picked item's id, or null */
@@ -259,6 +271,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "file:import": ["home", "editor"],
   "file:save-local-copy": ["home", "editor"],
   "file:export-assets": ["editor"],
+  "file:export-preview": ["editor"],
   "theme:set": ["tabbar", "home", "editor"],
   "menu:popup": ["tabbar", "home", "editor"],
   "fonts:list": ["editor"],

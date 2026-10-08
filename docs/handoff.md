@@ -18,7 +18,17 @@ E7 export (2026-10-08, branch `e7-export`, merged after import fidelity): the en
 
 E8 prototyping (2026-10-08, branch `e8-prototype`, merged after E7): the Prototype tab (Device, Background, Flows; Flow starting point, Interactions with Interaction details, Scroll behavior), connections drawn and dragged on the canvas by the engine, Present (a prototype tab in the desktop app, `?present&file=` in a browser, or over the editor) with the engine's player — triggers, actions, overlays, Back, transitions including Smart animate, scrolling, Figma's presentation keys. Status and what's left: top of `docs/engine-build.md` and `docs/editor.md`; research in `docs/research/figma/R8-prototyping.md`.
 
-Next: Phase 5 of `docs/roadmap.md` — export, developer previews, Firebase adapter wiring, `.fig` import polish — unless the owner's review of the app comes first.
+Developer previews (2026-10-08, branch `dev-previews`, merged after E8; `docs/data.md` §13.1 is the as-built record).
+- **Share** (right panel, or File ▸ Share preview…) opens Figma's share dialog for a developer preview. The editor derives every included page with its fonts and hands `encodeDocumentKiwi({derived: true})` to the store, which packages it with the file's images.
+- **Export as HTML…**: main's Save dialog and `previews.exportHtml` write one self-contained page — the viewer, `engine.wasm`, the document and the images — that opens from `file://`.
+- **Publish preview**: Firebase Storage `previews/<id>/…` through the sync seam's `StorageDriver`. It is off until the owner's config exists and sync is on, and is tested only on `MemoryStorage`.
+- **The viewer** (`src/viewer`, `npm run build:viewer` → `out/viewer/index.html`, also the Hosting site under `firebase/`) runs the same engine read-only in Dev Mode's layout: Pages, Layers, measurements on hover, and Inspect with the box model, CSS / SwiftUI / Compose, variables with collection and mode, text styles, effects and PNG/JPG export. Texts in faces it doesn't ship draw from the stored glyph outlines.
+- Checks: `npm run check` (73 files, 650 tests) and `npm run viewer:check` (headless Chromium: the exported file renders and inspects; the HTTP layout loads, and an expired preview is refused).
+- Open: Present, SVG/PDF and Assets export, the Code/List toggle and units, a real Firebase deploy, an engine VIEWER mode (no resize handles on the selection).
+
+**Merged into main (2026-10-08):** `.fig` import fidelity, E7 export, E8 prototyping and developer previews — four merge commits on top of round 4, in that order, each green (`npm run check`, `npm run engine:test`, `npm run engine:shot`, `editor-shot.mjs`; `EDITOR_ONLY=prototype` after E8; `npm run viewer:check` after previews). The branches' engine code reads and writes `NodeProps` through round 4's facets; `kDerivedDataVersion` is 3; slot content is one design (drawn in its slot and resolved in its modes, docs/engine-build.md "Import fidelity"). Not yet joined up across branches: the viewer doesn't use E7's exporters (its Export panel is PNG / JPG from the canvas) or E8's player (no Present in a preview).
+
+Next: Phase 5 of `docs/roadmap.md` — the Firebase adapter wiring (and a real deploy of previews), `.fig` import polish (docs/data-impl.md "Import fidelity" lists what's left) — unless the owner's review of the app comes first.
 
 ## Starting the next session
 

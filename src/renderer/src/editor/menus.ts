@@ -83,7 +83,7 @@ export const MAIN_MENU: Spec[] = [
   "-",
   {
     label: "File",
-    items: ["file.new", "-", "file.place-image", "-", "file.rename", "file.duplicate", "file.move", "-", "file.save-version", "file.version-history", "-", "file.libraries", "file.publish-library", "-", "file.export", "file.export-frames-to-pdf"],
+    items: ["file.new", "-", "file.place-image", "-", "file.rename", "file.duplicate", "file.move", "-", "file.save-version", "file.version-history", "-", "file.libraries", "file.publish-library", "-", "file.export", "file.export-frames-to-pdf", "-", "file.share-preview"],
   },
   {
     label: "Edit",

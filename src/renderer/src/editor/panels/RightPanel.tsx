@@ -3,7 +3,7 @@
  * Present ▸ ▾, Share), the Design / Prototype tabs with the zoom menu at the
  * right (a line at 80), then the tab's sections.
  */
-import { Avatar, Button, Icon, IconButton, MenuButton, ResizeHandle, Tabs, showToast, type MenuEntry } from "@/ds";
+import { Avatar, Button, Icon, IconButton, MenuButton, ResizeHandle, Tabs, type MenuEntry } from "@/ds";
 import { useCamera } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { runEditorCommand } from "../commands";
@@ -69,7 +69,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>
-      <Button variant="primary" size="large" onClick={() => showToast({ message: "Sharing comes with developer previews" })}>
+      <Button variant="primary" size="large" onClick={() => runEditorCommand(ed, "file.share-preview")}>
         Share
       </Button>
     </div>

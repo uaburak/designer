@@ -1,0 +1,21 @@
+{
+  "hosting": {
+    "public": "../out/viewer",
+    "ignore": ["**/.*"],
+    "cleanUrls": true,
+    "rewrites": [{ "source": "/p/**", "destination": "/index.html" }],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+          { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" },
+          { "key": "X-Robots-Tag", "value": "noindex" },
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      }
+    ]
+  },
+  "firestore": { "rules": "firestore.rules" },
+  "storage": { "rules": "storage.rules" }
+}

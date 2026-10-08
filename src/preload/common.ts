@@ -141,6 +141,12 @@ export const files: FilesApi = {
     invoke("file:export-assets", {
       files: (Array.isArray(list) ? list : []).map((f) => ({ name: String(f?.name ?? ""), bytes: f?.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(0) })),
     }),
+  exportPreview: (r) =>
+    invoke("file:export-preview", {
+      fileKey: String(r?.fileKey),
+      snapshot: r?.snapshot instanceof Uint8Array ? r.snapshot : new Uint8Array(),
+      options: { pageIds: Array.isArray(r?.options?.pageIds) ? r.options.pageIds.map(String) : "all", inspect: r?.options?.inspect !== false, export: r?.options?.export !== false },
+    }),
   pathFor: (file) => webUtils.getPathForFile(file),
   revealDataFolder: () => send("file:reveal-data-folder"),
 };

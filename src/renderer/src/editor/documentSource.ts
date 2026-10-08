@@ -9,7 +9,7 @@
 import type { Guid, Message, NodeChange } from "@/engine/codec";
 import type { DocumentFacts, EngineWireFormat, PreparedDocument } from "@/store/loadDocument";
 import type { LibraryEvent } from "../../../shared/store/repositories";
-import type { LibraryDiff, LibraryRecord, LibraryVersion, PublishAsset, PublishPreview } from "../../../shared/store/types";
+import type { LibraryDiff, LibraryRecord, LibraryVersion, PreviewOptions, PreviewRecord, PublishAsset, PublishPreview } from "../../../shared/store/types";
 import { memoryImageStore, type ImageStore } from "./images";
 
 export interface DocumentSource {
@@ -66,6 +66,21 @@ export interface DocumentSource {
   readonly images?: ImageStore;
   /** The workspace's libraries as this file sees them (docs/data.md §9). Optional: absent, libraries are off. */
   readonly libraries?: LibraryAccess;
+  /** Developer previews of this file (docs/data.md §13). Optional: absent, only nothing can be published. */
+  readonly previews?: PreviewAccess;
+}
+
+/**
+ * The store's `previews.*` for one file (docs/data.md §13): whether links can be published (Firebase configured and
+ * sync on), the file's published preview, publishing the editor's derived snapshot (create or update in place) and
+ * Stop sharing. Exporting as HTML goes through main (its Save dialog), not here.
+ */
+export interface PreviewAccess {
+  readonly fileKey: string;
+  status(): Promise<{ publish: boolean; reason: string | null }>;
+  list(): Promise<PreviewRecord[]>;
+  publish(snapshot: Uint8Array, options: PreviewOptions): Promise<PreviewRecord>;
+  stop(previewId: string): Promise<void>;
 }
 
 /**

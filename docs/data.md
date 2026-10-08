@@ -1022,7 +1022,96 @@ Goal: developer friends open a link and see the designs exactly as rendered, wit
 - Data comes from `PreviewAdapter`: `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/previews%2F<id>%2F<name>?alt=media`.
 - The viewer is single-threaded, so Hosting needs no COOP/COEP. `firebase.json` still sets them, for parity.
 
-**Fallback until Firebase is configured**: Share › **"Export preview as HTML…"** writes one self-contained HTML file through `file:export-assets`. It contains the viewer JS, the engine Wasm, the snapshot and the images, all inlined as base64. The Wasm is instantiated from bytes, so the file works from `file://` in Chrome, Safari or Firefox (WebGL 2 required). Its size is about 1.37 × (wasm + document + images). Friends receive it like any attachment.
+**Fallback until Firebase is configured**: Share › **"Export preview as HTML…"** writes one self-contained HTML file through `file:export-preview` (§13.1). It contains the viewer JS, the engine Wasm, the snapshot and the images, all inlined as base64. The Wasm is instantiated from bytes, so the file works from `file://` in Chrome, Safari or Firefox (WebGL 2 required). Its size is about 1.37 × (wasm + document + images). Friends receive it like any attachment.
+
+### 13.1 As built (2026-10-08, branch `dev-previews`)
+
+**Snapshot.** The editor makes it, and only the store packages and writes it (`src/renderer/src/editor/previews.ts previewSnapshot`).
+- Every included page is derived first (`engine.layerTree(page)`, which also asks for the page's fonts). The editor waits for the fonts (up to 8 s) and then calls `engine.encodeDocumentKiwi({derived: true})`. This is the round-3 `ENCODE_DERIVED` snapshot and plays the part of `ENCODE_BAKE_TEXT`: each instance carries `derivedSymbolData` and each text whose font was present carries `derivedTextData` with glyph outlines.
+- A text whose font is missing in the editor too is stored without outlines. The viewer then lays it out with Inter, as the editor draws it.
+
+**Package** (`src/shared/preview/`, pure, shared by the store, the viewer and the tests):
+- `format.ts` holds `PreviewManifest` and `PreviewPackage`, the file names (`manifest.json`, `doc.kiwi`, `images/<sha1>`), expiry and validation.
+- `package.ts buildPreviewPackage`:
+  - decodes the snapshot;
+  - keeps only the chosen pages (`keepPages`; the internal canvas always stays);
+  - lists the pages and their top-level layers, topmost first (`previewPagesOf`);
+  - collects the images the paints use (`messageImageHashes`, read from the blob store);
+  - writes `doc.kiwi`, a fig-kiwi container with our schema and a deflate-raw data chunk, which browsers inflate with `DecompressionStream`.
+- `html.ts inlinePreviewHtml` turns the viewer's page plus a package into one HTML file. The package goes in `<script id="designer-preview-data" type="application/json">` as `{manifest, doc: base64, images: {sha1: base64}}`, and `<` is escaped. The title becomes "‹file› – Developer preview". `readInlinePreview` reads it back.
+
+**Store** (`src/store/preview/previews.ts`, wired in `LocalStore` as `previewsOf`):
+- `previews.status()` answers `{publish, reason}`: "Sharing previews needs Firebase sync, which isn't set up" or "Turn on sync to publish previews".
+- `previews.list(fileKey?)` lists the published previews.
+- `previews.publish(fileKey, {snapshot, options})`:
+  - uploads through the sync seam's `StorageDriver`, which `startSync` sets as `store.previewStorage`: `doc.kiwi`, then the missing images, then `manifest.json` **last** with `revoked: "false"`;
+  - reuses the file's `previewId`, so the link stays the same;
+  - deletes images the new version no longer uses;
+  - records `PreviewRecord` in `previews.json`. Blob GC keeps the published images.
+- `previews.stop(previewId)` rewrites the manifest with `revoked: "true"`, deletes the folder, then drops the record.
+- `previews.exportHtml(fileKey, {snapshot, options}, path)` is **main-only**: it is in `MAIN_ONLY`, because it takes a path. It reads the viewer's built page (`viewerTemplate`, by default `out/viewer/index.html` next to `out/main`), inlines the package and writes the file atomically.
+- The browser dev store answers `status` with publish off and refuses `exportHtml`.
+- The link is `<viewer.origin>/p/<previewId>`, or `https://<projectId>.web.app/p/<id>` when the config has no viewer origin.
+
+**Main and IPC.** `file:export-preview` (editor role; `{fileKey, snapshot, options}`) shows `showSaveDialog` with "Export preview as HTML" and `‹name›.html`. Main then calls `store.previews.exportHtml`. It is exposed as `designer.files.exportPreview`.
+
+**Editor** (`ShareDialog.tsx`):
+- It opens from the right panel's **Share** button and from File ▸ **Share preview…** (`file.share-preview`, which is in the menu bar too).
+- The dialog is titled "Share “‹file›”". It has a note, **Pages** (All pages / Only “‹page›”), **Inspect**, **Allow exporting assets** and **Link expires** (Never / In 7 days / In 30 days).
+- **Publish preview** copies the link once published. After that the dialog shows the link with **Copy link**, **Update preview** and **Stop sharing**.
+- **Export as HTML…** appears in the desktop app.
+- While publishing is off, a banner gives the store's reason.
+
+**Viewer** (`src/viewer/`, built by `vite.viewer.config.ts` with `npm run build:viewer`; `npm run build` builds it too). The build is **one page**, `out/viewer/index.html`, about 6.1 MB:
+- its JS and CSS are inlined, and fonts and icons are data URLs;
+- the engine's Wasm is a base64 `<script id="designer-engine-wasm">` block, instantiated from bytes with `loadEngine({wasmBinary})`;
+- `<!--designer:preview-data-->` marks where the store puts a package.
+
+The same page is the Firebase Hosting site, so the export is just this page with a data block. How it works:
+- **Source** (`source.ts`): the inline block (an exported file); `/p/<id>` or `?p=<id>` read from Storage at `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/previews%2F<id>%2F<name>?alt=media`; or `?src=<folder>` (dev). The bucket comes from `?bucket=` or a deployed `/preview-config.json` (`firebase/preview-config.json`, copied by the build and git-ignored). Expired previews and documents from a newer format are refused with a message.
+- **Engine**: the same `engine.wasm`, loaded with `loadKiwi(message, {page})` and `setImageSource` from the package.
+- **Fonts** (`fonts.ts`): only the bundled upright Inter is shipped, for the canvas's labels and upright-Inter texts. Every other face, Inter's italics included, is reported missing on purpose, so those texts draw from the stored outlines and none of the owner's font files are redistributed. The italic file isn't even bundled.
+- **Read-only input** (`ViewerCanvas.ts`): the engine sees hovers, clicks (a press and release in place: Figma's selection rules, ⌘ deep select, ⇧ adds) and the wheel, never a drag.
+  - A drag pans, and so do Space-drag and the middle button.
+  - A double-click selects one level deeper.
+  - Keys: ⇧1 zoom to fit, ⇧2 zoom to selection, ⌘± zoom, ⇧0 / ⌘0 100 %, Esc selects the parent.
+- **Layout**, Dev Mode's ([R8](research/figma/R8-dev-mode.md)):
+  - **Left**: the file name with "Developer preview", Pages, and the Layers tree (read-only; the selection's ancestors open).
+  - **Canvas** with hover **measurements**: red lines and values between the selection and the hovered layer, with no ⌥ needed, from `inspect/measure.ts`.
+  - **Inspect**, nothing selected: the page, Code with the language (CSS / iOS (SwiftUI) / Android (Compose), remembered), the page's Frames, and Variables with "Open variables table" (collections, one column per mode, a click copies).
+  - **Inspect**, one layer: its name and type; Component or Instance (main component, variant and properties); Layout (box model with padding, size, left and top in the parent, Hug / Fill, rotation, radius, opacity, auto layout and gap); Code (CSS grouped Layout / Style / Typography, each with Copy, or a SwiftUI or Compose snippet); Colors (fill and stroke with hex, the variable's name with its collection and mode, or the style's name); Typography (text style, font, weight, size, line height with %, letter spacing, content); Effects; Export (0.5x–4x, PNG / JPG, rendered by the engine's node thumbnail, when allowed). Every value copies on click.
+- **Snippets** (`inspect/css.ts`, `inspect/native.ts`, `inspect/model.ts`, pure and tested) follow Figma's output as far as it is documented: `var(--Name, fallback)`, a variable's Web code syntax honoured, `#FFF` shortening, the `line-height … /* 125% */` comment, the text style as a comment, blur halved for CSS, `url(<path-to-image>) lightgray 50% / cover no-repeat`.
+
+**Firebase project files** (`firebase/`):
+- `firebase.json`: Hosting serves `../out/viewer`, rewrites `/p/**` to the page, and sets COOP/COEP and noindex.
+- `storage.rules` and `firestore.rules`, as in §12.6, with `OWNER_UID` to fill in.
+- `.firebaserc.example` and `preview-config.example.json`.
+
+To deploy, once the owner has a project:
+1. Copy the config to `userData/firebase/config.json` (§12.1).
+2. Write `firebase/preview-config.json` with the bucket.
+3. Run `npm run build:viewer`.
+4. Run `firebase deploy --only hosting,storage` from `firebase/`.
+5. Allow GET from the Hosting origin in the bucket's CORS (`gsutil cors set`), because the viewer fetches Storage cross-origin.
+
+**Checks:**
+- `src/store/preview/previews.test.ts` (8 tests): pages and frames, `keepPages`, the container and manifest, the HTML block round trip with escaping, upload order, image reuse, revoke and delete on the in-memory `MemoryStorage`, the link, `exportHtml` writing a file from blobs, the role rule, and publish refused until configured and sync is on, then publish, update in place and stop.
+- `src/viewer/inspect/inspect.test.ts` (12 tests): numbers, colours, variable names, sizing, typography, gradient angle, CSS for an auto-layout frame, text, variables and flex items, SwiftUI, Compose, measurements.
+- `src/viewer/testing/preview.wasm.test.ts`: a synthetic file made by the real engine (variable-bound fill, text style, image, Inter Italic caption, component and instance, two pages) gives a derived snapshot with outlines. Its package and HTML round trip load into a fresh engine with the stored layout, and the panels' reads (variable with collection and mode, style name, parent layout, page boxes, layer order) come back right.
+- `npm run viewer:check` (`vitest.viewer.config.ts`, headless Chromium, about 15 s) has two cases:
+  - it builds the viewer, exports the synthetic file to an HTML file and opens it from `file://`; it checks that it renders, then selects from Layers, inspects CSS / SwiftUI / Compose, the variable and the text style, draws the italic caption from its outlines, measures on hover and switches pages;
+  - it serves a package's files over HTTP (the Storage layout) with only one page and Inspect off, and checks that an expired preview is refused.
+  Screenshots go to `$TMPDIR/designer-viewer-check/`.
+
+**Not done:**
+- Present (the prototype player).
+- SVG and PDF export, and "Assets" (detected icons and images).
+- The Code / List toggle and the unit settings (rem, pt, dp).
+- Annotations, "Ready for dev" statuses, Compare changes.
+- Swept expiry of published previews at store start.
+- The viewer's engine mode `VIEWER` / `INSPECT`: the engine is the normal one, and the TS side keeps it read-only, so it still draws Design-mode selection handles.
+- Publishing has not been tried against a real Firebase project, since there is no config yet. The desktop export path (editor → `file:export-preview` → the store) is checked by types and the store tests, not by driving the built app: the Save dialog is native. Reading `out/viewer/index.html` from inside `app.asar` in a packaged build is untried.
+- The exact SwiftUI / Compose output and the redline colours are unverified against Figma (R8).
 
 ---
 
