@@ -315,6 +315,34 @@ async function componentsSection(page, theme) {
   const chip = await node(page, "2:3");
   const target = chip.symbolData?.symbolID;
   check("a variant pick switches to that variant", target && target.sessionID === 1 && target.localID === 42, JSON.stringify(target));
+  // Round 5 — "Assign variable" on a variant property (help "Modes for variables"): a string variable picks the variant.
+  const stringVar = await page.evaluate(async () => {
+    const ed = window.__designerEditor;
+    const v = await import("/src/editor/variables.ts");
+    const c = v.createCollection(ed);
+    const sv = v.createVariable(ed, c, "STRING");
+    const mode = ed.variables.get().lookup.collection(c).defaultMode;
+    v.setVariableValue(ed, sv, mode, { kind: "literal", value: "Default" });
+    return sv;
+  });
+  await settle(page);
+  check("a variant row offers Assign variable", (await panel.locator('[data-assign-variable="State"]').getByRole("button", { name: "Assign variable" }).count()) === 1);
+  await panel.locator('[data-assign-variable="State"]').hover();
+  await panel.locator('[data-assign-variable="State"]').getByRole("button", { name: "Assign variable" }).click();
+  await settle(page);
+  await shot(page, `41b-assign-variable-${theme}`);
+  const pickedFromUi = await page.locator('[data-variable-picker] [data-variable="String"]').first().click({ timeout: 3000 }).then(() => true, () => false);
+  results.push(`info Assign variable picked from the picker: ${pickedFromUi}`);
+  await settle(page);
+  if ((await panel.locator('[data-bound-variable]').count()) === 0)
+    await page.evaluate(async (sv) => (await import("/src/editor/components.ts")).bindPropertyVariable(window.__designerEditor, "2:3", "State", sv), stringVar);
+  await settle(page);
+  const picked = (await node(page, "2:3")).symbolData?.symbolID;
+  check("an assigned variable picks its variant (Default) and shows as a pill", (await panel.locator('[data-bound-variable]').count()) >= 1 && picked && picked.localID !== 42, JSON.stringify(picked));
+  await shot(page, `41c-variant-variable-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
 
   // Reset all changes (⋯) on the button.
   await select("2:2");
@@ -362,7 +390,7 @@ async function componentsSection(page, theme) {
   check("a main component shows Properties with its three", (await panel.locator("[data-component-properties]").getByRole("button", { name: /^Edit property / }).count()) === 3);
   await panel.getByRole("button", { name: "Edit property Icon" }).click();
   await settle(page);
-  check("an Instance swap property's settings list its preferred values", (await page.locator('[data-property-editor="INSTANCE_SWAP"]').getByText("Preferred values").count()) === 1);
+  check("an Instance swap property's settings list its preferred instances", (await page.locator('[data-property-editor="INSTANCE_SWAP"]').getByText("Preferred instances").count()) === 1);
   await shot(page, `45-property-settings-${theme}`);
   await page.keyboard.press("Escape");
   await panel.getByRole("button", { name: "Create component property" }).click();
@@ -567,6 +595,38 @@ async function variablesSection(page, theme) {
   await settle(page);
   await shot(page, `68-style-menu-${theme}`);
   await page.keyboard.press("Escape");
+
+  // Round 5 — "Extend collection" (R3-32): the extended collection inherits Theme's variables and modes (no new ones);
+  // a value edited there is an override, in blue, and "Reset change" brings back the parent's.
+  await panel.locator("[data-open-variables]").click();
+  await settle(page);
+  await win.locator('[data-collection="Theme"]').click({ button: "right" });
+  await settle(page);
+  await page.getByRole("menuitem", { name: "Extend collection" }).click();
+  await settle(page);
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check(
+    "Extend collection: Theme's modes and variables, no Create variable",
+    (await win.locator("[data-extension]").count()) === 1 &&
+      (await win.locator("[data-mode]").count()) >= 2 &&
+      (await win.locator('[data-extended-from="Theme"]').count()) === 1 &&
+      (await win.getByRole("button", { name: "Create variable" }).count()) === 0
+  );
+  const extCell = win.locator('[data-value-cell="text/primary|Light"]');
+  await extCell.getByRole("textbox").click();
+  await page.keyboard.press("Meta+a");
+  await page.keyboard.type("00FF00");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("a value edited in the extended collection is its override (blue)", (await win.locator('[data-value-cell="text/primary|Light"][data-overridden]').count()) === 1);
+  await shot(page, `69-extended-collection-${theme}`);
+  await extCell.hover();
+  await extCell.getByRole("button", { name: "Reset change" }).click();
+  await settle(page);
+  check("Reset change: the parent's value again", (await win.locator("[data-overridden]").count()) === 0);
+  await page.evaluate(() => window.__designerEditor.ui.set({ variablesOpen: false }));
+  await settle(page);
 }
 
 /**

@@ -199,7 +199,23 @@
   .extendedFrom { flex: 0 0 auto; color: var(--figma-color-text-secondary); white-space: nowrap; }
   .sideExtension { padding-left: calc(var(--ds-space-4) + var(--ds-space-3)); }
   .muted { color: var(--figma-color-text-secondary); }
-  .typeFilter { flex: 0 0 auto; }
+  .typeFilter {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .typeFilter:hover { background: var(--ds-color-bg-transparent-hover); color: var(--figma-color-icon); }
+  .typeFilter[data-open] { background: var(--ds-color-bg-transparent-pressed); color: var(--figma-color-icon); }
+  .typeFilter:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
   /* Reorder collections */
   .reorderRow {

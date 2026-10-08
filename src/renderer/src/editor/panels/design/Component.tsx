@@ -638,7 +638,7 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
       {picker && (
         <ComponentPicker
           anchor={picker.anchor}
-          title={picker.kind === "value" ? "Value" : "Preferred values"}
+          title={picker.kind === "value" ? "Value" : "Preferred instances"}
           current={picker.kind === "value" && value?.guidValue ? guidStr(value.guidValue) : null}
           onPick={(a) => {
             if (picker.kind === "value") editValue({ guidValue: guidVal(a.target) });
