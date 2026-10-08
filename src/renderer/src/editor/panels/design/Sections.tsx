@@ -18,6 +18,8 @@ import { useTopics, useUI } from "../../hooks";
 import { hasConstraints, type ConstraintHost } from "../../model/constraints";
 import { isAutoLayout, isSpaceBetween, SPACE_BETWEEN } from "../../model/sizing";
 import { ConstraintsRow } from "./Constraints";
+import { GridRows, GridSpanRow } from "./Grid";
+import { gridDefaults, isGrid, type GridNode } from "../../model/grid";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { AutoLayoutSettingsButton, LimitRow, SizeField, useLimitAxes } from "./Sizing";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
@@ -130,9 +132,9 @@ export const exitToCanvas = (ed: EditorController) => (reason: string) => {
 
 // ---- Layout ----------------------------------------------------------------------------------
 
-type Direction = "v" | "h" | "w";
+type Direction = "v" | "h" | "w" | "g";
 
-const directionOf = (n: PanelNode): Direction | null => (n.stackMode === "VERTICAL" ? "v" : n.stackMode === "HORIZONTAL" ? (n.stackWrap === "WRAP" ? "w" : "h") : null);
+const directionOf = (n: PanelNode): Direction | null => (n.stackMode === "VERTICAL" ? "v" : n.stackMode === "HORIZONTAL" ? (n.stackWrap === "WRAP" ? "w" : "h") : n.stackMode === "GRID" ? "g" : null);
 
 export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
@@ -179,6 +181,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
           <LimitRow key={axis} axis={axis} nodes={nodes} />
         ))}
         {auto && <AutoLayoutRows nodes={nodes} />}
+        {parents.length > 0 && parents.every((p) => isGrid(p)) && nodes.every((n) => n.stackPositioning !== "ABSOLUTE") && <GridSpanRow nodes={nodes} />}
       </PropertyGrid>
       {frames && (
         <div className={styles.checkRow}>
@@ -204,8 +207,18 @@ function DirectionRow({ nodes }: { nodes: PanelNode[] }) {
           { value: "v", icon: "24.al.layout-vertical", tooltip: "Vertical layout" },
           { value: "h", icon: "24.al.layout-horizontal", tooltip: "Horizontal layout" },
           { value: "w", icon: "24.al.layout-wrap", tooltip: "Wrap" },
+          { value: "g", icon: "24.layout.grid", tooltip: "Grid" },
         ]}
-        onChange={(v) => ed.setProps(refs, fields({ stackMode: v === "v" ? "VERTICAL" : "HORIZONTAL", stackWrap: v === "w" ? "WRAP" : "NO_WRAP" }), "Auto layout direction")}
+        onChange={(v) => {
+          if (v !== "g") {
+            ed.setProps(refs, fields({ stackMode: v === "v" ? "VERTICAL" : "HORIZONTAL", stackWrap: v === "w" ? "WRAP" : "NO_WRAP" }), "Auto layout direction");
+            return;
+          }
+          // Grid: 2 × 2 Hug tracks with automatic positioning (Figma Design), unless the frame had tracks already.
+          editEach(ed, "Auto layout direction", { final: true, source: "pick" }, refs, (n) =>
+            fields({ ...(gridDefaults(n as unknown as GridNode, Number(String(n.guid).replace(/^I/, "").split(":")[0]) || 1) as object), stackWrap: "NO_WRAP" } as never),
+          );
+        }}
       />
     </PropertyRow>
   );
@@ -226,6 +239,39 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
   const padH = mixedNumber(nodes.map((n) => n.stackHorizontalPadding ?? 0));
   const padV = mixedNumber(nodes.map((n) => n.stackVerticalPadding ?? 0));
   const set = (label: string, info: ChangeInfo, f: (n: PanelNode) => ReturnType<typeof fields>) => editEach(ed, label, info, refs, f);
+  const paddingRow = (
+    <PropertyRow label="Padding">
+      <VariableField nodes={nodes} fields={["STACK_PADDING_LEFT", "STACK_PADDING_RIGHT"]} prefix="24.al.padding-horizontal">
+        <NumericInput
+          label="Horizontal padding"
+          prefix="24.al.padding-horizontal"
+          value={fieldValue(padH)}
+          min={0}
+          onChange={(v, info) => set("Padding", info, () => fields({ stackHorizontalPadding: v, stackPaddingRight: v }))}
+          onCancel={() => ed.cancelEdit()}
+          onExit={exitToCanvas(ed)}
+        />
+      </VariableField>
+      <VariableField nodes={nodes} fields={["STACK_PADDING_TOP", "STACK_PADDING_BOTTOM"]} prefix="24.al.padding-vertical">
+        <NumericInput
+          label="Vertical padding"
+          prefix="24.al.padding-vertical"
+          value={fieldValue(padV)}
+          min={0}
+          onChange={(v, info) => set("Padding", info, () => fields({ stackVerticalPadding: v, stackPaddingBottom: v }))}
+          onCancel={() => ed.cancelEdit()}
+          onExit={exitToCanvas(ed)}
+        />
+      </VariableField>
+    </PropertyRow>
+  );
+  if (direction === "g")
+    return (
+      <>
+        <GridRows nodes={nodes} />
+        {paddingRow}
+      </>
+    );
   return (
     <>
       <PropertyRow label="Alignment and gap">
@@ -246,30 +292,7 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
         />
         </VariableField>
       </PropertyRow>
-      <PropertyRow label="Padding">
-        <VariableField nodes={nodes} fields={["STACK_PADDING_LEFT", "STACK_PADDING_RIGHT"]} prefix="24.al.padding-horizontal">
-        <NumericInput
-          label="Horizontal padding"
-          prefix="24.al.padding-horizontal"
-          value={fieldValue(padH)}
-          min={0}
-          onChange={(v, info) => set("Padding", info, () => fields({ stackHorizontalPadding: v, stackPaddingRight: v }))}
-          onCancel={() => ed.cancelEdit()}
-          onExit={exitToCanvas(ed)}
-        />
-        </VariableField>
-        <VariableField nodes={nodes} fields={["STACK_PADDING_TOP", "STACK_PADDING_BOTTOM"]} prefix="24.al.padding-vertical">
-        <NumericInput
-          label="Vertical padding"
-          prefix="24.al.padding-vertical"
-          value={fieldValue(padV)}
-          min={0}
-          onChange={(v, info) => set("Padding", info, () => fields({ stackVerticalPadding: v, stackPaddingBottom: v }))}
-          onCancel={() => ed.cancelEdit()}
-          onExit={exitToCanvas(ed)}
-        />
-        </VariableField>
-      </PropertyRow>
+      {paddingRow}
     </>
   );
 }
