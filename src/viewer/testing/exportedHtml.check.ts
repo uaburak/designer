@@ -48,22 +48,6 @@ async function busyness(page: Page, png: Buffer): Promise<number> {
   }, png.toString("base64"));
 }
 
-/** The colour at a canvas point, from a screenshot of a 1 px region. */
-async function colorAt(page: Page, x: number, y: number): Promise<[number, number, number]> {
-  const png = await page.screenshot({ clip: { x, y, width: 1, height: 1 } });
-  return page.evaluate(async (b64) => {
-    const img = new Image();
-    img.src = `data:image/png;base64,${b64}`;
-    await img.decode();
-    const c = document.createElement("canvas");
-    c.width = c.height = 1;
-    const ctx = c.getContext("2d")!;
-    ctx.drawImage(img, 0, 0);
-    const d = ctx.getImageData(0, 0, 1, 1).data;
-    return [d[0], d[1], d[2]] as [number, number, number];
-  }, png.toString("base64"));
-}
-
 describe("the exported preview HTML (headless Chromium)", () => {
   it("opens from file://, renders, selects and inspects", async () => {
     if (!existsSync(template)) throw new Error("out/viewer/index.html is missing: npm run build:viewer");

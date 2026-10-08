@@ -17,7 +17,7 @@
  * `openVersion` (a read-only document), `restoreVersion` (the restore diff handed to the editor to apply as one
  * undoable "Restore version" edit, journaled as `restore`, then a "restore" history entry), `duplicateVersion`.
  */
-import type { DocumentSource, LibraryAccess, PreparedLoad } from "@/editor/documentSource";
+import type { DocumentSource, LibraryAccess, PreparedLoad, PreviewAccess } from "@/editor/documentSource";
 import type { Message as EngineMessage } from "@/engine/codec";
 import { decodeMessage, encodeMessage } from "../../../shared/schema/codec";
 import { messageImageHashes } from "../../../shared/schema/patch";
@@ -318,6 +318,7 @@ class Source implements StoreDocumentSource {
   private readonly offWatch: Unsubscribe;
   private readonly fileMeta = new Listeners<FileMeta>();
   readonly libraries: LibraryAccess;
+  readonly previews: PreviewAccess;
   private uiPatch: Partial<FileUiState> | null = null;
   private uiTimer: ReturnType<typeof setTimeout> | null = null;
   private closing: Promise<void> | null = null;
@@ -350,6 +351,14 @@ class Source implements StoreDocumentSource {
       if (this.meta !== before) this.fileMeta.emit(this.meta);
     });
     this.libraries = storeLibraryAccess(store, () => this.meta, (l) => this.fileMeta.add(l));
+    const fileKey = this.fileKey;
+    this.previews = {
+      fileKey,
+      status: () => store.previews.status(),
+      list: () => store.previews.list(fileKey),
+      publish: (snapshot, options) => store.previews.publish(fileKey, { snapshot, options }),
+      stop: (previewId) => store.previews.stop(previewId),
+    };
   }
 
   get fileName(): string {

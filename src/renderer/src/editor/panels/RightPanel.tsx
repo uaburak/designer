@@ -62,7 +62,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>
-      <Button variant="primary" size="large" onClick={() => showToast({ message: "Sharing comes with developer previews" })}>
+      <Button variant="primary" size="large" onClick={() => runEditorCommand(ed, "file.share-preview")}>
         Share
       </Button>
     </div>

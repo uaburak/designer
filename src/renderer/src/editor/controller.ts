@@ -126,6 +126,7 @@ export class EditorController {
       stylesClosed: new Set(),
       librariesDialog: null,
       publishOpen: false,
+      shareOpen: false,
       ...ui,
     });
     this.tools = probeTools(engine);

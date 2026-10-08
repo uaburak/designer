@@ -392,6 +392,11 @@ export const COMMANDS: EditorCommand[] = [
     run: (ed) => ed.ui.set({ publishOpen: true, uiHidden: false }),
     enabled: (ed) => ed.libraries.get().on,
   },
+  {
+    id: "file.share-preview",
+    label: "Share preview…",
+    run: (ed) => ed.ui.set({ shareOpen: true, uiHidden: false }),
+  },
   later("file.export", "Export…", [k("KeyE", { mod: true, shift: true })]),
   later("file.export-frames-to-pdf", "Export frames to PDF…"),
   placeImage("file.place-image", "Place image…", [k("KeyK", { mod: true, shift: true })]),
