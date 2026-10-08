@@ -1,0 +1,8 @@
+# Grid frame AL_grid: row 2 track selected via its pill, then click the pill chevron [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@419,549 156x72
+52,6 90x13 "Fixed height (84)" 11px/450 #ffffff
+52,30 71x13 "Hug contents" 11px/450 #ffffff
+0,48 156x24 option SELECTED
+52,54 92x13 "Fill container (1fr)" 11px/450 #ffffff

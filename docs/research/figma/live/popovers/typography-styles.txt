@@ -1,0 +1,12 @@
+# Text selected: click the styles icon in the Typography header [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@984,427 216x165
+0,0 216x165 div bg=#2c2c2c r=13px
+16,14 58x13 "Text styles" 11px/550 #ffffff
+160,8 24x24 button [Create style] r=5px
+40,40 176x40 input = [Search] r=5px EXPANDED
+70,99 75x13 "No text styles." 11px/450 #ffffff66
+43,129 129x24 button [Browse libraries…] r=5px
+71,135 93x13 "Browse libraries…" 11px/450 #ffffff
+184,8 24x24 button [Close] r=5px

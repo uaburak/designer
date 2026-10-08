@@ -1,0 +1,34 @@
+# Main menu > Help and account (hover) [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@12,44 194x444
+16,14 65x13 "Back to files" 11px/450 #ffffff
+40,55 49x13 "Actions…" 11px/450 #ffffff
+160,55 18x13 "⌘K" 11px/450 #ffffffb2
+16,96 18x13 "File" 11px/450 #ffffff
+16,120 20x13 "Edit" 11px/450 #ffffff
+16,144 26x13 "View" 11px/450 #ffffff
+16,168 35x13 "Object" 11px/450 #ffffff
+16,192 23x13 "Text" 11px/450 #ffffff
+16,216 42x13 "Arrange" 11px/450 #ffffff
+16,240 35x13 "Vector" 11px/450 #ffffff
+16,281 38x13 "Plugins" 11px/450 #ffffff
+16,305 43x13 "Widgets" 11px/450 #ffffff
+16,329 64x13 "Preferences" 11px/450 #ffffff
+16,353 46x13 "Libraries" 11px/450 #ffffff
+16,394 110x13 "Open in desktop app" 11px/450 #ffffff
+0,412 194x32 menuitem EXPANDED
+8,412 178x24 span bg=#0c8ce9 r=5px
+16,418 93x13 "Help and account" 11px/450 #ffffff
+---
+@210,448 178x249
+16,14 54x13 "Help page" 11px/450 #ffffff
+16,38 104x13 "Keyboard shortcuts" 11px/450 #ffffff
+136,38 26x13 "⌃⇧?" 11px/450 #ffffffb2
+16,62 77x13 "Support forum" 11px/450 #ffffff
+16,86 77x13 "Video tutorials" 11px/450 #ffffff
+16,110 74x13 "Release notes" 11px/450 #ffffff
+16,134 98x13 "Open font settings" 11px/450 #ffffff
+16,175 80x13 "Legal summary" 11px/450 #ffffff
+16,199 90x13 "Account settings" 11px/450 #ffffff
+16,223 40x13 "Log out" 11px/450 #ffffff

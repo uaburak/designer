@@ -1,0 +1,70 @@
+# Rect fill picker (Custom tab): paint type tab "SOLID" clicked [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@959,347 240x537
+0,0 240x537 div bg=#2c2c2c r=13px
+7,21 63x13 "Color picker" 11px/400 #ffffff
+8,8 58x24 tab SELECTED bg=#383838
+16,14 42x13 "Custom" 11px/550 #ffffff
+16,14 42x13 "Custom" 11px/550 #ffffff
+70,8 62x24 button bg=#2c2c2c r=5px
+78,14 46x13 "Libraries" 11px/550 #ffffffb2
+78,14 46x13 "Libraries" 11px/450 #ffffffb2
+180,8 24x24 button [New style or variable] r=5px
+8,48 24x24 div bg=#383838 r=5px
+8,48 24x24 input =SOLID [Solid]
+7,73 26x13 "Solid" 11px/450 #ffffff
+36,48 24x24 input =GRADIENT_LINEAR [Gradient]
+35,73 46x13 "Gradient" 11px/450 #ffffff
+64,48 24x24 input =PATTERN [Pattern]
+63,73 39x13 "Pattern" 11px/450 #ffffff
+92,48 24x24 input =IMAGE [Image]
+91,73 32x13 "Image" 11px/450 #ffffff
+120,48 24x24 input =VIDEO [Video]
+119,73 30x13 "Video" 11px/450 #ffffff
+148,48 24x24 input =CUSTOM [shader_beta_special_tooltip]
+147,73 38x13 "Shader" 11px/450 #ffffff
+180,48 24x24 button [Blend mode] r=5px
+208,48 24x24 button [Check color contrast] r=5px
+16,97 208x208 group [Color picker reticle]
+8,120 16x16 div bg=#d9d9d9 r=9999px
+9,120 15x15 input =0 [Color picker reticle] bg=#3b3b3b
+15,304 1x1 input =0.15 [Color picker reticle] bg=#3b3b3b
+16,327 24x24 button [Sample color] r=5px
+48,313 180x24 slider [Hue]
+52,317 16x16 div bg=#ff0000 r=9999px
+48,341 180x24 slider [Opacity]
+208,345 16x16 div bg=#d9d9d9 r=9999px
+15,374 21x13 "Hex" 11px/450 #ffffff
+16,373 55x24 combobox [Color format] bg=#2c2c2c r=5px
+25,378 21x13 "Hex" 11px/450 #ffffff
+80,373 89x24 div bg=#383838 r=5px 0px 0px 5px
+80,373 89x24 input =D9D9D9 [Color] r=5px 0px 0px 5px
+170,373 54x24 div bg=#383838 r=0px 5px 5px 0px
+170,373 54x24 label [Opacity] r=0px 5px 5px 0px
+171,373 38x24 input =100 [Opacity] r=0px 2px 2px 0px
+211,379 9x13 "%" 11px/450 #ffffffb2
+15,426 67x13 "On this page" 11px/450 #ffffff
+16,425 208x24 combobox [Color swatch set selector] bg=#2c2c2c r=5px
+25,430 67x13 "On this page" 11px/450 #ffffff
+16,457 16x16 button [Solid color hex: FFFFFF] bg=#ffffff r=20%
+40,457 16x16 button [Solid color hex: E5664D] bg=#e5664d r=20%
+64,457 16x16 button [Solid color hex: D9D9D9] bg=#d9d9d9 r=20%
+88,457 16x16 button [Solid color hex: FFB200] bg=#ffb200 r=20%
+112,457 16x16 button [Solid color hex: 66CC80] bg=#66cc80 r=20%
+136,457 16x16 button [Solid color hex: 0D99FF] bg=#0d99ff r=20%
+160,457 16x16 button [Solid color hex: 000000] bg=#000000 r=20%
+184,457 16x16 button [Solid color hex: E6E6E6] bg=#e6e6e6 r=20%
+208,457 16x16 button [Solid color hex: 99E5E5] bg=#99e5e5 r=20%
+16,481 16x16 button [Solid color hex: FFFFFF] bg=#ffffff r=20%
+40,481 16x16 button [Solid color hex: FFCC33] bg=#ffcc33 r=20%
+64,481 16x16 button [Solid color hex: FF334D] bg=#ff334d r=20%
+88,481 16x16 button [Solid color hex: E58033] bg=#e58033 r=20%
+112,481 16x16 button [Solid color hex: 999999] bg=#999999 r=20%
+136,481 16x16 button [Solid color hex: 8080E5] bg=#8080e5 r=20%
+160,481 16x16 button [Solid color hex: 804DE5] bg=#804de5 r=20%
+184,481 16x16 button [Solid color hex: 4D4D4D] bg=#4d4d4d r=20%
+208,481 16x16 button [Solid color hex: 444444] bg=#444444 r=20%
+16,505 16x16 button [Solid color hex: 3380FF] bg=#3380ff r=20%
+40,505 16x16 button [Solid color hex: 1E1E1E] bg=#1e1e1e r=20%
+208,8 24x24 button [Close] r=5px

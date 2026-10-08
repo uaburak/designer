@@ -1,0 +1,18 @@
+# Right-click on empty canvas (nothing selected) [viewport 1440x900]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1013,614 200x218
+16,14 56x13 "Paste here" 11px/400 #ffffff
+16,55 71x13 "Show/Hide UI" 11px/400 #ffffff
+167,54 13x15 "⌘" 12px/400 #ffffffb2
+180,54 4x15 "\" 12px/400 #ffffffb2
+16,79 114x13 "Show/Hide comments" 11px/400 #ffffff
+162,78 13x15 "⇧" 12px/400 #ffffffb2
+175,78 9x15 "C" 12px/400 #ffffffb2
+16,120 61x13 "Cursor chat" 11px/400 #ffffff
+180,119 4x15 "/" 12px/400 #ffffffb2
+16,144 48x13 "Actions…" 11px/400 #ffffff
+163,143 13x15 "⌘" 12px/400 #ffffffb2
+176,143 8x15 "K" 12px/400 #ffffffb2
+16,168 37x13 "Plugins" 11px/400 #ffffff
+16,192 43x13 "Widgets" 11px/400 #ffffff

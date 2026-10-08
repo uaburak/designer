@@ -1,0 +1,72 @@
+# Rect selected: click "Add effect" (+) in Effects — opens the "Shader effects (Beta)" browser popover with onboarding card [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@959,374 240x510
+0,0 240x510 div bg=#2c2c2c r=13px
+16,14 79x13 "Shader effects" 11px/550 #ffffff
+107,14 24x13 "Beta" 11px/450 #ffffffb2
+184,8 24x24 button [Create with agents] r=5px
+8,48 224x24 div bg=#383838 r=5px
+32,48 200x24 input = [Search] r=5px
+12,230 203x45 "Add animated shaders that respond to mouse movement, right on canvas, or create your own with the Figma agent." 11px/450 #ffffff
+87,294 29x13 "Got it" 11px/450 #ffffff
+131,288 97x24 button bg=#0c8ce9 r=5px
+139,294 81x13 "Try an example" 11px/450 #ffffff
+0,333 240x24 div bg=#2c2c2c
+16,339 81x13 "Created by you" 11px/450 #ffffffb2
+20,473 61x13 "Create new" 11px/450 #ffffff
+93,471 19x16 strong bg=#444444 r=5px
+97,473 11x13 "AI" 11px/450 #ffffff
+0,495 240x24 div bg=#2c2c2c
+16,501 49x13 "By Figma" 11px/450 #ffffffb2
+16,531 96x96 div bg=#383838 r=5px
+20,633 120x13 "Shape-based particles" 11px/450 #ffffff
+128,531 96x96 div bg=#383838 r=5px
+132,633 93x13 "Pattern refraction" 11px/450 #ffffff
+16,663 96x96 div bg=#383838 r=5px
+20,765 45x13 "Halftone" 11px/450 #ffffff
+128,663 96x96 div bg=#383838 r=5px
+132,765 87x13 "Chromatic metal" 11px/450 #ffffff
+16,795 96x96 div bg=#383838 r=5px
+20,897 79x13 "Lens distortion" 11px/450 #ffffff
+128,795 96x96 div bg=#383838 r=5px
+132,897 32x13 "Dither" 11px/450 #ffffff
+16,927 96x96 div bg=#383838 r=5px
+20,1029 71x13 "Gradient map" 11px/450 #ffffff
+128,927 96x96 div bg=#383838 r=5px
+132,1029 27x13 "Warp" 11px/450 #ffffff
+16,1059 96x96 div bg=#383838 r=5px
+20,1161 42x13 "Pixelate" 11px/450 #ffffff
+128,1059 96x96 div bg=#383838 r=5px
+132,1161 56x13 "Bokeh blur" 11px/450 #ffffff
+16,1191 96x96 div bg=#383838 r=5px
+20,1293 44x13 "Outlines" 11px/450 #ffffff
+128,1191 96x96 div bg=#383838 r=5px
+132,1293 61x13 "CRT screen" 11px/450 #ffffff
+16,1323 96x96 div bg=#383838 r=5px
+20,1425 33x13 "Bloom" 11px/450 #ffffff
+128,1323 96x96 div bg=#383838 r=5px
+132,1425 91x13 "Glowing particles" 11px/450 #ffffff
+16,1455 96x96 div bg=#383838 r=5px
+20,1557 64x13 "Color adjust" 11px/450 #ffffff
+128,1455 96x96 div bg=#383838 r=5px
+132,1557 65x13 "Pixel stretch" 11px/450 #ffffff
+16,1587 96x96 div bg=#383838 r=5px
+20,1689 71x13 "Gooey merge" 11px/450 #ffffff
+128,1587 96x96 div bg=#383838 r=5px
+132,1689 71x13 "Moving blobs" 11px/450 #ffffff
+16,1719 96x96 div bg=#383838 r=5px
+20,1821 52x13 "Slice shift" 11px/450 #ffffff
+128,1719 96x96 div bg=#383838 r=5px
+132,1821 52x13 "Light rays" 11px/450 #ffffff
+16,1851 96x96 div bg=#383838 r=5px
+20,1953 47x13 "Hatching" 11px/450 #ffffff
+128,1851 96x96 div bg=#383838 r=5px
+132,1953 77x13 "Colored edges" 11px/450 #ffffff
+16,1983 96x96 div bg=#383838 r=5px
+20,2085 72x13 "Duotone filter" 11px/450 #ffffff
+128,1983 96x96 div bg=#383838 r=5px
+132,2085 75x13 "Channel mixer" 11px/450 #ffffff
+16,2115 96x96 div bg=#383838 r=5px
+20,2217 69x13 "Filter presets" 11px/450 #ffffff
+208,8 24x24 button [Close] r=5px

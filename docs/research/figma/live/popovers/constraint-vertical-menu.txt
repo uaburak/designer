@@ -1,0 +1,9 @@
+# C_child_in_frame: Constraints expanded, click the vertical constraint dropdown (Top) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1208,312 136x136
+32,14 20x13 "Top" 11px/450 #ffffff
+32,38 38x13 "Bottom" 11px/450 #ffffff
+32,62 72x13 "Top + Bottom" 11px/450 #ffffff
+32,86 36x13 "Center" 11px/450 #ffffff
+32,110 29x13 "Scale" 11px/450 #ffffff

@@ -1,0 +1,26 @@
+# Rect selected, Appearance section: click "Apply blend mode" (drop icon) [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@1315,472 118x555
+0,0 118x24 menuitemcheckbox CHECKED
+8,0 102x24 span bg=#0c8ce9 r=5px
+32,6 70x13 "Pass through" 11px/450 #ffffff
+32,30 38x13 "Normal" 11px/450 #ffffff
+32,69 37x13 "Darken" 11px/450 #ffffff
+32,93 42x13 "Multiply" 11px/450 #ffffff
+32,117 59x13 "Plus darker" 11px/450 #ffffff
+32,141 56x13 "Color burn" 11px/450 #ffffff
+32,180 39x13 "Lighten" 11px/450 #ffffff
+32,204 37x13 "Screen" 11px/450 #ffffff
+32,228 59x13 "Plus lighter" 11px/450 #ffffff
+32,252 65x13 "Color dodge" 11px/450 #ffffff
+32,291 40x13 "Overlay" 11px/450 #ffffff
+32,315 48x13 "Soft light" 11px/450 #ffffff
+32,339 51x13 "Hard light" 11px/450 #ffffff
+32,378 55x13 "Difference" 11px/450 #ffffff
+32,402 50x13 "Exclusion" 11px/450 #ffffff
+32,441 21x13 "Hue" 11px/450 #ffffff
+32,465 55x13 "Saturation" 11px/450 #ffffff
+32,489 28x13 "Color" 11px/450 #ffffff
+32,513 57x13 "Luminosity" 11px/450 #ffffff
+0,393 118x24 div bg=#2c2c2c r=0px 0px 13px 13px

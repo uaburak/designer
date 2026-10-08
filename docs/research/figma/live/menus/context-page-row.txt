@@ -1,0 +1,9 @@
+# Right-click on the "Capture" page row in the Pages list [viewport 1440x900 (emulation reported active by the browser tool during this capture)]
+# Format: x,y wxh relative to the container (POPUPS: @x,y = absolute in the 1440x900 viewport); "text" font-size/weight colour; [aria-label/tooltip]; bg= background; r= radius; CHECKED/SELECTED/DISABLED states. Colours hex (#rrggbb[aa]).
+POPUPS
+@131,146 200x187
+16,14 91x13 "Copy link to page" 11px/400 #ffffff
+16,55 71x13 "Rename page" 11px/400 #ffffff
+16,79 78x13 "Duplicate page" 11px/400 #ffffff
+16,120 45x13 "Move up" 11px/400 #ffffff
+16,161 63x13 "Delete page" 11px/400 #ffffff
