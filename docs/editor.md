@@ -6,6 +6,30 @@
 
 ---
 
+## Status (2026-10-08, round 5 — variables and components)
+
+Branch `r5-variables-components`; engine side in docs/engine-build.md "Round 5". Compared with help.figma.com ("Create and manage variables and collections", "Modes for variables", "Extend a variable collection", "Create and use component properties", "Use slots").
+
+**Local variables window** (`panels/variables/LocalVariables.tsx`, `CollectionTools.tsx`, `ValueEditor.tsx`):
+- Collection menu (Figma's wording): Rename collection, Duplicate collection, **Extend collection**, **Reorder collections** (a popover: drag or ↑ / ↓, **Sort A to Z**), Delete collection.
+- **Extended collections**: listed under the collections (indented), "Extended from <parent>" in the toolbar; the table shows the root's variables with the extension's modes; values not overridden are the parent's; an edit overrides (blue, `data-overridden`), **Reset change** on the cell (and "Reset change(s)" in the row menu). No Create variable / New variable mode / mode edits / renames / delete / duplicate / drag there (Figma: values only).
+- **Filter by type** (All types, Color, Number, String, Boolean) beside the search; search matches names, group paths and values.
+- Variable menu: Edit variable — on a selection **Edit variables** (bulk Scope and Hide from publishing, Figma's multi-select edit), **Copy** / **Paste** (⌘C / ⌘V; pasted into any collection or group, values matched to modes by name, else the default mode's).
+- Group menu: Rename group, **Ungroup**, **Duplicate group**, Delete group.
+- Mode menu: "Move column left" / "Move column right" (Figma's wording).
+- Not done: Import mode / Export mode(s) (DTCG JSON files), Minimize / Expand / Toggle sidebar, group drag-reorder in the sidebar, copy / paste across files through the system clipboard (the editor process keeps the copied ids), "Create alias" / "Detach alias" in a cell's context menu (the cell's hover buttons do it).
+
+**Component panel** (`panels/design/Component.tsx`, `components.ts`):
+- An instance's **variant property**: **Assign variable** on hover (string, number or boolean variables); bound, the variable's pill (click: pick another; Detach on hover). Nested exposed instances too.
+- A boolean / text property's settings: **Apply variable** for its default (a boolean / string variable), shown as the variable's pill with Detach.
+- **Reorder properties** by dragging rows (within their group: variant properties stay above, Figma's rule).
+- **Exposed nested instances** listed under the properties, − stops exposing one.
+- **Slot property settings**: Minimum layers, Maximum layers, Only allow preferred instances, By default, display empty slots, By default, fill items on slot's counter-axis (written to `slotPropConfig`; limits aren't enforced yet).
+- Wording: "Preferred instances" (was "Preferred values").
+- Not done: reordering a variant property's values, the slot "Limits" label / warnings and "Add instances" popup, Convert to slot / Wrap in new slot commands, property descriptions.
+
+**Checks**: `variables.wasm.test.ts` (extended collection end to end through the editor, Assign variable), `editor-shot.mjs` new checks (Extend collection, an override in blue and Reset change; Assign variable on a variant row picking the variant) — 123/123 for the full run, prototype 21/21.
+
 ## Status (2026-10-08, developer previews — Share)
 
 - **Opening it.** The right panel's **Share** button and File ▸ **Share preview…** (`file.share-preview`, in the menu bar too) open `ShareDialog.tsx` (`ui.shareOpen`).

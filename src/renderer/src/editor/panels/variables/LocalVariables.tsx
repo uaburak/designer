@@ -13,6 +13,11 @@
  * (dropped next to a row of another group, it moves into that group),
  * ⌫ deletes, ⇧↵ duplicates, right click: Edit variable, Rename, Duplicate,
  * Delete, New group with selection. "+ Create variable" with the type menu.
+ * Round 5 (help "Create and manage variables", "Extend a variable collection"):
+ * Extend collection (the extension lists its root's variables with its own
+ * modes; edits override, in blue, "Reset change"), Reorder collections / Sort A
+ * to Z, Filter by type, Edit variables on a selection, Copy / Paste, Ungroup
+ * and Duplicate group.
  * Esc or × closes it; ⌘Z / ⇧⌘Z undo and redo inside it.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";

@@ -24,7 +24,7 @@ Thumbnails are small (≤ 400 px) and show one area, so the same run also compar
 
 Engine side (docs/engine-build.md "Import fidelity"): override and derivedSymbolData paths in Figma's form, NaN row gaps, SPACE_EVENLY = space between, GRID layout, slot content outside the flow, Display P3.
 
-**Left** (largest first, from the geometry check and the dropped-field report): our own layout still differs from Figma's on ~5k nodes / ~20k sublayers — table rows of slot content whose heights differ, variable-bound sizes inside nested instances, text measurement differences (fonts); `BRUSH` nodes (25 in the owner's file, dropped: they'd need their `fillGeometry` drawn); `VIDEO` paints (1); a nested instance's own slot content inside a main; grid drag-reorder and the grid panel. Dropped fields that don't draw: `editInfo`, layout version stamps, `targetAspectRatio`, `textTracking` (6 non-zero), `Paint.authoredColor`, prototyping extras.
+**Left** (largest first, from the geometry check and the dropped-field report): our own layout still differs from Figma's on ~5k nodes / ~20k sublayers — table rows of slot content whose heights differ, variable-bound sizes inside nested instances, text measurement differences (fonts); `BRUSH` nodes (25 in the owner's file, dropped: they'd need their `fillGeometry` drawn); `VIDEO` paints (1); grid drag-reorder and the grid panel. Dropped fields that don't draw: `editInfo`, layout version stamps, `targetAspectRatio`, `textTracking` (6 non-zero), `Paint.authoredColor`, prototyping extras.
 
 ---
 

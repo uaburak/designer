@@ -1,5 +1,38 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping)
 
+## Round 5 — variables and components (2026-10-08, branch `r5-variables-components`)
+
+Figma's variable features that were "kept as data, not applied" (E6 variables "Not done") and the component panel's gaps. Research: docs/research/figma/R3-variables.md "Round 5 additions"; the encodings were read from the owner's private file (nothing derived from it committed).
+
+**Schema** (`schema/document.kiwi`, docs/schema.md §6.2, §6.3, §6.6): `VariableDataType.MAP` / `VariableResolvedDataType.MAP`, `VariableAnyValue.mapValue` (`VariableMap {values: [VariableMapValue {key, value, guidKey}]}`), `NodeType.VARIABLE_OVERRIDE`, `VariableSetMode.parentVariableSetId` / `parentModeId`, `VariableModeBySetMapEntry.variableSetExtensionID`, `NodeChange.overriddenVariableId` (464). The .fig import now keeps Figma's RESOLVE_VARIANT bindings (their MAP argument was dropped before).
+
+**Engine model**: `VariableData::Kind::MAP` (`args` = values, `mapKeys` / `mapGuidKeys`); `VariableSetMode::parentSet` / `parentMode`; `VariableModeEntry::extension`; `AssetFacet::overriddenVariableId` (`F_OVERRIDDEN_VARIABLE`, bit 114); `ComponentPropDef::boundValue` / `ComponentPropAssignment::boundValue` (their `varValue` when it is an alias; any other `varValue` stays raw bytes in `extra`, written back unless a binding replaces it). Constructors `VariableData::isTruthy`, `VariableData::resolveVariant`.
+
+**Resolution** (`editor/Variables.cpp`):
+- Expressions in bindings: `IS_TRUTHY` (how Figma's files bind every boolean to visibility — the 125 such bindings in the owner's file were not applied before), `NOT`, `AND`, `OR`, `EQUALS`, `NOT_EQUAL`, comparisons, `ADDITION` (numbers, or string concatenation), `SUBTRACTION`, `MULTIPLY`, `DIVIDE`, `NEGATE`, `STRINGIFY`, `TERNARY`; `COMPOSE_COLOR` as before.
+- **Variable-driven variants** (`variantFor`): `VARIANT_PROPERTIES` = RESOLVE_VARIANT(MAP {property → alias}). A real instance writes the variant it resolves to into `symbolData.symbolID` (its changes remapped as a variant switch), in the same transaction (a mode switch, a value edit, undo); a nested instance chooses its variant while its instance is derived, in the derived row's own modes (`ModeContext::pending`: rows being built answer for their parents). The variant: every bound property equal to its variable's value (numbers as text, booleans `true` / `false`; case-insensitive when nothing matches exactly), the most other values kept; none: unchanged.
+- **Bound property values** (`applyBindings`' resolver): a default (`ComponentPropDef.boundValue`) or an assignment (`boundValue`) resolves in the level's modes; an instance whose derivation read variables is re-derived when they change (`instanceVarDeps_`, its expansion's deps merged into its own).
+- **Extended collections**: `modeFor(ctx, set, &extension)` honours an entry naming an extension of `set` (one mode value per collection); `valueInMode` walks extension → parent → … → the variable's own value. Overrides are indexed (`overridesBySet_`, `overrideIndex_`, rebuilt at load, kept by `noteBindings`); a change to one re-resolves what read its collection. `syncExtensions` (start of `flushBindings`) keeps local extensions' modes in step with their parent's (names, order, new modes; orphans kept) — after commands, undo, remote changes and library updates alike.
+- **Grid gaps**: `GRID_ROW_GAP` / `GRID_COLUMN_GAP` write `gridRowGap` / `gridColumnGap` (kiwi bytes in `NodeProps::extra`, what `layout/GridLayout.cpp` reads); detached when edited.
+- **A nested instance's own slot content inside a main** (`expandChildren`): the content frame under the nested instance in the main is expanded into the slot's derived rows of every instance of that main (row ids under the slot row, override paths with the slot's prefix); edits to it re-derive them.
+
+**Commands** (`abi.ts CommandId`):
+- `EXTEND_VARIABLE_COLLECTION` 168 `{collection, name?}` — "Extend collection": a VARIABLE_SET with one mode per parent mode (same names, fresh ids, `parentSet` / `parentMode`), right after the parent; default name "<parent> extended" (Figma's default is unverified). Library copies may be extended (a local extension of a subscribed collection).
+- `RESET_VARIABLE_OVERRIDE` 169 `{collection, variable | variables, mode?}` — "Reset change": removes the extension's value for that mode (no mode: every mode); an override left empty is removed.
+- `SET_VARIABLE_VALUE` with a mode of an extended collection writes its override (creating the VARIABLE_OVERRIDE); refused on a library copy's extension.
+- `SET_VARIABLE_MODE {collection: <extended collection>, mode}` writes the root collection's entry naming the extension.
+- `BIND_VARIABLE` targets `componentProperties.<name>`: on an INSTANCE (real or derived) a VARIANT property ("Assign variable"; STRING / FLOAT / BOOLEAN variables; one RESOLVE_VARIANT entry holding every bound property; `variable` null removes one); on a main / set a BOOL (BOOLEAN variable) or TEXT (STRING variable) default ("Apply variable"). A VISIBLE binding is written as `IS_TRUTHY(alias)`.
+- `SET_COMPONENT_PROPERTY` of a VARIANT detaches that property's variable (an edit of a bound value).
+- Refused on extended collections: `CREATE_VARIABLE`, every mode command, `DUPLICATE_VARIABLE_COLLECTION`. `DELETE_VARIABLE_COLLECTION` takes the collection's extensions (and theirs) and their overrides; a hard-deleted variable's overrides go with it.
+
+**Reads**: `variableCollections()` adds `isExtension`, `parentCollectionId`, `rootCollectionId`, `modes[].parentModeId`; an extension's `variableIds` are its root's. `variables(extension)` lists the root's variables. `VariableInfo.valuesByMode` / `resolvedValuesByMode` add every extension's modes (override or inherited value) and `overriddenModes`. `variableModes(ref)` reports an extension's explicit / resolved mode under the extension's id. `boundVariables` lists a variant binding as `componentProperties.<name>` per property, and bound defaults / values likewise. `componentInfo` properties add `boundVariable`. `Editor::extensionParent`, `rootCollection`, `overrideNode`, `extensionsOf`, `collectionOfMode`, `explicitModeOf`, `valueForMode`.
+
+**Libraries**: an extended collection is an asset like any collection; its payload's closure takes its parent (`parentVariableSetId` is a reference) and the variables its overrides name (`overriddenVariableId`); the overrides travel as its children (in its versionHash). Imported copies resolve; updates rewrite them; a consumer can extend a library collection and override its copy's values locally (the read-only guard lets `EXTEND_VARIABLE_COLLECTION`, and `SET_VARIABLE_VALUE` / `RESET_VARIABLE_OVERRIDE` into a local extension, through).
+
+**Not applied, on purpose**: Timing / Easing variables in prototypes — Figma doesn't bind transition duration / easing to variables (feature requests open as of 2026; they drive Motion presets, which this app doesn't have). `HYPERLINK`, `FONT_VARIATIONS` and per-run text bindings stay data.
+
+**Tests**: `engine/tests/unit/variables.extended.test.cpp` (9 cases: IS_TRUTHY, expressions, a bound variant and its undo / detach, a nested bound variant per instance modes and at the usage site, extended collections end to end incl. kiwi round trip and delete, a bound boolean default, grid gaps, nested slot content, the codecs), `libraries.test.cpp` "libraries (r5)" (publish an extension with its parent, consume, update, extend the copy locally). `npm run engine:test` 315 cases green. Release wasm 3464 KB.
+
 ## E8 prototyping — API and status (2026-10-08)
 
 Figma's prototyping (docs/research/figma/R8-prototyping.md): the engine draws prototype mode's marks on the canvas, edits connections by dragging, and plays prototypes (the presentation view) with the same renderer. Branch `e8-prototype`.
@@ -340,7 +373,7 @@ Screenshots: `50-variables-modes` (a Light and a Dark frame holding the same bou
 
 ### Not done / next
 - Libraries (published keys, library copies, updates; next round). Copy/paste between files doesn't carry the variables / styles a selection references yet (schema.md §4.1).
-- Variable-driven variants (`VARIANT_PROPERTIES` / RESOLVE_VARIANT), `GRID_ROW_GAP` / `GRID_COLUMN_GAP` (grid layout is in since 2026-10-08, its gaps aren't bindable yet), `HYPERLINK`, `FONT_VARIATIONS`, per-run text bindings and per-range text styles are kept as data, not applied. Timing / Easing values are data (`@later`). Extended collections are not modelled.
+- ~~Variable-driven variants, grid gaps, extended collections~~ (done in round 5, "Round 5 — variables and components" above). `HYPERLINK`, `FONT_VARIATIONS`, per-run text bindings and per-range text styles are kept as data, not applied. Timing / Easing values are data (Figma doesn't apply them to prototypes either).
 - Figma's `variableConsumptionMap` (the legacy twin it still writes) is kept as an unknown field, not read.
 - Soft-deleted variables nobody uses any more are not collected on load (components' are).
 
