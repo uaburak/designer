@@ -40,9 +40,10 @@ namespace eng {
 enum class Tool : uint8_t {
   MOVE, SCALE, HAND, FRAME, SECTION, SLICE, RECTANGLE, LINE, ARROW, ELLIPSE,
   POLYGON, STAR, IMAGE, PEN, PENCIL, TEXT, COMMENT,
-  ANNOTATION, MEASUREMENT,  // Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp
+  ANNOTATION, MEASUREMENT,
   Count
 };
+// ANNOTATION and MEASUREMENT: Dev Mode's tools (⇧T, ⇧M), editor/DevMode.cpp.
 const char* toolName(Tool t);
 bool toolImplemented(Tool t);
 
