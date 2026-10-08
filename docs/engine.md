@@ -784,13 +784,17 @@ Overlays are drawn by the engine after the scene, straight into the default fram
 | Resize handles | 7×7 white squares with a 1 px selection-colour border at corners (live Figma; edges are invisible hit zones); hidden when the box is < 24 px. A selected line (or a vector with no width or height) has two endpoint handles instead of a box |
 | Corner radius handles | a selected rectangle under the pointer: 9 px white rings with a selection-colour border, on each corner's radius and at least 12 px in from the corner (hidden under 64 px on screen, unverified); a drag along the diagonal sets every corner (⌥ one), whole px up to half the shorter side |
 | Rotation zones | invisible 16 px zones outside the corners (cursor only) |
-| Size badge | pill: height 16, radius 2, 6 px below the box, background in the selection colour, white 11 px Inter Medium, `W × H` (rounded to 2 decimals, trailing zeros trimmed); one auto-layout frame or flow child adds " Hug" / " Fill" after the axes that have it (live: `232 Hug × 72 Hug`) |
+| Size badge | pill: height 16, radius 2, 6 px below the box, background in the selection colour, white 11 px Inter Medium, `W × H` (rounded to 2 decimals, trailing zeros trimmed); one auto-layout frame or flow child adds " Hug" / " Fill" after the axes that have it (live: `232 Hug × 72 Hug`). Rotating: the first layer's rotation instead, the Design panel's sign (`-30°`; round 8, unverified) |
+| Rotation origin | ⌥R (round 8; a forum report, unverified): an 11 px white ring with a 1.5 px selection-colour border and a 3 px dot, at the selection's centre until dragged; it snaps (6 px) to the box's corners, edges' middles and centre; kept in the selection box's own space (it moves and turns with the selection), reset by another selection; the rotation handles turn the selection about it |
 | Hover outline | 2 px in the selection colour (live Figma), on selected layers too |
 | Frame and section titles | frames on the page or in a section: 11 px Inter Regular, baseline 10 px above the frame, coloured by the **page's** luminance (`#ffffff76` on dark, `#00000080` on light; selected `#7cc4f8` / `#007be5`; components and instances `#d1a8ff` / `#8638e5` after their icon). A press selects the frame (⇧ toggles), a drag moves it, a double-click emits `REQUEST_RENAME` (TS edits in place). Sections: the name in a 22 px pill **above** the section's top-left corner, 5 px off it, in the section's own fill colour (not blue when selected; live `canvas-section-selected`), Inter Medium 11 |
 | Auto-layout parent | a selected layer in an auto-layout flow: its parent's box dashed (1.5 / 1.5 px, live) |
 | Marquee | fill = selection colour at 10%, 1 px border |
 | Smart guides and measurement | `#f24822`, 1 px; distance labels are red pills with 11 px white text. Equal spacing while moving: pink (`#ff24bd` / `#f316b0`) |
-| Smart selection | layers of one parent equally spaced in a row or column: a pink ring on each one's centre; over the selection, a pink bar in each gap (the hovered one shows its value); dragging a bar changes every gap alike, the first layer stays (the bar stays under the pointer) |
+| Smart selection | layers of one parent equally spaced in a row or column: a pink ring on each one's centre (7 px, 1.5 px stroke; under the pointer or dragged: 9 px, filled pink); over the selection, a pink bar in each gap (the hovered one shows its value); dragging a bar changes every gap alike, the first layer stays (the bar stays under the pointer). Round 8: **dragging a ring reorders** — that layer follows the pointer, the others take the places its centre leaves them (the gaps and the first layer's start kept, cross positions kept), and on release it takes its own place; one undo step "Reorder" (help.figma.com; the drag itself not captured live) |
+| Ruler guides | round 8, rulers on (⇧R): Figma's `guides` (schema 138: axis X = a vertical guide at x, Y = a horizontal one) on the page — 1 px lines across the view — and on top-level frames — across their box, in their space; `#f24822` (unverified: "Figma's red"); the selected or dragged one in the selection colour, the dragged one with its position in a pill by its ruler |
+| Slices | View › Show slices (on by default): each slice's box, 1 px dashed grey (3 / 3; unverified look) |
+| Pixel preview | View › Pixel preview (⌃P, ⇧⌘P; live toasts "Pixel preview enabled (1x)" / "Pixel preview disabled"): the page drawn at 1x (or 2x) into its own target whose pixel grid is the page's, scaled onto the canvas with nearest sampling (`Device::setTextureFiltering`), the overlays over it at full resolution; only where a preview pixel is larger than a canvas pixel; the content cache is dropped meanwhile |
 | Auto layout | a selected auto-layout frame under the pointer: a 12 px bar in the middle of each padding (blue) and gap (pink); the band under the pointer shows its value in a pill of its colour; a drag on the band changes it (⌥ the opposite padding too, ⇧ all four — unverified); no band fill (UI3). Insertion indicator 2 px in the selection colour |
 | Pixel grid | View › Pixel grid (⇧', on by default): a line on every whole canvas unit from 300 % zoom, faint (half) at 300 %, full from 400 % (live) |
 | Outline mode | View › Outlines › Show outlines (⇧⌘O): the page drawn as 1 px outlines (light on a dark page, dark on a light one), text as glyphs in that colour, no fills, strokes, effects or masks |
@@ -799,7 +803,7 @@ Overlays are drawn by the engine after the scene, straight into the default fram
 | Vector edit / pen | vertices: 6 px circles; tangents: 1 px lines with 4 px dots |
 | Gradient handles | E5 |
 
-**Stays in React**: the rulers (a canvas-2D strip outside the engine canvas, fed by `CAMERA_CHANGED`; the existing `Rulers.tsx` is the base), context menus, tooltips, the inline number inputs for padding/gap (opened by `REQUEST_INLINE_EDIT`), comment pins, and the hidden IME `<textarea>` (§7.6).
+**Stays in React**: the rulers (a canvas-2D strip outside the engine canvas, fed by `CAMERA_CHANGED`; the existing `Rulers.tsx` is the base; round 8: a press on a ruler calls `engine_start_guide` and forwards its pointer to the engine), context menus, tooltips, the inline number inputs for padding/gap (opened by `REQUEST_INLINE_EDIT`: a click on an auto-layout bar, round 8), the eyedropper's loupe (round 8: `engine_render_region` 11 × 11 device px around the pointer), comment pins, and the hidden IME `<textarea>` (§7.6).
 
 ### 6.12 DPR, coordinates, frame pacing, colour
 - **Coordinates**:
@@ -923,7 +927,7 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
    - text by its line boxes (not glyph ink);
    - frames by their box only when they have a visible fill or stroke, or are top-level;
    - groups never by themselves, only through children.
-3. Hidden nodes and **locked nodes and their descendants are skipped** (they stay selectable from the Layers panel).
+3. Hidden nodes and **locked nodes and their descendants are skipped** (they stay selectable from the Layers panel): a locked layer inside a frame stops the path at its unlocked ancestor; a locked top-level layer takes no click at all — it reaches what is under it (round 8). A slice is hit on its edge only (it paints nothing; unverified).
 4. Clipped content outside a clipping frame doesn't hit.
 
 **Picking rules** (port of `figma/picking.ts:54-68`, the spec):
@@ -936,7 +940,7 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
   - a click there selects nothing, like empty canvas (⇧ keeps the selection); a frame with nothing in it is selected by a click;
   - the frame title selects (⇧ toggles), drags and (double-click) renames it.
 - **Sections** are canvas-level: a frame in a section is top-level (titled, hit by its box, its children picked as a top-level frame's).
-- **Marquee**: a top-level frame partly covered gives its touched children; one covered whole keeps the marquee to top-level layers.
+- **Marquee**: a top-level frame partly covered gives its touched children; one covered whole keeps the marquee to top-level layers. A section is canvas: partly covered, its layers are taken by the same rules (a frame in it partly covered gives its children — round 8).
 - **Double-click**: text → edit; container → select its child under the point; vector → vector edit mode (E4).
 - Enter selects **all** children, hidden and locked included (a second Enter goes one level deeper where it can); ⇧Enter and \ select the parent; Tab / ⇧Tab the sibling below / above in the Layers list, wrapping, hidden and locked included.
 - Esc: cancel the gesture, else the tool back to Move, else **clear the selection** (live Figma; not the parent).
@@ -949,7 +953,12 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 ### 8.4 Tools and gestures, in C++ (Figma's interactions are in C++, R1 §a)
 - `ToolController` routes pointer events to the active `Tool`. A `Gesture` (move, resize, rotate, marquee, draw, pan, zoom, text select, pen, gradient-handle drag) owns a `TxnKind::Gesture` transaction from its 3 px drag threshold to pointer-up.
 - **Esc or window blur cancels the gesture**: `txn.rollback()`, restoring the exact start state. This fixes today's "commit on blur" bug.
-- **Tools** (`Tool` enum): `MOVE, SCALE, HAND, FRAME, SECTION, SLICE, RECTANGLE, LINE, ARROW, ELLIPSE, POLYGON, STAR, IMAGE, PEN, PENCIL, TEXT, COMMENT`.
+- **Tools** (`Tool` enum): `MOVE, SCALE, HAND, FRAME, SECTION, SLICE, RECTANGLE, LINE, ARROW, ELLIPSE, POLYGON, STAR, IMAGE, PEN, PENCIL, TEXT, COMMENT, ANNOTATION, MEASUREMENT, EYEDROPPER`. Round 8 (`tools/CanvasTools.cpp`):
+  - **SCALE (K)** picks and moves as MOVE; its handles keep the proportions and scale the layers with what they hold — descendants' places and sizes, corner radii, stroke weights (per side too) and dashes, effects' radius / spread / offset, text sizes, pixel line heights and letter spacing (per run too), paragraph spacing and indent, auto layout's padding and gaps, layout grids, min / max sizes. An instance's own layers follow its size (they are its main's). Cursor `SCALE`.
+  - **SLICE (S)** draws a `SLICE` ("Slice N", no paints, one export setting PNG 1x — unverified); View › Show slices outlines them.
+  - **COMMENT (C)** is inert until multiplayer (a press does nothing; TS says so); cursor `COMMENT`.
+  - **EYEDROPPER (I, ⌃C "Pick color")**: a click emits `COLOR_PICK {x, y}` and the tool goes back to Move; TS reads that canvas pixel (`engine_render_region`) and fills the selection with it (its first solid fill, else a new one).
+  - IMAGE stays the editor's (a file picker, then clicks): `engine_set_tool` refuses it.
   - TS sets the tool (`engine_set_tool`) from the toolbar and from the tool shortcuts.
   - After a draw, the tool returns to MOVE (Figma), and `TOOL_CHANGED` is emitted.
 - **Gesture rules** (Figma):
@@ -958,23 +967,26 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
   - **Resize**: 8 handles plus edge zones; ⇧ keeps the ratio (`proportionsConstrained` always keeps it); ⌥ resizes from the centre; resizing past zero flips (writes a negative scale into `transform`); multi-selection scales the members' boxes.
   - **Rotate**: ⇧ snaps to 15°; rotation is about the selection centre.
   - **Draw**: ⇧ square/circle (45° for lines); ⌥ from the centre; a click without a drag makes 100×100, or a 100 px line.
+  - **Draw**, round 8: Space held while drawing moves the shape being drawn (unverified live); while resizing it does nothing yet.
+  - **Rotate**, round 8: about the ⌥R origin when it shows (`SHOW_ROTATION_ORIGIN`, a toggle), else the selection's centre; the size badge shows the angle.
   - **Space** held = hand; middle button = hand; H = hand tool; **Z held** = the zoom tool (a click zooms in ×2 about the point, ⌥ out, a drag zooms to the area; let go, back).
+  - **Ruler guides** (round 8, rulers on): `engine_start_guide(axis, x, y, rulerSize)` starts a new guide from a ruler press — on the one selected top-level frame (in its space) else on the page (unverified: help.figma.com has canvas and frame guides, not which a drag makes); the pointer events that follow move it (whole px with Snap to pixel grid); let go over its ruler or off the canvas, it goes. On the canvas a guide under the pointer (4 px) shows a resize cursor; a press selects it (the layers let go), a drag moves it ("Move guide", one undo step), ⌥-drag makes a new one from it, ⌫ removes the selected one (`REMOVE_GUIDE`, "Remove guide"; also the right-click menu on a guide: `CONTEXT_MENU` targetKind `GUIDE`), Esc lets it go.
   - **Wheel**:
     - pinch (`ctrlKey` from a trackpad) zooms about the pointer by `exp(−dy·0.01)`;
     - ⌘/Ctrl + wheel zooms;
     - otherwise the wheel pans (⇧ = horizontal).
 - **Keys the engine handles itself** (`engine_key` returns `HANDLED`):
-  - arrows (nudge 1, ⇧ 10, from preferences; in auto layout, ← → / ↑ ↓ reorder);
+  - arrows (nudge 1, ⇧ 10 — Preferences › Nudge amount…, `engine_set_nudge(small, big)`, round 8; in auto layout, ← → / ↑ ↓ reorder);
   - Esc, Enter, ⇧Enter, \, Tab, ⇧Tab;
   - Space, Z (held) and the modifier states;
   - every key while editing text.
   - **Everything else is unhandled** and goes to TS's command registry (§10.6).
 
 ### 8.5 Snapping, smart guides, measurement (`editor/Snapping`, `Measure`)
-- **Candidates**: siblings, the parent and other nodes visible in the viewport (a spatial query), plus page guides and layout-grid lines.
+- **Candidates**: siblings, the parent and other nodes visible in the viewport (a spatial query), plus page guides and layout-grid lines. *As built (round 8):* the drop parent's other children in and around the view, the parent frame's box, the page's ruler guides and those of the top-level frame the layers are in (rulers on), and the parent frame's layout grids' band edges (columns, rows, grid cells; Layout guides on; axis-aligned frames). Layers nested in other frames: not candidates (Figma unverified).
 - **Targets**: edges and centres; equal-spacing distribution (shown with spacing pills); pixel grid.
 - **Threshold**: 6 CSS px. Holding Ctrl temporarily disables snapping (Figma).
-- **Pixel-grid snapping** (preference on by default) rounds the final position and size to whole px. Applies to move, resize, draw and pen.
+- **Pixel-grid snapping** (preference on by default) rounds the final position and size to whole px. Applies to move, resize, draw and pen. *As built (round 8):* Preferences › Snap to pixel grid (⇧⌘′, `engine_set_view_options` bit 16, on by default): off, moves, resizes, draws, line ends and guides follow the pointer to fractions of a px.
 - Guides draw only for snapped axes, spanning the snapped objects, not the whole viewport.
 - **⌥ measurement**: distances from the selection to the hovered node, or to the parent's edges. ⌥⌘ also measures to locked/nested nodes.
 
@@ -985,7 +997,7 @@ Behaviour the contract left open, as built (`editor/Commands.cpp`, `tools/Gestur
 - **Snapping candidates** are the drop parent's other children in and around the view plus the parent frame's box; boxes turned against the page don't snap their resize edges. Snapped axes keep the snapped value; the others round to whole px (the moving box's top-left, not each layer's).
 - **⌘D** duplicates in place, just above the original; top-level frames instead go to the right of the selection, `width + 100` px further, skipping right while that spot is taken. The copy keeps the name. **⌘D again on those copies, after they were moved, repeats that offset** (live: ⌘D, ⇧↓ ×3, ⌘D, ⌘D → y 30, 60, 90). **Duplicate page** names the copy "‹name› copy".
 - **Add auto layout (⇧A)**: a lone plain frame converts in place (direction from the spread of its children's centres, gap = the mean gap rounded, padding from where the content sits, counter alignment when all children share it, Hug both ways, children re-keyed in flow order). Anything else (several layers, a shape, an auto-layout frame) is wrapped in a new fill-less, non-clipping auto-layout frame with padding 0.
-- **Paste**: into the one selected frame (where the content sat in its own parent, each axis on its own: kept where it fits, else centred); beside the selected layer (same page position); else on the page where it was, or centred in the view when that is out of view. `inPlace` keeps the page position. **Paste over selection** (⇧⌘V, `PASTE_OVER`): in place, a sibling just above the selection, not into it. **Paste to replace** (⇧⌘R, `PASTE_REPLACE`): a copy at each selected layer's place — its parent and order, its top-left, its constraints — and the layer goes; one undo step "Paste to replace". Fresh ids from the session.
+- **Paste**: into the one selected frame (where the content sat in its own parent, each axis on its own: kept where it fits, else centred); beside the selected layer (same page position); else on the page where it was, or centred in the view when that is out of view. `inPlace` keeps the page position. Round 8 (help.figma.com "Copy and paste objects"; live can't paste): a selected frame more than half a view away from the view → on the page at the view's centre; just outside it → into it, and the view pans to show the paste; a frame larger than the view with the paste out of sight → centred in the frame's part in view; whatever was pasted (not replaced) out of view is brought into view, zoomed out to it when larger than the view. **Paste over selection** (⇧⌘V, `PASTE_OVER`): a sibling just above the selection, not into it, its top-left at the selection's top-left ("matches the selected object's position"; with `PASTE_IN_PLACE` where it was copied from). **Paste to replace** (⇧⌘R, `PASTE_REPLACE`): a copy at each selected layer's place — its parent and order, its top-left, its constraints — and the layer goes; one undo step "Paste to replace". Fresh ids from the session.
 - **Arrow keys** on auto-layout children move them one place along the flow; across the flow they do nothing.
 - **The press (Figma's rule, performance round 2)**: a press on a layer *inside a selected layer* (any depth) keeps the selection; a drag then moves the selection — so a selected instance covered by its children, or twenty selected instances, drag by any of their sublayers, and ⇧ during that drag locks the axis — and a release without a drag selects the pressed layer (⇧: adds it). A press on an unselected layer outside the selection, or a ⌘-press, selects on the press as before. A press-drag whose selection has **nothing movable** (only instance sublayers — they stay where their main puts them — or only locked layers) opens no gesture and no transaction (no `DOCUMENT_CHANGED` / `NODES_CHANGED` / `COMPONENTS_CHANGED`); the cursor shows `NOT_ALLOWED` until the button comes up.
 - **Right-click** (or ⌃-click on a Mac, where ⌃ isn't the command key) selects what a left click would pick unless it is already selected (empty canvas keeps the selection), then emits `CONTEXT_MENU {targetKind, x, y, hits}`; `hits` is every layer under the point, topmost first, each as its path innermost first, for "Select layer ▸". ⌃ therefore disables snapping only once a drag has started.
@@ -1191,15 +1203,16 @@ The engine never calls JS back during its own work. It appends `EngineEvent`s to
 | `PAGES_CHANGED` / `CURRENT_PAGE_CHANGED` | `pageId` | |
 | `CAMERA_CHANGED` | `x, y, zoom` | last per tick (rulers, zoom %) |
 | `TOOL_CHANGED` | `tool` | |
-| `CURSOR` | `CursorKind` (DEFAULT, HAND, GRABBING, CROSSHAIR, PEN, PEN_ADD, PEN_REMOVE, PEN_CLOSE, IBEAM, RESIZE, ROTATE, MOVE_DUPLICATE, ZOOM_IN, ZOOM_OUT, EYEDROPPER, NOT_ALLOWED) + `angleDeg` | last per tick; TS maps it to CSS cursors (resize/rotate SVG cursors pre-rendered at 15° steps) |
+| `CURSOR` | `CursorKind` (DEFAULT, HAND, GRABBING, CROSSHAIR, PEN, PEN_ADD, PEN_REMOVE, PEN_CLOSE, IBEAM, RESIZE, ROTATE, MOVE_DUPLICATE, ZOOM_IN, ZOOM_OUT, EYEDROPPER, NOT_ALLOWED, COMMENT, SCALE) + `angleDeg` | last per tick; TS maps it to CSS cursors (resize at the handle's exact angle, rotate at 15° steps; round 8: Figma-like SVG arrow, crosshair, magnifiers, eyedropper, scale and comment cursors with the system ones behind) |
 | `HOVER_CHANGED` | `ref` | Layers row highlight |
 | `UNDO_STATE` | `canUndo, canRedo, undoLabel, redoLabel` | |
 | `REQUEST_FONT` | `family, style` | once per font |
 | `REQUEST_IMAGE` | `hash, maxDevicePx` | once until answered or evicted |
 | `REQUEST_PAGE` | `pageId` | dynamic page loading (later) |
 | `TEXT_EDIT` | `active, ref, caretRectCss, selStartU16, selEndU16, styleAtCaret` | |
-| `CONTEXT_MENU` | `targetKind (CANVAS\|SELECTION\|TEXT\|VECTOR), x, y` | TS draws the menu |
-| `REQUEST_INLINE_EDIT` | `kind (PADDING_TOP…\|GAP…), rectCss, value` | TS shows an input, then commits through `set_props` |
+| `CONTEXT_MENU` | `targetKind (CANVAS\|SELECTION\|TEXT\|VECTOR), x, y`; *as built:* `CANVAS \| SELECTION \| GUIDE` (round 8: on a ruler guide), `hits` | TS draws the menu |
+| `REQUEST_INLINE_EDIT` | `kind (PADDING_TOP…\|GAP…), rectCss, value`; *as built (round 8):* `ref, field (PADDING_LEFT \| PADDING_TOP \| PADDING_RIGHT \| PADDING_BOTTOM \| GAP), value, x, y, width, height` — a click (no drag) on a selected auto-layout frame's bar | TS shows an input, then commits through `set_props` (a typed gap turns Auto off) |
+| `COLOR_PICK` | round 8: `x, y` (canvas CSS px) — the eyedropper's click | TS reads the pixel there and fills the selection |
 | `NOTIFY` | `code (MISSING_FONT, GPU_UNRELIABLE, ORPHANS, CANNOT_EDIT_INSTANCE_CHILD …), args` | TS shows a Figma-worded toast |
 | `EXPORT_DONE` | `jobId, format, width, height, bytes` | |
 | `MEMORY_PRESSURE` | `heapBytes, level` | |
@@ -1252,7 +1265,8 @@ Initial set (E1–E3; later milestones add theirs):
 - Later:
   - E4: `BOOLEAN_{UNION,SUBTRACT,INTERSECT,EXCLUDE}, FLATTEN, OUTLINE_STROKE, USE_AS_MASK`
   - E6: `CREATE_COMPONENT, CREATE_MULTIPLE_COMPONENTS, COMBINE_AS_VARIANTS, ADD_VARIANT, DETACH_INSTANCE, RESET_OVERRIDES{fields?}, PUSH_OVERRIDES_TO_MAIN, GO_TO_MAIN_COMPONENT, SWAP_INSTANCE{component}, INSERT_INSTANCE{component, point}, APPLY_LIBRARY_UPDATE{…}`
-  - Round 7 (as built, ids 230–235, `editor/SelectionCommands.cpp`): `WRAP_IN_SECTION` (⌘S "Wrap in new section": canvas-level layers of one parent, 80 px around — unverified), `REMOVE_KEEP_CONTENTS` (a section, frame or group gone, its layers kept where they are and selected; ⌘⌫ with UNGROUP), `SELECT_MATCHING{mode?}` (⌥⌘A: same type, size and paints within the selection's top-level frame or section, instances of the same main; modes `FILL | STROKE | EFFECT | TEXT | FONT | INSTANCE` for Edit ▸ Select all with ▸, the whole page), `TIDY_UP` (⌃⌥T: rows and columns as they lie, one spacing each way — the mean gap), `ZOOM_TO_NEXT_FRAME` / `ZOOM_TO_PREVIOUS_FRAME` (N / ⇧N: the page's titled frames in Layers order from the bottom, wrapping, from the selection's frame or where N last went; the selection stays — live). The view toggles are `engine_set_view_options(h, bits)` (1 pixel grid, 2 outline mode, 4 layout guides), not commands; `engine_paste` takes `PASTE_OVER` (2) and `PASTE_REPLACE` (4).
+  - Round 7 (as built, ids 230–235, `editor/SelectionCommands.cpp`): `WRAP_IN_SECTION` (⌘S "Wrap in new section": canvas-level layers of one parent, 80 px around — unverified), `REMOVE_KEEP_CONTENTS` (a section, frame or group gone, its layers kept where they are and selected; ⌘⌫ with UNGROUP), `SELECT_MATCHING{mode?}` (⌥⌘A: same type, size and paints within the selection's top-level frame or section, instances of the same main; modes `FILL | STROKE | EFFECT | TEXT | FONT | INSTANCE` for Edit ▸ Select all with ▸, the whole page), `TIDY_UP` (⌃⌥T: rows and columns as they lie, one spacing each way — the mean gap), `ZOOM_TO_NEXT_FRAME` / `ZOOM_TO_PREVIOUS_FRAME` (N / ⇧N: the page's titled frames in Layers order from the bottom, wrapping, from the selection's frame or where N last went; the selection stays — live). The view toggles are `engine_set_view_options(h, bits)` (1 pixel grid, 2 outline mode, 4 layout guides; round 8: 8 rulers — guides shown, dragged and snapped to —, 16 snap to pixel grid, 32 show slices, 64 pixel preview 1x, 128 2x), not commands; `engine_paste` takes `PASTE_OVER` (2) and `PASTE_REPLACE` (4).
+  - Round 8 (ids 236–237, `tools/CanvasTools.cpp`): `SHOW_ROTATION_ORIGIN` (⌥R, a toggle: CMD_CHECKED while it shows), `REMOVE_GUIDE` (the selected ruler guide). Also `engine_set_nudge(h, small, big)` and `engine_start_guide(h, axis, x, y, rulerSize)`.
 
 **Keyboard routing.** `EngineCanvas` sends every keydown that arrives while the canvas has focus to `engine_key` first. If the result isn't `HANDLED`, TS's shortcut registry runs: ⌘Z, ⌘G, V/F/R/O/L/T/P tool letters, ⌥⌘K, …. While a panel input has focus, keys never reach the engine.
 
