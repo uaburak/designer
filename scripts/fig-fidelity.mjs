@@ -316,7 +316,7 @@ const server = await createServer({
   mode: "demo",
   root: repo,
   resolve: { alias: [{ find: /^@\//, replacement: path.join(repo, "src/renderer/src") + "/" }] },
-  server: { port: 5411, strictPort: false, fs: { allow: [repo] }, hmr: false, watch: null },
+  server: { port: Number(process.env.FID_PORT ?? 5411), strictPort: false, fs: { allow: [repo] }, hmr: false, watch: null },
   appType: "custom",
   logLevel: "error",
   ssr: { noExternal: ["electron"] },
