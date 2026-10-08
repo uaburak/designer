@@ -279,3 +279,88 @@ TEST_CASE("images: the ThumbHash draws until the bitmap; requests carry the draw
   CHECK(r.imageCache().bytes() >= 2000ull * 1000 * 4);
   ImageRegistry::get().clear();
 }
+
+TEST_CASE("renderer: Figma's effect rules — spread, one blur of each kind, strokes over inner shadows, shadow blend modes") {
+  Effect drop;
+  drop.type = EffectType::DROP_SHADOW;
+  drop.color = {0, 0, 0, 0.25f};
+  drop.radius = 0;
+  drop.spread = 10;
+  auto dropSize = [&](NodeChange node) {
+    Document d;
+    base(d);
+    node.props.fillPaints = {Paint::solid(Color::hex(0xFFFFFF))};
+    node.props.effects = {drop};
+    d.apply(node);
+    gfx::NullDevice dev;
+    Renderer r(dev);
+    Frame f = record(r, dev, d);
+    for (auto& q : f.instances)
+      if (q.geom[2] == static_cast<float>(ShapeKind::DropShadow)) return static_cast<double>(q.origin[2]);
+    return -1.0;
+  };
+  // Spread on a rectangle; on a frame only when it clips its content (help 360041488473).
+  CHECK(dropSize(make({1, 1}, NodeType::ROUNDED_RECTANGLE, kPage, "!", {10, 10, 100, 100})) == doctest::Approx(120));
+  NodeChange clipping = make({1, 1}, NodeType::FRAME, kPage, "!", {10, 10, 100, 100});
+  CHECK(dropSize(clipping) == doctest::Approx(120));
+  NodeChange open = make({1, 1}, NodeType::FRAME, kPage, "!", {10, 10, 100, 100});
+  open.props.frameMaskDisabled = true;
+  CHECK(dropSize(open) == doctest::Approx(100));
+
+  // Two layer blurs: the first is drawn (σ = 4 / 2 at 100 %), not the larger.
+  {
+    Document d;
+    base(d);
+    NodeChange n = make({1, 1}, NodeType::ROUNDED_RECTANGLE, kPage, "!", {10, 10, 100, 100});
+    Effect b1, b2;
+    b1.type = b2.type = EffectType::FOREGROUND_BLUR;
+    b1.radius = 4;
+    b2.radius = 40;
+    n.props.effects = {b1, b2};
+    d.apply(n);
+    gfx::NullDevice dev;
+    Renderer r(dev);
+    record(r, dev, d);
+    float sigma = 0;
+    for (auto& c : dev.draws)
+      if (c.pipeline.shader == gfx::ShaderId::Blur && c.call.uniforms[2][3] == 0) sigma = std::max(sigma, c.call.uniforms[2][2]);
+    CHECK(sigma == doctest::Approx(2));
+  }
+
+  // An ellipse with an inner shadow (MULTIPLY) and a stroke: the inner shadow lands between the fill and the strokes.
+  {
+    Document d;
+    base(d);
+    NodeChange n = make({1, 1}, NodeType::ELLIPSE, kPage, "!", {10, 10, 100, 100});
+    Effect inner;
+    inner.type = EffectType::INNER_SHADOW;
+    inner.radius = 4;
+    inner.blendMode = BlendMode::MULTIPLY;
+    n.props.effects = {inner};
+    n.props.strokePaints = {Paint::solid(Color::hex(0xFF0000))};
+    n.props.strokeWeight = 4;
+    d.apply(n);
+    gfx::NullDevice dev;
+    Renderer r(dev);
+    record(r, dev, d);
+    int innerAt = -1, firstPlain = -1, lastPlain = -1;
+    bool multiplied = false;
+    for (size_t k = 0; k < dev.draws.size(); k++) {
+      const auto& c = dev.draws[k];
+      if (c.pipeline.shader != gfx::ShaderId::Composite) continue;
+      // Composites of this frame's root layer into the canvas: the quad is the node's (wider than 50 px).
+      if (c.call.uniforms[2][2] - c.call.uniforms[2][0] < 50) continue;
+      if (c.call.uniforms[7][2] == 4) {
+        innerAt = static_cast<int>(k);
+        multiplied |= c.call.uniforms[7][1] == static_cast<float>(BlendMode::MULTIPLY);
+      } else if (c.call.uniforms[7][2] == 0 && c.call.uniforms[7][0] == 1) {
+        if (firstPlain < 0) firstPlain = static_cast<int>(k);
+        lastPlain = static_cast<int>(k);
+      }
+    }
+    CHECK(multiplied);
+    CHECK(firstPlain >= 0);
+    CHECK(innerAt > firstPlain);
+    CHECK(innerAt < lastPlain);
+  }
+}

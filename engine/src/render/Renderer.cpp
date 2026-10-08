@@ -483,6 +483,43 @@ bool analyticShadows(const NodeProps& p, bool hasChildren) {
   return true;
 }
 
+// A shadow's spread as Figma draws it: "only supported on rectangles, ellipses, frames, and components" (help
+// 360041488473) — a frame or component only when it clips its content and has a visible fill (≥ 1 % opacity).
+double shadowSpread(const NodeProps& p, const Effect& e) {
+  if (e.spread == 0) return 0;
+  if (p.isFrameLike()) {
+    bool fill = false;
+    for (const Paint& f : p.fillPaints)
+      fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.01f;
+    return p.clipsContent() && fill ? e.spread : 0;
+  }
+  return p.isRectLike() || p.type == NodeType::ELLIPSE ? e.spread : 0;
+}
+
+// Whether every paint the node draws itself is opaque (its alpha is then its shape's coverage).
+bool opaquePaints(const NodeProps& p) {
+  auto opaque = [](const std::vector<Paint>& paints) {
+    for (const Paint& f : paints)
+      if (f.visible && (f.type != PaintType::SOLID || f.opacity < 1 || f.color.a < 1 ||
+                        (f.blendMode != BlendMode::NORMAL && f.blendMode != BlendMode::PASS_THROUGH)))
+        return false;
+    return true;
+  };
+  return opaque(p.fillPaints) && (!(p.strokeWeight > 0) || opaque(p.strokePaints));
+}
+
+// The node's paints made opaque white (its geometry's coverage): what hides a drop shadow under the layer.
+NodeProps opaqueCopy(const NodeProps& p) {
+  NodeProps q = p;
+  auto whiten = [](std::vector<Paint>& paints) {
+    for (Paint& f : paints)
+      if (f.visible) f = Paint::solid(Color{1, 1, 1, 1});
+  };
+  whiten(q.fillPaints);
+  whiten(q.strokePaints);
+  return q;
+}
+
 // A shadow's offset in the node's own space, so it falls the same way on screen however the node is turned.
 Vec2 localOffset(const Mat2x3& m, Vec2 offset) {
   double s = std::sqrt(std::fabs(m.determinant()));
@@ -500,7 +537,7 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
     double sigma = std::max(0.0, e.radius / 2);
     Vec2 off = localOffset(m, e.offset);
     if (!inner) {
-      double s = e.spread;
+      double s = shadowSpread(p, e);
       Vec2 size{p.size.x + 2 * s, p.size.y + 2 * s};
       if (size.x <= 0 || size.y <= 0) continue;
       CornerRadii r;
@@ -513,7 +550,7 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
     } else {
       DrawInstance q = makeShape(m, p.size, ShapeKind::InnerShadow, radii, e.color, alpha, Color{}, 0, 0, 0);
       q.geom[0] = static_cast<float>(sigma);
-      q.geom[1] = static_cast<float>(e.spread);
+      q.geom[1] = static_cast<float>(shadowSpread(p, e));
       q.geom[2] = static_cast<float>(ShapeKind::InnerShadow);
       q.paint0[0] = static_cast<float>(off.x);
       q.paint0[1] = static_cast<float>(off.y);
@@ -865,18 +902,19 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
   }
 }
 
-void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic) {
+void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic,
+                           bool strokes) {
   const RenderNode& rn = tree_->nodes()[i];
   Guid id = rn.id;
   if (analytic) drawAnalyticShadows(p, m, alpha, false);
   if (p.type == NodeType::TEXT) {
     drawText(doc, p, id, m, alpha);
-    drawStrokes(doc, id, p, m, alpha);
+    if (strokes) drawStrokes(doc, id, p, m, alpha);
     return;
   }
   if (p.isBoolean()) {
     drawFills(doc, id, p, m, alpha);
-    drawStrokes(doc, id, p, m, alpha);
+    if (strokes) drawStrokes(doc, id, p, m, alpha);
     return;
   }
   if (p.isGroupLike()) {
@@ -927,7 +965,7 @@ void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, 
     }
   }
   // Strokes go over the fills (and over a frame's content).
-  drawStrokes(doc, id, p, m, alpha);
+  if (strokes) drawStrokes(doc, id, p, m, alpha);
 }
 
 void Renderer::compositeLayer(int src, int aux, int mode, float opacity, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
@@ -992,14 +1030,30 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   Mat2x3 m = parentCss * p.transform;
 
   bool analytic = analyticShadows(p, rn.hasChildren);
+  // Figma's limits (help 360041488473): up to eight drop and eight inner shadows, one layer blur and one background
+  // blur — the first of each kind is drawn.
   std::vector<const Effect*> drops, inners, backgrounds;
   double layerBlur = 0;
+  bool haveLayerBlur = false;
   for (const Effect& e : p.effects) {
     if (!e.visible) continue;
-    if (e.type == EffectType::DROP_SHADOW) drops.push_back(&e);
-    else if (e.type == EffectType::INNER_SHADOW) inners.push_back(&e);
-    else if (e.type == EffectType::BACKGROUND_BLUR && e.radius > 0) backgrounds.push_back(&e);
-    else if (e.type == EffectType::FOREGROUND_BLUR && e.radius > 0) layerBlur = std::max(layerBlur, e.radius);
+    if (e.type == EffectType::DROP_SHADOW) {
+      if (drops.size() < 8) drops.push_back(&e);
+    } else if (e.type == EffectType::INNER_SHADOW) {
+      if (inners.size() < 8) inners.push_back(&e);
+    } else if (e.type == EffectType::BACKGROUND_BLUR) {
+      if (backgrounds.empty() && e.radius > 0) backgrounds.push_back(&e);
+    } else if (e.type == EffectType::FOREGROUND_BLUR && !haveLayerBlur) {
+      haveLayerBlur = true;
+      layerBlur = std::max(0.0, e.radius);
+    }
+  }
+  // A background blur shows through the layer's fill: none without a visible fill (Figma: "set the layer's fill
+  // opacity to any value between .10 and 99.99%"; at 100 % the fill covers it).
+  if (!backgrounds.empty()) {
+    bool fill = false;
+    for (const Paint& f : p.fillPaints) fill |= f.visible && f.opacity * (f.type == PaintType::SOLID ? f.color.a : 1.f) >= 0.001f;
+    if (!fill && !p.isGroupLike()) backgrounds.clear();
   }
   bool generic = !analytic && (!drops.empty() || !inners.empty());
   bool container = (p.isFrameLike() || p.isGroupLike()) && rn.hasChildren;
@@ -1022,18 +1076,35 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
   double blurSigma = layerBlur / 2 * scale;
   gfx::IRect r = deviceRect(vb, 3 * blurSigma + 2);
   if (r.w <= 0 || r.h <= 0) return;
+  // Figma's order, top to bottom (help 360041488473): layer blur, stroke paints, inner shadow, fill paints, drop
+  // shadow. Inner shadows under visible strokes: the content without its strokes, the inner shadows, then the
+  // strokes, all in one layer that takes the node's opacity, blend mode and blur.
+  bool strokes = false;
+  if (p.strokeWeight > 0)
+    for (const Paint& s : p.strokePaints) strokes |= s.visible && s.opacity > 0;
+  bool split = generic && !inners.empty() && strokes;
+  bool wrap = split && (a < 1 || blend || blurSigma > 0.01);
   int saved = beginLayer(r);
   int C = current_;
   drawContent(doc, i, p, m, 1, analytic);
   endLayer(saved);
-  layers_[static_cast<size_t>(C)].blur = blurSigma;
+  int outer = -1, savedOuter = 0;
+  if (wrap) {
+    savedOuter = beginLayer(r);
+    outer = current_;
+  } else {
+    layers_[static_cast<size_t>(C)].blur = blurSigma;
+  }
+  // What the node draws, composited: at the node's opacity and blend mode, or as is inside the wrapping layer.
+  float opacity = wrap ? 1.f : static_cast<float>(a);
+  BlendMode nodeBlend = wrap ? BlendMode::NORMAL : p.blendMode;
 
-  auto composite = [&](int src, int aux, int mode, float opacity, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
-                       gfx::IRect rect) { compositeLayer(src, aux, mode, opacity, bm, color, offset, knockout, rect); };
+  auto composite = [&](int src, int aux, int mode, float op, BlendMode bm, const Color& color, Vec2 offset, bool knockout,
+                       gfx::IRect rect) { compositeLayer(src, aux, mode, op, bm, color, offset, knockout, rect); };
   auto shadowLayer = [&](const Effect& e, double morph) {
     double sigma = std::max(0.0, e.radius / 2) * scale;
-    double spread = e.spread * scale;
-    double grow = 3 * sigma + std::max(0.0, morph) + 2;
+    double spread = shadowSpread(p, e) * scale;
+    double grow = 3 * sigma + std::max(0.0, morph > 0 ? spread : 0.0) + 2;
     gfx::IRect sr{r.x - static_cast<int>(std::ceil(grow)), r.y - static_cast<int>(std::ceil(grow)),
                   r.w + 2 * static_cast<int>(std::ceil(grow)), r.h + 2 * static_cast<int>(std::ceil(grow))};
     Layer S;
@@ -1046,25 +1117,59 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     return static_cast<int>(layers_.size() - 1);
   };
   auto deviceOffset = [&](Vec2 o) { return Vec2{o.x * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleX(), o.y * std::sqrt(std::fabs(m.determinant())) * viewport_.scaleY()}; };
+  auto effectBlend = [](const Effect& e) { return e.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : e.blendMode; };
   if (generic) {
+    // "Show behind transparent areas" off (Figma's default): the shadow is hidden under the layer's shape — its
+    // geometry, not its alpha (a 50 % fill doesn't let half of the shadow through).
+    int knock = C;
+    bool anyHidden = false;
+    for (const Effect* e : drops) anyHidden |= !e->showShadowBehindNode;
+    if (anyHidden && !opaquePaints(p)) {
+      NodeProps solid = opaqueCopy(p);
+      int s2 = beginLayer(r);
+      knock = current_;
+      drawContent(doc, i, solid, m, 1, false);
+      endLayer(s2);
+      stats_.layers++;
+    }
     for (const Effect* e : drops) {
-      int S = shadowLayer(*e, e->spread);
+      int S = shadowLayer(*e, shadowSpread(p, *e));
       Vec2 off = deviceOffset(e->offset);
       gfx::IRect q = layers_[static_cast<size_t>(S)].rect;
       q.x += static_cast<int>(std::floor(off.x));
       q.y += static_cast<int>(std::floor(off.y));
       q.w += 2;
       q.h += 2;
-      Color premul = e->color;
-      composite(S, C, 3, static_cast<float>(a), BlendMode::NORMAL, premul, off, !e->showShadowBehindNode, q);
+      composite(S, knock, 3, opacity, effectBlend(*e), e->color, off, !e->showShadowBehindNode, q);
     }
   }
-  composite(C, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
+  int K = -1;
+  if (split) {
+    // The content without its strokes, then (below) the inner shadows, then the strokes.
+    int s1 = beginLayer(r);
+    int F = current_;
+    drawContent(doc, i, p, m, 1, analytic, false);
+    endLayer(s1);
+    int s2 = beginLayer(r);
+    K = current_;
+    drawStrokes(doc, id, p, m, 1);
+    endLayer(s2);
+    stats_.layers += 2;
+    composite(F, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  } else {
+    composite(C, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  }
   if (generic) {
     for (const Effect* e : inners) {
-      int S = shadowLayer(*e, e->spread != 0 ? -1 : 0);
-      composite(S, C, 4, static_cast<float>(a), BlendMode::NORMAL, e->color, deviceOffset(e->offset), false, r);
+      int S = shadowLayer(*e, shadowSpread(p, *e) != 0 ? -1 : 0);
+      composite(S, C, 4, opacity, effectBlend(*e), e->color, deviceOffset(e->offset), false, r);
     }
+  }
+  if (K >= 0) composite(K, -1, 0, opacity, nodeBlend, Color{}, {}, false, r);
+  if (wrap) {
+    endLayer(savedOuter);
+    layers_[static_cast<size_t>(outer)].blur = blurSigma;
+    compositeLayer(outer, -1, 0, static_cast<float>(a), p.blendMode, Color{}, {}, false, r);
   }
 }
 

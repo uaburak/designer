@@ -420,7 +420,8 @@ class Renderer {
   void drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss, double alpha);
   // The siblings from render-tree node `first` up to `end` (one past the last), in paint order.
   void drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha);
-  void drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone);
+  // strokes = false: without the node's own strokes (drawn apart, above its inner shadows).
+  void drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool shadowsDone, bool strokes = true);
   void drawFills(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, bool whiteMask = false);
   void drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
