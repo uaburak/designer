@@ -447,6 +447,7 @@ void Player::layout() {
         (sh.over ? v.over : v.under).push_back(r);
       }
     view_ = std::move(v);
+    replaceOverlays();
     return;
   }
   double fw = std::max(1.0, frame.x), fh = std::max(1.0, frame.y);
@@ -466,6 +467,13 @@ void Player::layout() {
   v.css = {ox, oy, cw, ch};
   v.toCss = Mat2x3::translate(ox, oy) * Mat2x3::scale(v.s);
   view_ = std::move(v);
+  replaceOverlays();
+}
+
+void Player::replaceOverlays() {
+  // The window (or Responsive) changed the screen: overlays at a preset position go where it puts them now.
+  for (auto& o : overlays_)
+    if (o.settings.position != OverlayPosition::MANUAL) o.pos = overlayPos(o.frame, o.settings, nullptr, nullptr);
 }
 
 // ---- Responsive -----------------------------------------------------------------------------------------
@@ -492,15 +500,29 @@ void Player::fitResponsive() {
     frames.push_back(anim_.y.frame);
   }
   std::vector<NodeChange> changes;
+  // The screen's own width before Responsive (its overlays designed to its width follow the window as it does).
+  Vec2 baseOwn;
+  if (const NodeProps* bp = props(base_)) {
+    auto bt = responsiveSizes_.find(base_);
+    baseOwn = bt != responsiveSizes_.end() ? bt->second : bp->size;
+  }
+  for (auto& o : overlays_) frames.push_back(o.frame);
+  std::unordered_set<Guid, GuidHash> done;
   for (Guid f : frames) {
     const NodeProps* p = props(f);
-    if (!p || (anim_.active && anim_.x.overlay && f == anim_.x.frame)) continue;
+    if (!p || !done.insert(f).second || (anim_.active && anim_.x.overlay && f == anim_.x.frame)) continue;
     bool isOverlay = false;
     for (auto& o : overlays_) isOverlay |= o.frame == f;
-    if (isOverlay) continue;
     auto it = responsiveSizes_.find(f);
     Vec2 own = it != responsiveSizes_.end() ? it->second : p->size;
     Vec2 want{std::round(target.x), own.y <= target.y ? std::round(target.y) : own.y};
+    if (isOverlay) {
+      // An overlay keeps its size, except along a side it shares with its screen (a full-width sheet, a full-height
+      // drawer): that side follows the window and its layers follow their constraints (unverified: Figma doesn't say).
+      want = own;
+      if (baseOwn.x > 0 && std::fabs(own.x - baseOwn.x) < 0.5) want.x = std::round(target.x);
+      if (baseOwn.y > 0 && std::fabs(own.y - baseOwn.y) < 0.5 && own.y <= target.y) want.y = std::round(target.y);
+    }
     if (std::fabs(p->size.x - want.x) < 0.5 && std::fabs(p->size.y - want.y) < 0.5) continue;
     if (it == responsiveSizes_.end()) responsiveSizes_.emplace(f, own);
     NodeChange c = NodeChange::changed(f);
@@ -791,6 +813,13 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       if (scrub_.active) {
         // On drag: the transition follows the pointer along its axis.
         double p = std::clamp(((css.x - scrub_.from.x) * scrub_.axis.x + (css.y - scrub_.from.y) * scrub_.axis.y) / scrub_.extent, 0.0, 1.0);
+        if (scrub_.instance != kNoGuid) {
+          if (InstanceAnim* ia = instanceAnim(scrub_.instance); ia && ia->scrubbing && p != ia->scrubP) {
+            ia->scrubP = p;
+            dirty_ = true;
+          }
+          return 1;
+        }
         if (anim_.active && anim_.scrubbing && p != anim_.scrubP) {
           anim_.scrubP = p;
           dirty_ = true;
@@ -799,10 +828,12 @@ uint32_t Player::pointer(PointerEvent type, double x, double y, uint32_t /*butto
       }
       if (down_ && !dragFired_ && (css - downCss_).length() >= kDragThreshold) {
         dragFired_ = true;
-        uint64_t before = animSerial_;
+        uint64_t before = animSerial_, beforeInstance = instanceSerial_;
         for (auto& h : downChain_.hits)
           if (doc().has(h.id) && fire(h.id, Trigger::DRAG, &h)) break;
         if (animSerial_ != before && anim_.active) beginScrub(css);
+        else if (instanceSerial_ != beforeInstance)
+          if (InstanceAnim* ia = instanceAnim(lastInstanceAnim_)) beginInstanceScrub(css, *ia);
       }
       return 1;
     }
@@ -1265,6 +1296,7 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
       else ghosts_.insert(ghost);
     }
   remember(real, F_SYMBOL_DATA | F_COMPONENT_PROP_ASSIGNMENTS);
+  Guid fromMain = ed_.mainOf(instance);
   CommandArgs args;
   json::Value raw = parseJson("{}");
   json::Value m;
@@ -1287,7 +1319,10 @@ void Player::swapInstance(Guid instance, Guid main, const Action& a) {
     ia.from = std::move(from);
     ia.action = a;
     ia.duration = durationOf(a) * 1000;
+    ia.fromMain = fromMain;
     instanceAnims_.push_back(std::move(ia));
+    instanceSerial_++;
+    lastInstanceAnim_ = instance;
   }
   dropTimers(instance);
   armTimers(instance);
@@ -1490,7 +1525,24 @@ void Player::finishAnim() {
   dirty_ = true;
 }
 
-bool Player::animating() const { return (anim_.active && !anim_.scrubbing) || !instanceAnims_.empty() || !scrollAnims_.empty() || hintsPending_ || now_ - hintsAt_ < kHintsMs; }
+bool Player::animating() const {
+  bool instances = std::any_of(instanceAnims_.begin(), instanceAnims_.end(), [](const InstanceAnim& ia) { return !ia.scrubbing; });
+  return (anim_.active && !anim_.scrubbing) || instances || !scrollAnims_.empty() || hintsPending_ || now_ - hintsAt_ < kHintsMs;
+}
+
+Player::InstanceAnim* Player::instanceAnim(Guid instance) {
+  if (instance == kNoGuid) return nullptr;
+  for (auto& ia : instanceAnims_)
+    if (ia.instance == instance) return &ia;
+  return nullptr;
+}
+
+double Player::instanceProgress(const InstanceAnim& ia) const {
+  if (ia.scrubbing) return ia.scrubP;
+  double t = ia.duration > 0 ? std::clamp((now_ - ia.start) / ia.duration, 0.0, 1.0) : 1;
+  if (!ia.started) t = 0;
+  return ia.p0 + (ia.p1 - ia.p0) * ease(ia.action, t);
+}
 
 void Player::armTimers(Guid root) {
   std::function<void(Guid)> walk = [&](Guid id) {
@@ -1547,7 +1599,38 @@ void Player::beginScrub(Vec2 at) {
   dirty_ = true;
 }
 
+void Player::beginInstanceScrub(Vec2 at, InstanceAnim& ia) {
+  // Change to (an interactive component): the drag's main axis, the instance's extent on screen for the whole of it.
+  Vec2 d = at - downCss_;
+  Vec2 axis = std::fabs(d.x) >= std::fabs(d.y) ? Vec2{d.x >= 0 ? 1.0 : -1.0, 0} : Vec2{0, d.y >= 0 ? 1.0 : -1.0};
+  double extent = 0;
+  if (const NodeProps* p = props(ia.instance)) extent = (axis.x != 0 ? p->size.x : p->size.y) * view_.s;
+  scrub_.active = true;
+  scrub_.axis = axis;
+  scrub_.from = downCss_;
+  scrub_.extent = std::max(24.0, extent);
+  scrub_.instance = ia.instance;
+  ia.scrubbing = true;
+  ia.scrubP = std::clamp((d.x * axis.x + d.y * axis.y) / scrub_.extent, 0.0, 1.0);
+  dirty_ = true;
+}
+
 void Player::endScrub() {
+  if (scrub_.instance != kNoGuid) {
+    Guid inst = scrub_.instance;
+    scrub_ = Scrub{};
+    InstanceAnim* ia = instanceAnim(inst);
+    if (!ia || !ia->scrubbing) return;
+    // Released: on to the new state past half way, else back to the old one.
+    double p = ia->scrubP, full = ia->duration;
+    ia->scrubbing = false;
+    ia->p0 = p;
+    ia->started = false;
+    ia->p1 = p >= 0.5 ? 1 : 0;
+    ia->duration = full * (p >= 0.5 ? 1 - p : p);
+    dirty_ = true;
+    return;
+  }
   scrub_ = Scrub{};
   if (!anim_.active || !anim_.scrubbing) return;
   // Released: on to the end past half way, else back to where it started (and the step undone).
@@ -1585,15 +1668,21 @@ bool Player::tick(double nowMs) {
   }
   for (size_t i = 0; i < instanceAnims_.size();) {
     auto& ia = instanceAnims_[i];
+    if (ia.scrubbing) {
+      i++;
+      continue;
+    }
     if (!ia.started) {
       ia.start = now_;
       ia.started = true;
     }
     draw = true;
     if (now_ - ia.start >= ia.duration || !doc().has(ia.instance)) {
-      Guid g = ia.ghost;
+      Guid g = ia.ghost, inst = ia.instance, back = ia.p1 < 0.5 ? ia.fromMain : kNoGuid;
       instanceAnims_.erase(instanceAnims_.begin() + static_cast<long>(i));
       dropGhost(g);
+      // A Change to dragged less than half way: back to the state it came from.
+      if (back != kNoGuid && doc().has(inst) && ed_.mainOf(inst) != back) swapInstance(inst, back, Action{});
     } else {
       i++;
     }
@@ -1850,9 +1939,7 @@ void Player::addFrame(const Side& s, Vec2 offset, double alpha, PropsOverrides&&
   // Instances changing state inside it.
   for (auto& ia : instanceAnims_) {
     if (ia.instance != s.frame && !doc().isAncestor(s.frame, ia.instance)) continue;
-    double t = ia.duration > 0 ? std::clamp((now_ - ia.start) / ia.duration, 0.0, 1.0) : 1;
-    if (!ia.started) t = 0;
-    double e = ease(ia.action, t);
+    double e = instanceProgress(ia);
     PropsOverrides tmp;
     if (isSmart(ia.action)) {
       smartDest(ia.instance, ia.from, e, true, tmp, Mat2x3{}, Mat2x3{}, std::string(), true, false);

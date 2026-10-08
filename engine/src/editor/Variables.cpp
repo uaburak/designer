@@ -561,6 +561,22 @@ bool Editor::resolveData(const VariableData& d, const ModeContext& ctx, Resolved
         return true;
       }
       if (d.function == ExpressionFunction::RESOLVE_VARIANT) return false;  // a variant (variantFor), not a value
+      if (d.function == ExpressionFunction::VAR_MODE_LOOKUP) {
+        // A variable's value in a mode named explicitly (help.figma.com 15253268379799: "variableName:modeName"):
+        // [ALIAS variable, STRING the mode's id "s:l"] — the argument encoding is ours (Figma's isn't published).
+        if (d.args.size() < 2 || d.args[0].kind != K::ALIAS) return false;
+        Guid v = findVariable(d.args[0].alias);
+        if (deps) deps->vars.push_back(v != kNoGuid ? v : d.args[0].alias.guid);
+        const Node* vn = v != kNoGuid ? doc_.get(v) : nullptr;
+        if (!vn) return false;
+        bool ok = false;
+        Guid mode = d.args[1].kind == K::TEXT ? Guid::parse(d.args[1].textValue, &ok) : kNoGuid;
+        if (!ok || mode == kNoGuid) return resolveVar(v, ctx, out, deps, depth + 1);
+        ModeContext forced = ctx;
+        forced.forcedSet = findCollection(vn->props.asset().variableSetID);
+        forced.forcedMode = mode;
+        return resolveVar(v, forced, out, deps, depth + 1);
+      }
       // Figma's expressions (R3-34; a boolean bound to visibility is IS_TRUTHY(alias) in Figma's files).
       std::vector<Resolved> a(d.args.size());
       for (size_t i = 0; i < d.args.size(); i++)

@@ -12,6 +12,7 @@
 #include "proto/Player.h"
 #include "proto/Prototype.h"
 #include "render/Renderer.h"
+#include "scene/CodecJson.h"
 #include "scene/CodecKiwi.h"
 
 using namespace eng;
@@ -873,4 +874,128 @@ TEST_CASE("prototype.editor: viewer mode is read-only; a selected instance shows
   // Arrow keys don't nudge.
   ed.key(KeyEvent::DOWN, KeyCode::ArrowRight, 0, 0, false);
   CHECK(ed.document().get(NEXT)->props.transform.m02 == 20);
+}
+
+TEST_CASE("prototype.player: Responsive re-lays out overlays: a full-width sheet takes the window's width, presets re-placed") {
+  auto nodes = screens();
+  const Guid SHEET{1, 70}, GRIP{1, 71};
+  NodeChange sheet = make(SHEET, NodeType::FRAME, kPage, "$", {0, 1000, 375, 300}, "Sheet");
+  sheet.props.extra["overlayPositionType"] = extra("overlayPositionType", R"("BOTTOM_CENTER")");
+  nodes.push_back(sheet);
+  NodeChange grip = make(GRIP, NodeType::RECTANGLE, SHEET, "!", {167, 8, 40, 4}, "Grip");
+  grip.props.horizontalConstraint = ConstraintType::CENTER;
+  nodes.push_back(grip);
+  NodeChange menu = make(OVL, NodeType::FRAME, kPage, "%", {500, 1000, 200, 100}, "Menu");
+  nodes.push_back(menu);  // centred (the default position)
+  for (auto& n : nodes)
+    if (n.guid == NEXT) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(SHEET, "ON_CLICK", "OVERLAY"));
+    else if (n.guid == CARD) n.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(OVL, "ON_CLICK", "OVERLAY"));
+  Fixture f(nodes, 600, 900);
+  f.player.setScale(proto::ScaleMode::RESPONSIVE);
+  REQUIRE(f.player.start(kPage, A));
+  f.player.scene();
+  f.click(50, 720);
+  f.player.scene();
+  REQUIRE(f.player.overlays().size() == 1);
+  CHECK(f.ed.document().get(SHEET)->props.size.x == doctest::Approx(600));
+  CHECK(f.ed.document().get(SHEET)->props.size.y == doctest::Approx(300));
+  CHECK(f.ed.document().get(GRIP)->props.transform.m02 == doctest::Approx(167 + 112.5));  // centred by its constraint
+  CHECK(f.player.overlays()[0].pos.x == doctest::Approx(0));
+  CHECK(f.player.overlays()[0].pos.y == doctest::Approx(600));
+  // The window grows: the sheet follows, still at the bottom.
+  f.ed.setViewport(800, 1000, 1, 800, 1000);
+  f.player.scene();
+  CHECK(f.ed.document().get(SHEET)->props.size.x == doctest::Approx(800));
+  CHECK(f.player.overlays()[0].pos.y == doctest::Approx(700));
+  // Without Responsive everything is as it was.
+  f.player.setScale(proto::ScaleMode::ACTUAL);
+  f.player.scene();
+  CHECK(f.ed.document().get(SHEET)->props.size.x == doctest::Approx(375));
+}
+
+TEST_CASE("prototype.player: On drag scrubs Change to; released before half way it goes back") {
+  auto nodes = baseChanges();
+  const Guid SET{2, 1}, DEF{2, 2}, ON{2, 3}, BG1{2, 4}, BG2{2, 5}, SCREEN{2, 10}, INST{2, 11};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "~", {0, 1000, 300, 200}, "Switch");
+  set.props.comp().isStateGroup = true;
+  nodes.push_back(set);
+  NodeChange def = make(DEF, NodeType::SYMBOL, SET, "!", {20, 20, 100, 40}, "State=Off");
+  def.props.extra["prototypeInteractions"] = extra("prototypeInteractions", nav(ON, "DRAG", "SWAP_STATE", "DISSOLVE", 0.4));
+  nodes.push_back(def);
+  nodes.push_back(make(BG1, NodeType::RECTANGLE, DEF, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(ON, NodeType::SYMBOL, SET, "\"", {150, 20, 100, 40}, "State=On"));
+  nodes.push_back(make(BG2, NodeType::RECTANGLE, ON, "!", {0, 0, 100, 40}, "Bg"));
+  nodes.push_back(make(SCREEN, NodeType::FRAME, kPage, "!", {0, 0, 375, 812}, "Screen"));
+  NodeChange inst = make(INST, NodeType::INSTANCE, SCREEN, "!", {100, 100, 100, 40}, "Switch");
+  inst.props.comp().symbolData.symbolID = DEF;
+  inst.props.fillPaints.clear();
+  nodes.push_back(inst);
+  Fixture f(nodes);
+  f.player.setScale(proto::ScaleMode::FIT);
+  REQUIRE(f.player.start(kPage, SCREEN));
+  f.advance(16);
+  // Dragged 30 px right of 100: 30 % of the switch's width.
+  f.player.pointer(PointerEvent::DOWN, 110, 110, 1, 0);
+  f.player.pointer(PointerEvent::MOVE, 115, 110, 1, 0);
+  CHECK(f.ed.mainOf(INST) == ON);
+  CHECK(f.player.stateJson().find("\"scrubbing\":true") == std::string::npos);  // the screen's transition isn't scrubbing
+  f.player.pointer(PointerEvent::MOVE, 140, 110, 1, 0);
+  f.advance(500);  // time doesn't move it while dragging
+  f.player.scene();
+  const NodeProps* drawn = f.player.drawnProps(INST);
+  REQUIRE(drawn);
+  CHECK(drawn->opacity == doctest::Approx(0.3).epsilon(0.02));
+  CHECK(!f.player.animating());
+  // Released before half way: back to Off.
+  f.player.pointer(PointerEvent::UP, 140, 110, 0, 0);
+  f.advance(16);
+  f.advance(500);
+  CHECK(f.ed.mainOf(INST) == DEF);
+  // Past half way: On.
+  f.player.pointer(PointerEvent::DOWN, 110, 110, 1, 0);
+  f.player.pointer(PointerEvent::MOVE, 115, 110, 1, 0);
+  f.player.pointer(PointerEvent::MOVE, 190, 110, 1, 0);
+  f.player.pointer(PointerEvent::UP, 190, 110, 0, 0);
+  f.advance(16);
+  f.advance(500);
+  CHECK(f.ed.mainOf(INST) == ON);
+}
+
+TEST_CASE("prototype.expressions: VAR_MODE_LOOKUP reads a variable's value in a mode named explicitly") {
+  Fixture f(screens());
+  auto run = [&](CommandId id, const std::string& j) {
+    CommandArgs a;
+    REQUIRE(json::parse(j, a.raw));
+    REQUIRE(f.ed.command(id, a) == OK);
+  };
+  auto q = [](Guid g) { return "\"" + g.toString() + "\""; };
+  run(CommandId::CREATE_VARIABLE_COLLECTION, R"({"name":"Theme"})");
+  Guid set = f.ed.lastCreated()[0];
+  run(CommandId::ADD_VARIABLE_MODE, "{\"collection\":" + q(set) + ",\"name\":\"Dark\"}");
+  Guid dark = f.ed.lastCreated()[0];
+  run(CommandId::CREATE_VARIABLE, "{\"collection\":" + q(set) + ",\"type\":\"FLOAT\",\"name\":\"size\",\"value\":1}");
+  Guid var = f.ed.lastCreated()[0];
+  // Dark's own value.
+  NodeChange c = NodeChange::changed(var);
+  c.mask = F_VARIABLE_DATA_VALUES;
+  c.props.asset().variableDataValues = f.ed.document().get(var)->props.asset().variableDataValues;
+  VariableData two;
+  two.kind = VariableData::Kind::FLOAT;
+  two.floatValue = 2;
+  two.dataType = VariableDataType::FLOAT;
+  two.hasDataType = true;
+  c.props.asset().variableDataValues.push_back({dark, two});
+  f.ed.applyChanges({c}, APPLY_REMOTE);
+  auto lookup = [&](const std::string& mode) {
+    json::Value v;
+    REQUIRE(json::parse("{\"dataType\":\"EXPRESSION\",\"value\":{\"expressionValue\":{\"expressionFunction\":\"VAR_MODE_LOOKUP\",\"expressionArguments\":["
+                        "{\"dataType\":\"ALIAS\",\"value\":{\"alias\":{\"guid\":" + q(var) + "}}},"
+                        "{\"dataType\":\"STRING\",\"value\":{\"textValue\":\"" + mode + "\"}}]}}}",
+                        v));
+    Editor::Resolved r;
+    REQUIRE(f.ed.resolveValue(codec::readVariable(v), A, r));
+    return r.f;
+  };
+  CHECK(lookup(dark.toString()) == doctest::Approx(2));  // A itself is in the default (Light) mode
+  CHECK(lookup("") == doctest::Approx(1));               // no mode: the consumer's
 }

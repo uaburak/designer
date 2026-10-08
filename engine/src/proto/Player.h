@@ -191,6 +191,12 @@ class Player {
     Action action;
     double start = 0, duration = 0;
     bool started = false;
+    // On drag scrubbing it (as Anim's): the progress follows the pointer; released before half way it runs back and
+    // the instance returns to `fromMain`.
+    Guid fromMain = kNoGuid;
+    bool scrubbing = false;
+    double scrubP = 0;
+    double p0 = 0, p1 = 1;
   };
   struct ScrollAnim {
     Guid frame = kNoGuid;
@@ -237,6 +243,7 @@ class Player {
     Vec2 axis;           // the drag direction that advances (unit, CSS px)
     double extent = 1;   // CSS px for the whole transition
     Vec2 from;           // where the drag started
+    Guid instance = kNoGuid;  // a Change to being scrubbed (else the screen's transition)
   };
 
   const Document& doc() const { return ed_.document(); }
@@ -246,6 +253,7 @@ class Player {
   std::vector<Interaction> ix(Guid id) const;
   Guid topLevelOf(Guid id) const;
   void layout();
+  void replaceOverlays();
   Vec2 topScrollRange(Guid frame) const;
   Vec2 nestedScrollRange(Guid frame) const;
   bool scrollsNested(Guid id) const;
@@ -315,7 +323,10 @@ class Player {
   void restoreResponsive();
   // Drag scrubbing.
   void beginScrub(Vec2 at);
+  void beginInstanceScrub(Vec2 at, InstanceAnim& ia);
   void endScrub();
+  double instanceProgress(const InstanceAnim& ia) const;
+  InstanceAnim* instanceAnim(Guid instance);
   void silentBack();
 
   Editor& ed_;
@@ -353,6 +364,8 @@ class Player {
   std::unordered_map<Guid, Vec2, GuidHash> responsiveSizes_;  // frames resized for Responsive: their own size
   Scrub scrub_;
   uint64_t animSerial_ = 0;  // bumped by every startAnim (a drag knows whether its trigger started one)
+  uint64_t instanceSerial_ = 0;  // bumped by every animated Change to (the same, for instances)
+  Guid lastInstanceAnim_ = kNoGuid;
   bool noAnim_ = false;      // silentBack: Back without its animation
   // Change to's old states while they fade out (swapInstance), never hit; removed when their animation ends.
   static constexpr uint32_t kGhostSession = 0xFFFFFFF0u;
