@@ -39,9 +39,10 @@ struct OverlayStyle {
   bool darkCanvas = false;
   Color title;
   double titleAlpha = 1;
-  // Sections: their name in a pill inside the top-left corner.
-  double sectionPillHeight = 20;
+  // Sections: their name in a pill above the top-left corner (live Figma), in the section's own fill colour.
+  double sectionPillHeight = 22;
   double sectionPillPadding = 6;
+  double sectionPillGap = 5;
   double sectionTitleSize = 11;
   // Corner radius handles: rings `radiusHandleSize` across, `radiusHandleInset` in from each corner.
   Color radiusHandleFill, radiusHandleStroke;
@@ -103,6 +104,7 @@ struct OverlayStyle {
     s.titleComponentOnDark = chrome(t, C::FrameTitleComponentOnDark);
     s.sectionPillHeight = m.sectionPillHeight;
     s.sectionPillPadding = m.sectionPillPadX;
+    s.sectionPillGap = m.sectionPillGap;
     s.sectionTitleSize = m.sectionPillFontSize;
     s.radiusHandleFill = chrome(t, C::RadiusHandleFill);
     s.radiusHandleStroke = chrome(t, C::RadiusHandleStroke);

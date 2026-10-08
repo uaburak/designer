@@ -1223,13 +1223,7 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
   if (code == KeyCode::Escape) {
     if (gesture_ != Gesture::None) cancelGesture();
     else if (tool_ != Tool::MOVE) setTool(Tool::MOVE);
-    else if (!selection_.empty()) {
-      // The parent, else nothing.
-      Guid parent = doc_.parentOf(selection_[0]);
-      const Node* p = doc_.get(parent);
-      if (p && p->props.type != NodeType::CANVAS) changeSelection({parent});
-      else changeSelection({});
-    }
+    else if (!selection_.empty()) changeSelection({});  // live Figma: Esc clears the selection (⇧Enter / \ go up)
     return K_HANDLED;
   }
   if (busy() || primary || (mods & MOD_ALT)) return 0;
@@ -1254,6 +1248,11 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
     case KeyCode::Tab:
       if (selection_.empty()) return 0;
       selectRelative(shift ? 3 : 2);
+      return K_HANDLED;
+    case KeyCode::Backslash:
+      // \ selects the parent, as ⇧Enter (live Figma).
+      if (selection_.empty() || shift) return 0;
+      selectRelative(1);
       return K_HANDLED;
     default: return 0;
   }

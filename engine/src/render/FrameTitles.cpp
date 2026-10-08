@@ -29,13 +29,14 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
         t.section = section;
         t.frame = b;
         if (section) {
-          // The pill inside the section's top-left corner (its width capped at the section's).
+          // The pill above the section's top-left corner (live Figma), its width capped at the section's.
           double w = measure(n->props.name, true);
           double pw = std::min(std::ceil(w) + 2 * style.sectionPillPadding, b.w);
-          t.text = {b.x + style.sectionPillPadding, b.y, std::max(0.0, pw - 2 * style.sectionPillPadding), style.sectionPillHeight};
-          t.hit = {b.x, b.y, std::max(0.0, pw), style.sectionPillHeight};
-          t.baseline = b.y + style.sectionPillHeight / 2 + style.sectionTitleSize * 0.36;
-          if (pw >= 8 && b.h >= style.sectionPillHeight) out.push_back(t);
+          double y = b.y - style.sectionPillGap - style.sectionPillHeight;
+          t.text = {b.x + style.sectionPillPadding, y, std::max(0.0, pw - 2 * style.sectionPillPadding), style.sectionPillHeight};
+          t.hit = {b.x, y, std::max(0.0, pw), style.sectionPillHeight};
+          t.baseline = y + style.sectionPillHeight / 2 + style.sectionTitleSize * 0.36;
+          if (pw >= 8) out.push_back(t);
         } else if (b.w >= 12) {
           // The name above the frame, from its left edge, as wide as the frame at most.
           t.icon = n->props.type == NodeType::INSTANCE ? TitleIcon::Instance

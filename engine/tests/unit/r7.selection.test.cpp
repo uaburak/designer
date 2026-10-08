@@ -104,8 +104,8 @@ TEST_CASE("r7 titles: frames inside sections have titles; nested frames and grou
   // The card's title: baseline 10 px above it (world y 500 → screen 600).
   click(e, 152, 594);
   CHECK(e.selection() == std::vector<Guid>{SF});
-  // The section's pill: inside its top-left corner.
-  click(e, 104, 508);
+  // The section's pill: above its top-left corner (screen y 473..495).
+  click(e, 104, 484);
   CHECK(e.selection() == std::vector<Guid>{S});
 }
 
@@ -166,16 +166,12 @@ TEST_CASE("r7 lines: two endpoint handles; dragging one turns the line about the
 
 // ---- 6. Move modifiers --------------------------------------------------------------------------------------------
 
-TEST_CASE("r7 move: a frame smaller than the layer doesn't take it; ⌘ nests it anyway; ⌃ turns snapping off") {
+TEST_CASE("r7 move: ⌘ nests too; ⌃ turns snapping off") {
   const Guid small{6, 1};
   NodeChange f = make(small, NodeType::FRAME, kPage, "$", {700, 0, 60, 60}, "Small");
   Editor e = makeEditor({f});
-  // TOP (100×100) over the 60×60 frame: stays on the page.
+  // ⌘: into the frame under the pointer.
   e.setSelection({TOP});
-  drag(e, {550, 150}, {830, 150});
-  CHECK(e.document().parentOf(TOP) == kPage);
-  e.command(CommandId::UNDO);
-  // ⌘: into it.
   drag(e, {550, 150}, {830, 150}, MOD_PRIMARY);
   CHECK(e.document().parentOf(TOP) == small);
   e.command(CommandId::UNDO);
@@ -238,4 +234,278 @@ TEST_CASE("r7 resize: ⌘ ignores constraints — the frame's children stay wher
   CHECK(e.document().worldBounds(R2).x == 100);
   e.command(CommandId::UNDO);
   CHECK(props(e, R1).transform == Mat2x3::translate(10, 10));
+}
+
+// ---- 6 (live). Drop by the cursor --------------------------------------------------------------------------------
+
+TEST_CASE("r7 move: a layer bigger than a frame dropped with the cursor over it nests (live Figma)") {
+  const Guid small{6, 2};
+  NodeChange f = make(small, NodeType::FRAME, kPage, "$", {700, 0, 60, 60}, "Small");
+  Editor e = makeEditor({f});
+  e.setSelection({TOP});  // 100×100: bigger than the 60×60 frame
+  drag(e, {550, 150}, {830, 130});
+  CHECK(e.document().parentOf(TOP) == small);
+  e.command(CommandId::UNDO);
+  CHECK(e.document().parentOf(TOP) == kPage);
+  // Space held keeps it out.
+  e.setSelection({TOP});
+  down(e, 550, 150);
+  move(e, 600, 150);
+  e.key(KeyEvent::DOWN, KeyCode::Space, 0, 0, false);
+  for (int i = 1; i <= 4; i++) move(e, 600 + 57.5 * i, 150 - 5 * i);
+  up(e, 830, 130);
+  e.key(KeyEvent::UP, KeyCode::Space, 0, 0, false);
+  CHECK(e.document().parentOf(TOP) == kPage);
+}
+
+// ---- 8. Sections ----------------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 sections: ⇧S draws a section in Figma's defaults for the theme; drawn around layers it takes them") {
+  Editor e = makeEditor();
+  REQUIRE(e.setTool(Tool::SECTION) == OK);
+  // Around TOP (world 400,0 100×100 → screen 500..600, 100..200).
+  drag(e, {480, 80}, {640, 240});
+  REQUIRE(e.selection().size() == 1);
+  Guid s = e.selection()[0];
+  const NodeProps& p = props(e, s);
+  CHECK(p.type == NodeType::SECTION);
+  CHECK(p.name == "Section 1");
+  CHECK(e.tool() == Tool::MOVE);
+  // Dark UI (the editor's default theme): #444444, a white 10 % inside stroke, radius 2, no clipping.
+  REQUIRE(p.fillPaints.size() == 1);
+  CHECK(p.fillPaints[0].color == Color::hex(0x444444));
+  REQUIRE(p.strokePaints.size() == 1);
+  CHECK(p.strokePaints[0].color == Color::hex(0xFFFFFF));
+  CHECK(p.strokePaints[0].opacity == doctest::Approx(0.1));
+  CHECK(p.strokeAlign == StrokeAlign::INSIDE);
+  CHECK(p.cornerRadii[0] == 2);
+  CHECK(!p.clipsContent());
+  // TOP is in it now, where it was on the page; F (only partly covered) stays out.
+  CHECK(e.document().parentOf(TOP) == s);
+  CHECK(e.document().worldBounds(TOP) == Rect{400, 0, 100, 100});
+  CHECK(e.document().parentOf(F) == kPage);
+  // One undo step takes both back.
+  e.command(CommandId::UNDO);
+  CHECK(!e.document().has(s));
+  CHECK(e.document().parentOf(TOP) == kPage);
+  // The light UI: white, a black 10 % stroke.
+  e.setTheme(Theme::Light);
+  e.setTool(Tool::SECTION);
+  drag(e, {700, 500}, {800, 600});
+  REQUIRE(e.selection().size() == 1);
+  const NodeProps& q = props(e, e.selection()[0]);
+  CHECK(q.fillPaints[0].color == Color::hex(0xFFFFFF));
+  CHECK(q.strokePaints[0].color == Color::hex(0x000000));
+}
+
+TEST_CASE("r7 sections: what is in a section picks as on the page; its background acts like empty canvas") {
+  NodeChange sec = make(S, NodeType::SECTION, kPage, "#", {0, 400, 600, 400}, "Section 1");
+  NodeChange inner = make(SF, NodeType::FRAME, S, "!", {50, 100, 200, 200}, "Card");
+  NodeChange rect = make(SR, NodeType::ROUNDED_RECTANGLE, SF, "!", {10, 10, 40, 40}, "Dot");
+  Editor e = makeEditor({sec, inner, rect});
+  // A click on the card's child: the child (the card is a top-level frame in its section). World (60,510) → (160,610).
+  click(e, 165, 615);
+  CHECK(e.selection() == std::vector<Guid>{SR});
+  // On the card's own background (it has a child): nothing, like empty canvas.
+  click(e, 300, 750);
+  CHECK(e.selection().empty());
+  // The section's background: nothing either; a drag there is a marquee among its layers.
+  click(e, 600, 1100);
+  CHECK(e.selection().empty());
+  drag(e, {500, 1150}, {200, 700});
+  CHECK(e.selection() == std::vector<Guid>{SF});
+  CHECK(props(e, S).transform == Mat2x3::translate(0, 400));
+  // A top-level frame's background (F has children): a click selects nothing (live Figma).
+  e.setSelection({TOP});
+  click(e, 300, 300);
+  CHECK(e.selection().empty());
+  // ⇧ keeps the selection.
+  e.setSelection({TOP});
+  click(e, 300, 300, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{TOP});
+}
+
+TEST_CASE("r7 sections: Wrap in new section (230) around canvas-level layers; Remove keeping contents (231)") {
+  Editor e = makeEditor();
+  e.setSelection({R1});
+  CHECK((e.commandState(CommandId::WRAP_IN_SECTION) & CMD_ENABLED) == 0);  // inside a frame: no
+  e.setSelection({F, TOP});
+  CHECK((e.commandState(CommandId::WRAP_IN_SECTION) & CMD_ENABLED) != 0);
+  REQUIRE(e.command(CommandId::WRAP_IN_SECTION) == OK);
+  REQUIRE(e.selection().size() == 1);
+  Guid s = e.selection()[0];
+  const NodeProps& p = props(e, s);
+  CHECK(p.type == NodeType::SECTION);
+  CHECK(e.document().parentOf(F) == s);
+  CHECK(e.document().parentOf(TOP) == s);
+  // Their order and their place on the page kept; the section around them with room.
+  CHECK(e.document().children(s) == std::vector<Guid>{F, TOP});
+  CHECK(e.document().worldBounds(F) == Rect{0, 0, 300, 300});
+  CHECK(e.document().worldBounds(TOP) == Rect{400, 0, 100, 100});
+  Rect sb = e.document().worldBounds(s);
+  CHECK(sb.containsRect(Rect{0, 0, 500, 300}));
+  CHECK(e.undoStack().undoCount() == 1);
+  // Remove the section keeping its contents: they go back on the page, where they are, selected.
+  CHECK((e.commandState(CommandId::REMOVE_KEEP_CONTENTS) & CMD_ENABLED) != 0);
+  REQUIRE(e.command(CommandId::REMOVE_KEEP_CONTENTS) == OK);
+  CHECK(!e.document().has(s));
+  CHECK(e.document().parentOf(F) == kPage);
+  CHECK(e.document().parentOf(TOP) == kPage);
+  CHECK(e.document().worldBounds(F) == Rect{0, 0, 300, 300});
+  CHECK(e.selection() == std::vector<Guid>{F, TOP});
+  e.command(CommandId::UNDO);
+  CHECK(e.document().has(s));
+  CHECK(e.document().parentOf(F) == s);
+  // A frame removed keeping its layers: R1 and R2 on the page at their place.
+  e.command(CommandId::UNDO);
+  e.setSelection({F});
+  REQUIRE(e.command(CommandId::REMOVE_KEEP_CONTENTS) == OK);
+  CHECK(!e.document().has(F));
+  CHECK(e.document().parentOf(R1) == kPage);
+  CHECK(e.document().worldBounds(R2) == Rect{100, 10, 50, 50});
+  // Nothing to remove for a plain shape.
+  e.setSelection({TOP});
+  CHECK((e.commandState(CommandId::REMOVE_KEEP_CONTENTS) & CMD_ENABLED) == 0);
+}
+
+// ---- 10. Select matching --------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 select matching (232): like layers in the frame; Select all with same fill / stroke / font") {
+  const Guid R3{7, 1}, R4{7, 2}, T1{7, 3}, T2{7, 4};
+  NodeChange r3 = make(R3, NodeType::ROUNDED_RECTANGLE, F, "#", {200, 10, 50, 50}, "Other name");
+  NodeChange r4 = make(R4, NodeType::ROUNDED_RECTANGLE, F, "$", {10, 100, 80, 20}, "Wide");
+  NodeChange t1 = make(T1, NodeType::TEXT, kPage, "$", {600, 0, 50, 20}, "A");
+  NodeChange t2 = make(T2, NodeType::TEXT, kPage, "%", {600, 50, 50, 20}, "B");
+  t2.props.text().fontSize = 30;
+  Editor e = makeEditor({r3, r4, t1, t2});
+  e.setSelection({R1});
+  CHECK((e.commandState(CommandId::SELECT_MATCHING) & CMD_ENABLED) != 0);
+  REQUIRE(e.command(CommandId::SELECT_MATCHING) == OK);
+  // Same type, size and paints, within F: R1, R2, R3 (not R4: another size; not TOP: outside F).
+  CHECK(e.selection() == std::vector<Guid>{R1, R2, R3});
+  // Select all with same fill: every rectangle with the default fill, TOP included.
+  CommandArgs a;
+  json::parse(R"({"mode":"FILL"})", a.raw);
+  e.setSelection({R1});
+  REQUIRE(e.command(CommandId::SELECT_MATCHING, a) == OK);
+  CHECK(e.selection().size() == 5);
+  // Same font: both texts; same text properties: only the one at the same size.
+  json::parse(R"({"mode":"FONT"})", a.raw);
+  e.setSelection({T1});
+  REQUIRE(e.command(CommandId::SELECT_MATCHING, a) == OK);
+  CHECK(e.selection() == std::vector<Guid>{T1, T2});
+  json::parse(R"({"mode":"TEXT"})", a.raw);
+  e.setSelection({T1});
+  REQUIRE(e.command(CommandId::SELECT_MATCHING, a) == OK);
+  CHECK(e.selection() == std::vector<Guid>{T1});
+  // Nothing selected: disabled.
+  e.setSelection({});
+  CHECK((e.commandState(CommandId::SELECT_MATCHING) & CMD_ENABLED) == 0);
+}
+
+// ---- 13. Tidy up ----------------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 tidy up (233): a rough row and grid laid out evenly at their mean gap") {
+  const Guid A{8, 1}, B{8, 2}, C{8, 3};
+  NodeChange a = make(A, NodeType::ROUNDED_RECTANGLE, kPage, "$", {600, 0, 40, 40}, "A");
+  NodeChange b = make(B, NodeType::ROUNDED_RECTANGLE, kPage, "%", {652, 6, 40, 40}, "B");
+  NodeChange c = make(C, NodeType::ROUNDED_RECTANGLE, kPage, "&", {720, -4, 40, 40}, "C");
+  Editor e = makeEditor({a, b, c});
+  e.setSelection({A, B, C});
+  CHECK((e.commandState(CommandId::TIDY_UP) & CMD_ENABLED) != 0);
+  REQUIRE(e.command(CommandId::TIDY_UP) == OK);
+  // Gaps 12 and 28 → 20; one row along the top (y −4), from the leftmost x.
+  CHECK(e.document().worldBounds(A) == Rect{600, -4, 40, 40});
+  CHECK(e.document().worldBounds(B) == Rect{660, -4, 40, 40});
+  CHECK(e.document().worldBounds(C) == Rect{720, -4, 40, 40});
+  CHECK(e.undoStack().undoCount() == 1);
+  e.setSelection({A});
+  CHECK((e.commandState(CommandId::TIDY_UP) & CMD_ENABLED) == 0);
+}
+
+// ---- 15. N / ⇧N -----------------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 zoom to next / previous frame (234/235): Layers order from the bottom, wraps, the selection stays") {
+  const Guid F2{9, 1}, F3{9, 2};
+  NodeChange f2 = make(F2, NodeType::FRAME, kPage, "$", {600, 400, 200, 100}, "Second");
+  NodeChange f3 = make(F3, NodeType::FRAME, kPage, "%", {-500, 800, 100, 100}, "Third");
+  Editor e = makeEditor({f2, f3});
+  auto centre = [&] {
+    Vec2 c = e.camera().toWorld({500, 400});
+    return Vec2{std::round(c.x), std::round(c.y)};
+  };
+  REQUIRE(e.command(CommandId::ZOOM_TO_NEXT_FRAME) == OK);
+  CHECK(centre() == Vec2{150, 150});  // F (the page's first child)
+  CHECK(e.selection().empty());
+  e.command(CommandId::ZOOM_TO_NEXT_FRAME);
+  CHECK(centre() == Vec2{700, 450});  // Second
+  e.command(CommandId::ZOOM_TO_NEXT_FRAME);
+  CHECK(centre() == Vec2{-450, 850});  // Third
+  e.command(CommandId::ZOOM_TO_NEXT_FRAME);
+  CHECK(centre() == Vec2{150, 150});  // wraps
+  e.command(CommandId::ZOOM_TO_PREVIOUS_FRAME);
+  CHECK(centre() == Vec2{-450, 850});
+  CHECK(e.selection().empty());
+  // From a selected layer: its frame's next one; the selection stays.
+  e.setSelection({R1});
+  e.command(CommandId::ZOOM_TO_NEXT_FRAME);
+  CHECK(centre() == Vec2{700, 450});
+  CHECK(e.selection() == std::vector<Guid>{R1});
+}
+
+// ---- 9. Esc, \, Enter, Tab --------------------------------------------------------------------------------------------
+
+TEST_CASE("r7 keys: Esc clears the selection; ⇧Enter and \\ select the parent; Enter takes hidden and locked children") {
+  const Guid H{10, 1}, L{10, 2};
+  NodeChange h = make(H, NodeType::ROUNDED_RECTANGLE, F, "#", {10, 100, 20, 20}, "Hidden");
+  h.props.visible = false;
+  NodeChange l = make(L, NodeType::ROUNDED_RECTANGLE, F, "$", {40, 100, 20, 20}, "Locked");
+  l.props.locked = true;
+  Editor e = makeEditor({h, l});
+  e.setSelection({R1});
+  press(e, KeyCode::Escape);
+  CHECK(e.selection().empty());
+  CHECK(press(e, KeyCode::Escape) == K_HANDLED);  // a second Esc: nothing more
+  e.setSelection({R1});
+  press(e, KeyCode::Backslash);
+  CHECK(e.selection() == std::vector<Guid>{F});
+  press(e, KeyCode::Enter);
+  CHECK(e.selection() == std::vector<Guid>{R1, R2, H, L});
+  e.setSelection({R2});
+  press(e, KeyCode::Enter, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{F});
+  // Tab: down the Layers list (the sibling below), wrapping, hidden and locked included; ⇧Tab up.
+  e.setSelection({R1});
+  press(e, KeyCode::Tab);
+  CHECK(e.selection() == std::vector<Guid>{L});
+  press(e, KeyCode::Tab);
+  CHECK(e.selection() == std::vector<Guid>{H});
+  press(e, KeyCode::Tab, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{L});
+  press(e, KeyCode::Tab, MOD_SHIFT);
+  CHECK(e.selection() == std::vector<Guid>{R1});
+}
+
+// ---- ⌘D repeats the last offset ----------------------------------------------------------------------------------
+
+TEST_CASE("r7 duplicate: ⌘D in place with the same name; moved, the next ⌘D repeats the offset") {
+  Editor e = makeEditor();
+  e.setSelection({TOP});
+  e.command(CommandId::DUPLICATE);
+  REQUIRE(e.selection().size() == 1);
+  Guid c1 = e.selection()[0];
+  CHECK(props(e, c1).name == "Rectangle 7");
+  CHECK(props(e, c1).transform == Mat2x3::translate(400, 0));
+  for (int i = 0; i < 3; i++) press(e, KeyCode::ArrowDown, MOD_SHIFT);
+  CHECK(props(e, c1).transform == Mat2x3::translate(400, 30));
+  e.command(CommandId::DUPLICATE);
+  Guid c2 = e.selection()[0];
+  CHECK(props(e, c2).transform == Mat2x3::translate(400, 60));
+  e.command(CommandId::DUPLICATE);
+  Guid c3 = e.selection()[0];
+  CHECK(props(e, c3).transform == Mat2x3::translate(400, 90));
+  // Another selection: in place again.
+  e.setSelection({R1});
+  e.command(CommandId::DUPLICATE);
+  CHECK(props(e, e.selection()[0]).transform == Mat2x3::translate(10, 10));
 }

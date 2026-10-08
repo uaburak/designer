@@ -1019,6 +1019,10 @@ class Editor : private LayoutHost, public TextLayouts {
   Status selectMatching(const std::string& mode);
   void tidyUp();
   Status zoomToSiblingFrame(int step);
+  std::vector<Guid> navigableFrames() const;
+  // A new section as Figma makes one in the current UI theme (live 2026-10-08: dark — #444444, a white 10 % inside
+  // stroke; light — white, a black 10 % stroke; radius 2, not clipping).
+  NodeProps sectionProps() const;
   void ungroup();
   void duplicate();
   void flip(bool horizontal);
@@ -1338,6 +1342,11 @@ class Editor : private LayoutHost, public TextLayouts {
     ChangeSet changes;
   } txn_;
   std::vector<Guid> lastNudged_;
+  // ⌘D: each copy the last duplicate made → its original (the next ⌘D repeats the offset the copy was moved by).
+  std::unordered_map<Guid, Guid, GuidHash> duplicatedFrom_;
+  // N / ⇧N: the frame the view last went to, and the selection then.
+  Guid zoomFrame_ = kNoGuid;
+  std::vector<Guid> zoomSelection_;
 
   // Layout.
   std::unordered_set<Guid, GuidHash> layoutDirty_;

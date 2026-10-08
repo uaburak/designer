@@ -65,8 +65,10 @@ TEST_CASE("editor: click, shift-click, empty click, the frame's own background")
   CHECK(e.selection() == std::vector<Guid>{R1});
   click(e, 700, 500);
   CHECK(e.selection().empty());
+  // A top-level frame's own background (it has layers) acts like empty canvas (live Figma, 2026-10-08).
+  e.setSelection({R1});
   click(e, 200, 200);
-  CHECK(e.selection() == std::vector<Guid>{F});
+  CHECK(e.selection().empty());
 }
 
 TEST_CASE("editor: drag-move is one undo step; ⇧ locks the axis") {
@@ -221,7 +223,7 @@ TEST_CASE("editor: keys the engine handles — arrows, Esc, Enter, Tab, Space") 
   CHECK(e.undoStack().undoCount() == 1);
   e.command(CommandId::UNDO);
   CHECK(props(e, R1).transform.m02 == 10);
-  // Tab / ⇧Tab walk siblings; ⇧Enter the parent; Enter the children; Esc the parent, then nothing.
+  // Tab / ⇧Tab walk siblings; ⇧Enter the parent; Enter the children; Esc clears the selection (live Figma).
   e.setSelection({R2});
   press(e, KeyCode::Tab);
   CHECK(e.selection() == std::vector<Guid>{R1});
@@ -231,8 +233,6 @@ TEST_CASE("editor: keys the engine handles — arrows, Esc, Enter, Tab, Space") 
   CHECK(e.selection() == std::vector<Guid>{F});
   press(e, KeyCode::Enter);
   CHECK(e.selection() == std::vector<Guid>{R1, R2});
-  press(e, KeyCode::Escape);
-  CHECK(e.selection() == std::vector<Guid>{F});
   press(e, KeyCode::Escape);
   CHECK(e.selection().empty());
   // Everything else is TS's (its shortcut registry).
@@ -379,7 +379,7 @@ TEST_CASE("editor: pages keep their own selection") {
 
 TEST_CASE("editor: a press inside a selected layer keeps it; a drag moves the selection; a click selects the child (Figma)") {
   Editor e = makeEditor();
-  click(e, 150, 150);  // the frame's own background: selects the frame
+  e.setSelection({F});  // (a click on its own background selects nothing: live Figma)
   REQUIRE(e.selection() == std::vector<Guid>{F});
   e.takeEvents();
   // Press on Rectangle 1 inside the selected frame and drag: the frame moves, the rectangle keeps its place in it.

@@ -552,7 +552,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
              doc_.get(path[topAt])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
              !doc_.children(path[topAt]).empty()) {
     // A top-level frame's (or a section's) own background: a drag is a marquee among its children (⌘: a deep
-    // one), a click selects it.
+    // one), a click selects nothing (live Figma: like empty canvas).
     pressMarquee_ = true;
     marqueeScope_ = path[topAt];
   } else if (!pressedWasSelected_) {
@@ -797,15 +797,9 @@ void Editor::finishClick(uint32_t mods) {
     return;
   }
   if (pressMarquee_) {
-    if (marqueeScope_ != kNoGuid) {
-      std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
-      auto it = std::find(next.begin(), next.end(), marqueeScope_);
-      if (it != next.end()) next.erase(it);
-      else next.push_back(marqueeScope_);
-      changeSelection(std::move(next));
-    } else if (!shift) {
-      changeSelection({});
-    }
+    // Empty canvas, or the empty background of a top-level frame (or section) with layers in it: live Figma
+    // (2026-10-08) treats both alike — a click selects nothing (⇧ keeps the selection).
+    if (!shift) changeSelection({});
     return;
   }
   if (pressed_ == kNoGuid || !pressedWasSelected_) return;
@@ -852,19 +846,17 @@ void Editor::prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHas
 
 Guid Editor::dropTargetAt(Vec2 world, bool force) const {
   // The topmost frame under the pointer that isn't being moved (nor inside what is): its box, inside every
-  // frame that clips it. Instances and locked or hidden frames don't take layers. Unless `force` (⌘), a frame
-  // smaller than the moving layers doesn't take them either (Figma), except the frame they are already in.
-  GuidSet moving, parents;
-  for (const Target& t : targets_) moving.insert(t.id), parents.insert(t.parent);
+  // frame that clips it. Instances and locked or hidden frames don't take layers. The pointer decides, not the
+  // sizes: live Figma (2026-10-08) nests a 500×350 layer dropped on a 150×150 frame. (`force`, ⌘: kept for the
+  // safeguards Figma's ⌘ overrides; none here yet.)
+  (void)force;
+  GuidSet moving;
+  for (const Target& t : targets_) moving.insert(t.id);
   Guid best = page_;
   doc_.query(page_, Rect{world.x, world.y, 0, 0}, [&](Guid id) {
     const Node* n = doc_.get(id);
     if (!n || !acceptsChildren(id)) return true;
     if (!doc_.visibleInTree(id)) return true;
-    if (!force && !parents.count(id) && n->props.type != NodeType::SECTION) {
-      Rect fb = doc_.worldBounds(id);
-      if (fb.w < moveBox_.w - 1e-6 || fb.h < moveBox_.h - 1e-6) return true;
-    }
     bool ok = true;
     for (Guid cur = id; ok && doc_.has(cur); cur = doc_.parentOf(cur)) {
       const Node* c = doc_.get(cur);
@@ -1433,7 +1425,7 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
                                                                  : "Create rectangle";
     begin(TxnKind::GESTURE, label);
     Guid id = newGuid();
-    c = NodeChange::created(id, defaultProps(drawType_));
+    c = NodeChange::created(id, drawType_ == NodeType::SECTION ? sectionProps() : defaultProps(drawType_));
     c.props.name = nextName(drawType_ == NodeType::FRAME             ? "Frame"
                             : drawType_ == NodeType::SECTION         ? "Section"
                             : drawType_ == NodeType::ELLIPSE         ? "Ellipse"

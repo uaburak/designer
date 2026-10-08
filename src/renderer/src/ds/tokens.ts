@@ -466,7 +466,8 @@ export const canvasChromeMetrics = {
   titleBaseline: 10,
   ruler: { thickness: 20, tick: 4, fontSize: 10 },
   titleSize: 11,
-  sectionPill: { height: 20, padX: 6, fontSize: 11 },
+  // Live Figma (canvas-section-selected): the name in a 22 px pill above the section's top-left corner, 5 px off it.
+  sectionPill: { height: 22, padX: 6, fontSize: 11, gap: 5 },
   // Live Figma: a 9 px ring whose centre sits 12 px in from each corner (radius 0).
   radiusHandle: { size: 9, inset: 12 },
 } as const;

@@ -37,6 +37,17 @@ bool samePaints(const std::vector<Paint>& a, const std::vector<Paint>& b) {
 
 }  // namespace
 
+NodeProps Editor::sectionProps() const {
+  NodeProps p = defaultProps(NodeType::SECTION);
+  if (theme_ == Theme::Dark) {
+    p.fillPaints = {Paint::solid(Color::hex(0x444444))};
+    Paint stroke = Paint::solid(Color::hex(0xFFFFFF));
+    stroke.opacity = 0.1f;
+    p.strokePaints = {stroke};
+  }
+  return p;
+}
+
 void Editor::adoptIntoSection(Guid section) {
   // A section drawn around layers takes the ones it fully covers (Figma), keeping their place on the page and their order.
   const Node* s = doc_.get(section);
@@ -78,7 +89,7 @@ Guid Editor::wrapInSection() {
     any = true;
   }
   begin(TxnKind::USER, "Wrap in new section");
-  NodeProps p = defaultProps(NodeType::SECTION);
+  NodeProps p = sectionProps();
   p.name = nextName("Section");
   p.transform = Mat2x3::translate(std::round(u.x - kSectionPadding), std::round(u.y - kSectionPadding));
   p.size = {std::round(u.w + 2 * kSectionPadding), std::round(u.h + 2 * kSectionPadding)};
@@ -292,9 +303,9 @@ void Editor::tidyUp() {
 
 // ---- Next / previous frame ----------------------------------------------------------------------------------------
 
-Status Editor::zoomToSiblingFrame(int step) {
-  // N / ⇧N (Figma's "Zoom to next frame" / "Zoom to previous frame"): the page's titled frames in reading order
-  // (top to bottom, then left to right); from the selected one (or the first), selected and zoomed to.
+std::vector<Guid> Editor::navigableFrames() const {
+  // The page's titled frames (those in sections too, at their section's place) in Layers order, bottom first (live
+  // Figma, 2026-10-08: N from nothing went to the page's first frame, then on up the list).
   std::vector<Guid> frames;
   auto visit = [&](auto&& self, Guid parent) -> void {
     for (Guid c : doc_.children(parent)) {
@@ -304,20 +315,35 @@ Status Editor::zoomToSiblingFrame(int step) {
       else if (showsTitle(doc_, c)) frames.push_back(c);
     }
   };
-  visit(visit, page_);
+  if (page_ != kNoGuid) visit(visit, page_);
+  return frames;
+}
+
+Status Editor::zoomToSiblingFrame(int step) {
+  // N / ⇧N ("Zoom to next frame" / "Zoom to previous frame", live View menu): the view goes to the next / previous
+  // frame; the selection stays (live). From the selection's frame, else from where N last went, else from the ends.
+  std::vector<Guid> frames = navigableFrames();
   if (frames.empty()) return E_NOT_FOUND;
-  std::sort(frames.begin(), frames.end(), [&](Guid a, Guid b) {
-    Rect ra = doc_.worldBounds(a), rb = doc_.worldBounds(b);
-    if (std::fabs(ra.y - rb.y) > 1e-6) return ra.y < rb.y;
-    return ra.x < rb.x;
-  });
-  long at = -1;
-  for (size_t i = 0; i < frames.size() && !selection_.empty(); i++)
-    if (frames[i] == selection_[0]) at = static_cast<long>(i);
   long n = static_cast<long>(frames.size());
+  auto indexOf = [&](Guid id) -> long {
+    for (long i = 0; i < n; i++)
+      if (frames[static_cast<size_t>(i)] == id) return i;
+    return -1;
+  };
+  long at = -1;
+  if (!selection_.empty()) {
+    for (Guid cur = selection_[0]; at < 0 && cur != kNoGuid && doc_.has(cur) && cur != page_; cur = doc_.parentOf(cur)) at = indexOf(cur);
+    if (at >= 0 && frames[static_cast<size_t>(at)] != zoomFrame_ && zoomFrame_ != kNoGuid && indexOf(zoomFrame_) >= 0 && selection_ == zoomSelection_)
+      at = indexOf(zoomFrame_);
+  } else if (zoomFrame_ != kNoGuid) {
+    at = indexOf(zoomFrame_);
+  }
   long next = at < 0 ? (step > 0 ? 0 : n - 1) : ((at + step) % n + n) % n;
-  changeSelection({frames[static_cast<size_t>(next)]});
-  zoomToSelection();
+  Guid frame = frames[static_cast<size_t>(next)];
+  zooming_ = false;
+  changeCamera(snapped(Camera::fit(doc_.worldBounds(frame), viewport_.width, viewport_.height, false)));
+  zoomFrame_ = frame;
+  zoomSelection_ = selection_;
   return OK;
 }
 

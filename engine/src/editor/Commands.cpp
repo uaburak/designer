@@ -755,6 +755,23 @@ void Editor::duplicate() {
     u = i ? u.united(b) : b;
   }
   double dx = 0;
+  // ⌘D again on the copies the last ⌘D made, moved since: each new copy goes that offset further (live Figma,
+  // 2026-10-08: ⌘D, ⇧↓ ×3, ⌘D, ⌘D → y 30, 60, 90).
+  Vec2 repeat;
+  bool repeating = !duplicatedFrom_.empty();
+  for (size_t i = 0; repeating && i < top.size(); i++) {
+    auto it = duplicatedFrom_.find(top[i]);
+    const Node* copy = doc_.get(top[i]);
+    const Node* src = it == duplicatedFrom_.end() ? nullptr : doc_.get(it->second);
+    if (!copy || !src || src->props.parentIndex.guid != copy->props.parentIndex.guid) {
+      repeating = false;
+      break;
+    }
+    Vec2 off{copy->props.transform.m02 - src->props.transform.m02, copy->props.transform.m12 - src->props.transform.m12};
+    if (i == 0) repeat = off;
+    else if (std::fabs(off.x - repeat.x) > 1e-6 || std::fabs(off.y - repeat.y) > 1e-6) repeating = false;
+  }
+  if (repeating) frames = false;
   if (frames) {
     const double gap = kDuplicateGap;
     GuidSet mine(top.begin(), top.end());
@@ -780,11 +797,15 @@ void Editor::duplicate() {
     std::string key = placeAt(parent, index, kNoGuid);
     Mat2x3 t = n->props.transform;
     t.m02 += dx;
+    if (repeating) t.m02 += repeat.x, t.m12 += repeat.y;
     // ⌘D on a main component makes an instance of it (R4 §2); a variant in its set, a new variant.
     if (n->props.type == NodeType::SYMBOL && setOf(id) == kNoGuid) copies.push_back(createInstance(id, parent, key, t));
     else copies.push_back(cloneSubtree(id, parent, key, t));
     if (n->props.type == NodeType::SYMBOL && setOf(id) != kNoGuid) renameVariants(parent);
   }
+  duplicatedFrom_.clear();
+  for (size_t i = 0; i < copies.size() && i < top.size(); i++)
+    if (copies[i] != kNoGuid) duplicatedFrom_[copies[i]] = top[i];
   changeSelection(std::move(copies));
   commit();
 }

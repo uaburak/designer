@@ -185,14 +185,14 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       if (!n) continue;
       bool isSelected = has(overlay.selection, t.id), hovered = has(overlay.hover, t.id);
       if (t.section) {
-        // The pill: the section's own colour a shade darker (the selection colour when selected or hovered), its
-        // name in Inter Medium.
+        // The pill: the section's own fill colour, selected or not (live Figma), its name in Inter Medium.
+        (void)isSelected;
+        (void)hovered;
         Color fill = Color::hex(0xE6E6E6);
         for (const Paint& p : n->props.fillPaints)
-          if (p.visible && p.type == PaintType::SOLID) fill = Color{p.color.r * 0.9f, p.color.g * 0.9f, p.color.b * 0.9f, 1};
+          if (p.visible && p.type == PaintType::SOLID) fill = Color{p.color.r, p.color.g, p.color.b, 1};
         bool darkFill = 0.2126 * fill.r + 0.7152 * fill.g + 0.0722 * fill.b < 0.5;
         Color ink = darkFill ? Color{1, 1, 1, 1} : Color{0, 0, 0, 0.9f};
-        if (isSelected || hovered) fill = blue, ink = white;
         const Rect& h = t.hit;
         const double r = 2;
         emit(makeShape(Mat2x3::translate(std::round(h.x * dpr) / dpr, std::round(h.y * dpr) / dpr), {h.w, h.h}, ShapeKind::Rect, {r, r, r, r}, fill,
