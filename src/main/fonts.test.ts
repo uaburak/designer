@@ -9,16 +9,22 @@ const { parseFile } = await import("./fonts");
 
 describe("fonts index (main)", () => {
   it("lists a variable font's named instances", async () => {
-    const path = fileURLToPath(new URL("../renderer/src/engine/fonts/InterVariable.ttf", import.meta.url));
+    // Figma's Inter (3.19): one file, wght and slnt axes, eighteen named instances.
+    const path = fileURLToPath(new URL("../renderer/src/engine/fonts/Inter-3.19.ttf", import.meta.url));
     const faces = await parseFile(path, "user");
-    expect(faces.map((f) => f.style)).toContain("Regular");
+    expect(faces).toHaveLength(18);
     const bold = faces.find((f) => f.style === "Bold")!;
-    expect(bold.family).toMatch(/^Inter/);
+    expect(bold.family).toBe("Inter");
     expect(bold.weight).toBe(700);
     expect(bold.italic).toBe(false);
+    expect(bold.variable).toBe(true);
     expect(new Set(faces.map((f) => f.id)).size).toBe(1);
-    const italic = await parseFile(path.replace("InterVariable.ttf", "InterVariable-Italic.ttf"), "user");
+    const italic = faces.filter((f) => f.style.includes("Italic"));
+    expect(italic).toHaveLength(9);
     expect(italic.every((f) => f.italic)).toBe(true);
+    // Inter 4.1 (kept for the engine's native tests): its italic file's instances are all italic.
+    const v4 = fileURLToPath(new URL("../renderer/src/engine/fonts/InterVariable-Italic.ttf", import.meta.url));
+    expect((await parseFile(v4, "user")).every((f) => f.italic)).toBe(true);
   });
 
   it.runIf(existsSync("/System/Library/Fonts/Helvetica.ttc"))("reads a TrueType collection's faces", async () => {
@@ -62,5 +68,34 @@ describe("fonts:read slices a collection to one face", () => {
     expect(same[0].style).toBe(target.style);
     expect(same[0].weight).toBe(target.weight);
     expect((await readFile(out)).subarray(0, 4).toString("latin1")).toBe("ttcf");
+  });
+});
+
+describe("fonts:changed (the font folders watched)", () => {
+  it("rescans after a font is installed or removed and reports once per change", async () => {
+    const { watchFonts } = await import("./fonts");
+    const { copyFileSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "fonts-watch-"));
+    const inter = fileURLToPath(new URL("../renderer/src/engine/fonts/Inter-3.19.ttf", import.meta.url));
+    const rescan = async () => (await Promise.all(readdirSync(dir).filter((n) => n.endsWith(".ttf")).map((n) => parseFile(join(dir, n), "user")))).flat();
+    const versions: number[] = [];
+    const stop = watchFonts((v) => versions.push(v), { dirs: [dir], debounceMs: 50, rescan });
+    try {
+      await new Promise((r) => setTimeout(r, 100));
+      copyFileSync(inter, join(dir, "Inter.ttf"));
+      await vi.waitFor(() => expect(versions).toHaveLength(1), { timeout: 3000, interval: 50 });
+      // A file that isn't a font changes nothing a picker shows.
+      writeFileSync(join(dir, "notes.txt"), "x");
+      await new Promise((r) => setTimeout(r, 300));
+      expect(versions).toHaveLength(1);
+      unlinkSync(join(dir, "Inter.ttf"));
+      await vi.waitFor(() => expect(versions).toHaveLength(2), { timeout: 3000, interval: 50 });
+      expect(versions[1]).toBeGreaterThan(versions[0]);
+    } finally {
+      stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -126,7 +126,7 @@ function pageMain() {
       },
       async read(face) {
         if (bundled.has(face.id)) {
-          const url = face.id === "bundled:inter" ? (await import("@/engine/fonts/InterVariable.ttf?url")).default : (await import("@/engine/fonts/InterVariable-Italic.ttf?url")).default;
+          const url = (await import("@/engine/fonts/Inter-3.19.ttf?url")).default;
           return new Uint8Array(await (await fetch(url)).arrayBuffer());
         }
         return new Uint8Array(await (await fetch(`/__fid/font?id=${encodeURIComponent(face.id)}`)).arrayBuffer());

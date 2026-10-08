@@ -1,22 +1,28 @@
 /**
  * Fonts for the engine (docs/engine.md §7.1, docs/desktop.md §14), once per
  * renderer process: the engine asks for a FontName {family, style}
- * (REQUEST_FONT); this finds the face — Inter is bundled with the engine, the
- * desktop app adds the system's and the user's fonts (`designer.fonts`) —,
- * hands its bytes to the engine (engine_font_add_take, once per file) and
- * binds the name to it (engine_font_bind), or reports it missing
- * (engine_font_missing: the text draws with Inter, the panel says "Missing
- * fonts"). Matching: family (case-insensitive), then the style name (spaces
- * and case ignored), then the PostScript name, then the nearest weight with
- * the same slant.
+ * (REQUEST_FONT); this finds the face — among the installed fonts (the
+ * desktop's index of the system's and the user's), Figma's own Inter (bundled)
+ * and the Google Fonts catalog (downloaded by main on first use) —, hands its
+ * bytes to the engine (engine_font_add_take, once per file) and binds the name
+ * to it (engine_font_bind), or reports it missing (engine_font_missing: the
+ * text draws with Inter, the panel says "Missing fonts"). Matching: family
+ * (case-insensitive), then the style name (spaces and case ignored), then the
+ * PostScript name, then the nearest weight with the same slant.
+ *
+ * Precedence, as Figma's: a family installed on the computer wins over the same
+ * family served by Figma (its Inter, Google Fonts); Figma's Inter wins over
+ * Google's (docs/research/figma/R11-fonts.md).
  */
-import interItalicUrl from "./fonts/InterVariable-Italic.ttf?url";
-import interUrl from "./fonts/InterVariable.ttf?url";
+import interUrl from "./fonts/Inter-3.19.ttf?url";
 import type { EngineExports } from "./EngineExports";
 
-/** One face of a font file (the desktop's FontIndex entries, and the bundled Inter's). */
+/** Where a face comes from: Figma's own (bundled), installed on the computer, or Google Fonts. */
+export type FontFaceSource = "bundled" | "system" | "user" | "google";
+
+/** One face of a font file (the desktop's FontIndex entries, the bundled Inter's, the Google catalog's styles). */
 export interface FontFaceInfo {
-  /** Stable id: the desktop's index id, or "bundled:…" */
+  /** Stable id: the desktop's index id, "bundled:…", or a Google face id ("g:…") */
   id: string;
   family: string;
   /** Typographic subfamily, e.g. "Semi Bold Italic" */
@@ -24,8 +30,13 @@ export interface FontFaceInfo {
   postscriptName?: string;
   weight: number;
   italic: boolean;
-  source: "bundled" | "system" | "user";
+  source: FontFaceSource;
   collectionIndex: number;
+  /** A variable font (its styles are named instances) */
+  variable?: boolean;
+  /** Google Fonts: the family's category ("Sans Serif" …) and popularity rank */
+  category?: string;
+  popularity?: number;
 }
 
 /** Where faces come from. `read` returns the whole file the face is in. */
@@ -39,21 +50,27 @@ const INTER_STYLES: [string, number][] = [
   ["Semi Bold", 600], ["Bold", 700], ["Extra Bold", 800], ["Black", 900],
 ];
 
-/** Inter, as Figma lists it: nine weights, upright and italic (two variable files). */
+/**
+ * Inter, as Figma serves it: Inter 3.19's variable font (rsms/inter v3.19 "Inter Variable/Inter.ttf", SHA-1
+ * d483e2c7…, the digest Figma stores for every Inter text — not Google Fonts' Inter), nine weights upright and
+ * italic, all named instances of the one file.
+ */
 export const BUNDLED_FACES: FontFaceInfo[] = INTER_STYLES.flatMap(([style, weight]) => [
-  { id: "bundled:inter", family: "Inter", style, weight, italic: false, source: "bundled" as const, collectionIndex: 0 },
+  { id: "bundled:inter", family: "Inter", style, weight, italic: false, source: "bundled" as const, collectionIndex: 0, variable: true },
   {
-    id: "bundled:inter-italic",
+    id: "bundled:inter",
     family: "Inter",
     style: style === "Regular" ? "Italic" : `${style} Italic`,
     weight,
     italic: true,
     source: "bundled" as const,
     collectionIndex: 0,
+    variable: true,
   },
 ]);
 
-const BUNDLED_URLS: Record<string, string> = { "bundled:inter": interUrl, "bundled:inter-italic": interItalicUrl };
+/** The bundled files by face id (tools that load fonts themselves read them from here). */
+export const BUNDLED_URLS: Record<string, string> = { "bundled:inter": interUrl };
 
 /** Families tried, in order, for characters a text's own font lacks (macOS names; absent ones are skipped). */
 export const FALLBACK_FAMILIES = [
@@ -61,30 +78,56 @@ export const FALLBACK_FAMILIES = [
   "Noto Sans", "Arial Unicode MS", "Apple Symbols",
 ];
 
-interface DesktopFonts {
-  list(): Promise<{ faces: FontFaceInfo[] }>;
-  read(id: string): Promise<Uint8Array | ArrayBuffer>;
+/** A Google Fonts family as the desktop's index lists it (src/shared/ipc.ts GoogleFontFamily). */
+export interface GoogleFamilyEntry {
+  family: string;
+  category: string;
+  popularity: number;
+  axes: unknown[];
+  styles: { style: string; weight: number; italic: boolean; id: string }[];
 }
 
-function desktopFonts(): DesktopFonts | null {
+interface DesktopFonts {
+  list(): Promise<{ faces: FontFaceInfo[]; google?: GoogleFamilyEntry[] }>;
+  read(id: string): Promise<Uint8Array | ArrayBuffer>;
+  preview?(family: string, text: string): Promise<Uint8Array | ArrayBuffer>;
+  onChanged?(cb: () => void): () => void;
+}
+
+export function desktopFonts(): DesktopFonts | null {
   const d = (globalThis as { designer?: { fonts?: DesktopFonts } }).designer;
   return d?.fonts ?? null;
 }
 
-/** The bundled Inter, plus the desktop's fonts when there is a desktop. */
+/**
+ * Every face, by precedence: the installed fonts, Figma's Inter unless Inter is installed, the Google families that
+ * neither has.
+ */
+export function mergeFaces(local: readonly FontFaceInfo[], google: readonly GoogleFamilyEntry[] = []): FontFaceInfo[] {
+  const have = new Set(local.map((f) => f.family.toLowerCase()));
+  const out = [...local];
+  if (!have.has("inter")) out.push(...BUNDLED_FACES);
+  for (const f of BUNDLED_FACES) have.add(f.family.toLowerCase());
+  for (const g of google) {
+    if (have.has(g.family.toLowerCase())) continue;
+    const variable = g.axes.length > 0;
+    for (const s of g.styles)
+      out.push({ id: s.id, family: g.family, style: s.style, weight: s.weight, italic: s.italic, source: "google", collectionIndex: 0, variable, category: g.category, popularity: g.popularity });
+  }
+  return out;
+}
+
+/** Figma's Inter, plus the desktop's fonts and the Google catalog when there is a desktop. */
 export const defaultFontSource: FontSource = {
   async list() {
     const desktop = desktopFonts();
-    let system: FontFaceInfo[] = [];
-    if (desktop) {
-      try {
-        system = (await desktop.list()).faces;
-      } catch {
-        system = [];
-      }
+    if (!desktop) return [...BUNDLED_FACES];
+    try {
+      const index = await desktop.list();
+      return mergeFaces(index.faces, index.google ?? []);
+    } catch {
+      return [...BUNDLED_FACES];
     }
-    // The bundled Inter wins over an installed one (the same everywhere, like Figma's).
-    return [...BUNDLED_FACES, ...system.filter((f) => f.family.toLowerCase() !== "inter")];
   },
   async read(face) {
     const url = BUNDLED_URLS[face.id];
@@ -136,6 +179,13 @@ export interface FontFamily {
   family: string;
   styles: string[];
   faces: FontFaceInfo[];
+  /** Where the family comes from (the picker's filters): installed on the computer, Figma's own, Google Fonts */
+  source: "local" | "bundled" | "google";
+  /** Some face is a variable font */
+  variable: boolean;
+  /** Google Fonts: category and popularity rank */
+  category?: string;
+  popularity?: number;
 }
 
 /** Groups faces into families (sorted by name, case-insensitive) with their styles ordered by weight, upright first. */
@@ -150,7 +200,17 @@ export function groupFamilies(faces: readonly FontFaceInfo[]): FontFamily[] {
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
     .map(([family, list]) => {
       const sorted = [...list].sort((a, b) => a.weight - b.weight || Number(a.italic) - Number(b.italic));
-      return { family, styles: [...new Set(sorted.map((f) => f.style))], faces: sorted };
+      const first = sorted[0];
+      const source = first.source === "google" ? "google" : first.source === "bundled" ? "bundled" : "local";
+      return {
+        family,
+        styles: [...new Set(sorted.map((f) => f.style))],
+        faces: sorted,
+        source,
+        variable: sorted.some((f) => f.variable),
+        ...(first.category !== undefined ? { category: first.category } : {}),
+        ...(first.popularity !== undefined ? { popularity: first.popularity } : {}),
+      } satisfies FontFamily;
     });
 }
 
@@ -195,6 +255,10 @@ class FontService {
   /** Names already answered or on their way (the engine asks once per module; attach() asks ahead of it). */
   private readonly asked = new Set<string>();
   private readonly styles = new Map<string, string>();
+  /** Names the engine was told are missing (family + "\n" + style), for the "Missing fonts" UI. */
+  private readonly missingNames = new Map<string, { family: string; style: string }>();
+  private readonly missingListeners = new Set<() => void>();
+  private watching = false;
 
   /** Called by Engine.create: the module to feed, and the fallback list (once). */
   attach(exports: EngineExports): void {
@@ -209,6 +273,9 @@ class FontService {
   /** Replaces where faces come from (tests read files from disk). */
   setSource(source: FontSource): void {
     this.source = source;
+    // Another source: every name is answered again from it.
+    this.loaded.clear();
+    for (const key of this.asked) if (!this.missingNames.has(key)) this.missingNames.set(key, { family: key.split("\n")[0], style: this.styles.get(key) ?? "" });
     this.refresh();
   }
 
@@ -219,14 +286,33 @@ class FontService {
   refresh(): void {
     this.faces = null;
     this.familyList = null;
-    this.loaded.clear();
-    const names = [...this.asked];
-    this.asked.clear();
+    // Faces already in the engine stay (a file isn't read twice); the missing names are asked again.
+    const names = [...this.missingNames.keys()];
+    this.missingNames.clear();
     for (const key of names) {
+      this.asked.delete(key);
       const [family, style] = key.split("\n");
       this.request(family, this.styles.get(key) ?? style);
     }
     for (const l of this.listListeners) l();
+    for (const l of this.missingListeners) l();
+  }
+
+  /** The names reported missing so far (fonts not installed, not served, or not downloadable now). */
+  missing(): { family: string; style: string }[] {
+    return [...this.missingNames.values()];
+  }
+
+  /** Called when the missing names change. */
+  onMissingChange(listener: () => void): () => void {
+    this.missingListeners.add(listener);
+    return () => this.missingListeners.delete(listener);
+  }
+
+  private markMissing(x: EngineExports, family: string, style: string): void {
+    x.fontMissing(encoder.encode(family), encoder.encode(style));
+    this.missingNames.set(`${family}\n${norm(style)}`, { family, style });
+    for (const l of this.missingListeners) l();
   }
 
   /** Called when the list of faces changed (fonts installed or removed, a new source). */
@@ -237,6 +323,11 @@ class FontService {
 
   /** Every face known (bundled + desktop), for the font pickers. */
   list(): Promise<FontFaceInfo[]> {
+    if (!this.watching && this.source === defaultFontSource) {
+      // The desktop says when fonts are installed or removed (main watches the font folders).
+      this.watching = true;
+      desktopFonts()?.onChanged?.(() => this.refresh());
+    }
     this.faces ??= this.source.list().catch(() => BUNDLED_FACES);
     return this.faces;
   }
@@ -268,7 +359,7 @@ class FontService {
     this.styles.set(key, style);
     this.pending++;
     void this.resolve(x, family, style)
-      .catch(() => x.fontMissing(encoder.encode(family), encoder.encode(style)))
+      .catch(() => this.markMissing(x, family, style))
       .finally(() => {
         this.pending--;
         for (const l of this.listeners) l();
@@ -279,13 +370,15 @@ class FontService {
   private async resolve(x: EngineExports, family: string, style: string): Promise<void> {
     const face = matchFace(await this.list(), family, style);
     if (!face) {
-      x.fontMissing(encoder.encode(family), encoder.encode(style));
+      this.markMissing(x, family, style);
       return;
     }
     const key = `${face.id}#${face.collectionIndex}`;
     let id = this.loaded.get(key);
     if (!id) {
       id = this.source.read(face).then((bytes) => x.fontAddTake(bytes, face.collectionIndex));
+      // A read that failed (a Google file offline) is tried again on the next ask.
+      id.catch(() => this.loaded.delete(key));
       this.loaded.set(key, id);
     }
     const faceId = await id;
