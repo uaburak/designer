@@ -1,5 +1,14 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU)
 
+## Fonts — document fonts, Replace fonts (2026-10-08, branch `r5-fonts`)
+
+The fonts round (Google Fonts, Figma's font picker, Missing fonts; desktop side in docs/desktop.md §14.1, research in docs/research/figma/R11-fonts.md). Engine additions, additive (ABI unchanged):
+
+- `i32 engine_document_fonts(h)` → `[{family, style, uses}]`, sorted: every font the document names — a TEXT node's own `fontName` when some character takes it (no runs, a character in style 0 or in a run without a font), each run's `fontName` in `styleOverrideTable`, an instance override's `fontName` and its runs (text styles are TEXT nodes too); derived instance sublayers add nothing. `Engine.documentFonts()`. The font picker's "In this file" and the Missing fonts dialog read it.
+- `REPLACE_FONTS = 190` `{fonts: [{from: {family, style}, to: {family, style}}]}`: every match (family and style exact) on nodes, runs and instance overrides rewritten, postscript cleared, one undo step "Replace fonts" (none when nothing matches); `E_INVALID` for malformed args. 190, not 178, so parallel rounds adding commands after 177 don't collide.
+- Code: `engine/src/editor/FontCommands.cpp`; tests `engine/tests/unit/text.fonts.test.cpp` (2 cases). Release wasm rebuilt.
+- **Inter**: the bundled document Inter is now Figma's (rsms/inter 3.19 variable, `src/renderer/src/engine/fonts/Inter-3.19.ttf`); the native tests still load Inter 4.1 (`TextHelpers.h loadInter`, `export.test.cpp`, `text.stored.test.cpp`) — switching them means re-deriving their expected numbers. Parity with Figma's stored glyphs on the owner's Inter texts (r5-text's harness): mean |Δx| 0.356 → 0.025 px, glyphs > 0.1 px 20,284 → 799; what's left is a fallback glyph and a 1 px ⌈width⌉ on centred auto-width labels (R11 §2).
+
 ## E9 WebGPU — build, switches, status (2026-10-08)
 
 Figma's renderer moved to WebGPU behind the same graphics interface, WebGL kept as the fallback (docs/research/figma/R10-webgpu.md); ours now does the same (docs/engine.md §6.1 "As built (E9)"). Branch `r5-webgpu`.
@@ -556,7 +565,7 @@ E3 is in: fonts, HarfBuzz shaping, line breaking, text layout with every TextDat
 - E3.2: bidi (SheenBidi) and RTL reordering, emoji (sbix PNG glyphs), lists (`lines`), OpenType feature fields (`fontVariant*` are kept in `extra` but not applied), SMALL_CAPS, variable axes beyond named instances (`fontVariations`), `leadingTrim`, `textDecorationStyle`/offset/thickness, hyperlinks.
 - `derivedTextData` is not written into the document (it's `engine_text_layout`'s shape); `ENCODE_BAKE_TEXT` comes with E7.
 - The IME composition isn't underlined on the canvas; styles at the caret (`styleAtCaret`) aren't in TEXT_EDIT yet — the panel can read the run under `selStart` from `textData`.
-- Fonts: no `fonts:changed` watch; the fonts utility process; the Google Fonts source.
+- Fonts: ~~no `fonts:changed` watch; the Google Fonts source~~ (round 5 fonts, "Fonts — document fonts, Replace fonts" at the top); the fonts utility process.
 - Glyph rendering has no gamma/contrast tweak for small text yet (§14 Q2) and no atlas cache for very large documents of small text; profile before adding one.
 
 ---

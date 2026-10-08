@@ -6,6 +6,16 @@
 
 ---
 
+## Status (2026-10-08, round 5 — fonts)
+
+Branch `r5-fonts`. Research: `docs/research/figma/R11-fonts.md`; desktop: docs/desktop.md §14.1; engine: docs/engine-build.md "Fonts".
+
+- **Font list** (`fontList.ts`, `@/engine/fonts` `families()`): every family the font service knows — installed (main's index), Figma's Inter (bundled 3.19), the Google Fonts catalog — merged by Figma's precedence (installed > Figma's Inter > Google), each with its styles by weight (upright first; variable fonts' named instances), `source`, `variable`, Google's `category` / `popularity`. Re-read on the desktop's `fonts:changed`.
+- **Font picker** (`panels/design/FontPicker.tsx`): Typography's Font family field (and the text style editor's) opens the picker left of the right panel: "Search fonts" (words in any order, accents ignored), the filter (All fonts, In this file, Popular, Installed by you, Google fonts, Variable fonts; remembered for the session; "Popular" = Figma's Inter + Google's 50 most popular, standing in for Figma's own curation), one virtualized list (32 px rows) with each name in its own face (`fontPreview.ts`: installed by name, Inter from the bundled file, Google from a ≈2 KB subset of the name via `fonts:preview`; at most 4 loading, skeletons meanwhile, rows scrolled past skipped), the current family ticked and in view. Hover (120 ms rest) or ↑ ↓ previews the family on the selected text in an open edit; leaving the list or Esc rolls it back; click / Enter commits one undo step, keeping the style (else the nearest weight and slant). A chevron on a family with several styles opens them beside the list, each in its face. Font style stays the Select with the family's own styles. No "Recently used" (Figma has none).
+- **Missing fonts** (`panels/MissingFonts.tsx`): from `engine.documentFonts()` against the list (a family nobody has, or a style the family lacks) plus faces that failed to load (a Google family offline). The left panel header shows the missing font icon (`24.warning` stands in for Figma's glyph), the Font family field its own; the icon opens "Missing fonts": each font with its layer count and a Replacement family (the picker) + style, Inter in the same style by default; "Replace fonts" runs `REPLACE_FONTS` (one undo step).
+- Checks: `__tests__/fontList.test.ts` (grouping, precedence, filters, search, missing), `src/main/googleFonts.test.ts` (catalog, ids, METADATA.pb, downloads, fallback, offline, previews; network mocked), `src/main/fonts.test.ts` (Inter 3.19 instances, the folder watcher), `editor-shot.mjs` `EDITOR_ONLY=fonts` (26 checks, desktop fonts mocked in the page; shots 120–125). In the built app (a scratch run): 336 installed families / 1,413 faces + 1,950 Google families listed; `fonts:list` 18–22 ms warm; Outfit downloaded in 0.8 s, byte-identical to the file Figma laid the owner's Outfit texts out with.
+- Not done / unverified: the picker's exact UI3 metrics (no reference screenshot); Figma's missing-font glyph; "Used at <organization>" (no organizations); variable axes beyond named instances in the picker (Type settings › Variable is r5-text's); previews of installed fonts Chromium can't find by family name fall back to the UI font.
+
 ## Status (2026-10-08, round 5 — variables and components)
 
 Branch `r5-variables-components`; engine side in docs/engine-build.md "Round 5". Compared with help.figma.com ("Create and manage variables and collections", "Modes for variables", "Extend a variable collection", "Create and use component properties", "Use slots").
@@ -344,7 +354,7 @@ Compared with the measurements in `docs/research/visual-diff.md` (no reference i
 - W / H are disabled for groups (the engine refits groups to their children; a group resize from the panel would scale the children — not built).
 - The picker's Libraries tab lists local and library colour styles and variables (rounds 6–7); "Paste to replace" (⇧⌘R) and image fills copied between files (Image.dataBlob) aren't built.
 - Grid auto layout (the flow's fourth option) waits for the engine's GRID; text baseline alignment is written but the engine lays BASELINE out as MIN until E3.
-- Typography: the font list is the file's families + Inter and the styles a fixed list until the fonts process (E3) lists them; mixed text runs (`styleOverrideTable`) aren't shown per range.
+- Typography: ~~the font list is the file's families + Inter and the styles a fixed list~~ (round 5 fonts: every installed and Google family, the font picker); mixed text runs (`styleOverrideTable`) aren't shown per range.
 - Frame titles and the size badge's number on the canvas wait for E3 text (the badge draws empty).
 - Versions: no view-only "open version", rename or duplicate-from-version UI.
 
