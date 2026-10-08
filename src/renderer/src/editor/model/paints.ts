@@ -12,7 +12,7 @@ import type { Matrix, Paint, PaintFilter } from "@/engine/codec";
 import { colorToHex, toPercent } from "./color";
 
 export type { PaintType } from "@/engine/codec";
-import type { ImageScaleMode as SchemaScaleMode, PaintType } from "@/engine/codec";
+import type { ImageScaleMode as SchemaScaleMode } from "@/engine/codec";
 
 export type { PaintFilter };
 

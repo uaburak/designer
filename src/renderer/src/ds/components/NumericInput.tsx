@@ -183,7 +183,9 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
   const canScrub = scrub && !disabled && !mixed;
   // A label elsewhere scrubs too: native listeners on it, calling this render's handlers.
   const handle = useRef({ startScrubOn, moveScrub, endScrub, canScrub });
-  handle.current = { startScrubOn, moveScrub, endScrub, canScrub };
+  useEffect(() => {
+    handle.current = { startScrubOn, moveScrub, endScrub, canScrub };
+  });
   useEffect(() => {
     const el = scrubHandle === "previous" ? (root.current?.previousElementSibling as HTMLElement | null) : scrubHandle ? document.getElementById(scrubHandle) : null;
     if (!el) return;
