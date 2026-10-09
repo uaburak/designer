@@ -32,6 +32,7 @@
 //   EDITOR_ONLY=panel11 node …                                     (round 11 at 1440 × 900, run on its own: instance flow, text edit header, list menus, Text styles, Type settings › Details, gradient stops)
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
 //   EDITOR_ONLY=features11 node …                                  (round 11 at 1440 × 900, run on its own: Create property › Slot as live's form, shader fills and effects — browsers, presets drawn, settings)
+//   EDITOR_ONLY=panel12 node …                                     (round 12 at 1440 × 900, run on its own: the right panel's top, the Design popovers' places, Tools' Source / Category, Variables empty, the fill picker's Gradient / Image)
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
@@ -4024,6 +4025,136 @@ async function menus10Section(page, theme) {
 }
 
 /**
+ * Round 12 at 1440 × 900 (docs/research/figma/live/left/rail-assets.txt, popovers/, grid/grid-autolayout-settings.txt,
+ * left/rail-tools.txt, left/rail-variables-full-view.txt): the right panel's top (tab row at 48, body at 81, the zoom
+ * 62 × 24, the account pill 50 × 24), the Design popovers' places, Tools' Source / Category, the Variables empty state,
+ * the fill picker's Gradient and Image tabs.
+ */
+async function panel12Section(page, theme) {
+  await open(page, "&doc=capture");
+  const panel = page.locator('[data-panel="right"]');
+  const near = (a, b, d = 1) => Math.abs(a - b) <= d;
+  const box = async (loc) => {
+    const b = await loc.boundingBox();
+    return b ? [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)] : null;
+  };
+  const same = (a, b, d = 1) => !!a && a.length === b.length && a.every((v, i) => near(v, b[i], d));
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const popup = () => page.locator('[data-ds="Popover"], [role="menu"], [role="listbox"]').last();
+  // 1. The right panel's top (live rail-assets.txt): a rectangle selected.
+  await select(["7:60"]);
+  const design = await box(panel.getByRole("tab", { name: "Design" }));
+  check("R12 N3: the Design tab 53 × 24 at 1208, 48", same(design, [1208, 48, 53, 24]), JSON.stringify(design));
+  const proto = await box(panel.getByRole("tab", { name: "Prototype" }));
+  check("R12 N3: the Prototype tab 69 × 24 at 1265, 48 (±1)", same(proto, [1265, 48, 69, 24]), JSON.stringify(proto));
+  const zoom = panel.getByRole("button", { name: "Zoom" });
+  const zb = await box(zoom);
+  const zt = await zoom.evaluate((el) => {
+    const r = document.createRange();
+    r.selectNodeContents(el.firstElementChild);
+    return Math.round(r.getBoundingClientRect().left);
+  });
+  check("R12 N3: the zoom button 62 × 24 at 1370, 48, its text 12 in", same(zb, [1370, 48, 62, 24]) && zt === 1382, JSON.stringify([zb, zt]));
+  const body = await box(panel.locator('[role="tabpanel"]'));
+  check("R12 N3: the panel's body starts at y=81, 240 wide", !!body && body[1] === 81 && body[2] === 240, JSON.stringify(body));
+  const account = panel.getByRole("button", { name: "Account" });
+  const ab = await box(account);
+  const ar = await account.evaluate((el) => getComputedStyle(el).borderRadius);
+  check("R12 N3: the account is a 50 × 24 pill at 1212, 12 (r=50px)", same(ab, [1212, 12, 50, 24], 0) && ar === "50px", JSON.stringify([ab, ar]));
+  const present = await box(panel.getByRole("button", { name: "Present", exact: true }));
+  const chev = await box(panel.getByRole("button", { name: "Present options" }));
+  const share = await box(panel.getByRole("button", { name: "Share" }));
+  check("R12 N3: Present 32 × 32 at 1324, 8, its chevron 16 × 32 at 1357, Share 55 × 32 at 1377", same(present, [1324, 8, 32, 32], 0) && same(chev, [1357, 8, 16, 32], 0) && same(share, [1377, 8, 55, 32], 0), JSON.stringify([present, chev, share]));
+  await shot(page, `290-r12-right-top-${theme}`);
+  // 2. The popovers' places (live popovers/*.txt): blend mode, the child's Width, the auto layout parent's Width, the settings.
+  await panel.getByRole("button", { name: "Apply blend mode" }).click();
+  await settle(page);
+  const blend = await box(popup());
+  check("R12 N3: the blend mode menu at 1315, 472 (live)", !!blend && near(blend[0], 1315) && blend[1] === 472, JSON.stringify(blend));
+  await page.keyboard.press("Escape");
+  await select(["7:51"]);
+  await panel.getByRole("button", { name: "Width sizing" }).click();
+  await settle(page);
+  const child = await box(popup());
+  check("R12 N4: the auto layout child's Width menu at 1142, 379 (live)", !!child && near(child[0], 1142) && child[1] === 379, JSON.stringify(child));
+  await page.keyboard.press("Escape");
+  await select(["7:20"]);
+  await panel.getByRole("button", { name: "Horizontal resizing sizing" }).click();
+  await settle(page);
+  const wide = await box(popup());
+  check("R12 N4: the auto layout frame's W menu at 1138, 399 (live)", !!wide && near(wide[0], 1138) && wide[1] === 399, JSON.stringify(wide));
+  await page.keyboard.press("Escape");
+  await panel.getByRole("button", { name: "Auto layout settings" }).click();
+  await settle(page);
+  const alset = await box(popup());
+  check("R12 N3: Auto layout settings at 960, 481 (live popovers/autolayout-advanced-settings.txt)", !!alset && near(alset[0], 960) && alset[1] === 481, JSON.stringify(alset));
+  await page.keyboard.press("Escape");
+  await select(["7:40"]);
+  await panel.getByRole("button", { name: "Auto layout settings" }).click();
+  await settle(page);
+  const grid = await box(popup());
+  check("R12 N4: the grid's Auto layout settings 240 × 249 at 960, 485 (live grid/grid-autolayout-settings.txt)", same(grid, [960, 485, 240, 249]), JSON.stringify(grid));
+  await shot(page, `291-r12-grid-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  // 3. The fill picker's Gradient (Figma's default stops on D9D9D9) and Image tab (Make an image).
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Solid color hex: D9D9D9" }).click();
+  await settle(page);
+  const picker = page.locator('[aria-label="Color picker"]');
+  await picker.getByRole("radio", { name: "Gradient" }).click();
+  await settle(page);
+  const stops = await picker.getByRole("textbox", { name: "Gradient Stop Color", exact: true }).evaluateAll((els) => els.map((e) => e.value.toUpperCase()));
+  const opac = await picker.getByRole("textbox", { name: "Gradient Stop Color opacity", exact: true }).evaluateAll((els) => els.map((e) => e.value));
+  check("R12 N9: Solid D9D9D9 → Gradient: D9D9D9 then 737373, both 100 % (live)", stops.join() === "D9D9D9,737373" && opac.join() === "100,100", JSON.stringify([stops, opac]));
+  await picker.getByRole("radio", { name: "Image" }).click();
+  await settle(page);
+  const make = picker.getByRole("button", { name: "Make an image" });
+  const mk = await make.evaluate((el) => {
+    const label = [...el.childNodes].find((n) => n.textContent === "Make an image") ?? el;
+    const text = [...label.childNodes].find((n) => n.nodeType === 3);
+    const tr = document.createRange();
+    tr.selectNodeContents(text);
+    return { color: getComputedStyle(el).color, text: Math.round(tr.getBoundingClientRect().left), disabled: el.disabled };
+  });
+  const pickerBox = await box(picker);
+  check("R12 N9: Make an image reads white (enabled look), its text 90 from the picker's left", !mk.disabled && mk.color === "rgb(255, 255, 255)" && !!pickerBox && near(mk.text - pickerBox[0], 90, 2), JSON.stringify([mk, pickerBox]));
+  await shot(page, `292-r12-fill-image-${theme}`);
+  await page.keyboard.press("Escape");
+  // 4. Tools: Source and Category are enabled, with menus.
+  await page.locator('[data-rail-tab="tools"]').click();
+  await settle(page);
+  const left = page.locator('[data-panel="left"]');
+  const src = left.getByRole("combobox", { name: "Filter by source" });
+  const cat = left.getByRole("combobox", { name: "Filter by category" });
+  check("R12 N11: Filter by source and Filter by category are enabled", (await src.isEnabled()) && (await cat.isEnabled()) && (await src.getAttribute("aria-disabled")) !== "true");
+  await src.click();
+  await settle(page);
+  check("R12 N11: Source opens a list", (await page.getByRole("option").count()) >= 2);
+  await page.keyboard.press("Escape");
+  await cat.click();
+  await settle(page);
+  check("R12 N11: Category opens a list", (await page.getByRole("option").count()) >= 2);
+  await page.keyboard.press("Escape");
+  await shot(page, `293-r12-tools-${theme}`);
+  // 5. Variables, no collection: Collections is secondary (#ffffffb2), the arrow follows Learn more directly.
+  await page.locator('[data-rail-tab="variables"]').click();
+  await settle(page);
+  const colors = await page.evaluate(() => {
+    const h = [...document.querySelectorAll("aside[aria-label='Collections'] span")].find((e) => e.textContent === "Collections");
+    const a = document.querySelector("[data-variables-empty] a");
+    const arrow = a.lastElementChild;
+    const t = document.createRange();
+    t.selectNodeContents(a.firstChild);
+    return { heading: getComputedStyle(h).color, textRight: t.getBoundingClientRect().right, arrowLeft: arrow.getBoundingClientRect().left };
+  });
+  check("R12 N10: the Collections heading is #ffffffb2; the arrow follows Learn more with no gap", colors.heading === "rgba(255, 255, 255, 0.698)" && near(colors.arrowLeft, colors.textRight, 1), JSON.stringify(colors));
+  await shot(page, `294-r12-variables-empty-${theme}`);
+}
+
+/**
  * Round 11 at 1440 × 900 (docs/research/figma/live/left/rail-variables-full-view.txt, rail-tools.txt, toolbar/*.txt,
  * menus/main-object.txt, main-*.txt): the Variables empty state, the selected collection's bar, Edit variable on hover,
  * Tools' Filter by price and type, Actions on Recents with live's two status lines, a slot menu lighting the slot's
@@ -4306,6 +4437,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await features11Section(page, "dark");
+    await context.close();
+  }
+  if (only === "panel12") {
+    // Live's viewport (the captures' absolute places); on its own.
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await panel12Section(page, "dark");
     await context.close();
   }
   if (only === "header9" || (!only && part !== "2")) {

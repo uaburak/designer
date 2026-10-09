@@ -70,8 +70,25 @@ const TOOLS_FILTER = [
   { id: "type-shaders", label: "Shaders", group: "type" as const },
 ];
 
+/** Source and Category (live shows them as "Source" and "Category"; their lists are not captured: unverified, help "Find tools"). */
+const TOOLS_SOURCES = [
+  { value: "source", label: "Source" },
+  { value: "figma", label: "Figma" },
+  { value: "community", label: "Community" },
+  { value: "organization", label: "Your organization" },
+];
+const TOOLS_CATEGORIES = [
+  { value: "category", label: "Category" },
+  { value: "generative", label: "Generative" },
+  { value: "design", label: "Design" },
+  { value: "development", label: "Development" },
+  { value: "productivity", label: "Productivity" },
+];
+
 function ToolsPanel() {
   const [query, setQuery] = useState("");
+  const [source, setSource] = useState("source");
+  const [category, setCategory] = useState("category");
   const [filter, setFilter] = useState({ price: "price-all", type: "type-all" });
   return (
     <div className={styles.placeholderTab} data-tools="">
@@ -100,9 +117,9 @@ function ToolsPanel() {
         </MenuButton>
       </div>
       <div className={styles.toolsFilters}>
-        {/* Live: 79 / 91 wide, the label after a 24 glyph (which glyphs: unverified) */}
-        <Select label="Filter by source" variant="ghost" width="hug" prefix="24.globe" className={styles.toolsFilter} value="source" options={[{ value: "source", label: "Source" }]} onChange={() => {}} disabled />
-        <Select label="Filter by category" variant="ghost" width="hug" prefix="24.filter" className={styles.toolsFilter} value="category" options={[{ value: "category", label: "Category" }]} onChange={() => {}} disabled />
+        {/* Live (rail-tools.txt): enabled, 79 / 91 wide, the label after a 24 glyph (which glyphs and which lists: unverified; the list itself stays "No tools") */}
+        <Select label="Filter by source" variant="ghost" width="hug" prefix="24.globe" className={styles.toolsFilter} value={source} options={TOOLS_SOURCES} onChange={setSource} />
+        <Select label="Filter by category" variant="ghost" width="hug" prefix="24.filter" className={styles.toolsFilter} value={category} options={TOOLS_CATEGORIES} onChange={setCategory} />
       </div>
       <EmptyState icon="24.tools" title="No tools" body="Plugins, widgets and shaders aren’t part of this app." />
     </div>

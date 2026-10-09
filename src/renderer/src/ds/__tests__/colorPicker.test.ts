@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { ColorPicker, type ColorPickerProps } from "../components/ColorPicker";
-import type { PickerPaint } from "../util/paint";
+import { convertPaint, type PickerPaint } from "../util/paint";
 import type { ChangeInfo } from "../types";
 import { $, $$, box, click, focus, key, mount, pointer, spy, type, type Mounted } from "./dom";
 
@@ -101,6 +101,22 @@ describe("ColorPicker", () => {
       { color: { r: 1, g: 0, b: 0, a: 1 }, position: 0 },
       { color: { r: 1, g: 0, b: 0, a: 0 }, position: 1 },
     ]);
+  });
+
+  it("Solid D9D9D9 (Figma's default fill) → Gradient: D9D9D9 100 % then 737373 100 % (live popovers/fill-picker-gradient_linear.txt)", () => {
+    const gray: Paint = { type: "SOLID", color: { r: 0xd9 / 255, g: 0xd9 / 255, b: 0xd9 / 255, a: 1 }, opacity: 1 };
+    const stops = (p: Paint) => (p.stops ?? []).map((s) => [byte(s.color.r), byte(s.color.g), byte(s.color.b), s.color.a, s.position]);
+    expect(stops(convertPaint(gray, "GRADIENT_LINEAR"))).toEqual([[217, 217, 217, 1, 0], [115, 115, 115, 1, 1]]);
+    // an image / video / shader paint (no colour of its own) stands in with the default fill, as live's Image → Video → Shader → Gradient
+    expect(stops(convertPaint({ type: "IMAGE", opacity: 1 } as Paint, "GRADIENT_LINEAR"))).toEqual([[217, 217, 217, 1, 0], [115, 115, 115, 1, 1]]);
+  });
+
+  it("the Image tab's Make an image (AI) reads as enabled with a glyph, and only says why it does nothing", () => {
+    setup({ type: "IMAGE", opacity: 1 } as Paint);
+    const b = Array.from(document.querySelectorAll("button")).find((x) => x.textContent === "Make an image")!;
+    expect(b.disabled).toBe(false);
+    expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect(b.querySelector("svg")).not.toBeNull();
   });
 
   it("adds a stop by pressing the bar and drags it in the same gesture (one final change)", () => {
