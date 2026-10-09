@@ -48,6 +48,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const sections = nodes.some((n) => typeOf(n) === "SECTION");
   const frames = nodes.every(isFrameNode) && !sections;
   const groups = nodes.every((n) => isGroupNode(n));
+  const clipFrames = nodes.filter((n) => isFrameNode(n) && typeOf(n) !== "SECTION");
   const flowable = autoLayoutKept && !sections && nodes.every((n) => isFrameNode(n) || isGroupNode(n));
   const auto = autoLayoutKept && frames && nodes.every(isAutoLayout);
   const instances = nodes.some((n) => typeOf(n) === "INSTANCE");
@@ -105,9 +106,10 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
         {auto && <AutoLayoutRows nodes={nodes} />}
         {parents.length > 0 && parents.every((p) => isGrid(p)) && nodes.every((n) => n.stackPositioning !== "ABSOLUTE") && <GridSpanRow nodes={nodes} />}
       </PropertyGrid>
-      {frames && !groups && (
+      {/* Live (design/mixed-multi.txt): shown when a frame is among the layers (Rect + Ellipse + Text + F_frame), for the frames */}
+      {clipFrames.length > 0 && !sections && !groups && (
         <div className={styles.checkRow}>
-          <Checkbox tone="panel" label="Clip content" checked={mixed(nodes.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(refs, { frameMaskDisabled: !on }, "Clip content")} />
+          <Checkbox tone="panel" label="Clip content" checked={mixed(clipFrames.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(clipFrames.map((n) => n.guid), { frameMaskDisabled: !on }, "Clip content")} />
         </div>
       )}
     </PanelSection>
