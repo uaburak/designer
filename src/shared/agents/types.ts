@@ -45,6 +45,19 @@ export interface ChatTurnMessage {
   text: string;
 }
 
+/** A CLI agent's sign-in, as the provider's status card shows it. */
+export interface AuthState {
+  state: "not-installed" | "signed-out" | "signing-in" | "connected";
+  /** The signed-in account (email) */
+  account?: string;
+  /** "Claude Team · Org" */
+  plan?: string;
+  /** Why, or what is happening */
+  detail?: string;
+  /** While signing in: the sign-in page, when the CLI printed it */
+  url?: string;
+}
+
 /** What the composer sends: the prompt, the chat so far (for providers without sessions) and the selection it is about. */
 export interface TurnRequest {
   chatId: string;
@@ -140,6 +153,11 @@ export interface AgentsApi {
   addServer(server: { label: string; baseUrl: string; apiKey?: string }): Promise<AgentSettings>;
   removeServer(id: string): Promise<AgentSettings>;
   test(providerId: string): Promise<{ ok: boolean; models: string[]; error?: string }>;
+  /** A CLI agent's sign-in (Claude Code: `claude auth status`) */
+  auth(providerId: string): Promise<AuthState>;
+  /** The CLI's own sign-in in the browser (`claude auth login --claudeai`); poll auth() until connected */
+  signIn(providerId: string): Promise<AuthState>;
+  signOut(providerId: string): Promise<AuthState>;
   turn(request: TurnRequest): Promise<{ turnId: string }>;
   stop(turnId: string): Promise<void>;
   onEvent(cb: (e: TurnEvent) => void): () => void;

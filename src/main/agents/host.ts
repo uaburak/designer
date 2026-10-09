@@ -13,6 +13,8 @@ import { cliEnv, detectProviders, LOCAL_SERVERS, which } from "./detect";
 import { McpServer, newToken } from "./mcpServer";
 import { listModels, runOpenAiTurn, trimBase } from "./openaiBridge";
 import { STDIO_BRIDGE_SOURCE } from "./stdioBridge";
+import { CLAUDE_LOGIN, CLAUDE_LOGOUT, claudeAuthStatus, loginUrl, type RunFn } from "./cliAuth";
+import type { AuthState } from "../../shared/agents/types";
 import { allViews } from "../views";
 import { controllers } from "../window";
 
@@ -425,6 +427,58 @@ export function viewGone(sender: WebContents) {
       pending.delete(id);
       p.resolve({ content: [{ type: "text", text: "The file was closed." }], isError: true });
     }
+}
+
+// ── Sign-in (Claude Code's own commands; the browser does the sign-in) ──
+
+const claudePath = () => which("claude");
+
+const runClaude: RunFn = (args) =>
+  new Promise((resolve) => {
+    const path = claudePath();
+    if (!path) return resolve({ code: 127, stdout: "" });
+    const child = spawn(path, args, { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    child.stdout.on("data", (d) => (stdout += d));
+    child.on("error", () => resolve({ code: 1, stdout }));
+    child.on("close", (code) => resolve({ code: code ?? 1, stdout }));
+    setTimeout(() => child.kill(), 15_000);
+  });
+
+let login: { child: ChildProcess; out: string } | null = null;
+
+export async function authStatus(providerId: string): Promise<AuthState> {
+  if (providerId !== "claude-code") return { state: "not-installed", detail: "Coming soon" };
+  const s = await claudeAuthStatus(claudePath(), runClaude);
+  if (s.state !== "connected" && login && login.child.exitCode === null) return { state: "signing-in", detail: "Waiting for sign-in in your browser…", url: loginUrl(login.out) ?? undefined };
+  if (s.state === "connected" && login) {
+    login.child.kill();
+    login = null;
+  }
+  return s;
+}
+
+export async function signIn(providerId: string): Promise<AuthState> {
+  const path = claudePath();
+  if (providerId !== "claude-code" || !path) return authStatus(providerId);
+  if (!login || login.child.exitCode !== null) {
+    mkdirSync(file("work"), { recursive: true });
+    // `claude auth login --claudeai`: Anthropic's sign-in page opens in the browser; the CLI waits for it.
+    const child = spawn(path, CLAUDE_LOGIN, { env: cliEnv(), cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
+    const l = { child, out: "" };
+    child.stdout?.on("data", (d) => (l.out = (l.out + d).slice(-8000)));
+    child.stderr?.on("data", (d) => (l.out = (l.out + d).slice(-8000)));
+    child.on("error", () => {});
+    setTimeout(() => child.exitCode === null && child.kill(), 10 * 60_000);
+    login = l;
+  }
+  return { state: "signing-in", detail: "Waiting for sign-in in your browser…" };
+}
+
+export async function signOut(providerId: string): Promise<AuthState> {
+  if (providerId === "claude-code" && claudePath()) await runClaude(CLAUDE_LOGOUT);
+  providerCache = null;
+  return authStatus(providerId);
 }
 
 // ── MCP state and clients ──

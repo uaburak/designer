@@ -194,6 +194,9 @@ function registerAgentsIpc() {
   onInvoke("agents:add-server", (_c, p) => agents.addServer({ label: str(p?.label, 100) ?? "", baseUrl: str(p?.baseUrl, 2000) ?? "", apiKey: str(p?.apiKey, 4000) ?? undefined }));
   onInvoke("agents:remove-server", (_c, p) => agents.removeServer(str(p?.id, 100) ?? ""));
   onInvoke("agents:test", (_c, p) => agents.testProvider(str(p?.providerId, 100) ?? ""));
+  onInvoke("agents:auth", (_c, p) => agents.authStatus(str(p?.providerId, 100) ?? ""));
+  onInvoke("agents:sign-in", (_c, p) => agents.signIn(str(p?.providerId, 100) ?? ""));
+  onInvoke("agents:sign-out", (_c, p) => agents.signOut(str(p?.providerId, 100) ?? ""));
   onInvoke("agents:turn", ({ info, sender }, req) => {
     if (!info.fileKey) throw new Error("agents:turn: no file in this view");
     const prompt = str(req?.prompt, 100_000);

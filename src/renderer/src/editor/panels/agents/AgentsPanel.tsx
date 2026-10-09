@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { Button, EmptyState, Icon, IconButton, Select, Spinner, TextInput, cx, showToast, timeAgo, tooltipProps, type IconName } from "@/ds";
-import type { McpClientInfo, ProviderInfo } from "@shared/agents/types";
+import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
 import { useEditor } from "../../controller";
 import { useTopics } from "../../hooks";
 import { agentsOf, toolLabel, type AgentsService, type Chat, type ChatMessage, type MessagePart } from "../../agents/service";
@@ -349,7 +349,8 @@ function ProviderRow({ p, service }: { p: ProviderInfo; service: AgentsService }
         {chosen && <span className={styles.badge}>In use</span>}
         {custom && <IconButton icon="24.trash.outline" label="Remove server" tone="secondary" onClick={() => void service.api?.removeServer(p.id).then(() => service.refreshProviders())} />}
       </div>
-      <div className={styles.providerDetail}>{p.available ? p.detail : p.problem}</div>
+      <div className={styles.providerDetail}>{p.available ? p.detail : p.kind !== "openai-compatible" && p.kind !== "claude-code" ? `${p.problem ?? "Not installed"} — in-app sign-in coming soon` : p.problem}</div>
+      {p.kind === "claude-code" && <AuthCard providerId={p.id} service={service} />}
       {p.available && (
         <div className={styles.providerActions}>
           {p.models.length > 1 && <Select label="Model" width="hug" value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: m }))} onChange={(m) => void service.choose(p.id, m)} />}
@@ -377,6 +378,65 @@ function ProviderRow({ p, service }: { p: ProviderInfo; service: AgentsService }
     </div>
   );
 }
+
+/** A CLI agent's sign-in (Claude Code): Connected with its account, or Sign in — the CLI's own login in the browser. */
+function AuthCard({ providerId, service }: { providerId: string; service: AgentsService }) {
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void service.api?.auth(providerId).then((a) => alive && setAuth(a), () => {});
+    return () => {
+      alive = false;
+    };
+  }, [providerId, service]);
+  // While the browser sign-in runs: ask again every 2 s (5 minutes at most).
+  useEffect(() => {
+    if (auth?.state !== "signing-in") return;
+    let n = 0;
+    const timer = setInterval(() => {
+      if (++n > 150) return clearInterval(timer);
+      void service.api?.auth(providerId).then((a) => {
+        setAuth(a);
+        if (a.state === "connected") void service.refreshProviders();
+      });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [auth?.state, providerId, service]);
+  if (!auth) return <div className={styles.status}><Spinner size={16} /> Checking sign-in…</div>;
+  return (
+    <div className={styles.auth} data-auth={auth.state}>
+      <span className={styles.authState}>
+        {auth.state === "connected" ? `Connected${auth.account ? ` · ${auth.account}` : ""}` : auth.state === "signing-in" ? "Waiting for sign-in in your browser…" : auth.state === "signed-out" ? "Signed out" : "Not installed"}
+      </span>
+      {auth.plan && auth.state === "connected" && <span className={styles.providerDetail}>{auth.plan}</span>}
+      {auth.state === "signing-in" && auth.url && (
+        <button type="button" className={styles.link} onClick={() => editorOpenExternal(auth.url!)}>
+          Open the sign-in page
+        </button>
+      )}
+      <div className={styles.providerActions}>
+        {auth.state === "signed-out" && (
+          <Button variant="primary" loading={busy} onClick={async () => { setBusy(true); setAuth(await service.api!.signIn(providerId)); setBusy(false); }} data-sign-in="">
+            Sign in
+          </Button>
+        )}
+        {auth.state === "connected" && (
+          <Button variant="secondary" loading={busy} onClick={async () => { setBusy(true); setAuth(await service.api!.signOut(providerId)); setBusy(false); void service.refreshProviders(); }} data-sign-out="">
+            Sign out
+          </Button>
+        )}
+        {auth.state === "not-installed" && <span className={styles.providerDetail}>Install: curl -fsSL https://claude.ai/install.sh | bash (in-app install coming soon)</span>}
+      </div>
+    </div>
+  );
+}
+
+const editorOpenExternal = (url: string) => {
+  const d = (window as unknown as { designer?: { openExternal?: (u: string) => void } }).designer;
+  if (d?.openExternal) d.openExternal(url);
+  else window.open(url, "_blank", "noopener");
+};
 
 function AddServer({ service }: { service: AgentsService }) {
   const [label, setLabel] = useState("");

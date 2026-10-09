@@ -7,7 +7,7 @@
  * Kinds: `IpcInvoke` request/response from a view; `IpcSend` fire-and-forget
  * from a view; `IpcEvents` from main to a view.
  */
-import type { AgentSettings, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest } from "./agents/types";
+import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest } from "./agents/types";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
 
@@ -262,6 +262,10 @@ export interface IpcInvoke {
   "agents:remove-server": { args: [{ id: string }]; result: AgentSettings };
   /** Test connection: the provider's models, or why it can't be reached */
   "agents:test": { args: [{ providerId: string }]; result: { ok: boolean; models: string[]; error?: string } };
+  /** A CLI agent's sign-in state; Sign in / Sign out with its own commands (the browser does the sign-in) */
+  "agents:auth": { args: [{ providerId: string }]; result: AuthState };
+  "agents:sign-in": { args: [{ providerId: string }]; result: AuthState };
+  "agents:sign-out": { args: [{ providerId: string }]; result: AuthState };
   /** A chat turn on this view's file: its events come as `agents:event` */
   "agents:turn": { args: [TurnRequest]; result: { turnId: string } };
   "agents:stop": { args: [{ turnId: string }]; result: void };
@@ -344,6 +348,9 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:add-server": ["editor"],
   "agents:remove-server": ["editor"],
   "agents:test": ["editor"],
+  "agents:auth": ["editor"],
+  "agents:sign-in": ["editor"],
+  "agents:sign-out": ["editor"],
   "agents:turn": ["editor"],
   "agents:stop": ["editor"],
   "agents:mcp": ["editor"],

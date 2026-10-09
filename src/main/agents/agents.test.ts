@@ -416,3 +416,17 @@ describe("the CLIs' environment", () => {
     }
   });
 });
+
+describe("Claude Code sign-in (its own auth commands, faked)", () => {
+  it("not installed → signed out → connected, from `claude auth status --json`", async () => {
+    const { claudeAuthStatus, parseClaudeStatus, CLAUDE_STATUS, CLAUDE_LOGIN, loginUrl } = await import("./cliAuth");
+    expect(await claudeAuthStatus(null, async () => ({ code: 0, stdout: "" }))).toMatchObject({ state: "not-installed" });
+    const run = vi.fn(async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: false, authMethod: "none" }) }));
+    expect(await claudeAuthStatus("/bin/claude", run)).toEqual({ state: "signed-out" });
+    expect(run).toHaveBeenCalledWith(CLAUDE_STATUS);
+    expect(parseClaudeStatus(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "a@b.c", subscriptionType: "team", orgName: "Org" }))).toEqual({ state: "connected", account: "a@b.c", plan: "Claude Team · Org" });
+    expect(parseClaudeStatus("not json").state).toBe("signed-out");
+    expect(CLAUDE_LOGIN).toEqual(["auth", "login", "--claudeai"]);
+    expect(loginUrl("Opening https://claude.ai/oauth/authorize?code=1 in your browser")).toBe("https://claude.ai/oauth/authorize?code=1");
+  });
+});

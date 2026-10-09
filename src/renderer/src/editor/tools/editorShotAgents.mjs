@@ -28,6 +28,9 @@ function installMockAgents() {
     addServer: async () => settings,
     removeServer: async () => settings,
     test: async () => ({ ok: true, models: ["default"] }),
+    auth: async () => ({ state: "connected", account: "you@example.com", plan: "Claude Pro" }),
+    signIn: async () => ({ state: "signing-in" }),
+    signOut: async () => ({ state: "signed-out" }),
     stop: async () => {},
     onEvent: (cb) => (listeners.event.add(cb), () => listeners.event.delete(cb)),
     onToolCall: (h) => ((toolHandler = h), () => (toolHandler = null)),
@@ -171,6 +174,8 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   check("Agents: settings list Claude Code (found) and Ollama (not running)", (await page.locator('[data-provider="claude-code"][data-available]').count()) === 1 && (await page.locator('[data-provider="ollama"]:not([data-available])').count()) === 1);
   check("Agents: Connect to Antigravity / Cursor / VS Code, and Claude Code connected", (await page.getByRole("button", { name: "Connect to Antigravity" }).count()) === 1 && (await page.getByRole("button", { name: "Connect to Cursor" }).count()) === 1 && (await page.getByRole("button", { name: "Connect to VS Code" }).count()) === 1 && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
   check("Agents: the MCP server's URL is shown", ((await page.locator("[data-mcp-url]").textContent()) ?? "").includes("127.0.0.1"));
+  await page.waitForSelector('[data-auth="connected"]', { timeout: 5000 }).catch(() => {});
+  check("Agents: Claude Code's status card says Connected with its account and offers Sign out", ((await page.locator('[data-auth="connected"]').textContent()) ?? "").includes("you@example.com") && (await page.locator("[data-sign-out]").count()) === 1);
   await shot(page, `403-agents-settings-${theme}`);
   await page.locator("[data-agent-settings]").getByRole("button", { name: "Back" }).click();
   await settle(page);
