@@ -196,7 +196,7 @@ TEST_CASE("renderer: overlays — hover 2px, selection box, 4 handles, size badg
   CHECK(handle.color[0] == 1);   // white
   CHECK(handle.paint0[3] == 1);  // the blue border
   const DrawInstance& badge = all[all.size() - 2];
-  CHECK(badge.origin[3] == 16);
+  CHECK(badge.origin[3] == 17);
   CHECK(badge.origin[1] == 66);  // 6 px under the box
   // Small on screen: no handles.
   r.render(d, kPage, Camera{0, 0, 0.25}, {800, 600, 1}, o, kDark);

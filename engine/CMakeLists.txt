@@ -173,6 +173,7 @@ else()
     tests/unit/r8.selection.test.cpp
     tests/unit/r9.preferences.test.cpp
     tests/unit/r9.overlays.test.cpp
+    tests/unit/r10.canvas_chrome.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

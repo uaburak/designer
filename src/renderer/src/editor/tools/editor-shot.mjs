@@ -32,7 +32,7 @@
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
 // own check skipped (gfx::samplesAttachment). The browser is closed after EDITOR_TIMEOUT seconds (default 180).
-/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent, localStorage, getComputedStyle */
+/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent, localStorage, getComputedStyle, createImageBitmap, atob, OffscreenCanvas */
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -2570,6 +2570,21 @@ async function selectionSection(page, theme) {
  * frame's top right (a click marks it ready for dev), the auto-layout padding badge by the pointer, a selected grid's
  * cells and pills (a pill click opens its size editor), the section's pill.
  */
+/** Offsets (row-major) of the pixels in `clip` that are the dark theme's selection blue (#0c8ce9), from a page shot. */
+async function bluePixels(page, clip) {
+  const png = await page.screenshot({ clip });
+  return page.evaluate(async (b64) => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type: "image/png" }));
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext("2d");
+    g.drawImage(bmp, 0, 0);
+    const d = g.getImageData(0, 0, bmp.width, bmp.height).data;
+    const out = [];
+    for (let i = 0; i < d.length; i += 4) if (d[i + 2] > 200 && d[i] < 80 && d[i + 1] > 100 && d[i + 1] < 180) out.push(i / 4);
+    return out;
+  }, png.toString("base64"));
+}
+
 async function overlays9Section(page, theme) {
   await open(page, "&doc=capture");
   const canvas = page.locator("#engine-canvas");
@@ -2673,6 +2688,22 @@ async function overlays9Section(page, theme) {
   await page.mouse.move(gx, gtop - 31.5);
   await settle(page);
   await shot(page, `197-grid-column-pill-${theme}`);
+  {
+    // Round 10 (live canvas-grid-hover-column-track-pill): the column's 2 px outline centred on its sides, its ends inside
+    // the frame's top edge. The middle column's left side at x 113.33; the selection blue's runs across it and down
+    // through the frame's top at the column's middle.
+    const [lx, my] = await at(113.33, 100);
+    const across = await bluePixels(page, { x: Math.round(lx) - 6, y: Math.round(my), width: 12, height: 1 });
+    const [, ty] = await at(160, 0);
+    const down = await bluePixels(page, { x: Math.round(gx), y: Math.round(ty) - 6, width: 1, height: 12 });
+    const run = (px, from) => (px.length ? { first: from + px[0], count: px.length } : null);
+    const a = run(across, Math.round(lx) - 6), d = run(down, Math.round(ty) - 6);
+    check(
+      "Round 10: a hovered grid column's outline is 2 px centred on its side and inside the frame's top (live Figma)",
+      !!a && a.count >= 2 && a.count <= 3 && Math.abs(a.first + a.count / 2 - lx) <= 1 && !!d && d.first >= Math.round(ty) - 1 && d.count >= 2 && d.count <= 4,
+      JSON.stringify({ lx, across: a, ty, down: d })
+    );
+  }
   await page.mouse.click(gx, gtop - 31.5);
   await settle(page);
   const sel = await page.evaluate(() => window.__designerEditor.ui.get().gridTracks);
@@ -2685,6 +2716,51 @@ async function overlays9Section(page, theme) {
   // The section (7:95): its pill.
   await frameOn("7:95", 1.3);
   await shot(page, `199-section-pill-${theme}`);
+  // Round 10: the gap badge (20 × 17 for "10", live canvas-autolayout-selected-hover-gap scaled by its 11 px title: 20.8 ×
+  // 17.4) over AL_horizontal's first gap.
+  at = await frameOn("7:20", 1.5);
+  await page.mouse.move(...(await at(81, 36)));
+  await settle(page);
+  await shot(page, `200-gap-badge-${theme}`);
+  {
+    // The pink badge's box in a shot of the gap's neighbourhood (decoded in the page).
+    const [gx0, gy0] = await at(81, 0);
+    const png = await page.screenshot({ clip: { x: gx0 - 10, y: gy0 - 10, width: 80, height: 54 } }); // above the bar (its top 48 px down)
+    const box = await page.evaluate(async (b64) => {
+      const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type: "image/png" }));
+      const c = new OffscreenCanvas(bmp.width, bmp.height);
+      const g = c.getContext("2d");
+      g.drawImage(bmp, 0, 0);
+      const d = g.getImageData(0, 0, bmp.width, bmp.height).data;
+      let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let y = 0; y < bmp.height; y++)
+        for (let x = 0; x < bmp.width; x++) {
+          const i = (y * bmp.width + x) * 4;
+          if (d[i] > 200 && d[i + 1] < 90 && d[i + 2] > 130) {
+            x0 = Math.min(x0, x);
+            x1 = Math.max(x1, x);
+            y0 = Math.min(y0, y);
+            y1 = Math.max(y1, y);
+          }
+        }
+      return x1 < 0 ? null : { w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    }, png.toString("base64"));
+    check("Round 10: the hovered gap's badge is 20 × 17 for \"10\" (live Figma)", !!box && Math.abs(box.w - 20) <= 1 && Math.abs(box.h - 17) <= 1, JSON.stringify(box));
+  }
+  // Round 10: the capture's Vector is live's triangle; a double-click opens vector edit mode on its three points.
+  at = await frameOn("7:66", 3);
+  const [vx, vy] = await at(40, 35);
+  await page.mouse.dblclick(vx, vy);
+  await page.mouse.move(vx + 200, vy + 200);
+  await settle(page);
+  const ve = await page.evaluate(() => window.__designerEditor.engine.vectorEdit);
+  check("Round 10: the capture's Vector opens in vector edit mode with its 3 points and 3 segments", !!ve && ve.ref === "7:66" && ve.vertexCount === 3 && ve.segmentCount === 3, JSON.stringify(ve)?.slice(0, 160));
+  await shot(page, `201-vector-edit-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // The live file's pages: Page 1, then Capture (open).
+  const pages = await page.evaluate(() => window.__designerEditor.engine.pages().map((p) => p.name).join());
+  check("Round 10: the capture's pages are Page 1 and Capture (the page it opens on)", pages === "Page 1,Capture" && (await page.evaluate(() => window.__designerEditor.store.page)) === "0:1", pages);
 }
 
 /**
