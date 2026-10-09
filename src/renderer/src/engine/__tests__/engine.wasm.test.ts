@@ -352,6 +352,12 @@ describe("engine (wasm, headless): text (E3)", () => {
     const info = engine.fontInfo("Inter", "Regular")!;
     expect(info.axes.find((a) => a.tag === "wght")).toMatchObject({ min: 100, max: 900, value: 400 });
     expect(info.features.map((f) => f.tag)).toEqual(expect.arrayContaining(["kern", "calt", "tnum", "ss01", "cv01"]));
+    // Round 11: the features that act on a text (Type settings › Details dims the others).
+    const acting = engine.fontFeaturesIn("Inter", "Regular", "Hello Figma text")!;
+    expect(acting).toEqual(expect.arrayContaining(["kern", "cv05", "cv11"]));
+    expect(acting).not.toContain("zero");
+    expect(engine.fontFeaturesIn("Inter", "Regular", "0")).toContain("zero");
+    expect(engine.fontFeaturesIn("No such family", "Regular", "0")).toBeNull();
     engine.destroy();
   });
 

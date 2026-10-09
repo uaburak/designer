@@ -263,6 +263,8 @@
   /* Type settings' Basics (live): the controls right-aligned at their own widths */
   .settingsEnd { grid-template-columns: minmax(0, 1fr) auto; }
   .settings.settingsEnd > :nth-child(even) { justify-self: end; }
+  /* Its labels are never cut (live: "Paragraph indent" whole beside the 120 wide Case column's narrower first one) */
+  .settingsEnd > .settingsLabel { width: max-content; overflow: visible; }
   .settingsInline { display: flex; align-items: center; }
   .settingsField { width: 72px; }
   .settingsWideField { width: 128px; }

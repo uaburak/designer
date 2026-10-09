@@ -28,6 +28,7 @@
 //   EDITOR_ONLY=header9 node …                                     (round 9: the header of a layer in a frame, Frame ▾, the boolean menu, the component / variant / instance panels, Component configuration, the swap menu)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_ONLY=panel10 node …                                     (round 10 at 1440 × 900: Design panel states, popovers and sub-menus against the live captures)
+//   EDITOR_ONLY=panel11 node …                                     (round 11 at 1440 × 900: instance flow, text edit header, list menus, Text styles, Type settings › Details, gradient stops)
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -2432,6 +2433,103 @@ async function panel10Section(page, theme) {
   await page.keyboard.press("Escape");
 }
 
+/**
+ * Round 11 (docs/editor.md "Round 11 — Design panel and popovers") at 1440 × 900 on `&doc=capture`: an instance's
+ * flow, a mixed selection's W / H, the text edit header, Auto layout settings, the gradient stop row, the list menus
+ * over their field, Text styles and the font size list, Type settings › Details — live's places
+ * (docs/research/figma/live/design, popovers).
+ */
+async function panel11Section(page, theme) {
+  await open(page, "&doc=capture");
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const box = async (loc) => loc.boundingBox();
+  const lastPopup = () => page.locator('[data-ds="Popover"], [role="menu"], [role="listbox"]').last();
+  // 1. The Chip instance (a component without auto layout): Layout > Dimensions, no Flow, no Use auto layout.
+  await select(["8:61"]);
+  const dims = await box(panel.getByText("Dimensions", { exact: true }));
+  check("R11 Chip instance: no Flow row, no Use auto layout, Dimensions at 350 (live)", (await panel.getByRole("radiogroup", { name: "Layout" }).count()) === 0 && (await panel.getByRole("button", { name: "Use auto layout" }).count()) === 0 && dims && Math.round(dims.y) - 80 === 350, JSON.stringify(dims));
+  // 2. The Button instance (auto layout): Flow and Wrap shown, disabled.
+  await select(["8:60"]);
+  const radios = await panel.getByRole("radiogroup", { name: "Layout" }).getByRole("radio").evaluateAll((els) => els.map((e) => e.disabled));
+  check("R11 Button instance: the four Flow radios and Wrap disabled", radios.length === 4 && radios.every(Boolean) && (await panel.getByRole("button", { name: "Wrap" }).isDisabled()), JSON.stringify(radios));
+  // 3. Rect + Ellipse + Text + F_frame: W and H disabled, Mixed.
+  await select(["7:60", "7:61", "7:90", "7:1"]);
+  const w = panel.getByRole("textbox", { name: "Width", exact: true });
+  check("R11 mixed selection: Width and Height disabled", (await w.isDisabled()) && (await panel.getByRole("textbox", { name: "Height", exact: true }).isDisabled()));
+  // 4. Text edit mode: Create link 152, Apply variable 180, Create component 208, no More actions.
+  await select(["7:90"]);
+  await page.evaluate(() => window.__designerEditor.engine.startTextEdit?.("7:90"));
+  await settle(page);
+  const header = panel.locator("[data-type-header]");
+  const xs = await Promise.all(["Create link", "Apply variable", "Create component"].map(async (n) => Math.round(((await box(header.getByRole("button", { name: n }))) ?? { x: 0 }).x) - 1200));
+  check("R11 text edit header: Create link 152, Apply variable 180, Create component 208, no More actions", xs.join() === "152,180,208" && (await header.getByRole("button", { name: "More actions" }).count()) === 0, xs.join());
+  await page.evaluate(() => window.__designerEditor.engine.endTextEdit?.());
+  await settle(page);
+  // 5. Auto layout settings on AL_horizontal: Inside stroke Included; Auto spacing's Between dimmed.
+  await select(["7:20"]);
+  await panel.getByRole("button", { name: "Auto layout settings" }).click();
+  await settle(page);
+  const between = await lastPopup().getByText("Between", { exact: true }).evaluate((e) => getComputedStyle(e).color);
+  check("R11 Auto layout settings: Inside stroke Included, Between #ffffff66", (await lastPopup().getByText("Included", { exact: true }).count()) === 1 && between === "rgba(255, 255, 255, 0.4)", between);
+  await page.keyboard.press("Escape");
+  // 6. The W list over its field (live 166 × 129 at 1138,399) and the gap list (1244,473).
+  await panel.getByRole("button", { name: "Horizontal resizing sizing" }).click({ force: true });
+  await settle(page);
+  const wm = await box(page.getByRole("menu").last());
+  check("R11 W list at 1138,399, 166 wide (±1)", wm && Math.abs(wm.x - 1138) <= 1 && Math.round(wm.y) === 399 && Math.abs(wm.width - 166) <= 1, JSON.stringify(wm));
+  await page.keyboard.press("Escape");
+  await panel.getByRole("textbox", { name: "Horizontal gap between objects" }).hover();
+  await panel.getByRole("button", { name: "Gap sizing" }).click({ force: true });
+  await settle(page);
+  const gm = await box(page.getByRole("menu").last());
+  check("R11 gap list at 1244,473, 156 × 64", gm && Math.round(gm.x) === 1244 && Math.round(gm.y) === 473 && Math.round(gm.width) === 156, JSON.stringify(gm));
+  await page.keyboard.press("Escape");
+  // 7. Text styles (live 216 × 165 at 984,427) and the font size list (96 × 437).
+  await select(["7:90"]);
+  await panel.getByRole("button", { name: "Typography, Apply styles" }).click();
+  await settle(page);
+  const ts = await box(page.locator('[data-ds="Popover"]').last());
+  check("R11 Text styles at 984,427", ts && Math.round(ts.x) === 984 && Math.round(ts.y) === 427, JSON.stringify(ts));
+  await page.keyboard.press("Escape");
+  await panel.locator('[aria-label="Font size"]').first().hover();
+  await panel.getByRole("button", { name: "Font sizes" }).click({ force: true });
+  await settle(page);
+  const fs = await box(page.getByRole("menu").last());
+  check("R11 font size list 96 × 437", fs && Math.round(fs.width) === 96 && Math.round(fs.height) === 437, JSON.stringify(fs));
+  await page.keyboard.press("Escape");
+  // 8. Type settings: Paragraph spacing's number 63 wide at 161; Underline details enabled; Details on live's text.
+  await page.evaluate(() => window.__designerEditor.engine.setProps(["7:90"], { textData: { characters: "Hello Figma text" } }));
+  await settle(page);
+  await panel.getByRole("button", { name: "Type settings" }).click();
+  await settle(page);
+  const ps = await box(lastPopup().getByRole("textbox", { name: "Paragraph spacing" }));
+  check("R11 Type settings: Paragraph spacing 63 × 24 at 160-161, Underline details enabled", ps && Math.round(ps.width) === 63 && Math.abs(ps.x - 960 - 161) <= 1 && !(await lastPopup().getByRole("button", { name: "Underline details" }).isDisabled()), JSON.stringify(ps));
+  await lastPopup().getByRole("tab", { name: "Details" }).click();
+  await settle(page);
+  const dim = async (label) => lastPopup().getByText(label, { exact: true }).evaluate((e) => getComputedStyle(e).color);
+  const colors = await Promise.all(["Slashed zero", "Open four", "Lower-case L with tail", "Kerning pairs"].map(dim).map((p) => p.catch(() => "")));
+  const curves = await box(lastPopup().getByText("Disambiguation without slashed zero", { exact: true }));
+  check("R11 Details: Slashed zero, Open four dimmed; Lower-case L with tail, Kerning pairs not; long names on two lines", colors[0] === "rgba(255, 255, 255, 0.4)" && colors[1] === "rgba(255, 255, 255, 0.4)" && colors[2].startsWith("rgba(255, 255, 255, 0.69") && colors[3].startsWith("rgba(255, 255, 255, 0.69") && curves && curves.height > 28, JSON.stringify({ colors, h: curves?.height }));
+  await shot(page, `310-r11-type-details-${theme}`);
+  await page.keyboard.press("Escape");
+  // 9. The gradient's stop row (live: the hex 58 at 93, the opacity's number 32 at 152; Delete enabled with two stops).
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Solid color hex: D9D9D9" }).click();
+  await settle(page);
+  await page.locator('[aria-label="Color picker"] [aria-label="Gradient"]').first().click({ force: true });
+  await settle(page);
+  const picker = page.locator('[aria-label="Color picker"]').last();
+  const pb = await box(picker);
+  const hex = await box(picker.getByRole("textbox", { name: "Gradient Stop Color" }).first());
+  const op = await box(picker.getByRole("textbox", { name: "Gradient Stop Color opacity" }).first());
+  check("R11 gradient stop row: hex 58 at 93, opacity 32 at 152, Delete enabled with two stops, Paint type 96 × 32", pb && hex && op && Math.round(hex.x - pb.x) === 93 && Math.round(hex.width) === 58 && Math.round(op.x - pb.x) === 152 && Math.round(op.width) === 32 && !(await picker.getByRole("button", { name: "Delete gradient stop" }).first().isDisabled()) && Math.round((await box(picker.getByRole("group", { name: "Paint type" })))?.height ?? 0) === 32, JSON.stringify({ hex, op, pb }));
+  await page.keyboard.press("Escape");
+}
+
 /** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Hide panel. */
 async function variables6Section(page, theme) {
   await open(page, "&doc=variables");
@@ -3687,6 +3785,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await panel10Section(page, "dark");
+    await context.close();
+  }
+  if (only === "panel11" || !only) {
+    // Live's viewport (the captures' absolute places).
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await panel11Section(page, "dark");
     await context.close();
   }
   if (only === "header9" || !only) {
