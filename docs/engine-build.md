@@ -4,7 +4,7 @@
 
 Goal: the canvas items the round 9 sweep (`docs/research/audit-2026-10-08/sweep-round9.md`, fix group 3 "canvas-chrome") left open, matched to live Figma (`docs/research/figma/live/img/`). **Method — the captures' scale:** round 9 calibrated each `canvas-*` capture by its corner handle (= 7 px), which left the chrome's text ~8 % wider than live's. The two 1440 × 900 captures (known scale: 800 px for 1440, the frame at its shown zoom) settle it: their frame titles are Inter 11 exactly ("AL_grid" ink 21 / 21.5 px = 37.7 / 38.5 CSS px, Inter 11 = 38.1, Inter 10 = 34.6). So each `canvas-*` capture is scaled by its own frame title (Inter Regular 11): 1.444× for `canvas-autolayout-*`, 1.457× / 1.43× for the grid column / row captures, 1.593× for `canvas-rect-selected` (by its "120 × 90"). Ours was shot at each capture's scale and camera (headless Chrome at that `deviceScaleFactor`, the layer's top-left on the capture's pixel) and compared pixel by pixel (scratchpad `compare-r10.mjs`; half-intensity edges).
 
-**Checks:** see the status line at the end of this section.
+**Checks (branch head, main `20015cf` merged — nothing new on main):** `npm run check` green (104 files, 880 vitest; new `r10.captureFixture.wasm.test.ts`); `npm run engine:test` 456 / 456 (new `r10.canvas_chrome.test.cpp`: 6 cases; `render.batching` badge 17); `engine:shot` 108 ok (WebGL2) / 110 ok (WebGPU); full `editor-shot.mjs` 350 ok, 0 FAIL; `EDITOR_ONLY=overlays9` 13 ok (round 10: shots 200–201, the column outline check on 197), `EDITOR_ONLY=menus9` 15 ok. Release `engine.wasm` rebuilt and committed.
 
 | # | Gap (sweep) | State | Verified against live | Tests |
 |---|---|---|---|---|
