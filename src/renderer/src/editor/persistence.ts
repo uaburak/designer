@@ -62,6 +62,7 @@ function trackUiState(ed: EditorController): () => void {
     if (!frame) frame = requestAnimationFrame(write);
   };
   let widths = `${ed.ui.get().leftWidth}:${ed.ui.get().rightWidth}`;
+  let widthTimer: ReturnType<typeof setTimeout> | undefined;
   const offs = [
     ed.store.subscribe("camera", schedule),
     ed.store.subscribe("selection", schedule),
@@ -70,12 +71,15 @@ function trackUiState(ed: EditorController): () => void {
       const next = `${ed.ui.get().leftWidth}:${ed.ui.get().rightWidth}`;
       if (next !== widths) {
         widths = next;
-        schedule();
+        // A panel being dragged changes its width every frame: written once it rests, not a file write per frame.
+        clearTimeout(widthTimer);
+        widthTimer = setTimeout(schedule, 400);
       }
     }),
   ];
   return () => {
     cancelAnimationFrame(frame);
+    clearTimeout(widthTimer);
     offs.forEach((off) => off());
   };
 }
