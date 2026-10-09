@@ -13,7 +13,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 /** The stand-in for main's side (src/shared/agents/types.ts AgentsApi), in the page. */
-function installMockAgents() {
+export function installMockAgents() {
   const listeners = { event: new Set(), mcp: new Set() };
   let toolHandler = null;
   let reqId = 0;

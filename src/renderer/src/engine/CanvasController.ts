@@ -114,12 +114,24 @@ export class CanvasController {
     this.cleanups.push(() => target.removeEventListener(type, h, options));
   }
 
-  /** CSS size + exact backing pixels (device-pixel-content-box where supported). */
+  /**
+   * CSS size + exact backing pixels (device-pixel-content-box where supported). The observer runs after layout and
+   * before paint: the drawing buffer is resized (engine_set_viewport) and drawn in that same frame, so a panel
+   * resized beside the canvas never shows the canvas blank (WebGL2 clears a resized buffer) or its old picture
+   * stretched to the new box (WebGPU) for a frame.
+   */
   private observeSize(): void {
     const c = this.canvas;
-    const apply = (cssW: number, cssH: number, pxW: number, pxH: number) => {
+    let last = "";
+    const apply = (cssW: number, cssH: number, pxW: number, pxH: number, draw = true) => {
       if (this.engine.destroyed || cssW <= 0 || cssH <= 0) return;
-      this.engine.setViewport(cssW, cssH, window.devicePixelRatio || 1, Math.max(1, pxW), Math.max(1, pxH));
+      const dpr = window.devicePixelRatio || 1;
+      const key = `${cssW} ${cssH} ${dpr} ${pxW} ${pxH}`;
+      if (key === last) return;
+      last = key;
+      this.engine.setViewport(cssW, cssH, dpr, Math.max(1, pxW), Math.max(1, pxH));
+      // (Not at attach: the first frame comes by itself, with nothing on screen to keep.)
+      if (draw) this.engine.frameNow();
     };
     const observer = new ResizeObserver((entries) => {
       const entry = entries[entries.length - 1];
@@ -141,7 +153,7 @@ export class CanvasController {
     this.cleanups.push(() => observer.disconnect());
     const rect = c.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    apply(rect.width, rect.height, Math.round(rect.width * dpr), Math.round(rect.height * dpr));
+    apply(rect.width, rect.height, Math.round(rect.width * dpr), Math.round(rect.height * dpr), false);
   }
 
   private at(e: PointerEvent | WheelEvent): [number, number] {

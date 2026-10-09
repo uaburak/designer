@@ -601,6 +601,18 @@ export class Engine {
     this.after(undefined);
   };
 
+  /**
+   * This frame, drawn now rather than at the next animation frame: for a canvas whose drawing buffer was just resized
+   * in a ResizeObserver callback (after layout, before paint). Left undrawn until the next frame, the new buffer is
+   * painted blank (WebGL2) or the old picture stretched to the new size (WebGPU) — the flash / warp a panel resize
+   * showed.
+   */
+  frameNow(): void {
+    if (!this.h || this.headless) return;
+    if (this.frameRequested) cancelAnimationFrame(this.frameRequested);
+    this.frame(performance.now());
+  }
+
   /** Draws now (tests, screenshots); normally frames come by themselves. */
   renderNow(): void {
     if (!this.h) return;

@@ -166,7 +166,11 @@ export function attachViewerCanvas(canvas: HTMLCanvasElement, engine: Engine, op
     const dpr = window.devicePixelRatio || 1;
     if (r.width > 0 && r.height > 0) engine.setViewport(r.width, r.height, dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
   };
-  const observer = new ResizeObserver(resize);
+  // Drawn in the observer, before this frame is painted: never a blank or stretched canvas (CanvasController.observeSize).
+  const observer = new ResizeObserver(() => {
+    resize();
+    engine.frameNow();
+  });
   observer.observe(canvas);
   offs.push(() => observer.disconnect());
   resize();

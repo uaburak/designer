@@ -254,6 +254,7 @@ export function PresentationView({ source, page, node, onClose, onReady, onShare
         const dpr = window.devicePixelRatio || 1;
         if (r.width > 0 && r.height > 0 && engine && !engine.destroyed) {
           engine.setViewport(r.width, r.height, dpr, Math.max(1, Math.round(r.width * dpr)), Math.max(1, Math.round(r.height * dpr)));
+          engine.frameNow(); // drawn before this frame is painted: never a blank or stretched canvas (CanvasController.observeSize)
           readState();
         }
       });

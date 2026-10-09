@@ -37,6 +37,7 @@
 //   EDITOR_ONLY=grid12 node …                                      (round 12 at 1440 × 900, only on its own: a grid's gap boxes and gap drag, the row pill's click and its chevron's field and sizing list against the live captures)
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_ONLY=agents node …                                      (the Agents tab and the MCP section with a stand-in agent: "Make the mobile version of this", Undo / Apply, Agent settings)
+//   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -51,6 +52,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { agentsSection } from "./editorShotAgents.mjs";
+import { inputSection } from "./editorShotInput.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const outDir = path.resolve(process.argv[2] ?? "/tmp/designer-work/editor");
@@ -4718,6 +4720,16 @@ async function menus12Section(page, theme) {
 }
 
 try {
+  if (only === "input" || (!only && part !== "2")) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await inputSection(page, "dark", { open, settle, check });
+    await context.close();
+  }
   if (only === "agents" || (!only && part !== "2")) {
     for (const theme of ["dark", "light"]) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
