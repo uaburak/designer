@@ -1455,7 +1455,26 @@ class Editor : private LayoutHost, public TextLayouts {
   GridHit gridHitAt(Vec2 s) const;
   bool gridSpanHandles(Guid& item, Vec2 out[4]) const;
   int gridSpanHandleAt(Vec2 s) const;
-  void setGridTrackSelection(Guid frame, bool column, std::vector<size_t> tracks, bool edit);
+  // `edit`: the GRID_TRACKS event asks TS for the label's field and sizing menu at track `anchor`'s pill (default: the
+  // first selected).
+  void setGridTrackSelection(Guid frame, bool column, std::vector<size_t> tracks, bool edit, size_t anchor = SIZE_MAX);
+  // Round 12: a selected grid's gaps as boxes in its own space (live Figma, grid-selected-hover-gap): between columns
+  // (axis 0) one per row, between rows (1) one per column, each with the boundary and the track across it.
+  struct GridGapBox {
+    Rect rect;
+    size_t boundary = 0, cross = 0;
+  };
+  // A selected grid's gap under the pointer (live Figma, grid-selected-hover-gap) or being dragged: the gaps between
+  // columns (axis 0) or rows (1), the one after track `boundary`, in the track `cross` across it.
+  struct GridGapHover {
+    Guid frame = kNoGuid;
+    int axis = -1;
+    size_t boundary = 0, cross = 0;
+  };
+  std::vector<GridGapBox> gridGapBoxes(Guid frame, int axis) const;
+  // The gap under `local` (the frame's space): axis −1 when none.
+  GridGapHover gridGapAt(Guid frame, Vec2 local) const;
+  void gridGapOverlay(Overlay& o) const;
   void clearGridTrackSelection();
   Status selectGridTracksCommand(const CommandArgs& args);
   uint32_t gridPointerDown(Vec2 s, uint32_t mods);
@@ -1610,6 +1629,9 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid layoutBarsFrame_ = kNoGuid;              // the frame they are the bars of
   int layoutBar_ = -1;                          // dragging: a side (0..3) or 4 + a gap
   StackFacet layoutBarFrom_;                    // the frame's auto layout when the drag started
+  // Round 12: a selected grid's gap under the pointer or being dragged; the drag's gap when it started.
+  GridGapHover gridGap_;
+  double gridGapFrom_ = 0;
 
   // Text.
   struct CachedText {

@@ -816,12 +816,14 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
   std::vector<Rect> bands;
   std::vector<Overlay::LayoutBar> bars;
   int hovered = -1;
+  GridGapHover gap;
   bool dragging = gesture_ == Gesture::LayoutBar;
   if ((gesture_ == Gesture::None || dragging) && tool_ == Tool::MOVE && !spaceHeld_ && selection_.size() == 1 && !viewer_) {
     Guid id = selection_[0];
     const Node* n = doc_.get(id);
     Mat2x3 W = doc_.worldTransform(id);
-    // A grid too: its paddings' bars (live Figma, canvas-grid-frame-selected: the mid-edge bars), no gap bars.
+    // A grid too: its paddings' bars (live Figma, canvas-grid-frame-selected: the mid-edge bars), no gap bars — the
+    // pointer in a gap outlines that axis's gaps instead (round 12, grid-selected-hover-gap; gridGapOverlay).
     if (n && n->props.isAutoLayout() && axisAligned(W) && W.m00 > 0 && W.m11 > 0 && !n->props.locked && !id.isDerived()) {
       bool grid = n->props.stack().stackMode == StackMode::GRID;
       const NodeProps& p = n->props;
@@ -852,7 +854,13 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
         }
         Rect sides[4] = {{0, 0, pad[0], h}, {0, 0, w, pad[1]}, {w - pad[2], 0, pad[2], h}, {0, h - pad[3], w, pad[3]}};
         int band = -1;  // 0..3 a side, 4 + i a gap
-        if (dragging) band = layoutBar_;
+        // A grid's gap under the pointer, or the one being dragged: its axis's gaps, no bars (live Figma: the padding
+        // bars give way, grid-selected-hover-gap).
+        if (grid && dragging && gridGap_.axis >= 0 && gridGap_.frame == id) gap = gridGap_;
+        else if (grid && !dragging && !onChild && q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h) gap = gridGapAt(id, q);
+        if (gap.axis >= 0)
+          for (const GridGapBox& b : gridGapBoxes(id, gap.axis)) bands.push_back(b.rect);
+        else if (dragging) band = layoutBar_;
         else if (!onChild) {
           for (size_t i = 0; i < gaps.size() && band < 0; i++)
             if (inside(gaps[i])) band = 4 + static_cast<int>(i);
@@ -863,7 +871,7 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
         else if (band >= 0) bands.push_back(sides[band]);
         for (auto& b : bands) b = transformedBounds(W * Mat2x3::translate(b.x, b.y), b.w, b.h);
         // The bars: each side with padding, each gap.
-        for (int k = 0; k < 4; k++) {
+        for (int k = 0; k < 4 && gap.axis < 0; k++) {
           if (pad[k] <= 0) continue;
           const Rect& r = sides[k];
           Overlay::LayoutBar bar;
@@ -899,10 +907,12 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
   }
   if (!(bands.size() == bands_.size() && std::equal(bands.begin(), bands.end(), bands_.begin()))) needsRender_ = true;
   if (bars.size() != layoutBars_.size() || hovered != layoutBarHover_) needsRender_ = true;
+  if (gap.frame != gridGap_.frame || gap.axis != gridGap_.axis || gap.boundary != gridGap_.boundary || gap.cross != gridGap_.cross) needsRender_ = true;
   bands_ = std::move(bands);
   layoutBars_ = std::move(bars);
   layoutBarHover_ = hovered;
   layoutBarsFrame_ = layoutBars_.empty() ? kNoGuid : selection_[0];
+  gridGap_ = gap;
 }
 
 void Editor::startLayoutBar(int band) {
@@ -911,6 +921,8 @@ void Editor::startLayoutBar(int band) {
   begin(TxnKind::GESTURE, band >= 4 ? "Gap" : "Padding");
   layoutBar_ = band;
   layoutBarFrom_ = n->props.stack();
+  // A grid's gap (round 12): the gap between its columns or its rows.
+  gridGapFrom_ = gridGap_.axis >= 0 && gridGap_.frame == selection_[0] ? Layout::gridGap(n->props, gridGap_.axis == 0) : 0;
 }
 
 void Editor::dragLayoutBar(Vec2 world, uint32_t mods) {
@@ -922,6 +934,21 @@ void Editor::dragLayoutBar(Vec2 world, uint32_t mods) {
   Vec2 d = inv.applyLinear(world - downWorld_);
   const auto& from = layoutBarFrom_;
   NodeChange c = NodeChange::changed(id);
+  if (layoutBar_ >= 4 && gridGap_.axis >= 0 && gridGap_.frame == id) {
+    // A grid's gap: every gap of the axis changes alike, the box under the pointer follows it as auto layout's gap bar
+    // does (`boundary` + ½ gaps before its middle; unverified — live Figma has no capture of this drag).
+    bool columns = gridGap_.axis == 0;
+    double v = std::max(0.0, std::round(gridGapFrom_ + (columns ? d.x : d.y) / (static_cast<double>(gridGap_.boundary) + 0.5)));
+    c.mask = F_EXTRA;
+    c.props.extra = doc_.get(id)->props.extra;
+    c.props.extra[columns ? "gridColumnGap" : "gridRowGap"] = Layout::gridGapBytes(columns, v);
+    write(c);
+    layoutDirty_.insert(id);
+    flushLayout();
+    updateAutoLayoutBands(world);
+    needsRender_ = true;
+    return;
+  }
   if (layoutBar_ >= 4) {
     bool horizontal = from.stackMode == StackMode::HORIZONTAL;
     double along = horizontal ? d.x : d.y;
@@ -1163,6 +1190,14 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   }
   if (h == Handle::RotationOrigin) {
     gesture_ = Gesture::RotationOrigin;  // a view state, no transaction
+    return P_HANDLED | P_CAPTURE;
+  }
+  // A selected grid's gap under the pointer (its gaps outlined): a drag changes the gap (round 12).
+  if (!viewer_ && h == Handle::None && gridGap_.axis >= 0 && selection_.size() == 1 && selection_[0] == gridGap_.frame &&
+      !(mods & (MOD_PRIMARY | MOD_SHIFT))) {
+    gesture_ = Gesture::LayoutBar;
+    layoutBarMoved_ = false;
+    startLayoutBar(4 + static_cast<int>(gridGap_.boundary));
     return P_HANDLED | P_CAPTURE;
   }
   // An auto-layout frame's padding or gap under the pointer (its bar shows): a drag changes it.

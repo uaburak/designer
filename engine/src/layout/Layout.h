@@ -122,6 +122,10 @@ class Layout {
   // gridAutoTracks ROWS ("Number of rows: Auto"): the rows are as many as the items need (empty ones go).
   static bool gridAutoRows(const NodeProps& p);
   static std::string gridAutoRowsBytes(bool on);
+  // A grid's gap between columns / rows (gridColumnGap / gridRowGap; 0 when unset) and its kiwi bytes (round 12: the
+  // canvas's gap drag writes it).
+  static double gridGap(const NodeProps& p, bool column);
+  static std::string gridGapBytes(bool column, double gap);
 
  private:
   // Grid auto layout (GridLayout.cpp): tracks sized and items placed for a size (hugW / hugH: that axis hugs).
