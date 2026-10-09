@@ -34,21 +34,20 @@ export interface SelectionColor {
   uses: PaintUse[];
 }
 
-/** How many rows show before "See all N colors". */
-export const SELECTION_COLORS_SHOWN = 3;
+/**
+ * How many rows show before "See all N colors". Live lists four colours with no link (design/mixed-multi.txt); where
+ * the link starts is unverified.
+ */
+export const SELECTION_COLORS_SHOWN = 4;
 
 /** Past this many layers the subtree isn't read (Figma also stops listing colours on huge selections). */
 export const SELECTION_COLORS_MAX_NODES = 5000;
 
 export const colorKey = (color: Pick<Color, "r" | "g" | "b">, opacity: number) => `${colorToHex(color)}/${Math.round(opacity * 100)}`;
 
-/**
- * The distinct colours of `nodes` (in the order given: each layer's children before it, the first child first), those
- * from colour variables first, then those from styles.
- */
-export function collectColors(nodes: readonly NodeChange[]): SelectionColor[] {
+/** The distinct colours of `nodes` in the order met (each with every use). */
+function gather(nodes: readonly NodeChange[]): Map<string, SelectionColor> {
   const out = new Map<string, SelectionColor>();
-  const byGuid = new Map(nodes.map((n) => [n.guid, n]));
   for (const n of nodes) {
     for (const field of ["fillPaints", "strokePaints"] as const) {
       if ((n as { mask?: boolean }).mask) continue;
@@ -72,7 +71,12 @@ export function collectColors(nodes: readonly NodeChange[]): SelectionColor[] {
       });
     }
   }
-  // Figma lists colours from variables first, then from styles, then the rest (each group in reading order).
+  return out;
+}
+
+/** Figma lists colours from variables first, then from styles, then the rest (each group in the order given). */
+function byRank(list: SelectionColor[], nodes: readonly NodeChange[]): SelectionColor[] {
+  const byGuid = new Map(nodes.map((n) => [n.guid, n]));
   const rank = (c: SelectionColor) => {
     let best = 2;
     for (const u of c.uses) {
@@ -84,7 +88,45 @@ export function collectColors(nodes: readonly NodeChange[]): SelectionColor[] {
     }
     return best;
   };
-  return [...out.values()].map((c, i) => ({ c, i, r: rank(c) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.c);
+  return list.map((c, i) => ({ c, i, r: rank(c) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.c);
+}
+
+/**
+ * The distinct colours of `nodes` (in the order given: each layer's children before it, the first child first), those
+ * from colour variables first, then those from styles.
+ */
+export function collectColors(nodes: readonly NodeChange[]): SelectionColor[] {
+  return byRank([...gather(nodes).values()], nodes);
+}
+
+/** Solid colours by their hex (then opacity, the opaque first), gradients after them in the order met. */
+const byHex = (a: SelectionColor, b: SelectionColor) => {
+  if (!!a.gradient !== !!b.gradient) return a.gradient ? 1 : -1;
+  if (a.gradient) return 0;
+  const ha = colorToHex(a.color).toUpperCase();
+  const hb = colorToHex(b.color).toUpperCase();
+  return ha < hb ? -1 : ha > hb ? 1 : b.opacity - a.opacity;
+};
+
+/**
+ * Selection colors' rows, one group per selected layer (its subtree and itself) in selection order: each group's new
+ * colours by hex, then variables first and styles next. Live (design/*.txt, 9 captures) — Rect + Ellipse + Text +
+ * F_frame lists D9D9D9, 000000, 3380FF, FFFFFF; AL_parent 8080E5, E58033, FFFFFF (its children E58033, 8080E5); the
+ * Button 0D99FF, FFB200, FFFFFF; Group 4D4D4D, 999999. That the order within a layer is by hex is inferred from these
+ * (unverified beyond them).
+ */
+export function collectSelectionColors(groups: readonly (readonly NodeChange[])[]): SelectionColor[] {
+  const out = new Map<string, SelectionColor>();
+  for (const group of groups) {
+    const fresh: SelectionColor[] = [];
+    for (const [key, c] of gather(group)) {
+      const known = out.get(key);
+      if (known) known.uses.push(...c.uses);
+      else fresh.push(c);
+    }
+    for (const c of fresh.sort(byHex)) out.set(c.key, c);
+  }
+  return byRank([...out.values()], groups.flat());
 }
 
 /**

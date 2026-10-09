@@ -335,7 +335,9 @@ export function GridSpanRow({ nodes }: { nodes: PanelNode[] }) {
   const rowSpan = mixedNumber(items.map((n) => spanOf(n, "rows")));
   const set = (key: "gridColumnSpan" | "gridRowSpan", v: number, info: ChangeInfo) => editGrids(ed, key === "gridColumnSpan" ? "Column span" : "Row span", info, refs, () => ({ [key]: Math.max(1, Math.round(v)) }));
   return (
-    <PropertyRow label="Span">
+    // Live (design/grid-child.txt): "Column span" (16,340) and "Row span" (112,340) over the fields at 356 — 2 lower
+    // than a plain row under Dimensions (a row with a label per column).
+    <PropertyRow labels={["Column span", "Row span"]}>
       <NumericInput label="Column span" prefix="24.grid-column" value={fieldValue(colSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridColumnSpan", v, info)} onCancel={() => ed.cancelEdit()} />
       <NumericInput label="Row span" prefix="24.grid-row" value={fieldValue(rowSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridRowSpan", v, info)} onCancel={() => ed.cancelEdit()} />
     </PropertyRow>

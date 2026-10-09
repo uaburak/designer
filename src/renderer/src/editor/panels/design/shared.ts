@@ -1,5 +1,6 @@
 /** What the Design panel's sections share: the selection's nodes, field support, kinds. */
 import type { BlendMode, Color, Effect, Guid, NodeChange, NodeFields } from "@/engine/codec";
+import { useEffect, useState } from "react";
 import { useSelection } from "@/engine/hooks";
 import { useEditor } from "../../controller";
 import { keepsField, supportsField } from "../../engineCompat";
@@ -122,6 +123,20 @@ export const isGroupNode = (n: PanelNode) => typeOf(n) === "GROUP" || (typeOf(n)
 export const isFrameNode = (n: PanelNode) => (typeOf(n) === "FRAME" && n.resizeToFit !== true) || ["SECTION", "SYMBOL", "INSTANCE"].includes(typeOf(n));
 export const isTextNode = (n: PanelNode) => typeOf(n) === "TEXT";
 export const hasCorners = (n: PanelNode) => typeOf(n) === "RECTANGLE" || typeOf(n) === "ROUNDED_RECTANGLE" || isFrameNode(n);
+/**
+ * A layer inside an instance (its guid is an instance path, "I8:62;8:51"): live Figma (design/nested-instance.txt)
+ * keeps its place, turn, flow and proportions — X / Y, Rotation, Rotate 90˚ / Flip, Align, Ignore auto layout, Flow,
+ * Wrap and Lock aspect ratio are disabled, its W / H a read-only sizing list.
+ */
+export const isInstanceSublayer = (n: { guid?: unknown }) => String(n.guid ?? "").startsWith("I");
+
+/** The text layer being edited on the canvas (null when none), re-read on every TEXT_EDIT event. */
+export function useTextEditRef(): Guid | null {
+  const ed = useEditor();
+  const [ref, setRef] = useState<Guid | null>(() => ed.engine.textEdit?.ref ?? null);
+  useEffect(() => ed.engine.on("TEXT_EDIT", (e) => setRef(e.active ? e.ref : null)), [ed]);
+  return ref;
+}
 
 const BOOLEAN_LABEL: Record<string, string> = { UNION: "Union", SUBTRACT: "Subtract", INTERSECT: "Intersect", XOR: "Exclude" };
 

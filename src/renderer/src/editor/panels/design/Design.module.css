@@ -64,6 +64,17 @@
    * A button group in a field column (Figma's live panel: Align left / centers / right, Rotate 90˚ right / Flip —
    * three 29 × 24 buttons on #383838, rounded at the group's ends only)
    */
+  /*
+   * A place / turn field that is locked (a layer in an auto-layout flow, inside an instance): live draws it on the
+   * panel's colour (design/autolayout-child.txt, nested-instance.txt: X / Y / Rotation bg #2c2c2c), not dimmed.
+   */
+  .plainDisabled[data-disabled] { background: transparent; opacity: 1; }
+  .plainDisabled[data-disabled] input { color: var(--figma-color-text-disabled); }
+  /* A layer inside an instance: its W / H as live's read-only list (88 × 32 around the 24 box) */
+  .lockedSize { display: flex; align-items: center; height: calc(var(--ds-size-control) + var(--ds-space-2)); margin: calc(var(--ds-space-1) * -1) 0; }
+  .lockedSizeBox { display: flex; align-items: center; width: 100%; height: var(--ds-size-control); border-radius: var(--ds-radius-medium); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); color: var(--figma-color-text); }
+  .lockedSizeAxis { width: 25px; padding-left: var(--ds-space-2); color: var(--figma-color-text-secondary); box-sizing: border-box; }
+  .lockedSizeValue { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .buttonGroup { display: flex; gap: 1px; height: var(--ds-size-control); }
   .buttonGroup > .groupButton {
     flex: 1 1 0;
