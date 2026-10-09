@@ -9,9 +9,11 @@
 #include <unordered_set>
 
 #include "editor/Editor.h"
+#include "geometry/Shapes.h"
 #include "hit/HitTest.h"
 #include "hit/Marquee.h"
 #include "hit/Picking.h"
+#include "scene/CodecKiwi.h"
 #include "text/Fonts.h"
 
 namespace eng {
@@ -76,6 +78,12 @@ double Editor::labelWidth(const std::string& name, bool section) const {
     p.text().fontName = font;
     p.text().fontSize = size;
     p.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+    if (section) {
+      // As the overlay draws a section's name: at Figma's 550 on Inter's weight axis.
+      json::Value v;
+      if (json::parse("[{\"axisTag\":2003265652,\"value\":" + std::to_string(style.sectionTitleWeight) + "}]", v))
+        p.extra["fontVariations"] = codec::extraFromJson("NodeChange", "fontVariations", v);
+    }
     auto layout = text::layoutText(p, text::LayoutOptions{});
     if (layout && !layout->pendingFont) w = layout->size.x;
     else return w;  // not cached: measured again once the font is in
@@ -140,6 +148,24 @@ Editor::Handle Editor::handleAt(Vec2 s, int& hx, int& hy) const {
         hx = i, hy = 0;
         return Handle::Radius;
       }
+  // An ellipse's arc handles, a polygon's or a star's corner radius / ratio / count handles.
+  {
+    Guid sid;
+    std::vector<ShapeHandlePos> sh;
+    if (shapeHandles(sid, sh)) {
+      const double reach = OverlayStyle::of(theme_).radiusHandleSize / 2 + 2;
+      int best = -1;
+      double bestD = reach;
+      for (size_t i = 0; i < sh.size(); i++) {
+        double d = (s - camera_.toScreen(sh[i].world)).length();
+        if (d <= bestD) bestD = d, best = static_cast<int>(i);
+      }
+      if (best >= 0) {
+        hx = best, hy = 0;
+        return Handle::Shape;
+      }
+    }
+  }
   // A smart selection's centre rings (drag: reorder) and gap handles.
   SmartSelection smart;
   if (gesture_ == Gesture::None && smartSelection(smart)) {
@@ -325,6 +351,221 @@ void Editor::dragRadius(Vec2 world, uint32_t mods) {
   needsRender_ = true;
 }
 
+// ---- Shape handles: arcs, polygons, stars -------------------------------------------
+
+namespace {
+
+constexpr double kTwoPi = 2 * kPi;
+constexpr double kArcInset = 9;         // CSS px: an arc handle's ring inside the ellipse's edge (live: 9-10)
+constexpr double kCornerHandleReach = 16;  // CSS px: a polygon's / star's radius handle from its corner, at least (live)
+constexpr uint32_t kMaxCount = 60;      // a polygon's / star's most points (unverified)
+
+// An ellipse's arc as drawn: [a0, a1] with a1 - a0 in (0, 2π]; `full`: the whole ellipse.
+void arcSpan(const ArcData& arc, double& a0, double& a1, bool& full) {
+  a0 = arc.startingAngle, a1 = arc.endingAngle;
+  if (a0 == 0 && a1 == 0) a1 = kTwoPi;
+  if (a1 < a0) std::swap(a0, a1);
+  full = a1 - a0 >= kTwoPi - 1e-6;
+  if (full) a1 = a0 + kTwoPi;
+}
+
+// The angle a turn from `from` to `to` adds, in (−π, π].
+double turnBetween(double from, double to) {
+  double d = std::fmod(to - from, kTwoPi);
+  if (d > kPi) d -= kTwoPi;
+  if (d <= -kPi) d += kTwoPi;
+  return d;
+}
+
+}  // namespace
+
+bool Editor::shapeHandles(Guid& id, std::vector<ShapeHandlePos>& out) const {
+  out.clear();
+  if (viewer_ || tool_ != Tool::MOVE || spaceHeld_ || selection_.size() != 1 || text_.node != kNoGuid || vector_.node != kNoGuid ||
+      paint_.node != kNoGuid || proto_.on)
+    return false;
+  if (gesture_ != Gesture::None && gesture_ != Gesture::Shape) return false;
+  id = selection_[0];
+  const Node* n = doc_.get(id);
+  if (!n || n->props.locked || id.isDerived()) return false;
+  const NodeProps& p = n->props;
+  if (p.type != NodeType::ELLIPSE && p.type != NodeType::REGULAR_POLYGON && p.type != NodeType::STAR) return false;
+  double w = p.size.x, h = p.size.y;
+  if (w <= 0 || h <= 0) return false;
+  Mat2x3 W = doc_.worldTransform(id), S = camera_.matrix() * W;
+  double ux = S.applyLinear({1, 0}).length(), uy = S.applyLinear({0, 1}).length();
+  if (w * ux < kRadiusMinBox || h * uy < kRadiusMinBox) return false;
+  if (gesture_ == Gesture::None) {
+    // Shown while the pointer is over the layer's box (as a rectangle's radius handles).
+    Vec2 q = S.inverse().apply(lastScreen_);
+    if (q.x < 0 || q.y < 0 || q.x > w || q.y > h) return false;
+  }
+  Vec2 c{w / 2, h / 2};
+  // A screen point `px` CSS px from node point `at` towards node point `to` (at most half the way), as world.
+  auto toward = [&](Vec2 at, Vec2 to, double px) {
+    Vec2 a = S.apply(at), b = S.apply(to);
+    Vec2 d = b - a;
+    double len = d.length();
+    if (len < 1e-9) return camera_.toWorld(a);
+    return camera_.toWorld(a + d * (std::min(px, len / 2) / len));
+  };
+  auto add = [&](ShapeHandle kind, Vec2 world) { out.push_back({kind, world}); };
+  if (p.type == NodeType::ELLIPSE) {
+    double a0, a1;
+    bool full;
+    arcSpan(p.shape().arcData, a0, a1, full);
+    auto on = [&](double a, double s) { return Vec2{c.x + std::cos(a) * w / 2 * s, c.y + std::sin(a) * h / 2 * s}; };
+    // The arc's end (a full ellipse: one ring where it starts, on its right by default), inside the edge.
+    add(ShapeHandle::ArcEnd, toward(on(a1, 1), c, kArcInset));
+    if (!full) add(ShapeHandle::ArcStart, toward(on(a0, 1), c, kArcInset));
+    double inner = std::clamp(p.shape().arcData.innerRadius, 0.0, 1.0);
+    // The ratio: the inner edge in the middle of the arc (the centre while there is no hole) — not on a whole
+    // ellipse without a hole (live: one handle).
+    if (!full || inner > 0) add(ShapeHandle::ArcRatio, W.apply(on((a0 + a1) / 2 + (full ? kPi : 0), inner)));
+    return true;
+  }
+  bool star = p.type == NodeType::STAR;
+  uint32_t count = std::max<uint32_t>(p.shape().count ? p.shape().count : (star ? 5 : 3), 3);
+  std::vector<Vec2> pts = star ? geom::starPoints(p.size, count, p.shape().starInnerScale) : geom::polygonPoints(p.size, count);
+  if (pts.size() < 3) return false;
+  // The corner radius: in the top corner, at its rounding's centre — at least kCornerHandleReach px in (live).
+  {
+    Vec2 v = pts[0], prev = pts.back(), next = pts[1];
+    Vec2 ea = prev - v, eb = next - v;
+    double la = ea.length(), lb = eb.length();
+    Vec2 a = la > 0 ? ea * (1 / la) : Vec2{}, b = lb > 0 ? eb * (1 / lb) : Vec2{};
+    double theta = std::acos(std::clamp(a.x * b.x + a.y * b.y, -1.0, 1.0));
+    Vec2 bis = a + b;
+    double bl = bis.length();
+    bis = bl > 1e-9 ? bis * (1 / bl) : Vec2{0, 1};
+    double r = std::max(0.0, p.cornerRadii[0]);
+    double cut = theta > 1e-6 ? r / std::tan(theta / 2) : 0, maxCut = std::min(la, lb) / 2;
+    if (cut > maxCut) r = maxCut * std::tan(theta / 2);
+    double along = theta > 1e-6 ? r / std::sin(theta / 2) : 0;
+    Vec2 centre = v + bis * along;
+    Vec2 vs = S.apply(v), cs = S.apply(centre);
+    if ((cs - vs).length() < kCornerHandleReach) {
+      Vec2 dir = S.applyLinear(bis);
+      double dl = dir.length();
+      cs = dl > 1e-9 ? vs + dir * (kCornerHandleReach / dl) : vs;
+    }
+    add(ShapeHandle::Radius, camera_.toWorld(cs));
+  }
+  // A star's ratio: its first inner corner; the count: the next point clockwise from the top.
+  if (star) add(ShapeHandle::Ratio, W.apply(pts[1]));
+  add(ShapeHandle::Count, W.apply(star ? pts[2] : pts[1]));
+  return true;
+}
+
+void Editor::startShapeHandle(int index) {
+  Guid id;
+  std::vector<ShapeHandlePos> hs;
+  if (!shapeHandles(id, hs) || index < 0 || static_cast<size_t>(index) >= hs.size()) return;
+  const NodeProps& p = doc_.get(id)->props;
+  shapeDrag_ = {};
+  shapeDrag_.index = index;
+  shapeDrag_.kind = hs[static_cast<size_t>(index)].kind;
+  shapeDrag_.arc = p.shape().arcData;
+  shapeDrag_.count = p.shape().count;
+  shapeDrag_.ratio = p.shape().starInnerScale;
+  shapeDrag_.radius = p.cornerRadii[0];
+  const char* label = shapeDrag_.kind == ShapeHandle::Radius                                      ? "Corner radius"
+                      : shapeDrag_.kind == ShapeHandle::Count                                      ? "Count"
+                      : shapeDrag_.kind == ShapeHandle::Ratio || shapeDrag_.kind == ShapeHandle::ArcRatio ? "Ratio"
+                                                                                                   : "Arc";
+  begin(TxnKind::GESTURE, label);
+  targets_ = targetsOf({id});
+  // The press in the shape's unit circle: its angle and reach.
+  Vec2 q = doc_.worldTransform(id).inverse().apply(downWorld_);
+  Vec2 u{p.size.x > 0 ? (q.x - p.size.x / 2) / (p.size.x / 2) : 0, p.size.y > 0 ? (q.y - p.size.y / 2) / (p.size.y / 2) : 0};
+  shapeDrag_.lastAngle = std::atan2(u.y, u.x);
+  shapeDrag_.startReach = u.length();
+}
+
+void Editor::dragShapeHandle(Vec2 world, uint32_t mods) {
+  (void)mods;
+  if (targets_.empty() || shapeDrag_.index < 0) return;
+  const Target& t = targets_[0];
+  const Node* n = doc_.get(t.id);
+  if (!n) return;
+  Vec2 size = t.size;
+  if (size.x <= 0 || size.y <= 0) return;
+  Vec2 q = t.world.inverse().apply(world);
+  Vec2 u{(q.x - size.x / 2) / (size.x / 2), (q.y - size.y / 2) / (size.y / 2)};
+  double angle = std::atan2(u.y, u.x), reach = u.length();
+  shapeDrag_.turned += turnBetween(shapeDrag_.lastAngle, angle);
+  shapeDrag_.lastAngle = angle;
+  NodeChange c = NodeChange::changed(t.id);
+  auto tidyAngle = [](double a) { return std::round(a * 1e6) / 1e6; };
+  switch (shapeDrag_.kind) {
+    case ShapeHandle::ArcEnd:
+    case ShapeHandle::ArcStart: {
+      // The dragged end turns with the pointer (unwrapped: past the other end the sweep stays whole, or empty).
+      double a0, a1;
+      bool full;
+      arcSpan(shapeDrag_.arc, a0, a1, full);
+      ArcData arc = shapeDrag_.arc;
+      if (shapeDrag_.kind == ShapeHandle::ArcEnd) {
+        a1 = std::clamp(a1 + shapeDrag_.turned, a0, a0 + kTwoPi);
+      } else {
+        a0 = std::clamp(a0 + shapeDrag_.turned, a1 - kTwoPi, a1);
+      }
+      arc.startingAngle = tidyAngle(a0);
+      arc.endingAngle = tidyAngle(a1);
+      c.mask = F_ARC_DATA;
+      c.props.shape().arcData = arc;
+      break;
+    }
+    case ShapeHandle::ArcRatio: {
+      ArcData arc = shapeDrag_.arc;
+      arc.innerRadius = std::round(std::clamp(arc.innerRadius + reach - shapeDrag_.startReach, 0.0, 1.0) * 1e4) / 1e4;
+      if (arc.startingAngle == 0 && arc.endingAngle == 0) arc.endingAngle = tidyAngle(kTwoPi);
+      c.mask = F_ARC_DATA;
+      c.props.shape().arcData = arc;
+      break;
+    }
+    case ShapeHandle::Ratio: {
+      c.mask = F_STAR_INNER_SCALE;
+      c.props.shape().starInnerScale = std::round(std::clamp(shapeDrag_.ratio + reach - shapeDrag_.startReach, 0.0, 1.0) * 1e3) / 1e3;
+      break;
+    }
+    case ShapeHandle::Count: {
+      // The points follow the pointer's angle from the top: 2π / that many (3 … 60).
+      double from = std::atan2(u.x, -u.y);  // clockwise from straight up
+      if (from <= 1e-6) from += kTwoPi;
+      uint32_t count = static_cast<uint32_t>(std::clamp(std::round(kTwoPi / from), 3.0, static_cast<double>(kMaxCount)));
+      c.mask = F_COUNT;
+      c.props.shape().count = count;
+      break;
+    }
+    case ShapeHandle::Radius: {
+      // Along the top corner's bisector from where the press was: whole numbers, up to what the corner holds.
+      bool star = n->props.type == NodeType::STAR;
+      uint32_t count = std::max<uint32_t>(shapeDrag_.count ? shapeDrag_.count : (star ? 5 : 3), 3);
+      std::vector<Vec2> pts = star ? geom::starPoints(size, count, shapeDrag_.ratio) : geom::polygonPoints(size, count);
+      Vec2 v = pts[0], ea = pts.back() - v, eb = pts[1] - v;
+      double la = ea.length(), lb = eb.length();
+      if (la <= 0 || lb <= 0) return;
+      Vec2 a = ea * (1 / la), b = eb * (1 / lb);
+      double theta = std::acos(std::clamp(a.x * b.x + a.y * b.y, -1.0, 1.0));
+      Vec2 bis = a + b;
+      double bl = bis.length();
+      if (bl < 1e-9 || theta < 1e-6) return;
+      bis = bis * (1 / bl);
+      Vec2 q0 = t.world.inverse().apply(downWorld_);
+      Vec2 d = q - q0;
+      double delta = (d.x * bis.x + d.y * bis.y) * std::sin(theta / 2);
+      double most = std::floor(std::min(la, lb) / 2 * std::tan(theta / 2));
+      double r = std::clamp(std::round(std::min(shapeDrag_.radius, most) + delta), 0.0, std::max(0.0, most));
+      c.mask = F_CORNER_RADII;
+      c.props.cornerRadii = {r, r, r, r};
+      break;
+    }
+  }
+  write(c);
+  needsRender_ = true;
+}
+
 // ---- Smart selection ------------------------------------------------------------
 
 bool Editor::smartSelection(SmartSelection& out) const {
@@ -435,7 +676,8 @@ void Editor::updateCursor(Vec2 s) {
     if (guideAt(s, g)) return changeCursor(CursorKind::RESIZE, g.axis == 0 ? 0 : 90);
   }
   if (h == Handle::None && tool_ == Tool::SCALE) return changeCursor(CursorKind::SCALE);
-  if (h == Handle::None || h == Handle::LineEnd || h == Handle::Radius || h == Handle::Reorder || h == Handle::RotationOrigin)
+  if (h == Handle::None || h == Handle::LineEnd || h == Handle::Radius || h == Handle::Shape || h == Handle::Reorder ||
+      h == Handle::RotationOrigin)
     return changeCursor(CursorKind::DEFAULT);
   if (h == Handle::Gap) return changeCursor(CursorKind::RESIZE, hy == 0 ? 0 : 90);
   // The angle of the handle's direction on screen (0 = pointing right).
@@ -464,8 +706,10 @@ void Editor::updateHover(Vec2 s, uint32_t mods) {
     int hx2 = -1, hy2 = 0;
     Handle h2 = (selectingTool() && !spaceHeld_ && page_ != kNoGuid) ? handleAt(s, hx2, hy2) : Handle::None;
     int rh = h2 == Handle::Radius ? hx2 : -1, gh = h2 == Handle::Gap ? hx2 : -1, oh = h2 == Handle::Reorder ? hx2 : -1;
-    if (rh != radiusHover_ || gh != gapHover_ || oh != reorderHover_) needsRender_ = true;
+    int sh = h2 == Handle::Shape ? hx2 : -1;
+    if (rh != radiusHover_ || gh != gapHover_ || oh != reorderHover_ || sh != shapeHover_) needsRender_ = true;
     radiusHover_ = rh;
+    shapeHover_ = sh;
     gapHover_ = gh;
     reorderHover_ = oh;
     // The radius handles and gap handles come and go with the pointer over the selection.
@@ -524,12 +768,15 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
     Guid id = selection_[0];
     const Node* n = doc_.get(id);
     Mat2x3 W = doc_.worldTransform(id);
-    if (n && n->props.isAutoLayout() && n->props.stack().stackMode != StackMode::GRID && axisAligned(W) && W.m00 > 0 && W.m11 > 0 &&
-        !n->props.locked && !id.isDerived()) {
+    // A grid too: its paddings' bars (live Figma, canvas-grid-frame-selected: the mid-edge bars), no gap bars.
+    if (n && n->props.isAutoLayout() && axisAligned(W) && W.m00 > 0 && W.m11 > 0 && !n->props.locked && !id.isDerived()) {
+      bool grid = n->props.stack().stackMode == StackMode::GRID;
       const NodeProps& p = n->props;
       Vec2 q = W.inverse().apply(world);
       double w = p.size.x, h = p.size.y;
-      if (dragging || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) {
+      // A grid's bars also while the pointer is on its pills' bands (live Figma, canvas-grid-hover-top-pill).
+      bool onPills = grid && gesture_ == Gesture::None && gridHitAt(camera_.toScreen(world)).kind != GridHit::Kind::None;
+      if (dragging || onPills || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) {
         int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
         double pad[4];
         Layout::padding(p, pad);
@@ -544,7 +791,7 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
         }
         bool between = p.stack().stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN;
         std::vector<Rect> gaps;
-        for (size_t i = 1; i < boxes.size() && p.stack().stackWrap != StackWrap::WRAP; i++) {
+        for (size_t i = 1; i < boxes.size() && p.stack().stackWrap != StackWrap::WRAP && !grid; i++) {
           const Rect& a = boxes[i - 1];
           const Rect& b = boxes[i];
           if (P == 0 && b.x > a.right()) gaps.push_back({a.right(), pad[1], b.x - a.right(), h - pad[1] - pad[3]});
@@ -574,6 +821,10 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
           bar.edge = W.apply({k == 0 ? 0 : k == 2 ? w : w / 2, k == 1 ? 0 : k == 3 ? h : h / 2});
           bar.value = own[k];
           bar.hovered = band == k;
+          // The hovered one's value by the pointer, outside its edge (live Figma, canvas-autolayout-selected-hover-
+          // padding: the top padding's "16" above the frame where the pointer was, not over the bar).
+          if (bar.hovered && !dragging)
+            bar.edge = W.apply({k == 0 ? 0 : k == 2 ? w : std::clamp(q.x, 0.0, w), k == 1 ? 0 : k == 3 ? h : std::clamp(q.y, 0.0, h)});
           if (bar.hovered) hovered = static_cast<int>(bars.size());
           bars.push_back(bar);
         }
@@ -835,6 +1086,11 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     startRadius(hx);
     return P_HANDLED | P_CAPTURE;
   }
+  if (h == Handle::Shape) {
+    gesture_ = Gesture::Shape;
+    startShapeHandle(hx);
+    return P_HANDLED | P_CAPTURE;
+  }
   if (h == Handle::Gap) {
     gesture_ = Gesture::Gap;
     startGap(hx);
@@ -1021,6 +1277,7 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       break;
     case Gesture::Move: dragMove(world, mods); break;
     case Gesture::Radius: dragRadius(world, mods); break;
+    case Gesture::Shape: dragShapeHandle(world, mods); break;
     case Gesture::Gap: dragGap(world, mods); break;
     case Gesture::Reorder: dragReorder(world, mods); break;
     case Gesture::RotationOrigin: dragRotationOrigin(world, mods); break;
@@ -1103,6 +1360,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Move: finishMove(); break;
     case Gesture::Resize:
     case Gesture::Radius:
+    case Gesture::Shape:
     case Gesture::Gap:
     case Gesture::Rotate: commit(); break;
     case Gesture::LayoutBar:
@@ -1180,6 +1438,7 @@ void Editor::endGesture() {
   snapParent_ = kNoGuid;
   lineEnd_ = -1;
   radiusCorner_ = -1;
+  shapeDrag_ = {};
   gapIndex_ = -1;
   layoutBar_ = -1;
   reorderIndex_ = -1;
@@ -1213,6 +1472,7 @@ void Editor::cancelGesture() {
     case Gesture::Move:
     case Gesture::Resize:
     case Gesture::Radius:
+    case Gesture::Shape:
     case Gesture::Gap:
     case Gesture::Reorder:
     case Gesture::LayoutBar:

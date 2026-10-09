@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "render/Renderer.h"
+#include "scene/CodecKiwi.h"
 
 namespace eng {
 
@@ -150,14 +151,15 @@ void Renderer::drawGlyphs(const text::TextLayout& L, const Mat2x3& m, const Colo
   }
 }
 
-const text::TextLayout* Renderer::label(const std::string& characters, const char* style, double size, double maxWidth, int maxLines) {
+const text::TextLayout* Renderer::label(const std::string& characters, const char* style, double size, double maxWidth, int maxLines, double weight) {
   text::FontRegistry& fonts = text::FontRegistry::get();
   if (labelsGeneration_ != fonts.generation() || labels_.size() > 512) {
     labels_.clear();
     labelsGeneration_ = fonts.generation();
   }
   double width = maxWidth >= 0 ? std::floor(maxWidth) : -1;
-  std::string key = std::string(style) + "\n" + std::to_string(size) + "\n" + std::to_string(width) + "\n" + std::to_string(maxLines) + "\n" + characters;
+  std::string key = std::string(style) + "\n" + std::to_string(size) + "\n" + std::to_string(width) + "\n" + std::to_string(maxLines) + "\n" +
+                    std::to_string(weight) + "\n" + characters;
   auto it = labels_.find(key);
   if (it != labels_.end()) return it->second.get();
   FontName name{"Inter", style, ""};
@@ -169,6 +171,12 @@ const text::TextLayout* Renderer::label(const std::string& characters, const cha
   p.text().fontName = name;
   p.text().fontSize = size;
   p.text().textAutoResize = TextAutoResize::WIDTH_AND_HEIGHT;
+  if (weight > 0) {
+    // Inter is variable: the weight axis ('wght') set on top of the style's own.
+    json::Value v;
+    if (json::parse("[{\"axisTag\":2003265652,\"value\":" + std::to_string(weight) + "}]", v))
+      p.extra["fontVariations"] = codec::extraFromJson("NodeChange", "fontVariations", v);
+  }
   text::LayoutOptions o;
   if (width >= 0) {
     p.text().textTruncation = TextTruncation::ENDING;

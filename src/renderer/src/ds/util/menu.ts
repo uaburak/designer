@@ -15,6 +15,8 @@ export type MenuItem = {
   trailingIcon?: IconName;
   /** The check column appears when any item defines it */
   checked?: boolean;
+  /** The glyph before this item's own label, not in a column (live main menu: "Actions…" at 40, the others at 16) */
+  inlineIcon?: boolean;
   /** One of a set (live: the toolbar's tool menus are `menuitemradio`); drawn as a checked item */
   radio?: boolean;
   /** A submenu's least width (live Figma's measured width where its rows alone don't make it) */

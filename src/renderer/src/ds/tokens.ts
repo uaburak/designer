@@ -490,8 +490,9 @@ export const canvasChromeMetrics = {
   titleBaseline: 10,
   ruler: { thickness: 20, tick: 4, fontSize: 10 },
   titleSize: 11,
-  // Live Figma (canvas-section-selected): the name in a 22 px pill above the section's top-left corner, 5 px off it.
-  sectionPill: { height: 22, padX: 6, fontSize: 11, gap: 5 },
+  // Live Figma (canvas-section-selected, round 9 at 1×): the name in a 23 px pill above the section's top-left corner,
+  // 6 px off it (the name semibold, 550: the engine's OverlayStyle).
+  sectionPill: { height: 23, padX: 6, fontSize: 11, gap: 6 },
   // Live Figma: a 9 px ring whose centre sits 12 px in from each corner (radius 0).
   radiusHandle: { size: 9, inset: 12 },
 } as const;

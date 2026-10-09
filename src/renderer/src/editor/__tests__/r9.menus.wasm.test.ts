@@ -136,6 +136,7 @@ describe("round 9: the Figma menu (live menus/main-*.txt)", () => {
     const actions = items(main).find((i) => i.id === "tool.actions")!;
     expect(actions.disabled).toBe(false);
     expect(actions.icon).toBe("24.actions");
+    expect(actions.inlineIcon).toBe(true);
     expect(actions.shortcut).toMatch(/K$/);
     expect(actions.checked).toBeUndefined();
     for (const l of ["Text", "Arrange", "Vector", "Plugins", "Widgets", "Libraries"]) expect(items(main).find((i) => i.label === l)!.disabled, l).toBeFalsy();

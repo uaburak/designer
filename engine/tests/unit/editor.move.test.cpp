@@ -504,16 +504,24 @@ TEST_CASE("move: grid — a drag places the item in the cell under the pointer")
     CHECK(world(e, I0).y == 0);
     CHECK(world(e, I1).x == 50);
     CHECK(world(e, I1).y == 50);  // took I0's cell
-    // The selected grid shows its tracks along its edges; the one under the pointer is labelled.
+    // The selected grid outlines its cells; the column under the pointer shows its compact pill above the frame, and
+    // expanded (with its size) under the pointer.
     e.setSelection({GRID});
-    move(e, 75, -6);
+    move(e, 75, 10);
     Overlay o = e.overlay();
-    REQUIRE(o.gridTracks.size() == 4);
-    CHECK(o.gridTracks[0].column);
-    CHECK(o.gridTracks[1].a.x == 50);
-    CHECK(o.gridTracks[1].label == "50");
-    CHECK(o.gridTracks[1].hovered);
-    CHECK(!o.gridTracks[0].hovered);
-    CHECK(!o.gridTracks[2].column);
+    CHECK(o.gridCells.size() == 4);
+    REQUIRE(o.gridPills.size() == 2);  // column 2 and row 1 (inside the frame: both)
+    CHECK(o.gridPills[0].column);
+    CHECK(!o.gridPills[0].expanded);
+    CHECK(o.gridPills[0].rect.x + o.gridPills[0].rect.w / 2 == doctest::Approx(75));
+    CHECK(!o.gridPills[1].column);
+    move(e, 75, -31.5);
+    o = e.overlay();
+    REQUIRE(o.gridPills.size() == 1);
+    CHECK(o.gridPills[0].expanded);
+    CHECK(o.gridPills[0].label == "50");
+    CHECK(o.gridPills[0].hovered == 1);
+    REQUIRE(o.gridTrackBoxes.size() == 1);
+    CHECK(o.gridTrackBoxes[0].a.x == 50);
   }
 }

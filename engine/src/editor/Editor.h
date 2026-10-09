@@ -851,7 +851,7 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string newAssetKey();
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
-                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide };
+                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide, Shape };
 
   struct Target {
     Guid id;
@@ -1114,7 +1114,9 @@ class Editor : private LayoutHost, public TextLayouts {
   // Radius: a rectangle's corner radius handle (hx: the corner, 0 top-left … 3 bottom-left); Gap: a smart
   // selection's gap handle (hx: the gap, hy: 1 between rows).
   // Reorder: a smart selection's centre ring (hx: its index in the order); RotationOrigin: the ⌥R origin.
-  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd, Radius, Gap, Reorder, RotationOrigin };
+  // Shape: an ellipse's arc handles, a polygon's or a star's corner radius / ratio / count handle (hx: its index in
+  // shapeHandles()).
+  enum class Handle : uint8_t { None, Resize, Rotate, LineEnd, Radius, Gap, Reorder, RotationOrigin, Shape };
   Handle handleAt(Vec2 screen, int& hx, int& hy) const;
   // A single selected line — a LINE, or a vector with no width or no height — and its ends (world): Figma gives it
   // two endpoint handles instead of a box.
@@ -1125,6 +1127,19 @@ class Editor : private LayoutHost, public TextLayouts {
   bool radiusHandles(Guid& id, Vec2 out[4]) const;
   void startRadius(int corner);
   void dragRadius(Vec2 world, uint32_t mods);
+  // Live Figma's shape handles (canvas-ellipse-selected-arc-handle, canvas-star-selected-handles,
+  // canvas-polygon-selected-handles): the one selected ellipse, polygon or star under the pointer shows rings — an
+  // ellipse its arc's end (a full one: one ring on its right, inside the edge), with an arc also its start and the
+  // ratio (inner radius); a polygon its corner radius (the top corner, inside it) and count (the next corner); a star
+  // also its ratio (the first inner corner). World positions; false: none shown.
+  enum class ShapeHandle : uint8_t { ArcEnd, ArcStart, ArcRatio, Radius, Ratio, Count };
+  struct ShapeHandlePos {
+    ShapeHandle kind = ShapeHandle::ArcEnd;
+    Vec2 world;
+  };
+  bool shapeHandles(Guid& id, std::vector<ShapeHandlePos>& out) const;
+  void startShapeHandle(int index);
+  void dragShapeHandle(Vec2 world, uint32_t mods);
   // Smart selection (Figma): three or more selected layers of one parent, equally spaced in a row or a column — their
   // order along the axis, the axis (0 x, 1 y) and the spacing. False when the selection isn't that.
   struct SmartSelection {
@@ -1368,11 +1383,16 @@ class Editor : private LayoutHost, public TextLayouts {
   // A selected grid's tracks along its edges, the hovered / selected ones labelled with their grabber, the drop line.
   void gridTrackOverlay(Overlay& o) const;
   void gridSpanOverlay(Overlay& o) const;
+  // What the pointer is over: Hover — a track's band (its compact pill shows; inside the frame a column and a row at
+  // once: hoverColumn / hoverRow), an expanded pill's Grabber, Label or Chevron, or the Edge between two tracks.
   struct GridHit {
-    enum class Kind : uint8_t { None, Track, Edge, Grabber } kind = Kind::None;
+    enum class Kind : uint8_t { None, Hover, Edge, Grabber, Label, Chevron } kind = Kind::None;
     bool column = true;
     size_t track = 0;
+    int hoverColumn = -1, hoverRow = -1;
   };
+  // A track's pill (screen CSS px): compact, or expanded — grabber, label, chevron (`labelWidth` the middle one).
+  Rect gridPillRect(Guid frame, bool column, size_t track, bool expanded, double& labelWidth) const;
   struct GridDrag {
     enum class Kind : uint8_t { None, Select, Resize, Reorder, Span } kind = Kind::None;
     Guid frame = kNoGuid, item = kNoGuid;
@@ -1510,6 +1530,17 @@ class Editor : private LayoutHost, public TextLayouts {
   SmartSelection gapDrag_;       // dragging a gap handle: the selection as it started
   int gapIndex_ = -1;
   CornerRadii originalRadii_{0, 0, 0, 0};  // the dragged rectangle's radii at the press
+  int shapeHover_ = -1;                    // the shape handle under the pointer
+  // Dragging a shape handle: which, the layer's shape fields and corner radius at the press, the pointer's angle
+  // around the shape's centre (unwrapped as it turns) and its distance from it (the shape's unit circle).
+  struct ShapeDrag {
+    int index = -1;
+    ShapeHandle kind = ShapeHandle::ArcEnd;
+    ArcData arc;
+    uint32_t count = 0;
+    double ratio = 0, radius = 0;
+    double lastAngle = 0, turned = 0, startReach = 0;
+  } shapeDrag_;
   bool pointerInSelection_ = false;        // the pointer is over the selection's box (radius and gap handles show)
   NodeType drawType_ = NodeType::NONE;
   bool drawArrow_ = false;

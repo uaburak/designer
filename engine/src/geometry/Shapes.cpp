@@ -54,7 +54,7 @@ void corner(Path& path, Vec2 V, Vec2 u, Vec2 v, double radius, double smoothing,
 }
 
 // Points of a regular star / polygon on the unit circle, the first at the top.
-std::vector<Vec2> starPoints(uint32_t count, double inner, bool star) {
+std::vector<Vec2> unitStarPoints(uint32_t count, double inner, bool star) {
   std::vector<Vec2> pts;
   uint32_t n = std::max<uint32_t>(count, 3);
   for (uint32_t i = 0; i < n; i++) {
@@ -68,15 +68,10 @@ std::vector<Vec2> starPoints(uint32_t count, double inner, bool star) {
   return pts;
 }
 
-// Stretches `pts` so the outer points' bounds fill the box.
-std::vector<Vec2> fitToBox(std::vector<Vec2> pts, Vec2 size, size_t stride) {
-  double x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300;
-  for (size_t i = 0; i < pts.size(); i += stride) {
-    x0 = std::min(x0, pts[i].x), x1 = std::max(x1, pts[i].x);
-    y0 = std::min(y0, pts[i].y), y1 = std::max(y1, pts[i].y);
-  }
-  double sx = x1 > x0 ? size.x / (x1 - x0) : 0, sy = y1 > y0 ? size.y / (y1 - y0) : 0;
-  for (auto& p : pts) p = {(p.x - x0) * sx, (p.y - y0) * sy};
+// Unit-circle points onto the ellipse the box holds (live Figma, 2026-10-08: a 100 × 100 triangle's corners are at
+// (50, 0), (93.3, 75), (6.7, 75) — the box isn't stretched to the points; a 5-point star's right tip is at x 97.6).
+std::vector<Vec2> onEllipse(std::vector<Vec2> pts, Vec2 size) {
+  for (auto& p : pts) p = {(p.x + 1) * size.x / 2, (p.y + 1) * size.y / 2};
   return pts;
 }
 
@@ -241,12 +236,16 @@ Path roundedPolygon(const std::vector<Vec2>& pts, double radius) {
   return path;
 }
 
-Path polygonPath(Vec2 size, uint32_t count, double cornerRadius) {
-  return roundedPolygon(fitToBox(starPoints(count, 0, false), size, 1), cornerRadius);
+std::vector<Vec2> polygonPoints(Vec2 size, uint32_t count) { return onEllipse(unitStarPoints(count, 0, false), size); }
+
+std::vector<Vec2> starPoints(Vec2 size, uint32_t count, double innerScale) {
+  return onEllipse(unitStarPoints(count, std::clamp(innerScale, 0.0, 1.0), true), size);
 }
 
+Path polygonPath(Vec2 size, uint32_t count, double cornerRadius) { return roundedPolygon(polygonPoints(size, count), cornerRadius); }
+
 Path starPath(Vec2 size, uint32_t count, double innerScale, double cornerRadius) {
-  return roundedPolygon(fitToBox(starPoints(count, std::clamp(innerScale, 0.0, 1.0), true), size, 2), cornerRadius);
+  return roundedPolygon(starPoints(size, count, innerScale), cornerRadius);
 }
 
 Path linePath(Vec2 size) {

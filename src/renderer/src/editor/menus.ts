@@ -22,7 +22,7 @@ export function commandItem(ed: EditorController, id: string, label?: string): M
   return { id, label: label ?? c.label, shortcut: shortcutOf(c), disabled: !isEnabled(ed, c), checked: c.checked ? c.checked(ed) : undefined };
 }
 
-/** A command under another label, with a glyph, or with keys shown that the registry doesn't bind. */
+/** A command under another label, with a glyph before its label, or with keys shown that the registry doesn't bind. */
 type ItemSpec = { id: string; label?: string; icon?: IconName; shortcut?: string };
 /**
  * A submenu: live Figma's submenus open even when every item in them is disabled (Text, Arrange, Vector with nothing
@@ -49,7 +49,7 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
     }
     if ("id" in s) {
       const item = commandItem(ed, s.id, s.label);
-      return [{ ...(checks ? item : withoutCheck(item)), ...(s.icon ? { icon: s.icon } : {}), ...(s.shortcut ? { shortcut: s.shortcut } : {}) }];
+      return [{ ...(checks ? item : withoutCheck(item)), ...(s.icon ? { icon: s.icon, inlineIcon: true } : {}), ...(s.shortcut ? { shortcut: s.shortcut } : {}) }];
     }
     const items = build(ed, s.items, `${prefix}${i}.`, s.checks ?? false);
     return [{ id: `submenu:${prefix}${i}`, label: s.label, items, ...(s.minWidth ? { minWidth: s.minWidth } : {}) }];

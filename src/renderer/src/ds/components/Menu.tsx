@@ -71,11 +71,9 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   const intent = useRef<number | undefined>(undefined);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   const hasChecks = list.some((e) => isItem(e) && e.checked !== undefined);
-  // A glyph column when every item has one (tool menus, Select layer ▸); otherwise a lone glyph sits before its own
-  // label (live main menu: "Actions…" at 40, the other rows at 16).
-  const items = list.filter(isItem);
-  const hasIcons = items.length > 0 && items.every((e) => e.icon);
-  const inlineIcons = !hasIcons && items.some((e) => e.icon);
+  // A glyph column when an item has a glyph; an `inlineIcon` glyph sits before its own label instead (live main menu:
+  // "Actions…" at 40, the other rows at 16).
+  const hasIcons = list.some((e) => isItem(e) && e.icon && !e.inlineIcon);
 
   useLayoutEffect(() => {
     const el = panel.current;
@@ -223,8 +221,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               onClick={() => pick(i)}
             >
               {hasChecks && <span className={styles.check}>{entry.checked && <Icon name="16.check" />}</span>}
-              {hasIcons && <span className={styles.icon}>{entry.icon && <MenuIcon name={entry.icon} />}</span>}
-              {inlineIcons && entry.icon && <span className={cx(styles.icon, styles.inlineIcon)}><MenuIcon name={entry.icon} /></span>}
+              {hasIcons && <span className={styles.icon}>{entry.icon && !entry.inlineIcon && <MenuIcon name={entry.icon} />}</span>}
+              {entry.inlineIcon && entry.icon && <span className={cx(styles.icon, styles.inlineIcon)}><MenuIcon name={entry.icon} /></span>}
               <span className={styles.label}>{entry.label}</span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{entry.hint}</span>}

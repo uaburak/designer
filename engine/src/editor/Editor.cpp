@@ -697,6 +697,11 @@ Overlay Editor::overlay() const {
       o.radiusHandles.assign(rh, rh + 4);
       o.radiusHovered = gesture_ == Gesture::Radius ? radiusCorner_ : radiusHover_;
     }
+    std::vector<ShapeHandlePos> sh;
+    if (shapeHandles(line, sh)) {
+      for (const ShapeHandlePos& h : sh) o.shapeHandles.push_back(h.world);
+      o.shapeHovered = gesture_ == Gesture::Shape ? shapeDrag_.index : shapeHover_;
+    }
   }
   // Smart selection: a dot on each equally spaced layer; the gap handles while the pointer is over the selection.
   SmartSelection smart;

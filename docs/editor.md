@@ -20,6 +20,10 @@ Checks (after merging main 6323b70): see "Round 9 — Menus, toolbar and left si
 
 Remaining differences: glyph widths of ⌘ ⇧ ⌥ ⌃ at 12px are 1 px narrower than live's (live's fallback font isn't known); text boxes measure 14 tall (live 13: Inter Variable's metrics); a submenu taller than the window scrolls (live's is cut off: Object 1050 tall); Copy link to page and Open in desktop app are disabled (no deep links); the palette's search glyph place and the rows' highlight colour are unverified (no live screenshot); the Text direction / Spell check / New submenus' items aren't captured.
 
+## Status 2026-10-09 — Round 9 — Canvas chrome and overlays (engine) (branch `r9-canvas-overlays`)
+
+Engine work, status in `docs/engine-build.md` "Round 9 — Canvas chrome and overlays": shape handles (arc, radius, ratio, count), the 1 px path outline at rest, the `</>` at a selected design's top right (its click toggles Ready for dev here: `devmode/devMode.ts`), live's grid overlay (cells, compact / expanded pills, track outline), padding badges by the pointer, the section pill at 550; polygons and stars on their box's ellipse. Editor side: `EDITOR_ONLY=overlays9` (shots 190–199, run on its own), the grid section's pill clicks at the new pill line, the devmode status check on the `</>`. AI sparkle not built (owner's decision). All checks green (full editor-shot 321 ok).
+
 ## Status 2026-10-09 — Round 9 — Design panel sections and popovers (branch `r9-design-panel-sections`)
 
 Truth: `docs/research/figma/live/` (design/, popovers/, grid/). Compared with `tools/panel.mjs` and `tools/popover.mjs` (its export cases now click "Export file type" / "Advanced export settings") against `?editor&doc=capture` at 1440 × 900; what is left is listed at the end.
