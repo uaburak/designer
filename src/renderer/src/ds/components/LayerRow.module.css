@@ -90,6 +90,8 @@
   .page[data-divider]:hover { background: var(--figma-color-bg); }
   /* Renaming (live "input [Page name]" 224 × 24 at 8): the field is the row */
   .page:has(.rename) { padding: 0; }
-  .page .rename { margin-left: 0; }
+  .page .rename { margin-left: 0; background: var(--figma-color-bg); }
+  /* The input is the whole 224 box (live left/pages-add-page-rename.txt: "input = Page 3 [Page name]" 224 × 24 at 8, bg #2c2c2c r=5), its text 8 in */
+  .page .rename > input { margin: 0; padding-left: var(--ds-space-2); }
   .divider { flex: 1 1 auto; height: 1px; margin-right: var(--ds-space-2); background: var(--figma-color-border); }
 }

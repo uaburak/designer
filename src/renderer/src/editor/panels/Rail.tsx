@@ -56,10 +56,10 @@ export function NavStrip() {
           icon={t.icon}
           label={t.label}
           shortcut={shortcutOf(command(t.command))}
-          aria-expanded={tab === t.tab}
-          className={tab === t.tab ? styles.navStripOn : undefined}
+          aria-expanded={tab === t.tab && !variables}
+          className={tab === t.tab && !variables ? styles.navStripOn : undefined}
           data-rail-tab={t.tab}
-          onClick={() => ed.ui.set({ railTab: t.tab, find: t.tab === "file" ? ed.ui.get().find : null })}
+          onClick={() => ed.ui.set({ railTab: t.tab, variablesOpen: false, find: t.tab === "file" ? ed.ui.get().find : null })}
         />
       ))}
       <IconButton icon="24.variables" label="Variables" aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
@@ -107,9 +107,9 @@ export function Rail() {
             icon={t.icon}
             label={t.label}
             shortcut={shortcutOf(command(t.command))}
-            active={tab === t.tab}
+            active={tab === t.tab && !variables}
             data-rail-tab={t.tab}
-            onClick={() => ed.ui.set({ railTab: t.tab, find: t.tab === "file" ? ed.ui.get().find : null })}
+            onClick={() => ed.ui.set({ railTab: t.tab, variablesOpen: false, find: t.tab === "file" ? ed.ui.get().find : null })}
           />
         ))}
         <RailSeparator />

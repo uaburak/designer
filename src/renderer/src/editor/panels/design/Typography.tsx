@@ -144,6 +144,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           <Select
             label="Font style"
             variant="ghost"
+            menuWidth={167}
             value={style}
             disabled={!fontKept}
             options={[

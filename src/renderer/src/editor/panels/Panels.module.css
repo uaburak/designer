@@ -164,7 +164,7 @@
   .chip:hover, .chip[data-open] { background: var(--figma-color-bg-hover); }
   .chip:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .chip > svg:last-child { color: var(--figma-color-icon-secondary); }
-  /* The account (live: "Multiplayer tools", a 50 × 24 pill at 12, 12: the avatar and a round chevron over its edge) */
+  /* The account (live left/rail-assets.txt: "Multiplayer tools", a 50 × 24 pill at 12, 12 holding two 28 × 28 circles at 10 and 32 — the avatar and a round chevron over its edge, 2 beyond the pill above and below) */
   .account {
     display: flex;
     flex: none;
@@ -177,6 +177,7 @@
     background: transparent;
     outline: none;
   }
+  .account > [data-ds="Avatar"] { margin: -2px 0 -2px -2px; }
   .account:hover .accountMore, .account[data-open] .accountMore { background: var(--figma-color-bg-hover); }
   .account:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .accountMore {
@@ -184,15 +185,19 @@
     flex: none;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
-    margin-left: -2px;
+    width: 28px;
+    height: 28px;
+    margin: -2px 0 -2px -6px;
     border-radius: var(--ds-radius-full);
     background: var(--figma-color-bg-secondary);
     color: var(--figma-color-icon-secondary);
   }
+  /* Share: live 55 × 32 (held: the label alone comes out a fraction wider and would move the Present group off its pixel) */
+  .share { flex: none; width: 55px; }
   .present { display: flex; align-items: center; gap: 1px; }
-  .presentChevron { width: 16px; padding: 0; justify-content: center; }
+  .presentChevron { width: 16px; padding: 0; justify-content: center; border-radius: 0 var(--ds-radius-medium) var(--ds-radius-medium) 0; }
+  /* Live: a 49 × 32 group, Present 32 × 32 (radius 5 / 0 / 0 / 5) and its chevron 16 × 32 (0 / 5 / 5 / 0) 1 apart */
+  .present > button:first-child { border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium); }
   /* Tabs row (live, left/rail-assets.txt): the tabs and the zoom at y=48, 24 high, the line at 80 and the body at 81 */
   .rightTabs {
     display: flex;

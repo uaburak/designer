@@ -111,7 +111,7 @@ export class EditorController {
       rightTab: "design",
       uiHidden: false,
       uiMinimized: false,
-      rulers: true,
+      rulers: false,
       renaming: null,
       expanded: new Set(),
       anchor: null,

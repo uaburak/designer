@@ -9,7 +9,7 @@
  * - otherwise a document held in memory: the engine's sample, `&doc=reference` (the owner's file as
  *   in the reference screenshots), `&doc=empty` (a new file), `&doc=components` (components, a set, instances), `&doc=variables` (collections, modes, styles, bound layers), `&doc=prototype` (screens, connections, an overlay, an interactive component) or `&doc=types` (Phase 2's sizing, constraints
  *   and layer types).
- * `&rulers=0` starts with the rulers off. The editor is on `window.__designerEditor` for scripts
+ * The rulers start off as live Figma's View > Rulers does; `&rulers=1` starts with them on. The editor is on `window.__designerEditor` for scripts
  * (tools/editor-shot.mjs) and the console; the open's timing marks on `window.__designerOpen`
  * (scripts/drive.mjs `open-timing`).
  */
@@ -232,7 +232,7 @@ export default function EditorRoute() {
       // The engine asked for its first frame before the editor was up (load, zoom to fit); it is drawn in the next
       // animation frame and on screen by the one after.
       requestAnimationFrame(() => requestAnimationFrame(() => mark("firstFrame")));
-      if (params.get("rulers") === "0") ed.ui.set({ rulers: false });
+      if (params.get("rulers") === "1") ed.ui.set({ rulers: true });
     },
     [params]
   );

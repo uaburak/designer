@@ -42,6 +42,11 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
    * format list)
    */
   below?: boolean;
+  /**
+   * The list's width as live Figma measured it (px): the browser that took the capture and ours differ by a pixel or
+   * two in text width, so a list whose labels alone come out other than live's is held to it (Menu's `width`).
+   */
+  menuWidth?: number;
 }
 
 /**
@@ -51,7 +56,7 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
  * in the list ↑ ↓ Home End, typeahead, Enter picks, Esc closes (focus stays
  * on the trigger). Never a native <select>.
  */
-export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, className, style, ...rest }: SelectProps) {
+export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, menuWidth, className, style, ...rest }: SelectProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -101,12 +106,12 @@ export function Select({ label, value, options, onChange, variant = "filled", si
         )}
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>
-      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
+      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} width={menuWidth} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
     </div>
   );
 }
 
-function Listbox({ id, anchor, options, value, isStatic, noCheck, below, onPick, onClose }: { id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: (SelectOption | "-")[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
+function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, onPick, onClose }: { width?: number; id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: (SelectOption | "-")[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
   const panel = useRef<HTMLDivElement>(null);
   const selected = options.findIndex((o) => o !== "-" && o.value === value);
   const usable = options.map((o, i) => (o !== "-" && !o.disabled ? i : -1)).filter((i) => i >= 0);
@@ -124,7 +129,8 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, onPick,
     if (!el || !a || isStatic) return;
     const r = a.parentElement?.getBoundingClientRect() ?? a.getBoundingClientRect();
     // Live capture: the list is as wide as its labels (+ 64), never narrower than the field's box.
-    el.style.minWidth = `${Math.round(r.width + 16)}px`;
+    if (width !== undefined) el.style.width = `${width}px`;
+    else el.style.minWidth = `${Math.round(r.width + 16)}px`;
     const item = selected >= 0 ? el.querySelector<HTMLElement>(`[data-index="${selected}"]`) : null;
     const box = { width: el.offsetWidth, height: el.offsetHeight };
     const view = { width: window.innerWidth, height: window.innerHeight };
@@ -145,7 +151,7 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, onPick,
     el.style.top = `${p.y}px`;
     el.style.visibility = "visible";
     el.focus({ preventScroll: true });
-  }, [anchor, selected, isStatic, noCheck, below]);
+  }, [anchor, selected, isStatic, noCheck, below, width]);
   useEffect(() => {
     const el = panel.current;
     const item = active >= 0 ? el?.querySelector<HTMLElement>(`[data-index="${active}"]`) : null;

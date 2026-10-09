@@ -33,8 +33,9 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
           idBase="editor-right"
           value={tab}
           tabs={[
-            { value: "design", label: "Design" },
-            { value: "prototype", label: "Prototype" },
+            // Live (left/rail-assets.txt): 53 × 24 at 1208 and 69 × 24 at 1265
+            { value: "design", label: "Design", width: 53 },
+            { value: "prototype", label: "Prototype", width: 69 },
           ]}
           onChange={(v) => ed.ui.set({ rightTab: v as "design" | "prototype" })}
         />
@@ -60,7 +61,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
   return (
     <div className={compact ? undefined : styles.rightHeader} style={compact ? { display: "contents" } : undefined}>
       <MenuButton label="Account" entries={account} onSelect={(id) => runEditorCommand(ed, id)} className={styles.account}>
-        <Avatar name="Burak Koç" />
+        <Avatar name="Burak Koç" size={28} />
         <span className={styles.accountMore}><Icon name="16.chevron.down" /></span>
       </MenuButton>
       <span className={styles.grow} />
@@ -70,7 +71,7 @@ export function RightHeader({ compact }: { compact?: boolean }) {
           <Icon name="16.chevron.down" />
         </MenuButton>
       </span>
-      <Button variant="primary" size="large" onClick={() => runEditorCommand(ed, "file.share-preview")}>
+      <Button variant="primary" size="large" className={styles.share} onClick={() => runEditorCommand(ed, "file.share-preview")}>
         Share
       </Button>
     </div>
