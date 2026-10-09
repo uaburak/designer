@@ -192,6 +192,45 @@ std::vector<FeatureInfo> Font::features() const {
   return out;
 }
 
+std::vector<uint32_t> Font::featuresIn(const std::string& utf8) const {
+  std::vector<uint32_t> out;
+  if (!face_ || !font_ || utf8.empty()) return out;
+  // A long text: its first 4 KB decide (cut at a character's start).
+  size_t length = utf8.size();
+  if (length > 4096) {
+    length = 4096;
+    while (length > 0 && (static_cast<unsigned char>(utf8[length]) & 0xC0) == 0x80) length--;
+  }
+  auto shape = [&](const hb_feature_t& f) {
+    hb_buffer_t* buf = hb_buffer_create();
+    hb_buffer_add_utf8(buf, utf8.data(), static_cast<int>(length), 0, -1);
+    hb_buffer_guess_segment_properties(buf);
+    hb_shape(font_, buf, &f, 1);
+    return buf;
+  };
+  auto same = [](hb_buffer_t* a, hb_buffer_t* b) {
+    unsigned na = 0, nb = 0;
+    hb_glyph_info_t* ia = hb_buffer_get_glyph_infos(a, &na);
+    hb_glyph_info_t* ib = hb_buffer_get_glyph_infos(b, &nb);
+    if (na != nb) return false;
+    hb_glyph_position_t* pa = hb_buffer_get_glyph_positions(a, nullptr);
+    hb_glyph_position_t* pb = hb_buffer_get_glyph_positions(b, nullptr);
+    for (unsigned i = 0; i < na; i++)
+      if (ia[i].codepoint != ib[i].codepoint || pa[i].x_advance != pb[i].x_advance || pa[i].x_offset != pb[i].x_offset ||
+          pa[i].y_offset != pb[i].y_offset)
+        return false;
+    return true;
+  };
+  for (const FeatureInfo& ft : features()) {
+    hb_buffer_t* off = shape({ft.tag, 0, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END});
+    hb_buffer_t* on = shape({ft.tag, 1, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END});
+    if (!same(off, on)) out.push_back(ft.tag);
+    hb_buffer_destroy(off);
+    hb_buffer_destroy(on);
+  }
+  return out;
+}
+
 bool Font::hasFeature(uint32_t tag) const {
   for (const FeatureInfo& f : features())
     if (f.tag == tag) return true;

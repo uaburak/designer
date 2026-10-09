@@ -10,7 +10,7 @@
  * show "Mixed" where runs differ; writes go through setProps, which the engine sends to the selected range while a
  * text is being edited.
  */
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fonts } from "@/engine/fonts";
 import { Checkbox, IconButton, MIXED, NumericInput, Popover, SegmentedControl, Select, Tabs, cx, tooltipProps, type ChangeInfo } from "@/ds";
 import type { CSSProperties } from "react";
@@ -329,10 +329,96 @@ const NUMBER_STYLES: { value: string; label: string; spacing: ExtraFields["fontV
   { value: "TABULAR/OLDSTYLE", label: "Monospace old style", spacing: "TABULAR", figure: "OLDSTYLE" },
 ];
 
+/**
+ * Features Figma's Details tab shows by their own row (Letter case, Numbers, Letterforms, Stylistic sets, Character
+ * variants, Kerning) or never shows (the shaping internals); the rest are "More features", by these names (live
+ * popovers/type-settings-details.txt: Fraction denominators, Fraction numerators, Scientific inferiors).
+ */
+const OWN_ROW = new Set(["case", "cpsp", "frac", "zero", "dlig", "calt", "ordn", "salt", "kern", "smcp", "c2sc", "onum", "lnum", "pnum", "tnum", "sups", "subs"]);
+const HIDDEN_FEATURES = new Set(["aalt", "ccmp", "locl", "mark", "mkmk", "rvrn", "rlig", "liga", "clig", "curs", "dist", "abvm", "blwm", "init", "medi", "fina", "isol", "nukt", "akhn", "rphf", "pref", "blwf", "half", "pstf", "vatu", "cjct", "pres", "abvs", "blws", "psts", "haln", "ljmo", "vjmo", "tjmo"]);
+export const MORE_FEATURE_NAMES: Record<string, string> = {
+  dnom: "Fraction denominators",
+  numr: "Fraction numerators",
+  sinf: "Scientific inferiors",
+  swsh: "Swash",
+  titl: "Titling alternates",
+  hist: "Historical forms",
+  hlig: "Historical ligatures",
+  ornm: "Ornaments",
+  nalt: "Alternate annotation forms",
+  unic: "Unicase",
+  pcap: "Petite capitals",
+  c2pc: "Petite capitals from capitals",
+  cswh: "Contextual swash",
+};
+/** The "More features" rows of a font (tags in its order). */
+export function moreFeatures(features: readonly { tag: string; name?: string }[]): { tag: string; label: string }[] {
+  return features
+    .filter((f) => !OWN_ROW.has(f.tag) && !HIDDEN_FEATURES.has(f.tag) && !/^ss\d\d$/.test(f.tag) && !/^cv\d\d$/.test(f.tag))
+    .map((f) => ({ tag: f.tag, label: f.name || MORE_FEATURE_NAMES[f.tag] || f.tag }));
+}
+
+/**
+ * A Details row's name (live popovers/type-settings-details.txt): it wraps at 144 in 16 high lines; two lines stay
+ * centred on the row's control (4 above it) and push the next row 8 lower ("r curves into round neighbors" at 940 over
+ * its control at 944, the next row's at 984).
+ */
+function FeatureLabel({ label, applicable, why }: { label: string; applicable: boolean; why: boolean }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [wrapped, setWrapped] = useState(false);
+  useLayoutEffect(() => {
+    if (ref.current) setWrapped(ref.current.offsetHeight > 20);
+  }, [label]);
+  return (
+    <span
+      ref={ref}
+      data-wrapped={wrapped || undefined}
+      className={cx(styles.settingsLabel, styles.featureLabel, !applicable && styles.settingsLabelDisabled, !applicable && why && styles.featureNotApplicable)}
+      {...(!applicable && why ? tooltipProps("Not applicable for selected text") : {})}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Features that act by their context (live: Contextual alternates, Fractions and Ordinals read applicable on a text
+ * they leave as it is): applicable whenever the font has them.
+ */
+const CONTEXTUAL = new Set(["calt", "frac", "ordn"]);
+/** Punctuation that hangs outside the text's box (help "Hanging punctuation": quotes, hyphens and dashes, stops). */
+const HANGING = /[\u2018\u2019\u201C\u201D"'\u00AB\u00BB\u2039\u203A\-\u2010-\u2014.,:;!?\u2026()[\]]/;
+
+/**
+ * Is each Details row applicable to the selected text? A feature when shaping the text with it on and off differs
+ * (engine fontFeaturesIn; contextual ones whenever the font has them); Number style when the text has a digit; Hanging
+ * punctuation when it has punctuation that hangs; Hanging lists when a paragraph is a list. Live (popovers/type-settings-
+ * details.txt, "Hello Figma text"): the others' labels read tertiary — a feature's with "Not applicable for selected
+ * text" — their controls still enabled. (The digit, punctuation and list rules are unverified.)
+ */
+export function detailsApplicable(text: string, fontHas: (tag: string) => boolean, acting: readonly string[] | null, list: boolean) {
+  return {
+    feature: (tag: string) => fontHas(tag) && (acting === null || CONTEXTUAL.has(tag) || acting.includes(tag)),
+    numbers: /\p{Nd}/u.test(text),
+    hanging: HANGING.test(text),
+    hangingList: list,
+  };
+}
+
 function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSummary | null; info: FontInfo | null }) {
   const ed = useEditor();
   const write = useWrite(nodes);
   const has = (tag: string) => !info || info.features.some((f) => f.tag === tag);
+  const font = summary?.values.fontName as { family: string; style: string } | undefined;
+  const text = nodes.map((n) => n.textData?.characters ?? "").join("\n");
+  const acting = useMemo(
+    () => (font?.family && typeof ed.engine.fontFeaturesIn === "function" ? ed.engine.fontFeaturesIn(font.family, font.style, text) : null),
+    // `info` arrives with the font: read again then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ed, font?.family, font?.style, text, info]
+  );
+  const lineType = valueOf<string>(summary, "lineType", "PLAIN");
+  const applies = detailsApplicable(text, has, acting, lineType !== "PLAIN" && lineType !== "NONE");
   const on = (valueOf<string[] | null>(summary, "toggledOnOTFeatures", []) as string[] | typeof MIXED) ?? [];
   const off = (valueOf<string[] | null>(summary, "toggledOffOTFeatures", []) as string[] | typeof MIXED) ?? [];
   const onList = on === MIXED ? [] : (on ?? []);
@@ -361,13 +447,14 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
   const variants = (info?.features ?? []).filter((f) => /^cv\d\d$/.test(f.tag));
   // Live (popovers/type-settings-details.txt): each feature a Disabled / Enabled pair (48 at 176); what the font lacks
   // reads tertiary, "Not applicable for selected text".
-  const toggle2 = (label: string, checked: boolean, enabled: boolean, onChange: (v: boolean) => void) => (
+  // Live: a label wraps at 144 (two lines make the row 32 high); one not applicable reads tertiary — a feature's in a
+  // 144 wide "Not applicable for selected text" box —, its control enabled all the same.
+  const toggle2 = (label: string, checked: boolean, applicable: boolean, onChange: (v: boolean) => void, why = true) => (
     <>
-      <span className={cx(styles.settingsLabel, !enabled && styles.settingsLabelDisabled)} {...(!enabled ? tooltipProps("Not applicable for selected text") : {})}>{label}</span>
+      <FeatureLabel label={label} applicable={applicable} why={why} />
       <SegmentedControl
         className={styles.typeSeg}
         label={label}
-        disabled={!enabled}
         value={checked ? "ON" : "OFF"}
         options={[
           { value: "OFF", icon: "24.minus.small", tooltip: "Disabled" },
@@ -399,13 +486,12 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
     { value: "TABULAR/LINING", label: "M", tooltip: "Monospace uppercase/lining" },
     ...(oldstyle ? [{ value: "TABULAR/OLDSTYLE", label: "m", tooltip: "Monospace lowercase/oldstyle" }] : []),
   ];
-  const known = new Set(["case", "cpsp", "frac", "zero", "dlig", "calt", "ordn", "salt", "kern", "liga", "smcp", "onum", "lnum", "pnum", "tnum", "sups", "subs", "sinf"]);
-  const more = (info?.features ?? []).filter((f) => !known.has(f.tag) && !/^ss\d\d$/.test(f.tag) && !/^cv\d\d$/.test(f.tag));
+  const more = moreFeatures(info?.features ?? []);
   return (
     <div className={`${styles.settings} ${styles.settingsEnd}`}>
       {heading("Indentation", true)}
-      {toggle2("Hanging punctuation", hanging === true, true, (v) => write("Hanging punctuation", { hangingPunctuation: v }))}
-      {toggle2("Hanging lists", hangingList === true, true, (v) => write("Hanging lists", { hangingList: v }))}
+      {toggle2("Hanging punctuation", hanging === true, applies.hanging, (v) => write("Hanging punctuation", { hangingPunctuation: v }), false)}
+      {toggle2("Hanging lists", hangingList === true, applies.hangingList, (v) => write("Hanging lists", { hangingList: v }), false)}
       <span className={styles.settingsLabel}>Paragraph indent</span>
       <NumericInput className={styles.settingsField} scrubHandle="previous" label="Paragraph indent" value={indent} min={0} onChange={(v, i) => write("Paragraph indent", { paragraphIndent: v }, i)} onCancel={() => ed.cancelEdit()} />
       {heading("Letter case")}
@@ -423,10 +509,16 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
         ]}
         onChange={(v) => write("Text case", { textCase: v as ExtraFields["textCase"] })}
       />
-      {toggle2("Case-sensitive forms", toggled("case", false), has("case"), (v) => toggle("case", v, false, "Case-sensitive forms"))}
-      {toggle2("Capital spacing", toggled("cpsp", false), has("cpsp"), (v) => toggle("cpsp", v, false, "Capital spacing"))}
+      {toggle2("Case-sensitive forms", toggled("case", false), applies.feature("case"), (v) => toggle("case", v, false, "Case-sensitive forms"))}
+      {toggle2("Capital spacing", toggled("cpsp", false), applies.feature("cpsp"), (v) => toggle("cpsp", v, false, "Capital spacing"))}
       {heading("Numbers")}
-      <span className={cx(styles.settingsLabel, !has("lnum") && !has("tnum") && !has("pnum") && styles.settingsLabelDisabled)}>Style</span>
+      {/* Live: "Style" not applicable without digits, in its "Not applicable for selected text" box (64 wide) */}
+      <span
+        className={cx(styles.settingsLabel, !(applies.numbers && (has("lnum") || has("tnum") || has("pnum"))) && styles.settingsLabelDisabled)}
+        {...(!(applies.numbers && (has("lnum") || has("tnum") || has("pnum"))) ? tooltipProps("Not applicable for selected text") : {})}
+      >
+        Style
+      </span>
       <SegmentedControl
         className={styles.typeSeg}
         label="Number style"
@@ -449,26 +541,26 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
         ]}
         onChange={(v) => write("Position", { fontVariantPosition: v as ExtraFields["fontVariantPosition"] })}
       />
-      {toggle2("Fractions", fraction !== MIXED && fraction !== "NORMAL", has("frac"), (v) => write("Fractions", { fontVariantNumericFraction: v ? "DIAGONAL" : "NORMAL" }))}
-      {toggle2("Slashed zero", variant("fontVariantSlashedZero", false), has("zero"), (v) => write("Slashed zero", { fontVariantSlashedZero: v }))}
+      {toggle2("Fractions", fraction !== MIXED && fraction !== "NORMAL", applies.feature("frac"), (v) => write("Fractions", { fontVariantNumericFraction: v ? "DIAGONAL" : "NORMAL" }))}
+      {toggle2("Slashed zero", variant("fontVariantSlashedZero", false), applies.feature("zero"), (v) => write("Slashed zero", { fontVariantSlashedZero: v }))}
       {heading("Letterforms")}
-      {toggle2("Rare ligatures", variant("fontVariantDiscretionaryLigatures", false), has("dlig"), (v) => write("Rare ligatures", { fontVariantDiscretionaryLigatures: v }))}
-      {toggle2("Contextual alternates", variant("fontVariantContextualLigatures", true), has("calt"), (v) => write("Contextual alternates", { fontVariantContextualLigatures: v }))}
-      {toggle2("Ordinals", variant("fontVariantOrdinal", false), has("ordn"), (v) => write("Ordinals", { fontVariantOrdinal: v }))}
+      {toggle2("Rare ligatures", variant("fontVariantDiscretionaryLigatures", false), applies.feature("dlig"), (v) => write("Rare ligatures", { fontVariantDiscretionaryLigatures: v }))}
+      {toggle2("Contextual alternates", variant("fontVariantContextualLigatures", true), applies.feature("calt"), (v) => write("Contextual alternates", { fontVariantContextualLigatures: v }))}
+      {toggle2("Ordinals", variant("fontVariantOrdinal", false), applies.feature("ordn"), (v) => write("Ordinals", { fontVariantOrdinal: v }))}
       {heading("Stylistic sets")}
-      {toggle2("Stylistic alternates", toggled("salt", false), has("salt"), (v) => toggle("salt", v, false, "Stylistic alternates"))}
+      {toggle2("Stylistic alternates", toggled("salt", false), applies.feature("salt"), (v) => toggle("salt", v, false, "Stylistic alternates"))}
       {sets.map((f) => (
-        <Fragment key={f.tag}>{toggle2(f.name || `Stylistic set ${Number(f.tag.slice(2))}`, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, "Stylistic set"))}</Fragment>
+        <Fragment key={f.tag}>{toggle2(f.name || `Stylistic set ${Number(f.tag.slice(2))}`, toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, "Stylistic set"))}</Fragment>
       ))}
       {variants.length > 0 && heading("Character variants")}
       {variants.map((f) => (
-        <Fragment key={f.tag}>{toggle2(f.name || `Character variant ${Number(f.tag.slice(2))}`, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, "Character variant"))}</Fragment>
+        <Fragment key={f.tag}>{toggle2(f.name || `Character variant ${Number(f.tag.slice(2))}`, toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, "Character variant"))}</Fragment>
       ))}
       {heading("Horizontal spacing")}
-      {toggle2("Kerning pairs", toggled("kern", true), has("kern"), (v) => toggle("kern", v, true, "Kerning pairs"))}
+      {toggle2("Kerning pairs", toggled("kern", true), applies.feature("kern"), (v) => toggle("kern", v, true, "Kerning pairs"))}
       {more.length > 0 && heading("More features")}
       {more.map((f) => (
-        <Fragment key={f.tag}>{toggle2(f.name || f.tag, toggled(f.tag, false), true, (v) => toggle(f.tag, v, false, f.name || f.tag))}</Fragment>
+        <Fragment key={f.tag}>{toggle2(f.label, toggled(f.tag, false), applies.feature(f.tag), (v) => toggle(f.tag, v, false, f.label))}</Fragment>
       ))}
     </div>
   );

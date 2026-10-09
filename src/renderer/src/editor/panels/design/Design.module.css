@@ -297,6 +297,13 @@
   .alSettings > :nth-child(even) { justify-self: stretch; }
   .alEnd { justify-content: flex-end; }
   .settingsLabelDisabled { color: var(--figma-color-text-tertiary); }
+  /* Type settings › Details (live popovers/type-settings-details.txt): a feature's name wraps at 144 in 16 high lines
+     ("r curves into round neighbors" 100 × 29: its row 32 high, the next 40 below); one not applicable sits in a 144
+     wide box with its tooltip */
+  .featureLabel { width: max-content; max-width: 144px; white-space: normal; line-height: 16px; }
+  .featureNotApplicable { width: 144px; }
+  .featureLabel[data-wrapped] { margin: -4px 0 4px; }
+  .featureLabel[data-wrapped] + * { align-self: start; }
   .alLayoutLabel { display: flex; align-items: center; justify-content: space-between; overflow: visible; }
   .alInfo { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 4px; padding: 0; border: 0; background: transparent; color: var(--figma-color-icon-secondary); overflow: hidden; }
   .settingsGroupGap { grid-column: 1 / -1; height: 5px; }

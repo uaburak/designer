@@ -99,6 +99,9 @@ class Font {
   // The OpenType features the font has (GSUB and GPOS, each tag once).
   std::vector<FeatureInfo> features() const;
   bool hasFeature(uint32_t tag) const;
+  // Of features(), those that act on `utf8`: shaping it with the feature on and with it off gives other glyphs or
+  // other places (Type settings › Details dims the rest: "Not applicable for selected text").
+  std::vector<uint32_t> featuresIn(const std::string& utf8) const;
   const std::vector<std::pair<uint32_t, float>>& variations() const { return variations_; }
 
  private:
