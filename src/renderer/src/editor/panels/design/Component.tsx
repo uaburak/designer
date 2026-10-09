@@ -23,7 +23,7 @@
  * has them.
  */
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Button, Checkbox, ContextMenu, Icon, IconButton, MenuButton, NumericInput, Popover, Select, Switch, TextArea, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, MenuButton, Popover, Select, Switch, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
 import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
 import { RESET_PREFIX, runMenuItem } from "../../menus";
@@ -56,7 +56,7 @@ import {
   slotState,
   swapInstance,
   updateProperty,
-  updateSlotSettings,
+  usedPropertyIds,
   valueFromLayer,
   variantsOf,
   type InstanceInfo,
@@ -94,6 +94,7 @@ import {
 } from "../../model/components";
 import { ComponentPicker, useComponentAssets, usePopoverToggle } from "./ComponentPicker";
 import { ComponentConfiguration } from "./ComponentConfiguration";
+import { SlotPropertyEditor } from "./SlotProperty";
 import { ACTION_ICON, actionItem, booleanActions } from "./Header";
 import { setMultiEdit, useMultiEdit } from "./multiEdit";
 import { BoundPill } from "./Variables";
@@ -671,6 +672,8 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   const [menu, setMenu] = useState<{ x: number; y: number; def?: ComponentPropDef; exposed?: CNode } | null>(null);
   const addRef = useRef<HTMLSpanElement>(null);
   const defs = sortedDefs(fresh.componentPropDefs ?? []);
+  // Live (design/component-with-slot.txt): a property no layer uses has "Not used within component" at the row's end.
+  const used = useMemo(() => usedPropertyIds(ed, fresh), [ed, fresh]);
   const variants = isComponentSet(fresh) ? variantsOf(ed, fresh) : [];
   const variantProps = isComponentSet(fresh) ? variantProperties(fresh, variants) : [];
   const nestedInstances = nestedInstancesOf(ed, fresh);
@@ -776,6 +779,9 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
                   </>
                 )}
               </button>
+              {!used.has(id) && (
+                <IconButton icon="24.warning" label="Not used within component" tone="secondary" className={styles.defUnused} data-property-unused={d.name} onClick={(e) => setEditing({ target: { mode: "edit", def: d }, anchor: e.currentTarget })} />
+              )}
             </div>
           );
         })}
@@ -965,7 +971,15 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
 
 // ---- The property settings popover (create / edit) ----------------------------------------------------------------
 
-function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; target: EditorTarget; anchor: HTMLElement | null; onClose: () => void }) {
+/** A property's settings: Slot has live's own form (SlotProperty.tsx), the other types the generic one. */
+function PropertyEditor(props: { owner: CNode; target: EditorTarget; anchor: HTMLElement | null; onClose: () => void }) {
+  const { owner, target, anchor, onClose } = props;
+  if ((target.mode === "create" ? target.type : target.def.type) === "SLOT")
+    return <SlotPropertyEditor owner={owner} def={target.mode === "edit" ? target.def : null} bind={target.mode === "create" ? target.bind : undefined} anchor={anchor} onClose={onClose} />;
+  return <GenericPropertyEditor {...props} />;
+}
+
+function GenericPropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; target: EditorTarget; anchor: HTMLElement | null; onClose: () => void }) {
   const ed = useEditor();
   const assets = useComponentAssets();
   const type = target.mode === "create" ? target.type : target.def.type;
@@ -978,7 +992,6 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
   const [applying, setApplying] = useState<HTMLElement | null>(null);
   const [valueDrag, setValueDrag] = useState<number | null>(null);
   const [valueDrop, setValueDrop] = useState<number | null>(null);
-  const slot = (def?.slotPropConfig ?? {}) as NonNullable<ComponentPropDef["slotPropConfig"]>;
   // The variable the default is bound to (the def's varValue, an alias).
   const varValue = def?.varValue as { dataType?: string; value?: { alias?: { guid?: GuidValue } } } | undefined;
   const boundDefault = varValue?.dataType === "ALIAS" && varValue.value?.alias?.guid ? guidStr(varValue.value.alias.guid) : null;
@@ -1111,7 +1124,7 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
             </button>
           </>
         )}
-        {(type === "INSTANCE_SWAP" || type === "SLOT") && def && (
+        {type === "INSTANCE_SWAP" && def && (
           <>
             <span className={cx(styles.editorLabel, styles.editorWide, styles.editorHeader)}>
               Preferred instances
@@ -1133,42 +1146,6 @@ function PropertyEditor({ owner, target, anchor, onClose }: { owner: CNode; targ
                 </div>
               );
             })}
-          </>
-        )}
-        {type === "SLOT" && !def && <span className={cx(styles.muted, styles.editorWide)}>Apply it to a frame inside the component.</span>}
-        {type === "SLOT" && def && (
-          // The slot's settings (help "Use slots"): limits are guidance (a warning past them, never a block); 0 = not set.
-          <>
-            <div className={styles.editorWide}>
-              <TextArea label="Description" value={def.description ?? ""} placeholder="Add a description" minRows={1} maxRows={4} onCommit={(v) => updateProperty(ed, owner, def, { description: v }, "Edit description")} />
-            </div>
-            <span className={styles.editorLabel}>Minimum layers</span>
-            <NumericInput label="Minimum layers" value={slot.minChildren ?? 0} min={0} max={999} onChange={(v, info) => info.final && updateSlotSettings(ed, owner, def, { minChildren: Math.round(v) })} />
-            <span className={styles.editorLabel}>Maximum layers</span>
-            <NumericInput label="Maximum layers" value={slot.maxChildren ?? 0} min={0} max={999} onChange={(v, info) => info.final && updateSlotSettings(ed, owner, def, { maxChildren: Math.round(v) })} />
-            <div className={styles.editorWide}>
-              <Checkbox label="Only allow preferred instances" checked={slot.allowPreferredValuesOnly === true} onChange={(on) => updateSlotSettings(ed, owner, def, { allowPreferredValuesOnly: on })} />
-            </div>
-            {slot.allowPreferredValuesOnly === true && preferred.length > 0 && (
-              <div className={styles.editorWide}>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    // "View layers": the preferred components, selected on the canvas.
-                    const ids = preferred.map((p) => assets.find((x) => isPreferred(x, p.key))?.id).filter((x): x is string => !!x);
-                    if (ids.length) ed.engine.setSelection(ids);
-                  }}
-                >
-                  View layers
-                </Button>
-              </div>
-            )}
-            <div className={styles.editorWide}>
-              <Checkbox label="By default, display empty slots" checked={slot.displayByDefault === true} onChange={(on) => updateSlotSettings(ed, owner, def, { displayByDefault: on })} />
-            </div>
-            <div className={styles.editorWide}>
-              <Checkbox label="By default, fill items on slot's counter-axis" checked={slot.stretchChildOnInsert === true} onChange={(on) => updateSlotSettings(ed, owner, def, { stretchChildOnInsert: on })} />
-            </div>
           </>
         )}
         {target.mode === "create" && (

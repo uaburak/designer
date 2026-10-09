@@ -660,9 +660,92 @@ export function reorderProperty(ed: EditorController, owner: CNode, def: Compone
 }
 
 /** A slot property's settings (help "Use slots": min / max layers, preferred instances only, empty, fill items). */
-export function updateSlotSettings(ed: EditorController, owner: CNode, def: ComponentPropDef, patch: NonNullable<ComponentPropDef["slotPropConfig"]>): void {
-  const defs = (owner.componentPropDefs ?? []).map((d) => (guidStr(d.id) === guidStr(def.id) ? { ...d, slotPropConfig: { ...(d.slotPropConfig ?? {}), ...patch } } : d));
+export function updateSlotSettings(ed: EditorController, owner: CNode, def: ComponentPropDef, patch: SlotSettingsPatch): void {
+  const defs = (owner.componentPropDefs ?? []).map((d) => (guidStr(d.id) === guidStr(def.id) ? { ...d, slotPropConfig: withSlotConfig(d.slotPropConfig as ComponentPropDef["slotPropConfig"], patch) } : d));
   ed.setProps([owner.guid], asFields({ componentPropDefs: defs }), "Edit slot property");
+}
+
+/** A slot's config with `patch` applied: a limit set to null is unset (Figma's SlotSettings: null = no limit). */
+function withSlotConfig(config: ComponentPropDef["slotPropConfig"], patch: SlotSettingsPatch): NonNullable<ComponentPropDef["slotPropConfig"]> {
+  const out: Record<string, unknown> = { ...(config ?? {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null || v === undefined) delete out[k];
+    else out[k] = v;
+  }
+  return out as NonNullable<ComponentPropDef["slotPropConfig"]>;
+}
+
+/** Slot settings to change; a limit set to null is unset. */
+export type SlotSettingsPatch = { [K in keyof NonNullable<ComponentPropDef["slotPropConfig"]>]?: NonNullable<ComponentPropDef["slotPropConfig"]>[K] | null };
+
+/** What the Create property form (Slot) collects (live popovers/component-create-slot-property.txt). */
+export interface SlotPropertyForm {
+  name: string;
+  /** Markdown (the rich-text Description) */
+  description: string;
+  minChildren: number | null;
+  maxChildren: number | null;
+  allowPreferredValuesOnly: boolean;
+  displayByDefault: boolean;
+  stretchChildOnInsert: boolean;
+  preferred: { type: "COMPONENT" | "STATE_GROUP"; key: string }[];
+}
+
+/** A new slot property's name: "Slot", then "Slot 2", "Slot 3"… (Convert to slot names them the same way). */
+export function newSlotName(defs: readonly ComponentPropDef[]): string {
+  const names = new Set(defs.map((d) => d.name));
+  if (!names.has("Slot")) return "Slot";
+  for (let i = 2; ; i++) if (!names.has(`Slot ${i}`)) return `Slot ${i}`;
+}
+
+/**
+ * Create property › Slot: the property with everything the form collected — its description, limits, the three
+ * settings and the preferred instances — as one undo step ("Create slot property"). Not bound to a layer yet (live
+ * then shows "Not used within component"), unless it was created from one.
+ */
+export function createSlotProperty(ed: EditorController, owner: CNode, form: SlotPropertyForm, bind?: { layer: CNode; field: BindableField }): ComponentPropDef | null {
+  let made: ComponentPropDef | null = null;
+  ed.batch("Create slot property", () => {
+    const def = addProperty(ed, owner, "SLOT", { name: form.name.trim() || newSlotName(owner.componentPropDefs ?? []), bind });
+    if (!def) return;
+    const fresh = readC(ed, owner.guid) ?? owner;
+    const config = withSlotConfig(undefined, {
+      minChildren: form.minChildren,
+      maxChildren: form.maxChildren,
+      allowPreferredValuesOnly: form.allowPreferredValuesOnly || null,
+      displayByDefault: form.displayByDefault || null,
+      stretchChildOnInsert: form.stretchChildOnInsert || null,
+    });
+    const patch: Partial<ComponentPropDef> = {};
+    if (Object.keys(config).length) patch.slotPropConfig = config;
+    if (form.description.trim()) patch.description = form.description;
+    if (form.preferred.length) patch.preferredValues = { instanceSwapValues: form.preferred.map((p) => ({ ...p })) };
+    made = { ...def, ...patch };
+    if (!Object.keys(patch).length) return;
+    const defs = (fresh.componentPropDefs ?? []).map((d) => (sameGuid(d.id, def.id) ? { ...d, ...patch } : d));
+    ed.engine.setProps([owner.guid], asFields({ componentPropDefs: defs }));
+  });
+  return made;
+}
+
+/** The layer a main's (or a set's variants') slot property is applied to, or null ("Not used within component"). */
+export function slotLayerOf(ed: EditorController, owner: CNode, def: ComponentPropDef): CNode | null {
+  const roots = isComponentSet(owner) ? variantsOf(ed, owner) : [owner];
+  for (const r of roots)
+    for (const n of subtree(ed, r.guid)) {
+      const id = bindingsOf(n).get("SLOT_CONTENT_ID");
+      if (id && sameGuid(id, def.id)) return n;
+    }
+  return null;
+}
+
+/** The properties some layer of the component (or of the set's variants) uses ("s:l" ids; variant properties always). */
+export function usedPropertyIds(ed: EditorController, owner: CNode): Set<string> {
+  const out = new Set<string>();
+  for (const d of owner.componentPropDefs ?? []) if (d.type === "VARIANT") out.add(guidStr(d.id));
+  const roots = isComponentSet(owner) ? variantsOf(ed, owner) : [owner];
+  for (const r of roots) for (const n of subtree(ed, r.guid)) for (const id of bindingsOf(n).values()) out.add(guidStr(id));
+  return out;
 }
 
 /** The instance's root fields a swap brings from the new main (unless the instance overrode them). */

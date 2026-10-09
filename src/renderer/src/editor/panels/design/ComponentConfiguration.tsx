@@ -142,7 +142,7 @@ const exec = (cmd: string, value?: string) => {
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The description's editor: contentEditable over the panel's field look, the toolbar along its bottom. */
-function RichTextField({ value, placeholder, onCommit, flushRef }: { value: string; placeholder: string; onCommit: (markdown: string) => void; flushRef: { current: () => void } }) {
+export function RichTextField({ value, placeholder, onCommit, flushRef }: { value: string; placeholder: string; onCommit: (markdown: string) => void; flushRef: { current: () => void } }) {
   const editor = useRef<HTMLDivElement>(null);
   const [empty, setEmpty] = useState(!value.trim());
   const [marks, setMarks] = useState<Set<Mark>>(new Set());

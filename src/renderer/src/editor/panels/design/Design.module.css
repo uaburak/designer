@@ -570,6 +570,8 @@
     color: var(--figma-color-text-secondary);
     line-height: var(--ds-size-control);
   }
+  /* Live (popovers/fill-picker-custom.txt): without the card, the first header 17 under the search (89; 95 its text) */
+  .shaderSearch + .shaderSection { margin-top: 17px; }
   /* Live: the tiles 12 under their header, a row every 132 (the 96 thumb, its name, 14) */
   .shaderGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px var(--ds-space-4); padding: var(--ds-space-3) var(--ds-space-4) 0; }
   .shaderTile { display: flex; flex-direction: column; gap: var(--ds-space-1-5); padding: 0; border: 0; background: none; color: var(--figma-color-text); font: inherit; text-align: left; }
@@ -577,6 +579,8 @@
   .shaderThumb { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-icon-secondary); }
   /* Live: the name 6 under its thumb (its 13 glyph box at 633 under a thumb ending at 627) */
   .shaderTileName { display: flex; gap: var(--ds-space-3); align-items: center; margin: -2px 0 2px; padding-left: var(--ds-space-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Live: "Create new" with its AI badge sits 2 lower than a preset's name (229 / 227 under a thumb ending at 221) */
+  .shaderTileName:has(.shaderAi) { margin-top: 0; margin-bottom: 0; }
   .shaderAi { padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-tertiary); font: var(--ds-font-body-medium); }
 
   /*

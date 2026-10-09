@@ -80,6 +80,9 @@ export const CASES = {
   "instance-variant-dropdown": [["select", ["8:61"]], ["click", "State"]],
   "component-create-property-menu": [["select", ["8:1"]], ["click", "Create property"]],
   "component-configuration": [["select", ["8:1"]], ["click", "Component configuration"]],
+  // Round 11: Create property › Slot on Card (8:50, as live), and the Effects "+" while the shader onboarding card is up.
+  "component-create-slot-property": [["select", ["8:50"]], ["click", "Create property"], ["text", "Slot"]],
+  "effects-add-shader-effects": [["eval", "localStorage.removeItem('designer.effects.shaderOnboarding')"], rect, ["click", "Add effect"]],
 };
 
 const browser = await chromium.launch({ executablePath: exe, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });

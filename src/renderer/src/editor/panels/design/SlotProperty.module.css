@@ -1,0 +1,97 @@
+@layer app {
+  /*
+   * Live popovers/component-create-slot-property.txt (304 × 626; the header 40): "Name" (11 / 550) at 16, 50, its field
+   * 272 × 24 at 16, 72; "Description" at 16, 106, the rich-text field 272 × 155 at 16, 128; "Settings" at 16, 310; the
+   * rows 24 high, 12 apart from 336: Minimum / Maximum layers (labels 11 / 450 secondary, fields 120 wide at 168, their
+   * input 96), then the three checkboxes (16 at 16, labels at 40) — the last with its info icon at 263; "Preferred
+   * instances" (11 / 500 secondary) and "Learn more" at 551, "+" 24 at 272, 545; "Create property" 100 × 24 at 188, 594;
+   * 8 below it.
+   */
+  .form {
+    display: flex;
+    flex-direction: column;
+    padding: var(--ds-space-2) var(--ds-space-4) var(--ds-space-2);
+  }
+  .label {
+    height: var(--ds-space-4);
+    margin-bottom: var(--ds-space-2);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+    line-height: var(--ds-space-4);
+  }
+  .gap { margin-top: var(--ds-space-2); }
+  /* 25 under the description (283 → 308), 12 over the first row */
+  .settings { margin-top: 25px; margin-bottom: var(--ds-space-3); }
+  .rows {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 120px;
+    row-gap: var(--ds-space-3);
+    column-gap: var(--ds-space-2);
+    align-items: center;
+  }
+  .fieldLabel {
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .limit { width: 120px; }
+  .limitEnd { flex: none; width: var(--ds-size-control); }
+  .check {
+    position: relative;
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    height: var(--ds-size-control);
+  }
+  /* The info icon of "By default, fill items on slot's counter axis" (live 263, 484: 9 in from the field's end) */
+  .info {
+    position: absolute;
+    top: var(--ds-space-1);
+    right: 9px;
+    display: flex;
+    color: var(--figma-color-icon-secondary);
+  }
+  .preferredHeader {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-control);
+    margin-top: 41px;
+  }
+  .preferredTitle {
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    font-weight: 500;
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+  .learnMore {
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-decoration: none;
+  }
+  .learnMore:hover { text-decoration: underline; }
+  /* "+" at 272: in the popover's 8 px right margin, as its close button */
+  .add { position: absolute; top: 0; right: calc(var(--ds-space-2) * -1); }
+  .preferredRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-control);
+    margin-top: var(--ds-space-2);
+  }
+  .preferredName {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .purple { flex: none; color: var(--figma-color-icon-component); }
+  /* 25 under the Preferred instances row (569 → 594) */
+  .footer { display: flex; justify-content: flex-end; margin-top: 25px; }
+}
