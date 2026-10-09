@@ -1,0 +1,43 @@
+# Anonymous VIEW-ONLY session: click "Motion" in the Toolbelt Mode switch (bottom toolbar). Result: the left pill stays, the top-right pill, the Editor toolbar and the help button are gone from the screenshot; a "Motion Beta" tag (869,820 90x24 bg=#1e1e1e r=5) shows above the switch. No timeline, no right panel, no keyframes. [viewport 1440x900]
+# Same format as the other files. Difference to the Design-mode viewer dump: input motion gets bg=#383838 (selected, div 901,850 28x28 r=3), design loses it, and two new nodes appear.
+0,-200 1x16 input = [Figma Design] bg=rgb(59, 59, 59)
+12,12 156x48 div bg=rgb(44, 44, 44) r=13px
+20,20 32x32 button [Main menu] r=5px
+52,20 108x32 button [Expand UI for file named Untitled] r=5px
+65,28 50x16 "Untitled" 13px/550 rgb(255, 255, 255)
+1167,12 261x48 div bg=rgb(44, 44, 44) r=13px
+1187,24 42x24 button [Multiplayer tools] r=50px
+1234,24 60x24 button [100%, zoom and view options] bg=rgb(44, 44, 44) r=5px
+1301,24 24x24 button [Present] r=5px
+1325,24 24x24 button [Prototype view] r=5px
+1369,30 31x13 "Share" 11px/450 rgb(255, 255, 255)
+472,840 497x48 toolbar [Editor] bg=rgb(44, 44, 44) r=13px
+480,848 32x32 button [Move] r=5px
+520,848 32x32 button [Hand tool] bg=rgb(12, 140, 233) r=5px
+560,848 32x32 button [Comment] r=5px
+609,848 32x32 button [Frame] r=5px
+642,848 16x32 button [Region tools] r=5px
+666,848 32x32 button [Rectangle] r=5px
+699,848 16x32 button [Shape tools] r=5px
+723,848 32x32 button [Pen] r=5px
+756,848 16x32 button [Creation tools] r=5px
+780,848 32x32 button [Text] r=5px
+820,848 32x32 button [Actions] r=5px
+869,848 92x32 fieldset bg=rgb(68, 68, 68) r=5px
+870,851 74x13 "Toolbelt Mode" 11px/400 rgb(255, 255, 255)
+872,851 26x26 input =design [Design]
+884,865 36x13 "Design" 11px/400 rgb(255, 255, 255)
+901,850 28x28 div bg=rgb(56, 56, 56) r=3px
+901,850 28x28 input =metronome [motion_beta_special_tooltip]
+914,865 36x13 "Motion" 11px/400 rgb(255, 255, 255)
+931,850 28x28 input =handoff [Dev Mode]
+944,865 53x13 "Dev Mode" 11px/400 rgb(255, 255, 255)
+701,906 51x13 "View only" 11px/450 rgb(44, 44, 44)
+692,930 69x13 "Request sent" 11px/450 rgb(255, 255, 255)
+484,812 235x13 "Sign up to comment, edit, inspect and more." 11px/550 rgb(255, 255, 255)
+818,812 40x13 "Sign up" 11px/450 rgb(255, 255, 255)
+875,806 82x24 button [Continue with Google] bg=rgb(255, 255, 255) r=5px
+1384,848 32x32 button [Help] bg=rgb(44, 44, 44) r=100%
+869,820 90x24 div bg=rgb(30, 30, 30) r=5px
+877,826 37x13 "Motion" 11px/450 rgb(255, 255, 255)
+922,826 24x13 "Beta" 11px/450 rgb(255, 255, 255)
