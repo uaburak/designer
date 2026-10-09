@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
 import { cx } from "../util/cx";
 import { createTypeahead, typeahead } from "../util/typeahead";
-import { placeOverTrigger } from "../overlay/position";
+import { place, placeOverTrigger } from "../overlay/position";
 import { Portal } from "../overlay/Portal";
 import { useDismiss } from "../overlay/useDismiss";
 import { Icon, type IconName } from "../icons/Icon";
@@ -108,9 +108,12 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, onPick, onClos
     // Live capture: the list is as wide as its labels (+ 64), never narrower than the field's box.
     el.style.minWidth = `${Math.round(r.width + 16)}px`;
     const item = selected >= 0 ? el.querySelector<HTMLElement>(`[data-index="${selected}"]`) : null;
-    const p = placeOverTrigger(r, item ? item.offsetTop : null, item ? item.offsetHeight : 0, { width: el.offsetWidth, height: el.offsetHeight }, { width: window.innerWidth, height: window.innerHeight });
-    // Without the check column the glyphs line up with the field's own (live effect type menu: at the field's left).
-    el.style.left = `${noCheck && item ? Math.min(r.left, window.innerWidth - 8 - el.offsetWidth) : p.x}px`;
+    const box = { width: el.offsetWidth, height: el.offsetHeight };
+    const view = { width: window.innerWidth, height: window.innerHeight };
+    // Without the check column (live effect type menu, popovers/effect-type-menu.txt) the list is a dropdown at the
+    // field's left, 12 under it — or, without the room, 12 above it (live: 207 high, flipped up over the popover).
+    const p = noCheck ? place(r, box, view, "bottom", "start", 12) : placeOverTrigger(r, item ? item.offsetTop : null, item ? item.offsetHeight : 0, box, view);
+    el.style.left = `${p.x}px`;
     el.style.top = `${p.y}px`;
     el.style.visibility = "visible";
     el.focus({ preventScroll: true });
@@ -132,7 +135,7 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, onPick, onClos
       data-theme-forced=""
       data-static={isStatic || undefined}
       aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
-      className={cx(menu.panel, isStatic && menu.static)}
+      className={cx(menu.panel, isStatic && menu.static, noCheck && styles.compactList)}
       style={isStatic ? { position: "absolute", top: "100%", left: 0, marginTop: 4 } : { left: 0, top: 0, visibility: "hidden" }}
       onKeyDown={(e) => {
         e.stopPropagation();

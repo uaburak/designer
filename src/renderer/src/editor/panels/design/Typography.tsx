@@ -190,6 +190,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
         <PropertyRow labels={["Line height", "Letter spacing"]}>
           <VariableField nodes={nodes} fields={["LINE_HEIGHT"]} prefix="24.text.line-height" disabled={!lhKept}>
           <NumericInput
+            className={styles.typeMetric}
             label="Line height"
             prefix="24.text.line-height"
             value={lh === undefined ? null : isMixed(lh) ? MIXED : lhView!.value}
@@ -206,6 +207,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
           </VariableField>
           <VariableField nodes={nodes} fields={["LETTER_SPACING"]} prefix="24.text.letter-spacing" disabled={!lsKept}>
           <NumericInput
+            className={styles.typeMetric}
             label="Letter spacing"
             prefix="24.text.letter-spacing"
             value={lsValue}
