@@ -2452,6 +2452,21 @@ async function selectionSection(page, theme) {
  * frame's top right (a click marks it ready for dev), the auto-layout padding badge by the pointer, a selected grid's
  * cells and pills (a pill click opens its size editor), the section's pill.
  */
+/** Offsets (row-major) of the pixels in `clip` that are the dark theme's selection blue (#0c8ce9), from a page shot. */
+async function bluePixels(page, clip) {
+  const png = await page.screenshot({ clip });
+  return page.evaluate(async (b64) => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type: "image/png" }));
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext("2d");
+    g.drawImage(bmp, 0, 0);
+    const d = g.getImageData(0, 0, bmp.width, bmp.height).data;
+    const out = [];
+    for (let i = 0; i < d.length; i += 4) if (d[i + 2] > 200 && d[i] < 80 && d[i + 1] > 100 && d[i + 1] < 180) out.push(i / 4);
+    return out;
+  }, png.toString("base64"));
+}
+
 async function overlays9Section(page, theme) {
   await open(page, "&doc=capture");
   const canvas = page.locator("#engine-canvas");
@@ -2555,6 +2570,22 @@ async function overlays9Section(page, theme) {
   await page.mouse.move(gx, gtop - 31.5);
   await settle(page);
   await shot(page, `197-grid-column-pill-${theme}`);
+  {
+    // Round 10 (live canvas-grid-hover-column-track-pill): the column's 2 px outline centred on its sides, its ends inside
+    // the frame's top edge. The middle column's left side at x 113.33; the selection blue's runs across it and down
+    // through the frame's top at the column's middle.
+    const [lx, my] = await at(113.33, 100);
+    const across = await bluePixels(page, { x: Math.round(lx) - 6, y: Math.round(my), width: 12, height: 1 });
+    const [, ty] = await at(160, 0);
+    const down = await bluePixels(page, { x: Math.round(gx), y: Math.round(ty) - 6, width: 1, height: 12 });
+    const run = (px, from) => (px.length ? { first: from + px[0], count: px.length } : null);
+    const a = run(across, Math.round(lx) - 6), d = run(down, Math.round(ty) - 6);
+    check(
+      "Round 10: a hovered grid column's outline is 2 px centred on its side and inside the frame's top (live Figma)",
+      !!a && a.count >= 2 && a.count <= 3 && Math.abs(a.first + a.count / 2 - lx) <= 1 && !!d && d.first >= Math.round(ty) - 1 && d.count >= 2 && d.count <= 4,
+      JSON.stringify({ lx, across: a, ty, down: d })
+    );
+  }
   await page.mouse.click(gx, gtop - 31.5);
   await settle(page);
   const sel = await page.evaluate(() => window.__designerEditor.ui.get().gridTracks);
