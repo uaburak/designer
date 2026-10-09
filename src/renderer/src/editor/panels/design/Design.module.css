@@ -316,6 +316,8 @@
     border-radius: var(--ds-radius-medium);
     background: var(--figma-color-bg-secondary);
   }
+  /* Line height / Letter spacing (live design/text.txt): their number 61 wide, 3 short of the field's end */
+  .typeMetric input { flex: 0 0 61px; min-width: 0; }
   .effectField > [data-ds="Select"] { flex: 1 1 auto; min-width: 0; }
   .effectLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-left: var(--ds-space-1); white-space: nowrap; text-overflow: ellipsis; }
   /* Live (design/rectangle-with-effect.txt): the effect's name 11px / 400 at 41, 1 after its glyph */
@@ -473,7 +475,7 @@
   .shaderCard { display: flex; flex-direction: column; gap: var(--ds-space-3); margin: var(--ds-space-2) var(--ds-space-2) 13px; }
   .shaderArt { height: 137px; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
   .shaderText { margin: 0; padding: 0 var(--ds-space-1); }
-  .shaderActions { display: flex; gap: var(--ds-space-2); justify-content: flex-end; padding-right: var(--ds-space-1); }
+  .shaderActions { display: flex; gap: var(--ds-space-2); justify-content: flex-end; margin-top: -1px; padding-right: var(--ds-space-1); }
   .shaderSection {
     position: sticky;
     top: 0;
@@ -490,7 +492,8 @@
   .shaderTile { display: flex; flex-direction: column; gap: var(--ds-space-1-5); padding: 0; border: 0; background: none; color: var(--figma-color-text); font: inherit; text-align: left; }
   .shaderTile:disabled { cursor: default; }
   .shaderThumb { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-icon-secondary); }
-  .shaderTileName { display: flex; gap: var(--ds-space-3); align-items: center; padding-left: var(--ds-space-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Live: the name 6 under its thumb (its 13 glyph box at 633 under a thumb ending at 627) */
+  .shaderTileName { display: flex; gap: var(--ds-space-3); align-items: center; margin: -2px 0 2px; padding-left: var(--ds-space-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .shaderAi { padding: 0 var(--ds-space-1); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-tertiary); font: var(--ds-font-body-medium); }
 
   /*

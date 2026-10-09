@@ -1,44 +1,87 @@
 @layer app {
-  /* The grid picker (help: "the interactive selector"): a 12 × 12 board of cells; hovering previews columns × rows. */
-  .picker {
+  /*
+   * The grid dimensions picker (live grid/grid-dimensions-picker.txt, 210 × 204): the counts at 8 (85 × 24 each, "×"
+   * 8 after the first), the board at 8,40 (12 × 8 cells of 16, the last row 14), "Open grid settings" centred under it.
+   */
+  .picker { display: flex; flex-direction: column; padding: var(--ds-space-2) var(--ds-space-2) 6px; }
+  .pickerFields { display: flex; align-items: center; height: var(--ds-size-control); }
+  .pickerField { flex: none; width: 85px; }
+  .pickerTimes {
+    flex: none;
+    width: var(--ds-size-control);
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
+    text-align: center;
+    /* live: its glyph box at 14 */
+    padding-top: 1px;
+  }
+  .pickerRowsMenu {
     display: flex;
-    flex-direction: column;
-    gap: var(--ds-space-2);
-    padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
-  }
-  .pickerFields {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--ds-space-2);
-  }
-  .board {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    gap: 2px;
-    width: 100%;
-    aspect-ratio: 1;
-  }
-  .cell {
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
     padding: 0;
-    border: 1px solid var(--figma-color-border);
-    border-radius: 2px;
+    border: 0;
     background: transparent;
+    color: var(--figma-color-icon-secondary);
     outline: none;
   }
-  .cell[data-on="true"] {
-    border-color: var(--figma-color-border-selected);
-    background: var(--figma-color-bg-selected);
+  .pickerRowsMenu:hover, .pickerRowsMenu[data-open] { color: var(--figma-color-icon); }
+  .board {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-rows: 16px;
+    height: 126px;
+    margin-top: var(--ds-space-2);
+    overflow: hidden;
   }
-  .cell[data-preview="true"] {
-    border-color: var(--figma-color-border-brand-strong);
-    background: var(--figma-color-bg-brand-tertiary);
+  /* The board's legend and each cell's name: read by assistive tech, clipped from view (as live keeps them) */
+  .boardLegend, .cellName {
+    position: absolute;
+    clip-path: inset(50%);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
+    white-space: nowrap;
+    pointer-events: none;
   }
-  .pickerCaption {
-    color: var(--figma-color-text-secondary);
+  .boardLegend { top: 0; left: -1px; }
+  .cellName { top: calc(100% + 1px); left: -1px; }
+  .cell { position: relative; display: block; width: 16px; height: 16px; }
+  /* Live: the last row 14 high */
+  .cell:nth-last-child(-n + 12) { height: 14px; }
+  .cellInput { position: absolute; inset: 0; width: 16px; height: 100%; margin: 0; border: 0; background: transparent; outline: none; appearance: none; }
+  .cellSquare {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: var(--figma-color-bg-secondary);
+    pointer-events: none;
+  }
+  .cellSquare[data-preview="true"] { background: var(--figma-color-bg-selected); }
+  .cellSquare[data-on="true"] { background: var(--figma-color-bg-onselected); }
+  .cellInput:focus-visible + .cellSquare { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .pickerSettings {
+    height: var(--ds-size-control);
+    margin-top: var(--ds-space-2);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-text);
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
-    text-align: center;
+    outline: none;
   }
+  .pickerSettings:hover { background: var(--figma-color-bg-hover); }
+  .pickerSettings:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   /* Number of rows (a number or "Auto") with the grid picker's button */
   .rowsCell { display: flex; align-items: center; gap: 0; min-width: 0; }
   .rowsCell > :first-child { flex: 1 1 auto; min-width: 0; }
