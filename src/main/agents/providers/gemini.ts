@@ -87,6 +87,22 @@ export const IMAGE_NOTE = `Images: when the user wants a picture (a photo, an il
 
 const signInHint = (why: string) => /auth method|GEMINI_API_KEY|login|sign in|credentials|401|UNAUTHENTICATED/i.test(why);
 
+/**
+ * The Gemini API's own errors arrive as JSON inside JSON ("[API Error: {…{\"error\": {\"code\": 402, …}}}]"): the
+ * innermost message, and what to do for the ones about the key's AI Studio project.
+ */
+export function friendlyApiError(raw: string): string {
+  const unescaped = raw.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  const msgs = [...unescaped.matchAll(/"message"\s*:\s*"([^"]+)"/g)].map((m) => m[1].trim()).filter((m) => !m.startsWith("{"));
+  const inner = msgs[msgs.length - 1];
+  if (!inner) return raw;
+  const code = /"code"\s*:\s*(\d{3})/.exec(unescaped)?.[1];
+  if (code === "402" || /prepayment credits/i.test(inner)) return `Google refused the request: the Gemini API key's AI Studio project has run out of prepaid credits (${inner}) Add credits at ai.studio/projects, or make a key in a project without billing (Google’s free tier) and add it in Agent settings.`;
+  if (code === "429") return `Google’s rate limit for this Gemini API key: ${inner}`;
+  if (code === "400" && /API key not valid/i.test(inner)) return "Google says the Gemini API key isn’t valid — check it in Agent settings.";
+  return `Gemini API: ${inner}`;
+}
+
 /** Google's refusal of the personal Google sign-in (IneligibleTierError, UNSUPPORTED_CLIENT) in the CLI's output. */
 export const INELIGIBLE = /IneligibleTier|throwIneligibleOrProjectIdError|no longer supported for Gemini Code Assist/i;
 export const INELIGIBLE_MESSAGE = "Google no longer lets Gemini CLI use a personal Google sign-in (Google AI Pro and Ultra included). Add a Gemini API key from Google AI Studio in Agent settings — it runs both the chat and Nano Banana.";
@@ -149,12 +165,12 @@ export const gemini: CliSpec = {
       }
       case "error":
         // Warnings (a retry, a fallback model) don't end the turn.
-        if (line.severity !== "warning") out.push({ type: "error", message: text(line.message) || "Gemini CLI failed." });
+        if (line.severity !== "warning") out.push({ type: "error", message: friendlyApiError(text(line.message)) || "Gemini CLI failed." });
         break;
       case "result":
         if (line.status === "error") {
           const why = text((line.error as { message?: string } | undefined)?.message) || "Gemini CLI failed.";
-          out.push({ type: "error", message: signInHint(why) ? `Gemini CLI isn’t signed in on this computer (${why}). Sign in from Agent settings.` : why });
+          out.push({ type: "error", message: signInHint(why) && !/\b40[23]\b|RESOURCE_EXHAUSTED/.test(why) ? `Gemini CLI isn’t signed in on this computer (${why}). Sign in from Agent settings.` : friendlyApiError(why) });
         }
         break;
     }

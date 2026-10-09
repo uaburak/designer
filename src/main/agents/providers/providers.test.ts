@@ -295,3 +295,11 @@ describe("Gemini with the owner's API key", () => {
     expect(plan.args).not.toContain("k");
   });
 });
+
+describe("Gemini API errors", () => {
+  it("unwraps the nested 402 into what to do", async () => {
+    const { friendlyApiError } = await import("./gemini");
+    const raw = String.raw`[API Error: {"error":{"message":"{\n  \"error\": {\n    \"code\": 402,\n    \"message\": \"Your prepayment credits are depleted. Please go to AI Studio.\",\n    \"status\": \"RESOURCE_EXHAUSTED\"\n  }\n}\n","code":402,"status":"Payment Required"}}]`;
+    expect(friendlyApiError(raw)).toMatch(/run out of prepaid credits \(Your prepayment credits are depleted\. Please go to AI Studio\.\) Add credits/);
+  });
+});
