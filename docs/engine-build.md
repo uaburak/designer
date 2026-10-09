@@ -1,5 +1,9 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode; round 7 and 8 render)
 
+## Round 9 — header (branch `r9-header-components`)
+
+Engine side of docs/editor.md "Round 9 — Design panel header, component and instance panels": `BOOLEAN_UNION` / `SUBTRACT` / `INTERSECT` / `EXCLUDE` run on one layer — a boolean group around it, as live Figma's menus offer them for a rectangle or an instance (enabled for any selection of real layers, or boolean groups; derived layers refuse) — and `FLATTEN` takes frames (not components or instances): their box when it has a visible fill, then their layers, one vector; the frame drops its layout and keeps its own look (its topmost layer's when it has no fill). An instance's Flatten is the editor's Detach instance then Flatten in one step. Native tests: `editor.vector.test.cpp` "booleans, Flatten, Outline stroke, Use as mask, Place image" (one-layer Union and its undo, a frame flattened and its undo). Release wasm rebuilt.
+
 ## Round 8 — Design panel (branch `r8-design-panel`)
 
 Engine side of docs/editor.md "Round 8 — Design panel": `SELECT_GRID_TRACKS = 260` (`{frame?, axis: "COLUMNS" | "ROWS", tracks: number[]}` — the selected grid's tracks as a pill click selects them, `[]` clears; enabled while one grid frame is selected; `tools/GridGestures.cpp selectGridTracksCommand`) and `ALIGN_*` `{toParent: true}` (each layer within its own parent frame, page-level layers stay; `Commands.cpp align`). Native tests: `r6.grid_slots.test.cpp` "grid panel (round 8)", `r7.selection.test.cpp` "align (round 8)". Release wasm rebuilt.
