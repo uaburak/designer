@@ -1493,6 +1493,15 @@ export class Engine {
     return status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as FontInfo) : null;
   }
 
+  /**
+   * The tags of the font's OpenType features that act on `text` (shaping it with the feature on and off differs): Type
+   * settings › Details dims the rest, "Not applicable for selected text" (round 11). null while the font loads.
+   */
+  fontFeaturesIn(family: string, style: string, text: string): string[] | null {
+    const status = this.x.fontFeaturesIn(encodeText(family), encodeText(style), encodeText(text));
+    return status === Status.OK ? (JSON.parse(decodeText(this.x.result())) as string[]) : null;
+  }
+
   // ---- Vector edit mode (docs/engine-build.md "E4 + E5 API") ---------------------------------
 
   /**

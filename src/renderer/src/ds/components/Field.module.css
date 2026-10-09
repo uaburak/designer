@@ -49,7 +49,9 @@
   }
   .input::placeholder { color: var(--figma-color-text-secondary); opacity: 1; }
   .input::-webkit-search-cancel-button { display: none; }
-  .padStart { padding-left: var(--ds-space-2); }
+  /* Without a prefix the input itself starts 8 in and ends 1 short of the box (live popovers/type-settings.txt:
+     Paragraph spacing 63 × 24 at 161 in its 72 box at 153; type-settings-variable, the gradient's stop fields) */
+  .padStart { margin-left: var(--ds-space-2); margin-right: 1px; }
   .padEnd { padding-right: var(--ds-space-2); }
   .tabular { font-variant-numeric: tabular-nums; }
   .hug { flex: none; }
@@ -140,7 +142,9 @@
   .swatchCell:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: 1px; }
   /* The colour row's opacity (Figma's live panel: a line at 117, the number 38 wide from 118, "%" after it; 55 in all) */
   .opacity { display: flex; flex: none; align-items: center; box-sizing: border-box; width: 55px; height: 100%; border-left: 1px solid var(--figma-color-bg); }
-  .opacity .unit { color: var(--figma-color-text-secondary); }
+  /* The opacity's "%" after the number: secondary wherever it sits (live: the panel's colour row, the picker's
+     Hex row, a gradient stop — #ffffffb2) */
+  .opacity .unit, .bare .unit { color: var(--figma-color-text-secondary); }
   .opacityInput { flex: none; box-sizing: border-box; width: 38px; padding-left: var(--ds-space-2); }
 
   .clear {

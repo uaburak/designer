@@ -1801,6 +1801,20 @@ ENG_EXPORT int32_t engine_font_info(Ptr familyPtr, uint32_t familyLen, Ptr style
   return setResult(w.take());
 }
 
+// Result: the tags (["cv05", "kern", …]) of the font's features that act on `text` (UTF-8): shaping it with the
+// feature on and off differs (Type settings › Details: the others read "Not applicable for selected text"; round 11).
+// E_NOT_FOUND while the font isn't loaded or when it's missing.
+ENG_EXPORT int32_t engine_font_features_in(Ptr familyPtr, uint32_t familyLen, Ptr stylePtr, uint32_t styleLen, Ptr textPtr, uint32_t textLen) {
+  Call call(false);
+  text::Font* f = text::FontRegistry::get().find(FontName{std::string(bytes(familyPtr, familyLen)), std::string(bytes(stylePtr, styleLen)), ""});
+  if (!f) return E_NOT_FOUND;
+  json::Writer w;
+  w.beginArray();
+  for (uint32_t tag : f->featuresIn(std::string(bytes(textPtr, textLen)))) w.string(text::tagString(tag));
+  w.endArray();
+  return setResult(w.take());
+}
+
 // ---- Components and instances (docs/engine-build.md "E6") ----------------------------------------
 
 namespace {

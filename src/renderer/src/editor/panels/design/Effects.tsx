@@ -765,9 +765,9 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
             <span className={styles.settingsLabel}>{kind === "ROWS" ? "Height" : "Width"}</span>
             <NumericInput scrubHandle="previous" label={kind === "ROWS" ? "Height" : "Width"} min={1} value={stretch ? null : (grid.sectionSize ?? 10)} valueLabel={stretch ? "Auto" : undefined} disabled={stretch} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
             <span className={styles.settingsLabel}>{stretch ? "Margin" : "Offset"}</span>
-            <NumericInput scrubHandle="previous" label="Offset" min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
+            <NumericInput className={styles.guideInset} scrubHandle="previous" label="Offset" min={0} value={grid.offset ?? 0} onChange={(v, info) => onChange({ ...grid, offset: v }, info)} onCancel={onCancel} />
             <span className={styles.settingsLabel}>Gutter</span>
-            <NumericInput scrubHandle="previous" label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
+            <NumericInput className={styles.guideInset} scrubHandle="previous" label="Gutter" min={0} value={grid.gutterSize ?? 20} onChange={(v, info) => onChange({ ...grid, gutterSize: v }, info)} onCancel={onCancel} />
           </>
         )}
       </div>
