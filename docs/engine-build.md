@@ -822,7 +822,7 @@ Screenshots (`npm run engine:shot -- <dir>`, headless Chromium, SwiftShader): `3
 
 ### Not done / next
 - **Tiles** (engine.md §6.9, part of E5's plan) and the 100k-node performance targets: still direct mode, every layer re-rendered each frame.
-- On-canvas arc handles for ellipses, image crop handles, per-paint blend modes on strokes, progressive blur / noise / glass / texture effects, effect blend modes other than NORMAL, `thumbHash` placeholders, colour management (Display P3).
+- On-canvas arc handles for ellipses (done in round 9: "Round 9 — Canvas chrome and overlays"), image crop handles, per-paint blend modes on strokes, progressive blur / noise / glass / texture effects, effect blend modes other than NORMAL, `thumbHash` placeholders, colour management (Display P3).
 - Outline stroke and Flatten keep no curves for stroke outlines (polylines); Figma's arrowhead sizes, image adjustment curves, boolean styling and the luminance threshold for titles are unverified against Figma.
 - The editor's `editor-shot` "L + drag draws a line" check drags at canvas y ≈ −80 (off the canvas: the camera moved earlier in that run) — the check should zoom to fit first; the engine's line tool itself is tested (`editor.vector.test.cpp`, `engine.wasm.test.ts`).
 - ImageBitmaps handed to the engine are kept for the session (`Module.engineBitmaps`): no release yet.
