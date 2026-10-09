@@ -64,7 +64,7 @@ export const CASES = {
   "layout-guide-type-menu": [...guide, ["clickIn", "Layout guide type"]],
   "layout-guide-styles": [["select", ["7:1"]], ["click", "Layout guide, Apply styles"]],
   "font-picker": [text, ["click", "Font family"]],
-  "font-picker-filter-menu": [text, ["click", "Font family"], ["clickIn", "Font filter"]],
+  "font-picker-filter-menu": [text, ["click", "Font family"], ["click", "Font filter"]],
   "font-size-menu": [text, ["click", "Font sizes"]],
   "font-weight-menu": [text, ["click", "Font style"]],
   "type-settings": [text, ["click", "Type settings"]],
