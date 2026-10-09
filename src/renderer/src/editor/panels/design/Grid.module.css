@@ -81,10 +81,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: var(--ds-space-1);
+    /* Live: "3", "×", "2" 11px / 400 at 46, 57, 67 (3.5 apart) */
+    gap: calc(var(--ds-space-1) - 0.5px);
     color: var(--figma-color-text);
-    font: var(--ds-font-body-medium);
-    letter-spacing: var(--ds-tracking-body-medium);
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
     pointer-events: none;
   }
   .dimensionsTimes { color: var(--figma-color-text-secondary); }
