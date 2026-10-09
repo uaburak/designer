@@ -1802,7 +1802,7 @@ async function features11Section(page, theme) {
   check("R11 slot: Preferred instances, Learn more and + at 272, 545", !!plus && near(plus.x, 272) && near(plus.y, 545) && (await form.getByRole("link", { name: "Learn more" }).count()) === 1, JSON.stringify(plus));
   const create = await rel(form.getByRole("button", { name: "Create property" }), pb);
   check("R11 slot: Create property 100 × 24 at 188, 594", !!create && near(create.x, 188, 2) && near(create.y, 594) && near(create.w, 100, 2), JSON.stringify(create));
-  await shot(page, `300-r11-create-slot-property-${theme}`);
+  await shot(page, `320-r11-create-slot-property-${theme}`);
   await form.getByRole("textbox", { name: "Minimum layers" }).fill("1");
   await page.keyboard.press("Enter");
   await form.getByRole("textbox", { name: "Maximum layers" }).fill("3");
@@ -1815,7 +1815,7 @@ async function features11Section(page, theme) {
   check("R11 slot: Create property makes the Slot property with what the form held", slot?.name === "Slot" && slot.slotPropConfig?.minChildren === 1 && slot.slotPropConfig?.maxChildren === 3 && slot.slotPropConfig?.displayByDefault === true, JSON.stringify(slot));
   const unused = await rel(body.locator('[data-property-unused="Slot"]'), await body.boundingBox());
   check("R11 slot: a property no layer uses shows Not used within component at 208", !!unused && unused.x === 208, JSON.stringify(unused));
-  await shot(page, `301-r11-component-with-slot-${theme}`);
+  await shot(page, `321-r11-component-with-slot-${theme}`);
 
   // 2. Shader fills: the browser beside the picker (live 240 × 510 at 719, 307), its rows, a preset applied and drawn.
   await select(["7:60"]);
@@ -1848,7 +1848,7 @@ async function features11Section(page, theme) {
   check("R11 shaders: the rows where live has them (95, 229, 257, 389 ± 2)", near(rows.created, 95, 2) && near(rows.make, 229, 2) && near(rows.figma, 257, 2) && near(rows.first, 389, 2), JSON.stringify(rows));
   check("R11 shaders: the ten fill presets are enabled", (await fills.locator("[data-shader-preset]:not([disabled])").count()) === 10);
   check("R11 shaders: Create with agents stays disabled (AI)", await fills.getByRole("button", { name: "Create with agents" }).isDisabled());
-  await shot(page, `302-r11-shader-fills-${theme}`);
+  await shot(page, `322-r11-shader-fills-${theme}`);
   await fills.locator('[data-shader-preset="Nebula"]').click();
   await settle(page);
   const fill = (await node(page, "7:60")).fillPaints?.[0];
@@ -1863,7 +1863,7 @@ async function features11Section(page, theme) {
     return n;
   };
   check("R11 shaders: the engine draws the shader fill (the layer's pixels change)", after.length > 0 && differs(before, after) > after.length / 4 / 2, `${differs(before, after)} of ${after.length / 4}`);
-  await shot(page, `303-r11-shader-fill-settings-${theme}`);
+  await shot(page, `323-r11-shader-fill-settings-${theme}`);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
@@ -1896,7 +1896,7 @@ async function features11Section(page, theme) {
   await settle(page);
   const sized = (await node(page, "7:61")).effects?.[0]?.componentPropAssignments?.find((a) => (a.defID?.localID ?? Number(String(a.defID).split(":")[1])) === 1)?.value?.floatValue;
   check("R11 shaders: a parameter edit writes its assignment", sized === 16, String(sized));
-  await shot(page, `304-r11-shader-effect-settings-${theme}`);
+  await shot(page, `324-r11-shader-effect-settings-${theme}`);
   await page.keyboard.press("Escape");
 }
 
