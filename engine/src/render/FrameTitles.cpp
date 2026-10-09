@@ -37,11 +37,12 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
           t.hit = {b.x, y, std::max(0.0, pw), style.sectionPillHeight};
           t.baseline = y + style.sectionPillHeight / 2 + style.sectionTitleSize * 0.36;
           if (pw >= 8) out.push_back(t);
-        } else if (b.w >= 12) {
-          // The name above the frame, from its left edge, as wide as the frame at most.
-          t.icon = n->props.type == NodeType::INSTANCE ? TitleIcon::Instance
-                   : n->props.isComponentish()         ? TitleIcon::Component
-                                                       : TitleIcon::None;
+        } else if (b.w >= 12 && n->props.type != NodeType::INSTANCE) {
+          // The name above the frame, from its left edge, as wide as the frame at most. A top-level instance has none,
+          // selected or not (live Figma round 11: canvas-instance-selected; menu-context-main-component and
+          // menu-context-multi-and-smart-selection show the unselected "Button instance" and "Chip instance" bare under
+          // the main component's "❖ Button").
+          t.icon = n->props.isComponentish() ? TitleIcon::Component : TitleIcon::None;
           double x = b.x;
           t.baseline = b.y - style.titleBaselineGap;
           if (t.icon != TitleIcon::None) {

@@ -162,6 +162,11 @@ struct CanvasHits {
   std::vector<Annotation> annotations;
   std::vector<Measure> measurements;
   std::vector<Status> statuses;
+  // A selected component set's "+" (Add variant) under its variants pill (round 11).
+  struct AddVariant {
+    Guid set = kNoGuid;
+    Rect rect;
+  } addVariant;
 };
 
 // What the editor wants drawn over the scene.
@@ -248,6 +253,17 @@ struct Overlay {
   std::vector<LayoutBar> layoutBars;
   std::vector<Vec2> centreDots;
   int centreDotHovered = -1;  // round 8: the ring under the pointer, or the one being dragged (reorder)
+  // Round 11: the pointer is off the selection (no gesture): tiny dots instead of the rings (live Figma: a ~3 px white
+  // dot with a pink centre; the rings and the gap handles while the pointer is on the selection). A selected group's
+  // equally spaced layers get these dots too (live canvas-group-selected).
+  bool centreDotsIdle = false;
+  // Round 11: a selected auto-layout component, set or instance — a pink box in each gap between its layers, across
+  // its content box (live Figma, canvas-component-set-selected / -main-component-selected / -instance-selected).
+  struct GapBox {
+    Mat2x3 world;  // the frame's own space → world
+    Rect rect;     // the gap, in the frame's space
+  };
+  std::vector<GapBox> gapBoxes;
   // Round 8: the ⌥R rotation origin (world); a badge text in place of "W × H" (rotating: the angle); ruler guides
   // (world ends, the selected or dragged one in the selection colour with its position); slices' boxes (View › Show
   // slices, dashed); pixel preview (the page drawn at `pixelPreview`× and scaled up without smoothing; 0: off).
@@ -550,6 +566,11 @@ class Renderer {
   void drawDevIcon(Guid frame, double right, double baseline, const Color& color);
   // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
   void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color);
+  // A hovered text layer (Overlay.cpp, round 11): each line's baseline underlined across its text, 2 px (1 px when
+  // the text is selected) just under it. False when the text has no laid-out line to underline.
+  bool baselineUnderline(const Document& doc, Guid text, const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style);
+  // A selected component set's "+" (Add variant) button, its top-left at (x, y) in CSS px (Overlay.cpp, round 11).
+  void drawAddVariant(Guid set, double x, double y, const Color& color, const OverlayStyle& style);
   // Render-tree node `i`'s props: the scene item's override when it has one (renderScene), else the document's.
   const NodeProps& propsAt(uint32_t i) const {
     const RenderNode& rn = tree_->nodes()[i];

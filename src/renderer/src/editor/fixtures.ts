@@ -535,7 +535,8 @@ const pad = (p: number) => ({ stackHorizontalPadding: p, stackVerticalPadding: p
  * padding 16 / 12) with Show icon (Boolean), Label (Text) and Icon (Instance swap, Star); "Icon/Heart" and
  * "Icon/Star"; the set "Chip" (300, 600; 364 × 40) with State = Default / Hover / Pressed; "Card" (600, 600; 119 × 68,
  * padding 12) holding "Nested button"; and "Button instance" (100, 720), "Chip instance" (300, 720), "Card instance"
- * (800, 600). The icons' places are not in the dumps (100 / 140, 800 here).
+ * (800, 600). The icons' places are not in the dumps (100 / 140, 800 here). The live set has no stroke (its Stroke
+ * section is empty in component-set.txt: made with the plugin API, not Combine as variants' dashed purple one).
  */
 const CAPTURE_COMPONENTS: NodeChange[] = (() => {
   const g = (l: number) => ({ sessionID: 8, localID: l });
@@ -563,7 +564,7 @@ const CAPTURE_COMPONENTS: NodeChange[] = (() => {
     node({ guid: "8:22", type: "STAR", name: "Star", parentIndex: { guid: "8:20", position: "!" }, size: { x: 20, y: 20 }, transform: at(0, 0), fillPaints: solidFill(0xffc700), count: 5, starInnerScale: 0.382 }),
     node({
       guid: "8:40", type: "FRAME", name: "Chip", isStateGroup: true, parentIndex: { guid: "0:1", position: "9" }, size: { x: 364, y: 40 }, transform: at(300, 600), fillPaints: [],
-      strokePaints: [{ type: "SOLID", color: { r: 0x97 / 255, g: 0x47 / 255, b: 1, a: 1 }, opacity: 1, visible: true }], strokeWeight: 1, strokeAlign: "INSIDE", dashPattern: [10, 5], cornerRadius: 5,
+      cornerRadius: 5,
       stackMode: "HORIZONTAL", stackSpacing: 16, ...pad(16), stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "FIXED",
       componentPropDefs: [{ id: def(10), name: "State", type: "VARIANT", initialValue: { textValue: { characters: "Default" } } }],
       stateGroupPropertyValueOrders: [{ property: "State", values: ["Default", "Hover", "Pressed"] }],

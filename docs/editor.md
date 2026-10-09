@@ -49,6 +49,10 @@ Checks (main `80d825f`, nothing new to merge; engine rebuilt — release wasm co
 
 Remaining differences: the panel's 1 px (top 80 here, live 81); 11px text 1–2 px wider than live's (font rendering); the child W list (4 px, a capture state); the gradient's default stops after other paint types (capture order).
 
+## Status 2026-10-09 — Round 11 — Canvas chrome and engine overlays (branch `r11-canvas-chrome`)
+
+Engine work, status in `docs/engine-build.md` "Round 11 — Canvas chrome and engine overlays" (sweep round 10 R24–R27): a selected component set's `3 Variants` pill with the `+` (Add variant) under it and a pink box in each gap (components and instances with auto layout too); no title over a top-level instance, selected or not (live's menu captures show the unselected instances bare); a hovered text's lines underlined at the baseline (2 px, 1 px when selected) instead of the box; smart selection's tiny dots off the selection, rings on it, and a selected group's dots. Editor side: the capture fixture's set "Chip" has no stroke, as live's (`component-set.txt`); vitest `r11.canvasChrome.wasm.test.ts`; editor-shot `EDITOR_ONLY=overlays11` (shots 210–216 at 1440 × 900, run on its own).
+
 ## Status 2026-10-09 — Round 10 — Menus, commands, left side and toolbar (branch `r10-menus-commands`)
 
 Status: **done** (checks below). Truth: `docs/research/figma/live/` (menus/, toolbar/, left/, popovers/; img/), compared at 1440 × 900 on `?editor&doc=capture` with the live dumps' own format (`tools/popover.mjs`, `tools/dumpPopups.js`, `tools/compare-popups.mjs`; the context menus with a right-click driver like the sweep's); where live has no data, help.figma.com, marked unverified. Gaps from `docs/research/audit-2026-10-08/sweep-round9.md` fix group 1. The engine side is in `docs/engine-build.md` "Round 10 — Menus, commands, left side and toolbar".
