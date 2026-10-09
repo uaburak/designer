@@ -55,8 +55,16 @@ interface PanelProps {
   dropdown?: boolean;
   /** The least width (live Figma's measured width where the rows alone don't make it) */
   minWidth?: number;
-  /** A submenu (beside its item): live Figma's margins to the window (6 above, 5 below), scrolling when taller */
+  /**
+   * The width live Figma measured (px). Text metrics differ by a fraction of a pixel between the browser that took the
+   * capture and ours, so a menu whose rows alone come out 1 wider is held to live's: its label may run into the gap
+   * before the keys by that fraction (`.fixed`), the keys' edge stays 16 from the menu's.
+   */
+  width?: number;
+  /** A submenu (beside its item): live Figma's margins to the window (6 above, 8 below), scrolling when taller */
   submenu?: boolean;
+  /** A submenu's margin to the window's bottom where live measured another than 8 (Preferences: 5) */
+  edgeBottom?: number;
   /**
    * A menu under its trigger (MenuButton; live popovers/boolean-operations-menu, instance-more-actions-menu…): no
    * padding above or below its rows, groups 15 apart, the first row lit when it opens
@@ -78,14 +86,16 @@ interface PanelProps {
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 
-const SUBMENU_EDGES = { top: 6, bottom: 5 };
+/** Live (menus/main-view.txt: 105 + 787 in a 900-high window): 8 below; main-preferences.txt measured 5 (`edgeBottom`). */
+const SUBMENU_EDGES = { top: 6, bottom: 8 };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, flush, className, flipY, extend: extendProp }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, width: fixedWidth, submenu, edgeBottom, flush, className, flipY, extend: extendProp }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   // Live (menus/main-object.txt): a submenu taller than the window isn't clamped to it — 185 × 1050 at 210, 6 in a 900 high
   // window; it is an extended menu then (the rows past the window's bottom move up on the wheel or on the bar).
   const [tall, setTall] = useState(false);
   const extend = extendProp || tall;
+  const edges = edgeBottom === undefined ? SUBMENU_EDGES : { top: SUBMENU_EDGES.top, bottom: edgeBottom };
   const subId = useId();
   const list = tidy(entries);
   // Live: a tool menu and a list over its field (gap, W / H) open with the current value lit, a menu under its trigger
@@ -155,7 +165,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         el.style.maxHeight = "none";
         const natural = el.getBoundingClientRect().height;
         el.style.maxHeight = "";
-        if (natural > window.innerHeight - SUBMENU_EDGES.top - SUBMENU_EDGES.bottom) {
+        if (natural > window.innerHeight - edges.top - edges.bottom) {
           setTall(true);
           return;
         }
@@ -167,13 +177,13 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       const keep = keepTop && !above && !flip && height > room && room >= 160;
       if (keep) el.style.maxHeight = `${room}px`;
       // A submenu keeps live Figma's margins: 6 above, 5 below (menus/main-object, main-preferences).
-      const p = placeMenu(x, flip ? flipY - height : above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX, submenu ? SUBMENU_EDGES : undefined);
+      const p = placeMenu(x, flip ? flipY - height : above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX, submenu ? edges : undefined);
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend, home]);
+  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend, home, edges.bottom]);
 
   // Resting on the bar moves the rows up a row at a time (unverified: live's capture shows the bar at rest).
   const moreScroll = (el: HTMLElement) => {
@@ -261,8 +271,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         data-theme="dark"
         data-theme-forced=""
         data-static={isStatic || undefined}
-        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList, over && styles.inset, dropdown && styles.dropdown, flush && !over && styles.flush, hasIcons && styles.withIcons, submenu && styles.sub, className)}
-        style={isStatic ? (minWidth ? { minWidth } : undefined) : { left: x, top: y, visibility: "hidden", ...(minWidth ? { minWidth } : {}) }}
+        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList, over && styles.inset, dropdown && styles.dropdown, flush && !over && styles.flush, hasIcons && styles.withIcons, submenu && styles.sub, fixedWidth !== undefined && styles.fixed, className)}
+        style={isStatic ? { ...(minWidth ? { minWidth } : {}), ...(fixedWidth !== undefined ? { width: fixedWidth } : {}) } : { left: x, top: y, visibility: "hidden", ...(minWidth ? { minWidth } : {}), ...(fixedWidth !== undefined ? { width: fixedWidth } : {}) }}
         onPointerMove={(e) => {
           pointer.current = { x: e.clientX, y: e.clientY };
         }}
@@ -359,6 +369,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
             autoFocus={sub.focus}
             context={context}
             minWidth={subEntry.minWidth}
+            width={subEntry.width}
+            edgeBottom={subEntry.edgeBottom}
             onPick={onPick}
             onClose={onClose}
             onBack={() => {
@@ -425,6 +437,8 @@ export interface ContextMenuProps {
   dropdown?: boolean;
   /** The least width (see MenuPanel) */
   minWidth?: number;
+  /** The width live measured (see MenuPanel) */
+  width?: number;
   /** Its right edge here when it doesn't fit right of `at.x` (a dropdown right-aligned with its trigger) */
   flipX?: number;
   /** A menu under its trigger (see MenuPanel) */
@@ -438,7 +452,7 @@ export interface ContextMenuProps {
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, flipX, flush, className, flipY, extend }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, width, flipX, flush, className, flipY, extend }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -477,6 +491,7 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       dropdown={dropdown}
       flush={flush}
       minWidth={minWidth}
+      width={width}
       onPick={(id) => {
         onSelect(id);
         onClose();

@@ -19,8 +19,10 @@
     outline: none;
     user-select: none;
   }
-  /* A submenu: 6 from the top and 5 from the bottom at most (live main-object, main-preferences) */
-  .sub { max-height: calc(100vh - 11px); }
+  /* A submenu: 6 from the top and 8 from the bottom at most (live main-object, main-view; Preferences measured 5) */
+  .sub { max-height: calc(100vh - 14px); }
+  /* A menu held to live's width: a row a fraction wider runs its label into the gap before the keys, uncut */
+  .fixed .label { overflow: visible; text-overflow: clip; }
   .static { position: relative; z-index: auto; display: inline-block; vertical-align: top; }
   .item {
     display: flex;

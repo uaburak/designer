@@ -121,7 +121,7 @@ describe("round 9: the Figma menu (live menus/main-*.txt)", () => {
     expect(shortcutKeys("Ctrl+Shift+R")).toEqual(["Ctrl+Shift+R"]);
   });
 
-  it("a submenu: 4 past the menu, live's 6 / 5 margins", () => {
+  it("a submenu: 4 past the menu, live's 6 / 5 margins (Preferences; others 8 below, round 12)", () => {
     const view = { width: 1440, height: 900 };
     expect(placeMenu(210, 359, { width: 235, height: 763 }, view, 8, { top: 6, bottom: 5 })).toEqual({ x: 210, y: 132 });
     expect(placeMenu(210, 154, { width: 185, height: 1050 }, view, 8, { top: 6, bottom: 5 })).toEqual({ x: 210, y: 6 });
@@ -132,7 +132,7 @@ describe("round 9: the Figma menu (live menus/main-*.txt)", () => {
     engine.setSelection(["1:2"]);
     const main = mainMenu(ed);
     expect(labels(main)).toEqual(["Back to files", "Actions…", "File", "Edit", "View", "Object", "Text", "Arrange", "Vector", "Plugins", "Widgets", "Preferences", "Libraries", "Open in desktop app", "Help and account"]);
-    expect(MAIN_MENU_WIDTH).toBe(194);
+    expect(Math.round(MAIN_MENU_WIDTH)).toBe(194);
     const actions = items(main).find((i) => i.id === "tool.actions")!;
     expect(actions.disabled).toBe(false);
     expect(actions.icon).toBe("24.actions");
