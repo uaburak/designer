@@ -64,7 +64,10 @@ export class AgentTurns {
     return this.turns.get(id);
   }
 
+  /** A turn's record (the one a tool call already made, when it came first). */
   start(id: string, client: string): TurnRecord {
+    const had = this.turns.get(id);
+    if (had) return had;
     const t: TurnRecord = { id, label: agentLabel(client), steps: [], foreign: false, state: "running", touched: new Set() };
     this.turns.set(id, t);
     return t;

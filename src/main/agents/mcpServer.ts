@@ -153,6 +153,14 @@ export class McpServer {
     if (g) Object.assign(g, patch);
   }
 
+  /** A chat's turn ended: its CLI's sessions are over (the token stays for the next turn). */
+  endChatSessions(token: string): void {
+    const grant = this.chats.get(token);
+    if (!grant) return;
+    for (const [id, s] of this.sessions) if (s.chat === grant) this.sessions.delete(id);
+    this.announce();
+  }
+
   revokeChat(token: string): void {
     const grant = this.chats.get(token);
     this.chats.delete(token);

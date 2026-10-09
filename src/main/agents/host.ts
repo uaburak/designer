@@ -123,7 +123,7 @@ function viewFor(fileKey: string): WebContents | null {
   for (const [id, info] of allViews()) {
     if (info.role !== "editor" || info.fileKey !== fileKey) continue;
     const wc = webContents.fromId(id);
-    if (wc && !wc.isDestroyed() && !wc.getURL().includes("present")) return wc;
+    if (wc && !wc.isDestroyed() && !/[?&]present(?:[=&]|$)/.test(wc.getURL())) return wc;
   }
   return null;
 }
@@ -297,7 +297,10 @@ function finishTurn(t: Turn, event?: ChatEvent) {
   if (event) emit(t, event);
   emit(t, { type: "done", stopped: t.stopped || undefined });
   turns.delete(t.id);
-  if (t.grant) server?.updateChat(t.grant, { turnId: null });
+  if (t.grant) {
+    server?.updateChat(t.grant, { turnId: null });
+    server?.endChatSessions(t.grant);
+  }
 }
 
 /** A chat's MCP token, bound to its file (made on its first turn). */
