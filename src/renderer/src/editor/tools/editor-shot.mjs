@@ -2811,11 +2811,15 @@ async function overlays11Section(page, theme) {
   const [setR] = await toScreen(page, 664, 640);
   check("R24: a selected component set has the \"+\" (Add variant): 16 × 16, centred under it, 4 px under its 17 px pill 6 px below it", !!plus && plus.ref === "8:40" && plus.width === 16 && plus.height === 16 && Math.abs(cbox.x + plus.x + 8 - (setL + setR) / 2) <= 1 && Math.abs(cbox.y + plus.y - (setB + 6 + 17 + 4)) <= 1, JSON.stringify(plus));
   {
-    // The pill's purple run along its middle: "3 Variants" (live 67 px at the capture's 1.07: 62.6), not the size (~84).
+    // The pill's purple run along its middle: "3 Variants" (live 67 px at the capture's 1.08: 62.0), not the size (~84).
     const px = await regionPixels(page, { x: Math.round((setL + setR) / 2) - 60, y: Math.round(setB + 6 + 3), width: 120, height: 1 });
     let x0 = -1, x1 = -1;
-    for (let x = 0; x < px.width; x++) if (isPurple(px.data, x * 4)) (x0 < 0 && (x0 = x), (x1 = x));
-    check("R24: the pill reads \"3 Variants\": ~63 px wide (live 62.6)", x0 >= 0 && Math.abs(x1 - x0 + 1 - 63) <= 3, `${x1 - x0 + 1}`);
+    for (let x = 0; x < px.width; x++) {
+      if (!isPurple(px.data, x * 4)) continue;
+      if (x0 < 0) x0 = x;
+      x1 = x;
+    }
+    check("R24: the pill reads \"3 Variants\": ~62 px wide (live 67 px at the capture's 1.08: 62.0)", x0 >= 0 && Math.abs(x1 - x0 + 1 - 62) <= 2, `${x1 - x0 + 1}`);
     // The gap boxes: pink at the first gap's left edge (x 416 in the set's space 116), y 16..24.
     const [gx, gy] = await toScreen(page, 416, 620);
     const g = await regionPixels(page, { x: Math.round(gx) - 2, y: Math.round(gy), width: 5, height: 1 });
