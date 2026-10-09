@@ -2084,7 +2084,7 @@ async function header9Section(page, theme) {
   const pb = await presets.boundingBox();
   const tb = await typeButton.boundingBox();
   const phone = presets.getByText("Phone Presets");
-  check("R9 Frame ▾: 222 wide, right under its button, at its left", Math.round(pb.width) === 222 && Math.round(pb.x) === Math.round(tb.x) && Math.round(pb.y) === Math.round(tb.y + tb.height), JSON.stringify([pb, tb]));
+  check("R9 Frame ▾: 222 wide, 8 under its button (live 125), at its left", Math.round(pb.width) === 222 && Math.round(pb.x) === Math.round(tb.x) && Math.round(pb.y) === Math.round(tb.y + tb.height + 8), JSON.stringify([pb, tb]));
   check("R9 Frame ▾: Section offered, the block titles hidden, sizes as three runs", (await presets.getByRole("menuitemcheckbox", { name: "Section" }).getAttribute("aria-disabled")) === null && ((await phone.boundingBox())?.height ?? 0) <= 1 && (await presets.getByRole("menuitem", { name: /iPhone 17\b/ }).first().locator("span > span").count()) === 3);
   await shot(page, `261-r9-frame-presets-${theme}`);
   await presets.getByRole("menuitemcheckbox", { name: "Section" }).click();

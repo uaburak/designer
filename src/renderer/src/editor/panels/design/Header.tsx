@@ -272,8 +272,8 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
           label={`${title}, Frame Dimension Presets`}
           entries={frameMenu(title as FrameKind, offeredKinds(ed, nodes))}
           className={styles.typeButton}
-          // Live: the list right under the button, its rows at the button's left.
-          gap={0}
+          // Live (popovers/frame-presets-menu.txt): the list 8 under the button, its rows from its top.
+          gap={8}
           menuClassName={hstyles.presetsMenu}
           onSelect={(id) => pickPreset(ed, nodes, id)}
         >
@@ -438,7 +438,7 @@ export function booleanMenu(ed: EditorController, booleans: boolean): MenuItem[]
 
 /**
  * "Boolean operations": the current (or Union) operation as a button, its menu on the chevron (41 wide, Figma's) —
- * the menu right-aligned with the chevron, 4 under it (live 151 × 120 at 1253, 129).
+ * the menu right-aligned with the chevron, 12 under it, its rows from its top (live 151 × 120 at 1253, 129).
  */
 function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();

@@ -135,7 +135,7 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, onPick, onClos
       data-theme-forced=""
       data-static={isStatic || undefined}
       aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined}
-      className={cx(menu.panel, isStatic && menu.static, noCheck && styles.compactList)}
+      className={cx(menu.panel, isStatic && menu.static, noCheck && styles.compactList, noCheck && menu.inset)}
       style={isStatic ? { position: "absolute", top: "100%", left: 0, marginTop: 4 } : { left: 0, top: 0, visibility: "hidden" }}
       onKeyDown={(e) => {
         e.stopPropagation();
