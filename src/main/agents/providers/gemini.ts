@@ -38,6 +38,9 @@ function readJson(env: AuthEnv, path: string): Record<string, unknown> | null {
 }
 
 export function geminiStatus(env: AuthEnv): AuthState {
+  // The owner's AI Studio key (Agent settings) wins: Google ended Gemini CLI's personal Google sign-in ("This client is
+  // no longer supported for Gemini Code Assist for individuals"), Google AI Pro / Ultra included.
+  if (env.env.DESIGNER_GEMINI_KEY) return { state: "connected", plan: "Gemini API key" };
   const dir = join(env.home, ".gemini");
   const settings = readJson(env, join(dir, "settings.json"));
   const selected = String(((settings?.security as { auth?: { selectedType?: string } } | undefined)?.auth?.selectedType ?? settings?.selectedAuthType ?? "") || "");
@@ -67,7 +70,7 @@ export function imageGenStatus(env: AuthEnv & { list(path: string): string[] }, 
   if (!ext) return { state: "not-installed", detail: "The Nano Banana extension isn't installed" };
   const dotenv = env.readFile(join(dir, ext, ".env")) ?? "";
   const keyed = o.hasKey || KEY_VARS.some((k) => !!env.env[k] || new RegExp(`^\\s*${k}\\s*=\\s*\\S`, "m").test(dotenv));
-  if (!o.signedIn) return { state: "needs-sign-in", detail: "Sign in to Gemini CLI first" };
+  if (!o.signedIn && !o.hasKey) return { state: "needs-sign-in", detail: "Add a Gemini API key first" };
   if (!keyed) return { state: "needs-key", detail: "Nano Banana needs a Gemini API key from Google AI Studio" };
   return { state: "ready", detail: o.hasKey ? "With the API key you added" : "With the extension's own API key" };
 }
@@ -77,10 +80,14 @@ export const IMAGE_NOTE = `Images: when the user wants a picture (a photo, an il
 
 const signInHint = (why: string) => /auth method|GEMINI_API_KEY|login|sign in|credentials|401|UNAUTHENTICATED/i.test(why);
 
+/** Google's refusal of the personal Google sign-in (IneligibleTierError, UNSUPPORTED_CLIENT) in the CLI's output. */
+export const INELIGIBLE = /IneligibleTier|throwIneligibleOrProjectIdError|no longer supported for Gemini Code Assist/i;
+export const INELIGIBLE_MESSAGE = "Google no longer lets Gemini CLI use a personal Google sign-in (Google AI Pro and Ultra included). Add a Gemini API key from Google AI Studio in Agent settings — it runs both the chat and Nano Banana.";
+
 export const gemini: CliSpec = {
   id: "gemini",
   label: "Antigravity / Gemini CLI",
-  note: "Google’s Gemini models, as in Antigravity — run by Gemini CLI with your Google account.",
+  note: "Google’s Gemini models, as in Antigravity — run by Gemini CLI with your Gemini API key.",
   bins: ["gemini"],
   models: ["auto", "pro", "flash", "flash-lite"],
   plan: (t) => {
@@ -91,8 +98,13 @@ export const gemini: CliSpec = {
         ".gemini/settings.json": JSON.stringify({
           mcpServers: { [MCP_SERVER_NAME]: { httpUrl: t.mcp.url, headers: { Authorization: `Bearer ${t.mcp.token}` }, trust: true } },
           tools: { exclude: ["run_shell_command"] },
+          // With the owner's key the chat folder's settings switch the CLI to it (workspace settings win over ~/.gemini).
+          ...(t.apiKey ? { security: { auth: { selectedType: "gemini-api-key" } } } : {}),
         }),
       },
+      // The chat folder is ours (docs/cli/trusted-folders: headless runs need it trusted to read its settings); the key
+      // goes in the environment only, never in the arguments or files.
+      env: { GEMINI_CLI_TRUST_WORKSPACE: "true", ...(t.apiKey ? { GEMINI_API_KEY: t.apiKey, NANOBANANA_API_KEY: t.apiKey } : {}) },
     };
   },
   parse(line, state) {

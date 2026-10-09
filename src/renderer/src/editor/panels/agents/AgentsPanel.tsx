@@ -491,7 +491,7 @@ function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsServi
   return (
     <div className={styles.auth} data-image-gen={gen.state}>
       <span className={styles.authState}>Image generation: {IMAGE_STATE[gen.state]}</span>
-      <span className={styles.providerDetail}>{gen.state === "needs-key" ? "Nano Banana makes images with a Gemini API key; a Google sign-in (Google AI Pro or Ultra included) doesn’t cover it." : gen.detail}</span>
+      <span className={styles.providerDetail}>{gen.state === "needs-key" || gen.state === "needs-sign-in" ? "Gemini runs with a Gemini API key from Google AI Studio — the chat and Nano Banana’s images both. Google no longer accepts a personal Google sign-in in Gemini CLI (Google AI Pro and Ultra included)." : gen.detail}</span>
       {gen.state === "not-installed" && (
         <div className={styles.providerActions}>
           <Button variant="secondary" loading={imgBusy} onClick={() => { setImgBusy(true); void api.install(p.id, "nanobanana").then((r) => { showToast(r.ok ? { message: "Nano Banana installed" } : { message: r.error ?? "Couldn't install Nano Banana", kind: "error" }); if (r.ok) void service.refreshProviders(); }).finally(() => setImgBusy(false)); }} data-install-images="">
@@ -499,7 +499,7 @@ function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsServi
           </Button>
         </div>
       )}
-      {gen.state === "needs-key" && (
+      {(gen.state === "needs-key" || gen.state === "needs-sign-in") && (
         <div className={styles.form}>
           <TextInput label="Gemini API key" placeholder="Paste your Gemini API key" secret value={key} onChange={setKey} />
           <div className={styles.providerActions}>

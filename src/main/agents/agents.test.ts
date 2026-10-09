@@ -300,3 +300,14 @@ describe("one-click install", () => {
     expect(userInstallCommand("curl https://cursor.com/install -fsS | bash")).toBe("curl https://cursor.com/install -fsS | bash");
   });
 });
+
+describe("Gemini with the owner's API key", () => {
+  it("switches the chat folder to the key and passes it only in the environment", async () => {
+    const { gemini } = await import("./providers/gemini");
+    const plan = gemini.plan({ request: { prompt: "hi", history: [] } as never, mcp: { url: "http://127.0.0.1:1/mcp", token: "t" }, cwd: "/x", sessionId: "s", mcpConfigPath: "/x/mcp.json", apiKey: "k" });
+    expect(JSON.parse(plan.files![".gemini/settings.json"]).security.auth.selectedType).toBe("gemini-api-key");
+    expect(plan.env).toMatchObject({ GEMINI_API_KEY: "k", NANOBANANA_API_KEY: "k", GEMINI_CLI_TRUST_WORKSPACE: "true" });
+    expect(plan.args.join(" ")).not.toContain("k\u0000");
+    expect(plan.args).not.toContain("k");
+  });
+});

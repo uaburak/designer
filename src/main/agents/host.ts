@@ -9,7 +9,7 @@ import { MCP_SERVER_NAME } from "../../shared/agents/tools";
 import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest } from "../../shared/agents/types";
 import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type RunResult } from "./providers/turns";
-import { imageGenStatus, NANOBANANA_INSTALL } from "./providers/gemini";
+import { imageGenStatus, INELIGIBLE, INELIGIBLE_MESSAGE, NANOBANANA_INSTALL } from "./providers/gemini";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
 import { cliEnv, cliPath, detectProviders, LOCAL_SERVERS, searchPath, which } from "./detect";
@@ -365,7 +365,7 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it.
   const cwd = chatDir(t.chatId);
   mkdirSync(cwd, { recursive: true });
-  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json") });
+  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), apiKey: spec.id === "gemini" ? keyOf(IMAGE_KEY) : undefined });
   for (const [name, text] of Object.entries(plan.files ?? {})) writePrivate(isAbsolute(name) ? name : join(cwd, name), text);
   emit(t, { type: "status", text: `Starting ${spec.label}…` });
   const child = runCliProcess({
@@ -373,10 +373,10 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
     path,
     plan,
     cwd,
-    env: cliEnv({ ...plan.env, ...imageKeyEnv(spec) }),
+    env: cliEnv({ ...plan.env }),
     spawn: (cmd, args, options) => spawn(cmd, args, options),
     emit: (e) => emit(t, e),
-    done: (error) => finishTurn(t, error ? { type: "error", message: error } : undefined),
+    done: (error) => finishTurn(t, error ? { type: "error", message: spec.id === "gemini" && INELIGIBLE.test(error) ? INELIGIBLE_MESSAGE : error } : undefined),
     stopped: () => t.stopped,
     // A developer's recording of the raw output (the adapters' test fixtures): DESIGNER_AGENTS_RECORD=<folder>.
     raw: process.env.DESIGNER_AGENTS_RECORD ? (chunk) => appendFileSync(join(process.env.DESIGNER_AGENTS_RECORD!, `${spec.id}-${t.id}.ndjson`), chunk) : undefined,
@@ -459,7 +459,8 @@ const authEnv = (): AuthEnv & { list(path: string): string[] } => ({
       return [];
     }
   },
-  env: process.env,
+  // Whether the owner added a Gemini key (the key itself stays out of the status code).
+  env: keyOf(IMAGE_KEY) ? { ...process.env, DESIGNER_GEMINI_KEY: "1" } : process.env,
 });
 
 /** Sign-ins in progress: a background login (its output, for the page's address) or the CLI in Terminal (since when). */
@@ -595,12 +596,6 @@ export async function install(providerId: string, target?: "nanobanana"): Promis
 
 /** The keys.json entry of the owner's own Gemini API key for Nano Banana. */
 const IMAGE_KEY = "gemini:nanobanana";
-
-/** A Gemini run gets the owner's Nano Banana key (if they added one) in its environment — never in its arguments. */
-function imageKeyEnv(spec: CliSpec): Record<string, string> {
-  const key = spec.id === "gemini" ? keyOf(IMAGE_KEY) : undefined;
-  return key ? { NANOBANANA_API_KEY: key } : {};
-}
 
 function imageGen(signedIn: boolean, installed: boolean): ImageGenState {
   return imageGenStatus(authEnv(), { signedIn, installed, hasKey: !!keyOf(IMAGE_KEY) });

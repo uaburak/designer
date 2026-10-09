@@ -24,6 +24,8 @@ export interface CliTurn {
   sessionId: string;
   /** The MCP config file written for this turn (Claude Code `--mcp-config`) */
   mcpConfigPath: string;
+  /** The owner's own API key for this agent, pasted in Agent settings (Gemini: an AI Studio key) */
+  apiKey?: string;
 }
 
 export interface CliPlan {
