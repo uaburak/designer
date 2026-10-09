@@ -34,6 +34,8 @@ export function viewOptionsOf(ui: UIState) {
     invertZoom: pref(ui, "invertZoom"),
     scrollWheelZoom: pref(ui, "scrollWheelZoom"),
     rightDragPan: pref(ui, "rightDragPan"),
+    frameOutlines: !!ui.frameOutlines,
+    maskOutlines: !!ui.maskOutlines,
   };
 }
 

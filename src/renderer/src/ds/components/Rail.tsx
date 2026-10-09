@@ -65,6 +65,8 @@ export function RailItem({ icon, label, shortcut, active, onClick, forceHover, c
       data-ds="RailItem"
       aria-label={label}
       aria-current={active || undefined}
+      // Live (left/rail-assets.txt: "button [Assets] EXPANDED"): the current tab is expanded — its sidebar open.
+      aria-expanded={compact ? undefined : !!active}
       data-hover={forceHover || undefined}
       className={cx(styles.item, compact && styles.compact, className)}
       onClick={onClick}

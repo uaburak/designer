@@ -7,13 +7,14 @@
  * Widgets, Preferences, Libraries and Help.
  */
 import { useRef, useState } from "react";
-import { ContextMenu, Rail as DSRail, RailItem, RailSeparator, RailSpacer, type MenuEntry } from "@/ds";
+import { ContextMenu, IconButton, Rail as DSRail, RailItem, RailSeparator, RailSpacer, type MenuEntry } from "@/ds";
 import { useEditor } from "../controller";
 import { command, shortcutOf } from "../commands";
 import { useLibraries, useUI } from "../hooks";
 import { MAIN_MENU_WIDTH, mainMenu, runMenuItem } from "../menus";
 import type { RailTab } from "../uiStore";
 import { MissingFontsButton } from "./MissingFonts";
+import styles from "./Panels.module.css";
 
 type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
 
@@ -23,6 +24,61 @@ const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.to
   { tab: "assets", icon: "24.assets", label: "Assets", command: "view.assets" },
   { tab: "tools", icon: "24.tools", label: "Tools", command: "view.tools" },
 ];
+
+/**
+ * View › Minimize left navigation bar (round 10; unverified look — help "Navigate the left sidebar" names the option
+ * only): the navigation bar goes and its tabs fold into a row at the top of the left sidebar — the Figma menu, File,
+ * Agents, Assets, Tools, Variables as 32 × 32 buttons.
+ */
+export function NavStrip() {
+  const ed = useEditor();
+  const tab = useUI((s) => s.railTab);
+  const variables = useUI((s) => s.variablesOpen);
+  const [menu, setMenu] = useState<Open>(null);
+  const figma = useRef<HTMLDivElement>(null);
+  return (
+    <div className={styles.navStrip} role="toolbar" aria-label="Navigation" data-nav-strip="">
+      <div ref={figma} style={{ display: "contents" }}>
+        <IconButton
+          icon="24.figma"
+          label="Main menu"
+          aria-expanded={!!menu}
+          onClick={(e) => {
+            if (menu) return setMenu(null);
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ at: { x: r.left, y: r.bottom + 4 }, entries: mainMenu(ed) });
+          }}
+        />
+      </div>
+      {TABS.map((t) => (
+        <IconButton
+          key={t.tab}
+          icon={t.icon}
+          label={t.label}
+          shortcut={shortcutOf(command(t.command))}
+          aria-expanded={tab === t.tab}
+          className={tab === t.tab ? styles.navStripOn : undefined}
+          data-rail-tab={t.tab}
+          onClick={() => ed.ui.set({ railTab: t.tab, find: t.tab === "file" ? ed.ui.get().find : null })}
+        />
+      ))}
+      <IconButton icon="24.variables" label="Variables" aria-expanded={variables} className={variables ? styles.navStripOn : undefined} data-rail-tab="variables" onClick={() => ed.ui.set((s) => ({ variablesOpen: !s.variablesOpen }))} />
+      {menu && (
+        <ContextMenu
+          at={menu.at}
+          entries={menu.entries}
+          label="Main menu"
+          minWidth={MAIN_MENU_WIDTH}
+          ignore={figma}
+          onSelect={(id) => {
+            if (runMenuItem(ed, id) && !id.startsWith("view.toggle")) ed.focusCanvas();
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
 
 export function Rail() {
   const ed = useEditor();

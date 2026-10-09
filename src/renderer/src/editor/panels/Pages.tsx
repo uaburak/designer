@@ -1,6 +1,7 @@
 /**
- * The Pages section (live capture: the header's title at 16, Find and "Add new page" at 180 / 208; rows on a 32
- * pitch, the current one highlighted with its name 550; an 8px "Resize handle" on the line under the list). Click
+ * The Pages section (live capture: the header's title at 16, Find and "Add new page" at 180 / 208; rows 224 × 24
+ * buttons 8 in and 8 apart, the current one highlighted with its name 550; an 8px "Resize handle" on the line under
+ * the list). Click
  * goes to a page, double-click renames it, a new page opens its rename, the context menu is live Figma's (menus.ts
  * pageMenu: Copy link to page │ Rename page, Duplicate page │ Move up / down │ Delete page), and a drag reorders. An empty page whose name starts with a dash is a divider (help "Create and manage
  * pages"): a line, not a page to go to. Find (⌘F) opens Find and replace in place of Pages and Layers.
@@ -103,7 +104,7 @@ export function Pages() {
         </span>
       }
     >
-      <div ref={list} className={styles.pageList} style={height !== null ? { height: `calc(${shown}px + var(--ds-space-2))`, maxHeight: "none" } : undefined} role="listbox" aria-label="Pages" data-keys="panel">
+      <div ref={list} className={styles.pageList} style={height !== null ? { height: `calc(${shown}px + var(--ds-space-2))`, maxHeight: "none" } : undefined} data-keys="panel">
         {pages.map((p) => (
           <PageRow
             key={p.guid}
@@ -131,9 +132,6 @@ export function Pages() {
       {open && (
         <ResizeHandle
           side="bottom"
-          role="separator"
-          aria-hidden={false}
-          aria-label="Resize handle"
           data-pages-resize=""
           value={shown}
           min={PAGE_PITCH}

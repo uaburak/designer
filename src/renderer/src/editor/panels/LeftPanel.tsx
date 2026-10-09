@@ -14,6 +14,7 @@ import { Layers } from "./Layers";
 import { Assets } from "./Assets";
 import { FindPanel } from "./Find";
 import { TabHeader } from "./TabHeader";
+import { NavStrip } from "./Rail";
 import styles from "./Panels.module.css";
 
 export function LeftPanel() {
@@ -21,8 +22,10 @@ export function LeftPanel() {
   const width = useUI((s) => s.leftWidth);
   const tab = useUI((s) => s.railTab);
   const finding = useUI((s) => !!s.find);
+  const navMinimized = useUI((s) => !!s.navMinimized);
   return (
     <aside className={styles.left} style={{ width: width + 1 /* live: 240 and the 1px line */ }} aria-label="Layers panel" data-panel="left" data-tab={tab}>
+      {navMinimized && <NavStrip />}
       {tab === "file" && <FileHeader />}
       {tab === "file" ? (
         finding ? (

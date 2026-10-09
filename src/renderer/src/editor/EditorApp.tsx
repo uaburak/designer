@@ -43,6 +43,7 @@ import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasM
 import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
 import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
 import { ActionsPanel } from "./panels/ActionsPanel";
+import { CommandOverlays } from "./canvas/CommandOverlays";
 import { attachCanvasTools } from "./canvasTools";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
@@ -339,10 +340,12 @@ function LeftPlaceholder() {
 function LeftSide() {
   const docked = useUI((s) => !s.uiHidden && !s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
+  // View › Minimize left navigation bar (round 10): the tabs fold into the left panel's top row (panels/Rail.tsx NavStrip).
+  const navMinimized = useUI((s) => !!s.navMinimized);
   if (docked && dev) return <DevLeftPanel />;
   return docked ? (
     <>
-      <Rail />
+      {!navMinimized && <Rail />}
       <LeftPanel />
     </>
   ) : null;
@@ -399,6 +402,7 @@ function Overlays() {
       <InlineValueEdit />
       <EyedropperLoupe />
       <NudgeDialog />
+      <CommandOverlays />
       <StatusMenu />
       <CategoriesDialog />
       <CompareChanges />

@@ -52,6 +52,23 @@ export interface UIState extends PreferenceFlags {
   layoutGuides?: boolean;
   /** View › Show slices; default on (round 8) */
   showSlices?: boolean;
+  /** Round 10, View › Comments (⇧C; default on): comment pins shown — none exist until multiplayer */
+  comments?: boolean;
+  /** Round 10, View › Mask outlines / Frame outlines: the engine's thin boxes (VIEW_MASK_OUTLINES / VIEW_FRAME_OUTLINES) */
+  maskOutlines?: boolean;
+  frameOutlines?: boolean;
+  /** Round 10, View › Memory usage: the memory chip at the canvas's bottom left */
+  memoryUsage?: boolean;
+  /** Round 10, View › Minimize left navigation bar: the navigation bar's tabs fold into the left panel's header */
+  navMinimized?: boolean;
+  /** Round 10, View › Multiplayer cursors (⌥⌘\; default on): other people's cursors — none until multiplayer */
+  multiplayerCursors?: boolean;
+  /** Round 10, Cursor chat (/): the bubble at the pointer (viewport px), its text; null while closed */
+  cursorChat?: { x: number; y: number } | null;
+  /** Round 10, Vector › Simplify vector / Offset vector: their popover */
+  vectorOp?: "simplify" | "offset" | null;
+  /** Round 10, File › Move to project…: its dialog */
+  moveFileDialog?: boolean;
   /** View › Pixel preview (⌃P, ⇧⌘P): 0 off, 1 at 1x, 2 at 2x (round 8) */
   pixelPreview?: 0 | 1 | 2;
   /** Preferences › Nudge amount… (round 8): the steps, and whether its dialog is open */
