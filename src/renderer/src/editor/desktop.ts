@@ -12,6 +12,7 @@ import type { MenuCommandEvent, MenuStatePatch } from "@shared/ipc";
 import type { EditorController } from "./controller";
 import { COMMANDS, isEnabled, runEditorCommand } from "./commands";
 import { isEditable } from "./keyboard";
+import { attachAgents } from "./agents/service";
 
 /** The editor view's preload API, or null (a browser, or another role). */
 export function editorBridge(): EditorApi | null {
@@ -56,6 +57,9 @@ export function attachDesktop(ed: EditorController): () => void {
   const d = editorBridge();
   if (!d) return () => {};
   const offs: (() => void)[] = [];
+
+  // Agents: tool calls for this file are answered from the start (an MCP client may call before the tab is shown).
+  offs.push(attachAgents(ed));
 
   // Main ends the view right after a close/quit flush: what is still pending (the thumbnail) goes first, then the changes are fsynced.
   offs.push(

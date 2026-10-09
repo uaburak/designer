@@ -1,6 +1,7 @@
 import { contextBridge, webFrame } from "electron";
 import type { EditorApi } from "../shared/desktop";
 import type { FlushReason, TabAttach } from "../shared/ipc";
+import type { AgentsApi, McpClientId, ToolCallResult } from "../shared/agents/types";
 import { common, files, forwardStorePort, invoke, nav, on, openExternal, send, viewMenu } from "./common";
 
 /**
@@ -90,9 +91,37 @@ const api: EditorApi = {
     onChanged: (cb) => on("fonts:changed", () => cb()),
   },
   // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
+  agents: agentsApi(),
   spelling: {
     misspelled: (words) => (Array.isArray(words) ? words.slice(0, 2000) : []).map((w) => typeof w === "string" && w.length < 64 && webFrame.isWordMisspelled(w)),
   },
 };
 
 contextBridge.exposeInMainWorld("designer", api);
+
+// Agents: plain data both ways (the page's objects are copied by the IPC's structured clone).
+function agentsApi(): AgentsApi {
+  return {
+  providers: () => invoke("agents:providers"),
+  settings: () => invoke("agents:settings"),
+  setSettings: (patch) => invoke("agents:set-settings", { providerId: patch?.providerId === null ? null : patch?.providerId === undefined ? undefined : String(patch.providerId), models: patch?.models }),
+  addServer: (s) => invoke("agents:add-server", { label: String(s?.label ?? ""), baseUrl: String(s?.baseUrl ?? ""), apiKey: s?.apiKey === undefined ? undefined : String(s.apiKey) }),
+  removeServer: (id) => invoke("agents:remove-server", { id: String(id) }),
+  test: (providerId) => invoke("agents:test", { providerId: String(providerId) }),
+  turn: (request) => invoke("agents:turn", request),
+  stop: (turnId) => invoke("agents:stop", { turnId: String(turnId) }),
+  onEvent: (cb) => on("agents:event", cb),
+  onToolCall: (handler) =>
+    on("agents:tool-call", (call) => {
+      void handler(call)
+        .catch((err: unknown): Omit<ToolCallResult, "reqId"> => ({ content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true }))
+        .then((r) => send("agents:tool-result", { reqId: call.reqId, content: r.content, isError: r.isError, touched: r.touched }));
+    }),
+  mcp: () => invoke("agents:mcp"),
+  onMcpState: (cb) => on("agents:mcp-state", cb),
+  clients: () => invoke("agents:clients"),
+  connect: (client: McpClientId) => invoke("agents:connect", { client }),
+  disconnect: (client: McpClientId) => invoke("agents:disconnect", { client }),
+  clientConfig: (client: McpClientId) => invoke("agents:client-config", { client }),
+  };
+}

@@ -172,7 +172,7 @@ function getDesignContext(env: ToolEnv, args: Spec): ToolResult {
     }
     const used: Record<string, string> = {};
     for (const [slot, field] of [["fill", "styleIdForFill"], ["stroke", "styleIdForStrokeFill"], ["text", "styleIdForText"], ["effect", "styleIdForEffect"]] as const) {
-      const id = styleRef((t.node as Record<string, unknown>)[field]);
+      const id = styleRef((t.node as unknown as Record<string, unknown>)[field]);
       if (id && styles.has(id)) used[slot] = styles.get(id)!;
     }
     if (Object.keys(used).length) d.styles = used;

@@ -128,3 +128,27 @@ export interface ConnectResult {
   backup?: string;
   error?: string;
 }
+
+/**
+ * What the Agents tab and the MCP section talk to: the editor view's preload (`window.designer.agents`, main's
+ * src/main/agents) — or, in a browser and in the editor shots, a stand-in with the same calls.
+ */
+export interface AgentsApi {
+  providers(): Promise<ProviderInfo[]>;
+  settings(): Promise<AgentSettings>;
+  setSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models">>): Promise<AgentSettings>;
+  addServer(server: { label: string; baseUrl: string; apiKey?: string }): Promise<AgentSettings>;
+  removeServer(id: string): Promise<AgentSettings>;
+  test(providerId: string): Promise<{ ok: boolean; models: string[]; error?: string }>;
+  turn(request: TurnRequest): Promise<{ turnId: string }>;
+  stop(turnId: string): Promise<void>;
+  onEvent(cb: (e: TurnEvent) => void): () => void;
+  /** Tool calls for this view's file; the handler's result goes back to main */
+  onToolCall(handler: (call: ToolCall) => Promise<Omit<ToolCallResult, "reqId">>): () => void;
+  mcp(): Promise<McpState>;
+  onMcpState(cb: (s: McpState) => void): () => void;
+  clients(): Promise<McpClientInfo[]>;
+  connect(client: McpClientId): Promise<ConnectResult>;
+  disconnect(client: McpClientId): Promise<ConnectResult>;
+  clientConfig(client: McpClientId): Promise<{ path: string; text: string; stdio: string }>;
+}

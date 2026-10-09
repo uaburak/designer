@@ -1,7 +1,7 @@
 /**
  * The Design tab, by selection (UI3, Figma's live panel): nothing selected →
  * Page (the page's colour, Apply variable mode when the file has modes), the
- * local Styles list, Export — variables live in the left rail since 2026 —;
+ * local Styles list, Export, MCP (the agents' connections) — variables live in the left rail since 2026 —;
  * a selection → its header (Header.tsx: "Frame ▾" with presets, the type or
  * "N selected", the kind's actions), Position (with Constraints), Layout /
  * Auto layout (Flow, sizing menus, min / max), Appearance, Typography (text),
@@ -30,6 +30,7 @@ import { useMultiEditVariants } from "./multiEdit";
 import { ApplyModeButton, ModeRows } from "./Variables";
 import { GridPanel } from "./Grid";
 import { LocalStylesSection } from "./Styles";
+import { McpSection } from "../agents/McpSection";
 import styles from "./Design.module.css";
 
 /** The engine draws Figma's default page colour (#F5F5F5) as #1E1E1E in the dark theme. */
@@ -99,6 +100,7 @@ export function DesignPanel() {
           </PanelSection>
           <LocalStylesSection />
           {pageNode && <ExportSection targets={[pageNode as ExportTarget]} page />}
+          <McpSection />
         </>
       ) : (
         <Selected nodes={nodes} paintNodes={paintNodes} onPick={open} />

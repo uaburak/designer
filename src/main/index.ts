@@ -2,6 +2,7 @@ import { app, Menu, nativeImage, powerMonitor, session } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isCommandId } from "../shared/commands";
+import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
 import { registerIpc } from "./ipc";
@@ -69,6 +70,8 @@ if (!app.requestSingleInstanceLock()) {
       void askStoreGone().then((answer) => (answer === "quit" ? app.quit() : retryStoreHost()));
     });
     openWindow();
+    // The agents' MCP server (127.0.0.1, a token): MCP clients and the Agents tab reach the open files through it.
+    void startAgents().catch((err) => console.warn("[agents] the MCP server didn't start:", err));
     // The font index (a cached JSON after the first launch) is ready before the first file's editor asks for it.
     setTimeout(warmFontIndex, 1500);
     // Fonts installed or removed while the app runs reach every editor (as Figma's font helper's do).
@@ -86,6 +89,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("before-quit", () => {
     lifecycle.quitting = true;
+    void stopAgents();
   });
   // No window left to settle (macOS keeps running without one): the store flushes and shuts down, then the app exits.
   app.on("will-quit", (e) => {

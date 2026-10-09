@@ -126,7 +126,11 @@ export class AgentTurns {
     if (t.steps.length > 1 && !t.foreign) this.fold(t);
     t.state = t.foreign ? "stale" : "applied";
     if (t.state === "applied") {
-      for (const o of this.tracked) if (o.state === "applied" || o.state === "undone") (o.state = "stale"), this.emit(o);
+      for (const o of this.tracked)
+        if (o.state === "applied" || o.state === "undone") {
+          o.state = "stale";
+          this.emit(o);
+        }
       this.tracked = [t];
     }
     this.emit(t);

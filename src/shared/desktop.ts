@@ -30,6 +30,7 @@ import type {
   ThemeState,
   WindowState,
 } from "./ipc";
+import type { AgentsApi } from "./agents/types";
 import type { TabReport } from "./tabs";
 
 export type Unsubscribe = () => void;
@@ -174,6 +175,8 @@ export interface EditorApi extends DesktopCommon {
   spelling: {
     misspelled(words: string[]): boolean[];
   };
+  /** Agents and the MCP server (src/main/agents; docs/research/figma/R12-agents-mcp.md) */
+  agents: AgentsApi;
 }
 
 export type DesktopApi = TabBarApi | HomeApi | EditorApi;

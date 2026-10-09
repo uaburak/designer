@@ -7,6 +7,7 @@
  * Kinds: `IpcInvoke` request/response from a view; `IpcSend` fire-and-forget
  * from a view; `IpcEvents` from main to a view.
  */
+import type { AgentSettings, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest } from "./agents/types";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
 
@@ -251,6 +252,28 @@ export interface IpcInvoke {
   "fonts:read": { args: [{ id: string }]; result: Uint8Array };
   /** A Google family's Regular subset to `text` (its name), for the font picker's row in its own face */
   "fonts:preview": { args: [{ family: string; text: string }]; result: Uint8Array };
+  // ── Agents (src/main/agents; docs/research/figma/R12-agents-mcp.md) ──
+  /** The AI tools on this computer (CLIs found, local model servers that answer) */
+  "agents:providers": { args: []; result: ProviderInfo[] };
+  "agents:settings": { args: []; result: AgentSettings };
+  "agents:set-settings": { args: [Partial<Pick<AgentSettings, "providerId" | "models">>]; result: AgentSettings };
+  /** An OpenAI-compatible server by base URL; its key (if any) goes to the OS keychain (safeStorage), never to disk in clear */
+  "agents:add-server": { args: [{ label: string; baseUrl: string; apiKey?: string }]; result: AgentSettings };
+  "agents:remove-server": { args: [{ id: string }]; result: AgentSettings };
+  /** Test connection: the provider's models, or why it can't be reached */
+  "agents:test": { args: [{ providerId: string }]; result: { ok: boolean; models: string[]; error?: string } };
+  /** A chat turn on this view's file: its events come as `agents:event` */
+  "agents:turn": { args: [TurnRequest]; result: { turnId: string } };
+  "agents:stop": { args: [{ turnId: string }]; result: void };
+  /** The MCP server: its URL and connections */
+  "agents:mcp": { args: []; result: McpState };
+  /** MCP clients on this computer and whether they are connected */
+  "agents:clients": { args: []; result: McpClientInfo[] };
+  /** Connect: our server written into the client's config after main's confirmation (cancelled: ok false, no error) */
+  "agents:connect": { args: [{ client: McpClientId }]; result: ConnectResult };
+  "agents:disconnect": { args: [{ client: McpClientId }]; result: ConnectResult };
+  /** Copy config: the client's entry as text (HTTP with the token), and the stdio command form */
+  "agents:client-config": { args: [{ client: McpClientId }]; result: { path: string; text: string; stdio: string } };
 }
 
 export interface IpcSend {
@@ -269,6 +292,8 @@ export interface IpcSend {
   /** The workspace folder in Finder */
   "file:reveal-data-folder": void;
   "shell:open-external": { url: string };
+  /** A tool call's answer from the view that ran it */
+  "agents:tool-result": ToolCallResult;
 }
 
 export interface IpcEvents {
@@ -289,6 +314,12 @@ export interface IpcEvents {
   "theme:changed": ThemeState;
   /** Fonts were installed or removed (or the Google Fonts catalog changed): read `fonts:list` again */
   "fonts:changed": { version: number };
+  /** A chat turn's stream */
+  "agents:event": TurnEvent;
+  /** A tool to run on this view's file (answer `agents:tool-result`) */
+  "agents:tool-call": ToolCall;
+  /** The MCP server's connections changed */
+  "agents:mcp-state": McpState;
 }
 
 /** Which roles may use which channel (main drops anything else). */
@@ -307,6 +338,19 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "fonts:list": ["editor"],
   "fonts:read": ["editor"],
   "fonts:preview": ["editor"],
+  "agents:providers": ["editor"],
+  "agents:settings": ["editor"],
+  "agents:set-settings": ["editor"],
+  "agents:add-server": ["editor"],
+  "agents:remove-server": ["editor"],
+  "agents:test": ["editor"],
+  "agents:turn": ["editor"],
+  "agents:stop": ["editor"],
+  "agents:mcp": ["editor"],
+  "agents:clients": ["editor"],
+  "agents:connect": ["editor"],
+  "agents:disconnect": ["editor"],
+  "agents:client-config": ["editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
@@ -322,4 +366,5 @@ export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {
   "menu:state": ["home", "editor"],
   "file:reveal-data-folder": ["home", "editor"],
   "shell:open-external": ["home", "editor"],
+  "agents:tool-result": ["editor"],
 };
