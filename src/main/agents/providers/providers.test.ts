@@ -291,6 +291,7 @@ describe("Gemini with the owner's API key", () => {
   it("switches the chat folder to the key and passes it only in the environment", () => {
     const plan = gemini.plan({ ...turn(), apiKey: "k" });
     expect(JSON.parse(plan.files![".gemini/settings.json"]).security.auth.selectedType).toBe("gemini-api-key");
+    expect(JSON.parse(plan.files![".gemini/settings.json"]).security.environmentVariableRedaction.allowed).toEqual(["NANOBANANA_API_KEY"]);
     expect(plan.env).toMatchObject({ GEMINI_API_KEY: "k", NANOBANANA_API_KEY: "k", GEMINI_CLI_TRUST_WORKSPACE: "true" });
     expect(plan.args).not.toContain("k");
   });

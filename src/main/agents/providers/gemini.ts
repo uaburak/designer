@@ -122,7 +122,9 @@ export const gemini: CliSpec = {
           mcpServers: { [MCP_SERVER_NAME]: { httpUrl: t.mcp.url, headers: { Authorization: `Bearer ${t.mcp.token}` }, trust: true } },
           tools: { exclude: ["run_shell_command"] },
           // With the owner's key the chat folder's settings switch the CLI to it (workspace settings win over ~/.gemini).
-          ...(t.apiKey ? { security: { auth: { selectedType: "gemini-api-key" } } } : {}),
+          // Gemini CLI always redacts secret-looking variables from MCP servers' environments (sanitizeEnvironment, forced
+          // on for stdio servers) unless allowed: Nano Banana reads its key from NANOBANANA_API_KEY.
+          ...(t.apiKey ? { security: { auth: { selectedType: "gemini-api-key" }, environmentVariableRedaction: { allowed: ["NANOBANANA_API_KEY"] } } } : {}),
         }),
       },
       // The chat folder is ours (docs/cli/trusted-folders: headless runs need it trusted to read its settings); the key
