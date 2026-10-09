@@ -1,13 +1,13 @@
 /**
  * Dev Mode in the editor (docs/research/figma/R9-dev-mode.md "Round 6"; docs/editor.md "round 6"): the mode switch
  * (⇧D), annotations (the Annotation tool ⇧T, notes and categories written to Figma's fields), saved measurements (the
- * Measurement tool ⇧M; the engine writes them), statuses on the canvas (the engine draws them, "Mark as ready for dev"
- * and the status menu here), focus view and Compare changes. The engine draws and hit-tests; this file turns its events
- * into the panels' state and writes what the panels edit.
+ * Measurement tool ⇧M; the engine writes them), statuses on the canvas (the engine draws them and the `</>` that
+ * toggles Ready for dev; the status menu here), focus view and Compare changes. The engine draws and hit-tests; this file
+ * turns its events into the panels' state and writes what the panels edit.
  */
 import type { Guid, NodeFields } from "@/engine/codec";
 import type { EditorController } from "../controller";
-import { setDevStatusOf } from "../devStatus";
+import { setDevStatusOf, statusOfTargets } from "../devStatus";
 import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationData, type CategoriesJson, type Category, type Note } from "./annotations";
 
 export type Mode = "design" | "dev";
@@ -58,7 +58,9 @@ export function attachDevMode(ed: EditorController): () => void {
     ed.engine.on("MEASUREMENT_EDIT", (e) => ed.ui.set({ measurementEditor: { id: e.id, text: e.text, ...toViewport(ed, e) } })),
     ed.engine.on("DEV_STATUS", (e) => {
       if (e.action === "mark") {
-        setDevStatusOf(ed, [e.ref], "BUILD");
+        // The `</>` at a selected design's top right toggles Ready for dev (live Figma's canvas icon, the header's
+        // "Toggle ready for dev status").
+        setDevStatusOf(ed, [e.ref], statusOfTargets(ed, [e.ref]) === "BUILD" ? null : "BUILD");
         return;
       }
       ed.ui.set({ statusMenu: { ref: e.ref, ...toViewport(ed, e) } });

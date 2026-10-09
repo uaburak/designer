@@ -889,9 +889,22 @@ async function exportChecks(files) {
           const g = c.getContext("2d");
           g.drawImage(img, 0, 0, width, height);
           const d = g.getImageData(0, 0, width, height).data;
+          // Opaque pixels away from an edge: where the export changes colour within a pixel (anti-aliasing), two
+          // rasterizers (CoreGraphics, the engine's MSAA) differ by design — a star's inside stroke has long diagonal edges.
+          const edge = (x, y) => {
+            const i = y * width + x;
+            for (let dy = -1; dy <= 1; dy++)
+              for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height) return true;
+                const j = ny * width + nx;
+                if (Math.max(...[0, 1, 2, 3].map((k) => Math.abs(rgba[i * 4 + k] - rgba[j * 4 + k]))) > 24) return true;
+              }
+            return false;
+          };
           let opaque = 0, same = 0;
           for (let i = 0; i < width * height; i++) {
-            if (rgba[i * 4 + 3] !== 255) continue;
+            if (rgba[i * 4 + 3] !== 255 || edge(i % width, Math.floor(i / width))) continue;
             opaque++;
             const diff = Math.max(...[0, 1, 2].map((k) => Math.abs(rgba[i * 4 + k] - d[i * 4 + k])));
             if (diff <= 24) same++;
@@ -901,7 +914,7 @@ async function exportChecks(files) {
         { drawn, width: made.width, height: made.height, rgba: made.rgba }
       );
       check(`PDF renders the same: ${name}`, r.opaque > 50 && r.same / r.opaque >= 0.95 && r.pdfSize[0] === made.width,
-        `${r.pdfSize.join("×")} pt, ${r.same}/${r.opaque} opaque pixels match`);
+        `${r.pdfSize.join("×")} pt, ${r.same}/${r.opaque} opaque pixels off the edges match`);
     }
   }
 

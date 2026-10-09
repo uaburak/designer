@@ -2,6 +2,10 @@
 
 `src/renderer/src/editor/` is the new file editor: Figma's UI3 chrome (rail, left panel with Pages and Layers, rulers, the engine canvas, the right Design panel, the bottom toolbar, menus) built from the design system (`src/renderer/src/ds/`) around the C++/Wasm engine (`src/renderer/src/engine/`). Contracts it follows: `docs/engine.md` §10 (binding), `docs/design-system.md` + `docs/design-system-usage.md` (look), `docs/schema.md` (field names), `docs/desktop.md` §13 (clipboard), `docs/research/figma/R7-editor.md` (behaviour), `docs/research/visual-diff.md` (measured metrics).
 
+## Status 2026-10-09 — Round 9 — Canvas chrome and overlays (engine) (branch `r9-canvas-overlays`)
+
+Engine work, status in `docs/engine-build.md` "Round 9 — Canvas chrome and overlays": shape handles (arc, radius, ratio, count), the 1 px path outline at rest, the `</>` at a selected design's top right (its click toggles Ready for dev here: `devmode/devMode.ts`), live's grid overlay (cells, compact / expanded pills, track outline), padding badges by the pointer, the section pill at 550; polygons and stars on their box's ellipse. Editor side: `EDITOR_ONLY=overlays9` (shots 190–199, run on its own), the grid section's pill clicks at the new pill line, the devmode status check on the `</>`. AI sparkle not built (owner's decision). All checks green (full editor-shot 321 ok).
+
 ## Status 2026-10-09 — Round 9 — Design panel sections and popovers (branch `r9-design-panel-sections`)
 
 Truth: `docs/research/figma/live/` (design/, popovers/, grid/). Compared with `tools/panel.mjs` and `tools/popover.mjs` (its export cases now click "Export file type" / "Advanced export settings") against `?editor&doc=capture` at 1440 × 900; what is left is listed at the end.
