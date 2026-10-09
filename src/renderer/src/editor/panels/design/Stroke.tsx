@@ -336,6 +336,7 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
         <Select
           label="Style"
           variant="ghost"
+          className={styles.strokeStyle}
           prefix={style === "DASHED" ? "24.stroke.dashed" : style === "CUSTOM" ? "24.stroke.custom" : "24.stroke.solid"}
           width={128}
           value={style === MIXED || style === undefined ? "" : style}

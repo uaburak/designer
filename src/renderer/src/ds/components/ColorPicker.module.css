@@ -87,6 +87,8 @@
   .part { display: flex; flex: 1 1 0; align-items: center; min-width: 0; }
   .part + .part { border-left: 1px solid var(--figma-color-bg); }
   .partOpacity { flex: none; width: 54px; }
+  /* Live (popovers/fill-picker-solid.txt): the number 38 wide at 171, "%" 2 after it at 211 */
+  .partOpacity input { margin-right: 2px; }
   .text {
     flex: 1 1 0; width: 0; min-width: 0; height: 100%; margin: 0; padding: 0 var(--ds-space-2); border: 0;
     background: transparent; color: inherit; font: inherit; letter-spacing: inherit; outline: none; font-variant-numeric: tabular-nums;
@@ -149,9 +151,13 @@
   .stopRow[aria-selected="true"] { background: var(--figma-color-bg-selected); }
   .stopPosition { flex: none; width: 48px; }
   .stopColor { flex: none; width: 128px; }
-  /* Live: the stop's swatch is 16 × 16 (5 in), the hex right after it, the opacity 48 */
-  .stopColor [data-ds="ColorInput"] > button:first-child { width: 16px; height: 16px; margin: 0 4px 0 5px; border-radius: 20%; }
+  /* Live (popovers/fill-picker-gradient_linear.txt): the stop's swatch 16 × 16 5 in, the hex 58 right after it (93),
+     the opacity 48 at 151 (its line, then the number 32 wide, "%" 2 after it) */
+  .stopColor [data-ds="ColorInput"] > button:first-child { width: 16px; height: 16px; margin: 0 0 0 5px; border-radius: 20%; }
+  .stopColor [data-ds="ColorInput"] > input { flex: none; width: 58px; }
   .stopColor [data-ds="ColorInput"] > span:last-child { width: 48px; }
+  .stopColor [data-ds="ColorInput"] > span:last-child input { width: 32px; margin-right: 2px; }
+  .paintType { display: flex; align-items: center; height: 32px; }
 
   /* Image / video */
   .mediaRow { display: flex; flex: none; align-items: center; justify-content: space-between; height: 32px; margin-top: var(--ds-space-2); padding: 0 var(--ds-space-2) 0 var(--ds-space-4); }

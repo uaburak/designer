@@ -27,6 +27,10 @@
   .colorTab .pickSearch > * { background: transparent; }
   .colorTab .pickSource { align-items: center; justify-content: space-between; margin-top: 18px; padding: 0 var(--ds-space-3) 0 var(--ds-space-2); border-bottom: 0; }
   .pickEmptyCentered { display: flex; align-items: center; justify-content: center; min-height: 72px; color: var(--figma-color-text); }
+  /* Live (popovers/fill-picker-libraries-tab.txt): "No colors available" at 157, 43 under the list's top; "All
+     libraries" 9 in, its chevron 9 from the end (92 × 24) */
+  .colorTab .pickEmptyCentered { padding-top: 25px; padding-bottom: 0; }
+  .colorTab .pickSource [data-picker-source] > button { padding: 0 9px; }
   /* A styles popover (live, 216 × 165): the search 40 high across (its field from 40), "No … styles." at 99 and
      "Browse libraries…" at 129, centred (its glyph first), 12 above the bottom */
   .stylesTab .pickSearch { padding: 0; }

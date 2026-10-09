@@ -280,6 +280,8 @@ export class EngineExports {
   textParagraphs = (h: number, sessionID: number, localID: number, op: number, value: number): number =>
     this.fn("text_paragraphs")(h, sessionID, localID, op, value);
   fontInfo = (family: Uint8Array, style: Uint8Array): number => this.withBytes([family, style], (p) => this.fn("font_info")(p[0], p[1], p[2], p[3]));
+  fontFeaturesIn = (family: Uint8Array, style: Uint8Array, text: Uint8Array): number =>
+    this.withBytes([family, style, text], (p) => this.fn("font_features_in")(p[0], p[1], p[2], p[3], p[4], p[5]));
 
   // ---- Prototyping (E8) ----
   setPrototypeMode = (h: number, on: boolean): void => void this.fn("set_prototype_mode")(h, on ? 1 : 0);

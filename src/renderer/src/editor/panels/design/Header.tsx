@@ -12,6 +12,7 @@
  *                                      (live autolayout-child, frame-child-constraints, grid-child)
  *   boolean     Use as mask · Boolean operations · Create component
  *   text        Create link · Apply variable · Create component · More actions
+ *   text edited Create link · Apply variable · Create component (no More actions)
  *   several     (Select matching layers) · Use as mask · Boolean operations · More actions
  *
  * "More actions" holds what the row leaves out (Edit object, Use as mask, the boolean operations, Flatten…), in
@@ -31,7 +32,7 @@ import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker
 import { BIND_TYPE } from "../../model/variables";
 import { sharedBinding } from "./Variables";
 import { convertFrameKind, frameKindOf, offeredKinds, type FrameKind } from "./frameKind";
-import { PANEL_MENU_GAP, isFrameNode, typeLabel, typeOf, useParents, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, isFrameNode, typeLabel, typeOf, useParents, useTextEditRef, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import hstyles from "./Header.module.css";
 
@@ -211,7 +212,7 @@ export function booleanActions(ed: EditorController): MenuItem[] {
 const EDITABLE = new Set(["VECTOR", "LINE", "STAR", "REGULAR_POLYGON", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "BOOLEAN_OPERATION"]);
 const SHAPES = new Set(["VECTOR", "LINE", "STAR", "REGULAR_POLYGON", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "BOOLEAN_OPERATION"]);
 
-export type HeaderKind = "frame" | "group" | "section" | "rect" | "shape" | "nested" | "boolean" | "text" | "multi";
+export type HeaderKind = "frame" | "group" | "section" | "rect" | "shape" | "nested" | "boolean" | "text" | "textEdit" | "multi";
 export type HeaderAction = "slot" | "ready" | "create" | "mask" | "boolean" | "edit" | "matching" | "link" | "variable" | "more";
 
 /** The header's actions per kind, left to right (live design/*.txt; Convert to slot only inside a main). */
@@ -224,6 +225,9 @@ export const HEADER_ACTIONS: Record<HeaderKind, readonly HeaderAction[]> = {
   nested: ["matching", "create", "mask", "more"],
   boolean: ["mask", "boolean", "create"],
   text: ["link", "variable", "create", "more"],
+  // While the text is edited on the canvas (live design/text-editing-caret.txt, text-editing-partial.txt): Create link at
+  // 152, Apply variable 180, Create component 208 — no More actions.
+  textEdit: ["link", "variable", "create"],
   multi: ["matching", "mask", "boolean", "more"],
 };
 
@@ -232,9 +236,10 @@ export const HEADER_ACTIONS: Record<HeaderKind, readonly HeaderAction[]> = {
  * on the page, in a section or a group) — a shape there gets the "nested" row (live autolayout-child,
  * frame-child-constraints, grid-child; a nested text, group or boolean keeps its own row: unverified).
  */
-export function headerKind(nodes: readonly PanelNode[], inFrame = false): HeaderKind {
+export function headerKind(nodes: readonly PanelNode[], inFrame = false, editing: string | null = null): HeaderKind {
   if (nodes.length > 1) return "multi";
   const n = nodes[0];
+  if (editing && n.guid === editing && typeOf(n) === "TEXT") return "textEdit";
   const kind = frameKindOf(n);
   if (kind === "Group") return "group";
   if (kind === "Section") return "section";
@@ -262,7 +267,8 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
   useTopics(ed.store, ["selection", "undo", "structure"]);
   const [parent] = useParents(nodes.length === 1 ? nodes : []);
   const inFrame = !!parent && isFrameNode(parent) && typeOf(parent) !== "SECTION";
-  const kind = headerKind(nodes, inFrame);
+  const editing = useTextEditRef();
+  const kind = headerKind(nodes, inFrame, editing);
   const title = headerTitle(nodes);
   const presets = kind === "frame" || kind === "group" || kind === "section";
   return (
