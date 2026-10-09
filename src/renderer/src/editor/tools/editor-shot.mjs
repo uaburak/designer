@@ -24,6 +24,7 @@
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
+//   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -1665,8 +1666,21 @@ async function gridSection(page, theme) {
   check("Grid: Gap between columns 24", (await node(page, "1:1")).gridColumnGap === 24);
   await panel.locator('[aria-label="Auto layout"], [aria-label="Layout"]').first().scrollIntoViewIfNeeded().catch(() => {});
   await shot(page, `110-grid-panel-${theme}`);
-  // The track pills: the pointer just above the frame's first column labels it.
-  const [x, y] = await toScreen(page, 30, -6);
+  // The track pills (live Figma, round 9): column 1's pill 31.5 px above the frame, over the middle of the column — 2fr
+  // beside two Hug columns (a new grid's), 24 px gaps, no padding: it ends a gap before the first layer right of it
+  // (no layers: the Hug columns are empty, it takes the width less the gaps). Expanded under the pointer.
+  const pillOfColumn1 = async () => {
+    const f = await node(page, "1:1");
+    const kids = (await page.evaluate(() => window.__designerEditor.engine.readNode("1:1", { childIds: true }).childIds ?? [])) ?? [];
+    let right = f.size.x - 2 * 24;
+    for (const id of kids) {
+      const k = await node(page, id);
+      if (k && k.transform.m02 > 1) right = Math.min(right, k.transform.m02 - 24);
+    }
+    const [cx, top] = await toScreen(page, f.transform.m02 + right / 2, f.transform.m12);
+    return [cx, top - 31.5];
+  };
+  const [x, y] = await pillOfColumn1();
   await page.mouse.move(x, y);
   await settle(page);
   await shot(page, `111-grid-track-pill-${theme}`);
@@ -1691,7 +1705,7 @@ async function gridSection(page, theme) {
   await settle(page);
   check("Grid: Number of rows reads Auto (a new grid)", ((await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).getAttribute("aria-label")) ?? "").includes("auto rows"));
   // A click on the first column's pill label opens the track label editor; 120 makes it Fixed 120.
-  const [px, py] = await toScreen(page, 30, -10);
+  const [px, py] = await pillOfColumn1();
   await page.mouse.move(px, py);
   await settle(page);
   await page.mouse.click(px, py);
@@ -2266,6 +2280,129 @@ async function selectionSection(page, theme) {
 }
 
 /**
+ * Round 9 on `?editor&doc=capture` (dark): canvas chrome as live Figma draws it (docs/research/figma/live/img/canvas-*) —
+ * the ellipse's arc handle dragged (an arc), the star's ratio and the polygon's count handles, the `</>` at a selected
+ * frame's top right (a click marks it ready for dev), the auto-layout padding badge by the pointer, a selected grid's
+ * cells and pills (a pill click opens its size editor), the section's pill.
+ */
+async function overlays9Section(page, theme) {
+  await open(page, "&doc=capture");
+  const canvas = page.locator("#engine-canvas");
+  // A layer's top-left at canvas (300, 260), zoom `z`; `local` points in its own space → page coordinates.
+  const frameOn = async (id, z) => {
+    await page.evaluate(([id, z]) => {
+      const e = window.__designerEditor.engine;
+      const n = e.readNode(id);
+      e.setSelection([id]);
+      e.setCamera({ x: 300 - n.transform.m02 * z, y: 260 - n.transform.m12 * z, zoom: z });
+    }, [id, z]);
+    await settle(page);
+    const n = await node(page, id);
+    return (lx, ly) => toScreen(page, n.transform.m02 + lx, n.transform.m12 + ly);
+  };
+  // The ellipse (7:61): its one ring 9 px inside the right edge; a quarter turn up round the centre makes an arc.
+  let at = await frameOn("7:61", 2);
+  const [ex, ey] = await at(100, 50);
+  const [cx, cy] = await at(50, 50);
+  await page.mouse.move(cx, cy);
+  await settle(page);
+  await shot(page, `190-ellipse-arc-handle-${theme}`);
+  await page.mouse.move(ex - 9, ey);
+  await page.mouse.down();
+  for (let i = 1; i <= 18; i++) {
+    const a = (-Math.PI / 2) * (i / 18);
+    await page.mouse.move(cx + Math.cos(a) * 91, cy + Math.sin(a) * 91);
+  }
+  await page.mouse.up();
+  await settle(page);
+  const arc = (await node(page, "7:61")).arcData;
+  check("Shape handles: the ellipse's arc handle dragged a quarter turn up makes a 270° arc", !!arc && Math.abs(arc.endingAngle - arc.startingAngle - 1.5 * Math.PI) < 0.08, JSON.stringify(arc));
+  await page.mouse.move(cx - 20, cy + 20);
+  await settle(page);
+  await shot(page, `191-ellipse-arc-${theme}`);
+  await canvas.focus();
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  // The star (7:63): radius, ratio (the first inner corner) and count (the right tip); the ratio dragged out.
+  at = await frameOn("7:63", 2.2);
+  const [sx, sy] = await at(50, 55);
+  await page.mouse.move(sx, sy);
+  await settle(page);
+  await shot(page, `192-star-handles-${theme}`);
+  const inner = [50 + 50 * 0.382 * Math.cos(-0.3 * Math.PI), 50 + 50 * 0.382 * Math.sin(-0.3 * Math.PI)];
+  const [rx, ry] = await at(inner[0], inner[1]);
+  const [ox, oy] = await at(50, 50);
+  const d = Math.hypot(rx - ox, ry - oy);
+  await drag(page, [rx, ry], [rx + ((rx - ox) / d) * 22, ry + ((ry - oy) / d) * 22]);
+  const ratio = (await node(page, "7:63")).starInnerScale;
+  check("Shape handles: the star's ratio handle dragged out raises its ratio", ratio > 0.45, String(ratio));
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  // The triangle (7:62): its count handle on the bottom-right corner, turned up to 72° from the top: five corners.
+  at = await frameOn("7:62", 2.2);
+  const [px0, py0] = await at(50, 50);
+  await page.mouse.move(px0, py0);
+  await settle(page);
+  await shot(page, `193-polygon-handles-${theme}`);
+  const r = 50 * 2.2;
+  await page.mouse.move(px0 + Math.sin((2 * Math.PI) / 3) * r, py0 - Math.cos((2 * Math.PI) / 3) * r);
+  await page.mouse.down();
+  for (let i = 1; i <= 12; i++) {
+    const from = (2 * Math.PI) / 3 + ((2 * Math.PI) / 5 - (2 * Math.PI) / 3) * (i / 12);
+    await page.mouse.move(px0 + Math.sin(from) * r, py0 - Math.cos(from) * r);
+  }
+  await page.mouse.up();
+  await settle(page);
+  const count = (await node(page, "7:62")).count;
+  check("Shape handles: the polygon's count handle turned up to 72° makes five corners", count === 5, String(count));
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  // AL_horizontal (7:20): the `</>` at its top right; the top padding's badge where the pointer is.
+  at = await frameOn("7:20", 1.5);
+  const [tx, ty] = await at(150, 7);
+  await page.mouse.move(tx, ty);
+  await settle(page);
+  await shot(page, `194-auto-layout-padding-badge-${theme}`);
+  const info = await page.evaluate(() => window.__designerEditor.engine.devInfo());
+  const icon = info.hits.statuses.find((h) => h.ref === "7:20");
+  check("The </> at a selected frame's top right (where live Figma draws it)", !!icon && icon.kind === 0, JSON.stringify(info.hits.statuses));
+  if (icon) {
+    const [fx] = await at(232, 0);
+    const box = await canvas.boundingBox();
+    check("The </> ends at the frame's right edge", Math.abs(box.x + icon.x + icon.width - 2 - fx) <= 1.5, `${box.x + icon.x + icon.width - 2} vs ${fx}`);
+    await page.mouse.click(box.x + icon.x + icon.width / 2, box.y + icon.y + icon.height / 2);
+    await settle(page);
+    const st = (await page.evaluate(() => window.__designerEditor.engine.readNode("7:20", { fields: ["sectionStatusInfo"] })))?.sectionStatusInfo?.status;
+    check("A click on the </> marks the frame ready for dev", st === "BUILD", String(st));
+    await shot(page, `195-ready-for-dev-${theme}`);
+    await page.keyboard.press("Meta+z");
+    await settle(page);
+  }
+  // AL_grid (7:40): cells outlined, the pill over the hovered column; a click on its label opens the size editor.
+  at = await frameOn("7:40", 1.6);
+  const [gx, gy] = await at(160, 6);
+  await page.mouse.move(gx, gy);
+  await settle(page);
+  await shot(page, `196-grid-selected-${theme}`);
+  const [, gtop] = await at(160, 0);
+  await page.mouse.move(gx, gtop - 31.5);
+  await settle(page);
+  await shot(page, `197-grid-column-pill-${theme}`);
+  await page.mouse.click(gx, gtop - 31.5);
+  await settle(page);
+  const sel = await page.evaluate(() => window.__designerEditor.ui.get().gridTracks);
+  check("Grid: a click on a column's pill selects the column (the Grid panel)", !!sel && sel.axis === "COLUMNS" && sel.tracks.join() === "1", JSON.stringify(sel));
+  check("Grid: …and opens its size editor", (await page.locator("[data-grid-track-editor]").count()) === 1);
+  await shot(page, `198-grid-column-selected-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // The section (7:95): its pill.
+  await frameOn("7:95", 1.3);
+  await shot(page, `199-section-pill-${theme}`);
+}
+
+/**
  * Round 8 on `?editor&doc=empty` (dark): the selection / canvas audit's open items — smart selection's centre rings
  * dragged to reorder, the ⌥R rotation origin, ruler guides dragged out of the rulers (selected, snapped to), the Scale
  * tool (K), the Slice tool (S) and Show slices, the Comment tool's note, the eyedropper (I) with its loupe, an
@@ -2457,7 +2594,7 @@ async function selection8Section(page, theme) {
   check("⌃P again turns it off", !(await page.evaluate(() => window.__designerEditor.ui.get().pixelPreview)));
 }
 
-/** Round 6 on `?editor&doc=reference` (dark): annotations (⇧T, the menu, + Property, a category), a measurement (⇧M), Mark as ready for dev on the frame's label, Changed after an edit, Dev Mode (⇧D: Inspect, dots), Compare changes, Done with changes, focus view. */
+/** Round 6 on `?editor&doc=reference` (dark): annotations (⇧T, the menu, + Property, a category), a measurement (⇧M), the frame's `</>` (ready for dev), Changed after an edit, Dev Mode (⇧D: Inspect, dots), Compare changes, Done with changes, focus view. */
 async function devmodeSection(page, theme) {
   await open(page, "&doc=reference");
   const dev = () => page.evaluate(() => window.__designerEditor.engine.devInfo());
@@ -2533,13 +2670,13 @@ async function devmodeSection(page, theme) {
     check("Measurements: a double-click customizes its text", (await dev()).measurements[0]?.freeText === "Gap 60");
   } else check("Measurements: a double-click customizes its text", false, "no pill drawn");
 
-  // Mark as ready for dev on the frame's label (selected and under the pointer).
+  // The `</>` at a selected frame's top right (live Figma, round 9) marks it ready for dev.
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await page.mouse.move(...(await toScreen(page, -34 + 400, 3 + 290)));
   await settle(page);
   info = await dev();
   const mark = info.hits.statuses.find((s) => s.ref === "1:1");
-  check("Statuses: \"Mark as ready for dev\" next to a selected frame's name", !!mark && mark.kind === 0, JSON.stringify(info.hits.statuses));
+  check("Statuses: the </> at a selected frame's top right", !!mark && mark.kind === 0, JSON.stringify(info.hits.statuses));
   if (mark) await page.mouse.click(...(await canvasPoint(mark.x + 4, mark.y + 4)));
   await settle(page);
   check("Statuses: a click marks it ready for dev", (await dev()).statuses[0]?.status === "READY", JSON.stringify((await dev()).statuses));
@@ -2928,6 +3065,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await textSection(page, "dark");
+    await context.close();
+  }
+  if (only === "overlays9") {
+    // Round 9's canvas chrome on its own (the full run stays within its 180 s).
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await overlays9Section(page, "dark");
     await context.close();
   }
   if (only === "prototype") {

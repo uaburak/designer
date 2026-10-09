@@ -628,16 +628,16 @@ void Editor::requestInlineEdit(int bar) {
     double w = std::max(40.0, labelWidth("0000", false) + 2 * style.badgePadding), h = std::max(style.badgeHeight, 20.0), len = 12;
     double x, y;
     if (b.gap) {
-      x = b.vertical ? c.x + 8 : c.x + len / 2 + 4;
-      y = b.vertical ? c.y - len / 2 - 4 - h : c.y - h - 4;
+      x = b.vertical ? c.x + 9 : c.x + len / 2 + 5;
+      y = b.vertical ? c.y - len / 2 - 5 - h : c.y - h - 5;
     } else if (b.side == 0) {
-      x = edge.x - 4 - w, y = c.y - h / 2;
+      x = edge.x - 2 - w, y = edge.y - h / 2;
     } else if (b.side == 2) {
-      x = edge.x + 4, y = c.y - h / 2;
+      x = edge.x + 2, y = edge.y - h / 2;
     } else if (b.side == 1) {
-      x = c.x - w / 2, y = edge.y - 4 - h;
+      x = edge.x - w / 2, y = edge.y - 2 - h;
     } else {
-      x = c.x - w / 2, y = edge.y + 4;
+      x = edge.x - w / 2, y = edge.y + 2;
     }
     e.rect = {x, y, w, h};
     events_.inlineEdits.push_back(e);
