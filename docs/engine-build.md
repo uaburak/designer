@@ -35,7 +35,7 @@ Engine side — the Figma menu › Preferences the canvas acts on, as `engine_se
 - 32768 `VIEW_SCROLL_WHEEL_ZOOM` (off): a plain wheel zooms, ⌘ / Ctrl + wheel pans (⇧ + wheel still pans sideways; unverified details).
 - 65536 `VIEW_RIGHT_DRAG_PAN` (on): a right press captures the pointer; past 3 CSS px it pans, else the context menu opens on the release (the tests that pressed without releasing now release). ⌃-click still opens it at the press.
 
-Checks (after merging main b61d493, r9-canvas-overlays): `npm run check` ✓ (100 files, 857 tests); `npm run engine:test` ✓ 450 / 450 (new `r9.preferences.test.cpp`: defaults, snap to objects, keep tool, show dimensions, flip, keyboard zoom, invert / scroll wheel zoom, right-drag pan, snap to geometry); `npm run engine:shot` ✓ 108 ok; `node scripts/engine-shot.mjs --gfx webgpu` ✓ 110 ok; editor-shot ✓ 321 ok (152 s), `EDITOR_ONLY=menus9` 15 ok, `variables6` 6 ok. Release wasm rebuilt after the merge and committed.
+Checks (after merging main c435248, r9-canvas-overlays and r9-header-components): `npm run check` ✓ (103 files, 876 tests); `npm run engine:test` ✓ 450 / 450 (new `r9.preferences.test.cpp`: defaults, snap to objects, keep tool, show dimensions, flip, keyboard zoom, invert / scroll wheel zoom, right-drag pan, snap to geometry); `npm run engine:shot` ✓ 108 ok; `node scripts/engine-shot.mjs --gfx webgpu` ✓ 110 ok; editor-shot ✓ 350 ok (156 s), `EDITOR_ONLY=menus9` 15 ok. Release wasm rebuilt after the merge and committed.
 
 ## Round 9 — header (branch `r9-header-components`)
 
