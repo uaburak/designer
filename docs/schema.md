@@ -343,6 +343,15 @@ Everything not tagged `@nooverride`. Observed in Figma's SDS file overrides: `si
 
 ---
 
+### 5.8 Shader fills and effects (round 11)
+
+Figma's shaders are code components; a fill or an effect uses one by reference (Figma's schema, `sections.fig` version 106 — names and numbers kept, `schemagen --check` 0 problems):
+
+- **Types:** `PaintType.CUSTOM = 10` (the Fill picker's Shader tab), `EffectType.CUSTOM = 9` (the Effects browser's shader effects, the type menu's "Shader").
+- **Which shader:** `Paint.customEffectId = 39` / `Effect.customEffectId = 43`, a `CodeComponentId {guid = 1, assetRef = 2}`. Figma's presets ("By Figma") are library assets; DesignerV2 names each by `assetRef.key` (`shader.nebula`, `shader.halftone`…; `version` ""), the keys of `src/shared/shaders/presets.json` — **unverified**: Figma's own keys are not known (no live capture of a shader's data). `guid` (a CODE_COMPONENT of the file: "Created by you", Figma's AI) is not written; a key this app doesn't know is kept and not drawn.
+- **Parameters:** `Paint.componentPropAssignments = 40` / `Effect.componentPropAssignments = 44`, one `ComponentPropAssignment` per parameter, `defID = {sessionID 0, localID <the parameter's id>}`: numbers and choices (an option's index) as `value.floatValue` (`ComponentPropValue.floatValue = 4`, added) in the units the panel shows (%, °, px), toggles as `value.boolValue`, colours as `varValue` — a COLOR literal `{dataType: COLOR, resolvedDataType: COLOR, value: {colorValue}}` (Figma's code-component colour properties are VariableData: `ColorPoint.color`, `ColorArray.colors`). New ones carry every parameter; a missing one reads as the preset's default.
+- The rest of the paint (`opacity`, `visible`, `blendMode`) and of the effect (`visible`) mean what they mean for any paint / effect. How each preset draws is ours (engine.md §6.5, `gfx/gl/CustomShader.h`); Figma animates its shaders, the engine draws them at time 0.
+
 ## 6. Variables, modes, styles
 
 ### 6.1 Collections, modes, variables
@@ -592,7 +601,7 @@ Dropped fields keep their numbers reserved (§1.2); dropped enum values are list
 | Plugins (plugin-free) | `pluginData`, `pluginRelaunchData`, `WidgetMetadata` |
 | Legacy duplicates of kept concepts | `variableConsumptionMap` (→ `parameterConsumptionMap`), `componentPropRefs` (→ `PROP_REF`), `inherit*StyleID` (→ `styleIdFor*`), `symbolDescription`/`styleDescription` (→ `description`), `sharedSymbolReference`/`sharedStyleReference`/`componentKey`/`sharedSymbolVersion` (→ §8.2), `stackJustify/stackAlign/stackWidth/stackHeight/stackPadding` (→ current `stack*`), `textTracking` (→ `letterSpacing`), `maskIsOutline` (→ `maskType`), `RECTANGLE`/`GROUP` writing, `rectangleCornerToolIndependent`, `containerSupportsFillStrokeAndCorners` |
 | Layout/derived version stamps | `textUserLayoutVersion`, `textExplicitLayoutVersion`, `textBidiVersion`, `fontVersion`, `layoutVersion`, `derivedSymbolDataLayoutVersion` (one `Message.derivedDataVersion` instead); text layout inside `TextData` (moved to `derivedTextData`, as Figma's newer files do) |
-| Not in v1 Design scope | PATTERN, NOISE, EMOJI paints (VIDEO = 7 is kept since the text round: its poster frame draws); animated images; variable-width strokes (`variableWidthPoints` kept, not drawn); TEXT_PATH; transform groups; Motion fields beyond the `@later` easing values; accessibility/HTML tags; `exportBackgroundDisabled`; `targetAspectRatio`; `stackChildMargin*`; image `altText` |
+| Not in v1 Design scope | EMOJI paints (VIDEO = 7 is kept since the text round: its poster frame draws; PATTERN = 8 and NOISE = 9 since round 7; CUSTOM = 10 shaders since round 11, §5.8); animated images; variable-width strokes (`variableWidthPoints` kept, not drawn); TEXT_PATH; transform groups; Motion fields beyond the `@later` easing values; accessibility/HTML tags; `exportBackgroundDisabled`; `targetAspectRatio`; `stackChildMargin*`; image `altText` |
 
 ---
 

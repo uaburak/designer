@@ -1,3 +1,4 @@
+/* global process, console */
 // node shaderpresets.mjs <presets.json> <out.h>: the renderer's table of Figma's shader presets (render/ShaderPaint.cpp)
 // from src/shared/shaders/presets.json, the one definition the panels read too. Run by CMake (cmake/Generators.cmake)
 // into <build>/generated/render/shader_presets.h; never committed.

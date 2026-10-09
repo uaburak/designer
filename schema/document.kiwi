@@ -352,7 +352,7 @@ message Paint {
   float density = 35;                    // NOISE
   Vector noiseSize = 36;                 // NOISE
   Vector patternSpacing = 37;            // PATTERN: "Spacing" X / Y, as a share of the tile (0.2 = 20 %)
-  CodeComponentId customEffectId = 39;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §4.6)
+  CodeComponentId customEffectId = 39;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §5.8)
   ComponentPropAssignment[] componentPropAssignments = 40;  // CUSTOM: the shader's parameters (defID → value / varValue)
   // Reserved field numbers (11): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
@@ -450,7 +450,7 @@ message Effect {
   float chromaticAberration = 34;        // glass "Dispersion" (0..1)
   float reflectionDistance = 35;         // glass (not in the panel)
   float refractionIntensity = 36;        // glass "Refraction" (0..1); "Frost" is `radius`
-  CodeComponentId customEffectId = 43;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §4.6)
+  CodeComponentId customEffectId = 43;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §5.8)
   ComponentPropAssignment[] componentPropAssignments = 44;  // CUSTOM: the shader's parameters (defID → value / varValue)
   // Reserved field numbers (11): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
