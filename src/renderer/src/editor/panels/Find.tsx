@@ -9,20 +9,23 @@
  * range, ⌘ adds); Replace changes the selected text results, Replace all every one; ✕ or Esc goes back.
  */
 import { useMemo, useRef, useState } from "react";
-import { Button, ContextMenu, Icon, IconButton, Select, TextInput, cx, showToast, type IconName, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, Select, TextInput, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import { useSelection } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { command, shortcutOf } from "../commands";
 import { closeFind, findResults, findScope, replaceInLayers, showResult, stepFind, EMPTY_FIND } from "../find";
 import { useDocumentVersion, usePages, useUI } from "../hooks";
 import { FIND_FILTERS, countByType, type FindFilter, type FindResult } from "../model/find";
-import { layerIcon } from "./Layers";
+import { layerIcon, layerKind } from "./Layers";
 import type { FindState } from "../uiStore";
 import type { TreeNode } from "../model/layerTree";
 import styles from "./Find.module.css";
 
 /** A result's glyph, as the Layers row draws it. */
-const glyph = (r: FindResult) => layerIcon({ type: r.type, group: false, stateGroup: r.filter === "component" && r.type === "FRAME", media: r.filter === "image" ? "IMAGE" : undefined } as unknown as TreeNode);
+const rowOf = (r: FindResult) => ({ type: r.type, group: r.type === "GROUP", stateGroup: r.filter === "component" && r.type === "FRAME", media: r.filter === "image" ? "IMAGE" : undefined }) as unknown as TreeNode;
+const glyph = (r: FindResult) => layerIcon(rowOf(r));
+/** The glyph's name (live: img [Frame], [Text]…, as in Layers) */
+const glyphLabel = (r: FindResult) => layerKind(rowOf(r));
 
 /** The label with its matches marked; a long text starts a little before its first match. */
 function Marked({ r }: { r: FindResult }) {
@@ -222,7 +225,7 @@ export function FindPanel() {
                   if (el && index === f.at) el.scrollIntoView({ block: "nearest" });
                 }}
               >
-                <span className={styles.glyph}>
+                <span className={styles.glyph} role="img" aria-label={glyphLabel(r)} {...tooltipProps(glyphLabel(r))}>
                   <Icon name={glyph(r)} />
                 </span>
                 <span className={styles.text}>

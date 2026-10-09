@@ -1,6 +1,7 @@
 import { useRef, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Icon, type IconName } from "../icons/Icon";
+import { tooltipProps } from "../overlay/TooltipManager";
 import type { ExitReason } from "../types";
 import { STRINGS } from "../strings";
 import { TextInput } from "./TextInput";
@@ -12,6 +13,8 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
   name: string;
   /** The layer type's 16 glyph */
   icon: IconName;
+  /** The glyph's name (live: img [Frame], [Auto layout], [Component]…), read out and in its tooltip */
+  iconLabel?: string;
   kind?: "default" | "component" | "instance";
   /** Inside a component or an instance (or one itself): the hover cells in the component purple */
   tone?: "default" | "component";
@@ -89,7 +92,7 @@ function Cell({ kind, on, onPress }: { kind: "lock" | "visible"; on: boolean; on
  * secondary unless the row is selected or a top-level frame; components and instances in purple; hidden layers
  * faded. Enter belongs to the list (select the children), not the row.
  */
-export function LayerRow({ id, depth, name, icon, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
+export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
   return (
     <div
       role="treeitem"
@@ -118,7 +121,7 @@ export function LayerRow({ id, depth, name, icon, kind = "default", tone = "defa
             <Icon name="16.chevron.down" />
           </button>
         )}
-        <span className={styles.type}><Icon name={icon} size={16} /></span>
+        <span className={styles.type} role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}><Icon name={icon} size={16} /></span>
         {renaming ? (
           <RenameField className={styles.rename} value={name} onDone={(n, r) => onRename?.(n, r)} />
         ) : (
