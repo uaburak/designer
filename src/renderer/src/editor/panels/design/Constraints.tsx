@@ -8,7 +8,7 @@ import { MIXED, PropertyRow, Select, ToggleIconButton, isMixed, type Mixed } fro
 import type { ConstraintType } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { mixed } from "../../model/mixed";
-import { CONSTRAINT_OPTIONS, clickConstraint, normalizeConstraint, selectedSides, type ConstraintAxis, type ConstraintSide } from "../../model/constraints";
+import { CONSTRAINT_ICONS, CONSTRAINT_OPTIONS, clickConstraint, normalizeConstraint, selectedSides, type ConstraintAxis, type ConstraintSide } from "../../model/constraints";
 import { useUI } from "../../hooks";
 import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
@@ -29,11 +29,14 @@ export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
     const now = axis === "horizontal" ? h : v;
     set(axis, clickConstraint(isMixed(now) || now === undefined ? "MIN" : now, side, shift));
   };
+  const prefix = (axis: ConstraintAxis, c: Mixed<ConstraintType> | undefined) => (isMixed(c) || c === undefined ? undefined : CONSTRAINT_ICONS[axis][c as keyof (typeof CONSTRAINT_ICONS)["horizontal"]]);
+  // Live (design/frame-child-constraints-expanded.txt): "Constraints" 2 lower than a one-label row (191), the dropdowns
+  // at 207 and 239 — outlined 88 × 24 on the panel's colour, the glyph then the value at 33 in — the widget beside.
   return (
-    <PropertyRow label="Constraints" data-constraints-row="">
+    <PropertyRow labels={["Constraints", undefined]} data-constraints-row="">
       <div className={styles.constraintSelects}>
-        <Select label="Horizontal constraints" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
-        <Select label="Vertical constraints" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
+        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("horizontal", h)} label="Horizontal constraints" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
+        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("vertical", v)} label="Vertical constraints" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
       </div>
       <ConstraintsWidget horizontal={h ?? "MIN"} vertical={v ?? "MIN"} onClick={click} />
     </PropertyRow>
@@ -44,7 +47,7 @@ export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
 export function ConstraintsToggle() {
   const ed = useEditor();
   const open = useUI((s) => !!s.constraintsOpen);
-  return <ToggleIconButton icon="24.constraints" label="Constraints" tone="secondary" pressed={open} aria-expanded={open} onPressedChange={(on) => ed.ui.set({ constraintsOpen: on })} />;
+  return <ToggleIconButton icon="24.constraints" label="Constraints" tone="secondary" className={styles.constraintsToggle} pressed={open} aria-expanded={open} onPressedChange={(on) => ed.ui.set({ constraintsOpen: on })} />;
 }
 
 /** The widget: 4 edge lines and the middle cross, each a button (blue when on). */

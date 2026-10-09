@@ -371,7 +371,8 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
         {independent && (
           <>
             {[CORNERS.slice(0, 2), CORNERS.slice(2)].map((pair, i) => (
-              <PropertyRow key={i} label={i === 0 ? "Top corners" : "Bottom corners"} action={i === 0 ? <CornerSmoothingButton nodes={nodes} /> : undefined}>
+              // Live: a 2 × 2 grid without captions, Corner smoothing at the end of the bottom row.
+              <PropertyRow key={i} data-corner-row={i === 0 ? "top" : "bottom"} action={i === 1 ? <CornerSmoothingButton nodes={nodes} /> : undefined}>
                 {pair.map(([f, icon, label]) => (
                   <VariableField key={f} nodes={nodes} fields={[CORNER_FIELD[f]]} prefix={icon}>
                     <NumericInput label={label} prefix={icon} min={0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => ({ [f]: Math.max(0, (n[f] ?? n.cornerRadius ?? 0) + d) }))} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />

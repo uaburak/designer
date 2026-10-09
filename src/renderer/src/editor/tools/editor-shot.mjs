@@ -28,7 +28,7 @@
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
 // own check skipped (gfx::samplesAttachment). The browser is closed after EDITOR_TIMEOUT seconds (default 180).
-/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent */
+/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent, localStorage, getComputedStyle */
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -1019,7 +1019,7 @@ async function exportSection(page, theme) {
   check("Export: '+' adds 1x, 2x @2x, 3x @3x", settings.join() === "1x,2x@2x,3x@3x", settings.join());
   check("Export: three rows and 'Export Frame 1'", (await panel.locator("[data-export-row]").count()) === 3 && (await panel.locator("[data-export-button]").textContent()) === "Export Frame 1");
   // The third as SVG (its scale field goes 1x and off).
-  await panel.locator('[data-export-row="2"]').getByRole("combobox", { name: "File format" }).click().catch(() => {});
+  await panel.locator('[data-export-row="2"]').getByRole("combobox", { name: "Export file type" }).click().catch(() => {});
   await page.getByRole("option", { name: "SVG" }).click().catch(() => {});
   await settle(page);
   const third = await page.evaluate(() => window.__designerEditor.engine.readNode("1:1").exportSettings[2]);
@@ -1027,7 +1027,7 @@ async function exportSection(page, theme) {
   await section.scrollIntoViewIfNeeded().catch(() => {});
   await shot(page, `90-export-section-${theme}`);
   // The "…" settings: Suffix and the format's options.
-  await panel.locator('[data-export-row="2"]').getByRole("button", { name: "Export settings", exact: true }).click();
+  await panel.locator('[data-export-row="2"]').getByRole("button", { name: "Advanced export settings", exact: true }).click();
   await settle(page);
   const pop = page.locator("[data-export-settings]");
   check("Export settings: SVG's options", (await pop.getByText("Outline text").count()) === 1 && (await pop.getByText("Simplify stroke").count()) === 1 && (await pop.getByText('Include "id" attribute').count()) === 1);
@@ -1895,6 +1895,7 @@ async function designSection(page, theme) {
   await page.keyboard.press("Escape");
   await settle(page);
   await designRound8(page, theme, panel, select, focus);
+  await designRound9(page, theme, panel, select);
 }
 
 /** Round 8 (docs/editor.md "Round 8 — Design panel"): the live popovers, the picker's paint tabs, the Grid panel, ⇧ align. */
@@ -2025,6 +2026,110 @@ async function designRound8(page, theme, panel, select, focus) {
   await gp.getByRole("button", { name: "Close" }).click();
   await settle(page);
   check("Design r8: × lets the tracks go — the Design panel again", (await panel.locator("[data-grid-panel]").count()) === 0 && (await panel.locator("[data-type-header]").count()) === 1);
+}
+
+/** Round 9 (docs/editor.md "Round 9 — Design panel sections and popovers"): the sections and popovers against live/. */
+async function designRound9(page, theme, panel, select) {
+  const popup = () => page.locator('[data-ds="Popover"]').last();
+  const popupBox = async () => popup().boundingBox();
+  const box = async (loc) => loc.boundingBox();
+  // Individual corners (live design/rectangle-individual-corners.txt): a 2 × 2 grid, no captions, smoothing beside the bottom row.
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Individual corners" }).click();
+  await settle(page);
+  const tl = await box(panel.getByRole("textbox", { name: "Top left corner radius" }));
+  const bl = await box(panel.getByRole("textbox", { name: "Bottom left corner radius" }));
+  const sm = await box(panel.getByRole("button", { name: "Corner smoothing" }));
+  check("Design r9: individual corners in two rows 32 apart, Corner smoothing beside the bottom one, no captions", tl && bl && sm && Math.round(bl.y - tl.y) === 32 && Math.round(sm.y) === Math.round(bl.y) && (await panel.getByText("Top corners").count()) === 0, JSON.stringify([tl?.y, bl?.y, sm?.y]));
+  await shot(page, `256-design-individual-corners-${theme}`);
+  await panel.getByRole("button", { name: "Individual corners" }).click();
+  // Add stroke on a rectangle: Inside (live design/rectangle-with-stroke.txt).
+  await panel.getByRole("button", { name: "Add stroke" }).click();
+  await settle(page);
+  check("Design r9: Add stroke on a rectangle makes it Inside", (await node(page, "7:60")).strokeAlign === "INSIDE", (await node(page, "7:60")).strokeAlign);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  // Line: "Start point" / "End point" over two dropdowns, 76 and 72 wide (live design/line.txt).
+  await select(["7:64"]);
+  const sp = await box(panel.getByRole("button", { name: "Start point" }));
+  const ep = await box(panel.getByRole("button", { name: "End point" }));
+  check("Design r9: Start point 76 and End point 72 under their captions", sp && ep && Math.round(sp.width) === 76 && Math.round(ep.width) === 72 && (await panel.getByText("Start point", { exact: true }).count()) === 1 && (await panel.getByText("End point", { exact: true }).count()) === 1, JSON.stringify([sp?.width, ep?.width]));
+  // Effects: the row's name 11px / 400; the type menu flips above its button when there is no room below (live 967,449).
+  await page.evaluate(() => localStorage.setItem("designer.effects.shaderOnboarding", "done"));
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  const weight = await panel.getByText("Drop shadow", { exact: true }).first().evaluate((el) => getComputedStyle(el).fontWeight);
+  check("Design r9: the effect row's name is 11px / 400", weight === "400", weight);
+  await panel.getByRole("button", { name: "Effect settings" }).first().click();
+  await settle(page);
+  const trigger = await box(popup().getByRole("combobox", { name: "Effect settings" }));
+  await popup().getByRole("combobox", { name: "Effect settings" }).click();
+  await settle(page);
+  const list = await box(page.getByRole("listbox").last());
+  check("Design r9: the effect type menu opens 12 above its button, at its left (no room below)", trigger && list && Math.round(list.y + list.height) === Math.round(trigger.y) - 12 && Math.round(list.x) === Math.round(trigger.x), JSON.stringify([trigger, list]));
+  await shot(page, `257-design-effect-type-menu-${theme}`);
+  await page.getByRole("option", { name: "Layer blur" }).click();
+  await settle(page);
+  check("Design r9: Layer blur's Type control has its legend", (await popup().getByText("Type", { exact: true }).count()) === 1 && (await popup().getByRole("radiogroup", { name: "Type" }).count()) === 1);
+  await popup().getByRole("combobox", { name: "Effect settings" }).click();
+  await page.getByRole("option", { name: "Glass" }).click();
+  await settle(page);
+  check("Design r9: Glass's Refraction … Splay are sliders with their values", (await popup().getByRole("slider", { name: "Refraction" }).count()) === 1 && (await popup().getByRole("slider", { name: "Splay" }).count()) === 1 && (await popup().getByRole("textbox", { name: "Splay" }).count()) === 1);
+  await shot(page, `258-design-effect-glass-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
+  // The shader effects browser with its onboarding: 240 × 510, "Try an example" enabled.
+  await page.evaluate(() => localStorage.removeItem("designer.effects.shaderOnboarding"));
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  const shaders = page.getByRole("dialog", { name: "Shader effects" });
+  const sb = await box(shaders);
+  check("Design r9: the shader effects browser is 240 × 510 with Try an example enabled", sb && Math.round(sb.width) === 240 && Math.round(sb.height) === 510 && (await shaders.getByRole("button", { name: "Try an example" }).isEnabled()), JSON.stringify(sb));
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
+  // Styles popovers: 216 × 165 (live popovers/effect-styles.txt).
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Effects, Apply styles" }).click();
+  await settle(page);
+  const st = await popupBox();
+  check("Design r9: Effect styles is 216 × 165", st && Math.round(st.width) === 216 && Math.round(st.height) === 165, JSON.stringify(st));
+  await page.keyboard.press("Escape");
+  // Export: Export file type (74) and Advanced export settings (240 × 184); the menu reads JPEG.
+  await panel.getByRole("button", { name: "Add export settings" }).click();
+  await settle(page);
+  const ft = await box(panel.getByRole("combobox", { name: "Export file type" }));
+  check("Design r9: the export row's file type is 74 wide", ft && Math.round(ft.width) === 74, JSON.stringify(ft));
+  await panel.getByRole("combobox", { name: "Export file type" }).click();
+  await settle(page);
+  check("Design r9: the file types read PNG, JPEG, SVG, PDF", (await page.getByRole("option", { name: "JPEG" }).count()) === 1);
+  await page.keyboard.press("Escape");
+  await panel.getByRole("button", { name: "Advanced export settings" }).click();
+  await settle(page);
+  const ex = await popupBox();
+  check("Design r9: Advanced export settings is 240 × 184", ex && Math.round(ex.width) === 240 && Math.round(ex.height) === 184, JSON.stringify(ex));
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  // The grid dimensions picker (live grid/grid-dimensions-picker.txt): 210 × 204, 12 × 8 cells, Open grid settings.
+  await select(["7:40"]);
+  const dims = panel.getByRole("button", { name: /^Open grid dimensions picker/ });
+  const db = await box(dims);
+  await dims.click();
+  await settle(page);
+  const gpk = await box(page.locator("[data-grid-picker]").locator("xpath=.."));
+  const pk = await popupBox();
+  check("Design r9: the grid picker is 210 × 204, 12 left of and 57 above the grid's button, 96 cells", pk && db && Math.round(pk.width) === 210 && Math.round(pk.height) === 204 && Math.round(pk.x) === Math.round(db.x) - 12 && Math.round(pk.y) === Math.round(db.y) - 57 && (await page.locator("[data-grid-cell]").count()) === 96, JSON.stringify([pk, db, gpk]));
+  await page.locator('[data-grid-cell="4x3"]').hover();
+  await settle(page);
+  await shot(page, `259-design-grid-picker-${theme}`);
+  await page.getByRole("button", { name: "Open grid settings" }).click();
+  await settle(page);
+  check("Design r9: Open grid settings shows the Grid panel", (await panel.locator("[data-grid-panel]").count()) === 1);
+  await panel.locator("[data-grid-panel]").getByRole("button", { name: "Close" }).click();
+  await settle(page);
+  check("Design r9: its × goes back to the Design panel", (await panel.locator("[data-grid-panel]").count()) === 0);
 }
 
 /** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Toggle sidebar. */

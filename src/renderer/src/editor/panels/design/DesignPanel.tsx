@@ -7,7 +7,7 @@
  * Auto layout (Flow, sizing menus, min / max), Appearance, Typography (text),
  * Fill, Stroke, Selection colors, Effects, Layout guide (frames), Export.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ColorInput, PanelSection, ToggleIconButton, useTheme } from "@/ds";
 import { useCurrentPage } from "@/engine/hooks";
 import type { Color } from "@/engine/codec";
@@ -58,7 +58,15 @@ export function DesignPanel() {
   };
   // Live (grid/row-track-selected-panel.txt): tracks selected on the canvas replace the Design panel with "Grid".
   const tracks = useUI((s) => s.gridTracks);
+  const gridSettings = useUI((s) => s.gridSettings);
+  const settingsShown = !!gridSettings && nodes.length === 1 && nodes[0].guid === gridSettings;
+  // Another selection closes it (it does not come back when the grid is selected again).
+  useEffect(() => {
+    if (gridSettings && !settingsShown) ed.ui.set({ gridSettings: null });
+  }, [gridSettings, settingsShown, ed]);
   if (tracks && tracks.tracks.length && nodes.length === 1 && nodes[0].guid === tracks.frame) return <GridPanel frame={tracks.frame} />;
+  // The grid picker's "Open grid settings" (unverified beyond its label: the same Grid panel, no track selected).
+  if (settingsShown) return <GridPanel frame={gridSettings} />;
 
   return (
     <>
