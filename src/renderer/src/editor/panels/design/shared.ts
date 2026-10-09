@@ -36,6 +36,9 @@ export interface FontName {
 
 /** The NodeChange fields the editor reads or writes that the TS facade doesn't type yet (effects, text…). */
 export type ExtraFields = {
+  // Round 12: a variable-width stroke's points (schema VariableWidthPoint; editor/widthProfile.ts), a dynamic stroke
+  variableWidthPoints?: { position?: number; ascent?: number; descent?: number; segmentId?: number }[] | null;
+  dynamicStrokeSettings?: Record<string, number> | null;
   // Kept by the engine as it came (not typed by the facade yet)
   layoutGrids?: LayoutGrid[];
   // Text (E3)

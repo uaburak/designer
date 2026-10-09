@@ -409,6 +409,8 @@
   .strokeSettings { padding-top: var(--ds-space-3); }
   .strokeType { margin-bottom: var(--ds-space-1); }
   .widthProfile { display: flex; align-items: center; gap: var(--ds-space-2); }
+  /* Live: the profile's image 62 × 4, 9 in from the dropdown's left (the value's text would start at 8) */
+  .widthProfile [role="img"] { margin-left: 1px; }
   .settingsWide > * { flex: 1 1 auto; }
   .pair { display: flex; gap: var(--ds-space-2); }
   .pair > * { flex: 1 1 0; min-width: 0; }

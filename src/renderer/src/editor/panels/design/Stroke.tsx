@@ -14,12 +14,13 @@
  */
 import { useState } from "react";
 import { VariableField } from "./Variables";
-import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, cx, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
+import { MIXED, MenuButton, NumericInput, Popover, PropertyGrid, PropertyRow, SegmentedControl, Select, Icon, IconButton, TextInput, cx, type ChangeInfo, type IconName, type MenuEntry, type SelectOption } from "@/ds";
 import type { NodeFields, StrokeAlign, StrokeCap } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEngineCommand } from "../../engineCompat";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
+import { WIDTH_PROFILES, matchProfile, presetPoints as presetOf, profilePath, readWidthPoints, type WidthPoint } from "../../widthProfile";
 import { PANEL_MENU_GAP, fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
@@ -290,6 +291,58 @@ export function parseDashes(raw: string): number[] | null {
   return parts.map((n) => Math.round(n * 100) / 100);
 }
 
+/** A width profile drawn as live's dropdown draws it: 62 × 4 (popovers/stroke-advanced-settings.txt `img [Uniform]`). */
+function ProfileImage({ points }: { points: readonly WidthPoint[] }) {
+  return (
+    <svg width={62} height={4} viewBox="0 0 62 4" aria-hidden>
+      <path d={profilePath(points)} fill="currentColor" />
+    </svg>
+  );
+}
+
+/**
+ * Stroke settings' Width profile (round 12; live: the 96 × 24 dropdown with the profile's image, then "Flip width
+ * points", disabled on a uniform stroke). The presets apply to every selected layer (SET_WIDTH_PROFILE, one undo
+ * step); points made with the Variable width tool show as "Custom". Figma: no width profile on dashed or dynamic
+ * strokes, nor on branching paths — the dropdown is disabled there.
+ */
+function WidthProfileRow({ nodes }: { nodes: PanelNode[] }) {
+  const ed = useEditor();
+  const refs = nodes.map((n) => n.guid);
+  const lists = nodes.map((n) => readWidthPoints(n.variableWidthPoints));
+  const profiles = lists.map((l) => matchProfile(l));
+  const same = profiles.every((p, i) => p === profiles[0] && (p !== "CUSTOM" || JSON.stringify(lists[i]) === JSON.stringify(lists[0])));
+  const value = same ? profiles[0] ?? "UNIFORM" : MIXED;
+  const allowed = ed.engine.commandState("SET_WIDTH_PROFILE") !== 0;
+  const options: SelectOption[] = WIDTH_PROFILES.map((p) => ({ value: p.value, label: p.label, image: <ProfileImage points={presetOf(p.value)} /> }));
+  if (value === "CUSTOM") options.push({ value: "CUSTOM", label: "Custom", image: <ProfileImage points={lists[0]} />, disabled: true });
+  return (
+    <>
+      <span className={styles.settingsLabel}>Width profile</span>
+      <span className={styles.widthProfile}>
+        <Select
+          label="Width profile"
+          variant="ghost"
+          width={96}
+          value={value}
+          placeholder="Mixed"
+          options={options}
+          disabled={!allowed}
+          onChange={(v) => {
+            if (v !== "CUSTOM") runEngineCommand(ed.engine, "SET_WIDTH_PROFILE", { refs, profile: v });
+          }}
+        />
+        <IconButton
+          icon="24.flip.horizontal.small"
+          label="Flip width points"
+          disabled={!lists.some((l) => l.length > 0) || !allowed}
+          onClick={() => runEngineCommand(ed.engine, "FLIP_WIDTH_POINTS", { refs })}
+        />
+      </span>
+    </>
+  );
+}
+
 /**
  * The stroke settings popover as Figma's live one (popovers/stroke-advanced-settings.txt, 240 wide): Stroke Type
  * (Basic; Dynamic and Brush not built), Style (Solid / Dashed / Custom, 128), the dash fields, Join (Miter / Bevel /
@@ -383,12 +436,7 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
             />
           </>
         )}
-        {/* Live: Width profile — "Uniform" (variable-width profiles aren't drawn here: the only choice) and Flip width points */}
-        <span className={styles.settingsLabel}>Width profile</span>
-        <span className={styles.widthProfile}>
-          <Select label="Width profile" variant="ghost" width={96} value="UNIFORM" options={[{ value: "UNIFORM", label: "Uniform" }]} onChange={() => undefined} />
-          <IconButton icon="24.flip.horizontal.small" label="Flip width points" disabled />
-        </span>
+        <WidthProfileRow nodes={nodes} />
         <span className={styles.settingsLabel}>Join</span>
         <SegmentedControl
           label="Join"
@@ -409,6 +457,7 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
               className={cx(styles.settingsWideField, styles.popNumber)}
               scrubHandle="previous"
               label="Miter angle"
+              boxLabel
               prefix="24.radius.top.left"
               unit="°"
               min={1}

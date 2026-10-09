@@ -17,14 +17,11 @@
 #include <set>
 
 #include "editor/Editor.h"
-#include "geometry/Boolean.h"
 #include "hit/HitTest.h"
 
 namespace eng {
 
 namespace {
-
-constexpr double kBuilderTolerance = 0.02;  // world px: how finely the results' curves are clipped (as Flatten's)
 
 uint64_t mix(uint64_t h, uint64_t v) {
   h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
@@ -67,7 +64,7 @@ void Editor::builderUpdate() {
     inputs.push_back(std::move(in));
     used.push_back(g);
   }
-  vector_.builderFaces = geom::planarFaces(inputs, tol);
+  vector_.builderMap = geom::planarMap(inputs, tol);
   vector_.builderLayers = std::move(used);
   vector_.builderKey = key == 0 ? 1 : key;
   vector_.builderHover = -1;
@@ -76,12 +73,12 @@ void Editor::builderUpdate() {
 
 const std::vector<geom::PlanarFace>& Editor::shapeBuilderFaces() {
   builderUpdate();
-  return vector_.builderFaces;
+  return vector_.builderMap.faces;
 }
 
 int Editor::builderFaceAt(Vec2 world) {
-  for (size_t i = 0; i < vector_.builderFaces.size(); i++)
-    if (vector_.builderFaces[i].contains(world)) return static_cast<int>(i);
+  for (size_t i = 0; i < vector_.builderMap.faces.size(); i++)
+    if (vector_.builderMap.faces[i].contains(world)) return static_cast<int>(i);
   return -1;
 }
 
@@ -151,24 +148,25 @@ void Editor::builderPointerUp() {
 
 Status Editor::builderApply(const std::vector<int>& taken, bool remove) {
   if (vector_.node == kNoGuid) return E_INVALID;
-  const std::vector<geom::PlanarFace>& faces = vector_.builderFaces;
-  std::vector<geom::Operand> parts;
+  const geom::PlanarMap& map = vector_.builderMap;
+  std::vector<int> picked;
   std::set<uint32_t> covered;
   for (int f : taken) {
-    if (f < 0 || static_cast<size_t>(f) >= faces.size()) continue;
-    parts.push_back({faces[static_cast<size_t>(f)].path, WindingRule::NONZERO});
-    covered.insert(faces[static_cast<size_t>(f)].covers.begin(), faces[static_cast<size_t>(f)].covers.end());
+    if (f < 0 || static_cast<size_t>(f) >= map.faces.size()) continue;
+    picked.push_back(f);
+    covered.insert(map.faces[static_cast<size_t>(f)].covers.begin(), map.faces[static_cast<size_t>(f)].covers.end());
   }
-  if (parts.empty()) return E_INVALID;
-  geom::Path region = parts.size() == 1 ? geom::simplify(parts[0].path, WindingRule::NONZERO, kBuilderTolerance)
-                                        : geom::booleanOp(parts, BooleanOperation::UNION, kBuilderTolerance);
+  if (picked.empty()) return E_INVALID;
+  // The regions as one path, drawn from the arrangement itself: what is left of each layer below is drawn from the
+  // same edges, so the two share their boundary exactly.
+  geom::Path region = map.unionOf(picked);
   if (region.empty()) return E_INVALID;
-  std::vector<Guid> sources;
+  std::vector<std::pair<Guid, uint32_t>> sources;
   for (uint32_t i : covered)
-    if (i < vector_.builderLayers.size() && doc_.has(vector_.builderLayers[i])) sources.push_back(vector_.builderLayers[i]);
+    if (i < vector_.builderLayers.size() && doc_.has(vector_.builderLayers[i])) sources.push_back({vector_.builderLayers[i], i});
   if (sources.empty()) return E_INVALID;
-  std::stable_sort(sources.begin(), sources.end(), [&](Guid a, Guid b) { return doc_.paintsBefore(a, b); });
-  Guid top = sources.back();
+  std::stable_sort(sources.begin(), sources.end(), [&](const auto& a, const auto& b) { return doc_.paintsBefore(a.first, b.first); });
+  Guid top = sources.back().first;
 
   begin(TxnKind::USER, "Shape builder");
   Guid created = kNoGuid;
@@ -198,22 +196,20 @@ Status Editor::builderApply(const std::vector<int>& taken, bool remove) {
     Mat2x3 toLocal = doc_.worldTransform(created).inverse();
     writeVector(created, geom::networkFromPath(region.transformed(toLocal), WindingRule::NONZERO), doc_.get(created)->props.transform);
   }
-  // What is left of each source layer stays in it (destructive); a layer left with nothing goes.
-  for (Guid L : sources) {
-    const NodeGeometry* g = doc_.geometry(L);
-    if (!g) continue;
-    Mat2x3 W = doc_.worldTransform(L);
-    geom::Path own;
-    WindingRule rule = WindingRule::NONZERO;
-    for (const auto& f : g->fills) {
-      own.append(f.path.transformed(W));
-      if (f.windingRule == WindingRule::ODD) rule = WindingRule::ODD;
+  // What is left of each source layer stays in it (destructive): its other regions; a layer left with none goes.
+  for (const auto& [L, input] : sources) {
+    std::vector<int> kept;
+    for (size_t f = 0; f < map.faces.size(); f++) {
+      const auto& cv = map.faces[f].covers;
+      if (std::find(cv.begin(), cv.end(), input) != cv.end() && std::find(picked.begin(), picked.end(), static_cast<int>(f)) == picked.end())
+        kept.push_back(static_cast<int>(f));
     }
-    geom::Path rest = geom::booleanOp({{own, rule}, {region, WindingRule::NONZERO}}, BooleanOperation::SUBTRACT, kBuilderTolerance);
-    if (rest.empty() || std::fabs(rest.bounds().w * rest.bounds().h) < 1e-9) {
+    geom::Path rest = map.unionOf(kept);
+    if (rest.empty()) {
       write(NodeChange::removed(L));
       continue;
     }
+    Mat2x3 W = doc_.worldTransform(L);
     const NodeProps& p = doc_.get(L)->props;
     if (p.type != NodeType::VECTOR) {
       // A shape becomes a VECTOR (same GUID), its outline now the network.
@@ -258,9 +254,9 @@ Status Editor::builderApply(const std::vector<int>& taken, bool remove) {
 void Editor::builderOverlay(Overlay& o) const {
   // The region under the pointer, and the ones a drag took, filled in the selection colour and outlined.
   auto add = [&](int f, double alpha) {
-    if (f < 0 || static_cast<size_t>(f) >= vector_.builderFaces.size()) return;
+    if (f < 0 || static_cast<size_t>(f) >= vector_.builderMap.faces.size()) return;
     Overlay::Region r;
-    r.path = vector_.builderFaces[static_cast<size_t>(f)].path;
+    r.path = vector_.builderMap.faces[static_cast<size_t>(f)].path;
     r.alpha = alpha;
     o.regions.push_back(std::move(r));
   };

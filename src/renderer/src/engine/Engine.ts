@@ -1518,7 +1518,7 @@ export class Engine {
     this.after(this.x.vectorEditEnd(this.h));
   }
 
-  /** The vector edit toolbar: MOVE, PEN, BEND (also ⌘ held), LASSO, PAINT_BUCKET. */
+  /** The vector edit toolbar: MOVE, PEN, BEND (also ⌘ held), LASSO, PAINT_BUCKET, CUT, ERASE; More: SHAPE_BUILDER, VARIABLE_WIDTH (E_UNSUPPORTED where it doesn't apply). */
   setVectorEditTool(tool: VectorEditTool): number {
     return this.after(this.x.vectorEditTool(this.h, VECTOR_EDIT_TOOLS.indexOf(tool)));
   }

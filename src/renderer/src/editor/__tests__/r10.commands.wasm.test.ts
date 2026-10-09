@@ -17,7 +17,7 @@ import { canvasMenu } from "../menus";
 import { CAPTURE_DOCUMENT } from "../fixtures";
 import { textSummary } from "../model/text";
 import { misspelledRanges, wordsOf } from "../spellcheck";
-import { VECTOR_MORE_TOOLS } from "../canvas/BottomToolbar";
+import { vectorMoreTools } from "../canvas/BottomToolbar";
 import { actionRows } from "../panels/ActionsPanel";
 import type { FileOps } from "../objectCommands";
 
@@ -209,10 +209,20 @@ describe("round 10: context menus (live menus/context-*.txt)", () => {
 });
 
 describe("round 10: toolbar", () => {
-  it("vector edit's More: Vector editing tools — Shape builder M, Variable width ⇧W (listed, not built)", () => {
-    expect(VECTOR_MORE_TOOLS.map((e) => (typeof e === "object" && "label" in e ? [e.label, e.shortcut] : e))).toEqual([
-      ["Shape builder", "M"],
-      ["Variable width", "⇧W"],
+  it("vector edit's More: Vector editing tools — Shape builder M, Variable width ⇧W (round 12: built, a radio menu)", () => {
+    const row = (e: ReturnType<typeof vectorMoreTools>[number]) => (typeof e === "object" && "label" in e ? [e.label, e.shortcut, !!e.disabled, !!e.checked] : e);
+    expect(vectorMoreTools("MOVE", true).map(row)).toEqual([
+      ["Shape builder", "M", false, false],
+      ["Variable width", "⇧W", false, false],
+    ]);
+    expect(vectorMoreTools("SHAPE_BUILDER", true).map(row)).toEqual([
+      ["Shape builder", "M", false, true],
+      ["Variable width", "⇧W", false, false],
+    ]);
+    // Where Variable width doesn't apply (dashes, a dynamic stroke, branching paths): disabled.
+    expect(vectorMoreTools("VARIABLE_WIDTH", false).map(row)).toEqual([
+      ["Shape builder", "M", false, false],
+      ["Variable width", "⇧W", true, true],
     ]);
   });
 

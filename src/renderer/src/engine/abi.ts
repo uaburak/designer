@@ -250,6 +250,11 @@ export const CommandId = {
   SET_DEFAULT_PROPERTIES: 285,
   /** args { ranges: [from, to][] }: the edited text's misspelled words (UTF-16), underlined (Text › Spell check). */
   SET_SPELLING_MARKS: 286,
+  // Round 12 (r12-vector-draw): Stroke settings' Width profile; 300-309.
+  /** args { refs?, profile: "UNIFORM" | "WEDGE" | "TAPER" | "QUARTER_TAPER" | "EYE" | "MIRRORED_TAPER" } */
+  SET_WIDTH_PROFILE: 300,
+  /** args { refs? }: the width points mirrored along the path */
+  FLIP_WIDTH_POINTS: 301,
 } as const;
 export type CommandName = keyof typeof CommandId;
 
@@ -333,7 +338,7 @@ export const EXPORT_ALLOW_PENDING = 1;
 /** engine_text_edit flags. */
 export const TEXT_EDIT_SELECT_ALL = 1;
 /** engine_vector_edit_tool values. */
-export const VECTOR_EDIT_TOOLS = ["MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET", "CUT", "ERASE"] as const;
+export const VECTOR_EDIT_TOOLS = ["MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET", "CUT", "ERASE", "SHAPE_BUILDER", "VARIABLE_WIDTH"] as const;
 
 /** Status codes (§10.3). */
 export const Status = {

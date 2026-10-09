@@ -247,12 +247,30 @@ TEST_CASE("r12 planar faces: overlaps, nesting, self-intersections; curves kept"
   };
   circle(c1, {50, 50}, 50);
   circle(c2, {100, 50}, 50);
-  faces = geom::planarFaces({{c1}, {c2}}, 0.05);
-  REQUIRE(faces.size() == 3);
-  for (auto& f : faces) {
+  geom::PlanarMap map = geom::planarMap({{c1}, {c2}}, 0.05);
+  REQUIRE(map.faces.size() == 3);
+  for (auto& f : map.faces) {
     bool cubic = false;
     for (auto v : f.path.verbs) cubic |= v == geom::Verb::Cubic;
     CHECK(cubic);
+  }
+  // Unions come from the graph: all three faces are the two circles' union, one contour; any split of the faces
+  // into two unions adds up exactly.
+  geom::Path all = map.unionOf({0, 1, 2});
+  int contours = 0;
+  for (auto v : all.verbs) contours += v == geom::Verb::Move;
+  CHECK(contours == 1);
+  double total = area(all);
+  CHECK(total == doctest::Approx(area(c1) + area(c2) - [&] {
+          for (auto& f : map.faces)
+            if (f.covers.size() == 2) return f.area;
+          return 0.0;
+        }()).epsilon(0.002));
+  for (int f = 0; f < 3; f++) {
+    std::vector<int> rest;
+    for (int g = 0; g < 3; g++)
+      if (g != f) rest.push_back(g);
+    CHECK(area(map.unionOf({f})) + area(map.unionOf(rest)) == doctest::Approx(total).epsilon(0.002));
   }
 }
 
@@ -413,6 +431,43 @@ TEST_CASE("r12 Shape builder: ⌥-click removes a region; a drag across regions 
   e.command(CommandId::UNDO);
   CHECK(e.document().has(X));
   CHECK(e.document().has(Y));
+}
+
+TEST_CASE("r12 Shape builder on curves: a drag over everything leaves no slivers behind") {
+  auto nodes = baseChanges();
+  nodes.push_back(make(X, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 0, 100, 100}, "X"));
+  nodes.push_back(make(Y, NodeType::ELLIPSE, kPage, "\"", {50, 50, 100, 100}, "E"));
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(nodes, kNoGuid);
+  e.setCamera({100, 100, 1});
+  REQUIRE(e.startVectorEditMany({X, Y}) == OK);
+  REQUIRE(e.setVectorTool(Editor::VectorTool::SHAPE_BUILDER) == OK);
+  REQUIRE(e.shapeBuilderFaces().size() == 3);
+  // Extract the overlap: X and E keep their own parts, exactly (one contour each).
+  click(e, 180, 180);
+  auto contours = [&](Guid id) {
+    int n = 0;
+    for (auto& f : e.document().geometry(id)->fills)
+      for (auto v : f.path.verbs) n += v == geom::Verb::Move;
+    return n;
+  };
+  CHECK(contours(X) == 1);
+  CHECK(contours(Y) == 1);
+  // Everything merged: X, E and the extracted part all go into one layer.
+  e.pointer(PointerEvent::MOVE, 120, 120, 0, 0, 0);
+  e.pointer(PointerEvent::DOWN, 120, 120, 0, 1, 0, 1);
+  e.pointer(PointerEvent::MOVE, 180, 180, 0, 1, 0);
+  e.pointer(PointerEvent::MOVE, 230, 230, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 230, 230, 0, 0, 0, 1);
+  CHECK_FALSE(e.document().has(X));
+  CHECK_FALSE(e.document().has(Y));
+  // (the extracted part was crossed too: it is in the merge)
+  auto top = e.document().children(kPage);
+  REQUIRE(top.size() == 1);
+  CHECK(contours(top[0]) == 1);
+  CHECK(e.vectorNode() == top[0]);
 }
 
 TEST_CASE("r12 Shape builder on one self-crossing layer; the tool's state in the vector edit event") {

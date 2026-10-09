@@ -9,7 +9,8 @@
  * available" (the controls stay disabled), never as an error.
  *
  * Engine names: `startVectorEdit(ref)`, `endVectorEdit()`, `vectorEdit`,
- * `setVectorEditTool("MOVE" | "PEN" | "BEND" | "LASSO" | "PAINT_BUCKET" | "CUT" | "ERASE")`, event `VECTOR_EDIT`, command
+ * `setVectorEditTool("MOVE" | "PEN" | "BEND" | "LASSO" | "PAINT_BUCKET" | "CUT" | "ERASE" | "SHAPE_BUILDER" |
+ * "VARIABLE_WIDTH")`, event `VECTOR_EDIT`, command
  * `VECTOR_SET_MIRRORING {mirroring}`; `startPaintEdit(ref, {paints, index})`,
  * `endPaintEdit()`, `setPaintEditStop(i)`, event `PAINT_EDIT`.
  */
@@ -19,9 +20,12 @@ import { Status } from "@/engine/abi";
 import { engineCommandEnabled, engineMethod, hasCommand, runEngineCommand } from "./engineCompat";
 import { Store } from "./uiStore";
 
-/** Vector edit mode's tools (live toolbar/vector-edit-toolbar.txt: Move, Lasso │ Paint, Bend, Cut, Erase; the Pen is the bottom toolbar's). */
-export type VectorTool = "MOVE" | "LASSO" | "PEN" | "BEND" | "PAINT_BUCKET" | "CUT" | "ERASE";
-export const VECTOR_TOOLS: VectorTool[] = ["MOVE", "LASSO", "PEN", "BEND", "PAINT_BUCKET", "CUT", "ERASE"];
+/**
+ * Vector edit mode's tools (live toolbar/vector-edit-toolbar.txt: Move, Lasso │ Paint, Bend, Cut, Erase; the Pen is the
+ * bottom toolbar's; round 12, live vector-edit-more-menu.txt: More › Shape builder M, Variable width ⇧W).
+ */
+export type VectorTool = "MOVE" | "LASSO" | "PEN" | "BEND" | "PAINT_BUCKET" | "CUT" | "ERASE" | "SHAPE_BUILDER" | "VARIABLE_WIDTH";
+export const VECTOR_TOOLS: VectorTool[] = ["MOVE", "LASSO", "PEN", "BEND", "PAINT_BUCKET", "CUT", "ERASE", "SHAPE_BUILDER", "VARIABLE_WIDTH"];
 /** The ones the engine takes (`setVectorEditTool`). */
 const ENGINE_VECTOR_TOOLS: ReadonlySet<VectorTool> = new Set(VECTOR_TOOLS);
 
@@ -39,6 +43,10 @@ export interface VectorEditState {
   mirroring: Mirroring | "MIXED" | null;
   /** The selected vertices: x / y in the parent's space (the layer's X / Y space), their corner radius */
   points: VectorPoint[];
+  /** Round 12: the layers held (Enter on several; the edited one first) */
+  layers: Guid[];
+  /** Variable width applies (not on dashed or dynamic strokes, nor on branching paths) */
+  variableWidth: boolean;
 }
 
 export interface VectorPoint {
@@ -48,7 +56,19 @@ export interface VectorPoint {
   cornerRadius: number;
 }
 
-export const NO_VECTOR_EDIT: VectorEditState = { active: false, ref: null, tool: "MOVE", selectedVertices: [], selectedSegments: [], vertexCount: 0, segmentCount: 0, mirroring: null, points: [] };
+export const NO_VECTOR_EDIT: VectorEditState = {
+  active: false,
+  ref: null,
+  tool: "MOVE",
+  selectedVertices: [],
+  selectedSegments: [],
+  vertexCount: 0,
+  segmentCount: 0,
+  mirroring: null,
+  points: [],
+  layers: [],
+  variableWidth: false,
+};
 
 type Raw = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -72,6 +92,8 @@ export function readVectorEdit(raw: Raw | null | undefined): VectorEditState {
     points: Array.isArray(raw.points)
       ? (raw.points as Raw[]).filter((p) => p && typeof p === "object").map((p) => ({ index: num(p.index), x: num(p.x), y: num(p.y), cornerRadius: num(p.cornerRadius) }))
       : [],
+    layers: Array.isArray(raw.layers) ? raw.layers.filter((g): g is string => typeof g === "string") : typeof raw.ref === "string" ? [raw.ref] : [],
+    variableWidth: raw.variableWidth === true,
   };
 }
 
@@ -104,9 +126,10 @@ export class VectorEditor {
     return !!engineMethod(this.engine, "startVectorEdit");
   }
 
-  /** Does the engine have this vector-edit tool? */
+  /** Does the engine have this vector-edit tool (Variable width: and does it apply to the edited layer)? */
   hasTool(tool: VectorTool): boolean {
-    return this.available && ENGINE_VECTOR_TOOLS.has(tool) && !!engineMethod(this.engine, "setVectorEditTool");
+    const ok = this.available && ENGINE_VECTOR_TOOLS.has(tool) && !!engineMethod(this.engine, "setVectorEditTool");
+    return ok && (tool !== "VARIABLE_WIDTH" || this.state.get().variableWidth);
   }
 
   /** "Edit object" (Enter or a double-click on a vector does it on the canvas). */

@@ -1315,7 +1315,7 @@ class Editor : private LayoutHost, public TextLayouts {
     // The Shape builder: its regions (world) for `builderKey`, the inputs' layers, the region under the pointer, the
     // regions a drag took (⌥ held when it started: they are removed).
     uint64_t builderKey = 0;
-    std::vector<geom::PlanarFace> builderFaces;
+    geom::PlanarMap builderMap;
     std::vector<Guid> builderLayers;
     int builderHover = -1;
     std::vector<int> builderTaken;

@@ -186,9 +186,10 @@ void Editor::widthPointerMove(Vec2 s, uint32_t mods) {
     double w = drawnWeight(n->props, *g);
     if (!(w > 0)) return;
     double d = (local - at).x * up.x + (local - at).y * up.y;
-    double share = std::max(0.0, (vector_.widthDragPart == 1 ? d : -d) / w);
-    if (mods & MOD_ALT) (vector_.widthDragPart == 1 ? p.ascent : p.descent) = share;
-    else p.ascent = p.descent = share;
+    // Both sides alike: the distance off the path, whichever side the pointer is on (a new point is grabbed on the
+    // path itself); ⌥: the grabbed side only, up to the path.
+    if (mods & MOD_ALT) (vector_.widthDragPart == 1 ? p.ascent : p.descent) = std::max(0.0, (vector_.widthDragPart == 1 ? d : -d) / w);
+    else p.ascent = p.descent = std::fabs(d) / w;
   }
   geom::WidthPoint moved = p;
   points = geom::normalized(std::move(points));

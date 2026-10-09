@@ -12,11 +12,7 @@ namespace {
 double cross(Vec2 a, Vec2 b) { return a.x * b.y - a.y * b.x; }
 double dot(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
 
-// A source curve: a cubic (quads elevated; a line has `line` set).
-struct Curve {
-  Vec2 p[4];
-  bool line = false;
-};
+using Curve = PlanarMap::Curve;
 
 // A flattened edge of one curve, between registered vertices, with the curve's parameters at its ends; `splits`:
 // where other edges cross it (parameter along the edge, vertex).
@@ -100,14 +96,15 @@ bool PlanarFace::contains(Vec2 p) const {
   return true;
 }
 
-std::vector<PlanarFace> planarFaces(const std::vector<FaceInput>& inputs, double tolerance, size_t maxEdges) {
+PlanarMap planarMap(const std::vector<FaceInput>& inputs, double tolerance, size_t maxEdges) {
+  PlanarMap map;
   const double tol = std::max(tolerance, 1e-6);
   // Merge radius: far below anything drawn, above the round-off of the crossings.
   Rect all;
   bool any = false;
   for (const FaceInput& in : inputs)
     if (!in.path.empty()) all = any ? all.united(in.path.bounds()) : in.path.bounds(), any = true;
-  if (!any) return {};
+  if (!any) return map;
   const double eps = std::max(1e-7, std::max(all.w, all.h) * 1e-9);
 
   std::vector<Curve> curves;
@@ -180,7 +177,7 @@ std::vector<PlanarFace> planarFaces(const std::vector<FaceInput>& inputs, double
           if (!polys[ii].empty() && polys[ii].back().points.size() > 1 && polys[ii].back().points.back() == polys[ii].back().points.front())
             polys[ii].back().points.pop_back();
         });
-    if (edges.size() > maxEdges) return {};
+    if (edges.size() > maxEdges) return map;
   }
   const std::vector<Vec2>& P = verts.pts;
 
@@ -235,11 +232,7 @@ std::vector<PlanarFace> planarFaces(const std::vector<FaceInput>& inputs, double
   }
 
   // 3. The planar graph: edges split at their crossings, each pair of vertices joined once.
-  struct GEdge {
-    uint32_t u, v, curve;
-    double tu, tv;
-  };
-  std::vector<GEdge> graph;
+  std::vector<PlanarMap::Edge> graph;
   std::unordered_map<uint64_t, uint32_t> seen;
   for (Edge& e : edges) {
     std::sort(e.splits.begin(), e.splits.end());
@@ -258,7 +251,7 @@ std::vector<PlanarFace> planarFaces(const std::vector<FaceInput>& inputs, double
     for (auto& [t, v] : e.splits) add(v, t);
     add(e.b, 1);
   }
-  if (graph.empty()) return {};
+  if (graph.empty()) return map;
 
   // 4. Faces: half-edges h = 2e (u → v) and 2e + 1 (v → u); around each vertex by angle; a face's next half-edge
   // is the one before the arriving half-edge's twin (bounded faces then wind positively, the outside negatively).
@@ -290,7 +283,7 @@ std::vector<PlanarFace> planarFaces(const std::vector<FaceInput>& inputs, double
     return list[(slot[twin] + list.size() - 1) % list.size()];
   };
   UnionFind uf(P.size());
-  for (const GEdge& g : graph) uf.unite(g.u, g.v);
+  for (const PlanarMap::Edge& g : graph) uf.unite(g.u, g.v);
   std::vector<bool> done(H, false);
   struct Cycle {
     std::vector<uint32_t> half;
@@ -332,40 +325,12 @@ std::vector<PlanarFace> planarFaces(const std::vector<FaceInput>& inputs, double
   }
 
   // 5. Each bounded face: its covers (a point inside, tested against every input), its curves.
-  auto ringPath = [&](Path& out, const Cycle& c) {
-    size_t n = c.half.size();
-    if (n < 2) return;
-    auto param = [&](size_t i, double& t0, double& t1) {
-      const GEdge& g = graph[c.half[i] >> 1];
-      bool rev = c.half[i] & 1;
-      t0 = rev ? g.tv : g.tu;
-      t1 = rev ? g.tu : g.tv;
-      return g.curve;
-    };
-    out.moveTo(P[origin(c.half[0])]);
-    size_t i = 0;
-    while (i < n) {
-      double t0, t1;
-      uint32_t cv = param(i, t0, t1);
-      if (curves[cv].line) {
-        out.lineTo(P[target(c.half[i])]);
-        i++;
-        continue;
-      }
-      size_t j = i + 1;
-      while (j < n) {
-        double a, b;
-        if (param(j, a, b) != cv || std::fabs(a - t1) > 1e-9 || (t1 - t0) * (b - a) <= 0) break;
-        t1 = b;
-        j++;
-      }
-      Vec2 s[4];
-      cubicSection(curves[cv].p, t0, t1, s);
-      out.cubicTo(s[1], s[2], P[target(c.half[j - 1])]);
-      i = j;
-    }
-    out.close();
-  };
+  map.points = P;
+  map.curves = curves;
+  map.edges = graph;
+  map.nextHalf.resize(H);
+  for (size_t h = 0; h < H; h++) map.nextHalf[h] = static_cast<uint32_t>(next(h));
+  std::vector<int> faceOfCycle(cycles.size(), -1);
   std::vector<PlanarFace> faces;
   for (size_t f : bounded) {
     PlanarFace face;
@@ -405,11 +370,82 @@ std::vector<PlanarFace> planarFaces(const std::vector<FaceInput>& inputs, double
     for (size_t ii = 0; ii < inputs.size(); ii++)
       if (contains(polys[ii], face.sample, inputs[ii].rule == WindingRule::ODD)) face.covers.push_back(static_cast<uint32_t>(ii));
     if (face.covers.empty()) continue;
-    ringPath(face.path, cycles[f]);
-    for (size_t h : holes[f]) ringPath(face.path, cycles[h]);
+    map.appendRing(face.path, cycles[f].half);
+    for (size_t h : holes[f]) map.appendRing(face.path, cycles[h].half);
+    faceOfCycle[f] = static_cast<int>(faces.size());
+    for (size_t h : holes[f]) faceOfCycle[h] = static_cast<int>(faces.size());
     faces.push_back(std::move(face));
   }
-  return faces;
+  map.faceOfHalf.assign(H, -1);
+  for (size_t c = 0; c < cycles.size(); c++)
+    for (uint32_t h : cycles[c].half) map.faceOfHalf[h] = faceOfCycle[c];
+  map.faces = std::move(faces);
+  return map;
+}
+
+void PlanarMap::appendRing(Path& out, const std::vector<uint32_t>& halves) const {
+  size_t n = halves.size();
+  if (n < 2) return;
+  auto origin = [&](uint32_t h) { return h & 1 ? edges[h >> 1].v : edges[h >> 1].u; };
+  auto target = [&](uint32_t h) { return h & 1 ? edges[h >> 1].u : edges[h >> 1].v; };
+  auto param = [&](size_t i, double& t0, double& t1) {
+    const Edge& g = edges[halves[i] >> 1];
+    bool rev = halves[i] & 1;
+    t0 = rev ? g.tv : g.tu;
+    t1 = rev ? g.tu : g.tv;
+    return g.curve;
+  };
+  out.moveTo(points[origin(halves[0])]);
+  size_t i = 0;
+  while (i < n) {
+    double t0, t1;
+    uint32_t cv = param(i, t0, t1);
+    if (curves[cv].line) {
+      out.lineTo(points[target(halves[i])]);
+      i++;
+      continue;
+    }
+    size_t j = i + 1;
+    while (j < n) {
+      double a, b;
+      if (param(j, a, b) != cv || std::fabs(a - t1) > 1e-9 || (t1 - t0) * (b - a) <= 0) break;
+      t1 = b;
+      j++;
+    }
+    Vec2 sec[4];
+    cubicSection(curves[cv].p, t0, t1, sec);
+    out.cubicTo(sec[1], sec[2], points[target(halves[j - 1])]);
+    i = j;
+  }
+  out.close();
+}
+
+Path PlanarMap::unionOf(const std::vector<int>& which) const {
+  Path out;
+  if (which.empty() || faceOfHalf.empty()) return out;
+  std::vector<bool> in(faces.size(), false);
+  for (int f : which)
+    if (f >= 0 && static_cast<size_t>(f) < faces.size()) in[static_cast<size_t>(f)] = true;
+  auto inside = [&](uint32_t h) { int f = faceOfHalf[h]; return f >= 0 && in[static_cast<size_t>(f)]; };
+  size_t H = nextHalf.size();
+  std::vector<bool> done(H, false);
+  for (uint32_t h0 = 0; h0 < H; h0++) {
+    // A boundary half-edge: the union on its left, the rest on its right.
+    if (done[h0] || !inside(h0) || inside(h0 ^ 1)) continue;
+    std::vector<uint32_t> ring;
+    uint32_t h = h0;
+    for (size_t guard = 0; guard <= H; guard++) {
+      done[h] = true;
+      ring.push_back(h);
+      // The next boundary half-edge around the union: the face's next one, turned on past edges inside the union.
+      uint32_t n = nextHalf[h];
+      for (size_t spin = 0; spin <= H && inside(n ^ 1); spin++) n = nextHalf[n ^ 1];
+      h = n;
+      if (h == h0 || done[h]) break;
+    }
+    appendRing(out, ring);
+  }
+  return out;
 }
 
 }  // namespace eng::geom

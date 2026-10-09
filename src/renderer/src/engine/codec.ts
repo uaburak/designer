@@ -121,7 +121,15 @@ export type MaskType = "ALPHA" | "OUTLINE" | "LUMINANCE";
 export type VectorMirror = "NONE" | "ANGLE" | "ANGLE_AND_LENGTH";
 /** XOR = "Exclude". */
 export type BooleanOperation = "UNION" | "INTERSECT" | "SUBTRACT" | "XOR";
-export type VectorEditTool = "MOVE" | "PEN" | "BEND" | "LASSO" | "PAINT_BUCKET";
+export type VectorEditTool = "MOVE" | "PEN" | "BEND" | "LASSO" | "PAINT_BUCKET" | "CUT" | "ERASE" | "SHAPE_BUILDER" | "VARIABLE_WIDTH";
+/** Width profile presets (Stroke settings; developers.figma.com VariableWidthStrokeProperties). */
+export type WidthProfile = "UNIFORM" | "WEDGE" | "TAPER" | "QUARTER_TAPER" | "EYE" | "MIRRORED_TAPER";
+/** A variable-width stroke's point: 0…1 along the stroke, the shares of the weight left (ascent) / right (descent) of the path. */
+export interface WidthPoint {
+  position: number;
+  ascent: number;
+  descent: number;
+}
 /** A layout guide ("Layout grid"): columns (axis X), rows (axis Y) or a square grid. */
 export interface LayoutGrid {
   type?: "MIN" | "CENTER" | "STRETCH" | "MAX";
@@ -856,6 +864,11 @@ export type EngineEvent =
       mirroring: VectorMirror | "MIXED" | null;
       /** The selected vertices: x / y in the node's parent's space (like the layer's X / Y), their corner radius. */
       points: { index: number; x: number; y: number; cornerRadius: number; mirroring: VectorMirror }[];
+      /** Round 12: the layers held (Enter on several), whether Variable width applies, the edited layer's width points. */
+      layers?: Guid[];
+      variableWidth?: boolean;
+      widthPoints?: WidthPoint[];
+      widthSelected?: number;
     }
   /** Gradient (paint) edit mode: which paint's handles are on the canvas, and the selected stop. */
   | { type: "PAINT_EDIT"; active: boolean; ref: Guid | null; paints: "FILL" | "STROKE"; index: number; stop: number }
