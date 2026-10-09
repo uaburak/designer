@@ -224,10 +224,22 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
     <div className={styles.instanceHead} data-instance-header="">
       {/* Live: the name at 17 in 13px/550 (no label: the text names it), More actions at 208; under it "Go to main component" */}
       <div className={styles.instanceTitleRow}>
-        <button type="button" className={styles.instanceName} data-instance-menu={name} aria-haspopup="dialog" aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)}>
+        {/* Live (design/instance.txt): the name is plain text, no button around it — a click (or Enter / Space) opens the swap picker */}
+        <div
+          tabIndex={0}
+          className={styles.instanceName}
+          data-instance-menu={name}
+          data-open={picker ? "" : undefined}
+          onClick={(e) => togglePicker(e.currentTarget)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            togglePicker(e.currentTarget);
+          }}
+        >
           <span className={styles.headerText}>{assetLabel(name)}</span>
           <Icon name="16.chevron.down" className={styles.nameChevron} />
-        </button>
+        </div>
         <div className={styles.headerActions}>
           {bound && <BindButton layer={instance} field="OVERRIDDEN_SYMBOL_ID" type="INSTANCE_SWAP" />}
           <MenuButton label="More actions" entries={more} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} menuClassName={hstyles.actionsMenu} onSelect={onMore}>
@@ -896,7 +908,8 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
           {name}
         </button>
       )}
-      <div className={styles.variantValue} aria-label={`Edit property value for ${name}`}>
+      {/* Live (design/variant.txt): a listbox 92 × 32 around the 24 box, the value 68 wide, its chevron part of the box (no button) */}
+      <div role="listbox" className={styles.variantValue} aria-label={`Edit property value for ${name}`}>
         <div ref={field} className={styles.variantField}>
           <input
             ref={input}
@@ -914,6 +927,10 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
             }}
             onKeyDown={(e) => {
               e.stopPropagation();
+              if (e.key === "ArrowDown" && e.altKey) {
+                e.preventDefault();
+                setList(field.current?.getBoundingClientRect() ?? null);
+              }
               if (e.key === "Enter") e.currentTarget.blur();
               if (e.key === "Escape") {
                 cancelled.current = true;
@@ -921,9 +938,9 @@ function VariantRow({ set, variant, name, values, value }: { set: CNode; variant
               }
             }}
           />
-          <button type="button" className={styles.variantChevron} aria-label={`${name} values`} aria-expanded={!!list} onClick={() => setList(list ? null : (field.current?.getBoundingClientRect() ?? null))}>
+          <span className={styles.variantChevron} aria-hidden="true" data-variant-values={name} data-open={list ? "" : undefined} onClick={() => setList(list ? null : (field.current?.getBoundingClientRect() ?? null))}>
             <Icon name="16.chevron.down" />
-          </button>
+          </span>
         </div>
       </div>
       {list && (

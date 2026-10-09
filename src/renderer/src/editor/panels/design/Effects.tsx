@@ -25,7 +25,9 @@
  * margin or offset, gutter; the colour. Stored as `layoutGrids`.
  */
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, cx, type ChangeInfo, type IconName, type PopoverPlacement } from "@/ds";
+import { BLEND_LABEL, BLEND_MODES, Button, Checkbox, ColorInput, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, SearchField, SegmentedControl, Select, cx, tooltipProps, type ChangeInfo, type IconName, type PopoverPlacement } from "@/ds";
+import { guidStr, guidVal, resolveVariable } from "../../model/variables";
+import { VariablePicker } from "../variables/VariablePicker";
 import type { BlendMode, Color, Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
@@ -607,9 +609,16 @@ export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
           <div key={i} className={cx(styles.paintRow, g.visible === false && styles.rowHidden)} data-guide-row={guideKind(g)}>
             <div className={styles.effectField}>
               <IconButton icon={GUIDE_ICON[guideKind(g)]} label="Layout guide settings" aria-expanded={open?.index === i} onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })} />
-              <span className={styles.effectLabel}>{guideLabel(g)}</span>
+              {/* Live (design/frame-with-layout-guide.txt): the guide's name a 124 wide button at 48 (its text 9 in) under a
+                  hidden "Layout guide type"; a click opens its settings (unverified beyond the capture) */}
+              <span className={styles.guideName}>
+                <span className={styles.guideNameLabel}>Layout guide type</span>
+                <button type="button" className={styles.guideNameButton} onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget.parentElement?.previousElementSibling as HTMLElement ?? ev.currentTarget })}>
+                  {guideLabel(g)}
+                </button>
+              </span>
             </div>
-            <IconButton icon={g.visible === false ? "24.hidden.small" : "24.eye.small"} label={g.visible === false ? "Show layout guide" : "Hide layout guide"} tone="secondary" onClick={() => write(grids.map((x, j) => (j === i ? { ...x, visible: x.visible === false } : x)), "Layout guide")} />
+            <IconButton icon={g.visible === false ? "24.hidden.small" : "24.eye.small"} label="Toggle visibility" tone="secondary" onClick={() => write(grids.map((x, j) => (j === i ? { ...x, visible: x.visible === false } : x)), "Layout guide")} />
             <IconButton icon="24.minus.small" label="Remove layout guide" tone="secondary" onClick={() => write(grids.filter((_, j) => j !== i), "Remove layout guide")} />
           </div>
         ))}
@@ -618,6 +627,44 @@ export function LayoutGuideSection({ nodes }: { nodes: PanelNode[] }) {
       )}
     </PanelSection>
   );
+}
+
+/**
+ * "Apply variable" on a layout guide's number (schema LayoutGrid.sectionSizeVar…): a number variable, its value written
+ * with the binding (the guide keeps it when the mode changes — variables.ts re-resolves it).
+ */
+function GuideVariableButton({ grid, field, onChange }: { grid: LayoutGrid; field: "sectionSize"; onChange: (next: LayoutGrid) => void }) {
+  const ed = useEditor();
+  const [open, setOpen] = useState<HTMLElement | null>(null);
+  const key = `${field}Var` as const;
+  const bound = guideVariable(grid, key);
+  return (
+    <>
+      <button type="button" className={styles.guideVariable} aria-label="Apply variable" aria-expanded={!!open} {...tooltipProps("Apply variable")} onClick={(e) => setOpen(open ? null : e.currentTarget)}>
+        <Icon name="24.variable.small" />
+      </button>
+      {open && (
+        <VariablePicker
+          anchor={open}
+          types={["FLOAT"]}
+          current={bound}
+          onPick={(v) => {
+            const value = resolveVariable(v.id, ed.variables.get().lookup);
+            onChange({ ...grid, ...(typeof value === "number" ? { [field]: value } : {}), [key]: { dataType: "ALIAS", resolvedDataType: "FLOAT", value: { alias: { guid: guidVal(v.id) } } } } as LayoutGrid);
+            setOpen(null);
+          }}
+          onClose={() => setOpen(null)}
+        />
+      )}
+    </>
+  );
+}
+
+/** The variable a layout guide's number is bound to, or null. */
+export function guideVariable(grid: LayoutGrid, key: "sectionSizeVar" | "numSectionsVar" | "offsetVar" | "gutterSizeVar"): Guid | null {
+  const d = (grid as Record<string, unknown>)[key] as { value?: { alias?: { guid?: { sessionID: number; localID: number } } } } | undefined;
+  const g = d?.value?.alias?.guid;
+  return g ? guidStr(g) : null;
 }
 
 export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { grid: LayoutGrid; anchor: HTMLElement; onChange: (next: LayoutGrid, info: ChangeInfo) => void; onCancel: () => void; onClose: () => void }) {
@@ -668,7 +715,11 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         {kind === "GRID" ? (
           <>
             <span className={styles.settingsLabel}>Size</span>
-            <NumericInput scrubHandle="previous" label="Width" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v }, info)} onCancel={onCancel} />
+            {/* Live (design/frame-with-layout-guide.txt): the number 98 wide at 15, "Apply variable" 20 × 22 at the field's end */}
+            <span className={styles.guideSize}>
+              <NumericInput scrubHandle="previous" label="Width" min={1} value={grid.sectionSize ?? 10} onChange={(v, info) => onChange({ ...grid, sectionSize: v } as LayoutGrid, info)} onCancel={onCancel} />
+              <GuideVariableButton grid={grid} field="sectionSize" onChange={(next) => onChange(next, pick)} />
+            </span>
           </>
         ) : (
           <>

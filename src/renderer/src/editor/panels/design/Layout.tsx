@@ -187,10 +187,13 @@ function LockedSize({ axis, nodes, parents }: { axis: "x" | "y"; nodes: PanelNod
   const value = mixedNumber(nodes.map((n) => roundPanel(n.size?.[axis] ?? 0)));
   const text = sizing === "HUG" ? "Hug" : sizing === "FILL" ? "Fill" : isMixed(value) || value === undefined ? "Mixed" : String(value);
   return (
-    <div role="listbox" aria-label="Advanced auto layout settings" aria-disabled="true" className={styles.lockedSize} data-locked-size={axis}>
-      <div className={styles.lockedSizeBox}>
-        <span className={styles.lockedSizeAxis}>{axis === "x" ? "W" : "H"}</span>
-        <span className={styles.lockedSizeValue}>{text}</span>
+    // (Live: a "Horizontal / Vertical resizing" box around the list, the list itself not disabled.)
+    <div aria-label={axis === "x" ? "Horizontal resizing" : "Vertical resizing"} className={styles.lockedSize} data-locked-size={axis}>
+      <div role="listbox" aria-label="Advanced auto layout settings" className={styles.lockedSizeList}>
+        <div className={styles.lockedSizeBox}>
+          <span className={styles.lockedSizeAxis}>{axis === "x" ? "W" : "H"}</span>
+          <span className={styles.lockedSizeValue}>{text}</span>
+        </div>
       </div>
     </div>
   );
@@ -469,7 +472,7 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
   // baseline (Disabled / Enabled), Auto spacing (only for an Auto gap), Layout ("Updated"); a grid has Inside stroke and
   // Layout only.
   return (
-    <Popover anchor={anchor} title="Auto layout settings" width={240} onClose={onClose} label="Auto layout settings">
+    <Popover anchor={anchor} title="Auto layout settings" width={240} offsetY={-4} onClose={onClose} label="Auto layout settings">
       <div className={styles.alPreview} aria-hidden="true">Preview</div>
       <div className={cx(styles.settings, styles.alSettings)}>
         <span className={styles.settingsLabel}>Inside stroke</span>
@@ -497,7 +500,9 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
               onChange={(v) => ed.setProps(refs, fields({ stackReverseZIndex: v === "FIRST" }), "Canvas stacking")}
             />
             <span className={styles.settingsLabel}>Align text baseline</span>
-            <span className={styles.alEnd}>
+            <span className={cx(styles.alEnd, styles.alLegended)}>
+              {/* (Live: the control's "Align text baseline" legend 7 above it at −1, clipped from view) */}
+              <span className={styles.alLegend}>Align text baseline</span>
               <SegmentedControl
                 className={styles.typeSeg}
                 label="Align text baseline"

@@ -171,10 +171,10 @@
     letter-spacing: var(--ds-tracking-body-large-strong);
     outline: none;
   }
-  .instanceName:hover, .instanceName[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .instanceName:hover, .instanceName[data-open] { background: var(--figma-color-bg-hover); }
   /* (Live: the name alone at rest; its chevron shows on hover — unverified.) */
   .nameChevron { flex: none; color: var(--figma-color-icon-secondary); visibility: hidden; }
-  .instanceName:hover .nameChevron, .instanceName[aria-expanded="true"] .nameChevron, .instanceName:focus-visible .nameChevron { visibility: visible; }
+  .instanceName:hover .nameChevron, .instanceName[data-open] .nameChevron, .instanceName:focus-visible .nameChevron { visibility: visible; }
   .instanceName:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .fromRow {
     display: flex;
