@@ -13,6 +13,7 @@ import { commandForKey, isEnabled } from "./commands";
 import { opacityForDigit, type OpacityBuffer } from "./opacityKeys";
 import { fields } from "./panels/design/shared";
 import type { VectorTool } from "./vectorEdit";
+import { pref } from "./preferences";
 
 const VECTOR_KEYS: Record<string, VectorTool> = { KeyV: "MOVE", KeyQ: "LASSO", KeyP: "PEN", KeyB: "PAINT_BUCKET" };
 
@@ -71,9 +72,10 @@ export function attachKeyboard(ed: EditorController, canvas: HTMLCanvasElement):
         return;
       }
     }
-    // 0–9: the selection's opacity (two digits typed quickly make one value: Figma's opacity keys).
+    // 0–9: the selection's opacity (two digits typed quickly make one value: Figma's opacity keys; Preferences › Use
+    // number keys for opacity).
     const digit = /^Digit(\d)$/.exec(e.code);
-    if (digit && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && ed.selection.length && !ed.vector.state.get().active) {
+    if (digit && pref(ed.ui.get(), "numberKeysOpacity") && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && ed.selection.length && !ed.vector.state.get().active) {
       e.preventDefault();
       const next = opacityForDigit(opacityBuffer, Number(digit[1]), e.timeStamp || performance.now());
       opacityBuffer = next.buffer;

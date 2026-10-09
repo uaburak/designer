@@ -388,7 +388,7 @@ TEST_CASE("right-click selects the layer under the pointer and reports every lay
   const Guid Over{1, 70};
   nodes.push_back(make(Over, NodeType::ROUNDED_RECTANGLE, kPage, "$", {30, 30, 100, 100}, "Over"));  // over A, on the page
   Editor e = load(nodes);
-  CHECK(e.pointer(PointerEvent::DOWN, 45, 45, 2, 2, 0) == P_HANDLED);
+  CHECK((e.pointer(PointerEvent::DOWN, 45, 45, 2, 2, 0) & P_HANDLED) != 0);  // captured: a drag would pan (round 9)
   e.pointer(PointerEvent::UP, 45, 45, 2, 0, 0);
   CHECK(e.selection() == std::vector<Guid>{Over});
   auto ev = e.takeEvents();
@@ -403,6 +403,7 @@ TEST_CASE("right-click selects the layer under the pointer and reports every lay
   // On a layer that is part of the selection: the selection stays.
   e.setSelection({Over, B});
   e.pointer(PointerEvent::DOWN, 100, 100, 2, 2, 0);
+  e.pointer(PointerEvent::UP, 100, 100, 2, 0, 0);  // the menu opens on the release (Right-click and drag to pan)
   CHECK(e.selection() == std::vector<Guid>{Over, B});
   // ⌃-click (⌃ not the command key) is a right-click; empty canvas keeps the selection.
   e.pointer(PointerEvent::DOWN, 900, 700, 0, 1, MOD_CTRL);

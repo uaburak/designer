@@ -11,7 +11,7 @@ import { ContextMenu, Rail as DSRail, RailItem, RailSeparator, RailSpacer, type 
 import { useEditor } from "../controller";
 import { command, shortcutOf } from "../commands";
 import { useLibraries, useUI } from "../hooks";
-import { mainMenu, runMenuItem } from "../menus";
+import { MAIN_MENU_WIDTH, mainMenu, runMenuItem } from "../menus";
 import type { RailTab } from "../uiStore";
 import { MissingFontsButton } from "./MissingFonts";
 
@@ -77,6 +77,7 @@ export function Rail() {
           at={menu.at}
           entries={menu.entries}
           label="Main menu"
+          minWidth={MAIN_MENU_WIDTH}
           ignore={figma}
           onSelect={(id) => {
             if (!runMenuItem(ed, id)) return;

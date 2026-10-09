@@ -11,7 +11,7 @@ import { useSelection } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
 import { useUI } from "../hooks";
-import { mainMenu, runMenuItem } from "../menus";
+import { MAIN_MENU_WIDTH, mainMenu, runMenuItem } from "../menus";
 import { RightHeader, RightPanel, ZoomMenu } from "./RightPanel";
 import styles from "./Panels.module.css";
 
@@ -49,7 +49,7 @@ export function MinimizedPanels() {
           <ZoomMenu />
         </div>
       )}
-      {menu && <ContextMenu at={menu} entries={mainMenu(ed)} label="Main menu" ignore={button} onSelect={(id) => runMenuItem(ed, id)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu} entries={mainMenu(ed)} label="Main menu" minWidth={MAIN_MENU_WIDTH} ignore={button} onSelect={(id) => runMenuItem(ed, id)} onClose={() => setMenu(null)} />}
     </>
   );
 }

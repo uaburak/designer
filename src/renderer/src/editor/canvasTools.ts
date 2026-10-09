@@ -10,17 +10,30 @@ import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import type { UIState } from "./uiStore";
 import { fields } from "./panels/design/shared";
+import { pref } from "./preferences";
 
-/** The engine's view options as the UI holds them (defaults: pixel grid, layout guides, snap to pixel grid, slices on). */
+/**
+ * The engine's view options as the UI holds them (defaults: pixel grid, layout guides, snap to pixel grid, slices on;
+ * the Preferences as live Figma has them — preferences.ts).
+ */
 export function viewOptionsOf(ui: UIState) {
   return {
     pixelGrid: ui.pixelGrid !== false,
     outlines: !!ui.outlines,
     layoutGuides: ui.layoutGuides !== false,
     rulers: !!ui.rulers,
-    snapToPixelGrid: ui.snapToPixelGrid !== false,
+    snapToPixelGrid: pref(ui, "snapToPixelGrid"),
     showSlices: ui.showSlices !== false,
     pixelPreview: (ui.pixelPreview ?? 0) as 0 | 1 | 2,
+    snapToGeometry: pref(ui, "snapToGeometry"),
+    snapToObjects: pref(ui, "snapToObjects"),
+    keepToolSelected: pref(ui, "keepToolSelected"),
+    showDimensions: pref(ui, "showDimensions"),
+    flipWhileResizing: pref(ui, "flipWhileResizing"),
+    keyboardZoomsIntoSelection: pref(ui, "keyboardZoomsIntoSelection"),
+    invertZoom: pref(ui, "invertZoom"),
+    scrollWheelZoom: pref(ui, "scrollWheelZoom"),
+    rightDragPan: pref(ui, "rightDragPan"),
   };
 }
 

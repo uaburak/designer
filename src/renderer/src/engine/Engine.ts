@@ -41,6 +41,15 @@ import {
   VIEW_RULERS,
   VIEW_SLICES,
   VIEW_SNAP_PIXELS,
+  VIEW_SNAP_GEOMETRY,
+  VIEW_SNAP_OBJECTS,
+  VIEW_KEEP_TOOL,
+  VIEW_SHOW_DIMENSIONS,
+  VIEW_FLIP_RESIZE,
+  VIEW_KEYBOARD_ZOOM_SELECTION,
+  VIEW_INVERT_ZOOM,
+  VIEW_SCROLL_WHEEL_ZOOM,
+  VIEW_RIGHT_DRAG_PAN,
   WIRE_JSON,
   WIRE_KIWI,
   type CommandName,
@@ -617,7 +626,10 @@ export class Engine {
   /**
    * View › Pixel grid (drawn from 300 % zoom), outline mode (⇧⌘O: every layer as a thin outline), Layout guides (⇧G);
    * round 8: rulers (⇧R: ruler guides shown, dragged and snapped to), Snap to pixel grid (⇧⌘′, default on), Show
-   * slices (default on), Pixel preview (⌃P: 1x or 2x; 0 off).
+   * slices (default on), Pixel preview (⌃P: 1x or 2x; 0 off). Round 9, Preferences (live Figma's defaults when
+   * left out): Snap to geometry / objects (on), Keep tool selected after use (off), Show dimensions on objects (on),
+   * Flip objects while resizing (on), Keyboard zooms into selection (off), Invert zoom direction (off), Use scroll
+   * wheel zoom (off), Right-click and drag to pan (on).
    */
   setViewOptions(options: {
     pixelGrid: boolean;
@@ -627,6 +639,15 @@ export class Engine {
     snapToPixelGrid?: boolean;
     showSlices?: boolean;
     pixelPreview?: 0 | 1 | 2;
+    snapToGeometry?: boolean;
+    snapToObjects?: boolean;
+    keepToolSelected?: boolean;
+    showDimensions?: boolean;
+    flipWhileResizing?: boolean;
+    keyboardZoomsIntoSelection?: boolean;
+    invertZoom?: boolean;
+    scrollWheelZoom?: boolean;
+    rightDragPan?: boolean;
   }): void {
     const flags =
       (options.pixelGrid ? VIEW_PIXEL_GRID : 0) |
@@ -635,7 +656,16 @@ export class Engine {
       (options.rulers ? VIEW_RULERS : 0) |
       (options.snapToPixelGrid !== false ? VIEW_SNAP_PIXELS : 0) |
       (options.showSlices !== false ? VIEW_SLICES : 0) |
-      (options.pixelPreview === 2 ? VIEW_PIXEL_PREVIEW_2X : options.pixelPreview === 1 ? VIEW_PIXEL_PREVIEW : 0);
+      (options.pixelPreview === 2 ? VIEW_PIXEL_PREVIEW_2X : options.pixelPreview === 1 ? VIEW_PIXEL_PREVIEW : 0) |
+      (options.snapToGeometry !== false ? VIEW_SNAP_GEOMETRY : 0) |
+      (options.snapToObjects !== false ? VIEW_SNAP_OBJECTS : 0) |
+      (options.keepToolSelected ? VIEW_KEEP_TOOL : 0) |
+      (options.showDimensions !== false ? VIEW_SHOW_DIMENSIONS : 0) |
+      (options.flipWhileResizing !== false ? VIEW_FLIP_RESIZE : 0) |
+      (options.keyboardZoomsIntoSelection ? VIEW_KEYBOARD_ZOOM_SELECTION : 0) |
+      (options.invertZoom ? VIEW_INVERT_ZOOM : 0) |
+      (options.scrollWheelZoom ? VIEW_SCROLL_WHEEL_ZOOM : 0) |
+      (options.rightDragPan !== false ? VIEW_RIGHT_DRAG_PAN : 0);
     this.after(this.x.setViewOptions(this.h, flags));
   }
 

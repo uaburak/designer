@@ -21,6 +21,7 @@ import { LibraryIndex } from "./libraries";
 import type { CNode } from "./model/components";
 import { DETAIL_FIELDS, EMPTY_TREE, RowDetailsStore, treeFromNodes, treeFromOutline, type LayerTree, type OutlineNode, type RowReader } from "./model/layerTree";
 import { Store, type UIState } from "./uiStore";
+import { loadPreferences } from "./preferences";
 
 /** Node types the engine reads back as they are (anything else reads NONE until the engine has it). */
 const ENGINE_TYPES = new Set(["DOCUMENT", "CANVAS", "GROUP", "FRAME", "ELLIPSE", "RECTANGLE", "ROUNDED_RECTANGLE", "SYMBOL", "INSTANCE", "SECTION"]);
@@ -131,6 +132,8 @@ export class EditorController {
       presenting: null,
       preview: null,
       shareOpen: false,
+      // The Preferences this machine keeps (preferences.ts).
+      ...loadPreferences(),
       ...ui,
     });
     this.tools = probeTools(engine);

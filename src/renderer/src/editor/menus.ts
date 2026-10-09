@@ -4,7 +4,7 @@
  * (the rail's Figma button) with Figma's File / Edit / View / Object / Text /
  * Arrange submenus, and the canvas context menu.
  */
-import { showToast, type IconName, type MenuEntry, type MenuItem } from "@/ds";
+import type { IconName, MenuEntry, MenuItem } from "@/ds";
 import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
@@ -521,21 +521,19 @@ function selectLayerSubmenu(ed: EditorController, layers: { id: Guid; name: stri
 
 /**
  * A page row's menu (live context-page-row.txt; behaviour/pages.md): Copy link to page │ Rename page, Duplicate page │
- * the moves that apply (Move up / down; Move to top / bottom past a neighbour — those two unverified) │ Delete page.
+ * Move up / Move down (each where it applies; Move down unverified — the capture's page was the last) │ Delete page.
+ * Copy link waits for deep links (docs/desktop-impl.md), as the file tabs' Copy link does.
  */
 export function pageMenu(ed: EditorController, page: Guid): MenuEntry[] {
   const pages = ed.store.pages;
   const at = pages.findIndex((p) => p.guid === page);
-  const last = pages.length - 1;
   const can = (name: "DELETE_PAGE" | "DUPLICATE_PAGE") => (ed.engine.commandState(name) & CMD_ENABLED) !== 0;
   const moves: MenuEntry[] = [
     ...(at > 0 ? [{ id: "page:move-up", label: "Move up" }] : []),
-    ...(at >= 0 && at < last ? [{ id: "page:move-down", label: "Move down" }] : []),
-    ...(at > 1 ? [{ id: "page:move-to-top", label: "Move to top" }] : []),
-    ...(at >= 0 && at < last - 1 ? [{ id: "page:move-to-bottom", label: "Move to bottom" }] : []),
+    ...(at >= 0 && at < pages.length - 1 ? [{ id: "page:move-down", label: "Move down" }] : []),
   ];
   return [
-    { id: "page:copy-link", label: "Copy link to page" },
+    { id: "page:copy-link", label: "Copy link to page", disabled: true },
     "-",
     { id: "page:rename", label: "Rename page" },
     { id: "page:duplicate", label: "Duplicate page", disabled: !can("DUPLICATE_PAGE") },
@@ -546,30 +544,13 @@ export function pageMenu(ed: EditorController, page: Guid): MenuEntry[] {
   ];
 }
 
-/** The link "Copy link to page" copies: the file's, at that page (`node-id`, Figma's link parameter). */
-export const pageLink = (fileKey: string, page: Guid) => `designerv2://file/${fileKey}?node-id=${encodeURIComponent(page)}`;
-
-/** This file's key, when the workspace gave one (a file opened from Home). */
-export const fileKeyOf = (ed: EditorController): string => ed.source.libraries?.fileKey ?? ed.source.previews?.fileKey ?? "";
-
 /** Runs a page menu pick; true when it ran. */
 export function runPageMenuItem(ed: EditorController, page: Guid, id: string): boolean {
   const pages = ed.store.pages;
   const at = pages.findIndex((p) => p.guid === page);
-  const move = (to: number) => {
-    // moveNodes counts the other pages: index `to` in the list without this page.
-    if (to === at || to < 0 || to >= pages.length) return false;
-    return ed.engine.moveNodes([page], "0:0", to) > 0;
-  };
+  // moveNodes counts the other pages: index `to` in the list without this page.
+  const move = (to: number) => to !== at && to >= 0 && to < pages.length && ed.engine.moveNodes([page], "0:0", to) > 0;
   switch (id) {
-    case "page:copy-link": {
-      const link = pageLink(fileKeyOf(ed), page);
-      void navigator.clipboard?.writeText(link).then(
-        () => showToast({ message: "Link copied to clipboard" }),
-        () => showToast({ message: "Couldn’t copy the link" })
-      );
-      return true;
-    }
     case "page:rename":
       ed.ui.set({ renaming: { kind: "page", id: page } });
       return true;
@@ -581,10 +562,6 @@ export function runPageMenuItem(ed: EditorController, page: Guid, id: string): b
       return move(at - 1);
     case "page:move-down":
       return move(at + 1);
-    case "page:move-to-top":
-      return move(0);
-    case "page:move-to-bottom":
-      return move(pages.length - 1);
   }
   return false;
 }

@@ -687,11 +687,15 @@ uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode,
   // Pans move by whole device pixels, so the page's cached pixels can simply shift (docs/engine.md §6.9).
   double sx = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1, sy = viewport_.scaleY() > 0 ? viewport_.scaleY() : 1;
   auto pan = [&](double px, double py) { changeCamera(camera_.panned(std::round(px * sx) / sx, std::round(py * sy) / sy)); };
-  if ((flags & WHEEL_PINCH) || (mods & (MOD_CTRL | MOD_META))) {
-    // A pinch (ctrlKey from a trackpad) or ⌘/Ctrl + wheel zooms about the pointer.
+  // Preferences › Use scroll wheel zoom (round 9): a plain wheel zooms and ⌘ / Ctrl + wheel pans; a pinch still zooms.
+  bool zoomKey = (mods & (MOD_CTRL | MOD_META)) != 0;
+  bool zoom = (flags & WHEEL_PINCH) || ((viewOptions_ & VIEW_SCROLL_WHEEL_ZOOM) ? !zoomKey && !(mods & MOD_SHIFT) : zoomKey);
+  if (zoom) {
+    // A pinch (ctrlKey from a trackpad) or ⌘/Ctrl + wheel zooms about the pointer (Invert zoom direction: the other way).
     double rate = mode == DeltaMode::LINE ? 0.05 : 0.01;
+    double sign = (viewOptions_ & VIEW_INVERT_ZOOM) ? 1 : -1;
     zooming_ = true;
-    changeCamera(camera_.zoomedAround(camera_.zoom * std::exp(-dy * (mode == DeltaMode::PAGE ? unit : 1) * rate), {x, y}));
+    changeCamera(camera_.zoomedAround(camera_.zoom * std::exp(sign * dy * (mode == DeltaMode::PAGE ? unit : 1) * rate), {x, y}));
   } else if ((mods & MOD_SHIFT) && dx == 0) {
     pan(-dy * unit, 0);
   } else {
@@ -725,6 +729,14 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   }
   // Viewer mode: no context menu, nothing but selecting (and panning, above).
   if (viewer_ && button != 0) return 0;
+  // Preferences › Right-click and drag to pan (round 9, on by default): a right drag pans; a right click (no drag) opens
+  // the context menu on release (pointerUp).
+  if (!viewer_ && button == 2 && (viewOptions_ & VIEW_RIGHT_DRAG_PAN)) {
+    gesture_ = Gesture::Pan;
+    rightPress_ = true;
+    rightPanned_ = false;
+    return P_HANDLED | P_CAPTURE;
+  }
   // A right-click, or ⌃-click where ⌃ isn't the command key (a Mac).
   if (!viewer_ && (button == 2 || (button == 0 && (mods & MOD_CTRL) && !(mods & MOD_PRIMARY)))) return contextMenu(s, mods);
   if (button != 0) return 0;
@@ -981,6 +993,12 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
       needsRender_ = true;
       break;
     case Gesture::Pan: {
+      // A right press pans once it moved past the drag threshold.
+      if (rightPress_ && !rightPanned_) {
+        if ((s - downScreen_).length() < kDragThreshold) break;
+        rightPanned_ = true;
+        changeCursor(CursorKind::GRABBING);
+      }
       // By whole device pixels (the cached page pixels shift, docs/engine.md §6.9).
       double sx = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1, sy = viewport_.scaleY() > 0 ? viewport_.scaleY() : 1;
       changeCamera(downCamera_.panned(std::round((s.x - downScreen_.x) * sx) / sx, std::round((s.y - downScreen_.y) * sy) / sy));
@@ -1069,7 +1087,18 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       pencilFinish();
       endGesture();
       return;
-    case Gesture::Pan: break;
+    case Gesture::Pan:
+      if (rightPress_) {
+        // A right click that didn't pan: the context menu, where it was pressed.
+        bool click = !rightPanned_;
+        rightPress_ = rightPanned_ = false;
+        gesture_ = Gesture::None;
+        endGesture();
+        if (click) contextMenu(downScreen_, downMods_);
+        updateHover(s, mods);
+        return;
+      }
+      break;
     case Gesture::Press: finishClick(mods); break;
     case Gesture::Move: finishMove(); break;
     case Gesture::Resize:
@@ -1111,7 +1140,8 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       commit();
       drawn_ = kNoGuid;
       gesture_ = Gesture::None;
-      setTool(Tool::MOVE);  // after a draw, back to Move (Figma)
+      // After a draw, back to Move (Figma), unless Preferences › Keep tool selected after use (round 9).
+      if (!(viewOptions_ & VIEW_KEEP_TOOL)) setTool(Tool::MOVE);
       break;
     case Gesture::Marquee: needsRender_ = true; break;
     case Gesture::ZoomArea: {
@@ -1163,6 +1193,7 @@ void Editor::endGesture() {
 void Editor::redrag(uint32_t mods) { pointerMove(lastScreen_, mods); }
 
 void Editor::cancelGesture() {
+  rightPress_ = rightPanned_ = false;
   switch (gesture_) {
     case Gesture::Vector:
       if (txn_.open) rollback();
@@ -1264,14 +1295,17 @@ void Editor::prepareSnapping(Guid parent, const std::unordered_set<Guid, GuidHas
   Rect view = Rect::fromPoints(a, b);
   double margin = std::max(view.w, view.h) * 0.5;
   view = {view.x - margin, view.y - margin, view.w + 2 * margin, view.h + 2 * margin};
-  doc_.query(page_, view, [&](Guid id) {
-    const Node* n = doc_.get(id);
-    if (n && n->props.parentIndex.guid == parent && !moving.count(id) && n->props.visible) boxes.push_back(doc_.worldBounds(id));
-    return true;
-  });
+  // Preferences › Snap to objects (round 9): off, only ruler guides and layout grids are snapped to.
+  const bool objects = (viewOptions_ & VIEW_SNAP_OBJECTS) != 0;
+  if (objects)
+    doc_.query(page_, view, [&](Guid id) {
+      const Node* n = doc_.get(id);
+      if (n && n->props.parentIndex.guid == parent && !moving.count(id) && n->props.visible) boxes.push_back(doc_.worldBounds(id));
+      return true;
+    });
   std::optional<Rect> container;
   const Node* p = doc_.get(parent);
-  if (p && p->props.isFrameLike()) container = doc_.worldBounds(parent);
+  if (objects && p && p->props.isFrameLike()) container = doc_.worldBounds(parent);
   snapper_.reset(std::move(boxes), container);
   // Ruler guides and the frame's layout grids (round 8).
   std::vector<double> xs, ys;
@@ -1703,6 +1737,12 @@ void Editor::dragResize(Vec2 world, uint32_t mods) {
     }
     place(handleX_, W, sx, x0, x1);
     place(handleY_, H, sy, y0, y1);
+  }
+  // Preferences › Flip objects while resizing off (round 9): past the opposite edge the box grows the other way,
+  // unmirrored.
+  if (!(viewOptions_ & VIEW_FLIP_RESIZE)) {
+    if (x1 < x0) std::swap(x0, x1);
+    if (y1 < y0) std::swap(y0, y1);
   }
   // Pixel-grid snapping (Snap to pixel grid): whole px when the box is at least 1 px; never zero.
   const bool wholePx = (viewOptions_ & VIEW_SNAP_PIXELS) != 0;

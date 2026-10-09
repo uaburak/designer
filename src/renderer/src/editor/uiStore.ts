@@ -8,6 +8,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { Camera, Guid } from "@/engine/codec";
 import type { ImportedImage } from "./images";
+import type { PreferenceKey } from "./preferences";
 
 /** The navigation bar's tabs (Figma 2026: File, Agents, Assets, Tools; Variables opens the variables view instead) */
 export type RailTab = "file" | "agents" | "assets" | "tools";
@@ -28,7 +29,10 @@ export interface FindState {
   at: number;
 }
 
-export interface UIState {
+/** The Figma menu › Preferences checks (preferences.ts: live Figma's defaults when unset; kept per machine) */
+export type PreferenceFlags = { [K in PreferenceKey]?: boolean };
+
+export interface UIState extends PreferenceFlags {
   fileName: string;
   railTab: RailTab;
   leftWidth: number;
@@ -46,8 +50,6 @@ export interface UIState {
   outlines?: boolean;
   /** View › Layout guides (⇧G); default on */
   layoutGuides?: boolean;
-  /** Preferences › Snap to pixel grid (⇧⌘′); default on (round 8) */
-  snapToPixelGrid?: boolean;
   /** View › Show slices; default on (round 8) */
   showSlices?: boolean;
   /** View › Pixel preview (⌃P, ⇧⌘P): 0 off, 1 at 1x, 2 at 2x (round 8) */
@@ -78,12 +80,12 @@ export interface UIState {
   pagesHeight?: number | null;
   /** View › Additional labels: the navigation bar's tab names under the icons (default on) */
   railLabels?: boolean;
-  /** Preferences › Highlight layers on hover (default on) */
-  highlightOnHover?: boolean;
   /** "Rename layers" (⌘R on several layers): the layers, in the panel's order */
   renameLayers?: Guid[] | null;
   /** The shortcuts help (⌃⇧?) */
   shortcutsOpen: boolean;
+  /** The Actions palette (⌘K, the toolbar's Actions, the Figma menu's "Actions…") */
+  actionsOpen?: boolean;
   /** Figma's "Additional labels" (View menu, on by default since 2026; was "Property labels" in the zoom menu) */
   propertyLabels: boolean;
   /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */
