@@ -120,7 +120,8 @@ export const claudeCode: CliSpec = {
       case "assistant": {
         const content = ((line.message as { content?: unknown[] } | undefined)?.content ?? []) as { type?: string; text?: string; id?: string; name?: string; input?: unknown }[];
         for (const b of content) {
-          if (b.type === "text" && b.text && !state.streamed) out.push({ type: "text", delta: b.text });
+          // The CLI's own sign-in notice comes as a message too: the result's error says it once.
+          if (b.type === "text" && b.text && !state.streamed && !/^Not logged in/i.test(b.text)) out.push({ type: "text", delta: b.text });
           if (b.type === "tool_use" && b.id) {
             const name = shortToolName(b.name);
             state.tools.set(b.id, name);
@@ -137,7 +138,10 @@ export const claudeCode: CliSpec = {
         break;
       }
       case "result":
-        if (line.is_error || (typeof line.subtype === "string" && line.subtype.startsWith("error"))) out.push({ type: "error", message: text(line.result) || `Claude Code stopped (${String(line.subtype)}).` });
+        if (line.is_error || (typeof line.subtype === "string" && line.subtype.startsWith("error"))) {
+          const why = text(line.result);
+          out.push({ type: "error", message: /not logged in|\/login/i.test(why) ? "Claude Code isn’t signed in on this computer. Open Terminal, run “claude” and sign in with /login, then try again." : why || `Claude Code stopped (${String(line.subtype)}).` });
+        }
         break;
     }
     return out;
@@ -289,6 +293,7 @@ export function runCliProcess(o: { spec: CliSpec; path: string; plan: CliPlan; c
   const state: ParseState = { streamed: false, tools: new Map() };
   let stderr = "";
   let gotOutput = false;
+  let errored = false;
   let ended = false;
   const end = (error?: string) => {
     if (ended) return;
@@ -299,7 +304,10 @@ export function runCliProcess(o: { spec: CliSpec; path: string; plan: CliPlan; c
   child.stdout?.on("data", (chunk: string) => {
     for (const line of lines.push(chunk)) {
       gotOutput = true;
-      for (const e of spec.parse(line, state)) o.emit(e);
+      for (const e of spec.parse(line, state)) {
+        if (e.type === "error") errored = true;
+        o.emit(e);
+      }
     }
   });
   child.stderr?.setEncoding("utf8");
@@ -307,7 +315,8 @@ export function runCliProcess(o: { spec: CliSpec; path: string; plan: CliPlan; c
   child.on("error", (err) => end(`${spec.label}: ${err.message}`));
   child.on("close", (code) => {
     for (const line of lines.push("\n")) for (const e of spec.parse(line, state)) o.emit(e);
-    if (o.stopped() || code === 0) return end();
+    // Its own error event said why already (e.g. "Not logged in"): no second message.
+    if (o.stopped() || code === 0 || errored) return end();
     const why = stderr.trim().split("\n").slice(-3).join(" ").slice(0, 600);
     end(`${spec.label} exited (${code})${why ? `: ${why}` : gotOutput ? "" : " without output — is it signed in? Run it once in Terminal."}`);
   });

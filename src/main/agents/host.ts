@@ -273,7 +273,25 @@ export async function testProvider(id: string): Promise<{ ok: boolean; models: s
       child.on("close", () => resolve(out.trim()));
       setTimeout(() => child.kill(), 5000);
     });
-    return version ? { ok: true, models: spec.models } : { ok: false, models: [], error: `${path} didn't answer --version` };
+    if (!version) return { ok: false, models: [], error: `${path} didn't answer --version` };
+    // Claude Code says whether it is signed in without asking the model (`claude auth status`).
+    if (spec.id === "claude-code") {
+      const status = await new Promise<string>((resolve) => {
+        const child = spawn(path, ["auth", "status"], { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "ignore"] });
+        let out = "";
+        child.stdout.on("data", (d) => (out += d));
+        child.on("error", () => resolve(""));
+        child.on("close", () => resolve(out));
+        setTimeout(() => child.kill(), 8000);
+      });
+      try {
+        const s = JSON.parse(status) as { loggedIn?: boolean; authMethod?: string };
+        if (s.loggedIn === false) return { ok: false, models: [], error: `${version} — not signed in: run “claude” in Terminal and sign in with /login` };
+      } catch {
+        /* an older CLI without auth status: --version is all we know */
+      }
+    }
+    return { ok: true, models: spec.models };
   }
   const srv = serverOf(id);
   if (!srv) return { ok: false, models: [], error: "Unknown provider" };

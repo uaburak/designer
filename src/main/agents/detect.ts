@@ -35,6 +35,11 @@ export function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   // Never hand the app's own Electron mode or a debugger to a child.
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.NODE_OPTIONS;
+  // The app started from inside a Claude Code session (a terminal, a script): that session's markers would make the
+  // CLI a nested, "simple" run without the user's own sign-in — the CLI is the user's, as if started from the Dock.
+  const hosted = !!(env.CLAUDECODE || env.CLAUDE_CODE_ENTRYPOINT);
+  for (const k of Object.keys(env)) if (/^CLAUDE(CODE$|_CODE_|_AGENT_SDK_|_PID$|_EFFORT$|_PREVIEW_)/.test(k)) delete env[k];
+  if (hosted) delete env.ANTHROPIC_BASE_URL;
   return env;
 }
 

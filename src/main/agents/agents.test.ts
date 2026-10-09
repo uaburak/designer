@@ -217,6 +217,8 @@ describe("CLI adapters", () => {
     ]);
     expect(parseAll(claudeCode, [{ type: "system", subtype: "init", session_id: "s", mcp_servers: [{ name: "designer", status: "failed" }] }])[1]).toMatchObject({ type: "error" });
     expect(parseAll(claudeCode, [{ type: "result", subtype: "error_max_turns", is_error: true }])[0]).toMatchObject({ type: "error" });
+    // Recorded from the smoke test: an unsigned CLI.
+    expect(parseAll(claudeCode, [{ type: "result", subtype: "success", is_error: true, result: "Not logged in · Please run /login" }])[0]).toMatchObject({ type: "error", message: expect.stringMatching(/isn’t signed in/) });
   });
 
   it("Codex, Gemini CLI and Cursor's agent: their plans carry our server; their events are read", () => {
@@ -391,5 +393,26 @@ describe("Connect to MCP clients", () => {
     expect(after).not.toContain("http://old");
     expect(after.match(/\[mcp_servers\.designer\]/g)?.length).toBe(1);
     expect(mergeToml("", codexTable(ep))).toBe(codexTable(ep));
+  });
+});
+
+describe("the CLIs' environment", () => {
+  it("drops a hosting Claude Code session's markers (the CLI uses the user's own sign-in)", async () => {
+    const { cliEnv } = await import("./detect");
+    const saved = { ...process.env };
+    try {
+      Object.assign(process.env, { CLAUDECODE: "1", CLAUDE_CODE_SIMPLE: "1", CLAUDE_CODE_ENTRYPOINT: "x", ANTHROPIC_BASE_URL: "http://proxy", ELECTRON_RUN_AS_NODE: "1", KEEP_ME: "y" });
+      const env = cliEnv({ DESIGNER_MCP_TOKEN: "t" });
+      expect(env.CLAUDECODE).toBeUndefined();
+      expect(env.CLAUDE_CODE_SIMPLE).toBeUndefined();
+      expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+      expect(env.KEEP_ME).toBe("y");
+      expect(env.DESIGNER_MCP_TOKEN).toBe("t");
+      expect(env.PATH).toContain(".local/bin");
+    } finally {
+      for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
   });
 });
