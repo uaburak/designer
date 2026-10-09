@@ -45,13 +45,13 @@ export interface LayerRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onD
 }
 
 /** The inline rename: a ghost field; reports the new name (null when unchanged or cancelled) and how it was left. */
-function RenameField({ value, onDone, className }: { value: string; onDone: (name: string | null, exit: ExitReason) => void; className?: string }) {
+function RenameField({ value, onDone, className, label = STRINGS.rename }: { value: string; onDone: (name: string | null, exit: ExitReason) => void; className?: string; label?: string }) {
   const committed = useRef<string | null>(null);
   return (
     <TextInput
       className={className}
       variant="ghost"
-      label={STRINGS.rename}
+      label={label}
       value={value}
       autoFocus
       onCommit={(v) => {
@@ -178,7 +178,7 @@ export function PageRow({ id, name, current, renaming, divider, onRename, onSele
       {divider && !renaming ? (
         <span className={styles.divider} aria-label={name} />
       ) : renaming ? (
-        <RenameField className={styles.rename} value={name} onDone={(n) => onRename?.(n)} />
+        <RenameField className={styles.rename} label="Page name" value={name} onDone={(n) => onRename?.(n)} />
       ) : (
         <span className={styles.name}>{name}</span>
       )}

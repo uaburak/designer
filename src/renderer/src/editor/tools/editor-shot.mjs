@@ -4409,6 +4409,16 @@ async function panel12Section(page, theme) {
   });
   check("R12 N10: the Collections heading is #ffffffb2; the arrow follows Learn more with no gap", colors.heading === "rgba(255, 255, 255, 0.698)" && near(colors.arrowLeft, colors.textRight, 1), JSON.stringify(colors));
   await shot(page, `294-r12-variables-empty-${theme}`);
+  // 6. R13 N18: a page's inline rename is live's "Page name" input, the whole 224 × 24 row at 8, #2c2c2c, its text 8 in.
+  await page.locator('[data-rail-tab="file"]').click();
+  await page.evaluate(() => window.__designerEditor.ui.set({ renaming: { kind: "page", id: "0:1" } }));
+  await settle(page);
+  const pn = page.getByRole("textbox", { name: "Page name" });
+  const pnb = await box(pn);
+  const pnBg = await pn.evaluate((el) => getComputedStyle(el.parentElement).backgroundColor);
+  check("R13 N18: the page rename field is 224 × 24 at x=65 (live 8 in the panel), bg #2c2c2c", !!pnb && pnb[0] === 65 && pnb[2] === 224 && pnb[3] === 24 && pnBg === "rgb(44, 44, 44)", JSON.stringify([pnb, pnBg]));
+  await shot(page, `295-r13-page-rename-${theme}`);
+  await page.keyboard.press("Escape");
 }
 
 /**
