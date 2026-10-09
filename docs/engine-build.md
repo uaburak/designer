@@ -1,5 +1,22 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode; round 7 and 8 render)
 
+## Round 9 — Menus, toolbar and left side (branch `r9-menus-left-toolbar`)
+
+Status: done 2026-10-09 (checks below). Editor side in `docs/editor.md` "Round 9 — Menus, toolbar and left side".
+
+Engine side — the Figma menu › Preferences the canvas acts on, as `engine_set_view_options` bits (`Editor::ViewOption`, `abi.ts VIEW_*`, `Engine.setViewOptions`; `kViewOptionsAll` 131071; live Figma's defaults in `kViewOptionsDefault`):
+- 256 `VIEW_SNAP_GEOMETRY` (on): in vector edit mode a dragged point snaps onto another point of the network within 6 CSS px (help.figma.com "Snap to geometry": vector edit mode only); ⌃ / ⌘ don't snap.
+- 512 `VIEW_SNAP_OBJECTS` (on): moves, resizes and draws snap to the parent's other layers and the parent frame (`prepareSnapping`); off, only ruler guides and layout grids.
+- 1024 `VIEW_KEEP_TOOL` (off): after a shape is drawn the tool stays (text still goes to Move: it is being edited).
+- 2048 `VIEW_SHOW_DIMENSIONS` (on): the W × H badge under the selection (the angle while rotating stays).
+- 4096 `VIEW_FLIP_RESIZE` (on): an edge dragged past the opposite one mirrors the layer; off, the box grows the other way unmirrored (unverified).
+- 8192 `VIEW_KEYBOARD_ZOOM_SELECTION` (off): Zoom in / out / to 100 % about the selection's centre on screen.
+- 16384 `VIEW_INVERT_ZOOM` (off): ⌘ + wheel and pinches zoom the other way.
+- 32768 `VIEW_SCROLL_WHEEL_ZOOM` (off): a plain wheel zooms, ⌘ / Ctrl + wheel pans (⇧ + wheel still pans sideways; unverified details).
+- 65536 `VIEW_RIGHT_DRAG_PAN` (on): a right press captures the pointer; past 3 CSS px it pans, else the context menu opens on the release (the tests that pressed without releasing now release). ⌃-click still opens it at the press.
+
+Checks (after merging main 6323b70): `npm run check` ✓; `npm run engine:test` ✓ (new `r9.preferences.test.cpp`: defaults, snap to objects, keep tool, show dimensions, flip, keyboard zoom, invert / scroll wheel zoom, right-drag pan, snap to geometry); `npm run engine:shot` ✓; `node scripts/engine-shot.mjs --gfx webgpu` ✓; editor-shot ✓ (incl. `EDITOR_ONLY=menus9`). Release wasm rebuilt and committed.
+
 ## Round 8 — Design panel (branch `r8-design-panel`)
 
 Engine side of docs/editor.md "Round 8 — Design panel": `SELECT_GRID_TRACKS = 260` (`{frame?, axis: "COLUMNS" | "ROWS", tracks: number[]}` — the selected grid's tracks as a pill click selects them, `[]` clears; enabled while one grid frame is selected; `tools/GridGestures.cpp selectGridTracksCommand`) and `ALIGN_*` `{toParent: true}` (each layer within its own parent frame, page-level layers stay; `Commands.cpp align`). Native tests: `r6.grid_slots.test.cpp` "grid panel (round 8)", `r7.selection.test.cpp` "align (round 8)". Release wasm rebuilt.
