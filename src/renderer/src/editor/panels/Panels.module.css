@@ -102,6 +102,10 @@
   .tabActions { display: flex; flex: none; align-items: center; }
   /* Tools (live): a search 12 under the header, Source and Category, then the suggestions */
   .toolsSearch { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-3) 0 var(--ds-space-4); }
+  .toolsFilterButton { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
+  .toolsFilterButton:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-icon); }
+  .toolsFilterButton[data-open] { background: var(--figma-color-bg-selected); color: var(--figma-color-icon); }
+  .toolsFilterButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .toolsFilters { display: flex; gap: var(--ds-space-2); padding: var(--ds-space-4) var(--ds-space-3) 0 var(--ds-space-4); }
   /* Live (rail-tools.txt): the filters on the panel's own ground, their labels in the primary colour even when idle */
   .toolsFilter.toolsFilter { background: var(--figma-color-bg); color: var(--figma-color-text); }

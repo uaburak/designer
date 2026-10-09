@@ -134,7 +134,8 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
             disabled={disabledTools.includes(shown.id)}
             menuDisabled={g.tools.every((id) => disabledTools.includes(id))}
             menuLabel={g.label}
-            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === tool, radio: true, disabled: disabledTools.includes(id) }))}
+            // Live (toolbar/*-tools-menu.txt): the slot's own tool is the lit row, whichever tool is active
+            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
             onMenuSelect={(id) => !disabledTools.includes(id as ToolId) && onTool(id as ToolId)}
           />
         );

@@ -216,12 +216,12 @@ describe("round 10: toolbar", () => {
     ]);
   });
 
-  it("Actions opens on Recents (live), the commands when nothing was run yet", () => {
+  it("Actions opens on Recents (live); round 11: nothing run yet lists no commands", () => {
     const list = [
       { id: "a", label: "Zoom to fit", section: "View", disabled: false },
       { id: "b", label: "Flatten", section: "Object", disabled: false },
     ];
     expect(actionRows(list, "", ["b"], () => true).map((r) => [r.section, r.label])).toEqual([["Recents", "Flatten"]]);
-    expect(actionRows(list, "", [], () => true).map((r) => r.label)).toEqual(["Zoom to fit", "Flatten"]);
+    expect(actionRows(list, "", [], () => true)).toEqual([]);
   });
 });

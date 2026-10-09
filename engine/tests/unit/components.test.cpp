@@ -461,6 +461,22 @@ TEST_CASE("components: detach makes a frame with real layers; a nested instance 
   CHECK(props(e, sub(I, {LABEL})).text().textData.characters == "Go");
 }
 
+TEST_CASE("round 11: Flatten on an instance is enabled (live) — it is detached, then flattened, in one undo step") {
+  Editor e = load(buttonDoc());
+  e.setSelection({I});
+  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) != 0);
+  REQUIRE(e.command(CommandId::FLATTEN) == OK);
+  CHECK(props(e, I).type == NodeType::VECTOR);
+  CHECK(e.document().children(I).empty());
+  CHECK(e.selection() == std::vector<Guid>{I});
+  e.command(CommandId::UNDO);
+  CHECK(props(e, I).type == NodeType::INSTANCE);
+  CHECK(props(e, sub(I, {LABEL})).type == NodeType::TEXT);
+  // The main component stays unflattenable (live: its own Detach / Create component set).
+  e.setSelection({M});
+  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) == 0);
+}
+
 TEST_CASE("components: push changes to main, reset one property, go to main and back") {
   Editor e = load(buttonDoc());
   Guid bg = sub(I, {BG});

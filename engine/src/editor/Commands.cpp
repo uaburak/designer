@@ -273,7 +273,7 @@ uint32_t Editor::commandState(CommandId id) const {
     case CommandId::FLATTEN: {
       for (Guid t : selection_) {
         const Node* n = doc_.get(t);
-        if (n && flattenable(n->props)) return CMD_ENABLED;
+        if (n && flattenable(n->props) && !(n->props.type == NodeType::INSTANCE && t.isDerived())) return CMD_ENABLED;
       }
       return 0;
     }

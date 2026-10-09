@@ -4,8 +4,8 @@
  * / Assets / Plugins & widgets (at 8, 48), the "Visual search (AI beta)" button at 491, 12 (live's AI; listed, not
  * built), then sections: a header (11 / 450, secondary) and rows of 32 (13 / 400, the text at 44 after a 24 glyph
  * column). Live Figma's All tab opens on Recents and its AI sections (Image editing, Design tools, Riffing and writing
- * — not part of this app); here it opens on Recents (what was run from the palette, kept per machine) — with none yet,
- * on every command of the Figma menu under its submenu's name (unverified) —; typing searches the editor's command
+ * — not part of this app); here it opens on Recents (what was run from the palette, kept per machine; none yet: the
+ * block's header alone, as live's with no recents is unverified); typing searches the editor's command
  * registry (menus.ts actionItems). Assets lists this file's components
  * (a pick inserts an instance in the middle of the view); plugins and widgets aren't part of this app. ↑ ↓ move, Enter
  * runs, Esc (or a press outside, or ⌘K) closes.
@@ -79,7 +79,7 @@ function score(label: string, query: string): number {
 }
 
 /**
- * The All tab's rows: with an empty query, Recents (live) — the menus' commands when nothing was run yet —; else the
+ * The All tab's rows: with an empty query, Recents (live) — none when nothing was run yet —; else the
  * matches, best first, by section.
  */
 export function actionRows(items: readonly ActionItem[], query: string, recents: readonly string[], run: (id: string) => boolean): Row[] {
@@ -88,7 +88,8 @@ export function actionRows(items: readonly ActionItem[], query: string, recents:
   if (!q) {
     const byId = new Map(items.map((a) => [a.id, a]));
     const recent = recents.map((id) => byId.get(id)).filter((a): a is ActionItem => !!a);
-    return recent.length ? recent.map((a) => row(a, "Recents")) : items.map((a) => row(a));
+    // (live: Recents only — with none yet, an empty block; no list of every command)
+    return recent.map((a) => row(a, "Recents"));
   }
   const scored = items.map((a) => ({ a, s: score(a.label, q) })).filter((x) => x.s > 0);
   // Sections in the order of their best match; within one, best first (the menu's order breaks ties).
@@ -232,8 +233,12 @@ function Actions() {
           {/* Live: "Visual search (AI beta)" at 491, 12 — live's AI image search, not part of this app */}
           <IconButton icon="24.image" label="Visual search (AI beta)" className={styles.visualSearch} disabled />
         </div>
+        {/* Live: both lines are there for assistive tech — "Results will update as you type." at -1, 3 and "11 results available." at -1, 27 */}
         <div role="status" className={styles.srOnly}>
-          {query ? `${rows.length} results available.` : "Results will update as you type."}
+          Results will update as you type.
+        </div>
+        <div role="status" className={styles.srOnly} style={{ top: 24 }}>
+          {`${rows.length} results available.`}
         </div>
         <Tabs label="Action kinds" className={styles.tabs} value={tab} tabs={TABS} onChange={(v) => {
             setTab(v as Tab);
@@ -243,6 +248,11 @@ function Actions() {
           {tab === "plugins" && <p className={styles.empty}>Plugins and widgets aren’t part of this app</p>}
           {tab === "assets" && !rows.length && <p className={styles.empty}>{query ? "No components match" : "No components in this file"}</p>}
           {tab === "all" && query.trim() !== "" && !rows.length && <p className={styles.empty}>No results for “{query.trim()}”</p>}
+          {tab === "all" && query.trim() === "" && !rows.length && (
+            <div role="presentation" className={styles.header}>
+              Recents
+            </div>
+          )}
           {rows.map((r, i) => (
             <div key={r.key} style={{ display: "contents" }}>
               {(i === 0 || rows[i - 1].section !== r.section) && (

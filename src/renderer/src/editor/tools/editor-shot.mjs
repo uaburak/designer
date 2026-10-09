@@ -25,6 +25,7 @@
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
 //   EDITOR_ONLY=menus9 node …                                      (round 9 at 1440 × 900, run on its own: the Figma menu, canvas and tool menus, Actions, Preferences, right-drag pan, Assets, Variables)
 //   EDITOR_ONLY=menus10 node …                                     (round 10 at 1440 × 900, run on its own: flush menus, key colours, frame title / Layers row menus, vector edit toolbar, Actions Recents, Assets grid, page rows, Find)
+//   EDITOR_ONLY=menus11 node …                                     (round 11 at 1440 × 900, run on its own: Variables empty state and table, Tools filter, Actions Recents, toolbar lit row, tall Object submenu, key glyph widths, Flatten on an instance)
 //   EDITOR_ONLY=header9 node …                                     (round 9: the header of a layer in a frame, Frame ▾, the boolean menu, the component / variant / instance panels, Component configuration, the swap menu)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_ONLY=panel10 node …                                     (round 10 at 1440 × 900: Design panel states, popovers and sub-menus against the live captures)
@@ -3721,7 +3722,200 @@ async function menus10Section(page, theme) {
   await shot(page, `274-r10-assets-${theme}`);
 }
 
+/**
+ * Round 11 at 1440 × 900 (docs/research/figma/live/left/rail-variables-full-view.txt, rail-tools.txt, toolbar/*.txt,
+ * menus/main-object.txt, main-*.txt): the Variables empty state, the selected collection's bar, Edit variable on hover,
+ * Tools' Filter by price and type, Actions on Recents with live's two status lines, a slot menu lighting the slot's
+ * own tool, the Object submenu running past the window, the key glyphs' widths, Flatten on an instance.
+ */
+async function menus11Section(page, theme) {
+  await open(page, "&doc=capture");
+  const box = (loc) => loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  });
+  const near = (a, b, d = 1) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) <= d);
+  // 1. Variables, a file with no collection.
+  await page.locator('[data-rail-tab="variables"]').click();
+  await settle(page);
+  const win = page.locator("[data-local-variables]");
+  const title = await win.locator("h2").evaluate((el) => {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const b = r.getBoundingClientRect();
+    return [el.textContent, Math.round(b.left), Math.round(b.top), getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight];
+  });
+  check("R11 Variables empty: the title 'Variables' 13 / 450 at 322, 16 (live rail-variables-full-view.txt)", title[0] === "Variables" && Math.abs(title[1] - 322) <= 1 && title[2] === 16 && title[3] === "13px" && title[4] === "450", JSON.stringify(title));
+  const heading = win.getByText("No variables created in this file");
+  const hb = await heading.evaluate((el) => {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const b = r.getBoundingClientRect();
+    return [Math.round(b.left), Math.round(b.top), getComputedStyle(el).fontSize, getComputedStyle(el).fontWeight];
+  });
+  check("R11 Variables empty: 'No variables created in this file' 15 / 550 at 759, 414 (±3 text metrics)", Math.abs(hb[0] - 759) <= 3 && hb[1] === 414 && hb[2] === "15px" && hb[3] === "550", JSON.stringify(hb));
+  const create = win.getByRole("button", { name: "Create variable button" });
+  const imp = win.getByRole("button", { name: "Import variables button" });
+  check("R11 Variables empty: Create 71 × 24 at 794, 491 and Import 71 × 24 at 873, 491 (±1)", near(await box(create), [794, 491, 71, 24], 1) && near(await box(imp), [873, 491, 71, 24], 1), JSON.stringify([await box(create), await box(imp)]));
+  check("R11 Variables empty: Learn more →, no search, no filter, the left panel holds only Collections", (await win.getByRole("link", { name: /Learn more/ }).count()) === 1 && (await win.getByRole("group", { name: "Search and filter" }).count()) === 0 && (await win.getByRole("button", { name: "Create collection" }).count()) === 1 && (await win.getByText("Create your first collection").count()) === 0);
+  await shot(page, `280-r11-variables-empty-${theme}`);
+  await create.click();
+  await settle(page);
+  const made = await page.evaluate(() => window.__designerEditor.assets?.variables?.length ?? null);
+  check("R11 Variables empty: Create makes a collection with its first variable", (await win.getByRole("row").count()) >= 2 && (await win.getByRole("button", { name: "Create variable button" }).count()) === 0, String(made));
+  // 2. The table (the variables fixture): the selected collection's bar, Edit variable on hover only.
+  await open(page, "&doc=variables");
+  await page.locator('[data-rail-tab="variables"]').click();
+  await settle(page);
+  const bar = await page.locator("[data-local-variables] [data-collection]").first().evaluate((el) => {
+    const s = getComputedStyle(el, "::before");
+    return [s.backgroundColor, s.height, s.borderRadius];
+  });
+  check("R11 Variables table: the selected collection has a #383838 bar, 24 high, 5 radius", bar[0] === "rgb(56, 56, 56)" && bar[1] === "24px" && bar[2] === "5px", JSON.stringify(bar));
+  const editBtn = page.locator("[data-local-variables]").getByRole("button", { name: "Edit variable" }).first();
+  const op0 = await editBtn.evaluate((el) => getComputedStyle(el).opacity);
+  await page.locator("[data-local-variables] [data-variable-row]").first().hover();
+  const op1 = await editBtn.evaluate((el) => getComputedStyle(el).opacity);
+  check("R11 Variables table: Edit variable's glyph is drawn on the hovered row only", op0 === "0" && op1 === "1", `${op0} -> ${op1}`);
+  await shot(page, `281-r11-variables-table-${theme}`);
+  await page.locator('[data-rail-tab="variables"]').click();
+  // 3. Tools: Filter by price and type enabled, with a menu.
+  await open(page, "&doc=capture");
+  await page.locator('[data-rail-tab="tools"]').click();
+  const filter = page.getByRole("button", { name: "Filter by price and type" });
+  check("R11 Tools: Filter by price and type is enabled and opens a menu", (await filter.isEnabled()) && (await filter.getAttribute("aria-haspopup")) === "menu");
+  await filter.click();
+  await settle(page);
+  check("R11 Tools: its menu lists prices and types", (await page.getByRole("menuitemradio").count()) + (await page.getByRole("menuitem").count()) >= 6 || (await page.getByRole("menu").count()) === 1);
+  await page.keyboard.press("Escape");
+  await page.locator('[data-rail-tab="file"]').click();
+  // 4. Actions with nothing run yet: Recents alone, the two status lines at -1, 0 and -1, 24.
+  await page.evaluate(() => localStorage.removeItem("designer.actions.recents"));
+  await page.locator('[data-ds="EditorToolbar"]').getByRole("button", { name: "Actions" }).click();
+  await settle(page);
+  const palette = page.locator("[data-actions-panel]");
+  const pb = await box(palette);
+  const statuses = await palette.locator('[role="status"]').evaluateAll((els) => els.map((e) => [e.textContent, Math.round(e.getBoundingClientRect().left), Math.round(e.getBoundingClientRect().top)]));
+  check("R11 Actions: 529 × 354 at 456, 478; no recents: the Recents header alone, no command list", near(pb, [456, 478, 529, 354], 0) && (await palette.locator('[role="option"]').count()) === 0 && (await palette.getByText("Recents", { exact: true }).count()) === 1, JSON.stringify(pb));
+  check("R11 Actions: 'Results will update as you type.' at -1, 0 and '0 results available.' 24 below (live -1, 3 / -1, 27 as text)", statuses.length === 2 && statuses[0][0] === "Results will update as you type." && statuses[0][1] === pb[0] - 1 && statuses[0][2] === pb[1] && statuses[1][2] === pb[1] + 24 && /results available\./.test(statuses[1][0]), JSON.stringify(statuses));
+  await shot(page, `282-r11-actions-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // 5. A slot's menu lights the slot's own tool, whichever tool is active.
+  await page.keyboard.press("o");
+  await settle(page);
+  await page.getByRole("button", { name: "Region tools" }).click();
+  await settle(page);
+  const region = page.getByRole("menu").last();
+  const litRegion = await region.locator("[data-highlighted]").first().evaluate((el) => [el.textContent, getComputedStyle(el.lastElementChild).color]);
+  check("R11 Toolbar: with Ellipse active, Region tools lights Frame, its key #ffffffcc (live region-tools-menu.txt)", /^Frame/.test(litRegion[0]) && litRegion[1] === "rgba(255, 255, 255, 0.8)", JSON.stringify(litRegion));
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Type tools" }).click();
+  await settle(page);
+  const litType = await page.getByRole("menu").last().locator("[data-highlighted]").first().evaluate((el) => el.textContent);
+  check("R11 Toolbar: Type tools lights Text", /^Text/.test(litType), litType);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("v");
+  // 6. The Object submenu runs past the window (live: 185 × 1050 at 210, 6), no bar.
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "Object", exact: true }).hover();
+  await page.waitForTimeout(400);
+  const objectMenu = page.getByRole("menu").last();
+  const ob = await box(objectMenu);
+  check("R11 Object submenu: 185 × 1050 at 210, 6 (±1), past the window's 900", near(ob, [210, 6, 185, 1050], 1), JSON.stringify(ob));
+  await shot(page, `283-r11-object-menu-${theme}`);
+  // 7. Key glyph widths: Edit 190, Vector 198, Preferences 235 (live main-*.txt).
+  const widths = {};
+  for (const [name, want] of [["Edit", 190], ["Vector", 198], ["Preferences", 235], ["File", 198]]) {
+    await page.getByRole("menuitem", { name, exact: true }).first().hover();
+    await page.waitForTimeout(350);
+    widths[name] = [(await box(page.getByRole("menu").last()))[2], want];
+  }
+  check("R11 key glyphs: Edit 190, Vector 198, Preferences 235, File 198 wide (±1; live main-*.txt)", Object.values(widths).every(([w, want]) => Math.abs(w - want) <= 1), JSON.stringify(widths));
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  // 8. Flatten on an instance: enabled, one undo step.
+  const inst = await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const all = [];
+    const walk = (g) => {
+      const n = ed.engine.readNode(g);
+      if (!n) return;
+      all.push([g, n]);
+      for (const c of ed.engine.readNodes([g], { childIds: true })[0]?.childIds ?? []) walk(c);
+    };
+    walk("0:0");
+    return all.find(([, n]) => n.type === "INSTANCE" && n.name === "Button instance")?.[0] ?? null;
+  });
+  await page.evaluate((id) => window.__designerEditor.engine.setSelection([id]), inst);
+  await settle(page);
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "Object", exact: true }).hover();
+  await page.waitForTimeout(350);
+  const flat = page.getByRole("menu").last().getByRole("menuitem", { name: /^Flatten/ });
+  check("R11 Flatten on an instance is enabled (live context-instance.txt)", inst !== null && (await flat.getAttribute("aria-disabled")) === null, String(inst));
+  await flat.click();
+  await settle(page);
+  const afterType = await page.evaluate((id) => window.__designerEditor.engine.readNode(id).type, inst);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  const undoneType = await page.evaluate((id) => window.__designerEditor.engine.readNode(id).type, inst);
+  check("R11 Flatten on an instance: it becomes a vector; one undo brings the instance back", afterType === "VECTOR" && undoneType === "INSTANCE", `${afterType} -> ${undoneType}`);
+  // 9. Vector editing tools: Figma Draw's two stay listed disabled (not built).
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    ed.engine.setSelection(["7:60"]);
+    ed.vector.start("7:60");
+  });
+  await settle(page);
+  await page.locator("[data-vector-toolbar]").getByRole("button", { name: "More" }).click();
+  await settle(page);
+  const dis = await page.getByRole("menu", { name: "Vector editing tools" }).getByRole("menuitemradio").evaluateAll((els) => els.map((e) => e.getAttribute("aria-disabled")));
+  check("R11 Vector editing tools: Shape builder and Variable width listed disabled (Figma Draw: not built)", dis.join() === "true,true", dis.join());
+  await page.keyboard.press("Escape");
+  // 10. A store-backed file (what the desktop app opens; the browser's dev store stands in): the file commands that need
+  // a document source are enabled — Duplicate, Save to version history…, Show version history, Create
+  // branch…; Save local copy… needs the desktop's own bridge (window.designer.files), so it is off here.
+  const key = await page.evaluate(async (repo) => {
+    const st = await import("/src/store/index.ts");
+    const { encodeMessage, newDocumentMessage } = await import(`/@fs${repo}/src/shared/schema/codec.ts`);
+    const mem = await st.getDevStore().ready;
+    return (await mem.addFile({ name: "Round 11", folderId: null, snapshot: encodeMessage(st.messageToKiwi(newDocumentMessage())) })).fileKey;
+  }, repo);
+  await open(page, `&file=${key}`);
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "File", exact: true }).hover();
+  await page.waitForTimeout(350);
+  const fileMenu = page.getByRole("menu").last();
+  const states = {};
+  for (const name of ["Duplicate", "Save local copy…", "Save to version history…", "Show version history", "Create branch…"]) {
+    const row = fileMenu.getByRole("menuitem", { name }).first();
+    states[name] = (await row.count()) === 1 && (await row.getAttribute("aria-disabled")) === null;
+  }
+  check("R11 a store-backed file: Duplicate, Save to version history…, Show version history and Create branch… are enabled", ["Duplicate", "Save to version history…", "Show version history", "Create branch…"].every((n) => states[n]), JSON.stringify(states));
+  check("R11 a store-backed file in a browser: Save local copy… stays off (the desktop's own bridge)", states["Save local copy…"] === false);
+  await page.getByRole("menuitem", { name: "Duplicate" }).first().click();
+  await settle(page);
+  const toast = await page.getByText(/Duplicated as/).count();
+  check("R11 File › Duplicate runs (a toast names the copy in a browser; the desktop opens it in a tab)", toast === 1);
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "File", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Show version history" }).click();
+  await settle(page);
+  check("R11 File › Show version history opens the history", (await page.getByRole("dialog").count()) >= 1 || (await page.evaluate(() => !!window.__designerEditor.ui.get().versionDialog)));
+  await page.keyboard.press("Escape");
+}
+
 try {
+  if (only === "menus11") {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await menus11Section(page, "dark");
+    await context.close();
+  }
   if (only === "leftpanel" || (!only && part !== "2")) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
