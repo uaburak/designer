@@ -256,17 +256,20 @@ uint32_t Editor::commandState(CommandId id) const {
     case CommandId::BOOLEAN_SUBTRACT:
     case CommandId::BOOLEAN_INTERSECT:
     case CommandId::BOOLEAN_EXCLUDE: {
+      // Live Figma offers them for one layer too (a rectangle's Boolean operations menu, an instance's More actions):
+      // a boolean group around that one layer.
       auto top = topSelectionInPaintOrder();
-      bool booleans = !top.empty();
-      for (Guid t : top) booleans &= doc_.get(t)->props.isBoolean();
-      return top.size() >= 2 || booleans ? CMD_ENABLED : 0;
+      bool booleans = !top.empty(), derived = false;
+      for (Guid t : top) {
+        booleans &= doc_.get(t)->props.isBoolean();
+        derived |= t.isDerived();
+      }
+      return booleans || (!top.empty() && !derived) ? CMD_ENABLED : 0;
     }
     case CommandId::FLATTEN: {
       for (Guid t : selection_) {
         const Node* n = doc_.get(t);
-        if (n && (n->props.isPathShape() || n->props.isRectLike() || n->props.type == NodeType::ELLIPSE || n->props.type == NodeType::TEXT ||
-                  n->props.isGroupLike()))
-          return CMD_ENABLED;
+        if (n && flattenable(n->props)) return CMD_ENABLED;
       }
       return 0;
     }

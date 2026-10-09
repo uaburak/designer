@@ -1,0 +1,127 @@
+@layer app {
+  /*
+   * The instance swap menu (live popovers/instance-header-swap-menu.txt, 240 × 441 with its 40 header): the search at
+   * 8, 48 (224 × 24, the field 197 at 35), the library row at 84 (the library 130 wide at 8, Settings at 208), the
+   * level's header at 117 (‹ at 8, its name at 32), rows of 48 from 145 (a 40 thumbnail at 16, the name at 64), then
+   * the folders (a glyph at 16, the name at 44).
+   */
+  .picker { display: flex; flex-direction: column; height: 401px; }
+  .search {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: var(--ds-size-control);
+    margin: var(--ds-space-2) var(--ds-space-2) 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .search:focus-within { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .searchIcon { flex: none; color: var(--figma-color-icon-secondary); }
+  .searchInput {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--ds-space-4);
+    margin-left: 3px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .searchInput::placeholder { color: var(--figma-color-text-secondary); }
+  .libraryRow { position: relative; display: flex; flex: none; align-items: center; justify-content: space-between; height: var(--ds-size-control); margin-top: var(--ds-space-3); padding: 0 var(--ds-space-2); }
+  /* The library field's name for assistive tech, where live has it (under the field) */
+  .hidden { position: absolute; top: 1px; left: 7px; color: var(--figma-color-text); clip-path: inset(50%); white-space: nowrap; pointer-events: none; }
+  .library {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-half);
+    width: 130px;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 9px;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .library:hover, .library[data-open] { background: var(--figma-color-bg-hover); }
+  .library svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .libraryName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .settings {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--ds-size-control);
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: transparent;
+    color: var(--figma-color-icon-secondary);
+    outline: none;
+  }
+  .settings:hover, .settings[data-open] { background: var(--ds-color-bg-transparent-hover); color: var(--figma-color-icon); }
+  .library:focus-visible, .settings:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .filter { flex: none; padding: var(--ds-space-2) var(--ds-space-2) 0; }
+  .list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 9px 0 var(--ds-space-2); }
+  .heading { display: flex; align-items: center; height: var(--ds-size-control); margin-bottom: var(--ds-space-1); padding-left: var(--ds-space-2); }
+  .up { width: 100%; padding-right: var(--ds-space-2); border: 0; background: transparent; color: var(--figma-color-text); text-align: left; outline: none; }
+  .up:hover .back, .up:focus-visible .back { color: var(--figma-color-icon); }
+  .up:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .back { flex: none; color: var(--figma-color-icon-secondary); transform: rotate(180deg); }
+  .headingName {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .heading:not(.up) .headingName { padding-left: var(--ds-space-2); }
+  .item, .folder {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-4);
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+    outline: none;
+  }
+  .item { gap: var(--ds-space-2); height: 48px; }
+  .folder { gap: var(--ds-space-1); height: var(--ds-space-8); }
+  .item:hover .thumb, .item:focus-visible .thumb { box-shadow: inset 0 0 0 1px var(--figma-color-border-component); }
+  .folder:hover, .folder:focus-visible { background: var(--figma-color-bg-hover); }
+  .folders { margin-top: var(--ds-space-4); }
+  .folderIcon { flex: none; color: var(--figma-color-icon-secondary); }
+  .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thumb {
+    position: relative;
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    overflow: hidden;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .thumbCanvas { max-width: calc(100% - var(--ds-space-2)); max-height: calc(100% - var(--ds-space-2)); object-fit: contain; }
+  .glyph { position: absolute; color: var(--figma-color-icon-component); }
+  .thumbCanvas[data-drawn] ~ .glyph { display: none; }
+  .grid { display: grid; grid-template-columns: repeat(3, 64px); gap: var(--ds-space-2); padding: 0 var(--ds-space-4); }
+  .tile { width: 64px; height: 64px; padding: 0; }
+  .tile .thumb { width: 64px; height: 64px; }
+  .empty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
+}

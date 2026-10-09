@@ -527,9 +527,63 @@ const box = (guid: string, name: string, parent: string, pos: string, x: number,
 const pad = (p: number) => ({ stackHorizontalPadding: p, stackVerticalPadding: p, stackPaddingRight: p, stackPaddingBottom: p });
 
 /**
+ * The live Capture page's components (docs/research/figma/live/design/component*.txt, instance*.txt, variant*.txt,
+ * nested-instance*.txt; their Layers in nested-instance.txt): "Button" (100, 600; auto layout 95 × 44 Hug, gap 8,
+ * padding 16 / 12) with Show icon (Boolean), Label (Text) and Icon (Instance swap, Star); "Icon/Heart" and
+ * "Icon/Star"; the set "Chip" (300, 600; 364 × 40) with State = Default / Hover / Pressed; "Card" (600, 600; 119 × 68,
+ * padding 12) holding "Nested button"; and "Button instance" (100, 720), "Chip instance" (300, 720), "Card instance"
+ * (800, 600). The icons' places are not in the dumps (100 / 140, 800 here).
+ */
+const CAPTURE_COMPONENTS: NodeChange[] = (() => {
+  const g = (l: number) => ({ sessionID: 8, localID: l });
+  const def = (l: number) => ({ sessionID: 8, localID: 0x7fffff00 + l });
+  const ref = (field: string, resolved: string, id: { sessionID: number; localID: number }) => ({ variableField: field, variableData: { dataType: "PROP_REF", resolvedDataType: resolved, value: { propRefValue: { defId: id } } } });
+  const button = { size: { x: 95, y: 44 }, fillPaints: solidFill(0x0d99ff), cornerRadius: 8, stackMode: "HORIZONTAL", stackSpacing: 8, stackHorizontalPadding: 16, stackVerticalPadding: 12, stackPaddingRight: 16, stackPaddingBottom: 12, stackCounterAlignItems: "CENTER", stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" };
+  const card = { size: { x: 119, y: 68 }, fillPaints: solidFill(0xffffff), cornerRadius: 12, stackMode: "HORIZONTAL", ...pad(12), stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" };
+  const chip = (fill: number) => ({ size: { x: 100, y: 40 }, fillPaints: solidFill(fill), cornerRadius: 20 });
+  // The live file's instances were renamed (Layers: "Button instance"…): a name override on the instance's root.
+  const rename = (name: string) => ({ guidPath: { guids: [] }, name });
+  return [
+    node({
+      guid: "8:1", type: "SYMBOL", name: "Button", parentIndex: { guid: "0:1", position: "8" }, transform: at(100, 600), ...button,
+      componentPropDefs: [
+        { id: def(1), name: "Show icon", type: "BOOL", initialValue: { boolValue: true }, sortPosition: "!" },
+        { id: def(2), name: "Label", type: "TEXT", initialValue: { textValue: { characters: "Label" } }, sortPosition: '"' },
+        { id: def(3), name: "Icon", type: "INSTANCE_SWAP", initialValue: { guidValue: g(20) }, sortPosition: "#" },
+      ],
+    }),
+    node({ guid: "8:2", type: "INSTANCE", name: "Icon/Star", parentIndex: { guid: "8:1", position: "!" }, size: { x: 20, y: 20 }, transform: at(16, 12), symbolData: { symbolID: g(20), symbolOverrides: [] }, parameterConsumptionMap: { entries: [ref("VISIBLE", "BOOLEAN", def(1)), ref("OVERRIDDEN_SYMBOL_ID", "SYMBOL_ID", def(3))] } }),
+    node({ guid: "8:3", type: "TEXT", name: "Label", parentIndex: { guid: "8:1", position: '"' }, size: { x: 35, y: 16 }, transform: at(44, 14), fillPaints: solidFill(0xffffff), textData: { characters: "Label" }, fontName: { family: "Inter", style: "Regular", postscript: "" }, fontSize: 13, textAutoResize: "WIDTH_AND_HEIGHT", parameterConsumptionMap: { entries: [ref("TEXT_DATA", "TEXT_DATA", def(2))] } }),
+    node({ guid: "8:21", type: "SYMBOL", name: "Icon/Heart", parentIndex: { guid: "0:1", position: "7" }, size: { x: 20, y: 20 }, transform: at(140, 800) }),
+    node({ guid: "8:23", type: "ELLIPSE", name: "Heart", parentIndex: { guid: "8:21", position: "!" }, size: { x: 20, y: 20 }, transform: at(0, 0), fillPaints: solidFill(0xf24822) }),
+    node({ guid: "8:20", type: "SYMBOL", name: "Icon/Star", parentIndex: { guid: "0:1", position: "6" }, size: { x: 20, y: 20 }, transform: at(100, 800) }),
+    node({ guid: "8:22", type: "STAR", name: "Star", parentIndex: { guid: "8:20", position: "!" }, size: { x: 20, y: 20 }, transform: at(0, 0), fillPaints: solidFill(0xffc700), count: 5, starInnerScale: 0.382 }),
+    node({
+      guid: "8:40", type: "FRAME", name: "Chip", isStateGroup: true, parentIndex: { guid: "0:1", position: "9" }, size: { x: 364, y: 40 }, transform: at(300, 600), fillPaints: [],
+      strokePaints: [{ type: "SOLID", color: { r: 0x97 / 255, g: 0x47 / 255, b: 1, a: 1 }, opacity: 1, visible: true }], strokeWeight: 1, strokeAlign: "INSIDE", dashPattern: [10, 5], cornerRadius: 5,
+      stackMode: "HORIZONTAL", stackSpacing: 16, ...pad(16), stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "FIXED",
+      componentPropDefs: [{ id: def(10), name: "State", type: "VARIANT", initialValue: { textValue: { characters: "Default" } } }],
+      stateGroupPropertyValueOrders: [{ property: "State", values: ["Default", "Hover", "Pressed"] }],
+    }),
+    ...(
+      [
+        ["8:41", "Default", 16, 0xe5f4ff, "!"],
+        ["8:42", "Hover", 132, 0xbde3ff, '"'],
+        ["8:43", "Pressed", 248, 0x80caff, "#"],
+      ] as const
+    ).map(([guid, state, x, fill, position]) => node({ guid, type: "SYMBOL", name: `State=${state}`, parentIndex: { guid: "8:40", position }, transform: at(x, 16), ...chip(fill), variantPropSpecs: [{ propDefId: def(10), value: state }] })),
+    node({ guid: "8:50", type: "SYMBOL", name: "Card", parentIndex: { guid: "0:1", position: ":" }, transform: at(600, 600), ...card }),
+    node({ guid: "8:51", type: "INSTANCE", name: "Nested button", parentIndex: { guid: "8:50", position: "!" }, transform: at(12, 12), ...button, symbolData: { symbolID: g(1), symbolOverrides: [rename("Nested button")] } }),
+    node({ guid: "8:60", type: "INSTANCE", name: "Button instance", parentIndex: { guid: "0:1", position: ";" }, transform: at(100, 720), ...button, symbolData: { symbolID: g(1), symbolOverrides: [rename("Button instance")] } }),
+    node({ guid: "8:61", type: "INSTANCE", name: "Chip instance", parentIndex: { guid: "0:1", position: "<" }, transform: at(300, 720), ...chip(0xe5f4ff), symbolData: { symbolID: g(41), symbolOverrides: [rename("Chip instance")] } }),
+    node({ guid: "8:62", type: "INSTANCE", name: "Card instance", parentIndex: { guid: "0:1", position: "=" }, transform: at(800, 600), ...card, symbolData: { symbolID: g(50), symbolOverrides: [rename("Card instance")] } }),
+  ];
+})();
+
+/**
  * `&doc=capture`: the layers Figma's live panel was captured on (docs/research/figma/live/design/*.txt), with the
  * values its dumps show — F_frame, AL_vertical / _horizontal / _wrap / _grid, AL_parent with its children, Rect,
- * Ellipse, Polygon, Star, Line, Arrow, Vector, Boolean, Group, Text, Section and Image — so the Design panel can be
+ * Ellipse, Polygon, Star, Line, Arrow, Vector, Boolean, Group, Text, Section, Image and the components (above) — so the Design panel can be
  * laid out against the dumps (src/renderer/src/editor/tools/editor-shot.mjs `EDITOR_ONLY=design`).
  */
 export const CAPTURE_DOCUMENT: Message = {
@@ -568,5 +622,6 @@ export const CAPTURE_DOCUMENT: Message = {
     node({ guid: "7:90", type: "TEXT", name: "Text", parentIndex: { guid: "0:1", position: "0" }, size: { x: 184, y: 29 }, transform: at(0, 460), fillPaints: solidFill(0x000000), textData: { characters: "Hello, Capture" }, fontName: { family: "Inter", style: "Regular", postscript: "" }, fontSize: 24, textAutoResize: "WIDTH_AND_HEIGHT" }),
     node({ guid: "7:95", type: "SECTION", name: "Section", parentIndex: { guid: "0:1", position: "1" }, size: { x: 400, y: 300 }, transform: at(0, 1100), fillPaints: solidFill(0x444444), strokePaints: [{ type: "SOLID", color: hex(0xffffff), opacity: 0.1, visible: true }], strokeWeight: 1, strokeAlign: "INSIDE", cornerRadius: 2 }),
     box("7:96", "Image", "0:1", "2", 1000, 600, 160, 120, 0xd9d9d9, { fillPaints: [{ type: "IMAGE", imageScaleMode: "FILL", opacity: 1, visible: true }] }),
+    ...CAPTURE_COMPONENTS,
   ],
 };

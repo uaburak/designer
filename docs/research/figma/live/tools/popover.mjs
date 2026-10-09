@@ -68,6 +68,14 @@ export const CASES = {
   "type-settings-details": [text, ["click", "Type settings"], ["text", "Details"]],
   "type-settings-variable": [text, ["click", "Type settings"], ["text", "Variable"]],
   "typography-styles": [text, ["click", "Typography, Apply styles"]],
+  // Round 9: the header's, the component's and the instance's popovers on the capture's components (8:1 Button, 8:60
+  // Button instance, 8:61 Chip instance).
+  "instance-more-actions-menu": [["select", ["8:60"]], ["click", "More actions"]],
+  "instance-header-swap-menu": [["select", ["8:60"]], ["eval", "document.querySelector('[data-instance-menu]').click()"]],
+  "instance-swap-property-picker": [["select", ["8:60"]], ["eval", "document.querySelector('[data-swap-property=\"Icon\"]').click()"]],
+  "instance-variant-dropdown": [["select", ["8:61"]], ["click", "State"]],
+  "component-create-property-menu": [["select", ["8:1"]], ["click", "Create property"]],
+  "component-configuration": [["select", ["8:1"]], ["click", "Component configuration"]],
 };
 
 const browser = await chromium.launch({ executablePath: exe, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
