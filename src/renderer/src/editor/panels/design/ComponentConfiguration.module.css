@@ -1,0 +1,86 @@
+@layer app {
+  /*
+   * Live popovers/component-configuration.txt (320 × 317): "Description" (11 / 500) at 16, 58; the field 288 × 155 at
+   * 16, 80 (#383838) with its toolbar along the bottom (286 × 41, the popover's colour, nine 24 buttons spread from 21
+   * to 275); "Link" at 16, 253; the link field 288 × 24 at 16, 276.
+   */
+  .body {
+    display: flex;
+    flex-direction: column;
+    padding: var(--ds-space-4) var(--ds-space-4) 17px;
+  }
+  .label {
+    height: var(--ds-space-4);
+    margin-bottom: var(--ds-space-2);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    font-weight: 500;
+    letter-spacing: var(--ds-tracking-body-medium);
+    line-height: var(--ds-space-4);
+  }
+  .field + .label { margin-top: 17px; }
+  .field {
+    display: flex;
+    flex-direction: column;
+    height: 155px;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+  }
+  .editorWrap { position: relative; flex: 1 1 auto; min-height: 0; }
+  .editor {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    padding: var(--ds-space-2) 7px;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    user-select: text;
+    cursor: text;
+  }
+  .editor h1 { margin: 0; font: var(--ds-font-body-large-strong); letter-spacing: var(--ds-tracking-body-large-strong); }
+  .editor ul, .editor ol { margin: 0; padding-left: var(--ds-space-5); }
+  .editor pre, .editor code { font: var(--ds-font-code); }
+  .editor pre { margin: 0; padding: var(--ds-space-1) var(--ds-space-2); border-radius: var(--ds-radius-small); background: var(--figma-color-bg); white-space: pre-wrap; }
+  .editor code { padding: 0 var(--ds-space-half); border-radius: var(--ds-radius-small); background: var(--figma-color-bg); }
+  .editor a { color: var(--figma-color-text-brand); text-decoration: underline; }
+  .placeholder {
+    position: absolute;
+    top: var(--ds-space-2);
+    left: 7px;
+    color: var(--figma-color-text-secondary);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    pointer-events: none;
+  }
+  .editor:focus-visible { outline: none; }
+  .field:focus-within { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .toolbar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    height: 41px;
+    margin: 0 1px 1px;
+    padding: 0 var(--ds-space-1);
+    border-radius: 0 0 var(--ds-radius-medium) var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+  }
+  .linkDraft, .link {
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .linkDraft { flex: 1 1 auto; min-width: 0; }
+  .link::placeholder, .linkDraft::placeholder { color: var(--figma-color-text-secondary); }
+  .link:focus-visible, .linkDraft:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+}
