@@ -1121,7 +1121,9 @@ Guid Editor::duplicatePage(Guid page) {
 // ---- Layers panel, clipboard -------------------------------------------------------------
 
 uint32_t Editor::moveNodes(const std::vector<Guid>& ids, Guid parent, uint32_t index) {
-  if (busy() || txn_.open) return 0;
+  // Inside an open step of the API (txnBegin: an agent's tool call, a script) it joins that step; never inside a
+  // gesture's or the system's.
+  if (busy() || (txn_.open && txn_.kind != TxnKind::USER)) return 0;
   const Node* pn = doc_.get(parent);
   if (!pn || !pn->props.isContainer()) return 0;
   if (isLibraryCopy(parent)) return 0;  // read-only (docs/schema.md §8.2)

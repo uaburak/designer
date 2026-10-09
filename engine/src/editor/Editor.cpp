@@ -54,6 +54,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   layoutDirty_.clear();
   groupsTouched_.clear();
   edited_.clear();
+  userGeometry_.clear();
   if (kind == TxnKind::USER || kind == TxnKind::GESTURE) undo_.begin(selection_, label);
 }
 
@@ -267,6 +268,8 @@ void Editor::write(const NodeChange& change) {
     }
   }
   if (userEdit && editTracking_) noteEdited(*c);
+  // Geometry the user (a panel field, the API) wrote in this step is where constraints start from (base).
+  if (userEdit && txn_.kind == TxnKind::USER && c->phase == Phase::CHANGED && (c->mask & (F_SIZE | F_TRANSFORM))) userGeometry_.insert(c->guid);
   NodeType typeBefore = existing ? existing->props.type : NodeType::NONE;
   Guid parentBefore = existing ? existing->props.parentIndex.guid : kNoGuid;
   bool record = txn_.open && (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE);
@@ -406,6 +409,7 @@ void Editor::rollback() {
   layoutDirty_.clear();
   groupsTouched_.clear();
   edited_.clear();
+  userGeometry_.clear();
   if (!instanceDirty_.empty() || !bindingsDirty_.empty()) {
     // The instances the cancelled edit reached show their restored mains again.
     begin(TxnKind::SYSTEM, "Instances");
@@ -591,6 +595,9 @@ void Editor::base(Guid id, Mat2x3& transform, Vec2& size) const {
   if (blueprintBase(id, transform, size)) return;
   transform = n->props.transform;
   size = n->props.size;
+  // Resized or moved by the user in this step (setProps): constraints start from that, not from before the step —
+  // a child made absolute and resized while its hugging parent shrinks keeps the size it was given.
+  if (txn_.open && txn_.kind == TxnKind::USER && userGeometry_.count(id)) return;
   if (const NodeChange* inv = undo_.openInverse(id)) {
     // Moved to another parent in this transaction: its old transform was in the old parent's space.
     if ((inv->mask & F_PARENT_INDEX) && inv->props.parentIndex.guid != n->props.parentIndex.guid) return;

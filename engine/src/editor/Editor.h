@@ -1446,6 +1446,7 @@ class Editor : private LayoutHost, public TextLayouts {
   bool devEdits_ = false;
   bool editTracking_ = false;
   std::function<double()> wallClock_;
+  std::unordered_set<Guid, GuidHash> userGeometry_;  // this USER step's nodes whose size / transform the user wrote (base)
   std::unordered_set<Guid, GuidHash> edited_;     // this transaction's edited nodes (editInfo)
   std::unordered_set<Guid, GuidHash> annotated_;  // nodes with annotations
   CanvasHits hits_;
