@@ -2,6 +2,10 @@
 
 `src/renderer/src/editor/` is the new file editor: Figma's UI3 chrome (rail, left panel with Pages and Layers, rulers, the engine canvas, the right Design panel, the bottom toolbar, menus) built from the design system (`src/renderer/src/ds/`) around the C++/Wasm engine (`src/renderer/src/engine/`). Contracts it follows: `docs/engine.md` §10 (binding), `docs/design-system.md` + `docs/design-system-usage.md` (look), `docs/schema.md` (field names), `docs/desktop.md` §13 (clipboard), `docs/research/figma/R7-editor.md` (behaviour), `docs/research/visual-diff.md` (measured metrics).
 
+## Status 2026-10-09 — Round 10 — Canvas chrome, capture fixture and vector edit canvas (branch `r10-canvas-chrome`)
+
+Engine work, status in `docs/engine-build.md` "Round 10 — Canvas chrome, capture fixture and vector edit canvas": badges 17 high (size, gap, padding), the gap badge 10 px right of its bar, a grid track's 2 px outline centred on its edges and inside the frame's, vector edit mode without the blue path at rest. Editor side: `&doc=capture` is live's file — an empty "Page 1", then "Capture" (it opens there), the Vector a real triangle (`fixtures.ts` `polygonNetwork`, `CAPTURE_UI_STATE`); `memoryDocumentSource` keeps the document's blobs (vector networks survive edits in the browser's demo files); editor-shot `EDITOR_ONLY=overlays9` round 10 checks (gap badge box, grid column outline pixels, vector edit on the Vector, the pages). Unselected top-level frame hover: unverified (no live capture), unchanged.
+
 ## Status 2026-10-09 — Round 9 — Menus, toolbar and left side (branch `r9-menus-left-toolbar`)
 
 Truth: `docs/research/figma/live/` (menus/, toolbar/, left/; behaviour/). Compared at 1440 × 900 on `?editor&doc=capture` (`components`, `variables`) with the live dumps' own format (`tools/dumpPopups.js`, `tools/compare-popups.mjs`); where live has no data, help.figma.com, marked unverified. The engine side (Preferences' view flags) is in `docs/engine-build.md` "Round 9 — Menus, toolbar and left side".
