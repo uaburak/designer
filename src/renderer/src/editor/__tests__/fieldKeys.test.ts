@@ -45,7 +45,7 @@ describe("keys typed into text fields", () => {
       if (runsFromMenuBar(c.accelerator, true) && menuCommandInField(c.id, "accelerator") === "run") ran.push(`${c.id} ${c.accelerator}`);
     }
     expect(ran).toEqual([]);
-    for (const id of ["object.add-auto-layout", "view.zoom-next-frame"]) expect(runsFromMenuBar(MENU_BAR.find((c) => c.id === id)!.accelerator, true), id).toBe(false);
+    for (const id of ["object.add-auto-layout", "view.zoom-next-frame"]) expect(runsFromMenuBar((MENU_BAR as readonly { id: string; accelerator?: string }[]).find((c) => c.id === id)!.accelerator, true), id).toBe(false);
     // Every editor command, should one come as a key with a field focused.
     for (const c of [...COMMAND_BY_ID.values()]) expect(["drop", "native"], c.id).toContain(menuCommandInField(c.id, "accelerator"));
   });
