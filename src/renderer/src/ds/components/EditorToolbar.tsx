@@ -54,16 +54,17 @@ export const TOOLS: Record<ToolId, ToolDef> = {
   measurement: { id: "measurement", label: "Measurement", shortcut: keys(["shift", "m"]), icon: "24.measurement" },
 };
 
-export type ToolGroupDef = { id: ToolGroupId; label: string; tools: ToolId[] };
+/** `menuWidth`: the width of the group's menu in live (toolbar/*-tools-menu.txt; ours come out a fraction wider) */
+export type ToolGroupDef = { id: ToolGroupId; label: string; tools: ToolId[]; menuWidth: number };
 
 /** The toolbar's slots, left to right; each opens a menu of its tools (Figma: "Move tools", "Region tools"…). */
 export const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: "move", label: "Move tools", tools: ["move", "hand", "scale"] },
-  { id: "region", label: "Region tools", tools: ["frame", "section", "slice"] },
-  { id: "shape", label: "Shape tools", tools: ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"] },
-  { id: "creation", label: "Creation tools", tools: ["pen", "pencil"] },
-  { id: "text", label: "Type tools", tools: ["text", "text-on-path"] },
-  { id: "comment", label: "Comment tools", tools: ["comment", "annotation", "measurement"] },
+  { id: "move", label: "Move tools", tools: ["move", "hand", "scale"], menuWidth: 151 },
+  { id: "region", label: "Region tools", tools: ["frame", "section", "slice"], menuWidth: 150 },
+  { id: "shape", label: "Shape tools", tools: ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"], menuWidth: 196 },
+  { id: "creation", label: "Creation tools", tools: ["pen", "pencil"], menuWidth: 142 },
+  { id: "text", label: "Type tools", tools: ["text", "text-on-path"], menuWidth: 142 },
+  { id: "comment", label: "Comment tools", tools: ["comment", "annotation", "measurement"], menuWidth: 186 },
 ];
 
 /** The group a tool belongs to. */
@@ -134,6 +135,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
             disabled={disabledTools.includes(shown.id)}
             menuDisabled={g.tools.every((id) => disabledTools.includes(id))}
             menuLabel={g.label}
+            menuWidth={g.menuWidth}
             // Live (toolbar/*-tools-menu.txt): the slot's own tool is the lit row, whichever tool is active
             menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === shown.id, radio: true, disabled: disabledTools.includes(id) }))}
             onMenuSelect={(id) => !disabledTools.includes(id as ToolId) && onTool(id as ToolId)}

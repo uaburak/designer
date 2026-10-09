@@ -23,6 +23,10 @@ export type MenuItem = {
   radio?: boolean;
   /** A submenu's least width (live Figma's measured width where its rows alone don't make it) */
   minWidth?: number;
+  /** A submenu's width as live Figma measured it (the rows alone come out a fraction wider; see Menu `width`) */
+  width?: number;
+  /** A submenu's margin to the window's bottom where live measured another than 8 (Preferences: 5) */
+  edgeBottom?: number;
   disabled?: boolean;
   /** No special colour (Figma doesn't colour delete); kept for the native menu */
   danger?: boolean;

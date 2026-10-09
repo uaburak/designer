@@ -27,9 +27,11 @@ type ItemSpec = { id: string; label?: string; icon?: IconName; shortcut?: string
 /**
  * A submenu: live Figma's submenus open even when every item in them is disabled (Text, Arrange, Vector with nothing
  * selected). `checks`: a check column (View, Text, Preferences: live labels at 32; elsewhere at 16, the commands'
- * own checked states not drawn). `minWidth`: live's measured width where its rows alone don't make it.
+ * own checked states not drawn). `minWidth`: live's measured width where its rows alone don't make it; `width`: the
+ * width live measured, held where our text comes out a fraction wider (Menu `width`); `edgeBottom`: its margin to the
+ * window's bottom where live's isn't 8 (Preferences: 5).
  */
-type SubSpec = { label: string; items: Spec[]; checks?: boolean; minWidth?: number };
+type SubSpec = { label: string; items: Spec[]; checks?: boolean; minWidth?: number; width?: number; edgeBottom?: number };
 /** A command, a line, a submenu, a command spelled out, or an item built when the menu opens. */
 type Spec = string | "-" | SubSpec | ItemSpec | ((ed: EditorController) => MenuEntry | null);
 
@@ -52,11 +54,14 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
       return [{ ...(checks ? item : withoutCheck(item)), ...(s.icon ? { icon: s.icon, inlineIcon: true } : {}), ...(s.shortcut ? { shortcut: s.shortcut } : {}) }];
     }
     const items = build(ed, s.items, `${prefix}${i}.`, s.checks ?? false);
-    return [{ id: `submenu:${prefix}${i}`, label: s.label, items, ...(s.minWidth ? { minWidth: s.minWidth } : {}) }];
+    return [{ id: `submenu:${prefix}${i}`, label: s.label, items, ...(s.minWidth ? { minWidth: s.minWidth } : {}), ...(s.width ? { width: s.width } : {}), ...(s.edgeBottom !== undefined ? { edgeBottom: s.edgeBottom } : {}) }];
   });
 }
 
 /** More layout options ▸ (live context-frame / context-multi / main-object list it; its items are unverified). */
+/** Live View menu: 201 wide (main-view.txt); see MAIN_MENU_WIDTH for its .4. */
+const VIEW_WIDTH = 201.4;
+
 const MORE_LAYOUT: SubSpec = { label: "More layout options", items: ["object.add-layout-horizontal", "object.add-layout-vertical", "object.add-layout-grid"] };
 
 /** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields; "Move to page ▸ <page>" the page. */
@@ -145,6 +150,7 @@ export const MAIN_MENU: Spec[] = [
   "-",
   {
     label: "File",
+    width: 198,
     items: [
       { id: "file.new", label: "New Design" },
       // Live: "New ▸" under New Design (its items not captured: help.figma.com's file kinds, unverified).
@@ -165,6 +171,7 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "Edit",
+    width: 190,
     items: [
       "edit.undo",
       "edit.redo",
@@ -199,6 +206,7 @@ export const MAIN_MENU: Spec[] = [
   {
     label: "View",
     checks: true,
+    width: VIEW_WIDTH,
     items: [
       "view.pixel-grid",
       "view.layout-guides",
@@ -247,6 +255,7 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "Object",
+    width: 185,
     items: [
       "object.frame-selection",
       "object.group",
@@ -299,7 +308,7 @@ export const MAIN_MENU: Spec[] = [
   {
     label: "Text",
     checks: true,
-    minWidth: 199,
+    width: 199,
     items: [
       "text.bold",
       "text.italic",
@@ -338,6 +347,7 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "Arrange",
+    width: 220,
     items: [
       "arrange.round-to-pixel",
       "-",
@@ -366,16 +376,18 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "Vector",
+    width: 198,
     items: ["vector.join", "vector.smooth-join", "vector.delete-heal", "vector.split", "vector.simplify", "vector.offset"],
   },
   "-",
   // Plugins and widgets aren't part of this app: their items listed, disabled (live main-plugins / main-widgets).
-  { label: "Plugins", minWidth: 181, items: ["plugins.run-last", "-", { label: "Saved plugins", items: ["plugins.none"] }, "-", "plugins.manage"] },
-  { label: "Widgets", minWidth: 152, items: ["widgets.manage", "widgets.select-all"] },
+  { label: "Plugins", width: 181, items: ["plugins.run-last", "-", { label: "Saved plugins", items: ["plugins.none"] }, "-", "plugins.manage"] },
+  { label: "Widgets", width: 152, items: ["widgets.manage", "widgets.select-all"] },
   {
     label: "Preferences",
     checks: true,
-    minWidth: 235,
+    width: 235,
+    edgeBottom: 5,
     items: [
       "prefs.snap-to-geometry",
       "prefs.snap-to-objects",
@@ -416,13 +428,17 @@ export const MAIN_MENU: Spec[] = [
   "file.open-in-desktop",
   {
     label: "Help and account",
-    minWidth: 178,
+    width: 178,
     items: ["help.page", "help.shortcuts", "help.forum", "help.videos", "help.release-notes", "help.font-settings", "-", "help.legal", "help.account", "help.log-out"],
   },
 ];
 
-/** Live main menu: 194 wide (main-menu.txt); its rows alone make 131. */
-export const MAIN_MENU_WIDTH = 194;
+/**
+ * Live main menu: 194 wide (main-menu.txt); its rows alone make 131. The .4 is inferred (unverified): live's View
+ * submenu is 201 wide at 210 and its Panels submenu opens at 416 (main-view-panels.txt), 4 past the edge, so the edge
+ * is at 411.5 or more: a main menu 194.4 wide at 12 (submenus at 210.4) and a View menu 201.4 wide (`VIEW_WIDTH`).
+ */
+export const MAIN_MENU_WIDTH = 194.4;
 
 export function mainMenu(ed: EditorController): MenuEntry[] {
   return build(ed, MAIN_MENU, "main.");
@@ -512,6 +528,14 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     "object.flip-vertical",
   ];
   return build(ed, specs, "canvas.");
+}
+
+/**
+ * The width live measured for a canvas menu whose rows alone come out wider: an instance's (context-instance.txt: 203 x
+ * 749; ours 204.2 with "Go to main component ⌃⌥G" the widest row). Others stay at the context menus' 200 least.
+ */
+export function canvasMenuWidth(entries: readonly MenuEntry[]): number | undefined {
+  return entries.some((e) => typeof e === "object" && "id" in e && e.id === "object.detach-instance") ? 203 : undefined;
 }
 
 /**
