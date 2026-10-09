@@ -29,6 +29,7 @@ var<private> K: f32;
 
 fn C(i: i32) -> vec4f { return u.v[8 + i]; }
 fn S(i: i32) -> f32 { return u.v[14 + i / 4][i - (i / 4) * 4]; }
+fn scaled(i: i32, features: f32) -> vec2f { return NP / (min(SIZE.x, SIZE.y) * max(S(i), 1.0) / 100.0) * features; }
 
 // ---- helpers ----
 fn hash12(p: vec2f) -> f32 {
@@ -111,7 +112,7 @@ fn meshGradient(uv: vec2f) -> vec4f {
   return mix(mix(C(0), C(1), s.x), mix(C(3), C(2), s.x), s.y);
 }
 fn nebula() -> vec4f {
-  let p = NP / max(S(0), 1.0);
+  let p = scaled(0, 2.0);
   let w = fbm(p * 1.7 + 3.1, 4);
   let n = fbm(p + 1.5 * vec2f(w, fbm(p * 1.3 + 7.7, 4)), 6);
   let m = fbm(p * 2.0 + 11.0, 5);
@@ -123,7 +124,7 @@ fn nebula() -> vec4f {
   return vec4f(clamp(col + vec3f(star), vec3f(0.0), vec3f(1.0)), mix(C(2).a, 1.0, max(gas, star)));
 }
 fn waterCaustic() -> vec4f {
-  let p = fmod2(NP / max(S(0), 1.0) * 6.28318, 6.28318) - 250.0;
+  let p = fmod2(scaled(0, 1.5) * 6.28318, 6.28318) - 250.0;
   var i = p;
   var c = 1.0;
   let inten = 0.005;
@@ -138,12 +139,12 @@ fn waterCaustic() -> vec4f {
   return mix(C(1), C(0), v);
 }
 fn fractalNoise() -> vec4f {
-  var n = fbm(NP / max(S(0), 1.0), i32(clamp(S(1), 1.0, 8.0) + 0.5));
+  var n = fbm(scaled(0, 4.0), i32(clamp(S(1), 1.0, 8.0) + 0.5));
   n = clamp((n - 0.5) * (1.0 + S(2) / 25.0) + 0.5, 0.0, 1.0);
   return mix(C(0), C(1), n);
 }
 fn clouds() -> vec4f {
-  let p = NP / max(S(0), 1.0) * vec2f(0.6, 1.2);
+  let p = scaled(0, 2.5) * vec2f(0.6, 1.2);
   let n = fbm(p + 0.35 * vec2f(fbm(p * 2.0 + 4.0, 3), 0.0), 6);
   let t = 0.75 - S(1) / 100.0 * 0.5;
   let soft = max(S(2) / 100.0, 0.02) * 0.25;
@@ -155,7 +156,7 @@ fn moire() -> vec4f {
   let g1 = 0.5 + 0.5 * cos(q.x * k);
   let q2 = rot(q, radians(S(1)));
   let g2 = 0.5 + 0.5 * cos(q2.x * k * (1.0 + S(2) / 1000.0) + S(2) / 100.0 * 6.0 * sin(q2.y * k * 0.05));
-  let ink = max(smoothstep(0.45, 0.6, g1), smoothstep(0.45, 0.6, g2));
+  let ink = max(smoothstep(0.8, 0.92, g1), smoothstep(0.8, 0.92, g2));
   return mix(C(1), C(0), ink);
 }
 fn glowingWave() -> vec4f {
@@ -245,7 +246,7 @@ fn halftone() -> vec4f {
       let s = srcAt(rot(cc, ang));
       if (s.a <= 0.0) { continue; }
       let c = unpre(s);
-      let amount = select(s.a, (1.0 - luma(c)) * s.a, mono);
+      let amount = (1.0 - luma(c) * 0.9) * s.a;
       let cov = cover(distance(q, cc) - sqrt(amount) * ds * 0.7071);
       let col = select(vec4f(c, 1.0), vec4f(C(0).rgb, 1.0) * C(0).a, mono);
       o += col * cov * (1.0 - o.a);

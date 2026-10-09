@@ -21,27 +21,27 @@
       { "id": 1, "name": "Color 1", "type": "color", "default": "#FF4FD8" },
       { "id": 2, "name": "Color 2", "type": "color", "default": "#3A7BFF" },
       { "id": 3, "name": "Background", "type": "color", "default": "#070B1F" },
-      { "id": 4, "name": "Scale", "type": "number", "default": 200, "min": 10, "max": 2000, "unit": "px" },
+      { "id": 4, "name": "Scale", "type": "number", "default": 100, "min": 1, "max": 1000, "unit": "%" },
       { "id": 5, "name": "Density", "type": "number", "default": 60, "min": 0, "max": 100, "unit": "%" },
       { "id": 6, "name": "Stars", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
     ] },
     { "key": "shader.water-caustic", "name": "Water caustic", "params": [
       { "id": 1, "name": "Light", "type": "color", "default": "#E6FBFF" },
       { "id": 2, "name": "Water", "type": "color", "default": "#0A6FB8" },
-      { "id": 3, "name": "Scale", "type": "number", "default": 160, "min": 10, "max": 2000, "unit": "px" },
+      { "id": 3, "name": "Scale", "type": "number", "default": 100, "min": 1, "max": 1000, "unit": "%" },
       { "id": 4, "name": "Intensity", "type": "number", "default": 100, "min": 0, "max": 200, "unit": "%" }
     ] },
     { "key": "shader.fractal-noise", "name": "Fractal noise", "params": [
       { "id": 1, "name": "Color 1", "type": "color", "default": "#000000" },
       { "id": 2, "name": "Color 2", "type": "color", "default": "#FFFFFF" },
-      { "id": 3, "name": "Scale", "type": "number", "default": 100, "min": 1, "max": 2000, "unit": "px" },
+      { "id": 3, "name": "Scale", "type": "number", "default": 100, "min": 1, "max": 1000, "unit": "%" },
       { "id": 4, "name": "Detail", "type": "number", "default": 5, "min": 1, "max": 8, "step": 1 },
       { "id": 5, "name": "Contrast", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
     ] },
     { "key": "shader.clouds", "name": "Clouds", "params": [
       { "id": 1, "name": "Sky", "type": "color", "default": "#4DA3FF" },
       { "id": 2, "name": "Clouds", "type": "color", "default": "#FFFFFF" },
-      { "id": 3, "name": "Scale", "type": "number", "default": 200, "min": 10, "max": 2000, "unit": "px" },
+      { "id": 3, "name": "Scale", "type": "number", "default": 100, "min": 1, "max": 1000, "unit": "%" },
       { "id": 4, "name": "Coverage", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
       { "id": 5, "name": "Softness", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
     ] },

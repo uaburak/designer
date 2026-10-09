@@ -9,7 +9,8 @@
 // 4–5 = canvas device px → the node's px (rows); 6 = (program, 0 a fill / 1 an effect, the node's width, height in its
 // px); 7 = the node's px → device px (m00 m01 m10 m11, an offset's); 8–13 = the preset's colours in order (straight
 // RGBA); 14–19 = its other parameters in order, four a slot, in the units the panel shows (%, °, px, a count, a
-// choice's index, a toggle 0 / 1). A fill writes its paint (premultiplied), an effect the layer as it leaves it.
+// choice's index, a toggle 0 / 1). A fill writes its paint (premultiplied), an effect the layer as it leaves it. The
+// procedural fills' "Scale" is a share of the layer's shorter side (they look the same at any size).
 #pragma once
 
 namespace eng::gfx::gl {
@@ -41,6 +42,8 @@ float K;    // device px per node px
 
 vec4 C(int i) { return u_v[8 + i]; }
 float S(int i) { return u_v[14 + i / 4][i - (i / 4) * 4]; }
+// A procedural fill's space: `features` across the layer's shorter side at 100 % (the parameter `i`, a %).
+vec2 scaled(int i, float features) { return NP / (min(SIZE.x, SIZE.y) * max(S(i), 1.0) / 100.0) * features; }
 
 // ---- helpers ----
 float hash12(vec2 p) {
@@ -126,7 +129,7 @@ vec4 meshGradient(vec2 uv) {
   return mix(mix(C(0), C(1), s.x), mix(C(3), C(2), s.x), s.y);
 }
 vec4 nebula() {
-  vec2 p = NP / max(S(0), 1.0);
+  vec2 p = scaled(0, 2.0);
   float w = fbm(p * 1.7 + 3.1, 4);
   float n = fbm(p + 1.5 * vec2(w, fbm(p * 1.3 + 7.7, 4)), 6);
   float m = fbm(p * 2.0 + 11.0, 5);
@@ -138,7 +141,7 @@ vec4 nebula() {
   return vec4(clamp(col + vec3(star), 0.0, 1.0), mix(C(2).a, 1.0, max(gas, star)));
 }
 vec4 waterCaustic() {
-  vec2 p = fmod2(NP / max(S(0), 1.0) * 6.28318, 6.28318) - 250.0;
+  vec2 p = fmod2(scaled(0, 1.5) * 6.28318, 6.28318) - 250.0;
   vec2 i = p;
   float c = 1.0;
   float inten = 0.005;
@@ -153,12 +156,12 @@ vec4 waterCaustic() {
   return mix(C(1), C(0), v);
 }
 vec4 fractalNoise() {
-  float n = fbm(NP / max(S(0), 1.0), int(clamp(S(1), 1.0, 8.0) + 0.5));
+  float n = fbm(scaled(0, 4.0), int(clamp(S(1), 1.0, 8.0) + 0.5));
   n = clamp((n - 0.5) * (1.0 + S(2) / 25.0) + 0.5, 0.0, 1.0);
   return mix(C(0), C(1), n);
 }
 vec4 clouds() {
-  vec2 p = NP / max(S(0), 1.0) * vec2(0.6, 1.2);
+  vec2 p = scaled(0, 2.5) * vec2(0.6, 1.2);
   float n = fbm(p + 0.35 * vec2(fbm(p * 2.0 + 4.0, 3), 0.0), 6);
   float t = 0.75 - S(1) / 100.0 * 0.5;
   float soft = max(S(2) / 100.0, 0.02) * 0.25;
@@ -170,7 +173,7 @@ vec4 moire() {
   float g1 = 0.5 + 0.5 * cos(q.x * k);
   vec2 q2 = rot(q, radians(S(1)));
   float g2 = 0.5 + 0.5 * cos(q2.x * k * (1.0 + S(2) / 1000.0) + S(2) / 100.0 * 6.0 * sin(q2.y * k * 0.05));
-  float ink = max(smoothstep(0.45, 0.6, g1), smoothstep(0.45, 0.6, g2));
+  float ink = max(smoothstep(0.8, 0.92, g1), smoothstep(0.8, 0.92, g2));
   return mix(C(1), C(0), ink);
 }
 vec4 glowingWave() {
@@ -260,7 +263,7 @@ vec4 halftone() {
       vec4 s = srcAt(rot(cc, ang));
       if (s.a <= 0.0) continue;
       vec3 c = unpre(s);
-      float amount = mono ? (1.0 - luma(c)) * s.a : s.a;
+      float amount = (1.0 - luma(c) * 0.9) * s.a;
       float cov = cover(distance(q, cc) - sqrt(amount) * ds * 0.7071);
       vec4 col = mono ? vec4(C(0).rgb, 1.0) * C(0).a : vec4(c, 1.0);
       o += col * cov * (1.0 - o.a);

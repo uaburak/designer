@@ -49,7 +49,7 @@ describe("shader presets (round 11)", () => {
     expect(f.componentPropAssignments).toHaveLength(nebula.params.length);
     // A colour is a COLOR literal in varValue, a number a floatValue (in the units shown).
     expect(f.componentPropAssignments[0]).toEqual({ defID: { sessionID: 0, localID: 1 }, varValue: { dataType: "COLOR", resolvedDataType: "COLOR", value: { colorValue: { r: 1, g: 0x4f / 255, b: 0xd8 / 255, a: 1 } } } });
-    expect(f.componentPropAssignments[3]).toEqual({ defID: { sessionID: 0, localID: 4 }, value: { floatValue: 200 } });
+    expect(f.componentPropAssignments[3]).toEqual({ defID: { sessionID: 0, localID: 4 }, value: { floatValue: 100 } });
     const paint = shaderPaint({ opacity: 0.5, visible: false, blendMode: "MULTIPLY" }, nebula);
     expect(paint).toMatchObject({ type: "CUSTOM", opacity: 0.5, visible: false, blendMode: "MULTIPLY" });
     expect(shaderEffect({ visible: false }, shaderPreset("shader.halftone")!)).toMatchObject({ type: "CUSTOM", visible: false, blendMode: "NORMAL" });
