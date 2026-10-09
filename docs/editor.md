@@ -4,7 +4,7 @@
 
 ## Status 2026-10-09 — Round 13 — Small Figma-parity items N15–N19 of the round-12 sweep (branch `r13-polish`)
 
-Status: **checks pending** (see the end of this section). Truth: `docs/research/figma/live/` — `menus/main-view.txt` (View > Rulers unchecked), `left/rail-variables-full-view.txt`, `left/rail-assets.txt` (the right panel's top), `popovers/*.txt`, `grid/grid-dimensions-picker.txt`, `left/pages-add-page-rename.txt`, `popovers/fill-picker-solid.txt`. Compared at 1440 × 900 on `?editor&doc=capture` (editor-shot `EDITOR_ONLY=panel12`, `docs/research/figma/live/tools/popover.mjs` + `compare-popups.mjs`).
+Status: **done** (checks below). Truth: `docs/research/figma/live/` — `menus/main-view.txt` (View > Rulers unchecked), `left/rail-variables-full-view.txt`, `left/rail-assets.txt` (the right panel's top), `popovers/*.txt`, `grid/grid-dimensions-picker.txt`, `left/pages-add-page-rename.txt`, `popovers/fill-picker-solid.txt`. Compared at 1440 × 900 on `?editor&doc=capture` (editor-shot `EDITOR_ONLY=panel12`, `docs/research/figma/live/tools/popover.mjs` + `compare-popups.mjs`).
 
 | # | Item | State | Verified against live |
 |---|---|---|---|
@@ -13,6 +13,8 @@ Status: **checks pending** (see the end of this section). Truth: `docs/research/
 | N17 | Right panel top | done — the account's avatar 28 × 28 at 1210, 10 and its chevron circle 28 × 28 at 1232, 10 (`Avatar size={28}`); Present 5 / 0 / 0 / 5 and its chevron 0 / 5 / 5 / 0, x 1324 / 1357 (Share held to 55 so the group sits on its pixel); the Prototype tab 69 × 24 (`Tabs` item `width`); the right Resize handle 8 × 900 at 1193 | `left/rail-assets.txt` lines 34–47, 165 |
 | N18 | One-pixel widths and places | done — held widths (`menuWidth` on `MenuButton` / `Select`, like Menu's `width`): blend mode 118 at 1315, constraint menus 126 / 136, font weight 167, Create property 156 at 1277 (`alignOffset` 1: live's right edge is 1 past the button's); the grid dimensions picker 58 above its button (live 1204, 427 since the panel's body moved to y=81); the Pages rename field is the whole 224 × 24 `Page name` input (bg #2c2c2c). The remaining row-text 1 px / 2 px differences in the menus are Inter's metrics (ours is 2 px wider per row) | `popovers/blend-mode-menu.txt`, `constraint-*-menu.txt`, `font-weight-menu.txt`, `component-create-property-menu.txt`, `grid/grid-dimensions-picker.txt`, `left/pages-add-page-rename.txt`: `compare-popups` places and sizes equal |
 | N19 | `On this page` swatches | done as far as live shows — most used first (`pageColors`), equal counts in document order. Live's first three (FFFFFF, E5664D, D9D9D9) and the fifth (66CC80) are what ours lists on the capture fixture, and its single uses (3380FF, 1E1E1E) come last, where document order started with 3380FF. **Unverified**: the order among equal counts and why live lists FFFFFF twice (its page is another file than our fixture) | `popovers/fill-picker-solid.txt` |
+
+Checks (main merged, no engine change): `npm run check` 962 vitest (116 files); `npm run engine:test` 500 / 500; `engine:shot` 148 ok (WebGL2) / 150 ok (WebGPU); `editor-shot.mjs` full run 367 ok, 0 FAIL.
 
 Not done (stay): N12 Motion, R6 (font-dependent colours), R15 (desktop font list), N13 (needs an expanded row), AI / plugins; the 1 px row text offsets in popovers (font metrics).
 
