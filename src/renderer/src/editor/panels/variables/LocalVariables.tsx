@@ -660,7 +660,7 @@ export function LocalVariables() {
             <p className={styles.emptyBody}>
               Save colors, numbers, text, and states to reuse them in styles, prototypes, and across files.{" "}
               <a className={styles.learn} href={VARIABLES_HELP} target="_blank" rel="noreferrer">
-                Learn more <span aria-hidden="true">→</span>
+                Learn more<span className={styles.learnArrow} aria-hidden="true">→</span>
               </a>
             </p>
             <div className={styles.emptyActions}>
