@@ -1,7 +1,7 @@
 // Round 10 — canvas chrome as live Figma draws it (docs/engine-build.md "Round 10 — Canvas chrome, capture fixture and
 // vector edit canvas"): the size badge and auto layout's gap and padding badges 17 high with the text 4 px in from each
-// end (the gap badge "10" 20 × 17, 10 px right of its bar); a grid's track under its expanded pill outlined 2 px on its
-// edges (half inside, half outside) across the whole frame.
+// end (the gap badge "10" 20 × 17, 10 px right of its bar); a grid's track under its expanded pill outlined 2 px,
+// centred on the track's own edges and inside the frame's.
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -143,30 +143,101 @@ TEST_CASE("r10 auto layout: the hovered padding's badge and the size badge are 1
   CHECK(badges(s, blue, 16).empty());
 }
 
-TEST_CASE("r10 grid: the track under an expanded pill is outlined 2 px, centred on its edges, the frame's height") {
+// The track box under an expanded pill: {x, y, w, h, inner, outer} of the opaque selection-blue stroke rectangles.
+static std::vector<std::array<float, 6>> trackOutlines(Scene& s) {
+  const Color blue = OverlayStyle::of(Theme::Dark).selection;
+  std::vector<std::array<float, 6>> out;
+  for (const DrawInstance& q : s.draw()) {
+    if (!(static_cast<uint32_t>(q.geom[3]) & DF_STROKE) || q.geom[2] != static_cast<float>(ShapeKind::Rect) || !sameColor(q, blue)) continue;
+    if (q.geom[0] != 2) continue;  // 2 px: the frame's own outline is 1
+    out.push_back({q.origin[0], q.origin[1], q.origin[2], q.origin[3], q.geom[0], q.geom[1]});
+  }
+  return out;
+}
+
+TEST_CASE("r10 grid: a hovered column's track outlined 2 px, centred on its sides, inside the frame's top and bottom") {
   Scene s;
   s.e.setSelection({G});
   // Over the frame, then on the column pills' line above it: the column's pill expands.
-  Vec2 mid = s.screen({560, 100});
-  s.move(mid);
+  s.move(s.screen({560, 100}));
   Vec2 top = s.screen({560, 0});
   s.move({top.x, top.y - 31.5});
   const Overlay& o = s.e.overlay();
   REQUIRE(o.gridTrackBoxes.size() == 1);
+  CHECK(o.gridTrackBoxes[0].column);
   Vec2 a = s.screen(o.gridTrackBoxes[0].a), b = s.screen(o.gridTrackBoxes[0].b);
-  const Color blue = OverlayStyle::of(Theme::Dark).selection;
-  int found = 0;
-  for (const DrawInstance& q : s.draw()) {
-    if (!(static_cast<uint32_t>(q.geom[3]) & DF_STROKE) || q.geom[2] != static_cast<float>(ShapeKind::Rect)) continue;
-    if (std::fabs(q.origin[0] - a.x) > 0.5 || std::fabs(q.origin[3] - (b.y - a.y)) > 0.5) continue;
-    found++;
-    CHECK(q.geom[0] == 1);  // 1 px inside
-    CHECK(q.geom[1] == 1);  // 1 px outside
-    CHECK(sameColor(q, blue));  // the selection colour, opaque
-    CHECK(q.origin[2] == doctest::Approx(b.x - a.x).epsilon(0.01));
-  }
-  CHECK(found == 1);
   // The box spans the frame from top to bottom (live: across its padding too).
   CHECK(a.y == doctest::Approx(s.screen({400, 0}).y));
   CHECK(b.y == doctest::Approx(s.screen({400, 200}).y));
+  auto boxes = trackOutlines(s);
+  REQUIRE(boxes.size() == 1);
+  const auto& q = boxes[0];
+  CHECK(q[4] == 2);  // 2 px inside…
+  CHECK(q[5] == 0);  // …of a box 1 px wider on each side: centred on the column's sides
+  CHECK(q[0] == doctest::Approx(std::round(a.x) - 1));
+  CHECK(q[2] == doctest::Approx(std::round(b.x) - std::round(a.x) + 2));
+  // Its ends: on the frame's edges, the 2 px inside them.
+  CHECK(q[1] == doctest::Approx(std::round(a.y)));
+  CHECK(q[3] == doctest::Approx(std::round(b.y) - std::round(a.y)));
+}
+
+TEST_CASE("r10 grid: a hovered row's track outlined 2 px, centred on its top and bottom, inside the frame's sides") {
+  Scene s;
+  s.e.setSelection({G});
+  s.move(s.screen({560, 60}));
+  // The row's compact pill (left of the frame): over it, it expands.
+  Rect pill{};
+  for (const auto& p : s.e.overlay().gridPills)
+    if (!p.column) pill = p.rect;
+  REQUIRE(pill.w > 0);
+  s.move({pill.x + pill.w / 2, pill.y + pill.h / 2});
+  const Overlay& o = s.e.overlay();
+  REQUIRE(o.gridTrackBoxes.size() == 1);
+  CHECK_FALSE(o.gridTrackBoxes[0].column);
+  Vec2 a = s.screen(o.gridTrackBoxes[0].a), b = s.screen(o.gridTrackBoxes[0].b);
+  CHECK(a.x == doctest::Approx(s.screen({400, 0}).x));
+  CHECK(b.x == doctest::Approx(s.screen({720, 0}).x));
+  auto boxes = trackOutlines(s);
+  REQUIRE(boxes.size() == 1);
+  const auto& q = boxes[0];
+  CHECK(q[4] == 2);
+  CHECK(q[5] == 0);
+  CHECK(q[0] == doctest::Approx(std::round(a.x)));
+  CHECK(q[2] == doctest::Approx(std::round(b.x) - std::round(a.x)));
+  CHECK(q[1] == doctest::Approx(std::round(a.y) - 1));
+  CHECK(q[3] == doctest::Approx(std::round(b.y) - std::round(a.y) + 2));
+}
+
+TEST_CASE("r10 vector edit: at rest only the points; the hovered and the selected segment 2 px in the selection colour") {
+  // A rectangle at (100, 100) 100 × 100, zoom 1: double-click, then the pointer away from the path.
+  auto nodes = baseChanges();
+  const Guid R{1, 1};
+  nodes.push_back(make(R, NodeType::ROUNDED_RECTANGLE, kPage, "!", {100, 100, 100, 100}, "Rectangle 1"));
+  Editor e;
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(nodes, kNoGuid);
+  e.takeEvents();
+  auto click = [&](double x, double y, int clicks) {
+    e.pointer(PointerEvent::DOWN, x, y, 0, 1, 0, clicks);
+    e.pointer(PointerEvent::UP, x, y, 0, 0, 0);
+  };
+  click(150, 150, 1);
+  click(150, 150, 2);
+  REQUIRE(e.vectorEditing());
+  e.pointer(PointerEvent::MOVE, 400, 400, 0, 0, 0);
+  const Overlay& o = e.overlay();
+  CHECK(o.curves.empty());  // live: the shape's own stroke, no blue on its path
+  int vertices = 0;
+  for (const OverlayMark& m : o.marks) vertices += m.shape == OverlayMark::Shape::Vertex;
+  CHECK(vertices == 4);
+  // Over the top edge: that segment, 2 px.
+  e.pointer(PointerEvent::MOVE, 150, 100, 0, 0, 0);
+  REQUIRE(e.overlay().curves.size() == 1);
+  CHECK(e.overlay().curves[0].width == 2);
+  CHECK(e.overlay().curves[0].highlight);
+  CHECK(e.overlay().curves[0].p0.y == doctest::Approx(100));
+  CHECK(e.overlay().curves[0].p3.y == doctest::Approx(100));
+  // Away again: nothing.
+  e.pointer(PointerEvent::MOVE, 400, 400, 0, 0, 0);
+  CHECK(e.overlay().curves.empty());
 }

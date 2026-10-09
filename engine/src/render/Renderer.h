@@ -191,6 +191,7 @@ struct Overlay {
   struct GridCell {
     Vec2 a, b;  // world: opposite corners (the grid is upright)
     bool fill = false;
+    bool column = false;  // a track box (gridTrackBoxes): a column's, else a row's
   };
   std::vector<GridCell> gridCells;
   struct GridPill {
