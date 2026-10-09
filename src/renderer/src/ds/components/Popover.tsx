@@ -95,7 +95,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
     el.style.visibility = "visible";
-  }, [anchor, placement, isStatic, offsetX, reserveHeight]);
+  }, [anchor, placement, isStatic, offsetX, offsetY, reserveHeight]);
   // Live Figma: content that grows (another paint type, a tab) moves the popover up to stay on screen; shrinking
   // content leaves it where it is.
   useLayoutEffect(() => {

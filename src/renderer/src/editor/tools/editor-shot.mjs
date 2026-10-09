@@ -28,8 +28,9 @@
 //   EDITOR_ONLY=header9 node …                                     (round 9: the header of a layer in a frame, Frame ▾, the boolean menu, the component / variant / instance panels, Component configuration, the swap menu)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_ONLY=panel10 node …                                     (round 10 at 1440 × 900: Design panel states, popovers and sub-menus against the live captures)
-//   EDITOR_ONLY=panel11 node …                                     (round 11 at 1440 × 900: instance flow, text edit header, list menus, Text styles, Type settings › Details, gradient stops)
+//   EDITOR_ONLY=panel11 node …                                     (round 11 at 1440 × 900, run on its own: instance flow, text edit header, list menus, Text styles, Type settings › Details, gradient stops)
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
+//   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -142,6 +143,9 @@ const selection = (page) => page.evaluate(() => window.__designerEditor.selectio
 const node = (page, id) => page.evaluate((id) => window.__designerEditor.engine.readNode(id), id);
 
 const only = process.env.EDITOR_ONLY ?? "";
+// The full run in two parts, each within the 180 s stop on a busy machine: EDITOR_PART=1 the sections, 2 the main
+// walk-through (both themes); unset, both.
+const part = process.env.EDITOR_PART ?? "";
 
 /** E4 / E5 in the panels on `?editor&doc=paints` (dark): paints of every type, effects, guides, strokes, booleans, images, vector edit. */
 async function paintsSection(page, theme) {
@@ -3718,7 +3722,7 @@ async function menus10Section(page, theme) {
 }
 
 try {
-  if (only === "leftpanel" || !only) {
+  if (only === "leftpanel" || (!only && part !== "2")) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -3748,7 +3752,7 @@ try {
     await menus9Section(page, "dark");
     await context.close();
   }
-  if (only === "grid" || !only) {
+  if (only === "grid" || (!only && part !== "2")) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -3766,7 +3770,7 @@ try {
     ["devmode", devmodeSection],
     ["design", designSection],
   ]) {
-    if (only !== name && only) continue;
+    if ((only !== name && only) || part === "2") continue;
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -3776,7 +3780,7 @@ try {
     await section(page, "dark");
     await context.close();
   }
-  if (only === "panel10" || !only) {
+  if (only === "panel10" || (!only && part !== "2")) {
     // Live's viewport (the captures' absolute places).
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
@@ -3787,7 +3791,7 @@ try {
     await panel10Section(page, "dark");
     await context.close();
   }
-  if (only === "panel11" || !only) {
+  if (only === "panel11") {
     // Live's viewport (the captures' absolute places).
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
@@ -3798,7 +3802,7 @@ try {
     await panel11Section(page, "dark");
     await context.close();
   }
-  if (only === "header9" || !only) {
+  if (only === "header9" || (!only && part !== "2")) {
     // Live's viewport (the captures' absolute places).
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
@@ -3809,7 +3813,7 @@ try {
     await header9Section(page, "dark");
     await context.close();
   }
-  if (only === "text" || !only) {
+  if (only === "text" || (!only && part !== "2")) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -3840,7 +3844,7 @@ try {
     await prototypeSection(page, "dark");
     await context.close();
   }
-  if (only === "fonts" || !only) {
+  if (only === "fonts" || (!only && part !== "2")) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -3850,7 +3854,7 @@ try {
     await fontsSection(page, "dark");
     await context.close();
   }
-  if (only === "export" || !only) {
+  if (only === "export" || (!only && part !== "2")) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark", acceptDownloads: true, permissions: ["clipboard-read", "clipboard-write"] });
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -3903,7 +3907,7 @@ try {
     await componentsSection(page, "dark");
     await context.close();
   }
-  for (const theme of only ? [] : ["dark", "light"]) {
+  for (const theme of only || part === "1" ? [] : ["dark", "light"]) {
     const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: theme });
     const page = await context.newPage();
     page.on("console", (m) => {
