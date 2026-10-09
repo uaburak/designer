@@ -80,9 +80,9 @@ void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color
 
 void Renderer::drawDevIcon(Guid frame, double right, double baseline, const Color& color) {
   // Live Figma's `</>` (canvas-autolayout-selected-hover-gap, 2026-10-08): 12 × 10 CSS px, its right edge on the
-  // frame's, from 8.5 px above the name's baseline to 1 px below it; 1 px strokes with round ends.
+  // frame's, from 8 px above the name's baseline to 1.5 px below it; 1 px strokes with round ends.
   const double dpr = viewport_.scaleX();
-  double x0 = std::round((right - kDevIconWidth) * dpr) / dpr, y0 = std::round((baseline - 8.5) * dpr) / dpr;
+  double x0 = std::round((right - kDevIconWidth) * dpr) / dpr, y0 = std::round((baseline - 8) * dpr) / dpr;
   const double w = 1;
   const Color ink{color.r, color.g, color.b, 1};
   auto segment = [&](Vec2 a, Vec2 b) {
@@ -329,20 +329,20 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     double pw = std::max(std::round(tw + 2 * style.badgePadding), style.badgeHeight), ph = style.badgeHeight, rr = style.badgeRadius;
     Vec2 e = view.apply(bar.edge);
     double px, py;
-    // A gap's: right of its bar, just above it; a padding's: outside its edge at `edge` (where the pointer is), 3 px
+    // A gap's: right of its bar, just above it; a padding's: outside its edge at `edge` (where the pointer is), 2 px
     // off it (live Figma, canvas-autolayout-selected-hover-gap / -padding at 1.57×: 9 px right of the bar, 5 above;
-    // 3 px above the frame).
+    // 2.5 px above the frame).
     if (bar.gap) {
       px = bar.vertical ? c.x + 9 : c.x + len / 2 + 5;
       py = bar.vertical ? c.y - len / 2 - 5 - ph : c.y - ph - 5;
     } else if (bar.side == 0) {
-      px = e.x - 3 - pw, py = e.y - ph / 2;
+      px = e.x - 2 - pw, py = e.y - ph / 2;
     } else if (bar.side == 2) {
-      px = e.x + 3, py = e.y - ph / 2;
+      px = e.x + 2, py = e.y - ph / 2;
     } else if (bar.side == 1) {
-      px = e.x - pw / 2, py = e.y - 3 - ph;
+      px = e.x - pw / 2, py = e.y - 2 - ph;
     } else {
-      px = e.x - pw / 2, py = e.y + 3;
+      px = e.x - pw / 2, py = e.y + 2;
     }
     px = std::round(px * dpr) / dpr, py = std::round(py * dpr) / dpr;
     emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Shape);

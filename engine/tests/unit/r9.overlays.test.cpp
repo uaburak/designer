@@ -266,3 +266,67 @@ TEST_CASE("r9 overlay: the `</>` at a selected frame's top right; a click marks 
   f.draw();
   CHECK(f.r.canvasHits().statuses.empty());
 }
+
+// ---- 3. Auto layout's padding badge, a grid's bars --------------------------------------------------------------
+
+TEST_CASE("r9 auto layout: the hovered padding's value sits outside its edge where the pointer is") {
+  const Guid AL{1, 20}, A{1, 21}, B{1, 22};
+  NodeChange al = make(AL, NodeType::FRAME, kPage, "%", {0, 400, 232, 72}, "AL_horizontal");
+  StackFacet& st = al.props.stack();
+  st.stackMode = StackMode::HORIZONTAL;
+  st.stackSpacing = 10;
+  st.stackPaddingLeft = st.stackPaddingTop = st.stackPaddingRight = st.stackPaddingBottom = 16;
+  Editor e = makeEditor({al, make(A, NodeType::ROUNDED_RECTANGLE, AL, "!", {16, 16, 60, 40}, "A"),
+                         make(B, NodeType::ROUNDED_RECTANGLE, AL, "\"", {86, 16, 60, 40}, "B")});
+  e.setSelection({AL});
+  // The top padding (y 400..416) at x 150: its bar is the frame's middle, its badge's anchor the pointer's x.
+  Vec2 p = screen(e, {150, 407});
+  move(e, p.x, p.y);
+  Overlay o = e.overlay();
+  const Overlay::LayoutBar* top = nullptr;
+  for (const auto& b : o.layoutBars)
+    if (!b.gap && b.side == 1) top = &b;
+  REQUIRE(top);
+  CHECK(top->hovered);
+  CHECK(top->at.x == doctest::Approx(81));  // the frame hugs its two children: 162 wide
+  CHECK(top->edge.x == doctest::Approx(150));
+  CHECK(top->edge.y == doctest::Approx(400));
+  // The left padding at y 430: the anchor on the left edge at the pointer's y.
+  p = screen(e, {8, 430});
+  move(e, p.x, p.y);
+  o = e.overlay();
+  for (const auto& b : o.layoutBars)
+    if (!b.gap && b.side == 0) {
+      CHECK(b.hovered);
+      CHECK(b.edge.x == doctest::Approx(0));
+      CHECK(b.edge.y == doctest::Approx(430));
+    }
+}
+
+TEST_CASE("r9 grid: a selected grid's padding bars (no gap bars), cells, and its pills band keeps them") {
+  const Guid G{1, 30};
+  NodeChange grid = make(G, NodeType::FRAME, kPage, "%", {0, 400, 320, 200}, "AL_grid");
+  StackFacet& st = grid.props.stack();
+  st.stackMode = StackMode::GRID;
+  st.stackPaddingLeft = st.stackPaddingTop = st.stackPaddingRight = st.stackPaddingBottom = 12;
+  Editor e = makeEditor({grid});
+  e.setSelection({G});
+  Vec2 p = screen(e, {160, 500});
+  move(e, p.x, p.y);
+  Overlay o = e.overlay();
+  CHECK(o.layoutBars.size() == 4);
+  for (const auto& b : o.layoutBars) CHECK(!b.gap);
+  CHECK(!o.gridCells.empty());
+  REQUIRE(!o.gridPills.empty());
+  CHECK(!o.gridPills[0].expanded);
+  // Above the frame, on the column pills' line: the bars stay, the column's pill expands and outlines its track.
+  Vec2 top = screen(e, {160, 400});
+  move(e, top.x, top.y - 31.5);
+  o = e.overlay();
+  CHECK(o.layoutBars.size() == 4);
+  REQUIRE(o.gridPills.size() == 1);
+  CHECK(o.gridPills[0].expanded);
+  CHECK(o.gridPills[0].rect.y + o.gridPills[0].rect.h / 2 == doctest::Approx(top.y - 31.5));
+  CHECK(o.gridTrackBoxes.size() == 1);
+  CHECK(e.cursor() == CursorKind::DEFAULT);
+}

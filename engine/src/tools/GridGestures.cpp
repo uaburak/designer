@@ -133,13 +133,13 @@ Editor::GridHit Editor::gridHitAt(Vec2 s) const {
     }
     return -1;
   };
-  double rowPillWidth = 0;
-  for (size_t i = 0; i < rows.size(); i++) {
-    double labelW = 0;
-    rowPillWidth = std::max(rowPillWidth, gridPillRect(frame, false, i, true, labelW).w);
-  }
   if (s.y >= colLine - kPillHeight / 2 - kBandReach && s.y <= box.bottom() && s.x >= box.x && s.x <= box.right()) h.hoverColumn = trackAt(cols, s.x);
-  if (s.x >= box.x - kRowPillGap - rowPillWidth - 4 && s.x <= box.right() && s.y >= box.y && s.y <= box.bottom()) h.hoverRow = trackAt(rows, s.y);
+  if (s.y >= box.y && s.y <= box.bottom() && s.x <= box.right()) {
+    int row = trackAt(rows, s.y);
+    // Left of the frame: as far out as the row's expanded pill reaches.
+    double labelW = 0;
+    if (row >= 0 && (s.x >= box.x || s.x >= gridPillRect(frame, false, static_cast<size_t>(row), true, labelW).x - 4)) h.hoverRow = row;
+  }
   if (h.hoverColumn >= 0 && onPill(true, static_cast<size_t>(h.hoverColumn))) return h;
   if (h.hoverRow >= 0 && onPill(false, static_cast<size_t>(h.hoverRow))) return h;
   if (h.hoverColumn >= 0 || h.hoverRow >= 0) {

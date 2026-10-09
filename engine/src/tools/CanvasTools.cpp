@@ -631,13 +631,13 @@ void Editor::requestInlineEdit(int bar) {
       x = b.vertical ? c.x + 9 : c.x + len / 2 + 5;
       y = b.vertical ? c.y - len / 2 - 5 - h : c.y - h - 5;
     } else if (b.side == 0) {
-      x = edge.x - 3 - w, y = edge.y - h / 2;
+      x = edge.x - 2 - w, y = edge.y - h / 2;
     } else if (b.side == 2) {
-      x = edge.x + 3, y = edge.y - h / 2;
+      x = edge.x + 2, y = edge.y - h / 2;
     } else if (b.side == 1) {
-      x = edge.x - w / 2, y = edge.y - 3 - h;
+      x = edge.x - w / 2, y = edge.y - 2 - h;
     } else {
-      x = edge.x - w / 2, y = edge.y + 3;
+      x = edge.x - w / 2, y = edge.y + 2;
     }
     e.rect = {x, y, w, h};
     events_.inlineEdits.push_back(e);

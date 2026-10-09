@@ -774,7 +774,9 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
       const NodeProps& p = n->props;
       Vec2 q = W.inverse().apply(world);
       double w = p.size.x, h = p.size.y;
-      if (dragging || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) {
+      // A grid's bars also while the pointer is on its pills' bands (live Figma, canvas-grid-hover-top-pill).
+      bool onPills = grid && gesture_ == Gesture::None && gridHitAt(camera_.toScreen(world)).kind != GridHit::Kind::None;
+      if (dragging || onPills || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) {
         int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
         double pad[4];
         Layout::padding(p, pad);
