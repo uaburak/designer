@@ -397,6 +397,15 @@
     padding: var(--ds-space-4);
   }
   .fxSettings > :nth-child(even) { min-width: 0; }
+  /*
+   * A settings popover's number (live popovers/effect-settings-*.txt, stroke-advanced-settings.txt): the input 110 wide,
+   * 1 from the field's end — 25 in on a 136 field (Blur radius, Spread, Density, Radius at 113), 17 on Miter angle's 128;
+   * a prefix letter centred in what's left (X / Y at 97).
+   */
+  .fxSettings > [data-ds="NumericInput"] > input,
+  .popNumber > input { flex: none; width: 110px; margin-left: auto; margin-right: 1px; padding-left: 0; }
+  .fxSettings > [data-ds="NumericInput"] > :first-child:not(input),
+  .popNumber > :first-child:not(input) { flex: 1 1 auto; width: auto; min-width: 0; }
   /* Blurs and noise open on their segmented control, 12 below the header */
   .fxSettingsSegmented { padding-top: var(--ds-space-3); }
   .fxWide { grid-column: 1 / -1; display: flex; min-width: 0; }
@@ -453,6 +462,9 @@
   /* Glass's light: the dial (56) beside Angle and Intensity (72; live: Angle at 57, Intensity at 88) */
   .fxLight { display: grid; grid-template-columns: calc(var(--ds-space-12) + var(--ds-space-2)) minmax(0, 1fr); column-gap: var(--ds-space-2); align-items: start; }
   .fxLightFields { display: flex; flex-direction: column; gap: calc(var(--ds-space-2) - 1px); padding-top: 1px; }
+  /* (Live: Angle's number 64 × 15, 7 in and 5 down; Intensity's 63 × 24, 8 in) */
+  .fxLightFields > :first-child > input { flex: none; align-self: flex-start; width: 64px; height: 15px; margin: 5px 0 0 7px; padding: 0; }
+  .fxLightFields > :last-child > input { flex: none; width: 63px; margin-left: var(--ds-space-2); padding: 0; }
   .fxDial {
     position: relative;
     width: calc(var(--ds-space-12) + var(--ds-space-2));

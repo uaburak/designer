@@ -57,7 +57,8 @@ export const CASES = {
   "effect-settings-noise": [...effect, ["clickIn", "Effect settings"], ["text", "Noise"]],
   "effect-settings-texture": [...effect, ["clickIn", "Effect settings"], ["text", "Texture"]],
   "effect-settings-glass": [...effect, ["clickIn", "Effect settings"], ["text", "Glass"]],
-  "effect-styles": [rect, ["click", "Effects, Apply styles"]],
+  // (Live's capture came after the stroke ones: the rect had a stroke, Effects' button at 759 — the popover's bottom at 884.)
+  "effect-styles": [...stroke, ["click", "Effects, Apply styles"]],
   "export-advanced-settings": [...exportRow, ["click", "Advanced export settings"]],
   "export-format-menu": [...exportRow, ["click", "Export file type"]],
   "layout-guide-settings-grid": guide,

@@ -323,8 +323,9 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
             value="BASIC"
             options={[
               { value: "BASIC", label: "Basic" },
-              { value: "DYNAMIC", label: "Dynamic", disabled: true },
-              { value: "BRUSH", label: "Brush", disabled: true },
+              // Live: Dynamic and Brush enabled (#ffffffb2, not dimmed); their strokes aren't built, so Basic stays picked.
+              { value: "DYNAMIC", label: "Dynamic" },
+              { value: "BRUSH", label: "Brush" },
             ]}
             onChange={() => undefined}
           />
@@ -404,7 +405,7 @@ function StrokeSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; anchor
           <>
             <span className={styles.settingsLabel}>Miter angle</span>
             <NumericInput
-              className={styles.settingsWideField}
+              className={cx(styles.settingsWideField, styles.popNumber)}
               scrubHandle="previous"
               label="Miter angle"
               prefix="24.radius.top.left"
