@@ -1,5 +1,9 @@
 # Engine: build, run, test, API (milestones E0 + E1 + E2 + E3 + E4 + E5, E6 components, E6 variables + styles, E6 libraries; Figma parity rounds 3–4; import fidelity; E7 export; E8 prototyping; E9 WebGPU; round 5 layout + GRID; the text round; round 6 video, slots and grid, Dev Mode; round 7 and 8 render; round 9 canvas chrome; round 10 canvas chrome; round 10 commands)
 
+## Round 11 — Menus, left side and toolbar (2026-10-09, branch `r11-menus-left-toolbar`)
+
+Status: **done**. The engine's part of the group (editor side: `docs/editor.md` "Round 11 — Menus, left side and toolbar"): **Flatten on an instance** (live `menus/context-instance.txt`: enabled). `Editor::flattenable` takes an `INSTANCE`; `flattenSelection` detaches the selected instances first (`detachOne`, inside the same transaction — one undo step) and then flattens the frames they became (`flatFrame`: the box's own fill, its layers, layout dropped); a layer *inside* an instance (a derived guid) is not taken on its own (`engine_command_state` and `flattenSelection` skip a derived instance). A main component stays unflattenable. Test: `components.test.cpp` "round 11: Flatten on an instance …". The release wasm is rebuilt and committed.
+
 ## Round 10 — Menus, commands, left side and toolbar (2026-10-09, branch `r10-menus-commands`)
 
 Status: **done**. The engine's part of fix group 1 of `docs/research/audit-2026-10-08/sweep-round9.md` (the Figma menu's commands live Figma has enabled that were stubs); editor side in `docs/editor.md` "Round 10 — Menus, commands, left side and toolbar". What the commands do beyond their labels is help.figma.com's and marked unverified in the code.

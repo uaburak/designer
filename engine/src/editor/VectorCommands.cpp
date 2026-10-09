@@ -45,8 +45,10 @@ static bool anyVisibleFill(const std::vector<Paint>& paints) {
   return false;
 }
 
+// An instance flattens too (live: its menu's Flatten is enabled): it is detached first, then flattened as the frame it is.
 bool Editor::flattenable(const NodeProps& p) const {
-  return p.isPathShape() || p.isRectLike() || p.type == NodeType::ELLIPSE || p.type == NodeType::TEXT || p.isGroupLike() || flatFrame(p);
+  return p.isPathShape() || p.isRectLike() || p.type == NodeType::ELLIPSE || p.type == NodeType::TEXT || p.isGroupLike() || flatFrame(p) ||
+         p.type == NodeType::INSTANCE;
 }
 
 void Editor::fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const {
@@ -145,11 +147,17 @@ Status Editor::flattenSelection() {
   std::vector<Guid> targets;
   for (Guid t : top) {
     const Node* n = doc_.get(t);
-    if (n && !n->props.locked && flattenable(n->props)) targets.push_back(t);
+    // (an instance inside another is detached with its outer one: not taken alone)
+    if (n && !n->props.locked && flattenable(n->props) && !(n->props.type == NodeType::INSTANCE && t.isDerived())) targets.push_back(t);
   }
   if (targets.empty()) return E_INVALID;
   if (vector_.node != kNoGuid) endVectorEdit();
   begin(TxnKind::USER, "Flatten selection");
+  // Instances are detached first (one undo step with the flatten): what is flattened is the frame they become.
+  for (Guid t : targets) {
+    const Node* n = doc_.get(t);
+    if (n && n->props.type == NodeType::INSTANCE) detachOne(t);
+  }
   // Into the topmost one: its own space holds everyone's outlines.
   Guid into = targets.back();
   const Node* keep = doc_.get(into);
