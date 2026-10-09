@@ -97,6 +97,7 @@ export function BottomToolbar() {
   // While images wait to be placed, the Image tool is the one in use (Figma).
   const tool = placing ? "image" : engineTool;
   const minimized = useUI((s) => s.uiMinimized);
+  const actionsOpen = useUI((s) => !!s.actionsOpen);
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   // A tool chosen by key is remembered in its slot too.
   if (groups[groupOf(tool)] !== tool) setGroups({ ...groups, [groupOf(tool)]: tool });
@@ -128,7 +129,8 @@ export function BottomToolbar() {
       groupTools={groups}
       disabledTools={disabledTools}
       onTool={pick}
-      onActions={() => runEditorCommand(ed, "tool.actions") || showToast({ message: "Actions come later" })}
+      onActions={() => runEditorCommand(ed, "tool.actions")}
+      actionsActive={actionsOpen}
       mode={dev ? "dev" : "design"}
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);

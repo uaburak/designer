@@ -42,6 +42,7 @@ import { BottomToolbar } from "./canvas/BottomToolbar";
 import { CanvasMenu, attachCanvasMenu, attachGridTracks } from "./canvas/CanvasMenu";
 import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
 import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
+import { ActionsPanel } from "./panels/ActionsPanel";
 import { attachCanvasTools } from "./canvasTools";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
@@ -382,6 +383,7 @@ function Overlays() {
       {!hidden && !variables && <Help />}
       <CanvasMenu />
       <ShortcutsDialog />
+      <ActionsPanel />
       <VersionDialogs />
       <LibrariesDialog />
       <PublishDialog />

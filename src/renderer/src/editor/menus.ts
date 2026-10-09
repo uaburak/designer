@@ -565,3 +565,48 @@ export function runPageMenuItem(ed: EditorController, page: Guid, id: string): b
   }
   return false;
 }
+
+/** A command as the Actions palette lists it: its label, the menu it lives in, its keys. */
+export interface ActionItem {
+  id: string;
+  label: string;
+  /** The Figma menu's submenu it is in ("Edit", "View"…), "Tools" for the toolbar's tools */
+  section: string;
+  shortcut?: string;
+  disabled: boolean;
+}
+
+/** The toolbar's tools, as the palette lists them (the bottom toolbar's order). */
+const TOOL_ACTIONS = ["tool.move", "tool.hand", "tool.scale", "tool.frame", "tool.section", "tool.slice", "tool.rectangle", "tool.line", "tool.arrow", "tool.ellipse", "tool.polygon", "tool.star", "tool.image", "tool.pen", "tool.pencil", "tool.text", "tool.comment", "tool.annotation", "tool.measurement"];
+
+/**
+ * The Actions palette's commands (⌘K; panels/ActionsPanel.tsx): every command of the Figma menu (live main-*.txt) in
+ * its order, under its submenu's name, then the tools — each once, the palette itself left out.
+ */
+export function actionItems(ed: EditorController): ActionItem[] {
+  const out: ActionItem[] = [];
+  const seen = new Set<string>(["tool.actions"]);
+  const add = (id: string, section: string, label?: string) => {
+    if (seen.has(id) || !COMMAND_BY_ID.has(id)) return;
+    seen.add(id);
+    const item = commandItem(ed, id, label);
+    out.push({ id, label: item.label, section, shortcut: item.shortcut, disabled: !!item.disabled });
+  };
+  const walk = (specs: Spec[], section: string) => {
+    for (const s of specs) {
+      if (s === "-" || typeof s === "function") continue;
+      if (typeof s === "string") add(s, section);
+      else if ("id" in s) add(s.id, section, s.label);
+      else walk(s.items, section);
+    }
+  };
+  for (const s of MAIN_MENU) {
+    if (s === "-" || typeof s === "function") continue;
+    if (typeof s === "string") add(s, "File");
+    else if ("id" in s) add(s.id, "File", s.label);
+    else walk(s.items, s.label);
+  }
+  add("view.dev-mode", "View", "Switch to Dev Mode");
+  for (const id of TOOL_ACTIONS) add(id, "Tools");
+  return out;
+}
