@@ -5,7 +5,7 @@
  * "Column span" / "Row span". Edits go through the grid model (model/grid.ts) as whole field values, one undo step each.
  */
 import { useState, type ReactNode } from "react";
-import { Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, type ChangeInfo } from "@/ds";
+import { Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, tooltipProps, type ChangeInfo } from "@/ds";
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
@@ -144,11 +144,15 @@ export function GridDimensionsRow({ nodes, action }: { nodes: PanelNode[]; actio
   );
 }
 
-/** The picker's Number of columns and Number of rows (a number or "Auto"). */
+/**
+ * The picker's Number of columns × Number of rows (live grid/grid-dimensions-picker.txt: two 85 × 24 fields at 8 and
+ * 117 with "×" between; rows a number or "Auto", its chevron at 178 — the chevron's entries are unverified).
+ */
 function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNode)[] }) {
   const ed = useEditor();
   const cols = mixedNumber(grids.map((n) => tracksOf(n, "columns").length));
   const rows = mixed(grids.map((n) => rowCountLabel(n)));
+  const auto = grids.length > 0 && grids.every((n) => isAutoRows(n));
   const setRows = (text: string) => {
     const r = parseRowCount(text);
     if (!r) return;
@@ -158,6 +162,7 @@ function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNo
   return (
     <div className={styles.pickerFields}>
       <NumericInput
+        className={styles.pickerField}
         label="Number of columns"
         prefix="24.grid-column"
         value={fieldValue(cols)}
@@ -167,16 +172,52 @@ function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNo
         onChange={(v, info) => setCounts(ed, refs, "Number of columns", info, { columns: v })}
         onCancel={() => ed.cancelEdit()}
       />
-      <TextInput label="Number of rows" prefix="24.grid-row" value={rows === MIXED ? MIXED : (rows ?? "")} onCommit={setRows} />
+      <span className={styles.pickerTimes}>×</span>
+      <TextInput
+        className={styles.pickerField}
+        label="Number of rows"
+        prefix="24.grid-row"
+        value={rows === MIXED ? MIXED : (rows ?? "")}
+        onCommit={setRows}
+        suffix={
+          <MenuButton
+            label="Number of rows"
+            className={styles.pickerRowsMenu}
+            tooltip={false}
+            entries={[
+              { id: "FIXED", label: "Fixed", checked: !auto },
+              { id: "AUTO", label: "Auto", checked: auto },
+            ]}
+            onSelect={(id) => {
+              const first = grids[0];
+              if (id === "AUTO") setCounts(ed, refs, "Number of rows", FINAL, { auto: true });
+              else if (first) setCounts(ed, refs, "Number of rows", FINAL, { rows: Math.max(1, tracksOf(first, "rows").length) });
+            }}
+          >
+            <Icon name="16.chevron.down" />
+          </MenuButton>
+        }
+      />
     </div>
   );
 }
 
-const PICKER_SIZE = 12;
+/** Live: a board of 12 columns × 8 rows, the picker 210 wide */
+export const GRID_PICKER = { columns: 12, rows: 8, width: 210 } as const;
+const PICKER_COLUMNS = GRID_PICKER.columns;
+const PICKER_ROWS = GRID_PICKER.rows;
+const PICKER_WIDTH = GRID_PICKER.width;
+
+/** Where the picker opens (live: 12 left of the grid's button and 57 above it — 1204,427 for a button at 1216,484). */
+export function gridPickerOrigin(button: { left: number; top: number }): { x: number; y: number } {
+  return { x: button.left - 12, y: button.top - 57 };
+}
 
 /**
- * The grid picker (help: Number of columns, Number of rows and "the interactive selector"): hovering a cell of the
- * 12 × 12 board previews that many columns × rows, a click sets them (rows: no longer Auto).
+ * The grid dimensions picker (live grid/grid-dimensions-picker.txt: 210 × 204, no header): the counts, then a board
+ * of 16 × 16 cells (a 14 × 14 square in each; the grid's own on #4a5878, the hovered size on #394360, the rest
+ * #383838) with "C × R" on hover, and "Open grid settings" (the Grid panel). A click on a cell sets that many columns ×
+ * rows (rows no longer Auto).
  */
 function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; refs: Guid[]; grids: (PanelNode & GridNode)[]; onClose: () => void }) {
   const ed = useEditor();
@@ -184,37 +225,60 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
   const first = grids[0];
   const cols = first ? tracksOf(first, "columns").length : 1;
   const rows = first ? (isAutoRows(first) ? Math.max(1, tracksOf(first, "rows").length) : tracksOf(first, "rows").length) : 1;
+  // ("left" placement: the box ends at the rect's left, level with its top, kept 16 above the window's bottom)
+  const o = gridPickerOrigin(anchor.getBoundingClientRect());
+  const at = new DOMRect(o.x + PICKER_WIDTH, o.y, 0, 0);
   const cells: React.ReactNode[] = [];
-  for (let r = 1; r <= PICKER_SIZE; r++)
-    for (let c = 1; c <= PICKER_SIZE; c++)
+  for (let row = 1; row <= PICKER_ROWS; row++)
+    for (let c = 1; c <= PICKER_COLUMNS; c++) {
+      const name = `${c} × ${row}`;
       cells.push(
-        <button
-          key={`${r}:${c}`}
-          type="button"
-          className={styles.cell}
-          aria-label={`${c} × ${r}`}
-          data-grid-cell={`${c}x${r}`}
-          data-on={!hover && c <= cols && r <= rows}
-          data-preview={!!hover && c <= hover.c && r <= hover.r}
-          onPointerEnter={() => setHover({ c, r })}
-          onClick={() => {
-            setCounts(ed, refs, "Grid", FINAL, { columns: c, rows: r });
-            onClose();
-          }}
-        />,
+        <label key={`${row}:${c}`} className={styles.cell} {...tooltipProps(name, undefined, "bottom")}>
+          <input
+            type="radio"
+            name="grid-dimensions"
+            className={styles.cellInput}
+            aria-label={name}
+            value={`${c}x${row}`}
+            data-grid-cell={`${c}x${row}`}
+            checked={c === cols && row === rows}
+            onChange={() => undefined}
+            onPointerEnter={() => setHover({ c, r: row })}
+            onFocus={() => setHover({ c, r: row })}
+            onClick={() => {
+              setCounts(ed, refs, "Grid", FINAL, { columns: c, rows: row });
+              onClose();
+            }}
+          />
+          <span className={styles.cellSquare} data-on={c <= cols && row <= rows} data-preview={!!hover && c <= hover.c && row <= hover.r} />
+          <span className={styles.cellName}>{name}</span>
+        </label>,
       );
+    }
   return (
-    <Popover anchor={anchor} title="Grid" width={240} onClose={onClose} label="Grid picker">
-      <div className={styles.picker} data-grid-picker="">
+    <Popover anchor={at} placement="left" width={PICKER_WIDTH} onClose={onClose} label="Grid dimensions picker">
+      <div className={styles.picker} data-grid-picker="" data-hover={hover ? `${hover.c}x${hover.r}` : undefined}>
         <CountFields refs={refs} grids={grids} />
-        <div className={styles.board} onPointerLeave={() => setHover(null)}>
+        <div role="radiogroup" aria-label="Grid dimensions" className={styles.board} onPointerLeave={() => setHover(null)}>
+          {/* Live: the board's legend, kept for assistive tech and clipped from view */}
+          <span className={styles.boardLegend}>Grid dimensions</span>
           {cells}
         </div>
-        <div className={styles.pickerCaption}>{hover ? `${hover.c} × ${hover.r}` : `${cols} × ${first && isAutoRows(first) ? "Auto" : rows}`}</div>
+        <button
+          type="button"
+          className={styles.pickerSettings}
+          onClick={() => {
+            onClose();
+            if (first) ed.ui.set({ gridSettings: first.guid });
+          }}
+        >
+          Open grid settings
+        </button>
       </div>
     </Popover>
   );
 }
+
 
 /**
  * The label editor of the tracks selected on the canvas (a click on a pill's label, or Enter): their size typed
@@ -302,7 +366,7 @@ export function GridPanel({ frame }: { frame: Guid }) {
   const select = (axis: GridAxis, tracks: number[]) => ed.engine.command("SELECT_GRID_TRACKS", { frame, axis: axis === "columns" ? "COLUMNS" : "ROWS", tracks });
   const close = () => {
     select("columns", []);
-    ed.ui.set({ gridTracks: null, gridTrackEditor: null });
+    ed.ui.set({ gridTracks: null, gridTrackEditor: null, gridSettings: null });
   };
   const items = () => {
     const kids = (ed.engine.readNodes([frame], { childIds: true })[0]?.childIds ?? []) as Guid[];

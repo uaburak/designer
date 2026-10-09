@@ -47,6 +47,17 @@ export function strokeSideFields(n: PanelNode, side: StrokeSide): NodeFields {
   return fields({ borderStrokeWeightsIndependent: true, strokeWeight: weight, ...Object.fromEntries(SIDES.map((s) => [sideField(s), s === which ? weight : 0])) });
 }
 
+/**
+ * What the first stroke added to a layer writes besides its paint: weight 1 and, on closed shapes, Inside — Figma
+ * draws rectangles, ellipses, polygons, stars and frames with their strokes inside (live design/rectangle-with-stroke
+ * after "Add stroke": "Inside"); lines and open vectors keep Center, text keeps its own alignment (unverified).
+ */
+export function firstStrokeFields(n: PanelNode, weight: number): NodeFields {
+  const type = typeOf(n);
+  const closed = type !== "LINE" && type !== "VECTOR" && type !== "TEXT";
+  return { strokeWeight: weight, ...(closed && (n.strokeAlign ?? "CENTER") === "CENTER" ? { strokeAlign: "INSIDE" as StrokeAlign } : {}) };
+}
+
 /** Live (popovers/stroke-individual-strokes-menu.txt): each side with its glyph, Custom after a line. */
 const SIDE_ITEMS: { id: StrokeSide; label: string; icon: IconName }[] = [
   { id: "ALL", label: "All", icon: "24.stroke.side-all" },
@@ -97,6 +108,9 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         }
       >
         <Select
+          // Live: an outlined dropdown on the panel's colour (#2c2c2c), its value 9 in
+          variant="outlined"
+          className={styles.outlinedSelect}
           label="Stroke align"
           value={align ?? "INSIDE"}
           // Live order (popovers/stroke-position-menu.txt): Center, Inside, Outside.
@@ -180,7 +194,11 @@ export const END_POINTS: { value: StrokeCap; label: string; icon: IconName }[] =
   { value: "DIAMOND_FILLED", label: "Diamond arrow", icon: "24.endpoint.diamond-arrow" },
 ];
 
-/** Start point / End point (open paths only): a glyph button each, opening the list of end points. */
+/**
+ * Start point / End point (open paths only), as live (design/line.txt, arrow.txt): "Start point" and "End point"
+ * captions over two outlined dropdowns in the Position / Weight columns (76 and 72), each showing its end of the line
+ * — a 200 wide preview clipped to the button, the cap at the start's left or the end's right — and a chevron.
+ */
 function EndPointsRow({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const ends = nodes.every(isOpenPath) ? nodes.map((n) => ed.engine.endCaps(n.guid)) : [];
@@ -192,17 +210,32 @@ function EndPointsRow({ nodes }: { nodes: PanelNode[] }) {
     "-",
     ...END_POINTS.slice(3).map((p) => ({ id: p.value, label: p.label, icon: p.icon, checked: value === p.value })),
   ];
-  const glyph = (value: StrokeCap | typeof MIXED | undefined) => END_POINTS.find((p) => p.value === value)?.icon ?? "24.endpoint.none";
   const write = (which: "start" | "end", v: string) => runEngineCommand(ed.engine, "SET_END_CAPS", { [which]: v });
   return (
-    <PropertyRow label="Start point and end point" data-end-points="">
+    <PropertyRow labels={["Start point", "End point"]} columns="minmax(0, 76fr) minmax(0, 72fr)" action2={null} data-end-points="">
       <MenuButton label="Start point" entries={entries(start)} className={styles.endPoint} onSelect={(id) => write("start", id)}>
-        <span className={styles.endPointStart} data-value={start === MIXED ? "MIXED" : start}><Icon name={glyph(start)} /></span>
+        <EndPointPreview value={start} side="start" />
+        <Icon name="16.chevron.down" className={styles.endPointChevron} />
       </MenuButton>
       <MenuButton label="End point" entries={entries(end)} className={styles.endPoint} onSelect={(id) => write("end", id)}>
-        <span data-value={end === MIXED ? "MIXED" : end}><Icon name={glyph(end)} /></span>
+        <EndPointPreview value={end} side="end" />
+        <Icon name="16.chevron.down" className={styles.endPointChevron} />
       </MenuButton>
     </PropertyRow>
+  );
+}
+
+/** One end of the line as live draws it: the stem (3 thick under the plain caps, 1 under arrowheads) and the cap. */
+function EndPointPreview({ value, side }: { value: StrokeCap | typeof MIXED | undefined; side: "start" | "end" }) {
+  const point = END_POINTS.find((p) => p.value === value) ?? END_POINTS[0];
+  const plain = point.value === "NONE" || point.value === "ROUND" || point.value === "SQUARE";
+  return (
+    <span className={styles.endPointClip}>
+      <span role="img" aria-label={value === MIXED ? "Mixed" : point.label} className={cx(styles.endPointLine, side === "start" && styles.endPointStart)} data-value={value === MIXED ? "MIXED" : (value ?? "NONE")}>
+        <span className={cx(styles.endPointStem, plain && styles.endPointStemThick)} />
+        <Icon name={point.icon} />
+      </span>
+    </span>
   );
 }
 

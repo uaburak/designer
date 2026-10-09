@@ -178,7 +178,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
               {n > 1 && <Grip {...grip(d)} />}
               <div className={styles.effectField}>
                 <IconButton icon={type.icon} label="Effect settings" aria-expanded={open?.index === i} onClick={(ev) => setOpen(open?.index === i ? null : { index: i, anchor: ev.currentTarget })} />
-                <span className={styles.effectLabel}>{type.label}</span>
+                <span className={cx(styles.effectLabel, styles.effectName)}>{type.label}</span>
               </div>
               <IconButton icon={e.visible === false ? "24.hidden.small" : "24.eye.small"} label="Toggle visibility" tone="secondary" onClick={() => set({ ...e, visible: e.visible === false }, e.visible === false ? "Show effect" : "Hide effect")} />
               <IconButton icon="24.minus.small" label="Remove" tone="secondary" onClick={() => writeEffects(ed, refs, effects.filter((_, j) => j !== i), "Remove effect")} />
@@ -257,6 +257,7 @@ export function EffectSettings({
       label="Effect settings"
       variant="ghost"
       width="hug"
+      className={styles.fxType}
       noCheck
       prefix={EFFECT_TYPES.find((t) => t.value === effect.type)?.icon ?? "24.drop.shadow.mid.small"}
       value={effect.type}
@@ -320,7 +321,9 @@ export function EffectSettings({
     const progressive = effect.blurOpType === "PROGRESSIVE";
     body = (
       <>
-        <div className={styles.fxWide}>
+        <div className={cx(styles.fxWide, styles.fxLegended)}>
+          {/* Live: the control's "Type" legend (read by assistive tech, clipped from view) */}
+          <span className={styles.fxLegend}>Type</span>
           <SegmentedControl
             label="Type"
             fullWidth
@@ -394,16 +397,20 @@ export function EffectSettings({
     const slider = (label: string, value: number, max: number, write: (v: number, info: ChangeInfo) => void) => (
       <>
         <span className={styles.settingsLabel}>{label}</span>
+        {/* Live (popovers/effect-settings-glass.txt): the track 80 × 24, the slider over it 96 × 44 (its 12 thumb 22 in
+            from each end), the value 56 beside — its number 48 × 15 at 7 in */}
         <div className={styles.fxSlider}>
-          <input type="range" className={styles.slider} aria-label={label} min={0} max={max} step={1} value={value} onChange={(e) => write(Number(e.currentTarget.value), { final: false, source: "scrub" })} onPointerUp={(e) => write(Number(e.currentTarget.value), pick)} />
-          <NumericInput label={label} min={0} max={max} precision={0} value={value} onChange={write} onCancel={onCancel} />
+          <span className={styles.fxTrack} />
+          <input type="range" className={styles.fxRange} aria-label={label} min={0} max={max} step={1} value={value} onChange={(e) => write(Number(e.currentTarget.value), { final: false, source: "scrub" })} onPointerUp={(e) => write(Number(e.currentTarget.value), pick)} />
+          <NumericInput className={styles.fxValue} label={label} min={0} max={max} precision={0} value={value} onChange={write} onCancel={onCancel} />
         </div>
       </>
     );
     body = (
       <>
         <span className={cx(styles.settingsLabel, styles.fxTop)}>Light</span>
-        <div className={styles.fxLight}>
+        <div className={cx(styles.fxLight, styles.fxLegended)}>
+          <span className={styles.fxLegend}>Light</span>
           <LightDial angle={num("specularAngle", -45)} onChange={(a, info) => set({ specularAngle: a }, info)} />
           <div className={styles.fxLightFields}>
             <NumericInput label="Angle" unit="°" min={-180} max={180} precision={0} value={Math.round(num("specularAngle", -45))} onChange={(v, info) => set({ specularAngle: v }, info)} onCancel={onCancel} />
@@ -524,7 +531,8 @@ export function ShaderEffects({
             <p className={styles.shaderText}>Add animated shaders that respond to mouse movement, right on canvas, or create your own with the Figma agent.</p>
             <div className={styles.shaderActions}>
               <Button variant="ghost" onClick={onGotIt}>Got it</Button>
-              <Button variant="primary" disabled>Try an example</Button>
+              {/* Live: enabled (#0c8ce9). Shaders aren't drawn here, so it closes the card like Got it (unverified what it adds) */}
+              <Button variant="primary" onClick={onGotIt}>Try an example</Button>
             </div>
           </div>
         )}
