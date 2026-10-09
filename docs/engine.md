@@ -936,7 +936,7 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
 
 **Picking rules** (port of `figma/picking.ts:54-68`, the spec):
 - With no modifier, the pick is the deepest hit whose parent is **open** (selected, or an ancestor of the selection). Otherwise it is the top-level frame's direct child, and otherwise the top-level node.
-- **⌘ (deep select)**: the deepest hit, instance sublayers included.
+- **⌘ (deep select)**: the deepest hit, instance sublayers included — a nested frame where its own fill or stroke is hit (padding, auto-layout gaps), a layer in it on that layer; a frame with no fill or stroke below the top level isn't hit by its box, so the click reaches what is under it (Figma's deep select skips unfilled layers: forum "Improve Deep Select of Objects Without Fill", 2023; not checked live). Round 14: ⌘-click on a top-level frame's own background selects that frame (help.figma.com "Select layers and objects": "Hold down the modifier key to select the top-level frame or a nested layer"; ⇧⌘ adds it), where a plain click selects nothing; a ⌘-drag from there is still a deep marquee. A section's background stays canvas.
 - **Groups**: a hit inside a group selects the outermost unopened group.
 - **Instances**: the first click selects the instance; double-click or ⌘ goes into derived sublayers.
 - **Top-level frames** (and sections; live Figma 2026-10-08):
@@ -944,7 +944,7 @@ Figma ships HarfBuzz in its Wasm (R1 §d), and a correct OpenType shaper (GSUB/G
   - a click there selects nothing, like empty canvas (⇧ keeps the selection); a frame with nothing in it is selected by a click;
   - the frame title selects (⇧ toggles), drags and (double-click) renames it.
 - **Sections** are canvas-level: a frame in a section is top-level (titled, hit by its box, its children picked as a top-level frame's).
-- **Marquee**: a top-level frame partly covered gives its touched children; one covered whole keeps the marquee to top-level layers. A section is canvas: partly covered, its layers are taken by the same rules (a frame in it partly covered gives its children — round 8).
+- **Marquee**: a top-level frame partly covered gives its touched children; one covered whole keeps the marquee to top-level layers. ⌘ (deep): the deepest layers touched — layers without children, and (round 14) a nested frame with a fill or stroke when nothing in it is touched; groups only through their layers; hidden and locked layers skipped (help.figma.com; the live ⌘-drag could not be recorded). A section is canvas: partly covered, its layers are taken by the same rules (a frame in it partly covered gives its children — round 8).
 - **Double-click**: text → edit; container → select its child under the point; vector → vector edit mode (E4).
 - Enter selects **all** children, hidden and locked included (a second Enter goes one level deeper where it can); ⇧Enter and \ select the parent; Tab / ⇧Tab the sibling below / above in the Layers list, wrapping, hidden and locked included.
 - Esc: cancel the gesture, else the tool back to Move, else **clear the selection** (live Figma; not the parent).

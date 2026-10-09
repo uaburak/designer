@@ -54,11 +54,29 @@ std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, 
 
 std::vector<Guid> marqueeDeepHits(const Document& doc, Guid page, const Rect& rect) {
   std::vector<Guid> out;
+  std::unordered_set<Guid, GuidHash> containers;
+  auto shows = [](const NodeProps& p) {
+    for (auto& f : p.fillPaints)
+      if (f.visible) return true;
+    if (p.strokeWeight > 0)
+      for (auto& s : p.strokePaints)
+        if (s.visible) return true;
+    return false;
+  };
   doc.query(page, rect, [&](Guid id) {
     const Node* n = doc.get(id);
-    if (!n || id.isDerived() || doc.pageOf(id) != page) return true;
+    if (!n || id.isDerived() || doc.pageOf(id) != page || n->props.type == NodeType::CANVAS) return true;
     bool leaf = n->props.type == NodeType::INSTANCE || doc.children(id).empty();
-    if (!leaf || n->props.type == NodeType::CANVAS) return true;
+    // A nested frame with layers in it counts where it shows itself (a fill or a stroke, as a click hits it): it is
+    // the deepest layer the rect touches when none of its layers is touched. Groups only through their layers;
+    // top-level frames and sections stay canvas (the rect starts on them).
+    if (!leaf) {
+      const Node* parent = doc.get(n->props.parentIndex.guid);
+      bool nested = parent && parent->props.type != NodeType::CANVAS && parent->props.type != NodeType::SECTION;
+      if (!nested || !n->props.isFrameLike() || n->props.fitsChildren() || n->props.type == NodeType::SECTION || !shows(n->props))
+        return true;
+      containers.insert(id);
+    }
     Rect b = doc.worldBounds(id);
     if (!rect.intersects(b)) return true;
     // Up to the page: nothing hidden, locked or an instance (its sublayers are its own); clipping frames cut it.
@@ -79,6 +97,13 @@ std::vector<Guid> marqueeDeepHits(const Document& doc, Guid page, const Rect& re
   });
   std::sort(out.begin(), out.end(), [&](Guid a, Guid b) { return doc.paintsBefore(a, b); });
   out.erase(std::unique(out.begin(), out.end()), out.end());
+  // The deepest only: a frame drops out when anything in it is taken.
+  if (!containers.empty()) {
+    std::unordered_set<Guid, GuidHash> above;
+    for (Guid id : out)
+      for (Guid p = doc.parentOf(id); p != kNoGuid && p != page && above.insert(p).second;) p = doc.parentOf(p);
+    out.erase(std::remove_if(out.begin(), out.end(), [&](Guid id) { return containers.count(id) && above.count(id); }), out.end());
+  }
   return out;
 }
 

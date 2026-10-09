@@ -14,8 +14,9 @@ namespace eng {
 std::vector<Guid> marqueeHits(const Document& doc, Guid page, const Rect& rect, Guid scope);
 
 // ⌘-marquee (Figma: "hold ⌘ while dragging to select nested layers"): the innermost layers the rect touches, at any
-// depth — layers without children (an instance counts as one, its sublayers aren't taken), where they show (a
-// clipping frame's outside doesn't count). Hidden and locked layers, and what is in them, are skipped. Paint order.
+// depth — layers without children (an instance counts as one, its sublayers aren't taken), and a nested frame with a
+// fill or stroke when nothing in it is touched (the rect only on its padding or gaps), where they show (a clipping
+// frame's outside doesn't count). Hidden and locked layers, and what is in them, are skipped. Paint order.
 std::vector<Guid> marqueeDeepHits(const Document& doc, Guid page, const Rect& rect);
 
 }  // namespace eng

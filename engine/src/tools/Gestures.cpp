@@ -1270,7 +1270,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
              doc_.get(path[topAt])->props.type != NodeType::INSTANCE && !pressedWasSelected_ &&
              !doc_.children(path[topAt]).empty()) {
     // A top-level frame's (or a section's) own background: a drag is a marquee among its children (⌘: a deep
-    // one), a click selects nothing (live Figma: like empty canvas).
+    // one), a click selects nothing (live Figma: like empty canvas); ⌘-click selects the frame (finishClick).
     pressMarquee_ = true;
     marqueeScope_ = path[topAt];
   } else if (!pressedWasSelected_) {
@@ -1622,6 +1622,17 @@ void Editor::finishClick(uint32_t mods) {
     return;
   }
   if (pressMarquee_) {
+    // ⌘ on a top-level frame's own background: the deepest layer there is the frame, and help.figma.com ("Select
+    // layers and objects": "Hold down the modifier key to select the top-level frame or a nested layer") selects it
+    // (⇧ adds it; a selected frame's background is a press on the frame, so ⇧⌘ removes it there). A section stays
+    // canvas.
+    const Node* scope = doc_.get(marqueeScope_);
+    if ((downMods_ & MOD_PRIMARY) && scope && scope->props.type != NodeType::SECTION) {
+      std::vector<Guid> next = shift ? selection_ : std::vector<Guid>{};
+      next.push_back(marqueeScope_);
+      changeSelection(std::move(next));
+      return;
+    }
     // Empty canvas, or the empty background of a top-level frame (or section) with layers in it: live Figma
     // (2026-10-08) treats both alike — a click selects nothing (⇧ keeps the selection).
     if (!shift) changeSelection({});
