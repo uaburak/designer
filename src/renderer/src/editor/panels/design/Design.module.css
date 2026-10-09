@@ -461,6 +461,14 @@
     pointer-events: none;
   }
   .fxLight > .fxLegend { top: -1px; }
+  /* Vector edit mode (live design/vector-edit-mode.txt): "Vector" at 16,16 over the block (no line under it), the rows from 44, 12 below the last */
+  .vectorEdit { padding-bottom: var(--ds-space-3); border-bottom: 1px solid var(--figma-color-border); }
+  .vectorEditTitle { display: flex; align-items: center; height: var(--ds-size-section-header); padding: var(--ds-space-2) var(--ds-size-panel-pad-right) 0 var(--ds-space-2); box-sizing: border-box; }
+  .vectorEditTitle > .typeLabel { line-height: var(--ds-space-4); }
+  .vectorMirroring { position: relative; display: flex; flex: 1 1 auto; }
+  .vectorMirroring > :last-child { flex: 1 1 auto; }
+  /* (Live: the control's "Mirroring" legend 7 above it at −1, 11 / 400, clipped from view) */
+  .vectorLegend { position: absolute; top: -7px; left: -1px; clip-path: inset(50%); color: var(--figma-color-text); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); white-space: nowrap; pointer-events: none; }
   /* Glass: a slider and its value (live: the track 80 at 87, the value 56 at 168) */
   .fxSlider { position: relative; display: flex; align-items: center; height: var(--ds-size-control); margin-left: -1px; }
   .fxTrack { flex: none; width: 80px; height: var(--ds-size-control); border-radius: var(--ds-radius-medium) 0 0 var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }

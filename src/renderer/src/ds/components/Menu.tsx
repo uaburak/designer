@@ -89,6 +89,25 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   // "Actions…" at 40, the other rows at 16).
   const hasIcons = list.some((e) => isItem(e) && e.icon && !e.inlineIcon);
 
+  // An extended menu moves instead of scrolling: never above where it opened, never ending above the window's bottom.
+  const more = useRef<HTMLDivElement>(null);
+  const moreTimer = useRef<number | undefined>(undefined);
+  const placeMore = (el: HTMLElement) => {
+    const bar = more.current;
+    if (!bar) return;
+    bar.style.top = "0px";
+    const natural = el.offsetTop + bar.offsetTop;
+    const want = window.innerHeight - 12 - bar.offsetHeight;
+    // Shown while rows run past it; at the end of the list it stays in place, hidden.
+    const shown = natural > want + 12;
+    bar.style.top = shown ? `${want - natural}px` : "0px";
+    bar.style.visibility = shown ? "visible" : "hidden";
+  };
+  const shift = (el: HTMLElement, by: number) => {
+    const lowest = Math.min(y, window.innerHeight - 8 - el.offsetHeight);
+    el.style.top = `${Math.round(Math.min(y, Math.max(lowest, el.offsetTop - by)))}px`;
+    placeMore(el);
+  };
   useLayoutEffect(() => {
     const el = panel.current;
     if (!el) return;
@@ -128,25 +147,6 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     if (autoFocus) el.focus({ preventScroll: true });
   }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend]);
 
-  // An extended menu moves instead of scrolling: never above where it opened, never ending above the window's bottom.
-  const more = useRef<HTMLDivElement>(null);
-  const moreTimer = useRef<number | undefined>(undefined);
-  const placeMore = (el: HTMLElement) => {
-    const bar = more.current;
-    if (!bar) return;
-    bar.style.top = "0px";
-    const natural = el.offsetTop + bar.offsetTop;
-    const want = window.innerHeight - 12 - bar.offsetHeight;
-    // Shown while rows run past it; at the end of the list it stays in place, hidden.
-    const shown = natural > want + 12;
-    bar.style.top = shown ? `${want - natural}px` : "0px";
-    bar.style.visibility = shown ? "visible" : "hidden";
-  };
-  const shift = (el: HTMLElement, by: number) => {
-    const lowest = Math.min(y, window.innerHeight - 8 - el.offsetHeight);
-    el.style.top = `${Math.round(Math.min(y, Math.max(lowest, el.offsetTop - by)))}px`;
-    placeMore(el);
-  };
   // Resting on the bar moves the rows up a row at a time (unverified: live's capture shows the bar at rest).
   const moreScroll = (el: HTMLElement) => {
     window.clearInterval(moreTimer.current);
@@ -173,7 +173,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     const r = item.getBoundingClientRect();
     if (r.bottom > window.innerHeight - 8) shift(el, r.bottom - (window.innerHeight - 8));
     else if (r.top < 8) shift(el, r.top - 8);
-  }, [active]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `shift` reads the current layout
+  }, [active, extend]);
 
   const openSub = (index: number, focus: boolean) => {
     const item = panel.current?.querySelector<HTMLElement>(`[data-menu-index="${index}"]`);
