@@ -37,6 +37,7 @@
   .withImage::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--ds-color-border-translucent); }
   .a16 { width: 16px; height: 16px; font-size: 8px; line-height: 16px; }
   .a24 { width: 24px; height: 24px; font-size: 10px; }
+  .a28 { width: 28px; height: 28px; font-size: 11px; }
   .a32 { width: 32px; height: 32px; }
 
   .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--ds-space-2); max-width: 280px; margin: 0 auto; padding: var(--ds-space-6) var(--ds-space-4); text-align: center; }

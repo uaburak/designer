@@ -52,6 +52,6 @@ describe("Grid dimensions picker (live grid/grid-dimensions-picker.txt: 210 × 2
     expect(GRID_PICKER).toEqual({ columns: 12, rows: 8, width: 210 });
   });
   it("opens 12 left of the grid's button and 57 above it", () => {
-    expect(gridPickerOrigin({ left: 1216, top: 484 })).toEqual({ x: 1204, y: 427 });
+    expect(gridPickerOrigin({ left: 1216, top: 485 })).toEqual({ x: 1204, y: 427 });
   });
 });

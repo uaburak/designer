@@ -21,7 +21,7 @@ import { typeLabel, type PanelNode } from "../panels/design/shared";
 import { pageColors, selectionColorsOf, writeSelectionColor } from "../panels/design/SelectionColors";
 import { flowAxis, isAutoLayout, limitOf, sizingChanges, sizingOf, withLimit, type SizingNode } from "../model/sizing";
 import type { NodeChange } from "@/engine/codec";
-import { PAINTS_DOCUMENT } from "../fixtures";
+import { CAPTURE_DOCUMENT, PAINTS_DOCUMENT } from "../fixtures";
 import { hasCommand, keepsField } from "../engineCompat";
 import { messageAt } from "../model/clipboard";
 import { hashBytes, hashHex } from "../model/paints";
@@ -106,8 +106,9 @@ describe("editor on the engine (wasm, headless)", () => {
     expect(engine.readNode("1:21")).toBeNull();
     expect(runEditorCommand(ed, "edit.undo")).toBe(true);
     expect(engine.readNode("1:21")).not.toBeNull();
+    expect(ed.ui.get().rulers).toBe(false); // live's View > Rulers is unchecked (N15)
     expect(runEditorCommand(ed, "view.rulers")).toBe(true);
-    expect(ed.ui.get().rulers).toBe(false);
+    expect(ed.ui.get().rulers).toBe(true);
     expect(runEditorCommand(ed, "no.such.command")).toBe(false);
   });
 
@@ -128,7 +129,7 @@ describe("editor on the engine (wasm, headless)", () => {
     const edit = main.find((i) => i.label === "Edit")!;
     expect(items(edit.items!).find((i) => i.id === "edit.undo")?.disabled).toBe(true);
     const view = items(main.find((i) => i.label === "View")!.items!);
-    expect(view.find((i) => i.id === "view.rulers")?.checked).toBe(true);
+    expect(view.find((i) => i.id === "view.rulers")?.checked).toBe(false);
     expect(items(canvasMenu(ed, [])).map((i) => i.id)).toContain("edit.paste-here");
     engine.setSelection(["1:5"]);
     const sel = items(canvasMenu(ed, [{ id: "1:5", name: "Card" }, { id: "1:1", name: "Desktop" }]));
@@ -166,7 +167,7 @@ describe("editor on the engine (wasm, headless)", () => {
     const { menuPatch, menuState } = await import("../desktop");
     const first = menuState(ed);
     expect(first.enabled["edit.delete"]).toBe(false);
-    expect(first.checked["view.rulers"]).toBe(true);
+    expect(first.checked["view.rulers"]).toBe(false);
     expect(menuPatch(first, menuState(ed))).toBeNull();
     engine.setSelection(["1:5"]);
     const patch = menuPatch(first, menuState(ed))!;
@@ -297,6 +298,18 @@ describe("Design panel, Phase 2 (wasm, headless)", () => {
     expect(pageColors(ed)).toContain("#0d99ff");
     // A single rectangle without children: no section.
     expect(selectionColorsOf(engine, [engine.readNode("1:2")! as PanelNode]).show).toBe(false);
+  });
+
+  it("lists the picker's \"On this page\" colours most used first (live fill-picker-solid.txt: the common ones open it, single uses close it)", async () => {
+    const { ed, engine } = await editor(CAPTURE_DOCUMENT);
+    engine.setCurrentPage("0:1");
+    const colors = pageColors(ed);
+    // FFFFFF: the frames, E5664D: 9 auto layout items, D9D9D9: the shapes — live's first three; 66CC80 (the grid's 4
+    // items) is its fifth; 3380FF is one use (the first frame's child): near the end, not first as in document order
+    expect(colors.slice(0, 3)).toEqual(["#ffffff", "#e5664d", "#d9d9d9"]);
+    expect(colors.indexOf("#66cc80")).toBe(4);
+    expect(colors.indexOf("#3380ff")).toBeGreaterThan(colors.indexOf("#000000"));
+    expect(new Set(colors).size).toBe(colors.length);
   });
 
   // ---- E4 / E5 in the editor -------------------------------------------------------------------------

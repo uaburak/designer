@@ -93,12 +93,21 @@ export function selectionColorsOf(engine: Engine, nodes: readonly PanelNode[]): 
   return { show: showSelectionColors(selected, groups.flat()), colors: collectSelectionColors(own) };
 }
 
-/** The picker's "On this page": every solid colour on the current page, as CSS colours (rgba() when not opaque). */
+/**
+ * The picker's "On this page": every solid colour on the current page, as CSS colours (rgba() when not opaque), the
+ * most used first. Live's list (popovers/fill-picker-solid.txt) opens with FFFFFF, E5664D, D9D9D9 — the colours of the
+ * page's frames, auto layout children and shapes — and ends with the single uses (3380FF, 1E1E1E), where document
+ * order would start with the first frame's child. Equal counts keep document order: live's order among the single
+ * uses follows no order the capture fixture shows (unverified).
+ */
 export function pageColors(ed: EditorController, max = 48): string[] {
   const nodes = readInside(ed.engine, [ed.store.page]);
   if (!nodes) return [];
   const out = new Set<string>();
-  for (const c of collectColors(nodes)) {
+  const used = collectColors(nodes)
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => b.c.uses.length - a.c.uses.length || a.i - b.i);
+  for (const { c } of used) {
     if (c.gradient) continue;
     const { r, g, b } = c.color;
     out.add(c.opacity >= 1 ? colorToHex(c.color) : `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${Math.round(c.opacity * 100) / 100})`);

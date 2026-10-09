@@ -203,9 +203,9 @@ const PICKER_COLUMNS = GRID_PICKER.columns;
 const PICKER_ROWS = GRID_PICKER.rows;
 const PICKER_WIDTH = GRID_PICKER.width;
 
-/** Where the picker opens (live: 12 left of the grid's button and 57 above it — 1204,427 for a button at 1216,484). */
+/** Where the picker opens (live: 12 left of the grid's button and 58 above it — 1204,427 for a button at 1216,485 (live grid/grid-dimensions-picker.txt, design/autolayout-grid.txt)). */
 export function gridPickerOrigin(button: { left: number; top: number }): { x: number; y: number } {
-  return { x: button.left - 12, y: button.top - 57 };
+  return { x: button.left - 12, y: button.top - 58 };
 }
 
 /**
