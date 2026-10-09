@@ -93,7 +93,8 @@ export interface Paint {
   stopsVar?: { color: Color; colorVar?: VariableData; position: number }[];
   [other: string]: unknown;
 }
-export type EffectType = "INNER_SHADOW" | "DROP_SHADOW" | "FOREGROUND_BLUR" | "BACKGROUND_BLUR" | "GRAIN" | "NOISE" | "GLASS";
+/** CUSTOM: a shader effect (customEffectId, componentPropAssignments; editor/model/shaders.ts). */
+export type EffectType = "INNER_SHADOW" | "DROP_SHADOW" | "FOREGROUND_BLUR" | "BACKGROUND_BLUR" | "GRAIN" | "NOISE" | "GLASS" | "CUSTOM";
 /** An effect: FOREGROUND_BLUR is the UI's "Layer blur". Other fields are kept as given. */
 export interface Effect {
   type: EffectType;

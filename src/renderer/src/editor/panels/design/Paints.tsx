@@ -28,7 +28,9 @@ import { pickImageFiles } from "../../canvas/ImagePlacer";
 import { startGradientEdit } from "../../vectorEdit";
 import { useDocumentVersion, useLocalAssets, useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
-import { SHADER_FILL_PRESETS, ShaderEffects } from "./Effects";
+import { ShaderEffects } from "./Effects";
+import { ShaderParams } from "./ShaderSettings";
+import { SHADER_FILLS, shaderPaint, type ShaderFields } from "../../model/shaders";
 import { StrokeRows, firstStrokeFields } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
 import { isFrameNode, type PanelNode } from "./shared";
@@ -467,6 +469,17 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
           : undefined
       }
       onShaders={(picker) => setShaders(picker)}
+      shader={
+        // A shader fill (round 11): its preset and parameters in place of a type's controls (unverified layout).
+        paint.type === "CUSTOM" ? (
+          <ShaderParams
+            target={paint as FullPaint & ShaderFields}
+            onChange={(next, info) => write(next as FullPaint, info, "Shader fill")}
+            onCancel={() => ed.cancelEdit()}
+            onChoose={(button) => setShaders(button.closest<HTMLElement>('[data-ds="Popover"]') ?? button)}
+          />
+        ) : undefined
+      }
       contrastBackground={paint.type === "SOLID" && nodes.length === 1 ? backgroundBehind(ed, refs[0], pageColor) : null}
       onRotateGradient={isGradientType(paint.type) ? () => write(gradientRotated90(paint), { final: true, source: "pick" }, "Rotate gradient") : undefined}
       onChange={(next: PickerPaint, info) => {
@@ -478,7 +491,21 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
       onCancel={() => ed.cancelEdit()}
       onClose={onClose}
     />
-    {shaders && <ShaderEffects anchor={shaders} placement="left" title="Shader fills" list={SHADER_FILL_PRESETS} onboarding={false} onClose={() => setShaders(null)} />}
+    {shaders && (
+      <ShaderEffects
+        anchor={shaders}
+        placement="left"
+        title="Shader fills"
+        list={SHADER_FILLS}
+        onboarding={false}
+        onPick={(preset) => {
+          // The paint becomes the preset's shader (its opacity, visibility and blend mode kept).
+          write(shaderPaint(paint as FullPaint & ShaderFields, preset) as FullPaint, { final: true, source: "pick" }, "Shader fill");
+          setShaders(null);
+        }}
+        onClose={() => setShaders(null)}
+      />
+    )}
     </>
   );
 }

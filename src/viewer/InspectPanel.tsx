@@ -507,7 +507,7 @@ function TypographySection({ node, styleName, variables }: { node: NodeChange; s
   );
 }
 
-const EFFECT_NAMES: Record<string, string> = { DROP_SHADOW: "Drop shadow", INNER_SHADOW: "Inner shadow", FOREGROUND_BLUR: "Layer blur", BACKGROUND_BLUR: "Background blur", NOISE: "Noise", GRAIN: "Texture", GLASS: "Glass" };
+const EFFECT_NAMES: Record<string, string> = { DROP_SHADOW: "Drop shadow", INNER_SHADOW: "Inner shadow", FOREGROUND_BLUR: "Layer blur", BACKGROUND_BLUR: "Background blur", NOISE: "Noise", GRAIN: "Texture", GLASS: "Glass", CUSTOM: "Shader" };
 
 function EffectsSection({ effects, styleName }: { effects: Effect[]; styleName?: string }) {
   if (!effects.length) return null;
