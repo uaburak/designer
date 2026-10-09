@@ -20,6 +20,8 @@ Status: **done** except Figma Draw's tools (checks below). Truth: `docs/research
 | 8 | Vector edit More menu (R21) | unchanged — Shape builder (M) and Variable width (⇧W) stay listed disabled: Figma Draw's tools are not built (hard, out of scope) | — |
 | 9 | Electron-only items (R29) | see "Electron app" below | — |
 
+**Electron app (R29), verified 2026-10-09** on the built demo app (`npx electron-vite build --mode demo`, a standalone Playwright-Electron script like `scripts/drive.mjs`, a new design file, the Save dialog answered with a stub): File › Duplicate, Save local copy…, Save to version history…, Show version history and Create branch… are all enabled in the Figma menu; Save local copy… wrote a `.fig` (14 KB) and toasted "Saved a local copy"; Show version history and Save to version history… open their dialogs; Create branch… opens its dialog; Duplicate opened the copy in a new tab (views 3 → 4). A freshly opened context menu lights no row (empty canvas at 700, 300: 200 × 218, nothing lit); a row is lit only when the menu is moved up to fit and the pointer lands on it ("Paste here" at 1100, 700) — plain hover. In a browser with a store-backed file (the dev store) the same four are enabled and Save local copy… is off (the desktop's own bridge): editor-shot `menus11`.
+
 Open: the View submenu sits 3 px lower than live's (210, 108 vs 105: live keeps 8 from the window's bottom there, 5 for Preferences — unexplained, left); text widths of the labels differ by 1–2 px in places (Inter's hinting in the headless Chromium).
 
 ## Status 2026-10-09 — Round 10 — Menus, commands, left side and toolbar (branch `r10-menus-commands`)
