@@ -249,6 +249,16 @@ a nested instance inside `Card`, a fixed auto-layout parent with children, and a
 * `img/` — 46 screenshots, mainly canvas states (`canvas-*`, `grid-*`), plus menus, left rail and
   panel views.
 
+## Draw and Motion modes (attempt of 2026-10-09: not reachable)
+
+The built-in browser was **not signed in** to figma.com, so the file opened as an anonymous view-only viewer (banner "Sign up to comment, edit, inspect and more."; `window.figma` undefined). In that viewer the bottom toolbar's mode switch lists only **Design / Motion (Beta) / Dev Mode** — **no Draw**. Clicking Motion works, but only hides the chrome and shows a "Motion Beta" tag; there is no timeline, keyframes UI or panel. Nothing was signed in or edited.
+
+* `draw/behaviour.md` — Draw is absent; what is needed to capture it.
+* `motion/behaviour.md` — the viewer-only behaviour of Motion.
+* `draw/viewer-design-mode-toolbelt.txt`, `motion/viewer-motion-selected.txt` — the two viewer dumps.
+
+To capture the real thing, the owner must sign in to figma.com in the built-in browser; then re-run the Draw/Motion capture task.
+
 ## Behaviour (`behaviour/`)
 
 Interaction tests run on the page **Behaviour** in Untitled at a 1440×900 viewport. There is one file per area, and each holds the findings followed by a log of every action with its before/after state and its status. Screenshots are in `behaviour/img/`.
