@@ -44,6 +44,8 @@ export const CASES = {
   "width-sizing-menu": [al, ["click", "Horizontal resizing sizing"]],
   "height-sizing-menu": [al, ["click", "Vertical resizing sizing"]],
   "gap-menu": [al, ["hover", "Horizontal gap between objects"], ["click", "Gap sizing"]],
+  // Round 12: the grid's settings popover (live grid/grid-autolayout-settings.txt, 240 × 249 at 960,485: level with its button)
+  "grid-autolayout-settings": [["select", ["7:40"]], ["click", "Auto layout settings"]],
   "autolayout-child-width-menu": [["select", ["7:51"]], ["click", "Width sizing"]],
   "frame-presets-menu": [al, ["click", "Frame, Frame Dimension Presets"]],
   "stroke-advanced-settings": [...stroke, ["click", "Advanced stroke settings"]],
@@ -129,7 +131,7 @@ try {
     const text = await page.evaluate(dump);
     writeFileSync(`${outDir}/${name}.txt`, `# ${failed ? "FAILED at " + failed : "ok"}\n${text}\n`);
     await page.screenshot({ path: `${outDir}/${name}.png` });
-    const live = new URL(`../popovers/${name}.txt`, import.meta.url);
+    const live = [new URL(`../popovers/${name}.txt`, import.meta.url), new URL(`../grid/${name}.txt`, import.meta.url)].find((u) => existsSync(u)) ?? new URL(`../popovers/${name}.txt`, import.meta.url);
     let diff = "";
     if (existsSync(live)) diff = execFileSync("node", [new URL("./compare-popups.mjs", import.meta.url).pathname, live.pathname, `${outDir}/${name}.txt`], { encoding: "utf8" });
     writeFileSync(`${outDir}/${name}.diff`, diff);
