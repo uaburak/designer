@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "gfx/wgpu/CustomShader.h"
 #include "gfx/wgpu/Shaders.h"
 
 // gfx/wgpu/library_engine_wgpu.js
@@ -32,7 +33,7 @@ namespace {
 WGPUStringView sv(const char* s) { return WGPUStringView{s, WGPU_STRLEN}; }
 
 // The shaders' bind group 1 layouts (gfx/wgpu/Shaders.h); index = ShaderId, then the device's own.
-enum Layout : int { kLayoutDraw = 0, kLayoutComposite = 1, kLayoutBlur = 2, kLayoutUtility = 3, kLayouts = 4 };
+enum Layout : int { kLayoutDraw = 0, kLayoutComposite = 1, kLayoutBlur = 2, kLayoutCustom = 3, kLayoutUtility = 4, kLayouts = 5 };
 
 // Per draw: the 12 vec4 slots of DrawCall::uniforms + the device's (y sign, framebuffer height, stencil pass, 0).
 // The draw's uniform slots plus the device's own (y sign, framebuffer height, stencil pass).
@@ -950,9 +951,10 @@ class WebGPUDevice final : public Device {
     modules_[0] = module(std::string(kCommon) + kDraw + curves("t0"), "draw");
     modules_[1] = module(std::string(kCommon) + kComposite + curves("t3"), "composite");
     modules_[2] = module(std::string(kCommon) + kBlur, "blur");
-    modules_[3] = module(std::string(kCommon) + kUtility, "utility");
-    for (WGPUShaderModule m : modules_)
-      if (!m) return false;
+    modules_[kLayoutUtility] = module(std::string(kCommon) + kUtility, "utility");
+    // modules_[kLayoutCustom] (the shaders' presets) is made with its first pipeline: a large module off the start-up path.
+    for (int i : {0, 1, 2, static_cast<int>(kLayoutUtility)})
+      if (!modules_[i]) return false;
     // Group 0: the draw's uniforms (a dynamic offset into the frame's uniform buffer).
     WGPUBindGroupLayoutEntry ue = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
     ue.binding = 0;
@@ -988,6 +990,7 @@ class WebGPUDevice final : public Device {
     textureLayouts_[kLayoutDraw] = layout({1, 0, 2, 0, 2, 0, 2});
     textureLayouts_[kLayoutComposite] = layout({0, 2, 0, 2, 0, 2, 1});
     textureLayouts_[kLayoutBlur] = layout({0, 2});
+    textureLayouts_[kLayoutCustom] = layout({0, 2});
     textureLayouts_[kLayoutUtility] = layout({0, 2});
     for (int i = 0; i < kLayouts; i++) {
       WGPUBindGroupLayout groups[2] = {uniformLayout_, textureLayouts_[i]};
@@ -1016,13 +1019,13 @@ class WebGPUDevice final : public Device {
       target.format = WGPUTextureFormat_RGBA8Unorm;
       target.writeMask = WGPUColorWriteMask_All;
       WGPUFragmentState fs = WGPU_FRAGMENT_STATE_INIT;
-      fs.module = modules_[3];
+      fs.module = modules_[kLayoutUtility];
       fs.entryPoint = sv(entries[i]);
       fs.targetCount = 1;
       fs.targets = &target;
       WGPURenderPipelineDescriptor d = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
       d.layout = pipelineLayouts_[kLayoutUtility];
-      d.vertex.module = modules_[3];
+      d.vertex.module = modules_[kLayoutUtility];
       d.vertex.entryPoint = sv("vs");
       d.primitive.topology = WGPUPrimitiveTopology_TriangleList;
       d.fragment = &fs;
@@ -1037,6 +1040,8 @@ class WebGPUDevice final : public Device {
     if (cached) return cached;
     const PipelineDesc& p = pipelines_[id];
     int shader = static_cast<int>(p.shader);
+    if (p.shader == ShaderId::Custom && !modules_[shader]) modules_[shader] = module(std::string(wgsl::kCommon) + wgsl::kCustom, "custom");
+    if (!modules_[shader]) return nullptr;
     WGPUVertexAttribute attributes[10];
     for (uint32_t i = 0; i < 10; i++) {
       attributes[i] = WGPU_VERTEX_ATTRIBUTE_INIT;
@@ -1136,7 +1141,7 @@ class WebGPUDevice final : public Device {
   int32_t lost_ = 0;  // set by library_engine_wgpu.js when the device is lost
   uint32_t maxTexture_ = 8192;
 
-  WGPUShaderModule modules_[4] = {};
+  WGPUShaderModule modules_[kLayouts] = {};
   WGPUBindGroupLayout uniformLayout_ = nullptr;
   WGPUBindGroupLayout textureLayouts_[kLayouts] = {};
   WGPUPipelineLayout pipelineLayouts_[kLayouts] = {};

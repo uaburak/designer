@@ -47,6 +47,9 @@ enum class ShaderId : uint8_t {
   Shape = 0,
   Composite = 1,  // a layer onto its parent: opacity, blend modes, masks, shadows (one quad, no instances)
   Blur = 2,       // separable Gaussian blur and dilate / erode (one quad, no instances)
+  // Figma's shader fills and effects (round 11; render/ShaderPaint.h): a preset's procedural paint, or its filter of
+  // a layer, into a layer of its own (one quad, no instances). Built on its first use (a large program).
+  Custom = 3,
 };
 
 enum class StencilFunc : uint8_t { Always, Equal };
@@ -100,7 +103,7 @@ struct DrawCall {
   IRect scissor;
   uint8_t stencilRef = 0;
   // Shape: 0 curves (paths and clip paths), 1 gradient ramps, 2 image or backdrop, 3 unused. Composite: 0 source,
-  // 1 mask / node alpha, 2 backdrop, 3 curves (a clip path). Blur: 0 source.
+  // 1 mask / node alpha, 2 backdrop, 3 curves (a clip path). Blur: 0 source. Custom: 0 the layer an effect reads.
   static constexpr int kTextures = 4;
   TextureId textures[kTextures] = {0, 0, 0, 0};
 };

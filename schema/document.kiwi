@@ -276,6 +276,7 @@ enum PaintType {
   VIDEO = 7;               // a video fill (drawn from its poster frame, `image`, in the editor)
   PATTERN = 8;             // "Pattern": another layer of the file (sourceNodeId) tiled
   NOISE = 9;               // a noise paint (Figma Draw)
+  CUSTOM = 10;             // a shader fill ("Shader"): customEffectId + componentPropAssignments
   // Dropped: EMOJI=6.
 }
 
@@ -351,6 +352,8 @@ message Paint {
   float density = 35;                    // NOISE
   Vector noiseSize = 36;                 // NOISE
   Vector patternSpacing = 37;            // PATTERN: "Spacing" X / Y, as a share of the tile (0.2 = 20 %)
+  CodeComponentId customEffectId = 39;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §4.6)
+  ComponentPropAssignment[] componentPropAssignments = 40;  // CUSTOM: the shader's parameters (defID → value / varValue)
   // Reserved field numbers (11): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r13 = 13 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r22 = 22 [deprecated];
   byte _r24 = 24 [deprecated]; byte _r31 = 31 [deprecated]; byte _r32 = 32 [deprecated]; byte _r33 = 33 [deprecated];
@@ -400,7 +403,8 @@ enum EffectType {
   GRAIN = 6;               // "Texture"
   NOISE = 7;               // "Noise"
   GLASS = 8;               // "Glass"
-  // Dropped: REPEAT=4, SYMMETRY=5 (illustration modifiers), CUSTOM=9 (code effects).
+  CUSTOM = 9;              // a shader effect ("Shader"): customEffectId + componentPropAssignments
+  // Dropped: REPEAT=4, SYMMETRY=5 (illustration modifiers).
 }
 
 enum BlurOpType {
@@ -446,8 +450,12 @@ message Effect {
   float chromaticAberration = 34;        // glass "Dispersion" (0..1)
   float reflectionDistance = 35;         // glass (not in the panel)
   float refractionIntensity = 36;        // glass "Refraction" (0..1); "Frost" is `radius`
-  // Reserved field numbers (5): Figma fields not kept, or reserved for future Figma fields. Never reuse.
+  CodeComponentId customEffectId = 43;   // CUSTOM: the shader (a preset "By Figma": assetRef.key, docs/schema.md §4.6)
+  ComponentPropAssignment[] componentPropAssignments = 44;  // CUSTOM: the shader's parameters (defID → value / varValue)
+  // Reserved field numbers (11): Figma fields not kept, or reserved for future Figma fields. Never reuse.
   byte _r14 = 14 [deprecated]; byte _r15 = 15 [deprecated]; byte _r16 = 16 [deprecated]; byte _r17 = 17 [deprecated]; byte _r18 = 18 [deprecated];
+  byte _r37 = 37 [deprecated]; byte _r38 = 38 [deprecated]; byte _r39 = 39 [deprecated]; byte _r40 = 40 [deprecated]; byte _r41 = 41 [deprecated];
+  byte _r42 = 42 [deprecated];
 }
 
 enum MaskType {
@@ -1190,6 +1198,11 @@ message SymbolId {
   AssetRef assetRef = 2;
 }
 
+message CodeComponentId {  // a code component; a shader paint's / effect's (Paint / Effect.customEffectId)
+  GUID guid = 1;
+  AssetRef assetRef = 2;
+}
+
 enum VariableDataType {
   BOOLEAN = 0;
   FLOAT = 1;
@@ -1482,6 +1495,7 @@ message ComponentPropValue {
   bool boolValue = 1;
   TextData textValue = 2;
   GUID guidValue = 3;      // INSTANCE_SWAP: a SYMBOL; SLOT: the slot content FRAME (isSlotContent)
+  float floatValue = 4;    // a shader's NUMBER parameter (its COLOR ones are the assignment's varValue)
 }
 
 message ComponentPropDef {

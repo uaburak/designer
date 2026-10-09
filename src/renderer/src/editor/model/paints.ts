@@ -10,6 +10,7 @@
 import { colorAt, paintCss, sortStops, type PickerPaint } from "@/ds/util/paint";
 import type { Matrix, Paint, PaintFilter } from "@/engine/codec";
 import { colorToHex, toPercent } from "./color";
+import { presetOf, shaderSwatch, type ShaderFields } from "./shaders";
 
 export type { PaintType } from "@/engine/codec";
 import type { ImageScaleMode as SchemaScaleMode } from "@/engine/codec";
@@ -187,6 +188,11 @@ export function fromPicker(base: FullPaint, next: PickerPaint): FullPaint {
   const media = (t: string) => t === "IMAGE" || t === "VIDEO";
   const out: FullPaint = { ...base, type: next.type, opacity: next.opacity ?? base.opacity ?? 1 };
   if (base.type === "VIDEO" && next.type !== "VIDEO") delete (out as { video?: unknown }).video;
+  // Leaving a shader fill (the Shader tab's settings showed instead of the type's): its preset and parameters go.
+  if (base.type === "CUSTOM") {
+    delete (out as ShaderFields).customEffectId;
+    delete (out as ShaderFields).componentPropAssignments;
+  }
   if (base.type === "PATTERN" && next.type !== "PATTERN") {
     dropPattern(out);
     delete out.scale;
@@ -245,8 +251,9 @@ const TYPE_LABEL: Record<string, string> = {
   VIDEO: "Video",
 };
 
-/** The row's text: the hex for a solid, Figma's type name otherwise ("Linear", "Image"). */
+/** The row's text: the hex for a solid, Figma's type name otherwise ("Linear", "Image"), a shader's name ("Nebula"). */
 export function paintLabel(p: FullPaint): string {
+  if (p.type === "CUSTOM") return presetOf(p as ShaderFields)?.name ?? "Shader";
   return p.type === "SOLID" ? colorToHex(p.color ?? { r: 0, g: 0, b: 0 }) : TYPE_LABEL[p.type] ?? "Paint";
 }
 
@@ -255,6 +262,7 @@ export function paintSwatch(p: FullPaint, imageUrl?: string | null): string {
   if (isImageLike(p)) return imageUrl ? `center / cover no-repeat url("${imageUrl}")` : "var(--figma-color-bg-tertiary)";
   if (isGradientType(p.type)) return paintCss(toPicker(p));
   if (p.type === "PATTERN") return "var(--figma-color-bg-tertiary)";
+  if (p.type === "CUSTOM") return shaderSwatch(p as ShaderFields);
   return colorToHex(p.color ?? { r: 0, g: 0, b: 0 });
 }
 

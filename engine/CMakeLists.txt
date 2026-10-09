@@ -96,7 +96,7 @@ add_library(eng_core STATIC
 target_include_directories(eng_core PUBLIC src)
 # kiwi.h (the runtime) and the generated binary schema: SYSTEM, so their warnings don't fail -Werror.
 target_include_directories(eng_core SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/kiwi ${ENG_GENERATED})
-add_dependencies(eng_core eng_schema_gen)
+add_dependencies(eng_core eng_schema_gen eng_shader_presets_gen)
 target_link_libraries(eng_core PUBLIC eng_third_party)
 eng_compile_flags(eng_core)
 
@@ -176,6 +176,7 @@ else()
     tests/unit/r9.overlays.test.cpp
     tests/unit/r10.commands.test.cpp
     tests/unit/r10.canvas_chrome.test.cpp
+    tests/unit/r11.shaders.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

@@ -592,7 +592,7 @@ bool readPaintInto(kiwi::ByteBuffer& bb, Paint& p, KiwiBlobs* blobs) {
       case 1: {
         uint32_t t = 0;
         if (!bb.readVarUint(t)) return false;
-        if (t <= 5 || (t >= 7 && t <= 9)) {
+        if (t <= 5 || (t >= 7 && t <= 10)) {
           p.type = static_cast<PaintType>(t);
           break;
         }

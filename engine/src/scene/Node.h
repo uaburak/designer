@@ -58,6 +58,7 @@ enum class PaintType : uint8_t {
   SOLID = 0, GRADIENT_LINEAR = 1, GRADIENT_RADIAL = 2, GRADIENT_ANGULAR = 3, GRADIENT_DIAMOND = 4, IMAGE = 5, VIDEO = 7,
   PATTERN = 8,  // another layer of the file tiled (its fields — sourceNodeId, patternSpacing, … — in `extra`)
   NOISE = 9,    // a noise paint (noiseType, density, noiseSize in `extra`)
+  CUSTOM = 10,  // a shader fill (customEffectId, componentPropAssignments in `extra`; render/ShaderPaint.h)
   OTHER = 255
 };
 // IMAGE, or VIDEO: a video fill draws its poster frame (`image`) the way an image fill draws (Figma's canvas shows
@@ -75,7 +76,8 @@ enum class StrokeCap : uint8_t {
 enum class StrokeJoin : uint8_t { MITER = 0, BEVEL = 1, ROUND = 2 };
 enum class MaskType : uint8_t { ALPHA = 0, OUTLINE = 1, LUMINANCE = 2 };  // OUTLINE = Figma's "Vector" mask
 enum class EffectType : uint8_t {
-  INNER_SHADOW = 0, DROP_SHADOW = 1, FOREGROUND_BLUR = 2, BACKGROUND_BLUR = 3, GRAIN = 6, NOISE = 7, GLASS = 8
+  INNER_SHADOW = 0, DROP_SHADOW = 1, FOREGROUND_BLUR = 2, BACKGROUND_BLUR = 3, GRAIN = 6, NOISE = 7, GLASS = 8,
+  CUSTOM = 9  // a shader effect (customEffectId, componentPropAssignments in `extra`; render/ShaderPaint.h)
 };
 enum class VectorMirror : uint8_t { NONE = 0, ANGLE = 1, ANGLE_AND_LENGTH = 2 };
 enum class BooleanOperation : uint8_t { UNION = 0, INTERSECT = 1, SUBTRACT = 2, XOR = 3 };
@@ -153,7 +155,7 @@ ENG_ENUM_NAMES(StrokeCap, "NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUIL
                "", "", "", "", "", "", "", "CIRCLE_FILLED")
 ENG_ENUM_NAMES(StrokeJoin, "MITER", "BEVEL", "ROUND")
 ENG_ENUM_NAMES(MaskType, "ALPHA", "OUTLINE", "LUMINANCE")
-ENG_ENUM_NAMES(EffectType, "INNER_SHADOW", "DROP_SHADOW", "FOREGROUND_BLUR", "BACKGROUND_BLUR", "", "", "GRAIN", "NOISE", "GLASS")
+ENG_ENUM_NAMES(EffectType, "INNER_SHADOW", "DROP_SHADOW", "FOREGROUND_BLUR", "BACKGROUND_BLUR", "", "", "GRAIN", "NOISE", "GLASS", "CUSTOM")
 ENG_ENUM_NAMES(VectorMirror, "NONE", "ANGLE", "ANGLE_AND_LENGTH")
 ENG_ENUM_NAMES(BooleanOperation, "UNION", "INTERSECT", "SUBTRACT", "XOR")
 ENG_ENUM_NAMES(WindingRule, "NONZERO", "ODD")

@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "gfx/gl/CustomShader.h"
 #include "gfx/gl/Shaders.h"
 
 // ImageBitmaps never cross into Wasm memory: TS keeps them in Module.engineBitmaps and the texture is filled
@@ -109,6 +110,7 @@ class WebGL2Device final : public Device {
     if (!build(programs_[1], kCompositeVertex, std::string(kCompositeFragmentHead) + kCurveFunctions + kClipFunctions + kCompositeFragmentBody))
       return false;
     if (!build(programs_[2], kBlurVertex, kBlurFragment)) return false;
+    // programs_[3] (Custom, the shaders' presets) is built on its first draw: a large program off the start-up path.
     glGenVertexArrays(1, &vao_);
     glBindVertexArray(vao_);
     for (GLuint i = 0; i < kAttributes; i++) glVertexAttribDivisor(i, 1);
@@ -235,6 +237,13 @@ class WebGL2Device final : public Device {
     }
     const PipelineDesc& p = pipelines_.at(call.pipeline);
     int index = static_cast<int>(p.shader);
+    if (p.shader == ShaderId::Custom && !programs_[index].program && !customTried_) {
+      // Figma's shaders (round 11): compiled when first drawn; a failure leaves them undrawn, the rest unharmed.
+      customTried_ = true;
+      using namespace gl;
+      if (!build(programs_[index], kCustomVertex, kCustomFragment)) programs_[index] = Program{};
+      forget();
+    }
     const Program& prog = programs_[index];
     if (!prog.program) return;
     State& st = state_;
@@ -572,9 +581,9 @@ class WebGL2Device final : public Device {
     int attributes = -1;  // −1: unknown
     GLuint instanceBuffer = 0;
     uint32_t instanceOffset = 0xffffffffu;
-    float uniforms[3][kUniformSlots][4] = {};
-    bool uniformsValid[3] = {false, false, false};
-    int stencilPass[3] = {-1, -1, -1};
+    float uniforms[4][kUniformSlots][4] = {};
+    bool uniformsValid[4] = {false, false, false, false};
+    int stencilPass[4] = {-1, -1, -1, -1};
     GLuint textures[DrawCall::kTextures] = {0, 0, 0, 0};
     bool texturesValid = false;
     int blend = -1, colour = -1, stencil = -1, stencilFunc = -1, stencilOp = -1, scissor = -1;
@@ -583,7 +592,8 @@ class WebGL2Device final : public Device {
   };
 
   EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context_ = 0;
-  Program programs_[3];
+  Program programs_[4];
+  bool customTried_ = false;
   State state_;
   std::vector<Texture> textures_{Texture{}};  // index = TextureId; 0 unused
   GLuint vao_ = 0;

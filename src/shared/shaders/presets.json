@@ -1,0 +1,224 @@
+{
+  "comment": "Figma's shader presets ('By Figma'): the Fill picker's Shader fills (live popovers/fill-picker-custom.txt) and the Effects browser's Shader effects (live popovers/effects-add-shader-effects.txt), in the browsers' order. The names are live's; the keys, parameters, ranges and defaults are ours (unverified: live has no capture of a shader's settings). One source for the panels (src/shared/shaders/presets.ts) and the renderer (engine/tools/shaderpresets.mjs generates its table). A paint or effect stores the preset as customEffectId.assetRef.key and each parameter as a componentPropAssignment: defID {0, id}; numbers, choices (an option's index) as value.floatValue in the units shown, toggles as value.boolValue, colours as varValue (a COLOR literal). The shader reads colours in order from uniform slot 8, the other parameters in order from slot 14 (gfx/gl/Shaders.h kCustom*).",
+  "fills": [
+    { "key": "shader.moving-gradient", "name": "Moving gradient", "params": [
+      { "id": 1, "name": "Color 1", "type": "color", "default": "#7B61FF" },
+      { "id": 2, "name": "Color 2", "type": "color", "default": "#FF5C8A" },
+      { "id": 3, "name": "Color 3", "type": "color", "default": "#FFC24B" },
+      { "id": 4, "name": "Color 4", "type": "color", "default": "#36C5F0" },
+      { "id": 5, "name": "Distortion", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 6, "name": "Scale", "type": "number", "default": 100, "min": 10, "max": 400, "unit": "%" }
+    ] },
+    { "key": "shader.mesh-gradient", "name": "Mesh gradient", "params": [
+      { "id": 1, "name": "Top left", "type": "color", "default": "#4F46E5" },
+      { "id": 2, "name": "Top right", "type": "color", "default": "#EC4899" },
+      { "id": 3, "name": "Bottom right", "type": "color", "default": "#F59E0B" },
+      { "id": 4, "name": "Bottom left", "type": "color", "default": "#10B981" },
+      { "id": 5, "name": "Distortion", "type": "number", "default": 40, "min": 0, "max": 100, "unit": "%" },
+      { "id": 6, "name": "Swirl", "type": "number", "default": 30, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.nebula", "name": "Nebula", "params": [
+      { "id": 1, "name": "Color 1", "type": "color", "default": "#FF4FD8" },
+      { "id": 2, "name": "Color 2", "type": "color", "default": "#3A7BFF" },
+      { "id": 3, "name": "Background", "type": "color", "default": "#070B1F" },
+      { "id": 4, "name": "Scale", "type": "number", "default": 200, "min": 10, "max": 2000, "unit": "px" },
+      { "id": 5, "name": "Density", "type": "number", "default": 60, "min": 0, "max": 100, "unit": "%" },
+      { "id": 6, "name": "Stars", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.water-caustic", "name": "Water caustic", "params": [
+      { "id": 1, "name": "Light", "type": "color", "default": "#E6FBFF" },
+      { "id": 2, "name": "Water", "type": "color", "default": "#0A6FB8" },
+      { "id": 3, "name": "Scale", "type": "number", "default": 160, "min": 10, "max": 2000, "unit": "px" },
+      { "id": 4, "name": "Intensity", "type": "number", "default": 100, "min": 0, "max": 200, "unit": "%" }
+    ] },
+    { "key": "shader.fractal-noise", "name": "Fractal noise", "params": [
+      { "id": 1, "name": "Color 1", "type": "color", "default": "#000000" },
+      { "id": 2, "name": "Color 2", "type": "color", "default": "#FFFFFF" },
+      { "id": 3, "name": "Scale", "type": "number", "default": 100, "min": 1, "max": 2000, "unit": "px" },
+      { "id": 4, "name": "Detail", "type": "number", "default": 5, "min": 1, "max": 8, "step": 1 },
+      { "id": 5, "name": "Contrast", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.clouds", "name": "Clouds", "params": [
+      { "id": 1, "name": "Sky", "type": "color", "default": "#4DA3FF" },
+      { "id": 2, "name": "Clouds", "type": "color", "default": "#FFFFFF" },
+      { "id": 3, "name": "Scale", "type": "number", "default": 200, "min": 10, "max": 2000, "unit": "px" },
+      { "id": 4, "name": "Coverage", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 5, "name": "Softness", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.moire", "name": "Moire", "params": [
+      { "id": 1, "name": "Color", "type": "color", "default": "#000000" },
+      { "id": 2, "name": "Background", "type": "color", "default": "#FFFFFF" },
+      { "id": 3, "name": "Frequency", "type": "number", "default": 20, "min": 1, "max": 100 },
+      { "id": 4, "name": "Angle", "type": "number", "default": 5, "min": -90, "max": 90, "unit": "°" },
+      { "id": 5, "name": "Distortion", "type": "number", "default": 30, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.glowing-wave", "name": "Glowing wave", "params": [
+      { "id": 1, "name": "Color", "type": "color", "default": "#4DE8FF" },
+      { "id": 2, "name": "Background", "type": "color", "default": "#06081A" },
+      { "id": 3, "name": "Waves", "type": "number", "default": 3, "min": 1, "max": 8, "step": 1 },
+      { "id": 4, "name": "Amplitude", "type": "number", "default": 25, "min": 0, "max": 50, "unit": "%" },
+      { "id": 5, "name": "Glow", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.concentric-patterns", "name": "Concentric patterns", "params": [
+      { "id": 1, "name": "Color 1", "type": "color", "default": "#111111" },
+      { "id": 2, "name": "Color 2", "type": "color", "default": "#F2F2F2" },
+      { "id": 3, "name": "Rings", "type": "number", "default": 10, "min": 1, "max": 100, "step": 1 },
+      { "id": 4, "name": "Center X", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 5, "name": "Center Y", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 6, "name": "Shape", "type": "choice", "default": 0, "options": ["Circle", "Square", "Diamond"] }
+    ] },
+    { "key": "shader.pattern-grid", "name": "Pattern grid", "params": [
+      { "id": 1, "name": "Color", "type": "color", "default": "#FFFFFF" },
+      { "id": 2, "name": "Background", "type": "color", "default": "#1E1E1E" },
+      { "id": 3, "name": "Cell size", "type": "number", "default": 24, "min": 2, "max": 500, "unit": "px" },
+      { "id": 4, "name": "Dot size", "type": "number", "default": 40, "min": 0, "max": 100, "unit": "%" },
+      { "id": 5, "name": "Shape", "type": "choice", "default": 0, "options": ["Circle", "Square", "Diamond", "Cross"] }
+    ] }
+  ],
+  "effects": [
+    { "key": "shader.shape-based-particles", "name": "Shape-based particles", "params": [
+      { "id": 1, "name": "Size", "type": "number", "default": 4, "min": 1, "max": 50, "unit": "px" },
+      { "id": 2, "name": "Density", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 3, "name": "Spread", "type": "number", "default": 20, "min": 0, "max": 200, "unit": "px" },
+      { "id": 4, "name": "Use layer colors", "type": "toggle", "default": true },
+      { "id": 5, "name": "Color", "type": "color", "default": "#FFFFFF" }
+    ] },
+    { "key": "shader.pattern-refraction", "name": "Pattern refraction", "params": [
+      { "id": 1, "name": "Scale", "type": "number", "default": 24, "min": 2, "max": 500, "unit": "px" },
+      { "id": 2, "name": "Strength", "type": "number", "default": 8, "min": 0, "max": 100, "unit": "px" },
+      { "id": 3, "name": "Pattern", "type": "choice", "default": 0, "options": ["Lines", "Waves", "Grid", "Circles"] }
+    ] },
+    { "key": "shader.halftone", "name": "Halftone", "params": [
+      { "id": 1, "name": "Dot size", "type": "number", "default": 8, "min": 2, "max": 100, "unit": "px" },
+      { "id": 2, "name": "Angle", "type": "number", "default": 45, "min": -180, "max": 180, "unit": "°" },
+      { "id": 3, "name": "Mode", "type": "choice", "default": 0, "options": ["Color", "Mono"] },
+      { "id": 4, "name": "Ink", "type": "color", "default": "#000000" }
+    ] },
+    { "key": "shader.chromatic-metal", "name": "Chromatic metal", "params": [
+      { "id": 1, "name": "Tint", "type": "color", "default": "#C9D2E3" },
+      { "id": 2, "name": "Shine", "type": "number", "default": 60, "min": 0, "max": 100, "unit": "%" },
+      { "id": 3, "name": "Dispersion", "type": "number", "default": 30, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.lens-distortion", "name": "Lens distortion", "params": [
+      { "id": 1, "name": "Strength", "type": "number", "default": 40, "min": -100, "max": 100, "unit": "%" },
+      { "id": 2, "name": "Zoom", "type": "number", "default": 100, "min": 50, "max": 200, "unit": "%" },
+      { "id": 3, "name": "Dispersion", "type": "number", "default": 20, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.dither", "name": "Dither", "params": [
+      { "id": 1, "name": "Pixel size", "type": "number", "default": 2, "min": 1, "max": 50, "unit": "px" },
+      { "id": 2, "name": "Levels", "type": "number", "default": 2, "min": 2, "max": 16, "step": 1 },
+      { "id": 3, "name": "Mode", "type": "choice", "default": 0, "options": ["Two colors", "Layer colors"] },
+      { "id": 4, "name": "Dark", "type": "color", "default": "#000000" },
+      { "id": 5, "name": "Light", "type": "color", "default": "#FFFFFF" }
+    ] },
+    { "key": "shader.gradient-map", "name": "Gradient map", "params": [
+      { "id": 1, "name": "Shadows", "type": "color", "default": "#1B1464" },
+      { "id": 2, "name": "Midtones", "type": "color", "default": "#E84A5F" },
+      { "id": 3, "name": "Highlights", "type": "color", "default": "#FCEABB" },
+      { "id": 4, "name": "Intensity", "type": "number", "default": 100, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.warp", "name": "Warp", "params": [
+      { "id": 1, "name": "Strength", "type": "number", "default": 12, "min": 0, "max": 200, "unit": "px" },
+      { "id": 2, "name": "Scale", "type": "number", "default": 80, "min": 2, "max": 2000, "unit": "px" },
+      { "id": 3, "name": "Turbulence", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.pixelate", "name": "Pixelate", "params": [
+      { "id": 1, "name": "Pixel size", "type": "number", "default": 8, "min": 1, "max": 200, "unit": "px" },
+      { "id": 2, "name": "Shape", "type": "choice", "default": 0, "options": ["Square", "Circle"] }
+    ] },
+    { "key": "shader.bokeh-blur", "name": "Bokeh blur", "params": [
+      { "id": 1, "name": "Radius", "type": "number", "default": 8, "min": 0, "max": 100, "unit": "px" },
+      { "id": 2, "name": "Brightness", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.outlines", "name": "Outlines", "params": [
+      { "id": 1, "name": "Color", "type": "color", "default": "#0D99FF" },
+      { "id": 2, "name": "Width", "type": "number", "default": 2, "min": 1, "max": 20, "unit": "px" },
+      { "id": 3, "name": "Count", "type": "number", "default": 3, "min": 1, "max": 6, "step": 1 },
+      { "id": 4, "name": "Gap", "type": "number", "default": 4, "min": 0, "max": 40, "unit": "px" },
+      { "id": 5, "name": "Show layer", "type": "toggle", "default": true }
+    ] },
+    { "key": "shader.crt-screen", "name": "CRT screen", "params": [
+      { "id": 1, "name": "Curvature", "type": "number", "default": 30, "min": 0, "max": 100, "unit": "%" },
+      { "id": 2, "name": "Scanlines", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 3, "name": "Mask", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 4, "name": "Line size", "type": "number", "default": 3, "min": 1, "max": 20, "unit": "px" }
+    ] },
+    { "key": "shader.bloom", "name": "Bloom", "params": [
+      { "id": 1, "name": "Threshold", "type": "number", "default": 60, "min": 0, "max": 100, "unit": "%" },
+      { "id": 2, "name": "Intensity", "type": "number", "default": 80, "min": 0, "max": 200, "unit": "%" },
+      { "id": 3, "name": "Radius", "type": "number", "default": 16, "min": 0, "max": 100, "unit": "px" }
+    ] },
+    { "key": "shader.glowing-particles", "name": "Glowing particles", "params": [
+      { "id": 1, "name": "Color", "type": "color", "default": "#FFD86B" },
+      { "id": 2, "name": "Size", "type": "number", "default": 3, "min": 1, "max": 30, "unit": "px" },
+      { "id": 3, "name": "Density", "type": "number", "default": 40, "min": 0, "max": 100, "unit": "%" },
+      { "id": 4, "name": "Glow", "type": "number", "default": 8, "min": 0, "max": 60, "unit": "px" }
+    ] },
+    { "key": "shader.color-adjust", "name": "Color adjust", "params": [
+      { "id": 1, "name": "Brightness", "type": "number", "default": 0, "min": -100, "max": 100, "unit": "%" },
+      { "id": 2, "name": "Contrast", "type": "number", "default": 0, "min": -100, "max": 100, "unit": "%" },
+      { "id": 3, "name": "Saturation", "type": "number", "default": 0, "min": -100, "max": 100, "unit": "%" },
+      { "id": 4, "name": "Hue", "type": "number", "default": 0, "min": -180, "max": 180, "unit": "°" }
+    ] },
+    { "key": "shader.pixel-stretch", "name": "Pixel stretch", "params": [
+      { "id": 1, "name": "Position", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" },
+      { "id": 2, "name": "Direction", "type": "choice", "default": 0, "options": ["Right", "Left", "Down", "Up"] },
+      { "id": 3, "name": "Jitter", "type": "number", "default": 0, "min": 0, "max": 100, "unit": "px" }
+    ] },
+    { "key": "shader.gooey-merge", "name": "Gooey merge", "params": [
+      { "id": 1, "name": "Radius", "type": "number", "default": 12, "min": 1, "max": 100, "unit": "px" },
+      { "id": 2, "name": "Threshold", "type": "number", "default": 50, "min": 1, "max": 99, "unit": "%" }
+    ] },
+    { "key": "shader.moving-blobs", "name": "Moving blobs", "params": [
+      { "id": 1, "name": "Color 1", "type": "color", "default": "#FF5C8A" },
+      { "id": 2, "name": "Color 2", "type": "color", "default": "#7B61FF" },
+      { "id": 3, "name": "Count", "type": "number", "default": 5, "min": 1, "max": 12, "step": 1 },
+      { "id": 4, "name": "Size", "type": "number", "default": 30, "min": 5, "max": 100, "unit": "%" },
+      { "id": 5, "name": "Softness", "type": "number", "default": 50, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.slice-shift", "name": "Slice shift", "params": [
+      { "id": 1, "name": "Slices", "type": "number", "default": 12, "min": 1, "max": 100, "step": 1 },
+      { "id": 2, "name": "Offset", "type": "number", "default": 10, "min": 0, "max": 200, "unit": "px" },
+      { "id": 3, "name": "Direction", "type": "choice", "default": 0, "options": ["Horizontal", "Vertical"] }
+    ] },
+    { "key": "shader.light-rays", "name": "Light rays", "params": [
+      { "id": 1, "name": "Color", "type": "color", "default": "#FFFFFF" },
+      { "id": 2, "name": "Angle", "type": "number", "default": 45, "min": -180, "max": 180, "unit": "°" },
+      { "id": 3, "name": "Length", "type": "number", "default": 60, "min": 0, "max": 400, "unit": "px" },
+      { "id": 4, "name": "Intensity", "type": "number", "default": 60, "min": 0, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.hatching", "name": "Hatching", "params": [
+      { "id": 1, "name": "Ink", "type": "color", "default": "#1E1E1E" },
+      { "id": 2, "name": "Paper", "type": "color", "default": "#FFFFFF" },
+      { "id": 3, "name": "Spacing", "type": "number", "default": 6, "min": 2, "max": 50, "unit": "px" },
+      { "id": 4, "name": "Angle", "type": "number", "default": 45, "min": -180, "max": 180, "unit": "°" },
+      { "id": 5, "name": "Width", "type": "number", "default": 1, "min": 0.5, "max": 10, "unit": "px" }
+    ] },
+    { "key": "shader.colored-edges", "name": "Colored edges", "params": [
+      { "id": 1, "name": "Color", "type": "color", "default": "#FF2E9A" },
+      { "id": 2, "name": "Width", "type": "number", "default": 2, "min": 1, "max": 20, "unit": "px" },
+      { "id": 3, "name": "Intensity", "type": "number", "default": 100, "min": 0, "max": 200, "unit": "%" },
+      { "id": 4, "name": "Edges only", "type": "toggle", "default": false }
+    ] },
+    { "key": "shader.duotone-filter", "name": "Duotone filter", "params": [
+      { "id": 1, "name": "Shadows", "type": "color", "default": "#2D1B69" },
+      { "id": 2, "name": "Highlights", "type": "color", "default": "#FF8A5B" },
+      { "id": 3, "name": "Contrast", "type": "number", "default": 0, "min": -100, "max": 100, "unit": "%" }
+    ] },
+    { "key": "shader.channel-mixer", "name": "Channel mixer", "params": [
+      { "id": 1, "name": "Red from red", "type": "number", "default": 100, "min": -200, "max": 200, "unit": "%" },
+      { "id": 2, "name": "Red from green", "type": "number", "default": 0, "min": -200, "max": 200, "unit": "%" },
+      { "id": 3, "name": "Red from blue", "type": "number", "default": 0, "min": -200, "max": 200, "unit": "%" },
+      { "id": 4, "name": "Green from red", "type": "number", "default": 0, "min": -200, "max": 200, "unit": "%" },
+      { "id": 5, "name": "Green from green", "type": "number", "default": 100, "min": -200, "max": 200, "unit": "%" },
+      { "id": 6, "name": "Green from blue", "type": "number", "default": 0, "min": -200, "max": 200, "unit": "%" },
+      { "id": 7, "name": "Blue from red", "type": "number", "default": 0, "min": -200, "max": 200, "unit": "%" },
+      { "id": 8, "name": "Blue from green", "type": "number", "default": 0, "min": -200, "max": 200, "unit": "%" },
+      { "id": 9, "name": "Blue from blue", "type": "number", "default": 100, "min": -200, "max": 200, "unit": "%" }
+    ] },
+    { "key": "shader.filter-presets", "name": "Filter presets", "params": [
+      { "id": 1, "name": "Filter", "type": "choice", "default": 0, "options": ["Vintage", "Noir", "Warm", "Cool", "Vivid", "Faded", "Sepia"] },
+      { "id": 2, "name": "Intensity", "type": "number", "default": 100, "min": 0, "max": 100, "unit": "%" }
+    ] }
+  ]
+}

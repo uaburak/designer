@@ -1,10 +1,12 @@
 #include "scene/Extras.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
 
 #include "base/Json.h"
+#include "render/shader_presets.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng {
@@ -119,6 +121,114 @@ const PaintExtras& paintExtras(const Paint& p) {
     else if (k == "noiseSize") x.noiseSize = vec(m, x.noiseSize);
   }
   return cache.map.emplace(p.extra, x).first->second;
+}
+
+namespace {
+
+// A GUID's localID from JSON ({sessionID, localID} or "s:l"); false unless its session is 0 (a preset's defIDs).
+bool presetLocal(const json::Value& v, uint32_t& out) {
+  if (v.isObject()) {
+    const json::Value* s = v.get("sessionID");
+    const json::Value* l = v.get("localID");
+    if (!l || (s && s->numberOr(0) != 0)) return false;
+    out = static_cast<uint32_t>(l->numberOr(0));
+    return true;
+  }
+  if (v.isString()) {
+    size_t colon = v.string.find(':');
+    if (colon == std::string::npos || v.string.substr(0, colon) != "0") return false;
+    out = static_cast<uint32_t>(std::strtoul(v.string.substr(colon + 1).c_str(), nullptr, 10));
+    return true;
+  }
+  return false;
+}
+
+ShaderSetup shaderFrom(const char* def, const std::string& extra) {
+  ShaderSetup out;
+  json::Value v = membersOf(def, extra);
+  const json::Value* id = v.get("customEffectId");
+  const json::Value* ref = id ? id->get("assetRef") : nullptr;
+  const json::Value* key = ref ? ref->get("key") : nullptr;
+  if (!key || !key->isString()) return out;
+  for (const shaders::PresetDef& p : shaders::kPresets)
+    if (key->string == p.key) out.preset = &p;
+  if (!out.preset) return out;
+  const shaders::PresetDef& p = *out.preset;
+  for (int i = 0; i < p.count; i++)
+    for (int k = 0; k < 4; k++) out.values[i][k] = p.params[i].value[k];
+  const json::Value* list = v.get("componentPropAssignments");
+  if (!list || !list->isArray()) return out;
+  for (const json::Value& a : list->array) {
+    uint32_t local = 0;
+    const json::Value* defId = a.get("defID");
+    if (!defId || !presetLocal(*defId, local)) continue;
+    int at = -1;
+    for (int i = 0; i < p.count; i++)
+      if (p.params[i].id == local) at = i;
+    if (at < 0) continue;
+    float* x = out.values[at];
+    if (p.params[at].type == shaders::ParamType::Color) {
+      // A colour: the assignment's varValue, a COLOR literal.
+      const json::Value* var = a.get("varValue");
+      const json::Value* val = var ? var->get("value") : nullptr;
+      const json::Value* c = val ? val->get("colorValue") : nullptr;
+      if (c && c->isObject()) {
+        Color col = color(*c, Color{x[0], x[1], x[2], x[3]});
+        x[0] = col.r, x[1] = col.g, x[2] = col.b, x[3] = col.a;
+      }
+      continue;
+    }
+    const json::Value* val = a.get("value");
+    if (!val || !val->isObject()) continue;
+    if (const json::Value* f = val->get("floatValue"); f && f->isNumber()) x[0] = static_cast<float>(f->number);
+    else if (const json::Value* b = val->get("boolValue"); b && b->isBool()) x[0] = b->boolean ? 1.f : 0.f;
+  }
+  return out;
+}
+
+const ShaderSetup& cachedShader(const char* def, const std::string& extra, Cache<ShaderSetup>& cache) {
+  if (extra.empty()) return cache.none;
+  auto it = cache.map.find(extra);
+  if (it != cache.map.end()) return it->second;
+  if (cache.map.size() > 4096) cache.map.clear();
+  return cache.map.emplace(extra, shaderFrom(def, extra)).first->second;
+}
+
+}  // namespace
+
+const ShaderSetup& shaderOf(const Paint& p) {
+  static Cache<ShaderSetup> cache;
+  return cachedShader("Paint", p.extra, cache);
+}
+
+const ShaderSetup& shaderOf(const Effect& e) {
+  static Cache<ShaderSetup> cache;
+  return cachedShader("Effect", e.extra, cache);
+}
+
+double shaderReach(const ShaderSetup& s) {
+  if (!s.preset || !s.preset->effect) return 0;
+  auto v = [&](uint32_t id) {
+    for (int i = 0; i < s.preset->count; i++)
+      if (s.preset->params[i].id == id) return std::max(0.0, static_cast<double>(s.values[i][0]));
+    return 0.0;
+  };
+  // The effects' programs (src/shared/shaders/presets.json's order) whose pixels land past the layer they read.
+  switch (s.preset->program) {
+    case 0: return v(3) + v(1);              // Shape-based particles: spread + size
+    case 1: return v(2);                     // Pattern refraction: strength
+    case 2: return v(1) * 0.25;              // Halftone: dots past the edge (up to 0.7 of a cell around its centre)
+    case 7: return v(1);                     // Warp: strength
+    case 9: return v(1);                     // Bokeh blur: radius
+    case 10: return std::min(v(3), 6.0) * (v(2) + v(4)) + 1;  // Outlines: count × (width + gap)
+    case 12: return v(3);                    // Bloom: radius
+    case 13: return v(4) + v(2);             // Glowing particles: glow + size
+    case 16: return v(1);                    // Gooey merge: radius
+    case 18: return v(2);                    // Slice shift: offset
+    case 19: return v(3);                    // Light rays: length
+    case 21: return v(2);                    // Colored edges: width
+    default: return 0;
+  }
 }
 
 }  // namespace eng
