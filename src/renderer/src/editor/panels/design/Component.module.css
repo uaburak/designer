@@ -86,8 +86,8 @@
   .createPropertyMenu > [role="separator"] { margin-block: 7px; }
 
   /* "Current variant" (live): the name 92 × 24 at 8 (secondary, 9 in), the value's field 92 at 108 in a 32 row */
-  .variantRows { display: flex; flex-direction: column; margin-top: var(--ds-space-1); }
-  .variantRow { display: flex; align-items: center; gap: var(--ds-space-2); height: var(--ds-space-8); padding: 0 var(--ds-space-2); }
+  .variantRows { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-top: var(--ds-space-2); }
+  .variantRow { display: flex; align-items: center; gap: var(--ds-space-2); height: var(--ds-size-control); padding: 0 var(--ds-space-2); }
   .variantName {
     display: flex;
     flex: none;
@@ -146,11 +146,11 @@
   .iconMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
 
   /*
-   * An instance's top (Figma's live panel): the name at 16 in 13px/550 with More actions at 208 (row at 12), "Go to
-   * main component" under it (8, 36, 104 wide: "From this file"), the properties' 32 rows from 64, 12 under the last,
-   * then the line.
+   * An instance's top (Figma's live panel): the name at 17 in 13px/550 with More actions at 208 (row at 12), "Go to
+   * main component" under it (8, 36, 104 wide: "From this file"), the properties' 24 rows 8 apart from 68, 16 under
+   * the last (or under Go to main component), then the line.
    */
-  .instanceHead { padding-bottom: var(--ds-space-3); border-bottom: 1px solid var(--figma-color-border); }
+  .instanceHead { padding-bottom: var(--ds-space-4); border-bottom: 1px solid var(--figma-color-border); }
   .instanceTitleRow { display: flex; align-items: center; height: var(--ds-size-control); margin-top: var(--ds-space-3); padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2); }
   .instanceName {
     display: flex;
@@ -193,13 +193,13 @@
   .fromRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
   /* Instance properties: label (88), control (88), the 24 action column (Figma's live rows) */
-  .instanceBody { padding-top: var(--ds-space-1); }
+  .instanceBody { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-top: var(--ds-space-2); }
   .propRow {
     display: grid;
     grid-template-columns: var(--ds-size-field) var(--ds-size-field) var(--ds-size-control);
     gap: var(--ds-space-2);
     align-items: center;
-    min-height: var(--ds-size-row);
+    min-height: var(--ds-size-control);
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
   }
   .propLabel { min-width: 0; overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
@@ -226,12 +226,12 @@
   }
   .propText:hover { box-shadow: inset 0 0 0 1px var(--figma-color-border-strong); }
   .propText:focus { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
-  .nested { margin-top: var(--ds-space-2); }
+  .nested { display: flex; flex-direction: column; gap: var(--ds-space-2); }
   .nestedHeader {
     display: flex;
     align-items: center;
     gap: var(--ds-space-1);
-    height: var(--ds-size-row);
+    height: var(--ds-size-control);
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left);
     font: var(--ds-font-body-medium-strong);
     letter-spacing: var(--ds-tracking-body-medium-strong);

@@ -72,7 +72,9 @@ Status Editor::booleanSelection(BooleanOperation op) {
     commit();
     return OK;
   }
-  if (top.size() < 2) return E_INVALID;
+  // One layer makes a boolean group around it (live Figma).
+  for (Guid t : top)
+    if (t.isDerived()) return E_INVALID;
   // Wrapped like a group, at the topmost layer's place; the style comes from the topmost layer
   // (the bottom one for Subtract: what is cut from keeps its look).
   Guid topmost = top.back();

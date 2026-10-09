@@ -541,6 +541,8 @@ const CAPTURE_COMPONENTS: NodeChange[] = (() => {
   const button = { size: { x: 95, y: 44 }, fillPaints: solidFill(0x0d99ff), cornerRadius: 8, stackMode: "HORIZONTAL", stackSpacing: 8, stackHorizontalPadding: 16, stackVerticalPadding: 12, stackPaddingRight: 16, stackPaddingBottom: 12, stackCounterAlignItems: "CENTER", stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" };
   const card = { size: { x: 119, y: 68 }, fillPaints: solidFill(0xffffff), cornerRadius: 12, stackMode: "HORIZONTAL", ...pad(12), stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" };
   const chip = (fill: number) => ({ size: { x: 100, y: 40 }, fillPaints: solidFill(fill), cornerRadius: 20 });
+  // The live file's instances were renamed (Layers: "Button instance"…): a name override on the instance's root.
+  const rename = (name: string) => ({ guidPath: { guids: [] }, name });
   return [
     node({
       guid: "8:1", type: "SYMBOL", name: "Button", parentIndex: { guid: "0:1", position: "8" }, transform: at(100, 600), ...button,
@@ -571,10 +573,10 @@ const CAPTURE_COMPONENTS: NodeChange[] = (() => {
       ] as const
     ).map(([guid, state, x, fill, position]) => node({ guid, type: "SYMBOL", name: `State=${state}`, parentIndex: { guid: "8:40", position }, transform: at(x, 16), ...chip(fill), variantPropSpecs: [{ propDefId: def(10), value: state }] })),
     node({ guid: "8:50", type: "SYMBOL", name: "Card", parentIndex: { guid: "0:1", position: ":" }, transform: at(600, 600), ...card }),
-    node({ guid: "8:51", type: "INSTANCE", name: "Nested button", parentIndex: { guid: "8:50", position: "!" }, transform: at(12, 12), ...button, symbolData: { symbolID: g(1), symbolOverrides: [] } }),
-    node({ guid: "8:60", type: "INSTANCE", name: "Button instance", parentIndex: { guid: "0:1", position: ";" }, transform: at(100, 720), ...button, symbolData: { symbolID: g(1), symbolOverrides: [] } }),
-    node({ guid: "8:61", type: "INSTANCE", name: "Chip instance", parentIndex: { guid: "0:1", position: "<" }, transform: at(300, 720), ...chip(0xe5f4ff), symbolData: { symbolID: g(41), symbolOverrides: [] } }),
-    node({ guid: "8:62", type: "INSTANCE", name: "Card instance", parentIndex: { guid: "0:1", position: "=" }, transform: at(800, 600), ...card, symbolData: { symbolID: g(50), symbolOverrides: [] } }),
+    node({ guid: "8:51", type: "INSTANCE", name: "Nested button", parentIndex: { guid: "8:50", position: "!" }, transform: at(12, 12), ...button, symbolData: { symbolID: g(1), symbolOverrides: [rename("Nested button")] } }),
+    node({ guid: "8:60", type: "INSTANCE", name: "Button instance", parentIndex: { guid: "0:1", position: ";" }, transform: at(100, 720), ...button, symbolData: { symbolID: g(1), symbolOverrides: [rename("Button instance")] } }),
+    node({ guid: "8:61", type: "INSTANCE", name: "Chip instance", parentIndex: { guid: "0:1", position: "<" }, transform: at(300, 720), ...chip(0xe5f4ff), symbolData: { symbolID: g(41), symbolOverrides: [rename("Chip instance")] } }),
+    node({ guid: "8:62", type: "INSTANCE", name: "Card instance", parentIndex: { guid: "0:1", position: "=" }, transform: at(800, 600), ...card, symbolData: { symbolID: g(50), symbolOverrides: [rename("Card instance")] } }),
   ];
 })();
 
