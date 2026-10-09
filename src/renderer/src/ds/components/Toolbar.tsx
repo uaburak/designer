@@ -48,6 +48,8 @@ export interface ToolButtonProps {
   onMenuSelect?: (id: string) => void;
   /** The chevron's name (Figma: "Move tools", "Shape tools"…); default "<label> options" */
   menuLabel?: string;
+  /** The menu's width in live (px; see Menu `width`) */
+  menuWidth?: number;
   disabled?: boolean;
   /** The chevron's own disabled state; default `disabled` (a slot whose shown tool is off can still offer the others) */
   menuDisabled?: boolean;
@@ -57,7 +59,7 @@ export interface ToolButtonProps {
 }
 
 /** A 32px tool; active, the brand fill with the white glyph; tooltip above with its key. */
-export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMenuSelect, menuLabel, disabled, menuDisabled = disabled, forceHover, forceOpen }: ToolButtonProps) {
+export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMenuSelect, menuLabel, menuWidth, disabled, menuDisabled = disabled, forceHover, forceOpen }: ToolButtonProps) {
   const chevron = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   // Live (toolbar/*-tools-menu.txt): the menu's left edge at the chevron's, its bottom 12 over the tool's top (4 over
@@ -94,6 +96,7 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
               at={at}
               above
               dropdown
+              width={menuWidth}
               label={menuLabel ?? `${label} options`}
               entries={menu}
               ignore={chevron}
@@ -118,6 +121,12 @@ export interface ToolTextButtonProps {
   disabled?: boolean;
   /** A trigger: its name, then a chevron (live "More ▾") */
   chevron?: boolean;
+  /**
+   * The width live measured (px, fractions inferred from the neighbours' rounded places): the name's text comes out a
+   * fraction wider here (Move 28.92 against live's 28) and a row of them 2 px too wide. The name may run into the
+   * button's right padding by that fraction.
+   */
+  width?: number;
   onSelect: (e: MouseEvent<HTMLButtonElement>) => void;
   "aria-haspopup"?: "menu";
   "aria-expanded"?: boolean;
@@ -127,7 +136,7 @@ export interface ToolTextButtonProps {
  * A labelled tool of a secondary toolbar (live vector edit toolbar: Move, Lasso, Paint, Bend, Cut, Erase): 24 high, its
  * glyph then its name (11 / 400), 8 after; active, the brand fill and white ink. With `chevron`: 8, the name, a chevron.
  */
-export function ToolTextButton({ icon, label, shortcut, active, disabled, chevron, onSelect, ...aria }: ToolTextButtonProps) {
+export function ToolTextButton({ icon, label, shortcut, active, disabled, chevron, width, onSelect, ...aria }: ToolTextButtonProps) {
   return (
     <button
       type="button"
@@ -137,6 +146,7 @@ export function ToolTextButton({ icon, label, shortcut, active, disabled, chevro
       aria-keyshortcuts={shortcut}
       aria-disabled={disabled || undefined}
       className={cx(styles.textTool, chevron && styles.textToolMenu)}
+      style={width === undefined ? undefined : { width }}
       data-active={active || undefined}
       onClick={disabled ? undefined : onSelect}
       {...(shortcut ? tooltipProps(label, shortcut, "top") : {})}

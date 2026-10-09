@@ -28,6 +28,7 @@
 //   EDITOR_ONLY=menus11 node …                                     (round 11 at 1440 × 900, run on its own: Variables empty state and table, Tools filter, Actions Recents, toolbar lit row, tall Object submenu, key glyph widths, Flatten on an instance)
 //   EDITOR_ONLY=header9 node …                                     (round 9: the header of a layer in a frame, Frame ▾, the boolean menu, the component / variant / instance panels, Component configuration, the swap menu)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
+//   EDITOR_ONLY=menus12 node …                                     (round 12 at 1440 × 900, run on its own: main-menu / tool-menu / vector toolbar / instance menu geometry against live's dumps)
 //   EDITOR_ONLY=panel10 node …                                     (round 10 at 1440 × 900: Design panel states, popovers and sub-menus against the live captures)
 //   EDITOR_ONLY=panel11 node …                                     (round 11 at 1440 × 900, run on its own: instance flow, text edit header, list menus, Text styles, Type settings › Details, gradient stops)
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
@@ -4543,7 +4544,128 @@ async function menus11Section(page, theme) {
   await page.keyboard.press("Escape");
 }
 
+/**
+ * Round 12 (docs/editor.md "Round 12 — Main-menu and context-menu geometry") at live's 1440 × 900: the Figma menu's
+ * submenus at live's places and widths (View (210,105) 201 wide, its Panels (416,554) 174 x 136, File 198, Object 185),
+ * the tool menus (Shape 196, Creation 142), the vector edit toolbar (529 x 40 at 455,792; More 189 x 48 at 869,736),
+ * an instance's menu (203 x 749) from a right click on its nested layer.
+ */
+async function menus12Section(page, theme) {
+  await open(page, "&doc=capture");
+  const box = (loc) => loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  });
+  const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const main = async (name) => {
+    await page.getByRole("button", { name: "Main menu" }).click();
+    await page.getByRole("menuitem", { name, exact: true }).first().hover();
+    await page.waitForTimeout(400);
+  };
+  const close = async () => {
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+  };
+  for (const [name, want] of [["File", [210, 126, 198, 324]], ["Edit", [210, 150, 190, 581]], ["View", [210, 105, 201, 787]], ["Object", [210, 6, 185, 1050]], ["Text", [210, 222, 199, 379]], ["Arrange", [210, 246, 220, 533]], ["Vector", [210, 270, 198, 160]], ["Preferences", [210, 132, 235, 763]]]) {
+    await main(name);
+    const got = await box(page.getByRole("menu").last());
+    check(`R12 ${name} submenu ${want.join(", ")} exactly (live menus/main-*.txt)`, same(got, want), JSON.stringify(got));
+    if (name === "View") {
+      const bottom = got[1] + got[3];
+      check("R12 View: 8 from the window's bottom (live 105 + 787 in 900)", 900 - bottom === 8, String(900 - bottom));
+      await page.getByRole("menuitem", { name: "Panels" }).first().hover();
+      await page.waitForTimeout(400);
+      const panels = await box(page.getByRole("menu").last());
+      check("R12 View > Panels 174 x 136 at 416, 554 exactly (live main-view-panels.txt)", same(panels, [416, 554, 174, 136]), JSON.stringify(panels));
+      await shot(page, `330-r12-view-panels-${theme}`);
+    }
+    await close();
+  }
+  for (const [name, want] of [["Shape tools", [611, 668, 196, 168]], ["Creation tools", [668, 788, 142, 48]], ["Move tools", [497, 764, 151, 72]], ["Region tools", [554, 764, 150, 72]], ["Type tools", [725, 788, 142, 48]], ["Comment tools", [782, 764, 186, 72]]]) {
+    await page.getByRole("button", { name }).click();
+    await page.waitForTimeout(300);
+    const got = await box(page.getByRole("menu").last());
+    check(`R12 ${name} menu ${want.join(", ")} exactly (live toolbar/*-tools-menu.txt)`, same(got, want), JSON.stringify(got));
+    await page.keyboard.press("Escape");
+  }
+  // The vector edit toolbar and its More menu.
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    ed.engine.setSelection(["7:60"]);
+    ed.vector.start("7:60");
+  });
+  await settle(page);
+  const tb = page.locator("[data-vector-toolbar]");
+  const tbBox = await box(tb);
+  check("R12 vector edit toolbar 529 x 40 at 455, 792 (live vector-edit-toolbar.txt)", same(tbBox, [455, 792, 529, 40]), JSON.stringify(tbBox));
+  const rel = await tb.evaluate((el) => {
+    const o = el.getBoundingClientRect();
+    return [...el.querySelectorAll("button, [role=separator], span")].filter((b) => b.getBoundingClientRect().height > 0 && (b.tagName === "BUTTON" || b.getBoundingClientRect().width === 1)).map((b) => {
+      const r = b.getBoundingClientRect();
+      return [b.getAttribute("aria-label") ?? "|", Math.round(r.left - o.left), Math.round(r.width)].join(":");
+    });
+  });
+  check("R12 vector toolbar places: Move 8 w60, Lasso 76 w62, | 147, Paint 156 w58, Bend 222 w59, Cut 289 w50, Erase 347 w61, | 416, More 425 w55, | 488, Close 497 w24",
+    rel.join(" ") === "Move:8:60 Lasso:76:62 |:147:1 Paint:156:58 Bend:222:59 Cut:289:50 Erase:347:61 |:416:1 More:425:55 |:488:1 Close:497:24", rel.join(" "));
+  await shot(page, `331-r12-vector-toolbar-${theme}`);
+  await tb.getByRole("button", { name: "More" }).click();
+  await settle(page);
+  const more = await box(page.getByRole("menu", { name: "Vector editing tools" }));
+  check("R12 vector edit More menu 189 x 48 at 869, 736 (live vector-edit-more-menu.txt)", same(more, [869, 736, 189, 48]), JSON.stringify(more));
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.vector.end());
+  // An instance's menu from a right click on its nested layer (Icon, Label): the instance's own, 203 x 749.
+  await open(page, "&doc=capture");
+  const inst = await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const all = [];
+    const walk = (g) => {
+      const n = ed.engine.readNode(g);
+      if (!n) return;
+      all.push([g, n]);
+      for (const c of ed.engine.readNodes([g], { childIds: true })[0]?.childIds ?? []) walk(c);
+    };
+    walk("0:0");
+    return all.find(([, n]) => n.type === "INSTANCE" && n.name === "Button instance")?.[0] ?? null;
+  });
+  await page.evaluate((id) => {
+    const ed = window.__designerEditor;
+    ed.engine.setSelection([id]);
+    ed.engine.command("ZOOM_TO_SELECTION");
+  }, inst);
+  await page.waitForTimeout(500);
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  await settle(page);
+  for (const [what, x, y] of [["Label", 161, 742], ["Icon", 126, 742]]) {
+    const [sx, sy] = await toScreen(page, x, y);
+    // Nothing selected first: with the instance (or a nested layer) selected, a click inside it goes deeper, as a left click does.
+    await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+    await settle(page);
+    await page.mouse.click(sx, sy, { button: "right" });
+    await page.waitForTimeout(300);
+    const menu = page.getByRole("menu").first();
+    const got = await box(menu);
+    const sel = await page.evaluate(() => window.__designerEditor.selection.join(","));
+    const names = await menu.getByRole("menuitem").evaluateAll((els) => els.filter((e) => e.getAttribute("aria-disabled") === null).map((e) => e.textContent));
+    check(`R12 right click on the instance's ${what}: the instance (not the nested layer) with its 203 x 749 menu (live context-instance.txt)`, sel === inst && got[2] === 203 && got[3] === 749, `${sel} ${JSON.stringify(got)}`);
+    check(`R12 right click on the instance's ${what}: Select layer and every instance command enabled`, ["Select layer", "Reset instance", "Detach instance", "Go to main component"].every((n) => names.some((t) => t.startsWith(n))), names.join("|"));
+    if (what === "Label") await shot(page, `332-r12-instance-menu-${theme}`);
+    await page.keyboard.press("Escape");
+  }
+}
+
 try {
+  if (only === "menus12") {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await menus12Section(page, "dark");
+    await context.close();
+  }
   if (only === "menus11") {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();

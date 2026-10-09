@@ -160,6 +160,14 @@ const VECTOR_TOOL_GROUPS: { id: VectorTool; label: string; icon: IconName }[][] 
 ];
 
 /**
+ * The text buttons' widths in live's vector edit toolbar (toolbar/vector-edit-toolbar.txt: Move 60, Lasso 62, Paint 58,
+ * Bend 59, Cut 50, Erase 61, More 55; 529 × 40 at 455, 792). Ours are 0.2-0.9 wider each (the text's own advance), 2 px
+ * over the whole. The fractions are inferred (unverified): the least ones that keep every rounded place of live's dump
+ * (Lasso 76, the line 147, Paint 156, Bend 222, Cut 289, Erase 347, the line 416, More 425, the line 488, Close 497).
+ */
+const VECTOR_TOOL_WIDTH: Record<string, number> = { Move: 60.3, Lasso: 62.4, Paint: 58, Bend: 59, Cut: 50, Erase: 61.1, More: 55.4 };
+
+/**
  * More ▾ (live toolbar/vector-edit-more-menu.txt: "Vector editing tools", Shape builder M, Variable width ⇧W): Figma
  * Draw's tools — listed, not built (Variable width needs the width profiles the renderer doesn't draw yet).
  */
@@ -184,7 +192,7 @@ function VectorEditToolbar({ offset }: { offset: number }) {
         <div key={g} style={{ display: "contents" }}>
           {g > 0 && <ToolbarDivider />}
           {group.map((t) => (
-            <ToolTextButton key={t.id} icon={t.icon} label={t.label} active={t.id === tool} disabled={!ed.vector.hasTool(t.id)} onSelect={() => pick(t.id)} />
+            <ToolTextButton key={t.id} icon={t.icon} label={t.label} active={t.id === tool} disabled={!ed.vector.hasTool(t.id)} width={VECTOR_TOOL_WIDTH[t.label]} onSelect={() => pick(t.id)} />
           ))}
         </div>
       ))}
@@ -192,6 +200,7 @@ function VectorEditToolbar({ offset }: { offset: number }) {
       <div ref={more} style={{ display: "contents" }}>
         <ToolTextButton
           label="More"
+          width={VECTOR_TOOL_WIDTH.More}
           chevron
           aria-haspopup="menu"
           aria-expanded={!!menuAt}
@@ -209,6 +218,7 @@ function VectorEditToolbar({ offset }: { offset: number }) {
           above
           flush
           label="Vector editing tools"
+          width={189}
           entries={VECTOR_MORE_TOOLS}
           ignore={more}
           onSelect={() => setMenuAt(null)}
