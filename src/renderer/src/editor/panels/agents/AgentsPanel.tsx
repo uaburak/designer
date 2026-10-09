@@ -193,6 +193,9 @@ function ThinkingRow({ m }: { m: ChatMessage }) {
   if (!label) return null;
   return (
     <div className={styles.thinking} role="status" data-thinking="">
+      <span className={styles.thinkingIcon} aria-hidden="true">
+        <Icon name="24.agents" />
+      </span>
       <span className={styles.thinkingText} data-thinking-label="">{label}</span>
       <Elapsed since={m.startedAt} />
     </div>

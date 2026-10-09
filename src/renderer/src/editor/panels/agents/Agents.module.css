@@ -65,12 +65,15 @@
   .error { padding: var(--ds-space-2); border: 1px solid var(--figma-color-border-danger); border-radius: var(--ds-radius-medium); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
   .stopped { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
 
-  /* While the agent works (Figma AI's look): what it is doing in a line with a light sweeping through it, the seconds
-     after 5 s; an image being made as a soft gradient card with a light crossing it, then the picture. */
+  /* While the agent works (the owner's pick: Claude's desktop look): the Agents icon turning slowly, what it is doing in
+     grey with a lighter grey sweeping through it, the seconds after 5 s; an image being made as a grey card with a soft
+     light crossing it, then the picture. */
   .thinking { display: flex; align-items: center; gap: var(--ds-space-1-5); min-height: var(--ds-size-control); font: var(--ds-font-body-medium); }
+  .thinkingIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-4); height: var(--ds-space-4); color: var(--figma-color-icon-secondary); animation: spin calc(var(--ds-duration-shimmer) * 1.5) linear infinite; }
+  .thinkingIcon > svg { width: 100%; height: 100%; }
   .thinkingText {
     min-width: 0;
-    background: linear-gradient(90deg, var(--figma-color-text-secondary) 0%, var(--figma-color-text-secondary) 30%, var(--ds-color-ai-1) 40%, var(--ds-color-ai-2) 47%, var(--ds-color-ai-3) 54%, var(--figma-color-text-secondary) 66%, var(--figma-color-text-secondary) 100%) 0 0 / 300% 100%;
+    background: linear-gradient(90deg, var(--figma-color-text-tertiary) 0%, var(--figma-color-text-tertiary) 35%, var(--figma-color-text) 50%, var(--figma-color-text-tertiary) 65%, var(--figma-color-text-tertiary) 100%) 0 0 / 300% 100%;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -78,28 +81,23 @@
   }
   .thinkingTime { flex: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); font-variant-numeric: tabular-nums; }
   @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .imageCard { position: relative; width: min(100%, calc(var(--ds-size-panel) * var(--aspect, 1))); aspect-ratio: var(--aspect, 1); overflow: hidden; border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); }
   .imageCardImg { display: block; width: 100%; height: 100%; object-fit: cover; }
   .imageCardFill { position: absolute; inset: 0; background: var(--figma-color-bg-secondary); }
-  .imageCardBusy {
-    background:
-      linear-gradient(120deg, color-mix(in srgb, var(--ds-color-ai-1) 35%, transparent), color-mix(in srgb, var(--ds-color-ai-2) 35%, transparent), color-mix(in srgb, var(--ds-color-ai-3) 30%, transparent), color-mix(in srgb, var(--ds-color-ai-4) 30%, transparent), color-mix(in srgb, var(--ds-color-ai-1) 35%, transparent)) 0 0 / 300% 300%,
-      var(--ds-color-ai-fill);
-    animation: drift calc(var(--ds-duration-sweep) * 3) ease-in-out infinite alternate;
-  }
-  .imageCardBusy::after { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, var(--ds-color-ai-shine) 50%, transparent 70%); transform: translateX(-100%); animation: sweep var(--ds-duration-sweep) ease-in-out infinite; content: ""; }
+  .imageCardBusy { background: var(--figma-color-bg-tertiary); }
+  .imageCardBusy::after { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 25%, color-mix(in srgb, var(--figma-color-text) 10%, transparent) 50%, transparent 75%); transform: translateX(-100%); animation: sweep var(--ds-duration-sweep) ease-in-out infinite; content: ""; }
   .imageCardCaption { position: absolute; bottom: var(--ds-space-2); left: var(--ds-space-2); max-width: calc(100% - var(--ds-space-4)); padding: 0 var(--ds-space-1-5); overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); line-height: var(--ds-space-5); text-overflow: ellipsis; white-space: nowrap; }
   /* Not placed (Stop, or the turn ended first): a quiet line instead of the card */
   .imageCard[data-image-card="failed"] { width: auto; aspect-ratio: auto; background: none; }
   [data-image-card="failed"] .imageCardFill { display: none; }
   [data-image-card="failed"] .imageCardCaption { position: static; display: inline-block; padding: 0; background: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
   @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
-  @keyframes drift { from { background-position: 0 0, 0 0; } to { background-position: 100% 100%, 0 0; } }
 
   @media (prefers-reduced-motion: reduce) {
+    .thinkingIcon { animation: none; }
     .thinkingText { background: none; color: var(--figma-color-text-secondary); animation: none; }
-    .imageCardBusy { animation: none; }
     .imageCardBusy::after { display: none; }
   }
   .changes { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
