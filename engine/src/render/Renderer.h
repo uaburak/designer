@@ -208,7 +208,7 @@ struct Overlay {
     bool expanded = false;
     bool selected = false;
     int hovered = -1;       // 0 grabber, 1 label, 2 chevron
-    double segment = 16;    // the grabber's and the chevron's width
+    double segment = 18;    // the grabber's and the chevron's width
     double labelWidth = 0;
     std::string label;
   };
@@ -241,11 +241,13 @@ struct Overlay {
   };
   std::vector<GapHandle> gapHandles;
   // A selected auto-layout frame under the pointer: a bar in the middle of each padding (blue) and gap (pink); the
-  // hovered one shows its value next to `edge` (a padding: the frame's edge there, world).
+  // hovered one shows its value next to `edge` (a padding: the frame's edge there, world). `box`: a grid's gap being
+  // dragged (round 12) — its value only, the gap boxes (gapBoxes) show the gaps.
   struct LayoutBar {
     Vec2 at, edge;
     bool vertical = false;
     bool gap = false;
+    bool box = false;
     bool hovered = false;
     int side = -1;   // a padding: 0 left, 1 top, 2 right, 3 bottom
     int index = -1;  // a gap: which
@@ -259,7 +261,8 @@ struct Overlay {
   // equally spaced layers get these dots too (live canvas-group-selected).
   bool centreDotsIdle = false;
   // Round 11: a selected auto-layout component, set or instance — a pink box in each gap between its layers, across
-  // its content box (live Figma, canvas-component-set-selected / -main-component-selected / -instance-selected).
+  // its content box (live Figma, canvas-component-set-selected / -main-component-selected / -instance-selected). Round
+  // 12: a selected grid's gaps of one axis, the pointer in one of them (live grid-selected-hover-gap).
   struct GapBox {
     Mat2x3 world;  // the frame's own space → world
     Rect rect;     // the gap, in the frame's space

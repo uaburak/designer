@@ -871,7 +871,8 @@ export type EngineEvent =
   | { type: "PROTOTYPE_CONNECTED"; refs: Guid[]; interaction: Guid | null }
   /**
    * Grid tracks selected on the canvas (round 6): the grid, the axis, the selected tracks' indices (empty: none);
-   * `edit`: a pill's label was clicked (or Enter) — the label editor opens at (x, y, width, height), canvas CSS px.
+   * `edit`: a pill's chevron was clicked (or Enter) — the label's field and the sizing list open at the label (x, y,
+   * width, height), canvas CSS px (round 12; a click on the pill itself only selects the track).
    */
   | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number }
   /** A frame's title (or a section's pill) was double-clicked: rename it in place over (x, y, width, height), canvas CSS px. */

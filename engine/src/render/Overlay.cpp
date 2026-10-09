@@ -381,9 +381,10 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Vec2 c = view.apply(bar.at);
     const double len = 12, thick = 1.5;
     Vec2 size = bar.vertical ? Vec2{thick, len} : Vec2{len, thick};
-    emit(makeShape(Mat2x3::translate(std::round((c.x - size.x / 2) * dpr) / dpr, std::round((c.y - size.y / 2) * dpr) / dpr), size, ShapeKind::Rect, kSquare, color, 1,
-                   color, 0, 0, 0),
-         Pass::Shape);
+    if (!bar.box)
+      emit(makeShape(Mat2x3::translate(std::round((c.x - size.x / 2) * dpr) / dpr, std::round((c.y - size.y / 2) * dpr) / dpr), size, ShapeKind::Rect, kSquare,
+                     color, 1, color, 0, 0, 0),
+           Pass::Shape);
     if (!bar.hovered) continue;
     std::string text = formatNumber(bar.value);
     const text::TextLayout* L = label(text, "Medium", style.labelSize);
@@ -522,7 +523,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // A selected auto-layout component, set or instance: a pink box in each gap, 1 px inside it (live Figma round 11:
   // the gap between two layers, across the frame's content box — canvas-component-set-selected, -main-component-,
-  // -instance-selected).
+  // -instance-selected); a selected grid's gaps of one axis, the pointer in one (round 12, grid-selected-hover-gap-1440:
+  // the gap wide, its row high).
   for (const Overlay::GapBox& g : overlay.gapBoxes) {
     if (g.rect.w <= 0 || g.rect.h <= 0) continue;
     ScreenBox b = screenBox(view * g.world * Mat2x3::translate(g.rect.x, g.rect.y), {g.rect.w, g.rect.h}, dpr);
