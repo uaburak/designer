@@ -319,3 +319,16 @@ enabled = true
 - the "Set up agents for Figma MCP" dialog (client list and wording);
 - the Agents panel placeholder and empty state;
 - whether a model picker exists.
+
+## As built (branch `r13-agents`, 2026-10-09)
+
+What the app does with these findings (details: `docs/editor.md` "Agents (r13)").
+
+- **Server:** one Streamable HTTP endpoint on `http://127.0.0.1:<port>/mcp` (port kept between launches, like Figma's fixed 3845), answered as `application/json` (GET is 405: no server stream), bearer token required, Host/Origin checked. Tool names follow Figma's read tools (`get_metadata`, `get_design_context`, `get_screenshot`, `get_variable_defs`) plus `get_selection`; writes are ours (Figma's `use_figma` runs Plugin API JavaScript — we expose typed tools in the Plugin API's vocabulary instead). `nodeId` optional, `"123:456"` or `"123-456"`, default the selection.
+- **Connections:** "N connections" counts live `Mcp-Session-Id` sessions (15 min idle), named from `clientInfo.name`.
+- **Clients** ("Connect to …", after a native confirmation; the file copied to `<file>.designer-backup` first; only our `designer` entry touched; "Copy config" otherwise):
+  - Claude Code: `claude mcp add --transport http --scope user designer <url> --header "Authorization: Bearer …"` when the CLI is there, else `~/.claude.json` `mcpServers`.
+  - Cursor `~/.cursor/mcp.json` (`url`, `headers`); VS Code `~/Library/Application Support/Code/User/mcp.json` (`servers`, `type: "http"`); Antigravity `~/.gemini/config/mcp_config.json` (`serverUrl`, `headers`) and, when they have a config, `~/.gemini/antigravity/` and `~/.gemini/antigravity-ide/`; Gemini CLI `~/.gemini/settings.json` (`httpUrl`); Codex `~/.codex/config.toml` `[mcp_servers.designer]` (`url`, `http_headers`).
+  - stdio alternative for any client: `{"command": <app binary>, "args": ["<userData>/agents/designer-mcp.cjs"], "env": {"ELECTRON_RUN_AS_NODE": "1"}}` — no token in the client's config.
+- **Antigravity / Cursor as chat providers:** Antigravity documents no headless mode, so it is a connected client only (its own agent chat uses our server). Cursor's CLI (`agent`, formerly `cursor-agent`) has a headless stream-json mode and is a provider when installed; the Cursor app itself is a client.
+- **Agents panel:** no capture of Figma's panel exists yet; ours keeps the documented words ("New chat", "Back", "Send", "Stop", "Undo") and adds "Apply" (redo of the turn), the agent/model picker and Agent settings.
