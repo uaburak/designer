@@ -331,8 +331,9 @@ export const fontFamily = {
   sans: '"Inter Variable", Inter, system-ui, -apple-system, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, monospace',
   /**
-   * Shortcut keys: the glyphs Inter lacks (⌘ ⇧ ⌥ ⌃ ⌫) from the browser's sans-serif, as live Figma's stack has no
-   * system-ui (menus/*.txt: "⇧⌫" 25 wide, "⌥⌘G" 31 at 11px; system-ui's make them 22 and 29).
+   * A context menu's key glyphs (12px / 400): the ones Inter lacks (⌘ ⇧ ⌥ ⌃ ⌫) from the browser's sans-serif — live's
+   * widths (menus/context-*.txt: ⌘ 13, ⇧ 13; system-ui's are 11, 12). The 11px / 450 menu keys keep the UI font's
+   * fallback: there it matches live (toolbar/*-tools-menu.txt "⇧M" 21, "⇧⌘K" 30).
    */
   keys: '"Inter Variable", Inter, sans-serif',
 } as const;

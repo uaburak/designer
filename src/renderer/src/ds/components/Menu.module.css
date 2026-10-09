@@ -61,7 +61,7 @@
   .hint { max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
   /* Live: the keys 8 after the label (the item's gap) in text menus, 16 in menus with a glyph column (tool menus,
      boolean operations) */
-  .shortcut { font-family: var(--ds-font-family-keys); font-variant-numeric: tabular-nums; }
+  .shortcut { font-variant-numeric: tabular-nums; }
   .withIcons .shortcut { padding-left: var(--ds-space-2); }
   /* Live context menus: one 12px / 400 glyph per key */
   .keys { display: flex; align-items: center; font: var(--ds-font-menu-key); letter-spacing: var(--ds-tracking-menu-key); }
