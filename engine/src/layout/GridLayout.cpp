@@ -549,4 +549,17 @@ std::string Layout::gridAutoRowsBytes(bool on) {
   return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
 }
 
+double Layout::gridGap(const NodeProps& p, bool column) {
+  double v = 0;
+  readFloatField(p, column ? "gridColumnGap" : "gridRowGap", column ? kGridColumnGap : kGridRowGap, v);
+  return v;
+}
+
+std::string Layout::gridGapBytes(bool column, double gap) {
+  kiwi::ByteBuffer bb;
+  bb.writeVarUint(column ? kGridColumnGap : kGridRowGap);
+  bb.writeVarFloat(static_cast<float>(std::max(0.0, gap)));
+  return std::string(reinterpret_cast<const char*>(bb.data()), bb.size());
+}
+
 }  // namespace eng

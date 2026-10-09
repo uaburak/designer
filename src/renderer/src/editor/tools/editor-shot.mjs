@@ -34,14 +34,16 @@
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
 //   EDITOR_ONLY=features11 node …                                  (round 11 at 1440 × 900, run on its own: Create property › Slot as live's form, shader fills and effects — browsers, presets drawn, settings)
 //   EDITOR_ONLY=panel12 node …                                     (round 12 at 1440 × 900, run on its own: the right panel's top, the Design popovers' places, Tools' Source / Category, Variables empty, the fill picker's Gradient / Image)
+//   EDITOR_ONLY=grid12 node …                                      (round 12 at 1440 × 900, only on its own: a grid's gap boxes and gap drag, the row pill's click and its chevron's field and sizing list against the live captures)
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
 // own check skipped (gfx::samplesAttachment). The browser is closed after EDITOR_TIMEOUT seconds (default 180).
-/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent, localStorage, getComputedStyle, createImageBitmap, atob, OffscreenCanvas, NodeFilter */
-import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent, localStorage, getComputedStyle, createImageBitmap, atob, btoa, Buffer, OffscreenCanvas, NodeFilter */
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1722,14 +1724,18 @@ async function gridSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await settle(page);
   check("Grid: Number of rows reads Auto (a new grid)", ((await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).getAttribute("aria-label")) ?? "").includes("auto rows"));
-  // A click on the first column's pill label opens the track label editor; 120 makes it Fixed 120.
+  // A click on the first column's pill label selects it (round 12, live: nothing opens); Enter opens the label's field
+  // and the sizing list; 120 makes it Fixed 120.
   const [px, py] = await pillOfColumn1();
   await page.mouse.move(px, py);
   await settle(page);
   await page.mouse.click(px, py);
   await settle(page);
   const editor = page.locator("[data-grid-track-editor]");
-  check("Grid: a click on a column's pill opens its label editor", (await editor.count()) === 1);
+  check("Grid: a click on a column's pill selects it, nothing opens (round 12, live Figma)", (await editor.count()) === 0 && (await page.evaluate(() => window.__designerEditor.ui.get().gridTracks?.tracks?.join())) === "0");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("Grid: Enter on the selected column opens its label's field and its sizing list", (await editor.count()) === 1 && (await page.getByRole("menu", { name: "Column sizing" }).count()) === 1);
   await shot(page, `113-grid-track-editor-${theme}`);
   if (await editor.count()) {
     const field = editor.getByRole("textbox", { name: "Column size" });
@@ -2938,7 +2944,7 @@ async function overlays9Section(page, theme) {
     await page.keyboard.press("Meta+z");
     await settle(page);
   }
-  // AL_grid (7:40): cells outlined, the pill over the hovered column; a click on its label opens the size editor.
+  // AL_grid (7:40): cells outlined, the pill over the hovered column; a click on its label selects the column.
   at = await frameOn("7:40", 1.6);
   const [gx, gy] = await at(160, 6);
   await page.mouse.move(gx, gy);
@@ -2968,7 +2974,7 @@ async function overlays9Section(page, theme) {
   await settle(page);
   const sel = await page.evaluate(() => window.__designerEditor.ui.get().gridTracks);
   check("Grid: a click on a column's pill selects the column (the Grid panel)", !!sel && sel.axis === "COLUMNS" && sel.tracks.join() === "1", JSON.stringify(sel));
-  check("Grid: …and opens its size editor", (await page.locator("[data-grid-track-editor]").count()) === 1);
+  check("Grid: …and nothing else opens (round 12, live grid/row-track-menu.txt)", (await page.locator("[data-grid-track-editor]").count()) === 0 && (await page.getByRole("menu").count()) === 0);
   await shot(page, `198-grid-column-selected-${theme}`);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
@@ -3033,6 +3039,206 @@ async function regionPixels(page, clip) {
     g.drawImage(bmp, 0, 0);
     return { width: bmp.width, height: bmp.height, data: Array.from(g.getImageData(0, 0, bmp.width, bmp.height).data) };
   }, png.toString("base64"));
+}
+
+/** A live screenshot (docs/research/figma/live/img, kept out of git: this checkout's, else the main checkout's). */
+function liveImage(name) {
+  const mainCheckout = path.dirname(realpathSync(path.join(repo, "node_modules")));
+  return [path.join(repo, "docs/research/figma/live/img", name), path.join(mainCheckout, "docs/research/figma/live/img", name)].find((f) => existsSync(f)) ?? null;
+}
+
+/**
+ * Ours next to live: the page's `clip` (CSS px of the 1440 × 900 window) left, the same box of a 1440 × 900 live
+ * screenshot (scaled to `liveWidth` px wide) right, both at 2×, saved as `name`.png.
+ */
+async function sideBySide(page, clip, liveName, liveWidth, name) {
+  const file = liveImage(liveName);
+  if (!file) return;
+  const ours = (await page.screenshot({ clip })).toString("base64");
+  const live = readFileSync(file).toString("base64");
+  const png = await page.evaluate(
+    async ([ours, live, clip, k]) => {
+      const load = async (b64, type) => createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type }));
+      const a = await load(ours, "image/png"), b = await load(live, "image/jpeg");
+      const c = new OffscreenCanvas(clip.width * 4 + 8, clip.height * 2);
+      const g = c.getContext("2d");
+      g.fillStyle = "#ff00ff";
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(a, 0, 0, clip.width * 2, clip.height * 2);
+      g.drawImage(b, clip.x * k, clip.y * k, clip.width * k, clip.height * k, clip.width * 2 + 8, 0, clip.width * 2, clip.height * 2);
+      const blob = await c.convertToBlob({ type: "image/png" });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let bin = "";
+      for (const x of bytes) bin += String.fromCharCode(x);
+      return btoa(bin);
+    },
+    [ours, live, clip, liveWidth / 1440]
+  );
+  const out = path.join(outDir, `${name}.png`);
+  writeFileSync(out, Buffer.from(png, "base64"));
+  files.push(out);
+}
+
+/**
+ * Round 12 on `?editor&doc=capture` (dark, 1440 × 900): a selected grid's gaps and its track sizing list against live
+ * Figma — AL_grid (7:40) where live has it (img/grid-selected-hover-gap-1440, grid-track-selected-grid-panel-and-menu-1440:
+ * its top-left at 492.1, 289.4, 160 %): the pointer in a gap outlines every gap of that axis pink (each row's), the
+ * padding bars give way, a drag changes the gap; a click on a row's pill selects the row only, its chevron opens the
+ * label's field and the list at grid/row-track-menu.txt's place (156 × 72 at 419,549), a row picked sizes the row.
+ */
+async function grid12Section(page, theme) {
+  await open(page, "&doc=capture");
+  const canvas = page.locator("#engine-canvas");
+  const cbox = await canvas.boundingBox();
+  const Z = 1.6, LX = 492.1, LY = 289.4;
+  const f = await node(page, "7:40");
+  await page.evaluate(
+    ([x, y, z]) => {
+      const e = window.__designerEditor.engine;
+      e.setSelection(["7:40"]);
+      e.setCamera({ x, y, zoom: z });
+    },
+    [LX - cbox.x - f.transform.m02 * Z, LY - cbox.y - f.transform.m12 * Z, Z]
+  );
+  await settle(page);
+  const at = (lx, ly) => [LX + lx * Z, LY + ly * Z];
+  const [ox, oy] = await toScreen(page, f.transform.m02, f.transform.m12);
+  check("R12 grid: AL_grid where live has it (492.1, 289.4 at 160 %)", Math.abs(ox - LX) < 0.01 && Math.abs(oy - LY) < 0.01, JSON.stringify([ox, oy]));
+  const isPink = (d, i) => d[i] > 200 && d[i + 1] < 170 && d[i + 2] > 130 && d[i] - d[i + 1] > 60;
+  const isBlue = (d, i) => d[i] < 80 && d[i + 1] > 100 && d[i + 1] < 190 && d[i + 2] > 200;
+  const count = async (clip, test) => {
+    const px = await regionPixels(page, clip);
+    let n = 0;
+    for (let i = 0; i < px.data.length; i += 4) n += test(px.data, i) ? 1 : 0;
+    return n;
+  };
+
+  // N1: the pointer between columns 1 and 2, in row 2 — live: a pink box in every column gap of every row (the gap wide,
+  // the row high), no padding bars.
+  await page.mouse.move(...at(109.3, 146));
+  await settle(page);
+  await shot(page, `260-r12-grid-gap-hover-${theme}`);
+  await sideBySide(page, { x: 470, y: 260, width: 560, height: 370 }, "grid-selected-hover-gap-1440.jpg", 800, `260-r12-grid-gap-hover-vs-live-${theme}`);
+  {
+    const across = async (ly, lx0, lx1) => count({ x: Math.round(LX + lx0 * Z), y: Math.round(LY + ly * Z), width: Math.round((lx1 - lx0) * Z), height: 1 }, isPink);
+    // Across the column gaps, at each row's middle: a box's two sides per gap (2 gaps).
+    const row1 = await across(54, 100, 220), row2 = await across(146, 100, 220);
+    // Across the row gap (y 100) under column 2: no box (the rows' gaps stay plain), nor along the frame's top padding.
+    const rowGap = await count({ x: Math.round(LX + 120 * Z), y: Math.round(LY + 100 * Z), width: Math.round(80 * Z), height: 1 }, isPink);
+    // Down the first column gap's left side: pink from row 1's top to row 2's bottom except the row gap.
+    const down = await count({ x: Math.floor(LX + 105.333 * Z), y: Math.round(LY + 12 * Z), width: 2, height: Math.round(176 * Z) }, isPink);
+    const topBar = await count({ x: Math.round(LX + 160 * Z) - 10, y: Math.round(LY) + 2, width: 20, height: Math.round(12 * Z) - 3 }, isBlue);
+    check(
+      "R12 grid gap hover: pink boxes in both column gaps of both rows, none in the row gap; the padding bars give way (live grid-selected-hover-gap-1440)",
+      row1 >= 4 && row2 >= 4 && rowGap === 0 && down >= 260 && topBar === 0,
+      JSON.stringify({ row1, row2, rowGap, down, topBar })
+    );
+  }
+  // N1: the drag (8 px right = 5 units at 160 %: the box under the pointer follows it, 8 → 18; unverified in live).
+  const g0 = at(109.3, 146);
+  await drag(page, g0, [g0[0] + 8, g0[1]]);
+  let n = await node(page, "7:40");
+  check("R12 grid: dragging a column gap 8 px at 160 % makes every column gap 18, the rows' stays 8", n.gridColumnGap === 18 && n.gridRowGap === 8, JSON.stringify({ c: n.gridColumnGap, r: n.gridRowGap }));
+  await canvas.focus();
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  n = await node(page, "7:40");
+  check("R12 grid: ⌘Z takes the gap drag back in one step", n.gridColumnGap === 8, String(n.gridColumnGap));
+
+  // N2: row 2's pill (left of the frame, its right end 24.75 off it; live: 411–467 wide 56 — an 18 px grabber, "1fr"'s
+  // 20, an 18 px chevron — 514–532).
+  const rowY = LY + 146 * Z, pillRight = LX - 24.75;
+  await page.mouse.move(pillRight - 18 - 10, rowY);
+  await settle(page);
+  await page.mouse.click(pillRight - 18 - 10, rowY);
+  await settle(page);
+  const sel = await page.evaluate(() => window.__designerEditor.ui.get().gridTracks);
+  check(
+    "R12 grid pill: a click on row 2's pill selects the row (the Grid panel), nothing opens (live grid/row-track-menu.txt)",
+    !!sel && sel.axis === "ROWS" && sel.tracks.join() === "1" && (await page.locator("[data-grid-track-editor]").count()) === 0 && (await page.getByRole("menu").count()) === 0 && (await page.locator("[data-grid-panel]").count()) === 1,
+    JSON.stringify(sel)
+  );
+  await shot(page, `261-r12-grid-row-selected-${theme}`);
+  // Its chevron: the label's field, its text selected, and the list.
+  await page.mouse.move(pillRight - 9, rowY);
+  await page.mouse.click(pillRight - 9, rowY);
+  await settle(page);
+  const fieldBox = await page.locator("[data-grid-track-editor]").boundingBox();
+  const input = await page.evaluate(() => {
+    const el = document.querySelector("[data-grid-track-editor] input");
+    const box = el?.closest('[data-ds="TextInput"]');
+    const r = box?.getBoundingClientRect();
+    const cs = box ? getComputedStyle(box) : null;
+    return el ? { value: el.value, focused: document.activeElement === el, from: el.selectionStart, to: el.selectionEnd, box: r && [r.x, r.y, r.width, r.height], bg: cs?.backgroundColor, color: cs?.color, font: cs && `${cs.fontSize}/${cs.fontWeight}` } : null;
+  });
+  check(
+    "R12 grid pill: its chevron turns the label into its field (over the label, 18 high, \"1fr\" selected): a white box hugging the text, ~18 × 14, its text dark 11px Medium (live)",
+    !!fieldBox && Math.abs(fieldBox.x + fieldBox.width - (pillRight - 18)) <= 0.5 && Math.abs(fieldBox.x - (LX - 24.75 - 56 + 18)) <= 0.5 && Math.abs(fieldBox.y - (rowY - 9)) <= 0.5 && Math.round(fieldBox.height) === 18 &&
+      !!input && input.value === "1fr" && input.focused && input.from === 0 && input.to === 3 && input.box[2] >= 16 && input.box[2] <= 19 && Math.round(input.box[3]) === 14 && Math.abs(input.box[1] - (rowY - 7)) <= 0.5 &&
+      input.bg === "rgb(255, 255, 255)" && /^rgba\(0, 0, 0/.test(input.color) && input.font === "11px/500",
+    JSON.stringify({ fieldBox, input })
+  );
+  const tools = path.join(repo, "docs/research/figma/live/tools");
+  const dump = await page.evaluate(readFileSync(path.join(tools, "dumpPopups.js"), "utf8"));
+  const oursFile = path.join(outDir, `r12-row-track-menu-${theme}.txt`);
+  writeFileSync(oursFile, `${dump}\n`);
+  const report = spawnSync(process.execPath, [path.join(tools, "compare-popups.mjs"), path.join(repo, "docs/research/figma/live/grid/row-track-menu.txt"), oursFile], { encoding: "utf8" }).stdout.trim();
+  check("R12 grid pill: the list as live's — 156 × 72 at 419,549, its rows' text at 52 (compare-popups: no DIFF / MISSING)", report.startsWith("same") && !/^(DIFF|MISSING)/m.test(report), report.replace(/\n/g, " | "));
+  const look = await page.evaluate(() => {
+    const m = document.querySelector('[role="menu"]');
+    if (!m) return null;
+    const before = getComputedStyle(m, "::before");
+    const rows = [...m.querySelectorAll('[role^="menuitem"]')];
+    return {
+      box: [before.top, before.bottom, before.left, before.right, before.borderRadius],
+      lit: rows.findIndex((r) => r.hasAttribute("data-highlighted")),
+      checked: rows.findIndex((r) => r.getAttribute("aria-checked") === "true"),
+      glyphs: rows.map((r) => !!r.querySelector("svg")),
+    };
+  });
+  check(
+    "R12 grid pill: the menu box 8 above and below the list (live canvas-grid-row-track-menu), no row lit (live's dump and 1440 capture), Fill container checked, a glyph each",
+    !!look && look.box[0] === "-8px" && look.box[1] === "-8px" && look.box[2] === "0px" && look.box[3] === "0px" && look.lit === -1 && look.checked === 2 && look.glyphs.every(Boolean),
+    JSON.stringify(look)
+  );
+  await shot(page, `262-r12-grid-row-track-menu-${theme}`);
+  await page.mouse.move(700, 800);  // off the pill and the list, as live's capture
+  await settle(page);
+  await sideBySide(page, { x: 380, y: 480, width: 260, height: 170 }, "grid-track-selected-grid-panel-and-menu-1440.jpg", 800, `262-r12-grid-row-track-menu-vs-live-${theme}`);
+  await sideBySide(page, { x: 400, y: 506, width: 80, height: 34 }, "grid-track-selected-grid-panel-and-menu-1440.jpg", 800, `262-r12-grid-row-pill-field-vs-live-${theme}`);
+  // "Fixed height (84)": the row Fixed at its laid-out 84; the field and the list close.
+  await page.getByRole("menuitemradio", { name: "Fixed height (84)" }).click();
+  await settle(page);
+  n = await node(page, "7:40");
+  const rowId = n.gridRows?.entries?.[1]?.id;
+  const sizing = n.gridRowsSizing?.entries?.find((e) => e.id.localID === rowId?.localID && e.id.sessionID === rowId?.sessionID)?.trackSize?.maxSizing;
+  check(
+    "R12 grid pill: Fixed height (84) makes row 2 Fixed 84 (the frame keeps 320 × 200); the field and the list close",
+    sizing?.type === "FIXED" && sizing?.value === 84 && n.size.x === 320 && n.size.y === 200 && (await page.locator("[data-grid-track-editor]").count()) === 0 && (await page.getByRole("menu").count()) === 0,
+    JSON.stringify({ sizing, size: n.size })
+  );
+  await canvas.focus();
+  await page.keyboard.press("Meta+z");
+  await settle(page);
+  // Typed in the field: "120" makes the row Fixed 120; Esc in the field closes both.
+  await page.mouse.move(pillRight - 9, rowY);
+  await page.mouse.click(pillRight - 9, rowY);
+  await settle(page);
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("R12 grid pill: Esc in the label's field closes it and the list", (await page.locator("[data-grid-track-editor]").count()) === 0 && (await page.getByRole("menu").count()) === 0);
+  await page.mouse.click(pillRight - 9, rowY);
+  await settle(page);
+  await page.keyboard.type("120");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  n = await node(page, "7:40");
+  const typed = n.gridRowsSizing?.entries?.find((e) => e.id.localID === rowId?.localID && e.id.sessionID === rowId?.sessionID)?.trackSize?.maxSizing;
+  check("R12 grid pill: 120 typed in the label's field makes row 2 Fixed 120", typed?.type === "FIXED" && typed?.value === 120, JSON.stringify(typed));
+  await canvas.focus();
+  await page.keyboard.press("Meta+z");
+  await page.keyboard.press("Escape");
+  await settle(page);
 }
 
 /**
@@ -4602,6 +4808,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await overlays9Section(page, "dark");
+    await context.close();
+  }
+  if (only === "grid12") {
+    // Round 12's grid gaps and track menu at live's viewport, on its own (the full run stays within its 180 s).
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await grid12Section(page, "dark");
     await context.close();
   }
   if (only === "overlays11") {

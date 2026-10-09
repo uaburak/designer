@@ -739,6 +739,8 @@ Overlay Editor::overlay() const {
   }
   // Round 11: a selected auto-layout component's, set's or instance's gaps (with the handles: not while moving).
   if (o.handles && text_.node == kNoGuid && vector_.node == kNoGuid) gapBoxesOverlay(o);
+  // Round 12: a selected grid's gaps of one axis, the pointer in one of them or dragging it (tools/GridGestures.cpp).
+  if (text_.node == kNoGuid && vector_.node == kNoGuid) gridGapOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
   o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;
@@ -780,7 +782,8 @@ Overlay Editor::overlay() const {
     }
   o.hasInsertion = gesture_ == Gesture::Move && hasInsertion_;
   o.insertion = insertion_;
-  if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid) && selection_.size() == 1 && text_.node == kNoGuid) {
+  // (Its cells stay while its padding or a gap is dragged.)
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::Grid || gesture_ == Gesture::LayoutBar) && selection_.size() == 1 && text_.node == kNoGuid) {
     gridTrackOverlay(o);
     gridSpanOverlay(o);
   }
@@ -1087,6 +1090,7 @@ Status Editor::setCurrentPage(Guid page) {
   measureTarget_ = kNoGuid;
   measures_.clear();
   bands_.clear();
+  gridGap_ = {};
   events_.currentPage = events_.structure = events_.structureAll = true;
   needsRender_ = true;
   return OK;

@@ -70,7 +70,7 @@ describe("slots and variants model (round 6)", () => {
 });
 
 describe("round 6 on the engine (wasm, headless)", () => {
-  it("a click on a grid's column pill selects it for the label editor; ⌫ deletes it", async () => {
+  it("a click on a grid's column pill selects it, its chevron opens the label field and sizing list; ⌫ deletes it", async () => {
     const engine = await Engine.create(null, { sessionID: 1 });
     engine.setViewport(1280, 800, 1, 1280, 800);
     engine.load(SAMPLE_DOCUMENT);
@@ -85,15 +85,30 @@ describe("round 6 on the engine (wasm, headless)", () => {
     engine.on("GRID_TRACKS", (e) => events.push(e));
     // The frame at the origin on screen: column 2 (100–200) has its pill 31.5 px above the top edge (live Figma), its
     // label in the middle.
-    engine.pointer(PointerType.MOVE, 150, -31.5, 0, 0, 0);
-    engine.pointer(PointerType.DOWN, 150, -31.5, 0, 1, 0);
-    engine.pointer(PointerType.UP, 150, -31.5, 0, 0, 0);
-    const last = events[events.length - 1];
+    const click = (x: number, y: number) => {
+      engine.pointer(PointerType.MOVE, x, y, 0, 0, 0);
+      engine.pointer(PointerType.DOWN, x, y, 0, 1, 0);
+      engine.pointer(PointerType.UP, x, y, 0, 0, 0);
+    };
+    click(150, -31.5);
+    let last = events[events.length - 1];
     expect(last.frame).toBe("1:1");
     expect(last.axis).toBe("COLUMNS");
     expect(last.tracks).toEqual([1]);
+    expect(last.edit).toBe(false); // round 12 (live grid/row-track-menu.txt): the pill click only selects the track
+    // Enter: the label's field and the sizing list, at the pill's label…
+    engine.key("down", "Enter", "Enter", 0);
+    last = events[events.length - 1];
     expect(last.edit).toBe(true);
     expect(last.width).toBeGreaterThan(0);
+    expect(last.height).toBe(18);
+    // …as a click on its chevron (the 16 px after the label) does.
+    const count = events.length;
+    click(last.x + last.width + 8, last.y + last.height / 2);
+    expect(events.length).toBe(count + 1);
+    last = events[events.length - 1];
+    expect(last.tracks).toEqual([1]);
+    expect(last.edit).toBe(true);
     engine.key("down", "Backspace", "Backspace", 0);
     expect(tracksOf(engine.readNodes(["1:1"])[0] as unknown as GridNode, "columns")).toHaveLength(2);
     expect((engine.readNodes(["1:1"])[0] as unknown as GridNode).gridAutoTracks).toBe("ROWS");

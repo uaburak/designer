@@ -127,7 +127,7 @@ TEST_CASE("grid on canvas: the track codec round-trips; Auto rows follow the ite
   }
 }
 
-TEST_CASE("grid on canvas: a click on a track's pill selects it and asks to edit its label; ⌘ adds, ⇧ a range, Esc clears") {
+TEST_CASE("grid on canvas: a click on a track's pill selects it, its chevron opens the sizing menu; ⌘ adds, ⇧ a range, Esc clears") {
   Editor e = load(gridScene(false));
   e.setSelection({GRID});
   e.takeEvents();
@@ -139,14 +139,28 @@ TEST_CASE("grid on canvas: a click on a track's pill selects it and asks to edit
   CHECK(ev.frame == GRID);
   CHECK(ev.column);
   CHECK(ev.tracks == std::vector<size_t>{0});
-  CHECK(ev.edit);
-  CHECK(ev.label.w > 0);
+  CHECK(!ev.edit);  // round 12 (live grid/row-track-menu.txt): a click on the pill only selects the track
   Overlay o = e.overlay();
   REQUIRE(o.gridPills.size() == 1);
   CHECK(o.gridPills[0].selected);
   CHECK(o.gridPills[0].expanded);
   CHECK(o.selectionDashed);
   CHECK(o.hideTitle == GRID);
+  // Its chevron: the label's field and the sizing menu (GRID_TRACKS {edit} at the pill's label).
+  const Overlay::GridPill pill = o.gridPills[0];
+  double chevron = pill.rect.x + pill.segment + pill.labelWidth + pill.segment / 2;
+  move(e, chevron, -31.5);
+  click(e, chevron, -31.5);
+  REQUIRE(lastGridEvent(e, ev));
+  CHECK(ev.edit);
+  CHECK(ev.tracks == std::vector<size_t>{0});
+  CHECK(ev.label.x == doctest::Approx(pill.rect.x + pill.segment));
+  CHECK(ev.label.y == doctest::Approx(pill.rect.y));
+  CHECK(ev.label.w == doctest::Approx(pill.labelWidth));
+  CHECK(ev.label.h == doctest::Approx(pill.rect.h));
+  // The grabber clicked (no drag): selected, no menu either.
+  click(e, pill.rect.x + pill.segment / 2, -31.5);
+  CHECK(!lastGridEvent(e, ev));  // the same selection: nothing to report
   click(e, 80, -31.5, MOD_PRIMARY);
   REQUIRE(lastGridEvent(e, ev));
   CHECK(ev.tracks == std::vector<size_t>{0, 1});
@@ -158,12 +172,31 @@ TEST_CASE("grid on canvas: a click on a track's pill selects it and asks to edit
   REQUIRE(lastGridEvent(e, ev));
   CHECK(ev.tracks.empty());
   CHECK(e.selection() == std::vector<Guid>{GRID});  // Esc let the tracks go, not the grid
-  // Rows: the pills left of the frame (an expanded one ends 22.5 px off it).
+  // Rows: the pills left of the frame (an expanded one ends 24.75 px off it — round 12, live Figma): -31.5 is its
+  // chevron, the sizing menu at its label.
   move(e, -31.5, 75);
+  o = e.overlay();
+  REQUIRE(o.gridPills.size() == 1);
+  CHECK(!o.gridPills[0].column);
+  CHECK(o.gridPills[0].rect.right() == doctest::Approx(-24.75));
+  CHECK(o.gridPills[0].hovered == 2);
   click(e, -31.5, 75);
   REQUIRE(lastGridEvent(e, ev));
   CHECK(!ev.column);
   CHECK(ev.tracks == std::vector<size_t>{1});
+  CHECK(ev.edit);
+  CHECK(ev.label.x == doctest::Approx(o.gridPills[0].rect.x + o.gridPills[0].segment));
+  CHECK(o.gridPills[0].segment == 18);  // round 12: live's 18 px grabber and chevron
+  // Two rows selected: a chevron keeps them both, the menu at the clicked one's label.
+  click(e, -60, 25, MOD_PRIMARY);
+  REQUIRE(lastGridEvent(e, ev));
+  CHECK(ev.tracks == (std::vector<size_t>{0, 1}));
+  move(e, -31.5, 25);
+  click(e, -31.5, 25);
+  REQUIRE(lastGridEvent(e, ev));
+  CHECK(ev.tracks == (std::vector<size_t>{0, 1}));
+  CHECK(ev.edit);
+  CHECK(ev.label.y + ev.label.h / 2 == doctest::Approx(25));
 }
 
 TEST_CASE("grid panel (round 8): SELECT_GRID_TRACKS selects a selected grid's tracks as a pill click does; [] clears") {
@@ -279,6 +312,127 @@ TEST_CASE("grid on canvas: an item's span handles drag its span to a cell edge (
   CHECK(world(e, I2).w == 100);
   e.command(CommandId::UNDO);
   CHECK(world(e, I2).w == 40);
+}
+
+// ---- Round 12: a grid's gaps on the canvas ----
+
+namespace {
+
+// AL_grid of the live capture (the editor's fixture 7:40): 320 × 200 at the origin, padding 12, 3 × 2 Fill (1fr)
+// tracks, gaps of 8 — columns 12..105.33, 113.33..206.67, 214.67..308; rows 12..96, 104..188 — one item in the first
+// cell.
+const Guid AL{1, 40}, AL_ITEM{1, 41};
+std::vector<NodeChange> alGrid() {
+  auto nodes = baseChanges();
+  auto list = [](int first, int n, bool sizing) {
+    std::string out;
+    for (int i = 0; i < n; i++) {
+      std::string id = R"({"sessionID":9,"localID":)" + std::to_string(first + i) + "}";
+      out += (i ? "," : "") + (sizing ? R"({"id":)" + id + R"(,"trackSize":{"minSizing":{"type":"FLEX","value":1},"maxSizing":{"type":"FLEX","value":1}}})"
+                                      : R"({"id":)" + id + R"(,"position":")" + std::string(1, "!#$"[i]) + R"("})");
+    }
+    return out;
+  };
+  nodes.push_back(fromJson(R"({"guid":"1:40","type":"FRAME","name":"AL_grid","parentIndex":{"guid":"0:1","position":"!"},"size":{"x":320,"y":200},)"
+                           R"("stackMode":"GRID","stackPrimarySizing":"FIXED","stackCounterSizing":"FIXED","gridReflowEnabled":true,)"
+                           R"("stackHorizontalPadding":12,"stackVerticalPadding":12,"stackPaddingRight":12,"stackPaddingBottom":12,)"
+                           R"("gridColumnGap":8,"gridRowGap":8,"gridColumns":{"entries":[)" + list(1, 3, false) + R"(]},"gridColumnsSizing":{"entries":[)" +
+                           list(1, 3, true) + R"(]},"gridRows":{"entries":[)" + list(11, 2, false) + R"(]},"gridRowsSizing":{"entries":[)" + list(11, 2, true) + "]}}"));
+  nodes.push_back(fromJson(R"({"guid":"1:41","type":"ROUNDED_RECTANGLE","parentIndex":{"guid":"1:40","position":"!"},"size":{"x":60,"y":40}})"));
+  return nodes;
+}
+
+double gap(const Editor& e, bool column) { return Layout::gridGap(e.document().get(AL)->props, column); }
+
+}  // namespace
+
+TEST_CASE("r12 grid: the pointer in a gap outlines every gap of that axis, the padding bars give way (live Figma)") {
+  Editor e = load(alGrid());
+  e.setSelection({AL});
+  CHECK(gap(e, true) == 8);
+  CHECK(gap(e, false) == 8);
+  // In a cell: the padding bars (no gap bars, no gap boxes).
+  move(e, 160, 150);
+  Overlay o = e.overlay();
+  CHECK(o.layoutBars.size() == 4);
+  CHECK(o.gapBoxes.empty());
+  // Between columns 1 and 2, in row 2 (live grid-selected-hover-gap-1440): a box in every column gap of every row —
+  // the gap wide, the row high — and nothing else.
+  move(e, 109, 150);
+  o = e.overlay();
+  CHECK(o.layoutBars.empty());
+  REQUIRE(o.gapBoxes.size() == 4);
+  std::vector<Rect> boxes;
+  for (const auto& b : o.gapBoxes) boxes.push_back(transformedBounds(b.world * Mat2x3::translate(b.rect.x, b.rect.y), b.rect.w, b.rect.h));
+  std::sort(boxes.begin(), boxes.end(), [](const Rect& a, const Rect& b) { return a.y != b.y ? a.y < b.y : a.x < b.x; });
+  CHECK(boxes[0].x == doctest::Approx(105.333).epsilon(1e-3));
+  CHECK(boxes[0].w == doctest::Approx(8));
+  CHECK(boxes[0].y == doctest::Approx(12));
+  CHECK(boxes[0].h == doctest::Approx(84));
+  CHECK(boxes[1].x == doctest::Approx(206.667).epsilon(1e-3));
+  CHECK(boxes[2].y == doctest::Approx(104));
+  CHECK(boxes[3].x == doctest::Approx(206.667).epsilon(1e-3));
+  CHECK(boxes[3].y == doctest::Approx(104));
+  // The cells and the hovered column's and row's compact pills stay (live: the pills above and left of the frame).
+  CHECK(o.gridCells.size() == 6);
+  CHECK(o.gridPills.size() == 2);
+  // Between the rows: a box per column, the column wide and the gap high.
+  move(e, 160, 100);
+  o = e.overlay();
+  REQUIRE(o.gapBoxes.size() == 3);
+  for (const auto& b : o.gapBoxes) {
+    CHECK(b.rect.y == doctest::Approx(96));
+    CHECK(b.rect.h == doctest::Approx(8));
+    CHECK(b.rect.w == doctest::Approx(93.333).epsilon(1e-3));
+  }
+  // Where the gaps cross: neither (no gap box holds it); the padding bars come back.
+  move(e, 109, 100);
+  o = e.overlay();
+  CHECK(o.gapBoxes.empty());
+  CHECK(o.layoutBars.size() == 4);
+  // Not selected: nothing.
+  e.setSelection({});
+  move(e, 109, 150);
+  CHECK(e.overlay().gapBoxes.empty());
+}
+
+TEST_CASE("r12 grid: dragging a gap changes that axis's gap (every gap alike), one undo step; a click changes nothing") {
+  Editor e = load(alGrid());
+  e.setSelection({AL});
+  // The first column gap, in row 2: the box under the pointer follows it (½ a gap before its middle: 2 units per unit).
+  move(e, 109, 150);
+  down(e, 109, 150);
+  for (int i = 1; i <= 6; i++) move(e, 109 + i, 150);
+  Overlay o = e.overlay();
+  // While dragging: the boxes, and the gap's value by the dragged one (as auto layout's badge).
+  REQUIRE(o.layoutBars.size() == 1);
+  CHECK(o.layoutBars[0].gap);
+  CHECK(o.layoutBars[0].box);
+  CHECK(o.layoutBars[0].hovered);
+  CHECK(o.layoutBars[0].value == 20);
+  CHECK(o.gapBoxes.size() == 4);
+  CHECK(!o.gridCells.empty());  // the cells stay
+  up(e, 115, 150);
+  CHECK(gap(e, true) == 20);
+  CHECK(gap(e, false) == 8);  // the rows' gap stays
+  auto g = e.gridCellsOf(AL);
+  REQUIRE(g.colX.size() == 3);
+  CHECK(g.colX[1] - (g.colX[0] + g.colW[0]) == doctest::Approx(20));
+  CHECK(g.colX[2] - (g.colX[1] + g.colW[1]) == doctest::Approx(20));
+  e.command(CommandId::UNDO);
+  CHECK(gap(e, true) == 8);
+  // A row gap dragged up past 0: 0.
+  move(e, 160, 100);
+  drag(e, {160, 100}, {160, 80});
+  CHECK(gap(e, false) == 0);
+  e.command(CommandId::UNDO);
+  CHECK(gap(e, false) == 8);
+  // A click on a gap: no change; the grid stays selected.
+  move(e, 109, 150);
+  click(e, 109, 150);
+  CHECK(gap(e, true) == 8);
+  CHECK(e.selection() == std::vector<Guid>{AL});
+  CHECK(e.overlay().gapBoxes.size() == 4);
 }
 
 // ---- Slots ----
