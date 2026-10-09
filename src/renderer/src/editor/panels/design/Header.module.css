@@ -14,6 +14,8 @@
     white-space: nowrap;
   }
   .presetsMenu > [role="separator"] { margin-block: 7px; }
+  /* (Live: a long name runs up to its size — "iPhone 16 & 17 Pro Max" ends where "440" starts.) */
+  .presetsMenu > [role^="menuitem"] > span:nth-child(3) { margin-left: calc(var(--ds-space-2) * -1); }
 
   /*
    * The header's action menus (live boolean-operations-menu, instance-more-actions-menu): a glyph column, the label
