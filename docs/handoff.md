@@ -163,3 +163,4 @@ Acceptance (verified with `scripts/drive.mjs` on the built demo app): launch →
 - In a plain browser the dev store can't read zstd-compressed `.fig` files (Figma's newer files); the desktop store can. A small decoder (e.g. `fzstd`) passed to `createDevStore({ zstdDecompress })` would fix it.
 - The `/_blob` and `/_thumb` protocol token isn't checked yet.
 - Wording to confirm against Figma: Home's empty states and toasts.
+- MERGED 2026-10-09: r13-polish (N15-N19 small Figma-parity fixes) into main at f115ad2; check 962 vitest, engine:test 500/500, engine:shot 148/150 ok, editor-shot full 367 ok.
