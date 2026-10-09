@@ -25,12 +25,12 @@ const snapshot = (page) =>
   page.evaluate(() => {
     const ed = window.__designerEditor;
     const n = ed.engine.readNode("7:1");
-    return JSON.stringify({ camera: ed.engine.getCamera(), tool: ed.store.tool, selection: ed.selection, opacity: n.opacity ?? 1, position: n.parentIndex?.position, flip: n.transform?.m00 });
+    return JSON.stringify({ camera: ed.engine.getCamera(), tool: ed.store.tool, selection: ed.selection, opacity: n.opacity ?? 1, position: n.parentIndex?.position, flip: n.transform?.m00, autoLayout: n.stackMode ?? "NONE" });
   });
 
 // Tool letters (V Move, R Rectangle, T Text, F Frame, O Ellipse, L Line, P Pen, K Scale, H Hand), N / ⇧N frames, [ ]
-// order, ⇧V / ⇧H flips, ⇧1 / ⇧2 zooms, 5 opacity, ⇧R rulers (Playwright types ⇧1 as "1").
-const KEYS = ["n", "N", "v", "r", "t", "f", "o", "l", "p", "k", "h", "[", "]", "Shift+V", "Shift+H", "Shift+1", "Shift+2", "5", "Shift+R"];
+// order, ⇧V / ⇧H flips, ⇧1 / ⇧2 zooms, 5 opacity, ⇧R rulers (Playwright types ⇧1 as "1"), ⇧A auto layout.
+const KEYS = ["n", "N", "v", "r", "t", "f", "o", "l", "p", "k", "h", "[", "]", "Shift+V", "Shift+H", "Shift+1", "Shift+2", "5", "Shift+R", "Shift+A"];
 
 export async function inputSection(page, theme, { open, settle, check }) {
   await page.addInitScript(installMockAgents);
@@ -58,8 +58,8 @@ export async function inputSection(page, theme, { open, settle, check }) {
       const a = document.activeElement;
       return a ? ("value" in a ? a.value : a.textContent) : "";
     });
-    check(`Input: keys typed into ${what} (${focused}) change nothing on the canvas — N, tool letters, [ ], ⇧V, ⇧1, 5…`, before === after, before === after ? "" : `${before} → ${after}`);
-    if (expectText) check(`Input: …and ${what} got them as text`, text.includes("nNvrtfolpkh[]VH125R"), JSON.stringify(text));
+    check(`Input: keys typed into ${what} (${focused}) change nothing on the canvas — N, ⇧A, tool letters, [ ], ⇧V, ⇧1, 5…`, before === after, before === after ? "" : `${before} → ${after}`);
+    if (expectText) check(`Input: …and ${what} got them as text`, text.includes("nNvrtfolpkh[]VH125RA"), JSON.stringify(text));
   };
 
   // The Agents composer.

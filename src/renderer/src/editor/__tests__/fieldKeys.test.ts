@@ -35,6 +35,21 @@ describe("keys typed into text fields", () => {
     }
   });
 
+  it("no menu-bar accelerator of a view runs an editor command while a DOM text field has the focus (every one, ⇧A and N among them)", async () => {
+    const { runsFromMenuBar } = await import("@shared/commands");
+    const { menuCommandInField } = await import("../desktop");
+    const ran: string[] = [];
+    for (const c of MENU_BAR as readonly { id: string; accelerator?: string; scope: string }[]) {
+      if (!c.accelerator || (c.scope !== "editor" && c.scope !== "view")) continue;
+      // Main: a plain key never leaves the menu bar; the view: a ⌘ / ⌃ one is ignored in a field, or the field's own edit.
+      if (runsFromMenuBar(c.accelerator, true) && menuCommandInField(c.id, "accelerator") === "run") ran.push(`${c.id} ${c.accelerator}`);
+    }
+    expect(ran).toEqual([]);
+    for (const id of ["object.add-auto-layout", "view.zoom-next-frame"]) expect(runsFromMenuBar(MENU_BAR.find((c) => c.id === id)!.accelerator, true), id).toBe(false);
+    // Every editor command, should one come as a key with a field focused.
+    for (const c of [...COMMAND_BY_ID.values()]) expect(["drop", "native"], c.id).toContain(menuCommandInField(c.id, "accelerator"));
+  });
+
   it("a shortcut that reaches the editor from the menu bar while a text field has the focus doesn't run (docs/desktop.md §8.3)", async () => {
     const { menuCommandInField } = await import("../desktop");
     const plain = ["view.zoom-next-frame", "view.zoom-previous-frame", "object.bring-to-front", "object.flip-vertical", "arrange.align-left", "view.zoom-fit", "edit.select-none"];
