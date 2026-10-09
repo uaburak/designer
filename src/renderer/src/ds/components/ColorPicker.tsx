@@ -573,7 +573,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const gradientBody = gradient && (
     <>
       <div className={styles.gradientTypeRow}>
-        <Select label="Paint type" variant="ghost" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
+        {/* Live (popovers/fill-picker-gradient_linear.txt): a 96 × 32 "Paint type" box around the 24-high dropdown */}
+        <div role="group" aria-label="Paint type" className={styles.paintType}>
+          <Select label="Paint type" variant="ghost" width={96} value={value.type} options={gradientTypes} onChange={(t) => { setLocalHsv(null); onChange(convertPaint(value, t as PaintType), { final: true, source: "pick" }); }} />
+        </div>
         <span className={styles.gradientActions}>
           <IconButton icon="24.flip.horizontal.small" label="Flip gradient" onClick={() => setStops(flipStops(value.stops ?? []) as NonNullable<P["stops"]>, { final: true, source: "pick" })} />
           {onRotateGradient && <IconButton icon="24.rotate" label="Rotate gradient" onClick={onRotateGradient} />}
@@ -652,7 +655,17 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 onOpacity={(o, info) => setStops((value.stops ?? []).map((x, k) => (k === s.i ? { ...x, color: { ...x.color, a: o / 100 } } : x)) as NonNullable<P["stops"]>, info)}
               />
             </span>
-            <IconButton icon="24.minus.small" label="Delete gradient stop" tone="secondary" disabled={stopCount <= 2} onClick={() => { setStops(removeStop(value.stops ?? [], s.i) as NonNullable<P["stops"]>, { final: true, source: "pick" }); selectStop(0); }} />
+            {/* Live: enabled with two stops too; a gradient keeps two, so it removes nothing then (unverified) */}
+            <IconButton
+              icon="24.minus.small"
+              label="Delete gradient stop"
+              tone="secondary"
+              onClick={() => {
+                if (stopCount <= 2) return;
+                setStops(removeStop(value.stops ?? [], s.i) as NonNullable<P["stops"]>, { final: true, source: "pick" });
+                selectStop(0);
+              }}
+            />
           </div>
         ))}
       </div>
@@ -695,7 +708,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
     <>
       <div className={styles.patternPreview} data-empty={!pattern?.previewUrl || undefined} role="img" aria-label={pattern?.source ? `Pattern source: ${pattern.source}` : "No pattern source"} style={pattern?.previewUrl ? { backgroundImage: `url("${pattern.previewUrl}")` } : undefined}>
         <div className={styles.patternShade}>
-          <Button variant="secondary" className={styles.selectSource} aria-pressed={pattern?.selecting || undefined} disabled={!pattern} onClick={pattern?.onSelectSource}>
+          {/* Live (popovers/fill-picker-pattern.txt): 117 wide, the label at 28 — a 24 glyph first (which one is unverified) */}
+          <Button variant="secondary" icon="24.move" className={styles.selectSource} aria-pressed={pattern?.selecting || undefined} disabled={!pattern} onClick={pattern?.onSelectSource}>
             {pattern?.selecting ? "Click a layer…" : pattern?.source ? pattern.source : "Select source…"}
           </Button>
         </div>

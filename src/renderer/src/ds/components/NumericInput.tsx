@@ -265,8 +265,8 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
         value={text}
         placeholder={placeholder}
         spellCheck={false}
-        // With a unit the number hugs it: as wide as its digits (plus its start padding — the box is border-box).
-        style={modeLabel ? { width: `calc(${Math.max(1, (text || placeholder || "").length) + 0.2}ch + ${prefix === undefined ? 8 : 0}px)` } : undefined}
+        // With a mode label the number hugs it: as wide as its digits (without a prefix it starts 8 in: a margin).
+        style={modeLabel ? { width: `${Math.max(1, (text || placeholder || "").length) + 0.2}ch` } : undefined}
         onPointerDown={(e) => {
           if (canScrub && e.altKey && e.button === 0 && document.activeElement !== e.currentTarget) {
             e.preventDefault();
@@ -337,7 +337,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
             returnFocus?.();
           }
         }}
-        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && styles.padStart, mixed && draft === null && styles.mixedText)}
+        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && !unitAfter && styles.padStart, mixed && draft === null && styles.mixedText)}
       />
       {unitAfter && (
         <>

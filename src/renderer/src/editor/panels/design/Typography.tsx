@@ -179,6 +179,7 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
                   overOffset={0}
                   onSelect={(id) => write("Font size", { fontSize: Number(id) })}
                   className={styles.fontSizeMenu}
+                  menuClassName={styles.fontSizeList}
                 >
                   <Icon name="16.chevron.down" />
                 </MenuButton>

@@ -141,6 +141,7 @@ else()
     tests/unit/render.batching.test.cpp
     tests/unit/editor.gestures.test.cpp
     tests/unit/api.test.cpp
+    tests/unit/r11.type_features.test.cpp
     tests/unit/layout.test.cpp
     tests/unit/editor.commands.test.cpp
     tests/unit/editor.move.test.cpp
