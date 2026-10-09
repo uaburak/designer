@@ -688,7 +688,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
     <div className={styles.properties} data-properties-section="">
       <BlockTitle title="Properties">
         <span ref={addRef} className={styles.contents}>
-          <MenuButton label="Create property" entries={createPropertyMenu(ed, fresh, nestedInstances)} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={styles.createPropertyMenu} onSelect={onAdd}>
+          <MenuButton label="Create property" entries={createPropertyMenu(ed, fresh, nestedInstances)} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={styles.createPropertyMenu} menuWidth={156} alignOffset={1} onSelect={onAdd}>
             <Icon name="24.plus.small" />
           </MenuButton>
         </span>

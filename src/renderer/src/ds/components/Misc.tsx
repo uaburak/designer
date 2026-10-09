@@ -16,7 +16,7 @@ export function Badge({ tone = "default", count, children, className, ...rest }:
 export { initials };
 
 /** A person (contract §4.30): a photo, or initials in white on the brand blue. */
-export function Avatar({ name, src, size = 24 }: { name: string; src?: string; size?: 16 | 24 | 32 }) {
+export function Avatar({ name, src, size = 24 }: { name: string; src?: string; size?: 16 | 24 | 28 | 32 }) {
   return (
     <span data-ds="Avatar" role="img" aria-label={name} className={cx(styles.avatar, styles[`a${size}`], src && styles.withImage)}>
       {src ? <img src={src} alt="" /> : initials(name, size === 16 ? 1 : 2)}

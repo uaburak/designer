@@ -548,16 +548,20 @@ export interface MenuButtonProps {
   flush?: boolean;
   /** The menu's own look (see MenuPanel's `className`) */
   menuClassName?: string;
+  /** The width live measured (see MenuPanel's `width`) */
+  menuWidth?: number;
+  /** With `align="end"`: px the menu's right edge lies past the trigger's (live: blend mode, Create property 1) */
+  alignOffset?: number;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName, menuWidth, alignOffset = 0 }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number; flipY?: number } | null>(null);
   const open = () => {
     const r = button.current?.getBoundingClientRect();
     const field = overField ? button.current?.closest(overField)?.getBoundingClientRect() : undefined;
-    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + gap, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined, flipX: align === "end" ? r.right : undefined, flipY: flip && placement !== "top" ? r.top - gap : undefined });
+    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + gap, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined, flipX: align === "end" ? r.right + alignOffset : undefined, flipY: flip && placement !== "top" ? r.top - gap : undefined });
   };
   const close = () => {
     setAt(null);
@@ -586,7 +590,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush={flush} over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named || flush ? label : undefined} className={menuClassName} width={menuWidth} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

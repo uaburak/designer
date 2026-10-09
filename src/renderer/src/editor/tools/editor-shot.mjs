@@ -1195,8 +1195,8 @@ async function fontsSection(page, theme) {
   const picked = (await node(page, "1:22")).fontName;
   check("a click applies the family, keeping the style", picked?.family === "Outfit" && picked?.style === "Regular", JSON.stringify(picked));
   check("the Google family's file was asked for (downloaded on first use)", await page.evaluate(() => window.__fontsMock.reads.includes("g:v:Outfit")));
-  check("the Font style menu lists the family's styles", (await panel.getByRole("combobox", { name: "Font style" }).count()) === 1);
-  await panel.getByRole("combobox", { name: "Font style" }).click();
+  check("the Font style menu lists the family's styles", (await panel.locator('[aria-label="Font style"]').first().count()) === 1);
+  await panel.locator('[aria-label="Font style"]').first().click();
   const styleList = await page.locator('[data-ds="Menu"][role="listbox"]').innerText();
   check("Outfit's styles: Thin, Regular, SemiBold, Black", ["Thin", "Regular", "SemiBold", "Black"].every((s) => styleList.includes(s)), styleList.replace(/\n/g, " | "));
   await page.keyboard.press("Escape");
@@ -2072,7 +2072,7 @@ async function designSection(page, theme) {
   await select(["7:2"]);
   await panel.getByRole("button", { name: "Constraints" }).click();
   await settle(page);
-  check("Design: Constraints opens the inline row", (await panel.locator("[data-constraints-row]").count()) === 1 && (await panel.getByRole("combobox", { name: "Horizontal constraints" }).count()) === 1);
+  check("Design: Constraints opens the inline row", (await panel.locator("[data-constraints-row]").count()) === 1 && (await panel.locator('[aria-label="Horizontal constraints"]').first().count()) === 1);
   await shot(page, `193-design-constraints-row-${theme}`);
   await panel.getByRole("button", { name: "Constraints" }).click();
   // Frame ▾: Frame Layout Options, then the live presets under their headers.
@@ -2472,7 +2472,7 @@ async function designRound9(page, theme, panel, select) {
   await settle(page);
   const gpk = await box(page.locator("[data-grid-picker]").locator("xpath=.."));
   const pk = await popupBox();
-  check("Design r9: the grid picker is 210 × 204, 12 left of and 57 above the grid's button, 96 cells", pk && db && Math.round(pk.width) === 210 && Math.round(pk.height) === 204 && Math.round(pk.x) === Math.round(db.x) - 12 && Math.round(pk.y) === Math.round(db.y) - 57 && (await page.locator("[data-grid-cell]").count()) === 96, JSON.stringify([pk, db, gpk]));
+  check("Design r9: the grid picker is 210 × 204, 12 left of and 58 above the grid's button (live 1204,427 for 1216,485), 96 cells", pk && db && Math.round(pk.width) === 210 && Math.round(pk.height) === 204 && Math.round(pk.x) === Math.round(db.x) - 12 && Math.round(pk.y) === Math.round(db.y) - 58 && (await page.locator("[data-grid-cell]").count()) === 96, JSON.stringify([pk, db, gpk]));
   await page.locator('[data-grid-cell="4x3"]').hover();
   await settle(page);
   await shot(page, `259-design-grid-picker-${theme}`);
@@ -3757,7 +3757,7 @@ async function textSection(page, theme) {
 
   // Mixed runs: the paragraph with a link and a bold range.
   await select("4:3");
-  const style = panel.getByRole("combobox", { name: "Font style" });
+  const style = panel.locator('[aria-label="Font style"]').first();
   check("Typography: a layer whose runs differ shows Mixed for the style", (await style.textContent())?.includes("Mixed") ?? false, await style.textContent());
   check("Fill: a text whose runs' colours differ reads mixed", (await panel.getByText("Click + to replace mixed content").count()) === 1);
   await shot(page, `121-typography-mixed-${theme}`);
@@ -4266,7 +4266,7 @@ async function panel12Section(page, theme) {
   const design = await box(panel.getByRole("tab", { name: "Design" }));
   check("R12 N3: the Design tab 53 × 24 at 1208, 48", same(design, [1208, 48, 53, 24]), JSON.stringify(design));
   const proto = await box(panel.getByRole("tab", { name: "Prototype" }));
-  check("R12 N3: the Prototype tab 69 × 24 at 1265, 48 (±1)", same(proto, [1265, 48, 69, 24]), JSON.stringify(proto));
+  check("R12 N3 / R13 N17: the Prototype tab 69 × 24 at 1265, 48 (live)", same(proto, [1265, 48, 69, 24], 0), JSON.stringify(proto));
   const zoom = panel.getByRole("button", { name: "Zoom" });
   const zb = await box(zoom);
   const zt = await zoom.evaluate((el) => {
@@ -4281,6 +4281,14 @@ async function panel12Section(page, theme) {
   const ab = await box(account);
   const ar = await account.evaluate((el) => getComputedStyle(el).borderRadius);
   check("R12 N3: the account is a 50 × 24 pill at 1212, 12 (r=50px)", same(ab, [1212, 12, 50, 24], 0) && ar === "50px", JSON.stringify([ab, ar]));
+  // R13 N17: two 28 × 28 circles at 1210, 10 and 1232, 10 over the pill (live left/rail-assets.txt)
+  const avatar = await box(account.getByRole("img", { name: "Burak Koç" }));
+  const more = await box(account.locator("span").last());
+  check("R13 N17: the account's avatar is 28 × 28 at 1210, 10 and its chevron circle 28 × 28 at 1232, 10", same(avatar, [1210, 10, 28, 28], 0) && same(more, [1232, 10, 28, 28], 0), JSON.stringify([avatar, more]));
+  const radii = await panel.evaluate((el) => [el.querySelector('[aria-label="Present"]'), el.querySelector('[aria-label="Present options"]')].map((b) => getComputedStyle(b).borderRadius));
+  check("R13 N17: Present's radius is 5 / 0 / 0 / 5 and its chevron's 0 / 5 / 5 / 0 (a 49 × 32 group)", radii.join("|") === "5px 0px 0px 5px|0px 5px 5px 0px", radii.join("|"));
+  const handle = await box(panel.locator('> [role="slider"][aria-label="Resize handle"]'));
+  check("R13 N17: the right Resize handle is 8 × 900 at 1193 (live left/rail-assets.txt)", same(handle, [1193, 0, 8, 900], 0), JSON.stringify(handle));
   const present = await box(panel.getByRole("button", { name: "Present", exact: true }));
   const chev = await box(panel.getByRole("button", { name: "Present options" }));
   const share = await box(panel.getByRole("button", { name: "Share" }));
@@ -4290,8 +4298,40 @@ async function panel12Section(page, theme) {
   await panel.getByRole("button", { name: "Apply blend mode" }).click();
   await settle(page);
   const blend = await box(popup());
-  check("R12 N3: the blend mode menu at 1315, 472 (live)", !!blend && near(blend[0], 1315) && blend[1] === 472, JSON.stringify(blend));
+  check("R12 N3 / R13 N18: the blend mode menu 118 wide at 1315, 472 (live popovers/blend-mode-menu.txt)", !!blend && blend[0] === 1315 && blend[1] === 472 && blend[2] === 118, JSON.stringify(blend));
   await page.keyboard.press("Escape");
+  // R13 N18: the one-pixel widths — the constraint menus 126 / 136, the font weight menu 167, Create property 156 at 1277, the grid picker at 1204, 427
+  await select(["7:2"]);
+  await panel.getByRole("button", { name: "Constraints" }).first().click();
+  await settle(page);
+  await panel.locator('[aria-label="Horizontal constraints"]').first().click();
+  await settle(page);
+  const ch = await box(popup());
+  await page.keyboard.press("Escape");
+  await panel.locator('[aria-label="Vertical constraints"]').first().click();
+  await settle(page);
+  const cv = await box(popup());
+  await page.keyboard.press("Escape");
+  check("R13 N18: the constraint menus are 126 / 136 wide at y 280 / 312 (live popovers/constraint-*-menu.txt)", !!ch && !!cv && ch[2] === 126 && cv[2] === 136 && ch[1] === 280 && cv[1] === 312, JSON.stringify([ch, cv]));
+  await select(["7:90"]);
+  await panel.locator('[aria-label="Font style"]').first().click();
+  await settle(page);
+  const fw = await box(popup());
+  await page.keyboard.press("Escape");
+  check("R13 N18: the font weight menu is 167 × 313 at 1208, 575 (live popovers/font-weight-menu.txt)", same(fw, [1208, 575, 167, 313], 0), JSON.stringify(fw));
+  await select(["8:1"]);
+  await panel.getByRole("button", { name: "Create property" }).click();
+  await settle(page);
+  const cp = await box(popup());
+  await page.keyboard.press("Escape");
+  check("R13 N18: the Create property menu is 156 × 207 at 1277, 161 (live popovers/component-create-property-menu.txt)", same(cp, [1277, 161, 156, 207], 0), JSON.stringify(cp));
+  await select(["7:40"]);
+  await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).click();
+  await settle(page);
+  const gp = await box(popup());
+  await page.keyboard.press("Escape");
+  check("R13 N18: the grid dimensions picker is 210 × 204 at 1204, 427 (live grid/grid-dimensions-picker.txt)", same(gp, [1204, 427, 210, 204], 0), JSON.stringify(gp));
+  await select(["7:60"]);
   await select(["7:51"]);
   await panel.getByRole("button", { name: "Width sizing" }).click();
   await settle(page);

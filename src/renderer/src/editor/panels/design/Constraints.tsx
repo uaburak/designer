@@ -35,8 +35,8 @@ export function ConstraintsRow({ nodes }: { nodes: PanelNode[] }) {
   return (
     <PropertyRow labels={["Constraints", undefined]} data-constraints-row="">
       <div className={styles.constraintSelects}>
-        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("horizontal", h)} label="Horizontal constraints" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
-        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("vertical", v)} label="Vertical constraints" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
+        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("horizontal", h)} menuWidth={126} label="Horizontal constraints" value={h ?? MIXED} options={CONSTRAINT_OPTIONS.horizontal} onChange={(c) => set("horizontal", c as ConstraintType)} />
+        <Select className={styles.constraintSelect} variant="outlined" prefix={prefix("vertical", v)} menuWidth={136} label="Vertical constraints" value={v ?? MIXED} options={CONSTRAINT_OPTIONS.vertical} onChange={(c) => set("vertical", c as ConstraintType)} />
       </div>
       <ConstraintsWidget horizontal={h ?? "MIN"} vertical={v ?? "MIN"} onClick={click} />
     </PropertyRow>

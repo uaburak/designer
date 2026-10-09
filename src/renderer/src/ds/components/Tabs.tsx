@@ -3,7 +3,8 @@ import { cx } from "../util/cx";
 import { rovingTarget } from "../util/rovingFocus";
 import styles from "./Tabs.module.css";
 
-export type TabItem = { value: string; label: string; badge?: number };
+/** `width`: the tab's width as live Figma measured it (px) where the label alone comes out a pixel or two other. */
+export type TabItem = { value: string; label: string; badge?: number; width?: number };
 
 export interface TabsProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
   label: string;
@@ -32,6 +33,7 @@ export function Tabs({ label, value, tabs, onChange, idBase, className, ...rest 
           aria-selected={t.value === value}
           tabIndex={t.value === value ? 0 : -1}
           className={styles.tab}
+          style={t.width !== undefined ? { width: t.width, flex: "none" } : undefined}
           onClick={() => onChange(t.value)}
           onKeyDown={(e) => {
             const next = rovingTarget(e.key, tabs.length, () => true, i, "horizontal");
