@@ -388,7 +388,10 @@ function CanvasLayers() {
   );
 }
 
-/** Over the visible part of the canvas (between the panels): the rulers, the toolbar, "Return to instance", the minimized cards. */
+/**
+ * Over the visible part of the canvas (between the panels): the rulers, "Return to instance", the minimized cards.
+ * (Not the bottom toolbar: it is centred on the window, `Overlays`.)
+ */
 function CanvasOverlays() {
   const hidden = useUI((s) => s.uiHidden);
   const minimized = useUI((s) => s.uiMinimized);
@@ -398,17 +401,19 @@ function CanvasOverlays() {
       <FocusBar />
       <Rulers />
       <ReturnToInstance />
-      <BottomToolbar />
       {minimized && <MinimizedPanels />}
     </>
   );
 }
 
+/** Over the whole editor (the window under the tab bar): the bottom toolbar, "?", dialogs, menus, editors on the canvas. */
 function Overlays() {
   const hidden = useUI((s) => s.uiHidden);
   const variables = useUI((s) => s.variablesOpen);
   return (
     <>
+      {/* Centred on the window by CSS alone: a panel resized, folded or hidden never moves or re-renders it. */}
+      {!hidden && <BottomToolbar />}
       {variables && <LocalVariables />}
       {!hidden && !variables && <Help />}
       <CanvasMenu />

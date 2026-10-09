@@ -1,12 +1,15 @@
 /**
  * The bottom toolbar (DS EditorToolbar, Figma UI3): 48 high, 12 over the
- * bottom, centred on the window (not the canvas). A slot shows the last
+ * bottom, centred on the window (live: 529 wide at x 456 in a 1440 window).
+ * Its place is CSS alone on the editor's full-window box (EditorApp's
+ * `Overlays`, not the view between the panels): nothing about the panels or
+ * the canvas moves it, so a panel drag neither moves nor re-renders it. A slot shows the last
  * tool chosen in it; tools the engine doesn't implement yet are disabled.
  * The mode switch stays on Design (the others come later). In vector edit
  * mode Figma's secondary toolbar opens 8 over it (live toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend,
  * Cut, Erase │ More ▾ (Vector editing tools: Shape builder, Variable width) │ Close.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ContextMenu, EditorToolbar, groupOf, IconButton, showToast, Toolbar, ToolbarDivider, ToolTextButton, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
 import type { ToolName } from "@/engine/abi";
 import { useTool } from "@/engine/hooks";
@@ -16,7 +19,6 @@ import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
 import { setMode } from "../devmode/devMode";
 import type { VectorTool } from "../vectorEdit";
-import { viewRect } from "./viewInsets";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
 export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
@@ -58,58 +60,17 @@ const isAvailable = (ed: ReturnType<typeof useEditor>, t: ToolId) => {
   return !!name && ed.tools.has(name);
 };
 
-/**
- * The visible canvas's left edge and width in the window (between the panels; the toolbar is centred on the window but
- * stays inside it).
- */
-function useCanvasBox(ed: ReturnType<typeof useEditor>): { left: number; width: number } {
-  const measure = () => {
-    const r = viewRect(ed.canvas);
-    return { left: r?.left ?? 0, width: r?.width ?? ed.canvas?.clientWidth ?? 0 };
-  };
-  const [box, setBox] = useState(measure);
-  useEffect(() => {
-    const el = ed.canvas?.ownerDocument.querySelector<HTMLElement>("[data-canvas-view]") ?? ed.canvas;
-    if (!el) return;
-    const update = () => setBox((b) => {
-      const n = measure();
-      return n.left === b.left && n.width === b.width ? b : n;
-    });
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    window.addEventListener("resize", update);
-    update();
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", update);
-    };
-    // measure reads ed.canvas only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ed]);
-  return box;
-}
-
-const TOOLBAR_WIDTH = 530;
-const MARGIN = 8;
-
 export function BottomToolbar() {
   const ed = useEditor();
   const vectorEditing = useStoreSlice(ed.vector.state, (s) => s.active);
-  const canvas = useCanvasBox(ed);
   const placing = useUI((s) => !!s.placingImages?.length);
   const engineTool = toolIdOf(useTool(ed.store));
   // While images wait to be placed, the Image tool is the one in use (Figma).
   const tool = placing ? "image" : engineTool;
-  const minimized = useUI((s) => s.uiMinimized);
   const actionsOpen = useUI((s) => !!s.actionsOpen);
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   // A tool chosen by key is remembered in its slot too.
   if (groups[groupOf(tool)] !== tool) setGroups({ ...groups, [groupOf(tool)]: tool });
-  // Centred on the window (live: 529 wide at x 456 in a 1440 window): the canvas sits between the rail + left panel
-  // and the right panel; kept inside the canvas when the panels are wide.
-  const wanted = minimized || !canvas.width ? 0 : window.innerWidth / 2 - (canvas.left + canvas.width / 2);
-  const room = Math.max(0, (canvas.width - TOOLBAR_WIDTH) / 2 - MARGIN);
-  const offset = Math.max(-room, Math.min(room, wanted));
   const dev = useUI((s) => s.mode === "dev");
   const draw = useUI((s) => s.mode === "draw");
   const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t))), [ed, dev]);
@@ -127,10 +88,9 @@ export function BottomToolbar() {
   };
   return (
     <>
-      {vectorEditing && <VectorEditToolbar offset={offset} />}
+      {vectorEditing && <VectorEditToolbar />}
       <EditorToolbar
       floating
-      offset={offset}
       tool={tool}
       groupTools={groups}
       disabledTools={disabledTools}
@@ -185,7 +145,7 @@ export function vectorMoreTools(tool: VectorTool, variableWidth: boolean): MenuE
 }
 
 /** Figma UI3's vector edit toolbar: 529 × 40, 8 over the bottom toolbar (live 455, 792 at 1440 × 900). */
-function VectorEditToolbar({ offset }: { offset: number }) {
+function VectorEditToolbar() {
   const ed = useEditor();
   const tool = useStoreSlice(ed.vector.state, (s) => s.tool);
   const variableWidth = useStoreSlice(ed.vector.state, (s) => s.variableWidth);
@@ -196,7 +156,7 @@ function VectorEditToolbar({ offset }: { offset: number }) {
     ed.focusCanvas();
   };
   return (
-    <Toolbar floating secondary offset={offset} label="Vector edit tools" data-vector-toolbar="">
+    <Toolbar floating secondary label="Vector edit tools" data-vector-toolbar="">
       {VECTOR_TOOL_GROUPS.map((group, g) => (
         <div key={g} style={{ display: "contents" }}>
           {g > 0 && <ToolbarDivider />}

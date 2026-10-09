@@ -9,8 +9,9 @@
 //    no viewport change, and every composited frame of a scripted drag (the page's screencast, one image per frame)
 //    shows a known 400 × 300 red frame at 100 % at its exact size and place. A window resize does resize it, drawn in
 //    the same frame: never stretched (WebGPU kept the old picture scaled to the new box) nor blank (WebGL2 painted the
-//    cleared buffer). Zoom to selection centres between the panels.
-/* global window, document, atob, Blob, createImageBitmap, OffscreenCanvas */
+//    cleared buffer). Zoom to selection centres between the panels. The bottom toolbar is centred on the window: a
+//    panel drag neither moves it (its box on every animation frame), nor changes its DOM, nor its pixels in any frame.
+/* global window, document, atob, Blob, createImageBitmap, OffscreenCanvas, MutationObserver, requestAnimationFrame */
 import { installMockAgents } from "./editorShotAgents.mjs";
 
 const RED = { r: 1, g: 0, b: 0, a: 1 };
@@ -194,9 +195,52 @@ async function panelResize(page, settle, check) {
       }
       return out;
     }, frames);
+  // The bottom toolbar's pixels in each frame (a hash of its box, a little wider for the shadow): it is placed on the
+  // window alone, so a panel drag must neither move nor repaint it.
+  const toolbarHashes = (frames, box) =>
+    page.evaluate(
+      async ({ frames, box }) => {
+        const out = [];
+        for (const data of frames) {
+          const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+          const bmp = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+          const k = bmp.width / window.innerWidth;
+          const g = new OffscreenCanvas(bmp.width, bmp.height).getContext("2d");
+          g.drawImage(bmp, 0, 0);
+          const x = Math.max(0, Math.floor((box.x - 12) * k));
+          const y = Math.max(0, Math.floor((box.y - 12) * k));
+          const w = Math.min(bmp.width - x, Math.ceil((box.width + 24) * k));
+          const h = Math.min(bmp.height - y, Math.ceil((box.height + 24) * k));
+          const px = g.getImageData(x, y, w, h).data;
+          let hash = 2166136261;
+          for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;
+          out.push(hash.toString(16));
+        }
+        return out;
+      },
+      { frames, box }
+    );
+  const toolbarSel = '[data-ds="EditorToolbar"]';
   const want = "400x300 at 500,200";
   for (const side of ["right", "left"]) {
     const before = await page.evaluate(() => ({ n: window.__viewports, w: document.getElementById("engine-canvas").width, h: document.getElementById("engine-canvas").height }));
+    const toolbarBox = await page.locator(toolbarSel).first().boundingBox();
+    // The toolbar's box on every animation frame of the drag, and every change made to its DOM.
+    await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      window.__toolbarBoxes = new Set();
+      window.__toolbarWatch = true;
+      window.__toolbarMutations = 0;
+      window.__toolbarObserver = new MutationObserver((m) => (window.__toolbarMutations += m.length));
+      window.__toolbarObserver.observe(el, { attributes: true, childList: true, characterData: true, subtree: true });
+      const tick = () => {
+        if (!window.__toolbarWatch) return;
+        const r = el.getBoundingClientRect();
+        window.__toolbarBoxes.add(`${r.left},${r.top},${r.width},${r.height}`);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, toolbarSel);
     const frames = await capture(async () => {
       const handle = page.locator(`[data-panel="${side}"] [data-ds="ResizeHandle"][aria-orientation="horizontal"]`).first();
       const b = await handle.boundingBox();
@@ -216,7 +260,20 @@ async function panelResize(page, settle, check) {
     const sizes = await measure(frames);
     const bad = sizes.filter((s) => s !== want);
     check(`Input: dragging the ${side} panel's edge (${gfx}) — every composited frame shows the 400 × 300 frame at 400 × 300, in place (no stretch, no blank, no shift)`, frames.length >= 10 && bad.length === 0, `${frames.length} frames; ${bad.length ? `off: ${[...new Set(bad)].join(" | ")}` : `all ${want}`}`);
+    const { boxes, mutations } = await page.evaluate(() => {
+      window.__toolbarWatch = false;
+      window.__toolbarObserver.disconnect();
+      return { boxes: [...window.__toolbarBoxes], mutations: window.__toolbarMutations };
+    });
+    check(`Input: dragging the ${side} panel's edge never moves or touches the bottom toolbar (one box on every animation frame, no DOM change)`, boxes.length === 1 && mutations === 0, `${boxes.join(" | ")}; ${mutations} mutations`);
+    const hashes = new Set(await toolbarHashes(frames, toolbarBox));
+    check(`Input: dragging the ${side} panel's edge (${gfx}) — the bottom toolbar's pixels are the same in every composited frame`, frames.length >= 10 && hashes.size === 1, `${frames.length} frames, ${hashes.size} distinct`);
   }
+  const centre = await page.evaluate((sel) => {
+    const r = document.querySelector(sel).getBoundingClientRect();
+    return { toolbar: r.left + r.width / 2, window: window.innerWidth / 2, bottom: window.innerHeight - r.bottom };
+  }, toolbarSel);
+  check("Input: the bottom toolbar is centred on the window, 12 over its bottom", Math.abs(centre.toolbar - centre.window) <= 0.5 && centre.bottom === 12, JSON.stringify(centre));
   // A window resize: the canvas follows, drawn in the same frame. (The editor's own box narrowed step by step stands in
   // for the window: an emulated viewport change rescales the whole screencast image, not just the canvas.)
   const frames = await capture(async () => {
