@@ -10,7 +10,7 @@
 import type { EditorApi } from "@shared/desktop";
 import type { MenuCommandEvent, MenuStatePatch } from "@shared/ipc";
 import type { EditorController } from "./controller";
-import { COMMANDS, isEnabled, runEditorCommand } from "./commands";
+import { COMMAND_BY_ID, COMMANDS, isEnabled, runEditorCommand } from "./commands";
 import { isEditable } from "./keyboard";
 import { attachAgents } from "./agents/service";
 
@@ -22,6 +22,22 @@ export function editorBridge(): EditorApi | null {
 
 /** Edit commands a focused text field does itself (as src/shared/commands.ts TEXT_FIELD_COMMANDS; the editor imports only types from shared). */
 const TEXT_FIELD_COMMANDS: Record<string, string> = { "edit.undo": "undo", "edit.redo": "redo", "edit.select-all": "selectAll", "edit.delete": "delete" };
+
+/**
+ * What a menu-bar command does while a text field has the focus (docs/desktop.md §8.3, rule 4): Undo, Redo, Select all
+ * and Delete act on the field; any other key that came through the menu bar (`accelerator`) is ignored — a shortcut
+ * never fires from a text field; a command clicked in the menu runs. The canvas's own text field (text being edited on
+ * the canvas) keeps its ⌘ / ⌃ shortcuts; a plain key (N, [, ⇧V…) is typing there too. Main drops plain keys already
+ * (src/shared/commands.ts runsFromMenuBar: macOS hands the menu bar the letters a field leaves unhandled).
+ */
+export function menuCommandInField(id: string, source: MenuCommandEvent["source"], field: "dom" | "canvas-text" = "dom"): "native" | "drop" | "run" {
+  if (TEXT_FIELD_COMMANDS[id]) return "native";
+  if (source !== "accelerator") return "run";
+  if (field === "dom") return "drop";
+  // The key the menu shows (its accelerator) is the command's first.
+  const shown = COMMAND_BY_ID.get(id)?.keys?.[0];
+  return shown && !shown.mod && !shown.ctrl ? "drop" : "run";
+}
 
 type MenuState = { enabled: Record<string, boolean>; checked: Record<string, boolean> };
 
@@ -76,10 +92,11 @@ export function attachDesktop(ed: EditorController): () => void {
         void ed.source.flush();
         return;
       }
-      const native = TEXT_FIELD_COMMANDS[id];
-      if (native && isEditable(document.activeElement)) {
-        document.execCommand(native);
-        return;
+      const focused = document.activeElement;
+      if (isEditable(focused)) {
+        const action = menuCommandInField(id, c.source, focused?.closest("[data-canvas-text]") ? "canvas-text" : "dom");
+        if (action === "native") return void document.execCommand(TEXT_FIELD_COMMANDS[id]);
+        if (action === "drop") return;
       }
       runEditorCommand(ed, id);
     })

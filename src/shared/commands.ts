@@ -198,6 +198,16 @@ export const isCommandId = (id: unknown): id is CommandId => typeof id === "stri
 /** An accelerator the menu may register: with ⌘ or ⌃ (anything else is the page's own key, only shown). */
 export const registersAccelerator = (accelerator: string | undefined) => !!accelerator && /(^|\+)(CmdOrCtrl|CommandOrControl|Cmd|Command|Ctrl|Control)\+/.test(accelerator);
 
+/**
+ * Whether a menu-bar item's click runs its command. macOS keeps every accelerator as the item's key equivalent
+ * (`registerAccelerator` is Linux / Windows only), and Electron hands the menu bar each key a page left unhandled — a
+ * letter typed into a text field among them (the field inserts it on keypress; its keydown isn't consumed). So N typed
+ * into the Agents composer came back as View ▸ Zoom to next frame. Plain keys are the page's own: the editor's
+ * keyboard layer has run the shortcut already (and kept the key), or a text field took it as typing. From the menu
+ * bar only clicks and ⌘ / ⌃ accelerators run.
+ */
+export const runsFromMenuBar = (accelerator: string | undefined, triggeredByAccelerator: boolean) => !triggeredByAccelerator || registersAccelerator(accelerator);
+
 /** The Edit commands a view runs on a focused text field natively (document.execCommand). */
 export const TEXT_FIELD_COMMANDS: Partial<Record<CommandId, string>> = {
   "edit.undo": "undo",

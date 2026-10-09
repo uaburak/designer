@@ -17,11 +17,12 @@ import { pref } from "./preferences";
 
 const VECTOR_KEYS: Record<string, VectorTool> = { KeyV: "MOVE", KeyQ: "LASSO", KeyP: "PEN", KeyB: "PAINT_BUCKET" };
 
-/** A text field, a contenteditable, or something inside one. */
+/** A text field, a contenteditable (`plaintext-only` too), or something inside one. */
 export function isEditable(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return !!target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']");
+  if (typeof Element === "undefined" || !(target instanceof Element)) return false;
+  return (target instanceof HTMLElement && target.isContentEditable) || !!target.closest(EDITABLE);
 }
+const EDITABLE = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 
 /**
  * Overlays (menus, popovers, dialogs) handle their own keys. A panel's own list (the Pages list, Find's results:

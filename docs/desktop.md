@@ -417,7 +417,7 @@ On macOS, Chromium gives every key event to the focused page first. Only events 
    - scope `shell`: TabManager or main handles it (tabs, New Design File, Import, theme, settings).
    - otherwise: `activeView.webContents.send("menu:command", {id, source: event.triggeredByAccelerator ? "accelerator" : "menu"})`.
 4. **The view's rule**:
-   - For `source: "accelerator"` while a DOM text field has focus, only `edit.undo`, `edit.redo` and `edit.select-all` run, as `document.execCommand("undo" | "redo" | "selectAll")` on the field. Every other command is ignored.
+   - For `source: "accelerator"` while a DOM text field has focus, only `edit.undo`, `edit.redo`, `edit.select-all` and `edit.delete` run, as `document.execCommand("undo" | "redo" | "selectAll" | "delete")` on the field. Every other command is ignored (`editor/desktop.ts menuCommandInField`). The canvas's own hidden text field (`data-canvas-text`, text edited on the canvas) keeps its ⌘ / ⌃ shortcuts.
    - For `source: "menu"`, the view runs the command against the editor even if a field has focus, after blurring the field.
 5. **Copy, Cut and Paste** stay Electron roles. Chromium dispatches DOM `copy`, `cut` and `paste` events in the focused view, and both text fields and the editor listen to them (§13).
 6. **Hung views**: main's `before-input-event` on every view intercepts ⌘W, ⌃Tab, ⌃⇧Tab and ⌘1–⌘9 while that view's status is `unresponsive`, so a hung tab can still be left or closed.
@@ -427,6 +427,7 @@ On macOS, Chromium gives every key event to the focused page first. Only events 
 - Menu labels use Figma's sentence case ("Group selection", "Paste over selection"), as Figma's own menus and the editor's command table write them. macOS's own items keep title case.
 - Command ids are the editor's (`object.group`, `help.shortcuts`, …). Scopes are `app`, `shell`, `view` (Home or a file, whichever is in front) and `editor`.
 - Accelerators without ⌘ or ⌃ are displayed and not registered (`registerAccelerator: false`), so a registered ⇧R or ⌥A can't take a character typed into a field.
+- 2026-10-10 (owner's report: N typed into the Agents composer zoomed to the next frame): `registerAccelerator` is Linux / Windows only. On macOS every accelerator stays the item's key equivalent, and a letter typed into a text field is a key the page leaves unhandled (the field inserts it on keypress; its keydown isn't consumed), so it reached View ▸ Zoom to next frame. Main now ignores a click `triggeredByAccelerator` whose accelerator has no ⌘ or ⌃ (`runsFromMenuBar` in `src/shared/commands.ts`): plain keys are the page's own — the editor's keyboard layer runs every one of them itself (`fieldKeys.test.ts` checks the bar's plain accelerators against the editor's keys).
 
 ### 8.4 Menu state
 

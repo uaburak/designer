@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMMANDS, isCommandId, layoutCommands, MENU_LAYOUT, registersAccelerator } from "./commands";
+import { COMMANDS, isCommandId, layoutCommands, MENU_LAYOUT, registersAccelerator, runsFromMenuBar } from "./commands";
 
 describe("the command registry", () => {
   it("has unique ids, each placed once in the menu bar", () => {
@@ -25,5 +25,21 @@ describe("the command registry", () => {
     expect(registersAccelerator("Alt+A")).toBe(false);
     expect(registersAccelerator("Backspace")).toBe(false);
     expect(registersAccelerator(undefined)).toBe(false);
+  });
+
+  it("runs a click, and a ⌘ / ⌃ accelerator, from the menu bar — never a plain key a page left unhandled (macOS)", () => {
+    // N typed into the Agents composer reached the menu bar as View ▸ Zoom to next frame.
+    expect(runsFromMenuBar("N", true)).toBe(false);
+    expect(runsFromMenuBar("Shift+N", true)).toBe(false);
+    expect(runsFromMenuBar("[", true)).toBe(false);
+    expect(runsFromMenuBar("Shift+V", true)).toBe(false);
+    expect(runsFromMenuBar("Alt+A", true)).toBe(false);
+    expect(runsFromMenuBar("Backspace", true)).toBe(false);
+    expect(runsFromMenuBar("Escape", true)).toBe(false);
+    expect(runsFromMenuBar("N", false)).toBe(true);
+    expect(runsFromMenuBar("CmdOrCtrl+D", true)).toBe(true);
+    expect(runsFromMenuBar(undefined, false)).toBe(true);
+    // Every plain-key accelerator in the bar is dropped when it comes as a key.
+    for (const c of COMMANDS as readonly { accelerator?: string }[]) if (c.accelerator && !registersAccelerator(c.accelerator)) expect(runsFromMenuBar(c.accelerator, true)).toBe(false);
   });
 });

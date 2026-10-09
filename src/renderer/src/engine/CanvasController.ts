@@ -196,6 +196,7 @@ export class CanvasController {
     if (this.textarea) return this.textarea;
     const t = document.createElement("textarea");
     t.setAttribute("aria-label", "Text");
+    t.setAttribute("data-canvas-text", ""); // the canvas's own field (editor/desktop.ts menuCommandInField)
     t.setAttribute("autocomplete", "off");
     t.setAttribute("autocorrect", "off");
     t.setAttribute("autocapitalize", "off");

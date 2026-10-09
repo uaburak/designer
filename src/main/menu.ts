@@ -1,5 +1,5 @@
 import { app, Menu, nativeTheme, webContents, type KeyboardEvent, type MenuItemConstructorOptions } from "electron";
-import { command, MENU_LAYOUT, registersAccelerator, type CommandId, type MenuEntry } from "../shared/commands";
+import { command, MENU_LAYOUT, registersAccelerator, runsFromMenuBar, type CommandId, type MenuEntry } from "../shared/commands";
 import type { WindowController } from "./window";
 
 /**
@@ -8,7 +8,9 @@ import type { WindowController } from "./window";
  * (src/shared/commands.ts, `MENU_LAYOUT`), after the app menu.
  *
  * On a Mac every key goes to the focused page first: the menu gets only
- * what the page leaves unhandled (the editor's ⌘G, ⌘Z… are the editor's).
+ * what the page leaves unhandled (the editor's ⌘G, ⌘Z… are the editor's),
+ * and runs only its ⌘ / ⌃ keys: a plain key it gets (N, [, ⇧V…) was typed
+ * into a text field (shared/commands.ts runsFromMenuBar).
  * A click, or such a key, runs `TabManager.command`: main does the app's
  * and the shell's; the view in front gets the rest as `menu:command`.
  * Copy, Cut and Paste stay roles: the DOM clipboard events fire in the
@@ -31,6 +33,8 @@ export function appMenu(current: () => WindowController | null, dev: boolean): M
       enabled: spec.scope === "app" || spec.scope === "shell",
       ...extra,
       click: (_item, _win, event: KeyboardEvent) => {
+        // A plain key (N, [, ⇧V…) a page left unhandled is typing in a text field, never this command (runsFromMenuBar).
+        if (!runsFromMenuBar(extra.accelerator ?? spec.accelerator, !!event.triggeredByAccelerator)) return;
         const ctl = current();
         ctl?.tabs.command(id, event.triggeredByAccelerator ? "accelerator" : "menu", webContents.getFocusedWebContents());
         // A checkbox flips itself on click: the view's report decides.
