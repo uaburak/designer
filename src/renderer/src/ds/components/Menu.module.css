@@ -83,6 +83,9 @@
   .withIcons .shortcut { padding-left: var(--ds-space-2); }
   /* Live context menus: one 12px / 400 glyph per key */
   .keys { display: flex; align-items: center; font: var(--ds-font-menu-key); letter-spacing: var(--ds-tracking-menu-key); }
+  /* Live (menus/context-*.txt): the modifier glyphs' boxes at 12px are 13 (⌘ ⇧ ⌥) and 11 (⌃) wide — the letters' own (⌫ 15 is its advance) */
+  .keys > [data-key="⌘"], .keys > [data-key="⇧"], .keys > [data-key="⌥"] { min-width: 13px; text-align: center; }
+  .keys > [data-key="⌃"] { min-width: 11px; text-align: center; }
   /* Live tool menus over the bottom toolbar: no padding above or below the rows */
   .dropdown { padding-block: 0; }
   /* Its name, for assistive tech only (live: at -1, 1, 11px / 400) */

@@ -165,8 +165,8 @@ export function instanceMoreMenu(ed: EditorController, instance: CNode): MenuEnt
     statusTargets(ed).length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", icon: ACTION_ICON["ready-for-dev"] }] : [],
     [actionItem(ed, "object.create-component"), actionItem(ed, "object.detach-instance"), { ...reset, disabled: reset.disabled && !renamed }, ...(renamed ? [{ id: "reset-name", label: "Reset name", icon: ACTION_ICON["reset-name"] }] : []), ...push],
     [actionItem(ed, "object.use-as-mask")],
-    // Flatten (live): the instance is detached, then flattened.
-    booleanActions(ed).map((e) => (e.id === "vector.flatten" && e.disabled && isEnabled(ed, command("object.detach-instance")) ? { ...e, id: "flatten-instance", disabled: false } : e)),
+    // Flatten (live, enabled on an instance): the engine detaches it, then flattens it (round 11).
+    booleanActions(ed),
   ];
   return groups.flatMap((g): MenuEntry[] => {
     const shown = g.filter((e) => e === "-" || !("id" in e) || !e.disabled);
@@ -206,11 +206,6 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
       const targets = statusTargets(ed);
       runEditorCommand(ed, statusOfTargets(ed, targets) === "BUILD" ? "object.remove-dev-status" : "object.mark-ready-for-dev");
     } else if (id === "reset-name") resetName(ed, instance);
-    else if (id === "flatten-instance")
-      ed.batch("Flatten", () => {
-        runEditorCommand(ed, "object.detach-instance");
-        runEditorCommand(ed, "vector.flatten");
-      });
     else if (id === "object.reset-all-changes") {
       const renamed = renamedInstance(ed, instance);
       ed.batch("Reset instance", () => {

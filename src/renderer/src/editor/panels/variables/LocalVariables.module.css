@@ -95,6 +95,9 @@
     outline: none;
   }
   .collectionRow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  /* The one shown (live: a 224 × 24 bar, #383838, 5 radius, 7 outside the row's text) */
+  .collectionOn { position: relative; }
+  .collectionOn::before { content: ""; position: absolute; inset: calc((var(--ds-size-row) - var(--ds-size-control)) / 2) var(--ds-space-2); z-index: -1; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
   .collectionOn .sideName { font-weight: 600; }
   /* A group row (live: 24 rows 32 apart, "All" at 16, the groups 8 further in; the one shown filled, 600) */
   .sideRow {
@@ -253,7 +256,20 @@
   }
   .createButton:hover, .createButton[data-open] { background: var(--figma-color-bg-hover); }
   .createButton:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
-  .emptyPane { display: flex; align-items: center; justify-content: center; grid-column: 1 / -1; }
+  /* Live (rail-variables-full-view.txt): the title 15 / 550 at 759, 414, the body 11 / 450 (291 wide, centred) under it,
+     Create and Import 71 × 24 at 794 / 873, 491 — 8 apart */
+  .emptyPane { display: flex; flex: 1 1 auto; flex-direction: column; align-items: center; justify-content: center; min-height: 0; padding-bottom: var(--ds-space-6); text-align: center; }
+  .emptyTitle { padding-left: var(--ds-space-2); }
+  .emptyHeading { margin: 0; font: var(--ds-font-heading-medium); letter-spacing: var(--ds-tracking-heading-medium); }
+  .emptyBody { max-width: 296px; margin: var(--ds-space-2) 0 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .emptyActions { display: flex; gap: var(--ds-space-2); margin-top: calc(var(--ds-space-4) - 1px); }
+  /* (live's label sits 28 in from the button's left, 8 from its right: 71 wide) */
+  .emptyButton { padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-6) + var(--ds-space-1)); }
+  .learn { color: var(--figma-color-text-brand); text-decoration: none; }
+  .learn:hover { text-decoration: underline; }
+  /* Edit variable: the row's last cell shows it on hover, with the keyboard focus or while its popover is open */
+  .editButton { opacity: 0; }
+  .row:hover .editButton, .editButton:focus-visible, .editButton[aria-expanded="true"] { opacity: 1; }
 
   /* Extended collections (Figma): overridden values in blue, "Reset change" on hover; the parent named in the toolbar */
   .overridden, .overridden input { color: var(--figma-color-text-brand); }

@@ -21,7 +21,7 @@
  * Esc or × closes it; ⌘Z / ⇧⌘Z undo and redo inside it.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Button, ContextMenu, EmptyState, Icon, IconButton, InlineEdit, MenuButton, SearchField, cx, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, Icon, IconButton, InlineEdit, MenuButton, SearchField, cx, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
@@ -96,6 +96,9 @@ function pickJsonFiles(multiple: boolean): Promise<{ name: string; text: string 
     input.click();
   });
 }
+
+/** help.figma.com "Create and manage variables" (the empty state's Learn more). */
+const VARIABLES_HELP = "https://help.figma.com/hc/en-us/articles/15145852043927";
 
 export function LocalVariables() {
   const ed = useEditor();
@@ -182,6 +185,29 @@ export function LocalVariables() {
       setAnchor(id);
       setRenaming({ kind: "variable", id });
     }
+  };
+
+  // The empty state's Create (live: "Create variable button"): a first collection with its first variable, named at once
+  // (unverified: live's result isn't captured) — and Import: the DTCG files picked become a collection's modes.
+  const createFirst = () => {
+    const c = createCollection(ed);
+    if (!c) return;
+    setCollectionId(c);
+    setGroup("");
+    const id = createVariable(ed, c, "COLOR", "");
+    if (id) {
+      setSelected(new Set([id]));
+      setAnchor(id);
+      setRenaming({ kind: "variable", id });
+    }
+  };
+  const importFirst = async () => {
+    const files = await pickJsonFiles(true);
+    if (!files.length) return;
+    const c = createCollection(ed);
+    if (!c) return;
+    setCollectionId(c);
+    importModes(ed, c, files);
   };
 
   const variableMenu = (v: Variable, x: number, y: number, target: HTMLElement) => {
@@ -522,9 +548,11 @@ export function LocalVariables() {
       <div className={styles.toolbar}>
         {!sidebar && <IconButton icon="24.sidebar.closed" label="Show panel" tone="secondary" onClick={() => setSidebar(true)} />}
         {/* Live: the collection's name as the table's title (13 / 450) */}
-        <h2 className={styles.collectionTitle}>{collection?.name ?? ""}</h2>
+        {/* (a file with no collection: "Variables", 4 further in — live rail-variables-full-view.txt) */}
+        <h2 className={cx(styles.collectionTitle, !collection && styles.emptyTitle)}>{collection?.name ?? "Variables"}</h2>
         {parent && <span className={styles.extendedFrom} data-extended-from={parent.name}>Extended from {parent.name}</span>}
-        {/* Live: Search (175) and Filter (24) as one 200 × 24 group */}
+        {/* Live: Search (175) and Filter (24) as one 200 × 24 group (not with no collection) */}
+        {collection && (
         <div role="group" aria-label="Search and filter" className={styles.searchGroup}>
           <SearchField className={styles.search} value={query} onChange={setQuery} placeholder="Search" />
           <MenuButton
@@ -536,6 +564,7 @@ export function LocalVariables() {
             <Icon name={typeFilter ? VAR_TYPE_ICON[typeFilter] : "24.adjust.small"} />
           </MenuButton>
         </div>
+        )}
         {/* Live: Minimize is a toggle (a smaller, resizable modal while on) */}
         <label className={styles.minimize} data-on={minimized || undefined}>
           <input type="checkbox" aria-label="Minimize" checked={minimized} onChange={(e) => setMinimized(e.target.checked)} />
@@ -625,14 +654,23 @@ export function LocalVariables() {
 
       <main className={styles.main}>
         {!collection ? (
-          <div className={styles.emptyPane}>
-            <EmptyState
-              size="page"
-              icon="24.variable.small"
-              title="Create your first collection"
-              body="Variables store reusable values — colors, numbers, strings and booleans — with a value per mode."
-              action={{ label: "Create collection", onClick: () => setCollectionId(createCollection(ed)) }}
-            />
+          <div className={styles.emptyPane} data-variables-empty="">
+            {/* Live (rail-variables-full-view.txt): 15 / 550, 11 / 450 with Learn more →, Create (primary) and Import */}
+            <h3 className={styles.emptyHeading}>No variables created in this file</h3>
+            <p className={styles.emptyBody}>
+              Save colors, numbers, text, and states to reuse them in styles, prototypes, and across files.{" "}
+              <a className={styles.learn} href={VARIABLES_HELP} target="_blank" rel="noreferrer">
+                Learn more <span aria-hidden="true">→</span>
+              </a>
+            </p>
+            <div className={styles.emptyActions}>
+              <Button variant="primary" className={styles.emptyButton} aria-label="Create variable button" onClick={createFirst}>
+                Create
+              </Button>
+              <Button variant="secondary" className={styles.emptyButton} aria-label="Import variables button" onClick={() => void importFirst()}>
+                Import
+              </Button>
+            </div>
           </div>
         ) : (
           <>
@@ -737,7 +775,7 @@ export function LocalVariables() {
                       <div className={cx(styles.cell, styles.filler)} />
                       {/* Live: Edit variable in the last column, at 8, 8 */}
                       <div className={cx(styles.cell, styles.addMode)} data-edit-cell={r.v.name}>
-                        {!extended && <IconButton icon="24.adjust.small" label="Edit variable" tone="secondary" aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
+                        {!extended && <IconButton icon="24.adjust.small" label="Edit variable" tone="secondary" className={styles.editButton} aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
                       </div>
                     </div>
                   )

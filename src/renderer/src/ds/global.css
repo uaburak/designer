@@ -9,6 +9,19 @@
 @import "@fontsource-variable/inter";
 @import "./tokens.css";
 
+/*
+ * The shortcut glyphs (⌘ ⇧ ⌥ ⌃ ⌫ ↵ arrows) and the ring of "90˚": live Figma draws them from Inter 3.19 (the static face
+ * the engine's text uses) — menus/*.txt widths at 11px / 450: ⌫ 13, ⌥⌘G 31, ⌘⌫ 24, ⌃C 17; the variable face and the
+ * system's fallback are 1–3 px off. Only these code points load it (the file is read the first time one is shown).
+ */
+@font-face {
+  font-family: "Inter Symbols";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("../engine/fonts/Inter-3.19.ttf") format("truetype");
+  unicode-range: U+02DA, U+2190-2193, U+21B5, U+21E5, U+21E7, U+21EA, U+2303, U+2318, U+2324-2326, U+232B, U+238B, U+23CE;
+}
+
 @layer reset {
   *, *::before, *::after { box-sizing: border-box; }
   html, body, h1, h2, h3, h4, p, ul, ol, figure { margin: 0; }

@@ -10,6 +10,10 @@ Status: **done**. The engine's part of the "features" group of `docs/research/au
 
 **Checks:** `npm run engine:test` 478 / 478 (`tests/unit/r11.shaders.test.cpp`: the presets, the decode with defaults, a fill's quad and uniforms through the shape, effects reading the layer under them with their reach and order, a text's shader fill, the kiwi round trip); `engine:shot` 143 ok (WebGL2) / 145 ok (WebGPU), `SHOT_ONLY=r11` 37 ok on each (every preset; no GPU validation error); release wasm rebuilt after merging main (`bced325`).
 
+## Round 11 — Menus, left side and toolbar (2026-10-09, branch `r11-menus-left-toolbar`)
+
+Status: **done**. The engine's part of the group (editor side: `docs/editor.md` "Round 11 — Menus, left side and toolbar"): **Flatten on an instance** (live `menus/context-instance.txt`: enabled). `Editor::flattenable` takes an `INSTANCE`; `flattenSelection` detaches the selected instances first (`detachOne`, inside the same transaction — one undo step) and then flattens the frames they became (`flatFrame`: the box's own fill, its layers, layout dropped); a layer *inside* an instance (a derived guid) is not taken on its own (`engine_command_state` and `flattenSelection` skip a derived instance). A main component stays unflattenable. Test: `components.test.cpp` "round 11: Flatten on an instance …". The release wasm is rebuilt and committed.
+
 ## Round 11 — Type settings: features that act on the text (2026-10-09, branch `r11-design-panel`)
 
 - `text::Font::featuresIn(utf8)`: of the font's features, those that act on the text — shaping it (its first 4 KB) with the feature on and with it off gives other glyphs or other places. Live Figma's Details tab (popovers/type-settings-details.txt on "Hello Figma text") dims exactly the others among those it checks ("Not applicable for selected text"); HarfBuzz's `collect_glyphs` stays compiled out (`hb-config-override.h`), shaping needs nothing new.

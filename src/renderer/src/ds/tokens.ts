@@ -330,14 +330,15 @@ export const size = {
 export const radius = { none: 0, small: 2, medium: 5, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
 
 export const fontFamily = {
-  sans: '"Inter Variable", Inter, system-ui, -apple-system, sans-serif',
+  /** "Inter Symbols" (global.css): Inter 3.19's key glyphs (⌘ ⇧ ⌥ ⌃ ⌫ ↵ arrows) — live's widths (11px: ⌫ 13, ⌘ 11, ⌃ 9) */
+  sans: '"Inter Symbols", "Inter Variable", Inter, system-ui, -apple-system, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, monospace',
   /**
    * A context menu's key glyphs (12px / 400): the ones Inter lacks (⌘ ⇧ ⌥ ⌃ ⌫) from the browser's sans-serif — live's
    * widths (menus/context-*.txt: ⌘ 13, ⇧ 13; system-ui's are 11, 12). The 11px / 450 menu keys keep the UI font's
    * fallback: there it matches live (toolbar/*-tools-menu.txt "⇧M" 21, "⇧⌘K" 30).
    */
-  keys: '"Inter Variable", Inter, sans-serif',
+  keys: '"Inter Symbols", "Inter Variable", Inter, sans-serif',
 } as const;
 
 export type TextStyle = { size: number; line: number; weight: number; tracking: string; mono?: boolean; keys?: boolean };
