@@ -8,7 +8,7 @@ import type { ToolResult } from "../../shared/agents/tools";
 import { MCP_SERVER_NAME } from "../../shared/agents/tools";
 import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest } from "../../shared/agents/types";
 import { cliSpec, type CliSpec } from "./providers";
-import { runCliProcess, loginUrl, type AuthEnv, type RunResult } from "./providers/turns";
+import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
 import { imageGenStatus, INELIGIBLE, INELIGIBLE_MESSAGE, NANOBANANA_INSTALL } from "./providers/gemini";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
@@ -112,11 +112,15 @@ interface Turn {
   abort?: AbortController;
   stopped: boolean;
   grant?: string;
+  /** Folders besides the chat's own whose pictures place_image may read (the agent's own output folder for this chat) */
+  imageDirs: string[];
 }
 
 let server: McpServer | null = null;
 let providerCache: { at: number; list: ProviderInfo[] } | null = null;
 const turns = new Map<string, Turn>();
+/** CLIs' own model lists, read with their status (Antigravity's `agy models`) */
+const cliModels = new Map<string, CliModels>();
 /** A chat's grant (its MCP token), kept across its turns: `${fileKey}/${chatId}` → token */
 const chatTokens = new Map<string, string>();
 let reqSeq = 0;
@@ -162,8 +166,8 @@ function runToolInView(fileKey: string, call0: Omit<ToolCall, "reqId">): Promise
   let call = call0;
   try {
     const t = call0.turnId ? turns.get(call0.turnId) : undefined;
-    const root = t ? chatDir(t.chatId) : homedir();
-    call = { ...call0, args: resolveImagePaths(call0.name, call0.args ?? {}, root) };
+    const roots = t ? [chatDir(t.chatId), ...t.imageDirs] : [homedir()];
+    call = { ...call0, args: resolveImagePaths(call0.name, call0.args ?? {}, roots) };
   } catch (err) {
     if (err instanceof ImagePathError) return Promise.resolve({ content: [{ type: "text", text: err.message }], isError: true });
     throw err;
@@ -269,7 +273,7 @@ export function removeServer(id: string): AgentSettings {
 export async function providers(fresh = false): Promise<ProviderInfo[]> {
   if (!fresh && providerCache && Date.now() - providerCache.at < 15_000) return providerCache.list;
   const s = readStored();
-  const list = await detectProviders(s.custom.map((c) => ({ ...c, hasKey: false })), keyOf, { authOf: (spec, path) => cliAuthStatus(spec, path), imageGen: (signedIn, installed) => imageGen(signedIn, installed) });
+  const list = await detectProviders(s.custom.map((c) => ({ ...c, hasKey: false })), keyOf, { authOf: (spec, path) => cliAuthStatus(spec, path), imageGen: (signedIn, installed) => imageGen(signedIn, installed), modelsOf: (spec) => cliModels.get(spec.id) });
   providerCache = { at: Date.now(), list };
   return list;
 }
@@ -287,7 +291,7 @@ export async function testProvider(id: string): Promise<{ ok: boolean; models: s
     const auth = await cliAuthStatus(spec, path);
     providerCache = null;
     if (auth.state !== "connected") return { ok: false, models: [], error: `${version} — signed out: use Sign in` };
-    return { ok: true, models: spec.models, version };
+    return { ok: true, models: cliModels.get(spec.id)?.models ?? spec.models, version };
   }
   const srv = serverOf(id);
   if (!srv) return { ok: false, models: [], error: "Unknown provider" };
@@ -340,7 +344,7 @@ export function forgetFile(fileKey: string) {
 export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest): { turnId: string } {
   if (!server?.url) throw new Error("The agents' server isn't running");
   const turnId = randomUUID();
-  const t: Turn = { id: turnId, chatId: String(req.chatId).slice(0, 80), fileKey, sender, stopped: false };
+  const t: Turn = { id: turnId, chatId: String(req.chatId).slice(0, 80), fileKey, sender, stopped: false, imageDirs: [] };
   turns.set(turnId, t);
   const s = readStored();
   const providerId = String(req.providerId);
@@ -365,7 +369,12 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it.
   const cwd = chatDir(t.chatId);
   mkdirSync(cwd, { recursive: true });
-  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), apiKey: spec.id === "gemini" ? keyOf(IMAGE_KEY) : undefined });
+  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), apiKey: spec.id === "gemini" ? keyOf(IMAGE_KEY) : undefined, home: homedir() });
+  // The agent's own picture folder for this chat's session (Antigravity: its conversation's), known now or from its start.
+  const addImageDirs = (session: string) => {
+    for (const d of spec.imageDirs?.(session, homedir()) ?? []) if (!t.imageDirs.includes(d)) t.imageDirs.push(d);
+  };
+  if (req.resume) addImageDirs(req.resume);
   for (const [name, text] of Object.entries(plan.files ?? {})) writePrivate(isAbsolute(name) ? name : join(cwd, name), text);
   emit(t, { type: "status", text: `Starting ${spec.label}…` });
   const child = runCliProcess({
@@ -375,7 +384,10 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
     cwd,
     env: cliEnv({ ...plan.env }),
     spawn: (cmd, args, options) => spawn(cmd, args, options),
-    emit: (e) => emit(t, e),
+    emit: (e) => {
+      if (e.type === "session") addImageDirs(e.resume);
+      emit(t, e);
+    },
     done: (error) => finishTurn(t, error ? { type: "error", message: spec.id === "gemini" && INELIGIBLE.test(error) ? INELIGIBLE_MESSAGE : error } : undefined),
     stopped: () => t.stopped,
     // A developer's recording of the raw output (the adapters' test fixtures): DESIGNER_AGENTS_RECORD=<folder>.
@@ -468,7 +480,13 @@ const logins = new Map<string, { child?: ChildProcess; out: string; at: number; 
 
 async function cliAuthStatus(spec: CliSpec, path: string): Promise<AuthState> {
   const a = spec.auth;
-  const s: AuthState = a.status ? a.status.parse(await runBin(path, a.status.args, 10_000)) : a.fromFiles ? a.fromFiles(authEnv()) : { state: "connected" };
+  let s: AuthState;
+  if (a.status) {
+    const r = await runBin(path, a.status.args, 10_000);
+    s = a.status.parse(r, authEnv());
+    const models = spec.modelsFromStatus?.(r);
+    if (models) cliModels.set(spec.id, models);
+  } else s = a.fromFiles ? a.fromFiles(authEnv()) : { state: "connected" };
   const l = logins.get(spec.id);
   if (s.state === "connected") {
     if (l) {

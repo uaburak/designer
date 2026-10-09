@@ -75,7 +75,7 @@
   .input { width: 100%; min-height: calc(var(--ds-size-row) * 2); max-height: calc(var(--ds-size-row) * 8); padding: 0; border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: none; outline: none; field-sizing: content; }
   .input::placeholder { color: var(--figma-color-text-tertiary); }
   .composerBar { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-1); }
-  .providerSelect { min-width: 0; max-width: calc(100% - var(--ds-size-control)); }
+  .providerSelect { min-width: 0; max-width: calc(100% - var(--ds-size-control) - var(--ds-space-1)); }
   .noProvider { padding: 0 var(--ds-space-1); border: 0; background: transparent; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); outline: none; cursor: default; }
   .noProvider:hover { color: var(--figma-color-text); }
   .send { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); outline: none; }

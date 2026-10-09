@@ -99,6 +99,7 @@ const TOOL_LABEL: Record<string, string> = {
   create_responsive_variant: "Made a responsive version",
   set_selection: "Selected the result",
   place_image: "Placed an image",
+  generate_image: "Made an image",
 };
 export const toolLabel = (name: string) => TOOL_LABEL[name] ?? name.replace(/_/g, " ");
 
@@ -420,7 +421,7 @@ export function sessionOf(chat: Chat, providerId: string): string | undefined {
 }
 
 const MODEL_LABEL: Record<string, string> = { default: "Default", auto: "Auto" };
-export const modelLabel = (m: string) => MODEL_LABEL[m] ?? m;
+export const modelLabel = (m: string, p?: Pick<ProviderInfo, "modelLabels">) => p?.modelLabels?.[m] ?? MODEL_LABEL[m] ?? m;
 
 /** The composer's picker: the connected agents, each under its heading with its models. */
 export function pickerOptions(providers: ProviderInfo[]): SelectEntry[] {
@@ -428,7 +429,7 @@ export function pickerOptions(providers: ProviderInfo[]): SelectEntry[] {
     .filter((p) => p.available)
     .flatMap((p) => [
       { header: p.label },
-      ...(p.models.length ? p.models : [""]).map((m) => ({ value: `${p.id}\u0000${m}`, label: m ? modelLabel(m) : p.label, valueLabel: m && p.models.length > 1 ? `${p.label} · ${modelLabel(m)}` : p.label })),
+      ...(p.models.length ? p.models : [""]).map((m) => ({ value: `${p.id}\u0000${m}`, label: m ? modelLabel(m, p) : p.label, valueLabel: m && p.models.length > 1 ? `${p.label} · ${modelLabel(m, p)}` : p.label })),
     ]);
 }
 

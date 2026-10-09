@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { AuthState, CustomServer, ImageGenState, ProviderInfo } from "../../shared/agents/types";
 import { CLI_SPECS, LOCAL_SERVERS, type CliSpec } from "./providers";
+import type { CliModels } from "./providers/turns";
 import { listModels } from "./openaiBridge";
 
 /**
@@ -55,7 +56,7 @@ export const cliPath = (spec: Pick<CliSpec, "bins">, find: (bin: string) => stri
 export async function detectProviders(
   custom: CustomServer[],
   keyOf: (id: string) => string | undefined,
-  options: { fetch?: typeof fetch; which?: (bin: string) => string | null; authOf?: (spec: CliSpec, path: string) => Promise<AuthState>; imageGen?: (signedIn: boolean, installed: boolean) => ImageGenState } = {}
+  options: { fetch?: typeof fetch; which?: (bin: string) => string | null; authOf?: (spec: CliSpec, path: string) => Promise<AuthState>; imageGen?: (signedIn: boolean, installed: boolean) => ImageGenState; modelsOf?: (spec: CliSpec) => CliModels | undefined } = {}
 ): Promise<ProviderInfo[]> {
   const find = options.which ?? ((b: string) => which(b));
   const clis: ProviderInfo[] = await Promise.all(
@@ -63,6 +64,7 @@ export async function detectProviders(
       const path = cliPath(s, find);
       const auth: AuthState = !path ? { state: "not-installed" } : options.authOf ? await options.authOf(s, path).catch((): AuthState => ({ state: "signed-out", detail: "Couldn't read its sign-in" })) : { state: "connected" };
       const connected = auth.state === "connected";
+      const own = options.modelsOf?.(s);
       return {
         id: s.id,
         kind: s.id,
@@ -70,7 +72,8 @@ export async function detectProviders(
         note: s.note,
         available: !!path && connected,
         detail: path ?? undefined,
-        models: s.models,
+        models: own?.models ?? s.models,
+        ...(own ? { modelLabels: own.labels } : {}),
         problem: !path ? `${s.bins[0]} isn't installed` : connected ? undefined : "Signed out",
         auth,
         install: s.install,

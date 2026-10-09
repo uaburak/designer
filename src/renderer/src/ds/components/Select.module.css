@@ -26,7 +26,7 @@
   .ghostField[data-disabled] .imageValue { color: var(--figma-color-text-disabled); }
   .chevron { flex: none; color: var(--figma-color-icon-secondary); }
   .hug.hug { flex: none; width: auto; }
-  .hug .value { flex: none; }
+  .hug .value { flex: 0 1 auto; } /* as wide as the value, cut with an ellipsis under a max-width */
   .hug .trigger { padding-right: var(--ds-space-1); }
   .ghostField { --field-ring: transparent; background: transparent; }
   .ghostField:hover, .ghostField[data-hover] { background: var(--figma-color-bg-hover); --field-ring: transparent; }

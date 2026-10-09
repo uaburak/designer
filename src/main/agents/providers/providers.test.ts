@@ -9,6 +9,7 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent, TurnRequest } from "../../../shared/agents/types";
+import { AGY_PROJECT, AGY_SERVER, agyProject, agyStatus, antigravity, parseAgyModels } from "./antigravity";
 import { claudeCode, parseClaudeStatus } from "./claudeCode";
 import { codex, parseCodexStatus } from "./codex";
 import { cursorAgent, parseCursorStatus } from "./cursor";
@@ -34,7 +35,7 @@ const parseAll = (spec: Pick<CliSpec, "parse">, lines: unknown[]) => {
 
 describe("every adapter", () => {
   it("has its file, an install command or page, a sign-in and a status reader", () => {
-    expect(CLI_SPECS.map((s) => s.id)).toEqual(["claude-code", "gemini", "codex", "cursor-agent"]);
+    expect(CLI_SPECS.map((s) => s.id)).toEqual(["claude-code", "antigravity", "gemini", "codex", "cursor-agent"]);
     for (const s of CLI_SPECS) {
       expect(s.install.page).toMatch(/^https:\/\//);
       expect(s.auth.status ?? s.auth.fromFiles).toBeTruthy();
@@ -113,7 +114,7 @@ describe("Claude Code", () => {
   });
 });
 
-describe("Gemini CLI (Antigravity's models)", () => {
+describe("Gemini CLI (API key)", () => {
   it("runs headless in stream-json with our server from the chat folder's settings, the shell excluded, Nano Banana allowed", () => {
     const plan = gemini.plan(turn({ model: "flash" }));
     const a = plan.args;
@@ -128,7 +129,8 @@ describe("Gemini CLI (Antigravity's models)", () => {
     const settings = JSON.parse(plan.files![".gemini/settings.json"]);
     expect(settings.mcpServers.designer).toEqual({ httpUrl: mcp.url, headers: { Authorization: "Bearer tok" }, trust: true });
     expect(settings.tools.exclude).toContain("run_shell_command");
-    expect(gemini.label).toContain("Antigravity");
+    expect(gemini.label).toBe("Gemini CLI (API key)");
+    expect(gemini.note).toContain("Antigravity");
   });
 
   it("reads its stream: deltas, our tools and others, warnings ignored, errors", () => {
@@ -314,5 +316,88 @@ describe("Gemini API errors", () => {
     expect(ev).toMatchObject({ type: "tool", state: "error", summary: "Google: free tier has no quota for the image model (limit 0) — turn on billing for the key's AI Studio project" });
     expect(readableError(raw)).toMatch(/^You exceeded your current quota.*limit: 0, model: gemini-2\.5-flash-image$/);
     expect(readableError("No API key found")).toBe("No API key found");
+  });
+});
+
+describe("Antigravity (agy)", () => {
+  const files = (home: string, list: Record<string, string>) => ({
+    home,
+    readFile: (p: string) => list[p] ?? null,
+    exists: (p: string) => p in list,
+    list: (d: string) => Object.keys(list).filter((p) => p.startsWith(`${d}/`)).map((p) => p.slice(d.length + 1)),
+    env: {},
+  });
+
+  it("runs headless in stream-json in its own project, our server from the chat folder's .agents/mcp_config.json", () => {
+    const plan = antigravity.plan({ ...turn({ model: "gemini-3.1-pro-high" }), cwd: "/data/agents/work/c1", home: "/Users/me" });
+    const a = plan.args;
+    expect(a[0]).toBe("-p");
+    expect(a[1]).toContain(`"${AGY_SERVER}" MCP tools`);
+    expect(a[1]).toContain("generate_image");
+    expect(a[1]).toContain("place_image");
+    expect(a[a.indexOf("--output-format") + 1]).toBe("stream-json");
+    expect(a[a.indexOf("--model") + 1]).toBe("gemini-3.1-pro-high");
+    expect(a[a.indexOf("--project") + 1]).toBe(AGY_PROJECT);
+    expect(a).not.toContain("--dangerously-skip-permissions");
+    expect(a).not.toContain("--conversation");
+    expect(JSON.parse(plan.files![".agents/mcp_config.json"])).toEqual({ mcpServers: { [AGY_SERVER]: { serverUrl: mcp.url, headers: { Authorization: "Bearer tok" } } } });
+    const project = JSON.parse(plan.files![`/Users/me/.gemini/config/projects/${AGY_PROJECT}.json`]);
+    expect(project.projectResources.resources[0].folderUri).toBe("file:///data/agents/work");
+    expect(project.permissionGrants.permissionGrants.allow).toEqual([`mcp(${AGY_SERVER}/*)`]);
+    expect(project.permissionGrants.permissionGrants.deny).toEqual(expect.arrayContaining(["command(*)", "read_url(*)", "execute_url(*)"]));
+    expect(agyProject("/w")).not.toMatch(/tok/);
+    // Its default model when none is picked; a resumed conversation gets the turn without the prompt and history again.
+    expect(antigravity.plan(turn()).args).toContain("gemini-3.8-flash-medium");
+    const resumed = antigravity.plan(turn({ resume: "conv-1" })).args;
+    expect(resumed[resumed.indexOf("--conversation") + 1]).toBe("conv-1");
+    expect(resumed[1]).not.toContain("responsive adaptation");
+  });
+
+  it("reads a recorded turn: the session, our tool by its own name, the reply", () => {
+    expect(parseRecorded(antigravity, fixture("antigravity.ndjson"))).toEqual([
+      { type: "session", resume: "32678092-8f02-401f-b7d2-67057446c91b", model: "gemini-3.8-flash-medium" },
+      { type: "tool", id: "32678092-8f02-401f-b7d2-67057446c91b:2", name: "get_metadata", args: {}, state: "running" },
+      { type: "tool", id: "32678092-8f02-401f-b7d2-67057446c91b:2", name: "get_metadata", state: "done", summary: "<pages>" },
+      { type: "text", delta: "There is 1 page in this document: **Page 1**.\n" },
+    ]);
+  });
+
+  it("reads a recorded image turn: the image, place_image with the picture's path, its own bookkeeping hidden", () => {
+    const events = parseRecorded(antigravity, fixture("antigravity-image.ndjson"));
+    const tools = events.filter((e) => e.type === "tool" && e.state !== "running").map((e) => (e as { name: string }).name);
+    expect(tools).toEqual(["generate_image", "place_image", "set_selection"]);
+    const place = events.find((e) => e.type === "tool" && e.name === "place_image" && e.state === "running") as { args: { path: string } };
+    expect(place.args.path).toMatch(/\.gemini\/antigravity-cli\/brain\/32678092-8f02-401f-b7d2-67057446c91b\/red_circle_\d+\.jpg$/);
+    const reply = events.filter((e) => e.type === "text").map((e) => (e as { delta: string }).delta).join("");
+    expect(reply).toMatch(/^Generating the red circle image now.*\n\n?I generated a red circle image/s);
+    expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("tool errors, a failed run and denied permissions", () => {
+    const step = (state: string, tool_info: unknown) => ({ event: "step_update", step_update: { conversation_id: "c", step_index: 3, state, step_type: "tool", tool_name: "call_mcp_tool", tool_info } });
+    const params = { ServerName: AGY_SERVER, ToolName: "update_nodes", Arguments: { updates: [] } };
+    expect(parseAll(antigravity, [step("ACTIVE", { name: "call_mcp_tool", parameters: params }), step("ERROR", { name: "call_mcp_tool", parameters: params, error: { type: "TOOL_ERROR", message: "Node 1:2 not found\nmore" } })])).toEqual([
+      { type: "tool", id: "c:3", name: "update_nodes", args: { updates: [] }, state: "running" },
+      { type: "tool", id: "c:3", name: "update_nodes", state: "error", summary: "Node 1:2 not found" },
+    ]);
+    expect(parseAll(antigravity, [{ event: "result", result: { status: "ERROR", error: "quota exceeded" } }])).toEqual([{ type: "error", message: "quota exceeded" }]);
+    expect(parseAll(antigravity, [{ event: "result", result: { status: "SUCCESS", response: "", denied_actions: [{ action: "mcp", display_name: "CallMcpTool" }] } }])[0]).toMatchObject({ type: "error", message: expect.stringContaining("CallMcpTool") });
+  });
+
+  it("signs in by its models list (no model call), the account from its log; its models and labels", () => {
+    const out = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\nclaude-opus-5-5-low\tClaude Opus 5.5 (Low)\n";
+    const env = files("/h", { "/h/.gemini/antigravity-cli/log/cli-20261009_1.log": "x", "/h/.gemini/antigravity-cli/log/cli-20261009_2.log": "I1009 server_oauth.go:209] OAuth: authenticated successfully as me@gmail.com\n" });
+    expect(agyStatus({ code: 0, stdout: out, stderr: "Fetching available models...\n" }, env)).toEqual({ state: "connected", account: "me@gmail.com", plan: "Google account" });
+    expect(agyStatus({ code: 0, stdout: "", stderr: "Fetching available models...\n" }, env).state).toBe("signed-out");
+    expect(antigravity.auth.status!.args).toEqual(["models"]);
+    const m = parseAgyModels(out)!;
+    expect(m.models).toEqual(["gemini-3.8-flash-medium", "gemini-3.8-flash-high", "claude-opus-5-5-low"]);
+    expect(m.labels["claude-opus-5-5-low"]).toBe("Claude Opus 5.5 (Low)");
+    expect(antigravity.modelsFromStatus!({ code: 1, stdout: out })).toBeNull();
+  });
+
+  it("place_image may read its conversation's picture folder only", () => {
+    expect(antigravity.imageDirs!("32678092-8f02", "/h")).toEqual(["/h/.gemini/antigravity-cli/brain/32678092-8f02"]);
+    expect(antigravity.imageDirs!("../x", "/h")).toEqual([]);
   });
 });

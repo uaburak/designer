@@ -39,7 +39,8 @@ export function stateText(p: ProviderInfo, auth: AuthState | undefined = p.auth)
 /** What each agent is, in a sentence, and its official page. */
 const ABOUT: Record<string, { text: string; page?: string }> = {
   "claude-code": { text: "Anthropic’s coding agent, with your Claude account. It runs on this computer and edits this file with its design tools.", page: "https://docs.claude.com/en/docs/claude-code/overview" },
-  gemini: { text: "Google’s Gemini models, as in Antigravity — run by Gemini CLI with your Gemini API key. With Nano Banana it also makes images.", page: "https://github.com/google-gemini/gemini-cli" },
+  antigravity: { text: "Google’s agent, with your Google AI plan (Pro or Ultra). It runs on this computer, edits this file with its design tools and makes images with Gemini.", page: "https://antigravity.google/docs/cli" },
+  gemini: { text: "Gemini models with your Gemini API key from Google AI Studio. With Nano Banana it also makes images. Google AI Pro and Ultra now go through Antigravity.", page: "https://github.com/google-gemini/gemini-cli" },
   codex: { text: "OpenAI’s coding agent, with your ChatGPT account or an OpenAI API key.", page: "https://developers.openai.com/codex/cli" },
   "cursor-agent": { text: "Cursor’s agent for Terminal, with your Cursor account.", page: "https://cursor.com/cli" },
   ollama: { text: "Runs open models on this computer, free and offline. Start Ollama and download a model, then come back here.", page: "https://ollama.com" },
@@ -301,7 +302,7 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentsService 
         {!cli && !p.available && !custom && <p className={styles.pageText}>{`Start ${p.label} and load a model, then Look again.`}</p>}
         {p.available && p.models.length > 1 && (
           <Field label="Model">
-            <Select label="Model" className={styles.fieldSelect} value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: modelLabel(m) }))} onChange={(m) => void service.choose(p.id, m)} />
+            <Select label="Model" className={styles.fieldSelect} value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: modelLabel(m, p) }))} onChange={(m) => void service.choose(p.id, m)} />
           </Field>
         )}
         <div className={styles.actions}>

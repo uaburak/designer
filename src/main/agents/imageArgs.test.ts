@@ -53,6 +53,17 @@ describe("image paths", () => {
     expect(() => resolveImagePaths("place_image", { path: "notes.png" }, root)).toThrow(/not a PNG/);
   });
 
+  it("an agent's own picture folder for the chat is a second root; relative paths stay the chat folder's", () => {
+    const root = tmp();
+    const brain = tmp();
+    const other = tmp();
+    writeFileSync(join(brain, "red_circle.png"), PNG);
+    writeFileSync(join(other, "x.png"), PNG);
+    expect(resolveImagePaths("place_image", { path: join(brain, "red_circle.png") }, [root, brain])).toMatchObject({ name: "red_circle", data: expect.any(String) });
+    expect(() => resolveImagePaths("place_image", { path: "red_circle.png" }, [root, brain])).toThrow(/no such file/);
+    expect(() => resolveImagePaths("place_image", { path: join(other, "x.png") }, [root, brain])).toThrow(/working folder/);
+  });
+
   it("knows images by their bytes", () => {
     expect(sniffImage(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
     expect(sniffImage(new TextEncoder().encode("RIFF\0\0\0\0WEBPVP8 "))).toBe("image/webp");

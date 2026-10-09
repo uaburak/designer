@@ -19,7 +19,8 @@ function installMockAgents() {
   window.__designerAgents = {
     providers: async () => [
       { id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, detail: "/Users/you/.local/bin/claude", models: ["default", "sonnet", "opus", "haiku"], auth: { state: "connected", account: "you@example.com", plan: "Claude Pro" } },
-      { id: "gemini", kind: "gemini", label: "Antigravity / Gemini CLI", note: "Google’s Gemini models, as in Antigravity — run by Gemini CLI with your Google account.", available: true, detail: "/opt/homebrew/bin/gemini", models: ["auto", "pro", "flash", "flash-lite"], auth: { state: "connected", account: "you@gmail.com", plan: "Google account" }, imageGen: { state: "needs-key", detail: "Nano Banana needs a Gemini API key from Google AI Studio" } },
+      { id: "antigravity", kind: "antigravity", label: "Antigravity (Google AI)", note: "Google’s agent with your Google AI plan — Gemini models and image generation.", available: true, detail: "/Users/you/.local/bin/agy", models: ["gemini-3.8-flash-medium", "gemini-3.1-pro-high"], modelLabels: { "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)", "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)" }, auth: { state: "connected", account: "you@gmail.com", plan: "Google account" }, install: { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", page: "https://antigravity.google/docs/cli/install" } },
+      { id: "gemini", kind: "gemini", label: "Gemini CLI (API key)", note: "Gemini models with your Gemini API key. Google AI Pro and Ultra now go through Antigravity.", available: true, detail: "/opt/homebrew/bin/gemini", models: ["auto", "pro", "flash", "flash-lite"], auth: { state: "connected", account: "you@gmail.com", plan: "Google account" }, imageGen: { state: "needs-key", detail: "Nano Banana needs a Gemini API key from Google AI Studio" } },
       { id: "codex", kind: "codex", label: "Codex", available: false, models: ["default"], problem: "codex isn't installed", auth: { state: "not-installed" }, install: { command: "npm install -g @openai/codex", page: "https://developers.openai.com/codex/cli" } },
       { id: "cursor-agent", kind: "cursor-agent", label: "Cursor Agent", available: false, detail: "/Users/you/.local/bin/cursor-agent", models: ["auto"], problem: "Signed out", auth: { state: "signed-out" } },
       { id: "ollama", kind: "openai-compatible", label: "Ollama", available: false, detail: "http://localhost:11434/v1", models: [], problem: "Not running at http://localhost:11434/v1" },
@@ -153,7 +154,7 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
     const r = list?.getBoundingClientRect();
     return { headers: [...(list?.querySelectorAll("[data-select-header]") ?? [])].map((h) => h.textContent), options: list?.querySelectorAll('[role="option"]').length ?? 0, top: r?.top ?? -1, bottom: r?.bottom ?? 1e9, height: window.innerHeight, scroll: list ? list.scrollHeight - list.clientHeight : 0 };
   });
-  check("Agents: the picker lists only connected agents, grouped under their names", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity / Gemini CLI", "LM Studio"]) && picker.options === 10, JSON.stringify(picker));
+  check("Agents: the picker lists only connected agents, grouped under their names", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity (Google AI)", "Gemini CLI (API key)", "LM Studio"]) && picker.options === 12, JSON.stringify(picker));
   check("Agents: the picker's list is whole on screen (not cut)", picker.top >= 0 && picker.bottom <= picker.height && picker.scroll <= 1, JSON.stringify(picker));
   await shot(page, `401b-agents-picker-${theme}`);
   await page.keyboard.press("Escape");
@@ -225,6 +226,12 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await back();
   await openRow('[data-provider="cursor-agent"]');
   check("Agents: Cursor Agent's page: Sign in needed with Sign in", ((await card("cursor-agent").locator("[data-provider-state]").textContent()) ?? "") === "Sign in needed" && (await card("cursor-agent").locator("[data-sign-in]").count()) === 1);
+  await back();
+  const order = await settings.locator('[aria-label="On this computer"] [data-provider]').evaluateAll((els) => els.map((e) => e.getAttribute("data-provider")));
+  check("Agents: Antigravity is listed first after Claude Code", order[0] === "claude-code" && order[1] === "antigravity", JSON.stringify(order));
+  await openRow('[data-provider="antigravity"]');
+  check("Agents: Antigravity's page: Connected with the Google account, its model by its own name, Sign out", ((await card("antigravity").textContent()) ?? "").includes("you@gmail.com") && ((await card("antigravity").getByRole("combobox", { name: "Model" }).textContent()) ?? "").includes("Gemini 3.8 Flash (Medium)") && (await card("antigravity").locator("[data-sign-out]").count()) === 1);
+  await shot(page, `403c-agents-settings-antigravity-${theme}`);
   await back();
   await openRow('[data-provider="gemini"]');
   check("Agents: the Gemini page shows Antigravity, Image generation: Needs API key and the key field", ((await card("gemini").textContent()) ?? "").includes("Antigravity") && ((await card("gemini").locator("[data-image-gen] h3").textContent()) ?? "") === "Image generation" && ((await card("gemini").locator("[data-image-gen-state]").textContent()) ?? "") === "Needs API key" && (await card("gemini").locator('input[type="password"]').count()) === 1);

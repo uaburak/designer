@@ -7,9 +7,9 @@ import { modelArg, promptWithHistory, shortToolName, text, type AuthEnv, type Cl
 
 /**
  * Google's Gemini CLI, headless (`gemini -p … --output-format stream-json`, docs/cli/headless.md; the event types are
- * packages/core/src/output/types.ts: init, message, tool_use, tool_result, error, result). This is also how
- * Antigravity's Gemini models reach the chat: Antigravity's own agent API is private, Gemini CLI is Google's documented
- * headless agent with the same Google sign-in.
+ * packages/core/src/output/types.ts: init, message, tool_use, tool_result, error, result), run with the owner's Gemini
+ * API key. A Google AI Pro / Ultra plan goes through Antigravity's CLI instead (antigravity.ts): Google ended Gemini
+ * CLI's personal Google sign-in on 2026-06-18.
  *
  * Our server comes from the chat folder's `.gemini/settings.json` (`httpUrl` = Streamable HTTP, `trust` = its tools
  * run without asking); `--allowed-mcp-server-names` keeps the user's other servers out except the Nano Banana image
@@ -93,12 +93,12 @@ export { friendlyApiError };
 
 /** Google's refusal of the personal Google sign-in (IneligibleTierError, UNSUPPORTED_CLIENT) in the CLI's output. */
 export const INELIGIBLE = /IneligibleTier|throwIneligibleOrProjectIdError|no longer supported for Gemini Code Assist/i;
-export const INELIGIBLE_MESSAGE = "Google no longer lets Gemini CLI use a personal Google sign-in (Google AI Pro and Ultra included). Add a Gemini API key from Google AI Studio in Agent settings — it runs both the chat and Nano Banana.";
+export const INELIGIBLE_MESSAGE = "Google no longer lets Gemini CLI use a personal Google sign-in. With Google AI Pro or Ultra, use Antigravity (Agent settings); otherwise add a Gemini API key from Google AI Studio in Agent settings — it runs both the chat and Nano Banana.";
 
 export const gemini: CliSpec = {
   id: "gemini",
-  label: "Antigravity / Gemini CLI",
-  note: "Google’s Gemini models, as in Antigravity — run by Gemini CLI with your Gemini API key.",
+  label: "Gemini CLI (API key)",
+  note: "Gemini models with your Gemini API key. Google AI Pro and Ultra now go through Antigravity.",
   bins: ["gemini"],
   models: ["auto", "pro", "flash", "flash-lite"],
   plan: (t) => {

@@ -6,10 +6,10 @@
 import type { ToolContent } from "./tools";
 
 /** How a provider is driven: a CLI run headless with our MCP server, or an OpenAI-compatible chat API we bridge. */
-export type ProviderKind = "claude-code" | "codex" | "gemini" | "cursor-agent" | "openai-compatible";
+export type ProviderKind = "claude-code" | "antigravity" | "codex" | "gemini" | "cursor-agent" | "openai-compatible";
 
 export interface ProviderInfo {
-  /** "claude-code", "codex", "gemini", "cursor-agent", "ollama", "lmstudio", or "custom:<n>" */
+  /** "claude-code", "antigravity", "codex", "gemini", "cursor-agent", "ollama", "lmstudio", or "custom:<n>" */
   id: string;
   kind: ProviderKind;
   label: string;
@@ -19,6 +19,8 @@ export interface ProviderInfo {
   detail?: string;
   /** Models to pick from (a server's /v1/models; a CLI's aliases) — the first is the default */
   models: string[];
+  /** Models' names as the agent itself gives them ("Gemini 3.8 Flash (Medium)"), when it does */
+  modelLabels?: Record<string, string>;
   /** Why it isn't available, in the panel's words */
   problem?: string;
   /** A custom server with a key kept in the OS keychain */

@@ -26,6 +26,8 @@ export interface CliTurn {
   mcpConfigPath: string;
   /** The owner's own API key for this agent, pasted in Agent settings (Gemini: an AI Studio key) */
   apiKey?: string;
+  /** The user's home folder (the CLI's own config lives there), the OS's when not given */
+  home?: string;
 }
 
 export interface CliPlan {
@@ -42,6 +44,8 @@ export interface ParseState {
   /** Text already streamed for the current message (a full message after partial deltas isn't repeated) */
   streamed: boolean;
   tools: Map<string, string>;
+  /** The step whose text streamed last (Antigravity: a new reply step after a tool starts a new paragraph) */
+  textStep?: string;
 }
 
 export const newParseState = (): ParseState => ({ streamed: false, tools: new Map() });
@@ -57,6 +61,8 @@ export interface AuthEnv {
   home: string;
   readFile(path: string): string | null;
   exists(path: string): boolean;
+  /** A folder's entries (Antigravity's logs), when the caller can list */
+  list?(path: string): string[];
   env: NodeJS.ProcessEnv;
 }
 
@@ -67,7 +73,7 @@ export interface AuthEnv {
  */
 export interface CliAuth {
   /** A status command and how its output reads */
-  status?: { args: string[]; parse(r: RunResult): AuthState };
+  status?: { args: string[]; parse(r: RunResult, env?: AuthEnv): AuthState };
   /** Status read from the CLI's own files, when it has no status command */
   fromFiles?(env: AuthEnv): AuthState;
   login: { kind: "background"; args: string[] } | { kind: "terminal"; args: string[]; note: string };
@@ -80,7 +86,13 @@ export interface InstallInfo {
   page: string;
 }
 
-export type CliId = "claude-code" | "codex" | "gemini" | "cursor-agent";
+export type CliId = "claude-code" | "antigravity" | "codex" | "gemini" | "cursor-agent";
+
+/** A CLI's own model list (Antigravity's `agy models`): the slugs, the default first, and their labels. */
+export interface CliModels {
+  models: string[];
+  labels: Record<string, string>;
+}
 
 export interface CliSpec {
   id: CliId;
@@ -96,6 +108,13 @@ export interface CliSpec {
   parse(line: Record<string, unknown>, state: ParseState): ChatEvent[];
   auth: CliAuth;
   install: InstallInfo;
+  /** Its models read from its status command's output (instead of the fixed list), when it lists them */
+  modelsFromStatus?(r: RunResult): CliModels | null;
+  /**
+   * Folders besides the chat's own where this agent saves the pictures it makes for a session (Antigravity's
+   * generate_image: its conversation's folder), which place_image may then read.
+   */
+  imageDirs?(session: string, home: string): string[];
 }
 
 /** The model flag's value, or null for the CLI's default (the spec's first model). */
