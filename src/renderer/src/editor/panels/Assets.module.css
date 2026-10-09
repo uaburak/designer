@@ -67,11 +67,13 @@
   }
   .addMore:hover { background: var(--figma-color-bg-hover); }
   /* In a library (live): Back at 8, the path "Created in this file / Capture" at 40, 11 / 400 */
-  .path { display: flex; align-items: center; gap: var(--ds-space-half); height: var(--ds-size-control-large); padding: 0 var(--ds-space-3) 0 var(--ds-space-2); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
-  .crumb { min-width: 0; height: 22px; padding: 0 var(--ds-space-1); overflow: hidden; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: inherit; letter-spacing: inherit; text-overflow: ellipsis; white-space: nowrap; }
+  /* Live (left/rail-assets-page-components.txt): Back 24 × 24 at 8, 8 under the search (the toolbar's foot); the crumb a 22 high button 5 in */
+  .path { display: flex; align-items: center; height: var(--ds-size-control); padding: 0 var(--ds-space-3) 0 var(--ds-space-2); font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
+  .crumb { min-width: 0; height: 22px; margin-left: 3px; padding: 0 calc(var(--ds-space-1) + 1px); overflow: hidden; border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: inherit; letter-spacing: inherit; text-overflow: ellipsis; white-space: nowrap; }
   .crumb:hover { background: var(--figma-color-bg-hover); }
-  .slash { color: var(--figma-color-text-secondary); }
-  .crumbHere { min-width: 0; padding-left: var(--ds-space-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Live: "/" 1 after the crumb, the page's name 6 after it */
+  .slash { margin-left: 1px; color: var(--figma-color-text-secondary); }
+  .crumbHere { min-width: 0; padding-left: calc(var(--ds-space-1) + 2px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* A page of the library (live: 224 × 74 rows at 8, a 58 thumbnail, the name 11 / 450 at 82) */
   .pageRow {
     display: flex;
@@ -91,6 +93,8 @@
     outline: none;
   }
   .pageRow:hover { background: var(--figma-color-bg-hover); }
+  /* Live: the first page 4 under the path (Capture at 121, Page 1 at 195) */
+  .path + .pageRow { margin-top: var(--ds-space-1); }
   .pageThumb { display: flex; flex: none; width: 58px; height: 58px; overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); }
   .pageThumb .thumb { width: 100%; background: transparent; }
   .pageName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -156,7 +160,8 @@
   .glyph { flex: none; color: var(--figma-color-icon-component); }
 
   /* Grid (live): 96 tiles two to a row at 16 and 128, the name 11 / 400 six under each, rows 132 apart */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--ds-space-4); padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-2); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--ds-space-4); padding: var(--ds-space-2) var(--ds-space-4); }
+  /* The name 6 under its tile, 2 in (live) */
   .tile {
     display: flex;
     flex-direction: column;
@@ -171,7 +176,7 @@
     outline: none;
     cursor: grab;
   }
-  .tileBox { position: relative; display: flex; aspect-ratio: 1; border-radius: var(--ds-radius-medium-large); background: var(--figma-color-bg-secondary); overflow: hidden; }
+  .tileBox { position: relative; display: flex; aspect-ratio: 1; border-radius: var(--ds-radius-asset-tile); background: var(--figma-color-bg-secondary); overflow: hidden; }
   .tileBox .thumb { flex: 1 1 auto; background: transparent; }
   .tile:hover .tileBox { box-shadow: inset 0 0 0 1px var(--figma-color-border-component); }
   /* A set's variant count (live: a 16 dot, top right) */
@@ -183,8 +188,8 @@
     height: var(--ds-space-4);
     padding: 0 var(--ds-space-1);
     border-radius: var(--ds-radius-full);
-    background: var(--figma-color-bg-inverse, var(--ds-color-menu-bg));
-    color: var(--figma-color-text-oninverse, var(--ds-color-menu-text));
+    background: var(--ds-color-asset-variants-bg);
+    color: var(--figma-color-text-onbrand);
     font: var(--ds-font-body-medium-regular);
     line-height: var(--ds-space-4);
     text-align: center;
@@ -201,7 +206,9 @@
   .thumbCanvas { max-width: 100%; max-height: 100%; object-fit: contain; }
   .thumbCanvas:not([data-drawn]) { display: none; }
   .thumbCanvas[data-drawn] + .glyph { display: none; }
-  .tileName { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+  .tileName { min-width: 0; margin: 1px 0 -1px; padding-left: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+  .tile { position: relative; }
+  .srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   /* The dragged asset follows the pointer */
   .ghost {

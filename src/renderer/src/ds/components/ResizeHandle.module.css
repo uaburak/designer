@@ -8,7 +8,8 @@
     cursor: col-resize;
     touch-action: none;
   }
-  .right { right: -4px; }
+  /* Live (left/rail-assets.txt: "slider [Resize handle]" 8 × 900 at 295): 2 inside the panel's edge, 6 out */
+  .right { right: -6px; }
   .left { left: -4px; }
   /* A section's lower edge: 8 high, from 3 above its line to 5 under it (the live Pages / Layers "Resize handle") */
   .bottom { top: auto; right: 0; bottom: -6px; left: 0; width: auto; height: 8px; cursor: row-resize; }

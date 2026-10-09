@@ -188,6 +188,7 @@ export function FindPanel() {
         )}
         <Select
           label={`Search scope set to ${f.scope === "all" ? "All pages" : "This page"}`}
+          className={styles.scope}
           variant="ghost"
           width="hug"
           value={f.scope}

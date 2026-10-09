@@ -7,6 +7,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ContextMenu, MenuButton, type ContextMenuProps, type MenuButtonProps, type MenuEntry } from "../components/Menu";
+import { Toolbar, ToolTextButton, type ToolbarProps } from "../components/Toolbar";
+import { createElement } from "react";
 import { $, $$, click, mount, spy, type Mounted } from "./dom";
 
 let m: Mounted | null = null;
@@ -59,4 +61,42 @@ describe("Round 10 menus", () => {
     expect(css).toMatch(/\.item\[aria-disabled="true"\] \.shortcut \{ color: var\(--ds-color-menu-text-disabled\); \}/);
     expect(css).toMatch(/\.item\[data-highlighted\] \.hint, \.item\[data-highlighted\] \.shortcut \{ color: var\(--ds-color-menu-text-on-highlight-secondary\); \}/);
   });
+
+  it("a badge at the row's end (live context-layer-row.txt: Rename layers, \"AI\"); a radio menu named by a hidden label", () => {
+    m = mount(ContextMenu, { at: { x: 0, y: 0 }, context: true, entries: [{ id: "r", label: "Rename layers", badge: "AI", disabled: true }], onSelect: spy<[string]>(), onClose: spy<[]>() } as ContextMenuProps);
+    expect($('#ds-overlays [aria-label="AI, Learn more"]').textContent).toBe("AI");
+    m.unmount();
+    const strokes: MenuEntry[] = [
+      { id: "ALL", label: "All", checked: true, radio: true },
+      { id: "TOP", label: "Top", checked: false, radio: true },
+    ];
+    m = mount(MenuButton, { label: "Individual strokes", entries: strokes, onSelect: spy<[string]>(), children: "▾" } as MenuButtonProps);
+    click($('[aria-label="Individual strokes"]'));
+    const panel = $('#ds-overlays [role="menu"]');
+    expect(panel.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(document.getElementById(panel.getAttribute("aria-labelledby")!)!.textContent).toBe("Individual strokes");
+    expect(lit()).toEqual(["All"]);
+  });
+
+  it("a secondary toolbar's labelled tools (live vector edit toolbar): pressed when active, More with a chevron", () => {
+    const pick = spy<[unknown]>();
+    m = mount(Toolbar, {
+      secondary: true,
+      label: "Vector edit tools",
+      children: [
+        createElement(ToolTextButton, { key: "m", icon: "24.move", label: "Move", active: true, onSelect: pick }),
+        createElement(ToolTextButton, { key: "c", icon: "24.cut", label: "Cut", onSelect: pick }),
+        createElement(ToolTextButton, { key: "x", label: "More", chevron: true, onSelect: pick }),
+      ],
+    } as ToolbarProps);
+    const bar = $('[role="toolbar"]');
+    expect(bar.className).toMatch(/secondary/);
+    expect($('[aria-label="Move"]').getAttribute("aria-pressed")).toBe("true");
+    expect($('[aria-label="Cut"]').getAttribute("aria-pressed")).toBe("false");
+    expect($('[aria-label="More"]').getAttribute("aria-pressed")).toBeNull();
+    expect($('[aria-label="More"]').textContent).toBe("More");
+    click($('[aria-label="Cut"]'));
+    expect(pick.calls.length).toBe(1);
+  });
 });
+

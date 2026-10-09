@@ -170,6 +170,8 @@ export function Assets() {
             )}
           </span>
           <span className={styles.tileName}>{assetLabel(a.name)}</span>
+          {/* Live: each tile's hint for assistive tech (its "view details" half isn't built here) */}
+          <span className={styles.srOnly}>Press Enter or Space to insert.</span>
         </>
       ) : (
         <>
