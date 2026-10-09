@@ -1,10 +1,10 @@
 /**
- * What a running turn is doing, in the chat's words — the "Thinking…" row under the answer while the agent works
- * (Figma AI's and Claude's shimmering line): its current step ("Reading the design…", "Making an image…"), the CLI's
- * own status while it starts ("Starting Antigravity…"), else "Thinking…"; the seconds it has taken, after 5 s.
- * Pure: the chat renders it, the tests read it.
+ * What a running turn is doing, in the chat's words — the thinking line of the group the turn is in (Figma AI's and
+ * Claude's shimmering line): its current step ("Reading the design…", "Making an image…"), the CLI's own status while
+ * it starts ("Starting Antigravity…"), else "Thinking…"; the seconds it has taken, after 5 s. And the answer cut into
+ * its words and its groups of steps (segmentsOf). Pure: the chat renders it, the tests read it.
  */
-import type { ChatMessage } from "./service";
+import type { ChatMessage, ImagePart, MessagePart } from "./service";
 
 /** A step while it runs, in the present tense (its finished label is service.ts's toolLabel). */
 const TOOL_ACTIVE: Record<string, string> = {
@@ -53,6 +53,121 @@ export function activityOf(m: Pick<ChatMessage, "state" | "parts">): string | nu
   // The CLI's start line until the agent says or does something (an image card put up for the prompt aside).
   if (status && status.kind === "status" && parts.every((p) => p.kind === "status" || p.kind === "image")) return status.text;
   return THINKING;
+}
+
+// ---- An answer as text and groups of steps -------------------------------------------------------------------------
+
+export type ToolPart = Extract<MessagePart, { kind: "tool" }>;
+
+/**
+ * A piece of an answer as the chat shows it: the agent's words, or a group of steps in one collapsible row — a run of
+ * steps between its words ("steps"), or an image being made with its steps and its card ("image").
+ */
+export type Segment =
+  | { kind: "text"; key: string; text: string }
+  | { kind: "steps"; key: string; steps: ToolPart[]; active: boolean; label: string }
+  | { kind: "image"; key: string; steps: ToolPart[]; image?: ImagePart; active: boolean; label: string };
+
+export const GENERATE_IMAGE = "Generate image";
+export const PLACE_IMAGE = "Place image";
+
+type StepsSeg = Extract<Segment, { kind: "steps" }>;
+type ImageSeg = Extract<Segment, { kind: "image" }>;
+
+/** A finished group of steps: "Thinking · 4 steps", with the failed ones counted. */
+export function stepsSummary(steps: readonly ToolPart[]): string {
+  if (!steps.length) return "Thinking";
+  const failed = steps.filter((s) => s.state === "error").length;
+  return `Thinking · ${steps.length} ${steps.length === 1 ? "step" : "steps"}${failed ? ` · ${failed} failed` : ""}`;
+}
+
+/**
+ * The answer as the chat shows it (Claude's desktop way): its words as paragraphs, and each run of steps between them
+ * as one group, collapsed. generate_image gets a group of its own ("Generate image") with its card — where the card is,
+ * so the one put up as the prompt was sent doesn't move — and the place_image that puts that picture on the canvas.
+ * While the turn runs, exactly one group is active (its header is the thinking line): the one with the step running
+ * now, else an image made and about to be placed, else the last run of steps; after words (or before anything) a new,
+ * empty one at the bottom ("Thinking…"), which the next step fills under the same key.
+ */
+export function segmentsOf(m: Pick<ChatMessage, "state" | "parts">): Segment[] {
+  const parts = m.parts ?? [];
+  const segs: Segment[] = [];
+  const genTools = parts.filter((p): p is ToolPart => p.kind === "tool" && p.name === "generate_image");
+  const toolOfImage = (img: ImagePart) => img.tool ?? genTools.find((t) => `image:${t.id}` === img.id)?.id;
+  const byTool = new Map<string, ImageSeg>();
+  /** Image groups whose picture isn't placed by a step yet, oldest first (withPlacedImage fills the oldest). */
+  const toPlace: ImageSeg[] = [];
+  const waitingImage = () => toPlace.find((s) => s.steps.some((t) => t.name === "generate_image" && t.state !== "error"));
+  let open: StepsSeg | null = null;
+  const imageSeg = (key: string): ImageSeg => {
+    const s: ImageSeg = { kind: "image", key, steps: [], active: false, label: GENERATE_IMAGE };
+    segs.push(s);
+    open = null;
+    return s;
+  };
+  parts.forEach((p, i) => {
+    if (p.kind === "text") {
+      if (!p.text.trim()) return;
+      segs.push({ kind: "text", key: `text:${i}`, text: p.text });
+      open = null;
+    } else if (p.kind === "status") {
+      // The CLI's start line: no step of its own, the group's line while it is the only thing.
+      if (!open) segs.push((open = { kind: "steps", key: `steps:${i}`, steps: [], active: false, label: "" }));
+    } else if (p.kind === "image") {
+      const tool = toolOfImage(p);
+      let seg = tool ? byTool.get(tool) : undefined;
+      if (!seg) {
+        // A picture placed without generate_image (an attached one): the place_image step just before it is its.
+        const prev = parts[i - 1];
+        const placing: ToolPart | undefined = !tool && !p.asked && prev?.kind === "tool" && prev.name === "place_image" ? prev : undefined;
+        const from: StepsSeg | null = open;
+        if (placing && from && from.steps[from.steps.length - 1] === placing) {
+          from.steps.pop();
+          if (!from.steps.length) segs.splice(segs.indexOf(from), 1);
+        }
+        seg = imageSeg(p.id);
+        if (placing) seg.steps.push(placing);
+        else if (p.asked || tool) toPlace.push(seg);
+        if (tool) byTool.set(tool, seg);
+      }
+      seg.image = p;
+    } else if (p.name === "generate_image") {
+      let seg = byTool.get(p.id);
+      if (!seg) {
+        seg = imageSeg(`image:${p.id}`);
+        byTool.set(p.id, seg);
+        toPlace.push(seg);
+      }
+      seg.steps.unshift(p);
+    } else if (p.name === "place_image" && waitingImage()) {
+      const seg = waitingImage()!;
+      toPlace.splice(toPlace.indexOf(seg), 1);
+      seg.steps.push(p);
+    } else {
+      if (!open) segs.push((open = { kind: "steps", key: `steps:${i}`, steps: [], active: false, label: "" }));
+      open.steps.push(p);
+    }
+  });
+  for (const s of segs) {
+    if (s.kind === "steps") s.label = stepsSummary(s.steps);
+    // A picture the agent had (an attached one), only placed: "Place image".
+    else if (s.kind === "image" && !s.image?.asked && !s.steps.some((t) => t.name === "generate_image")) s.label = PLACE_IMAGE;
+  }
+  if (m.state !== "running") return segs;
+  // The one group the turn is in now.
+  let running: ToolPart | undefined;
+  for (let i = parts.length - 1; i >= 0 && !running; i--) {
+    const p = parts[i];
+    if (p.kind === "tool" && p.state === "running") running = p;
+  }
+  const groups = segs.filter((s): s is StepsSeg | ImageSeg => s.kind !== "text");
+  let active: StepsSeg | ImageSeg | undefined = running ? groups.find((g) => g.steps.includes(running)) : groups.find((g) => g.kind === "image" && g.image?.state === "ready");
+  const lastSeg = segs[segs.length - 1];
+  if (!active && lastSeg?.kind === "steps") active = lastSeg;
+  if (!active) segs.push((active = { kind: "steps", key: `steps:${parts.length}`, steps: [], active: false, label: "" }));
+  active.active = true;
+  active.label = activityOf(m) ?? THINKING;
+  return segs;
 }
 
 /** The seconds a turn has taken, shown from 5 s on ("12s", "1m 05s"); empty before that. */

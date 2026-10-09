@@ -2,7 +2,7 @@
 // (service.ts applyEvent / withPlacedImage / turnOver), whether a prompt asks for a picture (asksForImage), and the
 // canvas placeholder's place and life (imagePlaceholder.ts).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { activityOf, asksForImage, elapsedLabel, requestedAspect, THINKING, toolActiveLabel } from "../agents/activity";
+import { activityOf, asksForImage, elapsedLabel, GENERATE_IMAGE, PLACE_IMAGE, requestedAspect, segmentsOf, stepsSummary, THINKING, toolActiveLabel } from "../agents/activity";
 import { FADE_MS, ImagePlaceholders, landInBox, placeholderArgs, placeholderTarget, reshapeTarget, REVEAL_MS, targetAspect, type PlaceholderEnv, type PlaceNode } from "../agents/imagePlaceholder";
 import { applyEvent, placedInfo, turnOver, withPlacedImage, type ChatMessage, type ImagePart, type MessagePart } from "../agents/service";
 import type { ChatEvent } from "@shared/agents/types";
@@ -33,6 +33,70 @@ describe("the Thinking… row", () => {
     expect(elapsedLabel(1000, 6000)).toBe("5s");
     expect(elapsedLabel(0.5, 59_999)).toBe("59s");
     expect(elapsedLabel(1000, 1000 + 65_000)).toBe("1m 05s");
+  });
+});
+
+describe("an answer as words and groups of steps", () => {
+  const tool = (id: string, name: string, state: "running" | "done" | "error" = "done"): ChatEvent => ({ type: "tool", id, name, state });
+  /** Each segment in short: its kind, its steps (by id), whether the turn is in it, its line. */
+  const shape = (m: Pick<ChatMessage, "state" | "parts">) => segmentsOf(m).map((s) => (s.kind === "text" ? `text:${s.text.trim()}` : `${s.kind}[${s.steps.map((t) => t.id).join(",")}]${s.active ? "*" : ""} ${s.label}`));
+
+  it("puts each run of steps between the words in one group: text, steps, text, steps", () => {
+    const events: ChatEvent[] = [{ type: "text", delta: "Let me look." }, tool("1", "get_selection"), tool("2", "get_design_context"), { type: "text", delta: "\n\nNow the mobile one." }, tool("3", "create_nodes"), tool("4", "set_selection", "error")];
+    expect(shape(run(events, { state: "done" }))).toEqual(["text:Let me look.", "steps[1,2] Thinking · 2 steps", "text:Now the mobile one.", "steps[3,4] Thinking · 2 steps · 1 failed"]);
+    expect(stepsSummary([{ kind: "tool", id: "1", name: "get_selection", state: "done" }])).toBe("Thinking · 1 step");
+    // Keys stay put as the answer grows (the groups keep open or closed).
+    expect(segmentsOf(run(events, { state: "done" })).map((s) => s.key)).toEqual(["text:0", "steps:1", "text:3", "steps:4"]);
+  });
+
+  it("while running, the group the turn is in is the thinking line: its running step, else Thinking…; after words a new one", () => {
+    // Nothing yet: one running group, empty.
+    expect(shape(run([]))).toEqual(["steps[]* Thinking…"]);
+    expect(shape(run([{ type: "status", text: "Starting Antigravity…" }]))).toEqual(["steps[]* Starting Antigravity…"]);
+    // A step running: its group says what it does; done, the same group thinks on.
+    expect(shape(run([tool("1", "get_selection"), tool("2", "get_design_context", "running")]))).toEqual(["steps[1,2]* Reading the design…"]);
+    expect(shape(run([tool("1", "get_selection"), tool("2", "get_design_context")]))).toEqual(["steps[1,2]* Thinking…"]);
+    // Words after it: that group settles, a new one runs below them under the key the next step's group gets.
+    const m = run([tool("1", "get_selection"), { type: "text", delta: "Got it." }]);
+    expect(shape(m)).toEqual(["steps[1] Thinking · 1 step", "text:Got it.", "steps[]* Thinking…"]);
+    const next = run([tool("1", "get_selection"), { type: "text", delta: "Got it." }, tool("2", "create_nodes", "running")]);
+    expect(segmentsOf(m)[2].key).toBe(segmentsOf(next)[2].key);
+    expect(shape(next)).toEqual(["steps[1] Thinking · 1 step", "text:Got it.", "steps[2]* Creating layers…"]);
+    // Over: nothing running, no empty group.
+    expect(shape(run([tool("1", "get_selection"), { type: "text", delta: "Done." }], { state: "done" }))).toEqual(["steps[1] Thinking · 1 step", "text:Done."]);
+  });
+
+  it("gives an image its own group, Generate image, with its card and the place_image that puts it on the canvas", () => {
+    const g: ChatEvent[] = [tool("1", "get_selection"), { type: "tool", id: "g", name: "generate_image", args: { aspect_ratio: "1:1" }, state: "running" }];
+    const making = run(g);
+    expect(shape(making)).toEqual(["steps[1] Thinking · 1 step", "image[g]* Making an image…"]);
+    expect(segmentsOf(making)[1]).toMatchObject({ kind: "image", image: { state: "generating" } });
+    const made = run([...g, tool("g", "generate_image"), tool("p", "place_image", "running")]);
+    expect(shape(made)).toEqual(["steps[1] Thinking · 1 step", "image[g,p]* Placing the image…"]);
+    // place_image's result puts the picture on the card, then the turn ends.
+    const placed = { state: "done" as const, parts: turnOver(withPlacedImage(run([...g, tool("g", "generate_image"), tool("p", "place_image"), { type: "text", delta: "Here it is." }]).parts!, { hash: "h", width: 2, height: 2 }), false) };
+    expect(shape(placed)).toEqual(["steps[1] Thinking · 1 step", `image[g,p] ${GENERATE_IMAGE}`, "text:Here it is."]);
+    // A failed one: its group, no card.
+    const failed = run([tool("g", "generate_image", "running"), { type: "tool", id: "g", name: "generate_image", state: "error", summary: "quota" }], { state: "done" });
+    expect(segmentsOf(failed)).toMatchObject([{ kind: "image", label: GENERATE_IMAGE, steps: [{ state: "error" }] }]);
+    expect((segmentsOf(failed)[0] as { image?: unknown }).image).toBeUndefined();
+    // A picture the agent had, placed: "Place image", with its step.
+    const own = withPlacedImage(run([tool("p", "place_image")]).parts!, { hash: "h", width: 1, height: 1 });
+    expect(shape({ state: "done", parts: own })).toEqual([`image[p] ${PLACE_IMAGE}`]);
+  });
+
+  it("keeps the card put up as the prompt was sent where it is: generate_image and place_image join it there", () => {
+    const asked: ImagePart = { kind: "image", id: "image:asked:a", state: "generating", aspect: 1, asked: true };
+    const early = run([{ type: "status", text: "Starting Antigravity…" }], { parts: [asked] });
+    expect(shape(early)).toEqual([`image[] ${GENERATE_IMAGE}`, "steps[]* Starting Antigravity…"]);
+    const m = run([{ type: "text", delta: "Sure." }, tool("1", "get_selection"), { type: "tool", id: "g", name: "generate_image", state: "running" }], { parts: [asked] });
+    expect(shape(m)).toEqual(["image[g]* Making an image…", "text:Sure.", "steps[1] Thinking · 1 step"]);
+    expect(segmentsOf(m)[0].key).toBe(segmentsOf(early)[0].key);
+    // Made: about to be placed, the image's group is the one thinking.
+    const made = run([tool("g", "generate_image")], { parts: m.parts });
+    expect(shape(made)).toEqual(["image[g]* Placing the image…", "text:Sure.", "steps[1] Thinking · 1 step"]);
+    const after = run([tool("p", "place_image"), tool("s", "set_selection")], { parts: withPlacedImage(run([tool("p", "place_image")], { parts: made.parts }).parts!, { hash: "h", width: 1, height: 1 }) });
+    expect(shape(after)).toEqual([`image[g,p] ${GENERATE_IMAGE}`, "text:Sure.", "steps[1,s]* Thinking…"]);
   });
 });
 

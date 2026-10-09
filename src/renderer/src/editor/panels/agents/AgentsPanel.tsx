@@ -14,7 +14,7 @@ import { useTopics } from "../../hooks";
 import { agentsOf, toolLabel, type AgentsService, type Chat, type ChatMessage, type ImagePart, type MessagePart } from "../../agents/service";
 import { MODEL_SEP, effortMenu, modelMenu, pickModel } from "../../agents/models";
 import { formatTokens, relevantWindows, resetLabel, ringOf, usedLabel } from "../../agents/usage";
-import { activityOf, elapsedLabel, toolActiveLabel } from "../../agents/activity";
+import { elapsedLabel, segmentsOf, toolActiveLabel, type Segment, type ToolPart } from "../../agents/activity";
 import { REVEAL_MS } from "../../agents/imagePlaceholder";
 import { TabHeader } from "../TabHeader";
 import { AgentSettings } from "./AgentSettings";
@@ -189,22 +189,11 @@ function UserMessage({ m }: { m: ChatMessage }) {
 }
 
 function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }) {
-  const parts = m.parts ?? [];
-  // The step running now carries the turn's seconds; without one the Thinking… row does.
-  const current = m.state === "running" ? [...parts].reverse().find((p) => p.kind === "tool" && p.state === "running") : undefined;
+  const segments = segmentsOf(m);
   return (
     <div className={styles.agent} data-message="assistant" data-state={m.state}>
       {m.provider && <span className={styles.agentName}>{m.provider}</span>}
-      {parts.map((p, i) =>
-        p.kind === "text" ? (
-          <div key={i} className={styles.agentText}>{renderText(p.text)}</div>
-        ) : p.kind === "status" ? null : p.kind === "image" ? (
-          <ImageCard key={p.id} p={p} />
-        ) : (
-          <ToolRow key={p.id} p={p} since={p === current ? m.startedAt : undefined} />
-        )
-      )}
-      {m.state === "running" && !current && <ThinkingRow m={m} />}
+      {segments.map((s) => (s.kind === "text" ? <div key={s.key} className={styles.agentText} data-agent-text="">{renderText(s.text)}</div> : <StepGroup key={s.key} seg={s} since={m.startedAt} />))}
       {m.error && <div className={styles.error} role="alert">{m.error}</div>}
       {m.state === "stopped" && <div className={styles.stopped}>Stopped</div>}
       {m.changes && m.turnId && <Changes turnId={m.turnId} changes={m.changes} service={service} />}
@@ -213,19 +202,52 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
 }
 
 /**
- * While the agent works: what it is doing ("Thinking…", "Reading the design…", "Making an image…") in a shimmering
- * line (Figma AI's), and after 5 s the seconds it has taken. Only this row re-renders each second.
+ * A run of the agent's steps as one row, collapsed (Claude's desktop way): the Agents icon, a line, a chevron that
+ * opens the steps. While the turn is in it the row is the thinking line — the icon turning, what it does now
+ * ("Reading the design…", "Thinking…") in grey with a lighter sweep, the seconds after 5 s (only they re-render each
+ * second); then it settles ("Thinking · 4 steps"). An image's group keeps its card under the row.
  */
-function ThinkingRow({ m }: { m: ChatMessage }) {
-  const label = activityOf(m);
-  if (!label) return null;
-  return (
-    <div className={styles.thinking} role="status" data-thinking="">
-      <span className={styles.thinkingIcon} aria-hidden="true">
+function StepGroup({ seg, since }: { seg: Exclude<Segment, { kind: "text" }>; since?: number }) {
+  const [open, setOpen] = useState(false);
+  const image = seg.kind === "image" ? seg.image : undefined;
+  const hasSteps = seg.steps.length > 0;
+  // A card put up for a picture the agent never started, fading out: no row of its own.
+  const row = seg.active || hasSteps || image?.state !== "cancelled";
+  const thinking = seg.active ? "" : undefined;
+  const head = (
+    <>
+      <span className={cx(styles.groupIcon, seg.active && styles.groupIconActive)} aria-hidden="true">
         <Icon name="24.agents" />
       </span>
-      <span className={styles.thinkingText} data-thinking-label="">{label}</span>
-      <Elapsed since={m.startedAt} />
+      <span className={cx(styles.groupLabel, seg.active && styles.thinkingText)} data-thinking-label={thinking} data-group-label="" aria-live={seg.active ? "polite" : undefined}>
+        {seg.label}
+      </span>
+      {seg.active && <Elapsed since={since} />}
+      {hasSteps && (
+        <span className={cx(styles.groupChevron, open && styles.groupChevronOpen)}>
+          <Icon name="16.chevron.down" />
+        </span>
+      )}
+    </>
+  );
+  return (
+    <div className={styles.stepGroup} data-step-group={seg.kind} data-group-state={seg.active ? "running" : "done"}>
+      {row &&
+        (hasSteps ? (
+          <button type="button" className={styles.groupHeader} aria-expanded={open} onClick={() => setOpen(!open)} data-thinking={thinking} data-group-toggle="">
+            {head}
+          </button>
+        ) : (
+          <div className={styles.groupHeader} role="status" data-thinking={thinking}>
+            {head}
+          </div>
+        ))}
+      {open && hasSteps && (
+        <div className={styles.groupSteps} data-group-steps="">
+          {seg.steps.map((p) => <ToolRow key={p.id} p={p} />)}
+        </div>
+      )}
+      {image && <ImageCard p={image} />}
     </div>
   );
 }
@@ -298,21 +320,20 @@ function ImageCard({ p }: { p: ImagePart }) {
   );
 }
 
-/** A step of the turn; a failed one opens to its whole error (a nested API error read down to its message). */
-function ToolRow({ p, since }: { p: Extract<MessagePart, { kind: "tool" }>; since?: number }) {
+/** A step in its group: ✓ and what it did, a spinner and what it does; a failed one opens to its whole error. */
+function ToolRow({ p }: { p: ToolPart }) {
   const [open, setOpen] = useState(false);
   const icon = <span className={styles.toolIcon}>{p.state === "running" ? <Spinner size={16} /> : p.state === "error" ? <Icon name="16.warning" /> : <Icon name="16.check" />}</span>;
   if (p.state !== "error" || !p.summary)
     return (
       <div className={styles.tool} data-tool={p.name} data-tool-state={p.state} {...tooltipProps(p.summary)}>
         {icon}
-        {p.state === "running" ? <span className={cx(styles.toolLabel, styles.thinkingText)} data-thinking-label="">{toolActiveLabel(p.name)}</span> : <span className={styles.toolLabel}>{toolLabel(p.name)}</span>}
-        {p.state === "running" && <Elapsed since={since} />}
+        <span className={styles.toolLabel}>{p.state === "running" ? toolActiveLabel(p.name) : toolLabel(p.name)}</span>
       </div>
     );
   return (
     <div className={styles.toolFailed} data-tool={p.name} data-tool-state={p.state}>
-      <button type="button" className={styles.tool} aria-expanded={open} onClick={() => setOpen(!open)} data-tool-toggle="">
+      <button type="button" className={styles.tool} data-tool-state={p.state} aria-expanded={open} onClick={() => setOpen(!open)} data-tool-toggle="">
         {icon}
         <span className={styles.toolLabel}>{toolLabel(p.name)}</span>
         <span className={cx(styles.toolChevron, open && styles.toolChevronOpen)}><Icon name="16.chevron.right" /></span>
@@ -473,7 +494,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
       <textarea
         className={styles.input}
         value={text}
-        rows={3}
+        rows={2}
         placeholder={chat?.messages.length ? "Reply…" : "Describe a design or a change"}
         aria-label="Message"
         onChange={(e) => setText(e.target.value)}

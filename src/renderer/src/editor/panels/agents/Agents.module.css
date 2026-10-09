@@ -51,8 +51,21 @@
   .para:last-child { margin-bottom: 0; }
   .list { margin: 0 0 var(--ds-space-2); padding-left: var(--ds-space-4); }
   .agentText code { padding: 0 var(--ds-space-half); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); font: var(--ds-font-code); }
-  .status, .tool { display: flex; align-items: center; gap: var(--ds-space-1-5); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
-  .toolIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); }
+  /* A run of steps as one row (Claude's desktop way): the Agents icon, its line and a chevron; open, the steps under it
+     along a thin line, each ✓ (or a spinner, or ⚠ that opens to its error) and what it did */
+  .stepGroup { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .groupHeader { display: flex; align-items: center; align-self: flex-start; gap: var(--ds-space-1-5); max-width: 100%; min-height: var(--ds-size-control); padding: 0; border: 0; background: transparent; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; cursor: default; }
+  button.groupHeader:hover { color: var(--figma-color-text); }
+  button.groupHeader:hover .groupChevron { color: var(--figma-color-icon-secondary); }
+  .groupHeader:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-small); }
+  .groupIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-4); height: var(--ds-space-4); color: var(--figma-color-icon-secondary); }
+  .groupIcon > svg { width: 100%; height: 100%; }
+  .groupLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .groupChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); transition: transform var(--ds-duration-fast) var(--ds-ease-out); }
+  .groupChevronOpen { transform: rotate(180deg); }
+  .groupSteps { display: flex; flex-direction: column; gap: var(--ds-space-1); margin-left: calc(var(--ds-space-2) - 1px); padding: var(--ds-space-half) 0 var(--ds-space-half) var(--ds-space-3); border-left: 1px solid var(--figma-color-border); }
+  .tool { display: flex; align-items: center; gap: var(--ds-space-1-5); min-height: var(--ds-space-5); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .toolIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }
   .tool[data-tool-state="error"] .toolIcon { color: var(--figma-color-icon-danger); }
   .toolLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .toolFailed { display: flex; flex-direction: column; gap: var(--ds-space-1); }
@@ -65,12 +78,10 @@
   .error { padding: var(--ds-space-2); border: 1px solid var(--figma-color-border-danger); border-radius: var(--ds-radius-medium); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
   .stopped { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
 
-  /* While the agent works (the owner's pick: Claude's desktop look): the Agents icon turning slowly, what it is doing in
-     grey with a lighter grey sweeping through it, the seconds after 5 s; an image being made as a grey card with a soft
-     light crossing it, then the picture. */
-  .thinking { display: flex; align-items: center; gap: var(--ds-space-1-5); min-height: var(--ds-size-control); font: var(--ds-font-body-medium); }
-  .thinkingIcon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-4); height: var(--ds-space-4); color: var(--figma-color-icon-secondary); animation: spin calc(var(--ds-duration-shimmer) * 1.5) linear infinite; }
-  .thinkingIcon > svg { width: 100%; height: 100%; }
+  /* While the agent works (the owner's pick: Claude's desktop look), the group the turn is in: the Agents icon turning
+     slowly, what it is doing in grey with a lighter grey sweeping through it, the seconds after 5 s; an image being made
+     as a grey card with a soft light crossing it, then the picture. */
+  .groupIconActive { animation: spin calc(var(--ds-duration-shimmer) * 1.5) linear infinite; }
   .thinkingText {
     min-width: 0;
     background: linear-gradient(90deg, var(--figma-color-text-tertiary) 0%, var(--figma-color-text-tertiary) 35%, var(--figma-color-text) 50%, var(--figma-color-text-tertiary) 65%, var(--figma-color-text-tertiary) 100%) 0 0 / 300% 100%;
@@ -115,7 +126,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .thinkingIcon { animation: none; }
+    .groupIconActive { animation: none; }
     .thinkingText { background: none; color: var(--figma-color-text-secondary); animation: none; }
     .imageCardBusy::after { display: none; }
     .imageCard[data-reveal="play"] .imageCardImg { animation: none; }
@@ -132,7 +143,8 @@
   /* Files dragged over it */
   .composerDrop, .composerDrop:focus-within { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-selected); }
   .composer .chips { justify-content: flex-start; }
-  .input { width: 100%; min-height: calc(var(--ds-size-row) * 2); max-height: calc(var(--ds-size-row) * 8); padding: 0; border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: none; outline: none; field-sizing: content; }
+  /* Two lines at first, growing with the text to ten, then scrolling */
+  .input { width: 100%; min-height: calc(var(--ds-space-4) * 2); max-height: calc(var(--ds-space-4) * 10); overflow-y: auto; padding: 0; border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: none; outline: none; field-sizing: content; }
   .input::placeholder { color: var(--figma-color-text-tertiary); }
   .composerBar { display: flex; align-items: center; gap: var(--ds-space-half); min-width: 0; margin-left: calc(var(--ds-space-1) * -1); }
   .barGap { flex: 1 1 auto; min-width: 0; }

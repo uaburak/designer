@@ -186,6 +186,8 @@ function installMockAgents() {
         let made = null;
         for (const [tid, name, args] of steps) {
           emit(turnId, req.chatId, { type: "tool", id: tid, name, args, state: "running" });
+          // Held here until the shot has seen the running group (window.__agentsOpen("variant")).
+          if (name === "create_responsive_variant") await gate("variant");
           const r = await call(turnId, name, args);
           window.__designerAgentsLog.push({ name, isError: !!r.isError, text: r.content.find((c) => c.type === "text")?.text?.slice(0, 200) });
           if (name === "create_responsive_variant" && !r.isError) made = JSON.parse(r.content[0].text).created.id;
@@ -197,6 +199,11 @@ function installMockAgents() {
           emit(turnId, req.chatId, { type: "tool", id: "t4", name: "update_nodes", state: "done" });
           await call(turnId, "set_selection", { nodeIds: [made] });
         }
+        // Words, then more steps: a new group under them.
+        emit(turnId, req.chatId, { type: "text", delta: "Made it. A last look at the result:" });
+        emit(turnId, req.chatId, { type: "tool", id: "t6", name: "get_screenshot", state: "running" });
+        await call(turnId, "get_screenshot", { nodeId: made ?? id, maxSize: 256 });
+        emit(turnId, req.chatId, { type: "tool", id: "t6", name: "get_screenshot", state: "done" });
         // A failed step whose error is Google's JSON inside the CLI's message: the chat opens it to the inner message.
         const quota = JSON.stringify({ error: { code: 429, message: "You exceeded your current quota. Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: gemini-2.5-flash-image", status: "RESOURCE_EXHAUSTED" } });
         emit(turnId, req.chatId, { type: "tool", id: "t5", name: "generate_image", state: "running" });
@@ -293,8 +300,31 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await shot(page, `401-agents-new-chat-${theme}`);
 
   // The flagship flow: "Make the mobile version of this".
+  // The composer's text box: two lines at first, growing with the text to ten, then scrolling; the bar stays under it.
+  const input = page.locator("[data-agents-input]");
+  const box = () => input.evaluate((el) => ({ h: Math.round(el.getBoundingClientRect().height), scroll: el.scrollHeight > el.clientHeight, bar: !!el.parentElement?.querySelector("[data-agents-send]") && !!el.parentElement?.querySelector("[data-attach]") }));
+  const empty = await box();
+  await closeUp(page, "[data-composer]", `chat-steps-composer-${theme}`, 8);
+  await input.fill(Array.from({ length: 16 }, (_, i) => `Line ${i + 1}`).join("\n"));
+  const tall = await box();
+  await input.fill("");
+  check("Chat steps: the composer's text box is two lines when empty (32 px), grows to ten (160 px) and scrolls; +, model, effort, usage and Send stay under it", empty.h === 32 && tall.h === 160 && tall.scroll && empty.bar, JSON.stringify({ empty, tall }));
+
   await page.locator("[data-agents-input]").fill("Make the mobile version of this");
   await page.locator("[data-agents-input]").press("Enter");
+  // Held at create_responsive_variant: its group is the thinking line, saying what it does; the steps stay folded.
+  const answer = page.locator('[data-message="assistant"]').first();
+  const runningGroup = answer.locator('[data-step-group="steps"][data-group-state="running"]');
+  await runningGroup.locator("[data-thinking-label]", { hasText: "Making a responsive version…" }).waitFor({ timeout: 5000 });
+  const runningState = await answer.evaluate((el) => ({ thinking: el.querySelectorAll("[data-thinking]").length, spinning: el.querySelectorAll("[data-step-group] [data-thinking] svg").length > 0, tools: el.querySelectorAll("[data-tool]").length }));
+  check("Chat steps: while a step runs, its group's row is the thinking line with the step (Making a responsive version…), one per answer, folded", runningState.thinking === 1 && runningState.tools === 0, JSON.stringify(runningState));
+  await runningGroup.locator("[data-group-toggle]").click();
+  check("Chat steps: opened while running, the group lists its steps, the running one with a spinner", (await runningGroup.locator('[data-tool][data-tool-state="running"]').count()) === 1 && (await runningGroup.locator('[data-tool][data-tool-state="done"]').count()) === 2);
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(200);
+  await closeUp(page, '[data-message="assistant"]', `chat-steps-running-${theme}`, 12);
+  await runningGroup.locator("[data-group-toggle]").click();
+  await page.evaluate(() => window.__agentsOpen("variant"));
   await page.waitForSelector('[data-message="assistant"][data-state="done"]', { timeout: 15000 });
   await settle(page);
   const result = await page.evaluate(() => {
@@ -307,7 +337,23 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   check("Agents: the agent's tool calls ran on the engine", result.log.slice(1).every((l) => !l.isError), result.log.slice(1).map((l) => `${l.name}${l.isError ? " (error)" : ""}`).join(", "));
   check("Agents: a 390 wide vertical auto layout frame next to the desktop one, selected", result.width === 390 && result.mode === "VERTICAL" && result.x >= 1440 + 100 && result.kids >= 5 && result.name === "Desktop — Mobile", JSON.stringify({ ...result, log: undefined }));
   check("Agents: the turn is one undo step labelled for the agent", result.undo === "Claude Code edit", result.undo);
-  check("Agents: the steps are listed", (await page.locator('[data-message="assistant"] [data-tool]').count()) === 5);
+  // The answer as Claude's desktop app shows it: words, a folded group, words, a new group, the image's group, words.
+  const segOrder = await answer.evaluate((el) => [...el.children].map((c) => (c.hasAttribute("data-step-group") ? `${c.getAttribute("data-step-group")}: ${c.querySelector("[data-group-label]")?.textContent ?? ""}` : c.hasAttribute("data-agent-text") ? "text" : c.hasAttribute("data-changes") ? "changes" : null)).filter(Boolean));
+  check("Chat steps: the answer reads words, a group, words, a new group after them, the image's own group, words, the changes", JSON.stringify(segOrder) === JSON.stringify(["text", "steps: Thinking · 4 steps", "text", "steps: Thinking · 1 step", "image: Generate image", "text", "changes"]), JSON.stringify(segOrder));
+  const toggles = answer.locator("[data-group-toggle]");
+  check("Chat steps: every group is folded once the turn is over (no step shown, no thinking line)", (await answer.locator("[data-tool]").count()) === 0 && (await answer.locator("[data-thinking]").count()) === 0 && (await toggles.evaluateAll((els) => els.every((e) => e.getAttribute("aria-expanded") === "false"))));
+  await closeUp(page, '[data-message="assistant"]', `chat-steps-collapsed-${theme}`, 12);
+  await toggles.first().click();
+  const firstSteps = await answer.locator("[data-step-group]").first().locator("[data-group-steps] [data-tool]").evaluateAll((els) => els.map((e) => `${e.getAttribute("data-tool-state")} ${e.textContent}`));
+  check("Chat steps: a click opens the group to its steps, each ✓ and what it did", JSON.stringify(firstSteps) === JSON.stringify(["done Read the design", "done Took a screenshot", "done Made a responsive version", "done Edited layers"]), JSON.stringify(firstSteps));
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(200);
+  await closeUp(page, '[data-message="assistant"]', `chat-steps-expanded-${theme}`, 12);
+  await toggles.first().click();
+  check("Chat steps: a second click folds it again", (await answer.locator("[data-tool]").count()) === 0);
+  await toggles.nth(1).click();
+  await toggles.nth(2).click();
+  check("Agents: the steps are listed", (await page.locator('[data-message="assistant"] [data-tool]').count()) === 2);
   const failed = page.locator('[data-tool="generate_image"][data-tool-state="error"]');
   await failed.locator("[data-tool-toggle]").click();
   const errText = (await failed.locator("[data-tool-error]").textContent()) ?? "";
@@ -365,12 +411,15 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   const early = await measure();
   check("Agents: right after sending, the placeholder covers the selected rectangle exactly (bounds, corners)", early.count === 1 && early.fills && covers(early) && early.radius === early.rect.radius, JSON.stringify(early));
   check("Agents: right after sending, the chat shows the image card, before any step", (await last.locator("[data-tool]").count()) === 0 && (await last.locator('[data-image-card="generating"]').count()) === 1);
-  await last.locator("[data-thinking]").waitFor({ timeout: 5000 });
-  check("Agents: while the agent thinks, a Thinking… row shimmers under its words", ((await last.locator("[data-thinking-label]").textContent()) ?? "") === "Thinking…");
+  await last.locator("[data-thinking] [data-thinking-label]", { hasText: "Thinking…" }).waitFor({ timeout: 5000 });
+  check("Agents: while the agent thinks, a Thinking… row shimmers under its words",((await last.locator("[data-thinking-label]").textContent()) ?? "") === "Thinking…");
   await shot(page, `405a-agents-image-asked-${theme}`);
   await last.locator("[data-thinking-time]").waitFor({ timeout: 9000 });
   check("Agents: after 5 s the row shows the seconds", /^\d+s$/.test(((await last.locator("[data-thinking-time]").textContent()) ?? "").trim()));
   await closeUp(page, '[data-message="assistant"]:last-child [data-thinking]', `thinking-row-${theme}`, 16);
+  const asked = await last.evaluate((el) => [...el.children].map((c) => (c.hasAttribute("data-step-group") ? `${c.getAttribute("data-step-group")} ${c.getAttribute("data-group-state")}` : c.hasAttribute("data-agent-text") ? "text" : null)).filter(Boolean));
+  check("Chat steps: the card put up for the prompt stays on top in its group; after the words, a new running group", JSON.stringify(asked) === JSON.stringify(["image done", "text", "steps running"]), JSON.stringify(asked));
+  await closeUp(page, '[data-message="assistant"]:last-child', `chat-steps-thinking-${theme}`, 12);
   // Pan: it follows the canvas.
   await page.evaluate(() => {
     const ed = window.__designerEditor;
@@ -381,11 +430,12 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   const panned = await measure();
   check("Agents: the placeholder follows pan and zoom", covers(panned), JSON.stringify(panned));
   await page.evaluate(() => window.__agentsOpen("think"));
-  await last.locator('[data-tool="generate_image"]').waitFor({ timeout: 5000 });
+  await last.locator('[data-step-group="image"][data-group-state="running"]').waitFor({ timeout: 5000 });
   await page.waitForTimeout(300);
   const making = await measure();
   check("Agents: generate_image shows in the same placeholder and card (no second one)", making.count === 1 && making.state === "active" && covers(making) && (await last.locator("[data-image-card]").count()) === 1, JSON.stringify(making));
-  check("Agents: the running step says Making an image…", ((await last.locator('[data-tool="generate_image"] [data-thinking-label]').textContent()) ?? "") === "Making an image…");
+  check("Chat steps: the image's own group is the thinking line while it is made (Making an image…), its card under it; the other groups settle", ((await last.locator('[data-step-group="image"] [data-thinking-label]').textContent()) ?? "") === "Making an image…" && (await last.locator('[data-step-group="image"] [data-image-card]').count()) === 1 && (await last.locator("[data-thinking]").count()) === 1);
+  await closeUp(page, '[data-message="assistant"]:last-child', `chat-steps-image-making-${theme}`, 12);
   await shot(page, `405-agents-image-making-${theme}`);
   await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-making-${theme}`, 16);
   await closeUp(page, "[data-agent-image-placeholder]", `canvas-placeholder-making-${theme}`, 48);
@@ -430,6 +480,14 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   check("Agents: no Thinking… row once the turn is over", (await last.locator("[data-thinking]").count()) === 0);
   await shot(page, `406-agents-image-placed-${theme}`);
   await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-placed-${theme}`, 16);
+  const imageGroup = last.locator('[data-step-group="image"]');
+  await imageGroup.locator("[data-group-toggle]").click();
+  const imageSteps = await imageGroup.locator("[data-group-steps] [data-tool]").allTextContents();
+  check("Chat steps: done, the image's group reads Generate image and opens to Made an image, Placed an image", ((await imageGroup.locator("[data-group-label]").textContent()) ?? "") === "Generate image" && JSON.stringify(imageSteps) === JSON.stringify(["Made an image", "Placed an image"]), JSON.stringify(imageSteps));
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(200);
+  await closeUp(page, '[data-message="assistant"]:last-child', `chat-steps-image-${theme}`, 12);
+  await imageGroup.locator("[data-group-toggle]").click();
   if (process.env.AGENTS_UX_DIR) {
     // The rectangle on the canvas, filled with the picture.
     const m = await measure();
@@ -453,7 +511,7 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await page.locator("[data-agents-input]").press("Enter");
   await page.locator('[data-message="assistant"]').last().locator("[data-thinking]").waitFor({ timeout: 5000 });
   await page.evaluate(() => window.__agentsOpen("think"));
-  await page.locator('[data-message="assistant"]').last().locator('[data-tool="generate_image"]').waitFor({ timeout: 5000 });
+  await page.locator('[data-message="assistant"]').last().locator('[data-step-group="image"][data-group-state="running"]').waitFor({ timeout: 5000 });
   await page.locator("[data-agents-stop]").click();
   await page.locator('[data-agent-image-placeholder="leaving"]').waitFor({ timeout: 3000 });
   await page.waitForFunction(() => !document.querySelector("[data-agent-image-placeholder]"), null, { timeout: 3000 });
