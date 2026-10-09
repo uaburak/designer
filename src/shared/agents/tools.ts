@@ -28,12 +28,21 @@ const nodeId = { type: "string", description: 'A layer id as "123:456" (the URL 
 const layerProps: Record<string, unknown> = layerPropsSchema();
 
 const ids = { type: "array", items: { type: "string" } };
+
+/** An image from the agent: a file in its working folder, or the bytes (PNG, JPEG, WebP, GIF). */
+const imageArg = {
+  type: "object",
+  description:
+    "A picture to fill the layer with (it replaces its fills; a new layer without width/height gets the image's size): `path` — a PNG, JPEG, WebP or GIF file in your working folder (e.g. one an image generator saved there) — or `data` — its bytes as base64. `scaleMode`: FILL (default), FIT, CROP, TILE.",
+  properties: { path: { type: "string" }, data: { type: "string" }, name: { type: "string" }, scaleMode: { enum: ["FILL", "FIT", "CROP", "TILE"] } },
+};
 const STYLE_PROPS = (keys: string[]) => Object.fromEntries(keys.map((k) => [k, layerProps[k]]));
 const nodeSpec: Record<string, unknown> = {
   type: "object",
   properties: {
     type: { enum: ["FRAME", "RECTANGLE", "ELLIPSE", "TEXT", "LINE", "GROUP", "POLYGON", "STAR", "SECTION"], description: "GROUP needs children. Components, instances, vectors, boolean groups: run_command (list_commands)." },
     ...layerProps,
+    image: imageArg,
     children: { type: "array", items: { type: "object" }, description: "Nested node specs (same shape), created inside this one in order." },
   },
   required: ["type"],
@@ -89,7 +98,29 @@ export const TOOLS: ToolDef[] = [
     name: "update_nodes",
     title: "Update layers",
     description: "Changes properties of existing layers. Each update names a nodeId and the properties to set (the same names and shapes as create_nodes and get_design_context). Strict: unknown properties, values it can't read and properties that don't apply to the layer are listed under rejected; properties the engine didn't take (e.g. a width on a hugging frame) under notApplied — the summary line says so. For any other document field use set_properties.",
-    inputSchema: { type: "object", properties: { updates: { type: "array", items: { type: "object", properties: { nodeId: { type: "string" }, ...layerProps }, required: ["nodeId"] } } }, required: ["updates"] },
+    inputSchema: { type: "object", properties: { updates: { type: "array", items: { type: "object", properties: { nodeId: { type: "string" }, ...layerProps, image: imageArg }, required: ["nodeId"] } } }, required: ["updates"] },
+    write: true,
+  },
+  {
+    name: "place_image",
+    title: "Place image",
+    description:
+      "Puts a picture on the canvas, as Place image does: a rectangle the image's size (or `width` / `height`; one of them keeps the aspect ratio) filled with it, named after the file, at `x` / `y` in `parentId` (default: the current page, right of the existing layers) — or, with `nodeId`, fills that layer with it instead. The image: `path` — a PNG, JPEG, WebP or GIF file in your working folder (an image generator's output, e.g. nanobanana-output/…) — or `data`, its bytes as base64. Returns the layer's id and the image's hash (usable as imageRef in fills).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        data: { type: "string" },
+        name: { type: "string" },
+        nodeId: { type: "string", description: "Fill this existing layer instead of making a new one." },
+        parentId: { type: "string" },
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+        scaleMode: { enum: ["FILL", "FIT", "CROP", "TILE"] },
+      },
+    },
     write: true,
   },
   {

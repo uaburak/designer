@@ -18,6 +18,9 @@ import { COMMAND_BY_ID, COMMANDS, comboText, isEnabled } from "../commands";
 import { ENGINE_COMMAND_DOCS } from "./engineCommands.generated";
 import { base64, encodePng } from "./png";
 import { responsiveVariant } from "./responsive";
+import { base64Bytes, isImageArg, MAX_IMAGE_BYTES, sniffImage, type ImageArg } from "@shared/agents/images";
+import { mediaPaint } from "../model/paints";
+import type { ImportedImage } from "../images";
 
 export interface ToolEnv {
   ed: EditorController;
@@ -359,7 +362,20 @@ const componentPropsOf = (env: ToolEnv, id: Guid) => {
 };
 
 /** Applies a spec to an existing layer, reads it back and says what didn't take. */
-function applySpec(env: ToolEnv, id: Guid, spec: Spec, opts: { creating?: boolean; skip?: string[] } = {}): NodeResult {
+function applySpec(env: ToolEnv, id: Guid, spec0: Spec, opts: { creating?: boolean; skip?: string[] } = {}): NodeResult {
+  const { [IMAGE_KEY]: image, ...spec } = spec0 as Spec & { [IMAGE_KEY]?: PlacedImage };
+  const r = applySpecFields(env, id, spec, opts);
+  if (!image) return r;
+  const status = env.ed.engine.setProps([id], { fillPaints: imageFill(image) as never });
+  if (status !== 0) r.rejected.push({ property: "image", reason: `the engine refused the image fill (status ${status})` });
+  else {
+    r.applied.push("image");
+    r.values.image = { imageHash: image.img.hash, width: image.img.width, height: image.img.height, scaleMode: image.scaleMode };
+  }
+  return r;
+}
+
+function applySpecFields(env: ToolEnv, id: Guid, spec: Spec, opts: { creating?: boolean; skip?: string[] } = {}): NodeResult {
   const n0 = read(env, id);
   if (!n0) return { nodeId: id, applied: [], rejected: [{ property: "nodeId", reason: "no such layer" }], notApplied: [], values: {} };
   const n = env.ed.withRealType(n0);
@@ -378,6 +394,89 @@ function applySpec(env: ToolEnv, id: Guid, spec: Spec, opts: { creating?: boolea
   const values = readProps(after, parentAfter, asked);
   if (applied.includes("componentProperties")) values.componentProperties = componentPropsOf(env, id);
   return { nodeId: id, name: after.name, applied: applied.filter((k) => !notApplied.some((x) => x.property === k) && !rejected.some((r) => r.property.startsWith(k + "."))), rejected, notApplied, values };
+}
+
+// ---- Images (place_image, `image` in create_nodes / update_nodes) ----------------------------------------------------
+
+/** A spec's image after import (the `image` argument is replaced by it before the write). */
+interface PlacedImage {
+  img: ImportedImage;
+  scaleMode: "FILL" | "FIT" | "STRETCH" | "TILE";
+}
+const IMAGE_KEY = "__placedImage";
+
+/** The Plugin API's scale modes → the document's (CROP is STRETCH there). */
+const SCALE_MODES: Record<string, PlacedImage["scaleMode"]> = { FILL: "FILL", FIT: "FIT", CROP: "STRETCH", STRETCH: "STRETCH", TILE: "TILE" };
+
+const imageFill = (p: PlacedImage) => [{ ...mediaPaint(p.img), imageScaleMode: p.scaleMode }];
+
+/** The image's bytes (main has read a `path` into `data` already) imported into the file's images, as Place image does. */
+async function importImageArg(env: ToolEnv, arg: ImageArg, at = "image"): Promise<PlacedImage> {
+  if (!env.ed.images.store) throw new ToolError("Images can't be added to this file.");
+  if (typeof arg.data !== "string") throw new ToolError(`${at}: give \`path\` (a file in your working folder) or \`data\` (base64 bytes)${typeof arg.path === "string" ? " — this path wasn't read by the app" : ""}`);
+  const bytes = base64Bytes(arg.data);
+  if (!bytes) throw new ToolError(`${at}.data: not base64`);
+  if (bytes.length > MAX_IMAGE_BYTES) throw new ToolError(`${at}: larger than ${MAX_IMAGE_BYTES / 1024 / 1024} MB`);
+  const mime = sniffImage(bytes);
+  if (!mime) throw new ToolError(`${at}: not a PNG, JPEG, WebP or GIF`);
+  const name = (typeof arg.name === "string" && arg.name.trim() ? arg.name.trim() : "Image").slice(0, 120);
+  const file = new File([bytes as BlobPart], `${name}.${mime.split("/")[1]}`, { type: mime });
+  const [img] = await env.ed.images.import([file]);
+  if (!img) throw new ToolError(`${at}: the image couldn't be decoded`);
+  const scale = typeof arg.scaleMode === "string" ? SCALE_MODES[arg.scaleMode.toUpperCase()] : "FILL";
+  if (!scale) throw new ToolError(`${at}.scaleMode: one of FILL, FIT, CROP, TILE`);
+  return { img: { ...img, name }, scaleMode: scale };
+}
+
+/** A new layer without a size takes the image's (one side given: the other keeps the aspect ratio). */
+function sizeFromImage(spec: Spec, img: ImportedImage) {
+  const w = typeof spec.width === "number" ? spec.width : undefined;
+  const h = typeof spec.height === "number" ? spec.height : undefined;
+  if (w === undefined && h === undefined) Object.assign(spec, { width: img.width, height: img.height });
+  else if (w === undefined && h !== undefined) spec.width = Math.round((h * img.width) / Math.max(1, img.height));
+  else if (h === undefined && w !== undefined) spec.height = Math.round((w * img.height) / Math.max(1, img.width));
+}
+
+/** Imports every `image` of a create_nodes / update_nodes call first (async), replacing it with the imported image. */
+async function importSpecImages(env: ToolEnv, specs: Spec[], creating: boolean, at: string): Promise<Spec[]> {
+  return Promise.all(
+    specs.map(async (spec, i) => {
+      if (!spec || typeof spec !== "object") return spec;
+      const out: Spec = { ...spec };
+      if (isImageArg(spec.image)) {
+        const placed = await importImageArg(env, spec.image, `${at}[${i}].image`);
+        delete out.image;
+        out[IMAGE_KEY] = placed;
+        if (creating) sizeFromImage(out, placed.img);
+      }
+      if (Array.isArray(spec.children)) out.children = await importSpecImages(env, spec.children as Spec[], creating, `${at}[${i}].children`);
+      return out;
+    })
+  );
+}
+
+async function placeImageTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
+  const placed = await importImageArg(env, args as ImageArg, "place_image");
+  const { img } = placed;
+  if (args.nodeId !== undefined) {
+    const id = normId(args.nodeId);
+    must(env, id);
+    let status = 0;
+    env.write("Place image", () => {
+      status = env.ed.engine.setProps([id], { fillPaints: imageFill(placed) as never });
+    });
+    if (status !== 0) throw new ToolError(`The engine refused the image fill (status ${status}).`);
+    const r = textResult({ summary: "place_image: the layer is filled with the image.", nodeId: id, imageHash: img.hash, imageSize: { width: img.width, height: img.height } });
+    r.touched = [id];
+    return r;
+  }
+  const spec: Spec = { type: "RECTANGLE", name: img.name, [IMAGE_KEY]: placed };
+  for (const k of ["x", "y", "width", "height"]) if (typeof args[k] === "number") spec[k] = args[k];
+  sizeFromImage(spec, img);
+  const r = createNodes(env, { parentId: args.parentId, nodes: [spec] });
+  const created = r.touched?.[0];
+  r.content.unshift({ type: "text", text: JSON.stringify({ nodeId: created, imageHash: img.hash, imageSize: { width: img.width, height: img.height } }) });
+  return r;
 }
 
 // ---- Writes: layers -------------------------------------------------------------------------------------------------
@@ -959,9 +1058,11 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
       case "get_variable_defs":
         return getVariableDefs(env, args);
       case "create_nodes":
-        return createNodes(env, args);
+        return createNodes(env, Array.isArray(args.nodes) ? { ...args, nodes: await importSpecImages(env, args.nodes as Spec[], true, "nodes") } : args);
       case "update_nodes":
-        return updateNodes(env, args);
+        return updateNodes(env, Array.isArray(args.updates) ? { ...args, updates: await importSpecImages(env, args.updates as Spec[], false, "updates") } : args);
+      case "place_image":
+        return await placeImageTool(env, args);
       case "delete_nodes":
         return deleteNodes(env, args);
       case "duplicate_nodes":

@@ -6,6 +6,7 @@
  * The backend is the editor view's preload (`window.designer.agents`); in a browser it is `window.__designerAgents`
  * when a page provides one (the editor shots' stand-in), else none — the panel then says agents need the desktop app.
  */
+import type { SelectEntry } from "@/ds";
 import type { AgentSettings, AgentsApi, ChatEvent, ChatTurnMessage, McpClientInfo, McpState, ProviderInfo, TurnEvent } from "@shared/agents/types";
 import type { EditorController } from "../controller";
 import { editorBridge } from "../desktop";
@@ -37,11 +38,20 @@ export interface Chat {
   id: string;
   title: string;
   updatedAt: number;
+  /** The agent the chat was started with — or switched to since (the picker under the message box) */
   providerId: string | null;
   model?: string;
-  /** The CLI's own session (Claude Code --resume) */
+  /** Each agent's own session of this chat (Claude Code --resume), valid while no other agent answered since: `upTo` is the chat's length after its last turn */
+  sessions?: Record<string, { id: string; upTo: number }>;
+  /** (Older chats) the CLI session of `providerId` */
   resume?: string;
   messages: ChatMessage[];
+}
+
+/** The agent and model last picked in this file (a new chat starts with it). */
+export interface AgentChoice {
+  providerId: string;
+  model?: string;
 }
 
 export type AgentsView = "list" | "chat" | "settings";
@@ -86,6 +96,7 @@ const TOOL_LABEL: Record<string, string> = {
   apply_style: "Applied a style",
   create_responsive_variant: "Made a responsive version",
   set_selection: "Selected the result",
+  place_image: "Placed an image",
 };
 export const toolLabel = (name: string) => TOOL_LABEL[name] ?? name.replace(/_/g, " ");
 
@@ -97,7 +108,9 @@ export class AgentsService {
   private offs: (() => void)[] = [];
   private storageKey: string;
   /** Turn → its chat and assistant message */
-  private turnTarget = new Map<string, { chat: string; message: string; providerLabel: string; prompt: string }>();
+  private turnTarget = new Map<string, { chat: string; message: string; providerId: string; providerLabel: string; prompt: string }>();
+  private choiceKey: string;
+  private choice: AgentChoice | null;
   private touched = new Map<string, Set<string>>();
 
   constructor(
@@ -106,7 +119,10 @@ export class AgentsService {
   ) {
     this.api = api;
     this.turns = new AgentTurns(ed);
-    this.storageKey = `designer.agents.chats.${(ed.source as { fileKey?: string }).fileKey ?? ed.source.previews?.fileKey ?? ed.ui.get().fileName}`;
+    const fileId = (ed.source as { fileKey?: string }).fileKey ?? ed.source.previews?.fileKey ?? ed.ui.get().fileName;
+    this.storageKey = `designer.agents.chats.${fileId}`;
+    this.choiceKey = `designer.agents.choice.${fileId}`;
+    this.choice = this.loadChoice();
     this.state = { available: !!api, view: "list", chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {} };
     if (!this.state.chats.length) this.state.view = "chat";
     if (!api) return;
@@ -154,6 +170,15 @@ export class AgentsService {
       return chats.map((c) => ({ ...c, messages: c.messages.map((m) => (m.state === "running" ? { ...m, state: "stopped" as const } : m)) }));
     } catch {
       return [];
+    }
+  }
+
+  private loadChoice(): AgentChoice | null {
+    try {
+      const c = JSON.parse(localStorage.getItem(this.choiceKey) ?? "null") as AgentChoice | null;
+      return c && typeof c.providerId === "string" ? c : null;
+    } catch {
+      return null;
     }
   }
 
@@ -217,21 +242,48 @@ export class AgentsService {
     this.set({ mcp, clients });
   }
 
-  /** The provider a new turn uses: the chosen one if it is there, else the first available. */
+  /** Agents the chat can use: installed and signed in (a CLI), answering with models (a server). */
+  usable(): ProviderInfo[] {
+    return this.state.providers.filter((p) => p.available);
+  }
+
+  /**
+   * The agent a turn uses: the open chat's own (it keeps the agent it was started with until the user switches), else
+   * the one last picked in this file, else the app's last pick, else the first usable.
+   */
   activeProvider(): ProviderInfo | null {
-    const { providers, settings } = this.state;
-    const chosen = providers.find((p) => p.id === settings.providerId && p.available);
-    return chosen ?? providers.find((p) => p.available) ?? null;
+    const usable = this.usable();
+    const chat = this.currentChat();
+    const ids = [chat?.providerId, this.choice?.providerId, this.state.settings.providerId];
+    for (const id of ids) {
+      const p = id ? usable.find((x) => x.id === id) : undefined;
+      if (p) return p;
+    }
+    return usable[0] ?? null;
   }
 
   modelOf(p: ProviderInfo): string | undefined {
-    const m = this.state.settings.models[p.id];
-    return m && (p.models.includes(m) || p.kind !== "openai-compatible") ? m : p.models[0];
+    const chat = this.currentChat();
+    const fits = (m: string | undefined): m is string => !!m && (p.models.includes(m) || p.kind !== "openai-compatible");
+    const candidates = [chat?.providerId === p.id ? chat.model : undefined, this.choice?.providerId === p.id ? this.choice.model : undefined, this.state.settings.models[p.id]];
+    return candidates.find(fits) ?? p.models[0];
   }
 
+  /** The picker: the chat's agent and model (switching mid-chat), remembered for this file and as the app's default. */
   async choose(providerId: string, model?: string) {
+    const p = this.state.providers.find((x) => x.id === providerId);
+    const m = model ?? (p ? this.modelOf(p) : undefined);
+    this.choice = { providerId, ...(m ? { model: m } : {}) };
+    try {
+      localStorage.setItem(this.choiceKey, JSON.stringify(this.choice));
+    } catch {
+      /* private mode */
+    }
+    const chat = this.currentChat();
+    if (chat) this.updateChat(chat.id, (c) => ({ ...c, providerId, model: m }));
+    else this.set({});
     if (!this.api) return;
-    const settings = await this.api.setSettings({ providerId, ...(model ? { models: { [providerId]: model } } : {}) });
+    const settings = await this.api.setSettings({ providerId, ...(m ? { models: { [providerId]: m } } : {}) });
     this.set({ settings });
   }
 
@@ -252,7 +304,7 @@ export class AgentsService {
     const provider = this.activeProvider();
     let chat = this.currentChat();
     if (!chat) {
-      chat = { id: uid(), title: text.slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, messages: [] };
+      chat = { id: uid(), title: text.slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, messages: [] };
       this.set({ chats: [chat, ...this.state.chats], current: chat.id });
     }
     const chatId = chat.id;
@@ -262,7 +314,7 @@ export class AgentsService {
     const history: ChatTurnMessage[] = chat.messages.map((m) => (m.role === "user" ? { role: "user", text: m.text ?? "" } : { role: "assistant", text: (m.parts ?? []).filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("") }));
     this.updateChat(chatId, (c) => ({ ...c, messages: [...c.messages, user, answer] }));
     if (!provider) {
-      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: "No agent found on this computer. Install Claude Code, or start Ollama or LM Studio — then pick it in Agent settings." }));
+      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: "No agent is connected. Open Agent settings to install or sign in to one — Claude Code, Gemini CLI, Codex, Cursor — or start Ollama or LM Studio." }));
       return;
     }
     const page = this.ed.store.page;
@@ -274,14 +326,14 @@ export class AgentsService {
         model: this.modelOf(provider),
         prompt: text,
         history,
-        resume: provider.id === chat.providerId ? chat.resume : undefined,
+        resume: sessionOf(chat, provider.id),
         context: { fileName: this.ed.ui.get().fileName, pageName, selection: context ?? [] },
       });
       this.turns.start(turnId, provider.label);
-      this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerLabel: provider.label, prompt: text });
+      this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text });
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
-      if (chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, resume: undefined }));
+      if (chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
     } catch (err) {
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: err instanceof Error ? err.message : String(err) }));
     }
@@ -297,7 +349,8 @@ export class AgentsService {
     if (!target) return;
     const { chat, message } = target;
     if (event.type === "session") {
-      this.updateChat(chat, (c) => ({ ...c, resume: event.resume }));
+      // Valid up to the end of this turn (finish() sets upTo); another agent's turn after it makes it stale.
+      this.updateChat(chat, (c) => ({ ...c, sessions: { ...c.sessions, [target.providerId]: { id: event.resume, upTo: -1 } } }));
       return;
     }
     if (event.type === "done") {
@@ -315,6 +368,10 @@ export class AgentsService {
     const running = { ...this.state.running };
     delete running[target.chat];
     this.set({ running });
+    this.updateChat(target.chat, (c) => {
+      const own = c.sessions?.[target.providerId];
+      return own ? { ...c, sessions: { ...c.sessions, [target.providerId]: { ...own, upTo: c.messages.length } } } : c;
+    });
     this.updateMessage(target.chat, target.message, (m) => ({
       ...m,
       state: m.state === "error" ? "error" : event.stopped ? "stopped" : "done",
@@ -342,6 +399,30 @@ export class AgentsService {
   turnState(turnId: string | undefined): TurnRecord["state"] | null {
     return turnId ? (this.turns.get(turnId)?.state ?? null) : null;
   }
+}
+
+/**
+ * The agent's own session to continue, when nothing happened in the chat since its last turn (another agent's turns
+ * aren't in that session: the turn then starts a new one with the conversation so far).
+ */
+export function sessionOf(chat: Chat, providerId: string): string | undefined {
+  const s = chat.sessions?.[providerId];
+  if (s) return s.upTo === chat.messages.length ? s.id : undefined;
+  // An older chat: its one session, while the chat is still that agent's alone.
+  return chat.providerId === providerId && chat.messages.every((m) => m.role === "user" || !m.provider || m.provider === chat.messages.find((x) => x.role === "assistant")?.provider) ? chat.resume : undefined;
+}
+
+const MODEL_LABEL: Record<string, string> = { default: "Default", auto: "Auto" };
+export const modelLabel = (m: string) => MODEL_LABEL[m] ?? m;
+
+/** The composer's picker: the connected agents, each under its heading with its models. */
+export function pickerOptions(providers: ProviderInfo[]): SelectEntry[] {
+  return providers
+    .filter((p) => p.available)
+    .flatMap((p) => [
+      { header: p.label },
+      ...(p.models.length ? p.models : [""]).map((m) => ({ value: `${p.id}\u0000${m}`, label: m ? modelLabel(m) : p.label, valueLabel: m && p.models.length > 1 ? `${p.label} · ${modelLabel(m)}` : p.label })),
+    ]);
 }
 
 /** A message with one more event of its turn. */

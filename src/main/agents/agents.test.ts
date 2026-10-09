@@ -1,16 +1,13 @@
 // Main's side of Agents without Electron: the MCP server's protocol and security (a real loopback HTTP server with a
 // fake host), the CLI adapters (plans and recorded JSON lines; the process is a fake — the real Claude CLI is never
 // run here), the OpenAI-compatible bridge (a mocked fetch), and "Connect" for MCP clients (a temporary home).
-import { EventEmitter } from "node:events";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
-import type { ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolResult } from "../../shared/agents/tools";
 import type { ChatEvent, TurnRequest } from "../../shared/agents/types";
-import { claudeCode, codex, cursorAgent, gemini, LineSplitter, promptWithContext, runCliProcess, type ParseState } from "./cliProviders";
+import { LineSplitter } from "./providers/turns";
 import { codexTable, configText, connectClient, disconnectClient, listClients, mergeToml, type ClientEnv } from "./clients";
 import { McpServer, prettyClient } from "./mcpServer";
 import { listModels, readStream, runOpenAiTurn } from "./openaiBridge";
@@ -158,7 +155,7 @@ describe("MCP server", () => {
   });
 });
 
-// ---- CLI adapters -------------------------------------------------------------------------------------------------
+// ---- A turn's request (the bridge's tests; the CLI adapters' are in providers/) -------------------------------------------------------------------------------------------------
 
 const request: TurnRequest = {
   chatId: "c1",
@@ -167,127 +164,6 @@ const request: TurnRequest = {
   history: [],
   context: { fileName: "Landing", pageName: "Page 1", selection: [{ id: "1:2", name: "Desktop", type: "FRAME", width: 1440, height: 1024 }] },
 };
-
-const parseAll = (spec: { parse: (l: Record<string, unknown>, s: ParseState) => ChatEvent[] }, lines: unknown[]) => {
-  const state: ParseState = { streamed: false, tools: new Map() };
-  return lines.flatMap((l) => spec.parse(l as Record<string, unknown>, state));
-};
-
-describe("CLI adapters", () => {
-  it("Claude Code runs headless with only our MCP server, no built-in tools, the skill appended, the prompt on stdin", () => {
-    const plan = claudeCode.plan({ request, mcp: { url: "http://127.0.0.1:4000/mcp", token: "tok" }, cwd: "/tmp/w", sessionId: "00000000-0000-4000-8000-000000000000", mcpConfigPath: "/tmp/w/mcp.json" });
-    const a = plan.args;
-    expect(a.slice(0, 2)).toEqual(["-p", "--output-format"]);
-    expect(a[a.indexOf("--output-format") + 1]).toBe("stream-json");
-    expect(a).toContain("--verbose");
-    expect(a).toContain("--strict-mcp-config");
-    expect(a[a.indexOf("--tools") + 1]).toBe("");
-    expect(a[a.indexOf("--allowedTools") + 1]).toBe("mcp__designer");
-    expect(a[a.indexOf("--mcp-config") + 1]).toBe("/tmp/w/mcp.json");
-    expect(a[a.indexOf("--append-system-prompt") + 1]).toContain("responsive adaptation");
-    expect(a[a.indexOf("--session-id") + 1]).toBe("00000000-0000-4000-8000-000000000000");
-    expect(a).not.toContain("tok");
-    expect(JSON.parse(plan.files!["/tmp/w/mcp.json"])).toEqual({ mcpServers: { designer: { type: "http", url: "http://127.0.0.1:4000/mcp", headers: { Authorization: "Bearer tok" } } } });
-    expect(plan.stdin).toContain('frame "Desktop" (id 1:2, 1440 × 1024)');
-    expect(plan.stdin).toContain("Make the mobile version of this");
-    const resumed = claudeCode.plan({ request: { ...request, resume: "abc", model: "sonnet" }, mcp: { url: "u", token: "t" }, cwd: "/tmp/w", sessionId: "x", mcpConfigPath: "/tmp/w/mcp.json" }).args;
-    expect(resumed[resumed.indexOf("--resume") + 1]).toBe("abc");
-    expect(resumed[resumed.indexOf("--model") + 1]).toBe("sonnet");
-    expect(resumed).not.toContain("--session-id");
-  });
-
-  it("Claude Code's stream-json becomes the chat's events", () => {
-    const events = parseAll(claudeCode, [
-      { type: "system", subtype: "init", session_id: "s-1", model: "claude-x", mcp_servers: [{ name: "designer", status: "connected" }] },
-      { type: "stream_event", event: { type: "message_start" } },
-      { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Reading " } } },
-      { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "the frame." } } },
-      { type: "assistant", message: { content: [{ type: "text", text: "Reading the frame." }, { type: "tool_use", id: "tu1", name: "mcp__designer__get_design_context", input: { nodeId: "1:2" } }] } },
-      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu1", content: [{ type: "text", text: '{"nodes":[]}' }] }] } },
-      { type: "assistant", message: { content: [{ type: "text", text: "Done." }] } },
-      { type: "result", subtype: "success", is_error: false, result: "Done." },
-    ]);
-    expect(events).toEqual([
-      { type: "session", resume: "s-1", model: "claude-x" },
-      { type: "text", delta: "Reading " },
-      { type: "text", delta: "the frame." },
-      { type: "tool", id: "tu1", name: "get_design_context", args: { nodeId: "1:2" }, state: "running" },
-      { type: "tool", id: "tu1", name: "get_design_context", state: "done", summary: '{"nodes":[]}' },
-      { type: "text", delta: "Done." },
-    ]);
-    expect(parseAll(claudeCode, [{ type: "system", subtype: "init", session_id: "s", mcp_servers: [{ name: "designer", status: "failed" }] }])[1]).toMatchObject({ type: "error" });
-    expect(parseAll(claudeCode, [{ type: "result", subtype: "error_max_turns", is_error: true }])[0]).toMatchObject({ type: "error" });
-    // Recorded from the smoke test: an unsigned CLI.
-    expect(parseAll(claudeCode, [{ type: "result", subtype: "success", is_error: true, result: "Not logged in · Please run /login" }])[0]).toMatchObject({ type: "error", message: expect.stringMatching(/isn’t signed in/) });
-  });
-
-  it("Codex, Gemini CLI and Cursor's agent: their plans carry our server; their events are read", () => {
-    const mcp = { url: "http://127.0.0.1:4000/mcp", token: "tok" };
-    const turn = { request, mcp, cwd: "/w", sessionId: "s", mcpConfigPath: "/w/mcp.json" };
-    const cx = codex.plan(turn);
-    expect(cx.args.slice(0, 2)).toEqual(["exec", "--json"]);
-    expect(cx.args).toContain('mcp_servers.designer.url="http://127.0.0.1:4000/mcp"');
-    expect(cx.env).toEqual({ DESIGNER_MCP_TOKEN: "tok" });
-    expect(cx.args.join(" ")).not.toContain("tok\"");
-    expect(parseAll(codex, [{ type: "thread.started", thread_id: "th" }, { type: "item.started", item: { id: "i1", type: "mcp_tool_call", server: "designer", tool: "get_selection", arguments: {} } }, { type: "item.completed", item: { id: "i1", type: "mcp_tool_call", tool: "get_selection", status: "completed" } }, { type: "item.completed", item: { id: "i2", type: "agent_message", text: "Hi" } }])).toEqual([
-      { type: "session", resume: "th" },
-      { type: "tool", id: "i1", name: "get_selection", args: {}, state: "running" },
-      { type: "tool", id: "i1", name: "get_selection", args: undefined, state: "done" },
-      { type: "text", delta: "Hi" },
-    ]);
-    const gm = gemini.plan(turn);
-    expect(JSON.parse(gm.files![".gemini/settings.json"]).mcpServers.designer.httpUrl).toBe(mcp.url);
-    expect(gm.args).toContain("stream-json");
-    expect(parseAll(gemini, [{ type: "message", role: "assistant", content: "Hello" }, { type: "tool_use", tool_name: "designer.get_metadata", tool_id: "g1", parameters: {} }, { type: "tool_result", tool_id: "g1", status: "success" }]).map((e) => e.type)).toEqual(["text", "tool", "tool"]);
-    const cu = cursorAgent.plan(turn);
-    expect(JSON.parse(cu.files![".cursor/mcp.json"]).mcpServers.designer).toEqual({ url: mcp.url, headers: { Authorization: "Bearer tok" } });
-    expect(parseAll(cursorAgent, [{ type: "assistant", message: { content: [{ type: "text", text: "Ok" }] } }])).toEqual([{ type: "text", delta: "Ok" }]);
-  });
-
-  it("splits NDJSON across chunks", () => {
-    const s = new LineSplitter();
-    expect(s.push('{"a":1}\n{"b"')).toEqual([{ a: 1 }]);
-    expect(s.push(':2}\nnoise\n')).toEqual([{ b: 2 }]);
-  });
-
-  it("runs a (fake) CLI process: the prompt on stdin, its lines as events, a failure's stderr", async () => {
-    const fake = () => {
-      const child = new EventEmitter() as ChildProcess & EventEmitter;
-      const stdout = new PassThrough();
-      const stderr = new PassThrough();
-      const stdin = new PassThrough();
-      Object.assign(child, { stdout, stderr, stdin });
-      return { child, stdout, stderr, stdin };
-    };
-    const f = fake();
-    const spawn = vi.fn(() => f.child);
-    const events: ChatEvent[] = [];
-    const done = vi.fn();
-    const plan = claudeCode.plan({ request, mcp: { url: "u", token: "t" }, cwd: "/w", sessionId: "s", mcpConfigPath: "/w/mcp.json" });
-    let stdinText = "";
-    f.stdin.on("data", (d) => (stdinText += d));
-    runCliProcess({ spec: claudeCode, path: "/bin/claude", plan, cwd: "/w", env: {}, spawn, emit: (e) => events.push(e), done, stopped: () => false });
-    expect(spawn).toHaveBeenCalledWith("/bin/claude", plan.args, expect.objectContaining({ cwd: "/w" }));
-    f.stdout.write(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Hello" }] } }) + "\n");
-    await new Promise((r) => setTimeout(r, 10));
-    f.child.emit("close", 0);
-    expect(events).toEqual([{ type: "text", delta: "Hello" }]);
-    expect(done).toHaveBeenCalledWith(undefined);
-    expect(stdinText).toContain("Make the mobile version");
-
-    const g = fake();
-    const done2 = vi.fn();
-    runCliProcess({ spec: claudeCode, path: "/bin/claude", plan, cwd: "/w", env: {}, spawn: () => g.child, emit: () => {}, done: done2, stopped: () => false });
-    g.stderr.write("Invalid API key · Please run /login\n");
-    await new Promise((r) => setTimeout(r, 10));
-    g.child.emit("close", 1);
-    expect(done2.mock.calls[0][0]).toMatch(/exited \(1\): Invalid API key/);
-  });
-
-  it("the prompt names the selection", () => {
-    expect(promptWithContext({ ...request, context: { ...request.context, selection: [] } })).toContain("Selected: nothing");
-  });
-});
 
 // ---- OpenAI-compatible bridge ------------------------------------------------------------------------------------
 
@@ -414,19 +290,5 @@ describe("the CLIs' environment", () => {
       for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
       Object.assign(process.env, saved);
     }
-  });
-});
-
-describe("Claude Code sign-in (its own auth commands, faked)", () => {
-  it("not installed → signed out → connected, from `claude auth status --json`", async () => {
-    const { claudeAuthStatus, parseClaudeStatus, CLAUDE_STATUS, CLAUDE_LOGIN, loginUrl } = await import("./cliAuth");
-    expect(await claudeAuthStatus(null, async () => ({ code: 0, stdout: "" }))).toMatchObject({ state: "not-installed" });
-    const run = vi.fn(async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: false, authMethod: "none" }) }));
-    expect(await claudeAuthStatus("/bin/claude", run)).toEqual({ state: "signed-out" });
-    expect(run).toHaveBeenCalledWith(CLAUDE_STATUS);
-    expect(parseClaudeStatus(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "a@b.c", subscriptionType: "team", orgName: "Org" }))).toEqual({ state: "connected", account: "a@b.c", plan: "Claude Team · Org" });
-    expect(parseClaudeStatus("not json").state).toBe("signed-out");
-    expect(CLAUDE_LOGIN).toEqual(["auth", "login", "--claudeai"]);
-    expect(loginUrl("Opening https://claude.ai/oauth/authorize?code=1 in your browser")).toBe("https://claude.ai/oauth/authorize?code=1");
   });
 });

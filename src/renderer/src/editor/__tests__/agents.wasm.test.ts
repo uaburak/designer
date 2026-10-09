@@ -183,4 +183,45 @@ describe("MCP tools on the engine", () => {
     expect(engine.readNode(r.created.id)).toBeNull();
     expect(engine.readNode(desk.id)).not.toBeNull();
   });
+
+  it("place_image puts a picture on the canvas (a rectangle its size, filled with it); `image` fills layers in create / update", async () => {
+    // The test has no decoder: createImageBitmap reads the PNG's size from its header.
+    const g = globalThis as unknown as { createImageBitmap?: unknown };
+    const before = g.createImageBitmap;
+    g.createImageBitmap = async (b: Blob) => {
+      const v = new DataView(await b.arrayBuffer());
+      return { width: v.getUint32(16), height: v.getUint32(20), close() {} };
+    };
+    try {
+      const { ed, engine, turns, env } = await editor();
+      const png = new Uint8Array(33);
+      png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+      new DataView(png.buffer).setUint32(16, 640);
+      new DataView(png.buffer).setUint32(20, 320);
+      const data = Buffer.from(png).toString("base64");
+      turns.start("i", "Gemini CLI");
+      const placed = await runTool(env("i"), "place_image", { data, name: "Hero photo" });
+      const head = JSON.parse((placed.content[0] as { text: string }).text);
+      expect(head.imageHash).toMatch(/^[0-9a-f]{40}$/);
+      const n = engine.readNode(head.nodeId)!;
+      expect(n.name).toBe("Hero photo");
+      expect(n.size).toMatchObject({ x: 640, y: 320 });
+      expect(n.fillPaints?.[0]).toMatchObject({ type: "IMAGE", imageScaleMode: "FILL" });
+      expect(await ed.images.store!.get(head.imageHash)).toBeTruthy();
+      // An existing layer filled; a new one with one side given keeps the aspect ratio.
+      json(await runTool(env("i"), "update_nodes", { updates: [{ nodeId: head.nodeId, image: { data, scaleMode: "FIT" } }] }));
+      expect(engine.readNode(head.nodeId)!.fillPaints?.[0]).toMatchObject({ type: "IMAGE", imageScaleMode: "FIT" });
+      const made = json(await runTool(env("i"), "create_nodes", { nodes: [{ type: "FRAME", name: "Card", width: 400, height: 400, children: [{ type: "RECTANGLE", name: "Photo", width: 200, image: { data } }] }] }));
+      const card = engine.readNode(made.created[0].id, { childIds: true })!;
+      const photo = engine.readNode(card.childIds![0])!;
+      expect(photo.size).toMatchObject({ x: 200, y: 100 });
+      expect(photo.fillPaints?.[0]?.type).toBe("IMAGE");
+      expect(turns.finish("i")!.state).toBe("applied");
+      // Not an image, or a path the app didn't read: an error with a word why.
+      expect((await runTool(env(null), "place_image", { data: Buffer.from("hello").toString("base64") })).isError).toBe(true);
+      expect(((await runTool(env(null), "place_image", { path: "x.png" })).content[0] as { text: string }).text).toMatch(/path/);
+    } finally {
+      g.createImageBitmap = before;
+    }
+  });
 });

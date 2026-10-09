@@ -111,6 +111,8 @@ function agentsApi(): AgentsApi {
   auth: (providerId) => invoke("agents:auth", { providerId: String(providerId) }),
   signIn: (providerId) => invoke("agents:sign-in", { providerId: String(providerId) }),
   signOut: (providerId) => invoke("agents:sign-out", { providerId: String(providerId) }),
+  install: (providerId, target) => invoke("agents:install", { providerId: String(providerId), target: target === "nanobanana" ? "nanobanana" : undefined }),
+  setImageKey: (key) => invoke("agents:set-image-key", { key: key === null ? null : String(key) }),
   turn: (request) => invoke("agents:turn", request),
   stop: (turnId) => invoke("agents:stop", { turnId: String(turnId) }),
   onEvent: (cb) => on("agents:event", cb),

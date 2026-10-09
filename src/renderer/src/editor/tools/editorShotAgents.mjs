@@ -3,7 +3,7 @@
 // page loads) that plays an agent's turn — its text, its steps, and real tool calls run by the page on the engine —
 // so the flagship flow is driven end to end: a desktop frame selected → "Make the mobile version of this" → a 390
 // frame next to it, one undo step, Undo / Apply from the chat. No real agent or model is involved.
-/* global window, setTimeout */
+/* global window, document, setTimeout */
 
 /** The stand-in for main's side (src/shared/agents/types.ts AgentsApi), in the page. */
 function installMockAgents() {
@@ -18,8 +18,10 @@ function installMockAgents() {
   window.__designerAgentsLog = [];
   window.__designerAgents = {
     providers: async () => [
-      { id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, detail: "/Users/you/.local/bin/claude", models: ["default", "sonnet", "opus", "haiku"] },
-      { id: "codex", kind: "codex", label: "Codex", available: false, models: ["default"], problem: "codex isn't installed" },
+      { id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, detail: "/Users/you/.local/bin/claude", models: ["default", "sonnet", "opus", "haiku"], auth: { state: "connected", account: "you@example.com", plan: "Claude Pro" } },
+      { id: "gemini", kind: "gemini", label: "Antigravity / Gemini CLI", note: "Google’s Gemini models, as in Antigravity — run by Gemini CLI with your Google account.", available: true, detail: "/opt/homebrew/bin/gemini", models: ["auto", "pro", "flash", "flash-lite"], auth: { state: "connected", account: "you@gmail.com", plan: "Google account" }, imageGen: { state: "needs-key", detail: "Nano Banana needs a Gemini API key from Google AI Studio" } },
+      { id: "codex", kind: "codex", label: "Codex", available: false, models: ["default"], problem: "codex isn't installed", auth: { state: "not-installed" }, install: { command: "npm install -g @openai/codex", page: "https://developers.openai.com/codex/cli" } },
+      { id: "cursor-agent", kind: "cursor-agent", label: "Cursor Agent", available: false, detail: "/Users/you/.local/bin/cursor-agent", models: ["auto"], problem: "Signed out", auth: { state: "signed-out" } },
       { id: "ollama", kind: "openai-compatible", label: "Ollama", available: false, detail: "http://localhost:11434/v1", models: [], problem: "Not running at http://localhost:11434/v1" },
       { id: "lmstudio", kind: "openai-compatible", label: "LM Studio", available: true, detail: "http://localhost:1234/v1", models: ["qwen2.5-coder-14b", "llama-3.1-8b"] },
     ],
@@ -31,6 +33,8 @@ function installMockAgents() {
     auth: async () => ({ state: "connected", account: "you@example.com", plan: "Claude Pro" }),
     signIn: async () => ({ state: "signing-in" }),
     signOut: async () => ({ state: "signed-out" }),
+    install: async (id, target) => (window.__designerAgentsLog.push({ install: id, target }), { ok: true, opened: "terminal" }),
+    setImageKey: async () => ({ state: "ready", detail: "With the API key you added" }),
     stop: async () => {},
     onEvent: (cb) => (listeners.event.add(cb), () => listeners.event.delete(cb)),
     onToolCall: (h) => ((toolHandler = h), () => (toolHandler = null)),
@@ -138,6 +142,17 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   check("Agents: the composer shows the selected frame as context", ((await page.locator("[data-composer] [data-context-chip]").textContent()) ?? "").includes("Desktop"));
   check("Agents: suggestions for a selection", (await page.locator("[data-suggestion]").count()) === 3);
   check("Agents: the agent picker names Claude Code · sonnet", ((await page.locator("[data-composer]").textContent()) ?? "").includes("Claude Code · sonnet"));
+  await page.locator("[data-composer]").getByRole("combobox", { name: "Agent and model" }).click();
+  await page.waitForTimeout(100);
+  const picker = await page.evaluate(() => {
+    const list = document.querySelector('[role="listbox"]');
+    const r = list?.getBoundingClientRect();
+    return { headers: [...(list?.querySelectorAll("[data-select-header]") ?? [])].map((h) => h.textContent), options: list?.querySelectorAll('[role="option"]').length ?? 0, top: r?.top ?? -1, bottom: r?.bottom ?? 1e9, height: window.innerHeight, scroll: list ? list.scrollHeight - list.clientHeight : 0 };
+  });
+  check("Agents: the picker lists only connected agents, grouped under their names", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity / Gemini CLI", "LM Studio"]) && picker.options === 10, JSON.stringify(picker));
+  check("Agents: the picker's list is whole on screen (not cut)", picker.top >= 0 && picker.bottom <= picker.height && picker.scroll <= 1, JSON.stringify(picker));
+  await shot(page, `401b-agents-picker-${theme}`);
+  await page.keyboard.press("Escape");
   await shot(page, `401-agents-new-chat-${theme}`);
 
   // The flagship flow: "Make the mobile version of this".
@@ -174,8 +189,10 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   check("Agents: settings list Claude Code (found) and Ollama (not running)", (await page.locator('[data-provider="claude-code"][data-available]').count()) === 1 && (await page.locator('[data-provider="ollama"]:not([data-available])').count()) === 1);
   check("Agents: Connect to Antigravity / Cursor / VS Code, and Claude Code connected", (await page.getByRole("button", { name: "Connect to Antigravity" }).count()) === 1 && (await page.getByRole("button", { name: "Connect to Cursor" }).count()) === 1 && (await page.getByRole("button", { name: "Connect to VS Code" }).count()) === 1 && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
   check("Agents: the MCP server's URL is shown", ((await page.locator("[data-mcp-url]").textContent()) ?? "").includes("127.0.0.1"));
-  await page.waitForSelector('[data-auth="connected"]', { timeout: 5000 }).catch(() => {});
-  check("Agents: Claude Code's status card says Connected with its account and offers Sign out", ((await page.locator('[data-auth="connected"]').textContent()) ?? "").includes("you@example.com") && (await page.locator("[data-sign-out]").count()) === 1);
+  const card = (id) => page.locator(`[data-provider="${id}"]`);
+  check("Agents: Claude Code's status card says Connected with its account and offers Sign out", ((await card("claude-code").textContent()) ?? "").includes("you@example.com") && (await card("claude-code").locator("[data-sign-out]").count()) === 1);
+  check("Agents: Codex is Not installed with Install; Cursor Agent is Signed out with Sign in", ((await card("codex").locator("[data-provider-state]").textContent()) ?? "") === "Not installed" && (await card("codex").locator("[data-install]").count()) === 1 && ((await card("cursor-agent").locator("[data-provider-state]").textContent()) ?? "") === "Signed out" && (await card("cursor-agent").locator("[data-sign-in]").count()) === 1);
+  check("Agents: the Gemini card shows Antigravity and Image generation: Needs API key with a key field", ((await card("gemini").textContent()) ?? "").includes("Antigravity") && ((await card("gemini").locator("[data-image-gen]").textContent()) ?? "").includes("Image generation: Needs API key") && (await card("gemini").locator('input[type="password"]').count()) === 1);
   await shot(page, `403-agents-settings-${theme}`);
   await page.locator("[data-agent-settings]").getByRole("button", { name: "Back" }).click();
   await settle(page);

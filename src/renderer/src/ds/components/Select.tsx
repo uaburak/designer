@@ -17,12 +17,15 @@ import styles from "./Select.module.css";
  * An option; `image` is drawn in place of the label, in the field and in the list (live Stroke settings' "Width
  * profile": the profile as a 62 × 4 image named "Uniform"), the label staying its accessible name.
  */
-export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; disabled?: boolean; image?: ReactNode };
+export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; disabled?: boolean; image?: ReactNode; /** What the field shows when it is chosen (default: its label; e.g. the agent and its model under the agent's heading) */ valueLabel?: string };
+/** A list entry: an option, a line ("-"), or a group's heading (Menu's header — e.g. the agent above its models) */
+export type SelectEntry = SelectOption | "-" | { header: string };
+const isOption = (o: SelectEntry | undefined): o is SelectOption => !!o && typeof o === "object" && "value" in o;
 
 export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "prefix"> {
   label: string;
   value: Mixed<string>;
-  options: (SelectOption | "-")[];
+  options: SelectEntry[];
   onChange: (v: string) => void;
   /** filled: panel fields; outlined: instance properties; ghost: no fill until hover (Home's "Last viewed ⌄", sizing) */
   variant?: "filled" | "outlined" | "ghost";
@@ -61,7 +64,7 @@ export function Select({ label, value, options, onChange, variant = "filled", si
   const [open, setOpen] = useState(false);
   const id = useId();
   const mixed = isMixed(value);
-  const current = mixed ? undefined : options.find((o): o is SelectOption => o !== "-" && o.value === value);
+  const current = mixed ? undefined : options.find((o): o is SelectOption => isOption(o) && o.value === value);
   const close = (focus = true) => {
     setOpen(false);
     if (focus) trigger.current?.focus({ preventScroll: true });
@@ -102,7 +105,7 @@ export function Select({ label, value, options, onChange, variant = "filled", si
             </span>
           </span>
         ) : (
-          <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? STRINGS.mixed : current?.label ?? placeholder}</span>
+          <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? STRINGS.mixed : current?.valueLabel ?? current?.label ?? placeholder}</span>
         )}
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>
@@ -111,10 +114,10 @@ export function Select({ label, value, options, onChange, variant = "filled", si
   );
 }
 
-function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, onPick, onClose }: { width?: number; id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: (SelectOption | "-")[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
+function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, onPick, onClose }: { width?: number; id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: SelectEntry[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
   const panel = useRef<HTMLDivElement>(null);
-  const selected = options.findIndex((o) => o !== "-" && o.value === value);
-  const usable = options.map((o, i) => (o !== "-" && !o.disabled ? i : -1)).filter((i) => i >= 0);
+  const selected = options.findIndex((o) => isOption(o) && o.value === value);
+  const usable = options.map((o, i) => (isOption(o) && !o.disabled ? i : -1)).filter((i) => i >= 0);
   const [active, setActive] = useState(selected >= 0 ? selected : usable[0] ?? -1);
   const typed = useRef(createTypeahead());
   const move = (dir: 1 | -1) => {
@@ -180,12 +183,12 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
         else if (k === "End") setActive(usable[usable.length - 1] ?? -1);
         else if (k === "Enter" || k === " ") {
           const o = options[active];
-          if (o && o !== "-" && !o.disabled) onPick(o.value);
+          if (isOption(o) && !o.disabled) onPick(o.value);
         } else if (k === "Escape") onClose();
         else if (k === "Tab") onClose(false);
         else if (k.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
           const q = typed.current.push(k);
-          const found = typeahead(options.map((o) => (o === "-" || o.disabled ? null : o.label)), q.length > 1 ? active - 1 : active, q);
+          const found = typeahead(options.map((o) => (!isOption(o) || o.disabled ? null : o.label)), q.length > 1 ? active - 1 : active, q);
           if (found >= 0) setActive(found);
         } else return;
         e.preventDefault();
@@ -194,6 +197,10 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
       {options.map((o, i) =>
         o === "-" ? (
           <div key={`line-${i}`} role="separator" className={menu.separator} />
+        ) : !isOption(o) ? (
+          <div key={`header-${i}`} role="presentation" className={menu.header} data-select-header="">
+            {o.header}
+          </div>
         ) : (
           <div
             key={o.value}

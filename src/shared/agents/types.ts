@@ -23,6 +23,20 @@ export interface ProviderInfo {
   problem?: string;
   /** A custom server with a key kept in the OS keychain */
   hasKey?: boolean;
+  /** A second line for its card ("Google’s Gemini models, as in Antigravity …") */
+  note?: string;
+  /** A CLI's sign-in (Connected / Signed out / Not installed); a server: connected while it answers */
+  auth?: AuthState;
+  /** How to get it: its documented install command (run in Terminal after a confirmation) and its page */
+  install?: { command?: string; page: string };
+  /** Gemini: image generation through the Nano Banana extension */
+  imageGen?: ImageGenState;
+}
+
+/** Image generation's readiness on the Gemini card. */
+export interface ImageGenState {
+  state: "ready" | "needs-sign-in" | "needs-key" | "not-installed" | "unavailable";
+  detail?: string;
 }
 
 export interface CustomServer {
@@ -152,12 +166,16 @@ export interface AgentsApi {
   setSettings(patch: Partial<Pick<AgentSettings, "providerId" | "models">>): Promise<AgentSettings>;
   addServer(server: { label: string; baseUrl: string; apiKey?: string }): Promise<AgentSettings>;
   removeServer(id: string): Promise<AgentSettings>;
-  test(providerId: string): Promise<{ ok: boolean; models: string[]; error?: string }>;
+  test(providerId: string): Promise<{ ok: boolean; models: string[]; error?: string; version?: string }>;
   /** A CLI agent's sign-in (Claude Code: `claude auth status`) */
   auth(providerId: string): Promise<AuthState>;
   /** The CLI's own sign-in in the browser (`claude auth login --claudeai`); poll auth() until connected */
   signIn(providerId: string): Promise<AuthState>;
   signOut(providerId: string): Promise<AuthState>;
+  /** Opens the tool's install command in Terminal (it asks before running) or its download page; "nanobanana": Gemini's image extension */
+  install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "terminal" | "page"; error?: string }>;
+  /** The owner's own Gemini API key for Nano Banana (pasted in Agent settings, kept with safeStorage); null removes it */
+  setImageKey(key: string | null): Promise<ImageGenState>;
   turn(request: TurnRequest): Promise<{ turnId: string }>;
   stop(turnId: string): Promise<void>;
   onEvent(cb: (e: TurnEvent) => void): () => void;

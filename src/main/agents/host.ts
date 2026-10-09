@@ -1,20 +1,22 @@
-import { app, dialog, safeStorage, webContents, type WebContents } from "electron";
+import { app, dialog, safeStorage, shell, webContents, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import type { ToolResult } from "../../shared/agents/tools";
 import { MCP_SERVER_NAME } from "../../shared/agents/tools";
 import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest } from "../../shared/agents/types";
-import { CLI_SPECS, runCliProcess, type CliSpec } from "./cliProviders";
+import { cliSpec, type CliSpec } from "./providers";
+import { runCliProcess, loginUrl, type AuthEnv, type RunResult } from "./providers/turns";
+import { imageGenStatus, NANOBANANA_INSTALL } from "./providers/gemini";
+import { ImagePathError, resolveImagePaths } from "./imageArgs";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
-import { cliEnv, detectProviders, LOCAL_SERVERS, which } from "./detect";
+import { cliEnv, cliPath, detectProviders, LOCAL_SERVERS, searchPath, which } from "./detect";
 import { McpServer, newToken } from "./mcpServer";
 import { listModels, runOpenAiTurn, trimBase } from "./openaiBridge";
 import { STDIO_BRIDGE_SOURCE } from "./stdioBridge";
-import { CLAUDE_LOGIN, CLAUDE_LOGOUT, claudeAuthStatus, loginUrl, type RunFn } from "./cliAuth";
-import type { AuthState } from "../../shared/agents/types";
+import type { AuthState, ImageGenState } from "../../shared/agents/types";
 import { allViews } from "../views";
 import { controllers } from "../window";
 
@@ -150,9 +152,22 @@ function broadcast(state: McpState) {
 
 const mcpState = (connections?: McpConnection[]): McpState => ({ running: !!server?.url, url: server?.url ?? null, connections: connections ?? server?.connections() ?? [] });
 
-function runToolInView(fileKey: string, call: Omit<ToolCall, "reqId">): Promise<ToolResult> {
+/** A chat's own working folder (its CLI's project; where its pictures are saved). */
+const chatDir = (chatId: string) => join(file("work"), chatId.replace(/[^\w-]/g, "_"));
+
+function runToolInView(fileKey: string, call0: Omit<ToolCall, "reqId">): Promise<ToolResult> {
   const wc = viewFor(fileKey);
   if (!wc) return Promise.resolve({ content: [{ type: "text", text: "The file isn't open." }], isError: true });
+  // Image paths are read here (the view can't read files): a chat's from its own folder, an outside client's from home.
+  let call = call0;
+  try {
+    const t = call0.turnId ? turns.get(call0.turnId) : undefined;
+    const root = t ? chatDir(t.chatId) : homedir();
+    call = { ...call0, args: resolveImagePaths(call0.name, call0.args ?? {}, root) };
+  } catch (err) {
+    if (err instanceof ImagePathError) return Promise.resolve({ content: [{ type: "text", text: err.message }], isError: true });
+    throw err;
+  }
   const reqId = ++reqSeq;
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -254,46 +269,25 @@ export function removeServer(id: string): AgentSettings {
 export async function providers(fresh = false): Promise<ProviderInfo[]> {
   if (!fresh && providerCache && Date.now() - providerCache.at < 15_000) return providerCache.list;
   const s = readStored();
-  const list = await detectProviders(s.custom.map((c) => ({ ...c, hasKey: false })), keyOf);
+  const list = await detectProviders(s.custom.map((c) => ({ ...c, hasKey: false })), keyOf, { authOf: (spec, path) => cliAuthStatus(spec, path), imageGen: (signedIn, installed) => imageGen(signedIn, installed) });
   providerCache = { at: Date.now(), list };
   return list;
 }
 
 const serverOf = (id: string) => [...LOCAL_SERVERS, ...readStored().custom].find((s) => s.id === id);
 
-export async function testProvider(id: string): Promise<{ ok: boolean; models: string[]; error?: string }> {
-  const spec = CLI_SPECS.find((s) => s.id === id);
+export async function testProvider(id: string): Promise<{ ok: boolean; models: string[]; error?: string; version?: string }> {
+  const spec = cliSpec(id);
   if (spec) {
-    const path = spec.bins.map((b) => which(b)).find(Boolean);
+    const path = cliPath(spec);
     if (!path) return { ok: false, models: [], error: `${spec.bins[0]} isn't installed (looked on PATH and in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin)` };
-    // `--version` only: nothing is sent to the model.
-    const version = await new Promise<string>((resolve) => {
-      const child = spawn(path, ["--version"], { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "pipe"] });
-      let out = "";
-      child.stdout.on("data", (d) => (out += d));
-      child.on("error", () => resolve(""));
-      child.on("close", () => resolve(out.trim()));
-      setTimeout(() => child.kill(), 5000);
-    });
+    // `--version` and the CLI's own sign-in status only: nothing is sent to the model.
+    const version = (await runBin(path, ["--version"], 8000)).stdout.trim().split("\n")[0];
     if (!version) return { ok: false, models: [], error: `${path} didn't answer --version` };
-    // Claude Code says whether it is signed in without asking the model (`claude auth status`).
-    if (spec.id === "claude-code") {
-      const status = await new Promise<string>((resolve) => {
-        const child = spawn(path, ["auth", "status"], { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "ignore"] });
-        let out = "";
-        child.stdout.on("data", (d) => (out += d));
-        child.on("error", () => resolve(""));
-        child.on("close", () => resolve(out));
-        setTimeout(() => child.kill(), 8000);
-      });
-      try {
-        const s = JSON.parse(status) as { loggedIn?: boolean; authMethod?: string };
-        if (s.loggedIn === false) return { ok: false, models: [], error: `${version} — not signed in: run “claude” in Terminal and sign in with /login` };
-      } catch {
-        /* an older CLI without auth status: --version is all we know */
-      }
-    }
-    return { ok: true, models: spec.models };
+    const auth = await cliAuthStatus(spec, path);
+    providerCache = null;
+    if (auth.state !== "connected") return { ok: false, models: [], error: `${version} — signed out: use Sign in` };
+    return { ok: true, models: spec.models, version };
   }
   const srv = serverOf(id);
   if (!srv) return { ok: false, models: [], error: "Unknown provider" };
@@ -350,7 +344,7 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
   turns.set(turnId, t);
   const s = readStored();
   const providerId = String(req.providerId);
-  const spec = CLI_SPECS.find((c) => c.id === providerId);
+  const spec = cliSpec(providerId);
   const model = req.model ?? s.models[providerId];
   queueMicrotask(() => {
     if (spec) runCli(t, spec, { ...req, model });
@@ -364,12 +358,12 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
 }
 
 function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
-  const path = spec.bins.map((b) => which(b)).find(Boolean);
+  const path = cliPath(spec);
   if (!path) return finishTurn(t, { type: "error", message: `${spec.label} isn't installed on this computer.` });
   const token = grantFor(t.fileKey, t.chatId, spec.label, t.id);
   t.grant = token;
   // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it.
-  const cwd = join(file("work"), t.chatId.replace(/[^\w-]/g, "_"));
+  const cwd = chatDir(t.chatId);
   mkdirSync(cwd, { recursive: true });
   const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json") });
   for (const [name, text] of Object.entries(plan.files ?? {})) writePrivate(isAbsolute(name) ? name : join(cwd, name), text);
@@ -379,11 +373,13 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
     path,
     plan,
     cwd,
-    env: cliEnv(plan.env),
+    env: cliEnv({ ...plan.env, ...imageKeyEnv(spec) }),
     spawn: (cmd, args, options) => spawn(cmd, args, options),
     emit: (e) => emit(t, e),
     done: (error) => finishTurn(t, error ? { type: "error", message: error } : undefined),
     stopped: () => t.stopped,
+    // A developer's recording of the raw output (the adapters' test fixtures): DESIGNER_AGENTS_RECORD=<folder>.
+    raw: process.env.DESIGNER_AGENTS_RECORD ? (chunk) => appendFileSync(join(process.env.DESIGNER_AGENTS_RECORD!, `${spec.id}-${t.id}.ndjson`), chunk) : undefined,
   });
   if (child) t.child = child;
 }
@@ -429,56 +425,178 @@ export function viewGone(sender: WebContents) {
     }
 }
 
-// ── Sign-in (Claude Code's own commands; the browser does the sign-in) ──
+// ── Sign-in, install, image generation (each CLI's own commands; the browser or Terminal does the sign-in) ──
 
-const claudePath = () => which("claude");
-
-const runClaude: RunFn = (args) =>
-  new Promise((resolve) => {
-    const path = claudePath();
-    if (!path) return resolve({ code: 127, stdout: "" });
-    const child = spawn(path, args, { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "ignore"] });
+/** A CLI command's result, killed after `ms`. */
+function runBin(path: string, args: string[], ms = 15_000): Promise<RunResult> {
+  return new Promise((resolve) => {
+    mkdirSync(file("work"), { recursive: true });
+    const child = spawn(path, args, { env: cliEnv(), cwd: file("work"), stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
-    child.on("error", () => resolve({ code: 1, stdout }));
-    child.on("close", (code) => resolve({ code: code ?? 1, stdout }));
-    setTimeout(() => child.kill(), 15_000);
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("error", () => resolve({ code: 1, stdout, stderr }));
+    child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    setTimeout(() => child.exitCode === null && child.kill(), ms);
   });
+}
 
-let login: { child: ChildProcess; out: string } | null = null;
+const authEnv = (): AuthEnv & { list(path: string): string[] } => ({
+  home: homedir(),
+  readFile: (p) => {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {
+      return null;
+    }
+  },
+  exists: (p) => existsSync(p),
+  list: (p) => {
+    try {
+      return readdirSync(p);
+    } catch {
+      return [];
+    }
+  },
+  env: process.env,
+});
 
-export async function authStatus(providerId: string): Promise<AuthState> {
-  if (providerId !== "claude-code") return { state: "not-installed", detail: "Coming soon" };
-  const s = await claudeAuthStatus(claudePath(), runClaude);
-  if (s.state !== "connected" && login && login.child.exitCode === null) return { state: "signing-in", detail: "Waiting for sign-in in your browser…", url: loginUrl(login.out) ?? undefined };
-  if (s.state === "connected" && login) {
-    login.child.kill();
-    login = null;
+/** Sign-ins in progress: a background login (its output, for the page's address) or the CLI in Terminal (since when). */
+const logins = new Map<string, { child?: ChildProcess; out: string; at: number; note?: string }>();
+
+async function cliAuthStatus(spec: CliSpec, path: string): Promise<AuthState> {
+  const a = spec.auth;
+  const s: AuthState = a.status ? a.status.parse(await runBin(path, a.status.args, 10_000)) : a.fromFiles ? a.fromFiles(authEnv()) : { state: "connected" };
+  const l = logins.get(spec.id);
+  if (s.state === "connected") {
+    if (l) {
+      l.child?.kill();
+      logins.delete(spec.id);
+    }
+    return s;
   }
+  const waiting = l && (l.child ? l.child.exitCode === null : Date.now() - l.at < 10 * 60_000);
+  if (l && waiting) return { state: "signing-in", detail: l.note ?? "Waiting for sign-in in your browser…", url: loginUrl(l.out) ?? undefined };
   return s;
 }
 
+export async function authStatus(providerId: string): Promise<AuthState> {
+  const spec = cliSpec(providerId);
+  if (!spec) return { state: "not-installed", detail: "Not a CLI agent" };
+  const path = cliPath(spec);
+  if (!path) return { state: "not-installed", detail: `Looked for “${spec.bins[0]}” on PATH and in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin` };
+  return cliAuthStatus(spec, path);
+}
+
+const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Runs a command in the user's Terminal (a .command file macOS opens in Terminal): the CLI's interactive sign-in, or
+ * an install command — which waits for Return first, so nothing is installed without the user's go.
+ */
+async function openInTerminal(name: string, lines: string[]): Promise<string | null> {
+  const path = file(`terminal/${name}.command`);
+  const body = ["#!/bin/zsh", `export PATH=${shq(searchPath().join(delimiter))}`, `cd ${shq(file("work"))}`, "clear", ...lines, ""].join("\n");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, body, { mode: 0o700 });
+  chmodSync(path, 0o700);
+  const err = await shell.openPath(path);
+  return err || null;
+}
+
 export async function signIn(providerId: string): Promise<AuthState> {
-  const path = claudePath();
-  if (providerId !== "claude-code" || !path) return authStatus(providerId);
-  if (!login || login.child.exitCode !== null) {
-    mkdirSync(file("work"), { recursive: true });
-    // `claude auth login --claudeai`: Anthropic's sign-in page opens in the browser; the CLI waits for it.
-    const child = spawn(path, CLAUDE_LOGIN, { env: cliEnv(), cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
-    const l = { child, out: "" };
-    child.stdout?.on("data", (d) => (l.out = (l.out + d).slice(-8000)));
-    child.stderr?.on("data", (d) => (l.out = (l.out + d).slice(-8000)));
-    child.on("error", () => {});
-    setTimeout(() => child.exitCode === null && child.kill(), 10 * 60_000);
-    login = l;
+  const spec = cliSpec(providerId);
+  const path = spec && cliPath(spec);
+  if (!spec || !path) return authStatus(providerId);
+  const login = spec.auth.login;
+  const l = logins.get(spec.id);
+  if (login.kind === "background") {
+    if (!l?.child || l.child.exitCode !== null) {
+      mkdirSync(file("work"), { recursive: true });
+      // The CLI's own login: its sign-in page opens in the browser, the CLI waits for it.
+      const child = spawn(path, login.args, { env: cliEnv(), cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
+      const entry = { child, out: "", at: Date.now() };
+      child.stdout?.on("data", (d) => (entry.out = (entry.out + d).slice(-8000)));
+      child.stderr?.on("data", (d) => (entry.out = (entry.out + d).slice(-8000)));
+      child.on("error", () => {});
+      setTimeout(() => child.exitCode === null && child.kill(), 10 * 60_000);
+      logins.set(spec.id, entry);
+    }
+    return { state: "signing-in", detail: "Waiting for sign-in in your browser…" };
   }
-  return { state: "signing-in", detail: "Waiting for sign-in in your browser…" };
+  const err = await openInTerminal(`${spec.id}-sign-in`, [`echo ${shq(login.note)}`, "echo", [shq(path), ...login.args.map(shq)].join(" ")]);
+  if (err) return { state: "signed-out", detail: `Couldn't open Terminal: ${err}` };
+  logins.set(spec.id, { out: "", at: Date.now(), note: login.note });
+  return { state: "signing-in", detail: login.note };
 }
 
 export async function signOut(providerId: string): Promise<AuthState> {
-  if (providerId === "claude-code" && claudePath()) await runClaude(CLAUDE_LOGOUT);
+  const spec = cliSpec(providerId);
+  const path = spec && cliPath(spec);
   providerCache = null;
-  return authStatus(providerId);
+  if (!spec || !path) return authStatus(providerId);
+  logins.delete(spec.id);
+  const out = spec.auth.logout;
+  if (out.kind === "command") {
+    await runBin(path, out.args);
+    return authStatus(providerId);
+  }
+  const err = await openInTerminal(`${spec.id}-sign-out`, [`echo ${shq(out.note)}`, "echo", [shq(path), ...out.args.map(shq)].join(" ")]);
+  const s = await authStatus(providerId);
+  return { ...s, detail: err ? `Couldn't open Terminal: ${err}` : out.note };
+}
+
+/** Install: the documented command in Terminal (it waits for Return), or the download page. */
+export async function install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "terminal" | "page"; error?: string }> {
+  const spec = cliSpec(providerId);
+  const srv = LOCAL_SERVERS.find((x) => x.id === providerId);
+  const what: { label: string; command?: string; page: string } | null =
+    target === "nanobanana" ? { label: "the Nano Banana extension for Gemini CLI", command: NANOBANANA_INSTALL, page: "https://github.com/gemini-cli-extensions/nanobanana" } : spec ? { label: spec.label, ...spec.install } : srv ? { label: srv.label, ...srv.install } : null;
+  if (!what) return { ok: false, error: "Unknown agent" };
+  if (!what.command) {
+    await shell.openExternal(what.page);
+    return { ok: true, opened: "page" };
+  }
+  const err = await openInTerminal(`install-${target ?? providerId}`, [
+    `echo ${shq(`This installs ${what.label} with its official command (${what.page}):`)}`,
+    "echo",
+    `echo ${shq(`  ${what.command}`)}`,
+    "echo",
+    `read ${shq("?Press Return to install, or close this window to cancel. ")}`,
+    what.command,
+    "echo",
+    `echo ${shq("Done. Back in DesignerV2, click “Look again” in Agent settings.")}`,
+  ]);
+  providerCache = null;
+  return err ? { ok: false, error: `Couldn't open Terminal: ${err}` } : { ok: true, opened: "terminal" };
+}
+
+/** The keys.json entry of the owner's own Gemini API key for Nano Banana. */
+const IMAGE_KEY = "gemini:nanobanana";
+
+/** A Gemini run gets the owner's Nano Banana key (if they added one) in its environment — never in its arguments. */
+function imageKeyEnv(spec: CliSpec): Record<string, string> {
+  const key = spec.id === "gemini" ? keyOf(IMAGE_KEY) : undefined;
+  return key ? { NANOBANANA_API_KEY: key } : {};
+}
+
+function imageGen(signedIn: boolean, installed: boolean): ImageGenState {
+  return imageGenStatus(authEnv(), { signedIn, installed, hasKey: !!keyOf(IMAGE_KEY) });
+}
+
+export async function setImageKey(key: string | null): Promise<ImageGenState> {
+  const keys = readKeys();
+  if (key && key.trim()) {
+    if (!canEncrypt()) throw new Error("This Mac's keychain isn't available: the key wasn't kept");
+    keys[IMAGE_KEY] = seal(key.trim());
+  } else delete keys[IMAGE_KEY];
+  writePrivate(file("keys.json"), JSON.stringify(keys));
+  providerCache = null;
+  const spec = cliSpec("gemini")!;
+  const path = cliPath(spec);
+  const auth = path ? await cliAuthStatus(spec, path) : null;
+  return imageGen(auth?.state === "connected", !!path);
 }
 
 // ── MCP state and clients ──

@@ -1,8 +1,8 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
-import type { CustomServer, ProviderInfo } from "../../shared/agents/types";
-import { CLI_SPECS } from "./cliProviders";
+import type { AuthState, CustomServer, ImageGenState, ProviderInfo } from "../../shared/agents/types";
+import { CLI_SPECS, LOCAL_SERVERS, type CliSpec } from "./providers";
 import { listModels } from "./openaiBridge";
 
 /**
@@ -43,24 +43,48 @@ export function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return env;
 }
 
-export const LOCAL_SERVERS: { id: string; label: string; baseUrl: string }[] = [
-  { id: "ollama", label: "Ollama", baseUrl: "http://localhost:11434/v1" },
-  { id: "lmstudio", label: "LM Studio", baseUrl: "http://localhost:1234/v1" },
-];
+export { LOCAL_SERVERS };
 
-export async function detectProviders(custom: CustomServer[], keyOf: (id: string) => string | undefined, options: { fetch?: typeof fetch; which?: (bin: string) => string | null } = {}): Promise<ProviderInfo[]> {
+/** A CLI's executable on this computer, or null. */
+export const cliPath = (spec: Pick<CliSpec, "bins">, find: (bin: string) => string | null = (b) => which(b)): string | null => spec.bins.map((b) => find(b)).find(Boolean) ?? null;
+
+/**
+ * Every agent with its state: a CLI is usable in the chat (`available`) when it is installed and signed in (its own
+ * status, `authOf`); a server when it answers with models.
+ */
+export async function detectProviders(
+  custom: CustomServer[],
+  keyOf: (id: string) => string | undefined,
+  options: { fetch?: typeof fetch; which?: (bin: string) => string | null; authOf?: (spec: CliSpec, path: string) => Promise<AuthState>; imageGen?: (signedIn: boolean, installed: boolean) => ImageGenState } = {}
+): Promise<ProviderInfo[]> {
   const find = options.which ?? ((b: string) => which(b));
-  const clis: ProviderInfo[] = CLI_SPECS.map((s) => {
-    const path = s.bins.map((b) => find(b)).find(Boolean) ?? null;
-    return { id: s.id, kind: s.id, label: s.label, available: !!path, detail: path ?? undefined, models: s.models, problem: path ? undefined : `${s.bins[0]} isn't installed` };
-  });
+  const clis: ProviderInfo[] = await Promise.all(
+    CLI_SPECS.map(async (s): Promise<ProviderInfo> => {
+      const path = cliPath(s, find);
+      const auth: AuthState = !path ? { state: "not-installed" } : options.authOf ? await options.authOf(s, path).catch((): AuthState => ({ state: "signed-out", detail: "Couldn't read its sign-in" })) : { state: "connected" };
+      const connected = auth.state === "connected";
+      return {
+        id: s.id,
+        kind: s.id,
+        label: s.label,
+        note: s.note,
+        available: !!path && connected,
+        detail: path ?? undefined,
+        models: s.models,
+        problem: !path ? `${s.bins[0]} isn't installed` : connected ? undefined : "Signed out",
+        auth,
+        install: s.install,
+        ...(s.id === "gemini" && options.imageGen ? { imageGen: options.imageGen(connected, !!path) } : {}),
+      };
+    })
+  );
   const servers = await Promise.all(
-    [...LOCAL_SERVERS.map((s) => ({ ...s, hasKey: false })), ...custom].map(async (s): Promise<ProviderInfo> => {
+    [...LOCAL_SERVERS.map((s) => ({ ...s, hasKey: false })), ...custom.map((c) => ({ ...c, install: undefined }))].map(async (s): Promise<ProviderInfo> => {
       try {
         const models = await listModels(s.baseUrl, { fetch: options.fetch, apiKey: keyOf(s.id) });
-        return { id: s.id, kind: "openai-compatible", label: s.label, available: models.length > 0, detail: s.baseUrl, models, problem: models.length ? undefined : "No models loaded", hasKey: s.hasKey };
+        return { id: s.id, kind: "openai-compatible", label: s.label, available: models.length > 0, detail: s.baseUrl, models, problem: models.length ? undefined : "No models loaded", hasKey: s.hasKey, install: s.install };
       } catch {
-        return { id: s.id, kind: "openai-compatible", label: s.label, available: false, detail: s.baseUrl, models: [], problem: `Not running at ${s.baseUrl}`, hasKey: s.hasKey };
+        return { id: s.id, kind: "openai-compatible", label: s.label, available: false, detail: s.baseUrl, models: [], problem: `Not running at ${s.baseUrl}`, hasKey: s.hasKey, install: s.install };
       }
     })
   );

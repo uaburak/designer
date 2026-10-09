@@ -1,7 +1,7 @@
 import { SYSTEM_PROMPT } from "../../shared/agents/prompts";
 import { TOOLS, type ToolResult } from "../../shared/agents/tools";
 import type { ChatEvent, TurnRequest } from "../../shared/agents/types";
-import { promptWithContext } from "./cliProviders";
+import { promptWithContext } from "./providers/turns";
 
 /**
  * Local models behind an OpenAI-compatible chat API (Ollama at localhost:11434/v1, LM Studio at localhost:1234/v1,

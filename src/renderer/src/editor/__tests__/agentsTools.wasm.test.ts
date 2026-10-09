@@ -209,8 +209,9 @@ describe("MCP tools: variables and styles", () => {
 
 describe("MCP tools: one schema", () => {
   it("tools/list and the implementation name the same layer properties", () => {
+    // `image` (a picture by path or bytes, imported before the write) is the tools' own, not a document field.
     const schema = (TOOL_BY_NAME.get("update_nodes")!.inputSchema as { properties: { updates: { items: { properties: Record<string, unknown> } } } }).properties.updates.items.properties;
-    expect(new Set(Object.keys(schema))).toEqual(new Set(["nodeId", ...LAYER_PROP_NAMES]));
+    expect(new Set(Object.keys(schema))).toEqual(new Set(["nodeId", "image", ...LAYER_PROP_NAMES]));
     expect(new Set(PROP_NAMES)).toEqual(new Set(LAYER_PROP_NAMES));
   });
 

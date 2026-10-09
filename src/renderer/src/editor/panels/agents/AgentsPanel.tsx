@@ -7,10 +7,10 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { Button, EmptyState, Icon, IconButton, Select, Spinner, TextInput, cx, showToast, timeAgo, tooltipProps, type IconName } from "@/ds";
-import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
+import type { AuthState, ImageGenState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
 import { useEditor } from "../../controller";
 import { useTopics } from "../../hooks";
-import { agentsOf, toolLabel, type AgentsService, type Chat, type ChatMessage, type MessagePart } from "../../agents/service";
+import { agentsOf, modelLabel, pickerOptions, toolLabel, type AgentsService, type Chat, type ChatMessage, type MessagePart } from "../../agents/service";
 import { TabHeader } from "../TabHeader";
 import styles from "./Agents.module.css";
 
@@ -244,7 +244,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
     // Keys typed here are the message's, never the canvas's shortcuts.
     e.stopPropagation();
   };
-  const options = state.providers.filter((p) => p.available).flatMap((p) => (p.models.length > 1 ? p.models.map((m) => ({ value: `${p.id}\u0000${m}`, label: `${p.label} · ${m}` })) : [{ value: `${p.id}\u0000${p.models[0] ?? ""}`, label: p.label }]));
+  const options = pickerOptions(state.providers);
   const current = provider ? `${provider.id}\u0000${service.modelOf(provider) ?? ""}` : "";
   return (
     <div className={styles.composer} data-composer="">
@@ -280,7 +280,7 @@ function Composer({ service, chat, running }: { service: AgentsService; chat: Ch
           />
         ) : (
           <button type="button" className={styles.noProvider} onClick={() => service.setView("settings")}>
-            {state.providersLoading ? "Looking for agents…" : "No agent found — set up"}
+            {state.providersLoading ? "Looking for agents…" : "Connect an agent"}
           </button>
         )}
         {running ? (
@@ -313,7 +313,7 @@ function AgentSettings({ service }: { service: AgentsService }) {
       <Section title="Agents on this computer" action={<IconButton icon="24.reset.instance.small" label="Look again" tone="secondary" onClick={() => void service.refreshProviders()} />}>
         {state.providersLoading && !state.providers.length && <div className={styles.status}><Spinner size={16} /> Looking for agents…</div>}
         {state.providers.map((p) => <ProviderRow key={p.id} p={p} service={service} />)}
-        <p className={styles.note}>Nothing leaves this computer except what the agent you pick sends to its own service. CLIs run in an empty folder with only this file’s design tools.</p>
+        <p className={styles.note}>Agents that are connected show up in the chat’s agent menu. Sign-in happens in each tool’s own page or in Terminal — this app never sees your password. Nothing leaves this computer except what the agent you pick sends to its own service; CLIs run in an empty folder with only this file’s design tools.</p>
       </Section>
       <Section title="Add a server">
         <AddServer service={service} />
@@ -335,99 +335,186 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
   );
 }
 
-function ProviderRow({ p, service }: { p: ProviderInfo; service: AgentsService }) {
-  const state = service.get();
-  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const chosen = service.activeProvider()?.id === p.id;
-  const custom = p.id.startsWith("custom:");
-  return (
-    <div className={styles.provider} data-provider={p.id} data-available={p.available || undefined}>
-      <div className={styles.providerHead}>
-        <span className={cx(styles.dot, p.available && styles.dotOn)} />
-        <span className={styles.providerName}>{p.label}</span>
-        {chosen && <span className={styles.badge}>In use</span>}
-        {custom && <IconButton icon="24.trash.outline" label="Remove server" tone="secondary" onClick={() => void service.api?.removeServer(p.id).then(() => service.refreshProviders())} />}
-      </div>
-      <div className={styles.providerDetail}>{p.available ? p.detail : p.kind !== "openai-compatible" && p.kind !== "claude-code" ? `${p.problem ?? "Not installed"} — in-app sign-in coming soon` : p.problem}</div>
-      {p.kind === "claude-code" && <AuthCard providerId={p.id} service={service} />}
-      {p.available && (
-        <div className={styles.providerActions}>
-          {p.models.length > 1 && <Select label="Model" width="hug" value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: m }))} onChange={(m) => void service.choose(p.id, m)} />}
-          {!chosen && (
-            <Button variant="secondary" onClick={() => void service.choose(p.id)}>
-              Use
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            loading={busy}
-            onClick={async () => {
-              setBusy(true);
-              const r = await service.api!.test(p.id).catch((err: unknown) => ({ ok: false, models: [], error: String(err) }));
-              setBusy(false);
-              setTest({ ok: r.ok, text: r.ok ? (p.kind === "openai-compatible" ? `Connected · ${r.models.length} models` : "Ready") : (r.error ?? "Failed") });
-            }}
-          >
-            Test connection
-          </Button>
-        </div>
-      )}
-      {test && <div className={cx(styles.testResult, !test.ok && styles.testFail)}>{test.text}</div>}
-      {!p.available && state.providers.length > 0 && p.kind === "openai-compatible" && !custom && <div className={styles.providerHint}>Start {p.label} and load a model, then “Look again”.</div>}
-    </div>
-  );
+/** A card's state line, in Figma's words. */
+function stateText(p: ProviderInfo, auth: AuthState | undefined): string {
+  if (p.kind === "openai-compatible") return p.available ? "Connected" : p.models.length || p.problem === "No models loaded" ? "No models loaded" : "Not running";
+  switch (auth?.state) {
+    case "connected":
+      return "Connected";
+    case "signing-in":
+      return "Signing in…";
+    case "signed-out":
+      return "Signed out";
+    default:
+      return "Not installed";
+  }
 }
 
-/** A CLI agent's sign-in (Claude Code): Connected with its account, or Sign in — the CLI's own login in the browser. */
-function AuthCard({ providerId, service }: { providerId: string; service: AgentsService }) {
-  const [auth, setAuth] = useState<AuthState | null>(null);
-  const [busy, setBusy] = useState(false);
+/** An agent's card: its state (Connected / Signed out / Not installed), Install, Sign in / Sign out, its model, Test connection. */
+function ProviderRow({ p, service }: { p: ProviderInfo; service: AgentsService }) {
+  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  // What Sign in / Sign out / the polling said, until the providers' next report (p.auth) replaces it.
+  const [local, setLocal] = useState<{ of: AuthState | undefined; auth: AuthState } | null>(null);
+  const auth = local && local.of === p.auth ? local.auth : p.auth;
+  const setAuth = (a: AuthState) => setLocal({ of: p.auth, auth: a });
+  const api = service.api;
+  // While a sign-in runs (the browser, or Terminal): ask again every 2 s, 10 minutes at most.
   useEffect(() => {
-    let alive = true;
-    void service.api?.auth(providerId).then((a) => alive && setAuth(a), () => {});
-    return () => {
-      alive = false;
-    };
-  }, [providerId, service]);
-  // While the browser sign-in runs: ask again every 2 s (5 minutes at most).
-  useEffect(() => {
-    if (auth?.state !== "signing-in") return;
+    if (auth?.state !== "signing-in" || !api) return;
     let n = 0;
     const timer = setInterval(() => {
-      if (++n > 150) return clearInterval(timer);
-      void service.api?.auth(providerId).then((a) => {
+      if (++n > 300) return clearInterval(timer);
+      void api.auth(p.id).then((a) => {
+        if (a.state === "signing-in") return;
         setAuth(a);
-        if (a.state === "connected") void service.refreshProviders();
+        void service.refreshProviders();
       });
     }, 2000);
     return () => clearInterval(timer);
-  }, [auth?.state, providerId, service]);
-  if (!auth) return <div className={styles.status}><Spinner size={16} /> Checking sign-in…</div>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setAuth is this render's; the state is what matters
+  }, [auth?.state, p.id, api, service]);
+  const cli = p.kind !== "openai-compatible";
+  const custom = p.id.startsWith("custom:");
+  const state = stateText(p, auth);
+  const on = cli ? auth?.state === "connected" : p.available;
+  const chosen = service.activeProvider()?.id === p.id;
+  const run = async (what: string, fn: () => Promise<unknown>) => {
+    setBusy(what);
+    try {
+      await fn();
+    } catch (err) {
+      showToast({ message: err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err), kind: "error" });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const install = () =>
+    run("install", async () => {
+      const r = await api!.install(p.id);
+      if (!r.ok) showToast({ message: r.error ?? "Couldn't open the installer", kind: "error" });
+      else showToast({ message: r.opened === "terminal" ? `Terminal opened with ${p.label}’s install command — press Return there to install, then Look again.` : `Opened ${p.label}’s download page` });
+    });
+  const account = auth?.state === "connected" ? [auth.account, auth.plan].filter(Boolean).join(" · ") : "";
   return (
-    <div className={styles.auth} data-auth={auth.state}>
-      <span className={styles.authState}>
-        {auth.state === "connected" ? `Connected${auth.account ? ` · ${auth.account}` : ""}` : auth.state === "signing-in" ? "Waiting for sign-in in your browser…" : auth.state === "signed-out" ? "Signed out" : "Not installed"}
-      </span>
-      {auth.plan && auth.state === "connected" && <span className={styles.providerDetail}>{auth.plan}</span>}
-      {auth.state === "signing-in" && auth.url && (
+    <div className={styles.provider} data-provider={p.id} data-available={p.available || undefined} data-state={cli ? auth?.state : p.available ? "connected" : "not-running"}>
+      <div className={styles.providerHead}>
+        <span className={cx(styles.dot, on && styles.dotOn)} />
+        <span className={styles.providerName}>{p.label}</span>
+        {chosen && p.available && <span className={styles.badge}>In use</span>}
+        <span className={styles.providerState} data-provider-state="">{state}</span>
+        {custom && <IconButton icon="24.trash.outline" label="Remove server" tone="secondary" onClick={() => void api?.removeServer(p.id).then(() => service.refreshProviders())} />}
+      </div>
+      {p.note && <div className={styles.providerDetail}>{p.note}</div>}
+      <div className={styles.providerDetail}>{account || (cli ? (auth?.state === "not-installed" ? p.install?.command ?? auth?.detail : (auth?.state === "signing-in" ? auth.detail : p.detail)) : p.detail)}</div>
+      {auth?.state === "signing-in" && auth.url && (
         <button type="button" className={styles.link} onClick={() => editorOpenExternal(auth.url!)}>
           Open the sign-in page
         </button>
       )}
       <div className={styles.providerActions}>
-        {auth.state === "signed-out" && (
-          <Button variant="primary" loading={busy} onClick={async () => { setBusy(true); setAuth(await service.api!.signIn(providerId)); setBusy(false); }} data-sign-in="">
+        {cli && auth?.state === "not-installed" && (
+          <Button variant="primary" loading={busy === "install"} onClick={() => void install()} data-install="">
+            Install
+          </Button>
+        )}
+        {cli && auth?.state === "signed-out" && (
+          <Button variant="primary" loading={busy === "sign-in"} onClick={() => void run("sign-in", async () => setAuth(await api!.signIn(p.id)))} data-sign-in="">
             Sign in
           </Button>
         )}
-        {auth.state === "connected" && (
-          <Button variant="secondary" loading={busy} onClick={async () => { setBusy(true); setAuth(await service.api!.signOut(providerId)); setBusy(false); void service.refreshProviders(); }} data-sign-out="">
+        {cli && auth?.state === "signing-in" && <span className={styles.status}><Spinner size={16} /> Waiting…</span>}
+        {!cli && !p.available && !custom && p.install && (
+          <Button variant="secondary" loading={busy === "install"} onClick={() => void install()} data-install="">
+            Install
+          </Button>
+        )}
+        {p.available && p.models.length > 1 && <Select label="Model" width="hug" value={service.modelOf(p) ?? ""} options={p.models.map((m) => ({ value: m, label: modelLabel(m) }))} onChange={(m) => void service.choose(p.id, m)} />}
+        {(p.available || (cli && auth?.state === "signed-out")) && (
+          <Button
+            variant="ghost"
+            loading={busy === "test"}
+            onClick={() =>
+              void run("test", async () => {
+                const r = await api!.test(p.id).catch((err: unknown) => ({ ok: false, models: [] as string[], error: String(err), version: undefined }));
+                setTest({ ok: r.ok, text: r.ok ? (cli ? `Ready${r.version ? ` · ${r.version}` : ""}` : `Connected · ${r.models.length} models`) : (r.error ?? "Failed") });
+                void service.refreshProviders();
+              })
+            }
+            data-test-connection=""
+          >
+            Test connection
+          </Button>
+        )}
+        {cli && auth?.state === "connected" && (
+          <Button variant="secondary" loading={busy === "sign-out"} onClick={() => void run("sign-out", async () => { setAuth(await api!.signOut(p.id)); await service.refreshProviders(); })} data-sign-out="">
             Sign out
           </Button>
         )}
-        {auth.state === "not-installed" && <span className={styles.providerDetail}>Install: curl -fsSL https://claude.ai/install.sh | bash (in-app install coming soon)</span>}
       </div>
+      {test && <div className={cx(styles.testResult, !test.ok && styles.testFail)}>{test.text}</div>}
+      {!cli && !p.available && !custom && <div className={styles.providerHint}>Start {p.label} and load a model, then “Look again”.</div>}
+      {p.imageGen && p.imageGen.state !== "unavailable" && <ImageGeneration p={p} service={service} />}
+    </div>
+  );
+}
+
+const IMAGE_STATE: Record<ImageGenState["state"], string> = { ready: "Ready", "needs-sign-in": "Needs sign-in", "needs-key": "Needs API key", "not-installed": "Not installed", unavailable: "Not available" };
+
+/**
+ * Gemini's image generation (Nano Banana, a Gemini CLI extension): its state, Install for the extension, and the
+ * owner's own API key — pasted here by them, kept with the OS keychain (safeStorage), handed to Gemini CLI's runs only.
+ */
+function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsService }) {
+  const [local, setLocal] = useState<{ of: ImageGenState | undefined; gen: ImageGenState } | null>(null);
+  const gen = local && local.of === p.imageGen ? local.gen : p.imageGen!;
+  const setGen = (g: ImageGenState) => setLocal({ of: p.imageGen, gen: g });
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const api = service.api!;
+  const saveKey = async (k: string | null) => {
+    setBusy(true);
+    try {
+      setGen(await api.setImageKey(k));
+      setKey("");
+      await service.refreshProviders();
+    } catch (err) {
+      showToast({ message: err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") : String(err), kind: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={styles.auth} data-image-gen={gen.state}>
+      <span className={styles.authState}>Image generation: {IMAGE_STATE[gen.state]}</span>
+      <span className={styles.providerDetail}>{gen.state === "needs-key" ? "Nano Banana makes images with a Gemini API key; a Google sign-in (Google AI Pro or Ultra included) doesn’t cover it." : gen.detail}</span>
+      {gen.state === "not-installed" && (
+        <div className={styles.providerActions}>
+          <Button variant="secondary" onClick={() => void api.install(p.id, "nanobanana").then((r) => showToast(r.ok ? { message: "Terminal opened with the extension’s install command — press Return there, then Look again." } : { message: r.error ?? "Couldn't open Terminal", kind: "error" }))} data-install-images="">
+            Install Nano Banana
+          </Button>
+        </div>
+      )}
+      {gen.state === "needs-key" && (
+        <div className={styles.form}>
+          <TextInput label="Gemini API key" placeholder="Paste your Gemini API key" secret value={key} onChange={setKey} />
+          <div className={styles.providerActions}>
+            <Button variant="primary" disabled={!key.trim()} loading={busy} onClick={() => void saveKey(key)} data-save-image-key="">
+              Save key
+            </Button>
+            <button type="button" className={styles.link} onClick={() => editorOpenExternal("https://aistudio.google.com/apikey")}>
+              Get a key in Google AI Studio
+            </button>
+          </div>
+        </div>
+      )}
+      {gen.state === "ready" && /you added/.test(gen.detail ?? "") && (
+        <div className={styles.providerActions}>
+          <Button variant="ghost" loading={busy} onClick={() => void saveKey(null)}>
+            Remove key
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -446,7 +533,7 @@ function AddServer({ service }: { service: AgentsService }) {
     <div className={styles.form}>
       <TextInput label="Name" placeholder="Name" value={label} onChange={setLabel} />
       <TextInput label="Base URL" placeholder="http://localhost:8080/v1" value={url} onChange={setUrl} />
-      <TextInput label="API key (optional)" placeholder="API key (optional, kept in the keychain)" value={key} onChange={setKey} />
+      <TextInput label="API key (optional)" placeholder="API key (optional, kept in the keychain)" secret value={key} onChange={setKey} />
       <Button
         variant="secondary"
         disabled={!/^https?:\/\//i.test(url.trim())}

@@ -33,13 +33,15 @@ export interface TextInputProps extends Omit<HTMLAttributes<HTMLDivElement>, "on
   /** default true */
   selectAllOnFocus?: boolean;
   maxLength?: number;
+  /** A secret (an API key): its characters hidden, never autofilled */
+  secret?: boolean;
   disabled?: boolean;
   invalid?: boolean;
   onExit?: (r: ExitReason) => void;
 }
 
 /** Figma's one-line field (contract §4.4). */
-export function TextInput({ label, value, onCommit, onChange, placeholder, prefix, suffix, variant = "filled", size = "default", autoFocus, selectAllOnFocus = true, maxLength, disabled, invalid, onExit, className, ...rest }: TextInputProps) {
+export function TextInput({ label, value, onCommit, onChange, placeholder, prefix, suffix, variant = "filled", size = "default", autoFocus, selectAllOnFocus = true, maxLength, secret, disabled, invalid, onExit, className, ...rest }: TextInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const cancelled = useRef(false);
   const exitBy = useRef<ExitReason>("blur");
@@ -67,6 +69,7 @@ export function TextInput({ label, value, onCommit, onChange, placeholder, prefi
         aria-invalid={invalid || undefined}
         disabled={disabled}
         maxLength={maxLength}
+        {...(secret ? { type: "password", autoComplete: "off", spellCheck: false } : null)}
         value={shown}
         placeholder={mixed ? STRINGS.mixed : placeholder}
         spellCheck={false}
