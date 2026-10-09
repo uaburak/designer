@@ -2787,22 +2787,24 @@ async function overlays11Section(page, theme) {
   await open(page, "&doc=capture");
   const canvas = page.locator("#engine-canvas");
   const cbox = await canvas.boundingBox();
-  const away = [cbox.x + 700, cbox.y + 760];
-  const frameOn = async (ids, wx, wy, z) => {
-    await page.evaluate(([ids, wx, wy, z]) => {
+  const away = [cbox.x + cbox.width / 2, cbox.y + 780];
+  // The layers' box (wx, wy, w × h) centred in the canvas between the panels, at zoom z.
+  const frameOn = async (ids, wx, wy, z, w, h) => {
+    await page.evaluate(([ids, wx, wy, z, w, h, cw]) => {
       const e = window.__designerEditor.engine;
       e.setSelection(ids);
-      e.setCamera({ x: 600 - wx * z, y: 300 - wy * z, zoom: z });
-    }, [ids, wx, wy, z]);
+      e.setCamera({ x: cw / 2 - (wx + w / 2) * z, y: 380 - (wy + h / 2) * z, zoom: z });
+    }, [ids, wx, wy, z, w, h, cbox.width]);
     await page.mouse.move(...away);
     await settle(page);
   };
   const isPurple = (d, i) => d[i] > 110 && d[i] < 170 && d[i + 1] < 100 && d[i + 2] > 200;
   const isBlue = (d, i) => d[i] < 80 && d[i + 1] > 100 && d[i + 1] < 190 && d[i + 2] > 200;
-  const isPink = (d, i) => d[i] > 200 && d[i + 1] < 90 && d[i + 2] > 130;
+  // The spacing pink, and pink blended with white or the layer under it (a 1.5 px core at 1×: (248, 129, 212)).
+  const isPink = (d, i) => d[i] > 200 && d[i + 1] < 160 && d[i + 2] > 130 && d[i] - d[i + 1] > 70;
 
   // R24: the set Chip (8:40, 364 × 40 at 300, 600) at live's 1.714×.
-  await frameOn(["8:40"], 300, 600, 1.714);
+  await frameOn(["8:40"], 300, 600, 1.714, 364, 40);
   const info = await page.evaluate(() => window.__designerEditor.engine.devInfo());
   const plus = info.hits.addVariant;
   const [setL, setB] = await toScreen(page, 300, 640);
@@ -2847,12 +2849,12 @@ async function overlays11Section(page, theme) {
     for (let i = 0; i < px.data.length; i += 4) if (px.data[i] > 120 && px.data[i + 2] > 180 && px.data[i + 1] < px.data[i + 2] - 30) n++;
     return n;
   };
-  await frameOn(["8:60"], 100, 720, 3.22);
+  await frameOn(["8:60"], 100, 720, 3.22, 95, 44);
   const instSel = await titleInk(100, 720);
   await shot(page, `212-r11-instance-selected-${theme}`);
-  await frameOn([], 100, 720, 3.22);
+  await frameOn([], 100, 720, 3.22, 95, 44);
   const instRest = await titleInk(100, 720);
-  await frameOn(["8:1"], 100, 600, 3.22);
+  await frameOn(["8:1"], 100, 600, 3.22, 95, 44);
   const main = await titleInk(100, 600);
   check("R26: no title over a top-level instance, selected or not; the main component keeps its own", instSel === 0 && instRest === 0 && main > 10, JSON.stringify({ instSel, instRest, main }));
 
@@ -2866,7 +2868,7 @@ async function overlays11Section(page, theme) {
     for (let y = 0; y < col.height; y++) if (isBlue(col.data, y * 4)) rows.push(y + Math.round(y0) - 3);
     return { rows, top: Math.round(y0), bottom: Math.round(y1) };
   };
-  await frameOn([], 0, 460, 2.38);
+  await frameOn([], 0, 460, 2.38, 184, 29);
   await page.mouse.move(...(await toScreen(page, 60, 470)));
   await settle(page);
   const hover = await underline();
@@ -2874,7 +2876,7 @@ async function overlays11Section(page, theme) {
   // Inter 24's baseline 23.25 under the top of its 29-high line: at 2.38×, 55 px down.
   const base = hover.top + 23.25 * 2.38;
   check("R25: a hovered text's baseline underlined: 2 px from its baseline down, no box edge", hover.rows.length === 2 && Math.abs(hover.rows[0] - base) <= 1.5 && !hover.rows.includes(hover.top), JSON.stringify({ ...hover, base }));
-  await frameOn(["7:90"], 0, 460, 2.38);
+  await frameOn(["7:90"], 0, 460, 2.38, 184, 29);
   await page.mouse.move(...(await toScreen(page, 60, 470)));
   await settle(page);
   const selHover = await underline();
@@ -2882,7 +2884,7 @@ async function overlays11Section(page, theme) {
 
   // R27: Ellipse + Polygon (7:61, 7:62) selected, the pointer away: tiny white dots with a pink core at their centres,
   // no ring; the pointer on the selection: rings.
-  await frameOn(["7:61", "7:62"], 160, 300, 2);
+  await frameOn(["7:61", "7:62"], 160, 300, 2, 240, 100);
   const [ecx, ecy] = await toScreen(page, 210, 350);
   const dot = await regionPixels(page, { x: Math.round(ecx) - 6, y: Math.round(ecy) - 6, width: 13, height: 13 });
   const count = (d, f) => {
@@ -2899,10 +2901,12 @@ async function overlays11Section(page, theme) {
   check("R27: off the selection a ~3 px dot (a pink core, a few pixels), on it the 9 px ring", pinkAway >= 1 && pinkAway <= 6 && count(ring, isPink) >= 16, JSON.stringify({ pinkAway, ring: count(ring, isPink), white: count(dot, whiteish) }));
   await shot(page, `215-r11-multi-rings-${theme}`);
   // The Group (7:80): its two layers' centres dotted.
-  await frameOn(["7:80"], 1220, 300, 2.38);
+  await frameOn(["7:80"], 1220, 300, 2.38, 140, 80);
   const [gcx, gcy] = await toScreen(page, 1250, 340);
   const gdot = await regionPixels(page, { x: Math.round(gcx) - 5, y: Math.round(gcy) - 5, width: 11, height: 11 });
-  check("R27: a selected group's equally spaced layers get the dots (live canvas-group-selected)", count(gdot, isPink) >= 1 && count(gdot, whiteish) >= 2, JSON.stringify({ pink: count(gdot, isPink), white: count(gdot, whiteish) }));
+  // Lighter than the layer (its colour in the region's corner) by 60 and grey: the dot's white.
+  const lighter = (d, i) => d[i] > gdot.data[0] + 60 && d[i + 1] > gdot.data[1] + 60 && Math.abs(d[i] - d[i + 2]) < 24;
+  check("R27: a selected group's equally spaced layers get the dots (live canvas-group-selected)", count(gdot, isPink) >= 1 && count(gdot, lighter) >= 2, JSON.stringify({ pink: count(gdot, isPink), white: count(gdot, lighter) }));
   await shot(page, `216-r11-group-dots-${theme}`);
 }
 

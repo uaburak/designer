@@ -163,7 +163,7 @@ TEST_CASE("r11 component set: \"3 Variants\" in the pill, the \"+\" 4 px under i
   CHECK(pills[0][0] + pills[0][2] / 2 == doctest::Approx(bottom.x).epsilon(0.01));
   CHECK(pills[0][2] > 58);
   CHECK(pills[0][2] < 66);
-  // The "+": a 16 × 16 purple square 4 px under the pill, centred, with a white plus 10 across.
+  // The "+": a 16 × 16 purple square 4 px under the pill, centred, with a white plus 11 across.
   const CanvasHits::AddVariant& plus = s.e.canvasHits().addVariant;
   REQUIRE(plus.set == SET);
   CHECK(plus.rect.w == 16);
@@ -173,7 +173,7 @@ TEST_CASE("r11 component set: \"3 Variants\" in the pill, the \"+\" 4 px under i
   auto squares = boxes(all, [&](const DrawInstance& q) { return isFill(q) && sameColor(q, style.component) && q.origin[2] == 16 && q.origin[3] == 16; });
   CHECK(squares.size() == 1);
   auto bars = boxes(all, [&](const DrawInstance& q) {
-    return isFill(q) && sameColor(q, Color{1, 1, 1, 1}) && ((q.origin[2] == 10 && q.origin[3] == 1.5f) || (q.origin[2] == 1.5f && q.origin[3] == 10));
+    return isFill(q) && sameColor(q, Color{1, 1, 1, 1}) && ((q.origin[2] == 11 && q.origin[3] == 1.5f) || (q.origin[2] == 1.5f && q.origin[3] == 11));
   });
   CHECK(bars.size() == 2);
   // A pink box in each gap, across the content box: x 116 / 232, y 16 to 24, 1 px inside.
