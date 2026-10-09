@@ -36,6 +36,8 @@ export interface ProviderInfo {
 /** Image generation's readiness on the Gemini card. */
 export interface ImageGenState {
   state: "ready" | "needs-sign-in" | "needs-key" | "not-installed" | "unavailable";
+  /** The owner added their Gemini API key in Agent settings (it runs the chat and Nano Banana) */
+  keyAdded?: boolean;
   detail?: string;
 }
 

@@ -499,7 +499,7 @@ function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsServi
           </Button>
         </div>
       )}
-      {(gen.state === "needs-key" || gen.state === "needs-sign-in") && (
+      {!gen.keyAdded && (
         <div className={styles.form}>
           <TextInput label="Gemini API key" placeholder="Paste your Gemini API key" secret value={key} onChange={setKey} />
           <div className={styles.providerActions}>
@@ -512,7 +512,7 @@ function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsServi
           </div>
         </div>
       )}
-      {gen.state === "ready" && /you added/.test(gen.detail ?? "") && (
+      {gen.keyAdded && (
         <div className={styles.providerActions}>
           <Button variant="ghost" loading={busy} onClick={() => void saveKey(null)}>
             Remove key

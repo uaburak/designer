@@ -173,7 +173,7 @@ describe("Gemini CLI (Antigravity's models)", () => {
     const ext = { "/h/.gemini/extensions/nanobanana/gemini-extension.json": "{}" };
     expect(imageGenStatus(env(ext), { ...signedIn, signedIn: false }).state).toBe("needs-sign-in");
     expect(imageGenStatus(env(ext), signedIn).state).toBe("needs-key");
-    expect(imageGenStatus(env(ext), { ...signedIn, hasKey: true })).toEqual({ state: "ready", detail: "With the API key you added" });
+    expect(imageGenStatus(env(ext), { ...signedIn, hasKey: true })).toEqual({ state: "ready", detail: "With the API key you added", keyAdded: true });
     expect(imageGenStatus(env({ ...ext, "/h/.gemini/extensions/nanobanana/.env": "NANOBANANA_API_KEY=abc\n" }), signedIn).state).toBe("ready");
   });
 });

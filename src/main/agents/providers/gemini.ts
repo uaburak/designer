@@ -59,11 +59,18 @@ export function geminiStatus(env: AuthEnv): AuthState {
  * Google sign-in doesn't cover it, a Google AI Ultra plan included. The key is the owner's: pasted into Agent settings
  * (kept with safeStorage) or set in the extension's own settings when it was installed (its `.env`).
  */
-export const NANOBANANA_INSTALL = "gemini extensions install https://github.com/gemini-cli-extensions/nanobanana";
+// --consent: the owner's Install click is the consent; --skip-settings: its key comes from our run's environment (an
+// interactive settings prompt would wait forever without a terminal).
+export const NANOBANANA_INSTALL = "gemini extensions install https://github.com/gemini-cli-extensions/nanobanana --consent --skip-settings";
 export const NANOBANANA_KEY_PAGE = "https://aistudio.google.com/apikey";
 const KEY_VARS = ["NANOBANANA_API_KEY", "NANOBANANA_GEMINI_API_KEY", "NANOBANANA_GOOGLE_API_KEY"];
 
 export function imageGenStatus(env: AuthEnv & { list(path: string): string[] }, o: { signedIn: boolean; installed: boolean; hasKey: boolean }): ImageGenState {
+  const s = imageGenState(env, o);
+  return o.hasKey ? { ...s, keyAdded: true } : s;
+}
+
+function imageGenState(env: AuthEnv & { list(path: string): string[] }, o: { signedIn: boolean; installed: boolean; hasKey: boolean }): ImageGenState {
   if (!o.installed) return { state: "unavailable", detail: "Gemini CLI isn't installed" };
   const dir = join(env.home, ".gemini", "extensions");
   const ext = env.list(dir).find((d) => /nanobanana/i.test(d));
