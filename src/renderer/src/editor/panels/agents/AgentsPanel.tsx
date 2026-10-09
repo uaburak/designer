@@ -260,7 +260,7 @@ function HeldLabel({ label, hold }: { label: string; hold: boolean }) {
   const [shown, setShown] = useState(label);
   const since = useRef(0);
   useEffect(() => {
-    if (!hold) return setShown(label);
+    if (!hold) return;
     const wait = Math.max(0, since.current + HOLD_MS - Date.now());
     const t = setTimeout(() => {
       since.current = Date.now();
