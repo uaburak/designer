@@ -286,3 +286,12 @@ describe("the turn runner (turns.ts)", () => {
     expect(done2.mock.calls[0][0]).toMatch(/exited \(1\): Invalid API key/);
   });
 });
+
+describe("Gemini with the owner's API key", () => {
+  it("switches the chat folder to the key and passes it only in the environment", () => {
+    const plan = gemini.plan({ ...turn(), apiKey: "k" });
+    expect(JSON.parse(plan.files![".gemini/settings.json"]).security.auth.selectedType).toBe("gemini-api-key");
+    expect(plan.env).toMatchObject({ GEMINI_API_KEY: "k", NANOBANANA_API_KEY: "k", GEMINI_CLI_TRUST_WORKSPACE: "true" });
+    expect(plan.args).not.toContain("k");
+  });
+});
