@@ -202,9 +202,16 @@ function CountFields({ refs, grids }: { refs: Guid[]; grids: (PanelNode & GridNo
   );
 }
 
-/** Live: a board of 12 columns × 8 rows */
-const PICKER_COLUMNS = 12;
-const PICKER_ROWS = 8;
+/** Live: a board of 12 columns × 8 rows, the picker 210 wide */
+export const GRID_PICKER = { columns: 12, rows: 8, width: 210 } as const;
+const PICKER_COLUMNS = GRID_PICKER.columns;
+const PICKER_ROWS = GRID_PICKER.rows;
+const PICKER_WIDTH = GRID_PICKER.width;
+
+/** Where the picker opens (live: 12 left of the grid's button and 57 above it — 1204,427 for a button at 1216,484). */
+export function gridPickerOrigin(button: { left: number; top: number }): { x: number; y: number } {
+  return { x: button.left - 12, y: button.top - 57 };
+}
 
 /**
  * The grid dimensions picker (live grid/grid-dimensions-picker.txt: 210 × 204, no header): the counts, then a board
@@ -218,9 +225,9 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
   const first = grids[0];
   const cols = first ? tracksOf(first, "columns").length : 1;
   const rows = first ? (isAutoRows(first) ? Math.max(1, tracksOf(first, "rows").length) : tracksOf(first, "rows").length) : 1;
-  // Live: 12 left of the grid's button and 57 above it (x 1204 for a button at 1216, y 427 for one at 484)
-  const r = anchor.getBoundingClientRect();
-  const at = new DOMRect(r.left - 12 + PICKER_WIDTH, r.top - 57, 0, 0);
+  // ("left" placement: the box ends at the rect's left, level with its top, kept 16 above the window's bottom)
+  const o = gridPickerOrigin(anchor.getBoundingClientRect());
+  const at = new DOMRect(o.x + PICKER_WIDTH, o.y, 0, 0);
   const cells: React.ReactNode[] = [];
   for (let row = 1; row <= PICKER_ROWS; row++)
     for (let c = 1; c <= PICKER_COLUMNS; c++) {
@@ -272,7 +279,6 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
   );
 }
 
-const PICKER_WIDTH = 210;
 
 /**
  * The label editor of the tracks selected on the canvas (a click on a pill's label, or Enter): their size typed
