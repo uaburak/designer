@@ -11,8 +11,8 @@
  * existing slot property shows the same form titled "Edit property" (unverified: live has no capture of it) and
  * writes each change as it is made, without the Create button.
  */
-import { useMemo, useRef, useState } from "react";
-import { Button, Checkbox, Icon, IconButton, NumericInput, Popover, TextInput, cx, tooltipProps } from "@/ds";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Checkbox, Icon, IconButton, NumericInput, Popover, cx, tooltipProps } from "@/ds";
 import { useEditor } from "../../controller";
 import { createSlotProperty, newSlotName, readC, slotLayerOf, updateProperty, updateSlotSettings, type SlotPropertyForm, type SlotSettingsPatch } from "../../components";
 import { assetLabel, guidStr, isPreferred, preferredKey, type BindableField, type CNode, type ComponentPropDef } from "../../model/components";
@@ -100,7 +100,6 @@ export function SlotPropertyEditor({
         max={999}
         precision={0}
         scrub={false}
-        suffix={<span className={styles.limitEnd} aria-hidden="true" />}
         onChange={(v, info) => info.final && change({ [key]: Math.max(0, Math.round(v)) })}
         onClear={() => change({ [key]: null })}
       />
@@ -115,7 +114,7 @@ export function SlotPropertyEditor({
     <Popover anchor={anchor} title={title} width={304} offsetY={-4} onClose={() => (flushDescription.current(), onClose())} label={title}>
       <div className={styles.form} data-property-editor="SLOT" data-slot-form={creating ? "create" : "edit"}>
         <span className={styles.label}>Name</span>
-        <TextInput label="Name" value={form.name} autoFocus selectAllOnFocus onCommit={(v) => change({ name: v })} />
+        <NameField value={form.name} onCommit={(v) => change({ name: v })} />
         <span className={cx(styles.label, styles.gap)}>Description</span>
         <RichTextField value={form.description} placeholder="How to use this slot" flushRef={flushDescription} onCommit={(md) => change({ description: md })} />
         <span className={cx(styles.label, styles.settings)}>Settings</span>
@@ -183,5 +182,37 @@ export function SlotPropertyEditor({
         />
       )}
     </Popover>
+  );
+}
+
+/**
+ * The Name field as live draws it (the input itself the 272 × 24 box at 16, 72, its text 8 in): focused and selected
+ * on open; Enter or leaving it commits, Esc puts it back (a second Esc reaches the popover: it closes).
+ */
+function NameField({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    input.current?.focus();
+    input.current?.select();
+  }, []);
+  return (
+    <input
+      ref={input}
+      className={styles.name}
+      aria-label="Name"
+      value={draft}
+      spellCheck={false}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => draft !== value && onCommit(draft)}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || draft !== value) e.stopPropagation();
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape" && draft !== value) {
+          e.preventDefault();
+          setDraft(value);
+        }
+      }}
+    />
   );
 }

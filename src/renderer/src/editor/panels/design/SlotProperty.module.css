@@ -35,8 +35,22 @@
     font: var(--ds-font-body-medium);
     letter-spacing: var(--ds-tracking-body-medium);
   }
+  /* Live: the 120 box with its input 96 wide from its start (the rest empty) */
   .limit { width: 120px; }
-  .limitEnd { flex: none; width: var(--ds-size-control); }
+  .limit > input { flex: none; width: 96px; margin: 0; padding-left: var(--ds-space-2); }
+  .name {
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border: 0;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    outline: none;
+  }
+  .name:hover:not(:focus) { box-shadow: inset 0 0 0 1px var(--figma-color-border); }
+  .name:focus-visible, .name:focus { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   .check {
     position: relative;
     display: flex;

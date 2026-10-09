@@ -1791,6 +1791,8 @@ async function features11Section(page, theme) {
   const min = await rel(form.locator('[data-ds="NumericInput"]').filter({ has: page.getByRole("textbox", { name: "Minimum layers" }) }), pb);
   const max = await rel(form.locator('[data-ds="NumericInput"]').filter({ has: page.getByRole("textbox", { name: "Maximum layers" }) }), pb);
   check("R11 slot: Minimum / Maximum layers 120 wide at 168, 336 / 372", !!min && !!max && near(min.x, 168) && near(min.y, 336) && min.w === 120 && near(max.y, 372), JSON.stringify({ min, max }));
+  const minInput = await rel(form.getByRole("textbox", { name: "Minimum layers" }), pb);
+  check("R11 slot: their inputs 96 wide from the box's start (live)", !!minInput && near(minInput.x, 168) && near(minInput.w, 96), JSON.stringify(minInput));
   const checks = await form.getByRole("checkbox").evaluateAll((els) => els.map((e) => `${e.closest("label")?.textContent}${e.disabled ? " (disabled)" : ""}`));
   check("R11 slot: the three settings, fill-on-counter-axis disabled without auto layout", checks.join("|") === "Only allow preferred instances|By default, display empty slot|By default, fill items on slot's counter axis (disabled)", checks.join("|"));
   check("R11 slot: its row says Slot must have auto layout", (await form.locator('[data-tooltip="Slot must have auto layout"]').count()) === 1);
@@ -2122,8 +2124,8 @@ async function designRound8(page, theme, panel, select, focus) {
   const pat = (await node(page, "7:60")).fillPaints?.[0];
   check("Design r8: the anchor writes the pattern's alignment", pat?.horizontalAlignment === "END" && pat?.verticalAlignment === "END", JSON.stringify(pat));
   await shot(page, `251-design-picker-pattern-${theme}`);
-  // Shader: the "Shader fills (Beta)" browser beside the picker; nothing painted.
-  await popup().getByRole("button", { name: "Shader" }).click();
+  // Shader: the "Shader fills (Beta)" browser beside the picker (a radio of the paint types since round 11); nothing painted until a preset is picked.
+  await popup().getByRole("radio", { name: "Shader" }).click();
   await settle(page);
   check("Design r8: Shader opens the Shader fills browser", (await page.getByRole("dialog", { name: "Shader fills" }).count()) === 1);
   await shot(page, `252-design-picker-shader-${theme}`);
