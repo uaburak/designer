@@ -120,6 +120,9 @@ export function ExportSection({ targets, page }: { targets: ExportTarget[]; page
                   <Icon name="16.chevron.down" />
                 </MenuButton>
               </div>
+              <span className={own.formatSlot}>
+              {/* Live: the field's label, kept for assistive tech and clipped from view (97,800 "Export file type") */}
+              <span className={own.formatLegend}>Export file type</span>
               <Select
                 className={own.format}
                 variant="outlined"
@@ -128,6 +131,7 @@ export function ExportSection({ targets, page }: { targets: ExportTarget[]; page
                 options={EXPORT_FORMATS.map((f) => ({ value: f.value, label: f.label }))}
                 onChange={(v) => set(i, withFormat(s, v as ExportFormat), "Export format")}
               />
+              </span>
             </div>
             <IconButton
               icon="24.adjust.small"

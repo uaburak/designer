@@ -28,6 +28,17 @@
   .scaleMenu:hover:not(:disabled) { color: var(--figma-color-icon); }
   .scaleMenu:disabled { opacity: 0.4; }
   .scaleMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+  .formatSlot { position: relative; display: flex; flex: 1 1 0; min-width: 0; }
+  .formatLegend {
+    position: absolute;
+    top: 0;
+    left: -1px;
+    clip-path: inset(50%);
+    font: var(--ds-font-body-medium-regular);
+    letter-spacing: var(--ds-tracking-body-medium-regular);
+    white-space: nowrap;
+    pointer-events: none;
+  }
   .format { flex: 1 1 0; min-width: 0; background: var(--figma-color-bg); }
   .format > button { padding-left: 9px; }
 
