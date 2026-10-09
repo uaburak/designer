@@ -3743,7 +3743,7 @@ async function menus11Section(page, theme) {
       for (const c of ed.engine.readNodes([g], { childIds: true })[0]?.childIds ?? []) walk(c);
     };
     walk("0:0");
-    return all.find(([, n]) => n.type === "INSTANCE")?.[0] ?? null;
+    return all.find(([, n]) => n.type === "INSTANCE" && n.name === "Button instance")?.[0] ?? null;
   });
   await page.evaluate((id) => window.__designerEditor.engine.setSelection([id]), inst);
   await settle(page);
@@ -3769,6 +3769,37 @@ async function menus11Section(page, theme) {
   await settle(page);
   const dis = await page.getByRole("menu", { name: "Vector editing tools" }).getByRole("menuitemradio").evaluateAll((els) => els.map((e) => e.getAttribute("aria-disabled")));
   check("R11 Vector editing tools: Shape builder and Variable width listed disabled (Figma Draw: not built)", dis.join() === "true,true", dis.join());
+  await page.keyboard.press("Escape");
+  // 10. A store-backed file (what the desktop app opens; the browser's dev store stands in): the file commands that need
+  // a document source are enabled — Duplicate, Save to version history…, Show version history, Create
+  // branch…; Save local copy… needs the desktop's own bridge (window.designer.files), so it is off here.
+  const key = await page.evaluate(async (repo) => {
+    const st = await import("/src/store/index.ts");
+    const { encodeMessage, newDocumentMessage } = await import(`/@fs${repo}/src/shared/schema/codec.ts`);
+    const mem = await st.getDevStore().ready;
+    return (await mem.addFile({ name: "Round 11", folderId: null, snapshot: encodeMessage(st.messageToKiwi(newDocumentMessage())) })).fileKey;
+  }, repo);
+  await open(page, `&file=${key}`);
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "File", exact: true }).hover();
+  await page.waitForTimeout(350);
+  const fileMenu = page.getByRole("menu").last();
+  const states = {};
+  for (const name of ["Duplicate", "Save local copy…", "Save to version history…", "Show version history", "Create branch…"]) {
+    const row = fileMenu.getByRole("menuitem", { name }).first();
+    states[name] = (await row.count()) === 1 && (await row.getAttribute("aria-disabled")) === null;
+  }
+  check("R11 a store-backed file: Duplicate, Save to version history…, Show version history and Create branch… are enabled", ["Duplicate", "Save to version history…", "Show version history", "Create branch…"].every((n) => states[n]), JSON.stringify(states));
+  check("R11 a store-backed file in a browser: Save local copy… stays off (the desktop's own bridge)", states["Save local copy…"] === false);
+  await page.getByRole("menuitem", { name: "Duplicate" }).first().click();
+  await settle(page);
+  const toast = await page.getByText(/Duplicated as/).count();
+  check("R11 File › Duplicate runs (a toast names the copy in a browser; the desktop opens it in a tab)", toast === 1);
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "File", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "Show version history" }).click();
+  await settle(page);
+  check("R11 File › Show version history opens the history", (await page.getByRole("dialog").count()) >= 1 || (await page.evaluate(() => !!window.__designerEditor.ui.get().versionDialog)));
   await page.keyboard.press("Escape");
 }
 
