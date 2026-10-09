@@ -25,6 +25,10 @@ Checks (after merging main 6323b70): `npm run check` 102 files, 863 tests; `npm 
 
 Remaining differences: text runs are 1–3 px wider than live's (Inter's metrics), so "From this file" is 70 for 68 and sits 1 lower; live's hidden captions (Multi-edit variants, Use as mask, a toggle's "Show icon") and its unlabeled inputs aren't reproduced as such (ours are labelled buttons and switches); the value field of Current variant shows its value in the input (live overlays a text); live's toolbar inputs are labelled "Bold   ⌘B" (ours "Bold" with the key in the tooltip); the panel's top is 80 here (live 81).
 
+## Status 2026-10-09 — Round 9 — Canvas chrome and overlays (engine) (branch `r9-canvas-overlays`)
+
+Engine work, status in `docs/engine-build.md` "Round 9 — Canvas chrome and overlays": shape handles (arc, radius, ratio, count), the 1 px path outline at rest, the `</>` at a selected design's top right (its click toggles Ready for dev here: `devmode/devMode.ts`), live's grid overlay (cells, compact / expanded pills, track outline), padding badges by the pointer, the section pill at 550; polygons and stars on their box's ellipse. Editor side: `EDITOR_ONLY=overlays9` (shots 190–199, run on its own), the grid section's pill clicks at the new pill line, the devmode status check on the `</>`. AI sparkle not built (owner's decision). All checks green (full editor-shot 321 ok).
+
 ## Status 2026-10-09 — Round 9 — Design panel sections and popovers (branch `r9-design-panel-sections`)
 
 Truth: `docs/research/figma/live/` (design/, popovers/, grid/). Compared with `tools/panel.mjs` and `tools/popover.mjs` (its export cases now click "Export file type" / "Advanced export settings") against `?editor&doc=capture` at 1440 × 900; what is left is listed at the end.

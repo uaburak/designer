@@ -44,6 +44,7 @@ struct OverlayStyle {
   double sectionPillPadding = 6;
   double sectionPillGap = 5;
   double sectionTitleSize = 11;
+  double sectionTitleWeight = 550;  // Inter's weight axis (live Figma: the section's name is semibold, 550)
   // Corner radius handles: rings `radiusHandleSize` across, `radiusHandleInset` in from each corner.
   Color radiusHandleFill, radiusHandleStroke;
   double radiusHandleSize = 9;

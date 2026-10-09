@@ -83,10 +83,11 @@ describe("round 6 on the engine (wasm, headless)", () => {
     engine.setSelection(["1:1"]);
     const events: EventOf<"GRID_TRACKS">[] = [];
     engine.on("GRID_TRACKS", (e) => events.push(e));
-    // The frame at the origin on screen: column 2 (100–200) has its pill 10 px above the top edge.
-    engine.pointer(PointerType.MOVE, 150, -10, 0, 0, 0);
-    engine.pointer(PointerType.DOWN, 150, -10, 0, 1, 0);
-    engine.pointer(PointerType.UP, 150, -10, 0, 0, 0);
+    // The frame at the origin on screen: column 2 (100–200) has its pill 31.5 px above the top edge (live Figma), its
+    // label in the middle.
+    engine.pointer(PointerType.MOVE, 150, -31.5, 0, 0, 0);
+    engine.pointer(PointerType.DOWN, 150, -31.5, 0, 1, 0);
+    engine.pointer(PointerType.UP, 150, -31.5, 0, 0, 0);
     const last = events[events.length - 1];
     expect(last.frame).toBe("1:1");
     expect(last.axis).toBe("COLUMNS");
