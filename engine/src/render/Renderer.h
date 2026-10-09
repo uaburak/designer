@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "editor/Snapping.h"
+#include "geometry/Path.h"
 #include "gfx/Device.h"
 #include "render/Camera.h"
 #include "render/CurveCache.h"
@@ -304,6 +305,12 @@ struct Overlay {
   Rect caret;
   // Vector edit mode, the pen, gradient handles.
   std::vector<OverlayCurve> curves;
+  // Round 12: the Shape builder's regions (world), filled in the selection colour at `alpha` and outlined.
+  struct Region {
+    geom::Path path;
+    double alpha = 0.15;
+  };
+  std::vector<Region> regions;
   std::vector<OverlayLine> lines;
   std::vector<OverlayMark> marks;
   // Prototype mode.

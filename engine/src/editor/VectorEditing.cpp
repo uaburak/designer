@@ -289,6 +289,9 @@ void Editor::reloadVector() {
   prune(vector_.selVerts, vector_.net.vertices.size());
   prune(vector_.selSegs, vector_.net.segments.size());
   if (vector_.penFrom >= static_cast<int>(vector_.net.vertices.size())) vector_.penFrom = -1;
+  if (vector_.widthSelected >= static_cast<int>(widthPointsOf(n->props).size())) vector_.widthSelected = -1;
+  vector_.builderHover = -1;  // the regions are recomputed (builderUpdate) when asked
+  if (vector_.tool == VectorTool::VARIABLE_WIDTH && !variableWidthAvailable()) vector_.tool = VectorTool::MOVE;
   vectorChanged();
 }
 
@@ -306,6 +309,7 @@ Status Editor::startVectorEdit(Guid id) {
   VectorTool tool = tool_ == Tool::PEN ? VectorTool::PEN : VectorTool::MOVE;
   vector_ = VectorSession{};
   vector_.node = id;
+  vector_.group = {id};
   vector_.net = std::move(net);
   vector_.pendingType = convert;
   vector_.tool = tool;
@@ -333,9 +337,69 @@ void Editor::endVectorEdit() {
   updateCursor(lastScreen_);
 }
 
+Status Editor::startVectorEditMany(const std::vector<Guid>& ids) {
+  std::vector<Guid> ok;
+  for (Guid id : ids) {
+    const Node* n = doc_.get(id);
+    VectorNetwork net;
+    bool convert = false;
+    if (n && !n->props.locked && !id.isDerived() && networkOf(id, net, convert) &&
+        std::find(ok.begin(), ok.end(), id) == ok.end())
+      ok.push_back(id);
+  }
+  if (ok.empty()) return E_UNSUPPORTED;
+  Status st = startVectorEdit(ok.front());
+  if (st != OK) return st;
+  vector_.group = ok;
+  vectorChanged();
+  return OK;
+}
+
+std::vector<Guid> Editor::vectorLayers() const {
+  std::vector<Guid> out;
+  if (vector_.node == kNoGuid) return out;
+  out.push_back(vector_.node);
+  for (Guid g : vector_.group)
+    if (g != vector_.node && doc_.has(g) && doc_.get(g)->props.visible) out.push_back(g);
+  return out;
+}
+
+// Another held layer becomes the one whose points show (a click on it); the tool and the held layers stay.
+void Editor::switchVectorNode(Guid id) {
+  VectorNetwork net;
+  bool convert = false;
+  if (id == vector_.node || !networkOf(id, net, convert)) return;
+  vector_.node = id;
+  vector_.net = std::move(net);
+  vector_.pendingType = convert;
+  vector_.selVerts.clear();
+  vector_.selSegs.clear();
+  vector_.penFrom = -1;
+  vector_.hoverVertex = vector_.hoverSegment = -1;
+  vector_.widthSelected = vector_.widthHover = -1;
+  changeSelection({id});
+  vectorChanged();
+}
+
+bool Editor::variableWidthAvailable() const {
+  const Node* n = doc_.get(vector_.node);
+  if (!n || !widthProfileAllowed(n->props)) return false;
+  // Branching paths (a point where three or more segments meet): Figma asks for Split vector first.
+  for (uint32_t d : vector_.net.degrees())
+    if (d > 2) return false;
+  return true;
+}
+
 Status Editor::setVectorTool(VectorTool t) {
   if (vector_.node == kNoGuid) return E_INVALID;
+  if (t == VectorTool::VARIABLE_WIDTH && !variableWidthAvailable()) return E_UNSUPPORTED;
   if (t != VectorTool::PEN) vector_.penFrom = -1;
+  if (t != vector_.tool) {
+    vector_.builderHover = -1;
+    vector_.builderTaken.clear();
+    vector_.widthHover = vector_.widthSelected = -1;
+    vector_.widthPreview = false;
+  }
   vector_.tool = t;
   Tool shown = t == VectorTool::PEN ? Tool::PEN : Tool::MOVE;
   if (shown != tool_) {
@@ -484,6 +548,8 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
   bool shift = (mods & MOD_SHIFT) != 0;
   bool bend = vector_.tool == VectorTool::BEND || (mods & MOD_PRIMARY);
   VectorNetwork net = vector_.net;
+  if (vector_.tool == VectorTool::SHAPE_BUILDER) return builderPointerDown(s, mods);
+  if (vector_.tool == VectorTool::VARIABLE_WIDTH) return widthPointerDown(s, mods);
 
   if (vector_.tool == VectorTool::PEN) {
     int v = vectorVertexAt(s);
@@ -683,8 +749,14 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
     vectorChanged();
     return P_HANDLED | P_CAPTURE;
   }
-  // Nothing of the network: a click on another layer leaves the mode; a double-click anywhere too.
+  // Nothing of the network: a click on another layer leaves the mode (one of the held layers: its points show); a
+  // double-click anywhere too.
   auto path = hitPath(doc_, page_, world, pixel());
+  if (clickCount < 2 && !path.empty() && path.back() != vector_.node &&
+      std::find(vector_.group.begin(), vector_.group.end(), path.back()) != vector_.group.end()) {
+    switchVectorNode(path.back());
+    return P_HANDLED;
+  }
   if (clickCount >= 2 || (!path.empty() && path.back() != vector_.node && !doc_.isAncestor(path.back(), vector_.node))) {
     endVectorEdit();
     return clickCount >= 2 ? P_HANDLED : 0;
@@ -706,6 +778,8 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
     if (tool_ == Tool::PEN) changeCursor(CursorKind::PEN);
     return;
   }
+  if (vector_.tool == VectorTool::SHAPE_BUILDER) return builderPointerMove(s, mods);
+  if (vector_.tool == VectorTool::VARIABLE_WIDTH) return widthPointerMove(s, mods);
   if (gesture_ != Gesture::Vector) {
     int hv = vectorVertexAt(s);
     double t = 0;
@@ -841,6 +915,8 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
       vectorChanged();
       return;
     }
+    case VectorSession::Drag::Builder:
+    case VectorSession::Drag::Width:
     case VectorSession::Drag::None: return;
   }
   vector_.net = writeVector(vector_.node, net, vector_.startLocal);
@@ -855,6 +931,8 @@ void Editor::vectorPointerUp(Vec2 s, uint32_t mods) {
     case VectorSession::Drag::Lasso: break;
     case VectorSession::Drag::Cut: vectorCut(s); break;
     case VectorSession::Drag::Erase: vectorErase(); break;
+    case VectorSession::Drag::Builder: builderPointerUp(); break;
+    case VectorSession::Drag::Width: widthPointerUp(); break;
     default:
       if (txn_.open) commit();
       break;
@@ -1062,8 +1140,22 @@ uint32_t Editor::vectorKey(KeyCode code, uint32_t mods) {
       return K_HANDLED;
     case KeyCode::Enter:
     case KeyCode::NumpadEnter: endVectorEdit(); return K_HANDLED;
+    case KeyCode::KeyM:
+      // Round 12 (live vector-edit-more-menu: "Shape builder" M).
+      if (primary || shift || (mods & (MOD_ALT | MOD_CTRL)) || gesture_ != Gesture::None) return 0;
+      setVectorTool(VectorTool::SHAPE_BUILDER);
+      return K_HANDLED;
+    case KeyCode::KeyW:
+      // Round 12 ("Variable width" ⇧W); nothing where it doesn't apply.
+      if (primary || !shift || (mods & (MOD_ALT | MOD_CTRL)) || gesture_ != Gesture::None) return 0;
+      setVectorTool(VectorTool::VARIABLE_WIDTH);
+      return K_HANDLED;
     case KeyCode::Backspace:
     case KeyCode::Delete:
+      if (vector_.tool == VectorTool::VARIABLE_WIDTH) {
+        if (gesture_ == Gesture::None && vector_.widthSelected >= 0) widthDeleteSelected();
+        return K_HANDLED;
+      }
       if (vector_.selVerts.empty() && vector_.selSegs.empty()) return K_HANDLED;
       vectorDeleteAndHeal();
       return K_HANDLED;
@@ -1304,6 +1396,11 @@ void Editor::vectorOverlay(Overlay& o) const {
   o.handles = false;
   o.sizeBadge = false;
   o.hover.clear();
+  // Round 12: the other held layers outlined (their points show when they are clicked).
+  for (Guid g : vectorLayers())
+    if (g != vector_.node) o.hover.push_back(g);
+  if (vector_.tool == VectorTool::SHAPE_BUILDER) return builderOverlay(o);
+  if (vector_.tool == VectorTool::VARIABLE_WIDTH) return widthOverlay(o);
   // Only the selected and hovered segments are drawn (2 px, the selection colour): at rest the path shows its own
   // fill and stroke and the points (live Figma round 10, vector-edit-mode-full-ui: the Vector's black stroke with no
   // blue on it, the three points white with a blue ring).

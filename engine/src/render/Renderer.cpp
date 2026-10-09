@@ -10,6 +10,7 @@
 #include "geometry/Path.h"
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
+#include "geometry/VariableWidth.h"
 #include "render/shader_presets.h"
 #include "scene/Extras.h"
 
@@ -570,7 +571,9 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
   // A dashed frame stroke (a component set's) goes through the stroker like a dashed rectangle's.
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
-  bool sdf = !p.isPathShape() && !independent && !dashedFrame && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  // A variable width (round 12) goes through the stroker.
+  bool variable = !p.extra.empty() && hasWidthPoints(p) && widthProfileAllowed(p);
+  bool sdf = !p.isPathShape() && !independent && !dashedFrame && !variable && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
@@ -638,8 +641,13 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   Hash h;
   h.add(g->strokeKey).add(style.width).add(style.join).add(style.miterLimit).add(style.cap).add(style.fitDashes).add(level).add(0x57ull);
   for (double d : style.dashes) h.add(d);
-  const CurveEntry* entry =
-      curves_.path(h.h, [&](std::vector<float>& out) { geom::toQuads(geom::strokePath(g->stroke.path, style, tol), tol, out); });
+  if (variable) h.add(widthPointsKey(p)).add(0x7a1dull);
+  const CurveEntry* entry = curves_.path(h.h, [&](std::vector<float>& out) {
+    std::vector<geom::WidthPoint> profile;
+    if (variable) profile = widthPointsOf(p);
+    if (!profile.empty()) style.profile = &profile;
+    geom::toQuads(geom::strokePath(g->stroke.path, style, tol), tol, out);
+  });
   const CurveEntry* clip = nullptr;
   bool clipOdd = false;
   if (aligned) {

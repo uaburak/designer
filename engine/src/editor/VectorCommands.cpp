@@ -10,6 +10,7 @@
 #include "editor/Editor.h"
 #include "geometry/Boolean.h"
 #include "geometry/Stroker.h"
+#include "geometry/VariableWidth.h"
 
 namespace eng {
 
@@ -36,8 +37,12 @@ bool anyVisible(const std::vector<Paint>& paints) {
 }  // namespace
 
 // A frame flattens with its layers (live Figma: an instance's More actions › Flatten, which detaches it first): its own
-// filled box, then what it holds.
-static bool flatFrame(const NodeProps& p) { return p.type == NodeType::FRAME && !p.isGroupLike() && !p.isComponentish(); }
+// filled box, then what it holds. A main component too (round 12, live context-component Flatten enabled): it is
+// replaced by the vector (help.figma.com has nothing on it; what happens to its instances is unverified — here the
+// component is deleted the way Delete deletes it, so they keep it as a deleted main and Restore component works).
+static bool flatFrame(const NodeProps& p) {
+  return (p.type == NodeType::FRAME && !p.isGroupLike() && !p.isComponentish()) || p.type == NodeType::SYMBOL;
+}
 
 static bool anyVisibleFill(const std::vector<Paint>& paints) {
   for (const Paint& p : paints)
@@ -48,7 +53,7 @@ static bool anyVisibleFill(const std::vector<Paint>& paints) {
 // An instance flattens too (live: its menu's Flatten is enabled): it is detached first, then flattened as the frame it is.
 bool Editor::flattenable(const NodeProps& p) const {
   return p.isPathShape() || p.isRectLike() || p.type == NodeType::ELLIPSE || p.type == NodeType::TEXT || p.isGroupLike() || flatFrame(p) ||
-         p.type == NodeType::INSTANCE;
+         p.type == NodeType::INSTANCE;  // (flatFrame: a main component too)
 }
 
 void Editor::fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const {
@@ -160,12 +165,56 @@ Status Editor::flattenSelection() {
   }
   // Into the topmost one: its own space holds everyone's outlines.
   Guid into = targets.back();
-  const Node* keep = doc_.get(into);
   Mat2x3 toInto = doc_.worldTransform(into).inverse();
   geom::Path all;
   WindingRule rule = WindingRule::NONZERO;
   for (Guid t : targets) fillPathsOf(t, toInto * doc_.worldTransform(t), all, rule);
   geom::VectorNetwork net = geom::networkFromPath(all, rule);
+  // A main component (round 12): a new vector takes its place, look and name; the component itself is deleted as
+  // Delete deletes it (kept for its instances, soft-deleted, when it has any).
+  auto removeTree = [&](Guid id) {
+    std::function<void(Guid)> rec = [&](Guid n) {
+      std::vector<Guid> kids = doc_.children(n);
+      for (Guid k : kids) rec(k);
+      write(NodeChange::removed(n));
+    };
+    rec(id);
+  };
+  auto dropComponent = [&](Guid id) {
+    if (!softDeleteMain(id)) removeTree(id);
+  };
+  if (doc_.get(into)->props.type == NodeType::SYMBOL) {
+    const NodeProps cp = doc_.get(into)->props;
+    NodeProps v = defaultProps(NodeType::VECTOR);
+    v.name = cp.name;
+    v.visible = cp.visible;
+    v.opacity = cp.opacity;
+    v.blendMode = cp.blendMode;
+    v.effects = cp.effects;
+    v.transform = cp.transform;
+    v.size = cp.size;
+    v.strokeWeight = cp.strokeWeight;
+    v.strokeAlign = cp.strokeAlign;
+    v.strokeJoin = cp.strokeJoin;
+    if (anyVisibleFill(cp.fillPaints)) {
+      v.fillPaints = cp.fillPaints;
+      v.strokePaints = cp.strokePaints;
+    } else {
+      // Without a fill of its own it takes its topmost layer's look (as a frame does).
+      Guid styleFrom = doc_.children(into).empty() ? into : doc_.children(into).back();
+      v.fillPaints = doc_.get(styleFrom)->props.fillPaints;
+      v.strokePaints = doc_.get(styleFrom)->props.strokePaints;
+    }
+    Guid parent = doc_.parentOf(into);
+    const auto& siblings = doc_.children(parent);
+    size_t index = static_cast<size_t>(std::find(siblings.begin(), siblings.end(), into) - siblings.begin()) + 1;
+    v.parentIndex = {parent, placeAt(parent, index, kNoGuid)};
+    Guid made = newGuid();
+    write(NodeChange::created(made, v));
+    dropComponent(into);
+    into = made;
+  }
+  const Node* keep = doc_.get(into);
   NodeProps kp = keep->props;
   // The kept layer becomes a VECTOR (same GUID); its children (a boolean's operands, a group's layers) go.
   NodeChange c = NodeChange::changed(into);
@@ -184,15 +233,12 @@ Status Editor::flattenSelection() {
     c.props.strokePaints = doc_.get(styleFrom)->props.strokePaints;
   }
   write(c);
-  std::vector<Guid> gone;
-  std::function<void(Guid)> removeTree = [&](Guid id) {
-    std::vector<Guid> kids = doc_.children(id);
-    for (Guid k : kids) removeTree(k);
-    write(NodeChange::removed(id));
-  };
   for (Guid k : std::vector<Guid>(doc_.children(into))) removeTree(k);
-  for (Guid t : targets)
-    if (t != into) removeTree(t);
+  for (Guid t : targets) {
+    if (t == into || !doc_.has(t) || doc_.get(t)->props.comp().isSoftDeleted) continue;
+    if (doc_.get(t)->props.type == NodeType::SYMBOL) dropComponent(t);
+    else removeTree(t);
+  }
   writeVector(into, net, doc_.get(into)->props.transform);
   changeSelection({into});
   commit();
@@ -223,6 +269,9 @@ Status Editor::outlineStroke() {
     style.dashes = p.stroke().dashPattern;
     style.fitDashes = p.isRectLike() || p.isFrameLike();
     style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
+    // A variable width (round 12): the outline follows it.
+    std::vector<geom::WidthPoint> profile = widthProfileAllowed(p) ? widthPointsOf(p) : std::vector<geom::WidthPoint>{};
+    if (!profile.empty()) style.profile = &profile;
     const double tol = 0.02;
     geom::Path outline = geom::strokePath(g->stroke.path, style, tol);
     geom::Path shape;
@@ -260,6 +309,10 @@ Status Editor::outlineStroke() {
       c.props.type = NodeType::VECTOR;
       c.props.fillPaints = p.strokePaints;
       c.props.strokePaints.clear();
+      if (hasWidthPoints(p)) {
+        c.mask |= F_EXTRA;
+        c.props.extra["variableWidthPoints"] = "";  // the stroke it shaped is gone
+      }
       write(c);
     }
     writeVector(id, net, doc_.get(id)->props.transform);

@@ -472,9 +472,43 @@ TEST_CASE("round 11: Flatten on an instance is enabled (live) — it is detached
   e.command(CommandId::UNDO);
   CHECK(props(e, I).type == NodeType::INSTANCE);
   CHECK(props(e, sub(I, {LABEL})).type == NodeType::TEXT);
-  // The main component stays unflattenable (live: its own Detach / Create component set).
+  // Round 12: the main component flattens too (live context-component: Flatten enabled).
   e.setSelection({M});
-  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) == 0);
+  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) != 0);
+}
+
+TEST_CASE("round 12: Flatten on a main component — a vector takes its place; its instances keep it as a deleted main") {
+  Editor e = load(buttonDoc());
+  e.setSelection({M});
+  REQUIRE(e.command(CommandId::FLATTEN) == OK);
+  REQUIRE(e.selection().size() == 1);
+  Guid v = e.selection()[0];
+  CHECK(v != M);
+  CHECK(props(e, v).type == NodeType::VECTOR);
+  CHECK(props(e, v).name == "Button");
+  CHECK(props(e, v).parentIndex.guid == kPage);
+  CHECK(e.document().worldBounds(v).w > 0);
+  // The instance still shows the button: its main is kept, soft-deleted (Restore component).
+  CHECK(props(e, M).comp().isSoftDeleted);
+  CHECK(props(e, sub(I, {LABEL})).type == NodeType::TEXT);
+  // One undo step.
+  e.command(CommandId::UNDO);
+  CHECK_FALSE(e.document().has(v));
+  CHECK(props(e, M).type == NodeType::SYMBOL);
+  CHECK_FALSE(props(e, M).comp().isSoftDeleted);
+  CHECK(props(e, M).parentIndex.guid == kPage);
+}
+
+TEST_CASE("round 12: Flatten on a main component without instances deletes it") {
+  auto nodes = buttonDoc();
+  nodes.pop_back();  // no instance
+  Editor e = load(nodes);
+  e.setSelection({M});
+  REQUIRE(e.command(CommandId::FLATTEN) == OK);
+  Guid v = e.selection()[0];
+  CHECK(props(e, v).type == NodeType::VECTOR);
+  CHECK_FALSE(e.document().has(M));
+  CHECK_FALSE(e.document().has(BG));
 }
 
 TEST_CASE("components: push changes to main, reset one property, go to main and back") {

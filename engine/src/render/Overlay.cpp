@@ -796,6 +796,18 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // Where a dragged layer will join an auto-layout flow.
   if (overlay.hasInsertion) line(overlay.insertion.a, overlay.insertion.b, style.insertionWidth, blue);
 
+  // Round 12: the Shape builder's regions — filled in the selection colour (a path in screen space), outlined.
+  for (const Overlay::Region& r : overlay.regions) {
+    if (r.path.empty()) continue;
+    // Cached in world space per zoom octave (panning keeps it).
+    int octave = static_cast<int>(std::floor(std::log2(std::max(camera.zoom, 1e-6))));
+    double tol = 0.25 / std::ldexp(1.0, octave);
+    const CurveEntry* entry = curves_.path(r.path.hash() * 31 + static_cast<uint64_t>(octave + 64) * 0x5b1d3e6a7c9f2b41ull,
+                                           [&](std::vector<float>& out) { geom::toQuads(r.path, tol, out); });
+    emitPath(entry, view, false, Paint::solid(Color{blue.r, blue.g, blue.b, 1}, static_cast<float>(r.alpha)), {1, 1}, 1);
+    for (const geom::Polyline& pl : geom::flatten(r.path.transformed(view), 0.25)) polyline(pl.points, true, 1, blue, 1);
+  }
+
   // Vector edit mode, the pen, gradient handles: segments, tangent lines, vertices and handles.
   for (const OverlayCurve& c : overlay.curves) {
     geom::Path p;

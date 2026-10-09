@@ -161,6 +161,9 @@ enum class CommandId : uint32_t {
   VECTOR_OFFSET = 284,                  // args {amount, join: "MITER" | "ROUND"}: the outline grown (+) or shrunk (−)
   SET_DEFAULT_PROPERTIES = 285,         // the selected layer's look: what new layers of its type start with (this session)
   SET_SPELLING_MARKS = 286,             // args {ranges: [[from, to]…]}: the edited text's misspelled words (UTF-16), underlined
+  // Round 12 (branch r12-vector-draw): Stroke settings' Width profile (tools/VariableWidthTool.cpp); 300-309.
+  SET_WIDTH_PROFILE = 300,              // args {refs?, profile: "UNIFORM" | "WEDGE" | "TAPER" | "QUARTER_TAPER" | "EYE" | "MIRRORED_TAPER"}
+  FLIP_WIDTH_POINTS = 301,              // args {refs?}: the width points mirrored along the path
 };
 
 // engine_command_state bits.

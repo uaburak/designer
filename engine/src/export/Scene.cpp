@@ -74,7 +74,8 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   s.size = p.size;
   bool independent = p.stroke().borderStrokeWeightsIndependent && (p.isRectLike() || p.isFrameLike());
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
-  if (!independent && !dashedFrame && plainShape(p)) {
+  if (!p.extra.empty() && widthProfileAllowed(p)) s.profile = widthPointsOf(p);
+  if (!independent && !dashedFrame && s.profile.empty() && plainShape(p)) {
     s.primitive = p.type == NodeType::ELLIPSE ? Shape::Kind::Ellipse : Shape::Kind::Rect;
     if (s.primitive == Shape::Kind::Rect) s.radii = geom::clampRadii(p.size, p.cornerRadii);
     s.aligned = s.align != StrokeAlign::CENTER;
@@ -110,7 +111,7 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
   bool closedArea = !g->fills.empty() && !g->hasOpenEnds;
   s.aligned = closedArea && p.strokeAlign != StrokeAlign::CENTER;
   auto arrow = [](StrokeCap c) { return c != StrokeCap::NONE && c != StrokeCap::ROUND && c != StrokeCap::SQUARE; };
-  if (arrow(s.cap)) s.outlineOnly = true;
+  if (arrow(s.cap) || !s.profile.empty()) s.outlineOnly = true;
   for (auto& [a, b] : s.caps)
     if (arrow(a) || arrow(b)) s.outlineOnly = true;
   return s;
@@ -126,6 +127,7 @@ geom::Path strokeOutline(const Stroke& s, double tolerance) {
   style.dashes = s.dashes;
   style.fitDashes = s.fitDashes;
   style.caps = s.caps.empty() ? nullptr : &s.caps;
+  if (!s.profile.empty()) style.profile = &s.profile;
   return geom::strokePath(s.center, style, tolerance);
 }
 

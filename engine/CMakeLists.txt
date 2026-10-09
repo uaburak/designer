@@ -49,6 +49,8 @@ add_library(eng_core STATIC
   src/tools/Gestures.cpp
   src/tools/GridGestures.cpp
   src/tools/CanvasTools.cpp
+  src/tools/ShapeBuilder.cpp
+  src/tools/VariableWidthTool.cpp
   src/editor/SlotCommands.cpp
   src/editor/SelectionCommands.cpp
   src/editor/ArrangeCommands.cpp
@@ -77,6 +79,8 @@ add_library(eng_core STATIC
   src/geometry/Stroker.cpp
   src/geometry/Boolean.cpp
   src/geometry/Brush.cpp
+  src/geometry/VariableWidth.cpp
+  src/geometry/PlanarFaces.cpp
   src/geometry/NodeGeometry.cpp
   src/export/Export.cpp
   src/export/Scene.cpp
@@ -142,6 +146,7 @@ else()
     tests/unit/editor.gestures.test.cpp
     tests/unit/api.test.cpp
     tests/unit/r11.type_features.test.cpp
+    tests/unit/r12.vector_draw.test.cpp
     tests/unit/layout.test.cpp
     tests/unit/editor.commands.test.cpp
     tests/unit/editor.move.test.cpp

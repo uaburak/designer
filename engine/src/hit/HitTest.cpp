@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cmath>
 
+#include "geometry/Stroker.h"
+#include "geometry/VariableWidth.h"
+
 namespace eng {
 
 namespace {
@@ -55,7 +58,9 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
   const NodeProps& p = n->props;
   // A slice is hit on its edge only (it paints nothing; the layers under it stay clickable — unverified live).
   if (p.type == NodeType::SLICE) return std::fabs(shapeDistance(p, local)) <= slop;
-  if (!p.isPathShape()) return hitsOwnShape(p, local, slop, topLevel);
+  // A variable-width stroke (round 12): hit within its outline.
+  bool variable = !p.extra.empty() && anyVisible(p.strokePaints) && p.strokeWeight > 0 && hasWidthPoints(p) && widthProfileAllowed(p);
+  if (!p.isPathShape() && !variable) return hitsOwnShape(p, local, slop, topLevel);
   const NodeGeometry* g = doc.geometry(id);
   if (!g) return false;
   bool fill = anyVisible(p.fillPaints), stroke = anyVisible(p.strokePaints) && p.strokeWeight > 0;
@@ -68,6 +73,18 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
       if (geom::contains(geom::flatten(f.path, tol), local, f.windingRule == WindingRule::ODD)) return true;
     }
   if (g->stroke.path.empty()) return false;
+  if (variable) {
+    std::vector<geom::WidthPoint> profile = widthPointsOf(p);
+    geom::StrokeStyle style;
+    style.width = p.strokeWeight * (p.strokeAlign == StrokeAlign::CENTER ? 1 : 2);
+    style.join = p.strokeJoin;
+    style.miterLimit = p.miterLimit;
+    style.cap = p.strokeCap;
+    style.caps = g->stroke.caps.empty() ? nullptr : &g->stroke.caps;
+    style.profile = &profile;
+    if (geom::contains(geom::flatten(geom::strokePath(g->stroke.path, style, tol), tol), local, false)) return true;
+    return geom::distanceTo(geom::flatten(g->stroke.path, tol), local) <= slop;
+  }
   // The stroke (or, with nothing painted, the outline): within max(half its reach, slop) of the centre line.
   double half = stroke ? (p.strokeAlign == StrokeAlign::CENTER ? p.strokeWeight / 2 : p.strokeWeight) : 0;
   if (!stroke && hasFillArea) return false;

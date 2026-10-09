@@ -427,6 +427,175 @@ void strokeLine(Path& out, Line line, const StrokeStyle& s, StrokeCap startCap, 
   }
 }
 
+// ---- Variable width (round 12) -------------------------------------------------------------------------------
+
+void polygonOf(Path& out, std::vector<Vec2> p) {
+  if (p.size() < 3) return;
+  double area = 0;
+  for (size_t i = 0; i < p.size(); i++) area += cross(p[i], p[(i + 1) % p.size()]);
+  if (std::fabs(area) < 1e-18) return;
+  if (area < 0) std::reverse(p.begin(), p.end());
+  out.moveTo(p[0]);
+  for (size_t i = 1; i < p.size(); i++) out.lineTo(p[i]);
+  out.close();
+}
+
+// A sector at `p` from angle a0 over `sweep`, its radius going from r0 to r1.
+void sector(Path& out, Vec2 p, double a0, double sweep, double r0, double r1, double tol) {
+  double r = std::max(r0, r1);
+  if (!(r > 0)) return;
+  double step = 2 * std::acos(std::clamp(1 - tol / r, -1.0, 1.0));
+  int steps = std::clamp(static_cast<int>(std::ceil(std::fabs(sweep) / std::max(step, 1e-3))), 2, 96);
+  std::vector<Vec2> pts{p};
+  for (int k = 0; k <= steps; k++) {
+    double f = static_cast<double>(k) / steps, a = a0 + sweep * f, rr = r0 + (r1 - r0) * f;
+    pts.push_back(p + Vec2{std::cos(a), std::sin(a)} * rr);
+  }
+  polygonOf(out, std::move(pts));
+}
+
+// A join where the widths left / right of the path are `wl` / `wr`: the outer side's width decides it.
+void joinVariable(Path& out, Vec2 p, Vec2 d0, Vec2 d1, StrokeJoin j, double miterLimit, double wl, double wr, double tol) {
+  double c = cross(d0, d1);
+  if (std::fabs(c) < 1e-12 && dot(d0, d1) > 0) return;
+  double side = c > 0 ? -1 : 1;  // join()'s outer side: −1 is the path's left (up), +1 its right
+  double hw = side < 0 ? wl : wr;
+  if (!(hw > 0)) return;
+  if (j == StrokeJoin::ROUND) {
+    Vec2 o0 = perp(d0) * (hw * side), o1 = perp(d1) * (hw * side);
+    double a0 = std::atan2(o0.y, o0.x), a1 = std::atan2(o1.y, o1.x), sweep = a1 - a0;
+    while (sweep > kPi) sweep -= 2 * kPi;
+    while (sweep < -kPi) sweep += 2 * kPi;
+    sector(out, p, a0, sweep, hw, hw, tol);
+    return;
+  }
+  join(out, p, d0, d1, j, miterLimit, hw);
+}
+
+// A cap at `p` (`d`: out of the line, `up`: the path's left there) with the widths wl / wr on its sides.
+void capVariable(Path& out, Vec2 p, Vec2 d, Vec2 up, StrokeCap c, double wl, double wr, const StrokeStyle& s, double tol) {
+  switch (c) {
+    case StrokeCap::NONE: return;
+    case StrokeCap::SQUARE: {
+      double hw = (wl + wr) / 2;
+      polygonOf(out, {p + up * wl, p + up * wl + d * hw, p - up * wr + d * hw, p - up * wr});
+      return;
+    }
+    case StrokeCap::ROUND: sector(out, p, std::atan2(up.y, up.x), cross(up, d) > 0 ? kPi : -kPi, wl, wr, tol); return;
+    default: {
+      // Arrowheads at the end's width.
+      StrokeStyle st = s;
+      st.width = wl + wr;
+      st.profile = nullptr;
+      if (st.width > 0) cap(out, p, d, c, st, tol);
+      return;
+    }
+  }
+}
+
+void strokeVariable(Path& out, const Line& line, const StrokeStyle& s, StrokeCap startCap, StrokeCap endCap, double tol) {
+  size_t n = line.pts.size();
+  if (n < 2) {
+    StrokeStyle plain = s;
+    plain.profile = nullptr;
+    strokeLine(out, line, plain, startCap, endCap, tol);
+    return;
+  }
+  std::vector<Vec2> raw = line.pts;
+  std::vector<bool> rawCorner = line.corner;
+  if (line.closed) raw.push_back(raw.front()), rawCorner.push_back(rawCorner.front());
+  double total = 0;
+  for (size_t i = 1; i < raw.size(); i++) total += (raw[i] - raw[i - 1]).length();
+  if (!(total > 0)) return;
+  // The width changes along straight runs too: long edges are cut so it is followed (128 steps along the contour).
+  double step = std::max(total / 128, tol);
+  std::vector<Vec2> pts{raw[0]};
+  std::vector<bool> corner{rawCorner[0]};
+  for (size_t i = 1; i < raw.size(); i++) {
+    double len = (raw[i] - raw[i - 1]).length();
+    int pieces = std::clamp(static_cast<int>(std::ceil(len / step)), 1, 4096);
+    for (int k = 1; k < pieces; k++) {
+      pts.push_back(raw[i - 1] + (raw[i] - raw[i - 1]) * (static_cast<double>(k) / pieces));
+      corner.push_back(false);
+    }
+    pts.push_back(raw[i]);
+    corner.push_back(rawCorner[i]);
+  }
+  size_t m = pts.size();
+  std::vector<double> cum(m, 0);
+  for (size_t i = 1; i < m; i++) cum[i] = cum[i - 1] + (pts[i] - pts[i - 1]).length();
+  total = cum.back();
+  std::vector<double> wl(m), wr(m);
+  for (size_t i = 0; i < m; i++) {
+    double a = 0.5, b = 0.5;
+    profileAt(*s.profile, cum[i] / total, a, b);
+    wl[i] = a * s.width, wr[i] = b * s.width;
+  }
+  auto upOf = [](Vec2 d) { return Vec2{d.y, -d.x}; };  // the path's left (−perp)
+  for (size_t i = 0; i + 1 < m; i++) {
+    Vec2 a = pts[i], b = pts[i + 1], d = unit(b - a);
+    if (d.x == 0 && d.y == 0) continue;
+    Vec2 up = upOf(d);
+    polygonOf(out, {a + up * wl[i], b + up * wl[i + 1], b - up * wr[i + 1], a - up * wr[i]});
+  }
+  // Joins: between consecutive segments (and, closed, where the contour meets its start).
+  auto dirAt = [&](size_t i, bool before) {
+    // The direction of the nearest non-empty segment before / after point i (unrolled; closed contours wrap).
+    for (size_t k = 0; k < m; k++) {
+      size_t a, b;
+      if (before) {
+        if (i < k + 1) {
+          if (!line.closed) break;
+          a = (i + m - 2 - k) % (m - 1), b = a + 1;
+        } else {
+          a = i - k - 1, b = i - k;
+        }
+      } else {
+        if (i + k + 1 >= m) {
+          if (!line.closed) break;
+          a = (i + k) % (m - 1), b = a + 1;
+        } else {
+          a = i + k, b = i + k + 1;
+        }
+      }
+      Vec2 d = unit(pts[b] - pts[a]);
+      if (d.x != 0 || d.y != 0) return d;
+    }
+    return Vec2{};
+  };
+  size_t first = line.closed ? 0 : 1, last = line.closed ? m - 1 : m - 1;
+  for (size_t i = first; i < last; i++) {
+    Vec2 d0 = dirAt(i, true), d1 = dirAt(i, false);
+    if ((d0.x == 0 && d0.y == 0) || (d1.x == 0 && d1.y == 0)) continue;
+    bool isCorner = corner[i];
+    joinVariable(out, pts[i], d0, d1, isCorner ? s.join : StrokeJoin::MITER, isCorner ? s.miterLimit : 1e9, wl[i], wr[i], tol);
+  }
+  if (!line.closed) {
+    Vec2 d0 = dirAt(0, false), d1 = dirAt(m - 1, true);
+    if (d0.x != 0 || d0.y != 0) capVariable(out, pts[0], d0 * -1, upOf(d0), startCap, wl[0], wr[0], s, tol);
+    if (d1.x != 0 || d1.y != 0) capVariable(out, pts[m - 1], d1, upOf(d1), endCap, wl[m - 1], wr[m - 1], s, tol);
+  }
+}
+
+// One contour's flattened points and arc lengths (pointAlong / nearestAlong).
+struct Walk {
+  std::vector<Vec2> pts;
+  std::vector<double> cum;
+};
+
+std::vector<Walk> walks(const Path& center, double tol) {
+  std::vector<Walk> out;
+  for (const Line& l : flattenWithCorners(center, std::max(tol, 1e-6))) {
+    Walk w;
+    w.pts = l.pts;
+    if (l.closed && !w.pts.empty()) w.pts.push_back(w.pts.front());
+    w.cum.assign(w.pts.size(), 0);
+    for (size_t i = 1; i < w.pts.size(); i++) w.cum[i] = w.cum[i - 1] + (w.pts[i] - w.pts[i - 1]).length();
+    out.push_back(std::move(w));
+  }
+  return out;
+}
+
 }  // namespace
 
 Path strokePath(const Path& center, const StrokeStyle& style, double tolerance) {
@@ -437,6 +606,10 @@ Path strokePath(const Path& center, const StrokeStyle& style, double tolerance) 
     StrokeCap start = style.cap, end = style.cap;
     if (style.caps && i < style.caps->size()) start = (*style.caps)[i].first, end = (*style.caps)[i].second;
     if (lines[i].closed) start = end = StrokeCap::NONE;
+    if (style.profile && !style.profile->empty() && style.dashes.empty()) {
+      strokeVariable(out, lines[i], style, start, end, tolerance);
+      continue;
+    }
     if (style.dashes.empty()) {
       strokeLine(out, lines[i], style, start, end, tolerance);
       continue;
@@ -456,7 +629,7 @@ Path strokePath(const Path& center, const StrokeStyle& style, double tolerance) 
 }
 
 double strokeReach(const StrokeStyle& s, bool hasOpenEnds) {
-  double hw = s.width / 2;
+  double hw = s.profile && !s.profile->empty() ? s.width * maxShare(*s.profile) : s.width / 2;
   double r = hw;
   if (s.join == StrokeJoin::MITER) r = std::max(r, hw * std::max(1.0, s.miterLimit));
   if (hasOpenEnds) {
@@ -476,6 +649,47 @@ double strokeReach(const StrokeStyle& s, bool hasOpenEnds) {
       for (auto& [a, b] : *s.caps) r = std::max({r, capReach(a), capReach(b)});
   }
   return r;
+}
+
+bool pointAlong(const Path& center, size_t contour, double position, double tolerance, Vec2& at, Vec2& direction) {
+  std::vector<Walk> ws = walks(center, tolerance);
+  if (contour >= ws.size()) return false;
+  const Walk& w = ws[contour];
+  if (w.pts.size() < 2 || !(w.cum.back() > 0)) return false;
+  double s = std::clamp(position, 0.0, 1.0) * w.cum.back();
+  size_t i = static_cast<size_t>(std::lower_bound(w.cum.begin(), w.cum.end(), s) - w.cum.begin());
+  i = std::clamp<size_t>(i, 1, w.pts.size() - 1);
+  // Skip empty segments for the direction.
+  while (i + 1 < w.pts.size() && w.cum[i] - w.cum[i - 1] <= 0) i++;
+  double seg = w.cum[i] - w.cum[i - 1];
+  double f = seg > 0 ? std::clamp((s - w.cum[i - 1]) / seg, 0.0, 1.0) : 0;
+  at = w.pts[i - 1] + (w.pts[i] - w.pts[i - 1]) * f;
+  direction = unit(w.pts[i] - w.pts[i - 1]);
+  return true;
+}
+
+bool nearestAlong(const Path& center, Vec2 p, double tolerance, size_t& contour, double& position, double& distance) {
+  std::vector<Walk> ws = walks(center, tolerance);
+  bool found = false;
+  distance = 1e300;
+  for (size_t c = 0; c < ws.size(); c++) {
+    const Walk& w = ws[c];
+    double total = w.cum.empty() ? 0 : w.cum.back();
+    if (w.pts.size() < 2 || !(total > 0)) continue;
+    for (size_t i = 0; i + 1 < w.pts.size(); i++) {
+      Vec2 a = w.pts[i], b = w.pts[i + 1], ab = b - a;
+      double len2 = dot(ab, ab);
+      double t = len2 > 0 ? std::clamp(dot(p - a, ab) / len2, 0.0, 1.0) : 0;
+      double d = (p - (a + ab * t)).length();
+      if (d < distance) {
+        distance = d;
+        contour = c;
+        position = (w.cum[i] + (w.cum[i + 1] - w.cum[i]) * t) / total;
+        found = true;
+      }
+    }
+  }
+  return found;
 }
 
 }  // namespace eng::geom

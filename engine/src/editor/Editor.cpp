@@ -156,6 +156,8 @@ void Editor::noteChange(const NodeChange& c, NodeType typeBefore) {
   else if (mask & (kTextLayoutFields | F_SIZE | F_FILLS | F_TYPE | F_EXTRA)) textCache_.erase(c.guid);
   if (c.phase != Phase::CHANGED || (mask & (kTextLayoutFields | F_FILLS | F_TYPE | F_EXTRA))) measured_.erase(c.guid);
   if (text_.node == c.guid) events_.textEdit = true;
+  // Round 12: the edited vector's stroke (dashes, width points) decides Variable width; the panels show its points.
+  if (vector_.node != kNoGuid && vector_.node == c.guid && (mask & (F_EXTRA | F_DASH_PATTERN | F_STROKE_WEIGHT))) events_.vectorEdit = true;
   noteNode(c.guid, fieldGroups(mask));
   if (c.phase != Phase::CHANGED || (c.mask & (F_PARENT_INDEX | F_NAME | F_VISIBLE | F_LOCKED | F_TYPE | F_STACK_MODE)))
     events_.structure = true;
@@ -1378,8 +1380,19 @@ uint32_t Editor::key(KeyEvent type, KeyCode code, uint32_t /*codepoint*/, uint32
         startTextEdit(selection_[0], true);
         return K_HANDLED;
       }
-      // Enter on a vector or a shape: vector edit mode.
+      // Enter on a vector or a shape: vector edit mode; on several of them (help.figma.com "Select one or more vector
+      // layers and press Enter", round 12): all of them, for the Shape builder.
       if (!viewer_ && !shift && selection_.size() == 1 && startVectorEdit(selection_[0]) == OK) return K_HANDLED;
+      if (!viewer_ && !shift && selection_.size() > 1) {
+        bool shapes = true;
+        for (Guid id : selection_) {
+          const Node* n = doc_.get(id);
+          shapes = shapes && n && (n->props.type == NodeType::VECTOR || n->props.type == NodeType::LINE || n->props.isRectLike() ||
+                                   n->props.type == NodeType::ELLIPSE || n->props.type == NodeType::STAR ||
+                                   n->props.type == NodeType::REGULAR_POLYGON);
+        }
+        if (shapes && startVectorEditMany(topSelectionInPaintOrder()) == OK) return K_HANDLED;
+      }
       selectRelative(shift ? 1 : 0);
       return K_HANDLED;
     case KeyCode::Tab:
