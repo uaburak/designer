@@ -5,7 +5,7 @@
  * Stop while it runs, the agent and model under the message box), and Agent settings (the agents found here, a
  * server by URL, the MCP server and "Connect" for MCP clients).
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { Button, EmptyState, Icon, IconButton, Select, Spinner, TextInput, cx, showToast, timeAgo, tooltipProps, type IconName } from "@/ds";
 import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
 import { useEditor } from "../../controller";
@@ -215,7 +215,7 @@ export function renderText(text: string): ReactNode[] {
           {lines.map((l, j) => <li key={j}>{inline(l.replace(/^\s*([-*•]|\d+\.)\s+/, ""))}</li>)}
         </ul>
       );
-    return <p key={i} className={styles.para}>{lines.flatMap((l, j) => (j ? [<br key={`b${j}`} />, ...inline(l)] : inline(l)))}</p>;
+    return <p key={i} className={styles.para}>{lines.map((l, j) => <Fragment key={j}>{j ? <br /> : null}{inline(l)}</Fragment>)}</p>;
   });
 }
 
