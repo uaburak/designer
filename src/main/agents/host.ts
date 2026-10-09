@@ -547,8 +547,18 @@ export async function signOut(providerId: string): Promise<AuthState> {
   return { ...s, detail: err ? `Couldn't open Terminal: ${err}` : out.note };
 }
 
-/** Install: the documented command in Terminal (it waits for Return), or the download page. */
-export async function install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "terminal" | "page"; error?: string }> {
+/**
+ * npm's global folder is root's on a stock Mac (/usr/local/lib/node_modules), so a global install goes under the
+ * user's own ~/.local instead (its bin is on our search path) — no sudo, no password.
+ */
+export function userInstallCommand(command: string): string {
+  return /^npm install -g /.test(command) ? command.replace(/^npm install -g /, `npm install -g --prefix ${shq(join(homedir(), ".local"))} `) : command;
+}
+
+const installing = new Map<string, Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>>();
+
+/** Install: one click runs the documented command here (output kept for the error), or opens the download page. */
+export async function install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }> {
   const spec = cliSpec(providerId);
   const srv = LOCAL_SERVERS.find((x) => x.id === providerId);
   const what: { label: string; command?: string; page: string } | null =
@@ -558,18 +568,29 @@ export async function install(providerId: string, target?: "nanobanana"): Promis
     await shell.openExternal(what.page);
     return { ok: true, opened: "page" };
   }
-  const err = await openInTerminal(`install-${target ?? providerId}`, [
-    `echo ${shq(`This installs ${what.label} with its official command (${what.page}):`)}`,
-    "echo",
-    `echo ${shq(`  ${what.command}`)}`,
-    "echo",
-    `read ${shq("?Press Return to install, or close this window to cancel. ")}`,
-    what.command,
-    "echo",
-    `echo ${shq("Done. Back in DesignerV2, click “Look again” in Agent settings.")}`,
-  ]);
-  providerCache = null;
-  return err ? { ok: false, error: `Couldn't open Terminal: ${err}` } : { ok: true, opened: "terminal" };
+  const key = target ?? providerId;
+  const running = installing.get(key);
+  if (running) return running;
+  const command = userInstallCommand(what.command);
+  const job = new Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>((resolve) => {
+    mkdirSync(file("work"), { recursive: true });
+    const child = spawn("/bin/zsh", ["-c", command], { env: { ...cliEnv(), PATH: searchPath().join(delimiter) }, cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
+    // The owner's click is the go: an installer's own "continue? [Y/n]" (gemini extensions install asks one) gets yes.
+    child.stdin?.end("y\n");
+    let out = "";
+    child.stdout?.on("data", (d) => (out = (out + d).slice(-4000)));
+    child.stderr?.on("data", (d) => (out = (out + d).slice(-4000)));
+    const timer = setTimeout(() => child.kill(), 10 * 60_000);
+    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, error: `Couldn't install ${what.label}: ${e.message}` }); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      providerCache = null;
+      const last = out.trim().split("\n").slice(-3).join(" ");
+      resolve(code === 0 ? { ok: true, opened: "installed" } : { ok: false, error: `Couldn't install ${what.label}${last ? `: ${last}` : ""}` });
+    });
+  }).finally(() => installing.delete(key));
+  installing.set(key, job);
+  return job;
 }
 
 /** The keys.json entry of the owner's own Gemini API key for Nano Banana. */

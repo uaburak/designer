@@ -392,8 +392,11 @@ function ProviderRow({ p, service }: { p: ProviderInfo; service: AgentsService }
   const install = () =>
     run("install", async () => {
       const r = await api!.install(p.id);
-      if (!r.ok) showToast({ message: r.error ?? "Couldn't open the installer", kind: "error" });
-      else showToast({ message: r.opened === "terminal" ? `Terminal opened with ${p.label}’s install command — press Return there to install, then Look again.` : `Opened ${p.label}’s download page` });
+      if (!r.ok) showToast({ message: r.error ?? `Couldn't install ${p.label}`, kind: "error" });
+      else {
+        showToast({ message: r.opened === "installed" ? `${p.label} installed` : `Opened ${p.label}’s download page` });
+        if (r.opened === "installed") void service.refreshProviders();
+      }
     });
   const account = auth?.state === "connected" ? [auth.account, auth.plan].filter(Boolean).join(" · ") : "";
   return (
@@ -471,6 +474,7 @@ function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsServi
   const setGen = (g: ImageGenState) => setLocal({ of: p.imageGen, gen: g });
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
   const api = service.api!;
   const saveKey = async (k: string | null) => {
     setBusy(true);
@@ -490,7 +494,7 @@ function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsServi
       <span className={styles.providerDetail}>{gen.state === "needs-key" ? "Nano Banana makes images with a Gemini API key; a Google sign-in (Google AI Pro or Ultra included) doesn’t cover it." : gen.detail}</span>
       {gen.state === "not-installed" && (
         <div className={styles.providerActions}>
-          <Button variant="secondary" onClick={() => void api.install(p.id, "nanobanana").then((r) => showToast(r.ok ? { message: "Terminal opened with the extension’s install command — press Return there, then Look again." } : { message: r.error ?? "Couldn't open Terminal", kind: "error" }))} data-install-images="">
+          <Button variant="secondary" loading={imgBusy} onClick={() => { setImgBusy(true); void api.install(p.id, "nanobanana").then((r) => { showToast(r.ok ? { message: "Nano Banana installed" } : { message: r.error ?? "Couldn't install Nano Banana", kind: "error" }); if (r.ok) void service.refreshProviders(); }).finally(() => setImgBusy(false)); }} data-install-images="">
             Install Nano Banana
           </Button>
         </div>

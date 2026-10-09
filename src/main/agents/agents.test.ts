@@ -292,3 +292,11 @@ describe("the CLIs' environment", () => {
     }
   });
 });
+
+describe("one-click install", () => {
+  it("puts npm global installs under ~/.local (no sudo), leaves other commands alone", async () => {
+    const { userInstallCommand } = await import("./host");
+    expect(userInstallCommand("npm install -g @google/gemini-cli")).toMatch(/^npm install -g --prefix '.*\/\.local' @google\/gemini-cli$/);
+    expect(userInstallCommand("curl https://cursor.com/install -fsS | bash")).toBe("curl https://cursor.com/install -fsS | bash");
+  });
+});

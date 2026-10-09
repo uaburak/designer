@@ -267,7 +267,7 @@ export interface IpcInvoke {
   "agents:sign-in": { args: [{ providerId: string }]; result: AuthState };
   "agents:sign-out": { args: [{ providerId: string }]; result: AuthState };
   /** Install: the tool's documented command in Terminal (it waits for Return) or its download page; "nanobanana": Gemini's image extension */
-  "agents:install": { args: [{ providerId: string; target?: "nanobanana" }]; result: { ok: boolean; opened?: "terminal" | "page"; error?: string } };
+  "agents:install": { args: [{ providerId: string; target?: "nanobanana" }]; result: { ok: boolean; opened?: "installed" | "page"; error?: string } };
   /** The owner's own Gemini API key for Nano Banana image generation (safeStorage); null removes it */
   "agents:set-image-key": { args: [{ key: string | null }]; result: ImageGenState };
   /** A chat turn on this view's file: its events come as `agents:event` */

@@ -173,7 +173,7 @@ export interface AgentsApi {
   signIn(providerId: string): Promise<AuthState>;
   signOut(providerId: string): Promise<AuthState>;
   /** Opens the tool's install command in Terminal (it asks before running) or its download page; "nanobanana": Gemini's image extension */
-  install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "terminal" | "page"; error?: string }>;
+  install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>;
   /** The owner's own Gemini API key for Nano Banana (pasted in Agent settings, kept with safeStorage); null removes it */
   setImageKey(key: string | null): Promise<ImageGenState>;
   turn(request: TurnRequest): Promise<{ turnId: string }>;

@@ -33,7 +33,7 @@ function installMockAgents() {
     auth: async () => ({ state: "connected", account: "you@example.com", plan: "Claude Pro" }),
     signIn: async () => ({ state: "signing-in" }),
     signOut: async () => ({ state: "signed-out" }),
-    install: async (id, target) => (window.__designerAgentsLog.push({ install: id, target }), { ok: true, opened: "terminal" }),
+    install: async (id, target) => (window.__designerAgentsLog.push({ install: id, target }), { ok: true, opened: "installed" }),
     setImageKey: async () => ({ state: "ready", detail: "With the API key you added" }),
     stop: async () => {},
     onEvent: (cb) => (listeners.event.add(cb), () => listeners.event.delete(cb)),
