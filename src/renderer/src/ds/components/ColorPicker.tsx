@@ -192,6 +192,11 @@ export interface ColorPickerProps<P extends PickerPaint> {
   imageAction?: ReactNode;
   /** PATTERN: the layer it tiles (its name and a preview) and "Select source…" (the next layer clicked) */
   pattern?: { source: string | null; previewUrl?: string | null; selecting?: boolean; onSelectSource: () => void };
+  /**
+   * Pixels added to its x left of the panel (default -1: live opens it at 959 from a paint's swatch; from the section's
+   * "Apply styles and variables" at 960 — popovers/fill-styles-variables.txt)
+   */
+  offsetX?: number;
   /** The Shader tab (Figma's "Shader fills (Beta)" browser beside the picker); without it the tab is left out */
   onShaders?: (picker: HTMLElement) => void;
   /** Drawn in place (the Gallery) */
@@ -208,7 +213,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [contrast, setContrast] = useState(false);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
@@ -732,6 +737,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       onClose={onClose}
       static={isStatic}
       width={240}
+      offsetX={offsetX}
       label="Color picker"
       header={<Tabs label="Color source" value={tab} onChange={(t) => setTab(t as "custom" | "libraries")} tabs={[{ value: "custom", label: "Custom" }, { value: "libraries", label: "Libraries" }]} />}
       headerActions={headerActions && <span className={styles.headerActions}>{headerActions}</span>}

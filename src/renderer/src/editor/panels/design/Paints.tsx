@@ -415,6 +415,7 @@ export function PaintPicker({ target, nodes, pageColor, onClose }: { target: Pic
       headerActions={headerActions}
       value={toPicker(paint)}
       initialTab={(target.kind === "paint" && target.tab) || (paintVariable(paint) ? "libraries" : "custom")}
+      offsetX={target.kind === "paint" && target.tab === "libraries" ? 0 : -1}
       libraries={
         <VariableList
           types={["COLOR"]}

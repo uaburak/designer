@@ -42,6 +42,16 @@ export function placeMenu(x: number, y: number, box: Size, view: Size, flipX?: n
   return { x: left, y: top };
 }
 
+/** A Select's list under its trigger (flush, 8 left of it), or above it without the room (8 from the view's edges). */
+export function placeBelow(trigger: Rect, box: Size, view: Size): { x: number; y: number } {
+  const fits = trigger.bottom + box.height <= view.height - EDGE;
+  const y = fits ? trigger.bottom : trigger.top - box.height;
+  return {
+    x: Math.round(Math.max(EDGE, Math.min(trigger.left - 8, view.width - EDGE - box.width))),
+    y: Math.round(Math.max(EDGE, Math.min(y, view.height - EDGE - box.height))),
+  };
+}
+
 /** A Select's list over its trigger: the checked item's row centred on the trigger, clamped into the view. */
 export function placeOverTrigger(trigger: Rect, itemTop: number | null, itemHeight: number, box: Size, view: Size): { x: number; y: number } {
   const h = trigger.bottom - trigger.top;

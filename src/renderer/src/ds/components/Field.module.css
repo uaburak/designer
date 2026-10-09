@@ -92,6 +92,8 @@
   .prefixPrimary { color: var(--figma-color-text); }
   .prefixMode { font-weight: var(--ds-weight-body-medium); }
   .large .prefix { width: var(--ds-size-control-large); }
+  /* In a popover the prefix letters are 450 (live popovers/effect-settings-*.txt, fill-picker-pattern.txt: X / Y 11 / 450 at 70%) */
+  [data-ds="Popover"] .prefix { font-weight: var(--ds-weight-body-medium); }
   .scrub { cursor: ew-resize; touch-action: none; }
   .field[data-disabled] .scrub { cursor: default; }
   .unit { flex: none; user-select: none; }

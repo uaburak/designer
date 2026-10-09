@@ -17,10 +17,12 @@ export interface SearchFieldProps extends Omit<HTMLAttributes<HTMLDivElement>, "
   label?: string;
   /** Focus selects the text (live: the font picker opens on the family's name, selected) */
   selectOnFocus?: boolean;
+  /** The query filters a list shown under it: a combobox, expanded (live: the styles popovers' search) */
+  expanded?: boolean;
 }
 
 /** A search box (contract §4.28): the magnifier, the query, × while there is text. Esc clears, a second Esc leaves; ↓ hands focus to the list. */
-export function SearchField({ value, onChange, placeholder = STRINGS.search, size = "default", autoFocus, onSubmit, onExit, label = STRINGS.search, selectOnFocus, className, ...rest }: SearchFieldProps) {
+export function SearchField({ value, onChange, placeholder = STRINGS.search, size = "default", autoFocus, onSubmit, onExit, label = STRINGS.search, selectOnFocus, expanded, className, ...rest }: SearchFieldProps) {
   const input = useRef<HTMLInputElement>(null);
   return (
     <div data-ds="SearchField" role="search" className={cx(styles.field, size === "large" && styles.large, className)} {...rest}>
@@ -31,6 +33,7 @@ export function SearchField({ value, onChange, placeholder = STRINGS.search, siz
         ref={input}
         type="search"
         aria-label={label}
+        {...(expanded ? { role: "combobox", "aria-expanded": true, "aria-autocomplete": "list" as const } : {})}
         value={value}
         placeholder={placeholder}
         autoFocus={autoFocus}

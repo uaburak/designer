@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
 import { cx } from "../util/cx";
 import { createTypeahead, typeahead } from "../util/typeahead";
-import { place, placeOverTrigger } from "../overlay/position";
+import { place, placeBelow, placeOverTrigger } from "../overlay/position";
 import { Portal } from "../overlay/Portal";
 import { useDismiss } from "../overlay/useDismiss";
 import { Icon, type IconName } from "../icons/Icon";
@@ -32,6 +32,12 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
   static?: boolean;
   /** A list without the check column (live: the effect type menu — its icons at 16, the current one highlighted) */
   noCheck?: boolean;
+  /**
+   * The list under the field (flush with its bottom, 8 left of it) rather than over it — above the field when there
+   * is no room (live popovers/layout-guide-type-menu.txt: 110 × 88 at 968,792 under a field ending at 792; the export
+   * format list)
+   */
+  below?: boolean;
 }
 
 /**
@@ -41,7 +47,7 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
  * in the list ↑ ↓ Home End, typeahead, Enter picks, Esc closes (focus stays
  * on the trigger). Never a native <select>.
  */
-export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, className, style, ...rest }: SelectProps) {
+export function Select({ label, value, options, onChange, variant = "filled", size = "default", prefix, width, disabled, placeholder = "", static: isStatic, noCheck, below, className, style, ...rest }: SelectProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -83,12 +89,12 @@ export function Select({ label, value, options, onChange, variant = "filled", si
         <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? STRINGS.mixed : current?.label ?? placeholder}</span>
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>
-      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
+      {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
     </div>
   );
 }
 
-function Listbox({ id, anchor, options, value, isStatic, noCheck, onPick, onClose }: { id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: (SelectOption | "-")[]; value: string | null; isStatic?: boolean; noCheck?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
+function Listbox({ id, anchor, options, value, isStatic, noCheck, below, onPick, onClose }: { id: string; anchor: React.RefObject<HTMLButtonElement | null>; options: (SelectOption | "-")[]; value: string | null; isStatic?: boolean; noCheck?: boolean; below?: boolean; onPick: (v: string) => void; onClose: (focus?: boolean) => void }) {
   const panel = useRef<HTMLDivElement>(null);
   const selected = options.findIndex((o) => o !== "-" && o.value === value);
   const usable = options.map((o, i) => (o !== "-" && !o.disabled ? i : -1)).filter((i) => i >= 0);
@@ -112,12 +118,22 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, onPick, onClos
     const view = { width: window.innerWidth, height: window.innerHeight };
     // Without the check column (live effect type menu, popovers/effect-type-menu.txt) the list is a dropdown at the
     // field's left, 12 under it — or, without the room, 12 above it (live: 207 high, flipped up over the popover).
-    const p = noCheck ? place(r, box, view, "bottom", "start", 12) : placeOverTrigger(r, item ? item.offsetTop : null, item ? item.offsetHeight : 0, box, view);
+    let p = noCheck ? place(r, box, view, "bottom", "start", 12) : below ? placeBelow(r, box, view) : placeOverTrigger(r, item ? item.offsetTop : null, item ? item.offsetHeight : 0, box, view);
+    if (!noCheck && !below && item) {
+      // Live (popovers/font-weight-menu.txt: 167 × 313 at 1208,575): a list too long for the room under its field keeps
+      // the chosen option over the field and is cut 12 from the window's bottom (it scrolls), rather than moving up.
+      const top = Math.round(r.top - item.offsetTop + (r.bottom - r.top - item.offsetHeight) / 2);
+      const room = view.height - 12 - top;
+      if (top >= 8 && box.height > room && room >= item.offsetTop + item.offsetHeight) {
+        el.style.maxHeight = `${room}px`;
+        p = { ...p, y: top };
+      }
+    }
     el.style.left = `${p.x}px`;
     el.style.top = `${p.y}px`;
     el.style.visibility = "visible";
     el.focus({ preventScroll: true });
-  }, [anchor, selected, isStatic, noCheck]);
+  }, [anchor, selected, isStatic, noCheck, below]);
   useEffect(() => {
     const el = panel.current;
     const item = active >= 0 ? el?.querySelector<HTMLElement>(`[data-index="${active}"]`) : null;

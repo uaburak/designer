@@ -1088,6 +1088,21 @@ function resolvedPatch(a: LocalAssets, n: AnyNode, chain: readonly AnyNode[]): R
     });
     if (!sameData(next, n.effects)) patch.effects = next;
   }
+  // Layout guides' numbers (LayoutGrid.sectionSizeVar, numSectionsVar, offsetVar, gutterSizeVar).
+  const grids = now("layoutGrids") as Record<string, unknown>[] | undefined;
+  const GRID_VARS = [["sectionSizeVar", "sectionSize"], ["numSectionsVar", "numSections"], ["offsetVar", "offset"], ["gutterSizeVar", "gutterSize"]] as const;
+  if (grids?.some((g) => GRID_VARS.some(([k]) => g[k]))) {
+    const next = grids.map((g) => {
+      let out = g;
+      for (const [k, f] of GRID_VARS) {
+        const alias = (g[k] as { value?: { alias?: { guid?: GuidValue } } } | undefined)?.value?.alias?.guid;
+        const value = alias ? resolveVariable(guidStr(alias), a.lookup, modeFor) : null;
+        if (typeof value === "number") out = { ...out, [f]: f === "numSections" ? Math.round(value) : value };
+      }
+      return out;
+    });
+    if (!sameData(next, n.layoutGrids)) patch.layoutGrids = next;
+  }
   // Node fields.
   for (const [field, id] of variableBindings(n as never)) {
     const value = resolveVariable(id, a.lookup, modeFor);

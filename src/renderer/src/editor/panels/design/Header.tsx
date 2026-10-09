@@ -31,7 +31,7 @@ import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker
 import { BIND_TYPE } from "../../model/variables";
 import { sharedBinding } from "./Variables";
 import { convertFrameKind, frameKindOf, offeredKinds, type FrameKind } from "./frameKind";
-import { isFrameNode, typeLabel, typeOf, useParents, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, isFrameNode, typeLabel, typeOf, useParents, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import hstyles from "./Header.module.css";
 
@@ -62,8 +62,8 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     items: [
       ["iPad mini 8.3", 744, 1133],
       ["Surface Pro 8", 1440, 960],
-      ["iPad Pro 11", 834, 1194],
-      ["iPad Pro 12.9", 1024, 1366],
+      ['iPad Pro 11"', 834, 1194],
+      ['iPad Pro 12.9"', 1024, 1366],
       ["Android Expanded", 1280, 800],
     ],
   },
@@ -71,8 +71,8 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     header: "Desktop Presets",
     items: [
       ["MacBook Air", 1280, 832],
-      ["MacBook Pro 14", 1512, 982],
-      ["MacBook Pro 16", 1728, 1117],
+      ['MacBook Pro 14"', 1512, 982],
+      ['MacBook Pro 16"', 1728, 1117],
       ["Desktop", 1440, 1024],
       ["Wireframes", 1440, 1024],
       ["TV", 1280, 720],
@@ -272,8 +272,11 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
           label={`${title}, Frame Dimension Presets`}
           entries={frameMenu(title as FrameKind, offeredKinds(ed, nodes))}
           className={styles.typeButton}
-          // Live (popovers/frame-presets-menu.txt): the list 8 under the button, its rows from its top.
+          // Live (popovers/frame-presets-menu.txt: 222 × 1887 at 1208,125): 8 under the button, its rows at the button's
+          // left from its top, the first lit, the whole list past the window's bottom (moved by the wheel), not cut and scrolled.
           gap={8}
+          flush
+          extend
           menuClassName={hstyles.presetsMenu}
           onSelect={(id) => pickPreset(ed, nodes, id)}
         >
@@ -459,7 +462,7 @@ function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
         disabled={!(booleans || isEnabled(ed, firstCommand))}
         onClick={() => pickBoolean(ed, nodes, first.id, booleans)}
       />
-      <MenuButton label="Boolean operations" entries={entries} className={styles.splitChevron} disabled={!any} align="end" menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
+      <MenuButton label="Boolean operations" entries={entries} className={styles.splitChevron} disabled={!any} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
         <Icon name="16.chevron.down" />
       </MenuButton>
     </div>
@@ -509,6 +512,8 @@ function MoreActions({ nodes, omit }: { nodes: PanelNode[]; omit: string[] }) {
       entries={entries.length ? entries : [{ id: "none", label: "No actions", disabled: true }]}
       className={styles.iconMenu}
       align="end"
+      gap={PANEL_MENU_GAP}
+      flush
       menuClassName={hstyles.actionsMenu}
       onSelect={(id) => {
         if (id === "edit-object") ed.vector.start(nodes[0].guid);

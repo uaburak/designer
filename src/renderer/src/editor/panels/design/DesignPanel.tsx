@@ -22,7 +22,7 @@ import { SelectionColorsSection } from "./SelectionColors";
 import { TypographySection } from "./Typography";
 import { EffectsSection, LayoutGuideSection } from "./Effects";
 import { ExportSection, type ExportTarget } from "./Export";
-import { VectorPointSection } from "./VectorPoints";
+import { VectorEditPanel } from "./VectorPoints";
 import { isFrameNode, isTextNode, usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { TypeHeader } from "./Header";
 import { ComponentBlock, InstanceHeader, componentSelection } from "./Component";
@@ -118,11 +118,19 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
   const editingVector = !!vectorRef && nodes.length === 1 && nodes[0].guid === vectorRef;
   // One component, set, variant or instance: its header and properties come first (UI3).
   const comp = componentSelection(ed, nodes);
+  // Vector edit mode (live design/vector-edit-mode.txt): "Vector", its points' block, then Fill and Stroke only.
+  if (editingVector)
+    return (
+      <>
+        <VectorEditPanel />
+        <PaintsSection title="Fill" field="fillPaints" nodes={paintNodes} onPick={onPick} />
+        <PaintsSection title="Stroke" field="strokePaints" nodes={paintNodes} onPick={onPick} />
+      </>
+    );
   return (
     <>
       {/* An instance: its name, Go to main component and its properties; a component, set or variant: its name and Properties (Current variant) */}
       {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
-      {editingVector && <VectorPointSection />}
       <PositionSection nodes={nodes} />
       <LayoutSection nodes={nodes} />
       <AppearanceSection nodes={nodes} />

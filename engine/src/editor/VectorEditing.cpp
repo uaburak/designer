@@ -1304,11 +1304,15 @@ void Editor::vectorOverlay(Overlay& o) const {
   o.handles = false;
   o.sizeBadge = false;
   o.hover.clear();
+  // Only the selected and hovered segments are drawn (2 px, the selection colour): at rest the path shows its own
+  // fill and stroke and the points (live Figma round 10, vector-edit-mode-full-ui: the Vector's black stroke with no
+  // blue on it, the three points white with a blue ring).
   for (uint32_t sg = 0; sg < net.segments.size(); sg++) {
     const VNSegment& g = net.segments[sg];
     Vec2 a = net.vertices[g.start].p, b = net.vertices[g.end].p;
     bool hot = has(vector_.selSegs, sg) || static_cast<int>(sg) == vector_.hoverSegment;
-    o.curves.push_back({W.apply(a), W.apply(a + g.tangentStart), W.apply(b + g.tangentEnd), W.apply(b), hot ? 2.0 : 1.0, hot});
+    if (!hot) continue;
+    o.curves.push_back({W.apply(a), W.apply(a + g.tangentStart), W.apply(b + g.tangentEnd), W.apply(b), 2.0, true});
   }
   forEachHandle(net, vector_.selVerts, vector_.selSegs, [&](uint32_t, bool, Vec2 vertex, Vec2 handle) {
     o.lines.push_back({W.apply(vertex), W.apply(handle), false, false});

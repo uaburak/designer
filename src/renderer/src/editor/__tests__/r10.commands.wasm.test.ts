@@ -43,6 +43,8 @@ async function editor(doc: Message = CAPTURE_DOCUMENT) {
   const store = new EngineStore(engine);
   const ed = new EditorController(engine, store, source);
   engine.onDocumentChanged((_, e) => source.onChanges(e.message));
+  // The capture opens on its "Capture" page (CAPTURE_UI_STATE; "Page 1" first and empty, as live).
+  if (doc === CAPTURE_DOCUMENT) engine.setCurrentPage("0:1");
   return { ed, engine, source };
 }
 

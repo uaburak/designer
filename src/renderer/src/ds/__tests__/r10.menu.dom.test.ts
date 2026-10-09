@@ -28,14 +28,14 @@ const css = readFileSync(join(__dirname, "../components/Menu.module.css"), "utf8
 
 describe("Round 10 menus", () => {
   it("a menu under its trigger is flush and opens with its first row lit", () => {
-    m = mount(MenuButton, { label: "Boolean operations", entries: booleans, onSelect: spy<[string]>(), children: "▾" } as MenuButtonProps);
+    m = mount(MenuButton, { label: "Boolean operations", entries: booleans, flush: true, onSelect: spy<[string]>(), children: "▾" } as MenuButtonProps);
     click($('[aria-label="Boolean operations"]'));
     const panel = $('#ds-overlays [role="menu"]');
     expect(panel.className).toMatch(/flush/);
     expect(lit()).toEqual(["Union⌥⇧U"]);
   });
 
-  it("a context menu keeps its padding and lights nothing", () => {
+  it("a context menu (and a MenuButton not flush) keeps its padding and lights nothing", () => {
     m = mount(ContextMenu, { at: { x: 10, y: 10 }, entries: booleans, onSelect: spy<[string]>(), onClose: spy<[]>() } as ContextMenuProps);
     const panel = $('#ds-overlays [role="menu"]');
     expect(panel.className).not.toMatch(/flush/);
@@ -70,7 +70,7 @@ describe("Round 10 menus", () => {
       { id: "ALL", label: "All", checked: true, radio: true },
       { id: "TOP", label: "Top", checked: false, radio: true },
     ];
-    m = mount(MenuButton, { label: "Individual strokes", entries: strokes, onSelect: spy<[string]>(), children: "▾" } as MenuButtonProps);
+    m = mount(MenuButton, { label: "Individual strokes", entries: strokes, named: true, onSelect: spy<[string]>(), children: "▾" } as MenuButtonProps);
     click($('[aria-label="Individual strokes"]'));
     const panel = $('#ds-overlays [role="menu"]');
     expect(panel.getAttribute("aria-labelledby")).toBeTruthy();

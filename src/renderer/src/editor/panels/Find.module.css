@@ -46,6 +46,8 @@
     font: var(--ds-font-body-medium-regular);
     letter-spacing: var(--ds-tracking-body-medium-regular);
   }
+  /* The scope ("This page") is 11 / 400 like the count (live left/find-layers-search.txt), not the select's 450 */
+  .status button, .status button * { font-weight: var(--ds-weight-body-medium-regular); }
   .count { white-space: nowrap; }
   /* Live: "·" 4 after the count, the scope's button right after it */
   .dot { padding: 0 0 0 var(--ds-space-1); }

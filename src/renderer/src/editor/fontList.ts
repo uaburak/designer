@@ -54,18 +54,26 @@ export function familyStyles(list: readonly FontFamily[] | null, family: string,
 // ---- The picker's filters (Figma's "All fonts" menu) ------------------------------------------
 
 /**
- * Figma's font filters (help.figma.com "Browse and apply fonts"): All fonts, In this file, Popular, Installed by you,
- * Google fonts, Variable fonts ("Used at <organization>" needs an organization; this app has none).
+ * Figma's font filters, in live's order (popovers/font-picker-filter-menu.txt: 240 × 229): All fonts | In this file |
+ * Popular fonts, Google fonts, Variable fonts | Uploaded by you, Installed by you ("Used at <organization>" needs an
+ * organization; this app has none). Nothing is uploaded to this app, so "Uploaded by you" lists nothing.
  */
 export const FONT_FILTERS = [
   { value: "all", label: "All fonts" },
   { value: "file", label: "In this file" },
-  { value: "popular", label: "Popular" },
-  { value: "installed", label: "Installed by you" },
+  { value: "popular", label: "Popular fonts" },
   { value: "google", label: "Google fonts" },
   { value: "variable", label: "Variable fonts" },
+  { value: "uploaded", label: "Uploaded by you" },
+  { value: "installed", label: "Installed by you" },
 ] as const;
 export type FontFilter = (typeof FONT_FILTERS)[number]["value"];
+
+/** The filter menu's rows with live's lines between its groups (after All fonts, In this file, Variable fonts). */
+export const FONT_FILTER_MENU: ({ value: FontFilter; label: string } | "-")[] = (() => {
+  const [all, file, popular, google, variable, uploaded, installed] = FONT_FILTERS;
+  return [all, "-", file, "-", popular, google, variable, "-", uploaded, installed];
+})();
 
 /** How many of the most used Google families "Popular" lists (Figma curates its own; Google's ranking stands in). */
 export const POPULAR_COUNT = 50;
@@ -98,6 +106,9 @@ export function filterFamilies(list: readonly FontFamily[], filter: FontFilter, 
       break;
     case "variable":
       out = list.filter((f) => f.variable);
+      break;
+    case "uploaded":
+      out = [];
       break;
   }
   const words = fold(query).split(/\s+/).filter(Boolean);

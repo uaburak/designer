@@ -100,6 +100,17 @@
   }
   .item[data-highlighted] .badge { color: var(--ds-color-menu-text-on-highlight-secondary); }
   .chevron { flex: none; margin-right: calc(var(--ds-space-1) * -1); }
+  /* An extended menu's bar at the window's bottom (live frame-presets-menu.txt: 24 high, the panel's colour, the menu's bottom corners) */
+  .more {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--ds-size-menu-item);
+    border-radius: 0 0 var(--ds-radius-large) var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--ds-color-menu-text-secondary);
+  }
   .separator { height: 1px; margin: var(--ds-space-2) 0; background: var(--ds-color-menu-separator); }
   .header {
     display: flex;

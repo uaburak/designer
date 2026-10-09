@@ -31,4 +31,6 @@
   /* A list without the check column (live effect type menu): its rows from the top and bottom edges, 7 around a line */
   [data-ds="Menu"].compactList { padding-top: 0; padding-bottom: 0; }
   .compactList > [role="separator"] { margin-top: 7px; margin-bottom: 7px; }
+  /* Live lists keep 7 around a line (the font filter, popovers/font-picker-filter-menu.txt: groups 39 apart; the blend modes) */
+  [data-ds="Menu"][role="listbox"] > [role="separator"] { margin-top: 7px; margin-bottom: 7px; }
 }

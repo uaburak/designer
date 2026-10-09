@@ -25,7 +25,7 @@ import { memoryDocumentSource, type DocumentSource } from "./documentSource";
 import { EditorApp } from "./EditorApp";
 import type { EditorController } from "./controller";
 import type { ImageStore } from "./images";
-import { CAPTURE_DOCUMENT, COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, PROTOTYPE_DOCUMENT, REFERENCE_DOCUMENT, TEXT_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
+import { CAPTURE_DOCUMENT, CAPTURE_UI_STATE, COMPONENTS_DOCUMENT, EMPTY_DOCUMENT, PAINTS_DOCUMENT, PROTOTYPE_DOCUMENT, REFERENCE_DOCUMENT, TEXT_DOCUMENT, TYPES_DOCUMENT, VARIABLES_DOCUMENT } from "./fixtures";
 import styles from "./EditorApp.module.css";
 
 /**
@@ -58,7 +58,7 @@ function memorySource(doc: string | null): DocumentSource {
   if (doc === "reference") return memoryDocumentSource(REFERENCE_DOCUMENT, { fileName: "burakkoc", location: "Drafts", versions: true });
   if (doc === "empty") return memoryDocumentSource(EMPTY_DOCUMENT, { fileName: "Untitled", location: "Drafts" });
   if (doc === "types") return memoryDocumentSource(TYPES_DOCUMENT, { fileName: "Layer types", location: "Drafts" });
-  if (doc === "capture") return memoryDocumentSource(CAPTURE_DOCUMENT, { fileName: "Untitled", location: "Drafts" });
+  if (doc === "capture") return memoryDocumentSource(CAPTURE_DOCUMENT, { fileName: "Untitled", location: "Drafts", uiState: CAPTURE_UI_STATE });
   if (doc === "paints") return memoryDocumentSource(PAINTS_DOCUMENT, { fileName: "Paints and effects", location: "Drafts" });
   if (doc === "components") return memoryDocumentSource(COMPONENTS_DOCUMENT, { fileName: "Components", location: "Drafts" });
   if (doc === "variables") return memoryDocumentSource(VARIABLES_DOCUMENT, { fileName: "Variables and styles", location: "Drafts" });

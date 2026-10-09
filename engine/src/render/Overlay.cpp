@@ -342,10 +342,10 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Vec2 e = view.apply(bar.edge);
     double px, py;
     // A gap's: right of its bar, just above it; a padding's: outside its edge at `edge` (where the pointer is), 2 px
-    // off it (live Figma, canvas-autolayout-selected-hover-gap / -padding at 1.57×: 9 px right of the bar, 5 above;
-    // 2.5 px above the frame).
+    // off it (live Figma, canvas-autolayout-selected-hover-gap / -padding scaled by their 11 px frame title, 1.44×:
+    // the badge's left 10.2 px right of the bar's centre, its bottom 5.4 above the bar; 1.8 px above the frame).
     if (bar.gap) {
-      px = bar.vertical ? c.x + 9 : c.x + len / 2 + 5;
+      px = bar.vertical ? c.x + 10 : c.x + len / 2 + 5;
       py = bar.vertical ? c.y - len / 2 - 5 - ph : c.y - ph - 5;
     } else if (bar.side == 0) {
       px = e.x - 2 - pw, py = e.y - ph / 2;
@@ -376,9 +376,17 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       if (c.fill) emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, 0.15, blue, 0, 0, 0), Pass::Shape);
       emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, 0, blue, 0.37, 1, 0), Pass::Shape);
     }
+    // The track under an expanded pill: a 2 px outline in the selection colour, centred on the track's own edges and,
+    // where it meets the frame's edges, inside them (live Figma round 10, canvas-grid-hover-column-track-pill /
+    // -row-track-pill at 1.46× / 1.31×: 2.9 / 3.0 px across, the column's sides centred on its edges, its ends' outer
+    // edge on the frame's outer edge — and the row's the other way round). So: the box 1 px wider across the track,
+    // stroked 2 px inside.
     for (const Overlay::GridCell& c : overlay.gridTrackBoxes) {
       ScreenBox b = upright(c);
-      emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
+      Vec2 at{b.m.m02, b.m.m12}, size = b.size;
+      if (c.column) at.x -= 1, size.x += 2;
+      else at.y -= 1, size.y += 2;
+      emit(makeShape(Mat2x3::translate(at.x, at.y), size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 2, 0), Pass::Shape);
     }
     auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
     const Color light{(blue.r + 1) / 2, (blue.g + 1) / 2, (blue.b + 1) / 2, 1};

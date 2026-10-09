@@ -175,7 +175,8 @@ export function TypographySection({ nodes }: { nodes: PanelNode[] }) {
                   label="Font sizes"
                   entries={sizeEntries}
                   overField='[data-ds="NumericInput"]'
-                  overOffset={-6}
+                  // Live (popovers/font-size-menu.txt: 96 wide at 1312,455): the current size's row level with the field
+                  overOffset={0}
                   onSelect={(id) => write("Font size", { fontSize: Number(id) })}
                   className={styles.fontSizeMenu}
                 >
