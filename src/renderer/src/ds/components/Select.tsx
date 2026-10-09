@@ -142,7 +142,8 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, width, 
       // the chosen option over the field and is cut 12 from the window's bottom (it scrolls), rather than moving up.
       const top = Math.round(r.top - item.offsetTop + (r.bottom - r.top - item.offsetHeight) / 2);
       const room = view.height - 12 - top;
-      if (top >= 8 && box.height > room && room >= item.offsetTop + item.offsetHeight) {
+      // With little room under it (a field at the window's bottom, e.g. the Agents composer) the list moves up whole instead.
+      if (top >= 8 && box.height > room && room >= item.offsetTop + item.offsetHeight && room >= 200) {
         el.style.maxHeight = `${room}px`;
         p = { ...p, y: top };
       }
