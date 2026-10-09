@@ -279,6 +279,41 @@ TEST_CASE("commands: moveNodes reorders, reparents keeping the page position, re
   CHECK(e.pages() == std::vector<Guid>{kPage, second});
 }
 
+TEST_CASE("commands: moveNodes joins an open API step (an agent's tool call): one undo step with the rest") {
+  Editor e = makeEditor();
+  REQUIRE(e.txnBegin("Agent edit") == OK);
+  NodeChange c = NodeChange::changed(TOP);
+  c.mask = F_NAME;
+  c.props.name = "Moved";
+  REQUIRE(e.setProps({TOP}, c, 0) == OK);
+  CHECK(e.moveNodes({TOP}, F, 0) == 1);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(e.document().parentOf(TOP) == F);
+  e.command(CommandId::UNDO);
+  CHECK(e.document().parentOf(TOP) == kPage);
+  CHECK(props(e, TOP).name == "Rectangle 4");
+}
+
+TEST_CASE("commands: a child made absolute and resized in one step keeps its size while its hugging parent shrinks") {
+  Editor e = makeEditor();
+  NodeChange al = NodeChange::changed(F);
+  al.mask = F_STACK_MODE | F_STACK_PRIMARY_SIZING;
+  al.props.stack().stackMode = StackMode::HORIZONTAL;
+  al.props.stack().stackPrimarySizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  REQUIRE(e.setProps({F}, al, 0) == OK);
+  double before = props(e, F).size.x;
+  NodeChange c = NodeChange::changed(R3);
+  c.mask = F_STACK_POSITIONING | F_SIZE;
+  c.props.stackPositioning = StackPositioning::ABSOLUTE;
+  c.props.size = {120, 30};
+  REQUIRE(e.txnBegin("Agent edit") == OK);
+  REQUIRE(e.setProps({R3}, c, 0) == OK);
+  REQUIRE(e.txnCommit() == OK);
+  CHECK(props(e, R3).stackPositioning == StackPositioning::ABSOLUTE);
+  CHECK(props(e, R3).size == Vec2{120, 30});
+  CHECK(props(e, F).size.x < before);
+}
+
 TEST_CASE("commands: copy and paste — fresh ids, beside the original, in place, into a frame, in view") {
   Editor e = makeEditor();
   e.setSelection({R1, R2});
