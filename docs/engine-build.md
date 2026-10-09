@@ -11,7 +11,7 @@ Status: **done**. The engine's part of fix group 1 of `docs/research/audit-2026-
 - **Context menu:** a right-click on a frame's title selects the frame and opens its menu (`Editor::contextMenu`, live context-frame.txt).
 - **API (TS):** `abi.ts` `CommandId` 270–286, `VECTOR_EDIT_TOOLS` + `CUT` / `ERASE`, `VIEW_FRAME_OUTLINES` / `VIEW_MASK_OUTLINES`; `Engine.setViewOptions({frameOutlines, maskOutlines})`, `Engine.setTextDirection(ref, dir)`, `Engine.memoryBytes()`.
 
-**Checks:** `npm run engine:test` 471 / 471 (`tests/unit/r10.commands.test.cpp`: Convert, Distribute, Pack, Round to pixel, Join, Split, Simplify, Offset, the title's menu, Frame outlines, Set default properties, Cut, Erase; `text.features.test.cpp`: Text direction, spelling marks); `engine:shot` 108 ok / WebGPU 110 ok; release wasm rebuilt after merging main `47a3313`.
+**Checks:** `npm run engine:test` 471 / 471 (`tests/unit/r10.commands.test.cpp`: Convert, Distribute, Pack, Round to pixel, Join, Split, Simplify, Offset, the title's menu, Frame outlines, Set default properties, Cut, Erase; `text.features.test.cpp`: Text direction, spelling marks); `engine:shot` 108 ok / WebGPU 110 ok; release wasm rebuilt after merging main (`649059f`).
 
 ## Round 10 — Canvas chrome, capture fixture and vector edit canvas (2026-10-09, branch `r10-canvas-chrome`)
 
