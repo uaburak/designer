@@ -205,7 +205,7 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
  * A run of the agent's steps as one row, collapsed (Claude's desktop way): the Agents icon, a line, a chevron that
  * opens the steps. While the turn is in it the row is the thinking line — the icon turning, what it does now
  * ("Reading the design…", "Thinking…") in grey with a lighter sweep, the seconds after 5 s (only they re-render each
- * second); then it settles ("Thinking · 4 steps"). An image's group keeps its card under the row.
+ * second); then it settles to its last step's words ("Read the design"). An image's group keeps its card under the row.
  */
 function StepGroup({ seg, since }: { seg: Exclude<Segment, { kind: "text" }>; since?: number }) {
   const [open, setOpen] = useState(false);

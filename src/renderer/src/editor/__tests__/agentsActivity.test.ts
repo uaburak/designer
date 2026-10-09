@@ -43,8 +43,8 @@ describe("an answer as words and groups of steps", () => {
 
   it("puts each run of steps between the words in one group: text, steps, text, steps", () => {
     const events: ChatEvent[] = [{ type: "text", delta: "Let me look." }, tool("1", "get_selection"), tool("2", "get_design_context"), { type: "text", delta: "\n\nNow the mobile one." }, tool("3", "create_nodes"), tool("4", "set_selection", "error")];
-    expect(shape(run(events, { state: "done" }))).toEqual(["text:Let me look.", "steps[1,2] Thinking · 2 steps", "text:Now the mobile one.", "steps[3,4] Thinking · 2 steps · 1 failed"]);
-    expect(stepsSummary([{ kind: "tool", id: "1", name: "get_selection", state: "done" }])).toBe("Thinking · 1 step");
+    expect(shape(run(events, { state: "done" }))).toEqual(["text:Let me look.", "steps[1,2] Read the design", "text:Now the mobile one.", "steps[3,4] Selected the result"]);
+    expect(stepsSummary([{ kind: "tool", id: "1", name: "get_selection", state: "done" }])).toBe("Looked at the selection");
     // Keys stay put as the answer grows (the groups keep open or closed).
     expect(segmentsOf(run(events, { state: "done" })).map((s) => s.key)).toEqual(["text:0", "steps:1", "text:3", "steps:4"]);
   });
@@ -58,24 +58,24 @@ describe("an answer as words and groups of steps", () => {
     expect(shape(run([tool("1", "get_selection"), tool("2", "get_design_context")]))).toEqual(["steps[1,2]* Thinking…"]);
     // Words after it: that group settles, a new one runs below them under the key the next step's group gets.
     const m = run([tool("1", "get_selection"), { type: "text", delta: "Got it." }]);
-    expect(shape(m)).toEqual(["steps[1] Thinking · 1 step", "text:Got it.", "steps[]* Thinking…"]);
+    expect(shape(m)).toEqual(["steps[1] Looked at the selection", "text:Got it.", "steps[]* Thinking…"]);
     const next = run([tool("1", "get_selection"), { type: "text", delta: "Got it." }, tool("2", "create_nodes", "running")]);
     expect(segmentsOf(m)[2].key).toBe(segmentsOf(next)[2].key);
-    expect(shape(next)).toEqual(["steps[1] Thinking · 1 step", "text:Got it.", "steps[2]* Creating layers…"]);
+    expect(shape(next)).toEqual(["steps[1] Looked at the selection", "text:Got it.", "steps[2]* Creating layers…"]);
     // Over: nothing running, no empty group.
-    expect(shape(run([tool("1", "get_selection"), { type: "text", delta: "Done." }], { state: "done" }))).toEqual(["steps[1] Thinking · 1 step", "text:Done."]);
+    expect(shape(run([tool("1", "get_selection"), { type: "text", delta: "Done." }], { state: "done" }))).toEqual(["steps[1] Looked at the selection", "text:Done."]);
   });
 
   it("gives an image its own group, Generate image, with its card and the place_image that puts it on the canvas", () => {
     const g: ChatEvent[] = [tool("1", "get_selection"), { type: "tool", id: "g", name: "generate_image", args: { aspect_ratio: "1:1" }, state: "running" }];
     const making = run(g);
-    expect(shape(making)).toEqual(["steps[1] Thinking · 1 step", "image[g]* Making an image…"]);
+    expect(shape(making)).toEqual(["steps[1] Looked at the selection", "image[g]* Making an image…"]);
     expect(segmentsOf(making)[1]).toMatchObject({ kind: "image", image: { state: "generating" } });
     const made = run([...g, tool("g", "generate_image"), tool("p", "place_image", "running")]);
-    expect(shape(made)).toEqual(["steps[1] Thinking · 1 step", "image[g,p]* Placing the image…"]);
+    expect(shape(made)).toEqual(["steps[1] Looked at the selection", "image[g,p]* Placing the image…"]);
     // place_image's result puts the picture on the card, then the turn ends.
     const placed = { state: "done" as const, parts: turnOver(withPlacedImage(run([...g, tool("g", "generate_image"), tool("p", "place_image"), { type: "text", delta: "Here it is." }]).parts!, { hash: "h", width: 2, height: 2 }), false) };
-    expect(shape(placed)).toEqual(["steps[1] Thinking · 1 step", `image[g,p] ${GENERATE_IMAGE}`, "text:Here it is."]);
+    expect(shape(placed)).toEqual(["steps[1] Looked at the selection", `image[g,p] ${GENERATE_IMAGE}`, "text:Here it is."]);
     // A failed one: its group, no card.
     const failed = run([tool("g", "generate_image", "running"), { type: "tool", id: "g", name: "generate_image", state: "error", summary: "quota" }], { state: "done" });
     expect(segmentsOf(failed)).toMatchObject([{ kind: "image", label: GENERATE_IMAGE, steps: [{ state: "error" }] }]);
@@ -90,11 +90,11 @@ describe("an answer as words and groups of steps", () => {
     const early = run([{ type: "status", text: "Starting Antigravity…" }], { parts: [asked] });
     expect(shape(early)).toEqual([`image[] ${GENERATE_IMAGE}`, "steps[]* Starting Antigravity…"]);
     const m = run([{ type: "text", delta: "Sure." }, tool("1", "get_selection"), { type: "tool", id: "g", name: "generate_image", state: "running" }], { parts: [asked] });
-    expect(shape(m)).toEqual(["image[g]* Making an image…", "text:Sure.", "steps[1] Thinking · 1 step"]);
+    expect(shape(m)).toEqual(["image[g]* Making an image…", "text:Sure.", "steps[1] Looked at the selection"]);
     expect(segmentsOf(m)[0].key).toBe(segmentsOf(early)[0].key);
     // Made: about to be placed, the image's group is the one thinking.
     const made = run([tool("g", "generate_image")], { parts: m.parts });
-    expect(shape(made)).toEqual(["image[g]* Placing the image…", "text:Sure.", "steps[1] Thinking · 1 step"]);
+    expect(shape(made)).toEqual(["image[g]* Placing the image…", "text:Sure.", "steps[1] Looked at the selection"]);
     const after = run([tool("p", "place_image"), tool("s", "set_selection")], { parts: withPlacedImage(run([tool("p", "place_image")], { parts: made.parts }).parts!, { hash: "h", width: 1, height: 1 }) });
     expect(shape(after)).toEqual([`image[g,p] ${GENERATE_IMAGE}`, "text:Sure.", "steps[1,s]* Thinking…"]);
   });

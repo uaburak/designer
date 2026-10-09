@@ -4,7 +4,7 @@
  * it starts ("Starting Antigravity…"), else "Thinking…"; the seconds it has taken, after 5 s. And the answer cut into
  * its words and its groups of steps (segmentsOf). Pure: the chat renders it, the tests read it.
  */
-import type { ChatMessage, ImagePart, MessagePart } from "./service";
+import { toolLabel, type ChatMessage, type ImagePart, type MessagePart } from "./service";
 
 /** A step while it runs, in the present tense (its finished label is service.ts's toolLabel). */
 const TOOL_ACTIVE: Record<string, string> = {
@@ -74,11 +74,10 @@ export const PLACE_IMAGE = "Place image";
 type StepsSeg = Extract<Segment, { kind: "steps" }>;
 type ImageSeg = Extract<Segment, { kind: "image" }>;
 
-/** A finished group of steps: "Thinking · 4 steps", with the failed ones counted. */
+/** A finished group of steps reads as its last step does inside it ("Read the design"), not "Thinking". */
 export function stepsSummary(steps: readonly ToolPart[]): string {
-  if (!steps.length) return "Thinking";
-  const failed = steps.filter((s) => s.state === "error").length;
-  return `Thinking · ${steps.length} ${steps.length === 1 ? "step" : "steps"}${failed ? ` · ${failed} failed` : ""}`;
+  const last = steps[steps.length - 1];
+  return last ? toolLabel(last.name) : "Thinking";
 }
 
 /**
