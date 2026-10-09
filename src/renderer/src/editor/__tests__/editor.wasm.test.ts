@@ -21,7 +21,7 @@ import { typeLabel, type PanelNode } from "../panels/design/shared";
 import { pageColors, selectionColorsOf, writeSelectionColor } from "../panels/design/SelectionColors";
 import { flowAxis, isAutoLayout, limitOf, sizingChanges, sizingOf, withLimit, type SizingNode } from "../model/sizing";
 import type { NodeChange } from "@/engine/codec";
-import { PAINTS_DOCUMENT } from "../fixtures";
+import { CAPTURE_DOCUMENT, PAINTS_DOCUMENT } from "../fixtures";
 import { hasCommand, keepsField } from "../engineCompat";
 import { messageAt } from "../model/clipboard";
 import { hashBytes, hashHex } from "../model/paints";
@@ -298,6 +298,18 @@ describe("Design panel, Phase 2 (wasm, headless)", () => {
     expect(pageColors(ed)).toContain("#0d99ff");
     // A single rectangle without children: no section.
     expect(selectionColorsOf(engine, [engine.readNode("1:2")! as PanelNode]).show).toBe(false);
+  });
+
+  it("lists the picker's \"On this page\" colours most used first (live fill-picker-solid.txt: the common ones open it, single uses close it)", async () => {
+    const { ed, engine } = await editor(CAPTURE_DOCUMENT);
+    engine.setCurrentPage("0:1");
+    const colors = pageColors(ed);
+    // FFFFFF: the frames, E5664D: 9 auto layout items, D9D9D9: the shapes — live's first three; 66CC80 (the grid's 4
+    // items) is its fifth; 3380FF is one use (the first frame's child): near the end, not first as in document order
+    expect(colors.slice(0, 3)).toEqual(["#ffffff", "#e5664d", "#d9d9d9"]);
+    expect(colors.indexOf("#66cc80")).toBe(4);
+    expect(colors.indexOf("#3380ff")).toBeGreaterThan(colors.indexOf("#000000"));
+    expect(new Set(colors).size).toBe(colors.length);
   });
 
   // ---- E4 / E5 in the editor -------------------------------------------------------------------------
