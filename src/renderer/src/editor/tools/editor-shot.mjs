@@ -20,7 +20,7 @@
 //   EDITOR_ONLY=devmode node …                                     (only round 6: annotations, measurements, statuses, Dev Mode, Compare changes, focus view)
 //   EDITOR_ONLY=fonts node …                                       (only the fonts section: font picker, Google fonts, Missing fonts)
 //   EDITOR_ONLY=slots node …                                       (round 6: Convert to slot, an instance's slot, Limits, variant values)
-//   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
+//   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Hide panel)
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
@@ -658,9 +658,10 @@ async function variablesSection(page, theme) {
   await settle(page);
   check("⌫ deletes the selected variables", (await win.locator('[data-name-cell="label/cta"], [data-name-cell="feature/beta"]').count()) === 0);
   await win.press("Meta+z");
-  await win.getByRole("button", { name: "Close" }).click();
+  // Live (rail-variables-table.txt): no ×; the navigation bar's Variables closes the view.
+  await page.locator('[data-rail-tab="variables"]').click();
   await settle(page);
-  check("× closes the window", (await win.count()) === 0);
+  check("the navigation bar's Variables closes the window", (await win.count()) === 0);
 
   // Binding in the Design panel: hover "Apply variable", the picker, the pill, Detach.
   await select("2:3");
@@ -2027,7 +2028,7 @@ async function designRound8(page, theme, panel, select, focus) {
   check("Design r8: × lets the tracks go — the Design panel again", (await panel.locator("[data-grid-panel]").count()) === 0 && (await panel.locator("[data-type-header]").count()) === 1);
 }
 
-/** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Toggle sidebar. */
+/** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Hide panel. */
 async function variables6Section(page, theme) {
   await open(page, "&doc=variables");
   await page.evaluate(() => window.__designerEditor.ui.set({ variablesOpen: true }));
@@ -2042,14 +2043,15 @@ async function variables6Section(page, theme) {
   await settle(page);
   check("Variables: a collection's menu has Export modes", (await page.getByRole("menuitem", { name: "Export modes" }).count()) === 1);
   await page.keyboard.press("Escape");
-  await win.getByRole("button", { name: "Minimize" }).click();
+  // Live (rail-variables-table.txt): Minimize is a toggle; Hide panel in the sidebar's header.
+  await win.getByRole("checkbox", { name: "Minimize" }).click();
   await settle(page);
   check("Variables: Minimize makes it a modal", (await win.getAttribute("data-minimized")) === "true");
   await shot(page, `153-variables-minimized-${theme}`);
-  await win.getByRole("button", { name: "Toggle sidebar" }).click();
+  await win.getByRole("button", { name: "Hide panel" }).click();
   await settle(page);
-  check("Variables: Toggle sidebar hides the collections", (await win.getByRole("complementary", { name: "Collections" }).count()) === 0);
-  await win.getByRole("button", { name: "Expand" }).click();
+  check("Variables: Hide panel hides the collections", (await win.getByRole("complementary", { name: "Collections" }).count()) === 0);
+  await win.getByRole("checkbox", { name: "Minimize" }).click();
   await settle(page);
   check("Variables: Expand fills the window again", (await win.getAttribute("data-minimized")) === null);
 }

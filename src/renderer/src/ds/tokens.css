@@ -346,6 +346,7 @@
     --ds-color-border-translucent-strong: #00000033;
     --ds-color-bg-transparent-hover: #0000000d;
     --ds-color-bg-transparent-pressed: #0000001a;
+    --ds-color-asset-card-bg: #0000001a;
     --ds-color-switch-hover: #f4f4f4;
     --ds-color-switch-knob: #ffffff;
     --ds-color-picker-thumb: #ffffff;
@@ -570,6 +571,7 @@
     --ds-color-border-translucent-strong: #ffffff33;
     --ds-color-bg-transparent-hover: #ffffff0d;
     --ds-color-bg-transparent-pressed: #ffffff1a;
+    --ds-color-asset-card-bg: #ffffff1a;
     --ds-color-switch-hover: #585858;
     --ds-color-switch-knob: #ffffff;
     --ds-color-picker-thumb: #ffffff;

@@ -4,7 +4,7 @@
  * Assets, and the Agents and Tools tabs (not built in this app: their headers and an empty state).
  */
 import { useState } from "react";
-import { Button, EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
+import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
 import { useEditor } from "../controller";
 import { command, runEditorCommand, shortcutOf } from "../commands";
 import { useUI } from "../hooks";
@@ -60,14 +60,23 @@ function ToolsPanel() {
   const [query, setQuery] = useState("");
   return (
     <div className={styles.placeholderTab} data-tools="">
-      <TabHeader title="Tools" actions={<Button variant="ghost" disabled>Create</Button>} />
+      {/* Live: "Create" as text (11 / 450, primary) at 173, 18 — nothing to create here: it says so */}
+      <TabHeader
+        title="Tools"
+        actions={
+          <button type="button" className={styles.toolsCreate} onClick={() => showToast({ message: "Plugins, widgets and shaders aren’t part of this app" })}>
+            Create
+          </button>
+        }
+      />
       <div className={styles.toolsSearch}>
         <SearchField value={query} onChange={setQuery} placeholder="Search all tools" label="Search all tools" />
         <IconButton icon="24.adjust.small" label="Filter by price and type" tone="secondary" disabled />
       </div>
       <div className={styles.toolsFilters}>
-        <Select label="Filter by source" variant="ghost" width="hug" value="source" options={[{ value: "source", label: "Source" }]} onChange={() => {}} disabled />
-        <Select label="Filter by category" variant="ghost" width="hug" value="category" options={[{ value: "category", label: "Category" }]} onChange={() => {}} disabled />
+        {/* Live: 79 / 91 wide, the label after a 24 glyph (which glyphs: unverified) */}
+        <Select label="Filter by source" variant="ghost" width="hug" prefix="24.globe" className={styles.toolsFilter} value="source" options={[{ value: "source", label: "Source" }]} onChange={() => {}} disabled />
+        <Select label="Filter by category" variant="ghost" width="hug" prefix="24.filter" className={styles.toolsFilter} value="category" options={[{ value: "category", label: "Category" }]} onChange={() => {}} disabled />
       </div>
       <EmptyState icon="24.tools" title="No tools" body="Plugins, widgets and shaders aren’t part of this app." />
     </div>

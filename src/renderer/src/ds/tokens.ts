@@ -229,6 +229,8 @@ export const appColor = {
   "border-translucent-strong": ["#00000033", "#ffffff33"], // F
   "bg-transparent-hover": ["#0000000d", "#ffffff0d"], // F
   "bg-transparent-pressed": ["#0000001a", "#ffffff1a"], // F
+  /** Live capture (left/rail-assets.txt): a library card's thumbnail ground (light unverified) */
+  "asset-card-bg": ["#0000001a", "#ffffff1a"],
   "switch-hover": ["#f4f4f4", "#585858"], // K
   "switch-knob": ["#ffffff", "#ffffff"], // K — the knob is white in both themes
   "picker-thumb": ["#ffffff", "#ffffff"], // K — colour picker thumbs and gradient stops: white rings in both themes
