@@ -6,8 +6,10 @@
  * The backend is the editor view's preload (`window.designer.agents`); in a browser it is `window.__designerAgents`
  * when a page provides one (the editor shots' stand-in), else none — the panel then says agents need the desktop app.
  */
-import type { SelectEntry } from "@/ds";
-import type { AgentSettings, AgentsApi, ChatEvent, ChatTurnMessage, McpClientInfo, McpState, ProviderInfo, TurnEvent } from "@shared/agents/types";
+import type { AgentSettings, AgentsApi, ChatEvent, ChatTurnMessage, McpClientInfo, McpState, ProviderInfo, TokenUsage, TurnEvent, UsageInfo } from "@shared/agents/types";
+import { MAX_ATTACHMENTS, type Attachment, type AttachResult } from "@shared/agents/attachments";
+import { currentOf, type ResolvedModels } from "./models";
+import { addTokens } from "./usage";
 import type { EditorController } from "../controller";
 import { editorBridge } from "../desktop";
 import type { ToolResult } from "@shared/agents/tools";
@@ -38,6 +40,8 @@ export interface ChatMessage {
   parts?: MessagePart[];
   /** The selection the prompt was about */
   context?: { id: string; name: string; type: string; width: number; height: number }[];
+  /** user: the files attached to it (copies in the chat's folder) */
+  attachments?: Attachment[];
   state?: "running" | "done" | "stopped" | "error";
   /** When the turn was sent (the Thinking… row's seconds) */
   startedAt?: number;
@@ -55,6 +59,10 @@ export interface Chat {
   /** The agent the chat was started with — or switched to since (the picker under the message box) */
   providerId: string | null;
   model?: string;
+  /** The effort picked for it (an agent with an effort flag; Antigravity's is in its model) */
+  effort?: string;
+  /** The chat's tokens so far (its turns' results) */
+  tokens?: TokenUsage;
   /** Each agent's own session of this chat (Claude Code --resume), valid while no other agent answered since: `upTo` is the chat's length after its last turn */
   sessions?: Record<string, { id: string; upTo: number }>;
   /** (Older chats) the CLI session of `providerId` */
@@ -66,6 +74,7 @@ export interface Chat {
 export interface AgentChoice {
   providerId: string;
   model?: string;
+  effort?: string;
 }
 
 export type AgentsView = "list" | "chat" | "settings";
@@ -84,6 +93,10 @@ export interface AgentsState {
   clients: McpClientInfo[];
   /** The chat's running turn */
   running: Record<string, string>;
+  /** Each agent's plan limits as last read (its /usage, or a turn's rate_limit_event); null: it reports none */
+  usage: Record<string, UsageInfo | null>;
+  /** What CLI aliases resolved to in their last turns ("opus" → "claude-opus-5-5"), for the short names */
+  resolved: ResolvedModels;
 }
 
 const EMPTY_SETTINGS: AgentSettings = { providerId: null, models: {}, custom: [] };
@@ -98,6 +111,8 @@ const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(
 
 const TOOL_LABEL: Record<string, string> = {
   get_selection: "Looked at the selection",
+  view_file: "Looked at the attached file",
+  Read: "Looked at the attached file",
   get_metadata: "Read the layers",
   get_design_context: "Read the design",
   get_screenshot: "Took a screenshot",
@@ -127,10 +142,13 @@ export class AgentsService {
   private offs: (() => void)[] = [];
   private storageKey: string;
   /** Turn → its chat and assistant message */
-  private turnTarget = new Map<string, { chat: string; message: string; providerId: string; providerLabel: string; prompt: string }>();
+  private turnTarget = new Map<string, { chat: string; message: string; providerId: string; providerLabel: string; prompt: string; model?: string }>();
   private choiceKey: string;
   private choice: AgentChoice | null;
   private touched = new Map<string, Set<string>>();
+  /** A new chat's id before its first message (its attachments' folder) */
+  private draftId: string | null = null;
+  private usageAsked = new Map<string, number>();
 
   constructor(
     private ed: EditorController,
@@ -142,7 +160,7 @@ export class AgentsService {
     this.storageKey = `designer.agents.chats.${fileId}`;
     this.choiceKey = `designer.agents.choice.${fileId}`;
     this.choice = this.loadChoice();
-    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {} };
+    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {}, usage: {}, resolved: loadResolved() };
     if (!this.state.chats.length) this.state.view = "chat";
     if (!api) return;
     this.offs.push(
@@ -322,22 +340,86 @@ export class AgentsService {
     return candidates.find(fits) ?? p.models[0];
   }
 
-  /** The picker: the chat's agent and model (switching mid-chat), remembered for this file and as the app's default. */
-  async choose(providerId: string, model?: string) {
+  /** The effort a turn of `p` asks for: the chat's, the file's last, else the agent's default (none without an effort flag). */
+  effortOf(p: ProviderInfo): string | undefined {
+    if (!p.efforts?.length) return undefined;
+    const chat = this.currentChat();
+    const candidates = [chat?.providerId === p.id ? chat.effort : undefined, this.choice?.providerId === p.id ? this.choice.effort : undefined];
+    return candidates.find((e): e is string => !!e && p.efforts!.includes(e)) ?? p.efforts[0];
+  }
+
+  /** The composer's model and effort as the menus show them. */
+  current(p: ProviderInfo) {
+    return currentOf(p, this.modelOf(p), this.effortOf(p), this.state.resolved);
+  }
+
+  /** The menus: the chat's agent, model and effort (switching mid-chat), remembered for this file and as the app's default. */
+  async choose(providerId: string, model?: string, effort?: string) {
     const p = this.state.providers.find((x) => x.id === providerId);
     const m = model ?? (p ? this.modelOf(p) : undefined);
-    this.choice = { providerId, ...(m ? { model: m } : {}) };
+    const e = effort ?? (p ? this.effortOf(p) : undefined);
+    this.choice = { providerId, ...(m ? { model: m } : {}), ...(e ? { effort: e } : {}) };
     try {
       localStorage.setItem(this.choiceKey, JSON.stringify(this.choice));
     } catch {
       /* private mode */
     }
     const chat = this.currentChat();
-    if (chat) this.updateChat(chat.id, (c) => ({ ...c, providerId, model: m }));
+    if (chat) this.updateChat(chat.id, (c) => ({ ...c, providerId, model: m, effort: e }));
     else this.set({});
+    void this.refreshUsage(providerId);
     if (!this.api) return;
     const settings = await this.api.setSettings({ providerId, ...(m ? { models: { [providerId]: m } } : {}) });
     this.set({ settings });
+  }
+
+  // ---- Usage ----
+
+  /** The plan's limits from the agent's CLI (no model call; main caches them a minute), at most every 30 s unless fresh. */
+  async refreshUsage(providerId: string, fresh = false) {
+    if (!this.api) return;
+    const last = this.usageAsked.get(providerId) ?? 0;
+    if (!fresh && Date.now() - last < 30_000) return;
+    this.usageAsked.set(providerId, Date.now());
+    try {
+      const info = await this.api.usage(providerId, fresh);
+      // A turn's own limits (rate_limit_event) are newer than an old read.
+      const had = this.state.usage[providerId];
+      if (info || !had) this.set({ usage: { ...this.state.usage, [providerId]: info ? mergeUsage(had, info) : null } });
+    } catch {
+      /* the CLI couldn't say */
+    }
+  }
+
+  // ---- Attachments ----
+
+  /** The chat the composer's files go with: the open one, or the new chat its first message will start. */
+  draftChatId(): string {
+    return this.currentChat()?.id ?? (this.draftId ??= uid());
+  }
+
+  /** Files dropped or pasted (their bytes): copied into the chat's folder by main. */
+  async attachFiles(files: File[]): Promise<AttachResult> {
+    if (!this.api) return { attachments: [], errors: [] };
+    const list = files.slice(0, MAX_ATTACHMENTS + 1);
+    const read = await Promise.all(list.map(async (f) => ({ name: f.name || "Pasted image.png", bytes: new Uint8Array(await f.arrayBuffer()) })));
+    return this.api.attach(this.draftChatId(), read);
+  }
+
+  /** The "+" button: main's file dialog. */
+  pickAttachments(): Promise<AttachResult> {
+    return this.api ? this.api.pickAttachments(this.draftChatId()) : Promise.resolve({ attachments: [], errors: [] });
+  }
+
+  /**
+   * ⌘V with a file or a picture on the clipboard: main reads the system clipboard (Finder's files, not the icon it puts
+   * beside them; a screenshot); when it finds nothing there, the paste's own files (their bytes).
+   */
+  async attachPasted(files: File[]): Promise<AttachResult> {
+    if (!this.api) return { attachments: [], errors: [] };
+    const fromMain = await this.api.attachClipboard(this.draftChatId()).catch((): AttachResult => ({ attachments: [], errors: [] }));
+    if (fromMain.attachments.length || fromMain.errors.length || !files.length) return fromMain;
+    return this.attachFiles(files);
   }
 
   // ---- Turns ----
@@ -351,18 +433,22 @@ export class AgentsService {
     });
   }
 
-  async send(prompt: string, context: ChatMessage["context"] = this.selectionContext()) {
+  async send(prompt: string, context: ChatMessage["context"] = this.selectionContext(), attachments: Attachment[] = []) {
+    const files = attachments.slice(0, MAX_ATTACHMENTS);
     const text = prompt.trim();
-    if (!text || !this.api) return;
+    if ((!text && !files.length) || !this.api) return;
     const provider = this.activeProvider();
     let chat = this.currentChat();
     if (!chat) {
-      chat = { id: uid(), title: text.slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, messages: [] };
+      // The id its attachments were copied under.
+      const id = this.draftId ?? uid();
+      this.draftId = null;
+      chat = { id, title: (text || files.map((f) => f.name).join(", ")).slice(0, 60), updatedAt: Date.now(), providerId: provider?.id ?? null, model: provider ? this.modelOf(provider) : undefined, effort: provider ? this.effortOf(provider) : undefined, messages: [] };
       this.set({ chats: [chat, ...this.state.chats], current: chat.id });
     }
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
-    const user: ChatMessage = { id: uid(), role: "user", text, context };
+    const user: ChatMessage = { id: uid(), role: "user", text, context, ...(files.length ? { attachments: files } : {}) };
     const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: provider?.label };
     // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
     if (provider && asksForImage(text)) {
@@ -370,7 +456,7 @@ export class AgentsService {
       this.placeholders.start(answer.id, target);
       answer.parts = [{ kind: "image", id: `image:asked:${answer.id}`, state: "generating", aspect: targetAspect(target), asked: true, ...(target?.nodeId ? { fill: true } : {}) }];
     }
-    const history: ChatTurnMessage[] = chat.messages.map((m) => (m.role === "user" ? { role: "user", text: m.text ?? "" } : { role: "assistant", text: (m.parts ?? []).filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("") }));
+    const history: ChatTurnMessage[] = chat.messages.map((m) => (m.role === "user" ? { role: "user", text: `${m.text ?? ""}${m.attachments?.length ? ` [attached: ${m.attachments.map((a) => a.path).join(", ")}]` : ""}` } : { role: "assistant", text: (m.parts ?? []).filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("") }));
     this.updateChat(chatId, (c) => ({ ...c, messages: [...c.messages, user, answer] }));
     if (!provider) {
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: "No agent is connected. Open Agent settings to install or sign in to one — Claude Code, Antigravity, Codex, Cursor — or start Ollama or LM Studio." }));
@@ -379,18 +465,22 @@ export class AgentsService {
     const page = this.ed.store.page;
     const pageName = page ? (this.ed.engine.readNode(page, { fields: ["name"] })?.name ?? "") : "";
     try {
+      const model = this.modelOf(provider);
+      const effort = this.effortOf(provider);
       const { turnId } = await this.api.turn({
         chatId,
         providerId: provider.id,
-        model: this.modelOf(provider),
-        prompt: text,
+        model,
+        ...(effort ? { effort } : {}),
+        prompt: text || (files.length === 1 ? "Look at the attached file." : "Look at the attached files."),
         history,
         resume: sessionOf(chat, provider.id),
         context: { fileName: this.ed.ui.get().fileName, pageName, selection: context ?? [] },
+        ...(files.length ? { attachments: files.map((f) => ({ path: f.path, name: f.name, mime: f.mime })) } : {}),
       });
       this.placeholders.rekey(answer.id, turnId);
       this.turns.start(turnId, provider.label);
-      this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text });
+      this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text || files.map((f) => f.name).join(", "), model });
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
       if (chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
@@ -418,6 +508,16 @@ export class AgentsService {
     if (event.type === "session") {
       // Valid up to the end of this turn (finish() sets upTo); another agent's turn after it makes it stale.
       this.updateChat(chat, (c) => ({ ...c, sessions: { ...c.sessions, [target.providerId]: { id: event.resume, upTo: -1 } } }));
+      if (event.model) this.resolve(target.providerId, target.model, event.model);
+      return;
+    }
+    if (event.type === "usage") {
+      this.updateChat(chat, (c) => ({ ...c, tokens: addTokens(c.tokens, event.usage) }));
+      return;
+    }
+    if (event.type === "limits") {
+      const next: UsageInfo = { providerId: target.providerId, windows: event.windows, at: Date.now() };
+      this.set({ usage: { ...this.state.usage, [target.providerId]: mergeUsage(this.state.usage[target.providerId], next) } });
       return;
     }
     if (event.type === "done") {
@@ -457,8 +557,23 @@ export class AgentsService {
       changes: record && record.state !== "none" ? { count: touched, state: record.state } : undefined,
     }));
     this.dropCancelled(target.chat, target.message);
+    // The turn used some of the plan: its limits read again (the CLI's /usage, no model call).
+    void this.refreshUsage(target.providerId, true);
     // Attributed in version history: the turn's changes are a named version of their own.
     if (record && record.state !== "none" && this.ed.source.saveVersion) void this.ed.source.saveVersion({ title: `${target.providerLabel}: ${target.prompt.slice(0, 80)}`, description: "Made in the Agents tab" }).catch(() => {});
+  }
+
+  /** A CLI alias's model as its turn reported it ("default" → "claude-opus-5-5"): the menus' short names, kept app-wide. */
+  private resolve(providerId: string, asked: string | undefined, real: string) {
+    const alias = asked || "default";
+    if (alias === real || this.state.resolved[providerId]?.[alias] === real) return;
+    const resolved = { ...this.state.resolved, [providerId]: { ...this.state.resolved[providerId], [alias]: real } };
+    this.set({ resolved });
+    try {
+      localStorage.setItem(RESOLVED_KEY, JSON.stringify(resolved));
+    } catch {
+      /* private mode */
+    }
   }
 
   private onTurnChange(t: TurnRecord) {
@@ -491,18 +606,26 @@ export function sessionOf(chat: Chat, providerId: string): string | undefined {
   return chat.providerId === providerId && chat.messages.every((m) => m.role === "user" || !m.provider || m.provider === chat.messages.find((x) => x.role === "assistant")?.provider) ? chat.resume : undefined;
 }
 
+const RESOLVED_KEY = "designer.agents.resolved";
+
+function loadResolved(): ResolvedModels {
+  try {
+    const r = JSON.parse(localStorage.getItem(RESOLVED_KEY) ?? "{}") as unknown;
+    return r && typeof r === "object" && !Array.isArray(r) ? (r as ResolvedModels) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Newer limits over older ones: the windows read now, and the older ones it didn't mention. */
+export function mergeUsage(had: UsageInfo | null | undefined, next: UsageInfo): UsageInfo {
+  const key = (w: { label: string; group?: string }) => `${w.group ?? ""}\u0000${w.label}`;
+  const fresh = new Set(next.windows.map(key));
+  return { ...next, windows: [...next.windows, ...(had?.windows ?? []).filter((w) => !fresh.has(key(w)))] };
+}
+
 const MODEL_LABEL: Record<string, string> = { default: "Default", auto: "Auto" };
 export const modelLabel = (m: string, p?: Pick<ProviderInfo, "modelLabels">) => p?.modelLabels?.[m] ?? MODEL_LABEL[m] ?? m;
-
-/** The composer's picker: the connected agents, each under its heading with its models. */
-export function pickerOptions(providers: ProviderInfo[]): SelectEntry[] {
-  return providers
-    .filter((p) => p.available)
-    .flatMap((p) => [
-      { header: p.label },
-      ...(p.models.length ? p.models : [""]).map((m) => ({ value: `${p.id}\u0000${m}`, label: m ? modelLabel(m, p) : p.label, valueLabel: m && p.models.length > 1 ? `${p.label} · ${modelLabel(m, p)}` : p.label })),
-    ]);
-}
 
 /** A message with one more event of its turn. */
 export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {

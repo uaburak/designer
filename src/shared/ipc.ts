@@ -7,7 +7,8 @@
  * Kinds: `IpcInvoke` request/response from a view; `IpcSend` fire-and-forget
  * from a view; `IpcEvents` from main to a view.
  */
-import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest } from "./agents/types";
+import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
+import type { AttachResult } from "./agents/attachments";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
 
@@ -271,6 +272,14 @@ export interface IpcInvoke {
   /** A chat turn on this view's file: its events come as `agents:event` */
   "agents:turn": { args: [TurnRequest]; result: { turnId: string } };
   "agents:stop": { args: [{ turnId: string }]; result: void };
+  /** The composer's files (a drop, a paste: their bytes) copied into the chat's folder */
+  "agents:attach": { args: [{ chatId: string; files: { name: string; bytes: Uint8Array }[] }]; result: AttachResult };
+  /** The composer's "+": main's file dialog, the picked files copied into the chat's folder */
+  "agents:pick-attachments": { args: [{ chatId: string }]; result: AttachResult };
+  /** ⌘V in the composer: the clipboard's files (Finder) or picture, read by main */
+  "agents:attach-clipboard": { args: [{ chatId: string }]; result: AttachResult };
+  /** The plan's limits from the agent's own CLI (`/usage`, no model call), cached a minute unless `fresh` */
+  "agents:usage": { args: [{ providerId: string; fresh?: boolean }]; result: UsageInfo | null };
   /** The MCP server: its URL and connections */
   "agents:mcp": { args: []; result: McpState };
   /** MCP clients on this computer and whether they are connected */
@@ -356,6 +365,10 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:install": ["editor"],
   "agents:turn": ["editor"],
   "agents:stop": ["editor"],
+  "agents:attach": ["editor"],
+  "agents:pick-attachments": ["editor"],
+  "agents:attach-clipboard": ["editor"],
+  "agents:usage": ["editor"],
   "agents:mcp": ["editor"],
   "agents:clients": ["editor"],
   "agents:connect": ["editor"],

@@ -9,6 +9,9 @@ import type { ChatMessage } from "./service";
 /** A step while it runs, in the present tense (its finished label is service.ts's toolLabel). */
 const TOOL_ACTIVE: Record<string, string> = {
   get_selection: "Looking at the selection…",
+  // The agents' own file tools, on the files attached to the message (Antigravity's view_file, Claude Code's Read)
+  view_file: "Looking at the attached file…",
+  Read: "Looking at the attached file…",
   get_metadata: "Reading the layers…",
   get_design_context: "Reading the design…",
   get_screenshot: "Taking a screenshot…",

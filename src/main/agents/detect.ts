@@ -74,6 +74,7 @@ export async function detectProviders(
         detail: path ?? undefined,
         models: own?.models ?? s.models,
         ...(own ? { modelLabels: own.labels } : {}),
+        ...(s.efforts ? { efforts: s.efforts } : {}),
         problem: !path ? `${s.bins[0]} isn't installed` : connected ? undefined : "Signed out",
         auth,
         install: s.install,

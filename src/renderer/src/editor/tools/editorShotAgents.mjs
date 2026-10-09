@@ -8,7 +8,7 @@
 // fill with the reveal (frozen part-way for the shots), then gone; a prompt that asked for a picture the agent never
 // made (the placeholder fades, the card goes); and Stop while one is made. No real agent or model is involved.
 // AGENTS_UX_DIR=<folder> also saves close-ups of the Thinking… row, the image card and the canvas placeholder there.
-/* global window, document, setTimeout, getComputedStyle, process */
+/* global window, document, setTimeout, getComputedStyle, process, atob, btoa, navigator, Blob, ClipboardItem, ClipboardEvent, DataTransfer, DragEvent, File, TextEncoder */
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -83,11 +83,51 @@ function installMockAgents() {
     emit(turnId, req.chatId, { type: "text", delta: "I can't make pictures; I can draw it with shapes if you like." });
     emit(turnId, req.chatId, { type: "done" });
   };
+  // A message with files attached: the agent "looks" and answers in words (and its turn used some of the session).
+  let claudeSession = 42;
+  const filesTurn = async (turnId, req) => {
+    emit(turnId, req.chatId, { type: "status", text: "Starting Claude Code…" });
+    await wait(60);
+    emit(turnId, req.chatId, { type: "text", delta: `I looked at ${req.attachments.map((a) => a.name).join(" and ")}: a red rectangle on white, and a one-page brief.` });
+    claudeSession = 44;
+    emit(turnId, req.chatId, { type: "limits", windows: [{ label: "Current session", usedPct: claudeSession, resetText: "Oct 10 at 3:59am" }] });
+    emit(turnId, req.chatId, { type: "usage", usage: { input: 1200, output: 84 } });
+    emit(turnId, req.chatId, { type: "done" });
+  };
+  // Main's copies in the chat's folder (the stand-in keeps none: the path is what the turn carries).
+  let attachSeq = 0;
+  const kindOf = (b) => (b[0] === 0x25 && b[1] === 0x50 ? "application/pdf" : b[0] === 0x89 && b[1] === 0x50 ? "image/png" : b[0] === 0xff && b[1] === 0xd8 ? "image/jpeg" : null);
+  const toBase64 = (b) => {
+    let s = "";
+    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s);
+  };
+  const saved = (chatId, name, mime, size, thumb) => ({ id: `a${++attachSeq}`, name, mime, size, path: `/Users/you/Library/Application Support/DesignerV2/agents/work/${chatId}/attachments/a${attachSeq}-${name}`, ...(thumb ? { thumb } : {}) });
   window.__designerAgentsLog = [];
   window.__designerAgents = {
+    attach: async (chatId, files) => {
+      window.__designerAgentsLog.push({ attach: files.map((f) => f.name) });
+      const attachments = [];
+      const errors = [];
+      for (const f of files) {
+        const mime = kindOf(f.bytes);
+        if (!mime) errors.push(`“${f.name}” isn’t a PDF, PNG, JPEG, WebP or GIF`);
+        else attachments.push(saved(chatId, f.name, mime, f.bytes.length, mime.startsWith("image/") ? `data:${mime};base64,${toBase64(f.bytes)}` : undefined));
+      }
+      return { attachments, errors };
+    },
+    pickAttachments: async (chatId) => (window.__designerAgentsLog.push({ pick: chatId }), { attachments: [saved(chatId, "Brief.pdf", "application/pdf", 182_400)], errors: [] }),
+    // A browser has no system clipboard for main to read: the paste's own bytes are used.
+    attachClipboard: async () => ({ attachments: [], errors: [] }),
+    usage: async (id) =>
+      id === "claude-code"
+        ? { providerId: id, at: Date.now(), windows: [{ label: "Current session", usedPct: claudeSession, resetText: "Oct 10 at 3:59am" }, { label: "Current week (Fable)", usedPct: 66, resetText: "Oct 14 at 1:59pm" }] }
+        : id === "antigravity"
+          ? { providerId: id, at: Date.now(), windows: [{ label: "5-hour limit", group: "Gemini Models", usedPct: 81, resetsAt: Date.now() + 77 * 60_000 }, { label: "Weekly limit", group: "Gemini Models", usedPct: 12, resetsAt: Date.now() + 6.8 * 86_400_000 }, { label: "5-hour limit", group: "Claude and GPT models", usedPct: 0 }] }
+          : null,
     providers: async () => [
-      { id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, detail: "/Users/you/.local/bin/claude", models: ["default", "sonnet", "opus", "haiku"], auth: { state: "connected", account: "you@example.com", plan: "Claude Pro" } },
-      { id: "antigravity", kind: "antigravity", label: "Antigravity (Google AI)", note: "Google’s agent with your Google AI plan — Gemini models and image generation.", available: true, detail: "/Users/you/.local/bin/agy", models: ["gemini-3.8-flash-medium", "gemini-3.1-pro-high"], modelLabels: { "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)", "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)" }, auth: { state: "connected", account: "you@gmail.com", plan: "Google account" }, install: { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", page: "https://antigravity.google/docs/cli/install" } },
+      { id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, detail: "/Users/you/.local/bin/claude", models: ["default", "opus", "sonnet", "haiku"], efforts: ["high", "low", "medium", "xhigh", "max"], auth: { state: "connected", account: "you@example.com", plan: "Claude Pro" } },
+      { id: "antigravity", kind: "antigravity", label: "Antigravity (Google AI)", note: "Google’s agent with your Google AI plan — Gemini models and image generation.", available: true, detail: "/Users/you/.local/bin/agy", models: ["gemini-3.8-flash-medium", "gemini-3.8-flash-high", "gemini-3.8-flash-low", "gemini-3.1-pro-high", "gemini-3.1-pro-low"], modelLabels: { "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)", "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)", "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)", "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)", "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)" }, auth: { state: "connected", account: "you@gmail.com", plan: "Google AI Ultra" }, install: { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", page: "https://antigravity.google/docs/cli/install" } },
       { id: "codex", kind: "codex", label: "Codex", available: false, models: ["default"], problem: "codex isn't installed", auth: { state: "not-installed" }, install: { command: "npm install -g @openai/codex", page: "https://developers.openai.com/codex/cli" } },
       { id: "cursor-agent", kind: "cursor-agent", label: "Cursor Agent", available: false, detail: "/Users/you/.local/bin/cursor-agent", models: ["auto"], problem: "Signed out", auth: { state: "signed-out" } },
       { id: "ollama", kind: "openai-compatible", label: "Ollama", available: false, detail: "http://localhost:11434/v1", models: [], problem: "Not running at http://localhost:11434/v1" },
@@ -121,6 +161,10 @@ function installMockAgents() {
     turn: async (req) => {
       const turnId = `turn-${Date.now()}`;
       window.__designerAgentsLog.push(req);
+      if (req.attachments?.length) {
+        setTimeout(() => void filesTurn(turnId, req), 30);
+        return { turnId };
+      }
       if (/image|resmi/i.test(req.prompt)) {
         setTimeout(() => void imageTurn(turnId, req), 30);
         return { turnId };
@@ -232,15 +276,17 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await page.waitForTimeout(150);
   check("Agents: the composer shows the selected frame as context", ((await page.locator("[data-composer] [data-context-chip]").textContent()) ?? "").includes("Desktop"));
   check("Agents: suggestions for a selection", (await page.locator("[data-suggestion]").count()) === 3);
-  check("Agents: the agent picker names Claude Code · sonnet", ((await page.locator("[data-composer]").textContent()) ?? "").includes("Claude Code · sonnet"));
-  await page.locator("[data-composer]").getByRole("combobox", { name: "Agent and model" }).click();
+  const menus = async () => ({ model: ((await page.locator("[data-composer] [data-model-menu]").textContent()) ?? "").trim(), effort: (await page.locator("[data-composer] [data-effort-menu]").count()) ? ((await page.locator("[data-composer] [data-effort-menu]").textContent()) ?? "").trim() : null });
+  const first = await menus();
+  check("Agents: the composer's menus name the model short (Sonnet) and its effort (High), no agent name", JSON.stringify(first) === JSON.stringify({ model: "Sonnet", effort: "High" }) && !((await page.locator("[data-composer]").textContent()) ?? "").includes("Claude Code"), JSON.stringify(first));
+  await page.locator("[data-composer]").getByRole("combobox", { name: "Model" }).click();
   await page.waitForTimeout(100);
   const picker = await page.evaluate(() => {
     const list = document.querySelector('[role="listbox"]');
     const r = list?.getBoundingClientRect();
-    return { headers: [...(list?.querySelectorAll("[data-select-header]") ?? [])].map((h) => h.textContent), options: list?.querySelectorAll('[role="option"]').length ?? 0, top: r?.top ?? -1, bottom: r?.bottom ?? 1e9, height: window.innerHeight, scroll: list ? list.scrollHeight - list.clientHeight : 0 };
+    return { headers: [...(list?.querySelectorAll("[data-select-header]") ?? [])].map((h) => h.textContent), options: list?.querySelectorAll('[role="option"]').length ?? 0, labels: [...(list?.querySelectorAll('[role="option"]') ?? [])].map((o) => o.textContent.trim()), top: r?.top ?? -1, bottom: r?.bottom ?? 1e9, height: window.innerHeight, scroll: list ? list.scrollHeight - list.clientHeight : 0 };
   });
-  check("Agents: the picker lists only connected agents, grouped under their names", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity (Google AI)", "LM Studio"]) && picker.options === 8, JSON.stringify(picker));
+  check("Agents: the model menu lists only connected agents, each a heading over its models (Antigravity's efforts folded: 3.8 Flash, 3.1 Pro)", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity (Google AI)", "LM Studio"]) && picker.options === 8 && JSON.stringify(picker.labels.slice(4, 6)) === JSON.stringify(["3.8 Flash", "3.1 Pro"]), JSON.stringify(picker));
   check("Agents: the picker's list is whole on screen (not cut)", picker.top >= 0 && picker.bottom <= picker.height && picker.scroll <= 1, JSON.stringify(picker));
   await shot(page, `401b-agents-picker-${theme}`);
   await page.keyboard.press("Escape");
@@ -469,4 +515,173 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await settle(page);
   check("Agents: Back lists the chat", (await page.locator("[data-chat]").count()) === 1);
   await shot(page, `404-agents-chats-${theme}`);
+  await composerSection(page, theme, { settle, shot, check, menus });
+}
+
+/** In the page: a small PNG (a red rectangle on white) as a screenshot would be copied, and a PDF (window.__samples). */
+function samples() {
+  const c = document.createElement("canvas");
+  c.width = 120;
+  c.height = 80;
+  const g = c.getContext("2d");
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, 120, 80);
+  g.fillStyle = "#e5483b";
+  g.fillRect(20, 16, 80, 48);
+  const png = Uint8Array.from(atob(c.toDataURL("image/png").split(",")[1]), (ch) => ch.charCodeAt(0));
+  const pdf = new TextEncoder().encode("%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n");
+  window.__samples = { png, pdf };
+}
+
+/**
+ * The composer, Claude's desktop composer in Figma's chrome (r13-composer): "+" (main's dialog), ⌘V of a picture (the
+ * system clipboard through the real keys, then the paste event's own bytes), a drop, chips with ✕, the sent message's
+ * chips and the paths in the turn; the model and effort menus (Antigravity's effort from its slugs, Claude Code's flag);
+ * the usage ring and its card.
+ */
+async function composerSection(page, theme, { settle, shot, check, menus }) {
+  await page.getByRole("button", { name: "New chat" }).click();
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  await settle(page);
+  const composer = page.locator("[data-composer]");
+  const input = page.locator("[data-agents-input]");
+  const chips = composer.locator("[data-attachment-chip]");
+  const layers = () => page.evaluate(() => window.__designerEditor.engine.readNode(window.__designerEditor.store.page, { childIds: true }).childIds.length);
+  const layersBefore = await layers();
+
+  // The bar: "+" on the left; model, effort, the usage ring and Send on the right, in one row.
+  const bar = await page.evaluate(() => {
+    const q = (s) => document.querySelector(`[data-composer] ${s}`)?.getBoundingClientRect();
+    const r = { plus: q("[data-attach]"), model: q("[data-model-menu]"), effort: q("[data-effort-menu]"), ring: q("[data-usage]"), send: q("[data-agents-send]"), box: q("") ?? document.querySelector("[data-composer]").getBoundingClientRect() };
+    return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v && { x: Math.round(v.x), y: Math.round(v.y + v.height / 2), r: Math.round(v.right) }]));
+  });
+  check("Composer: + at the left; model, effort, usage ring, Send at the right, in order on one line", bar.plus.x < bar.model.x && bar.model.r <= bar.effort.x && bar.effort.r <= bar.ring.x && bar.ring.r <= bar.send.x && new Set([bar.plus.y, bar.model.y, bar.effort.y, bar.ring.y, bar.send.y]).size <= 2 && bar.send.r <= bar.box.r, JSON.stringify(bar));
+
+  // "+": main's dialog (the stand-in picks a PDF).
+  await composer.locator("[data-attach]").click();
+  await chips.first().waitFor({ timeout: 3000 });
+  check("Composer: + adds the picked file as a chip (a document glyph for a PDF)", (await chips.count()) === 1 && ((await chips.first().textContent()) ?? "").includes("Brief.pdf") && (await chips.first().locator("img").count()) === 0);
+
+  // ⌘V of a picture copied anywhere (a screenshot): the real keys on the system clipboard.
+  await page.evaluate(samples);
+  let viaKeys = false;
+  try {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(async () => {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([window.__samples.png], { type: "image/png" }) })]);
+    });
+    await input.click();
+    await page.keyboard.press("ControlOrMeta+V");
+    await chips.nth(1).waitFor({ timeout: 1500 });
+    viaKeys = true;
+  } catch {
+    // Headless keys may not reach the system clipboard: the paste event itself, as the OS sends it.
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([window.__samples.png], "image.png", { type: "image/png" }));
+      const el = document.querySelector("[data-agents-input]");
+      el.focus();
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await chips.nth(1).waitFor({ timeout: 3000 });
+  }
+  await settle(page);
+  check(`Composer: ⌘V of a copied picture attaches it as a chip with its thumbnail (${viaKeys ? "real keys, system clipboard" : "the paste event"})`, (await chips.count()) === 2 && (await chips.nth(1).locator("img").count()) === 1);
+  check("Composer: ⌘V in the composer isn't the canvas's paste (no layer added), and no text went in", (await layers()) === layersBefore && (await input.inputValue()) === "");
+  // Text still pastes as text.
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", "plain words");
+    document.querySelector("[data-agents-input]").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  check("Composer: a text paste stays text (no chip)", (await chips.count()) === 2);
+
+  // A drop: a PDF and a file that isn't one of the kinds.
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([window.__samples.pdf], "Spec.pdf", { type: "application/pdf" }));
+    dt.items.add(new File(["hello"], "notes.txt", { type: "text/plain" }));
+    const el = document.querySelector("[data-composer]");
+    const r = el.getBoundingClientRect();
+    const at = { clientX: r.x + r.width / 2, clientY: r.y + 20 };
+    window.__drag = (type) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, ...at }));
+    window.__drag("dragenter");
+    window.__drag("dragover");
+  });
+  await page.locator("[data-composer][data-dragging]").waitFor({ timeout: 2000 });
+  const highlighted = (await page.locator("[data-composer][data-dragging]").count()) === 1;
+  await page.evaluate(() => window.__drag("drop"));
+  await chips.nth(2).waitFor({ timeout: 3000 });
+  await settle(page);
+  check("Composer: dragging files over it highlights it; the drop attaches the PDF and says why the text file can't go", highlighted && (await page.locator("[data-composer][data-dragging]").count()) === 0 && (await chips.count()) === 3 && ((await composer.locator("[data-attach-problem]").textContent()) ?? "").includes("notes.txt"));
+  check("Composer: the drop isn't the canvas's (no layer added)", (await layers()) === layersBefore);
+  await input.fill("What's in these?");
+  await shot(page, `407-agents-composer-files-${theme}`);
+  await closeUp(page, "[data-composer]", `composer-attachments-${theme}`, 8);
+  // ✕ takes one out.
+  await chips.nth(2).locator("[data-attachment-remove]").click();
+  check("Composer: ✕ removes a chip", (await chips.count()) === 2);
+
+  // The usage ring (Claude Code: 42 % of the session, 66 % of the week — the week shows) and its card on hover.
+  const ring = composer.locator("[data-usage]");
+  check("Composer: the usage ring shows the plan's most used limit", (await ring.getAttribute("data-usage")) === "ok" && (await ring.locator("[data-usage-pct]").getAttribute("data-usage-pct")) === "66");
+  await input.focus();
+  await ring.hover();
+  await page.locator("[data-usage-card]").waitFor({ timeout: 2000 });
+  const cardText = (await page.locator("[data-usage-card]").textContent()) ?? "";
+  check("Composer: hovering the ring shows the plan, each limit with its reset, and this chat's tokens", cardText.includes("Claude Pro") && (await page.locator("[data-usage-card] [data-usage-window]").count()) === 2 && cardText.includes("Resets Oct 10 at 3:59am") && cardText.includes("No tokens yet"), cardText);
+  check("Composer: the card doesn't take the focus from the message", await page.evaluate(() => document.activeElement?.hasAttribute("data-agents-input")));
+  await shot(page, `408-agents-usage-card-${theme}`);
+  await closeUp(page, "[data-usage-card]", `composer-usage-card-${theme}`, 12);
+  await page.mouse.move(10, 10);
+  await page.locator("[data-usage-card]").waitFor({ state: "detached", timeout: 2000 });
+
+  // Send: the message shows its files; the turn carries their paths.
+  await input.press("Enter");
+  await page.waitForSelector('[data-message="assistant"][data-state="done"]', { timeout: 8000 });
+  await settle(page);
+  const sent = await page.evaluate(() => [...window.__designerAgentsLog].reverse().find((l) => l.chatId && l.attachments));
+  const userChips = page.locator('[data-message="user"] [data-message-attachments] [data-attachment-chip]');
+  check("Composer: the sent message shows its files as chips; the composer is empty again", (await userChips.count()) === 2 && (await chips.count()) === 0 && (await input.inputValue()) === "");
+  check("Composer: the turn tells the agent the files' paths in the chat's own folder", sent?.attachments?.length === 2 && sent.attachments.every((a) => a.path.includes(`/agents/work/${sent.chatId}/attachments/`)) && JSON.stringify(sent.attachments.map((a) => a.mime)) === JSON.stringify(["application/pdf", "image/png"]) && sent.effort === "high", JSON.stringify(sent?.attachments));
+  await ring.hover();
+  await page.locator("[data-usage-card]").waitFor({ timeout: 2000 });
+  const after = (await page.locator("[data-usage-card]").textContent()) ?? "";
+  check("Composer: after the turn the card counts its tokens and the session limit it reported", after.includes("1.3k tokens") && after.includes("44% used"), after);
+  await page.mouse.move(10, 10);
+  await shot(page, `409-agents-composer-sent-${theme}`);
+  await closeUp(page, '[data-message="user"]', `composer-sent-${theme}`, 8);
+
+  // Antigravity: 3.8 Flash keeps the effort picked (High, now its slug); its Gemini 5-hour limit at 81 % warns.
+  await composer.getByRole("combobox", { name: "Model" }).click();
+  await page.waitForTimeout(100);
+  await closeUp(page, '[role="listbox"]', `composer-model-menu-${theme}`, 8);
+  await page.getByRole("option", { name: "3.8 Flash" }).click();
+  await settle(page);
+  const agy = await menus();
+  check("Composer: picking 3.8 Flash keeps the effort (High, as its slug); the ring warns at 81 %", JSON.stringify(agy) === JSON.stringify({ model: "3.8 Flash", effort: "High" }) && (await ring.getAttribute("data-usage")) === "warn", JSON.stringify(agy));
+  await composer.getByRole("combobox", { name: "Effort" }).click();
+  await page.waitForTimeout(100);
+  const efforts = await page.locator('[role="listbox"] [role="option"]').allTextContents();
+  check("Composer: the effort menu lists the model's efforts in order", JSON.stringify(efforts.map((e) => e.trim())) === JSON.stringify(["Low", "Medium", "High"]), JSON.stringify(efforts));
+  await closeUp(page, '[role="listbox"]', `composer-effort-menu-${theme}`, 8);
+  await page.getByRole("option", { name: "Low" }).click();
+  await settle(page);
+  await shot(page, `410-agents-composer-antigravity-${theme}`);
+  await closeUp(page, "[data-composer]", `composer-antigravity-${theme}`, 8);
+  await input.fill("Thanks");
+  await input.press("Enter");
+  await page.waitForTimeout(300);
+  const agyTurn = await page.evaluate(() => [...window.__designerAgentsLog].reverse().find((l) => l.chatId));
+  check("Composer: mid-chat the turn goes to Antigravity with the slug of the effort picked (gemini-3.8-flash-low)", agyTurn?.providerId === "antigravity" && agyTurn?.model === "gemini-3.8-flash-low" && !agyTurn?.effort, JSON.stringify({ p: agyTurn?.providerId, m: agyTurn?.model, e: agyTurn?.effort }));
+  // 3.1 Pro has Low: the effort is kept.
+  await composer.getByRole("combobox", { name: "Model" }).click();
+  await page.getByRole("option", { name: "3.1 Pro" }).click();
+  await settle(page);
+  check("Composer: switching to 3.1 Pro keeps Low", JSON.stringify(await menus()) === JSON.stringify({ model: "3.1 Pro", effort: "Low" }));
+  // LM Studio has no effort: the menu goes.
+  await composer.getByRole("combobox", { name: "Model" }).click();
+  await page.getByRole("option", { name: "qwen2.5-coder-14b" }).click();
+  await settle(page);
+  check("Composer: an agent without efforts hides the effort menu; one without limits leaves the ring empty", (await menus()).effort === null && (await ring.getAttribute("data-usage")) === "none");
 }

@@ -2,6 +2,7 @@ import { app, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, 
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
 import type { McpClientId } from "../shared/agents/types";
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/agents/attachments";
 import * as agents from "./agents/host";
 import { exportAssets } from "./files";
 import { fontIndex, readFont } from "./fonts";
@@ -213,6 +214,9 @@ function registerAgentsIpc() {
       model: str(req.model, 300) ?? undefined,
       prompt,
       resume: str(req.resume, 200) ?? undefined,
+      effort: str(req.effort, 20) ?? undefined,
+      // Checked again in main: only files in the chat's own attachments folder reach the agent.
+      attachments: (Array.isArray(req.attachments) ? req.attachments.slice(0, MAX_ATTACHMENTS) : []).map((a) => ({ path: str(a?.path, 2000) ?? "", name: str(a?.name, 300) ?? "", mime: a?.mime })),
       history: (Array.isArray(req.history) ? req.history : []).slice(-40).map((m) => ({ role: m?.role === "assistant" ? "assistant" : "user", text: str(m?.text, 100_000) ?? "" })),
       context: {
         fileName: str(req.context?.fileName, 300) ?? "",
@@ -222,6 +226,18 @@ function registerAgentsIpc() {
     });
   });
   onInvoke("agents:stop", (_c, p) => agents.stopTurn(str(p?.turnId, 100) ?? ""));
+  const chatOf = (p: { chatId?: unknown } | undefined) => {
+    const id = str(p?.chatId, 100);
+    if (!id) throw new Error("agents: no chat");
+    return id;
+  };
+  onInvoke("agents:attach", (_c, p) => {
+    const files = (Array.isArray(p?.files) ? p.files : []).slice(0, MAX_ATTACHMENTS + 1).flatMap((f) => (f?.bytes instanceof Uint8Array && f.bytes.length <= MAX_ATTACHMENT_BYTES ? [{ name: str(f.name, 300) ?? "file", bytes: f.bytes }] : []));
+    return agents.attach(chatOf(p), files);
+  });
+  onInvoke("agents:pick-attachments", ({ sender }, p) => agents.pickAttachments(sender, chatOf(p)));
+  onInvoke("agents:attach-clipboard", (_c, p) => agents.attachClipboard(chatOf(p)));
+  onInvoke("agents:usage", (_c, p) => agents.usage(str(p?.providerId, 100) ?? "", p?.fresh === true));
   onInvoke("agents:mcp", () => agents.mcp());
   onInvoke("agents:clients", () => agents.clients());
   onInvoke("agents:connect", ({ sender }, p) => agents.connect(sender, clientId(p?.client)));

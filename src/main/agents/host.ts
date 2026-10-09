@@ -1,15 +1,17 @@
-import { app, dialog, safeStorage, shell, webContents, type WebContents } from "electron";
+import { app, clipboard, dialog, nativeImage, safeStorage, shell, webContents, type WebContents } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import type { ToolResult } from "../../shared/agents/tools";
 import { MCP_SERVER_NAME } from "../../shared/agents/tools";
-import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest } from "../../shared/agents/types";
+import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest, UsageInfo } from "../../shared/agents/types";
 import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
+import { attachmentsDirOf, clipboardPaths, readFiles, saveAttachments, turnAttachments } from "./attachments";
+import type { AttachResult } from "../../shared/agents/attachments";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
 import { cliEnv, cliPath, detectProviders, LOCAL_SERVERS, searchPath, which } from "./detect";
 import { McpServer, newToken } from "./mcpServer";
@@ -348,13 +350,14 @@ export function startTurn(sender: WebContents, fileKey: string, req: TurnRequest
   const s = readStored();
   const providerId = String(req.providerId);
   const spec = cliSpec(providerId);
-  const model = req.model ?? s.models[providerId];
+  // Only files in this chat's own attachments folder.
+  const request: TurnRequest = { ...req, model: req.model ?? s.models[providerId], attachments: turnAttachments(chatDir(t.chatId), req.attachments) };
   queueMicrotask(() => {
-    if (spec) runCli(t, spec, { ...req, model });
+    if (spec) runCli(t, spec, request);
     else {
       const srv = serverOf(providerId);
       if (!srv) return finishTurn(t, { type: "error", message: "Pick an agent first (the model menu under the message box)." });
-      runServer(t, srv, { ...req, model });
+      runServer(t, srv, request);
     }
   });
   return { turnId };
@@ -368,7 +371,9 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it.
   const cwd = chatDir(t.chatId);
   mkdirSync(cwd, { recursive: true });
-  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), home: homedir() });
+  // Files attached in this chat (this message's or earlier ones') are readable by the agent in their folder.
+  const attached = attachmentsDirOf(cwd);
+  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), home: homedir(), ...(existsSync(attached) ? { attachmentsDir: realpathSync(attached) } : {}) });
   // The agent's own picture folder for this chat's session (Antigravity: its conversation's), known now or from its start.
   const addImageDirs = (session: string) => {
     for (const d of spec.imageDirs?.(session, homedir()) ?? []) if (!t.imageDirs.includes(d)) t.imageDirs.push(d);
@@ -434,6 +439,102 @@ export function viewGone(sender: WebContents) {
       pending.delete(id);
       p.resolve({ content: [{ type: "text", text: "The file was closed." }], isError: true });
     }
+}
+
+// ── Attachments (the composer's files: copied into the chat's folder, the only place they are written) ──
+
+/** A small picture of an attached file for its chip: Quick Look's (images and PDFs), else the image scaled down. */
+async function thumbOf(path: string, mime: string, bytes: Uint8Array): Promise<string | undefined> {
+  const size = { width: 64, height: 64 };
+  try {
+    const t = await nativeImage.createThumbnailFromPath(path, size);
+    if (!t.isEmpty()) return t.toDataURL();
+  } catch {
+    /* not on this OS, or Quick Look can't */
+  }
+  if (!mime.startsWith("image/")) return undefined;
+  const img = nativeImage.createFromBuffer(Buffer.from(bytes));
+  if (img.isEmpty()) return undefined;
+  const s = img.getSize();
+  return (s.height > s.width ? img.resize({ height: size.height }) : img.resize({ width: size.width })).toDataURL();
+}
+
+const save = (chatId: string, files: { name: string; bytes: Uint8Array }[]) => saveAttachments(chatDir(String(chatId).slice(0, 80)), files, { thumb: thumbOf });
+
+/** Files dropped or pasted in the composer (their bytes, from the view). */
+export const attach = (chatId: string, files: { name: string; bytes: Uint8Array }[]) => save(chatId, files);
+
+const windowOf = (sender: WebContents) => [...controllers.values()].find((c) => c.tabs.contentViews().some((v) => v.webContents === sender))?.win;
+
+/** The composer's "+": the files the user picks in main's dialog. */
+export async function pickAttachments(sender: WebContents, chatId: string): Promise<AttachResult> {
+  const win = windowOf(sender);
+  const options: Electron.OpenDialogOptions = { title: "Add files and photos", buttonLabel: "Add", properties: ["openFile", "multiSelections"], filters: [{ name: "Images and PDFs", extensions: ["pdf", "png", "jpg", "jpeg", "webp", "gif"] }] };
+  const picked = win ? await dialog.showOpenDialog(win as unknown as Electron.BrowserWindow, options) : await dialog.showOpenDialog(options);
+  if (picked.canceled || !picked.filePaths.length) return { attachments: [], errors: [] };
+  const { files, errors } = readFiles(picked.filePaths);
+  const r = await save(chatId, files);
+  return { attachments: r.attachments, errors: [...errors, ...r.errors] };
+}
+
+/**
+ * ⌘V of a file or a picture in the composer: the files copied in Finder (their paths on the clipboard — not the icon
+ * Finder puts beside them), else the clipboard's picture (a screenshot, a copied image) as a PNG.
+ */
+export async function attachClipboard(chatId: string): Promise<AttachResult> {
+  const none: AttachResult = { attachments: [], errors: [] };
+  const items = await clipboard.read().catch(() => []);
+  const text = async (item: Electron.ClipboardItem, type: string) => {
+    try {
+      const b = await item.getType(type);
+      return b instanceof Blob ? await b.text() : "";
+    } catch {
+      return "";
+    }
+  };
+  for (const item of items) {
+    const listType = item.types.find((t) => /format="NSFilenamesPboardType"/i.test(t));
+    const paths = clipboardPaths({ filenames: listType ? await text(item, listType) : "", fileUrl: item.types.includes("text/uri-list") ? (await text(item, "text/uri-list")).split(/\r?\n/).find((l) => l.startsWith("file://")) : "" });
+    if (paths.length) {
+      const { files, errors } = readFiles(paths);
+      const r = await save(chatId, files);
+      return { attachments: r.attachments, errors: [...errors, ...r.errors] };
+    }
+  }
+  for (const item of items) {
+    // A picture: PNG as it is (a screenshot), else the OS's TIFF made a PNG.
+    const type = item.types.find((t) => t === "image/png") ?? item.types.find((t) => /^image\//.test(t) || /format="(?:NeXT TIFF v4\.0 pasteboard type|public\.tiff)"/i.test(t));
+    if (!type) continue;
+    const blob = await item.getType(type).catch(() => null);
+    if (!(blob instanceof Blob)) continue;
+    let bytes: Uint8Array = new Uint8Array(await blob.arrayBuffer());
+    if (type !== "image/png") {
+      const img = nativeImage.createFromBuffer(Buffer.from(bytes));
+      if (img.isEmpty()) continue;
+      bytes = img.toPNG();
+    }
+    return save(chatId, [{ name: "Pasted image.png", bytes }]);
+  }
+  return none;
+}
+
+// ── Usage (the plan's limits, from each CLI's own /usage without a model call) ──
+
+const usageCache = new Map<string, { at: number; info: Promise<UsageInfo | null> }>();
+
+export function usage(providerId: string, fresh = false): Promise<UsageInfo | null> {
+  const spec = cliSpec(providerId);
+  const path = spec?.usage && cliPath(spec);
+  if (!spec?.usage || !path) return Promise.resolve(null);
+  const cached = usageCache.get(providerId);
+  if (cached && !fresh && Date.now() - cached.at < 60_000) return cached.info;
+  const parse = spec.usage.parse;
+  const info = runBin(path, spec.usage.args, 20_000).then((r) => {
+    const windows = r.code === 0 ? parse(r) : null;
+    return windows ? { providerId, windows, at: Date.now() } : null;
+  });
+  usageCache.set(providerId, { at: Date.now(), info });
+  return info;
 }
 
 // ── Sign-in, install, image generation (each CLI's own commands; the browser or Terminal does the sign-in) ──

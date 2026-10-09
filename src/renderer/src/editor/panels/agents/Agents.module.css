@@ -125,14 +125,52 @@
   .changesLabel { flex: 1 1 auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
   .changesHint { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
 
-  /* The message box: the selection as context, the text, the agent and model, Send / Stop */
-  .composer { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-1-5); margin: 0 var(--ds-space-2) var(--ds-space-2); padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); }
+  /* The message box (Claude's desktop composer): the selection and the files as chips, the text, then "+" on the left
+     and the model, its effort, the usage ring and Send / Stop on the right */
+  .composer { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-1-5); margin: 0 var(--ds-space-2) var(--ds-space-2); padding: var(--ds-space-2) var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); }
   .composer:focus-within { border-color: var(--figma-color-border-selected); }
+  /* Files dragged over it */
+  .composerDrop, .composerDrop:focus-within { border-color: var(--figma-color-border-selected); background: var(--figma-color-bg-selected); }
   .composer .chips { justify-content: flex-start; }
   .input { width: 100%; min-height: calc(var(--ds-size-row) * 2); max-height: calc(var(--ds-size-row) * 8); padding: 0; border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: none; outline: none; field-sizing: content; }
   .input::placeholder { color: var(--figma-color-text-tertiary); }
-  .composerBar { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-1); }
-  .providerSelect { min-width: 0; max-width: calc(100% - var(--ds-size-control) - var(--ds-space-1)); }
+  .composerBar { display: flex; align-items: center; gap: var(--ds-space-half); min-width: 0; margin-left: calc(var(--ds-space-1) * -1); }
+  .barGap { flex: 1 1 auto; min-width: 0; }
+  /* The model and effort: ghost menus as small as their names, the model's cut first when the panel is narrow */
+  .menu { flex: none; min-width: 0; color: var(--figma-color-text-secondary); }
+  .menu [role="combobox"] { padding: 0 0 0 var(--ds-space-1); color: var(--figma-color-text-secondary); }
+  .menu [role="combobox"]:hover, .menu[data-open] [role="combobox"] { color: var(--figma-color-text); }
+  .modelMenu { flex: 0 1 auto; }
+
+  /* An attached file: its picture (or a document glyph) at the chip's icon size */
+  .fileChip { max-width: 100%; }
+  .fileThumb { flex: none; width: var(--ds-space-4); height: var(--ds-space-4); border-radius: var(--ds-radius-small); object-fit: cover; }
+  .attachProblem { color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
+
+  /* The usage ring: the most used limit of the plan (75 % warns, 95 % is full); none reported, the track alone */
+  .usage { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full); background: transparent; outline: none; }
+  .usage:hover, .usage[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .usage:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .usageSvg { width: var(--ds-space-4); height: var(--ds-space-4); }
+  .usageTrack { fill: none; stroke: var(--figma-color-border); stroke-width: 2; }
+  .usageValue { fill: none; stroke: var(--figma-color-icon); stroke-width: 2; stroke-linecap: round; }
+  .usage[data-usage="warn"] .usageValue { stroke: var(--figma-color-icon-warning); }
+  .usage[data-usage="full"] .usageValue { stroke: var(--figma-color-icon-danger); }
+  /* Its card (hover; a click pins it): the plan, each limit with its bar and reset, this chat's tokens */
+  .usageCard { position: fixed; z-index: var(--ds-z-popover); display: flex; flex-direction: column; gap: var(--ds-space-3); width: var(--ds-size-panel); padding: var(--ds-space-3) var(--ds-space-4); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); color: var(--figma-color-text); box-shadow: var(--ds-elevation-400-menu-panel); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); visibility: hidden; }
+  .usageHead { display: flex; flex-direction: column; gap: var(--ds-space-half); }
+  .usageTitle { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .usagePlan, .usageReset { color: var(--figma-color-text-secondary); }
+  .usageRow { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .usageLine, .usageTokens { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ds-space-2); }
+  .usageLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usagePct { flex: none; color: var(--figma-color-text-secondary); font-variant-numeric: tabular-nums; }
+  .usageBar { display: block; height: var(--ds-space-1); overflow: hidden; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-tertiary); }
+  .usageBarFill { display: block; height: 100%; border-radius: inherit; background: var(--figma-color-icon); }
+  .usageBarFill[data-usage="warn"] { background: var(--figma-color-icon-warning); }
+  .usageBarFill[data-usage="full"] { background: var(--figma-color-icon-danger); }
+  .usageNote { margin: 0; color: var(--figma-color-text-secondary); }
+  .usageTokens { padding-top: var(--ds-space-2); border-top: 1px solid var(--figma-color-border); color: var(--figma-color-text-secondary); }
   .noProvider { padding: 0 var(--ds-space-1); border: 0; background: transparent; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); outline: none; cursor: default; }
   .noProvider:hover { color: var(--figma-color-text); }
   .send { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); outline: none; }

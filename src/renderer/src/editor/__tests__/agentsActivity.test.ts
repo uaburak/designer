@@ -19,7 +19,10 @@ describe("the Thinking… row", () => {
     expect(activityOf(run([{ type: "tool", id: "g", name: "generate_image", state: "running" }]))).toBe("Making an image…");
     expect(activityOf(run([{ type: "tool", id: "g", name: "generate_image", state: "running" }, { type: "tool", id: "g", name: "generate_image", state: "done" }]))).toBe("Placing the image…");
     expect(activityOf(run([{ type: "tool", id: "p", name: "place_image", state: "running" }]))).toBe("Placing the image…");
-    expect(toolActiveLabel("view_file")).toBe("View file…");
+    expect(toolActiveLabel("list_dir")).toBe("List dir…");
+    // The agents' own file tools on an attached file (Antigravity's view_file, Claude Code's Read).
+    expect(toolActiveLabel("view_file")).toBe("Looking at the attached file…");
+    expect(toolActiveLabel("Read")).toBe("Looking at the attached file…");
     // Over: no row.
     expect(activityOf({ state: "done", parts: [] })).toBeNull();
   });

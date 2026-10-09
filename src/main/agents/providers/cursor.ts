@@ -44,7 +44,9 @@ export const cursorAgent: CliSpec = {
   plan: (t) => {
     const model = modelArg(cursorAgent, t.request.model);
     return {
-      args: ["-p", "--output-format", "stream-json", "--stream-partial-output", "--force", "--approve-mcps", ...(model ? ["--model", model] : []), `${SYSTEM_PROMPT}\n\n${promptWithHistory(t.request)}`],
+      // No flag of its own for files (cursor.com/docs/cli): their paths in the prompt, read with its file tools (reads
+      // are allowed in the chat's folder; the shell and writes are denied).
+      args: ["-p", "--output-format", "stream-json", "--stream-partial-output", "--force", "--approve-mcps", ...(model ? ["--model", model] : []), `${SYSTEM_PROMPT}\n\n${promptWithHistory(t.request, "Read them with your file tools; they are in your workspace.")}`],
       files: {
         ".cursor/mcp.json": JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { url: t.mcp.url, headers: mcpServerEntry(t.mcp)[MCP_SERVER_NAME].headers } } }),
         ".cursor/cli.json": JSON.stringify({ permissions: { allow: [], deny: ["Shell(*)", "Write(**)"] } }),

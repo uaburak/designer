@@ -4,6 +4,7 @@
  * (src/main/agents) and the editor (src/renderer/src/editor/agents); the IPC channels are in src/shared/ipc.ts.
  */
 import type { ToolContent } from "./tools";
+import type { AttachResult, TurnAttachment } from "./attachments";
 
 /** How a provider is driven: a CLI run headless with our MCP server, or an OpenAI-compatible chat API we bridge. */
 export type ProviderKind = "claude-code" | "antigravity" | "codex" | "cursor-agent" | "openai-compatible";
@@ -21,6 +22,8 @@ export interface ProviderInfo {
   models: string[];
   /** Models' names as the agent itself gives them ("Gemini 3.8 Flash (Medium)"), when it does */
   modelLabels?: Record<string, string>;
+  /** Reasoning efforts its effort flag takes (Claude Code `--effort`), the default first; none when it has no flag */
+  efforts?: string[];
   /** Why it isn't available, in the panel's words */
   problem?: string;
   /** A custom server with a key kept in the OS keychain */
@@ -77,6 +80,35 @@ export interface TurnRequest {
   context: { fileName: string; pageName: string; selection: { id: string; name: string; type: string; width: number; height: number }[] };
   /** The CLI's own session to continue (Claude Code `--resume`) */
   resume?: string;
+  /** The reasoning effort (one of the provider's `efforts`) */
+  effort?: string;
+  /** Files attached to this message, copied into the chat's folder (agents:attach) */
+  attachments?: TurnAttachment[];
+}
+
+/** One of a plan's limits ("Current session", 5 % used, resets at …). */
+export interface UsageWindow {
+  label: string;
+  /** The models it counts (Antigravity's "Gemini Models" / "Claude and GPT models") */
+  group?: string;
+  usedPct: number;
+  /** When it resets (ms since 1970), or its time as the CLI wrote it */
+  resetsAt?: number;
+  resetText?: string;
+}
+
+/** A plan's limits as the agent's CLI reports them without a model call (`claude -p /usage`, `agy -p /usage`). */
+export interface UsageInfo {
+  providerId: string;
+  windows: UsageWindow[];
+  /** When it was read (ms) */
+  at: number;
+}
+
+/** A turn's tokens. */
+export interface TokenUsage {
+  input: number;
+  output: number;
 }
 
 /** A turn's stream, main → the view (`agents:event`). */
@@ -86,6 +118,10 @@ export type ChatEvent =
   | { type: "text"; delta: string }
   | { type: "tool"; id: string; name: string; args?: unknown; state: "running" | "done" | "error"; summary?: string }
   | { type: "error"; message: string }
+  /** The turn's tokens (its result) */
+  | { type: "usage"; usage: TokenUsage }
+  /** The plan's limits as they stand (Claude Code's rate_limit_event) */
+  | { type: "limits"; windows: UsageWindow[] }
   | { type: "done"; stopped?: boolean };
 
 export interface TurnEvent {
@@ -169,6 +205,14 @@ export interface AgentsApi {
   /** Runs the tool's documented install command or opens its download page */
   install(providerId: string): Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>;
   turn(request: TurnRequest): Promise<{ turnId: string }>;
+  /** Files dropped or pasted into the composer, copied into the chat's folder */
+  attach(chatId: string, files: { name: string; bytes: Uint8Array }[]): Promise<AttachResult>;
+  /** The "+" button: main's file dialog (PDF and images), the picked files copied into the chat's folder */
+  pickAttachments(chatId: string): Promise<AttachResult>;
+  /** ⌘V of a file or a picture: the system clipboard's files (Finder) or picture (a screenshot), read by main */
+  attachClipboard(chatId: string): Promise<AttachResult>;
+  /** The plan's limits, from the agent's own CLI without a model call (null when it reports none) */
+  usage(providerId: string, fresh?: boolean): Promise<UsageInfo | null>;
   stop(turnId: string): Promise<void>;
   onEvent(cb: (e: TurnEvent) => void): () => void;
   /** Tool calls for this view's file; the handler's result goes back to main */

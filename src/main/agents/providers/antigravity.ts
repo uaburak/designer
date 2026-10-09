@@ -1,10 +1,10 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { AuthState, ChatEvent } from "../../../shared/agents/types";
+import type { AuthState, ChatEvent, UsageWindow } from "../../../shared/agents/types";
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
 import { friendlyApiError } from "../../../shared/agents/errors";
-import { promptWithContext, promptWithHistory, text, type AuthEnv, type CliModels, type CliSpec, type RunResult } from "./turns";
+import { promptWithContext, promptWithHistory, text, tokenUsage, type AuthEnv, type CliModels, type CliSpec, type RunResult } from "./turns";
 
 /**
  * Google Antigravity's CLI (`agy`, antigravity.google/docs/cli): how a Google AI Pro / Ultra plan reaches the chat
@@ -92,6 +92,29 @@ export function agyStatus(r: RunResult, env?: AuthEnv): AuthState {
   return { state: "signed-out", detail: why ? why.slice(0, 200) : undefined };
 }
 
+/**
+ * `agy -p /usage --output-format json`: its own /usage command answered without a model call (num_turns 0) — the
+ * plan's groups of models, each with a weekly and a 5-hour limit (`remaining_fraction`, `reset_time`).
+ */
+export function parseAgyUsage(r: RunResult): UsageWindow[] | null {
+  let out: { command?: { name?: string; data?: { groups?: { name?: string; buckets?: { name?: string; window?: string; remaining_fraction?: number; reset_time?: string }[] }[] } } };
+  try {
+    out = JSON.parse(r.stdout) as typeof out;
+  } catch {
+    return null;
+  }
+  if (out.command?.name !== "usage") return null;
+  const windows = (out.command.data?.groups ?? []).flatMap((g) =>
+    (g.buckets ?? [])
+      .filter((b) => typeof b.remaining_fraction === "number")
+      .map((b): UsageWindow => {
+        const reset = b.reset_time ? Date.parse(b.reset_time) : NaN;
+        return { label: b.window === "5h" ? "5-hour limit" : b.window === "weekly" ? "Weekly limit" : text(b.name) || "Limit", group: text(g.name) || undefined, usedPct: Math.round((1 - Math.max(0, Math.min(1, b.remaining_fraction!))) * 1000) / 10, ...(Number.isFinite(reset) ? { resetsAt: reset } : {}) };
+      })
+  );
+  return windows.length ? windows : null;
+}
+
 /** Told to the agent on a chat's first turn, after the shared prompt. */
 export const AGY_NOTE = `Your design tools are the tools of the "${AGY_SERVER}" MCP server (call_mcp_tool with ServerName "${AGY_SERVER}"). Use no other MCP server, no terminal and no browser.
 
@@ -130,9 +153,10 @@ export const antigravity: CliSpec = {
     const workDir = dirname(t.cwd);
     const home = t.home ?? homedir();
     const model = t.request.model && t.request.model !== "default" ? t.request.model : AGY_DEFAULT_MODEL;
+    const how = antigravity.attachHow;
     const prompt = t.request.resume
-      ? promptWithContext(t.request)
-      : `${SYSTEM_PROMPT.replace(`"${MCP_SERVER_NAME}" MCP tools`, `"${AGY_SERVER}" MCP tools`)}\n\n${AGY_NOTE}\n\n${promptWithHistory(t.request)}`;
+      ? promptWithContext(t.request, how)
+      : `${SYSTEM_PROMPT.replace(`"${MCP_SERVER_NAME}" MCP tools`, `"${AGY_SERVER}" MCP tools`)}\n\n${AGY_NOTE}\n\n${promptWithHistory(t.request, how)}`;
     return {
       args: ["-p", prompt, "--output-format", "stream-json", "--model", model, "--project", AGY_PROJECT, ...(t.request.resume ? ["--conversation", t.request.resume] : [])],
       files: {
@@ -180,7 +204,9 @@ export const antigravity: CliSpec = {
         break;
       }
       case "result": {
-        const r = (line.result ?? {}) as { status?: string; error?: unknown; response?: string; denied_actions?: { action?: string; display_name?: string }[] };
+        const r = (line.result ?? {}) as { status?: string; error?: unknown; response?: string; usage?: unknown; denied_actions?: { action?: string; display_name?: string }[] };
+        const usage = tokenUsage(r.usage);
+        if (usage) out.push({ type: "usage", usage });
         if (r.status && r.status !== "SUCCESS") {
           const why = typeof r.error === "string" ? r.error : text((r.error as { message?: string } | undefined)?.message);
           out.push({ type: "error", message: r.status === "CANCELED" || r.status === "INTERRUPTED" ? "Antigravity stopped." : friendlyApiError(why) || `Antigravity stopped (${r.status}).` });
@@ -198,5 +224,8 @@ export const antigravity: CliSpec = {
   },
   install: { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", page: "https://antigravity.google/docs/cli/install" },
   modelsFromStatus: (r) => (r.code === 0 ? parseAgyModels(r.stdout) : null),
+  // Its models carry their effort in the slug (gemini-3.8-flash-low / -medium / -high): no flag of ours.
+  attachHow: "Look at each with view_file (it shows images and PDFs); they are in your workspace.",
+  usage: { args: ["-p", "/usage", "--output-format", "json"], parse: parseAgyUsage },
   imageDirs: (session, home) => (/^[\w-]+$/.test(session) ? [join(agyHome(home), "brain", session)] : []),
 };

@@ -85,7 +85,7 @@ export async function readStream(body: ReadableStream<Uint8Array>, onText: (t: s
 export async function runOpenAiTurn(t: OpenAiTurn): Promise<void> {
   const doFetch = t.fetch ?? fetch;
   const url = `${trimBase(t.baseUrl)}/chat/completions`;
-  const messages: Msg[] = [{ role: "system", content: SYSTEM_PROMPT }, ...t.request.history.slice(-20).map((m) => ({ role: m.role, content: m.text }) as Msg), { role: "user", content: promptWithContext(t.request) }];
+  const messages: Msg[] = [{ role: "system", content: SYSTEM_PROMPT }, ...t.request.history.slice(-20).map((m) => ({ role: m.role, content: m.text }) as Msg), { role: "user", content: promptWithContext(t.request, "You can't open files here: ask the user about them if you need to.") }];
   const tools = openAiTools();
   const max = t.maxRounds ?? 24;
   for (let round = 0; round <= max; round++) {

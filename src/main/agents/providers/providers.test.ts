@@ -9,8 +9,8 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent, TurnRequest } from "../../../shared/agents/types";
-import { AGY_PROJECT, AGY_SERVER, agyProject, agyStatus, antigravity, parseAgyModels } from "./antigravity";
-import { claudeCode, parseClaudeStatus } from "./claudeCode";
+import { AGY_PROJECT, AGY_SERVER, agyProject, agyStatus, antigravity, parseAgyModels, parseAgyUsage } from "./antigravity";
+import { claudeCode, parseClaudeStatus, parseClaudeUsage } from "./claudeCode";
 import { codex, parseCodexStatus } from "./codex";
 import { cursorAgent, parseCursorStatus } from "./cursor";
 import { CLI_SPECS } from "./index";
@@ -79,6 +79,35 @@ describe("Claude Code", () => {
     expect(resumed[resumed.indexOf("--resume") + 1]).toBe("abc");
     expect(resumed[resumed.indexOf("--model") + 1]).toBe("haiku");
     expect(resumed).not.toContain("--session-id");
+    expect(resumed).not.toContain("--effort");
+  });
+
+  it("with files attached: Read only inside the chat's attachments folder, their paths in the prompt; --effort", () => {
+    const plan = claudeCode.plan({ ...turn({ effort: "max", attachments: [{ path: "/w/attachments/ab12-brief.pdf", name: "brief.pdf", mime: "application/pdf" }] }), attachmentsDir: "/w/attachments" });
+    const a = plan.args;
+    expect(a[a.indexOf("--tools") + 1]).toBe("Read");
+    expect(a.slice(a.indexOf("--allowedTools") + 1, a.indexOf("--permission-mode"))).toEqual(["mcp__designer", "Read(//w/attachments/**)"]);
+    expect(a[a.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+    expect(a[a.indexOf("--effort") + 1]).toBe("max");
+    expect(plan.stdin).toContain("- /w/attachments/ab12-brief.pdf (PDF, “brief.pdf”)");
+    expect(plan.stdin).toContain("Read tool");
+    // An effort it doesn't take isn't passed.
+    expect(claudeCode.plan(turn({ effort: "ultra" })).args).not.toContain("--effort");
+  });
+
+  it("reads its plan's limits: `claude -p /usage` (a local command, no model call) and a turn's rate_limit_event; a result's tokens", () => {
+    expect(claudeCode.usage?.args.slice(0, 2)).toEqual(["-p", "/usage"]);
+    expect(claudeCode.usage?.args).toContain("--no-session-persistence");
+    const result = "You are currently using your subscription to power your Claude Code usage\n\nCurrent session: 5% used · resets Oct 10 at 3:59am (Europe/Istanbul)\nCurrent week (Fable): 66% used · resets Oct 14 at 1:59pm (Europe/Istanbul)\n\nLast 24h · 7223 requests · 9 sessions\n  100% of your usage came from subagent-heavy sessions";
+    expect(parseClaudeUsage({ code: 0, stdout: JSON.stringify({ type: "result", local_command: "usage", num_turns: 0, result }) })).toEqual([
+      { label: "Current session", usedPct: 5, resetText: "Oct 10 at 3:59am" },
+      { label: "Current week (Fable)", usedPct: 66, resetText: "Oct 14 at 1:59pm" },
+    ]);
+    // Not its local command (it went to the model): nothing.
+    expect(parseClaudeUsage({ code: 0, stdout: JSON.stringify({ type: "result", result: "Current session: 5% used" }) })).toBeNull();
+    const events = parseRecorded(claudeCode, fixture("claude-code.ndjson"));
+    expect(events).toContainEqual({ type: "limits", windows: [{ label: "Current session", usedPct: 11, resetsAt: 1791576000_000 }] });
+    expect(events).toContainEqual({ type: "usage", usage: { input: 18 + 45553 + 45356, output: 150 } });
   });
 
   it("reads its recorded stream-json: the session, streamed text once, our tools with their results", () => {
@@ -125,6 +154,19 @@ describe("Codex", () => {
     expect(plan.args[plan.args.length - 1]).toBe("-");
     expect(plan.env).toEqual({ DESIGNER_MCP_TOKEN: "tok" });
     expect(plan.stdin).toContain("Make the mobile version of this");
+    expect(plan.args).not.toContain("model_reasoning_effort");
+  });
+
+  it("attached pictures go with --image (before the prompt's '-'), the effort as model_reasoning_effort", () => {
+    const att = [
+      { path: "/w/attachments/a1-shot.png", name: "shot.png", mime: "image/png" as const },
+      { path: "/w/attachments/b2-logo.webp", name: "logo.webp", mime: "image/webp" as const },
+      { path: "/w/attachments/c3-brief.pdf", name: "brief.pdf", mime: "application/pdf" as const },
+    ];
+    const plan = codex.plan(turn({ attachments: att, effort: "high" }));
+    expect(plan.args.slice(-2)).toEqual(["--image=/w/attachments/a1-shot.png,/w/attachments/b2-logo.webp", "-"]);
+    expect(plan.args).toContain('model_reasoning_effort="high"');
+    expect(plan.stdin).toContain("/w/attachments/c3-brief.pdf (PDF");
   });
 
   it("reads its JSONL: thread, MCP tool calls with results and failures, the agent's message", () => {
@@ -135,6 +177,7 @@ describe("Codex", () => {
       { type: "tool", id: "item_2", name: "delete_nodes", args: { nodeIds: ["9:9"] }, state: "running" },
       { type: "tool", id: "item_2", name: "delete_nodes", state: "error", summary: "No such layer 9:9" },
       { type: "text", delta: 'The page has one frame, "Desktop".' },
+      { type: "usage", usage: { input: 2400, output: 100 } },
     ]);
     expect(parseAll(codex, [{ type: "turn.failed", error: { message: "401 Unauthorized" } }])[0]).toMatchObject({ type: "error", message: expect.stringMatching(/isn’t signed in/) });
   });
@@ -278,7 +321,39 @@ describe("Antigravity (agy)", () => {
       { type: "tool", id: "32678092-8f02-401f-b7d2-67057446c91b:2", name: "get_metadata", args: {}, state: "running" },
       { type: "tool", id: "32678092-8f02-401f-b7d2-67057446c91b:2", name: "get_metadata", state: "done", summary: "<pages>" },
       { type: "text", delta: "There is 1 page in this document: **Page 1**.\n" },
+      { type: "usage", usage: { input: 31654, output: 327 } },
     ]);
+  });
+
+  it("reads its plan's limits from `agy -p /usage` (no model call): each group's 5-hour and weekly limits", () => {
+    expect(antigravity.usage?.args).toEqual(["-p", "/usage", "--output-format", "json"]);
+    const stdout = JSON.stringify({
+      conversation_id: "",
+      status: "SUCCESS",
+      num_turns: 0,
+      command: {
+        name: "usage",
+        data: {
+          groups: [
+            { name: "Gemini Models", buckets: [{ id: "gemini-weekly", name: "Weekly Limit Remaining", window: "weekly", remaining_fraction: 0.9947624802589417, reset_time: "2026-10-16T17:00:54Z" }, { id: "gemini-5h", name: "Five Hour Limit Remaining", window: "5h", remaining_fraction: 0.9458796381950378, reset_time: "2026-10-09T22:00:54Z" }] },
+            { name: "Claude and GPT models", buckets: [{ id: "3p-5h", window: "5h", remaining_fraction: 1, reset_time: "2026-10-10T01:43:50Z" }] },
+          ],
+        },
+      },
+    });
+    expect(parseAgyUsage({ code: 0, stdout })).toEqual([
+      { label: "Weekly limit", group: "Gemini Models", usedPct: 0.5, resetsAt: Date.parse("2026-10-16T17:00:54Z") },
+      { label: "5-hour limit", group: "Gemini Models", usedPct: 5.4, resetsAt: Date.parse("2026-10-09T22:00:54Z") },
+      { label: "5-hour limit", group: "Claude and GPT models", usedPct: 0, resetsAt: Date.parse("2026-10-10T01:43:50Z") },
+    ]);
+    expect(parseAgyUsage({ code: 0, stdout: '{"status":"SUCCESS","response":"hi"}' })).toBeNull();
+    expect(parseAgyUsage({ code: 0, stdout: "not json" })).toBeNull();
+  });
+
+  it("tells it the attached files' paths and to look with view_file", () => {
+    const a = antigravity.plan({ ...turn({ attachments: [{ path: "/data/agents/work/c1/attachments/ab12-shot.png", name: "shot.png", mime: "image/png" }] }), cwd: "/data/agents/work/c1", home: "/Users/me" }).args;
+    expect(a[1]).toContain("- /data/agents/work/c1/attachments/ab12-shot.png (PNG image, “shot.png”)");
+    expect(a[1]).toContain("view_file");
   });
 
   it("reads a recorded image turn: the image, place_image with the picture's path, its own bookkeeping hidden", () => {

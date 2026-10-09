@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
-import type { AuthState, ChatEvent, TurnRequest } from "../../../shared/agents/types";
+import type { AuthState, ChatEvent, TurnRequest, UsageWindow } from "../../../shared/agents/types";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
+import { attachmentsNote } from "../../../shared/agents/attachments";
 
 /**
  * What every CLI agent's adapter shares (docs/research/figma/R12-agents-mcp.md §4): the shape of an adapter — how to
@@ -26,6 +27,8 @@ export interface CliTurn {
   mcpConfigPath: string;
   /** The user's home folder (the CLI's own config lives there), the OS's when not given */
   home?: string;
+  /** The chat's attachments folder, when the chat has one (the files the user attached, this turn's or earlier) */
+  attachmentsDir?: string;
 }
 
 export interface CliPlan {
@@ -113,24 +116,47 @@ export interface CliSpec {
    * generate_image: its conversation's folder), which place_image may then read.
    */
   imageDirs?(session: string, home: string): string[];
+  /** Reasoning efforts its effort flag takes, the default first (Claude Code `--effort`) */
+  efforts?: string[];
+  /** How it looks at an attached file, told with the attachments' paths ("Read them with your Read tool.") */
+  attachHow?: string;
+  /**
+   * Its plan's limits without a model call (its own `/usage` command run headless): the arguments, and how its output
+   * reads; null when it said nothing usable.
+   */
+  usage?: { args: string[]; parse(r: RunResult): UsageWindow[] | null };
 }
 
 /** The model flag's value, or null for the CLI's default (the spec's first model). */
 export const modelArg = (spec: Pick<CliSpec, "models">, model: string | undefined): string | null => (model && model !== spec.models[0] && model !== "default" ? model : null);
 
-/** The turn's prompt: the selection attached as context, then what the user typed. */
-export function promptWithContext(r: TurnRequest): string {
+/** The turn's prompt: the selection attached as context, the files attached (their paths, how to look), then what the user typed. */
+export function promptWithContext(r: TurnRequest, attachHow = "Open them to see them."): string {
   const c = r.context;
   const sel = c.selection.length
     ? c.selection.map((s) => `${s.type.toLowerCase()} "${s.name}" (id ${s.id}, ${Math.round(s.width)} × ${Math.round(s.height)})`).join(", ")
     : "nothing";
-  return `[Design file "${c.fileName}", page "${c.pageName}". Selected: ${sel}.]\n\n${r.prompt}`;
+  const files = attachmentsNote(r.attachments ?? [], attachHow);
+  return `[Design file "${c.fileName}", page "${c.pageName}". Selected: ${sel}.]\n${files ? `${files}\n` : ""}\n${r.prompt}`;
 }
 
 /** A chat without a CLI session of its own (or one started with another agent): the conversation so far, then the turn. */
-export function promptWithHistory(r: TurnRequest): string {
+export function promptWithHistory(r: TurnRequest, attachHow?: string): string {
   const past = r.history.slice(-12).map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`).join("\n\n");
-  return (past ? `Conversation so far:\n${past}\n\n` : "") + promptWithContext(r);
+  return (past ? `Conversation so far:\n${past}\n\n` : "") + promptWithContext(r, attachHow);
+}
+
+/** The effort flag's value: one the CLI takes, or null for its default. */
+export const effortArg = (spec: Pick<CliSpec, "efforts">, effort: string | undefined): string | null => (effort && spec.efforts?.includes(effort) ? effort : null);
+
+/** A result's tokens as the chat counts them: everything read (cached too) and everything written. */
+export function tokenUsage(u: unknown): { input: number; output: number } | null {
+  if (!u || typeof u !== "object") return null;
+  const o = u as Record<string, unknown>;
+  const n = (k: string) => (typeof o[k] === "number" && Number.isFinite(o[k]) ? (o[k] as number) : 0);
+  const input = n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens") + n("cached_input_tokens") + n("cache_read_tokens");
+  const output = n("output_tokens") + n("reasoning_output_tokens");
+  return input || output ? { input, output } : null;
 }
 
 /** Our server as the CLIs' JSON configs name it (Streamable HTTP with the chat's token). */
