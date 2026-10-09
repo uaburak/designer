@@ -75,6 +75,9 @@
   .lockedSizeBox { display: flex; align-items: center; width: 100%; height: var(--ds-size-control); border-radius: var(--ds-radius-medium); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); color: var(--figma-color-text); }
   .lockedSizeAxis { width: 25px; padding-left: var(--ds-space-2); color: var(--figma-color-text-secondary); box-sizing: border-box; }
   .lockedSizeValue { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* A section's menu (live stroke-individual-strokes-menu.txt, 117 × 159): no padding above or below, groups 15 apart */
+  .panelMenu { padding-block: 0; }
+  .panelMenu > [role="separator"] { margin-block: 7px; }
   .buttonGroup { display: flex; gap: 1px; height: var(--ds-size-control); }
   .buttonGroup > .groupButton {
     flex: 1 1 0;

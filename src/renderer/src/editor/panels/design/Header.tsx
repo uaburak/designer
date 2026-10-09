@@ -31,7 +31,7 @@ import { OpenVariablesButton, VariablePicker } from "../variables/VariablePicker
 import { BIND_TYPE } from "../../model/variables";
 import { sharedBinding } from "./Variables";
 import { convertFrameKind, frameKindOf, offeredKinds, type FrameKind } from "./frameKind";
-import { isFrameNode, typeLabel, typeOf, useParents, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, isFrameNode, typeLabel, typeOf, useParents, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import hstyles from "./Header.module.css";
 
@@ -459,7 +459,7 @@ function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
         disabled={!(booleans || isEnabled(ed, firstCommand))}
         onClick={() => pickBoolean(ed, nodes, first.id, booleans)}
       />
-      <MenuButton label="Boolean operations" entries={entries} className={styles.splitChevron} disabled={!any} align="end" menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
+      <MenuButton label="Boolean operations" entries={entries} className={styles.splitChevron} disabled={!any} align="end" gap={PANEL_MENU_GAP} menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
         <Icon name="16.chevron.down" />
       </MenuButton>
     </div>
@@ -509,6 +509,7 @@ function MoreActions({ nodes, omit }: { nodes: PanelNode[]; omit: string[] }) {
       entries={entries.length ? entries : [{ id: "none", label: "No actions", disabled: true }]}
       className={styles.iconMenu}
       align="end"
+      gap={PANEL_MENU_GAP}
       menuClassName={hstyles.actionsMenu}
       onSelect={(id) => {
         if (id === "edit-object") ed.vector.start(nodes[0].guid);

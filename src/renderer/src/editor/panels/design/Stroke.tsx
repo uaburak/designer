@@ -20,7 +20,7 @@ import { useEditor } from "../../controller";
 import { runEngineCommand } from "../../engineCompat";
 import { fieldValue, mixed, mixedNumber, sameData } from "../../model/mixed";
 import { exitToCanvas } from "./Sections";
-import { fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, fields, hasCorners, typeOf, useKeeps, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 export type StrokeSide = "ALL" | "TOP" | "BOTTOM" | "LEFT" | "RIGHT" | "CUSTOM";
@@ -97,7 +97,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         action2={<StrokeSettingsButton nodes={nodes} />}
         action={
           perSide ? (
-            <MenuButton label="Individual strokes" entries={sideMenu} className={styles.iconMenu} onSelect={(id) => {
+            <MenuButton label="Individual strokes" entries={sideMenu} className={styles.iconMenu} gap={PANEL_MENU_GAP} flip menuClassName={styles.panelMenu} onSelect={(id) => {
                 setCustomFor(id === "CUSTOM" ? key : null);
                 ed.batch("Individual strokes", () => nodes.forEach((n) => ed.engine.setProps([n.guid], strokeSideFields(n, id as StrokeSide))));
               }}

@@ -59,13 +59,18 @@ interface PanelProps {
   submenu?: boolean;
   /** The caller's look for this menu (its width, its headers, its icon column): a class on the panel */
   className?: string;
+  /**
+   * A dropdown that flips: when it would end less than 16 from the window's bottom it opens upwards with its bottom
+   * here (live popovers/stroke-individual-strokes-menu.txt: 12 above its trigger)
+   */
+  flipY?: number;
 }
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 
 const SUBMENU_EDGES = { top: 6, bottom: 5 };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, className }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, className, flipY }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const subId = useId();
   const list = tidy(entries);
@@ -97,17 +102,18 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     } else if (!isStatic) {
       const { width, height } = el.getBoundingClientRect();
       const room = window.innerHeight - 8 - y;
+      const flip = flipY !== undefined && !above && y + height > window.innerHeight - 16 && flipY - height >= 8;
       // Live Figma: a dropdown longer than the room below its trigger stays under it (and scrolls).
-      const keep = keepTop && !above && height > room && room >= 160;
+      const keep = keepTop && !above && !flip && height > room && room >= 160;
       if (keep) el.style.maxHeight = `${room}px`;
       // A submenu keeps live Figma's margins: 6 above, 5 below (menus/main-object, main-preferences).
-      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX, submenu ? SUBMENU_EDGES : undefined);
+      const p = placeMenu(x, flip ? flipY - height : above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX, submenu ? SUBMENU_EDGES : undefined);
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, above, autoFocus, isStatic, keepTop, over, submenu]);
+  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu]);
 
   useEffect(() => () => window.clearTimeout(intent.current), []);
   useEffect(() => {
@@ -328,10 +334,12 @@ export interface ContextMenuProps {
   flipX?: number;
   /** The caller's look for this menu (see MenuPanel) */
   className?: string;
+  /** Flips upwards with its bottom here when it doesn't fit under (see MenuPanel) */
+  flipY?: number;
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, flipX, className }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, flipX, className, flipY }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -356,6 +364,7 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       x={at.x}
       y={at.y}
       flipX={flipX}
+      flipY={flipY}
       className={className}
       above={above}
       autoFocus={!isStatic}
@@ -406,18 +415,20 @@ export interface MenuButtonProps {
   align?: "start" | "end";
   /** The menu's distance under the trigger (default 4) */
   gap?: number;
+  /** Opens upwards, `gap` above the trigger, when it doesn't fit under it (16 from the window's bottom) */
+  flip?: boolean;
   /** The menu's own look (see MenuPanel's `className`) */
   menuClassName?: string;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, menuClassName }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, menuClassName }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
-  const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number } | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number; flipY?: number } | null>(null);
   const open = () => {
     const r = button.current?.getBoundingClientRect();
     const field = overField ? button.current?.closest(overField)?.getBoundingClientRect() : undefined;
-    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + gap, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined, flipX: align === "end" ? r.right : undefined });
+    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + gap, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined, flipX: align === "end" ? r.right : undefined, flipY: flip && placement !== "top" ? r.top - gap : undefined });
   };
   const close = () => {
     setAt(null);
@@ -446,7 +457,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop over={at.over} flipX={at.flipX} className={menuClassName} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop over={at.over} flipX={at.flipX} flipY={at.flipY} className={menuClassName} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

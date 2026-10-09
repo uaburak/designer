@@ -117,6 +117,13 @@ export function useKeeps(field: string): boolean {
   return keepsField(useEditor().engine, field);
 }
 
+/**
+ * The Design panel's menus open 12 under their trigger (live boolean-operations-menu, instance-more-actions-menu,
+ * component-create-property-menu: 129 / 161 for buttons ending at 117 / 149), or 12 above it when they don't fit
+ * (stroke-individual-strokes-menu).
+ */
+export const PANEL_MENU_GAP = 12;
+
 /** The node's type as a string (its real one: the facade's NodeType lists only what the engine draws). */
 export const typeOf = (n: { type?: string }): string => n.type ?? "NONE";
 export const isGroupNode = (n: PanelNode) => typeOf(n) === "GROUP" || (typeOf(n) === "FRAME" && n.resizeToFit === true);

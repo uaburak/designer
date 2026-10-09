@@ -25,4 +25,6 @@
   /* (A row without keys keeps the same 16 after its label: live's Toggle ready for dev status makes the menu 221.) */
   .actionsMenu > [role^="menuitem"] > span:nth-child(2):last-child { padding-right: var(--ds-space-4); }
   .actionsMenu > [role="separator"] { margin-block: 7px; }
+  /* (Live: no padding above or below the rows — the first row at the menu's top, its text at 6.) */
+  .actionsMenu { padding-block: 0; }
 }
