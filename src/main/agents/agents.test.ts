@@ -14,6 +14,8 @@ import { claudeCode, codex, cursorAgent, gemini, LineSplitter, promptWithContext
 import { codexTable, configText, connectClient, disconnectClient, listClients, mergeToml, type ClientEnv } from "./clients";
 import { McpServer, prettyClient } from "./mcpServer";
 import { listModels, readStream, runOpenAiTurn } from "./openaiBridge";
+import { STDIO_BRIDGE_SOURCE } from "./stdioBridge";
+import { spawn } from "node:child_process";
 
 // ---- The MCP server -------------------------------------------------------------------------------------------------
 
@@ -121,6 +123,30 @@ describe("MCP server", () => {
     expect(host.onConnections).toHaveBeenCalled();
     await fetch(server.url!, { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}`, "Mcp-Session-Id": a.session! } });
     expect(server.connections().map((c) => c.client)).toEqual(["VS Code"]);
+  });
+
+  it("the stdio bridge relays JSON-RPC lines to the running server, its token read from server.json", async () => {
+    const { server } = await start();
+    const dir = mkdtempSync(join(tmpdir(), "agents-bridge-"));
+    try {
+      writeFileSync(join(dir, "designer-mcp.cjs"), STDIO_BRIDGE_SOURCE);
+      writeFileSync(join(dir, "server.json"), JSON.stringify({ url: server.url, token: TOKEN }));
+      const child = spawn(process.execPath, [join(dir, "designer-mcp.cjs")], { stdio: ["pipe", "pipe", "inherit"] });
+      const lines: Record<string, unknown>[] = [];
+      const split = new LineSplitter();
+      const got = new Promise<void>((resolve) => child.stdout.on("data", (d) => { lines.push(...split.push(String(d))); if (lines.length >= 2) resolve(); }));
+      child.stdin.write(JSON.stringify(init("gemini-cli-mcp-client")) + "\n");
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+      await new Promise((r) => setTimeout(r, 100));
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "get_selection", arguments: {} } }) + "\n");
+      await got;
+      child.kill();
+      expect((lines[0].result as { serverInfo: { name: string } }).serverInfo.name).toBe("designer");
+      expect((lines[1].result as { content: { text: string }[] }).content[0].text).toBe("get_selection on fileA");
+      expect(server.connections().map((c) => c.client)).toEqual(["Gemini CLI"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("names clients as people know them", () => {

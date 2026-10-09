@@ -3,7 +3,7 @@
 // page loads) that plays an agent's turn — its text, its steps, and real tool calls run by the page on the engine —
 // so the flagship flow is driven end to end: a desktop frame selected → "Make the mobile version of this" → a 390
 // frame next to it, one undo step, Undo / Apply from the chat. No real agent or model is involved.
-/* global window */
+/* global window, setTimeout */
 
 /** The stand-in for main's side (src/shared/agents/types.ts AgentsApi), in the page. */
 function installMockAgents() {

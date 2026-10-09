@@ -25,15 +25,24 @@ function reply(id, code, message) {
   if (id === undefined) return;
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }) + "\n");
 }
+// One request at a time, in order: the first answer carries the session the next ones name.
+let queue = Promise.resolve();
 function post(line) {
+  return new Promise((done) => send(line, done));
+}
+function send(line, done) {
   let msg;
   try {
     msg = JSON.parse(line);
   } catch {
-    return reply(null, -32700, "Parse error");
+    reply(null, -32700, "Parse error");
+    return done();
   }
   const s = server();
-  if (!s || !s.url) return reply(msg.id, -32000, "DesignerV2 isn't running: open the app and try again.");
+  if (!s || !s.url) {
+    reply(msg.id, -32000, "DesignerV2 isn't running: open the app and try again.");
+    return done();
+  }
   const u = new URL(s.url);
   const body = Buffer.from(JSON.stringify(msg));
   const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: "Bearer " + s.token, "Content-Length": body.length };
@@ -47,13 +56,19 @@ function post(line) {
       const text = Buffer.concat(chunks).toString("utf8").trim();
       if (res.statusCode === 404 && session) {
         session = null;
-        return post(line);
+        return send(line, done);
       }
       if (text) process.stdout.write(text + "\n");
+      done();
     });
   });
-  req.on("error", (e) => reply(msg.id, -32000, "DesignerV2 isn't reachable: " + e.message));
+  req.on("error", (e) => {
+    reply(msg.id, -32000, "DesignerV2 isn't reachable: " + e.message);
+    done();
+  });
   req.end(body);
 }
-readline.createInterface({ input: process.stdin }).on("line", (l) => l.trim() && post(l));
+readline.createInterface({ input: process.stdin }).on("line", (l) => {
+  if (l.trim()) queue = queue.then(() => post(l));
+});
 `;
