@@ -486,7 +486,8 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
   // baseline (Disabled / Enabled), Auto spacing (only for an Auto gap), Layout ("Updated"); a grid has Inside stroke and
   // Layout only.
   return (
-    <Popover anchor={anchor} title="Auto layout settings" width={240} offsetY={-4} onClose={onClose} label="Auto layout settings">
+    // Live: the auto layout one opens 4 above its button (960,481 for the button at 404 + 81), the grid's level with it (960,485)
+    <Popover anchor={anchor} title="Auto layout settings" width={240} offsetY={grid ? 0 : -4} onClose={onClose} label="Auto layout settings">
       <div className={styles.alPreview} aria-hidden="true">Preview</div>
       <div className={cx(styles.settings, styles.alSettings)}>
         <span className={styles.settingsLabel}>Inside stroke</span>

@@ -23,11 +23,17 @@ const AXIS_WORD: Record<Axis, string> = { x: "width", y: "height" };
 const stepInfo: ChangeInfo = { final: true, source: "step" };
 
 /**
- * The W / H and gap lists open over their field, right-aligned with it, the checked row 3 above the field's top (live
- * popovers/width-sizing-menu.txt 166 × 129 at 1138,399 over W at 1216,434; height-sizing-menu at 1234,399; gap-menu
- * 156 × 64 at 1244,473 over the gap at 1312,484). (Live's autolayout-child-width-menu sits 4 lower: a capture state.)
+ * The W / H and gap lists open over their field, right-aligned with it, the checked row 4 above the field's top (live
+ * popovers/width-sizing-menu.txt 166 × 129 at 1138,399 over W at 1216,435 (the panel's body starts at 81);
+ * height-sizing-menu at 1234,399; gap-menu 156 × 64 at 1244,473 over the gap at 1312,485).
  */
-export const SIZING_LIST_DY = -3;
+export const SIZING_LIST_DY = -4;
+/**
+ * A plain layer in auto layout (a Width menu of Fixed / Fill container / min / max, no Hug contents): live's
+ * autolayout-child-width-menu is 162 × 129 at 1142,379 over W at 1216,387, so its checked row lines up with the
+ * field's top. (One capture: the rule for a child that can hug is unverified.)
+ */
+export const SIZING_LIST_DY_CHILD = 0;
 
 /** Do these layers get W / H sizing menus (auto layout frames, layers in auto layout)? */
 export const hasSizingMenu = (nodes: readonly PanelNode[], parents: readonly (PanelNode | null)[]) => nodes.length > 0 && nodes.every((n, i) => isAutoLayout(n) || inFlow(n, parents[i]));
@@ -135,7 +141,7 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
           onExit={exitToCanvas(ed)}
           suffix={
             menu ? (
-              <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={SIZING_LIST_DY}>
+              <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
                 <Icon name="16.chevron.down" />
               </MenuButton>
             ) : undefined

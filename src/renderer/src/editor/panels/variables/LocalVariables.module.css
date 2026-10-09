@@ -79,7 +79,8 @@
     height: var(--ds-size-section-header);
     padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-4) - 1px);
   }
-  .sideHeading { flex: 1 1 auto; font: var(--ds-font-body-medium); font-weight: 600; letter-spacing: var(--ds-tracking-body-medium); }
+  /* Live (rail-variables-full-view.txt): 11 / 600 in the secondary colour (#ffffffb2) */
+  .sideHeading { flex: 1 1 auto; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); font-weight: 600; letter-spacing: var(--ds-tracking-body-medium); }
   /* Live: Collapse groups 6 from the edge (the collections' buttons 8) */
   .groupsHeader { padding-right: var(--ds-space-1-5); }
   .groupsHeading { flex: 1 1 auto; padding-left: 1px; font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
@@ -267,6 +268,8 @@
   .emptyButton { padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-6) + var(--ds-space-1)); }
   .learn { color: var(--figma-color-text-brand); text-decoration: none; }
   .learn:hover { text-decoration: underline; }
+  /* Live (rail-variables-full-view.txt): the arrow follows "Learn more" directly (927 + 60 = 987), its glyph box 14 wide */
+  .learnArrow { display: inline-block; width: 14px; text-align: left; }
   /* Edit variable: the row's last cell shows it on hover, with the keyboard focus or while its popover is open */
   .editButton { opacity: 0; }
   .row:hover .editButton, .editButton:focus-visible, .editButton[aria-expanded="true"] { opacity: 1; }
