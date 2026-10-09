@@ -126,6 +126,7 @@ export function ExportSection({ targets, page }: { targets: ExportTarget[]; page
               <Select
                 className={own.format}
                 variant="outlined"
+                below
                 label="Export file type"
                 value={format}
                 options={EXPORT_FORMATS.map((f) => ({ value: f.value, label: f.label }))}

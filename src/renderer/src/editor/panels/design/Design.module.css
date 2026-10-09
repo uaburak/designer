@@ -264,7 +264,9 @@
   /* Layout guide settings (live): labels 64, fields 136 */
   .settingsGuide { grid-template-columns: 64px 136px; justify-content: space-between; }
   /* Live (popovers/layout-guide-settings-*.txt): the type dropdown at 16,12 in the header, the rows from 60, 12 below */
-  .guideType { margin: var(--ds-space-1) 0 0 var(--ds-space-2); }
+  /* Live (popovers/layout-guide-type-menu.txt): the type at 16,12, 56 wide for "Grid" — its text 9 in, the chevron 9 from the end */
+  .guideType { margin: var(--ds-space-2) 0 0 var(--ds-space-2); }
+  .guideType > button { padding: 0 9px 0 9px; }
   .guideBody { padding-top: 20px; padding-bottom: var(--ds-space-3); }
   .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */

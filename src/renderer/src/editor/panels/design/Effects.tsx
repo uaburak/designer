@@ -651,6 +651,7 @@ export function GuideSettings({ grid, anchor, onChange, onCancel, onClose }: { g
         <Select
           label="Layout guide type"
           variant="ghost"
+          below
           width="hug"
           className={styles.guideType}
           value={kind}
