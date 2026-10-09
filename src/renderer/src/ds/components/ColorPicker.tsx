@@ -732,6 +732,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       onClose={onClose}
       static={isStatic}
       width={240}
+      offsetX={-1}
       label="Color picker"
       header={<Tabs label="Color source" value={tab} onChange={(t) => setTab(t as "custom" | "libraries")} tabs={[{ value: "custom", label: "Custom" }, { value: "libraries", label: "Libraries" }]} />}
       headerActions={headerActions && <span className={styles.headerActions}>{headerActions}</span>}

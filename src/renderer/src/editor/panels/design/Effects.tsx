@@ -427,7 +427,7 @@ export function EffectSettings({
     );
   }
   return (
-    <Popover anchor={anchor} header={header} headerActions={blend} width={240} onClose={onClose} label={title}>
+    <Popover anchor={anchor} header={header} headerActions={blend} width={240} offsetX={-1} onClose={onClose} label={title}>
       <div className={cx(styles.fxSettings, (isBlur(effect) || effect.type === "NOISE") && styles.fxSettingsSegmented)} data-effect-settings={effect.type}>
         {body}
       </div>
@@ -520,7 +520,7 @@ export function ShaderEffects({
     </div>
   );
   return (
-    <Popover anchor={anchor} placement={placement} header={header} headerActions={<IconButton icon="24.shader.small" label="Create with agents" disabled />} width={240} onClose={onClose} label={title}>
+    <Popover anchor={anchor} placement={placement} header={header} headerActions={<IconButton icon="24.shader.small" label="Create with agents" disabled />} width={240} offsetX={-1} onClose={onClose} label={title}>
       <div className={styles.shaderBody} data-shader-effects="">
         <div className={styles.shaderSearch}>
           <SearchField label="Search" value={query} onChange={setQuery} />

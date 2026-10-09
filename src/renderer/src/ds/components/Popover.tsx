@@ -32,6 +32,12 @@ export interface PopoverProps {
   children?: ReactNode;
   /** Accessible name without a title */
   label?: string;
+  /**
+   * `left-of-panel` only: pixels added to x. Live's colour picker, shader browsers and effect settings sit one further
+   * left than the other panel popovers (popovers/fill-picker-*.txt, effect-settings-*.txt at 959; stroke, type, font,
+   * auto layout, export, layout guide at 960): those pass -1.
+   */
+  offsetX?: number;
 }
 
 /**
@@ -40,7 +46,7 @@ export interface PopoverProps {
  * with the anchor row. Esc or a press outside closes it; focus goes to its
  * first field (not trapped: the canvas stays clickable).
  */
-export function Popover({ anchor, placement = "left-of-panel", title, header, headerActions, onClose, draggable, width = size.popover, static: isStatic, children, label }: PopoverProps) {
+export function Popover({ anchor, placement = "left-of-panel", title, header, headerActions, onClose, draggable, width = size.popover, static: isStatic, children, label, offsetX = 0 }: PopoverProps) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const dragged = useRef(false);
@@ -64,7 +70,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
       };
       const panelEl = anchor instanceof HTMLElement ? anchor.closest<HTMLElement>("[data-panel]") : ([...document.querySelectorAll<HTMLElement>("[data-panel]")].find(holds) ?? null);
       const left = panelEl ? panelEl.getBoundingClientRect().left + panelEl.clientLeft : r.left - 8;
-      x = Math.max(EDGE, left - el.offsetWidth);
+      x = Math.max(EDGE, left - el.offsetWidth + offsetX);
       y = Math.max(EDGE, Math.min(r.top, view.height - BOTTOM - el.offsetHeight));
     } else if (placement === "left") {
       x = Math.max(EDGE, r.left - el.offsetWidth);
@@ -78,7 +84,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
     el.style.visibility = "visible";
-  }, [anchor, placement, isStatic]);
+  }, [anchor, placement, isStatic, offsetX]);
   // Live Figma: content that grows (another paint type, a tab) moves the popover up to stay on screen; shrinking
   // content leaves it where it is.
   useLayoutEffect(() => {
