@@ -28,5 +28,6 @@ export default defineConfig(({ mode }) => ({
       rollupOptions: { input: { tabbar: preload("tabbar"), home: preload("home"), editor: preload("editor") } },
     },
   },
-  renderer: rendererConfig(mode),
+  // The dev app's pages always on :3000 — a second start fails loudly instead of drifting to another port.
+  renderer: { ...rendererConfig(mode), server: { ...rendererConfig(mode).server, port: 3000, strictPort: true } },
 }));
