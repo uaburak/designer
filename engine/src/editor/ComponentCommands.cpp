@@ -947,17 +947,19 @@ Status Editor::addVariant() {
     return E_INVALID;
   }
   const NodeProps bp = doc_.get(base)->props;
-  // Below the base variant, clear of the others.
+  // An auto-layout set (round 11, the canvas's "+"): the new variant goes into the flow after the base, which places it
+  // and the set's sizing grows the set. Otherwise below the base variant, clear of the others.
+  const bool flow = doc_.get(set)->props.isAutoLayout();
   Mat2x3 t = bp.transform;
   double y = t.m12 + bp.size.y + kSetPadding;
-  for (Guid v : doc_.children(set)) {
+  for (Guid v : flow ? std::vector<Guid>{} : doc_.children(set)) {
     const NodeProps& vp = doc_.get(v)->props;
     if (v == base) continue;
     bool overlapsX = vp.transform.m02 < t.m02 + bp.size.x && t.m02 < vp.transform.m02 + vp.size.x;
     if (overlapsX && vp.transform.m12 + vp.size.y > y - kSetPadding && vp.transform.m12 < y + bp.size.y)
       y = vp.transform.m12 + vp.size.y + kSetPadding;
   }
-  t.m12 = y;
+  if (!flow) t.m12 = y;
   const auto& kids = doc_.children(set);
   size_t index = static_cast<size_t>(std::find(kids.begin(), kids.end(), base) - kids.begin()) + 1;
   Guid copy = cloneSubtree(base, set, placeAt(set, index, kNoGuid), t);
@@ -995,7 +997,7 @@ Status Editor::addVariant() {
   const NodeProps& nowSet = doc_.get(set)->props;
   const NodeProps& np = doc_.get(copy)->props;
   double needW = np.transform.m02 + np.size.x + kSetPadding, needH = np.transform.m12 + np.size.y + kSetPadding;
-  if (needW > nowSet.size.x || needH > nowSet.size.y) {
+  if (!flow && (needW > nowSet.size.x || needH > nowSet.size.y)) {
     NodeChange g = NodeChange::changed(set);
     g.mask = F_SIZE;
     g.props.size = {std::max(nowSet.size.x, needW), std::max(nowSet.size.y, needH)};

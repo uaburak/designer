@@ -105,6 +105,56 @@ void Renderer::drawDevIcon(Guid frame, double right, double baseline, const Colo
   if (recordHits_) hits_.statuses.push_back({frame, {x0 - 2, y0 - 3, kDevIconWidth + 4, 16}, DevStatusMark::Kind::MarkButton});
 }
 
+bool Renderer::baselineUnderline(const Document& doc, Guid id, const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style) {
+  if (!texts_) return false;
+  const text::TextLayout* L = texts_->textLayout(id);
+  if (!L) return false;
+  const double dpr = viewport_.scaleX();
+  bool selected = std::find(overlay.selection.begin(), overlay.selection.end(), id) != overlay.selection.end();
+  const double w = selected ? style.selectionWidth : style.hoverWidth;
+  const Color& color = style.selection;
+  Mat2x3 m = view * doc.worldTransform(id);
+  bool upright = std::fabs(m.m01) < 1e-9 && std::fabs(m.m10) < 1e-9 && m.m00 > 0 && m.m11 > 0;
+  bool drawn = false;
+  for (const text::LaidLine& line : L->lines) {
+    if (line.width <= 0) continue;
+    Vec2 a = m.apply({line.x, line.baseline}), b = m.apply({line.x + line.width, line.baseline});
+    if (upright) {
+      // On device pixels: from the baseline down, the line's ends rounded.
+      double x0 = std::round(a.x * dpr) / dpr, x1 = std::round(b.x * dpr) / dpr, y = std::round(a.y * dpr) / dpr;
+      if (x1 <= x0) continue;
+      emit(makeShape(Mat2x3::translate(x0, y), {x1 - x0, w}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Shape);
+    } else {
+      Vec2 d = b - a;
+      double len = d.length();
+      if (len < 1e-9) continue;
+      // Along the line, `w` towards the text's own "down".
+      Vec2 u{d.x / len, d.y / len};
+      Vec2 down = m.applyLinear({0, 1});
+      double dl = down.length();
+      Vec2 n = dl > 1e-9 ? Vec2{down.x / dl, down.y / dl} : Vec2{-u.y, u.x};
+      emit(makeShape({u.x, n.x, a.x, u.y, n.y, a.y}, {len, w}, ShapeKind::Rect, kSquare, color, 1, color, 0, 0, 0), Pass::Shape);
+    }
+    drawn = true;
+  }
+  return drawn;
+}
+
+void Renderer::drawAddVariant(Guid set, double x, double y, const Color& color, const OverlayStyle& s) {
+  const double dpr = viewport_.scaleX();
+  auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
+  // A rounded square of the component purple holding a white plus (live Figma, canvas-component-set-selected).
+  const double size = s.addVariantSize, r = s.badgeRadius, g = s.addVariantGlyph, t = s.addVariantStroke;
+  x = snap(x), y = snap(y);
+  const Color ink{color.r, color.g, color.b, 1};
+  emit(makeShape(Mat2x3::translate(x, y), {size, size}, ShapeKind::Rect, {r, r, r, r}, ink, color.a, ink, 0, 0, 0), Pass::Shape);
+  const Color white{1, 1, 1, 1};
+  double cx = x + size / 2, cy = y + size / 2;
+  emit(makeShape(Mat2x3::translate(snap(cx - g / 2), snap(cy - t / 2)), {g, t}, ShapeKind::Rect, kSquare, white, 1, white, 0, 0, 0), Pass::Shape);
+  emit(makeShape(Mat2x3::translate(snap(cx - t / 2), snap(cy - g / 2)), {t, g}, ShapeKind::Rect, kSquare, white, 1, white, 0, 0, 0), Pass::Shape);
+  if (recordHits_) hits_.addVariant = {set, {x, y, size, size}};
+}
+
 void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {
   const double dpr = viewport_.scaleX();  // snap to the canvas's real pixels
   if (recordHits_) hits_ = CanvasHits{};
@@ -432,9 +482,15 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
          Pass::Shape);
   }
 
-  // Hover: the hovered layer's own outline — selected layers too (live Figma).
-  for (Guid h : overlay.hover)
-    if (doc.has(h)) nodeOutline(h, style.hoverWidth, true);
+  // Hover: the hovered layer's own outline — selected layers too (live Figma). A text layer's lines are underlined at
+  // their baseline instead (live Figma round 11, canvas-text-hover-baseline-underline: 2 px just under the baseline,
+  // across the line's text; a hovered selected text keeps a 1 px one inside its box, canvas-text-selected).
+  for (Guid h : overlay.hover) {
+    const Node* hn = doc.get(h);
+    if (!hn) continue;
+    if (hn->props.type == NodeType::TEXT && h != overlay.textNode && baselineUnderline(doc, h, view, overlay, style)) continue;
+    nodeOutline(h, style.hoverWidth, true);
+  }
 
   // A layer in an auto-layout flow selected: its parent's box dashed (live Figma).
   {
@@ -462,6 +518,15 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         }
       }
     }
+  }
+
+  // A selected auto-layout component, set or instance: a pink box in each gap, 1 px inside it (live Figma round 11:
+  // the gap between two layers, across the frame's content box — canvas-component-set-selected, -main-component-,
+  // -instance-selected).
+  for (const Overlay::GapBox& g : overlay.gapBoxes) {
+    if (g.rect.w <= 0 || g.rect.h <= 0) continue;
+    ScreenBox b = screenBox(view * g.world * Mat2x3::translate(g.rect.x, g.rect.y), {g.rect.w, g.rect.h}, dpr);
+    emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, style.spacing, 0, style.spacing, 1, 1, 0), Pass::Shape);
   }
 
   // Selection: each layer's box, the selection's box, its handles and size badge.
@@ -531,9 +596,15 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       emit(makeShape(hm, {hs, hs}, ShapeKind::Rect, kSquare, style.handleFill, 1, blue, 1, 1, 0), Pass::Shape);
     }
 
+    // One component set selected: "N Variants" in the pill instead of its size, and the "+" (Add variant) under it
+    // (live Figma round 11, canvas-component-set-selected).
+    const Node* set = overlay.selection.size() == 1 ? doc.get(overlay.selection[0]) : nullptr;
+    if (set && (!set->props.isComponentSet() || overlay.selection[0].isDerived())) set = nullptr;
+    Rect sr = transformedBounds(toScreen, box.size.x, box.size.y);
+    double below = std::round((sr.bottom() + style.badgeGap) * dpr) / dpr;  // where the pill (or else the "+") goes
     if (overlay.sizeBadge) {
       // The pill under the box; its text arrives with the text engine (E3), so it is sized for it now.
-      Rect r = transformedBounds(toScreen, box.size.x, box.size.y);
+      Rect r = sr;
       Mat2x3 w = box.toWorld;
       Vec2 worldSize{box.size.x * std::hypot(w.m00, w.m10), box.size.y * std::hypot(w.m01, w.m11)};
       // One auto-layout frame or flow child: "Hug" / "Fill" after each axis that has it (live Figma: "232 Hug × 72 Hug").
@@ -555,6 +626,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
           }
         }
       std::string text = formatNumber(worldSize.x) + sx + " \u00D7 " + formatNumber(worldSize.y) + sy;
+      if (set) {
+        size_t variants = 0;
+        for (Guid c : doc.children(overlay.selection[0]))
+          if (const Node* v = doc.get(c); v && v->props.type == NodeType::SYMBOL) variants++;
+        text = std::to_string(variants) + (variants == 1 ? " Variant" : " Variants");  // "1 Variant": unverified
+      }
       if (!overlay.badgeText.empty()) text = overlay.badgeText;  // rotating: the angle
       const text::TextLayout* L = label(text, "Medium", style.labelSize);
       double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
@@ -569,7 +646,11 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         double ty = by + (bh - line.height) / 2;
         drawGlyphs(*L, Mat2x3::translate(bx + (bw - tw) / 2, std::round(ty * dpr) / dpr), white, 1);
       }
+      below = by + bh + style.addVariantGap;
     }
+    // The "+": centred under the pill, with the handles (not while moving or in view-only mode).
+    if (set && overlay.handles && overlay.badgeText.empty())
+      drawAddVariant(overlay.selection[0], sr.x + sr.w / 2 - style.addVariantSize / 2, below, blue, style);
   }
   // A grid item's span handles: small white circles with a blue ring on its sides' midpoints.
   for (const Vec2& w : overlay.gridSpanHandles) {
@@ -648,12 +729,29 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // gap shows its value.
   for (size_t k = 0; k < overlay.centreDots.size(); k++) {
     Vec2 c = view.apply(overlay.centreDots[k]);
-    // The ring under the pointer (or dragged to reorder): larger and filled (unverified live: hover not captured).
+    c = {std::round(c.x * dpr) / dpr, std::round(c.y * dpr) / dpr};  // one centre for the concentric marks
+    // A circle `d` across about c: filled (`fill`) and / or a 1 px ring just inside its edge (`ring`).
+    auto circle = [&](double d, const Color* fill, const Color* ring) {
+      emit(makeShape(Mat2x3::translate(c.x - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, fill ? *fill : white, fill ? 1 : 0, ring ? *ring : white,
+                     ring ? 1 : 0, ring ? 1 : 0, 0),
+           Pass::Shape);
+    };
+    const Color& pink = style.spacing;
+    // The ring under the pointer (or dragged to reorder): filled pink (live menu-context-multi-and-smart-selection).
     bool lit = static_cast<int>(k) == overlay.centreDotHovered;
-    const double d = lit ? 9 : 7;
-    emit(makeShape(Mat2x3::translate(std::round((c.x - d / 2) * dpr) / dpr, std::round((c.y - d / 2) * dpr) / dpr), {d, d}, ShapeKind::Ellipse, kSquare,
-                   lit ? style.spacing : white, lit ? 1 : 0, lit ? white : style.spacing, 1, 1.5, 0),
-         Pass::Shape);
+    const double ring = style.ringSize;
+    if (overlay.centreDotsIdle && !lit) {
+      circle(style.dotSize, &white, nullptr);
+      circle(style.dotCore, &pink, nullptr);
+    } else if (lit) {
+      circle(ring + 3, &white, nullptr);
+      circle(ring + 1, &pink, nullptr);
+    } else {
+      // Pink between two white rings, hollow: the layer shows through.
+      circle(ring + 3, nullptr, &white);
+      circle(ring + 1, nullptr, &pink);
+      circle(ring - 1, nullptr, &white);
+    }
   }
   for (const Overlay::GapHandle& g : overlay.gapHandles) {
     Vec2 c = view.apply(g.at);

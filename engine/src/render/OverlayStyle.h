@@ -58,6 +58,20 @@ struct OverlayStyle {
   double pillHeight = 16;
   double pillRadius = 2;
   double tick = 6;  // the end ticks of a measured distance
+  // Round 11 (live Figma, canvas-component-set-selected at 1.07 px per CSS px): a selected component set's "+" (Add
+  // variant) — a square of the component purple `addVariantSize` across, `addVariantGap` under the variants pill, a
+  // white plus `addVariantGlyph` across in `addVariantStroke` bars.
+  double addVariantSize = 16;
+  double addVariantGap = 4;
+  double addVariantGlyph = 10;
+  double addVariantStroke = 1.5;
+  // Smart selection's centre marks (live Figma: canvas-multi-select-two-shapes, canvas-group-selected,
+  // menu-context-multi-and-smart-selection at 1.08×): off the selection a dot — pink `dotCore` across in a white
+  // `dotSize` disc; on it a ring — a 1 px pink circle `ringSize` across (its middle) between two 1 px white ones,
+  // hollow; the one under the pointer filled pink, `ringSize` + 1 across, in a 1 px white ring.
+  double dotSize = 3.5;
+  double dotCore = 1.5;
+  double ringSize = 8;
   // Auto layout: the padding / gap bands and the insertion indicator.
   Color autoLayoutBand;
   double bandAlpha = 0.15;

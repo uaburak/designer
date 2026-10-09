@@ -2762,7 +2762,13 @@ ENG_EXPORT int32_t engine_dev_info(Handle h, uint32_t pageSessionID, uint32_t pa
   for (auto& s : hits.statuses)
     w.beginObject().key("ref").string(s.frame.toString()).key("kind").number(static_cast<int>(s.kind)).key("x").number(s.rect.x)
         .key("y").number(s.rect.y).key("width").number(s.rect.w).key("height").number(s.rect.h).endObject();
-  w.endArray().endObject();
+  w.endArray().key("addVariant");
+  if (hits.addVariant.set != kNoGuid)
+    w.beginObject().key("ref").string(hits.addVariant.set.toString()).key("x").number(hits.addVariant.rect.x).key("y").number(hits.addVariant.rect.y)
+        .key("width").number(hits.addVariant.rect.w).key("height").number(hits.addVariant.rect.h).endObject();
+  else
+    w.null();
+  w.endObject();
   w.endObject();
   return setResult(w.take());
 }

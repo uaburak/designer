@@ -1181,6 +1181,12 @@ class Editor : private LayoutHost, public TextLayouts {
     double spacing = 0;
   };
   bool smartSelection(SmartSelection& out) const;
+  // `ids` (siblings) in a row or a column with equal gaps (smartSelection's test without the selection's conditions).
+  bool equallySpaced(const std::vector<Guid>& ids, SmartSelection& out) const;
+  // Round 11: the centre dots of a selected group's equally spaced layers (live Figma, canvas-group-selected) and the
+  // pink gap boxes of a selected auto-layout component, set or instance (tools/Gestures.cpp).
+  void groupDotsOverlay(Overlay& o) const;
+  void gapBoxesOverlay(Overlay& o) const;
   void startGap(int gap);
   void startLayoutBar(int band);
   void dragLayoutBar(Vec2 world, uint32_t mods);

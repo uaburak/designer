@@ -572,11 +572,16 @@ bool Editor::smartSelection(SmartSelection& out) const {
   // Figma's smart selection: layers of one parent (not an auto-layout flow) in a row or a column with equal gaps.
   if (viewer_ || tool_ != Tool::MOVE || selection_.size() < 2 || selection_.size() > 500 || text_.node != kNoGuid || vector_.node != kNoGuid)
     return false;
-  Guid parent = doc_.parentOf(selection_[0]);
+  return equallySpaced(selection_, out);
+}
+
+bool Editor::equallySpaced(const std::vector<Guid>& ids, SmartSelection& out) const {
+  if (ids.size() < 2) return false;
+  Guid parent = doc_.parentOf(ids[0]);
   const Node* pn = doc_.get(parent);
   if (pn && pn->props.isAutoLayout()) return false;
   std::vector<std::pair<Guid, Rect>> items;
-  for (Guid id : selection_) {
+  for (Guid id : ids) {
     const Node* n = doc_.get(id);
     if (!n || id.isDerived() || n->props.locked || doc_.parentOf(id) != parent) return false;
     items.push_back({id, doc_.worldBounds(id)});
@@ -601,6 +606,54 @@ bool Editor::smartSelection(SmartSelection& out) const {
     return true;
   }
   return false;
+}
+
+void Editor::groupDotsOverlay(Overlay& o) const {
+  // A selected group whose layers are equally spaced: their centres dotted as a smart selection's at rest (live Figma,
+  // canvas-group-selected; on the group under the pointer: unverified, the dots stay).
+  if (selection_.size() != 1 || viewer_ || tool_ != Tool::MOVE || text_.node != kNoGuid || vector_.node != kNoGuid) return;
+  const Node* n = doc_.get(selection_[0]);
+  if (!n || !n->props.isGroupLike()) return;
+  std::vector<Guid> layers;
+  for (Guid c : doc_.children(selection_[0]))
+    if (const Node* k = doc_.get(c); k && k->props.visible) layers.push_back(c);
+  SmartSelection smart;
+  if (!equallySpaced(layers, smart)) return;
+  for (Guid id : smart.order) {
+    Rect b = doc_.worldBounds(id);
+    o.centreDots.push_back({b.x + b.w / 2, b.y + b.h / 2});
+  }
+  o.centreDotsIdle = true;
+}
+
+void Editor::gapBoxesOverlay(Overlay& o) const {
+  // A selected auto-layout component, component set or instance: each gap between its layers as a box across the
+  // content box, from one layer's edge to the next one's (live Figma round 11, canvas-component-set-selected: Chip's
+  // two 16-wide gaps from y 16 to 24; canvas-instance-selected: Button's gap across its 24-high content). Rows of a
+  // wrapping flow, a grid's and a plain frame's gaps: none (no live capture shows them).
+  if (selection_.size() != 1 || viewer_) return;
+  Guid id = selection_[0];
+  const Node* n = doc_.get(id);
+  if (!n || !n->props.isComponentish() || !n->props.isAutoLayout()) return;
+  const NodeProps& p = n->props;
+  StackMode mode = p.stack().stackMode;
+  if (mode == StackMode::GRID || p.stack().stackWrap == StackWrap::WRAP) return;
+  double pad[4];
+  Layout::padding(p, pad);
+  std::vector<Rect> boxes;
+  for (Guid c : Layout(const_cast<Editor&>(*this)).flowChildren(id)) {
+    const NodeProps& cp = doc_.get(c)->props;
+    boxes.push_back(layoutBox(cp.transform, cp.size));
+  }
+  const bool horizontal = mode == StackMode::HORIZONTAL;
+  const double w = p.size.x, h = p.size.y;
+  const Mat2x3 W = doc_.worldTransform(id);
+  for (size_t i = 1; i < boxes.size(); i++) {
+    const Rect& a = boxes[i - 1];
+    const Rect& b = boxes[i];
+    Rect g = horizontal ? Rect{a.right(), pad[1], b.x - a.right(), h - pad[1] - pad[3]} : Rect{pad[0], a.bottom(), w - pad[0] - pad[2], b.y - a.bottom()};
+    if (g.w > 1e-6 && g.h > 1e-6) o.gapBoxes.push_back({W, g});
+  }
 }
 
 bool Editor::selectionHoverChanged(Vec2 s) {
@@ -1003,6 +1056,13 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
 
   // Dev Mode: status chips, annotation labels and dots, saved measurements, the Annotation and Measurement tools.
   if (uint32_t r = devPointerDown(s, mods)) return r;
+
+  // A selected component set's "+" under its variants pill (live Figma round 11): Add variant.
+  if (!viewer_ && selectingTool() && hits_.addVariant.set != kNoGuid && hits_.addVariant.rect.contains(s) && selection_.size() == 1 &&
+      selection_[0] == hits_.addVariant.set) {
+    command(CommandId::ADD_VARIANT);
+    return P_HANDLED;
+  }
 
   // Editing text: a press in it moves the caret or selects; elsewhere it ends the editing first.
   if (text_.node != kNoGuid)

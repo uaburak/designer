@@ -30,7 +30,8 @@ struct FrameTitle {
 // of a section (Figma: "top-level" frames, including those inside sections), or a section.
 bool showsTitle(const Document& doc, Guid id);
 
-// The titles on `page` whose frames are near `screen` (CSS px), in paint order. `view` maps world to screen;
+// The titles on `page` whose frames are near `screen` (CSS px), in paint order — every titled frame's but an
+// instance's (live Figma draws no name over a top-level instance, selected or not). `view` maps world to screen;
 // `measure(name, section)` is the name's width in CSS px at the title's size. `focus` (Dev Mode's focus view): only
 // that frame's.
 std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3& view, const Rect& screen, const OverlayStyle& style,
