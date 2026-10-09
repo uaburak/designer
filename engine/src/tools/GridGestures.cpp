@@ -617,6 +617,7 @@ void Editor::gridTrackOverlay(Overlay& o) const {
     if (!expanded) return;
     // An expanded pill outlines its track across the frame.
     Overlay::GridCell box;
+    box.column = column;
     box.a = W.apply(column ? Vec2{g.colX[i], 0} : Vec2{0, g.rowY[i]});
     box.b = W.apply(column ? Vec2{g.colX[i] + g.colW[i], size.y} : Vec2{size.x, g.rowY[i] + g.rowH[i]});
     o.gridTrackBoxes.push_back(box);

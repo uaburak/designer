@@ -79,5 +79,5 @@ inline constexpr float kChromeDark[size_t(ChromeColor::Count)][4] = {
   {0.047059f, 0.54902f, 0.913725f, 1.0f}, // radiusHandleStroke
 };
 struct ChromeMetrics { float selectionStroke, hoverStroke, handle, badgeHeight, badgePadX, badgeRadius, badgeGap, titleBaseline, rulerThickness, rulerTick, rulerFontSize, titleSize, sectionPillHeight, sectionPillPadX, sectionPillFontSize, sectionPillGap, radiusHandle, radiusHandleInset; };
-inline constexpr ChromeMetrics kChromeMetrics{ 1, 2, 7, 16, 4, 2, 6, 10, 20, 4, 10, 11, 23, 6, 11, 6, 9, 12 };
+inline constexpr ChromeMetrics kChromeMetrics{ 1, 2, 7, 17, 4, 2, 6, 10, 20, 4, 10, 11, 23, 6, 11, 6, 9, 12 };
 }

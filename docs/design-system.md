@@ -326,7 +326,7 @@ Chrome metrics go to the engine in the same generated header (`kChromeMetrics`),
 | Selection stroke | 1 | M |
 | Hover stroke | 1 | G |
 | Handle size (incl. 1px stroke) | 7 | G |
-| Size badge | height 16, padding-x 4, radius 2, 6 below the selection | M |
+| Size badge (and auto layout's gap / padding badges) | height 17, padding-x 4, radius 2, 6 below the selection (live Figma round 10, the captures scaled by their 11 px frame title: 17.3–17.8 high, text 4.0 in; `docs/engine-build.md` "Round 10") | M |
 | Size badge text | Inter 11/16, weight 450 | G |
 | Frame title text | Inter 11/16, weight 450, baseline 10 above the frame top | M |
 | Ruler | thickness 20; labels Inter 10, centred on the tick; ticks 4 long | M |
@@ -508,7 +508,7 @@ export const z = { base: 0, panel: 10, /* … 1.11 */ } as const;
 export const motion = { "duration-fast": "80ms", /* … 1.12 */ } as const;
 export const CHROME_COLORS = ["selection", "handleFill", /* … 1.4, ABI order */] as const;
 export const canvasChrome: Record<(typeof CHROME_COLORS)[number], Pair> = { /* 1.4 */ };
-export const canvasChromeMetrics = { selectionStroke: 1, handle: 7, sizeBadge: { height: 16, padX: 4, radius: 2, gap: 6 }, /* … */ } as const;
+export const canvasChromeMetrics = { selectionStroke: 1, handle: 7, sizeBadge: { height: 17, padX: 4, radius: 2, gap: 6 }, /* … */ } as const;
 export type Surface = "app" | "tabbar" | "viewer";
 export function surfaceBackground(surface: Surface, theme: ThemeName): string; // app → bg, tabbar → tabbar-bg, viewer → canvas-default
 export function resolveFigmaColor(name: keyof typeof figmaColor, theme: ThemeName): string;

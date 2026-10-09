@@ -20,7 +20,7 @@ struct OverlayStyle {
   double hoverWidth = 2;
   double handleSize = 7;
   double handlesMinBox = 24;  // handles hidden when the box is smaller on screen
-  double badgeHeight = 16;
+  double badgeHeight = 17;  // the size badge and auto layout's value badges (live Figma round 10: 17)
   double badgeRadius = 2;
   double badgeGap = 6;
   double badgePadding = 4;  // the badge's and pills' text inset
