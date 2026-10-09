@@ -1,7 +1,7 @@
 /**
  * The left sidebar (240, resizable): the file header (name ▾ with the Edit file menu and rename, the location,
  * Minimize UI), then what the navigation bar's tab shows — File: Pages and Layers (or Find and replace, ⌘F),
- * Assets, and the Agents and Tools tabs (not built in this app: their headers and an empty state).
+ * Assets, Agents (panels/agents: chats with the AI tools on this computer) and Tools (not built in this app).
  */
 import { useState } from "react";
 import { EmptyState, Icon, IconButton, MenuButton, ResizeHandle, SearchField, Select, TextInput, showToast } from "@/ds";
@@ -15,6 +15,7 @@ import { Assets } from "./Assets";
 import { FindPanel } from "./Find";
 import { TabHeader } from "./TabHeader";
 import { NavStrip } from "./Rail";
+import { AgentsPanel } from "./agents/AgentsPanel";
 import styles from "./Panels.module.css";
 
 export function LeftPanel() {
@@ -45,16 +46,6 @@ export function LeftPanel() {
       )}
       <ResizeHandle side="right" value={width} onChange={(px) => ed.ui.set({ leftWidth: px })} />
     </aside>
-  );
-}
-
-/** Agents (Figma's agent and its chats): not part of this app — the tab's header, New chat disabled, a word why. */
-function AgentsPanel() {
-  return (
-    <div className={styles.placeholderTab} data-agents="">
-      <TabHeader title="Agents" actions={<IconButton icon="24.plus.small" label="New chat" tone="secondary" disabled />} />
-      <EmptyState icon="24.agents" title="No chats" body="The Figma agent isn’t part of this app." />
-    </div>
   );
 }
 

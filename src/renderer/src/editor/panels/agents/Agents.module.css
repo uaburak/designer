@@ -1,0 +1,109 @@
+@layer app {
+  /* The Agents tab (left sidebar): its header (TabHeader), then the chats, a chat or the settings */
+  .panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .chat { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .chat .scroll { padding: var(--ds-space-3) var(--ds-space-3) var(--ds-space-4) var(--ds-space-4); }
+
+  /* A chat's bar: Back and its title */
+  .chatBar { display: flex; flex: none; align-items: center; gap: var(--ds-space-1); height: var(--ds-size-section-header); padding: 0 var(--ds-space-3) 0 var(--ds-space-2); }
+  .chatBarTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The chats, by recency */
+  .chatRow { position: relative; display: flex; align-items: flex-start; margin: 0 var(--ds-space-2); border-radius: var(--ds-radius-medium); }
+  .chatRow:first-child { margin-top: var(--ds-space-2); }
+  .chatRow:hover { background: var(--figma-color-bg-hover); }
+  .chatOpen { display: grid; flex: 1 1 auto; grid-template-columns: 1fr auto; gap: var(--ds-space-half) var(--ds-space-2); min-width: 0; padding: var(--ds-space-2); border: 0; background: transparent; color: inherit; text-align: left; outline: none; cursor: default; }
+  .chatOpen:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-medium); }
+  .chatTitle { overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); text-overflow: ellipsis; white-space: nowrap; }
+  .chatTime { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
+  .chatPreview { display: -webkit-box; grid-column: 1 / -1; overflow: hidden; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .chatDelete { flex: none; margin: var(--ds-space-1) var(--ds-space-1) 0 0; visibility: hidden; }
+  .chatRow:hover .chatDelete, .chatDelete:focus-visible { visibility: visible; }
+
+  /* A new chat */
+  .intro { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-6) var(--ds-space-1) 0; }
+  .introIcon { display: flex; color: var(--figma-color-icon-brand); }
+  .introTitle { margin: 0; color: var(--figma-color-text); font: var(--ds-font-heading-medium); }
+  .introBody { margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .suggestions { display: flex; flex-direction: column; align-items: flex-start; gap: var(--ds-space-1-5); margin-top: var(--ds-space-2); }
+  .suggestion { max-width: 100%; padding: var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); text-align: left; outline: none; cursor: default; }
+  .suggestion:hover { background: var(--figma-color-bg-hover); }
+  .suggestion:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+
+  /* The prompt: right, in a bubble, with the selection it was about */
+  .user { display: flex; flex-direction: column; align-items: flex-end; gap: var(--ds-space-1); margin: var(--ds-space-2) 0 var(--ds-space-3) var(--ds-space-6); }
+  .userBubble { max-width: 100%; padding: var(--ds-space-2) var(--ds-space-3); border-radius: var(--ds-radius-large); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+  .chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ds-space-1); }
+  .chip { display: inline-flex; align-items: center; gap: var(--ds-space-1); max-width: 100%; height: var(--ds-size-row); padding: 0 var(--ds-space-1-5) 0 var(--ds-space-1); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .chip svg { flex: none; color: var(--figma-color-icon-secondary); }
+  .chipName { overflow: hidden; color: var(--figma-color-text); text-overflow: ellipsis; white-space: nowrap; }
+  .chipRemove { display: inline-flex; padding: 0; border: 0; border-radius: var(--ds-radius-small); background: transparent; color: var(--figma-color-icon-secondary); outline: none; }
+  .chipRemove:hover { color: var(--figma-color-icon); }
+  .chipRemove:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .more { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); align-self: center; }
+
+  /* The answer: its text, its steps, its changes */
+  .agent { display: flex; flex-direction: column; gap: var(--ds-space-1-5); margin-bottom: var(--ds-space-4); }
+  .agentName { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-small); }
+  .agentText { color: var(--figma-color-text); font: var(--ds-font-body-medium); overflow-wrap: anywhere; user-select: text; }
+  .para { margin: 0 0 var(--ds-space-2); }
+  .para:last-child { margin-bottom: 0; }
+  .list { margin: 0 0 var(--ds-space-2); padding-left: var(--ds-space-4); }
+  .agentText code { padding: 0 var(--ds-space-half); border-radius: var(--ds-radius-small); background: var(--figma-color-bg-secondary); font: var(--ds-font-code); }
+  .status, .tool { display: flex; align-items: center; gap: var(--ds-space-1-5); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .toolIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); }
+  .tool[data-tool-state="error"] .toolIcon { color: var(--figma-color-icon-danger); }
+  .toolLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .error { padding: var(--ds-space-2); border: 1px solid var(--figma-color-border-danger); border-radius: var(--ds-radius-medium); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+  .stopped { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  .changes { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
+  .changesLabel { flex: 1 1 auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .changesHint { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+
+  /* The message box: the selection as context, the text, the agent and model, Send / Stop */
+  .composer { display: flex; flex: none; flex-direction: column; gap: var(--ds-space-1-5); margin: 0 var(--ds-space-2) var(--ds-space-2); padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-large); background: var(--figma-color-bg); }
+  .composer:focus-within { border-color: var(--figma-color-border-selected); }
+  .composer .chips { justify-content: flex-start; }
+  .input { width: 100%; min-height: calc(var(--ds-size-row) * 2); max-height: calc(var(--ds-size-row) * 8); padding: 0; border: 0; background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); resize: none; outline: none; field-sizing: content; }
+  .input::placeholder { color: var(--figma-color-text-tertiary); }
+  .composerBar { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-1); }
+  .providerSelect { min-width: 0; max-width: calc(100% - var(--ds-size-control)); }
+  .noProvider { padding: 0 var(--ds-space-1); border: 0; background: transparent; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); outline: none; cursor: default; }
+  .noProvider:hover { color: var(--figma-color-text); }
+  .send { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); padding: 0; border: 0; border-radius: var(--ds-radius-full); background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); outline: none; }
+  .send:disabled { background: var(--figma-color-bg-disabled); color: var(--figma-color-text-ondisabled); }
+  .send:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .stop { background: var(--figma-color-bg-inverse); }
+  .stopGlyph { width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-small); background: var(--figma-color-icon-oninverse); }
+
+  /* Agent settings */
+  .section { padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3) var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
+  .sectionHeader { display: flex; align-items: center; justify-content: space-between; min-height: var(--ds-size-control); }
+  .sectionTitle { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .provider, .client { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-2) 0; }
+  .provider + .provider, .client + .client { border-top: 1px solid var(--figma-color-border); }
+  .providerHead { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); }
+  .providerName { flex: 1 1 auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
+  .providerDetail, .providerHint, .note, .clientState { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
+  .note { margin: var(--ds-space-1) 0 0; }
+  .providerActions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1); }
+  .dot { flex: none; width: var(--ds-space-1-5); height: var(--ds-space-1-5); border-radius: var(--ds-radius-full); background: var(--figma-color-icon-tertiary); }
+  .dotOn { background: var(--figma-color-icon-success); }
+  .badge { color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); }
+  .auth { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
+  .authState { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); overflow-wrap: anywhere; }
+  .link { align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); text-decoration: underline; cursor: pointer; }
+  .testResult { color: var(--figma-color-text-success); font: var(--ds-font-body-medium); }
+  .testFail { color: var(--figma-color-text-danger); }
+  .form { display: flex; flex-direction: column; gap: var(--ds-space-2); padding-top: var(--ds-space-1); }
+  .form > button { align-self: flex-start; }
+  .mcpUrl { display: flex; align-items: center; gap: var(--ds-space-1); }
+  .mcpUrl code { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-code); text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+
+  /* The right panel's MCP section (nothing selected; live: "MCP", "1 connection", "Set up agents for Figma MCP").
+     The count sits right after the title (live: "MCP" at 16, the count at 45), the button at the right edge. */
+  .mcpSection > div:first-child > span:first-child { flex: none; }
+  .mcpSection > div:first-child > div:last-child { flex: 1 1 auto; justify-content: space-between; padding-left: var(--ds-space-1); }
+  .mcpCount { color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+}

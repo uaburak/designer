@@ -1,6 +1,8 @@
 import { app, ipcMain, Menu, shell, type IpcMainEvent, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenuItem, type Role } from "../shared/ipc";
 import { isFileKey } from "../shared/tabs";
+import type { McpClientId } from "../shared/agents/types";
+import * as agents from "./agents/host";
 import { exportAssets } from "./files";
 import { fontIndex, readFont } from "./fonts";
 import { googlePreview } from "./googleFonts";
@@ -150,6 +152,9 @@ export function registerIpc() {
 
 
   // ── Links, theme ──
+  // ── Agents (src/main/agents/host.ts): a view's file is main's to name — never the page's ──
+  registerAgentsIpc();
+
   onSend("shell:open-external", (_c, p) => {
     const url = str(p?.url, 4096);
     if (url && /^(https?:\/\/|mailto:)/i.test(url)) void shell.openExternal(url);
@@ -172,6 +177,57 @@ export function registerIpc() {
     const text = str(p?.text, 200);
     if (!family || !text) throw new Error("fonts:preview: a family and a text");
     return googlePreview(family, text);
+  });
+}
+
+const CLIENT_IDS: readonly McpClientId[] = ["claude-code", "cursor", "vscode", "antigravity", "gemini", "codex"];
+const clientId = (v: unknown): McpClientId => {
+  if (!CLIENT_IDS.includes(v as McpClientId)) throw new Error("agents: unknown client");
+  return v as McpClientId;
+};
+const watched = new WeakSet<WebContents>();
+
+function registerAgentsIpc() {
+  onInvoke("agents:providers", () => agents.providers());
+  onInvoke("agents:settings", () => agents.agentSettings());
+  onInvoke("agents:set-settings", (_c, p) => agents.setAgentSettings({ providerId: p?.providerId === null ? null : (str(p?.providerId, 100) ?? undefined), models: p?.models && typeof p.models === "object" ? p.models : undefined }));
+  onInvoke("agents:add-server", (_c, p) => agents.addServer({ label: str(p?.label, 100) ?? "", baseUrl: str(p?.baseUrl, 2000) ?? "", apiKey: str(p?.apiKey, 4000) ?? undefined }));
+  onInvoke("agents:remove-server", (_c, p) => agents.removeServer(str(p?.id, 100) ?? ""));
+  onInvoke("agents:test", (_c, p) => agents.testProvider(str(p?.providerId, 100) ?? ""));
+  onInvoke("agents:auth", (_c, p) => agents.authStatus(str(p?.providerId, 100) ?? ""));
+  onInvoke("agents:sign-in", (_c, p) => agents.signIn(str(p?.providerId, 100) ?? ""));
+  onInvoke("agents:sign-out", (_c, p) => agents.signOut(str(p?.providerId, 100) ?? ""));
+  onInvoke("agents:turn", ({ info, sender }, req) => {
+    if (!info.fileKey) throw new Error("agents:turn: no file in this view");
+    const prompt = str(req?.prompt, 100_000);
+    if (!prompt || !str(req?.providerId, 100) || !str(req?.chatId, 100)) throw new Error("agents:turn: a chat, a provider and a prompt");
+    if (!watched.has(sender)) {
+      watched.add(sender);
+      sender.once("destroyed", () => agents.viewGone(sender));
+    }
+    const sel = Array.isArray(req.context?.selection) ? req.context.selection.slice(0, 50) : [];
+    return agents.startTurn(sender, info.fileKey, {
+      chatId: req.chatId,
+      providerId: req.providerId,
+      model: str(req.model, 300) ?? undefined,
+      prompt,
+      resume: str(req.resume, 200) ?? undefined,
+      history: (Array.isArray(req.history) ? req.history : []).slice(-40).map((m) => ({ role: m?.role === "assistant" ? "assistant" : "user", text: str(m?.text, 100_000) ?? "" })),
+      context: {
+        fileName: str(req.context?.fileName, 300) ?? "",
+        pageName: str(req.context?.pageName, 300) ?? "",
+        selection: sel.map((s) => ({ id: str(s?.id, 64) ?? "", name: str(s?.name, 300) ?? "", type: str(s?.type, 40) ?? "", width: Number(s?.width) || 0, height: Number(s?.height) || 0 })),
+      },
+    });
+  });
+  onInvoke("agents:stop", (_c, p) => agents.stopTurn(str(p?.turnId, 100) ?? ""));
+  onInvoke("agents:mcp", () => agents.mcp());
+  onInvoke("agents:clients", () => agents.clients());
+  onInvoke("agents:connect", ({ sender }, p) => agents.connect(sender, clientId(p?.client)));
+  onInvoke("agents:disconnect", (_c, p) => agents.disconnect(clientId(p?.client)));
+  onInvoke("agents:client-config", (_c, p) => agents.clientConfig(clientId(p?.client)));
+  onSend("agents:tool-result", ({ sender }, r) => {
+    if (r && typeof r.reqId === "number") agents.settleToolCall(sender, r);
   });
 }
 
