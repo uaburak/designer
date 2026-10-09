@@ -46,6 +46,8 @@
     font: var(--ds-font-body-medium-regular);
     letter-spacing: var(--ds-tracking-body-medium-regular);
   }
+  /* The scope ("This page") is 11 / 400 like the count (live left/find-layers-search.txt), not the select's 450 */
+  .status button, .status button * { font-weight: var(--ds-weight-body-medium-regular); }
   .count { white-space: nowrap; }
   .dot { padding: 0 var(--ds-space-half) 0 var(--ds-space-1); }
   .grow { flex: 1 1 auto; }
@@ -78,7 +80,7 @@
   .text { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--ds-space-half); min-width: 0; padding-top: 1px; }
   .label, .parent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .label { font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); }
-  /* The parent's name: 10 / 12, text-secondary (live) */
-  .parent { color: var(--figma-color-text-secondary); font: var(--ds-font-body-ruler); letter-spacing: var(--ds-tracking-body-ruler); }
+  /* The parent's name: 10 / 12, 400, text-secondary (live) */
+  .parent { color: var(--figma-color-text-secondary); font: var(--ds-font-body-ruler); font-weight: var(--ds-weight-body-medium-regular); letter-spacing: var(--ds-tracking-body-ruler); }
   .mark { background: transparent; color: inherit; font-weight: 550; }
 }

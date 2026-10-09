@@ -343,8 +343,13 @@ export type TextStyle = { size: number; line: number; weight: number; tracking: 
 /** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. 450 / 550; 400 for mono, for the live capture's layer and page names and field prefixes; 500 for the panel labels, as Figma draws them. */
 export const text = {
   "body-small": { size: 9, line: 14, weight: 450, tracking: "0.045px" },
-  /** The Design panel's field labels ("Position", "Corner radius"): 9px/500 at 70% — Figma's live panel (docs/research/figma/live). */
-  "panel-label": { size: 9, line: 11, weight: 500, tracking: "0.045px" },
+  /**
+   * The Design panel's field labels ("Position", "Corner radius"): 9px/500 at 70% — Figma's live panel
+   * (docs/research/figma/live). Live's face draws them wider than Inter 4 at 9px: 0.26px tracking gives live's width for
+   * 19 of the 23 captions measured and 1 px under it for the rest (Start point 48 / 49, Line height, Letter spacing,
+   * Constraints).
+   */
+  "panel-label": { size: 9, line: 11, weight: 500, tracking: "0.26px" },
   "body-medium": { size: 11, line: 16, weight: 450, tracking: "0.055px" },
   "body-medium-strong": { size: 11, line: 16, weight: 550, tracking: "0.055px" },
   /** Live capture: layer and page names, Find's results and counts, a field's prefix letter (X, Y, W, H) are 11px / 400 */

@@ -55,7 +55,7 @@ function resizeOne(ed: EditorController, n: PanelNode, parent: PanelNode | null,
 }
 
 /** The W or H field with its sizing menu. */
-export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; nodes: PanelNode[]; parents: (PanelNode | null)[]; onAddLimit: (axis: Axis) => void }) {
+export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis: Axis; nodes: PanelNode[]; parents: (PanelNode | null)[]; onAddLimit: (axis: Axis) => void; disabled?: boolean }) {
   const ed = useEditor();
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const field = useRef<HTMLDivElement>(null);
@@ -117,6 +117,7 @@ export function SizeField({ axis, nodes, parents, onAddLimit }: { axis: Axis; no
           label={label}
           prefix={axis === "x" ? "W" : "H"}
           className={menu ? styles.sizeField : undefined}
+          disabled={disabled}
           value={fieldValue(value)}
           modeLabel={menu ? (mode ?? " ") : undefined}
           min={0.01}
@@ -175,6 +176,16 @@ export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
       {field("max")}
     </PropertyRow>
   );
+}
+
+/**
+ * Is this axis's field disabled? Live (design/line.txt, text.txt, text-editing-caret.txt): a line's Height; an auto-width
+ * text's Width and Height. An auto-height text's Height follows the same rule (unverified: not captured).
+ */
+export function sizeLocked(nodes: readonly PanelNode[], axis: Axis): boolean {
+  if (!nodes.length) return false;
+  if (axis === "y" && nodes.every((n) => n.type === "LINE")) return true;
+  return nodes.every((n) => n.type === "TEXT" && (n.textAutoResize === "WIDTH_AND_HEIGHT" || (axis === "y" && n.textAutoResize === "HEIGHT")));
 }
 
 /** Which axes show their min / max row. */

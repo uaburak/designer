@@ -39,6 +39,16 @@ export function sharedStyle(nodes: readonly PanelNode[], slot: StyleSlot): Guid 
   return out ?? null;
 }
 
+/**
+ * The button's box moved up to its section's top: live opens the picker from Fill's "Apply styles and variables" level
+ * with the section (popovers/fill-styles-variables.txt: 531 for a section at 450 of a panel at 81, the button at 456).
+ */
+function sectionTop(button: HTMLElement): DOMRect {
+  const r = button.getBoundingClientRect();
+  const section = button.closest("section")?.getBoundingClientRect();
+  return section ? new DOMRect(r.left, section.top, r.width, r.height) : r;
+}
+
 /** The section header's "Apply styles" (four dots): the style picker, with colour variables for Fill and Stroke. */
 export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: readonly PanelNode[]; slot: StyleSlot; /** Mixed paints: Figma names the button "Style" */ mixed?: boolean; /** Fill / Stroke: the colour picker's Libraries tab instead */ onOpenPicker?: (anchor: DOMRect) => void }) {
   const ed = useEditor();
@@ -51,7 +61,7 @@ export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: read
   const current = sharedStyle(nodes, slot);
   return (
     <>
-      <IconButton icon="24.styles" label={mixed ? "Style" : `${SECTION_TITLE[slot]}, ${label}`} tooltip={mixed ? "Style" : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => (onOpenPicker ? onOpenPicker(e.currentTarget.getBoundingClientRect()) : setOpen(open ? null : e.currentTarget))} />
+      <IconButton icon="24.styles" label={mixed ? "Style" : `${SECTION_TITLE[slot]}, ${label}`} tooltip={mixed ? "Style" : label} tone="secondary" aria-expanded={!!open} data-styles-button={slot} onClick={(e) => (onOpenPicker ? onOpenPicker(sectionTop(e.currentTarget)) : setOpen(open ? null : e.currentTarget))} />
       {open && paints && (
         <VariablePicker
           anchor={open}

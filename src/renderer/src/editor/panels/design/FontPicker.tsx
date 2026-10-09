@@ -10,7 +10,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Icon, Popover, SearchField, Select, VirtualList, type Mixed, isMixed } from "@/ds";
 import { closestStyle, type FontFamily } from "@/engine/fonts";
-import { FONT_FILTERS, filterFamilies, hasStyle, type FontFilter } from "../../fontList";
+import { FONT_FILTER_MENU, filterFamilies, hasStyle, type FontFilter } from "../../fontList";
 import { useFontPreview } from "../../fontPreview";
 import styles from "./FontPicker.module.css";
 
@@ -187,13 +187,13 @@ export function FontPicker({ anchor, family, style, list, fileFamilies, onPrevie
           <SearchField value={typed ?? family ?? ""} onChange={setQuery} placeholder="Search fonts" label="Search fonts" autoFocus selectOnFocus onExit={(r) => r === "escape" && onClose()} />
         </div>
         <div className={styles.filter}>
-          <Select label="Font filter" variant="ghost" value={filter} options={FONT_FILTERS.map((f) => ({ value: f.value, label: f.label }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
+          <Select label="Font filter" variant="ghost" value={filter} options={FONT_FILTER_MENU.map((f) => (f === "-" ? f : { value: f.value, label: f.label }))} onChange={(v) => setFilter(v as FontFilter)} data-font-filter="" />
         </div>
         <div className={styles.list} role="listbox" aria-label="Fonts">
           {list === null ? (
             <div className={styles.empty}>Loading fonts…</div>
           ) : shown.length === 0 ? (
-            <div className={styles.empty}>{query ? `No fonts match “${query}”` : filter === "file" ? "No fonts in this file" : "No fonts"}</div>
+            <div className={styles.empty}>{query ? `No fonts match “${query}”` : filter === "file" ? "No fonts in this file" : filter === "uploaded" ? "No uploaded fonts" : "No fonts"}</div>
           ) : (
             <VirtualList
               count={shown.length}

@@ -26,7 +26,7 @@ import { isGrid } from "../../model/grid";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
-import { fields, hasCorners, isFrameNode, isGroupNode, typeOf, useKeeps, useParents, useSupports, type BlendModeName, type PanelNode } from "./shared";
+import { fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 type Fields = Parameters<EditorController["engine"]["setProps"]>[1];
@@ -75,7 +75,7 @@ const ALIGN_COMMANDS: Record<string, CommandName> = {
   "arrange.align-bottom": "ALIGN_BOTTOM",
 };
 
-function GroupButton({ id, icon }: { id: string; icon: Parameters<typeof IconButton>[0]["icon"] }) {
+function GroupButton({ id, icon, disabled, run }: { id: string; icon: Parameters<typeof IconButton>[0]["icon"]; disabled?: boolean; run?: () => void }) {
   const ed = useEditor();
   const c = command(id);
   const engineCommand = ALIGN_COMMANDS[id];
@@ -85,10 +85,24 @@ function GroupButton({ id, icon }: { id: string; icon: Parameters<typeof IconBut
       label={c.label}
       shortcut={shortcutOf(c)}
       className={styles.groupButton}
-      disabled={!isEnabled(ed, c)}
-      onClick={(e) => (e.shiftKey && engineCommand ? ed.engine.command(engineCommand, { toParent: true }) : runEditorCommand(ed, id))}
+      disabled={disabled ?? !isEnabled(ed, c)}
+      onClick={(e) => (run && !isEnabled(ed, c) ? run() : e.shiftKey && engineCommand ? ed.engine.command(engineCommand, { toParent: true }) : runEditorCommand(ed, id))}
     />
   );
+}
+
+/**
+ * One frame, group or boolean on its own (live design/frame.txt, group.txt, boolean.txt: the six Align buttons
+ * enabled): its children line up inside it — each to the container's box, as one undo step. Unverified beyond the
+ * enabled state (help "Align layers": a frame's or group's children align to it).
+ */
+function alignChildren(ed: EditorController, container: Guid, how: CommandName) {
+  const kids = (ed.engine.readNodes([container], { childIds: true })[0]?.childIds ?? []) as Guid[];
+  if (!kids.length) return;
+  const before = ed.selection;
+  ed.engine.setSelection(kids);
+  ed.engine.command(how, { toParent: true });
+  ed.engine.setSelection(before);
 }
 
 /** Esc in a panel field gives the keyboard back to the canvas (Figma; Enter keeps the field). */
@@ -181,6 +195,16 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
     (n, deg) => (n.size ? { transform: rotateTo(n.transform ?? IDENTITY, n.size, deg) } : null)
   );
   const container = nodes.length === 1 && (isGroupNode(nodes[0]) || typeOf(nodes[0]) === "BOOLEAN_OPERATION" || (typeOf(nodes[0]) === "FRAME" && !isAutoLayout(nodes[0])));
+  // A layer inside an instance keeps its place and turn (live design/nested-instance.txt); a layer in an auto-layout
+  // flow keeps its place (autolayout-child, grid-child: X / Y disabled); a text being edited keeps its turn
+  // (text-editing-caret: Rotate 90˚ / Flip disabled).
+  const locked = nodes.some(isInstanceSublayer);
+  const textEdit = useTextEditRef();
+  const editingText = !!textEdit && nodes.some((n) => n.guid === textEdit);
+  const placeLocked = locked || (inAutoLayout && nodes.every((n) => n.stackPositioning !== "ABSOLUTE"));
+  const containerKids = container && !locked ? ((ed.engine.readNodes([nodes[0].guid], { childIds: true })[0]?.childIds ?? []) as Guid[]).length : 0;
+  const alignRun = (id: string) => (containerKids > 0 ? () => alignChildren(ed, nodes[0].guid, ALIGN_COMMANDS[id]) : undefined);
+  const alignDisabled = (id: string) => (locked ? true : containerKids > 0 ? false : !isEnabled(ed, command(id)));
   const gridH = mixed(nodes.map((n) => (n as { gridChildHorizontalAlign?: string }).gridChildHorizontalAlign ?? "MIN"));
   const gridV = mixed(nodes.map((n) => (n as { gridChildVerticalAlign?: string }).gridChildVerticalAlign ?? "MIN"));
   return (
@@ -192,6 +216,7 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
             icon="24.al.absolute-position"
             label="Ignore auto layout"
             tone="secondary"
+            disabled={locked}
             pressed={absolute ?? false}
             onPressedChange={(on) => ed.setProps(refs, fields({ stackPositioning: on ? "ABSOLUTE" : "AUTO" }), on ? "Ignore auto layout" : "Use auto layout")}
           />
@@ -208,29 +233,29 @@ export function PositionSection({ nodes }: { nodes: PanelNode[] }) {
         ) : (
           <PropertyRow label="Alignment" action={nodes.length > 1 || container ? <AlignmentMore nodes={nodes} /> : undefined}>
             <div className={styles.buttonGroup}>
-              <GroupButton id="arrange.align-left" icon="24.layout-align-left" />
-              <GroupButton id="arrange.align-horizontal-center" icon="24.layout-align-horizontal-center" />
-              <GroupButton id="arrange.align-right" icon="24.layout-align-right" />
+              <GroupButton id="arrange.align-left" disabled={alignDisabled("arrange.align-left")} run={alignRun("arrange.align-left")} icon="24.layout-align-left" />
+              <GroupButton id="arrange.align-horizontal-center" disabled={alignDisabled("arrange.align-horizontal-center")} run={alignRun("arrange.align-horizontal-center")} icon="24.layout-align-horizontal-center" />
+              <GroupButton id="arrange.align-right" disabled={alignDisabled("arrange.align-right")} run={alignRun("arrange.align-right")} icon="24.layout-align-right" />
             </div>
             <div className={styles.buttonGroup}>
-              <GroupButton id="arrange.align-top" icon="24.layout-align-top" />
-              <GroupButton id="arrange.align-vertical-center" icon="24.layout-align-vertical-center" />
-              <GroupButton id="arrange.align-bottom" icon="24.layout-align-bottom" />
+              <GroupButton id="arrange.align-top" disabled={alignDisabled("arrange.align-top")} run={alignRun("arrange.align-top")} icon="24.layout-align-top" />
+              <GroupButton id="arrange.align-vertical-center" disabled={alignDisabled("arrange.align-vertical-center")} run={alignRun("arrange.align-vertical-center")} icon="24.layout-align-vertical-center" />
+              <GroupButton id="arrange.align-bottom" disabled={alignDisabled("arrange.align-bottom")} run={alignRun("arrange.align-bottom")} icon="24.layout-align-bottom" />
             </div>
           </PropertyRow>
         )}
         <PropertyRow label="Position" action={constraints && !section ? <ConstraintsToggle /> : undefined}>
-          <NumericInput label="X-position" prefix="X" prefixTone="primary" value={fieldValue(x)} {...axis("x")} />
-          <NumericInput label="Y-position" prefix="Y" prefixTone="primary" value={fieldValue(y)} {...axis("y")} />
+          <NumericInput label="X-position" prefix="X" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(x)} {...axis("x")} />
+          <NumericInput label="Y-position" prefix="Y" prefixTone="primary" disabled={placeLocked} className={styles.plainDisabled} value={fieldValue(y)} {...axis("y")} />
         </PropertyRow>
         {constraints && !section && constraintsOpen && <ConstraintsRow nodes={nodes} />}
         {!section && (
           <PropertyRow label="Rotation">
-            <NumericInput label="Rotation" prefix="24.rotation" unit="°" value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
+            <NumericInput label="Rotation" prefix="24.rotation" unit="°" disabled={locked} className={styles.plainDisabled} value={fieldValue(rotation)} min={-360} max={360} {...rotate} />
             <div className={styles.buttonGroup}>
-              <GroupButton id="object.rotate-90-right" icon="24.rotate" />
-              <GroupButton id="object.flip-horizontal" icon="24.flip.horizontal.small" />
-              <GroupButton id="object.flip-vertical" icon="24.flip.vertical" />
+              <GroupButton id="object.rotate-90-right" icon="24.rotate" disabled={locked || editingText || undefined} />
+              <GroupButton id="object.flip-horizontal" icon="24.flip.horizontal.small" disabled={locked || editingText || undefined} />
+              <GroupButton id="object.flip-vertical" icon="24.flip.vertical" disabled={locked || editingText || undefined} />
             </div>
           </PropertyRow>
         )}
@@ -259,7 +284,7 @@ const CORNER_FIELD = {
 
 /** Polygons, stars and vectors: one radius for every corner, and corner smoothing (Figma's live panel). */
 const SMOOTHED = new Set(["REGULAR_POLYGON", "STAR", "VECTOR"]);
-/** Texts, lines and ellipses: the radius field alone (no button). */
+/** Texts, lines and ellipses: the radius field alone (no button), disabled (live ellipse.txt, line.txt, text.txt). */
 const PLAIN_RADIUS = new Set(["TEXT", "LINE", "ELLIPSE"]);
 
 /** Figma's iOS corner smoothing preset (help 360050986854). */
@@ -365,7 +390,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             <NumericInput label="Opacity" prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
           </VariableField>
           <VariableField nodes={nodes} fields={["CORNER_RADIUS"]} prefix="24.corners" disabled={independentNow}>
-            <NumericInput label="Corner radius" prefix="24.corners" min={0} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
+            <NumericInput label="Corner radius" prefix="24.corners" min={0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
           </VariableField>
         </PropertyRow>
         {independent && (

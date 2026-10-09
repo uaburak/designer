@@ -18,17 +18,18 @@ import { AlignmentMatrix, Checkbox, Icon, IconButton, MenuButton, MIXED, Numeric
 import { useEditor } from "../../controller";
 import { command, runEditorCommand, shortcutOf } from "../../commands";
 import { useUI } from "../../hooks";
-import { isAutoLayout, isSpaceBetween, SPACE_BETWEEN } from "../../model/sizing";
+import { isAutoLayout, isSpaceBetween, sizingOf, SPACE_BETWEEN } from "../../model/sizing";
+import { roundPanel } from "../../model/geometry";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { gridDefaults, isGrid, type GridNode } from "../../model/grid";
 import { paddingFields, paddingFromText, paddingOf, type Padding } from "../../model/padding";
 import { spacingAxes, spacingOf } from "../../model/spacing";
 import { GridDimensionsRow, GridSpanRow } from "./Grid";
 import { VariableField } from "./Variables";
-import { LimitRow, SizeField, sizeLabels, useLimitAxes } from "./Sizing";
+import { LimitRow, SizeField, sizeLabels, sizeLocked, useLimitAxes } from "./Sizing";
 import { canResizeToFit, resizeToFit, spacingItems, writeSpacing } from "./layoutActions";
 import { editEach, exitToCanvas, perLayer, stepInfo } from "./Sections";
-import { fields, isFrameNode, isGroupNode, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
+import { fields, isFrameNode, isGroupNode, isInstanceSublayer, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 type Flow = "NONE" | "VERTICAL" | "HORIZONTAL" | "GRID";
@@ -47,6 +48,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const sections = nodes.some((n) => typeOf(n) === "SECTION");
   const frames = nodes.every(isFrameNode) && !sections;
   const groups = nodes.every((n) => isGroupNode(n));
+  const clipFrames = nodes.filter((n) => isFrameNode(n) && typeOf(n) !== "SECTION");
   const flowable = autoLayoutKept && !sections && nodes.every((n) => isFrameNode(n) || isGroupNode(n));
   const auto = autoLayoutKept && frames && nodes.every(isAutoLayout);
   const instances = nodes.some((n) => typeOf(n) === "INSTANCE");
@@ -55,6 +57,8 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const texts = nodes.filter(isTextNode);
   const spacing = (nodes.length > 1 || (nodes.length === 1 && (isGroupNode(nodes[0]) || typeOf(nodes[0]) === "BOOLEAN_OPERATION"))) && !auto;
   const sizes = sizeLabels(nodes, parents);
+  // Inside an instance: Flow, Wrap and Lock aspect ratio disabled, W / H a read-only list (live nested-instance.txt).
+  const locked = nodes.some(isInstanceSublayer);
 
   const addAutoLayout = () => {
     if (runEditorCommand(ed, "object.add-auto-layout")) return;
@@ -82,18 +86,18 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   return (
     <PanelSection title={auto ? "Auto layout" : "Layout"} actions={actions}>
       <PropertyGrid labels={labels}>
-        {flowable && <FlowRow nodes={nodes} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
+        {flowable && <FlowRow nodes={nodes} disabled={locked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
         {texts.length > 0 && <TextResizingRow nodes={texts} />}
         <PropertyRow
           label={sizes.row}
           action={
             constrainKept && !lines ? (
-              <ToggleIconButton icon="24.constrain-proportions" label="Lock aspect ratio" tone="secondary" pressed={constrained ?? false} onPressedChange={(on) => ed.setProps(refs, fields({ proportionsConstrained: on }), "Lock aspect ratio")} />
+              <ToggleIconButton icon="24.constrain-proportions" label="Lock aspect ratio" tone="secondary" disabled={locked} pressed={constrained ?? false} onPressedChange={(on) => ed.setProps(refs, fields({ proportionsConstrained: on }), "Lock aspect ratio")} />
             ) : undefined
           }
         >
-          <SizeField axis="x" nodes={nodes} parents={parents} onAddLimit={limits.open} />
-          <SizeField axis="y" nodes={nodes} parents={parents} onAddLimit={limits.open} />
+          {locked ? <LockedSize axis="x" nodes={nodes} parents={parents} /> : <SizeField axis="x" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "x")} />}
+          {locked ? <LockedSize axis="y" nodes={nodes} parents={parents} /> : <SizeField axis="y" nodes={nodes} parents={parents} onAddLimit={limits.open} disabled={sizeLocked(nodes, "y")} />}
         </PropertyRow>
         {limits.axes.map((axis) => (
           <LimitRow key={axis} axis={axis} nodes={nodes} />
@@ -102,9 +106,10 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
         {auto && <AutoLayoutRows nodes={nodes} />}
         {parents.length > 0 && parents.every((p) => isGrid(p)) && nodes.every((n) => n.stackPositioning !== "ABSOLUTE") && <GridSpanRow nodes={nodes} />}
       </PropertyGrid>
-      {frames && !groups && (
+      {/* Live (design/mixed-multi.txt): shown when a frame is among the layers (Rect + Ellipse + Text + F_frame), for the frames */}
+      {clipFrames.length > 0 && !sections && !groups && (
         <div className={styles.checkRow}>
-          <Checkbox tone="panel" label="Clip content" checked={mixed(nodes.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(refs, { frameMaskDisabled: !on }, "Clip content")} />
+          <Checkbox tone="panel" label="Clip content" checked={mixed(clipFrames.map((n) => n.frameMaskDisabled !== true)) ?? true} onChange={(on) => ed.setProps(clipFrames.map((n) => n.guid), { frameMaskDisabled: !on }, "Clip content")} />
         </div>
       )}
     </PanelSection>
@@ -112,7 +117,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
 }
 
 /** Flow: Freeform (no auto layout) / Vertical / Horizontal / Grid; the action column holds Wrap or automatic positioning. */
-function FlowRow({ nodes, onAdd, onRemove }: { nodes: PanelNode[]; onAdd: () => void; onRemove: () => void }) {
+function FlowRow({ nodes, disabled, onAdd, onRemove }: { nodes: PanelNode[]; disabled?: boolean; onAdd: () => void; onRemove: () => void }) {
   const ed = useEditor();
   const refs = nodes.map((n) => n.guid);
   const flow = mixed(nodes.map(flowOf));
@@ -139,6 +144,7 @@ function FlowRow({ nodes, onAdd, onRemove }: { nodes: PanelNode[]; onAdd: () => 
         icon="24.layout-tidy-up-grid"
         label="Toggle automatic positioning"
         tone="secondary"
+        disabled={disabled}
         pressed={reflow ?? false}
         // Turning it back on sets Number of rows to Auto (help "Use the grid auto layout flow").
         onPressedChange={(on) => ed.setProps(refs, fields((on ? { gridReflowEnabled: true, gridAutoTracks: "ROWS" } : { gridReflowEnabled: false }) as never), "Automatic positioning")}
@@ -148,6 +154,7 @@ function FlowRow({ nodes, onAdd, onRemove }: { nodes: PanelNode[]; onAdd: () => 
         icon="24.al.layout-wrap"
         label="Wrap"
         tone="secondary"
+        disabled={disabled}
         pressed={wrap ?? false}
         // Wrap lays out horizontally (a vertical flow turns horizontal to wrap).
         onPressedChange={(on) => ed.setProps(refs, fields(on ? { stackMode: "HORIZONTAL", stackWrap: "WRAP" } : { stackWrap: "NO_WRAP" }), "Wrap")}
@@ -158,6 +165,7 @@ function FlowRow({ nodes, onAdd, onRemove }: { nodes: PanelNode[]; onAdd: () => 
       <SegmentedControl
         label="Layout"
         fullWidth
+        disabled={disabled}
         value={flow ?? MIXED}
         options={[
           { value: "NONE", icon: "24.layout.freeform", tooltip: "Freeform" },
@@ -168,6 +176,28 @@ function FlowRow({ nodes, onAdd, onRemove }: { nodes: PanelNode[]; onAdd: () => 
         onChange={pick}
       />
     </PropertyRow>
+  );
+}
+
+/**
+ * W / H of a layer inside an instance: live shows a read-only list (design/nested-instance.txt: an 88 × 32 listbox
+ * named "Advanced auto layout settings" at the field's place, 4 above and below its 24 box; the axis letter at 8 and
+ * the sizing — "Hug" — at 25, both 11 / 450; the box on the panel's colour). Its options aren't offered (unverified).
+ */
+function LockedSize({ axis, nodes, parents }: { axis: "x" | "y"; nodes: PanelNode[]; parents: (PanelNode | null)[] }) {
+  const sizing = mixed(nodes.map((n, i) => sizingOf(n, parents[i], axis)));
+  const value = mixedNumber(nodes.map((n) => roundPanel(n.size?.[axis] ?? 0)));
+  const text = sizing === "HUG" ? "Hug" : sizing === "FILL" ? "Fill" : isMixed(value) || value === undefined ? "Mixed" : String(value);
+  return (
+    // (Live: a "Horizontal / Vertical resizing" box around the list, the list itself not disabled.)
+    <div aria-label={axis === "x" ? "Horizontal resizing" : "Vertical resizing"} className={styles.lockedSize} data-locked-size={axis}>
+      <div role="listbox" aria-label="Advanced auto layout settings" className={styles.lockedSizeList}>
+        <div className={styles.lockedSizeBox}>
+          <span className={styles.lockedSizeAxis}>{axis === "x" ? "W" : "H"}</span>
+          <span className={styles.lockedSizeValue}>{text}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -444,7 +474,7 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
   // baseline (Disabled / Enabled), Auto spacing (only for an Auto gap), Layout ("Updated"); a grid has Inside stroke and
   // Layout only.
   return (
-    <Popover anchor={anchor} title="Auto layout settings" width={240} onClose={onClose} label="Auto layout settings">
+    <Popover anchor={anchor} title="Auto layout settings" width={240} offsetY={-4} onClose={onClose} label="Auto layout settings">
       <div className={styles.alPreview} aria-hidden="true">Preview</div>
       <div className={cx(styles.settings, styles.alSettings)}>
         <span className={styles.settingsLabel}>Inside stroke</span>
@@ -472,7 +502,9 @@ function AutoLayoutSettings({ nodes, anchor, onClose }: { nodes: PanelNode[]; an
               onChange={(v) => ed.setProps(refs, fields({ stackReverseZIndex: v === "FIRST" }), "Canvas stacking")}
             />
             <span className={styles.settingsLabel}>Align text baseline</span>
-            <span className={styles.alEnd}>
+            <span className={cx(styles.alEnd, styles.alLegended)}>
+              {/* (Live: the control's "Align text baseline" legend 7 above it at −1, clipped from view) */}
+              <span className={styles.alLegend}>Align text baseline</span>
               <SegmentedControl
                 className={styles.typeSeg}
                 label="Align text baseline"

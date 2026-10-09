@@ -37,9 +37,18 @@ export interface VectorEditState {
   segmentCount: number;
   /** The selected vertices' handle mirroring; "MIXED"; null with none selected */
   mirroring: Mirroring | "MIXED" | null;
+  /** The selected vertices: x / y in the parent's space (the layer's X / Y space), their corner radius */
+  points: VectorPoint[];
 }
 
-export const NO_VECTOR_EDIT: VectorEditState = { active: false, ref: null, tool: "MOVE", selectedVertices: [], selectedSegments: [], vertexCount: 0, segmentCount: 0, mirroring: null };
+export interface VectorPoint {
+  index: number;
+  x: number;
+  y: number;
+  cornerRadius: number;
+}
+
+export const NO_VECTOR_EDIT: VectorEditState = { active: false, ref: null, tool: "MOVE", selectedVertices: [], selectedSegments: [], vertexCount: 0, segmentCount: 0, mirroring: null, points: [] };
 
 type Raw = Record<string, unknown>;
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -60,7 +69,17 @@ export function readVectorEdit(raw: Raw | null | undefined): VectorEditState {
     vertexCount: num(raw.vertexCount),
     segmentCount: num(raw.segmentCount),
     mirroring,
+    points: Array.isArray(raw.points)
+      ? (raw.points as Raw[]).filter((p) => p && typeof p === "object").map((p) => ({ index: num(p.index), x: num(p.x), y: num(p.y), cornerRadius: num(p.cornerRadius) }))
+      : [],
   };
+}
+
+/** The selected points' box's top left (what the panel's X / Y show) and their radius (null when they differ). */
+export function pointsSummary(points: readonly VectorPoint[]): { x: number; y: number; radius: number | null } | null {
+  if (!points.length) return null;
+  const radius = points.every((p) => p.cornerRadius === points[0].cornerRadius) ? points[0].cornerRadius : null;
+  return { x: Math.min(...points.map((p) => p.x)), y: Math.min(...points.map((p) => p.y)), radius };
 }
 
 /** One editor's view of the engine's vector edit mode. */
@@ -112,6 +131,15 @@ export class VectorEditor {
 
   setMirroring(mirroring: Mirroring): number {
     return runEngineCommand(this.engine, "VECTOR_SET_MIRRORING", { mirroring });
+  }
+
+  /** Moves the selected points (their box's top left) or sets their corner radius: VECTOR_SET_POINTS, one undo step. */
+  get canSetPoints(): boolean {
+    return hasCommand("VECTOR_SET_POINTS") && this.state.get().selectedVertices.length > 0;
+  }
+
+  setPoints(args: { x?: number; y?: number; cornerRadius?: number }): number {
+    return runEngineCommand(this.engine, "VECTOR_SET_POINTS", args);
   }
 
   /** ⌫ in the panel's sense: "Delete and heal" (the engine's own keys do it on the canvas). */

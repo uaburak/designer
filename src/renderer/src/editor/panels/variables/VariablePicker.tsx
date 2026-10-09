@@ -351,6 +351,8 @@ export function VariableList({
           onChange={setQuery}
           placeholder="Search"
           autoFocus
+          // Live (popovers/effect-styles.txt, typography-styles, layout-guide-styles): the styles' search is expanded
+          expanded={!!stylesTab || undefined}
         />
       </div>
       {(libraryState.on || colorTab) && (

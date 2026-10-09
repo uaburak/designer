@@ -12,7 +12,7 @@ const base = process.env.URL ?? "http://localhost:5461";
 const exe = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
 
 // Steps: ["select", ids] · ["click", aria-label] (in the Design panel first) · ["clickIn", aria-label] (in the last
-// popup) · ["text", text] (a visible text) · ["hover", aria-label] · ["key", key] · ["doc", name] (another fixture).
+// popup) · ["pick", aria-label] (in the colour picker) · ["text", text] (a visible text) · ["hover", aria-label] · ["key", key] · ["doc", name] (another fixture).
 const rect = ["select", ["7:60"]];
 const al = ["select", ["7:20"]];
 const text = ["select", ["7:90"]];
@@ -22,16 +22,19 @@ const effect = [["eval", "localStorage.setItem('designer.effects.shaderOnboardin
 const exportRow = [rect, ["click", "Add export settings"]];
 const guide = [["select", ["7:1"]], ["click", "Add layout guide"], ["click", "Layout guide settings"]];
 export const CASES = {
+  // The live fill-picker captures were taken in one session in this order (their y shows it: Solid and Pattern at 347,
+  // then the Image tab's 577 moved the picker up to 307 and it stayed there — a popover keeps its top when it shrinks;
+  // the Shader tab's browser stayed open beside it from "custom" on). The cases replay that order.
   "fill-picker-solid": picker,
-  "fill-picker-gradient_linear": [...picker, ["clickIn", "Gradient"]],
-  "fill-picker-gradient-type-menu": [...picker, ["clickIn", "Gradient"], ["clickIn", "Paint type"]],
   "fill-picker-pattern": [...picker, ["clickIn", "Pattern"]],
-  "fill-picker-image": [...picker, ["clickIn", "Image"]],
-  "fill-picker-video": [...picker, ["clickIn", "Video"]],
-  "fill-picker-custom": [...picker, ["clickIn", "Shader"]],
-  "fill-picker-color-format-menu": [...picker, ["clickIn", "Color format"]],
-  "fill-picker-swatch-set-menu": [...picker, ["clickIn", "Color swatch set selector"]],
-  "fill-picker-libraries-tab": [...picker, ["text", "Libraries"]],
+  "fill-picker-image": [...picker, ["clickIn", "Pattern"], ["clickIn", "Image"]],
+  "fill-picker-video": [...picker, ["clickIn", "Image"], ["clickIn", "Video"]],
+  "fill-picker-custom": [...picker, ["clickIn", "Image"], ["clickIn", "Video"], ["clickIn", "Shader"]],
+  "fill-picker-gradient_linear": [...picker, ["clickIn", "Image"], ["clickIn", "Video"], ["clickIn", "Shader"], ["pick", "Gradient"]],
+  "fill-picker-gradient-type-menu": [...picker, ["clickIn", "Image"], ["clickIn", "Video"], ["clickIn", "Shader"], ["pick", "Gradient"], ["pick", "Paint type"]],
+  "fill-picker-color-format-menu": [...picker, ["clickIn", "Image"], ["clickIn", "Solid"], ["clickIn", "Color format"]],
+  "fill-picker-swatch-set-menu": [...picker, ["clickIn", "Image"], ["clickIn", "Solid"], ["clickIn", "Color swatch set selector"]],
+  "fill-picker-libraries-tab": [...picker, ["clickIn", "Image"], ["text", "Libraries"]],
   "fill-styles-variables": [rect, ["click", "Fill, Apply styles and variables"]],
   "blend-mode-menu": [rect, ["click", "Apply blend mode"]],
   "boolean-operations-menu": [rect, ["click", "Boolean operations"]],
@@ -54,14 +57,15 @@ export const CASES = {
   "effect-settings-noise": [...effect, ["clickIn", "Effect settings"], ["text", "Noise"]],
   "effect-settings-texture": [...effect, ["clickIn", "Effect settings"], ["text", "Texture"]],
   "effect-settings-glass": [...effect, ["clickIn", "Effect settings"], ["text", "Glass"]],
-  "effect-styles": [rect, ["click", "Effects, Apply styles"]],
+  // (Live's capture came after the stroke ones: the rect had a stroke, Effects' button at 759 — the popover's bottom at 884.)
+  "effect-styles": [...stroke, ["click", "Effects, Apply styles"]],
   "export-advanced-settings": [...exportRow, ["click", "Advanced export settings"]],
   "export-format-menu": [...exportRow, ["click", "Export file type"]],
   "layout-guide-settings-grid": guide,
   "layout-guide-type-menu": [...guide, ["clickIn", "Layout guide type"]],
   "layout-guide-styles": [["select", ["7:1"]], ["click", "Layout guide, Apply styles"]],
   "font-picker": [text, ["click", "Font family"]],
-  "font-picker-filter-menu": [text, ["click", "Font family"], ["clickIn", "Font filter"]],
+  "font-picker-filter-menu": [text, ["click", "Font family"], ["click", "Font filter"]],
   "font-size-menu": [text, ["click", "Font sizes"]],
   "font-weight-menu": [text, ["click", "Font style"]],
   "type-settings": [text, ["click", "Type settings"]],
@@ -108,6 +112,8 @@ try {
           for (const c of candidates) if (!target && (await c.count())) target = c.first();
           await (target ?? candidates[3].first()).click({ timeout: 3000, force: true });
         } else if (op === "clickIn") await lastPopup().locator(`[aria-label="${arg}"]`).first().click({ timeout: 3000, force: true });
+        // In the colour picker (another popover may be open beside it)
+        else if (op === "pick") await page.locator(`[aria-label="Color picker"] [aria-label="${arg}"]`).first().click({ timeout: 3000, force: true });
         else if (op === "text") await page.getByText(arg, { exact: true }).filter({ visible: true }).last().click({ timeout: 3000 });
         else if (op === "hover") await page.locator(`[aria-label="${arg}"]`).first().hover({ timeout: 3000, force: true });
         else if (op === "key") await page.keyboard.press(arg);

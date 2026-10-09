@@ -462,6 +462,24 @@ function Details({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSu
   );
 }
 
+/**
+ * An axis's marks on its slider (live popovers/type-settings-variable.txt: Weight's nine at 100…900, Slant's one at its
+ * default). Live's marks are likely the font's named instances; the engine gives none, so weight marks every 100 and the
+ * rest their default (unverified).
+ */
+export function axisStops(a: Pick<FontInfo["axes"][number], "tag" | "min" | "max" | "default">): number[] {
+  if (a.tag !== "wght") return [a.default];
+  const out: number[] = [];
+  for (let v = Math.ceil(a.min / 100) * 100; v <= a.max; v += 100) out.push(v);
+  return out;
+}
+
+/** Live's order: the axes by name (Slant before Weight), whatever the font's own order (unverified rule). */
+export function axisOrder<T extends { tag: string; name: string }>(axes: readonly T[]): T[] {
+  const label = (a: T) => AXIS_LABELS[a.tag] ?? a.name ?? a.tag;
+  return [...axes].sort((x, y) => label(x).localeCompare(label(y)));
+}
+
 function Variable({ nodes, summary, axes }: { nodes: PanelNode[]; summary: TextSummary | null; axes: FontInfo["axes"] }) {
   const ed = useEditor();
   const write = useWrite(nodes);
@@ -470,15 +488,31 @@ function Variable({ nodes, summary, axes }: { nodes: PanelNode[]; summary: TextS
   const variations = summary?.values.fontVariations as { axisTag: number; axisName?: string; value: number }[] | null | undefined;
   const set = (tag: string, name: string, value: number, info?: ChangeInfo) =>
     write(name, { fontVariations: withAxis(variations, tag, name, value) }, info);
+  // Live: per axis the name and its field (81 × 24 at 143, the number 72 at 151), the slider under them (its marks 4 × 4
+  // from 18 to 218, the thumb 16), 65 apart.
   return (
-    <div className={styles.settings}>
-      {axes.map((a) => {
+    <div className={styles.axes}>
+      {axisOrder(axes).map((a) => {
         const name = AXIS_LABELS[a.tag] ?? a.name ?? a.tag;
         const value = axisValue(a.tag, a.default);
+        const at = value === MIXED ? a.default : value;
+        const span = a.max - a.min || 1;
         return (
-          <Fragment key={a.tag}>
+          <div key={a.tag} className={styles.axis}>
             <span className={styles.settingsLabel}>{name}</span>
-            <span className={styles.axisRow}>
+            <NumericInput
+              className={styles.axisField}
+              label={`${name} value`}
+              value={value}
+              min={a.min}
+              max={a.max}
+              onChange={(v, info) => set(a.tag, name, v, info)}
+              onCancel={() => ed.cancelEdit()}
+            />
+            <span className={styles.axisTrack}>
+              {axisStops(a).map((v) => (
+                <span key={v} className={styles.axisStop} data-on={v === at || undefined} style={{ left: `calc(${((v - a.min) / span) * 100}% - 2px)` }} />
+              ))}
               <input
                 type="range"
                 aria-label={name}
@@ -486,21 +520,13 @@ function Variable({ nodes, summary, axes }: { nodes: PanelNode[]; summary: TextS
                 min={a.min}
                 max={a.max}
                 step={a.max - a.min > 10 ? 1 : 0.1}
-                value={value === MIXED ? a.default : value}
+                value={at}
                 onChange={(e) => set(a.tag, name, Number(e.currentTarget.value), { final: false, source: "drag" })}
                 onPointerUp={(e) => set(a.tag, name, Number(e.currentTarget.value), { final: true, source: "drag" })}
                 onKeyUp={(e) => set(a.tag, name, Number(e.currentTarget.value), { final: true, source: "drag" })}
               />
-              <NumericInput
-                label={`${name} value`}
-                value={value}
-                min={a.min}
-                max={a.max}
-                onChange={(v, info) => set(a.tag, name, v, info)}
-                onCancel={() => ed.cancelEdit()}
-              />
             </span>
-          </Fragment>
+          </div>
         );
       })}
     </div>

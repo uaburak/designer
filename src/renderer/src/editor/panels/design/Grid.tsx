@@ -5,7 +5,7 @@
  * "Column span" / "Row span". Edits go through the grid model (model/grid.ts) as whole field values, one undo step each.
  */
 import { useState, type ReactNode } from "react";
-import { Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, tooltipProps, type ChangeInfo } from "@/ds";
+import { Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, tooltipProps, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
@@ -13,7 +13,8 @@ import { isAutoRows, parseRowCount, parseTrackInput, removeTrackAt, rowCountLabe
 import { useUI } from "../../hooks";
 import styles from "./Grid.module.css";
 import { VariableField } from "./Variables";
-import type { PanelNode } from "./shared";
+import { PANEL_MENU_GAP, type PanelNode } from "./shared";
+import dstyles from "./Design.module.css";
 
 const asFields = (f: Record<string, unknown>) => f as unknown as NodeFields;
 const sessionOf = (guid: Guid) => Number(String(guid).replace(/^I/, "").split(":")[0]) || 1;
@@ -335,7 +336,9 @@ export function GridSpanRow({ nodes }: { nodes: PanelNode[] }) {
   const rowSpan = mixedNumber(items.map((n) => spanOf(n, "rows")));
   const set = (key: "gridColumnSpan" | "gridRowSpan", v: number, info: ChangeInfo) => editGrids(ed, key === "gridColumnSpan" ? "Column span" : "Row span", info, refs, () => ({ [key]: Math.max(1, Math.round(v)) }));
   return (
-    <PropertyRow label="Span">
+    // Live (design/grid-child.txt): "Column span" (16,340) and "Row span" (112,340) over the fields at 356 — 2 lower
+    // than a plain row under Dimensions (a row with a label per column).
+    <PropertyRow labels={["Column span", "Row span"]}>
       <NumericInput label="Column span" prefix="24.grid-column" value={fieldValue(colSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridColumnSpan", v, info)} onCancel={() => ed.cancelEdit()} />
       <NumericInput label="Row span" prefix="24.grid-row" value={fieldValue(rowSpan)} min={1} max={1000} precision={0} onChange={(v, info) => set("gridRowSpan", v, info)} onCancel={() => ed.cancelEdit()} />
     </PropertyRow>
@@ -351,6 +354,42 @@ const PANEL_TYPES: { value: TrackType; label: string }[] = [
   { value: "HUG", label: "Hug" },
   { value: "FLEX", label: "Fill" },
 ];
+
+/**
+ * A track's size as laid out: a fixed one its value, a fill one its share of what the fixed tracks, the gaps and the
+ * padding leave (live grid/row-track-menu.txt: AL_grid's 1fr rows read 84). With a hug track on the axis the share
+ * isn't known here (null).
+ */
+export function trackSize(node: GridNode & { size?: { x: number; y: number } }, axis: GridAxis, index: number): number | null {
+  const tracks = tracksOf(node, axis);
+  const t = tracks[index];
+  if (!t) return null;
+  if (t.sizing.type === "FIXED") return Math.round(t.sizing.value);
+  if (t.sizing.type === "HUG" || tracks.some((x) => x.sizing.type === "HUG")) return null;
+  const num = (k: string) => (typeof node[k] === "number" ? (node[k] as number) : 0);
+  const length = axis === "columns" ? (node.size?.x ?? 0) - num("stackHorizontalPadding") - num("stackPaddingRight") : (node.size?.y ?? 0) - num("stackVerticalPadding") - num("stackPaddingBottom");
+  const gaps = (tracks.length - 1) * num(axis === "columns" ? "gridColumnGap" : "gridRowGap");
+  const fixed = tracks.reduce((sum, x) => sum + (x.sizing.type === "FIXED" ? x.sizing.value : 0), 0);
+  const fr = tracks.reduce((sum, x) => sum + (x.sizing.type === "FLEX" ? x.sizing.value : 0), 0);
+  return fr > 0 ? Math.round((Math.max(0, length - gaps - fixed) * t.sizing.value) / fr) : null;
+}
+
+/**
+ * A track's sizing list (live grid/row-track-menu.txt, 156 × 72): "Fixed height (84)" with the track's size whatever its
+ * sizing, Hug contents, "Fill container (1fr)" — each with its glyph, the current one checked.
+ */
+export function trackMenu(node: GridNode & { size?: { x: number; y: number } }, axis: GridAxis, index: number): MenuEntry[] {
+  const t = tracksOf(node, axis)[index];
+  if (!t) return [];
+  const word = axis === "columns" ? "width" : "height";
+  const glyph = (k: "fixed" | "hug" | "fill"): IconName => `24.al.${word}-${k}` as IconName;
+  const size = trackSize(node, axis, index);
+  return [
+    { id: "FIXED", label: `Fixed ${word}${size === null ? "" : ` (${size})`}`, checked: t.sizing.type === "FIXED", radio: true, icon: glyph("fixed") },
+    { id: "HUG", label: "Hug contents", checked: t.sizing.type === "HUG", radio: true, icon: glyph("hug") },
+    { id: "FLEX", label: `Fill container (${t.sizing.type === "FLEX" ? trackLabel(t.sizing) : "1fr"})`, checked: t.sizing.type === "FLEX", radio: true, icon: glyph("fill") },
+  ];
+}
 
 /**
  * While tracks of the selected grid are selected on the canvas, the Design tab is Figma's "Grid" panel: "Grid" and ×
@@ -436,11 +475,9 @@ export function GridPanel({ frame }: { frame: Guid }) {
                 <MenuButton
                   label={`${axis === "columns" ? "Column" : "Row"} ${i + 1} sizing`}
                   className={styles.gpValueMenu}
-                  entries={[
-                    { id: "FIXED", label: `Fixed ${axis === "columns" ? "width" : "height"}${t.sizing.type === "FIXED" ? ` (${Math.round(t.sizing.value)})` : ""}`, checked: t.sizing.type === "FIXED" },
-                    { id: "HUG", label: "Hug contents", checked: t.sizing.type === "HUG" },
-                    { id: "FLEX", label: `Fill container${t.sizing.type === "FLEX" ? ` (${trackLabel(t.sizing)})` : ""}`, checked: t.sizing.type === "FLEX" },
-                  ]}
+                  gap={PANEL_MENU_GAP}
+                  menuClassName={cx(dstyles.panelMenu, dstyles.trackMenu)}
+                  entries={trackMenu(node, axis, i)}
                   onSelect={(id) => size({ type: id as TrackType, value: id === "FIXED" ? Math.round(t.sizing.type === "FIXED" ? t.sizing.value : 100) : t.sizing.type === "FLEX" ? t.sizing.value : 1 })}
                 >
                   <Icon name="16.chevron.down" />

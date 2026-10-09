@@ -3,8 +3,8 @@
  * the selection's fills and strokes and of every visible layer inside it, each
  * once (a gradient as one row: its swatch and type, its picker edits every use); editing a
  * row (hex, opacity, the picker) recolours every paint using it, as one undo
- * step; the target button selects the layers using it. The first three rows
- * show, then "See all N colors". Rules and grouping: model/selectionColors.ts.
+ * step; the target button selects the layers using it. The first four rows
+ * show, then "See all N colors". Rules and order: model/selectionColors.ts.
  */
 import { useMemo, useState } from "react";
 import { Button, ColorInput, IconButton, PanelSection, type ChangeInfo } from "@/ds";
@@ -16,7 +16,7 @@ import { engineExports } from "../../engineCompat";
 import { useSelectionColorsVersion } from "../../hooks";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { paintLabel, paintSwatch } from "../../model/paints";
-import { SELECTION_COLORS_MAX_NODES, SELECTION_COLORS_SHOWN, collectColors, recolor, showSelectionColors, type PaintUse, type SelectionColor } from "../../model/selectionColors";
+import { SELECTION_COLORS_MAX_NODES, SELECTION_COLORS_SHOWN, collectColors, collectSelectionColors, recolor, showSelectionColors, type PaintUse, type SelectionColor } from "../../model/selectionColors";
 import type { PickerTarget } from "./Paints";
 import type { PanelNode } from "./shared";
 import styles from "./Design.module.css";
@@ -32,13 +32,12 @@ const COLOR_FIELDS = ["fillPaints", "strokePaints", "visible", "mask", "styleIdF
 const hasSubtreeRead = (engine: Engine): boolean => "READ_SUBTREE" in abi && engineExports(engine, "layer_changes");
 
 /**
- * The visible layers inside `refs` (not the selected ones), each selected
- * layer's subtree children first (first child first), a boolean's operands left out; null past `max` layers. One engine read of the
- * paints alone when the build has it (`readNodes` with `fields`, `subtree`,
- * `visibleOnly`: hidden subtrees left out by the engine), else read one level
- * at a time with every field.
+ * The visible layers inside each of `refs` (not the selected ones), each selected layer's subtree children first
+ * (first child first), a boolean's operands left out; null past `max` layers. One engine read of the paints alone when
+ * the build has it (`readNodes` with `fields`, `subtree`, `visibleOnly`: hidden subtrees left out by the engine), else
+ * read one level at a time with every field.
  */
-export function readInside(engine: Engine, refs: readonly Guid[], max = SELECTION_COLORS_MAX_NODES): NodeChange[] | null {
+export function readInsideGroups(engine: Engine, refs: readonly Guid[], max = SELECTION_COLORS_MAX_NODES): NodeChange[][] | null {
   const byId = new Map<Guid, NodeChange>();
   if (hasSubtreeRead(engine)) {
     const rows = (engine.readNodes as (r: readonly Guid[], o: object) => NodeChange[])(refs, { childIds: true, fields: COLOR_FIELDS, subtree: true, visibleOnly: true });
@@ -58,32 +57,40 @@ export function readInside(engine: Engine, refs: readonly Guid[], max = SELECTIO
       level = next;
     }
   }
-  const out: NodeChange[] = [];
   // Figma's live order: a layer's children before it, the first child first (a frame's child's colour, then the
   // frame's; a group's g_a, then g_b). A boolean's operands draw only through the boolean: not read.
-  const walk = (id: Guid) => {
+  const walk = (id: Guid, out: NodeChange[]) => {
     const n = byId.get(id);
     if (!n || n.type === "BOOLEAN_OPERATION") return;
     for (const child of n.childIds ?? []) {
       const c = byId.get(child);
       if (!c || c.visible === false) continue;
-      walk(c.guid);
+      walk(c.guid, out);
       out.push(c);
     }
   };
-  for (const r of refs) if (byId.get(r)?.visible !== false) walk(r);
-  return out;
+  return refs.map((r) => {
+    const out: NodeChange[] = [];
+    if (byId.get(r)?.visible !== false) walk(r, out);
+    return out;
+  });
 }
 
-/** The colours of the selection and what's inside it, and whether the section shows. */
+/** Every visible layer inside `refs`, in the order readInsideGroups gives (null past `max`). */
+export function readInside(engine: Engine, refs: readonly Guid[], max = SELECTION_COLORS_MAX_NODES): NodeChange[] | null {
+  return readInsideGroups(engine, refs, max)?.flat() ?? null;
+}
+
+/** The colours of the selection and what's inside it (live's order: collectSelectionColors), and whether the section shows. */
 export function selectionColorsOf(engine: Engine, nodes: readonly PanelNode[]): { show: boolean; colors: SelectionColor[] } {
-  const inside = readInside(
+  const groups = readInsideGroups(
     engine,
     nodes.map((n) => n.guid)
   );
-  if (!inside) return { show: false, colors: [] };
+  if (!groups) return { show: false, colors: [] };
   const selected = nodes.filter((n) => n.visible !== false) as NodeChange[];
-  return { show: showSelectionColors(selected, inside), colors: collectColors([...inside, ...selected]) };
+  const own = nodes.map((n, i) => (n.visible !== false ? [...groups[i], n as NodeChange] : []));
+  return { show: showSelectionColors(selected, groups.flat()), colors: collectSelectionColors(own) };
 }
 
 /** The picker's "On this page": every solid colour on the current page, as CSS colours (rgba() when not opaque). */

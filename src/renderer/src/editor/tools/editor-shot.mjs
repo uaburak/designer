@@ -26,6 +26,7 @@
 //   EDITOR_ONLY=menus9 node …                                      (round 9 at 1440 × 900, run on its own: the Figma menu, canvas and tool menus, Actions, Preferences, right-drag pan, Assets, Variables)
 //   EDITOR_ONLY=header9 node …                                     (round 9: the header of a layer in a frame, Frame ▾, the boolean menu, the component / variant / instance panels, Component configuration, the swap menu)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
+//   EDITOR_ONLY=panel10 node …                                     (round 10 at 1440 × 900: Design panel states, popovers and sub-menus against the live captures)
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -272,7 +273,8 @@ async function paintsSection(page, theme) {
   await select("2:41");
   check("a bottom-only stroke reads Custom/Bottom", (await panel.getByRole("button", { name: "Individual strokes" }).count()) === 1);
   await panel.getByRole("button", { name: "Individual strokes" }).click();
-  await page.getByRole("menuitemcheckbox", { name: "Custom" }).click();
+  // (Live stroke-individual-strokes-menu.txt: the sides are menuitemradio.)
+  await page.getByRole("menuitemradio", { name: "Custom" }).click();
   await settle(page);
   check("Custom shows the four side weights", (await panel.getByRole("textbox", { name: "Top stroke" }).count()) === 1);
   await shot(page, `32-individual-strokes-${theme}`);
@@ -2084,7 +2086,8 @@ async function header9Section(page, theme) {
   const pb = await presets.boundingBox();
   const tb = await typeButton.boundingBox();
   const phone = presets.getByText("Phone Presets");
-  check("R9 Frame ▾: 222 wide, right under its button, at its left", Math.round(pb.width) === 222 && Math.round(pb.x) === Math.round(tb.x) && Math.round(pb.y) === Math.round(tb.y + tb.height), JSON.stringify([pb, tb]));
+  // (Round 10, live frame-presets-menu.txt at 125 for the button's 117: 8 under it.)
+  check("R9 Frame ▾: 222 wide, 8 under its button, at its left", Math.round(pb.width) === 222 && Math.round(pb.x) === Math.round(tb.x) && Math.round(pb.y) === Math.round(tb.y + tb.height + 8), JSON.stringify([pb, tb]));
   check("R9 Frame ▾: Section offered, the block titles hidden, sizes as three runs", (await presets.getByRole("menuitemcheckbox", { name: "Section" }).getAttribute("aria-disabled")) === null && ((await phone.boundingBox())?.height ?? 0) <= 1 && (await presets.getByRole("menuitem", { name: /iPhone 17\b/ }).first().locator("span > span").count()) === 3);
   await shot(page, `261-r9-frame-presets-${theme}`);
   await presets.getByRole("menuitemcheckbox", { name: "Section" }).click();
@@ -2310,6 +2313,121 @@ async function designRound9(page, theme, panel, select) {
   await panel.locator("[data-grid-panel]").getByRole("button", { name: "Close" }).click();
   await settle(page);
   check("Design r9: its × goes back to the Design panel", (await panel.locator("[data-grid-panel]").count()) === 0);
+}
+
+/**
+ * Round 10 (docs/editor.md "Round 10 — Design panel states, popovers and sub-menus") at live's 1440 × 900: the nested
+ * instance's locks, Align on a frame, disabled fields, grid spans, Selection colors, Frame ▾ past the window,
+ * Individual strokes above its button, the font filter's groups, the settings popovers' numbers, the grid track list,
+ * vector edit mode, the instance's name, Auto layout settings' place.
+ */
+async function panel10Section(page, theme) {
+  await open(page, "&doc=capture");
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const box = async (loc) => loc.boundingBox();
+  const disabled = async (loc) => loc.first().isDisabled();
+  // 1. The Button inside Card instance (live design/nested-instance.txt).
+  await select(["I8:62;8:51"]);
+  const locks = await Promise.all(["X-position", "Rotation"].map((n) => disabled(panel.getByRole("textbox", { name: n }))));
+  const flow = await panel.getByRole("radiogroup", { name: "Layout" }).getByRole("radio").evaluateAll((els) => els.every((e) => e.disabled));
+  const r90 = await disabled(panel.getByRole("button", { name: /^Rotate 90/ }));
+  check("R10 nested instance: X / Y, Rotation, Rotate 90, Flow disabled; W / H as live's lists", locks.every(Boolean) && flow && r90 && (await panel.getByRole("listbox", { name: "Advanced auto layout settings" }).count()) === 2, JSON.stringify({ locks, flow, r90 }));
+  await shot(page, `300-r10-nested-instance-${theme}`);
+  // 2. Align on a single frame enabled; an ellipse's corner radius and a line's height disabled.
+  await select(["7:1"]);
+  check("R10 a frame alone: Align left enabled", !(await disabled(panel.getByRole("button", { name: "Align left" }))));
+  await select(["7:61"]);
+  check("R10 an ellipse: Corner radius disabled", await disabled(panel.getByRole("textbox", { name: "Corner radius" })));
+  await select(["7:64"]);
+  check("R10 a line: Height disabled", await disabled(panel.getByRole("textbox", { name: "Height" })));
+  // 3. A grid child: Column span and Row span captions.
+  await select(["7:41"]);
+  check("R10 grid child: Column span and Row span", (await panel.getByText("Column span", { exact: true }).count()) === 1 && (await panel.getByText("Row span", { exact: true }).count()) === 1);
+  // 4. Rect + Ellipse + Text + F_frame: four colours, no link, live's order.
+  await select(["7:60", "7:61", "7:90", "7:1"]);
+  const colors = await panel.locator('section[aria-label="Selection colors"] button[aria-label^="Solid color hex"]').evaluateAll((els) => els.map((e) => e.getAttribute("aria-label").slice(-6)));
+  check("R10 Selection colors: D9D9D9, 000000, 3380FF, FFFFFF, no See all", colors.join() === "D9D9D9,000000,3380FF,FFFFFF" && (await panel.getByText(/^See all/).count()) === 0, colors.join());
+  // 5. Frame ▾: one list past the window's bottom, 8 under the button.
+  await select(["7:20"]);
+  const fb = await box(panel.getByRole("button", { name: "Frame, Frame Dimension Presets" }));
+  await panel.getByRole("button", { name: "Frame, Frame Dimension Presets" }).click();
+  await settle(page);
+  const pm = await box(page.getByRole("menu").last());
+  check("R10 Frame ▾: 222 wide, 8 under its button, longer than the window (not cut)", pm && fb && Math.round(pm.width) === 222 && Math.round(pm.y) === Math.round(fb.y + fb.height + 8) && pm.height > 900, JSON.stringify(pm));
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // 6. Individual strokes: flips above its button, 12 away.
+  await select(["7:60"]);
+  await panel.getByRole("button", { name: "Add stroke" }).click();
+  await settle(page);
+  const sb = await box(panel.getByRole("button", { name: "Individual strokes" }));
+  await panel.getByRole("button", { name: "Individual strokes" }).click();
+  await settle(page);
+  const sm = await box(page.getByRole("menu").last());
+  check("R10 Individual strokes: 117 × 159 above its button", sm && sb && Math.round(sm.width) === 117 && Math.round(sm.height) === 159 && Math.round(sm.y + sm.height) === Math.round(sb.y - 12), JSON.stringify([sm, sb]));
+  await shot(page, `301-r10-individual-strokes-${theme}`);
+  await page.keyboard.press("Escape");
+  // 7. Effect settings: the numbers 110 wide, 1 from the field's end.
+  await page.evaluate(() => localStorage.setItem("designer.effects.shaderOnboarding", "done"));
+  await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  await panel.getByRole("button", { name: "Effect settings" }).first().click();
+  await settle(page);
+  const blur = await box(page.locator('[data-ds="Popover"]').last().getByRole("textbox", { name: "Blur radius" }));
+  check("R10 effect settings: Blur radius's number 110 wide", blur && Math.round(blur.width) === 110, JSON.stringify(blur));
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    window.__designerEditor.engine.undo();
+    window.__designerEditor.engine.undo();
+  });
+  await settle(page);
+  // 8. The font filter's groups (live popovers/font-picker-filter-menu.txt).
+  await select(["7:90"]);
+  await panel.getByRole("button", { name: "Font family" }).click();
+  await settle(page);
+  await page.getByRole("combobox", { name: "Font filter" }).click();
+  await settle(page);
+  const filters = await page.getByRole("listbox").last().getByRole("option").allInnerTexts();
+  check("R10 font filter: live's order and wording", filters.map((t) => t.trim()).join() === "All fonts,In this file,Popular fonts,Google fonts,Variable fonts,Uploaded by you,Installed by you", filters.join());
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  // 9. A grid's row: Fixed height with its size.
+  await select(["7:40"]);
+  await page.evaluate(() => window.__designerEditor.engine.command("SELECT_GRID_TRACKS", { frame: "7:40", axis: "ROWS", tracks: [1] }));
+  await settle(page);
+  await panel.getByRole("button", { name: "Row 2 sizing" }).click();
+  await settle(page);
+  const tm = page.getByRole("menu").last();
+  check("R10 grid track list: Fixed height (84), 156 wide", (await tm.getByText("Fixed height (84)").count()) === 1 && Math.round((await box(tm)).width) === 156, JSON.stringify(await box(tm)));
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__designerEditor.engine.command("SELECT_GRID_TRACKS", { frame: "7:40", axis: "ROWS", tracks: [] }));
+  await settle(page);
+  // 10. Vector edit mode (live design/vector-edit-mode.txt): Vector, Mirroring, Fill and Stroke only.
+  await select(["7:66"]);
+  const started = await page.evaluate(() => window.__designerEditor.vector.start("7:66"));
+  await settle(page);
+  if (started) {
+    const titles = await panel.locator('[role="tabpanel"] section').evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+    check("R10 vector edit: Vector, Fill, Stroke; Mirroring's three glyphs", titles.join() === "Vector,Fill,Stroke" && (await panel.getByRole("radiogroup", { name: "Mirroring" }).getByRole("radio").count()) === 3, titles.join());
+    await shot(page, `302-r10-vector-edit-${theme}`);
+    await page.evaluate(() => window.__designerEditor.vector.end());
+    await settle(page);
+  } else results.push("info R10 vector edit: the engine has no startVectorEdit");
+  // 11. The instance's name is plain text (no button), Auto layout settings 4 above its button.
+  await select(["8:60"]);
+  check("R10 instance: the name isn't a button", (await panel.locator("[data-instance-menu]").evaluate((e) => e.tagName)) !== "BUTTON");
+  await select(["7:20"]);
+  const ab = await box(panel.getByRole("button", { name: "Auto layout settings" }));
+  await panel.getByRole("button", { name: "Auto layout settings" }).click();
+  await settle(page);
+  const ap = await box(page.locator('[data-ds="Popover"]').last());
+  check("R10 Auto layout settings: 4 above its button", ap && ab && Math.round(ap.y) === Math.round(ab.y) - 4, JSON.stringify([ap?.y, ab?.y]));
+  await page.keyboard.press("Escape");
 }
 
 /** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Hide panel. */
@@ -3343,6 +3461,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await section(page, "dark");
+    await context.close();
+  }
+  if (only === "panel10" || !only) {
+    // Live's viewport (the captures' absolute places).
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await panel10Section(page, "dark");
     await context.close();
   }
   if (only === "header9" || !only) {
