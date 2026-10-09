@@ -273,7 +273,8 @@ async function paintsSection(page, theme) {
   await select("2:41");
   check("a bottom-only stroke reads Custom/Bottom", (await panel.getByRole("button", { name: "Individual strokes" }).count()) === 1);
   await panel.getByRole("button", { name: "Individual strokes" }).click();
-  await page.getByRole("menuitemcheckbox", { name: "Custom" }).click();
+  // (Live stroke-individual-strokes-menu.txt: the sides are menuitemradio.)
+  await page.getByRole("menuitemradio", { name: "Custom" }).click();
   await settle(page);
   check("Custom shows the four side weights", (await panel.getByRole("textbox", { name: "Top stroke" }).count()) === 1);
   await shot(page, `32-individual-strokes-${theme}`);
@@ -2085,7 +2086,8 @@ async function header9Section(page, theme) {
   const pb = await presets.boundingBox();
   const tb = await typeButton.boundingBox();
   const phone = presets.getByText("Phone Presets");
-  check("R9 Frame ▾: 222 wide, right under its button, at its left", Math.round(pb.width) === 222 && Math.round(pb.x) === Math.round(tb.x) && Math.round(pb.y) === Math.round(tb.y + tb.height), JSON.stringify([pb, tb]));
+  // (Round 10, live frame-presets-menu.txt at 125 for the button's 117: 8 under it.)
+  check("R9 Frame ▾: 222 wide, 8 under its button, at its left", Math.round(pb.width) === 222 && Math.round(pb.x) === Math.round(tb.x) && Math.round(pb.y) === Math.round(tb.y + tb.height + 8), JSON.stringify([pb, tb]));
   check("R9 Frame ▾: Section offered, the block titles hidden, sizes as three runs", (await presets.getByRole("menuitemcheckbox", { name: "Section" }).getAttribute("aria-disabled")) === null && ((await phone.boundingBox())?.height ?? 0) <= 1 && (await presets.getByRole("menuitem", { name: /iPhone 17\b/ }).first().locator("span > span").count()) === 3);
   await shot(page, `261-r9-frame-presets-${theme}`);
   await presets.getByRole("menuitemcheckbox", { name: "Section" }).click();
