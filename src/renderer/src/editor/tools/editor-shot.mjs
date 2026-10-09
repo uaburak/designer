@@ -2093,7 +2093,7 @@ async function header9Section(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.undo());
   await settle(page);
   check("R9 Frame ▾ › Section: one undo step", (await node(page, "7:20"))?.type === "FRAME");
-  // 3. Boolean operations on one rectangle: 151 wide, right-aligned with the chevron, every operation offered.
+  // 3. Boolean operations on one rectangle: 151 wide (±2 — ⌥⇧ come from the system font, 150 on some machines), right-aligned with the chevron, every operation offered.
   await select(["7:60"]);
   const chevron = panel.getByRole("group", { name: "Boolean operations" }).getByRole("button", { name: "Boolean operations" });
   await chevron.click();
@@ -2101,7 +2101,7 @@ async function header9Section(page, theme) {
   const bm = await lastMenu().boundingBox();
   const cb = await chevron.boundingBox();
   const disabled = await lastMenu().locator('[aria-disabled="true"]').count();
-  check("R9 Boolean menu: 151 wide, its right edge the chevron's, nothing disabled for one layer", Math.round(bm.width) === 151 && Math.round(bm.x + bm.width) === Math.round(cb.x + cb.width) && disabled === 0, JSON.stringify([bm, cb, disabled]));
+  check("R9 Boolean menu: 151 wide (±2: the keys' glyphs are font metrics), its right edge the chevron's, nothing disabled for one layer", Math.abs(bm.width - 151) <= 2 && Math.round(bm.x + bm.width) === Math.round(cb.x + cb.width) && disabled === 0, JSON.stringify([bm, cb, disabled]));
   await shot(page, `262-r9-boolean-menu-${theme}`);
   await lastMenu().getByRole("menuitem", { name: /^Union/ }).click();
   await settle(page);
