@@ -7,7 +7,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import type { ToolResult } from "../../shared/agents/tools";
 import { MCP_SERVER_NAME } from "../../shared/agents/tools";
 import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest } from "../../shared/agents/types";
-import { CLI_SPECS, LineSplitter, type CliSpec, type ParseState } from "./cliProviders";
+import { CLI_SPECS, runCliProcess, type CliSpec } from "./cliProviders";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
 import { cliEnv, detectProviders, LOCAL_SERVERS, which } from "./detect";
 import { McpServer, newToken } from "./mcpServer";
@@ -351,35 +351,18 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json") });
   for (const [name, text] of Object.entries(plan.files ?? {})) writePrivate(isAbsolute(name) ? name : join(cwd, name), text);
   emit(t, { type: "status", text: `Starting ${spec.label}…` });
-  let child: ChildProcess;
-  try {
-    child = spawn(path, plan.args, { cwd, env: cliEnv(plan.env), stdio: ["pipe", "pipe", "pipe"] });
-  } catch (err) {
-    return finishTurn(t, { type: "error", message: `${spec.label} couldn't start: ${err instanceof Error ? err.message : String(err)}` });
-  }
-  t.child = child;
-  const lines = new LineSplitter();
-  const state: ParseState = { streamed: false, tools: new Map() };
-  let stderr = "";
-  let gotOutput = false;
-  child.stdout?.setEncoding("utf8");
-  child.stdout?.on("data", (chunk: string) => {
-    for (const line of lines.push(chunk)) {
-      gotOutput = true;
-      for (const e of spec.parse(line, state)) emit(t, e);
-    }
+  const child = runCliProcess({
+    spec,
+    path,
+    plan,
+    cwd,
+    env: cliEnv(plan.env),
+    spawn: (cmd, args, options) => spawn(cmd, args, options),
+    emit: (e) => emit(t, e),
+    done: (error) => finishTurn(t, error ? { type: "error", message: error } : undefined),
+    stopped: () => t.stopped,
   });
-  child.stderr?.setEncoding("utf8");
-  child.stderr?.on("data", (d: string) => (stderr = (stderr + d).slice(-4000)));
-  child.on("error", (err) => finishTurn(t, { type: "error", message: `${spec.label}: ${err.message}` }));
-  child.on("close", (code) => {
-    for (const line of lines.push("\n")) for (const e of spec.parse(line, state)) emit(t, e);
-    if (t.stopped || code === 0) return finishTurn(t);
-    const why = stderr.trim().split("\n").slice(-3).join(" ").slice(0, 600);
-    finishTurn(t, { type: "error", message: `${spec.label} exited (${code})${why ? `: ${why}` : gotOutput ? "" : " without output — is it signed in? Run it once in Terminal."}` });
-  });
-  if (plan.stdin !== undefined) child.stdin?.end(plan.stdin);
-  else child.stdin?.end();
+  if (child) t.child = child;
 }
 
 function runServer(t: Turn, srv: { id: string; label: string; baseUrl: string }, req: TurnRequest) {

@@ -268,3 +268,52 @@ export class LineSplitter {
     });
   }
 }
+
+/** What runCliProcess needs of child_process.spawn (a fake in the tests: the real CLI is never run there). */
+export type SpawnFn = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; stdio: ["pipe", "pipe", "pipe"] }) => import("node:child_process").ChildProcess;
+
+/**
+ * One CLI run: spawned with the plan, its JSON lines parsed into events, the prompt on stdin; `done` once it ended
+ * (an error event first when it failed). Returns the child (to stop it), or null when it couldn't start.
+ */
+export function runCliProcess(o: { spec: CliSpec; path: string; plan: CliPlan; cwd: string; env: NodeJS.ProcessEnv; spawn: SpawnFn; emit: (e: ChatEvent) => void; done: (error?: string) => void; stopped: () => boolean }): import("node:child_process").ChildProcess | null {
+  const { spec } = o;
+  let child: import("node:child_process").ChildProcess;
+  try {
+    child = o.spawn(o.path, o.plan.args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"] });
+  } catch (err) {
+    o.done(`${spec.label} couldn't start: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  const lines = new LineSplitter();
+  const state: ParseState = { streamed: false, tools: new Map() };
+  let stderr = "";
+  let gotOutput = false;
+  let ended = false;
+  const end = (error?: string) => {
+    if (ended) return;
+    ended = true;
+    o.done(error);
+  };
+  child.stdout?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    for (const line of lines.push(chunk)) {
+      gotOutput = true;
+      for (const e of spec.parse(line, state)) o.emit(e);
+    }
+  });
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (d: string) => (stderr = (stderr + d).slice(-4000)));
+  child.on("error", (err) => end(`${spec.label}: ${err.message}`));
+  child.on("close", (code) => {
+    for (const line of lines.push("\n")) for (const e of spec.parse(line, state)) o.emit(e);
+    if (o.stopped() || code === 0) return end();
+    const why = stderr.trim().split("\n").slice(-3).join(" ").slice(0, 600);
+    end(`${spec.label} exited (${code})${why ? `: ${why}` : gotOutput ? "" : " without output — is it signed in? Run it once in Terminal."}`);
+  });
+  child.stdin?.on("error", () => {
+    /* the CLI exited before reading its prompt: its close says why */
+  });
+  child.stdin?.end(o.plan.stdin ?? "");
+  return child;
+}
