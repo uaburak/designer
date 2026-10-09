@@ -5,6 +5,7 @@
  * `&doc=types` the Design panel's Phase 2 cases.
  */
 import type { Color, Message, NodeChange } from "@/engine/codec";
+import type { EditorUiState } from "./documentSource";
 import { setTrackCount, setTrackSizing, type GridNode } from "./model/grid";
 
 const hex = (rgb: number, a = 1): Color => ({ r: ((rgb >> 16) & 255) / 255, g: ((rgb >> 8) & 255) / 255, b: (rgb & 255) / 255, a });
@@ -581,17 +582,70 @@ const CAPTURE_COMPONENTS: NodeChange[] = (() => {
 })();
 
 /**
+ * A closed polygon as a vector network blob (docs/schema.md §11.3), base64: its vertices joined by straight segments in
+ * order, one region (one loop over every segment, nonzero).
+ */
+export function polygonNetwork(points: readonly (readonly [number, number])[]): string {
+  const n = points.length;
+  const view = new DataView(new ArrayBuffer(12 + n * 12 + n * 28 + 12 + n * 4));
+  let at = 0;
+  const u32 = (...vs: number[]) => {
+    for (const v of vs) {
+      view.setUint32(at, v, true);
+      at += 4;
+    }
+  };
+  const f32 = (...vs: number[]) => {
+    for (const v of vs) {
+      view.setFloat32(at, v, true);
+      at += 4;
+    }
+  };
+  // Header: vertices, segments, regions.
+  u32(n, n, 1);
+  // Vertices: style, x, y.
+  for (const [x, y] of points) {
+    u32(0);
+    f32(x, y);
+  }
+  // Segments: style, start vertex and its tangent, end vertex and its tangent (straight: no tangents).
+  for (let i = 0; i < n; i++) {
+    u32(0, i);
+    f32(0, 0);
+    u32((i + 1) % n);
+    f32(0, 0);
+  }
+  // The region: style << 1 | nonzero, one loop over every segment.
+  u32((0 << 1) | 1, 1, n);
+  for (let i = 0; i < n; i++) u32(i);
+  const bytes = new Uint8Array(view.buffer);
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+/** The live capture's Vector (docs/research/figma/live/img/vector-edit-mode-full-ui.jpg): a triangle in its 80 × 90 box. */
+export const CAPTURE_VECTOR_POINTS = [
+  [0, 0],
+  [80, 20],
+  [40, 90],
+] as const;
+
+/**
  * `&doc=capture`: the layers Figma's live panel was captured on (docs/research/figma/live/design/*.txt), with the
  * values its dumps show — F_frame, AL_vertical / _horizontal / _wrap / _grid, AL_parent with its children, Rect,
  * Ellipse, Polygon, Star, Line, Arrow, Vector, Boolean, Group, Text, Section, Image and the components (above) — so the Design panel can be
- * laid out against the dumps (src/renderer/src/editor/tools/editor-shot.mjs `EDITOR_ONLY=design`).
+ * laid out against the dumps (src/renderer/src/editor/tools/editor-shot.mjs `EDITOR_ONLY=design`). As the live file:
+ * an empty "Page 1" first, then "Capture" (0:1), the page it opens on (`CAPTURE_UI_STATE`).
  */
 export const CAPTURE_DOCUMENT: Message = {
   type: "NODE_CHANGES",
   sessionID: 0,
+  blobs: [polygonNetwork(CAPTURE_VECTOR_POINTS)],
   nodeChanges: [
     { guid: "0:0", phase: "CREATED", type: "DOCUMENT", name: "Document" },
-    page("0:1", "Capture", 0, 0xf5f5f5),
+    page("0:3", "Page 1", 0, 0xf5f5f5),
+    page("0:1", "Capture", 1, 0xf5f5f5),
     internalCanvas(),
     al("7:1", "F_frame", "!", 0, 0, { size: { x: 240, y: 180 } }),
     box("7:2", "C_child_in_frame", "7:1", "!", 40, 40, 80, 60, 0x3380ff),
@@ -612,7 +666,7 @@ export const CAPTURE_DOCUMENT: Message = {
     node({ guid: "7:63", type: "STAR", name: "Star", parentIndex: { guid: "0:1", position: "*" }, size: { x: 100, y: 100 }, transform: at(440, 300), fillPaints: solidFill(0xd9d9d9), count: 5, starInnerScale: 0.382 }),
     node({ guid: "7:64", type: "LINE", name: "Line", parentIndex: { guid: "0:1", position: "+" }, size: { x: 120, y: 0 }, transform: at(580, 350), strokePaints: solidFill(0x000000), strokeWeight: 1, strokeAlign: "CENTER" }),
     node({ guid: "7:65", type: "LINE", name: "Arrow", parentIndex: { guid: "0:1", position: "," }, size: { x: 120, y: 0 }, transform: at(740, 350), strokePaints: solidFill(0x000000), strokeWeight: 1, strokeAlign: "CENTER", strokeCap: "ARROW_LINES" }),
-    node({ guid: "7:66", type: "VECTOR", name: "Vector", parentIndex: { guid: "0:1", position: "-" }, size: { x: 80, y: 90 }, transform: at(900, 300), fillPaints: solidFill(0xffcc33), strokePaints: solidFill(0x000000), strokeWeight: 1, strokeAlign: "CENTER" }),
+    node({ guid: "7:66", type: "VECTOR", name: "Vector", parentIndex: { guid: "0:1", position: "-" }, size: { x: 80, y: 90 }, transform: at(900, 300), vectorData: { vectorNetworkBlob: 0, normalizedSize: { x: 80, y: 90 } }, fillPaints: solidFill(0xffcc33), strokePaints: solidFill(0x000000), strokeWeight: 1, strokeAlign: "CENTER" }),
     node({ guid: "7:70", type: "BOOLEAN_OPERATION", booleanOperation: "UNION", name: "Boolean", parentIndex: { guid: "0:1", position: "." }, size: { x: 120, y: 110 }, transform: at(1040, 300), fillPaints: solidFill(0xd9d9d9) }),
     box("7:71", "b1", "7:70", "!", 0, 0, 80, 80, 0xd9d9d9),
     node({ guid: "7:72", type: "ELLIPSE", name: "b2", parentIndex: { guid: "7:70", position: '"' }, size: { x: 80, y: 80 }, transform: at(40, 30), fillPaints: solidFill(0xd9d9d9) }),
@@ -625,3 +679,6 @@ export const CAPTURE_DOCUMENT: Message = {
     ...CAPTURE_COMPONENTS,
   ],
 };
+
+/** The live file reopens on the page it was left on: `&doc=capture` opens on "Capture", not on the first page. */
+export const CAPTURE_UI_STATE: EditorUiState = { currentPageId: "0:1", pages: {}, leftPanelWidth: 0, rightPanelWidth: 0 };

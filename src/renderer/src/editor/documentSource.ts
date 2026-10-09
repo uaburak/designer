@@ -198,6 +198,36 @@ export function applyMessage(nodes: Map<Guid, NodeChange>, message: Message, cle
   }
 }
 
+/** Blob-index fields (docs/schema.md §11.3; kiwi's `Glyph.commandsBlob`, `Path.commandsBlob`, `Image.dataBlob`, `VectorData.vectorNetworkBlob`). */
+const BLOB_INDEX_FIELDS = new Set(["commandsBlob", "dataBlob", "vectorNetworkBlob"]);
+
+/**
+ * A Message's node changes with their blob indexes moved into `into` (a document's one list): each of the Message's
+ * blobs is appended once (an equal one already there is reused). Changes without blobs come back as they are.
+ */
+export function rehomeBlobs(message: Message, into: string[]): NodeChange[] {
+  const own = message.blobs;
+  if (!own?.length) return message.nodeChanges;
+  const moved = new Map<number, number>();
+  const target = (i: number) => {
+    let to = moved.get(i);
+    if (to === undefined) {
+      const found = into.indexOf(own[i]);
+      to = found >= 0 ? found : into.push(own[i]) - 1;
+      moved.set(i, to);
+    }
+    return to;
+  };
+  const copy = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(copy);
+    if (!v || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) out[k] = BLOB_INDEX_FIELDS.has(k) && typeof x === "number" && x < own.length ? target(x) : copy(x);
+    return out;
+  };
+  return message.nodeChanges.map((c) => copy(c) as NodeChange);
+}
+
 export interface MemoryDocumentSource extends DocumentSource {
   /** The document as it is now: the snapshot with every change applied (parents before children). */
   snapshot(): Message;
@@ -208,12 +238,14 @@ export interface MemoryDocumentSource extends DocumentSource {
 /** A DocumentSource held in memory: the snapshot it was given plus every change since. */
 export function memoryDocumentSource(
   document: Message,
-  options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore; versions?: boolean } = {}
+  options: { fileName?: string; location?: string; sessionID?: number; images?: ImageStore; versions?: boolean; uiState?: EditorUiState } = {}
 ): MemoryDocumentSource {
   const nodes = new Map<Guid, NodeChange>(document.nodeChanges.map((n) => [n.guid, { ...n, phase: "CREATED" as const }]));
+  // The document's blobs (vector networks, paths), each change's moved into the same list.
+  const blobs: string[] = [...(document.blobs ?? [])];
   const changes: Message[] = [];
   let fileName = options.fileName ?? "Untitled";
-  const snapshot = (): Message => ({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: orderParentsFirst([...nodes.values()]) });
+  const snapshot = (): Message => ({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: orderParentsFirst([...nodes.values()]), ...(blobs.length ? { blobs: [...blobs] } : {}) });
   // `versions`: version history in memory (the browser's demo files: Dev Mode's Compare changes reads it).
   const saved: { info: VersionInfo; message: Message }[] = [];
   const history = options.versions
@@ -239,11 +271,12 @@ export function memoryDocumentSource(
     location: options.location ?? "Drafts",
     sessionID: options.sessionID ?? 1,
     images: options.images ?? memoryImageStore(),
+    ...(options.uiState ? { uiState: structuredClone(options.uiState) } : {}),
     changes,
     load: async () => snapshot(),
     onChanges: (message) => {
       changes.push(message);
-      applyMessage(nodes, message);
+      applyMessage(nodes, message.blobs?.length ? { ...message, nodeChanges: rehomeBlobs(message, blobs), blobs: undefined } : message);
     },
     flush: async () => {},
     rename: (name) => {
