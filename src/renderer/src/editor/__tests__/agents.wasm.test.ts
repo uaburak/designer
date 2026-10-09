@@ -96,6 +96,8 @@ describe("MCP tools on the engine", () => {
     const frame = ed.engine.readNode(id, { childIds: true })!;
     expect(frame.stackMode).toBe("VERTICAL");
     expect(frame.stackSpacing).toBe(8);
+    // No size given: it hugs its content both ways.
+    expect(frame.size).toEqual({ x: 16 + 120 + 16, y: 16 + 20 + 8 + 40 + 16 });
     expect(frame.childIds?.length).toBe(2);
     const [text, rect] = frame.childIds!.map((c) => ed.engine.readNode(c)!);
     expect(text.textData?.characters).toBe("Hello");

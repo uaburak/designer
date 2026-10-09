@@ -175,7 +175,7 @@ const PRIMARY_ALIGN = new Set(["MIN", "CENTER", "MAX", "SPACE_BETWEEN"]);
 const COUNTER_ALIGN = new Set(["MIN", "CENTER", "MAX", "BASELINE"]);
 
 /** The auto layout container fields of a spec (layoutMode, itemSpacing, padding …). */
-export function autoLayoutFields(spec: Spec, current: NodeChange | null): NodeFields {
+export function autoLayoutFields(spec: Spec, current: NodeChange | null, creating = false): NodeFields {
   const out: NodeFields = {};
   const mode = str(spec.layoutMode)?.toUpperCase();
   if (mode === "HORIZONTAL" || mode === "VERTICAL" || mode === "NONE") out.stackMode = mode;
@@ -199,9 +199,12 @@ export function autoLayoutFields(spec: Spec, current: NodeChange | null): NodeFi
   const cs = str(spec.counterAxisSizingMode)?.toUpperCase();
   if (cs === "AUTO" || cs === "FIXED") out.stackCounterSizing = cs === "AUTO" ? HUG : "FIXED";
   // A frame turned into auto layout without sizing modes: hug the layout direction, keep the other (Figma's ⇧A on a frame keeps its size; an agent's new stack wants to hug).
+  // A new auto layout frame hugs along an axis unless its size there was given (the Plugin API's defaults).
   if (out.stackMode && out.stackMode !== "NONE" && (!current?.stackMode || current.stackMode === "NONE")) {
-    out.stackPrimarySizing ??= current ? "FIXED" : HUG;
-    out.stackCounterSizing ??= "FIXED";
+    const given = (axis: "width" | "height") => typeof spec[axis] === "number";
+    const [primary, counter] = out.stackMode === "HORIZONTAL" ? (["width", "height"] as const) : (["height", "width"] as const);
+    out.stackPrimarySizing ??= current && !creating ? "FIXED" : given(primary) ? "FIXED" : HUG;
+    out.stackCounterSizing ??= current && !creating ? "FIXED" : given(counter) ? "FIXED" : HUG;
   }
   if (effective === "NONE") delete out.stackWrap;
   return out;
@@ -258,7 +261,7 @@ export function defaults(type: NodeType): NodeFields {
  * A spec's fields on `node` (its current fields; for a new layer, its defaults and type) under `parent`. Errors are
  * collected, not thrown: a bad colour is skipped and named.
  */
-export function fieldsOf(spec: Spec, node: NodeChange, parent: NodeChange | null, errors: string[] = []): NodeFields {
+export function fieldsOf(spec: Spec, node: NodeChange, parent: NodeChange | null, errors: string[] = [], creating = false): NodeFields {
   const out: NodeFields = {};
   if (str(spec.name) !== undefined) out.name = str(spec.name);
   if (typeof spec.visible === "boolean") out.visible = spec.visible;
@@ -306,7 +309,7 @@ export function fieldsOf(spec: Spec, node: NodeChange, parent: NodeChange | null
     else if (num(spec.width) !== undefined && (node.textAutoResize ?? "NONE") === "WIDTH_AND_HEIGHT") out.textAutoResize = "HEIGHT";
   }
   // Auto layout, as a container (frames).
-  if (node.type === "FRAME" || node.type === "SYMBOL" || node.type === "INSTANCE") Object.assign(out, autoLayoutFields(spec, node));
+  if (node.type === "FRAME" || node.type === "SYMBOL" || node.type === "INSTANCE") Object.assign(out, autoLayoutFields(spec, node, creating));
   // As a child, and its sizing.
   const pos = str(spec.layoutPositioning)?.toUpperCase();
   if (pos === "AUTO" || pos === "ABSOLUTE") out.stackPositioning = pos;

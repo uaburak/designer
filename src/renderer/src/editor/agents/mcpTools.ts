@@ -329,7 +329,7 @@ function createNodes(env: ToolEnv, args: Spec): ToolResult {
       if (type === "TEXT" && typeof spec.characters === "string" && spec.name === undefined) base.name = spec.characters.slice(0, 60);
       // Sizing needs the layer to exist under its parent (FILL, HUG): applied after.
       const { layoutSizingHorizontal, layoutSizingVertical, ...direct } = rest;
-      const fields = fieldsOf(direct, base, par, errors);
+      const fields = fieldsOf(direct, base, par, errors, true);
       const node: NodeChange = { ...base, ...fields, phase: "CREATED", name: (fields.name ?? base.name ?? defaultName(type)) as string, parentIndex: { guid: par.guid, position } } as NodeChange;
       changes.push(node);
       if (top) created.push(guid);
