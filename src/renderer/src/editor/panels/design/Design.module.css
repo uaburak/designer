@@ -290,9 +290,37 @@
   .settingsGroupGap { grid-column: 1 / -1; height: 5px; }
   .settingsGroupGap + .settingsGroupGap { height: 0; }
   .typeSeg > button { width: var(--ds-size-control); min-width: var(--ds-size-control); padding: 0; }
-  .axisRow { display: flex; gap: var(--ds-space-2); align-items: center; min-width: 0; }
-  .axisRow > :last-child { flex: 0 0 64px; }
-  .axisSlider { flex: 1 1 auto; min-width: 0; accent-color: var(--figma-color-bg-brand); }
+  /*
+   * Type settings' Variable tab (live popovers/type-settings-variable.txt): per axis its name (16) and field (81 at 143,
+   * the number 72 at 151), the slider 5 under (marks 4 × 4 from 18 to 218, the thumb 16), the next axis 12 below.
+   */
+  .axes { display: flex; flex-direction: column; gap: var(--ds-space-3); padding: var(--ds-space-1) var(--ds-space-4) 0; }
+  .axis { display: grid; grid-template-columns: minmax(0, 1fr) 81px; row-gap: 5px; align-items: center; }
+  .axisField > input { flex: none; width: 72px; margin-left: auto; margin-right: 1px; padding: 0; }
+  .axisTrack { position: relative; grid-column: 1 / -1; height: var(--ds-size-control); margin: 0 var(--ds-space-1); }
+  .axisStop { position: absolute; top: 10px; width: 4px; height: 4px; border-radius: var(--ds-radius-full); background: var(--figma-color-icon-tertiary); pointer-events: none; }
+  .axisStop[data-on] { background: var(--figma-color-icon); }
+  .axisSlider {
+    position: absolute;
+    inset: 0 calc(var(--ds-space-2) * -1);
+    width: calc(100% + var(--ds-space-4));
+    height: 100%;
+    margin: 0;
+    background: transparent;
+    appearance: none;
+    outline: none;
+  }
+  .axisSlider::-webkit-slider-runnable-track { height: var(--ds-space-4); background: transparent; }
+  .axisSlider::-webkit-slider-thumb {
+    width: var(--ds-space-4);
+    height: var(--ds-space-4);
+    border: 0;
+    border-radius: var(--ds-radius-full);
+    background: var(--ds-color-picker-thumb);
+    box-shadow: var(--ds-elevation-100);
+    appearance: none;
+  }
+  .axisSlider:focus-visible::-webkit-slider-thumb { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
 
   /* "See all N colors" */
   .seeAll { padding: 0 var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-size-panel-pad-left); }
