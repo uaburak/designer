@@ -1346,8 +1346,7 @@ uint32_t Editor::pasteWith(const Clipboard& clip, uint32_t flags) {
     spots.push_back({parent, at, (flags & PASTE_IN_PLACE) ? Vec2{} : Vec2{std::round(sb.x - u.x), std::round(sb.y - u.y)}, kNoGuid});
   }
   Vec2 d;
-  Vec2 va = camera_.toWorld({0, 0}), vb = camera_.toWorld({viewport_.width, viewport_.height});
-  const Rect view = Rect::fromPoints(va, vb);
+  const Rect view = visibleWorld();
   if (!spots.empty()) {
   } else if (!inPlace) {
     auto centreIn = [&](const Rect& r) {

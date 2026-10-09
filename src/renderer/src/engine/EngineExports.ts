@@ -118,6 +118,8 @@ export class EngineExports {
   // ---- View, input, frames ----
   setViewport = (h: number, cssW: number, cssH: number, dpr: number, pxW: number, pxH: number): void =>
     void this.fn("set_viewport")(h, cssW, cssH, dpr, pxW, pxH);
+  setViewportInsets = (h: number, left: number, top: number, right: number, bottom: number): void =>
+    void this.fn("set_viewport_insets")(h, left, top, right, bottom);
   setCamera = (h: number, x: number, y: number, zoom: number): void => void this.fn("set_camera")(h, x, y, zoom);
   getCamera = (h: number): number => this.fn("get_camera")(h);
   setTheme = (h: number, theme: number): void => void this.fn("set_theme")(h, theme);
@@ -327,7 +329,7 @@ export const USED_EXPORTS = [
   "abi_version", "alloc", "free", "result_ptr", "result_len", "events_flag_ptr", "last_error",
   "create", "destroy", "load", "load_at", "apply_changes", "encode_document", "set_wire_format", "wire_format", "attachment", "derived_data_version",
   "set_current_page", "pages",
-  "set_viewport", "set_camera", "get_camera", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
+  "set_viewport", "set_viewport_insets", "set_camera", "get_camera", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
   "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",

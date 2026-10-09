@@ -1108,8 +1108,36 @@ Status Editor::setCurrentPage(Guid page) {
 // ---- View -------------------------------------------------------------------
 
 void Editor::setViewport(double cssWidth, double cssHeight, double dpr, int pixelWidth, int pixelHeight) {
-  viewport_ = {std::max(0.0, cssWidth), std::max(0.0, cssHeight), dpr > 0 ? dpr : 1, pixelWidth, pixelHeight};
+  viewport_.width = std::max(0.0, cssWidth);
+  viewport_.height = std::max(0.0, cssHeight);
+  viewport_.dpr = dpr > 0 ? dpr : 1;
+  viewport_.pixelWidth = pixelWidth;
+  viewport_.pixelHeight = pixelHeight;
   needsRender_ = true;
+}
+
+void Editor::setViewportInsets(double left, double top, double right, double bottom) {
+  viewport_.insetLeft = std::max(0.0, left);
+  viewport_.insetTop = std::max(0.0, top);
+  viewport_.insetRight = std::max(0.0, right);
+  viewport_.insetBottom = std::max(0.0, bottom);
+}
+
+Camera Editor::fitVisible(const Rect& r, bool upTo100) const {
+  // Camera::fit in the part of the canvas the panels leave visible, then moved to where that part is.
+  Rect v = viewport_.visible();
+  Camera c = Camera::fit(r, v.w, v.h, upTo100);
+  return {c.x + v.x, c.y + v.y, c.zoom};
+}
+
+Vec2 Editor::visibleCentre() const {
+  Rect v = viewport_.visible();
+  return {v.x + v.w / 2, v.y + v.h / 2};
+}
+
+Rect Editor::visibleWorld() const {
+  Rect v = viewport_.visible();
+  return Rect::fromPoints(camera_.toWorld({v.x, v.y}), camera_.toWorld({v.right(), v.bottom()}));
 }
 
 void Editor::setCamera(const Camera& c) {
@@ -1132,7 +1160,7 @@ Camera Editor::snapped(Camera c) const {
 
 void Editor::zoomTo(double zoom) {
   zooming_ = false;
-  Vec2 about{viewport_.width / 2, viewport_.height / 2};
+  Vec2 about = visibleCentre();
   // Preferences › Keyboard zooms into selection (round 9): about the selection's centre, as it is on screen.
   if (viewOptions_ & VIEW_KEYBOARD_ZOOM_SELECTION) {
     bool any = false;
@@ -1159,7 +1187,7 @@ void Editor::zoomToFit() {
     any = true;
   }
   zooming_ = false;
-  if (any) changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, true)));
+  if (any) changeCamera(snapped(fitVisible(r, true)));
 }
 
 void Editor::zoomToSelection() {
@@ -1172,7 +1200,7 @@ void Editor::zoomToSelection() {
     any = true;
   }
   zooming_ = false;
-  if (any) changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, false)));
+  if (any) changeCamera(snapped(fitVisible(r, false)));
 }
 
 bool Editor::tick(double timeMs) {

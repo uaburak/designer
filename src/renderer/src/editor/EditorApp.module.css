@@ -26,13 +26,34 @@
   }
   .left { border-right: 1px solid var(--figma-color-border); }
   .right { border-left: 1px solid var(--figma-color-border); }
+  /*
+   * The canvas spans the whole editor (Figma UI3): the rail, the panels and the canvas's chrome sit over it, so a panel
+   * resized, folded or hidden never resizes the canvas (only the window does). What the panels leave visible is
+   * `.view`: the engine fits and centres in it (Engine.setViewportInsets, attachViewInsets).
+   */
   .canvasArea {
-    position: relative;
-    flex: 1 1 auto;
-    min-width: 0;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
     overflow: hidden;
     background: var(--ds-color-canvas-default);
   }
+  .chrome {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    pointer-events: none;
+  }
+  :where(.chrome > *) { pointer-events: auto; }
+  /* The part of the canvas between the panels: presses go through it to the canvas, not through its chrome. */
+  .chrome > .view {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    pointer-events: none;
+  }
+  :where(.view > *) { pointer-events: auto; }
   .canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
   /* The "?" circle: centred with the toolbar (20 from the bottom), 24 from the window's right edge, over the right panel */
   .help { position: absolute; right: var(--ds-space-6); bottom: var(--ds-space-5); z-index: var(--ds-z-floating); display: flex; }

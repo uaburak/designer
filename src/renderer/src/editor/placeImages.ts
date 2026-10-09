@@ -15,6 +15,7 @@ import type { EditorController } from "./controller";
 import { hasCommand } from "./engineCompat";
 import { DEFAULT_VIDEO_PLAYBACK, mediaPaint } from "./model/paints";
 import type { ImportedImage } from "./images";
+import { viewCentre } from "./canvas/viewInsets";
 
 /** The gap between images placed together (unverified against Figma). */
 export const PLACE_GAP = 20;
@@ -81,7 +82,8 @@ export function placeImages(ed: EditorController, images: readonly ImportedImage
   }
   // Like a paste: into the selected frame (the engine centres it there), else in the middle of the view.
   const canvas = ed.canvas;
-  const centre = toPage(ed, (canvas?.clientWidth ?? 0) / 2, (canvas?.clientHeight ?? 0) / 2);
+  const mid = viewCentre(canvas);
+  const centre = toPage(ed, mid.x, mid.y);
   const width = images.reduce((w, img, i) => w + (i === 0 && size ? size.x : img.width), 0) + PLACE_GAP * (images.length - 1);
   const height = Math.max(...images.map((img, i) => (i === 0 && size ? size.y : img.height)));
   return ed.engine.paste(imageRectangles(images, { x: centre.x - width / 2, y: centre.y - height / 2 }, size), {});

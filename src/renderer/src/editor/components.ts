@@ -65,6 +65,7 @@ import {
   type GuidValue,
   type SymbolData,
 } from "./model/components";
+import { viewCentre } from "./canvas/viewInsets";
 
 /** The engine's E6 commands (docs/engine-build.md); each one runs only once abi.ts names it. */
 export const COMPONENT_COMMAND = {
@@ -1092,7 +1093,7 @@ export function insertInstance(ed: EditorController, component: Guid, at?: { x: 
   const main = readC(ed, component);
   if (!main || !isComponent(main)) return null;
   const canvas = ed.canvas;
-  const point = at ?? { x: (canvas?.clientWidth ?? 0) / 2, y: (canvas?.clientHeight ?? 0) / 2 };
+  const point = at ?? viewCentre(canvas);
   const centre = toPage(ed, point.x, point.y);
   const w = main.size?.x ?? 0;
   const h = main.size?.y ?? 0;

@@ -20,6 +20,7 @@ _engine_derived_data_version
 _engine_set_current_page
 _engine_pages
 _engine_set_viewport
+_engine_set_viewport_insets
 _engine_set_camera
 _engine_get_camera
 _engine_set_theme

@@ -1509,7 +1509,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
       zooming_ = false;
       Rect r = Rect::fromPoints(downWorld_, world);
       if ((s - downScreen_).length() >= kDragThreshold && r.w > 0 && r.h > 0)
-        changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, false)));
+        changeCamera(snapped(fitVisible(r, false)));
       else
         changeCamera(snapped(camera_.zoomedAround(camera_.zoom * ((mods & MOD_ALT) ? 0.5 : 2), s)));
       needsRender_ = true;

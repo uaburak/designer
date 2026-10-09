@@ -514,7 +514,9 @@ void Editor::dragGuide(Vec2 s, uint32_t /*mods*/) {
 
 void Editor::finishGuide(Vec2 s) {
   // Let go over its ruler (or off the canvas): the guide goes (help.figma.com "drag the guide back to the rulers").
-  bool gone = guideDrag_.axis == 0 ? s.x < guideRuler_ || s.x > viewport_.width : s.y < guideRuler_ || s.y > viewport_.height;
+  // The rulers are at the visible part's top and left edges (the panels cover the canvas around it).
+  const Rect v = viewport_.visible();
+  bool gone = guideDrag_.axis == 0 ? s.x < v.x + guideRuler_ || s.x > v.right() : s.y < v.y + guideRuler_ || s.y > v.bottom();
   if (guideMoved_) {
     if (gone) {
       std::vector<RulerGuide> list = guidesOf(guideDrag_.owner);
@@ -651,12 +653,11 @@ void Editor::revealPasted(const Rect& r) {
   // help.figma.com (Copy and paste objects): larger than the view, the zoom changes so all of it shows; just out of
   // view, the view moves a little to show it.
   if (!(r.w > 0) || !(r.h > 0) || viewport_.width <= 0 || viewport_.height <= 0) return;
-  Vec2 a = camera_.toWorld({0, 0}), b = camera_.toWorld({viewport_.width, viewport_.height});
-  Rect view = Rect::fromPoints(a, b);
+  Rect view = visibleWorld();
   if (view.containsRect(r)) return;
   zooming_ = false;
   if (r.w > view.w || r.h > view.h) {
-    changeCamera(snapped(Camera::fit(r, viewport_.width, viewport_.height, false)));
+    changeCamera(snapped(fitVisible(r, false)));
     return;
   }
   double dx = 0, dy = 0;

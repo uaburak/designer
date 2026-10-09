@@ -815,7 +815,7 @@ Overlays are drawn by the engine after the scene, straight into the default fram
   - camera `{x, y, zoom}` in `double`, `screenCss = world·zoom + (x, y)`;
   - zoom range 0.02–256.
 - **Camera-relative rendering**: the device matrix is composed in `double` relative to the viewport centre before the final `float` cast, so far-from-origin content doesn't jitter at high zoom.
-- **DPR**: TS observes the canvas with `ResizeObserver` (`devicePixelContentBoxSize` for exact backing pixels) and calls `engine_set_viewport(cssW, cssH, dpr, pxW, pxH)`. The engine sets the canvas backing size (`emscripten_set_canvas_element_size`).
+- **DPR**: TS observes the canvas with `ResizeObserver` (`devicePixelContentBoxSize` for exact backing pixels) and calls `engine_set_viewport(cssW, cssH, dpr, pxW, pxH)`. The engine sets the canvas backing size (`emscripten_set_canvas_element_size`). The callback also draws the frame (`Engine.frameNow`) before paint, so a resized canvas is never shown blank or stretched. The canvas spans the editor window and the panels sit over it (Figma UI3): `engine_set_viewport_insets(l, t, r, b)` tells the engine what they cover; fitting, centring, keyboard zoom and paste-in-view use `Viewport::visible()`.
 - **Frame pacing** (render on demand; JS owns `requestAnimationFrame`):
 
   ```ts
@@ -1144,6 +1144,7 @@ Status codes (`i32`): `OK=0, E_HANDLE=-1, E_DECODE=-2, E_INVALID=-3, E_OOM=-4, E
 | function | notes |
 |---|---|
 | `void engine_set_viewport(h, f64 cssW, f64 cssH, f64 dpr, u32 pxW, u32 pxH)` | |
+| `void engine_set_viewport_insets(h, f64 left, f64 top, f64 right, f64 bottom)` | What the panels over the canvas cover (CSS px); kept across `set_viewport` |
 | `void engine_set_camera(h, f64 x, f64 y, f64 zoom)` | from Home thumbnails/links; zoom commands are commands |
 | `void engine_set_theme(h, u32 theme)` / `void engine_set_preferences(h, bytes ApiPreferences)` | `{nudgeSmall=1, nudgeBig=10, snapPixelGrid=true, snapGeometry=true, snapObjects=true, highQualityAA=false, …}` |
 | `u32 engine_pointer(h, u32 type, f64 x, f64 y, u32 button, u32 buttons, u32 mods, f64 pressure, u32 clickCount, u32 pointerType, f64 timeMs)` | type DOWN/MOVE/UP/CANCEL/ENTER/LEAVE; x,y = CSS px in the canvas; returns `HANDLED`\|`CAPTURE` (TS calls `setPointerCapture`) |

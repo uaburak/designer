@@ -25,6 +25,7 @@ import { changesOf, engineCall, engineExports, engineMethod, runEngineCommand } 
 import { frameAt, toPage } from "./placeImages";
 import { editorUrl } from "../files/desktop";
 import { copiesHave, guidText, type LibraryCopy, type LNode, type LocalAsset, type PayloadIn } from "./model/libraries";
+import { viewCentre } from "./canvas/viewInsets";
 
 const THUMB = 256;
 
@@ -816,7 +817,7 @@ export async function insertLibraryComponent(ed: EditorController, lib: string, 
   const payloads = await fetchForImport(ed, lib, [asset]);
   if (ed.engine.destroyed) return null;
   const canvas = ed.canvas;
-  const point = at ?? { x: (canvas?.clientWidth ?? 0) / 2, y: (canvas?.clientHeight ?? 0) / 2 };
+  const point = at ?? viewCentre(canvas);
   const centre = toPage(ed, point.x, point.y);
   const frame = at ? frameAt(ed, at.x, at.y) : null;
   const roots = importCopies(ed, lib, payloads);

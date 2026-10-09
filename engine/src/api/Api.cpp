@@ -647,6 +647,12 @@ ENG_EXPORT void engine_set_viewport(Handle h, double cssW, double cssH, double d
 #endif
 }
 
+// What the panels over the canvas cover, CSS px from each edge (Editor::setViewportInsets).
+ENG_EXPORT void engine_set_viewport_insets(Handle h, double left, double top, double right, double bottom) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.setViewportInsets(left, top, right, bottom);
+}
+
 ENG_EXPORT void engine_set_camera(Handle h, double x, double y, double zoom) {
   Call call;
   if (Engine* e = engineOf(h)) e->editor.setCamera({x, y, zoom});

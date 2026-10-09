@@ -42,6 +42,7 @@ import {
   thumbnailNode,
   type LayoutFlow,
 } from "./objectCommands";
+import { viewRect } from "./canvas/viewInsets";
 
 export interface KeyCombo {
   /** KeyboardEvent.code */
@@ -242,7 +243,8 @@ export function openLinkEditor(ed: EditorController) {
     return;
   }
   // A whole layer: the field over the canvas's upper middle.
-  if (canvas) ed.ui.set({ linkEditor: { x: canvas.left + canvas.width / 2, y: canvas.top + canvas.height / 3, width: 1, height: 1 } });
+  const view = viewRect(ed.canvas) ?? canvas;
+  if (view) ed.ui.set({ linkEditor: { x: view.left + view.width / 2, y: view.top + view.height / 3, width: 1, height: 1 } });
 }
 
 function goToPage(ed: EditorController, step: 1 | -1) {

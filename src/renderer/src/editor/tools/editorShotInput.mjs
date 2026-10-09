@@ -5,9 +5,11 @@
 //    rename field and a `plaintext-only` contenteditable change nothing on the canvas — while the same keys on the
 //    canvas still work. (The desktop app's own leak — macOS handing the menu bar the letters a field left unhandled — is
 //    main's: src/shared/commands.ts runsFromMenuBar, unit-tested in commands.test.ts and fieldKeys.test.ts.)
-// 2. Resizing the right or left panel never warps the canvas: every composited frame of a scripted drag (the page's
-//    screencast, one image per frame) shows a known 400 × 300 red frame at 100 % at its exact size — never stretched
-//    (WebGPU kept the old picture scaled to the new box) and never missing (WebGL2 painted the cleared buffer).
+// 2. The canvas spans the editor and the panels sit over it (Figma UI3): a panel drag never resizes, warps or moves it —
+//    no viewport change, and every composited frame of a scripted drag (the page's screencast, one image per frame)
+//    shows a known 400 × 300 red frame at 100 % at its exact size and place. A window resize does resize it, drawn in
+//    the same frame: never stretched (WebGPU kept the old picture scaled to the new box) nor blank (WebGL2 painted the
+//    cleared buffer). Zoom to selection centres between the panels.
 /* global window, document, atob, Blob, createImageBitmap, OffscreenCanvas */
 import { installMockAgents } from "./editorShotAgents.mjs";
 
@@ -129,19 +131,31 @@ export async function inputSection(page, theme, { open, settle, check }) {
   await panelResize(page, settle, check);
 }
 
-/** Every composited frame of a panel drag shows the red frame at its exact size (no stretch, no blank). */
+/**
+ * The canvas spans the editor and the panels sit over it (Figma UI3): dragging a panel's edge resizes nothing of the
+ * canvas — no viewport change reaches the engine, and every composited frame shows the red frame at its exact size and
+ * place (no stretch, no blank, no shift). A window resize does resize the canvas: its frames are drawn in the same
+ * frame as the layout (CanvasController.observeSize), so they too are never blank or stretched.
+ */
 async function panelResize(page, settle, check) {
   const gfx = await page.evaluate(() => window.__designerEditor.engine.gfx);
   await page.evaluate(() => {
     const ed = window.__designerEditor;
     ed.engine.setSelection([]);
-    ed.engine.setCamera({ x: 200, y: 200, zoom: 1 });
+    ed.engine.setCamera({ x: 500, y: 200, zoom: 1 });
+    // Every viewport change the engine gets.
+    window.__viewports = 0;
+    const set = ed.engine.setViewport.bind(ed.engine);
+    ed.engine.setViewport = (...a) => {
+      window.__viewports++;
+      return set(...a);
+    };
   });
   await page.mouse.move(700, 700);
   await settle(page);
   await page.waitForTimeout(200);
   const cdp = await page.context().newCDPSession(page);
-  for (const side of ["right", "left"]) {
+  const capture = async (act) => {
     const frames = [];
     const onFrame = async (f) => {
       frames.push(f.data);
@@ -150,22 +164,14 @@ async function panelResize(page, settle, check) {
     cdp.on("Page.screencastFrame", onFrame);
     await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
     await page.waitForTimeout(150);
-    const handle = page.locator(`[data-panel="${side}"] [data-ds="ResizeHandle"][aria-orientation="horizontal"]`).first();
-    const b = await handle.boundingBox();
-    const x0 = b.x + b.width / 2;
-    const y0 = b.y + Math.min(300, b.height / 2);
-    const dir = side === "right" ? -1 : 1;
-    await page.mouse.move(x0, y0);
-    await page.mouse.down();
-    for (const i of [1, 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 2, 1, 0]) {
-      await page.mouse.move(x0 + dir * i * 15, y0);
-      await page.waitForTimeout(50);
-    }
-    await page.mouse.up();
+    await act();
     await page.waitForTimeout(250);
     await cdp.send("Page.stopScreencast");
     cdp.off("Page.screencastFrame", onFrame);
-    const sizes = await page.evaluate(async (frames) => {
+    return frames;
+  };
+  const measure = (frames) =>
+    page.evaluate(async (frames) => {
       const out = [];
       for (const data of frames) {
         const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
@@ -184,12 +190,55 @@ async function panelResize(page, settle, check) {
               if (y > maxY) maxY = y;
             }
           }
-        out.push(maxX < 0 ? "none" : `${maxX - minX + 1}x${maxY - minY + 1}`);
+        out.push(maxX < 0 ? "none" : `${maxX - minX + 1}x${maxY - minY + 1} at ${minX},${minY}`);
       }
       return out;
     }, frames);
-    const bad = sizes.filter((s) => s !== "400x300");
-    check(`Input: dragging the ${side} panel's edge (${gfx}) — every composited frame shows the 400 × 300 frame at 400 × 300 (no stretch, no blank)`, frames.length >= 10 && bad.length === 0, `${frames.length} frames; ${bad.length ? `off: ${[...new Set(bad)].join(" ")}` : "all 400x300"}`);
+  const want = "400x300 at 500,200";
+  for (const side of ["right", "left"]) {
+    const before = await page.evaluate(() => ({ n: window.__viewports, w: document.getElementById("engine-canvas").width, h: document.getElementById("engine-canvas").height }));
+    const frames = await capture(async () => {
+      const handle = page.locator(`[data-panel="${side}"] [data-ds="ResizeHandle"][aria-orientation="horizontal"]`).first();
+      const b = await handle.boundingBox();
+      const x0 = b.x + b.width / 2;
+      const y0 = b.y + Math.min(300, b.height / 2);
+      const dir = side === "right" ? -1 : 1;
+      await page.mouse.move(x0, y0);
+      await page.mouse.down();
+      for (const i of [1, 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 2, 1, 0]) {
+        await page.mouse.move(x0 + dir * i * 15, y0);
+        await page.waitForTimeout(50);
+      }
+      await page.mouse.up();
+    });
+    const after = await page.evaluate(() => ({ n: window.__viewports, w: document.getElementById("engine-canvas").width, h: document.getElementById("engine-canvas").height }));
+    check(`Input: dragging the ${side} panel's edge never resizes the canvas (no viewport change, the same ${before.w} × ${before.h} buffer)`, after.n === before.n && after.w === before.w && after.h === before.h, `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+    const sizes = await measure(frames);
+    const bad = sizes.filter((s) => s !== want);
+    check(`Input: dragging the ${side} panel's edge (${gfx}) — every composited frame shows the 400 × 300 frame at 400 × 300, in place (no stretch, no blank, no shift)`, frames.length >= 10 && bad.length === 0, `${frames.length} frames; ${bad.length ? `off: ${[...new Set(bad)].join(" | ")}` : `all ${want}`}`);
   }
+  // A window resize: the canvas follows, drawn in the same frame. (The editor's own box narrowed step by step stands in
+  // for the window: an emulated viewport change rescales the whole screencast image, not just the canvas.)
+  const frames = await capture(async () => {
+    for (const right of [40, 80, 120, 80, 40, 0]) {
+      await page.evaluate((r) => (document.querySelector("[data-editor]").style.right = `${r}px`), right);
+      await page.waitForTimeout(80);
+    }
+  });
+  await page.evaluate(() => document.querySelector("[data-editor]").style.removeProperty("right"));
+  const sizes = await measure(frames);
+  const bad = sizes.filter((s) => s !== want);
+  check(`Input: resizing the window (${gfx}) — the canvas follows and every frame shows the 400 × 300 frame in place (no stretch, no blank)`, frames.length >= 4 && bad.length === 0, `${frames.length} frames; ${bad.length ? `off: ${[...new Set(bad)].join(" | ")}` : `all ${want}`}`);
+  // Zoom to selection centres in the part between the panels.
+  const centred = await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    ed.engine.setSelection(["7:1"]);
+    ed.engine.command("ZOOM_TO_SELECTION");
+    const cam = ed.engine.getCamera();
+    const c = ed.canvas.getBoundingClientRect();
+    const v = document.querySelector("[data-canvas-view]").getBoundingClientRect();
+    return { frame: c.left + cam.x + 200 * cam.zoom, view: v.left + v.width / 2, canvasMid: c.left + c.width / 2 };
+  });
+  check("Input: zoom to selection centres the frame between the panels, not on the window", Math.abs(centred.frame - centred.view) <= 1 && Math.abs(centred.view - centred.canvasMid) > 10, JSON.stringify(centred));
   await cdp.detach();
 }

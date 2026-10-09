@@ -11,6 +11,7 @@ import type { Guid, NodeChange } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { fields } from "./panels/design/shared";
 import { gridDefaults, type GridNode } from "./model/grid";
+import { viewCentre } from "./canvas/viewInsets";
 
 /** A GUID's session (a derived one's: its instance's). */
 const sessionOf = (guid: string) => Number(String(guid).replace(/^I/, "").split(":")[0]) || 1;
@@ -167,7 +168,8 @@ export function findFrame(ed: EditorController, step: 1 | -1): void {
   const cam = ed.engine.getCamera();
   const cx = n.transform.m02 + n.size.x / 2;
   const cy = n.transform.m12 + n.size.y / 2;
-  ed.engine.setCamera({ x: canvas.width / 2 - cx * cam.zoom, y: canvas.height / 2 - cy * cam.zoom, zoom: cam.zoom });
+  const mid = viewCentre(ed.canvas);
+  ed.engine.setCamera({ x: mid.x - cx * cam.zoom, y: mid.y - cy * cam.zoom, zoom: cam.zoom });
 }
 
 // ---- More layout options ▸ ----------------------------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 import type { Guid, Matrix, NodeChange, Vector } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { boundsOf, IDENTITY, multiply, rotateAbout, unionBoxes, type Box } from "./model/geometry";
+import { viewCentre } from "./canvas/viewInsets";
 
 const isGroup = (n: NodeChange | null) => !!n && (n.type === "GROUP" || (n.type === "FRAME" && n.resizeToFit === true));
 
@@ -92,8 +93,7 @@ export function zoomTo(ed: EditorController, zoom: number): void {
   const canvas = ed.canvas;
   if (!canvas) return;
   const cam = ed.engine.getCamera();
-  const cx = canvas.clientWidth / 2;
-  const cy = canvas.clientHeight / 2;
+  const { x: cx, y: cy } = viewCentre(canvas);
   const wx = (cx - cam.x) / cam.zoom;
   const wy = (cy - cam.y) / cam.zoom;
   ed.engine.setCamera({ x: Math.round(cx - wx * zoom), y: Math.round(cy - wy * zoom), zoom });

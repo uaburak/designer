@@ -237,6 +237,8 @@ class Editor : private LayoutHost, public TextLayouts {
   // ---- View ----
   void setViewport(double cssWidth, double cssHeight, double dpr, int pixelWidth, int pixelHeight);
   const Viewport& viewport() const { return viewport_; }
+  // What the panels over the canvas cover (CSS px): fitting, centring and "in view" use the rest.
+  void setViewportInsets(double left, double top, double right, double bottom);
   const Camera& camera() const { return camera_; }
   void setCamera(const Camera& c);
   void setTheme(Theme t);
@@ -925,6 +927,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool selected(Guid id) const;
   bool undoStep(bool redo);
   Camera snapped(Camera c) const;
+  // The visible part of the canvas (Viewport::visible): a camera fitting r in it, its centre (screen), its world rect.
+  Camera fitVisible(const Rect& r, bool upTo100) const;
+  Vec2 visibleCentre() const;
+  Rect visibleWorld() const;
   void zoomToFit();
   void zoomToSelection();
   void zoomTo(double zoom);

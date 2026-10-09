@@ -920,6 +920,15 @@ export class Engine {
     this.after(this.x.setViewport(this.h, cssWidth, cssHeight, dpr, pixelWidth, pixelHeight));
   }
 
+  /**
+   * What the panels over the canvas cover, in CSS px from each edge (the canvas spans the window; Figma UI3): zoom to
+   * fit / selection / frame, keyboard zoom, pasting and placing in view, and a guide dragged back onto a ruler use the
+   * part left visible.
+   */
+  setViewportInsets(left: number, top: number, right: number, bottom: number): void {
+    this.after(this.x.setViewportInsets(this.h, left, top, right, bottom));
+  }
+
   setCamera(camera: Camera): void {
     this.after(this.x.setCamera(this.h, camera.x, camera.y, camera.zoom));
   }

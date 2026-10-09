@@ -339,6 +339,12 @@ struct Viewport {
   // differ from width × dpr): scissors and pixel snapping use these.
   double scaleX() const { return width > 0 ? deviceWidth() / width : dpr; }
   double scaleY() const { return height > 0 ? deviceHeight() / height : dpr; }
+  // The canvas spans the whole window and the panels sit over it (Figma UI3): what they cover, in CSS px. Fitting,
+  // centring and "is it in view" use the visible part; drawing and hit-testing the whole canvas.
+  double insetLeft = 0, insetTop = 0, insetRight = 0, insetBottom = 0;
+  Rect visible() const {
+    return {insetLeft, insetTop, std::max(0.0, width - insetLeft - insetRight), std::max(0.0, height - insetTop - insetBottom)};
+  }
 };
 
 struct RenderStats {

@@ -110,6 +110,11 @@ function draw(ed: EditorController, top: HTMLCanvasElement, left: HTMLCanvasElem
   const w = area.clientWidth;
   const h = area.clientHeight;
   const cam = ed.store.camera;
+  // The rulers sit at the visible part's edges; the camera is the whole canvas's (it spans the window, under the panels).
+  const c = ed.canvas?.getBoundingClientRect();
+  const a = area.getBoundingClientRect();
+  const dx = c ? a.left - c.left : 0;
+  const dy = c ? a.top - c.top : 0;
   const p = palette(theme, area);
   // The ruler's 0: the selection's top-level frame (its page-space corner), else the page's origin.
   const sel = ed.selection;
@@ -126,9 +131,9 @@ function draw(ed: EditorController, top: HTMLCanvasElement, left: HTMLCanvasElem
     }
   }
   const tctx = prepare(top, w, T);
-  if (tctx) drawRuler(tctx, w, { offset: cam.x, zoom: cam.zoom, origin: ox }, box ? { from: box.x, to: box.x + box.w } : null, p, T);
+  if (tctx) drawRuler(tctx, w, { offset: cam.x - dx, zoom: cam.zoom, origin: ox }, box ? { from: box.x, to: box.x + box.w } : null, p, T);
   const lctx = prepare(left, T, h);
-  if (lctx) drawLeft(lctx, h, { offset: cam.y, zoom: cam.zoom, origin: oy }, box ? { from: box.y, to: box.y + box.h } : null, p);
+  if (lctx) drawLeft(lctx, h, { offset: cam.y - dy, zoom: cam.zoom, origin: oy }, box ? { from: box.y, to: box.y + box.h } : null, p);
 }
 
 /** The left ruler: like the top one, along y; labels turned to read upwards (Figma's). */
@@ -237,7 +242,8 @@ export function Rulers() {
     t.addEventListener("wheel", wheel, { passive: false });
     l.addEventListener("wheel", wheel, { passive: false });
     offs.push(() => t.removeEventListener("wheel", wheel), () => l.removeEventListener("wheel", wheel));
-    const ro = new ResizeObserver(schedule);
+    // A panel resized: drawn in the same frame (the observer runs before paint), so the ticks never lag the canvas.
+    const ro = new ResizeObserver(() => draw(ed, t, l, resolved));
     if (t.parentElement) ro.observe(t.parentElement);
     schedule();
     return () => {

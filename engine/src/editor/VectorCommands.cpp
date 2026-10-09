@@ -383,7 +383,7 @@ Status Editor::placeImage(const CommandArgs& a) {
   if (a.hasX && a.hasY) {
     at = {a.x, a.y};
   } else {
-    Vec2 centre = camera_.toWorld({viewport_.width / 2, viewport_.height / 2});
+    Vec2 centre = camera_.toWorld(visibleCentre());
     at = {centre.x - a.width / 2, centre.y - a.height / 2};
   }
   begin(TxnKind::USER, "Place image");

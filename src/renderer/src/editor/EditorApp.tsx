@@ -48,6 +48,7 @@ import { AgentImagePlaceholders } from "./canvas/AgentImagePlaceholders";
 import { attachCanvasTools } from "./canvasTools";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
+import { attachViewInsets, insetsOf } from "./canvas/viewInsets";
 import { ReturnToInstance } from "./canvas/ReturnToInstance";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { VersionDialogs } from "./VersionDialogs";
@@ -95,6 +96,8 @@ const fontsSettledWithin = (ms: number) => Promise.race([fonts.settled(), new Pr
 export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" }: EditorAppProps) {
   const theme = useThemeRoot();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // The canvas between the panels (they sit over the canvas, which spans the editor): the engine fits and centres in it.
+  const visibleRef = useRef<HTMLDivElement>(null);
   // A field left with Enter or a second Esc gives the keys back to the canvas (Figma; live/behaviour/fields.md).
   const focusCanvas = useCallback(() => canvasRef.current?.focus({ preventScroll: true }), []);
   const [state, setState] = useState<{ source: DocumentSource; ed: EditorController | null; error: string | null } | null>(null);
@@ -247,11 +250,17 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
       // Dev Mode: every edit stamps editInfo (a design marked ready shows "Changed"); the engine's Dev Mode events.
       engine.setEditTracking(true);
       cleanups.push(attachDevMode(ed));
+      if (visibleRef.current) cleanups.push(attachViewInsets(engine, canvas, visibleRef.current));
       // The file's last page and camera when the source kept them, else the first view asked for.
       if (!restoreUiState(ed)) {
         const view = viewRef.current;
-        if (view === "fit") engine.command("ZOOM_TO_FIT");
-        else engine.setCamera({ x: view.at.x, y: view.at.y, zoom: view.zoom });
+        // A view asked for is the visible part's (between the panels), as the live captures it matches were; an empty
+        // page that has nothing to fit has its origin at the visible part's top left.
+        const inset = visibleRef.current ? insetsOf(canvas.getBoundingClientRect(), visibleRef.current.getBoundingClientRect()) : { left: 0, top: 0 };
+        if (view === "fit") {
+          engine.setCamera({ x: inset.left, y: inset.top, zoom: 1 });
+          engine.command("ZOOM_TO_FIT");
+        } else engine.setCamera({ x: view.at.x + inset.left, y: view.at.y + inset.top, zoom: view.zoom });
       }
       noteOpenInfo(ed, { derivedStored });
       cleanups.push(attachPersistence(ed));
@@ -305,18 +314,24 @@ export function EditorApp({ source, onBackToFiles, onReady, initialView = "fit" 
     <EditorContext.Provider value={ed}>
       <ReturnFocusProvider value={focusCanvas}>
       <div className={styles.editor} data-editor="">
-        {ed ? <LeftSide /> : <LeftPlaceholder />}
+        {/* The canvas spans the editor; the panels and the canvas's chrome sit over it (styles.chrome). */}
         <div className={styles.canvasArea} data-canvas-area="">
           <canvas ref={canvasRef} id="engine-canvas" className={styles.canvas} aria-label="Canvas" />
           {ed ? (
-            <CanvasOverlays />
+            <CanvasLayers />
           ) : (
             <div className={styles.status} role="status">
               {error ? <span className={styles.error}>The file could not be opened: {error}</span> : <Spinner size={24} />}
             </div>
           )}
         </div>
-        {ed ? <RightSide /> : <div className={styles.right} style={{ width: "var(--ds-size-panel)" }} />}
+        <div className={styles.chrome} data-chrome="">
+          {ed ? <LeftSide /> : <LeftPlaceholder />}
+          <div ref={visibleRef} className={styles.view} data-canvas-view="">
+            {ed && <CanvasOverlays />}
+          </div>
+          {ed ? <RightSide /> : <div className={styles.right} style={{ width: "var(--ds-size-panel)" }} />}
+        </div>
         {ed && <Overlays />}
       </div>
       <TooltipManager />
@@ -359,19 +374,29 @@ function RightSide() {
   return docked ? <RightPanel /> : null;
 }
 
-/** Over the canvas: the rulers, the toolbar, "Return to instance", the minimized cards. */
-function CanvasOverlays() {
+/** On the canvas, in its own coordinates (under the panels): agents' image placeholders, Dev Mode's measurements, placing images. */
+function CanvasLayers() {
   const hidden = useUI((s) => s.uiHidden);
-  const minimized = useUI((s) => s.uiMinimized);
   const dev = useUI((s) => s.mode === "dev");
   if (hidden) return null;
   return (
     <>
       <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
+      <ImagePlacer />
+    </>
+  );
+}
+
+/** Over the visible part of the canvas (between the panels): the rulers, the toolbar, "Return to instance", the minimized cards. */
+function CanvasOverlays() {
+  const hidden = useUI((s) => s.uiHidden);
+  const minimized = useUI((s) => s.uiMinimized);
+  if (hidden) return null;
+  return (
+    <>
       <FocusBar />
       <Rulers />
-      <ImagePlacer />
       <ReturnToInstance />
       <BottomToolbar />
       {minimized && <MinimizedPanels />}

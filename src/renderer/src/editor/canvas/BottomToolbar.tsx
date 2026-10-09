@@ -16,6 +16,7 @@ import { useUI } from "../hooks";
 import { useStoreSlice } from "../uiStore";
 import { setMode } from "../devmode/devMode";
 import type { VectorTool } from "../vectorEdit";
+import { viewRect } from "./viewInsets";
 
 /** The toolbar's tools → the engine's (null: a tool the engine has no id for). */
 export const ENGINE_TOOL: Record<ToolId, ToolName | null> = {
@@ -57,15 +58,18 @@ const isAvailable = (ed: ReturnType<typeof useEditor>, t: ToolId) => {
   return !!name && ed.tools.has(name);
 };
 
-/** The canvas area's left edge and width in the window (the toolbar is centred on the window but stays inside it). */
+/**
+ * The visible canvas's left edge and width in the window (between the panels; the toolbar is centred on the window but
+ * stays inside it).
+ */
 function useCanvasBox(ed: ReturnType<typeof useEditor>): { left: number; width: number } {
   const measure = () => {
-    const r = ed.canvas?.getBoundingClientRect();
+    const r = viewRect(ed.canvas);
     return { left: r?.left ?? 0, width: r?.width ?? ed.canvas?.clientWidth ?? 0 };
   };
   const [box, setBox] = useState(measure);
   useEffect(() => {
-    const el = ed.canvas;
+    const el = ed.canvas?.ownerDocument.querySelector<HTMLElement>("[data-canvas-view]") ?? ed.canvas;
     if (!el) return;
     const update = () => setBox((b) => {
       const n = measure();

@@ -13,6 +13,7 @@ import { lastPointer } from "../commands";
 import { createBranch, fileOps } from "../objectCommands";
 import { attachSpellcheck } from "../spellcheck";
 import styles from "./CommandOverlays.module.css";
+import { viewRect } from "./viewInsets";
 
 export function CommandOverlays() {
   const ed = useEditor();
@@ -214,7 +215,7 @@ function VectorOperation({ op }: { op: "simplify" | "offset" }) {
     else ed.engine.command("VECTOR_OFFSET", { amount, join });
     close();
   };
-  const r = ed.canvas?.getBoundingClientRect();
+  const r = viewRect(ed.canvas);
   return (
     <div
       className={styles.vectorOp}

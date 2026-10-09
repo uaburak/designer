@@ -1784,7 +1784,7 @@ Status Editor::insertInstance(Guid main, const CommandArgs& args) {
   const json::Value* x = arg(args, "x");
   const json::Value* y = arg(args, "y");
   if (x && y && x->isNumber() && y->isNumber()) at = {x->number, y->number};
-  else at = camera_.toWorld({viewport_.width / 2, viewport_.height / 2});
+  else at = camera_.toWorld(visibleCentre());
   Guid parent = kNoGuid;
   for (Guid g : refsArg(args, "parent"))
     if (arg(args, "parent") && acceptsChildren(g)) parent = g;
@@ -1880,7 +1880,7 @@ Status Editor::restoreComponent(Guid ref) {
   if ((copyRoot != kNoGuid || isCopiedMain(main)) && page_ != kNoGuid && (mn->props.type == NodeType::SYMBOL || mn->props.isComponentSet())) {
     Guid root = copyRoot != kNoGuid ? copyRoot : payloadRoot(main);
     const Node* rn = doc_.get(root);
-    Vec2 at = camera_.toWorld({viewport_.width / 2, viewport_.height / 2});
+    Vec2 at = camera_.toWorld(visibleCentre());
     Mat2x3 world = Mat2x3::translate(std::round(at.x - rn->props.size.x / 2), std::round(at.y - rn->props.size.y / 2));
     std::vector<Guid> nodes;
     realSubtree(root, nodes);

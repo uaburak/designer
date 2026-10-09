@@ -118,6 +118,10 @@ let openedOnWebGPU = false;
 async function open(page, query) {
   await page.goto(`${base}/?editor${query}${gfxQuery}`);
   await page.waitForFunction(() => window.__designerEditor && !window.__designerEditor.engine.destroyed, null, { timeout: 20000 });
+  // The canvas spans the window under the panels: a camera meant for the part between them is moved by this much.
+  await page.evaluate(() => {
+    window.__viewLeft = () => document.querySelector("[data-canvas-view]").getBoundingClientRect().left - document.getElementById("engine-canvas").getBoundingClientRect().left;
+  });
   if (gfx === "webgpu" && !openedOnWebGPU) {
     openedOnWebGPU = true;
     const backend = await page.evaluate(() => window.__designerEditor.engine.gfx);
@@ -366,7 +370,7 @@ async function paintsSection(page, theme) {
     await page.locator("#engine-canvas").focus();
     await page.keyboard.press("l");
     // In screen space near the canvas's top left: the fitted content can reach under the toolbar.
-    const area = await page.locator("#engine-canvas").boundingBox();
+    const area = await page.locator("[data-canvas-view]").boundingBox(); // the canvas between the panels
     await drag(page, [area.x + 60, area.y + 60], [area.x + 260, area.y + 60]);
     const line = await page.evaluate(() => window.__designerEditor.selectedNodes()[0]?.type);
     check("L + drag draws a line", line === "LINE", line);
@@ -588,7 +592,7 @@ async function componentsSection(page, theme) {
   const before = await page.evaluate(() => window.__designerEditor.engine.encodeDocument().nodeChanges.filter((n) => n.type === "INSTANCE").length);
   const asset = page.locator('[data-asset="1:1"]');
   const from = await asset.boundingBox();
-  const canvasBox = await page.locator("#engine-canvas").boundingBox();
+  const canvasBox = await page.locator("[data-canvas-view]").boundingBox(); // the canvas between the panels
   await drag(page, [from.x + from.width / 2, from.y + from.height / 2], [canvasBox.x + canvasBox.width / 2 + 200, canvasBox.y + 300], 12);
   const after = await page.evaluate(() => window.__designerEditor.engine.encodeDocument().nodeChanges.filter((n) => n.type === "INSTANCE").length);
   const made = await page.evaluate(() => window.__designerEditor.selectedNodes()[0]);
@@ -871,7 +875,7 @@ async function librariesSection(page, theme) {
   // ---- A remote variable bound through the picker (its library listed under "All libraries").
   await page.locator("#engine-canvas").focus();
   await page.keyboard.press("r");
-  const area = await page.locator("#engine-canvas").boundingBox();
+  const area = await page.locator("[data-canvas-view]").boundingBox(); // the canvas between the panels
   await drag(page, [area.x + 120, area.y + 120], [area.x + 220, area.y + 200]);
   await settle(page);
   const panel = page.locator('[data-panel="right"]');
@@ -2754,7 +2758,7 @@ async function selectionSection(page, theme) {
         rect("5:8", "C", 156, 16, 60, 40, "5:5", "#", fills.orange),
       ],
     });
-    e.setCamera({ x: 120, y: 160, zoom: 1.5 });
+    e.setCamera({ x: 120 + window.__viewLeft(), y: 160, zoom: 1.5 });
   }, { grey: fill(0xd9d9d9), blue: fill(0x0d99ff), white: fill(0xffffff), orange: fill(0xd97054) });
   await settle(page);
   const opacity = async (id) => (await node(page, id))?.opacity ?? 1;
@@ -2864,7 +2868,7 @@ async function overlays9Section(page, theme) {
       const e = window.__designerEditor.engine;
       const n = e.readNode(id);
       e.setSelection([id]);
-      e.setCamera({ x: 300 - n.transform.m02 * z, y: 260 - n.transform.m12 * z, zoom: z });
+      e.setCamera({ x: 300 + window.__viewLeft() - n.transform.m02 * z, y: 260 - n.transform.m12 * z, zoom: z });
     }, [id, z]);
     await settle(page);
     const n = await node(page, id);
@@ -3254,14 +3258,15 @@ async function overlays11Section(page, theme) {
   await open(page, "&doc=capture");
   const canvas = page.locator("#engine-canvas");
   const cbox = await canvas.boundingBox();
-  const away = [cbox.x + cbox.width / 2, cbox.y + 780];
+  const vbox = await page.locator("[data-canvas-view]").boundingBox(); // the canvas between the panels
+  const away = [vbox.x + vbox.width / 2, cbox.y + 780];
   // The layers' box (wx, wy, w × h) centred in the canvas between the panels, at zoom z.
   const frameOn = async (ids, wx, wy, z, w, h) => {
     await page.evaluate(([ids, wx, wy, z, w, h, cw]) => {
       const e = window.__designerEditor.engine;
       e.setSelection(ids);
-      e.setCamera({ x: cw / 2 - (wx + w / 2) * z, y: 380 - (wy + h / 2) * z, zoom: z });
-    }, [ids, wx, wy, z, w, h, cbox.width]);
+      e.setCamera({ x: cw - (wx + w / 2) * z, y: 380 - (wy + h / 2) * z, zoom: z });
+    }, [ids, wx, wy, z, w, h, vbox.x - cbox.x + vbox.width / 2]);
     await page.mouse.move(...away);
     await settle(page);
   };
@@ -3412,7 +3417,7 @@ async function selection8Section(page, theme) {
         rect("6:11", "Over", 360, 160, 120, 80, "0:1", "'", fills.blue, { locked: true }),
       ],
     });
-    e.setCamera({ x: 160, y: 200, zoom: 1.5 });
+    e.setCamera({ x: 160 + window.__viewLeft(), y: 200, zoom: 1.5 });
   }, { grey: fill(0xd9d9d9), blue: fill(0x0d99ff), white: fill(0xffffff), orange: fill(0xd97054) });
   await settle(page);
   const canvas = page.locator("#engine-canvas");
@@ -5212,7 +5217,7 @@ try {
         check("a store file opens", name.length > 0 && name !== "Sample file", name);
         await page.locator("#engine-canvas").focus();
         await page.keyboard.press("r");
-        const area = await page.locator("#engine-canvas").boundingBox();
+        const area = await page.locator("[data-canvas-view]").boundingBox(); // the canvas between the panels
         await drag(page, [area.x + area.width - 120, area.y + 40], [area.x + area.width - 60, area.y + 100]);
         const made = (await selection(page))[0];
         await page.evaluate(() => window.__designerEditor.source.flush());

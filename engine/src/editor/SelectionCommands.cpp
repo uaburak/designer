@@ -341,7 +341,7 @@ Status Editor::zoomToSiblingFrame(int step) {
   long next = at < 0 ? (step > 0 ? 0 : n - 1) : ((at + step) % n + n) % n;
   Guid frame = frames[static_cast<size_t>(next)];
   zooming_ = false;
-  changeCamera(snapped(Camera::fit(doc_.worldBounds(frame), viewport_.width, viewport_.height, false)));
+  changeCamera(snapped(fitVisible(doc_.worldBounds(frame), false)));
   zoomFrame_ = frame;
   zoomSelection_ = selection_;
   return OK;
