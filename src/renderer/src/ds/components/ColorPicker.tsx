@@ -692,7 +692,10 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
         <div className={styles.imageOverlay}>
           <Button variant="primary" className={value.type === "VIDEO" ? styles.uploadVideo : styles.upload} disabled={!onChooseImage} onClick={onChooseImage}>Upload from computer</Button>
           {value.type === "IMAGE" && (
-            <Button variant="secondary" className={styles.upload} disabled tooltip="Current selection has a fill">Make an image</Button>
+            <Button variant="secondary" className={cx(styles.upload, styles.makeImage)} aria-disabled="true" tooltip="Current selection has a fill" onClick={(e) => e.preventDefault()}>
+              <Icon name="16.sparkle" />
+              Make an image
+            </Button>
           )}
         </div>
       </div>

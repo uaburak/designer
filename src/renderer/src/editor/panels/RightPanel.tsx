@@ -59,9 +59,9 @@ export function RightHeader({ compact }: { compact?: boolean }) {
   ];
   return (
     <div className={compact ? undefined : styles.rightHeader} style={compact ? { display: "contents" } : undefined}>
-      <MenuButton label="Account" entries={account} onSelect={(id) => runEditorCommand(ed, id)} className={styles.chip}>
+      <MenuButton label="Account" entries={account} onSelect={(id) => runEditorCommand(ed, id)} className={styles.account}>
         <Avatar name="Burak Koç" />
-        <Icon name="16.chevron.down" />
+        <span className={styles.accountMore}><Icon name="16.chevron.down" /></span>
       </MenuButton>
       <span className={styles.grow} />
       <span className={styles.present}>
@@ -108,7 +108,7 @@ export function ZoomMenu() {
       className={styles.zoom}
     >
       <span>{Math.round(camera.zoom * 100)}%</span>
-      <Icon name="24.chevron.down" />
+      <Icon name="16.chevron.down" />
     </MenuButton>
   );
 }

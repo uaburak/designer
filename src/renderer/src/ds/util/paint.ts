@@ -124,16 +124,23 @@ export function withTargetColor<P extends PickerPaint>(paint: P, stop: number, c
   return { ...paint, color: { r: color.r, g: color.g, b: color.b, a: 1 }, opacity: color.a };
 }
 
+const DEFAULT_FILL = { r: 0xd9 / 255, g: 0xd9 / 255, b: 0xd9 / 255 };
+const DEFAULT_GRADIENT_END: RGBA = { r: 0x73 / 255, g: 0x73 / 255, b: 0x73 / 255, a: 1 };
+const sameRgb = (a: RGBA, b: { r: number; g: number; b: number }) => Math.round(a.r * 255) === Math.round(b.r * 255) && Math.round(a.g * 255) === Math.round(b.g * 255) && Math.round(a.b * 255) === Math.round(b.b * 255);
+
 /**
  * The paint as another type: SOLID → a gradient from its colour to the same
- * colour transparent (Figma's default); a gradient → SOLID: its first stop;
+ * colour transparent; for Figma's default fill D9D9D9 live shows D9D9D9 100 % → 737373 100 %
+ * (popovers/fill-picker-gradient_linear.txt, taken in one clean sequence; other colours: unverified); a gradient → SOLID: its first stop;
  * gradient ↔ gradient keeps the stops; IMAGE fills by default.
  */
 export function convertPaint<P extends PickerPaint>(paint: P, type: PaintType): P {
   if (type === paint.type) return paint;
-  const base = targetColor(paint, 0);
+  // (An image, video, pattern or shader paint has no colour of its own: live's Image → Video → Shader → Gradient sequence
+  // still gave D9D9D9 — the rectangle's own fill —, so the default fill stands in for it.)
+  const base = !paint.color && !isGradient(paint.type) ? { ...DEFAULT_FILL, a: paint.opacity ?? 1 } : targetColor(paint, 0);
   if (isGradient(type)) {
-    const stops = paint.stops && paint.stops.length >= 2 ? paint.stops : [{ color: { ...base, a: 1 }, position: 0 }, { color: { ...base, a: 0 }, position: 1 }];
+    const stops = paint.stops && paint.stops.length >= 2 ? paint.stops : [{ color: { ...base, a: 1 }, position: 0 }, { color: sameRgb(base, DEFAULT_FILL) ? DEFAULT_GRADIENT_END : { ...base, a: 0 }, position: 1 }];
     return { ...paint, type, stops, opacity: isGradient(paint.type) ? paint.opacity : 1 };
   }
   if (type === "SOLID") {

@@ -164,23 +164,53 @@
   .chip:hover, .chip[data-open] { background: var(--figma-color-bg-hover); }
   .chip:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .chip > svg:last-child { color: var(--figma-color-icon-secondary); }
-  .present { display: flex; align-items: center; gap: 1px; }
-  .presentChevron { width: 16px; padding: 0; justify-content: center; }
-  /* Tabs row 32 (Design, Prototype; the zoom at the right), a line at 80 */
-  .rightTabs {
+  /* The account (live: "Multiplayer tools", a 50 × 24 pill at 12, 12: the avatar and a round chevron over its edge) */
+  .account {
     display: flex;
     flex: none;
     align-items: center;
+    width: 50px;
+    height: var(--ds-size-control);
+    padding: 0;
+    border: 0;
+    border-radius: 50px;
+    background: transparent;
+    outline: none;
+  }
+  .account:hover .accountMore, .account[data-open] .accountMore { background: var(--figma-color-bg-hover); }
+  .account:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .accountMore {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: -2px;
+    border-radius: var(--ds-radius-full);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-icon-secondary);
+  }
+  .present { display: flex; align-items: center; gap: 1px; }
+  .presentChevron { width: 16px; padding: 0; justify-content: center; }
+  /* Tabs row (live, left/rail-assets.txt): the tabs and the zoom at y=48, 24 high, the line at 80 and the body at 81 */
+  .rightTabs {
+    display: flex;
+    flex: none;
+    align-items: flex-start;
     justify-content: space-between;
-    height: var(--ds-size-control-large);
+    height: calc(var(--ds-size-control-large) + 1px);
     padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-space-2);
     border-bottom: 1px solid var(--figma-color-border);
   }
+  /* The zoom (live: 62 × 24 at 300%, its text 12 from the left edge, the chevron 16 with 4 after it) */
   .zoom {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    min-width: 62px;
     height: var(--ds-size-control);
-    padding: 0 0 0 var(--ds-space-2);
+    padding: 0 var(--ds-space-1) 0 var(--ds-space-3);
     border: 0;
     border-radius: var(--ds-radius-medium);
     background: transparent;

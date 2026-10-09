@@ -179,6 +179,8 @@
   .image:not([data-empty]):hover .imageOverlay, .image:not([data-empty]):focus-within .imageOverlay { opacity: 1; }
   .upload { width: 144px; }
   .uploadVideo { width: 135px; }
+  /* Live (popovers/fill-picker-image.txt): "Make an image" (AI) looks enabled, its text 10 right of the centre after a 16 glyph; a selection with a fill only says why */
+  .makeImage svg { margin-right: var(--ds-space-1); }
   .media { margin-bottom: var(--ds-space-4); }
 
   /* Pattern */

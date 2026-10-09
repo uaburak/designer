@@ -4,7 +4,7 @@
 // docs/research/figma/live/.
 import { describe, expect, it } from "vitest";
 import { instanceFlow } from "../panels/design/Layout";
-import { SIZING_LIST_DY, sizeLocked } from "../panels/design/Sizing";
+import { SIZING_LIST_DY, SIZING_LIST_DY_CHILD, sizeLocked } from "../panels/design/Sizing";
 import { HEADER_ACTIONS, headerKind } from "../panels/design/Header";
 import { detailsApplicable, moreFeatures } from "../panels/design/TypeSettings";
 import { TEXT_STYLES_RESERVE } from "../panels/design/Styles";
@@ -79,9 +79,12 @@ describe("Type settings › Details (live popovers/type-settings-details.txt on 
 });
 
 describe("Popover places (live popovers/width-sizing-menu.txt, gap-menu.txt, typography-styles.txt)", () => {
-  it("a W / H / gap list: its checked row 3 above the field (W at 434: Hug contents at 431, the list at 399)", () => {
-    expect(434 + SIZING_LIST_DY - 32).toBe(399);
-    expect(484 + SIZING_LIST_DY - 8).toBe(473);
+  it("a W / H / gap list: its checked row 4 above the field (the panel's body at 81: W at 435, Hug contents at 431, the list at 399)", () => {
+    expect(435 + SIZING_LIST_DY - 32).toBe(399);
+    expect(485 + SIZING_LIST_DY - 8).toBe(473);
+  });
+  it("round 12: a plain child's Width list (no Hug contents) has its checked row level with the field: 387, the list at 379", () => {
+    expect(387 + SIZING_LIST_DY_CHILD - 8).toBe(379);
   });
   it("Text styles opens as if 457 high: 427 in a 900 high window, from its button at 586", () => {
     expect(Math.min(586, 900 - 16 - Math.max(165, TEXT_STYLES_RESERVE))).toBe(427);
