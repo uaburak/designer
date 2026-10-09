@@ -106,8 +106,9 @@ describe("editor on the engine (wasm, headless)", () => {
     expect(engine.readNode("1:21")).toBeNull();
     expect(runEditorCommand(ed, "edit.undo")).toBe(true);
     expect(engine.readNode("1:21")).not.toBeNull();
+    expect(ed.ui.get().rulers).toBe(false); // live's View > Rulers is unchecked (N15)
     expect(runEditorCommand(ed, "view.rulers")).toBe(true);
-    expect(ed.ui.get().rulers).toBe(false);
+    expect(ed.ui.get().rulers).toBe(true);
     expect(runEditorCommand(ed, "no.such.command")).toBe(false);
   });
 
@@ -128,7 +129,7 @@ describe("editor on the engine (wasm, headless)", () => {
     const edit = main.find((i) => i.label === "Edit")!;
     expect(items(edit.items!).find((i) => i.id === "edit.undo")?.disabled).toBe(true);
     const view = items(main.find((i) => i.label === "View")!.items!);
-    expect(view.find((i) => i.id === "view.rulers")?.checked).toBe(true);
+    expect(view.find((i) => i.id === "view.rulers")?.checked).toBe(false);
     expect(items(canvasMenu(ed, [])).map((i) => i.id)).toContain("edit.paste-here");
     engine.setSelection(["1:5"]);
     const sel = items(canvasMenu(ed, [{ id: "1:5", name: "Card" }, { id: "1:1", name: "Desktop" }]));
@@ -166,7 +167,7 @@ describe("editor on the engine (wasm, headless)", () => {
     const { menuPatch, menuState } = await import("../desktop");
     const first = menuState(ed);
     expect(first.enabled["edit.delete"]).toBe(false);
-    expect(first.checked["view.rulers"]).toBe(true);
+    expect(first.checked["view.rulers"]).toBe(false);
     expect(menuPatch(first, menuState(ed))).toBeNull();
     engine.setSelection(["1:5"]);
     const patch = menuPatch(first, menuState(ed))!;

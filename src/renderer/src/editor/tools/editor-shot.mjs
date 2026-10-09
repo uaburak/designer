@@ -3437,7 +3437,12 @@ async function selection8Section(page, theme) {
   await shot(page, `181-rotation-origin-${theme}`);
   await page.keyboard.press("Alt+r");
 
-  // Ruler guides: out of the top ruler onto the page (rulers on by default); a click selects it; ⌫ removes it.
+  // Ruler guides: out of the top ruler onto the page (⇧R shows the rulers); a click selects it; ⌫ removes it.
+  // (rulers are off by default as live's View > Rulers: N15; ⇧R turns them on for this part)
+  await canvas.focus();
+  await page.keyboard.press("Shift+R");
+  await settle(page);
+  check("N15: rulers start off and ⇧R shows them", (await page.evaluate(() => window.__designerEditor.ui.get().rulers)) === true);
   const rulerTop = page.locator('[data-ruler="top"]');
   const box = await rulerTop.boundingBox();
   await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
@@ -3463,6 +3468,8 @@ async function selection8Section(page, theme) {
   await canvas.focus();
   if (guideSelected) await page.keyboard.press("Backspace");
   check("⌫ removes the selected guide", (await guides()).length === 0, JSON.stringify(await guides()));
+  await canvas.focus();
+  await page.keyboard.press("Shift+R");
 
   // The Scale tool (K): Card's corner dragged — the swatch's stroke scales with it.
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["6:4"]));
@@ -3979,6 +3986,9 @@ async function leftPanelSection(page, theme) {
   await page.locator('[data-rail-tab="variables"]').click();
   await settle(page);
   check("Variables opens the variables view", (await page.evaluate(() => window.__designerEditor.ui.get().variablesOpen)) === true);
+  // N16: with the Variables view open only Variables is highlighted (live left/rail-variables-full-view.txt); File and the other tabs are not.
+  const railCurrent = await page.evaluate(() => [...document.querySelectorAll('[data-rail-tab][aria-current="true"]')].map((b) => b.dataset.railTab));
+  check("N16: with the Variables view open only Variables is highlighted in the rail", JSON.stringify(railCurrent) === '["variables"]', JSON.stringify(railCurrent));
   await page.locator('[data-rail-tab="variables"]').click();
   await page.locator('[data-rail-tab="file"]').click();
   // The Figma menu opens under its tile (live: 12, 44) with Preferences and Libraries.
