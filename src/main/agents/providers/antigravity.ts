@@ -95,7 +95,7 @@ export function agyStatus(r: RunResult, env?: AuthEnv): AuthState {
 /** Told to the agent on a chat's first turn, after the shared prompt. */
 export const AGY_NOTE = `Your design tools are the tools of the "${AGY_SERVER}" MCP server (call_mcp_tool with ServerName "${AGY_SERVER}"). Use no other MCP server, no terminal and no browser.
 
-Images: when the user wants a picture (a photo, an illustration, an icon as an image), make it with your generate_image tool — it saves the file in your conversation's folder and tells you its absolute path — then put it on the canvas with place_image {path: "<that absolute path>"} (or fill an existing layer with nodeId). Use the file as it is: don't copy or convert it.`;
+Images: when the user wants a picture (a photo, an illustration, an icon as an image), make it with your generate_image tool — it saves the file in your conversation's folder and tells you its absolute path — then put it on the canvas with place_image. When a layer is selected (a frame — with auto layout too — a rectangle, an ellipse or any shape), fill that layer with the picture: place_image {path: "<that absolute path>", nodeId: "<the selected layer's id>"} — no new layer, no child. With nothing selected: place_image {path: "<that absolute path>"}. Use the file as it is: don't copy or convert it.`;
 
 const BOOKKEEPING = new Set(["view_file", "list_dir", "find_by_name", "grep_search", "read_knowledge"]);
 /** Its own coordination steps: notes to a subagent, a timer while one works. */

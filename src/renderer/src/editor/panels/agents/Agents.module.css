@@ -93,12 +93,33 @@
   .imageCard[data-image-card="failed"] { width: auto; aspect-ratio: auto; background: none; }
   [data-image-card="failed"] .imageCardFill { display: none; }
   [data-image-card="failed"] .imageCardCaption { position: static; display: inline-block; padding: 0; background: none; color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
+  /* The picture came: under the grey while its bytes load, then a last brighter sweep and the grey dissolving over it,
+     the picture going from blurred and a little large to sharp (--ds-duration-reveal). */
+  .imageCard[data-reveal="wait"] .imageCardImg { opacity: 0; }
+  .imageCard[data-reveal="play"] .imageCardImg { animation: image-in var(--ds-duration-reveal) var(--ds-ease-out) both; }
+  .imageCard[data-reveal="play"] .imageCardBusy { animation: veil-out var(--ds-duration-reveal) var(--ds-ease-out) both; }
+  .imageCard[data-reveal="play"] .imageCardBusy::after { background: linear-gradient(100deg, transparent 20%, var(--ds-color-ai-shine) 50%, transparent 80%); animation: sweep calc(var(--ds-duration-reveal) * 0.5) var(--ds-ease-out) both; }
+  .imageCard[data-reveal="play"] .imageCardCaption { opacity: 0; transition: opacity var(--ds-duration-medium) var(--ds-ease-out); }
+  /* Asked for and never made: the card fades out, then goes */
+  .imageCard[data-image-card="cancelled"] { animation: veil-out var(--ds-duration-fade) var(--ds-ease-out) both; }
   @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes image-in {
+    0%,
+    35% { filter: blur(var(--ds-space-2)); transform: scale(1.02); }
+    100% { filter: blur(0); transform: scale(1); }
+  }
+  @keyframes veil-out {
+    0%,
+    40% { opacity: 1; }
+    100% { opacity: 0; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .thinkingIcon { animation: none; }
     .thinkingText { background: none; color: var(--figma-color-text-secondary); animation: none; }
     .imageCardBusy::after { display: none; }
+    .imageCard[data-reveal="play"] .imageCardImg { animation: none; }
+    .imageCard[data-reveal="play"] .imageCardBusy { display: none; }
   }
   .changes { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
   .changesLabel { flex: 1 1 auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }

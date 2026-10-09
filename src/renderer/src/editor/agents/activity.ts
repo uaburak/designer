@@ -47,7 +47,8 @@ export function activityOf(m: Pick<ChatMessage, "state" | "parts">): string | nu
   // An image made but not on the canvas yet: the agent is about to place it.
   if (parts.some((p) => p.kind === "image" && p.state === "ready")) return TOOL_ACTIVE.place_image;
   const status = parts.find((p) => p.kind === "status");
-  if (status && status.kind === "status" && parts.every((p) => p.kind === "status")) return status.text;
+  // The CLI's start line until the agent says or does something (an image card put up for the prompt aside).
+  if (status && status.kind === "status" && parts.every((p) => p.kind === "status" || p.kind === "image")) return status.text;
   return THINKING;
 }
 
@@ -71,4 +72,47 @@ export function requestedAspect(args: unknown): number {
   } else if (typeof ratio === "number" && ratio > 0) r = ratio;
   else if (typeof a.width === "number" && typeof a.height === "number" && a.width > 0 && a.height > 0) r = a.width / a.height;
   return Math.min(4, Math.max(0.25, r));
+}
+
+// ---- Does the prompt ask for a picture? ----------------------------------------------------------------------------
+
+/** Letters and digits in either language (JS's \b knows no ç, ğ, ı, ö, ş, ü). */
+const L = "\\p{L}\\p{N}";
+/** English words: the stems, a common ending, then no letter. */
+const en = (stems: string) => new RegExp(`(?<![${L}])(?:${stems})(?:e|es|ed|d|s|ing|ting)?(?![${L}])`, "u");
+/** Turkish words: the stems with any suffix (resmi, görselini, fotoğrafını, çizer misin). */
+const tr = (stems: string) => new RegExp(`(?<![${L}])(?:${stems})[${L}]*`, "u");
+/** A picture by name. */
+const IMAGE_NOUN = [en("image|picture|photo|photograph|photography|illustration|artwork|rendering|wallpaper|portrait|drawing"), tr("resim|resm|görsel|gorsel|foto|illüstrasyon|illustrasyon|çizim|cizim")];
+/** "Draw …" asks for a picture unless it names a shape or a layer (draw a line, bir dikdörtgen çiz). */
+const DRAW = [en("draw|sketch|illustrat|render"), tr("çiz(?!gi)|ciz(?!gi)")];
+const SHAPE = [
+  en("line|arrow|rectangle|square|circle|ellipse|triangle|polygon|star|shape|frame|box|boxe|border|divider|icon|button"),
+  tr("çizgi|cizgi|dikdörtgen|dikdortgen|kare|daire|çember|elips|üçgen|yıldız|şekil|şekl|çerçeve|kutu|ikon|buton|düğme"),
+  new RegExp(`(?<![${L}])ok(?:u|la|lar|ları)?(?![${L}])`, "u"),
+];
+/** Making one outright: "generate an image", "add a photo", "resim üret", "görsel ekle", "bu kareye resim koy". */
+const MAKE = [en("generat|creat|render|illustrat|produc|design|add|put|insert|plac|fill|replac"), tr("üret|uret|oluştur|olustur|tasarla|koy|ekle|doldur|değiştir|degistir")];
+/** Doing something to an image that is there: "delete the image", "make the photo bigger", "resmi sil". */
+const ACT_ON = [
+  en("delet|remov|hid|hide|mov|align|resiz|renam|crop|export|download|rotat|flip|bigger|smaller|larger|scal|blur|describ|what|which|where"),
+  tr("kaldır|gizle|hizala|büyüt|küçült|döndür|dışa aktar|kırp|yeniden adlandır|bulanık|nerede|hangi|nedir|anlat"),
+  new RegExp(`(?<![${L}])(?:sil|silin|siler|silebilir|taşı|taşır|taşıyın)(?![${L}])`, "u"),
+];
+
+const any = (res: RegExp[], s: string) => res.some((r) => r.test(s));
+
+/**
+ * Whether a chat prompt asks for a picture to be made — the chat then shows where it will land at once, before the
+ * agent gets to generate_image. A guess from the words, English and Turkish: a picture named ("an image of …", "a
+ * photo", "a 3D render", "bir kovboy resmi", "görsel", "fotoğraf", "illüstrasyon") or "draw" / "çiz" that names no
+ * shape; not when the prompt only does something to an image that is there ("delete the image", "make the photo
+ * bigger", "resmi sil") unless it also says to make or put one. A wrong guess costs a placeholder that fades out when
+ * the turn ends without a picture.
+ */
+export function asksForImage(prompt: string): boolean {
+  const s = prompt.toLowerCase().replace(/\u0307/g, ""); // "İ" lowercases to i + a combining dot
+  if (any(DRAW, s) && !any(SHAPE, s)) return true;
+  if (!any(IMAGE_NOUN, s)) return false;
+  return any(MAKE, s) || !any(ACT_ON, s);
 }

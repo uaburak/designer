@@ -15,6 +15,9 @@ import { EditorController } from "../controller";
 import { memoryDocumentSource } from "../documentSource";
 import { runTool, type ToolEnv } from "../agents/mcpTools";
 import { AgentTurns } from "../agents/turns";
+import { AgentsService } from "../agents/service";
+import { FADE_MS, REVEAL_MS } from "../agents/imagePlaceholder";
+import type { AgentsApi, ToolCall, TurnEvent } from "@shared/agents/types";
 
 const wasm = join(process.cwd(), "src/renderer/src/engine/wasm/engine.wasm");
 
@@ -226,6 +229,93 @@ describe("MCP tools on the engine", () => {
       // Not an image, or a path the app didn't read: an error with a word why.
       expect((await runTool(env(null), "place_image", { data: Buffer.from("hello").toString("base64") })).isError).toBe(true);
       expect(((await runTool(env(null), "place_image", { path: "x.png" })).content[0] as { text: string }).text).toMatch(/path/);
+    } finally {
+      g.createImageBitmap = before;
+    }
+  });
+
+  it("a chat image turn: the placeholder from the prompt on, over the selected auto layout frame; the picture fills it (no new layer), then the reveal; no picture, it fades", async () => {
+    const g = globalThis as unknown as { createImageBitmap?: unknown };
+    const before = g.createImageBitmap;
+    g.createImageBitmap = async (b: Blob) => {
+      const v = new DataView(await b.arrayBuffer());
+      return { width: v.getUint32(16), height: v.getUint32(20), close() {} };
+    };
+    try {
+      const { ed, engine, env } = await editor();
+      const png = new Uint8Array(33);
+      png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+      new DataView(png.buffer).setUint32(16, 512);
+      new DataView(png.buffer).setUint32(20, 512);
+      const data = Buffer.from(png).toString("base64");
+      const made = json(await runTool(env(null), "create_nodes", { nodes: [{ type: "FRAME", name: "Card", width: 300, height: 200, cornerRadius: 12, layoutMode: "VERTICAL", fills: "#EEEEEE", children: [{ type: "TEXT", characters: "Hi" }] }] }));
+      const card = made.created[0].id as string;
+      engine.setSelection([card]);
+      const kids = engine.readNode(card, { childIds: true })!.childIds!.length;
+
+      let emit: (e: TurnEvent) => void = () => {};
+      let tool: (c: ToolCall) => Promise<ToolResult> = async () => ({ content: [] });
+      let answerTurn: (r: { turnId: string }) => void = () => {};
+      const api = {
+        providers: async () => [{ id: "antigravity", kind: "antigravity", label: "Antigravity", available: true, models: ["default"] }],
+        settings: async () => ({ providerId: "antigravity", models: {}, custom: [] }),
+        mcp: async () => ({ running: false, url: null, connections: [] }),
+        onEvent: (cb: typeof emit) => ((emit = cb), () => {}),
+        onToolCall: (h: typeof tool) => ((tool = h), () => {}),
+        onMcpState: () => () => {},
+        turn: () => new Promise<{ turnId: string }>((r) => (answerTurn = r)),
+        stop: async () => {},
+      } as unknown as AgentsApi;
+      const s = new AgentsService(ed, api);
+      await s.refreshProviders();
+      const answer = () => s.currentChat()!.messages.at(-1)!;
+
+      // Sent: at once, before the agent says anything — over the frame on the canvas, a card in the chat.
+      const sent = s.send("bu kareye bir kovboy garson resmi koy");
+      expect(s.placeholders.list()).toMatchObject([{ state: "active", target: { nodeId: card, shape: { width: 300, height: 200, radius: [12, 12, 12, 12] } } }]);
+      expect(answer().parts).toMatchObject([{ kind: "image", state: "generating", asked: true, fill: true, aspect: 1.5 }]);
+      answerTurn({ turnId: "T" });
+      await sent;
+      const chatId = s.currentChat()!.id;
+      emit({ turnId: "T", chatId, event: { type: "tool", id: "g", name: "generate_image", args: { aspect_ratio: "16:9" }, state: "running" } });
+      expect(s.placeholders.list()).toMatchObject([{ tool: "g", target: { nodeId: card } }]);
+      expect(answer().parts!.filter((p) => p.kind === "image")).toHaveLength(1);
+      emit({ turnId: "T", chatId, event: { type: "tool", id: "g", name: "generate_image", state: "done" } });
+      // place_image with a place of the agent's own on the page: the selected frame is filled all the same.
+      const r = await tool({ reqId: 1, turnId: "T", client: "Antigravity", name: "place_image", args: { data, x: 0, y: 0, width: 200 } });
+      expect(r.isError).toBeFalsy();
+      const filled = engine.readNode(card, { childIds: true })!;
+      expect(filled.fillPaints?.[0]).toMatchObject({ type: "IMAGE", imageScaleMode: "FILL" });
+      expect(filled.childIds!.length).toBe(kids);
+      expect(filled.size).toMatchObject({ x: 300, y: 200 });
+      expect(s.placeholders.list()).toMatchObject([{ state: "revealing" }]);
+      expect(answer().parts![0]).toMatchObject({ kind: "image", state: "placed", tool: "g" });
+      emit({ turnId: "T", chatId, event: { type: "done" } });
+      expect(s.placeholders.list()).toMatchObject([{ state: "revealing" }]);
+      await new Promise((d) => setTimeout(d, REVEAL_MS + 50));
+      expect(s.placeholders.list()).toEqual([]);
+      expect(answer().parts![0]).toMatchObject({ state: "placed" });
+
+      // Nothing selected and no picture after all: mid-view, then it fades out and the card goes.
+      engine.setSelection([]);
+      const again = s.send("draw a cowboy", []);
+      expect(s.placeholders.list()).toMatchObject([{ state: "active", target: { parentId: ed.store.page } }]);
+      answerTurn({ turnId: "U" });
+      await again;
+      emit({ turnId: "U", chatId, event: { type: "text", delta: "I can't make pictures." } });
+      emit({ turnId: "U", chatId, event: { type: "done" } });
+      expect(s.placeholders.list()).toMatchObject([{ state: "leaving" }]);
+      expect(answer().parts![0]).toMatchObject({ kind: "image", state: "cancelled" });
+      await new Promise((d) => setTimeout(d, FADE_MS + 50));
+      expect(s.placeholders.list()).toEqual([]);
+      expect(answer().parts!.map((p) => p.kind)).toEqual(["text"]);
+      // Not a picture: nothing put up.
+      const plain = s.send("Make the mobile version of this", []);
+      expect(s.placeholders.list()).toEqual([]);
+      answerTurn({ turnId: "V" });
+      await plain;
+      expect(answer().parts).toEqual([]);
+      s.dispose();
     } finally {
       g.createImageBitmap = before;
     }

@@ -1,15 +1,18 @@
 @layer app {
   /* An agent's image being made, where it will land (canvas/AgentImagePlaceholders.tsx): a grey fill with a soft light
-     sweeping across (the chat card's look); it fades out when the turn ends without placing it. */
+     sweeping across (the chat card's look), the shape of the layer it will fill; when the picture lands a last brighter
+     sweep crosses it and the grey dissolves over the picture (blurred, then sharp); it fades out when the turn ends
+     without one. */
   .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
   .placeholder {
+    --veil: color-mix(in srgb, var(--figma-color-bg-tertiary) 90%, transparent);
     position: absolute;
     top: 0;
     left: 0;
     display: flex;
     align-items: flex-end;
     overflow: hidden;
-    background: color-mix(in srgb, var(--figma-color-bg-tertiary) 90%, transparent);
+    background: var(--veil);
     outline: 1px solid var(--figma-color-border);
     transform-origin: 0 0;
     transition: opacity var(--ds-duration-fade) var(--ds-ease-out);
@@ -18,10 +21,22 @@
   .placeholder::after { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 25%, color-mix(in srgb, var(--figma-color-text) 10%, transparent) 50%, transparent 75%); transform: translateX(-100%); animation: sweep var(--ds-duration-sweep) ease-in-out infinite; content: ""; }
   .placeholder[data-agent-image-placeholder="leaving"] { opacity: 0; }
   .placeholder[hidden] { display: none; }
-  .caption { position: relative; z-index: 1; margin: var(--ds-space-2); padding: 0 var(--ds-space-1-5); overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); line-height: var(--ds-space-5); text-overflow: ellipsis; white-space: nowrap; }
+  .caption { position: relative; z-index: 1; margin: var(--ds-space-2); padding: 0 var(--ds-space-1-5); overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); line-height: var(--ds-space-5); text-overflow: ellipsis; white-space: nowrap; transition: opacity var(--ds-duration-medium) var(--ds-ease-out); }
   .placeholder[data-small] .caption { display: none; }
+
+  /* The picture has landed under it: the reveal. */
+  .placeholder[data-agent-image-placeholder="revealing"] { outline-color: transparent; animation: dissolve var(--ds-duration-reveal) var(--ds-ease-out) both; }
+  .placeholder[data-agent-image-placeholder="revealing"]::after { background: linear-gradient(100deg, transparent 20%, var(--ds-color-ai-shine) 50%, transparent 80%); animation: sweep calc(var(--ds-duration-reveal) * 0.5) var(--ds-ease-out) both; }
+  .placeholder[data-agent-image-placeholder="revealing"] .caption { opacity: 0; }
+
   @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes dissolve {
+    0%,
+    40% { background-color: var(--veil); backdrop-filter: blur(var(--ds-space-2)); }
+    100% { background-color: transparent; backdrop-filter: blur(0); }
+  }
   @media (prefers-reduced-motion: reduce) {
     .placeholder::after { display: none; }
+    .placeholder[data-agent-image-placeholder="revealing"] { opacity: 0; animation: none; }
   }
 }

@@ -2,11 +2,13 @@
 // right panel's MCP section in a browser, with a stand-in for main (`window.__designerAgents`, installed before the
 // page loads) that plays an agent's turn — its text, its steps, and real tool calls run by the page on the engine —
 // so the flagship flow is driven end to end: a desktop frame selected → "Make the mobile version of this" → a 390
-// frame next to it, one undo step, Undo / Apply from the chat. Then an image turn held at each stage (gates the shots
-// open): the Thinking… row, the image card and the canvas placeholder while the picture is made, the picture placed
-// where the placeholder was; and Stop while one is made (the placeholder fades out). No real agent or model is involved.
+// frame next to it, one undo step, Undo / Apply from the chat. Then an image turn with a rectangle selected, held at
+// each stage (gates the shots open): the placeholder over the rectangle and the chat's image card the moment the
+// prompt is sent, the Thinking… row, generate_image in the same placeholder, the picture landing as the rectangle's
+// fill with the reveal (frozen part-way for the shots), then gone; a prompt that asked for a picture the agent never
+// made (the placeholder fades, the card goes); and Stop while one is made. No real agent or model is involved.
 // AGENTS_UX_DIR=<folder> also saves close-ups of the Thinking… row, the image card and the canvas placeholder there.
-/* global window, document, setTimeout, process */
+/* global window, document, setTimeout, getComputedStyle, process */
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -67,10 +69,18 @@ function installMockAgents() {
     if ((await held("made")) === "stop") return emit(turnId, req.chatId, { type: "done", stopped: true });
     emit(turnId, req.chatId, { type: "tool", id: "g1", name: "generate_image", state: "done", summary: "cowboy_waitress.png" });
     emit(turnId, req.chatId, { type: "tool", id: "p1", name: "place_image", state: "running" });
-    const r = await call(turnId, "place_image", { data: picture(), name: "Cowboy waitress" });
+    // A place of its own on the page, as agents often give: the selected layer is filled all the same.
+    const r = await call(turnId, "place_image", { data: picture(), name: "Cowboy waitress", x: 0, y: 0 });
     window.__designerAgentsLog.push({ name: "place_image", isError: !!r.isError, text: r.content.find((c) => c.type === "text")?.text?.slice(0, 200) });
     emit(turnId, req.chatId, { type: "tool", id: "p1", name: "place_image", state: r.isError ? "error" : "done" });
-    emit(turnId, req.chatId, { type: "text", delta: "\n\nThe picture is on the canvas, inside the selected frame." });
+    emit(turnId, req.chatId, { type: "text", delta: "\n\nThe selected rectangle is filled with the picture." });
+    emit(turnId, req.chatId, { type: "done" });
+  };
+  // "… çiz …" to an agent that makes no pictures: it answers in words only.
+  const wordsTurn = async (turnId, req) => {
+    emit(turnId, req.chatId, { type: "status", text: "Starting LM Studio…" });
+    await gate("words");
+    emit(turnId, req.chatId, { type: "text", delta: "I can't make pictures; I can draw it with shapes if you like." });
     emit(turnId, req.chatId, { type: "done" });
   };
   window.__designerAgentsLog = [];
@@ -111,8 +121,12 @@ function installMockAgents() {
     turn: async (req) => {
       const turnId = `turn-${Date.now()}`;
       window.__designerAgentsLog.push(req);
-      if (/image/i.test(req.prompt)) {
+      if (/image|resmi/i.test(req.prompt)) {
         setTimeout(() => void imageTurn(turnId, req), 30);
+        return { turnId };
+      }
+      if (/çiz/i.test(req.prompt)) {
+        setTimeout(() => void wordsTurn(turnId, req), 30);
         return { turnId };
       }
       setTimeout(async () => {
@@ -263,65 +277,137 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await settle(page);
   check("Agents: Apply brings it back", (await page.evaluate((id) => window.__designerEditor.engine.readNode(id)?.size?.x, made)) === 390);
 
-  // An image turn (Antigravity's way: generate_image, then place_image), held at each stage.
+  // An image turn (Antigravity's way: generate_image, then place_image), held at each stage, with a rectangle selected:
+  // the placeholder covers it as soon as the prompt is sent, and the picture becomes its fill.
   await page.evaluate(() => {
     const ed = window.__designerEditor;
-    ed.engine.setSelection(["7:1"]);
+    const at = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
+    const fill = [{ type: "SOLID", color: { r: 0.85, g: 0.87, b: 0.9, a: 1 }, opacity: 1, visible: true, blendMode: "NORMAL" }];
+    ed.engine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [{ guid: "7:40", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Photo", parentIndex: { guid: "0:1", position: "~" }, size: { x: 480, y: 320 }, transform: at(0, 1124), fillPaints: fill, cornerRadius: 24 }] });
+    ed.engine.setSelection(["7:40"]);
     ed.engine.command("ZOOM_TO_SELECTION");
   });
   await settle(page);
-  await page.locator("[data-agents-input]").fill("Make an image of a cowboy waitress and put it in this frame");
+  const pageLayers = () => page.evaluate(() => window.__designerEditor.engine.readNode(window.__designerEditor.store.page, { childIds: true }).childIds.length);
+  const layersBefore = await pageLayers();
+  /** The selected rectangle and the placeholder on screen. */
+  const measure = () =>
+    page.evaluate(() => {
+      const el = document.querySelector("[data-agent-image-placeholder]");
+      const r = el?.getBoundingClientRect();
+      const ed = window.__designerEditor;
+      const c = ed.engine.getCamera();
+      const cr = ed.canvas.getBoundingClientRect();
+      const f = ed.engine.readNode("7:40", { fields: ["size", "transform", "fillPaints"] });
+      return {
+        state: el?.getAttribute("data-agent-image-placeholder") ?? null,
+        fills: el?.hasAttribute("data-fills") ?? false,
+        radius: el ? getComputedStyle(el).borderTopLeftRadius : null,
+        r: r && { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+        rect: { x: Math.round(cr.left + f.transform.m02 * c.zoom + c.x), y: Math.round(cr.top + f.transform.m12 * c.zoom + c.y), w: Math.round(f.size.x * c.zoom), h: Math.round(f.size.y * c.zoom), radius: `${Math.round(24 * c.zoom * 100) / 100}px` },
+        fill: f.fillPaints?.[0] && { type: f.fillPaints[0].type, scaleMode: f.fillPaints[0].imageScaleMode },
+        count: document.querySelectorAll("[data-agent-image-placeholder]").length,
+      };
+    });
+  const covers = (m) => !!m.r && Math.abs(m.r.x - m.rect.x) <= 1 && Math.abs(m.r.y - m.rect.y) <= 1 && Math.abs(m.r.w - m.rect.w) <= 1 && Math.abs(m.r.h - m.rect.h) <= 1;
+  await page.locator("[data-agents-input]").fill("bu kareye bir kovboy garson resmi koy");
   await page.locator("[data-agents-input]").press("Enter");
   const last = page.locator('[data-message="assistant"]').last();
+  // At once — before the agent has said or done anything.
+  await page.locator('[data-agent-image-placeholder="active"]').waitFor({ timeout: 2000 });
+  await last.locator('[data-image-card="generating"]').waitFor({ timeout: 2000 });
+  const early = await measure();
+  check("Agents: right after sending, the placeholder covers the selected rectangle exactly (bounds, corners)", early.count === 1 && early.fills && covers(early) && early.radius === early.rect.radius, JSON.stringify(early));
+  check("Agents: right after sending, the chat shows the image card, before any step", (await last.locator("[data-tool]").count()) === 0 && (await last.locator('[data-image-card="generating"]').count()) === 1);
   await last.locator("[data-thinking]").waitFor({ timeout: 5000 });
   check("Agents: while the agent thinks, a Thinking… row shimmers under its words", ((await last.locator("[data-thinking-label]").textContent()) ?? "") === "Thinking…");
+  await shot(page, `405a-agents-image-asked-${theme}`);
   await last.locator("[data-thinking-time]").waitFor({ timeout: 9000 });
   check("Agents: after 5 s the row shows the seconds", /^\d+s$/.test(((await last.locator("[data-thinking-time]").textContent()) ?? "").trim()));
   await closeUp(page, '[data-message="assistant"]:last-child [data-thinking]', `thinking-row-${theme}`, 16);
-  await page.evaluate(() => window.__agentsOpen("think"));
-  await page.locator('[data-image-card="generating"]').waitFor({ timeout: 5000 });
-  await page.waitForTimeout(400);
-  const ph = await page.evaluate(() => {
-    const el = document.querySelector('[data-agent-image-placeholder="active"]');
-    const r = el?.getBoundingClientRect();
+  // Pan: it follows the canvas.
+  await page.evaluate(() => {
     const ed = window.__designerEditor;
     const c = ed.engine.getCamera();
-    const cr = ed.canvas.getBoundingClientRect();
-    const f = ed.engine.readNode(ed.selection[0], { fields: ["size", "transform"] });
-    const fx = cr.left + f.transform.m02 * c.zoom + c.x;
-    const fy = cr.top + f.transform.m12 * c.zoom + c.y;
-    return { r: r && { x: r.x, y: r.y, w: r.width, h: r.height }, frame: { x: fx, y: fy, w: f.size.x * c.zoom, h: f.size.y * c.zoom }, layers: ed.engine.readNode(ed.selection[0], { childIds: true }).childIds.length };
+    ed.engine.setCamera({ ...c, x: c.x - 60, y: c.y + 40 });
   });
-  const inside = ph.r && ph.r.x >= ph.frame.x - 1 && ph.r.y >= ph.frame.y - 1 && ph.r.x + ph.r.w <= ph.frame.x + ph.frame.w + 1 && ph.r.y + ph.r.h <= ph.frame.y + ph.frame.h + 1;
-  check("Agents: generate_image puts a placeholder on the canvas, square, inside the selected frame", !!inside && Math.abs(ph.r.w - ph.r.h) <= 1 && ph.r.w > 20, JSON.stringify(ph));
-  check("Agents: the chat shows the image card being made, and the running step says Making an image…", (await last.locator('[data-image-card="generating"]').count()) === 1 && ((await last.locator('[data-tool="generate_image"] [data-thinking-label]').textContent()) ?? "") === "Making an image…");
+  await settle(page);
+  const panned = await measure();
+  check("Agents: the placeholder follows pan and zoom", covers(panned), JSON.stringify(panned));
+  await page.evaluate(() => window.__agentsOpen("think"));
+  await last.locator('[data-tool="generate_image"]').waitFor({ timeout: 5000 });
+  await page.waitForTimeout(300);
+  const making = await measure();
+  check("Agents: generate_image shows in the same placeholder and card (no second one)", making.count === 1 && making.state === "active" && covers(making) && (await last.locator("[data-image-card]").count()) === 1, JSON.stringify(making));
+  check("Agents: the running step says Making an image…", ((await last.locator('[data-tool="generate_image"] [data-thinking-label]').textContent()) ?? "") === "Making an image…");
   await shot(page, `405-agents-image-making-${theme}`);
   await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-making-${theme}`, 16);
-  await closeUp(page, "[data-agent-image-placeholder]", `canvas-placeholder-${theme}`, 48);
-  const childrenBefore = ph.layers;
-  await page.evaluate(() => window.__agentsOpen("made"));
-  await page.waitForSelector('[data-message="assistant"][data-state="done"] [data-image-card="placed"] img', { timeout: 8000 });
-  await settle(page);
-  const placed = await page.evaluate(() => {
-    const ed = window.__designerEditor;
-    const log = window.__designerAgentsLog.filter((l) => l.name === "place_image").pop();
-    const id = log && JSON.parse(log.text).nodeId;
-    const n = id && ed.engine.readNode(id, { fields: ["size", "transform", "parentIndex", "fillPaints", "name"] });
-    const frame = ed.engine.readNode(ed.selection[0] ?? "", { childIds: true });
-    return { n: n && { w: n.size.x, h: n.size.y, x: n.transform.m02, y: n.transform.m12, parent: n.parentIndex?.guid, fill: n.fillPaints?.[0]?.type, name: n.name }, placeholders: document.querySelectorAll("[data-agent-image-placeholder]").length, undo: ed.store.undo.undoLabel, frameKids: frame?.childIds?.length };
+  await closeUp(page, "[data-agent-image-placeholder]", `canvas-placeholder-making-${theme}`, 48);
+  // The picture lands. The reveal's timers are held and its animations frozen part-way for the shots, then let go.
+  await page.evaluate(() => {
+    const reveal = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ds-duration-reveal"));
+    const orig = window.setTimeout;
+    const held = [];
+    window.setTimeout = (fn, ms, ...a) => (ms === reveal ? (held.push(() => fn(...a)), 0) : orig(fn, ms, ...a));
+    window.__revealAt = (f) => document.getAnimations().forEach((an) => {
+      const d = an.effect?.getTiming().duration;
+      if (an.effect?.getTiming().iterations !== 1 || typeof d !== "number") return;
+      an.pause();
+      an.currentTime = reveal * f;
+    });
+    window.__releaseReveal = () => {
+      window.setTimeout = orig;
+      document.getAnimations().forEach((an) => an.playState === "paused" && an.play());
+      held.splice(0).forEach((f) => f());
+    };
   });
-  check("Agents: place_image lands where the placeholder was (in the frame, fitted and centred) and the placeholder goes", placed.n && placed.n.fill === "IMAGE" && placed.n.w === 512 && placed.n.h === 512 && placed.n.x === 464 && placed.n.y === 256 && placed.n.parent === "7:1" && placed.placeholders === 0, JSON.stringify({ ...placed, ph }));
-  check("Agents: the image card shows the picture", (await last.locator('[data-image-card="placed"] img').count()) === 1);
+  await page.evaluate(() => window.__agentsOpen("made"));
+  await page.locator('[data-agent-image-placeholder="revealing"]').waitFor({ timeout: 8000 });
+  await last.locator('[data-image-card="placed"][data-reveal="play"]').waitFor({ timeout: 5000 });
+  await page.evaluate(() => window.__revealAt(0.3));
+  await settle(page);
+  const revealing = await measure();
+  check("Agents: the picture lands as the selected rectangle's fill (FILL), no new layer", revealing.fill?.type === "IMAGE" && revealing.fill?.scaleMode === "FILL" && (await pageLayers()) === layersBefore, JSON.stringify({ ...revealing, layersBefore }));
+  check("Agents: the reveal plays over it, on the canvas and in the chat", revealing.state === "revealing" && covers(revealing) && (await last.locator('[data-reveal="play"] img').count()) === 1, JSON.stringify(revealing));
+  await shot(page, `406a-agents-image-revealing-${theme}`);
+  await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-revealing-sweep-${theme}`, 16);
+  await closeUp(page, "[data-agent-image-placeholder]", `canvas-placeholder-revealing-sweep-${theme}`, 48);
+  await page.evaluate(() => window.__revealAt(0.7));
+  await page.waitForTimeout(50);
+  await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-revealing-dissolve-${theme}`, 16);
+  await closeUp(page, "[data-agent-image-placeholder]", `canvas-placeholder-revealing-dissolve-${theme}`, 48);
+  await page.evaluate(() => window.__releaseReveal());
+  await page.waitForFunction(() => !document.querySelector("[data-agent-image-placeholder]"), null, { timeout: 3000 });
+  await page.waitForSelector('[data-message="assistant"][data-state="done"] [data-image-card="placed"]:not([data-reveal]) img', { timeout: 5000 });
+  await settle(page);
+  check("Agents: then the placeholder is gone and the card shows the picture", (await measure()).count === 0 && (await last.locator('[data-image-card="placed"] img').count()) === 1);
   check("Agents: no Thinking… row once the turn is over", (await last.locator("[data-thinking]").count()) === 0);
   await shot(page, `406-agents-image-placed-${theme}`);
   await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-placed-${theme}`, 16);
-  check("Agents: the image is one more layer of the frame", placed.frameKids === childrenBefore + 1, `${childrenBefore} → ${placed.frameKids}`);
+  if (process.env.AGENTS_UX_DIR) {
+    // The rectangle on the canvas, filled with the picture.
+    const m = await measure();
+    const pad = 48;
+    await page.screenshot({ path: path.join(process.env.AGENTS_UX_DIR, `canvas-placed-${theme}.png`), clip: { x: Math.max(0, m.rect.x - pad), y: Math.max(0, m.rect.y - pad), width: m.rect.w + pad * 2, height: m.rect.h + pad * 2 } });
+  }
+  // Asked for in words, but the agent makes none: the placeholder fades out, the card goes.
+  await page.evaluate(() => window.__designerEditor.engine.setSelection([]));
+  await settle(page);
+  await page.locator("[data-agents-input]").fill("bir kovboy çiz");
+  await page.locator("[data-agents-input]").press("Enter");
+  await page.locator('[data-agent-image-placeholder="active"]').waitFor({ timeout: 2000 });
+  check("Agents: with nothing selected the placeholder sits mid-view", !(await measure()).fills);
+  await page.evaluate(() => window.__agentsOpen("words"));
+  await page.locator('[data-agent-image-placeholder="leaving"]').waitFor({ timeout: 3000 });
+  await page.waitForFunction(() => !document.querySelector("[data-agent-image-placeholder]"), null, { timeout: 3000 });
+  await page.waitForFunction(() => !document.querySelector('[data-message="assistant"]:last-child [data-image-card]'), null, { timeout: 3000 });
+  check("Agents: no picture after all: the placeholder fades out and the chat's card goes", (await page.locator('[data-message="assistant"]').last().locator("[data-image-card]").count()) === 0);
   // Stop while an image is made: the placeholder fades out, the card says it wasn't placed.
   await page.locator("[data-agents-input]").fill("One more image, please");
   await page.locator("[data-agents-input]").press("Enter");
   await page.locator('[data-message="assistant"]').last().locator("[data-thinking]").waitFor({ timeout: 5000 });
   await page.evaluate(() => window.__agentsOpen("think"));
-  await page.locator('[data-agent-image-placeholder="active"]').waitFor({ timeout: 5000 });
+  await page.locator('[data-message="assistant"]').last().locator('[data-tool="generate_image"]').waitFor({ timeout: 5000 });
   await page.locator("[data-agents-stop]").click();
   await page.locator('[data-agent-image-placeholder="leaving"]').waitFor({ timeout: 3000 });
   await page.waitForFunction(() => !document.querySelector("[data-agent-image-placeholder]"), null, { timeout: 3000 });

@@ -12,12 +12,17 @@ import type { EditorController } from "../controller";
 import { editorBridge } from "../desktop";
 import type { ToolResult } from "@shared/agents/tools";
 import { runTool } from "./mcpTools";
-import { requestedAspect } from "./activity";
-import { ImagePlaceholders, placeholderArgs, placeholderTarget, type PlaceholderEnv } from "./imagePlaceholder";
+import { asksForImage, requestedAspect } from "./activity";
+import { FADE_MS, ImagePlaceholders, placeholderArgs, placeholderTarget, reshapeTarget, targetAspect, type PlaceholderEnv } from "./imagePlaceholder";
 import { AgentTurns, type TurnRecord } from "./turns";
 
-/** An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop). */
-export type ImagePart = { kind: "image"; id: string; state: "generating" | "ready" | "placed" | "failed"; aspect: number; hash?: string; width?: number; height?: number };
+/**
+ * An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop) — or
+ * asked for in the prompt and never made (`cancelled`: it fades out, then goes). A card put up as the prompt was sent
+ * (`asked`) shows the agent's first generate_image once it starts (`tool`); `fill`: it will fill the selected layer,
+ * whose aspect it has.
+ */
+export type ImagePart = { kind: "image"; id: string; state: "generating" | "ready" | "placed" | "failed" | "cancelled"; aspect: number; asked?: boolean; tool?: string; fill?: boolean; hash?: string; width?: number; height?: number };
 
 export type MessagePart =
   | { kind: "text"; text: string }
@@ -175,9 +180,9 @@ export class AgentsService {
       page: ed.store.page,
       selection: ed.selection,
       read: (id) => {
-        const n = ed.engine.readNode(id, { fields: ["type", "size", "transform", "parentIndex", "stackMode"] });
+        const n = ed.engine.readNode(id, { fields: ["type", "size", "transform", "parentIndex", ...RADIUS_FIELDS] });
         if (!n) return null;
-        return { type: String(ed.withRealType(n).type), size: n.size, transform: n.transform, parent: n.parentIndex?.guid ?? null, autoLayout: !!n.stackMode && n.stackMode !== "NONE" };
+        return { type: String(ed.withRealType(n).type), size: n.size, transform: n.transform, parent: n.parentIndex?.guid ?? null, radius: radiiOf(n) };
       },
       camera: ed.store.camera,
       viewport: { width: ed.canvas?.clientWidth ?? 0, height: ed.canvas?.clientHeight ?? 0 },
@@ -210,7 +215,7 @@ export class AgentsService {
       const raw = localStorage.getItem(this.storageKey);
       const chats = raw ? (JSON.parse(raw) as Chat[]) : [];
       // A turn that was running when the file closed is over.
-      return chats.map((c) => ({ ...c, messages: c.messages.map((m) => (m.state === "running" ? { ...m, state: "stopped" as const } : m)) }));
+      return chats.map((c) => ({ ...c, messages: c.messages.map((m) => (m.state === "running" ? { ...m, state: "stopped" as const, parts: m.parts && withoutCancelled(turnOver(m.parts, true)) } : m.parts ? { ...m, parts: withoutCancelled(m.parts) } : m)) }));
     } catch {
       return [];
     }
@@ -359,6 +364,12 @@ export class AgentsService {
     if (this.state.running[chatId]) return;
     const user: ChatMessage = { id: uid(), role: "user", text, context };
     const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: provider?.label };
+    // A picture asked for: where it will land, in the chat and on the canvas, from now on (over the selected layer it fills).
+    if (provider && asksForImage(text)) {
+      const target = placeholderTarget({ ...this.placeholderEnv(), selection: (context ?? []).map((c) => c.id) });
+      this.placeholders.start(answer.id, target);
+      answer.parts = [{ kind: "image", id: `image:asked:${answer.id}`, state: "generating", aspect: targetAspect(target), asked: true, ...(target?.nodeId ? { fill: true } : {}) }];
+    }
     const history: ChatTurnMessage[] = chat.messages.map((m) => (m.role === "user" ? { role: "user", text: m.text ?? "" } : { role: "assistant", text: (m.parts ?? []).filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("") }));
     this.updateChat(chatId, (c) => ({ ...c, messages: [...c.messages, user, answer] }));
     if (!provider) {
@@ -377,14 +388,22 @@ export class AgentsService {
         resume: sessionOf(chat, provider.id),
         context: { fileName: this.ed.ui.get().fileName, pageName, selection: context ?? [] },
       });
+      this.placeholders.rekey(answer.id, turnId);
       this.turns.start(turnId, provider.label);
       this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text });
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
       if (chat.providerId !== provider.id) this.updateChat(chatId, (c) => ({ ...c, providerId: provider.id, model: this.modelOf(provider) }));
     } catch (err) {
-      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: err instanceof Error ? err.message : String(err) }));
+      this.placeholders.end(answer.id);
+      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: err instanceof Error ? err.message : String(err), parts: turnOver(m.parts ?? [], false) }));
+      this.dropCancelled(chatId, answer.id);
     }
+  }
+
+  /** A card asked for and never made fades out (CSS), then goes. */
+  private dropCancelled(chat: string, message: string) {
+    setTimeout(() => this.updateMessage(chat, message, (m) => (m.parts?.some(isCancelled) ? { ...m, parts: withoutCancelled(m.parts) } : m)), FADE_MS);
   }
 
   stop(chatId: string) {
@@ -406,10 +425,14 @@ export class AgentsService {
       return;
     }
     if (event.type === "tool" && event.name === "generate_image") {
-      const known = this.state.chats.find((c) => c.id === chat)?.messages.find((m) => m.id === message)?.parts?.some((p) => p.kind === "image" && p.id === imagePartId(event.id));
-      // As soon as the image is asked for: where it will land, on the canvas.
-      if (event.state === "running" && !known) this.placeholders.start(turnId, placeholderTarget(this.placeholderEnv(), requestedAspect(event.args)));
-      if (event.state === "error") this.placeholders.fail(turnId);
+      // The image is being made: the placeholder put up as the prompt was sent shows it (at the aspect asked for), else
+      // one appears now where it will land.
+      if (event.state !== "error" && !this.placeholders.ofTool(turnId, event.id)) {
+        const env = this.placeholderEnv();
+        const aspect = requestedAspect(event.args);
+        if (!this.placeholders.bind(turnId, event.id, (t) => reshapeTarget(t, aspect, env.read))) this.placeholders.start(turnId, placeholderTarget(env, aspect), event.id);
+      }
+      if (event.state === "error") this.placeholders.fail(turnId, event.id);
     }
     this.updateMessage(chat, message, (m) => ({ ...m, ...applyEvent(m, event) }));
   }
@@ -430,9 +453,10 @@ export class AgentsService {
     this.updateMessage(target.chat, target.message, (m) => ({
       ...m,
       state: m.state === "error" ? "error" : event.stopped ? "stopped" : "done",
-      parts: (m.parts ?? []).filter((p) => p.kind !== "status").map((p) => (p.kind === "tool" && p.state === "running" ? { ...p, state: event.stopped ? "error" : "done" } : p.kind === "image" && (p.state === "generating" || p.state === "ready") ? { ...p, state: "failed" } : p)),
+      parts: turnOver(m.parts ?? [], !!event.stopped),
       changes: record && record.state !== "none" ? { count: touched, state: record.state } : undefined,
     }));
+    this.dropCancelled(target.chat, target.message);
     // Attributed in version history: the turn's changes are a named version of their own.
     if (record && record.state !== "none" && this.ed.source.saveVersion) void this.ed.source.saveVersion({ title: `${target.providerLabel}: ${target.prompt.slice(0, 80)}`, description: "Made in the Agents tab" }).catch(() => {});
   }
@@ -485,8 +509,9 @@ export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {
   const parts = [...(m.parts ?? [])];
   switch (e.type) {
     case "status":
-      if (!parts.some((p) => p.kind !== "status")) return { parts: [{ kind: "status", text: e.text }] };
-      return {};
+      // The CLI's start line, until the agent says or does something (an image card put up for the prompt doesn't count).
+      if (parts.some((p) => p.kind === "text" || p.kind === "tool")) return {};
+      return { parts: [...parts.filter((p) => p.kind !== "status"), { kind: "status", text: e.text }] };
     case "text": {
       const clean = parts.filter((p) => p.kind !== "status");
       const last = clean[clean.length - 1];
@@ -504,7 +529,14 @@ export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {
         // The image's card, right after its step: being made → made → (place_image) on the canvas. A failed step says
         // why itself: its card goes.
         const id = imagePartId(e.id);
-        const j = clean.findIndex((p) => p.kind === "image" && p.id === id);
+        let j = clean.findIndex((p) => p.kind === "image" && (p.id === id || p.tool === e.id));
+        // The card put up as the prompt was sent now shows this image (at the aspect asked for, unless it fills a layer).
+        const asked = j < 0 && e.state !== "error" ? clean.findIndex((p) => p.kind === "image" && !!p.asked && !p.tool && p.state === "generating") : -1;
+        if (asked >= 0) {
+          const card = clean[asked] as ImagePart;
+          clean[asked] = { ...card, tool: e.id, aspect: card.fill ? card.aspect : requestedAspect(e.args) };
+          j = asked;
+        }
         if (j < 0) {
           if (e.state !== "error") clean.splice(clean.findIndex((p) => p.kind === "tool" && p.id === e.id) + 1, 0, { kind: "image", id, state: e.state === "done" ? "ready" : "generating", aspect: requestedAspect(e.args) });
         } else {
@@ -523,6 +555,32 @@ export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {
 }
 
 const imagePartId = (toolId: string) => `image:${toolId}`;
+
+/**
+ * An answer's parts once its turn is over: no status line, running steps done (failed when stopped), images still
+ * being made not placed — and a card put up for a picture the prompt asked for, that the agent never started, cancelled.
+ */
+export function turnOver(parts: MessagePart[], stopped: boolean): MessagePart[] {
+  return parts
+    .filter((p) => p.kind !== "status")
+    .map((p): MessagePart => {
+      if (p.kind === "tool" && p.state === "running") return { ...p, state: stopped ? "error" : "done" };
+      if (p.kind === "image" && (p.state === "generating" || p.state === "ready")) return { ...p, state: p.asked && !p.tool ? "cancelled" : "failed" };
+      return p;
+    });
+}
+
+const isCancelled = (p: MessagePart) => p.kind === "image" && p.state === "cancelled";
+const withoutCancelled = (parts: MessagePart[]) => (parts.some(isCancelled) ? parts.filter((p) => !isCancelled(p)) : parts);
+
+const RADIUS_FIELDS = ["cornerRadius", "rectangleCornerRadiiIndependent", "rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius"];
+
+/** A layer's corner radii, clockwise from the top left (its one radius, or each corner's); none when square. */
+function radiiOf(n: { cornerRadius?: number; rectangleCornerRadiiIndependent?: boolean; rectangleTopLeftCornerRadius?: number; rectangleTopRightCornerRadius?: number; rectangleBottomRightCornerRadius?: number; rectangleBottomLeftCornerRadius?: number }): [number, number, number, number] | undefined {
+  const r = n.cornerRadius ?? 0;
+  const corners: [number, number, number, number] = n.rectangleCornerRadiiIndependent ? [n.rectangleTopLeftCornerRadius ?? r, n.rectangleTopRightCornerRadius ?? r, n.rectangleBottomRightCornerRadius ?? r, n.rectangleBottomLeftCornerRadius ?? r] : [r, r, r, r];
+  return corners.some((c) => c > 0) ? corners : undefined;
+}
 
 /** The picture place_image put on the canvas, from its result ({ nodeId, imageHash, imageSize }). */
 export function placedInfo(r: ToolResult): { hash: string; width: number; height: number } | null {

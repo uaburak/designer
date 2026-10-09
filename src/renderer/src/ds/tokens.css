@@ -148,6 +148,7 @@
     --ds-duration-shimmer: 1600ms;
     --ds-duration-sweep: 1800ms;
     --ds-duration-fade: 300ms;
+    --ds-duration-reveal: 700ms;
     --ds-focus-width: 1px;
     --ds-focus-offset: 1px;
     --ds-checkerboard: repeating-conic-gradient(#e6e6e6 0% 25%, #ffffff 0% 50%) 0 0 / 8px 8px;

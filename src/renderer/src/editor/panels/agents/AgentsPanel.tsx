@@ -11,6 +11,7 @@ import { useEditor } from "../../controller";
 import { useTopics } from "../../hooks";
 import { agentsOf, pickerOptions, toolLabel, type AgentsService, type Chat, type ChatMessage, type ImagePart, type MessagePart } from "../../agents/service";
 import { activityOf, elapsedLabel, toolActiveLabel } from "../../agents/activity";
+import { REVEAL_MS } from "../../agents/imagePlaceholder";
 import { TabHeader } from "../TabHeader";
 import { AgentSettings } from "./AgentSettings";
 import styles from "./Agents.module.css";
@@ -236,13 +237,35 @@ function useImageUrl(hash: string | undefined): string | null {
   return url;
 }
 
-/** An image the agent makes: a soft gradient with a light sweeping across while it is made, then the picture. */
+/** How long a reveal waits for the picture's bytes before showing it without one. */
+const REVEAL_WAIT_MS = 3000;
+
+/**
+ * An image the agent makes: grey with a soft light sweeping across while it is made, then the picture. A card seen
+ * being made plays the reveal when the picture comes (a last brighter sweep, then the grey dissolves over the picture,
+ * blurred to sharp); a card put up for a picture the prompt asked for, that never came, fades out.
+ */
 function ImageCard({ p }: { p: ImagePart }) {
+  const busy = p.state === "generating" || p.state === "ready";
   const url = useImageUrl(p.state === "placed" ? p.hash : undefined);
-  const caption = p.state === "generating" ? "Making an image…" : p.state === "ready" ? "Placing the image…" : p.state === "failed" ? "Image not placed" : null;
+  // "wait": the picture came, its bytes are loading under the grey; "play": the reveal.
+  const [reveal, setReveal] = useState<"none" | "wait" | "play">("none");
+  const [prev, setPrev] = useState(p.state);
+  if (prev !== p.state) {
+    setPrev(p.state);
+    if (p.state === "placed" && (prev === "generating" || prev === "ready")) setReveal("wait");
+  }
+  useEffect(() => {
+    if (reveal === "none") return;
+    // Played (or the bytes never came): the picture alone.
+    const t = setTimeout(() => setReveal("none"), reveal === "play" ? REVEAL_MS : REVEAL_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [reveal]);
+  const caption = p.state === "generating" || p.state === "cancelled" ? "Making an image…" : p.state === "ready" || reveal !== "none" ? "Placing the image…" : p.state === "failed" ? "Image not placed" : null;
   return (
-    <div className={styles.imageCard} data-image-card={p.state} style={{ "--aspect": Math.max(0.25, Math.min(4, p.aspect || 1)) } as CSSProperties}>
-      {p.state === "placed" ? url ? <img className={styles.imageCardImg} src={url} alt="" draggable={false} /> : <span className={styles.imageCardFill} /> : <span className={cx(styles.imageCardFill, p.state !== "failed" && styles.imageCardBusy)} />}
+    <div className={styles.imageCard} data-image-card={p.state} data-reveal={reveal === "none" ? undefined : reveal} style={{ "--aspect": Math.max(0.25, Math.min(4, p.aspect || 1)) } as CSSProperties}>
+      {p.state === "placed" && (url ? <img className={styles.imageCardImg} src={url} alt="" draggable={false} onLoad={() => setReveal((r) => (r === "wait" ? "play" : r))} /> : <span className={styles.imageCardFill} />)}
+      {(busy || p.state === "cancelled" || reveal !== "none") && <span className={cx(styles.imageCardFill, styles.imageCardBusy)} data-image-veil="" />}
       {caption && <span className={styles.imageCardCaption}>{caption}</span>}
     </div>
   );

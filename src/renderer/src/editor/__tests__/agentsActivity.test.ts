@@ -1,9 +1,10 @@
 // The chat while an agent works: the Thinking… row's line and seconds (activity.ts), the image card's states
-// (service.ts applyEvent / withPlacedImage), and the canvas placeholder's place and life (imagePlaceholder.ts).
+// (service.ts applyEvent / withPlacedImage / turnOver), whether a prompt asks for a picture (asksForImage), and the
+// canvas placeholder's place and life (imagePlaceholder.ts).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { activityOf, elapsedLabel, requestedAspect, THINKING, toolActiveLabel } from "../agents/activity";
-import { FADE_MS, ImagePlaceholders, landInBox, placeholderArgs, placeholderTarget, type PlaceholderEnv, type PlaceNode } from "../agents/imagePlaceholder";
-import { applyEvent, placedInfo, withPlacedImage, type ChatMessage, type MessagePart } from "../agents/service";
+import { activityOf, asksForImage, elapsedLabel, requestedAspect, THINKING, toolActiveLabel } from "../agents/activity";
+import { FADE_MS, ImagePlaceholders, landInBox, placeholderArgs, placeholderTarget, reshapeTarget, REVEAL_MS, targetAspect, type PlaceholderEnv, type PlaceNode } from "../agents/imagePlaceholder";
+import { applyEvent, placedInfo, turnOver, withPlacedImage, type ChatMessage, type ImagePart, type MessagePart } from "../agents/service";
 import type { ChatEvent } from "@shared/agents/types";
 
 const run = (events: ChatEvent[], start: Partial<ChatMessage> = {}): ChatMessage => events.reduce<ChatMessage>((m, e) => ({ ...m, ...applyEvent(m, e) }), { id: "a", role: "assistant", parts: [], state: "running", ...start });
@@ -64,68 +65,181 @@ describe("the chat's image card", () => {
   });
 });
 
+describe("a prompt asking for a picture", () => {
+  it("is read from the words, English and Turkish", () => {
+    const yes = [
+      "bu kareye bir kovboy garson resmi koy",
+      "Bu Kareye Bir Kovboy Garson RESMİ Koy",
+      "Make an image of a cowboy waitress and put it in this frame",
+      "One more image, please",
+      "generate a picture of a sunset",
+      "add a photo of a dog here",
+      "a 3D render of a coffee cup",
+      "draw a cowboy on a horse",
+      "replace the image with a beach photo",
+      "bir kedi görseli oluştur",
+      "fotoğraf ekle",
+      "İllüstrasyon yap",
+      "bir kovboy çiz",
+      "çizer misin bir at",
+      "logo görseli üret",
+      "bu çerçeveye manzara fotoğrafı koy",
+    ];
+    const no = [
+      "Make the mobile version of this",
+      "add auto layout",
+      "rename the layers",
+      "delete the image",
+      "resmi sil",
+      "make the photo bigger",
+      "move the picture to the left",
+      "what is in this image?",
+      "bu görsel nedir",
+      "bir dikdörtgen çiz",
+      "draw a line under the title",
+      "çizgiyi kalınlaştır",
+      "",
+    ];
+    expect(yes.filter((p) => !asksForImage(p))).toEqual([]);
+    expect(no.filter((p) => asksForImage(p))).toEqual([]);
+  });
+});
+
 describe("the canvas placeholder", () => {
   afterEach(() => vi.useRealTimers());
 
+  const at = (x: number, y: number) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
   const nodes: Record<string, PlaceNode> = {
     "0:1": { type: "CANVAS" },
-    "1:1": { type: "FRAME", size: { x: 400, y: 300 }, transform: { m00: 1, m01: 0, m02: 100, m10: 0, m11: 1, m12: 50 }, parent: "0:1" },
-    "1:2": { type: "RECTANGLE", size: { x: 80, y: 40 }, transform: { m00: 1, m01: 0, m02: 10, m10: 0, m11: 1, m12: 20 }, parent: "1:1" },
-    "1:3": { type: "TEXT", size: { x: 80, y: 20 }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 }, parent: "1:1" },
-    "1:4": { type: "FRAME", autoLayout: true, size: { x: 390, y: 200 }, transform: { m00: 1, m01: 0, m02: 20, m10: 0, m11: 1, m12: 30 }, parent: "1:1" },
+    "1:1": { type: "FRAME", size: { x: 400, y: 300 }, transform: at(100, 50), parent: "0:1", radius: [8, 8, 8, 8] },
+    "1:2": { type: "RECTANGLE", size: { x: 80, y: 40 }, transform: at(10, 20), parent: "1:1" },
+    "1:3": { type: "TEXT", size: { x: 80, y: 20 }, transform: at(0, 0), parent: "1:1" },
+    "1:4": { type: "FRAME", size: { x: 390, y: 200 }, transform: at(20, 30), parent: "1:1" },
+    "1:5": { type: "SECTION", size: { x: 600, y: 400 }, transform: at(1000, 0), parent: "0:1" },
+    "1:6": { type: "ELLIPSE", size: { x: 100, y: 50 }, transform: at(0, 500), parent: "0:1" },
+    // Turned 90° clockwise about its top left, which sits at (300, 600).
+    "1:7": { type: "RECTANGLE", size: { x: 100, y: 50 }, transform: { m00: 0, m01: -1, m02: 300, m10: 1, m11: 0, m12: 600 }, parent: "0:1" },
+    "1:8": { type: "GROUP", size: { x: 100, y: 100 }, transform: at(0, 0), parent: "0:1" },
   };
   const env = (selection: string[] = []): PlaceholderEnv => ({ page: "0:1", selection, read: (id) => nodes[id] ?? null, camera: { x: 0, y: 0, zoom: 1 }, viewport: { width: 1000, height: 1000 } });
 
-  it("goes inside a selected frame, 512 × 512 fitted and centred; over a selected shape (filling it); else mid-view", () => {
-    expect(placeholderTarget(env(["1:1"]))).toEqual({ page: "0:1", parentId: "1:1", box: { x: 50, y: 0, width: 300, height: 300 }, world: { x: 150, y: 50, width: 300, height: 300 } });
-    expect(placeholderTarget(env(["1:2"]))).toEqual({ page: "0:1", nodeId: "1:2", box: { x: 0, y: 0, width: 80, height: 40 }, world: { x: 110, y: 70, width: 80, height: 40 } });
-    // An auto layout frame: beside it on the page (a child would join its flow), as tall as it.
-    expect(placeholderTarget(env(["1:4"]))).toEqual({ page: "0:1", parentId: "0:1", box: { x: 550, y: 80, width: 200, height: 200 }, world: { x: 550, y: 80, width: 200, height: 200 } });
-    // Text, several layers or none: the middle of the view, 512 at most (60 % of it here).
-    expect(placeholderTarget(env(["1:3"]))).toEqual({ page: "0:1", parentId: "0:1", box: { x: 244, y: 244, width: 512, height: 512 }, world: { x: 244, y: 244, width: 512, height: 512 } });
+  it("covers a selected layer that takes a fill — a frame (auto layout or not), a shape — exactly: its bounds, turn and corners", () => {
+    expect(placeholderTarget(env(["1:1"]))).toEqual({ page: "0:1", nodeId: "1:1", box: { x: 0, y: 0, width: 400, height: 300 }, world: { x: 100, y: 50, width: 400, height: 300 }, shape: { m: [1, 0, 100, 0, 1, 50], width: 400, height: 300, radius: [8, 8, 8, 8] } });
+    expect(placeholderTarget(env(["1:2"]))).toEqual({ page: "0:1", nodeId: "1:2", box: { x: 0, y: 0, width: 80, height: 40 }, world: { x: 110, y: 70, width: 80, height: 40 }, shape: { m: [1, 0, 110, 0, 1, 70], width: 80, height: 40 } });
+    // Auto layout: filled too (no child joins its flow).
+    expect(placeholderTarget(env(["1:4"]))).toMatchObject({ nodeId: "1:4", world: { x: 120, y: 80, width: 390, height: 200 } });
+    expect(placeholderTarget(env(["1:6"]))!.shape).toEqual({ m: [1, 0, 0, 0, 1, 500], width: 100, height: 50, ellipse: true });
+    const turned = placeholderTarget(env(["1:7"]))!;
+    expect(turned.shape).toEqual({ m: [0, -1, 300, 1, 0, 600], width: 100, height: 50 });
+    expect(turned.world).toEqual({ x: 250, y: 600, width: 50, height: 100 });
+    expect(targetAspect(turned)).toBe(2);
+  });
+
+  it("goes inside a selected section, 512 × 512 fitted and centred; else mid-view", () => {
+    expect(placeholderTarget(env(["1:5"]))).toEqual({ page: "0:1", parentId: "1:5", box: { x: 100, y: 0, width: 400, height: 400 }, world: { x: 1100, y: 0, width: 400, height: 400 }, shape: { m: [1, 0, 1100, 0, 1, 0], width: 400, height: 400 } });
+    // Text, a group, several layers or none: the middle of the view, 512 at most (60 % of it here).
+    const mid = { page: "0:1", parentId: "0:1", box: { x: 244, y: 244, width: 512, height: 512 }, world: { x: 244, y: 244, width: 512, height: 512 }, shape: { m: [1, 0, 244, 0, 1, 244], width: 512, height: 512 } };
+    expect(placeholderTarget(env(["1:3"]))).toEqual(mid);
+    expect(placeholderTarget(env(["1:8"]))).toEqual(mid);
+    expect(placeholderTarget(env(["1:1", "1:2"]))).toEqual(mid);
+    expect(targetAspect(placeholderTarget(env()))).toBe(1);
     const zoomed = { ...env(), camera: { x: -500, y: -500, zoom: 2 } };
-    expect(placeholderTarget(zoomed, 2)!.box).toEqual({ x: 250 + 250 - 150, y: 250 + 250 - 75, width: 300, height: 150 });
+    expect(placeholderTarget(zoomed, 2)!.box).toEqual({ x: 350, y: 425, width: 300, height: 150 });
     expect(placeholderTarget({ ...env(), page: null })).toBeNull();
   });
 
-  it("gives place_image its place unless the agent named one", () => {
+  it("takes the aspect generate_image asks for, in the square it had; a filled layer keeps its shape", () => {
+    const read = env().read;
+    const mid = placeholderTarget(env())!;
+    expect(reshapeTarget(mid, 16 / 9, read)).toMatchObject({ box: { x: 244, y: 356, width: 512, height: 288 }, shape: { m: [1, 0, 244, 0, 1, 356] } });
+    expect(reshapeTarget(mid, 1, read)).toBe(mid);
+    expect(reshapeTarget(placeholderTarget(env(["1:5"]))!, 2, read)).toMatchObject({ parentId: "1:5", box: { x: 100, y: 100, width: 400, height: 200 }, world: { x: 1100, y: 100, width: 400, height: 200 } });
+    const fill = placeholderTarget(env(["1:1"]))!;
+    expect(reshapeTarget(fill, 2, read)).toBe(fill);
+  });
+
+  it("gives place_image its place: the selected layer to fill, unless the agent named another; else the box", () => {
     const ph = new ImagePlaceholders();
-    const inFrame = ph.start("t", placeholderTarget(env(["1:1"])))!;
-    expect(placeholderArgs({ path: "a.png", width: 200 }, inFrame)).toEqual({ path: "a.png", width: 200, parentId: "1:1", __box: { x: 50, y: 0, width: 300, height: 300 } });
-    expect(placeholderArgs({ path: "a.png", x: 0 }, inFrame)).toEqual({ path: "a.png", x: 0 });
-    expect(placeholderArgs({ path: "a.png" }, undefined)).toEqual({ path: "a.png" });
     const shape = ph.start("t", placeholderTarget(env(["1:2"])))!;
     expect(placeholderArgs({ path: "a.png" }, shape)).toEqual({ path: "a.png", nodeId: "1:2" });
+    // Its own size or place on the page don't make a new layer: the layer is filled.
+    expect(placeholderArgs({ path: "a.png", width: 200, x: 0, y: 0 }, shape)).toEqual({ path: "a.png", nodeId: "1:2" });
+    expect(placeholderArgs({ path: "a.png", parentId: "1:2" }, shape)).toEqual({ path: "a.png", nodeId: "1:2" });
+    // Another layer or parent named: the agent's.
+    expect(placeholderArgs({ path: "a.png", nodeId: "9:9" }, shape)).toEqual({ path: "a.png", nodeId: "9:9" });
+    expect(placeholderArgs({ path: "a.png", parentId: "1:1" }, shape)).toEqual({ path: "a.png", parentId: "1:1" });
+    const inSection = ph.start("t", placeholderTarget(env(["1:5"])))!;
+    expect(placeholderArgs({ path: "a.png", width: 200 }, inSection)).toEqual({ path: "a.png", width: 200, parentId: "1:5", __box: { x: 100, y: 0, width: 400, height: 400 } });
+    expect(placeholderArgs({ path: "a.png", x: 0 }, inSection)).toEqual({ path: "a.png", x: 0 });
+    expect(placeholderArgs({ path: "a.png" }, undefined)).toEqual({ path: "a.png" });
     // In the box: fitted and centred, or at the agent's size centred on it.
     expect(landInBox({ x: 50, y: 0, width: 300, height: 300 }, { width: 1024, height: 512 })).toEqual({ x: 50, y: 75, width: 300, height: 150 });
     expect(landInBox({ x: 50, y: 0, width: 300, height: 300 }, { width: 1024, height: 512 }, { width: 200 })).toEqual({ x: 100, y: 100, width: 200, height: 100 });
   });
 
-  it("lives from generate_image to place_image; fades out on an error or the turn's end; per turn, oldest first", () => {
+  it("lives from the prompt (or generate_image) to place_image, then reveals the picture and goes; fades out on an error or the turn's end", () => {
     vi.useFakeTimers();
     const ph = new ImagePlaceholders();
     const seen: number[] = [];
     ph.subscribe(() => seen.push(ph.list().length));
-    const a = ph.start("t1", placeholderTarget(env()))!;
-    const b = ph.start("t1", placeholderTarget(env()))!;
+    // Put up as the prompt was sent (keyed by the answer until the turn has its id), then generate_image shows in it.
+    const asked = ph.start("answer", placeholderTarget(env()))!;
+    ph.rekey("answer", "t1");
+    expect(ph.next("t1")?.id).toBe(asked.id);
+    const bound = ph.bind("t1", "g1", (t) => reshapeTarget(t, 2, env().read))!;
+    expect(bound).toMatchObject({ id: asked.id, tool: "g1", target: { box: { width: 512, height: 256 } } });
+    expect(ph.ofTool("t1", "g1")?.id).toBe(asked.id);
+    // A second image of the turn: nothing waiting, a placeholder of its own.
+    expect(ph.bind("t1", "g2")).toBeUndefined();
+    const b = ph.start("t1", placeholderTarget(env()), "g2")!;
     const c = ph.start("t2", placeholderTarget(env()))!;
     expect(ph.start("t1", null)).toBeNull();
-    expect(ph.next("t1")).toBe(a);
-    ph.placed(a.id);
+    // The picture landed: the reveal plays over it, then the placeholder goes.
+    ph.placed(asked.id);
+    expect(ph.list().find((p) => p.id === asked.id)?.state).toBe("revealing");
+    expect(ph.next("t1")?.id).toBe(b.id);
+    vi.advanceTimersByTime(REVEAL_MS);
     expect(ph.list().map((p) => p.id)).toEqual([b.id, c.id]);
-    expect(ph.next("t1")).toBe(b);
-    // generate_image failed: the newest of the turn fades, then goes.
-    ph.fail("t1");
+    // generate_image failed: its placeholder fades, then goes.
+    ph.fail("t1", "g2");
     expect(ph.list().find((p) => p.id === b.id)?.state).toBe("leaving");
     expect(ph.next("t1")).toBeUndefined();
     vi.advanceTimersByTime(FADE_MS);
     expect(ph.list().map((p) => p.id)).toEqual([c.id]);
-    // Stop / done / error: what is left fades out.
+    // The turn ended without a picture (done, an error, Stop): what is left fades out.
     ph.end("t2");
+    expect(ph.list()[0].state).toBe("leaving");
+    ph.placed(c.id); // too late: no reveal
     expect(ph.list()[0].state).toBe("leaving");
     vi.advanceTimersByTime(FADE_MS);
     expect(ph.list()).toEqual([]);
-    expect(seen.length).toBeGreaterThanOrEqual(6);
+    expect(seen.length).toBeGreaterThanOrEqual(8);
+    expect(REVEAL_MS).toBeGreaterThanOrEqual(600);
+    expect(REVEAL_MS).toBeLessThanOrEqual(800);
     ph.dispose();
+  });
+});
+
+describe("the image card put up as the prompt is sent", () => {
+  const asked = (extra: Partial<ImagePart> = {}): ImagePart => ({ kind: "image", id: "image:asked:a", state: "generating", aspect: 1, asked: true, ...extra });
+
+  it("shows the CLI's start line under it, then the first generate_image (at its aspect, unless it fills a layer)", () => {
+    expect(activityOf(run([{ type: "status", text: "Starting Antigravity…" }], { parts: [asked()] }))).toBe("Starting Antigravity…");
+    const m = run([{ type: "status", text: "Starting Antigravity…" }, { type: "text", delta: "Sure." }, { type: "tool", id: "g", name: "generate_image", args: { aspect_ratio: "16:9" }, state: "running" }], { parts: [asked()] });
+    expect(m.parts!.map((p) => p.kind)).toEqual(["image", "text", "tool"]);
+    expect(m.parts![0]).toMatchObject({ id: "image:asked:a", tool: "g", state: "generating", aspect: 16 / 9 });
+    expect(run([{ type: "tool", id: "g", name: "generate_image", args: { aspect_ratio: "16:9" }, state: "running" }], { parts: [asked({ fill: true, aspect: 2 })] }).parts![0]).toMatchObject({ tool: "g", aspect: 2 });
+    // Made, then placed.
+    const made = run([{ type: "tool", id: "g", name: "generate_image", state: "running" }, { type: "tool", id: "g", name: "generate_image", state: "done" }], { parts: [asked()] });
+    expect(made.parts!.filter((p) => p.kind === "image")).toEqual([asked({ tool: "g", state: "ready" })]);
+    expect(withPlacedImage(made.parts!, { hash: "abc", width: 4, height: 4 })[0]).toMatchObject({ id: "image:asked:a", state: "placed", hash: "abc" });
+    // A placed picture without generate_image (an image the agent had) fills the card too.
+    expect(withPlacedImage([asked()], { hash: "def", width: 4, height: 2 })).toEqual([asked({ state: "placed", hash: "def", width: 4, height: 2, aspect: 2 })]);
+  });
+
+  it("is cancelled (fades out) when the turn ends without the agent starting an image; one it started is not placed", () => {
+    expect(turnOver([asked(), { kind: "text", text: "Done." }], false)).toEqual([asked({ state: "cancelled" }), { kind: "text", text: "Done." }]);
+    expect(turnOver([asked({ tool: "g" }), { kind: "tool", id: "g", name: "generate_image", state: "running" }], true)).toEqual([asked({ tool: "g", state: "failed" }), { kind: "tool", id: "g", name: "generate_image", state: "error" }]);
+    expect(turnOver([asked({ state: "placed", hash: "x" }), { kind: "status", text: "…" }], false)).toEqual([asked({ state: "placed", hash: "x" })]);
   });
 });

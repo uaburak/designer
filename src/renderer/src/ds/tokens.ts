@@ -412,6 +412,8 @@ export const motion = {
   "duration-shimmer": "1600ms",
   "duration-sweep": "1800ms",
   "duration-fade": "300ms",
+  /** An agent's picture arriving: a last brighter sweep, then the grey dissolving over it */
+  "duration-reveal": "700ms",
 } as const;
 
 /** The same timings as numbers (ms) for code. */
