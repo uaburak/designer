@@ -15,7 +15,7 @@ Status: **done** (checks below). Fix group 1 "canvas-chrome" of `docs/research/a
 
 **Unverified / next:** the `+`'s hover look and tooltip (not captured); `1 Variant` wording; whether a plain auto-layout frame shows the gap boxes with the pointer off it (live's frame captures all hover a gap: bars, no boxes — ours none); gaps of a wrapping flow or a grid inside a component; a multi-line text's underline (every line); a selected group's dots with the pointer on it; the `N Variants` pill with View › Show dimensions off (ours: hidden with the badge, the `+` stays).
 
-**Checks:** see the end of this section's branch run: `npm run check` 108 files / 915 vitest green (new `r11.canvasChrome.wasm.test.ts`); `npm run engine:test` 476 / 476 (new `r11.canvas_chrome.test.cpp`: 5 cases, 69 assertions); `engine:shot` 108 ok (WebGL2) / 110 ok (WebGPU); `EDITOR_ONLY=overlays11` 10 ok (shots 210–216, run on its own like `overlays9`). Release `engine.wasm` rebuilt and committed.
+**Checks (branch head; `git merge main`: already up to date at `80d825f`):** `npm run check` green (108 files, 915 vitest; new `r11.canvasChrome.wasm.test.ts`); `npm run engine:test` 476 / 476 (new `r11.canvas_chrome.test.cpp`: 5 cases, 69 assertions); `engine:shot` 108 ok (WebGL2) / 110 ok (WebGPU); full `editor-shot.mjs` 364 ok, 0 FAIL (three earlier runs hit the 180 s stop while other agents' headless browsers kept the load at 12–17; it passed at load 8); `EDITOR_ONLY=overlays11` 11 ok (shots 210–216, run on its own like `overlays9`), `EDITOR_ONLY=overlays9` 13 ok. Release `engine.wasm` rebuilt and committed.
 
 ## Round 10 — Menus, commands, left side and toolbar (2026-10-09, branch `r10-menus-commands`)
 
