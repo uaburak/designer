@@ -1217,6 +1217,14 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
     needsRender_ = true;
     return P_HANDLED;
   }
+  // On a frame's title (round 10, live context-frame.txt): the frame's menu, as a click there selects it.
+  if (Guid titled = titleAt(s); titled != kNoGuid) {
+    if (!selected(titled)) changeSelection({titled});
+    menu.selection = true;
+    events_.contextMenus.push_back(std::move(menu));
+    needsRender_ = true;
+    return P_HANDLED;
+  }
   auto path = hitPath(doc_, page_, world, pixel());
   Guid picked = pick(doc_, path, selection_, (mods & MOD_PRIMARY) != 0);
   if (picked != kNoGuid && !selected(picked)) changeSelection({picked});
@@ -2171,7 +2179,7 @@ void Editor::dragDraw(Vec2 world, uint32_t mods, bool click) {
                                                                  : "Create rectangle";
     begin(TxnKind::GESTURE, label);
     Guid id = newGuid();
-    c = NodeChange::created(id, drawType_ == NodeType::SECTION ? sectionProps() : drawType_ == NodeType::SLICE ? sliceProps() : defaultProps(drawType_));
+    c = NodeChange::created(id, drawType_ == NodeType::SECTION ? sectionProps() : drawType_ == NodeType::SLICE ? sliceProps() : toolProps(drawType_));
     c.props.name = nextName(drawType_ == NodeType::FRAME             ? "Frame"
                             : drawType_ == NodeType::SECTION         ? "Section"
                             : drawType_ == NodeType::SLICE           ? "Slice"
@@ -2219,7 +2227,7 @@ void Editor::dragLine(Vec2 world, uint32_t mods, bool click) {
   if (drawn_ == kNoGuid) {
     begin(TxnKind::GESTURE, drawArrow_ ? "Create arrow" : "Create line");
     Guid id = newGuid();
-    c = NodeChange::created(id, defaultProps(NodeType::LINE));
+    c = NodeChange::created(id, toolProps(NodeType::LINE));
     c.props.name = nextName(drawArrow_ ? "Arrow" : "Line");
     c.props.parentIndex = {drawParent_, placeAt(drawParent_, doc_.children(drawParent_).size(), kNoGuid)};
     drawn_ = id;

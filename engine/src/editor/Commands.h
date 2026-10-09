@@ -142,6 +142,24 @@ enum class CommandId : uint32_t {
   REMOVE_GUIDE = 237,                   // the selected ruler guide removed ("Remove guide")
   // Round 8 (branch r8-design-panel): the Grid panel (tools/GridGestures.cpp); 260-269.
   SELECT_GRID_TRACKS = 260,             // args {frame, axis: "COLUMNS" | "ROWS", tracks: number[]} — the selected grid's tracks ([] clears)
+  // Round 10 (branch r10-menus-commands): the Figma menu's Object, Arrange and Vector commands live Figma has
+  // (editor/ArrangeCommands.cpp); 270-289.
+  CONVERT_TO_SECTION = 270,             // top-level frames become sections in place (same GUID, layers and look)
+  CONVERT_TO_FRAME = 271,               // sections become frames in place
+  DISTRIBUTE_LEFT = 272,                // the left edges evenly spaced, the first and last layer staying
+  DISTRIBUTE_HORIZONTAL_CENTERS = 273,
+  DISTRIBUTE_RIGHT = 274,
+  DISTRIBUTE_TOP = 275,
+  DISTRIBUTE_VERTICAL_CENTERS = 276,
+  DISTRIBUTE_BOTTOM = 277,
+  PACK_HORIZONTAL = 278,                // side by side, no space between them, the first staying
+  PACK_VERTICAL = 279,
+  ROUND_TO_PIXEL = 280,                 // the selection's position and size on whole pixels
+  VECTOR_JOIN = 281,                    // args {smooth?}: vector edit mode's selected points joined (⌘J / ⇧⌘J)
+  VECTOR_SPLIT = 282,                   // edit mode: the path split at the selected points; else a layer's parts apart
+  VECTOR_SIMPLIFY = 283,                // args {amount: 0…1}: fewer points, the shape kept within a tolerance
+  VECTOR_OFFSET = 284,                  // args {amount, join: "MITER" | "ROUND"}: the outline grown (+) or shrunk (−)
+  SET_DEFAULT_PROPERTIES = 285,         // the selected layer's look: what new layers of its type start with (this session)
 };
 
 // engine_command_state bits.

@@ -325,7 +325,7 @@ void Editor::createTextAt(Vec2 world, double width) {
       parent = *it;
       break;
     }
-  NodeProps p = defaultProps(NodeType::TEXT);
+  NodeProps p = toolProps(NodeType::TEXT);
   p.name = "Text";
   if (width > 0) {
     p.text().textAutoResize = TextAutoResize::HEIGHT;

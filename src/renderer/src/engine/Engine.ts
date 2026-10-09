@@ -50,6 +50,8 @@ import {
   VIEW_INVERT_ZOOM,
   VIEW_SCROLL_WHEEL_ZOOM,
   VIEW_RIGHT_DRAG_PAN,
+  VIEW_FRAME_OUTLINES,
+  VIEW_MASK_OUTLINES,
   WIRE_JSON,
   WIRE_KIWI,
   type CommandName,
@@ -648,6 +650,8 @@ export class Engine {
     invertZoom?: boolean;
     scrollWheelZoom?: boolean;
     rightDragPan?: boolean;
+    frameOutlines?: boolean;
+    maskOutlines?: boolean;
   }): void {
     const flags =
       (options.pixelGrid ? VIEW_PIXEL_GRID : 0) |
@@ -665,7 +669,9 @@ export class Engine {
       (options.keyboardZoomsIntoSelection ? VIEW_KEYBOARD_ZOOM_SELECTION : 0) |
       (options.invertZoom ? VIEW_INVERT_ZOOM : 0) |
       (options.scrollWheelZoom ? VIEW_SCROLL_WHEEL_ZOOM : 0) |
-      (options.rightDragPan !== false ? VIEW_RIGHT_DRAG_PAN : 0);
+      (options.rightDragPan !== false ? VIEW_RIGHT_DRAG_PAN : 0) |
+      (options.frameOutlines ? VIEW_FRAME_OUTLINES : 0) |
+      (options.maskOutlines ? VIEW_MASK_OUTLINES : 0);
     this.after(this.x.setViewOptions(this.h, flags));
   }
 
@@ -1596,6 +1602,11 @@ export class Engine {
 
   redo(): boolean {
     return this.command("REDO") === Status.OK;
+  }
+
+  /** The engine's WebAssembly memory in bytes (View › Memory usage). */
+  memoryBytes(): number {
+    return this.x.module.HEAPU8.byteLength;
   }
 
   /** The last frame's numbers and the node count. */

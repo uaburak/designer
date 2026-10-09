@@ -746,6 +746,26 @@ Overlay Editor::overlay() const {
   }
   if (gesture_ == Gesture::Rotate) o.badgeText = rotateBadgeText();
   guideOverlay(o);
+  // Round 10, View › Frame outlines / Mask outlines: every frame's / mask's box on the page as a thin quiet line
+  // (help.figma.com lists the toggles; the look is unverified).
+  if ((viewOptions_ & (VIEW_FRAME_OUTLINES | VIEW_MASK_OUTLINES)) && page_ != kNoGuid && !viewer_) {
+    std::function<void(Guid)> visit = [&](Guid parent) {
+      for (Guid c : doc_.children(parent)) {
+        const Node* n = doc_.get(c);
+        if (!n || !n->props.visible) continue;
+        const NodeProps& p = n->props;
+        bool frame = (viewOptions_ & VIEW_FRAME_OUTLINES) && p.isFrameLike() && !p.isGroupLike() && p.type != NodeType::SECTION;
+        bool mask = (viewOptions_ & VIEW_MASK_OUTLINES) && p.mask;
+        if (frame || mask) {
+          Mat2x3 m = doc_.worldTransform(c);
+          Vec2 q[4] = {m.apply({0, 0}), m.apply({p.size.x, 0}), m.apply({p.size.x, p.size.y}), m.apply({0, p.size.y})};
+          for (int i = 0; i < 4; i++) o.curves.push_back({q[i], q[i], q[(i + 1) % 4], q[(i + 1) % 4], 1, false});
+        }
+        if (p.type != NodeType::INSTANCE) visit(c);
+      }
+    };
+    visit(page_);
+  }
   if ((viewOptions_ & VIEW_SLICES) && !viewer_)
     for (Guid id : slices_) {
       const Node* n = doc_.get(id);

@@ -94,6 +94,7 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
   if (id == CommandId::REPLACE_FONTS) return replaceFonts(args);
   if (id >= CommandId::MEASUREMENT_ADD && id <= CommandId::MEASUREMENT_DELETE) return measurementCommand(id, args);
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommand(id, args);
+  if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_DEFAULT_PROPERTIES) return arrangeCommand(id, args);
   if (id == CommandId::SELECT_GRID_TRACKS) return selectGridTracksCommand(args);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) {
     Status st = variableCommand(id, args);
@@ -199,6 +200,7 @@ uint32_t Editor::commandState(CommandId id) const {
   if (id >= CommandId::CONVERT_TO_SLOT && id <= CommandId::CLEAR_SLOT) return slotCommandState(id);
   if (id >= CommandId::CREATE_VARIABLE_COLLECTION && id <= CommandId::UNGROUP_STYLES) return variableCommandState(id);
   if (id >= CommandId::WRAP_IN_SECTION && id <= CommandId::REMOVE_GUIDE) return selectionCommandState(id);
+  if (id >= CommandId::CONVERT_TO_SECTION && id <= CommandId::SET_DEFAULT_PROPERTIES) return arrangeCommandState(id);
   if (id == CommandId::SELECT_GRID_TRACKS) return gridFrameSelected() != kNoGuid ? CMD_ENABLED : 0;
   bool derivedSelected = false;
   for (Guid s : selection_) derivedSelected |= s.isDerived();
