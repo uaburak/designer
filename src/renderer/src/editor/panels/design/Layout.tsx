@@ -26,7 +26,7 @@ import { paddingFields, paddingFromText, paddingOf, type Padding } from "../../m
 import { spacingAxes, spacingOf } from "../../model/spacing";
 import { GridDimensionsRow, GridSpanRow } from "./Grid";
 import { VariableField } from "./Variables";
-import { LimitRow, SizeField, sizeLabels, sizeLocked, useLimitAxes } from "./Sizing";
+import { LimitRow, SIZING_LIST_DY, SizeField, sizeLabels, sizeLocked, useLimitAxes } from "./Sizing";
 import { canResizeToFit, resizeToFit, spacingItems, writeSpacing } from "./layoutActions";
 import { editEach, exitToCanvas, perLayer, stepInfo } from "./Sections";
 import { fields, isFrameNode, isGroupNode, isInstanceSublayer, isTextNode, typeOf, useParents, useSupports, type PanelNode } from "./shared";
@@ -338,7 +338,7 @@ function AutoLayoutRows({ nodes }: { nodes: PanelNode[] }) {
                   className={styles.hoverMenu}
                   overField='[data-ds="NumericInput"]'
                   overAlign="right"
-                  overOffset={-10}
+                  overOffset={SIZING_LIST_DY}
                   entries={[
                     { id: "value", label: isMixed(gap) || gap === undefined ? "Mixed" : String(gap), checked: !autoGap },
                     { id: "auto", label: "Auto", checked: !!autoGap },

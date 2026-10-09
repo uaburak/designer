@@ -176,7 +176,19 @@ function Basics({ nodes, summary, info }: { nodes: PanelNode[]; summary: TextSum
           ]}
           onChange={(v) => write("Text decoration", { textDecoration: v as ExtraFields["textDecoration"] })}
         />
-        <IconButton icon="16.chevron.down" label="Underline details" tone="secondary" disabled={decoration !== "UNDERLINE"} aria-expanded={underlineOpen} onClick={() => setUnderlineOpen(!underlineOpen)} />
+        {/* Live (popovers/type-settings.txt): enabled whatever the decoration; opening it on a text without one underlines
+            it, so its style, thickness and offset apply (unverified: live's capture did not open it) */}
+        <IconButton
+          icon="16.chevron.down"
+          label="Underline details"
+          tone="secondary"
+          aria-expanded={underlineOpen && decoration === "UNDERLINE"}
+          onClick={() => {
+            const opening = !(underlineOpen && decoration === "UNDERLINE");
+            if (opening && decoration !== "UNDERLINE") write("Text decoration", { textDecoration: "UNDERLINE" });
+            setUnderlineOpen(opening);
+          }}
+        />
       </div>
       {decoration === "UNDERLINE" && underlineOpen && (
         <>

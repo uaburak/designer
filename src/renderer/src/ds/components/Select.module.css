@@ -28,6 +28,11 @@
   .ghostField:focus-within { --field-ring: transparent; }
   .ghostField:has(.trigger:focus-visible) { --field-ring: var(--figma-color-border-selected); }
   .ghostField[data-open] { background: var(--figma-color-bg-hover); --field-ring: transparent; }
+  /* Disabled, a ghost dropdown dims its value rather than the whole box (live popovers/autolayout-advanced-settings.txt:
+     Auto spacing's "Between" #ffffff66 while the gap is not Auto) */
+  .ghostField.ghostField[data-disabled] { opacity: 1; }
+  .ghostField[data-disabled] .value { color: var(--figma-color-text-disabled); }
+  .ghostField[data-disabled] .chevron { color: var(--figma-color-icon-disabled); }
   /* A list without the check column (live effect type menu): its rows from the top and bottom edges, 7 around a line */
   [data-ds="Menu"].compactList { padding-top: 0; padding-bottom: 0; }
   .compactList > [role="separator"] { margin-top: 7px; margin-bottom: 7px; }

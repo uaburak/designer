@@ -273,6 +273,13 @@
   .guideType { margin: var(--ds-space-2) 0 0 var(--ds-space-2); }
   .guideType > button { padding: 0 9px 0 9px; }
   .guideBody { padding-top: 20px; padding-bottom: var(--ds-space-3); }
+  /* Margin / Offset and Gutter: the number 15 in (120 × 24 at 103 in the 136 field at 88), not 8 as Count's */
+  .guideInset input { margin-left: 15px; }
+  /* Stroke settings' Style (live popovers/stroke-advanced-settings.txt): its dash glyph 9 in, "Solid" at 129 in the 128 box at 96 */
+  .strokeStyle > button { padding-left: 9px; }
+  /* The font size list (live popovers/font-size-menu.txt: 96 × 437): after 128 an empty 80 × 20 block at 417, flush
+     with the bottom (what it holds is unverified) — 8 + 16 rows + 25 + 20 */
+  [data-ds="Menu"].fontSizeList { padding-bottom: 45px; }
   .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */
   .settingsHeading { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); line-height: var(--ds-size-control); white-space: nowrap; }
