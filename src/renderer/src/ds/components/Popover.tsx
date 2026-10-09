@@ -43,6 +43,12 @@ export interface PopoverProps {
    * 4 above its button (popovers/autolayout-advanced-settings.txt: 481 for the button at 485): it passes -4.
    */
   offsetY?: number;
+  /**
+   * `left-of-panel` only: placed as if at least this tall (it may grow to it). Live's Text styles opens at 427 from its
+   * button at 586, 165 high (popovers/typography-styles.txt): as if 457 high above the window's 16 bottom margin
+   * (the reason — room kept for the list of text styles — is unverified).
+   */
+  reserveHeight?: number;
 }
 
 /**
@@ -51,7 +57,7 @@ export interface PopoverProps {
  * with the anchor row. Esc or a press outside closes it; focus goes to its
  * first field (not trapped: the canvas stays clickable).
  */
-export function Popover({ anchor, placement = "left-of-panel", title, header, headerActions, onClose, draggable, width = size.popover, static: isStatic, children, label, offsetX = 0, offsetY = 0 }: PopoverProps) {
+export function Popover({ anchor, placement = "left-of-panel", title, header, headerActions, onClose, draggable, width = size.popover, static: isStatic, children, label, offsetX = 0, offsetY = 0, reserveHeight = 0 }: PopoverProps) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const dragged = useRef(false);
@@ -76,7 +82,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
       const panelEl = anchor instanceof HTMLElement ? anchor.closest<HTMLElement>("[data-panel]") : ([...document.querySelectorAll<HTMLElement>("[data-panel]")].find(holds) ?? null);
       const left = panelEl ? panelEl.getBoundingClientRect().left + panelEl.clientLeft : r.left - 8;
       x = Math.max(EDGE, left - el.offsetWidth + offsetX);
-      y = Math.max(EDGE, Math.min(r.top + offsetY, view.height - BOTTOM - el.offsetHeight));
+      y = Math.max(EDGE, Math.min(r.top + offsetY, view.height - BOTTOM - Math.max(el.offsetHeight, reserveHeight)));
     } else if (placement === "left") {
       x = Math.max(EDGE, r.left - el.offsetWidth);
       y = Math.max(EDGE, Math.min(r.top + offsetY, view.height - BOTTOM - el.offsetHeight));
@@ -89,7 +95,7 @@ export function Popover({ anchor, placement = "left-of-panel", title, header, he
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
     el.style.visibility = "visible";
-  }, [anchor, placement, isStatic, offsetX]);
+  }, [anchor, placement, isStatic, offsetX, offsetY, reserveHeight]);
   // Live Figma: content that grows (another paint type, a tab) moves the popover up to stay on screen; shrinking
   // content leaves it where it is.
   useLayoutEffect(() => {

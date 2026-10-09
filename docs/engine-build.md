@@ -17,6 +17,12 @@ Status: **done** (checks below). Fix group 1 "canvas-chrome" of `docs/research/a
 
 **Checks (branch head; `git merge main`: already up to date at `80d825f`):** `npm run check` green (108 files, 915 vitest; new `r11.canvasChrome.wasm.test.ts`); `npm run engine:test` 476 / 476 (new `r11.canvas_chrome.test.cpp`: 5 cases, 69 assertions); `engine:shot` 108 ok (WebGL2) / 110 ok (WebGPU); full `editor-shot.mjs` 364 ok, 0 FAIL (three earlier runs hit the 180 s stop while other agents' headless browsers kept the load at 12–17; it passed at load 8); `EDITOR_ONLY=overlays11` 11 ok (shots 210–216, run on its own like `overlays9`), `EDITOR_ONLY=overlays9` 13 ok. Release `engine.wasm` rebuilt and committed.
 
+## Round 11 — Type settings: features that act on the text (2026-10-09, branch `r11-design-panel`)
+
+- `text::Font::featuresIn(utf8)`: of the font's features, those that act on the text — shaping it (its first 4 KB) with the feature on and with it off gives other glyphs or other places. Live Figma's Details tab (popovers/type-settings-details.txt on "Hello Figma text") dims exactly the others among those it checks ("Not applicable for selected text"); HarfBuzz's `collect_glyphs` stays compiled out (`hb-config-override.h`), shaping needs nothing new.
+- `engine_font_features_in(family, style, text)` → `["cpsp", "kern", …]` (E_NOT_FOUND while the font loads or when it's missing); TS `Engine.fontFeaturesIn(family, style, text)`. ABI unchanged (an addition).
+- Test: `tests/unit/r11.type_features.test.cpp` (live's applicable and dimmed rows on Inter; a "0" makes Slashed zero act); `engine.wasm.test.ts`.
+
 ## Round 10 — Menus, commands, left side and toolbar (2026-10-09, branch `r10-menus-commands`)
 
 Status: **done**. The engine's part of fix group 1 of `docs/research/audit-2026-10-08/sweep-round9.md` (the Figma menu's commands live Figma has enabled that were stubs); editor side in `docs/editor.md` "Round 10 — Menus, commands, left side and toolbar". What the commands do beyond their labels is help.figma.com's and marked unverified in the code.

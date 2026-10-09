@@ -49,6 +49,9 @@ function sectionTop(button: HTMLElement): DOMRect {
   return section ? new DOMRect(r.left, section.top, r.width, r.height) : r;
 }
 
+/** Text styles opens as if this tall (live 427 = 900 − 16 − 457). */
+export const TEXT_STYLES_RESERVE = 457;
+
 /** The section header's "Apply styles" (four dots): the style picker, with colour variables for Fill and Stroke. */
 export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: readonly PanelNode[]; slot: StyleSlot; /** Mixed paints: Figma names the button "Style" */ mixed?: boolean; /** Fill / Stroke: the colour picker's Libraries tab instead */ onOpenPicker?: (anchor: DOMRect) => void }) {
   const ed = useEditor();
@@ -96,6 +99,8 @@ export function StylesButton({ nodes, slot, mixed, onOpenPicker }: { nodes: read
           anchor={open}
           title={`${SLOT_LABEL[slot]} styles`}
           width={216}
+          // Live (popovers/typography-styles.txt): Text styles at 427 from its button at 586 (see reserveHeight)
+          reserveHeight={slot === "text" ? TEXT_STYLES_RESERVE : 0}
           label={`${SLOT_LABEL[slot]} styles`}
           onClose={() => setOpen(null)}
           headerActions={

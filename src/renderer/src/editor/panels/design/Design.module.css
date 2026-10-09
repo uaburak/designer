@@ -263,6 +263,8 @@
   /* Type settings' Basics (live): the controls right-aligned at their own widths */
   .settingsEnd { grid-template-columns: minmax(0, 1fr) auto; }
   .settings.settingsEnd > :nth-child(even) { justify-self: end; }
+  /* Its labels are never cut (live: "Paragraph indent" whole beside the 120 wide Case column's narrower first one) */
+  .settingsEnd > .settingsLabel { width: max-content; overflow: visible; }
   .settingsInline { display: flex; align-items: center; }
   .settingsField { width: 72px; }
   .settingsWideField { width: 128px; }
@@ -273,6 +275,13 @@
   .guideType { margin: var(--ds-space-2) 0 0 var(--ds-space-2); }
   .guideType > button { padding: 0 9px 0 9px; }
   .guideBody { padding-top: 20px; padding-bottom: var(--ds-space-3); }
+  /* Margin / Offset and Gutter: the number 15 in (120 × 24 at 103 in the 136 field at 88), not 8 as Count's */
+  .guideInset input { margin-left: 15px; }
+  /* Stroke settings' Style (live popovers/stroke-advanced-settings.txt): its dash glyph 9 in, "Solid" at 129 in the 128 box at 96 */
+  .strokeStyle > button { padding-left: 9px; }
+  /* The font size list (live popovers/font-size-menu.txt: 96 × 437): after 128 an empty 80 × 20 block at 417, flush
+     with the bottom (what it holds is unverified) — 8 + 16 rows + 25 + 20 */
+  [data-ds="Menu"].fontSizeList { padding-bottom: 45px; }
   .settingsLabel { overflow: hidden; color: var(--figma-color-text-secondary); white-space: nowrap; text-overflow: ellipsis; }
   /* Type settings: a group's title (Letterforms, Stylistic sets…) and a variable axis's slider + field */
   .settingsHeading { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); line-height: var(--ds-size-control); white-space: nowrap; }
@@ -290,6 +299,13 @@
   .alSettings > :nth-child(even) { justify-self: stretch; }
   .alEnd { justify-content: flex-end; }
   .settingsLabelDisabled { color: var(--figma-color-text-tertiary); }
+  /* Type settings › Details (live popovers/type-settings-details.txt): a feature's name wraps at 144 in 16 high lines
+     ("r curves into round neighbors" 100 × 29: its row 32 high, the next 40 below); one not applicable sits in a 144
+     wide box with its tooltip */
+  .featureLabel { width: max-content; max-width: 144px; white-space: normal; line-height: 16px; }
+  .featureNotApplicable { width: 144px; }
+  .featureLabel[data-wrapped] { margin: -4px 0 4px; }
+  .featureLabel[data-wrapped] + * { align-self: start; }
   .alLayoutLabel { display: flex; align-items: center; justify-content: space-between; overflow: visible; }
   .alInfo { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 4px; padding: 0; border: 0; background: transparent; color: var(--figma-color-icon-secondary); overflow: hidden; }
   .settingsGroupGap { grid-column: 1 / -1; height: 5px; }

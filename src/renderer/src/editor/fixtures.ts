@@ -521,8 +521,10 @@ function gridTracks(columns: number, rows: number, session: number): Record<stri
   return { ...cols, ...filledCols, ...filledRows, gridRows: both.gridRows };
 }
 
+// The live file's auto layout frames include their strokes in the layout (Auto layout settings: Inside stroke
+// "Included", popovers/autolayout-advanced-settings.txt, grid/grid-autolayout-settings.txt).
 const al = (guid: string, name: string, pos: string, x: number, y: number, more: Record<string, unknown>) =>
-  node({ guid, type: "FRAME", name, parentIndex: { guid: "0:1", position: pos }, transform: at(x, y), fillPaints: solidFill(0xffffff), frameMaskDisabled: false, ...more });
+  node({ guid, type: "FRAME", name, parentIndex: { guid: "0:1", position: pos }, transform: at(x, y), fillPaints: solidFill(0xffffff), frameMaskDisabled: false, ...(more.stackMode ? { bordersTakeSpace: true } : {}), ...more });
 const box = (guid: string, name: string, parent: string, pos: string, x: number, y: number, w: number, h: number, rgb: number, more: Record<string, unknown> = {}) =>
   node({ guid, type: "ROUNDED_RECTANGLE", name, parentIndex: { guid: parent, position: pos }, size: { x: w, y: h }, transform: at(x, y), fillPaints: solidFill(rgb), ...more });
 const pad = (p: number) => ({ stackHorizontalPadding: p, stackVerticalPadding: p, stackPaddingRight: p, stackPaddingBottom: p });
