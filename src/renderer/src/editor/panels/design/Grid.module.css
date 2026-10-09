@@ -135,11 +135,46 @@
   .gapStack { display: flex; flex-direction: column; gap: var(--ds-space-2); }
   /* A track row selected on the canvas (its pill) */
   .trackSelected { border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-selected); }
-  .trackEditor {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--ds-space-2);
-    padding: var(--ds-space-2);
+  /*
+   * A track pill's label as a field (its chevron clicked; live canvas-grid-row-track-menu, grid-track-selected-grid-panel-
+   * and-menu-1440): over the pill's label, on the pill's blue, a white box hugging the text — 18 × 14 for "1fr", the
+   * text 2 in — its text dark (the light theme's field colours), in the pill's 11px Medium; the text selected shows no
+   * highlight of its own (live: the box plain white).
+   */
+  .pillLabel {
+    position: fixed;
+    z-index: var(--ds-z-popover);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--figma-color-bg-brand);
+  }
+  .pillLabel > [data-ds="TextInput"] {
+    --field-ring: transparent;
+    width: auto;
+    height: calc(var(--ds-space-4) - var(--ds-space-half));
+    padding: 0 var(--ds-space-half);
+    border-radius: 0;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    font-weight: var(--ds-weight-panel-label);
+  }
+  .pillLabel input { flex: none; width: auto; field-sizing: content; min-width: var(--ds-space-1); margin: 0; padding: 0; text-align: center; }
+  .pillLabel input::selection { background: var(--figma-color-bg); color: var(--figma-color-text); }
+  /*
+   * Its sizing list (live grid/row-track-menu.txt: the list 156 × 72, its rows from its top) in a menu box 8 taller above
+   * and below it (live canvas-grid-row-track-menu: the first row 8 under the box's top) — the box drawn behind the list.
+   */
+  .pillMenu { overflow: visible; background: transparent; box-shadow: none; }
+  .pillMenu::before {
+    content: "";
+    position: absolute;
+    inset: calc(var(--ds-size-menu-pad) * -1) 0;
+    z-index: -1;
+    border-radius: var(--ds-radius-large);
+    background: var(--ds-color-menu-bg);
+    box-shadow: var(--ds-elevation-menu);
   }
   .topRow { align-items: start; }
 

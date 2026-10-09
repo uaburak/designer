@@ -2,11 +2,13 @@
 // docs/research/figma/live/img/canvas-grid-*): a selected grid outlines every cell; the column and row under the pointer
 // show a compact pill above the frame (a row's: left of it), a pill under the pointer expands to its grabber, label
 // and chevron and outlines its track; a click on it selects the track (⌘ adds one, ⇧ a range: its empty cells fill,
-// the frame's box dashes, the name gives way) and asks TS to edit its size (GRID_TRACKS {edit}); dragging the edge
+// the frame's box dashes, the name gives way — round 12, live grid/row-track-menu: nothing else), a click on its
+// chevron (or Enter) also asks TS for the label's field and the sizing menu (GRID_TRACKS {edit}); dragging the edge
 // between two tracks in the pills' band resizes the first (it becomes Fixed); dragging the grabber reorders the
 // selected tracks (with the tracks the items spanning them cover; a blue line marks the drop); ⌫ deletes the selected
 // tracks (their items go, spanning items shrink); Enter edits them; Esc lets them go. A grid item's span handles
-// (small circles on its four sides) drag its span to a cell edge (the axis becomes Fill container).
+// (small circles on its four sides) drag its span to a cell edge (the axis becomes Fill container). Round 12: the gaps
+// between the tracks as boxes (the pointer in one: every gap of that axis outlined pink; a drag changes the gap).
 
 #include <algorithm>
 #include <cmath>
@@ -23,13 +25,17 @@ namespace eng {
 
 namespace {
 
-// The pills (CSS px, live Figma at 1.55× — canvas-grid-hover-top-pill, -column-track-pill, -row-track-pill): a column's
-// centred kPillLine above the frame's top edge, a row's compact one kPillLine left of its left edge; compact 22 × 11,
-// expanded kPillHeight high — grabber and chevron kPillSegment wide, the label its text + 8; a row's expanded pill lies
-// along the edge, its right end kRowPillGap off it.
+// The pills (CSS px, live Figma — canvas-grid-hover-top-pill, -column-track-pill, -row-track-pill): a column's centred
+// kPillLine above the frame's top edge, a row's compact one kPillLine left of its left edge; compact 22 × 11, expanded
+// kPillHeight high — grabber and chevron kPillSegment wide, the label its text + kPillLabelPad; a row's expanded pill
+// lies along the edge, its right end kRowPillGap off it. Round 12, measured on the pill's own 18 px height (1.43 px per
+// CSS px in canvas-grid-hover-column-track-pill: "1fr" 56.5 wide — grabber 18.5, label 19.9, chevron 18.1; 1.8 in
+// grid-track-selected-grid-panel-and-menu-1440: 55.8 × 18.0) and the frame's edge to a row pill's right end (24.7 in
+// canvas-grid-hover-row-track-pill, 24.6 in the 1440 capture, 25.1 in canvas-grid-row-track-selected); the sizing list's
+// place in grid/row-track-menu.txt (419,549) follows from them.
 constexpr double kPillLine = 31.5;
 constexpr double kCompactLong = 22, kCompactShort = 11;
-constexpr double kPillHeight = 18, kPillSegment = 16, kRowPillGap = 22.5;
+constexpr double kPillHeight = 18, kPillSegment = 18, kPillLabelPad = 6, kRowPillGap = 24.75;
 constexpr double kBandReach = 14;  // CSS px past the pill line still in the track's band
 constexpr double kEdgeReach = 3;   // CSS px around the edge between two tracks (in the band)
 constexpr double kSpanReach = 6;   // CSS px around a span handle
@@ -74,7 +80,7 @@ Rect Editor::gridPillRect(Guid frame, bool column, size_t track, bool expanded, 
   double mid = (spans[track].first + spans[track].second) / 2;
   if (!expanded) return column ? Rect{mid - kCompactLong / 2, across - kCompactShort / 2, kCompactLong, kCompactShort}
                                : Rect{across - kCompactShort / 2, mid - kCompactLong / 2, kCompactShort, kCompactLong};
-  labelW = std::round(labelWidth(track < labels.size() ? labels[track] : std::string(), true) + 8);
+  labelW = std::round(labelWidth(track < labels.size() ? labels[track] : std::string(), true) + kPillLabelPad);
   double w = 2 * kPillSegment + labelW;
   if (column) return {mid - w / 2, across - kPillHeight / 2, w, kPillHeight};
   double right = across + kPillLine - kRowPillGap;  // the frame's left edge, less the gap
@@ -179,7 +185,7 @@ int Editor::gridSpanHandleAt(Vec2 s) const {
   return -1;
 }
 
-void Editor::setGridTrackSelection(Guid frame, bool column, std::vector<size_t> tracks, bool edit) {
+void Editor::setGridTrackSelection(Guid frame, bool column, std::vector<size_t> tracks, bool edit, size_t anchor) {
   std::sort(tracks.begin(), tracks.end());
   tracks.erase(std::unique(tracks.begin(), tracks.end()), tracks.end());
   bool changed = gridSel_.frame != frame || gridSel_.column != column || gridSel_.tracks != tracks;
@@ -193,9 +199,11 @@ void Editor::setGridTrackSelection(Guid frame, bool column, std::vector<size_t> 
   ev.tracks = gridSel_.tracks;
   ev.edit = edit && !gridSel_.tracks.empty();
   if (ev.edit) {
-    // The first selected track's pill label, where TS opens its editor (screen).
+    // The pill's label (the clicked one's, else the first selected track's), where TS opens its field and, under it, the
+    // sizing menu (screen).
+    size_t at = std::find(gridSel_.tracks.begin(), gridSel_.tracks.end(), anchor) != gridSel_.tracks.end() ? anchor : gridSel_.tracks.front();
     double labelW = 0;
-    Rect pill = gridPillRect(frame, column, gridSel_.tracks.front(), true, labelW);
+    Rect pill = gridPillRect(frame, column, at, true, labelW);
     if (pill.w > 0) ev.label = {pill.x + kPillSegment, pill.y, labelW, pill.h};
   }
   events_.gridTracks.push_back(std::move(ev));
@@ -272,8 +280,10 @@ uint32_t Editor::gridPointerDown(Vec2 s, uint32_t mods) {
     gesture_ = Gesture::Grid;
     return P_HANDLED | P_CAPTURE;
   }
-  // A track: selected now (⌘ adds or removes it, ⇧ a range from the last one), its label edited on release.
+  // A track: selected now (⌘ adds or removes it, ⇧ a range from the last one); its chevron opens the sizing menu on
+  // release (live Figma, grid/row-track-menu.txt: a click on the pill only selects the track).
   bool same = gridSel_.frame == frame && gridSel_.column == h.column;
+  bool inSelection = same && std::find(gridSel_.tracks.begin(), gridSel_.tracks.end(), h.track) != gridSel_.tracks.end();
   std::vector<size_t> next;
   if ((mods & MOD_PRIMARY) && same) {
     next = gridSel_.tracks;
@@ -283,15 +293,14 @@ uint32_t Editor::gridPointerDown(Vec2 s, uint32_t mods) {
   } else if ((mods & MOD_SHIFT) && same && !gridSel_.tracks.empty()) {
     size_t a = std::min(gridSel_.tracks.front(), h.track), b = std::max(gridSel_.tracks.back(), h.track);
     for (size_t i = a; i <= b; i++) next.push_back(i);
-  } else if (same && h.kind == GridHit::Kind::Grabber &&
-             std::find(gridSel_.tracks.begin(), gridSel_.tracks.end(), h.track) != gridSel_.tracks.end()) {
-    next = gridSel_.tracks;  // dragging a selection by one of its grabbers
+  } else if (inSelection && (h.kind == GridHit::Kind::Grabber || h.kind == GridHit::Kind::Chevron)) {
+    next = gridSel_.tracks;  // dragging a selection by one of its grabbers, or its sizing menu for all of them
   } else {
     next = {h.track};
   }
   setGridTrackSelection(frame, h.column, next, false);
   gridDrag_.kind = h.kind == GridHit::Kind::Grabber ? GridDrag::Kind::Reorder : GridDrag::Kind::Select;
-  gridDrag_.edit = !(mods & (MOD_PRIMARY | MOD_SHIFT));
+  gridDrag_.edit = h.kind == GridHit::Kind::Chevron && !(mods & (MOD_PRIMARY | MOD_SHIFT));
   gesture_ = Gesture::Grid;
   changeCursor(h.kind == GridHit::Kind::Grabber ? CursorKind::GRABBING : CursorKind::DEFAULT);
   return P_HANDLED | P_CAPTURE;
@@ -441,13 +450,10 @@ void Editor::gridPointerUp(Vec2 /*s*/, uint32_t /*mods*/) {
       if (d.moved) commit();
       break;
     case GridDrag::Kind::Select:
-      if (d.edit) setGridTrackSelection(d.frame, d.column, gridSel_.tracks, true);
+      if (d.edit) setGridTrackSelection(d.frame, d.column, gridSel_.tracks, true, d.track);
       break;
     case GridDrag::Kind::Reorder: {
-      if (!d.moved) {
-        setGridTrackSelection(d.frame, d.column, gridSel_.tracks, true);
-        break;
-      }
+      if (!d.moved) break;  // a click on the grabber: the track selected, as a click on its label
       const Node* fn = doc_.get(d.frame);
       if (!fn) break;
       std::vector<Layout::GridTrackDef> tracks = Layout::gridTrackDefs(fn->props, d.column);
@@ -652,6 +658,69 @@ void Editor::gridTrackOverlay(Overlay& o) const {
       o.hasGridDrop = true;
       o.gridDrop = gridDrag_.column ? GuideLine{W.apply({v, 0}), W.apply({v, size.y})} : GuideLine{W.apply({0, v}), W.apply({size.x, v})};
     }
+  }
+}
+
+// ---- Gaps (round 12) ------------------------------------------------------------------------------------------------
+
+std::vector<Editor::GridGapBox> Editor::gridGapBoxes(Guid frame, int axis) const {
+  // Live Figma (grid-selected-hover-gap-1440: AL_grid, gap 8 at 160 %): a box per gap between two columns in each row,
+  // the gap wide and the row high — and, the other way round, per gap between two rows in each column.
+  std::vector<GridGapBox> out;
+  Layout L(*const_cast<Editor*>(this));
+  Layout::GridCells g = L.gridCells(frame);
+  if (axis == 0) {
+    for (size_t r = 0; r < g.rowY.size(); r++)
+      for (size_t c = 0; c + 1 < g.colX.size(); c++) {
+        double a = g.colX[c] + g.colW[c], b = g.colX[c + 1];
+        if (b - a > 1e-6 && g.rowH[r] > 1e-6) out.push_back({{a, g.rowY[r], b - a, g.rowH[r]}, c, r});
+      }
+  } else if (axis == 1) {
+    for (size_t r = 0; r + 1 < g.rowY.size(); r++)
+      for (size_t c = 0; c < g.colX.size(); c++) {
+        double a = g.rowY[r] + g.rowH[r], b = g.rowY[r + 1];
+        if (b - a > 1e-6 && g.colW[c] > 1e-6) out.push_back({{g.colX[c], a, g.colW[c], b - a}, r, c});
+      }
+  }
+  return out;
+}
+
+Editor::GridGapHover Editor::gridGapAt(Guid frame, Vec2 local) const {
+  GridGapHover h;
+  for (int axis : {0, 1})
+    for (const GridGapBox& b : gridGapBoxes(frame, axis))
+      if (b.rect.contains(local)) {
+        h.frame = frame;
+        h.axis = axis;
+        h.boundary = b.boundary;
+        h.cross = b.cross;
+        return h;
+      }
+  return h;
+}
+
+void Editor::gridGapOverlay(Overlay& o) const {
+  // The pointer in a gap (or dragging one): every gap of that axis outlined pink, as live Figma's — no bar, no value
+  // (grid-selected-hover-gap). Dragging: the value by the dragged box, as auto layout's badge (unverified: live Figma
+  // has no capture of the drag).
+  if (gridGap_.axis < 0 || selection_.size() != 1 || selection_[0] != gridGap_.frame || viewer_) return;
+  bool dragging = gesture_ == Gesture::LayoutBar && layoutBar_ >= 4;
+  if (gesture_ != Gesture::None && !dragging) return;
+  const Node* n = doc_.get(gridGap_.frame);
+  if (!n) return;
+  Mat2x3 W = doc_.worldTransform(gridGap_.frame);
+  for (const GridGapBox& b : gridGapBoxes(gridGap_.frame, gridGap_.axis)) {
+    o.gapBoxes.push_back({W, b.rect});
+    if (!dragging || b.boundary != gridGap_.boundary || b.cross != gridGap_.cross) continue;
+    Overlay::LayoutBar bar;
+    bar.gap = true;
+    bar.box = true;
+    bar.hovered = true;
+    bar.index = static_cast<int>(b.boundary);
+    bar.vertical = gridGap_.axis == 0;
+    bar.at = bar.edge = W.apply({b.rect.x + b.rect.w / 2, b.rect.y + b.rect.h / 2});
+    bar.value = Layout::gridGap(n->props, gridGap_.axis == 0);
+    o.layoutBars.push_back(bar);
   }
 }
 
