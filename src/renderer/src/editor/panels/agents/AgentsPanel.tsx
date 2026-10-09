@@ -220,7 +220,7 @@ function StepGroup({ seg, since }: { seg: Exclude<Segment, { kind: "text" }>; si
         <Icon name="24.agents" />
       </span>
       <span className={cx(styles.groupLabel, seg.active && styles.thinkingText)} data-thinking-label={thinking} data-group-label="" aria-live={seg.active ? "polite" : undefined}>
-        {seg.label}
+        <HeldLabel label={seg.label} hold={seg.active} />
       </span>
       {seg.active && <Elapsed since={since} />}
       {hasSteps && (
@@ -251,6 +251,26 @@ function StepGroup({ seg, since }: { seg: Exclude<Segment, { kind: "text" }>; si
     </div>
   );
 }
+
+/**
+ * The running group's line, held at least a beat per step: an agent's steps can come and go in a few milliseconds, and
+ * the line is there so one can read what the wait is about.
+ */
+function HeldLabel({ label, hold }: { label: string; hold: boolean }) {
+  const [shown, setShown] = useState(label);
+  const since = useRef(0);
+  useEffect(() => {
+    if (!hold) return setShown(label);
+    const wait = Math.max(0, since.current + HOLD_MS - Date.now());
+    const t = setTimeout(() => {
+      since.current = Date.now();
+      setShown(label);
+    }, wait);
+    return () => clearTimeout(t);
+  }, [label, hold]);
+  return <>{hold ? shown : label}</>;
+}
+const HOLD_MS = 1200;
 
 /** The seconds since the turn was sent, from 5 s on; ticks once a second (only itself re-renders). */
 function Elapsed({ since }: { since: number | undefined }) {

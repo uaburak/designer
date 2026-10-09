@@ -15,7 +15,7 @@ describe("the Thinking… row", () => {
     expect(activityOf(run([{ type: "status", text: "Starting Antigravity…" }]))).toBe("Starting Antigravity…");
     expect(activityOf(run([{ type: "status", text: "Starting Antigravity…" }, { type: "text", delta: "Let me look" }]))).toBe(THINKING);
     expect(activityOf(run([{ type: "tool", id: "1", name: "get_design_context", state: "running" }]))).toBe("Reading the design…");
-    expect(activityOf(run([{ type: "tool", id: "1", name: "get_design_context", state: "running" }, { type: "tool", id: "1", name: "get_design_context", state: "done" }]))).toBe(THINKING);
+    expect(activityOf(run([{ type: "tool", id: "1", name: "get_design_context", state: "running" }, { type: "tool", id: "1", name: "get_design_context", state: "done" }]))).toBe("Read the design");
     expect(activityOf(run([{ type: "tool", id: "g", name: "generate_image", state: "running" }]))).toBe("Making an image…");
     expect(activityOf(run([{ type: "tool", id: "g", name: "generate_image", state: "running" }, { type: "tool", id: "g", name: "generate_image", state: "done" }]))).toBe("Placing the image…");
     expect(activityOf(run([{ type: "tool", id: "p", name: "place_image", state: "running" }]))).toBe("Placing the image…");
@@ -53,9 +53,9 @@ describe("an answer as words and groups of steps", () => {
     // Nothing yet: one running group, empty.
     expect(shape(run([]))).toEqual(["steps[]* Thinking…"]);
     expect(shape(run([{ type: "status", text: "Starting Antigravity…" }]))).toEqual(["steps[]* Starting Antigravity…"]);
-    // A step running: its group says what it does; done, the same group thinks on.
+    // A step running: its group says what it does; done, it keeps saying the step it just finished.
     expect(shape(run([tool("1", "get_selection"), tool("2", "get_design_context", "running")]))).toEqual(["steps[1,2]* Reading the design…"]);
-    expect(shape(run([tool("1", "get_selection"), tool("2", "get_design_context")]))).toEqual(["steps[1,2]* Thinking…"]);
+    expect(shape(run([tool("1", "get_selection"), tool("2", "get_design_context")]))).toEqual(["steps[1,2]* Read the design"]);
     // Words after it: that group settles, a new one runs below them under the key the next step's group gets.
     const m = run([tool("1", "get_selection"), { type: "text", delta: "Got it." }]);
     expect(shape(m)).toEqual(["steps[1] Looked at the selection", "text:Got it.", "steps[]* Thinking…"]);
@@ -96,7 +96,7 @@ describe("an answer as words and groups of steps", () => {
     const made = run([tool("g", "generate_image")], { parts: m.parts });
     expect(shape(made)).toEqual(["image[g]* Placing the image…", "text:Sure.", "steps[1] Looked at the selection"]);
     const after = run([tool("p", "place_image"), tool("s", "set_selection")], { parts: withPlacedImage(run([tool("p", "place_image")], { parts: made.parts }).parts!, { hash: "h", width: 1, height: 1 }) });
-    expect(shape(after)).toEqual([`image[g,p] ${GENERATE_IMAGE}`, "text:Sure.", "steps[1,s]* Thinking…"]);
+    expect(shape(after)).toEqual([`image[g,p] ${GENERATE_IMAGE}`, "text:Sure.", "steps[1,s]* Selected the result"]);
   });
 });
 

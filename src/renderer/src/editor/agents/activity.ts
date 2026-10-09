@@ -52,6 +52,10 @@ export function activityOf(m: Pick<ChatMessage, "state" | "parts">): string | nu
   const status = parts.find((p) => p.kind === "status");
   // The CLI's start line until the agent says or does something (an image card put up for the prompt aside).
   if (status && status.kind === "status" && parts.every((p) => p.kind === "status" || p.kind === "image")) return status.text;
+  // Between steps (the agent deciding what's next): the step it just finished, so the line keeps saying what the wait
+  // is about ("Read the design"), until it writes words — only then, or before any step, "Thinking…".
+  const last = parts[parts.length - 1];
+  if (last?.kind === "tool") return toolLabel(last.name);
   return THINKING;
 }
 
