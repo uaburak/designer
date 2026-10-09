@@ -185,7 +185,9 @@ export function LimitRow({ axis, nodes }: { axis: Axis; nodes: PanelNode[] }) {
 export function sizeLocked(nodes: readonly PanelNode[], axis: Axis): boolean {
   if (!nodes.length) return false;
   if (axis === "y" && nodes.every((n) => n.type === "LINE")) return true;
-  return nodes.every((n) => n.type === "TEXT" && (n.textAutoResize === "WIDTH_AND_HEIGHT" || (axis === "y" && n.textAutoResize === "HEIGHT")));
+  // A text that sizes itself on this axis locks the field for the whole selection (live design/text.txt alone,
+  // design/mixed-multi.txt with Rect + Ellipse + Text + F_frame: W and H disabled, "Mixed").
+  return nodes.some((n) => n.type === "TEXT" && (n.textAutoResize === "WIDTH_AND_HEIGHT" || (axis === "y" && n.textAutoResize === "HEIGHT")));
 }
 
 /** Which axes show their min / max row. */

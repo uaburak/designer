@@ -37,6 +37,16 @@ type Flow = "NONE" | "VERTICAL" | "HORIZONTAL" | "GRID";
 const flowOf = (n: PanelNode): Flow => (n.stackMode === "VERTICAL" || n.stackMode === "HORIZONTAL" || n.stackMode === "GRID" ? n.stackMode : "NONE");
 const sessionOf = (guid: string) => Number(String(guid).replace(/^I/, "").split(":")[0]) || 1;
 
+/**
+ * An instance's flow is its main component's: with no auto layout there it shows neither Flow nor "Use auto layout"
+ * (live design/variant-instance.txt, the Chip instance: Layout > Dimensions at 350), with auto layout Flow and Wrap
+ * are disabled (live design/instance.txt, nested-instance-parent.txt). null: no instance among the layers.
+ */
+export function instanceFlow(nodes: readonly PanelNode[]): "hidden" | "locked" | null {
+  if (!nodes.some((n) => typeOf(n) === "INSTANCE")) return null;
+  return nodes.every(isAutoLayout) ? "locked" : "hidden";
+}
+
 export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
   const labels = useUI((s) => s.propertyLabels);
@@ -49,9 +59,10 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const frames = nodes.every(isFrameNode) && !sections;
   const groups = nodes.every((n) => isGroupNode(n));
   const clipFrames = nodes.filter((n) => isFrameNode(n) && typeOf(n) !== "SECTION");
-  const flowable = autoLayoutKept && !sections && nodes.every((n) => isFrameNode(n) || isGroupNode(n));
   const auto = autoLayoutKept && frames && nodes.every(isAutoLayout);
   const instances = nodes.some((n) => typeOf(n) === "INSTANCE");
+  const instanceFlowState = instanceFlow(nodes);
+  const flowable = autoLayoutKept && !sections && nodes.every((n) => isFrameNode(n) || isGroupNode(n)) && instanceFlowState !== "hidden";
   const constrained = mixed(nodes.map((n) => n.proportionsConstrained === true));
   const lines = nodes.every((n) => typeOf(n) === "LINE");
   const texts = nodes.filter(isTextNode);
@@ -59,6 +70,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   const sizes = sizeLabels(nodes, parents);
   // Inside an instance: Flow, Wrap and Lock aspect ratio disabled, W / H a read-only list (live nested-instance.txt).
   const locked = nodes.some(isInstanceSublayer);
+  const flowLocked = locked || instanceFlowState === "locked";
 
   const addAutoLayout = () => {
     if (runEditorCommand(ed, "object.add-auto-layout")) return;
@@ -77,7 +89,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   ) : (
     <>
       {canResizeToFit(nodes) && <IconButton icon="24.resize-to-fit.small" label="Resize to fit" shortcut="⌥⇧⌘R" tone="secondary" onClick={() => resizeToFit(ed, refs)} />}
-      {(flowable || nodes.length > 1) && !sections && (
+      {(flowable || nodes.length > 1) && !sections && !instanceFlowState && (
         <ToggleIconButton icon="24.autolayout-add-vertical" label="Use auto layout" tooltip="Toggle auto layout" shortcut={shortcutOf(addCommand)} tone="secondary" pressed={false} onPressedChange={addAutoLayout} />
       )}
     </>
@@ -86,7 +98,7 @@ export function LayoutSection({ nodes }: { nodes: PanelNode[] }) {
   return (
     <PanelSection title={auto ? "Auto layout" : "Layout"} actions={actions}>
       <PropertyGrid labels={labels}>
-        {flowable && <FlowRow nodes={nodes} disabled={locked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
+        {flowable && <FlowRow nodes={nodes} disabled={flowLocked} onAdd={addAutoLayout} onRemove={removeAutoLayout} />}
         {texts.length > 0 && <TextResizingRow nodes={texts} />}
         <PropertyRow
           label={sizes.row}
