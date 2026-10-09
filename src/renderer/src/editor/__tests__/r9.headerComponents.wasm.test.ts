@@ -124,8 +124,8 @@ describe("round 9 on the engine", () => {
     const menu = createPropertyMenu(ed, button, nested);
     expect(ids(menu)).toEqual(["[Create property]", "VARIANT", "TEXT", "BOOL", "INSTANCE_SWAP", "SLOT", "-", "[Expose properties from]", "submenu:nested"]);
     expect(menu.at(-1)).toMatchObject({ label: "Nested instances", disabled: false });
-    // (A main component isn't flattened: what can't run is left out.)
-    expect(ids(componentMoreMenu(ed)).filter((x) => x !== "-")).toEqual(["ready-for-dev", "object.use-as-mask", "vector.union", "vector.subtract", "vector.intersect", "vector.exclude"]);
+    // (What can't run is left out; round 12: a main component flattens — live context-component.txt — so Flatten is in.)
+    expect(ids(componentMoreMenu(ed)).filter((x) => x !== "-")).toEqual(["ready-for-dev", "object.use-as-mask", "vector.union", "vector.subtract", "vector.intersect", "vector.exclude", "vector.flatten"]);
     engine.destroy();
   });
 

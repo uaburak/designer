@@ -9,6 +9,7 @@
 
 #include "geometry/NodeGeometry.h"
 #include "geometry/Path.h"
+#include "geometry/VariableWidth.h"
 #include "render/Renderer.h"
 #include "scene/Document.h"
 #include "text/TextLayout.h"
@@ -49,6 +50,8 @@ struct Stroke {
   bool outlineOnly = false;
   // Per-side weights: `center` is the stroke's area itself (a ring), not a centre line.
   bool ring = false;
+  // A variable width (round 12; sorted width points): drawn as its outline.
+  std::vector<geom::WidthPoint> profile;
   bool present() const { return weight > 0 && !paints.empty(); }
 };
 Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p);

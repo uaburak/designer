@@ -301,11 +301,22 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.endObject();
   }
   if (ev.vectorEdit) {
-    static const char* kTools[] = {"MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET", "CUT", "ERASE"};
+    static const char* kTools[] = {"MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET", "CUT", "ERASE", "SHAPE_BUILDER", "VARIABLE_WIDTH"};
     w.beginObject().key("type").string("VECTOR_EDIT").key("active").boolean(ed.vectorEditing()).key("ref");
     if (ed.vectorEditing()) w.string(ed.vectorNode().toString());
     else w.null();
     w.key("tool").string(kTools[static_cast<int>(ed.vectorTool())]);
+    // Round 12: the held layers (Enter on several), whether Variable width applies, the width points.
+    w.key("layers").beginArray();
+    for (Guid g : ed.vectorLayers()) w.string(g.toString());
+    w.endArray();
+    w.key("variableWidth").boolean(ed.vectorEditing() && ed.variableWidthAvailable());
+    w.key("widthPoints").beginArray();
+    if (ed.vectorEditing())
+      for (const auto& p : ed.vectorWidthPoints())
+        w.beginObject().key("position").number(p.position).key("ascent").number(p.ascent).key("descent").number(p.descent).endObject();
+    w.endArray();
+    w.key("widthSelected").number(ed.vectorWidthSelected());
     w.key("selectedVertices").beginArray();
     for (uint32_t v : ed.vectorSelectedVertices()) w.number(v);
     w.endArray().key("selectedSegments").beginArray();
@@ -1558,12 +1569,13 @@ ENG_EXPORT void engine_vector_edit_end(Handle h) {
   if (Engine* e = engineOf(h)) e->editor.endVectorEdit();
 }
 
-// tool: MOVE 0, PEN 1, BEND 2, LASSO 3, PAINT_BUCKET 4, CUT 5, ERASE 6.
+// tool: MOVE 0, PEN 1, BEND 2, LASSO 3, PAINT_BUCKET 4, CUT 5, ERASE 6, SHAPE_BUILDER 7, VARIABLE_WIDTH 8 (E_UNSUPPORTED
+// where Variable width doesn't apply: dashes, a dynamic stroke, branching paths).
 ENG_EXPORT int32_t engine_vector_edit_tool(Handle h, uint32_t tool) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
-  if (tool > 6) return E_INVALID;
+  if (tool > 8) return E_INVALID;
   return e->editor.setVectorTool(static_cast<Editor::VectorTool>(tool));
 }
 

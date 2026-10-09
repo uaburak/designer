@@ -168,18 +168,23 @@ const VECTOR_TOOL_GROUPS: { id: VectorTool; label: string; icon: IconName }[][] 
 const VECTOR_TOOL_WIDTH: Record<string, number> = { Move: 60.3, Lasso: 62.4, Paint: 58, Bend: 59, Cut: 50, Erase: 61.1, More: 55.4 };
 
 /**
- * More ▾ (live toolbar/vector-edit-more-menu.txt: "Vector editing tools", Shape builder M, Variable width ⇧W): Figma
- * Draw's tools — listed, not built (Variable width needs the width profiles the renderer doesn't draw yet).
+ * More ▾ (live toolbar/vector-edit-more-menu.txt: "Vector editing tools", Shape builder M, Variable width ⇧W; round
+ * 12: built — the engine's SHAPE_BUILDER and VARIABLE_WIDTH). A radio menu: the active one is checked (and lit; with
+ * neither active the first row is lit, as live opens it). Variable width is disabled where Figma doesn't offer it
+ * (dashed or dynamic strokes, branching paths).
  */
-export const VECTOR_MORE_TOOLS: MenuEntry[] = [
-  { id: "SHAPE_BUILDER", label: "Shape builder", icon: "24.shape-builder", shortcut: "M", checked: false, radio: true, disabled: true },
-  { id: "VARIABLE_WIDTH", label: "Variable width", icon: "24.variable-width", shortcut: "⇧W", checked: false, radio: true, disabled: true },
-];
+export function vectorMoreTools(tool: VectorTool, variableWidth: boolean): MenuEntry[] {
+  return [
+    { id: "SHAPE_BUILDER", label: "Shape builder", icon: "24.shape-builder", shortcut: "M", checked: tool === "SHAPE_BUILDER", radio: true },
+    { id: "VARIABLE_WIDTH", label: "Variable width", icon: "24.variable-width", shortcut: "⇧W", checked: tool === "VARIABLE_WIDTH", radio: true, disabled: !variableWidth },
+  ];
+}
 
 /** Figma UI3's vector edit toolbar: 529 × 40, 8 over the bottom toolbar (live 455, 792 at 1440 × 900). */
 function VectorEditToolbar({ offset }: { offset: number }) {
   const ed = useEditor();
   const tool = useStoreSlice(ed.vector.state, (s) => s.tool);
+  const variableWidth = useStoreSlice(ed.vector.state, (s) => s.variableWidth);
   const more = useRef<HTMLDivElement>(null);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const pick = (t: VectorTool) => {
@@ -202,6 +207,7 @@ function VectorEditToolbar({ offset }: { offset: number }) {
           label="More"
           width={VECTOR_TOOL_WIDTH.More}
           chevron
+          active={tool === "SHAPE_BUILDER" || tool === "VARIABLE_WIDTH"}
           aria-haspopup="menu"
           aria-expanded={!!menuAt}
           onSelect={(e) => {
@@ -219,9 +225,12 @@ function VectorEditToolbar({ offset }: { offset: number }) {
           flush
           label="Vector editing tools"
           width={189}
-          entries={VECTOR_MORE_TOOLS}
+          entries={vectorMoreTools(tool, variableWidth && ed.vector.hasTool("VARIABLE_WIDTH"))}
           ignore={more}
-          onSelect={() => setMenuAt(null)}
+          onSelect={(id) => {
+            setMenuAt(null);
+            pick(id as VectorTool);
+          }}
           onClose={() => setMenuAt(null)}
         />
       )}

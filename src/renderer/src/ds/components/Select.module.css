@@ -19,6 +19,11 @@
   .withPrefix { padding-left: 0; }
   .value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .placeholder { color: var(--figma-color-text-secondary); }
+  /* An option drawn as an image (SelectOption.image): it sits in the value's place, in the text's colour */
+  .imageValue { display: flex; align-items: center; color: var(--figma-color-text); }
+  .image { display: flex; flex: none; }
+  .image > svg { display: block; flex: none; }
+  .ghostField[data-disabled] .imageValue { color: var(--figma-color-text-disabled); }
   .chevron { flex: none; color: var(--figma-color-icon-secondary); }
   .hug.hug { flex: none; width: auto; }
   .hug .value { flex: none; }

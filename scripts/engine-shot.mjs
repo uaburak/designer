@@ -7,6 +7,7 @@
 //   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass)
 //   SHOT_ONLY=r8 npm run engine:shot    only round 8's canvas views (ruler guides, slices, pixel preview)
 //   SHOT_ONLY=r11 npm run engine:shot   only round 11's shader fills and effects (every preset, drawn)
+//   SHOT_ONLY=r12 npm run engine:shot   only round 12's variable-width strokes and the Shape builder's region
 //   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
@@ -547,6 +548,71 @@ async function r11Checks(files) {
     const changed = pa.filter((p, i) => diff(p, pb[i]) > 30).length;
     check(`shader effect ${e.name}: changes what its layer draws`, changed >= 3, `${changed} of ${grid.length} points`);
   }
+}
+
+// Round 12: a variable-width stroke drawn (Eye: full width in the middle, a point at each end; a wedge on a
+// rectangle, which leaves the box shader for the stroker), and the Shape builder's hovered region over two shapes.
+async function r12Checks(files) {
+  const pt = (position, width) => ({ position, ascent: width / 2, descent: width / 2, segmentId: 0 });
+  await engine(
+    ({ eye, wedge }) => {
+      const e = window.__designerEngine;
+      const solid = (r, g, b) => [{ type: "SOLID", color: { r, g, b, a: 1 }, opacity: 1, visible: true }];
+      const T = (x, y) => ({ m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y });
+      const at = (n) => `!${String(n).padStart(3, "0")}`;
+      e.applyChanges({
+        type: "NODE_CHANGES",
+        sessionID: 0,
+        nodeChanges: [
+          { guid: "53:1", phase: "CREATED", type: "FRAME", name: "Round 12", parentIndex: { guid: "0:1", position: "~~~~~" }, size: { x: 900, y: 320 }, transform: T(0, 4000), fillPaints: solid(1, 1, 1) },
+          { guid: "53:2", phase: "CREATED", type: "LINE", name: "Eye", parentIndex: { guid: "53:1", position: at(1) }, size: { x: 400, y: 0 }, transform: T(40, 80),
+            strokePaints: solid(0, 0, 0), strokeWeight: 40, strokeAlign: "CENTER", variableWidthPoints: eye },
+          { guid: "53:3", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "Wedge", parentIndex: { guid: "53:1", position: at(2) }, size: { x: 160, y: 100 }, transform: T(40, 180),
+            fillPaints: [], strokePaints: solid(0.9, 0.2, 0.2), strokeWeight: 24, strokeAlign: "CENTER", variableWidthPoints: wedge },
+          { guid: "53:4", phase: "CREATED", type: "ROUNDED_RECTANGLE", name: "A", parentIndex: { guid: "53:1", position: at(3) }, size: { x: 160, y: 160 }, transform: T(500, 60), fillPaints: solid(0.85, 0.85, 0.85) },
+          { guid: "53:5", phase: "CREATED", type: "ELLIPSE", name: "B", parentIndex: { guid: "53:1", position: at(4) }, size: { x: 160, y: 160 }, transform: T(600, 140), fillPaints: solid(0.85, 0.85, 0.85) },
+        ],
+      }, "user");
+      e.setSelection(["53:1"]);
+      e.command("ZOOM_TO_SELECTION");
+      e.setSelection([]);
+    },
+    { eye: [pt(0, 0), pt(0.5, 1), pt(1, 0)], wedge: [pt(0, 1), pt(1, 0)] }
+  );
+  await page.mouse.move(2, 2);
+  await settle();
+  files.push(await shot("39-round12-variable-width"));
+  const [mid, midOff, endOff, wedgeStart, wedgeEnd] = await Promise.all([
+    screenOf("53:2", 200, 0), screenOf("53:2", 200, -15), screenOf("53:2", 12, -15), screenOf("53:3", 20, -8), screenOf("53:3", -6, 12),
+  ]);
+  const [a, b, c, d, f] = await pixelsAt([mid, midOff, endOff, wedgeStart, wedgeEnd]);
+  check("variable width: the Eye is full width in its middle", near(a, [0, 0, 0, 255], 40) && near(b, [0, 0, 0, 255], 60), `${a} / ${b}`);
+  check("variable width: the Eye narrows to a point at its ends", near(c, [255, 255, 255, 255], 40), `${c}`);
+  // (its contour runs from the top-left corner clockwise: 8 above the top edge near the start is inside the 24 px
+  // stroke; 6 left of the left edge just before the end is outside it)
+  check("variable width: a rectangle's Wedge is wide at its start, gone at its end", near(d, [230, 51, 51, 255], 60) && near(f, [255, 255, 255, 255], 40), `${d} / ${f}`);
+  // The Shape builder: A and B held (Enter), M, the pointer over their overlap → the region drawn in the selection blue.
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.setSelection(["53:4", "53:5"]);
+    e.key("down", "Enter", "Enter", 0);
+    e.key("down", "KeyM", "m", 0);
+  });
+  const over = await screenOf("53:4", 140, 140);
+  await page.mouse.move(over[0] + 1, over[1] + 1);
+  await page.mouse.move(...over);
+  await settle();
+  files.push(await shot("40-round12-shape-builder"));
+  const vectorEdit = await engine(() => window.__designerEngine.vectorEdit);
+  const [o, plain] = await pixelsAt([over, await screenOf("53:4", 40, 40)]);
+  check("Shape builder: Enter on two layers, M picks it", vectorEdit?.tool === "SHAPE_BUILDER" && (vectorEdit?.layers ?? []).length === 2, JSON.stringify(vectorEdit?.layers));
+  check("Shape builder: the hovered region is drawn in the selection colour", o && o[2] > o[0] + 20 && near(plain, [217, 217, 217, 255], 20), `${o} / ${plain}`);
+  await engine(() => {
+    const e = window.__designerEngine;
+    e.endVectorEdit();
+    e.setSelection([]);
+  });
+  await settle();
 }
 
 // Round 8: ruler guides dragged out of a ruler (drawn over the page), a slice (View › Show slices: dashed), pixel
@@ -1214,9 +1280,10 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "r7" || only === "r8" || only === "r11" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
+    else if (only === "r12") await r12Checks(files);
     else if (only === "r7") await r7Checks(files);
     else if (only === "r11") await r11Checks(files);
     else if (only === "r8") await r8Checks(files);
@@ -1399,6 +1466,7 @@ try {
   await e4Checks(files);
   await r7Checks(files);
   await r11Checks(files);
+  await r12Checks(files);
   await r8Checks(files);
   // E6.
   await e6Checks(files);

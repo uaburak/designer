@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "base/FractionalIndex.h"
+#include "geometry/VariableWidth.h"
 
 namespace eng {
 
@@ -17,7 +18,7 @@ const Mat2x3 kIdentity;
 // Fields whose change moves a node's box (or its descendants').
 constexpr FieldMask kGeometryFields = F_TRANSFORM | F_SIZE | F_PARENT_INDEX | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN |
                                       F_TYPE | F_RESIZE_TO_FIT | F_EFFECTS | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |
-                                      F_VECTOR_DATA;
+                                      F_VECTOR_DATA | F_EXTRA;  // extra: variableWidthPoints (round 12) widen the stroke
 
 double outerStroke(const NodeProps& p) {
   bool stroke = false;
@@ -29,6 +30,12 @@ double outerStroke(const NodeProps& p) {
     // Miters, square caps and arrowheads reach past half the width.
     if (p.strokeJoin == StrokeJoin::MITER) reach *= std::max(1.0, std::min(p.miterLimit, 16.0));
     if (p.type == NodeType::LINE || p.type == NodeType::VECTOR) reach = std::max(reach, 3 * w + 6);
+  }
+  if (!p.extra.empty() && hasWidthPoints(p)) {
+    // A variable width (round 12): its widest point, on either side (twice the weight when aligned).
+    double share = geom::maxShare(widthPointsOf(p)) * w * (p.strokeAlign == StrokeAlign::CENTER ? 1 : 2);
+    if (p.strokeJoin == StrokeJoin::MITER) share *= std::max(1.0, std::min(p.miterLimit, 16.0));
+    reach = std::max(reach, share);
   }
   return reach;
 }

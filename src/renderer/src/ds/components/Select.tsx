@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { createTypeahead, typeahead } from "../util/typeahead";
 import { place, placeBelow, placeOverTrigger } from "../overlay/position";
@@ -13,7 +13,11 @@ import field from "./Field.module.css";
 import menu from "./Menu.module.css";
 import styles from "./Select.module.css";
 
-export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; disabled?: boolean };
+/**
+ * An option; `image` is drawn in place of the label, in the field and in the list (live Stroke settings' "Width
+ * profile": the profile as a 62 × 4 image named "Uniform"), the label staying its accessible name.
+ */
+export type SelectOption = { value: string; label: string; icon?: IconName; hint?: string; disabled?: boolean; image?: ReactNode };
 
 export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "prefix"> {
   label: string;
@@ -86,7 +90,15 @@ export function Select({ label, value, options, onChange, variant = "filled", si
         }}
       >
         {prefix !== undefined && <FieldPrefix prefix={prefix} />}
-        <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? STRINGS.mixed : current?.label ?? placeholder}</span>
+        {!mixed && current?.image ? (
+          <span className={cx(styles.value, styles.imageValue)}>
+            <span className={styles.image} role="img" aria-label={current.label}>
+              {current.image}
+            </span>
+          </span>
+        ) : (
+          <span className={cx(styles.value, (mixed || !current) && styles.placeholder)}>{mixed ? STRINGS.mixed : current?.label ?? placeholder}</span>
+        )}
         <Icon name="16.chevron.down" className={styles.chevron} />
       </button>
       {showList && <Listbox id={id} anchor={trigger} options={options} value={mixed ? null : value} isStatic={isStatic} noCheck={noCheck} below={below} onPick={(v) => { close(); if (v !== value) onChange(v); }} onClose={close} />}
@@ -190,7 +202,15 @@ function Listbox({ id, anchor, options, value, isStatic, noCheck, below, onPick,
           >
             {!noCheck && <span className={menu.check}>{o.value === value && <Icon name="16.check" />}</span>}
             {o.icon && <span className={menu.icon}><MenuIcon name={o.icon} /></span>}
-            <span className={menu.label}>{o.label}</span>
+            {o.image ? (
+              <span className={cx(menu.label, styles.imageValue)}>
+                <span className={styles.image} role="img" aria-label={o.label}>
+                  {o.image}
+                </span>
+              </span>
+            ) : (
+              <span className={menu.label}>{o.label}</span>
+            )}
             {o.hint && <span className={menu.hint}>{o.hint}</span>}
           </div>
         )

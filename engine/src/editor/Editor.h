@@ -24,6 +24,8 @@
 #include "editor/Selection.h"
 #include "editor/Snapping.h"
 #include "editor/Undo.h"
+#include "geometry/PlanarFaces.h"
+#include "geometry/VariableWidth.h"
 #include "geometry/VectorNetwork.h"
 #include "layout/Layout.h"
 #include "render/Camera.h"
@@ -474,10 +476,26 @@ class Editor : private LayoutHost, public TextLayouts {
   void textAutoformatList();
 
   // ---- Vector edit mode (editor/VectorEditing.cpp) ----
-  // Round 10 (live toolbar/vector-edit-toolbar.txt): Cut and Erase after Paint and Bend.
-  enum class VectorTool : uint8_t { MOVE, PEN, BEND, LASSO, PAINT_BUCKET, CUT, ERASE };
+  // Round 10 (live toolbar/vector-edit-toolbar.txt): Cut and Erase after Paint and Bend. Round 12 (live
+  // toolbar/vector-edit-more-menu.txt, "Vector editing tools"): Shape builder (M) and Variable width (⇧W).
+  enum class VectorTool : uint8_t { MOVE, PEN, BEND, LASSO, PAINT_BUCKET, CUT, ERASE, SHAPE_BUILDER, VARIABLE_WIDTH };
   // Edits `id`'s vector network (VECTOR, LINE, and shapes: they become VECTORs at their first edit).
   Status startVectorEdit(Guid id);
+  // Round 12 (help.figma.com "Select one or more vector layers and press Enter"): several layers at once — the first
+  // is the one whose points show (a click on another switches to it); the Shape builder works on all of them.
+  Status startVectorEditMany(const std::vector<Guid>& ids);
+  // The layers vector edit mode holds (the edited one first; ones undone away are left out).
+  std::vector<Guid> vectorLayers() const;
+  // Round 12: the Variable width tool applies (a stroke without dashes or a dynamic stroke, a network without
+  // branching paths — Figma: "Split vector" first).
+  bool variableWidthAvailable() const;
+  // The Shape builder's regions (world space) and which one is under the pointer / taken by the drag (tests, the
+  // overlay): computed from the vector layers when asked.
+  const std::vector<geom::PlanarFace>& shapeBuilderFaces();
+  int shapeBuilderHover() const { return vector_.builderHover; }
+  // The edited layer's width points (Variable width; positions along the stroke) and the selected one (−1: none).
+  std::vector<geom::WidthPoint> vectorWidthPoints() const;
+  int vectorWidthSelected() const { return vector_.widthSelected; }
   void endVectorEdit();
   bool vectorEditing() const { return vector_.node != kNoGuid; }
   Guid vectorNode() const { return vector_.node; }
@@ -1278,7 +1296,7 @@ class Editor : private LayoutHost, public TextLayouts {
     // Hover.
     int hoverVertex = -1, hoverSegment = -1;
     // The gesture.
-    enum class Drag : uint8_t { None, Vertices, Handle, Bend, PenNew, PenHandle, Marquee, Lasso, Cut, Erase } drag = Drag::None;
+    enum class Drag : uint8_t { None, Vertices, Handle, Bend, PenNew, PenHandle, Marquee, Lasso, Cut, Erase, Builder, Width } drag = Drag::None;
     bool dragged = false;
     geom::VectorNetwork startNet;  // when the drag started (node space then)
     Mat2x3 startWorld;             // the node's world transform then
@@ -1292,6 +1310,25 @@ class Editor : private LayoutHost, public TextLayouts {
     Rect marquee;             // world
     std::vector<uint32_t> baseSel;
     bool committedInDrag = false;
+    // Round 12: the other layers held (Enter on several), the edited one included; ones not in the document are skipped.
+    std::vector<Guid> group;
+    // The Shape builder: its regions (world) for `builderKey`, the inputs' layers, the region under the pointer, the
+    // regions a drag took (⌥ held when it started: they are removed).
+    uint64_t builderKey = 0;
+    geom::PlanarMap builderMap;
+    std::vector<Guid> builderLayers;
+    int builderHover = -1;
+    std::vector<int> builderTaken;
+    bool builderRemove = false;
+    Vec2 builderLast;  // world: the drag's last point (regions crossed between moves count)
+    // Variable width: the point under the pointer (its centre or a side: 1 left, 2 right), the selected one, where a
+    // click on the stroke adds one (position along it, contour), the drag's points when it started.
+    int widthHover = -1, widthHoverPart = 0, widthSelected = -1;
+    bool widthPreview = false;
+    double widthPreviewPos = 0;
+    size_t widthPreviewContour = 0;
+    int widthDragPart = 0;
+    std::vector<geom::WidthPoint> widthStart;
   };
   uint32_t vectorPointerDown(Vec2 s, uint32_t mods, int clickCount);
   void vectorPointerMove(Vec2 s, uint32_t mods);
@@ -1315,6 +1352,25 @@ class Editor : private LayoutHost, public TextLayouts {
   bool vectorHandleAt(Vec2 screen, int& segment, bool& atStart) const;
   int vectorSegmentAt(Vec2 screen, double& t) const;
   Mat2x3 vectorToScreen() const;
+  // Round 12: the Shape builder (tools/ShapeBuilder.cpp) and the Variable width tool (tools/VariableWidthTool.cpp).
+  void builderUpdate();                        // the regions recomputed when the layers or the zoom changed
+  int builderFaceAt(Vec2 world);
+  uint32_t builderPointerDown(Vec2 s, uint32_t mods);
+  void builderPointerMove(Vec2 s, uint32_t mods);
+  void builderPointerUp();
+  Status builderApply(const std::vector<int>& faces, bool remove);
+  void builderOverlay(Overlay& o) const;
+  bool widthCenter(geom::Path& center, Mat2x3& toWorld) const;  // the edited layer's stroke centre line (node space)
+  int widthPointAt(Vec2 screen, int& part) const;
+  uint32_t widthPointerDown(Vec2 s, uint32_t mods);
+  void widthPointerMove(Vec2 s, uint32_t mods);
+  void widthPointerUp();
+  void widthWrite(const std::vector<geom::WidthPoint>& points);
+  Status widthDeleteSelected();
+  void widthOverlay(Overlay& o) const;
+  Status widthCommand(CommandId id, const CommandArgs& args);
+  uint32_t widthCommandState(CommandId id) const;
+  void switchVectorNode(Guid id);
   // Pencil.
   void pencilFinish();
   std::vector<Vec2> pencilPoints_;  // world

@@ -70,6 +70,11 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   valueLabel?: string;
   /** Shown after the number, right-aligned, while not focused (W / H: "Hug", "Fill") */
   modeLabel?: string;
+  /**
+   * The name is the field box's, not the input's (live popovers/stroke-advanced-settings.txt: Miter angle's
+   * `label [Miter angle]` 128 × 24, its input unnamed)
+   */
+  boxLabel?: boolean;
 }
 
 /**
@@ -81,7 +86,7 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * px (⇧ ×10), faster toward the top of the screen and slower toward the bottom (2x, 1x, 1/2, 1/4): `final:
  * false` each frame, one `final: true` on release, Esc cancels; a press without movement focuses the field.
  */
-export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, modeLabel, boxLabel, className, ...rest }: NumericInputProps) {
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -241,6 +246,8 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       data-alt-scrub={(altHover && canScrub) || undefined}
       data-mixed={(mixed && draft === null) || undefined}
       className={cx(styles.field, variant === "ghost" && styles.ghost, bare && styles.bare, className)}
+      role={boxLabel ? "group" : undefined}
+      aria-label={boxLabel ? label : undefined}
       {...rest}
     >
       {prefix !== undefined && (
@@ -259,7 +266,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       )}
       <input
         ref={input}
-        aria-label={label}
+        aria-label={boxLabel ? undefined : label}
         inputMode="decimal"
         disabled={disabled}
         value={text}
