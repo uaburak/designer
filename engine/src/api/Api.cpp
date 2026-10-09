@@ -2647,7 +2647,9 @@ ENG_EXPORT void engine_set_viewer_mode(Handle h, uint32_t flags) {
 }
 
 // View options (round 7): 1 the pixel grid (View › Pixel grid, ⇧'), 2 outline mode (⇧⌘O), 4 layout guides (⇧G); round 8:
-// 8 rulers (⇧R: guides shown and dragged), 16 snap to pixel grid (⇧⌘′), 32 show slices, 64 pixel preview 1x, 128 2x.
+// 8 rulers (⇧R: guides shown and dragged), 16 snap to pixel grid (⇧⌘′), 32 show slices, 64 pixel preview 1x, 128 2x;
+// round 9 (Preferences): 256 snap to geometry, 512 snap to objects, 1024 keep tool selected, 2048 show dimensions, 4096 flip
+// while resizing, 8192 keyboard zooms into selection, 16384 invert zoom, 32768 scroll wheel zoom, 65536 right-drag pans.
 ENG_EXPORT void engine_set_view_options(Handle h, uint32_t options) {
   Call call;
   Engine* e = engineOf(h);

@@ -20,6 +20,23 @@ Goal: the canvas affordances the round 8 sweep (`docs/research/audit-2026-10-08/
 
 **Unverified / next:** the arc states after a drag (start / end / ratio positions are help.figma.com's, not captured live), Shift-snapping of handle drags; padding badges on the left / right / bottom sides (live shows only the top; the same rule is applied); what the `</>` does on a frame that already has a status (live not captured — ours keeps the status chip); the track pill's chevron opens TS's size popover rather than live's "Fixed height (84) / Hug contents / Fill container (1fr)" menu, and the label isn't edited in place (TS, `panels/design/Grid.tsx`); grid gap hover (live pink gap outlines); overlay label text is ~8 % wider than live at the captures' density (size pills, badges, the section name) — needs a capture at a known DPR before changing the chrome's font metrics; the AI sparkle.
 
+## Round 9 — Menus, toolbar and left side (branch `r9-menus-left-toolbar`)
+
+Status: done 2026-10-09 (checks below). Editor side in `docs/editor.md` "Round 9 — Menus, toolbar and left side".
+
+Engine side — the Figma menu › Preferences the canvas acts on, as `engine_set_view_options` bits (`Editor::ViewOption`, `abi.ts VIEW_*`, `Engine.setViewOptions`; `kViewOptionsAll` 131071; live Figma's defaults in `kViewOptionsDefault`):
+- 256 `VIEW_SNAP_GEOMETRY` (on): in vector edit mode a dragged point snaps onto another point of the network within 6 CSS px (help.figma.com "Snap to geometry": vector edit mode only); ⌃ / ⌘ don't snap.
+- 512 `VIEW_SNAP_OBJECTS` (on): moves, resizes and draws snap to the parent's other layers and the parent frame (`prepareSnapping`); off, only ruler guides and layout grids.
+- 1024 `VIEW_KEEP_TOOL` (off): after a shape is drawn the tool stays (text still goes to Move: it is being edited).
+- 2048 `VIEW_SHOW_DIMENSIONS` (on): the W × H badge under the selection (the angle while rotating stays).
+- 4096 `VIEW_FLIP_RESIZE` (on): an edge dragged past the opposite one mirrors the layer; off, the box grows the other way unmirrored (unverified).
+- 8192 `VIEW_KEYBOARD_ZOOM_SELECTION` (off): Zoom in / out / to 100 % about the selection's centre on screen.
+- 16384 `VIEW_INVERT_ZOOM` (off): ⌘ + wheel and pinches zoom the other way.
+- 32768 `VIEW_SCROLL_WHEEL_ZOOM` (off): a plain wheel zooms, ⌘ / Ctrl + wheel pans (⇧ + wheel still pans sideways; unverified details).
+- 65536 `VIEW_RIGHT_DRAG_PAN` (on): a right press captures the pointer; past 3 CSS px it pans, else the context menu opens on the release (the tests that pressed without releasing now release). ⌃-click still opens it at the press.
+
+Checks (after merging main c435248, r9-canvas-overlays and r9-header-components): `npm run check` ✓ (103 files, 876 tests); `npm run engine:test` ✓ 450 / 450 (new `r9.preferences.test.cpp`: defaults, snap to objects, keep tool, show dimensions, flip, keyboard zoom, invert / scroll wheel zoom, right-drag pan, snap to geometry); `npm run engine:shot` ✓ 108 ok; `node scripts/engine-shot.mjs --gfx webgpu` ✓ 110 ok; editor-shot ✓ 350 ok (156 s), `EDITOR_ONLY=menus9` 15 ok. Release wasm rebuilt after the merge and committed.
+
 ## Round 9 — header (branch `r9-header-components`)
 
 Engine side of docs/editor.md "Round 9 — Design panel header, component and instance panels": `BOOLEAN_UNION` / `SUBTRACT` / `INTERSECT` / `EXCLUDE` run on one layer — a boolean group around it, as live Figma's menus offer them for a rectangle or an instance (enabled for any selection of real layers, or boolean groups; derived layers refuse) — and `FLATTEN` takes frames (not components or instances): their box when it has a visible fill, then their layers, one vector; the frame drops its layout and keeps its own look (its topmost layer's when it has no fill). An instance's Flatten is the editor's Detach instance then Flatten in one step. Native tests: `editor.vector.test.cpp` "booleans, Flatten, Outline stroke, Use as mask, Place image" (one-layer Union and its undo, a frame flattened and its undo). Release wasm rebuilt.

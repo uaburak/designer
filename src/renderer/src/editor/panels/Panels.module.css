@@ -91,6 +91,22 @@
   /* Tools (live): a search 12 under the header, Source and Category, then the suggestions */
   .toolsSearch { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-3) 0 var(--ds-space-4); }
   .toolsFilters { display: flex; gap: var(--ds-space-2); padding: var(--ds-space-4) var(--ds-space-3) 0 var(--ds-space-4); }
+  /* Live (rail-tools.txt): the filters on the panel's own ground, their labels in the primary colour even when idle */
+  .toolsFilter.toolsFilter { background: var(--figma-color-bg); color: var(--figma-color-text); }
+  /* Live: 79 / 91 — the chevron 2 from the end */
+  .toolsFilter [role="combobox"] { padding-right: var(--ds-space-half); }
+  /* Live: "Create" 11 / 450 at 173, 18 — text, 20 before the header's 12 edge */
+  .toolsCreate {
+    height: var(--ds-size-control);
+    margin-right: var(--ds-space-5);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    cursor: default;
+  }
   .layersEmpty { padding: var(--ds-space-2) var(--ds-space-4); color: var(--figma-color-text-secondary); }
   .assets { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   .assetsSearch { padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-2) var(--ds-space-4); }

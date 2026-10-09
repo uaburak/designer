@@ -3,6 +3,8 @@
   /* Live: the search 180 wide at 16, 12 under the header; "Libraries and settings" at 204 */
   .toolbar { display: flex; flex: none; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-3) var(--ds-space-3) var(--ds-space-2) var(--ds-space-4); }
   .search { flex: 1 1 auto; min-width: 0; }
+  /* Live: the query's own box is 156 × 16, centred in the 24 field */
+  .search input { height: var(--ds-space-4); }
   .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: var(--ds-space-4); }
   /* "All libraries" (live: 11 / 550 at 16, 99) and the search's library headings */
   .heading {
@@ -13,13 +15,22 @@
     font: var(--ds-font-body-medium-strong);
     letter-spacing: var(--ds-tracking-body-medium-strong);
   }
-  /* A library card (live: a 206 × 115 thumbnail at 17, its title 11 / 450 and "6 components" under it) */
+  /* "All libraries" (live: 11 / 550, its text at 99 — a 24 row under the search) */
+  .allHeading {
+    display: flex;
+    align-items: center;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-3) 0 var(--ds-space-4);
+    font: var(--ds-font-body-medium-strong);
+    letter-spacing: var(--ds-tracking-body-medium-strong);
+  }
+  /* A library card (live: a 206 × 115 thumbnail at 17, 130; its title 11 / 450 10 under it, "6 components" right under) */
   .card {
     display: flex;
     flex-direction: column;
     align-items: stretch;
     width: 100%;
-    padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-3) calc(var(--ds-space-4) + 1px);
+    padding: calc(var(--ds-space-3) + 1px) calc(var(--ds-space-4) + 1px) var(--ds-space-3);
     border: 0;
     background: transparent;
     color: var(--figma-color-text);
@@ -34,15 +45,15 @@
     align-items: center;
     justify-content: center;
     height: 115px;
-    margin-bottom: var(--ds-space-2);
+    margin-bottom: calc(var(--ds-space-2) + 1px);
     overflow: hidden;
     border-radius: var(--ds-radius-medium);
-    background: var(--figma-color-bg-tertiary);
+    background: var(--ds-color-asset-card-bg);
   }
   .card:hover .cardThumb, .card:focus-visible .cardThumb { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   .cardThumb .thumb { width: var(--ds-space-16); background: transparent; }
   .cardTitle, .cardCount { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cardCount { margin-top: var(--ds-space-1); color: var(--figma-color-text-secondary); }
+  .cardCount { color: var(--figma-color-text-secondary); }
   .addMore {
     display: block;
     margin: var(--ds-space-2) auto;

@@ -81,6 +81,7 @@
     --ds-radius-full: 9999px;
     --ds-font-family: "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-font-family-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --ds-font-family-keys: "Inter Variable", Inter, sans-serif;
     --ds-font-body-small: 450 9px/14px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-small: 0.045px;
     --ds-weight-body-small: 450;
@@ -102,12 +103,18 @@
     --ds-font-menu: 450 11px/16px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-menu: 0.055px;
     --ds-weight-menu: 450;
+    --ds-font-menu-key: 400 12px/15px "Inter Variable", Inter, sans-serif;
+    --ds-tracking-menu-key: 0px;
+    --ds-weight-menu-key: 400;
     --ds-font-body-large: 450 13px/22px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-large: -0.0325px;
     --ds-weight-body-large: 450;
     --ds-font-body-large-strong: 550 13px/22px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-large-strong: -0.0325px;
     --ds-weight-body-large-strong: 550;
+    --ds-font-body-large-regular: 400 13px/22px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-body-large-regular: -0.0325px;
+    --ds-weight-body-large-regular: 400;
     --ds-font-heading-medium: 550 15px/25px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-heading-medium: -0.13px;
     --ds-weight-heading-medium: 550;
@@ -339,6 +346,7 @@
     --ds-color-border-translucent-strong: #00000033;
     --ds-color-bg-transparent-hover: #0000000d;
     --ds-color-bg-transparent-pressed: #0000001a;
+    --ds-color-asset-card-bg: #0000001a;
     --ds-color-switch-hover: #f4f4f4;
     --ds-color-switch-knob: #ffffff;
     --ds-color-picker-thumb: #ffffff;
@@ -563,6 +571,7 @@
     --ds-color-border-translucent-strong: #ffffff33;
     --ds-color-bg-transparent-hover: #ffffff0d;
     --ds-color-bg-transparent-pressed: #ffffff1a;
+    --ds-color-asset-card-bg: #ffffff1a;
     --ds-color-switch-hover: #585858;
     --ds-color-switch-knob: #ffffff;
     --ds-color-picker-thumb: #ffffff;

@@ -57,17 +57,32 @@ const isAvailable = (ed: ReturnType<typeof useEditor>, t: ToolId) => {
   return !!name && ed.tools.has(name);
 };
 
-/** The canvas area's width (the toolbar must stay inside it). */
-function useCanvasWidth(ed: ReturnType<typeof useEditor>): number {
-  const [width, setWidth] = useState(() => ed.canvas?.clientWidth ?? 0);
+/** The canvas area's left edge and width in the window (the toolbar is centred on the window but stays inside it). */
+function useCanvasBox(ed: ReturnType<typeof useEditor>): { left: number; width: number } {
+  const measure = () => {
+    const r = ed.canvas?.getBoundingClientRect();
+    return { left: r?.left ?? 0, width: r?.width ?? ed.canvas?.clientWidth ?? 0 };
+  };
+  const [box, setBox] = useState(measure);
   useEffect(() => {
     const el = ed.canvas;
     if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    const update = () => setBox((b) => {
+      const n = measure();
+      return n.left === b.left && n.width === b.width ? b : n;
+    });
+    const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+    // measure reads ed.canvas only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ed]);
-  return width;
+  return box;
 }
 
 const TOOLBAR_WIDTH = 530;
@@ -76,21 +91,20 @@ const MARGIN = 8;
 export function BottomToolbar() {
   const ed = useEditor();
   const vectorEditing = useStoreSlice(ed.vector.state, (s) => s.active);
-  const canvasWidth = useCanvasWidth(ed);
+  const canvas = useCanvasBox(ed);
   const placing = useUI((s) => !!s.placingImages?.length);
   const engineTool = toolIdOf(useTool(ed.store));
   // While images wait to be placed, the Image tool is the one in use (Figma).
   const tool = placing ? "image" : engineTool;
-  const left = useUI((s) => s.leftWidth);
-  const right = useUI((s) => s.rightWidth);
   const minimized = useUI((s) => s.uiMinimized);
+  const actionsOpen = useUI((s) => !!s.actionsOpen);
   const [groups, setGroups] = useState<Partial<Record<ToolGroupId, ToolId>>>({});
   // A tool chosen by key is remembered in its slot too.
   if (groups[groupOf(tool)] !== tool) setGroups({ ...groups, [groupOf(tool)]: tool });
-  // Centred on the window: the canvas sits between the rail + left panel and the right panel.
-  // (kept inside the canvas when the panels are wide).
-  const wanted = minimized ? 0 : (right - (48 + left)) / 2;
-  const room = Math.max(0, (canvasWidth - TOOLBAR_WIDTH) / 2 - MARGIN);
+  // Centred on the window (live: 529 wide at x 456 in a 1440 window): the canvas sits between the rail + left panel
+  // and the right panel; kept inside the canvas when the panels are wide.
+  const wanted = minimized || !canvas.width ? 0 : window.innerWidth / 2 - (canvas.left + canvas.width / 2);
+  const room = Math.max(0, (canvas.width - TOOLBAR_WIDTH) / 2 - MARGIN);
   const offset = Math.max(-room, Math.min(room, wanted));
   const dev = useUI((s) => s.mode === "dev");
   const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t))), [ed, dev]);
@@ -115,7 +129,8 @@ export function BottomToolbar() {
       groupTools={groups}
       disabledTools={disabledTools}
       onTool={pick}
-      onActions={() => runEditorCommand(ed, "tool.actions") || showToast({ message: "Actions come later" })}
+      onActions={() => runEditorCommand(ed, "tool.actions")}
+      actionsActive={actionsOpen}
       mode={dev ? "dev" : "design"}
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);

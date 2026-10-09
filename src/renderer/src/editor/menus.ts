@@ -5,6 +5,7 @@
  * Arrange submenus, and the canvas context menu.
  */
 import type { IconName, MenuEntry, MenuItem } from "@/ds";
+import { CMD_ENABLED, Status } from "@/engine/abi";
 import type { Guid } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import { COMMAND_BY_ID, command, isEnabled, runEditorCommand, shortcutOf } from "./commands";
@@ -21,20 +22,37 @@ export function commandItem(ed: EditorController, id: string, label?: string): M
   return { id, label: label ?? c.label, shortcut: shortcutOf(c), disabled: !isEnabled(ed, c), checked: c.checked ? c.checked(ed) : undefined };
 }
 
-/** A command, a line, a submenu, a command under another label (`{ id, label }`), or an item built when the menu opens. */
-type Spec = string | "-" | { label: string; items: Spec[] } | { id: string; label: string } | ((ed: EditorController) => MenuEntry | null);
+/** A command under another label, with a glyph before its label, or with keys shown that the registry doesn't bind. */
+type ItemSpec = { id: string; label?: string; icon?: IconName; shortcut?: string };
+/**
+ * A submenu: live Figma's submenus open even when every item in them is disabled (Text, Arrange, Vector with nothing
+ * selected). `checks`: a check column (View, Text, Preferences: live labels at 32; elsewhere at 16, the commands'
+ * own checked states not drawn). `minWidth`: live's measured width where its rows alone don't make it.
+ */
+type SubSpec = { label: string; items: Spec[]; checks?: boolean; minWidth?: number };
+/** A command, a line, a submenu, a command spelled out, or an item built when the menu opens. */
+type Spec = string | "-" | SubSpec | ItemSpec | ((ed: EditorController) => MenuEntry | null);
 
-function build(ed: EditorController, specs: Spec[], prefix: string): MenuEntry[] {
+const withoutCheck = (item: MenuItem): MenuItem => {
+  if (item.checked === undefined) return item;
+  const { checked: _checked, ...rest } = item;
+  return rest;
+};
+
+function build(ed: EditorController, specs: Spec[], prefix: string, checks = false): MenuEntry[] {
   return specs.flatMap((s, i): MenuEntry[] => {
     if (s === "-") return ["-"];
-    if (typeof s === "string") return [commandItem(ed, s)];
+    if (typeof s === "string") return [checks ? commandItem(ed, s) : withoutCheck(commandItem(ed, s))];
     if (typeof s === "function") {
       const e = s(ed);
       return e ? [e] : [];
     }
-    if ("id" in s) return [commandItem(ed, s.id, s.label)];
-    const items = build(ed, s.items, `${prefix}${i}.`);
-    return [{ id: `submenu:${prefix}${i}`, label: s.label, items, disabled: !items.some((e) => typeof e === "object" && "id" in e && !e.disabled) }];
+    if ("id" in s) {
+      const item = commandItem(ed, s.id, s.label);
+      return [{ ...(checks ? item : withoutCheck(item)), ...(s.icon ? { icon: s.icon, inlineIcon: true } : {}), ...(s.shortcut ? { shortcut: s.shortcut } : {}) }];
+    }
+    const items = build(ed, s.items, `${prefix}${i}.`, s.checks ?? false);
+    return [{ id: `submenu:${prefix}${i}`, label: s.label, items, ...(s.minWidth ? { minWidth: s.minWidth } : {}) }];
   });
 }
 
@@ -50,10 +68,16 @@ export function resetSubmenu(ed: EditorController): MenuItem | null {
   const inst = selectedInstance(ed);
   if (!inst) return null;
   const groups = instanceChanges(ed, inst);
-  const items: MenuEntry[] = [commandItem(ed, "object.reset-all-changes")];
+  const items: MenuEntry[] = [withoutCheck(commandItem(ed, "object.reset-all-changes"))];
   if (groups.length) items.push("-", ...groups.map((g) => ({ id: `${RESET_PREFIX}${g.fields.join(",")}`, label: `Reset ${g.label.toLowerCase()}` })));
   return { id: "submenu:reset", label: "Reset", items, disabled: !groups.length };
 }
+
+/** Object › Reset instance (live: listed, disabled, when no instance is selected). */
+const resetInstance = (ed: EditorController): MenuEntry => {
+  const r = resetSubmenu(ed);
+  return r ? { ...r, label: "Reset instance" } : { id: "submenu:reset", label: "Reset instance", disabled: true };
+};
 
 /** Runs a menu pick: a registry command, or a dynamic item (Reset ▸ group, Select layer ▸). True when it ran. */
 export function runMenuItem(ed: EditorController, id: string): boolean {
@@ -86,7 +110,8 @@ function componentEntries(ed: EditorController): Spec[] {
     return ["object.create-component", (e) => { const r = resetSubmenu(e); return r ? { ...r, label: "Reset instance" } : null; }, "object.detach-instance", "object.go-to-main-component"];
   const out: Spec[] = [];
   const mains = nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n));
-  if (!mains) out.push("object.create-component", ...(nodes.length > 1 ? ["object.create-multiple-components"] : []));
+  // Live (context-multi.txt): a multi-selection gets Create component only (no "Create multiple components").
+  if (!mains) out.push("object.create-component");
   // A main component (live Figma): its actions under "Main component ▸".
   else
     out.push({
@@ -106,18 +131,21 @@ function componentEntries(ed: EditorController): Spec[] {
 
 /**
  * Figma's menus, in Figma's order: the Figma menu as the live app shows it (docs/research/figma/live/menus:
- * main-menu, main-file, main-edit, main-view, main-view-panels, main-preferences, main-help) — items not built yet
- * are listed disabled.
+ * main-menu, main-file, main-edit, main-view, main-view-panels, main-object, main-text, main-arrange, main-vector,
+ * main-plugins, main-widgets, main-preferences, main-help) — items not built yet are listed disabled.
  */
 export const MAIN_MENU: Spec[] = [
   "file.back-to-files",
   "-",
-  "tool.actions",
+  // Live: "Actions…" with its glyph (the label at 40) and ⌘K.
+  { id: "tool.actions", icon: "24.actions" },
   "-",
   {
     label: "File",
     items: [
       { id: "file.new", label: "New Design" },
+      // Live: "New ▸" under New Design (its items not captured: help.figma.com's file kinds, unverified).
+      { label: "New", items: [{ id: "file.new", label: "Design file" }] },
       "-",
       { id: "file.place-image", label: "Place image/video…" },
       "-",
@@ -130,8 +158,6 @@ export const MAIN_MENU: Spec[] = [
       "file.export-frames-to-pdf",
       "-",
       "file.create-branch",
-      "-",
-      "file.share-preview",
     ],
   },
   {
@@ -169,6 +195,7 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "View",
+    checks: true,
     items: [
       "view.pixel-grid",
       "view.layout-guides",
@@ -176,12 +203,11 @@ export const MAIN_MENU: Spec[] = [
       "view.show-slices",
       "view.comments",
       "view.annotations",
-      { label: "Outlines", items: ["view.outlines"] },
+      { label: "Outlines", checks: true, items: ["view.outlines"] },
       "view.pixel-preview",
       "view.mask-outlines",
       "view.frame-outlines",
       "view.memory-usage",
-      "view.property-labels",
       "-",
       "view.additional-labels",
       "view.minimize-left-nav",
@@ -189,7 +215,8 @@ export const MAIN_MENU: Spec[] = [
       "view.toggle-ui",
       "view.multiplayer-cursors",
       "view.switch-to-draw",
-      "view.dev-mode",
+      // Live: "Switch to Dev Mode ⇧D", no check.
+      (ed) => ({ ...withoutCheck(commandItem(ed, "view.dev-mode")), label: "Switch to Dev Mode" }),
       {
         label: "Panels",
         items: [
@@ -234,8 +261,8 @@ export const MAIN_MENU: Spec[] = [
       "object.more-layout-options",
       "-",
       "object.create-component",
-      { label: "Slots", items: ["object.convert-to-slot", "object.wrap-in-new-slot", "object.delete-slot-contents"] },
-      resetSubmenu,
+      { label: "Slots", items: ["object.convert-to-slot", "object.wrap-in-new-slot"] },
+      resetInstance,
       "object.detach-instance",
       { label: "Main component", items: ["object.go-to-main-component", "object.push-changes", "object.restore-component", "-", "object.create-multiple-components", "object.combine-as-variants", "object.add-variant"] },
       "-",
@@ -258,16 +285,18 @@ export const MAIN_MENU: Spec[] = [
       "object.toggle-lock",
       "object.hide-other-layers",
       "view.collapse-layers",
-      "object.rename",
       "-",
       "object.remove-fill",
       "object.remove-stroke",
       "object.swap-fill-stroke",
       "object.remove-interactions",
+      "object.delete-slot-contents",
     ],
   },
   {
     label: "Text",
+    checks: true,
+    minWidth: 199,
     items: [
       "text.bold",
       "text.italic",
@@ -296,6 +325,12 @@ export const MAIN_MENU: Spec[] = [
           "text.letter-spacing-down",
         ],
       },
+      // Live: Case ▸ and Text direction ▸ (their items not captured: Type settings' Case options, unverified).
+      { label: "Case", checks: true, items: ["text.case-original", "text.case-upper", "text.case-lower", "text.case-title", "text.case-small-caps", "text.case-forced-small-caps"] },
+      { label: "Text direction", checks: true, items: ["text.direction-auto", "text.direction-ltr", "text.direction-rtl"] },
+      "-",
+      { label: "Spell check", checks: true, items: ["text.spell-check"] },
+      "prefs.show-text-suggestions",
     ],
   },
   {
@@ -328,26 +363,63 @@ export const MAIN_MENU: Spec[] = [
   },
   {
     label: "Vector",
-    items: ["vector.union", "vector.subtract", "vector.intersect", "vector.exclude", "-", "vector.flatten", "vector.outline-stroke"],
+    items: ["vector.join", "vector.smooth-join", "vector.delete-heal", "vector.split", "vector.simplify", "vector.offset"],
   },
   "-",
-  { label: "Plugins", items: ["plugins.run-last", "plugins.manage"] },
-  { label: "Widgets", items: ["widgets.manage"] },
+  // Plugins and widgets aren't part of this app: their items listed, disabled (live main-plugins / main-widgets).
+  { label: "Plugins", minWidth: 181, items: ["plugins.run-last", "-", { label: "Saved plugins", items: ["plugins.none"] }, "-", "plugins.manage"] },
+  { label: "Widgets", minWidth: 152, items: ["widgets.manage", "widgets.select-all"] },
   {
     label: "Preferences",
+    checks: true,
+    minWidth: 235,
     items: [
+      "prefs.snap-to-geometry",
+      "prefs.snap-to-objects",
       "view.snap-pixel-grid",
-      "prefs.highlight-on-hover",
       "-",
-      { label: "Theme", items: ["theme.light", "theme.dark", "theme.system"] },
+      "prefs.keep-tool-selected",
+      "prefs.highlight-on-hover",
+      "prefs.rename-duplicated-layers",
+      "prefs.show-dimensions",
+      "prefs.hide-canvas-ui",
+      "prefs.smart-quotes",
+      "prefs.flip-while-resizing",
+      "prefs.keyboard-zooms-into-selection",
+      "prefs.invert-zoom",
+      "prefs.ctrl-click-menus",
+      "prefs.number-keys-opacity",
+      "prefs.old-outline-shortcuts",
+      "prefs.rotate-with-arrows",
+      "prefs.ai-chat-audio",
+      "prefs.open-links-in-desktop",
+      "prefs.show-text-suggestions",
+      "prefs.show-tool-suggestions",
+      "prefs.show-agents",
+      "-",
+      "prefs.scroll-wheel-zoom",
+      "prefs.right-drag-pan",
+      "-",
+      { label: "Theme", checks: true, items: ["theme.light", "theme.dark", "theme.system"] },
       "prefs.color-profile",
+      "prefs.keyboard-layout",
+      "prefs.accessibility",
+      "prefs.permissions",
       "prefs.nudge-amount",
     ],
   },
   { id: "file.libraries", label: "Libraries" },
   "-",
-  { label: "Help and account", items: ["help.shortcuts"] },
+  "file.open-in-desktop",
+  {
+    label: "Help and account",
+    minWidth: 178,
+    items: ["help.page", "help.shortcuts", "help.forum", "help.videos", "help.release-notes", "help.font-settings", "-", "help.legal", "help.account", "help.log-out"],
+  },
 ];
+
+/** Live main menu: 194 wide (main-menu.txt); its rows alone make 131. */
+export const MAIN_MENU_WIDTH = 194;
 
 export function mainMenu(ed: EditorController): MenuEntry[] {
   return build(ed, MAIN_MENU, "main.");
@@ -360,8 +432,9 @@ function moveToPage(ed: EditorController): MenuEntry | null {
   return { id: "submenu:move-to-page", label: "Move to page", items, disabled: !items.length };
 }
 
-/** Plugins ▸ / Widgets ▸ (none yet). */
-const emptySubmenu = (label: string) => (): MenuEntry => ({ id: `submenu:${label.toLowerCase()}`, label, items: [], disabled: true });
+/** Plugins ▸ / Widgets ▸ in the canvas menu: open, their items disabled (plugins aren't part of this app). */
+const PLUGINS: SubSpec = { label: "Plugins", items: ["plugins.run-last", "-", { label: "Saved plugins", items: ["plugins.none"] }, "-", "plugins.manage"] };
+const WIDGETS: SubSpec = { label: "Widgets", items: ["widgets.manage", "widgets.select-all"] };
 
 /**
  * The canvas's menu, item for item as live Figma's (docs/research/figma/live/menus/context-*.txt): over a selection
@@ -375,10 +448,10 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
   if (!ed.selection.length) {
     return [
       ...build(ed, ["edit.paste-here", "-"], "canvas."),
-      commandItem(ed, "view.toggle-ui"),
-      commandItem(ed, "view.comments", "Show/Hide comments"),
+      withoutCheck(commandItem(ed, "view.toggle-ui")),
+      withoutCheck(commandItem(ed, "view.comments", "Show/Hide comments")),
       "-",
-      ...build(ed, ["canvas.cursor-chat", "tool.actions", emptySubmenu("Plugins"), emptySubmenu("Widgets")], "canvas."),
+      ...build(ed, ["canvas.cursor-chat", "tool.actions", PLUGINS, WIDGETS], "canvas."),
     ];
   }
   const nodes = selectionNodes(ed);
@@ -400,14 +473,14 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     "-",
     ...(layers.length > 1 ? [() => selectLayerSubmenu(ed, layers)] : []),
     moveToPage,
-    (e) => commandItem(e, "object.bring-to-front"),
-    (e) => commandItem(e, "object.send-to-back"),
+    "object.bring-to-front",
+    "object.send-to-back",
     "-",
     ...(topFrame ? ["object.convert-to-section"] : []),
     "object.group",
     "object.frame-selection",
     ...(multi && isEnabled(ed, command("object.wrap-in-section")) ? ["object.wrap-in-section"] : []),
-    ...(isEnabled(ed, command("object.ungroup")) ? [(e: EditorController) => commandItem(e, "object.ungroup", "Ungroup")] : []),
+    ...(isEnabled(ed, command("object.ungroup")) ? [{ id: "object.ungroup", label: "Ungroup" }] : []),
     "vector.flatten",
     "vector.outline-stroke",
     ...(topFrame ? ["object.set-as-thumbnail"] : []),
@@ -416,11 +489,11 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     autoLayout ? "object.remove-auto-layout" : "object.add-auto-layout",
     ...((topFrame || multi || (single && isFrameLike(single))) && !instance ? ["object.more-layout-options"] : []),
     ...componentEntries(ed),
-    emptySubmenu("Plugins"),
-    emptySubmenu("Widgets"),
+    PLUGINS,
+    WIDGETS,
     "-",
-    (e) => commandItem(e, "object.toggle-visible", "Show/Hide"),
-    (e) => commandItem(e, "object.toggle-lock", "Lock/Unlock"),
+    { id: "object.toggle-visible", label: "Show/Hide" },
+    { id: "object.toggle-lock", label: "Lock/Unlock" },
     "-",
     "object.flip-horizontal",
     "object.flip-vertical",
@@ -444,4 +517,96 @@ function selectLayerSubmenu(ed: EditorController, layers: { id: Guid; name: stri
       ...(l.locked ? { trailingIcon: "16.lock.locked" as IconName } : {}),
     })),
   };
+}
+
+/**
+ * A page row's menu (live context-page-row.txt; behaviour/pages.md): Copy link to page │ Rename page, Duplicate page │
+ * Move up / Move down (each where it applies; Move down unverified — the capture's page was the last) │ Delete page.
+ * Copy link waits for deep links (docs/desktop-impl.md), as the file tabs' Copy link does.
+ */
+export function pageMenu(ed: EditorController, page: Guid): MenuEntry[] {
+  const pages = ed.store.pages;
+  const at = pages.findIndex((p) => p.guid === page);
+  const can = (name: "DELETE_PAGE" | "DUPLICATE_PAGE") => (ed.engine.commandState(name) & CMD_ENABLED) !== 0;
+  const moves: MenuEntry[] = [
+    ...(at > 0 ? [{ id: "page:move-up", label: "Move up" }] : []),
+    ...(at >= 0 && at < pages.length - 1 ? [{ id: "page:move-down", label: "Move down" }] : []),
+  ];
+  return [
+    { id: "page:copy-link", label: "Copy link to page", disabled: true },
+    "-",
+    { id: "page:rename", label: "Rename page" },
+    { id: "page:duplicate", label: "Duplicate page", disabled: !can("DUPLICATE_PAGE") },
+    "-",
+    ...moves,
+    "-",
+    { id: "page:delete", label: "Delete page", disabled: pages.length < 2 || !can("DELETE_PAGE") },
+  ];
+}
+
+/** Runs a page menu pick; true when it ran. */
+export function runPageMenuItem(ed: EditorController, page: Guid, id: string): boolean {
+  const pages = ed.store.pages;
+  const at = pages.findIndex((p) => p.guid === page);
+  // moveNodes counts the other pages: index `to` in the list without this page.
+  const move = (to: number) => to !== at && to >= 0 && to < pages.length && ed.engine.moveNodes([page], "0:0", to) > 0;
+  switch (id) {
+    case "page:rename":
+      ed.ui.set({ renaming: { kind: "page", id: page } });
+      return true;
+    case "page:duplicate":
+      return ed.engine.command("DUPLICATE_PAGE", { page }) === Status.OK;
+    case "page:delete":
+      return ed.engine.command("DELETE_PAGE", { page }) === Status.OK;
+    case "page:move-up":
+      return move(at - 1);
+    case "page:move-down":
+      return move(at + 1);
+  }
+  return false;
+}
+
+/** A command as the Actions palette lists it: its label, the menu it lives in, its keys. */
+export interface ActionItem {
+  id: string;
+  label: string;
+  /** The Figma menu's submenu it is in ("Edit", "View"…), "Tools" for the toolbar's tools */
+  section: string;
+  shortcut?: string;
+  disabled: boolean;
+}
+
+/** The toolbar's tools, as the palette lists them (the bottom toolbar's order). */
+const TOOL_ACTIONS = ["tool.move", "tool.hand", "tool.scale", "tool.frame", "tool.section", "tool.slice", "tool.rectangle", "tool.line", "tool.arrow", "tool.ellipse", "tool.polygon", "tool.star", "tool.image", "tool.pen", "tool.pencil", "tool.text", "tool.comment", "tool.annotation", "tool.measurement"];
+
+/**
+ * The Actions palette's commands (⌘K; panels/ActionsPanel.tsx): every command of the Figma menu (live main-*.txt) in
+ * its order, under its submenu's name, then the tools — each once, the palette itself left out.
+ */
+export function actionItems(ed: EditorController): ActionItem[] {
+  const out: ActionItem[] = [];
+  const seen = new Set<string>(["tool.actions"]);
+  const add = (id: string, section: string, label?: string) => {
+    if (seen.has(id) || !COMMAND_BY_ID.has(id)) return;
+    seen.add(id);
+    const item = commandItem(ed, id, label);
+    out.push({ id, label: item.label, section, shortcut: item.shortcut, disabled: !!item.disabled });
+  };
+  const walk = (specs: Spec[], section: string) => {
+    for (const s of specs) {
+      if (s === "-" || typeof s === "function") continue;
+      if (typeof s === "string") add(s, section);
+      else if ("id" in s) add(s.id, section, s.label);
+      else walk(s.items, section);
+    }
+  };
+  for (const s of MAIN_MENU) {
+    if (s === "-" || typeof s === "function") continue;
+    if (typeof s === "string") add(s, "File");
+    else if ("id" in s) add(s.id, "File", s.label);
+    else walk(s.items, s.label);
+  }
+  add("view.dev-mode", "View", "Switch to Dev Mode");
+  for (const id of TOOL_ACTIONS) add(id, "Tools");
+  return out;
 }

@@ -282,6 +282,21 @@ export const VIEW_SNAP_PIXELS = 16;
 export const VIEW_SLICES = 32;
 export const VIEW_PIXEL_PREVIEW = 64;
 export const VIEW_PIXEL_PREVIEW_2X = 128;
+/**
+ * Round 9, the Figma menu › Preferences: Snap to geometry (vector edit: a dragged point snaps to the other points),
+ * Snap to objects (to the other layers' edges and centres), Keep tool selected after use, Show dimensions on objects
+ * (the W × H badge), Flip objects while resizing, Keyboard zooms into selection (⌘+ / ⌘− about the selection),
+ * Invert zoom direction, Use scroll wheel zoom, Right-click and drag to pan.
+ */
+export const VIEW_SNAP_GEOMETRY = 256;
+export const VIEW_SNAP_OBJECTS = 512;
+export const VIEW_KEEP_TOOL = 1024;
+export const VIEW_SHOW_DIMENSIONS = 2048;
+export const VIEW_FLIP_RESIZE = 4096;
+export const VIEW_KEYBOARD_ZOOM_SELECTION = 8192;
+export const VIEW_INVERT_ZOOM = 16384;
+export const VIEW_SCROLL_WHEEL_ZOOM = 32768;
+export const VIEW_RIGHT_DRAG_PAN = 65536;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
 /** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */

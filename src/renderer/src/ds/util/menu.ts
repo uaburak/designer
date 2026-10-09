@@ -15,6 +15,12 @@ export type MenuItem = {
   trailingIcon?: IconName;
   /** The check column appears when any item defines it */
   checked?: boolean;
+  /** The glyph before this item's own label, not in a column (live main menu: "Actions…" at 40, the others at 16) */
+  inlineIcon?: boolean;
+  /** One of a set (live: the toolbar's tool menus are `menuitemradio`); drawn as a checked item */
+  radio?: boolean;
+  /** A submenu's least width (live Figma's measured width where its rows alone don't make it) */
+  minWidth?: number;
   disabled?: boolean;
   /** No special colour (Figma doesn't colour delete); kept for the native menu */
   danger?: boolean;
@@ -24,6 +30,21 @@ export type MenuHeader = { header: string };
 export type MenuEntry = MenuItem | "-" | MenuHeader;
 
 export const isItem = (e: MenuEntry): e is MenuItem => e !== "-" && !("header" in e);
+
+/**
+ * A shortcut as live Figma's context menus draw it: one glyph per key (the modifiers ⌃ ⌥ ⇧ ⌘ each on its own, then
+ * the key — "⇧⌘R" → ⇧, ⌘, R; "⌘⌫" → ⌘, ⌫; "Ctrl+Shift+R" stays whole).
+ */
+export function shortcutKeys(shortcut: string): string[] {
+  const out: string[] = [];
+  let rest = shortcut;
+  while (rest.length > 1 && "⌃⌥⇧⌘".includes(rest[0])) {
+    out.push(rest[0]);
+    rest = rest.slice(1);
+  }
+  if (rest) out.push(rest);
+  return out;
+}
 
 /** The entries as drawn: no line first, last or twice in a row (a header counts as a group start). */
 export function tidy(entries: MenuEntry[]): MenuEntry[] {

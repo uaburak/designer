@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cx } from "../util/cx";
-import { inTriangle, isItem, nextItem, tidy, toNativeTemplate, type MenuEntry, type NativeMenuItem } from "../util/menu";
+import { inTriangle, isItem, nextItem, shortcutKeys, tidy, toNativeTemplate, type MenuEntry, type NativeMenuItem } from "../util/menu";
 import { createTypeahead, typeahead } from "../util/typeahead";
 import { placeMenu } from "../overlay/position";
 import { Portal } from "../overlay/Portal";
@@ -48,23 +48,36 @@ interface PanelProps {
    * the list at the field's left (or right) edge, at least as wide as the field + 8
    */
   over?: MenuOver;
+  /**
+   * A tool menu over the bottom toolbar (live: Move tools, Shape tools…): no padding above or below its rows, the
+   * current tool lit when it opens
+   */
+  dropdown?: boolean;
+  /** The least width (live Figma's measured width where the rows alone don't make it) */
+  minWidth?: number;
+  /** A submenu (beside its item): live Figma's margins to the window (6 above, 5 below), scrolling when taller */
+  submenu?: boolean;
   /** The caller's look for this menu (its width, its headers, its icon column): a class on the panel */
   className?: string;
 }
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, className }: PanelProps) {
+const SUBMENU_EDGES = { top: 6, bottom: 5 };
+
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, className }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const subId = useId();
   const list = tidy(entries);
-  const [active, setActive] = useState(highlighted ?? -1);
+  const [active, setActive] = useState(highlighted ?? (dropdown ? list.findIndex((e) => isItem(e) && e.checked && !e.disabled) : -1));
   const [sub, setSub] = useState<{ index: number; x: number; y: number; flipX: number; focus: boolean } | null>(null);
   const typed = useRef(createTypeahead());
   const intent = useRef<number | undefined>(undefined);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   const hasChecks = list.some((e) => isItem(e) && e.checked !== undefined);
-  const hasIcons = list.some((e) => isItem(e) && e.icon);
+  // A glyph column when an item has a glyph; an `inlineIcon` glyph sits before its own label instead (live main menu:
+  // "Actions…" at 40, the other rows at 16).
+  const hasIcons = list.some((e) => isItem(e) && e.icon && !e.inlineIcon);
 
   useLayoutEffect(() => {
     const el = panel.current;
@@ -87,13 +100,14 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       // Live Figma: a dropdown longer than the room below its trigger stays under it (and scrolls).
       const keep = keepTop && !above && height > room && room >= 160;
       if (keep) el.style.maxHeight = `${room}px`;
-      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX);
+      // A submenu keeps live Figma's margins: 6 above, 5 below (menus/main-object, main-preferences).
+      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX, submenu ? SUBMENU_EDGES : undefined);
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, above, autoFocus, isStatic, keepTop, over]);
+  }, [x, y, flipX, above, autoFocus, isStatic, keepTop, over, submenu]);
 
   useEffect(() => () => window.clearTimeout(intent.current), []);
   useEffect(() => {
@@ -104,9 +118,11 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
 
   const openSub = (index: number, focus: boolean) => {
     const item = panel.current?.querySelector<HTMLElement>(`[data-menu-index="${index}"]`);
-    if (!item) return;
+    if (!item || !panel.current) return;
+    // Live (menus/main-*.txt): 4 past the menu's own edge, its first row level with the item.
     const r = item.getBoundingClientRect();
-    setSub({ index, x: r.right + 4, y: r.top - 8, flipX: r.left - 4, focus });
+    const p = panel.current.getBoundingClientRect();
+    setSub({ index, x: p.right + 4, y: r.top - 8, flipX: p.left - 4, focus });
   };
   const pick = (index: number) => {
     const entry = list[index];
@@ -150,14 +166,15 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       <div
         ref={panel}
         role="menu"
-        aria-label={label}
+        aria-label={dropdown ? undefined : label}
+        aria-labelledby={dropdown && label ? `${subId}-label` : undefined}
         tabIndex={-1}
         data-ds="Menu"
         data-theme="dark"
         data-theme-forced=""
         data-static={isStatic || undefined}
-        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList, className)}
-        style={isStatic ? undefined : { left: x, top: y, visibility: "hidden" }}
+        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList, dropdown && styles.dropdown, hasIcons && styles.withIcons, submenu && styles.sub, className)}
+        style={isStatic ? (minWidth ? { minWidth } : undefined) : { left: x, top: y, visibility: "hidden", ...(minWidth ? { minWidth } : {}) }}
         onPointerMove={(e) => {
           pointer.current = { x: e.clientX, y: e.clientY };
         }}
@@ -183,6 +200,12 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
           e.preventDefault();
         }}
       >
+        {/* Live (toolbar/*-tools-menu.txt): a tool menu is named by a hidden "Move tools" / "Shape tools"… */}
+        {dropdown && label && (
+          <span id={`${subId}-label`} className={styles.hiddenLabel}>
+            {label}
+          </span>
+        )}
         {list.map((entry, i) => {
           if (entry === "-") return <div key={`line-${i}`} role="separator" className={styles.separator} />;
           if (!isItem(entry)) return <div key={`header-${i}`} role="presentation" className={styles.header}>{entry.header}</div>;
@@ -190,7 +213,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
           return (
             <div
               key={entry.id}
-              role={entry.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+              role={entry.checked === undefined ? "menuitem" : entry.radio ? "menuitemradio" : "menuitemcheckbox"}
               data-menu-index={i}
               data-highlighted={lit || undefined}
               aria-haspopup={entry.items ? "menu" : undefined}
@@ -202,11 +225,22 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               onClick={() => pick(i)}
             >
               {hasChecks && <span className={styles.check}>{entry.checked && <Icon name="16.check" />}</span>}
-              {hasIcons && <span className={styles.icon}>{entry.icon && <MenuIcon name={entry.icon} />}</span>}
+              {hasIcons && <span className={styles.icon}>{entry.icon && !entry.inlineIcon && <MenuIcon name={entry.icon} />}</span>}
+              {entry.inlineIcon && entry.icon && <span className={cx(styles.icon, styles.inlineIcon)}><MenuIcon name={entry.icon} /></span>}
               <span className={styles.label}>{entry.label}</span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}
-              {entry.shortcut && <span className={styles.shortcut}>{entry.shortcut}</span>}
+              {entry.shortcut &&
+                (context ? (
+                  // Live context menus: one 12px glyph per key, the chord 8 after the label.
+                  <span className={cx(styles.shortcut, styles.keys)}>
+                    {shortcutKeys(entry.shortcut).map((k, j) => (
+                      <span key={j}>{k}</span>
+                    ))}
+                  </span>
+                ) : (
+                  <span className={styles.shortcut}>{entry.shortcut}</span>
+                ))}
               {entry.items && <Icon name="16.chevron.right" className={styles.chevron} />}
             </div>
           );
@@ -220,8 +254,10 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
             x={sub.x}
             y={sub.y}
             flipX={sub.flipX}
+            submenu
             autoFocus={sub.focus}
             context={context}
+            minWidth={subEntry.minWidth}
             onPick={onPick}
             onClose={onClose}
             onBack={() => {
@@ -284,6 +320,10 @@ export interface ContextMenuProps {
   keepTop?: boolean;
   /** A dropdown over its field (see MenuPanel) */
   over?: MenuOver;
+  /** A tool menu over the bottom toolbar (see MenuPanel) */
+  dropdown?: boolean;
+  /** The least width (see MenuPanel) */
+  minWidth?: number;
   /** Its right edge here when it doesn't fit right of `at.x` (a dropdown right-aligned with its trigger) */
   flipX?: number;
   /** The caller's look for this menu (see MenuPanel) */
@@ -291,7 +331,7 @@ export interface ContextMenuProps {
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, flipX, className }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, flipX, className }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -325,6 +365,8 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       context={context}
       keepTop={keepTop}
       over={over}
+      dropdown={dropdown}
+      minWidth={minWidth}
       onPick={(id) => {
         onSelect(id);
         onClose();

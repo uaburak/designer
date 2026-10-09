@@ -251,12 +251,23 @@ class Editor : private LayoutHost, public TextLayouts {
   // Round 8: VIEW_RULERS (⇧R: ruler guides shown, dragged and snapped to), VIEW_SNAP_PIXELS (Preferences › Snap to pixel
   // grid, ⇧⌘′: gestures land on whole px), VIEW_SLICES (View › Show slices), VIEW_PIXEL_PREVIEW / _2X (⌃P: the page drawn
   // at 1x / 2x and scaled up without smoothing).
+  // Round 9, the Figma menu › Preferences (live Figma's defaults in kViewOptionsDefault): VIEW_SNAP_GEOMETRY (vector edit:
+  // a dragged point snaps to the other points), VIEW_SNAP_OBJECTS (moves, resizes and draws snap to the other layers'
+  // edges and centres and the parent frame's), VIEW_KEEP_TOOL (Keep tool selected after use: a shape tool stays after a
+  // draw), VIEW_SHOW_DIMENSIONS (the W × H badge under the selection), VIEW_FLIP_RESIZE (an edge dragged past the
+  // opposite one mirrors the layer; off: the box grows the other way, unmirrored), VIEW_KEYBOARD_ZOOM_SELECTION (Zoom
+  // in / out about the selection), VIEW_INVERT_ZOOM (⌘ + wheel / pinch the other way), VIEW_SCROLL_WHEEL_ZOOM (a plain
+  // wheel zooms; ⌘ / Ctrl + wheel pans), VIEW_RIGHT_DRAG_PAN (a right drag pans; the context menu opens on a right click's
+  // release).
   enum ViewOption : uint32_t {
     VIEW_PIXEL_GRID = 1, VIEW_OUTLINES = 2, VIEW_LAYOUT_GUIDES = 4, VIEW_RULERS = 8, VIEW_SNAP_PIXELS = 16, VIEW_SLICES = 32,
-    VIEW_PIXEL_PREVIEW = 64, VIEW_PIXEL_PREVIEW_2X = 128
+    VIEW_PIXEL_PREVIEW = 64, VIEW_PIXEL_PREVIEW_2X = 128, VIEW_SNAP_GEOMETRY = 256, VIEW_SNAP_OBJECTS = 512,
+    VIEW_KEEP_TOOL = 1024, VIEW_SHOW_DIMENSIONS = 2048, VIEW_FLIP_RESIZE = 4096, VIEW_KEYBOARD_ZOOM_SELECTION = 8192,
+    VIEW_INVERT_ZOOM = 16384, VIEW_SCROLL_WHEEL_ZOOM = 32768, VIEW_RIGHT_DRAG_PAN = 65536
   };
-  static constexpr uint32_t kViewOptionsAll = 255;
-  static constexpr uint32_t kViewOptionsDefault = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES | VIEW_SNAP_PIXELS | VIEW_SLICES;
+  static constexpr uint32_t kViewOptionsAll = 131071;
+  static constexpr uint32_t kViewOptionsDefault = VIEW_PIXEL_GRID | VIEW_LAYOUT_GUIDES | VIEW_SNAP_PIXELS | VIEW_SLICES | VIEW_SNAP_GEOMETRY |
+                                                  VIEW_SNAP_OBJECTS | VIEW_SHOW_DIMENSIONS | VIEW_FLIP_RESIZE | VIEW_RIGHT_DRAG_PAN;
   void setViewOptions(uint32_t options);
   uint32_t viewOptions() const { return viewOptions_; }
   // Preferences › Nudge amount… (Small nudge, Big nudge: the arrows and ⇧ arrows), CSS-free page units.
@@ -1453,6 +1464,8 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t nextLocalID_ = 1;
   std::vector<Guid> selection_;
   Camera camera_;
+  // A right press with Right-click and drag to pan on (round 9): panning once it moved, the context menu on release if not.
+  bool rightPress_ = false, rightPanned_ = false;
   bool zooming_ = false;  // the camera's zoom last changed by the wheel or a pinch (Overlay::zooming)
   Viewport viewport_{800, 600, 1, 0, 0};
   Theme theme_ = Theme::Dark;

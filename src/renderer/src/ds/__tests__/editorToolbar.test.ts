@@ -25,6 +25,7 @@ describe("toolbar model", () => {
     const k = (key: string, mods: { shiftKey?: boolean; metaKey?: boolean } = {}) => toolForKey({ key, shiftKey: false, ...mods });
     expect([k("v"), k("H"), k("k"), k("f"), k("s"), k("r"), k("l"), k("o"), k("p"), k("t"), k("c")]).toEqual(["move", "hand", "scale", "frame", "slice", "rectangle", "line", "ellipse", "pen", "text", "comment"]);
     expect([k("S", { shiftKey: true }), k("L", { shiftKey: true }), k("P", { shiftKey: true }), k("k", { shiftKey: true, metaKey: true })]).toEqual(["section", "arrow", "pencil", "image"]);
+    expect(k("y")).toBe("annotation"); // live: Comment tools › Annotation Y
     expect(k("x")).toBeNull();
     expect(k("v", { metaKey: true })).toBeNull();
   });
@@ -51,7 +52,7 @@ describe("EditorToolbar", () => {
     click($('[aria-label="Star"]', m!.host));
     expect(onTool.calls.at(-1)).toEqual(["star"]);
     click($('[aria-label="Creation tools"]', m!.host));
-    const items = $$('#ds-overlays [role="menuitemcheckbox"]');
+    const items = $$('#ds-overlays [role="menuitemradio"]');
     expect(items.map((i) => i.textContent)).toEqual(["PenP", `Pencil${TOOLS.pencil.shortcut}`]);
     click(items[1]);
     expect(onTool.calls.at(-1)).toEqual(["pencil"]);
@@ -71,7 +72,7 @@ describe("EditorToolbar", () => {
     const creation = $('[aria-label="Creation tools"]', m!.host) as HTMLButtonElement;
     expect(creation.disabled).toBe(false);
     click(creation);
-    const items = $$('#ds-overlays [role="menuitemcheckbox"]');
+    const items = $$('#ds-overlays [role="menuitemradio"]');
     expect(items[0].getAttribute("aria-disabled")).toBe("true");
     click(items[0]);
     expect(onTool.calls).toHaveLength(0);

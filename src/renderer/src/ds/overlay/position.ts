@@ -36,9 +36,9 @@ export function place(anchor: Rect, box: Size, view: Size, side: Placement = "bo
  * from it; when it would reach past the view, to the left of `flipX` (the
  * item's left edge) and up (§4.8).
  */
-export function placeMenu(x: number, y: number, box: Size, view: Size, flipX?: number): { x: number; y: number } {
+export function placeMenu(x: number, y: number, box: Size, view: Size, flipX?: number, edges: { top: number; bottom: number } = { top: EDGE, bottom: EDGE }): { x: number; y: number } {
   const left = x + box.width > view.width - EDGE ? Math.max(EDGE, (flipX ?? view.width - EDGE) - box.width) : x;
-  const top = y + box.height > view.height - EDGE ? Math.max(EDGE, view.height - EDGE - box.height) : y;
+  const top = y + box.height > view.height - edges.bottom ? Math.max(edges.top, view.height - edges.bottom - box.height) : y;
   return { x: left, y: top };
 }
 

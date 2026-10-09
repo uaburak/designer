@@ -16,12 +16,13 @@ import { present, togglePreview } from "./present";
 import { setDevStatus, statusOfTargets, statusTargets } from "./devStatus";
 import { annotationsShown, modeOf, setMode, toggleAnnotations } from "./devmode/devMode";
 import { textSummary, toggledBold, toggledItalic } from "./model/text";
-import { fields } from "./panels/design/shared";
+import { fields, type ExtraFields } from "./panels/design/shared";
 import type { Guid } from "@/engine/codec";
 import { COMPONENT_COMMAND, canPushChanges, goToMainComponent, instanceChanges, mainOf, pageOf, resetChanges, returnToInstance, selectedInstance } from "./components";
 import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
 import { adjustText, syncViewOptions, type TextAdjust } from "./canvasTools";
+import { PREFERENCES, pref, togglePreference } from "./preferences";
 
 export interface KeyCombo {
   /** KeyboardEvent.code */
@@ -67,14 +68,15 @@ const KEY_LABEL: Record<string, string> = {
   ArrowDown: "down",
   ArrowLeft: "left",
   ArrowRight: "right",
-  PageUp: "PgUp",
-  PageDown: "PgDn",
+  PageUp: "pageup", // live: Previous page 🌐↑ on a Mac
+  PageDown: "pagedown",
 };
 
 /** A combo as Figma writes it ("⇧⌘H", "⌥⌘G", "⌃⇧?"). */
 export function comboText(c: KeyCombo): string {
   let key = KEY_LABEL[c.code] ?? c.code.replace(/^Key|^Digit/, "");
-  if (c.code === "Slash" && c.shift) key = "?";
+  // Live: "⌃⇧?" (Keyboard shortcuts) but "⇧/" (Remove stroke).
+  if (c.code === "Slash" && c.shift && c.ctrl) key = "?";
   const parts = [...(c.ctrl ? ["ctrl"] : []), ...(c.alt ? ["alt"] : []), ...(c.shift ? ["shift"] : []), ...(c.mod ? ["mod"] : []), key];
   return keyText(parts);
 }
@@ -156,6 +158,9 @@ const placeImage = (id: string, label: string, keys?: KeyCombo[]): EditorCommand
 /** Not built yet: shown, disabled (Figma's menus list them). */
 const later = (id: string, label: string, keys?: KeyCombo[]): EditorCommand => ({ id, label, keys, run: () => {}, enabled: () => false });
 
+/** One of Figma's own web pages (Help and account ▸), in the browser (the desktop app opens it outside). */
+const link = (id: string, label: string, url: string): EditorCommand => ({ id, label, run: () => void window.open(url, "_blank", "noopener") });
+
 /** The text layers a Text command acts on: the edited one, else the selected texts. */
 export function textRefs(ed: EditorController): Guid[] {
   const editing = ed.engine.textEdit?.ref;
@@ -172,6 +177,18 @@ const textCommand = (id: string, label: string, keys: KeyCombo[], run: (ed: Edit
     if (refs.length) run(ed, refs);
   },
   enabled: (ed) => textRefs(ed).length > 0,
+});
+
+/** Text › Case ▸: the selected text layers' letter case (checked when they all have it). */
+const textCase = (id: string, label: string, value: NonNullable<ExtraFields["textCase"]>): EditorCommand => ({
+  ...textCommand(id, label, [], (ed, refs) => ed.setProps(refs, fields({ textCase: value }), "Text case")),
+  keys: undefined,
+  checked: (ed) => {
+    const refs = textRefs(ed);
+    if (!refs.length) return false;
+    const s = textSummary(ed.engine, refs);
+    return !!s && !s.mixed.has("textCase") && (s.values.textCase ?? "ORIGINAL") === value;
+  },
 });
 
 function toggleDecoration(ed: EditorController, refs: Guid[], d: "UNDERLINE" | "STRIKETHROUGH") {
@@ -212,12 +229,11 @@ const selectAllWith = (id: string, label: string, mode: string): EditorCommand =
 const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
 
 /**
- * View › Pixel grid / Outlines / Layout guides / Rulers / Show slices / Pixel preview, Preferences › Snap to pixel grid:
- * the UI's state and the engine's (engine_set_view_options; canvasTools.ts sends every change).
+ * View › Pixel grid / Outlines / Layout guides / Rulers / Show slices / Pixel preview: the UI's state and the engine's (engine_set_view_options; canvasTools.ts sends every change).
  */
 export function setViewOption(
   ed: EditorController,
-  patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean; rulers?: boolean; snapToPixelGrid?: boolean; showSlices?: boolean; pixelPreview?: 0 | 1 | 2 }
+  patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean; rulers?: boolean; showSlices?: boolean; pixelPreview?: 0 | 1 | 2 }
 ): void {
   ed.ui.set(patch);
   syncViewOptions(ed);
@@ -270,7 +286,8 @@ export const COMMANDS: EditorCommand[] = [
   // ⇧D: Design ⇄ Dev Mode (help.figma.com 15023124644247).
   ui("view.dev-mode", "Dev Mode", [k("KeyD", { shift: true })], (ed) => setMode(ed, modeOf(ed) === "dev" ? "design" : "dev"), (ed) => modeOf(ed) === "dev"),
   tool("tool.hand", "Hand tool", "HAND", [k("KeyH")]),
-  later("tool.actions", "Actions…", [k("KeyK", { mod: true })]),
+  // ⌘K: the Actions palette (live toolbar/actions-panel.txt; panels/ActionsPanel.tsx).
+  ui("tool.actions", "Actions…", [k("KeyK", { mod: true })], (ed) => ed.ui.set((s) => ({ actionsOpen: !s.actionsOpen, uiHidden: false })), (ed) => !!ed.ui.get().actionsOpen),
 
   // ---- Edit ----
   {
@@ -347,21 +364,22 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.toggle-ui", "Show/Hide UI", [k("Backslash", { mod: true })], (ed) => ed.ui.set((s) => ({ uiHidden: !s.uiHidden })), (ed) => !ed.ui.get().uiHidden),
   // ⇧⌘\ (the live View menu; help "Navigate the left sidebar": collapses the navigation bar and both sidebars).
   ui("view.minimize-ui", "Minimize UI", [k("Backslash", { mod: true, shift: true })], (ed) => ed.ui.set((s) => ({ uiMinimized: !s.uiMinimized, uiHidden: false })), (ed) => ed.ui.get().uiMinimized),
-  // View › Additional labels: the navigation bar's tab names (on by default).
-  ui("view.additional-labels", "Additional labels", undefined, (ed) => ed.ui.set((s) => ({ railLabels: s.railLabels === false })), (ed) => ed.ui.get().railLabels !== false),
+  // View › Additional labels (on by default): the navigation bar's tab names and the Design panel's property labels.
+  ui(
+    "view.additional-labels",
+    "Additional labels",
+    undefined,
+    (ed) => ed.ui.set((s) => ({ railLabels: !s.propertyLabels, propertyLabels: !s.propertyLabels })),
+    (ed) => ed.ui.get().propertyLabels
+  ),
   later("view.minimize-left-nav", "Minimize left navigation bar"),
   // Object › Collapse layers (⌥L): every expanded layer closes but the selection's branch.
   ui("view.collapse-layers", "Collapse layers", [k("KeyL", { alt: true })], (ed) => ed.ui.set((s) => ({ expanded: collapsedLayers(ed.getTree(), ed.selection, s.expanded) }))),
-  // Preferences › Highlight layers on hover (on by default).
-  ui("prefs.highlight-on-hover", "Highlight layers on hover", undefined, (ed) => ed.ui.set((s) => ({ highlightOnHover: s.highlightOnHover === false })), (ed) => ed.ui.get().highlightOnHover !== false),
   ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => setViewOption(ed, { rulers: !ed.ui.get().rulers }), (ed) => ed.ui.get().rulers),
-  ui("view.property-labels", "Additional labels", undefined, (ed) => ed.ui.set((s) => ({ propertyLabels: !s.propertyLabels })), (ed) => ed.ui.get().propertyLabels),
   // View › Annotations (help.figma.com 20774752502935; ⇧Y per a user report, unverified).
   ui("view.annotations", "Annotations", [k("KeyY", { shift: true })], (ed) => toggleAnnotations(ed), (ed) => annotationsShown(ed)),
   // The live View menu: Pixel grid ⇧' (drawn from 300 % zoom), Layout guides ⇧G, Outlines ▸ (⇧⌘O), Pixel preview ⇧⌘P.
   ui("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })], (ed) => setViewOption(ed, { pixelGrid: !pixelGridOn(ed) }), (ed) => pixelGridOn(ed)),
-  // Preferences › Snap to pixel grid (live: ⇧⌘′, on by default): gestures land on whole px.
-  ui("view.snap-pixel-grid", "Snap to pixel grid", [k("Quote", { mod: true, shift: true })], (ed) => setViewOption(ed, { snapToPixelGrid: ed.ui.get().snapToPixelGrid === false }), (ed) => ed.ui.get().snapToPixelGrid !== false),
   ui("view.layout-guides", "Layout guides", [k("KeyG", { shift: true })], (ed) => setViewOption(ed, { layoutGuides: ed.ui.get().layoutGuides === false }), (ed) => ed.ui.get().layoutGuides !== false),
   ui("view.show-slices", "Show slices", undefined, (ed) => setViewOption(ed, { showSlices: ed.ui.get().showSlices === false }), (ed) => ed.ui.get().showSlices !== false),
   later("view.comments", "Comments", [k("KeyC", { shift: true })]),
@@ -375,7 +393,7 @@ export const COMMANDS: EditorCommand[] = [
   later("view.switch-to-draw", "Switch to Draw"),
   engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
   engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
-  engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { shift: true }), k("Digit0", { mod: true })]),
+  engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { mod: true }), k("Digit0", { shift: true })]),
   engine("view.zoom-fit", "Zoom to fit", "ZOOM_TO_FIT", [k("Digit1", { shift: true })]),
   engine("view.zoom-selection", "Zoom to selection", "ZOOM_TO_SELECTION", [k("Digit2", { shift: true })]),
   ui("view.zoom-50", "Zoom to 50%", undefined, (ed) => zoomTo(ed, 0.5)),
@@ -529,6 +547,13 @@ export const COMMANDS: EditorCommand[] = [
   pending("vector.subtract", "Subtract selection", "BOOLEAN_SUBTRACT", [k("KeyS", { alt: true, shift: true })]),
   pending("vector.intersect", "Intersect selection", "BOOLEAN_INTERSECT", [k("KeyI", { alt: true, shift: true })]),
   pending("vector.exclude", "Exclude selection", "BOOLEAN_EXCLUDE", [k("KeyE", { alt: true, shift: true })]),
+  // The Figma menu › Vector (live main-vector.txt): vector edit mode's point commands.
+  later("vector.join", "Join selection", [k("KeyJ", { mod: true })]),
+  later("vector.smooth-join", "Smooth join selection", [k("KeyJ", { mod: true, shift: true })]),
+  engine("vector.delete-heal", "Delete and heal selection", "VECTOR_DELETE_AND_HEAL", [k("Backspace", { shift: true })]),
+  later("vector.split", "Split vector"),
+  later("vector.simplify", "Simplify vector"),
+  later("vector.offset", "Offset vector"),
 
   // ---- Text (E3; the text round: links and lists) ----
   // While a text is edited the engine takes ⌘B ⌘I ⌘U ⇧⌘X ⇧⌘7 ⇧⌘8 itself (on the selected characters); these run
@@ -562,6 +587,18 @@ export const COMMANDS: EditorCommand[] = [
   adjust("text.line-height-down", "Decrease line height", [k("Comma", { alt: true, shift: true })], "lineHeight", -1),
   adjust("text.letter-spacing-up", "Increase letter spacing", [k("Period", { alt: true })], "letterSpacing", 1),
   adjust("text.letter-spacing-down", "Decrease letter spacing", [k("Comma", { alt: true })], "letterSpacing", -1),
+  // Text › Case ▸ (live: listed, its items not captured — Type settings' Case options; unverified).
+  textCase("text.case-original", "As typed", "ORIGINAL"),
+  textCase("text.case-upper", "Uppercase", "UPPER"),
+  textCase("text.case-lower", "Lowercase", "LOWER"),
+  textCase("text.case-title", "Title case", "TITLE"),
+  textCase("text.case-small-caps", "Small caps", "SMALL_CAPS"),
+  textCase("text.case-forced-small-caps", "Forced small caps", "SMALL_CAPS_FORCED"),
+  // Text › Text direction ▸ and Spell check ▸ (live: listed, items not captured; unverified): not built.
+  later("text.direction-auto", "Auto"),
+  later("text.direction-ltr", "Left to right"),
+  later("text.direction-rtl", "Right to left"),
+  later("text.spell-check", "Spell check"),
   textCommand("text.align-center", "Text align center", [k("KeyT", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "CENTER" }), "Text alignment")),
   textCommand("text.align-right", "Text align right", [k("KeyR", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "RIGHT" }), "Text alignment")),
 
@@ -586,9 +623,30 @@ export const COMMANDS: EditorCommand[] = [
   // The Figma menu's Plugins, Widgets and Preferences items not built (shown as Figma lists them, disabled).
   later("plugins.run-last", "Run last plugin", [k("KeyP", { mod: true, alt: true })]),
   later("plugins.manage", "Manage plugins…"),
+  later("plugins.none", "No saved plugins"),
   later("widgets.manage", "Manage widgets…"),
+  later("widgets.select-all", "Select all widgets"),
+  // Preferences' checks (preferences.ts: live Figma's order, defaults and wording; kept per machine). ⇧⌘′ Snap to
+  // pixel grid; the view flags reach the engine at once.
+  ...PREFERENCES.map(
+    (p): EditorCommand => ({
+      id: p.id,
+      label: p.label,
+      keys: p.key === "snapToPixelGrid" ? [k("Quote", { mod: true, shift: true })] : undefined,
+      run: (ed) => {
+        togglePreference(ed, p.key);
+        syncViewOptions(ed);
+      },
+      checked: (ed) => pref(ed.ui.get(), p.key),
+    })
+  ),
   later("prefs.color-profile", "Color profile…"),
+  later("prefs.keyboard-layout", "Keyboard layout…"),
+  later("prefs.accessibility", "Accessibility settings…"),
+  later("prefs.permissions", "Permissions and helpers…"),
   ui("prefs.nudge-amount", "Nudge amount…", undefined, (ed) => ed.ui.set({ nudgeDialog: true, uiHidden: false })),
+  // The Figma menu's "Open in desktop app" (the web app's; this app has no deep links yet).
+  later("file.open-in-desktop", "Open in desktop app"),
   {
     id: "file.save-version",
     label: "Save to version history…",
@@ -605,8 +663,8 @@ export const COMMANDS: EditorCommand[] = [
   {
     id: "file.libraries",
     label: "Libraries…",
+    // Live: always there (the modal says what this file can use).
     run: (ed) => ed.ui.set({ librariesDialog: { tab: "libraries" }, uiHidden: false }),
-    enabled: (ed) => ed.libraries.get().on,
   },
   {
     id: "file.publish-library",
@@ -639,7 +697,16 @@ export const COMMANDS: EditorCommand[] = [
   later("canvas.find-similar", "Find similar designs"),
   later("canvas.add-motion", "Add motion"),
   later("canvas.cursor-chat", "Cursor chat", [k("Slash")]),
+  // Help and account (live main-help.txt): Figma's own pages open in the browser; no account here.
+  link("help.page", "Help page", "https://help.figma.com/"),
   ui("help.shortcuts", "Keyboard shortcuts", [k("Slash", { ctrl: true, shift: true })], (ed) => ed.ui.set((s) => ({ shortcutsOpen: !s.shortcutsOpen }))),
+  link("help.forum", "Support forum", "https://forum.figma.com/"),
+  link("help.videos", "Video tutorials", "https://www.youtube.com/@Figma"),
+  link("help.release-notes", "Release notes", "https://www.figma.com/release-notes/"),
+  later("help.font-settings", "Open font settings"),
+  link("help.legal", "Legal summary", "https://www.figma.com/legal/"),
+  later("help.account", "Account settings"),
+  later("help.log-out", "Log out"),
   // Prototyping (R8 §9): Present opens the presentation view in a new tab; "in this tab" over the editor.
   ui("view.present", "Present", [k("Enter", { mod: true, alt: true })], (ed) => present(ed)),
   ui("view.present-here", "Present in this tab", undefined, (ed) => present(ed, { here: true })),

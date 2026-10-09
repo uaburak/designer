@@ -70,14 +70,14 @@ describe("round 8: keys and menus", () => {
     expect(view.slice(0, 4)).toEqual(["view.pixel-grid", "view.layout-guides", "view.rulers", "view.show-slices"]);
     expect(view).toContain("view.pixel-preview");
     const prefs = sub(MAIN_MENU, "Preferences").filter((s): s is string => typeof s === "string");
-    expect(prefs[0]).toBe("view.snap-pixel-grid");
+    expect(prefs.slice(0, 3)).toEqual(["prefs.snap-to-geometry", "prefs.snap-to-objects", "view.snap-pixel-grid"]);
     expect(prefs).toContain("prefs.nudge-amount");
     expect(COMMAND_BY_ID.get("prefs.nudge-amount")!.label).toBe("Nudge amount…");
   });
 
   it("view options from the UI: snap to pixel grid and slices on by default, rulers as the UI has them", () => {
     const ui = { rulers: true } as UIState;
-    expect(viewOptionsOf(ui)).toEqual({ pixelGrid: true, outlines: false, layoutGuides: true, rulers: true, snapToPixelGrid: true, showSlices: true, pixelPreview: 0 });
+    expect(viewOptionsOf(ui)).toMatchObject({ pixelGrid: true, outlines: false, layoutGuides: true, rulers: true, snapToPixelGrid: true, showSlices: true, pixelPreview: 0 });
     expect(viewOptionsOf({ ...ui, rulers: false, snapToPixelGrid: false, pixelPreview: 1 } as UIState)).toMatchObject({ rulers: false, snapToPixelGrid: false, pixelPreview: 1 });
     expect(loadNudge()).toEqual(DEFAULT_NUDGE); // no storage in Node: Figma's 1 and 10
   });

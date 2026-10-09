@@ -1,0 +1,65 @@
+/* The Actions palette (live toolbar/actions-panel.txt: 529 × 354 over the bottom toolbar). */
+.panel {
+  position: fixed;
+  z-index: var(--ds-z-popover);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--ds-radius-large);
+  background: var(--figma-color-bg);
+  color: var(--figma-color-text);
+  box-shadow: var(--ds-elevation-400-menu-panel);
+  font: var(--ds-font-body-medium);
+  letter-spacing: var(--ds-tracking-body-medium);
+}
+/* Live: the search field 431 × 32 at 44, 8 (bg #383838), its glyph before it */
+.search { position: relative; flex: none; height: calc(var(--ds-size-control-large) + var(--ds-space-4)); }
+.searchIcon { position: absolute; top: var(--ds-space-3); left: var(--ds-space-4); display: flex; color: var(--figma-color-icon-secondary); }
+.input {
+  position: absolute;
+  top: var(--ds-space-2);
+  left: calc(var(--ds-space-6) * 2 - var(--ds-space-1));
+  width: 431px;
+  height: var(--ds-size-control-large);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  background: var(--figma-color-bg-secondary);
+  color: var(--figma-color-text);
+  font: var(--ds-font-body-large-regular);
+  letter-spacing: var(--ds-tracking-body-large-regular);
+  outline: none;
+}
+.input::placeholder { color: var(--figma-color-text-tertiary); }
+/* Live: All / Assets / Plugins & widgets at 8, 48, 8 apart */
+.tabs { flex: none; gap: var(--ds-space-2); padding: 0 var(--ds-space-2); }
+.list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--ds-space-2); }
+/* A section: 8 above its 24px header (the name at 16, 11 / 450, secondary), then 32px rows */
+.header {
+  display: flex;
+  align-items: center;
+  height: var(--ds-size-control);
+  margin-top: var(--ds-space-2);
+  padding: 0 var(--ds-space-4);
+  color: var(--figma-color-text-secondary);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ds-size-control-large);
+  margin: 0 var(--ds-space-2);
+  padding: 0 var(--ds-space-4) 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-medium);
+  font: var(--ds-font-body-large-regular);
+  letter-spacing: var(--ds-tracking-body-large-regular);
+  cursor: default;
+}
+.row[data-active] { background: var(--figma-color-bg-hover); }
+.row[aria-disabled="true"], .row[aria-disabled="true"] .shortcut { color: var(--figma-color-text-disabled); }
+/* The 24 glyph column: the text at 44 */
+.glyph { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-size-icon-24); height: var(--ds-size-icon-24); color: var(--figma-color-icon); }
+.label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shortcut { flex: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+.empty { margin: var(--ds-space-4); color: var(--figma-color-text-secondary); }
+/* Live: "Results will update as you type." / "11 results available." for assistive tech */
+.srOnly { position: absolute; top: 3px; left: -1px; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; font: var(--ds-font-body-large-regular); }

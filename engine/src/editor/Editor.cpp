@@ -737,6 +737,8 @@ Overlay Editor::overlay() const {
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
   o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;
   o.pixelPreview = (viewOptions_ & VIEW_PIXEL_PREVIEW_2X) ? 2 : (viewOptions_ & VIEW_PIXEL_PREVIEW) ? 1 : 0;
+  // Preferences › Show dimensions on objects (round 9): no W × H badge (the angle while rotating stays).
+  if (!(viewOptions_ & VIEW_SHOW_DIMENSIONS) && gesture_ != Gesture::Rotate) o.sizeBadge = false;
   // Round 8: the ⌥R rotation origin, the angle while rotating, ruler guides, slices.
   if (rotationOriginShown() || (gesture_ == Gesture::Rotate && rotationOriginOn_)) {
     o.hasRotationOrigin = true;
@@ -1084,7 +1086,20 @@ Camera Editor::snapped(Camera c) const {
 
 void Editor::zoomTo(double zoom) {
   zooming_ = false;
-  changeCamera(snapped(camera_.zoomedAround(zoom, {viewport_.width / 2, viewport_.height / 2})));
+  Vec2 about{viewport_.width / 2, viewport_.height / 2};
+  // Preferences › Keyboard zooms into selection (round 9): about the selection's centre, as it is on screen.
+  if (viewOptions_ & VIEW_KEYBOARD_ZOOM_SELECTION) {
+    bool any = false;
+    Rect r;
+    for (Guid id : selection_) {
+      if (!doc_.has(id) || doc_.pageOf(id) != page_) continue;
+      Rect b = doc_.worldBounds(id);
+      r = any ? r.united(b) : b;
+      any = true;
+    }
+    if (any) about = camera_.toScreen({r.x + r.w / 2, r.y + r.h / 2});
+  }
+  changeCamera(snapped(camera_.zoomedAround(zoom, about)));
 }
 
 void Editor::zoomToFit() {

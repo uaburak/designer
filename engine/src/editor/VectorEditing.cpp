@@ -749,6 +749,18 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
       // The first moving point snaps to the pixel grid; the others follow it.
       uint32_t lead = *moving.begin();
       Vec2 target = snapLocal(vector_.startNet.vertices[lead].p + (l - l0));
+      // Preferences › Snap to geometry (round 9, help.figma.com "Snap to geometry": vector edit mode only): onto the
+      // nearest other point within reach (⌃ / ⌘: no snapping).
+      if ((viewOptions_ & VIEW_SNAP_GEOMETRY) && !(mods & (MOD_CTRL | MOD_PRIMARY))) {
+        Vec2 at = vector_.startWorld.apply(vector_.startNet.vertices[lead].p + (l - l0));
+        double best = kVertexReach / camera_.zoom;
+        for (uint32_t v = 0; v < vector_.startNet.vertices.size(); v++) {
+          if (moving.count(v)) continue;
+          Vec2 p = vector_.startNet.vertices[v].p;
+          double d = (vector_.startWorld.apply(p) - at).length();
+          if (d <= best) best = d, target = p;
+        }
+      }
       Vec2 d = target - vector_.startNet.vertices[lead].p;
       if (mods & MOD_SHIFT) {
         Vec2 wd = vector_.startWorld.applyLinear(d);

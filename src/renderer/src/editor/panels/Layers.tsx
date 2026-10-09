@@ -95,6 +95,46 @@ export function layerIcon(node: TreeNode): IconName {
   }
 }
 
+/**
+ * A row glyph's name, as live Figma reads it out (left/layers-row-hover.txt: img [Frame], [Auto layout], [Component],
+ * [Variant], [Instance], [Text], [Section], [Group], [Rectangle], [Union], [Ellipse], [Vector], [Line], [Star], [Polygon]
+ * — an arrow is a Line, a component set a Component; Mask, Slot, Image and Video unverified).
+ */
+export function layerKind(node: TreeNode, parent?: TreeNode | null): string {
+  if (node.mask) return "Mask";
+  if (node.group) return "Group";
+  if (node.stateGroup) return "Component";
+  switch (node.type) {
+    case "FRAME":
+      if (node.slot) return "Slot";
+      return node.stackMode && node.stackMode !== "NONE" ? "Auto layout" : "Frame";
+    case "SECTION":
+      return "Section";
+    case "ELLIPSE":
+      return "Ellipse";
+    case "TEXT":
+      return "Text";
+    case "LINE":
+      return "Line";
+    case "VECTOR":
+      return "Vector";
+    case "STAR":
+      return "Star";
+    case "REGULAR_POLYGON":
+      return "Polygon";
+    case "BOOLEAN_OPERATION":
+      return ({ SUBTRACT: "Subtract", INTERSECT: "Intersect", XOR: "Exclude" } as Record<string, string>)[node.booleanOperation ?? ""] ?? "Union";
+    case "SYMBOL":
+      return parent?.stateGroup ? "Variant" : "Component";
+    case "INSTANCE":
+      return "Instance";
+    default:
+      if (node.media === "VIDEO") return "Video";
+      if (node.media === "IMAGE") return "Image";
+      return "Rectangle";
+  }
+}
+
 /** In the component purple: a component, a set or an instance — the outline knows (no details read for the rows between). */
 const isComponentish = (n: { type: string; stateGroup?: boolean } | undefined) => !!n && (n.type === "SYMBOL" || n.type === "INSTANCE" || n.stateGroup === true);
 
@@ -333,6 +373,7 @@ export function Layers() {
                 depth={row.depth}
                 name={node.name}
                 icon={layerIcon(node)}
+                iconLabel={layerKind(node, node.parent ? tree.nodes.get(node.parent) : null)}
                 kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
                 tone={componentRows.has(row.id) ? "component" : "default"}
                 expanded={row.expandable ? row.expanded : undefined}

@@ -21,11 +21,11 @@
  * Esc or × closes it; ⌘Z / ⇧⌘Z undo and redo inside it.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ContextMenu, EmptyState, Icon, IconButton, InlineEdit, MenuButton, SearchField, cx, type MenuEntry } from "@/ds";
+import { Button, ContextMenu, EmptyState, Icon, IconButton, InlineEdit, MenuButton, SearchField, cx, type MenuEntry } from "@/ds";
 import type { Guid } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { runEditorCommand } from "../../commands";
-import { useLocalAssets } from "../../hooks";
+import { useLocalAssets, useUI } from "../../hooks";
 import { formatLiteral, groupTree, inGroup, matchesQuery, resolveVariable, rootOf, splitName, valueIn, VAR_TYPE_ICON, VAR_TYPE_LABEL, VAR_TYPES, type Collection, type GroupNode, type Variable, type VarType } from "../../model/variables";
 import {
   addMode,
@@ -117,6 +117,9 @@ export function LocalVariables() {
   const [drop, setDrop] = useState<{ id: Guid; side: "before" | "after" } | null>(null);
   const [typeFilter, setTypeFilter] = useState<VarType | null>(null);
   const [reorder, setReorder] = useState<HTMLElement | null>(null);
+  // Groups ▸ Collapse groups (live rail-variables-table.txt): the nested groups folded under their parents.
+  const [groupsCollapsed, setGroupsCollapsed] = useState(false);
+  const fileName = useUI((s) => s.fileName);
   const [bulk, setBulk] = useState<{ ids: Guid[]; anchor: HTMLElement | DOMRect } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const collection = a.collections.find((c) => c.id === collectionId) ?? a.collections[0] ?? null;
@@ -439,7 +442,8 @@ export function LocalVariables() {
     }
   };
 
-  const columns = collection ? `minmax(240px, 0.75fr) repeat(${collection.modes.length}, minmax(200px, 1fr)) 40px` : "1fr";
+  // Live (rail-variables-table.txt): Name 200, a 280 column per mode, the rest, then 40 for New variable mode / Edit variable.
+  const columns = collection ? `200px repeat(${collection.modes.length}, 280px) minmax(0, 1fr) 40px` : "1fr";
   const createMenu: MenuEntry[] = VAR_TYPES.map((t) => ({ id: t, label: VAR_TYPE_LABEL[t], icon: VAR_TYPE_ICON[t] }));
 
   const groupRows = (nodes: GroupNode[], depth: number): ReactNode =>
@@ -449,7 +453,7 @@ export function LocalVariables() {
           role="button"
           tabIndex={0}
           className={cx(styles.sideRow, group === g.path && styles.sideRowOn)}
-          style={{ ["--indent" as string]: `${depth * 16}px` }}
+          style={{ ["--indent" as string]: `${depth * 16 + 8}px` }}
           data-group={g.path}
           data-group-drop={groupDrop?.path === g.path ? groupDrop.where : undefined}
           onPointerDown={(e) => startGroupDrag(e, g.path)}
@@ -475,9 +479,9 @@ export function LocalVariables() {
             }}
             onCancel={() => setRenaming(null)}
           />
-          <span className={styles.sideCount}>{g.count}</span>
+          <Count n={g.count} />
         </div>
-        {groupRows(g.children, depth + 1)}
+        {!groupsCollapsed && groupRows(g.children, depth + 1)}
       </div>
     ));
 
@@ -508,81 +512,110 @@ export function LocalVariables() {
         void Promise.all(files.map(async (f) => ({ name: f.name, text: await f.text() }))).then((list) => list.length && importModes(ed, collection.id, list));
       }}
     >
-      {sidebar && <div className={styles.titleBar}>Local variables</div>}
+      {sidebar && (
+        // Live: the file's name over the collections (13 / 550 at 16, 16), Hide panel at 200, 8.
+        <div className={styles.titleBar}>
+          <span className={styles.fileName}>{fileName}</span>
+          <IconButton icon="24.sidebar.closed" size="large" label="Hide panel" tone="secondary" onClick={() => setSidebar(false)} />
+        </div>
+      )}
       <div className={styles.toolbar}>
-        <span className={styles.collectionTitle}>{collection?.name ?? ""}</span>
+        {!sidebar && <IconButton icon="24.sidebar.closed" label="Show panel" tone="secondary" onClick={() => setSidebar(true)} />}
+        {/* Live: the collection's name as the table's title (13 / 450) */}
+        <h2 className={styles.collectionTitle}>{collection?.name ?? ""}</h2>
         {parent && <span className={styles.extendedFrom} data-extended-from={parent.name}>Extended from {parent.name}</span>}
-        <MenuButton
-          label="Filter by type"
-          className={styles.typeFilter}
-          entries={[{ id: "", label: "All types", checked: !typeFilter }, "-", ...VAR_TYPES.map((t) => ({ id: t, label: VAR_TYPE_LABEL[t], icon: VAR_TYPE_ICON[t], checked: typeFilter === t }))]}
-          onSelect={(t) => setTypeFilter((t || null) as VarType | null)}
-        >
-          <Icon name={typeFilter ? VAR_TYPE_ICON[typeFilter] : "24.adjust.small"} />
-        </MenuButton>
-        <SearchField className={styles.search} value={query} onChange={setQuery} placeholder="Search" />
-        <IconButton icon="24.sidebar.closed" label="Toggle sidebar" aria-pressed={sidebar} onClick={() => setSidebar(!sidebar)} />
-        {minimized ? <IconButton icon="24.expand" label="Expand" onClick={() => setMinimized(false)} /> : <IconButton icon="24.minimize" label="Minimize" onClick={() => setMinimized(true)} />}
-        <IconButton icon="24.close.small" label="Close" onClick={close} />
+        {/* Live: Search (175) and Filter (24) as one 200 × 24 group */}
+        <div role="group" aria-label="Search and filter" className={styles.searchGroup}>
+          <SearchField className={styles.search} value={query} onChange={setQuery} placeholder="Search" />
+          <MenuButton
+            label="Filter"
+            className={styles.typeFilter}
+            entries={[{ id: "", label: "All types", checked: !typeFilter }, "-", ...VAR_TYPES.map((t) => ({ id: t, label: VAR_TYPE_LABEL[t], icon: VAR_TYPE_ICON[t], checked: typeFilter === t }))]}
+            onSelect={(t) => setTypeFilter((t || null) as VarType | null)}
+          >
+            <Icon name={typeFilter ? VAR_TYPE_ICON[typeFilter] : "24.adjust.small"} />
+          </MenuButton>
+        </div>
+        {/* Live: Minimize is a toggle (a smaller, resizable modal while on) */}
+        <label className={styles.minimize} data-on={minimized || undefined}>
+          <input type="checkbox" aria-label="Minimize" checked={minimized} onChange={(e) => setMinimized(e.target.checked)} />
+          <Icon name={minimized ? "24.expand" : "24.minimize"} />
+        </label>
+        <Button variant="primary" size="large" onClick={() => runEditorCommand(ed, "file.share-preview")}>
+          Share
+        </Button>
       </div>
 
       {sidebar && (
       <aside className={styles.sidebar} aria-label="Collections">
-        <div className={styles.sideHeader}>
-          <span>Collections</span>
-          <IconButton
-            icon="24.plus.small"
-            label="Create collection"
-            tone="secondary"
-            onClick={() => {
-              const id = createCollection(ed);
-              if (id) {
-                setCollectionId(id);
-                setGroup("");
-                setRenaming({ kind: "collection", id });
-              }
-            }}
-          />
-        </div>
-        {a.collections.map((c) => (
-          <div
-            key={c.id}
-            role="button"
-            tabIndex={0}
-            className={cx(styles.sideRow, c.parent && styles.sideExtension, collection?.id === c.id && styles.sideRowOn)}
-            data-collection={c.name}
-            data-extension={c.parent ? "" : undefined}
-            onClick={() => {
-              setCollectionId(c.id);
-              setGroup("");
-              setSelected(new Set());
-            }}
-            onDoubleClick={() => setRenaming({ kind: "collection", id: c.id })}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              collectionMenu(c, e.clientX, e.clientY);
-            }}
-          >
-            <InlineEdit
-              label="Rename collection"
-              className={styles.sideName}
-              value={c.name}
-              editing={renaming?.kind === "collection" && renaming.id === c.id}
-              onEditingChange={(on) => setRenaming(on ? { kind: "collection", id: c.id } : null)}
-              onCommit={(name) => {
-                setRenaming(null);
-                renameCollection(ed, c.id, name);
+        <section className={styles.collections} aria-label="Variable collections">
+          <div className={styles.sideHeader}>
+            <span className={styles.sideHeading}>Collections</span>
+            <IconButton icon="24.adjust.small" label="Collections options" tone="secondary" onClick={(e) => setReorder(e.currentTarget)} />
+            <IconButton
+              icon="24.plus.small"
+              label="Create collection"
+              tone="secondary"
+              onClick={() => {
+                const id = createCollection(ed);
+                if (id) {
+                  setCollectionId(id);
+                  setGroup("");
+                  setRenaming({ kind: "collection", id });
+                }
               }}
-              onCancel={() => setRenaming(null)}
             />
           </div>
-        ))}
+          {a.collections.map((c) => (
+            <div
+              key={c.id}
+              role="button"
+              tabIndex={0}
+              className={cx(styles.collectionRow, c.parent && styles.sideExtension, collection?.id === c.id && styles.collectionOn)}
+              data-collection={c.name}
+              data-extension={c.parent ? "" : undefined}
+              onClick={() => {
+                setCollectionId(c.id);
+                setGroup("");
+                setSelected(new Set());
+              }}
+              onDoubleClick={() => setRenaming({ kind: "collection", id: c.id })}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                collectionMenu(c, e.clientX, e.clientY);
+              }}
+            >
+              <InlineEdit
+                label="Rename collection"
+                className={styles.sideName}
+                value={c.name}
+                editing={renaming?.kind === "collection" && renaming.id === c.id}
+                onEditingChange={(on) => setRenaming(on ? { kind: "collection", id: c.id } : null)}
+                onCommit={(name) => {
+                  setRenaming(null);
+                  renameCollection(ed, c.id, name);
+                }}
+                onCancel={() => setRenaming(null)}
+              />
+              <Count n={[...a.variables, ...a.library.variables].filter((v) => v.collection === rootOf(c).id).length} />
+            </div>
+          ))}
+        </section>
         {collection && (
           <>
-            <div className={styles.sideDivider} />
+            <div className={cx(styles.sideHeader, styles.groupsHeader)}>
+              <span className={styles.groupsHeading}>Groups</span>
+              <IconButton
+                icon="24.collapse-layers.small"
+                label={groupsCollapsed ? "Expand groups" : "Collapse groups"}
+                tone="secondary"
+                aria-pressed={groupsCollapsed}
+                onClick={() => setGroupsCollapsed(!groupsCollapsed)}
+              />
+            </div>
             <div role="button" tabIndex={0} className={cx(styles.sideRow, group === "" && styles.sideRowOn)} data-group="" onClick={() => setGroup("")}>
-              <span className={styles.sideName}>All variables</span>
-              <span className={styles.sideCount}>{inCollection.length}</span>
+              <span className={styles.sideName}>All</span>
+              <Count n={inCollection.length} />
             </div>
             {groupRows(tree, 0)}
           </>
@@ -637,6 +670,7 @@ export function LocalVariables() {
                       />
                     </div>
                   ))}
+                  <div className={cx(styles.cell, styles.head, styles.filler)} role="columnheader" />
                   <div className={cx(styles.cell, styles.head, styles.addMode)} role="columnheader">
                     {!extended && (
                     <IconButton
@@ -696,26 +730,30 @@ export function LocalVariables() {
                           }}
                           onCancel={() => setRenaming(null)}
                         />
-                        {!extended && <IconButton className={styles.rowEdit} icon="24.adjust.small" label="Edit variable" tone="secondary" aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
                       </div>
                       {collection.modes.map((m) => (
                         <ValueEditor key={m.id} variable={r.v} mode={m.id} collection={collection} />
                       ))}
                       <div className={cx(styles.cell, styles.filler)} />
+                      {/* Live: Edit variable in the last column, at 8, 8 */}
+                      <div className={cx(styles.cell, styles.addMode)} data-edit-cell={r.v.name}>
+                        {!extended && <IconButton icon="24.adjust.small" label="Edit variable" tone="secondary" aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
+                      </div>
                     </div>
                   )
                 )}
               </div>
               {rows.length === 0 && query && <div className={styles.footer}>No results for “{query}”</div>}
-              {!extended && (
-              <div className={styles.footer}>
+            </div>
+            {/* Live: "Create variable" 8 from the view's bottom-left corner, over the table */}
+            {!extended && (
+              <div className={styles.createBar}>
                 <MenuButton label="Create variable" entries={createMenu} onSelect={(t) => create(t as VarType)} className={styles.createButton}>
                   <Icon name="24.plus.small" />
                   <span>Create variable</span>
                 </MenuButton>
               </div>
-              )}
-            </div>
+            )}
           </>
         )}
       </main>
@@ -736,6 +774,16 @@ export function LocalVariables() {
         />
       )}
     </div>
+  );
+}
+
+/** A row's count (live: "4", read as "4 variables"). */
+function Count({ n }: { n: number }) {
+  return (
+    <span className={styles.sideCount}>
+      <span className={styles.srOnly}>{n === 1 ? "1 variable" : `${n} variables`}</span>
+      <span aria-hidden="true">{n}</span>
+    </span>
   );
 }
 

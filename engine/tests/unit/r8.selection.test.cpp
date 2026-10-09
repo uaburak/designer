@@ -513,6 +513,7 @@ TEST_CASE("r8 locked: a locked top-level layer takes no click — it reaches the
   e.setSelection({});
   e.takeEvents();
   e.pointer(PointerEvent::DOWN, 760, 540, 2, 2, 0);
+  e.pointer(PointerEvent::UP, 760, 540, 2, 0, 0);  // the menu opens on the release (round 9: Right-click and drag to pan)
   auto ev = e.takeEvents();
   REQUIRE(ev.contextMenus.size() == 1);
   CHECK(ev.contextMenus[0].hits.size() == 2);

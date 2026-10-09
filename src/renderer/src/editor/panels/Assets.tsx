@@ -225,7 +225,7 @@ export function Assets() {
   } else if (!open) {
     body = (
       <div className={styles.scroll} data-all-libraries="">
-        <div className={styles.heading}>All libraries</div>
+        <div className={styles.allHeading}>All libraries</div>
         {sections.map((s) => (
           <button key={s.key} type="button" className={styles.card} data-library-card={s.title} onClick={() => go({ section: s.key })}>
             <span className={styles.cardThumb}>
@@ -235,11 +235,10 @@ export function Assets() {
             <span className={styles.cardCount}>{plural(s.items.length, "component")}</span>
           </button>
         ))}
-        {libs.on && (
-          <button type="button" className={styles.addMore} onClick={() => openLibraries()}>
-            Add more libraries
-          </button>
-        )}
+        {/* Live: always offered (the Libraries modal says what this file can add) */}
+        <button type="button" className={styles.addMore} onClick={() => openLibraries()}>
+          Add more libraries
+        </button>
       </div>
     );
   } else {
@@ -279,12 +278,11 @@ export function Assets() {
       <TabHeader
         title="Assets"
         actions={
-          libs.on ? (
-            <span className={lstyles.libButton}>
-              <IconButton icon="24.library" label={pending ? "Review library updates" : "Libraries"} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
-              {pending > 0 && <span className={lstyles.badge} data-updates-badge="" aria-hidden />}
-            </span>
-          ) : undefined
+          // Live (rail-assets.txt): Libraries at 204, 12 — its blue dot while an enabled library has updates.
+          <span className={lstyles.libButton}>
+            <IconButton icon="24.library" label={pending ? "Review library updates" : "Libraries"} tone="secondary" data-libraries-button="" onClick={() => openLibraries(pending ? "updates" : "libraries")} />
+            {pending > 0 && <span className={lstyles.badge} data-updates-badge="" aria-hidden />}
+          </span>
         }
       />
       <div className={styles.toolbar}>

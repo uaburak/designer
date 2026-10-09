@@ -29,7 +29,8 @@
   }
   /* Without the labels (View › Additional labels off) a tab is its tile and 8 around it */
   .rail:not([data-labels]) .item { height: calc(var(--ds-size-rail-tile) + var(--ds-space-2)); }
-  .compact, .rail:not([data-labels]) .compact { height: var(--ds-size-rail-tile); }
+  /* Live (left/rail-*.txt): the Main menu button is its 32 × 32 tile, at 12, 8 */
+  .compact, .rail:not([data-labels]) .compact { width: var(--ds-size-rail-tile); height: var(--ds-size-rail-tile); }
   .tile {
     position: relative;
     display: flex;
