@@ -78,6 +78,9 @@
   /* A section's menu (live stroke-individual-strokes-menu.txt, 117 × 159): no padding above or below, groups 15 apart */
   .panelMenu { padding-block: 0; }
   .panelMenu > [role="separator"] { margin-block: 7px; }
+  /* A grid track's sizing list (live grid/row-track-menu.txt, 156 × 72): the check at 12, the glyph at 28, the label at 52 */
+  .trackMenu > [role^="menuitem"] { padding: 0 var(--ds-space-1); }
+  .trackMenu > [role^="menuitem"] > :nth-child(2) { margin-right: calc(var(--ds-space-2) * -1); }
   .buttonGroup { display: flex; gap: 1px; height: var(--ds-size-control); }
   .buttonGroup > .groupButton {
     flex: 1 1 0;
