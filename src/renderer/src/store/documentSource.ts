@@ -366,6 +366,12 @@ class Source implements StoreDocumentSource {
         ...(await store.workspace.listFolders()).filter((f) => !f.trashedAt).map((f) => ({ id: f.id, name: f.name })),
       ],
       moveTo: (folderId) => store.workspace.moveFiles([fileKey], folderId),
+      branch: async (name) => {
+        // A branch here: a copy named "<file> / <branch>" (Figma's breadcrumb), in the file's place.
+        const copy = await store.workspace.duplicateFile(fileKey);
+        const meta = await store.workspace.renameFile(copy.fileKey, `${this.meta.name} / ${name}`);
+        return { fileKey: meta.fileKey, name: meta.name };
+      },
     };
     this.previews = {
       fileKey,

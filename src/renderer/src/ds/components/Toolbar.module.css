@@ -11,6 +11,25 @@
     box-shadow: var(--ds-elevation-100);
   }
   .floating { position: absolute; left: calc(50% + var(--ds-toolbar-offset, 0px)); bottom: var(--ds-size-toolbar-bottom); z-index: var(--ds-z-floating); transform: translateX(-50%); }
+  /* Live (toolbar/vector-edit-toolbar.txt): 40 high, 8 over the bottom toolbar, 529 wide like it */
+  .secondary { height: calc(var(--ds-size-toolbar) - var(--ds-space-2)); }
+  .floating.secondary { bottom: calc(var(--ds-size-toolbar-bottom) + var(--ds-size-toolbar) + var(--ds-space-2)); }
+  /* A labelled tool: 24 high, the glyph, the name (11 / 400), 8 after it; live "More": 8, the name, a 16 chevron, 4 */
+  .textTool {
+    display: flex; flex: none; align-items: center; height: var(--ds-size-control); padding: 0 var(--ds-space-2) 0 0; border: 0;
+    border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); outline: none; cursor: default;
+    font: var(--ds-font-body-medium-regular); letter-spacing: var(--ds-tracking-body-medium-regular); white-space: nowrap;
+  }
+  .textTool > svg { flex: none; color: var(--figma-color-icon); }
+  .textToolMenu { padding: 0 var(--ds-space-1) 0 var(--ds-space-2); }
+  .textToolMenu > svg { color: var(--figma-color-icon-secondary); }
+  .textTool:hover, .textTool[aria-expanded="true"] { background: var(--figma-color-bg-hover); }
+  .textTool[data-active], .textTool[data-active]:hover { background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); }
+  .textTool[data-active] > svg { color: var(--figma-color-icon-onbrand); }
+  .textTool:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: var(--ds-focus-offset); }
+  .textTool[aria-disabled="true"], .textTool[aria-disabled="true"]:hover { background: transparent; color: var(--figma-color-text-disabled); }
+  .textTool[aria-disabled="true"] > svg { color: var(--figma-color-icon-disabled); }
+  .textToolLabel { display: block; }
   .group { display: flex; align-items: center; gap: var(--ds-space-2); }
   /* Between the tools and the mode switch: a full-height line (measured) */
   .divider { flex: none; align-self: stretch; width: 1px; margin: calc(var(--ds-space-2) * -1) 0; background: var(--figma-color-border); }

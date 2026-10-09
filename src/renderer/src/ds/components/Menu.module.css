@@ -88,6 +88,17 @@
   .item[data-highlighted] .hint, .item[data-highlighted] .shortcut { color: var(--ds-color-menu-text-on-highlight-secondary); }
   /* Live (menus/main-*.txt): a disabled row's keys at the disabled colour (#ffffff66) */
   .item[aria-disabled="true"] .shortcut { color: var(--ds-color-menu-text-disabled); }
+  /* Live (context-layer-row.txt): "AI" — a 20 × 18 tag, its text 5 in, at the keys' right edge */
+  .badge {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--ds-radius-medium);
+    color: var(--ds-color-menu-text-secondary);
+  }
+  .item[data-highlighted] .badge { color: var(--ds-color-menu-text-on-highlight-secondary); }
   .chevron { flex: none; margin-right: calc(var(--ds-space-1) * -1); }
   .separator { height: 1px; margin: var(--ds-space-2) 0; background: var(--ds-color-menu-separator); }
   .header {

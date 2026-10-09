@@ -23,6 +23,7 @@ import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
 import { adjustText, syncViewOptions, type TextAdjust } from "./canvasTools";
 import { PREFERENCES, pref, togglePreference } from "./preferences";
+import { setSpellCheck, spellCheckOn, spellChecker } from "./spellcheck";
 import {
   addLayout,
   canCopyProperties,
@@ -206,6 +207,22 @@ const textCase = (id: string, label: string, value: NonNullable<ExtraFields["tex
     if (!refs.length) return false;
     const s = textSummary(ed.engine, refs);
     return !!s && !s.mixed.has("textCase") && (s.values.textCase ?? "ORIGINAL") === value;
+  },
+});
+
+/**
+ * Text › Text direction ▸ (round 10; live lists it, its items are help.figma.com's — unverified): the paragraphs'
+ * direction (the edited selection's, else the whole texts'), checked when they all have it. The layout stays left to
+ * right until bidi (docs/engine-build.md E3.2).
+ */
+const textDirection = (id: string, label: string, value: "AUTO" | "LTR" | "RTL"): EditorCommand => ({
+  ...textCommand(id, label, [], (ed, refs) => ed.batch("Text direction", () => refs.forEach((r) => ed.engine.setTextDirection(r, value)))),
+  keys: undefined,
+  checked: (ed) => {
+    const refs = textRefs(ed);
+    if (!refs.length) return false;
+    const s = textSummary(ed.engine, refs);
+    return !!s && !s.mixed.has("sourceDirectionality") && ((s.values as { sourceDirectionality?: string }).sourceDirectionality ?? "AUTO") === value;
   },
 });
 
@@ -427,7 +444,13 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.memory-usage", "Memory usage", undefined, (ed) => ed.ui.set((s) => ({ memoryUsage: !s.memoryUsage })), (ed) => !!ed.ui.get().memoryUsage),
   // ⌥⌘\ (on by default): other people's cursors (none until multiplayer, roadmap Phase 6).
   ui("view.multiplayer-cursors", "Multiplayer cursors", [k("Backslash", { mod: true, alt: true })], (ed) => ed.ui.set((s) => ({ multiplayerCursors: s.multiplayerCursors === false })), (ed) => ed.ui.get().multiplayerCursors !== false),
-  later("view.switch-to-draw", "Switch to Draw"),
+  // Round 10: Draw (live's View menu and the toolbar's mode switch; unverified beyond them): the Design editor with
+  // the Pencil to hand — Figma Draw's brushes and its own panels aren't built. Again: back to Design.
+  ui("view.switch-to-draw", "Switch to Draw", undefined, (ed) => {
+    if (modeOf(ed) === "draw") return setMode(ed, "design");
+    setMode(ed, "draw");
+    if (ed.tools.has("PENCIL")) ed.setTool("PENCIL");
+  }, (ed) => modeOf(ed) === "draw"),
   engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
   engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
   engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { mod: true }), k("Digit0", { shift: true })]),
@@ -645,11 +668,12 @@ export const COMMANDS: EditorCommand[] = [
   textCase("text.case-title", "Title case", "TITLE"),
   textCase("text.case-small-caps", "Small caps", "SMALL_CAPS"),
   textCase("text.case-forced-small-caps", "Forced small caps", "SMALL_CAPS_FORCED"),
-  // Text › Text direction ▸ and Spell check ▸ (live: listed, items not captured; unverified): not built.
-  later("text.direction-auto", "Auto"),
-  later("text.direction-ltr", "Left to right"),
-  later("text.direction-rtl", "Right to left"),
-  later("text.spell-check", "Spell check"),
+  // Text › Text direction ▸ (live: listed, items not captured; unverified).
+  textDirection("text.direction-auto", "Auto", "AUTO"),
+  textDirection("text.direction-ltr", "Left to right", "LTR"),
+  textDirection("text.direction-rtl", "Right to left", "RTL"),
+  // Text › Spell check ▸ (round 10; help.figma.com, unverified): the edited text's misspelled words underlined (spellcheck.ts).
+  { id: "text.spell-check", label: "Spell check", run: (ed) => setSpellCheck(ed, !spellCheckOn()), enabled: () => !!spellChecker(), checked: () => !!spellChecker() && spellCheckOn() },
   textCommand("text.align-center", "Text align center", [k("KeyT", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "CENTER" }), "Text alignment")),
   textCommand("text.align-right", "Text align right", [k("KeyR", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "RIGHT" }), "Text alignment")),
 
@@ -670,7 +694,9 @@ export const COMMANDS: EditorCommand[] = [
   { id: "file.duplicate", label: "Duplicate", run: (ed) => void duplicateFile(ed), enabled: (ed) => !!fileOps(ed) },
   { id: "file.move", label: "Move to project…", run: (ed) => ed.ui.set({ moveFileDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
   { id: "file.save-local-copy", label: "Save local copy…", run: (ed) => void saveLocalCopy(ed), enabled: canSaveLocalCopy },
-  later("file.create-branch", "Create branch…"),
+  // Round 10: a branch is a copy of the file named after it, opened in a tab (objectCommands.ts; reviewing and merging
+  // branches aren't built — docs/roadmap.md Phase 6).
+  { id: "file.create-branch", label: "Create branch…", run: (ed) => ed.ui.set({ branchDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
   later("file.color-profile", "Color profile…"),
   // The Figma menu's Plugins, Widgets and Preferences items not built (shown as Figma lists them, disabled).
   later("plugins.run-last", "Run last plugin", [k("KeyP", { mod: true, alt: true })]),
@@ -748,6 +774,8 @@ export const COMMANDS: EditorCommand[] = [
   later("canvas.send-to-make", "Send to Figma Make"),
   later("canvas.find-similar", "Find similar designs"),
   later("canvas.add-motion", "Add motion"),
+  // Live's AI renaming of the selected layers (the Layers row's menu, "AI" tag): listed, not built.
+  later("canvas.rename-layers-ai", "Rename layers"),
   // Round 10, / : the cursor chat bubble at the pointer (seen by nobody else until multiplayer, roadmap Phase 6).
   ui("canvas.cursor-chat", "Cursor chat", [k("Slash")], (ed) => openCursorChat(ed)),
   // Help and account (live main-help.txt): Figma's own pages open in the browser; no account here.

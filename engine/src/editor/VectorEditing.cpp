@@ -564,6 +564,14 @@ uint32_t Editor::vectorPointerDown(Vec2 s, uint32_t mods, int clickCount) {
     return P_HANDLED | P_CAPTURE;
   }
 
+  if (vector_.tool == VectorTool::CUT || vector_.tool == VectorTool::ERASE) {
+    vector_.drag = vector_.tool == VectorTool::CUT ? VectorSession::Drag::Cut : VectorSession::Drag::Erase;
+    vector_.trail = {world};
+    gesture_ = Gesture::Vector;
+    needsRender_ = true;
+    return P_HANDLED | P_CAPTURE;
+  }
+
   if (vector_.tool == VectorTool::LASSO) {
     vector_.drag = VectorSession::Drag::Lasso;
     vector_.lasso = {world};
@@ -710,7 +718,8 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
                    : hs >= 0 && vector_.penFrom < 0                         ? CursorKind::PEN_ADD
                                                                             : CursorKind::PEN);
       if (vector_.penFrom >= 0) needsRender_ = true;  // the preview follows the pointer
-    } else if (vector_.tool == VectorTool::LASSO || vector_.tool == VectorTool::PAINT_BUCKET) {
+    } else if (vector_.tool == VectorTool::LASSO || vector_.tool == VectorTool::PAINT_BUCKET || vector_.tool == VectorTool::CUT ||
+               vector_.tool == VectorTool::ERASE) {
       changeCursor(CursorKind::CROSSHAIR);
     } else {
       changeCursor(CursorKind::DEFAULT);
@@ -814,6 +823,14 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
       vectorChanged();
       return;
     }
+    case VectorSession::Drag::Cut:
+      vector_.trail = {vector_.trail.front(), world};
+      needsRender_ = true;
+      return;
+    case VectorSession::Drag::Erase:
+      vector_.trail.push_back(world);
+      needsRender_ = true;
+      return;
     case VectorSession::Drag::Lasso: {
       vector_.lasso.push_back(world);
       std::vector<uint32_t> sel = vector_.baseSel;
@@ -832,18 +849,204 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
 }
 
 void Editor::vectorPointerUp(Vec2 s, uint32_t mods) {
-  (void)s;
   (void)mods;
   switch (vector_.drag) {
     case VectorSession::Drag::Marquee:
     case VectorSession::Drag::Lasso: break;
+    case VectorSession::Drag::Cut: vectorCut(s); break;
+    case VectorSession::Drag::Erase: vectorErase(); break;
     default:
       if (txn_.open) commit();
       break;
   }
   vector_.drag = VectorSession::Drag::None;
   vector_.lasso.clear();
+  vector_.trail.clear();
   vectorChanged();
+}
+
+// ---- Cut and Erase (round 10; live toolbar/vector-edit-toolbar.txt lists them — what they do is help.figma.com's
+// "Edit vector layers", unverified beyond it) ----------------------------------------------------------------------
+
+namespace {
+
+// The segment cut at `t`: it ends at a new point there and a new segment starts from another new point at the same
+// place (the path comes apart); a loop through it no longer closes, so its region goes. Returns the second half.
+uint32_t cutSegment(VectorNetwork& net, uint32_t seg, double t) {
+  const VNSegment g = net.segments[seg];
+  Vec2 a = net.vertices[g.start].p, b = net.vertices[g.end].p;
+  Vec2 in[4] = {a, a + g.tangentStart, b + g.tangentEnd, b}, left[4], right[4];
+  geom::cubicSection(in, 0, t, left);
+  geom::cubicSection(in, t, 1, right);
+  bool line = g.isLine();
+  uint32_t va = static_cast<uint32_t>(net.vertices.size());
+  net.vertices.push_back({left[3], 0});
+  uint32_t vb = static_cast<uint32_t>(net.vertices.size());
+  net.vertices.push_back({left[3], 0});
+  net.segments[seg] = VNSegment{g.start, va, line ? Vec2{} : left[1] - left[0], line ? Vec2{} : left[2] - left[3], g.styleID};
+  net.segments.push_back(VNSegment{vb, g.end, line ? Vec2{} : right[1] - right[0], line ? Vec2{} : right[2] - right[3], g.styleID});
+  for (size_t r = net.regions.size(); r-- > 0;) {
+    auto& loops = net.regions[r].loops;
+    loops.erase(std::remove_if(loops.begin(), loops.end(), [&](const std::vector<uint32_t>& l) { return has(l, seg); }), loops.end());
+    if (loops.empty()) net.regions.erase(net.regions.begin() + static_cast<long>(r));
+  }
+  return static_cast<uint32_t>(net.segments.size() - 1);
+}
+
+// The point taken apart: every segment meeting it after the first gets a point of its own there.
+bool cutVertex(VectorNetwork& net, uint32_t v) {
+  std::vector<uint32_t> segs;
+  for (uint32_t i = 0; i < net.segments.size(); i++)
+    if (net.segments[i].start == v || net.segments[i].end == v) segs.push_back(i);
+  if (segs.size() < 2) return false;
+  std::set<uint32_t> cut;
+  for (size_t k = 1; k < segs.size(); k++) {
+    uint32_t copy = static_cast<uint32_t>(net.vertices.size());
+    net.vertices.push_back(net.vertices[v]);
+    VNSegment& g = net.segments[segs[k]];
+    if (g.start == v) g.start = copy;
+    else g.end = copy;
+    cut.insert(segs[k]);
+  }
+  for (size_t r = net.regions.size(); r-- > 0;) {
+    auto& loops = net.regions[r].loops;
+    loops.erase(std::remove_if(loops.begin(), loops.end(),
+                               [&](const std::vector<uint32_t>& l) { return std::any_of(l.begin(), l.end(), [&](uint32_t x) { return cut.count(x) > 0; }); }),
+                loops.end());
+    if (loops.empty()) net.regions.erase(net.regions.begin() + static_cast<long>(r));
+  }
+  return true;
+}
+
+// Where segments a–b and c–d cross: the parameter along a–b, or -1.
+double crossing(Vec2 a, Vec2 b, Vec2 c, Vec2 d) {
+  Vec2 r = b - a, q = d - c;
+  double den = r.x * q.y - r.y * q.x;
+  if (std::fabs(den) < 1e-12) return -1;
+  Vec2 ac = c - a;
+  double t = (ac.x * q.y - ac.y * q.x) / den, u = (ac.x * r.y - ac.y * r.x) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
+}
+
+}  // namespace
+
+void Editor::vectorCut(Vec2 s) {
+  if (vector_.node == kNoGuid || !doc_.get(vector_.node)) return;
+  VectorNetwork net = vector_.net;
+  bool changed = false;
+  Vec2 a = vector_.trail.empty() ? camera_.toWorld(s) : vector_.trail.front();
+  Vec2 b = camera_.toWorld(s);
+  if ((camera_.toScreen(b) - camera_.toScreen(a)).length() < kDragThreshold) {
+    // A click: the point under it taken apart, else the segment cut there.
+    int v = vectorVertexAt(s);
+    double t = 0;
+    int seg = v < 0 ? vectorSegmentAt(s, t) : -1;
+    if (v >= 0) changed = cutVertex(net, static_cast<uint32_t>(v));
+    else if (seg >= 0 && t > 1e-6 && t < 1 - 1e-6) {
+      cutSegment(net, static_cast<uint32_t>(seg), t);
+      changed = true;
+    }
+  } else {
+    // A line across the path: every segment it crosses is cut there.
+    const Mat2x3 W = doc_.worldTransform(vector_.node);
+    const size_t count = net.segments.size();
+    for (uint32_t sg = 0; sg < count; sg++) {
+      std::vector<double> ts;
+      const int steps = 64;
+      Vec2 prev = W.apply(segmentAt(net, sg, 0));
+      for (int k = 1; k <= steps; k++) {
+        Vec2 cur = W.apply(segmentAt(net, sg, static_cast<double>(k) / steps));
+        double u = crossing(prev, cur, a, b);
+        if (u >= 0) {
+          double t = (k - 1 + u) / steps;
+          if (t > 1e-6 && t < 1 - 1e-6 && (ts.empty() || t - ts.back() > 1e-6)) ts.push_back(t);
+        }
+        prev = cur;
+      }
+      // Cut from the start on: each later cut falls on the remaining half.
+      uint32_t piece = sg;
+      double done = 0;
+      for (double t : ts) {
+        piece = cutSegment(net, piece, (t - done) / (1 - done));
+        done = t;
+        changed = true;
+      }
+    }
+  }
+  if (!changed) return;
+  begin(TxnKind::USER, "Cut");
+  vector_.selVerts.clear();
+  vector_.selSegs.clear();
+  vector_.penFrom = -1;
+  vector_.net = writeVector(vector_.node, net, doc_.get(vector_.node)->props.transform);
+  commit();
+}
+
+void Editor::vectorErase() {
+  if (vector_.node == kNoGuid || !doc_.get(vector_.node) || vector_.trail.empty()) return;
+  // Every segment the path passes over (within the eraser's reach on screen) goes, and the points left alone with it.
+  const Mat2x3 m = vectorToScreen();
+  std::vector<Vec2> path;
+  for (Vec2 w : vector_.trail) path.push_back(camera_.toScreen(w));
+  VectorNetwork net = vector_.net;
+  std::set<uint32_t> dropSegs;
+  for (uint32_t sg = 0; sg < net.segments.size(); sg++) {
+    const int steps = 48;
+    Vec2 prev = m.apply(segmentAt(net, sg, 0));
+    bool hit = false;
+    for (int k = 1; k <= steps && !hit; k++) {
+      Vec2 cur = m.apply(segmentAt(net, sg, static_cast<double>(k) / steps));
+      Vec2 ab = cur - prev;
+      double len2 = ab.x * ab.x + ab.y * ab.y;
+      for (size_t i = 0; i < path.size() && !hit; i++) {
+        Vec2 p = path[i];
+        double u = len2 > 0 ? std::clamp(((p.x - prev.x) * ab.x + (p.y - prev.y) * ab.y) / len2, 0.0, 1.0) : 0;
+        if ((p - (prev + ab * u)).length() <= kSegmentReach) hit = true;
+        if (i > 0 && crossing(prev, cur, path[i - 1], p) >= 0) hit = true;
+      }
+      prev = cur;
+    }
+    if (hit) dropSegs.insert(sg);
+  }
+  if (dropSegs.empty()) return;
+  std::set<uint32_t> used, dropVerts;
+  for (uint32_t sg = 0; sg < net.segments.size(); sg++)
+    if (!dropSegs.count(sg)) used.insert(net.segments[sg].start), used.insert(net.segments[sg].end);
+  for (uint32_t sg : dropSegs)
+    for (uint32_t v : {net.segments[sg].start, net.segments[sg].end})
+      if (!used.count(v)) dropVerts.insert(v);
+  VectorNetwork out;
+  std::vector<int> vmap(net.vertices.size(), -1), smap(net.segments.size(), -1);
+  for (uint32_t i = 0; i < net.vertices.size(); i++)
+    if (!dropVerts.count(i)) vmap[i] = static_cast<int>(out.vertices.size()), out.vertices.push_back(net.vertices[i]);
+  for (uint32_t i = 0; i < net.segments.size(); i++) {
+    if (dropSegs.count(i)) continue;
+    VNSegment g = net.segments[i];
+    g.start = static_cast<uint32_t>(vmap[g.start]);
+    g.end = static_cast<uint32_t>(vmap[g.end]);
+    smap[i] = static_cast<int>(out.segments.size());
+    out.segments.push_back(g);
+  }
+  for (const VNRegion& r : net.regions) {
+    VNRegion nr = r;
+    nr.loops.clear();
+    for (const auto& loop : r.loops) {
+      std::vector<uint32_t> l;
+      bool whole = true;
+      for (uint32_t x : loop) {
+        if (smap[x] < 0) whole = false;
+        else l.push_back(static_cast<uint32_t>(smap[x]));
+      }
+      if (whole && !l.empty()) nr.loops.push_back(l);
+    }
+    if (!nr.loops.empty()) out.regions.push_back(nr);
+  }
+  begin(TxnKind::USER, "Erase");
+  vector_.selVerts.clear();
+  vector_.selSegs.clear();
+  vector_.penFrom = -1;
+  vector_.net = writeVector(vector_.node, out, doc_.get(vector_.node)->props.transform);
+  commit();
 }
 
 // ---- Keys -----------------------------------------------------------------------------------------
@@ -1134,6 +1337,10 @@ void Editor::vectorOverlay(Overlay& o) const {
     o.marquee = vector_.marquee;
   }
   if (vector_.drag == VectorSession::Drag::Lasso) o.lasso = vector_.lasso;
+  if (vector_.drag == VectorSession::Drag::Cut || vector_.drag == VectorSession::Drag::Erase) {
+    o.trail = vector_.trail;
+    o.trailWidth = vector_.drag == VectorSession::Drag::Erase ? 2 * kSegmentReach : 1;
+  }
 }
 
 // ---- The Pencil ----------------------------------------------------------------------------------

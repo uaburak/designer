@@ -693,6 +693,17 @@ Status Editor::arrangeCommand(CommandId id, const CommandArgs& args) {
       return vectorOffset(number("amount", 0), join);
     }
     case CommandId::SET_DEFAULT_PROPERTIES: return setDefaultProperties();
+    case CommandId::SET_SPELLING_MARKS: {
+      if (text_.node == kNoGuid) return E_INVALID;
+      spelling_.clear();
+      if (const json::Value* list = args.raw.isObject() ? args.raw.get("ranges") : nullptr; list && list->isArray())
+        for (const json::Value& r : list->array)
+          if (r.isArray() && r.array.size() == 2 && r.array[0].isNumber() && r.array[1].isNumber() && r.array[1].number > r.array[0].number)
+            spelling_.push_back({static_cast<uint32_t>(r.array[0].number), static_cast<uint32_t>(r.array[1].number)});
+      spellingNode_ = text_.node;
+      needsRender_ = true;
+      return OK;
+    }
     default: return E_UNSUPPORTED;
   }
 }
@@ -728,6 +739,7 @@ uint32_t Editor::arrangeCommandState(CommandId id) const {
     case CommandId::VECTOR_SIMPLIFY:
     case CommandId::VECTOR_OFFSET: return vectorTargets().empty() ? 0 : CMD_ENABLED;
     case CommandId::SET_DEFAULT_PROPERTIES: return canSetDefaultProperties() ? CMD_ENABLED : 0;
+    case CommandId::SET_SPELLING_MARKS: return text_.node != kNoGuid ? CMD_ENABLED : 0;
     default: return 0;
   }
 }

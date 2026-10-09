@@ -185,6 +185,8 @@ Status Editor::startTextEdit(Guid id, bool selectAll) {
 
 void Editor::endTextEdit() {
   if (text_.node == kNoGuid) return;
+  spelling_.clear();
+  spellingNode_ = kNoGuid;
   Guid id = text_.node;
   bool created = text_.created;
   size_t step = text_.undoCount;
@@ -803,10 +805,12 @@ std::string Editor::textRangeStyle(Guid id, uint32_t from, uint32_t to, bool use
   size_t first = 0, last = 0;
   text::paragraphsOf(p.text().textData, from, to, first, last);
   static const char* const kTypes[] = {"PLAIN", "ORDERED_LIST", "UNORDERED_LIST"};
+  static const char* const kDirections[] = {"AUTO", "LTR", "RTL"};
   for (size_t i = first; i <= last; i++) {
     text::LineInfo info = i < p.text().textData.lines.size() ? text::readLine(p.text().textData.lines[i]) : text::LineInfo{};
     put("lineType", quoted(kTypes[static_cast<int>(info.type)]));
     put("indentationLevel", std::to_string(info.indentationLevel));
+    put("sourceDirectionality", quoted(kDirections[std::min<int>(info.direction, 2)]));
   }
   json::Writer w;
   w.beginObject().key("from").number(from).key("to").number(to).key("values").beginObject();
@@ -840,6 +844,8 @@ Status Editor::textParagraphs(Guid id, int op, int value) {
     text::setListType(t, first, last, static_cast<uint8_t>(all ? 0 : std::clamp(value, 0, 2)));
   } else if (op == 1) {
     text::indentParagraphs(t, first, last, value);
+  } else if (op == 2) {
+    text::setDirection(t, first, last, static_cast<uint8_t>(std::clamp(value, 0, 2)));
   } else {
     return E_INVALID;
   }

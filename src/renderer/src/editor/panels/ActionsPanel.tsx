@@ -1,15 +1,17 @@
 /**
  * Actions (⌘K, the toolbar's Actions, the Figma menu's "Actions…"; live toolbar/actions-panel.txt): a 529 × 354 palette
  * over the bottom toolbar, its left edge at the toolbar's and 8 above it — the search (431 × 32 at 44, 8), the tabs All
- * / Assets / Plugins & widgets (at 8, 48), then sections: a header (11 / 450, secondary) and rows of 32 (13 / 400, the
- * text at 44 after a 24 glyph column). Live Figma's All tab lists Recents and its AI actions; here it lists Recents
- * (what was run from the palette, kept per machine) and every command of the Figma menu under its submenu's name —
- * the editor's command registry (menus.ts actionItems) —, filtered as you type. Assets lists this file's components
+ * / Assets / Plugins & widgets (at 8, 48), the "Visual search (AI beta)" button at 491, 12 (live's AI; listed, not
+ * built), then sections: a header (11 / 450, secondary) and rows of 32 (13 / 400, the text at 44 after a 24 glyph
+ * column). Live Figma's All tab opens on Recents and its AI sections (Image editing, Design tools, Riffing and writing
+ * — not part of this app); here it opens on Recents (what was run from the palette, kept per machine) — with none yet,
+ * on every command of the Figma menu under its submenu's name (unverified) —; typing searches the editor's command
+ * registry (menus.ts actionItems). Assets lists this file's components
  * (a pick inserts an instance in the middle of the view); plugins and widgets aren't part of this app. ↑ ↓ move, Enter
  * runs, Esc (or a press outside, or ⌘K) closes.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Icon, Portal, Tabs, TOOLS, useDismiss, type IconName, type ToolId } from "@/ds";
+import { Icon, IconButton, Portal, Tabs, TOOLS, useDismiss, type IconName, type ToolId } from "@/ds";
 import { useEditor, type EditorController } from "../controller";
 import { insertInstance } from "../components";
 import { useUI } from "../hooks";
@@ -76,14 +78,17 @@ function score(label: string, query: string): number {
   return l.includes(q) ? 1 : 0;
 }
 
-/** The All tab's rows: Recents and the menus' commands (empty query), or the matches, best first, by section. */
+/**
+ * The All tab's rows: with an empty query, Recents (live) — the menus' commands when nothing was run yet —; else the
+ * matches, best first, by section.
+ */
 export function actionRows(items: readonly ActionItem[], query: string, recents: readonly string[], run: (id: string) => boolean): Row[] {
   const row = (a: ActionItem, section = a.section): Row => ({ key: `${section}:${a.id}`, label: a.label, section, shortcut: a.shortcut, icon: toolIcon(a.id), disabled: a.disabled, run: () => run(a.id) });
   const q = query.trim();
   if (!q) {
     const byId = new Map(items.map((a) => [a.id, a]));
     const recent = recents.map((id) => byId.get(id)).filter((a): a is ActionItem => !!a);
-    return [...recent.map((a) => row(a, "Recents")), ...items.map((a) => row(a))];
+    return recent.length ? recent.map((a) => row(a, "Recents")) : items.map((a) => row(a));
   }
   const scored = items.map((a) => ({ a, s: score(a.label, q) })).filter((x) => x.s > 0);
   // Sections in the order of their best match; within one, best first (the menu's order breaks ties).
@@ -224,6 +229,8 @@ function Actions() {
               setActiveKey(undefined);
             }}
           />
+          {/* Live: "Visual search (AI beta)" at 491, 12 — live's AI image search, not part of this app */}
+          <IconButton icon="24.image" label="Visual search (AI beta)" className={styles.visualSearch} disabled />
         </div>
         <div role="status" className={styles.srOnly}>
           {query ? `${rows.length} results available.` : "Results will update as you type."}

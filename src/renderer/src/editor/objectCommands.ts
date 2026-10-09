@@ -200,6 +200,8 @@ export interface FileOps {
   duplicate(): Promise<{ fileKey: string; name: string }>;
   folders(): Promise<{ id: string | null; name: string }[]>;
   moveTo(folderId: string | null): Promise<void>;
+  /** File › Create branch…: a copy named after the branch ("<file> / <branch>") */
+  branch(name: string): Promise<{ fileKey: string; name: string }>;
 }
 
 export function fileOps(ed: EditorController): FileOps | null {
@@ -219,6 +221,17 @@ export async function duplicateFile(ed: EditorController): Promise<void> {
   const open = desktop()?.nav?.openFile;
   if (open) await open(copy.fileKey);
   else showToast({ message: `Duplicated as “${copy.name}”` });
+}
+
+/** File › Create branch…: the branch's copy, opened in a new tab (the desktop app; else a toast says where it is). */
+export async function createBranch(ed: EditorController, name: string): Promise<void> {
+  const ops = fileOps(ed);
+  if (!ops || !name.trim()) return;
+  await ed.source.flush();
+  const copy = await ops.branch(name.trim());
+  const open = desktop()?.nav?.openFile;
+  if (open) await open(copy.fileKey);
+  else showToast({ message: `Created branch “${copy.name}”` });
 }
 
 export function canSaveLocalCopy(ed: EditorController): boolean {

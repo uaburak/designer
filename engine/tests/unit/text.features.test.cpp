@@ -369,6 +369,41 @@ TEST_CASE("text round: lists from the keyboard — ⇧⌘8, Tab / ⇧Tab, Return
   CHECK(v.get("values")->get("lineType")->string == "ORDERED_LIST");
 }
 
+TEST_CASE("r10 Text › Text direction: the paragraphs' sourceDirectionality, as Figma writes it; one undo step") {
+  Editor e = makeEditor(textNode("Alpha\nBeta"));
+  auto lines = [&]() { return e.document().get(T)->props.text().textData.lines; };
+  REQUIRE(e.textParagraphs(T, 2, 2) == OK);
+  REQUIRE(lines().size() == 2);
+  for (const std::string& l : lines()) CHECK(readLine(l).direction == 2);
+  json::Value v = rangeStyle(e, T);
+  CHECK(v.get("values")->get("sourceDirectionality")->string == "RTL");
+  // Editing: only the caret's paragraph.
+  REQUIRE(e.startTextEdit(T, false) == OK);
+  key(e, KeyCode::ArrowUp, MOD_PRIMARY);
+  REQUIRE(e.textParagraphs(T, 2, 1) == OK);
+  CHECK(readLine(lines()[0]).direction == 1);
+  CHECK(readLine(lines()[1]).direction == 2);
+  e.endTextEdit();
+  e.command(CommandId::UNDO);
+  CHECK(readLine(lines()[0]).direction == 2);
+  // Auto again: the default (no explicit intent).
+  REQUIRE(e.textParagraphs(T, 2, 0) == OK);
+  CHECK(readLine(lines()[1]).direction == 0);
+}
+
+TEST_CASE("r10 Text › Spell check: the edited text's misspelled words underlined, gone when the edit ends") {
+  Editor e = makeEditor(textNode("Helo wrld"));
+  CommandArgs a;
+  REQUIRE(json::parse(R"({"ranges":[[0,4],[5,9]]})", a.raw));
+  CHECK(e.command(CommandId::SET_SPELLING_MARKS, a) == E_INVALID);  // nothing edited
+  REQUIRE(e.startTextEdit(T, false) == OK);
+  REQUIRE(e.command(CommandId::SET_SPELLING_MARKS, a) == OK);
+  CHECK(e.overlay().misspelled.size() == 2);
+  e.endTextEdit();
+  REQUIRE(e.startTextEdit(T, false) == OK);
+  CHECK(e.overlay().misspelled.empty());
+}
+
 TEST_CASE("text round: a variable, a fill variable and a text style applied to part of a text go to its runs") {
   Editor e = makeEditor(textNode("Hello world"));
   auto run = [&](CommandId id, const std::string& a) {

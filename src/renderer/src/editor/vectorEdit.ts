@@ -2,14 +2,14 @@
  * Vector edit mode and on-canvas gradient handles, as the editor sees them
  * (E4 / E5, docs/engine-build.md "E4 + E5 API": the engine owns both — the
  * network, the handles, the gestures, the keys). The editor's part: the
- * toolbar switches to the vector-edit tools while it is on, the Design panel
+ * secondary toolbar over the bottom one shows the vector-edit tools while it is on, the Design panel
  * shows the selected points (mirroring), Esc or "Done" leaves; the colour
  * picker enters the gradient handles while it shows a gradient and follows
  * the stop picked on the canvas. A build without these names reads as "not
  * available" (the controls stay disabled), never as an error.
  *
  * Engine names: `startVectorEdit(ref)`, `endVectorEdit()`, `vectorEdit`,
- * `setVectorEditTool("MOVE" | "PEN" | "BEND")`, event `VECTOR_EDIT`, command
+ * `setVectorEditTool("MOVE" | "PEN" | "BEND" | "LASSO" | "PAINT_BUCKET" | "CUT" | "ERASE")`, event `VECTOR_EDIT`, command
  * `VECTOR_SET_MIRRORING {mirroring}`; `startPaintEdit(ref, {paints, index})`,
  * `endPaintEdit()`, `setPaintEditStop(i)`, event `PAINT_EDIT`.
  */
@@ -19,11 +19,11 @@ import { Status } from "@/engine/abi";
 import { engineCommandEnabled, engineMethod, hasCommand, runEngineCommand } from "./engineCompat";
 import { Store } from "./uiStore";
 
-/** The vector-edit toolbar's tools (Figma UI3, left to right). */
-export type VectorTool = "MOVE" | "LASSO" | "PEN" | "BEND" | "PAINT_BUCKET";
-export const VECTOR_TOOLS: VectorTool[] = ["MOVE", "LASSO", "PEN", "BEND", "PAINT_BUCKET"];
+/** Vector edit mode's tools (live toolbar/vector-edit-toolbar.txt: Move, Lasso │ Paint, Bend, Cut, Erase; the Pen is the bottom toolbar's). */
+export type VectorTool = "MOVE" | "LASSO" | "PEN" | "BEND" | "PAINT_BUCKET" | "CUT" | "ERASE";
+export const VECTOR_TOOLS: VectorTool[] = ["MOVE", "LASSO", "PEN", "BEND", "PAINT_BUCKET", "CUT", "ERASE"];
 /** The ones the engine takes (`setVectorEditTool`). */
-const ENGINE_VECTOR_TOOLS: ReadonlySet<VectorTool> = new Set(["MOVE", "PEN", "BEND"]);
+const ENGINE_VECTOR_TOOLS: ReadonlySet<VectorTool> = new Set(VECTOR_TOOLS);
 
 export type Mirroring = "NONE" | "ANGLE" | "ANGLE_AND_LENGTH";
 
@@ -85,7 +85,7 @@ export class VectorEditor {
     return !!engineMethod(this.engine, "startVectorEdit");
   }
 
-  /** Does the engine have this vector-edit tool? (Lasso and Paint bucket: not yet) */
+  /** Does the engine have this vector-edit tool? */
   hasTool(tool: VectorTool): boolean {
     return this.available && ENGINE_VECTOR_TOOLS.has(tool) && !!engineMethod(this.engine, "setVectorEditTool");
   }

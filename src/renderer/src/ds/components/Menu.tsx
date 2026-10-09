@@ -75,9 +75,13 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
   const subId = useId();
   const list = tidy(entries);
   // Live: a tool menu and a list over its field (gap, W / H) open with the current value lit, a menu under its trigger
-  // with its first row lit (popovers/boolean-operations-menu, frame-presets-menu, width-sizing-menu, gap-menu).
+  // with its checked row lit, else its first (popovers/boolean-operations-menu, blend-mode-menu,
+  // stroke-individual-strokes-menu, frame-presets-menu, width-sizing-menu, gap-menu).
   const checkedRow = list.findIndex((e) => isItem(e) && e.checked && !e.disabled);
-  const [active, setActive] = useState(highlighted ?? (dropdown || over ? checkedRow : flush ? nextItem(list, -1, 1) : -1));
+  const [active, setActive] = useState(highlighted ?? (dropdown || over ? checkedRow : flush ? (checkedRow >= 0 ? checkedRow : nextItem(list, -1, 1)) : -1));
+  // Live (toolbar/*-tools-menu.txt, popovers/stroke-individual-strokes-menu.txt): a menu of radio items is named by a
+  // hidden label ("Move tools", "Individual strokes").
+  const named = !!label && (dropdown || (flush && list.some((e) => isItem(e) && e.radio)));
   const [sub, setSub] = useState<{ index: number; x: number; y: number; flipX: number; focus: boolean } | null>(null);
   const typed = useRef(createTypeahead());
   const intent = useRef<number | undefined>(undefined);
@@ -174,8 +178,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       <div
         ref={panel}
         role="menu"
-        aria-label={dropdown ? undefined : label}
-        aria-labelledby={dropdown && label ? `${subId}-label` : undefined}
+        aria-label={named ? undefined : label}
+        aria-labelledby={named ? `${subId}-label` : undefined}
         tabIndex={-1}
         data-ds="Menu"
         data-theme="dark"
@@ -209,7 +213,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         }}
       >
         {/* Live (toolbar/*-tools-menu.txt): a tool menu is named by a hidden "Move tools" / "Shape tools"… */}
-        {dropdown && label && (
+        {named && (
           <span id={`${subId}-label`} className={styles.hiddenLabel}>
             {label}
           </span>
@@ -238,6 +242,11 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               <span className={styles.label}>{entry.label}</span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
               {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}
+              {entry.badge && (
+                <span className={styles.badge} aria-label={`${entry.badge}, Learn more`}>
+                  {entry.badge}
+                </span>
+              )}
               {entry.shortcut &&
                 (context ? (
                   // Live context menus: one 12px glyph per key, the chord 8 after the label.
@@ -457,7 +466,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush over={at.over} flipX={at.flipX} className={menuClassName} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop flush over={at.over} flipX={at.flipX} className={menuClassName} label={label} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

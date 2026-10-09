@@ -87,7 +87,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
     ed.edit("Stroke weight", info, () => {
       for (const n of nodes) ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
     });
-  const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: s.label, icon: s.icon, checked: side === s.id }]);
+  const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: s.label, icon: s.icon, checked: side === s.id, radio: true }]);
   return (
     <PropertyGrid labels={labels}>
       <PropertyRow

@@ -1481,6 +1481,11 @@ export class Engine {
     const [s, l] = this.ids(ref);
     return this.after(this.x.textParagraphs(this.h, s, l, 1, levels));
   }
+  /** Text › Text direction (round 10): the paragraphs' sourceDirectionality (the edited selection's, or the whole text). */
+  setTextDirection(ref: Guid, direction: "AUTO" | "LTR" | "RTL"): number {
+    const [s, l] = this.ids(ref);
+    return this.after(this.x.textParagraphs(this.h, s, l, 2, direction === "LTR" ? 1 : direction === "RTL" ? 2 : 0));
+  }
 
   /** A font's variable axes and OpenType features; null while it loads (it is requested) or when it is missing. */
   fontInfo(family: string, style: string): FontInfo | null {

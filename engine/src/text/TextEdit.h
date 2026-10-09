@@ -58,6 +58,8 @@ std::string extraEntry(const NodeProps& props, FieldMask field, const char* key)
 void paragraphsOf(const TextData& t, uint32_t from, uint32_t to, size_t& first, size_t& last);
 // Sets the list type of paragraphs [first, last] (PLAIN removes it; a list starts at level 1 at least).
 void setListType(TextData& t, size_t first, size_t last, uint8_t lineType);
+// Text › Text direction (round 10): the paragraphs' sourceDirectionality (0 AUTO, 1 LTR, 2 RTL).
+void setDirection(TextData& t, size_t first, size_t last, uint8_t direction);
 // Indents paragraphs [first, last] by `delta` levels (0–5; a list item stays at 1 or more).
 void indentParagraphs(TextData& t, size_t first, size_t last, int delta);
 

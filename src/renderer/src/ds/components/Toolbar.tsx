@@ -1,4 +1,4 @@
-import { useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useRef, useState, type HTMLAttributes, type MouseEvent, type ReactNode } from "react";
 import { cx } from "../util/cx";
 import { Icon, type IconName } from "../icons/Icon";
 import { tooltipProps } from "../overlay/TooltipManager";
@@ -9,15 +9,20 @@ export interface ToolbarProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
   /** Absolutely placed: centred, 12px over the bottom of its (relative) container */
   floating?: boolean;
+  /**
+   * The secondary toolbar over the bottom one (live toolbar/vector-edit-toolbar.txt: 40 high, 8 over it, labelled
+   * 24px tools)
+   */
+  secondary?: boolean;
   /** Centre on the window, not the canvas: the px to shift by */
   offset?: number;
   label?: string;
 }
 
 /** The bottom toolbar (contract §4.24): 48px, radius 13, elevation 100, 8 padding, 8 between groups. */
-export function Toolbar({ children, floating, offset = 0, label = "Tools", className, style, ...rest }: ToolbarProps) {
+export function Toolbar({ children, floating, secondary, offset = 0, label = "Tools", className, style, ...rest }: ToolbarProps) {
   return (
-    <div role="toolbar" aria-label={label} data-ds="Toolbar" className={cx(styles.toolbar, floating && styles.floating, className)} style={{ ...style, ["--ds-toolbar-offset" as string]: `${offset}px` }} {...rest}>
+    <div role="toolbar" aria-label={label} data-ds="Toolbar" className={cx(styles.toolbar, floating && styles.floating, secondary && styles.secondary, className)} style={{ ...style, ["--ds-toolbar-offset" as string]: `${offset}px` }} {...rest}>
       {children}
     </div>
   );
@@ -102,6 +107,45 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
         </>
       )}
     </div>
+  );
+}
+
+export interface ToolTextButtonProps {
+  icon?: IconName;
+  label: string;
+  shortcut?: string;
+  active?: boolean;
+  disabled?: boolean;
+  /** A trigger: its name, then a chevron (live "More ▾") */
+  chevron?: boolean;
+  onSelect: (e: MouseEvent<HTMLButtonElement>) => void;
+  "aria-haspopup"?: "menu";
+  "aria-expanded"?: boolean;
+}
+
+/**
+ * A labelled tool of a secondary toolbar (live vector edit toolbar: Move, Lasso, Paint, Bend, Cut, Erase): 24 high, its
+ * glyph then its name (11 / 400), 8 after; active, the brand fill and white ink. With `chevron`: 8, the name, a chevron.
+ */
+export function ToolTextButton({ icon, label, shortcut, active, disabled, chevron, onSelect, ...aria }: ToolTextButtonProps) {
+  return (
+    <button
+      type="button"
+      data-ds="ToolTextButton"
+      aria-label={label}
+      aria-pressed={chevron ? undefined : !!active}
+      aria-keyshortcuts={shortcut}
+      aria-disabled={disabled || undefined}
+      className={cx(styles.textTool, chevron && styles.textToolMenu)}
+      data-active={active || undefined}
+      onClick={disabled ? undefined : onSelect}
+      {...(shortcut ? tooltipProps(label, shortcut, "top") : {})}
+      {...aria}
+    >
+      {icon && <Icon name={icon} />}
+      <span className={styles.textToolLabel}>{label}</span>
+      {chevron && <Icon name="16.chevron.down" />}
+    </button>
   );
 }
 

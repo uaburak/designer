@@ -10,6 +10,8 @@ export type MenuItem = {
   accelerator?: string;
   /** A word after the label, greyed */
   hint?: string;
+  /** A tag at the row's right end (live context-layer-row.txt: "Rename layers" with an "AI" link, 20 × 18 at 164) */
+  badge?: string;
   icon?: IconName;
   /** A glyph after the label (a locked layer's padlock in "Select layer ▸") */
   trailingIcon?: IconName;

@@ -491,8 +491,9 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
     "object.frame-selection",
     ...(multi && isEnabled(ed, command("object.wrap-in-section")) ? ["object.wrap-in-section"] : []),
     ...(isEnabled(ed, command("object.ungroup")) && !allComponents ? [{ id: "object.ungroup", label: "Ungroup" }] : []),
-    // Live (context-layer-row.txt): Rename ⌘R after Frame selection on a Layers row ("Rename layers" is live's AI).
-    ...(row ? ["object.rename"] : []),
+    // Live (context-layer-row.txt): Rename ⌘R after Frame selection on a Layers row, then "Rename layers" with its
+    // "AI" tag (live's AI renaming: listed, not built).
+    ...(row ? ["object.rename", (e: EditorController): MenuEntry => ({ ...commandItem(e, "canvas.rename-layers-ai"), badge: "AI" })] : []),
     "vector.flatten",
     "vector.outline-stroke",
     ...(thumbnail && !row ? ["object.set-as-thumbnail"] : []),

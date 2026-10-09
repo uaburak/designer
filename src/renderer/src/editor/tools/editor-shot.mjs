@@ -334,11 +334,12 @@ async function paintsSection(page, theme) {
     await panel.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Edit object" }).click();
     await settle(page);
-    check("vector edit mode: the vector-edit toolbar with Done", (await page.locator("[data-vector-toolbar]").count()) === 1);
+    // Round 10 (live toolbar/vector-edit-toolbar.txt): a secondary toolbar over the bottom one, ✕ Close leaves.
+    check("vector edit mode: the vector-edit toolbar over the bottom toolbar, with Close", (await page.locator("[data-vector-toolbar]").count()) === 1 && (await page.locator('[data-ds="EditorToolbar"]').count()) === 1);
     await shot(page, `37-vector-edit-${theme}`);
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.locator("[data-vector-toolbar]").getByRole("button", { name: "Close", exact: true }).click();
     await settle(page);
-    check("Done leaves vector edit mode", (await page.locator("[data-vector-toolbar]").count()) === 0);
+    check("Close leaves vector edit mode", (await page.locator("[data-vector-toolbar]").count()) === 0);
   } else results.push("info vector edit: the engine has no startVectorEdit yet");
 
   // The new tools (when the engine has them): L draws a line.

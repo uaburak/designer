@@ -250,3 +250,47 @@ TEST_CASE("r10 Set default properties: a new rectangle starts with the set look"
   REQUIRE(made.fillPaints.size() == 1);
   CHECK(made.fillPaints[0].color == Color::hex(0xFF0000));
 }
+
+TEST_CASE("r10 vector edit's Cut: a click cuts a segment apart; a line cuts every segment it crosses") {
+  geom::VectorNetwork net;
+  net.vertices = {{{0, 0}, 0}, {{50, 50}, 0}, {{100, 0}, 0}};
+  net.segments = {geom::VNSegment{0, 1, {}, {}, 0}, geom::VNSegment{1, 2, {}, {}, 0}};
+  Editor e = makeEditor({vectorNode(V, "&", {100, 600, 100, 50}, net)});
+  e.setSelection({V});
+  REQUIRE(e.startVectorEdit(V) == OK);
+  REQUIRE(e.setVectorTool(Editor::VectorTool::CUT) == OK);
+  // Screen = world + 100 (camera); the first segment's middle at (225, 725).
+  e.pointer(PointerEvent::DOWN, 225, 725, 0, 1, 0, 1);
+  e.pointer(PointerEvent::UP, 225, 725, 0, 0, 0, 1);
+  geom::VectorNetwork cut = networkOf(e, V);
+  CHECK(cut.segments.size() == 3);
+  CHECK(cut.vertices.size() == 5);
+  e.command(CommandId::UNDO);
+  REQUIRE(networkOf(e, V).segments.size() == 2);
+  // A line across both segments (y 740 on screen).
+  e.pointer(PointerEvent::DOWN, 190, 740, 0, 1, 0, 1);
+  e.pointer(PointerEvent::MOVE, 250, 740, 0, 1, 0);
+  e.pointer(PointerEvent::MOVE, 310, 740, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 310, 740, 0, 0, 0, 1);
+  CHECK(networkOf(e, V).segments.size() == 4);
+}
+
+TEST_CASE("r10 vector edit's Erase: the segments the path passes over go, with the points left alone") {
+  geom::VectorNetwork net;
+  net.vertices = {{{0, 0}, 0}, {{50, 50}, 0}, {{100, 0}, 0}};
+  net.segments = {geom::VNSegment{0, 1, {}, {}, 0}, geom::VNSegment{1, 2, {}, {}, 0}};
+  Editor e = makeEditor({vectorNode(V, "&", {100, 600, 100, 50}, net)});
+  e.setSelection({V});
+  REQUIRE(e.startVectorEdit(V) == OK);
+  REQUIRE(e.setVectorTool(Editor::VectorTool::ERASE) == OK);
+  // Over the second segment's middle (275, 725).
+  e.pointer(PointerEvent::DOWN, 270, 720, 0, 1, 0, 1);
+  e.pointer(PointerEvent::MOVE, 275, 725, 0, 1, 0);
+  e.pointer(PointerEvent::MOVE, 280, 730, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 280, 730, 0, 0, 0, 1);
+  geom::VectorNetwork left = networkOf(e, V);
+  CHECK(left.segments.size() == 1);
+  CHECK(left.vertices.size() == 2);
+  e.command(CommandId::UNDO);
+  CHECK(networkOf(e, V).segments.size() == 2);
+}

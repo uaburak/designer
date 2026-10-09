@@ -10,7 +10,8 @@ import type { EditorController } from "../controller";
 import { setDevStatusOf, statusOfTargets } from "../devStatus";
 import { categoriesOf, encodeCategories, encodeNotes, notesOf, type AnnotationData, type CategoriesJson, type Category, type Note } from "./annotations";
 
-export type Mode = "design" | "dev";
+/** Design, Dev Mode, or Draw (round 10, View › Switch to Draw: the Design editor with the Pencil to hand — Figma Draw's own brushes and panels aren't built). */
+export type Mode = "design" | "dev" | "draw";
 
 export const modeOf = (ed: EditorController): Mode => ed.ui.get().mode ?? "design";
 export const annotationsShown = (ed: EditorController): boolean => ed.ui.get().annotations ?? true;
@@ -23,10 +24,10 @@ function syncEngine(ed: EditorController): void {
   ed.engine.setAnnotationView(annotationsShown(ed), dev);
 }
 
-/** Design ⇄ Dev Mode (⇧D, the toolbar's switch). Leaving Dev Mode leaves focus view. */
+/** Design ⇄ Dev Mode (⇧D, the toolbar's switch) ⇄ Draw. Leaving Dev Mode leaves focus view. */
 export function setMode(ed: EditorController, mode: Mode): void {
   if (modeOf(ed) === mode) return;
-  if (mode === "design" && ed.ui.get().focus) closeFocus(ed);
+  if (mode !== "dev" && ed.ui.get().focus) closeFocus(ed);
   ed.ui.set({ mode, statusMenu: null, annotationEditor: null, measurementEditor: null });
   syncEngine(ed);
   ed.focusCanvas();

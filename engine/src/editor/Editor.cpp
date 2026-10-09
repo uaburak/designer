@@ -786,6 +786,13 @@ Overlay Editor::overlay() const {
     o.sizeBadge = false;
     if (const text::TextLayout* L = const_cast<Editor*>(this)->textLayout(text_.node)) {
       o.textSelection = L->selectionRects(textSelStart(), textSelEnd());
+      // Text › Spell check (round 10): the misspelled words' lines.
+      if (spellingNode_ == text_.node) {
+        uint32_t len = static_cast<uint32_t>(L->text.size());
+        for (auto [a, b] : spelling_)
+          if (a < len)
+            for (const Rect& r : L->selectionRects(a, std::min(b, len))) o.misspelled.push_back(r);
+      }
       if (text_.anchor == text_.focus) {
         size_t line = L->lineOf(text_.focus, text_.upstream);
         const text::LaidLine& l = L->lines[line];

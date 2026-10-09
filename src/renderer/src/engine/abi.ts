@@ -248,6 +248,8 @@ export const CommandId = {
   VECTOR_SIMPLIFY: 283,
   VECTOR_OFFSET: 284,
   SET_DEFAULT_PROPERTIES: 285,
+  /** args { ranges: [from, to][] }: the edited text's misspelled words (UTF-16), underlined (Text › Spell check). */
+  SET_SPELLING_MARKS: 286,
 } as const;
 export type CommandName = keyof typeof CommandId;
 
@@ -331,7 +333,7 @@ export const EXPORT_ALLOW_PENDING = 1;
 /** engine_text_edit flags. */
 export const TEXT_EDIT_SELECT_ALL = 1;
 /** engine_vector_edit_tool values. */
-export const VECTOR_EDIT_TOOLS = ["MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET"] as const;
+export const VECTOR_EDIT_TOOLS = ["MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET", "CUT", "ERASE"] as const;
 
 /** Status codes (§10.3). */
 export const Status = {

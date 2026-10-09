@@ -1,16 +1,17 @@
 /**
  * Round 10's pieces for the Figma menu's commands (docs/editor.md "Round 10 — Menus, commands, left side and toolbar"):
- * File › Move to project… (a dialog of the workspace's places), Cursor chat (/ : a bubble at the pointer), View ›
+ * File › Move to project… (a dialog of the workspace's places), Create branch… (its name), Cursor chat (/ : a bubble at the pointer), View ›
  * Memory usage (a chip at the canvas's bottom left), Vector › Simplify vector (a slider, help.figma.com "Simplify a
  * vector path") and Offset vector (Amount, Join, ✓, "Offset a vector path"). Their looks are unverified (no live
  * capture); they use the DS's own parts.
  */
 import { useEffect, useRef, useState } from "react";
-import { Button, Dialog, IconButton, NumericInput, RadioGroup, SegmentedControl, showToast } from "@/ds";
+import { Button, Dialog, IconButton, NumericInput, RadioGroup, SegmentedControl, showToast, TextInput } from "@/ds";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
 import { lastPointer } from "../commands";
-import { fileOps } from "../objectCommands";
+import { createBranch, fileOps } from "../objectCommands";
+import { attachSpellcheck } from "../spellcheck";
 import styles from "./CommandOverlays.module.css";
 
 export function CommandOverlays() {
@@ -21,15 +22,21 @@ export function CommandOverlays() {
       if (e.target === ed.canvas) lastPointer.set(ed, { x: e.clientX, y: e.clientY });
     };
     window.addEventListener("pointermove", move, { passive: true });
-    return () => window.removeEventListener("pointermove", move);
+    const offSpelling = attachSpellcheck(ed);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      offSpelling();
+    };
   }, [ed]);
   const move = useUI((s) => !!s.moveFileDialog);
+  const branch = useUI((s) => !!s.branchDialog);
   const chat = useUI((s) => s.cursorChat ?? null);
   const memory = useUI((s) => !!s.memoryUsage);
   const op = useUI((s) => s.vectorOp ?? null);
   return (
     <>
       {move && <MoveFileDialog />}
+      {branch && <BranchDialog />}
       {chat && <CursorChat at={chat} />}
       {memory && <MemoryUsage />}
       {op && <VectorOperation op={op} />}
@@ -82,6 +89,42 @@ function MoveFileDialog() {
     >
       <div className={styles.places} data-move-file="">
         {places ? <RadioGroup label="Projects" value={to} options={places.map((p) => ({ value: value(p.id), label: p.name }))} onChange={setTo} /> : null}
+      </div>
+    </Dialog>
+  );
+}
+
+/** File › Create branch…: the branch's name; Create makes it and opens it (help.figma.com "Create branches"; unverified look). */
+function BranchDialog() {
+  const ed = useEditor();
+  const [name, setName] = useState("");
+  const close = () => {
+    ed.ui.set({ branchDialog: false });
+    ed.focusCanvas();
+  };
+  const create = () => {
+    if (!name.trim()) return;
+    void createBranch(ed, name);
+    close();
+  };
+  return (
+    <Dialog
+      title="Create branch"
+      open
+      onClose={close}
+      footer={
+        <>
+          <Button variant="secondary" onClick={close}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={!name.trim()} onClick={create}>
+            Create
+          </Button>
+        </>
+      }
+    >
+      <div data-create-branch="" onKeyDown={(e) => e.key === "Enter" && create()}>
+        <TextInput label="Branch name" placeholder="Branch name" value={name} onChange={setName} autoFocus />
       </div>
     </Dialog>
   );

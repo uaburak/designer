@@ -69,6 +69,8 @@ export interface UIState extends PreferenceFlags {
   vectorOp?: "simplify" | "offset" | null;
   /** Round 10, File › Move to project…: its dialog */
   moveFileDialog?: boolean;
+  /** Round 10, File › Create branch…: its dialog */
+  branchDialog?: boolean;
   /** View › Pixel preview (⌃P, ⇧⌘P): 0 off, 1 at 1x, 2 at 2x (round 8) */
   pixelPreview?: 0 | 1 | 2;
   /** Preferences › Nudge amount… (round 8): the steps, and whether its dialog is open */
@@ -146,7 +148,7 @@ export interface UIState extends PreferenceFlags {
   /** The track label editor on the canvas, over this rect (viewport px) */
   gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
   /** Dev Mode (⇧D, the toolbar's mode switch): the Inspect panel, read-only canvas, annotations as dots (devmode/) */
-  mode?: "design" | "dev";
+  mode?: "design" | "dev" | "draw";
   /** View › Annotations (labels, dots and saved measurements); default on */
   annotations?: boolean;
   /** The note editor: the layer, which note (−1: a new one), where (viewport px) */

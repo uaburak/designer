@@ -474,7 +474,8 @@ class Editor : private LayoutHost, public TextLayouts {
   void textAutoformatList();
 
   // ---- Vector edit mode (editor/VectorEditing.cpp) ----
-  enum class VectorTool : uint8_t { MOVE, PEN, BEND, LASSO, PAINT_BUCKET };
+  // Round 10 (live toolbar/vector-edit-toolbar.txt): Cut and Erase after Paint and Bend.
+  enum class VectorTool : uint8_t { MOVE, PEN, BEND, LASSO, PAINT_BUCKET, CUT, ERASE };
   // Edits `id`'s vector network (VECTOR, LINE, and shapes: they become VECTORs at their first edit).
   Status startVectorEdit(Guid id);
   void endVectorEdit();
@@ -1109,6 +1110,10 @@ class Editor : private LayoutHost, public TextLayouts {
   bool canSetDefaultProperties() const;
   NodeProps toolProps(NodeType type) const;
   std::map<NodeType, NodeProps> userDefaults_;
+  // Text › Spell check (round 10): the edited text's misspelled words (UTF-16 ranges, the editor's spell checker's),
+  // underlined while it is edited.
+  std::vector<std::pair<uint32_t, uint32_t>> spelling_;
+  Guid spellingNode_ = kNoGuid;
   std::vector<Guid> navigableFrames() const;
   // A new section as Figma makes one in the current UI theme (live 2026-10-08: dark — #444444, a white 10 % inside
   // stroke; light — white, a black 10 % stroke; radius 2, not clipping).
@@ -1267,7 +1272,7 @@ class Editor : private LayoutHost, public TextLayouts {
     // Hover.
     int hoverVertex = -1, hoverSegment = -1;
     // The gesture.
-    enum class Drag : uint8_t { None, Vertices, Handle, Bend, PenNew, PenHandle, Marquee, Lasso } drag = Drag::None;
+    enum class Drag : uint8_t { None, Vertices, Handle, Bend, PenNew, PenHandle, Marquee, Lasso, Cut, Erase } drag = Drag::None;
     bool dragged = false;
     geom::VectorNetwork startNet;  // when the drag started (node space then)
     Mat2x3 startWorld;             // the node's world transform then
@@ -1277,6 +1282,7 @@ class Editor : private LayoutHost, public TextLayouts {
     double bendT = 0.5;
     int newVertex = -1;
     std::vector<Vec2> lasso;  // world
+    std::vector<Vec2> trail;  // world: the Cut tool's line, the Erase tool's path
     Rect marquee;             // world
     std::vector<uint32_t> baseSel;
     bool committedInDrag = false;
@@ -1284,6 +1290,10 @@ class Editor : private LayoutHost, public TextLayouts {
   uint32_t vectorPointerDown(Vec2 s, uint32_t mods, int clickCount);
   void vectorPointerMove(Vec2 s, uint32_t mods);
   void vectorPointerUp(Vec2 s, uint32_t mods);
+  // Round 10: the Cut tool (a click on a segment or point, or a line dragged across the path) and the Erase tool (a
+  // path dragged over segments), applied when the pointer comes up; one undo step each.
+  void vectorCut(Vec2 s);
+  void vectorErase();
   uint32_t vectorKey(KeyCode code, uint32_t mods);
   void vectorChanged();  // VECTOR_EDIT, a frame
   // Re-reads the network from the node (after undo / redo / outside changes).

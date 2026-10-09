@@ -160,6 +160,7 @@ enum class CommandId : uint32_t {
   VECTOR_SIMPLIFY = 283,                // args {amount: 0…1}: fewer points, the shape kept within a tolerance
   VECTOR_OFFSET = 284,                  // args {amount, join: "MITER" | "ROUND"}: the outline grown (+) or shrunk (−)
   SET_DEFAULT_PROPERTIES = 285,         // the selected layer's look: what new layers of its type start with (this session)
+  SET_SPELLING_MARKS = 286,             // args {ranges: [[from, to]…]}: the edited text's misspelled words (UTF-16), underlined
 };
 
 // engine_command_state bits.
