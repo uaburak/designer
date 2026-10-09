@@ -157,12 +157,15 @@ function renamedInstance(ed: EditorController, instance: CNode): boolean {
 export function instanceMoreMenu(ed: EditorController, instance: CNode): MenuEntry[] {
   const renamed = renamedInstance(ed, instance);
   const reset = actionItem(ed, "object.reset-all-changes", "Reset instance");
-  const push = isEnabled(ed, command("object.push-changes")) ? [actionItem(ed, "object.push-changes")] : [];
+  // (A new name alone isn't pushed: live's renamed instance has no Push changes.)
+  const pushable = instanceChanges(ed, instance).some((g) => g.fields.some((f) => f !== "name"));
+  const push = pushable && isEnabled(ed, command("object.push-changes")) ? [actionItem(ed, "object.push-changes")] : [];
   const groups: MenuEntry[][] = [
     statusTargets(ed).length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", icon: ACTION_ICON["ready-for-dev"] }] : [],
     [actionItem(ed, "object.create-component"), actionItem(ed, "object.detach-instance"), { ...reset, disabled: reset.disabled && !renamed }, ...(renamed ? [{ id: "reset-name", label: "Reset name", icon: ACTION_ICON["reset-name"] }] : []), ...push],
     [actionItem(ed, "object.use-as-mask")],
-    booleanActions(ed),
+    // Flatten (live): the instance is detached, then flattened.
+    booleanActions(ed).map((e) => (e.id === "vector.flatten" && e.disabled && isEnabled(ed, command("object.detach-instance")) ? { ...e, id: "flatten-instance", disabled: false } : e)),
   ];
   return groups.flatMap((g): MenuEntry[] => {
     const shown = g.filter((e) => e === "-" || !("id" in e) || !e.disabled);
@@ -202,6 +205,11 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
       const targets = statusTargets(ed);
       runEditorCommand(ed, statusOfTargets(ed, targets) === "BUILD" ? "object.remove-dev-status" : "object.mark-ready-for-dev");
     } else if (id === "reset-name") resetName(ed, instance);
+    else if (id === "flatten-instance")
+      ed.batch("Flatten", () => {
+        runEditorCommand(ed, "object.detach-instance");
+        runEditorCommand(ed, "vector.flatten");
+      });
     else if (id === "object.reset-all-changes") {
       const renamed = renamedInstance(ed, instance);
       ed.batch("Reset instance", () => {

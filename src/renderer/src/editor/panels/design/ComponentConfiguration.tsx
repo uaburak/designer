@@ -41,7 +41,8 @@ export function setDocumentationLink(ed: EditorController, owner: CNode, uri: st
 
 /** Where the popover goes: left of the panel, level with the panel's top (live 880, 81 at 1440 × 900). */
 function panelTop(anchor: HTMLElement): DOMRect {
-  const panel = anchor.closest<HTMLElement>("[data-panel]")?.getBoundingClientRect();
+  // (The panel's content: the tab panel under the panel's own header.)
+  const panel = (anchor.closest<HTMLElement>('[role="tabpanel"]') ?? anchor.closest<HTMLElement>("[data-panel]"))?.getBoundingClientRect();
   return panel ? new DOMRect(panel.left + 1, panel.top, 0, 0) : anchor.getBoundingClientRect();
 }
 

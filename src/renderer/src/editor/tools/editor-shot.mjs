@@ -23,6 +23,7 @@
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Toggle sidebar)
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
+//   EDITOR_ONLY=header9 node …                                     (round 9: the header of a layer in a frame, Frame ▾, the boolean menu, the component / variant / instance panels, Component configuration, the swap menu)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -380,7 +381,7 @@ async function componentsSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["2:1", "2:2", "I2:2;1:2"]) }));
   await select("2:2");
   check("Layers: an instance row in purple with its layers below", (await row("2:2").getAttribute("data-tone")) === "component" && (await row("I2:2;1:3").count()) === 1);
-  check("the instance panel: header, Boolean, Text, Instance swap, the exposed nested instance", (await panel.getByRole("button", { name: "Instance menu: Button" }).count()) === 1 && (await panel.getByRole("switch", { name: "Show icon" }).count()) === 1 && (await panel.getByRole("textbox", { name: "Label" }).inputValue()) === "Sign in" && (await panel.locator('[data-nested-instance]').count()) === 1);
+  check("the instance panel: header, Boolean, Text, Instance swap, the exposed nested instance", (await panel.locator('[data-instance-menu="Button"]').count()) === 1 && (await panel.getByRole("switch", { name: "Show icon" }).count()) === 1 && (await panel.getByRole("textbox", { name: "Label" }).inputValue()) === "Sign in" && (await panel.locator('[data-nested-instance]').count()) === 1);
   await shot(page, `38-instance-${theme}`);
 
   // A Text property: the field writes the instance's value (one step).
@@ -398,9 +399,11 @@ async function componentsSection(page, theme) {
   check("a Boolean property's toggle writes the value", toggled.includes("false"), toggled);
 
   // The instance menu (swap), the ⋯ menu (Figma's live list: … Create component, Detach instance, Reset instance …).
-  await panel.getByRole("button", { name: "Instance menu: Button" }).click();
+  await panel.locator("[data-instance-menu]").click();
   await settle(page);
-  check("the instance menu lists the file's components by page and frame", (await page.locator("[data-component-picker]").getByRole("menuitemradio").count()) >= 4);
+  // Live: the swap menu opens at the main's level — its page's components, then its folders (the "Icons" frame).
+  const swapMenu = page.locator("[data-component-picker]");
+  check("the swap menu opens at the main's page: its components, then its folders", (await swapMenu.getByRole("menuitemradio").count()) >= 2 && (await swapMenu.locator('[data-folder="Icons"]').count()) === 1 && (await swapMenu.locator("[data-level]").getAttribute("data-level")) === "Components");
   await shot(page, `39-instance-menu-${theme}`);
   await page.keyboard.press("Escape");
   await panel.getByRole("button", { name: "More actions" }).click();
@@ -412,7 +415,7 @@ async function componentsSection(page, theme) {
   await select("2:2");
 
   // An Instance swap property: its picker (preferred first).
-  await panel.getByRole("button", { name: /^Icon: / }).click();
+  await panel.locator('[data-swap-property="Icon"]').click();
   await settle(page);
   check("an Instance swap picker lists Preferred first", (await page.locator("[data-component-picker]").getByText("Preferred").count()) === 1);
   await page.locator("[data-component-picker]").getByRole("menuitemradio", { name: "Heart" }).first().click();
@@ -442,9 +445,8 @@ async function componentsSection(page, theme) {
     return sv;
   });
   await settle(page);
-  check("a variant row offers Assign variable", (await panel.locator('[data-assign-variable="State"]').getByRole("button", { name: "Assign variable" }).count()) === 1);
-  await panel.locator('[data-assign-variable="State"]').hover();
-  await panel.locator('[data-assign-variable="State"]').getByRole("button", { name: "Assign variable" }).click();
+  check("a variant row offers Apply variable at its end", (await panel.locator('[data-property="State"]').getByRole("button", { name: "Apply variable" }).count()) === 1);
+  await panel.locator('[data-apply-variable="State"]').click();
   await settle(page);
   await shot(page, `41b-assign-variable-${theme}`);
   const pickedFromUi = await page.locator('[data-variable-picker] [data-variable="String"]').first().click({ timeout: 3000 }).then(() => true, () => false);
@@ -501,20 +503,20 @@ async function componentsSection(page, theme) {
   await shot(page, `44-go-to-main-${theme}`);
 
   // The main component: Properties (+), its rows, the description.
-  check("a main component shows Properties with its three", (await panel.locator("[data-component-properties]").getByRole("button", { name: /^Edit property / }).count()) === 3);
-  await panel.getByRole("button", { name: "Edit property Icon" }).click();
+  check("a main component shows Properties with its three", (await panel.locator("[data-component-properties] [data-property-def]").count()) === 3);
+  await panel.locator('[data-property-def="Icon"]').click();
   await settle(page);
   check("an Instance swap property's settings list its preferred instances", (await page.locator('[data-property-editor="INSTANCE_SWAP"]').getByText("Preferred instances").count()) === 1);
   await shot(page, `45-property-settings-${theme}`);
   await page.keyboard.press("Escape");
-  await panel.getByRole("button", { name: "Create component property" }).click();
+  await panel.getByRole("button", { name: "Create property" }).click();
   await settle(page);
   await shot(page, `46-add-property-menu-${theme}`);
   await page.getByRole("menuitem", { name: "Boolean" }).click();
   await settle(page);
   await page.locator('[data-property-editor="BOOL"]').getByRole("textbox", { name: "Name" }).fill("Disabled");
   await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: "Create property" }).click();
+  await page.locator('[data-property-editor="BOOL"]').getByRole("button", { name: "Create property" }).click();
   await settle(page);
   const defs = (await node(page, "1:1")).componentPropDefs ?? [];
   check("Create property adds a Boolean property", defs.some((d) => d.name === "Disabled" && d.type === "BOOL"), defs.map((d) => d.name).join(", "));
@@ -529,7 +531,7 @@ async function componentsSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["1:1", "1:40", "1:30"]) }));
   await select("1:40");
   check("Layers: the set's glyph, purple", (await row("1:40").getAttribute("data-tone")) === "component");
-  check("a component set shows its variant properties", (await panel.getByRole("button", { name: "Edit property State" }).count()) === 1);
+  check("a component set shows its variant properties", (await panel.locator('[data-property-def="State"]').count()) === 1);
   await shot(page, `47-component-set-${theme}`);
   await select("1:42");
   check("a variant shows Current variant", (await panel.locator("[data-current-variant]").count()) === 1);
@@ -2027,6 +2029,168 @@ async function designRound8(page, theme, panel, select, focus) {
   check("Design r8: × lets the tracks go — the Design panel again", (await panel.locator("[data-grid-panel]").count()) === 0 && (await panel.locator("[data-type-header]").count()) === 1);
 }
 
+/**
+ * Round 9 (docs/editor.md "Round 9 — Design panel header, component and instance panels"), on `&doc=capture` at live's
+ * 1440 × 900: the header of a layer in a frame, Frame ▾ (222, hidden block titles, Section), the boolean menu (151,
+ * one layer), the component block (name field, Add variant / Component configuration / More actions, Properties rows,
+ * Create property), Component configuration (320 at the panel's left and top: Description in Markdown, Link), the
+ * variant's Current variant, the instance (name, More actions as live with Reset name, Go to main component, the
+ * 208 apply buttons, the 32 × 16 toggle, the swap menu 240 × 441 by page and folder).
+ */
+async function header9Section(page, theme) {
+  await open(page, "&doc=capture");
+  const panel = page.locator('[data-panel="right"]');
+  const body = panel.locator('[role="tabpanel"]');
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const origin = async () => body.boundingBox();
+  const xs = async (locator) => {
+    const o = await origin();
+    return Promise.all((await locator.all()).map(async (l) => Math.round((await l.boundingBox()).x - o.x)));
+  };
+  const lastMenu = () => page.getByRole("menu").last();
+  // 1. A rectangle in an auto layout: Select matching layers, Create component, Use as mask, More actions at 124 … 208.
+  await select(["7:51"]);
+  const header = panel.locator("[data-type-header]");
+  const names = await header.locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+  check("R9 header: a layer in a frame has Select matching layers, Create component, Use as mask, More actions", names.join() === "Select matching layers,Create component,Use as mask,More actions", names.join());
+  check("R9 header: at 124, 152, 180, 208 (live autolayout-child)", (await xs(header.locator("button"))).join() === "124,152,180,208", (await xs(header.locator("button"))).join());
+  await shot(page, `260-r9-nested-header-${theme}`);
+  // 2. Frame ▾ on AL_horizontal: 222 wide under its button, Section first and offered, the block titles hidden.
+  await select(["7:20"]);
+  const typeButton = panel.getByRole("button", { name: "Frame, Frame Dimension Presets" });
+  await typeButton.click();
+  await settle(page);
+  const presets = lastMenu();
+  const pb = await presets.boundingBox();
+  const tb = await typeButton.boundingBox();
+  const phone = presets.getByText("Phone Presets");
+  check("R9 Frame ▾: 222 wide, right under its button, at its left", Math.round(pb.width) === 222 && Math.round(pb.x) === Math.round(tb.x) && Math.round(pb.y) === Math.round(tb.y + tb.height), JSON.stringify([pb, tb]));
+  check("R9 Frame ▾: Section offered, the block titles hidden, sizes as three runs", (await presets.getByRole("menuitemcheckbox", { name: "Section" }).getAttribute("aria-disabled")) === null && ((await phone.boundingBox())?.height ?? 0) <= 1 && (await presets.getByRole("menuitem", { name: /iPhone 17\b/ }).first().locator("span > span").count()) === 3);
+  await shot(page, `261-r9-frame-presets-${theme}`);
+  await presets.getByRole("menuitemcheckbox", { name: "Section" }).click();
+  await settle(page);
+  const sel = await selection(page);
+  const made = sel[0] ? await node(page, sel[0]) : null;
+  check("R9 Frame ▾ › Section: a section in its place, its layers kept", made?.type === "SECTION" && made.name === "AL_horizontal" && made.transform.m02 === 420 && (await node(page, "7:21"))?.parentIndex?.guid === sel[0], JSON.stringify({ type: made?.type, name: made?.name }));
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
+  check("R9 Frame ▾ › Section: one undo step", (await node(page, "7:20"))?.type === "FRAME");
+  // 3. Boolean operations on one rectangle: 151 wide, right-aligned with the chevron, every operation offered.
+  await select(["7:60"]);
+  const chevron = panel.getByRole("group", { name: "Boolean operations" }).getByRole("button", { name: "Boolean operations" });
+  await chevron.click();
+  await settle(page);
+  const bm = await lastMenu().boundingBox();
+  const cb = await chevron.boundingBox();
+  const disabled = await lastMenu().locator('[aria-disabled="true"]').count();
+  check("R9 Boolean menu: 151 wide, its right edge the chevron's, nothing disabled for one layer", Math.round(bm.width) === 151 && Math.round(bm.x + bm.width) === Math.round(cb.x + cb.width) && disabled === 0, JSON.stringify([bm, cb, disabled]));
+  await shot(page, `262-r9-boolean-menu-${theme}`);
+  await lastMenu().getByRole("menuitem", { name: /^Union/ }).click();
+  await settle(page);
+  const union = await node(page, (await selection(page))[0]);
+  check("R9 Boolean menu › Union on one layer: a boolean group around it", union?.type === "BOOLEAN_OPERATION" && (await node(page, "7:60"))?.parentIndex?.guid === union.guid);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  // 4. The component: its name as a field, Add variant / Component configuration / More actions, Properties.
+  await select(["8:1"]);
+  const block = panel.locator('[data-component-header="component"]');
+  check("R9 component: the name's field and Add variant, Component configuration, More actions at 152, 180, 208", (await block.locator("[data-component-name]").inputValue()) === "Button" && (await xs(block.locator(":scope > div > button"))).join() === "152,180,208", (await xs(block.locator(":scope > div > button"))).join());
+  const rows = await block.locator("[data-property-def]").evaluateAll((els) => els.map((e) => e.textContent));
+  check("R9 component: Properties rows read “Show icon・True”, “Label・Label”, “Icon・Star”", rows.join("|") === "Show icon・True|Label・Label|Icon・Star", rows.join("|"));
+  const firstRow = await block.locator("[data-property-def]").first().boundingBox();
+  const o = await origin();
+  check("R9 component: the rows are 208 × 24 at 16, 76", Math.round(firstRow.width) === 208 && Math.round(firstRow.height) === 24 && Math.round(firstRow.x - o.x) === 16 && Math.round(firstRow.y - o.y) === 76, JSON.stringify(firstRow));
+  await block.getByRole("button", { name: "Create property" }).click();
+  await settle(page);
+  const createMenu = await lastMenu().innerText();
+  check("R9 Create property: caption, Variant, Text, Boolean, Instance swap, Slot, Expose properties from › Nested instances", createMenu.replace(/\n+/g, "|") === "Create property|Variant|Text|Boolean|Instance swap|Slot|Expose properties from|Nested instances", createMenu.replace(/\n+/g, "|"));
+  await shot(page, `263-r9-create-property-${theme}`);
+  await page.keyboard.press("Escape");
+  await block.getByRole("button", { name: "Component configuration" }).click();
+  await settle(page);
+  const config = page.locator('[data-ds="Popover"]').last();
+  const cfg = await config.boundingBox();
+  const pane = await body.boundingBox();
+  check("R9 Component configuration: 320 wide at the panel's left, level with its top", Math.round(cfg.width) === 320 && Math.round(cfg.x + cfg.width) === Math.round(pane.x) && Math.round(cfg.y) === Math.round(pane.y), JSON.stringify([cfg, pane]));
+  const editor = config.getByRole("textbox", { name: "Description" });
+  await editor.click();
+  await page.keyboard.type("Primary ");
+  await page.keyboard.press("Meta+b");
+  await page.keyboard.type("action");
+  await config.getByRole("textbox", { name: "Link to documentation" }).click();
+  await page.keyboard.type("https://example.com/button");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const described = await node(page, "8:1");
+  check("R9 Component configuration: the description in Markdown (bold), the link as symbolLinks", described.description === "Primary **action**" && described.symbolLinks?.[0]?.uri === "https://example.com/button", JSON.stringify([described.description, described.symbolLinks]));
+  await shot(page, `264-r9-component-configuration-${theme}`);
+  await page.keyboard.press("Escape");
+  // 5. The set and a variant.
+  await select(["8:40"]);
+  check("R9 set: Multi-edit variants at 124", (await xs(panel.locator('[data-component-header="set"]').locator(":scope > div > button"))).join() === "124,152,180,208");
+  await select(["8:41"]);
+  const variant = panel.locator('[data-component-header="variant"]');
+  check("R9 variant: the set's name, Multi-edit variants, Select matching layers, Component configuration", (await variant.locator("[data-component-name]").inputValue()) === "Chip" && (await variant.locator(":scope > div > button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))).join() === "Multi-edit variants,Select matching layers,Component configuration");
+  const value = variant.getByRole("textbox", { name: "Edit property value for State" });
+  await value.click();
+  await page.keyboard.press("Meta+a");
+  await page.keyboard.type("Active");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("R9 Current variant: a typed value is this variant's", (await node(page, "8:41"))?.name === "State=Active", (await node(page, "8:41"))?.name);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
+  await variant.getByRole("button", { name: "Select component" }).click();
+  await settle(page);
+  check("R9 Current variant: Select component selects the set", (await selection(page)).join() === "8:40");
+  // 6. The instance: name, More actions as live, Reset name, the property rows, the swap menu.
+  await select(["8:60"]);
+  const inst = panel.locator("[data-instance-header]");
+  check("R9 instance: the main's name, a 32 × 16 toggle, apply buttons at 208", (await inst.locator("[data-instance-menu]").innerText()).trim() === "Button" && Math.round((await inst.getByRole("switch", { name: "Show icon" }).boundingBox()).width) === 32 && (await xs(inst.getByRole("button", { name: /^Apply variable\/property to / }))).join() === "208,208");
+  await inst.getByRole("button", { name: "More actions" }).click();
+  await settle(page);
+  const more = (await lastMenu().locator('[role^="menuitem"]').allInnerTexts()).map((t) => t.split("\n")[0].trim());
+  check("R9 instance More actions as live", more.join("|") === "Toggle ready for dev status|Create component|Detach instance|Reset instance|Reset name|Use as mask|Union|Subtract|Intersect|Exclude|Flatten", more.join("|"));
+  check("R9 instance More actions: 221 wide, right-aligned with its button", Math.abs(Math.round((await lastMenu().boundingBox()).width) - 221) <= 1);
+  await shot(page, `265-r9-instance-more-${theme}`);
+  await lastMenu().getByRole("menuitem", { name: "Reset name" }).click();
+  await settle(page);
+  check("R9 Reset name: the main's name back", (await node(page, "8:60"))?.name === "Button");
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
+  await inst.getByRole("button", { name: "More actions" }).click();
+  await lastMenu().getByRole("menuitem", { name: /^Flatten/ }).click();
+  await settle(page);
+  const flat = await node(page, (await selection(page))[0] ?? "");
+  check("R9 instance › Flatten: detached and flattened into one vector, one undo step", flat?.type === "VECTOR", flat?.type);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+  await settle(page);
+  check("R9 instance › Flatten undone: the instance again", (await node(page, "8:60"))?.type === "INSTANCE");
+  await select(["8:60"]);
+  await inst.locator("[data-instance-menu]").click();
+  await settle(page);
+  const swap = page.locator('[data-ds="Popover"]').last();
+  const sb = await swap.boundingBox();
+  const panelBox = await panel.boundingBox();
+  check("R9 swap menu: 240 × 441, 40 from the panel's right, under the name", Math.round(sb.width) === 240 && Math.round(sb.height) === 441 && Math.round(sb.x + sb.width) === Math.round(panelBox.x + panelBox.width - 40), JSON.stringify(sb));
+  check("R9 swap menu: Swap instance, Search in this library, Created in this file, the page Capture with Button, Card, Chip and the folder Icon", (await swap.getByText("Swap instance", { exact: true }).count()) >= 1 && (await swap.getByRole("textbox", { name: "Search in this library" }).count()) === 1 && (await swap.locator("[data-level]").getAttribute("data-level")) === "Capture" && (await swap.getByRole("menuitemradio").allInnerTexts()).map((t) => t.trim()).join() === "Button,Card,Chip" && (await swap.locator('[data-folder="Icon"]').count()) === 1);
+  await shot(page, `266-r9-swap-menu-${theme}`);
+  await swap.locator('[data-folder="Icon"]').click();
+  await settle(page);
+  check("R9 swap menu: a folder lists its components", (await swap.locator("[data-level]").getAttribute("data-level")) === "Icon" && (await swap.getByRole("menuitemradio").allInnerTexts()).map((t) => t.trim()).join() === "Heart,Star");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  await inst.locator('[data-swap-property="Icon"]').click();
+  await settle(page);
+  const choose = page.locator('[data-ds="Popover"]').last();
+  check("R9 Instance swap property: Choose instance, opened at the Icon folder", (await choose.getByText("Choose instance", { exact: true }).count()) === 1 && (await choose.locator("[data-level]").getAttribute("data-level")) === "Icon");
+  await page.keyboard.press("Escape");
+  await select(["8:61"]);
+  check("R9 variant instance: the set's name", (await panel.locator("[data-instance-menu]").innerText()).trim() === "Chip");
+}
+
 /** Round 6: the Local variables window's mode and collection menus (Import / Export), Minimize / Expand, Toggle sidebar. */
 async function variables6Section(page, theme) {
   await open(page, "&doc=variables");
@@ -2813,6 +2977,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await section(page, "dark");
+    await context.close();
+  }
+  if (only === "header9" || !only) {
+    // Live's viewport (the captures' absolute places).
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await header9Section(page, "dark");
     await context.close();
   }
   if (only === "text" || !only) {

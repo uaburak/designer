@@ -269,9 +269,7 @@ uint32_t Editor::commandState(CommandId id) const {
     case CommandId::FLATTEN: {
       for (Guid t : selection_) {
         const Node* n = doc_.get(t);
-        if (n && (n->props.isPathShape() || n->props.isRectLike() || n->props.type == NodeType::ELLIPSE || n->props.type == NodeType::TEXT ||
-                  n->props.isGroupLike()))
-          return CMD_ENABLED;
+        if (n && flattenable(n->props)) return CMD_ENABLED;
       }
       return 0;
     }

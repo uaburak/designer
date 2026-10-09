@@ -20,5 +20,7 @@
    * at 44, the keys 16 after the longest row's label (the item's gap and 8), groups 15 apart.
    */
   .actionsMenu > [role^="menuitem"] > span:nth-child(3) { padding-left: var(--ds-space-2); }
+  /* (A row without keys keeps the same 16 after its label: live's Toggle ready for dev status makes the menu 221.) */
+  .actionsMenu > [role^="menuitem"] > span:nth-child(2):last-child { padding-right: var(--ds-space-4); }
   .actionsMenu > [role="separator"] { margin-block: 7px; }
 }

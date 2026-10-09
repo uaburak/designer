@@ -1097,6 +1097,8 @@ class Editor : private LayoutHost, public TextLayouts {
   bool selectionIsMask() const;
   // The paths a node's fills cover, in the space `toSpace` maps its own space to (groups: their children's).
   void fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const;
+  // Can Flatten take it? Shapes, texts, groups and frames (not components or instances: an instance is detached first).
+  bool flattenable(const NodeProps& p) const;
 
   // ---- Hover, handles, gestures (tools/Gestures.cpp) ----
   // LineEnd: a line's start (hx 0) or end (hx 1) handle.

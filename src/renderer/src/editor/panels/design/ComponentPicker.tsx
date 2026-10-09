@@ -9,7 +9,7 @@
  * library's matches flat.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Icon, IconButton, MenuButton, Popover, Select, cx, type MenuEntry } from "@/ds";
+import { Icon, MenuButton, Popover, Select, cx, type MenuEntry } from "@/ds";
 import type { Guid, Pixels } from "@/engine/codec";
 import { useEditor } from "../../controller";
 import { engineMethod } from "../../engineCompat";
@@ -205,7 +205,8 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
         </div>
         <div className={styles.libraryRow}>
           <span className={styles.hidden}>Swap instance</span>
-          <MenuButton label="Library" entries={library} className={styles.library} onSelect={() => setLevel(startLevel(offered, null))}>
+          {/* (Named by its text, as live: no label of its own) */}
+          <MenuButton label="" entries={library} className={styles.library} onSelect={() => setLevel(startLevel(offered, null))}>
             <span className={styles.libraryName}>Created in this file</span>
             <Icon name="16.chevron.down" />
           </MenuButton>
@@ -235,7 +236,7 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
             />
           </div>
         )}
-        <div className={styles.list} role="menu" aria-label="Components">
+        <div className={styles.list} role="menu">
           {found ? (
             found.length ? list(found) : <div className={styles.empty}>{`No results for “${query.trim()}”`}</div>
           ) : (
@@ -251,10 +252,11 @@ export function ComponentPicker({ anchor, title = "Swap instance", current, pref
               {!(onlyPreferred && filterable) && (
                 <>
                   {level.page !== null && (
-                    <div className={styles.heading} data-level={levelName}>
-                      <IconButton icon="24.chevron.right" label="Back" tone="secondary" className={styles.back} onClick={() => setLevel(level.path.length ? { page: level.page, path: level.path.slice(0, -1) } : { page: null, path: [] })} />
+                    // The level's name with ‹: a click goes up (to the folder above, the page, the library's pages).
+                    <button type="button" className={cx(styles.heading, styles.up)} data-level={levelName} onClick={() => setLevel(level.path.length ? { page: level.page, path: level.path.slice(0, -1) } : { page: null, path: [] })}>
+                      <Icon name="24.chevron.right" className={styles.back} />
                       <span className={styles.headingName}>{levelName}</span>
-                    </div>
+                    </button>
                   )}
                   {list(contents.items)}
                   {contents.folders.length > 0 && <div className={styles.folders}>{contents.folders.map(folder)}</div>}

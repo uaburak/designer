@@ -84,6 +84,7 @@
   .createPropertyMenu > [role="presentation"] { color: var(--ds-color-menu-text-secondary); font: var(--ds-font-menu); letter-spacing: var(--ds-tracking-menu); }
   .createPropertyMenu > [role^="menuitem"] > span:first-child { width: var(--ds-space-4); }
   .createPropertyMenu > [role="separator"] { margin-block: 7px; }
+  .createPropertyMenu > [aria-haspopup] > svg { margin-left: calc(var(--ds-space-2) * -1); }
 
   /* "Current variant" (live): the name 92 × 24 at 8 (secondary, 9 in), the value's field 92 at 108 in a 32 row */
   .variantRows { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-top: var(--ds-space-2); }

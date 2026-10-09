@@ -32,7 +32,8 @@
   }
   .searchInput::placeholder { color: var(--figma-color-text-secondary); }
   .libraryRow { position: relative; display: flex; flex: none; align-items: center; justify-content: space-between; height: var(--ds-size-control); margin-top: var(--ds-space-3); padding: 0 var(--ds-space-2); }
-  .hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* The library field's name for assistive tech, where live has it (under the field) */
+  .hidden { position: absolute; top: 1px; left: 7px; color: var(--figma-color-text); clip-path: inset(50%); white-space: nowrap; pointer-events: none; }
   .library {
     display: flex;
     align-items: center;
@@ -70,7 +71,10 @@
   .filter { flex: none; padding: var(--ds-space-2) var(--ds-space-2) 0; }
   .list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 9px 0 var(--ds-space-2); }
   .heading { display: flex; align-items: center; height: var(--ds-size-control); margin-bottom: var(--ds-space-1); padding-left: var(--ds-space-2); }
-  .back svg { transform: rotate(180deg); }
+  .up { width: 100%; padding-right: var(--ds-space-2); border: 0; background: transparent; color: var(--figma-color-text); text-align: left; outline: none; }
+  .up:hover .back, .up:focus-visible .back { color: var(--figma-color-icon); }
+  .up:focus-visible { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  .back { flex: none; color: var(--figma-color-icon-secondary); transform: rotate(180deg); }
   .headingName {
     min-width: 0;
     overflow: hidden;
@@ -80,7 +84,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .heading:not(:has(.back)) .headingName { padding-left: var(--ds-space-2); }
+  .heading:not(.up) .headingName { padding-left: var(--ds-space-2); }
   .item, .folder {
     display: flex;
     align-items: center;
