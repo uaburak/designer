@@ -80,8 +80,12 @@ export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 
 const SUBMENU_EDGES = { top: 6, bottom: 5 };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, flush, className, flipY, extend }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, flush, className, flipY, extend: extendProp }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
+  // Live (menus/main-object.txt): a submenu taller than the window isn't clamped to it — 185 × 1050 at 210, 6 in a 900 high
+  // window; it is an extended menu then (the rows past the window's bottom move up on the wheel or on the bar).
+  const [tall, setTall] = useState(false);
+  const extend = extendProp || tall;
   const subId = useId();
   const list = tidy(entries);
   // Live: a tool menu and a list over its field (gap, W / H) open with the current value lit, a menu under its trigger
@@ -115,9 +119,11 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
     bar.style.top = shown ? `${want - natural}px` : "0px";
     bar.style.visibility = shown ? "visible" : "hidden";
   };
+  // (where an extended menu rests: where it opened; a tall submenu 6 from the window's top)
+  const home = tall ? SUBMENU_EDGES.top : y;
   const shift = (el: HTMLElement, by: number) => {
-    const lowest = Math.min(y, window.innerHeight - 8 - el.offsetHeight);
-    el.style.top = `${Math.round(Math.min(y, Math.max(lowest, el.offsetTop - by)))}px`;
+    const lowest = Math.min(home, window.innerHeight - 8 - el.offsetHeight);
+    el.style.top = `${Math.round(Math.min(home, Math.max(lowest, el.offsetTop - by)))}px`;
     placeMore(el);
   };
   useLayoutEffect(() => {
@@ -140,10 +146,20 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       el.style.overflowY = "visible";
       const { width } = el.getBoundingClientRect();
       el.style.left = `${placeMenu(x, y, { width, height: 0 }, { width: window.innerWidth, height: window.innerHeight }, flipX).x}px`;
-      el.style.top = `${y}px`;
+      el.style.top = `${home}px`;
       el.style.visibility = "visible";
       placeMore(el);
     } else if (!isStatic) {
+      if (submenu) {
+        // Natural height first: past the window it is a tall submenu (above), else the clamp below applies as before.
+        el.style.maxHeight = "none";
+        const natural = el.getBoundingClientRect().height;
+        el.style.maxHeight = "";
+        if (natural > window.innerHeight - SUBMENU_EDGES.top - SUBMENU_EDGES.bottom) {
+          setTall(true);
+          return;
+        }
+      }
       const { width, height } = el.getBoundingClientRect();
       const room = window.innerHeight - 8 - y;
       const flip = flipY !== undefined && !above && y + height > window.innerHeight - 16 && flipY - height >= 8;
@@ -157,7 +173,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend]);
+  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend, home]);
 
   // Resting on the bar moves the rows up a row at a time (unverified: live's capture shows the bar at rest).
   const moreScroll = (el: HTMLElement) => {
@@ -312,7 +328,9 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
                   // Live context menus: one 12px glyph per key, the chord 8 after the label.
                   <span className={cx(styles.shortcut, styles.keys)}>
                     {shortcutKeys(entry.shortcut).map((k, j) => (
-                      <span key={j}>{k}</span>
+                      <span key={j} data-key={k}>
+                        {k}
+                      </span>
                     ))}
                   </span>
                 ) : (
@@ -323,7 +341,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
           );
         })}
         {/* An extended menu's bar at the window's bottom while rows run past it (live: 24 high, 12 above the bottom) */}
-        {extend && !isStatic && (
+        {extendProp && !isStatic && (
           <div ref={more} className={styles.more} aria-hidden="true" onPointerEnter={() => panel.current && moreScroll(panel.current)} onPointerLeave={() => window.clearInterval(moreTimer.current)}>
             <Icon name="16.chevron.down" />
           </div>

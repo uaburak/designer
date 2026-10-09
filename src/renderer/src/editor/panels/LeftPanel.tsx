@@ -59,8 +59,20 @@ function AgentsPanel() {
 }
 
 /** Tools (plugins, widgets, shaders, Weave tools; live: search, Source and Category): not part of this app. */
+const TOOLS_FILTER = [
+  { id: "price-all", label: "All prices", group: "price" as const },
+  { id: "price-free", label: "Free", group: "price" as const },
+  { id: "price-paid", label: "Paid", group: "price" as const },
+  "-" as const,
+  { id: "type-all", label: "All types", group: "type" as const },
+  { id: "type-plugins", label: "Plugins", group: "type" as const },
+  { id: "type-widgets", label: "Widgets", group: "type" as const },
+  { id: "type-shaders", label: "Shaders", group: "type" as const },
+];
+
 function ToolsPanel() {
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState({ price: "price-all", type: "type-all" });
   return (
     <div className={styles.placeholderTab} data-tools="">
       {/* Live: "Create" as text (11 / 450, primary) at 173, 18 — nothing to create here: it says so */}
@@ -74,7 +86,18 @@ function ToolsPanel() {
       />
       <div className={styles.toolsSearch}>
         <SearchField value={query} onChange={setQuery} placeholder="Search all tools" label="Search all tools" />
-        <IconButton icon="24.adjust.small" label="Filter by price and type" tone="secondary" disabled />
+        {/* Live: enabled (rail-tools.txt). Its menu — price, then type — isn't captured (help "Find tools": free / paid, plugins / widgets / shaders): unverified */}
+        <MenuButton
+          label="Filter by price and type"
+          entries={TOOLS_FILTER.map((e) => (typeof e === "string" ? e : { ...e, checked: filter[e.group] === e.id }))}
+          onSelect={(id) => {
+            const e = TOOLS_FILTER.find((x) => typeof x !== "string" && x.id === id);
+            if (e && typeof e !== "string") setFilter({ ...filter, [e.group]: e.id });
+          }}
+          className={styles.toolsFilterButton}
+        >
+          <Icon name="24.adjust.small" />
+        </MenuButton>
       </div>
       <div className={styles.toolsFilters}>
         {/* Live: 79 / 91 wide, the label after a 24 glyph (which glyphs: unverified) */}

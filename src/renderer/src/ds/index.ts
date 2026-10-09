@@ -70,3 +70,7 @@ export * from "./components/ListView";
 export * from "./components/CollectionView";
 export * from "./components/FolderCard";
 export * from "./components/Banner";
+
+// The shortcut glyphs' face (global.css "Inter Symbols") is asked for at once: a menu measured before it arrives would
+// be placed for narrower keys and widen after.
+if (typeof document !== "undefined" && typeof document.fonts?.load === "function") void document.fonts.load('450 11px "Inter Symbols"', "⌘⇧⌥⌃⌫").catch(() => {});

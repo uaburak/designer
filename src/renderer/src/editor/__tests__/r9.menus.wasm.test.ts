@@ -222,10 +222,10 @@ describe("round 9: the Actions palette (live toolbar/actions-panel.txt)", () => 
     expect(list.find((a) => a.id === "view.dev-mode")!.label).toBe("Switch to Dev Mode");
     expect(list.at(-1)!.section).toBe("Tools");
     const run = () => true;
-    // Round 10 (live: Recents, then live's AI sections): an empty query lists Recents only; with none, the commands.
+    // Round 10 (live: Recents, then live's AI sections): an empty query lists Recents only; round 11: with none, no rows (no command list).
     const rows = actionRows(list, "", ["view.zoom-fit"], run);
     expect(rows.map((r) => [r.section, r.label])).toEqual([["Recents", "Zoom to fit"]]);
-    expect(actionRows(list, "", [], run)[0].section).toBe("File");
+    expect(actionRows(list, "", [], run)).toEqual([]);
     const found = actionRows(list, "flat", [], run);
     expect(found[0].label).toBe("Flatten");
     const some: ActionItem[] = [

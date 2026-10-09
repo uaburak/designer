@@ -106,7 +106,7 @@ describe("round 9 on the engine", () => {
       "vector.subtract",
       "vector.intersect",
       "vector.exclude",
-      "flatten-instance",
+      "vector.flatten",
     ]);
     // Every item carries a glyph (the label column at 44).
     expect(instanceMoreMenu(ed, inst).every((e) => e === "-" || !("id" in e) || !!e.icon)).toBe(true);
