@@ -23,6 +23,7 @@
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Hide panel)
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
+//   EDITOR_ONLY=menus9 node …                                      (round 9 at 1440 × 900: the Figma menu, canvas and tool menus, Actions, Preferences, right-drag pan, Assets, Variables)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -2778,6 +2779,117 @@ async function leftPanelSection(page, theme) {
   await page.keyboard.press("Escape");
 }
 
+/**
+ * Round 9 at 1440 × 900 (the live captures' viewport; docs/research/figma/live/menus, toolbar, left): the Figma menu at
+ * 12, 44 (194 wide, Actions… enabled, Open in desktop app), a submenu 4 past it, the canvas menu 200 wide with its text
+ * at 16, the Move tools menu at the chevron, the Actions palette over the toolbar, Preferences kept across a reload,
+ * a right drag panning, the row glyphs' names, Assets' card and Libraries, the Variables view.
+ */
+async function menus9Section(page, theme) {
+  await open(page, "&doc=capture");
+  const box = (loc) => loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  });
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await settle(page);
+  const main = page.getByRole("menu", { name: "Main menu" });
+  check("r9: the Figma menu at 12, 44, 194 × 444 (live main-menu.txt)", JSON.stringify(await box(main)) === "[12,44,194,444]", JSON.stringify(await box(main)));
+  check("r9: Actions… enabled, Open in desktop app listed", (await main.getByRole("menuitem", { name: /^Actions…/ }).getAttribute("aria-disabled")) === null && (await main.getByRole("menuitem", { name: "Open in desktop app" }).count()) === 1);
+  await main.getByRole("menuitem", { name: "File", exact: true }).hover();
+  await page.waitForTimeout(400);
+  const file = page.getByRole("menu").nth(1);
+  check("r9: File opens 4 past the menu (210, 126)", JSON.stringify((await box(file)).slice(0, 2)) === "[210,126]", JSON.stringify(await box(file)));
+  await shot(page, `190-r9-main-menu-file-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await settle(page);
+
+  await page.mouse.click(1013, 614, { button: "right" });
+  await settle(page);
+  const canvasMenu = page.getByRole("menu", { name: "Canvas" });
+  const geo = await canvasMenu.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const item = el.querySelector('[role="menuitem"]');
+    const label = item?.querySelector("span:not(:empty)");
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    return { w: Math.round(r.width), x: Math.round(range.getBoundingClientRect().left - r.left), checks: el.querySelectorAll('[role="menuitemcheckbox"]').length };
+  });
+  check("r9: the canvas menu 200 wide, its text at 16, no check column (live context-empty-canvas.txt)", geo.w === 200 && geo.x === 16 && geo.checks === 0, JSON.stringify(geo));
+  await shot(page, `191-r9-canvas-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+
+  await page.getByRole("button", { name: "Move tools" }).click();
+  await settle(page);
+  check("r9: Move tools at the chevron, 151 × 72 at 497, 764 (live move-tools-menu.txt)", JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))) === "[497,764,151,72]", JSON.stringify(await box(page.getByRole("menu", { name: "Move tools" }))));
+  await page.keyboard.press("Escape");
+  await settle(page);
+
+  await page.evaluate(() => window.__designerEditor.engine.setSelection(["7:60"]));
+  await page.locator('[data-ds="EditorToolbar"]').getByRole("button", { name: "Actions" }).click();
+  await settle(page);
+  const palette = page.locator("[data-actions-panel]");
+  check("r9: the Actions palette 529 × 354 at 456, 478 (live actions-panel.txt)", JSON.stringify(await box(palette)) === "[456,478,529,354]", JSON.stringify(await box(palette)));
+  await page.keyboard.type("flat");
+  await settle(page);
+  check("r9: typing lights the best match (Flatten)", (await palette.locator('[role="option"][aria-selected="true"]').innerText()).startsWith("Flatten"));
+  await shot(page, `192-r9-actions-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await settle(page);
+  check("r9: Esc closes the palette", (await palette.count()) === 0);
+
+  // Preferences: kept per machine (a reload keeps Use scroll wheel zoom on); a plain wheel then zooms.
+  await page.evaluate(() => window.__designerEditor.ui.get());
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "Preferences", exact: true }).hover();
+  await page.waitForTimeout(400);
+  await shot(page, `193-r9-preferences-${theme}`);
+  await page.getByRole("menuitemcheckbox", { name: "Use scroll wheel zoom" }).click();
+  await open(page, "&doc=capture");
+  check("r9: Preferences are kept (Use scroll wheel zoom after a reload)", (await page.evaluate(() => window.__designerEditor.ui.get().scrollWheelZoom)) === true);
+  const zoom0 = await page.evaluate(() => window.__designerEditor.engine.getCamera().zoom);
+  await page.mouse.move(800, 500);
+  await page.mouse.wheel(0, 120);
+  await settle(page);
+  check("r9: Use scroll wheel zoom — a plain wheel zooms", (await page.evaluate(() => window.__designerEditor.engine.getCamera().zoom)) < zoom0);
+  await page.evaluate(() => localStorage.removeItem("designer.preferences"));
+  await open(page, "&doc=capture");
+
+  // Right-click and drag to pan (on by default): the view moves, no menu.
+  const cam0 = await page.evaluate(() => window.__designerEditor.engine.getCamera());
+  await page.mouse.move(900, 600);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(960, 640, { steps: 6 });
+  await page.mouse.up({ button: "right" });
+  await settle(page);
+  const cam1 = await page.evaluate(() => window.__designerEditor.engine.getCamera());
+  check("r9: a right drag pans, no menu", Math.round(cam1.x - cam0.x) === 60 && Math.round(cam1.y - cam0.y) === 40 && (await page.getByRole("menu", { name: "Canvas" }).count()) === 0, JSON.stringify([cam0, cam1]));
+
+  // Layers: the row glyphs named (live img [Rectangle], [Auto layout]…).
+  check("r9: the Layers rows' glyphs are named", (await page.locator('[data-panel="left"] [role="img"][aria-label="Auto layout"]').count()) >= 4 && (await page.locator('[data-panel="left"] [role="img"][aria-label="Rectangle"]').count()) >= 1);
+
+  // Assets on the components fixture: Libraries in the header, the card's ground, Add more libraries.
+  await open(page, "&doc=components");
+  await page.locator('[data-rail-tab="assets"]').click();
+  await settle(page);
+  const card = page.locator("[data-library-card] span").first();
+  const cardStyle = await card.evaluate((el) => [getComputedStyle(el).backgroundColor, Math.round(el.getBoundingClientRect().width)]);
+  check("r9: Assets — Libraries at 261, 12; the card 206 wide on white 10 %; Add more libraries", JSON.stringify((await box(page.locator("[data-libraries-button]"))).slice(0, 2)) === "[261,12]" && cardStyle[1] === 206 && /0\.1\)$/.test(cardStyle[0]) && (await page.getByRole("button", { name: "Add more libraries" }).count()) === 1, JSON.stringify(cardStyle));
+  await shot(page, `194-r9-assets-${theme}`);
+
+  // The Variables view (live rail-variables-table.txt).
+  await open(page, "&doc=variables");
+  await page.locator('[data-rail-tab="variables"]').click();
+  await settle(page);
+  const view = page.locator("[data-local-variables]");
+  const head = await view.locator('[role="columnheader"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().width));
+  check("r9: Variables — the file's name, Hide panel, Collections options, Collapse groups, Name 200, Create variable at 306, 868", (await view.getByRole("button", { name: "Hide panel" }).count()) === 1 && (await view.getByRole("button", { name: "Collections options" }).count()) === 1 && (await view.getByRole("button", { name: "Collapse groups" }).count()) === 1 && head === 200 && JSON.stringify((await box(view.getByRole("button", { name: "Create variable" }))).slice(0, 2)) === "[306,868]", String(head));
+  await shot(page, `195-r9-variables-${theme}`);
+}
+
 try {
   if (only === "leftpanel" || !only) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
@@ -2787,6 +2899,16 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await leftPanelSection(page, "dark");
+    await context.close();
+  }
+  if (only === "menus9" || !only) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await menus9Section(page, "dark");
     await context.close();
   }
   if (only === "grid" || !only) {
