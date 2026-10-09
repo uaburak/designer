@@ -10,7 +10,7 @@ import type { EditorController } from "./controller";
 
 type StatusNode = NodeChange & { sectionStatusInfo?: { status?: string } };
 
-/** The selected designs a status applies to: top-level frames, sections, components (and frames inside sections). */
+/** The selected designs a status applies to: top-level frames, sections, components, instances (and those inside sections). */
 export function statusTargets(ed: EditorController): Guid[] {
   if (ed.engine.destroyed || !ed.selection.length) return [];
   const page = ed.store.page;
@@ -18,7 +18,8 @@ export function statusTargets(ed: EditorController): Guid[] {
   const out: Guid[] = [];
   for (const r of rows) {
     const n = ed.withRealType(r) as typeof r;
-    const designish = (n.type === "FRAME" && !n.resizeToFit) || n.type === "SECTION" || n.type === "SYMBOL";
+    // Frames, sections, components and instances (live: an instance's More actions starts with Toggle ready for dev status).
+    const designish = (n.type === "FRAME" && !n.resizeToFit) || n.type === "SECTION" || n.type === "SYMBOL" || n.type === "INSTANCE";
     if (!designish) return [];
     const parent = n.parentIndex?.guid;
     if (parent !== page) {

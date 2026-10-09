@@ -264,6 +264,36 @@ TEST_CASE("booleans, Flatten, Outline stroke, Use as mask, Place image") {
   e.command(CommandId::UNDO);
   CHECK(props(e, b).type == NodeType::BOOLEAN_OPERATION);
   CHECK(e.document().children(b).size() == 2);
+  // One layer (live Figma's Boolean operations menu on a rectangle): a boolean group around it, one undo step.
+  e.setSelection({{1, 3}});
+  CHECK((e.commandState(CommandId::BOOLEAN_UNION) & CMD_ENABLED) != 0);
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  e.setSelection({{1, 3}});
+  REQUIRE(e.command(CommandId::BOOLEAN_UNION) == OK);
+  Guid single = e.selection()[0];
+  CHECK(props(e, single).type == NodeType::BOOLEAN_OPERATION);
+  CHECK(e.document().children(single) == std::vector<Guid>{{1, 3}});
+  CHECK(props(e, single).size == Vec2{100, 100});
+  e.command(CommandId::UNDO);
+  CHECK(!e.document().has(single));
+  CHECK(e.document().parentOf({1, 3}) == kPage);
+  // Flatten a frame (live: an instance's More actions › Flatten, after detaching it): its filled box and its layers in
+  // one vector, its layout dropped, one undo step.
+  NodeChange fr = make({1, 9}, NodeType::FRAME, kPage, "~", {600, 400, 100, 60}, "Frame 9");
+  fr.props.fillPaints = {Paint::solid(Color::hex(0x00FF00))};
+  NodeChange kid = make({1, 10}, NodeType::ROUNDED_RECTANGLE, {1, 9}, "!", {20, 20, 40, 60}, "Kid");
+  e.applyChanges({fr, kid}, APPLY_LOAD);
+  e.setSelection({{1, 9}});
+  CHECK((e.commandState(CommandId::FLATTEN) & CMD_ENABLED) != 0);
+  REQUIRE(e.command(CommandId::FLATTEN) == OK);
+  CHECK(props(e, {1, 9}).type == NodeType::VECTOR);
+  CHECK(e.document().children({1, 9}).empty());
+  CHECK(props(e, {1, 9}).fillPaints[0].color == Color::hex(0x00FF00));
+  CHECK(props(e, {1, 9}).size == Vec2{100, 80});  // the box and the layer below it
+  e.command(CommandId::UNDO);
+  CHECK(props(e, {1, 9}).type == NodeType::FRAME);
+  CHECK(e.document().children({1, 9}).size() == 1);
   // Outline stroke: a stroked line becomes a filled vector.
   e.setTool(Tool::LINE);
   drag(e, {100, 500}, {300, 500});

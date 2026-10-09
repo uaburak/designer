@@ -48,11 +48,13 @@ interface PanelProps {
    * the list at the field's left (or right) edge, at least as wide as the field + 8
    */
   over?: MenuOver;
+  /** The caller's look for this menu (its width, its headers, its icon column): a class on the panel */
+  className?: string;
 }
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, className }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const subId = useId();
   const list = tidy(entries);
@@ -154,7 +156,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
         data-theme="dark"
         data-theme-forced=""
         data-static={isStatic || undefined}
-        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList)}
+        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList, className)}
         style={isStatic ? undefined : { left: x, top: y, visibility: "hidden" }}
         onPointerMove={(e) => {
           pointer.current = { x: e.clientX, y: e.clientY };
@@ -203,7 +205,7 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               {hasIcons && <span className={styles.icon}>{entry.icon && <MenuIcon name={entry.icon} />}</span>}
               <span className={styles.label}>{entry.label}</span>
               {entry.trailingIcon && <span className={styles.icon}><MenuIcon name={entry.trailingIcon} /></span>}
-              {entry.hint && <span className={styles.hint}>{entry.hint}</span>}
+              {entry.hint && <span className={styles.hint}>{hintParts(entry.hint)}</span>}
               {entry.shortcut && <span className={styles.shortcut}>{entry.shortcut}</span>}
               {entry.items && <Icon name="16.chevron.right" className={styles.chevron} />}
             </div>
@@ -231,6 +233,12 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       )}
     </>
   );
+}
+
+/** A hint as Figma draws a size: "402×874" as three runs ("402", "×", "874"; live popovers/frame-presets-menu.txt). */
+function hintParts(hint: string): ReactNode {
+  const parts = hint.split(/(×)/);
+  return parts.length === 3 ? parts.map((p, i) => <span key={i}>{p}</span>) : hint;
 }
 
 /** A menu item's glyph in its 24px column (a 16 icon centred in it). */
@@ -276,10 +284,14 @@ export interface ContextMenuProps {
   keepTop?: boolean;
   /** A dropdown over its field (see MenuPanel) */
   over?: MenuOver;
+  /** Its right edge here when it doesn't fit right of `at.x` (a dropdown right-aligned with its trigger) */
+  flipX?: number;
+  /** The caller's look for this menu (see MenuPanel) */
+  className?: string;
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, flipX, className }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -303,6 +315,8 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       entries={entries}
       x={at.x}
       y={at.y}
+      flipX={flipX}
+      className={className}
       above={above}
       autoFocus={!isStatic}
       isStatic={isStatic}
@@ -346,16 +360,22 @@ export interface MenuButtonProps {
   /** With `overField`: which of its edges the list lines up with, and the checked item's offset from its top */
   overAlign?: "left" | "right";
   overOffset?: number;
+  /** `end`: a menu that doesn't fit right of the trigger lines up with its right edge (live: the panel header's menus) */
+  align?: "start" | "end";
+  /** The menu's distance under the trigger (default 4) */
+  gap?: number;
+  /** The menu's own look (see MenuPanel's `className`) */
+  menuClassName?: string;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, menuClassName }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
-  const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver } | null>(null);
+  const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number } | null>(null);
   const open = () => {
     const r = button.current?.getBoundingClientRect();
     const field = overField ? button.current?.closest(overField)?.getBoundingClientRect() : undefined;
-    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + 4, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined });
+    if (r) setAt({ x: r.left, y: placement === "top" ? r.top - 8 : r.bottom + gap, over: field ? { rect: field, align: overAlign, dy: overOffset } : undefined, flipX: align === "end" ? r.right : undefined });
   };
   const close = () => {
     setAt(null);
@@ -384,7 +404,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop over={at.over} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop over={at.over} flipX={at.flipX} className={menuClassName} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

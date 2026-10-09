@@ -35,9 +35,32 @@ bool anyVisible(const std::vector<Paint>& paints) {
 
 }  // namespace
 
+// A frame flattens with its layers (live Figma: an instance's More actions › Flatten, which detaches it first): its own
+// filled box, then what it holds.
+static bool flatFrame(const NodeProps& p) { return p.type == NodeType::FRAME && !p.isGroupLike() && !p.isComponentish(); }
+
+static bool anyVisibleFill(const std::vector<Paint>& paints) {
+  for (const Paint& p : paints)
+    if (p.visible && p.opacity > 0) return true;
+  return false;
+}
+
+bool Editor::flattenable(const NodeProps& p) const {
+  return p.isPathShape() || p.isRectLike() || p.type == NodeType::ELLIPSE || p.type == NodeType::TEXT || p.isGroupLike() || flatFrame(p);
+}
+
 void Editor::fillPathsOf(Guid id, const Mat2x3& toSpace, geom::Path& out, WindingRule& rule) const {
   const Node* n = doc_.get(id);
   if (!n || !n->props.visible) return;
+  if (flatFrame(n->props)) {
+    if (const NodeGeometry* g = doc_.geometry(id); g && anyVisibleFill(n->props.fillPaints))
+      for (auto& f : g->fills) out.append(f.path.transformed(toSpace));
+    for (Guid c : doc_.children(id)) {
+      const Node* cn = doc_.get(c);
+      if (cn) fillPathsOf(c, toSpace * cn->props.transform, out, rule);
+    }
+    return;
+  }
   if (n->props.isGroupLike()) {
     for (Guid c : doc_.children(id)) {
       const Node* cn = doc_.get(c);
@@ -72,7 +95,9 @@ Status Editor::booleanSelection(BooleanOperation op) {
     commit();
     return OK;
   }
-  if (top.size() < 2) return E_INVALID;
+  // One layer makes a boolean group around it (live Figma).
+  for (Guid t : top)
+    if (t.isDerived()) return E_INVALID;
   // Wrapped like a group, at the topmost layer's place; the style comes from the topmost layer
   // (the bottom one for Subtract: what is cut from keeps its look).
   Guid topmost = top.back();
@@ -120,10 +145,7 @@ Status Editor::flattenSelection() {
   std::vector<Guid> targets;
   for (Guid t : top) {
     const Node* n = doc_.get(t);
-    if (n && !n->props.locked &&
-        (n->props.isPathShape() || n->props.isRectLike() || n->props.type == NodeType::ELLIPSE || n->props.type == NodeType::TEXT ||
-         n->props.isGroupLike()))
-      targets.push_back(t);
+    if (n && !n->props.locked && flattenable(n->props)) targets.push_back(t);
   }
   if (targets.empty()) return E_INVALID;
   if (vector_.node != kNoGuid) endVectorEdit();
@@ -141,10 +163,15 @@ Status Editor::flattenSelection() {
   NodeChange c = NodeChange::changed(into);
   c.mask = F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_ARC_DATA | F_RESIZE_TO_FIT | F_FRAME_MASK_DISABLED;
   c.props.type = NodeType::VECTOR;
-  if (kp.isGroupLike() || kp.type == NodeType::TEXT) {
+  if (flatFrame(kp)) {
+    // A frame drops its layout; it keeps its own look when it has a fill, else takes its topmost layer's.
+    c.mask |= F_STACK_MODE;
+    c.props.stack().stackMode = StackMode::NONE;
+  }
+  if (kp.isGroupLike() || kp.type == NodeType::TEXT || (flatFrame(kp) && !anyVisibleFill(kp.fillPaints))) {
     // A group or a text takes the look of what it held.
     c.mask |= F_FILLS | F_STROKES;
-    Guid styleFrom = kp.isGroupLike() && !doc_.children(into).empty() ? doc_.children(into).back() : into;
+    Guid styleFrom = (kp.isGroupLike() || flatFrame(kp)) && !doc_.children(into).empty() ? doc_.children(into).back() : into;
     c.props.fillPaints = doc_.get(styleFrom)->props.fillPaints;
     c.props.strokePaints = doc_.get(styleFrom)->props.strokePaints;
   }

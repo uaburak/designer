@@ -1,0 +1,28 @@
+@layer app {
+  /*
+   * "Frame ▾" (live popovers/frame-presets-menu.txt): 222 wide, the rows from the list's top; the blocks 15 apart, their
+   * titles for assistive tech only (hidden, as live — "Frame Layout Options", "Phone Presets"… at x −1).
+   */
+  .presetsMenu { width: 222px; }
+  .presetsMenu > [role="presentation"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .presetsMenu > [role="separator"] { margin-block: 7px; }
+  /* (Live: a long name runs up to its size — "iPhone 16 & 17 Pro Max" ends where "440" starts.) */
+  .presetsMenu > [role^="menuitem"] > span:nth-child(3) { margin-left: calc(var(--ds-space-2) * -1); }
+
+  /*
+   * The header's action menus (live boolean-operations-menu, instance-more-actions-menu): a glyph column, the label
+   * at 44, the keys 16 after the longest row's label (the item's gap and 8), groups 15 apart.
+   */
+  .actionsMenu > [role^="menuitem"] > span:nth-child(3) { padding-left: var(--ds-space-2); }
+  /* (A row without keys keeps the same 16 after its label: live's Toggle ready for dev status makes the menu 221.) */
+  .actionsMenu > [role^="menuitem"] > span:nth-child(2):last-child { padding-right: var(--ds-space-4); }
+  .actionsMenu > [role="separator"] { margin-block: 7px; }
+}

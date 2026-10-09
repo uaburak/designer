@@ -25,7 +25,8 @@ import { ExportSection, type ExportTarget } from "./Export";
 import { VectorPointSection } from "./VectorPoints";
 import { isFrameNode, isTextNode, usePaintTargets, useSelectedNodes, type PanelNode } from "./shared";
 import { TypeHeader } from "./Header";
-import { ComponentHeader, CurrentVariantSection, InstanceHeader, PropertiesSection, componentSelection } from "./Component";
+import { ComponentBlock, InstanceHeader, componentSelection } from "./Component";
+import { useMultiEditVariants } from "./multiEdit";
 import { ApplyModeButton, ModeRows } from "./Variables";
 import { GridPanel } from "./Grid";
 import { LocalStylesSection } from "./Styles";
@@ -58,6 +59,8 @@ export function DesignPanel() {
   };
   // Live (grid/row-track-selected-panel.txt): tracks selected on the canvas replace the Design panel with "Grid".
   const tracks = useUI((s) => s.gridTracks);
+  // Multi-edit variants: one layer picked in a variant takes the same layer in the set's other variants.
+  useMultiEditVariants();
   const gridSettings = useUI((s) => s.gridSettings);
   const settingsShown = !!gridSettings && nodes.length === 1 && nodes[0].guid === gridSettings;
   // Another selection closes it (it does not come back when the grid is selected again).
@@ -117,15 +120,8 @@ function Selected({ nodes, paintNodes, onPick }: { nodes: PanelNode[]; paintNode
   const comp = componentSelection(ed, nodes);
   return (
     <>
-      {comp?.kind === "instance" ? (
-        <InstanceHeader instance={comp.node} />
-      ) : comp ? (
-        <ComponentHeader sel={comp} />
-      ) : (
-        <TypeHeader nodes={nodes} />
-      )}
-      {(comp?.kind === "component" || comp?.kind === "set") && <PropertiesSection owner={comp.node} />}
-      {comp?.kind === "variant" && <CurrentVariantSection variant={comp.node} />}
+      {/* An instance: its name, Go to main component and its properties; a component, set or variant: its name and Properties (Current variant) */}
+      {comp?.kind === "instance" ? <InstanceHeader instance={comp.node} /> : comp ? <ComponentBlock sel={comp} /> : <TypeHeader nodes={nodes} />}
       {editingVector && <VectorPointSection />}
       <PositionSection nodes={nodes} />
       <LayoutSection nodes={nodes} />

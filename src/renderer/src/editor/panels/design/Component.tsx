@@ -1,29 +1,32 @@
 /**
- * Components in the Design panel (UI3; docs/research/figma/R4-components.md):
+ * Components in the Design panel (UI3; live docs/research/figma/live/design/component*.txt, variant*.txt,
+ * instance*.txt, nested-instance*.txt; behaviour docs/research/figma/R4-components.md):
  *
- * - an instance: the header (◇, the main's name ▾ = the instance menu to swap,
- *   Go to main component, ⋯ = Go to main component / Push changes / Reset ▸ /
- *   Detach instance), then its properties — variant dropdowns, Boolean
- *   toggles, Text fields, Instance swap pickers (preferred first) — and one
- *   block per exposed nested instance;
- * - a main component or a set: the header (◆◆ in purple, Add variant), then
- *   Properties with "+" (Variant, Boolean, Instance swap, Text, Slot): each
- *   property opens its settings (name, default, preferred values), "−"
- *   deletes it; the description;
- * - a variant: "Current variant", its values per property;
- * - a layer inside a component: the purple "Apply property" button next to
- *   the field it binds (visibility, text, a nested instance), the bound
- *   property as a pill (BindButton, used by Appearance, Typography and the
- *   instance header).
+ * - an instance: its main's name (the set's for a variant; a click opens the swap menu, ComponentPicker) with More
+ *   actions (live popovers/instance-more-actions-menu.txt), "Go to main component" ("From this file"), then one row
+ *   per property — the label at 16, the control at 112 (a variant's dropdown, a Boolean's 32 × 16 toggle, a Text's
+ *   field, an Instance swap's button), "Apply variable/property to …" ("Apply variable" for a variant) at 208 — and
+ *   one block per exposed nested instance;
+ * - a main component or a set: one block with the header — the name as a field (13 / 550), then Multi-edit variants
+ *   (a set), Add variant, Component configuration (the description and the documentation link), More actions — and
+ *   "Properties" with Create property: a 208 × 24 row per property (its type's glyph, "Show icon ・ True"); a click
+ *   opens its settings, a double-click on the name renames it, right-click or Delete deletes it (help "Explore
+ *   component properties"), hovering shows the handle to reorder;
+ * - a variant: the set's name, Multi-edit variants, Select matching layers, Component configuration; "Current
+ *   variant" with Select component, a row per property (the name, a button that renames it; the value, a field
+ *   with its list and Rename…);
+ * - a layer inside a component: the purple "Apply property" button next to the field it binds (visibility, text, a
+ *   nested instance), the bound property as a pill (BindButton, used by Appearance, Typography and the instance
+ *   header).
  *
- * Everything writes one undo step (components.ts); structural actions are the
- * engine's commands, disabled until it has them.
+ * Everything writes one undo step (components.ts); structural actions are the engine's commands, disabled until it
+ * has them.
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Button, Checkbox, Icon, IconButton, MenuButton, NumericInput, PanelSection, Popover, Select, Switch, TextArea, TextInput, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Button, Checkbox, ContextMenu, Icon, IconButton, MenuButton, NumericInput, Popover, Select, Switch, TextArea, TextInput, ToggleIconButton, cx, showToast, tooltipProps, type IconName, type MenuEntry } from "@/ds";
 import { useEditor, type EditorController } from "../../controller";
-import { command, isEnabled, runEditorCommand } from "../../commands";
-import { commandItem, RESET_PREFIX, runMenuItem } from "../../menus";
+import { command, isEnabled, runEditorCommand, shortcutOf } from "../../commands";
+import { RESET_PREFIX, runMenuItem } from "../../menus";
 import { statusOfTargets, statusTargets } from "../../devStatus";
 import { useTopics } from "../../hooks";
 import {
@@ -45,7 +48,6 @@ import {
   reorderProperty,
   reorderVariantValues,
   resetSlot,
-  setDescription,
   setExposed,
   setOf,
   setPropertyValue,
@@ -90,12 +92,15 @@ import {
   type ComponentPropValue,
   type GuidValue,
 } from "../../model/components";
-import { ComponentPicker, useComponentAssets } from "./ComponentPicker";
+import { ComponentPicker, useComponentAssets, usePopoverToggle } from "./ComponentPicker";
+import { ComponentConfiguration } from "./ComponentConfiguration";
+import { ACTION_ICON, actionItem, booleanActions } from "./Header";
+import { setMultiEdit, useMultiEdit } from "./multiEdit";
 import { BoundPill } from "./Variables";
 import { VariablePicker } from "../variables/VariablePicker";
-import vstyles from "../variables/Variables.module.css";
 import type { PanelNode } from "./shared";
 import styles from "./Component.module.css";
+import hstyles from "./Header.module.css";
 
 export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
   VARIANT: "16.variant",
@@ -105,8 +110,8 @@ export const PROPERTY_ICON: Record<ComponentPropType, IconName> = {
   SLOT: "16.slot",
 };
 
-/** The "+" menu's order (Figma's). */
-const ADD_TYPES: ComponentPropType[] = ["VARIANT", "BOOL", "INSTANCE_SWAP", "TEXT", "SLOT"];
+/** The Create property menu's order (live popovers/component-create-property-menu.txt). */
+export const ADD_TYPES: ComponentPropType[] = ["VARIANT", "TEXT", "BOOL", "INSTANCE_SWAP", "SLOT"];
 
 /** What the selection is, for the panel: one instance, component, variant or set (else null). */
 export type ComponentSelection = { kind: "instance" | "component" | "variant" | "set"; node: CNode };
@@ -128,62 +133,104 @@ export function componentSelection(ed: EditorController, nodes: readonly PanelNo
 
 // ---- Instance -----------------------------------------------------------------------------------------------------
 
-/** The instance's header row: ◇, the main's name ▾ (the instance menu), Go to main component, ⋯. */
+/** The name an instance's header shows: its main's, or its set's for a variant (live variant-instance: "Chip"). */
+export function instanceTitle(ed: EditorController, instance: CNode): string {
+  const main = mainOf(ed, instance);
+  if (!main) return "Missing component";
+  return (setOf(ed, main) ?? main).name ?? "";
+}
+
+/** Has the instance a name of its own (not its main's or set's)? Live offers "Reset name" then. */
+function renamedInstance(ed: EditorController, instance: CNode): boolean {
+  if (instanceChanges(ed, instance).some((g) => g.fields.includes("name"))) return true;
+  if (parseDerivedId(instance.guid)) return false;
+  const main = mainOf(ed, instance);
+  return !!main && (instance.name ?? "") !== ((setOf(ed, main) ?? main).name ?? "");
+}
+
+/**
+ * The instance's More actions as live (popovers/instance-more-actions-menu.txt, 221 × 309): Toggle ready for dev
+ * status · Create component, Detach instance, Reset instance, Reset name (Push changes to main component when there
+ * are changes to push) · Use as mask · Union, Subtract, Intersect, Exclude, Flatten — each with its glyph, what can't
+ * run left out.
+ */
+export function instanceMoreMenu(ed: EditorController, instance: CNode): MenuEntry[] {
+  const renamed = renamedInstance(ed, instance);
+  const reset = actionItem(ed, "object.reset-all-changes", "Reset instance");
+  // (A new name alone isn't pushed: live's renamed instance has no Push changes.)
+  const pushable = instanceChanges(ed, instance).some((g) => g.fields.some((f) => f !== "name"));
+  const push = pushable && isEnabled(ed, command("object.push-changes")) ? [actionItem(ed, "object.push-changes")] : [];
+  const groups: MenuEntry[][] = [
+    statusTargets(ed).length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", icon: ACTION_ICON["ready-for-dev"] }] : [],
+    [actionItem(ed, "object.create-component"), actionItem(ed, "object.detach-instance"), { ...reset, disabled: reset.disabled && !renamed }, ...(renamed ? [{ id: "reset-name", label: "Reset name", icon: ACTION_ICON["reset-name"] }] : []), ...push],
+    [actionItem(ed, "object.use-as-mask")],
+    // Flatten (live): the instance is detached, then flattened.
+    booleanActions(ed).map((e) => (e.id === "vector.flatten" && e.disabled && isEnabled(ed, command("object.detach-instance")) ? { ...e, id: "flatten-instance", disabled: false } : e)),
+  ];
+  return groups.flatMap((g): MenuEntry[] => {
+    const shown = g.filter((e) => e === "-" || !("id" in e) || !e.disabled);
+    return shown.length ? ["-", ...shown] : [];
+  });
+}
+
+/** Puts the instance's name back to its main's (one undo step). */
+function resetName(ed: EditorController, instance: CNode): void {
+  const group = instanceChanges(ed, instance).find((g) => g.fields.includes("name"));
+  if (group) {
+    void runMenuItem(ed, `${RESET_PREFIX}${group.fields.join(",")}`);
+    return;
+  }
+  const main = mainOf(ed, instance);
+  if (main) ed.setProps([instance.guid], { name: (setOf(ed, main) ?? main).name ?? "" }, "Reset name");
+}
+
+/** The instance's top: its main's name (the swap menu), More actions, Go to main component, then its properties. */
 export function InstanceHeader({ instance }: { instance: CNode }) {
   const ed = useEditor();
   const version = useDocVersion();
   const topics = useTopics(ed.store, ["selection", "undo"]);
   const main = mainOf(ed, instance);
-  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [picker, togglePicker, closePicker] = usePopoverToggle<HTMLElement>();
   const goTo = command("object.go-to-main-component");
   // The ⋯ menu's entries change with the document and the selection, not with every re-render of the panel (a drag
-  // re-renders it per frame): built once per change, each item's state from the shared component read.
-  // Figma's live "More actions" (popovers/instance-more-actions-menu.txt): Toggle ready for dev status · Create
-  // component, Detach instance, Reset instance, Reset name · Use as mask · Union … Flatten. Built once per change.
+  // re-renders it per frame): built once per change.
   const more = useMemo<MenuEntry[]>(() => {
     void version;
     void topics;
-    const targets = statusTargets(ed);
-    const ready = targets.length > 0 && statusOfTargets(ed, targets) === "BUILD";
-    const changes = instanceChanges(ed, instance);
-    const nameGroup = changes.find((g) => g.fields.includes("name"));
-    const live = (e: MenuEntry) => e === "-" || !("id" in e) || !e.disabled;
-    return [
-      ...(targets.length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", checked: ready }, "-" as const] : []),
-      ...[commandItem(ed, "object.create-component"), commandItem(ed, "object.detach-instance"), { ...commandItem(ed, "object.reset-all-changes"), label: "Reset instance" }].filter(live),
-      ...(nameGroup ? [{ id: `${RESET_PREFIX}${nameGroup.fields.join(",")}`, label: "Reset name" }] : []),
-      ...(isEnabled(ed, command("object.push-changes")) ? [commandItem(ed, "object.push-changes")] : []),
-      "-",
-      ...[commandItem(ed, "object.use-as-mask")].filter(live),
-      "-",
-      ...[
-        commandItem(ed, "vector.union", "Union"),
-        commandItem(ed, "vector.subtract", "Subtract"),
-        commandItem(ed, "vector.intersect", "Intersect"),
-        commandItem(ed, "vector.exclude", "Exclude"),
-        commandItem(ed, "vector.flatten"),
-      ].filter(live),
-    ];
+    return instanceMoreMenu(ed, instance);
   }, [ed, instance, version, topics]);
-  const name = main ? main.name ?? "" : "Missing component";
+  const name = instanceTitle(ed, instance);
   const onMore = (id: string) => {
     if (id === "ready-for-dev") {
       const targets = statusTargets(ed);
       runEditorCommand(ed, statusOfTargets(ed, targets) === "BUILD" ? "object.remove-dev-status" : "object.mark-ready-for-dev");
+    } else if (id === "reset-name") resetName(ed, instance);
+    else if (id === "flatten-instance")
+      ed.batch("Flatten", () => {
+        runEditorCommand(ed, "object.detach-instance");
+        runEditorCommand(ed, "vector.flatten");
+      });
+    else if (id === "object.reset-all-changes") {
+      const renamed = renamedInstance(ed, instance);
+      ed.batch("Reset instance", () => {
+        if (isEnabled(ed, command(id))) runEditorCommand(ed, id);
+        const now = readC(ed, instance.guid) ?? instance;
+        if (renamed && renamedInstance(ed, now)) resetName(ed, now);
+      });
     } else void runMenuItem(ed, id);
   };
   const bound = !!(instance as { componentPropRefs?: unknown[] }).componentPropRefs?.length;
   return (
     <div className={styles.instanceHead} data-instance-header="">
-      {/* Figma's live panel: the main's name (13px, the instance menu) and More actions; under it "Go to main component" reading where the main lives */}
+      {/* Live: the name at 17 in 13px/550 (no label: the text names it), More actions at 208; under it "Go to main component" */}
       <div className={styles.instanceTitleRow}>
-        <button type="button" className={styles.instanceName} aria-label={`Instance menu: ${name}`} aria-expanded={!!picker} onClick={(e) => setPicker(picker ? null : e.currentTarget)}>
+        <button type="button" className={styles.instanceName} data-instance-menu={name} aria-haspopup="dialog" aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)}>
           <span className={styles.headerText}>{assetLabel(name)}</span>
-          <Icon name="16.chevron.down" className={styles.chevron} />
+          <Icon name="16.chevron.down" className={styles.nameChevron} />
         </button>
         <div className={styles.headerActions}>
           {bound && <BindButton layer={instance} field="OVERRIDDEN_SYMBOL_ID" type="INSTANCE_SWAP" />}
-          <MenuButton label="More actions" entries={more} className={styles.iconMenu} onSelect={onMore}>
+          <MenuButton label="More actions" entries={more} className={styles.iconMenu} align="end" menuClassName={hstyles.actionsMenu} onSelect={onMore}>
             <Icon name="24.more" />
           </MenuButton>
         </div>
@@ -192,9 +239,7 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
         {main ? "From this file" : "Missing component"}
       </button>
       <InstanceProperties instance={instance} />
-      {picker && (
-        <ComponentPicker anchor={picker} current={main?.guid ?? null} onPick={(a) => swapTo(ed, [instance.guid], a, main)} onClose={() => setPicker(null)} />
-      )}
+      {picker && <ComponentPicker anchor={picker} title="Swap instance" current={main?.guid ?? null} onPick={(a) => swapTo(ed, [instance.guid], a, main)} onClose={closePicker} />}
     </div>
   );
 }
@@ -245,103 +290,131 @@ function PropertyRows({ info }: { info: InstanceInfo }) {
   );
 }
 
+/** The variable types each property takes ("Apply variable": a variant's from a string, number or boolean). */
+const APPLY_TYPES: Partial<Record<ComponentPropType, ("BOOLEAN" | "STRING" | "FLOAT")[]>> = {
+  VARIANT: ["STRING", "FLOAT", "BOOLEAN"],
+  BOOL: ["BOOLEAN"],
+  TEXT: ["STRING"],
+};
+
+/** The 208 button's label (live instance.txt / variant-instance.txt). */
+export const applyLabel = (def: Pick<ComponentPropDef, "type" | "name">): string => (def.type === "VARIANT" ? "Apply variable" : `Apply variable/property to ${def.name}`);
+
 function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyRowData }) {
   const ed = useEditor();
   const { def } = row;
-  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const labelId = useId();
+  const [picker, togglePicker, closePicker] = usePopoverToggle<HTMLElement>();
   const [assign, setAssign] = useState<HTMLElement | null>(null);
   const instance = info.instance;
+  const fresh = () => readC(ed, instance.guid) ?? instance;
   const toggle = def.type === "VARIANT" ? variantToggle(row.options ?? []) : null;
+  const types = APPLY_TYPES[def.type];
   let control: React.ReactNode;
-  switch (def.type) {
-    case "VARIANT":
-      // "Assign variable" (help "Modes for variables"): a string, number or boolean variable picks the variant in every
-      // mode; bound, the row shows the variable's pill (a click picks another, Detach on hover).
-      control = (
-        <>
-          {row.variable ? (
-            <BoundPill id={row.variable} label={def.name} onOpen={(a) => setAssign(a)} onDetach={() => bindPropertyVariable(ed, instance.guid, def.name, null)} />
-          ) : toggle ? (
-            // True / False, Yes / No, On / Off: a toggle (Figma), still bindable to a variable.
-            <div className={vstyles.bindWrap} data-assign-variable={def.name} data-variant-toggle={def.name}>
-              <Switch label={def.name} checked={row.variantValue === toggle.on} onChange={(on) => setVariant(ed, readC(ed, instance.guid) ?? instance, def.name, on ? toggle.on : toggle.off)} />
-              <button type="button" className={vstyles.applyButton} aria-label="Assign variable" aria-expanded={!!assign} {...tooltipProps("Assign variable")} onClick={(e) => setAssign(e.currentTarget)}>
-                <Icon name="24.variable.small" />
-              </button>
-            </div>
-          ) : (
-            <div className={vstyles.bindWrap} data-assign-variable={def.name}>
-              <Select
-                label={def.name}
-                variant="outlined"
-                value={row.variantValue ?? ""}
-                options={(row.options ?? []).map((v) => ({ value: v, label: v }))}
-                onChange={(v) => setVariant(ed, readC(ed, instance.guid) ?? instance, def.name, v)}
+  if (row.variable && types) {
+    // Bound to a variable: its pill (a click picks another, Detach on hover).
+    control = <BoundPill id={row.variable} label={def.name} onOpen={(a) => setAssign(a)} onDetach={() => bindPropertyVariable(ed, instance.guid, def.name, null)} />;
+  } else
+    switch (def.type) {
+      case "VARIANT":
+        control = toggle ? (
+          // True / False, Yes / No, On / Off: a toggle (Figma).
+          <Switch label={def.name} className={styles.propSwitch} checked={row.variantValue === toggle.on} onChange={(on) => setVariant(ed, fresh(), def.name, on ? toggle.on : toggle.off)} />
+        ) : (
+          <Select label={def.name} variant="outlined" value={row.variantValue ?? ""} options={(row.options ?? []).map((v) => ({ value: v, label: v }))} onChange={(v) => setVariant(ed, fresh(), def.name, v)} />
+        );
+        break;
+      case "BOOL":
+        control = <Switch label={def.name} className={styles.propSwitch} checked={row.value?.boolValue !== false} onChange={(on) => setPropertyValue(ed, fresh(), def, { boolValue: on })} />;
+        break;
+      case "TEXT":
+        control = <PropertyText labelledBy={labelId} value={row.value?.textValue?.characters ?? ""} onCommit={(v) => setPropertyValue(ed, fresh(), def, { textValue: { characters: v } })} />;
+        break;
+      case "INSTANCE_SWAP": {
+        const current = row.value?.guidValue ? readC(ed, guidStr(row.value.guidValue)) : null;
+        control = (
+          <>
+            <button type="button" className={styles.swapField} aria-labelledby={labelId} data-swap-property={def.name} aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)}>
+              <Icon name="16.instance" className={styles.swapIcon} />
+              <span className={styles.headerText}>{current ? assetLabel(current.name ?? "") : "None"}</span>
+            </button>
+            {picker && (
+              <ComponentPicker
+                anchor={picker}
+                title="Choose instance"
+                current={current?.guid ?? null}
+                preferredKeys={def.preferredValues?.instanceSwapValues?.map((p) => p.key)}
+                onPick={(a) => setPropertyValue(ed, fresh(), def, { guidValue: guidVal(a.target) })}
+                onClose={closePicker}
               />
-              <button type="button" className={vstyles.applyButton} aria-label="Assign variable" aria-expanded={!!assign} {...tooltipProps("Assign variable")} onClick={(e) => setAssign(e.currentTarget)}>
-                <Icon name="24.variable.small" />
-              </button>
-            </div>
-          )}
-          {assign && (
-            <VariablePicker
-              anchor={assign}
-              title="Assign variable"
-              types={["STRING", "FLOAT", "BOOLEAN"]}
-              current={row.variable ?? null}
-              consumer={instance.guid.startsWith("I") ? null : instance.guid}
-              onPick={(v) => bindPropertyVariable(ed, instance.guid, def.name, v.id)}
-              onClose={() => setAssign(null)}
-            />
-          )}
-        </>
-      );
-      break;
-    case "BOOL":
-      control = <Switch label={def.name} checked={row.value?.boolValue !== false} onChange={(on) => setPropertyValue(ed, readC(ed, instance.guid) ?? instance, def, { boolValue: on })} />;
-      break;
-    case "TEXT":
-      control = (
-        <TextInput
-          label={def.name}
-          value={row.value?.textValue?.characters ?? ""}
-          onCommit={(v) => setPropertyValue(ed, readC(ed, instance.guid) ?? instance, def, { textValue: { characters: v } })}
-        />
-      );
-      break;
-    case "INSTANCE_SWAP": {
-      const current = row.value?.guidValue ? readC(ed, guidStr(row.value.guidValue)) : null;
-      control = (
-        <>
-          <button type="button" className={styles.swapField} aria-label={`${def.name}: ${current?.name ?? "None"}`} onClick={(e) => setPicker(picker ? null : e.currentTarget)}>
-            <Icon name="16.instance" className={styles.purpleIcon} />
-            <span className={styles.headerText}>{current ? assetLabel(current.name ?? "") : "None"}</span>
-            <Icon name="16.chevron.down" className={styles.chevron} />
-          </button>
-          {picker && (
-            <ComponentPicker
-              anchor={picker}
-              title={def.name}
-              current={current?.guid ?? null}
-              preferredKeys={def.preferredValues?.instanceSwapValues?.map((p) => p.key)}
-              onPick={(a) => setPropertyValue(ed, readC(ed, instance.guid) ?? instance, def, { guidValue: guidVal(a.target) })}
-              onClose={() => setPicker(null)}
-            />
-          )}
-        </>
-      );
-      break;
+            )}
+          </>
+        );
+        break;
+      }
+      default:
+        control = <SlotControl row={row} />;
     }
-    default:
-      control = <SlotControl row={row} />;
-  }
   return (
     <div className={styles.propRow} data-property={def.name}>
-      <span className={styles.propLabel} title={def.name}>
+      <span id={labelId} className={styles.propLabel} title={def.name}>
         {def.name}
       </span>
       <div className={styles.propControl}>{control}</div>
+      {types && <IconButton icon="24.variable.small" label={applyLabel(def)} tone="secondary" aria-expanded={!!assign} data-apply-variable={def.name} onClick={(e) => setAssign(assign ? null : e.currentTarget)} />}
+      {assign && types && (
+        <VariablePicker
+          anchor={assign}
+          title="Apply variable"
+          types={types}
+          current={row.variable ?? null}
+          consumer={instance.guid.startsWith("I") ? null : instance.guid}
+          onPick={(v) => bindPropertyVariable(ed, instance.guid, def.name, v.id)}
+          onClose={() => setAssign(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * A Text property's field (live: a textarea 88 × 24 on #383838 that grows with its lines): Enter writes it, ⇧Enter
+ * breaks the line, Esc puts it back.
+ */
+function PropertyText({ value, labelledBy, onCommit }: { value: string; labelledBy: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const cancelled = useRef(false);
+  const text = draft ?? value;
+  const lines = Math.min(6, text.split("\n").length);
+  return (
+    <textarea
+      className={styles.propText}
+      aria-labelledby={labelledBy}
+      rows={1}
+      spellCheck={false}
+      value={text}
+      style={{ height: lines * 16 + 8 }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={(e) => {
+        const typed = e.currentTarget.value;
+        const keep = draft !== null && !cancelled.current && typed !== value;
+        cancelled.current = false;
+        setDraft(null);
+        if (keep) onCommit(typed);
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+        if (e.key === "Escape") {
+          cancelled.current = true;
+          setDraft(null);
+          e.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 
@@ -354,7 +427,7 @@ function InstancePropertyRow({ info, row }: { info: InstanceInfo; row: PropertyR
 function SlotControl({ row }: { row: PropertyRowData }) {
   const ed = useEditor();
   const version = useDocVersion();
-  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [picker, togglePicker, closePicker] = usePopoverToggle<HTMLElement>();
   const [limits, setLimits] = useState<HTMLElement | null>(null);
   const state: SlotState | null = useMemo(() => {
     void version;
@@ -386,12 +459,12 @@ function SlotControl({ row }: { row: PropertyRowData }) {
       ) : (
         <span className={styles.slotCount}>{state.children.length === 1 ? "1 layer" : `${state.children.length} layers`}</span>
       )}
-      <IconButton icon="24.plus.small" label="Add instances" tone="secondary" aria-expanded={!!picker} onClick={(e) => setPicker(picker ? null : e.currentTarget)} />
+      <IconButton icon="24.plus.small" label="Add instances" tone="secondary" aria-expanded={!!picker} onClick={(e) => togglePicker(e.currentTarget)} />
       <MenuButton label="More actions" entries={more} className={styles.iconMenu} onSelect={(id) => (id === "reset" ? resetSlot(ed, state.ref) : clearSlot(ed, state.ref))}>
         <Icon name="24.more" />
       </MenuButton>
       {picker && (
-        <ComponentPicker anchor={picker} title="Add instances" preferredKeys={preferredKeys} preferredFilter onPick={(a) => addInstanceToSlot(ed, state.ref, a, config)} onClose={() => setPicker(null)} />
+        <ComponentPicker anchor={picker} title="Add instances" preferredKeys={preferredKeys} preferredFilter onPick={(a) => addInstanceToSlot(ed, state.ref, a, config)} onClose={closePicker} />
       )}
       {limits && (
         <Popover anchor={limits} title="Limits" width={240} onClose={() => setLimits(null)} label="Limits">
@@ -412,29 +485,166 @@ function SlotControl({ row }: { row: PropertyRowData }) {
 
 // ---- Main component, set, variant ----------------------------------------------------------------------------------
 
-/** The header for a main component, a variant or a set: the purple glyph and type, Add variant. */
-export function ComponentHeader({ sel, actions }: { sel: ComponentSelection; actions?: React.ReactNode }) {
+export type ComponentHeaderAction = "multi-edit" | "add-variant" | "matching" | "configuration" | "more";
+
+/** The header's actions after the name, left to right (live component.txt, component-set.txt, variant.txt). */
+export const COMPONENT_HEADER_ACTIONS: Record<Exclude<ComponentSelection["kind"], "instance">, readonly ComponentHeaderAction[]> = {
+  component: ["add-variant", "configuration", "more"],
+  set: ["multi-edit", "add-variant", "configuration", "more"],
+  variant: ["multi-edit", "matching", "configuration"],
+};
+
+/**
+ * A main component's or set's More actions (not captured live: built like the instance's — Toggle ready for dev
+ * status · Use as mask · Union … Flatten —, what can't run left out; unverified).
+ */
+export function componentMoreMenu(ed: EditorController): MenuEntry[] {
+  const groups: MenuEntry[][] = [
+    statusTargets(ed).length ? [{ id: "ready-for-dev", label: "Toggle ready for dev status", icon: ACTION_ICON["ready-for-dev"] }] : [],
+    [actionItem(ed, "object.use-as-mask")],
+    booleanActions(ed),
+  ];
+  return groups.flatMap((g): MenuEntry[] => {
+    const shown = g.filter((e) => e === "-" || !("id" in e) || !e.disabled);
+    return shown.length ? ["-", ...shown] : [];
+  });
+}
+
+/** The layer's name as the header's field (live: 13 / 550 at 16, the field from 8 to 8 before the first button). */
+function NameField({ node }: { node: CNode }) {
+  const ed = useEditor();
+  const [draft, setDraft] = useState<string | null>(null);
+  const cancelled = useRef(false);
+  return (
+    <input
+      className={styles.nameField}
+      value={draft ?? node.name ?? ""}
+      spellCheck={false}
+      data-component-name={node.guid}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={() => {
+        const name = draft?.trim();
+        if (!cancelled.current && name && name !== node.name) ed.setProps([node.guid], { name }, "Rename");
+        cancelled.current = false;
+        setDraft(null);
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          cancelled.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
+/**
+ * A main component, set or variant: the header (the name, then COMPONENT_HEADER_ACTIONS) and Properties (Current
+ * variant for a variant) as one block, the line under it (live: Position's title at 195 after three properties).
+ */
+export function ComponentBlock({ sel }: { sel: ComponentSelection }) {
   const ed = useEditor();
   useTopics(ed.store, ["selection", "undo", "structure"]);
-  const label = sel.kind === "set" ? "Component set" : sel.kind === "variant" ? "Variant" : "Component";
+  const version = useDocVersion();
+  const node = useMemo(() => {
+    void version;
+    return readC(ed, sel.node.guid) ?? sel.node;
+  }, [ed, sel.node, version]);
+  const set = sel.kind === "set" ? node : sel.kind === "variant" ? setOf(ed, node) : null;
+  const multi = useMultiEdit(set?.guid);
+  const [config, toggleConfig, closeConfig] = usePopoverToggle<HTMLElement>();
+  const kind = sel.kind === "instance" ? "component" : sel.kind;
   const add = command("object.add-variant");
+  const matching = command("edit.select-matching");
+  const action = (a: ComponentHeaderAction) => {
+    switch (a) {
+      case "multi-edit":
+        return <ToggleIconButton key={a} icon="24.multi-edit.small" label="Multi-edit variants" tone="secondary" pressed={multi} disabled={!set} onPressedChange={(on) => set && setMultiEdit(set.guid, on)} />;
+      case "add-variant":
+        return <IconButton key={a} icon="24.add-variant.small" label={add.label} tone="secondary" disabled={!isEnabled(ed, add)} onClick={() => runEditorCommand(ed, add.id)} />;
+      case "matching":
+        return <IconButton key={a} icon="24.select-matching.small" label={matching.label} shortcut={shortcutOf(matching)} tone="secondary" disabled={!isEnabled(ed, matching)} onClick={() => runEditorCommand(ed, matching.id)} />;
+      case "configuration":
+        return <IconButton key={a} icon="24.adjust.small" label="Component configuration" tone="secondary" aria-expanded={!!config} onClick={(e) => toggleConfig(e.currentTarget)} />;
+      case "more":
+        return <ComponentMore key={a} />;
+    }
+  };
   return (
-    <div className={styles.header} data-component-header={sel.kind}>
-      <div className={styles.headerLabel}>
-        <Icon name={sel.kind === "set" ? "16.component.set" : "16.component"} className={styles.purpleIcon} />
-        <span className={cx(styles.headerText, styles.purpleText)}>{label}</span>
+    <div className={styles.componentBlock} data-component-header={sel.kind}>
+      <div className={styles.componentHeader}>
+        {/* A variant's header names its set (live variant.txt: "Chip") */}
+        <NameField node={sel.kind === "variant" ? (set ?? node) : node} />
+        {COMPONENT_HEADER_ACTIONS[kind].map(action)}
       </div>
-      <div className={styles.headerActions}>
-        <IconButton icon="24.add-variant.small" label={add.label} tone="secondary" disabled={!isEnabled(ed, add)} onClick={() => runEditorCommand(ed, add.id)} />
-        {actions}
-      </div>
+      {sel.kind === "variant" ? <CurrentVariantSection variant={node} /> : <PropertiesSection owner={node} />}
+      {config && <ComponentConfiguration owner={node} anchor={config} onClose={closeConfig} />}
     </div>
+  );
+}
+
+function ComponentMore() {
+  const ed = useEditor();
+  const entries = componentMoreMenu(ed);
+  return (
+    <MenuButton
+      label="More actions"
+      entries={entries.length ? entries : [{ id: "none", label: "No actions", disabled: true }]}
+      className={styles.iconMenu}
+      align="end"
+      menuClassName={hstyles.actionsMenu}
+      onSelect={(id) => {
+        if (id === "ready-for-dev") runEditorCommand(ed, statusOfTargets(ed, statusTargets(ed)) === "BUILD" ? "object.remove-dev-status" : "object.mark-ready-for-dev");
+        else void runMenuItem(ed, id);
+      }}
+    >
+      <Icon name="24.more" />
+    </MenuButton>
   );
 }
 
 type EditorTarget = { mode: "create"; type: ComponentPropType; bind?: { layer: CNode; field: BindableField } } | { mode: "edit"; def: ComponentPropDef };
 
-/** Properties of a main component or a set: "+", one row per property, the description. */
+/**
+ * The Create property menu as live (popovers/component-create-property-menu.txt, 156 wide): the caption "Create
+ * property", Variant, Text, Boolean, Instance swap, Slot, then "Expose properties from" › Nested instances.
+ */
+export function createPropertyMenu(ed: EditorController, owner: CNode, nested: readonly CNode[]): MenuEntry[] {
+  return [
+    { header: "Create property" },
+    ...ADD_TYPES.map((t) => ({ id: t, label: PROPERTY_TYPE_LABEL[t], icon: PROPERTY_ICON[t], disabled: !canAddProperty(ed, owner, t) })),
+    "-",
+    { header: "Expose properties from" },
+    { id: "submenu:nested", label: "Nested instances", icon: "16.instance" as IconName, disabled: !nested.length, items: nested.map((n) => ({ id: `expose:${n.guid}`, label: n.name ?? "", checked: n.propsAreBubbled === true })) },
+  ];
+}
+
+/** A property row's summary after its name (live: "Show icon ・ True", "State ・ Default, Hover, Pressed"). */
+function propertySummary(ed: EditorController, d: ComponentPropDef, variantProps: { name: string; values: string[] }[]): string {
+  if (d.type === "VARIANT") return variantProps.find((p) => p.name === d.name)?.values.join(", ") ?? "";
+  if (d.type === "BOOL") return d.initialValue?.boolValue === false ? "False" : "True";
+  if (d.type === "TEXT") return d.initialValue?.textValue?.characters ?? "";
+  if (d.type === "INSTANCE_SWAP") {
+    const c = d.initialValue?.guidValue ? readC(ed, guidStr(d.initialValue.guidValue)) : null;
+    return c ? assetLabel(c.name ?? "") : "";
+  }
+  return "";
+}
+
+/** A block's title row (live: 11 / 550 secondary at 16, its button at 208, 8 under the header). */
+function BlockTitle({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <div className={styles.blockTitle}>
+      <span className={styles.blockTitleText}>{title}</span>
+      {children}
+    </div>
+  );
+}
+
+/** Properties of a main component or a set: Create property, then a row per property and per exposed instance. */
 export function PropertiesSection({ owner }: { owner: CNode }) {
   const ed = useEditor();
   const version = useDocVersion();
@@ -443,6 +653,8 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
     return readC(ed, owner.guid) ?? owner;
   }, [ed, owner, version]);
   const [editing, setEditing] = useState<{ target: EditorTarget; anchor: HTMLElement | null } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; def?: ComponentPropDef; exposed?: CNode } | null>(null);
   const addRef = useRef<HTMLSpanElement>(null);
   const defs = sortedDefs(fresh.componentPropDefs ?? []);
   const variants = isComponentSet(fresh) ? variantsOf(ed, fresh) : [];
@@ -451,12 +663,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   const exposed = nestedInstances.filter((n) => n.propsAreBubbled === true);
   const [dragging, setDragging] = useState<ComponentPropDef | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
-  const entries: MenuEntry[] = [
-    ...ADD_TYPES.map((t) => ({ id: t, label: PROPERTY_TYPE_LABEL[t], icon: PROPERTY_ICON[t], disabled: !canAddProperty(ed, fresh, t) })),
-    ...(nestedInstances.length
-      ? ["-" as const, { header: "Expose properties from" }, { id: "submenu:nested", label: "Nested instances", items: nestedInstances.map((n) => ({ id: `expose:${n.guid}`, label: n.name ?? "", checked: n.propsAreBubbled === true })) }]
-      : []),
-  ];
+  const lastVariant = (d: ComponentPropDef) => d.type === "VARIANT" && defs.filter((x) => x.type === "VARIANT").length <= 1;
   const onAdd = (id: string) => {
     if (id.startsWith("expose:")) {
       const n = nestedInstances.find((x) => x.guid === id.slice("expose:".length));
@@ -465,95 +672,169 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
     }
     setEditing({ target: { mode: "create", type: id as ComponentPropType }, anchor: addRef.current?.querySelector("button") ?? null });
   };
-  const summary = (d: ComponentPropDef): string => {
-    if (d.type === "VARIANT") return variantProps.find((p) => p.name === d.name)?.values.join(", ") ?? "";
-    if (d.type === "BOOL") return d.initialValue?.boolValue === false ? "False" : "True";
-    if (d.type === "TEXT") return d.initialValue?.textValue?.characters ?? "";
-    if (d.type === "INSTANCE_SWAP") {
-      const c = d.initialValue?.guidValue ? readC(ed, guidStr(d.initialValue.guidValue)) : null;
-      return c ? assetLabel(c.name ?? "") : "";
-    }
-    return "";
-  };
   return (
-    <PanelSection
-      title="Properties"
-      actions={
-        <span ref={addRef} style={{ display: "contents" }}>
-          <MenuButton label="Create component property" entries={entries} className={styles.iconMenu} onSelect={onAdd}>
+    <div className={styles.properties} data-properties-section="">
+      <BlockTitle title="Properties">
+        <span ref={addRef} className={styles.contents}>
+          <MenuButton label="Create property" entries={createPropertyMenu(ed, fresh, nestedInstances)} className={styles.iconMenu} align="end" menuClassName={styles.createPropertyMenu} onSelect={onAdd}>
             <Icon name="24.plus.small" />
           </MenuButton>
         </span>
-      }
-    >
+      </BlockTitle>
       <div className={styles.defs} data-component-properties="">
-        {defs.length === 0 && <div className={styles.empty}>Click + to create a property</div>}
-        {defs.map((d) => (
-          <div
-            key={guidStr(d.id)}
-            className={cx(styles.defRow, dragOver === guidStr(d.id) && styles.defDrop)}
-            data-property-row={d.name}
-            draggable
-            onDragStart={(e) => {
-              setDragging(d);
-              e.dataTransfer.effectAllowed = "move";
-            }}
-            onDragOver={(e) => {
-              // Within its own group: variant properties always stay above the others (Figma).
-              if (!dragging || (dragging.type === "VARIANT") !== (d.type === "VARIANT")) return;
-              e.preventDefault();
-              setDragOver(guidStr(d.id));
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (dragging && guidStr(dragging.id) !== guidStr(d.id)) reorderProperty(ed, fresh, dragging, d);
-              setDragging(null);
-              setDragOver(null);
-            }}
-            onDragEnd={() => {
-              setDragging(null);
-              setDragOver(null);
-            }}
-          >
-            <button type="button" className={styles.defButton} aria-label={`Edit property ${d.name}`} onClick={(e) => setEditing({ target: { mode: "edit", def: d }, anchor: e.currentTarget })}>
-              <Icon name={PROPERTY_ICON[d.type]} className={styles.purpleIcon} />
-              <span className={styles.defName}>{d.name}</span>
-              <span className={styles.defValue}>{summary(d)}</span>
+        {defs.map((d) => {
+          const id = guidStr(d.id);
+          const summary = propertySummary(ed, d, variantProps);
+          return (
+            <div
+              key={id}
+              className={cx(styles.defRow, dragOver === id && styles.defDrop)}
+              data-property-row={d.name}
+              draggable={renaming !== id}
+              onDragStart={(e) => {
+                setDragging(d);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                // Within its own group: variant properties always stay above the others (Figma).
+                if (!dragging || (dragging.type === "VARIANT") !== (d.type === "VARIANT")) return;
+                e.preventDefault();
+                setDragOver(id);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragging && guidStr(dragging.id) !== id) reorderProperty(ed, fresh, dragging, d);
+                setDragging(null);
+                setDragOver(null);
+              }}
+              onDragEnd={() => {
+                setDragging(null);
+                setDragOver(null);
+              }}
+            >
+              <span className={styles.defHandle} aria-hidden="true">
+                <Icon name="16.drag" />
+              </span>
+              <button
+                type="button"
+                className={styles.defButton}
+                data-property-def={d.name}
+                onClick={(e) => {
+                  // (The second click of a double-click renames instead.)
+                  if (e.detail > 1 || renaming === id) return;
+                  setEditing({ target: { mode: "edit", def: d }, anchor: e.currentTarget });
+                }}
+                onDoubleClick={() => {
+                  setEditing(null);
+                  setRenaming(id);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ x: e.clientX, y: e.clientY, def: d });
+                }}
+                onKeyDown={(e) => {
+                  // Help: select the property and press Delete.
+                  if ((e.key === "Delete" || e.key === "Backspace") && renaming !== id && !lastVariant(d)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteProperty(ed, fresh, d);
+                  }
+                }}
+              >
+                <span className={styles.defIcon} role="img" aria-label={`${PROPERTY_TYPE_LABEL[d.type]} property`}>
+                  <Icon name={PROPERTY_ICON[d.type]} />
+                </span>
+                {renaming === id ? (
+                  <RenameInput
+                    value={d.name}
+                    onDone={(name) => {
+                      setRenaming(null);
+                      if (name && name !== d.name) updateProperty(ed, fresh, d, { name }, "Rename property");
+                    }}
+                  />
+                ) : (
+                  <span className={styles.defName}>{d.name}</span>
+                )}
+                {summary && renaming !== id && (
+                  <>
+                    <span className={styles.defSep}>・</span>
+                    <span className={styles.defValue}>{summary}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          );
+        })}
+        {exposed.map((n) => (
+          // Exposed nested instances (help: "appear as a list in the right panel"; right-click stops exposing one).
+          <div key={n.guid} className={styles.defRow} data-exposed-instance={n.name ?? ""}>
+            <button
+              type="button"
+              className={styles.defButton}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ x: e.clientX, y: e.clientY, exposed: n });
+              }}
+            >
+              <span className={styles.defIcon} role="img" aria-label="Nested instance">
+                <Icon name="16.instance" />
+              </span>
+              <span className={styles.defName}>{n.name}</span>
             </button>
-            <IconButton icon="24.minus.small" label={`Delete property ${d.name}`} tone="secondary" disabled={d.type === "VARIANT" && defs.filter((x) => x.type === "VARIANT").length <= 1} onClick={() => deleteProperty(ed, fresh, d)} />
           </div>
         ))}
-        {exposed.length > 0 && (
-          // Exposed nested instances (help: "appear as a list in the right panel"; hover a name, − stops exposing it).
-          <div className={styles.exposedList} data-exposed-instances="">
-            {exposed.map((n) => (
-              <div key={n.guid} className={styles.defRow} data-exposed-instance={n.name ?? ""}>
-                <span className={styles.defButton}>
-                  <Icon name="16.instance" className={styles.purpleIcon} />
-                  <span className={styles.defName}>{n.name}</span>
-                </span>
-                <IconButton icon="24.minus.small" label={`Stop exposing ${n.name ?? ""}`} tone="secondary" onClick={() => setExposed(ed, n, false)} />
-              </div>
-            ))}
-          </div>
-        )}
-        <Description owner={fresh} />
       </div>
+      {menu && (
+        <ContextMenu
+          at={{ x: menu.x, y: menu.y }}
+          context
+          entries={menu.def ? [{ id: "delete", label: "Delete property", disabled: lastVariant(menu.def) }] : [{ id: "unexpose", label: "Stop exposing" }]}
+          onSelect={(id) => {
+            if (id === "delete" && menu.def) deleteProperty(ed, fresh, menu.def);
+            if (id === "unexpose" && menu.exposed) setExposed(ed, menu.exposed, false);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
       {editing && <PropertyEditor owner={fresh} target={editing.target} anchor={editing.anchor} onClose={() => setEditing(null)} />}
-    </PanelSection>
-  );
-}
-
-function Description({ owner }: { owner: CNode }) {
-  const ed = useEditor();
-  return (
-    <div className={styles.description}>
-      <TextArea label="Description" value={owner.description ?? ""} placeholder="Add a description" minRows={1} maxRows={6} onCommit={(v) => setDescription(ed, owner, v)} />
     </div>
   );
 }
 
-/** "Current variant": the selected variant's value for each of the set's properties. */
+/** An in-place rename (Enter / leaving keeps it, Esc drops it). */
+function RenameInput({ value, onDone, label }: { value: string; onDone: (value: string | null) => void; label?: string }) {
+  const [draft, setDraft] = useState(value);
+  const done = useRef(false);
+  const finish = (v: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(v?.trim() || null);
+  };
+  return (
+    <input
+      className={styles.renameInput}
+      aria-label={label ?? "Property name"}
+      value={draft}
+      autoFocus
+      spellCheck={false}
+      onFocus={(e) => e.currentTarget.select()}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => finish(draft)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(draft);
+        if (e.key === "Escape") finish(null);
+      }}
+    />
+  );
+}
+
+/**
+ * "Current variant" (live variant.txt): Select component (the set) at 208; a row per property — the name (a button
+ * that renames the property) at 8, the value at 108 (a field: type a value to give this variant, its list picks one
+ * or Rename… renames this value in every variant).
+ */
 export function CurrentVariantSection({ variant }: { variant: CNode }) {
   const ed = useEditor();
   const version = useDocVersion();
@@ -567,19 +848,99 @@ export function CurrentVariantSection({ variant }: { variant: CNode }) {
   }, [ed, variant, version]);
   if (!data) return null;
   return (
-    <PanelSection title="Current variant">
-      <div className={styles.instanceBody} data-current-variant="">
+    <div className={styles.properties}>
+      <BlockTitle title="Current variant">
+        <IconButton icon="24.component.small" label="Select component" tone="secondary" onClick={() => ed.engine.setSelection([data.set.guid])} />
+      </BlockTitle>
+      <div className={styles.variantRows} data-current-variant="">
         {data.props.map((p) => (
-          <div key={p.name} className={styles.propRow}>
-            <span className={styles.propLabel}>{p.name}</span>
-            <div className={styles.propControl}>
-              <Select label={p.name} variant="outlined" value={data.values.get(p.name) ?? ""} options={p.values.map((x) => ({ value: x, label: x }))} onChange={(x) => setVariantValueOf(ed, data.v, data.set, p.name, x)} />
-            </div>
-          </div>
+          <VariantRow key={p.name} set={data.set} variant={data.v} name={p.name} values={p.values} value={data.values.get(p.name) ?? ""} />
         ))}
-        <Description owner={data.v} />
       </div>
-    </PanelSection>
+    </div>
+  );
+}
+
+function VariantRow({ set, variant, name, values, value }: { set: CNode; variant: CNode; name: string; values: string[]; value: string }) {
+  const ed = useEditor();
+  const [renamingName, setRenamingName] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState(false);
+  const [list, setList] = useState<DOMRect | null>(null);
+  const field = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const cancelled = useRef(false);
+  const def = set.componentPropDefs?.find((d) => d.type === "VARIANT" && d.name === name);
+  const commit = (typed: string) => {
+    const next = typed.trim();
+    if (!next || next === value) return;
+    if (renameValue) renameVariantValue(ed, set, name, value, next);
+    else setVariantValueOf(ed, variant, set, name, next);
+  };
+  return (
+    <div className={styles.variantRow} data-variant-property={name}>
+      {renamingName ? (
+        <span className={styles.variantName}>
+          <RenameInput
+            value={name}
+            label={`Property name for ${name}`}
+            onDone={(next) => {
+              setRenamingName(false);
+              if (next && def && next !== name) updateProperty(ed, set, def, { name: next }, "Rename property");
+            }}
+          />
+        </span>
+      ) : (
+        <button type="button" className={styles.variantName} aria-label={`Edit property name for ${name}`} onClick={() => setRenamingName(true)}>
+          {name}
+        </button>
+      )}
+      <div className={styles.variantValue} aria-label={`Edit property value for ${name}`}>
+        <div ref={field} className={styles.variantField}>
+          <input
+            ref={input}
+            className={styles.variantInput}
+            aria-label={`Edit property value for ${name}`}
+            value={draft ?? value}
+            spellCheck={false}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={(e) => {
+              if (!cancelled.current && draft !== null) commit(e.currentTarget.value);
+              cancelled.current = false;
+              setDraft(null);
+              setRenameValue(false);
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                cancelled.current = true;
+                e.currentTarget.blur();
+              }
+            }}
+          />
+          <button type="button" className={styles.variantChevron} aria-label={`${name} values`} aria-expanded={!!list} onClick={() => setList(list ? null : (field.current?.getBoundingClientRect() ?? null))}>
+            <Icon name="16.chevron.down" />
+          </button>
+        </div>
+      </div>
+      {list && (
+        <ContextMenu
+          at={{ x: list.left, y: list.bottom + 4 }}
+          over={{ rect: list, align: "left" }}
+          entries={[...values.map((v) => ({ id: `value:${v}`, label: v, checked: v === value })), { id: "rename", label: "Rename…", checked: false }]}
+          onSelect={(id) => {
+            if (id === "rename") {
+              setRenameValue(true);
+              setDraft(value);
+              requestAnimationFrame(() => input.current?.focus());
+            } else setVariantValueOf(ed, variant, set, name, id.slice("value:".length));
+          }}
+          onClose={() => setList(null)}
+        />
+      )}
+    </div>
   );
 }
 
