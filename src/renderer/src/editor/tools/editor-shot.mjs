@@ -24,7 +24,7 @@
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
-//   EDITOR_ONLY=overlays9 node …                                   (round 9: shape handles, the </>, padding badge, grid cells and pills, section pill)
+//   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
@@ -1666,11 +1666,18 @@ async function gridSection(page, theme) {
   check("Grid: Gap between columns 24", (await node(page, "1:1")).gridColumnGap === 24);
   await panel.locator('[aria-label="Auto layout"], [aria-label="Layout"]').first().scrollIntoViewIfNeeded().catch(() => {});
   await shot(page, `110-grid-panel-${theme}`);
-  // The track pills (live Figma, round 9): column 1's pill 31.5 px above the frame, over the middle of the column (2fr
-  // of 2fr + 1fr + 1fr, 24 px gaps, no padding) — expanded under the pointer.
+  // The track pills (live Figma, round 9): column 1's pill 31.5 px above the frame, over the middle of the column — 2fr
+  // beside two Hug columns (a new grid's), 24 px gaps, no padding: it ends a gap before the first layer right of it
+  // (no layers: the Hug columns are empty, it takes the width less the gaps). Expanded under the pointer.
   const pillOfColumn1 = async () => {
     const f = await node(page, "1:1");
-    const [cx, top] = await toScreen(page, f.transform.m02 + (f.size.x - 2 * 24) / 4, f.transform.m12);
+    const kids = (await page.evaluate(() => window.__designerEditor.engine.readNode("1:1", { childIds: true }).childIds ?? [])) ?? [];
+    let right = f.size.x - 2 * 24;
+    for (const id of kids) {
+      const k = await node(page, id);
+      if (k && k.transform.m02 > 1) right = Math.min(right, k.transform.m02 - 24);
+    }
+    const [cx, top] = await toScreen(page, f.transform.m02 + right / 2, f.transform.m12);
     return [cx, top - 31.5];
   };
   const [x, y] = await pillOfColumn1();
@@ -3035,7 +3042,6 @@ try {
   for (const [name, section] of [
     ["selection", selectionSection],
     ["selection8", selection8Section],
-    ["overlays9", overlays9Section],
     ["slots", slotsSection],
     ["variables6", variables6Section],
     ["devmode", devmodeSection],
@@ -3059,6 +3065,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await textSection(page, "dark");
+    await context.close();
+  }
+  if (only === "overlays9") {
+    // Round 9's canvas chrome on its own (the full run stays within its 180 s).
+    const context = await browser.newContext({ viewport: { width: 1512, height: 945 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await overlays9Section(page, "dark");
     await context.close();
   }
   if (only === "prototype") {
