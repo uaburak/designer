@@ -7,8 +7,10 @@
 #include <string>
 
 #include "doctest.h"
+#include "editor/Editor.h"
 #include "gfx/null/NullDevice.h"
 #include "Helpers.h"
+#include "TextHelpers.h"
 #include "render/Renderer.h"
 #include "render/shader_presets.h"
 #include "scene/CodecKiwi.h"
@@ -136,6 +138,38 @@ TEST_CASE("renderer: a shader fill is the Custom program's quad over the node, t
   d.apply(n);
   render(r, d);
   CHECK(customs(dev).empty());
+}
+
+TEST_CASE("renderer: a text's shader fill is drawn through its glyphs") {
+  // Inter bound here without loadInter()'s once-only flag: tests that run later (r7–r9) reset the registry, and the
+  // text tests after them must still load it.
+  {
+    auto& fonts = text::FontRegistry::get();
+    int32_t face = addFontFile(interPath());
+    fonts.bind("Inter", "Regular", face);
+    fonts.takeRequests();
+  }
+  auto nodes = baseChanges();
+  NodeChange t = make({1, 1}, NodeType::TEXT, kPage, "!", {10, 10, 120, 30}, "Hi");
+  t.props.text().textData.characters = "Shader";
+  t.props.text().fontSize = 24;
+  Paint fill;
+  fill.type = PaintType::CUSTOM;
+  fill.extra = shaderExtra("Paint", "shader.moving-gradient");
+  t.props.fillPaints = {fill};
+  nodes.push_back(t);
+  Editor e;
+  e.setViewport(400, 300, 1, 400, 300);
+  e.loadDocument(nodes, kNoGuid);
+  gfx::NullDevice device;
+  Renderer r(device);
+  r.setTextLayouts(&e);
+  Overlay none;
+  none.frameTitles = false;
+  RenderStats stats = r.render(e.document(), e.page(), e.camera(), e.viewport(), none, OverlayStyle::of(Theme::Light));
+  CHECK(customs(device).size() == 1);
+  CHECK(composites(device, 1) == 1);  // through the glyphs
+  CHECK(stats.paths >= 5);            // the glyphs, white, in the mask
 }
 
 TEST_CASE("renderer: a shader effect reads the layer under it, reaches past it, and effects stack in order") {

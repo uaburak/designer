@@ -6,6 +6,8 @@
 #include <cmath>
 
 #include "render/Renderer.h"
+#include "render/shader_presets.h"
+#include "scene/Extras.h"
 #include "scene/CodecKiwi.h"
 
 namespace eng {
@@ -64,7 +66,53 @@ void Renderer::drawText(const Document& doc, const NodeProps& p, Guid id, const 
   // Fill by fill (bottom first), each glyph in its run's fills.
   size_t layers = 0;
   for (const auto& s : L->styles) layers = std::max(layers, s.fills ? s.fills->size() : 0);
+  // A run's shader fill (round 11): the preset over the text's box, through the glyphs whose fill it is (the first
+  // run's shader stands for every run with one at that place in the list).
+  auto shaderAt = [&](const text::LaidGlyph& g, size_t f) -> const Paint* {
+    const auto* fills = L->styles[g.style].fills;
+    if (!fills || f >= fills->size()) return nullptr;
+    const Paint& paint = (*fills)[f];
+    return paint.visible && paint.type == PaintType::CUSTOM ? &paint : nullptr;
+  };
   for (size_t f = 0; f < layers; f++) {
+    const Paint* shader = nullptr;
+    for (const text::LaidGlyph& g : L->glyphs)
+      if ((shader = shaderAt(g, f))) break;
+    const ShaderSetup* setup = shader ? &shaderOf(*shader) : nullptr;
+    if (setup && setup->preset && !setup->preset->effect && alpha * shader->opacity > 0) {
+      Rect box = transformedBounds(m, p.size.x, p.size.y).united(onScreen);
+      gfx::IRect r = deviceRect(box, 2);
+      if (r.w > 0 && r.h > 0) {
+        int P = shaderLayer(*setup, -1, r, m, p.size);
+        int saved = beginLayer(r);
+        int M = current_;
+        static const Paint kWhite = Paint::solid(Color{1, 1, 1, 1});
+        for (const text::LaidGlyph& g : L->glyphs) {
+          if (!shaderAt(g, f)) continue;
+          const CurveEntry* e = curves_.glyph(g.font, g.glyph);
+          if (!e) continue;
+          Mat2x3 em{g.size, 0, g.x, 0, g.size, g.y};
+          Mat2x3 gm = m * em;
+          DrawInstance q{};
+          q.linear[0] = static_cast<float>(gm.m00);
+          q.linear[1] = static_cast<float>(gm.m10);
+          q.linear[2] = static_cast<float>(gm.m01);
+          q.linear[3] = static_cast<float>(gm.m11);
+          q.origin[0] = static_cast<float>(gm.m02);
+          q.origin[1] = static_cast<float>(gm.m12);
+          q.origin[2] = static_cast<float>(e->start);
+          q.origin[3] = -1;
+          for (int i = 0; i < 4; i++) q.box[i] = e->bounds[i];
+          q.geom[2] = static_cast<float>(ShapeKind::Path);
+          DrawState state;
+          if (setPaint(q, state, kWhite, em, p.size, 1)) emit(q, Pass::Path, state);
+        }
+        endLayer(saved);
+        stats_.layers++;
+        compositeLayer(P, M, 1, static_cast<float>(alpha * shader->opacity),
+                       shader->blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : shader->blendMode, Color{}, {}, false, r);
+      }
+    }
     for (const text::LaidGlyph& g : L->glyphs) {
       const auto* fills = L->styles[g.style].fills;
       if (!fills || f >= fills->size()) continue;
