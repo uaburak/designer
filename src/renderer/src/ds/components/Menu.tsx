@@ -64,13 +64,18 @@ interface PanelProps {
    * here (live popovers/stroke-individual-strokes-menu.txt: 12 above its trigger)
    */
   flipY?: number;
+  /**
+   * A menu longer than the window runs past its bottom, uncut (live popovers/frame-presets-menu.txt: 222 × 1887 at
+   * 1208,125 in a 900-high window); the wheel and the arrow keys move it up and down to bring its rows in
+   */
+  extend?: boolean;
 }
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 
 const SUBMENU_EDGES = { top: 6, bottom: 5 };
 
-function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, className, flipY }: PanelProps) {
+function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth, submenu, className, flipY, extend }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const subId = useId();
   const list = tidy(entries);
@@ -99,6 +104,14 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       el.style.top = `${Math.round(Math.max(8, Math.min(top, window.innerHeight - 8 - height)))}px`;
       el.style.visibility = "visible";
       if (item) scrollWithin(el, item);
+    } else if (!isStatic && extend) {
+      el.style.maxHeight = "none";
+      el.style.overflowY = "visible";
+      const { width } = el.getBoundingClientRect();
+      el.style.left = `${placeMenu(x, y, { width, height: 0 }, { width: window.innerWidth, height: window.innerHeight }, flipX).x}px`;
+      el.style.top = `${y}px`;
+      el.style.visibility = "visible";
+      placeMore(el);
     } else if (!isStatic) {
       const { width, height } = el.getBoundingClientRect();
       const room = window.innerHeight - 8 - y;
@@ -113,13 +126,53 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       el.style.visibility = "visible";
     }
     if (autoFocus) el.focus({ preventScroll: true });
-  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu]);
+  }, [x, y, flipX, flipY, above, autoFocus, isStatic, keepTop, over, submenu, extend]);
 
+  // An extended menu moves instead of scrolling: never above where it opened, never ending above the window's bottom.
+  const more = useRef<HTMLDivElement>(null);
+  const moreTimer = useRef<number | undefined>(undefined);
+  const placeMore = (el: HTMLElement) => {
+    const bar = more.current;
+    if (!bar) return;
+    bar.style.top = "0px";
+    const natural = el.offsetTop + bar.offsetTop;
+    const want = window.innerHeight - 12 - bar.offsetHeight;
+    // Shown while rows run past it; at the end of the list it stays in place, hidden.
+    const shown = natural > want + 12;
+    bar.style.top = shown ? `${want - natural}px` : "0px";
+    bar.style.visibility = shown ? "visible" : "hidden";
+  };
+  const shift = (el: HTMLElement, by: number) => {
+    const lowest = Math.min(y, window.innerHeight - 8 - el.offsetHeight);
+    el.style.top = `${Math.round(Math.min(y, Math.max(lowest, el.offsetTop - by)))}px`;
+    placeMore(el);
+  };
+  // Resting on the bar moves the rows up a row at a time (unverified: live's capture shows the bar at rest).
+  const moreScroll = (el: HTMLElement) => {
+    window.clearInterval(moreTimer.current);
+    moreTimer.current = window.setInterval(() => shift(el, 24), 80);
+  };
+  useEffect(() => () => window.clearInterval(moreTimer.current), []);
+  useEffect(() => {
+    const el = panel.current;
+    if (!el || !extend || isStatic) return;
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      shift(el, e.deltaY);
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `shift` reads the current layout
+  }, [extend, isStatic, y]);
   useEffect(() => () => window.clearTimeout(intent.current), []);
   useEffect(() => {
     const el = panel.current;
     const item = active >= 0 ? el?.querySelector<HTMLElement>(`[data-menu-index="${active}"]`) : null;
-    if (el && item) scrollWithin(el, item);
+    if (!el || !item) return;
+    if (!extend) return scrollWithin(el, item);
+    const r = item.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 8) shift(el, r.bottom - (window.innerHeight - 8));
+    else if (r.top < 8) shift(el, r.top - 8);
   }, [active]);
 
   const openSub = (index: number, focus: boolean) => {
@@ -251,6 +304,12 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
             </div>
           );
         })}
+        {/* An extended menu's bar at the window's bottom while rows run past it (live: 24 high, 12 above the bottom) */}
+        {extend && !isStatic && (
+          <div ref={more} className={styles.more} aria-hidden="true" onPointerEnter={() => panel.current && moreScroll(panel.current)} onPointerLeave={() => window.clearInterval(moreTimer.current)}>
+            <Icon name="16.chevron.down" />
+          </div>
+        )}
       </div>
       {sub && subEntry && isItem(subEntry) && subEntry.items && (
         <SubPanel parent={subId}>
@@ -336,10 +395,12 @@ export interface ContextMenuProps {
   className?: string;
   /** Flips upwards with its bottom here when it doesn't fit under (see MenuPanel) */
   flipY?: number;
+  /** Runs past the window's bottom, moved by the wheel (see MenuPanel) */
+  extend?: boolean;
 }
 
 /** A menu at a point (contract §4.8): picking anything, a press outside, the wheel, Esc, blur or resize closes it. */
-export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, flipX, className, flipY }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", above, static: isStatic, highlighted, ignore, label, context, keepTop, over, dropdown, minWidth, flipX, className, flipY, extend }: ContextMenuProps) {
   const root = useRef<HTMLDivElement>(null);
   const popup = renderer === "native" ? (window as unknown as DesignerMenuBridge).designer?.menu?.popup : undefined;
   useDismiss(root, onClose, { enabled: !isStatic && !popup, ignore, wheel: true, blur: true, resize: true, escape: false });
@@ -365,6 +426,7 @@ export function ContextMenu({ at, entries, onSelect, onClose, renderer = "dom", 
       y={at.y}
       flipX={flipX}
       flipY={flipY}
+      extend={extend}
       className={className}
       above={above}
       autoFocus={!isStatic}
@@ -417,12 +479,19 @@ export interface MenuButtonProps {
   gap?: number;
   /** Opens upwards, `gap` above the trigger, when it doesn't fit under it (16 from the window's bottom) */
   flip?: boolean;
+  /** Longer than the window: runs past its bottom, moved by the wheel (see MenuPanel) */
+  extend?: boolean;
+  /**
+   * A list named by the trigger's label (a hidden first line, live stroke-individual-strokes-menu.txt "Individual
+   * strokes" at −1,1) with its checked row lit on open
+   */
+  named?: boolean;
   /** The menu's own look (see MenuPanel's `className`) */
   menuClassName?: string;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, menuClassName }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, menuClassName }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number; flipY?: number } | null>(null);
   const open = () => {
@@ -457,7 +526,7 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
       >
         {children}
       </button>
-      {at && <ContextMenu at={at} above={placement === "top"} keepTop over={at.over} flipX={at.flipX} flipY={at.flipY} className={menuClassName} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
+      {at && <ContextMenu at={at} above={placement === "top"} keepTop over={at.over} flipX={at.flipX} flipY={at.flipY} extend={extend} dropdown={named} label={named ? label : undefined} className={menuClassName} entries={entries} onSelect={onSelect} onClose={close} ignore={button} />}
     </>
   );
 }

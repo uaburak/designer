@@ -87,7 +87,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
     ed.edit("Stroke weight", info, () => {
       for (const n of nodes) ed.engine.setProps([n.guid], singleField ? fields({ [singleField]: v, strokeWeight: v }) : { strokeWeight: v });
     });
-  const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: s.label, icon: s.icon, checked: side === s.id }]);
+  const sideMenu: MenuEntry[] = SIDE_ITEMS.flatMap((s): MenuEntry[] => [...(s.id === "CUSTOM" ? ["-" as const] : []), { id: s.id, label: s.label, icon: s.icon, checked: side === s.id, radio: true }]);
   return (
     <PropertyGrid labels={labels}>
       <PropertyRow
@@ -97,7 +97,7 @@ export function StrokeRows({ nodes, labels }: { nodes: PanelNode[]; labels: bool
         action2={<StrokeSettingsButton nodes={nodes} />}
         action={
           perSide ? (
-            <MenuButton label="Individual strokes" entries={sideMenu} className={styles.iconMenu} gap={PANEL_MENU_GAP} flip menuClassName={styles.panelMenu} onSelect={(id) => {
+            <MenuButton label="Individual strokes" entries={sideMenu} className={styles.iconMenu} gap={PANEL_MENU_GAP} flip named menuClassName={styles.panelMenu} onSelect={(id) => {
                 setCustomFor(id === "CUSTOM" ? key : null);
                 ed.batch("Individual strokes", () => nodes.forEach((n) => ed.engine.setProps([n.guid], strokeSideFields(n, id as StrokeSide))));
               }}

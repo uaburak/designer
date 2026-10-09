@@ -62,8 +62,8 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     items: [
       ["iPad mini 8.3", 744, 1133],
       ["Surface Pro 8", 1440, 960],
-      ["iPad Pro 11", 834, 1194],
-      ["iPad Pro 12.9", 1024, 1366],
+      ['iPad Pro 11"', 834, 1194],
+      ['iPad Pro 12.9"', 1024, 1366],
       ["Android Expanded", 1280, 800],
     ],
   },
@@ -71,8 +71,8 @@ export const FRAME_PRESETS: { header: string; items: [string, number, number][] 
     header: "Desktop Presets",
     items: [
       ["MacBook Air", 1280, 832],
-      ["MacBook Pro 14", 1512, 982],
-      ["MacBook Pro 16", 1728, 1117],
+      ['MacBook Pro 14"', 1512, 982],
+      ['MacBook Pro 16"', 1728, 1117],
       ["Desktop", 1440, 1024],
       ["Wireframes", 1440, 1024],
       ["TV", 1280, 720],
@@ -272,8 +272,10 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
           label={`${title}, Frame Dimension Presets`}
           entries={frameMenu(title as FrameKind, offeredKinds(ed, nodes))}
           className={styles.typeButton}
-          // Live: the list right under the button, its rows at the button's left.
-          gap={0}
+          // Live (popovers/frame-presets-menu.txt: 222 × 1887 at 1208,125): 8 under the button, its rows at the button's
+          // left, the whole list past the window's bottom (moved by the wheel), not cut and scrolled.
+          gap={8}
+          extend
           menuClassName={hstyles.presetsMenu}
           onSelect={(id) => pickPreset(ed, nodes, id)}
         >

@@ -3,9 +3,12 @@
    * "Frame ▾" (live popovers/frame-presets-menu.txt): 222 wide, the rows from the list's top; the blocks 15 apart, their
    * titles for assistive tech only (hidden, as live — "Frame Layout Options", "Phone Presets"… at x −1).
    */
-  .presetsMenu { width: 222px; }
+  .presetsMenu { width: 222px; padding-block: 0; }
   .presetsMenu > [role="presentation"] {
     position: absolute;
+    display: block;
+    left: -1px;
+    margin-top: 1px;
     width: 1px;
     height: 1px;
     padding: 0;
@@ -16,6 +19,8 @@
   .presetsMenu > [role="separator"] { margin-block: 7px; }
   /* (Live: a long name runs up to its size — "iPhone 16 & 17 Pro Max" ends where "440" starts.) */
   .presetsMenu > [role^="menuitem"] > span:nth-child(3) { margin-left: calc(var(--ds-space-2) * -1); }
+  /* (Live: the "×" run is 9 wide — "402" 156–177, "×" 177–186, "874" 186–206.) */
+  .presetsMenu > [role^="menuitem"] > span:nth-child(3) > span:nth-child(2) { letter-spacing: 2px; }
 
   /*
    * The header's action menus (live boolean-operations-menu, instance-more-actions-menu): a glyph column, the label
