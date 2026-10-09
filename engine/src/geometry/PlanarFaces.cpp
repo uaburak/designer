@@ -332,15 +332,29 @@ PlanarMap planarMap(const std::vector<FaceInput>& inputs, double tolerance, size
   for (size_t h = 0; h < H; h++) map.nextHalf[h] = static_cast<uint32_t>(next(h));
   std::vector<int> faceOfCycle(cycles.size(), -1);
   std::vector<PlanarFace> faces;
+  // Slivers: faces thinner than the flattening (2 · area / perimeter under the tolerance) — where two layers' outlines
+  // are the same curve (one cut from the other) flattened differently, or rounded to the file's floats. They are not
+  // regions of their own: each joins the face it shares the most boundary with.
+  auto perimeter = [&](size_t c) {
+    double p = 0;
+    for (size_t i = 0; i < cycles[c].ring.size(); i++) p += (cycles[c].ring[(i + 1) % cycles[c].ring.size()] - cycles[c].ring[i]).length();
+    return p;
+  };
+  std::vector<size_t> slivers;
   for (size_t f : bounded) {
     PlanarFace face;
     face.rings.push_back(cycles[f].ring);
     face.area = cycles[f].area;
+    double per = perimeter(f);
     for (size_t h : holes[f]) {
       face.rings.push_back(cycles[h].ring);
       face.area += cycles[h].area;  // negative
+      per += perimeter(h);
     }
-    if (face.area <= minArea) continue;
+    if (face.area <= minArea || 2 * face.area < tol * per) {
+      slivers.push_back(f);
+      continue;
+    }
     // A point inside, as far from the boundary as a few tries find (the covers are the same all over the face).
     const auto& ring = cycles[f].ring;
     std::vector<size_t> byLength(ring.size());
@@ -375,6 +389,35 @@ PlanarMap planarMap(const std::vector<FaceInput>& inputs, double tolerance, size
     faceOfCycle[f] = static_cast<int>(faces.size());
     for (size_t h : holes[f]) faceOfCycle[h] = static_cast<int>(faces.size());
     faces.push_back(std::move(face));
+  }
+  std::vector<size_t> cycleOf(H, 0);
+  for (size_t c = 0; c < cycles.size(); c++)
+    for (uint32_t h : cycles[c].half) cycleOf[h] = c;
+  for (int pass = 0; pass < 4; pass++) {
+    bool more = false;
+    for (size_t sl : slivers) {
+      if (faceOfCycle[sl] >= 0) continue;
+      std::unordered_map<int, double> shared;
+      auto add = [&](size_t c) {
+        for (uint32_t h : cycles[c].half) {
+          int other = faceOfCycle[cycleOf[h ^ 1]];
+          if (other >= 0) shared[other] += (P[target(h)] - P[origin(h)]).length();
+        }
+      };
+      add(sl);
+      for (size_t h : holes[sl]) add(h);
+      int best = -1;
+      double bestLen = 0;
+      for (auto& [f, len] : shared)
+        if (len > bestLen || (len == bestLen && f < best)) best = f, bestLen = len;
+      if (best < 0) {
+        more = true;
+        continue;
+      }
+      faceOfCycle[sl] = best;
+      for (size_t h : holes[sl]) faceOfCycle[h] = best;
+    }
+    if (!more) break;
   }
   map.faceOfHalf.assign(H, -1);
   for (size_t c = 0; c < cycles.size(); c++)

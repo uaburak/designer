@@ -166,6 +166,16 @@ TEST_CASE("r12 the variable-width stroker: a wedge is a triangle, the eye a lens
   Rect b = geom::strokePath(line(100), s, 0.01).bounds();
   CHECK(b.y == doctest::Approx(-10));
   CHECK(b.y + b.h == doctest::Approx(0));
+  // One point in the middle: a bulge — the ends keep the stroke's weight.
+  std::vector<geom::WidthPoint> bulge{{0.5, 1.5, 1.5}};
+  s.profile = &bulge;
+  geom::Path bulged = geom::strokePath(line(100), s, 0.01);
+  CHECK(bulged.bounds().h == doctest::Approx(30));
+  CHECK(area(bulged) > 1000);
+  CHECK(area(bulged) < 3000);
+  double a0 = 0, d0 = 0;
+  geom::profileAt(bulge, 0, a0, d0);
+  CHECK(a0 + d0 == doctest::Approx(1));
   // Dashes win (Figma: no width profile on a dashed stroke).
   s.profile = &wedge;
   s.dashes = {10, 10};
@@ -498,4 +508,31 @@ TEST_CASE("r12 Shape builder on one self-crossing layer; the tool's state in the
   e.key(KeyEvent::DOWN, KeyCode::Escape, 0, 0, false);
   CHECK(e.vectorTool() == Editor::VectorTool::MOVE);
   CHECK(e.vectorEditing());
+}
+
+TEST_CASE("r12 Shape builder: regions cut from each other stay exact — no slivers between them after an extract") {
+  // As on the capture: a rect and an ellipse over its corner; the overlap extracted, then a drag over everything.
+  auto nodes = baseChanges();
+  nodes.push_back(make(X, NodeType::ROUNDED_RECTANGLE, kPage, "!", {0, 300, 120, 90}, "Rect"));
+  nodes.push_back(make(Y, NodeType::ELLIPSE, kPage, "\"", {60, 320, 100, 100}, "Ellipse"));
+  Editor e;
+  e.setSessionID(1);
+  e.setViewport(800, 600, 1, 800, 600);
+  e.loadDocument(nodes, kNoGuid);
+  e.setCamera({100, -200, 1});
+  REQUIRE(e.startVectorEditMany({X, Y}) == OK);
+  REQUIRE(e.setVectorTool(Editor::VectorTool::SHAPE_BUILDER) == OK);
+  click(e, 200, 160);
+  REQUIRE(e.document().children(kPage).size() == 3);
+  double total = 0;
+  for (Guid g : e.document().children(kPage)) total += fillArea(e, g);
+  e.pointer(PointerEvent::MOVE, 120, 140, 0, 0, 0);
+  // Three regions again (rect's part, the extracted overlap, ellipse's part): the outlines they share are one.
+  CHECK(e.shapeBuilderFaces().size() == 3);
+  e.pointer(PointerEvent::DOWN, 120, 140, 0, 1, 0, 1);
+  e.pointer(PointerEvent::MOVE, 180, 170, 0, 1, 0);
+  e.pointer(PointerEvent::MOVE, 240, 200, 0, 1, 0);
+  e.pointer(PointerEvent::UP, 240, 200, 0, 0, 0, 1);
+  REQUIRE(e.document().children(kPage).size() == 1);
+  CHECK(fillArea(e, e.document().children(kPage)[0]) == doctest::Approx(total).epsilon(0.002));
 }

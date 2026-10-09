@@ -108,6 +108,12 @@ export function profileAt(points: readonly WidthPoint[], u: number): { ascent: n
   const x: number[] = [];
   const a: number[] = [];
   const d: number[] = [];
+  // An end without a point of its own keeps the stroke's weight there (the engine's rule).
+  if (points[0].position > 1e-9) {
+    x.push(0);
+    a.push(0.5);
+    d.push(0.5);
+  }
   for (const p of points) {
     if (x.length && Math.abs(p.position - x[x.length - 1]) < 1e-9) {
       a[a.length - 1] = p.ascent;
@@ -117,6 +123,11 @@ export function profileAt(points: readonly WidthPoint[], u: number): { ascent: n
     x.push(p.position);
     a.push(p.ascent);
     d.push(p.descent);
+  }
+  if (x[x.length - 1] < 1 - 1e-9) {
+    x.push(1);
+    a.push(0.5);
+    d.push(0.5);
   }
   return { ascent: monotone(x, a, u), descent: monotone(x, d, u) };
 }

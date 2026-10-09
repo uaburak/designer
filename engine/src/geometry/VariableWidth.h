@@ -1,15 +1,16 @@
 // Variable-width strokes (round 12; Figma Draw's Width profile and Variable width tool). A stroke's width along its
 // path is a list of width points (schema VariableWidthPoint, NodeChange.variableWidthPoints = 447): each at a
 // position along the stroke, with the share of the stroke weight on each side of the path there. Between points the
-// width follows a smooth monotone curve; before the first and after the last it stays as they are. No points: the
-// plain (uniform) stroke.
+// width follows a smooth monotone curve; an end of the stroke without a point of its own keeps the stroke's weight. No
+// points: the plain (uniform) stroke.
 //
 // What is from Figma (developers.figma.com VariableWidthStrokeProperties): a point's position runs 0 → 1 along the
 // stroke and its width is a fraction of the stroke weight; the presets UNIFORM, WEDGE, TAPER, QUARTER_TAPER, EYE and
 // MIRRORED_TAPER and what each does. Unverified (ours): the file fields' exact meaning — `ascent` / `descent` read as
 // the shares of the weight left / right of the path (ascent + descent = the width; 0.5 / 0.5 = uniform), `position`
 // along the whole contour (each contour of the stroke gets the profile), `segmentId` written 0 and not read; the
-// smooth (Fritsch–Carlson monotone cubic) curve between points; the presets' points.
+// smooth (Fritsch–Carlson monotone cubic) curve between points; the weight at an end without a point; the presets'
+// points.
 #pragma once
 
 #include <cstdint>

@@ -92,7 +92,9 @@ void profileAt(const std::vector<WidthPoint>& sorted, double u, double& ascent, 
     return;
   }
   std::vector<double> x, a, d;
-  x.reserve(sorted.size());
+  x.reserve(sorted.size() + 2);
+  // An end without a point of its own keeps the stroke's weight there (a point added in the middle makes a bulge).
+  if (sorted.front().position > 1e-9) x.push_back(0), a.push_back(0.5), d.push_back(0.5);
   for (const WidthPoint& p : sorted) {
     // Points at the same position: the last one counts.
     if (!x.empty() && std::fabs(p.position - x.back()) < 1e-9) {
@@ -101,6 +103,7 @@ void profileAt(const std::vector<WidthPoint>& sorted, double u, double& ascent, 
     }
     x.push_back(p.position), a.push_back(p.ascent), d.push_back(p.descent);
   }
+  if (x.back() < 1 - 1e-9) x.push_back(1), a.push_back(0.5), d.push_back(0.5);
   ascent = monotone(x, a, u);
   descent = monotone(x, d, u);
 }
