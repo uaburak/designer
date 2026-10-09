@@ -10,6 +10,7 @@
 #include "geometry/Path.h"
 #include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
+#include "render/shader_presets.h"
 #include "scene/Extras.h"
 
 namespace eng {
@@ -183,6 +184,7 @@ void Renderer::ensurePipelines() {
   make(Pass::CompositeReplace, ShaderId::Composite, Blend::Replace, none, ColorMask::All);
   make(Pass::CompositeReplaceClipped, ShaderId::Composite, Blend::Replace, equal, ColorMask::All);
   make(Pass::Blur, ShaderId::Blur, Blend::Replace, none, ColorMask::All);
+  make(Pass::Shader, ShaderId::Custom, Blend::Replace, none, ColorMask::All);
   white_ = device_.createTexture(TextureFormat::RGBA8, 1, 1);
   if (white_) {
     const uint8_t px[4] = {255, 255, 255, 255};
@@ -277,8 +279,8 @@ int Renderer::rampRow(const std::vector<ColorStop>& stops0) {
 }
 
 bool Renderer::setPaint(DrawInstance& q, DrawState& state, const Paint& paint, const Mat2x3& localToNode, Vec2 nodeSize, double alpha) {
-  // PATTERN fills go through layers (drawPattern); a pattern stroke isn't drawn.
-  if (!paint.visible || paint.type == PaintType::OTHER || paint.type == PaintType::PATTERN) return false;
+  // PATTERN and shader fills go through layers (drawPattern, drawShaderPaint); such a stroke isn't drawn.
+  if (!paint.visible || paint.type == PaintType::OTHER || paint.type == PaintType::PATTERN || paint.type == PaintType::CUSTOM) return false;
   double a = alpha * paint.opacity;
   if (a <= 0) return false;
   uint32_t flags = static_cast<uint32_t>(q.geom[3]) & 0xff;
@@ -388,6 +390,10 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
         if (f.visible) drawPattern(doc, id, p, m, alpha, f);
         continue;
       }
+      if (f.type == PaintType::CUSTOM) {
+        if (f.visible) drawShaderPaint(doc, id, p, m, alpha, f);
+        continue;
+      }
       blendedPaint(f, m, p.size, alpha, [&](double a) {
         DrawInstance q = makeShape(m, p.size, kind, radii, Color{}, 1, Color{}, 0, 0, 0);
         DrawState state;
@@ -413,6 +419,10 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
     for (const Paint& f : *paints) {
       if (f.type == PaintType::PATTERN) {
         if (f.visible && r == 0) drawPattern(doc, id, p, m, alpha, f);
+        continue;
+      }
+      if (f.type == PaintType::CUSTOM) {
+        if (f.visible && r == 0) drawShaderPaint(doc, id, p, m, alpha, f);
         continue;
       }
       blendedPaint(f, m, p.size, alpha, [&](double a) { emitPath(entry, m, region.windingRule == WindingRule::ODD, f, p.size, a); });
@@ -488,6 +498,69 @@ void Renderer::drawPattern(const Document& doc, Guid id, const NodeProps& p, con
   drawFills(doc, id, p, m, 1, true);
   endLayer(saved2);
   stats_.layers += 2;
+  compositeLayer(P, M, 1, static_cast<float>(a), paint.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : paint.blendMode,
+                 Color{}, {}, false, r);
+}
+
+namespace {
+
+// A shader's uniform slots 4–19 (gfx/gl/CustomShader.h): canvas device px → the node's px, the program, the node's px →
+// device px, the preset's colours (from slot 8) and other parameters (from slot 14) in order.
+void packShader(float u[gfx::kUniformSlots][4], const ShaderSetup& s, const Mat2x3& m, Vec2 size, double sx, double sy) {
+  float rows[2][4];
+  effectRows(rows, m, sx, sy, {1, 1});
+  for (int i = 0; i < 4; i++) u[4][i] = rows[0][i], u[5][i] = rows[1][i];
+  u[6][0] = static_cast<float>(s.preset->program);
+  u[6][1] = s.preset->effect ? 1.f : 0.f;
+  u[6][2] = static_cast<float>(size.x);
+  u[6][3] = static_cast<float>(size.y);
+  u[7][0] = static_cast<float>(sx * m.m00), u[7][1] = static_cast<float>(sx * m.m01);
+  u[7][2] = static_cast<float>(sy * m.m10), u[7][3] = static_cast<float>(sy * m.m11);
+  int colors = 0, scalars = 0;
+  for (int i = 0; i < s.preset->count; i++) {
+    if (s.preset->params[i].type == shaders::ParamType::Color) {
+      if (colors < 6) std::memcpy(u[8 + colors++], s.values[i], sizeof(float) * 4);
+    } else if (scalars < 24) {
+      u[14 + scalars / 4][scalars % 4] = s.values[i][0];
+      scalars++;
+    }
+  }
+}
+
+}  // namespace
+
+int Renderer::shaderLayer(const ShaderSetup& s, int source, gfx::IRect r, const Mat2x3& m, Vec2 size) {
+  int saved = beginLayer(r);
+  int L = current_;
+  ShaderCall call;
+  packShader(call.u, s, m, size, viewport_.scaleX(), viewport_.scaleY());
+  shaderCalls_.push_back(call);
+  Cmd c;
+  c.kind = Cmd::Kind::Shader;
+  c.pass = Pass::Shader;
+  c.layer = source;
+  c.aux = static_cast<int>(shaderCalls_.size() - 1);
+  c.rect = r;
+  layers_[static_cast<size_t>(L)].cmds.push_back(c);
+  endLayer(saved);
+  stats_.layers++;
+  return L;
+}
+
+void Renderer::drawShaderPaint(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint) {
+  double a = alpha * paint.opacity;
+  const ShaderSetup& s = shaderOf(paint);
+  // A preset this engine doesn't know (or an effect's) isn't drawn.
+  if (!(a > 0) || !s.preset || s.preset->effect || patternDepth_ > 1) return;
+  gfx::IRect r = deviceRect(transformedBounds(m, p.size.x, p.size.y), 2);
+  if (r.w <= 0 || r.h <= 0) return;
+  int P = shaderLayer(s, -1, r, m, p.size);
+  // Through the node's fill shape.
+  int saved = beginLayer(r);
+  int M = current_;
+  drawFills(doc, id, p, m, 1, true);
+  endLayer(saved);
+  stats_.layers++;
   compositeLayer(P, M, 1, static_cast<float>(a), paint.blendMode == BlendMode::PASS_THROUGH ? BlendMode::NORMAL : paint.blendMode,
                  Color{}, {}, false, r);
 }
@@ -1220,7 +1293,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
 
   // Figma's limits (help 360041488473): up to eight drop and eight inner shadows, one layer blur and one background
   // blur — the first of each kind is drawn; one texture, one glass; noises stack.
-  std::vector<const Effect*> drops, inners, backgrounds, noises;
+  std::vector<const Effect*> drops, inners, backgrounds, noises, customs;
   const Effect* layerBlurE = nullptr;
   const Effect* textureE = nullptr;
   const Effect* glassE = nullptr;
@@ -1248,6 +1321,10 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
       case EffectType::GLASS:
         if (!glassE) glassE = &e;
         break;
+      case EffectType::CUSTOM:
+        // Shader effects (round 11) stack in order, each reading what the ones before it left.
+        if (customs.size() < 8 && shaderOf(e).preset && shaderOf(e).preset->effect) customs.push_back(&e);
+        break;
     }
   }
   // A background blur shows through the layer's fill: none without a visible fill (Figma: "set the layer's fill
@@ -1270,7 +1347,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     }
   }
   // Effects drawn over the content or through it need the content apart from its shadows.
-  bool post = progressive || textureE || !noises.empty();
+  bool post = progressive || textureE || !noises.empty() || !customs.empty();
   bool analytic = !post && analyticShadows(p, rn.hasChildren);
   bool generic = !analytic && (!drops.empty() || !inners.empty());
   bool container = (p.isFrameLike() || p.isGroupLike()) && rn.hasChildren;
@@ -1290,7 +1367,9 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     return;
   }
   stats_.layers++;
-  double reach = 3 * std::max(blurSigma, startSigma) + (textureE ? std::max(0.0, textureE->radius) * scale : 0);
+  double customReach = 0;
+  for (const Effect* e : customs) customReach += shaderReach(shaderOf(*e));
+  double reach = 3 * std::max(blurSigma, startSigma) + (textureE ? std::max(0.0, textureE->radius) * scale : 0) + customReach * scale;
   gfx::IRect r = deviceRect(vb, reach + 2);
   if (r.w <= 0 || r.h <= 0) return;
   // Figma's order, top to bottom (help 360041488473): layer blur, stroke paints, inner shadow, fill paints, drop
@@ -1302,7 +1381,7 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
     for (const Paint& s : p.strokePaints) strokes |= s.visible && s.opacity > 0;
   bool split = generic && !inners.empty() && strokes;
   bool finish = a < 1 || blend || blurSigma > 0.01;
-  bool wrap = (split && finish) || progressive || textureE || (!noises.empty() && finish);
+  bool wrap = (split && finish) || progressive || textureE || (!noises.empty() && finish) || !customs.empty();
   int saved = beginLayer(r);
   int C = current_;
   drawContent(doc, i, p, m, 1, analytic);
@@ -1420,6 +1499,8 @@ void Renderer::drawNode(const Document& doc, uint32_t i, const Mat2x3& parentCss
       stats_.layers++;
       top = T;
     }
+    // Shader effects: each a layer drawn from what is under it.
+    for (const Effect* e : customs) top = shaderLayer(shaderOf(*e), top, r, m, p.size);
     if (progressive) {
       progressiveComposite(top, static_cast<float>(a), p.blendMode, r, startSigma, blurSigma, *layerBlurE, m, p.size);
     } else {
@@ -1673,6 +1754,7 @@ void Renderer::runLayer(int index) {
   if (L0.copyOf >= 0) runLayer(L0.copyOf);
   for (size_t i = 0; i < layers_[static_cast<size_t>(index)].cmds.size(); i++) {
     const Cmd c = layers_[static_cast<size_t>(index)].cmds[i];
+    if (c.kind == Cmd::Kind::Shader && c.layer >= 0) runLayer(c.layer);  // the layer a shader effect reads
     if (c.kind != Cmd::Kind::Composite) continue;
     if (c.layer >= 0) runLayer(c.layer);
     if (c.aux >= 0) runLayer(c.aux);
@@ -1827,6 +1909,24 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       localScissor(call, c);
       device_.draw(call);
       stats_.drawCalls++;
+    } else if (c.kind == Cmd::Kind::Shader) {
+      // A shader paint's or effect's quad (round 11, gfx/gl/CustomShader.h), into this layer of its own.
+      gfx::IRect quad = intersect(c.rect, L.rect);
+      if (quad.w <= 0 || quad.h <= 0 || c.aux < 0 || c.aux >= static_cast<int>(shaderCalls_.size())) continue;
+      gfx::DrawCall call;
+      std::memcpy(call.uniforms, shaderCalls_[static_cast<size_t>(c.aux)].u, sizeof call.uniforms);
+      call.pipeline = pipelines_[static_cast<int>(Pass::Shader)];
+      call.instanceCount = 1;
+      compositeUniforms(call, devRows, quad);
+      for (int t = 0; t < gfx::DrawCall::kTextures; t++) call.textures[t] = white;
+      if (c.layer >= 0) {
+        const Layer& src = layers_[static_cast<size_t>(c.layer)];
+        if (!src.texture) continue;  // an effect with nothing under it draws nothing
+        place(call.uniforms[3], src.rect.x, src.rect.y, src.contentH, src.scale);
+        call.textures[0] = src.texture;
+      }
+      device_.draw(call);
+      stats_.drawCalls++;
     } else if (c.kind == Cmd::Kind::Blit) {
       // The content cache onto the canvas (scaled while a zoom settles).
       gfx::IRect quad = intersect(c.rect, L.rect);
@@ -1897,6 +1997,7 @@ void Renderer::execute(int index, gfx::TargetId target, const float clear[4], bo
   root.executed = true;
   for (size_t i = 0; i < root.cmds.size(); i++) {
     const Cmd c = layers_[static_cast<size_t>(index)].cmds[i];
+    if (c.kind == Cmd::Kind::Shader && c.layer >= 0) runLayer(c.layer);
     if (c.kind != Cmd::Kind::Composite) continue;
     if (c.layer >= 0) runLayer(c.layer);
     if (c.aux >= 0) runLayer(c.aux);
@@ -1908,6 +2009,7 @@ void Renderer::execute(int index, gfx::TargetId target, const float clear[4], bo
 void Renderer::beginRecording(gfx::IRect region, bool clipToRegion) {
   instances_.clear();
   layers_.clear();
+  shaderCalls_.clear();
   backdrops_.clear();
   clips_.clear();
   stencilDepth_ = 0;

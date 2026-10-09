@@ -24,9 +24,10 @@ bool plainShape(const NodeProps& p) {
 
 }  // namespace
 
-// Pattern and noise paints aren't written as vectors (PNG / JPG exports draw them).
+// Pattern, noise and shader paints aren't written as vectors (PNG / JPG exports draw them).
 bool drawable(const Paint& p) {
-  return p.visible && p.type != PaintType::OTHER && p.type != PaintType::PATTERN && p.type != PaintType::NOISE && p.opacity > 0;
+  return p.visible && p.type != PaintType::OTHER && p.type != PaintType::PATTERN && p.type != PaintType::NOISE && p.type != PaintType::CUSTOM &&
+         p.opacity > 0;
 }
 
 geom::Path Shape::path() const {

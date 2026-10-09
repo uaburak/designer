@@ -24,6 +24,18 @@ add_custom_command(
   VERBATIM)
 add_custom_target(eng_schema_gen DEPENDS ${ENG_SCHEMA_HEADERS})
 
+# Figma's shader presets (round 11): the renderer's table from src/shared/shaders/presets.json, the one definition the
+# panels read too (engine/tools/shaderpresets.mjs) — <build>/generated/render/shader_presets.h, never committed.
+set(ENG_SHADER_PRESETS_HEADER ${ENG_GENERATED}/render/shader_presets.h)
+add_custom_command(
+  OUTPUT ${ENG_SHADER_PRESETS_HEADER}
+  COMMAND ${ENG_NODE} ${ENG_REPO}/engine/tools/shaderpresets.mjs ${ENG_REPO}/src/shared/shaders/presets.json ${ENG_SHADER_PRESETS_HEADER}
+  COMMAND ${CMAKE_COMMAND} -E touch ${ENG_SHADER_PRESETS_HEADER}
+  DEPENDS ${ENG_REPO}/src/shared/shaders/presets.json ${ENG_REPO}/engine/tools/shaderpresets.mjs
+  COMMENT "shaderpresets: the shader presets' table from src/shared/shaders/presets.json"
+  VERBATIM)
+add_custom_target(eng_shader_presets_gen DEPENDS ${ENG_SHADER_PRESETS_HEADER})
+
 if(NOT EMSCRIPTEN)
   add_library(eng_schema STATIC src/schema/KiwiImpl.cpp ${ENG_SCHEMA_HEADERS})
   # Third-party and generated code: SYSTEM, so their warnings don't fail -Werror.

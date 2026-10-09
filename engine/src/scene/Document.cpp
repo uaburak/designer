@@ -44,6 +44,8 @@ double effectsOutset(const NodeProps& p) {
       out = std::max(out, std::max(e.radius, effectExtras(e).startRadius));  // progressive: the larger end
     else if (e.type == EffectType::GRAIN)
       out = std::max(out, e.radius);  // texture: "how far past the layer's boundary the effect will spread"
+    else if (e.type == EffectType::CUSTOM)
+      out = std::max(out, shaderReach(shaderOf(e)));  // a shader effect's particles, glows, rays, outlines
   }
   return out;
 }

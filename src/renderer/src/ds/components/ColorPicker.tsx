@@ -199,6 +199,8 @@ export interface ColorPickerProps<P extends PickerPaint> {
   offsetX?: number;
   /** The Shader tab (Figma's "Shader fills (Beta)" browser beside the picker); without it the tab is left out */
   onShaders?: (picker: HTMLElement) => void;
+  /** A shader fill's settings (the editor's): the Shader tab is the selected one and this shows instead of the type's */
+  shader?: ReactNode;
   /** Drawn in place (the Gallery) */
   static?: boolean;
 }
@@ -213,7 +215,7 @@ export interface ColorPickerProps<P extends PickerPaint> {
  * page". Controlled: `value` in, `onChange(next, { final })` out.
  */
 export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
-  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
+  const { value, onChange, onCancel, onClose, anchor, placement = "left-of-panel", paintTypes, documentColors = [], libraries, initialTab = "custom", imageUrl, onChooseImage, onRotateGradient, contrastBackground, imageControls, imageAction, pattern, onShaders, shader, offsetX = -1, colorModel, onColorModelChange, stop: controlledStop, onStopChange, headerActions, static: isStatic } = props;
   const [tab, setTab] = useState(initialTab);
   const [contrast, setContrast] = useState(false);
   const [ownModel, setOwnModel] = useState<ColorModel>("hex");
@@ -343,7 +345,8 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
   const typeOptions = PAINT_TABS.filter((t) => (t.value === "GRADIENT" ? gradientTypes.length > 0 : offered(t.value))).map((t) => ({ value: t.value, icon: t.icon as IconName, tooltip: t.label }));
   const pickTab = (tab: PaintTab) => {
     const type: PaintType = tab === "GRADIENT" ? (isGradient(value.type) ? value.type : (gradientTypes[0]?.value ?? "GRADIENT_LINEAR")) : tab;
-    if (type === value.type) return;
+    // (A shader fill: any type tab leaves it, its own included.)
+    if (type === value.type && !shader) return;
     setLocalHsv(null);
     onChange(convertPaint(value, type), { final: true, source: "pick" });
   };
@@ -448,9 +451,9 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
       }}
       type="button"
       role="radio"
-      aria-checked={t.value === tab0}
+      aria-checked={t.value === tab0 && !shader}
       aria-label={t.tooltip}
-      tabIndex={t.value === tab0 ? 0 : -1}
+      tabIndex={t.value === tab0 && !shader ? 0 : -1}
       className={styles.typeTab}
       onClick={() => pickTab(t.value as PaintTab)}
       onKeyDown={(e) => {
@@ -765,7 +768,7 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
               <div role="radiogroup" aria-label="Fill type" className={styles.typeTabs}>
                 {typeTabs}
                 {onShaders && (
-                  <button type="button" aria-label="Shader" className={styles.typeTab} {...tooltipProps("Shader (Beta)")} onClick={(e) => onShaders(e.currentTarget.closest<HTMLElement>('[data-ds="Popover"]') ?? e.currentTarget)}>
+                  <button type="button" role="radio" aria-checked={!!shader} aria-label="Shader" tabIndex={shader ? 0 : -1} className={styles.typeTab} {...tooltipProps("Shader (Beta)")} onClick={(e) => onShaders(e.currentTarget.closest<HTMLElement>('[data-ds="Popover"]') ?? e.currentTarget)}>
                     <Icon name="24.shader.small" />
                   </button>
                 )}
@@ -778,8 +781,9 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 {showContrast && <ToggleIconButton icon="24.contrast" label="Check color contrast" pressed={contrast} onPressedChange={setContrast} />}
               </span>
             </div>
-            {gradientBody}
-            {gradient && stopPicker !== null && value.stops?.[stopPicker] && (
+            {shader}
+            {!shader && gradientBody}
+            {!shader && gradient && stopPicker !== null && value.stops?.[stopPicker] && (
               <ColorPicker
                 value={{ type: "SOLID", color: { ...value.stops[stopPicker].color, a: 1 }, opacity: value.stops[stopPicker].color.a }}
                 paintTypes={["SOLID"]}
@@ -796,9 +800,9 @@ export function ColorPicker<P extends PickerPaint>(props: ColorPickerProps<P>) {
                 onClose={() => setStopPickerAt(null)}
               />
             )}
-            {mediaBody}
-            {patternBody}
-            {value.type === "SOLID" && (
+            {!shader && mediaBody}
+            {!shader && patternBody}
+            {!shader && value.type === "SOLID" && (
               <>
                 {square}
                 {sliders}

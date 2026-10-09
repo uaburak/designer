@@ -26,13 +26,14 @@ const char* paintTypeName(PaintType t) {
     case PaintType::VIDEO: return "VIDEO";
     case PaintType::PATTERN: return "PATTERN";
     case PaintType::NOISE: return "NOISE";
+    case PaintType::CUSTOM: return "CUSTOM";
     default: return "SOLID";
   }
 }
 
 bool paintTypeFromName(std::string_view s, PaintType& out) {
   for (PaintType t : {PaintType::SOLID, PaintType::GRADIENT_LINEAR, PaintType::GRADIENT_RADIAL, PaintType::GRADIENT_ANGULAR,
-                      PaintType::GRADIENT_DIAMOND, PaintType::IMAGE, PaintType::VIDEO, PaintType::PATTERN, PaintType::NOISE})
+                      PaintType::GRADIENT_DIAMOND, PaintType::IMAGE, PaintType::VIDEO, PaintType::PATTERN, PaintType::NOISE, PaintType::CUSTOM})
     if (s == paintTypeName(t)) {
       out = t;
       return true;

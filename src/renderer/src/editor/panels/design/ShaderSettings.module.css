@@ -1,0 +1,41 @@
+@layer app {
+  /*
+   * A shader's settings (round 11, unverified: live has no capture): the effect settings' columns
+   * (popovers/effect-settings-*.txt) — labels 72 wide at 16, fields to 224, rows 8 apart.
+   */
+  .grid {
+    display: grid;
+    grid-template-columns: calc(var(--ds-space-16) + var(--ds-space-2)) minmax(0, 1fr);
+    row-gap: var(--ds-space-2);
+    align-items: center;
+    padding: var(--ds-space-4);
+  }
+  .label {
+    overflow: hidden;
+    color: var(--figma-color-text-secondary);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .field { display: flex; min-width: 0; }
+  .field > * { flex: 1 1 auto; min-width: 0; }
+  .wide { display: flex; grid-column: 1 / -1; align-items: center; min-width: 0; height: var(--ds-size-control); }
+  .preset {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-1) 0 0;
+    border: 1px solid transparent;
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg-secondary);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    text-align: left;
+  }
+  .preset:hover:not(:disabled) { border-color: var(--figma-color-border); }
+  .preset:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: calc(var(--ds-focus-width) * -1); }
+  .presetStatic { cursor: default; }
+  .presetName { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .chevron { flex: none; color: var(--figma-color-icon-secondary); }
+}

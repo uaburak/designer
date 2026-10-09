@@ -65,6 +65,8 @@
   /* Hovering a property shows its handle in the gutter (help: drag to reorder) */
   .defHandle { position: absolute; top: var(--ds-space-1); left: calc(var(--ds-space-4) * -1); display: flex; color: var(--figma-color-icon-tertiary); visibility: hidden; cursor: grab; }
   .defRow[draggable="true"]:hover .defHandle { visibility: visible; }
+  /* Live (design/component-with-slot.txt): "Not used within component" 24 at 208, the row 184 */
+  .defUnused { flex: none; margin: 0 calc(var(--ds-space-2) * -1) 0 var(--ds-space-2); color: var(--figma-color-icon-secondary); }
   .renameInput {
     flex: 1 1 auto;
     min-width: 0;

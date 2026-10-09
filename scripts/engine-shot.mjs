@@ -6,6 +6,7 @@
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass)
 //   SHOT_ONLY=r8 npm run engine:shot    only round 8's canvas views (ruler guides, slices, pixel preview)
+//   SHOT_ONLY=r11 npm run engine:shot   only round 11's shader fills and effects (every preset, drawn)
 //   SHOT_ONLY=e6 npm run engine:shot    only the component / instance checks
 //   SHOT_ONLY=vars npm run engine:shot  only the variables / modes / styles checks
 //   SHOT_ONLY=export npm run engine:shot  only the export checks (PNG = canvas, SVG / PDF drawn again)
@@ -461,6 +462,91 @@ async function r7Checks(files) {
   // PATTERN fill: the 20 px dot tiled 40 px apart (spacing 100 %): red at a tile's middle, white between.
   const [tile, gap] = await pixelsAt([await screenOf(scene.pattern, 50, 50), await screenOf(scene.pattern, 70, 70)]);
   check("PATTERN fill: the source tiled", tile && gap && tile[0] > 200 && tile[1] < 60 && gap[1] > 200, `${tile} / ${gap}`);
+}
+
+// Round 11: Figma's shader fills and effects (src/shared/shaders/presets.json) on a sheet of their own (52:x) — every
+// preset drawn by the backend's Custom program: a fill draws something of its own within its shape (not its twin's
+// grey, not uniform), an effect changes what its layer draws (against a twin without it).
+function r11Scene() {
+  const presets = JSON.parse(readFileSync(path.join(repo, "src/shared/shaders/presets.json"), "utf8"));
+  const solid = (r, g, b) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: 1, visible: true });
+  const gradient = { type: "GRADIENT_LINEAR", opacity: 1, visible: true, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+    stops: [{ color: { r: 1, g: 0.2, b: 0.4, a: 1 }, position: 0 }, { color: { r: 0.2, g: 0.4, b: 1, a: 1 }, position: 1 }] };
+  const T = (x, y) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y } });
+  const shader = (key, set = {}) => ({
+    customEffectId: { assetRef: { key, version: "" } },
+    componentPropAssignments: Object.entries(set).map(([id, v]) => ({ defID: { sessionID: 0, localID: Number(id) }, value: { floatValue: v } })),
+  });
+  // Fine noise over the gradient: what an effect moves, blurs or recolours shows at any point.
+  const grain = { type: "NOISE", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 0.6, visible: true, noiseType: "MULTITONE", density: 1, noiseSize: { x: 3, y: 3 } };
+  // Parameters whose defaults leave a gradient as it is, set to show the effect.
+  const show = { "shader.color-adjust": { 4: 120 }, "shader.pixelate": { 1: 20 }, "shader.channel-mixer": { 1: 0, 7: 100 }, "shader.bloom": { 1: 10 } };
+  const nodes = [{ guid: "52:1", phase: "CREATED", type: "FRAME", name: "Round 11 shaders", parentIndex: { guid: "0:1", position: "~~~~" },
+    size: { x: 1440, y: 620 }, ...T(0, 3000), fillPaints: [solid(0.12, 0.12, 0.12)] }];
+  let n = 1;
+  const add = (name, x, y, extra) => {
+    const guid = `52:${++n}`;
+    nodes.push({ guid, phase: "CREATED", type: "ROUNDED_RECTANGLE", name, parentIndex: { guid: "52:1", position: `!${String(n).padStart(3, "0")}` },
+      size: { x: 80, y: 60 }, ...T(x, y), ...extra });
+    return guid;
+  };
+  const fills = [], effects = [];
+  presets.fills.forEach((p, i) => {
+    const x = 30 + (i % 7) * 100, y = 30 + Math.floor(i / 7) * 100;
+    fills.push({ name: p.name, node: add(p.name, x, y, { fillPaints: [{ type: "CUSTOM", opacity: 1, visible: true, ...shader(p.key) }] }) });
+  });
+  presets.effects.forEach((p, j) => {
+    const i = j + presets.fills.length;
+    const x = 30 + (i % 7) * 100, y = 30 + Math.floor(i / 7) * 100;
+    const node = add(p.name, x, y, { fillPaints: [gradient, grain], effects: [{ type: "CUSTOM", visible: true, ...shader(p.key, show[p.key]) }] });
+    const twin = add(`${p.name} (plain)`, x + 720, y, { fillPaints: [gradient, grain] });
+    effects.push({ name: p.name, node, twin });
+  });
+  return { message: { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes }, fills, effects };
+}
+
+async function r11Checks(files) {
+  const scene = r11Scene();
+  await engine((message) => {
+    const e = window.__designerEngine;
+    e.applyChanges(message, "user");
+    e.setSelection(["52:1"]);
+    e.command("ZOOM_TO_SELECTION");
+    e.setSelection([]);
+  }, scene.message);
+  await page.mouse.move(2, 2);
+  await settle();
+  files.push(await shot("38-round11-shaders"));
+  // A grid over the node and 6 px around it (effects reach past their layer).
+  const grid = [];
+  for (let gy = 0; gy < 6; gy++) for (let gx = 0; gx < 7; gx++) grid.push([-6 + (gx * 92) / 6, -6 + (gy * 72) / 5]);
+  const inside = grid.filter(([x, y]) => x > 2 && x < 78 && y > 2 && y < 58);
+  const diff = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+  // Every point at once (one screenshot): the fills' insides and a point outside each, the effects' grids and their twins'.
+  const points = [];
+  const take = async (ref, list) => {
+    const at = points.length;
+    for (const [x, y] of list) points.push(await screenOf(ref, x, y));
+    return [at, list.length];
+  };
+  const fillAt = [];
+  for (const f of scene.fills) fillAt.push({ f, inside: await take(f.node, inside), outside: await take(f.node, [[-8, 30]]) });
+  const fxAt = [];
+  for (const e of scene.effects) fxAt.push({ e, a: await take(e.node, grid), b: await take(e.twin, grid) });
+  const px = await pixelsAt(points);
+  const slice = ([at, n]) => px.slice(at, at + n);
+  for (const { f, inside: i, outside: o } of fillAt) {
+    const pts = slice(i);
+    const [outside] = slice(o);
+    const kinds = new Set(pts.map((p) => `${p[0] >> 4},${p[1] >> 4},${p[2] >> 4}`));
+    const grey = pts.filter((p) => diff(p, [217, 217, 217]) < 12).length;
+    check(`shader fill ${f.name}: drawn within its shape`, kinds.size >= 2 && grey < pts.length && near(outside, [31, 31, 31, 255], 3), `${kinds.size} colours, ${grey} grey, outside ${outside}`);
+  }
+  for (const { e, a, b } of fxAt) {
+    const pa = slice(a), pb = slice(b);
+    const changed = pa.filter((p, i) => diff(p, pb[i]) > 30).length;
+    check(`shader effect ${e.name}: changes what its layer draws`, changed >= 3, `${changed} of ${grid.length} points`);
+  }
 }
 
 // Round 8: ruler guides dragged out of a ruler (drawn over the page), a slice (View › Show slices: dashed), pixel
@@ -1128,10 +1214,11 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "r7" || only === "r8" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "r8" || only === "r11" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "r7") await r7Checks(files);
+    else if (only === "r11") await r11Checks(files);
     else if (only === "r8") await r8Checks(files);
     else if (only === "e6") await e6Checks(files);
     else if (only === "export") await exportChecks(files);
@@ -1311,6 +1398,7 @@ try {
   // E4 / E5.
   await e4Checks(files);
   await r7Checks(files);
+  await r11Checks(files);
   await r8Checks(files);
   // E6.
   await e6Checks(files);

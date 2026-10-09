@@ -37,6 +37,7 @@
 #include "render/RenderTree.h"
 #include "render/PresentScene.h"
 #include "scene/Document.h"
+#include "scene/Extras.h"
 #include "text/TextLayout.h"
 
 namespace eng {
@@ -420,7 +421,7 @@ class Renderer {
     Shape, ShapeClipped, ShapeStencilInc, ShapeStencilDec,
     Path, PathClipped, PathStencilInc, PathStencilDec,
     Composite, CompositeClipped, CompositeReplace, CompositeReplaceClipped,
-    Blur, Count
+    Blur, Shader, Count
   };
   // An axis-aligned rounded clip, anti-aliased in the shaders (DrawInstance::round / radii): canvas device px.
   struct RoundClip {
@@ -445,7 +446,9 @@ class Renderer {
     bool operator==(const DrawState& o) const;
   };
   struct Cmd {
-    enum class Kind : uint8_t { Draw, Composite, BackdropBlur, Blit } kind = Kind::Draw;
+    // Shader: a shader paint's or effect's quad (`rect`) into its own layer — `layer` the layer an effect reads (−1: a
+    // fill), `aux` its uniforms in shaderCalls_.
+    enum class Kind : uint8_t { Draw, Composite, BackdropBlur, Blit, Shader } kind = Kind::Draw;
     Pass pass = Pass::Shape;
     uint32_t first = 0, count = 0;  // Draw: instances_
     bool scissorEnabled = false;
@@ -541,6 +544,15 @@ class Renderer {
                             const Mat2x3& m, Vec2 size);
   // A PATTERN fill: its source layer tiled over the node's box, through the node's fill shape.
   void drawPattern(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint);
+  // A shader fill (PaintType::CUSTOM, round 11): its preset drawn over the node's box into a layer, through the node's
+  // fill shape.
+  void drawShaderPaint(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Paint& paint);
+  // A layer of `r` holding one shader quad: a fill's preset (`source` −1), or an effect's of layer `source`. Its index.
+  int shaderLayer(const ShaderSetup& s, int source, gfx::IRect r, const Mat2x3& m, Vec2 size);
+  struct ShaderCall {
+    float u[gfx::kUniformSlots][4] = {};  // slots 4–19 (gfx/gl/CustomShader.h); 0–3 are set when it runs
+  };
+  std::vector<ShaderCall> shaderCalls_;  // this frame's
   int patternDepth_ = 0;
   void drawText(const Document& doc, const NodeProps& p, Guid id, const Mat2x3& m, double alpha);
   // The smallest em (device px) drawn as glyphs; smaller text is a bar per line holding the line's ink.

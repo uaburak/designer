@@ -40,6 +40,7 @@ Frame record(Renderer& r, gfx::NullDevice& dev, const Document& d) {
         break;
       case gfx::ShaderId::Composite: f.composites++; break;
       case gfx::ShaderId::Blur: f.blurs++; break;
+      case gfx::ShaderId::Custom: break;  // shader paints and effects (r11.shaders.test.cpp)
     }
   }
   return f;

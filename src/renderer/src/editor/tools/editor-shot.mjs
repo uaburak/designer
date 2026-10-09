@@ -31,13 +31,14 @@
 //   EDITOR_ONLY=panel10 node …                                     (round 10 at 1440 × 900: Design panel states, popovers and sub-menus against the live captures)
 //   EDITOR_ONLY=panel11 node …                                     (round 11 at 1440 × 900, run on its own: instance flow, text edit header, list menus, Text styles, Type settings › Details, gradient stops)
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
+//   EDITOR_ONLY=features11 node …                                  (round 11 at 1440 × 900, run on its own: Create property › Slot as live's form, shader fills and effects — browsers, presets drawn, settings)
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
 // Every run fails on a GPU validation error on the console (WebGPU), a feedback loop (WebGL) or a draw the engine's
 // own check skipped (gfx::samplesAttachment). The browser is closed after EDITOR_TIMEOUT seconds (default 180).
-/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent, localStorage, getComputedStyle, createImageBitmap, atob, OffscreenCanvas */
+/* global process, console, window, document, navigator, requestAnimationFrame, fetch, setTimeout, performance, MediaRecorder, Blob, File, DataTransfer, DragEvent, localStorage, getComputedStyle, createImageBitmap, atob, OffscreenCanvas, NodeFilter */
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -1750,6 +1751,157 @@ async function gridSection(page, theme) {
   check("Grid: the picker sets 4 columns × 2 rows", n.gridColumns?.entries?.length === 4 && n.gridRows?.entries?.length === 2 && n.gridAutoTracks !== "ROWS", JSON.stringify({ c: n.gridColumns?.entries?.length, r: n.gridRows?.entries?.length, auto: n.gridAutoTracks }));
 }
 
+/**
+ * Round 11 at live's viewport on `&doc=capture`: Create property › Slot as live's form (popovers/
+ * component-create-slot-property.txt: 304 × 626 at 896, 121) creating the property with what it collected, a property no
+ * layer uses ("Not used within component" at 208, design/component-with-slot.txt); Figma's shader fills and effects — the
+ * browsers' rows where live has them (fill-picker-custom.txt, effects-add-shader-effects.txt), a preset applied and drawn
+ * (the node's pixels change), its settings.
+ */
+async function features11Section(page, theme) {
+  await open(page, "&doc=capture");
+  const panel = page.locator('[data-panel="right"]');
+  const body = panel.locator('[role="tabpanel"]');
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  const near = (a, b, d = 1) => Math.abs(a - b) <= d;
+  const rel = async (loc, box) => {
+    const b = await loc.boundingBox();
+    return b ? { x: Math.round(b.x - box.x), y: Math.round(b.y - box.y), w: Math.round(b.width), h: Math.round(b.height) } : null;
+  };
+  // 1. Create property › Slot on Card (8:50), as live.
+  await select(["8:50"]);
+  await panel.getByRole("button", { name: "Create property" }).click();
+  await settle(page);
+  await page.getByRole("menuitem", { name: "Slot" }).click();
+  await settle(page);
+  const form = page.locator("[data-slot-form]");
+  const pop = page.locator('[data-ds="Popover"]').filter({ has: form });
+  const pb = await pop.boundingBox();
+  check("R11 slot: Create property › Slot opens live's 304 × 626 form at 896, 121", !!pb && near(pb.x, 896) && near(pb.y, 121) && near(pb.width, 304) && near(pb.height, 626), JSON.stringify(pb));
+  check("R11 slot: titled Create property, the name Slot", (await pop.getByRole("heading", { name: "Create property" }).count()) === 1 && (await form.getByRole("textbox", { name: "Name" }).inputValue()) === "Slot");
+  const name = await rel(form.getByRole("textbox", { name: "Name" }), pb);
+  check("R11 slot: Name 272 × 24 at 16, 72", !!name && near(name.x, 16) && near(name.y, 72) && near(name.w, 272) && name.h === 24, JSON.stringify(name));
+  const editor = await rel(form.locator("[data-description-editor]"), pb);
+  check("R11 slot: Description 272 × 155 at 16, 128, How to use this slot", !!editor && near(editor.y, 128) && near(editor.w, 272) && near(editor.h, 155) && (await form.getByText("How to use this slot").count()) === 1, JSON.stringify(editor));
+  const tools = await form.getByRole("toolbar", { name: "Formatting" }).getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+  check("R11 slot: the description's nine tools", tools.join() === "Bold,Italic,Strikethrough,Header 1,Bulleted list,Ordered list,Link,Code,Code block", tools.join());
+  const bold = await rel(form.getByRole("button", { name: "Bold" }), pb);
+  check("R11 slot: the tools at y 250 from 21", !!bold && near(bold.x, 21) && near(bold.y, 250), JSON.stringify(bold));
+  const min = await rel(form.locator('[data-ds="NumericInput"]').filter({ has: page.getByRole("textbox", { name: "Minimum layers" }) }), pb);
+  const max = await rel(form.locator('[data-ds="NumericInput"]').filter({ has: page.getByRole("textbox", { name: "Maximum layers" }) }), pb);
+  check("R11 slot: Minimum / Maximum layers 120 wide at 168, 336 / 372", !!min && !!max && near(min.x, 168) && near(min.y, 336) && min.w === 120 && near(max.y, 372), JSON.stringify({ min, max }));
+  const minInput = await rel(form.getByRole("textbox", { name: "Minimum layers" }), pb);
+  check("R11 slot: their inputs 96 wide from the box's start (live)", !!minInput && near(minInput.x, 168) && near(minInput.w, 96), JSON.stringify(minInput));
+  const checks = await form.getByRole("checkbox").evaluateAll((els) => els.map((e) => `${e.closest("label")?.textContent}${e.disabled ? " (disabled)" : ""}`));
+  check("R11 slot: the three settings, fill-on-counter-axis disabled without auto layout", checks.join("|") === "Only allow preferred instances|By default, display empty slot|By default, fill items on slot's counter axis (disabled)", checks.join("|"));
+  check("R11 slot: its row says Slot must have auto layout", (await form.locator('[data-tooltip="Slot must have auto layout"]').count()) === 1);
+  const counter = await rel(form.locator("[data-slot-counter-axis]"), pb);
+  check("R11 slot: the settings' rows at 408, 444, 480", !!counter && near(counter.y, 480), JSON.stringify(counter));
+  const plus = await rel(form.getByRole("button", { name: "Select preferred values" }), pb);
+  check("R11 slot: Preferred instances, Learn more and + at 272, 545", !!plus && near(plus.x, 272) && near(plus.y, 545) && (await form.getByRole("link", { name: "Learn more" }).count()) === 1, JSON.stringify(plus));
+  const create = await rel(form.getByRole("button", { name: "Create property" }), pb);
+  check("R11 slot: Create property 100 × 24 at 188, 594", !!create && near(create.x, 188, 2) && near(create.y, 594) && near(create.w, 100, 2), JSON.stringify(create));
+  await shot(page, `320-r11-create-slot-property-${theme}`);
+  await form.getByRole("textbox", { name: "Minimum layers" }).fill("1");
+  await page.keyboard.press("Enter");
+  await form.getByRole("textbox", { name: "Maximum layers" }).fill("3");
+  await page.keyboard.press("Enter");
+  await form.getByText("By default, display empty slot").click();
+  await form.getByRole("button", { name: "Create property" }).click();
+  await settle(page);
+  const defs = await page.evaluate(() => window.__designerEditor.engine.readNode("8:50").componentPropDefs ?? []);
+  const slot = defs.find((d) => d.type === "SLOT");
+  check("R11 slot: Create property makes the Slot property with what the form held", slot?.name === "Slot" && slot.slotPropConfig?.minChildren === 1 && slot.slotPropConfig?.maxChildren === 3 && slot.slotPropConfig?.displayByDefault === true, JSON.stringify(slot));
+  const unused = await rel(body.locator('[data-property-unused="Slot"]'), await body.boundingBox());
+  check("R11 slot: a property no layer uses shows Not used within component at 208", !!unused && unused.x === 208, JSON.stringify(unused));
+  await shot(page, `321-r11-component-with-slot-${theme}`);
+
+  // 2. Shader fills: the browser beside the picker (live 240 × 510 at 719, 307), its rows, a preset applied and drawn.
+  await select(["7:60"]);
+  const before = await page.evaluate(() => Array.from(window.__designerEditor.engine.renderNodeThumbnailPixels({ node: "7:60", maxSize: 60 })?.pixels ?? []));
+  await panel.getByRole("button", { name: "Solid color hex: D9D9D9" }).first().click();
+  await settle(page);
+  const picker = page.getByRole("dialog", { name: "Color picker" });
+  await picker.getByRole("radio", { name: "Shader" }).click();
+  await settle(page);
+  const fills = page.getByRole("dialog", { name: "Shader fills" });
+  const fb = await fills.boundingBox();
+  const kb = await picker.boundingBox();
+  // (Live's capture came after the Image tab had moved the picker up to 307; the browser sits level with the picker.)
+  check("R11 shaders: Shader fills 240 × 510 at 719, level with the picker (live)", !!fb && !!kb && near(fb.x, 719) && near(fb.y, kb.y) && fb.width === 240 && near(fb.height, 510), JSON.stringify({ fb, picker: kb?.y }));
+  // A text's glyph box from the popup's top, as the live dumps measure it (a Range over its text node).
+  const textY = (dialog, text) =>
+    dialog.evaluate((el, text) => {
+      const top = el.getBoundingClientRect().top;
+      const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+        if (t.textContent.trim() !== text) continue;
+        const r = document.createRange();
+        r.selectNodeContents(t);
+        return Math.round(r.getBoundingClientRect().top - top);
+      }
+      return null;
+    }, text);
+  const row = (text) => textY(fills, text);
+  const rows = { created: await row("Created by you"), make: await row("Create new"), figma: await row("By Figma"), first: await row("Moving gradient") };
+  check("R11 shaders: the rows where live has them (95, 229, 257, 389 ± 2)", near(rows.created, 95, 2) && near(rows.make, 229, 2) && near(rows.figma, 257, 2) && near(rows.first, 389, 2), JSON.stringify(rows));
+  check("R11 shaders: the ten fill presets are enabled", (await fills.locator("[data-shader-preset]:not([disabled])").count()) === 10);
+  check("R11 shaders: Create with agents stays disabled (AI)", await fills.getByRole("button", { name: "Create with agents" }).isDisabled());
+  await shot(page, `322-r11-shader-fills-${theme}`);
+  await fills.locator('[data-shader-preset="Nebula"]').click();
+  await settle(page);
+  const fill = (await node(page, "7:60")).fillPaints?.[0];
+  check("R11 shaders: a preset turns the fill into Figma's CUSTOM paint", fill?.type === "CUSTOM" && fill.customEffectId?.assetRef?.key === "shader.nebula" && (fill.componentPropAssignments ?? []).length === 6, JSON.stringify(fill?.customEffectId));
+  check("R11 shaders: the picker shows the shader's settings", (await picker.locator('[data-shader-settings="shader.nebula"]').count()) === 1 && (await picker.getByRole("radio", { name: "Shader" }).getAttribute("aria-checked")) === "true");
+  check("R11 shaders: the fill row names it", (await panel.getByRole("button", { name: "Color: Nebula" }).count()) >= 1 || (await panel.getByText("Nebula").count()) >= 1);
+  await page.waitForTimeout(150);
+  const after = await page.evaluate(() => Array.from(window.__designerEditor.engine.renderNodeThumbnailPixels({ node: "7:60", maxSize: 60 })?.pixels ?? []));
+  const differs = (a, b) => {
+    let n = 0;
+    for (let i = 0; i < Math.min(a.length, b.length); i += 4) n += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30 ? 1 : 0;
+    return n;
+  };
+  check("R11 shaders: the engine draws the shader fill (the layer's pixels change)", after.length > 0 && differs(before, after) > after.length / 4 / 2, `${differs(before, after)} of ${after.length / 4}`);
+  await shot(page, `323-r11-shader-fill-settings-${theme}`);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+
+  // 3. Shader effects: the Effects "+" with its onboarding card, a preset added and drawn, its settings.
+  await page.evaluate(() => localStorage.removeItem("designer.effects.shaderOnboarding"));
+  await select(["7:61"]);
+  const plain = await page.evaluate(() => Array.from(window.__designerEditor.engine.renderNodeThumbnailPixels({ node: "7:61", maxSize: 60 })?.pixels ?? []));
+  await panel.getByRole("button", { name: "Add effect" }).click();
+  await settle(page);
+  const fx = page.getByRole("dialog", { name: "Shader effects" });
+  const eb = await fx.boundingBox();
+  const fxRows = { created: await textY(fx, "Created by you"), figma: await textY(fx, "By Figma") };
+  check("R11 shaders: Shader effects with the card at 959, 374, its rows at 339 / 501 (live ± 2)", !!eb && near(eb.x, 959) && near(eb.y, 374) && near(fxRows.created, 339, 2) && near(fxRows.figma, 501, 2), JSON.stringify({ eb, fxRows }));
+  check("R11 shaders: the 25 effect presets are enabled", (await fx.locator("[data-shader-preset]:not([disabled])").count()) === 25);
+  await fx.locator('[data-shader-preset="Halftone"]').click();
+  await settle(page);
+  const effect = (await node(page, "7:61")).effects?.[0];
+  check("R11 shaders: a preset adds Figma's CUSTOM effect", effect?.type === "CUSTOM" && effect.customEffectId?.assetRef?.key === "shader.halftone", JSON.stringify(effect?.customEffectId));
+  check("R11 shaders: the effect row names the shader", (await panel.locator('[data-effect-row="CUSTOM"]').getByText("Halftone").count()) === 1);
+  await page.waitForTimeout(150);
+  const shaded = await page.evaluate(() => Array.from(window.__designerEditor.engine.renderNodeThumbnailPixels({ node: "7:61", maxSize: 60 })?.pixels ?? []));
+  check("R11 shaders: the engine draws the shader effect (the layer's pixels change)", shaded.length > 0 && differs(plain, shaded) > 20, `${differs(plain, shaded)} px`);
+  await panel.locator('[data-effect-row="CUSTOM"]').getByRole("button", { name: "Effect settings" }).click();
+  await settle(page);
+  const settings = page.locator('[data-shader-settings="shader.halftone"]');
+  const params = await settings.locator("[data-shader-param]").evaluateAll((els) => els.map((e) => e.getAttribute("data-shader-param")));
+  check("R11 shaders: the effect's settings list its parameters", params.join() === "Dot size,Angle,Mode,Ink", params.join());
+  await settings.getByRole("textbox", { name: "Dot size" }).fill("16");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  const sized = (await node(page, "7:61")).effects?.[0]?.componentPropAssignments?.find((a) => (a.defID?.localID ?? Number(String(a.defID).split(":")[1])) === 1)?.value?.floatValue;
+  check("R11 shaders: a parameter edit writes its assignment", sized === 16, String(sized));
+  await shot(page, `324-r11-shader-effect-settings-${theme}`);
+  await page.keyboard.press("Escape");
+}
+
 /** Round 6 on the engine's sample (dark): Convert to slot from the panel, an instance's slot (Limits, Add instances, More actions). */
 async function slotsSection(page, theme) {
   await open(page, "");
@@ -1974,8 +2126,8 @@ async function designRound8(page, theme, panel, select, focus) {
   const pat = (await node(page, "7:60")).fillPaints?.[0];
   check("Design r8: the anchor writes the pattern's alignment", pat?.horizontalAlignment === "END" && pat?.verticalAlignment === "END", JSON.stringify(pat));
   await shot(page, `251-design-picker-pattern-${theme}`);
-  // Shader: the "Shader fills (Beta)" browser beside the picker; nothing painted.
-  await popup().getByRole("button", { name: "Shader" }).click();
+  // Shader: the "Shader fills (Beta)" browser beside the picker (a radio of the paint types since round 11); nothing painted until a preset is picked.
+  await popup().getByRole("radio", { name: "Shader" }).click();
   await settle(page);
   check("Design r8: Shader opens the Shader fills browser", (await page.getByRole("dialog", { name: "Shader fills" }).count()) === 1);
   await shot(page, `252-design-picker-shader-${theme}`);
@@ -4143,6 +4295,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await panel11Section(page, "dark");
+    await context.close();
+  }
+  if (only === "features11") {
+    // Live's viewport (the captures' absolute places); on its own, as panel11 (the full run's parts stay within 180 s).
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await features11Section(page, "dark");
     await context.close();
   }
   if (only === "header9" || (!only && part !== "2")) {

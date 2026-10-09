@@ -36,6 +36,8 @@ import { PANEL_MENU_GAP, fields, useKeeps, type Effect, type LayoutGrid, type Pa
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { Grip, moved, useReorder } from "./reorder";
+import { SHADER_EFFECTS, SHADER_FILLS, presetOf, shaderEffect, type ShaderFields, type ShaderPreset } from "../../model/shaders";
+import { ShaderParams } from "./ShaderSettings";
 
 // ---- Effects ---------------------------------------------------------------------------------------
 
@@ -95,7 +97,10 @@ export function withBlurType(e: Effect, progressive: boolean): Effect {
   return { ...e, blurOpType: "PROGRESSIVE", startRadius: (e.startRadius as number | undefined) ?? 0, startOffset: (e.startOffset as V2 | undefined) ?? { x: 0.5, y: 0 }, endOffset: (e.endOffset as V2 | undefined) ?? { x: 0.5, y: 1 } };
 }
 
-export const effectLabel = (e: Effect) => EFFECT_TYPES.find((t) => t.value === e.type)?.label ?? "Effect";
+/** The row's name: the type's ("Drop shadow"), a shader's preset ("Halftone"). */
+export const effectLabel = (e: Effect) => (e.type === "CUSTOM" ? (presetOf(e as ShaderFields)?.name ?? "Shader") : (EFFECT_TYPES.find((t) => t.value === e.type)?.label ?? "Effect"));
+/** The type's glyph (a shader's: the shader icon). */
+export const effectIcon = (e: Effect): IconName => (e.type === "CUSTOM" ? "24.shader.small" : (EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1]).icon);
 
 function writeEffects(ed: EditorController, refs: readonly Guid[], effects: Effect[], label: string, info: ChangeInfo = { final: true, source: "pick" }) {
   ed.edit(label, info, () => void ed.engine.setProps(refs, fields({ effects })));
@@ -134,7 +139,8 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
   const isMixedList = shared !== undefined && typeof shared === "symbol";
   const effects = (shared === undefined || isMixedList ? [] : [...(shared as Effect[])]) as Effect[];
   const [open, setOpen] = useState<{ index: number; anchor: HTMLElement } | null>(null);
-  const [shaders, setShaders] = useState<{ anchor: HTMLElement; onboarding: boolean } | null>(null);
+  // The Shader effects browser: from "+" (a pick adds the shader) or an effect's type menu (a pick replaces it).
+  const [shaders, setShaders] = useState<{ anchor: HTMLElement; onboarding: boolean; replace?: number } | null>(null);
   const addButton = useRef<HTMLDivElement>(null);
   const add = () => {
     if (!onboardingDone()) {
@@ -173,7 +179,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
         .map((e, i) => ({ e, i }))
         .reverse()
         .map(({ e, i }, d) => {
-          const type = EFFECT_TYPES.find((t) => t.value === e.type) ?? EFFECT_TYPES[1];
+          const type = { icon: effectIcon(e), label: effectLabel(e) };
           const set = (next: Effect, label: string, info?: ChangeInfo) => writeEffects(ed, refs, effects.map((x, j) => (j === i ? next : x)), label, info);
           return (
             <div key={i} className={cx(styles.paintRow, e.visible === false && styles.rowHidden, dragging === d && styles.rowDragging)} data-effect-row={e.type} data-reorder-row="">
@@ -198,7 +204,7 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           onClose={() => setOpen(null)}
           onChange={(next, info) => writeEffects(ed, refs, effects.map((x, j) => (j === open.index ? next : x)), "Effect", info)}
           onCancel={() => ed.cancelEdit()}
-          onShaders={(anchor) => setShaders({ anchor, onboarding: !onboardingDone() })}
+          onShaders={(anchor) => setShaders({ anchor, onboarding: !onboardingDone(), replace: open.index })}
         />
       )}
       {shaders && (
@@ -207,6 +213,14 @@ export function EffectsSection({ nodes }: { nodes: PanelNode[] }) {
           onboarding={shaders.onboarding}
           onGotIt={() => {
             finishOnboarding();
+            setShaders(null);
+          }}
+          onPick={(preset, example) => {
+            // A preset adds a shader effect (or turns the effect whose type menu opened the browser into it).
+            const at = shaders.replace;
+            const next = at !== undefined && effects[at] ? effects.map((x, j) => (j === at ? (shaderEffect(x, preset) as Effect) : x)) : [...(isMixedList ? [] : effects), shaderEffect(null, preset) as Effect];
+            writeEffects(ed, refs, next, at !== undefined ? "Effect" : "Add effect");
+            if (example) finishOnboarding();
             setShaders(null);
           }}
           onClose={() => setShaders(null)}
@@ -253,7 +267,7 @@ export function EffectSettings({
   const title = effectLabel(effect);
   const pick: ChangeInfo = { final: true, source: "pick" };
   const color = (effect.color as Color | undefined) ?? BLACK_25;
-  const typeOptions = [...EFFECT_TYPES.map((t) => ({ value: t.value as string, label: t.label, icon: t.icon })), "-" as const, { value: "SHADER", label: "Shader", icon: "24.shader.small" as IconName }];
+  const typeOptions = [...EFFECT_TYPES.map((t) => ({ value: t.value as string, label: t.label, icon: t.icon })), "-" as const, { value: "CUSTOM", label: "Shader", icon: "24.shader.small" as IconName }];
   const header = (
     <Select
       label="Effect settings"
@@ -261,12 +275,14 @@ export function EffectSettings({
       width="hug"
       className={styles.fxType}
       noCheck
-      prefix={EFFECT_TYPES.find((t) => t.value === effect.type)?.icon ?? "24.drop.shadow.mid.small"}
+      prefix={effectIcon(effect)}
       value={effect.type}
       options={typeOptions}
       onChange={(v) => {
-        if (v === "SHADER") onShaders?.(anchor);
-        else onChange(withEffectType(effect, v as Effect["type"]), pick);
+        // Shader: the browser picks the preset (the effect becomes it).
+        if (v === "CUSTOM") {
+          if (effect.type !== "CUSTOM") onShaders?.(anchor);
+        } else onChange(withEffectType(effect, v as Effect["type"]), pick);
       }}
     />
   );
@@ -430,9 +446,15 @@ export function EffectSettings({
   }
   return (
     <Popover anchor={anchor} header={header} headerActions={blend} width={240} offsetX={-1} onClose={onClose} label={title}>
-      <div className={cx(styles.fxSettings, (isBlur(effect) || effect.type === "NOISE") && styles.fxSettingsSegmented)} data-effect-settings={effect.type}>
-        {body}
-      </div>
+      {effect.type === "CUSTOM" ? (
+        <div data-effect-settings={effect.type}>
+          <ShaderParams target={effect as Effect & ShaderFields} onChange={(next, info) => onChange(next as Effect, info)} onCancel={onCancel} onChoose={onShaders} />
+        </div>
+      ) : (
+        <div className={cx(styles.fxSettings, (isBlur(effect) || effect.type === "NOISE") && styles.fxSettingsSegmented)} data-effect-settings={effect.type}>
+          {body}
+        </div>
+      )}
     </Popover>
   );
 }
@@ -480,41 +502,41 @@ function LightDial({ angle, onChange }: { angle: number; onChange: (a: number, i
 }
 
 /** Figma's shader fill presets ("By Figma", live popovers/fill-picker-custom.txt), in the browser's order. */
-export const SHADER_FILL_PRESETS = ["Moving gradient", "Mesh gradient", "Nebula", "Water caustic", "Fractal noise", "Clouds", "Moire", "Glowing wave", "Concentric patterns", "Pattern grid"];
+export const SHADER_FILL_PRESETS = SHADER_FILLS.map((p) => p.name);
 
-/** Figma's shader presets ("By Figma"), in the browser's order. */
-export const SHADER_PRESETS = [
-  "Shape-based particles", "Pattern refraction", "Halftone", "Chromatic metal", "Lens distortion", "Dither", "Gradient map", "Warp", "Pixelate", "Bokeh blur",
-  "Outlines", "CRT screen", "Bloom", "Glowing particles", "Color adjust", "Pixel stretch", "Gooey merge", "Moving blobs", "Slice shift", "Light rays",
-  "Hatching", "Colored edges", "Duotone filter", "Channel mixer", "Filter presets",
-];
+/** Figma's shader effect presets ("By Figma", live popovers/effects-add-shader-effects.txt), in the browser's order. */
+export const SHADER_PRESETS = SHADER_EFFECTS.map((p) => p.name);
 
 /**
  * The "Shader effects (Beta)" browser (live: the Effects "+" while its onboarding card is up): search, the card,
- * "Created by you" (Create new, AI) and Figma's presets. Shaders aren't drawn by this engine: the presets and the
- * agent are shown, not applied.
+ * "Created by you" (Create new, AI) and Figma's presets; a preset's tile applies it (round 11: the engine draws them,
+ * src/shared/shaders/presets.json). "Try an example" applies the first preset (unverified which live applies);
+ * "Create with agents" / "Create new" stay disabled (AI).
  */
 export function ShaderEffects({
   anchor,
   onboarding,
   onGotIt,
+  onPick,
   onClose,
   title = "Shader effects",
-  list = SHADER_PRESETS,
+  list = SHADER_EFFECTS,
   placement,
 }: {
   anchor: HTMLElement;
   onboarding: boolean;
   onGotIt?: () => void;
+  /** A tile picked (`example`: the card's "Try an example") */
+  onPick?: (preset: ShaderPreset, example?: boolean) => void;
   onClose: () => void;
   /** "Shader fills" for the fill picker's Shader tab (live popovers/fill-picker-custom.txt) */
   title?: string;
-  list?: readonly string[];
+  list?: readonly ShaderPreset[];
   placement?: PopoverPlacement;
 }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
-  const presets = list.filter((p) => !q || p.toLowerCase().includes(q));
+  const presets = list.filter((p) => !q || p.name.toLowerCase().includes(q));
   const header = (
     <div className={styles.shaderTitle}>
       <span className={styles.shaderName}>{title}</span>
@@ -533,8 +555,8 @@ export function ShaderEffects({
             <p className={styles.shaderText}>Add animated shaders that respond to mouse movement, right on canvas, or create your own with the Figma agent.</p>
             <div className={styles.shaderActions}>
               <Button variant="ghost" onClick={onGotIt}>Got it</Button>
-              {/* Live: enabled (#0c8ce9). Shaders aren't drawn here, so it closes the card like Got it (unverified what it adds) */}
-              <Button variant="primary" onClick={onGotIt}>Try an example</Button>
+              {/* Live: enabled (#0c8ce9); applies the first preset (unverified which live applies) */}
+              <Button variant="primary" onClick={() => (onPick && list[0] ? onPick(list[0], true) : onGotIt?.())}>Try an example</Button>
             </div>
           </div>
         )}
@@ -552,9 +574,9 @@ export function ShaderEffects({
         <div className={styles.shaderSection}>By Figma</div>
         <div className={styles.shaderGrid}>
           {presets.map((p) => (
-            <button key={p} type="button" className={styles.shaderTile} disabled data-shader-preset={p}>
+            <button key={p.key} type="button" className={styles.shaderTile} disabled={!onPick} data-shader-preset={p.name} onClick={() => onPick?.(p)}>
               <span className={styles.shaderThumb} />
-              <span className={styles.shaderTileName}>{p}</span>
+              <span className={styles.shaderTileName}>{p.name}</span>
             </button>
           ))}
         </div>
