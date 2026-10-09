@@ -89,6 +89,7 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
               at={at}
               above
               dropdown
+              label={menuLabel ?? `${label} options`}
               entries={menu}
               ignore={chevron}
               onSelect={(id) => onMenuSelect?.(id)}

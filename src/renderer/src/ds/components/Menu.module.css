@@ -17,6 +17,8 @@
     outline: none;
     user-select: none;
   }
+  /* A submenu: 6 from the top and 5 from the bottom at most (live main-object, main-preferences) */
+  .sub { max-height: calc(100vh - 11px); }
   .static { position: relative; z-index: auto; display: inline-block; vertical-align: top; }
   .item {
     display: flex;
@@ -59,12 +61,14 @@
   .hint { max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
   /* Live: the keys 8 after the label (the item's gap) in text menus, 16 in menus with a glyph column (tool menus,
      boolean operations) */
-  .shortcut { font-variant-numeric: tabular-nums; }
+  .shortcut { font-family: var(--ds-font-family-keys); font-variant-numeric: tabular-nums; }
   .withIcons .shortcut { padding-left: var(--ds-space-2); }
   /* Live context menus: one 12px / 400 glyph per key */
   .keys { display: flex; align-items: center; font: var(--ds-font-menu-key); letter-spacing: var(--ds-tracking-menu-key); }
   /* Live tool menus over the bottom toolbar: no padding above or below the rows */
   .dropdown { padding-block: 0; }
+  /* Its name, for assistive tech only (live: at -1, 1, 11px / 400) */
+  .hiddenLabel { position: absolute; top: 1px; left: -1px; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); font-weight: 400; white-space: nowrap; }
   .item[data-highlighted] .hint, .item[data-highlighted] .shortcut { color: var(--ds-color-menu-text-on-highlight-secondary); }
   .chevron { flex: none; margin-right: calc(var(--ds-space-1) * -1); }
   .separator { height: 1px; margin: var(--ds-space-2) calc(var(--ds-size-menu-pad) * -1); background: var(--ds-color-menu-separator); }

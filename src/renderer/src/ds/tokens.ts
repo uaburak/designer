@@ -328,9 +328,14 @@ export const radius = { none: 0, small: 2, medium: 5, "medium-large": 9, large: 
 export const fontFamily = {
   sans: '"Inter Variable", Inter, system-ui, -apple-system, sans-serif',
   mono: 'ui-monospace, "SF Mono", Menlo, monospace',
+  /**
+   * Shortcut keys: the glyphs Inter lacks (⌘ ⇧ ⌥ ⌃ ⌫) from the browser's sans-serif, as live Figma's stack has no
+   * system-ui (menus/*.txt: "⇧⌫" 25 wide, "⌥⌘G" 31 at 11px; system-ui's make them 22 and 29).
+   */
+  keys: '"Inter Variable", Inter, sans-serif',
 } as const;
 
-export type TextStyle = { size: number; line: number; weight: number; tracking: string; mono?: boolean };
+export type TextStyle = { size: number; line: number; weight: number; tracking: string; mono?: boolean; keys?: boolean };
 
 /** Type styles (§1.8): `--ds-font-<style>` (a `font` shorthand) and `--ds-tracking-<style>`. 450 / 550; 400 for mono, for the live capture's layer and page names and field prefixes; 500 for the panel labels, as Figma draws them. */
 export const text = {
@@ -345,7 +350,7 @@ export const text = {
   /** Live capture: every menu and dropdown list is 11px / 450 (menus/*.txt, popovers/*-menu.txt) */
   menu: { size: 11, line: 16, weight: 450, tracking: "0.055px" },
   /** Live capture (menus/context-*.txt): a context menu's shortcut is one 12px / 400 glyph per key */
-  "menu-key": { size: 12, line: 15, weight: 400, tracking: "0px" },
+  "menu-key": { size: 12, line: 15, weight: 400, tracking: "0px", keys: true },
   "body-large": { size: 13, line: 22, weight: 450, tracking: "-0.0325px" },
   "body-large-strong": { size: 13, line: 22, weight: 550, tracking: "-0.0325px" },
   /** Live capture (toolbar/actions-panel.txt): the Actions palette's rows are 13px / 400 */
@@ -550,8 +555,9 @@ export function staticVariables(): Record<string, string> {
   for (const [k, v] of Object.entries(radius)) out[`--ds-radius-${k}`] = `${v}px`;
   out["--ds-font-family"] = fontFamily.sans;
   out["--ds-font-family-mono"] = fontFamily.mono;
+  out["--ds-font-family-keys"] = fontFamily.keys;
   for (const [k, t] of Object.entries(text) as [string, TextStyle][]) {
-    out[`--ds-font-${k}`] = `${t.weight} ${t.size}px/${t.line}px ${t.mono ? fontFamily.mono : fontFamily.sans}`;
+    out[`--ds-font-${k}`] = `${t.weight} ${t.size}px/${t.line}px ${t.mono ? fontFamily.mono : t.keys ? fontFamily.keys : fontFamily.sans}`;
     out[`--ds-tracking-${k}`] = t.tracking;
     out[`--ds-weight-${k}`] = String(t.weight);
   }

@@ -75,7 +75,8 @@ const KEY_LABEL: Record<string, string> = {
 /** A combo as Figma writes it ("⇧⌘H", "⌥⌘G", "⌃⇧?"). */
 export function comboText(c: KeyCombo): string {
   let key = KEY_LABEL[c.code] ?? c.code.replace(/^Key|^Digit/, "");
-  if (c.code === "Slash" && c.shift) key = "?";
+  // Live: "⌃⇧?" (Keyboard shortcuts) but "⇧/" (Remove stroke).
+  if (c.code === "Slash" && c.shift && c.ctrl) key = "?";
   const parts = [...(c.ctrl ? ["ctrl"] : []), ...(c.alt ? ["alt"] : []), ...(c.shift ? ["shift"] : []), ...(c.mod ? ["mod"] : []), key];
   return keyText(parts);
 }

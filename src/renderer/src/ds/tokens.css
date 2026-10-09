@@ -81,6 +81,7 @@
     --ds-radius-full: 9999px;
     --ds-font-family: "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-font-family-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --ds-font-family-keys: "Inter Variable", Inter, sans-serif;
     --ds-font-body-small: 450 9px/14px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-small: 0.045px;
     --ds-weight-body-small: 450;
@@ -102,7 +103,7 @@
     --ds-font-menu: 450 11px/16px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-menu: 0.055px;
     --ds-weight-menu: 450;
-    --ds-font-menu-key: 400 12px/15px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-font-menu-key: 400 12px/15px "Inter Variable", Inter, sans-serif;
     --ds-tracking-menu-key: 0px;
     --ds-weight-menu-key: 400;
     --ds-font-body-large: 450 13px/22px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;

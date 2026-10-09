@@ -59,6 +59,8 @@ interface PanelProps {
 
 export type MenuOver = { rect: DOMRect; align?: "left" | "right"; dy?: number };
 
+const SUBMENU_EDGES = { top: 6, bottom: 5 };
+
 function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlighted, onPick, onBack, onClose, label, context, keepTop, over, dropdown, minWidth }: PanelProps) {
   const panel = useRef<HTMLDivElement>(null);
   const subId = useId();
@@ -96,7 +98,8 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       // Live Figma: a dropdown longer than the room below its trigger stays under it (and scrolls).
       const keep = keepTop && !above && height > room && room >= 160;
       if (keep) el.style.maxHeight = `${room}px`;
-      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX);
+      // A submenu (flipX) keeps live Figma's margins: 6 above, 5 below (menus/main-object, main-preferences).
+      const p = placeMenu(x, above ? Math.max(8, y - height) : y, { width, height: keep ? room : height }, { width: window.innerWidth, height: window.innerHeight }, flipX, flipX === undefined ? undefined : SUBMENU_EDGES);
       el.style.left = `${p.x}px`;
       el.style.top = `${p.y}px`;
       el.style.visibility = "visible";
@@ -113,9 +116,11 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
 
   const openSub = (index: number, focus: boolean) => {
     const item = panel.current?.querySelector<HTMLElement>(`[data-menu-index="${index}"]`);
-    if (!item) return;
+    if (!item || !panel.current) return;
+    // Live (menus/main-*.txt): 4 past the menu's own edge, its first row level with the item.
     const r = item.getBoundingClientRect();
-    setSub({ index, x: r.right + 4, y: r.top - 8, flipX: r.left - 4, focus });
+    const p = panel.current.getBoundingClientRect();
+    setSub({ index, x: p.right + 4, y: r.top - 8, flipX: p.left - 4, focus });
   };
   const pick = (index: number) => {
     const entry = list[index];
@@ -159,13 +164,14 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
       <div
         ref={panel}
         role="menu"
-        aria-label={label}
+        aria-label={dropdown ? undefined : label}
+        aria-labelledby={dropdown && label ? `${subId}-label` : undefined}
         tabIndex={-1}
         data-ds="Menu"
         data-theme="dark"
         data-theme-forced=""
         data-static={isStatic || undefined}
-        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList, dropdown && styles.dropdown, hasIcons && styles.withIcons)}
+        className={cx(styles.panel, isStatic && styles.static, context && styles.context, over && styles.overList, dropdown && styles.dropdown, hasIcons && styles.withIcons, flipX !== undefined && styles.sub)}
         style={isStatic ? (minWidth ? { minWidth } : undefined) : { left: x, top: y, visibility: "hidden", ...(minWidth ? { minWidth } : {}) }}
         onPointerMove={(e) => {
           pointer.current = { x: e.clientX, y: e.clientY };
@@ -192,6 +198,12 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
           e.preventDefault();
         }}
       >
+        {/* Live (toolbar/*-tools-menu.txt): a tool menu is named by a hidden "Move tools" / "Shape tools"… */}
+        {dropdown && label && (
+          <span id={`${subId}-label`} className={styles.hiddenLabel}>
+            {label}
+          </span>
+        )}
         {list.map((entry, i) => {
           if (entry === "-") return <div key={`line-${i}`} role="separator" className={styles.separator} />;
           if (!isItem(entry)) return <div key={`header-${i}`} role="presentation" className={styles.header}>{entry.header}</div>;
@@ -219,9 +231,9 @@ function MenuPanel({ entries, x, y, flipX, above, autoFocus, isStatic, highlight
               {entry.shortcut &&
                 (context ? (
                   // Live context menus: one 12px glyph per key, the chord 8 after the label.
-                  <span className={cx(styles.shortcut, styles.keys)} aria-label={entry.shortcut}>
+                  <span className={cx(styles.shortcut, styles.keys)}>
                     {shortcutKeys(entry.shortcut).map((k, j) => (
-                      <span key={j} aria-hidden="true">{k}</span>
+                      <span key={j}>{k}</span>
                     ))}
                   </span>
                 ) : (
