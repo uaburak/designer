@@ -2,8 +2,13 @@
 // right panel's MCP section in a browser, with a stand-in for main (`window.__designerAgents`, installed before the
 // page loads) that plays an agent's turn — its text, its steps, and real tool calls run by the page on the engine —
 // so the flagship flow is driven end to end: a desktop frame selected → "Make the mobile version of this" → a 390
-// frame next to it, one undo step, Undo / Apply from the chat. No real agent or model is involved.
-/* global window, document, setTimeout */
+// frame next to it, one undo step, Undo / Apply from the chat. Then an image turn held at each stage (gates the shots
+// open): the Thinking… row, the image card and the canvas placeholder while the picture is made, the picture placed
+// where the placeholder was; and Stop while one is made (the placeholder fades out). No real agent or model is involved.
+// AGENTS_UX_DIR=<folder> also saves close-ups of the Thinking… row, the image card and the canvas placeholder there.
+/* global window, document, setTimeout, process */
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 
 /** The stand-in for main's side (src/shared/agents/types.ts AgentsApi), in the page. */
 function installMockAgents() {
@@ -15,12 +20,64 @@ function installMockAgents() {
   const emit = (turnId, chatId, event) => listeners.event.forEach((cb) => cb({ turnId, chatId, event }));
   const call = async (turnId, name, args) => (toolHandler ? toolHandler({ reqId: ++reqId, turnId, client: "Claude Code", name, args }) : { content: [{ type: "text", text: "{}" }] });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The image turn waits at each gate until the shot opens it (window.__agentsOpen(name)).
+  const gates = {};
+  const opened = {};
+  const gate = (name) =>
+    new Promise((r) => {
+      if (opened[name]) {
+        delete opened[name];
+        return r();
+      }
+      gates[name] = r;
+    });
+  window.__agentsOpen = (name) => {
+    if (!gates[name]) return void (opened[name] = true);
+    gates[name]();
+    delete gates[name];
+  };
+  let stopTurn = null;
+  // A square picture, as an agent's generate_image would save it: a warm gradient with a sun.
+  const picture = () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const g = c.getContext("2d");
+    const sky = g.createLinearGradient(0, 0, 0, 256);
+    sky.addColorStop(0, "#f6b26b");
+    sky.addColorStop(1, "#8e5a9b");
+    g.fillStyle = sky;
+    g.fillRect(0, 0, 256, 256);
+    g.fillStyle = "#ffe08a";
+    g.beginPath();
+    g.arc(128, 150, 54, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "#4a2c3a";
+    g.fillRect(0, 196, 256, 60);
+    return c.toDataURL("image/png").split(",")[1];
+  };
+  // "… image …": Antigravity's image turn (generate_image, then place_image with no place of its own).
+  const imageTurn = async (turnId, req) => {
+    const stopped = new Promise((r) => (stopTurn = r));
+    const held = (name) => Promise.race([gate(name), stopped.then(() => "stop")]);
+    emit(turnId, req.chatId, { type: "status", text: "Starting Antigravity…" });
+    await wait(50);
+    emit(turnId, req.chatId, { type: "text", delta: "I’ll make the picture, then put it on the canvas." });
+    if ((await held("think")) === "stop") return emit(turnId, req.chatId, { type: "done", stopped: true });
+    emit(turnId, req.chatId, { type: "tool", id: "g1", name: "generate_image", args: { aspect_ratio: "1:1" }, state: "running" });
+    if ((await held("made")) === "stop") return emit(turnId, req.chatId, { type: "done", stopped: true });
+    emit(turnId, req.chatId, { type: "tool", id: "g1", name: "generate_image", state: "done", summary: "cowboy_waitress.png" });
+    emit(turnId, req.chatId, { type: "tool", id: "p1", name: "place_image", state: "running" });
+    const r = await call(turnId, "place_image", { data: picture(), name: "Cowboy waitress" });
+    window.__designerAgentsLog.push({ name: "place_image", isError: !!r.isError, text: r.content.find((c) => c.type === "text")?.text?.slice(0, 200) });
+    emit(turnId, req.chatId, { type: "tool", id: "p1", name: "place_image", state: r.isError ? "error" : "done" });
+    emit(turnId, req.chatId, { type: "text", delta: "\n\nThe picture is on the canvas, inside the selected frame." });
+    emit(turnId, req.chatId, { type: "done" });
+  };
   window.__designerAgentsLog = [];
   window.__designerAgents = {
     providers: async () => [
       { id: "claude-code", kind: "claude-code", label: "Claude Code", available: true, detail: "/Users/you/.local/bin/claude", models: ["default", "sonnet", "opus", "haiku"], auth: { state: "connected", account: "you@example.com", plan: "Claude Pro" } },
       { id: "antigravity", kind: "antigravity", label: "Antigravity (Google AI)", note: "Google’s agent with your Google AI plan — Gemini models and image generation.", available: true, detail: "/Users/you/.local/bin/agy", models: ["gemini-3.8-flash-medium", "gemini-3.1-pro-high"], modelLabels: { "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)", "gemini-3.1-pro-high": "Gemini 3.1 Pro (High)" }, auth: { state: "connected", account: "you@gmail.com", plan: "Google account" }, install: { command: "curl -fsSL https://antigravity.google/cli/install.sh | bash", page: "https://antigravity.google/docs/cli/install" } },
-      { id: "gemini", kind: "gemini", label: "Gemini CLI (API key)", note: "Gemini models with your Gemini API key. Google AI Pro and Ultra now go through Antigravity.", available: true, detail: "/opt/homebrew/bin/gemini", models: ["auto", "pro", "flash", "flash-lite"], auth: { state: "connected", account: "you@gmail.com", plan: "Google account" }, imageGen: { state: "needs-key", detail: "Nano Banana needs a Gemini API key from Google AI Studio" } },
       { id: "codex", kind: "codex", label: "Codex", available: false, models: ["default"], problem: "codex isn't installed", auth: { state: "not-installed" }, install: { command: "npm install -g @openai/codex", page: "https://developers.openai.com/codex/cli" } },
       { id: "cursor-agent", kind: "cursor-agent", label: "Cursor Agent", available: false, detail: "/Users/you/.local/bin/cursor-agent", models: ["auto"], problem: "Signed out", auth: { state: "signed-out" } },
       { id: "ollama", kind: "openai-compatible", label: "Ollama", available: false, detail: "http://localhost:11434/v1", models: [], problem: "Not running at http://localhost:11434/v1" },
@@ -34,9 +91,8 @@ function installMockAgents() {
     auth: async () => ({ state: "connected", account: "you@example.com", plan: "Claude Pro" }),
     signIn: async () => ({ state: "signing-in" }),
     signOut: async () => ({ state: "signed-out" }),
-    install: async (id, target) => (window.__designerAgentsLog.push({ install: id, target }), { ok: true, opened: "installed" }),
-    setImageKey: async () => ({ state: "ready", detail: "With the API key you added" }),
-    stop: async () => {},
+    install: async (id) => (window.__designerAgentsLog.push({ install: id }), { ok: true, opened: "installed" }),
+    stop: async () => stopTurn?.(),
     onEvent: (cb) => (listeners.event.add(cb), () => listeners.event.delete(cb)),
     onToolCall: (h) => ((toolHandler = h), () => (toolHandler = null)),
     mcp: async () => mcp,
@@ -46,7 +102,6 @@ function installMockAgents() {
       { id: "cursor", label: "Cursor", installed: true, configPath: "~/.cursor/mcp.json", connected: false },
       { id: "vscode", label: "VS Code", installed: true, configPath: "~/Library/Application Support/Code/User/mcp.json", connected: false },
       { id: "antigravity", label: "Antigravity", installed: true, configPath: "~/.gemini/config/mcp_config.json", connected: false },
-      { id: "gemini", label: "Gemini CLI", installed: false, configPath: "~/.gemini/settings.json", connected: false },
       { id: "codex", label: "Codex", installed: false, configPath: "~/.codex/config.toml", connected: false },
     ],
     connect: async () => ({ ok: true, path: "~/.cursor/mcp.json" }),
@@ -56,6 +111,10 @@ function installMockAgents() {
     turn: async (req) => {
       const turnId = `turn-${Date.now()}`;
       window.__designerAgentsLog.push(req);
+      if (/image/i.test(req.prompt)) {
+        setTimeout(() => void imageTurn(turnId, req), 30);
+        return { turnId };
+      }
       setTimeout(async () => {
         const id = req.context.selection[0]?.id;
         emit(turnId, req.chatId, { type: "status", text: "Starting Claude Code…" });
@@ -118,6 +177,19 @@ function desktopFrame() {
   ];
 }
 
+/** A close-up for docs/research/agents-ux/ (AGENTS_UX_DIR), with some room around the element. */
+async function closeUp(page, selector, name, pad = 12) {
+  const dir = process.env.AGENTS_UX_DIR;
+  if (!dir) return;
+  const box = await page.locator(selector).first().boundingBox();
+  if (!box) return;
+  mkdirSync(dir, { recursive: true });
+  const view = page.viewportSize();
+  const x = Math.max(0, box.x - pad);
+  const y = Math.max(0, box.y - pad);
+  await page.screenshot({ path: path.join(dir, `${name}.png`), clip: { x, y, width: Math.min(view.width - x, box.width + pad * 2), height: Math.min(view.height - y, box.height + pad * 2) } });
+}
+
 export async function agentsSection(page, theme, { open, settle, shot, check }) {
   await page.addInitScript(installMockAgents);
   await open(page, "&doc=empty");
@@ -154,7 +226,7 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
     const r = list?.getBoundingClientRect();
     return { headers: [...(list?.querySelectorAll("[data-select-header]") ?? [])].map((h) => h.textContent), options: list?.querySelectorAll('[role="option"]').length ?? 0, top: r?.top ?? -1, bottom: r?.bottom ?? 1e9, height: window.innerHeight, scroll: list ? list.scrollHeight - list.clientHeight : 0 };
   });
-  check("Agents: the picker lists only connected agents, grouped under their names", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity (Google AI)", "Gemini CLI (API key)", "LM Studio"]) && picker.options === 12, JSON.stringify(picker));
+  check("Agents: the picker lists only connected agents, grouped under their names", JSON.stringify(picker.headers) === JSON.stringify(["Claude Code", "Antigravity (Google AI)", "LM Studio"]) && picker.options === 8, JSON.stringify(picker));
   check("Agents: the picker's list is whole on screen (not cut)", picker.top >= 0 && picker.bottom <= picker.height && picker.scroll <= 1, JSON.stringify(picker));
   await shot(page, `401b-agents-picker-${theme}`);
   await page.keyboard.press("Escape");
@@ -191,22 +263,86 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await settle(page);
   check("Agents: Apply brings it back", (await page.evaluate((id) => window.__designerEditor.engine.readNode(id)?.size?.x, made)) === 390);
 
+  // An image turn (Antigravity's way: generate_image, then place_image), held at each stage.
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    ed.engine.setSelection(["7:1"]);
+    ed.engine.command("ZOOM_TO_SELECTION");
+  });
+  await settle(page);
+  await page.locator("[data-agents-input]").fill("Make an image of a cowboy waitress and put it in this frame");
+  await page.locator("[data-agents-input]").press("Enter");
+  const last = page.locator('[data-message="assistant"]').last();
+  await last.locator("[data-thinking]").waitFor({ timeout: 5000 });
+  check("Agents: while the agent thinks, a Thinking… row shimmers under its words", ((await last.locator("[data-thinking-label]").textContent()) ?? "") === "Thinking…");
+  await last.locator("[data-thinking-time]").waitFor({ timeout: 9000 });
+  check("Agents: after 5 s the row shows the seconds", /^\d+s$/.test(((await last.locator("[data-thinking-time]").textContent()) ?? "").trim()));
+  await closeUp(page, '[data-message="assistant"]:last-child [data-thinking]', `thinking-row-${theme}`, 16);
+  await page.evaluate(() => window.__agentsOpen("think"));
+  await page.locator('[data-image-card="generating"]').waitFor({ timeout: 5000 });
+  await page.waitForTimeout(400);
+  const ph = await page.evaluate(() => {
+    const el = document.querySelector('[data-agent-image-placeholder="active"]');
+    const r = el?.getBoundingClientRect();
+    const ed = window.__designerEditor;
+    const c = ed.engine.getCamera();
+    const cr = ed.canvas.getBoundingClientRect();
+    const f = ed.engine.readNode(ed.selection[0], { fields: ["size", "transform"] });
+    const fx = cr.left + f.transform.m02 * c.zoom + c.x;
+    const fy = cr.top + f.transform.m12 * c.zoom + c.y;
+    return { r: r && { x: r.x, y: r.y, w: r.width, h: r.height }, frame: { x: fx, y: fy, w: f.size.x * c.zoom, h: f.size.y * c.zoom }, layers: ed.engine.readNode(ed.selection[0], { childIds: true }).childIds.length };
+  });
+  const inside = ph.r && ph.r.x >= ph.frame.x - 1 && ph.r.y >= ph.frame.y - 1 && ph.r.x + ph.r.w <= ph.frame.x + ph.frame.w + 1 && ph.r.y + ph.r.h <= ph.frame.y + ph.frame.h + 1;
+  check("Agents: generate_image puts a placeholder on the canvas, square, inside the selected frame", !!inside && Math.abs(ph.r.w - ph.r.h) <= 1 && ph.r.w > 20, JSON.stringify(ph));
+  check("Agents: the chat shows the image card being made, and the running step says Making an image…", (await last.locator('[data-image-card="generating"]').count()) === 1 && ((await last.locator('[data-tool="generate_image"] [data-thinking-label]').textContent()) ?? "") === "Making an image…");
+  await shot(page, `405-agents-image-making-${theme}`);
+  await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-making-${theme}`, 16);
+  await closeUp(page, "[data-agent-image-placeholder]", `canvas-placeholder-${theme}`, 48);
+  const childrenBefore = ph.layers;
+  await page.evaluate(() => window.__agentsOpen("made"));
+  await page.waitForSelector('[data-message="assistant"][data-state="done"] [data-image-card="placed"] img', { timeout: 8000 });
+  await settle(page);
+  const placed = await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    const log = window.__designerAgentsLog.filter((l) => l.name === "place_image").pop();
+    const id = log && JSON.parse(log.text).nodeId;
+    const n = id && ed.engine.readNode(id, { fields: ["size", "transform", "parentIndex", "fillPaints", "name"] });
+    const frame = ed.engine.readNode(ed.selection[0] ?? "", { childIds: true });
+    return { n: n && { w: n.size.x, h: n.size.y, x: n.transform.m02, y: n.transform.m12, parent: n.parentIndex?.guid, fill: n.fillPaints?.[0]?.type, name: n.name }, placeholders: document.querySelectorAll("[data-agent-image-placeholder]").length, undo: ed.store.undo.undoLabel, frameKids: frame?.childIds?.length };
+  });
+  check("Agents: place_image lands where the placeholder was (in the frame, fitted and centred) and the placeholder goes", placed.n && placed.n.fill === "IMAGE" && placed.n.w === 512 && placed.n.h === 512 && placed.n.x === 464 && placed.n.y === 256 && placed.n.parent === "7:1" && placed.placeholders === 0, JSON.stringify({ ...placed, ph }));
+  check("Agents: the image card shows the picture", (await last.locator('[data-image-card="placed"] img').count()) === 1);
+  check("Agents: no Thinking… row once the turn is over", (await last.locator("[data-thinking]").count()) === 0);
+  await shot(page, `406-agents-image-placed-${theme}`);
+  await closeUp(page, '[data-message="assistant"]:last-child [data-image-card]', `image-card-placed-${theme}`, 16);
+  check("Agents: the image is one more layer of the frame", placed.frameKids === childrenBefore + 1, `${childrenBefore} → ${placed.frameKids}`);
+  // Stop while an image is made: the placeholder fades out, the card says it wasn't placed.
+  await page.locator("[data-agents-input]").fill("One more image, please");
+  await page.locator("[data-agents-input]").press("Enter");
+  await page.locator('[data-message="assistant"]').last().locator("[data-thinking]").waitFor({ timeout: 5000 });
+  await page.evaluate(() => window.__agentsOpen("think"));
+  await page.locator('[data-agent-image-placeholder="active"]').waitFor({ timeout: 5000 });
+  await page.locator("[data-agents-stop]").click();
+  await page.locator('[data-agent-image-placeholder="leaving"]').waitFor({ timeout: 3000 });
+  await page.waitForFunction(() => !document.querySelector("[data-agent-image-placeholder]"), null, { timeout: 3000 });
+  check("Agents: Stop fades the placeholder out and the card says Image not placed", ((await page.locator('[data-message="assistant"]').last().locator('[data-image-card="failed"]').textContent()) ?? "").includes("Image not placed"));
+
   // Agent settings: a list in three groups (one row each: name, state, chevron); a row opens its own page.
   await page.locator("[data-agents-settings]").click();
   await page.waitForSelector('[data-agent-settings][data-settings-page="list"]');
   await page.waitForTimeout(150);
   const settings = page.locator("[data-agent-settings]");
   const groups = await settings.locator("h3").allTextContents();
-  check("Agents: settings open as a list grouped On this computer / API keys / Connect other apps", JSON.stringify(groups) === JSON.stringify(["On this computer", "API keys", "Connect other apps"]), JSON.stringify(groups));
+  check("Agents: settings open as a list grouped On this computer / Servers / Connect other apps", JSON.stringify(groups) === JSON.stringify(["On this computer", "Servers", "Connect other apps"]), JSON.stringify(groups));
   check("Agents: the list has no paragraphs but one short line", (await settings.locator("p").count()) === 1);
   const row = (id) => page.locator(`[data-provider="${id}"]`);
   const stateOf = async (id) => ((await row(id).locator("[data-provider-state]").textContent()) ?? "").trim();
-  const states = { claude: await stateOf("claude-code"), gemini: await stateOf("gemini"), codex: await stateOf("codex"), cursor: await stateOf("cursor-agent"), ollama: await stateOf("ollama"), lm: await stateOf("lmstudio") };
-  check("Agents: each row has one state — Connected / Sign in needed / Not installed / Not running", JSON.stringify(states) === JSON.stringify({ claude: "Connected", gemini: "Connected", codex: "Not installed", cursor: "Sign in needed", ollama: "Not running", lm: "Connected" }), JSON.stringify(states));
+  const states = { claude: await stateOf("claude-code"), antigravity: await stateOf("antigravity"), codex: await stateOf("codex"), cursor: await stateOf("cursor-agent"), ollama: await stateOf("ollama"), lm: await stateOf("lmstudio") };
+  check("Agents: each row has one state — Connected / Sign in needed / Not installed / Not running", JSON.stringify(states) === JSON.stringify({ claude: "Connected", antigravity: "Connected", codex: "Not installed", cursor: "Sign in needed", ollama: "Not running", lm: "Connected" }), JSON.stringify(states));
   check("Agents: settings list Claude Code (found) and Ollama (not running)", (await page.locator('[data-provider="claude-code"][data-available]').count()) === 1 && (await page.locator('[data-provider="ollama"]:not([data-available])').count()) === 1);
   const rowBox = await row("claude-code").boundingBox();
   check("Agents: rows are 32 px", Math.round(rowBox?.height ?? 0) === 32, JSON.stringify(rowBox));
-  check("Agents: the Gemini API key row says Not added; the MCP server row counts 1 connection; Claude Code is connected as an app", ((await page.locator('[data-settings-row="gemini-key"]').textContent()) ?? "").includes("Not added") && ((await page.locator('[data-settings-row="mcp"]').textContent()) ?? "").includes("1 connection") && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
+  check("Agents: no Gemini CLI anywhere; the MCP server row counts 1 connection; Claude Code is connected as an app", !((await settings.textContent()) ?? "").includes("Gemini CLI") && (await page.locator('[data-settings-row="gemini-key"]').count()) === 0 && ((await page.locator('[data-settings-row="mcp"]').textContent()) ?? "").includes("1 connection") && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
   await shot(page, `403-agents-settings-${theme}`);
   const openRow = async (sel) => {
     await page.locator(sel).click();
@@ -232,13 +368,6 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await openRow('[data-provider="antigravity"]');
   check("Agents: Antigravity's page: Connected with the Google account, its model by its own name, Sign out", ((await card("antigravity").textContent()) ?? "").includes("you@gmail.com") && ((await card("antigravity").getByRole("combobox", { name: "Model" }).textContent()) ?? "").includes("Gemini 3.8 Flash (Medium)") && (await card("antigravity").locator("[data-sign-out]").count()) === 1);
   await shot(page, `403c-agents-settings-antigravity-${theme}`);
-  await back();
-  await openRow('[data-provider="gemini"]');
-  check("Agents: the Gemini page shows Antigravity, Image generation: Needs API key and the key field", ((await card("gemini").textContent()) ?? "").includes("Antigravity") && ((await card("gemini").locator("[data-image-gen] h3").textContent()) ?? "") === "Image generation" && ((await card("gemini").locator("[data-image-gen-state]").textContent()) ?? "") === "Needs API key" && (await card("gemini").locator('input[type="password"]').count()) === 1);
-  await shot(page, `403b-agents-settings-gemini-${theme}`);
-  await back();
-  await openRow('[data-settings-row="gemini-key"]');
-  check("Agents: the Gemini API key page has the key field and Save key", (await settings.locator('input[type="password"]').count()) === 1 && (await settings.locator("[data-save-image-key]").count()) === 1);
   await back();
   await openRow('[data-client="cursor"]');
   check("Agents: Cursor's app page offers Connect to Cursor", (await page.getByRole("button", { name: "Connect to Cursor" }).count()) === 1);

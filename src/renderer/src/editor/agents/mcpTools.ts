@@ -21,6 +21,7 @@ import { responsiveVariant } from "./responsive";
 import { base64Bytes, isImageArg, MAX_IMAGE_BYTES, sniffImage, type ImageArg } from "@shared/agents/images";
 import { mediaPaint } from "../model/paints";
 import type { ImportedImage } from "../images";
+import { landInBox, type Box } from "./imagePlaceholder";
 
 export interface ToolEnv {
   ed: EditorController;
@@ -455,6 +456,11 @@ async function importSpecImages(env: ToolEnv, specs: Spec[], creating: boolean, 
   );
 }
 
+const placeholderBox = (v: unknown): Box | null => {
+  const b = v as Partial<Box> | null | undefined;
+  return b && [b.x, b.y, b.width, b.height].every((n) => typeof n === "number" && Number.isFinite(n)) && b.width! > 0 && b.height! > 0 ? (b as Box) : null;
+};
+
 async function placeImageTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
   const placed = await importImageArg(env, args as ImageArg, "place_image");
   const { img } = placed;
@@ -471,8 +477,15 @@ async function placeImageTool(env: ToolEnv, args: Spec): Promise<ToolResult> {
     return r;
   }
   const spec: Spec = { type: "RECTANGLE", name: img.name, [IMAGE_KEY]: placed };
-  for (const k of ["x", "y", "width", "height"]) if (typeof args[k] === "number") spec[k] = args[k];
-  sizeFromImage(spec, img);
+  const box = placeholderBox(args.__box);
+  if (box) {
+    // The chat's placeholder for this image (agents/imagePlaceholder.ts): the image lands centred on it.
+    const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+    Object.assign(spec, landInBox(box, img, { width: num(args.width), height: num(args.height) }));
+  } else {
+    for (const k of ["x", "y", "width", "height"]) if (typeof args[k] === "number") spec[k] = args[k];
+    sizeFromImage(spec, img);
+  }
   const r = createNodes(env, { parentId: args.parentId, nodes: [spec] });
   const created = r.touched?.[0];
   r.content.unshift({ type: "text", text: JSON.stringify({ nodeId: created, imageHash: img.hash, imageSize: { width: img.width, height: img.height } }) });

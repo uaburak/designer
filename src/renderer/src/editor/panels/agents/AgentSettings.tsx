@@ -2,11 +2,11 @@
  * Agent settings (the Agents tab's gear): a list, grouped — the agents on this computer, API keys and servers, and the
  * apps that connect to the MCP server — one row each with its state and a chevron; a row opens that item's own page
  * (Back and its title, like a chat's bar) with everything about it: its state and account, its model, Install /
- * Sign in / Sign out / Test connection, the Gemini API key and image generation, a line on what it is, its page.
+ * Sign in / Sign out / Test connection, a line on what it is, its page.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Icon, IconButton, Select, Spinner, TextInput, cx, showToast, type IconName } from "@/ds";
-import type { AuthState, ImageGenState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
+import type { AuthState, McpClientInfo, ProviderInfo } from "@shared/agents/types";
 import { modelLabel, type AgentsService } from "../../agents/service";
 import styles from "./Agents.module.css";
 
@@ -40,7 +40,6 @@ export function stateText(p: ProviderInfo, auth: AuthState | undefined = p.auth)
 const ABOUT: Record<string, { text: string; page?: string }> = {
   "claude-code": { text: "Anthropic’s coding agent, with your Claude account. It runs on this computer and edits this file with its design tools.", page: "https://docs.claude.com/en/docs/claude-code/overview" },
   antigravity: { text: "Google’s agent, with your Google AI plan (Pro or Ultra). It runs on this computer, edits this file with its design tools and makes images with Gemini.", page: "https://antigravity.google/docs/cli" },
-  gemini: { text: "Gemini models with your Gemini API key from Google AI Studio. With Nano Banana it also makes images. Google AI Pro and Ultra now go through Antigravity.", page: "https://github.com/google-gemini/gemini-cli" },
   codex: { text: "OpenAI’s coding agent, with your ChatGPT account or an OpenAI API key.", page: "https://developers.openai.com/codex/cli" },
   "cursor-agent": { text: "Cursor’s agent for Terminal, with your Cursor account.", page: "https://cursor.com/cli" },
   ollama: { text: "Runs open models on this computer, free and offline. Start Ollama and download a model, then come back here.", page: "https://ollama.com" },
@@ -107,7 +106,6 @@ function SettingsList({ service }: { service: AgentsService }) {
   const state = service.get();
   const local = state.providers.filter((p) => !isCustom(p));
   const custom = state.providers.filter(isCustom);
-  const keyAdded = !!state.providers.find((p) => p.id === "gemini")?.imageGen?.keyAdded;
   const n = state.mcp.connections.length;
   return (
     <>
@@ -139,8 +137,7 @@ function SettingsList({ service }: { service: AgentsService }) {
             );
           })}
         </Group>
-        <Group title="API keys">
-          <Row icon="24.lock.small" label="Gemini API key" status={keyAdded ? "Key added" : "Not added"} on={keyAdded} onClick={() => service.openSetting("gemini-key")} data-settings-row="gemini-key" />
+        <Group title="Servers">
           {custom.map((p) => (
             <Row key={p.id} icon={KIND_ICON(p)} label={p.label} status={stateText(p)} on={p.available} dim={!p.available} onClick={() => service.openSetting(`provider:${p.id}`)} statusProps={{ "data-provider-state": "" }} data-provider={p.id} data-available={p.available ? "" : undefined} />
           ))}
@@ -177,9 +174,6 @@ function SettingsPage({ service, item }: { service: AgentsService; item: string 
     const c = state.clients.find((x) => x.id === id);
     title = c?.label ?? "App";
     body = c ? <ClientPage c={c} service={service} /> : null;
-  } else if (kind === "gemini-key") {
-    title = "Gemini API key";
-    body = <GeminiKeyPage service={service} />;
   } else if (kind === "add-server") {
     title = "Add a server";
     body = <AddServer service={service} />;
@@ -355,115 +349,7 @@ function ProviderPage({ p, service }: { p: ProviderInfo; service: AgentsService 
         </div>
         {test && <div className={cx(styles.testResult, !test.ok && styles.testFail)} role="status">{test.text}</div>}
       </Block>
-      {p.imageGen && p.imageGen.state !== "unavailable" && <ImageGeneration p={p} service={service} />}
-      {p.imageGen && <Block title="Gemini API key"><KeyForm p={p} service={service} /></Block>}
       <About text={about?.text ?? (custom ? "An OpenAI-compatible server you added. Its models show up in the chat’s agent menu while it answers." : p.note)} page={about?.page ?? p.install?.page} label={p.label} />
-    </div>
-  );
-}
-
-const IMAGE_STATE: Record<ImageGenState["state"], string> = { ready: "Ready", "needs-sign-in": "Needs API key", "needs-key": "Needs API key", "not-installed": "Not installed", unavailable: "Not available" };
-
-/** The Gemini image state the page shows: what Save / Remove key said, until the next report replaces it. */
-function useImageGen(p: ProviderInfo) {
-  const [local, setLocal] = useState<{ of: ImageGenState | undefined; gen: ImageGenState } | null>(null);
-  const gen = local && local.of === p.imageGen ? local.gen : p.imageGen!;
-  return [gen, (g: ImageGenState) => setLocal({ of: p.imageGen, gen: g })] as const;
-}
-
-/** Gemini's image generation (Nano Banana, a Gemini CLI extension): its state and Install. */
-function ImageGeneration({ p, service }: { p: ProviderInfo; service: AgentsService }) {
-  const [gen] = useImageGen(p);
-  const [busy, setBusy] = useState(false);
-  const api = service.api!;
-  return (
-    <Block title="Image generation" data-image-gen={gen.state}>
-      <Field label="Status">
-        <span className={cx(styles.dot, gen.state === "ready" && styles.dotOn)} />
-        <span data-image-gen-state="">{IMAGE_STATE[gen.state]}</span>
-      </Field>
-      {gen.detail && gen.state !== "needs-key" && gen.state !== "needs-sign-in" && <p className={styles.pageText}>{gen.detail}</p>}
-      {(gen.state === "needs-key" || gen.state === "needs-sign-in") && <p className={styles.pageText}>Images need your Gemini API key — add it below.</p>}
-      {gen.state === "not-installed" && (
-        <div className={styles.actions}>
-          <Button
-            variant="secondary"
-            loading={busy}
-            onClick={() => {
-              setBusy(true);
-              void api
-                .install(p.id, "nanobanana")
-                .then((r) => {
-                  showToast(r.ok ? { message: "Nano Banana installed" } : { message: r.error ?? "Couldn't install Nano Banana", kind: "error" });
-                  if (r.ok) void service.refreshProviders();
-                })
-                .finally(() => setBusy(false));
-            }}
-            data-install-images=""
-          >
-            Install Nano Banana
-          </Button>
-        </div>
-      )}
-    </Block>
-  );
-}
-
-/**
- * The owner's Gemini API key — pasted here by them, kept with the OS keychain (safeStorage), handed to Gemini CLI's
- * runs only (the chat and Nano Banana's images).
- */
-function KeyForm({ p, service }: { p: ProviderInfo; service: AgentsService }) {
-  const [gen, setGen] = useImageGen(p);
-  const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const save = async (k: string | null) => {
-    setBusy(true);
-    try {
-      setGen(await service.api!.setImageKey(k));
-      setKey("");
-      await service.refreshProviders();
-    } catch (err) {
-      showToast({ message: errorText(err), kind: "error" });
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (gen.keyAdded)
-    return (
-      <div className={styles.pageBody} data-image-key="added">
-        <Field label="Key">
-          <span className={cx(styles.dot, styles.dotOn)} />
-          Key added
-        </Field>
-        <div className={styles.actions}>
-          <Button variant="secondary" loading={busy} onClick={() => void save(null)} data-remove-image-key="">
-            Remove key
-          </Button>
-        </div>
-      </div>
-    );
-  return (
-    <div className={styles.pageBody} data-image-key="none">
-      <TextInput label="Gemini API key" placeholder="Paste your Gemini API key" secret value={key} onChange={setKey} />
-      <div className={styles.actions}>
-        <Button variant="primary" disabled={!key.trim()} loading={busy} onClick={() => void save(key)} data-save-image-key="">
-          Save key
-        </Button>
-        <button type="button" className={styles.link} onClick={() => openExternal("https://aistudio.google.com/apikey")}>
-          Get a key in Google AI Studio
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function GeminiKeyPage({ service }: { service: AgentsService }) {
-  const p = service.get().providers.find((x) => x.id === "gemini");
-  return (
-    <div className={styles.pageBody}>
-      <Block>{p?.imageGen ? <KeyForm p={p} service={service} /> : <p className={styles.pageText}>Looking for Gemini CLI…</p>}</Block>
-      <About text="Gemini CLI runs with a Gemini API key from Google AI Studio — the chat and Nano Banana’s images both. It is kept in your keychain and sent only to Google." page="https://aistudio.google.com/apikey" label="Gemini API keys" />
     </div>
   );
 }

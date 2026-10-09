@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolResult } from "../../shared/agents/tools";
 import type { ChatEvent, TurnRequest } from "../../shared/agents/types";
 import { LineSplitter } from "./providers/turns";
-import { codexTable, configText, connectClient, disconnectClient, listClients, mergeToml, type ClientEnv } from "./clients";
+import { codexTable, connectClient, disconnectClient, listClients, mergeToml, type ClientEnv } from "./clients";
 import { McpServer, prettyClient } from "./mcpServer";
 import { listModels, readStream, runOpenAiTurn } from "./openaiBridge";
 import { STDIO_BRIDGE_SOURCE } from "./stdioBridge";
@@ -248,7 +248,6 @@ describe("Connect to MCP clients", () => {
     expect(Object.keys(old)).toEqual(["figma", "designer"]);
     expect(connectClient("vscode", ep, env()).ok).toBe(true);
     expect(JSON.parse(readFileSync(join(home, "Library", "Application Support", "Code", "User", "mcp.json"), "utf8"))).toEqual({ servers: { designer: { type: "http", url: ep.url, headers: { Authorization: "Bearer secret" } } } });
-    expect(configText("gemini", ep, env()).text).toContain('"httpUrl"');
   });
 
   it("a config that isn't JSON is left as it is", () => {

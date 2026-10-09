@@ -199,7 +199,7 @@ describe("MCP tools on the engine", () => {
       new DataView(png.buffer).setUint32(16, 640);
       new DataView(png.buffer).setUint32(20, 320);
       const data = Buffer.from(png).toString("base64");
-      turns.start("i", "Gemini CLI");
+      turns.start("i", "Antigravity");
       const placed = await runTool(env("i"), "place_image", { data, name: "Hero photo" });
       const head = JSON.parse((placed.content[0] as { text: string }).text);
       expect(head.imageHash).toMatch(/^[0-9a-f]{40}$/);
@@ -216,6 +216,12 @@ describe("MCP tools on the engine", () => {
       const photo = engine.readNode(card.childIds![0])!;
       expect(photo.size).toMatchObject({ x: 200, y: 100 });
       expect(photo.fillPaints?.[0]?.type).toBe("IMAGE");
+      // The chat's placeholder (imagePlaceholder.ts): the image lands fitted and centred in its box, in its frame.
+      const boxed = JSON.parse(((await runTool(env("i"), "place_image", { data, name: "Boxed", parentId: card.guid, __box: { x: 50, y: 50, width: 300, height: 300 } })).content[0] as { text: string }).text);
+      const b = engine.readNode(boxed.nodeId, { fields: ["size", "transform", "parentIndex"] })!;
+      expect(b.size).toMatchObject({ x: 300, y: 150 });
+      expect(b.transform).toMatchObject({ m02: 50, m12: 125 });
+      expect(b.parentIndex?.guid).toEqual(card.guid);
       expect(turns.finish("i")!.state).toBe("applied");
       // Not an image, or a path the app didn't read: an error with a word why.
       expect((await runTool(env(null), "place_image", { data: Buffer.from("hello").toString("base64") })).isError).toBe(true);

@@ -145,6 +145,9 @@
     --ds-delay-submenu: 100ms;
     --ds-toast-duration: 4000ms;
     --ds-toast-duration-action: 8000ms;
+    --ds-duration-shimmer: 1600ms;
+    --ds-duration-sweep: 1800ms;
+    --ds-duration-fade: 300ms;
     --ds-focus-width: 1px;
     --ds-focus-offset: 1px;
     --ds-checkerboard: repeating-conic-gradient(#e6e6e6 0% 25%, #ffffff 0% 50%) 0 0 / 8px 8px;
@@ -369,6 +372,12 @@
     --ds-color-folder-purple: #9747ff;
     --ds-color-folder-pink: #ff24bd;
     --ds-color-folder-gray: #b3b3b3;
+    --ds-color-ai-1: #0d99ff;
+    --ds-color-ai-2: #9747ff;
+    --ds-color-ai-3: #ff24bd;
+    --ds-color-ai-4: #ffa629;
+    --ds-color-ai-fill: #9747ff1f;
+    --ds-color-ai-shine: #ffffffb3;
     --ds-elevation-100: 0 0 0.5px #0000004d, 0 1px 3px #00000026;
     --ds-elevation-200: 0 0 0.5px #0000002e, 0 3px 8px #0000001a, 0 1px 3px #0000001a;
     --ds-elevation-400-menu-panel: 0 0 0.5px #0000001f, 0 10px 16px #0000001f, 0 2px 5px #00000026;
@@ -595,6 +604,12 @@
     --ds-color-folder-purple: #8a38f5;
     --ds-color-folder-pink: #e81fae;
     --ds-color-folder-gray: #8c8c8c;
+    --ds-color-ai-1: #0c8ce9;
+    --ds-color-ai-2: #8a38f5;
+    --ds-color-ai-3: #e81fae;
+    --ds-color-ai-4: #f0941d;
+    --ds-color-ai-fill: #8a38f533;
+    --ds-color-ai-shine: #ffffff4d;
     --ds-elevation-100: 0 0 0.5px #00000080, inset 0 0.75px 0 #ffffff1a, 0 1px 3px #00000066;
     --ds-elevation-200: 0 3px 8px #00000059, 0 1px 3px #00000080, inset 0 0.5px 0 #ffffff14, inset 0 0 0.5px #ffffff4d;
     --ds-elevation-400-menu-panel: 0 10px 16px #00000059, 0 2px 5px #00000059, inset 0 0.5px 0 #ffffff14, inset 0 0.75px 0 #ffffff1a;

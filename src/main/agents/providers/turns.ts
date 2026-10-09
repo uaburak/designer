@@ -7,7 +7,7 @@ import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
  * find the CLI, its arguments for a turn, the files it reads its MCP config from, how its JSON lines become the chat's
  * events, its own sign-in commands and its install command — and the turn's run: the prompt, NDJSON split into
  * lines, the process with its stderr kept for the error. Each CLI's adapter is a file of its own beside this one
- * (claudeCode.ts, codex.ts, gemini.ts, cursor.ts). Electron-free: tested with recorded output and fake processes.
+ * (claudeCode.ts, antigravity.ts, codex.ts, cursor.ts). Electron-free: tested with recorded output and fake processes.
  */
 
 export interface McpEndpoint {
@@ -24,8 +24,6 @@ export interface CliTurn {
   sessionId: string;
   /** The MCP config file written for this turn (Claude Code `--mcp-config`) */
   mcpConfigPath: string;
-  /** The owner's own API key for this agent, pasted in Agent settings (Gemini: an AI Studio key) */
-  apiKey?: string;
   /** The user's home folder (the CLI's own config lives there), the OS's when not given */
   home?: string;
 }
@@ -56,7 +54,7 @@ export interface RunResult {
   stderr?: string;
 }
 
-/** What a status check may look at besides a command: the CLI's own files (Gemini CLI keeps no status command). */
+/** What a status check may look at besides a command: the CLI's own files and logs (Antigravity's account). */
 export interface AuthEnv {
   home: string;
   readFile(path: string): string | null;
@@ -86,7 +84,7 @@ export interface InstallInfo {
   page: string;
 }
 
-export type CliId = "claude-code" | "antigravity" | "codex" | "gemini" | "cursor-agent";
+export type CliId = "claude-code" | "antigravity" | "codex" | "cursor-agent";
 
 /** A CLI's own model list (Antigravity's `agy models`): the slugs, the default first, and their labels. */
 export interface CliModels {
@@ -140,7 +138,7 @@ export const mcpServerEntry = (mcp: McpEndpoint) => ({ [MCP_SERVER_NAME]: { type
 
 /**
  * A tool's name without its server's prefix, as each CLI spells it: `mcp__designer__get_metadata` (Claude Code),
- * `mcp_designer_get_metadata` / `designer__get_metadata` (Gemini CLI), `designer.get_metadata`, `designer-get_metadata` (Cursor).
+ * `mcp_designer_get_metadata`, `designer.get_metadata`, `designer-get_metadata` (Cursor).
  */
 export function shortToolName(name: unknown): string {
   const s = String(name ?? "");

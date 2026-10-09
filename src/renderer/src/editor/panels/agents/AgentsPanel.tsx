@@ -4,12 +4,13 @@
  * selection they were about, the agent's answer streamed with its steps, the turn's changes with Undo / Apply,
  * Stop while it runs, the agent and model under the message box), and Agent settings (AgentSettings.tsx).
  */
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { Button, EmptyState, Icon, IconButton, Select, Spinner, cx, timeAgo, tooltipProps, type IconName } from "@/ds";
 import { readableError } from "@shared/agents/errors";
 import { useEditor } from "../../controller";
 import { useTopics } from "../../hooks";
-import { agentsOf, pickerOptions, toolLabel, type AgentsService, type Chat, type ChatMessage, type MessagePart } from "../../agents/service";
+import { agentsOf, pickerOptions, toolLabel, type AgentsService, type Chat, type ChatMessage, type ImagePart, type MessagePart } from "../../agents/service";
+import { activityOf, elapsedLabel, toolActiveLabel } from "../../agents/activity";
 import { TabHeader } from "../TabHeader";
 import { AgentSettings } from "./AgentSettings";
 import styles from "./Agents.module.css";
@@ -161,19 +162,21 @@ function UserMessage({ m }: { m: ChatMessage }) {
 
 function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }) {
   const parts = m.parts ?? [];
+  // The step running now carries the turn's seconds; without one the Thinking… row does.
+  const current = m.state === "running" ? [...parts].reverse().find((p) => p.kind === "tool" && p.state === "running") : undefined;
   return (
     <div className={styles.agent} data-message="assistant" data-state={m.state}>
       {m.provider && <span className={styles.agentName}>{m.provider}</span>}
       {parts.map((p, i) =>
         p.kind === "text" ? (
           <div key={i} className={styles.agentText}>{renderText(p.text)}</div>
-        ) : p.kind === "status" ? (
-          <div key={i} className={styles.status}><Spinner size={16} /> {p.text}</div>
+        ) : p.kind === "status" ? null : p.kind === "image" ? (
+          <ImageCard key={p.id} p={p} />
         ) : (
-          <ToolRow key={p.id} p={p} />
+          <ToolRow key={p.id} p={p} since={p === current ? m.startedAt : undefined} />
         )
       )}
-      {m.state === "running" && !parts.length && <div className={styles.status}><Spinner size={16} /> Thinking…</div>}
+      {m.state === "running" && !current && <ThinkingRow m={m} />}
       {m.error && <div className={styles.error} role="alert">{m.error}</div>}
       {m.state === "stopped" && <div className={styles.stopped}>Stopped</div>}
       {m.changes && m.turnId && <Changes turnId={m.turnId} changes={m.changes} service={service} />}
@@ -181,15 +184,77 @@ function AgentMessage({ m, service }: { m: ChatMessage; service: AgentsService }
   );
 }
 
+/**
+ * While the agent works: what it is doing ("Thinking…", "Reading the design…", "Making an image…") in a shimmering
+ * line (Figma AI's), and after 5 s the seconds it has taken. Only this row re-renders each second.
+ */
+function ThinkingRow({ m }: { m: ChatMessage }) {
+  const label = activityOf(m);
+  if (!label) return null;
+  return (
+    <div className={styles.thinking} role="status" data-thinking="">
+      <span className={styles.thinkingText} data-thinking-label="">{label}</span>
+      <Elapsed since={m.startedAt} />
+    </div>
+  );
+}
+
+/** The seconds since the turn was sent, from 5 s on; ticks once a second (only itself re-renders). */
+function Elapsed({ since }: { since: number | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!since) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [since]);
+  const text = elapsedLabel(since, now);
+  return text ? <span className={styles.thinkingTime} data-thinking-time="">{text}</span> : null;
+}
+
+/** A picture's bytes from the file's images, as a URL for the card (released with it). */
+function useImageUrl(hash: string | undefined): string | null {
+  const ed = useEditor();
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hash) return;
+    let live = true;
+    let made: string | null = null;
+    void ed.images.bytes(hash).then((bytes) => {
+      if (!live || !bytes) return;
+      made = URL.createObjectURL(new Blob([bytes as BlobPart]));
+      setUrl(made);
+    });
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+      setUrl(null);
+    };
+  }, [ed, hash]);
+  return url;
+}
+
+/** An image the agent makes: a soft gradient with a light sweeping across while it is made, then the picture. */
+function ImageCard({ p }: { p: ImagePart }) {
+  const url = useImageUrl(p.state === "placed" ? p.hash : undefined);
+  const caption = p.state === "generating" ? "Making an image…" : p.state === "ready" ? "Placing the image…" : p.state === "failed" ? "Image not placed" : null;
+  return (
+    <div className={styles.imageCard} data-image-card={p.state} style={{ "--aspect": Math.max(0.25, Math.min(4, p.aspect || 1)) } as CSSProperties}>
+      {p.state === "placed" ? url ? <img className={styles.imageCardImg} src={url} alt="" draggable={false} /> : <span className={styles.imageCardFill} /> : <span className={cx(styles.imageCardFill, p.state !== "failed" && styles.imageCardBusy)} />}
+      {caption && <span className={styles.imageCardCaption}>{caption}</span>}
+    </div>
+  );
+}
+
 /** A step of the turn; a failed one opens to its whole error (a nested API error read down to its message). */
-function ToolRow({ p }: { p: Extract<MessagePart, { kind: "tool" }> }) {
+function ToolRow({ p, since }: { p: Extract<MessagePart, { kind: "tool" }>; since?: number }) {
   const [open, setOpen] = useState(false);
   const icon = <span className={styles.toolIcon}>{p.state === "running" ? <Spinner size={16} /> : p.state === "error" ? <Icon name="16.warning" /> : <Icon name="16.check" />}</span>;
   if (p.state !== "error" || !p.summary)
     return (
       <div className={styles.tool} data-tool={p.name} data-tool-state={p.state} {...tooltipProps(p.summary)}>
         {icon}
-        <span className={styles.toolLabel}>{toolLabel(p.name)}</span>
+        {p.state === "running" ? <span className={cx(styles.toolLabel, styles.thinkingText)} data-thinking-label="">{toolActiveLabel(p.name)}</span> : <span className={styles.toolLabel}>{toolLabel(p.name)}</span>}
+        {p.state === "running" && <Elapsed since={since} />}
       </div>
     );
   return (

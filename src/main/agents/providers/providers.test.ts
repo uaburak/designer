@@ -1,5 +1,5 @@
 // The CLI agents' adapters (one file each beside this one) without running any CLI: their plans for a turn, their
-// stream parsers on sample output (fixtures/*.ndjson — Claude Code's recorded from a real run; Gemini CLI's, Codex's and
+// stream parsers on sample output (fixtures/*.ndjson — Claude Code's and Antigravity's recorded from real runs; Codex's and
 // Cursor's written from their documented event formats, those CLIs not being installed where this was built), their
 // sign-in status readers, and the shared turn runner on a fake process.
 import { EventEmitter } from "node:events";
@@ -13,9 +13,9 @@ import { AGY_PROJECT, AGY_SERVER, agyProject, agyStatus, antigravity, parseAgyMo
 import { claudeCode, parseClaudeStatus } from "./claudeCode";
 import { codex, parseCodexStatus } from "./codex";
 import { cursorAgent, parseCursorStatus } from "./cursor";
-import { gemini, geminiStatus, imageGenStatus, NANOBANANA } from "./gemini";
 import { CLI_SPECS } from "./index";
-import { LineSplitter, loginUrl, newParseState, parseRecorded, promptWithContext, promptWithHistory, runCliProcess, shortToolName, type AuthEnv, type CliSpec } from "./turns";
+import { friendlyApiError, readableError } from "../../../shared/agents/errors";
+import { LineSplitter, loginUrl, newParseState, parseRecorded, promptWithContext, promptWithHistory, runCliProcess, shortToolName, type CliSpec } from "./turns";
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "fixtures", name), "utf8");
 
@@ -35,7 +35,7 @@ const parseAll = (spec: Pick<CliSpec, "parse">, lines: unknown[]) => {
 
 describe("every adapter", () => {
   it("has its file, an install command or page, a sign-in and a status reader", () => {
-    expect(CLI_SPECS.map((s) => s.id)).toEqual(["claude-code", "antigravity", "gemini", "codex", "cursor-agent"]);
+    expect(CLI_SPECS.map((s) => s.id)).toEqual(["claude-code", "antigravity", "codex", "cursor-agent"]);
     for (const s of CLI_SPECS) {
       expect(s.install.page).toMatch(/^https:\/\//);
       expect(s.auth.status ?? s.auth.fromFiles).toBeTruthy();
@@ -111,72 +111,6 @@ describe("Claude Code", () => {
     expect(claudeCode.auth.login).toEqual({ kind: "background", args: ["auth", "login", "--claudeai"] });
     expect(claudeCode.auth.logout).toEqual({ kind: "command", args: ["auth", "logout"] });
     expect(loginUrl("Opening https://claude.ai/oauth/authorize?code=1 in your browser")).toBe("https://claude.ai/oauth/authorize?code=1");
-  });
-});
-
-describe("Gemini CLI (API key)", () => {
-  it("runs headless in stream-json with our server from the chat folder's settings, the shell excluded, Nano Banana allowed", () => {
-    const plan = gemini.plan(turn({ model: "flash" }));
-    const a = plan.args;
-    expect(a[0]).toBe("-p");
-    expect(a[1]).toContain("responsive adaptation");
-    expect(a[1]).toContain("place_image");
-    expect(a[a.indexOf("--output-format") + 1]).toBe("stream-json");
-    expect(a[a.indexOf("--approval-mode") + 1]).toBe("yolo");
-    expect(a[a.indexOf("--allowed-mcp-server-names") + 1]).toBe(`designer,${NANOBANANA}`);
-    expect(a[a.indexOf("-m") + 1]).toBe("flash");
-    expect(gemini.plan(turn({ model: "auto" })).args).not.toContain("-m");
-    const settings = JSON.parse(plan.files![".gemini/settings.json"]);
-    expect(settings.mcpServers.designer).toEqual({ httpUrl: mcp.url, headers: { Authorization: "Bearer tok" }, trust: true });
-    expect(settings.tools.exclude).toContain("run_shell_command");
-    expect(gemini.label).toBe("Gemini CLI (API key)");
-    expect(gemini.note).toContain("Antigravity");
-  });
-
-  it("reads its stream: deltas, our tools and others, warnings ignored, errors", () => {
-    expect(parseRecorded(gemini, fixture("gemini.ndjson"))).toEqual([
-      { type: "session", resume: "6f1e2d3c-0000-4000-8000-000000000001", model: "gemini-2.5-pro" },
-      { type: "text", delta: "Let me look " },
-      { type: "text", delta: "at the page." },
-      { type: "tool", id: "get_metadata-1760000000000-1", name: "get_metadata", args: {}, state: "running" },
-      { type: "tool", id: "get_metadata-1760000000000-1", name: "get_metadata", state: "done", summary: "<pages>" },
-      { type: "tool", id: "generate_image-1760000000000-2", name: "generate_image", args: { prompt: "a hero photo" }, state: "running" },
-      { type: "tool", id: "generate_image-1760000000000-2", name: "generate_image", state: "error", summary: "No API key found" },
-      { type: "text", delta: 'The page has one frame, "Desktop".' },
-    ]);
-    // A whole message after the deltas isn't repeated; a non-delta message alone is the text.
-    expect(parseAll(gemini, [{ type: "message", role: "assistant", content: "Hi", delta: true }, { type: "message", role: "assistant", content: "Hi" }])).toEqual([{ type: "text", delta: "Hi" }]);
-    expect(parseAll(gemini, [{ type: "message", role: "assistant", content: "Hi" }])).toEqual([{ type: "text", delta: "Hi" }]);
-    expect(parseAll(gemini, [{ type: "result", status: "error", error: { type: "auth", message: "Please set an Auth method in your settings.json" } }])[0]).toMatchObject({ type: "error", message: expect.stringMatching(/isn’t signed in/) });
-  });
-
-  const env = (files: Record<string, string>, extra: Partial<AuthEnv> = {}): AuthEnv & { list(p: string): string[] } => ({
-    home: "/h",
-    readFile: (p) => files[p] ?? null,
-    exists: (p) => p in files,
-    list: (p) => [...new Set(Object.keys(files).filter((f) => f.startsWith(`${p}/`)).map((f) => f.slice(p.length + 1).split("/")[0]))],
-    env: {},
-    ...extra,
-  });
-
-  it("sign-in read from its own files (it has no status command); signing in and out happen in Terminal", () => {
-    expect(geminiStatus(env({}))).toEqual({ state: "signed-out" });
-    expect(geminiStatus(env({ "/h/.gemini/settings.json": '{ // comment\n "security": { "auth": { "selectedType": "oauth-personal" } } }', "/h/.gemini/oauth_creds.json": "{}", "/h/.gemini/google_accounts.json": '{"active":"me@gmail.com","old":[]}' }))).toEqual({ state: "connected", account: "me@gmail.com", plan: "Google account" });
-    expect(geminiStatus(env({ "/h/.gemini/settings.json": '{"security":{"auth":{"selectedType":"gemini-api-key"}}}' })).state).toBe("signed-out");
-    expect(geminiStatus(env({ "/h/.gemini/settings.json": '{"security":{"auth":{"selectedType":"gemini-api-key"}}}' }, { env: { GEMINI_API_KEY: "x" } })).state).toBe("connected");
-    expect(gemini.auth.login.kind).toBe("terminal");
-    expect(gemini.auth.logout).toMatchObject({ kind: "terminal", note: expect.stringContaining("/auth logout") });
-  });
-
-  it("image generation: Nano Banana installed, signed in, with a key (the owner's, or the extension's own .env)", () => {
-    const signedIn = { signedIn: true, installed: true, hasKey: false };
-    expect(imageGenStatus(env({}), { ...signedIn, installed: false }).state).toBe("unavailable");
-    expect(imageGenStatus(env({}), signedIn).state).toBe("not-installed");
-    const ext = { "/h/.gemini/extensions/nanobanana/gemini-extension.json": "{}" };
-    expect(imageGenStatus(env(ext), { ...signedIn, signedIn: false }).state).toBe("needs-sign-in");
-    expect(imageGenStatus(env(ext), signedIn).state).toBe("needs-key");
-    expect(imageGenStatus(env(ext), { ...signedIn, hasKey: true })).toEqual({ state: "ready", detail: "With the API key you added", keyAdded: true });
-    expect(imageGenStatus(env({ ...ext, "/h/.gemini/extensions/nanobanana/.env": "NANOBANANA_API_KEY=abc\n" }), signedIn).state).toBe("ready");
   });
 });
 
@@ -289,31 +223,16 @@ describe("the turn runner (turns.ts)", () => {
   });
 });
 
-describe("Gemini with the owner's API key", () => {
-  it("switches the chat folder to the key and passes it only in the environment", () => {
-    const plan = gemini.plan({ ...turn(), apiKey: "k" });
-    expect(JSON.parse(plan.files![".gemini/settings.json"]).security.auth.selectedType).toBe("gemini-api-key");
-    expect(JSON.parse(plan.files![".gemini/settings.json"]).security.environmentVariableRedaction.allowed).toEqual(["NANOBANANA_API_KEY"]);
-    expect(plan.env).toMatchObject({ GEMINI_API_KEY: "k", NANOBANANA_API_KEY: "k", GEMINI_CLI_TRUST_WORKSPACE: "true" });
-    expect(plan.args).not.toContain("k");
-  });
-});
-
-describe("Gemini API errors", () => {
-  it("unwraps the nested 402 into what to do", async () => {
-    const { friendlyApiError } = await import("./gemini");
+describe("Google API errors", () => {
+  it("unwraps the nested 402", () => {
     const raw = String.raw`[API Error: {"error":{"message":"{\n  \"error\": {\n    \"code\": 402,\n    \"message\": \"Your prepayment credits are depleted. Please go to AI Studio.\",\n    \"status\": \"RESOURCE_EXHAUSTED\"\n  }\n}\n","code":402,"status":"Payment Required"}}]`;
-    expect(friendlyApiError(raw)).toMatch(/run out of prepaid credits \(Your prepayment credits are depleted\. Please go to AI Studio\.\) Add credits/);
+    expect(friendlyApiError(raw)).toBe("Google refused the request: out of prepaid credits (Your prepayment credits are depleted. Please go to AI Studio.)");
   });
 
-  it("says what a tool's nested 429 with no free-tier quota means, and the chat reads any nested message", async () => {
-    const { gemini } = await import("./gemini");
-    const { readableError } = await import("../../../shared/agents/errors");
+  it("says what a tool's nested 429 with no quota means, and the chat reads any nested message", () => {
     const inner = JSON.stringify({ error: { code: 429, message: "You exceeded your current quota, please check your plan and billing details.\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.5-flash-image", status: "RESOURCE_EXHAUSTED" } });
     const raw = `MCP tool 'generate_image' reported tool error for function call: {"name":"generate_image"} with response: ${JSON.stringify([{ functionResponse: { response: { error: { content: [{ type: "text", text: `Error: ${inner}` }] } } } }])}`;
-    const state = { tools: new Map([["g1", "generate_image"]]), streamed: false } as unknown as Parameters<typeof gemini.parse>[1];
-    const [ev] = gemini.parse({ type: "tool_result", tool_id: "g1", status: "error", error: { type: "tool_error", message: raw } }, state);
-    expect(ev).toMatchObject({ type: "tool", state: "error", summary: "Google: free tier has no quota for the image model (limit 0) — turn on billing for the key's AI Studio project" });
+    expect(friendlyApiError(raw)).toBe("Google: no quota for the image model on this account (limit 0)");
     expect(readableError(raw)).toMatch(/^You exceeded your current quota.*limit: 0, model: gemini-2\.5-flash-image$/);
     expect(readableError("No API key found")).toBe("No API key found");
   });

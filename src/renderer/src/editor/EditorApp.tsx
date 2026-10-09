@@ -44,6 +44,7 @@ import { TitleRename, attachTitleRename } from "./canvas/TitleRename";
 import { EyedropperLoupe, InlineValueEdit, NudgeDialog } from "./canvas/CanvasTools";
 import { ActionsPanel } from "./panels/ActionsPanel";
 import { CommandOverlays } from "./canvas/CommandOverlays";
+import { AgentImagePlaceholders } from "./canvas/AgentImagePlaceholders";
 import { attachCanvasTools } from "./canvasTools";
 import { GridTrackEditor } from "./panels/design/Grid";
 import { ImagePlacer, attachImageDrop } from "./canvas/ImagePlacer";
@@ -366,6 +367,7 @@ function CanvasOverlays() {
   if (hidden) return null;
   return (
     <>
+      <AgentImagePlaceholders />
       {dev && <DevMeasurements />}
       <FocusBar />
       <Rulers />

@@ -10,13 +10,20 @@ import type { SelectEntry } from "@/ds";
 import type { AgentSettings, AgentsApi, ChatEvent, ChatTurnMessage, McpClientInfo, McpState, ProviderInfo, TurnEvent } from "@shared/agents/types";
 import type { EditorController } from "../controller";
 import { editorBridge } from "../desktop";
+import type { ToolResult } from "@shared/agents/tools";
 import { runTool } from "./mcpTools";
+import { requestedAspect } from "./activity";
+import { ImagePlaceholders, placeholderArgs, placeholderTarget, type PlaceholderEnv } from "./imagePlaceholder";
 import { AgentTurns, type TurnRecord } from "./turns";
+
+/** An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop). */
+export type ImagePart = { kind: "image"; id: string; state: "generating" | "ready" | "placed" | "failed"; aspect: number; hash?: string; width?: number; height?: number };
 
 export type MessagePart =
   | { kind: "text"; text: string }
   | { kind: "tool"; id: string; name: string; state: "running" | "done" | "error"; summary?: string }
-  | { kind: "status"; text: string };
+  | { kind: "status"; text: string }
+  | ImagePart;
 
 export interface ChatMessage {
   id: string;
@@ -27,6 +34,8 @@ export interface ChatMessage {
   /** The selection the prompt was about */
   context?: { id: string; name: string; type: string; width: number; height: number }[];
   state?: "running" | "done" | "stopped" | "error";
+  /** When the turn was sent (the Thinking… row's seconds) */
+  startedAt?: number;
   error?: string;
   turnId?: string;
   /** The turn's step: how many layers it touched, and whether it is applied / undone / stale */
@@ -59,7 +68,7 @@ export type AgentsView = "list" | "chat" | "settings";
 export interface AgentsState {
   available: boolean;
   view: AgentsView;
-  /** Agent settings' open page: null for the list, else an item ("provider:gemini", "gemini-key", "add-server", "mcp", "client:cursor") */
+  /** Agent settings' open page: null for the list, else an item ("provider:antigravity", "add-server", "mcp", "client:cursor") */
   settingsItem: string | null;
   chats: Chat[];
   current: string | null;
@@ -106,6 +115,8 @@ export const toolLabel = (name: string) => TOOL_LABEL[name] ?? name.replace(/_/g
 export class AgentsService {
   readonly api: AgentsApi | null;
   readonly turns: AgentTurns;
+  /** Images being made, shown where they will land on the canvas (canvas/AgentImagePlaceholders.tsx) */
+  readonly placeholders = new ImagePlaceholders();
   private state: AgentsState;
   private listeners = new Set<() => void>();
   private offs: (() => void)[] = [];
@@ -133,7 +144,10 @@ export class AgentsService {
       api.onEvent((e) => this.onEvent(e)),
       api.onToolCall(async (call) => {
         const env = { ed: this.ed, write: <T>(_label: string, fn: () => T) => this.turns.write(call.turnId, call.client, fn) };
-        const r = await runTool(env, call.name, call.args ?? {});
+        // An image the chat is making lands where its placeholder is, unless the agent said where.
+        const waiting = call.name === "place_image" && call.turnId ? this.placeholders.next(call.turnId) : undefined;
+        const r = await runTool(env, call.name, placeholderArgs(call.args ?? {}, waiting));
+        if (call.name === "place_image" && call.turnId && !r.isError) this.imagePlaced(call.turnId, r, waiting?.id);
         if (call.turnId && r.touched?.length) {
           const set = this.touched.get(call.turnId) ?? new Set();
           r.touched.forEach((id) => set.add(id));
@@ -151,6 +165,32 @@ export class AgentsService {
   dispose() {
     this.offs.forEach((off) => off());
     this.turns.dispose();
+    this.placeholders.dispose();
+  }
+
+  /** What placeholderTarget reads: the page, the selection, the view. */
+  placeholderEnv(): PlaceholderEnv {
+    const ed = this.ed;
+    return {
+      page: ed.store.page,
+      selection: ed.selection,
+      read: (id) => {
+        const n = ed.engine.readNode(id, { fields: ["type", "size", "transform", "parentIndex", "stackMode"] });
+        if (!n) return null;
+        return { type: String(ed.withRealType(n).type), size: n.size, transform: n.transform, parent: n.parentIndex?.guid ?? null, autoLayout: !!n.stackMode && n.stackMode !== "NONE" };
+      },
+      camera: ed.store.camera,
+      viewport: { width: ed.canvas?.clientWidth ?? 0, height: ed.canvas?.clientHeight ?? 0 },
+    };
+  }
+
+  /** place_image put a picture on the canvas for a chat turn: its placeholder goes, the chat's image card shows it. */
+  private imagePlaced(turnId: string, r: ToolResult, placeholderId: string | undefined) {
+    if (placeholderId) this.placeholders.placed(placeholderId);
+    const target = this.turnTarget.get(turnId);
+    const info = placedInfo(r);
+    if (!target || !info) return;
+    this.updateMessage(target.chat, target.message, (m) => ({ ...m, parts: withPlacedImage(m.parts ?? [], info) }));
   }
 
   // ---- A tiny store for React ----
@@ -318,11 +358,11 @@ export class AgentsService {
     const chatId = chat.id;
     if (this.state.running[chatId]) return;
     const user: ChatMessage = { id: uid(), role: "user", text, context };
-    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", provider: provider?.label };
+    const answer: ChatMessage = { id: uid(), role: "assistant", parts: [], state: "running", startedAt: Date.now(), provider: provider?.label };
     const history: ChatTurnMessage[] = chat.messages.map((m) => (m.role === "user" ? { role: "user", text: m.text ?? "" } : { role: "assistant", text: (m.parts ?? []).filter((p) => p.kind === "text").map((p) => (p as { text: string }).text).join("") }));
     this.updateChat(chatId, (c) => ({ ...c, messages: [...c.messages, user, answer] }));
     if (!provider) {
-      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: "No agent is connected. Open Agent settings to install or sign in to one — Claude Code, Gemini CLI, Codex, Cursor — or start Ollama or LM Studio." }));
+      this.updateMessage(chatId, answer.id, (m) => ({ ...m, state: "error", error: "No agent is connected. Open Agent settings to install or sign in to one — Claude Code, Antigravity, Codex, Cursor — or start Ollama or LM Studio." }));
       return;
     }
     const page = this.ed.store.page;
@@ -365,6 +405,12 @@ export class AgentsService {
       this.finish(turnId, event);
       return;
     }
+    if (event.type === "tool" && event.name === "generate_image") {
+      const known = this.state.chats.find((c) => c.id === chat)?.messages.find((m) => m.id === message)?.parts?.some((p) => p.kind === "image" && p.id === imagePartId(event.id));
+      // As soon as the image is asked for: where it will land, on the canvas.
+      if (event.state === "running" && !known) this.placeholders.start(turnId, placeholderTarget(this.placeholderEnv(), requestedAspect(event.args)));
+      if (event.state === "error") this.placeholders.fail(turnId);
+    }
     this.updateMessage(chat, message, (m) => ({ ...m, ...applyEvent(m, event) }));
   }
 
@@ -372,6 +418,7 @@ export class AgentsService {
     const target = this.turnTarget.get(turnId);
     if (!target) return;
     const record = this.turns.finish(turnId);
+    this.placeholders.end(turnId);
     const touched = this.touched.get(turnId)?.size ?? 0;
     const running = { ...this.state.running };
     delete running[target.chat];
@@ -383,7 +430,7 @@ export class AgentsService {
     this.updateMessage(target.chat, target.message, (m) => ({
       ...m,
       state: m.state === "error" ? "error" : event.stopped ? "stopped" : "done",
-      parts: (m.parts ?? []).filter((p) => p.kind !== "status").map((p) => (p.kind === "tool" && p.state === "running" ? { ...p, state: event.stopped ? "error" : "done" } : p)),
+      parts: (m.parts ?? []).filter((p) => p.kind !== "status").map((p) => (p.kind === "tool" && p.state === "running" ? { ...p, state: event.stopped ? "error" : "done" } : p.kind === "image" && (p.state === "generating" || p.state === "ready") ? { ...p, state: "failed" } : p)),
       changes: record && record.state !== "none" ? { count: touched, state: record.state } : undefined,
     }));
     // Attributed in version history: the turn's changes are a named version of their own.
@@ -453,6 +500,19 @@ export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {
       const part: MessagePart = { kind: "tool", id: e.id, name: e.name, state: e.state, summary: e.summary };
       if (i >= 0) clean[i] = { ...(clean[i] as MessagePart & { kind: "tool" }), state: e.state, summary: e.summary ?? (clean[i] as { summary?: string }).summary };
       else clean.push(part);
+      if (e.name === "generate_image") {
+        // The image's card, right after its step: being made → made → (place_image) on the canvas. A failed step says
+        // why itself: its card goes.
+        const id = imagePartId(e.id);
+        const j = clean.findIndex((p) => p.kind === "image" && p.id === id);
+        if (j < 0) {
+          if (e.state !== "error") clean.splice(clean.findIndex((p) => p.kind === "tool" && p.id === e.id) + 1, 0, { kind: "image", id, state: e.state === "done" ? "ready" : "generating", aspect: requestedAspect(e.args) });
+        } else {
+          const img = clean[j] as ImagePart;
+          if (e.state === "error" && img.state !== "placed") clean.splice(j, 1);
+          else if (img.state === "generating" && e.state === "done") clean[j] = { ...img, state: "ready" };
+        }
+      }
       return { parts: clean };
     }
     case "error":
@@ -460,6 +520,30 @@ export function applyEvent(m: ChatMessage, e: ChatEvent): Partial<ChatMessage> {
     default:
       return {};
   }
+}
+
+const imagePartId = (toolId: string) => `image:${toolId}`;
+
+/** The picture place_image put on the canvas, from its result ({ nodeId, imageHash, imageSize }). */
+export function placedInfo(r: ToolResult): { hash: string; width: number; height: number } | null {
+  for (const c of r.content) {
+    if (c.type !== "text") continue;
+    try {
+      const j = JSON.parse(c.text) as { imageHash?: unknown; imageSize?: { width?: unknown; height?: unknown } };
+      if (typeof j.imageHash === "string") return { hash: j.imageHash, width: Number(j.imageSize?.width) || 1, height: Number(j.imageSize?.height) || 1 };
+    } catch {
+      /* not JSON */
+    }
+  }
+  return null;
+}
+
+/** The answer's parts with a placed picture: on the oldest image card still waiting, else a card of its own. */
+export function withPlacedImage(parts: MessagePart[], img: { hash: string; width: number; height: number }): MessagePart[] {
+  const i = parts.findIndex((p) => p.kind === "image" && (p.state === "generating" || p.state === "ready"));
+  const placed = { state: "placed" as const, hash: img.hash, width: img.width, height: img.height, aspect: img.width / Math.max(1, img.height) };
+  if (i >= 0) return parts.map((p, j) => (j === i ? { ...(p as ImagePart), ...placed } : p));
+  return [...parts, { kind: "image", id: `image:${img.hash}:${parts.length}`, ...placed }];
 }
 
 const services = new WeakMap<EditorController, AgentsService>();

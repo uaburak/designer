@@ -1,0 +1,32 @@
+@layer app {
+  /* An agent's image being made, where it will land (canvas/AgentImagePlaceholders.tsx): Figma AI's soft gradient with
+     a light sweeping across; it fades out when the turn ends without placing it. */
+  .layer { position: absolute; inset: 0; z-index: var(--ds-z-base); overflow: hidden; pointer-events: none; }
+  .placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+    background:
+      linear-gradient(120deg, color-mix(in srgb, var(--ds-color-ai-1) 40%, transparent), color-mix(in srgb, var(--ds-color-ai-2) 40%, transparent), color-mix(in srgb, var(--ds-color-ai-3) 35%, transparent), color-mix(in srgb, var(--ds-color-ai-4) 35%, transparent), color-mix(in srgb, var(--ds-color-ai-1) 40%, transparent)) 0 0 / 300% 300%,
+      var(--ds-color-ai-fill);
+    outline: 1px solid color-mix(in srgb, var(--ds-color-ai-2) 50%, transparent);
+    transform-origin: 0 0;
+    animation: drift calc(var(--ds-duration-sweep) * 3) ease-in-out infinite alternate;
+    transition: opacity var(--ds-duration-fade) var(--ds-ease-out);
+    will-change: transform;
+  }
+  .placeholder::after { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, var(--ds-color-ai-shine) 50%, transparent 70%); transform: translateX(-100%); animation: sweep var(--ds-duration-sweep) ease-in-out infinite; content: ""; }
+  .placeholder[data-agent-image-placeholder="leaving"] { opacity: 0; }
+  .placeholder[hidden] { display: none; }
+  .caption { position: relative; z-index: 1; margin: var(--ds-space-2); padding: 0 var(--ds-space-1-5); overflow: hidden; border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text-secondary); font: var(--ds-font-body-small); line-height: var(--ds-space-5); text-overflow: ellipsis; white-space: nowrap; }
+  .placeholder[data-small] .caption { display: none; }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes drift { from { background-position: 0 0, 0 0; } to { background-position: 100% 100%, 0 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .placeholder { animation: none; }
+    .placeholder::after { display: none; }
+  }
+}

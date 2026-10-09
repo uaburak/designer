@@ -254,6 +254,15 @@ export const appColor = {
   "folder-purple": ["#9747ff", "#8a38f5"], // = bg-component
   "folder-pink": ["#ff24bd", "#e81fae"],
   "folder-gray": ["#b3b3b3", "#8c8c8c"],
+  // Agents at work (the chat's Thinking… row, an image being made — in the chat and on the canvas): Figma AI's
+  // blue → purple → pink → orange sweep, from Figma's own palette (bg-brand, bg-component, the pink and orange above;
+  // Figma's exact AI gradient unverified). The fill is the soft wash under it, the shine the light that crosses it.
+  "ai-1": ["#0d99ff", "#0c8ce9"],
+  "ai-2": ["#9747ff", "#8a38f5"],
+  "ai-3": ["#ff24bd", "#e81fae"],
+  "ai-4": ["#ffa629", "#f0941d"],
+  "ai-fill": ["#9747ff1f", "#8a38f533"],
+  "ai-shine": ["#ffffffb3", "#ffffff4d"],
 } as const satisfies Record<string, Pair>;
 
 export type AppColorName = keyof typeof appColor;
@@ -399,6 +408,10 @@ export const motion = {
   "delay-submenu": "100ms",
   "toast-duration": "4000ms",
   "toast-duration-action": "8000ms",
+  /** Agents at work: the text shimmer, the light sweep over an image being made, a placeholder fading out */
+  "duration-shimmer": "1600ms",
+  "duration-sweep": "1800ms",
+  "duration-fade": "300ms",
 } as const;
 
 /** The same timings as numbers (ms) for code. */

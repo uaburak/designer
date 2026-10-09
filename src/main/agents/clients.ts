@@ -81,15 +81,6 @@ export const CLIENTS: ClientSpec[] = [
     entry: (ep) => ({ serverUrl: ep.url, headers: auth(ep) }),
   },
   {
-    id: "gemini",
-    label: "Gemini CLI",
-    paths: (env) => [join(env.home, ".gemini", "settings.json")],
-    installed: (env) => !!env.which("gemini"),
-    format: "json",
-    key: "mcpServers",
-    entry: (ep) => ({ httpUrl: ep.url, headers: auth(ep) }),
-  },
-  {
     id: "codex",
     label: "Codex",
     paths: (env) => [join(env.home, ".codex", "config.toml")],

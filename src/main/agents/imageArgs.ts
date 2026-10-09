@@ -5,7 +5,7 @@ import { isImageArg, MAX_IMAGE_BYTES, sniffImage, type ImageArg } from "../../sh
 /**
  * Image paths in a tool call (place_image's `path`, `image.path` in create_nodes / update_nodes specs) read here in
  * main — the editor view can't read files — and handed on as base64. A path is resolved against `root` and must stay
- * inside it after symlinks: a chat's own working folder (where its CLI, e.g. Nano Banana, saves pictures) and its
+ * inside it after symlinks: a chat's own working folder (where its CLI may save pictures) and its
  * agent's own picture folder for that chat (Antigravity's conversation folder), or the home folder for an outside MCP
  * client. Only real PNG / JPEG / WebP / GIF bytes pass, up to MAX_IMAGE_BYTES.
  */

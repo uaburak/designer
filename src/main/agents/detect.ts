@@ -1,7 +1,7 @@
 import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
-import type { AuthState, CustomServer, ImageGenState, ProviderInfo } from "../../shared/agents/types";
+import type { AuthState, CustomServer, ProviderInfo } from "../../shared/agents/types";
 import { CLI_SPECS, LOCAL_SERVERS, type CliSpec } from "./providers";
 import type { CliModels } from "./providers/turns";
 import { listModels } from "./openaiBridge";
@@ -56,7 +56,7 @@ export const cliPath = (spec: Pick<CliSpec, "bins">, find: (bin: string) => stri
 export async function detectProviders(
   custom: CustomServer[],
   keyOf: (id: string) => string | undefined,
-  options: { fetch?: typeof fetch; which?: (bin: string) => string | null; authOf?: (spec: CliSpec, path: string) => Promise<AuthState>; imageGen?: (signedIn: boolean, installed: boolean) => ImageGenState; modelsOf?: (spec: CliSpec) => CliModels | undefined } = {}
+  options: { fetch?: typeof fetch; which?: (bin: string) => string | null; authOf?: (spec: CliSpec, path: string) => Promise<AuthState>; modelsOf?: (spec: CliSpec) => CliModels | undefined } = {}
 ): Promise<ProviderInfo[]> {
   const find = options.which ?? ((b: string) => which(b));
   const clis: ProviderInfo[] = await Promise.all(
@@ -77,7 +77,6 @@ export async function detectProviders(
         problem: !path ? `${s.bins[0]} isn't installed` : connected ? undefined : "Signed out",
         auth,
         install: s.install,
-        ...(s.id === "gemini" && options.imageGen ? { imageGen: options.imageGen(connected, !!path) } : {}),
       };
     })
   );

@@ -6,10 +6,10 @@
 import type { ToolContent } from "./tools";
 
 /** How a provider is driven: a CLI run headless with our MCP server, or an OpenAI-compatible chat API we bridge. */
-export type ProviderKind = "claude-code" | "antigravity" | "codex" | "gemini" | "cursor-agent" | "openai-compatible";
+export type ProviderKind = "claude-code" | "antigravity" | "codex" | "cursor-agent" | "openai-compatible";
 
 export interface ProviderInfo {
-  /** "claude-code", "antigravity", "codex", "gemini", "cursor-agent", "ollama", "lmstudio", or "custom:<n>" */
+  /** "claude-code", "antigravity", "codex", "cursor-agent", "ollama", "lmstudio", or "custom:<n>" */
   id: string;
   kind: ProviderKind;
   label: string;
@@ -25,22 +25,12 @@ export interface ProviderInfo {
   problem?: string;
   /** A custom server with a key kept in the OS keychain */
   hasKey?: boolean;
-  /** A second line for its card ("Google’s Gemini models, as in Antigravity …") */
+  /** A second line for its card ("Google’s agent with your Google AI plan …") */
   note?: string;
   /** A CLI's sign-in (Connected / Signed out / Not installed); a server: connected while it answers */
   auth?: AuthState;
   /** How to get it: its documented install command (run in Terminal after a confirmation) and its page */
   install?: { command?: string; page: string };
-  /** Gemini: image generation through the Nano Banana extension */
-  imageGen?: ImageGenState;
-}
-
-/** Image generation's readiness on the Gemini card. */
-export interface ImageGenState {
-  state: "ready" | "needs-sign-in" | "needs-key" | "not-installed" | "unavailable";
-  /** The owner added their Gemini API key in Agent settings (it runs the chat and Nano Banana) */
-  keyAdded?: boolean;
-  detail?: string;
 }
 
 export interface CustomServer {
@@ -139,7 +129,7 @@ export interface McpState {
 }
 
 /** An MCP client this computer has, which "Connect" can set up (its config file, written after a confirmation). */
-export type McpClientId = "claude-code" | "cursor" | "vscode" | "antigravity" | "gemini" | "codex";
+export type McpClientId = "claude-code" | "cursor" | "vscode" | "antigravity" | "codex";
 
 export interface McpClientInfo {
   id: McpClientId;
@@ -176,10 +166,8 @@ export interface AgentsApi {
   /** The CLI's own sign-in in the browser (`claude auth login --claudeai`); poll auth() until connected */
   signIn(providerId: string): Promise<AuthState>;
   signOut(providerId: string): Promise<AuthState>;
-  /** Opens the tool's install command in Terminal (it asks before running) or its download page; "nanobanana": Gemini's image extension */
-  install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>;
-  /** The owner's own Gemini API key for Nano Banana (pasted in Agent settings, kept with safeStorage); null removes it */
-  setImageKey(key: string | null): Promise<ImageGenState>;
+  /** Runs the tool's documented install command or opens its download page */
+  install(providerId: string): Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>;
   turn(request: TurnRequest): Promise<{ turnId: string }>;
   stop(turnId: string): Promise<void>;
   onEvent(cb: (e: TurnEvent) => void): () => void;

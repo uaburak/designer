@@ -21,9 +21,9 @@ const tmp = () => {
 describe("image paths", () => {
   it("place_image's path, relative to the chat folder, becomes base64 with the file's name", () => {
     const root = tmp();
-    mkdirSync(join(root, "nanobanana-output"));
-    writeFileSync(join(root, "nanobanana-output", "hero_photo.png"), PNG);
-    const out = resolveImagePaths("place_image", { path: "nanobanana-output/hero_photo.png", x: 10 }, root);
+    mkdirSync(join(root, "images-out"));
+    writeFileSync(join(root, "images-out", "hero_photo.png"), PNG);
+    const out = resolveImagePaths("place_image", { path: "images-out/hero_photo.png", x: 10 }, root);
     expect(out).toEqual({ x: 10, name: "hero_photo", data: Buffer.from(PNG).toString("base64") });
     expect(sniffImage(base64Bytes(out.data as string)!)).toBe("image/png");
   });

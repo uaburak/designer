@@ -9,14 +9,13 @@ import { MCP_SERVER_NAME } from "../../shared/agents/tools";
 import type { AgentSettings, ChatEvent, McpClientId, McpConnection, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnRequest } from "../../shared/agents/types";
 import { cliSpec, type CliSpec } from "./providers";
 import { runCliProcess, loginUrl, type AuthEnv, type CliModels, type RunResult } from "./providers/turns";
-import { imageGenStatus, INELIGIBLE, INELIGIBLE_MESSAGE, NANOBANANA_INSTALL } from "./providers/gemini";
 import { ImagePathError, resolveImagePaths } from "./imageArgs";
 import { configText, connectClient, disconnectClient, listClients, CLIENTS, type ClientEnv } from "./clients";
 import { cliEnv, cliPath, detectProviders, LOCAL_SERVERS, searchPath, which } from "./detect";
 import { McpServer, newToken } from "./mcpServer";
 import { listModels, runOpenAiTurn, trimBase } from "./openaiBridge";
 import { STDIO_BRIDGE_SOURCE } from "./stdioBridge";
-import type { AuthState, ImageGenState } from "../../shared/agents/types";
+import type { AuthState } from "../../shared/agents/types";
 import { allViews } from "../views";
 import { controllers } from "../window";
 
@@ -273,7 +272,7 @@ export function removeServer(id: string): AgentSettings {
 export async function providers(fresh = false): Promise<ProviderInfo[]> {
   if (!fresh && providerCache && Date.now() - providerCache.at < 15_000) return providerCache.list;
   const s = readStored();
-  const list = await detectProviders(s.custom.map((c) => ({ ...c, hasKey: false })), keyOf, { authOf: (spec, path) => cliAuthStatus(spec, path), imageGen: (signedIn, installed) => imageGen(signedIn, installed), modelsOf: (spec) => cliModels.get(spec.id) });
+  const list = await detectProviders(s.custom.map((c) => ({ ...c, hasKey: false })), keyOf, { authOf: (spec, path) => cliAuthStatus(spec, path), modelsOf: (spec) => cliModels.get(spec.id) });
   providerCache = { at: Date.now(), list };
   return list;
 }
@@ -369,7 +368,7 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
   // Each chat gets its own empty folder (its CLI session's project), the turn's MCP config in it.
   const cwd = chatDir(t.chatId);
   mkdirSync(cwd, { recursive: true });
-  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), apiKey: spec.id === "gemini" ? keyOf(IMAGE_KEY) : undefined, home: homedir() });
+  const plan = spec.plan({ request: req, mcp: { url: server!.url!, token }, cwd, sessionId: randomUUID(), mcpConfigPath: join(cwd, "mcp.json"), home: homedir() });
   // The agent's own picture folder for this chat's session (Antigravity: its conversation's), known now or from its start.
   const addImageDirs = (session: string) => {
     for (const d of spec.imageDirs?.(session, homedir()) ?? []) if (!t.imageDirs.includes(d)) t.imageDirs.push(d);
@@ -388,7 +387,7 @@ function runCli(t: Turn, spec: CliSpec, req: TurnRequest) {
       if (e.type === "session") addImageDirs(e.resume);
       emit(t, e);
     },
-    done: (error) => finishTurn(t, error ? { type: "error", message: spec.id === "gemini" && INELIGIBLE.test(error) ? INELIGIBLE_MESSAGE : error } : undefined),
+    done: (error) => finishTurn(t, error ? { type: "error", message: error } : undefined),
     stopped: () => t.stopped,
     // A developer's recording of the raw output (the adapters' test fixtures): DESIGNER_AGENTS_RECORD=<folder>.
     raw: process.env.DESIGNER_AGENTS_RECORD ? (chunk) => appendFileSync(join(process.env.DESIGNER_AGENTS_RECORD!, `${spec.id}-${t.id}.ndjson`), chunk) : undefined,
@@ -471,8 +470,7 @@ const authEnv = (): AuthEnv & { list(path: string): string[] } => ({
       return [];
     }
   },
-  // Whether the owner added a Gemini key (the key itself stays out of the status code).
-  env: keyOf(IMAGE_KEY) ? { ...process.env, DESIGNER_GEMINI_KEY: "1" } : process.env,
+  env: process.env,
 });
 
 /** Sign-ins in progress: a background login (its output, for the page's address) or the CLI in Terminal (since when). */
@@ -577,24 +575,24 @@ export function userInstallCommand(command: string): string {
 const installing = new Map<string, Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>>();
 
 /** Install: one click runs the documented command here (output kept for the error), or opens the download page. */
-export async function install(providerId: string, target?: "nanobanana"): Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }> {
+export async function install(providerId: string): Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }> {
   const spec = cliSpec(providerId);
   const srv = LOCAL_SERVERS.find((x) => x.id === providerId);
   const what: { label: string; command?: string; page: string } | null =
-    target === "nanobanana" ? { label: "the Nano Banana extension for Gemini CLI", command: NANOBANANA_INSTALL, page: "https://github.com/gemini-cli-extensions/nanobanana" } : spec ? { label: spec.label, ...spec.install } : srv ? { label: srv.label, ...srv.install } : null;
+    spec ? { label: spec.label, ...spec.install } : srv ? { label: srv.label, ...srv.install } : null;
   if (!what) return { ok: false, error: "Unknown agent" };
   if (!what.command) {
     await shell.openExternal(what.page);
     return { ok: true, opened: "page" };
   }
-  const key = target ?? providerId;
+  const key = providerId;
   const running = installing.get(key);
   if (running) return running;
   const command = userInstallCommand(what.command);
   const job = new Promise<{ ok: boolean; opened?: "installed" | "page"; error?: string }>((resolve) => {
     mkdirSync(file("work"), { recursive: true });
     const child = spawn("/bin/zsh", ["-c", command], { env: { ...cliEnv(), PATH: searchPath().join(delimiter) }, cwd: file("work"), stdio: ["pipe", "pipe", "pipe"] });
-    // The owner's click is the go: an installer's own "continue? [Y/n]" (gemini extensions install asks one) gets yes.
+    // The owner's click is the go: an installer's own "continue? [Y/n]" gets yes.
     child.stdin?.end("y\n");
     let out = "";
     child.stdout?.on("data", (d) => (out = (out + d).slice(-4000)));
@@ -610,27 +608,6 @@ export async function install(providerId: string, target?: "nanobanana"): Promis
   }).finally(() => installing.delete(key));
   installing.set(key, job);
   return job;
-}
-
-/** The keys.json entry of the owner's own Gemini API key for Nano Banana. */
-const IMAGE_KEY = "gemini:nanobanana";
-
-function imageGen(signedIn: boolean, installed: boolean): ImageGenState {
-  return imageGenStatus(authEnv(), { signedIn, installed, hasKey: !!keyOf(IMAGE_KEY) });
-}
-
-export async function setImageKey(key: string | null): Promise<ImageGenState> {
-  const keys = readKeys();
-  if (key && key.trim()) {
-    if (!canEncrypt()) throw new Error("This Mac's keychain isn't available: the key wasn't kept");
-    keys[IMAGE_KEY] = seal(key.trim());
-  } else delete keys[IMAGE_KEY];
-  writePrivate(file("keys.json"), JSON.stringify(keys));
-  providerCache = null;
-  const spec = cliSpec("gemini")!;
-  const path = cliPath(spec);
-  const auth = path ? await cliAuthStatus(spec, path) : null;
-  return imageGen(auth?.state === "connected", !!path);
 }
 
 // ── MCP state and clients ──

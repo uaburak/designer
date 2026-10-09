@@ -180,7 +180,7 @@ export function registerIpc() {
   });
 }
 
-const CLIENT_IDS: readonly McpClientId[] = ["claude-code", "cursor", "vscode", "antigravity", "gemini", "codex"];
+const CLIENT_IDS: readonly McpClientId[] = ["claude-code", "cursor", "vscode", "antigravity", "codex"];
 const clientId = (v: unknown): McpClientId => {
   if (!CLIENT_IDS.includes(v as McpClientId)) throw new Error("agents: unknown client");
   return v as McpClientId;
@@ -197,8 +197,7 @@ function registerAgentsIpc() {
   onInvoke("agents:auth", (_c, p) => agents.authStatus(str(p?.providerId, 100) ?? ""));
   onInvoke("agents:sign-in", (_c, p) => agents.signIn(str(p?.providerId, 100) ?? ""));
   onInvoke("agents:sign-out", (_c, p) => agents.signOut(str(p?.providerId, 100) ?? ""));
-  onInvoke("agents:install", (_c, p) => agents.install(str(p?.providerId, 100) ?? "", p?.target === "nanobanana" ? "nanobanana" : undefined));
-  onInvoke("agents:set-image-key", (_c, p) => agents.setImageKey(p?.key === null ? null : (str(p?.key, 400) ?? null)));
+  onInvoke("agents:install", (_c, p) => agents.install(str(p?.providerId, 100) ?? ""));
   onInvoke("agents:turn", ({ info, sender }, req) => {
     if (!info.fileKey) throw new Error("agents:turn: no file in this view");
     const prompt = str(req?.prompt, 100_000);
