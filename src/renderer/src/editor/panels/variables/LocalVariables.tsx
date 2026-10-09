@@ -736,7 +736,7 @@ export function LocalVariables() {
                       ))}
                       <div className={cx(styles.cell, styles.filler)} />
                       {/* Live: Edit variable in the last column, at 8, 8 */}
-                      <div className={cx(styles.cell, styles.addMode)}>
+                      <div className={cx(styles.cell, styles.addMode)} data-edit-cell={r.v.name}>
                         {!extended && <IconButton icon="24.adjust.small" label="Edit variable" tone="secondary" aria-expanded={edit?.id === r.v.id} onClick={(e) => setEdit({ id: r.v.id, anchor: e.currentTarget })} />}
                       </div>
                     </div>

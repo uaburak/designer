@@ -23,7 +23,7 @@
 //   EDITOR_ONLY=variables6 node …                                  (round 6: Import / Export mode menus, Minimize / Expand, Hide panel)
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
-//   EDITOR_ONLY=menus9 node …                                      (round 9 at 1440 × 900: the Figma menu, canvas and tool menus, Actions, Preferences, right-drag pan, Assets, Variables)
+//   EDITOR_ONLY=menus9 node …                                      (round 9 at 1440 × 900, run on its own: the Figma menu, canvas and tool menus, Actions, Preferences, right-drag pan, Assets, Variables)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -635,7 +635,7 @@ async function variablesSection(page, theme) {
   check("New variable mode adds a third column", (await win.locator("[data-mode]").count()) === 3);
   // Edit variable; the alias picker.
   await win.locator('[data-variable-row] [data-name-cell="bg/primary"]').hover();
-  await win.locator('[data-name-cell="bg/primary"]').getByRole("button", { name: "Edit variable" }).click();
+  await win.locator('[data-edit-cell="bg/primary"]').getByRole("button", { name: "Edit variable" }).click(); // live: its own column
   await settle(page);
   check("Edit variable: name, values per mode, scoping, code syntax, publishing", (await page.locator("[data-edit-variable]").count()) === 1 && (await page.getByText("Show in all supported properties").count()) === 1);
   await shot(page, `57-edit-variable-${theme}`);
@@ -3006,7 +3006,7 @@ try {
     await leftPanelSection(page, "dark");
     await context.close();
   }
-  if (only === "menus9" || !only) {
+  if (only === "menus9") {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
     const page = await context.newPage();
     page.on("console", (m) => {
