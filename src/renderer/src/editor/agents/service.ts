@@ -59,6 +59,8 @@ export type AgentsView = "list" | "chat" | "settings";
 export interface AgentsState {
   available: boolean;
   view: AgentsView;
+  /** Agent settings' open page: null for the list, else an item ("provider:gemini", "gemini-key", "add-server", "mcp", "client:cursor") */
+  settingsItem: string | null;
   chats: Chat[];
   current: string | null;
   providers: ProviderInfo[];
@@ -123,7 +125,7 @@ export class AgentsService {
     this.storageKey = `designer.agents.chats.${fileId}`;
     this.choiceKey = `designer.agents.choice.${fileId}`;
     this.choice = this.loadChoice();
-    this.state = { available: !!api, view: "list", chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {} };
+    this.state = { available: !!api, view: "list", settingsItem: null, chats: this.load(), current: null, providers: [], providersLoading: false, settings: EMPTY_SETTINGS, mcp: { running: false, url: null, connections: [] }, clients: [], running: {} };
     if (!this.state.chats.length) this.state.view = "chat";
     if (!api) return;
     this.offs.push(
@@ -202,8 +204,13 @@ export class AgentsService {
   // ---- Navigation ----
 
   setView(view: AgentsView) {
-    this.set({ view });
+    this.set({ view, settingsItem: null });
     if (view === "settings") void this.refreshSetup();
+  }
+
+  /** Agent settings: one item's page, or the list (null). */
+  openSetting(item: string | null) {
+    this.set({ view: "settings", settingsItem: item });
   }
 
   newChat() {

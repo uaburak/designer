@@ -55,6 +55,13 @@
   .toolIcon { display: inline-flex; flex: none; color: var(--figma-color-icon-secondary); }
   .tool[data-tool-state="error"] .toolIcon { color: var(--figma-color-icon-danger); }
   .toolLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolFailed { display: flex; flex-direction: column; gap: var(--ds-space-1); }
+  .toolFailed > .tool { padding: 0; border: 0; background: transparent; text-align: left; outline: none; cursor: default; }
+  .toolFailed > .tool:hover { color: var(--figma-color-text); }
+  .toolFailed > .tool:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); border-radius: var(--ds-radius-small); }
+  .toolChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }
+  .toolChevronOpen { transform: rotate(90deg); }
+  .toolError { margin-left: var(--ds-space-5); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
   .error { padding: var(--ds-space-2); border: 1px solid var(--figma-color-border-danger); border-radius: var(--ds-radius-medium); color: var(--figma-color-text-danger); font: var(--ds-font-body-medium); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
   .stopped { color: var(--figma-color-text-tertiary); font: var(--ds-font-body-medium); }
   .changes { display: flex; align-items: center; gap: var(--ds-space-2); padding: var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-1-5) var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
@@ -77,30 +84,45 @@
   .stop { background: var(--figma-color-bg-inverse); }
   .stopGlyph { width: var(--ds-space-2); height: var(--ds-space-2); border-radius: var(--ds-radius-small); background: var(--figma-color-icon-oninverse); }
 
-  /* Agent settings */
-  .section { padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3) var(--ds-space-4); border-top: 1px solid var(--figma-color-border); }
-  .sectionHeader { display: flex; align-items: center; justify-content: space-between; min-height: var(--ds-size-control); }
-  .sectionTitle { margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
-  .provider, .client { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-2) 0; }
-  .provider + .provider, .client + .client { border-top: 1px solid var(--figma-color-border); }
-  .providerHead { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); }
-  .providerName { flex: 1 1 auto; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); }
-  .providerDetail, .providerHint, .note, .clientState { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
-  .note { margin: var(--ds-space-1) 0 0; }
-  .providerActions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1); }
+  /* Agent settings: the list (groups of 32 px rows: icon, name, state, chevron) and an item's page */
+  .settings { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .barSpinner { display: inline-flex; align-items: center; justify-content: center; width: var(--ds-size-control); height: var(--ds-size-control); }
+  .group { padding: var(--ds-space-1) 0 var(--ds-space-2); border-top: 1px solid var(--figma-color-border); }
+  .group:first-child { border-top: 0; }
+  .groupTitle { display: flex; align-items: center; height: var(--ds-size-row); margin: 0; padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .rowItem { display: flex; }
+  .row { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; height: var(--ds-size-row); margin: 0 var(--ds-space-2); padding: 0 var(--ds-space-1); border: 0; border-radius: var(--ds-radius-medium); background: transparent; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); text-align: left; outline: none; cursor: default; }
+  .row:hover { background: var(--figma-color-bg-hover); }
+  .row:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
+  .rowIcon { display: inline-flex; flex: none; color: var(--figma-color-icon); }
+  .rowLabel { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rowStatus { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); color: var(--figma-color-text-secondary); white-space: nowrap; }
+  .rowChevron { display: inline-flex; flex: none; color: var(--figma-color-icon-tertiary); }
+  .rowDim .rowLabel, .rowDim .rowStatus { color: var(--figma-color-text-tertiary); }
+  .rowDim .rowIcon { color: var(--figma-color-icon-tertiary); }
+  .rowNote { display: flex; align-items: center; gap: var(--ds-space-1-5); height: var(--ds-size-row); padding: 0 var(--ds-size-panel-pad-right) 0 var(--ds-size-panel-pad-left); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .footnote { margin: 0; padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-4) var(--ds-size-panel-pad-left); border-top: 1px solid var(--figma-color-border); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
   .dot { flex: none; width: var(--ds-space-1-5); height: var(--ds-space-1-5); border-radius: var(--ds-radius-full); background: var(--figma-color-icon-tertiary); }
   .dotOn { background: var(--figma-color-icon-success); }
-  .badge { color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); }
-  .providerState { flex: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
-  .auth { display: flex; flex-direction: column; gap: var(--ds-space-1); padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); }
-  .authState { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); overflow-wrap: anywhere; }
-  .link { align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); text-decoration: underline; cursor: pointer; }
-  .testResult { color: var(--figma-color-text-success); font: var(--ds-font-body-medium); }
+
+  /* An item's page: blocks of labelled lines and actions, divided like the Design panel's sections */
+  .pageBody { display: flex; flex-direction: column; }
+  .block { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-2) var(--ds-size-panel-pad-right) var(--ds-space-3) var(--ds-size-panel-pad-left); border-top: 1px solid var(--figma-color-border); }
+  .pageBody > .block:first-child { border-top: 0; }
+  .block .pageBody { gap: var(--ds-space-2); }
+  .blockTitle { display: flex; align-items: center; height: var(--ds-size-control); margin: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .field { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-control); }
+  .fieldLabel { flex: none; width: var(--ds-space-16); color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .fieldValue { display: flex; flex: 1 1 auto; align-items: center; gap: var(--ds-space-1); min-width: 0; color: var(--figma-color-text); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
+  .fieldSelect { flex: 1 1 auto; min-width: 0; }
+  .mono { flex: 1 1 auto; min-width: 0; overflow: hidden; font: var(--ds-font-code); text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+  .command { display: block; padding: var(--ds-space-1-5) var(--ds-space-2); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-secondary); color: var(--figma-color-text); font: var(--ds-font-code); overflow-wrap: anywhere; user-select: text; }
+  .pageText { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1); margin: 0; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); }
+  .link { align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--figma-color-text-brand); font: var(--ds-font-body-medium); text-align: left; cursor: pointer; }
+  .link:hover { text-decoration: underline; }
+  .testResult { color: var(--figma-color-text-success); font: var(--ds-font-body-medium); overflow-wrap: anywhere; }
   .testFail { color: var(--figma-color-text-danger); }
-  .form { display: flex; flex-direction: column; gap: var(--ds-space-2); padding-top: var(--ds-space-1); }
-  .form > button { align-self: flex-start; }
-  .mcpUrl { display: flex; align-items: center; gap: var(--ds-space-1); }
-  .mcpUrl code { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--figma-color-text); font: var(--ds-font-code); text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 
   /* The right panel's MCP section (nothing selected; live: "MCP", "1 connection", "Set up agents for Figma MCP").
      The count sits right after the title (live: "MCP" at 16, the count at 45), the button at the right edge. */

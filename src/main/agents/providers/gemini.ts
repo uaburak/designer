@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { AuthState, ChatEvent, ImageGenState } from "../../../shared/agents/types";
 import { SYSTEM_PROMPT } from "../../../shared/agents/prompts";
 import { MCP_SERVER_NAME } from "../../../shared/agents/tools";
+import { friendlyApiError } from "../../../shared/agents/errors";
 import { modelArg, promptWithHistory, shortToolName, text, type AuthEnv, type CliSpec } from "./turns";
 
 /**
@@ -87,21 +88,8 @@ export const IMAGE_NOTE = `Images: when the user wants a picture (a photo, an il
 
 const signInHint = (why: string) => /auth method|GEMINI_API_KEY|login|sign in|credentials|401|UNAUTHENTICATED/i.test(why);
 
-/**
- * The Gemini API's own errors arrive as JSON inside JSON ("[API Error: {…{\"error\": {\"code\": 402, …}}}]"): the
- * innermost message, and what to do for the ones about the key's AI Studio project.
- */
-export function friendlyApiError(raw: string): string {
-  const unescaped = raw.replace(/\\n/g, " ").replace(/\\"/g, '"');
-  const msgs = [...unescaped.matchAll(/"message"\s*:\s*"([^"]+)"/g)].map((m) => m[1].trim()).filter((m) => !m.startsWith("{"));
-  const inner = msgs[msgs.length - 1];
-  if (!inner) return raw;
-  const code = /"code"\s*:\s*(\d{3})/.exec(unescaped)?.[1];
-  if (code === "402" || /prepayment credits/i.test(inner)) return `Google refused the request: the Gemini API key's AI Studio project has run out of prepaid credits (${inner}) Add credits at ai.studio/projects, or make a key in a project without billing (Google’s free tier) and add it in Agent settings.`;
-  if (code === "429") return `Google’s rate limit for this Gemini API key: ${inner}`;
-  if (code === "400" && /API key not valid/i.test(inner)) return "Google says the Gemini API key isn’t valid — check it in Agent settings.";
-  return `Gemini API: ${inner}`;
-}
+/** The Gemini API's errors in plain English (shared with the chat's tool rows). */
+export { friendlyApiError };
 
 /** Google's refusal of the personal Google sign-in (IneligibleTierError, UNSUPPORTED_CLIENT) in the CLI's output. */
 export const INELIGIBLE = /IneligibleTier|throwIneligibleOrProjectIdError|no longer supported for Gemini Code Assist/i;
@@ -162,7 +150,7 @@ export const gemini: CliSpec = {
       case "tool_result": {
         const id = text(line.tool_id);
         const err = line.error as { message?: string } | undefined;
-        out.push({ type: "tool", id, name: state.tools.get(id) ?? "tool", state: line.status === "error" ? "error" : "done", summary: (line.status === "error" ? err?.message : text(line.output).split("\n")[0].slice(0, 140)) || undefined });
+        out.push({ type: "tool", id, name: state.tools.get(id) ?? "tool", state: line.status === "error" ? "error" : "done", summary: (line.status === "error" ? (err?.message ? friendlyApiError(err.message) : undefined) : text(line.output).split("\n")[0].slice(0, 140)) || undefined });
         break;
       }
       case "error":

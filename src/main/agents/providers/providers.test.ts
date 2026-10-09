@@ -303,4 +303,16 @@ describe("Gemini API errors", () => {
     const raw = String.raw`[API Error: {"error":{"message":"{\n  \"error\": {\n    \"code\": 402,\n    \"message\": \"Your prepayment credits are depleted. Please go to AI Studio.\",\n    \"status\": \"RESOURCE_EXHAUSTED\"\n  }\n}\n","code":402,"status":"Payment Required"}}]`;
     expect(friendlyApiError(raw)).toMatch(/run out of prepaid credits \(Your prepayment credits are depleted\. Please go to AI Studio\.\) Add credits/);
   });
+
+  it("says what a tool's nested 429 with no free-tier quota means, and the chat reads any nested message", async () => {
+    const { gemini } = await import("./gemini");
+    const { readableError } = await import("../../../shared/agents/errors");
+    const inner = JSON.stringify({ error: { code: 429, message: "You exceeded your current quota, please check your plan and billing details.\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.5-flash-image", status: "RESOURCE_EXHAUSTED" } });
+    const raw = `MCP tool 'generate_image' reported tool error for function call: {"name":"generate_image"} with response: ${JSON.stringify([{ functionResponse: { response: { error: { content: [{ type: "text", text: `Error: ${inner}` }] } } } }])}`;
+    const state = { tools: new Map([["g1", "generate_image"]]), streamed: false } as unknown as Parameters<typeof gemini.parse>[1];
+    const [ev] = gemini.parse({ type: "tool_result", tool_id: "g1", status: "error", error: { type: "tool_error", message: raw } }, state);
+    expect(ev).toMatchObject({ type: "tool", state: "error", summary: "Google: free tier has no quota for the image model (limit 0) — turn on billing for the key's AI Studio project" });
+    expect(readableError(raw)).toMatch(/^You exceeded your current quota.*limit: 0, model: gemini-2\.5-flash-image$/);
+    expect(readableError("No API key found")).toBe("No API key found");
+  });
 });

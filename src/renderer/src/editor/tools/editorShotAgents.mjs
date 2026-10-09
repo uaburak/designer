@@ -79,6 +79,10 @@ function installMockAgents() {
           emit(turnId, req.chatId, { type: "tool", id: "t4", name: "update_nodes", state: "done" });
           await call(turnId, "set_selection", { nodeIds: [made] });
         }
+        // A failed step whose error is Google's JSON inside the CLI's message: the chat opens it to the inner message.
+        const quota = JSON.stringify({ error: { code: 429, message: "You exceeded your current quota. Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: gemini-2.5-flash-image", status: "RESOURCE_EXHAUSTED" } });
+        emit(turnId, req.chatId, { type: "tool", id: "t5", name: "generate_image", state: "running" });
+        emit(turnId, req.chatId, { type: "tool", id: "t5", name: "generate_image", state: "error", summary: `MCP tool 'generate_image' reported tool error for function call: ${JSON.stringify([{ functionResponse: { response: { error: { content: [{ type: "text", text: `Error: ${quota}` }] } } } }])}` });
         emit(turnId, req.chatId, { type: "text", delta: "\n\nDone: **Desktop — Mobile** is to the right of the original — one column, the cards stacked, headings scaled for 390." });
         emit(turnId, req.chatId, { type: "done" });
       }, 30);
@@ -170,7 +174,11 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   check("Agents: the agent's tool calls ran on the engine", result.log.slice(1).every((l) => !l.isError), result.log.slice(1).map((l) => `${l.name}${l.isError ? " (error)" : ""}`).join(", "));
   check("Agents: a 390 wide vertical auto layout frame next to the desktop one, selected", result.width === 390 && result.mode === "VERTICAL" && result.x >= 1440 + 100 && result.kids >= 5 && result.name === "Desktop — Mobile", JSON.stringify({ ...result, log: undefined }));
   check("Agents: the turn is one undo step labelled for the agent", result.undo === "Claude Code edit", result.undo);
-  check("Agents: the steps are listed", (await page.locator('[data-message="assistant"] [data-tool]').count()) === 4);
+  check("Agents: the steps are listed", (await page.locator('[data-message="assistant"] [data-tool]').count()) === 5);
+  const failed = page.locator('[data-tool="generate_image"][data-tool-state="error"]');
+  await failed.locator("[data-tool-toggle]").click();
+  const errText = (await failed.locator("[data-tool-error]").textContent()) ?? "";
+  check("Agents: a failed step opens to its whole error, the nested JSON read down to Google's message", errText.startsWith("You exceeded your current quota.") && errText.includes("limit: 0") && !errText.includes("{"), errText);
   check("Agents: the changes row offers Undo", (await page.locator("[data-turn-undo]").count()) === 1);
   await shot(page, `402-agents-mobile-version-${theme}`);
   const made = result.sel[0];
@@ -182,18 +190,59 @@ export async function agentsSection(page, theme, { open, settle, shot, check }) 
   await settle(page);
   check("Agents: Apply brings it back", (await page.evaluate((id) => window.__designerEditor.engine.readNode(id)?.size?.x, made)) === 390);
 
-  // Agent settings: the agents found, a server by URL, the MCP server and Connect.
+  // Agent settings: a list in three groups (one row each: name, state, chevron); a row opens its own page.
   await page.locator("[data-agents-settings]").click();
-  await page.waitForSelector("[data-agent-settings]");
+  await page.waitForSelector('[data-agent-settings][data-settings-page="list"]');
   await page.waitForTimeout(150);
+  const settings = page.locator("[data-agent-settings]");
+  const groups = await settings.locator("h3").allTextContents();
+  check("Agents: settings open as a list grouped On this computer / API keys / Connect other apps", JSON.stringify(groups) === JSON.stringify(["On this computer", "API keys", "Connect other apps"]), JSON.stringify(groups));
+  check("Agents: the list has no paragraphs but one short line", (await settings.locator("p").count()) === 1);
+  const row = (id) => page.locator(`[data-provider="${id}"]`);
+  const stateOf = async (id) => ((await row(id).locator("[data-provider-state]").textContent()) ?? "").trim();
+  const states = { claude: await stateOf("claude-code"), gemini: await stateOf("gemini"), codex: await stateOf("codex"), cursor: await stateOf("cursor-agent"), ollama: await stateOf("ollama"), lm: await stateOf("lmstudio") };
+  check("Agents: each row has one state — Connected / Sign in needed / Not installed / Not running", JSON.stringify(states) === JSON.stringify({ claude: "Connected", gemini: "Connected", codex: "Not installed", cursor: "Sign in needed", ollama: "Not running", lm: "Connected" }), JSON.stringify(states));
   check("Agents: settings list Claude Code (found) and Ollama (not running)", (await page.locator('[data-provider="claude-code"][data-available]').count()) === 1 && (await page.locator('[data-provider="ollama"]:not([data-available])').count()) === 1);
-  check("Agents: Connect to Antigravity / Cursor / VS Code, and Claude Code connected", (await page.getByRole("button", { name: "Connect to Antigravity" }).count()) === 1 && (await page.getByRole("button", { name: "Connect to Cursor" }).count()) === 1 && (await page.getByRole("button", { name: "Connect to VS Code" }).count()) === 1 && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
-  check("Agents: the MCP server's URL is shown", ((await page.locator("[data-mcp-url]").textContent()) ?? "").includes("127.0.0.1"));
-  const card = (id) => page.locator(`[data-provider="${id}"]`);
-  check("Agents: Claude Code's status card says Connected with its account and offers Sign out", ((await card("claude-code").textContent()) ?? "").includes("you@example.com") && (await card("claude-code").locator("[data-sign-out]").count()) === 1);
-  check("Agents: Codex is Not installed with Install; Cursor Agent is Signed out with Sign in", ((await card("codex").locator("[data-provider-state]").textContent()) ?? "") === "Not installed" && (await card("codex").locator("[data-install]").count()) === 1 && ((await card("cursor-agent").locator("[data-provider-state]").textContent()) ?? "") === "Signed out" && (await card("cursor-agent").locator("[data-sign-in]").count()) === 1);
-  check("Agents: the Gemini card shows Antigravity and Image generation: Needs API key with a key field", ((await card("gemini").textContent()) ?? "").includes("Antigravity") && ((await card("gemini").locator("[data-image-gen]").textContent()) ?? "").includes("Image generation: Needs API key") && (await card("gemini").locator('input[type="password"]').count()) === 1);
+  const rowBox = await row("claude-code").boundingBox();
+  check("Agents: rows are 32 px", Math.round(rowBox?.height ?? 0) === 32, JSON.stringify(rowBox));
+  check("Agents: the Gemini API key row says Not added; the MCP server row counts 1 connection; Claude Code is connected as an app", ((await page.locator('[data-settings-row="gemini-key"]').textContent()) ?? "").includes("Not added") && ((await page.locator('[data-settings-row="mcp"]').textContent()) ?? "").includes("1 connection") && (await page.locator('[data-client="claude-code"][data-connected]').count()) === 1);
   await shot(page, `403-agents-settings-${theme}`);
+  const openRow = async (sel) => {
+    await page.locator(sel).click();
+    await page.waitForTimeout(100);
+  };
+  const back = async () => {
+    await settings.getByRole("button", { name: "Back" }).click();
+    await page.waitForTimeout(100);
+  };
+  const card = (id) => page.locator(`[data-agent-settings] [data-provider="${id}"]`);
+  await openRow('[data-provider="claude-code"]');
+  check("Agents: Claude Code's page says Connected with its account and offers Sign out and its model", ((await card("claude-code").textContent()) ?? "").includes("you@example.com") && (await card("claude-code").locator("[data-sign-out]").count()) === 1 && (await card("claude-code").getByRole("combobox", { name: "Model" }).count()) === 1);
+  await back();
+  check("Agents: Back from a page returns to the list", (await page.locator('[data-agent-settings][data-settings-page="list"]').count()) === 1);
+  await openRow('[data-provider="codex"]');
+  check("Agents: Codex's page: Not installed with Install", ((await card("codex").locator("[data-provider-state]").textContent()) ?? "") === "Not installed" && (await card("codex").locator("[data-install]").count()) === 1);
+  await back();
+  await openRow('[data-provider="cursor-agent"]');
+  check("Agents: Cursor Agent's page: Sign in needed with Sign in", ((await card("cursor-agent").locator("[data-provider-state]").textContent()) ?? "") === "Sign in needed" && (await card("cursor-agent").locator("[data-sign-in]").count()) === 1);
+  await back();
+  await openRow('[data-provider="gemini"]');
+  check("Agents: the Gemini page shows Antigravity, Image generation: Needs API key and the key field", ((await card("gemini").textContent()) ?? "").includes("Antigravity") && ((await card("gemini").locator("[data-image-gen] h3").textContent()) ?? "") === "Image generation" && ((await card("gemini").locator("[data-image-gen-state]").textContent()) ?? "") === "Needs API key" && (await card("gemini").locator('input[type="password"]').count()) === 1);
+  await shot(page, `403b-agents-settings-gemini-${theme}`);
+  await back();
+  await openRow('[data-settings-row="gemini-key"]');
+  check("Agents: the Gemini API key page has the key field and Save key", (await settings.locator('input[type="password"]').count()) === 1 && (await settings.locator("[data-save-image-key]").count()) === 1);
+  await back();
+  await openRow('[data-client="cursor"]');
+  check("Agents: Cursor's app page offers Connect to Cursor", (await page.getByRole("button", { name: "Connect to Cursor" }).count()) === 1);
+  await back();
+  await openRow('[data-client="antigravity"]');
+  check("Agents: Antigravity's app page offers Connect to Antigravity", (await page.getByRole("button", { name: "Connect to Antigravity" }).count()) === 1);
+  await back();
+  await openRow('[data-settings-row="mcp"]');
+  check("Agents: the MCP server's URL is shown", ((await page.locator("[data-mcp-url]").textContent()) ?? "").includes("127.0.0.1"));
+  await back();
+
   await page.locator("[data-agent-settings]").getByRole("button", { name: "Back" }).click();
   await settle(page);
   check("Agents: Back lists the chat", (await page.locator("[data-chat]").count()) === 1);
