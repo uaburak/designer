@@ -102,7 +102,7 @@ describe("export on the engine", () => {
     expect(scales).toEqual(["1x", "2x", "3x"]);
     expect(exportSettingsOf(ed.engine.readNode("1:5") as { exportSettings?: unknown }).map((s) => s.suffix)).toEqual(["", "@2x", "@3x"]);
     expect($("[data-export-button]", m.host).textContent).toBe("Export Card");
-    click($$('[aria-label="Remove export settings"]', m.host)[1]);
+    click($$('[data-export-row] [aria-label="Remove"]', m.host)[1]); // live: the row's − is "Remove"
     expect($$("[data-export-row]", m.host).length).toBe(2);
     expect(exportSettingsOf(ed.engine.readNode("1:5") as { exportSettings?: unknown }).map((s) => s.suffix)).toEqual(["", "@3x"]);
     // One undo step per edit.

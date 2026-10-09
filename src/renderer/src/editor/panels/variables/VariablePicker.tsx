@@ -426,7 +426,8 @@ export function VariableList({
           stylesTab && !query ? (
             <div className={styles.stylesEmpty}>
               <span>{stylesTab}</span>
-              {onBrowse && <Button variant="secondary" onClick={onBrowse}>Browse libraries…</Button>}
+              {/* Live: 129 wide at 43, its label at 71 — a 24 glyph before it (which glyph is unverified: the library) */}
+              {onBrowse && <Button variant="secondary" icon="24.library" aria-label="Browse libraries…" onClick={onBrowse}>Browse libraries…</Button>}
             </div>
           ) : (
           <div className={cx(styles.pickEmpty, colorTab && styles.pickEmptyCentered)}>

@@ -29,7 +29,7 @@ import { startGradientEdit } from "../../vectorEdit";
 import { useDocumentVersion, useLocalAssets, useUI } from "../../hooks";
 import { pageColors, writeSelectionColor } from "./SelectionColors";
 import { SHADER_FILL_PRESETS, ShaderEffects } from "./Effects";
-import { StrokeRows } from "./Stroke";
+import { StrokeRows, firstStrokeFields } from "./Stroke";
 import { Grip, moved, useReorder } from "./reorder";
 import { isFrameNode, type PanelNode } from "./shared";
 import { BoundPaintRow, paintScope } from "./Variables";
@@ -103,8 +103,9 @@ export function PaintsSection({ title, field, nodes, onPick }: { title: "Fill" |
   const label = title === "Fill" ? "Fill" : "Stroke";
   const add = () => {
     const next = isMixed(shared) ? [newPaint(field, nodes, 0)] : [...paints, newPaint(field, nodes, paints.length)];
-    const extra = field === "strokePaints" && !paints.length ? { strokeWeight: nodes[0]?.strokeWeight || 1 } : {};
-    ed.setProps(refs, { [field]: next, ...extra }, `Add ${word}`);
+    if (field !== "strokePaints" || paints.length) return void ed.setProps(refs, { [field]: next }, `Add ${word}`);
+    // The first stroke: weight 1 and, on closed shapes, Inside (live: Add stroke on a rectangle shows "Inside").
+    ed.batch(`Add ${word}`, () => nodes.forEach((n) => ed.engine.setProps([n.guid], { [field]: next, ...firstStrokeFields(n, nodes[0]?.strokeWeight || 1) })));
   };
   const empty = !isMixed(shared) && paints.length === 0;
   const stroked = field === "strokePaints" && (isMixed(shared) || paints.length > 0);

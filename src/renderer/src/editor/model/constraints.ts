@@ -31,6 +31,12 @@ export const CONSTRAINT_OPTIONS: Record<ConstraintAxis, { value: ConstraintType;
   ],
 };
 
+/** The glyph a constraint dropdown shows before its value (live: an icon, the text at 33 in; the glyphs unverified). */
+export const CONSTRAINT_ICONS = {
+  horizontal: { MIN: "24.constraint.left", MAX: "24.constraint.right", STRETCH: "24.constraint.left-right", CENTER: "24.constraint.center-horizontal", SCALE: "24.constraint.scale-horizontal" },
+  vertical: { MIN: "24.constraint.top", MAX: "24.constraint.bottom", STRETCH: "24.constraint.top-bottom", CENTER: "24.constraint.center-vertical", SCALE: "24.constraint.scale-vertical" },
+} as const satisfies Record<ConstraintAxis, Record<string, string>>;
+
 /** Figma's files also hold FIXED_MIN / FIXED_MAX (older names): they read as Left / Right. */
 export function normalizeConstraint(c: string | undefined): ConstraintType {
   if (c === "FIXED_MIN" || c === undefined) return "MIN";

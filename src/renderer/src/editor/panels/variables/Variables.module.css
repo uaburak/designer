@@ -28,10 +28,10 @@
   .colorTab .pickSource { align-items: center; justify-content: space-between; margin-top: 18px; padding: 0 var(--ds-space-3) 0 var(--ds-space-2); border-bottom: 0; }
   .pickEmptyCentered { display: flex; align-items: center; justify-content: center; min-height: 72px; color: var(--figma-color-text); }
   /* A styles popover (live, 216 × 165): the search 40 high across (its field from 40), "No … styles." at 99 and
-     "Browse libraries…" at 129, centred */
+     "Browse libraries…" at 129, centred (its glyph first), 12 above the bottom */
   .stylesTab .pickSearch { padding: 0; }
   .stylesTab .pickSearch > * { height: 40px; border-radius: 0; background: transparent; padding-left: var(--ds-space-4); }
-  .stylesEmpty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 19px var(--ds-space-4) var(--ds-space-3); color: var(--figma-color-text-tertiary); }
+  .stylesEmpty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 19px var(--ds-space-4) var(--ds-space-1); color: var(--figma-color-text-tertiary); }
   .pickGrid { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); padding: var(--ds-space-2) var(--ds-space-4); }
   .pickGrid .pickHeader, .pickGrid .pickGroup, .pickGrid .pickSection { flex: 1 0 100%; padding-left: 0; }
   .pickGrid .pickItem { width: auto; padding: var(--ds-space-1); }

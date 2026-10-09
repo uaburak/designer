@@ -124,6 +124,8 @@ export interface UIState extends PreferenceFlags {
   linkEditor?: { x: number; y: number; width: number; height: number } | null;
   /** Grid tracks selected on the canvas (the engine's GRID_TRACKS): the grid, the axis, the tracks' indices */
   gridTracks?: { frame: Guid; axis: "COLUMNS" | "ROWS"; tracks: number[] } | null;
+  /** The grid picker's "Open grid settings": the Grid panel for this grid, no track selected */
+  gridSettings?: Guid | null;
   /** The track label editor on the canvas, over this rect (viewport px) */
   gridTrackEditor?: { x: number; y: number; width: number; height: number } | null;
   /** Dev Mode (⇧D, the toolbar's mode switch): the Inspect panel, read-only canvas, annotations as dots (devmode/) */
