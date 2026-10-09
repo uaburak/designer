@@ -208,7 +208,7 @@ struct Overlay {
     bool expanded = false;
     bool selected = false;
     int hovered = -1;       // 0 grabber, 1 label, 2 chevron
-    double segment = 16;    // the grabber's and the chevron's width
+    double segment = 18;    // the grabber's and the chevron's width
     double labelWidth = 0;
     std::string label;
   };

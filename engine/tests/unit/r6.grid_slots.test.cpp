@@ -185,7 +185,8 @@ TEST_CASE("grid on canvas: a click on a track's pill selects it, its chevron ope
   CHECK(!ev.column);
   CHECK(ev.tracks == std::vector<size_t>{1});
   CHECK(ev.edit);
-  CHECK(ev.label.x == doctest::Approx(o.gridPills[0].rect.x + 16));
+  CHECK(ev.label.x == doctest::Approx(o.gridPills[0].rect.x + o.gridPills[0].segment));
+  CHECK(o.gridPills[0].segment == 18);  // round 12: live's 18 px grabber and chevron
   // Two rows selected: a chevron keeps them both, the menu at the clicked one's label.
   click(e, -60, 25, MOD_PRIMARY);
   REQUIRE(lastGridEvent(e, ev));

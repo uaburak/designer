@@ -25,16 +25,17 @@ namespace eng {
 
 namespace {
 
-// The pills (CSS px, live Figma at 1.55× — canvas-grid-hover-top-pill, -column-track-pill, -row-track-pill): a column's
-// centred kPillLine above the frame's top edge, a row's compact one kPillLine left of its left edge; compact 22 × 11,
-// expanded kPillHeight high — grabber and chevron kPillSegment wide, the label its text + 8; a row's expanded pill lies
-// along the edge, its right end kRowPillGap off it (round 12, measured on the pill's own 18 px height: 24.7 px in
-// canvas-grid-hover-row-track-pill at 1.44 px per CSS px, 24.6 in grid-track-selected-grid-panel-and-menu-1440, 25.1 in
-// canvas-grid-row-track-selected — the frame's edge to the pill's right end; the menu's x in grid/row-track-menu.txt
-// follows from it).
+// The pills (CSS px, live Figma — canvas-grid-hover-top-pill, -column-track-pill, -row-track-pill): a column's centred
+// kPillLine above the frame's top edge, a row's compact one kPillLine left of its left edge; compact 22 × 11, expanded
+// kPillHeight high — grabber and chevron kPillSegment wide, the label its text + kPillLabelPad; a row's expanded pill
+// lies along the edge, its right end kRowPillGap off it. Round 12, measured on the pill's own 18 px height (1.43 px per
+// CSS px in canvas-grid-hover-column-track-pill: "1fr" 56.5 wide — grabber 18.5, label 19.9, chevron 18.1; 1.8 in
+// grid-track-selected-grid-panel-and-menu-1440: 55.8 × 18.0) and the frame's edge to a row pill's right end (24.7 in
+// canvas-grid-hover-row-track-pill, 24.6 in the 1440 capture, 25.1 in canvas-grid-row-track-selected); the sizing list's
+// place in grid/row-track-menu.txt (419,549) follows from them.
 constexpr double kPillLine = 31.5;
 constexpr double kCompactLong = 22, kCompactShort = 11;
-constexpr double kPillHeight = 18, kPillSegment = 16, kRowPillGap = 24.75;
+constexpr double kPillHeight = 18, kPillSegment = 18, kPillLabelPad = 6, kRowPillGap = 24.75;
 constexpr double kBandReach = 14;  // CSS px past the pill line still in the track's band
 constexpr double kEdgeReach = 3;   // CSS px around the edge between two tracks (in the band)
 constexpr double kSpanReach = 6;   // CSS px around a span handle
@@ -79,7 +80,7 @@ Rect Editor::gridPillRect(Guid frame, bool column, size_t track, bool expanded, 
   double mid = (spans[track].first + spans[track].second) / 2;
   if (!expanded) return column ? Rect{mid - kCompactLong / 2, across - kCompactShort / 2, kCompactLong, kCompactShort}
                                : Rect{across - kCompactShort / 2, mid - kCompactLong / 2, kCompactShort, kCompactLong};
-  labelW = std::round(labelWidth(track < labels.size() ? labels[track] : std::string(), true) + 8);
+  labelW = std::round(labelWidth(track < labels.size() ? labels[track] : std::string(), true) + kPillLabelPad);
   double w = 2 * kPillSegment + labelW;
   if (column) return {mid - w / 2, across - kPillHeight / 2, w, kPillHeight};
   double right = across + kPillLine - kRowPillGap;  // the frame's left edge, less the gap

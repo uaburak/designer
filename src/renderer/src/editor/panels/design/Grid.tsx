@@ -4,7 +4,7 @@
  * (bindable to variables), and each track's size (Fixed px, Fill container in fr, Hug contents); for an item in a grid,
  * "Column span" / "Row span". Edits go through the grid model (model/grid.ts) as whole field values, one undo step each.
  */
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ContextMenu, Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, tooltipProps, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
@@ -279,15 +279,26 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
  * A track pill's chevron on the canvas (or Enter on selected tracks; the engine's GRID_TRACKS {edit}) — live
  * grid/row-track-menu.txt and canvas-grid-row-track-menu: the pill's label becomes its field, its text selected, and the
  * sizing list opens under the pill — "Fixed height (84)" / "Hug contents" / "Fill container (1fr)", each with its glyph,
- * the current one checked, the first lit; 156 × 72 at 419,549 for AL_grid's second row at 160 %: the list 8 left of
- * the label (its rows' highlight in line with it) and 17 under the pill (the menu's box 8 more above and below). A size
- * typed ("120", "2fr", "Hug", "Auto") or a row picked applies to every selected track.
+ * the current one checked, none lit (the dump has no row's highlight); 156 × 72 at 419,549 for AL_grid's second row at 160 % (its pill 411–467,
+ * 514–532): the list 8 in from the pill's left end — 10 left of the label, after the pill's 18 px grabber — and 17
+ * under the pill (the menu's box 8 more above and below). A size typed ("120", "2fr", "Hug", "Auto") or a row picked
+ * applies to every selected track.
  */
 export function GridTrackEditor() {
   const ed = useEditor();
   const at = useUI((s) => s.gridTrackEditor);
   const sel = useUI((s) => s.gridTracks);
   const field = useRef<HTMLDivElement>(null);
+  // The field takes the keyboard once the list has opened (the list takes it as it opens): its text selected.
+  useEffect(() => {
+    if (!at) return;
+    const frame = requestAnimationFrame(() => {
+      const input = field.current?.querySelector("input");
+      input?.focus({ preventScroll: true });
+      input?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [at]);
   if (!at || !sel || !sel.tracks.length) return null;
   const node = ed.engine.readNodes([sel.frame])[0] as unknown as (GridNode & { guid: Guid; size?: { x: number; y: number } }) | undefined;
   if (!node) return null;
@@ -314,9 +325,9 @@ export function GridTrackEditor() {
         }}
       >
         <TextInput
+          data-theme="light"
           label={`${name} size`}
           value={tracksLabel(node, axis, sel.tracks)}
-          autoFocus
           onCommit={(text) => {
             const s = parseTrackInput(text);
             if (s) writeTrackSizing(ed, sel.frame, axis, sel.tracks, s);
@@ -327,7 +338,6 @@ export function GridTrackEditor() {
       <ContextMenu
         at={{ x: at.x - TRACK_MENU.inset, y: at.y + at.height + TRACK_MENU.below }}
         entries={trackMenu(node, axis, index)}
-        highlighted={0}
         ignore={field}
         label={`${name} sizing`}
         className={cx(dstyles.panelMenu, dstyles.trackMenu, styles.pillMenu)}
@@ -338,8 +348,11 @@ export function GridTrackEditor() {
   );
 }
 
-/** Where the pill's list sits (live grid/row-track-menu.txt): 8 left of the label, its first row 17 under the pill. */
-export const TRACK_MENU = { inset: 8, below: 17 } as const;
+/**
+ * Where the pill's list sits (live grid/row-track-menu.txt): 10 left of the pill's label (8 in from the pill's left end,
+ * past its 18 px grabber), its first row 17 under the pill.
+ */
+export const TRACK_MENU = { inset: 10, below: 17 } as const;
 
 /**
  * The sizing a row of the track list gives (the pill's and the Grid panel's): Fixed at the track's size as laid out
