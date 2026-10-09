@@ -487,7 +487,12 @@ export const canvasChromeMetrics = {
   // Live Figma (2026-10-08 captures): a hovered layer's outline is twice the selection's line.
   hoverStroke: 2,
   handle: 7,
-  sizeBadge: { height: 16, padX: 4, radius: 2, gap: 6 },
+  // Live Figma (round 10): the size badge and auto layout's gap / padding badges are 17 high, the text 4 px in from
+  // each end. Measured on the captures scaled by their own 11 px text (the frame title, which the 1440 × 900 captures
+  // show is Inter 11): canvas-autolayout-selected-hover-gap "10" 20.8 × 17.4, -padding "16" 20.6 × 17.3,
+  // "232 Hug × 72 Hug" 102 × 17.3; canvas-rect-selected "120 × 90" 53.9 × 17.8 (text 4.0 in); the 1440 captures'
+  // "320 × 200" 16.4–17.4 high. (docs/engine-build.md "Round 10".)
+  sizeBadge: { height: 17, padX: 4, radius: 2, gap: 6 },
   titleBaseline: 10,
   ruler: { thickness: 20, tick: 4, fontSize: 10 },
   titleSize: 11,

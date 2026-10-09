@@ -330,10 +330,10 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Vec2 e = view.apply(bar.edge);
     double px, py;
     // A gap's: right of its bar, just above it; a padding's: outside its edge at `edge` (where the pointer is), 2 px
-    // off it (live Figma, canvas-autolayout-selected-hover-gap / -padding at 1.57×: 9 px right of the bar, 5 above;
-    // 2.5 px above the frame).
+    // off it (live Figma, canvas-autolayout-selected-hover-gap / -padding scaled by their 11 px frame title, 1.44×:
+    // the badge's left 10.2 px right of the bar's centre, its bottom 5.4 above the bar; 1.8 px above the frame).
     if (bar.gap) {
-      px = bar.vertical ? c.x + 9 : c.x + len / 2 + 5;
+      px = bar.vertical ? c.x + 10 : c.x + len / 2 + 5;
       py = bar.vertical ? c.y - len / 2 - 5 - ph : c.y - ph - 5;
     } else if (bar.side == 0) {
       px = e.x - 2 - pw, py = e.y - ph / 2;
@@ -364,9 +364,12 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       if (c.fill) emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, 0.15, blue, 0, 0, 0), Pass::Shape);
       emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, 0, blue, 0.37, 1, 0), Pass::Shape);
     }
+    // The track under an expanded pill: a 2 px outline in the selection colour on its edges, half inside, half outside
+    // (live Figma round 10, canvas-grid-hover-column-track-pill / -row-track-pill: 2.9 px at 1.55×, centred on the
+    // track's edges, over the frame's own outline at its ends).
     for (const Overlay::GridCell& c : overlay.gridTrackBoxes) {
       ScreenBox b = upright(c);
-      emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 0), Pass::Shape);
+      emit(makeShape(b.m, b.size, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 1, 1), Pass::Shape);
     }
     auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
     const Color light{(blue.r + 1) / 2, (blue.g + 1) / 2, (blue.b + 1) / 2, 1};
