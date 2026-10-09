@@ -720,6 +720,8 @@ Overlay Editor::overlay() const {
       o.centreDots.push_back({b.x + b.w / 2, b.y + b.h / 2});
     }
     if (gesture_ == Gesture::None) o.centreDotHovered = reorderHover_;
+    // Round 11: off the selection, dots; on it, the rings (live Figma).
+    o.centreDotsIdle = gesture_ == Gesture::None && !pointerInSelection_;
     if (pointerInSelection_ || gesture_ == Gesture::Gap)
       for (size_t i = 1; i < smart.order.size(); i++) {
         Rect a = doc_.worldBounds(smart.order[i - 1]), b = doc_.worldBounds(smart.order[i]);
@@ -732,7 +734,11 @@ Overlay Editor::overlay() const {
         g.value = smart.spacing;
         o.gapHandles.push_back(g);
       }
+  } else if (gesture_ == Gesture::None) {
+    groupDotsOverlay(o);
   }
+  // Round 11: a selected auto-layout component's, set's or instance's gaps (with the handles: not while moving).
+  if (o.handles && text_.node == kNoGuid && vector_.node == kNoGuid) gapBoxesOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
   o.outlines = (viewOptions_ & VIEW_OUTLINES) != 0;
   o.layoutGuides = (viewOptions_ & VIEW_LAYOUT_GUIDES) != 0;

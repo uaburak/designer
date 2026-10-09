@@ -32,6 +32,7 @@
 //   EDITOR_ONLY=panel11 node …                                     (round 11 at 1440 × 900, run on its own: instance flow, text edit header, list menus, Text styles, Type settings › Details, gradient stops)
 //   EDITOR_ONLY=overlays9 node …                                   (round 9, only on its own: shape handles, the </>, padding badge, grid cells and pills, section pill)
 //   EDITOR_ONLY=features11 node …                                  (round 11 at 1440 × 900, run on its own: Create property › Slot as live's form, shader fills and effects — browsers, presets drawn, settings)
+//   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -3020,6 +3021,154 @@ async function overlays9Section(page, theme) {
   check("Round 10: the capture's pages are Page 1 and Capture (the page it opens on)", pages === "Page 1,Capture" && (await page.evaluate(() => window.__designerEditor.store.page)) === "0:1", pages);
 }
 
+/** Pixels of a page region (RGBA rows), decoded in the page. */
+async function regionPixels(page, clip) {
+  const png = await page.screenshot({ clip });
+  return page.evaluate(async (b64) => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type: "image/png" }));
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext("2d");
+    g.drawImage(bmp, 0, 0);
+    return { width: bmp.width, height: bmp.height, data: Array.from(g.getImageData(0, 0, bmp.width, bmp.height).data) };
+  }, png.toString("base64"));
+}
+
+/**
+ * Round 11 on `?editor&doc=capture` (dark, 1440 × 900): the canvas chrome of docs/research/audit-2026-10-08/sweep-round10.md
+ * R24–R27 against live Figma's captures — the component set's "3 Variants" pill, its "+" (Add variant) and gap boxes;
+ * no title over the Button instance; the hovered text's baseline underline; smart selection's dots off the selection.
+ */
+async function overlays11Section(page, theme) {
+  await open(page, "&doc=capture");
+  const canvas = page.locator("#engine-canvas");
+  const cbox = await canvas.boundingBox();
+  const away = [cbox.x + cbox.width / 2, cbox.y + 780];
+  // The layers' box (wx, wy, w × h) centred in the canvas between the panels, at zoom z.
+  const frameOn = async (ids, wx, wy, z, w, h) => {
+    await page.evaluate(([ids, wx, wy, z, w, h, cw]) => {
+      const e = window.__designerEditor.engine;
+      e.setSelection(ids);
+      e.setCamera({ x: cw / 2 - (wx + w / 2) * z, y: 380 - (wy + h / 2) * z, zoom: z });
+    }, [ids, wx, wy, z, w, h, cbox.width]);
+    await page.mouse.move(...away);
+    await settle(page);
+  };
+  const isPurple = (d, i) => d[i] > 110 && d[i] < 170 && d[i + 1] < 100 && d[i + 2] > 200;
+  const isBlue = (d, i) => d[i] < 80 && d[i + 1] > 100 && d[i + 1] < 190 && d[i + 2] > 200;
+  // The spacing pink, and pink blended with white or the layer under it (a 1.5 px core at 1×: (248, 129, 212)).
+  const isPink = (d, i) => d[i] > 200 && d[i + 1] < 160 && d[i + 2] > 130 && d[i] - d[i + 1] > 70;
+
+  // R24: the set Chip (8:40, 364 × 40 at 300, 600) at live's 1.714×.
+  await frameOn(["8:40"], 300, 600, 1.714, 364, 40);
+  const info = await page.evaluate(() => window.__designerEditor.engine.devInfo());
+  const plus = info.hits.addVariant;
+  const [setL, setB] = await toScreen(page, 300, 640);
+  const [setR] = await toScreen(page, 664, 640);
+  check("R24: a selected component set has the \"+\" (Add variant): 16 × 16, centred under it, 4 px under its 17 px pill 6 px below it", !!plus && plus.ref === "8:40" && plus.width === 16 && plus.height === 16 && Math.abs(cbox.x + plus.x + 8 - (setL + setR) / 2) <= 1 && Math.abs(cbox.y + plus.y - (setB + 6 + 17 + 4)) <= 1, JSON.stringify(plus));
+  {
+    // The pill's purple run along its middle: "3 Variants" (live 67 px at the capture's 1.08: 62.0), not the size (~84).
+    const px = await regionPixels(page, { x: Math.round((setL + setR) / 2) - 60, y: Math.round(setB + 6 + 3), width: 120, height: 1 });
+    let x0 = -1, x1 = -1;
+    for (let x = 0; x < px.width; x++) {
+      if (!isPurple(px.data, x * 4)) continue;
+      if (x0 < 0) x0 = x;
+      x1 = x;
+    }
+    check("R24: the pill reads \"3 Variants\": ~62 px wide (live 67 px at the capture's 1.08: 62.0)", x0 >= 0 && Math.abs(x1 - x0 + 1 - 62) <= 2, `${x1 - x0 + 1}`);
+    // The gap boxes: pink at the first gap's left edge (x 416 in the set's space 116), y 16..24.
+    const [gx, gy] = await toScreen(page, 416, 620);
+    const g = await regionPixels(page, { x: Math.round(gx) - 2, y: Math.round(gy), width: 5, height: 1 });
+    let pink = 0;
+    for (let x = 0; x < g.width; x++) pink += isPink(g.data, x * 4) ? 1 : 0;
+    check("R24: a pink box in each gap between the variants (live canvas-component-set-selected)", pink >= 1, `${pink} pink px`);
+  }
+  await shot(page, `210-r11-component-set-${theme}`);
+  if (plus) {
+    await page.mouse.click(cbox.x + plus.x + 8, cbox.y + plus.y + 8);
+    await settle(page);
+    const after = await page.evaluate(() => {
+      const e = window.__designerEditor.engine;
+      const set = e.readNode("8:40");
+      return { kids: e.children ? e.children("8:40")?.length : undefined, w: set.size.x, h: set.size.y, sel: window.__designerEditor.selection };
+    });
+    check("R24: a click on the \"+\" adds a variant into the set's flow (the set hugs it: 480 × 40) and selects it", after.w === 480 && after.h === 40 && after.sel.length === 1 && after.sel[0] !== "8:40", JSON.stringify(after));
+    await shot(page, `211-r11-added-variant-${theme}`);
+    await canvas.focus();
+    await page.keyboard.press("Meta+z");
+    await settle(page);
+    check("R24: ⌘Z takes it back", (await node(page, "8:40")).size.x === 364);
+  }
+
+  // R26: the Button instance (8:60 at 100, 720) selected, then not: no title over it (live canvas-instance-selected,
+  // menu-context-main-component); the main component (8:1) keeps "❖ Button".
+  const titleInk = async (wx, wy) => {
+    const [x, y] = await toScreen(page, wx, wy);
+    const px = await regionPixels(page, { x: Math.round(x), y: Math.round(y) - 18, width: 60, height: 14 });
+    let n = 0;
+    for (let i = 0; i < px.data.length; i += 4) if (px.data[i] > 120 && px.data[i + 2] > 180 && px.data[i + 1] < px.data[i + 2] - 30) n++;
+    return n;
+  };
+  await frameOn(["8:60"], 100, 720, 3.22, 95, 44);
+  const instSel = await titleInk(100, 720);
+  await shot(page, `212-r11-instance-selected-${theme}`);
+  await frameOn([], 100, 720, 3.22, 95, 44);
+  const instRest = await titleInk(100, 720);
+  await frameOn(["8:1"], 100, 600, 3.22, 95, 44);
+  const main = await titleInk(100, 600);
+  check("R26: no title over a top-level instance, selected or not; the main component keeps its own", instSel === 0 && instRest === 0 && main > 10, JSON.stringify({ instSel, instRest, main }));
+
+  // R25: the text (7:90 "Hello, Capture", 184 × 29 at 0, 460) hovered at 2.38×: a 2 px blue line just under the
+  // baseline, no box; selected and hovered: 1 px.
+  const underline = async () => {
+    const [x, y0] = await toScreen(page, 90, 460);
+    const [, y1] = await toScreen(page, 90, 489);
+    const col = await regionPixels(page, { x: Math.round(x) + 3, y: Math.round(y0) - 3, width: 1, height: Math.round(y1 - y0) + 6 });
+    const rows = [];
+    for (let y = 0; y < col.height; y++) if (isBlue(col.data, y * 4)) rows.push(y + Math.round(y0) - 3);
+    return { rows, top: Math.round(y0), bottom: Math.round(y1) };
+  };
+  await frameOn([], 0, 460, 2.38, 184, 29);
+  await page.mouse.move(...(await toScreen(page, 60, 470)));
+  await settle(page);
+  const hover = await underline();
+  await shot(page, `213-r11-text-hover-${theme}`);
+  // Inter 24's baseline 23.25 under the top of its 29-high line: at 2.38×, 55 px down.
+  const base = hover.top + 23.25 * 2.38;
+  check("R25: a hovered text's baseline underlined: 2 px from its baseline down, no box edge", hover.rows.length === 2 && Math.abs(hover.rows[0] - base) <= 1.5 && !hover.rows.includes(hover.top), JSON.stringify({ ...hover, base }));
+  await frameOn(["7:90"], 0, 460, 2.38, 184, 29);
+  await page.mouse.move(...(await toScreen(page, 60, 470)));
+  await settle(page);
+  const selHover = await underline();
+  check("R25: a hovered selected text keeps a 1 px baseline line in its box (live canvas-text-selected)", selHover.rows.filter((y) => y > selHover.top + 2 && y < selHover.bottom - 2).length === 1, JSON.stringify(selHover));
+
+  // R27: Ellipse + Polygon (7:61, 7:62) selected, the pointer away: tiny white dots with a pink core at their centres,
+  // no ring; the pointer on the selection: rings.
+  await frameOn(["7:61", "7:62"], 160, 300, 2, 240, 100);
+  const [ecx, ecy] = await toScreen(page, 210, 350);
+  const dot = await regionPixels(page, { x: Math.round(ecx) - 6, y: Math.round(ecy) - 6, width: 13, height: 13 });
+  const count = (d, f) => {
+    let n = 0;
+    for (let i = 0; i < d.data.length; i += 4) n += f(d.data, i) ? 1 : 0;
+    return n;
+  };
+  const whiteish = (d, i) => d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235;
+  const pinkAway = count(dot, isPink);
+  await shot(page, `214-r11-multi-dots-${theme}`);
+  await page.mouse.move(...(await toScreen(page, 280, 350)));
+  await settle(page);
+  const ring = await regionPixels(page, { x: Math.round(ecx) - 6, y: Math.round(ecy) - 6, width: 13, height: 13 });
+  check("R27: off the selection a ~3 px dot (a pink core, a few pixels), on it the 9 px ring", pinkAway >= 1 && pinkAway <= 6 && count(ring, isPink) >= 16, JSON.stringify({ pinkAway, ring: count(ring, isPink), white: count(dot, whiteish) }));
+  await shot(page, `215-r11-multi-rings-${theme}`);
+  // The Group (7:80): its two layers' centres dotted.
+  await frameOn(["7:80"], 1220, 300, 2.38, 140, 80);
+  const [gcx, gcy] = await toScreen(page, 1250, 340);
+  const gdot = await regionPixels(page, { x: Math.round(gcx) - 5, y: Math.round(gcy) - 5, width: 11, height: 11 });
+  // Lighter than the layer (its colour in the region's corner) by 60 and grey: the dot's white.
+  const lighter = (d, i) => d[i] > gdot.data[0] + 60 && d[i + 1] > gdot.data[1] + 60 && Math.abs(d[i] - d[i + 2]) < 24;
+  check("R27: a selected group's equally spaced layers get the dots (live canvas-group-selected)", count(gdot, isPink) >= 1 && count(gdot, lighter) >= 2, JSON.stringify({ pink: count(gdot, isPink), white: count(gdot, lighter) }));
+  await shot(page, `216-r11-group-dots-${theme}`);
+}
+
 /**
  * Round 8 on `?editor&doc=empty` (dark): the selection / canvas audit's open items — smart selection's centre rings
  * dragged to reorder, the ⌥R rotation origin, ruler guides dragged out of the rulers (selected, snapped to), the Scale
@@ -4189,6 +4338,17 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await overlays9Section(page, "dark");
+    await context.close();
+  }
+  if (only === "overlays11") {
+    // Round 11's canvas chrome at live's viewport, on its own (the full run stays within its 180 s).
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await overlays11Section(page, "dark");
     await context.close();
   }
   if (only === "prototype") {
