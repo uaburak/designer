@@ -123,6 +123,8 @@ struct MeasurementMark {
   std::string text;                // the value, or its custom text
   bool selected = false;
 };
+// The `</>` at a selected design's top right (CSS px), and the room its name leaves for it.
+inline constexpr double kDevIconWidth = 12, kDevIconGap = 8;
 struct DevStatusMark {
   Guid frame = kNoGuid;
   enum class Kind : uint8_t { MarkButton, Ready, Completed, Changed } kind = Kind::Ready;
@@ -183,17 +185,28 @@ struct Overlay {
   bool hasInsertion = false;
   GuideLine insertion;
   std::vector<Rect> bands;
-  // Grid auto layout: a selected grid's tracks as Figma's blue pills along its top (columns) and left (rows) edges,
-  // world space at the frame's edge; the hovered one shows its size ("1fr", "120", "Hug").
-  struct GridTrack {
-    Vec2 a, b;           // world: the track's extent along the edge
-    bool column = true;  // along the top edge (else the left)
-    bool hovered = false;   // labelled
-    bool selected = false;  // solid, labelled
-    bool grabber = false;   // the grabber before the label
+  // Grid auto layout, a selected grid (live Figma, canvas-grid-*): every cell outlined light blue (a selected track's
+  // empty ones filled), the tracks' pills (screen CSS px: compact, or expanded with grabber, label and chevron — the
+  // hovered segment darker), the outlined tracks (an expanded pill's; world corners).
+  struct GridCell {
+    Vec2 a, b;  // world: opposite corners (the grid is upright)
+    bool fill = false;
+  };
+  std::vector<GridCell> gridCells;
+  struct GridPill {
+    Rect rect;              // screen CSS px
+    bool column = true;     // above the frame (else left of it)
+    bool expanded = false;
+    bool selected = false;
+    int hovered = -1;       // 0 grabber, 1 label, 2 chevron
+    double segment = 16;    // the grabber's and the chevron's width
+    double labelWidth = 0;
     std::string label;
   };
-  std::vector<GridTrack> gridTracks;
+  std::vector<GridPill> gridPills;
+  std::vector<GridCell> gridTrackBoxes;
+  // The selection's box dashed (a grid's track selected).
+  bool selectionDashed = false;
   // Reordering tracks: where they will land (world). A grid item's span handles: its sides' midpoints (world).
   bool hasGridDrop = false;
   GuideLine gridDrop;
@@ -204,6 +217,10 @@ struct Overlay {
   // bottom-left), the one under the pointer (−1: none).
   std::vector<Vec2> radiusHandles;
   int radiusHovered = -1;
+  // The selected ellipse's arc handles, a polygon's or star's corner radius / ratio / count handles (world), the one
+  // under the pointer or dragged (−1: none): rings as the radius handles.
+  std::vector<Vec2> shapeHandles;
+  int shapeHovered = -1;
   // Equally spaced selected layers (smart selection): the pink gap handles (world, the middle of each gap, `vertical`:
   // a gap between rows) and the centre dots of the layers.
   struct GapHandle {
@@ -253,8 +270,9 @@ struct Overlay {
   bool pixelGrid = true;
   bool outlines = false;
   bool layoutGuides = true;  // View › Layout guides (⇧G): frames' layout grids drawn
-  // Top-level frames' names above them.
+  // Top-level frames' names above them; one frame's left out (a grid whose track is selected: live Figma).
   bool frameTitles = true;
+  Guid hideTitle = kNoGuid;
   // The camera is in a continuous zoom (the wheel, a pinch): a page that takes long to draw may show its cached
   // pixels scaled until the zoom settles (docs/engine.md §6.9).
   bool zooming = false;
@@ -321,9 +339,9 @@ class Renderer {
     return it == trees_.end() ? nullptr : &it->second;
   }
   const ImageCache& imageCache() const { return images_; }
-  // A label's layout (overlay text: Inter at `size` CSS px, `style` "Regular" / "Medium"), cut with "…" past
-  // `maxWidth` (< 0: never); nullptr until Inter has loaded.
-  const text::TextLayout* label(const std::string& text, const char* style, double size, double maxWidth = -1, int maxLines = 1);
+  // A label's layout (overlay text: Inter at `size` CSS px, `style` "Regular" / "Medium"; `weight` > 0: that weight on
+  // Inter's variable axis, e.g. Figma's 550), cut with "…" past `maxWidth` (< 0: never); nullptr until Inter has loaded.
+  const text::TextLayout* label(const std::string& text, const char* style, double size, double maxWidth = -1, int maxLines = 1, double weight = 0);
   // What the last canvas frame drew that the editor hit-tests (annotation labels, measurements, statuses).
   const CanvasHits& canvasHits() const { return hits_; }
   // Draws `page` through `camera` into `target` (0 = the canvas), viewport.deviceWidth × deviceHeight.
@@ -524,6 +542,8 @@ class Renderer {
   // the measurement tool's edges and draft; a frame title's status chip (`x`: where it starts, `baseline`).
   void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   void drawStatusChip(const DevStatusMark& mark, double x, double baseline, const OverlayStyle& style);
+  // The `</>` at a selected design's top right (Overlay.cpp): its right edge at `right`, by the title's baseline.
+  void drawDevIcon(Guid frame, double right, double baseline, const Color& color);
   // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
   void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color);
   // Render-tree node `i`'s props: the scene item's override when it has one (renderScene), else the document's.

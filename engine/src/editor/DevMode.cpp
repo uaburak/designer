@@ -188,8 +188,8 @@ void Editor::devOverlay(Overlay& o) const {
     return kNoGuid;
   };
 
-  // Statuses after the designs' names; "Mark as ready for dev" on a selected frame or component under the pointer.
-  Guid hoveredTop = hover_ != kNoGuid ? topOf(hover_.isDerived() ? instanceOfDerived(hover_) : hover_) : kNoGuid;
+  // Statuses after the designs' names; on a selected frame or component without one, the `</>` at its top right that
+  // marks it ready for dev (live Figma, canvas-autolayout-selected-hover-gap / canvas-grid-frame-selected).
   for (Guid c : doc_.children(page_)) {
     const Node* n = doc_.get(c);
     if (!n || !n->props.visible || !n->props.isFrameLike() || n->props.type == NodeType::SECTION) continue;
@@ -197,7 +197,7 @@ void Editor::devOverlay(Overlay& o) const {
     int st = devStatus(c);
     if (st) {
       d.statuses.push_back({c, st == 1 ? DevStatusMark::Kind::Ready : st == 2 ? DevStatusMark::Kind::Completed : DevStatusMark::Kind::Changed});
-    } else if (canEditDev() && n->props.type != NodeType::INSTANCE && c == hoveredTop && selected(c)) {
+    } else if (canEditDev() && n->props.type != NodeType::INSTANCE && selected(c)) {
       d.statuses.push_back({c, DevStatusMark::Kind::MarkButton});
     }
   }

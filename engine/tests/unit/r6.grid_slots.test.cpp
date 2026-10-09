@@ -131,8 +131,9 @@ TEST_CASE("grid on canvas: a click on a track's pill selects it and asks to edit
   Editor e = load(gridScene(false));
   e.setSelection({GRID});
   e.takeEvents();
-  // Columns' pills ride 10 px above the top edge.
-  click(e, 20, -10);
+  // Columns' pills ride 31.5 px above the top edge (live Figma); the label of column 1's.
+  move(e, 20, -31.5);
+  click(e, 20, -31.5);
   Editor::GridTracksEvent ev;
   REQUIRE(lastGridEvent(e, ev));
   CHECK(ev.frame == GRID);
@@ -141,10 +142,12 @@ TEST_CASE("grid on canvas: a click on a track's pill selects it and asks to edit
   CHECK(ev.edit);
   CHECK(ev.label.w > 0);
   Overlay o = e.overlay();
-  REQUIRE(o.gridTracks.size() == 4);
-  CHECK(o.gridTracks[0].selected);
-  CHECK(!o.gridTracks[1].selected);
-  click(e, 80, -10, MOD_PRIMARY);
+  REQUIRE(o.gridPills.size() == 1);
+  CHECK(o.gridPills[0].selected);
+  CHECK(o.gridPills[0].expanded);
+  CHECK(o.selectionDashed);
+  CHECK(o.hideTitle == GRID);
+  click(e, 80, -31.5, MOD_PRIMARY);
   REQUIRE(lastGridEvent(e, ev));
   CHECK(ev.tracks == std::vector<size_t>{0, 1});
   CHECK(!ev.edit);  // ⌘: adds, no editor
@@ -155,8 +158,9 @@ TEST_CASE("grid on canvas: a click on a track's pill selects it and asks to edit
   REQUIRE(lastGridEvent(e, ev));
   CHECK(ev.tracks.empty());
   CHECK(e.selection() == std::vector<Guid>{GRID});  // Esc let the tracks go, not the grid
-  // Rows: the pills left of the frame.
-  click(e, -10, 75);
+  // Rows: the pills left of the frame (an expanded one ends 22.5 px off it).
+  move(e, -31.5, 75);
+  click(e, -31.5, 75);
   REQUIRE(lastGridEvent(e, ev));
   CHECK(!ev.column);
   CHECK(ev.tracks == std::vector<size_t>{1});
@@ -195,7 +199,7 @@ TEST_CASE("grid panel (round 8): SELECT_GRID_TRACKS selects a selected grid's tr
 TEST_CASE("grid on canvas: dragging a track's edge resizes it (Fixed), one undo step") {
   Editor e = load(gridScene(false));
   e.setSelection({GRID});
-  drag(e, {50, -10}, {70, -10});
+  drag(e, {50, -31.5}, {70, -31.5});
   auto c = cols(e);
   CHECK(c[0].sizing == 1);
   CHECK(c[0].value == 70);
@@ -209,17 +213,17 @@ TEST_CASE("grid on canvas: dragging a track's edge resizes it (Fixed), one undo 
 TEST_CASE("grid on canvas: dragging a grabber reorders the tracks; anchored items move with their tracks") {
   Editor e = load(gridScene(false));
   e.setSelection({GRID});
-  move(e, 75, -10);
+  move(e, 57, -31.5);
   Overlay o = e.overlay();
-  REQUIRE(o.gridTracks.size() == 4);
-  CHECK(o.gridTracks[1].grabber);
-  // Column 2's grabber: just left of its label ("50", centred at 75).
-  down(e, 57, -10);
-  for (int i = 1; i <= 8; i++) move(e, 57 - i * 7.0, -10);
+  REQUIRE(o.gridPills.size() == 1);
+  CHECK(o.gridPills[0].hovered == 0);
+  // Column 2's grabber: the expanded pill's first 16 px (its label "50" centred at 75).
+  down(e, 57, -31.5);
+  for (int i = 1; i <= 8; i++) move(e, 57 - i * 7.0, -31.5);
   o = e.overlay();
   CHECK(o.hasGridDrop);
   CHECK(o.gridDrop.a.x == 0);
-  up(e, 1, -10);
+  up(e, 1, -31.5);
   auto c = cols(e);
   REQUIRE(c.size() == 2);
   CHECK(c[0].id == Guid{9, 2});
@@ -234,7 +238,8 @@ TEST_CASE("grid on canvas: dragging a grabber reorders the tracks; anchored item
 TEST_CASE("grid on canvas: ⌫ deletes the selected tracks with their items; spanning items shrink") {
   Editor e = load(gridScene(false));
   e.setSelection({GRID});
-  click(e, 75, -10);  // column 2 (holds I1)
+  move(e, 75, -31.5);
+  click(e, 75, -31.5);  // column 2 (holds I1)
   e.takeEvents();
   key(e, KeyCode::Backspace);
   CHECK(cols(e).size() == 1);
@@ -246,8 +251,10 @@ TEST_CASE("grid on canvas: ⌫ deletes the selected tracks with their items; spa
   CHECK(e.document().has(I1));
   // The last track of an axis stays.
   e.setSelection({GRID});
-  click(e, 20, -10);
-  click(e, 80, -10, MOD_PRIMARY);
+  move(e, 20, -31.5);
+  click(e, 20, -31.5);
+  move(e, 80, -31.5);
+  click(e, 80, -31.5, MOD_PRIMARY);
   key(e, KeyCode::Backspace);
   CHECK(cols(e).size() == 2);
 }

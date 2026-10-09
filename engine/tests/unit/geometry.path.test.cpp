@@ -157,17 +157,27 @@ TEST_CASE("shapes: rounded and smoothed rectangles, arcs, polygons, stars") {
   CHECK(std::fabs(test::sampledArea(ellipsePath({100, 100}, ring), false, 0.1) - kPi * (2500 - 625)) < 20);
   ArcData quarterDonut{0, kPi / 2, 0.5};
   CHECK(std::fabs(test::sampledArea(ellipsePath({100, 100}, quarterDonut), false, 0.1) - kPi * (2500 - 625) / 4) < 10);
-  // A triangle fills its box: apex at the top centre, the base along the bottom.
+  // A triangle's corners are on the ellipse its box holds (live Figma: (50, 0), (93.3, 75), (6.7, 75)) — the box
+  // isn't filled.
   Path tri = polygonPath({100, 100}, 3, 0);
   Rect tb = tri.bounds();
-  CHECK(tb.x == doctest::Approx(0).epsilon(1e-9));
-  CHECK(tb.w == doctest::Approx(100));
-  CHECK(tb.h == doctest::Approx(100));
-  CHECK(std::fabs(test::sampledArea(tri, false, 0.1) - 5000) < 10);
-  // A 5-point star: 10 corners.
+  CHECK(tb.x == doctest::Approx(50 - 50 * std::sqrt(3.0) / 2));
+  CHECK(tb.y == doctest::Approx(0).epsilon(1e-9));
+  CHECK(tb.w == doctest::Approx(50 * std::sqrt(3.0)));
+  CHECK(tb.h == doctest::Approx(75));
+  CHECK(std::fabs(test::sampledArea(tri, false, 0.1) - 0.75 * std::sqrt(3.0) * 2500) < 10);
+  std::vector<Vec2> corners = polygonPoints({100, 100}, 3);
+  REQUIRE(corners.size() == 3);
+  CHECK(corners[1].x == doctest::Approx(93.30127));
+  CHECK(corners[1].y == doctest::Approx(75));
+  // A 5-point star: 10 corners; its right tip at x 97.55 (live Figma), the box's bottom edge left empty.
   Path star = starPath({100, 100}, 5, 0.382, 0);
   CHECK(test::countVerb(star, Verb::Line) == 9);
-  CHECK(star.bounds().w == doctest::Approx(100));
+  CHECK(star.bounds().right() == doctest::Approx(50 + 50 * std::cos(kPi / 10)));
+  CHECK(star.bounds().bottom() == doctest::Approx(50 + 50 * std::sin(0.3 * kPi)));
+  std::vector<Vec2> sp = starPoints({100, 100}, 5, 0.382);
+  REQUIRE(sp.size() == 10);
+  CHECK(sp[1].x == doctest::Approx(50 + 50 * 0.382 * std::cos(-0.3 * kPi)));  // the first inner corner
   // Rounded corners make it smaller, not larger.
   CHECK(test::sampledArea(starPath({100, 100}, 5, 0.382, 5), false, 0.2) < test::sampledArea(star, false, 0.2));
 }

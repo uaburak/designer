@@ -894,7 +894,7 @@ export type EngineEvent =
   | { type: "MEASUREMENT_EDIT"; id: Guid; text: string; x: number; y: number; width: number; height: number }
   /** Dev Mode: the selected saved measurement changed. */
   | { type: "MEASUREMENT_SELECTED"; id: Guid | null }
-  /** Dev Mode: a design's status chip ("menu") or "Mark as ready for dev" ("mark") was clicked. */
+  /** Dev Mode: a design's status chip ("menu") or the `</>` at a selected design's top right ("mark": toggle Ready for dev) was clicked. */
   | { type: "DEV_STATUS"; ref: Guid; action: "menu" | "mark"; x: number; y: number; width: number; height: number };
 
 /** engine_dev_info (Engine.devInfo). */
