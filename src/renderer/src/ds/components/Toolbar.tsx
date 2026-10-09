@@ -55,11 +55,13 @@ export interface ToolButtonProps {
 export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMenuSelect, menuLabel, disabled, menuDisabled = disabled, forceHover, forceOpen }: ToolButtonProps) {
   const chevron = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  // Live (toolbar/*-tools-menu.txt): the menu's left edge at the chevron's, its bottom 12 over the tool's top (4 over
+  // the toolbar).
   const toggle = () => {
-    const el = chevron.current?.parentElement;
+    const el = chevron.current;
     if (at || !el) return setAt(null);
     const r = el.getBoundingClientRect();
-    setAt({ x: r.left, y: r.top - 8 });
+    setAt({ x: r.left, y: r.top - 12 });
   };
   return (
     <div data-ds="ToolButton" className={styles.tool} data-active={active || undefined}>
@@ -86,6 +88,7 @@ export function ToolButton({ icon, label, shortcut, active, onSelect, menu, onMe
             <ContextMenu
               at={at}
               above
+              dropdown
               entries={menu}
               ignore={chevron}
               onSelect={(id) => onMenuSelect?.(id)}

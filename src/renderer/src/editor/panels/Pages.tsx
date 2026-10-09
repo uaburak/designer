@@ -1,26 +1,25 @@
 /**
  * The Pages section (live capture: the header's title at 16, Find and "Add new page" at 180 / 208; rows on a 32
  * pitch, the current one highlighted with its name 550; an 8px "Resize handle" on the line under the list). Click
- * goes to a page, double-click renames it, a new page opens its rename, the context menu has Rename / Duplicate /
- * Delete, and a drag reorders. An empty page whose name starts with a dash is a divider (help "Create and manage
+ * goes to a page, double-click renames it, a new page opens its rename, the context menu is live Figma's (menus.ts
+ * pageMenu: Copy link to page │ Rename page, Duplicate page │ Move up / down │ Delete page), and a drag reorders. An empty page whose name starts with a dash is a divider (help "Create and manage
  * pages"): a line, not a page to go to. Find (⌘F) opens Find and replace in place of Pages and Layers.
  */
 import { useRef, useState } from "react";
-import { ContextMenu, IconButton, PageRow, PanelSection, ResizeHandle, showToast, type MenuEntry } from "@/ds";
-import { CMD_ENABLED, Status } from "@/engine/abi";
+import { ContextMenu, IconButton, PageRow, PanelSection, ResizeHandle, showToast } from "@/ds";
+import { Status } from "@/engine/abi";
 import { useCurrentPage } from "@/engine/hooks";
 import type { Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../controller";
 import { command, shortcutOf } from "../commands";
 import { openFind } from "../find";
+import { pageMenu, runPageMenuItem } from "../menus";
 import { usePages, useUI } from "../hooks";
 import styles from "./Panels.module.css";
 
 const PAGE_PITCH = 32;
 /** The list's height before it scrolls, until the divider is dragged (Figma lets the Pages list grow with its pages up to a cap) */
 const DEFAULT_CAP = 0.4;
-
-const enabled = (ed: EditorController, name: "DELETE_PAGE" | "DUPLICATE_PAGE") => (ed.engine.commandState(name) & CMD_ENABLED) !== 0;
 
 /** "Add new page": the new page, its name in a rename field (Figma: "Give your new page a name"). */
 export function createPage(ed: EditorController): void {
@@ -57,20 +56,6 @@ export function Pages() {
   const rename = (page: Guid, name: string | null) => {
     ed.ui.set({ renaming: null });
     if (name && name !== pages.find((p) => p.guid === page)?.name) ed.setProps([page], { name }, "Rename page");
-  };
-
-  const menuEntries: MenuEntry[] = [
-    { id: "copy-link", label: "Copy link to page", disabled: true },
-    "-",
-    { id: "rename", label: "Rename" },
-    { id: "duplicate", label: "Duplicate", disabled: !enabled(ed, "DUPLICATE_PAGE") },
-    { id: "delete", label: "Delete", disabled: pages.length < 2 || !enabled(ed, "DELETE_PAGE") },
-  ];
-
-  const onMenu = (id: string, page: Guid) => {
-    if (id === "rename") ed.ui.set({ renaming: { kind: "page", id: page } });
-    else if (id === "duplicate") ed.engine.command("DUPLICATE_PAGE", { page });
-    else if (id === "delete") ed.engine.command("DELETE_PAGE", { page });
   };
 
   // Drag to reorder: past 4px the row follows the pointer; the drop index counts the other pages.
@@ -157,7 +142,7 @@ export function Pages() {
           onChange={(px, info) => ed.ui.set({ pagesHeight: info.final && px === Math.min(natural, Math.round(window.innerHeight * DEFAULT_CAP)) ? null : px })}
         />
       )}
-      {menu && <ContextMenu at={menu.at} entries={menuEntries} label="Page" context onSelect={(id) => onMenu(id, menu.page)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu at={menu.at} entries={pageMenu(ed, menu.page)} label="Page" context onSelect={(id) => void runPageMenuItem(ed, menu.page, id)} onClose={() => setMenu(null)} />}
     </PanelSection>
   );
 }

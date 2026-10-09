@@ -48,9 +48,9 @@ export const TOOLS: Record<ToolId, ToolDef> = {
   pen: { id: "pen", label: "Pen", shortcut: "P", icon: "24.pen" },
   pencil: { id: "pencil", label: "Pencil", shortcut: keys(["shift", "p"]), icon: "24.pencil" },
   text: { id: "text", label: "Text", shortcut: "T", icon: "24.text" },
-  "text-on-path": { id: "text-on-path", label: "Text on a path", icon: "24.text-on-path" },
+  "text-on-path": { id: "text-on-path", label: "Text on path", icon: "24.text-on-path" },
   comment: { id: "comment", label: "Comment", shortcut: "C", icon: "24.comment" },
-  annotation: { id: "annotation", label: "Annotation", shortcut: keys(["shift", "t"]), icon: "24.annotation" },
+  annotation: { id: "annotation", label: "Annotation", shortcut: "Y", icon: "24.annotation" },
   measurement: { id: "measurement", label: "Measurement", shortcut: keys(["shift", "m"]), icon: "24.measurement" },
 };
 
@@ -62,7 +62,7 @@ export const TOOL_GROUPS: ToolGroupDef[] = [
   { id: "region", label: "Region tools", tools: ["frame", "section", "slice"] },
   { id: "shape", label: "Shape tools", tools: ["rectangle", "line", "arrow", "ellipse", "polygon", "star", "image"] },
   { id: "creation", label: "Creation tools", tools: ["pen", "pencil"] },
-  { id: "text", label: "Text tools", tools: ["text", "text-on-path"] },
+  { id: "text", label: "Type tools", tools: ["text", "text-on-path"] },
   { id: "comment", label: "Comment tools", tools: ["comment", "annotation", "measurement"] },
 ];
 
@@ -75,7 +75,7 @@ export function toolForKey(e: { key: string; shiftKey: boolean; metaKey?: boolea
   const k = e.key.toLowerCase();
   if (e.metaKey || e.ctrlKey) return e.shiftKey && k === "k" ? "image" : null;
   if (e.shiftKey) return ({ s: "section", l: "arrow", p: "pencil", t: "annotation", m: "measurement" } as Record<string, ToolId>)[k] ?? null;
-  return ({ v: "move", h: "hand", k: "scale", f: "frame", s: "slice", r: "rectangle", l: "line", o: "ellipse", p: "pen", t: "text", c: "comment" } as Record<string, ToolId>)[k] ?? null;
+  return ({ v: "move", h: "hand", k: "scale", f: "frame", s: "slice", r: "rectangle", l: "line", o: "ellipse", p: "pen", t: "text", c: "comment", y: "annotation" } as Record<string, ToolId>)[k] ?? null;
 }
 
 export type EditorModeDef = { id: EditorMode; label: string; icon: IconName; shortcut?: string };
@@ -134,7 +134,7 @@ export function EditorToolbar({ tool, groupTools, onTool, onActions, actionsActi
             disabled={disabledTools.includes(shown.id)}
             menuDisabled={g.tools.every((id) => disabledTools.includes(id))}
             menuLabel={g.label}
-            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === tool, disabled: disabledTools.includes(id) }))}
+            menu={g.tools.map((id) => ({ id, label: TOOLS[id].label, shortcut: TOOLS[id].shortcut, icon: TOOLS[id].icon, checked: id === tool, radio: true, disabled: disabledTools.includes(id) }))}
             onMenuSelect={(id) => !disabledTools.includes(id as ToolId) && onTool(id as ToolId)}
           />
         );

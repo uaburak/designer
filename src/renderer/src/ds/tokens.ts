@@ -344,8 +344,12 @@ export const text = {
   "body-ruler": { size: 10, line: 12, weight: 450, tracking: "0.05px" },
   /** Live capture: every menu and dropdown list is 11px / 450 (menus/*.txt, popovers/*-menu.txt) */
   menu: { size: 11, line: 16, weight: 450, tracking: "0.055px" },
+  /** Live capture (menus/context-*.txt): a context menu's shortcut is one 12px / 400 glyph per key */
+  "menu-key": { size: 12, line: 15, weight: 400, tracking: "0px" },
   "body-large": { size: 13, line: 22, weight: 450, tracking: "-0.0325px" },
   "body-large-strong": { size: 13, line: 22, weight: 550, tracking: "-0.0325px" },
+  /** Live capture (toolbar/actions-panel.txt): the Actions palette's rows are 13px / 400 */
+  "body-large-regular": { size: 13, line: 22, weight: 400, tracking: "-0.0325px" },
   "heading-medium": { size: 15, line: 25, weight: 550, tracking: "-0.13px" },
   "heading-large": { size: 24, line: 32, weight: 550, tracking: "-0.47px" },
   code: { size: 11, line: 16, weight: 400, tracking: "0px", mono: true },

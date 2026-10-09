@@ -102,12 +102,18 @@
     --ds-font-menu: 450 11px/16px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-menu: 0.055px;
     --ds-weight-menu: 450;
+    --ds-font-menu-key: 400 12px/15px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-menu-key: 0px;
+    --ds-weight-menu-key: 400;
     --ds-font-body-large: 450 13px/22px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-large: -0.0325px;
     --ds-weight-body-large: 450;
     --ds-font-body-large-strong: 550 13px/22px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-body-large-strong: -0.0325px;
     --ds-weight-body-large-strong: 550;
+    --ds-font-body-large-regular: 400 13px/22px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+    --ds-tracking-body-large-regular: -0.0325px;
+    --ds-weight-body-large-regular: 400;
     --ds-font-heading-medium: 550 15px/25px "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
     --ds-tracking-heading-medium: -0.13px;
     --ds-weight-heading-medium: 550;
