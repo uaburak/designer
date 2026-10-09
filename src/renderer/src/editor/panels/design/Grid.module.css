@@ -135,11 +135,40 @@
   .gapStack { display: flex; flex-direction: column; gap: var(--ds-space-2); }
   /* A track row selected on the canvas (its pill) */
   .trackSelected { border-radius: var(--ds-radius-medium); background: var(--figma-color-bg-selected); }
-  .trackEditor {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--ds-space-2);
-    padding: var(--ds-space-2);
+  /*
+   * A track pill's label as a field (its chevron clicked; live canvas-grid-row-track-menu): over the pill's label, on
+   * the pill's blue, its text white in the pill's 11px Medium and selected (white behind dark).
+   */
+  .pillLabel {
+    position: fixed;
+    z-index: var(--ds-z-popover);
+    display: flex;
+    background: var(--figma-color-bg-brand);
+  }
+  .pillLabel > [data-ds="TextInput"] {
+    --field-ring: transparent;
+    height: 100%;
+    border-radius: 0;
+    background: transparent;
+    color: var(--figma-color-text-onbrand);
+    font: var(--ds-font-body-medium);
+    font-weight: var(--ds-weight-panel-label);
+  }
+  .pillLabel input { margin: 0; padding: 0; text-align: center; }
+  .pillLabel input::selection { background: var(--figma-color-text-onbrand); color: var(--figma-color-bg-brand); }
+  /*
+   * Its sizing list (live grid/row-track-menu.txt: the list 156 × 72, its rows from its top) in a menu box 8 taller above
+   * and below it (live canvas-grid-row-track-menu: the first row 8 under the box's top) — the box drawn behind the list.
+   */
+  .pillMenu { overflow: visible; background: transparent; box-shadow: none; }
+  .pillMenu::before {
+    content: "";
+    position: absolute;
+    inset: calc(var(--ds-size-menu-pad) * -1) 0;
+    z-index: -1;
+    border-radius: var(--ds-radius-large);
+    background: var(--ds-color-menu-bg);
+    box-shadow: var(--ds-elevation-menu);
   }
   .topRow { align-items: start; }
 

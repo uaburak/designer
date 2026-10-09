@@ -4,8 +4,8 @@
  * (bindable to variables), and each track's size (Fixed px, Fill container in fr, Hug contents); for an item in a grid,
  * "Column span" / "Row span". Edits go through the grid model (model/grid.ts) as whole field values, one undo step each.
  */
-import { useState, type ReactNode } from "react";
-import { Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, tooltipProps, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
+import { useRef, useState, type ReactNode } from "react";
+import { ContextMenu, Icon, IconButton, MIXED, MenuButton, NumericInput, Popover, PropertyRow, Select, TextInput, cx, tooltipProps, type ChangeInfo, type IconName, type MenuEntry } from "@/ds";
 import type { Guid, NodeFields } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
@@ -30,12 +30,6 @@ function editGrids(ed: EditorController, label: string, info: ChangeInfo, refs: 
 }
 
 const FINAL: ChangeInfo = { final: true, source: "step" };
-
-const TRACK_TYPES: { value: TrackType; label: string }[] = [
-  { value: "FIXED", label: "Fixed" },
-  { value: "FLEX", label: "Fill container" },
-  { value: "HUG", label: "Hug contents" },
-];
 
 /**
  * Writes a sizing to tracks `indices` of the grid `guid` along `axis` (the panel's rows and the canvas label editor):
@@ -282,27 +276,43 @@ function GridPicker({ anchor, refs, grids, onClose }: { anchor: HTMLElement; ref
 
 
 /**
- * The label editor of the tracks selected on the canvas (a click on a pill's label, or Enter): their size typed
- * ("120", "2fr", "Hug", "Auto") or picked (Fixed / Fill container / Hug contents), applied to every selected track.
+ * A track pill's chevron on the canvas (or Enter on selected tracks; the engine's GRID_TRACKS {edit}) — live
+ * grid/row-track-menu.txt and canvas-grid-row-track-menu: the pill's label becomes its field, its text selected, and the
+ * sizing list opens under the pill — "Fixed height (84)" / "Hug contents" / "Fill container (1fr)", each with its glyph,
+ * the current one checked, the first lit; 156 × 72 at 419,549 for AL_grid's second row at 160 %: the list 8 left of
+ * the label (its rows' highlight in line with it) and 17 under the pill (the menu's box 8 more above and below). A size
+ * typed ("120", "2fr", "Hug", "Auto") or a row picked applies to every selected track.
  */
 export function GridTrackEditor() {
   const ed = useEditor();
   const at = useUI((s) => s.gridTrackEditor);
   const sel = useUI((s) => s.gridTracks);
+  const field = useRef<HTMLDivElement>(null);
   if (!at || !sel || !sel.tracks.length) return null;
-  const node = ed.engine.readNodes([sel.frame])[0] as unknown as (GridNode & { guid: Guid }) | undefined;
+  const node = ed.engine.readNodes([sel.frame])[0] as unknown as (GridNode & { guid: Guid; size?: { x: number; y: number } }) | undefined;
   if (!node) return null;
   const axis: GridAxis = sel.axis === "COLUMNS" ? "columns" : "rows";
-  const tracks = tracksOf(node, axis);
-  const types = [...new Set(sel.tracks.filter((i) => i < tracks.length).map((i) => tracks[i].sizing.type))];
+  const index = sel.tracks[0];
   const close = () => {
     ed.ui.set({ gridTrackEditor: null });
-    ed.canvas?.focus({ preventScroll: true });
+    ed.focusCanvas();
   };
   const name = axis === "columns" ? "Column" : "Row";
   return (
-    <Popover anchor={new DOMRect(at.x, at.y, at.width, at.height)} placement="bottom" onClose={close} label={`${name} size`} width={200}>
-      <div className={styles.trackEditor} data-grid-track-editor={sel.axis}>
+    <>
+      <div
+        ref={field}
+        className={styles.pillLabel}
+        style={{ left: at.x, top: at.y, width: at.width, height: at.height }}
+        data-grid-track-editor={sel.axis}
+        onKeyDownCapture={(e) => {
+          // ↓ / ↑: on to the list (its rows then follow the keys).
+          if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+          e.preventDefault();
+          e.stopPropagation();
+          document.querySelector<HTMLElement>(`.${styles.pillMenu}`)?.focus({ preventScroll: true });
+        }}
+      >
         <TextInput
           label={`${name} size`}
           value={tracksLabel(node, axis, sel.tracks)}
@@ -311,20 +321,35 @@ export function GridTrackEditor() {
             const s = parseTrackInput(text);
             if (s) writeTrackSizing(ed, sel.frame, axis, sel.tracks, s);
           }}
-          onExit={(r) => (r === "escape" || r === "enter" ? close() : undefined)}
-        />
-        <Select
-          label={`${name} resizing`}
-          value={types.length === 1 ? types[0] : MIXED}
-          options={TRACK_TYPES}
-          onChange={(v) => {
-            const first = tracks[sel.tracks[0]];
-            writeTrackSizing(ed, sel.frame, axis, sel.tracks, { type: v as TrackType, value: v === "FIXED" ? Math.round(first && first.sizing.type === "FIXED" ? first.sizing.value : 100) : 1 });
-          }}
+          onExit={(r) => (r === "blur" ? undefined : close())}
         />
       </div>
-    </Popover>
+      <ContextMenu
+        at={{ x: at.x - TRACK_MENU.inset, y: at.y + at.height + TRACK_MENU.below }}
+        entries={trackMenu(node, axis, index)}
+        highlighted={0}
+        ignore={field}
+        label={`${name} sizing`}
+        className={cx(dstyles.panelMenu, dstyles.trackMenu, styles.pillMenu)}
+        onSelect={(id) => writeTrackSizing(ed, sel.frame, axis, sel.tracks, pickedSizing(node, axis, index, id as TrackType))}
+        onClose={close}
+      />
+    </>
   );
+}
+
+/** Where the pill's list sits (live grid/row-track-menu.txt): 8 left of the label, its first row 17 under the pill. */
+export const TRACK_MENU = { inset: 8, below: 17 } as const;
+
+/**
+ * The sizing a row of the track list gives (the pill's and the Grid panel's): Fixed at the track's size as laid out
+ * (the "(84)" its row shows), Fill keeping its fr, Hug.
+ */
+export function pickedSizing(node: GridNode & { size?: { x: number; y: number } }, axis: GridAxis, index: number, type: TrackType): { type: TrackType; value: number } {
+  const t = tracksOf(node, axis)[index];
+  if (type === "FIXED") return { type, value: trackSize(node, axis, index) ?? Math.round(t && t.sizing.type === "FIXED" ? t.sizing.value : 100) };
+  if (type === "FLEX") return { type, value: t && t.sizing.type === "FLEX" ? t.sizing.value : 1 };
+  return { type, value: 1 };
 }
 
 /** For layers in a grid: how many columns and rows each spans (Figma: "Column span" / "Row span"). */
@@ -478,7 +503,7 @@ export function GridPanel({ frame }: { frame: Guid }) {
                   gap={PANEL_MENU_GAP}
                   menuClassName={cx(dstyles.panelMenu, dstyles.trackMenu)}
                   entries={trackMenu(node, axis, i)}
-                  onSelect={(id) => size({ type: id as TrackType, value: id === "FIXED" ? Math.round(t.sizing.type === "FIXED" ? t.sizing.value : 100) : t.sizing.type === "FLEX" ? t.sizing.value : 1 })}
+                  onSelect={(id) => size(pickedSizing(node, axis, i, id as TrackType))}
                 >
                   <Icon name="16.chevron.down" />
                 </MenuButton>

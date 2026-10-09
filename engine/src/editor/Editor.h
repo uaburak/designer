@@ -360,8 +360,8 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<Guid> nodes;
     Guid interaction = kNoGuid;
   };
-  // The grid tracks selected on the canvas (GRID_TRACKS); `edit`: a label was clicked (or Enter) — TS opens its
-  // editor at `label` (screen, CSS px).
+  // The grid tracks selected on the canvas (GRID_TRACKS); `edit`: a pill's chevron was clicked (or Enter) — TS opens
+  // the label's field and the sizing list at `label` (screen, CSS px; round 12, live grid/row-track-menu.txt).
   struct GridTracksEvent {
     Guid frame = kNoGuid;
     bool column = true;

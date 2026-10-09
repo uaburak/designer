@@ -1720,14 +1720,18 @@ async function gridSection(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.setSelection(["1:1"]));
   await settle(page);
   check("Grid: Number of rows reads Auto (a new grid)", ((await panel.getByRole("button", { name: /^Open grid dimensions picker/ }).getAttribute("aria-label")) ?? "").includes("auto rows"));
-  // A click on the first column's pill label opens the track label editor; 120 makes it Fixed 120.
+  // A click on the first column's pill label selects it (round 12, live: nothing opens); Enter opens the label's field
+  // and the sizing list; 120 makes it Fixed 120.
   const [px, py] = await pillOfColumn1();
   await page.mouse.move(px, py);
   await settle(page);
   await page.mouse.click(px, py);
   await settle(page);
   const editor = page.locator("[data-grid-track-editor]");
-  check("Grid: a click on a column's pill opens its label editor", (await editor.count()) === 1);
+  check("Grid: a click on a column's pill selects it, nothing opens (round 12, live Figma)", (await editor.count()) === 0 && (await page.evaluate(() => window.__designerEditor.ui.get().gridTracks?.tracks?.join())) === "0");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  check("Grid: Enter on the selected column opens its label's field and its sizing list", (await editor.count()) === 1 && (await page.getByRole("menu", { name: "Column sizing" }).count()) === 1);
   await shot(page, `113-grid-track-editor-${theme}`);
   if (await editor.count()) {
     const field = editor.getByRole("textbox", { name: "Column size" });
@@ -2936,7 +2940,7 @@ async function overlays9Section(page, theme) {
     await page.keyboard.press("Meta+z");
     await settle(page);
   }
-  // AL_grid (7:40): cells outlined, the pill over the hovered column; a click on its label opens the size editor.
+  // AL_grid (7:40): cells outlined, the pill over the hovered column; a click on its label selects the column.
   at = await frameOn("7:40", 1.6);
   const [gx, gy] = await at(160, 6);
   await page.mouse.move(gx, gy);
@@ -2966,7 +2970,7 @@ async function overlays9Section(page, theme) {
   await settle(page);
   const sel = await page.evaluate(() => window.__designerEditor.ui.get().gridTracks);
   check("Grid: a click on a column's pill selects the column (the Grid panel)", !!sel && sel.axis === "COLUMNS" && sel.tracks.join() === "1", JSON.stringify(sel));
-  check("Grid: …and opens its size editor", (await page.locator("[data-grid-track-editor]").count()) === 1);
+  check("Grid: …and nothing else opens (round 12, live grid/row-track-menu.txt)", (await page.locator("[data-grid-track-editor]").count()) === 0 && (await page.getByRole("menu").count()) === 0);
   await shot(page, `198-grid-column-selected-${theme}`);
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");

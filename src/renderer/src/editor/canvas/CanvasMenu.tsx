@@ -28,8 +28,9 @@ export function attachCanvasMenu(ed: EditorController, canvas: HTMLCanvasElement
 }
 
 /**
- * Grid tracks selected on the canvas (the engine's GRID_TRACKS, round 6): kept in the UI state (the Auto layout
- * section highlights them); a click on a pill's label (or Enter) opens the track label editor over it.
+ * Grid tracks selected on the canvas (the engine's GRID_TRACKS, round 6): kept in the UI state (the Grid panel lists
+ * them); a click on a pill's chevron (or Enter) opens the pill's label field and its sizing list (round 12, live
+ * grid/row-track-menu.txt — a click on the pill itself only selects the track).
  */
 export function attachGridTracks(ed: EditorController, canvas: HTMLCanvasElement): () => void {
   const offSel = ed.engine.on("SELECTION_CHANGED", () => {
