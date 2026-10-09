@@ -359,7 +359,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             tone="secondary"
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
-          <MenuButton label="Apply blend mode" tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
+          <MenuButton label="Apply blend mode" tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush extend onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
             <Icon name={blendSet ? "24.blendmode.active.small" : "24.blendmode.small"} />
           </MenuButton>
         </>
