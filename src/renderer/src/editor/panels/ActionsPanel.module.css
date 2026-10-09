@@ -30,6 +30,8 @@
   outline: none;
 }
 .input::placeholder { color: var(--figma-color-text-tertiary); }
+/* Live: "Visual search (AI beta)" 24 × 24 at 491, 12 */
+.visualSearch { position: absolute; top: var(--ds-space-3); right: calc(var(--ds-space-3) + 2px); }
 /* Live: All / Assets / Plugins & widgets at 8, 48, 8 apart */
 .tabs { flex: none; gap: var(--ds-space-2); padding: 0 var(--ds-space-2); }
 .list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--ds-space-2); }

@@ -41,7 +41,13 @@ export function ResizeHandle({ side, value, min = size["panel-min"], max = size[
   return (
     <div
       data-ds="ResizeHandle"
-      aria-hidden
+      // Live (left/rail-assets.txt, layers-row-hover.txt): "slider [Resize handle]", 8 across the panel's edge.
+      role="slider"
+      aria-label="Resize handle"
+      aria-orientation={vertical ? "vertical" : "horizontal"}
+      aria-valuenow={value}
+      aria-valuemin={min}
+      aria-valuemax={max}
       className={cx(styles.handle, styles[side], className)}
       onPointerDown={(e) => {
         if (e.button !== 0) return;

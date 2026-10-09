@@ -231,6 +231,8 @@ export const appColor = {
   "bg-transparent-pressed": ["#0000001a", "#ffffff1a"], // F
   /** Live capture (left/rail-assets.txt): a library card's thumbnail ground (light unverified) */
   "asset-card-bg": ["#0000001a", "#ffffff1a"],
+  /** Live capture (left/rail-assets-page-components.txt): a set tile's variant count dot, black 50 % (light unverified) */
+  "asset-variants-bg": ["#00000080", "#00000080"],
   "switch-hover": ["#f4f4f4", "#585858"], // K
   "switch-knob": ["#ffffff", "#ffffff"], // K — the knob is white in both themes
   "picker-thumb": ["#ffffff", "#ffffff"], // K — colour picker thumbs and gradient stops: white rings in both themes
@@ -325,7 +327,7 @@ export const size = {
 } as const;
 
 /** Corner radii, `--ds-radius-<key>` (px, §1.7). */
-export const radius = { none: 0, small: 2, medium: 5, "medium-large": 9, large: 13, full: 9999 } as const;
+export const radius = { none: 0, small: 2, medium: 5, "medium-large": 9, "asset-tile": 10, large: 13, full: 9999 } as const;
 
 export const fontFamily = {
   sans: '"Inter Variable", Inter, system-ui, -apple-system, sans-serif',

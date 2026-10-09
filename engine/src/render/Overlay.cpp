@@ -228,6 +228,18 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       Mat2x3 rm = m * Mat2x3::translate(r.x, r.y);
       emit(makeShape(rm, {r.w, r.h}, ShapeKind::Rect, kSquare, blue, style.textSelectionAlpha, blue, 0, 0, 0), Pass::Shape);
     }
+    // Misspelled words: a red wavy line along the line's foot, 1 px, waves of 4 (unverified look: the system's).
+    const Color red = Color::hex(0xF24822);
+    for (const Rect& r : overlay.misspelled) {
+      Vec2 a = m.apply({r.x, r.y + r.h}), b = m.apply({r.x + r.w, r.y + r.h});
+      Vec2 d = b - a;
+      double len = d.length();
+      if (len < 2) continue;
+      Vec2 u{d.x / len, d.y / len}, n{-u.y, u.x};
+      std::vector<Vec2> wave;
+      for (double t = 0; t <= len; t += 2) wave.push_back(a + u * t + n * ((static_cast<int>(t / 2) % 2) ? 1.0 : -1.0) - n * 1.5);
+      polyline(wave, false, 1, red, 1);
+    }
     if (overlay.caretVisible) {
       // 1 px wide (2 px from 200% zoom), the line's height, on device pixels when upright.
       double width = camera.zoom >= 2 ? 2 : 1;
@@ -753,6 +765,11 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     std::vector<Vec2> pts;
     for (Vec2 w : overlay.lasso) pts.push_back(view.apply(w));
     polyline(pts, true, 1, blue, 1);
+  }
+  if (overlay.trail.size() > 1) {
+    std::vector<Vec2> pts;
+    for (Vec2 w : overlay.trail) pts.push_back(view.apply(w));
+    polyline(pts, false, overlay.trailWidth, blue, overlay.trailWidth > 1 ? 0.4 : 1);
   }
 
   if (overlay.hasMarquee) {

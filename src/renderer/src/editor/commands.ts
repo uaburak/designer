@@ -23,6 +23,25 @@ import { collapsedLayers } from "./model/layerTree";
 import { openFind, stepFind } from "./find";
 import { adjustText, syncViewOptions, type TextAdjust } from "./canvasTools";
 import { PREFERENCES, pref, togglePreference } from "./preferences";
+import { setSpellCheck, spellCheckOn, spellChecker } from "./spellcheck";
+import {
+  addLayout,
+  canCopyProperties,
+  canPasteProperties,
+  canSaveLocalCopy,
+  canSetThumbnail,
+  copyProperties,
+  duplicateFile,
+  fileOps,
+  findFrame,
+  hideOtherLayers,
+  otherLayers,
+  pasteProperties,
+  saveLocalCopy,
+  setThumbnail,
+  thumbnailNode,
+  type LayoutFlow,
+} from "./objectCommands";
 
 export interface KeyCombo {
   /** KeyboardEvent.code */
@@ -191,6 +210,22 @@ const textCase = (id: string, label: string, value: NonNullable<ExtraFields["tex
   },
 });
 
+/**
+ * Text › Text direction ▸ (round 10; live lists it, its items are help.figma.com's — unverified): the paragraphs'
+ * direction (the edited selection's, else the whole texts'), checked when they all have it. The layout stays left to
+ * right until bidi (docs/engine-build.md E3.2).
+ */
+const textDirection = (id: string, label: string, value: "AUTO" | "LTR" | "RTL"): EditorCommand => ({
+  ...textCommand(id, label, [], (ed, refs) => ed.batch("Text direction", () => refs.forEach((r) => ed.engine.setTextDirection(r, value)))),
+  keys: undefined,
+  checked: (ed) => {
+    const refs = textRefs(ed);
+    if (!refs.length) return false;
+    const s = textSummary(ed.engine, refs);
+    return !!s && !s.mixed.has("sourceDirectionality") && ((s.values as { sourceDirectionality?: string }).sourceDirectionality ?? "AUTO") === value;
+  },
+});
+
 function toggleDecoration(ed: EditorController, refs: Guid[], d: "UNDERLINE" | "STRIKETHROUGH") {
   const s = textSummary(ed.engine, refs);
   const on = !s?.mixed.has("textDecoration") && s?.values.textDecoration === d;
@@ -233,7 +268,7 @@ const pixelGridOn = (ed: EditorController) => ed.ui.get().pixelGrid !== false;
  */
 export function setViewOption(
   ed: EditorController,
-  patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean; rulers?: boolean; showSlices?: boolean; pixelPreview?: 0 | 1 | 2 }
+  patch: { pixelGrid?: boolean; outlines?: boolean; layoutGuides?: boolean; rulers?: boolean; showSlices?: boolean; pixelPreview?: 0 | 1 | 2; maskOutlines?: boolean; frameOutlines?: boolean }
 ): void {
   ed.ui.set(patch);
   syncViewOptions(ed);
@@ -241,6 +276,15 @@ export function setViewOption(
   // Live Figma's toasts (behaviour/keys.md: ⌃P).
   if (patch.pixelPreview !== undefined) showToast({ message: patch.pixelPreview ? `Pixel preview enabled (${patch.pixelPreview}x)` : "Pixel preview disabled" });
 }
+
+/** Cursor chat (/): the bubble opens where the pointer last was over the canvas (else the canvas's middle). */
+function openCursorChat(ed: EditorController): void {
+  const r = ed.canvas?.getBoundingClientRect();
+  const p = lastPointer.get(ed) ?? (r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 0, y: 0 });
+  ed.ui.set({ cursorChat: { x: p.x, y: p.y } });
+}
+/** The pointer's last place over the canvas (viewport px), for Cursor chat. */
+export const lastPointer = new WeakMap<EditorController, { x: number; y: number }>();
 
 /** Text › Adjust: one of the size / weight / spacing steps on the selected text layers. */
 const adjust = (id: string, label: string, keys: KeyCombo[], what: TextAdjust, dir: 1 | -1): EditorCommand =>
@@ -337,14 +381,20 @@ export const COMMANDS: EditorCommand[] = [
   { id: "edit.copy-as-text", label: "Copy as text", run: (ed) => void copyAsText(ed), enabled: hasTextSelected },
   engine("edit.duplicate", "Duplicate", "DUPLICATE", [k("KeyD", { mod: true })]),
   engine("edit.delete", "Delete", "DELETE", [k("Backspace"), k("Delete")]),
-  later("edit.copy-properties", "Copy properties", [k("KeyC", { mod: true, alt: true })]),
-  later("edit.paste-properties", "Paste properties", [k("KeyV", { mod: true, alt: true })]),
+  // Round 10: ⌥⌘C / ⌥⌘V (help.figma.com "Copy and paste properties").
+  { id: "edit.copy-properties", label: "Copy properties", keys: [k("KeyC", { mod: true, alt: true })], run: (ed) => copyProperties(ed), enabled: canCopyProperties },
+  { id: "edit.paste-properties", label: "Paste properties", keys: [k("KeyV", { mod: true, alt: true })], run: (ed) => pasteProperties(ed), enabled: canPasteProperties },
   // Find and replace (the left panel's Find; Edit menu wording and keys from the live capture).
   ui("edit.find", "Find", [k("KeyF", { mod: true })], (ed) => openFind(ed)),
   { id: "edit.find-next", label: "Find next", keys: [k("KeyF", { mod: true, shift: true })], run: (ed) => stepFind(ed, 1), enabled: (ed) => !!ed.ui.get().find?.query },
   { id: "edit.find-previous", label: "Find previous", keys: [k("KeyD", { mod: true, shift: true })], run: (ed) => stepFind(ed, -1), enabled: (ed) => !!ed.ui.get().find?.query },
   ui("edit.find-replace", "Find and replace…", undefined, (ed) => openFind(ed, { replace: true })),
-  later("edit.set-default-properties", "Set default properties"),
+  // Round 10: the selected layer's look for new layers of its type, this session (the engine's; live's toast).
+  engine("edit.set-default-properties", "Set default properties", "SET_DEFAULT_PROPERTIES", undefined, {
+    run: (ed) => {
+      if (ed.engine.command("SET_DEFAULT_PROPERTIES") === 0) showToast({ message: "Default properties set" });
+    },
+  }),
   // The eyedropper (live Edit menu "Pick color ⌃C"; I): a click on the canvas sets the selection's fill to that colour.
   tool("edit.pick-color", "Pick color", "EYEDROPPER", [k("KeyC", { ctrl: true }), k("KeyI")]),
   engine("edit.select-all", "Select all", "SELECT_ALL", [k("KeyA", { mod: true })]),
@@ -372,7 +422,8 @@ export const COMMANDS: EditorCommand[] = [
     (ed) => ed.ui.set((s) => ({ railLabels: !s.propertyLabels, propertyLabels: !s.propertyLabels })),
     (ed) => ed.ui.get().propertyLabels
   ),
-  later("view.minimize-left-nav", "Minimize left navigation bar"),
+  // Round 10: the navigation bar's tabs fold into the left panel's header (unverified look).
+  ui("view.minimize-left-nav", "Minimize left navigation bar", undefined, (ed) => ed.ui.set((s) => ({ navMinimized: !s.navMinimized, uiHidden: false, uiMinimized: false })), (ed) => !!ed.ui.get().navMinimized),
   // Object › Collapse layers (⌥L): every expanded layer closes but the selection's branch.
   ui("view.collapse-layers", "Collapse layers", [k("KeyL", { alt: true })], (ed) => ed.ui.set((s) => ({ expanded: collapsedLayers(ed.getTree(), ed.selection, s.expanded) }))),
   ui("view.rulers", "Rulers", [k("KeyR", { shift: true })], (ed) => setViewOption(ed, { rulers: !ed.ui.get().rulers }), (ed) => ed.ui.get().rulers),
@@ -382,15 +433,24 @@ export const COMMANDS: EditorCommand[] = [
   ui("view.pixel-grid", "Pixel grid", [k("Quote", { shift: true })], (ed) => setViewOption(ed, { pixelGrid: !pixelGridOn(ed) }), (ed) => pixelGridOn(ed)),
   ui("view.layout-guides", "Layout guides", [k("KeyG", { shift: true })], (ed) => setViewOption(ed, { layoutGuides: ed.ui.get().layoutGuides === false }), (ed) => ed.ui.get().layoutGuides !== false),
   ui("view.show-slices", "Show slices", undefined, (ed) => setViewOption(ed, { showSlices: ed.ui.get().showSlices === false }), (ed) => ed.ui.get().showSlices !== false),
-  later("view.comments", "Comments", [k("KeyC", { shift: true })]),
+  // Round 10, View › Comments ⇧C (on by default): comment pins shown (none until multiplayer, roadmap Phase 6).
+  ui("view.comments", "Comments", [k("KeyC", { shift: true })], (ed) => ed.ui.set((s) => ({ comments: s.comments === false })), (ed) => ed.ui.get().comments !== false),
   ui("view.outlines", "Show outlines", [k("KeyO", { mod: true, shift: true })], (ed) => setViewOption(ed, { outlines: !ed.ui.get().outlines }), (ed) => !!ed.ui.get().outlines),
   // Live: View › Pixel preview ⇧⌘P; ⌃P toggles it ("Pixel preview enabled (1x)" / "Pixel preview disabled").
   ui("view.pixel-preview", "Pixel preview", [k("KeyP", { mod: true, shift: true }), k("KeyP", { ctrl: true })], (ed) => setViewOption(ed, { pixelPreview: ed.ui.get().pixelPreview ? 0 : 1 }), (ed) => !!ed.ui.get().pixelPreview),
-  later("view.mask-outlines", "Mask outlines"),
-  later("view.frame-outlines", "Frame outlines"),
-  later("view.memory-usage", "Memory usage"),
-  later("view.multiplayer-cursors", "Multiplayer cursors", [k("Backslash", { mod: true, alt: true })]),
-  later("view.switch-to-draw", "Switch to Draw"),
+  // Round 10: the engine's thin boxes around masks / frames (VIEW_MASK_OUTLINES / VIEW_FRAME_OUTLINES).
+  ui("view.mask-outlines", "Mask outlines", undefined, (ed) => setViewOption(ed, { maskOutlines: !ed.ui.get().maskOutlines }), (ed) => !!ed.ui.get().maskOutlines),
+  ui("view.frame-outlines", "Frame outlines", undefined, (ed) => setViewOption(ed, { frameOutlines: !ed.ui.get().frameOutlines }), (ed) => !!ed.ui.get().frameOutlines),
+  ui("view.memory-usage", "Memory usage", undefined, (ed) => ed.ui.set((s) => ({ memoryUsage: !s.memoryUsage })), (ed) => !!ed.ui.get().memoryUsage),
+  // ⌥⌘\ (on by default): other people's cursors (none until multiplayer, roadmap Phase 6).
+  ui("view.multiplayer-cursors", "Multiplayer cursors", [k("Backslash", { mod: true, alt: true })], (ed) => ed.ui.set((s) => ({ multiplayerCursors: s.multiplayerCursors === false })), (ed) => ed.ui.get().multiplayerCursors !== false),
+  // Round 10: Draw (live's View menu and the toolbar's mode switch; unverified beyond them): the Design editor with
+  // the Pencil to hand — Figma Draw's brushes and its own panels aren't built. Again: back to Design.
+  ui("view.switch-to-draw", "Switch to Draw", undefined, (ed) => {
+    if (modeOf(ed) === "draw") return setMode(ed, "design");
+    setMode(ed, "draw");
+    if (ed.tools.has("PENCIL")) ed.setTool("PENCIL");
+  }, (ed) => modeOf(ed) === "draw"),
   engine("view.zoom-in", "Zoom in", "ZOOM_IN", [k("Equal", { mod: true }), k("Equal", { mod: true, shift: true }), k("Equal"), k("NumpadAdd")]),
   engine("view.zoom-out", "Zoom out", "ZOOM_OUT", [k("Minus", { mod: true }), k("Minus"), k("NumpadSubtract")]),
   engine("view.zoom-100", "Zoom to 100%", "ZOOM_TO_100", [k("Digit0", { mod: true }), k("Digit0", { shift: true })]),
@@ -403,8 +463,9 @@ export const COMMANDS: EditorCommand[] = [
   // N / ⇧N: the view to the next / previous frame; the selection stays (live Figma).
   engine("view.zoom-previous-frame", "Zoom to previous frame", "ZOOM_TO_PREVIOUS_FRAME", [k("KeyN", { shift: true })]),
   engine("view.zoom-next-frame", "Zoom to next frame", "ZOOM_TO_NEXT_FRAME", [k("KeyN")]),
-  later("view.find-previous-frame", "Find previous frame", [k("Home")]),
-  later("view.find-next-frame", "Find next frame", [k("End")]),
+  // Round 10, Home / End: the previous / next top-level frame selected and centred at the same zoom (objectCommands.ts).
+  { id: "view.find-previous-frame", label: "Find previous frame", keys: [k("Home")], run: (ed) => findFrame(ed, -1), enabled: (ed) => !!ed.store.page },
+  { id: "view.find-next-frame", label: "Find next frame", keys: [k("End")], run: (ed) => findFrame(ed, 1), enabled: (ed) => !!ed.store.page },
 
   // ---- Panels ----
   ui("view.layers", "Layers", [k("Digit1", { alt: true })], (ed) => ed.ui.set({ railTab: "file", uiHidden: false, uiMinimized: false }), (ed) => ed.ui.get().railTab === "file"),
@@ -431,12 +492,22 @@ export const COMMANDS: EditorCommand[] = [
   },
   engine("object.frame-selection", "Frame selection", "FRAME_SELECTION", [k("KeyG", { mod: true, alt: true })]),
   engine("object.wrap-in-section", "Wrap in new section", "WRAP_IN_SECTION", [k("KeyS", { mod: true })]),
-  later("object.convert-to-section", "Convert to section"),
-  later("object.convert-to-frame", "Convert to frame"),
-  later("object.set-as-thumbnail", "Set as thumbnail"),
-  later("object.restore-default-thumbnail", "Restore default thumbnail"),
-  later("object.more-layout-options", "More layout options"),
-  later("object.hide-other-layers", "Hide other layers"),
+  // Round 10: in place, the engine's (same GUID, layers and look).
+  engine("object.convert-to-section", "Convert to section", "CONVERT_TO_SECTION"),
+  engine("object.convert-to-frame", "Convert to frame", "CONVERT_TO_FRAME"),
+  // The file's thumbnail (the document's thumbnailInfo; persistence.ts renders it for Home's card).
+  { id: "object.set-as-thumbnail", label: "Set as thumbnail", run: (ed) => setThumbnail(ed, ed.selection[0] ?? null), enabled: canSetThumbnail },
+  { id: "object.restore-default-thumbnail", label: "Restore default thumbnail", run: (ed) => setThumbnail(ed, null), enabled: (ed) => thumbnailNode(ed) !== null },
+  // More layout options ▸ (unverified items): auto layout of a chosen flow.
+  ...(["HORIZONTAL", "VERTICAL", "GRID"] as LayoutFlow[]).map(
+    (flow): EditorCommand => ({
+      id: `object.add-layout-${flow.toLowerCase()}`,
+      label: flow === "GRID" ? "Add grid layout" : `Add ${flow.toLowerCase()} auto layout`,
+      run: (ed) => addLayout(ed, flow),
+      enabled: (ed) => hasSelection(ed) && (engineEnabled(ed, "ADD_AUTO_LAYOUT") || ed.selectedNodes().every((n) => n.type === "FRAME" || n.type === "SYMBOL")),
+    })
+  ),
+  { id: "object.hide-other-layers", label: "Hide other layers", run: (ed) => hideOtherLayers(ed), enabled: (ed) => otherLayers(ed).length > 0 },
   later("object.remove-interactions", "Remove interactions"),
   { id: "object.remove-fill", label: "Remove fill", keys: [k("Slash", { alt: true })], run: (ed) => removePaints(ed, "fillPaints", "Remove fill"), enabled: hasSelection },
   { id: "object.remove-stroke", label: "Remove stroke", keys: [k("Slash", { shift: true })], run: (ed) => removePaints(ed, "strokePaints", "Remove stroke"), enabled: hasSelection },
@@ -530,15 +601,16 @@ export const COMMANDS: EditorCommand[] = [
   // ⌥R (a forum report; not in the live menus): the rotation origin shown, dragged; rotation turns about it.
   engine("object.rotation-origin", "Show rotation origin", "SHOW_ROTATION_ORIGIN", [k("KeyR", { alt: true })], { checked: (ed) => (ed.engine.commandState("SHOW_ROTATION_ORIGIN") & 2) !== 0 }),
   engine("canvas.remove-guide", "Remove guide", "REMOVE_GUIDE"),
-  later("arrange.round-to-pixel", "Round to pixel"),
-  later("arrange.pack-horizontal", "Pack horizontal"),
-  later("arrange.pack-vertical", "Pack vertical"),
-  later("arrange.distribute-left", "Distribute left"),
-  later("arrange.distribute-horizontal-centers", "Distribute horizontal centers"),
-  later("arrange.distribute-right", "Distribute right"),
-  later("arrange.distribute-top", "Distribute top"),
-  later("arrange.distribute-vertical-centers", "Distribute vertical centers"),
-  later("arrange.distribute-bottom", "Distribute bottom"),
+  // Round 10 (engine/src/editor/ArrangeCommands.cpp).
+  engine("arrange.round-to-pixel", "Round to pixel", "ROUND_TO_PIXEL"),
+  engine("arrange.pack-horizontal", "Pack horizontal", "PACK_HORIZONTAL"),
+  engine("arrange.pack-vertical", "Pack vertical", "PACK_VERTICAL"),
+  engine("arrange.distribute-left", "Distribute left", "DISTRIBUTE_LEFT"),
+  engine("arrange.distribute-horizontal-centers", "Distribute horizontal centers", "DISTRIBUTE_HORIZONTAL_CENTERS"),
+  engine("arrange.distribute-right", "Distribute right", "DISTRIBUTE_RIGHT"),
+  engine("arrange.distribute-top", "Distribute top", "DISTRIBUTE_TOP"),
+  engine("arrange.distribute-vertical-centers", "Distribute vertical centers", "DISTRIBUTE_VERTICAL_CENTERS"),
+  engine("arrange.distribute-bottom", "Distribute bottom", "DISTRIBUTE_BOTTOM"),
 
   // ---- Vector, booleans (E4) ----
   pending("vector.flatten", "Flatten", "FLATTEN", [k("KeyF", { alt: true, shift: true }), k("KeyE", { mod: true })]),
@@ -548,12 +620,14 @@ export const COMMANDS: EditorCommand[] = [
   pending("vector.intersect", "Intersect selection", "BOOLEAN_INTERSECT", [k("KeyI", { alt: true, shift: true })]),
   pending("vector.exclude", "Exclude selection", "BOOLEAN_EXCLUDE", [k("KeyE", { alt: true, shift: true })]),
   // The Figma menu › Vector (live main-vector.txt): vector edit mode's point commands.
-  later("vector.join", "Join selection", [k("KeyJ", { mod: true })]),
-  later("vector.smooth-join", "Smooth join selection", [k("KeyJ", { mod: true, shift: true })]),
+  // Round 10 (the engine's): vector edit mode's selected points joined, straight or smooth.
+  engine("vector.join", "Join selection", "VECTOR_JOIN", [k("KeyJ", { mod: true })]),
+  engine("vector.smooth-join", "Smooth join selection", "VECTOR_JOIN", [k("KeyJ", { mod: true, shift: true })], { run: (ed) => void ed.engine.command("VECTOR_JOIN", { smooth: true }) }),
   engine("vector.delete-heal", "Delete and heal selection", "VECTOR_DELETE_AND_HEAL", [k("Backspace", { shift: true })]),
-  later("vector.split", "Split vector"),
-  later("vector.simplify", "Simplify vector"),
-  later("vector.offset", "Offset vector"),
+  engine("vector.split", "Split vector", "VECTOR_SPLIT"),
+  // help.figma.com "Simplify a vector path" (a slider) / "Offset a vector path" (Amount, Join, ✓): their popover.
+  engine("vector.simplify", "Simplify vector", "VECTOR_SIMPLIFY", undefined, { run: (ed) => ed.ui.set({ vectorOp: "simplify" }) }),
+  engine("vector.offset", "Offset vector", "VECTOR_OFFSET", undefined, { run: (ed) => ed.ui.set({ vectorOp: "offset" }) }),
 
   // ---- Text (E3; the text round: links and lists) ----
   // While a text is edited the engine takes ⌘B ⌘I ⌘U ⇧⌘X ⇧⌘7 ⇧⌘8 itself (on the selected characters); these run
@@ -594,11 +668,12 @@ export const COMMANDS: EditorCommand[] = [
   textCase("text.case-title", "Title case", "TITLE"),
   textCase("text.case-small-caps", "Small caps", "SMALL_CAPS"),
   textCase("text.case-forced-small-caps", "Forced small caps", "SMALL_CAPS_FORCED"),
-  // Text › Text direction ▸ and Spell check ▸ (live: listed, items not captured; unverified): not built.
-  later("text.direction-auto", "Auto"),
-  later("text.direction-ltr", "Left to right"),
-  later("text.direction-rtl", "Right to left"),
-  later("text.spell-check", "Spell check"),
+  // Text › Text direction ▸ (live: listed, items not captured; unverified).
+  textDirection("text.direction-auto", "Auto", "AUTO"),
+  textDirection("text.direction-ltr", "Left to right", "LTR"),
+  textDirection("text.direction-rtl", "Right to left", "RTL"),
+  // Text › Spell check ▸ (round 10; help.figma.com, unverified): the edited text's misspelled words underlined (spellcheck.ts).
+  { id: "text.spell-check", label: "Spell check", run: (ed) => setSpellCheck(ed, !spellCheckOn()), enabled: () => !!spellChecker(), checked: () => !!spellChecker() && spellCheckOn() },
   textCommand("text.align-center", "Text align center", [k("KeyT", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "CENTER" }), "Text alignment")),
   textCommand("text.align-right", "Text align right", [k("KeyR", { mod: true, alt: true })], (ed, refs) => ed.setProps(refs, fields({ textAlignHorizontal: "RIGHT" }), "Text alignment")),
 
@@ -615,10 +690,13 @@ export const COMMANDS: EditorCommand[] = [
     run: (ed) => ed.ui.set({ renaming: { kind: "file", id: "" }, uiHidden: false, uiMinimized: false }),
     enabled: (ed) => typeof ed.source.rename === "function",
   },
-  later("file.duplicate", "Duplicate"),
-  later("file.move", "Move to project…"),
-  later("file.save-local-copy", "Save local copy…"),
-  later("file.create-branch", "Create branch…"),
+  // Round 10: the workspace's file operations, where the document source has them (objectCommands.ts FileOps).
+  { id: "file.duplicate", label: "Duplicate", run: (ed) => void duplicateFile(ed), enabled: (ed) => !!fileOps(ed) },
+  { id: "file.move", label: "Move to project…", run: (ed) => ed.ui.set({ moveFileDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
+  { id: "file.save-local-copy", label: "Save local copy…", run: (ed) => void saveLocalCopy(ed), enabled: canSaveLocalCopy },
+  // Round 10: a branch is a copy of the file named after it, opened in a tab (objectCommands.ts; reviewing and merging
+  // branches aren't built — docs/roadmap.md Phase 6).
+  { id: "file.create-branch", label: "Create branch…", run: (ed) => ed.ui.set({ branchDialog: true, uiHidden: false }), enabled: (ed) => !!fileOps(ed) },
   later("file.color-profile", "Color profile…"),
   // The Figma menu's Plugins, Widgets and Preferences items not built (shown as Figma lists them, disabled).
   later("plugins.run-last", "Run last plugin", [k("KeyP", { mod: true, alt: true })]),
@@ -696,7 +774,10 @@ export const COMMANDS: EditorCommand[] = [
   later("canvas.send-to-make", "Send to Figma Make"),
   later("canvas.find-similar", "Find similar designs"),
   later("canvas.add-motion", "Add motion"),
-  later("canvas.cursor-chat", "Cursor chat", [k("Slash")]),
+  // Live's AI renaming of the selected layers (the Layers row's menu, "AI" tag): listed, not built.
+  later("canvas.rename-layers-ai", "Rename layers"),
+  // Round 10, / : the cursor chat bubble at the pointer (seen by nobody else until multiplayer, roadmap Phase 6).
+  ui("canvas.cursor-chat", "Cursor chat", [k("Slash")], (ed) => openCursorChat(ed)),
   // Help and account (live main-help.txt): Figma's own pages open in the browser; no account here.
   link("help.page", "Help page", "https://help.figma.com/"),
   ui("help.shortcuts", "Keyboard shortcuts", [k("Slash", { ctrl: true, shift: true })], (ed) => ed.ui.set((s) => ({ shortcutsOpen: !s.shortcutsOpen }))),

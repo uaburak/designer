@@ -3,11 +3,11 @@
  * bottom, centred on the window (not the canvas). A slot shows the last
  * tool chosen in it; tools the engine doesn't implement yet are disabled.
  * The mode switch stays on Design (the others come later). In vector edit
- * mode it becomes Figma's vector-edit toolbar: Move, Lasso, Pen, Bend,
- * Paint bucket, then "Done".
+ * mode Figma's secondary toolbar opens 8 over it (live toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend,
+ * Cut, Erase │ More ▾ (Vector editing tools: Shape builder, Variable width) │ Close.
  */
-import { useEffect, useMemo, useState } from "react";
-import { Button, EditorToolbar, groupOf, keys, showToast, Toolbar, ToolbarDivider, ToolButton, type IconName, type ToolGroupId, type ToolId } from "@/ds";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ContextMenu, EditorToolbar, groupOf, IconButton, showToast, Toolbar, ToolbarDivider, ToolTextButton, type IconName, type MenuEntry, type ToolGroupId, type ToolId } from "@/ds";
 import type { ToolName } from "@/engine/abi";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
@@ -107,6 +107,7 @@ export function BottomToolbar() {
   const room = Math.max(0, (canvas.width - TOOLBAR_WIDTH) / 2 - MARGIN);
   const offset = Math.max(-room, Math.min(room, wanted));
   const dev = useUI((s) => s.mode === "dev");
+  const draw = useUI((s) => s.mode === "draw");
   const disabledTools = useMemo(() => (Object.keys(ENGINE_TOOL) as ToolId[]).filter((t) => !isAvailable(ed, t) || (dev && !DEV_TOOLS.has(t))), [ed, dev]);
   const pick = (t: ToolId) => {
     if (t === "image") {
@@ -120,9 +121,10 @@ export function BottomToolbar() {
     setGroups((g) => ({ ...g, [groupOf(t)]: t }));
     ed.focusCanvas();
   };
-  if (vectorEditing) return <VectorEditToolbar offset={offset} />;
   return (
-    <EditorToolbar
+    <>
+      {vectorEditing && <VectorEditToolbar offset={offset} />}
+      <EditorToolbar
       floating
       offset={offset}
       tool={tool}
@@ -131,54 +133,97 @@ export function BottomToolbar() {
       onTool={pick}
       onActions={() => runEditorCommand(ed, "tool.actions")}
       actionsActive={actionsOpen}
-      mode={dev ? "dev" : "design"}
+      mode={dev ? "dev" : draw ? "draw" : "design"}
       onMode={(m) => {
         if (m === "dev" || m === "design") setMode(ed, m);
-        else showToast({ message: "Draw and Motion come later" });
+        else if (m === "draw") runEditorCommand(ed, "view.switch-to-draw");
+        else showToast({ message: "Motion comes later" });
       }}
-      disabledModes={["draw", "motion"]}
-    />
+      disabledModes={["motion"]}
+      />
+    </>
   );
 }
 
-/** Figma UI3's vector-edit toolbar, left to right (unverified: Lasso's key). */
-const VECTOR_TOOL_DEFS: { id: VectorTool; label: string; icon: IconName; shortcut?: string }[] = [
-  { id: "MOVE", label: "Move", icon: "24.move", shortcut: "V" },
-  { id: "LASSO", label: "Lasso", icon: "24.lasso", shortcut: "Q" },
-  { id: "PEN", label: "Pen", icon: "24.pen", shortcut: "P" },
-  { id: "BEND", label: "Bend", icon: "24.bend", shortcut: keys(["mod"]) },
-  { id: "PAINT_BUCKET", label: "Paint bucket", icon: "24.paint-bucket", shortcut: "B" },
+/** Live (toolbar/vector-edit-toolbar.txt): Move, Lasso │ Paint, Bend, Cut, Erase — glyph and name. */
+const VECTOR_TOOL_GROUPS: { id: VectorTool; label: string; icon: IconName }[][] = [
+  [
+    { id: "MOVE", label: "Move", icon: "24.move" },
+    { id: "LASSO", label: "Lasso", icon: "24.lasso" },
+  ],
+  [
+    { id: "PAINT_BUCKET", label: "Paint", icon: "24.paint-bucket" },
+    { id: "BEND", label: "Bend", icon: "24.bend" },
+    { id: "CUT", label: "Cut", icon: "24.cut" },
+    { id: "ERASE", label: "Erase", icon: "24.erase" },
+  ],
 ];
 
+/**
+ * More ▾ (live toolbar/vector-edit-more-menu.txt: "Vector editing tools", Shape builder M, Variable width ⇧W): Figma
+ * Draw's tools — listed, not built (Variable width needs the width profiles the renderer doesn't draw yet).
+ */
+export const VECTOR_MORE_TOOLS: MenuEntry[] = [
+  { id: "SHAPE_BUILDER", label: "Shape builder", icon: "24.shape-builder", shortcut: "M", checked: false, radio: true, disabled: true },
+  { id: "VARIABLE_WIDTH", label: "Variable width", icon: "24.variable-width", shortcut: "⇧W", checked: false, radio: true, disabled: true },
+];
+
+/** Figma UI3's vector edit toolbar: 529 × 40, 8 over the bottom toolbar (live 455, 792 at 1440 × 900). */
 function VectorEditToolbar({ offset }: { offset: number }) {
   const ed = useEditor();
   const tool = useStoreSlice(ed.vector.state, (s) => s.tool);
+  const more = useRef<HTMLDivElement>(null);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const pick = (t: VectorTool) => {
+    ed.vector.setTool(t);
+    ed.focusCanvas();
+  };
   return (
-    <Toolbar floating offset={offset} label="Vector edit tools" data-vector-toolbar="">
-      {VECTOR_TOOL_DEFS.map((t) => (
-        <ToolButton
-          key={t.id}
-          icon={t.icon}
-          label={t.label}
-          shortcut={t.shortcut}
-          active={t.id === tool}
-          disabled={!ed.vector.hasTool(t.id)}
-          onSelect={() => {
-            ed.vector.setTool(t.id);
-            ed.focusCanvas();
-          }}
-        />
+    <Toolbar floating secondary offset={offset} label="Vector edit tools" data-vector-toolbar="">
+      {VECTOR_TOOL_GROUPS.map((group, g) => (
+        <div key={g} style={{ display: "contents" }}>
+          {g > 0 && <ToolbarDivider />}
+          {group.map((t) => (
+            <ToolTextButton key={t.id} icon={t.icon} label={t.label} active={t.id === tool} disabled={!ed.vector.hasTool(t.id)} onSelect={() => pick(t.id)} />
+          ))}
+        </div>
       ))}
       <ToolbarDivider />
-      <Button
-        variant="primary"
+      <div ref={more} style={{ display: "contents" }}>
+        <ToolTextButton
+          label="More"
+          chevron
+          aria-haspopup="menu"
+          aria-expanded={!!menuAt}
+          onSelect={(e) => {
+            if (menuAt) return setMenuAt(null);
+            // Live: the menu 11 left of the button, its bottom 16 over the button's top (8 over the toolbar).
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenuAt({ x: r.left - 11, y: r.top - 16 });
+          }}
+        />
+      </div>
+      {menuAt && (
+        <ContextMenu
+          at={menuAt}
+          above
+          flush
+          label="Vector editing tools"
+          entries={VECTOR_MORE_TOOLS}
+          ignore={more}
+          onSelect={() => setMenuAt(null)}
+          onClose={() => setMenuAt(null)}
+        />
+      )}
+      <ToolbarDivider />
+      <IconButton
+        icon="24.close.small"
+        label="Close"
         onClick={() => {
           ed.vector.end();
           ed.focusCanvas();
         }}
-      >
-        Done
-      </Button>
+      />
     </Toolbar>
   );
 }

@@ -273,8 +273,9 @@ export function TypeHeader({ nodes }: { nodes: PanelNode[] }) {
           entries={frameMenu(title as FrameKind, offeredKinds(ed, nodes))}
           className={styles.typeButton}
           // Live (popovers/frame-presets-menu.txt: 222 × 1887 at 1208,125): 8 under the button, its rows at the button's
-          // left, the whole list past the window's bottom (moved by the wheel), not cut and scrolled.
+          // left from its top, the first lit, the whole list past the window's bottom (moved by the wheel), not cut and scrolled.
           gap={8}
+          flush
           extend
           menuClassName={hstyles.presetsMenu}
           onSelect={(id) => pickPreset(ed, nodes, id)}
@@ -440,7 +441,7 @@ export function booleanMenu(ed: EditorController, booleans: boolean): MenuItem[]
 
 /**
  * "Boolean operations": the current (or Union) operation as a button, its menu on the chevron (41 wide, Figma's) —
- * the menu right-aligned with the chevron, 4 under it (live 151 × 120 at 1253, 129).
+ * the menu right-aligned with the chevron, 12 under it, its rows from its top (live 151 × 120 at 1253, 129).
  */
 function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
   const ed = useEditor();
@@ -461,7 +462,7 @@ function BooleanGroup({ nodes }: { nodes: PanelNode[] }) {
         disabled={!(booleans || isEnabled(ed, firstCommand))}
         onClick={() => pickBoolean(ed, nodes, first.id, booleans)}
       />
-      <MenuButton label="Boolean operations" entries={entries} className={styles.splitChevron} disabled={!any} align="end" gap={PANEL_MENU_GAP} menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
+      <MenuButton label="Boolean operations" entries={entries} className={styles.splitChevron} disabled={!any} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={(id) => pickBoolean(ed, nodes, id, booleans)}>
         <Icon name="16.chevron.down" />
       </MenuButton>
     </div>
@@ -512,6 +513,7 @@ function MoreActions({ nodes, omit }: { nodes: PanelNode[]; omit: string[] }) {
       className={styles.iconMenu}
       align="end"
       gap={PANEL_MENU_GAP}
+      flush
       menuClassName={hstyles.actionsMenu}
       onSelect={(id) => {
         if (id === "edit-object") ed.vector.start(nodes[0].guid);

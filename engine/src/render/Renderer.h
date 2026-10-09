@@ -174,6 +174,8 @@ struct Overlay {
   bool hasMarquee = false;
   Rect marquee;             // world
   std::vector<Vec2> lasso;  // world (vector edit's lasso)
+  std::vector<Vec2> trail;  // world (vector edit's Cut line / Erase path: an open line)
+  double trailWidth = 1;    // CSS px
   // Smart guides and equal-spacing marks while moving, resizing or drawing (world).
   std::vector<GuideLine> guides;
   std::vector<SpacingMark> spacings;
@@ -280,6 +282,7 @@ struct Overlay {
   // Text editing: the node, its selection highlight and caret (node space).
   Guid textNode = kNoGuid;
   std::vector<Rect> textSelection;
+  std::vector<Rect> misspelled;  // node space: a red wavy line under each (Text › Spell check, round 10)
   bool caretVisible = false;
   Rect caret;
   // Vector edit mode, the pen, gradient handles.

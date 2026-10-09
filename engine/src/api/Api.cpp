@@ -301,7 +301,7 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.endObject();
   }
   if (ev.vectorEdit) {
-    static const char* kTools[] = {"MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET"};
+    static const char* kTools[] = {"MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET", "CUT", "ERASE"};
     w.beginObject().key("type").string("VECTOR_EDIT").key("active").boolean(ed.vectorEditing()).key("ref");
     if (ed.vectorEditing()) w.string(ed.vectorNode().toString());
     else w.null();
@@ -1558,12 +1558,12 @@ ENG_EXPORT void engine_vector_edit_end(Handle h) {
   if (Engine* e = engineOf(h)) e->editor.endVectorEdit();
 }
 
-// tool: MOVE 0, PEN 1, BEND 2, LASSO 3, PAINT_BUCKET 4.
+// tool: MOVE 0, PEN 1, BEND 2, LASSO 3, PAINT_BUCKET 4, CUT 5, ERASE 6.
 ENG_EXPORT int32_t engine_vector_edit_tool(Handle h, uint32_t tool) {
   Call call;
   Engine* e = engineOf(h);
   if (!e) return E_HANDLE;
-  if (tool > 4) return E_INVALID;
+  if (tool > 6) return E_INVALID;
   return e->editor.setVectorTool(static_cast<Editor::VectorTool>(tool));
 }
 
@@ -1769,7 +1769,8 @@ ENG_EXPORT int32_t engine_text_range_style(Handle h, uint32_t sessionID, uint32_
 }
 
 // Paragraph edits (Editor::textParagraphs): op 0 = list type (value 0 none, 1 numbered, 2 bulleted; a toggle), op 1 =
-// indentation by `value` levels; on the edited selection's paragraphs, or the whole text.
+// indentation by `value` levels, op 2 = text direction (value 0 auto, 1 left to right, 2 right to left; round 10); on
+// the edited selection's paragraphs, or the whole text.
 ENG_EXPORT int32_t engine_text_paragraphs(Handle h, uint32_t sessionID, uint32_t localID, int32_t op, int32_t value) {
   Call call;
   Engine* e = engineOf(h);

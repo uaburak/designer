@@ -167,6 +167,13 @@ export interface EditorApi extends DesktopCommon {
     /** Fonts were installed or removed, or the Google catalog changed */
     onChanged(cb: () => void): () => void;
   };
+  /**
+   * Text › Spell check (round 10; src/renderer/src/editor/spellcheck.ts): the view's spell checker (Chromium's, the
+   * system's dictionaries) — which of `words` it doesn't know. In the preload, no IPC.
+   */
+  spelling: {
+    misspelled(words: string[]): boolean[];
+  };
 }
 
 export type DesktopApi = TabBarApi | HomeApi | EditorApi;

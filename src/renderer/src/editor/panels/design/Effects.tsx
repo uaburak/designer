@@ -32,7 +32,7 @@ import type { BlendMode, Color, Guid } from "@/engine/codec";
 import { useEditor, type EditorController } from "../../controller";
 import { colorToHex, hexToColor, toPercent } from "../../model/color";
 import { mixed, sameData } from "../../model/mixed";
-import { fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, fields, useKeeps, type Effect, type LayoutGrid, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 import { AppliedStyle, StylesButton, sharedStyle } from "./Styles";
 import { Grip, moved, useReorder } from "./reorder";
@@ -221,7 +221,7 @@ function EffectBlend({ value, onChange }: { value: BlendMode; onChange: (b: Blen
   const entries = BLEND_MODES.map((m) => (m === "-" ? ("-" as const) : { id: m, label: BLEND_LABEL[m], checked: value === m }));
   const active = value !== "NORMAL" && value !== "PASS_THROUGH";
   return (
-    <MenuButton label="Blend mode" entries={entries} className={styles.iconMenu} onSelect={(id) => onChange(id as BlendMode)}>
+    <MenuButton label="Blend mode" entries={entries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush onSelect={(id) => onChange(id as BlendMode)}>
       <Icon name={active ? "24.blendmode.active.small" : "24.blendmode.small"} />
     </MenuButton>
   );

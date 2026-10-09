@@ -24,6 +24,7 @@
 //   EDITOR_ONLY=selection node …                                   (round 7: sections, the canvas menu, keys, radius / gap / auto-layout handles, outlines)
 //   EDITOR_ONLY=design node …                                      (round 7: the Design panel on the live capture's layers — a shot per case, fields' Enter / Esc / math, padding, gap Auto, menus)
 //   EDITOR_ONLY=menus9 node …                                      (round 9 at 1440 × 900, run on its own: the Figma menu, canvas and tool menus, Actions, Preferences, right-drag pan, Assets, Variables)
+//   EDITOR_ONLY=menus10 node …                                     (round 10 at 1440 × 900, run on its own: flush menus, key colours, frame title / Layers row menus, vector edit toolbar, Actions Recents, Assets grid, page rows, Find)
 //   EDITOR_ONLY=header9 node …                                     (round 9: the header of a layer in a frame, Frame ▾, the boolean menu, the component / variant / instance panels, Component configuration, the swap menu)
 //   EDITOR_ONLY=selection8 node …                                  (round 8: reorder rings, ⌥R origin, ruler guides, Scale / Slice / Comment / eyedropper, inline padding, Select layer icons, nudge, pixel preview)
 //   EDITOR_ONLY=panel10 node …                                     (round 10 at 1440 × 900: Design panel states, popovers and sub-menus against the live captures)
@@ -336,11 +337,12 @@ async function paintsSection(page, theme) {
     await panel.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Edit object" }).click();
     await settle(page);
-    check("vector edit mode: the vector-edit toolbar with Done", (await page.locator("[data-vector-toolbar]").count()) === 1);
+    // Round 10 (live toolbar/vector-edit-toolbar.txt): a secondary toolbar over the bottom one, ✕ Close leaves.
+    check("vector edit mode: the vector-edit toolbar over the bottom toolbar, with Close", (await page.locator("[data-vector-toolbar]").count()) === 1 && (await page.locator('[data-ds="EditorToolbar"]').count()) === 1);
     await shot(page, `37-vector-edit-${theme}`);
-    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.locator("[data-vector-toolbar]").getByRole("button", { name: "Close", exact: true }).click();
     await settle(page);
-    check("Done leaves vector edit mode", (await page.locator("[data-vector-toolbar]").count()) === 0);
+    check("Close leaves vector edit mode", (await page.locator("[data-vector-toolbar]").count()) === 0);
   } else results.push("info vector edit: the engine has no startVectorEdit yet");
 
   // The new tools (when the engine has them): L draws a line.
@@ -3490,6 +3492,133 @@ async function menus9Section(page, theme) {
   await shot(page, `195-r9-variables-${theme}`);
 }
 
+/**
+ * Round 10 at 1440 × 900 (live's viewport; docs/editor.md "Round 10 — Menus, commands, left side and toolbar"): menus
+ * under their trigger without padding (S8), the keys' colours (S10), the frame title's and a Layers row's menus, the
+ * vector edit toolbar and its More, Actions on Recents, the Assets grid, page rows, the left Resize handle, Find.
+ */
+async function menus10Section(page, theme) {
+  await open(page, "&doc=capture");
+  const box = (loc) => loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  });
+  const near = (a, b, d = 1) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) <= d);
+  const panel = page.locator('[data-panel="right"]');
+  const select = async (ids) => {
+    await page.evaluate((ids) => window.__designerEditor.engine.setSelection(ids), ids);
+    await settle(page);
+  };
+  // S8 / S10: the Boolean menu flush under its chevron, its first row lit with its keys at #ffffffcc.
+  await select(["7:60"]);
+  await panel.getByRole("group", { name: "Boolean operations" }).getByRole("button", { name: "Boolean operations" }).click();
+  await settle(page);
+  const bool = page.getByRole("menu").last();
+  const bb = await box(bool);
+  const litKey = await bool.locator("[data-highlighted]").first().evaluate((el) => [el.textContent, getComputedStyle(el.lastElementChild).color]);
+  check("R10 S8: Boolean menu 151 × 120 (±2 / live boolean-operations-menu.txt), no padding above its rows", Math.abs(bb[2] - 151) <= 2 && bb[3] === 120, JSON.stringify(bb));
+  check("R10 S10: its first row lit (Union), the lit row's keys #ffffffcc", /^Union/.test(litKey[0]) && litKey[1] === "rgba(255, 255, 255, 0.8)", JSON.stringify(litKey));
+  await shot(page, `270-r10-boolean-menu-${theme}`);
+  await page.keyboard.press("Escape");
+  await select([]);
+  // S10: a disabled row's keys #ffffff66 (Figma menu › Arrange, nothing selected).
+  await page.getByRole("button", { name: "Main menu" }).click();
+  await page.getByRole("menuitem", { name: "Arrange", exact: true }).hover();
+  await page.waitForTimeout(400);
+  const keyColor = await page.getByRole("menu").last().locator('[aria-disabled="true"]').first().evaluate((el) => getComputedStyle(el.lastElementChild).color);
+  check("R10 S10: a disabled row's keys #ffffff66 (live main-arrange.txt)", keyColor === "rgba(255, 255, 255, 0.4)", keyColor);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await settle(page);
+
+  // A right-click on a frame's title: the frame's menu (live context-frame.txt, 200 × 749).
+  const [tx, ty] = await toScreen(page, 300, 0);
+  await page.mouse.click(tx + 10, ty - 8, { button: "right" });
+  await settle(page);
+  const frameMenu = page.getByRole("menu", { name: "Canvas" });
+  check("R10: a frame title's right click opens the frame's menu (200 × 749, Convert to section)", (await selection(page)).join() === "7:10" && near(await box(frameMenu).then((b) => b.slice(2)), [200, 749]) && (await frameMenu.getByRole("menuitem", { name: "Convert to section" }).count()) === 1, JSON.stringify(await box(frameMenu)));
+  await page.keyboard.press("Escape");
+  // A Layers row's menu: Copy first, Rename ⌘R, Rename layers (AI), 200 × 677 (live context-layer-row.txt).
+  await page.locator('[data-panel="left"] [data-ds="LayerRow"]').filter({ hasText: /^Rect$/ }).first().click({ button: "right" });
+  await settle(page);
+  const rowMenu = page.getByRole("menu", { name: "Canvas" });
+  check("R10: a Layers row's menu 200 × 677 with Rename and Rename layers (AI), no Paste here", near((await box(rowMenu)).slice(2), [200, 677]) && (await rowMenu.getByRole("menuitem", { name: /^Rename/ }).count()) === 2 && (await rowMenu.getByRole("menuitem", { name: "Paste here" }).count()) === 0, JSON.stringify(await box(rowMenu)));
+  await shot(page, `271-r10-layer-row-menu-${theme}`);
+  await page.keyboard.press("Escape");
+
+  // Vector edit: live's secondary toolbar 529 × 40 at 455, 792 over the bottom toolbar; More's menu 189 × 48 at 869, 736.
+  await page.evaluate(() => {
+    const ed = window.__designerEditor;
+    ed.engine.setSelection(["7:60"]);
+    ed.vector.start("7:60");
+  });
+  await settle(page);
+  const vbar = page.locator("[data-vector-toolbar]");
+  const names = await vbar.getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+  check("R10: the vector edit toolbar (live vector-edit-toolbar.txt): Move, Lasso, Paint, Bend, Cut, Erase, More, Close", names.join() === "Move,Lasso,Paint,Bend,Cut,Erase,More,Close", names.join());
+  check("R10: 529 × 40 at 455, 792 (±2), the bottom toolbar still there", near(await box(vbar), [455, 792, 529, 40], 2) && (await page.locator('[data-ds="EditorToolbar"]').count()) === 1, JSON.stringify(await box(vbar)));
+  await vbar.getByRole("button", { name: "More" }).click();
+  await settle(page);
+  const more = page.getByRole("menu", { name: "Vector editing tools" });
+  check("R10: More › Vector editing tools 189 × 48 at 869, 736 (±2): Shape builder M, Variable width ⇧W", near(await box(more), [869, 736, 189, 48], 2) && (await more.getByRole("menuitemradio").count()) === 2, JSON.stringify(await box(more)));
+  await shot(page, `272-r10-vector-toolbar-${theme}`);
+  await page.keyboard.press("Escape");
+  await vbar.getByRole("button", { name: "Cut" }).click();
+  const [cx, cy] = await toScreen(page, 60, 300);
+  await page.mouse.click(cx, cy);
+  await settle(page);
+  const cut = await page.evaluate(() => window.__designerEditor.vector.state.get());
+  check("R10: Cut — a click on a segment cuts it apart (4 → 5 segments)", cut.segmentCount === 5 && cut.tool === "CUT", JSON.stringify([cut.segmentCount, cut.tool]));
+  await vbar.getByRole("button", { name: "Close" }).click();
+  await settle(page);
+  check("R10: Close leaves vector edit mode", (await page.locator("[data-vector-toolbar]").count()) === 0);
+  await page.evaluate(() => window.__designerEditor.engine.undo());
+
+  // Actions: 529 × 354 at 456, 478; after a run, it opens on Recents.
+  const toolbarActions = page.locator('[data-ds="EditorToolbar"]').getByRole("button", { name: "Actions" });
+  await toolbarActions.click();
+  await settle(page);
+  await page.keyboard.type("zoom to fit");
+  await page.keyboard.press("Enter");
+  await settle(page);
+  await toolbarActions.click();
+  await settle(page);
+  const palette = page.locator("[data-actions-panel]");
+  const firstHeader = await palette.locator('[role="presentation"]').first().innerText();
+  check("R10: Actions 529 × 354 at 456, 478, on Recents, Visual search (AI beta) listed", JSON.stringify(await box(palette)) === "[456,478,529,354]" && firstHeader === "Recents" && (await palette.locator('[role="option"]').count()) === 1 && (await palette.getByRole("button", { name: "Visual search (AI beta)" }).count()) === 1, JSON.stringify([await box(palette), firstHeader]));
+  await shot(page, `273-r10-actions-${theme}`);
+  await page.keyboard.press("Escape");
+  await settle(page);
+
+  // The left side: page rows 224 × 24 at 65; the Resize handle 8 × 900 at 295; Find at 400.
+  check("R10: a page row is a 224 × 24 button at 65, 109 (live pages-add-page-rename.txt)", JSON.stringify(await box(page.locator('[data-ds="PageRow"]').first())) === "[65,109,224,24]" && (await page.locator('[data-ds="PageRow"]').first().getAttribute("role")) === "button");
+  check("R10: the left panel's Resize handle 8 × 900 at 295", JSON.stringify(await box(page.locator('[data-panel="left"] > [role="slider"][aria-label="Resize handle"]'))) === "[295,0,8,900]", JSON.stringify(await box(page.locator('[data-panel="left"] > [role="slider"][aria-label="Resize handle"]'))));
+  await page.locator('[data-panel="left"]').getByRole("button", { name: "Find" }).first().click();
+  await page.keyboard.type("AL_");
+  await settle(page);
+  const weights = await page.locator('[data-panel="left"]').evaluate((el) => {
+    const parent = el.querySelector('[data-find-results] [class*="parent"]');
+    const scope = el.querySelector('[aria-label^="Search scope set to"]');
+    return [parent && getComputedStyle(parent).fontWeight, scope && getComputedStyle(scope).fontWeight];
+  });
+  check("R10: Find's parent names 10 / 400 and its scope 11 / 400 (live find-layers-search.txt)", weights.join() === "400,400", weights.join());
+  await page.keyboard.press("Escape");
+
+  // Assets: the grid (96 tiles at 73 / 185, 125), Back at 65, 93; the Assets button expanded.
+  await page.locator('[data-rail-tab="assets"]').click();
+  await settle(page);
+  await page.locator("[data-library-card]").first().click();
+  await page.locator('[data-asset-page="Capture"]').click();
+  await settle(page);
+  const tiles = await page.locator('[data-panel="left"] [role="treeitem"]').evaluateAll((els) => els.slice(0, 3).map((e) => {
+    const r = e.firstElementChild.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+  }));
+  check("R10: Assets › Created in this file › Capture — 96 tiles at 73 / 185, 125, rows 132 apart (live)", JSON.stringify(tiles) === "[[73,125,96,96],[185,125,96,96],[73,257,96,96]]", JSON.stringify(tiles));
+  check("R10: Back at 65, 93; the Assets button expanded", JSON.stringify((await box(page.locator('[data-panel="left"]').getByRole("button", { name: "Back" }))).slice(0, 2)) === "[65,93]" && (await page.locator('[data-rail-tab="assets"]').getAttribute("aria-expanded")) === "true");
+  await shot(page, `274-r10-assets-${theme}`);
+}
+
 try {
   if (only === "leftpanel" || !only) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
@@ -3499,6 +3628,16 @@ try {
     });
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await leftPanelSection(page, "dark");
+    await context.close();
+  }
+  if (only === "menus10") {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: "dark" });
+    const page = await context.newPage();
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`dark console: ${m.text()}`);
+    });
+    page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
+    await menus10Section(page, "dark");
     await context.close();
   }
   if (only === "menus9") {

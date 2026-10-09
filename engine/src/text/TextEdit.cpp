@@ -390,6 +390,11 @@ void setListType(TextData& t, size_t first, size_t last, uint8_t lineType) {
   }
 }
 
+void setDirection(TextData& t, size_t first, size_t last, uint8_t direction) {
+  ensureLines(t);
+  for (size_t i = first; i <= last && i < t.lines.size(); i++) writeLineDirection(t.lines[i], direction);
+}
+
 void indentParagraphs(TextData& t, size_t first, size_t last, int delta) {
   ensureLines(t);
   for (size_t i = first; i <= last && i < t.lines.size(); i++) {

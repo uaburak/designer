@@ -231,6 +231,25 @@ export const CommandId = {
   // Round 8 (r8-design-panel): the Grid panel (engine/src/tools/GridGestures.cpp); 260-269.
   /** args { frame, axis: "COLUMNS" | "ROWS", tracks: number[] }: the selected grid's tracks, as a pill click ([] clears). */
   SELECT_GRID_TRACKS: 260,
+  // Round 10 (engine/src/editor/ArrangeCommands.cpp): Object, Arrange and Vector commands of the Figma menu.
+  CONVERT_TO_SECTION: 270,
+  CONVERT_TO_FRAME: 271,
+  DISTRIBUTE_LEFT: 272,
+  DISTRIBUTE_HORIZONTAL_CENTERS: 273,
+  DISTRIBUTE_RIGHT: 274,
+  DISTRIBUTE_TOP: 275,
+  DISTRIBUTE_VERTICAL_CENTERS: 276,
+  DISTRIBUTE_BOTTOM: 277,
+  PACK_HORIZONTAL: 278,
+  PACK_VERTICAL: 279,
+  ROUND_TO_PIXEL: 280,
+  VECTOR_JOIN: 281,
+  VECTOR_SPLIT: 282,
+  VECTOR_SIMPLIFY: 283,
+  VECTOR_OFFSET: 284,
+  SET_DEFAULT_PROPERTIES: 285,
+  /** args { ranges: [from, to][] }: the edited text's misspelled words (UTF-16), underlined (Text › Spell check). */
+  SET_SPELLING_MARKS: 286,
 } as const;
 export type CommandName = keyof typeof CommandId;
 
@@ -297,6 +316,9 @@ export const VIEW_KEYBOARD_ZOOM_SELECTION = 8192;
 export const VIEW_INVERT_ZOOM = 16384;
 export const VIEW_SCROLL_WHEEL_ZOOM = 32768;
 export const VIEW_RIGHT_DRAG_PAN = 65536;
+/** Round 10, View › Frame outlines / Mask outlines: every frame's / mask's box drawn as a thin line (unverified look). */
+export const VIEW_FRAME_OUTLINES = 131072;
+export const VIEW_MASK_OUTLINES = 262144;
 /** engine_encode_selection flags. */
 export const ENCODE_SELECTION_CUT = 1;
 /** engine_encode_document flags: the derived data (derivedSymbolData, derivedTextData, derivedDataVersion) too — kiwi only. */
@@ -311,7 +333,7 @@ export const EXPORT_ALLOW_PENDING = 1;
 /** engine_text_edit flags. */
 export const TEXT_EDIT_SELECT_ALL = 1;
 /** engine_vector_edit_tool values. */
-export const VECTOR_EDIT_TOOLS = ["MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET"] as const;
+export const VECTOR_EDIT_TOOLS = ["MOVE", "PEN", "BEND", "LASSO", "PAINT_BUCKET", "CUT", "ERASE"] as const;
 
 /** Status codes (§10.3). */
 export const Status = {

@@ -122,7 +122,8 @@ export class EditorController {
       versionDialog: null,
       placingImages: null,
       returnToInstance: null,
-      assetsView: "list",
+      // Live (left/rail-assets-page-components.txt): a library's components as a grid of 96 tiles.
+      assetsView: "grid",
       assetsClosed: new Set(),
       variablesOpen: false,
       stylesClosed: new Set(),

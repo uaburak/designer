@@ -7,7 +7,9 @@
     max-height: calc(100vh - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: var(--ds-size-menu-pad);
+    /* Live (menus/*, popovers/*-menu.txt): the rows are the menu's full width (menuitem 0,y,W,24), their highlight 8 in */
+    --menu-inset: var(--ds-size-menu-pad);
+    padding: var(--ds-size-menu-pad) 0;
     border-radius: var(--ds-radius-large);
     background: var(--ds-color-menu-bg);
     color: var(--ds-color-menu-text);
@@ -24,11 +26,12 @@
     display: flex;
     align-items: center;
     gap: var(--ds-space-2);
+    position: relative;
+    isolation: isolate;
     width: 100%;
     height: var(--ds-size-menu-item);
-    padding: 0 var(--ds-space-2);
+    padding: 0 calc(var(--menu-inset) + var(--ds-space-2));
     border: 0;
-    border-radius: var(--ds-radius-medium);
     background: transparent;
     color: inherit;
     font: inherit;
@@ -38,9 +41,22 @@
     outline: none;
     cursor: default;
   }
-  .item[data-highlighted] { background: var(--ds-color-menu-highlight); }
+  .item::before { content: ""; position: absolute; inset: 0 var(--menu-inset); z-index: -1; border-radius: var(--ds-radius-medium); }
+  .item[data-highlighted]::before { background: var(--ds-color-menu-highlight); }
+  /* Rows 8 in, the highlight the row itself (live gap / W / H lists over their field, the effect type list) */
+  .inset { --menu-inset: 0px; padding-inline: var(--ds-size-menu-pad); }
+  .inset .item { border-radius: var(--ds-radius-medium); }
+  .inset .item[data-highlighted] { background: var(--ds-color-menu-highlight); }
+  .inset .item::before { content: none; }
+  .inset .separator { margin-inline: calc(var(--ds-size-menu-pad) * -1); }
+  /*
+   * A menu under its trigger (MenuButton; live boolean operations, More actions, Create property, Individual strokes,
+   * blend mode, Frame ▾): no padding above or below its rows, groups 15 apart.
+   */
+  .flush { padding-block: 0; }
+  .flush > .separator { margin-block: 7px; }
   /* A dropdown's list (Select): room on the right as Figma's (live: the longest label + 64) */
-  .listItem { padding-right: var(--ds-space-6); }
+  .listItem { padding-right: calc(var(--menu-inset) + var(--ds-space-6)); }
   /* Context menus (canvas, layers, pages): live 11px / 400, at least 200 wide */
   .context { min-width: 200px; }
   .context .item { font-weight: 400; }
@@ -70,6 +86,19 @@
   /* Its name, for assistive tech only (live: at -1, 1, 11px / 400) */
   .hiddenLabel { position: absolute; top: 1px; left: -1px; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); font-weight: 400; white-space: nowrap; }
   .item[data-highlighted] .hint, .item[data-highlighted] .shortcut { color: var(--ds-color-menu-text-on-highlight-secondary); }
+  /* Live (menus/main-*.txt): a disabled row's keys at the disabled colour (#ffffff66) */
+  .item[aria-disabled="true"] .shortcut { color: var(--ds-color-menu-text-disabled); }
+  /* Live (context-layer-row.txt): "AI" — a 20 × 18 tag, its text 5 in, at the keys' right edge */
+  .badge {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--ds-radius-medium);
+    color: var(--ds-color-menu-text-secondary);
+  }
+  .item[data-highlighted] .badge { color: var(--ds-color-menu-text-on-highlight-secondary); }
   .chevron { flex: none; margin-right: calc(var(--ds-space-1) * -1); }
   /* An extended menu's bar at the window's bottom (live frame-presets-menu.txt: 24 high, the panel's colour, the menu's bottom corners) */
   .more {
@@ -78,17 +107,16 @@
     align-items: center;
     justify-content: center;
     height: var(--ds-size-menu-item);
-    margin: 0 calc(var(--ds-size-menu-pad) * -1);
     border-radius: 0 0 var(--ds-radius-large) var(--ds-radius-large);
     background: var(--figma-color-bg);
     color: var(--ds-color-menu-text-secondary);
   }
-  .separator { height: 1px; margin: var(--ds-space-2) calc(var(--ds-size-menu-pad) * -1); background: var(--ds-color-menu-separator); }
+  .separator { height: 1px; margin: var(--ds-space-2) 0; background: var(--ds-color-menu-separator); }
   .header {
     display: flex;
     align-items: center;
     height: var(--ds-size-menu-item);
-    padding: 0 var(--ds-space-2);
+    padding: 0 calc(var(--menu-inset) + var(--ds-space-2));
     color: var(--ds-color-menu-text);
     font: var(--ds-font-body-medium-regular);
     letter-spacing: var(--ds-tracking-body-medium-regular);

@@ -170,6 +170,8 @@ export function Assets() {
             )}
           </span>
           <span className={styles.tileName}>{assetLabel(a.name)}</span>
+          {/* Live: each tile's hint for assistive tech (its "view details" half isn't built here) */}
+          <span className={styles.srOnly}>Press Enter or Space to insert.</span>
         </>
       ) : (
         <>
@@ -363,13 +365,23 @@ function Thumb({ asset, size }: { asset: ComponentAsset; size: number }) {
   useEffect(() => {
     const c = ref.current;
     if (!c || !render) return;
-    const px = render({ node: asset.target, maxSize: size * Math.max(1, Math.round(window.devicePixelRatio || 1)) });
+    const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+    const px = render({ node: asset.target, maxSize: size * dpr });
     if (!px) return;
     c.width = px.width;
     c.height = px.height;
     c.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(px.pixels), px.width, px.height), 0, 0);
+    // Live (img/left-rail-assets-components.jpg): a component at its own size, only a big one scaled down to fit (8 in
+    // from a 96 tile's edges, 4 in a smaller one's) — a 20 px icon stays 20 px.
+    const n = ed.engine.readNode(asset.target, { fields: ["size"] }) as { size?: { x: number; y: number } } | null;
+    const room = size - (size >= TILE ? 16 : 8);
+    if (n?.size && n.size.x > 0 && n.size.y > 0) {
+      const fit = Math.min(1, room / Math.max(n.size.x, n.size.y));
+      c.style.width = `${Math.max(1, n.size.x * fit)}px`;
+      c.style.height = `${Math.max(1, n.size.y * fit)}px`;
+    }
     c.dataset.drawn = "";
-  }, [render, asset.target, size]);
+  }, [render, asset.target, size, ed]);
   return (
     <span className={styles.thumb}>
       {render && <canvas ref={ref} className={styles.thumbCanvas} />}

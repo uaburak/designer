@@ -1,0 +1,79 @@
+/* Round 10's command pieces (canvas/CommandOverlays.tsx): Move to project's list, cursor chat, Memory usage, the vector
+   operations' bar. Unverified looks, built from the DS's tokens. */
+@layer app {
+  .places {
+    max-height: 320px;
+    padding: var(--ds-space-2) var(--ds-space-4);
+    overflow-y: auto;
+  }
+
+  .chat {
+    position: fixed;
+    z-index: var(--ds-z-popover);
+    display: flex;
+    align-items: center;
+    min-width: 120px;
+    max-width: 280px;
+    height: var(--ds-size-control-large);
+    padding: 0 var(--ds-space-3);
+    border-radius: var(--ds-radius-large);
+    border-top-left-radius: var(--ds-radius-small);
+    background: var(--ds-color-menu-highlight);
+    color: var(--ds-color-menu-text);
+    box-shadow: var(--ds-elevation-200);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+  }
+
+  .chatInput {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    outline: none;
+  }
+  .chatInput::placeholder { color: var(--ds-color-menu-text-on-highlight-secondary); }
+  .chatText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .memory {
+    position: fixed;
+    z-index: var(--ds-z-floating);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-control);
+    padding: 0 var(--ds-space-2);
+    border-radius: var(--ds-radius-medium);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    box-shadow: var(--ds-elevation-100);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    pointer-events: none;
+  }
+  .memoryLabel { color: var(--figma-color-text-secondary); }
+
+  .vectorOp {
+    position: fixed;
+    z-index: var(--ds-z-popover);
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-size-toolbar);
+    padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    box-shadow: var(--ds-elevation-400-menu-panel);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    transform: translateX(-50%);
+  }
+  .caption { color: var(--figma-color-text-secondary); white-space: nowrap; }
+  .slider { display: flex; align-items: center; gap: var(--ds-space-2); }
+  .slider input { width: 160px; accent-color: var(--figma-color-bg-brand); }
+  .amount { width: 72px; }
+}

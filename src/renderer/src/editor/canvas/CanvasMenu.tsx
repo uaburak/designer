@@ -73,7 +73,7 @@ export function CanvasMenu() {
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y }}
-      entries={at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers)}
+      entries={at.guide ? [commandItem(ed, "canvas.remove-guide")] : canvasMenu(ed, layers, { row: !at.canvas })}
       label="Canvas"
       context
       onSelect={(id) => void runMenuItem(ed, id)}

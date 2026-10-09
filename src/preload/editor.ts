@@ -1,4 +1,4 @@
-import { contextBridge } from "electron";
+import { contextBridge, webFrame } from "electron";
 import type { EditorApi } from "../shared/desktop";
 import type { FlushReason, TabAttach } from "../shared/ipc";
 import { common, files, forwardStorePort, invoke, nav, on, openExternal, send, viewMenu } from "./common";
@@ -88,6 +88,10 @@ const api: EditorApi = {
     read: (id) => invoke("fonts:read", { id: String(id) }),
     preview: (family, text) => invoke("fonts:preview", { family: String(family), text: String(text) }),
     onChanged: (cb) => on("fonts:changed", () => cb()),
+  },
+  // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
+  spelling: {
+    misspelled: (words) => (Array.isArray(words) ? words.slice(0, 2000) : []).map((w) => typeof w === "string" && w.length < 64 && webFrame.isWordMisspelled(w)),
   },
 };
 

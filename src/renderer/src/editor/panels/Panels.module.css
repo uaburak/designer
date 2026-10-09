@@ -58,7 +58,8 @@
 
   /* Pages (live): rows from the header's foot, 8 under the last, the 8px resize handle on the line under them */
   .pages { position: relative; flex: none; }
-  .pageList { max-height: 40vh; overflow-y: auto; padding-bottom: var(--ds-space-2); }
+  /* Live (left/pages-add-page-rename.txt): rows from 4 under the header, 8 apart; Layers' line 13 under the last */
+  .pageList { display: flex; flex-direction: column; gap: var(--ds-space-2); max-height: 40vh; overflow-y: auto; padding: var(--ds-space-1) 0 calc(var(--ds-space-2) + var(--ds-space-1)); }
   .pageDragging { opacity: 0.5; }
   /* Find at 180, Add new page at 208 (live): 4 between them */
   .pageActions { display: flex; gap: var(--ds-space-1); }
@@ -67,6 +68,17 @@
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; border-bottom: 0; }
   .layerList { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-1); outline: none; }
   .placeholderTab { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  /* View › Minimize left navigation bar (round 10, unverified look): the navigation's tabs in a row atop the sidebar */
+  .navStrip {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: var(--ds-size-panel-header);
+    padding: 0 var(--ds-space-2);
+    border-bottom: 1px solid var(--figma-color-border);
+  }
+  .navStripOn { background: var(--figma-color-bg-selected); }
   /* A tab's header (Assets, Tools, Agents; live): 48 and its line, the title 13 / 550 at 16, actions 12 from the edge */
   .tabHeader {
     display: flex;

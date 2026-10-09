@@ -26,7 +26,7 @@ import { isGrid } from "../../model/grid";
 import { ApplyModeButton, ModeRows, VariableField } from "./Variables";
 import { fieldValue, mixed, mixedNumber } from "../../model/mixed";
 import { IDENTITY, panelPosition, roundPanel, rotateTo, rotationOf, withPanelPosition } from "../../model/geometry";
-import { fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
+import { PANEL_MENU_GAP, fields, hasCorners, isFrameNode, isGroupNode, isInstanceSublayer, typeOf, useKeeps, useParents, useSupports, useTextEditRef, type BlendModeName, type PanelNode } from "./shared";
 import styles from "./Design.module.css";
 
 type Fields = Parameters<EditorController["engine"]["setProps"]>[1];
@@ -359,7 +359,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             tone="secondary"
             onClick={() => ed.setProps(refs, { visible: visible === false }, visible === false ? "Show" : "Hide")}
           />
-          <MenuButton label="Apply blend mode" tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
+          <MenuButton label="Apply blend mode" tooltip disabled={!blendKept} entries={blendEntries} className={styles.iconMenu} gap={PANEL_MENU_GAP} flush extend onSelect={(id) => ed.setProps(refs, fields({ blendMode: id as BlendModeName }), "Blend mode")}>
             <Icon name={blendSet ? "24.blendmode.active.small" : "24.blendmode.small"} />
           </MenuButton>
         </>

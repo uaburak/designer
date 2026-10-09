@@ -242,7 +242,7 @@ export function InstanceHeader({ instance }: { instance: CNode }) {
         </div>
         <div className={styles.headerActions}>
           {bound && <BindButton layer={instance} field="OVERRIDDEN_SYMBOL_ID" type="INSTANCE_SWAP" />}
-          <MenuButton label="More actions" entries={more} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} menuClassName={hstyles.actionsMenu} onSelect={onMore}>
+          <MenuButton label="More actions" entries={more} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={hstyles.actionsMenu} onSelect={onMore}>
             <Icon name="24.more" />
           </MenuButton>
         </div>
@@ -608,6 +608,7 @@ function ComponentMore() {
       className={styles.iconMenu}
       align="end"
       gap={PANEL_MENU_GAP}
+      flush
       menuClassName={hstyles.actionsMenu}
       onSelect={(id) => {
         if (id === "ready-for-dev") runEditorCommand(ed, statusOfTargets(ed, statusTargets(ed)) === "BUILD" ? "object.remove-dev-status" : "object.mark-ready-for-dev");
@@ -689,7 +690,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
     <div className={styles.properties} data-properties-section="">
       <BlockTitle title="Properties">
         <span ref={addRef} className={styles.contents}>
-          <MenuButton label="Create property" entries={createPropertyMenu(ed, fresh, nestedInstances)} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} menuClassName={styles.createPropertyMenu} onSelect={onAdd}>
+          <MenuButton label="Create property" entries={createPropertyMenu(ed, fresh, nestedInstances)} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={styles.createPropertyMenu} onSelect={onAdd}>
             <Icon name="24.plus.small" />
           </MenuButton>
         </span>

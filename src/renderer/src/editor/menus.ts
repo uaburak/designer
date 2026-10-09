@@ -56,6 +56,9 @@ function build(ed: EditorController, specs: Spec[], prefix: string, checks = fal
   });
 }
 
+/** More layout options ▸ (live context-frame / context-multi / main-object list it; its items are unverified). */
+const MORE_LAYOUT: SubSpec = { label: "More layout options", items: ["object.add-layout-horizontal", "object.add-layout-vertical", "object.add-layout-grid"] };
+
 /** Dynamic items' ids: "Reset ▸ <group>" carries the group's fields; "Move to page ▸ <page>" the page. */
 export const RESET_PREFIX = "reset-changes:";
 const MOVE_TO_PAGE = "move-to-page:";
@@ -258,7 +261,7 @@ export const MAIN_MENU: Spec[] = [
       "object.use-as-mask",
       "-",
       "object.add-auto-layout",
-      "object.more-layout-options",
+      MORE_LAYOUT,
       "-",
       "object.create-component",
       { label: "Slots", items: ["object.convert-to-slot", "object.wrap-in-new-slot"] },
@@ -444,7 +447,7 @@ const WIDGETS: SubSpec = { label: "Widgets", items: ["widgets.manage", "widgets.
  * items, Plugins, Widgets │ Show/Hide, Lock/Unlock │ Flip horizontal, Flip vertical; over empty canvas — Paste here
  * │ Show/Hide UI, Show/Hide comments │ Cursor chat, Actions…, Plugins, Widgets.
  */
-export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean; icon?: IconName }[]): MenuEntry[] {
+export function canvasMenu(ed: EditorController, layers: { id: Guid; name: string; locked?: boolean; icon?: IconName }[], options: { row?: boolean } = {}): MenuEntry[] {
   if (!ed.selection.length) {
     return [
       ...build(ed, ["edit.paste-here", "-"], "canvas."),
@@ -460,34 +463,44 @@ export function canvasMenu(ed: EditorController, layers: { id: Guid; name: strin
   const page = ed.store.page;
   const topFrame = !!single && isFrameLike(single) && single.parentIndex?.guid === page;
   const allComponents = nodes.length > 0 && nodes.every((n) => isComponent(n) || isComponentSet(n));
-  const autoLayout = nodes.some((n) => (n as { stackMode?: string }).stackMode && (n as { stackMode?: string }).stackMode !== "NONE");
   const instance = nodes.some(isInstance);
+  // Live (context-instance.txt): an instance's auto layout can't be removed, so ⇧A reads "Add auto layout" (it wraps).
+  const autoLayout = nodes.some((n) => !isInstance(n) && (n as { stackMode?: string }).stackMode && (n as { stackMode?: string }).stackMode !== "NONE");
+  // Live: Convert to section on a top-level frame only (context-frame); Set as thumbnail on a frame or a main
+  // component (context-frame, context-component), never an instance.
+  const plainFrame = topFrame && single?.type === "FRAME";
+  const thumbnail = topFrame && !instance && (single?.type === "FRAME" || isComponent(single!));
+  const row = options.row === true;
   const specs: Spec[] = [
     "edit.copy",
-    "edit.paste-here",
+    // Live (context-layer-row.txt): a Layers row's menu has no Paste here.
+    ...(row ? [] : ["edit.paste-here"]),
     "edit.paste-to-replace",
     { label: "Copy/Paste as", items: ["edit.copy-as-text", "edit.copy-as-code", "edit.copy-as-svg", "edit.copy-as-png", "-", "edit.copy-properties", "edit.paste-properties"] },
     "canvas.send-to-make",
     ...(multi ? [] : ["canvas.find-similar"]),
     ...(allComponents ? [] : ["canvas.add-motion"]),
     "-",
-    ...(layers.length > 1 ? [() => selectLayerSubmenu(ed, layers)] : []),
+    ...(layers.length > 1 && !row ? [() => selectLayerSubmenu(ed, layers)] : []),
     moveToPage,
     "object.bring-to-front",
     "object.send-to-back",
     "-",
-    ...(topFrame ? ["object.convert-to-section"] : []),
+    ...(plainFrame && !row ? ["object.convert-to-section"] : []),
     "object.group",
     "object.frame-selection",
     ...(multi && isEnabled(ed, command("object.wrap-in-section")) ? ["object.wrap-in-section"] : []),
-    ...(isEnabled(ed, command("object.ungroup")) ? [{ id: "object.ungroup", label: "Ungroup" }] : []),
+    ...(isEnabled(ed, command("object.ungroup")) && !allComponents ? [{ id: "object.ungroup", label: "Ungroup" }] : []),
+    // Live (context-layer-row.txt): Rename ⌘R after Frame selection on a Layers row, then "Rename layers" with its
+    // "AI" tag (live's AI renaming: listed, not built).
+    ...(row ? ["object.rename", (e: EditorController): MenuEntry => ({ ...commandItem(e, "canvas.rename-layers-ai"), badge: "AI" })] : []),
     "vector.flatten",
     "vector.outline-stroke",
-    ...(topFrame ? ["object.set-as-thumbnail"] : []),
+    ...(thumbnail && !row ? ["object.set-as-thumbnail"] : []),
     "object.use-as-mask",
     "-",
     autoLayout ? "object.remove-auto-layout" : "object.add-auto-layout",
-    ...((topFrame || multi || (single && isFrameLike(single))) && !instance ? ["object.more-layout-options"] : []),
+    ...((topFrame || multi || (single && isFrameLike(single))) && !instance ? [MORE_LAYOUT] : []),
     ...componentEntries(ed),
     PLUGINS,
     WIDGETS,

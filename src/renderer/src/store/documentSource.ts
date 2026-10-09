@@ -18,6 +18,7 @@
  * undoable "Restore version" edit, journaled as `restore`, then a "restore" history entry), `duplicateVersion`.
  */
 import type { DocumentSource, LibraryAccess, PreparedLoad, PreviewAccess } from "@/editor/documentSource";
+import type { FileOps } from "@/editor/objectCommands";
 import type { Message as EngineMessage } from "@/engine/codec";
 import { decodeMessage, encodeMessage } from "../../../shared/schema/codec";
 import { messageImageHashes } from "../../../shared/schema/patch";
@@ -319,6 +320,8 @@ class Source implements StoreDocumentSource {
   private readonly fileMeta = new Listeners<FileMeta>();
   readonly libraries: LibraryAccess;
   readonly previews: PreviewAccess;
+  /** Round 10, the File menu's Duplicate / Move to project… / Save local copy… (editor/objectCommands.ts FileOps) */
+  readonly fileOps: FileOps;
   private uiPatch: Partial<FileUiState> | null = null;
   private uiTimer: ReturnType<typeof setTimeout> | null = null;
   private closing: Promise<void> | null = null;
@@ -352,6 +355,24 @@ class Source implements StoreDocumentSource {
     });
     this.libraries = storeLibraryAccess(store, () => this.meta, (l) => this.fileMeta.add(l));
     const fileKey = this.fileKey;
+    this.fileOps = {
+      fileKey,
+      duplicate: async () => {
+        const meta = await store.workspace.duplicateFile(fileKey);
+        return { fileKey: meta.fileKey, name: meta.name };
+      },
+      folders: async () => [
+        { id: null, name: "Drafts" },
+        ...(await store.workspace.listFolders()).filter((f) => !f.trashedAt).map((f) => ({ id: f.id, name: f.name })),
+      ],
+      moveTo: (folderId) => store.workspace.moveFiles([fileKey], folderId),
+      branch: async (name) => {
+        // A branch here: a copy named "<file> / <branch>" (Figma's breadcrumb), in the file's place.
+        const copy = await store.workspace.duplicateFile(fileKey);
+        const meta = await store.workspace.renameFile(copy.fileKey, `${this.meta.name} / ${name}`);
+        return { fileKey: meta.fileKey, name: meta.name };
+      },
+    };
     this.previews = {
       fileKey,
       status: () => store.previews.status(),

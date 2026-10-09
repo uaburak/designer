@@ -87,10 +87,16 @@ struct LineInfo {
   int32_t indentationLevel = 0;
   int32_t listStartOffset = 0;
   bool isFirstLineOfList = false;
+  // Text › Text direction (round 10): sourceDirectionality — 0 AUTO, 1 LTR, 2 RTL. Kept and written; the layout is
+  // left to right until bidi (E3.2).
+  uint8_t direction = 0;
 };
 LineInfo readLine(std::string_view bytes);
-// `bytes` with these fields written (the line's other fields kept).
+// `bytes` with these fields written (the line's other fields kept; the direction fields are writeLineDirection's).
 void writeLine(std::string& bytes, const LineInfo& info);
+// The paragraph's direction as Figma writes it: sourceDirectionality, directionalityIntent (EXPLICIT for LTR / RTL)
+// and directionality (RTL for RTL, else LTR).
+void writeLineDirection(std::string& bytes, uint8_t direction);
 
 // List markers: Figma's counters rotate 1. → a. → i. by indentation level; bullets are "•" at every level.
 std::u16string listMarker(LineType type, int32_t level, int32_t index);

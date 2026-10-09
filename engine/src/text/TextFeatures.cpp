@@ -274,9 +274,27 @@ LineInfo readLine(std::string_view bytes) {
     } else if (fd.name == "isFirstLineOfList") {
       bool b = false;
       if (bb.readByte(b)) out.isFirstLineOfList = b;
+    } else if (fd.name == "sourceDirectionality") {
+      uint32_t d = 0;
+      if (bb.readVarUint(d) && d <= 2) out.direction = static_cast<uint8_t>(d);
     }
   });
   return out;
+}
+
+void writeLineDirection(std::string& bytes, uint8_t direction) {
+  const schema::SchemaTable& table = schema::SchemaTable::get();
+  const schema::Def* def = table.def("TextLineData");
+  if (!def) return;
+  auto put = [&](uint32_t id, uint32_t value) {
+    schema::Out o;
+    o.varuint(value);
+    schema::eraseField(*def, bytes, id);
+    schema::insertField(*def, bytes, id, o.s);
+  };
+  put(3, direction == 2 ? 1 : 0);  // directionality: LTR 0, RTL 1
+  put(4, direction == 0 ? 0 : 1);  // directionalityIntent: IMPLICIT 0, EXPLICIT 1
+  put(9, std::min<uint8_t>(direction, 2));
 }
 
 void writeLine(std::string& bytes, const LineInfo& info) {

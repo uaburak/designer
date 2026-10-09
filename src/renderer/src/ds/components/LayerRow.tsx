@@ -151,17 +151,20 @@ export interface PageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onSe
   hovered?: boolean;
 }
 
-/** A page (contract §4.18): a 24 highlight on a 32 pitch, the current one bg-secondary and its name 550; double click renames. */
+/**
+ * A page (contract §4.18; live left/pages-add-page-rename.txt): a 224 × 24 button, 8 in, 8 apart; the current one
+ * bg-secondary and its name 550; double click renames.
+ */
 export function PageRow({ id, name, current, renaming, divider, onRename, onSelect, trailing, hovered, className, ...rest }: PageRowProps) {
   return (
     <div
-      role="option"
+      role="button"
       data-ds="PageRow"
       data-id={id}
-      aria-selected={current}
+      aria-current={current ? "page" : undefined}
       data-hover={hovered || undefined}
       data-divider={divider && !renaming ? "" : undefined}
-      className={cx(styles.row, styles.page, className)}
+      className={cx(styles.page, className)}
       onClick={divider ? undefined : onSelect}
       onKeyDown={(e) => {
         if (divider || renaming) return;
@@ -172,16 +175,14 @@ export function PageRow({ id, name, current, renaming, divider, onRename, onSele
       }}
       {...rest}
     >
-      <div className={styles.box}>
-        {divider && !renaming ? (
-          <span className={styles.divider} aria-label={name} />
-        ) : renaming ? (
-          <RenameField className={styles.rename} value={name} onDone={(n) => onRename?.(n)} />
-        ) : (
-          <span className={styles.name}>{name}</span>
-        )}
-        {trailing && <span className={styles.tail}>{trailing}</span>}
-      </div>
+      {divider && !renaming ? (
+        <span className={styles.divider} aria-label={name} />
+      ) : renaming ? (
+        <RenameField className={styles.rename} value={name} onDone={(n) => onRename?.(n)} />
+      ) : (
+        <span className={styles.name}>{name}</span>
+      )}
+      {trailing && <span className={styles.tail}>{trailing}</span>}
     </div>
   );
 }
