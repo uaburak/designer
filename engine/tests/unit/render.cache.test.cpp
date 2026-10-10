@@ -580,3 +580,152 @@ TEST_CASE("tiles: the budget holds while the zoom roams; least recently shown go
   CHECK(r.tileCount() > 0);
   CHECK(dev.memory().bytes < (512ull << 20));
 }
+
+namespace {
+
+// A glass pill over the grid (Frost 8, Depth 20): it reads what is under it, past its box.
+void glassOver(Document& d, Rect r) {
+  NodeChange g = make({3, 1}, NodeType::ROUNDED_RECTANGLE, kPage, "~", r);
+  Effect glass;
+  glass.type = EffectType::GLASS;
+  glass.radius = 8;
+  g.props.effects = {glass};
+  d.apply(g);
+}
+
+// The last backdrop copy a fresh renderer makes of `d` at `cam` (its first frame draws everything): what the cached
+// renderer's copy must equal whenever it draws the glass again.
+bool freshCopy(const Document& d, const Camera& cam, gfx::IRect& out) {
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  r.setClock([] { return 0.0; });
+  Overlay o;
+  o.frameTitles = false;
+  r.render(d, kPage, cam, kView, o, kDark);
+  if (dev.copyRects.empty()) return false;
+  out = dev.copyRects.back();
+  return true;
+}
+
+bool sameRect(const gfx::IRect& a, const gfx::IRect& b) { return a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h; }
+
+}  // namespace
+
+TEST_CASE("content cache: a layer reading its backdrop is drawn again whole, over all it reads, when a part touches it (round 17)") {
+  // The owner's 87.png: glass pills banded in vertical strips after a scroll away and back. Each strip that came into
+  // view drew the glass's slice of it reading a backdrop of the strip (and past it the cache's old pixels: the glass's
+  // own, drawn before), never the whole backdrop a fresh draw reads.
+  Document d;
+  base(d);
+  grid(d, 40);
+  glassOver(d, {300, 130, 200, 60});
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  r.setClock([] { return 0.0; });
+  Overlay o;
+  o.frameTitles = false;
+  r.render(d, kPage, Camera{}, kView, o, kDark);
+  // Panned away (37 CSS px a frame) until the glass is off the canvas, and back.
+  int drawnAgain = 0, untouched = 0;
+  std::vector<double> xs;
+  for (int i = 1; i <= 24; i++) xs.push_back(-37.0 * i);
+  for (int i = 23; i >= 0; i--) xs.push_back(-37.0 * i);
+  for (double x : xs) {
+    Camera cam{x, 0, 1};
+    size_t before = dev.copyRects.size();
+    RenderStats s = r.render(d, kPage, cam, kView, o, kDark);
+    CHECK(s.cachedRegions >= 1);
+    if (dev.copyRects.size() == before) {
+      untouched++;
+      continue;
+    }
+    drawnAgain++;
+    gfx::IRect want;
+    REQUIRE(freshCopy(d, cam, want));
+    const gfx::IRect& got = dev.copyRects.back();
+    INFO("cam.x ", x, ": copied ", got.x, ",", got.y, " ", got.w, "x", got.h, ", a fresh draw ", want.x, ",", want.y, " ", want.w, "x", want.h);
+    CHECK(sameRect(got, want));
+  }
+  CHECK(drawnAgain >= 6);  // every frame the glass came in or went out, cut by the canvas's edge
+  CHECK(untouched >= 10);  // the cache still shifts: frames where nothing near the glass came in don't draw it
+  // An edit under what the glass reads, outside its box (a rectangle below it moves): the glass drawn again whole.
+  r.render(d, kPage, Camera{}, kView, o, kDark);
+  NodeChange move = NodeChange::changed({2, 13});  // frame 13's rectangle: 250…290 × 130…170, under the glass's reach
+  move.mask = F_TRANSFORM;
+  move.props.transform = Mat2x3::translate(14, 12);
+  d.apply(move);
+  size_t before = dev.copyRects.size();
+  r.render(d, kPage, Camera{}, kView, o, kDark);
+  REQUIRE(dev.copyRects.size() > before);
+  gfx::IRect want;
+  REQUIRE(freshCopy(d, Camera{}, want));
+  CHECK(sameRect(dev.copyRects.back(), want));
+  // Far from it (another rectangle moves): the glass isn't drawn.
+  NodeChange far = NodeChange::changed({2, 21});  // at 10…50 × 250…290
+  far.mask = F_TRANSFORM;
+  far.props.transform = Mat2x3::translate(14, 12);
+  d.apply(far);
+  before = dev.copyRects.size();
+  r.render(d, kPage, Camera{}, kView, o, kDark);
+  CHECK(dev.copyRects.size() == before);
+}
+
+TEST_CASE("render tree: which layers read their backdrop, and which subtrees hold one, follow the document") {
+  Document d;
+  base(d);
+  grid(d, 4);
+  RenderTree t;
+  t.sync(d, kPage);
+  for (const RenderNode& n : t.nodes()) CHECK(!n.backdropInside);
+  // A background blur on a rectangle inside frame 1:2: the rectangle reads, the frame holds one.
+  NodeChange blur = NodeChange::changed({2, 2});
+  blur.mask = F_EFFECTS;
+  Effect e;
+  e.type = EffectType::BACKGROUND_BLUR;
+  e.radius = 10;
+  blur.props.effects = {e};
+  d.apply(blur);
+  t.sync(d, kPage);
+  CHECK(t.consistent(d));
+  CHECK(t.nodes()[static_cast<size_t>(t.indexOf({2, 2}))].samplesBackdrop);
+  CHECK(t.nodes()[static_cast<size_t>(t.indexOf({1, 2}))].backdropInside);
+  CHECK(!t.nodes()[static_cast<size_t>(t.indexOf({1, 2}))].samplesBackdrop);
+  CHECK(!t.nodes()[static_cast<size_t>(t.indexOf({1, 1}))].backdropInside);
+  // The effect hidden: none.
+  blur.props.effects[0].visible = false;
+  d.apply(blur);
+  t.sync(d, kPage);
+  CHECK(t.consistent(d));
+  CHECK(!t.nodes()[static_cast<size_t>(t.indexOf({1, 2}))].backdropInside);
+}
+
+TEST_CASE("tiles: a tile under glass is drawn with what the glass reads past it, not its atlas neighbours' pixels") {
+  Document d;
+  base(d);
+  grid(d, 40);
+  // At the next zoom out's level (1/2, 1 device px a unit: a tile holds 254 units), the glass crosses x 254.
+  glassOver(d, {200, 130, 200, 60});
+  gfx::NullDevice dev;
+  Renderer r(dev);
+  r.setContentCache(true);
+  double now = 1000;
+  r.setClock([&] { return now += 10; });  // every raster 10 ms: a slow page, tiles drawn ahead at rest
+  Overlay o;
+  o.frameTitles = false;
+  Camera cam{0, 0, 1};
+  r.render(d, kPage, cam, kView, o, kDark);
+  size_t before = dev.copyRects.size();
+  for (int i = 0; i < 64 && r.wantsFrameAt() > 0; i++) r.render(d, kPage, cam, kView, o, kDark);
+  CHECK(r.tileCount() > 0);
+  REQUIRE(dev.copyRects.size() > before);
+  // Each tile it touches copies its whole backdrop (the glass and its reach on each side), as a fresh draw at that
+  // zoom does; before, only the tile's slice of it, and past the tile the atlas's other tiles.
+  gfx::IRect want;
+  REQUIRE(freshCopy(d, Camera{0, 0, 0.5}, want));
+  for (size_t k = before; k < dev.copyRects.size(); k++) {
+    CHECK(dev.copyRects[k].w == want.w);
+    CHECK(dev.copyRects[k].h == want.h);
+  }
+}

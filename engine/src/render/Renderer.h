@@ -518,6 +518,8 @@ class Renderer {
   // reads real pixels (no seams between tiles).
   static constexpr int kTileContent = kTileSize - 2;
   static constexpr int kAtlasSize = 2048;
+  // The most a tile is drawn past its edges for layers reading their backdrop across it (device px).
+  static constexpr int kTileBackdropMargin = 256;
   // Colour + stencil of the atlases (4 of 64 tiles: 256 tiles, three Retina screens of a level).
   static constexpr uint64_t kTileBudgetBytes = 128ull << 20;
   static constexpr double kTileInteractingMs = 6;
@@ -655,6 +657,22 @@ class Renderer {
   void drawStrokes(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha);
   void drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double alpha, bool inner);
   // A background blur (uniform or progressive), or glass: the backdrop copied, blurred and painted into the shape.
+  // How far past its box a background blur's (glass: `glass`) backdrop copy reaches, device px, at `scale` device px
+  // per node unit.
+  static double backdropReach(const Effect& e, bool glass, double scale);
+  // The layers of this frame's tree that read their backdrop: their visual bounds on the canvas (device px, this
+  // frame's view) and how far their reading reaches past them — or, `world`, in world units at 100 %.
+  struct BackdropArea {
+    Rect box;
+    double reach = 0;
+  };
+  std::vector<BackdropArea> backdropAreas(const Document& doc, bool world = false) const;
+  // The content cache's parts to draw again (`regions`), grown by every layer reading its backdrop that they touch —
+  // its box and its reach, whole — and, after a pan by (dx, dy) device px, by every one the edge the view leaves
+  // cuts (round 17: glass banded in strips after a scroll away and back).
+  void growForBackdrops(const Document& doc, std::vector<gfx::IRect>& regions, int dx, int dy) const;
+  // `regions` merged pairwise (the pair whose bounding box adds the fewest pixels first) down to `most`.
+  static void mergeRegions(std::vector<gfx::IRect>& regions, size_t most);
   void drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e,
                           bool glass = false);
   // Layer `src` composited through a progressive blur (σ `s0` at the effect's start to `s1` at its end, device px):
@@ -851,6 +869,8 @@ class Renderer {
     double sx = 0, sy = 0;
     Color clear;
     double prefetchAt = 0;  // when the next idle frame should draw tiles ahead (0: none wanted)
+    gfx::TargetId scratch = 0;  // a tile with layers reading their backdrop, drawn with its margin (rasterTile)
+    int scratchSize = 0;
   } tiles_;
   std::function<double()> clock_;
   uint32_t labelsGeneration_ = 0;

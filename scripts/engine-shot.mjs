@@ -5,6 +5,7 @@
 //   npm run engine:shot -- [outDir]     (default: $TMPDIR/engine-shots)
 //   SHOT_ONLY=e4 npm run engine:shot    only the vector / paint / image / effect checks
 //   SHOT_ONLY=r7 npm run engine:shot    only round 7's effects and paints (progressive blurs, noise, texture, glass)
+//   SHOT_ONLY=r17 npm run engine:shot   only round 17's backdrop effects panned away and back (= a fresh draw)
 //   SHOT_ONLY=r8 npm run engine:shot    only round 8's canvas views (ruler guides, slices, pixel preview)
 //   SHOT_ONLY=r11 npm run engine:shot   only round 11's shader fills and effects (every preset, drawn)
 //   SHOT_ONLY=r12 npm run engine:shot   only round 12's variable-width strokes and the Shape builder's region
@@ -1277,6 +1278,164 @@ async function e8Checks(files) {
   await settle();
 }
 
+// Round 17: layers that sample what is under them (glass, background blurs — uniform and progressive) and ones whose
+// effects spill past their box (shadows, layer blur), panned off the canvas and back: the content cache shifts and
+// draws the strips that come into view, and the pixels must be the ones a fresh full draw makes (the owner's 87.png:
+// glass pills banded in vertical strips after a scroll away and back).
+function r17Scene() {
+  const solid = (r, g, b, a = 1) => ({ type: "SOLID", color: { r, g, b, a: 1 }, opacity: a, visible: true });
+  const T = (x, y) => ({ transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: y } });
+  const nodes = [];
+  let n = 1;
+  const add = (type, name, x, y, w, h, extra = {}, parent = "57:1") => {
+    const guid = `57:${++n}`;
+    nodes.push({ guid, phase: "CREATED", type, name, parentIndex: { guid: parent, position: `!${String(n).padStart(3, "0")}` },
+      size: { x: w, y: h }, ...T(x, y), fillPaints: [solid(0.85, 0.85, 0.85)], ...extra });
+    return guid;
+  };
+  nodes.push({ guid: "57:1", phase: "CREATED", type: "FRAME", name: "Round 17 backdrops", parentIndex: { guid: "0:1", position: "~~~~~~~~z" },
+    size: { x: 900, y: 420 }, ...T(0, 5200), fillPaints: [solid(0.11, 0.106, 0.125)] });
+  const palette = [[0.95, 0.7, 0.2], [0.2, 0.5, 0.95], [0.9, 0.25, 0.35], [0.3, 0.8, 0.5], [0.95, 0.95, 0.95], [0.5, 0.3, 0.9]];
+  // Varied content under every effect: stripes of uneven widths and colours, small boxes.
+  const under = (x0, y0, w, h, parent = "57:1") => {
+    for (let x = 0, i = 0; x < w; i++) {
+      const sw = 6 + ((i * 7) % 13);
+      add("ROUNDED_RECTANGLE", `Stripe ${i}`, x0 + x, y0, Math.min(sw, w - x), h, { fillPaints: [solid(...palette[i % palette.length], i % 3 ? 1 : 0.5)] }, parent);
+      x += sw + (i % 2 ? 4 : 0);
+    }
+    add("ROUNDED_RECTANGLE", "Box", x0 + 12, y0 + 10, 30, 30, { cornerRadius: 6, fillPaints: [solid(1, 1, 1)] }, parent);
+  };
+  const glassFx = (radius, depth) => [{ type: "GLASS", radius, visible: true, specularAngle: -45, specularIntensity: 0.6, refractionIntensity: 0.7, bevelSize: depth, chromaticAberration: 0.4, refractionRadius: 20 }];
+  under(30, 30, 280, 70);
+  const pill = add("ROUNDED_RECTANGLE", "Glass pill", 40, 40, 260, 54, { cornerRadius: 27, fillPaints: [solid(1, 1, 1, 0.06)], strokePaints: [solid(1, 1, 1, 0.3)], strokeWeight: 1, effects: glassFx(8, 16) });
+  under(340, 30, 300, 70);
+  const tabs = add("ROUNDED_RECTANGLE", "Glass tabs", 350, 38, 280, 52, { cornerRadius: 26, fillPaints: [solid(1, 1, 1, 0.04)], effects: glassFx(3, 10) });
+  under(30, 140, 280, 80);
+  const blur = add("ROUNDED_RECTANGLE", "Background blur", 40, 150, 260, 60, { cornerRadius: 12, fillPaints: [solid(0.2, 0.2, 0.25, 0.3)],
+    effects: [{ type: "BACKGROUND_BLUR", radius: 24, visible: true }] });
+  under(340, 140, 300, 80);
+  const progressive = add("ROUNDED_RECTANGLE", "Progressive background blur", 350, 150, 280, 60, { fillPaints: [solid(1, 1, 1, 0.02)],
+    effects: [{ type: "BACKGROUND_BLUR", radius: 30, visible: true, blurOpType: "PROGRESSIVE", startRadius: 0, startOffset: { x: 0, y: 0.5 }, endOffset: { x: 1, y: 0.5 } }] });
+  const shadow = add("ROUNDED_RECTANGLE", "Shadow and layer blur", 40, 270, 200, 80, { cornerRadius: 16, fillPaints: [solid(0.95, 0.7, 0.2)],
+    effects: [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.6 }, offset: { x: 0, y: 10 }, radius: 30, spread: 0, visible: true, blendMode: "NORMAL", showShadowBehindNode: false },
+      { type: "FOREGROUND_BLUR", radius: 6, visible: true }] });
+  // Glass inside a faded group: its backdrop is the group's layer.
+  nodes.push({ guid: "57:900", phase: "CREATED", type: "FRAME", name: "Faded", parentIndex: { guid: "57:1", position: "~" }, size: { x: 320, y: 110 }, ...T(320, 250),
+    fillPaints: [], opacity: 0.85 });
+  under(10, 10, 300, 90, "57:900");
+  const inner = add("ROUNDED_RECTANGLE", "Glass in a layer", 20, 30, 280, 50, { cornerRadius: 25, fillPaints: [solid(1, 1, 1, 0.05)], effects: glassFx(6, 14) }, "57:900");
+  return { message: { type: "NODE_CHANGES", sessionID: 0, nodeChanges: nodes }, effects: { pill, tabs, blur, progressive, shadow, inner } };
+}
+
+async function r17Checks(files) {
+  const scene = r17Scene();
+  await engine((message) => {
+    const e = window.__designerEngine;
+    e.applyChanges(message, "user");
+    e.setSelection([]);
+  }, scene.message);
+  await page.mouse.move(2, 2);
+  // The sheet's canvas pixels (device px) as RGBA, decoded in the page.
+  const capture = async (clip) => (await page.screenshot({ clip })).toString("base64");
+  const diff = (a, b) =>
+    page.evaluate(
+      async ({ a, b }) => {
+        const decode = async (png) => {
+          const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+          const c = new OffscreenCanvas(img.width, img.height);
+          const g = c.getContext("2d");
+          g.drawImage(img, 0, 0);
+          return g.getImageData(0, 0, img.width, img.height);
+        };
+        const [A, B] = [await decode(a), await decode(b)];
+        let count = 0, max = 0;
+        const cols = new Set();
+        const box = [Infinity, Infinity, -1, -1];
+        for (let i = 0; i < A.data.length; i += 4) {
+          let d = 0;
+          for (let k = 0; k < 4; k++) d = Math.max(d, Math.abs(A.data[i + k] - B.data[i + k]));
+          max = Math.max(max, d);
+          if (d > 2) {
+            count++;
+            const x = (i / 4) % A.width, y = Math.floor(i / 4 / A.width);
+            cols.add(x);
+            box[0] = Math.min(box[0], x);
+            box[1] = Math.min(box[1], y);
+            box[2] = Math.max(box[2], x);
+            box[3] = Math.max(box[3], y);
+          }
+        }
+        return { count, max, cols: cols.size, w: A.width, h: A.height, box: count ? box.join(",") : "" };
+      },
+      { a, b }
+    );
+  const set = (cam) => engine((c) => window.__designerEngine.setCamera(c), cam);
+  // A fresh full draw at `cam` (another zoom first), then a pan away by `step` CSS px a frame until the sheet is off the
+  // canvas, and back by the same steps: the pixels must be the fresh draw's (dithering aside: ≤ 2 a channel).
+  const vw = 1280, vh = 800;
+  const run = async (label, cam, step, axis) => {
+    await set({ ...cam, zoom: cam.zoom * 1.01 });
+    await settle();
+    await set(cam);
+    await settle();
+    await settle();
+    const clip = { x: Math.max(0, cam.x), y: Math.max(0, cam.y + 5200 * cam.zoom), width: 0, height: 0 };
+    clip.width = Math.min(vw, cam.x + 900 * cam.zoom) - clip.x;
+    clip.height = Math.min(vh, cam.y + 5200 * cam.zoom + 420 * cam.zoom) - clip.y;
+    const fresh = await capture(clip);
+    // Fresh draws agree with each other (nothing left over from the target pool).
+    await set({ ...cam, zoom: cam.zoom * 0.99 });
+    await settle();
+    await set(cam);
+    await settle();
+    await settle();
+    const again = await diff(fresh, await capture(clip));
+    const span = axis === "x" ? vw + 900 * cam.zoom : vh + 420 * cam.zoom;
+    const steps = Math.ceil(span / Math.abs(step));
+    const at = (i) => (axis === "x" ? { ...cam, x: cam.x + i * step } : { ...cam, y: cam.y + i * step });
+    for (let i = 1; i <= steps; i++) {
+      await set(at(i));
+      await settle();
+    }
+    for (let i = steps - 1; i >= 0; i--) {
+      await set(at(i));
+      await settle();
+    }
+    await settle();
+    const back = await capture(clip);
+    const d = await diff(fresh, back);
+    files.push(await shot(`86-r17-${label}`));
+    check(`backdrop effects panned away and back (${label}): the pixels of a fresh draw`, again.max <= 2 && d.count === 0,
+      `fresh vs fresh max ${again.max}; after the pan ${d.count} px differ (max ${d.max}, ${d.cols} columns of ${d.w}${d.box ? `, in ${d.box}` : ""})`);
+  };
+  // Steps like a wheel's (whole device px; uneven, so strips fall anywhere across the layers).
+  await run("100%, across", { x: 100, y: 100 - 5200, zoom: 1 }, -67, "x");
+  await run("100%, down and up", { x: 100, y: 100 - 5200, zoom: 1 }, 53, "y");
+  await run("200%", { x: 40, y: 40 - 5200 * 2, zoom: 2 }, -91, "x");
+  await run("50%", { x: 200, y: 200 - 5200 * 0.5, zoom: 0.5 }, 47, "x");
+  // Glass straddling the canvas's left edge at rest (its backdrop clipped there in a fresh draw too).
+  await run("at the edge", { x: -60, y: 100 - 5200, zoom: 1 }, 71, "x");
+  // An edit under the glass (a stripe it reads moves, partly outside its box): drawn again where it was and is, the
+  // glass over it too — the same pixels as a fresh draw of the edited page.
+  const cam = { x: 100, y: 100 - 5200, zoom: 1 };
+  await set(cam);
+  await settle();
+  const clip = { x: 100, y: 100, width: 900, height: 420 };
+  await engine(() => window.__designerEngine.applyChanges({ type: "NODE_CHANGES", sessionID: 0, nodeChanges: [
+    { guid: "57:3", phase: "CHANGED", transform: { m00: 1, m01: 0, m02: 24, m10: 0, m11: 1, m12: 22 } }] }, "user"));
+  await settle();
+  await settle();
+  const edited = await capture(clip);
+  await set({ ...cam, zoom: 1.01 });
+  await settle();
+  await set(cam);
+  await settle();
+  await settle();
+  const d = await diff(edited, await capture(clip));
+  check("an edit under the glass draws it again whole: the pixels of a fresh draw", d.count === 0,
+    `${d.count} px differ (max ${d.max}${d.box ? `, in ${d.box}` : ""})`);
+}
+
 // A GPU validation error (WebGPU: an invalid command buffer drops the whole frame), a feedback loop (WebGL), or a
 // draw the engine's own check caught (gfx::samplesAttachment) fails the run, whatever the screenshots look like.
 const gpuError = /WebGPU error|GPUDevice|GPUValidationError|Invalid CommandBuffer|is invalid due to a previous error|sampled the texture it renders into|feedback loop|GL_INVALID/i;
@@ -1291,11 +1450,12 @@ try {
   await settle();
   const backend = await engine(() => window.__designerEngine.gfx);
   check(`the canvas draws with ${gfx === "webgpu" ? "WebGPU" : "WebGL2"}`, backend === (gfx === "webgpu" ? "webgpu" : "webgl2"), backend);
-  if (only === "e4" || only === "r7" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
+  if (only === "e4" || only === "r7" || only === "r17" || only === "r8" || only === "r11" || only === "r12" || only === "e6" || only === "vars" || only === "export" || only === "e8") {
     const files = [];
     if (only === "e4") await e4Checks(files);
     else if (only === "r12") await r12Checks(files);
     else if (only === "r7") await r7Checks(files);
+    else if (only === "r17") await r17Checks(files);
     else if (only === "r11") await r11Checks(files);
     else if (only === "r8") await r8Checks(files);
     else if (only === "e6") await e6Checks(files);
@@ -1476,6 +1636,7 @@ try {
   // E4 / E5.
   await e4Checks(files);
   await r7Checks(files);
+  await r17Checks(files);
   await r11Checks(files);
   await r12Checks(files);
   await r8Checks(files);

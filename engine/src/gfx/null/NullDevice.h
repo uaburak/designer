@@ -34,8 +34,9 @@ class NullDevice final : public Device {
   void destroyTarget(TargetId target) override;
   bool readPixels(TargetId target, IRect rect, std::span<uint8_t> rgba8) override;
   TextureId targetTexture(TargetId target) override;
-  void copyToTexture(TextureId texture, IRect) override {
+  void copyToTexture(TextureId texture, IRect rect) override {
     copies++;
+    copyRects.push_back(rect);
     if (passTexture_ && texture == passTexture_) {
       hazards++;
       reportSampledAttachment("NullDevice", lastPass.target, texture, -1);
@@ -61,6 +62,7 @@ class NullDevice final : public Device {
   PassDesc lastPass;            // the last pass begun (the canvas pass comes last)
   int passes = 0;
   int copies = 0;
+  std::vector<IRect> copyRects;  // every copy's rectangle (device px of the pass's target), oldest first
   // Draws that sampled the texture of the pass they drew in (gfx::samplesAttachment: WebGPU drops such a frame).
   int hazards = 0;
 

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <chrono>
 #include <cstring>
+#include <limits>
 
 #include "geometry/Path.h"
 #include "geometry/Shapes.h"
@@ -769,6 +770,117 @@ void Renderer::drawAnalyticShadows(const NodeProps& p, const Mat2x3& m, double a
   }
 }
 
+double Renderer::backdropReach(const Effect& e, bool glass, double scale) {
+  const EffectExtras& x = effectExtras(e);
+  double s1 = std::max(0.0, e.radius / 2) * scale;
+  double s0 = std::max(0.0, x.startRadius / 2) * scale;
+  bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(s0 - s1) > 0.01;
+  double reach = 3 * (progressive ? std::max(s0, s1) : s1) + 2;
+  if (glass) reach += std::max(0.0, x.bevelSize) * scale * (1 + std::clamp(x.chromaticAberration, 0.0, 1.0));
+  return reach;
+}
+
+std::vector<Renderer::BackdropArea> Renderer::backdropAreas(const Document& doc, bool world) const {
+  std::vector<BackdropArea> out;
+  const std::vector<RenderNode>& nodes = tree_->nodes();
+  // World space: the view at 100 %, one unit a px (what a blur reads past a layer scales with the zoom, nearly).
+  const Mat2x3 view = world ? Mat2x3{} : view_;
+  const double sx = world ? 1 : viewport_.scaleX(), sy = world ? 1 : viewport_.scaleY();
+  for (uint32_t i = 0; i < nodes.size();) {
+    const RenderNode& rn = nodes[i];
+    if (!rn.backdropInside) {
+      i = rn.end;
+      continue;
+    }
+    if (rn.samplesBackdrop) {
+      const NodeProps& p = propsAt(i);
+      double scale = std::sqrt(std::fabs((view * doc.worldTransform(rn.id)).determinant())) * std::sqrt(sx * sy);
+      double reach = 0;
+      bool background = false, glass = false;
+      // As drawNode picks them: the first background blur, the first glass.
+      for (const Effect& e : p.effects) {
+        if (!e.visible) continue;
+        if (e.type == EffectType::BACKGROUND_BLUR && !background && (e.radius > 0 || effectExtras(e).startRadius > 0)) {
+          background = true;
+          reach = std::max(reach, backdropReach(e, false, scale));
+        } else if (e.type == EffectType::GLASS && !glass) {
+          glass = true;
+          reach = std::max(reach, backdropReach(e, true, scale));
+        }
+      }
+      const Rect& w = rn.visual;
+      Rect box{(w.x * view.m00 + view.m02) * sx, (w.y * view.m11 + view.m12) * sy, w.w * view.m00 * sx, w.h * view.m11 * sy};
+      out.push_back({box, reach});
+    }
+    i++;
+  }
+  return out;
+}
+
+void Renderer::growForBackdrops(const Document& doc, std::vector<gfx::IRect>& regions, int dx, int dy) const {
+  if (regions.empty()) return;
+  // The page's layers (their subtrees' flags): none reading a backdrop, nothing to grow.
+  bool any = false;
+  for (uint32_t i = 0; i < tree_->size() && !any; i = tree_->nodes()[i].end) any = tree_->nodes()[i].backdropInside;
+  if (!any) return;
+  const int W = viewport_.deviceWidth(), H = viewport_.deviceHeight();
+  struct Area {
+    gfx::IRect rect;  // what it reads and draws, on the canvas
+    bool trailing;    // the canvas's edge the view moves away from cuts it
+    bool added = false;
+  };
+  std::vector<Area> areas;
+  for (const BackdropArea& b : backdropAreas(doc)) {
+    // Its box plus what its blur and refraction read (as drawBackgroundBlur's copy), and a few px for rounding.
+    double m = b.reach + 4;
+    double x0 = std::floor(b.box.x - m), y0 = std::floor(b.box.y - m), x1 = std::ceil(b.box.right() + m), y1 = std::ceil(b.box.bottom() + m);
+    double cx0 = std::max(0.0, x0), cy0 = std::max(0.0, y0), cx1 = std::min<double>(W, x1), cy1 = std::min<double>(H, y1);
+    if (cx1 <= cx0 || cy1 <= cy0) continue;  // off the canvas: nothing of it is drawn
+    gfx::IRect r{static_cast<int>(cx0), static_cast<int>(cy0), static_cast<int>(cx1 - cx0), static_cast<int>(cy1 - cy0)};
+    bool trailing = (dx > 0 && x1 > W) || (dx < 0 && x0 < 0) || (dy > 0 && y1 > H) || (dy < 0 && y0 < 0);
+    areas.push_back({r, trailing});
+  }
+  auto overlaps = [](const gfx::IRect& a, const gfx::IRect& b) {
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  };
+  // A part drawn again that touches what such a layer reads: the layer is drawn again whole, over all it reads drawn
+  // again too (its own old pixels, or another part's backdrop, must not be what it reads). Until nothing more is
+  // added (an added area may touch another layer's). One the edge the view leaves cuts: a fresh draw reads it to the
+  // edge where it is now, the cache's pixels were drawn reading to where it was: drawn again too. (The edge the view
+  // moves toward needs nothing more: the strip coming in there touches each layer it cuts.)
+  for (bool grew = true; grew;) {
+    grew = false;
+    for (Area& a : areas) {
+      if (a.added) continue;
+      bool hit = a.trailing;
+      for (size_t k = 0; k < regions.size() && !hit; k++) hit = overlaps(a.rect, regions[k]);
+      if (!hit) continue;
+      a.added = true;
+      regions.push_back(a.rect);
+      grew = true;
+    }
+  }
+}
+
+void Renderer::mergeRegions(std::vector<gfx::IRect>& regions, size_t most) {
+  auto box = [](const gfx::IRect& a, const gfx::IRect& b) {
+    int x0 = std::min(a.x, b.x), y0 = std::min(a.y, b.y), x1 = std::max(a.x + a.w, b.x + b.w), y1 = std::max(a.y + a.h, b.y + b.h);
+    return gfx::IRect{x0, y0, x1 - x0, y1 - y0};
+  };
+  auto px = [](const gfx::IRect& r) { return static_cast<double>(r.w) * r.h; };
+  while (regions.size() > most) {
+    size_t bi = 0, bj = 1;
+    double best = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < regions.size(); i++)
+      for (size_t j = i + 1; j < regions.size(); j++) {
+        double waste = px(box(regions[i], regions[j])) - px(regions[i]) - px(regions[j]);
+        if (waste < best) best = waste, bi = i, bj = j;
+      }
+    regions[bi] = box(regions[bi], regions[bj]);
+    regions.erase(regions.begin() + static_cast<std::ptrdiff_t>(bj));
+  }
+}
+
 void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m, double alpha, const Effect& e,
                                   bool glass) {
   const EffectExtras& x = effectExtras(e);
@@ -778,14 +890,13 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
   bool progressive = !glass && x.blurOpType == BlurOpType::PROGRESSIVE && std::fabs(s0 - s1) > 0.01;
   if (!glass && !progressive && s1 <= 0.01) return;
   BackdropBlur b;
-  double reach = 3 * (progressive ? std::max(s0, s1) : s1) + 2;
+  double reach = backdropReach(e, glass, scale);
   if (glass) {
     // Glass: the backdrop frosted by "Frost" (the radius), bent toward the edge within "Depth", split by colour
     // ("Dispersion"), lit along the edges facing the light ("Angle", "Intensity").
     b.kind = BackdropBlur::Kind::Glass;
     double depth = std::max(0.0, x.bevelSize) * scale;
     double dispersion = std::clamp(x.chromaticAberration, 0.0, 1.0);
-    reach += depth * (1 + dispersion);
     double th = x.specularAngle * 3.14159265358979323846 / 180;
     float g0[4] = {static_cast<float>(depth), static_cast<float>(std::clamp(x.refractionIntensity, 0.0, 1.0)), static_cast<float>(dispersion),
                    static_cast<float>(std::clamp(x.refractionRadius / 100, 0.0, 1.0))};
@@ -2021,11 +2132,33 @@ void Renderer::runCmds(Layer& L, gfx::TargetId target, gfx::IRect viewport, cons
       gfx::IRect local{r.x - ox, r.y - oy, r.w, r.h};
       // The backdrop, copied once per level (a progressive blur's), before anything is drawn over it.
       gfx::TargetId copies[kMaxBlurLevels] = {};
+      PoolTarget* acquired[kMaxBlurLevels] = {};
+      bool slack = false;
       for (int k = 0; k < b.count; k++) {
-        PoolTarget* copy = acquire(r.w, r.h);
-        if (!copy) break;
-        device_.copyToTexture(copy->texture, local);
-        copies[k] = copy->target;
+        acquired[k] = acquire(r.w, r.h);
+        if (!acquired[k]) break;
+        slack |= acquired[k]->w > r.w || acquired[k]->h > r.h;
+      }
+      // A pooled target is larger than the copy (64 px steps): what it held before lies past the copy, and the blur
+      // and the glass's refraction read there at the copy's edges (the canvas's edge cuts it). Cleared first, so
+      // those pixels are always the same (round 17: else they changed with what the pool drew before — a fresh
+      // draw and the same view reached by a pan differed along the canvas's edge).
+      if (slack) {
+        device_.endPass();
+        for (int k = 0; k < b.count && acquired[k]; k++) {
+          gfx::PassDesc cd;
+          cd.target = acquired[k]->target;
+          cd.viewport = {0, 0, acquired[k]->w, acquired[k]->h};
+          for (int i = 0; i < 4; i++) cd.clear[i] = 0;
+          if (device_.beginPass(cd)) device_.endPass();
+        }
+        gfx::PassDesc resume = pd;
+        resume.keep = true;
+        if (!device_.beginPass(resume)) return;
+      }
+      for (int k = 0; k < b.count && acquired[k]; k++) {
+        device_.copyToTexture(acquired[k]->texture, local);
+        copies[k] = acquired[k]->target;
       }
       device_.endPass();
       for (int k = 0; k < b.count; k++) {
@@ -2450,7 +2583,27 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
     tiles_.sy = sy;
     tiles_.clear = clear;
   } else if (!damage.rects.empty()) {
-    invalidateTiles(damage.rects);
+    // A change under what a layer reads its backdrop from (glass, background blur) changes that layer's pixels too.
+    std::vector<Rect> rects = damage.rects;
+    if (tree_->size()) {
+      std::vector<BackdropArea> areas = backdropAreas(doc, true);
+      std::vector<bool> added(areas.size(), false);
+      for (bool grew = true; grew;) {
+        grew = false;
+        for (size_t k = 0; k < areas.size(); k++) {
+          if (added[k]) continue;
+          const BackdropArea& b = areas[k];
+          Rect a{b.box.x - b.reach, b.box.y - b.reach, b.box.w + 2 * b.reach, b.box.h + 2 * b.reach};
+          bool hit = false;
+          for (size_t j = 0; j < rects.size() && !hit; j++) hit = a.intersects(rects[j]);
+          if (!hit) continue;
+          added[k] = true;
+          rects.push_back(a);
+          grew = true;
+        }
+      }
+    }
+    invalidateTiles(rects);
   }
   tiles_.prefetchAt = 0;
   // The level a zoom's tiles are drawn at: the power of two at or above it (never blurrier than the zoom).
@@ -2489,7 +2642,11 @@ void Renderer::renderCached(const Document& doc, Guid page, const Camera& camera
         int ix1 = std::min(W, static_cast<int>(std::ceil(x1))), iy1 = std::min(H, static_cast<int>(std::ceil(y1)));
         if (ix1 > ix0 && iy1 > iy0) regions.push_back({ix0, iy0, ix1 - ix0, iy1 - iy0});
       }
-      // Many or large: once, whole.
+      // Layers that read their backdrop (glass, background blurs) touched by those parts: drawn again whole.
+      growForBackdrops(doc, regions, dx, dy);
+      // Many: merged, those that waste the fewest pixels first (a strip and the layers it touches become one band),
+      // down to 16; too many to merge, or large: once, whole.
+      if (regions.size() > 16 && regions.size() <= 96) mergeRegions(regions, 16);
       double area = 0;
       for (auto& r : regions) area += static_cast<double>(r.w) * r.h;
       if (regions.size() > 16 || area > 0.6 * W * H) {
@@ -2645,9 +2802,61 @@ bool Renderer::rasterTile(const Document& doc, const TileCoord& t, const Color& 
   Camera cam{(ax + 1) / sx - static_cast<double>(t.tx) * kTileContent / sx, (ay + 1) / sy - static_cast<double>(t.ty) * kTileContent / sy,
              std::ldexp(1.0, t.level)};
   view_ = cam.matrix();
-  beginRecording({ax, ay, kTileSize, kTileSize}, true);
-  drawPageContent(doc, clear, true);
-  finishRecording(atlas, clearColor, true);
+  // Layers reading their backdrop (glass, background blurs) across the tile: what they read past the tile is in
+  // its neighbours' slots of the atlas (or not drawn yet). Such a tile is drawn in a scratch target with a margin
+  // holding what they read (up to kTileBackdropMargin), its middle then copied into the slot: no seams between tiles.
+  const gfx::IRect slotRect{ax, ay, kTileSize, kTileSize};
+  double margin = 0;
+  for (const BackdropArea& b : backdropAreas(doc)) {
+    double m = b.reach + 4;
+    double x0 = b.box.x - m, y0 = b.box.y - m, x1 = b.box.right() + m, y1 = b.box.bottom() + m;
+    // How far the layer and what it reads reach past the tile, on any side.
+    if (x0 < ax + kTileSize && x1 > ax && y0 < ay + kTileSize && y1 > ay)
+      margin = std::max({margin, ax - x0, x1 - (ax + kTileSize), ay - y0, y1 - (ay + kTileSize)});
+  }
+  int M = std::min(static_cast<int>(std::ceil(margin)), kTileBackdropMargin);
+  bool drawn = false;
+  if (M > 0) {
+    int S = kTileSize + 2 * M;
+    if (tiles_.scratch && tiles_.scratchSize < S) {
+      device_.destroyTarget(tiles_.scratch);
+      tiles_.scratch = 0;
+    }
+    if (!tiles_.scratch) {
+      int size = std::min(kTileSize + 2 * kTileBackdropMargin, std::max(S, kTileSize + 128));
+      tiles_.scratch = device_.createTarget(static_cast<uint32_t>(size), static_cast<uint32_t>(size));
+      tiles_.scratchSize = tiles_.scratch ? size : 0;
+    }
+    if (tiles_.scratch) {
+      int size = tiles_.scratchSize;
+      viewport_ = Viewport{size / sx, size / sy, saved.dpr, size, size};
+      Camera inScratch{(M + 1) / sx - static_cast<double>(t.tx) * kTileContent / sx, (M + 1) / sy - static_cast<double>(t.ty) * kTileContent / sy,
+                       std::ldexp(1.0, t.level)};
+      view_ = inScratch.matrix();
+      beginRecording({0, 0, S, S}, true);
+      drawPageContent(doc, clear, true);
+      finishRecording(tiles_.scratch, clearColor, false);
+      // The middle into the slot.
+      viewport_ = Viewport{kAtlasSize / sx, kAtlasSize / sy, saved.dpr, kAtlasSize, kAtlasSize};
+      view_ = cam.matrix();
+      beginRecording(slotRect, true);
+      Cmd copy;
+      copy.kind = Cmd::Kind::Blit;
+      copy.blitTexture = device_.targetTexture(tiles_.scratch);
+      copy.blitOrigin = Vec2{static_cast<double>(ax - M), static_cast<double>(ay - M)};
+      copy.blitScale = 1;
+      copy.blitHeight = size;
+      copy.rect = slotRect;
+      layers_[0].cmds.push_back(copy);
+      finishRecording(atlas, clearColor, true);
+      drawn = true;
+    }
+  }
+  if (!drawn) {
+    beginRecording(slotRect, true);
+    drawPageContent(doc, clear, true);
+    finishRecording(atlas, clearColor, true);
+  }
   viewport_ = saved;
   view_ = savedView;
   tiles_.map[key] = TileEntry{t, slot, frame_};
@@ -2766,6 +2975,7 @@ void Renderer::invalidateTiles(const std::vector<Rect>& world) {
 
 void Renderer::dropTiles() {
   for (gfx::TargetId a : tiles_.atlases) device_.destroyTarget(a);
+  if (tiles_.scratch) device_.destroyTarget(tiles_.scratch);
   tiles_ = TileCache{};
 }
 

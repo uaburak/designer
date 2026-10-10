@@ -5,7 +5,8 @@
 //   node scripts/engine-bench.mjs [file.fig]          default: $DESIGNER_BENCH_FIG
 //   node scripts/engine-bench.mjs --synthetic [N]     a generated document of ~N stored nodes (default 25000):
 //                                                     screens of auto-layout cards, text, images, instances,
-//                                                     shadows — no private file needed
+//                                                     shadows — no private file needed; --glass: every fifth card
+//                                                     glass, headers background-blurred (round 17)
 // Options:
 //   --wasm <dir>        engine.mjs + engine.wasm to use (default src/renderer/src/engine/wasm): a scratch build
 //   --profile <file>    record a CPU profile (Chrome's sampling profiler) over the scenarios; prints the top
@@ -88,6 +89,7 @@ const openMode = flag("--open");  // the file-open path: the real EditorApp moun
 const noStrict = flag("--no-strict");
 const editor = flag("--editor") || openMode;  // the real editor (?editor: panels, Layers, rulers) around the engine
 const synthetic = flag("--synthetic");
+const glassy = flag("--glass");  // the synthetic document with glass cards and background-blurred headers (round 17)
 const syntheticCount = synthetic && argv[0] && /^\d+$/.test(argv[0]) ? Number(argv.shift()) : 25000;
 const figPath = synthetic ? null : (argv[0] ?? process.env.DESIGNER_BENCH_FIG);
 if (!synthetic && !figPath) {
@@ -282,7 +284,8 @@ function syntheticMessage(target) {
       PAGE,
       top++
     );
-    const header = add({ type: "FRAME", name: "Header", transform: T(0, 0), size: { x: 390, y: 64 }, fillPaints: solid(0.1, 0.1, 0.12), frameMaskDisabled: false }, screen, 0);
+    const header = add({ type: "FRAME", name: "Header", transform: T(0, 0), size: { x: 390, y: 64 }, fillPaints: solid(0.1, 0.1, 0.12), frameMaskDisabled: false,
+      ...(glassy ? { opacity: 1, fillPaints: [{ ...solid(0.1, 0.1, 0.12)[0], opacity: 0.6 }], effects: [{ type: "BACKGROUND_BLUR", radius: 20, visible: true }] } : {}) }, screen, 0);
     text(header, 0, 16, 20, `Screen ${s} title`, 20, "Bold", [1, 1, 1]);
     for (let k = 0; k < 3; k++)
       add({ type: k === 1 ? "REGULAR_POLYGON" : "STAR", name: `Icon ${k}`, transform: T(290 + k * 30, 22), size: { x: 20, y: 20 }, fillPaints: solid(0.9, 0.9, 0.9), count: k === 1 ? 6 : 5, starInnerScale: 0.45 }, header, 1 + k);
@@ -296,7 +299,9 @@ function syntheticMessage(target) {
           strokePaints: solid(0.88, 0.88, 0.9), strokeWeight: 1, strokeAlign: "INSIDE", frameMaskDisabled: false,
           stackMode: "HORIZONTAL", stackSpacing: 12, stackHorizontalPadding: 12, stackVerticalPadding: 12, stackPaddingRight: 12, stackPaddingBottom: 12,
           stackCounterAlignItems: "CENTER", stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED",
-          effects: shadow ? [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.12 }, offset: { x: 0, y: 2 }, radius: 8, spread: 0, visible: true, blendMode: "NORMAL", showShadowBehindNode: false }] : [],
+          effects: glassy && r % 5 === 2
+            ? [{ type: "GLASS", radius: 8, visible: true, specularAngle: -45, specularIntensity: 0.6, refractionIntensity: 0.7, bevelSize: 16, chromaticAberration: 0.4, refractionRadius: 20 }]
+            : shadow ? [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.12 }, offset: { x: 0, y: 2 }, radius: 8, spread: 0, visible: true, blendMode: "NORMAL", showShadowBehindNode: false }] : [],
         },
         screen,
         1 + r

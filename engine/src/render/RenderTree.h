@@ -31,7 +31,14 @@ struct RenderNode {
   uint32_t parent = 0;      // its parent's index (kNoParent for the page's children)
   bool hasChildren = false;  // in the document, hidden ones included (what the effect rules look at)
   Rect visual;              // world space
+  // Round 17: it reads what is drawn under it (a visible glass or background blur) — a part of the canvas drawn
+  // again must hold all of what it reads (Renderer::backdropAreas); `backdropInside`: it or a node of its subtree does.
+  bool samplesBackdrop = false;
+  bool backdropInside = false;
 };
+
+// Whether a layer with these props reads its backdrop: a visible glass, or a visible background blur with a radius.
+bool samplesBackdrop(const NodeProps& p);
 
 class RenderTree {
  public:

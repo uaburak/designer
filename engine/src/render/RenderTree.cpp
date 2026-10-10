@@ -45,9 +45,21 @@ void RenderTree::addTo(std::vector<RenderNode>& out, const Document& doc, Guid i
   out[at].end = base + static_cast<uint32_t>(out.size());
 }
 
+bool samplesBackdrop(const NodeProps& p) {
+  for (const Effect& e : p.effects) {
+    if (!e.visible) continue;
+    if (e.type == EffectType::GLASS) return true;
+    if (e.type == EffectType::BACKGROUND_BLUR && (e.radius > 0 || effectExtras(e).startRadius > 0)) return true;
+  }
+  return false;
+}
+
 void RenderTree::bound(const Document& doc, uint32_t i) {
   RenderNode& r = nodes_[i];
   const NodeProps& p = r.node->props;
+  r.samplesBackdrop = samplesBackdrop(p);
+  r.backdropInside = r.samplesBackdrop;
+  for (uint32_t c = i + 1; c < r.end && !r.backdropInside; c = nodes_[c].end) r.backdropInside = nodes_[c].backdropInside;
   Rect own = doc.renderBounds(r.id);
   Rect ink;
   if (p.type == NodeType::TEXT && ink_ && ink_(r.id, ink) && ink.w > 0 && ink.h > 0) own = own.united(transformedBounds(doc.worldTransform(r.id) * Mat2x3::translate(ink.x, ink.y), ink.w, ink.h));
@@ -315,7 +327,8 @@ bool RenderTree::consistent(const Document& doc) const {
   for (size_t i = 0; i < nodes_.size(); i++) {
     const RenderNode& a = nodes_[i];
     const RenderNode& b = fresh.nodes_[i];
-    if (a.id != b.id || a.end != b.end || a.parent != b.parent || a.hasChildren != b.hasChildren || a.node != b.node || !near(a.visual, b.visual))
+    if (a.id != b.id || a.end != b.end || a.parent != b.parent || a.hasChildren != b.hasChildren || a.node != b.node || !near(a.visual, b.visual) ||
+        a.samplesBackdrop != b.samplesBackdrop || a.backdropInside != b.backdropInside)
       return false;
     auto it = index_.find(a.id);
     if (it == index_.end() || it->second != i) return false;
