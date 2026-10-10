@@ -431,9 +431,10 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
         }
         continue;
       }
-      // Components' and instances' names in the component purple, after Figma's icon; a selected frame's in the
-      // selection's text colour; others grey.
-      Color ink = n->props.isComponentish() ? componentText : isSelected ? selectedText : grey;
+      // Components' and instances' names in the component purple, after Figma's icon; a selected or hovered frame's
+      // in the selection's text colour (round 17, the owner's live 68–70.png: grey `#828282` on the dark canvas, the
+      // pointer on the frame or its name `#7bc4f8`, as selected); others grey.
+      Color ink = n->props.isComponentish() ? componentText : isSelected || hovered ? selectedText : grey;
       // A turned frame's name lies along its edge, turned with it (t.place; FrameTitles.h labelFrame): label-local
       // coordinates, snapped to device pixels only when upright.
       auto snap = [&](double v) { return t.upright ? std::round(v * dpr) / dpr : v; };

@@ -9,6 +9,7 @@
 #pragma once
 
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -447,12 +448,16 @@ class Editor : private LayoutHost, public TextLayouts {
     std::vector<PrototypeConnected> prototypeConnected;  // PROTOTYPE_CONNECTED
     std::vector<GridTracksEvent> gridTracks;             // GRID_TRACKS: the grid tracks selected on the canvas
     std::vector<RenameRequest> renames;                  // REQUEST_RENAME: a double-click on a frame's title
+    // HAPTIC (round 17): the trackpad's tick — a canvas drag changed its value by a whole step (a padding, gap, corner
+    // radius, W / H, whole degree), its auto-layout flow swapped, or it snapped to a new guide. At most one per pointer
+    // move (several steps in one move: one tick); the count is the moves that ticked since the last takeEvents.
+    uint32_t haptics = 0;
     bool selection = false, camera = false, tool = false, cursor = false, hover = false, undo = false,
          structure = false, pages = false, currentPage = false, textEdit = false, vectorEdit = false, paintEdit = false,
          navigation = false;
     bool any() const {
       return !colorPicks.empty() || !inlineEdits.empty() || !annotationOpens.empty() || !measurementEdits.empty() || !statusClicks.empty() || measurementSelection ||
-             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !renames.empty() || !nodes.empty() || !components.empty() || !collections.empty() ||
+             !documents.empty() || !contextMenus.empty() || !prototypeConnected.empty() || !gridTracks.empty() || !renames.empty() || haptics != 0 || !nodes.empty() || !components.empty() || !collections.empty() ||
              !variables.empty() || !styles.empty() || selection || camera || tool || cursor || hover || undo || structure || pages ||
              currentPage || textEdit || vectorEdit || paintEdit || navigation;
     }
@@ -1315,6 +1320,11 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid containerOf(Guid parent) const;
   void keepResizedSize(Guid id, bool x, bool y);
   void endGesture();
+  // Round 17 (haptics): the dragged values as whole steps for the drag in progress (empty: the drag has none), and
+  // one HAPTIC tick for a pointer move that changed them.
+  std::vector<double> hapticValues() const;
+  void movePointer(Vec2 s, uint32_t mods);  // pointerMove's gesture step
+  void hapticTick() { events_.haptics++; }
   // Opens the Move gesture for the selection's movable layers; false (nothing opened) when there are none.
   bool startMove(uint32_t mods);
   void setDuplicating(bool on);
@@ -1753,6 +1763,9 @@ class Editor : private LayoutHost, public TextLayouts {
   int handleX_ = 0, handleY_ = 0;
   int lineEnd_ = -1;             // dragging a line's start (0) or end (1) handle; -1: a box resize
   int radiusCorner_ = -1;        // dragging a corner radius handle
+  bool hapticArmed_ = false;            // round 17: hapticFrom_ holds the drag's values at its last tick
+  std::vector<double> hapticFrom_;
+  double snapTickX_ = std::numeric_limits<double>::quiet_NaN(), snapTickY_ = std::numeric_limits<double>::quiet_NaN();  // the guides a move last snapped to
   int radiusHover_ = -1;         // the radius handle under the pointer
   int gapHover_ = -1;            // the smart selection's gap handle under the pointer
   SmartSelection gapDrag_;       // dragging a gap handle: the selection as it started

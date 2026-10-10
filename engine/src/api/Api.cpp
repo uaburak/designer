@@ -403,6 +403,8 @@ void writeEvents(json::Writer& w, Engine& e) {
     w.key("x").number(r.rect.x).key("y").number(r.rect.y).key("width").number(r.rect.w).key("height").number(r.rect.h);
     w.endObject();
   }
+  // Round 17: the trackpad's tick (one per frame's events however many moves ticked; main throttles it too).
+  if (ev.haptics) w.beginObject().key("type").string("HAPTIC").key("count").number(static_cast<double>(ev.haptics)).endObject();
   for (auto& r : ev.renames) {
     w.beginObject().key("type").string("REQUEST_RENAME").key("ref").string(r.node.toString());
     w.key("x").number(r.rect.x).key("y").number(r.rect.y).key("width").number(r.rect.w).key("height").number(r.rect.h);

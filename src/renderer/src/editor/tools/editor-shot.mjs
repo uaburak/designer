@@ -47,6 +47,7 @@
 //   EDITOR_ONLY=inputs16 node …                                    (round 16: padding fields "19, 22", ⌘-click one field, hover hatches the canvas, Apply variable inside the ring, whole-step scrub)
 //   EDITOR_ONLY=canvasnav16 node …                                 (round 16: canvas scrollbars shown / fading / hovered / dragged; a Layers glyph glides the camera; prototype nubs on the nearest side, "+", a drag connects)
 //   EDITOR_ONLY=panel17 node …                                     (round 17: no row labels by default, W / H fields Fixed / Hug / Fill hovered or not against the owner's 74–77.png, Tab field to field, ⌥↓)
+//   EDITOR_ONLY=feedback17 node …                                  (round 17: a frame's name blue while hovered, a component's purple; a canvas radius drag's haptic ticks, one per whole step)
 //   EDITOR_ONLY=aldrag node …                                      (round 15: a layer dragged inside its auto-layout frame — swaps at the centres, siblings slide, drop, one undo)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
@@ -70,6 +71,7 @@ import { canvas16Section } from "./editorShotCanvas16.mjs";
 import { inputs16Section } from "./editorShotInputs.mjs";
 import { panel17Section } from "./editorShotPanel17.mjs";
 import { canvasNavSection } from "./editorShotCanvasNav.mjs";
+import { feedback17Section } from "./editorShotFeedback17.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
 import { shortcutsSection } from "./editorShotShortcuts.mjs";
@@ -4876,6 +4878,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await canvasNavSection(page, theme, { open, settle, check, outDir, docsDir: process.env.CANVASNAV16_DOCS ? path.join(repo, "docs/research/canvas-nav16") : null });
+      await context.close();
+    }
+  }
+  if (only === "feedback17" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await feedback17Section(page, theme, { open, settle, check, outDir, docsDir: null });
       await context.close();
     }
   }

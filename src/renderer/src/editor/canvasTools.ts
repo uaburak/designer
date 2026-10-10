@@ -6,6 +6,7 @@
  * Comment tool's note (comments come with multiplayer), and the text size / weight / spacing keys.
  */
 import { showToast } from "@/ds";
+import { hapticTick } from "@/ds/util/haptics";
 import type { Guid, NodeChange, NodeFields } from "@/engine/codec";
 import type { EditorController } from "./controller";
 import type { UIState } from "./uiStore";
@@ -201,6 +202,8 @@ export function attachCanvasTools(ed: EditorController, canvas: HTMLCanvasElemen
   const nudge = loadNudge();
   ed.engine.setNudge(nudge.small, nudge.big);
   ed.ui.set({ nudge });
+  // Round 17: a canvas drag's step (padding, gap, radius, W / H, degree, a flow swap, a snap): the trackpad's tick.
+  offs.push(ed.engine.on("HAPTIC", () => hapticTick()));
   offs.push(
     ed.engine.on("COLOR_PICK", (e) => {
       const color = canvasColorAt(ed, e.x, e.y);

@@ -899,6 +899,12 @@ export type EngineEvent =
   | { type: "GRID_TRACKS"; frame: Guid | null; axis: "COLUMNS" | "ROWS"; tracks: number[]; edit: boolean; x: number; y: number; width: number; height: number }
   /** A frame's title (or a section's pill) was double-clicked: rename it in place over (x, y, width, height), canvas CSS px. */
   | { type: "REQUEST_RENAME"; ref: Guid; x: number; y: number; width: number; height: number }
+  /**
+   * Round 17: a canvas drag changed its value by a whole step (padding, gap, corner radius, W / H, a degree), its
+   * auto-layout flow swapped, or a move snapped to a new guide — the trackpad's tick (`count`: the pointer moves that
+   * ticked since the last events; the editor plays one).
+   */
+  | { type: "HAPTIC"; count: number }
   /** Round 8: the eyedropper clicked at (x, y), canvas CSS px — the editor reads the colour there (Engine.renderRegionPixels). */
   | { type: "COLOR_PICK"; x: number; y: number }
   /** Round 8: a selected auto-layout frame's padding or gap bar was clicked — its value edited in place over the rect (canvas CSS px). */

@@ -899,6 +899,8 @@ uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode,
 
 uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   if (gesture_ != Gesture::None || page_ == kNoGuid) return 0;
+  hapticArmed_ = false;  // round 17: a new drag's values are read at its first move
+  snapTickX_ = snapTickY_ = std::numeric_limits<double>::quiet_NaN();
   downScreen_ = lastScreen_ = s;
   downWorld_ = camera_.toWorld(s);
   downCamera_ = camera_;
@@ -1206,7 +1208,83 @@ uint32_t Editor::contextMenu(Vec2 s, uint32_t mods) {
   return P_HANDLED;
 }
 
+// Round 17 (haptics): the values a drag changes, as whole steps — a padding's, a gap's or a corner radius's whole
+// number, the selection's W and H to the nearest unit, its rotation to the nearest degree, the smart selection's order.
+// A pointer move that changes them ticks once (Figma's desktop app: the trackpad's tick on each step; none between).
+std::vector<double> Editor::hapticValues() const {
+  std::vector<double> v;
+  auto whole = [&](double x) { v.push_back(std::round(x)); };
+  switch (gesture_) {
+    case Gesture::Resize: {
+      if (lineEnd_ >= 0) {  // a line's end: its length
+        for (const Target& t : targets_)
+          if (const Node* n = doc_.get(t.id)) whole(n->props.size.x);
+        break;
+      }
+      SelectionBox b = selectionBox(doc_, selection_);
+      if (b.valid) whole(b.size.x), whole(b.size.y);
+      break;
+    }
+    case Gesture::Rotate:
+      if (!targets_.empty()) {
+        const Mat2x3 w = doc_.worldTransform(targets_[0].id);
+        whole(degrees(Vec2{w.m00, w.m10}));
+      }
+      break;
+    case Gesture::Radius:
+      if (!targets_.empty())
+        if (const Node* n = doc_.get(targets_[0].id)) {
+          for (double r : n->props.cornerRadii) whole(r);
+          v.push_back(static_cast<double>(n->props.stroke().invertedCornerMask & 15u));
+        }
+      break;
+    case Gesture::Gap:
+      if (targets_.size() >= 2) {
+        const int axis = gapDrag_.axis;
+        auto box = [&](size_t i) {
+          const Node* n = doc_.get(targets_[i].id);
+          return n ? transformedBounds(doc_.worldTransform(targets_[i].id), n->props.size.x, n->props.size.y) : Rect{};
+        };
+        Rect a = box(0), b = box(1);
+        whole(axis == 0 ? b.x - a.right() : b.y - a.bottom());
+      }
+      break;
+    case Gesture::LayoutBar:
+      if (!selection_.empty())
+        if (const Node* n = doc_.get(selection_[0])) {
+          const auto& st = n->props.stack();
+          for (double x : {st.stackPaddingLeft, st.stackPaddingTop, st.stackPaddingRight, st.stackPaddingBottom, st.stackSpacing}) whole(x);
+          whole(Layout::gridGap(n->props, true));
+          whole(Layout::gridGap(n->props, false));
+        }
+      break;
+    case Gesture::Reorder:
+      for (Guid id : reorderOrder_)
+        v.push_back(static_cast<double>(std::find(reorderFrom_.order.begin(), reorderFrom_.order.end(), id) - reorderFrom_.order.begin()));
+      break;
+    default: break;
+  }
+  return v;
+}
+
 void Editor::pointerMove(Vec2 s, uint32_t mods) {
+  // Round 17: the drag's values before this move, once per drag (later moves compare with the last tick's).
+  const Gesture was = gesture_;
+  if (!hapticArmed_) {
+    hapticFrom_ = hapticValues();
+    hapticArmed_ = !hapticFrom_.empty();
+  }
+  movePointer(s, mods);
+  if (hapticArmed_ && gesture_ == was) {
+    std::vector<double> now = hapticValues();
+    if (!now.empty() && now != hapticFrom_) {
+      hapticTick();
+      hapticFrom_ = std::move(now);
+    }
+  }
+}
+
+void Editor::movePointer(Vec2 s, uint32_t mods) {
   lastScreen_ = s;
   Vec2 world = camera_.toWorld(s);
   switch (gesture_) {
@@ -1438,6 +1516,9 @@ void Editor::endGesture() {
   layoutBar_ = -1;
   reorderIndex_ = -1;
   layoutBarMoved_ = false;
+  hapticArmed_ = false;
+  hapticFrom_.clear();
+  snapTickX_ = snapTickY_ = std::numeric_limits<double>::quiet_NaN();
   scaling_ = false;
   scaleFrom_.clear();
   ignoreConstraints_ = false;
@@ -1797,6 +1878,14 @@ void Editor::dragMove(Vec2 world, uint32_t mods) {
   if (lockY) d.y = 0;
   guides_ = std::move(snap.guides);
   spacings_ = std::move(snap.spacings);
+  // Round 17: snapping to a guide it wasn't on ticks once (staying on it, or leaving it, doesn't).
+  {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    double kx = snap.snappedX && !lockX ? moveBox_.x + d.x : nan, ky = snap.snappedY && !lockY ? moveBox_.y + d.y : nan;
+    bool newX = !std::isnan(kx) && !(std::fabs(kx - snapTickX_) < 1e-6), newY = !std::isnan(ky) && !(std::fabs(ky - snapTickY_) < 1e-6);
+    if (newX || newY) hapticTick();
+    snapTickX_ = kx, snapTickY_ = ky;
+  }
 
   // Each layer goes where its start, moved by d, lands, under whatever its parent is now.
   Mat2x3 by = Mat2x3::translate(d.x, d.y);
@@ -1901,6 +1990,7 @@ void Editor::reorderFlow() {
   }
   // Figma's last child loses its chrome on the first move, before any swap (the recording, 35.06 s and 37.96 s).
   if (flowDrag_.last) flowDrag_.chromeHidden = true;
+  const std::vector<Guid> orderBefore = doc_.children(frame);
   bool placed = false;  // the siblings are at their targets in the document (a swap placed them)
   for (size_t guard = 0; guard <= doc_.children(frame).size(); guard++) {
     Layout L(*this);
@@ -1955,6 +2045,8 @@ void Editor::reorderFlow() {
     placed = true;
     flowDrag_.chromeHidden = true;  // Figma: the chrome goes at the first swap, until the drop
   }
+  // Round 17: one tick for the move that swapped (however many places it passed; none when it ended where it was).
+  if (placed && doc_.children(frame) != orderBefore) hapticTick();
 }
 
 bool Editor::placeFlow(Guid frame, const GuidSet& dragged) {
