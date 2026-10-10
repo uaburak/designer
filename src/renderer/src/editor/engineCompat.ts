@@ -56,6 +56,11 @@ function engineKeepsExtras(engine: Engine): boolean {
   return known;
 }
 
+/** Probes the keep-extras write now (a panel asking for an untyped field would otherwise run it, and emit, mid-render). */
+export function probeKeeps(engine: Engine): void {
+  engineKeepsExtras(engine);
+}
+
 /** Does the engine keep this field (typed, or round-tripped as it came)? Panels gate their controls on it. */
 export function keepsField(engine: Engine, field: keyof NodeChange | string): boolean {
   return supportsField(engine, field) || engineKeepsExtras(engine);

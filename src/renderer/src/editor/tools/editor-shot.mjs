@@ -4596,7 +4596,7 @@ async function menus11Section(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.undo());
   const undoneType = await page.evaluate((id) => window.__designerEditor.engine.readNode(id).type, inst);
   check("R11 Flatten on an instance: it becomes a vector; one undo brings the instance back", afterType === "VECTOR" && undoneType === "INSTANCE", `${afterType} -> ${undoneType}`);
-  // 9. Vector editing tools: Figma Draw's two stay listed disabled (not built).
+  // 9. Vector editing tools: Shape builder and Variable width (enabled since round 12).
   await page.evaluate(() => {
     const ed = window.__designerEditor;
     ed.engine.setSelection(["7:60"]);
@@ -4606,7 +4606,7 @@ async function menus11Section(page, theme) {
   await page.locator("[data-vector-toolbar]").getByRole("button", { name: "More" }).click();
   await settle(page);
   const dis = await page.getByRole("menu", { name: "Vector editing tools" }).getByRole("menuitemradio").evaluateAll((els) => els.map((e) => e.getAttribute("aria-disabled")));
-  check("R11 Vector editing tools: Shape builder and Variable width listed disabled (Figma Draw: not built)", dis.join() === "true,true", dis.join());
+  check("R11 Vector editing tools: Shape builder and Variable width listed and enabled (built in round 12)", dis.length === 2 && dis.every((d) => d !== "true"), dis.join());
   await page.keyboard.press("Escape");
   // 10. A store-backed file (what the desktop app opens; the browser's dev store stands in): the file commands that need
   // a document source are enabled — Duplicate, Save to version history…, Show version history, Create
