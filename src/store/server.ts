@@ -6,6 +6,7 @@
 import { isKnownMethod, roleMayCall, serializeError, StoreError, type PortRole, type RpcMessage, type RpcRequest, type RpcTransport } from "../shared/store/protocol";
 import type { FileChange, LibraryEvent, OpenedFile, StoreApi, Unsubscribe, WorkspaceEvent } from "../shared/store/repositories";
 import type { FileKey } from "../shared/store/types";
+import type { FileShareState } from "../shared/multiplayer/types";
 
 /**
  * What the server needs from a store: `LocalStore` (the utility process), or the browser's in-memory dev store
@@ -17,6 +18,8 @@ export interface ServableStore {
   readonly workspaceEvents: { on(listener: (e: WorkspaceEvent) => void): Unsubscribe };
   readonly libraryEvents: { on(listener: (e: LibraryEvent) => void): Unsubscribe };
   readonly fileChanges: { on(listener: (c: FileChange) => void): Unsubscribe };
+  /** Shared files' connection and people (docs/multiplayer.md §5) */
+  readonly multiplayer?: { onFileState(listener: (fileKey: FileKey, state: FileShareState) => void): Unsubscribe };
   readonly files: {
     /** Frames after `fromSeq` for a subscriber catching up */
     backlog(fileKey: FileKey, fromSeq: number): Promise<FileChange[]>;
@@ -110,6 +113,7 @@ export class StoreServer {
     this.offs.push(store.workspaceEvents.on((d) => this.broadcast({ t: "evt", topic: "workspace", d })));
     this.offs.push(store.libraryEvents.on((d) => this.broadcast({ t: "evt", topic: "library", d })));
     this.offs.push(store.fileChanges.on((c) => this.connections.forEach((conn) => conn.fileChange(c))));
+    if (store.multiplayer) this.offs.push(store.multiplayer.onFileState((fileKey, state) => this.broadcast({ t: "evt", topic: "multiplayer", d: { fileKey, state } })));
   }
 
   get size(): number {

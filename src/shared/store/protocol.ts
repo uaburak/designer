@@ -3,10 +3,10 @@
  * are structured clones (Uint8Arrays are copied once, no JSON). The store sends `hello` first on every new port.
  */
 
-export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store";
+export type Repository = "workspace" | "files" | "blobs" | "libraries" | "previews" | "store" | "multiplayer";
 export type StoreMethod = `${Repository}.${string}`;
 export type PortRole = "main" | "home" | "editor";
-export type EventTopic = "workspace" | "file.changes" | "library" | "sync";
+export type EventTopic = "workspace" | "file.changes" | "library" | "sync" | "multiplayer";
 
 export type RpcRequest = { t: "req"; id: number; m: StoreMethod; a: unknown[] };
 export type RpcResponse = { t: "res"; id: number; ok: true; v: unknown } | { t: "res"; id: number; ok: false; e: { code: StoreErrorCode; message: string; detail?: unknown } };
@@ -95,10 +95,11 @@ export const STORE_METHODS = {
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],
   previews: ["status", "list", "publish", "stop", "exportHtml"],
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
+  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "invite", "removeMember", "presence"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */
-const MAIN_ONLY = new Set<string>(["files.importLocalCopy", "files.exportLocalCopy", "previews.exportHtml"]);
+const MAIN_ONLY = new Set<string>(["files.importLocalCopy", "files.exportLocalCopy", "previews.exportHtml", "multiplayer.setSession"]);
 
 export function isKnownMethod(m: string): m is StoreMethod {
   const dot = m.indexOf(".");
@@ -138,6 +139,10 @@ export const RETRY_SAFE = new Set<string>([
   "libraries.diff",
   "store.info",
   "store.flushAll",
+  "multiplayer.status",
+  "multiplayer.fileState",
+  "multiplayer.listRemote",
+  "multiplayer.members",
 ]);
 
 /**

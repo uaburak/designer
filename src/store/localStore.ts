@@ -3,11 +3,13 @@
  * and `LocalAdapter`, the four repositories over them (§8). `LocalAdapter` is always authoritative: the UI reads
  * and writes only through it (over RPC), and sync, when it exists, replicates behind it.
  */
+import { randomInt } from "node:crypto";
 import { closeSync, openSync, promises as fsp, writeSync } from "node:fs";
 import { join } from "node:path";
 import { newDocumentMessage } from "../shared/schema/codec";
 import { codec } from "../shared/schema/document.generated";
 import { sessionIdFor } from "../shared/schema/guid";
+import { NodeTable } from "../shared/schema/patch";
 import { withNewAssetIdentity } from "../shared/store/assetIdentity";
 import { StoreError } from "../shared/store/protocol";
 import type {
@@ -41,6 +43,8 @@ import { loadSyncConfig, type SyncConfig } from "./sync/config";
 import type { StorageDriver } from "./sync/drivers";
 import { previewService } from "./preview/previews";
 import { SerialQueue } from "./local/queue";
+import { multiplayerApi } from "./multiplayer/api";
+import { MultiplayerService } from "./multiplayer/service";
 
 export interface LocalStoreOptions {
   workspaceDir: string;
@@ -114,6 +118,8 @@ export class LocalStore {
   viewerTemplate: string | null = null;
   /** Serializes previews.json */
   readonly previewQueue = new SerialQueue();
+  /** Shared files' rooms (docs/multiplayer.md §5); idle until main hands over a session */
+  readonly multiplayer: MultiplayerService;
 
   private constructor(
     readonly dirs: WorkspaceDirs,
@@ -121,7 +127,8 @@ export class LocalStore {
     readonly files: FileStore,
     readonly blobs: LocalBlobs,
     readonly libraries: LocalLibraries,
-    readonly deviceOrdinal: number,
+    /** 1 until the server gives this installation its own (docs/multiplayer.md §2.1) */
+    public deviceOrdinal: number,
     readonly clock: Clock,
     readonly log: Log,
     readonly generation: number,
@@ -130,10 +137,72 @@ export class LocalStore {
     readonly timers: Timers,
     /** Stamps journal frames and records; sync moves it past remote stamps it sees */
     readonly hlc: HlcClock,
+    private readonly userDataDir: string | null = null,
   ) {
     this.workspaceEvents = ws.events;
     this.libraryEvents = libraries.events;
     this.fileChanges = files.changes;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
+    const self = this;
+    this.multiplayer = new MultiplayerService(
+      {
+        fileChanges: files.changes,
+        backlog: (fileKey, fromSeq) => files.backlog(fileKey, fromSeq),
+        appendRemote: (fileKey, message) => files.appendRemote(fileKey, message),
+        createSharedFile: (input) => this.createSharedFile(input),
+        getMeta: (fileKey) => (ws.files.has(fileKey) ? ws.getMeta(fileKey) : null),
+        get deviceOrdinal() {
+          return self.deviceOrdinal;
+        },
+        setDeviceOrdinal: (ordinal) => this.setDeviceOrdinal(ordinal),
+        load: () => readJsonOrNull(join(dirs.root, "multiplayer.json")),
+        saveInstallationId: (id) => this.saveMultiplayer((s) => (s.installationId = id)),
+        saveLink: (fileKey, link) =>
+          this.saveMultiplayer((s) => {
+            s.links ??= {};
+            if (link) s.links[fileKey] = link;
+            else delete s.links[fileKey];
+          }),
+        log,
+      },
+      { fetch: (...a) => fetch(...a), WebSocket: globalThis.WebSocket as never, random: () => randomInt(0, 2 ** 32) / 2 ** 32 },
+    );
+  }
+
+  private readonly multiplayerQueue = new SerialQueue();
+  /** multiplayer.json, read-modify-written one change at a time */
+  private saveMultiplayer(change: (s: { installationId?: unknown; links?: Record<string, unknown> }) => void): Promise<void> {
+    return this.multiplayerQueue.run(async () => {
+      const path = join(this.dirs.root, "multiplayer.json");
+      const s = (await readJsonOrNull<{ installationId?: unknown; links?: Record<string, unknown> }>(path)) ?? {};
+      change(s);
+      await writeJsonAtomic(this.dirs.tmp, path, s);
+    });
+  }
+
+  /** The server's ordinal for this installation: new edit sessions and stamps use it, and the next start reads it. */
+  async setDeviceOrdinal(ordinal: number): Promise<void> {
+    if (!Number.isInteger(ordinal) || ordinal < 2 || ordinal > 4095) throw new StoreError("invalid", `device ordinal out of range: ${ordinal}`);
+    this.deviceOrdinal = ordinal;
+    this.files.setDeviceOrdinal(ordinal);
+    this.hlc.setDeviceOrdinal(ordinal);
+    if (this.userDataDir) await writeJsonAtomic(this.dirs.tmp, join(this.userDataDir, "device.json"), { ordinal, createdAt: this.clock.now(), from: "server" });
+  }
+
+  /** A file shared with the user: the room's snapshot as it is — no GUID remapping, so its nodes keep the room's ids. */
+  async createSharedFile(input: { name: string; snapshot: Uint8Array }): Promise<FileMeta> {
+    this.guard();
+    let table: NodeTable;
+    try {
+      table = NodeTable.fromMessage(codec.decodeMessage(input.snapshot));
+    } catch (e) {
+      throw new StoreError("corrupt", `The shared file couldn't be read: ${(e as Error).message}`);
+    }
+    if (!table.get("0:0")) throw new StoreError("corrupt", "The shared file has no document");
+    const key = newFileKey();
+    await this.files.createFile(key, input.snapshot, [...table.imageHashes()].sort(), table.derivedDataVersion);
+    const meta = newMeta(key, input.name.trim() || "Untitled", null, this.clock.now());
+    return this.ws.queue.run(() => this.ws.addFile(meta));
   }
 
   static async open(opts: LocalStoreOptions): Promise<LocalStore> {
@@ -170,7 +239,7 @@ export class LocalStore {
       await libraries.load();
       ws.sizeOf = (k) => files.cachedSize(k);
       const sync = opts.userDataDir ? await loadSyncConfig(opts.userDataDir, log) : null;
-      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, sync, compactor, timers, hlc);
+      const store = new LocalStore(dirs, ws, files, blobs, libraries, deviceOrdinal, clock, log, opts.generation ?? 1, sync, compactor, timers, hlc, opts.userDataDir ?? null);
       store.viewerTemplate = opts.viewerTemplate ?? null;
       // Background start-up work: sizes for the file list, version thinning, the first GC.
       void Promise.all([...ws.files.keys()].map((k) => files.sizeOf(k).catch(() => 0))).catch(() => {});
@@ -430,6 +499,7 @@ export class LocalStore {
     if (this.closed) return;
     this.closed = true;
     if (this.gcTimer) this.timers.clearTimeout(this.gcTimer);
+    this.multiplayer.close();
     await this.replicator?.stop().catch((e) => this.log("warn", "stopping sync failed", e));
     await this.files.shutdown();
     await this.ws.queue.idle();
@@ -541,7 +611,7 @@ export function localAdapter(s: LocalStore, owner: SessionOwner): StoreApi {
     }),
     collectGarbage: () => s.collectGarbage(),
   };
-  return { workspace, files, blobs, libraries, previews, store };
+  return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(s.multiplayer) };
 }
 
 /** `previews.*` (docs/data.md §13) over this store, plus main's `exportHtml` and the start's `sweepExpired`. */

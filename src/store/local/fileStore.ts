@@ -200,6 +200,11 @@ export class FileStore {
   // -------------------------------------------------------------------------------------------------------------------
 
   /** Writes a new file directory: the snapshot at seq 0 (a raw Message in the current schema) and store.json. */
+  /** New edit sessions use this ordinal (the server's, docs/multiplayer.md §2.1). */
+  setDeviceOrdinal(ordinal: number): void {
+    this.d.deviceOrdinal = ordinal;
+  }
+
   async createFile(fileKey: FileKey, message: Uint8Array, blobRefs?: string[], derivedDataVersion?: number): Promise<void> {
     const dir = join(this.d.dirs.files, fileKey);
     await ensureDir(join(dir, "versions"));
@@ -559,7 +564,8 @@ export class FileStore {
     return a.queue.run(async () => {
       const h = await this.loaded(a);
       const { deviceOrdinal, n } = splitSessionId(sessionID);
-      if (deviceOrdinal !== this.d.deviceOrdinal || n < 1 || n >= h.state.sessions.nextLocal) throw new StoreError("invalid", `session ${sessionID} was never opened for this file`);
+      // A session opened under the ordinal this installation had before the server gave it its own stays valid.
+      if (deviceOrdinal < 1 || n < 1 || n >= h.state.sessions.nextLocal) throw new StoreError("invalid", `session ${sessionID} was never opened for this file`);
       const live = [...a.sessions.entries()].find(([sid]) => sid !== sessionID);
       if (live) throw new StoreError("already-open", "This file is already open for editing", { tabId: live[1].tabId ?? null });
       const prev = a.sessions.get(sessionID);

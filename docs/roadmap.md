@@ -45,6 +45,8 @@ Done in the integration round (`desktop-impl.md` Status): the store's utility pr
 
 ## Phase 6 — Multiplayer (last; owner's decision 2026-10-08)
 
+**On Cloudflare (owner, 2026-10-10)** — Workers + a Durable Object per file + D1 + R2, Google sign-in; contract and progress in `docs/multiplayer.md` (it replaces the Firebase adapter of Phase 5 for sync).
+
 Built only after everything else, Figma's way (R1/R2 research; Figma's "How Figma's multiplayer technology works"): one authoritative server process per file, clients send kiwi `NODE_CHANGES` with only the touched fields, the server orders them and resolves conflicts **per property, last writer (as the server receives it) wins**; clients apply their own changes optimistically and roll a property back if the server's value differs; undo/redo per user, only one's own changes; presence (cursors, selections, names, avatars, follow / spotlight) on a separate ephemeral channel; sharing and permissions (view / edit) with accounts.
 
 **Readiness rules that hold now** (nothing may break them):

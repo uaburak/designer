@@ -5,6 +5,7 @@ import { isCommandId } from "../shared/commands";
 import { startAgents, stopAgents } from "./agents/host";
 import { askStoreGone, asked, testAnswers } from "./dialogs";
 import { startFontWatch, warmFontIndex } from "./fonts";
+import { checkSession, initAccount } from "./account";
 import { registerIpc } from "./ipc";
 import { installAppMenu } from "./menu";
 import { DEV_URL, handleScheme, isAppUrl, registerScheme } from "./protocol";
@@ -50,7 +51,9 @@ if (!app.requestSingleInstanceLock()) {
     initTheme();
     handleScheme();
     registerIpc();
-
+    // A kept session the server no longer accepts is dropped (in the background; offline keeps it).
+    void checkSession();
+    initAccount();
 
     // While developing, the dock shows the app's icon (a packaged app has it in its bundle).
     if (DEV_URL && process.platform === "darwin") {

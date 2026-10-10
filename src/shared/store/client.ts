@@ -27,6 +27,7 @@ import type {
   WorkspaceRepository,
 } from "./repositories";
 import type { AppendAck, ChangeBatch, FileKey } from "./types";
+import type { MultiplayerEvent, MultiplayerRepository } from "../multiplayer/types";
 
 interface Pending {
   m: StoreMethod;
@@ -88,6 +89,7 @@ export class StoreClient implements StoreApi {
   private readonly workspaceEvents = new Listeners<WorkspaceEvent>();
   private readonly libraryEvents = new Listeners<LibraryEvent>();
   private readonly syncEvents = new Listeners<unknown>();
+  private readonly multiplayerEvents = new Listeners<MultiplayerEvent>();
   private readonly connected = new Listeners<{ generation: number }>();
   /** Calls wait for this: the hello and the resync of a new port */
   private gate!: Promise<void>;
@@ -193,6 +195,7 @@ export class StoreClient implements StoreApi {
         else if (msg.topic === "library") this.libraryEvents.emit(msg.d as LibraryEvent);
         else if (msg.topic === "file.changes") this.deliver(msg.d as FileChange);
         else if (msg.topic === "sync") this.syncEvents.emit(msg.d);
+        else if (msg.topic === "multiplayer") this.multiplayerEvents.emit(msg.d as MultiplayerEvent);
         return;
     }
   }
@@ -401,6 +404,20 @@ export class StoreClient implements StoreApi {
     flushAll: () => this.call("store.flushAll", []),
     info: () => this.call<StoreInfo>("store.info", []),
     collectGarbage: () => this.call("store.collectGarbage", []),
+  };
+
+  readonly multiplayer: MultiplayerRepository = {
+    setSession: (session) => this.call("multiplayer.setSession", [session]),
+    status: () => this.call("multiplayer.status", []),
+    fileState: (fileKey) => this.call("multiplayer.fileState", [fileKey]),
+    share: (fileKey, input) => this.call("multiplayer.share", [fileKey, input]),
+    listRemote: () => this.call("multiplayer.listRemote", []),
+    openShared: (key) => this.call("multiplayer.openShared", [key]),
+    members: (fileKey) => this.call("multiplayer.members", [fileKey]),
+    invite: (fileKey, email, role) => this.call("multiplayer.invite", [fileKey, email, role]),
+    removeMember: (fileKey, email) => this.call("multiplayer.removeMember", [fileKey, email]),
+    presence: (fileKey, data) => this.call("multiplayer.presence", [fileKey, data]),
+    watch: (listener) => this.multiplayerEvents.add(listener),
   };
 
   /** `sync` events (Replicator status), once sync exists. */

@@ -11,6 +11,7 @@
  * Which store: the desktop client when the page runs under the app's preload (`window.designer`), else the browser's
  * dev store (localStorage, seeded with demo files). `?store=dev` / `?store=desktop` force one.
  */
+import { completeWebSignIn, connectWebSession } from "./webAccount";
 import type { FileKey, FileMeta } from "../../../shared/store/types";
 import { storeClient, type StoreClient } from "./client";
 import { createDevStore, type DevStore } from "./devStore";
@@ -42,8 +43,16 @@ export function getStoreClient(): StoreClient {
   if (client) return client;
   if (storeMode() === "desktop") client = storeClient();
   else {
-    dev = createDevStore({ role: typeof location !== "undefined" && new URLSearchParams(location.search).has("editor") ? "editor" : "home" });
+    const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
+    dev = createDevStore({ role: params.has("editor") ? "editor" : "home" });
     client = dev.client;
+    // The browser's account (docs/multiplayer.md §2): finish a sign-in coming back from Google, then hand the session to
+    // the store — this tab joins the room of the file it edits.
+    const done = completeWebSignIn();
+    void dev.ready.then(async (s) => {
+      await done;
+      connectWebSession(s, params.has("editor") ? params.get("file") : null);
+    });
   }
   return client;
 }

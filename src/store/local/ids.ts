@@ -40,9 +40,14 @@ export class HlcClock {
   private counter = 0;
 
   constructor(
-    private readonly deviceOrdinal: number,
+    private deviceOrdinal: number,
     private readonly clock: Clock = systemClock,
   ) {}
+
+  /** The server gave this installation its own ordinal (docs/multiplayer.md §2.1) */
+  setDeviceOrdinal(ordinal: number): void {
+    this.deviceOrdinal = ordinal;
+  }
 
   now(): Hlc {
     const ms = this.clock.now();

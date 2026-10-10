@@ -31,6 +31,8 @@ import type {
   Workspace,
 } from "./types";
 
+import type { MultiplayerRepository } from "../multiplayer/types";
+
 export type Unsubscribe = () => void;
 
 export type FileQuery =
@@ -211,6 +213,8 @@ export interface StoreInfo {
 
 /** Everything one port can reach. */
 export interface StoreApi {
+  /** Shared files on the multiplayer server (docs/multiplayer.md §5) */
+  multiplayer: MultiplayerRepository;
   workspace: WorkspaceRepository;
   files: FileRepository;
   blobs: BlobStore;

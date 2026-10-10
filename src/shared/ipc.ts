@@ -9,6 +9,7 @@
  */
 import type { AgentSettings, AuthState, ConnectResult, McpClientId, McpClientInfo, McpState, ProviderInfo, ToolCall, ToolCallResult, TurnEvent, TurnRequest, UsageInfo } from "./agents/types";
 import type { AttachResult } from "./agents/attachments";
+import type { AccountState, SignInResult } from "./account";
 import type { CommandId, MenuStatePatch } from "./commands";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabKind, TabReport, TabStatus } from "./tabs";
@@ -305,6 +306,12 @@ export interface IpcInvoke {
   "agents:disconnect": { args: [{ client: McpClientId }]; result: ConnectResult };
   /** Copy config: the client's entry as text (HTTP with the token), and the stdio command form */
   "agents:client-config": { args: [{ client: McpClientId }]; result: { path: string; text: string; stdio: string } };
+  /** The signed-in account (docs/multiplayer.md §2); the session token stays in main */
+  "account:get": { args: []; result: AccountState };
+  /** Sign in with Google in the system browser; resolves when the browser comes back (or is cancelled / times out) */
+  "account:sign-in": { args: []; result: SignInResult };
+  "account:cancel-sign-in": { args: []; result: AccountState };
+  "account:sign-out": { args: []; result: AccountState };
 }
 
 export interface IpcSend {
@@ -355,6 +362,8 @@ export interface IpcEvents {
   "agents:tool-call": ToolCall;
   /** The MCP server's connections changed */
   "agents:mcp-state": McpState;
+  /** Signed in or out, or a sign-in started / ended */
+  "account:changed": AccountState;
 }
 
 /** Which roles may use which channel (main drops anything else). */
@@ -397,6 +406,10 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "agents:connect": ["editor"],
   "agents:disconnect": ["editor"],
   "agents:client-config": ["editor"],
+  "account:get": ["tabbar", "home", "editor"],
+  "account:sign-in": ["home", "editor"],
+  "account:cancel-sign-in": ["home", "editor"],
+  "account:sign-out": ["home", "editor"],
 };
 
 export const SEND_ROLES: { [C in keyof IpcSend]: readonly Role[] } = {

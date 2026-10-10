@@ -8,6 +8,8 @@ export default defineConfig([
   // docs/research holds reference material (sample decoders), not app code; generated codecs and the engine's Emscripten glue aren't linted.
   // .claude/worktrees: other agents' checkouts (git-excluded), linted in their own trees.
   globalIgnores(["out/**", "dist/**", "node_modules/**", "docs/**", "**/*.generated.ts", "src/renderer/src/engine/wasm/**", "engine/build/**", ".claude/**",
+    // The multiplayer server's own install and wrangler's build output (docs/multiplayer.md).
+    "server/node_modules/**", "server/.wrangler/**",
     // Emscripten JS libraries: macro-preprocessed, written against the glue's globals.
     "engine/src/**/library_*.js", "engine/cmake/*.js"]),
   js.configs.recommended,

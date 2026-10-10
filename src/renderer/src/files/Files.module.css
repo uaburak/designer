@@ -34,6 +34,21 @@
     font: var(--ds-font-body-large-strong);
     letter-spacing: var(--ds-tracking-body-large-strong);
   }
+  button.account {
+    width: 100%;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: left;
+    cursor: default;
+  }
+  button.account:hover .accountName { color: var(--figma-color-text); }
+  button.account:focus-visible { outline: 2px solid var(--figma-color-border-selected); outline-offset: -2px; }
+  button.account > [data-ds="Icon"] { flex: none; color: var(--figma-color-icon-secondary); }
+  .sharedList { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+  .sharedRow { display: flex; align-items: center; gap: var(--ds-space-3); min-height: 40px; border-bottom: 1px solid var(--figma-color-border); }
+  .sharedName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sharedRole { color: var(--figma-color-text-secondary); }
   .accountName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .search { flex: none; padding: 0 var(--ds-space-4) var(--ds-space-2); }
   .team {

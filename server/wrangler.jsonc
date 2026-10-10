@@ -1,0 +1,19 @@
+// The multiplayer server (docs/multiplayer.md). Secrets (never here): wrangler secret put SESSION_SECRET,
+// GOOGLE_CLIENT_SECRET. Local development reads server/.dev.vars (git-ignored).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "designer",
+  "account_id": "dd8b9e757657d35f82adff075509b048",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "FileRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FileRoom"] }],
+  "d1_databases": [{ "binding": "DB", "database_name": "designer", "database_id": "98f2c9e2-7272-4ab0-b1ec-ee6e27b66edd", "migrations_dir": "migrations" }],
+  "vars": {
+    "GOOGLE_CLIENT_ID": "511486232492-8fr5pqjmcfadd334nrl6abljrran7vhl.apps.googleusercontent.com",
+    // The web app (npm run web) may sign in and call the API from here
+    "WEB_ORIGINS": "http://localhost:5199"
+  },
+  "observability": { "enabled": true }
+}

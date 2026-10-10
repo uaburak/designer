@@ -5,4 +5,16 @@
   .label { color: var(--figma-color-text-secondary); }
   .row { display: flex; align-items: center; gap: var(--ds-space-2); min-width: 0; }
   .row > :first-child { flex: 1 1 auto; min-width: 0; }
+  /* People (docs/multiplayer.md §3) */
+  .section { display: flex; flex-direction: column; gap: var(--ds-space-2); padding-bottom: var(--ds-space-3); border-bottom: 1px solid var(--figma-color-border); }
+  .invite { display: flex; align-items: center; gap: var(--ds-space-2); min-width: 0; }
+  .invite > :first-child { flex: 1 1 auto; min-width: 0; }
+  .heading { font: var(--ds-font-body-medium-strong); letter-spacing: var(--ds-tracking-body-medium-strong); }
+  .people { display: flex; flex-direction: column; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
+  .person { display: flex; align-items: center; gap: var(--ds-space-2); min-height: var(--ds-size-row); }
+  .who { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; overflow: hidden; }
+  .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .email { color: var(--figma-color-text-secondary); }
+  .online { color: var(--figma-color-text-success); }
+  .role { color: var(--figma-color-text-secondary); }
 }

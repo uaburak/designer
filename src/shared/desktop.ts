@@ -31,6 +31,7 @@ import type {
   VectorClipboard,
   WindowState,
 } from "./ipc";
+import type { AccountState, SignInResult } from "./account";
 import type { AgentsApi } from "./agents/types";
 import type { ShortcutSettings } from "./shortcuts";
 import type { TabReport } from "./tabs";
@@ -52,6 +53,14 @@ interface DesktopCommon {
   onFullScreen(cb: (fullScreen: boolean) => void): Unsubscribe;
   /** The trackpad's haptic tick (a scrub's step; macOS, throttled by main — docs/desktop.md §10.2 "Haptics") */
   haptics: { tick(): void };
+  /** The account on the multiplayer server (docs/multiplayer.md §2); sign-in/out only from Home and editors */
+  account: {
+    get(): Promise<AccountState>;
+    signIn(): Promise<SignInResult>;
+    cancelSignIn(): Promise<AccountState>;
+    signOut(): Promise<AccountState>;
+    onChanged(cb: (s: AccountState) => void): Unsubscribe;
+  };
   menu: {
     /** A native menu at a point of this view: the picked item's id, or null when dismissed */
     popup(template: NativeMenuItem[], at: { x: number; y: number }): Promise<string | null>;

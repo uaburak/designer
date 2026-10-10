@@ -17,6 +17,7 @@ import type { PreviewRecord } from "../../../shared/store/types";
 import { useEditor } from "./controller";
 import { useUI } from "./hooks";
 import { shareAccess, type SharePreviewOptions } from "./previews";
+import { SharePeople } from "./SharePeople";
 import styles from "./ShareDialog.module.css";
 
 export function ShareDialog() {
@@ -154,6 +155,8 @@ function Share() {
   return (
     <Dialog title={`Share “${fileName}”`} size="medium" open onClose={close} footer={footer}>
       <div className={styles.body} data-share-dialog="">
+        <SharePeople ed={ed} />
+        <span className={styles.heading}>Developer preview</span>
         <p className={styles.note}>Developers see the file as it looks now, with Inspect for each layer&apos;s properties and code. They can&apos;t edit it or see your other files.</p>
         <div className={styles.field}>
           <span className={styles.label}>Pages</span>

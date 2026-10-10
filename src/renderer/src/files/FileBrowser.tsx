@@ -7,6 +7,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
 import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
+import { accountMenu, useAccount } from "./account";
+import { SharedFilesDialog } from "./SharedFiles";
 import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
@@ -323,6 +325,23 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
     });
   };
 
+  // --- the account (docs/multiplayer.md §2) ---
+
+  const account = useAccount();
+  const [sharedOpen, setSharedOpen] = useState(false);
+  const accountName = account.state?.user ? account.state.user.name || account.state.user.email : null;
+  const onAccountMenu = (e: React.MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenu({
+      at: { x: r.left + 8, y: r.bottom },
+      entries: accountMenu(account.state),
+      run: (id) =>
+        void account.run(id).then((failure) => {
+          if (failure) toast({ kind: "error", message: failure });
+        }),
+    });
+  };
+
   const starredFolderSet = useMemo(() => new Set(starredFolderIds), [starredFolderIds]);
   const itemsMenu = (e: React.MouseEvent, item: Item) => {
     const next = contextSelect(sel, ids, item.id);
@@ -539,7 +558,9 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   return (
     <div className={styles.app} data-files-app="">
       <Sidebar
-        ownerName={ownerOf(workspaceName)}
+        ownerName={accountName ?? ownerOf(workspaceName)}
+        onAccountMenu={account.available ? onAccountMenu : undefined}
+        onSharedFiles={account.state?.user ? () => setSharedOpen(true) : undefined}
         teamName={workspaceName}
         location={location}
         search={search}
@@ -699,6 +720,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           />
         )}
       </main>
+      {sharedOpen && <SharedFilesDialog onClose={() => setSharedOpen(false)} onOpen={(fileKey, name) => void openFile(fileKey, { title: name }, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "new-folder" && (
         <NewFolderDialog

@@ -56,7 +56,10 @@ function spawn() {
   });
   store = handle;
   handle.ready.then(
-    () => (lastError = null),
+    () => {
+      lastError = null;
+      for (const l of [...readyListeners]) l(handle.client);
+    },
     (err: unknown) => {
       lastError = err instanceof Error ? err.message : String(err);
       console.warn(`[store] ${lastError}`);
@@ -83,6 +86,13 @@ function spawn() {
       giveUp();
     }
   });
+}
+
+const readyListeners = new Set<(client: StoreClient) => void>();
+/** Called each time a store start is ready (the first and every restart): main hands it what it holds, e.g. the session. */
+export function onStoreReady(listener: (client: StoreClient) => void): () => void {
+  readyListeners.add(listener);
+  return () => readyListeners.delete(listener);
 }
 
 /** Started once, in app.whenReady() before the first window. */

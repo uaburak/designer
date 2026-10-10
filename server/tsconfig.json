@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true
+  },
+  "include": ["src/**/*.ts", "../src/shared/multiplayer/protocol.ts", "../src/shared/multiplayer/room.ts"],
+  "exclude": ["src/**/*.test.ts", "src/testing/**"]
+}

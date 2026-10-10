@@ -3,6 +3,7 @@ import { INVOKE_ROLES, SEND_ROLES, type IpcInvoke, type IpcSend, type NativeMenu
 import { isFileKey } from "../shared/tabs";
 import type { McpClientId } from "../shared/agents/types";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/agents/attachments";
+import * as account from "./account";
 import * as agents from "./agents/host";
 import { readVectorClipboard } from "./clipboard";
 import { exportAssets } from "./files";
@@ -137,6 +138,11 @@ export function registerIpc() {
     const pageIds = Array.isArray(p.options?.pageIds) ? p.options.pageIds.map((x) => str(x, 64)).filter((x): x is string => x !== null).slice(0, 1000) : "all";
     return ctl.tabs.exportPreview(p.fileKey, p.snapshot, { pageIds, inspect: p.options?.inspect !== false, export: p.options?.export !== false });
   });
+  // ── The account (docs/multiplayer.md §2) ──
+  onInvoke("account:get", () => account.accountState());
+  onInvoke("account:sign-in", () => account.signIn());
+  onInvoke("account:cancel-sign-in", () => account.cancelSignIn());
+  onInvoke("account:sign-out", () => account.signOut());
   // ── Haptics (a scrub's steps; throttled, macOS only) ──
   onSend("haptics:tick", () => void hapticTick());
   onSend("file:reveal-data-folder", () => void shell.openPath(workspaceDir()));

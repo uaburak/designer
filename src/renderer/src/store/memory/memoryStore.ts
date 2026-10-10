@@ -41,6 +41,8 @@ import {
 import { defaultPrefs, newMeta, WorkspaceModel } from "../../../../shared/store/workspaceModel";
 import { KV_PREFIX, memoryStorage, parseWithBytes, stringifyWithBytes, type KeyValueStorage } from "./kv";
 import { MemoryLibraries } from "./memoryLibraries";
+import { multiplayerApi } from "../../../../store/multiplayer/api";
+import { MultiplayerService } from "../../../../store/multiplayer/service";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ids and clocks (docs/data.md §1)
@@ -71,7 +73,7 @@ class HlcClock {
   private lastMs = 0;
   private counter = 0;
   constructor(
-    private readonly deviceOrdinal: number,
+    public deviceOrdinal: number,
     private readonly clock: { now(): number },
   ) {}
   now(): Hlc {
@@ -166,6 +168,10 @@ const K = {
   meta: (key: FileKey) => `${KV_PREFIX}meta.${key}`,
   file: (key: FileKey) => `${KV_PREFIX}file.${key}`,
   blob: (sha1: string) => `${KV_PREFIX}blob.${sha1}`,
+  /** The server's ordinal for this browser (docs/multiplayer.md §2.1) */
+  device: `${KV_PREFIX}device`,
+  installation: `${KV_PREFIX}multiplayer.installation`,
+  link: (key: FileKey) => `${KV_PREFIX}multiplayer.link.${key}`,
 };
 
 export interface MemoryStoreOptions {
@@ -196,7 +202,10 @@ export class MemoryStore {
   /** The library registry (docs/data.md §9) on the same storage */
   readonly libraries: MemoryLibraries;
   readonly fileChanges = new Emitter<FileChange>();
-  readonly deviceOrdinal = 1;
+  /** 1 until the server gives this browser its own (docs/multiplayer.md §2.1) */
+  deviceOrdinal = 1;
+  /** Shared files' rooms (docs/multiplayer.md §5); idle until the page hands over a session */
+  readonly multiplayer: MultiplayerService;
   readonly clock: { now(): number };
   private readonly hlc: HlcClock;
   private readonly data = new Map<FileKey, FileData>();
@@ -213,6 +222,8 @@ export class MemoryStore {
     private readonly opts: MemoryStoreOptions,
   ) {
     this.clock = opts.clock ?? { now: () => Date.now() };
+    const kept = Number(storage.get(K.device));
+    if (Number.isInteger(kept) && kept >= 2 && kept <= 4095) this.deviceOrdinal = kept;
     this.hlc = new HlcClock(this.deviceOrdinal, this.clock);
     const kv = storage;
     const put = (key: string, value: unknown) => {
@@ -250,6 +261,63 @@ export class MemoryStore {
     });
     this.libraryEvents = this.libraries.events;
     this.offWatch = kv.watch?.((key, value) => this.onExternalWrite(key, value)) ?? null;
+    const json = (key: string) => {
+      try {
+        const v = kv.get(key);
+        return v === null ? null : (JSON.parse(v) as unknown);
+      } catch {
+        return null;
+      }
+    };
+    this.multiplayer = new MultiplayerService(
+      {
+        fileChanges: this.fileChanges,
+        backlog: async (fileKey, fromSeq) => this.backlog(fileKey, fromSeq),
+        appendRemote: async (fileKey, message) => this.appendRemote(fileKey, message),
+        createSharedFile: (input) => this.addFile({ name: input.name.trim() || "Untitled", folderId: null, snapshot: input.snapshot }),
+        getMeta: (fileKey) => (this.ws.files.has(fileKey) ? this.ws.getMeta(fileKey) : null),
+        get deviceOrdinal() {
+          return store.deviceOrdinal;
+        },
+        setDeviceOrdinal: async (ordinal) => {
+          this.deviceOrdinal = ordinal;
+          this.hlc.deviceOrdinal = ordinal;
+          kv.set(K.device, String(ordinal));
+        },
+        load: async () => {
+          const links: Record<string, unknown> = {};
+          const prefix = K.link("");
+          for (const key of kv.keys(prefix)) links[key.slice(prefix.length)] = json(key);
+          return { installationId: json(K.installation), links };
+        },
+        saveInstallationId: async (id) => void kv.set(K.installation, JSON.stringify(id)),
+        saveLink: async (fileKey, link) => {
+          if (link) kv.set(K.link(fileKey), JSON.stringify(link));
+          else kv.remove(K.link(fileKey));
+        },
+        log: (level, message, detail) => this.log(level, message, detail),
+      },
+      {
+        fetch: (...a) => fetch(...a),
+        WebSocket: globalThis.WebSocket as never,
+        random: () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32,
+      },
+    );
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the host's getter reads the live ordinal
+    const store = this;
+  }
+
+  /** A frame the store writes itself (kind "remote": another person's change from the file's room). */
+  appendRemote(fileKey: FileKey, message: Uint8Array): AppendAck {
+    const d = this.fileData(fileKey);
+    decodeMessage(message);
+    const seq = this.headSeq(d) + 1;
+    const hlc = this.hlc.now();
+    d.frames.push({ seq, sessionID: 0, batchSeq: 0, kind: "remote", label: "", hlc, wallClock: this.clock.now(), message });
+    if (d.frames.length > COMPACT_FRAMES) this.compact(d);
+    this.saveData(fileKey, d);
+    this.fileChanges.emit({ fileKey, seq, sessionID: 0, kind: "remote", message });
+    return { seq, hlc };
   }
 
   static async open(opts: MemoryStoreOptions = {}): Promise<MemoryStore> {
@@ -292,6 +360,7 @@ export class MemoryStore {
   /** Stops following other pages' writes. */
   dispose(): void {
     this.offWatch?.();
+    this.multiplayer.close();
     for (const rt of this.runtime.values()) if (rt.updatedAtTimer) clearTimeout(rt.updatedAtTimer);
   }
 
@@ -526,7 +595,8 @@ export class MemoryStore {
   reattach(fileKey: FileKey, sessionID: number, owner: object): { headSeq: number } {
     const d = this.fileData(fileKey);
     const { deviceOrdinal, n } = splitSessionId(sessionID);
-    if (deviceOrdinal !== this.deviceOrdinal || n < 1 || n >= d.nextLocal) throw new StoreError("invalid", `session ${sessionID} was never opened for this file`);
+    // A session opened under the ordinal this browser had before the server gave it its own stays valid.
+    if (deviceOrdinal < 1 || n < 1 || n >= d.nextLocal) throw new StoreError("invalid", `session ${sessionID} was never opened for this file`);
     const rt = this.rt(fileKey);
     const other = [...rt.sessions.entries()].find(([sid]) => sid !== sessionID);
     if (other) throw new StoreError("already-open", "This file is already open for editing", { tabId: other[1].tabId ?? null });
@@ -816,6 +886,6 @@ export class MemoryStore {
       }),
       collectGarbage: async () => ({ live: 0, deleted: 0, kept: this.storage.keys(`${KV_PREFIX}blob.`).length }),
     };
-    return { workspace, files, blobs, libraries, previews, store };
+    return { workspace, files, blobs, libraries, previews, store, multiplayer: multiplayerApi(this.multiplayer) };
   }
 }

@@ -65,6 +65,13 @@ export function common<R extends Role>(role: R) {
     onWindowState: (cb: (s: IpcEvents["window:state"]) => void) => on("window:state", cb),
     onFullScreen: (cb: (fullScreen: boolean) => void) => on("window:state", (s) => cb(s.fullScreen)),
     haptics: { tick: () => send("haptics:tick") },
+    account: {
+      get: () => invoke("account:get"),
+      signIn: () => invoke("account:sign-in"),
+      cancelSignIn: () => invoke("account:cancel-sign-in"),
+      signOut: () => invoke("account:sign-out"),
+      onChanged: (cb: (s: IpcEvents["account:changed"]) => void) => on("account:changed", cb),
+    },
     menu: {
       popup: (template: NativeMenuItem[], at: { x: number; y: number }) => invoke("menu:popup", { template: plainMenu(template), x: Number(at?.x) || 0, y: Number(at?.y) || 0 }),
     },
