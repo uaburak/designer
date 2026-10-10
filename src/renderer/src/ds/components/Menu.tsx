@@ -553,10 +553,15 @@ export interface MenuButtonProps {
   menuWidth?: number;
   /** With `align="end"`: px the menu's right edge lies past the trigger's (live: blend mode, Create property 1) */
   alignOffset?: number;
+  /**
+   * The trigger's tab stop. A field's own list (`overField`: W / H sizing, the gap, font size) defaults to -1 — Tab
+   * goes from field to field (round 17) — and is marked `data-field-menu`, so ⌥↓ in its field opens it (NumericInput)
+   */
+  tabIndex?: number;
 }
 
 /** A trigger opening a menu under (or above) it; ↓ / Enter / Space open it; focus returns on close. */
-export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName, menuWidth, alignOffset = 0 }: MenuButtonProps) {
+export function MenuButton({ entries, onSelect, children, label, placement = "bottom", className, disabled, tooltip, shortcut, overField, overAlign, overOffset, align = "start", gap = 4, flip, extend, named, flush, menuClassName, menuWidth, alignOffset = 0, tabIndex }: MenuButtonProps) {
   const button = useRef<HTMLButtonElement>(null);
   const [at, setAt] = useState<{ x: number; y: number; over?: MenuOver; flipX?: number; flipY?: number } | null>(null);
   const open = () => {
@@ -578,6 +583,8 @@ export function MenuButton({ entries, onSelect, children, label, placement = "bo
         aria-expanded={Boolean(at)}
         aria-label={label}
         data-open={at ? "" : undefined}
+        data-field-menu={overField ? "" : undefined}
+        tabIndex={tabIndex ?? (overField ? -1 : undefined)}
         disabled={disabled}
         className={className ?? styles.trigger}
         {...(tooltip && !at ? tooltipProps(typeof tooltip === "string" ? tooltip : label, shortcut) : {})}

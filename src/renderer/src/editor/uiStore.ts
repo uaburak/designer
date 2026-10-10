@@ -107,7 +107,7 @@ export interface UIState extends PreferenceFlags {
   shortcutsTab?: string;
   /** The Actions palette (⌘K, the toolbar's Actions, the Figma menu's "Actions…") */
   actionsOpen?: boolean;
-  /** Figma's "Additional labels" (View menu, on by default since 2026; was "Property labels" in the zoom menu) */
+  /** Figma's "Additional labels" (View menu; was "Property labels" in the zoom menu): the Design panel's row labels, off by default (owner, round 17) */
   propertyLabels: boolean;
   /** Position's "Constraints" toggle: the inline Constraints row shown (kept across selections, as Figma) */
   constraintsOpen?: boolean;

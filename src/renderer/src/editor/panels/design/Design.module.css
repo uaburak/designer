@@ -173,24 +173,35 @@
 }
 
 @layer app {
-  /* W / H in auto layout: the number, its mode ("Hug", "Fill") right-aligned, the sizing menu's chevron always shown (Figma's live panel) */
+  /*
+   * W / H in auto layout (the owner's live Figma 74–77.png, docs/research/panel17; live design/autolayout-*.txt): the
+   * number at 24 hugging its digits; Fixed → a 5 × 3 chevron centred 75 in (a 24 box 1 short of the field's right
+   * edge), shown hovered or not; Hug / Fill → the number grey and the mode's word (11 / 450, the text colour) ending 9
+   * short of the right edge, no chevron, hovered or not. Either is the sizing list's trigger, no tab stop (⌥↓ opens it).
+   */
   .sizeField { padding-right: 0; }
-  .sizeMenu {
+  .sizeMenu, .sizeMode {
     display: flex;
+    flex: none;
     align-items: center;
     justify-content: center;
-    width: var(--ds-space-4);
     height: 100%;
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--figma-color-icon-secondary);
     outline: none;
   }
-  /* The resizing menu's chevron sits in the field's last 9px, the mode ending just before it (live: "Hug" 73–95 in 16–104) */
-  .sizeField .sizeMenu { width: 9px; overflow: visible; }
-  .sizeMenu:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
+  .sizeMenu { width: var(--ds-size-control); margin-right: 1px; color: var(--figma-color-icon-secondary); }
   .sizeMenu:hover, .sizeMenu[data-open] { color: var(--figma-color-icon); }
+  .sizeMode {
+    padding: 0 9px 0 var(--ds-space-1);
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    white-space: nowrap;
+    cursor: default;
+  }
+  .sizeMenu:focus-visible, .sizeMode:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
   /* A field whose list opens from a chevron shown on hover (live: the gap) */
   .hoverMenuField { position: relative; }
   .hoverMenu {

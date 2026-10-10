@@ -65,7 +65,8 @@ export function BoundPill({ id, prefix, swatch, label, onOpen, onDetach }: { id:
 
 /**
  * A field that can take a variable (`fields`: the VariableFields it writes — a horizontal padding writes left and
- * right): the field itself with "Apply variable" on hover, or the bound variable's pill.
+ * right): the field itself with "Apply variable" on hover, or the bound variable's pill. "Apply variable" is no tab
+ * stop (Tab goes field to field, round 17): ⌥↓ in the field opens it (`data-field-menu`, NumericInput).
  */
 export function VariableField({ nodes, fields, prefix, children, disabled, button = true, open: openFrom, onOpenChange }: { nodes: readonly PanelNode[]; fields: readonly BindField[]; prefix?: IconName | string; children: ReactNode; disabled?: boolean; /** the hover button (W / H open the picker from their menu instead) */ button?: boolean; open?: HTMLElement | null; onOpenChange?: (anchor: HTMLElement | null) => void }) {
   const ed = useEditor();
@@ -101,7 +102,7 @@ export function VariableField({ nodes, fields, prefix, children, disabled, butto
     <div className={vstyles.bindWrap} data-bind-field={fields.join(",")}>
       {children}
       {button && (
-        <button type="button" className={vstyles.applyButton} aria-label="Apply variable" aria-expanded={!!open} {...tooltipProps("Apply variable")} onClick={(e) => setOpen(e.currentTarget)}>
+        <button type="button" className={vstyles.applyButton} aria-label="Apply variable" aria-expanded={!!open} tabIndex={-1} data-field-menu="" {...tooltipProps("Apply variable")} onClick={(e) => setOpen(e.currentTarget)}>
           <Icon name="24.variable.small" />
         </button>
       )}

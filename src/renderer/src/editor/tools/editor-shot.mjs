@@ -46,6 +46,7 @@
 //   EDITOR_ONLY=canvas16 node …                                    (round 16: hatch rules — a padding alone, ⌥ its pair, every gap, the panel's highlight; radius handles with ⌘ inward / ⌘⌥ one; inverted corners drawn and clipping)
 //   EDITOR_ONLY=inputs16 node …                                    (round 16: padding fields "19, 22", ⌘-click one field, hover hatches the canvas, Apply variable inside the ring, whole-step scrub)
 //   EDITOR_ONLY=canvasnav16 node …                                 (round 16: canvas scrollbars shown / fading / hovered / dragged; a Layers glyph glides the camera; prototype nubs on the nearest side, "+", a drag connects)
+//   EDITOR_ONLY=panel17 node …                                     (round 17: no row labels by default, W / H fields Fixed / Hug / Fill hovered or not against the owner's 74–77.png, Tab field to field, ⌥↓)
 //   EDITOR_ONLY=aldrag node …                                      (round 15: a layer dragged inside its auto-layout frame — swaps at the centres, siblings slide, drop, one undo)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
@@ -67,6 +68,7 @@ import { components15Section } from "./editorShotComponents.mjs";
 import { spacing15Section } from "./editorShotSpacing.mjs";
 import { canvas16Section } from "./editorShotCanvas16.mjs";
 import { inputs16Section } from "./editorShotInputs.mjs";
+import { panel17Section } from "./editorShotPanel17.mjs";
 import { canvasNavSection } from "./editorShotCanvasNav.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
@@ -142,9 +144,13 @@ const files = [];
 const check = (name, ok, detail = "") => results.push(`${ok ? "ok  " : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`);
 
 let openedOnWebGPU = false;
-async function open(page, query) {
+async function open(page, query, { defaultLabels = false } = {}) {
   await page.goto(`${base}/?editor${query}${gfxQuery}`);
   await page.waitForFunction(() => window.__designerEditor && !window.__designerEditor.engine.destroyed, null, { timeout: 20000 });
+  // The Design panel's row labels are off by default since round 17 (the owner's live Figma); the live captures the
+  // sections measure against were taken with View › Additional labels on, so they are turned on here — `defaultLabels`
+  // keeps the default (EDITOR_ONLY=panel17).
+  if (!defaultLabels) await page.evaluate(() => window.__designerEditor.ui.set({ propertyLabels: true }));
   // The canvas spans the window under the panels: a camera meant for the part between them is moved by this much.
   await page.evaluate(() => {
     window.__viewLeft = () => document.querySelector("[data-canvas-view]").getBoundingClientRect().left - document.getElementById("engine-canvas").getBoundingClientRect().left;
@@ -2126,16 +2132,16 @@ async function designSection(page, theme) {
 async function designRound8(page, theme, panel, select, focus) {
   const popup = () => page.locator('[data-ds="Popover"]').last();
   const popupBox = async () => popup().boundingBox();
-  // Tab goes on through the panel's buttons as live (behaviour/fields.md #10): Rotation → Rotate 90˚ right → Flip horizontal.
+  // Live Figma's Tab goes on through the panel's buttons (behaviour/fields.md #10: Rotation → Rotate 90˚ right → Flip
+  // horizontal); the owner's rule since round 17: text field to text field only — Rotation → Width, ⇧Tab back.
   await select(["7:60"]);
   await panel.getByRole("textbox", { name: "Rotation" }).click();
   await settle(page);
   await page.keyboard.press("Tab");
   const t1 = await focus();
-  await page.keyboard.press("Tab");
-  const t2 = await focus();
+  const t1Input = await page.evaluate(() => document.activeElement?.tagName === "INPUT");
   await page.keyboard.press("Shift+Tab");
-  check("Design r8: Tab from Rotation → Rotate 90˚ right → Flip horizontal, ⇧Tab back", t1 === "Rotate 90˚ right" && t2 === "Flip horizontal" && (await focus()) === "Rotate 90˚ right", `${t1} ${t2}`);
+  check("Design r8 (round 17 rule): Tab from Rotation skips Rotate / Flip to the next text field, ⇧Tab back", t1Input && t1 !== "Rotation" && (await focus()) === "Rotation", `${t1}`);
   await select(["7:60"]);
   // The colour picker as live: six paint types (Solid … Video, Shader), flush with the panel (x 960 of 1440 here: the
   // panel's left − 240), the reticle 208 square, "On this page" squares named "Solid color hex: …".
@@ -4834,6 +4840,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await inputs16Section(page, theme, { open, settle, check, outDir, docsDir: process.env.INPUTS16_DOCS ? path.join(repo, "docs/research/inputs16") : null });
+      await context.close();
+    }
+  }
+  if (only === "panel17" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await panel17Section(page, theme, { open, settle, check, outDir, docsDir: process.env.PANEL17_DOCS ? path.join(repo, "docs/research/panel17") : null });
       await context.close();
     }
   }

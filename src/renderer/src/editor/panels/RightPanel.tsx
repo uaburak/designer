@@ -12,6 +12,7 @@ import { commandItem } from "../menus";
 import { useEffect } from "react";
 import { DesignPanel } from "./design/DesignPanel";
 import { PrototypePanel } from "./prototype/PrototypePanel";
+import { designPanelTab } from "./design/tabOrder";
 import { present } from "../present";
 import styles from "./Panels.module.css";
 
@@ -41,7 +42,7 @@ export function RightPanel({ floating }: { floating?: boolean } = {}) {
         />
         <ZoomMenu />
       </div>
-      <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${tab}`} aria-labelledby={`editor-right-tab-${tab}`}>
+      <div className={styles.rightBody} role="tabpanel" id={`editor-right-panel-${tab}`} aria-labelledby={`editor-right-tab-${tab}`} onKeyDownCapture={tab === "design" ? designPanelTab : undefined}>
         {tab === "design" ? <DesignPanel /> : <PrototypePanel />}
       </div>
       {!floating && <ResizeHandle side="left" value={width} onChange={(px) => ed.ui.set({ rightWidth: px })} />}

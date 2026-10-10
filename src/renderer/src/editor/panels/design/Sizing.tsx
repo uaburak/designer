@@ -1,8 +1,8 @@
 /**
  * The Layout section's sizing (Figma UI3, its live panel): W / H fields. In or around auto layout each has its
- * sizing menu (always showing its chevron) — "Fixed width (92)" / Hug contents / Fill container, then Add min
- * width… / Add max width… (or Remove min and max) and Apply variable… —, shows the number with its mode after it
- * ("92 … Hug"), and the row reads "Resizing" (fields "Horizontal resizing" / "Vertical resizing") while an axis
+ * sizing menu — "Fixed width (92)" / Hug contents / Fill container, then Add min width… / Add max width… (or Remove
+ * min and max) and Apply variable… —: a Fixed field shows its number and the menu's chevron (always); a hugging or
+ * filling one its number grey and the mode's word at the right in the chevron's place ("92 … Hug"), and the row reads "Resizing" (fields "Horizontal resizing" / "Vertical resizing") while an axis
  * hugs or fills, "Dimensions" (fields "Width" / "Height") otherwise. Typing a number makes the axis Fixed. A group's
  * W / H scale what is in it. min / max rows under the fields. All on the schema's fields (model/sizing.ts).
  */
@@ -132,7 +132,9 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
           className={menu ? styles.sizeField : undefined}
           disabled={disabled}
           value={fieldValue(value)}
-          modeLabel={menu ? (mode ?? " ") : undefined}
+          // The number hugs its digits; what is right of it focuses the field (a Fixed field), or is the mode's word.
+          modeLabel={menu ? " " : undefined}
+          dimValue={!!mode}
           min={0.01}
           onChange={setSize}
           onStep={stepSize}
@@ -141,8 +143,10 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
           onExit={exitToCanvas(ed)}
           suffix={
             menu ? (
-              <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
-                <Icon name="16.chevron.down" />
+              // The owner's live Figma (docs/research/panel17): Fixed → the chevron, hovered or not; Hug / Fill → the mode's
+              // word in its place (no chevron, hovered or not), the number grey. Either opens the sizing list.
+              <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={mode ? styles.sizeMode : styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
+                {mode ?? <Icon name="24.chevron.down" />}
               </MenuButton>
             ) : undefined
           }

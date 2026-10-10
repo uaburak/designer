@@ -80,8 +80,10 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
    * padding field: "18, 22, 17, 19"): drawn as a value, not as Mixed; typing replaces it as usual (`onText` reads lists)
    */
   displayText?: string;
-  /** Shown after the number, right-aligned, while not focused (W / H: "Hug", "Fill") */
+  /** Shown after the number, right-aligned, while not focused (W / H: "Hug", "Fill"); " ": the number hugs its digits, the rest of the field focuses it */
   modeLabel?: string;
+  /** The number in the secondary colour while not focused (W / H hugging or filling: "179" grey before "Hug") */
+  dimValue?: boolean;
   /**
    * The name is the field box's, not the input's (live popovers/stroke-advanced-settings.txt: Miter angle's
    * `label [Miter angle]` 128 × 24, its input unnamed)
@@ -100,7 +102,7 @@ export interface NumericInputProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * (util/haptics.ts): `final: false` each step, one `final: true` on release, Esc cancels; a press without movement
  * focuses the field.
  */
-export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, boxLabel, className, ...rest }: NumericInputProps) {
+export function NumericInput({ label, prefix, prefixTone, value, onChange, onCancel, onClear, onStep, onExpression, onScrubBy, keywords, onKeyword, onText, min = -1e6, max = 1e6, step = 1, bigStep = 10, precision = 2, unit, scrub = true, scrubHandle, placeholder, suffix, disabled, variant = "filled", onExit, onFocusChange, bare, valueLabel, displayText, modeLabel, dimValue, boxLabel, className, ...rest }: NumericInputProps) {
   const mixed = isMixed(value);
   const current = mixed ? null : value;
   const base = current ?? 0;
@@ -269,6 +271,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
       data-scrubbing={scrubbing || undefined}
       data-alt-scrub={(altHover && canScrub) || undefined}
       data-mixed={mixedShown || undefined}
+      data-dim-value={(dimValue && !focused) || undefined}
       className={cx(styles.field, variant === "ghost" && styles.ghost, bare && styles.bare, className)}
       role={boxLabel ? "group" : undefined}
       aria-label={boxLabel ? label : undefined}
@@ -333,6 +336,19 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
         }}
         onKeyDown={(e) => {
           e.stopPropagation();
+          // ⌥↓ opens the field's own list (W / H sizing, the gap, font size), else its "Apply variable" — neither is a
+          // tab stop (round 17: Tab goes field to field). What was typed is committed first.
+          if (e.key === "ArrowDown" && e.altKey && !e.metaKey && !e.ctrlKey) {
+            const own = root.current?.querySelector<HTMLElement>("[data-field-menu]");
+            const beside = [...(root.current?.parentElement?.children ?? [])].find((c): c is HTMLElement => c !== root.current && c instanceof HTMLElement && c.hasAttribute("data-field-menu"));
+            const menu = own ?? beside;
+            if (menu && !(menu as HTMLButtonElement).disabled) {
+              e.preventDefault();
+              if (typing.current) finish(e.currentTarget.value);
+              menu.click();
+              return;
+            }
+          }
           if (e.key === "ArrowUp" || e.key === "ArrowDown") {
             e.preventDefault();
             const dir = e.key === "ArrowUp" ? 1 : -1;
@@ -368,7 +384,7 @@ export function NumericInput({ label, prefix, prefixTone, value, onChange, onCan
             returnFocus?.();
           }
         }}
-        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && !unitAfter && styles.padStart, mixedShown && styles.mixedText)}
+        className={cx(styles.input, styles.tabular, modeLabel && styles.hug, unitAfter && styles.opacityInput, prefix === undefined && !unitAfter && styles.padStart, (mixedShown || (dimValue && !focused)) && styles.mixedText)}
       />
       {unitAfter && (
         <>

@@ -633,7 +633,7 @@ The layout is kept only once the user picks one in the Layout tab (`layoutPicked
 
 | Channel | Kind | Roles | Payload |
 |---|---|---|---|
-| `haptics:tick` | send | All | `void`. The page sends one per scrub step (ds `NumericInput` → `ds/util/haptics.ts` → `window.designer.haptics.tick()`); main (`src/main/haptics.ts`) plays at most one tick per 16.7 ms (60 a second, `createHapticThrottle`), nothing off macOS. macOS itself plays it only while a finger is on the trackpad. |
+| `haptics:tick` | send | All | `void`. The page sends one per scrub step (ds `NumericInput` → `ds/util/haptics.ts` → `window.designer.haptics.tick()`); main (`src/main/haptics.ts`) plays at most one tick per 80 ms (12.5 a second, `createHapticThrottle`; round 17: faster ticks ran together and lost their feel), dropping the ones in between (never queued) — the canvas's ticks (engine haptic events) share the same channel and throttle; nothing off macOS. macOS itself plays it only while a finger is on the trackpad. |
 
 **Store port**
 

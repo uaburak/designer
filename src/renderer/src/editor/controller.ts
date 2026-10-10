@@ -117,7 +117,9 @@ export class EditorController {
       anchor: null,
       pageSearch: null,
       shortcutsOpen: false,
-      propertyLabels: true,
+      // The Design panel's per-row labels ("Flow", "Dimensions", "Alignment" / "Gap", "Padding" …): off by default, only the
+      // section titles, as the owner's live Figma (round 17, docs/research/panel17); View › Additional labels turns them on.
+      propertyLabels: false,
       contextMenu: null,
       versionDialog: null,
       placingImages: null,
