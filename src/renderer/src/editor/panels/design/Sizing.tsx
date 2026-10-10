@@ -144,9 +144,19 @@ export function SizeField({ axis, nodes, parents, onAddLimit, disabled }: { axis
           suffix={
             menu ? (
               // The owner's live Figma (docs/research/panel17): Fixed → the chevron, hovered or not; Hug / Fill → the mode's
-              // word in its place (no chevron, hovered or not), the number grey. Either opens the sizing list.
+              // word in its place, the number grey, and the chevron instead of the word while the field is hovered (the
+              // owner's correction). Either opens the sizing list.
               <MenuButton label={`${label} sizing`} entries={entries} onSelect={onMenu} className={mode ? styles.sizeMode : styles.sizeMenu} overField='[data-ds="NumericInput"]' overAlign="right" overOffset={hug ? SIZING_LIST_DY : SIZING_LIST_DY_CHILD}>
-                {mode ?? <Icon name="24.chevron.down" />}
+                {mode ? (
+                  <>
+                    <span className={styles.sizeModeWord}>{mode}</span>
+                    <span className={styles.sizeModeChevron}>
+                      <Icon name="24.chevron.down" />
+                    </span>
+                  </>
+                ) : (
+                  <Icon name="24.chevron.down" />
+                )}
               </MenuButton>
             ) : undefined
           }

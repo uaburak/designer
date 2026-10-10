@@ -79,16 +79,16 @@ describe("r17 W / H fields", () => {
     expect(w?.querySelector("svg")).toBeTruthy();
     expect(w?.textContent).toBe("");
     expect(box(input(host, "Horizontal resizing"))?.hasAttribute("data-dim-value")).toBe(false);
-    // H hugs: the word, no glyph; the number dimmed.
+    // H hugs: the word, and the chevron kept for hover (CSS shows it in the word's place); the number dimmed.
     expect(h?.textContent).toBe("Hug");
-    expect(h?.querySelector("svg")).toBeNull();
+    expect(h?.querySelector("svg")).toBeTruthy();
     expect(box(input(host, "Vertical resizing"))?.hasAttribute("data-dim-value")).toBe(true);
-    // Hovered, nothing swaps: the word stays and no chevron comes.
+    // Hovered (the owner's correction): CSS swaps the word for the chevron; both stay in the DOM.
     const hb = box(input(host, "Vertical resizing"))!;
     hb.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerId: 1, pointerType: "mouse" }));
     hb.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, pointerType: "mouse" }));
     expect(sizingButton(host, "Vertical resizing")?.textContent).toBe("Hug");
-    expect(hb.querySelector("svg")).toBeNull();
+    expect(hb.querySelector("svg")).toBeTruthy();
     // Focused, the number is the text colour again (typing replaces it).
     act(() => input(host, "Vertical resizing")!.focus());
     expect(hb.hasAttribute("data-dim-value")).toBe(false);

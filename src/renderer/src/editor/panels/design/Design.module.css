@@ -201,6 +201,11 @@
     white-space: nowrap;
     cursor: default;
   }
+  /* Hug / Fill hovered (the owner's correction): the chevron in the word's place, the word's box kept so nothing shifts */
+  .sizeMode { position: relative; }
+  .sizeModeChevron { position: absolute; inset: 0 1px 0 auto; display: none; width: var(--ds-size-control); align-items: center; justify-content: center; color: var(--figma-color-icon); }
+  :global([data-ds="NumericInput"]):hover .sizeModeWord, .sizeMode[data-open] .sizeModeWord { visibility: hidden; }
+  :global([data-ds="NumericInput"]):hover .sizeModeChevron, .sizeMode[data-open] .sizeModeChevron { display: flex; }
   .sizeMenu:focus-visible, .sizeMode:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); outline-offset: -2px; }
   /* A field whose list opens from a chevron shown on hover (live: the gap) */
   .hoverMenuField { position: relative; }
