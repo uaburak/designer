@@ -4,6 +4,7 @@ import { isFileKey } from "../shared/tabs";
 import type { McpClientId } from "../shared/agents/types";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/agents/attachments";
 import * as agents from "./agents/host";
+import { readVectorClipboard } from "./clipboard";
 import { exportAssets } from "./files";
 import { hapticTick } from "./haptics";
 import { fontIndex, readFont } from "./fonts";
@@ -175,6 +176,7 @@ export function registerIpc() {
   // ── A native menu for a view (a menu that wouldn't fit inside it) ──
   onInvoke("menu:popup", ({ ctl, sender }, p) => popupMenu(ctl, sender, p));
   onInvoke("fonts:list", () => fontIndex());
+  onInvoke("clipboard:read-vector", () => readVectorClipboard());
   onInvoke("fonts:read", (_c, p) => {
     const id = str(p?.id, 300);
     if (!id) throw new Error("fonts:read: no id");

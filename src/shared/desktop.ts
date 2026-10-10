@@ -28,6 +28,7 @@ import type {
   TabsSnapshot,
   ThemePreference,
   ThemeState,
+  VectorClipboard,
   WindowState,
 } from "./ipc";
 import type { AgentsApi } from "./agents/types";
@@ -180,6 +181,11 @@ export interface EditorApi extends DesktopCommon {
   };
   /** Agents and the MCP server (src/main/agents; docs/research/figma/R12-agents-mcp.md) */
   agents: AgentsApi;
+  /** The system clipboard's flavours a paste event can't see (docs/desktop.md §13 "Vector paste") */
+  clipboard: {
+    /** Vector artwork as SVG (Illustrator's SVG or PDF, any SVG), or null */
+    readVector(): Promise<VectorClipboard | null>;
+  };
   /** The user's keyboard shortcuts, kept by main (settings.json): the Keyboard shortcuts panel's (src/shared/shortcuts.ts) */
   shortcuts: {
     get(): Promise<ShortcutSettings>;

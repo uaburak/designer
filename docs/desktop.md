@@ -64,7 +64,7 @@ src/main/menu.ts         application menu built from src/shared/commands.ts; rou
 src/main/ipc.ts          every ipcMain handler; sender/role validation
 src/main/protocol.ts     app:// handler, headers, token check
 src/main/dialogs.ts      native message boxes and file pickers
-src/main/clipboard.ts    paste trigger, Finder file reading
+src/main/clipboard.ts    vector paste: the pasteboard's SVG / Illustrator PDF flavours (§13)
 src/main/settings.ts     userData/settings.json
 src/main/session.ts      userData/session.json
 src/main/storeHost.ts    spawns/restarts the store utility process, brokers ports
@@ -559,6 +559,7 @@ export interface NativeMenuItem { id?: string; label?: string; type?: "normal" |
 | Channel | Kind | Roles | Payload → result |
 |---|---|---|---|
 | `clipboard:trigger-paste` | send | E | `void`. Main calls `event.sender.paste()`, which fires a DOM `paste` event in the view (used by Paste Over Selection, Paste to Replace and the canvas menu's "Paste here"). |
+| `clipboard:read-vector` | invoke | E | `void → { svg; source; skipped: { text; images } } \| null`. *As built (round 17).* The pasteboard's vector artwork as SVG: Illustrator's own SVG, any SVG, else Illustrator's PDF converted in main (§13 "Vector paste"). |
 | `clipboard:read-files` | invoke | E | `void → { files: { name; mime; bytes: Uint8Array }[] }`. Finder-copied files: main reads `NSFilenamesPboardType`, falling back to `public.file-url`, and returns only images and `.svg` up to 50 MB each. |
 
 **Fonts** (§14)
@@ -692,7 +693,7 @@ export interface EditorApi extends DesktopCommon {
   nav: { openFile(fileKey: string, at?: { pageId?: string; nodeId?: string }): Promise<{ tabId: TabId }>; openPrototype(fileKey: string, pageId: string, startNodeId?: string): Promise<{ tabId: TabId }>; goHome(revealFileKey?: string): void; newFile(): Promise<{ fileKey: string; tabId: TabId }> };
   menu: { onCommand(cb: (c: MenuCommandEvent) => void): Unsubscribe; setState(p: MenuStatePatch): void };
   files: { import(folderId: string | null, paths?: string[]): Promise<ImportResult>; saveLocalCopy(fileKey: string): Promise<{ path: string } | { cancelled: true }>; exportAssets(files: { name: string; bytes: Uint8Array }[]): Promise<{ paths: string[] } | { cancelled: true }>; pickImages(multiple: boolean): Promise<{ files: PickedFile[] } | { cancelled: true }>; pathFor(file: File): string; revealDataFolder(): void };
-  clipboard: { triggerPaste(): void; readFiles(): Promise<{ files: PickedFile[] }> };
+  clipboard: { triggerPaste(): void; readFiles(): Promise<{ files: PickedFile[] }>; readVector(): Promise<VectorClipboard | null> };   // as built: readVector only
   fonts: { list(): Promise<FontIndex>; onChanged(cb: (v: { version: number }) => void): Unsubscribe; url(faceId: string): string };
   settings: DesktopCommon["settings"] & { set(p: Partial<Settings>): Promise<Settings> };
   openExternal(url: string): void;
@@ -827,8 +828,8 @@ e.clipboardData.setData("text/plain", plain);   // text layers' characters joine
 **Paste** (⌘V role, or `clipboard:trigger-paste`). The editor's DOM `paste` listener reads `e.clipboardData`, takes the first match in this order and calls `preventDefault()`:
 1. `application/x-designerv2-kiwi`: unwrap the archive, then `engine_paste(message, mode)`.
 2. `text/html` containing `(figma)…(/figma)`: decode the archive. If its schema is ours, `engine_paste`. If it is Figma's (pasted from real Figma), convert it with `src/shared/fig/convert.ts` (the same converter `.fig` import uses), then `engine_paste`.
-3. `e.clipboardData.files` holding images (screenshots, images copied from browsers): ImagePipeline (`docs/data.md` §10), then the engine command `PLACE_IMAGES` (`engine.md` §10.6).
-4. `text/plain` starting with `<svg`, or `image/svg+xml`: an SVG import into vector nodes. **Needs from engine**: `engine_import_svg`, not yet in `engine.md` §10; until it exists, SVG text pastes as a text layer.
+3. Vector artwork (round 17, "Vector paste" below): `image/svg+xml` or `text/plain` holding SVG markup, else `designer.clipboard.readVector()` (Illustrator's flavours, read by main): editable layers.
+4. `e.clipboardData.files` holding images (screenshots, images copied from browsers): ImagePipeline (`docs/data.md` §10), then placed like a paste (`placeImages`). Only when step 3 found no vectors — Illustrator's copy carries a PNG too.
 5. Empty, but Finder copied files: `designer.clipboard.readFiles()`, then go to step 3 or 4.
 6. `text/plain`: a new text layer, or the text inserted if a text layer is in edit mode (the engine handles this itself).
 
@@ -840,6 +841,15 @@ When focus is in a DOM text field, the listener does nothing and the field paste
 - Copy as PNG (⇧⌘C): `navigator.clipboard.write([new ClipboardItem({"image/png": blob})])`, rendered by the engine at 2×.
 - Copy as SVG and Copy as Code › CSS: `text/plain`, as Figma does.
 - Copy Link (⌃⌘L): `text/plain` deep link (§15).
+
+**Vector paste** (round 17, as built; Figma pastes Illustrator artwork as vectors). Artwork copied in Adobe Illustrator pastes as **editable layers**, not a picture:
+
+- *What Illustrator writes* (verified on Illustrator 30.8 on this Mac, 2026-10-10, a scripted copy read with `NSPasteboard` and with Electron's `clipboard.read()`): `com.adobe.illustrator.svg` (and `…svgm`, identical: SVG with `<style>` classes and **text as outlines**), the classic `'svg '` flavour = `public.svg-image` (SVG with presentation attributes and `<text>`), `com.adobe.pdf` (also as "Apple PDF pasteboard type": the selection as a PDF with Illustrator's private data, often megabytes), Illustrator's own `com.adobe.illustrator.aicb` / `.pgf.14.0` / `.ate2` / `.stxt`, PNG, TIFF and the text. Chromium's paste event sees none of the vector ones (its `image/svg+xml` there holds the PNG), so main reads them: Electron names a raw type `electron application/osclipboard;format="<UTI>"`.
+- *Order* (`src/main/clipboard.ts`): Illustrator's SVG → any SVG → Illustrator's PDF, converted to SVG in main (`src/shared/vectorImport/pdf.ts`, zlib) → nothing (the view places the PNG). The system PDF flavour is used only next to Illustrator's own types, so a page copied from Preview still pastes as a picture.
+- *PDF → SVG* (`pdfToSvg`): objects found by scanning `n g obj` (streams skipped by `/Length`) and object streams; Flate / ASCIIHex / ASCII85; the first page's content: paths `m l c v y h re`, painting `f F f* S s B B* b b* n`, clipping `W W*` (a clip group; a rectangle covering the page — Illustrator's artboard clip — dropped), colour `g G rg RG k K cs CS sc SC scn SCN` in DeviceGray / RGB / CMYK (naive CMYK → RGB), ICCBased (by component count), CalRGB / CalGray, Lab, Indexed, Separation / DeviceN through their tint transforms (function types 0, 2, 3, 4), `w J j M d`, ExtGState (`LW LC LJ ML D ca CA`), `q Q cm`, Form XObjects, axial / radial shadings (`sh` in a clip, shading patterns as fills → SVG gradients). Text objects and images are counted and skipped ("Text was left out…" toast).
+- *SVG → layers* (`src/renderer/src/editor/model/svgImport.ts`, `svgToMessage`): a clipboard Message the engine pastes (fresh ids, **one undo step**, selected). `<path> <polygon> <polyline> <line>` → Vector (a vector network; even-odd from `fill-rule`), `<rect>` → Rectangle (corner radius) and `<circle> <ellipse>` → Ellipse while axis-aligned, `<g>` → Group, `clip-path` → "Clip path group" with an outline mask ("Use as mask", `maskType OUTLINE`) at the bottom; `<use>`, `<symbol>`, nested `<svg>`, `<switch>`. Styles as SVG computes them: attributes, `<style>` rules (type / class / id selectors), `style`, inheritance, `currentColor`; solid fills and strokes, linear / radial gradients (Figma's paint transform), stroke width / cap / join / miter / dashes, opacity. Transforms are baked into the geometry (strokes scaled). Several top-level layers come as one "Group"; a single one as itself; layer names from `data-name` / `id`. Placed in the middle of the view (or into the selected frame, the engine's rule), at the pointer for "Paste here", over / in place of the selection for ⇧⌘V / ⇧⌘R. SVG text pasted as text (`image/svg+xml`, `text/plain`) goes the same way, in the browser too.
+- *What users set in Illustrator*: **Illustrator ▸ Settings ▸ Clipboard Handling ▸ On Copy**: tick **Include SVG Code** (best: text comes as outlines, gradients and clips exact) and **PDF** (the fallback); "AICB (no transparency support)" is not read. With neither ticked only the picture reaches the clipboard and the paste is an image. Text that should stay editable as vectors: Type ▸ Create Outlines before copying (the PDF route can't outline text).
+- Unverified: Figma's exact layer names for Illustrator pastes (Figma's own SVG import names layers after `id`s; here "Group" / "Vector" / "Rectangle" / "Ellipse"); gradients' spread methods, SVG `<mask>`, filters, blend modes and `<image>`s are not carried over.
 
 `figma-layers:` plain-text payloads (today's `FigmaEditor.tsx:156`) are dropped.
 

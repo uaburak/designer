@@ -93,6 +93,9 @@ const api: EditorApi = {
   },
   // Text › Spell check: the view's own spell checker (webPreferences.spellcheck, src/main/views.ts), at most 2000 words a call.
   agents: agentsApi(),
+  clipboard: {
+    readVector: () => invoke("clipboard:read-vector"),
+  },
   // Plain data both ways: main checks it again (src/shared/shortcuts.ts sanitizeShortcutSettings).
   shortcuts: {
     get: () => invoke("shortcuts:get"),

@@ -223,6 +223,15 @@ export interface ExportPreviewRequest {
   options: { pageIds: string[] | "all"; inspect: boolean; export: boolean };
 }
 
+/** Vector artwork on the system clipboard as SVG (docs/desktop.md §13 "Vector paste"). */
+export interface VectorClipboard {
+  svg: string;
+  /** The pasteboard type it came from (`com.adobe.illustrator.svg`, `public.svg-image`, `com.adobe.pdf`…). */
+  source: string;
+  /** Left out by the PDF conversion: text objects and images. */
+  skipped: { text: number; images: number };
+}
+
 export interface IpcInvoke {
   "desktop:init": { args: []; result: InitInfo };
   "tabs:get": { args: []; result: TabsSnapshot };
@@ -258,6 +267,8 @@ export interface IpcInvoke {
   "fonts:read": { args: [{ id: string }]; result: Uint8Array };
   /** A Google family's Regular subset to `text` (its name), for the font picker's row in its own face */
   "fonts:preview": { args: [{ family: string; text: string }]; result: Uint8Array };
+  /** Paste: the pasteboard's vector artwork (Illustrator's SVG, any SVG, Illustrator's PDF as SVG), read by main (§13) */
+  "clipboard:read-vector": { args: []; result: VectorClipboard | null };
   // ── Agents (src/main/agents; docs/research/figma/R12-agents-mcp.md) ──
   /** The AI tools on this computer (CLIs found, local model servers that answer) */
   "agents:providers": { args: []; result: ProviderInfo[] };
@@ -364,6 +375,7 @@ export const INVOKE_ROLES: { [C in keyof IpcInvoke]: readonly Role[] } = {
   "fonts:list": ["editor"],
   "fonts:read": ["editor"],
   "fonts:preview": ["editor"],
+  "clipboard:read-vector": ["editor"],
   "agents:providers": ["editor"],
   "agents:settings": ["editor"],
   "agents:set-settings": ["editor"],

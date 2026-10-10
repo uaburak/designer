@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="katman_1" data-name="katman 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 320 223">
+  <defs>
+    <clipPath id="clippath">
+      <circle cx="250" cy="173" r="40" fill="none"/>
+    </clipPath>
+  </defs>
+  <rect y="13" width="120" height="80" fill="#e62832"/>
+  <circle cx="210" cy="53" r="50" fill="none" stroke="#145ae6" stroke-miterlimit="10" stroke-width="6"/>
+  <polygon points="130 123 141.76 146.82 168.04 150.64 149.02 169.18 153.51 195.36 130 183 106.49 195.36 110.98 169.18 91.96 150.64 118.24 146.82 130 123" fill="#145ae6" stroke="#e62832" stroke-dasharray="8 4" stroke-miterlimit="10" stroke-width="2"/>
+  <g clip-path="url(#clippath)">
+    <rect x="200" y="123" width="120" height="100" fill="#e62832"/>
+  </g>
+  <text transform="translate(0 213.04)" font-family="MyriadPro-Regular, &apos;Myriad Pro&apos;" font-size="12"><tspan x="0" y="0" letter-spacing=".01em">H</tspan><tspan x="7.94" y="0">i</tspan></text>
+</svg>

@@ -6,6 +6,10 @@
  * natively; the editor's own menus fire them with execCommand. A paste with
  * no clipboard event behind it (a menu in a browser) reads the async
  * Clipboard API's HTML, then the last copy made in this tab.
+ *
+ * Vector artwork from other apps (§13 "Vector paste"): SVG text on the clipboard, else what main finds on the
+ * pasteboard — Illustrator's SVG, or its PDF converted to SVG — becomes editable layers (model/svgImport.ts) in
+ * the middle of the view; only when there is none does a picture on the clipboard become an image.
  */
 import type { Message } from "@/engine/codec";
 import type { PasteOptions } from "@/engine/Engine";
@@ -17,7 +21,10 @@ import { engineCall } from "./engineCompat";
 import { archiveMessage, encodeClipboard, encodeClipboardKiwi, messageAt, readClipboard, type ClipboardPayload } from "./model/clipboard";
 import { isEditable } from "./keyboard";
 import { isMediaFile } from "./images";
-import { frameAt, placeImages } from "./placeImages";
+import { frameAt, placeImages, toPage } from "./placeImages";
+import { looksLikeSvg, svgToMessage } from "./model/svgImport";
+import { viewCentre } from "./canvas/viewInsets";
+import { editorBridge } from "./desktop";
 import { movedAmong } from "./libraries";
 import { showToast } from "@/ds";
 
@@ -103,6 +110,59 @@ export function pasteOptions(mode: EditorController["pendingPaste"]): PasteOptio
   return { inPlace: mode?.mode === "inPlace" };
 }
 
+/**
+ * SVG pasted as layers, like any paste: in the middle of the view (or into the selected frame, the engine's rule),
+ * at the pointer for "Paste here", over / in place of the selection for ⇧⌘V / ⇧⌘R. One undo step (the engine's
+ * paste). `skipped`: what the PDF conversion left out, added to the SVG's own. False when the SVG drew nothing.
+ */
+export function pasteSvg(ed: EditorController, svg: string, mode: EditorController["pendingPaste"], skipped?: { text: number; images: number }): boolean {
+  const { message, skipped: own } = svgToMessage(svg);
+  if (!message || ed.engine.destroyed) return false;
+  if (mode?.mode !== "point") {
+    // The top layer is placed on the page: its middle at the view's middle.
+    const top = message.nodeChanges[0];
+    const mid = viewCentre(ed.canvas);
+    const centre = toPage(ed, mid.x, mid.y);
+    const size = top.size ?? { x: 0, y: 0 };
+    top.transform = { m00: 1, m01: 0, m02: Math.round(centre.x - size.x / 2), m10: 0, m11: 1, m12: Math.round(centre.y - size.y / 2) };
+  }
+  pasteInto(ed, message, mode);
+  const text = own.text + (skipped?.text ?? 0), images = own.images + (skipped?.images ?? 0);
+  if (text || images) {
+    showToast({
+      message: text
+        ? `Text was left out. In Illustrator, use Type › Create Outlines before copying to paste it as vectors.`
+        : images === 1
+          ? "An image in the artwork was left out."
+          : `${images} images in the artwork were left out.`,
+    });
+  }
+  return true;
+}
+
+/** SVG markup in a DataTransfer (another app's "Copy as SVG", an SVG file's text), or null. */
+function svgInTransfer(data: DataTransfer): string | null {
+  const svg = data.getData("image/svg+xml");
+  if (looksLikeSvg(svg)) return svg;
+  const text = data.getData("text/plain");
+  return looksLikeSvg(text) ? text : null;
+}
+
+/**
+ * Not our own payload: SVG text, else main's vector flavours (Illustrator), else the clipboard's pictures. `files`
+ * are taken from the event before it ends (the DataTransfer empties afterwards).
+ */
+async function pasteForeign(ed: EditorController, svgText: string | null, files: File[], mode: EditorController["pendingPaste"]): Promise<void> {
+  if (svgText && pasteSvg(ed, svgText, mode)) return;
+  const vector = await editorBridge()?.clipboard?.readVector().catch(() => null);
+  if (ed.engine.destroyed) return;
+  if (vector && pasteSvg(ed, vector.svg, mode, vector.skipped)) return;
+  if (!files.length) return;
+  const images = await ed.images.import(files);
+  if (images.length && !ed.engine.destroyed) placeImages(ed, images);
+  ed.focusCanvas();
+}
+
 /** Listens to the document's clipboard events while the editor is mounted. */
 export function attachClipboard(ed: EditorController): () => void {
   const onCopy = (e: ClipboardEvent, cut: boolean) => {
@@ -124,14 +184,13 @@ export function attachClipboard(ed: EditorController): () => void {
     ed.pendingPaste = null;
     const message = readClipboard((type) => data.getData(type)) ?? (data.types.length === 0 && ed.lastCopy ? readClipboard((t) => ed.lastCopy?.[t]) : null);
     if (!message) {
-      // An image on the clipboard (a screenshot, a copied file): placed like a paste (desktop.md §13 step 4).
+      // Vector artwork (SVG text; Illustrator's flavours, read by main), else an image on the clipboard (a
+      // screenshot, a copied file) placed like a paste (desktop.md §13 steps 3–4).
       const files = [...data.files].filter(isMediaFile);
-      if (!files.length) return; // SVG, text: later (desktop.md §13 steps 3, 5, 6)
+      const svg = svgInTransfer(data);
+      if (!svg && !files.length && !editorBridge()) return;
       e.preventDefault();
-      void ed.images.import(files).then((images) => {
-        if (images.length && !ed.engine.destroyed) placeImages(ed, images);
-        ed.focusCanvas();
-      });
+      void pasteForeign(ed, svg, files, mode);
       return;
     }
     e.preventDefault();
@@ -168,6 +227,7 @@ export function pasteFromMenu(ed: EditorController, mode: EditorController["pend
   void readSystemClipboard().then((payload) => {
     const m = payload ?? (ed.lastCopy ? readClipboard((t) => ed.lastCopy?.[t]) : null);
     if (m) void pastePayload(ed, m, mode);
+    else void pasteForeign(ed, null, [], mode);
   });
 }
 
