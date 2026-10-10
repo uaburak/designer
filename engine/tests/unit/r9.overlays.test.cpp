@@ -269,7 +269,7 @@ TEST_CASE("r9 overlay: the `</>` at a selected frame's top right; a click marks 
 
 // ---- 3. Auto layout's padding badge, a grid's bars --------------------------------------------------------------
 
-TEST_CASE("r9 auto layout: the hovered padding's value sits outside its edge where the pointer is") {
+TEST_CASE("r9 auto layout: a padding's value shows over its bar, by the pointer (round 15)") {
   const Guid AL{1, 20}, A{1, 21}, B{1, 22};
   NodeChange al = make(AL, NodeType::FRAME, kPage, "%", {0, 400, 232, 72}, "AL_horizontal");
   StackFacet& st = al.props.stack();
@@ -279,7 +279,8 @@ TEST_CASE("r9 auto layout: the hovered padding's value sits outside its edge whe
   Editor e = makeEditor({al, make(A, NodeType::ROUNDED_RECTANGLE, AL, "!", {16, 16, 60, 40}, "A"),
                          make(B, NodeType::ROUNDED_RECTANGLE, AL, "\"", {86, 16, 60, 40}, "B")});
   e.setSelection({AL});
-  // The top padding (y 400..416) at x 150: its bar is the frame's middle, its badge's anchor the pointer's x.
+  // The top padding (y 400..416) at x 150: its bar is the frame's middle; off the bar the padding is only hatched
+  // (round 15, live Figma's recording: no value, the arrow).
   Vec2 p = screen(e, {150, 407});
   move(e, p.x, p.y);
   Overlay o = e.overlay();
@@ -287,20 +288,23 @@ TEST_CASE("r9 auto layout: the hovered padding's value sits outside its edge whe
   for (const auto& b : o.layoutBars)
     if (!b.gap && b.side == 1) top = &b;
   REQUIRE(top);
-  CHECK(top->hovered);
+  CHECK(!top->hovered);
   CHECK(top->at.x == doctest::Approx(81));  // the frame hugs its two children: 162 wide
-  CHECK(top->edge.x == doctest::Approx(150));
-  CHECK(top->edge.y == doctest::Approx(400));
-  // The left padding at y 430: the anchor on the left edge at the pointer's y.
-  p = screen(e, {8, 430});
+  REQUIRE(o.spacingAreas.size() == 1);
+  CHECK(!o.spacingAreas[0].gap);
+  CHECK(e.cursor() == CursorKind::DEFAULT);
+  // On the bar: its value, anchored at the pointer.
+  p = screen(e, {83, 409});
   move(e, p.x, p.y);
   o = e.overlay();
   for (const auto& b : o.layoutBars)
-    if (!b.gap && b.side == 0) {
+    if (!b.gap && b.side == 1) {
       CHECK(b.hovered);
-      CHECK(b.edge.x == doctest::Approx(0));
-      CHECK(b.edge.y == doctest::Approx(430));
+      CHECK(b.edge.x == doctest::Approx(83));
+      CHECK(b.edge.y == doctest::Approx(409));
     }
+  CHECK(e.cursor() == CursorKind::SPACING);
+  CHECK(e.cursorAngle() == 90);
 }
 
 TEST_CASE("r9 grid: a selected grid's padding bars (no gap bars), cells, and its pills band keeps them") {

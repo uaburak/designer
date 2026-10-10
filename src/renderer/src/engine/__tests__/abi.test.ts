@@ -57,4 +57,11 @@ describe("cursors", () => {
     expect(rotateCursor(-45)).toBe(rotateCursor(315));
     for (const kind of ["PENCIL", "BEND", "PAINT_BUCKET", "CUT", "LASSO"] as const) expect(cssCursor(kind, 0)).toMatch(/^image-set\(url\(/);
   });
+
+  it("draws the spacing cursor (auto layout's padding / gap bars, round 15) at the drag's angle, col / row resize behind", () => {
+    expect(cssCursor("SPACING", 0)).toMatch(/^image-set\(url\(.*12 12, col-resize$/);
+    expect(cssCursor("SPACING", 90)).toMatch(/row-resize$/);
+    expect(decodeURIComponent(cssCursor("SPACING", 30))).toContain("rotate(30 12 12)");
+    expect(cssCursor("SPACING", 270)).toBe(cssCursor("SPACING", 90));
+  });
 });

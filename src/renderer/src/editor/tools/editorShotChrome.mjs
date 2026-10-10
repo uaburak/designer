@@ -4,7 +4,7 @@
 // 1. A turned frame's name lies along its top edge from its top-left corner, its baseline 10 above the edge, and its
 //    W × H badge is centred 6 under its bottom edge, both turned with it (Figma's 42.png, measured: baseline 10.0 CSS
 //    px above the edge, the name from the corner; the badge 17 thick, ~7 off the edge, centred). A press on the turned
-//    name selects the frame, a drag moves it; nothing is where an upright name would be; no `</>` over it.
+//    name selects the frame, a drag moves it; nothing is where an upright name or `</>` would be.
 // 2. The cursors: resize and rotate cursors turned to the turned frame's corners (whole degrees), every cursor an
 //    image-set of a 1× and a 2× SVG (crisp on Retina), the Pencil's own; a sheet of them all is shot.
 // 3. The eyedropper (I): Figma's card follows the pointer — the pixels magnified with the middle one framed, the
@@ -147,7 +147,7 @@ export async function chromeSection(page, theme, { open, settle, check, outDir, 
   check(`Chrome15 ${theme}: nothing where an upright name would be (over the AABB's top left)`, uprightSpot.length === 0, `${uprightSpot.length} px`);
   const aabbRight = at(W, 0)[0];
   const devSpot = await pixels(page, { x: Math.floor(aabbRight - 16), y: Math.floor(corner[1] - 22), width: 18, height: 16 }, titleInk);
-  check(`Chrome15 ${theme}: no </> over the turned frame (Figma 42.png), where an upright frame's would be`, devSpot.length === 0, `${devSpot.length} px`);
+  check(`Chrome15 ${theme}: no </> where an upright frame's would be (a turned one's lies along its top edge: r15-spacing-handles)`, devSpot.length === 0, `${devSpot.length} px`);
 
   // A press on the name selects the frame; a drag moves it.
   const onName = [corner[0] + u[0] * 24 + up[0] * 14, corner[1] + u[1] * 24 + up[1] * 14];

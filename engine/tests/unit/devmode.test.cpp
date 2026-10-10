@@ -307,7 +307,7 @@ TEST_CASE("devmode: statuses on titles; editInfo stamped on edits makes a ready 
   CHECK(f.ed.devStatus(A) == 1);
   f.frame();
   REQUIRE(f.r.canvasHits().statuses.size() == 1);
-  CHECK(f.r.canvasHits().statuses[0].kind == DevStatusMark::Kind::Ready);
+  CHECK(f.r.canvasHits().statuses[0].kind == DevStatusMark::Kind::ReadyIcon);  // Design mode: the green `</>` button (round 15)
   // An edit inside A a little later: A (and the page) get editInfo; A shows Changed.
   f.now = 2060;
   NodeChange c = NodeChange::changed(CHILD);

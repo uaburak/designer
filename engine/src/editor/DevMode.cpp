@@ -176,6 +176,8 @@ void Editor::devOverlay(Overlay& o) const {
   d.annotations = dev_.show;
   d.dots = dev_.dots;
   d.focus = dev_.focus;
+  d.iconHover = devIconHover_;
+  d.tooltip = devTooltip_;
   if (page_ == kNoGuid || !doc_.has(page_)) return;
   // The design a layer is in (the page's child holding it).
   auto topOf = [&](Guid id) {
@@ -196,7 +198,10 @@ void Editor::devOverlay(Overlay& o) const {
     if (dev_.focus != kNoGuid && c != dev_.focus) continue;
     int st = devStatus(c);
     if (st) {
-      d.statuses.push_back({c, st == 1 ? DevStatusMark::Kind::Ready : st == 2 ? DevStatusMark::Kind::Completed : DevStatusMark::Kind::Changed});
+      // Design mode (round 15, the owner's recording at 20–22 s): ready for dev is the green `</>` button at the top
+      // right, not a chip after the name (Dev Mode keeps the chip).
+      DevStatusMark::Kind ready = viewer_ ? DevStatusMark::Kind::Ready : DevStatusMark::Kind::ReadyIcon;
+      d.statuses.push_back({c, st == 1 ? ready : st == 2 ? DevStatusMark::Kind::Completed : DevStatusMark::Kind::Changed});
     } else if (canEditDev() && n->props.type != NodeType::INSTANCE && selected(c)) {
       d.statuses.push_back({c, DevStatusMark::Kind::MarkButton});
     }
@@ -327,7 +332,28 @@ bool Editor::edgeAt(Vec2 s, int axis, Guid& node, annot::Side& side) const {
   return true;
 }
 
+void Editor::devIconHoverAt(Vec2 s) {
+  // The `</>` button (or a ready design's green one) under the pointer: filled while hovered; its tooltip after the
+  // tooltip delay (tick). Its hit boxes are where the last frame drew them.
+  Guid over = kNoGuid;
+  if (gesture_ == Gesture::None && !spaceHeld_)
+    for (const CanvasHits::Status& h : hits_.statuses)
+      if ((h.kind == DevStatusMark::Kind::MarkButton || h.kind == DevStatusMark::Kind::ReadyIcon) && h.contains(s)) over = h.frame;
+  if (over == devIconHover_) return;
+  devIconHover_ = over;
+  devIconSince_ = -1;
+  devTooltip_ = false;
+  needsRender_ = true;
+}
+
+int32_t Editor::chromeDelay() const {
+  if (devIconHover_ == kNoGuid || devTooltip_) return -1;
+  if (devIconSince_ < 0) return 16;
+  return static_cast<int32_t>(std::max(1.0, std::ceil(devIconSince_ + kTooltipDelayMs - timeMs_)));
+}
+
 void Editor::devHover(Vec2 s) {
+  devIconHoverAt(s);
   bool had = dev_.hasEdge;
   Guid node = dev_.edgeNode;
   annot::Side side = dev_.edgeSide;
@@ -338,8 +364,10 @@ void Editor::devHover(Vec2 s) {
 uint32_t Editor::devPointerDown(Vec2 s, uint32_t mods) {
   // A design's status chip, or "Mark as ready for dev".
   for (const CanvasHits::Status& h : hits_.statuses) {
-    if (!h.rect.contains(s)) continue;
+    if (!h.contains(s)) continue;
     if (h.kind == DevStatusMark::Kind::MarkButton && !canEditDev()) continue;
+    devTooltip_ = false;
+    devIconSince_ = -1;
     events_.statusClicks.push_back({h.frame, h.kind == DevStatusMark::Kind::MarkButton ? "mark" : "menu", h.rect});
     needsRender_ = true;
     return P_HANDLED;

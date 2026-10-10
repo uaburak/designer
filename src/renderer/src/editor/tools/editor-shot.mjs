@@ -42,6 +42,7 @@
 //   EDITOR_ONLY=chrome15 node …                                    (round 15: a turned frame's name and badge along its edges, its press; turned resize / rotate cursors, the cursor sheet; the eyedropper's card, sample, Esc)
 //   EDITOR_ONLY=components15 node …                                (round 15: components, sets, instances and their layers in the component purple — hover, selection, dotted instance layers; the instance picked whole; rounded corners hit; Layers glyphs)
 //   EDITOR_ONLY=shortcuts node …                                   (the Keyboard shortcuts panel: open / close, every tab, shortcuts used, the user's own keys, layouts)
+//   EDITOR_ONLY=spacing15 node …                                   (round 15: auto layout's padding / gap handles — hatch, badge by the pointer, cursors, drags, typed gap; the </> button's hover, tooltip, ready)
 //   EDITOR_ONLY=aldrag node …                                      (round 15: a layer dragged inside its auto-layout frame — swaps at the centres, siblings slide, drop, one undo)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
@@ -60,6 +61,7 @@ import { agentsSection } from "./editorShotAgents.mjs";
 import { autoLayoutDragSection } from "./editorShotAutoLayoutDrag.mjs";
 import { chromeSection } from "./editorShotChrome.mjs";
 import { components15Section } from "./editorShotComponents.mjs";
+import { spacing15Section } from "./editorShotSpacing.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
 import { shortcutsSection } from "./editorShotShortcuts.mjs";
@@ -4802,6 +4804,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await shortcutsSection(page, theme, { open, settle, shot, check });
+      await context.close();
+    }
+  }
+  if (only === "spacing15" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await spacing15Section(page, theme, { open, settle, check, outDir, docsDir: process.env.SPACING15_DOCS ? path.join(repo, "docs/research/spacing15") : null });
       await context.close();
     }
   }

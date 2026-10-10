@@ -612,41 +612,6 @@ void Editor::snapLines(Guid parent, std::vector<double>& xs, std::vector<double>
   }
 }
 
-// ---- Auto layout: a bar's value edited in place ---------------------------------------------------------------
-
-void Editor::requestInlineEdit(int bar) {
-  if (selection_.size() != 1 || layoutBarsFrame_ != selection_[0]) return;
-  for (const Overlay::LayoutBar& b : layoutBars_) {
-    int band = b.gap ? 4 + b.index : b.side;
-    if (band != bar) continue;
-    InlineEdit e;
-    e.node = selection_[0];
-    static const char* kSides[4] = {"PADDING_LEFT", "PADDING_TOP", "PADDING_RIGHT", "PADDING_BOTTOM"};
-    e.field = b.gap ? "GAP" : kSides[b.side];
-    e.value = b.value;
-    // Over the value's pill, as the overlay draws it (render/Overlay.cpp's auto-layout bars).
-    const OverlayStyle style = OverlayStyle::of(theme_);
-    Vec2 c = camera_.toScreen(b.at), edge = camera_.toScreen(b.edge);
-    double w = std::max(40.0, labelWidth("0000", false) + 2 * style.badgePadding), h = std::max(style.badgeHeight, 20.0), len = 12;
-    double x, y;
-    if (b.gap) {
-      x = b.vertical ? c.x + 9 : c.x + len / 2 + 5;
-      y = b.vertical ? c.y - len / 2 - 5 - h : c.y - h - 5;
-    } else if (b.side == 0) {
-      x = edge.x - 2 - w, y = edge.y - h / 2;
-    } else if (b.side == 2) {
-      x = edge.x + 2, y = edge.y - h / 2;
-    } else if (b.side == 1) {
-      x = edge.x - w / 2, y = edge.y - 2 - h;
-    } else {
-      x = edge.x - w / 2, y = edge.y + 2;
-    }
-    e.rect = {x, y, w, h};
-    events_.inlineEdits.push_back(e);
-    return;
-  }
-}
-
 // ---- Paste: the view follows ------------------------------------------------------------------------------------
 
 void Editor::revealPasted(const Rect& r) {

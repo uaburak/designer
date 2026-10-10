@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Engine } from "@/engine/Engine";
-import { PointerType, Status, TOOLS } from "@/engine/abi";
+import { MOD_ALT, MOD_SHIFT, PointerType, Status, TOOLS } from "@/engine/abi";
 import { cssCursor } from "@/engine/cursors";
 import { loadEngine } from "@/engine/loadEngine";
 import { SAMPLE_DOCUMENT } from "@/engine/sampleDocument";
@@ -182,6 +182,14 @@ describe("round 8 on the engine", () => {
     engine.pointer(PointerType.DOWN, 130, 434, 0, 1, 0);
     engine.pointer(PointerType.UP, 130, 434, 0, 0, 0);
     expect(edits).toEqual([expect.objectContaining({ ref: "1:7", field: "PADDING_LEFT", value: 16 })]);
+    // Round 15: ⌥-click on the left padding off its bar — left and right; ⌥⇧ — all four (help.figma.com).
+    for (const [mods, field] of [[MOD_ALT, "PADDING_HORIZONTAL"], [MOD_ALT | MOD_SHIFT, "PADDING_ALL"]] as const) {
+      edits.length = 0;
+      engine.pointer(PointerType.MOVE, 132, 400, 0, 0, mods);
+      engine.pointer(PointerType.DOWN, 132, 400, 0, 1, mods);
+      engine.pointer(PointerType.UP, 132, 400, 0, 0, mods);
+      expect(edits).toEqual([expect.objectContaining({ ref: "1:7", field, value: 16 })]);
+    }
     engine.destroy();
   });
 });

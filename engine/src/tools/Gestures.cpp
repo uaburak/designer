@@ -722,6 +722,7 @@ void Editor::updateCursor(Vec2 s) {
     if (n && Rect{0, 0, n->props.size.x, n->props.size.y}.contains(local)) return changeCursor(CursorKind::IBEAM);
   }
   if (!viewer_ && gesture_ == Gesture::None && gridCursor(s)) return;
+  if (!viewer_ && spacingCursor(s)) return;
   int hx = 0, hy = 0;
   Handle h = viewer_ ? Handle::None : handleAt(s, hx, hy);
   if (h == Handle::Rotate && titleAt(s) != kNoGuid) h = Handle::None;  // a title takes the press, not the rotation zone
@@ -811,182 +812,7 @@ void Editor::updateMeasure(uint32_t mods) {
   if (changed) needsRender_ = true;
 }
 
-void Editor::updateAutoLayoutBands(Vec2 world) {
-  // A selected auto-layout frame under the pointer shows Figma's handles: a short blue bar in the middle of each
-  // padding and a pink one in each gap (live Figma, canvas-autolayout-selected-hover-*); the one under the pointer
-  // (its band: the padding side, or any gap) shows its value, and a drag on it changes it.
-  std::vector<Rect> bands;
-  std::vector<Overlay::LayoutBar> bars;
-  int hovered = -1;
-  GridGapHover gap;
-  bool dragging = gesture_ == Gesture::LayoutBar;
-  if ((gesture_ == Gesture::None || dragging) && tool_ == Tool::MOVE && !spaceHeld_ && selection_.size() == 1 && !viewer_) {
-    Guid id = selection_[0];
-    const Node* n = doc_.get(id);
-    Mat2x3 W = doc_.worldTransform(id);
-    // A grid too: its paddings' bars (live Figma, canvas-grid-frame-selected: the mid-edge bars), no gap bars — the
-    // pointer in a gap outlines that axis's gaps instead (round 12, grid-selected-hover-gap; gridGapOverlay).
-    if (n && n->props.isAutoLayout() && axisAligned(W) && W.m00 > 0 && W.m11 > 0 && !n->props.locked && !id.isDerived()) {
-      bool grid = n->props.stack().stackMode == StackMode::GRID;
-      const NodeProps& p = n->props;
-      Vec2 q = W.inverse().apply(world);
-      double w = p.size.x, h = p.size.y;
-      // A grid's bars also while the pointer is on its pills' bands (live Figma, canvas-grid-hover-top-pill).
-      bool onPills = grid && gesture_ == Gesture::None && gridHitAt(camera_.toScreen(world)).kind != GridHit::Kind::None;
-      if (dragging || onPills || (q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h)) {
-        int P = p.stack().stackMode == StackMode::HORIZONTAL ? 0 : 1;
-        double pad[4];
-        Layout::padding(p, pad);
-        const double own[4] = {p.stack().stackPaddingLeft, p.stack().stackPaddingTop, p.stack().stackPaddingRight, p.stack().stackPaddingBottom};
-        auto inside = [&](const Rect& r) { return r.w > 0 && r.h > 0 && r.contains(q); };
-        bool onChild = false;
-        std::vector<Rect> boxes;
-        for (Guid c : Layout(*this).flowChildren(id)) {
-          const NodeProps& cp = doc_.get(c)->props;
-          boxes.push_back(layoutBox(cp.transform, cp.size));
-          onChild |= boxes.back().contains(q);
-        }
-        bool between = p.stack().stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN;
-        std::vector<Rect> gaps;
-        for (size_t i = 1; i < boxes.size() && p.stack().stackWrap != StackWrap::WRAP && !grid; i++) {
-          const Rect& a = boxes[i - 1];
-          const Rect& b = boxes[i];
-          if (P == 0 && b.x > a.right()) gaps.push_back({a.right(), pad[1], b.x - a.right(), h - pad[1] - pad[3]});
-          if (P == 1 && b.y > a.bottom()) gaps.push_back({pad[0], a.bottom(), w - pad[0] - pad[2], b.y - a.bottom()});
-        }
-        Rect sides[4] = {{0, 0, pad[0], h}, {0, 0, w, pad[1]}, {w - pad[2], 0, pad[2], h}, {0, h - pad[3], w, pad[3]}};
-        int band = -1;  // 0..3 a side, 4 + i a gap
-        // A grid's gap under the pointer, or the one being dragged: its axis's gaps, no bars (live Figma: the padding
-        // bars give way, grid-selected-hover-gap).
-        if (grid && dragging && gridGap_.axis >= 0 && gridGap_.frame == id) gap = gridGap_;
-        else if (grid && !dragging && !onChild && q.x >= 0 && q.y >= 0 && q.x <= w && q.y <= h) gap = gridGapAt(id, q);
-        if (gap.axis >= 0)
-          for (const GridGapBox& b : gridGapBoxes(id, gap.axis)) bands.push_back(b.rect);
-        else if (dragging) band = layoutBar_;
-        else if (!onChild) {
-          for (size_t i = 0; i < gaps.size() && band < 0; i++)
-            if (inside(gaps[i])) band = 4 + static_cast<int>(i);
-          for (int k = 0; k < 4 && band < 0; k++)
-            if (inside(sides[k])) band = k;
-        }
-        if (band >= 4) bands = gaps;
-        else if (band >= 0) bands.push_back(sides[band]);
-        for (auto& b : bands) b = transformedBounds(W * Mat2x3::translate(b.x, b.y), b.w, b.h);
-        // The bars: each side with padding, each gap.
-        for (int k = 0; k < 4 && gap.axis < 0; k++) {
-          if (pad[k] <= 0) continue;
-          const Rect& r = sides[k];
-          Overlay::LayoutBar bar;
-          bar.side = k;
-          bar.vertical = k == 0 || k == 2;
-          // In the middle of the padding, at the middle of the content across (Figma: the frame's middle).
-          bar.at = W.apply({k == 0 ? r.w / 2 : k == 2 ? w - r.w / 2 : w / 2, k == 1 ? r.h / 2 : k == 3 ? h - r.h / 2 : h / 2});
-          bar.edge = W.apply({k == 0 ? 0 : k == 2 ? w : w / 2, k == 1 ? 0 : k == 3 ? h : h / 2});
-          bar.value = own[k];
-          bar.hovered = band == k;
-          // The hovered one's value by the pointer, outside its edge (live Figma, canvas-autolayout-selected-hover-
-          // padding: the top padding's "16" above the frame where the pointer was, not over the bar).
-          if (bar.hovered && !dragging)
-            bar.edge = W.apply({k == 0 ? 0 : k == 2 ? w : std::clamp(q.x, 0.0, w), k == 1 ? 0 : k == 3 ? h : std::clamp(q.y, 0.0, h)});
-          if (bar.hovered) hovered = static_cast<int>(bars.size());
-          bars.push_back(bar);
-        }
-        for (size_t i = 0; i < gaps.size(); i++) {
-          const Rect& g = gaps[i];
-          Overlay::LayoutBar bar;
-          bar.gap = true;
-          bar.index = static_cast<int>(i);
-          bar.vertical = P == 0;
-          bar.at = W.apply({g.x + g.w / 2, g.y + g.h / 2});
-          bar.edge = bar.at;
-          bar.value = between ? (P == 0 ? g.w : g.h) : p.stack().stackSpacing;
-          bar.hovered = band == 4 + static_cast<int>(i);
-          if (bar.hovered) hovered = static_cast<int>(bars.size());
-          bars.push_back(bar);
-        }
-      }
-    }
-  }
-  if (!(bands.size() == bands_.size() && std::equal(bands.begin(), bands.end(), bands_.begin()))) needsRender_ = true;
-  if (bars.size() != layoutBars_.size() || hovered != layoutBarHover_) needsRender_ = true;
-  if (gap.frame != gridGap_.frame || gap.axis != gridGap_.axis || gap.boundary != gridGap_.boundary || gap.cross != gridGap_.cross) needsRender_ = true;
-  bands_ = std::move(bands);
-  layoutBars_ = std::move(bars);
-  layoutBarHover_ = hovered;
-  layoutBarsFrame_ = layoutBars_.empty() ? kNoGuid : selection_[0];
-  gridGap_ = gap;
-}
-
-void Editor::startLayoutBar(int band) {
-  const Node* n = doc_.get(selection_[0]);
-  if (!n) return;
-  begin(TxnKind::GESTURE, band >= 4 ? "Gap" : "Padding");
-  layoutBar_ = band;
-  layoutBarFrom_ = n->props.stack();
-  // A grid's gap (round 12): the gap between its columns or its rows.
-  gridGapFrom_ = gridGap_.axis >= 0 && gridGap_.frame == selection_[0] ? Layout::gridGap(n->props, gridGap_.axis == 0) : 0;
-}
-
-void Editor::dragLayoutBar(Vec2 world, uint32_t mods) {
-  // A padding follows the pointer across its side (⌥: the opposite side too, ⇧: all four — unverified); a gap's bar
-  // stays under the pointer (every gap changes alike), as the smart selection's.
-  if (layoutBar_ < 0 || selection_.size() != 1) return;
-  Guid id = selection_[0];
-  Mat2x3 inv = doc_.worldTransform(id).inverse();
-  Vec2 d = inv.applyLinear(world - downWorld_);
-  const auto& from = layoutBarFrom_;
-  NodeChange c = NodeChange::changed(id);
-  if (layoutBar_ >= 4 && gridGap_.axis >= 0 && gridGap_.frame == id) {
-    // A grid's gap: every gap of the axis changes alike, the box under the pointer follows it as auto layout's gap bar
-    // does (`boundary` + ½ gaps before its middle; unverified — live Figma has no capture of this drag).
-    bool columns = gridGap_.axis == 0;
-    double v = std::max(0.0, std::round(gridGapFrom_ + (columns ? d.x : d.y) / (static_cast<double>(gridGap_.boundary) + 0.5)));
-    c.mask = F_EXTRA;
-    c.props.extra = doc_.get(id)->props.extra;
-    c.props.extra[columns ? "gridColumnGap" : "gridRowGap"] = Layout::gridGapBytes(columns, v);
-    write(c);
-    layoutDirty_.insert(id);
-    flushLayout();
-    updateAutoLayoutBands(world);
-    needsRender_ = true;
-    return;
-  }
-  if (layoutBar_ >= 4) {
-    bool horizontal = from.stackMode == StackMode::HORIZONTAL;
-    double along = horizontal ? d.x : d.y;
-    double base = from.stackSpacing;
-    if (from.stackPrimaryAlignItems == StackJustify::SPACE_BETWEEN) {
-      // An Auto gap dragged becomes a number (from the gap as laid out).
-      for (const auto& bar : layoutBars_)
-        if (bar.gap) {
-          base = bar.value;
-          break;
-        }
-      c.mask |= F_STACK_PRIMARY_ALIGN;
-      c.props.stack().stackPrimaryAlignItems = StackJustify::MIN;
-    }
-    c.mask |= F_STACK_SPACING;
-    c.props.stack().stackSpacing = std::max(0.0, std::round(base + along / ((layoutBar_ - 4) + 0.5)));
-  } else {
-    const double start[4] = {from.stackPaddingLeft, from.stackPaddingTop, from.stackPaddingRight, from.stackPaddingBottom};
-    const double sign[4] = {d.x, d.y, -d.x, -d.y};
-    double v = std::max(0.0, std::round(start[layoutBar_] + sign[layoutBar_]));
-    bool sides[4] = {false, false, false, false};
-    sides[layoutBar_] = true;
-    if (mods & MOD_ALT) sides[(layoutBar_ + 2) % 4] = true;
-    if (mods & MOD_SHIFT) sides[0] = sides[1] = sides[2] = sides[3] = true;
-    const FieldMask masks[4] = {F_STACK_PADDING_LEFT, F_STACK_PADDING_TOP, F_STACK_PADDING_RIGHT, F_STACK_PADDING_BOTTOM};
-    double* fields[4] = {&c.props.stack().stackPaddingLeft, &c.props.stack().stackPaddingTop, &c.props.stack().stackPaddingRight, &c.props.stack().stackPaddingBottom};
-    for (int k = 0; k < 4; k++) {
-      *fields[k] = sides[k] ? v : start[k];
-      c.mask |= masks[k];
-    }
-  }
-  write(c);
-  flushLayout();
-  updateAutoLayoutBands(world);
-  needsRender_ = true;
-}
+// Auto layout's padding and gap handles: tools/SpacingHandles.cpp (round 15).
 
 // ---- Pointer and wheel ------------------------------------------------------
 
@@ -1009,6 +835,7 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
         events_.hover = true;
         needsRender_ = true;
       }
+      devIconHoverAt({-1e9, -1e9});  // off the canvas: no `</>` hover, no tooltip
       return 0;
     case PointerEvent::ENTER: return 0;
   }
@@ -1202,14 +1029,22 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     startLayoutBar(4 + static_cast<int>(gridGap_.boundary));
     return P_HANDLED | P_CAPTURE;
   }
-  // An auto-layout frame's padding or gap under the pointer (its bar shows): a drag changes it.
+  // An auto-layout frame's padding or gap bar under the pointer: a drag changes it (⌥ / ⇧ act while dragging), a click
+  // edits it (round 15: the bar itself, not its band — tools/SpacingHandles.cpp).
+  altBand_ = -1;
   if (!viewer_ && h == Handle::None && layoutBarHover_ >= 0 && static_cast<size_t>(layoutBarHover_) < layoutBars_.size() &&
-      selection_.size() == 1 && selection_[0] == layoutBarsFrame_ && !(mods & (MOD_PRIMARY | MOD_SHIFT))) {
+      selection_.size() == 1 && selection_[0] == layoutBarsFrame_ && !(mods & MOD_PRIMARY)) {
     const Overlay::LayoutBar& bar = layoutBars_[static_cast<size_t>(layoutBarHover_)];
     gesture_ = Gesture::LayoutBar;
     layoutBarMoved_ = false;
     startLayoutBar(bar.gap ? 4 + bar.index : bar.side);
     return P_HANDLED | P_CAPTURE;
+  }
+  // ⌥ on a padding (off its bar): a click edits the pair's value, ⌥⇧ all four (help.figma.com); a drag stays a move.
+  if (!viewer_ && h == Handle::None && (mods & MOD_ALT) && !(mods & MOD_PRIMARY) && layoutBandHover_ >= 0 && layoutBandHover_ < 4 &&
+      selection_.size() == 1 && selection_[0] == layoutBarsFrame_) {
+    altBand_ = layoutBandHover_;
+    altBandMods_ = mods;
   }
   // A ruler guide (rulers on): a press selects it, a drag moves it (⌥: a new one from it).
   if (!viewer_ && h == Handle::None && selectingTool() && pressGuide(s, mods)) return P_HANDLED | P_CAPTURE;
@@ -1473,7 +1308,7 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
         commit();
       } else {
         rollback();
-        requestInlineEdit(layoutBar_);
+        requestInlineEdit(layoutBar_, 0, downScreen_);
       }
       break;
     case Gesture::Reorder:
@@ -1612,6 +1447,16 @@ void Editor::cancelGesture() {
 
 void Editor::finishClick(uint32_t mods) {
   bool shift = (mods & MOD_SHIFT) != 0;
+  if (altBand_ >= 0) {
+    // ⌥-click on a selected auto-layout frame's padding: its pair's value (⌥⇧ all four) edited in place.
+    int band = altBand_;
+    altBand_ = -1;
+    pressInSelected_ = pressMarquee_ = pressNoop_ = false;
+    if (selection_.size() == 1 && selection_[0] == layoutBarsFrame_) {
+      requestInlineEdit(band, (altBandMods_ & MOD_SHIFT) ? 2 : 1, downScreen_);
+      return;
+    }
+  }
   if (pressNoop_) {
     pressNoop_ = false;
     changeCursor(CursorKind::DEFAULT);

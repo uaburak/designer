@@ -79,7 +79,7 @@ export interface UIState extends PreferenceFlags {
   /** An auto-layout bar's value edited in place (round 8, REQUEST_INLINE_EDIT; viewport px) */
   inlineValueEdit?: {
     ref: Guid;
-    field: "PADDING_LEFT" | "PADDING_TOP" | "PADDING_RIGHT" | "PADDING_BOTTOM" | "GAP";
+    field: "PADDING_LEFT" | "PADDING_TOP" | "PADDING_RIGHT" | "PADDING_BOTTOM" | "PADDING_HORIZONTAL" | "PADDING_VERTICAL" | "PADDING_ALL" | "GAP";
     value: number;
     x: number;
     y: number;

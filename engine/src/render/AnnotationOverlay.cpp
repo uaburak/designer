@@ -50,7 +50,13 @@ void Renderer::drawStatusChip(const DevStatusMark& mark, double x, double baseli
     drawGlyphs(*L, Mat2x3::translate(bx + (w - tw) / 2, std::round((by + (h - L->lines[0].height) / 2) * dpr) / dpr),
                button ? style.title : mark.kind == DevStatusMark::Kind::Changed ? Color{0, 0, 0, 0.9f} : Color{1, 1, 1, 1},
                button ? std::max(0.6, style.titleAlpha) : 1);
-  if (recordHits_) hits_.statuses.push_back({mark.frame, {bx, by, w, h}, mark.kind});
+  if (recordHits_) {
+    CanvasHits::Status hit;
+    hit.frame = mark.frame;
+    hit.rect = {bx, by, w, h};
+    hit.kind = mark.kind;
+    hits_.statuses.push_back(hit);
+  }
 }
 
 void Renderer::drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style) {

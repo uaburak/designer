@@ -78,31 +78,94 @@ void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color
   }
 }
 
-void Renderer::drawDevIcon(Guid frame, double right, double baseline, const Color& color) {
+void Renderer::drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, double baseline, const Color& color, const Mat2x3& place,
+                           bool upright, const DevOverlay& dev, const OverlayStyle& style) {
   // Live Figma's `</>` (canvas-autolayout-selected-hover-gap, 2026-10-08): 12 × 10 CSS px, its right edge on the
-  // frame's, from 8 px above the name's baseline to 1.5 px below it; 1 px strokes with round ends.
+  // frame's, from 8 px above the name's baseline to 1.5 px below it; 1 px strokes with round ends. Round 15 (the owner's
+  // 47.png and recording): it is a button — hovered, a 16 × 16 rounded square of the selection colour behind a white
+  // glyph, and after the tooltip delay "Mark as ready for dev" under it; a design ready for dev shows it green (white
+  // glyph; hovered "•••"). A turned frame's lies along its top edge at the right end, turned with it (`place`).
   const double dpr = viewport_.scaleX();
-  double x0 = std::round((right - kDevIconWidth) * dpr) / dpr, y0 = std::round((baseline - 8) * dpr) / dpr;
+  auto snap = [&](double v) { return upright ? std::round(v * dpr) / dpr : v; };
+  double x0 = snap(right - kDevIconWidth), y0 = snap(baseline - 8);
+  const bool hovered = dev.iconHover == frame;
+  const bool ready = kind == DevStatusMark::Kind::ReadyIcon;
+  // The button's box: centred on the glyph (12 × 9.6), 16 square.
+  Rect box{x0 + kDevIconWidth / 2 - kDevButton / 2, y0 + 4.8 - kDevButton / 2, kDevButton, kDevButton};
+  box.x = snap(box.x), box.y = snap(box.y);
+  if (hovered || ready) {
+    const Color& fill = ready ? style.statusReady : style.selection;
+    const double r = kDevButtonRadius;
+    emit(makeShape(place * Mat2x3::translate(box.x, box.y), {box.w, box.h}, ShapeKind::Rect, {r, r, r, r}, fill, 1, fill, 0, 0, 0), Pass::Shape);
+  }
+  const Color ink = hovered || ready ? Color{1, 1, 1, 1} : Color{color.r, color.g, color.b, 1};
+  const double alpha = hovered || ready ? 1.0 : color.a;
   const double w = 1;
-  const Color ink{color.r, color.g, color.b, 1};
   auto segment = [&](Vec2 a, Vec2 b) {
     a = {x0 + a.x, y0 + a.y}, b = {x0 + b.x, y0 + b.y};
     Vec2 d = b - a;
     double len = d.length();
     if (len < 1e-9) return;
     Vec2 u{d.x / len, d.y / len}, n{-u.y, u.x};
-    emit(makeShape({u.x, n.x, a.x - n.x * w / 2, u.y, n.y, a.y - n.y * w / 2}, {len, w}, ShapeKind::Rect, kSquare, ink, color.a, ink, 0, 0, 0),
+    emit(makeShape(place * Mat2x3{u.x, n.x, a.x - n.x * w / 2, u.y, n.y, a.y - n.y * w / 2}, {len, w}, ShapeKind::Rect, kSquare, ink, alpha, ink, 0, 0, 0),
          Pass::Shape);
     for (Vec2 p : {a, b})
-      emit(makeShape(Mat2x3::translate(p.x - w / 2, p.y - w / 2), {w, w}, ShapeKind::Ellipse, kSquare, ink, color.a, ink, 0, 0, 0), Pass::Shape);
+      emit(makeShape(place * Mat2x3::translate(p.x - w / 2, p.y - w / 2), {w, w}, ShapeKind::Ellipse, kSquare, ink, alpha, ink, 0, 0, 0), Pass::Shape);
   };
-  segment({3, 1.7}, {0.5, 4.2});
-  segment({0.5, 4.2}, {3, 6.7});
-  segment({7.3, 0}, {4.7, 9.6});
-  segment({9, 1.7}, {11.5, 4.2});
-  segment({11.5, 4.2}, {9, 6.7});
-  // A click on it (or near it) takes it: a 16 × 16 box around the glyph.
-  if (recordHits_) hits_.statuses.push_back({frame, {x0 - 2, y0 - 3, kDevIconWidth + 4, 16}, DevStatusMark::Kind::MarkButton});
+  if (ready && hovered) {
+    // "•••": three white dots across the middle (live Figma, the owner's recording at 22.0 s).
+    const double d = 2.2;
+    Vec2 c{box.x + box.w / 2, box.y + box.h / 2};
+    for (double dx : {-4.0, 0.0, 4.0})
+      emit(makeShape(place * Mat2x3::translate(c.x + dx - d / 2, c.y - d / 2), {d, d}, ShapeKind::Ellipse, kSquare, ink, 1, ink, 0, 0, 0), Pass::Shape);
+  } else {
+    segment({3, 1.7}, {0.5, 4.2});
+    segment({0.5, 4.2}, {3, 6.7});
+    segment({7.3, 0}, {4.7, 9.6});
+    segment({9, 1.7}, {11.5, 4.2});
+    segment({11.5, 4.2}, {9, 6.7});
+  }
+  Rect screenBox = upright ? box : transformedBounds(place * Mat2x3::translate(box.x, box.y), box.w, box.h);
+  // A click on it takes it: its 16 × 16 box (a turned one's, turned).
+  if (recordHits_) {
+    CanvasHits::Status hit;
+    hit.frame = frame;
+    hit.rect = screenBox;
+    hit.kind = kind;
+    if (!upright) {
+      hit.turned = true;
+      hit.box = box;
+      hit.toLocal = place.inverse();
+    }
+    hits_.statuses.push_back(hit);
+  }
+  // Its tooltip, drawn over everything else (drawDevTooltip, at the overlay's end).
+  if (hovered && dev.tooltip && kind == DevStatusMark::Kind::MarkButton) {
+    devTooltip_ = true;
+    devTooltipUnder_ = screenBox;
+  }
+}
+
+void Renderer::drawDevTooltip(const OverlayStyle& style) {
+  // Under the button, centred on it, a 5 px arrow pointing up at it (live Figma 47.png: 132 × 24, Inter 11 white on
+  // #1e1e1e, the arrow's tip on the button's bottom edge). Unturned, under a turned button's bounds.
+  if (!devTooltip_) return;
+  devTooltip_ = false;
+  const double dpr = viewport_.scaleX();
+  static const std::string text = "Mark as ready for dev";
+  const text::TextLayout* L = label(text, "Regular", style.labelSize);
+  double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
+  double bw = std::round(tw + 2 * style.tooltipPadding), bh = style.tooltipHeight, r = style.tooltipRadius, a = style.tooltipArrow;
+  const Rect& under = devTooltipUnder_;
+  double cx = under.x + under.w / 2;
+  double bx = std::round((cx - bw / 2) * dpr) / dpr, by = std::round((under.bottom() + a) * dpr) / dpr;
+  // The arrow: a square turned 45° whose top corner is the tip; its lower half lies under the box.
+  double side = a * std::sqrt(2.0);
+  const double k = std::sqrt(0.5);
+  emit(makeShape(Mat2x3{k, -k, cx, k, k, by - a}, {side, side}, ShapeKind::Rect, kSquare, style.tooltipFill, 1, style.tooltipFill, 0, 0, 0), Pass::Shape);
+  emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {r, r, r, r}, style.tooltipFill, 1, style.tooltipFill, 0, 0, 0), Pass::Shape);
+  if (L && !L->lines.empty())
+    drawGlyphs(*L, Mat2x3::translate(bx + (bw - tw) / 2, std::round((by + (bh - L->lines[0].height) / 2) * dpr) / dpr), style.tooltipText, 1);
 }
 
 bool Renderer::baselineUnderline(const Document& doc, Guid id, const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style) {
@@ -376,12 +439,17 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       auto snap = [&](double v) { return t.upright ? std::round(v * dpr) / dpr : v; };
       double baseline = snap(t.baseline);
       // A selected design without a status: live Figma's `</>` at its top right (a click marks it ready for dev), in
-      // the title's colour; the name stops short of it. None over a turned frame (live Figma, the owner's 42.png: a
-      // selected frame turned 37° shows its name and no `</>`).
+      // the title's colour; a design ready for dev (Design mode): the green button there. The name stops short of it.
+      // Round 15 (the owner's recording, 26–33 s): a turned frame's too, along its top edge at the right end.
       bool devIcon = false;
-      for (const DevStatusMark& mark : overlay.dev.statuses) devIcon |= mark.frame == t.id && mark.kind == DevStatusMark::Kind::MarkButton;
-      devIcon &= t.frame.w >= 3 * kDevIconWidth && t.upright;
-      if (devIcon && overlay.hideTitle != t.id) drawDevIcon(t.id, t.frame.right(), baseline, ink);
+      DevStatusMark::Kind iconKind = DevStatusMark::Kind::MarkButton;
+      for (const DevStatusMark& mark : overlay.dev.statuses)
+        if (mark.frame == t.id && (mark.kind == DevStatusMark::Kind::MarkButton || mark.kind == DevStatusMark::Kind::ReadyIcon)) {
+          devIcon = true;
+          iconKind = mark.kind;
+        }
+      devIcon &= t.frame.w >= 3 * kDevIconWidth;
+      if (devIcon && overlay.hideTitle != t.id) drawDevIcon(t.id, iconKind, t.frame.right(), baseline, ink, t.place, t.upright, overlay.dev, style);
       if (overlay.hideTitle == t.id) continue;  // a grid's track selected: its name gives way (live Figma)
       if (t.icon != TitleIcon::None) drawTitleIcon(t.icon, t.iconBox, ink, t.place);
       double x = snap(t.text.x + overlay.prototype.labelWidth(t.id));
@@ -392,51 +460,16 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       drawGlyphs(*L, t.place * Mat2x3::translate(x, baseline - L->lines[0].baseline), Color{ink.r, ink.g, ink.b, 1}, ink.a);
       // Dev Mode: the design's status after its name (a turned frame's chip at its place, unturned).
       for (const DevStatusMark& mark : overlay.dev.statuses)
-        if (mark.frame == t.id && mark.kind != DevStatusMark::Kind::MarkButton) {
+        if (mark.frame == t.id && mark.kind != DevStatusMark::Kind::MarkButton && mark.kind != DevStatusMark::Kind::ReadyIcon) {
           Vec2 at = t.place.apply({x + L->size.x + 6, baseline});
           drawStatusChip(mark, at.x, at.y, style);
         }
     }
   }
 
-  // Auto layout's padding and gap bars (UI3 draws no band fill): 12 px long, blue for padding, pink for gaps; the
-  // hovered one's value in a pill of its colour — a padding's outside the frame's edge, a gap's above its bar.
-  for (const Overlay::LayoutBar& bar : overlay.layoutBars) {
-    const Color& color = bar.gap ? style.spacing : blueSel;
-    Vec2 c = view.apply(bar.at);
-    const double len = 12, thick = 1.5;
-    Vec2 size = bar.vertical ? Vec2{thick, len} : Vec2{len, thick};
-    if (!bar.box)
-      emit(makeShape(Mat2x3::translate(std::round((c.x - size.x / 2) * dpr) / dpr, std::round((c.y - size.y / 2) * dpr) / dpr), size, ShapeKind::Rect, kSquare,
-                     color, 1, color, 0, 0, 0),
-           Pass::Shape);
-    if (!bar.hovered) continue;
-    std::string text = formatNumber(bar.value);
-    const text::TextLayout* L = label(text, "Medium", style.labelSize);
-    double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
-    double pw = std::max(std::round(tw + 2 * style.badgePadding), style.badgeHeight), ph = style.badgeHeight, rr = style.badgeRadius;
-    Vec2 e = view.apply(bar.edge);
-    double px, py;
-    // A gap's: right of its bar, just above it; a padding's: outside its edge at `edge` (where the pointer is), 2 px
-    // off it (live Figma, canvas-autolayout-selected-hover-gap / -padding scaled by their 11 px frame title, 1.44×:
-    // the badge's left 10.2 px right of the bar's centre, its bottom 5.4 above the bar; 1.8 px above the frame).
-    if (bar.gap) {
-      px = bar.vertical ? c.x + 10 : c.x + len / 2 + 5;
-      py = bar.vertical ? c.y - len / 2 - 5 - ph : c.y - ph - 5;
-    } else if (bar.side == 0) {
-      px = e.x - 2 - pw, py = e.y - ph / 2;
-    } else if (bar.side == 2) {
-      px = e.x + 2, py = e.y - ph / 2;
-    } else if (bar.side == 1) {
-      px = e.x - pw / 2, py = e.y - 2 - ph;
-    } else {
-      px = e.x - pw / 2, py = e.y + 2;
-    }
-    px = std::round(px * dpr) / dpr, py = std::round(py * dpr) / dpr;
-    emit(makeShape(Mat2x3::translate(px, py), {pw, ph}, ShapeKind::Rect, {rr, rr, rr, rr}, color, 1, color, 0, 0, 0), Pass::Shape);
-    if (L && !L->lines.empty())
-      drawGlyphs(*L, Mat2x3::translate(px + (pw - tw) / 2, std::round((py + (ph - L->lines[0].height) / 2) * dpr) / dpr), white, 1);
-  }
+  // Auto layout's padding and gap handles, the padding or gap under the pointer hatched (round 15), the value badge
+  // (render/SpacingOverlay.cpp) — a padding's in the selection's chrome colour (purple in a component or instance).
+  drawSpacing(view, overlay, style, blueSel);
 
   // A selected grid (live Figma, canvas-grid-*): every cell outlined in a light blue (the selection colour at 37 %), a
   // selected track's empty cells filled (15 %), an expanded pill's track outlined, and the pills — compact: a capsule
@@ -915,6 +948,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // Prototype mode: connections and their handles, over everything else.
   if (overlay.prototype.on) drawPrototypeOverlay(doc, page, camera, overlay, style);
+  // The `</>` button's tooltip over all of it.
+  drawDevTooltip(style);
 }
 
 }  // namespace eng

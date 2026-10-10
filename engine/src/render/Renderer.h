@@ -125,11 +125,15 @@ struct MeasurementMark {
   std::string text;                // the value, or its custom text
   bool selected = false;
 };
-// The `</>` at a selected design's top right (CSS px), and the room its name leaves for it.
-inline constexpr double kDevIconWidth = 12, kDevIconGap = 8;
+// The `</>` at a selected design's top right (CSS px), and the room its name leaves for it; round 15: the button's
+// rounded square (hovered, or a design ready for dev) — live Figma 47.png: 16 × 16, radius 4.
+inline constexpr double kDevIconWidth = 12, kDevIconGap = 8, kDevButton = 16, kDevButtonRadius = 4;
 struct DevStatusMark {
   Guid frame = kNoGuid;
-  enum class Kind : uint8_t { MarkButton, Ready, Completed, Changed } kind = Kind::Ready;
+  // ReadyIcon (round 15, Design mode): a design ready for dev shows a green `</>` button at its top right instead of
+  // the chip after its name (live Figma, the owner's recording: a click on `</>` turns it green; hovered, "•••"; a
+  // click opens the status menu).
+  enum class Kind : uint8_t { MarkButton, Ready, Completed, Changed, ReadyIcon } kind = Kind::Ready;
 };
 struct DevOverlay {
   bool annotations = true;  // View › Annotations (labels, dots and measurements)
@@ -142,6 +146,10 @@ struct DevOverlay {
   MeasurementMark draft;
   std::vector<DevStatusMark> statuses;
   Guid focus = kNoGuid;  // focus view: only this layer is drawn
+  // Round 15: the `</>` button under the pointer (filled: blue, or green "•••" when ready), and whether its tooltip
+  // ("Mark as ready for dev", after the tooltip delay) shows.
+  Guid iconHover = kNoGuid;
+  bool tooltip = false;
 };
 // Where the last canvas frame drew what can be clicked (CSS px in the canvas), for the editor's hit tests.
 struct CanvasHits {
@@ -158,8 +166,13 @@ struct CanvasHits {
   };
   struct Status {
     Guid frame = kNoGuid;
-    Rect rect;
+    Rect rect;  // screen (a turned frame's button: its bounds)
     DevStatusMark::Kind kind = DevStatusMark::Kind::Ready;
+    // A turned frame's button (round 15): `box` in label-local px, `toLocal` from screen to it.
+    bool turned = false;
+    Rect box;
+    Mat2x3 toLocal;
+    bool contains(Vec2 s) const { return turned ? box.contains(toLocal.apply(s)) : rect.contains(s); }
   };
   std::vector<Annotation> annotations;
   std::vector<Measure> measurements;
@@ -243,20 +256,33 @@ struct Overlay {
     double value = 0;
   };
   std::vector<GapHandle> gapHandles;
-  // A selected auto-layout frame under the pointer: a bar in the middle of each padding (blue) and gap (pink); the
-  // hovered one shows its value next to `edge` (a padding: the frame's edge there, world). `box`: a grid's gap being
-  // dragged (round 12) — its value only, the gap boxes (gapBoxes) show the gaps.
+  // A selected auto-layout frame under the pointer: a bar (handle) in the middle of each padding (blue) and gap (pink);
+  // the one under the pointer shows its value by `edge` — the pointer (world; round 15, live Figma: the badge hangs
+  // right of and above the pointer). `box`: no bar, the value only (a padding or gap being dragged — round 15 — or a
+  // grid's gap, round 12). `axis`: the bar's length along the frame's own axes (world, unit; a turned frame's bars
+  // turn with it); `vertical`: it runs down the frame.
   struct LayoutBar {
     Vec2 at, edge;
+    Vec2 axis{1, 0};
     bool vertical = false;
     bool gap = false;
     bool box = false;
     bool hovered = false;
+    bool autoGap = false;  // an Auto gap (space between): its value reads "Auto"
     int side = -1;   // a padding: 0 left, 1 top, 2 right, 3 bottom
     int index = -1;  // a gap: which
     double value = 0;
   };
   std::vector<LayoutBar> layoutBars;
+  // Round 15 (live Figma, the owner's recording docs/research/figma/live/behaviour/spacing-handles.md): the padding or
+  // gap under the pointer hatched in its colour (light diagonal stripes), the one being dragged outlined (1 px) instead.
+  // `quad`: its corners (world), in order round it.
+  struct SpacingArea {
+    Vec2 quad[4];
+    bool gap = false;
+    bool outline = false;
+  };
+  std::vector<SpacingArea> spacingAreas;
   std::vector<Vec2> centreDots;
   int centreDotHovered = -1;  // round 8: the ring under the pointer, or the one being dragged (reorder)
   // Round 11: the pointer is off the selection (no gesture): tiny dots instead of the rings (live Figma: a ~3 px white
@@ -593,7 +619,16 @@ class Renderer {
   void drawDevOverlay(const Document& doc, const Camera& camera, const Overlay& overlay, const OverlayStyle& style);
   void drawStatusChip(const DevStatusMark& mark, double x, double baseline, const OverlayStyle& style);
   // The `</>` at a selected design's top right (Overlay.cpp): its right edge at `right`, by the title's baseline.
-  void drawDevIcon(Guid frame, double right, double baseline, const Color& color);
+  // The `</>` button at a frame's top right: `right` / `baseline` in label-local px (`place` → screen; FrameTitles.h).
+  void drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, double baseline, const Color& color, const Mat2x3& place, bool upright,
+                   const DevOverlay& dev, const OverlayStyle& style);
+  void drawDevTooltip(const OverlayStyle& style);
+  bool devTooltip_ = false;  // drawDevIcon's tooltip, drawn at the overlay's end over the button's screen box
+  Rect devTooltipUnder_;
+  // Round 15: auto layout's padding and gap handles, the hatched / outlined area and the value badge
+  // (render/SpacingOverlay.cpp).
+  // `padding`: the paddings' colour (the selection's chrome: purple in a component or instance); gaps are pink.
+  void drawSpacing(const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style, const Color& padding);
   // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
   void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color, const Mat2x3& place = {});
   // A hovered text layer (Overlay.cpp, round 11): each line's baseline underlined across its text, 2 px (1 px when

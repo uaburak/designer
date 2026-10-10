@@ -242,20 +242,22 @@ TEST_CASE("renderer: guides, spacing, ⌥ measurement, insertion and bands are d
   o.measureGuides.push_back({{90, 0}, {90, 32}});    // dashed: 4 dashes
   o.hasInsertion = true;
   o.insertion = {{60, 0}, {60, 50}};
-  o.bands.push_back({0, 0, 10, 50});  // the band under the pointer: not filled (UI3); its bar is
+  o.bands.push_back({0, 0, 10, 50});  // the band under the pointer: its hatch is spacingAreas' (round 15); its bar is
   Overlay::LayoutBar bar;
   bar.at = {5, 25};
+  bar.axis = {0, 1};
   bar.vertical = true;
   o.layoutBars.push_back(bar);
   r.render(d, kPage, Camera{}, {800, 600, 2, 1600, 1200}, o, kDark);
   auto shapes = dev.instancesOf<DrawInstance>(0);
-  CHECK(shapeCount(dev) == base + 1 + 4 + 1 + 4 + 4 + 1 + 1);
+  // The bar: a white rim under it (round 15: 1 px across on a 0.5 px white edge).
+  CHECK(shapeCount(dev) == base + 1 + 4 + 1 + 4 + 4 + 1 + 2);
   // The guide: x snapped to the device grid, 1 CSS px wide, red.
   bool guide = false, band = false, insertion = false;
   const Color red = Color::hex(0xF24822);
   for (auto& s : shapes) {
     if (s.origin[2] == 1.f && s.origin[3] == 200.f && s.origin[0] == 100.f) guide = s.color[0] == doctest::Approx(red.r);
-    if (s.origin[2] == 1.5f && s.origin[3] == 12.f) band = s.color[0] == doctest::Approx(0x0c / 255.0);  // the bar: blue
+    if (s.origin[2] == 1.f && s.origin[3] == 12.f) band = s.color[0] == doctest::Approx(0x0c / 255.0);  // the bar: blue
     if (s.origin[2] == 2.f && s.origin[3] == 50.f) insertion = true;
   }
   CHECK(guide);

@@ -803,7 +803,9 @@ export type CursorKind =
   // Round 8: the Comment tool's pin, the Scale tool's arrow.
   | "COMMENT" | "SCALE"
   // Round 15: the Pencil tool's pencil; vector edit's Bend (⌘), Paint, Cut and Lasso tools.
-  | "PENCIL" | "BEND" | "PAINT_BUCKET" | "CUT" | "LASSO";
+  | "PENCIL" | "BEND" | "PAINT_BUCKET" | "CUT" | "LASSO"
+  // Round 15: auto layout's padding / gap handle (a double arrow across a bar, at the drag's angle).
+  | "SPACING";
 
 /**
  * Engine → JS events (docs/engine.md §10.4), drained after every call.
@@ -898,7 +900,8 @@ export type EngineEvent =
   | {
       type: "REQUEST_INLINE_EDIT";
       ref: Guid;
-      field: "PADDING_LEFT" | "PADDING_TOP" | "PADDING_RIGHT" | "PADDING_BOTTOM" | "GAP";
+      // Round 15: ⌥-click on a padding — its pair (PADDING_HORIZONTAL / _VERTICAL); ⌥⇧-click — all four (PADDING_ALL).
+      field: "PADDING_LEFT" | "PADDING_TOP" | "PADDING_RIGHT" | "PADDING_BOTTOM" | "PADDING_HORIZONTAL" | "PADDING_VERTICAL" | "PADDING_ALL" | "GAP";
       value: number;
       x: number;
       y: number;

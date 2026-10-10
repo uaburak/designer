@@ -198,19 +198,41 @@ TEST_CASE("r15 a turned selection's W × H badge is centred under its bottom edg
   CHECK(centre.y == doctest::Approx(want.y).epsilon(1e-3));
 }
 
-TEST_CASE("r15 an upright frame's labels are where they were; a turned one's name has no </>") {
+TEST_CASE("r15 an upright frame's labels are where they were; a turned one's `</>` lies along its top edge") {
   Scene up(0);
   FrameTitle t = up.title();
   CHECK(t.upright);
   CHECK(t.hit.x == doctest::Approx(300));  // screen px, as before
-  // Dev Mode's `</>` over a selected frame: upright only (live Figma, 42.png: none over a turned frame).
+  // The `</>` over a selected frame.
   up.e.setSelection({F});
   up.draw();
   bool mark = false;
-  for (const auto& m : up.r.canvasHits().statuses) mark |= m.kind == DevStatusMark::Kind::MarkButton;
+  for (const auto& m : up.r.canvasHits().statuses) mark |= m.kind == DevStatusMark::Kind::MarkButton && !m.turned;
   CHECK(mark);
+  // r15-spacing-handles (the owner's recording, 26–33 s): a turned frame's too, at the right end of its top edge,
+  // turned with it — its 16 × 16 box's centre 7 px in from the top-right corner along the edge, ~13 px off it.
   Scene turned(37);
   turned.e.setSelection({F});
   turned.draw();
-  for (const auto& m : turned.r.canvasHits().statuses) CHECK(m.kind != DevStatusMark::Kind::MarkButton);
+  const CanvasHits::Status* icon = nullptr;
+  for (const auto& m : turned.r.canvasHits().statuses)
+    if (m.kind == DevStatusMark::Kind::MarkButton) icon = &m;
+  REQUIRE(icon);
+  CHECK(icon->turned);
+  CHECK(icon->box.w == 16);
+  FrameTitle tt = turned.title();
+  Vec2 centre = tt.place.apply({icon->box.x + 8, icon->box.y + 8});
+  Vec2 corner = turned.toScreen().apply({332, 0});
+  Vec2 along{std::cos(rad(37)), std::sin(rad(37))}, up_{std::sin(rad(37)), -std::cos(rad(37))};
+  Vec2 d = centre - corner;
+  CHECK(d.x * along.x + d.y * along.y == doctest::Approx(-6).epsilon(0.1));
+  CHECK(d.x * up_.x + d.y * up_.y == doctest::Approx(13.25).epsilon(0.1));
+  // A press on it (turned box) asks to mark the frame.
+  turned.e.setCanvasHits(turned.r.canvasHits());
+  turned.e.takeEvents();
+  turned.press(centre);
+  turned.release(centre);
+  auto ev = turned.e.takeEvents();
+  REQUIRE(ev.statusClicks.size() == 1);
+  CHECK(ev.statusClicks[0].action == "mark");
 }

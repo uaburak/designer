@@ -471,6 +471,9 @@ export const CHROME_COLORS = [
   "frameTitleComponentOnDark",
   "radiusHandleFill",
   "radiusHandleStroke",
+  "canvasTooltipFill",
+  "canvasTooltipText",
+  "readyForDev",
 ] as const;
 
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
@@ -514,6 +517,11 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   // The corner radius handles: white circles with a selection-coloured ring.
   radiusHandleFill: ["#ffffff", "#ffffff"],
   radiusHandleStroke: ["#0d99ff", "#0c8ce9"],
+  // Round 15: the canvas's own tooltip (the `</>` button's "Mark as ready for dev", live Figma 47.png) — the menu /
+  // tooltip background, dark in both themes — and the green of a design ready for dev (its `</>` button).
+  canvasTooltipFill: ["#1e1e1e", "#1e1e1e"],
+  canvasTooltipText: ["#ffffff", "#ffffff"],
+  readyForDev: ["#14ae5c", "#14ae5c"],
 };
 
 /** Chrome metrics in CSS px at any zoom (§1.4). */

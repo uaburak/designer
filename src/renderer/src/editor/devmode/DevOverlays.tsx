@@ -12,7 +12,7 @@ import { useEditor, type EditorController } from "../controller";
 import { useDocumentVersion, useUI } from "../hooks";
 import { setDevStatusOf } from "../devStatus";
 import { CATEGORY_COLORS, CATEGORY_COLOR_LABEL, CATEGORY_HEX, type Category, type CategoryColor } from "./annotations";
-import { closeFocus, openFocus, readCategories, writeCategories } from "./devMode";
+import { closeFocus, modeOf, openFocus, readCategories, setMode, writeCategories } from "./devMode";
 import styles from "./DevMode.module.css";
 
 // ---- Edit categories… ----------------------------------------------------------------------------------------------
@@ -117,13 +117,18 @@ export function StatusMenu() {
   const status = statusOf(ed, at.ref);
   const close = () => ed.ui.set({ statusMenu: null });
   if (status === "CHANGED") return <DoneWithChanges at={at} onClose={close} />;
-  const entries: MenuEntry[] = [
-    { id: "focus", label: "Show in focus view" },
-    { id: "compare", label: "Compare changes" },
-    "-",
-    ...(status === "COMPLETED" ? [{ id: "ready", label: "Mark as ready for dev" }] : [{ id: "completed", label: "Mark as completed" }]),
-    { id: "remove", label: "Remove status" },
-  ];
+  // Design mode, a ready design's green `</>` button (live Figma, the owner's recording at 21 s): Open in Dev Mode,
+  // Copy link (no links before multiplayer: off), Remove status.
+  const design = modeOf(ed) !== "dev" && status === "READY";
+  const entries: MenuEntry[] = design
+    ? [{ id: "dev", label: "Open in Dev Mode" }, { id: "link", label: "Copy link", disabled: true }, "-", { id: "remove", label: "Remove status" }]
+    : [
+        { id: "focus", label: "Show in focus view" },
+        { id: "compare", label: "Compare changes" },
+        "-",
+        ...(status === "COMPLETED" ? [{ id: "ready", label: "Mark as ready for dev" }] : [{ id: "completed", label: "Mark as completed" }]),
+        { id: "remove", label: "Remove status" },
+      ];
   return (
     <ContextMenu
       at={{ x: at.x, y: at.y + at.height + 4 }}
@@ -132,7 +137,10 @@ export function StatusMenu() {
       onClose={close}
       onSelect={(id) => {
         close();
-        if (id === "focus") openFocus(ed, at.ref);
+        if (id === "dev") {
+          setMode(ed, "dev");
+          ed.engine.setSelection([at.ref]);
+        } else if (id === "focus") openFocus(ed, at.ref);
         else if (id === "compare") ed.ui.set({ compare: { ref: at.ref } });
         else if (id === "completed") setDevStatusOf(ed, [at.ref], "COMPLETED");
         else if (id === "ready") setDevStatusOf(ed, [at.ref], "BUILD");

@@ -768,6 +768,7 @@ ENG_EXPORT int32_t engine_next_frame_delay(Handle h) {
   if (e->editor.needsFrame() || gFontsDirty) return 0;
   if (e->presenting()) return e->player->nextFrameDelay();
   int32_t delay = e->editor.textEditing() ? 265 : -1;  // the caret blinks (530 ms phases)
+  if (int32_t chrome = e->editor.chromeDelay(); chrome >= 0) delay = delay < 0 ? chrome : std::min(delay, chrome);  // a tooltip
   if (double at = e->renderer->wantsFrameAt(); at > 0) {
     int32_t settle = static_cast<int32_t>(std::max(1.0, std::ceil(at - e->renderer->nowMs())));
     delay = delay < 0 ? settle : std::min(delay, settle);

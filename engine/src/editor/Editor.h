@@ -82,7 +82,9 @@ enum class CursorKind : uint8_t {
   RESIZE, ROTATE, MOVE_DUPLICATE, ZOOM_IN, ZOOM_OUT, EYEDROPPER, NOT_ALLOWED,
   COMMENT, SCALE,  // round 8: the Comment tool's pin, the Scale tool's arrow
   // Round 15: the Pencil tool's pencil; vector edit's Bend (⌘), Paint, Cut and Lasso tools.
-  PENCIL, BEND, PAINT_BUCKET, CUT, LASSO
+  PENCIL, BEND, PAINT_BUCKET, CUT, LASSO,
+  // Round 15: auto layout's padding / gap handle — a double arrow across a short bar, turned to the drag's angle.
+  SPACING
 };
 const char* cursorName(CursorKind k);
 
@@ -306,6 +308,8 @@ class Editor : private LayoutHost, public TextLayouts {
   Tool tool() const { return tool_; }
   void setHover(const std::vector<Guid>& ids);  // Layers row hover → canvas outline
   bool tick(double timeMs);                     // true: draw a frame
+  // Round 15: ms until a timed piece of chrome changes (the `</>` button's tooltip), −1: none.
+  int32_t chromeDelay() const;
   bool needsFrame() const { return needsRender_ || !slides_.empty(); }  // round 15: siblings sliding
   // Something the canvas shows changed outside the document (an image arrived): draw again.
   void invalidateCanvas() { needsRender_ = true; }
@@ -1248,8 +1252,13 @@ class Editor : private LayoutHost, public TextLayouts {
   void snapLines(Guid parent, std::vector<double>& xs, std::vector<double>& ys) const;
   // Whole px when Snap to pixel grid is on.
   double px(double v) const { return (viewOptions_ & VIEW_SNAP_PIXELS) ? std::round(v) : v; }
-  // A click on an auto-layout bar: its value edited in place (REQUEST_INLINE_EDIT).
-  void requestInlineEdit(int bar);
+  // A click on an auto-layout bar: its value edited in place (REQUEST_INLINE_EDIT). Round 15: `pair` — a ⌥-click on a
+  // padding: its pair (PADDING_HORIZONTAL / _VERTICAL), ⌥⇧ all four (PADDING_ALL); `at`: where the click was (screen).
+  void requestInlineEdit(int bar, int pair = 0, Vec2 at = {-1, -1});
+  // Round 15 (tools/SpacingHandles.cpp): the spacing cursor over a padding / gap bar or while dragging one (true: set).
+  bool spacingCursor(Vec2 screen);
+  // The `</>` button under the pointer (its hover and tooltip, DevMode.cpp's devHover).
+  void devIconHoverAt(Vec2 screen);
   // Rotating: the first layer's rotation as the badge shows it ("45°", the Design panel's sign).
   std::string rotateBadgeText() const;
   // Paste: the view follows what was pasted when it isn't all in view (panned; zoomed out when it is larger).
@@ -1714,10 +1723,24 @@ class Editor : private LayoutHost, public TextLayouts {
   Guid gridDropCol_ = kNoGuid, gridDropRow_ = kNoGuid;
   std::vector<Rect> bands_;  // auto-layout padding / gap bands under the pointer (world)
   std::vector<Overlay::LayoutBar> layoutBars_;  // the selected auto-layout frame's padding and gap bars
-  int layoutBarHover_ = -1;                     // the bar whose band is under the pointer
+  int layoutBarHover_ = -1;                     // the bar (handle) under the pointer (round 15: the bar itself)
   Guid layoutBarsFrame_ = kNoGuid;              // the frame they are the bars of
   int layoutBar_ = -1;                          // dragging: a side (0..3) or 4 + a gap
   StackFacet layoutBarFrom_;                    // the frame's auto layout when the drag started
+  double layoutBarGapFrom_ = 0;                 // the dragged gap as laid out then (an Auto gap's number)
+  // Round 15 (tools/SpacingHandles.cpp): the padding or gap under the pointer (hatched; a side 0..3 or 4 + a gap, −1),
+  // its area and the dragged one's (world corners); a ⌥-press on a padding (not its bar): the band whose value a click
+  // edits — the pair (⌥) or all four (⌥⇧).
+  int layoutBandHover_ = -1;
+  std::vector<Overlay::SpacingArea> spacingAreas_;
+  int altBand_ = -1;
+  uint32_t altBandMods_ = 0;
+  // The `</>` button under the pointer and since when (the tick's clock; −1: not yet ticked) — its tooltip after the
+  // tooltip delay (500 ms, ds timing.tooltip).
+  Guid devIconHover_ = kNoGuid;
+  double devIconSince_ = -1;
+  bool devTooltip_ = false;
+  static constexpr double kTooltipDelayMs = 500;
   // Round 12: a selected grid's gap under the pointer or being dragged; the drag's gap when it started.
   GridGapHover gridGap_;
   double gridGapFrom_ = 0;

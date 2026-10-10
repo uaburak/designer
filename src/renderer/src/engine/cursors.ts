@@ -156,6 +156,29 @@ export function resizeCursor(angleDeg: number): string {
   return css;
 }
 
+const spacingCache = new Map<number, string>();
+
+/**
+ * Figma's spacing cursor over an auto-layout padding or gap handle (live Figma, the owner's recording — round 15,
+ * docs/research/figma/live/behaviour/spacing-handles.md): a thin double arrow along the drag with a short bar across
+ * its middle, black on a white edge, turned to the drag's angle on screen (0 = across, 90 = up and down).
+ */
+export function spacingCursor(angleDeg: number): string {
+  const a = ((Math.round(angleDeg) % 180) + 180) % 180;
+  let css = spacingCache.get(a);
+  if (!css) {
+    const lines = `M5.5 12 H18.5 M12 6.5 V17.5`;
+    const heads = `M3.5 12 L7 9 L7 15 Z M20.5 12 L17 9 L17 15 Z`;
+    const body =
+      `<g transform="rotate(${a} 12 12)" stroke-linejoin="round" stroke-linecap="round">` +
+      `<path d="${lines}" fill="none" stroke="#fff" stroke-width="3.4"/><path d="${heads}" fill="#fff" stroke="#fff" stroke-width="2.4"/>` +
+      `<path d="${lines}" fill="none" stroke="#000" stroke-width="1.2"/><path d="${heads}" fill="#000"/></g>`;
+    css = svgCursor(body, 12, 12, a < 45 || a >= 135 ? "col-resize" : "row-resize");
+    spacingCache.set(a, css);
+  }
+  return css;
+}
+
 const rotateCache = new Map<number, string>();
 
 /**
@@ -181,6 +204,7 @@ export function rotateCursor(angleDeg: number): string {
 export function cssCursor(kind: CursorKind, angleDeg: number): string {
   if (kind === "RESIZE") return resizeCursor(angleDeg);
   if (kind === "ROTATE") return rotateCursor(angleDeg);
+  if (kind === "SPACING") return spacingCursor(angleDeg);
   if (kind === "PEN" || kind === "PEN_ADD" || kind === "PEN_REMOVE" || kind === "PEN_CLOSE") return penCursor(kind);
   return SVG_CURSORS[kind] ?? PLAIN[kind] ?? "default";
 }
@@ -192,5 +216,6 @@ export function cursorSheet(): { name: string; css: string }[] {
   for (const k of ["PEN", "PEN_ADD", "PEN_REMOVE", "PEN_CLOSE"] as const) out.push({ name: k, css: penCursor(k) });
   for (const d of [0, 45, 90, 135, 30]) out.push({ name: `RESIZE ${d}°`, css: resizeCursor(d) });
   for (const d of [45, 135, 225, 315, 75]) out.push({ name: `ROTATE ${d}°`, css: rotateCursor(d) });
+  for (const d of [0, 90, 30]) out.push({ name: `SPACING ${d}°`, css: spacingCursor(d) });
   return out;
 }

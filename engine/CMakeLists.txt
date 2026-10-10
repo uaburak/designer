@@ -50,6 +50,7 @@ add_library(eng_core STATIC
   src/tools/Gestures.cpp
   src/tools/GridGestures.cpp
   src/tools/CanvasTools.cpp
+  src/tools/SpacingHandles.cpp
   src/tools/ShapeBuilder.cpp
   src/tools/VariableWidthTool.cpp
   src/editor/SlotCommands.cpp
@@ -58,6 +59,7 @@ add_library(eng_core STATIC
   src/render/Renderer.cpp
   src/render/RenderTree.cpp
   src/render/Overlay.cpp
+  src/render/SpacingOverlay.cpp
   src/render/FrameTitles.cpp
   src/gfx/null/NullDevice.cpp
   src/api/Api.cpp
@@ -190,6 +192,7 @@ else()
     tests/unit/r14.viewport_insets.test.cpp
     tests/unit/r15.chrome_labels.test.cpp
     tests/unit/r15.components_chrome.test.cpp
+    tests/unit/r15.spacing_handles.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

@@ -87,6 +87,12 @@ struct OverlayStyle {
   double cardWidth = 240;
   double cardGap = 32;       // between the design's edge and its labels
   Color statusReady = Color::hex(0x14AE5C);
+  // Round 15: the canvas tooltip (the `</>` button's), dark in both themes; auto layout's hatched padding / gap (live
+  // Figma 48.png / 49.png at 2×, sampled: a 6 % wash of the handle's colour, "/" stripes 1 px across at 25 %, 6.5 px
+  // apart along a row).
+  Color tooltipFill = Color::hex(0x1E1E1E), tooltipText = Color::hex(0xFFFFFF);
+  double tooltipHeight = 24, tooltipPadding = 8, tooltipRadius = 4, tooltipArrow = 5;
+  double hatchWash = 0.06, hatchInk = 0.25, hatchPeriod = 6.5, hatchWidth = 1;
   Color statusChanged = Color::hex(0xFFCD29);  // --figma-color-bg-warning
   Color statusCompleted = Color::hex(0x8C8C8C);
 
@@ -136,6 +142,9 @@ struct OverlayStyle {
     s.marqueeFill = chrome(t, C::MarqueeFill).a;
     s.textSelectionAlpha = chrome(t, C::TextSelection).a;
     s.pixelGrid = chrome(t, C::PixelGrid);
+    s.tooltipFill = chrome(t, C::CanvasTooltipFill);
+    s.tooltipText = chrome(t, C::CanvasTooltipText);
+    s.statusReady = chrome(t, C::ReadyForDev);
     // Titles over the theme's own canvas.
     s.darkCanvas = t == Theme::Dark;
     Color title = t == Theme::Dark ? s.titleOnDark : s.titleOnLight;

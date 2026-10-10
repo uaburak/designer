@@ -34,7 +34,7 @@ const char* cursorName(CursorKind k) {
   static constexpr const char* kNames[] = {"DEFAULT", "HAND", "GRABBING", "CROSSHAIR", "PEN", "PEN_ADD", "PEN_REMOVE", "PEN_CLOSE",
                                            "IBEAM", "RESIZE", "ROTATE", "MOVE_DUPLICATE", "ZOOM_IN", "ZOOM_OUT", "EYEDROPPER",
                                            "NOT_ALLOWED", "COMMENT", "SCALE", "PENCIL", "BEND", "PAINT_BUCKET",
-                                           "CUT", "LASSO"};
+                                           "CUT", "LASSO", "SPACING"};
   return kNames[static_cast<size_t>(k)];
 }
 
@@ -713,8 +713,10 @@ Overlay Editor::overlay() const {
     o.measureGuides = measureGuides_;
     o.bands = bands_;
   }
-  if ((gesture_ == Gesture::None || gesture_ == Gesture::LayoutBar) && selection_.size() == 1 && selection_[0] == layoutBarsFrame_)
+  if ((gesture_ == Gesture::None || gesture_ == Gesture::LayoutBar) && selection_.size() == 1 && selection_[0] == layoutBarsFrame_) {
     o.layoutBars = layoutBars_;
+    o.spacingAreas = spacingAreas_;
+  }
   if (o.handles && gesture_ != Gesture::Move) {
     Guid line;
     Vec2 a, b;
@@ -1223,6 +1225,14 @@ void Editor::zoomToSelection() {
 
 bool Editor::tick(double timeMs) {
   timeMs_ = timeMs;
+  // The `</>` button's tooltip: after the tooltip delay under the pointer (DevMode.cpp devIconHoverAt).
+  if (devIconHover_ != kNoGuid && !devTooltip_) {
+    if (devIconSince_ < 0) devIconSince_ = timeMs;
+    else if (timeMs - devIconSince_ >= kTooltipDelayMs) {
+      devTooltip_ = true;
+      needsRender_ = true;
+    }
+  }
   if (!slides_.empty()) {
     // Round 15: siblings sliding to their new places in a dragged layer's flow (the gesture's transaction).
     if (txn_.open && gesture_ == Gesture::Move) {

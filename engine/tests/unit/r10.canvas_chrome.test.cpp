@@ -119,10 +119,11 @@ TEST_CASE("r10 auto layout: the hovered gap's badge is 20 x 17 for \"10\", 10 px
   REQUIRE(pinks.size() == 1);
   // Live (title-scaled): 20.8 x 17.4; ours: Inter Medium 11 "10" (11.7) + 2 x 4, rounded.
   CHECK(pinks[0][2] == doctest::Approx(20));
+  // Round 15 (the owner's recording): by the pointer — its left 10 px right of it, its bottom 10 px above it (the
+  // pointer here on the bar's middle).
   Vec2 bar = s.screen(gap->at);
   CHECK(pinks[0][0] == doctest::Approx(std::round(bar.x + 10)));
-  // Its bottom 5 px above the 12 px bar's top.
-  CHECK(pinks[0][1] + 17 == doctest::Approx(std::round(bar.y - 6 - 5)).epsilon(0.02));
+  CHECK(pinks[0][1] + 17 == doctest::Approx(std::round(bar.y - 10)));
   // Nothing 16 high in pink any more.
   CHECK(badges(s, pink, 16).empty());
 }
@@ -130,16 +131,18 @@ TEST_CASE("r10 auto layout: the hovered gap's badge is 20 x 17 for \"10\", 10 px
 TEST_CASE("r10 auto layout: the hovered padding's badge and the size badge are 17 high too") {
   Scene s;
   s.e.setSelection({AL});
-  s.move(s.screen({150, 7}));  // the top padding
+  Vec2 p = s.screen({116, 8});  // the top padding's bar
+  s.move(p);
   const Color blue = OverlayStyle::of(Theme::Dark).selection;
   auto blues = badges(s, blue);
-  // The padding's "16" (live 20.6 x 17.3) and the size badge "232 × 72" under the frame, 6 px below it.
+  // The padding's "16" (live 20.6 x 17.3) and the size badge "232 × 72 Hug" under the frame, 6 px below it.
   REQUIRE(blues.size() == 2);
   CHECK(blues[0][2] == doctest::Approx(20));
   CHECK(blues[1][2] > blues[0][2] + 20);
   CHECK(blues[1][1] == doctest::Approx(s.screen({0, 72}).y + 6));
-  // The padding's badge: above the frame's top edge, 2 px off it.
-  CHECK(blues[0][1] + 17 == doctest::Approx(s.screen({0, 0}).y - 2));
+  // The padding's badge (round 15): right of and above the pointer.
+  CHECK(blues[0][0] == doctest::Approx(std::round(p.x + 10)));
+  CHECK(blues[0][1] + 17 == doctest::Approx(std::round(p.y - 10)));
   CHECK(badges(s, blue, 16).empty());
 }
 

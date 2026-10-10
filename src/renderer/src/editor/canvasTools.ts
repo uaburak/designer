@@ -119,25 +119,32 @@ export function applyPickedColor(ed: EditorController, color: { r: number; g: nu
   });
 }
 
-/** REQUEST_INLINE_EDIT's field → the auto-layout field it writes. */
+/** REQUEST_INLINE_EDIT's field → the auto-layout fields it writes (Figma's names: left is stackHorizontalPadding). */
 const INLINE_FIELD = {
-  PADDING_LEFT: "stackHorizontalPadding",
-  PADDING_TOP: "stackVerticalPadding",
-  PADDING_RIGHT: "stackPaddingRight",
-  PADDING_BOTTOM: "stackPaddingBottom",
-  GAP: "stackSpacing",
+  PADDING_LEFT: ["stackHorizontalPadding"],
+  PADDING_TOP: ["stackVerticalPadding"],
+  PADDING_RIGHT: ["stackPaddingRight"],
+  PADDING_BOTTOM: ["stackPaddingBottom"],
+  // Round 15 (help.figma.com: ⌥-click a padding area — opposite sides; ⌥⇧-click — all sides).
+  PADDING_HORIZONTAL: ["stackHorizontalPadding", "stackPaddingRight"],
+  PADDING_VERTICAL: ["stackVerticalPadding", "stackPaddingBottom"],
+  PADDING_ALL: ["stackHorizontalPadding", "stackVerticalPadding", "stackPaddingRight", "stackPaddingBottom"],
+  GAP: ["stackSpacing"],
 } as const;
 export type InlineField = keyof typeof INLINE_FIELD;
 
-/** An auto-layout bar's value typed in place: the padding, or the gap (an Auto gap becomes that number). */
+/**
+ * An auto-layout bar's value typed in place: the padding (or its pair, or all four), or the gap — an Auto gap becomes
+ * that number; a gap may be negative (Figma's negative spacing), a padding not.
+ */
 export function commitInlineValue(ed: EditorController, ref: Guid, field: InlineField, value: number): void {
   if (!Number.isFinite(value)) return;
-  const v = Math.max(0, value);
   if (field === "GAP") {
-    ed.setProps([ref], fields({ stackSpacing: v, stackPrimaryAlignItems: "MIN" } as unknown as NodeFields), "Gap");
+    ed.setProps([ref], fields({ stackSpacing: value, stackPrimaryAlignItems: "MIN" } as unknown as NodeFields), "Gap");
     return;
   }
-  ed.setProps([ref], fields({ [INLINE_FIELD[field]]: v } as unknown as NodeFields), "Padding");
+  const v = Math.max(0, value);
+  ed.setProps([ref], fields(Object.fromEntries(INLINE_FIELD[field].map((f) => [f, v])) as unknown as NodeFields), "Padding");
 }
 
 /**
