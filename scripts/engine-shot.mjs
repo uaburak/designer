@@ -1151,11 +1151,16 @@ async function e8Checks(files) {
   }, repo);
   await settle();
   {
-    // Next (24, 720, 327 × 56 in Home) → Details (475, 0): the noodle leaves Next's right edge at y 748.
-    const mid = await toScreen(400, 748);
+    // Next (24, 720, 327 × 56 in Home) → Details (475, 0): the noodle leaves Next's right edge middle (351, 748) and
+    // arrives at Details' left edge middle (475, 406); half way it crosses y 577. Nothing is selected, so it is
+    // the quiet light blue (#a8d6fb, as live), not the selection blue.
     const label = await toScreen(2.5, -20);  // the label's left padding
-    const [pm, pl] = await pixelsAt([mid, label]);
-    check("prototype mode: a noodle from Next to Details (blue)", pm && pm[2] > 180 && pm[0] < 120, `${pm}`);
+    const row = [];
+    for (let x = 380; x <= 450; x += 1) row.push(await toScreen(x, 577));
+    const px = await pixelsAt([...row, label]);
+    const pl = px.pop();
+    const hit = px.find((p) => p && p[0] > 140 && p[0] < 200 && p[1] > 190 && p[2] > 235);
+    check("prototype mode: a noodle from Next to Details (light blue, unselected)", !!hit, `${hit}`);
     check("prototype mode: the flow's label above Home (blue)", pl && pl[2] > 180 && pl[0] < 120, `${pl}`);
   }
   await engine(() => window.__designerEngine.setSelection(["2:4"]));
