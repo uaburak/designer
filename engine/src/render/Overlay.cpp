@@ -963,6 +963,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // Prototype mode: connections and their handles, over everything else.
   if (overlay.prototype.on) drawPrototypeOverlay(doc, page, camera, overlay, style);
+  // Round 16: the canvas scrollbars.
+  drawScrollbars(overlay.scrollbars, style);
   // The `</>` button's tooltip over all of it.
   drawDevTooltip(style);
 }

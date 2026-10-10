@@ -93,7 +93,7 @@ describe("themes", () => {
 });
 
 describe("the canvas chrome palette (engine ABI)", () => {
-  it("keeps its 38 colours in their frozen order (append only)", () => {
+  it("keeps its 42 colours in their frozen order (append only)", () => {
     expect(CHROME_COLORS).toEqual([
       "selection", "handleFill", "handleStroke", "hover", "component", "sizeBadgeFill", "sizeBadgeText", "frameTitleOnLight", "frameTitleOnDark",
       "measure", "measureText", "snapGuide", "spacingGuide", "layoutGapFill", "layoutGapStroke", "marqueeFill", "marqueeStroke", "rulerBg",
@@ -103,6 +103,8 @@ describe("the canvas chrome palette (engine ABI)", () => {
       "frameTitleSelectedOnLight", "frameTitleSelectedOnDark", "frameTitleComponentOnLight", "frameTitleComponentOnDark", "radiusHandleFill", "radiusHandleStroke",
       // Round 15: the canvas tooltip (the `</>` button's) and a ready design's green.
       "canvasTooltipFill", "canvasTooltipText", "readyForDev",
+      // Round 16: a connection that isn't the selection's, the canvas scrollbars.
+      "prototypeNoodleQuiet", "canvasScrollbarFill", "canvasScrollbarFillHover", "canvasScrollbarRim",
     ]);
   });
 
@@ -146,7 +148,7 @@ describe("generated artefacts", () => {
     expect(boot).toContain('tabbar: ["#e6e6e6","#3b3b3b"]');
     expect(boot).toContain('localStorage.getItem("designer-theme")');
     const header = renderChromeHeader();
-    expect(header).toContain("ReadyForDev = 37, Count");
+    expect(header).toContain("CanvasScrollbarRim = 41, Count");
     expect(header.match(/\/\/ selection/g)).toHaveLength(2);
   });
 

@@ -65,12 +65,28 @@ struct OverlayLine {
 
 // Prototype mode (the right panel's Prototype tab, editor/PrototypeEditing.cpp): connections ("noodles") from hotspots
 // to destinations, the "+" connection handles, flow starting point labels, the frame a dragged noodle connects to.
+// The side of a box a connection leaves or arrives at (round 16: any of the four, perpendicular from its middle).
+enum class NoodleSide : uint8_t { TOP = 0, RIGHT = 1, BOTTOM = 2, LEFT = 3 };
+// The middle of `r`'s side, and that side's outward normal.
+Vec2 sideCentre(const Rect& r, NoodleSide side);
+Vec2 sideNormal(NoodleSide side);
+// The side of `r` nearest `p` (the connection nub follows the pointer; live Figma, the owner's 64–66.png).
+NoodleSide nearestSide(const Rect& r, Vec2 p);
 struct PrototypeLink {
   Rect source;            // world: the hotspot
   Rect dest;              // world: the destination (when `toPoint` is false)
   bool toPoint = false;   // dragged: the noodle ends at `point`
   Vec2 point;             // world
   bool highlighted = true;  // the selection's (others are drawn quieter)
+  int startSide = -1;     // a NoodleSide the noodle leaves from (one dragged from a nub); −1: Figma's rule
+};
+// A connection nub (round 16, live Figma 64–67.png): one on each selected hotspot, at the middle of its side nearest
+// the pointer; hovered it is larger with a "+" (a press drags a new connection from there); while dragging, the plain
+// nub stays where the connection leaves.
+struct PrototypeHandle {
+  Rect box;  // world: the hotspot
+  NoodleSide side = NoodleSide::RIGHT;
+  bool hovered = false;
 };
 struct PrototypeFlowLabel {
   Guid frame = kNoGuid;
@@ -80,8 +96,7 @@ struct PrototypeFlowLabel {
 struct PrototypeOverlay {
   bool on = false;
   std::vector<PrototypeLink> links;
-  std::vector<Rect> handles;       // world: hotspots showing the "+" connection handle on their right edge
-  bool handleHovered = false;      // the pointer is on a handle (it shows its plus)
+  std::vector<PrototypeHandle> handles;  // the selected hotspots' connection nubs
   std::vector<PrototypeFlowLabel> flows;
   bool hasTarget = false;
   Rect target;                     // world
@@ -93,13 +108,47 @@ struct PrototypeOverlay {
   }
   mutable std::vector<std::pair<Guid, double>> labelWidths;
 };
-// A noodle on screen (CSS px): a cubic from the hotspot's side facing the destination to the destination's facing
-// side (or to a point), and the direction its arrow points.
+// A noodle on screen (CSS px): a cubic from the middle of a side of the hotspot to the middle of a side of the
+// destination (or to a point), leaving and arriving perpendicular to them, and the direction its arrow points.
+// Figma's sides (round 16, measured on the owner's 61–63.png): it leaves a side facing the destination — left / right
+// when their boxes don't overlap across, else top / bottom — and arrives at a side facing the hotspot — top / bottom
+// when they don't overlap down, else left / right; each control point half the distance along its side's normal.
 struct NoodleCurve {
   Vec2 a, c1, c2, b;
   Vec2 dir;  // unit, at `b`
+  NoodleSide start = NoodleSide::RIGHT, end = NoodleSide::LEFT;
 };
-NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, Vec2 point);
+NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, Vec2 point, int startSide = -1);
+
+// Canvas scrollbars (round 16, render/Scrollbars.cpp; live Figma, the owner's 58 / 59 / 61–63.png): thin overlay bars
+// along the right and bottom of the visible canvas. On an axis the scrollable extent is the page's content bounds
+// united with the view (both on screen); a bar shows only where the content passes the view. Thumb ∶ track =
+// view ∶ extent, its offset the view's in the extent.
+struct ScrollbarAxis {
+  bool show = false;
+  bool vertical = false;
+  Rect track, thumb;  // screen CSS px
+  double extentStart = 0, extentLength = 0, viewStart = 0, viewLength = 0;  // screen CSS px along the axis
+  // Screen px the view moves per px the thumb moves.
+  double panPerThumbPx() const {
+    double room = vertical ? track.h - thumb.h : track.w - thumb.w;
+    return room > 1e-9 ? (extentLength - viewLength) / room : 0;
+  }
+};
+struct Scrollbars {
+  ScrollbarAxis h, v;
+  static constexpr double kThickness = 6;  // live: 8 screenshot px at 1.33 per CSS px, a 1 px light rim inside
+  static constexpr double kInset = 2;      // off the visible canvas's edge (and where each track starts)
+  static constexpr double kMinThumb = 24;
+};
+// `visible`: the canvas the panels leave visible; `content`: the page's content on screen (`any`: there is some).
+// `rightClear`: room kept free at the right edge (a panel there: its resize handle reaches 6 px over the canvas).
+Scrollbars scrollbarGeometry(const Rect& visible, const Rect& content, bool any, double rightClear = 0);
+struct ScrollbarOverlay {
+  Scrollbars bars;
+  double alpha = 0;                 // 0 hidden … 1 shown (fading out after the view stops)
+  bool hotH = false, hotV = false;  // under the pointer or dragged: darker
+};
 
 // Dev Mode's annotations, saved measurements and statuses (render/AnnotationOverlay.cpp; editor/Annotations.h).
 struct AnnotationCard {
@@ -355,6 +404,7 @@ struct Overlay {
   std::vector<OverlayMark> marks;
   // Prototype mode.
   PrototypeOverlay prototype;
+  ScrollbarOverlay scrollbars;  // round 16: the canvas scrollbars
   // Dev Mode: annotations, measurements, statuses, focus view.
   DevOverlay dev;
 };
@@ -634,6 +684,8 @@ class Renderer {
   void drawDevIcon(Guid frame, DevStatusMark::Kind kind, double right, double baseline, const Color& color, const Mat2x3& place, bool upright,
                    const DevOverlay& dev, const OverlayStyle& style);
   void drawDevTooltip(const OverlayStyle& style);
+  // Round 16: the canvas scrollbars (render/Scrollbars.cpp), over everything but the tooltip.
+  void drawScrollbars(const ScrollbarOverlay& bars, const OverlayStyle& style);
   bool devTooltip_ = false;  // drawDevIcon's tooltip, drawn at the overlay's end over the button's screen box
   Rect devTooltipUnder_;
   // Round 15: auto layout's padding and gap handles, the hatched / outlined area and the value badge

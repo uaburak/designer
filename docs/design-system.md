@@ -316,6 +316,10 @@ The Wasm renderer draws all canvas chrome itself: selection, handles, rulers, la
 | 26 | `slotStroke` | #ff24bd | #f316b0 | D |
 | 27 | `canvasDefault` (shown for a page with the default background) | #f5f5f5 | #1e1e1e | K |
 | 28 | `pixelGrid` | #0000001a | #ffffff1a | G |
+| 38 | `prototypeNoodleQuiet` (a connection not the selection's, its start dot's ring; round 16, the owner's 61–67.png: #b2d6f7 on screen) | #a8d6fb | #a8d6fb | M |
+| 39 | `canvasScrollbarFill` (the canvas scrollbars' thumb; round 16, 58 / 59.png) | #0000004d | #0000004d | M |
+| 40 | `canvasScrollbarFillHover` (hovered or dragged) | #00000066 | #00000066 | G |
+| 41 | `canvasScrollbarRim` (the thumb's 1 px rim inside) | #ffffff4f | #ffffff4f | M |
 
 Frame titles pick their colour from the **page background's luminance**, not from the UI theme (rows 7 and 8). Selected and component titles use `selection` and `component`.
 

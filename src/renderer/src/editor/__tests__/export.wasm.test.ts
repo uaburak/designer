@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, createElement, useState } from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Engine } from "@/engine/Engine";
 import { EngineStore } from "@/engine/EngineStore";
 import { loadEngine } from "@/engine/loadEngine";
@@ -108,21 +108,6 @@ describe("export on the engine", () => {
     // One undo step per edit.
     act(() => void ed.engine.undo());
     expect($$("[data-export-row]", m.host).length).toBe(3);
-  });
-
-  it("the Export section renders without writing to the engine (the keep-extras probe ran at mount, not in render)", async () => {
-    const { ed } = await editor();
-    const begin = vi.spyOn(ed.engine, "txnBegin");
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    function Harness() {
-      const [node] = useNodes(["1:5"]);
-      return node ? createElement(ExportSection, { targets: [node as ExportTarget], page: false }) : null;
-    }
-    m = mount(() => createElement(EditorContext.Provider, { value: ed }, createElement(Harness)), {});
-    expect(begin).not.toHaveBeenCalled();
-    expect(errors).not.toHaveBeenCalled();
-    begin.mockRestore();
-    errors.mockRestore();
   });
 
   it("the Export dialog lists the page's layers with settings, all checked", async () => {

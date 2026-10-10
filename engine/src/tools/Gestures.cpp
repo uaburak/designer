@@ -847,19 +847,16 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
     }
     case PointerEvent::CANCEL: cancelGesture(); return P_HANDLED;
     case PointerEvent::LEAVE:
-      // Off the canvas: the selection's hover handles (radius, gap, shape rings) go with the pointer, as in Figma.
-      if (gesture_ == Gesture::None) {
-        lastScreen_ = {-1e9, -1e9};
-        if (pointerInSelection_ || radiusHover_ >= 0 || gapHover_ >= 0 || reorderHover_ >= 0 || shapeHover_ >= 0) needsRender_ = true;
-        pointerInSelection_ = false;
-        radiusHover_ = gapHover_ = reorderHover_ = shapeHover_ = -1;
-      }
       if (gesture_ == Gesture::None && hover_ != kNoGuid) {
         hover_ = kNoGuid;
         events_.hover = true;
         needsRender_ = true;
       }
       devIconHoverAt({-1e9, -1e9});  // off the canvas: no `</>` hover, no tooltip
+      if (gesture_ == Gesture::None && (scroll_.hoverH || scroll_.hoverV)) {
+        scroll_.hoverH = scroll_.hoverV = false;  // round 16: the bars fade from now
+        needsRender_ = true;
+      }
       return 0;
     case PointerEvent::ENTER: return 0;
   }
@@ -868,6 +865,7 @@ uint32_t Editor::pointer(PointerEvent type, double x, double y, int button, uint
 
 uint32_t Editor::wheel(double x, double y, double dx, double dy, DeltaMode mode, uint32_t mods, uint32_t flags) {
   double unit = mode == DeltaMode::LINE ? 16 : mode == DeltaMode::PAGE ? std::max(1.0, viewport_.height) : 1;
+  stopCameraAnimation();  // round 16
   // Pans move by whole device pixels, so the page's cached pixels can simply shift (docs/engine.md §6.9).
   double sx = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1, sy = viewport_.scaleY() > 0 ? viewport_.scaleY() : 1;
   auto pan = [&](double px, double py) { changeCamera(camera_.panned(std::round(px * sx) / sx, std::round(py * sy) / sy)); };
@@ -899,12 +897,16 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
   downCamera_ = camera_;
   downMods_ = mods;
   baseSelection_ = selection_;
+  stopCameraAnimation();  // round 16: a press stops a gliding camera
 
   if (button == 1 || (button == 0 && (tool_ == Tool::HAND || spaceHeld_))) {
     gesture_ = Gesture::Pan;
     changeCursor(CursorKind::GRABBING);
     return P_HANDLED | P_CAPTURE;
   }
+  // Round 16: a press on a scrollbar — its thumb drags the view, its track pages it.
+  if (button == 0 && !zoomHeld_)
+    if (uint32_t r = scrollbarPointerDown(s)) return r;
   // Z held: a click zooms in about the point (⌥ out), a drag zooms to the area (Figma's zoom tool).
   if (button == 0 && zoomHeld_) {
     gesture_ = Gesture::ZoomArea;
@@ -1202,10 +1204,21 @@ void Editor::pointerMove(Vec2 s, uint32_t mods) {
   Vec2 world = camera_.toWorld(s);
   switch (gesture_) {
     case Gesture::None:
+      // Round 16: over a scrollbar's zone the bar shows, darker; nothing under it is hovered.
+      if (scrollbarHover(s)) {
+        if (hover_ != kNoGuid) {
+          hover_ = kNoGuid;
+          events_.hover = true;
+          needsRender_ = true;
+        }
+        changeCursor(CursorKind::DEFAULT);
+        break;
+      }
       updateHover(s, mods);
       if (vector_.node != kNoGuid || tool_ == Tool::PEN) vectorPointerMove(s, mods);
       if (proto_.on) protoHover(s);
       break;
+    case Gesture::Scrollbar: scrollbarPointerMove(s); break;
     case Gesture::Noodle: protoPointerMove(s); break;
     case Gesture::Measure:
     case Gesture::MeasureDrag: devPointerMove(s); break;
@@ -1297,6 +1310,12 @@ void Editor::pointerUp(Vec2 s, uint32_t mods) {
     case Gesture::Noodle:
       protoPointerUp(s);
       gesture_ = Gesture::None;
+      return;
+    case Gesture::Scrollbar:
+      scroll_.drag = 0;
+      gesture_ = Gesture::None;
+      if (!scrollbarHover(s)) updateHover(s, mods);
+      needsRender_ = true;
       return;
     case Gesture::Measure:
     case Gesture::MeasureDrag:
@@ -1463,6 +1482,7 @@ void Editor::cancelGesture() {
     case Gesture::Grid: gridCancel(); break;
     case Gesture::Measure:
     case Gesture::MeasureDrag: needsRender_ = true; break;
+    case Gesture::Scrollbar: scroll_.drag = 0; break;
     default: break;
   }
   gesture_ = Gesture::None;

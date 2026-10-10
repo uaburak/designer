@@ -1522,6 +1522,7 @@ ENG_EXPORT int32_t engine_stats(Handle h) {
 #else
   w.key("heapBytes").number(0);
 #endif
+  w.key("scrollbarAlpha").number(e->editor.scrollbarAlpha());  // round 16: how shown the canvas scrollbars are
   w.key("nodeBytes").number(static_cast<double>(e->editor.document().approxBytes()));
   w.key("images").number(static_cast<double>(e->renderer->imageCache().count()));
   w.key("imageBytes").number(static_cast<double>(e->renderer->imageCache().bytes()));

@@ -640,6 +640,7 @@ void Editor::changeCamera(const Camera& c) {
   camera_ = c;
   events_.camera = true;
   needsRender_ = true;
+  scroll_.pendingShow = true;  // round 16: the scrollbars show while the view moves
 }
 
 void Editor::changeCursor(CursorKind c, double angle) {
@@ -868,6 +869,7 @@ Overlay Editor::overlay() const {
   if (vector_.node != kNoGuid) vectorOverlay(o);
   if (paint_.node != kNoGuid) paintOverlay(o);
   if (proto_.on) protoOverlay(o);
+  scrollbarOverlay(o);  // round 16
   devOverlay(o);
   if (gesture_ == Gesture::Pencil && pencilPoints_.size() > 1)
     for (size_t i = 1; i < pencilPoints_.size(); i++)
@@ -1187,8 +1189,11 @@ Rect Editor::visibleWorld() const {
 }
 
 void Editor::setCamera(const Camera& c) {
+  stopCameraAnimation();
   zooming_ = false;
+  bool shown = scroll_.pendingShow;
   changeCamera({c.x, c.y, Camera::clampZoom(c.zoom)});
+  scroll_.pendingShow = shown;  // round 16: a view set from outside (a file's saved view) doesn't flash the scrollbars
 }
 
 void Editor::setTheme(Theme t) {
@@ -1205,6 +1210,7 @@ Camera Editor::snapped(Camera c) const {
 }
 
 void Editor::zoomTo(double zoom) {
+  stopCameraAnimation();
   zooming_ = false;
   Vec2 about = visibleCentre();
   // Preferences › Keyboard zooms into selection (round 9): about the selection's centre, as it is on screen.
@@ -1232,11 +1238,12 @@ void Editor::zoomToFit() {
     r = any ? r.united(b) : b;
     any = true;
   }
+  stopCameraAnimation();
   zooming_ = false;
   if (any) changeCamera(snapped(fitVisible(r, true)));
 }
 
-void Editor::zoomToSelection() {
+void Editor::zoomToSelection(double animateMs) {
   bool any = false;
   Rect r;
   for (Guid id : selection_) {
@@ -1245,12 +1252,21 @@ void Editor::zoomToSelection() {
     r = any ? r.united(b) : b;
     any = true;
   }
+  if (!any) return;
+  if (animateMs > 0) {
+    animateCamera(snapped(fitVisible(r, false)), animateMs);
+    return;
+  }
+  stopCameraAnimation();
   zooming_ = false;
-  if (any) changeCamera(snapped(fitVisible(r, false)));
+  changeCamera(snapped(fitVisible(r, false)));
 }
 
 bool Editor::tick(double timeMs) {
   timeMs_ = timeMs;
+  // Round 16: the camera gliding, the scrollbars showing / fading.
+  cameraTick(timeMs);
+  scrollbarTick(timeMs);
   // The `</>` button's tooltip: after the tooltip delay under the pointer (DevMode.cpp devIconHoverAt).
   if (devIconHover_ != kNoGuid && !devTooltip_) {
     if (devIconSince_ < 0) devIconSince_ = timeMs;

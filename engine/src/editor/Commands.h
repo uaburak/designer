@@ -29,7 +29,7 @@ enum class CommandId : uint32_t {
   ZOOM_OUT = 51,
   ZOOM_TO_100 = 52,
   ZOOM_TO_FIT = 53,
-  ZOOM_TO_SELECTION = 54,
+  ZOOM_TO_SELECTION = 54,  // args {animate?: ms | true}: the camera glides there (round 16)
   GROUP = 60,
   UNGROUP = 61,
   FRAME_SELECTION = 62,

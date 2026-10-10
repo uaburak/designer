@@ -2,7 +2,8 @@
  * The Layers panel (Figma's rules, docs/research/figma/R7-editor.md; geometry from the live capture,
  * docs/research/figma/live): the current page's layers, top first (an auto layout's in flow order), rows on a 32
  * pitch (VirtualList + DS LayerRow). Click selects (⇧ a range from the anchor, ⌘ toggles), hovering a row outlines
- * the layer on the canvas (Preferences › Highlight layers on hover), double-click or ⌘R renames — Tab goes on to
+ * the layer on the canvas (Preferences › Highlight layers on hover), a click on the glyph glides the camera to the layer
+ * (round 16), double-click or ⌘R renames — Tab goes on to
  * the next row —, Enter / ⇧Enter after a row click act as on the canvas (live: the row keeps no key focus of its
  * own; the shortcut layer forwards them to the engine — children, vector or text edit, parent), the lock and eye
  * toggle on press and a drag
@@ -283,6 +284,14 @@ export function Layers() {
   const onPointerDown = (e: React.PointerEvent, id: Guid) => {
     if (e.button !== 0 || renaming === id) return;
     const mod = e.metaKey || e.ctrlKey;
+    // Round 16 (the owner's request): a plain click on the row's glyph selects the layer and glides the camera to it
+    // (zoomed to fit, as ⇧2, over 300 ms); the name keeps the usual click, drag and range rules.
+    if (!e.shiftKey && !mod && (e.target as Element | null)?.closest?.("[data-layer-icon]")) {
+      select([id]);
+      ed.ui.set({ anchor: id });
+      ed.engine.command("ZOOM_TO_SELECTION", { animate: 300 });
+      return;
+    }
     let deferred = false;
     if (e.shiftKey) select(rangeSelection(tree, rows, ed.ui.get().anchor ?? selection[0] ?? null, id));
     else if (mod) {

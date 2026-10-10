@@ -144,7 +144,13 @@ Status Editor::command(CommandId id, const CommandArgs& args) {
     case CommandId::ZOOM_OUT: zoomTo(camera_.zoom / 2); return OK;
     case CommandId::ZOOM_TO_100: zoomTo(1); return OK;
     case CommandId::ZOOM_TO_FIT: zoomToFit(); return OK;
-    case CommandId::ZOOM_TO_SELECTION: zoomToSelection(); return OK;
+    case CommandId::ZOOM_TO_SELECTION: {
+      // args {animate: ms | true} (round 16: a Layers row's glyph): the camera glides there (true: 300 ms).
+      const json::Value* a = args.raw.isObject() ? args.raw.get("animate") : nullptr;
+      double ms = !a ? 0 : a->isBool() ? (a->boolean ? 300 : 0) : a->numberOr(0);
+      zoomToSelection(ms);
+      return OK;
+    }
     case CommandId::GROUP: wrapSelection("Group"); return OK;
     case CommandId::UNGROUP: ungroup(); return OK;
     case CommandId::FRAME_SELECTION: wrapSelection("Frame"); return OK;

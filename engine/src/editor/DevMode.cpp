@@ -347,9 +347,10 @@ void Editor::devIconHoverAt(Vec2 s) {
 }
 
 int32_t Editor::chromeDelay() const {
-  if (devIconHover_ == kNoGuid || devTooltip_) return -1;
-  if (devIconSince_ < 0) return 16;
-  return static_cast<int32_t>(std::max(1.0, std::ceil(devIconSince_ + kTooltipDelayMs - timeMs_)));
+  int32_t bars = scrollbarDelay();  // round 16: the scrollbars fading
+  if (devIconHover_ == kNoGuid || devTooltip_) return bars;
+  int32_t tip = devIconSince_ < 0 ? 16 : static_cast<int32_t>(std::max(1.0, std::ceil(devIconSince_ + kTooltipDelayMs - timeMs_)));
+  return bars < 0 ? tip : std::min(bars, tip);
 }
 
 void Editor::devHover(Vec2 s) {

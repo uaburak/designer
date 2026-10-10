@@ -326,9 +326,6 @@ TEST_CASE("content cache: a frame with nothing new composites; an edit draws its
   gfx::NullDevice dev;
   Renderer r(dev);
   r.setContentCache(true);
-  // A fixed clock: a full draw takes 0 ms, never "slow" — on a loaded machine (ASan) a real clock made the page slow,
-  // and a slow page at rest draws the next zoom-out's tiles ahead (Shape instances in this frame's record).
-  r.setClock([] { return 0.0; });
   Overlay o;
   o.frameTitles = false;
   RenderStats s = r.render(d, kPage, Camera{}, kView, o, kDark);
@@ -436,7 +433,6 @@ TEST_CASE("content cache: a pan by whole device pixels shifts the cache and draw
   gfx::NullDevice dev;
   Renderer r(dev);
   r.setContentCache(true);
-  r.setClock([] { return 0.0; });  // fixed: wall time must not make the page "slow"
   Overlay o;
   o.frameTitles = false;
   r.render(d, kPage, Camera{}, kView, o, kDark);

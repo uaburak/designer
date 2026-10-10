@@ -164,7 +164,7 @@ export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", t
             <Icon name="16.chevron.down" />
           </button>
         )}
-        <span className={styles.type} role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}><Icon name={icon} size={16} /></span>
+        <span className={styles.type} data-layer-icon="" role={iconLabel ? "img" : undefined} aria-label={iconLabel} {...tooltipProps(iconLabel)}><Icon name={icon} size={16} /></span>
         {renaming ? (
           <RenameField className={styles.rename} value={name} onDone={(n, r) => onRename?.(n, r)} />
         ) : (

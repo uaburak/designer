@@ -315,7 +315,17 @@ class Editor : private LayoutHost, public TextLayouts {
   bool tick(double timeMs);                     // true: draw a frame
   // Round 15: ms until a timed piece of chrome changes (the `</>` button's tooltip), −1: none.
   int32_t chromeDelay() const;
-  bool needsFrame() const { return needsRender_ || !slides_.empty(); }  // round 15: siblings sliding
+  // Round 15: siblings sliding; round 16: the camera gliding (animateCamera).
+  bool needsFrame() const { return needsRender_ || !slides_.empty() || camAnim_.on; }
+  // ---- Canvas navigation (editor/CanvasNav.cpp, round 16) ----
+  // The camera glides to `to` over `ms` (ease in-out; the zoom geometric and the path a zoom about a point when it is
+  // one); any pan, zoom or press stops it.
+  void animateCamera(const Camera& to, double ms);
+  void stopCameraAnimation();
+  bool cameraAnimating() const { return camAnim_.on; }
+  // The scrollbars' geometry now (the page's content on screen against the visible canvas).
+  Scrollbars scrollbars();
+  double scrollbarAlpha() const { return scroll_.alpha; }
   // Something the canvas shows changed outside the document (an image arrived): draw again.
   void invalidateCanvas() { needsRender_ = true; }
   void rendered() { needsRender_ = false; }
@@ -885,7 +895,8 @@ class Editor : private LayoutHost, public TextLayouts {
   std::string newAssetKey();
 
   enum class Gesture : uint8_t { None, Pan, Press, Move, Resize, Rotate, Draw, Marquee, TextSelect, Vector, Pencil, Paint, Noodle, Grid,
-                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide, Shape };
+                                 Measure, MeasureDrag, Radius, Gap, LayoutBar, ZoomArea, Reorder, RotationOrigin, Guide, Shape,
+                                 Scrollbar };
 
   struct Target {
     Guid id;
@@ -943,8 +954,23 @@ class Editor : private LayoutHost, public TextLayouts {
   Vec2 visibleCentre() const;
   Rect visibleWorld() const;
   void zoomToFit();
-  void zoomToSelection();
+  // `animateMs` > 0: the camera glides there (round 16: a Layers row's glyph clicked).
+  void zoomToSelection(double animateMs = 0);
   void zoomTo(double zoom);
+
+  // ---- Canvas navigation (editor/CanvasNav.cpp, round 16): the rest ----
+  void cameraTick(double timeMs);
+  int32_t scrollbarDelay() const;  // ms until the bars change (−1: never; 0: next frame)
+  Rect pageContentBounds(bool& any);  // world, cached per document version and page
+  // A press on a bar: a thumb drags (the view follows), the track pages towards the press. 0: not on a bar.
+  uint32_t scrollbarPointerDown(Vec2 s);
+  void scrollbarPointerMove(Vec2 s);
+  // The pointer over a bar's zone (it shows, darker): true when it is.
+  bool scrollbarHover(Vec2 s);
+  void scrollbarTick(double timeMs);
+  void scrollbarOverlay(Overlay& o) const;
+  static constexpr double kScrollbarShowMs = 1000;  // shown this long after the view stops…
+  static constexpr double kScrollbarFadeMs = 300;   // …then fading out
 
   // ---- Instances (editor/Instances.cpp) ----
   struct OverrideStack;
@@ -1435,6 +1461,12 @@ class Editor : private LayoutHost, public TextLayouts {
     Vec2 point;                 // world: where the dragged end is
     Guid target = kNoGuid;      // the frame it would connect to
     bool handleHovered = false;
+    // Round 16: the pointer (screen; the nubs sit on the sides nearest it), the hotspot whose nub it is on, and the
+    // sides a new connection leaves from (one per source).
+    bool hasPointer = false;
+    Vec2 pointer;
+    Guid hoveredNub = kNoGuid;
+    std::vector<NoodleSide> sourceSides;
     // The page's connections, cached per document version.
     uint64_t version = ~0ull;
     Guid page = kNoGuid;
@@ -1442,6 +1474,29 @@ class Editor : private LayoutHost, public TextLayouts {
   };
   ProtoSession proto_;
   bool viewer_ = false;
+
+  // ---- Canvas navigation (editor/CanvasNav.cpp, round 16) ----
+  struct CameraAnimation {
+    bool on = false;
+    Camera from, to;
+    double start = -1;  // the first tick's time
+    double duration = 300;
+  };
+  CameraAnimation camAnim_;
+  struct ScrollbarSession {
+    bool pendingShow = false;  // the view moved: shown from the next tick's time
+    double shownAt = -1e12;    // when the view last moved (or the pointer was on a bar)
+    double alpha = 0;          // as last drawn
+    bool hoverH = false, hoverV = false;
+    int drag = 0;              // 1 the horizontal thumb, 2 the vertical one
+    double panPerPx = 0;       // the drag's ratio (fixed at the press: the extent grows with the view)
+    // The page's content bounds (world), per document version and page.
+    uint64_t version = ~0ull;
+    Guid page = kNoGuid;
+    bool any = false;
+    Rect content;
+  };
+  ScrollbarSession scroll_;
 
   // ---- Dev Mode (editor/DevMode.cpp) ----
   struct DevSession {
@@ -1492,7 +1547,8 @@ class Editor : private LayoutHost, public TextLayouts {
   const std::vector<ProtoLink>& protoLinks();
   // The hotspots that show a "+" handle (the selection, top-level layers and layers inside frames) and where it is.
   std::vector<Guid> protoHandleNodes() const;
-  bool protoHandleAt(Vec2 s, std::vector<Guid>* nodes = nullptr) const;
+  // Round 16: the nub under `s` (on the hotspot's side nearest it): its hotspot and side.
+  bool protoHandleAt(Vec2 s, std::vector<Guid>* nodes = nullptr, Guid* hit = nullptr, NoodleSide* side = nullptr) const;
   bool protoEndAt(Vec2 s, ProtoLink& out);
   // Where a noodle lands: a video layer (`videos`: help "Use videos in prototypes" — "Create a connection from your
   // starting object to the video"), else a top-level frame.

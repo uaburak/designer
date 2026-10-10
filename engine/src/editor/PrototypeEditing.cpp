@@ -1,7 +1,7 @@
 // Prototype mode on the canvas (docs/research/figma/R8-prototyping.md §6): connections drawn from hotspots to their
-// destinations, the "+" connection handle on the selected layers' right edges, flow starting point labels; dragging
-// the handle to a frame adds an interaction (On click → Navigate to, Instant: Figma's defaults for a new connection —
-// one per selected hotspot), dragging a noodle's end to another frame retargets it, to empty canvas removes it. The
+// destinations (round 16: from / to the middle of any side), the connection nub on each selected layer's side nearest
+// the pointer, flow starting point labels; dragging a nub to a frame adds an interaction (On click → Navigate to,
+// Instant: Figma's defaults for a new connection — one per selected hotspot), dragging a noodle's end to another frame retargets it, to empty canvas removes it. The
 // first connection out of a frame no flow reaches gives that frame a flow starting point ("Flow 1", …).
 //
 // The interactions stay the schema's JSON while they are edited, so every field the engine doesn't read survives.
@@ -74,6 +74,7 @@ void Editor::setPrototypeMode(bool on) {
   proto_.drag = ProtoSession::Drag::None;
   proto_.target = kNoGuid;
   proto_.handleHovered = false;
+  proto_.hoveredNub = kNoGuid;
   proto_.version = ~0ull;
   needsRender_ = true;
 }
@@ -128,12 +129,17 @@ std::vector<Guid> Editor::protoHandleNodes() const {
   return out;
 }
 
-bool Editor::protoHandleAt(Vec2 s, std::vector<Guid>* nodes) const {
+bool Editor::protoHandleAt(Vec2 s, std::vector<Guid>* nodes, Guid* hit, NoodleSide* side) const {
+  // Round 16: each hotspot's nub sits on its side nearest the pointer — the side nearest `s` itself.
+  Vec2 w = camera_.toWorld(s);
   for (Guid id : protoHandleNodes()) {
     Rect b = doc_.worldBounds(id);
-    Vec2 c = camera_.toScreen({b.right(), b.y + b.h / 2});
+    NoodleSide sd = nearestSide(b, w);
+    Vec2 c = camera_.toScreen(sideCentre(b, sd));
     if ((c - s).length() <= kHandleHit) {
       if (nodes) *nodes = protoHandleNodes();
+      if (hit) *hit = id;
+      if (side) *side = sd;
       return true;
     }
   }
@@ -195,6 +201,9 @@ uint32_t Editor::protoPointerDown(Vec2 s, uint32_t /*mods*/) {
   } else if (protoHandleAt(s, &sources)) {
     proto_.drag = ProtoSession::Drag::New;
     proto_.sources = sources;
+    // Each new connection leaves from the side its nub is on (the side nearest the press).
+    proto_.sourceSides.clear();
+    for (Guid src : sources) proto_.sourceSides.push_back(nearestSide(doc_.worldBounds(src), camera_.toWorld(s)));
   } else {
     return 0;
   }
@@ -215,13 +224,29 @@ void Editor::protoPointerMove(Vec2 s) {
 }
 
 void Editor::protoHover(Vec2 s) {
-  bool on = protoHandleAt(s);
+  Guid hit = kNoGuid;
+  bool on = protoHandleAt(s, nullptr, &hit);
   ProtoLink l;
   bool end = !on && protoEndAt(s, l);
-  if (on != proto_.handleHovered) {
+  if (on != proto_.handleHovered || hit != proto_.hoveredNub) {
     proto_.handleHovered = on;
+    proto_.hoveredNub = hit;
     needsRender_ = true;
   }
+  // The nubs follow the pointer from side to side (round 16): a frame when one changes sides.
+  std::vector<Guid> nodes = protoHandleNodes();
+  if (!nodes.empty()) {
+    Vec2 w = camera_.toWorld(s), was = camera_.toWorld(proto_.pointer);
+    for (Guid id : nodes) {
+      Rect b = doc_.worldBounds(id);
+      if (!proto_.hasPointer || nearestSide(b, w) != nearestSide(b, was)) {
+        needsRender_ = true;
+        break;
+      }
+    }
+  }
+  proto_.hasPointer = true;
+  proto_.pointer = s;
   if (on || end) changeCursor(CursorKind::DEFAULT);
 }
 
@@ -375,10 +400,14 @@ void Editor::protoOverlay(Overlay& o) const {
     PrototypeLink pl;
     pl.source = doc_.worldBounds(l.source);
     pl.dest = doc_.worldBounds(l.dest);
-    bool sel = selection_.empty();
+    // The selection's connections in the selection colour, the others light (round 16, live 61.png: with nothing
+    // selected every connection is light).
+    bool sel = false;
     for (Guid g : selection_) sel |= g == l.source || doc_.isAncestor(g, l.source);
     pl.highlighted = sel;
     if (retargeting) {
+      // Its start stays on the side it leaves from while its end is dragged.
+      pl.startSide = static_cast<int>(prototypeNoodle(pl.source, pl.dest, false, {}).start);
       if (proto_.target != kNoGuid) pl.dest = doc_.worldBounds(proto_.target);
       else {
         pl.toPoint = true;
@@ -426,9 +455,11 @@ void Editor::protoOverlay(Overlay& o) const {
     }
   }
   if (proto_.drag == ProtoSession::Drag::New)
-    for (Guid src : proto_.sources) {
+    for (size_t i = 0; i < proto_.sources.size(); i++) {
+      Guid src = proto_.sources[i];
       PrototypeLink pl;
       pl.source = doc_.worldBounds(src);
+      if (i < proto_.sourceSides.size()) pl.startSide = static_cast<int>(proto_.sourceSides[i]);
       if (proto_.target != kNoGuid) pl.dest = doc_.worldBounds(proto_.target);
       else {
         pl.toPoint = true;
@@ -440,9 +471,24 @@ void Editor::protoOverlay(Overlay& o) const {
     po.hasTarget = true;
     po.target = doc_.worldBounds(proto_.target);
   }
-  if (gesture_ == Gesture::None || gesture_ == Gesture::Noodle)
-    for (Guid id : protoHandleNodes()) po.handles.push_back(doc_.worldBounds(id));
-  po.handleHovered = proto_.handleHovered || proto_.drag == ProtoSession::Drag::New;
+  if (gesture_ == Gesture::None || gesture_ == Gesture::Noodle) {
+    // Round 16: each nub on its hotspot's side nearest the pointer (right before the pointer is known); while a new
+    // connection is dragged, the plain nub where it leaves.
+    bool dragging = proto_.drag == ProtoSession::Drag::New;
+    Vec2 w = camera_.toWorld(proto_.pointer);
+    for (Guid id : protoHandleNodes()) {
+      PrototypeHandle h;
+      h.box = doc_.worldBounds(id);
+      h.side = proto_.hasPointer ? nearestSide(h.box, w) : NoodleSide::RIGHT;
+      if (dragging) {
+        for (size_t i = 0; i < proto_.sources.size() && i < proto_.sourceSides.size(); i++)
+          if (proto_.sources[i] == id) h.side = proto_.sourceSides[i];
+      } else {
+        h.hovered = proto_.handleHovered && proto_.hoveredNub == id;
+      }
+      po.handles.push_back(h);
+    }
+  }
   for (const proto::Flow& f : proto::flows(doc_, page_)) po.flows.push_back({f.node, doc_.worldBounds(f.node), f.name});
   // Moving or resizing: the noodles follow, the handles wait.
   if (gesture_ == Gesture::Move || gesture_ == Gesture::Resize || gesture_ == Gesture::Rotate) po.handles.clear();

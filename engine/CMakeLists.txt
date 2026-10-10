@@ -94,7 +94,9 @@ add_library(eng_core STATIC
   src/proto/Prototype.cpp
   src/proto/Player.cpp
   src/editor/PrototypeEditing.cpp
+  src/editor/CanvasNav.cpp
   src/render/PrototypeOverlay.cpp
+  src/render/Scrollbars.cpp
   src/editor/Annotations.cpp
   src/editor/DevMode.cpp
   src/render/AnnotationOverlay.cpp
@@ -195,6 +197,7 @@ else()
     tests/unit/r15.spacing_handles.test.cpp
     tests/unit/r16.panel_spacing.test.cpp
     tests/unit/r16.canvas_handles.test.cpp
+    tests/unit/r16.canvas_nav.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

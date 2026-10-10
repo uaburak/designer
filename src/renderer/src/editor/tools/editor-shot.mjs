@@ -45,6 +45,7 @@
 //   EDITOR_ONLY=spacing15 node …                                   (round 15: auto layout's padding / gap handles — hatch, badge by the pointer, cursors, drags, typed gap; the </> button's hover, tooltip, ready)
 //   EDITOR_ONLY=canvas16 node …                                    (round 16: hatch rules — a padding alone, ⌥ its pair, every gap, the panel's highlight; radius handles with ⌘ inward / ⌘⌥ one; inverted corners drawn and clipping)
 //   EDITOR_ONLY=inputs16 node …                                    (round 16: padding fields "19, 22", ⌘-click one field, hover hatches the canvas, Apply variable inside the ring, whole-step scrub)
+//   EDITOR_ONLY=canvasnav16 node …                                 (round 16: canvas scrollbars shown / fading / hovered / dragged; a Layers glyph glides the camera; prototype nubs on the nearest side, "+", a drag connects)
 //   EDITOR_ONLY=aldrag node …                                      (round 15: a layer dragged inside its auto-layout frame — swaps at the centres, siblings slide, drop, one undo)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
@@ -66,6 +67,7 @@ import { components15Section } from "./editorShotComponents.mjs";
 import { spacing15Section } from "./editorShotSpacing.mjs";
 import { canvas16Section } from "./editorShotCanvas16.mjs";
 import { inputs16Section } from "./editorShotInputs.mjs";
+import { canvasNavSection } from "./editorShotCanvasNav.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
 import { shortcutsSection } from "./editorShotShortcuts.mjs";
@@ -4596,7 +4598,7 @@ async function menus11Section(page, theme) {
   await page.evaluate(() => window.__designerEditor.engine.undo());
   const undoneType = await page.evaluate((id) => window.__designerEditor.engine.readNode(id).type, inst);
   check("R11 Flatten on an instance: it becomes a vector; one undo brings the instance back", afterType === "VECTOR" && undoneType === "INSTANCE", `${afterType} -> ${undoneType}`);
-  // 9. Vector editing tools: Shape builder and Variable width (enabled since round 12).
+  // 9. Vector editing tools: Figma Draw's two stay listed disabled (not built).
   await page.evaluate(() => {
     const ed = window.__designerEditor;
     ed.engine.setSelection(["7:60"]);
@@ -4606,7 +4608,7 @@ async function menus11Section(page, theme) {
   await page.locator("[data-vector-toolbar]").getByRole("button", { name: "More" }).click();
   await settle(page);
   const dis = await page.getByRole("menu", { name: "Vector editing tools" }).getByRole("menuitemradio").evaluateAll((els) => els.map((e) => e.getAttribute("aria-disabled")));
-  check("R11 Vector editing tools: Shape builder and Variable width listed and enabled (built in round 12)", dis.length === 2 && dis.every((d) => d !== "true"), dis.join());
+  check("R11 Vector editing tools: Shape builder and Variable width listed disabled (Figma Draw: not built)", dis.join() === "true,true", dis.join());
   await page.keyboard.press("Escape");
   // 10. A store-backed file (what the desktop app opens; the browser's dev store stands in): the file commands that need
   // a document source are enabled — Duplicate, Save to version history…, Show version history, Create
@@ -4844,6 +4846,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await canvas16Section(page, theme, { open, settle, check, outDir, docsDir: process.env.CANVAS16_DOCS ? path.join(repo, "docs/research/canvas-handles16") : null });
+      await context.close();
+    }
+  }
+  if (only === "canvasnav16" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await canvasNavSection(page, theme, { open, settle, check, outDir, docsDir: process.env.CANVASNAV16_DOCS ? path.join(repo, "docs/research/canvas-nav16") : null });
       await context.close();
     }
   }

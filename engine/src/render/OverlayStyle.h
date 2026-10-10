@@ -95,6 +95,15 @@ struct OverlayStyle {
   double hatchWash = 0.06, hatchInk = 0.25, hatchPeriod = 6.5, hatchWidth = 1;
   Color statusChanged = Color::hex(0xFFCD29);  // --figma-color-bg-warning
   Color statusCompleted = Color::hex(0x8C8C8C);
+  // Round 16 (the owner's live Figma 58–67.png): a connection not the selection's, its start dot and the nubs; the
+  // canvas scrollbars (straight alpha: fill, hovered fill, rim).
+  Color noodleQuiet = Color::hex(0xA8D6FB);
+  double noodleWidth = 2;   // 67.png: 4 px at 2×
+  double noodleDot = 12;    // a connection's start: a white disc, 12 across, in a 2 px ring of its colour
+  double nubSize = 12;      // a selected hotspot's nub, as the start dot in the selection colour…
+  double nubHoverSize = 16; // …hovered: 16 across (64–66.png: 32 px at 2×) with an 8 × 2 "+" in it
+  double nubRing = 2;
+  Color scrollbarFill{0, 0, 0, 0.3f}, scrollbarFillHover{0, 0, 0, 0.4f}, scrollbarRim{1, 1, 1, 0.31f};
 
   static Color chrome(Theme t, ds::ChromeColor c) {
     const float* v = (t == Theme::Dark ? ds::kChromeDark : ds::kChromeLight)[static_cast<size_t>(c)];
@@ -145,6 +154,10 @@ struct OverlayStyle {
     s.tooltipFill = chrome(t, C::CanvasTooltipFill);
     s.tooltipText = chrome(t, C::CanvasTooltipText);
     s.statusReady = chrome(t, C::ReadyForDev);
+    s.noodleQuiet = chrome(t, C::PrototypeNoodleQuiet);
+    s.scrollbarFill = chrome(t, C::CanvasScrollbarFill);
+    s.scrollbarFillHover = chrome(t, C::CanvasScrollbarFillHover);
+    s.scrollbarRim = chrome(t, C::CanvasScrollbarRim);
     // Titles over the theme's own canvas.
     s.darkCanvas = t == Theme::Dark;
     Color title = t == Theme::Dark ? s.titleOnDark : s.titleOnLight;

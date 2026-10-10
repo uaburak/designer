@@ -474,6 +474,10 @@ export const CHROME_COLORS = [
   "canvasTooltipFill",
   "canvasTooltipText",
   "readyForDev",
+  "prototypeNoodleQuiet",
+  "canvasScrollbarFill",
+  "canvasScrollbarFillHover",
+  "canvasScrollbarRim",
 ] as const;
 
 export type ChromeColorName = (typeof CHROME_COLORS)[number];
@@ -522,6 +526,13 @@ export const canvasChrome: Record<ChromeColorName, Pair> = {
   canvasTooltipFill: ["#1e1e1e", "#1e1e1e"],
   canvasTooltipText: ["#ffffff", "#ffffff"],
   readyForDev: ["#14ae5c", "#14ae5c"],
+  // Round 16 (the owner's live Figma 61–67.png): a connection that isn't the selection's is light blue, opaque (#b2d6f7
+  // on the screenshots, less the shift they show on #7cc4f8 → #8cc2f3); the canvas scrollbars' thumb is black at
+  // 30 % (40 % hovered or dragged) in a 1 px white rim at 31 % (58 / 59.png: #151515 inside, #646464 rim on #1e1e1e).
+  prototypeNoodleQuiet: ["#a8d6fb", "#a8d6fb"],
+  canvasScrollbarFill: ["#0000004d", "#0000004d"],
+  canvasScrollbarFillHover: ["#00000066", "#00000066"],
+  canvasScrollbarRim: ["#ffffff4f", "#ffffff4f"],
 };
 
 /** Chrome metrics in CSS px at any zoom (§1.4). */

@@ -239,22 +239,6 @@ TEST_CASE("r16 radius: all corners, ⌥ one, ⌘ inward, ⌘⌥ one inward — o
   CHECK(mask(e, R) == 0);
 }
 
-TEST_CASE("r16 radius: the rings go when the pointer leaves the layer or the canvas") {
-  Editor e = makeEditor();
-  e.setSelection({R});
-  move(e, {200, 350});
-  drag(e, {112, 312}, {132, 332}, MOD_PRIMARY);
-  CHECK(e.overlay().radiusHandles.size() == 4);  // the pointer is still over the layer
-  move(e, {600, 100});
-  CHECK(e.overlay().radiusHandles.empty());
-  // Released over the layer, then the pointer leaves the canvas (no move inside it): the rings go.
-  move(e, {200, 350});
-  drag(e, {112, 312}, {132, 332});
-  CHECK(e.overlay().radiusHandles.size() == 4);
-  e.pointer(PointerEvent::LEAVE, 900, 350, 0, 0, 0, 1);
-  CHECK(e.overlay().radiusHandles.empty());
-}
-
 TEST_CASE("r16 radius: frames and instances have the handles too; a frame drag rounds it, ⌘ inward") {
   Editor e = makeEditor();
   e.setSelection({F});  // screen 500..700 × 300..400

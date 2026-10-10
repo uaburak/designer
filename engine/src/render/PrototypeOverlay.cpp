@@ -1,7 +1,8 @@
 // Prototype mode's canvas marks (docs/research/figma/R8-prototyping.md §6): the connections ("noodles") — a blue
-// curve from a dot on the hotspot's edge to an arrow at the destination's edge —, the "+" connection handle on a
-// selected hotspot's right edge, the frame a dragged noodle will connect to, and the flow starting point labels
-// (a blue tag with a play icon and the flow's name, where the frame's title starts).
+// curve from a dot in the middle of one of the hotspot's sides to an arrow in the middle of one of the destination's
+// (round 16: any of the four, Figma's rule in Renderer.h prototypeNoodle) —, the connection nub on a selected
+// hotspot's side nearest the pointer ("+" when hovered), the frame a dragged noodle will connect to, and the flow
+// starting point labels (a blue tag with a play icon and the flow's name, where the frame's title starts).
 
 #include <algorithm>
 #include <cmath>
@@ -12,36 +13,90 @@ namespace eng {
 
 namespace {
 const CornerRadii kSquare{0, 0, 0, 0};
-constexpr double kNoodleWidth = 2;
-constexpr double kHandleRadius = 6;
-constexpr double kDotRadius = 3;
 constexpr double kArrow = 8;
+constexpr double kMinReach = 20;  // a control point's least distance from its end (boxes level with each other)
 }  // namespace
 
-NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, Vec2 point) {
+Vec2 sideCentre(const Rect& r, NoodleSide side) {
+  switch (side) {
+    case NoodleSide::TOP: return {r.x + r.w / 2, r.y};
+    case NoodleSide::RIGHT: return {r.right(), r.y + r.h / 2};
+    case NoodleSide::BOTTOM: return {r.x + r.w / 2, r.bottom()};
+    case NoodleSide::LEFT: return {r.x, r.y + r.h / 2};
+  }
+  return {r.right(), r.y + r.h / 2};
+}
+
+Vec2 sideNormal(NoodleSide side) {
+  switch (side) {
+    case NoodleSide::TOP: return {0, -1};
+    case NoodleSide::RIGHT: return {1, 0};
+    case NoodleSide::BOTTOM: return {0, 1};
+    case NoodleSide::LEFT: return {-1, 0};
+  }
+  return {1, 0};
+}
+
+NoodleSide nearestSide(const Rect& r, Vec2 p) {
+  // The distance from `p` to each side (a segment); ties go right, bottom, left, top.
+  auto toSegment = [&](Vec2 a, Vec2 b) {
+    Vec2 d = b - a;
+    double len2 = d.x * d.x + d.y * d.y;
+    double t = len2 > 0 ? std::clamp(((p.x - a.x) * d.x + (p.y - a.y) * d.y) / len2, 0.0, 1.0) : 0;
+    Vec2 q{a.x + d.x * t, a.y + d.y * t};
+    return (p - q).length();
+  };
+  const NoodleSide order[4] = {NoodleSide::RIGHT, NoodleSide::BOTTOM, NoodleSide::LEFT, NoodleSide::TOP};
+  double best = 1e300;
+  NoodleSide out = NoodleSide::RIGHT;
+  for (NoodleSide s : order) {
+    Vec2 a, b;
+    switch (s) {
+      case NoodleSide::TOP: a = {r.x, r.y}, b = {r.right(), r.y}; break;
+      case NoodleSide::RIGHT: a = {r.right(), r.y}, b = {r.right(), r.bottom()}; break;
+      case NoodleSide::BOTTOM: a = {r.x, r.bottom()}, b = {r.right(), r.bottom()}; break;
+      case NoodleSide::LEFT: a = {r.x, r.y}, b = {r.x, r.bottom()}; break;
+    }
+    double d = toSegment(a, b);
+    if (d < best - 1e-9) best = d, out = s;
+  }
+  return out;
+}
+
+NoodleCurve prototypeNoodle(const Rect& source, const Rect& dest, bool toPoint, Vec2 point, int startSide) {
   NoodleCurve n;
-  double scy = source.y + source.h / 2;
-  Vec2 target = toPoint ? point : Vec2{dest.x + dest.w / 2, dest.y + dest.h / 2};
-  // Leave from the side facing the destination.
-  bool right = target.x >= source.x + source.w / 2;
-  n.a = {right ? source.right() : source.x, scy};
+  Rect d = toPoint ? Rect{point.x, point.y, 0, 0} : dest;
+  Vec2 sc{source.x + source.w / 2, source.y + source.h / 2}, dc{d.x + d.w / 2, d.y + d.h / 2};
+  // Leave a side facing the destination: across when the boxes don't overlap across, else up or down.
+  bool apartAcross = d.right() < source.x || d.x > source.right();
+  if (startSide >= 0 && startSide <= 3) n.start = static_cast<NoodleSide>(startSide);
+  else if (apartAcross) n.start = dc.x >= sc.x ? NoodleSide::RIGHT : NoodleSide::LEFT;
+  else n.start = dc.y >= sc.y ? NoodleSide::BOTTOM : NoodleSide::TOP;
+  n.a = sideCentre(source, n.start);
+  Vec2 n1 = sideNormal(n.start);
   if (toPoint) {
     n.b = point;
-  } else {
-    // Arrive at the destination's side facing the hotspot, level with it where the destination allows.
-    bool fromLeft = n.a.x <= dest.x + dest.w / 2;
-    double y = std::clamp(scy, dest.y + std::min(16.0, dest.h / 2), dest.bottom() - std::min(16.0, dest.h / 2));
-    n.b = {fromLeft ? dest.x : dest.right(), y};
+    double k = std::max(kMinReach, std::fabs((n.b - n.a).x * n1.x + (n.b - n.a).y * n1.y) / 2);
+    n.c1 = n.a + Vec2{n1.x * k, n1.y * k};
+    n.c2 = n.b;
+    Vec2 dd = n.b - n.c1;
+    double len = dd.length();
+    n.dir = len > 1e-9 ? Vec2{dd.x / len, dd.y / len} : n1;
+    return n;
   }
-  double reach = std::max(40.0, std::fabs(n.b.x - n.a.x) / 2);
-  double s0 = right ? 1 : -1;
-  n.c1 = {n.a.x + s0 * reach, n.a.y};
-  double s1 = n.b.x >= n.a.x ? 1 : -1;
-  if (!toPoint) s1 = n.a.x <= dest.x + dest.w / 2 ? 1 : -1;
-  n.c2 = {n.b.x - s1 * reach, n.b.y};
-  Vec2 d = n.b - n.c2;
-  double len = d.length();
-  n.dir = len > 1e-9 ? Vec2{d.x / len, d.y / len} : Vec2{s1, 0};
+  // Arrive at a side facing the hotspot: from above or below when they don't overlap down, else from the side.
+  bool apartDown = d.bottom() < source.y || d.y > source.bottom();
+  if (apartDown) n.end = sc.y <= dc.y ? NoodleSide::TOP : NoodleSide::BOTTOM;
+  else n.end = sc.x <= dc.x ? NoodleSide::LEFT : NoodleSide::RIGHT;
+  n.b = sideCentre(d, n.end);
+  Vec2 n2 = sideNormal(n.end);
+  Vec2 ab = n.b - n.a;
+  // Each control point half the distance along its own side's normal (fitted on 61.png's curves: 0.47–0.58).
+  double k1 = std::max(kMinReach, std::fabs(ab.x * n1.x + ab.y * n1.y) / 2);
+  double k2 = std::max(kMinReach, std::fabs(ab.x * n2.x + ab.y * n2.y) / 2);
+  n.c1 = n.a + Vec2{n1.x * k1, n1.y * k1};
+  n.c2 = n.b + Vec2{n2.x * k2, n2.y * k2};
+  n.dir = {-n2.x, -n2.y};
   return n;
 }
 
@@ -105,14 +160,18 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
     emit(makeShape(Mat2x3::translate(r.x, r.y), {r.w, r.h}, ShapeKind::Rect, kSquare, blue, 0, blue, 1, 2, 0), Pass::Shape);
   }
 
-  // Noodles: the quieter ones first.
+  // Noodles: the quieter ones (opaque light blue, live 61–67.png) first.
+  const double kNoodleWidth = style.noodleWidth;
+  const double dpr = viewport_.scaleX() > 0 ? viewport_.scaleX() : 1;
+  std::vector<std::pair<Vec2, bool>> starts;
   for (int pass = 0; pass < 2; pass++)
     for (const PrototypeLink& l : po.links) {
       if (l.highlighted != (pass == 1)) continue;
-      double alpha = l.highlighted ? 1 : 0.35;
+      const double alpha = 1;
+      const Color& ink = l.highlighted ? blue : style.noodleQuiet;
       Rect src = toScreen(l.source);
       Rect dst = l.toPoint ? Rect{} : toScreen(l.dest);
-      NoodleCurve n = prototypeNoodle(src, dst, l.toPoint, view.apply(l.point));
+      NoodleCurve n = prototypeNoodle(src, dst, l.toPoint, view.apply(l.point), l.startSide);
       // The arrow's tip at b; the curve stops at its base.
       Vec2 base = n.b - Vec2{n.dir.x * kArrow * 0.8, n.dir.y * kArrow * 0.8};
       Vec2 prev = n.a;
@@ -124,8 +183,8 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
         Vec2 end = base;
         Vec2 p{u * u * u * n.a.x + 3 * u * u * t * n.c1.x + 3 * u * t * t * c2.x + t * t * t * end.x,
                u * u * u * n.a.y + 3 * u * u * t * n.c1.y + 3 * u * t * t * c2.y + t * t * t * end.y};
-        segment(prev, p, kNoodleWidth, blue, alpha);
-        if (i > 1) dot(prev, kNoodleWidth / 2, blue, alpha, blue, 0);
+        segment(prev, p, kNoodleWidth, ink, alpha);
+        if (i > 1) dot(prev, kNoodleWidth / 2, ink, alpha, ink, 0);
         prev = p;
       }
       // Arrowhead: a filled triangle in rows across its length.
@@ -135,23 +194,29 @@ void Renderer::drawPrototypeOverlay(const Document& /*doc*/, Guid /*page*/, cons
         double t0 = static_cast<double>(r) / rows, t1 = static_cast<double>(r + 1) / rows;
         double halfW = (1 - (t0 + t1) / 2) * kArrow * 0.6;
         Vec2 a = n.b - Vec2{n.dir.x * kArrow * (1 - t0), n.dir.y * kArrow * (1 - t0)};
-        segment(a - Vec2{nrm.x * halfW, nrm.y * halfW}, a + Vec2{nrm.x * halfW, nrm.y * halfW}, kArrow / rows + 0.5, blue, alpha);
+        segment(a - Vec2{nrm.x * halfW, nrm.y * halfW}, a + Vec2{nrm.x * halfW, nrm.y * halfW}, kArrow / rows + 0.5, ink, alpha);
       }
-      // The start dot on the hotspot's edge.
-      dot(n.a, kDotRadius, blue, alpha, blue, 0);
+      starts.push_back({n.a, l.highlighted});
     }
+  // The start dots over every curve (live 67.png: a white disc in a 2 px ring of the noodle's colour), the
+  // selection's last.
+  for (int pass = 0; pass < 2; pass++)
+    for (const auto& [at, hi] : starts)
+      if (hi == (pass == 1)) dot(at, style.noodleDot / 2, white, 1, hi ? blue : style.noodleQuiet, style.nubRing);
 
-  // "+" connection handles on the selected hotspots' right edges.
-  for (const Rect& h : po.handles) {
-    Rect r = toScreen(h);
-    Vec2 c{r.right(), r.y + r.h / 2};
-    if (po.handleHovered) {
-      // Hovered: the plus that starts a connection.
-      dot(c, kHandleRadius, white, 1, blue, 1.5);
-      segment({c.x - 3, c.y}, {c.x + 3, c.y}, 1.5, blue, 1);
-      segment({c.x, c.y - 3}, {c.x, c.y + 3}, 1.5, blue, 1);
+  // The selected hotspots' nubs, each at the middle of its side nearest the pointer (live 64–66.png); the hovered one
+  // larger with a "+" in it.
+  for (const PrototypeHandle& h : po.handles) {
+    Rect r = toScreen(h.box);
+    Vec2 c = sideCentre(r, h.side);
+    c = {std::round(c.x * dpr) / dpr, std::round(c.y * dpr) / dpr};
+    if (h.hovered) {
+      dot(c, style.nubHoverSize / 2, white, 1, blue, style.nubRing);
+      const double arm = 4, bar = 2;  // an 8 × 2 plus
+      segment({c.x - arm, c.y}, {c.x + arm, c.y}, bar, blue, 1);
+      segment({c.x, c.y - arm}, {c.x, c.y + arm}, bar, blue, 1);
     } else {
-      dot(c, kDotRadius + 1, blue, 1, white, 1);
+      dot(c, style.nubSize / 2, white, 1, blue, style.nubRing);
     }
   }
 }
