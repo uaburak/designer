@@ -173,7 +173,7 @@ TEST_CASE("r18 presence: cursors over everything — the arrow in the peer's col
   s.e.setSelection({R});
   s.e.setPresence({peer(7, "Alice", kAlice, true, {350, 40}, {}), peer(8, "Bob", kBob, true, {10, 10}, {})});
   auto all = s.draw();
-  // Alice: her arrow (a path) and her chip — a rounded rect, corners 4, its top left (+12, +18) from the tip (450, 140).
+  // Alice: her pointer (a path) and her chip — a rounded rect, corners 2, its top left (+10, +13) from the tip (450, 140).
   bool chip = false;
   for (const DrawInstance& q : all)
     if (inColor(q, kAlice) && std::fabs(q.box[0] - s.style.presenceChipRadius) < 1e-6) {

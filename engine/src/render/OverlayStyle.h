@@ -112,15 +112,15 @@ struct OverlayStyle {
   Color noodleChangeToText = Color::hex(0x1D0736);
   double noodleLabelHeight = 30, noodleLabelPadding = 12, noodleLabelRadius = 3;
   Color scrollbarFill{0, 0, 0, 0.3f}, scrollbarFillHover{0, 0, 0, 0.4f}, scrollbarRim{1, 1, 1, 0.31f};
-  // Round 18, multiplayer presence (Figma's multiplayer cursor; unverified against live captures): a peer's selected
-  // layers outlined 1.5 px in their colour; their cursor an arrow ~17 px tall filled with it in a 1 px white rim, and a
-  // name chip (Inter 12 semibold, 6 / 3 px padding, corners 4) whose top left is `presenceChipX` / `presenceChipY`
-  // from the arrow's tip — white text, near-black on a light colour (relative luminance > 0.6).
+  // Round 18, multiplayer presence, measured on live Figma (2026-10-11, docs/research/figma/live/multiplayer/README.md
+  // "Remote cursor"): a peer's selected layers outlined 1.5 px in their colour; their cursor a pointer ~10 × 10 px filled
+  // with it in a 1 px white rim, and a name chip 17 high (Inter 11 medium, 5 / 2 px padding, corners 2) whose top left
+  // is 10 / 13 px from the pointer's tip — white text, near-black on a light colour (relative luminance > 0.6).
   double presenceSelectionWidth = 1.5;
   double presenceRim = 1;
-  double presenceChipX = 12, presenceChipY = 18;
-  double presenceChipPadX = 6, presenceChipPadY = 3, presenceChipRadius = 4;
-  double presenceLabelSize = 12, presenceLabelWeight = 600;
+  double presenceChipX = 10, presenceChipY = 13;
+  double presenceChipPadX = 5, presenceChipPadY = 2, presenceChipRadius = 2;
+  double presenceLabelSize = 11, presenceLabelWeight = 500;
   double presenceLightAbove = 0.6;
   // Cursor chat (R13-multiplayer-sharing.md §1; metrics unverified): the bubble where the name chip goes, padding 8 / 6,
   // corners 12 but 4 by the arrow's tip, the name at 0.8 over the message (wrapped at 200 px, 3 lines), a 2 px gap; an

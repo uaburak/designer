@@ -223,8 +223,9 @@ void Renderer::drawPresenceCursors(const Camera& camera, const Overlay& overlay,
   if (overlay.presence.empty() && !overlay.localChat.on) return;
   const double dpr = viewport_.scaleX();
   auto snap = [&](double v) { return std::round(v * dpr) / dpr; };
-  // The arrow pointer, its tip at (0, 0), 17.2 px tall (CSS px, whatever the zoom): the classic arrow with its tail.
-  static const Vec2 kArrow[] = {{0, 0}, {0, 15.2}, {3.9, 11.6}, {6.5, 17.2}, {8.9, 16.1}, {6.3, 10.6}, {11.3, 10.6}};
+  // The pointer, its tip at (0, 0), ~10 px (CSS px, whatever the zoom), traced from live Figma's: a head leaning right
+  // with a short tail.
+  static const Vec2 kArrow[] = {{0, 0}, {9.6, 4.3}, {4.7, 5.6}, {3.7, 10.1}, {1.9, 10.1}};
   const size_t n = sizeof kArrow / sizeof kArrow[0];
   // The rim: the arrow grown by `presenceRim` along each edge (mitred), filled white under the coloured arrow.
   auto grown = [&](double d) {

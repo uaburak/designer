@@ -98,6 +98,25 @@ Comments: `comments.md`.
 * [Start conversation] (headphones) → a widget at the canvas's top-right, 12 from the top and the right panel: 151×40, bg #2c2c2c, r 13, the small elevation shadow; your avatar 24 at 8,8, a microphone button 24×24 (crossed out, tooltip "Check your microphone permissions to start chatting." when the browser hasn't granted the mic), a Settings gear 24×24, "Leave" (an outlined 47×24 button, text at 0.4 while not connected).
 * The others' Multiplayer tools keep showing [Start conversation] until the call is really connected (not checked further: the browser pane had no microphone).
 
+### Remote cursor (1:1, viewport 800×700 CSS px)
+
+Drawn in the canvas (not DOM). Another session's cursor at rest, pixels traced (`#` the colour, `w` the white rim):
+
+```
+tip (0,0) ─ #www
+            ####ww
+            ######.ww
+            #########ww      ← the head reaches x ≈ 9.6 at y ≈ 4
+            #########.w
+            w####.wwww
+            w####w           ← a short tail, x 1…4, down to y ≈ 10
+            w###w
+             w##w
+             w##w
+```
+* Name chip: 61×17 for "Burak Koç", top left 10 right / 13 below the tip, corners ≈ 2, fill the person's colour (#f608b8 here), text Inter 11 (medium), white, 5 px from the left, the line box 2 px from the top.
+* Cursor chat ("/") couldn't be opened from the automation (the key didn't reach Figma); its bubble stays as built in round 18.
+
 ## Not captured
 
 * Remote cursors: B's tab was in the background and Figma drew no cursor for it (it hides idle / background sessions). The cursor look follows Figma's known style (arrow in the colour with a white edge, name chip below-right).
