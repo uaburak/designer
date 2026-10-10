@@ -8,6 +8,7 @@
 
 #include "editor/Selection.h"
 #include "geometry/Path.h"
+#include "geometry/Shapes.h"
 #include "render/Renderer.h"
 
 namespace eng {
@@ -280,8 +281,13 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   auto nodeOutline = [&](Guid id, double weight, bool ownShape) {
     const Node* n = doc.get(id);
     if (!n) return;
-    if (ownShape && (n->props.isPathShape() || n->props.invertedCorners())) {
-      // Vectors, stars, booleans…, inverted corners: their own outline.
+    // Frames, components, instances and sections: their box, square whatever their corners (live Figma, the owner's
+    // 79.png: a frame with a big radius hovered outlines its whole box, the rounded fill inside); shapes: their own
+    // outline (80.png was ours, wrongly rounded on a frame).
+    if (n->props.isFrameLike()) ownShape = false;
+    if (ownShape && (n->props.isPathShape() || n->props.invertedCorners() ||
+                     (n->props.isRectLike() && n->props.stroke().cornerSmoothing > 0))) {
+      // Vectors, stars, booleans…, inverted or smoothed corners: their own outline.
       if (const NodeGeometry* g = doc.geometry(id)) {
         Mat2x3 m = view * doc.worldTransform(id);
         if (!g->stroke.path.empty()) pathOutline(g->stroke.path, m, weight, colorOf(id));
@@ -293,8 +299,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     Rect lb = doc.localBounds(id);
     Mat2x3 m = view * doc.worldTransform(id) * Mat2x3::translate(lb.x, lb.y);
     ShapeKind kind = ownShape && n->props.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
-    bool rounded = ownShape && (n->props.isRectLike() || n->props.isFrameLike());
-    outline(m, {lb.w, lb.h}, kind, rounded ? n->props.cornerRadii : kSquare, weight, colorOf(id));
+    bool rounded = ownShape && n->props.isRectLike();
+    outline(m, {lb.w, lb.h}, kind, rounded ? geom::clampRadii(n->props.size, n->props.cornerRadii) : kSquare, weight, colorOf(id));
   };
 
   // The pixel grid (View › Pixel grid): a line on every whole canvas unit from 300 % zoom (faint at 300 %, full from

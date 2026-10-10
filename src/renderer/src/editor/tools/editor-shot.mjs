@@ -49,6 +49,7 @@
 //   EDITOR_ONLY=panel17 node …                                     (round 17: no row labels by default, W / H fields Fixed / Hug / Fill hovered or not against the owner's 74–77.png, Tab field to field, ⌥↓)
 //   EDITOR_ONLY=proto17 node …                                     (round 17: a variant's nub onto another variant — Change to, the variant outlined; a click on a connection's line or label opens its details; a drag on the line off to empty canvas removes it, ⌘Z restores)
 //   EDITOR_ONLY=feedback17 node …                                  (round 17: a frame's name blue while hovered, a component's purple; a canvas radius drag's haptic ticks, one per whole step)
+//   EDITOR_ONLY=hover17 node …                                     (round 17: a hovered frame outlined along its box, square whatever its radius, selected too; a rectangle along its arc, a smoothed one, an ellipse along their curves)
 //   EDITOR_ONLY=aldrag node …                                      (round 15: a layer dragged inside its auto-layout frame — swaps at the centres, siblings slide, drop, one undo)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
@@ -74,6 +75,7 @@ import { panel17Section } from "./editorShotPanel17.mjs";
 import { canvasNavSection } from "./editorShotCanvasNav.mjs";
 import { feedback17Section } from "./editorShotFeedback17.mjs";
 import { proto17Section } from "./editorShotProto17.mjs";
+import { hover17Section } from "./editorShotHover17.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
 import { shortcutsSection } from "./editorShotShortcuts.mjs";
@@ -4904,6 +4906,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await proto17Section(page, theme, { open, settle, check, outDir });
+      await context.close();
+    }
+  }
+  if (only === "hover17" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await hover17Section(page, theme, { open, settle, check, outDir });
       await context.close();
     }
   }
