@@ -72,6 +72,32 @@ divider; "Advanced"; checkbox (on) "Viewers can copy, save, and export from this
 * Right panel tabs **Comments | Properties** (instead of Design | Prototype); Comments panel: search "Search for comments", Sort/Filter, Settings, empty text "Give feedback, ask a question, or just leave a note of appreciation. Click anywhere in the file to leave a comment."
 * Toolbar: Move, Hand, Comment, then the creation tools greyed; rail has only "File".
 
+## Second capture (2026-10-11, later) — window 986×863
+
+Comments: `comments.md`.
+
+### Multiplayer tools, a person's row
+
+* Hovered row: bg #0c8ce9 (r 5), the name moves up (y 10) and a second line "Click to follow" (11px/450 at 0.698) appears under it; [More options] "•••" 26×26 at 174,10 gets bg #105cad.
+* The owner shows as "burak.koc (Owner)" in the others' lists.
+* [More options] menu (115×48): **Ask to spotlight** · **View profile**.
+* Ask to spotlight → the asker gets a toast "Asked <name> to spotlight". The asked person gets, over the **canvas** (the viewport between the panels, not the window — `multiplayer_viewport_overlay--viewportFrame` 338,0 407×863), a 5 px frame in the asker's colour and a bell at the canvas's top centre, 8 below the top edge: 322×32, bg a darker shade of the colour (#0a6dc2 for #0c8ce9), square corners; "burak.koc is asking you to spotlight" 11px/500 #fff; button **Spotlight me** 84×24 (bg #1e1e1e, r 4, 11px/600 #fff); ✕ 24×24 [Dismiss request to spotlight from <name>]. Spotlight me starts spotlighting (the asker then follows); ✕ dismisses. Observation mode's frame is the same element: with the UI minimized the canvas is the whole window, hence "the whole window" above.
+
+### Share dialog, card 2 and links
+
+* Card 2 rows: "Share selected frames to Community" (disabled), "Publish to Community" ›, "Copy Dev Mode link", "More" (•••). **More** expands in place into "Copy prototype link" (a gear button at the right → prototype link settings) and "Get embed code" ›.
+* "Copy Dev Mode link": the row's right side shows **"Link copied!"** (11px, 0.698) for a moment. The header's "Copy link" turns into **"Link copied!"** (the link icon goes) for a moment.
+* "Get embed code" replaces the card with **"Copy public embed code"** (Back ‹ at 8,8; title 11px/500 at 40,14; ✕): a read-only textarea 448×112 (bg #2c2c2c, r 5, selected on open, focus ring) holding
+  `<iframe style="border: 1px solid rgba(0, 0, 0, 0.1);" width="800" height="450" src="https://embed.figma.com/design/<key>/<name>?node-id=<page or frame id>&embed-host=share" allowfullscreen></iframe>`;
+  footer: "Embed **<page name>** in your webpage" (the page name 11px/800), Cancel, **Copy** (44×24 bg #0c8ce9).
+* Share settings has a footer **Cancel · Save** (Save disabled until something changes); nothing applies until Save.
+* "Password required" ticked: a **↻ Generate** button (77×24, text 0.698) at the right of the checkbox row ([Generate password]), and under it a 448×32 field "Add a password" (bg #3b3b3b, 1 px #444, r 5, monospace placeholder). Not saved in the capture (it would lock the owner's file).
+
+### Audio
+
+* [Start conversation] (headphones) → a widget at the canvas's top-right, 12 from the top and the right panel: 151×40, bg #2c2c2c, r 13, the small elevation shadow; your avatar 24 at 8,8, a microphone button 24×24 (crossed out, tooltip "Check your microphone permissions to start chatting." when the browser hasn't granted the mic), a Settings gear 24×24, "Leave" (an outlined 47×24 button, text at 0.4 while not connected).
+* The others' Multiplayer tools keep showing [Start conversation] until the call is really connected (not checked further: the browser pane had no microphone).
+
 ## Not captured
 
 * Remote cursors: B's tab was in the background and Figma drew no cursor for it (it hides idle / background sessions). The cursor look follows Figma's known style (arrow in the colour with a white edge, name chip below-right).

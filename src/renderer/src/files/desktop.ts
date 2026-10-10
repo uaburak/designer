@@ -6,6 +6,7 @@
  */
 import type { WorkspaceRepository } from "@shared/store/repositories";
 import type { FileKey, FolderId } from "@shared/store/types";
+import { intentFromLink, type OpenIntent } from "@shared/multiplayer/types";
 
 export interface ImportResult {
   files: { fileKey: FileKey; name: string }[];
@@ -23,14 +24,15 @@ interface HomeBridge {
     import?: (folderId: string | null, paths?: string[]) => Promise<ImportResult>;
     saveLocalCopy?: (fileKey: string) => Promise<{ path: string } | { cancelled: true }>;
   };
-  home?: { onReveal?: (cb: (r: { fileKey: string }) => void) => () => void; onOpenShared?: (cb: (r: { key: string }) => void) => () => void };
+  home?: { onReveal?: (cb: (r: { fileKey: string }) => void) => () => void; onOpenShared?: (cb: (r: { key: string; link?: string }) => void) => () => void };
   menu?: { onCommand?: (cb: (c: { id: string }) => void) => () => void; setState?: (patch: { enabled?: Record<string, boolean>; checked?: Record<string, boolean> }) => void };
 }
 
 const bridge = (): HomeBridge | null => (typeof window === "undefined" ? null : ((window as unknown as { designer?: HomeBridge }).designer ?? null));
 
-/** The browser's address of a file (the `?editor` route). */
-export const editorUrl = (fileKey: FileKey) => `${location.pathname}?editor&file=${encodeURIComponent(fileKey)}`;
+/** The browser's address of a file (the `?editor` route), with where a link asked to land. */
+export const editorUrl = (fileKey: FileKey, intent: OpenIntent = {}) =>
+  `${location.pathname}?editor&file=${encodeURIComponent(fileKey)}${intent.nodeId ? `&node-id=${intent.nodeId.replace(":", "-")}` : ""}${intent.mode ? `&m=${intent.mode}` : ""}`;
 
 export interface OpenDeps {
   /** In a browser nothing activates a tab, so Home records the view itself (in the app main does, docs/desktop.md §5) */
@@ -48,14 +50,15 @@ const browserNavigate = (url: string, newTab: boolean) => {
  * Opens a file: in the app, its tab (an open one comes to the front; "Open in new tab" leaves Home in front), else
  * the editor page (a new browser tab for "Open in new tab").
  */
-export async function openFile(fileKey: FileKey, { newTab = false, title }: { newTab?: boolean; title?: string } = {}, deps: OpenDeps = {}): Promise<void> {
+export async function openFile(fileKey: FileKey, { newTab = false, title, intent }: { newTab?: boolean; title?: string; intent?: OpenIntent } = {}, deps: OpenDeps = {}): Promise<void> {
   const d = bridge();
   if (d?.nav?.openFile) {
+    // The store keeps a link's intent for the editor (multiplayer.openShared); the browser's editor reads its URL.
     await d.nav.openFile(fileKey, { title, background: newTab });
     return;
   }
   await deps.workspace?.recordViewed(fileKey).catch(() => {});
-  (deps.navigate ?? browserNavigate)(editorUrl(fileKey), newTab);
+  (deps.navigate ?? browserNavigate)(editorUrl(fileKey, intent), newTab);
 }
 
 /** "New design file": `Untitled` in Drafts or the folder shown, opened at once (docs/data.md §4). */
@@ -115,18 +118,20 @@ export function setMenuState(enabled: Record<string, boolean>): void {
 }
 
 /** "Show in file browser" / an editor's "Back to files": main asks Home to show a file. */
-/** A shared file's link opened from the system (desktop), or `?shared=<key>` on the page (browser). */
-export function onOpenShared(cb: (key: string) => void): () => void {
+/** A shared file's link opened from the system (desktop), or `?shared=<key>[&node-id=…&m=dev]` on the page (browser),
+ *  with where it lands. */
+export function onOpenShared(cb: (key: string, intent: OpenIntent) => void): () => void {
   if (typeof location !== "undefined") {
     const url = new URL(location.href);
     const key = url.searchParams.get("shared");
     if (key) {
-      url.searchParams.delete("shared");
+      const intent = intentFromLink(url.search);
+      for (const p of ["shared", "node-id", "m"]) url.searchParams.delete(p);
       history.replaceState(history.state, "", url.toString());
-      queueMicrotask(() => cb(key));
+      queueMicrotask(() => cb(key, intent));
     }
   }
-  return bridge()?.home?.onOpenShared?.((r) => cb(String(r.key))) ?? (() => {});
+  return bridge()?.home?.onOpenShared?.((r) => cb(String(r.key), intentFromLink(String(r.link ?? "")))) ?? (() => {});
 }
 
 export function onReveal(cb: (fileKey: FileKey) => void): () => void {

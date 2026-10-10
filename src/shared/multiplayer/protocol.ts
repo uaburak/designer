@@ -22,7 +22,12 @@ export type ClientControl =
    *  the client is comes from the Worker (the session token on the socket's URL), not from here. */
   | { t: "hello"; since: number }
   /** Ephemeral (never stored): cursor, selection, viewport … opaque to the server. */
-  | { t: "presence"; data: unknown };
+  | { t: "presence"; data: unknown }
+  /** Ephemeral, to one session of the file (never stored): "Ask to spotlight", audio's WebRTC offers / answers / ICE. */
+  | { t: "signal"; to: number; data: unknown };
+
+/** The largest signal the room relays (a WebRTC offer with its candidates fits easily) */
+export const MAX_SIGNAL_BYTES = 32_000;
 
 export type ServerControl =
   /** The session this connection is. `sessionID` is unique for the file: use it in new nodes' GUIDs. `seq`: the last accepted frame. */
@@ -32,6 +37,7 @@ export type ServerControl =
   | { t: "peer-joined"; peer: PeerInfo }
   | { t: "peer-left"; sessionID: number }
   | { t: "presence"; sessionID: number; data: unknown }
+  | { t: "signal"; from: number; data: unknown }
   /** Something about the file for its people: an "Ask to edit" request (to editors), its answer (to the requester) */
   | { t: "notice"; kind: "access-request" | "access-granted" | "access-denied"; userId: string; name?: string }
   | { t: "error"; code: "unauthorized" | "forbidden" | "bad-frame" | "too-large" | "too-old"; message: string };

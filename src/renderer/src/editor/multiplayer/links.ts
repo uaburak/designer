@@ -1,0 +1,56 @@
+/**
+ * A shared file's links, Figma's way (R13 §2.7, live README "Share dialog, card 2"): "Copy link" names the selection's
+ * top-level frame (or the page) as `node-id=1-2`; "Copy Dev Mode link" adds `m=dev`, "Copy prototype link" `m=proto`.
+ * Opened, a link lands there: its page, the frame selected and in view, Dev Mode or the presentation.
+ */
+import type { Guid } from "@/engine/codec";
+import { getStoreClient } from "@/store";
+import type { OpenIntent } from "@shared/multiplayer/types";
+import type { EditorController } from "../controller";
+import { setMode } from "../devmode/devMode";
+import { present, presentStart } from "../present";
+
+/** The node a link names: the selection's top-level frame, else the current page. */
+export function linkNode(ed: EditorController): Guid {
+  return presentStart(ed) ?? ed.store.page;
+}
+
+/** The page a node is on (a page is its own), or null when it isn't in the document. */
+function pageOf(ed: EditorController, node: Guid): Guid | null {
+  const pages = new Set(ed.store.pages.map((p) => p.guid));
+  let cur: Guid | undefined = node;
+  for (let guard = 0; cur && guard < 256; guard++) {
+    if (pages.has(cur)) return cur;
+    cur = ed.engine.readNode(cur, { fields: ["parentIndex"] })?.parentIndex?.guid;
+  }
+  return null;
+}
+
+/** Lands where a link asked: the node's page, the node selected and zoomed to, then the mode. */
+export function applyIntent(ed: EditorController, intent: OpenIntent): void {
+  if (ed.engine.destroyed) return;
+  const node = intent.nodeId;
+  const page = node ? pageOf(ed, node) : null;
+  if (node && page) {
+    if (page !== ed.store.page) ed.engine.setCurrentPage(page);
+    if (node !== page) {
+      ed.engine.setSelection([node]);
+      ed.engine.command("ZOOM_TO_SELECTION");
+    }
+  }
+  if (intent.mode === "dev") setMode(ed, "dev");
+  else if (intent.mode === "proto") present(ed, node && node !== page ? { node } : {});
+}
+
+/** The intent this editor was opened with: the browser's URL (`node-id`, `m`), else what the store kept for it. */
+export async function openIntent(fileKey: string): Promise<OpenIntent | null> {
+  if (typeof location !== "undefined") {
+    const p = new URLSearchParams(location.search);
+    const node = /^([0-9]+)[-:]([0-9]+)$/.exec(p.get("node-id") ?? "");
+    const m = p.get("m");
+    if (node || m === "dev" || m === "proto") return { ...(node ? { nodeId: `${node[1]}:${node[2]}` } : {}), ...(m === "dev" || m === "proto" ? { mode: m } : {}) };
+  }
+  return getStoreClient()
+    .multiplayer.takeOpenIntent(fileKey)
+    .catch(() => null);
+}

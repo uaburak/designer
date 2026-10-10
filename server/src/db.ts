@@ -128,6 +128,45 @@ export class Db {
     return r?.owner_id === ownerId;
   }
 
+  /** The caller's role and how they have it: `invited` = owner or member (no password asked), else by the link alone. */
+  async access(key: string, userId: string): Promise<{ role: Role; invited: boolean; password: string | null; passwordVersion: number } | null> {
+    const r = await this.d1
+      .prepare(
+        `SELECT CASE WHEN f.owner_id = ?2 THEN 'owner'
+                     WHEN m.role = 'editor' OR f.link_access = 'editor' THEN 'editor'
+                     WHEN m.role = 'viewer' OR f.link_access = 'viewer' THEN 'viewer' END AS role,
+                (f.owner_id = ?2 OR m.role IS NOT NULL) AS invited, f.link_password, f.link_password_version
+         FROM files f LEFT JOIN members m ON m.file_key = f.key AND m.user_id = ?2
+         WHERE f.key = ?1`,
+      )
+      .bind(key, userId)
+      .first<{ role: Role | null; invited: number; link_password: string | null; link_password_version: number }>();
+    return r?.role ? { role: r.role, invited: r.invited === 1, password: r.link_password, passwordVersion: r.link_password_version } : null;
+  }
+
+  /** "Password required": a hash, or null to turn it off; bumps the version either way. */
+  async setLinkPassword(key: string, hash: string | null, now: number): Promise<void> {
+    await this.d1.prepare(`UPDATE files SET link_password = ?2, link_password_version = link_password_version + 1, updated_at = ?3 WHERE key = ?1`).bind(key, hash, now).run();
+  }
+
+  /** "Transfer ownership" to a member with an account: they become the owner, the old owner a "can edit" member. */
+  async transferOwnership(key: string, toEmail: string, fromId: string, now: number): Promise<{ toId: string } | null> {
+    const e = normalizeEmail(toEmail);
+    const to = await this.d1.prepare(`SELECT user_id FROM members WHERE file_key = ?1 AND email = ?2 AND user_id IS NOT NULL`).bind(key, e).first<{ user_id: string }>();
+    const from = await this.d1.prepare(`SELECT email FROM users WHERE id = ?1`).bind(fromId).first<{ email: string }>();
+    if (!to || !from) return null;
+    await this.d1.prepare(`UPDATE files SET owner_id = ?2, updated_at = ?3 WHERE key = ?1`).bind(key, to.user_id, now).run();
+    await this.d1.prepare(`DELETE FROM members WHERE file_key = ?1 AND email = ?2`).bind(key, e).run();
+    await this.d1
+      .prepare(
+        `INSERT INTO members (file_key, email, user_id, role, invited_by, created_at) VALUES (?1, ?2, ?3, 'editor', ?4, ?5)
+         ON CONFLICT (file_key, email) DO UPDATE SET role = 'editor', user_id = ?3`,
+      )
+      .bind(key, from.email, fromId, to.user_id, now)
+      .run();
+    return { toId: to.user_id };
+  }
+
   async roleOf(key: string, userId: string): Promise<Role | null> {
     const r = await this.d1
       .prepare(
@@ -157,12 +196,12 @@ export class Db {
   }
 
   /** A file's name and its link setting */
-  async file(key: string): Promise<{ key: string; name: string; ownerId: string; linkAccess: "none" | "viewer" | "editor"; viewersCanCopy: boolean } | null> {
+  async file(key: string): Promise<{ key: string; name: string; ownerId: string; linkAccess: "none" | "viewer" | "editor"; viewersCanCopy: boolean; passwordProtected: boolean } | null> {
     const r = await this.d1
-      .prepare(`SELECT key, name, owner_id, link_access, viewers_can_copy FROM files WHERE key = ?1`)
+      .prepare(`SELECT key, name, owner_id, link_access, viewers_can_copy, link_password FROM files WHERE key = ?1`)
       .bind(key)
-      .first<{ key: string; name: string; owner_id: string; link_access: "none" | "viewer" | "editor"; viewers_can_copy: number }>();
-    return r ? { key: r.key, name: r.name, ownerId: r.owner_id, linkAccess: r.link_access, viewersCanCopy: r.viewers_can_copy !== 0 } : null;
+      .first<{ key: string; name: string; owner_id: string; link_access: "none" | "viewer" | "editor"; viewers_can_copy: number; link_password: string | null }>();
+    return r ? { key: r.key, name: r.name, ownerId: r.owner_id, linkAccess: r.link_access, viewersCanCopy: r.viewers_can_copy !== 0, passwordProtected: r.link_password !== null } : null;
   }
 
   async setViewersCanCopy(key: string, on: boolean, now: number): Promise<void> {

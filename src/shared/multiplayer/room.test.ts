@@ -100,6 +100,20 @@ describe("Room", () => {
     expect(storage.lastSeq()).toBe(0);
   });
 
+  it("relays a signal to the one session it names, from the sender's session", () => {
+    const room = new Room(new MemoryRoomStorage());
+    const a = join(room, 0, "a");
+    const b = join(room, 0, "b");
+    const c = join(room, 0, "c");
+    const before = [b.controls.length, c.controls.length];
+    room.receive(a, JSON.stringify({ t: "signal", to: b.welcome.sessionID, data: { kind: "ask-spotlight" } }));
+    expect(b.last).toEqual({ t: "signal", from: a.welcome.sessionID, data: { kind: "ask-spotlight" } });
+    expect(c.controls.length).toBe(before[1]);
+    expect(b.controls.length).toBe(before[0] + 1);
+    room.receive(a, JSON.stringify({ t: "signal", to: b.welcome.sessionID, data: "x".repeat(40_000) }));
+    expect(a.closed).toBe(1008);
+  });
+
   it("announces joins and leaves to members that said hello", () => {
     const room = new Room(new MemoryRoomStorage());
     const a = join(room);

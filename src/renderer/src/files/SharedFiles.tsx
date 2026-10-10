@@ -7,14 +7,20 @@
 import { useEffect, useState } from "react";
 import { Button, Dialog, EmptyState, FileCard, Spinner, TextInput } from "@/ds";
 import { getStoreClient, thumbnailUrl } from "@/store";
-import { keyFromLink, type RemoteFile } from "@shared/multiplayer/types";
+import { intentFromLink, keyFromLink, type OpenIntent, type RemoteFile } from "@shared/multiplayer/types";
+import { withLinkPassword } from "./LinkPassword";
 import styles from "./Files.module.css";
 
 interface Row extends RemoteFile {
   thumb: string | null;
 }
 
-export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | "list"; onOpen: (fileKey: string, name: string) => void; onError: (message: string) => void }) {
+/** Opens a shared file (its local copy), asking for the link's password when it has one; null when that was cancelled. */
+export function openSharedFile(key: string, intent: OpenIntent = {}): Promise<{ fileKey: string } | null> {
+  return withLinkPassword((password) => getStoreClient().multiplayer.openShared(key, password, intent));
+}
+
+export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | "list"; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -44,8 +50,8 @@ export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | 
     if (opening) return;
     setOpening(f.key);
     try {
-      const { fileKey } = await getStoreClient().multiplayer.openShared(f.key);
-      onOpen(fileKey, f.name);
+      const r = await openSharedFile(f.key);
+      if (r) onOpen(r.fileKey, f.name);
     } catch (e) {
       onError(`Couldn’t open “${f.name}”: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -73,7 +79,7 @@ export function SharedFilesView({ layout, onOpen, onError }: { layout: "grid" | 
 }
 
 /** Opens a shared file by its link (or key): the browser's paste, or a link that didn't come through designer://. */
-export function OpenLinkDialog({ onClose, onOpen, onError }: { onClose: () => void; onOpen: (fileKey: string, name: string) => void; onError: (message: string) => void }) {
+export function OpenLinkDialog({ onClose, onOpen, onError }: { onClose: () => void; onOpen: (fileKey: string, name: string, intent?: OpenIntent) => void; onError: (message: string) => void }) {
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
   const key = keyFromLink(link);
@@ -81,8 +87,10 @@ export function OpenLinkDialog({ onClose, onOpen, onError }: { onClose: () => vo
     if (!key) return;
     setBusy(true);
     try {
-      const { fileKey } = await getStoreClient().multiplayer.openShared(key);
-      onOpen(fileKey, "");
+      const intent = intentFromLink(link);
+      const r = await openSharedFile(key, intent);
+      if (!r) return;
+      onOpen(r.fileKey, "", intent);
       onClose();
     } catch (e) {
       onError(`Couldn’t open the link: ${e instanceof Error ? e.message : String(e)}`);

@@ -10,11 +10,13 @@
  *   between the catch-up and `ready`.
  * - Viewers receive everything but may not send changes.
  * - Presence is relayed, remembered per member for newcomers, never stored.
+ * - Signals go to one session only (by its sessionID), never stored.
  */
 import {
   decodeChangesUp,
   encodeChangesDown,
   MAX_FRAME_BYTES,
+  MAX_SIGNAL_BYTES,
   type ChangesDown,
   type ClientControl,
   type PeerInfo,
@@ -99,6 +101,10 @@ export class Room {
         m.presence = msg.data;
         this.onState(conn, m);
         this.broadcast({ t: "presence", sessionID: m.sessionID, data: msg.data }, conn);
+      } else if (msg.t === "signal") {
+        if (data.length > MAX_SIGNAL_BYTES) return this.fail(conn, "too-large", "signal over the limit");
+        const text = JSON.stringify({ t: "signal", from: m.sessionID, data: msg.data } satisfies ServerControl);
+        for (const [c, o] of this.members) if (o.sessionID === msg.to && c !== conn) c.send(text);
       }
       return;
     }

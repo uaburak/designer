@@ -95,7 +95,7 @@ export const STORE_METHODS = {
   libraries: ["listAvailable", "getRecord", "getVersion", "previewPublish", "publish", "unpublish", "setEnabled", "getPayloads", "diff"],
   previews: ["status", "list", "publish", "stop", "exportHtml"],
   store: ["shutdown", "flushAll", "info", "collectGarbage"],
-  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence"],
+  multiplayer: ["setSession", "status", "fileState", "share", "listRemote", "openShared", "members", "fileInfo", "setLinkAccess", "setViewersCanCopy", "requestEdit", "requests", "answerRequest", "invite", "removeMember", "presence", "takeOpenIntent", "unlockFile", "setLinkPassword", "transferOwnership", "signal"],
 } as const satisfies Record<Repository, readonly string[]>;
 
 /** Methods that take filesystem paths stay in main, behind native dialogs, so a renderer can never name a path. */

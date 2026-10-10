@@ -7,9 +7,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Breadcrumb, Button, ContextMenu, EmptyState, Icon, IconButton, MenuButton, SegmentedControl, Select, Spinner, showToast, type MenuEntry, type ToastOptions } from "@/ds";
 import { keys } from "@/ds/util/keys";
 import type { FileKey, FileListItem, Folder, FolderId, Prefs } from "@shared/store/types";
+import type { OpenIntent } from "@shared/multiplayer/types";
 import { accountMenu, useAccount } from "./account";
-import { getStoreClient } from "@/store";
-import { OpenLinkDialog, SharedFilesView } from "./SharedFiles";
+import { OpenLinkDialog, openSharedFile, SharedFilesView } from "./SharedFiles";
 import * as act from "./actions";
 import { ConfirmDialog, MoveDialog, NewFolderDialog } from "./dialogs";
 import { importWithShell, newDesignFile, onOpenShared, onReveal, onShellCommand, openFile, pickFigFiles, saveLocalCopy, setMenuState, type OpenDeps } from "./desktop";
@@ -460,7 +460,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
   const keyRef = useRef(handleKey);
   const commandRef = useRef<(id: string) => void>(() => {});
   const revealRef = useRef<(fileKey: FileKey) => void>(() => {});
-  const openSharedRef = useRef<(key: string) => void>(() => {});
+  const openSharedRef = useRef<(key: string, intent: OpenIntent) => void>(() => {});
   useLayoutEffect(() => {
     keyRef.current = handleKey;
     commandRef.current = (id) => {
@@ -488,20 +488,18 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
       }
     };
     revealRef.current = (fileKey) => void reveal(fileKey);
-    openSharedRef.current = (key) =>
-      void getStoreClient()
-        .multiplayer.openShared(key)
-        .then(
-          ({ fileKey }) => openFile(fileKey, {}, deps),
-          (e: unknown) => toast({ kind: "error", message: `Couldn’t open the shared file: ${e instanceof Error ? e.message : String(e)}` }),
-        );
+    openSharedRef.current = (key, intent) =>
+      void openSharedFile(key, intent).then(
+        (r) => r && openFile(r.fileKey, { intent }, deps),
+        (e: unknown) => toast({ kind: "error", message: `Couldn’t open the shared file: ${e instanceof Error ? e.message : String(e)}` }),
+      );
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => keyRef.current(e);
     document.addEventListener("keydown", onKey);
     const off = onShellCommand((id) => commandRef.current(id));
     const offReveal = onReveal((k) => revealRef.current(k));
-    const offShared = onOpenShared((key) => openSharedRef.current(key));
+    const offShared = onOpenShared((key, intent) => openSharedRef.current(key, intent));
     return () => {
       document.removeEventListener("keydown", onKey);
       off();
@@ -754,7 +752,7 @@ export function FileBrowser({ backend, initialLocation = { kind: "recents" }, op
           />
         )}
       </main>
-      {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name) => void openFile(fileKey, name ? { title: name } : {}, deps)} onError={(message) => toast({ kind: "error", message })} />}
+      {linkOpen && <OpenLinkDialog onClose={() => setLinkOpen(false)} onOpen={(fileKey, name, intent) => void openFile(fileKey, { ...(name ? { title: name } : {}), intent }, deps)} onError={(message) => toast({ kind: "error", message })} />}
       {menu && <ContextMenu at={menu.at} entries={menu.entries} onSelect={menu.run} onClose={() => setMenu(null)} />}
       {dialog?.kind === "new-folder" && (
         <NewFolderDialog

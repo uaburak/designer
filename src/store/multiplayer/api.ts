@@ -1,5 +1,5 @@
 /** The `multiplayer` repository (docs/multiplayer.md §5) over a store's service — LocalStore and the browser's dev store. */
-import type { MultiplayerRepository } from "../../shared/multiplayer/types";
+import type { MultiplayerRepository, OpenIntent } from "../../shared/multiplayer/types";
 import { StoreError } from "../../shared/store/protocol";
 import type { MultiplayerService } from "./service";
 
@@ -13,7 +13,12 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
       return m.share(fileKey, input);
     },
     listRemote: () => m.listRemote(),
-    openShared: (key) => m.openShared(String(key)),
+    openShared: (key, password, intent) => m.openShared(String(key), typeof password === "string" ? password : undefined, cleanIntent(intent)),
+    takeOpenIntent: (fileKey) => m.takeOpenIntent(fileKey),
+    unlockFile: (fileKey, password) => m.unlockFile(fileKey, String(password)),
+    setLinkPassword: (fileKey, password) => m.setLinkPassword(fileKey, typeof password === "string" && password ? password : null),
+    transferOwnership: (fileKey, email) => m.transferOwnership(fileKey, String(email)),
+    signal: (fileKey, to, data) => m.signal(fileKey, Number(to), data),
     members: (fileKey) => m.members(fileKey),
     fileInfo: (fileKey) => m.fileInfo(fileKey),
     setViewersCanCopy: (fileKey, on) => m.setViewersCanCopy(fileKey, on === true),
@@ -28,11 +33,19 @@ export function multiplayerApi(m: MultiplayerService): MultiplayerRepository {
       const a = m.onFileState((fileKey, state) => listener({ fileKey, state }));
       const b = m.onReplaced((from, to) => void m.fileState(from).then((state) => listener({ fileKey: from, state, replacedBy: to })));
       const c = m.onNotice((fileKey, notice) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, notice })));
+      const d = m.onSignal((fileKey, from, data) => void m.fileState(fileKey).then((state) => listener({ fileKey, state, signal: { from, data } })));
       return () => {
         a();
         b();
         c();
+        d();
       };
     },
   };
 }
+
+const cleanIntent = (i: unknown): OpenIntent | undefined => {
+  if (!i || typeof i !== "object") return undefined;
+  const { nodeId, mode } = i as OpenIntent;
+  return { ...(typeof nodeId === "string" && /^[0-9]+:[0-9]+$/.test(nodeId) ? { nodeId } : {}), ...(mode === "dev" || mode === "proto" ? { mode } : {}) };
+};

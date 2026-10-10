@@ -1,4 +1,4 @@
-import { app, nativeImage, powerMonitor, session } from "electron";
+import { app, nativeImage, powerMonitor, session, systemPreferences } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isCommandId } from "../shared/commands";
@@ -42,16 +42,17 @@ function windowOrNew() {
   return ctl;
 }
 
-/** designer://open?key=… — a shared file's link (the server's /f/<key> page hands it over; docs/multiplayer.md §3). */
+/** designer://open?key=…[&node-id=…&m=dev] — a shared file's link (the server's /f/<key> page hands it over, with the
+ *  frame and mode it names; docs/multiplayer.md §3). */
 let pendingLink: string | null = null;
 function openLink(url: string) {
   if (!url.startsWith("designer:")) return;
   const key = keyFromLink(url);
   if (!key) return;
-  if (!app.isReady()) return void (pendingLink = key);
+  if (!app.isReady()) return void (pendingLink = url);
   const ctl = windowOrNew();
   // A new window's Home is still loading: the tab manager waits for it.
-  setTimeout(() => ctl.tabs.openSharedLink(key), 0);
+  setTimeout(() => ctl.tabs.openSharedLink(key, url), 0);
 }
 const linkIn = (argv: string[]) => argv.find((a) => a.startsWith("designer:"));
 if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient("designer", process.execPath, [join(process.cwd(), process.argv[1])]);
@@ -62,7 +63,7 @@ app.on("open-url", (e, url) => {
 });
 {
   const first = linkIn(process.argv);
-  if (first) pendingLink = keyFromLink(first);
+  if (first && keyFromLink(first)) pendingLink = first;
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -91,8 +92,15 @@ if (!app.requestSingleInstanceLock()) {
 
     // The pages may use the clipboard (copy and paste of layers), go full screen (a video) and lock the pointer (scrubbing a number); nothing else.
     const allowed = (permission: string, url: string) => isAppUrl(url) && (permission === "fullscreen" || permission === "pointerLock" || permission === "clipboard-read" || permission === "clipboard-sanitized-write");
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => callback(allowed(permission, details.requestingUrl)));
-    session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => allowed(permission, origin));
+    // The microphone, for a shared file's audio conversation (docs/multiplayer.md §11): audio only, asked of macOS first.
+    const microphone = (permission: string, url: string, mediaTypes?: string[]) => permission === "media" && isAppUrl(url) && !!mediaTypes?.length && mediaTypes.every((t) => t === "audio");
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+      const types = (details as { mediaTypes?: string[] }).mediaTypes;
+      if (!microphone(permission, details.requestingUrl, types)) return callback(allowed(permission, details.requestingUrl));
+      if (process.platform !== "darwin") return callback(true);
+      void systemPreferences.askForMediaAccess("microphone").then(callback, () => callback(false));
+    });
+    session.defaultSession.setPermissionCheckHandler((_wc, permission, origin, details) => allowed(permission, origin) || (permission === "media" && isAppUrl(origin) && (details as { mediaType?: string }).mediaType === "audio"));
     session.defaultSession.setDevicePermissionHandler(() => false);
 
     installAppMenu(current, Boolean(DEV_URL));
@@ -102,7 +110,8 @@ if (!app.requestSingleInstanceLock()) {
     });
     const first = openWindow();
     // A shared file's link the app was started with.
-    if (pendingLink) first.tabs.openSharedLink(pendingLink);
+    const pendingKey = pendingLink && keyFromLink(pendingLink);
+    if (pendingLink && pendingKey) first.tabs.openSharedLink(pendingKey, pendingLink);
     // The agents' MCP server (127.0.0.1, a token): MCP clients and the Agents tab reach the open files through it.
     void startAgents().catch((err) => console.warn("[agents] the MCP server didn't start:", err));
     // The font index (a cached JSON after the first launch) is ready before the first file's editor asks for it.

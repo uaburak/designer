@@ -349,7 +349,7 @@ export interface IpcEvents {
   /** To Home: show this file (Show in File Browser, Back to files from it) */
   "home:reveal": { fileKey: string };
   /** To Home: a shared file's link was opened (designer://open?key=…, docs/multiplayer.md §3) */
-  "home:open-shared": { key: string };
+  "home:open-shared": { key: string; link?: string };
   /** A new store port is on its way (with the event, as a transferred MessagePort): one per page load and per store start */
   "store:port": { generation: number };
   /** The theme changed (a choice, or the system's appearance while the preference is "system") */

@@ -5,7 +5,7 @@
 import type { Role } from "../../src/shared/multiplayer/protocol";
 import { normalizeEmail, type Db, type User } from "./db";
 import { authorizeUrl, exchangeCode, GoogleError } from "./google";
-import { randomToken, sha256b64url, signToken, verifyToken } from "./tokens";
+import { checkPassword, hashPassword, randomToken, sha256b64url, signToken, verifyToken } from "./tokens";
 
 export interface Env {
   GOOGLE_CLIENT_ID?: string;
@@ -71,7 +71,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   const allowed = origin !== null && webOrigins(deps).includes(origin);
   if (req.method === "OPTIONS") {
     if (!allowed) return new Response(null, { status: 403 });
-    return new Response(null, { status: 204, headers: cors(origin, { "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "86400" }) });
+    return new Response(null, { status: 204, headers: cors(origin, { "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE", "access-control-allow-headers": "authorization, content-type, x-file-pass", "access-control-max-age": "86400" }) });
   }
   let res: Response;
   try {
@@ -103,7 +103,7 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (path === "/auth/token" && m === "POST") return token(req, deps);
   if (path === "/auth/dev" && m === "POST") return devSignIn(req, deps);
   const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
-  if (link && m === "GET") return linkPage(link[1]);
+  if (link && m === "GET") return linkPage(link[1], url.searchParams);
 
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const isSocket = parts[0] === "files" && parts[2] === "ws" && parts.length === 3;
@@ -138,8 +138,14 @@ async function route(req: Request, deps: Deps): Promise<Response> {
 
   const key = parts[1];
   if (!FILE_KEY.test(key)) throw new HttpError(400, "bad file key");
-  const role = await deps.db.roleOf(key, user.id);
-  if (!role) throw new HttpError(404, "no such file"); // also when it exists but isn't shared with the caller
+  const access = await deps.db.access(key, user.id);
+  if (!access) throw new HttpError(404, "no such file"); // also when it exists but isn't shared with the caller
+  const role = access.role;
+  // "Password required": someone in by the link alone shows a pass for the current password (POST …/unlock) — invited
+  // people never need it. The file's name and the unlock route are open to them so the app can ask.
+  const needsPassword = !access.invited && access.password !== null && !(await validPass(req, url, deps, key, user.id, access.passwordVersion));
+  const open = (parts.length === 2 && m === "GET") || (parts.length === 3 && parts[2] === "unlock" && m === "POST");
+  if (needsPassword && !open) throw new HttpError(403, "password required");
   const identity = { userId: user.id, name: user.name, role };
   const atLeast = (r: Role) => {
     if (rank[role] < rank[r]) throw new HttpError(403, r === "owner" ? "only the owner can" : "you can only view this file");
@@ -148,10 +154,17 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   if (parts.length === 2) {
     if (m === "GET") {
       const f = await deps.db.file(key);
-      return json({ key, name: f?.name ?? "Untitled", role, linkAccess: f?.linkAccess ?? "none", viewersCanCopy: f?.viewersCanCopy ?? true, link: `${url.origin}/f/${key}` });
+      return json({ key, name: f?.name ?? "Untitled", role, linkAccess: f?.linkAccess ?? "none", viewersCanCopy: f?.viewersCanCopy ?? true, passwordProtected: f?.passwordProtected ?? false, needsPassword, link: `${url.origin}/f/${key}` });
     }
     if (m === "PATCH") {
-      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown }>(req);
+      const body = await readJson<{ name?: string; linkAccess?: string; viewersCanCopy?: unknown; linkPassword?: unknown }>(req);
+      if (body.linkPassword !== undefined) {
+        // help.figma.com: anyone who can edit sets, changes or removes it; changing it makes link-only people enter it again.
+        atLeast("editor");
+        if (body.linkPassword !== null && (typeof body.linkPassword !== "string" || body.linkPassword.length < 1 || body.linkPassword.length > 128)) throw new HttpError(400, "linkPassword is 1–128 characters, or null");
+        await deps.db.setLinkPassword(key, body.linkPassword === null ? null : await hashPassword(body.linkPassword), deps.now());
+        await deps.rooms.fetch(key, "/room/revoke-link", { method: "POST" });
+      }
       if (body.viewersCanCopy !== undefined) {
         atLeast("editor");
         await deps.db.setViewersCanCopy(key, body.viewersCanCopy === true, deps.now());
@@ -179,6 +192,25 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   }
 
   switch (parts[2]) {
+    case "unlock": {
+      if (parts.length !== 3 || m !== "POST") break;
+      const { password } = await readJson<{ password?: unknown }>(req);
+      if (!access.password) return json({ pass: null });
+      if (typeof password !== "string" || !(await checkPassword(password, access.password))) throw new HttpError(403, "wrong password");
+      const pass = await signToken({ k: key, u: user.id, v: access.passwordVersion, exp: seconds(deps) + SESSION_DAYS * 86400 }, secret(deps));
+      return json({ pass });
+    }
+    case "transfer": {
+      // "Transfer ownership" (help.figma.com 360038512093): owner only, to someone already invited; can't be undone.
+      if (parts.length !== 3 || m !== "POST") break;
+      atLeast("owner");
+      const { email } = await readJson<{ email?: unknown }>(req);
+      if (typeof email !== "string") throw new HttpError(400, "email");
+      const done = await deps.db.transferOwnership(key, email, user.id, deps.now());
+      if (!done) throw new HttpError(400, "only someone invited who has logged in can own the file");
+      for (const userId of [done.toId, user.id]) await deps.rooms.fetch(key, "/room/revoke", { method: "POST", body: JSON.stringify({ userId }) });
+      return json({ ok: true });
+    }
     case "members": {
       if (parts.length === 3 && m === "GET") return json({ members: await deps.db.members(key) });
       if (parts.length === 3 && m === "PUT") {
@@ -304,6 +336,21 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   return user;
 }
 
+interface PassPayload {
+  k: string;
+  u: string;
+  v: number;
+  exp: number;
+}
+
+/** A link password's pass (header `x-file-pass`, or `pass` on a WebSocket's URL) for this file, user and password. */
+async function validPass(req: Request, url: URL, deps: Deps, key: string, userId: string, version: number): Promise<boolean> {
+  const raw = req.headers.get("x-file-pass") ?? url.searchParams.get("pass");
+  if (!raw) return false;
+  const p = await verifyToken<PassPayload>(raw, secret(deps), seconds(deps));
+  return !!p && p.k === key && p.u === userId && p.v === version;
+}
+
 async function issueSession(user: User, deps: Deps): Promise<Response> {
   const exp = seconds(deps) + SESSION_DAYS * 86400;
   const token = await signToken({ uid: user.id, tv: user.tokenVersion, exp }, secret(deps));
@@ -387,15 +434,25 @@ async function devSignIn(req: Request, deps: Deps): Promise<Response> {
   return issueSession(user, deps);
 }
 
-/** A file's link opened in a browser: a page that hands it to the desktop app (designer://open?key=…). */
-function linkPage(key: string): Response {
-  const app = `designer://open?key=${encodeURIComponent(key)}`;
+/** A file's link opened in a browser: a page that hands it to the desktop app (designer://open?key=…), with the frame
+ *  (`node-id`, Figma's "1-2") and the mode (`m=dev` Dev Mode, `m=proto` the prototype) the link carries. */
+function linkPage(key: string, params: URLSearchParams): Response {
+  const app = new URL("designer://open");
+  app.searchParams.set("key", key);
+  const node = params.get("node-id");
+  if (node && /^[0-9]+[-:][0-9]+$/.test(node)) app.searchParams.set("node-id", node.replace(":", "-"));
+  const mode = params.get("m");
+  if (mode === "dev" || mode === "proto") app.searchParams.set("m", mode);
+  return linkHtml(app.toString());
+}
+
+function linkHtml(app: string): Response {
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Open in DesignerV2</title>
 <body style="font:14px -apple-system,system-ui;margin:0;display:grid;place-items:center;min-height:100vh;background:#f5f5f5;color:#1e1e1e">
 <div style="text-align:center;max-width:360px;padding:24px"><h1 style="font-size:18px;font-weight:600;margin:0 0 8px">Open this file in DesignerV2</h1>
 <p style="margin:0 0 20px;color:#666">You need the desktop app and to be logged in with an account that has access.</p>
-<a href="${app}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#0d99ff;color:#fff;text-decoration:none;font-weight:500">Open in the app</a>
-<p style="margin:20px 0 0;color:#888;font-size:12px">Or in DesignerV2: Home › Shared with me › paste this link.</p></div>
+<a href="${app.replace(/&/g, "&amp;")}" style="display:inline-block;padding:8px 16px;border-radius:6px;background:#0d99ff;color:#fff;text-decoration:none;font-weight:500">Open in the app</a>
+<p style="margin:20px 0 0;color:#888;font-size:12px">Or in DesignerV2: Home › Recents › Shared files › Open link…, and paste this link.</p></div>
 <script>location.href=${JSON.stringify(app)}</script>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
 }

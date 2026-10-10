@@ -137,7 +137,7 @@ export interface HomeApi extends DesktopCommon {
     /** Show this file (a tab's "Show in File Browser", an editor's "Back to files") */
     onReveal(cb: (r: { fileKey: string }) => void): Unsubscribe;
     /** A shared file's link opened from the system (designer://open?key=…) */
-    onOpenShared(cb: (r: { key: string }) => void): Unsubscribe;
+    onOpenShared(cb: (r: { key: string; link?: string }) => void): Unsubscribe;
   };
   menu: ViewMenuApi;
   openExternal(url: string): void;

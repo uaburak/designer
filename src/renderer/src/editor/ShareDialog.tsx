@@ -7,21 +7,25 @@
  *   role select appears inside the field, default "can view"), Invite; "Who has access": the link row ("Anyone" / "People
  *   invited to file" — opens Share settings), the owner "(you)", members with their role menus (can edit, can view,
  *   Remove); "Ask to edit" requests with Approve / Deny.
- * - Developer preview (docs/data.md §13): its own view, as before.
+ * - Card 2: Copy Dev Mode link, More (Copy prototype link, Get embed code), Developer preview (docs/data.md §13).
+ * - Share settings: Who can access, What can they do, Additional security (Password required), Advanced — applied by
+ *   Save, as live Figma's.
+ * - Transfer ownership: the owner picks "Owner" in a member's role menu and confirms (help.figma.com 360038512093).
  *
  * The first invite (or Copy link) shares the file: the editor's snapshot of it goes to the room at the journal seq it
  * stands at; the store keeps it in step with the room from then on (docs/multiplayer.md §5).
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Avatar, Button, Checkbox, Icon, IconButton, RadioGroup, Select, Spinner, showToast } from "@/ds";
+import { Avatar, Button, Checkbox, Dialog, Icon, IconButton, RadioGroup, Select, Spinner, TextInput, showToast } from "@/ds";
 import { Portal } from "@/ds/overlay/Portal";
 import { useFocusScope } from "@/ds/overlay/FocusTrap";
 import { useCurrentPage } from "@/engine/hooks";
 import { getStoreClient } from "@/store";
-import type { AccessRequest, FileMember, FileShareState, LinkAccess, SharedFileInfo } from "@shared/multiplayer/types";
+import { linkWith, type AccessRequest, type FileMember, type FileShareState, type LinkAccess, type OpenIntent, type SharedFileInfo } from "@shared/multiplayer/types";
 import type { PreviewRecord } from "../../../shared/store/types";
 import { useAccount } from "../files/account";
 import { useEditor, type EditorController } from "./controller";
+import { linkNode } from "./multiplayer/links";
 import { useUI } from "./hooks";
 import { shareAccess, type SharePreviewOptions } from "./previews";
 import styles from "./ShareDialog.module.css";
@@ -49,7 +53,22 @@ const sharingSource = (ed: EditorController): SharingSource | null => {
   return typeof s.fileKey === "string" && typeof s.knownHeadSeq === "number" && typeof s.flush === "function" ? (s as SharingSource) : null;
 };
 
-type View = "main" | "settings" | "preview";
+type View = "main" | "settings" | "preview" | "embed";
+
+/** "Copy link" → "Link copied!" for a moment (live: the text changes in place, no toast) */
+function useCopied(): [boolean, () => void] {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+  return [
+    copied,
+    () => {
+      setCopied(true);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1500);
+    },
+  ];
+}
 
 function Share() {
   const ed = useEditor();
@@ -61,6 +80,10 @@ function Share() {
     ed.focusCanvas();
   };
   const people = usePeople(ed);
+  const [copied, markCopied] = useCopied();
+  const [devCopied, markDevCopied] = useCopied();
+  const [protoCopied, markProtoCopied] = useCopied();
+  const [more, setMore] = useState(false);
   return (
     <Portal>
       <div className={styles.layer} onPointerDown={(e) => e.target === e.currentTarget && close()} data-share-dialog="">
@@ -85,8 +108,15 @@ function Share() {
                   <span className={styles.title}>Share this file</span>
                   <span className={styles.grow} />
                   {people.canShare && (
-                    <button type="button" className={styles.link} onClick={() => void people.copyLink()} data-share="copy-link">
-                      Copy link
+                    <button type="button" className={styles.link} onClick={() => void people.copyLink({}).then((ok) => ok && markCopied())} data-share="copy-link">
+                      {copied ? (
+                        "Link copied!"
+                      ) : (
+                        <>
+                          <Icon name="24.link" className={styles.linkIcon} />
+                          Copy link
+                        </>
+                      )}
                     </button>
                   )}
                   <IconButton icon="24.close.small" label="Close" tooltip={false} onClick={close} />
@@ -94,6 +124,34 @@ function Share() {
                 <PeopleBody p={people} onSettings={() => setView("settings")} />
               </section>
               <section className={`${styles.card} ${styles.rows}`}>
+                {people.canShare && (
+                  <>
+                    <button type="button" className={styles.row} onClick={() => void people.copyLink({ mode: "dev" }).then((ok) => ok && markDevCopied())} data-share="copy-dev-link">
+                      <Icon name="24.dev-brackets" />
+                      <span className={styles.grow}>Copy Dev Mode link</span>
+                      {devCopied && <span className={styles.rowNote}>Link copied!</span>}
+                    </button>
+                    {more ? (
+                      <>
+                        <button type="button" className={styles.row} onClick={() => void people.copyLink({ mode: "proto" }).then((ok) => ok && markProtoCopied())} data-share="copy-prototype-link">
+                          <Icon name="24.play" />
+                          <span className={styles.grow}>Copy prototype link</span>
+                          {protoCopied && <span className={styles.rowNote}>Link copied!</span>}
+                        </button>
+                        <button type="button" className={styles.row} onClick={() => setView("embed")} data-share="embed">
+                          <Icon name="24.text.code-block" />
+                          <span className={styles.grow}>Get embed code</span>
+                          <Icon name="16.chevron.right" className={styles.chevron} />
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className={styles.row} onClick={() => setMore(true)} data-share="more">
+                        <Icon name="24.more" />
+                        <span>More</span>
+                      </button>
+                    )}
+                  </>
+                )}
                 <button type="button" className={styles.row} onClick={() => setView("preview")} data-share="preview">
                   <Icon name="24.text.code" />
                   <span>Developer preview</span>
@@ -107,7 +165,18 @@ function Share() {
                 <IconButton icon="24.arrow.left" label="Back" tooltip={false} onClick={() => setView("main")} />
                 <span className={styles.title}>Share settings</span>
               </header>
-              <ShareSettings p={people} />
+              <ShareSettings p={people} onDone={() => setView("main")} />
+            </section>
+          )}
+          {view === "embed" && (
+            <section className={styles.card}>
+              <header className={styles.head}>
+                <IconButton icon="24.arrow.left" label="Back" tooltip={false} onClick={() => setView("main")} />
+                <span className={styles.title}>Copy public embed code</span>
+                <span className={styles.grow} />
+                <IconButton icon="24.close.small" label="Close" tooltip={false} onClick={close} />
+              </header>
+              <EmbedView p={people} onCancel={() => setView("main")} />
             </section>
           )}
           {view === "preview" && (
@@ -230,15 +299,41 @@ function usePeople(ed: EditorController) {
         showToast({ kind: "error", message: message(e) });
       }
     },
-    async copyLink() {
+    /** The file's link naming the selection's top-level frame (or the page), with a mode; true when it was copied. */
+    async copyLink(intent: OpenIntent): Promise<boolean> {
       try {
         await ensureShared();
         const i = info ?? (await store.multiplayer.fileInfo(fileKey!));
         setInfo(i);
-        await navigator.clipboard?.writeText(i.link);
-        showToast({ message: "Link copied to clipboard" });
+        await navigator.clipboard?.writeText(linkWith(i.link, { nodeId: linkNode(ed), ...intent }));
+        return true;
       } catch (e) {
         showToast({ kind: "error", message: `Couldn’t copy the link: ${message(e)}` });
+        return false;
+      }
+    },
+    async transfer(m: FileMember) {
+      try {
+        setMembers(await store.multiplayer.transferOwnership(fileKey!, m.email));
+        setState(await store.multiplayer.fileState(fileKey!));
+        showToast({ message: `${m.name || m.email} now owns this file` });
+      } catch (e) {
+        showToast({ kind: "error", message: `Couldn’t transfer ownership: ${message(e)}` });
+      }
+    },
+    /** Share settings' Save: the link setting, the password (undefined: unchanged, null: off), viewers can copy */
+    async saveSettings(next: { access: LinkAccess; password: string | null | undefined; viewersCanCopy: boolean }) {
+      try {
+        await ensureShared();
+        let i = info ?? (await store.multiplayer.fileInfo(fileKey!));
+        if (next.access !== i.linkAccess) i = await store.multiplayer.setLinkAccess(fileKey!, next.access);
+        if (next.password !== undefined) i = await store.multiplayer.setLinkPassword(fileKey!, next.password);
+        if (next.viewersCanCopy !== i.viewersCanCopy) i = await store.multiplayer.setViewersCanCopy(fileKey!, next.viewersCanCopy);
+        setInfo(i);
+        return true;
+      } catch (e) {
+        showToast({ kind: "error", message: message(e) });
+        return false;
       }
     },
   };
@@ -393,6 +488,7 @@ function LinkRow({ p, onClick }: { p: People; onClick: () => void }) {
 }
 
 function MemberRow({ p, m }: { p: People; m: FileMember }) {
+  const [transfer, setTransfer] = useState(false);
   const me = m.email === p.meEmail;
   const online = p.state?.peers.some((x) => x.userId === m.userId) ?? false;
   const roleText = m.role === "owner" ? "owner" : m.role === "editor" ? "can edit" : "can view";
@@ -408,7 +504,43 @@ function MemberRow({ p, m }: { p: People; m: FileMember }) {
       {m.role === "owner" || !p.canShare || me ? (
         <span className={styles.role}>{roleText}</span>
       ) : (
-        <Select label={`${m.email} role`} value={m.role} options={[...ROLES, "-", { value: "remove", label: "Remove" }]} onChange={(v) => void p.setRole(m, v)} variant="ghost" width="hug" />
+        <Select
+          label={`${m.email} role`}
+          value={m.role}
+          options={[...(p.role === "owner" && !m.pending ? [{ value: "owner", label: "Owner" }] : []), ...ROLES, "-", { value: "remove", label: "Remove" }]}
+          onChange={(v) => (v === "owner" ? setTransfer(true) : void p.setRole(m, v))}
+          variant="ghost"
+          width="hug"
+        />
+      )}
+      {transfer && (
+        <Dialog
+          title="Transfer ownership"
+          size="small"
+          open
+          onClose={() => setTransfer(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setTransfer(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setTransfer(false);
+                  void p.transfer(m);
+                }}
+                data-share="transfer"
+              >
+                Transfer ownership
+              </Button>
+            </>
+          }
+        >
+          <p className={styles.caption}>
+            {`${m.name || m.email} will become the owner of this file, and you’ll have can edit access. You can’t undo this action.`}
+          </p>
+        </Dialog>
       )}
     </li>
   );
@@ -418,49 +550,144 @@ function MemberRow({ p, m }: { p: People; m: FileMember }) {
 // Share settings (the link row): who can access, what they can do, Advanced
 // ---------------------------------------------------------------------------------------------------------------------
 
-function ShareSettings({ p }: { p: People }) {
-  const access = p.info?.linkAccess ?? "none";
+function ShareSettings({ p, onDone }: { p: People; onDone: () => void }) {
+  const saved = p.info?.linkAccess ?? "none";
+  const [access, setAccess] = useState<LinkAccess>(saved);
+  const [viewersCanCopy, setViewersCanCopy] = useState(p.info?.viewersCanCopy ?? true);
+  const protectedNow = p.info?.passwordProtected === true;
+  const [passwordOn, setPasswordOn] = useState(protectedNow);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const anyone = access !== "none";
+  // Undefined: the password stays as it is; null: off; a string: the new one.
+  const nextPassword = !passwordOn ? (protectedNow ? null : undefined) : password ? password : undefined;
+  const changed = access !== saved || viewersCanCopy !== (p.info?.viewersCanCopy ?? true) || nextPassword !== undefined;
+  const missingPassword = passwordOn && !protectedNow && !password;
+  const save = async () => {
+    setBusy(true);
+    const ok = await p.saveSettings({ access, password: nextPassword, viewersCanCopy });
+    setBusy(false);
+    if (ok) onDone();
+  };
   return (
-    <div className={styles.body} data-share-settings="">
-      <span className={styles.section}>Who can access</span>
-      <Select
-        label="Audience"
-        value={anyone ? "anyone" : "invited"}
-        options={[
-          { value: "invited", label: "People invited to file" },
-          { value: "anyone", label: "Anyone" },
-        ]}
-        prefix={anyone ? "24.globe" : "24.lock.small"}
-        variant="outlined"
-        size="large"
-        onChange={(v) => void p.setLink(v === "anyone" ? (access === "editor" ? "editor" : "viewer") : "none")}
-        disabled={!p.canShare}
-      />
-      <p className={styles.caption}>{anyone ? "Anyone with the link who is logged in will be able to access this file." : "Only people invited to this file can access it."}</p>
-      {anyone && (
-        <>
-          <span className={styles.heading}>What can they do</span>
-          <RadioGroup
-            label="What can they do"
-            value={access}
-            options={[
-              { value: "viewer", label: "View" },
-              { value: "editor", label: "Edit" },
-            ]}
-            onChange={(v) => void p.setLink(v === "editor" ? "editor" : "viewer")}
-            disabled={!p.canShare}
+    <>
+      <div className={styles.body} data-share-settings="">
+        <span className={styles.section}>Who can access</span>
+        <Select
+          label="Audience"
+          value={anyone ? "anyone" : "invited"}
+          options={[
+            { value: "invited", label: "People invited to file" },
+            { value: "anyone", label: "Anyone" },
+          ]}
+          prefix={anyone ? "24.globe" : "24.lock.small"}
+          variant="outlined"
+          size="large"
+          onChange={(v) => setAccess(v === "anyone" ? (access === "editor" ? "editor" : "viewer") : "none")}
+          disabled={!p.canShare}
+        />
+        <p className={styles.caption}>{anyone ? "Anyone with the link who is logged in will be able to access this file." : "Only people invited to this file can access it."}</p>
+        {anyone && (
+          <>
+            <span className={styles.heading}>What can they do</span>
+            <RadioGroup
+              label="What can they do"
+              value={access}
+              options={[
+                { value: "viewer", label: "View" },
+                { value: "editor", label: "Edit" },
+              ]}
+              onChange={(v) => setAccess(v === "editor" ? "editor" : "viewer")}
+              disabled={!p.canShare}
+            />
+            <p className={styles.caption}>{access === "editor" ? "Can view, comment and edit this file." : "Can view and comment on this file."}</p>
+          </>
+        )}
+        <hr className={styles.divider} />
+        <span className={styles.section}>Additional security</span>
+        <div className={styles.passwordRow}>
+          <Checkbox label="Password required" checked={passwordOn} onChange={(on) => setPasswordOn(on === true)} disabled={!p.canShare} />
+          {passwordOn && (
+            <button type="button" className={styles.generate} onClick={() => setPassword(generatePassword())} aria-label="Generate password" data-share="generate-password">
+              <Icon name="24.rotate" />
+              Generate
+            </button>
+          )}
+        </div>
+        {passwordOn && (
+          <TextInput
+            label="Add a password"
+            placeholder={protectedNow ? "Enter a new password to change it" : "Add a password"}
+            value={password}
+            onChange={setPassword}
+            variant="outlined"
+            size="large"
+            className={styles.password}
+            data-share="password"
           />
-          <p className={styles.caption}>{access === "editor" ? "Can view, comment and edit this file." : "Can view and comment on this file."}</p>
-        </>
-      )}
-      <hr className={styles.divider} />
-      <span className={styles.section}>Advanced</span>
-      <Checkbox label="Viewers can copy, save, and export from this file" checked={p.info?.viewersCanCopy ?? true} onChange={(on) => void p.setViewersCanCopy(on === true)} disabled={!p.canShare || !p.info} />
-      <p className={`${styles.caption} ${styles.indent}`}>
-        This setting applies to anyone in the file with <strong>can view</strong> access
-      </p>
-    </div>
+        )}
+        <hr className={styles.divider} />
+        <span className={styles.section}>Advanced</span>
+        <Checkbox label="Viewers can copy, save, and export from this file" checked={viewersCanCopy} onChange={(on) => setViewersCanCopy(on === true)} disabled={!p.canShare || !p.info} />
+        <p className={`${styles.caption} ${styles.indent}`}>
+          This setting applies to anyone in the file with <strong>can view</strong> access
+        </p>
+      </div>
+      <footer className={styles.foot}>
+        <Button variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={!changed || missingPassword || busy || !p.canShare} loading={busy} onClick={() => void save()} data-share="save-settings">
+          Save
+        </Button>
+      </footer>
+    </>
+  );
+}
+
+/** "Generate": four random words, as Figma's (help.figma.com 5726720100247) */
+const WORDS = "amber anchor apple arrow autumn bamboo beacon berry bloom breeze canyon cedar cloud comet coral cotton crystal dawn delta desert echo ember falcon fern forest frost galaxy garden glacier harbor hazel horizon island ivory jade jasmine juniper lagoon lemon lily lotus maple meadow meteor mint moss nebula oasis ocean olive orbit orchid pebble pepper pine planet plum prairie quartz rain raven reef river robin saffron sage sand shadow silver sky spruce star stone storm summer sunset thunder tide timber topaz tulip valley velvet violet willow winter".split(" ");
+function generatePassword(): string {
+  const r = crypto.getRandomValues(new Uint32Array(4));
+  return [...r].map((n) => WORDS[n % WORDS.length]).join("-");
+}
+
+/** "Copy public embed code" (live: the code selected in a read-only field, "Embed <page> in your webpage", Cancel, Copy). */
+function EmbedView({ p, onCancel }: { p: People; onCancel: () => void }) {
+  const ed = useEditor();
+  const page = useCurrentPage(ed.store);
+  const pageName = ed.store.pages.find((x) => x.guid === page)?.name ?? "this page";
+  const field = useRef<HTMLTextAreaElement>(null);
+  const [copied, markCopied] = useCopied();
+  const key = p.info?.key ?? p.state?.key ?? null;
+  const origin = p.info ? new URL(p.info.link).origin : null;
+  const code = key && origin ? `<iframe style="border: 1px solid rgba(0, 0, 0, 0.1);" width="800" height="450" src="${origin}/embed/${key}?node-id=${linkNode(ed).replace(":", "-")}&embed-host=share" allowfullscreen></iframe>` : "";
+  useEffect(() => field.current?.select(), [code]);
+  const open = (p.info?.linkAccess ?? "none") !== "none" && !p.info?.passwordProtected;
+  return (
+    <>
+      <div className={styles.body}>
+        {!key ? (
+          <p className={styles.note}>Share the file first (Copy link or an invite) to get its embed code.</p>
+        ) : (
+          <>
+            <textarea ref={field} className={styles.embed} readOnly value={code} aria-label="Copy public embed code" data-share="embed-code" onFocus={(e) => e.currentTarget.select()} />
+            {!open && <p className={styles.caption}>Only files anyone with the link can view, without a password, show in an embed. Change it in Share settings.</p>}
+          </>
+        )}
+      </div>
+      <footer className={styles.foot}>
+        <span className={`${styles.caption} ${styles.grow}`}>
+          Embed <strong className={styles.embedPage}>{pageName}</strong> in your webpage
+        </span>
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={!code} onClick={() => void navigator.clipboard?.writeText(code).then(markCopied)} data-share="copy-embed">
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </footer>
+    </>
   );
 }
 

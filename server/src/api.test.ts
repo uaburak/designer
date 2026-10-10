@@ -312,6 +312,57 @@ describe("files and sharing", () => {
     expect(files.files[0].ownerName).toBe("o");
   });
 
+  it("Password required: link-only people enter it once per password, invited people never; changing it asks again", async () => {
+    const owner = await devSignIn("o@x.co");
+    await call("POST", "/files", { token: owner.token, body: { key: "file_pw0001", name: "Locked" } });
+    await call("PATCH", "/files/file_pw0001", { token: owner.token, body: { linkAccess: "viewer" } });
+    const member = await devSignIn("m@x.co");
+    await call("PUT", "/files/file_pw0001/members", { token: owner.token, body: { email: "m@x.co", role: "viewer" } });
+    expect((await call("PATCH", "/files/file_pw0001", { token: member.token, body: { linkPassword: "secret" } })).status).toBe(403);
+    expect((await call("PATCH", "/files/file_pw0001", { token: owner.token, body: { linkPassword: "four random words" } })).status).toBe(200);
+    expect(roomCalls.at(-1)).toMatchObject({ path: "/room/revoke-link" });
+    const guest = await devSignIn("g@x.co");
+    const info = (await (await call("GET", "/files/file_pw0001", { token: guest.token })).json()) as Record<string, unknown>;
+    expect(info).toMatchObject({ name: "Locked", passwordProtected: true, needsPassword: true });
+    expect((await call("GET", "/files/file_pw0001/snapshot", { token: guest.token })).status).toBe(403);
+    expect((await call("POST", "/files/file_pw0001/unlock", { token: guest.token, body: { password: "nope" } })).status).toBe(403);
+    const { pass } = (await (await call("POST", "/files/file_pw0001/unlock", { token: guest.token, body: { password: "four random words" } })).json()) as { pass: string };
+    expect((await call("GET", "/files/file_pw0001/snapshot", { token: guest.token, headers: { "x-file-pass": pass } })).status).toBe(200);
+    expect((await call("GET", `/files/file_pw0001/ws?token=${guest.token}&pass=${pass}`, { headers: { upgrade: "websocket" } })).status).toBe(200);
+    // Not someone else's, not another file's.
+    expect((await call("GET", "/files/file_pw0001/snapshot", { token: owner.token, headers: { "x-file-pass": "v1.x.y" } })).status).toBe(200);
+    const other = await devSignIn("other@x.co");
+    expect((await call("GET", "/files/file_pw0001/snapshot", { token: other.token, headers: { "x-file-pass": pass } })).status).toBe(403);
+    // Invited people never need it.
+    expect(((await (await call("GET", "/files/file_pw0001", { token: member.token })).json()) as { needsPassword: boolean }).needsPassword).toBe(false);
+    expect((await call("GET", "/files/file_pw0001/snapshot", { token: member.token })).status).toBe(200);
+    // A new password: the old pass stops working.
+    await call("PATCH", "/files/file_pw0001", { token: owner.token, body: { linkPassword: "another" } });
+    expect((await call("GET", "/files/file_pw0001/snapshot", { token: guest.token, headers: { "x-file-pass": pass } })).status).toBe(403);
+    await call("PATCH", "/files/file_pw0001", { token: owner.token, body: { linkPassword: null } });
+    expect((await call("GET", "/files/file_pw0001/snapshot", { token: guest.token })).status).toBe(200);
+    expect((await call("PATCH", "/files/file_pw0001", { token: owner.token, body: { linkPassword: "" } })).status).toBe(400);
+  });
+
+  it("transfers ownership to an invited member only; the old owner keeps can edit", async () => {
+    const owner = await devSignIn("o@x.co");
+    await call("POST", "/files", { token: owner.token, body: { key: "file_own001", name: "Mine" } });
+    const ed = await devSignIn("e@x.co");
+    await call("PUT", "/files/file_own001/members", { token: owner.token, body: { email: "e@x.co", role: "viewer" } });
+    await call("PUT", "/files/file_own001/members", { token: owner.token, body: { email: "nobody@x.co", role: "editor" } });
+    expect((await call("POST", "/files/file_own001/transfer", { token: ed.token, body: { email: "e@x.co" } })).status).toBe(403);
+    expect((await call("POST", "/files/file_own001/transfer", { token: owner.token, body: { email: "nobody@x.co" } })).status).toBe(400); // pending
+    roomCalls = [];
+    expect((await call("POST", "/files/file_own001/transfer", { token: owner.token, body: { email: "E@x.co" } })).status).toBe(200);
+    expect(roomCalls.map((c) => c.path)).toEqual(["/room/revoke", "/room/revoke"]);
+    expect(((await (await call("GET", "/files/file_own001", { token: ed.token })).json()) as { role: string }).role).toBe("owner");
+    expect(((await (await call("GET", "/files/file_own001", { token: owner.token })).json()) as { role: string }).role).toBe("editor");
+    const members = ((await (await call("GET", "/files/file_own001/members", { token: owner.token })).json()) as { members: { email: string; role: string }[] }).members;
+    expect(members.map((x) => `${x.email}:${x.role}`)).toEqual(["e@x.co:owner", "nobody@x.co:editor", "o@x.co:editor"]);
+    // The link page keeps the frame and the mode.
+    expect(await (await call("GET", "/f/file_own001?node-id=12:34&m=dev")).text()).toContain("designer://open?key=file_own001&amp;node-id=12-34&amp;m=dev");
+  });
+
   it("validates input", async () => {
     const owner = await devSignIn("o@x.co");
     expect((await call("POST", "/files", { token: owner.token, body: { key: "../x" } })).status).toBe(400);

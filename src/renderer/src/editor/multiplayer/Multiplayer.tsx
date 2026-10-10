@@ -7,14 +7,21 @@
  * - observation mode: the UI minimized, the window framed 5 px in the followed person's colour, "Following <name>" with
  *   Stop at the top centre;
  * - "can view": the file read-only, the banner "You can only view and comment on this file." with Ask to edit;
- * - notices: an "Ask to edit" request (editors), its answer (the person who asked), a copy replaced by a fresh one.
+ * - notices: an "Ask to edit" request (editors), its answer (the person who asked), a copy replaced by a fresh one;
+ * - "Ask to spotlight" (a person's More options): the asked person's canvas framed in the asker's colour with
+ *   "<name> is asking you to spotlight" · Spotlight me · ✕;
+ * - audio: Multiplayer tools' headphones start or join the file's conversation; a widget at the canvas's top right
+ *   (avatars, microphone, Leave);
+ * - a link's landing (node-id, Dev Mode, prototype) and a changed link password (entered again).
  */
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Button, Icon, IconButton, Popover, showToast, tooltipProps } from "@/ds";
+import { Avatar, Button, Icon, IconButton, MenuButton, Popover, showToast, tooltipProps } from "@/ds";
 import { getStoreClient } from "@/store";
 import { useAccount } from "../../files/account";
+import { withLinkPassword } from "../../files/LinkPassword";
 import { useEditor } from "../controller";
 import { editorBridge } from "../desktop";
+import { applyIntent, openIntent } from "./links";
 import { presenceOf, usePresence, type Peer } from "./presence";
 import styles from "./Multiplayer.module.css";
 
@@ -49,15 +56,99 @@ export function Multiplayer() {
   }, [ed, following]);
 
   useNotices();
+  useLinkLanding();
+  useLinkPassword(state.locked);
 
   const followed = state.peers.find((p) => p.id === state.following);
   const offer = state.peers.find((p) => p.id === state.spotlightOffer);
+  const asking = state.peers.find((p) => p.id === state.askedBy);
   return (
     <>
       {followed && <ObservationFrame peer={followed} />}
       {offer && !followed && <SpotlightOffer peer={offer} />}
+      {asking && !followed && !offer && <AskSpotlight peer={asking} />}
+      {state.audio.inCall && <AudioWidget />}
       {viewer && <ViewerBanner />}
     </>
+  );
+}
+
+/** The link that opened this file: its frame or page, then Dev Mode or the prototype (once, when the editor is up). */
+function useLinkLanding() {
+  const ed = useEditor();
+  useEffect(() => {
+    const fileKey = (ed.source as unknown as { fileKey?: string }).fileKey;
+    if (!fileKey) return;
+    let live = true;
+    void openIntent(fileKey).then((intent) => {
+      if (!live || !intent) return;
+      requestAnimationFrame(() => live && applyIntent(ed, intent));
+    });
+    return () => {
+      live = false;
+    };
+  }, [ed]);
+}
+
+/** The file's link password changed under this person (in by the link): entered again, or the copy stops following. */
+function useLinkPassword(locked: boolean) {
+  const ed = useEditor();
+  useEffect(() => {
+    const fileKey = (ed.source as unknown as { fileKey?: string }).fileKey;
+    if (!locked || !fileKey) return;
+    let live = true;
+    void withLinkPassword((password) => getStoreClient().multiplayer.unlockFile(fileKey, password ?? ""), { ask: true }).then(
+      (r) => live && !r && showToast({ message: "This file’s password changed. Your copy stays here but won’t get new changes until you enter it." }),
+      (e: unknown) => live && showToast({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [ed, locked]);
+}
+
+/** Someone asked this person to spotlight (live: the canvas framed in the asker's colour, the bell 8 below its top). */
+function AskSpotlight({ peer }: { peer: Peer }) {
+  const ed = useEditor();
+  return (
+    <div className={styles.frame} style={{ "--peer": peer.color } as React.CSSProperties} data-ask-spotlight={peer.name}>
+      <div className={`${styles.bell} ${styles.ask}`}>
+        <span className={styles.bellMessage}>{`${peer.name} is asking you to spotlight`}</span>
+        <button type="button" className={styles.askButton} onClick={() => presenceOf(ed)?.spotlight(true)}>
+          Spotlight me
+        </button>
+        <IconButton icon="24.close.small" label={`Dismiss request to spotlight from ${peer.name}`} tooltip={false} className={styles.askClose} onClick={() => presenceOf(ed)?.dismissAsk()} />
+      </div>
+    </div>
+  );
+}
+
+/** The audio conversation (live: 151×40 at the canvas's top right, 12 in): who is in it, the microphone, Leave. */
+function AudioWidget() {
+  const ed = useEditor();
+  const state = usePresence(ed);
+  const me = useAccount().state?.user;
+  const p = presenceOf(ed);
+  const a = state.audio;
+  const others = state.peers.filter((x) => x.presence?.audio);
+  const micLabel = a.noMic ? "Check your microphone permissions to start chatting." : a.muted ? "Unmute" : "Mute";
+  return (
+    <div className={styles.audio} role="region" aria-label="Audio conversation" data-audio="">
+      <span className={styles.audioPeople}>
+        <span className={styles.audioFace} data-speaking={undefined}>
+          <Avatar name={me?.name || me?.email || "You"} size={24} />
+        </span>
+        {others.map((o) => (
+          <span key={o.id} className={styles.audioFace} data-speaking={a.speaking.includes(o.id) || undefined} style={{ "--peer": o.color } as React.CSSProperties} {...tooltipProps(o.presence?.audio?.muted ? `${o.name} (muted)` : o.name)}>
+            <Avatar name={o.name} size={24} />
+          </span>
+        ))}
+      </span>
+      <IconButton icon={a.muted || a.noMic ? "24.microphone.off" : "24.microphone"} label={micLabel} onClick={() => p?.audio.setMuted(!a.muted)} disabled={a.noMic} data-audio="mic" />
+      <button type="button" className={styles.leave} onClick={() => p?.audio.leave()} data-audio="leave">
+        Leave
+      </button>
+    </div>
   );
 }
 
@@ -228,35 +319,70 @@ export function Facepile() {
                 {myName} <span>(You)</span>
               </span>
             </div>
-            <Button
-              variant="primary"
-              className={styles.spotlight}
-              onClick={() => {
-                p?.spotlight(!state.spotlighting);
-                setOpen(false);
-              }}
-            >
-              {state.spotlighting ? "Stop spotlight" : "Spotlight me"}
-            </Button>
-            <div className={styles.toolsDivider} />
-            {state.peers.map((peer) => (
-              <button
-                key={peer.id}
-                type="button"
-                className={styles.person}
-                aria-label={state.following === peer.id ? `Stop following ${peer.name}` : `Click to follow ${peer.name}`}
+            <div className={styles.toolsRow}>
+              <Button
+                variant="primary"
+                className={styles.spotlight}
                 onClick={() => {
-                  if (state.following === peer.id) p?.stopFollowing();
-                  else p?.follow(peer.id);
+                  p?.spotlight(!state.spotlighting);
                   setOpen(false);
                 }}
               >
-                <span className={styles.ring} style={{ "--peer": peer.color } as React.CSSProperties}>
-                  <Avatar name={peer.name} size={24} />
-                </span>
-                <span className={styles.personName}>{peer.name}</span>
-                {peer.role === "viewer" && <span className={styles.personRole}>can view</span>}
+                {state.spotlighting ? "Stop spotlight" : "Spotlight me"}
+              </Button>
+              <button
+                type="button"
+                className={styles.headphones}
+                data-on={state.audio.inCall || undefined}
+                aria-label={state.audio.inCall ? "Leave conversation" : state.peers.some((x) => x.presence?.audio) ? "Join conversation" : "Start conversation"}
+                {...tooltipProps(state.audio.inCall ? "Leave conversation" : state.peers.some((x) => x.presence?.audio) ? "Join conversation" : "Start conversation")}
+                onClick={() => {
+                  if (state.audio.inCall) p?.audio.leave();
+                  else void p?.audio.join();
+                  setOpen(false);
+                }}
+                data-audio="start"
+              >
+                <Icon name="24.headphones" />
               </button>
+            </div>
+            <div className={styles.toolsDivider} />
+            {state.peers.map((peer) => (
+              <div key={peer.id} className={styles.person} data-person={peer.name}>
+                <button
+                  type="button"
+                  className={styles.personFollow}
+                  aria-label={state.following === peer.id ? `Stop following ${peer.name}` : `Click to follow ${peer.name}`}
+                  onClick={() => {
+                    if (state.following === peer.id) p?.stopFollowing();
+                    else p?.follow(peer.id);
+                    setOpen(false);
+                  }}
+                >
+                  <span className={styles.ring} style={{ "--peer": peer.color } as React.CSSProperties}>
+                    <Avatar name={peer.name} size={24} />
+                  </span>
+                  <span className={styles.personText}>
+                    <span className={styles.personName}>
+                      {peer.name}
+                      {peer.role === "owner" && " (Owner)"}
+                    </span>
+                    <span className={styles.personHint}>{state.following === peer.id ? "Click to stop following" : "Click to follow"}</span>
+                  </span>
+                </button>
+                <MenuButton
+                  label="More options"
+                  className={styles.personMore}
+                  entries={[{ id: "ask", label: "Ask to spotlight" }]}
+                  onSelect={() => {
+                    p?.askToSpotlight(peer.id);
+                    showToast({ message: `Asked ${peer.name} to spotlight` });
+                    setOpen(false);
+                  }}
+                >
+                  <Icon name="24.more" />
+                </MenuButton>
+              </div>
             ))}
           </div>
         </Popover>

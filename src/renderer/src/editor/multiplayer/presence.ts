@@ -13,6 +13,7 @@ import { peerColor } from "@shared/multiplayer/colors";
 import type { PeerInfo, Role } from "@shared/multiplayer/protocol";
 import type { FileShareState, PresenceData } from "@shared/multiplayer/types";
 import type { EditorController } from "../controller";
+import { AudioCall, type AudioState } from "./audio";
 
 /** What the engine offers for presence (docs/engine.md "Presence"); absent on an engine built before it */
 interface PresenceEngine {
@@ -47,6 +48,14 @@ export interface PresenceState {
   requests: number;
   /** Someone started spotlighting: followed in a few seconds unless "Not now" (R13 §1) */
   spotlightOffer: number | null;
+  /** This editor's session in the room (0 when not live) */
+  me: number;
+  /** Someone asked this editor to spotlight (Multiplayer tools › More options › Ask to spotlight) */
+  askedBy: number | null;
+  /** The link's password changed: entered again before the file carries on */
+  locked: boolean;
+  /** The file's audio conversation as this editor takes part in it */
+  audio: AudioState;
 }
 
 const SEND_EVERY_MS = 100;
@@ -55,7 +64,10 @@ const SPOTLIGHT_WAIT_MS = 3000;
 /** Share of the way a drawn cursor moves towards its target each frame (≈ 60 fps): smooth at 10 updates a second */
 const EASE = 0.3;
 
-const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null };
+const NO_AUDIO: AudioState = { inCall: false, muted: false, noMic: false, speaking: [] };
+const EMPTY: PresenceState = { shared: false, role: null, connection: "offline", peers: [], following: null, spotlighting: false, replacedBy: null, requests: 0, spotlightOffer: null, me: 0, askedBy: null, locked: false, audio: NO_AUDIO };
+/** A request to spotlight shows this long (Figma's bell stays until answered; ours goes after a while) */
+const ASK_SHOWS_MS = 30_000;
 
 export class Presence {
   state: PresenceState = EMPTY;
@@ -74,6 +86,16 @@ export class Presence {
   private offerTimer: ReturnType<typeof setTimeout> | null = null;
   /** Cursor chat: the text (null = closed) and the canvas point the local bubble follows (CSS px in the canvas) */
   private chat: string | null = null;
+  private askTimer: ReturnType<typeof setTimeout> | null = null;
+  readonly audio = new AudioCall(
+    (to, data) => void getStoreClient().multiplayer.signal(this.fileKey, to, data).catch(() => {}),
+    () => {
+      this.set({ audio: this.audio.state });
+      this.lastSent = "";
+      this.schedule();
+      this.syncAudio();
+    },
+  );
 
   constructor(
     private ed: EditorController,
@@ -95,6 +117,7 @@ export class Presence {
       mp.watch((e) => {
         if (e.fileKey !== this.fileKey) return;
         if (e.replacedBy) this.set({ replacedBy: e.replacedBy });
+        if (e.signal) this.signalled(e.signal.from, e.signal.data);
         this.apply(e.state);
       }),
     );
@@ -138,6 +161,7 @@ export class Presence {
 
   stop(): void {
     this.stopped = true;
+    this.audio.leave();
     cancelAnimationFrame(this.raf);
     if (this.sendTimer) clearTimeout(this.sendTimer);
     for (const off of this.offs.splice(0)) off();
@@ -180,7 +204,39 @@ export class Presence {
     this.schedule();
   }
 
+  /** Multiplayer tools › More options › "Ask to spotlight": they get a bell with Spotlight me (live README). */
+  askToSpotlight(id: number): void {
+    void getStoreClient().multiplayer.signal(this.fileKey, id, { kind: "ask-spotlight" }).catch(() => {});
+  }
+
+  /** ✕ on someone's request to spotlight */
+  dismissAsk(): void {
+    if (this.askTimer) clearTimeout(this.askTimer);
+    this.askTimer = null;
+    this.set({ askedBy: null });
+  }
+
+  private signalled(from: number, data: unknown): void {
+    const kind = (data as { kind?: unknown } | null)?.kind;
+    if (kind === "ask-spotlight") {
+      if (this.state.spotlighting) return;
+      if (this.askTimer) clearTimeout(this.askTimer);
+      this.askTimer = setTimeout(() => this.dismissAsk(), ASK_SHOWS_MS);
+      this.set({ askedBy: from });
+    } else if (kind === "rtc") void this.audio.signal(from, data);
+  }
+
+  /** The people in the audio conversation (presence), to the call's connections. */
+  private syncAudio(): void {
+    if (!this.state.audio.inCall) return;
+    this.audio.sync(
+      this.state.me,
+      this.state.peers.filter((p) => p.presence?.audio).map((p) => p.id),
+    );
+  }
+
   spotlight(on: boolean): void {
+    if (on) this.dismissAsk();
     this.set({ spotlighting: on, following: on ? null : this.state.following });
     this.lastSent = "";
     this.schedule();
@@ -209,9 +265,11 @@ export class Presence {
       }, SPOTLIGHT_WAIT_MS);
     }
     const wasShared = this.state.shared;
-    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer });
+    const askedBy = this.state.askedBy !== null && peers.some((p) => p.id === this.state.askedBy) ? this.state.askedBy : null;
+    this.set({ shared: s.shared, role: s.role, connection: s.connection, peers, following, requests: s.requests ?? 0, spotlightOffer: following !== null ? null : offer, me: s.me ?? 0, locked: s.locked === true, askedBy });
     if (s.shared && !wasShared) this.schedule();
     if (following !== null) this.followNow();
+    this.syncAudio();
   }
 
   /** Observation mode: the followed person's page and view. */
@@ -234,6 +292,7 @@ export class Presence {
       view: view ? { x: round(view.x), y: round(view.y), zoom: round(view.zoom * 1000) / 1000 } : null,
       ...(this.state.spotlighting ? { spotlight: true } : {}),
       ...(this.chat !== null ? { chat: this.chat } : {}),
+      ...(this.state.audio.inCall ? { audio: { muted: this.state.audio.muted } } : {}),
     };
   }
 

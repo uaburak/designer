@@ -407,4 +407,40 @@ describe("MultiplayerService", () => {
     const other = a.store.addFile("Other", [node(0, {})]);
     await expect(a.svc.share(other, { snapshot: msg([]), headSeq: 0 })).rejects.toMatchObject({ code: "offline" });
   });
+  it("asks for a link's password, opens with it, and sends signals to one session", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    await a.svc.setLinkAccess(fa, "viewer");
+    const info = await a.svc.setLinkPassword(fa, "open sesame");
+    expect(info.passwordProtected).toBe(true);
+    const g = await installation("guest@x.co");
+    services.push(g.svc);
+    await expect(g.svc.openShared(info.key)).rejects.toMatchObject({ code: "forbidden", detail: { passwordRequired: true } });
+    await expect(g.svc.openShared(info.key, "wrong")).rejects.toMatchObject({ detail: { passwordRequired: true, wrong: true } });
+    const { fileKey: fg } = await g.svc.openShared(info.key, "open sesame");
+    await settle();
+    expect(g.store.doc(fg)["0:1"].name).toBe("Home");
+    expect((await g.svc.fileState(fg)).connection).toBe("live");
+    // Signals: to one session only, from the sender's.
+    const got: { who: string; from: number; data: unknown }[] = [];
+    a.svc.onSignal((_f, from, data) => got.push({ who: "a", from, data }));
+    b.svc.onSignal((_f, from, data) => got.push({ who: "b", from, data }));
+    const bState = await b.svc.fileState(fb);
+    const gState = await g.svc.fileState(fg);
+    await g.svc.signal(fg, bState.me!, { kind: "ask-spotlight" });
+    await settle();
+    expect(got).toEqual([{ who: "b", from: gState.me, data: { kind: "ask-spotlight" } }]);
+  });
+
+  it("transfers ownership to an invited member", async () => {
+    const { a, b, fa, fb } = await sharedPair();
+    const members = await a.svc.transferOwnership(fa, "b@x.co");
+    expect(members.map((m) => [m.email, m.role])).toEqual([
+      ["b@x.co", "owner"],
+      ["a@x.co", "editor"],
+    ]);
+    expect((await a.svc.fileState(fa)).role).toBe("editor");
+    await new Promise((r) => setTimeout(r, 30));
+    await settle();
+    expect((await b.svc.fileState(fb)).role).toBe("owner");
+  });
 });

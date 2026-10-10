@@ -384,9 +384,9 @@ export class TabManager {
   }
 
   /** A shared file's link opened from the system: Home in front, which opens it (docs/multiplayer.md §3). */
-  openSharedLink(key: string) {
+  openSharedLink(key: string, link?: string) {
     this.activate(HOME);
-    const send = () => emit(this.home.webContents, "home:open-shared", { key });
+    const send = () => emit(this.home.webContents, "home:open-shared", { key, ...(link ? { link: link.slice(0, 2000) } : {}) });
     if (this.home.webContents.isLoading()) this.home.webContents.once("did-finish-load", () => setTimeout(send, 300));
     else send();
   }

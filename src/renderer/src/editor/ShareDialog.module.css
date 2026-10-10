@@ -167,4 +167,21 @@
   /* Developer preview */
   .field2 { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }
   .actions { display: flex; justify-content: flex-end; gap: var(--ds-space-2); }
+
+  .linkIcon { margin: -4px 0 -4px -6px; vertical-align: middle; }
+  .link { display: inline-flex; align-items: center; }
+  .rowNote { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .row .chevron { margin-left: auto; }
+
+  /* Share settings' and the embed view's footer (live: a 1 px line above, 40 high, Cancel · Save at the right) */
+  .foot { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: var(--ds-space-2); height: 40px; padding: 0 var(--ds-space-2) 0 var(--ds-space-4); box-shadow: inset 0 1px 0 var(--figma-color-border); }
+  .passwordRow { display: flex; align-items: center; justify-content: space-between; }
+  /* live: "↻ Generate" 77×24, text at 0.7 */
+  .generate { display: inline-flex; align-items: center; height: 24px; padding: 0 var(--ds-space-2) 0 0; border: 0; border-radius: var(--ds-radius-medium); background: none; color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); cursor: default; }
+  .generate:hover { background: var(--figma-color-bg-hover); color: var(--figma-color-text); }
+  .password input { font-family: var(--ds-font-family-mono); }
+  /* live: 448×112, r 5, the code selected */
+  .embed { width: 100%; height: 112px; padding: var(--ds-space-2); border: 1px solid var(--figma-color-border); border-radius: var(--ds-radius-medium); background: var(--figma-color-bg); color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); resize: none; }
+  .embed:focus { border-color: var(--figma-color-border-selected); outline: none; }
+  .embedPage { font-weight: 800; color: var(--figma-color-text); }
 }

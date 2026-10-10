@@ -9,7 +9,7 @@
  * been (to recognise its own frames in a catch-up after a reconnect).
  */
 import { encodeChangesUp, decodeChangesDown, type PeerInfo, type Role, type ServerControl } from "../../shared/multiplayer/protocol";
-import type { AccessRequest, FileMember, FileShareState, LinkAccess, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, RemoteFile, SharedFileInfo } from "../../shared/multiplayer/types";
+import type { AccessRequest, FileMember, FileShareState, LinkAccess, MultiplayerNotice, MultiplayerSession, MultiplayerStatus, OpenIntent, RemoteFile, SharedFileInfo } from "../../shared/multiplayer/types";
 import { decodeMessage } from "../../shared/schema/codec";
 import { messageImageHashes } from "../../shared/schema/patch";
 import { StoreError } from "../../shared/store/protocol";
@@ -69,6 +69,8 @@ interface LinkRecord {
   acked: number;
   sessions: number[];
   role: Role;
+  /** The pass for a file's link password, when this user is in by the link alone and the file has one */
+  pass?: string;
 }
 
 interface State {
@@ -141,7 +143,16 @@ export class MultiplayerService {
     const st = await this.loadState();
     const rec = st.links[fileKey];
     const link = this.live.get(fileKey);
-    return { shared: !!rec, key: rec?.key ?? null, role: rec?.role ?? null, connection: link?.connection ?? "offline", peers: link ? [...link.peers.values()] : [], requests: this.requestCounts.get(fileKey) ?? 0 };
+    return {
+      shared: !!rec,
+      key: rec?.key ?? null,
+      role: rec?.role ?? null,
+      connection: link?.connection ?? "offline",
+      peers: link ? [...link.peers.values()] : [],
+      requests: this.requestCounts.get(fileKey) ?? 0,
+      me: link?.sessionID || null,
+      locked: this.locked.has(fileKey),
+    };
   }
 
   /** Share › Invite on a file not shared yet: registers it on the server with the editor's snapshot of it at `headSeq`. */
@@ -169,8 +180,23 @@ export class MultiplayerService {
     return files.map((f) => ({ ...f, fileKey: byKey.get(f.key) ?? null }));
   }
 
-  /** Opens a file shared with the user: its local copy, made from the room's snapshot the first time. */
-  async openShared(key: string): Promise<{ fileKey: FileKey }> {
+  /** Opens a file shared with the user: its local copy, made from the room's snapshot the first time. A file whose link
+   *  has a password (and the user isn't invited) needs `password`; without it the error's detail says
+   *  `{passwordRequired: true}` (and `wrong: true` when the one given was wrong). */
+  async openShared(key: string, password?: string, intent?: OpenIntent): Promise<{ fileKey: FileKey }> {
+    const { fileKey } = await this.openSharedCopy(key, password);
+    if (intent && (intent.nodeId || intent.mode)) this.intents.set(fileKey, intent);
+    return { fileKey };
+  }
+
+  private intents = new Map<FileKey, OpenIntent>();
+  async takeOpenIntent(fileKey: FileKey): Promise<OpenIntent | null> {
+    const i = this.intents.get(fileKey) ?? null;
+    this.intents.delete(fileKey);
+    return i;
+  }
+
+  private async openSharedCopy(key: string, password?: string): Promise<{ fileKey: FileKey }> {
     const st = await this.loadState();
     const had = Object.entries(st.links).find(([, l]) => l.key === key);
     if (had && this.host.getMeta(had[0])) return { fileKey: had[0] };
@@ -179,9 +205,57 @@ export class MultiplayerService {
     const remote = await this.api<SharedFileInfo>("GET", `/files/${key}`).catch((e: unknown) => {
       throw e instanceof StoreError && e.code === "not-found" ? new StoreError("not-found", "This file isn't shared with you, or the link is off") : e;
     });
+    if (remote.needsPassword) await this.unlock(key, password);
     const fileKey = await this.copyFromRoom(key, remote.name, remote.role);
     return { fileKey };
   }
+
+  /** The pass for a link password, kept for this room key (and with the file's link record once there is one). */
+  private async unlock(key: string, password: string | undefined): Promise<void> {
+    if (!password) throw new StoreError("forbidden", "This file is password protected", { passwordRequired: true });
+    const { pass } = await this.api<{ pass: string | null }>("POST", `/files/${key}/unlock`, { password }).catch((e: unknown) => {
+      throw e instanceof StoreError && e.code === "forbidden" ? new StoreError("forbidden", "Incorrect password", { passwordRequired: true, wrong: true }) : e;
+    });
+    if (pass) this.passes.set(key, pass);
+    else this.passes.delete(key);
+  }
+
+  /** An open shared file whose link password changed: the new password, then the link carries on. */
+  async unlockFile(fileKey: FileKey, password: string): Promise<FileShareState> {
+    const rec = (await this.loadState()).links[fileKey];
+    if (!rec) throw new StoreError("invalid", "This file isn't shared");
+    await this.unlock(rec.key, password);
+    rec.pass = this.passes.get(rec.key);
+    await this.persist(fileKey);
+    this.locked.delete(fileKey);
+    this.live.get(fileKey)?.stop();
+    this.live.delete(fileKey);
+    this.startLink(fileKey);
+    return this.fileState(fileKey);
+  }
+
+  /** @internal The room refused this link's socket: is it the link password? Then the link waits for `unlockFile`. */
+  async checkLocked(fileKey: FileKey): Promise<boolean> {
+    const rec = this.state?.links[fileKey];
+    if (!rec) return false;
+    try {
+      const info = await this.api<SharedFileInfo>("GET", `/files/${rec.key}`);
+      if (!info.needsPassword) return false;
+      this.passes.delete(rec.key);
+      delete rec.pass;
+      await this.persist(fileKey);
+      this.locked.add(fileKey);
+      this.live.get(fileKey)?.stop();
+      this.live.delete(fileKey);
+      this.emitState(fileKey);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private passes = new Map<string, string>();
+  private locked = new Set<FileKey>();
 
   /** A local copy made from the room's snapshot (and its images), linked at the snapshot's seq. */
   private async copyFromRoom(key: string, name: string, role: Role): Promise<FileKey> {
@@ -192,7 +266,7 @@ export class MultiplayerService {
     await this.downloadBlobs(key, imagesOf(snapshot));
     const meta = await this.host.createSharedFile({ name, snapshot });
     const head = Math.max(0, ...(await this.host.backlog(meta.fileKey, 0)).map((c) => c.seq));
-    st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role };
+    st.links[meta.fileKey] = { key, since: seq, acked: head, sessions: [], role, ...(this.passes.has(key) ? { pass: this.passes.get(key) } : {}) };
     await this.persist(meta.fileKey);
     this.startLink(meta.fileKey);
     return meta.fileKey;
@@ -321,6 +395,40 @@ export class MultiplayerService {
     return this.members(fileKey);
   }
 
+  /** "Transfer ownership" to an invited member (owner only; can't be undone). */
+  async transferOwnership(fileKey: FileKey, email: string): Promise<FileMember[]> {
+    await this.api("POST", `/files/${await this.keyOf(fileKey)}/transfer`, { email });
+    const rec = this.state?.links[fileKey];
+    if (rec) {
+      rec.role = "editor";
+      await this.persist(fileKey);
+      this.emitState(fileKey);
+    }
+    return this.members(fileKey);
+  }
+
+  /** "Password required" for people in by the link (null turns it off). */
+  async setLinkPassword(fileKey: FileKey, password: string | null): Promise<SharedFileInfo> {
+    await this.api("PATCH", `/files/${await this.keyOf(fileKey)}`, { linkPassword: password });
+    return this.fileInfo(fileKey);
+  }
+
+  /** A message to one session in the file's room ("Ask to spotlight", audio's WebRTC signalling) */
+  async signal(fileKey: FileKey, to: number, data: unknown): Promise<void> {
+    this.live.get(fileKey)?.signal(to, data);
+  }
+
+  private signals = new Set<(fileKey: FileKey, from: number, data: unknown) => void>();
+  onSignal(listener: (fileKey: FileKey, from: number, data: unknown) => void): Unsubscribe {
+    this.signals.add(listener);
+    return () => this.signals.delete(listener);
+  }
+
+  /** @internal */
+  signalled(fileKey: FileKey, from: number, data: unknown): void {
+    for (const l of this.signals) l(fileKey, from, data);
+  }
+
   /** Presence for a file's room (cursor, selection, page …), relayed to the others */
   async presence(fileKey: FileKey, data: unknown): Promise<void> {
     this.live.get(fileKey)?.presence(data);
@@ -374,6 +482,8 @@ export class MultiplayerService {
     const u = new URL(`/files/${key}/ws`, this.session.server);
     u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
     u.searchParams.set("token", this.session.token);
+    const pass = this.passes.get(key);
+    if (pass) u.searchParams.set("pass", pass);
     return u.toString();
   }
 
@@ -411,7 +521,12 @@ export class MultiplayerService {
     const links: Record<FileKey, LinkRecord> = {};
     for (const [k, v] of Object.entries(raw?.links ?? {})) {
       const r = v as Partial<LinkRecord> | null;
-      if (r && typeof r.key === "string") links[k] = { key: r.key, since: Number(r.since) || 0, acked: Number(r.acked) || 0, sessions: Array.isArray(r.sessions) ? r.sessions.filter(Number.isInteger) : [], role: r.role === "owner" || r.role === "viewer" ? r.role : "editor" };
+      if (!r || typeof r.key !== "string") continue;
+      links[k] = { key: r.key, since: Number(r.since) || 0, acked: Number(r.acked) || 0, sessions: Array.isArray(r.sessions) ? r.sessions.filter(Number.isInteger) : [], role: r.role === "owner" || r.role === "viewer" ? r.role : "editor" };
+      if (typeof r.pass === "string") {
+        links[k].pass = r.pass;
+        this.passes.set(r.key, r.pass);
+      }
     }
     this.state = { installationId: id, links };
     if (id !== raw?.installationId) await this.host.saveInstallationId(id);
@@ -421,6 +536,8 @@ export class MultiplayerService {
   private async raw(method: string, path: string, body?: unknown): Promise<Response> {
     if (!this.session) throw new StoreError("offline", "Log in to share files");
     const init: RequestInit = { method, headers: { authorization: `Bearer ${this.session.token}` } };
+    const pass = this.passes.get(/^\/files\/([^/?]+)/.exec(path)?.[1] ?? "");
+    if (pass) (init.headers as Record<string, string>)["x-file-pass"] = pass;
     if (body instanceof Uint8Array) {
       init.body = body as unknown as RequestInit["body"];
       (init.headers as Record<string, string>)["content-type"] = "application/octet-stream";
@@ -464,6 +581,10 @@ class Link {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private session = 0;
   private ready = false;
+  /** This client's session in the room (0 until welcome) */
+  get sessionID(): number {
+    return this.ready ? this.session : 0;
+  }
   /** Local frames sent and not acknowledged: local seq → the properties they touch */
   private pending = new Map<number, Touched>();
   /** Received frames are handled one at a time, in order */
@@ -500,6 +621,10 @@ class Link {
 
   presence(data: unknown): void {
     if (this.ready) this.ws?.send(JSON.stringify({ t: "presence", data }));
+  }
+
+  signal(to: number, data: unknown): void {
+    if (this.ready) this.ws?.send(JSON.stringify({ t: "signal", to, data }));
   }
 
   private send(c: FileChange): void {
@@ -593,7 +718,13 @@ class Link {
       this.peers.clear();
       this.svc.emitState(this.fileKey);
       if (e.code === CLOSE_UNSHARED) return void this.svc.unlink(this.fileKey);
-      this.retry(e.code === CLOSE_ACCESS ? 0 : undefined);
+      // Refused before the socket opened (no welcome) or its access changed: a new link password stops the link until
+      // the person enters it (Figma: open sessions re-enter a changed password).
+      if (e.code === CLOSE_ACCESS || this.attempt >= 1) {
+        void this.svc.checkLocked(this.fileKey).then((locked) => !locked && this.retry(e.code === CLOSE_ACCESS ? 0 : undefined));
+        return;
+      }
+      this.retry();
     };
     ws.onerror = () => {};
   }
@@ -644,6 +775,8 @@ class Link {
           if (p) p.presence = msg.data;
           return this.svc.emitState(this.fileKey);
         }
+        case "signal":
+          return this.svc.signalled(this.fileKey, msg.from, msg.data);
       }
       return;
     }

@@ -1,14 +1,62 @@
 /* Measured in live Figma (docs/research/figma/live/multiplayer/README.md). */
 @layer app {
-  /* Observation mode: the window framed 5 px in the followed person's colour, the bell touching the top edge */
+  /* Observation mode and Ask to spotlight: the canvas (the view between the panels — the whole window while the UI is
+     minimized) framed 5 px in the person's colour; the following bell touches the top edge */
   .frame {
-    position: fixed;
+    position: absolute;
     inset: 0;
     z-index: var(--ds-z-scrim);
     border: 5px solid var(--peer);
     pointer-events: none;
   }
-  .offer { position: fixed; top: 0; left: 0; right: 0; z-index: var(--ds-z-scrim); height: 0; }
+  .offer { position: absolute; top: 0; left: 0; right: 0; z-index: var(--ds-z-scrim); height: 0; }
+  /* Ask to spotlight (live: 322×32 at 8 below the canvas's top, square corners, a darker shade of the asker's colour) */
+  .bell.ask { top: 3px; gap: var(--ds-space-1); padding: 0 var(--ds-space-1); border-radius: 0; background: color-mix(in srgb, var(--peer) 82%, black); }
+  .ask .bellMessage { color: var(--figma-color-text-onbrand); }
+  .askButton {
+    height: 24px;
+    padding: 0 var(--ds-space-2);
+    border: 2px solid transparent;
+    border-radius: 4px;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: 600 11px/16px var(--ds-font-family, "Inter Variable", Inter, system-ui, sans-serif);
+    cursor: default;
+  }
+  .askButton:focus-visible { border-color: var(--figma-color-text-onbrand); outline: none; }
+  .askClose { color: var(--figma-color-icon-onbrand); }
+
+  /* The audio conversation (live: 151×40 at the canvas's top right, 12 in; r 13, the small elevation) */
+  .audio {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-1);
+    height: 40px;
+    padding: 0 var(--ds-space-2);
+    border-radius: 13px;
+    background: var(--figma-color-bg);
+    box-shadow: var(--ds-elevation-100);
+  }
+  .audioPeople { display: flex; align-items: center; margin-right: var(--ds-space-1); }
+  .audioFace { display: flex; margin-left: -4px; border: 2px solid var(--figma-color-bg); border-radius: 50%; }
+  .audioPeople > .audioFace:first-child { margin-left: 0; }
+  .audioFace[data-speaking] { border-color: var(--figma-color-bg-success); }
+  .leave {
+    height: 24px;
+    padding: 0 var(--ds-space-2);
+    border: 1px solid var(--figma-color-border);
+    border-radius: var(--ds-radius-medium);
+    background: none;
+    color: var(--figma-color-text);
+    font: var(--ds-font-body-medium);
+    letter-spacing: var(--ds-tracking-body-medium);
+    cursor: default;
+  }
+  .leave:hover { background: var(--figma-color-bg-hover); }
   .offer .bell { top: 0; gap: var(--ds-space-1); }
   .bell {
     position: absolute;
@@ -108,24 +156,40 @@
   .toolsBody { display: flex; flex-direction: column; padding: var(--ds-space-4) var(--ds-space-2) var(--ds-space-2); }
   .me { display: flex; align-items: center; gap: var(--ds-space-2); padding: 0 var(--ds-space-2); }
   .meName { color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
-  .spotlight { width: 156px; margin: 10px 0 0 var(--ds-space-2); }
+  .toolsRow { display: flex; align-items: center; gap: var(--ds-space-2); margin: 10px 0 0 var(--ds-space-2); }
+  .spotlight { width: 156px; }
+  /* [Start conversation] 28×28, r 6 (live) */
+  .headphones { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 2px solid transparent; border-radius: 6px; background: none; color: var(--figma-color-icon); cursor: default; }
+  .headphones:hover { background: var(--figma-color-bg-hover); }
+  .headphones[data-on] { background: var(--figma-color-bg-success); color: var(--figma-color-icon-onbrand); }
+  .headphones:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .toolsDivider { height: 1px; margin: 14px 0 var(--ds-space-2); background: var(--figma-color-bg-secondary); }
-  .person {
+  /* A person's row (live: 208×48, avatar at 11, name at 43; hovered: the brand fill, "Click to follow" under the name,
+     More options 26×26 at 174 in a darker blue) */
+  .person { position: relative; display: flex; align-items: center; height: 48px; border-radius: var(--ds-radius-medium); }
+  .person:hover, .person:focus-within { background: var(--figma-color-bg-brand); }
+  .personFollow {
     display: flex;
+    flex: 1 1 auto;
     align-items: center;
     gap: var(--ds-space-2);
     height: 48px;
-    padding: 0 11px;
+    padding: 0 40px 0 11px;
     border: 0;
     border-radius: var(--ds-radius-medium);
     background: none;
     text-align: left;
     cursor: default;
   }
-  .person:hover { background: var(--figma-color-bg-hover); }
+  .personFollow:focus-visible { outline: var(--ds-focus-width) solid var(--ds-focus-color); }
   .person .ring { border-color: transparent; background: none; box-shadow: 0 0 0 2px var(--peer); }
-  .personName { flex: 1 1 auto; color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
-  .personRole { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); }
+  .personText { display: flex; flex-direction: column; min-width: 0; }
+  .personName { color: var(--figma-color-text); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .personHint { display: none; color: var(--figma-color-text-onbrand-secondary); font: var(--ds-font-body-medium); letter-spacing: var(--ds-tracking-body-medium); }
+  .person:hover .personName, .person:focus-within .personName { color: var(--figma-color-text-onbrand); }
+  .person:hover .personHint, .person:focus-within .personHint { display: block; }
+  .personMore { position: absolute; top: 11px; right: 8px; display: none; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: var(--ds-radius-medium); background: color-mix(in srgb, var(--figma-color-bg-brand) 70%, black); color: var(--figma-color-icon-onbrand); cursor: default; }
+  .person:hover .personMore, .person:focus-within .personMore, .personMore[data-open] { display: flex; }
 
   .offline { display: flex; flex: none; align-items: center; color: var(--figma-color-icon-warning); }
 }
