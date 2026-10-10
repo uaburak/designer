@@ -75,6 +75,10 @@ function Share() {
   const [view, setView] = useState<View>("main");
   const modal = useRef<HTMLDivElement>(null);
   useFocusScope(modal, { trap: true });
+  // A view replaced the focused control: focus stays in the modal so Esc still goes back / closes.
+  useEffect(() => {
+    if (modal.current && !modal.current.contains(document.activeElement)) modal.current.focus();
+  }, [view]);
   const close = () => {
     ed.ui.set({ shareOpen: false });
     ed.focusCanvas();

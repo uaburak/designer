@@ -11,7 +11,7 @@
  */
 import { PREVIEW_DOC_NAME, PREVIEW_MANIFEST_NAME, previewImageName } from "@shared/preview/format";
 import { ENGINE_WASM_ID, fromBase64, PREVIEW_DATA_ID, readInlinePreview } from "@shared/preview/html";
-import { checkManifest, loadRemote, messageOf, PreviewError, type LoadedPreview } from "./remote";
+import { checkManifest, loadEmbed, loadRemote, messageOf, PreviewError, type LoadedPreview } from "./remote";
 
 export { PreviewError, type LoadedPreview } from "./remote";
 
@@ -48,6 +48,8 @@ export async function loadPreview(): Promise<LoadedPreview> {
   const params = new URLSearchParams(location.search);
   const src = params.get("src");
   if (src) return packageAt(new URL(src.endsWith("/") ? src : `${src}/`, location.href).href);
+  const embed = /\/embed\/([A-Za-z0-9_-]{6,64})\/?$/.exec(location.pathname)?.[1] ?? params.get("embed");
+  if (embed) return loadEmbed(params.get("server") ?? location.origin, embed);
   const id = /\/p\/([0-9A-Za-z]{22})\/?$/.exec(location.pathname)?.[1] ?? params.get("p");
   if (!id || !/^[0-9A-Za-z]{22}$/.test(id)) throw new PreviewError("No preview here", "Open the link you were sent, or an exported preview file.");
   const server = params.get("server") ?? location.origin;

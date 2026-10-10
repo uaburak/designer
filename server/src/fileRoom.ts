@@ -5,7 +5,7 @@
  * identity and role (headers `x-user-id`, `x-user-name`, `x-role`).
  */
 import { DurableObject } from "cloudflare:workers";
-import type { ChangesDown, Role } from "../../src/shared/multiplayer/protocol";
+import { encodeChangesDown, type ChangesDown, type Role } from "../../src/shared/multiplayer/protocol";
 import { Room, type MemberState, type RoomStorage } from "../../src/shared/multiplayer/room";
 
 /** SQLite values hold 2 MB; snapshots and images are stored in 1 MB rows. */
@@ -61,6 +61,26 @@ export class FileRoom extends DurableObject {
           at += r.bytes.byteLength;
         }
         return new Response(out, { headers: { "content-type": "application/octet-stream", "x-seq": String(seq), "x-last-seq": String(this.store.lastSeq()) } });
+      }
+      case "GET /room/frames": {
+        // The frames after `since` (an embed's catch-up on the snapshot): [u32 length][changes-down frame] each.
+        const since = Number(url.searchParams.get("since") ?? "0");
+        const parts: Uint8Array[] = [];
+        let total = 0;
+        for (const f of this.store.readAfter(Number.isInteger(since) && since >= 0 ? since : 0)) {
+          const enc = encodeChangesDown(f);
+          parts.push(enc);
+          total += 4 + enc.length;
+        }
+        const out = new Uint8Array(total);
+        const view = new DataView(out.buffer);
+        let at = 0;
+        for (const p of parts) {
+          view.setUint32(at, p.length);
+          out.set(p, at + 4);
+          at += 4 + p.length;
+        }
+        return new Response(out, { headers: { "content-type": "application/octet-stream" } });
       }
       case "PUT /room/snapshot": {
         const seq = Number(url.searchParams.get("seq"));

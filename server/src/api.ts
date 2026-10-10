@@ -5,7 +5,7 @@
 import type { Role } from "../../src/shared/multiplayer/protocol";
 import { normalizeEmail, type Db, type User } from "./db";
 import { authorizeUrl, exchangeCode, GoogleError } from "./google";
-import { isPreviewPath, previews } from "./previews";
+import { isPreviewPath, previews, viewerPage } from "./previews";
 import { checkPassword, hashPassword, randomToken, sha256b64url, signToken, verifyToken } from "./tokens";
 
 export interface Env {
@@ -106,6 +106,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   const link = /^\/f\/([A-Za-z0-9_-]{6,64})$/.exec(path);
   if (link && m === "GET") return linkPage(link[1], url.searchParams);
   if (isPreviewPath(path)) return previews(req, url, deps, () => authenticate(req, url, deps, false));
+  const embed = /^\/embed\/([A-Za-z0-9_-]{6,64})(?:\/(snapshot|frames|images\/[0-9a-f]{40}))?$/.exec(path);
+  if (embed && m === "GET") return embedRoute(embed[1], embed[2], url, deps);
 
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
   const isSocket = parts[0] === "files" && parts[2] === "ws" && parts.length === 3;
@@ -336,6 +338,29 @@ async function authenticate(req: Request, url: URL, deps: Deps, allowQuery: bool
   const user = p && (await deps.db.user(p.uid));
   if (!p || !user || user.tokenVersion !== p.tv) throw new HttpError(401, "session expired");
   return user;
+}
+
+/**
+ * "Get embed code" (docs/multiplayer.md §3): `/embed/<key>` is the viewer on the file as it is now — the room's snapshot
+ * and the frames after it, merged by the viewer. Only files anyone with the link can view, without a password (Figma:
+ * password-protected files can't be embedded); no sign-in, CORS open.
+ */
+async function embedRoute(key: string, part: string | undefined, url: URL, deps: Deps): Promise<Response> {
+  const f = await deps.db.file(key);
+  if (!f || f.linkAccess === "none" || f.passwordProtected) {
+    if (!part) return page(404, "This file isn't available to embed. Its owner can share it with anyone who has the link, without a password.");
+    throw new HttpError(404, "not available");
+  }
+  if (!part) return viewerPage(url, deps.env as Parameters<typeof viewerPage>[1]);
+  const identity = { userId: "embed", name: null, role: "viewer" as Role };
+  const res =
+    part === "snapshot" ? await deps.rooms.fetch(key, "/room/snapshot", { method: "GET", identity }) : part === "frames" ? await deps.rooms.fetch(key, `/room/frames?since=${Number(url.searchParams.get("since")) || 0}`, { method: "GET", identity }) : await deps.rooms.fetch(key, `/room/${part.replace("images/", "blobs/")}`, { method: "GET", identity });
+  const headers = new Headers(res.headers);
+  headers.set("access-control-allow-origin", "*");
+  headers.set("access-control-expose-headers", "x-seq, x-file-name");
+  headers.set("x-file-name", encodeURIComponent(f.name));
+  headers.set("cache-control", "no-cache");
+  return new Response(res.body, { status: res.status, headers });
 }
 
 interface PassPayload {

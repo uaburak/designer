@@ -363,6 +363,25 @@ describe("files and sharing", () => {
     expect(await (await call("GET", "/f/file_own001?node-id=12:34&m=dev")).text()).toContain("designer://open?key=file_own001&amp;node-id=12-34&amp;m=dev");
   });
 
+  it("serves embeds of files anyone with the link can view, without a password, to anyone", async () => {
+    const owner = await devSignIn("o@x.co");
+    await call("POST", "/files", { token: owner.token, body: { key: "file_emb001", name: "Embedded" } });
+    expect((await call("GET", "/embed/file_emb001/snapshot")).status).toBe(404);
+    await call("PATCH", "/files/file_emb001", { token: owner.token, body: { linkAccess: "viewer" } });
+    const snap = await call("GET", "/embed/file_emb001/snapshot");
+    expect(snap.status).toBe(200);
+    expect(snap.headers.get("access-control-allow-origin")).toBe("*");
+    expect(snap.headers.get("x-file-name")).toBe("Embedded");
+    expect(roomCalls.at(-1)).toMatchObject({ path: "/room/snapshot", identity: { role: "viewer" } });
+    await call("GET", "/embed/file_emb001/frames?since=7");
+    expect(roomCalls.at(-1)).toMatchObject({ path: "/room/frames?since=7" });
+    await call("GET", `/embed/file_emb001/images/${"a".repeat(40)}`);
+    expect(roomCalls.at(-1)).toMatchObject({ path: `/room/blobs/${"a".repeat(40)}` });
+    await call("PATCH", "/files/file_emb001", { token: owner.token, body: { linkPassword: "pw" } });
+    expect((await call("GET", "/embed/file_emb001/frames")).status).toBe(404);
+    expect((await call("GET", "/embed/file_emb001")).status).toBe(404);
+  });
+
   it("validates input", async () => {
     const owner = await devSignIn("o@x.co");
     expect((await call("POST", "/files", { token: owner.token, body: { key: "../x" } })).status).toBe(400);

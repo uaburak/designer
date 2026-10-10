@@ -14,6 +14,8 @@
   .bell.ask { top: 3px; gap: var(--ds-space-1); padding: 0 var(--ds-space-1); border-radius: 0; background: color-mix(in srgb, var(--peer) 82%, black); }
   .ask .bellMessage { color: var(--figma-color-text-onbrand); }
   .askButton {
+    flex: none;
+    white-space: nowrap;
     height: 24px;
     padding: 0 var(--ds-space-2);
     border: 2px solid transparent;
@@ -78,6 +80,8 @@
     white-space: nowrap;
   }
   .bellButton {
+    flex: none;
+    white-space: nowrap;
     height: 24px;
     padding: 2px 6px;
     border: 2px solid transparent;
@@ -92,7 +96,7 @@
 
   /* "can view": 527×40 at the bottom centre, 8 above the toolbar */
   .viewer {
-    position: fixed;
+    position: fixed; /* live: centred on the window (493 in a 986 window), not on the canvas */
     bottom: calc(var(--ds-toolbar-lift, 0px) + 12px + 48px + 11px); /* live: 752 in an 863 window */
     left: 50%;
     z-index: 3;

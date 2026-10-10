@@ -12,8 +12,9 @@ import { readCanvasChunks } from "@shared/fig/container";
 import { isZstd } from "@shared/fig/compression";
 import { isPreviewManifest, previewExpired, PREVIEW_FORMAT, type PreviewManifest } from "@shared/preview/format";
 import { previewPagesOf } from "@shared/preview/package";
+import { decodeChangesDown } from "@shared/multiplayer/protocol";
 import { codec, DOCUMENT_FORMAT_VERSION } from "@shared/schema/codec";
-import { messageImageHashes } from "@shared/schema/patch";
+import { mergeMessages, messageImageHashes } from "@shared/schema/patch";
 
 export interface LoadedPreview {
   manifest: PreviewManifest;
@@ -112,4 +113,35 @@ export async function loadRemote(src: RemoteSource): Promise<LoadedPreview> {
   if (!manifest) checkManifest((manifest = (src.manifest as (m: Uint8Array) => PreviewManifest)(message)));
   const known = new Set(manifest.images);
   return { manifest, message, image: async (sha1) => (known.has(sha1) ? fetchBytes(src.image(sha1), src.init).catch(() => null) : null) };
+}
+
+/**
+ * An embedded shared file (`/embed/<key>`, docs/multiplayer.md §3): the room's snapshot and the frames after it, merged
+ * here (the server never reads kiwi), shown read-only with Inspect and export.
+ */
+export async function loadEmbed(server: string, key: string): Promise<LoadedPreview> {
+  const base = `${server}/embed/${encodeURIComponent(key)}`;
+  let res: Response;
+  try {
+    res = await fetch(`${base}/snapshot`);
+  } catch {
+    throw new PreviewError("This file can't be shown", "The server couldn't be reached.");
+  }
+  if (!res.ok) throw new PreviewError("This file isn't available", "Its owner may have stopped sharing it with anyone who has the link.");
+  const seq = Number(res.headers.get("x-seq") ?? "0");
+  const fileName = decodeURIComponent(res.headers.get("x-file-name") ?? "Untitled");
+  const snapshot = new Uint8Array(await res.arrayBuffer());
+  const framesBytes = await fetchBytes(`${base}/frames?since=${seq}`);
+  const messages = [codec.decodeMessage(snapshot)];
+  const view = new DataView(framesBytes.buffer, framesBytes.byteOffset, framesBytes.byteLength);
+  for (let at = 0; at + 4 <= framesBytes.length; ) {
+    const n = view.getUint32(at);
+    const frame = decodeChangesDown(framesBytes.subarray(at + 4, at + 4 + n));
+    if (frame) messages.push(codec.decodeMessage(frame.message));
+    at += 4 + n;
+  }
+  const message = messages.length === 1 ? snapshot : codec.encodeMessage(mergeMessages(messages).table.toMessage());
+  const manifest = manifestFromMessage(message, { id: key, fileName });
+  const known = new Set(manifest.images);
+  return { manifest, message, image: async (sha1) => (known.has(sha1) ? fetchBytes(`${base}/images/${sha1}`).catch(() => null) : null) };
 }

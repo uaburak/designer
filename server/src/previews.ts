@@ -161,7 +161,7 @@ async function box(env: PreviewEnv, id: string, path: string, init: RequestInit)
 }
 
 /** The viewer page for `/p/<id>`: the built viewer reads the id from its own path. */
-async function viewerPage(url: URL, env: PreviewEnv): Promise<Response> {
+export async function viewerPage(url: URL, env: PreviewEnv): Promise<Response> {
   if (!env.ASSETS) throw new PreviewHttpError(503, "the preview viewer isn't deployed on this server");
   const res = await env.ASSETS.fetch(new Request(new URL("/index.html", url.origin)));
   if (!res.ok) throw new PreviewHttpError(503, "the preview viewer isn't deployed on this server");
