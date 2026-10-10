@@ -243,7 +243,7 @@ describe("MCP tools: one schema", () => {
     const samples: [string, string, unknown][] = [
       [al, "opacity", 0.5], [al, "blendMode", "MULTIPLY"], [al, "locked", true], [al, "itemSpacing", 12], [al, "padding", [1, 2, 3, 4]], [al, "primaryAxisAlignItems", "CENTER"],
       [al, "counterAxisAlignItems", "MAX"], [al, "layoutWrap", "WRAP"], [al, "counterAxisSpacing", 6], [al, "counterAxisAlignContent", "SPACE_BETWEEN"], [al, "itemReverseZIndex", true], [al, "strokesIncludedInLayout", true],
-      [al, "clipsContent", false], [al, "strokes", "#FF0000"], [al, "strokeWeight", 3], [al, "strokeAlign", "OUTSIDE"], [al, "strokeTopWeight", 5], [al, "cornerRadius", [1, 2, 3, 4]], [al, "cornerSmoothing", 0.6],
+      [al, "clipsContent", false], [al, "strokes", "#FF0000"], [al, "strokeWeight", 3], [al, "strokeAlign", "OUTSIDE"], [al, "strokeTopWeight", 5], [al, "cornerRadius", [1, 2, 3, 4]], [al, "cornerSmoothing", 0.6], [al, "invertedCorners", 5],
       [al, "layoutGrids", [{ pattern: "GRID", sectionSize: 8 }]], [al, "dashPattern", [4, 2]], [al, "exportSettings", [{ imageType: "PNG", suffix: "@2x" }]],
       [rect, "layoutSizingHorizontal", "FILL"], [rect, "layoutSizingVertical", "FILL"], [rect, "minWidth", 20], [rect, "maxWidth", 200], [rect, "isMask", true],
       [txt, "fontSize", 22], [txt, "lineHeight", "150%"], [txt, "letterSpacing", "2%"], [txt, "textAlignHorizontal", "CENTER"], [txt, "textCase", "UPPER"], [txt, "textDecoration", "UNDERLINE"],

@@ -300,6 +300,29 @@ const CORNER_FIELD = {
   rectangleBottomRightCornerRadius: "RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS",
 } as const;
 
+/**
+ * Inverted (concave) corners — our own addition, not Figma's (docs/schema.md §3.6): a corner whose bit is set in
+ * `invertedCornerMask` shows its radius as a negative number, and a negative number typed (or stepped below 0) makes
+ * the corner inverted. The all-corners field reads negative when every corner is inverted.
+ */
+const CORNER_BIT: Record<CornerField, number> = {
+  rectangleTopLeftCornerRadius: 1,
+  rectangleTopRightCornerRadius: 2,
+  rectangleBottomRightCornerRadius: 4,
+  rectangleBottomLeftCornerRadius: 8,
+};
+const invertedMask = (n: PanelNode): number => (hasCorners(n) ? (n.invertedCornerMask ?? 0) & 15 : 0);
+/** A corner's radius, negative when it is inverted. */
+const signedCorner = (n: PanelNode, f: CornerField): number => {
+  const r = n[f] ?? n.cornerRadius ?? 0;
+  return invertedMask(n) & CORNER_BIT[f] && r > 0 ? -r : r;
+};
+/** The all-corners radius, negative when every corner is inverted. */
+const signedRadius = (n: PanelNode): number => {
+  const r = n.cornerRadius ?? 0;
+  return invertedMask(n) === 15 && r > 0 ? -r : r;
+};
+
 /** Polygons, stars and vectors: one radius for every corner, and corner smoothing (Figma's live panel). */
 const SMOOTHED = new Set(["REGULAR_POLYGON", "STAR", "VECTOR"]);
 /** Texts, lines and ellipses: the radius field alone (no button), disabled (live ellipse.txt, line.txt, text.txt). */
@@ -334,33 +357,46 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
   const rectCorners = nodes.some(hasCorners) || nodes.some((n) => isGroupNode(n) || typeOf(n) === "BOOLEAN_OPERATION");
   const smoothOnly = nodes.every((n) => SMOOTHED.has(typeOf(n)));
   const plainOnly = nodes.every((n) => PLAIN_RADIUS.has(typeOf(n)));
-  const radius = mixedNumber(nodes.map((n) => n.cornerRadius ?? 0));
+  const radius = mixedNumber(nodes.map(signedRadius));
+  // Negative radii (inverted corners) only where every layer has four corners.
+  const signedOk = nodes.every(hasCorners);
   const independentNow = nodes.some((n) => n.rectangleCornerRadiiIndependent === true);
   const [independentOpen, setIndependentOpen] = useState(false);
   const independent = rectCorners && !smoothOnly && (independentNow || independentOpen);
-  const corner = (f: CornerField): Mixed<number> | undefined => mixedNumber(nodes.map((n) => n[f] ?? n.cornerRadius ?? 0));
+  const corner = (f: CornerField): Mixed<number> | undefined => mixedNumber(nodes.map((n) => signedCorner(n, f)));
 
   // Rectangles and frames keep four corners; other layers one radius.
-  const radiusFields = (n: PanelNode, v: number): Fields =>
-    hasCorners(n)
-      ? {
-          cornerRadius: v,
-          rectangleCornerRadiiIndependent: false,
-          rectangleTopLeftCornerRadius: v,
-          rectangleTopRightCornerRadius: v,
-          rectangleBottomRightCornerRadius: v,
-          rectangleBottomLeftCornerRadius: v,
-        }
-      : { cornerRadius: v };
-  const radiusHandlers = perLayer(ed, "Corner radius", refs, (n) => n.cornerRadius ?? 0, radiusFields, (v) => Math.max(0, v));
+  const radiusFields = (n: PanelNode, v: number): Fields => {
+    if (!hasCorners(n)) return { cornerRadius: Math.max(0, v) };
+    const r = Math.abs(v);
+    return {
+      cornerRadius: r,
+      rectangleCornerRadiiIndependent: false,
+      rectangleTopLeftCornerRadius: r,
+      rectangleTopRightCornerRadius: r,
+      rectangleBottomRightCornerRadius: r,
+      rectangleBottomLeftCornerRadius: r,
+      invertedCornerMask: v < 0 ? 15 : 0,
+    };
+  };
+  const radiusHandlers = perLayer(ed, "Corner radius", refs, signedRadius, radiusFields, (v) => (signedOk ? v : Math.max(0, v)));
   const opacityHandlers = perLayer(ed, "Opacity", refs, (n) => Math.round((n.opacity ?? 1) * 100), (_, v) => ({ opacity: Math.min(100, Math.max(0, v)) / 100 }), (v) => Math.min(100, Math.max(0, v)));
-  const setCorner = (f: CornerField, v: number, info: ChangeInfo) =>
-    editEach(ed, "Corner radius", info, refs, (n) => {
+  const cornerFields = (n: PanelNode, f: CornerField, v: number): Fields => {
       const all = Object.fromEntries(CORNERS.map(([k]) => [k, n[k] ?? n.cornerRadius ?? 0])) as Record<CornerField, number>;
-      all[f] = v;
+      const r = hasCorners(n) ? Math.abs(v) : Math.max(0, v);
+      all[f] = r;
       const same = CORNERS.every(([k]) => all[k] === all.rectangleTopLeftCornerRadius);
-      return { ...all, rectangleCornerRadiiIndependent: !same, cornerRadius: same ? v : (n.cornerRadius ?? 0) };
-    });
+      // A negative value: this corner inverted (our own addition); a positive one: rounded outward again.
+      const mask = invertedMask(n);
+      const inverted = hasCorners(n) ? (v < 0 ? mask | CORNER_BIT[f] : mask & ~CORNER_BIT[f]) : undefined;
+      return {
+        ...all,
+        rectangleCornerRadiiIndependent: !same,
+        cornerRadius: same ? r : (n.cornerRadius ?? 0),
+        ...(inverted !== undefined && inverted !== mask ? { invertedCornerMask: inverted } : {}),
+      };
+    };
+  const setCorner = (f: CornerField, v: number, info: ChangeInfo) => editEach(ed, "Corner radius", info, refs, (n) => cornerFields(n, f, v));
   const blendLabel = (b: Mixed<string> | undefined) => (b === undefined || b === MIXED ? "Mixed" : b === "PASS_THROUGH" ? "Pass through" : BLEND_LABEL[b as keyof typeof BLEND_LABEL] ?? b);
 
   return (
@@ -408,7 +444,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
             <NumericInput label="Opacity" prefix="24.opacity" unit="%" precision={0} min={0} max={100} value={fieldValue(opacity)} {...opacityHandlers} />
           </VariableField>
           <VariableField nodes={nodes} fields={["CORNER_RADIUS"]} prefix="24.corners" disabled={independentNow}>
-            <NumericInput label="Corner radius" prefix="24.corners" min={0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
+            <NumericInput label="Corner radius" prefix="24.corners" min={signedOk ? undefined : 0} disabled={plainOnly} value={independentNow ? MIXED : fieldValue(radius)} {...radiusHandlers} />
           </VariableField>
         </PropertyRow>
         {independent && (
@@ -418,7 +454,7 @@ export function AppearanceSection({ nodes }: { nodes: PanelNode[] }) {
               <PropertyRow key={i} data-corner-row={i === 0 ? "top" : "bottom"} action={i === 1 ? <CornerSmoothingButton nodes={nodes} /> : undefined}>
                 {pair.map(([f, icon, label]) => (
                   <VariableField key={f} nodes={nodes} fields={[CORNER_FIELD[f]]} prefix={icon}>
-                    <NumericInput label={label} prefix={icon} min={0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => ({ [f]: Math.max(0, (n[f] ?? n.cornerRadius ?? 0) + d) }))} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
+                    <NumericInput label={label} prefix={icon} min={signedOk ? undefined : 0} value={fieldValue(corner(f))} onChange={(v, info) => setCorner(f, v, info)} onStep={(d) => editEach(ed, "Corner radius", stepInfo, refs, (n) => cornerFields(n, f, hasCorners(n) ? signedCorner(n, f) + d : Math.max(0, (n[f] ?? n.cornerRadius ?? 0) + d)))} onCancel={() => ed.cancelEdit()} onExit={exitToCanvas(ed)} />
                   </VariableField>
                 ))}
               </PropertyRow>

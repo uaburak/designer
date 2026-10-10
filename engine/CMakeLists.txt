@@ -194,6 +194,7 @@ else()
     tests/unit/r15.components_chrome.test.cpp
     tests/unit/r15.spacing_handles.test.cpp
     tests/unit/r16.panel_spacing.test.cpp
+    tests/unit/r16.canvas_handles.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

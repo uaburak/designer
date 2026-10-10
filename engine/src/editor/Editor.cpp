@@ -1516,7 +1516,8 @@ void Editor::modifiers(uint32_t mods) {
   uint32_t before = mods_;
   mods_ = mods;
   if (gesture_ == Gesture::Move || gesture_ == Gesture::Resize || gesture_ == Gesture::Rotate || gesture_ == Gesture::Draw ||
-      gesture_ == Gesture::Marquee || gesture_ == Gesture::Vector) {
+      gesture_ == Gesture::Marquee || gesture_ == Gesture::Vector || gesture_ == Gesture::Radius ||
+      (gesture_ == Gesture::LayoutBar && layoutBarMoved_)) {
     if (before != mods) redrag(mods);
   } else if (gesture_ == Gesture::None) {
     updateHover(lastScreen_, mods);

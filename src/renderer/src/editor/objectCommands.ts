@@ -43,6 +43,7 @@ const SHAPE_PROPERTIES = [
   "rectangleBottomRightCornerRadius",
   "rectangleBottomLeftCornerRadius",
   "cornerSmoothing",
+  "invertedCornerMask",
   "layoutGrids",
   "exportSettings",
 ] as const;

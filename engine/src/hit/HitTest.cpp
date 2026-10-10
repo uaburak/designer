@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "geometry/Shapes.h"
 #include "geometry/Stroker.h"
 #include "geometry/VariableWidth.h"
 
@@ -22,7 +23,18 @@ double shapeDistance(const NodeProps& p, Vec2 local, bool square = false) {
   if (p.type == NodeType::ELLIPSE) return sdEllipse(c, half);
   double radii[4] = {p.cornerRadii[0], p.cornerRadii[1], p.cornerRadii[2], p.cornerRadii[3]};
   if (square) radii[0] = radii[1] = radii[2] = radii[3] = 0;
-  return sdRoundedBox(c, half, radii);
+  const uint32_t inv = p.invertedCorners();
+  if (!inv) return sdRoundedBox(c, half, radii);
+  // Inverted corners (docs/schema.md §3.6): the box less a disc around each such corner — never hit there, the box
+  // rule below notwithstanding (what they cut away is the shape's own outline, not a rounding's sliver).
+  CornerRadii clamped = geom::clampRadii(p.size, p.cornerRadii);
+  for (int k = 0; k < 4; k++)
+    if (inv & (1u << k)) radii[k] = 0;
+  double d = sdRoundedBox(c, half, radii);
+  const Vec2 corners[4] = {{0, 0}, {p.size.x, 0}, {p.size.x, p.size.y}, {0, p.size.y}};
+  for (int k = 0; k < 4; k++)
+    if (inv & (1u << k)) d = std::max(d, clamped[static_cast<size_t>(k)] - (local - corners[k]).length());
+  return d;
 }
 
 // Rectangles and frames (components, instances, sets) are hit in their whole box where they show something there —

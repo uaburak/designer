@@ -218,7 +218,7 @@ Status Editor::flattenSelection() {
   NodeProps kp = keep->props;
   // The kept layer becomes a VECTOR (same GUID); its children (a boolean's operands, a group's layers) go.
   NodeChange c = NodeChange::changed(into);
-  c.mask = F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_ARC_DATA | F_RESIZE_TO_FIT | F_FRAME_MASK_DISABLED;
+  c.mask = F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_ARC_DATA | F_RESIZE_TO_FIT | F_FRAME_MASK_DISABLED;
   c.props.type = NodeType::VECTOR;
   if (flatFrame(kp)) {
     // A frame drops its layout; it keeps its own look when it has a fill, else takes its topmost layer's.
@@ -305,7 +305,7 @@ Status Editor::outlineStroke() {
       write(NodeChange::created(id, v));
     } else {
       NodeChange c = NodeChange::changed(t);
-      c.mask = F_TYPE | F_FILLS | F_STROKES | F_CORNER_RADII | F_CORNER_SMOOTHING | F_ARC_DATA | F_DASH_PATTERN;
+      c.mask = F_TYPE | F_FILLS | F_STROKES | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_ARC_DATA | F_DASH_PATTERN;
       c.props.type = NodeType::VECTOR;
       c.props.fillPaints = p.strokePaints;
       c.props.strokePaints.clear();

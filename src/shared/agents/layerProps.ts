@@ -90,6 +90,7 @@ export const NAMED_PROPS: Record<string, LayerPropInfo> = {
   // Corners.
   cornerRadius: { schema: { anyOf: [{ type: "number" }, { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "top-left, top-right, bottom-right, bottom-left" }] }, fields: ["cornerRadius", "rectangleCornerRadiiIndependent", "rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius"] },
   cornerSmoothing: { schema: num("0–1 (iOS-like: 0.6)"), fields: ["cornerSmoothing"] },
+  invertedCorners: { schema: num("DesignerV2's own (not Figma's): a bit per corner rounded inward (concave) — 1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left; 0 none"), fields: ["invertedCornerMask"] },
   // Shapes.
   pointCount: { schema: num("Polygons and stars: points"), fields: ["count"] },
   innerRadius: { schema: num("Stars: ratio 0–1"), fields: ["starInnerScale"] },

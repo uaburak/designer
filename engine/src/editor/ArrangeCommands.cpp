@@ -271,7 +271,7 @@ void Editor::writeAsVector(Guid id, const VectorNetwork& net) {
   if (!n) return;
   if (n->props.type != NodeType::VECTOR) {
     NodeChange c = NodeChange::changed(id);
-    c.mask = F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_ARC_DATA;
+    c.mask = F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_ARC_DATA;
     c.props.type = NodeType::VECTOR;
     c.props.cornerRadii = {0, 0, 0, 0};
     c.props.stroke().cornerSmoothing = 0;
@@ -618,7 +618,7 @@ namespace {
 
 // What "Set default properties" carries (the forum's reports: fills, strokes, a text's font and alignment).
 constexpr FieldMask kDefaultFields = F_OPACITY | F_FILLS | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN | F_STROKE_JOIN | F_STROKE_CAP |
-                                     F_DASH_PATTERN | F_EFFECTS | F_BLEND_MODE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_FONT_NAME |
+                                     F_DASH_PATTERN | F_EFFECTS | F_BLEND_MODE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_FONT_NAME |
                                      F_FONT_SIZE | F_LINE_HEIGHT | F_LETTER_SPACING | F_TEXT_ALIGN_H | F_TEXT_CASE | F_TEXT_DECORATION;
 
 bool takesDefaults(NodeType t) {

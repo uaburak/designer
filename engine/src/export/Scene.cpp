@@ -19,6 +19,7 @@ const CornerRadii kSquare{0, 0, 0, 0};
 bool plainShape(const NodeProps& p) {
   if (p.isPathShape()) return false;
   if (p.isFrameLike() && p.stroke().cornerSmoothing > 0) return false;
+  if (p.invertedCorners()) return false;  // inverted corners: the outline's path (docs/schema.md §3.6)
   return p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE;
 }
 
@@ -91,11 +92,12 @@ Stroke strokeOf(const Document& doc, Guid id, const NodeProps& p) {
     Rect outer{-l * k0, -t * k0, p.size.x + (l + r) * k0, p.size.y + (t + b) * k0};
     Rect inner{outer.x + l, outer.y + t, outer.w - l - r, outer.h - t - b};
     CornerRadii radii = geom::clampRadii(p.size, p.cornerRadii);
-    geom::Path ring = geom::rectPath({outer.w, outer.h}, radii).transformed(Mat2x3::translate(outer.x, outer.y));
+    const uint32_t inv = p.invertedCorners();
+    geom::Path ring = geom::rectPath({outer.w, outer.h}, radii, 0, inv).transformed(Mat2x3::translate(outer.x, outer.y));
     if (inner.w > 0 && inner.h > 0) {
       CornerRadii ir;
-      for (size_t i = 0; i < 4; i++) ir[i] = std::max(0.0, radii[i] - std::max(t, l));
-      ring.append(geom::rectPath({inner.w, inner.h}, ir).transformed(Mat2x3::translate(inner.x, inner.y)).reversed());
+      for (size_t i = 0; i < 4; i++) ir[i] = (inv >> i) & 1 ? radii[i] + std::max(t, l) : std::max(0.0, radii[i] - std::max(t, l));
+      ring.append(geom::rectPath({inner.w, inner.h}, ir, 0, inv).transformed(Mat2x3::translate(inner.x, inner.y)).reversed());
     }
     s.center = std::move(ring);  // the area itself
     s.ring = true;

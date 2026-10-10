@@ -19,7 +19,7 @@ Vec2 normalized(Vec2 v) {
 // out along `v`. Figma's squircle ("Desperately seeking squircles", Figma 2018):
 // an arc in the middle, eased into the edges by two cubics; smoothing 0 is a
 // plain quarter circle.
-void corner(Path& path, Vec2 V, Vec2 u, Vec2 v, double radius, double smoothing, double budget) {
+void corner(Path& path, Vec2 V, Vec2 u, Vec2 v, double radius, double smoothing, double budget, bool inverted = false) {
   if (radius <= 0) {
     path.lineTo(V);
     return;
@@ -42,15 +42,24 @@ void corner(Path& path, Vec2 V, Vec2 u, Vec2 v, double radius, double smoothing,
   double a = 2 * b;
   Vec2 S = V - u * p;
   path.lineTo(S);
+  // An inverted corner: every control point mirrored across the chord S → E (the arc's centre goes to the corner).
+  const Vec2 E0 = V + v * p;
+  const Vec2 t = normalized(E0 - S);
+  auto at = [&](Vec2 X) {
+    if (!inverted) return X;
+    Vec2 d = X - S;
+    double k = d.x * t.x + d.y * t.y;
+    return Vec2{S.x + 2 * k * t.x - d.x, S.y + 2 * k * t.y - d.y};
+  };
   Vec2 A = S + u * (a + b + c) + v * d;
-  if (a + b + c + d > 1e-9) path.cubicTo(S + u * a, S + u * (a + b), A);
+  if (a + b + c + d > 1e-9) path.cubicTo(at(S + u * a), at(S + u * (a + b)), at(A));
   Vec2 B = A + u * arcSection + v * arcSection;
   Vec2 tA = (c == 0 && d == 0) ? u : normalized(u * c + v * d);
   Vec2 tB = (c == 0 && d == 0) ? v : normalized(u * d + v * c);
   double k = 4.0 / 3 * std::tan(arcMeasure / 4) * radius;
-  if (arcMeasure > 1e-9) path.cubicTo(A + tA * k, B - tB * k, B);
+  if (arcMeasure > 1e-9) path.cubicTo(at(A + tA * k), at(B - tB * k), at(B));
   Vec2 E = B + u * d + v * (a + b + c);
-  if (a + b + c + d > 1e-9) path.cubicTo(B + u * d + v * c, B + u * d + v * (b + c), E);
+  if (a + b + c + d > 1e-9) path.cubicTo(at(B + u * d + v * c), at(B + u * d + v * (b + c)), at(E));
 }
 
 // Points of a regular star / polygon on the unit circle, the first at the top.
@@ -92,7 +101,7 @@ CornerRadii clampRadii(Vec2 size, const CornerRadii& r) {
   return out;
 }
 
-Path rectPath(Vec2 size, const CornerRadii& radii0, double smoothing) {
+Path rectPath(Vec2 size, const CornerRadii& radii0, double smoothing, uint32_t inverted) {
   Path path;
   double w = size.x, h = size.y;
   CornerRadii r = clampRadii(size, radii0);
@@ -108,10 +117,10 @@ Path rectPath(Vec2 size, const CornerRadii& radii0, double smoothing) {
   CornerRadii budget = cornerBudgets({std::fabs(w), std::fabs(h)}, r);
   // Start mid-way along the top edge, clockwise.
   path.moveTo({w / 2, 0});
-  corner(path, {w, 0}, {1, 0}, {0, 1}, r[1], smoothing, budget[1]);
-  corner(path, {w, h}, {0, 1}, {-1, 0}, r[2], smoothing, budget[2]);
-  corner(path, {0, h}, {-1, 0}, {0, -1}, r[3], smoothing, budget[3]);
-  corner(path, {0, 0}, {0, -1}, {1, 0}, r[0], smoothing, budget[0]);
+  corner(path, {w, 0}, {1, 0}, {0, 1}, r[1], smoothing, budget[1], (inverted & 2) != 0);
+  corner(path, {w, h}, {0, 1}, {-1, 0}, r[2], smoothing, budget[2], (inverted & 4) != 0);
+  corner(path, {0, h}, {-1, 0}, {0, -1}, r[3], smoothing, budget[3], (inverted & 8) != 0);
+  corner(path, {0, 0}, {0, -1}, {1, 0}, r[0], smoothing, budget[0], (inverted & 1) != 0);
   path.close();
   return path;
 }

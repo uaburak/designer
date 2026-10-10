@@ -82,6 +82,7 @@ uint64_t GeometryCache::inputKey(const Document& doc, Guid id, const NodeProps& 
   h.d(p.size.x), h.d(p.size.y);
   for (double r : p.cornerRadii) h.d(r);
   h.d(p.stroke().cornerSmoothing);
+  h.pod(p.invertedCorners());
   h.d(p.shape().arcData.startingAngle), h.d(p.shape().arcData.endingAngle), h.d(p.shape().arcData.innerRadius);
   h.pod(p.shape().count);
   h.d(p.shape().starInnerScale);
@@ -130,7 +131,7 @@ void GeometryCache::build(const Document& doc, Guid id, const NodeProps& p, Node
     case NodeType::INSTANCE:
     case NodeType::SECTION:
       if (p.isGroupLike()) break;
-      closedShape(rectPath(p.size, p.cornerRadii, p.stroke().cornerSmoothing));
+      closedShape(rectPath(p.size, p.cornerRadii, p.stroke().cornerSmoothing, p.invertedCorners()));
       break;
     case NodeType::ELLIPSE: closedShape(ellipsePath(p.size, p.shape().arcData)); break;
     case NodeType::REGULAR_POLYGON: closedShape(polygonPath(p.size, p.shape().count ? p.shape().count : 3, p.cornerRadii[0])); break;

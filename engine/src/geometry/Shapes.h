@@ -18,7 +18,10 @@ CornerRadii clampRadii(Vec2 size, const CornerRadii& radii);
 // Each corner's room for its rounding and smoothing (tl tr br bl), and `radii` kept within it (figma-squircle's
 // per-edge budget: a corner next to a square one has the whole edge).
 CornerRadii cornerBudgets(Vec2 size, CornerRadii& radii);
-Path rectPath(Vec2 size, const CornerRadii& radii, double smoothing = 0);
+// `inverted`: a bit per corner (1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left) whose rounding goes inward —
+// the convex corner's curve mirrored across its chord (a plain one: a quarter circle around the corner itself; our own
+// field, docs/schema.md §3.6).
+Path rectPath(Vec2 size, const CornerRadii& radii, double smoothing = 0, uint32_t inverted = 0);
 Path ellipsePath(Vec2 size, const ArcData& arc);
 // Regular polygon / star with `count` points on the ellipse the box holds (Figma: the top point at the top edge, the
 // box not stretched to the points — a triangle leaves a quarter of its box empty), corners rounded by `cornerRadius`.

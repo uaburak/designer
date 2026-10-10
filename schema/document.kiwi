@@ -1811,6 +1811,7 @@ message NodeChange {
   float rectangleBottomRightCornerRadius = 148;   // @bind(RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS)
   bool rectangleCornerRadiiIndependent = 149;
   float cornerSmoothing = 160;                    // 0..1 ("iOS" = 0.6)
+  uint invertedCornerMask = 1002;                 // @ours inverted (concave) corners, one bit per corner: 1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left (rectangles, frames; docs/schema.md §3.6)
   Effect[] effects = 43;
   Path[] fillGeometry = 51;                       // @derived
   Path[] strokeGeometry = 52;                     // @derived

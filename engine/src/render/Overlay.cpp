@@ -280,8 +280,8 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   auto nodeOutline = [&](Guid id, double weight, bool ownShape) {
     const Node* n = doc.get(id);
     if (!n) return;
-    if (ownShape && n->props.isPathShape()) {
-      // Vectors, stars, booleans…: their own outline.
+    if (ownShape && (n->props.isPathShape() || n->props.invertedCorners())) {
+      // Vectors, stars, booleans…, inverted corners: their own outline.
       if (const NodeGeometry* g = doc.geometry(id)) {
         Mat2x3 m = view * doc.worldTransform(id);
         if (!g->stroke.path.empty()) pathOutline(g->stroke.path, m, weight, colorOf(id));

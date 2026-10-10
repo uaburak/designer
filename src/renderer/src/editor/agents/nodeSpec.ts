@@ -537,6 +537,7 @@ const PROPS: Record<string, PropImpl> = {
     },
   },
   cornerSmoothing: { on: (n) => (hasCorners(n) ? null : `not for a ${typeName(n.type)}`), read: (n) => (n as unknown as Obj).cornerSmoothing ?? 0, write: (v) => ({ cornerSmoothing: needNum(v, 0, 1) }) as NodeFields },
+  invertedCorners: { on: (n) => (hasCorners(n) ? null : `not for a ${typeName(n.type)}`), read: (n) => (n as unknown as Obj).invertedCornerMask ?? 0, write: (v) => ({ invertedCornerMask: Math.round(needNum(v, 0, 15)) }) as NodeFields },
   // Shapes.
   pointCount: { on: (n) => (n.type === "REGULAR_POLYGON" || n.type === "STAR" ? null : "only for polygons and stars"), read: (n) => (n.type === "REGULAR_POLYGON" || n.type === "STAR" ? ((n as unknown as Obj).count ?? (n.type === "STAR" ? 5 : 3)) : undefined), write: (v) => ({ count: Math.round(needNum(v, 3, 60)) }) as NodeFields },
   innerRadius: { on: (n) => (n.type === "STAR" ? null : "only for stars"), read: (n) => (n.type === "STAR" ? ((n as unknown as Obj).starInnerScale ?? 0.382) : undefined), write: (v) => ({ starInnerScale: needNum(v, 0, 1) }) as NodeFields },

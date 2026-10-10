@@ -64,7 +64,7 @@ bool NodeProps::isPathShape() const {
     case NodeType::BOOLEAN_OPERATION: return true;
     case NodeType::ELLIPSE: return !shape().arcData.isFull() || !stroke().dashPattern.empty();
     case NodeType::RECTANGLE:
-    case NodeType::ROUNDED_RECTANGLE: return stroke().cornerSmoothing > 0 || !stroke().dashPattern.empty();
+    case NodeType::ROUNDED_RECTANGLE: return stroke().cornerSmoothing > 0 || !stroke().dashPattern.empty() || invertedCorners() != 0;
     default: return false;
   }
 }
@@ -348,6 +348,7 @@ bool TextStyle::operator==(const TextStyle& o) const {
   X(F_BORDER_WEIGHTS, stroke, borderWeights, 295)          \
   X(F_BORDER_WEIGHTS, stroke, borderStrokeWeightsIndependent, 299)\
   X(F_CORNER_SMOOTHING, stroke, cornerSmoothing, 160)      \
+  X(F_INVERTED_CORNERS, stroke, invertedCornerMask, 1002)  \
   X(F_EFFECTS, core, effects, 43)                          \
   X(F_COUNT, shape, count, 10)                             \
   X(F_STAR_INNER_SCALE, shape, starInnerScale, 24)         \
@@ -515,7 +516,7 @@ FieldMask fieldsOfKiwiId(uint32_t id) {
 
 uint32_t fieldGroups(FieldMask m) {
   uint32_t g = 0;
-  if (m & (F_TRANSFORM | F_SIZE | F_CORNER_RADII | F_TYPE | F_CORNER_SMOOTHING | F_COUNT | F_STAR_INNER_SCALE | F_ARC_DATA |
+  if (m & (F_TRANSFORM | F_SIZE | F_CORNER_RADII | F_TYPE | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_COUNT | F_STAR_INNER_SCALE | F_ARC_DATA |
            F_VECTOR_DATA | F_HANDLE_MIRRORING | F_BOOLEAN_OPERATION))
     g |= G_GEOMETRY;
   if (m & (F_PARENT_INDEX | F_RESIZE_TO_FIT | kStackContainerFields | kStackChildFields | F_H_CONSTRAINT | F_V_CONSTRAINT |

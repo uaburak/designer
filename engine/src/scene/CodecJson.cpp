@@ -907,6 +907,7 @@ void writeFields(json::Writer& w, const NodeProps& p, FieldMask mask, bool updat
     w.key("borderStrokeWeightsIndependent").boolean(p.stroke().borderStrokeWeightsIndependent);
   }
   if (mask & F_CORNER_SMOOTHING) w.key("cornerSmoothing").number(p.stroke().cornerSmoothing);
+  if (mask & F_INVERTED_CORNERS) w.key("invertedCornerMask").number(p.stroke().invertedCornerMask);
   if (mask & F_EFFECTS) {
     w.key("effects").beginArray();
     for (auto& e : p.effects) writeEffect(w, e);
@@ -1198,7 +1199,7 @@ bool knownKey(std::string_view k) {
       "textAlignHorizontal", "textAlignVertical", "textAutoResize", "textTruncation", "maxLines", "textCase", "textDecoration",
       "autoRename", "blendMode", "mask", "maskType", "strokeCap", "strokeJoin", "miterLimit", "dashPattern",
       "borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight", "borderStrokeWeightsIndependent",
-      "cornerSmoothing", "effects", "count", "starInnerScale", "arcData", "vectorData", "handleMirroring", "booleanOperation", "layoutGrids",
+      "cornerSmoothing", "invertedCornerMask", "effects", "count", "starInnerScale", "arcData", "vectorData", "handleMirroring", "booleanOperation", "layoutGrids",
       "overrideKey", "symbolData", "overriddenSymbolID", "componentPropDefs", "componentPropAssignments", "parameterConsumptionMap",
       "componentPropRefs", "isStateGroup", "variantPropSpecs", "stateGroupPropertyValueOrders", "propsAreBubbled", "isSlot",
       "isSlotContent", "detachedSymbolId", "isSoftDeleted", "ancestorPathBeforeDeletion", "variableModeBySetMap",
@@ -1677,6 +1678,8 @@ void readFields(const json::Value& v, NodeProps& p, FieldMask& m, bool update, c
     readBool(v, "borderStrokeWeightsIndependent", p.stroke().borderStrokeWeightsIndependent, F_BORDER_WEIGHTS, m);
   }
   readNumber(v, "cornerSmoothing", p.stroke().cornerSmoothing, F_CORNER_SMOOTHING, m);
+  if (auto* x = v.get("invertedCornerMask"); x && x->isNumber())
+    p.stroke().invertedCornerMask = static_cast<uint32_t>(std::clamp(x->number, 0.0, 15.0)), m |= F_INVERTED_CORNERS;
   if (auto* x = v.get("effects"); x && x->isArray()) {
     for (auto& e : x->array)
       if (e.isObject()) p.effects.push_back(readEffect(e));
@@ -1922,7 +1925,7 @@ const FieldKey kFieldKeys[] = {
     {F_MAX_LINES, "maxLines"}, {F_TEXT_CASE, "textCase"}, {F_TEXT_DECORATION, "textDecoration"}, {F_AUTO_RENAME, "autoRename"},
     {F_BLEND_MODE, "blendMode"}, {F_MASK, "mask"}, {F_MASK_TYPE, "maskType"}, {F_STROKE_CAP, "strokeCap"},
     {F_STROKE_JOIN, "strokeJoin"}, {F_MITER_LIMIT, "miterLimit"}, {F_DASH_PATTERN, "dashPattern"},
-    {F_BORDER_WEIGHTS, "borderTopWeight"}, {F_CORNER_SMOOTHING, "cornerSmoothing"}, {F_EFFECTS, "effects"}, {F_COUNT, "count"},
+    {F_BORDER_WEIGHTS, "borderTopWeight"}, {F_CORNER_SMOOTHING, "cornerSmoothing"}, {F_INVERTED_CORNERS, "invertedCornerMask"}, {F_EFFECTS, "effects"}, {F_COUNT, "count"},
     {F_STAR_INNER_SCALE, "starInnerScale"}, {F_ARC_DATA, "arcData"}, {F_VECTOR_DATA, "vectorData"},
     {F_HANDLE_MIRRORING, "handleMirroring"}, {F_BOOLEAN_OPERATION, "booleanOperation"}, {F_LAYOUT_GRIDS, "layoutGrids"},
     {F_OVERRIDE_KEY, "overrideKey"}, {F_SYMBOL_DATA, "symbolData"}, {F_OVERRIDDEN_SYMBOL_ID, "overriddenSymbolID"},

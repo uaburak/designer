@@ -64,6 +64,7 @@ const GEOMETRY: FacetReader = {
     f64("rectangleTopRightCornerRadius", "p.cornerRadii[1]"),
     f64("rectangleBottomRightCornerRadius", "p.cornerRadii[2]"),
     f64("rectangleBottomLeftCornerRadius", "p.cornerRadii[3]"),
+    f64("invertedCornerMask", "static_cast<double>(p.stroke().invertedCornerMask)"),
     en("horizontalConstraint", "ConstraintType", "p.horizontalConstraint"),
     en("verticalConstraint", "ConstraintType", "p.verticalConstraint"),
     bool("proportionsConstrained", "p.proportionsConstrained"),

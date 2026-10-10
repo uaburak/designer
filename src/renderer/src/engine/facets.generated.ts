@@ -10,10 +10,10 @@ export type FacetName = "geometry" | "shape" | "stack" | "stroke" | "text";
 /** Each facet's bit in engine_read_facets' mask is 1 << id. */
 export const FACET_IDS: Readonly<Record<FacetName, number>> = { geometry: 0, shape: 1, stack: 2, stroke: 3, text: 4 };
 /** Each facet's record length in f64 slots. */
-export const FACET_SLOTS: Readonly<Record<FacetName, number>> = { geometry: 24, shape: 5, stack: 19, stroke: 14, text: 15 };
+export const FACET_SLOTS: Readonly<Record<FacetName, number>> = { geometry: 25, shape: 5, stack: 19, stroke: 14, text: 15 };
 /** The fields (schema NodeChange names) each facet carries. */
 export const FACET_FIELDS: Readonly<Record<FacetName, readonly string[]>> = {
-  geometry: ["type", "visible", "locked", "opacity", "transform", "size", "cornerRadius", "rectangleCornerRadiiIndependent", "rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius", "horizontalConstraint", "verticalConstraint", "proportionsConstrained", "stackChildPrimaryGrow", "stackChildAlignSelf", "stackPositioning"],
+  geometry: ["type", "visible", "locked", "opacity", "transform", "size", "cornerRadius", "rectangleCornerRadiiIndependent", "rectangleTopLeftCornerRadius", "rectangleTopRightCornerRadius", "rectangleBottomRightCornerRadius", "rectangleBottomLeftCornerRadius", "invertedCornerMask", "horizontalConstraint", "verticalConstraint", "proportionsConstrained", "stackChildPrimaryGrow", "stackChildAlignSelf", "stackPositioning"],
   shape: ["arcData", "count", "starInnerScale"],
   stack: ["stackMode", "stackSpacing", "stackCounterSpacing", "stackHorizontalPadding", "stackVerticalPadding", "stackPaddingRight", "stackPaddingBottom", "stackPrimarySizing", "stackCounterSizing", "stackPrimaryAlignItems", "stackCounterAlignItems", "stackCounterAlignContent", "stackWrap", "stackReverseZIndex", "bordersTakeSpace", "minSize", "maxSize"],
   stroke: ["strokeWeight", "strokeAlign", "strokeCap", "strokeJoin", "miterLimit", "borderTopWeight", "borderRightWeight", "borderBottomWeight", "borderLeftWeight", "borderStrokeWeightsIndependent", "cornerSmoothing", "blendMode", "mask", "frameMaskDisabled"],
@@ -56,6 +56,7 @@ export interface GeometryFacet {
   rectangleTopRightCornerRadius: number;
   rectangleBottomRightCornerRadius: number;
   rectangleBottomLeftCornerRadius: number;
+  invertedCornerMask: number;
   horizontalConstraint: string;
   verticalConstraint: string;
   proportionsConstrained: boolean;
@@ -143,12 +144,13 @@ export function decodeGeometry(a: Float64Array, o: number, into: Into): void {
   into["rectangleTopRightCornerRadius"] = a[o + 15];
   into["rectangleBottomRightCornerRadius"] = a[o + 16];
   into["rectangleBottomLeftCornerRadius"] = a[o + 17];
-  into["horizontalConstraint"] = ConstraintType[a[o + 18]] ?? "";
-  into["verticalConstraint"] = ConstraintType[a[o + 19]] ?? "";
-  into["proportionsConstrained"] = a[o + 20] !== 0;
-  into["stackChildPrimaryGrow"] = a[o + 21];
-  into["stackChildAlignSelf"] = StackCounterAlign[a[o + 22]] ?? "";
-  into["stackPositioning"] = StackPositioning[a[o + 23]] ?? "";
+  into["invertedCornerMask"] = a[o + 18];
+  into["horizontalConstraint"] = ConstraintType[a[o + 19]] ?? "";
+  into["verticalConstraint"] = ConstraintType[a[o + 20]] ?? "";
+  into["proportionsConstrained"] = a[o + 21] !== 0;
+  into["stackChildPrimaryGrow"] = a[o + 22];
+  into["stackChildAlignSelf"] = StackCounterAlign[a[o + 23]] ?? "";
+  into["stackPositioning"] = StackPositioning[a[o + 24]] ?? "";
 }
 
 /** Decodes a shape record at `a[o]` into `into` (an absent optional is deleted). */

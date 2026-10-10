@@ -334,6 +334,11 @@ export interface NodeFields {
   borderStrokeWeightsIndependent?: boolean;
   /** 0–1 (iOS = 0.6). */
   cornerSmoothing?: number;
+  /**
+   * Inverted (concave) corners — our own field (schema 1002, docs/schema.md §3.6): a bit per corner, 1 top-left,
+   * 2 top-right, 4 bottom-right, 8 bottom-left. The Design panel shows an inverted corner's radius as a negative number.
+   */
+  invertedCornerMask?: number;
   effects?: Effect[];
   // Shapes and vectors.
   /** REGULAR_POLYGON / STAR point count. */

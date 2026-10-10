@@ -265,7 +265,7 @@ VectorNetwork Editor::writeVector(Guid id, VectorNetwork net, const Mat2x3& loca
   c.props.shape().vectorData = d;
   if (id == vector_.node && vector_.pendingType && p.type != NodeType::VECTOR) {
     // A shape's first edit: it becomes a VECTOR (same GUID), its outline now the network.
-    c.mask |= F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_ARC_DATA;
+    c.mask |= F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_ARC_DATA;
     c.props.type = NodeType::VECTOR;
     c.props.cornerRadii = {0, 0, 0, 0};
     c.props.stroke().cornerSmoothing = 0;

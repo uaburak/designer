@@ -11,7 +11,7 @@ Readers: the engine (`docs/engine.md`), storage and sync (`docs/data.md`), the p
 | Topic | Decision |
 |---|---|
 | Basis | **Figma's own Kiwi schema, trimmed.** 183 definitions (87 enums, 11 structs, 85 messages). `NodeChange` keeps 194 of Figma's 610 fields. Every kept field name, number, type and enum value is Figma's; this was checked mechanically (1,307 checks, 0 mismatches, §1.1). |
-| Own additions | Three fields: `NodeChange.clearedFields = 1000`, `NodeChange.librarySubscriptions = 1001`, `Message.derivedDataVersion = 100`, plus one message (`LibrarySubscription`). Everything else that DesignerV2 needs was already in Figma's schema. |
+| Own additions | Four fields: `NodeChange.clearedFields = 1000`, `NodeChange.librarySubscriptions = 1001`, `NodeChange.invertedCornerMask = 1002` (§3.6, the owner's inverted corners), `Message.derivedDataVersion = 100`, plus one message (`LibrarySubscription`). Everything else that DesignerV2 needs was already in Figma's schema. |
 | One encoding | `Message { type: NODE_CHANGES, nodeChanges[], blobs[] }` is the snapshot, the journal frame, the undo batch, the clipboard payload, the preview snapshot and what the engine emits after every commit. |
 | Data model | A flat map `GUID → NodeChange` (a sparse property bag). Tree and order are one property on the child, `parentIndex {guid, position}`. One top-level field = one property = one unit of last-writer-wins. |
 | Change model | Present field = set. `clearedFields` = unset. `phase CREATED` = new node with its full state; `phase REMOVED` = delete, sent for every node of a removed subtree. Undo = the inverse NodeChanges. |
@@ -222,6 +222,14 @@ Four kinds of reference, one rule: **the reference is the truth; the node's own 
 | Variable | `parameterConsumptionMap` entry, `Paint.colorVar/opacityVar/stopsVar`, `Effect.*Var`, `LayoutGrid.*Var` | the bound field (`stackSpacing`, `Paint.color`, …) | clear the binding; the copy stays |
 | Component property | `PROP_REF` entry in a sublayer's `parameterConsumptionMap` (§5.5) | materialized sublayer (derived, not stored) | n/a |
 | Main component | `symbolData.symbolID` | INSTANCE root fields (materialized) and `derivedSymbolData` | Detach instance (§5.7) |
+
+### 3.6 Inverted corners (`invertedCornerMask = 1002`, ours)
+
+The owner's addition (round 16): Figma has no inverted (concave) corners — help.figma.com's corner radius controls only round outward, and it is a long-standing request on forum.figma.com ("corner styles"). It is an **own field** under §1.2's rule (`@ours`, from 1000 in `NodeChange`): `uint invertedCornerMask`, one bit per corner — 1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left (the `rectangle*CornerRadius` order the engine keeps: `cornerRadii`). Absent = 0 = every corner outward. A set bit on a rectangle or frame (component, instance; not a section) makes that corner's rounding go inward: its curve is the outward one mirrored across its chord — for an unsmoothed corner a quarter circle of the corner's radius **around the corner itself**; corner smoothing applies the same way. The radius stays where Figma keeps it (positive, clamped as Figma clamps); a bit on a square corner shows nothing. Readers that don't know the field (Figma, a `.fig` export) see ordinary rounded corners.
+
+- Engine: `StrokeFacet::invertedCornerMask` (`F_INVERTED_CORNERS`, a geometry field: NODES_CHANGED's GEOMETRY group, the `geometry` facet's `invertedCornerMask`); overridable on instances; copied by Copy / Paste properties and Set default properties.
+- Drawing: an inverted rectangle or frame leaves the SDF fast path for its outline's path (fills, strokes, per-side strokes, background blur, clipping, Outline mode, the selection outline), on WebGL2 and WebGPU alike; hit-testing takes the cut-away disc out of the box (`HitTest.cpp shapeDistance`); SVG / PDF write the path.
+- Editing: the corner radius handles with ⌘ (`docs/engine.md` §7 "Corner radius handles"); the Design panel shows an inverted corner's radius **as a negative number** (the all-corners field when every corner is inverted), and a negative number typed or stepped to sets the corner inward (`Sections.tsx`, `signedCorner`).
 
 ---
 

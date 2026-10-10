@@ -853,7 +853,8 @@ enum Field : FieldMask {
   F_CORNER_BL = ENG_FIELD_BIT(113),  // rectangleBottomLeftCornerRadius
   F_CORNER_RADII = F_CORNER_TL | F_CORNER_TR | F_CORNER_BR | F_CORNER_BL,
   F_OVERRIDDEN_VARIABLE = ENG_FIELD_BIT(114),  // overriddenVariableId: a VARIABLE_OVERRIDE's variable
-  F_ALL = ENG_FIELD_BIT(115) - 1,
+  F_INVERTED_CORNERS = ENG_FIELD_BIT(115),     // invertedCornerMask (@ours, docs/schema.md §3.6)
+  F_ALL = ENG_FIELD_BIT(116) - 1,
 };
 
 inline constexpr FieldMask kComponentFields = F_OVERRIDE_KEY | F_SYMBOL_DATA | F_OVERRIDDEN_SYMBOL_ID | F_COMPONENT_PROP_DEFS |
@@ -889,7 +890,7 @@ inline constexpr FieldMask kTextLayoutFields = F_TEXT_DATA | F_FONT_NAME | F_FON
                                                F_TEXT_DECORATION;
 
 // Fields that change a node's own geometry (its fill / stroke outlines).
-inline constexpr FieldMask kShapeGeometryFields = F_SIZE | F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_COUNT |
+inline constexpr FieldMask kShapeGeometryFields = F_SIZE | F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_COUNT |
                                                   F_STAR_INNER_SCALE | F_ARC_DATA | F_VECTOR_DATA | F_STROKE_WEIGHT |
                                                   F_STROKE_ALIGN | F_STROKE_CAP | F_STROKE_JOIN | F_MITER_LIMIT |
                                                   F_DASH_PATTERN | F_BORDER_WEIGHTS | F_BOOLEAN_OPERATION | F_TEXT_DATA;
@@ -1013,6 +1014,10 @@ struct StrokeFacet {
   std::array<double, 4> borderWeights{0, 0, 0, 0};
   bool borderStrokeWeightsIndependent = false;
   double cornerSmoothing = 0;
+  // Inverted (concave) corners, one bit per corner in cornerRadii's order (1 top-left, 2 top-right, 4 bottom-right,
+  // 8 bottom-left): the corner's rounding is a quarter circle around the corner itself (our own field, not Figma's —
+  // docs/schema.md §3.6).
+  uint32_t invertedCornerMask = 0;
   bool operator==(const StrokeFacet&) const = default;
 };
 
@@ -1164,6 +1169,15 @@ struct NodeProps {
     return isFrameLike() || isGroupLike() || isBoolean() || type == NodeType::CANVAS || type == NodeType::DOCUMENT;
   }
   bool isRectLike() const { return type == NodeType::ROUNDED_RECTANGLE || type == NodeType::RECTANGLE; }
+  // A rectangle's or frame's inverted corners that show (a bit set on a corner with a radius); 0 for other layers.
+  uint32_t invertedCorners() const {
+    uint32_t m = stroke().invertedCornerMask & 15u;
+    if (!m || !(isRectLike() || isFrameLike())) return 0;
+    uint32_t shown = 0;
+    for (uint32_t k = 0; k < 4; k++)
+      if ((m & (1u << k)) && cornerRadii[k] > 0) shown |= 1u << k;
+    return shown;
+  }
   bool clipsContent() const { return isFrameLike() && !frameMaskDisabled; }
   bool isAutoLayout() const {
     return isFrameLike() && stack().stackMode != StackMode::NONE;  // HORIZONTAL, VERTICAL, GRID

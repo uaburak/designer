@@ -214,7 +214,7 @@ Status Editor::builderApply(const std::vector<int>& taken, bool remove) {
     if (p.type != NodeType::VECTOR) {
       // A shape becomes a VECTOR (same GUID), its outline now the network.
       NodeChange c = NodeChange::changed(L);
-      c.mask = F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_ARC_DATA;
+      c.mask = F_TYPE | F_CORNER_RADII | F_CORNER_SMOOTHING | F_INVERTED_CORNERS | F_ARC_DATA;
       c.props.type = NodeType::VECTOR;
       c.props.cornerRadii = {0, 0, 0, 0};
       c.props.stroke().cornerSmoothing = 0;

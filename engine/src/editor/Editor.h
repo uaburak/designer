@@ -1702,6 +1702,7 @@ class Editor : private LayoutHost, public TextLayouts {
   SmartSelection gapDrag_;       // dragging a gap handle: the selection as it started
   int gapIndex_ = -1;
   CornerRadii originalRadii_{0, 0, 0, 0};  // the dragged rectangle's radii at the press
+  uint32_t originalInverted_ = 0;           // and its inverted corners (round 16: ⌘ drags them inward)
   int shapeHover_ = -1;                    // the shape handle under the pointer
   // Dragging a shape handle: which, the layer's shape fields and corner radius at the press, the pointer's angle
   // around the shape's centre (unwrapped as it turns) and its distance from it (the shape's unit circle).

@@ -293,15 +293,17 @@ void Editor::dragLineEnd(Vec2 world, uint32_t mods) {
 // ---- Corner radius handles ---------------------------------------------------
 
 bool Editor::radiusHandles(Guid& id, Vec2 out[4]) const {
-  // Live Figma: a selected rectangle shows four rings inset from its corners while the pointer is over it; each sits
-  // on its corner's radius (at least `radiusHandleInset` CSS px in).
+  // Live Figma: a selected rectangle, frame, component or instance shows four rings inset from its corners while the
+  // pointer is over it; each sits on its corner's radius (at least `radiusHandleInset` CSS px in) — an inverted
+  // corner's too (round 16), on the diagonal as far in as its radius.
   if (viewer_ || tool_ != Tool::MOVE || spaceHeld_ || selection_.size() != 1 || text_.node != kNoGuid || vector_.node != kNoGuid ||
       paint_.node != kNoGuid || proto_.on)
     return false;
   if (gesture_ != Gesture::None && gesture_ != Gesture::Radius) return false;
   id = selection_[0];
   const Node* n = doc_.get(id);
-  if (!n || n->props.locked || id.isDerived() || !n->props.isRectLike()) return false;
+  if (!n || n->props.locked || id.isDerived()) return false;
+  if (!n->props.isRectLike() && !(n->props.isFrameLike() && n->props.type != NodeType::SECTION)) return false;
   const NodeProps& p = n->props;
   double w = p.size.x, h = p.size.y;
   if (w <= 0 || h <= 0) return false;
@@ -331,7 +333,8 @@ void Editor::startRadius(int corner) {
 
 void Editor::dragRadius(Vec2 world, uint32_t mods) {
   // Along the corner's diagonal, from where the press was: all four corners (⌥: this one only), whole numbers, up to
-  // half the shorter side.
+  // half the shorter side. Round 16 (the owner's addition — Figma has no inverted corners): ⌘ rounds inward (concave,
+  // docs/schema.md §3.6) — ⌘ all four, ⌘⌥ this one; without ⌘ the corners it sets round outward again.
   if (targets_.empty() || radiusCorner_ < 0) return;
   const Target& t = targets_[0];
   const Node* n = doc_.get(t.id);
@@ -346,8 +349,22 @@ void Editor::dragRadius(Vec2 world, uint32_t mods) {
   NodeChange c = NodeChange::changed(t.id);
   c.mask = F_CORNER_RADII;
   c.props.cornerRadii = before;
-  if (mods & MOD_ALT) c.props.cornerRadii[static_cast<size_t>(k)] = r;
-  else c.props.cornerRadii = {r, r, r, r};
+  const bool one = (mods & MOD_ALT) != 0, inward = (mods & MOD_PRIMARY) != 0;
+  const uint32_t bit = 1u << k;
+  uint32_t mask;
+  if (one) {
+    c.props.cornerRadii[static_cast<size_t>(k)] = r;
+    mask = inward ? (originalInverted_ | bit) : (originalInverted_ & ~bit);
+  } else {
+    c.props.cornerRadii = {r, r, r, r};
+    mask = inward ? 15u : 0u;
+  }
+  // The inverted corners only when they change (or changed earlier in this drag: ⌘ let go puts them back).
+  uint32_t now = n->props.stroke().invertedCornerMask & 15u;
+  if (mask != originalInverted_ || now != originalInverted_) {
+    c.mask |= F_INVERTED_CORNERS;
+    c.props.stroke().invertedCornerMask = mask;
+  }
   write(c);
   needsRender_ = true;
 }
@@ -997,7 +1014,10 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
     return P_HANDLED | P_CAPTURE;
   }
   if (h == Handle::Radius) {
-    if (const Node* rn = doc_.get(selection_[0])) originalRadii_ = rn->props.cornerRadii;
+    if (const Node* rn = doc_.get(selection_[0])) {
+      originalRadii_ = rn->props.cornerRadii;
+      originalInverted_ = rn->props.stroke().invertedCornerMask & 15u;
+    }
     gesture_ = Gesture::Radius;
     startRadius(hx);
     return P_HANDLED | P_CAPTURE;

@@ -10,6 +10,8 @@
 //   value in place (REQUEST_INLINE_EDIT); ⌥-click on a padding edits its pair, ⌥⇧-click all four.
 // - An Auto gap (space between) reads "Auto"; dragging it makes it a number.
 // - A turned frame's handles turn with it. A grid shows its paddings' bars; its gaps are GridGestures.cpp's.
+// - Round 16 (the owner's rules): a padding under the pointer hatches that padding only; ⌥ held hatches the opposite
+//   one too (a drag sets both: both outlined), ⌥⇧ all four. A gap under the pointer hatches every gap (one value).
 
 #include <algorithm>
 #include <cmath>
@@ -40,6 +42,15 @@ void quadOf(const Mat2x3& W, const Rect& r, Vec2 out[4]) {
   out[1] = W.apply({r.right(), r.y});
   out[2] = W.apply({r.right(), r.bottom()});
   out[3] = W.apply({r.x, r.bottom()});
+}
+
+// The paddings a padding's hover or drag takes in (round 16): its own; ⌥ its opposite too; ⌥⇧ all four.
+uint32_t paddingSides(int side, uint32_t mods) {
+  const bool alt = (mods & MOD_ALT) != 0, shift = (mods & MOD_SHIFT) != 0;
+  if (alt && shift) return 15u;
+  uint32_t m = 1u << side;
+  if (alt) m |= 1u << ((side + 2) % 4);
+  return m;
 }
 
 }  // namespace
@@ -148,13 +159,23 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
             bar.box = bar.hovered = true;
             bars.push_back(bar);
           }
-          if (band >= 0 && gap.axis < 0) {
-            Rect r = band >= 4 ? (static_cast<size_t>(band - 4) < gaps.size() ? gaps[static_cast<size_t>(band - 4)] : Rect{}) : sides[band];
+          if (band >= 4 && gap.axis < 0) {
+            Rect r = static_cast<size_t>(band - 4) < gaps.size() ? gaps[static_cast<size_t>(band - 4)] : Rect{};
             Overlay::SpacingArea a;
             quadOf(W, r, a.quad);
-            a.gap = band >= 4;
+            a.gap = true;
             a.outline = true;
             areas.push_back(a);
+          } else if (band >= 0 && gap.axis < 0) {
+            // The paddings the drag sets (round 16): ⌥ the pair, ⌥⇧ all four — each outlined.
+            uint32_t set = paddingSides(band, mods_);
+            for (int k = 0; k < 4; k++) {
+              if (!(set & (1u << k))) continue;
+              Overlay::SpacingArea a;
+              quadOf(W, sides[k], a.quad);
+              a.outline = true;
+              areas.push_back(a);
+            }
           }
         } else {
           // The bar under the pointer (the nearest when two are), which also hatches its padding or gap.
@@ -177,8 +198,15 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
           else hovered = -1;
           bandHover = gap.axis < 0 ? band : -1;
           if (band >= 0 && gap.axis < 0) {
-            Rect r = band >= 4 ? gaps[static_cast<size_t>(band - 4)] : sides[band];
-            if (r.w > 0 && r.h > 0) {
+            // Round 16 (the owner's rules): a gap hatches every gap (they are one value); a padding only itself, ⌥ held
+            // its opposite too (what a drag would set), ⌥⇧ all four.
+            std::vector<Rect> hatch;
+            if (band >= 4) hatch = gaps;
+            else
+              for (int k = 0, set = static_cast<int>(paddingSides(band, mods_)); k < 4; k++)
+                if (set & (1 << k)) hatch.push_back(sides[k]);
+            for (const Rect& r : hatch) {
+              if (!(r.w > 0 && r.h > 0)) continue;
               Overlay::SpacingArea a;
               quadOf(W, r, a.quad);
               a.gap = band >= 4;
@@ -188,7 +216,9 @@ void Editor::updateAutoLayoutBands(Vec2 world) {
         }
         if (gap.axis < 0) {
           if (band >= 4) bands = gaps;
-          else if (band >= 0) bands.push_back(sides[band]);
+          else if (band >= 0)
+            for (int k = 0, set = static_cast<int>(paddingSides(band, mods_)); k < 4; k++)
+              if (set & (1 << k)) bands.push_back(sides[k]);
         }
         for (auto& b : bands) b = transformedBounds(W * Mat2x3::translate(b.x, b.y), b.w, b.h);
       }

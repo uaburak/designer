@@ -395,7 +395,7 @@ void Renderer::drawFills(const Document& doc, Guid id, const NodeProps& p, const
   if (whiteMask) white.push_back(Paint::solid(Color{1, 1, 1, 1}));
   const std::vector<Paint>& fills = whiteMask ? white : p.fillPaints;
   if (!anyVisible(fills) && p.type != NodeType::VECTOR) return;
-  bool sdf = !p.isPathShape() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
@@ -586,7 +586,7 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
   bool dashedFrame = p.isFrameLike() && !p.stroke().dashPattern.empty();
   // A variable width (round 12) goes through the stroker.
   bool variable = !p.extra.empty() && hasWidthPoints(p) && widthProfileAllowed(p);
-  bool sdf = !p.isPathShape() && !independent && !dashedFrame && !variable && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && !independent && !dashedFrame && !variable && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   if (sdf) {
     ShapeKind kind = p.type == NodeType::ELLIPSE ? ShapeKind::Ellipse : ShapeKind::Rect;
     CornerRadii radii = kind == ShapeKind::Rect ? geom::clampRadii(p.size, p.cornerRadii) : kSquare;
@@ -614,14 +614,16 @@ void Renderer::drawStrokes(const Document& doc, Guid id, const NodeProps& p, con
     double t = bw[0], r = bw[1], b = bw[2], l = bw[3];
     Rect outerBox{-l * k0, -t * k0, p.size.x + (l + r) * k0, p.size.y + (t + b) * k0};
     Rect innerBox{outerBox.x + l, outerBox.y + t, outerBox.w - l - r, outerBox.h - t - b};
-    uint64_t key = Hash().add(p.size.x).add(p.size.y).add(t).add(r).add(b).add(l).add(k0).add(p.cornerRadii).add(level).add(0xB0ull).h;
+    const uint32_t inv = p.invertedCorners();
+    uint64_t key = Hash().add(p.size.x).add(p.size.y).add(t).add(r).add(b).add(l).add(k0).add(p.cornerRadii).add(inv).add(level).add(0xB0ull).h;
     const CurveEntry* entry = curves_.path(key, [&](std::vector<float>& out) {
       CornerRadii radii = geom::clampRadii(p.size, p.cornerRadii);
-      geom::Path ring = geom::rectPath({outerBox.w, outerBox.h}, radii).transformed(Mat2x3::translate(outerBox.x, outerBox.y));
+      geom::Path ring = geom::rectPath({outerBox.w, outerBox.h}, radii, 0, inv).transformed(Mat2x3::translate(outerBox.x, outerBox.y));
       if (innerBox.w > 0 && innerBox.h > 0) {
+        // Inside: a rounded corner's radius less the weight, an inverted one's more (its circle is around the corner).
         CornerRadii ir;
-        for (size_t i = 0; i < 4; i++) ir[i] = std::max(0.0, radii[i] - std::max(t, l));
-        ring.append(geom::rectPath({innerBox.w, innerBox.h}, ir).transformed(Mat2x3::translate(innerBox.x, innerBox.y)).reversed());
+        for (size_t i = 0; i < 4; i++) ir[i] = (inv >> i) & 1 ? radii[i] + std::max(t, l) : std::max(0.0, radii[i] - std::max(t, l));
+        ring.append(geom::rectPath({innerBox.w, innerBox.h}, ir, 0, inv).transformed(Mat2x3::translate(innerBox.x, innerBox.y)).reversed());
       }
       geom::toQuads(ring, tol, out);
     });
@@ -679,7 +681,7 @@ namespace {
 // Whether a node's shadows can be drawn analytically: a rectangle or frame without smoothing, with an
 // opaque solid fill hiding what is under it (and a frame clipping its children to it).
 bool analyticShadows(const NodeProps& p, bool hasChildren) {
-  if (!(p.isRectLike() || p.isFrameLike()) || p.stroke().cornerSmoothing > 0) return false;
+  if (!(p.isRectLike() || p.isFrameLike()) || p.stroke().cornerSmoothing > 0 || p.invertedCorners()) return false;
   bool opaque = false;
   for (auto& f : p.fillPaints)
     opaque |= f.visible && f.type == PaintType::SOLID && f.opacity >= 1 && f.color.a >= 1 &&
@@ -822,7 +824,7 @@ void Renderer::drawBackgroundBlur(const Document& doc, Guid id, const NodeProps&
   // The node's shape, painted with the blurred backdrop: once per interval between a progressive blur's levels.
   PaintKind kind = glass ? PaintKind::Glass : progressive ? PaintKind::Progressive : PaintKind::Backdrop;
   int intervals = progressive ? b.count - 1 : 1;
-  bool sdf = !p.isPathShape() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
+  bool sdf = !p.isPathShape() && !p.invertedCorners() && (p.isRectLike() || p.isFrameLike() || p.type == NodeType::ELLIPSE);
   const NodeGeometry* g = sdf ? nullptr : doc.geometry(id);
   if (!sdf && !g) return;
   int level = levelOf(levelScale(m));
@@ -906,6 +908,8 @@ bool clearOfCorners(const float outer[4], const float radii[4], const float inne
 
 void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const Mat2x3& m) {
   bool square = p.cornerRadii[0] <= 0 && p.cornerRadii[1] <= 0 && p.cornerRadii[2] <= 0 && p.cornerRadii[3] <= 0;
+  // Smoothed or inverted corners: the clip is the outline's path.
+  const bool pathCorners = p.stroke().cornerSmoothing > 0 || p.invertedCorners() != 0;
   Clip clip{false, scissorEnabled_, scissor_, {}, false, round_};
   for (int i = 0; i < 4; i++) clip.clipRect[i] = clipRect_[i];
   clip.shapeClip = shapeClip_;
@@ -962,7 +966,7 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
   RoundClip next;
   bool rounded = false;
   bool outerRounded = false;  // the rounded clip in force stays, this one is inside it
-  if (!square && p.stroke().cornerSmoothing <= 0 && nearlyAxisAligned(m)) {
+  if (!square && !pathCorners && nearlyAxisAligned(m)) {
     next.on = true;
     for (int i = 0; i < 4; i++) next.rect[i] = dev[i];
     CornerRadii cr = geom::clampRadii(p.size, p.cornerRadii);
@@ -1006,7 +1010,7 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
     Mat2x3 inv = toDevice.inverse();
     sc.rows[0][0] = static_cast<float>(inv.m00), sc.rows[0][1] = static_cast<float>(inv.m01), sc.rows[0][2] = static_cast<float>(inv.m02);
     sc.rows[1][0] = static_cast<float>(inv.m10), sc.rows[1][1] = static_cast<float>(inv.m11), sc.rows[1][2] = static_cast<float>(inv.m12);
-    if (p.stroke().cornerSmoothing > 0) {
+    if (pathCorners) {
       const NodeGeometry* g = doc.geometry(id);
       int level = levelOf(levelScale(m));
       if (g && !g->fills.empty()) {
@@ -1038,8 +1042,8 @@ void Renderer::pushClip(const Document& doc, Guid id, const NodeProps& p, const 
     return;
   }
   scissorTo(box);
-  if (p.stroke().cornerSmoothing > 0) {
-    // Smoothed corners: the path into the stencil.
+  if (pathCorners) {
+    // Smoothed or inverted corners: the path into the stencil.
     clip.stencil = true;
     clip.path = true;
     const NodeGeometry* g = doc.geometry(id);
@@ -1597,7 +1601,7 @@ void Renderer::drawOutlined(const Document& doc, uint32_t i, const NodeProps& p,
     return;
   }
   if (!p.isGroupLike()) {
-    if (p.isFrameLike() || p.isRectLike() || p.type == NodeType::ELLIPSE) {
+    if ((p.isFrameLike() || p.isRectLike() || p.type == NodeType::ELLIPSE) && !p.invertedCorners()) {
       // The box (or ellipse) with unit-length axes so its line is one CSS px.
       double l0 = std::hypot(m.m00, m.m10), l1 = std::hypot(m.m01, m.m11);
       if (l0 > 0 && l1 > 0) {

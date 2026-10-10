@@ -1869,6 +1869,11 @@ bool readFieldsInto(kiwi::ByteBuffer& bb, NodeProps& p, FieldMask& m, bool updat
         if (!getFloat(bb, p.stroke().cornerSmoothing)) return false;
         m |= F_CORNER_SMOOTHING;
         break;
+      case 1002:  // invertedCornerMask (@ours)
+        if (!bb.readVarUint(p.stroke().invertedCornerMask)) return false;
+        p.stroke().invertedCornerMask &= 15u;
+        m |= F_INVERTED_CORNERS;
+        break;
       case 43: {
         uint32_t n = 0;
         if (!bb.readVarUint(n)) return false;
@@ -2513,6 +2518,10 @@ void putFields(Out& o, const NodeProps& p, FieldMask mask, bool update, BlobsOut
     putBool(o, id::kBordersIndependent, p.stroke().borderStrokeWeightsIndependent);
   }
   if (mask & F_CORNER_SMOOTHING) putFloat(o, 160, p.stroke().cornerSmoothing);
+  if (mask & F_INVERTED_CORNERS) {
+    o.varuint(1002);
+    o.varuint(p.stroke().invertedCornerMask & 15u);
+  }
   if (mask & F_EFFECTS) {
     o.varuint(43);
     o.varuint(static_cast<uint32_t>(p.effects.size()));
