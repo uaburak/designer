@@ -81,13 +81,8 @@ export function setNudge(ed: EditorController, amounts: NudgeAmounts): void {
 
 /** The colour of the canvas pixel at (x, y) (canvas CSS px) as drawn — the page's layers over its colour, no overlays. */
 export function canvasColorAt(ed: EditorController, x: number, y: number): { r: number; g: number; b: number } | null {
-  const cam = ed.engine.getCamera();
-  if (!(cam.zoom > 0)) return null;
-  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-  // One device pixel's worth of the page under the point.
-  const unit = 1 / (cam.zoom * dpr);
-  const wx = (x - cam.x) / cam.zoom, wy = (y - cam.y) / cam.zoom;
-  const px = ed.engine.renderRegionPixels({ x: wx - unit / 2, y: wy - unit / 2, w: unit, h: unit, width: 1, height: 1 });
+  // The device pixel under the point — the eyedropper card's middle cell, so the colour applied is the hex it showed.
+  const px = canvasPixelsAround(ed, x, y, 1);
   if (!px || px.pixels.length < 4) return null;
   return { r: px.pixels[0] / 255, g: px.pixels[1] / 255, b: px.pixels[2] / 255 };
 }

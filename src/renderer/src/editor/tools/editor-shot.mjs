@@ -39,6 +39,7 @@
 //   EDITOR_ONLY=agents node …                                      (the Agents tab and the MCP section with a stand-in agent: "Make the mobile version of this", Undo / Apply, Agent settings)
 //   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
 //   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, the list as wide as its widest row, nothing moves when it overflows, icon-only rail)
+//   EDITOR_ONLY=chrome15 node …                                    (round 15: a turned frame's name and badge along its edges, its press; turned resize / rotate cursors, the cursor sheet; the eyedropper's card, sample, Esc)
 //   EDITOR_ONLY=shortcuts node …                                   (the Keyboard shortcuts panel: open / close, every tab, shortcuts used, the user's own keys, layouts)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
@@ -54,6 +55,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { agentsSection } from "./editorShotAgents.mjs";
+import { chromeSection } from "./editorShotChrome.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
 import { shortcutsSection } from "./editorShotShortcuts.mjs";
@@ -4760,6 +4762,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await layersSection(page, theme, { open, settle, check, outDir });
+      await context.close();
+    }
+  }
+  if (only === "chrome15" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await chromeSection(page, theme, { open, settle, check, outDir, docsDir: process.env.CHROME15_DOCS ? path.join(repo, "docs/research/chrome-cursors") : null });
       await context.close();
     }
   }

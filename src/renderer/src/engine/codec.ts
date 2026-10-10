@@ -801,7 +801,9 @@ export type CursorKind =
   | "DEFAULT" | "HAND" | "GRABBING" | "CROSSHAIR" | "PEN" | "PEN_ADD" | "PEN_REMOVE" | "PEN_CLOSE" | "IBEAM"
   | "RESIZE" | "ROTATE" | "MOVE_DUPLICATE" | "ZOOM_IN" | "ZOOM_OUT" | "EYEDROPPER" | "NOT_ALLOWED"
   // Round 8: the Comment tool's pin, the Scale tool's arrow.
-  | "COMMENT" | "SCALE";
+  | "COMMENT" | "SCALE"
+  // Round 15: the Pencil tool's pencil; vector edit's Bend (⌘), Paint, Cut and Lasso tools.
+  | "PENCIL" | "BEND" | "PAINT_BUCKET" | "CUT" | "LASSO";
 
 /**
  * Engine → JS events (docs/engine.md §10.4), drained after every call.

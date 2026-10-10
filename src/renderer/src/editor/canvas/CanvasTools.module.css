@@ -1,4 +1,4 @@
-/* Round 8's canvas pieces (canvas/CanvasTools.tsx): the in-place value field, the eyedropper's loupe, the nudge dialog. */
+/* Round 8's canvas pieces (canvas/CanvasTools.tsx): the in-place value field, the eyedropper's card, the nudge dialog. */
 @layer app {
   .inline {
     position: fixed;
@@ -8,44 +8,63 @@
     font: var(--ds-font-body-medium);
   }
 
+  /* The eyedropper's card (live Figma, docs/research/chrome-cursors/figma-eyedropper.png, 2× screenshot): 260 × 64,
+     radius 13, 8 inset; the 48 × 48 preview (radius 5), 12 to the rows; two 24-high rows — a 16 swatch or the 24 click
+     icon over the same 16 column, 8 to the text: the hex (strong) and "Click to sample" (secondary). */
   .loupe {
     position: fixed;
     z-index: var(--ds-z-popover);
-    width: 88px;
-    height: 88px;
-    border: 2px solid var(--figma-color-bg);
-    border-radius: var(--ds-radius-full);
+    display: flex;
+    gap: var(--ds-space-3);
+    box-sizing: border-box;
+    width: 260px;
+    height: 64px;
+    padding: var(--ds-space-2);
+    border-radius: var(--ds-radius-large);
+    background: var(--figma-color-bg);
     box-shadow: var(--ds-elevation-200);
     pointer-events: none;
   }
 
+  .loupePreview {
+    position: relative;
+    flex: none;
+    overflow: hidden;
+    width: var(--ds-space-12);
+    height: var(--ds-space-12);
+    border-radius: var(--ds-radius-medium);
+  }
+
   .loupePixels {
+    position: absolute;
     display: block;
-    width: 100%;
-    height: 100%;
-    border-radius: var(--ds-radius-full);
     image-rendering: pixelated;
   }
 
+  /* The middle pixel: a white frame 2 wide round it, corners 3 (a hairline shadow keeps it on white pixels). */
   .loupeCell {
     position: absolute;
-    box-sizing: border-box;
-    border: 1px solid var(--figma-color-bg);
-    outline: 1px solid var(--figma-color-border-strong);
+    box-sizing: content-box;
+    margin: calc(-1 * var(--ds-space-half));
+    border: var(--ds-space-half) solid var(--figma-color-text-onbrand);
+    border-radius: 3px;
+    box-shadow: var(--ds-elevation-100);
   }
 
-  .loupeHex {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 50%;
-    padding: 0 var(--ds-space-1);
-    border-radius: var(--ds-radius-small);
-    background: var(--figma-color-bg-inverse);
-    color: var(--figma-color-text-oninverse);
-    font: var(--ds-font-body-medium);
-    transform: translateX(-50%);
-    white-space: nowrap;
+  .loupeRows { display: flex; flex-direction: column; min-width: 0; }
+
+  .loupeRow {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    height: var(--ds-space-6);
   }
+
+  .loupeLead { display: flex; flex: none; align-items: center; justify-content: center; width: var(--ds-space-4); }
+  .loupeSwatch { border-radius: 20%; }
+  .loupeIcon { flex: none; margin: 0 calc(-1 * var(--ds-space-1)); color: var(--figma-color-icon); }
+  .loupeHex { color: var(--figma-color-text); font: var(--ds-font-body-medium-strong); white-space: nowrap; }
+  .loupeHint { color: var(--figma-color-text-secondary); font: var(--ds-font-body-medium); white-space: nowrap; }
 
   .form { display: flex; flex-direction: column; gap: var(--ds-space-2); }
   .row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: var(--ds-space-2); }

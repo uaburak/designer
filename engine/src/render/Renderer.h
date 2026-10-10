@@ -593,7 +593,7 @@ class Renderer {
   // The `</>` at a selected design's top right (Overlay.cpp): its right edge at `right`, by the title's baseline.
   void drawDevIcon(Guid frame, double right, double baseline, const Color& color);
   // Figma's component (four diamonds) or instance (a diamond outline) icon before a title, in `box` (screen CSS px).
-  void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color);
+  void drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color, const Mat2x3& place = {});
   // A hovered text layer (Overlay.cpp, round 11): each line's baseline underlined across its text, 2 px (1 px when
   // the text is selected) just under it. False when the text has no laid-out line to underline.
   bool baselineUnderline(const Document& doc, Guid text, const Mat2x3& view, const Overlay& overlay, const OverlayStyle& style);

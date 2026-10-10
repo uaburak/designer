@@ -104,7 +104,7 @@ Guid Editor::titleAt(Vec2 s) const {
   std::vector<FrameTitle> list = titles();
   // The topmost title first (later frames paint over earlier ones); locked frames' titles don't take a press.
   for (auto it = list.rbegin(); it != list.rend(); ++it) {
-    if (!it->hit.contains(s)) continue;
+    if (!it->hits(s)) continue;  // a turned frame's name: along its edge
     const Node* n = doc_.get(it->id);
     if (n && n->props.locked) continue;
     return it->id;
@@ -712,6 +712,7 @@ void Editor::updateCursor(Vec2 s) {
   if (tool_ == Tool::EYEDROPPER) return changeCursor(CursorKind::EYEDROPPER);
   if (tool_ == Tool::COMMENT) return changeCursor(CursorKind::COMMENT);
   if (gesture_ == Gesture::Guide) return changeCursor(CursorKind::RESIZE, guideDrag_.axis == 0 ? 0 : 90);
+  if (tool_ == Tool::PENCIL) return changeCursor(CursorKind::PENCIL);
   if (!selectingTool()) return changeCursor(CursorKind::CROSSHAIR);
   if (text_.node != kNoGuid) {
     // Over the text being edited: an I-beam.
@@ -1219,7 +1220,7 @@ uint32_t Editor::pointerDown(Vec2 s, int button, uint32_t mods) {
       for (const FrameTitle& t : titles())
         if (t.id == titled) {
           Rect r = t.section ? t.hit : Rect{t.text.x - 2, t.text.y - 2, std::max(t.frame.right() - t.text.x, 60.0) + 4, t.text.h + 4};
-          events_.renames.push_back({titled, r});
+          events_.renames.push_back({titled, t.onScreen(r)});
         }
       needsRender_ = true;
       return P_HANDLED;

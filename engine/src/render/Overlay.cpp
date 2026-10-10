@@ -56,13 +56,13 @@ std::string formatNumber(double v) {
 
 }  // namespace
 
-void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color) {
+void Renderer::drawTitleIcon(TitleIcon icon, const Rect& box, const Color& color, const Mat2x3& place) {
   // Diamonds: squares turned 45°, `d` across their diagonal.
   auto diamond = [&](Vec2 c, double d, bool filled) {
     double side = d / std::sqrt(2.0);
     const double k = std::sqrt(0.5);
     // A side×side square turned 45° about its centre c: T(c)·R(45°)·T(−side/2, −side/2).
-    Mat2x3 at{k, -k, c.x, k, k, c.y - side * k};
+    Mat2x3 at = place * Mat2x3{k, -k, c.x, k, k, c.y - side * k};
     emit(makeShape(at, {side, side}, ShapeKind::Rect, {0.5, 0.5, 0.5, 0.5}, color, filled ? color.a : 0, color, filled ? 0 : color.a, filled ? 0 : 1, 0),
          Pass::Shape);
   };
@@ -353,24 +353,31 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       // Components' and instances' names in the component purple, after Figma's icon; a selected frame's in the
       // selection's text colour; others grey.
       Color ink = n->props.isComponentish() ? componentText : isSelected ? selectedText : grey;
-      double baseline = std::round(t.baseline * dpr) / dpr;
+      // A turned frame's name lies along its edge, turned with it (t.place; FrameTitles.h labelFrame): label-local
+      // coordinates, snapped to device pixels only when upright.
+      auto snap = [&](double v) { return t.upright ? std::round(v * dpr) / dpr : v; };
+      double baseline = snap(t.baseline);
       // A selected design without a status: live Figma's `</>` at its top right (a click marks it ready for dev), in
-      // the title's colour; the name stops short of it.
+      // the title's colour; the name stops short of it. None over a turned frame (live Figma, the owner's 42.png: a
+      // selected frame turned 37° shows its name and no `</>`).
       bool devIcon = false;
       for (const DevStatusMark& mark : overlay.dev.statuses) devIcon |= mark.frame == t.id && mark.kind == DevStatusMark::Kind::MarkButton;
-      devIcon &= t.frame.w >= 3 * kDevIconWidth;
+      devIcon &= t.frame.w >= 3 * kDevIconWidth && t.upright;
       if (devIcon && overlay.hideTitle != t.id) drawDevIcon(t.id, t.frame.right(), baseline, ink);
       if (overlay.hideTitle == t.id) continue;  // a grid's track selected: its name gives way (live Figma)
-      if (t.icon != TitleIcon::None) drawTitleIcon(t.icon, t.iconBox, ink);
-      double x = std::round((t.text.x + overlay.prototype.labelWidth(t.id)) * dpr) / dpr;
+      if (t.icon != TitleIcon::None) drawTitleIcon(t.icon, t.iconBox, ink, t.place);
+      double x = snap(t.text.x + overlay.prototype.labelWidth(t.id));
       double room = t.frame.right() - x - (devIcon ? kDevIconWidth + kDevIconGap : 0);
       if (room < 1) continue;
       const text::TextLayout* L = label(n->props.name, "Regular", style.titleSize, room);
       if (!L || L->lines.empty()) continue;
-      drawGlyphs(*L, Mat2x3::translate(x, baseline - L->lines[0].baseline), Color{ink.r, ink.g, ink.b, 1}, ink.a);
-      // Dev Mode: the design's status after its name.
+      drawGlyphs(*L, t.place * Mat2x3::translate(x, baseline - L->lines[0].baseline), Color{ink.r, ink.g, ink.b, 1}, ink.a);
+      // Dev Mode: the design's status after its name (a turned frame's chip at its place, unturned).
       for (const DevStatusMark& mark : overlay.dev.statuses)
-        if (mark.frame == t.id && mark.kind != DevStatusMark::Kind::MarkButton) drawStatusChip(mark, x + L->size.x + 6, baseline, style);
+        if (mark.frame == t.id && mark.kind != DevStatusMark::Kind::MarkButton) {
+          Vec2 at = t.place.apply({x + L->size.x + 6, baseline});
+          drawStatusChip(mark, at.x, at.y, style);
+        }
     }
   }
 
@@ -638,17 +645,22 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       const text::TextLayout* L = label(text, "Medium", style.labelSize);
       double tw = L ? L->size.x : 6.2 * static_cast<double>(text.size());
       double bw = std::round(tw + 2 * style.badgePadding), bh = style.badgeHeight;
-      double bx = std::round((r.x + r.w / 2 - bw / 2) * dpr) / dpr;
-      double by = std::round((r.bottom() + style.badgeGap) * dpr) / dpr;
+      // A turned selection's badge lies under its bottom edge, centred, turned with it and never upside down (live
+      // Figma, the owner's 42.png; FrameTitles.h labelFrame) — in label-local coordinates, snapped when upright.
+      LabelFrame lf = labelFrame(toScreen, box.size);
+      if (!lf.upright) r = lf.box;
+      auto snap = [&](double v) { return lf.upright ? std::round(v * dpr) / dpr : v; };
+      double bx = snap(r.x + r.w / 2 - bw / 2);
+      double by = snap(r.bottom() + style.badgeGap);
       double rr = style.badgeRadius;
-      emit(makeShape(Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0),
+      emit(makeShape(lf.place * Mat2x3::translate(bx, by), {bw, bh}, ShapeKind::Rect, {rr, rr, rr, rr}, blue, 1, blue, 0, 0, 0),
            Pass::Shape);
       if (L && !L->lines.empty()) {
         const text::LaidLine& line = L->lines[0];
         double ty = by + (bh - line.height) / 2;
-        drawGlyphs(*L, Mat2x3::translate(bx + (bw - tw) / 2, std::round(ty * dpr) / dpr), white, 1);
+        drawGlyphs(*L, lf.place * Mat2x3::translate(bx + (bw - tw) / 2, snap(ty)), white, 1);
       }
-      below = by + bh + style.addVariantGap;
+      if (lf.upright) below = by + bh + style.addVariantGap;
     }
     // The "+": centred under the pill, with the handles (not while moving or in view-only mode).
     if (set && overlay.handles && overlay.badgeText.empty())

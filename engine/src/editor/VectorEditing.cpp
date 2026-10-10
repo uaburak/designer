@@ -792,8 +792,15 @@ void Editor::vectorPointerMove(Vec2 s, uint32_t mods) {
                    : hs >= 0 && vector_.penFrom < 0                         ? CursorKind::PEN_ADD
                                                                             : CursorKind::PEN);
       if (vector_.penFrom >= 0) needsRender_ = true;  // the preview follows the pointer
-    } else if (vector_.tool == VectorTool::LASSO || vector_.tool == VectorTool::PAINT_BUCKET || vector_.tool == VectorTool::CUT ||
-               vector_.tool == VectorTool::ERASE) {
+    } else if (vector_.tool == VectorTool::BEND || (vector_.tool == VectorTool::MOVE && (mods & MOD_PRIMARY))) {  // ⌘ held: Bend
+      changeCursor(CursorKind::BEND);
+    } else if (vector_.tool == VectorTool::PAINT_BUCKET) {
+      changeCursor(CursorKind::PAINT_BUCKET);
+    } else if (vector_.tool == VectorTool::CUT) {
+      changeCursor(CursorKind::CUT);
+    } else if (vector_.tool == VectorTool::LASSO) {
+      changeCursor(CursorKind::LASSO);
+    } else if (vector_.tool == VectorTool::ERASE) {
       changeCursor(CursorKind::CROSSHAIR);
     } else {
       changeCursor(CursorKind::DEFAULT);

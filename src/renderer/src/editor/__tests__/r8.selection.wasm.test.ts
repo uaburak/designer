@@ -84,7 +84,7 @@ describe("round 8: keys and menus", () => {
 
   it("Figma's own cursors: SVG arrows, crosshair, magnifiers, eyedropper, scale and comment, the system ones behind", () => {
     for (const kind of ["DEFAULT", "CROSSHAIR", "ZOOM_IN", "ZOOM_OUT", "EYEDROPPER", "SCALE", "COMMENT", "MOVE_DUPLICATE"] as const)
-      expect(cssCursor(kind, 0)).toMatch(/^url\("data:image\/svg\+xml,/);
+      expect(cssCursor(kind, 0)).toMatch(/^image-set\(url\("data:image\/svg\+xml,/);
     expect(cssCursor("DEFAULT", 0)).toMatch(/, default$/);
     expect(cssCursor("ZOOM_OUT", 0)).toMatch(/, zoom-out$/);
     expect(cssCursor("HAND", 0)).toBe("grab");

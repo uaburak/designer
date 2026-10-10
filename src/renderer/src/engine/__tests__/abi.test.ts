@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CommandId, TOOLS } from "../abi";
-import { cssCursor, resizeCursor } from "../cursors";
+import { cssCursor, resizeCursor, rotateCursor } from "../cursors";
 import { USED_EXPORTS } from "../EngineExports";
 import { KEY_CODES, keyCodeOf } from "../keyCodes";
 
@@ -47,6 +47,14 @@ describe("cursors", () => {
     expect(resizeCursor(210)).toBe(resizeCursor(30));
     expect(resizeCursor(-45)).toMatch(/, nesw-resize$/);
     expect(cssCursor("HAND", 0)).toBe("grab");
-    expect(cssCursor("ROTATE", 30)).toMatch(/^url\("data:image\/svg\+xml,.*alias$/);
+    expect(cssCursor("ROTATE", 30)).toMatch(/^image-set\(url\("data:image\/svg\+xml,.*alias$/);
+  });
+
+  it("draws every cursor at 1x and 2x (48 px for Retina), rotate cursors at the corner's exact angle", () => {
+    const css = decodeURIComponent(cssCursor("DEFAULT", 0));
+    expect(css).toMatch(/^image-set\(url\("data:image\/svg\+xml,<svg [^>]*width="24"[^)]*\) 1x, url\("data:image\/svg\+xml,<svg [^>]*width="48".*\) 2x\) 5 3, default$/);
+    expect(decodeURIComponent(rotateCursor(37.4))).toContain("rotate(37 12 12)");
+    expect(rotateCursor(-45)).toBe(rotateCursor(315));
+    for (const kind of ["PENCIL", "BEND", "PAINT_BUCKET", "CUT", "LASSO"] as const) expect(cssCursor(kind, 0)).toMatch(/^image-set\(url\(/);
   });
 });

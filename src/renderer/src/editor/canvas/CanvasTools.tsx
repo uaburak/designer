@@ -1,10 +1,10 @@
 /**
  * Round 8's canvas pieces in React (editor/canvasTools.ts has the logic): an auto-layout bar's value edited in place
- * (REQUEST_INLINE_EDIT), the eyedropper's loupe (the canvas's pixels under the pointer, magnified, with the colour's
- * hex), and Preferences › Nudge amount….
+ * (REQUEST_INLINE_EDIT), the eyedropper's card (the canvas's pixels under the pointer, magnified, the colour's swatch
+ * and hex, "Click to sample"), and Preferences › Nudge amount….
  */
 import { useEffect, useRef, useState } from "react";
-import { Button, Dialog, evaluate, TextInput } from "@/ds";
+import { Button, Dialog, evaluate, Icon, Swatch, TextInput } from "@/ds";
 import { useTool } from "@/engine/hooks";
 import { useEditor } from "../controller";
 import { useUI } from "../hooks";
@@ -36,10 +36,19 @@ export function InlineValueEdit() {
   );
 }
 
-const LOUPE_CELLS = 11;
+/** The loupe's grid: 7 × 7 device pixels round the pointer, 8 CSS px a cell, in a 48 × 48 square (live Figma, 43.png). */
+export const LOUPE_CELLS = 7;
 const LOUPE_CELL = 8;
+const LOUPE_BOX = 48;
+/** The card's size and its offset from the pointer (below right of it, kept on the canvas). */
+const CARD_W = 260, CARD_H = 64, CARD_OFFSET = 16, CARD_MARGIN = 4;
 
-/** The eyedropper's loupe: 11 × 11 screen pixels around the pointer, magnified, the middle one framed, its hex below. */
+/**
+ * The eyedropper's card (Pick color, ⌃C / I), as live Figma's (docs/research/chrome-cursors/figma-eyedropper.png): a
+ * 260 × 64 card following the pointer with the canvas's pixels under it magnified (the middle one framed), the colour
+ * there as a swatch and its hex, and "Click to sample". A click samples it (canvasTools.ts COLOR_PICK); Esc cancels
+ * (the engine's tool goes back to Move).
+ */
 export function EyedropperLoupe() {
   const ed = useEditor();
   const tool = useTool(ed.store);
@@ -49,7 +58,7 @@ export function EyedropperLoupe() {
 function Loupe() {
   const ed = useEditor();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [at, setAt] = useState<{ x: number; y: number; hex: string } | null>(null);
+  const [at, setAt] = useState<{ left: number; top: number; hex: string } | null>(null);
   useEffect(() => {
     const target = ed.canvas;
     if (!target) return;
@@ -65,23 +74,25 @@ function Loupe() {
       if (!px) return;
       const ctx = out.getContext("2d");
       if (!ctx) return;
-      const image = new ImageData(new Uint8ClampedArray(px.pixels), px.width, px.height);
-      const tmp = document.createElement("canvas");
-      tmp.width = px.width;
-      tmp.height = px.height;
-      tmp.getContext("2d")?.putImageData(image, 0, 0);
-      ctx.imageSmoothingEnabled = false;
-      ctx.clearRect(0, 0, out.width, out.height);
-      ctx.drawImage(tmp, 0, 0, out.width, out.height);
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(px.pixels), px.width, px.height), 0, 0);
       const mid = Math.floor(LOUPE_CELLS / 2) * 4 * (LOUPE_CELLS + 1);
       const hex = [px.pixels[mid], px.pixels[mid + 1], px.pixels[mid + 2]].map((c) => c.toString(16).padStart(2, "0")).join("").toUpperCase();
-      setAt({ x: e.clientX, y: e.clientY, hex });
+      // Below right of the pointer, kept on the canvas between the panels: slid left along its right edge (live Figma's
+      // card sits 2–3 px off the right panel in 43.png), above the pointer where it would leave the bottom.
+      const v = document.querySelector("[data-canvas-view]")?.getBoundingClientRect() ?? r;
+      let left = e.clientX + CARD_OFFSET, top = e.clientY + CARD_OFFSET;
+      if (left + CARD_W > v.right - CARD_MARGIN) left = Math.max(v.left + CARD_MARGIN, v.right - CARD_MARGIN - CARD_W);
+      if (top + CARD_H > v.bottom - CARD_MARGIN) top = Math.max(v.top + CARD_MARGIN, e.clientY - CARD_OFFSET - CARD_H);
+      setAt({ left, top, hex });
     };
     const onMove = (e: PointerEvent) => {
       last = e;
       if (!frame) frame = requestAnimationFrame(draw);
     };
-    const onLeave = () => setAt(null);
+    const onLeave = () => {
+      last = null;
+      setAt(null);
+    };
     target.addEventListener("pointermove", onMove);
     target.addEventListener("pointerleave", onLeave);
     return () => {
@@ -90,12 +101,34 @@ function Loupe() {
       target.removeEventListener("pointerleave", onLeave);
     };
   }, [ed]);
-  const size = LOUPE_CELLS * LOUPE_CELL;
+  const grid = LOUPE_CELLS * LOUPE_CELL;
+  const cell = (LOUPE_BOX - LOUPE_CELL) / 2;
   return (
-    <div className={styles.loupe} style={at ? { left: at.x + 16, top: at.y + 16 } : { display: "none" }} data-loupe="" aria-hidden>
-      <canvas ref={canvasRef} width={size} height={size} className={styles.loupePixels} />
-      <span className={styles.loupeCell} style={{ left: Math.floor(LOUPE_CELLS / 2) * LOUPE_CELL, top: Math.floor(LOUPE_CELLS / 2) * LOUPE_CELL, width: LOUPE_CELL, height: LOUPE_CELL }} />
-      {at && <span className={styles.loupeHex}>#{at.hex}</span>}
+    <div className={styles.loupe} style={at ? { left: at.left, top: at.top } : { display: "none" }} data-loupe="" data-hex={at ? `#${at.hex}` : undefined} aria-hidden>
+      <div className={styles.loupePreview}>
+        <canvas
+          ref={canvasRef}
+          width={LOUPE_CELLS}
+          height={LOUPE_CELLS}
+          className={styles.loupePixels}
+          style={{ width: grid, height: grid, left: (LOUPE_BOX - grid) / 2, top: (LOUPE_BOX - grid) / 2 }}
+        />
+        <span className={styles.loupeCell} style={{ left: cell, top: cell, width: LOUPE_CELL, height: LOUPE_CELL }} />
+      </div>
+      <div className={styles.loupeRows}>
+        <div className={styles.loupeRow}>
+          <span className={styles.loupeLead}>
+            <Swatch color={at ? `#${at.hex}` : "#000000"} size={16} className={styles.loupeSwatch} />
+          </span>
+          <span className={styles.loupeHex}>#{at?.hex ?? "000000"}</span>
+        </div>
+        <div className={styles.loupeRow}>
+          <span className={styles.loupeLead}>
+            <Icon name="24.interaction.click.small" className={styles.loupeIcon} />
+          </span>
+          <span className={styles.loupeHint}>Click to sample</span>
+        </div>
+      </div>
     </div>
   );
 }

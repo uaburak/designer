@@ -80,7 +80,9 @@ const char* txnKindName(TxnKind k);
 enum class CursorKind : uint8_t {
   DEFAULT, HAND, GRABBING, CROSSHAIR, PEN, PEN_ADD, PEN_REMOVE, PEN_CLOSE, IBEAM,
   RESIZE, ROTATE, MOVE_DUPLICATE, ZOOM_IN, ZOOM_OUT, EYEDROPPER, NOT_ALLOWED,
-  COMMENT, SCALE  // round 8: the Comment tool's pin, the Scale tool's arrow
+  COMMENT, SCALE,  // round 8: the Comment tool's pin, the Scale tool's arrow
+  // Round 15: the Pencil tool's pencil; vector edit's Bend (⌘), Paint, Cut and Lasso tools.
+  PENCIL, BEND, PAINT_BUCKET, CUT, LASSO
 };
 const char* cursorName(CursorKind k);
 

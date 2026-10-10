@@ -5,6 +5,36 @@
 
 namespace eng {
 
+LabelFrame labelFrame(const Mat2x3& toScreen, Vec2 size) {
+  LabelFrame f;
+  Vec2 u{toScreen.m00, toScreen.m10};
+  double len = std::hypot(u.x, u.y);
+  if (len < 1e-12) {
+    // No x axis (a zero-width scale): the y axis turned a quarter back, else upright.
+    u = {toScreen.m11, -toScreen.m01};
+    len = std::hypot(u.x, u.y);
+  }
+  if (len >= 1e-12) {
+    u = {u.x / len, u.y / len};
+    const double eps = 1e-9;
+    // Never upside down: reading leftwards (or straight down) is read the other way.
+    if (u.x < -eps || (std::fabs(u.x) <= eps && u.y > 0)) u = {-u.x, -u.y};
+    if (std::fabs(u.y) > eps) {
+      f.upright = false;
+      f.place = {u.x, -u.y, 0, u.y, u.x, 0};
+    }
+  }
+  if (f.upright) {
+    f.box = transformedBounds(toScreen, size.x, size.y);
+    return f;
+  }
+  // The corners in label-local coordinates (the place's inverse: its transpose).
+  const Mat2x3& m = f.place;
+  Mat2x3 back{m.m00, m.m10, 0, m.m01, m.m11, 0};
+  f.box = transformedBounds(back * toScreen, size.x, size.y);
+  return f;
+}
+
 bool showsTitle(const Document& doc, Guid id) {
   const Node* n = doc.get(id);
   if (!n || !n->props.isFrameLike()) return false;
@@ -22,11 +52,17 @@ std::vector<FrameTitle> frameTitles(const Document& doc, Guid page, const Mat2x3
       if (!n || !n->props.visible || !n->props.isFrameLike()) continue;
       bool section = n->props.type == NodeType::SECTION;
       if (focus != kNoGuid && focus != c && !section) continue;
-      Rect b = transformedBounds(view * doc.worldTransform(c), n->props.size.x, n->props.size.y);
-      if (b.intersects(near)) {
+      Mat2x3 toScreen = view * doc.worldTransform(c);
+      Rect aabb = transformedBounds(toScreen, n->props.size.x, n->props.size.y);
+      if (aabb.intersects(near)) {
         FrameTitle t;
         t.id = c;
         t.section = section;
+        // A turned frame's name lies along its edge, turned with it (labelFrame); sections don't turn.
+        LabelFrame lf = section ? LabelFrame{{}, aabb, true} : labelFrame(toScreen, n->props.size);
+        t.place = lf.place;
+        t.upright = lf.upright;
+        Rect b = lf.box;
         t.frame = b;
         if (section) {
           // The pill above the section's top-left corner (live Figma), its width capped at the section's.

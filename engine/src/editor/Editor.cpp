@@ -33,7 +33,8 @@ const char* txnKindName(TxnKind k) {
 const char* cursorName(CursorKind k) {
   static constexpr const char* kNames[] = {"DEFAULT", "HAND", "GRABBING", "CROSSHAIR", "PEN", "PEN_ADD", "PEN_REMOVE", "PEN_CLOSE",
                                            "IBEAM", "RESIZE", "ROTATE", "MOVE_DUPLICATE", "ZOOM_IN", "ZOOM_OUT", "EYEDROPPER",
-                                           "NOT_ALLOWED", "COMMENT", "SCALE"};
+                                           "NOT_ALLOWED", "COMMENT", "SCALE", "PENCIL", "BEND", "PAINT_BUCKET",
+                                           "CUT", "LASSO"};
   return kNames[static_cast<size_t>(k)];
 }
 

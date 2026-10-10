@@ -186,6 +186,7 @@ else()
     tests/unit/r11.canvas_chrome.test.cpp
     tests/unit/r14.deep_select.test.cpp
     tests/unit/r14.viewport_insets.test.cpp
+    tests/unit/r15.chrome_labels.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).
