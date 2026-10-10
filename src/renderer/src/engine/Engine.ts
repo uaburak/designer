@@ -113,6 +113,7 @@ import {
   type VariableCollectionInfo,
   type VariableInfo,
   type VariableModeInfo,
+  type ActorInfo,
   type Selection,
   type StrokeCap,
   type TextLayoutInfo,
@@ -1151,6 +1152,41 @@ export class Engine {
 
   txnCancel(): void {
     this.after(this.x.txnCancel(this.h));
+  }
+
+  /**
+   * Actors (docs/engine.md §9.5): one write of `actor` (an agent's chat turn; a multiplayer session later) with its own
+   * selection and page — the user's selection, page, view and edit modes are set aside untouched and their events held
+   * back — until actorEnd. `merge` joins the step to the actor's last one; `undoTo` names the history it goes to
+   * (default the actor's own; 0 the user's). Status.BUSY while a gesture or a step (a panel scrub) is open.
+   */
+  actorBegin(actor: number, opts: { label: string; refs?: readonly Guid[]; page?: Guid | null; merge?: boolean; undoTo?: number }): number {
+    const args = { actor, label: opts.label, refs: opts.refs ?? [], ...(opts.page ? { page: opts.page } : {}), merge: !!opts.merge, undoTo: opts.undoTo ?? actor };
+    return this.after(this.x.actorBegin(this.h, encodeText(JSON.stringify(args))));
+  }
+
+  actorEnd(cancel = false): number {
+    return this.after(this.x.actorEnd(this.h, cancel));
+  }
+
+  /** The actor's last step taken back (redo: brought back) — only the fields nobody changed since. */
+  actorUndo(actor: number, redo = false): boolean {
+    return this.after(this.x.actorUndo(this.h, actor, redo)) === Status.OK;
+  }
+
+  /** The actor's history: what it can undo / redo, and the layers whose changes by it someone else changed since. */
+  actorInfo(actor: number): ActorInfo {
+    this.x.actorInfo(this.h, actor);
+    return JSON.parse(decodeText(this.x.result())) as ActorInfo;
+  }
+
+  actorForget(actor: number): void {
+    this.x.actorForget(this.h, actor);
+  }
+
+  /** Nothing open — no gesture past its threshold, no step, no actor write: an actor may write now. */
+  idle(): boolean {
+    return !this.h || this.x.idle(this.h);
   }
 
   /**

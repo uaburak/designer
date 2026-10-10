@@ -20,6 +20,11 @@ class ChangeSet {
   std::vector<NodeChange> build(const Document& doc) const;
   // Every touched node with the union of its touched fields (for NODES_CHANGED).
   const std::vector<Guid>& touched() const { return order_; }
+  // The fields touched on `id` (every field when it was created or removed; 0: untouched).
+  FieldMask fieldsOf(Guid id) const {
+    auto it = entries_.find(id);
+    return it == entries_.end() ? 0 : it->second.mask;
+  }
 
  private:
   struct Entry {

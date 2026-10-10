@@ -369,11 +369,39 @@ class Editor : private LayoutHost, public TextLayouts {
   bool canRedo() const { return undo_.canRedo(); }
   const UndoStack& undoStack() const { return undo_; }
 
+  // ---- Actors (docs/engine.md §9.5): per-actor undo and view state ----
+  // Actor 0 is the local user (⌘Z / ⇧⌘Z, the selection, the page, the view). Any other id is a writer working
+  // beside them — an agent's chat turn today, a multiplayer session in Phase 6 — with its own undo history and its
+  // own selection and page while it writes. actorBegin opens one write of `actor` as a step (a USER transaction):
+  // until actorEnd the selection is `selection` (on `page`: given, else the first selected layer's, else the user's)
+  // and commands, reads of the selection and the step's undo record are the actor's; the user's selection, page,
+  // view, text / vector / gradient edit and selected connection are set aside untouched and their events held back.
+  // `merge` joins the step to the actor's last one (an agent turn is one step however many writes it made). `undoTo`
+  // names the history the step goes to (default: the actor's own; 0: the user's — an outside client's call, which
+  // ⌘Z takes back). E_BUSY while a gesture or another step is open: the caller waits and tries again.
+  Status actorBegin(uint32_t actor, const std::vector<Guid>& selection, Guid page, const std::string& label, bool merge, uint32_t undoTo);
+  // Commits (or, `cancel`, rolls back) the actor's write and puts the user's view state back.
+  Status actorEnd(bool cancel);
+  // Undo / redo the actor's last step — only its fields that nobody changed since — without touching the user's
+  // selection, page or view (a layer it removes leaves their selection).
+  bool actorUndo(uint32_t actor, bool redo);
+  struct ActorInfo {
+    bool canUndo = false, canRedo = false;
+    std::string undoLabel, redoLabel;
+    std::vector<Guid> overwritten;  // nodes whose changes by the actor someone else changed since
+  };
+  ActorInfo actorInfo(uint32_t actor) const;
+  void forgetActor(uint32_t actor);
+  bool inActor() const { return scope_.on; }
+  // Nothing open: no gesture past its threshold, no step (a panel scrub), no actor write.
+  bool idle() const { return !busy() && !txn_.open && !scope_.on; }
+
   // ---- Events ----
   struct DocumentChanged {
     TxnKind kind;
     std::string label;
     std::vector<NodeChange> changes;
+    uint32_t actor = 0;  // who made it (0: the local user; see actorBegin)
   };
   // CONTEXT_MENU: a right-click (or ⌃-click on a Mac), after the selection settled.
   struct ContextMenu {
@@ -2021,6 +2049,45 @@ class Editor : private LayoutHost, public TextLayouts {
   // Overlay labels measured for hit-testing (labelWidth), by style and text; dropped when the fonts change.
   mutable std::unordered_map<std::string, double> labelWidths_;
   mutable uint64_t labelWidthsGeneration_ = ~0ull;
+
+  // ---- Actors (actorBegin) ----
+  UndoStack& stackOf(uint32_t actor);
+  UndoStack& recording() { return stackOf(undoTo_); }
+  const UndoStack& recording() const {
+    auto it = actorUndo_.find(undoTo_);
+    return it == actorUndo_.end() ? undo_ : it->second;
+  }
+  // A step of `undoTo_` committed: every other history yields the fields it wrote.
+  void yieldOthers();
+  // After another actor's write or undo: the user's text / vector / gradient edit follows what changed under it.
+  void followForeign(const std::vector<Guid>& touched);
+  uint32_t actor_ = 0;   // who is writing (DOCUMENT_CHANGED.actor)
+  uint32_t undoTo_ = 0;  // whose history the open step goes to
+  std::map<uint32_t, UndoStack> actorUndo_;
+  static constexpr size_t kMaxActors = 256;
+  struct ActorScope {
+    bool on = false;
+    bool merge = false;
+    // The user's view state, set aside while the actor writes.
+    std::vector<Guid> selection;
+    Guid page = kNoGuid;
+    std::map<Guid, std::vector<Guid>> pageSelections;
+    Camera camera;
+    CameraAnimation camAnim;
+    TextSession text;
+    VectorSession vector;
+    PaintSession paint;
+    Guid protoNode = kNoGuid;
+    int protoIndex = -1;
+    RulerGuide guide;
+    GridTrackSelection gridSel;
+    std::vector<Guid> lastNudged;
+    Guid zoomFrame = kNoGuid;
+    std::vector<Guid> zoomSelection;
+    bool rotationOriginOn = false;
+    // View events pending when it began (held back: the actor's own are not the user's).
+    bool evSelection = false, evCurrentPage = false, evCamera = false, evTextEdit = false, evVectorEdit = false, evPaintEdit = false;
+  } scope_;
 };
 
 }  // namespace eng

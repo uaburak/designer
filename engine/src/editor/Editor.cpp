@@ -56,7 +56,7 @@ void Editor::begin(TxnKind kind, const std::string& label) {
   groupsTouched_.clear();
   edited_.clear();
   userGeometry_.clear();
-  if (kind == TxnKind::USER || kind == TxnKind::GESTURE) undo_.begin(selection_, label);
+  if (kind == TxnKind::USER || kind == TxnKind::GESTURE) recording().begin(selection_, label);
 }
 
 void Editor::noteNode(Guid id, uint32_t groups) {
@@ -291,7 +291,7 @@ void Editor::write(const NodeChange& change) {
   if (record) {
     NodeChange inverse;
     if (!doc_.apply(*c, &inverse)) return;
-    undo_.record(std::move(inverse));
+    recording().record(std::move(inverse));
   } else if (!doc_.apply(*c)) {
     return;
   }
@@ -402,12 +402,13 @@ void Editor::commit(bool mergeWithLast) {
   bool emits = txn_.kind != TxnKind::REMOTE && txn_.kind != TxnKind::LOAD;
   if (emits && !txn_.changes.empty()) {
     auto changes = txn_.changes.build(doc_);
-    if (!changes.empty()) events_.documents.push_back({txn_.kind, txn_.label, std::move(changes)});
+    if (!changes.empty()) events_.documents.push_back({txn_.kind, txn_.label, std::move(changes), actor_});
   }
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
-    undo_.commit(selection_, mergeWithLast);
+    recording().commit(selection_, mergeWithLast);
     events_.undo = true;
   }
+  if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE || txn_.kind == TxnKind::UNDO || txn_.kind == TxnKind::REDO) yieldOthers();
   txn_.changes.clear();
   layoutDirty_.clear();
 }
@@ -417,7 +418,7 @@ void Editor::rollback() {
   txn_.open = false;
   txn_.depth = 0;
   if (txn_.kind == TxnKind::USER || txn_.kind == TxnKind::GESTURE) {
-    for (const NodeChange& c : undo_.rollback(doc_)) noteChange(c, NodeType::NONE);
+    for (const NodeChange& c : recording().rollback(doc_)) noteChange(c, NodeType::NONE);
     events_.pages = true;
   }
   txn_.changes.clear();
@@ -598,7 +599,7 @@ bool Editor::resizedInTxn(Guid frame, Vec2& oldSize) const {
   // An instance and its sublayers: their children were laid out for the main's sizes.
   if (blueprintSourceSize(frame, oldSize)) return !intrinsicLayout_;
   if (frame.isDerived()) return false;
-  const NodeChange* inv = undo_.openInverse(frame);
+  const NodeChange* inv = recording().openInverse(frame);
   if (!inv || !(inv->mask & F_SIZE)) return false;
   oldSize = inv->props.size;
   return true;
@@ -613,7 +614,7 @@ void Editor::base(Guid id, Mat2x3& transform, Vec2& size) const {
   // Resized or moved by the user in this step (setProps): constraints start from that, not from before the step —
   // a child made absolute and resized while its hugging parent shrinks keeps the size it was given.
   if (txn_.open && txn_.kind == TxnKind::USER && userGeometry_.count(id)) return;
-  if (const NodeChange* inv = undo_.openInverse(id)) {
+  if (const NodeChange* inv = recording().openInverse(id)) {
     // Moved to another parent in this transaction: its old transform was in the old parent's space.
     if ((inv->mask & F_PARENT_INDEX) && inv->props.parentIndex.guid != n->props.parentIndex.guid) return;
     if (inv->mask & F_TRANSFORM) transform = inv->props.transform;
@@ -686,6 +687,13 @@ std::string Editor::nextName(const char* base) const {
 }
 
 Editor::Events Editor::takeEvents() {
+  if (scope_.on) {
+    // An actor is writing: its selection, page and view are its own, not the user's (actorEnd puts theirs back).
+    events_.selection = events_.currentPage = events_.camera = false;
+    events_.textEdit = events_.vectorEdit = events_.paintEdit = false;
+    events_.prototypeSelected.clear();
+    events_.gridTracks.clear();
+  }
   Events e = std::move(events_);
   events_ = Events{};
   nodeEventIndex_.clear();
@@ -894,6 +902,9 @@ void Editor::loadDocument(std::vector<NodeChange>&& nodes, Guid page, StoredDeri
   txn_ = Txn{};
   doc_.clear();
   undo_.clear();
+  actorUndo_.clear();
+  scope_ = ActorScope{};
+  actor_ = undoTo_ = 0;
   pageSelections_.clear();
   layoutDirty_.clear();
   groupsTouched_.clear();
@@ -1370,7 +1381,8 @@ Status Editor::txnCommit() {
 void Editor::txnCancel() { rollback(); }
 
 bool Editor::undoStep(bool redo) {
-  if (busy() || txn_.open) return false;
+  if (busy() || txn_.open || scope_.on) return false;
+  undo_.dropEmpty(redo);  // steps whose every change others overwrote since
   if (redo ? !undo_.canRedo() : !undo_.canUndo()) return false;
   begin(redo ? TxnKind::REDO : TxnKind::UNDO, redo ? undo_.redoLabel() : undo_.undoLabel());
   std::vector<Guid> sel = selection_;
@@ -1390,6 +1402,207 @@ bool Editor::undoStep(bool redo) {
   if (vector_.node != kNoGuid) reloadVector();
   if (paint_.node != kNoGuid && !editedPaint()) endPaintEdit();
   return true;
+}
+
+// ---- Actors (docs/engine.md §9.5) -------------------------------------------
+
+UndoStack& Editor::stackOf(uint32_t actor) {
+  if (actor == 0) return undo_;
+  auto it = actorUndo_.find(actor);
+  if (it != actorUndo_.end()) return it->second;
+  // Past the budget the oldest actors' histories go (the ids grow: an agent turn's step stays among the last ones).
+  while (actorUndo_.size() >= kMaxActors) {
+    auto oldest = actorUndo_.begin();
+    if (oldest->first == undoTo_ || oldest->first == actor_) break;
+    actorUndo_.erase(oldest);
+  }
+  return actorUndo_[actor];
+}
+
+void Editor::yieldOthers() {
+  if (txn_.changes.empty()) return;
+  if (undoTo_ != 0) undo_.yield(txn_.changes);
+  for (auto& [id, stack] : actorUndo_)
+    if (id != undoTo_) stack.yield(txn_.changes);
+}
+
+void Editor::followForeign(const std::vector<Guid>& touched) {
+  auto hit = [&](Guid id) { return id != kNoGuid && std::find(touched.begin(), touched.end(), id) != touched.end(); };
+  if (hit(text_.node)) {
+    if (!doc_.has(text_.node)) {
+      text_ = TextSession{};
+      events_.textEdit = true;
+    } else {
+      // The text changed under the caret: keep it inside; typing on starts a new step.
+      uint32_t len = static_cast<uint32_t>(editedText().size());
+      if (text_.anchor > len || text_.focus > len) setTextSelection(std::min(text_.anchor, len), std::min(text_.focus, len));
+      text_.undoCount = 0;
+      events_.textEdit = true;
+    }
+  }
+  if (hit(vector_.node)) {
+    if (doc_.has(vector_.node)) {
+      reloadVector();
+    } else {
+      vector_ = VectorSession{};
+      events_.vectorEdit = true;
+    }
+  }
+  if (paint_.node != kNoGuid && hit(paint_.node) && (!doc_.has(paint_.node) || !editedPaint())) endPaintEdit();
+  pruneSelection();
+  needsRender_ = true;
+}
+
+Status Editor::actorBegin(uint32_t actor, const std::vector<Guid>& selection, Guid page, const std::string& label, bool merge, uint32_t undoTo) {
+  if (actor == 0) return E_INVALID;
+  if (scope_.on || busy() || txn_.open) return E_BUSY;
+  // The actor's page: given, else its first selected layer's, else the user's.
+  auto isPage = [&](Guid p) {
+    const Node* n = doc_.get(p);
+    return n && n->props.type == NodeType::CANVAS && !n->props.rare().internalOnly;
+  };
+  Guid p = page;
+  if (!isPage(p) && !selection.empty() && doc_.has(selection[0])) p = doc_.pageOf(selection[0]);
+  if (!isPage(p)) p = page_;
+  // Shown for the actor before its step opens: a page's derivation is a load, not part of anyone's step.
+  derivePage(p);
+  for (Guid id : selection)
+    if (doc_.has(id) || id.isDerived()) derivePageOf(id);
+  scope_.on = true;
+  scope_.merge = merge;
+  scope_.selection = std::move(selection_);
+  scope_.page = page_;
+  scope_.pageSelections = pageSelections_;
+  scope_.camera = camera_;
+  scope_.camAnim = camAnim_;
+  scope_.text = std::move(text_);
+  scope_.vector = std::move(vector_);
+  scope_.paint = std::move(paint_);
+  scope_.protoNode = proto_.selNode;
+  scope_.protoIndex = proto_.selIndex;
+  scope_.guide = selectedGuide_;
+  scope_.gridSel = gridSel_;
+  scope_.lastNudged = lastNudged_;
+  scope_.zoomFrame = zoomFrame_;
+  scope_.zoomSelection = zoomSelection_;
+  scope_.rotationOriginOn = rotationOriginOn_;
+  scope_.evSelection = events_.selection;
+  scope_.evCurrentPage = events_.currentPage;
+  scope_.evCamera = events_.camera;
+  scope_.evTextEdit = events_.textEdit;
+  scope_.evVectorEdit = events_.vectorEdit;
+  scope_.evPaintEdit = events_.paintEdit;
+  text_ = TextSession{};
+  vector_ = VectorSession{};
+  paint_ = PaintSession{};
+  proto_.selNode = kNoGuid;
+  proto_.selIndex = -1;
+  selectedGuide_ = {};
+  gridSel_ = {};
+  lastNudged_.clear();
+  rotationOriginOn_ = false;
+  page_ = p;
+  selection_.clear();
+  for (Guid id : selection)
+    if (doc_.has(id) && doc_.pageOf(id) == p && std::find(selection_.begin(), selection_.end(), id) == selection_.end()) selection_.push_back(id);
+  actor_ = actor;
+  undoTo_ = undoTo;
+  stackOf(undoTo_);
+  begin(TxnKind::USER, label);
+  return OK;
+}
+
+Status Editor::actorEnd(bool cancel) {
+  if (!scope_.on) return E_INVALID;
+  std::vector<Guid> touched;
+  if (txn_.open) {
+    if (cancel) {
+      rollback();
+    } else {
+      touched = txn_.changes.touched();
+      txn_.depth = 1;  // whatever the writes left open is part of this step
+      commit(scope_.merge && recording().canUndo() && !recording().canRedo());
+    }
+  }
+  actor_ = 0;
+  undoTo_ = 0;
+  selection_ = std::move(scope_.selection);
+  page_ = scope_.page;
+  pageSelections_ = std::move(scope_.pageSelections);
+  camera_ = scope_.camera;
+  camAnim_ = scope_.camAnim;
+  text_ = std::move(scope_.text);
+  vector_ = std::move(scope_.vector);
+  paint_ = std::move(scope_.paint);
+  proto_.selNode = scope_.protoNode;
+  proto_.selIndex = scope_.protoIndex;
+  selectedGuide_ = scope_.guide;
+  gridSel_ = scope_.gridSel;
+  lastNudged_ = std::move(scope_.lastNudged);
+  zoomFrame_ = scope_.zoomFrame;
+  zoomSelection_ = std::move(scope_.zoomSelection);
+  rotationOriginOn_ = scope_.rotationOriginOn;
+  events_.selection = scope_.evSelection;
+  events_.currentPage = scope_.evCurrentPage;
+  events_.camera = scope_.evCamera;
+  events_.textEdit = scope_.evTextEdit;
+  events_.vectorEdit = scope_.evVectorEdit;
+  events_.paintEdit = scope_.evPaintEdit;
+  scope_ = ActorScope{};
+  if (!doc_.has(page_)) {
+    auto all = pages();
+    if (!all.empty()) setCurrentPage(all[0]);
+  }
+  followForeign(touched);
+  events_.structure = events_.structureAll = true;  // the Layers rows: the actor's page may have been another
+  needsRender_ = true;
+  return OK;
+}
+
+bool Editor::actorUndo(uint32_t actor, bool redo) {
+  if (actor == 0 || busy() || txn_.open || scope_.on) return false;
+  auto it = actorUndo_.find(actor);
+  if (it == actorUndo_.end()) return false;
+  UndoStack& stack = it->second;
+  stack.dropEmpty(redo);
+  if (redo ? !stack.canRedo() : !stack.canUndo()) return false;
+  actor_ = undoTo_ = actor;
+  begin(redo ? TxnKind::REDO : TxnKind::UNDO, redo ? stack.redoLabel() : stack.undoLabel());
+  std::vector<Guid> sel;  // the actor's selection then: not the user's
+  auto applied = redo ? stack.redo(doc_, sel, &txn_.changes) : stack.undo(doc_, sel, &txn_.changes);
+  for (const NodeChange& c : applied) noteChange(c, NodeType::NONE);
+  events_.pages = true;
+  std::vector<Guid> touched = txn_.changes.touched();
+  commit();
+  actor_ = undoTo_ = 0;
+  events_.undo = true;
+  if (!doc_.has(page_)) {
+    auto all = pages();
+    if (!all.empty()) setCurrentPage(all[0]);
+  }
+  followForeign(touched);
+  return true;
+}
+
+Editor::ActorInfo Editor::actorInfo(uint32_t actor) const {
+  ActorInfo info;
+  const UndoStack* s = actor == 0 ? &undo_ : nullptr;
+  if (!s) {
+    auto it = actorUndo_.find(actor);
+    if (it == actorUndo_.end()) return info;
+    s = &it->second;
+  }
+  info.canUndo = s->canUndo();
+  info.canRedo = s->canRedo();
+  info.undoLabel = s->undoLabel();
+  info.redoLabel = s->redoLabel();
+  info.overwritten.assign(s->overwritten().begin(), s->overwritten().end());
+  std::sort(info.overwritten.begin(), info.overwritten.end(), [](Guid a, Guid b) { return a.sessionID != b.sessionID ? a.sessionID < b.sessionID : a.localID < b.localID; });
+  return info;
+}
+
+void Editor::forgetActor(uint32_t actor) {
+  if (actor != 0 && !(scope_.on && (actor == actor_ || actor == undoTo_))) actorUndo_.erase(actor);
 }
 
 // ---- Keys -------------------------------------------------------------------

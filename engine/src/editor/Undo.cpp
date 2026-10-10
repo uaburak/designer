@@ -117,11 +117,42 @@ std::vector<NodeChange> UndoStack::redo(Document& doc, std::vector<Guid>& select
   return applied;
 }
 
+size_t UndoStack::yield(const ChangeSet& by) {
+  size_t lost = 0;
+  auto pass = [&](std::vector<UndoBatch>& stack) {
+    for (UndoBatch& b : stack)
+      for (auto it = b.inverse.begin(); it != b.inverse.end();) {
+        if (it->phase == Phase::CHANGED) {
+          FieldMask theirs = by.fieldsOf(it->guid);
+          if (theirs & it->mask) {
+            it->mask &= ~theirs;
+            overwritten_.insert(it->guid);
+            lost++;
+            if (!it->mask) {
+              it = b.inverse.erase(it);
+              continue;
+            }
+          }
+        }
+        ++it;
+      }
+  };
+  pass(undo_);
+  pass(redo_);
+  return lost;
+}
+
+void UndoStack::dropEmpty(bool redo) {
+  auto& stack = redo ? redo_ : undo_;
+  while (!stack.empty() && stack.back().inverse.empty()) stack.pop_back();
+}
+
 void UndoStack::clear() {
   undo_.clear();
   redo_.clear();
   open_ = UndoBatch{};
   foldable_.clear();
+  overwritten_.clear();
   depth_ = 0;
 }
 

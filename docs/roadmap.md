@@ -51,6 +51,7 @@ Built only after everything else, Figma's way (R1/R2 research; Figma's "How Figm
 - Every document change is a kiwi `NODE_CHANGES` Message carrying only the touched fields, with the session that made it (`sessionID`) — files, journal, undo, clipboard, library payloads and the engine stream all use it (already true).
 - Node identity is `GUID {sessionID, localID}`, so two sessions never mint the same id; fractional `parentIndex.position` strings for ordering (no index-based moves).
 - The engine applies remote changes without disturbing local undo (`APPLY_REMOTE`), and undo batches record only the local session's changes.
+- **Actors are the session seam (round 17, docs/engine.md §9.5)**: the engine keeps one undo history per actor and runs an actor's writes with its own selection and page, the user's untouched; every commit makes the other histories yield the fields it wrote (per property, last writer wins), and an actor's undo skips fields changed since. Agent chat turns use it today; a multiplayer session becomes one more actor (its server-ordered changes committed as that actor so local histories yield), with no new undo model.
 - Per-property values only — no whole-node replace in a change (REMOVED + CREATED is a real delete/create, never an edit).
 - The store's write path stays behind repositories so a server-backed adapter can take the place of the local one (as the Firebase adapter does); per-property LWW is already the Firebase replicator's rule.
 - Derived data never travels in change messages (`@derived` only in snapshots).

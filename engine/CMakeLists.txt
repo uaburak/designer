@@ -201,6 +201,7 @@ else()
     tests/unit/r17.canvas_feedback.test.cpp
     tests/unit/r17.prototype_connections.test.cpp
     tests/unit/r17.hover_outline.test.cpp
+    tests/unit/r17.actors.test.cpp
   )
   target_link_libraries(engine_tests PRIVATE eng_core eng_schema)
   # The system zlib inflates what export/Deflate writes (tests only; the engine has no dependency on it).

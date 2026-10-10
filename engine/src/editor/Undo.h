@@ -1,9 +1,14 @@
 // Undo/redo: transaction-batched inverse patches, one batch per user gesture
 // (a drag is one step however many moves it made). Undoing a batch applies its
 // inverses in reverse order and records the redo batch from what that returns.
+//
+// One stack per actor (docs/engine.md §9.5): the local user's, each agent turn's — and, with multiplayer, each
+// session's. A step of one actor never takes back another's: when an actor commits, every other stack yields the
+// fields it wrote (yield()), so their undo and redo skip them — Figma's rule, per property, last writer wins.
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <deque>
 #include <vector>
 
@@ -57,6 +62,16 @@ class UndoStack {
     if (!undo_.empty()) undo_.pop_back();
   }
 
+  // Another actor committed `by`: the fields it wrote leave this stack's steps (undo and redo), so taking them back
+  // never overwrites the newer values; a node it created or removed leaves them whole. Returns how many of this
+  // stack's node changes lost fields. Steps left empty stay (dropEmpty() takes them off the top when undoing).
+  size_t yield(const ChangeSet& by);
+  // Takes off the undo (redo) stack's top steps that yield() emptied.
+  void dropEmpty(bool redo);
+  // Nodes whose changes in this stack were overwritten by another actor since (yield()).
+  const std::unordered_set<Guid, GuidHash>& overwritten() const { return overwritten_; }
+  bool empty() const { return undo_.empty() && redo_.empty() && depth_ == 0; }
+
   size_t undoCount() const { return undo_.size(); }
   size_t redoCount() const { return redo_.size(); }
 
@@ -67,6 +82,7 @@ class UndoStack {
   UndoBatch open_;
   std::unordered_map<Guid, size_t, GuidHash> foldable_;  // node → its CHANGED inverse in open_
   int depth_ = 0;
+  std::unordered_set<Guid, GuidHash> overwritten_;
 };
 
 }  // namespace eng

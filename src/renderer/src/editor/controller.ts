@@ -314,8 +314,14 @@ export class EditorController {
     return { ...n, type, ...(known.booleanOperation ? { booleanOperation: known.booleanOperation } : {}) } as T;
   };
 
+  /**
+   * An actor (an agent's write, agents/turns.ts) is writing: the engine's selection is the actor's own until it ends
+   * (Engine.actorBegin), so commands run inside it read that — the store keeps the user's.
+   */
+  actorWriting = 0;
+
   get selection(): Guid[] {
-    return this.store.selection.refs;
+    return this.actorWriting ? [...this.engine.getSelection().refs] : this.store.selection.refs;
   }
 
   /** The selected nodes' fields (fresh). */

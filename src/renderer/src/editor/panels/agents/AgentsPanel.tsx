@@ -461,7 +461,12 @@ function Changes({ turnId, changes, service }: { turnId: string; changes: NonNul
           Apply
         </Button>
       )}
-      {changes.state === "stale" && <span className={styles.changesHint} {...tooltipProps("Other changes came after it: use Edit › Undo")}>Edited since</span>}
+      {changes.state === "stale" && <span className={styles.changesHint} {...tooltipProps("Everything it changed was changed again since: nothing left to undo")}>Edited since</span>}
+      {changes.state !== "stale" && !!changes.overwritten && (
+        <span className={styles.changesHint} data-changes-overwritten="" {...tooltipProps(`${changes.overwritten === 1 ? "1 layer it changed was" : `${changes.overwritten} layers it changed were`} changed again since (by you or another chat). Undo leaves those changes as they are.`)}>
+          Partly edited since
+        </span>
+      )}
     </div>
   );
 }

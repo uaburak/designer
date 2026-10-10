@@ -790,6 +790,17 @@ export interface Selection {
   refs: Guid[];
 }
 
+/** engine_actor_info (docs/engine.md §9.5): an actor's history. */
+export interface ActorInfo {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoLabel: string;
+  redoLabel: string;
+  /** Layers whose changes by the actor someone else changed since (those fields its undo leaves) */
+  overwritten: Guid[];
+  idle: boolean;
+}
+
 export interface PageInfo {
   guid: Guid;
   name: string;
@@ -821,7 +832,7 @@ export type CursorKind =
  * interim JSON shape, which `wire: "json"` (the default) still delivers.
  */
 export type EngineEvent =
-  | { type: "DOCUMENT_CHANGED"; kind: "USER" | "UNDO" | "REDO" | "SYSTEM"; label: string; message: Message; bytes?: Uint8Array }
+  | { type: "DOCUMENT_CHANGED"; kind: "USER" | "UNDO" | "REDO" | "SYSTEM"; label: string; message: Message; bytes?: Uint8Array; /** The actor that made it (Engine.actorBegin); absent: the local user */ actor?: number }
   | { type: "NODES_CHANGED"; refs: Guid[]; fieldGroupMask: number[] }
   /**
    * The current page's tree shape changed (a Layers row's place, name, visibility or lock). `parents`: the nodes (the

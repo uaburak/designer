@@ -1,34 +1,46 @@
 /**
- * One undo step per agent turn. Each write tool call is its own engine transaction while the agent works (the
- * canvas, the panels and the store follow every call); when the turn ends, its steps are folded into one: undone,
- * then their changes — the NODE_CHANGES messages the engine emitted, the store's own journal format — replayed in
- * one transaction labelled with the turn. Folding is skipped (the steps stay as they are) when anything else made
- * or took back an undo step in between: the user's edits are never folded into the agent's.
+ * Agents write beside the user, isolated from them (the owner: "what I do must not affect the agent and what the agent
+ * does must not affect me"). Each chat turn is an engine **actor** (docs/engine.md §9.5 — the shape multiplayer
+ * sessions take in Phase 6): every write tool call is one `actorBegin … actorEnd` write with the actor's own selection
+ * and page, so the user's selection, page, view, text / vector edit and selected connection are never touched; the
+ * turn's writes join one step in the turn's **own undo history** — not the user's: ⌘Z / ⇧⌘Z take back only the
+ * user's steps, the chat's Undo / Apply only the turn's, and either skips the fields someone else wrote since (per
+ * property, last writer wins). A write waits while the user drags or scrubs (the engine is busy: EngineBusy, retried
+ * by the service when it is idle again).
  *
- * The turn's step can then be taken back from the chat ("Undo") while it is the last step, and brought back
- * ("Apply") while it is the next redo.
+ * An outside MCP client's call (no chat turn) is an actor too — its own selection and page — whose steps go to the
+ * user's history (there is no chat to undo them from: ⌘Z does).
  */
-import type { EventOf, Message } from "@/engine/codec";
-import { applyEngineBytes } from "../engineCompat";
+import type { Guid } from "@/engine/codec";
+import { Status } from "@/engine/abi";
 import type { EditorController } from "../controller";
 
-/** The engine's label of an agent's step (Edit › Undo …). */
+/** The engine's label of an agent's step. */
 export const agentLabel = (client: string) => `${client} edit`;
 
-interface Captured {
-  bytes?: Uint8Array;
-  message: Message;
+/** The engine is busy with the user's gesture or step: the write is tried again when it is idle. */
+export class EngineBusy extends Error {
+  constructor() {
+    super("The canvas is busy (the user is dragging or editing): try again.");
+  }
 }
 
 export interface TurnRecord {
   id: string;
   label: string;
-  /** Write transactions committed so far */
-  steps: Captured[];
-  /** Another step happened in between (the user's edit, an undo): the turn can't be folded or taken back */
-  foreign: boolean;
-  /** After finish(): "applied" (the last step), "undone" (the next redo), "stale" (other steps since), "none" (it changed nothing) */
+  /** The turn's engine actor */
+  actor: number;
+  /** The page the turn works on when a call names no layer (set_current_page); null: the user's */
+  page: Guid | null;
+  /** Writes committed so far */
+  steps: number;
+  /**
+   * "running"; then "applied" (its step can be undone), "undone" (it can be applied again), "stale" (everything it
+   * changed was changed again since by someone else: nothing left to undo), "none" (it changed nothing)
+   */
   state: "running" | "applied" | "undone" | "stale" | "none";
+  /** Layers whose changes by the turn someone else (the user, another chat) changed since: those fields stay theirs */
+  overwritten: Guid[];
   touched: Set<string>;
 }
 
@@ -36,15 +48,15 @@ type Listener = (turn: TurnRecord) => void;
 
 export class AgentTurns {
   private turns = new Map<string, TurnRecord>();
-  /** Turns whose step may be the last (or next redo): tracked for Undo / Apply */
-  private tracked: TurnRecord[] = [];
-  private writing: TurnRecord | null = null;
-  private folding = false;
+  private outside = new Map<string, number>();
+  private nextActor = 1;
   private listeners = new Set<Listener>();
   private off: () => void;
 
   constructor(private ed: EditorController) {
-    this.off = ed.engine.onDocumentChanged((_changes, ev) => this.onChanged(ev));
+    this.off = ed.engine.onDocumentChanged((_changes, ev) => {
+      if (ev.kind !== "SYSTEM") this.refresh(ev.actor ?? 0);
+    });
   }
 
   dispose() {
@@ -68,117 +80,109 @@ export class AgentTurns {
   start(id: string, client: string): TurnRecord {
     const had = this.turns.get(id);
     if (had) return had;
-    const t: TurnRecord = { id, label: agentLabel(client), steps: [], foreign: false, state: "running", touched: new Set() };
+    const t: TurnRecord = { id, label: agentLabel(client), actor: this.nextActor++, page: null, steps: 0, state: "running", overwritten: [], touched: new Set() };
     this.turns.set(id, t);
     return t;
   }
 
-  private onChanged(ev: EventOf<"DOCUMENT_CHANGED">) {
-    if (this.folding) return;
-    if (this.writing && ev.kind === "USER") {
-      this.writing.steps.push({ bytes: ev.bytes, message: ev.message });
-      return;
-    }
-    if (ev.kind === "SYSTEM") return;
-    // Anything else that makes or takes back a step: running turns can't fold, finished ones aren't on top any more.
-    for (const t of this.turns.values()) if (t.state === "running") t.foreign = true;
-    for (const t of this.tracked) {
-      if (ev.kind === "UNDO" && t.state === "applied" && this.tracked[this.tracked.length - 1] === t) {
-        t.state = "undone";
-      } else if (ev.kind === "REDO" && t.state === "undone") {
-        t.state = "applied";
-      } else if (t.state === "applied" || t.state === "undone") {
-        t.state = "stale";
-      }
-      this.emit(t);
-    }
-    this.tracked = this.tracked.filter((t) => t.state === "applied" || t.state === "undone");
+  /** Nothing open in the engine (no drag, no scrub): a write can begin. Resolves at once when idle. */
+  async idle(): Promise<void> {
+    const e = this.ed.engine;
+    while (!e.destroyed && !e.idle()) await new Promise((r) => setTimeout(r, 30));
   }
 
   /**
-   * One write of a turn (null: an outside client's call — its own step): a transaction labelled for the turn;
-   * rolled back if `fn` throws.
+   * One write of a turn (null: an outside client's call — a step of the user's history): `fn` runs as the turn's actor
+   * with `refs` as its selection (on `refs`' page, else the turn's, else the user's); rolled back if `fn` throws.
+   * Throws EngineBusy while the user's gesture or step is open.
    */
-  write<T>(turnId: string | null, client: string, fn: () => T): T {
+  write<T>(turnId: string | null, client: string, fn: () => T, refs: readonly Guid[] = []): T {
     const t = turnId ? (this.turns.get(turnId) ?? this.start(turnId, client)) : null;
     const e = this.ed.engine;
-    e.txnBegin(t?.label ?? agentLabel(client));
-    const outer = this.writing;
-    this.writing = t;
+    let actor = t?.actor;
+    if (actor === undefined) {
+      actor = this.outside.get(client) ?? this.nextActor++;
+      this.outside.set(client, actor);
+    }
+    const status = e.actorBegin(actor, { label: t?.label ?? agentLabel(client), refs, page: refs.length ? null : t?.page, merge: !!t, undoTo: t ? actor : 0 });
+    if (status === Status.E_BUSY) throw new EngineBusy();
+    if (status !== Status.OK) throw new Error(status === Status.E_READONLY ? "The file is read-only." : `The engine refused the write (status ${status}).`);
+    this.ed.actorWriting++;
+    let done = false;
     try {
       const out = fn();
-      e.txnCommit();
+      done = true;
       return out;
-    } catch (err) {
-      e.txnCancel();
-      throw err;
     } finally {
-      this.writing = outer;
+      this.ed.actorWriting--;
+      e.actorEnd(!done);
+      if (done && t && e.actorInfo(t.actor).canUndo) t.steps++;
     }
   }
 
-  /** The turn ended: its steps folded into one undo step (when nothing came between). */
+  /** The turn ended: its step is in its own history (Undo / Apply in the chat). */
   finish(id: string): TurnRecord | undefined {
     const t = this.turns.get(id);
     if (!t || t.state !== "running") return t;
-    if (!t.steps.length) {
-      t.state = "none";
-      this.emit(t);
-      return t;
-    }
-    if (t.steps.length > 1 && !t.foreign) this.fold(t);
-    t.state = t.foreign ? "stale" : "applied";
-    if (t.state === "applied") {
-      for (const o of this.tracked)
-        if (o.state === "applied" || o.state === "undone") {
-          o.state = "stale";
-          this.emit(o);
-        }
-      this.tracked = [t];
-    }
+    const info = this.ed.engine.actorInfo(t.actor);
+    t.overwritten = info.overwritten;
+    t.state = !t.steps && !info.canUndo ? "none" : this.stateOf(t);
     this.emit(t);
     return t;
   }
 
-  private fold(t: TurnRecord) {
-    const e = this.ed.engine;
-    const sel = [...this.ed.selection];
-    this.folding = true;
-    try {
-      for (let i = 0; i < t.steps.length; i++) if (!e.undo()) throw new Error("undo failed");
-      e.txnBegin(t.label);
-      for (const s of t.steps) {
-        const status = s.bytes ? (applyEngineBytes(e, s.bytes, "user") ?? e.applyChanges(s.message, "user")) : e.applyChanges(s.message, "user");
-        if (status !== 0) throw new Error(`replay failed (${status})`);
-      }
-      e.txnCommit();
-      e.setSelection(sel.filter((id) => !!e.readNode(id, { fields: ["name"] })));
-    } catch {
-      // The steps stay separate: whatever was undone is redone.
-      try {
-        e.txnCancel();
-      } catch {
-        /* no open step */
-      }
-      while (e.redo()) {
-        /* back to where the turn left the file */
-      }
-    } finally {
-      this.folding = false;
+  private stateOf(t: TurnRecord): TurnRecord["state"] {
+    const info = this.ed.engine.actorInfo(t.actor);
+    if (info.canRedo && !info.canUndo) return "undone";
+    if (info.canUndo) return "applied";
+    return t.state === "none" ? "none" : "stale";
+  }
+
+  /** Someone wrote: the finished turns' Undo / Apply and overwritten layers follow. */
+  private refresh(by: number) {
+    for (const t of this.turns.values()) {
+      if (t.actor === by && t.state === "running") continue;
+      const info = this.ed.engine.actorInfo(t.actor);
+      const overwritten = info.overwritten;
+      const state = t.state === "running" || t.state === "none" ? t.state : this.stateOf(t);
+      if (state === t.state && overwritten.length === t.overwritten.length) continue;
+      t.overwritten = overwritten;
+      t.state = state;
+      if (t.state !== "running") this.emit(t);
     }
   }
 
-  /** Chat "Undo": the turn's step, when it is the last. */
+  /** Chat "Undo": the turn's step — only what nobody changed since. */
   undo(id: string): boolean {
     const t = this.turns.get(id);
     if (!t || t.state !== "applied") return false;
-    return this.ed.engine.undo();
+    const ok = this.ed.engine.actorUndo(t.actor, false);
+    if (!ok) this.settle(t);
+    return ok;
   }
 
-  /** Chat "Apply": the turn's step again, when it is the next redo. */
+  /** Chat "Apply": the turn's step again. */
   redo(id: string): boolean {
     const t = this.turns.get(id);
     if (!t || t.state !== "undone") return false;
-    return this.ed.engine.redo();
+    const ok = this.ed.engine.actorUndo(t.actor, true);
+    if (!ok) this.settle(t);
+    return ok;
+  }
+
+  private settle(t: TurnRecord) {
+    const state = this.stateOf(t);
+    if (state !== t.state) {
+      t.state = state;
+      this.emit(t);
+    }
+  }
+
+  /** The turn's history goes (its chat was deleted). */
+  forget(id: string) {
+    const t = this.turns.get(id);
+    if (!t || t.state === "running") return;
+    this.ed.engine.actorForget(t.actor);
+    this.turns.delete(id);
   }
 }

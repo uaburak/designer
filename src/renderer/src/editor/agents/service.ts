@@ -13,10 +13,12 @@ import { addTokens } from "./usage";
 import type { EditorController } from "../controller";
 import { editorBridge } from "../desktop";
 import type { ToolResult } from "@shared/agents/tools";
-import { runTool } from "./mcpTools";
+import { applySelection, runTool, type ToolEnv } from "./mcpTools";
+import { textResult } from "@shared/agents/tools";
+import type { Guid } from "@/engine/codec";
 import { asksForImage, requestedAspect } from "./activity";
 import { FADE_MS, ImagePlaceholders, placeholderArgs, placeholderTarget, reshapeTarget, targetAspect, type PlaceholderEnv } from "./imagePlaceholder";
-import { AgentTurns, type TurnRecord } from "./turns";
+import { AgentTurns, EngineBusy, type TurnRecord } from "./turns";
 
 /**
  * An image the agent makes: being made, made (about to be placed), on the canvas, or not placed (an error, Stop) — or
@@ -48,7 +50,7 @@ export interface ChatMessage {
   error?: string;
   turnId?: string;
   /** The turn's step: how many layers it touched, and whether it is applied / undone / stale */
-  changes?: { count: number; state: TurnRecord["state"] };
+  changes?: { count: number; state: TurnRecord["state"]; overwritten?: number };
   provider?: string;
 }
 
@@ -149,6 +151,10 @@ export class AgentsService {
   /** A new chat's id before its first message (its attachments' folder) */
   private draftId: string | null = null;
   private usageAsked = new Map<string, number>();
+  /** Each running turn: the user's selection and page when it began, and what set_selection asked for */
+  private turnStarts = new Map<string, { selection: Guid[]; page: Guid | null; select?: Guid[] }>();
+  /** An outside MCP client's page (set_current_page): never the user's */
+  private outsidePages = new Map<string, Guid>();
 
   constructor(
     private ed: EditorController,
@@ -166,10 +172,10 @@ export class AgentsService {
     this.offs.push(
       api.onEvent((e) => this.onEvent(e)),
       api.onToolCall(async (call) => {
-        const env = { ed: this.ed, write: <T>(_label: string, fn: () => T) => this.turns.write(call.turnId, call.client, fn) };
+        const env = this.toolEnv(call.turnId, call.client);
         // An image the chat is making lands where its placeholder is, unless the agent said where.
         const waiting = call.name === "place_image" && call.turnId ? this.placeholders.next(call.turnId) : undefined;
-        const r = await runTool(env, call.name, placeholderArgs(call.args ?? {}, waiting));
+        const r = await this.runWhenIdle(env, call.name, placeholderArgs(call.args ?? {}, waiting));
         if (call.name === "place_image" && call.turnId && !r.isError) this.imagePlaced(call.turnId, r, waiting?.id);
         if (call.turnId && r.touched?.length) {
           const set = this.touched.get(call.turnId) ?? new Set();
@@ -183,6 +189,62 @@ export class AgentsService {
     );
     void api.mcp().then((mcp) => this.set({ mcp }), () => {});
     void api.settings().then((settings) => this.set({ settings }), () => {});
+  }
+
+  /**
+   * A tool call's environment: writes as the turn's actor (turns.ts — never the user's selection, page or view), the
+   * turn's own page, and set_selection held until the turn ends.
+   */
+  toolEnv(turnId: string | null, client: string): ToolEnv {
+    if (turnId) this.noteTurnStart(turnId);
+    const outsidePage = (p?: Guid) => {
+      if (p) this.outsidePages.set(client, p);
+      return this.outsidePages.get(client) ?? null;
+    };
+    return {
+      ed: this.ed,
+      write: <T>(_label: string, fn: () => T, refs?: readonly Guid[]) => this.turns.write(turnId, client, fn, refs),
+      page: () => (turnId ? (this.turns.get(turnId)?.page ?? null) : outsidePage()),
+      setPage: (page) => {
+        if (!turnId) return void outsidePage(page);
+        (this.turns.get(turnId) ?? this.turns.start(turnId, client)).page = page;
+      },
+      ...(turnId
+        ? {
+            requestSelection: (refs: Guid[]) => {
+              const at = this.turnStarts.get(turnId);
+              if (at) at.select = refs;
+            },
+          }
+        : {}),
+    };
+  }
+
+  /** A tool call, run when the canvas is free: while the user drags or scrubs, it waits (their gesture goes on). */
+  async runWhenIdle(env: ToolEnv, name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    for (let i = 0; ; i++) {
+      await this.turns.idle();
+      try {
+        return await runTool(env, name, args);
+      } catch (err) {
+        if (!(err instanceof EngineBusy) || i > 2000) return textResult(err instanceof Error ? err.message : String(err), true);
+      }
+    }
+  }
+
+  /** What the user had selected when the turn began (set_selection applies only if it is still that). */
+  private noteTurnStart(turnId: string) {
+    if (!this.turnStarts.has(turnId)) this.turnStarts.set(turnId, { selection: [...this.ed.store.selection.refs], page: this.ed.store.page });
+  }
+
+  /** The turn ended: what it asked to select becomes the user's selection — unless they changed theirs meanwhile. */
+  private applyRequestedSelection(turnId: string) {
+    const at = this.turnStarts.get(turnId);
+    this.turnStarts.delete(turnId);
+    if (!at?.select?.length || this.ed.engine.destroyed) return;
+    const now = this.ed.store.selection.refs;
+    const same = this.ed.store.page === at.page && now.length === at.selection.length && now.every((id, i) => id === at.selection[i]);
+    if (same && this.ed.engine.idle()) applySelection(this.ed, at.select, true);
   }
 
   dispose() {
@@ -287,6 +349,8 @@ export class AgentsService {
   }
 
   deleteChat(id: string) {
+    // Its turns' histories go with it (their changes stay in the file).
+    for (const m of this.state.chats.find((c) => c.id === id)?.messages ?? []) if (m.turnId) this.turns.forget(m.turnId);
     this.set({ chats: this.state.chats.filter((c) => c.id !== id), current: this.state.current === id ? null : this.state.current });
     this.save();
   }
@@ -488,6 +552,7 @@ export class AgentsService {
       });
       this.placeholders.rekey(answer.id, turnId);
       this.turns.start(turnId, provider.label);
+      this.noteTurnStart(turnId);
       this.turnTarget.set(turnId, { chat: chatId, message: answer.id, providerId: provider.id, providerLabel: provider.label, prompt: text || files.map((f) => f.name).join(", "), model });
       this.set({ running: { ...this.state.running, [chatId]: turnId } });
       this.updateMessage(chatId, answer.id, (m) => ({ ...m, turnId }));
@@ -549,6 +614,7 @@ export class AgentsService {
     const target = this.turnTarget.get(turnId);
     if (!target) return;
     const record = this.turns.finish(turnId);
+    this.applyRequestedSelection(turnId);
     this.placeholders.end(turnId);
     const touched = this.touched.get(turnId)?.size ?? 0;
     const running = { ...this.state.running };
@@ -562,7 +628,7 @@ export class AgentsService {
       ...m,
       state: m.state === "error" ? "error" : event.stopped ? "stopped" : "done",
       parts: turnOver(m.parts ?? [], !!event.stopped),
-      changes: record && record.state !== "none" ? { count: touched, state: record.state } : undefined,
+      changes: record && record.state !== "none" ? { count: touched, state: record.state, ...(record.overwritten.length ? { overwritten: record.overwritten.length } : {}) } : undefined,
     }));
     this.dropCancelled(target.chat, target.message);
     // The turn used some of the plan: its limits read again (the CLI's /usage, no model call).
@@ -587,7 +653,7 @@ export class AgentsService {
   private onTurnChange(t: TurnRecord) {
     const target = this.turnTarget.get(t.id);
     if (!target || t.state === "running") return;
-    this.updateMessage(target.chat, target.message, (m) => (m.changes ? { ...m, changes: { ...m.changes, state: t.state } } : m));
+    this.updateMessage(target.chat, target.message, (m) => (m.changes ? { ...m, changes: { ...m.changes, state: t.state, overwritten: t.overwritten.length || undefined } } : m));
   }
 
   undoTurn(turnId: string) {

@@ -36,7 +36,7 @@ async function editor() {
   engine.setViewport(1280, 800, 1, 1280, 800);
   const ed = new EditorController(engine, new EngineStore(engine), source);
   const turns = new AgentTurns(ed);
-  const env: ToolEnv = { ed, write: (_l, fn) => turns.write(null, "Claude Code", fn) };
+  const env: ToolEnv = { ed, write: (_l, fn, refs) => turns.write(null, "Claude Code", fn, refs) };
   const call = async (name: string, args: Record<string, unknown>) => runTool(env, name, args);
   return { ed, engine, call };
 }

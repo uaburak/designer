@@ -195,7 +195,7 @@ export function removeFlowTool(env: ToolEnv, args: Spec): ToolResult {
 
 function pageRef(env: ToolEnv, v: unknown): Guid {
   if (v === undefined || v === null || v === "") {
-    const p = env.ed.store.page;
+    const p = env.page?.() ?? env.ed.store.page;
     if (!p) throw new ToolError("No current page.");
     return p;
   }

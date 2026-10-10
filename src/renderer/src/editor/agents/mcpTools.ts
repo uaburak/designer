@@ -25,11 +25,20 @@ import { landInBox, type Box } from "./imagePlaceholder";
 import { addInteractionTool, getPrototypeTool, prototypeContext, prototypeField, prototypeOf, removeFlowTool, removeInteractionTool, setFlowTool, setPrototypeSettingsTool, updateInteractionTool } from "./prototypeTools";
 import { describeSchema } from "@shared/agents/schemaDescribe";
 import { reactionsFromDoc } from "./prototypeSpec";
+import { EngineBusy } from "./turns";
 
 export interface ToolEnv {
   ed: EditorController;
-  /** Runs `fn` as one write (a transaction of the agent's turn); returns what fn returns */
-  write<T>(label: string, fn: () => T): T;
+  /**
+   * Runs `fn` as one write of the agent (turns.ts: an engine actor's step) with `refs` as its own selection — never
+   * the user's selection, page or view; returns what fn returns
+   */
+  write<T>(label: string, fn: () => T, refs?: readonly Guid[]): T;
+  /** The page the agent works on when a call names no layer (set_current_page); default: the user's */
+  page?: () => Guid | null;
+  setPage?: (page: Guid) => void;
+  /** set_selection: the user's selection becomes `refs` when the turn ends — if they haven't changed it since it began */
+  requestSelection?: (refs: Guid[]) => void;
 }
 
 const MAX_NODES = 600;
@@ -73,7 +82,7 @@ export function pageOf(env: ToolEnv, id: Guid): Guid | null {
   return null;
 }
 
-const currentPage = (env: ToolEnv) => env.ed.store.page;
+export const currentPage = (env: ToolEnv): Guid | null => env.page?.() ?? env.ed.store.page;
 
 /** `refs` with their descendants to `depth`, as trees (one read). */
 function trees(env: ToolEnv, refs: readonly Guid[], depth: number, fields?: string[]): { roots: Tree[]; count: number; truncated: boolean } {
@@ -668,24 +677,9 @@ const toolOf = (field: string, v: unknown) => {
   return toTool(f.type!, f.isArray, v);
 };
 
-/** Runs an engine command on `refs` as the selection, then puts the selection back (the agent's reads default to it). */
-function onSelection<T>(env: ToolEnv, refs: readonly Guid[], fn: () => T): T {
-  const before = [...env.ed.selection];
-  const page = currentPage(env);
-  const target = refs.length ? pageOf(env, refs[0]) : null;
-  if (target && target !== page) env.ed.engine.setCurrentPage(target);
-  if (refs.length) env.ed.engine.setSelection(refs);
-  try {
-    return fn();
-  } finally {
-    if (target && page && target !== page) env.ed.engine.setCurrentPage(page);
-    env.ed.engine.setSelection(before.filter((id) => !!read(env, id, ["name"])));
-  }
-}
-
 function deleteNodes(env: ToolEnv, args: Spec): ToolResult {
   const refs = targets(env, { nodeIds: args.nodeIds });
-  env.write("Delete layers", () => onSelection(env, refs, () => env.ed.engine.command("DELETE")));
+  env.write("Delete layers", () => env.ed.engine.command("DELETE"), refs);
   const left = refs.filter((id) => read(env, id, ["name"]));
   return textResult(left.length ? { deleted: refs.length - left.length, notDeleted: left, reason: "locked, a library copy, or inside an instance" } : { deleted: refs.length }, left.length === refs.length);
 }
@@ -695,10 +689,9 @@ function duplicateNodes(env: ToolEnv, args: Spec): ToolResult {
   let copies: Guid[] = [];
   const problems: string[] = [];
   env.write("Duplicate", () => {
-    copies = onSelection(env, refs, () => {
-      env.ed.engine.command("DUPLICATE");
-      return [...env.ed.engine.getSelection().refs];
-    });
+    // The copies are the agent's selection now (the user's stays as it is).
+    env.ed.engine.command("DUPLICATE");
+    copies = [...env.ed.engine.getSelection().refs];
     if (!copies.length) throw new ToolError("The layers couldn't be duplicated.");
     if (args.parentId) {
       const parent = must(env, normId(args.parentId));
@@ -716,7 +709,7 @@ function duplicateNodes(env: ToolEnv, args: Spec): ToolResult {
         env.ed.engine.setProps([id], { transform: { ...t, m02: t.m02 + dx, m12: t.m12 + dy } });
       }
     }
-  });
+  }, refs);
   const result = textResult({ copies: copies.map((id) => ({ ...brief(env, read(env, id)!), parentId: read(env, id)?.parentIndex?.guid })), ...(problems.length ? { notApplied: problems } : {}) });
   result.touched = copies;
   return result;
@@ -1033,23 +1026,27 @@ function runCommandTool(env: ToolEnv, args: Spec): ToolResult {
     const c = COMMAND_BY_ID.get(args.command);
     if (!c) throw new ToolError(`No editor command ${args.command} (list_commands lists them).`);
     let ran = false;
-    env.write(c.label, () => onSelection(env, nodeIds, () => {
+    let after: Guid[] = [];
+    env.write(c.label, () => {
       ran = isEnabled(env.ed, c);
       if (ran) c.run(env.ed);
-    }));
+      after = [...env.ed.selection];
+    }, nodeIds.length ? nodeIds : [...env.ed.selection]);
     if (!ran) return textResult(`"${c.label}" is not available for ${nodeIds.length ? nodeIds.join(", ") : "the current selection"} (disabled in the app's menus).`, true);
-    return textResult({ ran: c.id, label: c.label, selection: env.ed.selection.map((id) => brief(env, read(env, id)!)) });
+    return textResult({ ran: c.id, label: c.label, selection: after.filter((id) => read(env, id, ["name"])).map((id) => brief(env, read(env, id)!)) });
   }
   if (typeof args.engineCommand === "string") {
     const name = args.engineCommand.toUpperCase();
     if (!(name in CommandId)) throw new ToolError(`No engine command ${name} (list_commands lists them).`);
     const a = (args.args && typeof args.args === "object" ? args.args : {}) as Record<string, unknown>;
     let r = { status: 0, created: [] as Guid[] };
-    env.write(name, () => onSelection(env, nodeIds, () => {
+    let after: Guid[] = [];
+    env.write(name, () => {
       r = env.ed.engine.runCommand(name as never, Object.keys(a).length ? (a as never) : undefined);
-    }));
+      after = [...env.ed.engine.getSelection().refs];
+    }, nodeIds.length ? nodeIds : [...env.ed.selection]);
     if (r.status !== 0) return textResult(`${name} was refused by the engine (status ${r.status}${r.status === -3 ? ": invalid arguments or nothing it applies to" : r.status === -6 ? ": read-only" : r.status === -8 ? ": not supported" : ""}). Arguments: ${ENGINE_COMMAND_DOCS[name] ?? "see list_commands"}.`, true);
-    const out = textResult({ ran: name, created: r.created, selection: env.ed.selection.map((id) => brief(env, read(env, id)!)) });
+    const out = textResult({ ran: name, created: r.created, selection: after.filter((id) => read(env, id, ["name"])).map((id) => brief(env, read(env, id)!)) });
     out.touched = [...r.created, ...nodeIds];
     return out;
   }
@@ -1060,17 +1057,34 @@ function setPageTool(env: ToolEnv, args: Spec): ToolResult {
   const pages = env.ed.engine.pages();
   const p = pages.find((x) => x.guid === normId(args.pageId) || x.name === args.pageId);
   if (!p) throw new ToolError(`No page ${String(args.pageId)} (has ${pages.map((x) => `${x.name} (${x.guid})`).join(", ")}).`);
-  env.ed.engine.setCurrentPage(p.guid);
-  return textResult({ page: { id: p.guid, name: p.name } });
+  // The agent's page (where calls naming no layer work), not the user's: their view stays where it is.
+  if (env.setPage) env.setPage(p.guid);
+  else env.ed.engine.setCurrentPage(p.guid);
+  return textResult({ page: { id: p.guid, name: p.name }, note: "Your page for this turn; the user's view stays on their page." });
 }
 
 function setSelectionTool(env: ToolEnv, args: Spec): ToolResult {
   const refs = targets(env, { nodeIds: args.nodeIds });
   const page = pageOf(env, refs[0]);
-  if (page && page !== currentPage(env)) env.ed.engine.setCurrentPage(page);
-  env.ed.engine.setSelection(refs.filter((id) => pageOf(env, id) === page));
-  env.ed.engine.command("ZOOM_TO_SELECTION");
+  const onPage = refs.filter((id) => pageOf(env, id) === page);
+  if (env.requestSelection) {
+    // Never while the user works: when the turn ends, and only if they haven't changed their selection since it began.
+    env.requestSelection(onPage);
+    return textResult({ selected: onPage, note: "Selected for the user when this turn ends, unless they changed their selection meanwhile." });
+  }
+  applySelection(env.ed, onPage, true);
   return textResult({ selected: env.ed.selection });
+}
+
+/** The user's selection becomes `refs` (their page switched to theirs), the view brought to it when `zoom`. */
+export function applySelection(ed: EditorController, refs: readonly Guid[], zoom: boolean) {
+  const live = refs.filter((id) => !!ed.engine.readNode(id, { fields: ["name"] }));
+  if (!live.length) return;
+  let n = ed.engine.readNode(live[0], { fields: ["parentIndex", "type"] });
+  for (let i = 0; n && n.type !== "CANVAS" && i < 400; i++) n = n.parentIndex?.guid ? ed.engine.readNode(n.parentIndex.guid, { fields: ["parentIndex", "type"] }) : null;
+  if (n && n.guid !== ed.store.page) ed.engine.setCurrentPage(n.guid);
+  ed.engine.setSelection(live);
+  if (zoom) ed.engine.command("ZOOM_TO_SELECTION");
 }
 
 function responsiveTool(env: ToolEnv, args: Spec): ToolResult {
@@ -1172,6 +1186,8 @@ export async function runTool(env: ToolEnv, name: string, args: Spec): Promise<T
     }
     return textResult(`Unknown tool ${name}`, true);
   } catch (err) {
+    // The user is dragging or scrubbing: the caller waits for the canvas and runs the call again.
+    if (err instanceof EngineBusy) throw err;
     return textResult(err instanceof Error ? err.message : String(err), true);
   }
 }

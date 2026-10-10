@@ -166,6 +166,12 @@ export class EngineExports {
   txnBegin = (h: number, label: Uint8Array): number => this.withBytes([label], (p) => this.fn("txn_begin")(h, p[0], p[1]));
   txnCommit = (h: number): number => this.fn("txn_commit")(h);
   txnCancel = (h: number): void => void this.fn("txn_cancel")(h);
+  actorBegin = (h: number, args: Uint8Array): number => this.withBytes([args], (p) => this.fn("actor_begin")(h, p[0], p[1]));
+  actorEnd = (h: number, cancel: boolean): number => this.fn("actor_end")(h, cancel ? 1 : 0);
+  actorUndo = (h: number, actor: number, redo: boolean): number => this.fn("actor_undo")(h, actor, redo ? 1 : 0);
+  actorInfo = (h: number, actor: number): number => this.fn("actor_info")(h, actor);
+  actorForget = (h: number, actor: number): void => void this.fn("actor_forget")(h, actor);
+  idle = (h: number): boolean => this.fn("idle")(h) !== 0;
   command = (h: number, id: number, args: Uint8Array | null): number =>
     args ? this.withBytes([args], (p) => this.fn("command")(h, id, p[0], p[1])) : this.fn("command")(h, id, 0, 0);
   commandState = (h: number, id: number): number => this.fn("command_state")(h, id) >>> 0;
@@ -335,7 +341,7 @@ export const USED_EXPORTS = [
   "set_viewport", "set_viewport_insets", "set_camera", "get_camera", "set_theme", "pointer", "wheel", "key", "modifiers", "blur",
   "set_tool", "set_hover", "tick", "render", "next_frame_delay", "needs_frame", "gl_context_lost", "gl_context_restored", "gfx_switch",
   "get_selection", "set_selection", "read_nodes", "layer_tree", "layer_changes", "layer_outline", "hit_test",
-  "set_props", "txn_begin", "txn_commit", "txn_cancel", "command", "command_state",
+  "set_props", "txn_begin", "txn_commit", "txn_cancel", "actor_begin", "actor_end", "actor_undo", "actor_info", "actor_forget", "idle", "command", "command_state",
   "move_nodes", "encode_selection", "paste", "render_thumbnail", "render_region", "render_node_thumbnail", "ref_id", "component_info",
   "export", "export_info", "export_image", "export_clear_images", "export_list",
   "variable_collections", "variables", "variable", "resolve_variable", "bound_variables", "resolved_value", "variable_modes",

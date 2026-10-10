@@ -35,7 +35,7 @@ async function editor() {
   const store = new EngineStore(engine);
   const ed = new EditorController(engine, store, source);
   const turns = new AgentTurns(ed);
-  const env = (turnId: string | null = "t1"): ToolEnv => ({ ed, write: (_label, fn) => turns.write(turnId, "Claude Code", fn) });
+  const env = (turnId: string | null = "t1"): ToolEnv => ({ ed, write: (_label, fn, refs) => turns.write(turnId, "Claude Code", fn, refs) });
   return { ed, engine, turns, env };
 }
 
@@ -126,7 +126,8 @@ describe("MCP tools on the engine", () => {
     const t = turns.finish("t1")!;
     expect(t.state).toBe("applied");
     expect(engine.readNode(a)?.size?.x).toBe(300);
-    expect(ed.store.undo.undoLabel).toBe("Claude Code edit");
+    // The turn's step is in its own history, not the user's (⌘Z has nothing of it).
+    expect(ed.store.undo.canUndo).toBe(false);
     expect(turns.undo("t1")).toBe(true);
     expect(engine.readNode(a)).toBeNull();
     expect(engine.readNode(b)).toBeNull();
@@ -134,29 +135,121 @@ describe("MCP tools on the engine", () => {
     expect(turns.redo("t1")).toBe(true);
     expect(engine.readNode(a)?.size?.x).toBe(300);
     expect(engine.readNode(b)).not.toBeNull();
-    // An outside client's call: a step of its own.
+    // An outside client's call: a step of the user's history (no chat to undo it from); the turn keeps its own.
     json(await runTool(env(null), "update_nodes", { updates: [{ nodeId: a, name: "Outside" }] }));
-    expect(turns.get("t1")!.state).toBe("stale");
-    engine.undo();
+    expect(turns.get("t1")!.state).toBe("applied");
+    expect(engine.undo()).toBe(true);
     expect(engine.readNode(a)?.name).toBe("A");
     expect(engine.readNode(a)?.size?.x).toBe(300);
+    expect(turns.undo("t1")).toBe(true);
+    expect(engine.readNode(a)).toBeNull();
   });
 
-  it("the user's edit during a turn is never folded into it", async () => {
+  it("the user's edit during a turn stays the user's: ⌘Z takes it back, the chat's Undo the turn", async () => {
     const { ed, engine, turns, env } = await editor();
     turns.start("t2", "Claude Code");
     const a = json(await runTool(env("t2"), "create_nodes", { nodes: [{ type: "RECTANGLE", name: "A" }] })).created[0].id;
     ed.setProps(["1:5"], { name: "User edit" }, "Rename");
     json(await runTool(env("t2"), "update_nodes", { updates: [{ nodeId: a, name: "A2" }] }));
-    expect(turns.finish("t2")!.state).toBe("stale");
-    engine.undo();
-    expect(engine.readNode(a)?.name).toBe("A");
-    engine.undo();
+    expect(turns.finish("t2")!.state).toBe("applied");
+    expect(engine.undo()).toBe(true);
+    expect(engine.readNode("1:5")?.name).toBe("Card");
+    expect(engine.readNode(a)?.name).toBe("A2");
+    expect(turns.undo("t2")).toBe(true);
+    expect(engine.readNode(a)).toBeNull();
     expect(engine.readNode("1:5")?.name).toBe("Card");
   });
 
-  it("make the mobile version: a 390 frame next to the desktop one, re-laid out, one undo step", async () => {
+  it("two chats at once and the user: selection, page and view untouched; last write wins per field; each undoes its own", async () => {
     const { ed, engine, turns, env } = await editor();
+    ed.engine.setSelection(["1:5"]);
+    const camera = { ...ed.store.camera };
+    const page = ed.store.page;
+    let selectionEvents = 0;
+    const off = engine.onSelectionChanged(() => selectionEvents++);
+    turns.start("c1", "Claude Code");
+    turns.start("c2", "Codex");
+    const a = json(await runTool(env("c1"), "create_nodes", { nodes: [{ type: "RECTANGLE", name: "A", fills: "#FF0000" }] })).created[0].id;
+    const b = json(await runTool(env("c2"), "create_nodes", { nodes: [{ type: "ELLIPSE", name: "B" }] })).created[0].id;
+    // Commands on explicit layers (duplicate, delete, an engine command) run on the chat's own selection.
+    const dup = json(await runTool(env("c2"), "duplicate_nodes", { nodeIds: [b] })).copies[0].id;
+    json(await runTool(env("c1"), "run_command", { engineCommand: "ZOOM_TO_SELECTION", nodeIds: [a] }));
+    json(await runTool(env("c2"), "delete_nodes", { nodeIds: [dup] }));
+    // Chat 2 renames chat 1's layer, then the user renames it too: the last write wins.
+    json(await runTool(env("c2"), "update_nodes", { updates: [{ nodeId: a, name: "From chat 2", opacity: 0.5 }] }));
+    ed.setProps([a], { name: "Mine" }, "Rename");
+    expect(engine.readNode(a)?.name).toBe("Mine");
+    expect(ed.selection).toEqual(["1:5"]);
+    expect(ed.store.page).toBe(page);
+    expect(ed.store.camera).toEqual(camera);
+    expect(selectionEvents).toBe(0);
+    off();
+    const t1 = turns.finish("c1")!;
+    const t2 = turns.finish("c2")!;
+    expect(t1.state).toBe("applied");
+    expect(t2.state).toBe("applied");
+    expect(t2.overwritten).toEqual([a]);  // its name was the user's afterwards
+    // Chat 2's Undo: its ellipse goes, the opacity on A comes back; the user's name stays.
+    expect(turns.undo("c2")).toBe(true);
+    expect(engine.readNode(b)).toBeNull();
+    expect(engine.readNode(a)?.opacity ?? 1).toBe(1);
+    expect(engine.readNode(a)?.name).toBe("Mine");
+    // The user's ⌘Z: only their rename — back to what they renamed (chat 2's name).
+    expect(engine.undo()).toBe(true);
+    expect(engine.readNode(a)?.name).toBe("From chat 2");
+    // Chat 1's Undo / Apply.
+    expect(turns.undo("c1")).toBe(true);
+    expect(engine.readNode(a)).toBeNull();
+    expect(turns.get("c1")!.state).toBe("undone");
+    expect(turns.redo("c1")).toBe(true);
+    expect(engine.readNode(a)).not.toBeNull();
+    expect(ed.selection).toEqual(["1:5"]);
+  });
+
+  it("a write waits while the user drags; set_selection applies at the turn's end only if the user's selection is unchanged", async () => {
+    const { ed, engine } = await editor();
+    const calls: ((call: ToolCall) => Promise<unknown>)[] = [];
+    const listeners: ((e: TurnEvent) => void)[] = [];
+    const api = {
+      onEvent: (fn: (e: TurnEvent) => void) => (listeners.push(fn), () => {}),
+      onToolCall: (fn: (call: ToolCall) => Promise<unknown>) => (calls.push(fn), () => {}),
+      onMcpState: () => () => {},
+      mcp: async () => ({ running: false, url: null, connections: [] }),
+      settings: async () => ({ providerId: null, models: {}, custom: [] }),
+    } as unknown as AgentsApi;
+    const service = new AgentsService(ed, api);
+    // The user holds a panel scrub open (a step in progress): the agent's write waits for it.
+    engine.setSelection(["1:5"]);
+    expect(engine.txnBegin("Opacity")).toBe(0);
+    ed.engine.setProps(["1:5"], { opacity: 0.4 });
+    let done = false;
+    const pending = calls[0]({ reqId: 0, turnId: "S", client: "Claude Code", name: "update_nodes", args: { updates: [{ nodeId: "1:5", name: "Agent" }] } } as ToolCall).then((r) => ((done = true), r));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(done).toBe(false);
+    expect(engine.readNode("1:5")?.name).toBe("Card");
+    engine.txnCommit();
+    await pending;
+    expect(engine.readNode("1:5")?.name).toBe("Agent");
+    expect(engine.readNode("1:5")?.opacity).toBeCloseTo(0.4);
+    // set_selection is held until the turn ends.
+    const made = (await calls[0]({ reqId: 0, turnId: "S", client: "Claude Code", name: "create_nodes", args: { nodes: [{ type: "RECTANGLE", name: "New" }] } } as ToolCall)) as ToolResult;
+    const id = json(made).created[0].id;
+    await calls[0]({ reqId: 0, turnId: "S", client: "Claude Code", name: "set_selection", args: { nodeIds: [id] } } as ToolCall);
+    expect(ed.selection).toEqual(["1:5"]);
+    (service as unknown as { turnTarget: Map<string, unknown> }).turnTarget.set("S", { chat: "c", message: "m", providerId: "p", providerLabel: "Claude Code", prompt: "" });
+    listeners.forEach((fn) => fn({ turnId: "S", chatId: "c", event: { type: "done" } } as TurnEvent));
+    expect(ed.selection).toEqual([id]);
+    // A turn whose user changed their selection meanwhile: nothing is selected for them.
+    await calls[0]({ reqId: 0, turnId: "S2", client: "Claude Code", name: "set_selection", args: { nodeIds: ["1:5"] } } as ToolCall);
+    engine.setSelection([]);
+    (service as unknown as { turnTarget: Map<string, unknown> }).turnTarget.set("S2", { chat: "c", message: "m", providerId: "p", providerLabel: "Claude Code", prompt: "" });
+    listeners.forEach((fn) => fn({ turnId: "S2", chatId: "c", event: { type: "done" } } as TurnEvent));
+    expect(ed.selection).toEqual([]);
+    service.dispose();
+  });
+
+  it("make the mobile version: a 390 frame next to the desktop one, re-laid out, one undo step", async () => {
+    const { engine, turns, env } = await editor();
     turns.start("m", "Claude Code");
     const desk = json(await runTool(env("m"), "create_nodes", { nodes: [DESKTOP] })).created[0];
     turns.finish("m");
@@ -181,8 +274,7 @@ describe("MCP tools on the engine", () => {
     expect(engine.readNode(desk.id)!.size!.x).toBe(1440);
     json(await runTool(env("m2"), "update_nodes", { updates: [{ nodeId: r.created.id, fills: "#FAFAFA" }] }));
     expect(turns.finish("m2")!.state).toBe("applied");
-    expect(ed.store.undo.undoLabel).toBe("Claude Code edit");
-    engine.undo();
+    expect(turns.undo("m2")).toBe(true);
     expect(engine.readNode(r.created.id)).toBeNull();
     expect(engine.readNode(desk.id)).not.toBeNull();
   });

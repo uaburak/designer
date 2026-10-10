@@ -50,6 +50,12 @@ _engine_set_props
 _engine_txn_begin
 _engine_txn_commit
 _engine_txn_cancel
+_engine_actor_begin
+_engine_actor_end
+_engine_actor_undo
+_engine_actor_info
+_engine_actor_forget
+_engine_idle
 _engine_command
 _engine_command_state
 _engine_move_nodes

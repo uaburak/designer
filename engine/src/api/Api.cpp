@@ -200,6 +200,7 @@ void writeEvents(json::Writer& w, Engine& e) {
   for (auto& d : ev.documents) {
     w.beginObject().key("type").string("DOCUMENT_CHANGED");
     w.key("kind").string(txnKindName(d.kind)).key("label").string(d.label);
+    if (d.actor) w.key("actor").number(d.actor);
     // The Message as kiwi bytes (what the store journals as it is), fetched with engine_attachment(payload) —
     // whatever the wire format; the JSON wire also carries it as JSON (`message`).
     w.key("payload").number(static_cast<double>(e.attachments.size()));
@@ -1216,6 +1217,77 @@ ENG_EXPORT int32_t engine_txn_commit(Handle h) {
 ENG_EXPORT void engine_txn_cancel(Handle h) {
   Call call;
   if (Engine* e = engineOf(h)) e->editor.txnCancel();
+}
+
+// ---- Actors (docs/engine.md §9.5): per-actor undo and view state ------------------
+
+// {"actor":7,"label":"Claude Code edit","refs":["1:2"],"page":"0:1","merge":true,"undoTo":7}: one write of `actor`
+// with its own selection and page (the user's set aside); `undoTo` (default `actor`; 0 the user's) the history its
+// step goes to. E_BUSY while a gesture or a step is open.
+ENG_EXPORT int32_t engine_actor_begin(Handle h, Ptr ptr, uint32_t len) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (e->editor.viewerMode() && !e->editor.devEdits()) return E_READONLY;
+  json::Value v;
+  if (!parse(ptr, len, v) || !v.isObject()) return E_DECODE;
+  auto num = [&](const char* k, double def) {
+    const json::Value* x = v.get(k);
+    return x && x->isNumber() ? x->number : def;
+  };
+  uint32_t actor = static_cast<uint32_t>(num("actor", 0));
+  uint32_t undoTo = static_cast<uint32_t>(num("undoTo", actor));
+  std::string label;
+  if (const json::Value* l = v.get("label"); l && l->isString()) label = l->string;
+  Guid page = kNoGuid;
+  if (const json::Value* p = v.get("page"); p && p->isString()) {
+    bool ok = false;
+    Guid g = Guid::parse(p->string, &ok);
+    if (ok) page = g;
+  }
+  const json::Value* merge = v.get("merge");
+  return e->editor.actorBegin(actor, readRefs(v), page, label, merge && merge->isBool() && merge->boolean, undoTo);
+}
+
+ENG_EXPORT int32_t engine_actor_end(Handle h, uint32_t cancel) {
+  Call call;
+  Engine* e = engineOf(h);
+  return e ? e->editor.actorEnd(cancel != 0) : E_HANDLE;
+}
+
+// Undo (redo = 1: redo) the actor's last step, only the fields nobody changed since. OK, or E_INVALID: nothing to do.
+ENG_EXPORT int32_t engine_actor_undo(Handle h, uint32_t actor, uint32_t redo) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  if (e->editor.viewerMode()) return E_READONLY;
+  return e->editor.actorUndo(actor, redo != 0) ? OK : E_INVALID;
+}
+
+// {"canUndo","canRedo","undoLabel","redoLabel","overwritten":["1:2",…],"idle"}
+ENG_EXPORT int32_t engine_actor_info(Handle h, uint32_t actor) {
+  Call call;
+  Engine* e = engineOf(h);
+  if (!e) return E_HANDLE;
+  Editor::ActorInfo info = e->editor.actorInfo(actor);
+  json::Writer w;
+  w.beginObject().key("canUndo").boolean(info.canUndo).key("canRedo").boolean(info.canRedo);
+  w.key("undoLabel").string(info.undoLabel).key("redoLabel").string(info.redoLabel);
+  w.key("overwritten");
+  writeIds(w, info.overwritten);
+  w.key("idle").boolean(e->editor.idle()).endObject();
+  return setResult(w.take());
+}
+
+ENG_EXPORT void engine_actor_forget(Handle h, uint32_t actor) {
+  Call call;
+  if (Engine* e = engineOf(h)) e->editor.forgetActor(actor);
+}
+
+// 1 when nothing is open (no gesture past its threshold, no step, no actor write): an actor's write may begin.
+ENG_EXPORT int32_t engine_idle(Handle h) {
+  Engine* e = engineOf(h);
+  return e && e->editor.idle() ? 1 : 0;
 }
 
 // commandId from editor/Commands.h (commands.ts); args JSON or empty:
