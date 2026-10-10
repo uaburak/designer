@@ -848,6 +848,90 @@ TEST_CASE("components: a press-drag on a selected instance sublayer is a no-op â
   CHECK(e.cursor() != CursorKind::NOT_ALLOWED);
 }
 
+TEST_CASE("components: dragging a main (a variant in its set) re-derives none of its instances") {
+  // The main as a variant: in a component set (a source of its instances, for its properties) on the page.
+  auto nodes = buttonDoc();
+  const Guid SET{1, 20};
+  NodeChange set = make(SET, NodeType::FRAME, kPage, "#", {0, 0, 400, 200}, "Button set");
+  set.props.comp().isStateGroup = true;
+  set.props.fillPaints.clear();
+  nodes.push_back(set);
+  for (NodeChange& c : nodes)
+    if (c.guid == M) c.props.parentIndex.guid = SET;
+  // A second variant as the owner's files have them: hugging auto layout around a label and a nested instance of
+  // the first, with an instance of its own on the page.
+  const Guid V2{1, 21}, V2LABEL{1, 22}, V2NESTED{1, 23}, I2{1, 24};
+  NodeChange v2 = make(V2, NodeType::SYMBOL, SET, "$", {200, 0, 180, 60}, "State=Two");
+  v2.props.stack().stackMode = StackMode::HORIZONTAL;
+  v2.props.stack().stackPaddingLeft = v2.props.stack().stackPaddingTop = v2.props.stack().stackPaddingRight = v2.props.stack().stackPaddingBottom = 10;
+  v2.props.stack().stackCounterSizing = StackSize::RESIZE_TO_FIT_WITH_IMPLICIT_SIZE;
+  v2.props.fillPaints = {Paint::solid(Color::hex(0xFFFFFF))};
+  nodes.push_back(v2);
+  nodes.push_back(textNode(V2LABEL, V2, "!", {10, 10, 40, 20}, "Two"));
+  nodes.push_back(instanceOf(V2NESTED, M, V2, "\"", {60, 10, 100, 40}));
+  nodes.push_back(instanceOf(I2, V2, kPage, "%", {0, 300, 180, 60}));
+  Editor e = load(nodes);
+  REQUIRE(props(e, M).parentIndex.guid == SET);
+  REQUIRE(e.document().has(sub(I2, {V2LABEL})));
+  e.setSelection({V2});
+  e.takeEvents();
+  e.pointer(PointerEvent::DOWN, 205, 5, 0, 1, 0);
+  for (int i = 1; i <= 5; i++) {
+    e.pointer(PointerEvent::MOVE, 205 + 10 * i, 5 + 10 * i, 0, 1, 0);
+    CHECK(e.takeEvents().components.empty());
+  }
+  e.pointer(PointerEvent::UP, 255, 55, 0, 0, 0);
+  CHECK(props(e, V2).transform.m02 > 220);
+  CHECK(e.takeEvents().components.empty());
+  e.command(CommandId::UNDO);
+  CHECK(props(e, V2).transform.m02 == doctest::Approx(200));
+  // The whole set dragged, and its look changed: nothing re-derived either; its name (an instance's) still is.
+  e.setSelection({SET});
+  e.takeEvents();
+  e.pointer(PointerEvent::DOWN, 395, 195, 0, 1, 0);
+  for (int i = 1; i <= 3; i++) {
+    e.pointer(PointerEvent::MOVE, 395 + 10 * i, 195, 0, 1, 0);
+    CHECK(e.takeEvents().components.empty());
+  }
+  e.pointer(PointerEvent::UP, 425, 195, 0, 0, 0);
+  CHECK(props(e, SET).transform.m02 > 0);
+  CHECK(e.takeEvents().components.empty());
+  e.setProps({SET}, change(F_FILLS | F_SIZE, [](NodeProps& p) {
+    p.fillPaints = {Paint::solid(Color::hex(0x00FF00))};
+    p.size = {500, 220};
+  }), 0);
+  CHECK(e.takeEvents().components.empty());
+  e.setProps({SET}, change(F_NAME, [](NodeProps& p) { p.name = "Renamed set"; }), 0);
+  CHECK_FALSE(e.takeEvents().components.empty());
+  for (int i = 0; i < 4; i++) e.command(CommandId::UNDO);
+  CHECK(props(e, SET).transform.m02 == doctest::Approx(0));
+  Guid bg = sub(I, {BG});
+  Rect before = e.document().get(bg) ? Rect{props(e, bg).transform.m02, props(e, bg).transform.m12, props(e, bg).size.x, props(e, bg).size.y} : Rect{};
+  e.setSelection({M});
+  e.takeEvents();
+  e.pointer(PointerEvent::DOWN, 5, 5, 0, 1, 0);
+  for (int i = 1; i <= 5; i++) {
+    e.pointer(PointerEvent::MOVE, 5 + 20 * i, 5, 0, 1, 0);
+    CHECK(e.takeEvents().components.empty());  // every frame of the drag: no instance materialized again
+  }
+  e.pointer(PointerEvent::UP, 105, 5, 0, 0, 0);
+  CHECK(props(e, M).transform.m02 == doctest::Approx(100));
+  auto ev = e.takeEvents();
+  REQUIRE(ev.documents.size() == 1);
+  CHECK(ev.components.empty());
+  // The instance keeps its rows as they were; an edit of the main's content still reaches it.
+  REQUIRE(e.document().get(bg));
+  CHECK(props(e, bg).transform.m02 == doctest::Approx(before.x));
+  CHECK(props(e, bg).size.x == doctest::Approx(before.w));
+  e.setProps({M}, change(F_SIZE, [](NodeProps& p) { p.size = {200, 40}; }), 0);
+  CHECK_FALSE(e.takeEvents().components.empty());
+  CHECK(props(e, bg).size.x == doctest::Approx(200));  // the stretched background follows the main
+  e.command(CommandId::UNDO);
+  e.command(CommandId::UNDO);
+  CHECK(props(e, M).transform.m02 == doctest::Approx(0));
+  CHECK(props(e, I).transform.m02 == doctest::Approx(0));
+}
+
 TEST_CASE("components: a selected instance covered by its children drags by any of them (Figma's press rule)") {
   Editor e = load(buttonDoc());
   e.setSelection({I});

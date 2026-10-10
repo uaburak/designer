@@ -269,6 +269,22 @@ void Editor::markInstanceDirty(const NodeChange& c) {
     if (it == sourceDeps_.end()) return;
     for (Guid inst : it->second) instanceDirty_.insert(inst);
   };
+  // A main moved, reordered or re-parented (a variant dragged in its set, a component on the page): its own place is
+  // nothing its instances take (kOwnFields: every instance root has its own), so they keep their rows — re-deriving
+  // every instance of a variant (and through its set, of every variant) on each frame of such a drag was the stutter
+  // moving variants in a large file. A component set is a source of its variants' instances for its properties and
+  // its name only (setOf in expand): its place, size, look or which variants it holds re-derive nothing.
+  // (Not for a component inside another main's content — Figma has none — whose place is that content.)
+  bool unused = false;
+  if (n && c.phase == Phase::CHANGED) {
+    if (n->props.isComponentSet()) {
+      unused = !(m & (kComponentFields | F_NAME));
+    } else if (n->props.type == NodeType::SYMBOL && !(m & ~kOwnFields)) {
+      const Node* parent = doc_.get(n->props.parentIndex.guid);
+      unused = !parent || parent->props.isComponentSet() || !sourceDeps_.count(parent->guid);
+    }
+  }
+  if (unused) return;
   mark(c.guid);
   if (n && (c.phase == Phase::CREATED || (m & F_PARENT_INDEX))) mark(n->props.parentIndex.guid);
 }

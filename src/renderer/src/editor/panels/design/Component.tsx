@@ -658,10 +658,10 @@ function BlockTitle({ title, children }: { title: string; children?: React.React
 export function PropertiesSection({ owner }: { owner: CNode }) {
   const ed = useEditor();
   const version = useDocVersion();
-  const fresh = useMemo(() => {
-    void version;
-    return readC(ed, owner.guid) ?? owner;
-  }, [ed, owner, version]);
+  // Keyed by the owner's id, not its object: a drag of the set re-reads the selected node every frame (its
+  // transform), which changes nothing this section shows — the subtree walks below then ran on each frame.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-read when the components changed (version) or the owner did (guid)
+  const fresh = useMemo(() => readC(ed, owner.guid) ?? owner, [ed, owner.guid, version]);
   const [editing, setEditing] = useState<{ target: EditorTarget; anchor: HTMLElement | null } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; def?: ComponentPropDef; exposed?: CNode } | null>(null);
@@ -669,9 +669,10 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
   const defs = sortedDefs(fresh.componentPropDefs ?? []);
   // Live (design/component-with-slot.txt): a property no layer uses has "Not used within component" at the row's end.
   const used = useMemo(() => usedPropertyIds(ed, fresh), [ed, fresh]);
-  const variants = isComponentSet(fresh) ? variantsOf(ed, fresh) : [];
-  const variantProps = isComponentSet(fresh) ? variantProperties(fresh, variants) : [];
-  const nestedInstances = nestedInstancesOf(ed, fresh);
+  const { variantProps, nestedInstances } = useMemo(
+    () => ({ variantProps: isComponentSet(fresh) ? variantProperties(fresh, variantsOf(ed, fresh)) : [], nestedInstances: nestedInstancesOf(ed, fresh) }),
+    [ed, fresh]
+  );
   const exposed = nestedInstances.filter((n) => n.propsAreBubbled === true);
   const [dragging, setDragging] = useState<ComponentPropDef | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
@@ -688,7 +689,7 @@ export function PropertiesSection({ owner }: { owner: CNode }) {
     <div className={styles.properties} data-properties-section="">
       <BlockTitle title="Properties">
         <span ref={addRef} className={styles.contents}>
-          <MenuButton label="Create property" entries={createPropertyMenu(ed, fresh, nestedInstances)} className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={styles.createPropertyMenu} menuWidth={156} alignOffset={1} onSelect={onAdd}>
+          <MenuButton label="Create property" entries={() => createPropertyMenu(ed, fresh, nestedInstances)}className={styles.iconMenu} align="end" gap={PANEL_MENU_GAP} flush menuClassName={styles.createPropertyMenu} menuWidth={156} alignOffset={1} onSelect={onAdd}>
             <Icon name="24.plus.small" />
           </MenuButton>
         </span>
