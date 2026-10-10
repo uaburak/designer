@@ -38,6 +38,7 @@
 //   EDITOR_ONLY=overlays11 node …                                  (round 11 at 1440 × 900, only on its own: the component set's "3 Variants" pill, "+" and gap boxes, no instance title, the text's baseline underline, smart selection dots)
 //   EDITOR_ONLY=agents node …                                      (the Agents tab and the MCP section with a stand-in agent: "Make the mobile version of this", Undo / Apply, Agent settings)
 //   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
+//   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, a deep tree scrolls sideways, icon-only rail)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
 //   EDITOR_GFX=webgpu node …                                       (the canvas on WebGPU — the real GPU, Metal — instead of WebGL2 on SwiftShader)
 //
@@ -53,6 +54,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "vite";
 import { agentsSection } from "./editorShotAgents.mjs";
 import { inputSection } from "./editorShotInput.mjs";
+import { layersSection } from "./editorShotLayers.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const outDir = path.resolve(process.argv[2] ?? "/tmp/designer-work/editor");
@@ -3864,12 +3866,15 @@ async function leftPanelSection(page, theme) {
         rows: rows.slice(0, 12).map(rowGeo),
       };
     });
-  await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["1:1"]) }));
+  // The tabs' names under the icons are off by default (owner, round 14; EDITOR_ONLY=layers14 checks that): turned on
+  // here (View › Additional labels) for live's positions.
+  await page.evaluate(() => window.__designerEditor.ui.set({ expanded: new Set(["1:1"]), railLabels: true }));
   await settle(page);
   const g = await geo();
+  await page.evaluate(() => window.__designerEditor.ui.set({ railLabels: false }));
   check("the navigation bar is 56 + a line; the Figma menu tile at 12, 8", g.rail[2] === 57 && g.menu?.[0] === 12 && g.menu?.[1] === 8, JSON.stringify([g.rail, g.menu]));
   const tabs = Object.fromEntries(g.tabs.map(([t, x, y, w, h]) => [t, [x, y, w, h]]));
-  check("File, Agents, Assets, Tools at y 56 / 112 / 168 / 224 (56 × 56); Variables at 296", tabs.file?.[1] === 56 && tabs.agents?.[1] === 112 && tabs.assets?.[1] === 168 && tabs.tools?.[1] === 224 && tabs.variables?.[1] === 296 && tabs.file?.[2] === 56, JSON.stringify(tabs));
+  check("with labels on: File, Agents, Assets, Tools at y 56 / 112 / 168 / 224 (56 × 56); Variables at 296", tabs.file?.[1] === 56 && tabs.agents?.[1] === 112 && tabs.assets?.[1] === 168 && tabs.tools?.[1] === 224 && tabs.variables?.[1] === 296 && tabs.file?.[2] === 56, JSON.stringify(tabs));
   check("the left panel starts at x 57", g.panelX === 57, String(g.panelX));
   check("Pages: title at 16, Find at 180, Add new page at 208 (8 down)", g.pagesTitle?.[0] === 16 && g.find?.[0] === 180 && g.find?.[1] - g.pagesTop === 8 && g.addPage?.[0] === 208, JSON.stringify([g.pagesTitle, g.find, g.addPage, g.pagesTop]));
   check("a page's name at x 16", g.pageRow?.[0] === 16, JSON.stringify(g.pageRow));
@@ -4734,6 +4739,18 @@ try {
     page.on("pageerror", (e) => problems.push(`dark pageerror: ${e.message}`));
     await inputSection(page, "dark", { open, settle, check });
     await context.close();
+  }
+  if (only === "layers14" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await layersSection(page, theme, { open, settle, check, outDir });
+      await context.close();
+    }
   }
   if (only === "agents" || (!only && part !== "2")) {
     for (const theme of ["dark", "light"]) {

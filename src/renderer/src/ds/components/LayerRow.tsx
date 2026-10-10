@@ -86,13 +86,28 @@ function Cell({ kind, on, onPress }: { kind: "lock" | "visible"; on: boolean; on
 }
 
 /**
+ * The lock / eye cells the name leaves room for, at rest (a persistent lock takes both cells' room, a persistent
+ * closed eye its own) and while the row is hovered (every cell the row has).
+ */
+export function tailCells({ locked, hidden, lock, visible }: { locked?: boolean; hidden?: boolean; lock: boolean; visible: boolean }): { rest: number; hover: number } {
+  const hover = lock ? 2 : visible ? 1 : 0;
+  return { rest: locked && lock ? 2 : hidden && visible ? 1 : 0, hover };
+}
+
+/**
  * A layer in the tree (contract §4.17, measured on Figma live): pitch 32; a 24 highlight (radius 5) inset 8 across
- * and 4 down — a run of highlighted rows fills the pitch between them —; inside it 4, depth × 24, the chevron (16),
- * the type glyph (16) + 8, the name, then lock and eye (24 each, flush right; on hover — kept while on). The glyph is
- * secondary unless the row is selected or a top-level frame; components and instances in purple; hidden layers
- * faded. Enter belongs to the list (select the children), not the row.
+ * and 4 down — a run of highlighted rows fills the pitch between them (the highlight is drawn under the content, so a
+ * row's content never moves: every row is 32 with its content on the same line) —; inside it 4, depth × 24, the
+ * chevron (16), the type glyph (16) + 8, the name, then lock and eye (24 each, flush right; on hover — kept while
+ * on). The name takes the room to the highlight's right edge and fades out there (a mask, over any highlight); the
+ * cells showing (hovered, or a lock / closed eye kept on) move the fade left by their width. The cells stick to the
+ * list's visible right edge when the list scrolls sideways; a list that does sets `--layer-clip-right` on its rows
+ * (how much of the row lies past its visible right edge) so the fade sits at that edge too. The glyph is secondary
+ * unless the row is selected or a top-level frame; components and instances in purple; hidden layers faded. Enter
+ * belongs to the list (select the children), not the row.
  */
 export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", tone = "default", expanded, selected, selectedAncestor, hovered, locked, hidden, strong, renaming, run, drop, onToggleExpand, onToggleLock, onToggleVisible, onRename, onPointerDown, onDoubleClick, className, style, ...rest }: LayerRowProps) {
+  const cells = renaming ? { rest: 0, hover: 0 } : tailCells({ locked, hidden, lock: !!onToggleLock, visible: !!onToggleVisible });
   return (
     <div
       role="treeitem"
@@ -107,7 +122,7 @@ export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", t
       data-drop={drop}
       data-tone={tone === "component" ? "component" : undefined}
       className={cx(styles.row, kind !== "default" && styles.component, hidden && styles.hiddenLayer, strong && styles.strong, className)}
-      style={{ ...style, ["--depth" as string]: depth }}
+      style={{ ...style, ["--depth" as string]: depth, ["--tail-rest" as string]: cells.rest, ["--tail-hover" as string]: cells.hover }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClick}
       {...rest}
@@ -125,7 +140,7 @@ export function LayerRow({ id, depth, name, icon, iconLabel, kind = "default", t
         {renaming ? (
           <RenameField className={styles.rename} value={name} onDone={(n, r) => onRename?.(n, r)} />
         ) : (
-          <span className={styles.name}>{name}</span>
+          <span className={styles.name} data-layer-name="">{name}</span>
         )}
         {!renaming && (onToggleLock || onToggleVisible) && (
           <span className={styles.tail}>

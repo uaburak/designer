@@ -8,6 +8,7 @@ import { expandRename, renameAll } from "../model/rename";
 import { isDividerName } from "../panels/Pages";
 import { inOverlay } from "../keyboard";
 import { layerIcon } from "../panels/Layers";
+import { showsRailLabels } from "../panels/Rail";
 import { COMMANDS, command, comboText } from "../commands";
 
 const n = (guid: string, type: string, parent: string, childIds: string[] = [], extra: Record<string, unknown> = {}): NodeChange =>
@@ -170,5 +171,13 @@ describe("Pages and the keyboard", () => {
         const same = COMMANDS.filter((c) => c.keys?.some((o) => comboText(o) === comboText(k) && o.code === k.code));
         expect(same.map((c) => c.id), id).toEqual([id]);
       }
+  });
+});
+
+describe("Navigation bar: icons only by default (owner, round 14)", () => {
+  it("shows the tabs' names only once View › Additional labels turned them on", () => {
+    expect(showsRailLabels({})).toBe(false);
+    expect(showsRailLabels({ railLabels: false })).toBe(false);
+    expect(showsRailLabels({ railLabels: true })).toBe(true);
   });
 });

@@ -1024,9 +1024,11 @@ Port `components/admin/ContextMenu.tsx` (MenuPanel, `tidy`, `keys`) into `ds/com
 
 - **Anatomy** (live capture `docs/research/figma/live/left/layers-row-*.txt`; pitch `--ds-size-layer-row` 32):
   - `| 8 inset | highlight box 24 high, 4 above and below (radius 5) |`, and inside the highlight:
-  - `4 pad, depth × 24 indent (--ds-size-layer-indent), chevron cell 16 (empty for leaves; always drawn, live), type glyph 16 + 8 gap, name (flex, ellipsis), [lock 24][eye 24] flush right |`, then the 8 inset.
+  - `4 pad, depth × 24 indent (--ds-size-layer-indent), chevron cell 16 (empty for leaves; always drawn, live), type glyph 16 + 8 gap, name (flex, to the highlight's right edge), [lock 24][eye 24] flush right over the name |`, then the 8 inset.
   - At depth 0 the glyph is at 28 and the name at 52 from the panel edge; each level adds 24 (live: 28 / 52, then 52 / 76). Lock at 184, eye at 208.
-  - A run of highlighted rows (selection, selected ancestors) fills the pitch: one block, top corners on the first row, bottom corners on the last.
+  - The name is never ellipsised: it fades out over its last `--ds-size-layer-fade` (12, from the owner's capture of Figma) with a `mask-image`, so the fade works over any highlight. The cut is the highlight's right edge, moved left by the cells showing: every cell while hovered, a lock kept on (both cells' room) or a closed eye kept on (its own). The cells take no room of their own (a 0-wide tail, `position: sticky` to the list's visible right edge).
+  - A run of highlighted rows (selection, selected ancestors) fills the pitch: one block, top corners on the first row, bottom corners on the last. The block is the highlight (`.box::before`) reaching over the 4 between the rows; the box itself keeps its 4 above and below on every row, so every row is 32 with its content on the same line in every state (round 14: the block used to be the rows' margins, and expanding a selected layer moved its row's content 2 down).
+  - **Sideways scroll** (live `left/layers-row-*.txt`: rows 263 wide in the 240 panel with one level open): the Layers list's rows are its width plus the deepest open row's indent (`--layers-depth` × 24), so every name keeps a top-level row's room and a deep tree scrolls sideways (overlay scrollbar at the list's bottom); the highlight spans the rows; lock and eye stay at the visible edge; the list sets `--layer-clip-right` (the part of a row past its visible edge: the indent not scrolled yet) so names fade at that edge. A selection revealed in the list scrolls it sideways by the row's indent when less than 96 of its name would show.
 - **Props**:
   ```ts
   {
@@ -1184,9 +1186,8 @@ Figma 2026's navigation bar (live capture `docs/research/figma/live/left/rail-*.
 
 - **Rail**: `--ds-size-rail` 56 wide + a 1px `--figma-color-border` line (the left panel then starts at 57), bg `--figma-color-bg`.
   - Top: the Figma menu, a 32×32 tile at 12, 8 (the app mark, no chevron), which opens the main Menu (Back to files, Actions… ⌘K, File … Vector, Plugins, Widgets, Preferences, Libraries, Help and account).
-  - Then the tabs **File, Agents, Assets, Tools** at y 56 / 112 / 168 / 224, a separator (a 24 line, 16 of room), **Variables** at 296; each tab is 56×56: the 32 tile at 12, 4 and its label (9px / 450) under it.
+  - Then the tabs **File, Agents, Assets, Tools**, a separator (a 24 line, 16 of room), **Variables**. By default (the owner's choice, round 14) a tab is its icon: the 32 tile and 8 around it, its name and shortcut in the tooltip to the right. With View › Additional labels turned on (live's default): each tab is 56×56, the 32 tile at 12, 4 and its label (9px / 450) under it, at y 56 / 112 / 168 / 224 and Variables at 296.
   - At the bottom: the file's notifications (missing fonts, library updates).
-  - View › Additional labels off: no labels, a tab is its tile and 8 around it.
 - **RailItem**: `{ icon: IconName; label: string; shortcut?: string; active: boolean; onClick }`. Tile 32×32, radius 5. Active (`aria-current`): bg `--figma-color-bg-selected` (live #394360), icon `--figma-color-icon-brand`. Hover: bg `--figma-color-bg-hover`. Tooltip to the right.
 - **Behaviour**: File shows Pages and Layers; Agents, Assets and Tools replace them with a 48 tab header (title 13 / 550 at 16) and their own content; Variables toggles the full-window variables view. ⌥1 Layers, ⌥2 Assets (live View › Panels).
 - **Keyboard**: buttons; ↑/↓ roving focus inside the rail.
@@ -1281,7 +1282,7 @@ Port `components/ScrollArea.tsx`.
 - **Divider**: `{ orientation?: "horizontal" | "vertical"; inset?: number }`, 1px `--figma-color-border`.
 - **Kbd**: an inline shortcut, `body-medium` text-secondary, tabular-nums, formatted by `keys()`.
 - **CodeBlock** (Dev-Mode-like inspect in the viewer and editor): `code` font, bg-secondary, radius 5, padding 8, and a copy IconButton at the top-right that shows "Copied" via Toast.
-- **VirtualList**: `{ count: number; rowHeight: number; overscan?: number; renderRow: (index: number) => ReactNode; scrollToIndex?: number }`, built on ScrollArea.
+- **VirtualList**: `{ count: number; rowHeight: number; overscan?: number; renderRow: (index: number) => ReactNode; scrollToIndex?: number; axis?: "y" | "both"; onScroll? }`, built on ScrollArea (`axis: "both"`: rows wider than the list, their width set by the list's CSS, scroll sideways).
 - **Icon**: `{ name: IconName; className? }` renders an inline SVG with box = the name's prefix (16 or 24), `aria-hidden`.
 
 ### 4.35 What to port, what to delete

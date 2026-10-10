@@ -113,12 +113,12 @@ export function ScrollArea({ axis = "y", children, onScroll, viewportRef, forceV
         {children}
       </div>
       {geo.y && (
-        <div className={cx(styles.track, styles.trackY)} data-visible={show || undefined} onPointerDown={(e) => page("y", e)}>
+        <div className={cx(styles.track, styles.trackY)} data-scrollbar="y" data-visible={show || undefined} onPointerDown={(e) => page("y", e)}>
           <div className={styles.thumb} data-dragging={dragging === "y" || undefined} style={{ top: geo.y.offset, height: geo.y.size }} onPointerDown={(e) => dragThumb("y", e)} />
         </div>
       )}
       {geo.x && (
-        <div className={cx(styles.track, styles.trackX)} data-visible={show || undefined} onPointerDown={(e) => page("x", e)}>
+        <div className={cx(styles.track, styles.trackX)} data-scrollbar="x" data-visible={show || undefined} onPointerDown={(e) => page("x", e)}>
           <div className={styles.thumb} data-dragging={dragging === "x" || undefined} style={{ left: geo.x.offset, width: geo.x.size }} onPointerDown={(e) => dragThumb("x", e)} />
         </div>
       )}

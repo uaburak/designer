@@ -13,22 +13,29 @@
     outline: none;
     cursor: default;
   }
+  /* The highlight's 24: the same margin on every row, so its content sits on the same line in every state */
   .box {
+    position: relative;
+    isolation: isolate;
     display: flex;
     flex: 1 1 auto;
     align-items: center;
     min-width: 0;
     margin: var(--ds-space-1) 0;
     padding: 0 0 0 var(--ds-space-1);
-    border-radius: var(--ds-radius-medium);
   }
-  .row:hover .box, .row[data-hover] .box { background: var(--figma-color-bg-hover); }
-  .row[aria-selected="true"] .box { background: var(--figma-color-bg-selected); }
-  .row[data-selected-ancestor] .box { background: var(--figma-color-bg-selected-secondary); }
-  .row[data-run="start"] .box { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-  .row[data-run="middle"] .box { margin: 0; border-radius: 0; }
-  .row[data-run="end"] .box { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
-  .row[data-drop="inside"] .box { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
+  /*
+   * The highlight itself, under the content: a run of highlighted rows stretches it over the 4 above and below.
+   * Never the box's margins: a run's first / last row would move its content 2 down / up (the jitter on expand).
+   */
+  .box::before { position: absolute; z-index: -1; inset: 0; border-radius: var(--ds-radius-medium); content: ""; }
+  .row:hover .box::before, .row[data-hover] .box::before { background: var(--figma-color-bg-hover); }
+  .row[aria-selected="true"] .box::before { background: var(--figma-color-bg-selected); }
+  .row[data-selected-ancestor] .box::before { background: var(--figma-color-bg-selected-secondary); }
+  .row[data-run="start"] .box::before { bottom: calc(var(--ds-space-1) * -1); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .row[data-run="middle"] .box::before { top: calc(var(--ds-space-1) * -1); bottom: calc(var(--ds-space-1) * -1); border-radius: 0; }
+  .row[data-run="end"] .box::before { top: calc(var(--ds-space-1) * -1); border-top-left-radius: 0; border-top-right-radius: 0; }
+  .row[data-drop="inside"] .box::before { box-shadow: inset 0 0 0 1px var(--figma-color-border-selected); }
   .row[data-drop="before"]::before, .row[data-drop="after"]::after {
     content: ""; position: absolute; left: calc(var(--ds-size-row-inset) + var(--ds-space-1) + var(--depth, 0) * var(--ds-size-layer-indent) + 16px); right: var(--ds-size-row-inset);
     height: 2px; background: var(--figma-color-border-selected);
@@ -48,14 +55,33 @@
   .type { display: flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: var(--ds-space-2); color: var(--figma-color-icon-secondary); }
   .row[aria-selected="true"] .type, .strong .type { color: var(--figma-color-icon); }
   .name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /*
+   * A layer's name runs to the highlight's right edge and fades out there (Figma: no ellipsis), as a mask so it
+   * fades into any highlight (hover, selected, component). The cells showing take their room first (a lock or a
+   * closed eye kept on; every cell while hovered), and a list scrolled sideways cuts at its visible right edge
+   * (--layer-clip-right, set by the list). The mask's colours are alpha only.
+   */
+  .row .name {
+    --layer-tail: calc(var(--tail-rest, 0) * var(--ds-size-control));
+    --layer-cut: calc(var(--layer-clip-right, 0px) + var(--layer-tail));
+    text-overflow: clip;
+    mask-image: linear-gradient(to right, black calc(100% - var(--layer-cut) - var(--ds-size-layer-fade)), transparent calc(100% - var(--layer-cut)));
+  }
+  .row:hover .name, .row[data-hover] .name { --layer-tail: calc(var(--tail-hover, 0) * var(--ds-size-control)); }
   /* Components, instances and every layer inside one: purple names and glyphs (live: #d1a8ff) */
   .component .name, .row[data-tone="component"] .name { color: var(--figma-color-text-component); }
   .component .type, .row[data-tone="component"] .type { color: var(--figma-color-icon-component); }
   .hiddenLayer .name, .hiddenLayer .type { color: var(--figma-color-text-tertiary); }
   .hiddenLayer.component .name, .hiddenLayer.component .type, .hiddenLayer[data-tone="component"] .name, .hiddenLayer[data-tone="component"] .type { color: var(--figma-color-text-component); opacity: 0.5; }
   .rename { flex: 1 1 auto; min-width: 0; margin-left: -5px; }
-  /* Lock and eye, 24 each, flush with the highlight's right edge */
+  .row .rename { margin-right: var(--layer-clip-right, 0px); }
+  /*
+   * Lock and eye, 24 each, flush with the highlight's right edge. On a layer row they take no room (a 0-wide tail,
+   * the cells overflowing to its left over the name, whose fade makes the room) and stick to the list's visible
+   * right edge when the rows are wider than the list.
+   */
   .tail { display: flex; flex: none; align-items: center; }
+  .row .tail { position: sticky; right: var(--ds-size-row-inset); justify-content: flex-end; width: 0; }
   .cell, .cellSlot { flex: none; width: var(--ds-size-control); height: var(--ds-size-control); }
   .cell {
     display: flex; align-items: center; justify-content: center; padding: 0; border: 0;

@@ -14,10 +14,14 @@ export interface VirtualListProps {
   scrollToIndex?: number;
   className?: string;
   label?: string;
+  /** "both": the rows may be wider than the list (their own CSS sets the content's width) and it scrolls sideways too */
+  axis?: "y" | "both";
+  /** Every scroll of the list (after its own bookkeeping) */
+  onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 }
 
 /** A long list drawing only the rows in view (contract §4.34), on a ScrollArea. */
-export function VirtualList({ count, rowHeight, overscan = 8, renderRow, scrollToIndex, className, label }: VirtualListProps) {
+export function VirtualList({ count, rowHeight, overscan = 8, renderRow, scrollToIndex, className, label, axis = "y", onScroll }: VirtualListProps) {
   const viewport = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ top: 0, height: 600 });
   useEffect(() => {
@@ -44,7 +48,22 @@ export function VirtualList({ count, rowHeight, overscan = 8, renderRow, scrollT
     );
   }
   return (
-    <ScrollArea className={className} style={{ width: "100%", height: "100%" }} viewportRef={(el) => { viewport.current = el; }} onScroll={(e) => setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })} aria-label={label}>
+    <ScrollArea
+      className={className}
+      axis={axis}
+      style={{ width: "100%", height: "100%" }}
+      viewportRef={(el) => {
+        viewport.current = el;
+      }}
+      onScroll={(e) => {
+        const top = e.currentTarget.scrollTop;
+        const height = e.currentTarget.clientHeight;
+        // A sideways scroll draws the same rows: no new state.
+        setView((v) => (v.top === top && v.height === height ? v : { top, height }));
+        onScroll?.(e);
+      }}
+      aria-label={label}
+    >
       <div data-ds="VirtualList" role="presentation" style={{ position: "relative", height: count * rowHeight }}>{rows}</div>
     </ScrollArea>
   );

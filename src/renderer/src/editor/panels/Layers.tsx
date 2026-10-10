@@ -39,6 +39,12 @@ import styles from "./Panels.module.css";
 
 /** The live capture's pitch (rows 32 apart, a 24 highlight). */
 const ROW = 32;
+/** Live: a level of nesting moves a row's glyph and name 24; a top-level row's name starts 52 from the panel's edge, its highlight 8 from either edge. */
+const INDENT = 24;
+const NAME_LEFT = 52;
+const INSET = 8;
+/** A selection revealed in the list scrolls it sideways when less of its name than this would show. */
+const NAME_MIN = 96;
 /** How near the list's top or bottom edge a drag scrolls it, and how far per frame. */
 const EDGE = 24;
 const EDGE_STEP = 8;
@@ -154,6 +160,9 @@ export function collapseLayers(ed: EditorController, tree: LayerTree = ed.getTre
   ed.ui.set((s) => ({ expanded: collapsedLayers(tree, ed.selection, s.expanded) }));
 }
 
+/** The list's scrolling element (the VirtualList's viewport). */
+const viewport = () => document.querySelector<HTMLElement>('[data-layer-list] [data-ds="VirtualList"]')?.parentElement ?? null;
+
 /** A lock / eye drag: the value the first row got, the rows done, the open undo step. */
 type CellDrag = { kind: "lock" | "visible"; value: boolean; done: Set<Guid> };
 
@@ -187,6 +196,9 @@ export function Layers() {
     return out;
   }, [rows, tree]);
   const anyExpanded = rows.some((r) => r.expanded);
+  // The rows are as wide as the list plus the deepest row's indent (live: 263 wide in a 240 panel with one level
+  // open), so every row's name has a top-level row's room and a deep tree scrolls sideways.
+  const deepest = rows.reduce((d, r) => Math.max(d, r.depth), 0);
 
   // A selection made on the canvas opens its ancestors (Figma reveals it) and scrolls to it.
   useEffect(() => {
@@ -195,11 +207,18 @@ export function Layers() {
     if (next !== now) ed.ui.set({ expanded: next });
   }, [ed, tree, selection]);
   const firstSelected = rows.findIndex((r) => selected.has(r.id));
+  const firstSelectedDepth = firstSelected >= 0 ? rows[firstSelected].depth : -1;
+  // …and sideways, when the list doesn't show enough of its name: scrolled by the row's indent it reads as a top-level row.
+  useEffect(() => {
+    const v = viewport();
+    if (!v || firstSelectedDepth < 0) return;
+    const want = firstSelectedDepth * INDENT;
+    const room = v.scrollLeft + v.clientWidth - INSET - (NAME_LEFT + want);
+    if (v.scrollLeft > want || room < NAME_MIN) v.scrollLeft = want;
+  }, [firstSelected, firstSelectedDepth]);
 
   const select = (refs: Guid[]) => ed.engine.setSelection(selectable(ed, refs));
 
-  /** The list's scrolling element (the VirtualList's viewport). */
-  const viewport = () => document.querySelector<HTMLElement>('[data-layer-list] [data-ds="VirtualList"]')?.parentElement ?? null;
   /** Near the list's top or bottom edge a drag scrolls it (one step per pointer move). */
   const autoScroll = (y: number) => {
     const v = viewport();
@@ -352,6 +371,7 @@ export function Layers() {
         aria-label="Layers"
         aria-multiselectable
         data-layer-list=""
+        style={{ ["--layers-depth" as string]: deepest }}
         onPointerLeave={() => {
           if (!press.current) ed.engine.setHover([]);
         }}
@@ -359,6 +379,9 @@ export function Layers() {
         <VirtualList
           count={rows.length}
           rowHeight={ROW}
+          axis="both"
+          // How far the list is scrolled sideways, for the names' fade at its visible edge (CSS only: no render).
+          onScroll={(e) => e.currentTarget.style.setProperty("--layers-scroll-x", `${e.currentTarget.scrollLeft}px`)}
           scrollToIndex={firstSelected >= 0 ? firstSelected : undefined}
           label="Layers"
           renderRow={(i) => {

@@ -97,7 +97,7 @@ export interface UIState extends PreferenceFlags {
   find?: FindState | null;
   /** The Pages list's height as dragged on the divider under it (px; null: fit its pages up to the default cap) */
   pagesHeight?: number | null;
-  /** View › Additional labels: the navigation bar's tab names under the icons (default on) */
+  /** The navigation bar's tab names under the icons: off by default (owner, 2026-10-10); View › Additional labels sets it with the property labels */
   railLabels?: boolean;
   /** "Rename layers" (⌘R on several layers): the layers, in the panel's order */
   renameLayers?: Guid[] | null;

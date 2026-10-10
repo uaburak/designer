@@ -2,7 +2,9 @@
  * The navigation bar at the window's left (Figma 2026, help "Navigate the left sidebar", measured on the live app):
  * the Figma menu, a line, the File, Agents, Assets and Tools tabs, a line, Variables (the variables view, formerly
  * the right sidebar's Local variables), and at the bottom the file's notifications — missing fonts, library updates
- * — only while there is one. Tabs carry their names under the icons (View › Additional labels). The Figma menu holds
+ * — only while there is one. Tabs are their icons, named in a tooltip with the shortcut (the owner's choice, 2026-10-10:
+ * live Figma draws the names under the icons by default); View › Additional labels, toggled on, brings the names
+ * back. The Figma menu holds
  * Back to files, Actions and Figma's File / Edit / View / Object / Text / Arrange / Vector submenus, Plugins,
  * Widgets, Preferences, Libraries and Help.
  */
@@ -17,6 +19,9 @@ import { MissingFontsButton } from "./MissingFonts";
 import styles from "./Panels.module.css";
 
 type Open = { at: { x: number; y: number }; entries: MenuEntry[] } | null;
+
+/** The tabs' names under their icons: off unless View › Additional labels turned them on. */
+export const showsRailLabels = (s: { railLabels?: boolean }): boolean => s.railLabels === true;
 
 const TABS: { tab: RailTab; icon: "24.page" | "24.agents" | "24.assets" | "24.tools"; label: string; command: string }[] = [
   { tab: "file", icon: "24.page", label: "File", command: "view.layers" },
@@ -83,7 +88,7 @@ export function NavStrip() {
 export function Rail() {
   const ed = useEditor();
   const tab = useUI((s) => s.railTab);
-  const labels = useUI((s) => s.railLabels !== false);
+  const labels = useUI(showsRailLabels);
   const variables = useUI((s) => s.variablesOpen);
   const libs = useLibraries();
   const pending = libs.on ? ed.libraries.pendingCount() : 0;

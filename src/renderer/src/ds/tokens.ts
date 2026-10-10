@@ -285,6 +285,7 @@ export const size = {
   "panel-pad-right": 8,
   "row-inset": 8,
   "layer-indent": 24, // live: a level moves the glyph 24
+  "layer-fade": 12, // a layer name fades out over its last 12 at the cut (owner's capture of Figma, docs/research/layers-polish)
   panel: 240,
   "panel-min": 240,
   "panel-max": 480, // G

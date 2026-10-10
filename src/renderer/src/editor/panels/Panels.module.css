@@ -67,6 +67,14 @@
   /* Layers (live): the first row 4 under the header (its text at 135 when the header starts at 81) */
   .layers { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; border-bottom: 0; }
   .layerList { flex: 1 1 auto; min-height: 0; padding-top: var(--ds-space-1); outline: none; }
+  /*
+   * Live (left/layers-row-*.txt: rows 263 wide in the 240 panel with one level open): the rows are the list's width
+   * plus the deepest row's indent, so every name keeps a top-level row's room and a deep tree scrolls sideways (the
+   * highlight spans the rows; lock and eye stay at the visible edge). A row's name fades at that edge: the part of
+   * the row past it is the indent not scrolled yet (--layers-scroll-x is the list's, set on scroll).
+   */
+  .layerList [data-ds="VirtualList"] { width: calc(100% + var(--layers-depth, 0) * var(--ds-size-layer-indent)); }
+  .layerList [data-ds="LayerRow"] { --layer-clip-right: max(0px, var(--layers-depth, 0) * var(--ds-size-layer-indent) - var(--layers-scroll-x, 0px)); }
   .placeholderTab { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
   /* View › Minimize left navigation bar (round 10, unverified look): the navigation's tabs in a row atop the sidebar */
   .navStrip {
