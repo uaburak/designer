@@ -14,7 +14,8 @@
 //   --page <n|name>     the page to measure (default: the page with the most layers)
 //   --size WxH --dpr D  the canvas in CSS px and its device pixel ratio (default 1440x900 @2, a Retina editor)
 //   --only a,b          run only these scenarios (rest, slowPan, fastPan, zoom, dense, hover, select, drag, and the
-//                       instance ones: instSelect, instDrag, altDrag, multiDrag; menuState in --editor mode)
+//                       instance ones: instSelect, instDrag, altDrag, multiDrag; variantMain (a variant dragged in its
+//                       set), flowDrag (live auto-layout reorder, nested), selectMany; menuState in --editor mode)
 //   --open              the file-open path instead: the real EditorApp mounted (panels, Layers, fonts, images,
 //                       thumbnail) on a DocumentSource over the imported snapshot; marks every step (see "Open")
 //   --no-strict         --open without React.StrictMode (the app's main.tsx mounts under StrictMode, which in dev
@@ -39,7 +40,7 @@
 // from the import's blobs (createImageBitmap, as the editor does).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -217,15 +218,67 @@ function syntheticMessage(target) {
     add({ type: "STAR", name: "Badge", transform: T(80, 10), size: { x: 10, y: 10 }, fillPaints: solid(1, 0.8, 0.2), count: 5, starInnerScale: 0.4 }, sym, 2);
     components.push(sym);
   }
-  // Screens.
+  // Component sets (the owner's files: sets of variants, each variant nested auto layout with a nested instance):
+  // 4 sets of 24 variants (Size × State) above the buttons, and variant instances in every third card.
+  const sets = [];
+  const SIZES = ["Small", "Medium", "Large", "XL"], STATES = ["Default", "Hover", "Pressed", "Disabled", "Focus", "Loading"];
+  for (let k = 0; k < 4; k++) {
+    const sizeDef = guid(), stateDef = guid();
+    const setH = 16 + SIZES.length * 72, setW = 16 + STATES.length * 256;
+    const set = add(
+      {
+        type: "FRAME", name: `Chip ${k}`, transform: T(k * (setW + 120), -400 - setH), size: { x: setW, y: setH }, fillPaints: [], frameMaskDisabled: false,
+        isStateGroup: true, strokePaints: solid(0.59, 0.28, 1), strokeWeight: 1, strokeAlign: "INSIDE", dashPattern: [10, 5],
+        componentPropDefs: [
+          { id: sizeDef, name: "Size", type: "VARIANT", sortPosition: "!", initialValue: { textValue: { characters: SIZES[0] } } },
+          { id: stateDef, name: "State", type: "VARIANT", sortPosition: "#", initialValue: { textValue: { characters: STATES[0] } } },
+        ],
+        stateGroupPropertyValueOrders: [{ property: "Size", values: SIZES }, { property: "State", values: STATES }],
+      },
+      PAGE,
+      top++
+    );
+    const variants = [];
+    for (let a = 0; a < SIZES.length; a++)
+      for (let b = 0; b < STATES.length; b++) {
+        const v = add(
+          {
+            type: "SYMBOL", name: `Size=${SIZES[a]}, State=${STATES[b]}`, transform: T(16 + b * 256, 16 + a * 72), size: { x: 240, y: 56 },
+            fillPaints: solid(0.95 - 0.05 * b, 0.95, 1), cornerRadius: 10, rectangleTopLeftCornerRadius: 10, rectangleTopRightCornerRadius: 10,
+            rectangleBottomLeftCornerRadius: 10, rectangleBottomRightCornerRadius: 10, frameMaskDisabled: false,
+            stackMode: "HORIZONTAL", stackSpacing: 8, stackHorizontalPadding: 12, stackVerticalPadding: 12, stackPaddingRight: 12, stackPaddingBottom: 12,
+            stackCounterAlignItems: "CENTER", stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE",
+            variantPropSpecs: [{ propDefId: sizeDef, value: SIZES[a] }, { propDefId: stateDef, value: STATES[b] }],
+          },
+          set,
+          variants.length
+        );
+        add({ type: "ELLIPSE", name: "Icon", transform: T(12, 20), size: { x: 16, y: 16 }, fillPaints: solid(0.2 * a, 0.3, 0.1 * b) }, v, 0);
+        const col = add(
+          { type: "FRAME", name: "Label", transform: T(36, 12), size: { x: 92, y: 32 }, fillPaints: [], frameMaskDisabled: true, stackMode: "VERTICAL", stackSpacing: 2, stackPrimarySizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE", stackCounterSizing: "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" },
+          v,
+          1
+        );
+        text(col, 0, 0, 0, `${SIZES[a]} chip`, 12, "Semi Bold", [0.1, 0.1, 0.1]);
+        text(col, 1, 0, 17, STATES[b], 10, "Regular", [0.4, 0.4, 0.45]);
+        add({ type: "INSTANCE", name: "Button", transform: T(136, 12), size: { x: 96, y: 32 }, symbolData: { symbolID: components[(a + b) % components.length] } }, v, 2);
+        variants.push(v);
+      }
+    sets.push(variants);
+  }
+  // Screens. Every other one is a vertical auto-layout list (header and cards in flow, nested in the cards' own).
   const perScreen = 186;
   const screens = Math.max(1, Math.round(target / perScreen));
   const cols = Math.max(1, Math.round(Math.sqrt(screens * 2)));
   for (let s = 0; s < screens; s++) {
     const sx = (s % cols) * 490, sy = Math.floor(s / cols) * 944;
     const fade = s % 7 === 3;
+    const flow = s % 2 === 1;
     const screen = add(
-      { type: "FRAME", name: `Screen ${s}`, transform: T(sx, sy), size: { x: 390, y: 844 }, fillPaints: solid(1, 1, 1), frameMaskDisabled: false, opacity: fade ? 0.85 : 1 },
+      {
+        type: "FRAME", name: `Screen ${s}`, transform: T(sx, sy), size: { x: 390, y: 844 }, fillPaints: solid(1, 1, 1), frameMaskDisabled: false, opacity: fade ? 0.85 : 1,
+        ...(flow ? { stackMode: "VERTICAL", stackSpacing: 8, stackCounterAlignItems: "CENTER", stackPrimarySizing: "FIXED", stackCounterSizing: "FIXED" } : {}),
+      },
       PAGE,
       top++
     );
@@ -234,7 +287,7 @@ function syntheticMessage(target) {
     for (let k = 0; k < 3; k++)
       add({ type: k === 1 ? "REGULAR_POLYGON" : "STAR", name: `Icon ${k}`, transform: T(290 + k * 30, 22), size: { x: 20, y: 20 }, fillPaints: solid(0.9, 0.9, 0.9), count: k === 1 ? 6 : 5, starInnerScale: 0.45 }, header, 1 + k);
     for (let r = 0; r < 30; r++) {
-      const y = 72 + r * 76;
+      const y = flow ? 72 + r * 80 : 72 + r * 76;
       const shadow = r % 2 === 0;
       const card = add(
         {
@@ -257,7 +310,10 @@ function syntheticMessage(target) {
       );
       text(col, 0, 0, 0, `Item ${s}.${r} with a longer title`, 14, "Semi Bold", [0.1, 0.1, 0.1]);
       text(col, 1, 0, 21, `Subtitle line for card ${r}`, 12, "Regular", [0.45, 0.45, 0.5]);
-      add({ type: "INSTANCE", name: "Button", transform: T(264, 20), size: { x: 96, y: 32 }, symbolData: { symbolID: components[(s + r) % components.length] } }, card, 2);
+      if (r % 3 === 1) {
+        const v = sets[(s + r) % sets.length][(s * 7 + r) % 24];
+        add({ type: "INSTANCE", name: "Chip", transform: T(140, 8), size: { x: 214, y: 56 }, symbolData: { symbolID: v } }, card, 2);
+      } else add({ type: "INSTANCE", name: "Button", transform: T(264, 20), size: { x: 96, y: 32 }, symbolData: { symbolID: components[(s + r) % components.length] } }, card, 2);
     }
   }
   return { message: { type: "NODE_CHANGES", sessionID: 0, ackID: 0, nodeChanges: nodes, blobs: [] }, images };
@@ -606,6 +662,27 @@ function pageMain() {
         nested: [],
         many: [],
       };
+      // A variant (SYMBOL) in the set with the most variants, in its middle (the one with the most instances first),
+      // and layers in auto-layout flows: a card in a vertical list (mid-list, in view at 100 %) and the first layer of
+      // a card in such a list (nested auto layout), for the live reorder.
+      const instCount = new Map();
+      for (const n of instances) instCount.set(n.symbolData.symbolID, (instCount.get(n.symbolData.symbolID) ?? 0) + 1);
+      const mains = onPage.filter((n) => n.type === "SYMBOL" && parentOf(n)?.isStateGroup === true);
+      mains.sort((a, b) => (children.get(parentOf(b).guid) ?? []).length - (children.get(parentOf(a).guid) ?? []).length || (instCount.get(b.guid) ?? 0) - (instCount.get(a.guid) ?? 0));
+      t.variantMain = mains.slice(0, 1).map((n) => n.guid);
+      const flowKids = (pred) =>
+        onPage.filter((n) => {
+          const p = parentOf(n);
+          return isAuto(p) && n.stackPositioning !== "ABSOLUTE" && pred(n, p) && (children.get(p.guid) ?? []).length >= 3;
+        });
+      const listCards = flowKids((n, p) => p.stackMode === "VERTICAL" && parentOf(p)?.type === "CANVAS" && n.type === "FRAME");
+      // The fourth child of its list (index 3): three cards above, in view under the list's top at 100 %.
+      const fourth = listCards.filter((n) => (children.get(n.parentIndex.guid) ?? []).indexOf(n.guid) === 3);
+      t.flowCard = (fourth.length ? fourth : listCards).slice(0, 1).map((n) => n.guid);
+      const inCard = flowKids((n, p) => p.stackMode === "HORIZONTAL" && isAuto(parentOf(p)) && (children.get(p.guid) ?? [])[0] === n.guid);
+      t.flowNested = inCard.slice(0, 1).map((n) => n.guid);
+      // Many layers: every card of the page's lists, up to 600.
+      t.manyLayers = listCards.slice(0, 600).map((n) => n.guid);
       // A nested instance inside the first variant instance (or the first instance): a derived INSTANCE row.
       const host = t.variantFree[0] ?? t.variantAuto[0] ?? t.instanceFree[0] ?? t.instanceAuto[0];
       if (host) {
@@ -632,7 +709,7 @@ function pageMain() {
         return base;
       };
       const out = {};
-      for (const [k, v] of Object.entries(t)) out[k] = Array.isArray(v) ? v.map(about).filter(Boolean) : v;
+      for (const [k, v] of Object.entries(t)) out[k] = k === "manyLayers" ? v.map((id) => ({ id })) : Array.isArray(v) ? v.map(about).filter(Boolean) : v;
       out.page = { layers: onPage.length, instances: instances.length, instancesFree: instances.filter((n) => !info(n).auto).length, variantInstances: variants.length, clickableInstances: instances.filter(clickable).length };
       return out;
     }
@@ -717,13 +794,14 @@ function pageMain() {
     // selected layer selects that child instead (Figma keeps the selection on mouse-down and drills in on a click;
     // here a selected instance covered by its children can't be dragged by the pointer at all — see the no-op rows).
     // Several targets (or a derived one): they are selected and the first one pressed, as a user would.
-    async function dragScenario(name, ids, mods = 0) {
+    async function dragScenario(name, ids, mods = 0, opts = {}) {
       const t = worldOf(ids[0]);
       await centreOn(t.cx, t.cy, 1);
       const single = ids.length === 1 && !ids[0].startsWith("I");
       const parent = single ? parentOfRef(ids[0]) : null;
       const parentIsPage = parent ? engine.readNode(parent)?.type === "CANVAS" : true;
-      engine.setSelection(single ? (parentIsPage ? [] : [parent]) : ids);
+      // `opts.select`: the selection before the press instead (a variant: nothing, so the press picks the set's child).
+      engine.setSelection(opts.select ?? (single ? (parentIsPage ? [] : [parent]) : ids));
       engine.pump();
       await settleFrames(3);
       const counts = {};
@@ -752,8 +830,12 @@ function pageMain() {
       let selected = null;
       const off = engine.on("SELECTION_CHANGED", (e) => (selected = e.refs));
       input.pointer(0, px, py, 1, mods);
-      const r = await scenario(name, 60, (i) => input.pointer(1, px + 3 * (i + 1), py + 20 * Math.sin(i / 5), 1, mods), { micro: true, frameStats: true });
-      input.pointer(2, px + 183, py, 0, mods);
+      // `opts.path(i)`: the pointer's offset at step i (default: right 3 px a frame, wobbling ±20 px).
+      const at = opts.path ?? ((i) => [3 * (i + 1), 20 * Math.sin(i / 5)]);
+      const steps = opts.steps ?? 60;
+      const r = await scenario(name, steps, (i) => input.pointer(1, px + at(i)[0], py + at(i)[1], 1, mods), { micro: true, frameStats: true });
+      const end = at(steps - 1);
+      input.pointer(2, px + end[0], py + end[1], 0, mods);
       engine.pump();
       await settleFrames(2);
       off();
@@ -1064,6 +1146,38 @@ function pageMain() {
           case "multiDrag":
             await drag(`${ids("many").length} instances`, ids("many"));
             break;
+          case "variantMain":
+            // A variant moved inside its component set (its set selected first, as a click into the set does).
+            // Nothing selected first: the press picks the variant (a top-level frame's child), as a click does. Then the
+            // set itself (selected, pressed on the same variant).
+            if (ids("variantMain").length) {
+              const v = ids("variantMain")[0];
+              out.push(await dragScenario("drag a variant in its set", [v], 0, { select: [] }));
+              out.push(await dragScenario("drag the component set", [v], 0, { select: [parentOfRef(v)] }));
+            }
+            break;
+          case "flowDrag":
+            // The live reorder, each layer selected first (a press on a child of a selected layer drags that one): a card
+            // down its vertical list (~4 swaps), a card's first layer across the card (nested auto layout).
+            if (ids("flowCard").length) out.push(await dragScenario("flow: card down its list", ids("flowCard").slice(0, 1), 0, { steps: 90, path: (i) => [2 * Math.sin(i / 9), 3.5 * (i + 1)], select: ids("flowCard").slice(0, 1) }));
+            if (ids("flowNested").length) out.push(await dragScenario("flow: nested, across a card", ids("flowNested").slice(0, 1), 0, { steps: 60, path: (i) => [4 * (i + 1), Math.sin(i / 7)], select: ids("flowNested").slice(0, 1) }));
+            break;
+          case "selectMany": {
+            // Selection of many layers: every card of the page's lists selected and cleared, alternating; then ⌘A.
+            const many = ids("manyLayers");
+            if (many.length) {
+              engine.command("ZOOM_TO_FIT");
+              engine.pump();
+              await settleFrames(3);
+              const r = await scenario(`select ${many.length} layers / none`, 20, (i) => (engine.setSelection(i % 2 ? [] : many), engine.pump()), { micro: true, frameStats: true });
+              out.push(r);
+              const r2 = await scenario("select all (⌘A) / none", 10, (i) => (i % 2 ? engine.setSelection([]) : engine.command("SELECT_ALL"), engine.pump()), { micro: true, frameStats: true });
+              out.push(r2);
+              engine.setSelection([]);
+              engine.pump();
+            }
+            break;
+          }
           case "menuState": {
             const m = await menuStateScenario();
             if (m) out.push(m);
@@ -1186,9 +1300,18 @@ function openPageMain() {
       const x = e["x"];
       const r0 = x.render;
       let n = 0;
+      // Every canvas render over 8 ms after the load (a raster of the page: the first, fonts, images arriving).
+      marks.heavyRenders = [];
       x.render = (hh) => {
         const t1 = now();
         r0(hh);
+        const ms = now() - t1;
+        if (marks.engineLoaded && ms > 8) {
+          // What it drew: content-cache regions (r) and tiles (t).
+          const st = e.stats();
+          marks.heavyRenders.push(Math.round(ms * 10) / 10);
+          (marks.heavyWhat ??= []).push(`${Math.round(ms)}:${st.cachedRegions}r${st.tilesRastered}t`);
+        }
         if (!n++) {
           marks.firstRender = now();
           marks.firstRenderMs = marks.firstRender - t1;
@@ -1367,7 +1490,7 @@ const server = await createServer({
       ...(wasmDir ? [{ find: /^\.\/wasm\/engine\.mjs$/, replacement: path.join(path.resolve(wasmDir), "engine.mjs") }] : []),
     ],
   },
-  server: { port: 5207, strictPort: false, fs: { allow: [repo, ...(wasmDir ? [path.resolve(wasmDir)] : [])] }, hmr: false, watch: null, headers: {} },
+  server: { port: 5207, strictPort: false, fs: { allow: [repo, realpathSync(path.join(repo, "node_modules")), ...(wasmDir ? [path.resolve(wasmDir)] : [])] }, hmr: false, watch: null, headers: {} },
   appType: editor ? "spa" : "custom",
   logLevel: "error",
   ssr: { noExternal: ["electron"] },
@@ -1377,13 +1500,23 @@ const server = await createServer({
       name: "engine-bench",
       enforce: "pre",
       // src/main/fonts.ts (the desktop's font index) runs here without Electron: app.getPath → a temp dir.
-      resolveId: (id) => (id === "/__bench/page.js" ? "\0engine-bench-page" : id === "electron" ? "\0engine-bench-electron" : null),
+      // Its window bookkeeping (./views: the desktop's views, protocol, store host) is stubbed: no views here.
+      resolveId: (id, importer) =>
+        id === "/__bench/page.js"
+          ? "\0engine-bench-page"
+          : id === "electron"
+            ? "\0engine-bench-electron"
+            : id === "./views" && importer?.endsWith(path.join("src", "main", "fonts.ts"))
+              ? "\0engine-bench-views"
+              : null,
       load: (id) =>
         id === "\0engine-bench-page"
           ? `(${pageMain.toString()})();`
           : id === "\0engine-bench-electron"
-            ? `export const app = { getPath: () => ${JSON.stringify(path.join(tmpdir(), "designer-engine-bench"))} }; export default { app };`
-            : null,
+            ? `export const app = { getPath: () => ${JSON.stringify(path.join(tmpdir(), "designer-engine-bench"))} }; export const webContents = { getAllWebContents: () => [] }; export default { app, webContents };`
+            : id === "\0engine-bench-views"
+              ? "export const viewOf = () => undefined;"
+              : null,
       configureServer(s) {
         s.middlewares.use(async (req, res, next) => {
           const url = new URL(req.url, "http://x");
@@ -1730,7 +1863,7 @@ await profiled("load", async () => {
 report.page = report.load.pages.find((p) => p.guid === pageGuid) ?? null;
 report.dense = await page.evaluate((p) => window.__bench.denseTarget(p), pageGuid);
 // The instance scenario groups run one at a time from here (each gets its own CPU profile); the rest as before.
-const GROUPS = ["instSelect", "instDrag", "altDrag", "multiDrag", "menuState"];
+const GROUPS = ["instSelect", "instDrag", "altDrag", "multiDrag", "menuState", "variantMain", "flowDrag", "selectMany"];
 const groups = only.filter((n) => GROUPS.includes(n));
 const legacy = only.filter((n) => !GROUPS.includes(n));
 report.scenarios = [];
@@ -1818,6 +1951,7 @@ if (openMode) {
   console.log(`  first canvas frame                    ${at("firstRender")}   (${f1(m.firstRenderMs)} ms CPU)`);
   console.log(`  fonts settled                         ${at("fonts")}; relayout frame painted ${at("fontsFrame")}`);
   console.log(`  images settled                        ${at("images")}; frame painted ${at("imagesFrame")}`);
+  if (m.heavyRenders) console.log(`  canvas renders > 8 ms after load     ${m.heavyRenders.length}, ${f1(m.heavyRenders.reduce((a, b) => a + b, 0))} ms in all (ms:regions r tiles t — ${(m.heavyWhat ?? []).slice(0, 40).join(" ")}${m.heavyRenders.length > 40 ? " …" : ""})`);
   console.log(`  thumbnail written                     ${at("thumbnail")}${m.thumbnailBytes ? ` (${mb(m.thumbnailBytes)})` : " (none within 7 s)"}`);
   console.log(`  wasm memory                           ${mb(m.heap)}`);
   if (m.fontRequests?.length) {
@@ -1895,6 +2029,10 @@ if (report.targets) {
   console.log(`Targets (ids and counts only): subtree = drawn nodes under it, effects = nodes with visible effects, texts = TEXT nodes; mainSize = the main's stored subtree, variants = the set's`);
   for (const [k, list] of Object.entries(report.targets)) {
     if (!Array.isArray(list)) continue;
+    if (k === "manyLayers") {
+      console.log(`  ${k.padEnd(13)} ${list.length} layers`);
+      continue;
+    }
     for (const t of list)
       console.log(`  ${k.padEnd(13)} ${t.id.padEnd(12)} ${t.type.padEnd(18)} ${`${t.size[0]}×${t.size[1]}`.padEnd(10)} in ${String(t.parentType).padEnd(9)}${t.parentAuto ? " auto " : " free "} depth ${String(t.depth).padStart(2)} subtree ${String(t.subtree).padStart(5)} effects ${String(t.effects).padStart(3)} texts ${String(t.texts).padStart(4)}${t.mainSize !== undefined ? ` mainSize ${t.mainSize} variants ${t.variants}` : ""}`);
   }
