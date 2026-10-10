@@ -1127,14 +1127,23 @@ void Renderer::endLayer(int saved) {
 
 void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, const Mat2x3& m, double alpha) {
   const std::vector<RenderNode>& nodes = tree_->nodes();
+  // A layer dragged inside its auto-layout flow draws above its siblings (round 15): after them.
+  uint32_t lifted = UINT32_MAX;
   for (uint32_t i = first; i < end; i = nodes[i].end) {
+    if (lifted_ != kNoGuid && nodes[i].id == lifted_ && lifted == UINT32_MAX && !propsAt(i).mask) {
+      lifted = i;
+      continue;
+    }
     const NodeProps& p = propsAt(i);
     if (p.mask && !outlines_) {
       // A mask: it masks the layers above it in this parent (and is not drawn itself).
       Mat2x3 mm = m * p.transform;
       gfx::IRect r = deviceRect(screenBounds(i), 2);
       uint32_t next = nodes[i].end;
-      if (r.w <= 0 || r.h <= 0 || next >= end) return;
+      if (r.w <= 0 || r.h <= 0 || next >= end) {
+        if (lifted != UINT32_MAX) drawNode(doc, lifted, m, alpha);
+        return;
+      }
       int saved = beginLayer(r);
       int M = current_;
       if (p.maskType == MaskType::OUTLINE) {
@@ -1165,10 +1174,12 @@ void Renderer::drawChildren(const Document& doc, uint32_t first, uint32_t end, c
       c.opacity = static_cast<float>(alpha);
       c.rect = r;
       layers_[static_cast<size_t>(current_)].cmds.push_back(c);
+      if (lifted != UINT32_MAX) drawNode(doc, lifted, m, alpha);
       return;
     }
     drawNode(doc, i, m, alpha);
   }
+  if (lifted != UINT32_MAX) drawNode(doc, lifted, m, alpha);
 }
 
 void Renderer::drawContent(const Document& doc, uint32_t i, const NodeProps& p, const Mat2x3& m, double alpha, bool analytic,
@@ -2115,6 +2126,7 @@ RenderStats Renderer::render(const Document& doc, Guid page, const Camera& camer
   ensurePipelines();
   frame_++;
   doc_ = &doc;
+  lifted_ = overlay.lifted;
   recordHits_ = target == 0 && only == kNoGuid && !exporting_;
   viewport_ = viewport;
   stats_ = {};

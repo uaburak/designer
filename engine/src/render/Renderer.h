@@ -190,6 +190,8 @@ struct Overlay {
   Guid measureTarget = kNoGuid;
   std::vector<SpacingMark> measures;
   std::vector<GuideLine> measureGuides;
+  // A layer dragged inside its own auto-layout flow: drawn after (above) its siblings (round 15, live Figma).
+  Guid lifted = kNoGuid;
   // Auto layout: where a dragged layer will go, and the padding / gap bands under the pointer.
   bool hasInsertion = false;
   GuideLine insertion;
@@ -688,7 +690,8 @@ class Renderer {
   // document (render/RenderTree.h).
   std::unordered_map<Guid, RenderTree, GuidHash> trees_;
   const RenderTree* tree_ = nullptr;  // this frame's
-  uint32_t treeFonts_ = 0;            // the font generation the trees' text bounds are from
+  Guid lifted_ = kNoGuid;             // this frame's Overlay::lifted (drawn after its siblings)
+  uint32_t treeFonts_ = 0;           // the font generation the trees' text bounds are from
   Mat2x3 view_;                       // this frame's world → CSS px
   gfx::IRect region_;                 // the part being recorded (device px)
   // The content cache (renderCached).

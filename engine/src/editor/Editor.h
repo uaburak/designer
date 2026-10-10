@@ -306,7 +306,7 @@ class Editor : private LayoutHost, public TextLayouts {
   Tool tool() const { return tool_; }
   void setHover(const std::vector<Guid>& ids);  // Layers row hover → canvas outline
   bool tick(double timeMs);                     // true: draw a frame
-  bool needsFrame() const { return needsRender_; }
+  bool needsFrame() const { return needsRender_ || !slides_.empty(); }  // round 15: siblings sliding
   // Something the canvas shows changed outside the document (an image arrived): draw again.
   void invalidateCanvas() { needsRender_ = true; }
   void rendered() { needsRender_ = false; }
@@ -1628,6 +1628,30 @@ class Editor : private LayoutHost, public TextLayouts {
   std::unordered_set<Guid, GuidHash> groupsTouched_;
   std::unordered_set<Guid, GuidHash> excluded_;  // dragged into an auto-layout flow: no space there yet
   std::unordered_set<Guid, GuidHash> pinned_;    // dragged inside its own flow: keeps its slot, not moved by layout
+  // Round 15 (live Figma, docs/research/figma/live/behaviour/autolayout-drag.md; docs/engine.md §8.6): one layer
+  // dragged inside its own horizontal, vertical or wrapping auto-layout flow is reordered in the document as its
+  // leading edge passes a neighbour's centre (layout/Reorder.h); its slot travels with it, the siblings slide to their
+  // new places, it draws above them, and its chrome goes at the first swap (the last child's at the first move).
+  struct FlowDrag {
+    Guid id = kNoGuid;          // the dragged layer
+    Guid frame = kNoGuid;       // its auto-layout frame
+    bool last = false;          // the last of the flow when the drag began
+    bool chromeHidden = false;  // outline, handles, size label and the frame's dashes gone until the drop
+    double along = 0;           // its box's leading coordinate along the flow at the last move (the direction of travel)
+  } flowDrag_;
+  struct Slide {
+    Mat2x3 from, to, shown;  // where it slides from and to, and where the slide last put it
+    double start = -1;       // ms (tick time); < 0: from the next tick
+  };
+  std::unordered_map<Guid, Slide, GuidHash> slides_;  // siblings sliding to their new places
+  static constexpr double kSlideMs = 120;             // CSS ease-out over 120 ms (fitted on the recording)
+  void startFlowDrag();
+  bool flowDragLive() const;  // the layer is in its own flow now (not dragged out, not an ⌥ copy)
+  void reorderFlow();
+  bool placeFlow(Guid frame, Guid dragged);
+  void slideFrom(const std::unordered_map<Guid, Mat2x3, GuidHash>& shown);
+  void applySlides(double now);
+  void writeQuiet(Guid id, const Mat2x3& transform);
   bool inLayout_ = false;
   bool ignoreConstraints_ = false;
 

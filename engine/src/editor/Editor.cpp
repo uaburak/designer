@@ -319,7 +319,12 @@ void Editor::markLayout(const NodeChange& c, Guid parentBefore) {
     markParent(parentBefore);
     markParent(p.parentIndex.guid);
   }
-  if (m & (F_SIZE | F_TRANSFORM | F_VISIBLE | kStackChildFields)) markParent(p.parentIndex.guid);
+  // A layer dragged inside its auto-layout flow keeps its slot whatever its transform (pinned): moving it lays
+  // nothing out (round 15: a drag lays out only on a swap, docs/engine.md §8.6).
+  bool pinnedMove = (m & ~static_cast<FieldMask>(F_TRANSFORM)) == 0 && pinned_.count(c.guid) != 0;
+  if (pinnedMove)
+    if (const Node* pn = doc_.get(p.parentIndex.guid); !pn || !pn->props.isAutoLayout()) pinnedMove = false;
+  if ((m & (F_SIZE | F_TRANSFORM | F_VISIBLE | kStackChildFields)) && !pinnedMove) markParent(p.parentIndex.guid);
   if (p.isAutoLayout() && (m & (kStackContainerFields | F_SIZE | F_STROKES | F_STROKE_WEIGHT | F_STROKE_ALIGN))) layoutDirty_.insert(c.guid);
   if (m & (F_STACK_MODE | F_RESIZE_TO_FIT)) layoutDirty_.insert(c.guid);
   if (m & F_EXTRA) {
@@ -685,6 +690,18 @@ Overlay Editor::overlay() const {
   o.selection = selection_;
   o.handles = !viewer_ && gesture_ != Gesture::Move && gesture_ != Gesture::Marquee && gesture_ != Gesture::Rotate && gesture_ != Gesture::Reorder;
   o.sizeBadge = true;
+  // Round 15, a layer dragged inside its own auto-layout flow (live Figma, autolayout-drag.md): drawn above its
+  // siblings; its outline, handles and size label (and its frame's dashes) stay until the first swap, then go until
+  // the drop.
+  if (gesture_ == Gesture::Move && flowDragLive()) {
+    o.lifted = flowDrag_.id;
+    if (flowDrag_.chromeHidden) {
+      o.selection.clear();
+      o.sizeBadge = false;
+    } else {
+      o.handles = !viewer_;
+    }
+  }
   o.hasMarquee = gesture_ == Gesture::Marquee || (gesture_ == Gesture::ZoomArea && (lastScreen_ - downScreen_).length() >= 3) ||
                  (gesture_ == Gesture::Draw && drawType_ == NodeType::TEXT && (lastScreen_ - downScreen_).length() >= 3);
   o.marquee = marquee_;
@@ -698,7 +715,7 @@ Overlay Editor::overlay() const {
   }
   if ((gesture_ == Gesture::None || gesture_ == Gesture::LayoutBar) && selection_.size() == 1 && selection_[0] == layoutBarsFrame_)
     o.layoutBars = layoutBars_;
-  if (o.handles) {
+  if (o.handles && gesture_ != Gesture::Move) {
     Guid line;
     Vec2 a, b;
     if (selectedLine(line, a, b)) o.lineEnds = {a, b};
@@ -748,7 +765,7 @@ Overlay Editor::overlay() const {
     groupDotsOverlay(o);
   }
   // Round 11: a selected auto-layout component's, set's or instance's gaps (with the handles: not while moving).
-  if (o.handles && text_.node == kNoGuid && vector_.node == kNoGuid) gapBoxesOverlay(o);
+  if (o.handles && gesture_ != Gesture::Move && text_.node == kNoGuid && vector_.node == kNoGuid) gapBoxesOverlay(o);
   // Round 12: a selected grid's gaps of one axis, the pointer in one of them or dragging it (tools/GridGestures.cpp).
   if (text_.node == kNoGuid && vector_.node == kNoGuid) gridGapOverlay(o);
   o.pixelGrid = (viewOptions_ & VIEW_PIXEL_GRID) != 0;
@@ -1206,6 +1223,16 @@ void Editor::zoomToSelection() {
 
 bool Editor::tick(double timeMs) {
   timeMs_ = timeMs;
+  if (!slides_.empty()) {
+    // Round 15: siblings sliding to their new places in a dragged layer's flow (the gesture's transaction).
+    if (txn_.open && gesture_ == Gesture::Move) {
+      for (auto& [id, s] : slides_)
+        if (s.start < 0) s.start = timeMs;  // a slide starts with the first frame after its swap
+      applySlides(timeMs);
+    } else {
+      slides_.clear();
+    }
+  }
   if (text_.node != kNoGuid) {
     // The caret blinks every 530 ms, solid for a moment after each move.
     if (text_.blinkStart <= 0) text_.blinkStart = timeMs;

@@ -35,6 +35,7 @@ add_library(eng_core STATIC
   src/hit/Marquee.cpp
   src/layout/Layout.cpp
   src/layout/GridLayout.cpp
+  src/layout/Reorder.cpp
   src/editor/Selection.cpp
   src/editor/Snapping.cpp
   src/editor/Undo.cpp
@@ -150,6 +151,7 @@ else()
     tests/unit/layout.test.cpp
     tests/unit/editor.commands.test.cpp
     tests/unit/editor.move.test.cpp
+    tests/unit/editor.flowdrag.test.cpp
     tests/unit/layout.figma_golden.test.cpp
     tests/unit/scene.kiwi.test.cpp
     tests/unit/components.test.cpp

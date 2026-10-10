@@ -187,16 +187,17 @@ TEST_CASE("move: auto layout — reorder by drag with the insertion indicator; d
   e.setSelection({kids[0]});
   down(e, 35, 35);
   steps(e, {35, 35}, {165, 35});
-  // While dragging inside its frame, the others stay and the indicator shows after the last one.
-  CHECK(world(e, kids[1]).x == 70);
-  CHECK(world(e, kids[2]).x == 130);
+  // Round 15 (live Figma): inside its own frame it is reordered as it goes — the others slide over to make room, the
+  // frame keeps its size, no insertion line (the open slot shows where it lands).
+  CHECK(e.document().children(AL) == std::vector<Guid>{kids[1], kids[2], kids[0]});
+  e.tick(1000);
+  e.tick(1500);
+  CHECK(world(e, kids[1]).x == 10);
+  CHECK(world(e, kids[2]).x == 70);
   CHECK(world(e, AL).w == 190);
   Overlay o = e.overlay();
-  REQUIRE(o.hasInsertion);
-  CHECK(o.insertion.a.x == 180);
-  CHECK(o.insertion.b.x == 180);
-  CHECK(o.insertion.a.y == 10);
-  CHECK(o.insertion.b.y == 60);
+  CHECK(!o.hasInsertion);
+  CHECK(o.lifted == kids[0]);
   CHECK(o.guides.empty());
   up(e, 165, 35);
   CHECK(e.document().children(AL) == std::vector<Guid>{kids[1], kids[2], kids[0]});
