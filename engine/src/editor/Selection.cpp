@@ -67,4 +67,27 @@ std::vector<Guid> topLevelSelection(const Document& doc, const std::vector<Guid>
   return out;
 }
 
+bool inComponentChrome(const Document& doc, Guid id) {
+  for (int guard = 0; id != kNoGuid && guard < 10000; guard++) {
+    const Node* n = doc.get(id);
+    if (!n || n->props.type == NodeType::CANVAS) return false;
+    if (n->props.isComponentish()) return true;
+    id = n->props.parentIndex.guid;
+  }
+  return false;
+}
+
+bool insideInstance(const Document& doc, Guid id) {
+  const Node* n = doc.get(id);
+  if (!n) return false;
+  id = n->props.parentIndex.guid;
+  for (int guard = 0; id != kNoGuid && guard < 10000; guard++) {
+    n = doc.get(id);
+    if (!n || n->props.type == NodeType::CANVAS) return false;
+    if (n->props.type == NodeType::INSTANCE) return true;
+    id = n->props.parentIndex.guid;
+  }
+  return false;
+}
+
 }  // namespace eng

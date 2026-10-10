@@ -40,6 +40,7 @@
 //   EDITOR_ONLY=input node …                                       (keys typed into fields never reach the canvas; a panel resize never blanks or stretches it, frame by frame)
 //   EDITOR_ONLY=layers14 node …                                    (round 14, Layers polish: names fade at the dynamic cut, rows 32 in every state, the list as wide as its widest row, nothing moves when it overflows, icon-only rail)
 //   EDITOR_ONLY=chrome15 node …                                    (round 15: a turned frame's name and badge along its edges, its press; turned resize / rotate cursors, the cursor sheet; the eyedropper's card, sample, Esc)
+//   EDITOR_ONLY=components15 node …                                (round 15: components, sets, instances and their layers in the component purple — hover, selection, dotted instance layers; the instance picked whole; rounded corners hit; Layers glyphs)
 //   EDITOR_ONLY=shortcuts node …                                   (the Keyboard shortcuts panel: open / close, every tab, shortcuts used, the user's own keys, layouts)
 //   EDITOR_ONLY=aldrag node …                                      (round 15: a layer dragged inside its auto-layout frame — swaps at the centres, siblings slide, drop, one undo)
 //   EDITOR_PART=1 node … / EDITOR_PART=2 node …                     (the full run in two parts: the sections, then the main walk-through in both themes)
@@ -58,6 +59,7 @@ import { createServer } from "vite";
 import { agentsSection } from "./editorShotAgents.mjs";
 import { autoLayoutDragSection } from "./editorShotAutoLayoutDrag.mjs";
 import { chromeSection } from "./editorShotChrome.mjs";
+import { components15Section } from "./editorShotComponents.mjs";
 import { inputSection } from "./editorShotInput.mjs";
 import { layersSection } from "./editorShotLayers.mjs";
 import { shortcutsSection } from "./editorShotShortcuts.mjs";
@@ -4776,6 +4778,18 @@ try {
       });
       page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
       await chromeSection(page, theme, { open, settle, check, outDir, docsDir: process.env.CHROME15_DOCS ? path.join(repo, "docs/research/chrome-cursors") : null });
+      await context.close();
+    }
+  }
+  if (only === "components15" || (!only && part !== "2")) {
+    for (const theme of ["dark", "light"]) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, colorScheme: theme });
+      const page = await context.newPage();
+      page.on("console", (m) => {
+        if (m.type() === "error") problems.push(`${theme} console: ${m.text()}`);
+      });
+      page.on("pageerror", (e) => problems.push(`${theme} pageerror: ${e.message}`));
+      await components15Section(page, theme, { open, settle, check, outDir, docsDir: process.env.COMPONENTS15_DOCS ? path.join(repo, "docs/research/components15") : null });
       await context.close();
     }
   }

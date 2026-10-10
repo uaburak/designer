@@ -15,8 +15,9 @@ inline constexpr double kHitSlopCss = 4;
 // Whether `local` (in the node's own space) is on the node's own geometry:
 // its fill (or its whole shape when it has neither fill nor stroke), its stroke
 // within max(half its width, `slop`); a frame anywhere in its box when it has a
-// visible fill or stroke or `topLevel`. Children not included.
-bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel);
+// visible fill or stroke or `topLevel`. Children not included. A rectangle or a frame is hit in its whole box, the
+// corners its radii cut off included (live Figma, round 15); `clip`: the frame's clipping shape instead (rounded).
+bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel, bool clip = false);
 
 // hitsOwnShape for any node: path shapes (vectors, stars, lines, booleans, arcs, smoothed corners)
 // by their geometry — inside a fill under its winding rule, or near the stroke's centre line.

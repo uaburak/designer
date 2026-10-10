@@ -16,18 +16,26 @@ bool anyVisible(const std::vector<Paint>& paints) {
   return false;
 }
 
-double shapeDistance(const NodeProps& p, Vec2 local) {
+double shapeDistance(const NodeProps& p, Vec2 local, bool square = false) {
   Vec2 half{p.size.x / 2, p.size.y / 2};
   Vec2 c = local - half;
   if (p.type == NodeType::ELLIPSE) return sdEllipse(c, half);
   double radii[4] = {p.cornerRadii[0], p.cornerRadii[1], p.cornerRadii[2], p.cornerRadii[3]};
+  if (square) radii[0] = radii[1] = radii[2] = radii[3] = 0;
   return sdRoundedBox(c, half, radii);
 }
 
+// Rectangles and frames (components, instances, sets) are hit in their whole box where they show something there —
+// the corners a radius cuts off included (live Figma, round 15: the owner's pill-shaped Button instance takes hover and
+// clicks in its corners). Ellipses and path shapes are hit by their geometry.
+bool hitByBox(const NodeProps& p) { return p.isRectLike() || p.isFrameLike(); }
+
 }  // namespace
 
-bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel) {
+bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel, bool clip) {
   double d = shapeDistance(p, local);
+  // Filled area: the box for rectangles and frames (not when the frame clips: its content is cut at the rounded edge).
+  double area = !clip && hitByBox(p) ? shapeDistance(p, local, true) : d;
   bool fill = anyVisible(p.fillPaints);
   bool stroke = anyVisible(p.strokePaints) && p.strokeWeight > 0;
   double inner = 0, outer = 0;
@@ -41,10 +49,10 @@ bool hitsOwnShape(const NodeProps& p, Vec2 local, double slop, bool topLevel) {
   }
   if (p.isFrameLike()) {
     // A frame is hit in its box when it shows something there, or when it is top-level.
-    if ((fill || stroke || topLevel) && d <= outer) return true;
+    if ((fill || stroke || topLevel) && area <= outer) return true;
     if (!stroke) return false;
   } else if (fill || !stroke) {
-    if (d <= std::max(outer, 0.0) + (fill ? 0 : slop)) return true;
+    if (area <= std::max(outer, 0.0) + (fill ? 0 : slop)) return true;
     if (!stroke) return false;
   }
   // The stroke: within max(half its width, slop) of its centre line.
@@ -61,6 +69,10 @@ bool hitsNode(const Document& doc, Guid id, Vec2 local, double slop, bool topLev
   // A variable-width stroke (round 12): hit within its outline.
   bool variable = !p.extra.empty() && anyVisible(p.strokePaints) && p.strokeWeight > 0 && hasWidthPoints(p) && widthProfileAllowed(p);
   if (!p.isPathShape() && !variable) return hitsOwnShape(p, local, slop, topLevel);
+  // A smoothed or dashed rectangle with a fill: its box, as any rectangle.
+  if (p.isRectLike() && (anyVisible(p.fillPaints) || !(anyVisible(p.strokePaints) && p.strokeWeight > 0)) &&
+      shapeDistance(p, local, true) <= (anyVisible(p.fillPaints) ? 0 : slop))
+    return true;
   const NodeGeometry* g = doc.geometry(id);
   if (!g) return false;
   bool fill = anyVisible(p.fillPaints), stroke = anyVisible(p.strokePaints) && p.strokeWeight > 0;
@@ -118,7 +130,7 @@ void forEachHit(const Document& doc, Guid page, Vec2 world, double pixel, F&& f,
         Mat2x3 m = doc.worldTransform(a);
         double unit = std::sqrt(std::fabs(m.determinant()));
         double slop = (unit > 0 ? pixel / unit : pixel) * kHitSlopCss;
-        if (!hitsOwnShape(an->props, m.inverse().apply(world), slop, true)) clipped = true;
+        if (!hitsOwnShape(an->props, m.inverse().apply(world), slop, true, true)) clipped = true;
       }
       // Inside a boolean operation: only where its result is.
       if (an->props.isBoolean()) {

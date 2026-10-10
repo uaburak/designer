@@ -20,4 +20,13 @@ SelectionBox selectionBox(const Document& doc, const std::vector<Guid>& selectio
 // The selection without nodes whose ancestor is selected too.
 std::vector<Guid> topLevelSelection(const Document& doc, const std::vector<Guid>& selection);
 
+// Whether the canvas draws `id`'s hover and selection in the component purple: a component, a component set or an
+// instance, or any layer inside one (live Figma: the owner's screenshots, docs/research/components15/; Layers names
+// them purple too).
+bool inComponentChrome(const Document& doc, Guid id);
+
+// Whether `id` is a layer inside an instance (not the outermost instance itself): its hover is drawn dotted in the
+// component purple (live Figma, docs/research/components15/figma-instance-child-hover.png).
+bool insideInstance(const Document& doc, Guid id);
+
 }  // namespace eng

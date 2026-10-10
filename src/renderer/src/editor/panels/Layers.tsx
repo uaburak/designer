@@ -51,11 +51,16 @@ const NAMES_PER_READ = 2000;
 const EDGE = 24;
 const EDGE_STEP = 8;
 
-/** The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction, groups, masks, slots, images. */
-export function layerIcon(node: TreeNode): IconName {
+/**
+ * The row's glyph: the layer's type (its real one, even when the engine can't draw it yet), auto layout's direction,
+ * groups, masks, slots, images. Live Figma (round 15, components15/figma-layers-component-set.png; design/component.txt
+ * reads them [Component] and [Variant]): a component set has the component's four diamonds, its variants a filled
+ * diamond.
+ */
+export function layerIcon(node: TreeNode, parent?: TreeNode | null): IconName {
   if (node.mask) return "16.mask";
   if (node.group) return "16.group";
-  if (node.stateGroup) return "16.component.set";
+  if (node.stateGroup) return "16.component";
   switch (node.type) {
     case "FRAME":
       if (node.slot) return "16.slot";
@@ -89,7 +94,7 @@ export function layerIcon(node: TreeNode): IconName {
           return "16.boolean.union";
       }
     case "SYMBOL":
-      return "16.component";
+      return parent?.stateGroup ? "16.variant" : "16.component";
     case "INSTANCE":
       return "16.instance";
     case "RECTANGLE":
@@ -442,7 +447,7 @@ export function Layers() {
                 id={row.id}
                 depth={row.depth}
                 name={node.name}
-                icon={layerIcon(node)}
+                icon={layerIcon(node, node.parent ? tree.nodes.get(node.parent) : null)}
                 iconLabel={layerKind(node, node.parent ? tree.nodes.get(node.parent) : null)}
                 kind={node.type === "SYMBOL" || node.stateGroup ? "component" : node.type === "INSTANCE" ? "instance" : "default"}
                 tone={componentRows.has(row.id) ? "component" : "default"}

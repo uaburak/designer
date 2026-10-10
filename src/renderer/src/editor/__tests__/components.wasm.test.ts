@@ -72,8 +72,10 @@ describe("components on the engine (wasm, headless)", () => {
     expect(layerIcon(tree.nodes.get("2:2")!)).toBe("16.instance");
     ed.engine.setCurrentPage("0:3");
     const page = ed.getTree();
-    expect(layerIcon(page.nodes.get("1:40")!)).toBe("16.component.set");
+    expect(layerIcon(page.nodes.get("1:40")!)).toBe("16.component"); // live: a set has the component glyph (round 15)
     expect(layerIcon(page.nodes.get("1:1")!)).toBe("16.component");
+    const set = page.nodes.get("1:40")!;
+    expect(layerIcon(page.nodes.get(set.children[0])!, set)).toBe("16.variant");
   });
 
   it("Assets: the file's components and sets, by page and frame", async () => {

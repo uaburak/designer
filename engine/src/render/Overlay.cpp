@@ -162,11 +162,14 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   const Color white{1, 1, 1, 1};
   Mat2x3 view = camera.matrix();
 
-  // Components, component sets and instances are outlined in the component purple.
-  auto colorOf = [&](Guid id) -> const Color& {
-    const Node* n = doc.get(id);
-    return n && n->props.isComponentish() ? style.component : blue;
-  };
+  // Components, component sets and instances — and every layer inside one — are outlined in the component purple
+  // (live Figma; round 15, the owner's screenshots in docs/research/components15/).
+  auto colorOf = [&](Guid id) -> const Color& { return inComponentChrome(doc, id) ? style.component : blue; };
+  // The selection's own chrome (box, handles, badge, padding bars): purple when everything selected is a component, an
+  // instance or a layer inside one.
+  bool allComponents = !overlay.selection.empty();
+  for (Guid s : overlay.selection) allComponents &= &colorOf(s) == &style.component;
+  const Color& blueSel = allComponents ? style.component : blue;
   auto outline = [&](const Mat2x3& toScreen, Vec2 size, ShapeKind kind, const CornerRadii& radii, double weight, const Color& color) {
     ScreenBox b = screenBox(toScreen, size, dpr);
     CornerRadii r = kSquare;
@@ -195,6 +198,21 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   auto pathOutline = [&](const geom::Path& path, const Mat2x3& toScreen, double width, const Color& color) {
     geom::Path screen = path.transformed(toScreen);
     for (const geom::Polyline& pl : geom::flatten(screen, 0.25)) polyline(pl.points, pl.closed, width, color, 1);
+  };
+  // A box dashed 1.5 px on, 1.5 px off, 1 px across (calibrated on canvas-autolayout-child-selected).
+  // The line lies inside the box along its edge (crisp at any whole device pixel ratio, as the 1 px outlines).
+  auto dashedBox = [&](const ScreenBox& b, const Color& color) {
+    const double h = 0.5;  // the 1 px line inside the edge, as an inside stroke
+    Vec2 c[4] = {b.m.apply({h, h}), b.m.apply({b.size.x - h, h}), b.m.apply({b.size.x - h, b.size.y - h}), b.m.apply({h, b.size.y - h})};
+    for (int k = 0; k < 4; k++) {
+      Vec2 a = c[k], e = c[(k + 1) % 4];
+      double len = (e - a).length();
+      if (len < 1e-9) continue;
+      for (double t = 0; t < len; t += 3) {
+        Vec2 p0 = a + (e - a) * (t / len), p1 = a + (e - a) * (std::min(len, t + 1.5) / len);
+        polyline({p0, p1}, false, 1, color, 1);
+      }
+    }
   };
   auto nodeOutline = [&](Guid id, double weight, bool ownShape) {
     const Node* n = doc.get(id);
@@ -384,7 +402,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
   // Auto layout's padding and gap bars (UI3 draws no band fill): 12 px long, blue for padding, pink for gaps; the
   // hovered one's value in a pill of its colour — a padding's outside the frame's edge, a gap's above its bar.
   for (const Overlay::LayoutBar& bar : overlay.layoutBars) {
-    const Color& color = bar.gap ? style.spacing : blue;
+    const Color& color = bar.gap ? style.spacing : blueSel;
     Vec2 c = view.apply(bar.at);
     const double len = 12, thick = 1.5;
     Vec2 size = bar.vertical ? Vec2{thick, len} : Vec2{len, thick};
@@ -497,6 +515,14 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
     const Node* hn = doc.get(h);
     if (!hn) continue;
     if (hn->props.type == NodeType::TEXT && h != overlay.textNode && baselineUnderline(doc, h, view, overlay, style)) continue;
+    // A layer inside an instance (the instance opened, or ⌘ held): its box dotted in the component purple, 1 px, 1.5 px
+    // dashes and gaps (live Figma round 15, components15/figma-instance-child-hover.png at 2× — the auto-layout
+    // parent's dashes).
+    if (insideInstance(doc, h)) {
+      Rect lb = doc.localBounds(h);
+      dashedBox(screenBox(view * doc.worldTransform(h) * Mat2x3::translate(lb.x, lb.y), {lb.w, lb.h}, dpr), style.component);
+      continue;
+    }
     nodeOutline(h, style.hoverWidth, true);
   }
 
@@ -513,19 +539,7 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
       for (Guid t : overlay.selection) selectedToo |= t == pid;
       if (!selectedToo) parents.push_back(pid);
     }
-    for (Guid pid : parents) {
-      ScreenBox b = screenBox(view * doc.worldTransform(pid), doc.get(pid)->props.size, dpr);
-      Vec2 c[4] = {b.m.apply({0, 0}), b.m.apply({b.size.x, 0}), b.m.apply({b.size.x, b.size.y}), b.m.apply({0, b.size.y})};
-      // 1.5 px dashes, 1.5 px gaps (calibrated on canvas-autolayout-child-selected).
-      for (int k = 0; k < 4; k++) {
-        Vec2 a = c[k], e = c[(k + 1) % 4];
-        double len = (e - a).length();
-        for (double t = 0; t < len; t += 3) {
-          Vec2 p0 = a + (e - a) * (t / len), p1 = a + (e - a) * (std::min(len, t + 1.5) / len);
-          polyline({p0, p1}, false, 1, colorOf(pid), 1);
-        }
-      }
-    }
+    for (Guid pid : parents) dashedBox(screenBox(view * doc.worldTransform(pid), doc.get(pid)->props.size, dpr), colorOf(pid));
   }
 
   // A selected auto-layout component, set or instance: a pink box in each gap, 1 px inside it (live Figma round 11:
@@ -540,10 +554,6 @@ void Renderer::drawOverlay(const Document& doc, Guid page, const Camera& camera,
 
   // Selection: each layer's box, the selection's box, its handles and size badge.
   SelectionBox box = selectionBox(doc, overlay.selection);
-  // The selection's box, handles and badge: purple when everything selected is a component or an instance.
-  bool allComponents = !overlay.selection.empty();
-  for (Guid s : overlay.selection) allComponents &= &colorOf(s) == &style.component;
-  const Color& blueSel = allComponents ? style.component : blue;
   if (box.valid && overlay.selectionBox) {
     const Color& blue = blueSel;
     // Each selected layer's own outline, 1 px (live Figma: a multi-selection outlines every shape along its path; one

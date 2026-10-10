@@ -71,6 +71,8 @@
   /* Components, instances and every layer inside one: purple names and glyphs (live: #d1a8ff) */
   .component .name, .row[data-tone="component"] .name { color: var(--figma-color-text-component); }
   .component .type, .row[data-tone="component"] .type { color: var(--figma-color-icon-component); }
+  /* Unselected, the glyph is the component purple at half strength (live round 15, components15/figma-layers-component-set.png: #80699b on #2c2c2c = #d1a8ff at 50 %) */
+  .row:not([aria-selected="true"], .hiddenLayer).component .type, .row:not([aria-selected="true"], .hiddenLayer)[data-tone="component"] .type { color: color-mix(in srgb, var(--figma-color-icon-component) 50%, transparent); }
   .hiddenLayer .name, .hiddenLayer .type { color: var(--figma-color-text-tertiary); }
   .hiddenLayer.component .name, .hiddenLayer.component .type, .hiddenLayer[data-tone="component"] .name, .hiddenLayer[data-tone="component"] .type { color: var(--figma-color-text-component); opacity: 0.5; }
   .rename { flex: 1 1 auto; min-width: 0; margin-left: -5px; }

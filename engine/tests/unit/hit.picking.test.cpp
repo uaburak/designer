@@ -67,7 +67,8 @@ TEST_CASE("hit: rectangles, frames, ellipses") {
 
 TEST_CASE("hit: rounded corners") {
   Document d = scene();
-  CHECK(at(d, 303, 3).empty());
+  // The corner its radius cuts off still hits it: rectangles and frames are hit by their box (live Figma, round 15).
+  CHECK(at(d, 303, 3) == std::vector<Guid>{RR});
   CHECK(at(d, 350, 50) == std::vector<Guid>{RR});
   CHECK(at(d, 397, 3) == std::vector<Guid>{RR});  // the square corner
 }
